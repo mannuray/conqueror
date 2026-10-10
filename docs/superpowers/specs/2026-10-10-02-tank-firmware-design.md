@@ -279,3 +279,19 @@ WiFi networks, tank name, admin password hash, key hashes + roles + names, camer
 8. Child-play envelope: speed ≤ 20 %; AI cannot loosen it or disable the brake.
 9. IR overrides app; OK hands back; app overrides AI.
 10. Low-battery warning visible (bench supply or drained pack).
+
+### Hardware revision (2026-10-11): Smart Car Shield V1.1 — dual-shield support (authoritative)
+User confirmed the Uno shield is **ELEGOO SmartCar Shield V1.1** (Smart Robot Car V4 family); the ESP32 board is **V1.0** (no IO13 LED). Motor driver chip to be confirmed when the tank is opened (TB6612FNG expected; DRV8835 possible).
+
+| Function | **SHIELD_SMARTCAR_V11_TB6612 (default)** | SHIELD_TANK_DRV8835 |
+|---|---|---|
+| Driver | TB6612FNG | DRV8835 (PH/EN, MODE high) |
+| PWM right (A) / left (B) | D5 / D6 | D5 / D6 |
+| Direction A / B | **D7 / D8** | D8 / D7 |
+| Standby | **D3 (HIGH = enabled; LOW = coast)** | — |
+| PWM 0 | short brake | brake |
+| Coast available | yes (STBY low) | no |
+Source for the V1.1 pin map: ELEGOO V4 driver code (third-party copy `raccrobotics/libelegoo-edu`); verify against the board.
+
+**Pin plan change (both shields):** D3 is no longer free → **left encoder A on A1, right encoder A on A2** (both PCINT1, rising edges via PINC diff), **buzzer on A0**; the old line-sensor header (A0–A2 + 5 V + GND) carries buzzer + both encoders. D3 = motor standby (TB6612) or unused (DRV8835).
+Firmware: `drivers/board_config.h` build option selects the shield; only the motor driver class + pin map differ; `StopMode::Coast` enabled when the shield supports it.

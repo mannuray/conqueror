@@ -1216,3 +1216,19 @@ Flash: calibration maths moved to the ESP32 saves an estimated 3–4 K → own c
 - `WifiResetDetector` → **`BootButtonDetector`**: at boot, held 5 s → `WIFI_RESET_REQ` (0x96); held **15 s** → `ADMIN_RESET_REQ` (0x97); both resent every 500 ms until ACK; distinct confirmation sounds/LED.
 - After the boot window, a short press of D2 → event **`button_press`** (used by the ESP32 for first-run physical confirmation).
 - New error reasons/events from the ESP32 revision are added to the shared registry.
+
+### Hardware revision (2026-10-11): Smart Car Shield V1.1 — dual-shield support (authoritative)
+User confirmed the Uno shield is **ELEGOO SmartCar Shield V1.1** (Smart Robot Car V4 family); the ESP32 board is **V1.0** (no IO13 LED). Motor driver chip to be confirmed when the tank is opened (TB6612FNG expected; DRV8835 possible).
+
+| Function | **SHIELD_SMARTCAR_V11_TB6612 (default)** | SHIELD_TANK_DRV8835 |
+|---|---|---|
+| Driver | TB6612FNG | DRV8835 (PH/EN, MODE high) |
+| PWM right (A) / left (B) | D5 / D6 | D5 / D6 |
+| Direction A / B | **D7 / D8** | D8 / D7 |
+| Standby | **D3 (HIGH = enabled; LOW = coast)** | — |
+| PWM 0 | short brake | brake |
+| Coast available | yes (STBY low) | no |
+Source for the V1.1 pin map: ELEGOO V4 driver code (third-party copy `raccrobotics/libelegoo-edu`); verify against the board.
+
+**Pin plan change (both shields):** D3 is no longer free → **left encoder A on A1, right encoder A on A2** (both PCINT1, rising edges via PINC diff), **buzzer on A0**; the old line-sensor header (A0–A2 + 5 V + GND) carries buzzer + both encoders. D3 = motor standby (TB6612) or unused (DRV8835).
+Firmware: `drivers/board_config.h` build option selects the shield; only the motor driver class + pin map differ; `StopMode::Coast` enabled when the shield supports it.

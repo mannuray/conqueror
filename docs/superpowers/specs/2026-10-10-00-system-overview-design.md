@@ -70,9 +70,9 @@ Non-goals: cloud/internet remote access, multi-site deployment, multi-user accou
 | Item | Value | Status |
 |---|---|---|
 | MCU | Arduino Uno (ATmega328P, 32 KB flash, 2 KB RAM) | confirmed |
-| Gateway | ELEGOO ESP32-WROVER-Camera (V1.0 or V1.2; same UART/camera; only V1.2 has the IO13 green LED) | confirmed (schematics) — user to check board revision |
+| Gateway | ELEGOO ESP32-WROVER-Camera **V1.0** (confirmed; no IO13 LED) | confirmed |
 | Camera | **OV3660** (3 MP) on 24-pin FPC | confirmed by user |
-| Motor driver | DRV8835 on the Conqueror **tank** shield (PH/EN mode) — not the Smart Car V4 TB6612 shield | confirmed (schematic + firmware pins) — user to check chip |
+| Uno shield / motor driver | **ELEGOO SmartCar Shield V1.1** (confirmed); driver TB6612FNG expected (DRV8835 supported too) — chip to be confirmed | build option selects shield (Spec 2 hardware revision) |
 | Motors | stock TT gear motors → **DFRobot FIT0458** TT encoder motors (6 V, 160 RPM, 120:1) | ordered |
 | IMU | MPU6050 (gyro + accel, no magnetometer) | confirmed |
 | Distance | ultrasonic, **fixed forward** (no pan/tilt) | confirmed |
@@ -87,7 +87,7 @@ Non-goals: cloud/internet remote access, multi-site deployment, multi-user accou
 - Remaining assumptions below are confirmed during wiring/calibration (buzzer pin, encoder resolution via calibration item 5, encoder pin, UART speed with 57600 fallback):
 - **A2 Buzzer pin is A0.** Configurable at build time; confirm when wiring.
 - **A3 FIT0458 resolution is 960 counts per output revolution per channel** (DFRobot wiki; some retailers state 1920). Stored as a setting; verified by hand-turning one revolution.
-- **A4 Right-encoder pin is A1** (left encoder on D3).
+- **A4 Encoder pins: left A1, right A2** (D3 is TB6612 standby on the V1.1 shield); buzzer A0.
 - **A5 UART at 250000 baud works over the stock shield's link** (0 % error on 16 MHz; revised from 115200) between Uno and ESP32 (the original ran at 9600). Fallback: 57600 with reduced fast-telemetry rate.
 
 ## 6. Hardware configurations supported

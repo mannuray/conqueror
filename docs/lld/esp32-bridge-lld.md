@@ -82,4 +82,4 @@ No authentication — developer use on the home network only; stated in README a
 
 ## Hardware notes (verified from schematics)
 - ESP32 board revisions V1.0 and V1.2: identical UART (IO33 RX, IO4 TX on connector P1), camera connector and power; only V1.2 fits the IO13 green LED.
-- Uno shield = Conqueror **tank** shield (DRV8835, PWM D5/D6, PH D8/D7, MODE high) — not the Smart Robot Car V4 shield (TB6612, STBY D8, AIN1 D9; those pins are the commented-out block in the ELEGOO firmware).
+- Uno shield = **SmartCar Shield V1.1** (user-confirmed); motor driver TB6612 expected, DRV8835 supported (Uno LLD hardware revision). ESP32 board = **V1.0** (no IO13 LED → status via USB serial + bench tool).

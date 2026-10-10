@@ -142,6 +142,7 @@ Same as §2 except:
 - Python ≥ 3.12, **type hints everywhere**, `pyright --strict` (or `mypy --strict`), `ruff` (lint + format).
 - Layers: `domain/` (world model, skill logic — pure), `ports/` (`typing.Protocol`: `LlmProvider`, `Detector`, `DepthEstimator`, `CameraSource`, `TankClient`, `MemoryStore`), `adapters/` (Claude SDK, Ollama/MLX/vLLM, YOLO/SAM/Depth Anything, hub client, SQLite), `app/` (planner, scheduler), `main.py` (composition root).
 - **Pydantic models** for every boundary (generated from `protocol/`); configuration via `pydantic-settings`, validated at startup.
+- Frozen stack: AI engine spec §8 (Python 3.12, uv, asyncio, internal FastAPI on localhost, structlog, OpenTelemetry, one default model per capability behind ports).
 
 ### 5.2 Concurrency and real time
 - `asyncio` with **structured concurrency** (`TaskGroup`); no fire-and-forget tasks.
@@ -149,7 +150,7 @@ Same as §2 except:
 - **Every LLM/model/network call has a time budget** (`asyncio.timeout`) matching its router profile; on expiry → fallback chain → safe hold.
 
 ### 5.3 Error handling
-- Exception hierarchy rooted at `ConquerorError` (`ProviderTimeout`, `ProviderUnavailable`, `PerceptionError`, `TankRejected`, `ConfigError`, …). No bare `except:`; no `except Exception` without re-raise or explicit handling.
+- Exception hierarchy rooted at `ConquerorError` carrying registry **`code` + `reason`** (`AI_7xxx`) and `is_operational` (`ProviderTimeout`, `ProviderUnavailable`, `PerceptionError`, `TankRejected`, `ToolCallInvalid`, `ConfigError`, …); the internal FastAPI uses the same error envelope as the hub. No bare `except:`; no `except Exception` without re-raise or explicit handling.
 - **Skills fail safe:** any unhandled error in a skill → skill stops → `stop` sent to the tank → error logged to the decision log.
 - Retries only for idempotent calls, bounded, with jitter. Tank motion commands are **never** blindly retried.
 - LLM output is **untrusted input:** tool calls are schema-validated before execution; invalid → rejected and reported back to the model, never executed.

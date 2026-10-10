@@ -100,3 +100,60 @@ User command (text/voice) ─► [5 Agent / LLM planner] ◄─ queries ─┤
 
 ## 7. Out of scope (now)
 VLA robot-action models (SmolVLA, NORA, OpenVLA, π0) — arm-oriented; revisit later.
+
+## 8. Frozen stack (DECIDED 2026-10-10)
+
+### 8.1 Layout
+```
+ai-engine/
+├── src/conqueror_ai/
+│   ├── domain/      world model, skill logic, mode envelopes (pure)
+│   ├── ports/       typing.Protocol: LlmProvider, Vlm, Detector, Segmenter, DepthEstimator, PoseEstimator,
+│   │                GestureRecognizer, Mapper, Embedder, CameraSource, HubClient, MemoryStore, Stt, Tts
+│   ├── adapters/    concrete providers (below)
+│   ├── app/         planner, skill runner, perception scheduler, LLM router
+│   ├── api/         internal FastAPI (localhost): /health/live, /health/ready, /metrics, debug views (dev)
+│   ├── generated/   protocol pydantic models + error registry (from /protocol)
+│   └── main.py      composition root
+├── config/          presets: cloud.yaml, pi.yaml, mac.yaml, nvidia.yaml
+└── prompts/         versioned prompt files
+```
+
+### 8.2 Core
+| Concern | Choice |
+|---|---|
+| Python | 3.12 (pinned) |
+| Packaging | uv + pyproject + lockfile; extras `[cpu]`, `[cuda]`, `[mac]` |
+| Concurrency | asyncio TaskGroups; inference in a thread pool (GIL released by PyTorch/ONNX); latest-frame-wins |
+| Models / config | pydantic v2 (generated from `protocol/`), pydantic-settings + YAML presets |
+| Hub link | `websockets` (WS) + `httpx` (async HTTP, MJPEG stream) |
+| Internal HTTP | **FastAPI + uvicorn on localhost** (health, metrics, dev debug views; same error envelope as the hub) |
+| Image I/O | PyTurboJPEG, OpenCV, numpy |
+| Storage | SQLite (aiosqlite) for world memory + decision log; sqlite-vec for embeddings |
+| Errors | `ConquerorError` (code + reason from the shared registry, `AI_7xxx`; `is_operational`; safe details) → `ProviderTimeout`, `ProviderUnavailable`, `PerceptionError`, `TankRejected`, `ToolCallInvalid`, `ConfigError` |
+| Logging | structlog JSON; contextvars carry requestId/commandId + tankId (forwarded from the hub); secret redaction |
+| Metrics / tracing | OpenTelemetry SDK (OTLP optional) + Prometheus exporter: per-stage latency/fps/drops, LLM latency/timeouts/fallbacks per provider/model/profile, tool-call rejections, skill runs/fail-safes, GPU/memory, hub link |
+| Tooling | ruff, pyright strict, pytest available |
+| Deployment | Docker `ai-engine:cpu` (multi-arch) and `ai-engine:cuda`; **macOS runs natively** (`uv run`) because Docker on Mac cannot use the GPU (Metal/MPS) |
+
+### 8.3 Capability defaults (one default per capability; others are optional adapters)
+| Capability | Default | Runtime / notes |
+|---|---|---|
+| Object detection | **Ultralytics YOLO** (n/s by tier) | ONNX on CPU, PyTorch on Mac/NVIDIA; **AGPL accepted** |
+| Find by name (open vocabulary) | **YOLOE** (Ultralytics) real-time; **SAM 3** on demand for precise masks | SAM 3 on Tier 2–3 or via on-demand calls; SAM License |
+| Tracking + re-ID | Ultralytics **BoT-SORT** | |
+| Body pose | Ultralytics **YOLO-pose** | |
+| Hand gestures | **MediaPipe** Gesture Recognizer | CPU |
+| **Depth** | **Depth Anything V2 Small**, all tiers (Pi/CPU 256 px ~2–5 fps; Mac/NVIDIA 518 px real-time); relative depth scaled to cm by the **ultrasonic anchor** | Apache; ONNX/HF |
+| 2D map | own occupancy-grid code (depth + ultrasonic + encoder pose) | numpy |
+| Visual memory | **SigLIP** embeddings + sqlite-vec | |
+| Calibration / motion detection | **OpenCV** | |
+| LLM planner | cloud **Claude Haiku/Sonnet/Opus 5.5** (Anthropic SDK); local via **Ollama** / **mlx-lm** / **vLLM** | per router profile |
+| Scene understanding (VLM) | **Claude vision**; local **Moondream** | |
+| Speech-to-text | **faster-whisper** + Silero VAD | cloud optional |
+| Text-to-speech | **Kokoro** | cloud optional |
+| **Optional plugins (off by default)** | 3D SLAM (MASt3R-SLAM — non-commercial licence / VGGT), **face identity** (local enrolment only), alternative depth models (YOLO26-depth, DA V3, Video Depth Anything, Depth Pro) | enabled per config; swapped via ports if the camera/depth benchmark shows a gain |
+
+- **Model registry:** source, exact version/hash, licence, size, minimum tier for every model; shown on the hub AI page.
+- **Child vs adult** is inferred from body size/pose (no faces needed); face identity stays off unless explicitly enabled.
+- The camera benchmark tool includes a **depth benchmark** (fps, latency, error vs ultrasonic/tape) for evaluating alternative depth adapters later.

@@ -121,3 +121,26 @@ No sign-up and no "forgot password": recovery is a documented command-line reset
 **I. Phone (landscape):** full-screen main view; joysticks at bottom corners; STOP top-right; compact status chips top-left; side panel → swipe-up bottom sheet; PiP tap to swap.
 
 **J. Guest:** video + status bar + STOP only.
+
+### Screen 4 — Timeline (per tank) (APPROVED)
+Answers "what happened?" — history, events and recordings on one time axis.
+
+**A. Time range bar:** presets Live · 15 min · 1 h · Today · Yesterday · 7 days · custom; drag-to-zoom on charts with "back"; telemetry resolution auto-switches (raw when zoomed in, 1 s / 10 s / 1 min when zoomed out).
+
+**B. Event strip:** one track with colour-coded markers — safety (bump, lifted, tilt, blocked, stall) · control (owner changes, IR override) · AI (skill start/end, decisions) · missions · battery · connection · calibration; **recording blocks** on the same strip; marker → card → **Jump here** (moves cursor + player).
+
+**C. Charts** (stacked, shared time axis + synced vertical cursor; "Charts ▾" picker):
+defaults speed L/R (commanded vs actual) · heading + turn rate · distance ahead (brake-zone band) · battery V + % · pitch/roll;
+optional PWM, slip %, roughness, temperature, Uno load, WiFi, link delay, encoder counts.
+
+**D. Player** (right on desktop, top on phone): plays the recording at the cursor ("No recording at this time" + nearest snapshot otherwise) · telemetry overlay toggle · play/pause, ±5 s, 0.5×–4×, frame step · snapshot from video · open in Media viewer · player ⇄ chart cursor stay synced.
+
+**E. Lists (tabs):** Events (filter by category/severity/text; click → jump) · Recordings (start, duration, size, trigger manual/AI/mission/alert; rename, download MP4, download telemetry CSV, delete) · Snapshots (grid; view, download, delete) · AI decisions (command → plan → actions → result; click → jump).
+
+**F. Extras:**
+- **Auto-record on alerts — DECIDED, default ON:** the hub keeps a rolling 30 s video buffer per connected tank and saves 30 s before + 30 s after every safety event (clips marked "alert").
+- Export: time range → ZIP (video + telemetry CSV + events JSON).
+- Storage indicator (link to Hub settings).
+
+**G. Phone:** range chips; player on top; charts stacked and swipeable; lists below.
+**H. Guest:** read-only (watch, scrub, view events; no delete/export/rename).

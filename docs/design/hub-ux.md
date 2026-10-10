@@ -105,6 +105,11 @@ No sign-up and no "forgot password": recovery is a documented command-line reset
 - Camera overlays (toggleable): heading line + distance-ahead bar with time-to-collision (red inside the brake zone) · AI detections (boxes + labels + distance) · depth heat-map (opacity slider) · tilt horizon + pan/tilt mini-indicator · glass-to-glass delay readout.
 - Map: occupancy grid · tank pose + heading + trail · home marker · AI object pins (last-seen time) · tap "Go here" · mission waypoints · zoom/fit/centre-on-tank.
 
+**C2. VITALS instrument cluster (added; always visible, directly under the main view):**
+SPEED (cm/s with encoders, % without; L/R track bars) · HEADING (compass dial, bearing ° + cardinal, gyro) · TURN RATE (°/s needle) ·
+TILT (artificial horizon, pitch/roll °; amber near limit, red beyond) · SONAR (distance cm + TTC; red inside brake zone) · TEMP (°C, MPU6050) ·
+BATTERY (V + sag) · SLIP (%) · LINK (ms). Full detail remains in the Status tab; the thin on-video HUD (heading tape, distance bar) stays.
+
 **D. Controls zone:** left joystick = drive (smooth arcs, car-style reverse) · right joystick = camera (follows stick, springs home) + lock + home · max-speed slider · phone tilt-steering toggle.
 
 **E. Quick actions:** **STOP** (big, red, floating, always visible) · Record · Snapshot (stream / full 3 MP) · Sounds ▾ · LED ▾ · Obstacle brake on/off · Moves ▾ (turn 90° L/R, turn 180°, forward 50 cm, return home) · Child-play ▶.

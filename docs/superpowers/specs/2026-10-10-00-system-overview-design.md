@@ -70,9 +70,9 @@ Non-goals: cloud/internet remote access, multi-site deployment, multi-user accou
 | Item | Value | Status |
 |---|---|---|
 | MCU | Arduino Uno (ATmega328P, 32 KB flash, 2 KB RAM) | confirmed |
-| Gateway | ELEGOO ESP32-WROVER-Camera-V1.2 | confirmed (schematic) |
+| Gateway | ELEGOO ESP32-WROVER-Camera (V1.0 or V1.2; same UART/camera; only V1.2 has the IO13 green LED) | confirmed (schematics) — user to check board revision |
 | Camera | **OV3660** (3 MP) on 24-pin FPC | confirmed by user |
-| Motor driver | DRV8835 | confirmed |
+| Motor driver | DRV8835 on the Conqueror **tank** shield (PH/EN mode) — not the Smart Car V4 TB6612 shield | confirmed (schematic + firmware pins) — user to check chip |
 | Motors | stock TT gear motors → **DFRobot FIT0458** TT encoder motors (6 V, 160 RPM, 120:1) | ordered |
 | IMU | MPU6050 (gyro + accel, no magnetometer) | confirmed |
 | Distance | ultrasonic, **fixed forward** (no pan/tilt) | confirmed |

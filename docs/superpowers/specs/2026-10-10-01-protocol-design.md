@@ -35,7 +35,7 @@ Protocol version: `proto = 1`. The ESP32 refuses Uno firmware with a different b
 | `GET/PUT/DELETE /api/missions` | saved waypoint missions | human+ |
 | captive portal `http://192.168.4.1/` | first-boot setup, WiFi, OTA | setup / admin |
 
-REST auth: `Authorization: Bearer <key>` header, or `?key=` for `<img>`/`<video>` URLs.
+REST auth: `Authorization: Bearer <key>` header; `?key=` accepted **only** on `GET :81/stream` and `GET /api/capture` (never logged). Host/Origin checked (DNS-rebinding defence); no CORS except allowlist.
 mDNS: service `_conqueror._tcp`, TXT records `id`, `name`, `proto`, `fw`.
 
 ## 3. Keys, roles, pairing
@@ -48,7 +48,8 @@ mDNS: service `_conqueror._tcp`, TXT records `id`, `name`, `proto`, `fw`.
 | `admin` | human + settings, calibration, keys, WiFi, OTA, camera config |
 
 - Keys are random 128-bit tokens (base32). The ESP32 stores only salted hashes.
-- **First boot:** setup page creates the **admin password** (= the admin key) and the tank-AP WPA2 password. The AP is open only until setup completes.
+- **First boot:** setup page creates the **admin password** and the tank-AP WPA2 password; setup requires **pressing the tank's mode button** (physical confirmation); the open setup AP closes after 30 min. The admin password is used only for key minting (`POST /api/keys`) and the setup page; all other admin calls use admin keys.
+- **Recovery:** hold the mode button 15 s at boot → admin password + keys cleared (WiFi kept).
 - **Hub pairing:** hub discovers a tank → the user enters the tank admin password **once** in the hub → the hub calls `POST /api/keys` to mint `hub-admin` (admin), `hub-human` (human) and `hub-ai` (ai) keys, stores them server-side, and discards the password. Revoking these keys in the tank unpairs the hub.
 - A WebSocket connection has exactly **one role** (its `hello` key). The hub therefore opens one connection per role it uses: `hub-human` (browser control), `hub-ai` (AI engine), and `hub-admin` on demand (settings/calibration).
 - **App:** user enters/creates a `human` key (QR code on the hub/setup page for convenience).
@@ -100,6 +101,7 @@ Streaming commands (no ack; rejections reported once via `nack` without `id` + a
 | `nav_set_origin` | — | human | pose reset to (0,0,0) |
 | `calibrate` | `kind`: `gyro`/`level`/`battery`/`deadband`/`encoder_cpr`/`encoder_distance`/`balance`/`track_width`/`turn_curve`/`pid_autotune`/`servo_trim`/`ultrasonic_offset`, `profile`? | admin | event `calibration` progress/result |
 | `surface_profile` | `select` name \| `create` name (copy of active) \| `rename` \| `delete` | human (select), admin (others) | ≤3 profiles |
+| `calibrate_op` | `op`: accept / retry / skip / cancel | admin | controls the running calibration job |
 | `calibrate_input` | `kind`, value (e.g. `measured_cm`) | admin | completes interactive calibrations |
 | `camera_config` | `framesize`, `quality`, `vflip`, `hmirror`, `brightness`, … | admin | |
 | `subscribe` | `streams`, `fast_hz` (1–20) | viewer | |
@@ -144,7 +146,7 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 `bump{g}`, `lifted`, `landed`, `tilted{pitch,roll}`, `level`, `stall{side}`, `blocked{dist_cm}`, `unblocked`,
 `control_changed{owner,client}`, `control_returned` (to the AI), `deadman_stop`, `link_lost`, `link_restored`, `body_offline`, `body_online`,
 `batt_low{v}`, `batt_critical{v}`, `primitive_done{kind,ok,reason}`, `nav_done{ok,reason}`, `calibration{kind,stage,progress,result}`,
-`selftest{ok,failures[]}`, `surface_suggest{profile}`, `envelope_changed{…}`, `encoder_fault{side}`, `ir_override`.
+`selftest{ok,failures[]}`, `nav_progress{waypoint,of,remaining_cm}`, `settings_reset`, `pose_degraded`, `waypoint_inaccurate`, `camera_reset`, `envelope_mismatch`, `surface_suggest{profile}`, `envelope_changed{…}`, `encoder_fault{side}`, `ir_override`.
 
 ## 7. Settings catalogue (persisted; Uno EEPROM or ESP32 NVS)
 
@@ -228,6 +230,7 @@ Frame: `0xAA | len | type | seq | payload[len] | crc8`
 | 0x93 | SETTING_VALUE | id u8, value i32 |
 | 0x94 | CAL_RESULT | script u8, stage u8, progress u8, status u8 |
 | 0x95 | CAL_DATA | script u8, phase u8, t_ms u16, v i16×8 (raw samples @ 50 Hz for ESP32-side computation) |
-| 0x96 | WIFI_RESET_REQ | — (mode button held 5 s at boot) |
+| 0x96 | WIFI_RESET_REQ | — (mode button held 5 s at boot; resent until ACK) |
+| 0x97 | ADMIN_RESET_REQ | — (mode button held 15 s at boot; clears admin password + keys; resent until ACK) |
 
 Bandwidth: TELEM_FAST at 20 Hz ≈ 0.9 KB/s of 11.5 KB/s available.

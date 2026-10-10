@@ -1210,3 +1210,9 @@ sequenceDiagram
 | Stack reserve | 400 |
 | **Total ≈ 1740 B → ~300 B headroom** | |
 Flash: calibration maths moved to the ESP32 saves an estimated 3–4 K → own code ~12–15 K, total ~23–26 K. Build gates unchanged (RAM ≤ 1750 B static, flash ≤ 30 KB).
+
+### 9.21 Alignment with ESP32 LLD Revision 2
+- `CALIBRATE` carries `profile u8` (as in Spec 1).
+- `WifiResetDetector` → **`BootButtonDetector`**: at boot, held 5 s → `WIFI_RESET_REQ` (0x96); held **15 s** → `ADMIN_RESET_REQ` (0x97); both resent every 500 ms until ACK; distinct confirmation sounds/LED.
+- After the boot window, a short press of D2 → event **`button_press`** (used by the ESP32 for first-run physical confirmation).
+- New error reasons/events from the ESP32 revision are added to the shared registry.

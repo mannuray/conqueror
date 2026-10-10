@@ -1,8 +1,8 @@
 # ESP32 Firmware — Low-Level Design
 
-Status: COMPLETE (all sections approved; independent review pending) · Date: 2026-10-10 · Implements: Spec 2 Part B, Spec 1 · Standards: `docs/standards/coding-standards.md` §3
+Status: COMPLETE — Revision 2 (review fixes in §10 are authoritative where earlier sections differ) · Date: 2026-10-10 · Implements: Spec 2 Part B, Spec 1 · Standards: `docs/standards/coding-standards.md` §3
 
-Sections: 1 Structure, tasks & frameworks ✅ · 2 Ports ✅ · 3 Body link & clock sync ✅ · 4 Client API ✅ · 5 Navigation ✅ · 6 Camera service ✅ · 7 Calibration engine ✅ · 8 WiFi, mDNS, OTA & storage ✅ · 9 Memory/task budget & error handling ✅
+Sections: 1 Structure, tasks & frameworks ✅ · 2 Ports ✅ · 3 Body link & clock sync ✅ · 4 Client API ✅ · 5 Navigation ✅ · 6 Camera service ✅ · 7 Calibration engine ✅ · 8 WiFi, mDNS, OTA & storage ✅ · 9 Memory/task budget & error handling ✅ · 10 Revision 2 review fixes ✅
 
 Note: UART is **250000 baud** and calibration maths runs here (Uno LLD §9 revision).
 
@@ -911,3 +911,156 @@ Core 1 load < 25 % expected; core 0 carries WiFi + JPEG + streaming. Stack high-
 | Task watchdog | reboot; culprit + reason in RTC |
 | OTA failure | old image kept / rolled back |
 Errors use the shared code/reason registry. Logs: ESP-IDF on USB serial + 200-line ring at `/api/logs` (admin), collected by the hub.
+
+---
+
+## 10. Revision 2 — review fixes (APPROVED decisions; authoritative where earlier sections differ)
+Source: independent review (25 findings). User decisions: **Arduino-ESP32 3.x (IDF 5.x, pioarduino platform)**; **first-run setup confirmed by pressing the tank's mode button**; **hold the button 15 s at boot → admin password + keys reset**.
+
+### 10.1 Toolchain (I1)
+- PlatformIO **pioarduino** platform, **Arduino-ESP32 3.x on ESP-IDF ≥ 5.1**, versions pinned in `platformio.ini` + lockfile. Required for `httpd_req_async_handler_begin`, `httpd_queue_work`, current esp32-camera. ELEGOO camera code ported to the 3.x API.
+- Partition table: **2 × 1.9 MB OTA app**, NVS **24 KB**, otadata, coredump 64 KB (4 MB flash).
+
+### 10.2 STOP fast path (C1, M1)
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant G as WsGateway (httpd task)
+    participant B as BodyLinkTask
+    participant U as Uno
+    C->>G: {"t":"stop"}
+    G->>G: auth only (no rate limit / capability / owner checks)
+    G->>B: atomic stop_pending = true + task notify (no queue)
+    B->>U: STOP frame (written before anything else in TX)
+    U-->>B: ACK
+    B->>B: not acked in 50 ms → resend (idempotent), up to 10×
+    B-->>G: ack → client
+```
+- STOP never passes through `CommandQueue`/`FrameTxQueue`; TX loop checks `stop_pending` first every iteration.
+- All blocking work is off the port-80 task (10.5), so STOP parsing is never delayed by capture/OTA/PBKDF2.
+
+### 10.3 Ownership generation and client loss (C2, C3, I9)
+- **Single arbitration state machine** (ESP32 view) with owners **None · Ai · Human · Ir · Calibration**, driven by Uno **events** (`ir_override`, `control_changed`) — not 1 Hz TELEM_SLOW.
+- **Ownership generation counter** `gen` increments on every owner change. Every motion frame (from ControlTask, NavigationTask, CalibrationTask) carries the `gen` it was created under; **BodyLinkTask drops frames whose `gen` ≠ current** (stale mission steps can never reach the Uno).
+- **All nav/calibration motion goes through `NetworkArbiter.authorize(source, gen)`** before entering FrameTxQueue.
+- **Owner session liveness:** owner silent > **1.5 s** (no message/ping) or closed → STOP + `MissionRunner.cancel(OWNER_LOST)` + `CALIBRATE cancel`. Clients must ping ≥ 1 Hz (Spec 1 §4); non-owner sessions closed after 10 s silence.
+- **Missions keep ownership** while the owner session is alive (mission activity refreshes the idle timer only while the owner pings).
+- `control_returned` is emitted **at handback** to the preempted AI session (Spec 0 §4).
+- When IR ownership ends → owner None (no automatic return to a previous network owner).
+```mermaid
+stateDiagram-v2
+    [*] --> None
+    None --> Ai : AI motion
+    None --> Human : human motion
+    Ai --> Human : human motion → STOP, gen++
+    Human --> None : 5 s idle / release / owner lost → STOP, gen++ · control_returned → preempted AI
+    Ai --> None : 1 s idle / owner lost → STOP, gen++
+    None --> Ir : ir_override event
+    Ai --> Ir : ir_override → gen++
+    Human --> Ir : ir_override → gen++
+    Ir --> None : control_changed(none) from Uno → gen++
+    None --> Calibration : admin starts calibration
+    Calibration --> None : done / cancel / owner lost → gen++
+```
+- Failure tables corrected: WiFi/client loss → **owner-loss rule stops primitives, missions and calibration** (not only the Uno deadman).
+
+### 10.4 Envelope sync with acknowledgement (C4)
+```mermaid
+stateDiagram-v2
+    [*] --> Syncing
+    Syncing --> EnvelopeSent : HELLO → send ENVELOPE (from NVS)
+    EnvelopeSent --> Synced : ENVELOPE ACK ok → send HELLO_ACK
+    EnvelopeSent --> Syncing : no ACK 200 ms → resend (≤ 5) else body_offline
+    Synced --> Syncing : TELEM_SLOW envelope ≠ NVS → resend + envelope_mismatch event
+```
+- Envelope changes: send to Uno → **write NVS only after ACK**.
+
+### 10.5 Nothing blocking on the port-80 task (C5)
+- `/api/capture`, `/api/ota`, and PBKDF2 verification use **async request handlers** handed to a **WorkerTask** (core 0, prio 2): capture waits on CameraTask there; OTA streams there with `esp_ota_begin(OTA_WITH_SEQUENTIAL_WRITES)` (incremental erase); PBKDF2 runs there.
+- The httpd task only parses, authorizes and enqueues.
+
+### 10.6 Camera revisions (I2, M3, M4)
+- `esp_camera_init` with **framesize = QXGA (max)**, `fb_count = 3`, `grab_mode = CAMERA_GRAB_LATEST`, JPEG buffers sized for QXGA; stream set to VGA via `set_framesize` after init.
+- **No PSRAM copy:** `SharedFrame` refcounts the driver `fb` directly; returned to the driver when refcount = 0 (3 buffers: one being filled, up to two held by viewers).
+- Full capture: switch to QXGA → **validate JPEG SOI/EOI**, discard until valid (≤ 5 frames) → restore; stream pause up to ~1 s (documented).
+- Timestamps: `fb->timestamp` is `gettimeofday` at end of readout → converted to `esp_timer` time via an offset sampled at boot and after every SNTP sync; documented as "end of readout".
+- **Throughput targets:** 1 viewer 15 fps @ VGA q12; 2 viewers 10 fps each; **adaptive quality/fps** steps down when send queues back up.
+- PSRAM budget: 3 × QXGA JPEG buffers ≈ **1.5 MB** + calibration 50 KB + log/missions 40 KB → ~1.6 MB of 4 MB.
+
+### 10.7 Sockets and WS send path (I3, I4)
+| Owner | Sockets |
+|---|---|
+| Port 80: WS sessions | 6 |
+| Port 80: REST | 2 |
+| Port 81: stream (2 + 1 for 503) | 3 |
+| httpd control sockets | 2 |
+| mDNS, captive DNS, SNTP | 3 |
+| **Total** | **16 → `CONFIG_LWIP_MAX_SOCKETS=16`** |
+- Port 81 accepts 3 and returns **503 "use the hub"** to the 3rd viewer; LRU purge disabled on both servers.
+- **One sender per server:** all WS sends go through `httpd_queue_work` (executed on the httpd task); TelemetryTask only writes **per-session latest-value slots** (`OutSlots`: latest tf, latest ts, event ring 32) and posts a flush work item. `send_wait_timeout = 1 s`; a session that times out is closed.
+- **SessionRegistry is owned by the httpd task**; other tasks post messages. Sessions keyed by **(fd, generation)** so a reused fd never receives a stale ack/event. MJPEG streams are closed when their key is revoked.
+
+### 10.8 Navigation heading frame (I5, M2)
+- PoseEstimator keeps `yaw_offset` (Uno yaw → pose θ). `nav_set_origin` sets `yaw_offset = −uno_yaw`; every bearing is converted back to the Uno frame before TURN/MOVE.
+- Uno reset detected from **HELLO** (not count jumps) → pose marked degraded, offset re-anchored.
+- Mission state machine fixes: owner-lost handled from **every** state; `Blocked → Planning` (re-plan); replans exhausted → continue to next waypoint with `waypoint_inaccurate`; **Uno `primitive_done` reason is authoritative** for blocked/stall (ESP32 5 s timer removed). `nav_progress` event added to Spec 1.
+
+### 10.9 Startup and OTA commit (I6, I7)
+- Boot starts **WiFi, HTTP, camera and the Uno session in parallel**; the Uno session is independent (absent/incompatible Uno never blocks the ESP32).
+- OTA commit (`markValid`) = **network up + HTTP self-check + no crash within 60 s**; Uno state reported as a warning only.
+
+### 10.10 Command and frame coverage (I8)
+WS command → handler table (every row of Spec 1 §5):
+| Command | Handler |
+|---|---|
+| stop | 10.2 fast path |
+| drive, drive_rate, turn, move, cancel | arbiter → BodyLink |
+| release_control | arbiter |
+| cam_joy, cam_lock, cam_set, cam_nudge, cam_home | **arbiter (owner-only, Spec 1 §5)** → BodyLink |
+| led, sound, tone | **arbiter (owner-only)** → BodyLink |
+| audio_mode, obstacle_brake, envelope | EnvelopeService / BodyLink (role rules §4.5) |
+| nav_goto, nav_home, nav_waypoints, nav_mission, nav_cancel, nav_set_origin | NavigationTask (via arbiter) |
+| calibrate, calibrate_input, **calibrate_op {accept, retry, skip, cancel}** | CalibrationTask |
+| surface_profile {select, create, rename, delete} | ProfileService: names in NVS ↔ Uno index; PROFILE frame |
+| camera_config | CameraTask (WorkerTask for framesize) |
+| subscribe | session (default before subscribe: events only; `fast_hz` clamped 1–20, default 10) |
+| ping | immediate pong |
+
+Uno → ESP32 frame table: HELLO → session · ACK → AckTracker · TELEM_FAST/SLOW → decoder · EVENT → translator (+ `cal_request` → CalibrationTask prompt to admin sessions; `button_press` → first-run confirm) · SETTING_VALUE → requester · CAL_RESULT/CAL_DATA → CalibrationTask · **WIFI_RESET_REQ / ADMIN_RESET_REQ → ACKed in every session state**, then executed.
+- **OWNER_HINT** sent on every owner change and after every re-sync.
+- **Surface auto-suggest:** `SurfaceSuggester` compares rolling roughness/slip signature with each profile's stored signature (NVS) → `surface_suggest{profile}` after 30 s consistent mismatch; auto-switch only when stopped and `surface_auto_switch` is on.
+- CALIBRATE carries `profile u8` (Spec 1) — Uno LLD aligned. **CAL_DATA channel layout per script** defined in the generated protocol (e.g. PwmRamp: pwm, gyro_z, enc_l, enc_r, accel_x, …).
+
+### 10.11 Auth, recovery and web security (I10, I11, I12)
+- **Admin password is used only** for `POST /api/keys` (pairing/key minting) and the setup page; all other admin calls use admin **keys** (no PBKDF2 per request).
+- **Recovery:** Uno D2 held **15 s at boot** → `ADMIN_RESET_REQ` (new frame 0x97) → ESP32 clears admin password + keys (WiFi kept) → back to FirstRun. 5 s hold still = WiFi reset only.
+- **First-run protection:** setup page requires a **physical confirmation — press the tank's mode button** (Uno `button_press` event) within 60 s; the open setup AP **closes after 30 min** (re-opened by power cycle).
+- Login throttle: **global exponential backoff** (not per-IP), so the hub is not locked out by one mistyped attempt.
+- `?key=` accepted **only** on `GET :81/stream` and `GET /api/capture`; URIs never logged with query strings.
+- **Host/Origin checks:** requests whose `Host` is not the tank's IP/hostname/192.168.4.1 are rejected (DNS-rebinding defence); WS `Origin` checked against an allowlist (hub origin, app); **no CORS headers** except the configured allowlist.
+
+### 10.12 WiFi behaviour with an app on the hotspot (I13)
+- AP mode never torn down for rescans; scans run in APSTA **only while no AP stations and no WS sessions** are connected.
+- In ApSta, STA reconnect attempts are **paused while AP clients are connected** (avoids channel hopping drops).
+
+### 10.13 Watchdog policy & task map (I14, I15)
+| Task | Core / prio | TWDT | Longest blocking call | Queue in |
+|---|---|---|---|---|
+| BodyLinkTask | 1 / 6 | yes | UART read 5 ms | FrameTxQueue, stop flag |
+| ControlTask | 1 / 5 | yes | queue wait 20 ms | CommandQueue |
+| NavigationTask | 1 / 4 | yes | queue wait 50 ms | NavQueue, PrimitiveDone |
+| TelemetryTask | 1 / 3 | yes | none (slots + work post) | EventBus |
+| CalibrationTask | 1 / 2 | yes | queue wait 50 ms | CalQueue, CalDataQueue |
+| CameraTask | 0 / 3 | yes | fb grab 200 ms | CameraRequestQueue |
+| ViewerTask ×2 | 0 / 2 | no (send ≤ 1 s timeout) | socket send | frame notify |
+| WorkerTask | 0 / 2 | no | OTA write / PBKDF2 ~1 s | WorkQueue |
+| WifiTask | 0 / 1 | no (connect/scan) | connect 15 s | — |
+| httpd ×2 | 0 / 5 | liveness ping via `httpd_queue_work` every 2 s | — | — |
+Shared objects: TankState (writers per group, mutex snapshot) · SessionRegistry (httpd task) · KeyStore/MissionStore/ConfigStore (**ConfigTask-style single writer = WorkerTask**; readers get copies; a mission being run is copied at start) · CalStatusStore (CalibrationTask).
+
+### 10.14 Registry, mapping, clock, budgets, flash (M1, M5, M6, M7, M8)
+- New registry reasons: `COMMAND_TIMEOUT`, `BODY_INCOMPATIBLE`, `CAMERA_TIMEOUT`, `ENVELOPE_MISMATCH`, `OWNER_LOST`; events `settings_reset`, `pose_degraded`, `waypoint_inaccurate`, `camera_reset`, `nav_progress`. Auth failure aligned to Spec 1: `{"t":"error","code":"AUTH_1001","reason":"AUTH_FAILED"}` then close.
+- **Wire → JSON mapping table** generated from `protocol/` (sentinels: `spd_act −128 → null`, `dist_mm 0xFFFF → null (clear)`, `0xFFFE → us_fault flag`; yaw 0.01°, temp 0.01 °C, flags bits → names, `profile_idx → NVS name`, fw u16 → "major.minor"). **Calibration source of truth:** Uno bits = done/missing; ESP32 = stale + profile.
+- Clock sync: **offset + skew** (linear fit over sliding minima) to absorb Uno resonator drift; Spec 1 wording aligned ("from TELEM_FAST").
+- Internal RAM: plan for **~220 KB available**; camera DMA descriptors counted; `SPIRAM_TRY_ALLOCATE_WIFI_LWIP` enabled; **first milestone = skeleton build measured**, build gate: free internal heap ≥ 60 KB at idle with 2 viewers + 6 WS.
+- `KeyRecord.last_used` kept in RAM, flushed with lifetime stats (5 min). **NVS encryption: off by default** (documented risk: AP password and WiFi credentials readable with physical flash access); optional build flag to enable.

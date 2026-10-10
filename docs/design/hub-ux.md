@@ -1,6 +1,6 @@
 # Hub UX — Flows and Screens (living document)
 
-Status: IN PROGRESS · Date: 2026-10-10 · Visual design tool: Google Stitch (after content is agreed)
+Status: CONTENT APPROVED (visual design next) · Date: 2026-10-10 · Visual design tool: Google Stitch (after content is agreed)
 
 ## Principles
 - **Full screen** = a place you stay and work in. **Dialog** = a short task with an end. **Panel/tab** = information you want next to the main thing.
@@ -170,3 +170,32 @@ Layout as Tank settings (section menu + Save/Discard bar).
 6. **Storage & retention** — usage by kind (telemetry DB, recordings, snapshots, logs, models); caps/retention (telemetry 7 d raw / 90 d downsampled, recordings GB cap, alert clips, logs 7 d / 200 MB); Clean up now.
 7. **Backup** (DECIDED: keep) — download backup (settings, tanks, missions, tank keys encrypted, AI memory; recordings optional) · restore from file.
 8. **About** — versions (hub, web, AI engine, protocol), bundled licences, GitHub link.
+
+## Dialogs (APPROVED)
+
+### Add tank
+See Screen 2 (Fleet).
+
+### Calibration stepper
+One component: **single item** (Settings → Calibration) or **full setup wizard** (chained, after pairing). Full-screen sheet on phone.
+- Frame: header ("Setup wizard: step 4 of 12 — Motor deadband", target surface profile) · progress rail (wizard: ✓ done / ● current / ○ upcoming / ↷ skipped) · footer Back · Skip (wizard) · Cancel · Next/Start.
+- Every step: **Prepare** (instructions + illustration + safety checkboxes) → **Run** (live progress, live readings, camera where useful, STOP always visible) → **Input** (guided items: tape measurement, hand-turn count) → **Result** (values, comparison with previous, **Accept & save** / Retry).
+- Failure: reason + suggestion → Retry / Skip / Cancel; nothing saved unless accepted.
+- Wizard end: summary (calibrated / skipped) → Go to Cockpit.
+
+### Child-play checklist
+From the AI panel (baby game) or Quick actions.
+- Explanation of what changes.
+- Required checklist: adult present and watching · track guards fitted · flat area, no stairs or drops · STOP within reach (phone / IR remote).
+- Limits shown read-only (speed cap 20 %, gentle acceleration, obstacle brake locked).
+- Game options: duration 5 / 10 / 15 min; optional play area = current map area.
+- **Start** enabled only when all boxes are ticked / Cancel.
+- While active: limits badge; End child-play in Quick actions; the AI cannot remove the limits; ending the game asks "Remove child-play limits?".
+
+### Media viewer
+Full-size snapshot/clip; zoom/pan (3 MP stills); info (time, tank, resolution, trigger, detections overlay toggle); download, delete, **Jump to Timeline**; previous/next.
+
+### Confirmations (one consistent style)
+- Typed confirmation (type the tank name): unpair, clear calibration, reset settings, delete surface profile.
+- Simple confirm: delete recording/snapshot/mission, revoke key, sign out other sessions.
+- **Never confirm safety actions:** STOP, ending child-play.

@@ -2,7 +2,7 @@
 
 Status: IN PROGRESS · Date: 2026-10-10 · Implements: Spec 2 Part A, Spec 1 §8 · Standards: `docs/standards/coding-standards.md` §2
 
-Sections: 1 Structure & execution ✅ · 2 Ports ✅ · 3 Motion control ✅ · 4 Safety & arbitration ✅ · 5 Comms · 6 Sensors & drivers · 7 Settings, calibration, self-test · 8 Memory budget & error handling
+Sections: 1 Structure & execution ✅ · 2 Ports ✅ · 3 Motion control ✅ · 4 Safety & arbitration ✅ · 5 Comms ✅ · 6 Sensors & drivers · 7 Settings, calibration, self-test · 8 Memory budget & error handling
 
 Every section includes classes and Mermaid diagrams (class, sequence, state).
 
@@ -591,4 +591,152 @@ sequenceDiagram
     Note over A: 3 s without keys or OK key
     A->>A: owner Ir → None, STOP
     A-->>T: control_changed(none)
+```
+
+---
+
+## 5. Comms — ESP32 link, Uno side (APPROVED)
+Frames per Spec 1 §8: `0xAA | len | type | seq | payload | CRC-8`, 115200 baud.
+
+### 5.1 Class diagram
+```mermaid
+classDiagram
+    direction TB
+    class FrameParser {
+      -ParseState state_
+      -uint8 buf_[48]
+      -uint8 len_, idx_, crc_
+      +feed(uint8 byte) bool
+      +frame() const Frame&
+      +errors() ParseErrors
+    }
+    class Frame {
+      <<struct>>
+      +uint8 type
+      +uint8 seq
+      +uint8 len
+      +uint8 payload[48]
+    }
+    class ParseErrors {
+      <<struct>>
+      +uint16 bad_crc
+      +uint16 bad_len
+      +uint16 unknown_type
+      +uint16 tx_dropped
+    }
+    class FrameWriter {
+      -uint8 seq_
+      +send(uint8 type, const void* payload, uint8 len) bool
+    }
+    class Codec {
+      <<generated>>
+      +decode(const Frame&, Msg&) bool
+      +encode(const Msg&, uint8* out) uint8
+    }
+    class CommsDispatcher {
+      -Route routes_[N]
+      +poll()
+      -dispatch(const Frame&)
+      -ack(uint8 seq, AckStatus)
+    }
+    class Route {
+      <<struct, PROGMEM>>
+      +uint8 type
+      +handler(const Frame&)
+      +bool needs_ack
+    }
+    class LinkMonitor {
+      -uint32 last_valid_ms_
+      +onValidFrame(now)
+      +alive(now) bool
+    }
+    class EventQueue {
+      -Event ring_[8]
+      +push(EventKind, int16 a, int16 b) bool
+      +pop(Event&) bool
+      +dropped() uint16
+    }
+    class TelemetryBuilder {
+      +fastTick()
+      +slowTick()
+      +flushEvents()
+      +sendHello()
+    }
+    class TxScheduler {
+      +pump()
+    }
+    CommsDispatcher *-- FrameParser
+    CommsDispatcher o-- Route
+    CommsDispatcher --> LinkMonitor
+    CommsDispatcher ..> Codec
+    CommsDispatcher --> FrameWriter : acks
+    TelemetryBuilder ..> Codec
+    TelemetryBuilder --> EventQueue
+    TxScheduler --> FrameWriter
+    TxScheduler --> TelemetryBuilder
+    FrameParser ..> Frame
+    FrameParser ..> ParseErrors
+```
+`ParseState {Sync, Len, Type, Seq, Payload, Crc}`. `Codec` has one decode/encode pair per message type (generated).
+
+### 5.2 Parser state machine
+```mermaid
+stateDiagram-v2
+    [*] --> Sync
+    Sync --> Len : byte == 0xAA
+    Sync --> Sync : other byte (skip)
+    Len --> Type : len ≤ 48
+    Len --> Sync : len > 48 → bad_len++
+    Type --> Seq
+    Seq --> Payload : len > 0
+    Seq --> Crc : len == 0
+    Payload --> Payload : idx < len
+    Payload --> Crc : idx == len
+    Crc --> Sync : crc ok → frame_ready
+    Crc --> Sync : crc bad → bad_crc++
+```
+
+### 5.3 Routing table (OCP through data, PROGMEM)
+| Type | Handler → target | Ack |
+|---|---|---|
+| HEARTBEAT | LinkMonitor | no |
+| DRIVE, DRIVE_RATE | `Arbitrator::onNetwork` (streaming) | no (rejections → EVENT) |
+| STOP, TURN, MOVE, CANCEL | `Arbitrator::onNetwork` | yes |
+| CAM_JOY | CameraHead (streaming) | no |
+| CAM_SET, CAM_NUDGE, CAM_HOME, CAM_LOCK | CameraHead | yes |
+| LED, SOUND, TONE, AUDIO_MODE, OWNER_HINT | UiTask | yes (OWNER_HINT no) |
+| BRAKE, ENVELOPE | BrakeConfig / Envelope | yes (`ENVELOPE_LOCKED` if refused) |
+| SETTING_SET / GET / SAVE | Settings | yes / SETTING_VALUE |
+| CALIBRATE, PROFILE | CalibrationRunner / Settings | yes, then CAL_RESULT progress |
+| unknown | — | unknown_type++ |
+Ack status = generated `COMMAND_3xxx` subset as a one-byte registry index.
+
+### 5.4 Sending
+- `TxScheduler::pump()` every loop, priority **ACK > EVENT > HELLO > TELEM_FAST > TELEM_SLOW**, only if `txFree()` fits the whole frame.
+- No room → telemetry skipped (`tx_dropped`); events stay queued (ring 8, overflow counted).
+- TELEM_FAST ≈ 46 B × 20 Hz ≈ 0.9 KB/s of 11.5 KB/s.
+- HELLO at boot, repeated every 1 s until the first heartbeat, and on request.
+
+### 5.5 Link health
+- `alive` = valid frame within 300 ms → feeds the safety supervisor (link lost → SoftStop).
+- `uno_ms` in every TELEM_FAST for ESP32 clock mapping.
+
+### 5.6 Drive command flow
+```mermaid
+sequenceDiagram
+    participant E as ESP32
+    participant L as port::link (UART)
+    participant D as CommsDispatcher
+    participant P as FrameParser
+    participant A as Arbitrator
+    participant C as ControlTask
+    E->>L: 0xAA 03 10 seq [src v w] crc
+    D->>L: readByte() × n
+    D->>P: feed(byte)
+    P-->>D: frame_ready
+    D->>D: route[0x10] → onDrive
+    D->>A: onNetwork(Drive v,w)
+    A-->>D: Accepted (or NOT_OWNER → EVENT)
+    Note over C: next 10 ms tick uses the new command
+    C->>C: arbitration → primitives → … → safety → motors
 ```

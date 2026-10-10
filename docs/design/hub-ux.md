@@ -221,3 +221,5 @@ Full-size snapshot/clip; zoom/pan (3 MP stills); info (time, tank, resolution, t
 - Screens: `docs/design/stitch/` (vN = iteration).
   - `03-cockpit-v1.png` — first Cockpit draft (review notes below).
   - `03-cockpit-v2.png` — Cockpit with VITALS cluster, accuracy fixes, theme toggle. Polish later: remove "ARM_CORTEX_M7" under tank name, "US/IR 10Hz" map label, "2S LIPO" → "2S Li-ion".
+  - `01-login-v1.png` — Login + first-run variant. Polish: pre-login boot log must not reveal fleet info (tank counts) before authentication; remove invented "port 8888".
+  - `02-fleet-v1.png` — Fleet with 3 tank states + Add tank card. Polish: WiFi is **2.4 GHz only** (ESP32) — also fix "5.8 GHz" in Cockpit; replace "recommend dock return" (no dock) with "return home"; remove "port 8888 // RTOS v3.8+".

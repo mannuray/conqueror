@@ -2,7 +2,7 @@
 
 Status: IN PROGRESS · Date: 2026-10-10 · Implements: Spec 2 Part B, Spec 1 · Standards: `docs/standards/coding-standards.md` §3
 
-Sections: 1 Structure, tasks & frameworks ✅ · 2 Ports ✅ · 3 Body link & clock sync ✅ · 4 Client API · 5 Navigation · 6 Camera service · 7 Calibration engine · 8 WiFi, mDNS, OTA & storage · 9 Memory/task budget & error handling
+Sections: 1 Structure, tasks & frameworks ✅ · 2 Ports ✅ · 3 Body link & clock sync ✅ · 4 Client API ✅ · 5 Navigation · 6 Camera service · 7 Calibration engine · 8 WiFi, mDNS, OTA & storage · 9 Memory/task budget & error handling
 
 Note: UART is **250000 baud** and calibration maths runs here (Uno LLD §9 revision).
 
@@ -268,4 +268,160 @@ sequenceDiagram
     U->>B: EVENT
     B->>T: EventBus (translated, tank_ms)
     T->>C: ev JSON
+```
+
+---
+
+## 4. Client API — WebSocket, auth, arbitration, REST (APPROVED)
+
+### 4.1 Class diagram
+```mermaid
+classDiagram
+    direction TB
+    class WsGateway {
+      +onOpen(fd)
+      +onText(fd, data, len)
+      +onClose(fd)
+    }
+    class SessionRegistry {
+      -ClientSession sessions_[6]
+      +open(fd) ClientSession*
+      +byFd(fd) ClientSession*
+      +close(fd)
+      +forEach(fn)
+    }
+    class ClientSession {
+      +int fd
+      +SessionState state
+      +Role role
+      +uint8 key_id
+      +char client_name[24]
+      +Subscriptions subs
+      +RateLimiter limiter
+      +uint32 last_rx_ms
+      +OutSlots out
+    }
+    class JsonCodec {
+      <<generated>>
+      +parse(data, len, ClientMessage&) ParseResult
+      +encode(...) size_t
+    }
+    class Authorizer {
+      <<generated table>>
+      +allowed(Role, MsgType) bool
+    }
+    class AuthService {
+      +verifyKey(token) KeyRecord*
+      +verifyAdminPassword(pass) bool
+      +createKey(name, Role) Token
+      +revoke(key_id)
+      +firstRun() bool
+      -LoginThrottle throttle_
+    }
+    class KeyStore { <<NVS>> +records() +put(KeyRecord) +erase(id) }
+    class KeyRecord { <<struct>> +uint8 id +char name[24] +Role role +uint8 salt[16] +uint8 hash[32] +uint32 created +uint32 last_used }
+    class CommandRouter { +route(ClientCommand) RouteResult }
+    class NetworkArbiter {
+      -Owner owner_
+      -int owner_fd_
+      -uint32 last_motion_ms_
+      +onMotion(ClientSession&, now) Decision
+      +onStop(ClientSession&) Decision
+      +onRelease(ClientSession&) Decision
+      +onIrOwner(bool ir_active)
+      +update(now) Decision
+    }
+    class EnvelopeService {
+      -Envelope current_
+      +apply(Role, EnvelopeCmd) Result
+      +setBrake(Role, bool on) Result
+      +restoreFromNvs() Envelope
+    }
+    class RestRouter { +info() +settings() +keys() +wifi() +ota() +missions() +capture() }
+    class LoginThrottle { +allow(ip, now) bool +fail(ip, now) }
+    WsGateway --> SessionRegistry
+    WsGateway ..> JsonCodec
+    WsGateway --> AuthService
+    WsGateway ..> Authorizer
+    WsGateway --> CommandRouter : via CommandQueue (ControlTask)
+    SessionRegistry *-- ClientSession
+    AuthService --> KeyStore
+    AuthService *-- LoginThrottle
+    KeyStore ..> KeyRecord
+    CommandRouter --> NetworkArbiter
+    CommandRouter --> EnvelopeService
+    RestRouter --> AuthService
+```
+`SessionState {Connected, Authenticated, Closing}` · `Role {viewer, ai, human, admin}` · `Owner {None, Ai, Human}`. Keys: salted SHA-256 + constant-time compare; admin password PBKDF2; login throttle 5 failures → 30 s lockout.
+
+### 4.2 Session lifecycle
+```mermaid
+stateDiagram-v2
+    [*] --> Connected : WS upgrade
+    Connected --> Authenticated : hello valid key → welcome
+    Connected --> Closing : bad key → AUTH_FAILED · no hello 5 s
+    Authenticated --> Authenticated : messages (rate-limited)
+    Authenticated --> Closing : silent 10 s · key revoked · 5 protocol errors
+    Closing --> [*]
+```
+Owner session closing → STOP + owner released.
+
+### 4.3 Network arbitration (human > AI)
+```mermaid
+stateDiagram-v2
+    [*] --> None
+    None --> Ai : AI motion
+    None --> Human : human motion
+    Ai --> Human : human motion → STOP, control_changed(human)
+    Human --> Human : same session motion (timer reset)
+    Human --> None : 5 s idle or release_control → STOP, control_changed(none)
+    None --> Ai : AI motion → control_returned (if preempted)
+    Ai --> None : AI idle 1 s / closed → STOP
+```
+- Other same-role sessions → `NOT_OWNER` until the timer expires.
+- IR owner (from Uno telemetry) → all network motion `NOT_OWNER`; arbiter frozen.
+- STOP from any authenticated session (incl. viewer) → queue front → Uno.
+- Frames tagged `src`; `OWNER_HINT` sent to the Uno for LED colour.
+
+### 4.4 Validation pipeline
+1. Parse (generated codec, fixed pool) → `INVALID_COMMAND`
+2. Authorize (role × type table) → `ROLE_FORBIDDEN`
+3. Range-validate (generated from schema) → `INVALID_COMMAND` + field
+4. Rate limit (drive/cam_joy ≤ 25 Hz, others ≤ 10/s per session) → `RATE_LIMITED`
+5. Capability (`move`/`nav_*` without encoders → `UNAVAILABLE`; body not synced → `BODY_OFFLINE`)
+6. Arbitrate (motion) → `NOT_OWNER` / accepted
+7. Route: body frame → FrameTxQueue · nav → NavigationTask · camera config → CameraTask · settings/keys → local · ping → pong
+
+### 4.5 Envelope rules
+| Action | ai | human/admin |
+|---|---|---|
+| set / tighten | ✅ tighter only | ✅ |
+| loosen / clear | ❌ `ENVELOPE_LOCKED` | ✅ |
+| obstacle brake off | ✅ unless `lock_brake` | ✅ unless `lock_brake` |
+Envelope persisted in NVS and restored to the Uno on every HELLO.
+
+### 4.6 REST (port 80)
+`/api/info`, `/api/settings` (GET human+, PUT admin, ETag), `/api/keys`, `/api/wifi`, `/api/ota`, `/api/missions`, `/api/capture` (→ CameraTask queue). Auth: `Authorization: Bearer` or `?key=`. Errors: shared code/reason registry in the hub's envelope `{success:false, error:{…}}`.
+
+### 4.7 Human takes over from the AI
+```mermaid
+sequenceDiagram
+    participant AI as AI client (ai key)
+    participant H as Human app (human key)
+    participant G as WsGateway
+    participant A as NetworkArbiter
+    participant B as BodyLinkTask
+    AI->>G: drive v=30 (owner Ai)
+    G->>A: onMotion(ai)
+    A-->>B: DRIVE src=ai
+    H->>G: drive v=50
+    G->>A: onMotion(human)
+    A-->>B: STOP (owner change)
+    A-->>G: ev control_changed(human)
+    A-->>B: DRIVE src=human
+    AI->>G: drive
+    G-->>AI: nack NOT_OWNER
+    Note over H: 5 s without input
+    A-->>B: STOP
+    A-->>G: control_changed(none) · control_returned → AI
 ```

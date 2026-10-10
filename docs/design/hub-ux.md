@@ -220,3 +220,4 @@ Full-size snapshot/clip; zoom/pan (3 MP stills); info (time, tank, resolution, t
   - Invariants in every theme: STOP is solid red; status always icon + text.
 - Screens: `docs/design/stitch/` (vN = iteration).
   - `03-cockpit-v1.png` — first Cockpit draft (review notes below).
+  - `03-cockpit-v2.png` — Cockpit with VITALS cluster, accuracy fixes, theme toggle. Polish later: remove "ARM_CORTEX_M7" under tank name, "US/IR 10Hz" map label, "2S LIPO" → "2S Li-ion".

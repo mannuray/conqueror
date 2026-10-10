@@ -2,7 +2,7 @@
 
 Status: IN PROGRESS · Date: 2026-10-10 · Implements: Spec 2 Part A, Spec 1 §8 · Standards: `docs/standards/coding-standards.md` §2
 
-Sections: 1 Structure & execution ✅ · 2 Ports ✅ · 3 Motion control · 4 Safety & arbitration · 5 Comms · 6 Sensors & drivers · 7 Settings, calibration, self-test · 8 Memory budget & error handling
+Sections: 1 Structure & execution ✅ · 2 Ports ✅ · 3 Motion control ✅ · 4 Safety & arbitration · 5 Comms · 6 Sensors & drivers · 7 Settings, calibration, self-test · 8 Memory budget & error handling
 
 Every section includes classes and Mermaid diagrams (class, sequence, state).
 
@@ -245,3 +245,177 @@ Rules:
 - ISRs only in `drivers/`, capture-only. The shared PCINT0 ISR (D9 IR, D12 echo) reads PINB once, diffs, forwards edges to the IR decoder and echo timer.
 - `domain/` never includes `ports/`; only `app/` does.
 - All pins/hardware constants in one file: `drivers/board_config.h` (matches Spec 2 §A1).
+
+---
+
+## 3. Motion control (APPROVED)
+
+### 3.1 Pipeline
+```
+MotionCommand ─► Primitives ─► MotionTarget ─► HeadingController ─► Δ (turn effort)
+                                    │ v                                    │
+                                    └──────────────► Mixer (L = v−Δ, R = v+Δ, pivot fallback)
+                                                          │ track targets %
+                                     Ramp (accel limit) ◄─┘
+                                          │
+                     SpeedController [OpenLoop | EncoderPid]  ◄── EncoderSpeed
+                          │ uses Deadband + BatteryComp
+                          ▼
+                     PwmRequest (L, R) ──► SafetySupervisor (§4)
+```
+
+### 3.2 Class diagram
+```mermaid
+classDiagram
+    direction TB
+    class MotionCommand {
+      <<struct>>
+      +Source source
+      +CmdKind kind
+      +int8 v_pct
+      +int8 w_pct
+      +int16 yaw_rate_ddps
+      +TurnMode turn_mode
+      +int16 angle_ddeg
+      +uint16 radius_cm
+      +bool pivot
+      +int32 dist_mm
+      +int16 heading_ddeg
+      +uint8 speed_pct
+      +uint32 t_ms
+    }
+    class MotionTarget {
+      <<struct>>
+      +float v_pct
+      +TargetMode mode
+      +float yaw_rate_dps
+      +float heading_deg
+      +bool pivot
+    }
+    class Primitives {
+      -State state_
+      -TurnProfile turn_
+      -MoveProfile move_
+      +accept(MotionCommand) Result
+      +update(Inputs) MotionTarget
+      +state() State
+      +progressPct() uint8
+      +takeDone(PrimitiveDone&) bool
+    }
+    class TurnProfile {
+      +start(start_deg, target_deg, speed_pct, radius_cm)
+      +update(yaw_deg, yaw_rate_dps, dt) TurnStep
+    }
+    class MoveProfile {
+      +start(dist_mm, speed_pct, heading_deg)
+      +update(travelled_mm, dt) MoveStep
+    }
+    class HeadingController {
+      -Pid~float~ heading_pid_
+      -Pid~float~ rate_pid_
+      -float held_heading_
+      -bool holding_
+      -uint16 saturated_ms_
+      +update(MotionTarget, yaw_deg, yaw_rate_dps, v_pct, dt) float
+      +turnLimited() bool
+      +reset()
+    }
+    class TurnLimits {
+      <<value>>
+      +float rate_max_dps
+      +float rate_at_full_speed_pct
+      +ReverseSteer reverse_steer
+      +maxRate(v_pct) float
+    }
+    class Mixer {
+      +mix(v_pct, delta_pct, pivot_fallback, keep_pct) TrackTargets
+    }
+    class TrackTargets { <<struct>> +float left_pct +float right_pct }
+    class Ramp {
+      -float out_[2]
+      +apply(TrackTargets, accel_pct_s, dt) TrackTargets
+      +reset()
+    }
+    class SpeedController {
+      -Mode mode_
+      -Pid~float~ pid_[2]
+      -Deadband deadband_
+      -BatteryComp battery_
+      +setMode(Mode)
+      +update(TrackTargets, TrackSpeeds, float batt_v, dt) PwmRequest
+      +reset()
+    }
+    class Deadband {
+      -uint8 start_[4]
+      -uint8 keep_[4]
+      -uint16 kick_ms_[2]
+      +map(track, float pct, bool from_standstill, dt) int16
+    }
+    class BatteryComp {
+      +float v_nominal
+      +float motor_v_max
+      +scale(int16 pwm, float batt_v) int16
+    }
+    class EncoderSpeed {
+      -int32 last_count_[2]
+      -Method method_[2]
+      +update(EncoderSnapshot, int8 cmd_sign_l, int8 cmd_sign_r, dt) TrackSpeeds
+      +travelledMm() float
+      +faulty(track) bool
+    }
+    class TrackSpeeds { <<struct>> +float cps[2] +float pct[2] +bool valid }
+    class PwmRequest { <<struct>> +int16 left +int16 right }
+    class Pid~T~ {
+      +T kp, ki, kd
+      +T out_min, out_max, i_max
+      +update(T setpoint, T measured, T dt) T
+      +reset()
+      +saturated() bool
+    }
+    Primitives *-- TurnProfile
+    Primitives *-- MoveProfile
+    Primitives ..> MotionCommand
+    Primitives ..> MotionTarget
+    HeadingController *-- Pid
+    HeadingController ..> TurnLimits
+    SpeedController *-- Pid
+    SpeedController *-- Deadband
+    SpeedController *-- BatteryComp
+    SpeedController ..> TrackSpeeds
+    SpeedController ..> PwmRequest
+    Mixer ..> TrackTargets
+    Ramp ..> TrackTargets
+    EncoderSpeed ..> TrackSpeeds
+```
+Enums: `CmdKind {Drive, DriveRate, Turn, Move, Stop, Cancel}` · `TurnMode {By, To}` · `TargetMode {HoldHeading, Rate, Spin}` · `SpeedController::Mode {OpenLoop, EncoderPid}` (VARIANT POINT) · `EncoderSpeed::Method {Window, Period}` · `ReverseSteer {Car, Tank}`.
+
+### 3.3 Primitives state machine
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Teleop : Drive / DriveRate
+    Teleop --> Teleop : Drive stream (≤20 Hz)
+    Teleop --> Idle : Stop / v=0,w=0 settled
+    Idle --> Turning : Turn
+    Teleop --> Turning : Turn (preempts)
+    Idle --> Moving : Move (needs encoders)
+    Teleop --> Moving : Move (preempts)
+    Turning --> Idle : |err|<1° and |rate|<5°/s for 100 ms → done ok
+    Turning --> Idle : timeout (2× expected + 2 s) → done fail
+    Moving --> Idle : remaining < 5 mm → done ok
+    Moving --> Idle : stall / blocked 5 s → done fail
+    Turning --> Teleop : Drive (preempts, done cancelled)
+    Moving --> Teleop : Drive (preempts, done cancelled)
+    Turning --> Idle : Cancel / Stop
+    Moving --> Idle : Cancel / Stop
+```
+
+### 3.4 Algorithms
+- **HeadingController (cascaded):** `w = 0, v ≠ 0` → heading hold (capture *current* heading when `w` returns to 0; heading PID → rate setpoint). `w ≠ 0` → rate mode, ω = `w% × maxRate(v)`; car-style reverse inverts ω when `v < 0`. Inner loop: turn-rate PID + feedforward `Δ = ω × track_width_eff / 2` (→ %). Anti-windup (integral + output clamp); `turnLimited` after 300 ms saturated.
+- **TurnProfile:** ω = `min(max_rate, √(2·decel·|error|))`; radius → `v = ω·r` (arc), none → `v = 0` (spin).
+- **MoveProfile:** trapezoid (accel, cruise = speed_pct, decel) with heading hold; distance from `EncoderSpeed::travelledMm()`.
+- **Mixer:** `L = v − Δ`, `R = v + Δ`; if > 100 % scale both while preserving the difference (turning priority); pivot fallback: inner target below keep threshold (non-zero) → 0.
+- **SpeedController:** OpenLoop `pwm = deadband.map(target%)`; EncoderPid `target_cps = target% × max_cps[track]`, `pwm = ff(target) + PID(target_cps, measured)`; encoder fault → OpenLoop + `encoder_fault`. Then BatteryComp: `pwm × V_nom / V_batt`, capped to `motor_v_max` (6 V).
+- **Deadband:** `(0,100] → [keep..255]` per track/direction; 60 ms kick to `start` from standstill.
+- **EncoderSpeed:** window method (counts / 20 ms) when ≥ 8 counts per window, else period method; direction from command; fault = driven above deadband with no counts 0.5 s.
+- Controllers use `float` internally; integers on the wire.

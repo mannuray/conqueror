@@ -1218,7 +1218,7 @@ Flash: calibration maths moved to the ESP32 saves an estimated 3–4 K → own c
 - New error reasons/events from the ESP32 revision are added to the shared registry.
 
 ### Hardware revision (2026-10-11): Smart Car Shield V1.1 — dual-shield support (authoritative)
-User confirmed the Uno shield is **ELEGOO SmartCar Shield V1.1** (Smart Robot Car V4 family); the ESP32 board is **V1.0** (no IO13 LED). Motor driver chip to be confirmed when the tank is opened (TB6612FNG expected; DRV8835 possible).
+User confirmed the Uno shield is **ELEGOO SmartCar Shield V1.1** (Smart Robot Car V4 family); the ESP32 board is **V1.0** (no IO13 LED). **Motor driver chip confirmed by the user: TB6612FNG (2026-10-11).** Shield probe in bench bring-up still verifies the pin map (D3 standby, direction pins).
 
 | Function | **SHIELD_SMARTCAR_V11_TB6612 (default)** | SHIELD_TANK_DRV8835 |
 |---|---|---|

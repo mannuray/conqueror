@@ -72,7 +72,7 @@ Non-goals: cloud/internet remote access, multi-site deployment, multi-user accou
 | MCU | Arduino Uno (ATmega328P, 32 KB flash, 2 KB RAM) | confirmed |
 | Gateway | ELEGOO ESP32-WROVER-Camera **V1.0** (confirmed; no IO13 LED) | confirmed |
 | Camera | **OV3660** (3 MP) on 24-pin FPC | confirmed by user |
-| Uno shield / motor driver | **ELEGOO SmartCar Shield V1.1** (confirmed); driver TB6612FNG expected (DRV8835 supported too) — chip to be confirmed | build option selects shield (Spec 2 hardware revision) |
+| Uno shield / motor driver | **ELEGOO SmartCar Shield V1.1** (confirmed); driver **TB6612FNG (confirmed)**; DRV8835 kept as alternative build option | build option selects shield (Spec 2 hardware revision) |
 | Motors | stock TT gear motors → **DFRobot FIT0458** TT encoder motors (6 V, 160 RPM, 120:1) | ordered |
 | IMU | MPU6050 (gyro + accel, no magnetometer) | confirmed |
 | Distance | ultrasonic, **fixed forward** (no pan/tilt) | confirmed |

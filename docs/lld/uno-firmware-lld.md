@@ -2,7 +2,7 @@
 
 Status: IN PROGRESS · Date: 2026-10-10 · Implements: Spec 2 Part A, Spec 1 §8 · Standards: `docs/standards/coding-standards.md` §2
 
-Sections: 1 Structure & execution ✅ · 2 Ports ✅ · 3 Motion control ✅ · 4 Safety & arbitration · 5 Comms · 6 Sensors & drivers · 7 Settings, calibration, self-test · 8 Memory budget & error handling
+Sections: 1 Structure & execution ✅ · 2 Ports ✅ · 3 Motion control ✅ · 4 Safety & arbitration ✅ · 5 Comms · 6 Sensors & drivers · 7 Settings, calibration, self-test · 8 Memory budget & error handling
 
 Every section includes classes and Mermaid diagrams (class, sequence, state).
 
@@ -419,3 +419,176 @@ stateDiagram-v2
 - **Deadband:** `(0,100] → [keep..255]` per track/direction; 60 ms kick to `start` from standstill.
 - **EncoderSpeed:** window method (counts / 20 ms) when ≥ 8 counts per window, else period method; direction from command; fault = driven above deadband with no counts 0.5 s.
 - Controllers use `float` internally; integers on the wire.
+
+---
+
+## 4. Safety & arbitration (APPROVED)
+
+### 4.1 Class diagram
+```mermaid
+classDiagram
+    direction TB
+    class Arbitrator {
+      -Owner owner_
+      -uint32 ir_last_ms_
+      -uint32 drive_last_ms_
+      -uint16 ir_handback_ms_
+      +onNetwork(MotionCommand) Result
+      +onIr(IrEvent, now) IrAction
+      +update(now, link_alive) ArbitrationOut
+      +owner() Owner
+      +takeEvent(ArbEvent&) bool
+    }
+    class IrKeymap {
+      <<PROGMEM table>>
+      +lookup(uint32 code) IrKey
+    }
+    class IrAction {
+      <<struct>>
+      +ActionKind kind
+      +MotionCommand motion
+      +CameraCommand camera
+      +UiCommand ui
+    }
+    class ArbitrationOut {
+      <<struct>>
+      +MotionCommand active
+      +Owner owner
+      +uint32 drive_age_ms
+      +bool stop_requested
+    }
+    class SafetySupervisor {
+      -FaultSet latched_
+      -SafetyState state_
+      -uint16 level_ok_ms_
+      -uint16 bump_hold_ms_
+      -float stop_ramp_
+      +gate(PwmRequest, SafetyInputs, dt) SafetyOut
+      +state() SafetyState
+      +flags() uint16
+      +takeEvent(SafetyEvent&) bool
+      +clearStall()
+    }
+    class SafetyInputs {
+      <<struct>>
+      +uint16 dist_cm
+      +bool dist_valid
+      +float pitch_deg
+      +float roll_deg
+      +bool lifted
+      +bool bump
+      +float bump_g
+      +bool stall_l
+      +bool stall_r
+      +float batt_v
+      +uint32 drive_age_ms
+      +bool link_alive
+      +Owner owner
+      +bool selftest_ok
+    }
+    class SafetyOut {
+      <<struct>>
+      +PwmOutput pwm
+      +StopMode stop_mode
+      +bool blocked
+      +bool limited
+    }
+    class FaultSet {
+      <<bitmask>>
+      Tilt · Lifted · Bump · StallL · StallR
+      BattLow · BattCritical · Deadman · LinkLost · SelfTestLock
+    }
+    class Envelope {
+      +uint8 speed_cap_pct
+      +uint8 accel_cap_pct_s
+      +bool lock_brake
+      +apply(EnvelopeCmd) Result
+      +active() bool
+    }
+    class BrakeConfig {
+      +bool obstacle_brake_on
+      +uint8 stop_cm
+      +uint8 slow_cm
+      +set(bool on, const Envelope&) Result
+    }
+    class SafetyThresholds {
+      <<from Settings>>
+      +uint8 tilt_limit_deg
+      +float bump_g
+      +uint16 deadman_ms
+      +float batt_low_v
+      +float batt_crit_v
+    }
+    Arbitrator ..> IrKeymap
+    Arbitrator ..> IrAction
+    Arbitrator ..> ArbitrationOut
+    SafetySupervisor *-- FaultSet
+    SafetySupervisor --> Envelope
+    SafetySupervisor --> BrakeConfig
+    SafetySupervisor ..> SafetyThresholds
+    SafetySupervisor ..> SafetyInputs
+    SafetySupervisor ..> SafetyOut
+```
+Enums: `Owner {None, Network, Ir}` · `ActionKind {Motion, Camera, Ui, Speed, Calibrate, None}` · `SafetyState {Normal, Limited, SoftStop, Halted, Locked}` · `StopMode {None, Smooth, Brake}`. `BrakeConfig.obstacle_brake_on` is always true at boot.
+
+### 4.2 Owner state machine
+```mermaid
+stateDiagram-v2
+    [*] --> None
+    None --> Network : network motion command
+    Network --> None : idle beyond handback window
+    None --> Ir : IR motion key
+    Network --> Ir : IR motion key → STOP, ir_override, control_changed
+    Ir --> None : 3 s without IR keys or IR OK → STOP, control_changed
+    Ir --> Ir : network motion → rejected NOT_OWNER
+```
+- The ESP32 already arbitrated human vs AI; the Uno sees "network" tagged with its source.
+- Non-motion IR keys act via `IrAction` without changing the owner. STOP from any source always applies.
+
+### 4.3 Safety supervisor state machine
+```mermaid
+stateDiagram-v2
+    [*] --> Locked : self-test critical fail
+    [*] --> Normal : self-test ok
+    Normal --> Limited : obstacle slow zone / envelope active
+    Limited --> Normal : clear
+    Normal --> SoftStop : deadman / link lost
+    Limited --> SoftStop : deadman / link lost
+    SoftStop --> Normal : fresh command after recovery
+    Normal --> Halted : tilt / lifted / bump / critical battery
+    Limited --> Halted : tilt / lifted / bump / critical battery
+    SoftStop --> Halted : hard fault
+    Halted --> Normal : all latched faults cleared
+```
+
+### 4.4 `gate()` rules (every 10 ms, in order)
+1. **Locked** → motors 0.
+2. **Hard faults → Halted, brake now:** tilt > limit (clears after level 1 s) · lifted (clears on landed) · bump > threshold (300 ms hold) · critical battery 2 s (clears above crit + 0.3 V hysteresis).
+3. **Stall (per track):** cut that track until the commanded direction changes or 1 s.
+4. **Deadman / link lost → SoftStop:** ramp to 0 over ~300 ms; recover on a fresh command.
+5. **Obstacle brake (if on):** split into `v = (L+R)/2`, `Δ = (R−L)/2`; if `v > 0` scale `v` by `clamp((dist − stop)/(slow − stop), 0, 1)`; recombine. Reverse and spin stay allowed; `blocked` at 0.
+6. **Envelope:** final `|v| ≤ speed_cap`; accel cap also passed to the Ramp.
+7. Output + events (blocked/unblocked, tilted/level, lifted/landed, bump{g}, stall{side}, deadman_stop, batt_low/critical, envelope_changed).
+
+Ownership: the Uno applies envelope/brake; the **ESP32 enforces who may change them**; the Uno still rejects "brake off" while `lock_brake` (defence in depth).
+
+### 4.5 IR override sequence
+```mermaid
+sequenceDiagram
+    participant IR as IR remote
+    participant A as Arbitrator
+    participant F as SafetySupervisor
+    participant T as TelemetryBuilder
+    participant E as ESP32
+    IR->>A: ▲ key (NEC frame)
+    A->>A: owner Network → Ir
+    A-->>F: stop_requested (one tick)
+    A-->>T: events ir_override, control_changed(ir)
+    T->>E: EVENT frames + owner in TELEM_SLOW
+    E-->>E: network commands now get NOT_OWNER
+    IR->>A: repeat codes (held)
+    A-->>F: Drive v=speed%, w=0
+    Note over A: 3 s without keys or OK key
+    A->>A: owner Ir → None, STOP
+    A-->>T: control_changed(none)
+```

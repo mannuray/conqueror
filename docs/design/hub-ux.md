@@ -199,3 +199,9 @@ Full-size snapshot/clip; zoom/pan (3 MP stills); info (time, tank, resolution, t
 - Typed confirmation (type the tank name): unpair, clear calibration, reset settings, delete surface profile.
 - Simple confirm: delete recording/snapshot/mission, revoke key, sign out other sessions.
 - **Never confirm safety actions:** STOP, ending child-play.
+
+## Visual design (Google Stitch)
+- Stitch project: "Conqueror Hub" (`projects/9914699709114202518`), design system **Phosphor Cockpit** (`assets/10357344405480861504`).
+- **Look (DECIDED):** retro green-phosphor CRT terminal, dark only. Phosphor green #33FF66 = UI colour on near-black; **status colours are not green** (amber #FFB000 warning, red #FF3B30 danger/STOP, white-green #E8FFE8 active), always with icon + text. JetBrains Mono for labels/numbers, IBM Plex Sans for prose. Glow/scanlines **only on chrome, never over video or map**. 4 px corners, bracketed section titles `[ STATUS ]`.
+- Screens: `docs/design/stitch/` (vN = iteration).
+  - `03-cockpit-v1.png` — first Cockpit draft (review notes below).

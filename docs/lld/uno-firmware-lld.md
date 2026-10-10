@@ -2,7 +2,7 @@
 
 Status: IN PROGRESS · Date: 2026-10-10 · Implements: Spec 2 Part A, Spec 1 §8 · Standards: `docs/standards/coding-standards.md` §2
 
-Sections: 1 Structure & execution ✅ · 2 Ports ✅ · 3 Motion control ✅ · 4 Safety & arbitration ✅ · 5 Comms ✅ · 6 Sensors & drivers · 7 Settings, calibration, self-test · 8 Memory budget & error handling
+Sections: 1 Structure & execution ✅ · 2 Ports ✅ · 3 Motion control ✅ · 4 Safety & arbitration ✅ · 5 Comms ✅ · 6 Sensors & drivers ✅ · 7 Settings, calibration, self-test · 8 Memory budget & error handling
 
 Every section includes classes and Mermaid diagrams (class, sequence, state).
 
@@ -740,3 +740,143 @@ sequenceDiagram
     Note over C: next 10 ms tick uses the new command
     C->>C: arbitration → primitives → … → safety → motors
 ```
+
+---
+
+## 6. Sensors, estimation & drivers (APPROVED)
+
+### 6.1 Drivers (`drivers/`, implement ports)
+```mermaid
+classDiagram
+    direction LR
+    class Drv8835Motor { <<driver: motor>> PWM D5/D6 Timer0 · DIR D8/D7 }
+    class EncoderIsr { <<driver: encoders>> D3 INT1 rising · A1 PCINT1 · volatile counts + edge µs }
+    class Mpu6050 { <<driver: imu>> I2C 0x68 400 kHz · burst 0x3B ×14 · Wire timeout 3 ms }
+    class PcInt0Hub { <<ISR>> PINB diff → NecDecoder.edge / EchoTimer.edge }
+    class EchoTimer { <<driver: ultrasonic>> TRIG D13 · ECHO D12 · rise/fall µs }
+    class NecDecoder { <<driver: ir>> edge state machine · 4-entry queue }
+    class Ws2812 { <<driver: led>> D4 bit-bang 800 kHz · 24 bits }
+    class ServoDriver { <<driver: servos>> Servo lib Timer1 · D10 pan · D11 tilt }
+    class ToneDriver { <<driver: tone>> tone() Timer2 · A0 }
+    class BatteryAdc { <<driver: battery_adc>> A3 · 4-sample avg · divider scale }
+    class ButtonDriver { <<driver: button>> D2 pull-up · 20 ms debounce }
+    class UartLink { <<driver: link>> Serial 115200 · 64/64 B }
+    class EepromStore { <<driver: eeprom>> EEPROM.update }
+    class WatchdogDriver { <<driver: watchdog>> wdt 1 s · MCUSR captured early }
+    class BoardConfig { <<header>> all pins + constants }
+    PcInt0Hub --> NecDecoder
+    PcInt0Hub --> EchoTimer
+    Drv8835Motor ..> BoardConfig
+    EncoderIsr ..> BoardConfig
+    Mpu6050 ..> BoardConfig
+```
+MPU6050 init: `PWR_MGMT_1=0x01` (PLL), `SMPLRT_DIV=4` (200 Hz), `CONFIG=0x03` (~44 Hz DLPF), gyro ±250 °/s, accel ±2 g; `WHO_AM_I=0x68` checked by self-test.
+
+| ISR | Pins | Work (capture only, < 10 µs) |
+|---|---|---|
+| INT1_vect | D3 left encoder | `count_l += dir_l`, edge time |
+| PCINT1_vect | A1 right encoder | same, right |
+| PCINT0_vect | D9 IR, D12 echo | read PINB, diff, forward edge + µs |
+| USART, TIMER0/1/2 | — | Arduino core, Servo, tone |
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> LeadMark : falling edge
+    LeadMark --> LeadSpace : mark ≈ 9 ms
+    LeadMark --> Idle : other
+    LeadSpace --> Bits : space ≈ 4.5 ms
+    LeadSpace --> Repeat : space ≈ 2.25 ms
+    Repeat --> Idle : push(last_code, repeat)
+    Bits --> Bits : bit (562 µs mark + 562/1687 µs space)
+    Bits --> Idle : 32 bits → push(code) · bad timing → error++
+```
+
+### 6.2 Estimation (`domain/estimation/`, pure)
+```mermaid
+classDiagram
+    direction TB
+    class ImuCalibration { <<from Settings>> +int16 gyro_bias[3] +float level_pitch +float level_roll }
+    class AttitudeEstimator { -float pitch_, roll_ +float alpha +update(ImuRaw, dt) Attitude }
+    class YawIntegrator { -float yaw_deg_ -float bias_dps_ -uint16 still_ms_ +update(gz_raw, dt, stationary) float +rateDps() float +reset(deg) }
+    class BumpDetector { -float a_lp_ +update(ImuRaw, driving) BumpResult }
+    class LiftDetector { -LiftState state_ +update(ImuRaw, Attitude, TrackSpeeds, PwmRequest) LiftResult }
+    class UltrasonicFilter { -uint16 last_[3] +update(EchoState, echo_us, now) Range }
+    class BatteryMonitor { -float v_ema_ -float v_idle_, v_load_ -BattState state_ +update(mv, driving, dt) Battery }
+    class Attitude { <<struct>> +float pitch_deg +float roll_deg +float accel_g }
+    YawIntegrator ..> ImuCalibration
+    AttitudeEstimator ..> ImuCalibration
+    AttitudeEstimator ..> Attitude
+    LiftDetector ..> Attitude
+```
+- Attitude: complementary filter (α = 0.98) minus level offsets.
+- Yaw: integrate `gz − bias`; **auto bias re-estimation** when not driven, encoders still, |rates| < 0.5 °/s for 5 s.
+- Bump: |a| minus its low-pass; spike > `bump_g` → bump + direction (x-axis sign).
+- Lift: any of vertical transient while not driving · sudden tilt change · (encoders) free-spin vs calibrated on-ground speed; landed = level + steady 1 g for 1 s.
+- Ultrasonic: median of 3; Timeout = no obstacle in range; closing speed over 50 ms.
+- Battery: EMA volts; sag = idle − loaded; low/critical need 2 s sustained.
+
+### 6.3 Camera head (`domain/camera/`)
+```mermaid
+classDiagram
+    class CameraHead {
+      -HeadMode mode_
+      -ServoProfile pan_, tilt_
+      -uint32 joy_release_ms_
+      +joy(int8 x, int8 y, bool active, now)
+      +set(float pan, float tilt, float speed)
+      +nudge(float dpan, float dtilt)
+      +home()
+      +lock(bool on)
+      +update(now, dt) ServoOut
+    }
+    class ServoProfile { -float pos_, vel_, target_ +moveTo(deg, max_speed, accel) +update(dt) float +moving() bool }
+    class ServoLimits { <<from Settings>> +pan_min/max +tilt_min/max +trim_pan +trim_tilt +idle_detach }
+    CameraHead *-- ServoProfile
+    CameraHead ..> ServoLimits
+```
+```mermaid
+stateDiagram-v2
+    [*] --> Home
+    Home --> Joy : joy active
+    Joy --> Joy : stick moves
+    Joy --> Home : released + return delay (unless locked)
+    Joy --> Locked : lock on
+    Locked --> Home : lock off
+    Home --> Hold : set / nudge
+    Joy --> Hold : set / nudge
+    Hold --> Home : home
+    Hold --> Joy : joy active
+```
+Trapezoidal motion at 50 Hz in µs; limits + trim applied last; optional idle detach at home.
+
+### 6.4 Sound & LED (`domain/ui/`)
+```mermaid
+classDiagram
+    class SoundSequencer {
+      -Layer layers_[4]
+      -AudioMode mode_
+      +trigger(SoundId)
+      +triggerCustom(const Note*, uint8 n)
+      +stopRepeating(SoundId)
+      +update(now) ToneOut
+    }
+    class LedSequencer {
+      -Layer layers_[4]
+      -Rgb base_
+      +trigger(PatternId)
+      +custom(LedMode, Rgb, period, duration)
+      +setOwner(Owner)
+      +update(now) LedOut
+    }
+    class SoundCatalogue { <<PROGMEM>> id → priority, notes[], repeat_ms }
+    class LedCatalogue { <<PROGMEM>> id → priority, mode, colours[], period_ms }
+    class Note { <<struct>> +uint16 hz +uint16 ms }
+    SoundSequencer ..> SoundCatalogue
+    SoundSequencer ..> Note
+    LedSequencer ..> LedCatalogue
+```
+- Highest active layer plays; lower layers pause and resume (not lost).
+- Audio mode: Mute → priority 1 only; Quiet → 1–2; Normal → all.
+- Catalogues = tables in Spec 2 §A9; new sound/pattern = new table row (OCP).
+- LED written only on colour change.

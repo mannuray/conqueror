@@ -1,8 +1,8 @@
 # ESP32 Firmware — Low-Level Design
 
-Status: IN PROGRESS · Date: 2026-10-10 · Implements: Spec 2 Part B, Spec 1 · Standards: `docs/standards/coding-standards.md` §3
+Status: COMPLETE (all sections approved; independent review pending) · Date: 2026-10-10 · Implements: Spec 2 Part B, Spec 1 · Standards: `docs/standards/coding-standards.md` §3
 
-Sections: 1 Structure, tasks & frameworks ✅ · 2 Ports ✅ · 3 Body link & clock sync ✅ · 4 Client API ✅ · 5 Navigation ✅ · 6 Camera service ✅ · 7 Calibration engine ✅ · 8 WiFi, mDNS, OTA & storage · 9 Memory/task budget & error handling
+Sections: 1 Structure, tasks & frameworks ✅ · 2 Ports ✅ · 3 Body link & clock sync ✅ · 4 Client API ✅ · 5 Navigation ✅ · 6 Camera service ✅ · 7 Calibration engine ✅ · 8 WiFi, mDNS, OTA & storage ✅ · 9 Memory/task budget & error handling ✅
 
 Note: UART is **250000 baud** and calibration maths runs here (Uno LLD §9 revision).
 
@@ -791,3 +791,123 @@ sequenceDiagram
     K->>K: markDone
     K-->>UI: done
 ```
+
+---
+
+## 8. WiFi, mDNS, OTA & storage (APPROVED)
+
+```mermaid
+classDiagram
+    direction TB
+    class WifiTask { <<core 0 · prio 1>> -WifiManager mgr_ +run() }
+    class WifiManager {
+      -WifiState state_
+      -Creds creds_[3]
+      -uint8 attempt_
+      +step(now) WifiAction
+      +addNetwork(Creds) Result
+      +forget(ssid) Result
+      +forceAp(bool)
+    }
+    class SetupPortal { <<gzipped pages in flash>> +firstRunPage() +statusPage() }
+    class MdnsService { +start(hostname, txt) +refresh() }
+    class OtaService {
+      -OtaState state_
+      +begin(Role, size) Result
+      +chunk(data, len) Result
+      +finish() Result
+      +verifyAfterBoot(TankSnapshot, now)
+    }
+    class ConfigStore {
+      <<NVS facade>>
+      +wifi() +tank() +keys() +admin() +envelope() +camera() +missions() +cal() +life() +sys()
+      +factoryReset(scope)
+    }
+    class LogRing { <<PSRAM, 200 lines>> +append(level, tag, msg) +read(cursor) }
+    WifiTask *-- WifiManager
+    WifiTask --> MdnsService
+    WifiTask --> SetupPortal
+    OtaService --> ConfigStore
+    WifiManager --> ConfigStore
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> FirstRun : no admin password
+    [*] --> TrySaved : configured
+    FirstRun --> FirstRun : open AP + captive portal (setup only)
+    FirstRun --> TrySaved : setup saved (admin pw, AP WPA2 pw, optional WiFi)
+    TrySaved --> Station : connected (≤ 15 s)
+    TrySaved --> AccessPoint : none reachable → WPA2 AP + portal
+    Station --> Reconnecting : link lost
+    Reconnecting --> Station : reconnected (backoff 1,2,4,8 s…)
+    Reconnecting --> ApSta : down 2 min → AP + STA
+    ApSta --> Station : home network back → AP off
+    AccessPoint --> TrySaved : rescan every 60 s
+```
+- WiFi drop: Uno deadman already stopped the tank; after 2 min the tank also opens its own hotspot (AP+STA).
+- mDNS re-announced on IP change; SNTP on home WiFi (log timestamps only).
+- WiFi reset (Uno D2 5 s at boot) clears only saved networks.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Receiving : admin upload
+    Receiving --> Receiving : chunks → inactive partition
+    Receiving --> Failed : bad chunk / disconnect → abort
+    Receiving --> Validating : complete
+    Validating --> Rebooting : valid → set boot partition
+    Validating --> Failed : invalid
+    Rebooting --> PendingVerify : new image boots
+    PendingVerify --> Committed : Uno synced + network up ≤ 60 s → markValid
+    PendingVerify --> RolledBack : timeout / crash
+```
+After update: Uno protocol checked → `body_incompatible` warning if mismatched.
+
+| NVS namespace | Keys |
+|---|---|
+| wifi | n0..n2 (ssid + pass) |
+| tank | name, hostname, AP SSID, AP password (plain for the WiFi driver; optional NVS encryption) |
+| admin | salt, PBKDF2 hash |
+| keys | k0..k15 KeyRecords |
+| envelope | current envelope |
+| camera | settings per sensor |
+| missions | m0..m7 |
+| cal | status per item, profile names p0..p2, roughness signatures |
+| life | distance, runtime, power-ons |
+| sys | last reboot reason / WDT culprit |
+Each namespace versioned; corrupt/old → defaults + `settings_reset` (others unaffected). Factory reset (admin): wifi / keys / all.
+
+---
+
+## 9. Memory, task budget & error handling (APPROVED)
+
+| Internal RAM (≈ 320 KB) | KB |
+|---|---|
+| WiFi + LwIP + system | ~90 |
+| Task stacks (BodyLink 4, Control 6, Nav 4, Telemetry 6, Calibration 6, Camera 4, Viewers 2×3, WiFi 4, OTA 4, HTTP 2×6) | ~56 |
+| JSON pool | 16 |
+| Sessions, queues, TankState, arbitration | ~14 |
+| **Total ≈ 176 KB → ≥ 100 KB free (alert < 40 KB)** | |
+
+| PSRAM (4 MB) | KB |
+|---|---|
+| Camera buffers + frame pool | ~300 |
+| Full capture (temporary) | ~400 |
+| Calibration samples | ~50 |
+| Log ring, missions | ~40 |
+Core 1 load < 25 % expected; core 0 carries WiFi + JPEG + streaming. Stack high-water marks and core loads in `esp` telemetry.
+
+| Failure | Behaviour |
+|---|---|
+| UART frame errors | counted, dropped |
+| Uno silent 300 ms | body_offline; motion BODY_OFFLINE; HELLO_REQ |
+| Uno proto mismatch | body_incompatible; motion refused; camera works |
+| Camera timeouts ×5 | re-init + camera_reset |
+| WiFi lost | Uno deadman stopped; reconnect / AP+STA after 2 min |
+| NVS namespace corrupt | defaults + settings_reset |
+| Free heap < 40 KB | new sessions BUSY, warning, log |
+| JSON pool exhausted | nack BUSY |
+| Task watchdog | reboot; culprit + reason in RTC |
+| OTA failure | old image kept / rolled back |
+Errors use the shared code/reason registry. Logs: ESP-IDF on USB serial + 200-line ring at `/api/logs` (admin), collected by the hub.

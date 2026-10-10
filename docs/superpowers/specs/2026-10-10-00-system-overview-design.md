@@ -80,7 +80,7 @@ Non-goals: cloud/internet remote access, multi-site deployment, multi-user accou
 | LED | **1×** WS2812 RGB (D4) | confirmed |
 | Buzzer | **passive** piezo in the old line-sensor port (A0–A2) | type confirmed |
 | IR | NEC receiver (D9), kit remote "A" | confirmed |
-| Compass | **none** (deferred; see §8) | decided |
+| Compass | **none — dropped (out of scope, 2026-10-11)** | decided |
 
 ### Hardware facts and remaining assumptions
 - **Battery: 2S Li-ion (7.4 V nominal, 8.4 V full) — CONFIRMED by user.** Battery thresholds 7.0 V low / 6.6 V critical; 6 V motor cap.
@@ -96,7 +96,7 @@ Non-goals: cloud/internet remote access, multi-site deployment, multi-user accou
 |---|---|---|
 | 1 | Gyro only, stock motors | supported (no distance/navigation) |
 | 2 | **Gyro + encoders** | **target** |
-| 3/4 | + compass | future option (§8) |
+| 3/4 | + compass | **dropped** |
 
 Firmware runs on both 1 and 2. Encoders are enabled by a setting; if enabled but silent while driven → fault + fallback to open-loop.
 
@@ -113,15 +113,19 @@ Capabilities by configuration:
 | Pose (x, y), go-to-point, return home, waypoints | ❌ (API reports unavailable) | ✅ short/medium missions (heading drifts over minutes) |
 
 ## 7. Out of scope / deferred
-- Compass (magnetometer or 9-axis IMU) — §8.
+- Compass (magnetometer or 9-axis IMU) — **dropped** (more nuisance than help; gyro + encoders suffice; camera can correct long-run drift). §8 kept as historical record only.
 - Mobile app (separate future project; uses the same client API).
 - Uno over-the-air updates (USB only).
 - Formal test strategy / simulator (deferred by user; a real-tank safety checklist is kept — spec 2 §9).
 - Cloud, internet access, multi-user accounts, TLS (LAN plain HTTP/WS accepted for home use).
 - VLA robot-action models (arm-oriented; revisit later).
 
-## 8. Future option: compass
+## 8. Compass (DROPPED 2026-10-11 — historical record only)
 - **F1:** GY-271 "HMC5883L" board (usually a QMC5883L clone; equivalent for this use) on the shared I2C bus; auto-detect 0x0D/0x1E; mount ≥10 cm from motors.
 - **F2:** one 9-axis board replacing the MPU6050 role (ICM-20948 best; GY-87 easiest; BNO055 on-chip fusion). Use address 0x69 if the onboard MPU6050 stays.
 - A compass can never replace the MPU6050 (turn PID and lift/tilt safety need the gyro/accelerometer).
 - Fusion rules if added: gyro primary; compass slow drift correction; reject when inconsistent with gyro, at high motor current, or abnormal field magnitude; self-calibration by a slow 360° spin.
+
+## 9. Mounting (DECIDED 2026-10-11)
+- Uno + SmartCar Shield V1.1 stays in the **stock baseplate position** (all switches/sockets accessible).
+- Single mount → **no mount build option**: IMU axis mapping is a constant in `drivers/board_config.h`, measured once at bring-up; the bench tool's mount check (gravity axis + hand-rotate yaw sign) verifies it on every connection.

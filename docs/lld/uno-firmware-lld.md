@@ -1238,3 +1238,7 @@ Firmware: `drivers/board_config.h` build option selects the shield; only the mot
 - **Uno updates stay USB-only** (shield switch S1). Reason recorded: the ESP32↔Uno connector P1 carries only RX(IO33)/TX(IO4)/GND/VCC — no reset line, so the ESP32 cannot put the Uno into its bootloader. Future option (not planned): one wire ESP32 pad T14 (IO13) → 100 nF → Uno RESET + STK500 flashing from the ESP32 (esp-link approach).
 - ESP32 self-OTA unchanged (dual partitions + rollback).
 - 2022.03.23 ELEGOO package reviewed: its ESP32-WROVER-Camera-V1.2 schematic is identical to the one already used.
+
+### Decision (2026-10-11): mounting and compass
+- Compass dropped (no magnetometer support anywhere). IMU = MPU6050 on the shield socket.
+- Stock baseplate mount; IMU axis mapping constant in `board_config.h`, measured at bring-up; bench mount check verifies (gravity → up axis, hand rotation → yaw sign).

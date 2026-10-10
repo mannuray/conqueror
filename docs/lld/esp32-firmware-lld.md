@@ -2,7 +2,7 @@
 
 Status: IN PROGRESS · Date: 2026-10-10 · Implements: Spec 2 Part B, Spec 1 · Standards: `docs/standards/coding-standards.md` §3
 
-Sections: 1 Structure, tasks & frameworks ✅ · 2 Ports ✅ · 3 Body link & clock sync ✅ · 4 Client API ✅ · 5 Navigation · 6 Camera service · 7 Calibration engine · 8 WiFi, mDNS, OTA & storage · 9 Memory/task budget & error handling
+Sections: 1 Structure, tasks & frameworks ✅ · 2 Ports ✅ · 3 Body link & clock sync ✅ · 4 Client API ✅ · 5 Navigation ✅ · 6 Camera service · 7 Calibration engine · 8 WiFi, mDNS, OTA & storage · 9 Memory/task budget & error handling
 
 Note: UART is **250000 baud** and calibration maths runs here (Uno LLD §9 revision).
 
@@ -424,4 +424,115 @@ sequenceDiagram
     Note over H: 5 s without input
     A-->>B: STOP
     A-->>G: control_changed(none) · control_returned → AI
+```
+
+---
+
+## 5. Navigation (APPROVED)
+
+### 5.1 Class diagram
+```mermaid
+classDiagram
+    direction TB
+    class NavigationTask {
+      -PoseEstimator pose_
+      -MissionRunner runner_
+      +run()
+      +onCommand(NavCommand)
+      +onPrimitiveDone(PrimitiveDone)
+    }
+    class PoseEstimator {
+      -Pose pose_
+      -int32 last_enc_[2]
+      -bool valid_
+      +update(TankFast, counts_per_cm) Pose
+      +setOrigin()
+      +homeDistanceCm() float
+    }
+    class Pose { <<struct>> +float x_cm +float y_cm +float theta_deg +bool valid }
+    class MissionRunner {
+      -RunState state_
+      -Route route_
+      -uint8 idx_
+      -uint8 replans_
+      -uint32 blocked_since_
+      -SourceRef owner_
+      +start(Route, speed, SourceRef) Result
+      +cancel(Reason)
+      +step(Pose, TankFast, now) RunnerAction
+      +onPrimitiveDone(PrimitiveDone)
+      +progress() Progress
+    }
+    class PathPlanner { +plan(Pose, Waypoint target, Waypoint* next) Segments }
+    class Segment { <<struct>> +SegKind kind +float value +uint16 radius_cm +uint8 speed }
+    class Route { <<struct>> +Waypoint pts[32] +uint8 n +bool loop +bool return_heading }
+    class MissionStore { <<NVS>> +list() +get(id) Mission +put(Mission) +erase(id) }
+    class Mission { <<struct>> +uint8 id +char name[24] +Route route +uint8 speed }
+    NavigationTask *-- PoseEstimator
+    NavigationTask *-- MissionRunner
+    MissionRunner --> PathPlanner
+    PathPlanner ..> Segment
+    MissionRunner ..> Route
+    MissionStore ..> Mission
+    PoseEstimator ..> Pose
+```
+`SegKind {TurnTo, TurnArc, MoveDist, FinalHeading}`; MissionStore ≤ 8 missions × 32 points.
+
+### 5.2 Pose integration (20 Hz)
+- `Δd = mean(ΔencL, ΔencR) / counts_per_cm`; θ = Uno gyro yaw (source of truth; encoders not trusted for heading).
+- Midpoint integration `x += Δd·cos(θ_mid)`, `y += Δd·sin(θ_mid)`.
+- Uno reboot (counts jump to 0) → skip step, keep pose, raise `pose_degraded`.
+- No encoders → `valid = false`, nav commands `UNAVAILABLE`.
+- `nav_set_origin` → (0,0,0); `home_dist_cm` published.
+
+### 5.3 Path planning
+- Heading change ≤ 90° and distance ≥ 2 × radius → **arc** (`TURN to bearing`, radius `min(30 cm, dist/2)`) + `MOVE` remainder; else **spin** + `MOVE`.
+- Residual > 5 cm after MOVE → re-plan (max 3), then continue with `waypoint_inaccurate`.
+- Return home = go-to (0,0) then turn to θ = 0.
+
+### 5.4 Mission runner state machine
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Planning : start(route), owner = requester
+    Planning --> Turning : TurnTo / TurnArc → TURN
+    Planning --> Moving : MoveDist → MOVE
+    Turning --> Planning : primitive_done ok
+    Moving --> Arrived : primitive_done ok
+    Arrived --> Planning : residual > 5 cm and replans < 3
+    Arrived --> Planning : next waypoint
+    Arrived --> Done : last waypoint (loop → first)
+    Moving --> Blocked : obstacle brake engaged
+    Blocked --> Moving : clear within 5 s → re-plan
+    Blocked --> Failed : 5 s → BLOCKED
+    Turning --> Failed : primitive_done fail
+    Moving --> Failed : primitive_done fail
+    Planning --> Failed : owner lost → PREEMPTED
+    Turning --> Failed : link lost → LINK_LOST
+    Moving --> Failed : link lost → LINK_LOST
+    Done --> Idle : nav_done ok
+    Failed --> Idle : STOP sent
+```
+- Missions run under the requester's ownership (frames tagged with its source, normal arbitration); preemption → `PREEMPTED`, never silently resumed.
+- Progress via `primitive` telemetry and `nav_progress` events.
+
+### 5.5 Go-to sequence
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant G as WsGateway/ControlTask
+    participant N as NavigationTask
+    participant B as BodyLinkTask
+    participant U as Uno
+    C->>G: nav_goto {x:120, y:40, speed:40}
+    G->>N: NavCommand (owner = C)
+    N->>N: plan → TurnArc(18°, r=30) + Move(118 cm)
+    N->>B: TURN to 18° radius 30
+    B->>U: frame
+    U-->>B: primitive_done ok
+    B-->>N: event
+    N->>B: MOVE 118 cm at 18°
+    U-->>B: primitive_done ok
+    N->>N: residual 3 cm → arrived
+    N-->>C: ev nav_done ok
 ```

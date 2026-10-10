@@ -144,3 +144,17 @@ optional PWM, slip %, roughness, temperature, Uno load, WiFi, link delay, encode
 
 **G. Phone:** range chips; player on top; charts stacked and swipeable; lists below.
 **H. Guest:** read-only (watch, scrub, view events; no delete/export/rename).
+
+### Screen 5 — Tank settings (per tank) (APPROVED)
+Layout: left section menu (list on phone) + content. Every section uses a **Save / Discard** bar; concurrent edits → "changed elsewhere — reload?" (ETag); each setting shows its default and a short "why it matters" hint. Guest: no access.
+
+1. **Overview** — rename; ID; firmware (Uno, ESP32), protocol, camera sensor (OV3660), hardware config (encoders); **calibration health** (X of 12 OK, missing/stale → Fix); **Run full setup wizard**.
+2. **Driving** (added) — default max speed, acceleration limit, turn-rate max, turn-rate-vs-speed curve (2-point editor), reverse steering **Car**/Tank, pivot fallback, joystick deadzone + expo (app-side), tilt sensitivity, encoders enabled + counts/rev.
+3. **Safety** — obstacle stop/slow distances (diagram), tilt limit, bump sensitivity, deadman timeout, battery low/critical, handback timers (IR 3 s, human 5 s), child-play preset values (speed cap, accel cap; brake always locked), parking beeps.
+4. **Calibration** — all items with status (missing/OK/stale), last done, surface profile, **Run** → Calibration stepper; full setup wizard.
+5. **Surface profiles** — list (≤3): name, active, last calibrated, roughness signature; activate / create (copy) / rename / delete; auto-switch toggle; suggestion history.
+6. **Camera** — resolution, quality, flip/mirror, brightness/contrast/saturation (live preview); pan/tilt limits, trim, speed, return-home delay, idle power-off; **camera + depth benchmark** (run, history, side-by-side compare).
+7. **Sounds & LED** — audio mode normal/quiet/mute; preview every sound and LED pattern; optional cue toggles (forward chirp, reverse beeps, parking beeps); LED brightness.
+8. **Keys & access** — tank keys (name, role, created, last used); create (shown once + QR for the phone app) / revoke; hub pairing status.
+9. **Network & firmware** — current WiFi, signal, saved networks (link to the tank setup page), hotspot name; firmware versions + compatibility; ESP32 OTA upload with progress; Uno USB update instructions.
+10. **Danger zone** (typed confirmation) — **Reset settings to defaults keeps calibration data** (DECIDED; resets preferences and limits only) · Clear calibration (separate action) · Unpair tank.

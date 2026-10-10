@@ -158,3 +158,15 @@ Layout: left section menu (list on phone) + content. Every section uses a **Save
 8. **Keys & access** — tank keys (name, role, created, last used); create (shown once + QR for the phone app) / revoke; hub pairing status.
 9. **Network & firmware** — current WiFi, signal, saved networks (link to the tank setup page), hotspot name; firmware versions + compatibility; ESP32 OTA upload with progress; Uno USB update instructions.
 10. **Danger zone** (typed confirmation) — **Reset settings to defaults keeps calibration data** (DECIDED; resets preferences and limits only) · Clear calibration (separate action) · Unpair tank.
+
+### Screen 6 — Hub settings (APPROVED, admin only)
+Layout as Tank settings (section menu + Save/Discard bar).
+
+1. **Overview** — hub name, version, uptime, host (Docker/native, CPU/arch); health checks (DB, tank manager, storage, AI engine); paired tanks online/offline.
+2. **Health & metrics** — live cards (HTTP rate/errors, WS clients browsers/AI, per-tank telemetry rate, command latency send → ack, video relay fps + dropped frames, event-loop lag, memory, CPU); small charts (last hour/day); links to `/metrics` and OpenTelemetry export status.
+3. **Logs** — live tail + search (level, text, tank, time range, **request ID** = everything for one command); expand to JSON, copy, download range; runtime log level (info/debug).
+4. **AI engine** — connection, detected hardware tier (+ override), preset; **capabilities table** (model, runtime, licence, status/reason, fps/latency, swap ▾); **LLM profiles** Fast/Smart/Vision (provider, model, time budget, fallback chain, "Test" shows real round-trip); cloud API keys (masked, write-only); optional plugins (3D mapping, face identity **off**, alternative depth) with licence warnings; voice STT/TTS + voice preview; **model registry** (sizes, licences, delete).
+5. **Account & access** — change admin password; guest access on/off + PIN + visibility; active sessions (sign out others); regenerate AI engine service token.
+6. **Storage & retention** — usage by kind (telemetry DB, recordings, snapshots, logs, models); caps/retention (telemetry 7 d raw / 90 d downsampled, recordings GB cap, alert clips, logs 7 d / 200 MB); Clean up now.
+7. **Backup** (DECIDED: keep) — download backup (settings, tanks, missions, tank keys encrypted, AI memory; recordings optional) · restore from file.
+8. **About** — versions (hub, web, AI engine, protocol), bundled licences, GitHub link.

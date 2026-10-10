@@ -1,8 +1,8 @@
 # Uno Firmware — Low-Level Design
 
-Status: IN PROGRESS · Date: 2026-10-10 · Implements: Spec 2 Part A, Spec 1 §8 · Standards: `docs/standards/coding-standards.md` §2
+Status: COMPLETE (all sections approved) · Date: 2026-10-10 · Implements: Spec 2 Part A, Spec 1 §8 · Standards: `docs/standards/coding-standards.md` §2
 
-Sections: 1 Structure & execution ✅ · 2 Ports ✅ · 3 Motion control ✅ · 4 Safety & arbitration ✅ · 5 Comms ✅ · 6 Sensors & drivers ✅ · 7 Settings, calibration, self-test · 8 Memory budget & error handling
+Sections: 1 Structure & execution ✅ · 2 Ports ✅ · 3 Motion control ✅ · 4 Safety & arbitration ✅ · 5 Comms ✅ · 6 Sensors & drivers ✅ · 7 Settings, calibration, self-test ✅ · 8 Memory budget & error handling ✅
 
 Every section includes classes and Mermaid diagrams (class, sequence, state).
 
@@ -880,3 +880,116 @@ classDiagram
 - Audio mode: Mute → priority 1 only; Quiet → 1–2; Normal → all.
 - Catalogues = tables in Spec 2 §A9; new sound/pattern = new table row (OCP).
 - LED written only on colour change.
+
+---
+
+## 7. Settings, calibration & self-test (APPROVED)
+
+```mermaid
+classDiagram
+    direction TB
+    class Settings {
+      -GlobalSettings global_
+      -SurfaceProfile active_
+      -uint8 active_index_
+      -bool dirty_
+      +get(SettingId) int32
+      +set(SettingId, int32) Result
+      +activateProfile(uint8) Result
+      +save() Result
+      +loadOrDefault() LoadReport
+    }
+    class SettingDescriptor {
+      <<PROGMEM table>>
+      +SettingId id
+      +Scope scope
+      +uint8 offset
+      +Type type
+      +int32 min, max, def
+    }
+    class GlobalSettings { <<packed ~120 B>> safety thresholds · servo limits/trim · imu calib · battery scale · encoder cpr/cm · ultrasonic offset · handback · audio prefs }
+    class SurfaceProfile { <<packed ~80 B>> name[8] · deadband start/keep ×4 · max_cps ×2 · track_width_eff · turn curve · PID gains ×4 · roughness signature }
+    class EepromLayout { <<layout>> Header magic CQ · layout_version · active_profile · Block Global + CRC16 · Block Profile 0..2 + CRC16 each }
+    class CalibrationRunner {
+      -CalState state_
+      -CalKind kind_
+      -CalContext ctx_
+      +start(CalKind, uint8 profile) Result
+      +input(int32 value) Result
+      +accept() Result
+      +retry()
+      +cancel()
+      +update(CalInputs, dt) CalStep
+    }
+    class CalStep { <<struct>> +MotionCommand motion +uint8 progress +bool needs_input +bool done +int32 values[4] +ErrorCode error }
+    class SelfTest { +run(SelfTestInputs) SelfTestResult }
+    class SelfTestResult { <<struct>> +uint16 failures +bool critical +ResetReason reset }
+    Settings ..> SettingDescriptor
+    Settings *-- GlobalSettings
+    Settings *-- SurfaceProfile
+    Settings ..> EepromLayout
+    CalibrationRunner ..> CalStep
+    CalibrationRunner ..> Settings
+    SelfTest ..> SelfTestResult
+```
+- Only the **active** surface profile in RAM; others stay in EEPROM.
+- **CRC per block** → a corrupted block resets alone.
+- `SETTING_SET/GET` generic via the descriptor table (range-checked); new setting = table row + struct field.
+- EEPROM save **deferred until stopped**; `update()` writes changed bytes only.
+- Layout version mismatch → matching blocks kept, others defaulted → `settings_reset` + calibration "missing".
+- EEPROM use ≈ 450 / 1024 B.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Prepare : start(kind)
+    Prepare --> Running : preconditions ok (stopped, battery ok, level)
+    Prepare --> Failed : precondition failed
+    Running --> AwaitInput : needs measurement
+    AwaitInput --> Running : input(value)
+    Running --> Result : routine done
+    Running --> Failed : fault / timeout / IR / STOP
+    Result --> Saved : accept → Settings (+ profile)
+    Result --> Running : retry
+    Failed --> Idle
+    Saved --> Idle
+    Running --> Idle : cancel (nothing saved)
+```
+- Calibration motion = local **Calibration** source in the Arbitrator, below IR (IR/STOP abort); safety supervisor fully active; no deadman.
+- 12 routines (CalKind, VARIANT POINT): gyro bias · level · battery divider · deadband · encoder cpr · distance · track balance · track width · turn-rate curve · PID auto-tune (relay) · servo trim · ultrasonic offset; each a step function returning `CalStep`, streamed as `CAL_RESULT`.
+- **Self-test (~2 s at boot):** IMU WHO_AM_I + not saturated · battery plausible · ultrasonic echo · encoders quiet at rest · settings CRCs · reset reason. Critical (IMU, battery read) → `Locked`; non-critical → warning + degraded feature; result event + startup sound/LED.
+
+---
+
+## 8. Memory budget & error handling (APPROVED)
+
+| RAM item | Bytes |
+|---|---|
+| Arduino core + Serial (64+64) | ~160 |
+| Wire buffers | ~100 |
+| Servo lib | ~30 |
+| Settings (global + active profile) | ~200 |
+| Controllers (5 PIDs) + motion | ~180 |
+| Estimation, safety, arbitration | ~110 |
+| Camera head + UI sequencers | ~80 |
+| Comms (parser, event queue, writer) | ~140 |
+| Scheduler, ISR state, calibration, misc | ~220 |
+| Stack reserve | 400 |
+| **Total ≈ 1620 B → ~430 B headroom** | |
+
+Flash (~31.5 KB usable): core/Serial ~2.5 K · Wire ~2 K · Servo ~1 K · float math ~3 K · tone ~0.5 K · PROGMEM tables ~1.5 K · own code ~14–18 K → **~25–28 K**.
+- `-Os` + LTO; no printf / float printing.
+- **Build gates:** fail if static RAM > 1650 B or flash > 30 KB.
+- First milestone: skeleton with all drivers, measured.
+- Overflow plan (in order): shrink buffers → floats to fixed-point → drop PID auto-tune.
+
+| Category | Example | Behaviour |
+|---|---|---|
+| Recoverable | bad frame, malformed IR | count, ignore |
+| Degraded | encoder fault | OpenLoop + `encoder_fault` |
+| Degraded | ultrasonic dead | obstacle brake unavailable flag; speed cap 50 % |
+| Degraded | IMU bus error mid-run | retry 3× → `imu_fault`: heading hold off, speed cap 30 %, tilt/lift safety lost → warning sound + flag |
+| Critical at boot | IMU missing, battery implausible | `Locked` |
+| Fatal | hung task | watchdog reset, reason at next boot |
+- `Status`/`Result` enums, no exceptions; `CQ_ASSERT` debug → safe stop + error event, release → counter.
+- All error codes from the shared `protocol/errors` registry.

@@ -1,0 +1,23 @@
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
+
+# PlatformIO / Arduino builds
+.pio/
+build/
+
+# Node
+node_modules/
+dist/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Runtime data, secrets, models
+.env
+data/
+recordings/
+models/

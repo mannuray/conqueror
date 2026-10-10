@@ -1,0 +1,703 @@
+# NewConquerorTank — Design Notes (living document)
+
+Running record of every decision and open question while we brainstorm.
+Nothing here is implemented yet. Once complete, this becomes the design spec.
+
+Last updated: 2026-10-10
+
+---
+
+## 0. Process status
+- Rule (user): **complete ALL design (tank firmware + hub server) before any code.**
+- Tank firmware design sections: §20 Uno architecture APPROVED. §25 ESP32 architecture APPROVED. §26 safety/calibration/self-test APPROVED. Testing deferred (§29). Still to present: repo layout; protocol message catalogue goes in the spec.
+- AI engine design: §28 architecture APPROVED.
+- Hub server design: §24 architecture APPROVED.
+
+## 1. Goal
+
+Rewrite the ELEGOO Conqueror tank (original firmware: `../ELEGOO-Conqueror-Robot-Tank-Kit/ConquerorCar_Driver_20210104`)
+into a layered robot platform where intelligence lives off-board.
+
+## 2. Architecture (DECIDED)
+
+Three tiers:
+
+| Tier | Hardware | Role |
+|---|---|---|
+| Body | Arduino Uno | Executes commands and reports telemetry. Contains only control loops and safety reflexes, no "intelligence". |
+| Gateway | ESP32-WROVER camera board | Communication board: WiFi, camera stream, relays commands to the Uno and telemetry back. Controls the Uno. |
+| Brain | Separate server on the WiFi network (AI engine), web page, mobile app | Sends high-level commands, consumes video and telemetry. Out of scope for now; we only design the interface it uses. |
+
+### Uno responsibilities
+- Move the tank (closed-loop where possible; see §5).
+- Aim the camera with the pan/tilt servos (the ESP32 camera is mounted on them).
+- RGB LED: colours and blink patterns.
+- Buzzer: different sounds and tones.
+- Report telemetry: battery voltage/level, pan/tilt angles, ultrasonic distance, IMU (heading, tilt), motor state, faults.
+- **Local safety reflexes (DECIDED):**
+  - Stop if commands stop arriving (deadman timeout, e.g. on WiFi loss).
+  - Stop if the tank is lifted or tipped (IMU-based; the line sensor used for this is gone).
+  - Refuse to drive on critically low battery.
+- **Local manual override (DECIDED):** the IR remote drives the tank directly through the Uno, even with no WiFi or ESP32.
+
+### ESP32 responsibilities
+- **Two network modes (DECIDED):**
+  - Direct: the ESP32 runs its own access point and a phone or laptop connects straight to the tank.
+  - Network: the ESP32 joins existing WiFi (station mode) and any server, app or web page on the LAN can reach it.
+- Serve the camera stream.
+- Expose one control and telemetry API used by all clients (AI server, web UI, mobile app).
+- Bridge to the Uno over UART.
+
+### Control arbitration (DECIDED: priority levels)
+- Priority, highest first: **IR remote > human (web/mobile app) > AI server**.
+- A higher-priority source takes control immediately when it sends a motion command.
+- Handback timing (DECIDED, adjustable settings):
+  - IR → app/AI: 3 s after the last IR press, or immediately on IR **OK**.
+  - Human → AI: 5 s after the last human input, or immediately via an app "release to AI" button.
+  - On regaining control the AI gets a "control returned" event and must send a fresh command; the tank never resumes stale commands.
+  - The tank **stops on every control change** (no surprise motion).
+- **STOP / e-stop is accepted from any source at any time.**
+- All clients can always view video and telemetry.
+
+## 3. Protocol (DECIDED: new protocol)
+- Drop the ELEGOO JSON `{"N":..}` protocol. The stock ELEGOO app will no longer work.
+- The ESP32 firmware must be rewritten (it is currently an AP-only transparent relay with a `{Heartbeat}` keepalive).
+- Uno to ESP32 link format: to be defined.
+- Client to ESP32 API (e.g. WebSocket for control and telemetry, HTTP MJPEG for the camera): to be defined.
+
+## 4. Hardware inventory and pin map
+
+Pin assignments come from the original firmware and still need to be confirmed on the actual board.
+
+| Function | Uno pin | Notes |
+|---|---|---|
+| Serial to ESP32 | D0/D1 | Shared with USB |
+| Mode button | D2 | INT0 |
+| (free) | D3 | INT1 — encoder candidate |
+| RGB LED (WS2812) | D4 | 1 LED in firmware (needs verifying) |
+| Motor A PWM (right) | D5 | Timer0 |
+| Motor B PWM (left) | D6 | Timer0 |
+| Motor B dir | D7 | DRV8835 |
+| Motor A dir | D8 | DRV8835 |
+| IR receiver | D9 | |
+| Servo pan (z) | D10 | Moves the camera |
+| Servo tilt (y) | D11 | Moves the camera |
+| Ultrasonic echo | D12 | Fixed facing forward (no pan/tilt) |
+| Ultrasonic trig | D13 | |
+| Old line-sensor port | A0, A1, A2 | Line sensor removed; **buzzer now plugged into this port** |
+| Battery voltage | A3 | Divider; original scale = ADC * 0.0375 * 1.08 |
+| I2C (MPU6050) | A4/A5 | Additional I2C devices need no new pins |
+
+Sensors: MPU6050 (3-axis gyro + 3-axis accelerometer; **no magnetometer**), HC-SR04-style ultrasonic.
+Motor driver: DRV8835.
+Motors: stock **TT-format** gear motors **without encoders**; upgrade to DFRobot FIT0458 TT encoder motors (see §6d).
+
+## 5. Motor control (DECIDED direction, details open)
+
+No "dumb PWM". Layers, bottom to top:
+
+1. **Deadband / minimum PWM compensation.** Below a threshold the motor only hums (e.g. PWM 10 does nothing).
+   - Per motor, per direction: a *start* threshold (static friction) and a lower *keep-moving* threshold.
+   - Map every non-zero command onto `[threshold .. 255]`.
+   - A short "kick" pulse to break static friction when starting.
+2. **Auto-calibration.** Ramp PWM until the gyro detects motion; store thresholds in EEPROM; re-run on demand (e.g. after a surface change).
+3. **Slew-rate limiting / acceleration ramps.** Avoid jerk, gearbox shock and current spikes that brown-out and reset the Uno.
+4. **Battery-voltage compensation.** Scale PWM by V_nominal / V_battery so a given % speed stays consistent as the battery drains.
+5. **Closed-loop PID on what we can measure (gyro):**
+   - Turn-rate control (deg/s).
+   - Heading hold while driving straight.
+   - Turn to an exact angle (e.g. 90°).
+6. **Command interface:** `speed (-100..100 %)` + `turn rate (deg/s)`, not raw PWM. Raw PWM only as a debug/calibration command.
+
+Linear speed is **open-loop** with stock motors: there is no way to measure track speed, so per-track speed PID is impossible.
+
+## 6. Heading sensing and future encoder upgrade
+
+The user wants both: use heading sensing ("compass") now, and keep an option for encoder motors later.
+
+- The motor layer must be designed so encoders can be added later **without changing the command interface**:
+  - Without encoders, `speed %` is open-loop plus compensation.
+  - With encoders, `speed %` becomes a true per-track speed PID, and distance commands are added.
+- Constraint from the user: adding sensors is physically hard, and the old line-sensor port is now used by the buzzer.
+
+### Heading sensing options
+| Option | Gives | Pins | Caveat |
+|---|---|---|---|
+| MPU6050 gyro (fitted) | Precise turns, heading hold, tilt/lift detection | 0 | Heading drifts slowly over minutes |
+| + magnetometer (QMC5883L/HMC5883L), optional | Absolute heading, corrects gyro drift | 0 (shared I2C) | Must be mounted away from motors and battery |
+
+Recommendation: the gyro now; the magnetometer is auto-detected at boot if fitted later.
+
+### Encoder upgrade (future)
+- Free pins with the buzzer fitted: **2 line-port pins (A0–A2 minus the buzzer pin) + D3 = 3 pins**.
+- **2 pins = one channel per motor: viable.** Direction is inferred from the commanded direction; counts are trusted only while the motor is driven.
+- 4 pins = full quadrature: requires freeing D2 (move mode switching to IR/app). Optional.
+- Alternative: an I2C encoder-counter co-processor (0 Uno pins).
+- Motor options: encoder gear motors (e.g. JGA25-370 Hall), encoder disc + optical sensor on the stock motors, or the I2C counter board. The choice depends on the stock motor size (still unknown).
+
+### Sensor fusion roles (target end state)
+- **Encoders:** per-track speed PID, distance travelled (straight lines).
+- **Gyro:** heading/turn source of truth, because skid-steer tracks slip heavily when turning.
+- **Magnetometer (optional):** slow drift correction of the gyro heading.
+- **Slip detection:** encoders say moving but the IMU says not moving → raise a "stalled/slipping" fault.
+- The firmware has a "speed source" abstraction: open-loop + compensation now, encoder PID later, with the same command interface.
+
+### Capability by hardware configuration (DECIDED: firmware supports all four)
+The MPU6050 gyro is always fitted (stock), so every configuration includes it.
+The firmware runs in whichever configuration it detects or is set to (see 6a).
+
+| Capability | 1. Gyro only (stock) | 2. Gyro + encoders | 3. Gyro + compass | 4. Gyro + encoders + compass |
+|---|---|---|---|---|
+| Drive with deadband compensation and smooth ramps | ✅ | ✅ | ✅ | ✅ |
+| Precise turns (90°), heading hold | ✅ | ✅ | ✅ | ✅ |
+| Lift, tilt and bump detection | ✅ | ✅ | ✅ | ✅ |
+| Constant track speed on any surface, load or battery | ≈ estimate (battery-compensated) | ✅ true speed PID | ≈ estimate | ✅ true speed PID |
+| Smooth slow crawl | ≈ | ✅ | ≈ | ✅ |
+| "Drive 50 cm" | ❌ time-based guess | ✅ | ❌ time-based guess | ✅ |
+| Stall / track-slip detection | ❌ | ✅ | ❌ | ✅ |
+| Heading stays correct over long runs | ❌ drifts (minutes) | ❌ drifts (minutes) | ✅ | ✅ |
+| "Face north / go east" (absolute heading) | ❌ | ❌ | ✅ | ✅ |
+| Position tracking (x, y) relative to start | ❌ | ≈ good over short runs; degrades as gyro heading drifts | ❌ | ✅ |
+| Go to a point, return home, follow waypoints | ❌ | ≈ short missions | ❌ | ✅ |
+| Rough obstacle map (ultrasonic + position) for the AI server | ❌ | ≈ short missions | ❌ | ✅ |
+
+Notes:
+- Config 2 (gyro + encoders) is real odometry: encoder distance + gyro heading. Accuracy is limited by gyro heading drift (minutes) and track slip.
+- Config 4 adds the compass to bound heading drift, so position stays usable over longer missions.
+- The stock motors are TT format, so the FIT0458 (also TT) is a drop-in fit.
+
+Limits: odometry drifts with track slip (cm to tens of cm over metres; the AI server can correct it with the camera).
+The magnetometer is unreliable indoors near steel or motors; mount it high and use it only for slow drift correction.
+
+## 6.0 TARGET HARDWARE (DECIDED, supersedes compass plans below)
+- **Final hardware: MPU6050 (already fitted) + 2x FIT0458 encoder motors.** No separate compass, no 9-axis IMU.
+- Reason: mounting and wiring a compass (standoff, I2C address pins) is too much hassle for the user.
+- Firmware configurations supported in v1:
+  - Config 1: gyro only (stock motors).
+  - Config 2: gyro + encoders (user's target).
+- Compass support (configs 3/4, 9-axis IMUs such as ICM-20948/GY-87/BNO055) is **deferred and not in v1**.
+  The interface (heading source abstraction) keeps the door open; §6c/6e are kept for reference only.
+
+## 6.1 FUTURE OPTION: compass + gyro (recorded for later consideration)
+Not in v1. Revisit if absolute heading or long-mission position accuracy is needed.
+- **Option F1: separate compass + existing MPU6050.** GY-271 / "HMC5883L" board (almost always a QMC5883L clone; HMC vs QMC is effectively a tie; QMC: 16-bit, 200 Hz).
+  Same I2C bus (A4/A5), 0 extra Uno pins; auto-detect 0x0D (QMC) / 0x1E (HMC). Must be mounted high (≥10 cm from motors/battery).
+- **Option F2: one 9-axis board replacing the MPU6050** (gyro + accel + compass together, mount the whole board high):
+  - ICM-20948 (Adafruit, 5 V-safe): best raw quality, current production.
+  - GY-87 (MPU6050 + HMC/QMC5883L): easiest, since it reuses the MPU6050 driver.
+  - BNO055: on-chip fusion, outputs a drift-corrected heading; tiny driver.
+  - Avoid GY-9250/MPU-9250 (discontinued, fakes without a magnetometer). BNO085 is the best sensor but too heavy for the Uno.
+  - If the onboard MPU6050 is soldered to the shield, the new board must use I2C address 0x69 (AD0 high).
+- Compass can never replace the MPU6050 (no gyro means no turn PID; no accelerometer means no lift/tilt/bump safety and no tilt compensation).
+- Gains: long-run heading accuracy, absolute heading, long-mission odometry (configs 3/4 in the capability table).
+- Interference handling, self-calibration and fusion rules: see §6c.
+
+## 6a. Hardware configurability (DECIDED)
+The user has ordered an encoder motor and a compass. The firmware must still work on a stock tank (no upgrade required).
+
+| Hardware | Detection | Fallback if absent |
+|---|---|---|
+| Compass | DEFERRED (not in v1) | Gyro-only heading |
+| Encoders | EEPROM setting, changeable from the web UI (floating pins cannot be auto-detected) | Open-loop speed + compensation |
+| Encoder sanity check | Enabled, but no pulses while the motor is driven → fault + automatic fallback to open-loop | — |
+
+## 6d. Encoder motor: DFRobot FIT0458 (ORDERED)
+"TT Geared Motor with Encoder (6V 160RPM 120:1 L Shape)" — https://wiki.dfrobot.com/fit0458/
+- Rated 6 V, 160 RPM no-load @6V, 120:1 gearbox, TT form factor (L-shape, double-flat ~5.5 mm shaft).
+- Quadrature Hall encoder (A/B), 4.5–7.5 V supply → powered from the Uno 5 V.
+- Resolution: DFRobot wiki says 8 PPR motor shaft → **960 pulses per output rev per channel**; some retailers say 16 PPR / 1920.
+  → `counts_per_rev` is an EEPROM setting (default 960), verified by turning the shaft one revolution by hand while watching the live count.
+- **Voltage cap:** battery is 2S Li-ion 7.4–8.4 V → limit effective drive voltage to 6 V (max duty = 6 / Vbat, ~71% on a full battery). Applies to the stock motors too (configurable max voltage).
+- Wiring (single channel per motor, direction from command): left A → D3 (INT1), right A → a free line-port pin (PCINT1). Channel B unconnected (optional later via freed D2).
+- Interrupt load: ~2560 pulses/s per motor at full speed, single edge → fine on the Uno.
+- Speed estimation: pulse counting per 20 ms cycle at high speed; pulse-period timing at low speed; auto-switch.
+- Distance calibration routine: drive N counts, the user enters the measured cm → counts_per_cm stored in EEPROM (absorbs sprocket and track size).
+- Fit: the stock motors are TT format, so the FIT0458 is a drop-in replacement (confirmed by the user).
+
+## 6e. Compass module selection
+| Module | Chip | ~Price (INR) | Notes | Verdict |
+|---|---|---|---|---|
+| GY-271 | QMC5883L (I2C 0x0D) | 150–300 | 5 V-tolerant board, 0 extra pins, tiny driver; often mislabelled HMC5883L | **Recommended** |
+| GY-273 / genuine | HMC5883L (I2C 0x1E) | 300+ | Discontinued; mostly clones | Supported via auto-detect |
+| BNO055 | 9-axis with on-chip fusion | 2000–3500 | Outputs a drift-corrected absolute heading; self-calibrating; offloads the Uno | Premium option (would need its own driver) |
+| LIS3MDL / MMC5603 | High-grade magnetometers | 1000+ | Usually 3.3 V boards, scarce in India | Not needed |
+
+Wiring: same I2C bus as the MPU6050 (A4 SDA, A5 SCL, 5V, GND). Mount on a standoff ≥10 cm from the motors and battery.
+
+## 6c. Compass interference strategy (DECIDED)
+- Why the MPU6050 is fine near the motors but the compass is not: the gyro and accelerometer measure rotation and gravity (unaffected by motor fields); the magnetometer measures the magnetic field (affected).
+- Interference: hard-iron (constant offset, calibratable), soft-iron (distortion, calibratable), dynamic (motor current, NOT calibratable; only distance helps).
+- Mounting: high, at least ~10 cm from the motors and battery, on a fixed standoff, **not on the pan/tilt**.
+- Self-calibration: the tank spins 360° slowly by itself and fits hard/soft-iron offsets, stored in EEPROM, triggered from the web UI.
+- Fusion: the gyro is primary; the compass is a slow drift correction only.
+  - Reject compass readings when the compass heading changes but the gyro says no rotation.
+  - Lower compass trust at high motor current; higher when stationary.
+  - Field-magnitude check: abnormal field → flag "compass unreliable" in telemetry and ignore it.
+
+## 6b. Buzzer (DECIDED: passive)
+- Plays tones and melodies on one of the old line-port pins.
+- Implementation constraint: Arduino `tone()` and the IRremote library both use Timer2 (duplicate ISR, link error).
+  Plan: replace IRremote with a small custom pin-change NEC decoder so `tone()` can own Timer2.
+- Sounds must be non-blocking (sequencer), never `delay()`.
+
+## 8. Sounds and LED (DECIDED: catalogue accepted, 1 LED)
+Hardware: **1 RGB LED** (WS2812 on D4). The original firmware wrote leds[1], an out-of-bounds bug; it must not be repeated.
+Both outputs use **priority layers**: a higher priority interrupts a lower one, and the lower one resumes after. Everything is non-blocking.
+
+### Sounds (passive buzzer)
+| Pri | Event | Sound | Repeat |
+|---|---|---|---|
+| 1 | Tilt danger / tipping | fast two-tone siren | while tilted |
+| 1 | Lifted off the ground | rising whoop | once + every 3 s while lifted |
+| 1 | Battery critical (motors disabled) | three long low tones | every 10 s |
+| 2 | Battery low | double beep | every 30 s |
+| 2 | Collision / bump | short falling "ouch" | once |
+| 2 | Stall / track slip | low buzz | once per event |
+| 2 | Command link lost (deadman) | falling three-note | once |
+| 3 | Reversing | truck beep… beep… | while reversing |
+| 3 | Moving forward | short chirp on start | once per start |
+| 3 | Obstacle ahead (optional, toggle) | parking-sensor beeps, faster when closer | while closing |
+| 4 | Startup | rising boot melody | once |
+| 4 | Ready (self-test OK) | two rising chirps | once |
+| 4 | Self-test failed | low error tone | once |
+| 4 | Client connected / disconnected | up-chirp / down-chirp | once |
+| 4 | Control owner changed | two-note blip | once |
+| 4 | Calibration start / done | tick / success jingle | once |
+| 4 | Custom | tone sequence from server/app | on request |
+
+Settings: **Mute** (only priority-1 alarms) and **Quiet** (alarms + warnings). No volume control (passive buzzer).
+
+### LED (single RGB)
+| Pri | Event | Pattern |
+|---|---|---|
+| 1 | Tilt danger / lifted | fast red/blue alternate |
+| 1 | Battery critical | red slow pulse |
+| 2 | Battery low | amber blink every 2 s over the base colour |
+| 2 | Collision / stall | short white flash |
+| 2 | Link lost | orange blink |
+| 3 | Reversing | white/red blink |
+| 3 | Turning | amber blink (single LED, so no left/right) |
+| 4 | Startup | rainbow sweep |
+| 4 | Idle, no client | blue breathing |
+| 4 | Controlled by human (app/web) | solid green |
+| 4 | Controlled by AI server | solid cyan |
+| 4 | Controlled by IR remote | solid purple |
+| 4 | Calibrating | yellow pulse |
+| 4 | Custom | colour/blink/pulse from server/app |
+
+Implementation note: only call FastLED.show() when the colour actually changes (it briefly disables interrupts, which can jitter the servos and encoder timing).
+
+## 9. Pan/tilt camera servos (DECIDED)
+Servos: pan D10, tilt D11; the ESP32 camera is mounted on them.
+
+Motion:
+- Always smooth: trapezoidal profile (accelerate, cruise, decelerate) with configurable max speed and acceleration.
+- Updated at 50 Hz using writeMicroseconds (sub-degree steps), never instant jumps.
+- Soft limits per axis (the original tilt limit was 30°–110°) and home trim offsets, both stored in EEPROM.
+
+Control modes:
+- **Joystick mode (human app/web):** absolute mapping. Stick position = camera angle within the limits.
+  Holds while the stick is held; on release, after a configurable delay (~0.5 s), returns smoothly to home.
+  Optional **lock** toggle: keep the current view and skip return-to-home; unlock → return home.
+  (NOT mouse/rate mode.)
+- **AI server / API mode:** separate commands. Absolute angle targets that **hold** (no auto-return),
+  plus other control styles as the AI needs (e.g. relative nudges, speed-limited moves). Defined in the protocol section.
+- `home` command available to any client.
+- Telemetry: current pan/tilt angles and a moving flag.
+
+Power:
+- Servos stay powered while moving/holding (no droop).
+- Optional detach at home when idle (stops buzz, saves power), only if the tilt holds without power (test on hardware).
+
+## 10. Control inputs (DECIDED)
+
+### Phone app / web (primary controller) — app is a separate future project
+- Touch-based, analog; no hard buttons for motion.
+- Left virtual joystick: drive. Y = speed, X = turn, combined (smooth arcs). Release → smooth stop.
+- Right virtual joystick: camera pan/tilt (absolute, springs home on release; see §9).
+- **Optional phone-tilt steering (app-side only):** the app converts phone tilt into the same speed/turn values.
+  The tank boards are unaware and need nothing extra.
+- Touch toggles for settings (camera lock, mute, quiet, obstacle beeps, etc.).
+
+### Requirements on the tank side
+- Continuous drive input: speed −100..100 %, turn −100..100 %, streamed ~20 Hz while the stick is touched.
+- **Deadman:** no drive update for ~300 ms → smooth stop (thumb lifted, WiFi drop, app crash).
+- All input passes through smoothing, deadband compensation, gyro/encoder PID; jittery input still gives smooth motion.
+
+### IR remote (backup, hard buttons, highest priority, works without WiFi)
+| Button | Action |
+|---|---|
+| ▲ / ▼ | forward / backward while held (stop ~200 ms after release) |
+| ◀ / ▶ | spin left / right while held |
+| OK | STOP + release control back to app/AI |
+| 1 / 3 | camera pan left / right while held |
+| 2 / 8 | camera tilt up / down while held |
+| 5 | camera home |
+| 4 / 6 | speed −/+ 10 % (beep pitch confirms) |
+| 7 | mute toggle |
+| 9 | battery check (LED colour + 3/2/1 beeps) |
+| 0 | gyro turn 180° |
+| * | obstacle beeps on/off |
+| # (hold 3 s) | start motor calibration |
+- IR driving also uses gyro heading hold; the ultrasonic sensor stops it before obstacles.
+- Only remote "A" (NEC codes from the original firmware) is supported; remote "B" used IRremote hash codes and is dropped unless needed.
+
+## 11. Obstacle braking (DECIDED: option B)
+- Uno-side safety reflex using the forward ultrasonic sensor, applies to **all** controllers (IR, app, AI).
+- Forward speed is limited progressively as the obstacle gets closer; full stop at ~15 cm (configurable).
+- Reverse and turning remain allowed so the tank can escape.
+- Telemetry flag `blocked`; parking-sensor beeps if enabled.
+- **Can be disabled by a client (app or AI)** for intentional contact (pushing objects, docking).
+  Re-enabled automatically at reboot (never persisted as off).
+- Ultrasonic limits: fixed forward-facing, narrow cone; it misses low/thin objects and angled surfaces → best-effort, not a guarantee.
+
+## 12. Telemetry (DECIDED: all items)
+Every message carries a **sequence number + timestamp**.
+
+### Fast stream (~20 Hz, motion)
+- Heading (gyro yaw), turn rate, pitch/roll
+- Left/right track speed: commanded vs actual (actual = encoders, if fitted)
+- **Actual motor PWM output** (after deadband, battery cap, PID)
+- Distance ahead (ultrasonic) + **time-to-collision** (distance ÷ closing speed)
+- Pan/tilt angles + moving flag
+- Encoder counts L/R
+- Pose x, y and distance from home are computed and published by the **ESP32** (§17)
+
+### Slow stream (~1 Hz, health/status)
+- Battery voltage, %, **estimated runtime remaining**, **voltage sag under load**
+- Control owner: app / AI / IR / none
+- Flags: blocked, lifted, tilted, stalled, low battery, critical battery, link lost, obstacle brake off, muted, quiet
+- Hardware config: encoders on/off, gyro OK
+- **Temperature** (MPU6050 internal sensor)
+- **Surface roughness** (accelerometer vibration variance)
+- **Track slip %** (encoders vs gyro; encoders required)
+- Uptime, loop health (load / max loop time), **free RAM**
+- Error counters: bad commands, I2C errors; last reset reason
+- **Firmware version + settings checksum**
+- **Last command ID acknowledged** (also sent as an immediate ack/nack per command)
+
+### Events (immediate)
+bump (**with g-force**), lifted, tilted, stall, control changed, link lost/restored, calibration done,
+battery low/critical, obstacle brake engaged, self-test result.
+
+### Lifetime stats (EEPROM, saved every few minutes to limit wear)
+Total distance, total run time, power-on count.
+
+### ESP32-side telemetry (added by the ESP32, not the Uno)
+WiFi RSSI, camera FPS, connected clients, ESP32 temperature, ESP32↔Uno link latency.
+
+## 14. ESP32 WiFi setup (DECIDED: option A)
+- First boot / no saved network → own AP `Conqueror-XXXX` + captive setup page (also at 192.168.4.1).
+  The page scans networks; the user picks one and enters the password; saved in ESP32 flash (NVS).
+- Up to 3 saved networks. At boot: try them for ~15 s → join (station mode); otherwise fall back to the own AP (direct mode).
+- mDNS name `conqueror-XXXX.local` (unique per tank, see §23) for app, web and hub discovery.
+- The setup page stays reachable later (add/remove networks, force direct mode).
+- Credential reset: hold the Uno mode button (D2, otherwise unused now) for ~5 s at boot → Uno tells the ESP32 to clear saved networks.
+  (Alternative if the ESP32 board has a usable button: TBD on hardware.)
+
+## 15. Client API (DECIDED)
+| Channel | Purpose |
+|---|---|
+| WebSocket `ws://conqueror-XXXX.local/ws` | Live control in (joystick, commands), telemetry + events out. JSON messages. |
+| HTTP MJPEG `http://conqueror-XXXX.local:81/stream` + `/capture` snapshot | Camera video for app/web/AI. |
+| HTTP REST `/api/...` | Settings, calibration, WiFi setup, keys, firmware info. |
+- JSON is used only between clients and the ESP32. **The ESP32↔Uno link is compact** (the Uno never parses JSON).
+
+### Security (DECIDED: option C, per-client keys with roles)
+- Each client authenticates with its own key; **the key carries the role**, so priority is enforced by the key, not by a client claim.
+- Roles: `admin` (settings, calibration, WiFi, key management, can also drive as human), `human` (drive, camera, LED/sound),
+  `ai` (drive at AI priority, camera, LED/sound), `viewer` (video + telemetry only).
+- Key management from the setup page (admin): create, name, revoke keys.
+- First boot: the AP is open **only until setup completes**; setup forces creating the admin password and a WPA2 password for the tank's own AP.
+- Limitation: plain HTTP/WS on the LAN, so keys can be sniffed by someone on the same network. Acceptable for home use; TLS on the ESP32 is a future option.
+- Video stream access: requires a key (viewer or above).
+
+## 17. Scope and navigation split (DECIDED)
+- **Single release: all functions work**, including position tracking, drive-distance, go-to-point, return-home, waypoints.
+  (Implementation is still built and tested in incremental steps.)
+- Split by capability:
+  - **Uno:** motion primitives (drive distance at heading, turn to heading/by angle, velocity drive), speed PID, heading PID,
+    safety (obstacle brake applies to every primitive), encoder counts + yaw in fast telemetry.
+  - **ESP32:** odometry/pose (x, y, θ) integration from Uno telemetry; go-to-point, return-home, waypoint missions
+    (computes heading and distance → sends primitives); exposes pose and missions in the client API.
+- Link loss mid-mission: the Uno completes or safely stops the current primitive; it never continues blindly.
+- Requires encoders (config 2). With stock motors (config 1), navigation is time-based/unavailable and the API reports it.
+
+## 19. Web control: standalone hub server (DECIDED: option B)
+- **No rich UI on the ESP32.** The ESP32 keeps only a minimal captive page: WiFi setup, passwords, OTA upload.
+- A **standalone hub server** on the LAN is the rich web control:
+  - Holds **one** connection to the tank (1 video stream + 1 WebSocket) and fans out to any number of browsers.
+  - Holds the tank keys; browsers log in to the hub with user accounts (browsers never see tank keys).
+    The hub maps user roles to tank roles (e.g. hub user → `human` key, hub admin → `admin` key).
+  - Features: live video + touch joysticks (incl. phone tilt), telemetry dashboard, **telemetry history + graphs**,
+    **video recording + snapshots**, **pose map**, **mission/waypoint editor**, logs, **calibration wizards**,
+    settings, key management, WiFi/OTA links.
+  - The AI engine may run inside the hub or connect to it, sharing the video feed.
+- **Direct mode still works without the hub:** the ESP32 API stays directly usable (future mobile app on the tank hotspot).
+- ESP32 load: at most a couple of direct clients (hub, maybe AI/mobile app); MJPEG to >2 viewers is avoided by design.
+- The hub is a **separate project** (own spec), after the tank firmware.
+- **Host (DECIDED): runs anywhere** → packaged with Docker (multi-arch: amd64 + arm64), so Mac/Linux/Windows/Raspberry Pi all work; also runnable without Docker for development.
+
+## 22. Hub + AI stack (DECIDED: hybrid)
+```
+Browsers / App ──► Node hub (TypeScript) ──► Tank (ESP32)
+                         ▲
+                         │ hub client API (AI role) + video frames
+                   Python AI engine (main product offering)
+```
+- **Hub:** Node.js + TypeScript (real-time WebSocket fan-out, auth, UI serving, recording, history).
+- **Web UI:** React + TypeScript (served by the hub).
+- **AI engine:** Python, a **separate service and client of the hub API** with the `ai` role; gets video via the hub's re-stream.
+- Rationale: isolation (AI load/crash never stalls driving or telemetry), AI independently versioned/swappable,
+  can run on a separate GPU machine, best ecosystem per job.
+- Message formats defined once (JSON Schema / OpenAPI) → generated TypeScript + Python types.
+- Deployment: Docker Compose (hub + AI engine), multi-arch.
+- Rejected: all-Python hub — its only gain (single deployment) is neutralised by Docker Compose; AI load would share the control process.
+- Extended safety principle: **driving never depends on the AI (or hub) being healthy.**
+
+## 23. Hub scale (DECIDED: multiple tanks, one site, hobby)
+- Hobby project exploiting AI developments. User first chose one tank, then switched to **B: many tanks on one local site** since it is little extra work (~10–15% hub effort, near-zero tank effort) if designed in from day one.
+- Tank identity: unique ID from the ESP32 MAC; mDNS name `conqueror-XXXX.local` (renameable); advertised as mDNS service `_conqueror._tcp`.
+  (Supersedes the single `conqueror.local` name in §14/§15.)
+- Hub: discovers all tanks, add/forget tanks, one connection per tank; **all data keyed by tank ID** (telemetry, recordings, missions, keys, settings).
+- UI: tank picker + fleet overview (battery/status for all tanks).
+- AI engine: addresses tanks by ID; may control one or several (e.g. cooperative exploring, follow-the-leader later).
+- Still out of scope (YAGNI): cloud / internet remote access / multi-site / multi-user accounts.
+- Users: one admin login (+ optional view-only guest).
+
+## 24. Hub architecture (APPROVED)
+Node/TypeScript modules:
+| Module | Job |
+|---|---|
+| Tank manager | mDNS discovery, 1 WS + 1 video connection per tank, auto-reconnect, online/offline |
+| Fan-out | re-share telemetry + video to any number of browsers and the AI engine |
+| Control gateway | forward browser/AI commands with the matching tank key (human/ai role); the tank arbitrates |
+| Auth | admin login (+ optional view-only guest), session cookies; tank keys server-side only |
+| History | telemetry at full rate 7 days, downsampled to 1 Hz for 90 days; graphs |
+| Recording | per-session video + telemetry, snapshots, disk cap, oldest-first deletion |
+| Missions | saved waypoint routes per tank, sent to the tank's ESP32 |
+| Events/logs | timeline: bumps, control changes, alarms, AI decisions |
+| AI API | same commands as the app + video frames + event stream |
+
+Storage: SQLite (single file) for settings, tanks, missions, events, telemetry history; video as MP4 (ffmpeg) on disk.
+
+Web UI (React/TS) screens: Fleet overview · Drive (video, 2 joysticks, tilt, gauges) · Map (track + mission editor) ·
+History (graphs, timeline) · Recordings (playback + synced telemetry) · Tank settings (calibration wizards, limits, sounds, keys, WiFi/OTA links) · AI (status, controlled tanks, decision log).
+
+Deployment: Docker Compose (hub + AI engine), data in a mounted volume.
+
+## 25. ESP32 firmware architecture (APPROVED, design section 2)
+FreeRTOS tasks (Arduino-ESP32 core, PlatformIO; reuse ELEGOO camera code), PSRAM frame buffers:
+| Task | Priority | Job |
+|---|---|---|
+| Uno link | highest | binary frames @115200, 100 ms heartbeat, latency measurement |
+| Control/WS server | high | `/ws` clients, key auth, JSON ⇄ binary |
+| Navigation | high | pose (x, y, θ) from Uno telemetry; return-home, waypoints, go-to-point |
+| Camera | medium | MJPEG :81 (max 2 viewers), `/capture`; camera settings via API |
+| WiFi manager | low | saved networks → AP fallback, captive setup page, mDNS `conqueror-XXXX` |
+| OTA + REST | low | `/api/...`, firmware upload, info |
+
+Arbitration split: **ESP32** arbitrates network clients (human vs AI by key role, handback timers) and forwards ONE command stream tagged with its source;
+**Uno** arbitrates IR vs network and applies safety last (IR + safety survive an ESP32 freeze).
+NVS storage: WiFi networks, tank name, keys (hashed), camera settings, saved missions.
+Failures: Uno link lost → camera continues, "body offline", drive rejected · WiFi lost → Uno deadman stops, ESP32 reconnects/falls back to AP · ESP32 crash → watchdog restart; Uno already stopped; IR works.
+
+## 26. Safety, calibration, self-test (APPROVED, design section 3)
+Safety thresholds (all settings):
+| Check | Trigger | Action |
+|---|---|---|
+| Tilt danger | pitch/roll > 35° | stop + alarm; locked until level for 1 s |
+| Lifted | accel magnitude departs from 1 g (sustained) + free-spinning encoders | stop + alarm |
+| Bump | accel spike > 1.5 g | brief stop + event with g-force |
+| Stall | driven but no encoder motion 0.5 s | cut that motor + stall fault |
+| Obstacle | < 15 cm | brake; proportional slowdown from 50 cm |
+| Deadman | no command 300 ms | smooth stop |
+| Battery (2S) | < 7.0 V low, < 6.6 V critical (under load) | warn / disable motors |
+
+Calibration (from app/hub, stored): 1) gyro bias (2 s still; also auto when idle-still) · 2) motor deadband ramp (~20 s, needs floor space) ·
+3) encoder distance (drive N counts, user enters measured cm) · 4) turn check (spin 360°, gyro vs encoders → slip) · 5) servo home trim.
+
+Self-test at boot (~2 s; result reported + beep/LED): IMU alive/not saturated, battery plausible, ultrasonic echo, encoders clean (if enabled),
+settings checksum, last reset reason. Critical (IMU, battery read) → driving locked. Non-critical (ultrasonic) → warning, obstacle brake disabled.
+
+## 27. AI engine (IN PROGRESS)
+### Requirements (user)
+- **All** capability groups wanted: natural-language commands, vision perception, autonomy/mapping, watch & alert, personality & fun.
+- **First priority: natural-language commands** (LLM agent with tank tools).
+- Fun headline: **"don't let the baby catch you"** chase game.
+- Add **depth perception** (Depth Anything or newer) and other recent AI capabilities.
+
+### Child-play mode safety envelope (DECIDED principle; enforced below the AI)
+- Speed cap (~20 %), gentle acceleration; never drives toward the child (retreat/circle only).
+- Any bump / grab / lift → immediate stop, motors off.
+- No cliff sensor: flat, user-chosen floor area only; camera depth helps but is NOT trusted for stairs.
+- Requires track guards (pinch hazard) and adult supervision; the app asks "adult present?" before starting.
+- Limits enforced by the Uno/ESP32 (reflex layer), so the AI cannot exceed them.
+
+### Candidate technology (state as of 2026-10, verify versions at implementation time)
+- Monocular depth: Depth Anything V3 (Nov 2025), V2 Small (proven, light), YOLO26 depth (fast; vendor claims) → "virtual laser scan", obstacle avoidance beyond the ultrasonic, partial drop-off cues.
+- Open-vocabulary detect/segment/track: SAM 3 (Meta, Nov 2025, text-prompted concepts) + fast YOLO-family trackers; body pose for posture/gestures.
+- Mapping: MASt3R-SLAM (~15 fps), VGGT-based SLAM, MAGiSt3R (Jul 2026) fused with encoder odometry; **semantic object memory** ("where did you see my keys?").
+- Language: LLM agent (Claude) with tank tools; vision-language scene understanding; daily exploration diary; voice in/out via phone/hub (tank has only a buzzer).
+- Fun modes: baby chase, follow-me, hide-and-seek, pet play, photographer mode, guard/patrol with alerts, personality engine.
+- VLAs (SmolVLA, NORA, OpenVLA, π0): arm-oriented, need demos → **not now**; watch the space.
+
+### Layered control (PROPOSED)
+| Layer | Latency | Where | Examples |
+|---|---|---|---|
+| Reflexes | 1–20 ms | Uno (+ESP32) | obstacle brake, bump stop, child-mode limits |
+| Skills | ~100 ms (5–15 fps) | AI engine, fast local models | follow, flee, track, depth avoidance |
+| Planner | seconds | LLM agent | "play chase 5 min", "find the keys" |
+The LLM never drives the motors directly; it selects and supervises skills.
+
+### LLM provider strategy (DECIDED: switchable local ⇄ cloud, must be fast; all options on the table)
+- Speed by architecture: the LLM is planner-only; skills run fast loops; a slow LLM never makes driving slow/unsafe.
+- Instant "got it, thinking" feedback (sound/LED) on every command.
+- Hard per-call time budget (e.g. 3 s for commands) → fallback cloud⇄local, or safe hold + "not sure, try again". Never waits indefinitely.
+- Compact world-state text summary in prompts; camera images only when the LLM needs to look.
+- **LLM router with profiles** (each user-configurable: provider, model, time budget):
+  | Profile | Job | Target |
+  |---|---|---|
+  | Fast | everyday commands, reactions, chat | < 1–2 s |
+  | Smart | multi-step missions | < 5 s |
+  | Vision | scene questions | < 3 s |
+- Cloud candidates (Anthropic SDK, current as of 2026-10): Claude Haiku 5.5 `claude-haiku-5-5` (fastest/cheapest; thinking can be disabled),
+  Claude Sonnet 5.5 `claude-sonnet-5-5` (balanced; effort low or `between_tools`), Claude Opus 5.5 `claude-opus-5-5` (best planning; thinking can't be disabled → effort low; optional fast mode, Claude API only).
+  Latency levers: streaming + eager tool-input streaming, prompt caching of system prompt + tools, low effort.
+- Local candidates: SLMs with tool calling via Ollama / llama.cpp / MLX (Mac) / vLLM (NVIDIA); choose by benchmark at implementation time.
+- Offline mode: fully local when there is no internet.
+
+### Vision-first, hardware-agnostic engine (DECIDED principles)
+User: "vision is the main input; the rest are just outputs." The whole engine (not only the LLM) is configurable to whatever hardware people have.
+
+Camera bottleneck: stock OV3660 on ESP32 (3 MP sensor, but MJPEG, ~10–20 fps @ VGA, ~100–300 ms latency, narrow FOV (lens-dependent), low light limited).
+Upgrade options: wide-angle OV2640 (120–160°, same connector, ~₹300, biggest win) · OV5640 (5 MP AF; may need ESP32-S3) ·
+Pi Zero 2 W + camera (H.264, much better) · mounted phone.
+
+Design:
+1. **Camera source abstraction:** ESP32 MJPEG / H.264-RTSP / phone / USB.
+2. **Pose-tagged frames:** every frame carries tank pose, heading, pan/tilt at capture time → image bearings become world bearings/positions.
+3. **Metric depth:** relative monocular depth scaled to cm using the ultrasonic reading as an anchor; one-time checkerboard camera calibration (intrinsics).
+4. **Active vision:** the AI steers pan/tilt (scan, keep target in view, glance toward turns).
+5. **Configurable perception pipeline** (per stage: local/cloud/off, model, fps, resolution):
+   detect+track (YOLO family, SAM 3) · depth (DA V2/V3, YOLO26-depth) · pose/gestures · 3D mapping (MASt3R/VGGT-SLAM) · scene understanding (Claude vision or local VLM).
+
+Hardware tiers (auto-detected + benchmarked at first start; overridable):
+| Tier | Hardware | Runs |
+|---|---|---|
+| 0 Cloud | any laptop, no GPU | tiny local detector; VLM/LLM via cloud |
+| 1 CPU/Pi | Pi 5, old PC | + YOLO-nano tracking, low-res depth 2–5 fps |
+| 2 Apple Silicon | M1–M4 | + real-time depth, SAM 3 on demand, local SLM (MLX) |
+| 3 NVIDIA | RTX-class | everything local: real-time SAM 3, 3D mapping, bigger local LLM/VLM |
+- Features declare requirements; unavailable ones are greyed out with the reason (never half-working).
+- One config file + hub settings page; presets `cloud`, `pi`, `mac`, `nvidia`.
+
+### Stock camera (CONFIRMED by user: OV3660)
+- Sensor: **OV3660**, 3 MP (2048×1536), better low light and image quality than the OV2640.
+  (My earlier OV2640 inference from schematic voltages was wrong; the ELEGOO code special-cases OV3660_PID in app_httpd.cpp:697.)
+- Board: ESP32-WROVER-Camera-V1.2, 24-pin 0.5 mm FPC; code pin map = CAMERA_MODEL_M5STACK_WIDE; original default stream SVGA 800×600.
+- Usage plan: stream ~640×480–800×600 for real-time vision (WiFi-bound); **full-res 3 MP snapshots on demand** for detail (labels, small objects).
+- Firmware reads the sensor PID at boot and applies per-sensor settings (OV2640 / OV3660 / OV5640).
+- Upgrades: wide-angle OV3660 (exists, less common) · wide-angle OV2640 (drop-in, lower quality) · OV5640 compatibility unknown until tested · Pi Zero 2 W = board replacement.
+- Fisheye distortion (if a wide lens is fitted) is corrected by checkerboard calibration.
+- ESP32↔Uno UART: ESP32 IO33 = RX, IO4 = TX on the 4-pin XH2.54 connector P1 (matches the original firmware's Serial2).
+
+### Open
+- [x] Camera: **keep stock OV3660**; user may upgrade later after comparing results.
+  → Add a **camera benchmark tool** (hub/AI): records fps, end-to-end latency, low-light noise, detection confidence/recall on a fixed test scene, depth quality, FOV coverage → side-by-side report to compare cameras before/after an upgrade.
+- [x] AI compute: **auto-detect** (Mac / NVIDIA / CPU) + cloud fallback; tiers per §27.
+
+## 28. AI engine architecture (APPROVED, design section 5)
+Pipeline: Hub (video + telemetry) → 1 Frame ingest → 2 Perception pipeline → 3 World model ← queries ← 5 Agent/LLM planner → picks/supervises 4 Skills → commands to hub (AI key) → tank (safety always applies).
+1. **Frame ingest:** frames matched to telemetry (pose, heading, pan/tilt) via the ESP32 capture timestamp per frame.
+2. **Perception pipeline:** configurable stages (§27); a budget scheduler runs cheap stages every frame, heavy ones on keyframes/on demand.
+3. **World model:** tank state/pose; tracked objects with world positions + last-seen (persistent semantic memory); occupancy map (depth + ultrasonic + pose); people tracks (e.g. baby position/approach speed).
+4. **Skills** (5–15 Hz loops; start/stop/status; declare requirements): look_around, track(target), follow(target, distance), keep_away(target),
+   find(object), go_to(x,y) (delegates to ESP32 navigation), explore, patrol, photograph, avoid_with_depth.
+5. **Agent/planner:** LLM router (fast/smart/vision profiles, time budgets, fallback); tools = skills + queries (what do you see, where is X, snapshot, say/beep/LED); runs on commands and events, not continuously.
+Also: personality engine (mood → sounds/LED/motion style) · mode envelopes (child-play etc., duplicated here; tank enforces hard limits) ·
+voice STT/TTS via the hub (local or cloud) · **replay mode** (re-run recorded sessions offline) · model registry (download/cache per tier) ·
+observability (decision log, per-stage timing, shown on the hub AI page).
+
+## 29. Testing (DEFERRED by user)
+- Design section 6 (simulator, layered test strategy) was rejected as not useful for now. Testing is decided per task during implementation planning.
+- Kept minimal: a short **real-tank safety checklist** (deadman, obstacle brake, lift, tilt, battery, child-play limits) run before trusting new firmware.
+
+## 30. Repository (DECIDED)
+Monorepo, remote `https://github.com/mannuray/conqueror.git`, branch `main`:
+```
+docs/            design notes, specs, wiring guide
+protocol/        single message definitions → generated Uno C, ESP32 C++, TypeScript, Python
+firmware/uno/    Arduino Uno body firmware (PlatformIO)
+firmware/esp32/  ESP32 camera/comms firmware (PlatformIO)
+hub/             Node/TypeScript server + React UI
+ai-engine/       Python AI engine
+docker-compose.yml
+```
+
+## 21. Operating modes: standalone vs hub (DECIDED by user requirement)
+- **The tank must be fully controllable by the app without any server** ("standalone"). The hub is an optional add-on for rich features.
+- Standalone (app ↔ ESP32 directly, tank AP or home WiFi): driving (joysticks, tilt), video, pan/tilt, all safety, LED/sound,
+  live telemetry, gyro turns, drive-distance, **pose / return-home / waypoints (on the ESP32, §17)**, calibration and settings, IR remote.
+- With hub: everything above + user accounts, multi-viewer fan-out, telemetry history/graphs, recording, map view, mission editor, logs, AI engine.
+- **The tank is always the server**; the hub is a client that auto-discovers tanks via mDNS (`_conqueror._tcp`, §23) and connects.
+- The app has two connection targets: "Tank (direct)" or "Hub"; same command set, so the app code is shared.
+- App and hub may be connected simultaneously; priority arbitration decides control.
+- ESP32 video budget ≈ 2 MJPEG viewers (e.g. app + hub); extra viewers go through the hub.
+- **Design rule: the tank never depends on the hub.** Hub failure changes nothing for app/IR control.
+
+## 18. Firmware updates (DECIDED: option A)
+- ESP32: OTA over WiFi (upload from the setup page by admin; can also be pushed by an admin-key client).
+- Uno: USB only, with the ESP32 serial link disconnected during upload (shared D0/D1), as in the original kit.
+- The ESP32 checks the Uno firmware version at boot and warns in telemetry/UI if it is incompatible with the ESP32 protocol version.
+
+## 16. ESP32↔Uno link (PROPOSED, internal)
+- UART (Uno D0/D1 ↔ ESP32 Serial2), **115200 baud** (the old firmware used 9600; too slow for 20 Hz telemetry).
+- **Binary frames:** `0xAA | len | type | seq | payload | CRC-8`. Small, fast to parse on the Uno, detects corruption.
+- The ESP32 translates JSON (clients) ⇄ binary frames (Uno). Unknown/corrupt frames are counted and dropped.
+- Link heartbeat both ways (~100 ms); the Uno treats link loss as a deadman stop.
+- USB debugging shares D0/D1 → the debug console on the Uno uses the same framed protocol (a small PC tool decodes it), or the ESP32 is unplugged while debugging.
+
+## 20. Uno firmware architecture (APPROVED, design section 1)
+Cooperative, non-blocking scheduler (no delay()):
+| Task | Rate | Job |
+|---|---|---|
+| Link | every loop | RX/validate frames, TX telemetry |
+| IMU | 200 Hz | gyro/accel, heading, tilt, bump |
+| Motor control | 100 Hz | speed PID (encoders) or open-loop comp, heading PID, ramps, deadband |
+| Safety supervisor | 50 Hz | lift, tilt, obstacle brake, deadman, battery, stall; overrides everything |
+| Servos | 50 Hz | smooth pan/tilt profiles |
+| Ultrasonic | 20 Hz | non-blocking, interrupt-timed echo |
+| LED/buzzer | 50 Hz | priority-layered patterns/tones |
+| Battery / telemetry | 10 Hz / 1 Hz | filtering, health stats |
+
+Modules: drivers (motors, encoders, IMU, ultrasonic, servos, buzzer, LED, IR decoder, battery);
+control (speed controller interface with open-loop/encoder-PID implementations, heading controller, motion primitives);
+arbitration (IR/human/AI, handback timers); safety supervisor (final gate); comms (binary frames); settings (EEPROM + checksum, defaults on corruption).
+
+Data flow: source (link/IR) → arbitration → primitive → heading/speed controllers → **safety supervisor** → motor driver.
+Watchdog reset with the reset reason reported at boot.
+Timers: T0 motor PWM + timekeeping, T1 servos, T2 buzzer; IR + ultrasonic via pin-change interrupts.
+
+## 13. Risks
+- **Uno flash/RAM budget** (32 KB / 2 KB) with the full feature set. Mitigations: no ArduinoJson/IRremote/I2Cdev libraries;
+  tiny single-LED WS2812 driver instead of FastLED; compact protocol; build a skeleton first and measure.
+  Overflow plan: move derived metrics (runtime estimate, roughness, time-to-collision, lifetime stats) to the ESP32.
+
+## 7. Open questions
+- [x] Encoder motor: DFRobot FIT0458 (see 6d).
+- [x] Compass: user is buying a cheap "HMC5883L" board (likely a QMC5883L clone). The firmware auto-detects 0x0D (QMC) / 0x1E (HMC) and reports which one at boot. Chip marking "DA 5883" = QMC, "L883" = genuine HMC.
+- [x] FIT0458 fit: stock motors are TT format, so it is a drop-in.
+- [ ] Battery pack voltage confirmation (assumed 2S Li-ion 7.4–8.4 V).
+- [x] Stock motor: TT format (exact RPM unknown; not needed, since calibration measures it).
+- [ ] "Compass": does this mean the MPU6050 gyro heading, or adding a real magnetometer? (See discussion.)
+- [x] Buzzer: **passive** (tones and melodies possible).
+- [ ] Buzzer pin: which of A0/A1/A2 (confirm during wiring).
+- [x] LEDs: 1.
+- [x] Control handback timing (§2).
+- [x] Client API (§15).
+- [x] Hub host: anywhere (Docker, multi-arch).
+- [x] Hub stack (§19).
+- [ ] Uno↔ESP32 link format.
+- [x] Telemetry contents and rate (§12).
+- [x] Sound and LED catalogue (§8).

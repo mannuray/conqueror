@@ -2,7 +2,7 @@
 
 Status: IN PROGRESS · Date: 2026-10-10 · Implements: Spec 2 Part B, Spec 1 · Standards: `docs/standards/coding-standards.md` §3
 
-Sections: 1 Structure, tasks & frameworks ✅ · 2 Ports ✅ · 3 Body link & clock sync ✅ · 4 Client API ✅ · 5 Navigation ✅ · 6 Camera service ✅ · 7 Calibration engine · 8 WiFi, mDNS, OTA & storage · 9 Memory/task budget & error handling
+Sections: 1 Structure, tasks & frameworks ✅ · 2 Ports ✅ · 3 Body link & clock sync ✅ · 4 Client API ✅ · 5 Navigation ✅ · 6 Camera service ✅ · 7 Calibration engine ✅ · 8 WiFi, mDNS, OTA & storage · 9 Memory/task budget & error handling
 
 Note: UART is **250000 baud** and calibration maths runs here (Uno LLD §9 revision).
 
@@ -649,3 +649,145 @@ Stream pauses ~0.5 s (viewers keep the last frame); one full capture at a time, 
 
 ### 6.5 Memory
 PSRAM: 2 driver buffers + 3 pool frames ≈ 300 KB (+ ~400 KB temporary for a 3 MP capture) of 4 MB; internal RAM untouched by video.
+
+---
+
+## 7. Calibration engine (APPROVED)
+The Uno runs motion scripts and streams raw `CAL_DATA`; the ESP32 runs prechecks, prompts, maths, results and saving.
+
+### 7.1 Class diagram
+```mermaid
+classDiagram
+    direction TB
+    class CalibrationTask {
+      <<core 1 · prio 2>>
+      -CalibrationJob job_
+      -SampleBuffer samples_
+      +run()
+      +onRequest(CalRequest)
+      +onCalData(CalData)
+      +onScriptDone(CalResult)
+    }
+    class CalibrationJob {
+      -JobState state_
+      -CalItem item_
+      -WizardPlan plan_
+      -Calculator* calc_
+      -ScriptStep steps_[8]
+      +start(CalItem or Wizard, profile, SourceRef) Result
+      +input(value) Result
+      +accept() Result
+      +retry()
+      +skip()
+      +cancel()
+      +step(now) JobAction
+    }
+    class Calculator {
+      <<interface>>
+      +scripts() ScriptPlan
+      +needsInput() InputPrompt
+      +compute(const SampleBuffer&, inputs) CalOutcome
+    }
+    class CalOutcome { <<struct>> +bool ok +ErrorCode error +SettingWrite writes[12] +uint8 n +Summary summary }
+    class GyroBiasCalc
+    class LevelCalc
+    class BatteryDividerCalc
+    class DeadbandCalc
+    class EncoderCprCalc
+    class DistanceCalc
+    class BalanceCalc
+    class TrackWidthCalc
+    class TurnCurveCalc
+    class PidAutotuneCalc
+    class ServoTrimCalc
+    class UltrasonicOffsetCalc
+    class CalStatusStore { <<NVS cal>> +status(item) ItemStatus +markDone(item, profile, runtime_h, fw) +isStale(item) bool }
+    class Preconditions { +check(TankSnapshot, Role, CalItem) Result }
+    CalibrationTask *-- CalibrationJob
+    CalibrationJob --> Calculator
+    CalibrationJob --> Preconditions
+    CalibrationJob --> CalStatusStore
+    Calculator ..> CalOutcome
+    Calculator <|.. GyroBiasCalc
+    Calculator <|.. LevelCalc
+    Calculator <|.. BatteryDividerCalc
+    Calculator <|.. DeadbandCalc
+    Calculator <|.. EncoderCprCalc
+    Calculator <|.. DistanceCalc
+    Calculator <|.. BalanceCalc
+    Calculator <|.. TrackWidthCalc
+    Calculator <|.. TurnCurveCalc
+    Calculator <|.. PidAutotuneCalc
+    Calculator <|.. ServoTrimCalc
+    Calculator <|.. UltrasonicOffsetCalc
+```
+`virtual` justified here: 12 calculators selected at runtime. SampleBuffer in PSRAM (60 s × 50 Hz).
+
+### 7.2 Job state machine
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Precheck : start (admin)
+    Precheck --> Failed : not synced / envelope / moving / battery low / no encoders
+    Precheck --> RunningScript : CALIBRATE start(script)
+    RunningScript --> RunningScript : CAL_DATA → buffer; next script
+    RunningScript --> AwaitInput : needs user value
+    AwaitInput --> RunningScript : input + more scripts
+    AwaitInput --> Computing : input, no more scripts
+    RunningScript --> Computing : last script done
+    RunningScript --> Failed : script fail / IR / STOP / link lost
+    Computing --> AwaitAccept : ok → new vs previous
+    Computing --> Failed : invalid (reason + suggestion)
+    AwaitAccept --> Saving : accept → SETTING_SET ×n + SETTINGS_SAVE
+    AwaitAccept --> RunningScript : retry
+    Saving --> Done : settings_saved
+    Done --> Idle : wizard → next item
+    Failed --> Idle : wizard offers retry / skip
+```
+Progress, prompts, live values, results → `calibration` events to the admin session (drives the Calibration stepper dialog). Cancel → `CALIBRATE cancel`, nothing saved.
+
+### 7.3 Calculators
+| Item | Uno script(s) | Computation |
+|---|---|---|
+| Gyro bias | StillSample 2 s | mean gx/gy/gz; reject high variance |
+| Level | StillSample 2 s | mean accel → pitch/roll offsets |
+| Battery divider | — | user mV ÷ raw → scale |
+| Deadband | PwmRamp × 4 | start = PWM where gyro > 0.3 °/s or counts begin (100 ms); keep = where motion stops on ramp-down |
+| Encoder CPR | — (live count) | count delta on confirmed shaft turn |
+| Distance | DriveCounts(n) | counts ÷ measured cm |
+| Track balance | FullSpin | max cps per track |
+| Track width | SpinAndArc | encoder rotation vs gyro → track_width_eff + slip |
+| Turn-rate curve | RateSteps | max achievable rate at 4 speeds |
+| PID auto-tune | RelayOscillation | `Ku = 4d/(π·a)`, `Tu` → Tyreus–Luyben gains (speed, rate, heading) |
+| Servo trim | ServoNudge | user nudges → trims |
+| Ultrasonic offset | — | user distance |
+All outcomes include new vs previous values.
+
+### 7.4 Status and staleness
+No RTC → staleness by **driving hours** (lifetime stats) + events: deadband/balance/track width > 50 driving hours or persistent heading-hold error; any profile item when the settings layout version changes; gyro bias never stale (auto re-estimated). `CalStatusStore` per item: done/missing, profile, driving hours, firmware version.
+
+### 7.5 Deadband sequence
+```mermaid
+sequenceDiagram
+    participant UI as Hub dialog (admin)
+    participant K as CalibrationTask
+    participant B as BodyLinkTask
+    participant U as Uno
+    UI->>K: start deadband (TILE)
+    K->>K: precheck
+    loop L fwd, L rev, R fwd, R rev
+        K->>B: CALIBRATE start PwmRamp(track, dir)
+        B->>U: frame
+        U-->>B: CAL_DATA 50 Hz
+        B-->>K: samples
+        K-->>UI: calibration progress + live values
+        U-->>B: CAL_RESULT done
+    end
+    K->>K: DeadbandCalc.compute
+    K-->>UI: result (new vs previous)
+    UI->>K: accept
+    K->>B: SETTING_SET ×8 + SETTINGS_SAVE
+    U-->>B: settings_saved
+    K->>K: markDone
+    K-->>UI: done
+```

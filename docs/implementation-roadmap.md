@@ -41,8 +41,14 @@ Standard tests (initial pass criteria):
 | Speed hold | 30 % tile vs carpet | track speed ±5 % |
 | Safety | deadman, obstacle brake, lift, tilt | per safety checklist |
 
+### Bench UI (DECIDED: option A, no gamepad)
+- **Textual terminal dashboard** (telemetry, console, test runner, reports).
+- **Default driving = cruise control** (no key-up events needed): W/S speed ±10 % per tap · A/D steering steps (C centres) · Q/E spin · **Space = STOP** (resent until acked) · arrows camera nudge · H camera home · 1–9 quick tests. Current speed/steering shown large; deadman still protects on laptop/WiFi loss.
+- **Optional hold-to-drive** (`bench drive --hold`): `pynput` key-down/up events on macOS (one-time Accessibility permission).
+- Gamepad support pluggable for later; IR remote remains a manual controller.
+
 ## Out of the MVP (phases 0–5)
 Hub backend, Timeline/recording, missions/waypoints UI, multi-tank, AI engine, voice, themes beyond Phosphor, surface profiles (one default), OTA, full key management (admin key only), first-run polish.
 
 ## Open
-- [ ] Bench UI: terminal dashboard + gamepad (A) / desktop window (B) / CLI only (C); gamepad available?
+- (none for phases 0–3)

@@ -79,7 +79,19 @@ Control logic (controllers, safety rules, arbitration, codec) is hardware-indepe
 7. **Battery compensation + voltage cap:** `pwm × (V_nominal / V_batt)`, clamped so the effective motor voltage ≤ `motor_v_max` (6 V for FIT0458 → ~71 % duty at 8.4 V).
 8. **Envelope:** final clamp of |speed| to `speed_cap`, accel to `accel_cap`.
 
-**Primitives:** `TURN` (by/to angle), `MOVE` (distance, needs encoders; heading hold at the given/current heading). One active at a time; new motion commands or `CANCEL`/`STOP` abort it; completion → `primitive_done`.
+**Turning (skid steering; all on the Uno):**
+- Tanks turn by skidding, so commanded track speeds give surface-dependent curves. Turning is therefore **closed-loop on yaw rate (gyro)**, never open-loop track differences.
+- Per control cycle: (1) **feedforward** track difference = ω × `track_width_eff` / 2 (learned by the turn-check calibration);
+  (2) **gyro yaw-rate PID** corrects measured vs target ω (absorbs slip, surface, battery); (3) tracks `L = v − Δ`, `R = v + Δ` → encoder speed PID or open-loop compensation.
+- Turn types: **spin in place** (L = −R) · **arc** (moving, both tracks forward at different speeds) · **arc to angle with radius** (ω = v / r, ends at the gyro heading) · **pivot on one track** (optional, inner track 0).
+- **Deadband → pivot fallback:** if the inner track target is below its keep-moving threshold, set it to 0 (clean pivot) instead of stuttering (`pivot_fallback`, default on).
+- **Turn-rate limit vs speed:** max ω reduced as |v| rises (`turn_rate_vs_speed` curve) to avoid wild skids.
+- **Anti-windup:** PID output clamped; unreachable ω reported via flag `turn_limited`.
+- **Exit:** when ω returns to 0, heading hold captures the **current** heading (clean straight-out, no overshoot).
+- **Reverse steering = car-style** (DECIDED, setting `reverse_steer`, default `car`): stick back + right swings the tail right (ω sign inverted when v < 0). Alternative `tank` = stick right always rotates clockwise.
+- Small safety deadzone on the Uno; stick deadzone/expo curves are applied by clients (app/hub).
+
+**Primitives:** `TURN` (by/to angle, optional radius / pivot), `MOVE` (distance, needs encoders; heading hold at the given/current heading). One active at a time; new motion commands or `CANCEL`/`STOP` abort it; completion → `primitive_done`.
 
 ### A5. Pan/tilt servos
 - Trapezoidal motion (max `servo_speed`, `servo_accel`), 50 Hz updates in µs; soft limits + trim (EEPROM).
@@ -156,7 +168,7 @@ LED (single RGB):
 1. **Gyro bias:** 2 s still (also automatic when stationary and idle ≥ 5 s).
 2. **Motor deadband:** per track and direction, ramp PWM until the gyro detects rotation (start threshold), then lower until it stops (keep threshold). ~20 s, needs floor space.
 3. **Encoder distance:** drive N counts straight; the user enters the measured cm → `counts_per_cm`.
-4. **Turn check:** spin 360° by gyro; compare encoder-implied rotation → slip factor.
+4. **Turn check:** spin 360° and drive one arc by gyro; compare with encoder-implied rotation → slip factor and **`track_width_eff`** (feedforward).
 5. **Servo trim:** nudge to centre, save.
 6. **Encoder resolution check:** live count display while the user turns a shaft one revolution (confirms assumption A3).
 
@@ -199,6 +211,7 @@ Critical (IMU, battery read) → motors locked. Non-critical (ultrasonic) → wa
 ### B4. Navigation (requires encoders)
 - **Pose integration** at 20 Hz from TELEM_FAST: `Δd = mean(ΔencL, ΔencR) / counts_per_cm`; `θ` from Uno yaw (gyro is the heading truth; skid-steer slip makes encoder heading unreliable); `x += Δd·cosθ`, `y += Δd·sinθ`.
 - **go-to(x,y):** bearing + distance → `TURN to bearing` → `MOVE dist at heading`; re-plan after each MOVE if residual > 5 cm (max 3 replans).
+- **Smooth paths:** between waypoints, heading changes ≤ 90° use **arc turns** (`TURN` with radius, default 30 cm, limited by remaining distance); > 90° use spin in place.
 - **Waypoints/missions:** sequential go-to; `loop` option; saved missions in NVS (≤ 8 × 32 points).
 - **Return home:** go-to(0,0) then turn to θ=0.
 - Blocked (obstacle brake) > 5 s → `nav_done{ok:false,reason:"blocked"}`. Link loss: the Uno finishes/aborts the current primitive and stops; navigation pauses.

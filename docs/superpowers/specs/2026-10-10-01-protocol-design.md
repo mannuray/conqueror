@@ -76,7 +76,7 @@ Streaming commands (no ack; rejections reported once via `nack` without `id` + a
 | `stop` | — | **viewer** | immediate smooth stop; cancels primitives and nav |
 | `drive` | `v` %, `w` % | ai | joystick/tilt input, stream ≤20 Hz; deadman 300 ms; heading hold when `w`=0 |
 | `drive_rate` | `v` %, `yaw_rate` °/s | ai | closed-loop turn rate |
-| `turn` | `by` ° **or** `to` ° (heading), `speed` % | ai | gyro primitive; ack on start, event `primitive_done` |
+| `turn` | `by` ° **or** `to` ° (heading), `speed` %, `radius_cm`? (0/omitted = spin in place), `pivot`? bool | ai | gyro primitive; arc when radius > 0 (needs v > 0); ack on start, event `primitive_done` |
 | `move` | `dist_cm`, `speed` %, `heading`? ° | ai | needs encoders else `unavailable` |
 | `cancel` | — | ai | cancels current primitive |
 | `release_control` | — | human | immediate human → AI handback |
@@ -127,7 +127,7 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 |---|---|
 | `batt_v`, `batt_pct`, `runtime_min`, `sag_v` | Uno (volts), ESP32 (pct, runtime, sag) |
 | `owner` (`ir`/`human`/`ai`/`none`), `owner_client` | Uno + ESP32 |
-| `flags`: blocked, lifted, tilted, stalled, batt_low, batt_critical, link_lost, brake_off, muted, quiet, envelope, body_offline | Uno/ESP32 |
+| `flags`: turn_limited, blocked, lifted, tilted, stalled, batt_low, batt_critical, link_lost, brake_off, muted, quiet, envelope, body_offline | Uno/ESP32 |
 | `envelope` {speed_cap, accel_cap, lock_brake} | Uno |
 | `hw`: encoders, imu_ok, sensor | Uno/ESP32 |
 | `temp_c` (MPU6050) | Uno |
@@ -154,6 +154,11 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 | `deadband_start[L+,L−,R+,R−]`, `deadband_keep[…]` | (calibrated) | Uno |
 | `accel_limit` | 200 %/s | Uno |
 | `turn_rate_max` | 180 °/s | Uno |
+| `turn_rate_vs_speed` | curve: 100 % of max at v=0 → 40 % at v=100 | Uno |
+| `track_width_eff` | (calibrated; starts at physical width) | Uno |
+| `pivot_fallback` | true | Uno |
+| `reverse_steer` | `car` (`car`/`tank`) | Uno |
+| client: `stick_deadzone`, `stick_expo` | 5 %, 0.3 | app/hub |
 | `pid_speed{kp,ki,kd}`, `pid_heading{…}`, `pid_turn{…}` | tuned defaults | Uno |
 | `obstacle_stop_cm` / `obstacle_slow_cm` | 15 / 50 | Uno |
 | `tilt_limit_deg` | 35 | Uno |
@@ -184,7 +189,7 @@ Frame: `0xAA | len | type | seq | payload[len] | crc8`
 | 0x10 | DRIVE | src u8 (1 human, 2 ai), v i8, w i8 |
 | 0x11 | DRIVE_RATE | src, v i8, yaw_rate i16 (0.1°/s) |
 | 0x12 | STOP | src |
-| 0x13 | TURN | src, mode u8 (0 by, 1 to), angle i16 (0.1°), speed u8 |
+| 0x13 | TURN | src, mode u8 (0 by, 1 to; bit7 = pivot), angle i16 (0.1°), speed u8, radius_cm u16 (0 = spin) |
 | 0x14 | MOVE | src, dist_mm i32, speed u8, heading i16 (0.1°; 0x7FFF = current) |
 | 0x15 | CANCEL | src |
 | 0x20 | CAM_JOY | x i8, y i8, active u8 |

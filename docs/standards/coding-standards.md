@@ -92,39 +92,35 @@ Same as §2 except:
 
 ---
 
-## 4. Hub — Node.js + TypeScript (`hub`)
+## 4. Hub — Node.js + TypeScript (`hub`) — NestJS house standard
 
-### 4.1 Language and tooling
+### 4.1 Language, framework, tooling
 - TypeScript `strict: true`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`. **No `any`** (use `unknown` + narrowing).
-- ESLint (typescript-eslint strict + `no-floating-promises`) + Prettier. ESM modules.
-- Layers: `domain/` (pure), `application/` (use cases), `adapters/` (tank WS client, HTTP, SQLite, ffmpeg, mDNS), `ui/` (React), `main.ts` (composition root). Constructor injection; no service locator.
+- **NestJS on the Fastify adapter**; Nest DI for constructor injection (no service locator); modules per domain area.
+- ESLint (typescript-eslint strict + `no-floating-promises`) + Prettier.
+- Layers inside each module: `domain/` (pure), `application/` (services/use cases), `adapters/` (tank WS client, SQLite, ffmpeg, mDNS), controllers/gateways at the edge; `main.ts` bootstraps.
 
-### 4.2 API shape (hub REST + WebSocket for browsers and the AI engine)
-- **Versioned:** `/api/v1/...`. Resource-oriented nouns: `/api/v1/tanks/{tankId}/missions/{missionId}`.
-- JSON, `camelCase` fields, ISO-8601 UTC timestamps, explicit units in names (`distanceCm`).
-- **Validation at every boundary** with schemas generated from `protocol/` (zod). Unvalidated data never reaches the domain.
-- Lists: cursor pagination (`?cursor=&limit=`), stable ordering.
-- Commands that change state accept an **idempotency key** (`Idempotency-Key` header / `id` field).
-- WebSocket messages reuse the tank protocol envelope (`t`, `id`, `seq`) so browsers, AI engine and tank speak one dialect.
-- OpenAPI document generated from the route schemas and served at `/api/v1/openapi.json`.
+### 4.2 API shape
+- Global prefix `api/v1`, Helmet, compression, CORS allowlist, Swagger in non-production only, graceful shutdown hooks.
+- **Validation:** zod schemas **generated from `protocol/`**, used as DTOs via `nestjs-zod` + global `ZodValidationPipe` (unknown fields rejected, query coercion). Hub-only DTOs are hand-written zod in the module's `dto.ts`.
+- Resource-named controllers, class-level guards, path-segment nesting, inline parse pipes, `@CurrentUser()`.
+- **Success envelope** via global `TransformInterceptor`: `{success:true, data, requestId, timestamp}`; page pagination `{page, limit, total, totalPages}` for small lists, cursor pagination `{limit, nextCursor}` for time-series. Pass-through: 204, health, metrics, WS, video, downloads.
+- `ETag`/`If-Match` on editable resources; `Idempotency-Key` on action POSTs; 202 + operation resource for long-running work.
+- Details: hub spec §7.
 
 ### 4.3 Error handling
-- **Custom error class hierarchy** rooted at `AppError` (`code`, `httpStatus`, safe `details`, internal `cause`); expected failures throw subclasses (`ValidationError`, `NotFoundError`, `ConflictError`, `TankOfflineError`, …); adapters wrap foreign errors with `cause`.
-- **One central error handler** (HTTP + WS) maps errors to responses; non-`AppError` → `InternalError` (500, logged with stack, no internals exposed). Full catalogue: hub spec §8.
-- **One error envelope** for every error (RFC 9457 Problem Details):
-  `{"type":"…/errors/tank-offline","title":"Tank offline","status":503,"code":"tank_offline","detail":"…","requestId":"…"}`
-  Error `code` values reuse the protocol's nack codes where applicable.
-- Every external call (tank WS, ffmpeg, DB) has a **timeout**; reconnects use exponential backoff with jitter.
-- **Never block the tank link:** fan-out is non-blocking; slow browser clients get the latest telemetry only (drop stale), never queue unboundedly.
-- STOP paths bypass queues and are forwarded immediately.
+- `BusinessException` hierarchy (category subclasses fix HTTP status + `isOperational`); adapters wrap foreign errors with `cause`; non-business errors → `InternalError` (non-operational).
+- **Error registry** in `protocol/errors`: numeric **`code`** (e.g. `TANK_2003`, domain ranges, never reused) + symbolic **`reason`** (e.g. `TANK_OFFLINE`); generator enforces uniqueness and ranges.
+- **Global exception filter** (HTTP + WS) → `{success:false, error:{code, reason, message, requestId, timestamp, path, details, validationErrors, stack(non-prod)}}`; logs operational at `warn`, non-operational at `error`; records on the active OTel span.
+- Every external call has a timeout; reconnects use exponential backoff with jitter.
+- **Never block the tank link:** latest-value telemetry buffers per client; STOP bypasses queues.
+- Details: hub spec §8.
 
-### 4.4 Operational
-- Structured JSON logs (pino) with `requestId` / `tankId` correlation; no secrets in logs; level policy and fields per hub spec §9.
-- Prometheus metrics at `/metrics` per hub spec §10; `/healthz` + `/readyz`.
-- Config from environment, validated at startup (fail fast on invalid config).
-- Auth checked on every route and WS upgrade; tank keys stored encrypted at rest, never sent to browsers.
-
----
+### 4.4 Logging and observability
+- `nestjs-pino`; correlation ID from OTel trace → `X-Request-ID` headers → UUID, in AsyncLocalStorage; enriched with `userRole` + `tankId` after guards so every line carries them; forwarded as the tank command `id`.
+- Redaction of passwords, keys, cookies, `Authorization`, API keys. JSON + rotated files in prod, pretty in dev. Health/metrics excluded from request lines; telemetry never logged.
+- OpenTelemetry first-import; OTLP export no-op unless configured; **Prometheus `/metrics` on by default**; automatic HTTP/WS/DB instrumentation; typed `MetricsService.trackX()` business metrics with cardinality-safe buckets; Terminus `/health`, `/health/live`, `/health/ready`.
+- Details: hub spec §9–§10.
 
 ## 5. AI engine — Python (`ai-engine`)
 
@@ -163,6 +159,6 @@ Same as §2 except:
 - [ ] Units explicit; no magic numbers
 - [ ] Fail-safe behaviour on errors; no swallowed errors
 - [ ] Firmware: no heap, no blocking, ISR rules, no `virtual` (Uno)
-- [ ] Hub/AI: boundary validation, timeouts, typed errors, error envelope, no event-loop blocking
+- [ ] Hub/AI: boundary validation (generated schemas), timeouts, `BusinessException` + registry code/reason, envelopes, no event-loop blocking
 - [ ] Protocol changes made in `protocol/` and regenerated
 - [ ] Lint/format/type-check clean; flash/RAM report checked (Uno)

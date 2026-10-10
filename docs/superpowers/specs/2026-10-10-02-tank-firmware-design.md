@@ -218,10 +218,10 @@ Critical (IMU, battery read) → motors locked. Non-critical (ultrasonic) → wa
 
 ### B2. Network arbitration
 - Among WS clients: owner = highest-priority role that sent a motion command (human > ai). Handback human → AI after `human_handback_ms` (5 s) or `release_control`.
-- **Same role:** the current owner keeps control until its handback timer expires or it releases; other same-role clients get `nack not_owner`. STOP from anyone.
-- Forwards **one** command stream to the Uno tagged with `src`; others get `nack not_owner`.
+- **Same role:** the current owner keeps control until its handback timer expires or it releases; other same-role clients get `nack NOT_OWNER`. STOP from anyone.
+- Forwards **one** command stream to the Uno tagged with `src`; others get `nack NOT_OWNER`.
 - On owner change: send STOP, emit `control_changed`; to the AI client emit `control_returned` when it regains control.
-- IR ownership reported by the Uno overrides everything; network motion commands get `nack not_owner` meanwhile.
+- IR ownership reported by the Uno overrides everything; network motion commands get `nack NOT_OWNER` meanwhile.
 
 ### B3. Camera
 - Sensor PID read at boot (OV2640/OV3660/OV5640) → per-sensor defaults (flip, quality, framesize). Stock: **OV3660**.
@@ -236,7 +236,7 @@ Critical (IMU, battery read) → motors locked. Non-critical (ultrasonic) → wa
 - **Waypoints/missions:** sequential go-to; `loop` option; saved missions in NVS (≤ 8 × 32 points).
 - **Return home:** go-to(0,0) then turn to θ=0.
 - Blocked (obstacle brake) > 5 s → `nav_done{ok:false,reason:"blocked"}`. Link loss: the Uno finishes/aborts the current primitive and stops; navigation pauses.
-- Without encoders: `nav_*` and `move` → `nack unavailable`.
+- Without encoders: `nav_*` and `move` → `nack UNAVAILABLE`.
 
 ### B5. Derived telemetry (owned by the ESP32)
 `batt_pct` (2S discharge curve), `runtime_min` (voltage trend), `sag_v` (voltage drop vs driven/idle), `ttc_s`, `roughness` (scaled accel variance), `slip_pct`, `pose`, `lifetime` stats (NVS every 5 min), `esp` health (RSSI, fps, clients, temp, heap, link latency).
@@ -257,7 +257,7 @@ WiFi networks, tank name, admin password hash, key hashes + roles + names, camer
 ### B9. Failure behaviour
 | Failure | Behaviour |
 |---|---|
-| Uno link lost | camera continues; `body_offline`; motion commands `nack body_offline` |
+| Uno link lost | camera continues; `body_offline`; motion commands `nack BODY_OFFLINE` |
 | WiFi lost | Uno deadman stops (no frames/drive); ESP32 reconnects or falls back to AP |
 | ESP32 crash | task watchdog restart; Uno already stopped by link loss; IR still works |
 | Uno reset | HELLO re-sent; ESP32 re-sends the **envelope** from NVS. The obstacle brake is **not** re-sent: it stays **on** after any reset |

@@ -64,12 +64,13 @@ client → {"t":"subscribe","streams":["fast","slow","events"],"fast_hz":20}
 ```
 - Heartbeat: client sends any message or `{"t":"ping","t0":<client_ms>}` at least every 1 s → `{"t":"pong","t0":…,"tank_ms":…}` (used for clock-offset estimation).
 - Max WS clients: 6 (e.g. app + hub ×3 + spare). Max MJPEG viewers: 2.
-- Ack: `{"t":"ack","id":7}` / `{"t":"nack","id":7,"code":"<code>","msg":"…"}`.
-  Codes: `auth`, `role`, `not_owner`, `blocked` (safety), `unavailable` (capability missing), `envelope`, `busy`, `invalid`, `body_offline`.
+- Ack: `{"t":"ack","id":7}` / `{"t":"nack","id":7,"code":"COMMAND_3001","reason":"NOT_OWNER","message":"…","details":{}}`.
+  `code` (numeric, stable) + `reason` (symbolic) come from the shared error registry `protocol/errors` (ranges per domain; Spec 3 §8.2).
+  Tank reasons include: `AUTH_FAILED`, `ROLE_FORBIDDEN`, `NOT_OWNER`, `BLOCKED` (safety), `UNAVAILABLE` (capability missing), `ENVELOPE_LOCKED`, `BUSY`, `INVALID_COMMAND`, `BODY_OFFLINE`.
 
 ## 5. Commands (client → tank)
 
-Streaming commands (no ack; rejections reported once via `nack` without `id` + an event): `drive`, `drive_rate`, `cam_joy`.
+Streaming commands (no ack; rejections reported once via `nack` without `id` + an event; nack codes per §4): `drive`, `drive_rate`, `cam_joy`.
 
 | `t` | Fields | Min role | Notes |
 |---|---|---|---|
@@ -89,7 +90,7 @@ Streaming commands (no ack; rejections reported once via `nack` without `id` + a
 | `sound` | `name` (catalogue spec 2 §6) | ai | |
 | `tone` | `notes` [[freq_hz, ms], …] ≤10 | ai | custom tone sequence |
 | `audio_mode` | `normal`/`quiet`/`mute` | human | priority-1 alarms always play |
-| `obstacle_brake` | `on` | ai | disabling rejected (`envelope`) while envelope `lock_brake`; re-enabled at reboot |
+| `obstacle_brake` | `on` | ai | disabling rejected (`ENVELOPE_LOCKED`) while envelope `lock_brake`; re-enabled at reboot |
 | `envelope` | `preset` (`child_play`/`none`) or `speed_cap` %, `accel_cap` %/s, `lock_brake` bool | human (set/loosen/clear); ai may only tighten | enforced on the Uno |
 | `nav_goto` | `x`,`y` cm, `speed` % | ai | needs encoders |
 | `nav_home` | `speed` % | ai | return to origin |
@@ -105,7 +106,7 @@ Streaming commands (no ack; rejections reported once via `nack` without `id` + a
 | `ping` | `t0` | viewer | |
 
 Control ownership: motion/camera/LED/sound commands are accepted only from the current owner or a higher-priority source (which then becomes owner).
-**Same-role rule:** among clients of the same role (e.g. the app and the hub's human connection), the current owner keeps control until its handback timer expires (or it sends `release_control`); the others get `nack not_owner`. `stop` is accepted from everyone.
+**Same-role rule:** among clients of the same role (e.g. the app and the hub's human connection), the current owner keeps control until its handback timer expires (or it sends `release_control`); the others get `nack NOT_OWNER`. `stop` is accepted from everyone.
 `child_play` preset = `speed_cap 20`, `accel_cap 30`, `lock_brake true`.
 
 ## 6. Tank → client messages

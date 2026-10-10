@@ -1,8 +1,8 @@
 # Uno Firmware — Low-Level Design
 
-Status: COMPLETE (all sections approved) · Date: 2026-10-10 · Implements: Spec 2 Part A, Spec 1 §8 · Standards: `docs/standards/coding-standards.md` §2
+Status: COMPLETE — Revision 2 (review fixes in §9 are authoritative where earlier sections differ) · Date: 2026-10-10 · Implements: Spec 2 Part A, Spec 1 §8 · Standards: `docs/standards/coding-standards.md` §2
 
-Sections: 1 Structure & execution ✅ · 2 Ports ✅ · 3 Motion control ✅ · 4 Safety & arbitration ✅ · 5 Comms ✅ · 6 Sensors & drivers ✅ · 7 Settings, calibration, self-test ✅ · 8 Memory budget & error handling ✅
+Sections: 1 Structure & execution ✅ · 2 Ports ✅ · 3 Motion control ✅ · 4 Safety & arbitration ✅ · 5 Comms ✅ · 6 Sensors & drivers ✅ · 7 Settings, calibration, self-test ✅ · 8 Memory budget & error handling ✅ · 9 Revision 2 review fixes ✅
 
 Every section includes classes and Mermaid diagrams (class, sequence, state).
 
@@ -227,7 +227,7 @@ classDiagram
 | Port | Units / range | Timing | ISR safety | On failure |
 |---|---|---|---|---|
 | clock | µs / ms, wrap 2³² | O(1) | anywhere | — |
-| motor | −255..255 (sign = direction, 0 = coast); `brake()` | < 20 µs | **only ControlTask includes it** | — |
+| motor | −255..255 (sign = direction); **0 = brake** (PH/EN mode, §9.14); takes `PwmOutput` only | < 20 µs | **only ControlTask includes it** | — |
 | encoders | counts (sign from commanded direction), last pulse period µs | atomic snapshot (IRQs briefly off) | counting in ISRs (D3 INT1, A1 PCINT1) | disabled → zeros |
 | imu | raw MPU6050 counts (±250 °/s, ±2 g) | ~0.4 ms I2C with timeout | main loop | BusError/NotFound, last values kept |
 | ultrasonic | echo µs (cm = µs/58) | `trigger()` 10 µs pulse; echo timed by ISR; `poll()` non-blocking | echo edge in PCINT0 ISR | Timeout after 25 ms (no obstacle in range) |
@@ -237,7 +237,7 @@ classDiagram
 | ir | NEC 32-bit code + repeat | decoded in PCINT0 ISR; 4-entry queue | queue ISR-safe | malformed dropped + counted |
 | battery_adc | mV (divider scale applied) | ~120 µs ADC | main loop | — |
 | button | debounced 20 ms | O(1) | main loop | — |
-| link | bytes; 64 B RX ring, 64 B TX | non-blocking; `write` false if no room | serial ISRs in core | write false → frame dropped + counted |
+| link | bytes; 64 B RX ring, 64 B TX; **250000 baud** | non-blocking; `write` false if no room | serial ISRs in core | write false → frame dropped + counted |
 | eeprom | bytes, 1 KB | `update` writes changed bytes only | main loop, never during motion bursts | — |
 | watchdog | 1 s | `kick()` once per scheduler pass | — | reason from MCUSR |
 
@@ -596,7 +596,7 @@ sequenceDiagram
 ---
 
 ## 5. Comms — ESP32 link, Uno side (APPROVED)
-Frames per Spec 1 §8: `0xAA | len | type | seq | payload | CRC-8`, 115200 baud.
+Frames per Spec 1 §8: `0xAA | len | type | seq | payload | CRC-8`, **250000 baud** (see §9.18).
 
 ### 5.1 Class diagram
 ```mermaid
@@ -760,7 +760,7 @@ classDiagram
     class ToneDriver { <<driver: tone>> tone() Timer2 · A0 }
     class BatteryAdc { <<driver: battery_adc>> A3 · 4-sample avg · divider scale }
     class ButtonDriver { <<driver: button>> D2 pull-up · 20 ms debounce }
-    class UartLink { <<driver: link>> Serial 115200 · 64/64 B }
+    class UartLink { <<driver: link>> Serial 250000 · 64/64 B }
     class EepromStore { <<driver: eeprom>> EEPROM.update }
     class WatchdogDriver { <<driver: watchdog>> wdt 1 s · MCUSR captured early }
     class BoardConfig { <<header>> all pins + constants }
@@ -993,3 +993,220 @@ Flash (~31.5 KB usable): core/Serial ~2.5 K · Wire ~2 K · Servo ~1 K · float 
 | Fatal | hung task | watchdog reset, reason at next boot |
 - `Status`/`Result` enums, no exceptions; `CQ_ASSERT` debug → safe stop + error event, release → counter.
 - All error codes from the shared `protocol/errors` registry.
+
+---
+
+## 9. Revision 2 — review fixes (APPROVED decisions; authoritative where earlier sections differ)
+Source: independent review (26 findings) + ELEGOO shield schematic `ConquerorCar-Shield-V1.0.pdf`. User decisions: **UART 250000 baud**; **calibration maths moved to the ESP32**.
+
+### 9.1 Hardware facts confirmed from the shield schematic
+- **DRV8835 MODE pin tied to VCC → PH/EN mode.** AIN1/PH ← D8, AIN2/EN ← D5 (right); BIN1/PH ← D7, BIN2/EN ← D6 (left). **EN = 0 brakes (slow decay); coast is impossible.**
+- **Upload switch S1** on the shield disconnects RX from the ESP32 header for USB uploads.
+- Old line-sensor header P7 = A0, A1, A2 + **5 V + GND** → buzzer + right encoder power available there; left encoder A uses **D3 on header P3**.
+- Battery divider R1 10 kΩ / R4 1.5 kΩ → scale (10 + 1.5) / 1.5 = 7.667.
+- Mode button S2 on D2 with 10 kΩ pull-up; IR on D9; WS2812 on D4 (100 kΩ pull-down); servos D10/D11; ultrasonic D13/D12; MPU6050 on A4/A5 (AD0 unconnected → 0x68).
+
+### 9.2 Link, control-loss and deadman rules (fixes 1, 2)
+- **Link loss stops only network-sourced motion.** With owner = **Ir**, link state is ignored (IR works with no ESP32). With owner = **Network** or **Calibration** (started from the network): link lost → SoftStop.
+- **Deadman applies only in Primitives `Teleop` with owner = Network** (streamed `drive`/`drive_rate`). TURN/MOVE/IR/calibration are not subject to the 300 ms deadman.
+- **On link loss:** `Primitives.cancel()` → `primitive_done{ok:false, reason:LINK_LOST}`; calibration aborted; **nothing resumes** — a new command is required (Spec 0 principle 5).
+```mermaid
+stateDiagram-v2
+    [*] --> Linked
+    Linked --> Lost : no valid frame 300 ms
+    Lost --> Linked : valid frame
+    state Lost {
+        [*] --> CheckOwner
+        CheckOwner --> SoftStopAndCancel : owner = Network or Calibration
+        CheckOwner --> NoEffect : owner = Ir or None
+    }
+```
+
+### 9.3 Non-blocking EEPROM (fix 3)
+- New `app/EepromWriter`: queue of dirty ranges; writes **one byte per scheduler pass** by polling `EECR.EEPE` (never `EEPROM.update` busy-wait); **block CRC written last**; emits `settings_saved` when done.
+- Boot with invalid/old layout: defaults applied **in RAM only**; persisted lazily by the writer (never synchronously at boot → no watchdog reset loop).
+- Port change: `eeprom::read(...)` + `eeprom::writeByteAsync(addr, value)` + `eeprom::busy()`.
+
+### 9.4 Boot handshake & envelope sync (fix 4, 26)
+```mermaid
+sequenceDiagram
+    participant U as Uno
+    participant E as ESP32
+    U->>U: .init0 read reset reason (r2 / .noinit marker) · wdt_disable in .init3
+    U->>U: load settings (RAM) · self-test (kicks WDT) · WiFi-reset window
+    loop every 500 ms until HELLO_ACK
+        U->>E: HELLO {fw, proto, caps, reset_reason}
+    end
+    E->>U: ENVELOPE (from NVS, if any)
+    E->>U: HELLO_ACK {proto}
+    U->>U: synced = true
+    Note over U: before sync: network motion → BUSY; IR allowed
+    E->>U: HELLO_REQ (any time) → Uno re-sends HELLO
+```
+New frames: `0x02 HELLO_ACK {proto u8}` and `0x03 HELLO_REQ {}` (ESP32 → Uno).
+
+### 9.5 Caps applied to targets, not PWM (fix 5)
+New pure class **`TargetLimiter`** between Mixer and Ramp:
+```
+Mixer → TargetLimiter(obstacle scale on forward v, envelope speed_cap, degraded caps) → Ramp → SpeedController
+```
+- Works in **% of max speed** (so child-play 20 % really is 20 % speed).
+- Sets `capped` → `SpeedController` **freezes PID integrators** while capped (no wind-up lurch).
+- `SafetySupervisor.gate()` keeps only hard stops (Locked, Halted, SoftStop, stall) + a **final PWM clamp backstop**.
+- Degraded caps: ultrasonic fault → 50 %; IMU fault → 30 % (added to Spec 2 A11 + flags).
+
+### 9.6 Encoder fault vs stall (fix 6, 7)
+| Condition (track driven above deadband for 0.5 s, no counts) | Other evidence | Verdict |
+|---|---|---|
+| gyro or other encoder shows the tank moving consistently with this track | yes | **encoder fault** → latch until reboot / re-enable; OpenLoop + `encoder_fault` |
+| no gyro motion and other track not moving / also stuck | no | **stall** → safety cuts that track (clears on direction change or 1 s) |
+- **Both encoders count rising edges only:** INT1 rising (D3); `PCINT1_vect` reads PINC, detects the **PC1 rising edge** (A1) and ignores falling edges.
+
+### 9.7 Calibration on the ESP32 (fix 8, 19; user decision)
+- The Uno runs only **calibration motion scripts** and streams raw samples; the **ESP32 computes results** and writes them back with `SETTING_SET` + `SETTINGS_SAVE`.
+- `CalibrationRunner` → renamed **`CalScriptRunner`**: scripts = closed set (VARIANT POINT): `StillSample` (gyro bias, level) · `PwmRamp(track, dir)` (deadband) · `FullSpin` (balance) · `SpinAndArc` (track width) · `RateSteps` (turn curve) · `RelayOscillation` (PID auto-tune) · `DriveCounts(n)` (distance) · `ServoNudge` · `Idle` (battery divider / ultrasonic offset / encoder CPR: input-only, ESP32 asks the user).
+- Wire: `CALIBRATE {op: start|cancel, script u8, param i32}`; Uno → ESP32 **`CAL_DATA` (0x95) {script, phase, t_ms u16, v[8] i16}** at 50 Hz (gyro rate, accel, encoder counts, PWM); `CAL_RESULT` reused for script done/fail.
+- **`Owner::Calibration`** added to the Arbitrator: below IR (IR/STOP abort), above Network (network motion → BUSY while calibrating). Calibration **refused while an envelope is active**.
+- IR `#` hold 3 s → `cal_request` event to the ESP32 (no ESP32 → error beep).
+- Calibration **status bits** (missing/ok per item, 2 bits × 12) stored on the Uno; **"stale"** decided by the ESP32.
+
+### 9.8 IR remote full design (fix 9)
+| Key (remote A NEC code) | Action | Hold semantics |
+|---|---|---|
+| ▲ `0x00FF629D` / ▼ `0x00FFA857` | Drive v = ±ir_speed, w = 0 (heading hold) | repeats keep alive; stop 200 ms after last repeat |
+| ◀ `0x00FF22DD` / ▶ `0x00FFC23D` | Spin w = ±ir_speed | same |
+| OK `0x00FF02FD` | STOP + release to None | — |
+| 1 `0x00FF6897` / 3 `0x00FFB04F` | `CameraHead::jog(pan ∓rate)` | while held |
+| 2 `0x00FF9867` / 8 `0x00FF4AB5` | `jog(tilt ±rate)` | while held |
+| 5 `0x00FF38C7` | camera home | — |
+| 4 `0x00FF30CF` / 6 `0x00FF7A85` | ir_speed −/+ 10 % (20–100, default 50), beep pitch ∝ speed | — |
+| 7 `0x00FF10EF` | mute toggle | — |
+| 9 `0x00FF52AD` | battery check: LED colour + 3/2/1 beeps | — |
+| 0 | gyro TURN by 180° | — |
+| * | parking beeps toggle | — |
+| # | (hold 3 s) → `cal_request` to ESP32 | hold timer |
+Codes are the 32-bit values as shifted in by the decoder in received order (matches the original firmware constants); 0/*/# codes captured during hardware bring-up. `IrKeymap` in PROGMEM; `ir_speed_pct` held by the Arbitrator. New `CameraHead::jog(pan_rate, tilt_rate)`.
+
+### 9.9 Annunciator — when sounds and LED patterns play (fix 10)
+New pure class **`Annunciator`**: a PROGMEM table **condition → (SoundId, PatternId, priority, continuous?)** evaluated at 50 Hz from flags/events (tilted, lifted, batt_low/critical, bump, stall, link lost, reversing, start forward, turning, owner, calibrating, startup/ready/selftest fail).
+- Continuous conditions keep a layer active; parking beeps use a **parameterised repeat interval** = f(distance).
+- Owner colour: Ir (local) = purple; Network owner colour from **OWNER_HINT** (human = green, AI = cyan).
+- **TONE notes copied into an owned buffer** (10 × 4 B) — never pointing into the frame buffer.
+
+### 9.10 WiFi-reset button (fix 11)
+`app/WifiResetDetector`: active only in the boot window; if D2 is held at boot and stays held for **5 s** → `WIFI_RESET_REQ` (0x96) sent, **re-sent every 500 ms until acked** (ACK frame), confirmation sound + LED; one-shot per boot.
+
+### 9.11 Telemetry encoding (fix 12)
+TELEM_FAST (≈ 46 B):
+| Field | Wire | Scale / sentinel |
+|---|---|---|
+| uno_ms | u32 | ms |
+| yaw | u16 | 0.01°, 0–35999 (CCW positive) |
+| yaw_rate | i16 | 0.1 °/s |
+| pitch, roll | i16 | 0.01° |
+| spd_cmd L/R | i8 | % |
+| spd_act L/R | i8 | %, **−128 = n/a** (no encoders) |
+| pwm L/R | i16 | −255..255 |
+| dist_mm | u16 | mm, **0xFFFF = clear (no obstacle)**, **0xFFFE = sensor fault** |
+| closing_cm_s | i16 | cm/s (for ESP32 TTC) |
+| pan, tilt | i16 | 0.1° |
+| enc L/R | i32 | counts |
+| flags | u16 | bit0 blocked · 1 lifted · 2 tilted · 3 stall_l · 4 stall_r · 5 cam_moving · 6 turn_limited · 7 capped · 8 soft_stop · 9 halted · 10 locked · 11 imu_fault · 12 us_fault · 13 encoder_fault · 14 calibrating · 15 synced |
+| prim, prim_pct | u8, u8 | primitive kind, % |
+
+TELEM_SLOW (≈ 40 B): uptime_s u32 · reset_reason u8 · batt_mv u16 · driving u8 (for ESP32 sag) · temp i16 (0.01 °C) · owner u8 · flags2 u32 (batt_low, batt_crit, link_lost, brake_off, muted, quiet, envelope, deadman, …) · accel_var u16 · loop_load u8 · loop_max_us u16 · free_ram u16 · err_frames u16 · err_i2c u16 · settings_crc u16 · envelope u8×3 · **profile_idx u8** · **cal_status 3 B** · **hw u8** (encoders_enabled, imu_ok, us_ok).
+- New pure **`AccelVariance`** estimator (IMU task) → `accel_var`. Sag computed by the ESP32 from batt_mv + driving.
+- **Sign convention:** yaw and ω are **CCW-positive**; `w > 0` turns left. Clients map "stick right" to `w < 0`.
+
+### 9.12 Layering fixes (fix 13, 25)
+- Value types (`EncoderSnapshot`, `ImuRaw`, `IrEvent`, `Rgb`, `ResetReason`, …) move to **`src/types/`**, shared by ports and domain; domain still never includes `ports/`.
+- `util/progmem.h` shim: PROGMEM macros on AVR, plain const on host.
+- **Safety by type:** `motor::write(const PwmOutput&)`; `PwmOutput` has a private constructor, `friend class SafetySupervisor` → nothing else can produce motor commands.
+- `HeadingController::update(const HeadingInputs&)` (parameter struct; ≤ 4 params rule).
+- Naming: diagrams use `name_`; **code uses the standard's `m_` prefix**.
+
+### 9.13 Timing exceptions & reset reason (fix 14, 15, 22, 24)
+- **Documented exception:** the MPU6050 burst read (~380 µs at 400 kHz) may exceed the 50 µs busy-wait rule; Wire timeout via `setWireTimeout(3000, true)` (pin AVR core ≥ 1.8.3) + **I2C bus recovery** (9 SCL clocks) on timeout.
+- Battery ADC: **one sample per tick** (10 Hz), averaged over 4 ticks.
+- Pitch/roll (atan2/sqrt) computed at **50 Hz**; gyro integration stays at 200 Hz.
+- Reset reason: read **r2 in `.init0`** (Optiboot ≥ 6) or a **`.noinit` marker** set before intentional WDT resets; `wdt_disable` in `.init3`; may report `Unknown` with old bootloaders (documented).
+- Self-test kicks the WDT between steps.
+- Safety supervisor runs at **100 Hz** (Spec 2 A2 updated).
+- **WS2812** writes rate-limited to ≤ 20 Hz and on-change; accepted servo jitter ≤ ~2.7° transient.
+- `MOTOR_PWM_244HZ` build option: the clock port returns corrected µs/ms, so ISRs (NEC, echo) stay correct.
+
+### 9.14 Motor port contract (fix 16)
+`motor::write(PwmOutput)`: −255..255; **0 = brake (slow decay)** — PH/EN mode, coast impossible. `StopMode::Smooth` = ramp to 0 over ~300 ms; `Brake` = immediate 0.
+
+### 9.15 Lift detection (fix 17)
+Lifted if **any**: sustained vertical acceleration deviation > 0.25 g for > 150 ms (**regardless of driving**) · |a| < 0.6 g (falling/held) · sudden tilt change > 15° within 300 ms · (encoders) free-spin. **Bumps rejected** by duration (< 50 ms spikes) and shape. Landed = level + steady 1 g for 1 s.
+
+### 9.16 Ultrasonic fault handling (fix 18)
+`EchoState {Pending, Ready, Clear, NoEcho}`:
+- **No rising edge** within 2 ms of trigger → `NoEcho` (sensor fault). 3 consecutive → `us_fault` → obstacle brake **unavailable** → degraded cap 50 % + flag + warning.
+- Echo high > 25 ms → `Clear` (nothing in range).
+- **No new trigger while echo is still high** (clone modules hold up to 200 ms).
+- Self-test: fault only on `NoEcho`, not on `Clear` (open rooms pass).
+
+### 9.17 Settings & profile ownership (fix 20, 21)
+- **SettingDescriptor table** (PROGMEM): `id u8 · scope (Global/Profile) · type · unit · fixed-point scale (e.g. batt_low in mV, bump in mg, gains ×1000) · min · max · default`.
+- **Profile names live on the ESP32** (NVS); the Uno stores profiles by index 0–2 only.
+- Roughness signature and battery sag: **ESP32 only** (removed from the Uno).
+- `Envelope.apply`: setting `lock_brake = 1` **forces the obstacle brake on**; Uno rejects `BRAKE off` while locked (defence in depth); who may loosen = ESP32 role check.
+- PIDs **reference gains in the active profile** (no duplicated gain copies).
+
+### 9.18 Comms additions (fix 23, 26)
+- **UART 250000 baud** (0 % error at 16 MHz with U2X; supported by the ESP32).
+- Parser buffer **is** the frame (dispatch by reference; no duplicate `Frame.payload`); one shared 52 B TX encode buffer.
+- TxScheduler priority: **ACK > WIFI_RESET_REQ > EVENT > HELLO > CAL_DATA > TELEM_FAST > TELEM_SLOW**.
+- **NOT_OWNER / BUSY rejection events rate-limited** to 1 per 500 ms per source (a 20 Hz DRIVE stream cannot flood the queue).
+- **Uno owner `Network → None`:** no network motion command for 1 s and Primitives idle (bookkeeping only; human/AI handback is the ESP32's).
+- **EventKind → protocol event mapping** (generated table): e.g. `primitive_done a = kind | ok<<8, b = reason code`; `selftest a = failure bitmask, b = critical`; `bump a = mg, b = direction`.
+
+### 9.19 Revised control tick sequence
+```mermaid
+sequenceDiagram
+    participant C as ControlTask
+    participant A as Arbitrator
+    participant P as Primitives
+    participant H as HeadingController
+    participant X as Mixer
+    participant L as TargetLimiter
+    participant R as Ramp
+    participant ES as EncoderSpeed
+    participant V as SpeedController
+    participant F as SafetySupervisor
+    C->>ES: update(encoder snapshot, cmd signs)
+    C->>A: update(now, link, inputs)
+    A-->>C: command + owner
+    C->>P: update(command, yaw, travelled)
+    P-->>C: MotionTarget
+    C->>H: update(HeadingInputs)
+    H-->>C: Δ
+    C->>X: mix(v, Δ)
+    X-->>C: track targets %
+    C->>L: limit(targets, obstacle, envelope, degraded)
+    L-->>C: limited targets + capped
+    C->>R: apply(targets, accel cap)
+    C->>V: update(targets, speeds, batt, capped)
+    V-->>C: PwmRequest
+    C->>F: gate(request, safety inputs)
+    F-->>C: PwmOutput (only constructible here)
+    C->>C: motor::write(PwmOutput)
+```
+
+### 9.20 Revised memory budget
+| RAM item | Bytes |
+|---|---|
+| Core + Serial (64+64) | ~160 |
+| Wire (5 × 32) | ~160 |
+| Servo | ~30 |
+| Settings (global + active profile, gains referenced) | ~200 |
+| Controllers + TargetLimiter + motion | ~170 |
+| Estimation (+ AccelVariance), safety, arbitration | ~130 |
+| Camera head, UI sequencers, Annunciator, TONE buffer (41) | ~140 |
+| Comms (parser = frame, TX buffer 52, event queue 8 × 6) | ~160 |
+| Scheduler, ISR state, EepromWriter queue, CalScriptRunner, misc | ~190 |
+| Stack reserve | 400 |
+| **Total ≈ 1740 B → ~300 B headroom** | |
+Flash: calibration maths moved to the ESP32 saves an estimated 3–4 K → own code ~12–15 K, total ~23–26 K. Build gates unchanged (RAM ≤ 1750 B static, flash ≤ 30 KB).

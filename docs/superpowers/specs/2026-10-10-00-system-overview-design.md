@@ -88,7 +88,7 @@ Non-goals: cloud/internet remote access, multi-site deployment, multi-user accou
 - **A2 Buzzer pin is A0.** Configurable at build time; confirm when wiring.
 - **A3 FIT0458 resolution is 960 counts per output revolution per channel** (DFRobot wiki; some retailers state 1920). Stored as a setting; verified by hand-turning one revolution.
 - **A4 Right-encoder pin is A1** (left encoder on D3).
-- **A5 UART at 115200 baud works over the stock shield's 5 V↔3.3 V link** between Uno and ESP32 (the original ran at 9600). Fallback: 57600 with reduced fast-telemetry rate.
+- **A5 UART at 250000 baud works over the stock shield's link** (0 % error on 16 MHz; revised from 115200) between Uno and ESP32 (the original ran at 9600). Fallback: 57600 with reduced fast-telemetry rate.
 
 ## 6. Hardware configurations supported
 

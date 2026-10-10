@@ -4,7 +4,7 @@ Status: REVIEWED — body link (§8) and hub pairing (§3) APPROVED 2026-10-10 �
 
 Two layers:
 - **Client API** (§2–§7): JSON over WebSocket + HTTP between clients (hub, app, AI engine via hub) and the **ESP32**.
-- **Body link** (§8): compact binary frames over UART between the **ESP32** and the **Uno**. *(APPROVED: 115200 baud, fallback 57600 if unreliable on the shield.)*
+- **Body link** (§8): compact binary frames over UART between the **ESP32** and the **Uno**. *(APPROVED: **250000 baud** — 0 % error on the 16 MHz Uno; revised 2026-10-10 after LLD review.)*
 
 All message definitions live once in `protocol/` (schema source) and are generated into C (Uno), C++ (ESP32), TypeScript (hub) and Python (AI engine).
 Protocol version: `proto = 1`. The ESP32 refuses Uno firmware with a different body-link major version and reports `body_incompatible`.
@@ -178,7 +178,7 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 | `ir_handback_ms` / `human_handback_ms` | 3000 / 5000 | Uno / ESP32 |
 | `tank_name`, WiFi networks, keys, camera config, missions | — | ESP32 |
 
-## 8. Body link: ESP32 ↔ Uno (binary, UART 115200 8N1; ESP32 IO33=RX, IO4=TX)
+## 8. Body link: ESP32 ↔ Uno (binary, UART 250000 8N1; ESP32 IO33=RX, IO4=TX)
 
 Frame: `0xAA | len | type | seq | payload[len] | crc8`
 - `len` = payload length (0–48). CRC-8 (poly 0x07, init 0x00) over `len, type, seq, payload`.
@@ -191,6 +191,8 @@ Frame: `0xAA | len | type | seq | payload[len] | crc8`
 | Type | Name | Payload |
 |---|---|---|
 | 0x01 | HEARTBEAT | esp_ms u32 |
+| 0x02 | HELLO_ACK | proto u8 (sent after restoring ENVELOPE; Uno marks link synced) |
+| 0x03 | HELLO_REQ | — (Uno re-sends HELLO) |
 | 0x10 | DRIVE | src u8 (1 human, 2 ai), v i8, w i8 |
 | 0x11 | DRIVE_RATE | src, v i8, yaw_rate i16 (0.1°/s) |
 | 0x12 | STOP | src |
@@ -212,7 +214,7 @@ Frame: `0xAA | len | type | seq | payload[len] | crc8`
 | 0x50 | SETTING_SET | id u8, value i32 |
 | 0x51 | SETTING_GET | id u8 |
 | 0x52 | SETTINGS_SAVE | — |
-| 0x60 | CALIBRATE | kind u8, param i32, profile u8 |
+| 0x60 | CALIBRATE | op u8 (start/cancel), script u8, param i32, profile u8 — Uno runs motion scripts only; the **ESP32 computes results** and writes them via SETTING_SET |
 | 0x61 | PROFILE | op u8 (select/create/delete), index u8 |
 
 ### Uno → ESP32
@@ -221,10 +223,11 @@ Frame: `0xAA | len | type | seq | payload[len] | crc8`
 | 0x80 | HELLO | fw u16, proto u8, caps u8, reset_reason u8 |
 | 0x81 | ACK | ack_seq u8, status u8 |
 | 0x90 | TELEM_FAST | uno_ms u32, yaw u16, yaw_rate i16, pitch i16, roll i16, spd_cmd i8×2, spd_act i8×2, pwm i16×2, dist_mm u16, pan i16, tilt i16, enc i32×2, flags u16, prim u8, prim_pct u8 (~40 B) |
-| 0x91 | TELEM_SLOW | uptime_s u32, reset_reason u8, batt_mv u16, temp i16, owner u8, flags u32, accel_var u16, loop_load u8, loop_max_us u16, free_ram u16, err_frames u16, err_i2c u16, settings_crc u16, envelope u8×3 |
+| 0x91 | TELEM_SLOW | uptime_s u32, reset_reason u8, batt_mv u16, driving u8, profile_idx u8, cal_status 3 B, hw u8, temp i16, owner u8, flags u32, accel_var u16, loop_load u8, loop_max_us u16, free_ram u16, err_frames u16, err_i2c u16, settings_crc u16, envelope u8×3 |
 | 0x92 | EVENT | kind u8, a i16, b i16 |
 | 0x93 | SETTING_VALUE | id u8, value i32 |
-| 0x94 | CAL_RESULT | kind u8, stage u8, progress u8, values i32×4 |
+| 0x94 | CAL_RESULT | script u8, stage u8, progress u8, status u8 |
+| 0x95 | CAL_DATA | script u8, phase u8, t_ms u16, v i16×8 (raw samples @ 50 Hz for ESP32-side computation) |
 | 0x96 | WIFI_RESET_REQ | — (mode button held 5 s at boot) |
 
 Bandwidth: TELEM_FAST at 20 Hz ≈ 0.9 KB/s of 11.5 KB/s available.

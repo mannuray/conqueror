@@ -14,11 +14,11 @@ Two firmwares, both built with PlatformIO:
 
 | Pin | Function | Mechanism |
 |---|---|---|
-| D0/D1 | UART to ESP32 (and USB for upload, ESP32 disconnected) | hardware UART, 115200 |
+| D0/D1 | UART to ESP32 (USB upload: flip shield switch **S1** to disconnect the ESP32) | hardware UART, **250000** |
 | D2 | mode button (WiFi-reset hold at boot; otherwise unused) | polled, debounced |
 | D3 | **left encoder A** | INT1, rising edge |
 | D4 | WS2812 RGB LED (×1) | tiny bit-bang driver, `show()` only on change (~30 µs IRQ-off) |
-| D5 / D6 | motor A (right) / B (left) PWM | Timer0 hardware PWM |
+| D5 / D6 | motor A (right) / B (left) PWM (DRV8835 **PH/EN mode**, MODE tied high: EN=0 brakes, no coast) | Timer0 hardware PWM |
 | D7 / D8 | motor B / A direction | GPIO |
 | D9 | IR receiver | PCINT0 group (shared ISR with D12) |
 | D10 / D11 | pan / tilt servos | Servo library on **Timer1** |
@@ -42,7 +42,7 @@ Two firmwares, both built with PlatformIO:
 | Link RX/TX | every loop | parse frames, send telemetry/acks |
 | IMU | 200 Hz | MPU6050 raw read (14 bytes), gyro bias removal, yaw integration, complementary-filter pitch/roll, accel magnitude & variance, bump detection |
 | Motor control | 100 Hz | speed controller, heading controller, primitives, ramps, deadband, battery compensation |
-| Safety supervisor | 50 Hz | final gate (A6) |
+| Safety supervisor | **100 Hz** (in the control chain) | final gate (A6) |
 | Servos | 50 Hz | trapezoidal profiles, `writeMicroseconds` |
 | Ultrasonic | 20 Hz | trigger; echo measured by ISR; 3-sample median; timeout = no echo |
 | LED / buzzer | 50 Hz | priority-layer sequencers |
@@ -193,9 +193,12 @@ LED (single RGB):
 **First-time setup wizard** (hub settings page), in dependency order: battery → level → gyro → deadband → encoder counts/rev → distance → balance → track width → turn curve → (PID auto-tune) → servos → ultrasonic → camera. ~10 min, mostly automatic.
 **Recalibration prompts:** settings-layout change after firmware update, motor swap (balance/deadband drift), persistent heading-hold error, distance error reported by the AI/odometry.
 
+**Revision (2026-10-10, LLD review):** calibration **maths runs on the ESP32**; the Uno only runs motion scripts and streams raw `CAL_DATA`; results are written back via `SETTING_SET`. Profile names and roughness signatures live on the ESP32. Details: Uno LLD §9.7.
+
 ### A11. Self-test at boot (~2 s; reported in `selftest` + beep/LED)
 IMU WHO_AM_I + not saturated · battery plausible · ultrasonic echo · encoders (if enabled) clean idle · settings CRC · reset reason.
 Critical (IMU, battery read) → motors locked. Non-critical (ultrasonic) → warning, obstacle brake reported unavailable.
+**Degraded caps (added):** ultrasonic fault (no echo at all) → obstacle brake unavailable + speed cap 50 %; IMU fault at runtime → heading hold off + speed cap 30 % + tilt/lift safety lost warning. Both reported as flags.
 
 ### A12. Memory budget (risk)
 32 KB flash / 2 KB RAM. Mitigations: no heavy libraries; binary protocol; F() strings; fixed-size buffers (RX frame 52 B).
@@ -209,7 +212,7 @@ Critical (IMU, battery read) → motors locked. Non-critical (ultrasonic) → wa
 
 | Task | Priority | Job |
 |---|---|---|
-| Body link | highest | Serial2 (IO33 RX, IO4 TX) 115200; frames; 100 ms heartbeat; latency; Uno HELLO/version check |
+| Body link | highest | Serial2 (IO33 RX, IO4 TX) **250000**; frames; 100 ms heartbeat; latency; Uno HELLO/version check |
 | Control (WS) | high | `/ws` sessions, key auth, JSON ⇄ frames, network arbitration, ack/nack |
 | Navigation | high | pose integration and missions (B4) |
 | Camera | medium | MJPEG :81 (≤2 viewers), `/api/capture` (stream or full res), per-sensor settings |

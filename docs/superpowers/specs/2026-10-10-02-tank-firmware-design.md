@@ -164,13 +164,34 @@ LED (single RGB):
 | 4 | owner human / AI / IR | solid green / cyan / purple |
 | 4 | calibrating | yellow pulse · custom `LED` command |
 
-### A10. Calibration (admin; results in EEPROM)
-1. **Gyro bias:** 2 s still (also automatic when stationary and idle ≥ 5 s).
-2. **Motor deadband:** per track and direction, ramp PWM until the gyro detects rotation (start threshold), then lower until it stops (keep threshold). ~20 s, needs floor space.
-3. **Encoder distance:** drive N counts straight; the user enters the measured cm → `counts_per_cm`.
-4. **Turn check:** spin 360° and drive one arc by gyro; compare with encoder-implied rotation → slip factor and **`track_width_eff`** (feedforward).
-5. **Servo trim:** nudge to centre, save.
-6. **Encoder resolution check:** live count display while the user turns a shaft one revolution (confirms assumption A3).
+### A10. Calibration (DECIDED: maximally automatic; surface profiles)
+
+| # | Item | Purpose | Method | Type | Stored | Profile-scoped |
+|---|---|---|---|---|---|---|
+| 1 | Gyro bias | heading drift | still 2 s; **auto re-estimated** whenever stationary ≥ 5 s (temperature drift) | auto | Uno | no |
+| 2 | Level (accel zero) | correct pitch/roll, lift/tilt | flat floor, one press | one press | Uno | no |
+| 3 | Battery divider | all battery rules | enter multimeter reading once | guided | Uno | no |
+| 4 | Motor deadband (start/keep, per motor & direction) | smooth low speed, pivot fallback | PWM ramp watched by gyro/encoders | auto | Uno | **yes** |
+| 5 | Encoder counts/rev | confirm assumption A3 | hand-turn one shaft revolution, live count | guided | Uno | no |
+| 6 | Distance (`counts_per_cm`) | drive-distance, odometry | drive N counts, enter tape measurement | guided | Uno | no* |
+| 7 | Track balance + max speed | "100 %" equal on both tracks | full-speed spin, measure max counts/s per track | auto (encoders) | Uno | **yes** |
+| 8 | `track_width_eff` | turn feedforward | 360° spin + one arc, gyro vs encoders | auto | Uno | **yes** |
+| 9 | Turn-rate capability curve | achievable ω vs speed | short turn tests at several speeds | auto | Uno | **yes** |
+| 10 | PID gains (speed, yaw-rate, heading, turn-to-angle) | response without wobble | defaults built in; **optional auto-tune** (relay/step test) | optional auto | Uno | **yes** |
+| 11 | Servo trim + limits | camera centred, no collisions | nudge while watching live video (target straight ahead) | guided | Uno | no |
+| 12 | Ultrasonic offset | exact brake distances | enter sensor-to-front distance or wall check | guided | Uno | no |
+| 13 | Camera intrinsics + distortion | metric depth, world positions | printed checkerboard at several angles | guided | AI engine | no |
+| 14 | Depth scale | depth in cm | continuous, from ultrasonic anchor | auto | AI engine | no |
+| 15 | Compass (future) | — | slow 360° self-spin | auto | — | — |
+\* track slip on very soft surfaces may justify making #6 profile-scoped later.
+
+**Surface profiles:** up to **3** named profiles (e.g. `tile`, `carpet`, `outdoor`), each holding items 4, 7, 8, 9, 10 (~80 B each in EEPROM).
+- Active profile selected from app/hub/AI (`surface_profile`), persisted; a new profile starts as a copy of the active one.
+- **Auto-suggest:** the ESP32 compares the live roughness signature with each profile's recorded signature → event `surface_suggest{profile}`; the user confirms (setting `surface_auto_switch`, default off, allows automatic switching when stationary).
+- Uncalibrated items fall back to safe defaults; telemetry reports a **calibration status** per item (`missing`/`ok`/`stale`).
+
+**First-time setup wizard** (hub settings page), in dependency order: battery → level → gyro → deadband → encoder counts/rev → distance → balance → track width → turn curve → (PID auto-tune) → servos → ultrasonic → camera. ~10 min, mostly automatic.
+**Recalibration prompts:** settings-layout change after firmware update, motor swap (balance/deadband drift), persistent heading-hold error, distance error reported by the AI/odometry.
 
 ### A11. Self-test at boot (~2 s; reported in `selftest` + beep/LED)
 IMU WHO_AM_I + not saturated · battery plausible · ultrasonic echo · encoders (if enabled) clean idle · settings CRC · reset reason.

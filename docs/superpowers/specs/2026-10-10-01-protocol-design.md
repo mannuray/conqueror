@@ -97,7 +97,8 @@ Streaming commands (no ack; rejections reported once via `nack` without `id` + a
 | `nav_mission` | `mission_id` | human | run a saved mission |
 | `nav_cancel` | — | ai | |
 | `nav_set_origin` | — | human | pose reset to (0,0,0) |
-| `calibrate` | `kind`: `gyro`/`motors`/`encoder_distance`/`turn_check`/`servo_trim` | admin | event `calibration` progress/result |
+| `calibrate` | `kind`: `gyro`/`level`/`battery`/`deadband`/`encoder_cpr`/`encoder_distance`/`balance`/`track_width`/`turn_curve`/`pid_autotune`/`servo_trim`/`ultrasonic_offset`, `profile`? | admin | event `calibration` progress/result |
+| `surface_profile` | `select` name \| `create` name (copy of active) \| `rename` \| `delete` | human (select), admin (others) | ≤3 profiles |
 | `calibrate_input` | `kind`, value (e.g. `measured_cm`) | admin | completes interactive calibrations |
 | `camera_config` | `framesize`, `quality`, `vflip`, `hmirror`, `brightness`, … | admin | |
 | `subscribe` | `streams`, `fast_hz` (1–20) | viewer | |
@@ -129,6 +130,7 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 | `owner` (`ir`/`human`/`ai`/`none`), `owner_client` | Uno + ESP32 |
 | `flags`: turn_limited, blocked, lifted, tilted, stalled, batt_low, batt_critical, link_lost, brake_off, muted, quiet, envelope, body_offline | Uno/ESP32 |
 | `envelope` {speed_cap, accel_cap, lock_brake} | Uno |
+| `surface_profile` (active name), `calibration` {item: missing/ok/stale} | Uno |
 | `hw`: encoders, imu_ok, sensor | Uno/ESP32 |
 | `temp_c` (MPU6050) | Uno |
 | `roughness` (0–100, from accel variance) | Uno variance → ESP32 scale |
@@ -141,13 +143,15 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 `bump{g}`, `lifted`, `landed`, `tilted{pitch,roll}`, `level`, `stall{side}`, `blocked{dist_cm}`, `unblocked`,
 `control_changed{owner,client}`, `control_returned` (to the AI), `deadman_stop`, `link_lost`, `link_restored`, `body_offline`, `body_online`,
 `batt_low{v}`, `batt_critical{v}`, `primitive_done{kind,ok,reason}`, `nav_done{ok,reason}`, `calibration{kind,stage,progress,result}`,
-`selftest{ok,failures[]}`, `envelope_changed{…}`, `encoder_fault{side}`, `ir_override`.
+`selftest{ok,failures[]}`, `surface_suggest{profile}`, `envelope_changed{…}`, `encoder_fault{side}`, `ir_override`.
 
 ## 7. Settings catalogue (persisted; Uno EEPROM or ESP32 NVS)
 
 | Key | Default | Where |
 |---|---|---|
 | `encoders_enabled` | false | Uno |
+| `surface_profiles[≤3]` {name, deadband, balance, track_width_eff, turn_curve, pid gains, roughness signature} | defaults | Uno (signature: ESP32) |
+| `surface_auto_switch` | false | ESP32 |
 | `counts_per_rev` | 960 | Uno |
 | `counts_per_cm` | (calibrated) | Uno |
 | `motor_v_max` | 6.0 V | Uno |
@@ -207,7 +211,8 @@ Frame: `0xAA | len | type | seq | payload[len] | crc8`
 | 0x50 | SETTING_SET | id u8, value i32 |
 | 0x51 | SETTING_GET | id u8 |
 | 0x52 | SETTINGS_SAVE | — |
-| 0x60 | CALIBRATE | kind u8, param i32 |
+| 0x60 | CALIBRATE | kind u8, param i32, profile u8 |
+| 0x61 | PROFILE | op u8 (select/create/delete), index u8 |
 
 ### Uno → ESP32
 | Type | Name | Payload |

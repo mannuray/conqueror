@@ -170,6 +170,7 @@ Layout as Tank settings (section menu + Save/Discard bar).
 6. **Storage & retention** — usage by kind (telemetry DB, recordings, snapshots, logs, models); caps/retention (telemetry 7 d raw / 90 d downsampled, recordings GB cap, alert clips, logs 7 d / 200 MB); Clean up now.
 7. **Backup** (DECIDED: keep) — download backup (settings, tanks, missions, tank keys encrypted, AI memory; recordings optional) · restore from file.
 8. **About** — versions (hub, web, AI engine, protocol), bundled licences, GitHub link.
+9. **Appearance** (added) — colour theme (Phosphor / Amber / Ice), glow/scanline intensity, per browser.
 
 ## Dialogs (APPROVED)
 
@@ -203,5 +204,14 @@ Full-size snapshot/clip; zoom/pan (3 MP stills); info (time, tank, resolution, t
 ## Visual design (Google Stitch)
 - Stitch project: "Conqueror Hub" (`projects/9914699709114202518`), design system **Phosphor Cockpit** (`assets/10357344405480861504`).
 - **Look (DECIDED):** retro green-phosphor CRT terminal, dark only. Phosphor green #33FF66 = UI colour on near-black; **status colours are not green** (amber #FFB000 warning, red #FF3B30 danger/STOP, white-green #E8FFE8 active), always with icon + text. JetBrains Mono for labels/numbers, IBM Plex Sans for prose. Glow/scanlines **only on chrome, never over video or map**. 4 px corners, bracketed section titles `[ STATUS ]`.
+- **Switchable colour themes (DECIDED):** UI built on design tokens; a theme swaps colours only, never layout.
+  | Theme | UI colour | Warning | Danger/STOP | Active |
+  |---|---|---|---|---|
+  | **Phosphor** (default) | green #33FF66 | amber #FFB000 | red #FF3B30 | white-green #E8FFE8 |
+  | **Amber** | amber #FFB000 | yellow-white #FFF2B3 | red #FF3B30 | warm white #FFF8E8 |
+  | **Ice** | cyan #4DE1FF | amber #FFB000 | red #FF3B30 | white #EAFBFF |
+  - Switch in **Hub settings → Appearance** (new section) or a quick top-bar toggle; stored per browser.
+  - Appearance also has a glow/scanline intensity slider (incl. off).
+  - Invariants in every theme: STOP is solid red; status always icon + text.
 - Screens: `docs/design/stitch/` (vN = iteration).
   - `03-cockpit-v1.png` — first Cockpit draft (review notes below).

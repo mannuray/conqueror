@@ -50,6 +50,7 @@ Standard tests (initial pass criteria):
 ## Body board (DECIDED 2026-10-11)
 - **Now: Arduino Uno** (as designed). Firmware stays board-agnostic (ports/drivers + `BOARD_*` build option; domain code untouched by board changes).
 - **Later: Arduino Mega 2560** (owned). Port notes: I2C on pins 20/21 → 2 jumpers to A4/A5 (shield wires the MPU6050 to A4/A5 only); encoders direct to A8–A11 (PCINT2, full quadrature); IR on D9 via timer sampling (no PCINT on D9); optional 2-wire move of the ESP32 link to Serial1 (USB + ESP32 simultaneously, no S1 switching); check physical fit (Mega is ~33 mm longer).
+- **Sensors (DECIDED 2026-10-11):** IR remote receiver stays (soldered on the shield). Line-tracking module stays removed (needs too little ground clearance; unreliable). **Uno: keep the forward ultrasonic** (obstacle brake). **Mega (to decide then):** candidate swap to ToF — forward VL53L1X (obstacle brake) + downward VL53L0X at the front edge (cliff/stair detection, new safety rule "no floor ahead → stop, reverse allowed"), both I2C with XSHUT on the freed D12/D13. Firmware: generalise the `ultrasonic` port to `range_forward` (+ future `range_cliff`); encoders on the Mega use full quadrature (A8–A11).
 - **Other upgrade candidate:** Arduino **Uno R4 Minima** (RA4M1 Cortex-M4 48 MHz, 32 KB RAM / 256 KB flash, **5 V logic**, same footprint) — new ARM driver set; verify interrupt-capable pins.
 - **Avoid with this 5 V shield:** 3.3 V-only boards (Due, Zero/M0, Metro M4, ESP32 Uno-shape boards).
 

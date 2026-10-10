@@ -97,6 +97,7 @@ Same as §2 except:
 ### 4.1 Language, framework, tooling
 - TypeScript `strict: true`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`. **No `any`** (use `unknown` + narrowing).
 - **NestJS on the Fastify adapter**; Nest DI for constructor injection (no service locator); modules per domain area.
+- Frozen stack: hub spec §11 (Node 24 LTS, pnpm workspace, Drizzle + SQLite, `ws`, secure-session + argon2, Vite + React 19 + MobX MVVM).
 - ESLint (typescript-eslint strict + `no-floating-promises`) + Prettier.
 - Layers inside each module: `domain/` (pure), `application/` (services/use cases), `adapters/` (tank WS client, SQLite, ffmpeg, mDNS), controllers/gateways at the edge; `main.ts` bootstraps.
 
@@ -121,6 +122,19 @@ Same as §2 except:
 - Redaction of passwords, keys, cookies, `Authorization`, API keys. JSON + rotated files in prod, pretty in dev. Health/metrics excluded from request lines; telemetry never logged.
 - OpenTelemetry first-import; OTLP export no-op unless configured; **Prometheus `/metrics` on by default**; automatic HTTP/WS/DB instrumentation; typed `MetricsService.trackX()` business metrics with cardinality-safe buckets; Terminus `/health`, `/health/live`, `/health/ready`.
 - Details: hub spec §9–§10.
+
+### 4.5 Frontend (`hub/apps/web`) — React + MVVM (MobX)
+- **Model / ViewModel / View separation is mandatory:**
+  - Views are `observer` components with **no business logic and no data fetching**; they render ViewModel state and call ViewModel methods.
+  - ViewModels are **MobX classes** (`makeAutoObservable`), contain **no JSX**, never call `fetch`/WS directly — Model services are **injected via the constructor**.
+  - Models (API client, `TankLink` WS service, repositories) contain all I/O and no UI state.
+- **Composition root:** one `createAppContainer()` wires Models and ViewModel factories; provided to React through a context; screens obtain their VM via `useViewModel(factory)`, which **disposes** it (reactions, subscriptions) on unmount.
+- MobX strict mode (`enforceActions: "always"`); state changes only inside actions; derived values as `computed`, never duplicated state.
+- **High-rate telemetry:** WS updates are applied in batched `runInAction` at ≤ 20 Hz; only fine-grained observers re-render (gauges, charts) — no whole-page re-renders.
+- Components small and presentational; shared primitives in `packages/ui-kit` (shadcn/ui based).
+- Forms: react-hook-form + generated zod schemas (same validation as the API).
+- API errors surface as typed `ApiError { code, reason, message, details, validationErrors }` from the error envelope; VMs map `reason` to user messages — never parse message strings.
+- Strict TypeScript, ESLint (react-hooks, jsx-a11y), Prettier; accessible components (keyboard + screen reader) by default.
 
 ## 5. AI engine — Python (`ai-engine`)
 

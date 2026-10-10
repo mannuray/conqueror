@@ -2,7 +2,7 @@
 
 Status: IN PROGRESS · Date: 2026-10-10 · Implements: Spec 2 Part B, Spec 1 · Standards: `docs/standards/coding-standards.md` §3
 
-Sections: 1 Structure, tasks & frameworks ✅ · 2 Ports ✅ · 3 Body link & clock sync · 4 Client API · 5 Navigation · 6 Camera service · 7 Calibration engine · 8 WiFi, mDNS, OTA & storage · 9 Memory/task budget & error handling
+Sections: 1 Structure, tasks & frameworks ✅ · 2 Ports ✅ · 3 Body link & clock sync ✅ · 4 Client API · 5 Navigation · 6 Camera service · 7 Calibration engine · 8 WiFi, mDNS, OTA & storage · 9 Memory/task budget & error handling
 
 Note: UART is **250000 baud** and calibration maths runs here (Uno LLD §9 revision).
 
@@ -129,3 +129,143 @@ classDiagram
 | sys | RTC memory keeps reboot reason + WDT culprit task | any task | — |
 
 Rules: each hardware resource has **one owning task** (others via queues; no locks around hardware) · `domain/` never includes `ports/`; shared value types in `types/` · pins/sizes in `drivers/board_config.h` (camera pin map `CAMERA_MODEL_M5STACK_WIDE`, UART IO33/IO4).
+
+---
+
+## 3. Body link, clock sync & derived metrics (APPROVED)
+
+### 3.1 Class diagram
+```mermaid
+classDiagram
+    direction TB
+    class BodyLinkTask {
+      -FrameParser parser_
+      -FrameWriter writer_
+      -UnoSession session_
+      -AckTracker acks_
+      -ClockSync clock_
+      -TelemetryDecoder decoder_
+      +run()
+    }
+    class UnoSession {
+      -SessionState state_
+      -uint32 last_rx_ms_
+      -UnoHello hello_
+      +onHello(UnoHello, now) SessionAction
+      +onFrame(now)
+      +update(now) SessionAction
+      +state() SessionState
+    }
+    class AckTracker {
+      -Pending pending_[16]
+      +track(seq, client_fd, cmd_id, now)
+      +onAck(seq, status) AckResult
+      +expire(now) AckResults
+    }
+    class ClockSync {
+      -int64 offset_ms_
+      -RttWindow rtt_
+      +onTelem(uno_ms, esp_rx_ms)
+      +onAckRtt(ms)
+      +toTankMs(uno_ms) uint32
+      +linkLatencyMs() uint16
+    }
+    class TelemetryDecoder {
+      +decodeFast(Frame, TankFast&) bool
+      +decodeSlow(Frame, TankSlow&) bool
+      +decodeEvent(Frame, TankEvent&) bool
+    }
+    class TankState {
+      <<single writer per group, mutex snapshot>>
+      +TankFast fast
+      +TankSlow slow
+      +Derived derived
+      +Pose pose
+      +Owner net_owner
+      +snapshot() TankSnapshot
+    }
+    class DerivedMetrics {
+      -BatteryModel battery_
+      -TtcCalc ttc_
+      -SlipCalc slip_
+      -RoughnessScale rough_
+      -LifetimeStats life_
+      +update(TankFast, TankSlow, dt) Derived
+    }
+    class BatteryModel { +pct(mv) uint8 +sag() float +runtimeMin() uint16 }
+    class TtcCalc { +ttc(dist_mm, closing_cm_s) float }
+    class SlipCalc { +update(encL, encR, yaw_rate, track_width, dt) uint8 }
+    class RoughnessScale { +scale(accel_var, speed) uint8 }
+    class LifetimeStats { +add(distance, dt) +persistDue(now) bool }
+    class EventTranslator { +toClient(TankEvent) ClientEvent }
+    BodyLinkTask *-- UnoSession
+    BodyLinkTask *-- AckTracker
+    BodyLinkTask *-- ClockSync
+    BodyLinkTask *-- TelemetryDecoder
+    BodyLinkTask --> TankState
+    BodyLinkTask --> DerivedMetrics
+    BodyLinkTask --> EventTranslator
+    DerivedMetrics *-- BatteryModel
+    DerivedMetrics *-- TtcCalc
+    DerivedMetrics *-- SlipCalc
+    DerivedMetrics *-- RoughnessScale
+    DerivedMetrics *-- LifetimeStats
+```
+Writers: fast/slow/derived = BodyLinkTask · pose = NavigationTask · net_owner = ControlTask. `FrameParser`/`FrameWriter` are the same generated C++ as the Uno.
+
+### 3.2 Uno session state machine
+```mermaid
+stateDiagram-v2
+    [*] --> Disconnected
+    Disconnected --> Syncing : HELLO (proto major matches)
+    Disconnected --> Incompatible : HELLO (proto differs) → body_incompatible
+    Syncing --> Synced : ENVELOPE (from NVS) + HELLO_ACK sent
+    Synced --> Lost : no valid frame 300 ms → body_offline
+    Lost --> Syncing : HELLO or frames resume → HELLO_REQ
+    Synced --> Syncing : new HELLO while synced (Uno reset) → re-sync
+    Incompatible --> Syncing : HELLO with matching proto
+```
+- Not Synced → client motion commands get `BODY_OFFLINE` / `BODY_INCOMPATIBLE`; camera keeps streaming.
+- Heartbeat every 100 ms in every state.
+
+### 3.3 Commands and acks
+- ControlTask → `FrameTxQueue` (with client ref) → BodyLinkTask sends + tracks ack (seq → client, cmd id, 200 ms deadline).
+- Uno ACK status → registry code/reason → client `ack`/`nack`; no ack in 200 ms → `nack COMMAND_TIMEOUT`.
+- **Motion commands never auto-resent**; settings/calibration may retry once.
+- Streaming (DRIVE, CAM_JOY) untracked; Uno's rate-limited rejection events → `nack` to the owning client.
+
+### 3.4 Clock sync
+- `tank_ms` = ESP32 time; offset = `esp_rx_ms − uno_ms` as the **minimum over a sliding window**; Uno timestamps converted.
+- Link latency = EMA ack RTT / 2 → `esp.link_latency_ms`.
+- Camera frames stamped in ESP32 time (same clock as telemetry); hub estimates its offset via ping/pong.
+
+### 3.5 Derived metrics
+| Metric | Method |
+|---|---|
+| batt_pct | 2S Li-ion LUT (8.4 V → 100 %, 6.6 V → 0 %) on idle voltage |
+| sag_v | idle EMA − loaded EMA (`driving` flag) |
+| runtime_min | voltage slope while driving → minutes to critical |
+| ttc_s | dist / closing speed when closing > 2 cm/s, else null |
+| slip_pct | `(vR − vL)/track_width` vs gyro rate during turns |
+| roughness | accel_var normalised by speed → 0–100 |
+| lifetime | encoder distance + runtime + power-ons; NVS every 5 min |
+
+### 3.6 Telemetry path
+```mermaid
+sequenceDiagram
+    participant U as Uno
+    participant B as BodyLinkTask
+    participant S as TankState
+    participant T as TelemetryTask
+    participant N as NavigationTask
+    participant C as Clients (WS)
+    U->>B: TELEM_FAST (20 Hz)
+    B->>B: decode + clock map + derived metrics
+    B->>S: write fast + derived
+    N->>S: snapshot → integrate pose → write pose
+    T->>S: snapshot at each subscriber rate (≤ 20 Hz)
+    T->>C: tf JSON (latest-value, drop stale)
+    U->>B: EVENT
+    B->>T: EventBus (translated, tank_ms)
+    T->>C: ev JSON
+```

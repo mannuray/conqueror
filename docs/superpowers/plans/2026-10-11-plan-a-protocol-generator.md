@@ -445,6 +445,12 @@ def test_payload_sizes_match_lld() -> None:
 def test_ack_status_starts_with_ok() -> None:
     model = load(DEFS)
     assert model.ack_status[0] == "OK"
+
+
+def test_yaml_boolean_words_stay_strings() -> None:
+    model = load(DEFS)  # YAML 1.1 turns bare on/off/yes/no into booleans; the defs quote them
+    assert model.frame("CAM_LOCK").fields[0].name == "on"
+    assert "OFF" in next(e for e in model.enums if e.name == "LedMode").values
 ```
 
 - [ ] **Step 2: Run it to see it fail**
@@ -472,15 +478,15 @@ baud: 250000
 - name: Owner
   doc: Motion owner as seen by the Uno.
   values: { NONE: 0, NETWORK: 1, IR: 2, CALIBRATION: 3 }
-- name: OwnerHint
+- name: OwnerHintValue
   doc: Network owner sent to the Uno for the LED colour.
   values: { NONE: 0, HUMAN: 1, AI: 2 }
 - name: TurnMode
   doc: TURN.mode bits 0-6; bit 7 = pivot.
   values: { BY: 0, TO: 1 }
 - name: LedMode
-  values: { OFF: 0, SOLID: 1, BLINK: 2, PULSE: 3 }
-- name: AudioMode
+  values: { "OFF": 0, SOLID: 1, BLINK: 2, PULSE: 3 }  # quoted: YAML 1.1 reads bare OFF as false
+- name: AudioModeValue
   values: { NORMAL: 0, QUIET: 1, MUTE: 2 }
 - name: CalOp
   values: { START: 0, CANCEL: 1 }
@@ -627,7 +633,7 @@ baud: 250000
   dir: esp32_to_uno
   ack: true
   fields:
-    - { name: on, type: u8 }
+    - { name: "on", type: u8 }  # quoted: YAML 1.1 reads bare on as true
 - name: LED
   type: 0x30
   dir: esp32_to_uno
@@ -662,14 +668,14 @@ baud: 250000
   dir: esp32_to_uno
   ack: true
   fields:
-    - { name: mode, type: u8, enum: AudioMode }
+    - { name: mode, type: u8, enum: AudioModeValue }
 - name: BRAKE
   type: 0x40
   dir: esp32_to_uno
   ack: true
   doc: Obstacle brake on/off; refused (ENVELOPE_LOCKED) while lock_brake.
   fields:
-    - { name: on, type: u8 }
+    - { name: "on", type: u8 }  # quoted: YAML 1.1 reads bare on as true
 - name: ENVELOPE
   type: 0x41
   dir: esp32_to_uno
@@ -684,7 +690,7 @@ baud: 250000
   dir: esp32_to_uno
   doc: Network owner for LED colour; re-sent on change and after re-sync.
   fields:
-    - { name: owner, type: u8, enum: OwnerHint }
+    - { name: owner, type: u8, enum: OwnerHintValue }
 - name: SETTING_SET
   type: 0x50
   dir: esp32_to_uno
@@ -814,7 +820,7 @@ baud: 250000
 - name: CAL_DATA
   type: 0x95
   dir: uno_to_esp32
-  doc: Raw calibration samples at 50 Hz (channel layout per script in docs).
+  doc: Raw calibration samples at 50 Hz; per-script v[0..7] layout in docs/lld/protocol-generator-lld.md (CAL_DATA channel layouts).
   fields:
     - { name: script, type: u8, enum: CalScript }
     - { name: phase, type: u8 }
@@ -1068,7 +1074,7 @@ def load(defs_dir: Path) -> ProtocolModel:
 - [ ] **Step 5: Run the tests to see them pass**
 
 Run: `cd protocol && uv run pytest generator/tests -v`
-Expected: all passed (7 tests).
+Expected: all passed (8 tests).
 
 - [ ] **Step 6: Lint, type-check, commit**
 
@@ -1164,6 +1170,12 @@ def test_setting_range_exceeds_wire_type() -> None:
     assert any("wide" in i and "wire" in i for i in validate(m))
 
 
+def test_enum_name_must_not_clash_with_frame_class() -> None:
+    m = _model()
+    m.enums[0].name = "AudioMode"
+    assert any("AudioMode" in i and "clash" in i for i in validate(m))
+
+
 def test_count_field_must_precede_array() -> None:
     m = _model()
     tone = m.frame("TONE")
@@ -1252,6 +1264,11 @@ def validate(model: ProtocolModel) -> list[str]:
     for reason in model.ack_status[1:]:
         if reason not in reasons:
             issues.append(f"ack_status: unknown reason {reason}")
+
+    frame_classes = {"".join(p.capitalize() for p in f.name.lower().split("_")) for f in model.frames}
+    for e in model.enums:
+        if e.name in frame_classes:
+            issues.append(f"enum {e.name}: name clash with a generated frame class")
 
     kinds: set[int] = set()
     for ev in model.events:
@@ -2507,7 +2524,7 @@ git commit -m "feat(protocol): AVR-friendly C++ header emitter and host C++ vect
 **Files:**
 - Create: `protocol/generator/protogen/emit_docs.py`, `protocol/generator/protogen/cli.py`, `scripts/check-protocol.sh`, `.githooks/pre-commit`
 - Generated (committed): `protocol/python/conqueror_protocol/generated.py`, `firmware/uno/src/generated/cq_protocol.h`, `protocol/vectors/frames.json`, `protocol/tests/cpp/generated_vectors_test.cpp`, `docs/protocol/reference.md`
-- Modify: `docs/lld/protocol-generator-lld.md` (record emitter-function deviation)
+- Modify: `docs/lld/protocol-generator-lld.md` (record emitter-function deviation; authoritative CAL_DATA channel-layout table)
 - Test: `protocol/generator/tests/test_cli.py`
 
 **Interfaces:**
@@ -2780,7 +2797,7 @@ Expected: no output.
 Run: `cd protocol && uv run protogen write && uv run pytest generator/tests -v`
 Expected: `protogen: wrote 5 files`; all tests pass, including `test_committed_outputs_are_fresh`.
 
-- [ ] **Step 7: Record the LLD deviation**
+- [ ] **Step 7: Record the LLD deviation and the CAL_DATA layout table**
 
 Append to `docs/lld/protocol-generator-lld.md`:
 ```markdown
@@ -2789,6 +2806,22 @@ Append to `docs/lld/protocol-generator-lld.md`:
 - Jinja2 templates were replaced by small emitter functions (`emit_*.py`) that return text — simpler and unit-testable; no `templates/` folder.
 - ESP32 C++, TypeScript and client-JSON outputs are deferred to roadmap phases 4/5 (YAGNI); the Uno header is reused by the ESP32 bridge only as raw bytes (the bridge does not parse frames).
 - C++ host test: `protocol/tests/cpp/generated_vectors_test.cpp` (generated) is compiled and run by `pytest` (`test_cpp_vectors.py`).
+
+## CAL_DATA channel layouts (authoritative)
+Contract between the Uno `CalScriptRunner` (Plan B Task 7) and the reference calculators (Plan D Task 11, later the ESP32 port). `CAL_DATA {script, phase, t_ms u16 (ms since script start, wraps; host unwraps), v[8] i16}` at 50 Hz; unused channels 0. CCW yaw positive; encoder counts and cps signed by the commanded direction unless shown as |x|; ×10 = 0.1 units.
+
+| Script | `param` | `phase` | v[0] | v[1] | v[2] | v[3] | v[4] | v[5] | v[6] | v[7] | Ends |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| STILL_SAMPLE, IDLE | duration ms (0 → 3000, max 30000) | 0 | gx | gy | gz | ax | ay | az | temp 0.01 °C | batt_mv | OK after duration |
+| PWM_RAMP | track (0 L, 1 R) \| reverse << 1 \| max PWM << 8 (0 → 255) | 0 up, 1 down (5 PWM / 150 ms) | \|pwm\| | yaw_rate×10 | \|enc\| since start | \|cps\| | 0 | 0 | 0 | 0 | OK back at 0 |
+| FULL_SPIN | PWM (0 → 255), CCW | 0 | pwm_l | pwm_r | cps_l | cps_r | yaw_rate×10 | yaw×10 | enc_l | enc_r (since start) | OK at 720°; CAL_FAILED after 20 s |
+| SPIN_AND_ARC | bit 0 = CW | 0 = 360° spin at 90 °/s + 0.5 s settle; 1 = 90° arc (PWM 150, 30 °/s) | enc_l | enc_r | yaw×10 (since phase start) | yaw_rate×10 | pwm_l | pwm_r | 0 | 0 | OK after the arc; CAL_FAILED after 20 s |
+| RATE_STEPS | speed steps n (2–5, 0 → 4) | step i: speed 100·i/(n−1) % + full CCW turn, 1.5 s (+0.5 s stop, no samples) | speed % | w %×10 (1000) | yaw_rate×10 | cps_l | cps_r | pwm_l | pwm_r | 0 | OK after n steps |
+| RELAY_OSCILLATION | loop: 0 speed (needs encoders), 1 rate, 2 heading | 0 | setpoint×10 | measured×10 | relay output (speed %, rate w %, heading °/s) | pwm_l | pwm_r | 0 | 0 | 0 | OK after 8 s |
+| DRIVE_COUNTS | counts (0 → 7600) | 0 | enc_l | enc_r | yaw×10 (since start) | pwm_l | pwm_r | cps_l | cps_r | 0 | OK at mean counts; CAL_FAILED after 15 s |
+| SERVO_NUDGE | — | — | reserved: the Uno answers UNAVAILABLE; servo trim uses CAM_NUDGE + telemetry | | | | | | | | |
+
+Raw IMU counts: 65.5 LSB per °/s (±500 °/s), 8192 LSB per g (±4 g). Missing encoders → CAL_PRECONDITION for FULL_SPIN, SPIN_AND_ARC, DRIVE_COUNTS, RELAY_OSCILLATION loop 0. `CAL_RESULT`: `OK` with progress < 100 = running (sent at start and every 500 ms), `OK` with progress 100 = done, any other status = failed/cancelled.
 ```
 
 - [ ] **Step 8: Lint, type-check, commit**

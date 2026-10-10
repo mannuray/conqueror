@@ -1,5 +1,8 @@
 # NewConquerorTank — Design Notes (living document)
 
+> **Superseded by the specs in `docs/superpowers/specs/2026-10-10-0*-design.md`.** This file is the raw brainstorming record;
+> where it conflicts with the specs (e.g. old "v1/v2" wording, compass auto-detect in §6, the single `conqueror.local` name), **the specs win**.
+
 Running record of every decision and open question while we brainstorm.
 Nothing here is implemented yet. Once complete, this becomes the design spec.
 

@@ -47,6 +47,12 @@ Standard tests (initial pass criteria):
 - **Optional hold-to-drive** (`bench drive --hold`): `pynput` key-down/up events on macOS (one-time Accessibility permission).
 - Gamepad support pluggable for later; IR remote remains a manual controller.
 
+## Body board (DECIDED 2026-10-11)
+- **Now: Arduino Uno** (as designed). Firmware stays board-agnostic (ports/drivers + `BOARD_*` build option; domain code untouched by board changes).
+- **Later: Arduino Mega 2560** (owned). Port notes: I2C on pins 20/21 → 2 jumpers to A4/A5 (shield wires the MPU6050 to A4/A5 only); encoders direct to A8–A11 (PCINT2, full quadrature); IR on D9 via timer sampling (no PCINT on D9); optional 2-wire move of the ESP32 link to Serial1 (USB + ESP32 simultaneously, no S1 switching); check physical fit (Mega is ~33 mm longer).
+- **Other upgrade candidate:** Arduino **Uno R4 Minima** (RA4M1 Cortex-M4 48 MHz, 32 KB RAM / 256 KB flash, **5 V logic**, same footprint) — new ARM driver set; verify interrupt-capable pins.
+- **Avoid with this 5 V shield:** 3.3 V-only boards (Due, Zero/M0, Metro M4, ESP32 Uno-shape boards).
+
 ## Out of the MVP (phases 0–5)
 Hub backend, Timeline/recording, missions/waypoints UI, multi-tank, AI engine, voice, themes beyond Phosphor, surface profiles (one default), OTA, full key management (admin key only), first-run polish.
 

@@ -109,8 +109,8 @@ Same as §2 except:
 - OpenAPI document generated from the route schemas and served at `/api/v1/openapi.json`.
 
 ### 4.3 Error handling
-- **Expected failures** (validation, not found, tank offline, not owner) are returned as typed results (`Result<T, E>`) inside the application layer and mapped to HTTP at the edge.
-- **Unexpected failures** (bugs) throw; one central error middleware logs and returns 500 without leaking internals.
+- **Custom error class hierarchy** rooted at `AppError` (`code`, `httpStatus`, safe `details`, internal `cause`); expected failures throw subclasses (`ValidationError`, `NotFoundError`, `ConflictError`, `TankOfflineError`, …); adapters wrap foreign errors with `cause`.
+- **One central error handler** (HTTP + WS) maps errors to responses; non-`AppError` → `InternalError` (500, logged with stack, no internals exposed). Full catalogue: hub spec §8.
 - **One error envelope** for every error (RFC 9457 Problem Details):
   `{"type":"…/errors/tank-offline","title":"Tank offline","status":503,"code":"tank_offline","detail":"…","requestId":"…"}`
   Error `code` values reuse the protocol's nack codes where applicable.
@@ -119,7 +119,8 @@ Same as §2 except:
 - STOP paths bypass queues and are forwarded immediately.
 
 ### 4.4 Operational
-- Structured JSON logs (pino) with `requestId` / `tankId` correlation; no secrets in logs.
+- Structured JSON logs (pino) with `requestId` / `tankId` correlation; no secrets in logs; level policy and fields per hub spec §9.
+- Prometheus metrics at `/metrics` per hub spec §10; `/healthz` + `/readyz`.
 - Config from environment, validated at startup (fail fast on invalid config).
 - Auth checked on every route and WS upgrade; tank keys stored encrypted at rest, never sent to browsers.
 

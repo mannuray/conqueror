@@ -2,7 +2,7 @@
 
 Status: IN PROGRESS · Date: 2026-10-10 · Implements: Spec 2 Part B, Spec 1 · Standards: `docs/standards/coding-standards.md` §3
 
-Sections: 1 Structure, tasks & frameworks ✅ · 2 Ports ✅ · 3 Body link & clock sync ✅ · 4 Client API ✅ · 5 Navigation ✅ · 6 Camera service · 7 Calibration engine · 8 WiFi, mDNS, OTA & storage · 9 Memory/task budget & error handling
+Sections: 1 Structure, tasks & frameworks ✅ · 2 Ports ✅ · 3 Body link & clock sync ✅ · 4 Client API ✅ · 5 Navigation ✅ · 6 Camera service ✅ · 7 Calibration engine · 8 WiFi, mDNS, OTA & storage · 9 Memory/task budget & error handling
 
 Note: UART is **250000 baud** and calibration maths runs here (Uno LLD §9 revision).
 
@@ -536,3 +536,116 @@ sequenceDiagram
     N->>N: residual 3 cm → arrived
     N-->>C: ev nav_done ok
 ```
+
+---
+
+## 6. Camera service (APPROVED)
+Problem solved: ELEGOO's stream handler loops inside the server task (second viewer blocked). Design: capture once, share to ≤ 2 viewers via refcounted frames and per-viewer async tasks.
+
+### 6.1 Class diagram
+```mermaid
+classDiagram
+    direction TB
+    class CameraTask {
+      -SensorProfile profile_
+      -FramePool pool_
+      -FpsMeter fps_
+      +run()
+      +onRequest(CameraRequest)
+    }
+    class SensorProfile {
+      <<per sensor PID>>
+      +SensorKind kind
+      +CameraSettings defaults
+      +framesize_full
+      +apply(sensor_t*)
+    }
+    class FramePool {
+      -SharedFrame frames_[3]
+      +acquire() SharedFrame*
+      +publish(SharedFrame*)
+      +latest() SharedFrame*
+      +release(SharedFrame*)
+    }
+    class SharedFrame {
+      +uint8* jpeg
+      +size_t len
+      +uint16 w, h
+      +uint32 tank_ms
+      +uint32 seq
+      +atomic refcount
+    }
+    class StreamServer {
+      <<port 81>>
+      -ViewerSlot viewers_[2]
+      +onStreamRequest(req)
+    }
+    class ViewerTask {
+      <<one per viewer, core 0>>
+      -int fd
+      -uint32 last_seq_
+      +run()
+    }
+    class CaptureService { +captureFull(reply_to) }
+    class FpsMeter { +tick() +fps() float }
+    CameraTask *-- SensorProfile
+    CameraTask *-- FramePool
+    CameraTask *-- FpsMeter
+    FramePool *-- SharedFrame
+    StreamServer *-- ViewerTask
+    ViewerTask --> FramePool
+    CaptureService --> CameraTask
+```
+
+### 6.2 Streaming
+- CameraTask grabs → copies JPEG into a refcounted PSRAM `SharedFrame` (≈ 25–60 KB @ 640×480) → returns the driver buffer at once → publishes as latest.
+- One `ViewerTask` per viewer (max 2) using `httpd_req_async_handler_begin`; waits for a newer frame, sends one part, releases. **Latest-frame-wins**: slow viewers skip frames; the camera is never slowed.
+- 3rd viewer → `503` ("use the hub").
+- Each part: `X-Timestamp: <tank_ms>` (capture time, ESP32 clock) + `X-Frame-Seq`.
+```
+--frame
+Content-Type: image/jpeg
+Content-Length: 41233
+X-Timestamp: 1234567
+X-Frame-Seq: 9876
+<jpeg bytes>
+```
+```mermaid
+sequenceDiagram
+    participant D as esp_camera driver
+    participant C as CameraTask
+    participant P as FramePool
+    participant V1 as ViewerTask (app)
+    participant V2 as ViewerTask (hub)
+    D-->>C: fb (DMA done, timestamp)
+    C->>P: acquire → memcpy jpeg → stamp tank_ms, seq
+    C->>D: esp_camera_fb_return(fb)
+    C->>P: publish(frame)
+    P-->>V1: notify
+    P-->>V2: notify
+    V1->>P: latest() → send part → release
+    V2->>P: latest() → send part → release
+```
+
+### 6.3 Full-resolution capture
+```mermaid
+sequenceDiagram
+    participant R as REST /api/capture?res=full
+    participant C as CameraTask
+    participant S as Sensor
+    R->>C: CaptureRequest(full)
+    C->>S: framesize QXGA (2048×1536)
+    C->>C: discard 2 frames (settle)
+    C->>C: grab → SharedFrame
+    C->>S: restore stream framesize
+    C-->>R: JPEG + X-Timestamp
+```
+Stream pauses ~0.5 s (viewers keep the last frame); one full capture at a time, queue 2, then `BUSY`.
+
+### 6.4 Sensor profiles, settings, health
+- Sensor PID at boot → profile: **OV3660** (stock), OV2640, OV5640 (defaults: flip/mirror/quality, full framesize).
+- Default stream 640×480, JPEG quality 12; admin changes via CameraTask queue; persisted in NVS.
+- Grab timeout 200 ms → counter; 5 consecutive → re-init + `camera_reset` event; `esp.fps` + dropped-frame counters in telemetry.
+
+### 6.5 Memory
+PSRAM: 2 driver buffers + 3 pool frames ≈ 300 KB (+ ~400 KB temporary for a 3 MP capture) of 4 MB; internal RAM untouched by video.

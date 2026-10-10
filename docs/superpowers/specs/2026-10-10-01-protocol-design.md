@@ -1,10 +1,10 @@
 # Conqueror Platform — Protocol & Interface Contract (Design Spec 1)
 
-Status: DRAFT for review · Date: 2026-10-10 · Depends on: Spec 0
+Status: REVIEWED — body link (§8) and hub pairing (§3) APPROVED 2026-10-10 · Date: 2026-10-10 · Depends on: Spec 0
 
 Two layers:
 - **Client API** (§2–§7): JSON over WebSocket + HTTP between clients (hub, app, AI engine via hub) and the **ESP32**.
-- **Body link** (§8): compact binary frames over UART between the **ESP32** and the **Uno**. *(Proposed in brainstorming, presented here for approval.)*
+- **Body link** (§8): compact binary frames over UART between the **ESP32** and the **Uno**. *(APPROVED: 115200 baud, fallback 57600 if unreliable on the shield.)*
 
 All message definitions live once in `protocol/` (schema source) and are generated into C (Uno), C++ (ESP32), TypeScript (hub) and Python (AI engine).
 Protocol version: `proto = 1`. The ESP32 refuses Uno firmware with a different body-link major version and reports `body_incompatible`.
@@ -168,7 +168,7 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 | `tilt_limit_deg` | 35 | Uno |
 | `bump_g` | 1.5 | Uno |
 | `deadman_ms` | 300 | Uno |
-| `batt_low_v` / `batt_crit_v` | 7.0 / 6.6 (assumption A1) | Uno |
+| `batt_low_v` / `batt_crit_v` | 7.0 / 6.6 (2S Li-ion, confirmed) | Uno |
 | `servo_limits{pan_min,pan_max,tilt_min,tilt_max}` | 0/180/30/110 | Uno |
 | `servo_trim{pan,tilt}`, `servo_speed`, `servo_accel` | 0,0 / 120 °/s / 400 °/s² | Uno |
 | `cam_return_delay_ms` | 500 | Uno |

@@ -1,6 +1,6 @@
 # Conqueror Platform — System Overview (Design Spec 0)
 
-Status: DRAFT for review · Date: 2026-10-10 · Source: brainstorming session, `docs/design-notes.md`
+Status: REVIEWED (open items closed 2026-10-10) · Date: 2026-10-10 · Source: brainstorming session, `docs/design-notes.md`
 
 Spec set:
 | # | Spec | Scope |
@@ -82,8 +82,9 @@ Non-goals: cloud/internet remote access, multi-site deployment, multi-user accou
 | IR | NEC receiver (D9), kit remote "A" | confirmed |
 | Compass | **none** (deferred; see §8) | decided |
 
-### Explicit assumptions (unconfirmed; numbers derived from them are provisional)
-- **A1 Battery is 2S Li-ion (7.4 V nominal, 8.4 V full).** Drives battery thresholds (7.0 V low, 6.6 V critical) and the 6 V motor cap.
+### Hardware facts and remaining assumptions
+- **Battery: 2S Li-ion (7.4 V nominal, 8.4 V full) — CONFIRMED by user.** Battery thresholds 7.0 V low / 6.6 V critical; 6 V motor cap.
+- Remaining assumptions below are confirmed during wiring/calibration (buzzer pin, encoder resolution via calibration item 5, encoder pin, UART speed with 57600 fallback):
 - **A2 Buzzer pin is A0.** Configurable at build time; confirm when wiring.
 - **A3 FIT0458 resolution is 960 counts per output revolution per channel** (DFRobot wiki; some retailers state 1920). Stored as a setting; verified by hand-turning one revolution.
 - **A4 Right-encoder pin is A1** (left encoder on D3).

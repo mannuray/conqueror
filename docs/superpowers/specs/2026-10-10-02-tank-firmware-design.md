@@ -1,6 +1,6 @@
 # Conqueror Platform — Tank Firmware (Design Spec 2)
 
-Status: DRAFT for review · Date: 2026-10-10 · Depends on: Spec 0, Spec 1
+Status: REVIEWED 2026-10-10 · Date: 2026-10-10 · Depends on: Spec 0, Spec 1
 
 Two firmwares, both built with PlatformIO:
 - `firmware/uno/` — Arduino Uno **body**: control loops, safety reflexes, sensors, outputs.

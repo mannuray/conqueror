@@ -1,6 +1,6 @@
 # Conqueror Platform — AI Engine (Design Spec 4)
 
-Status: DRAFT for review · Date: 2026-10-10 · Depends on: Spec 0, Spec 1, Spec 3
+Status: REVIEWED 2026-10-10 · Date: 2026-10-10 · Depends on: Spec 0, Spec 1, Spec 3
 
 The AI engine is the project's **main offering**: a Python service, client of the hub, with **vision as the primary input**.
 It is fully configurable so anyone can run it on what they have.

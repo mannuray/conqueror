@@ -86,3 +86,38 @@ No sign-up and no "forgot password": recovery is a documented command-line reset
 3. Success: "Paired. Run the setup wizard now? (~10 min, needs floor space)" → Start wizard / Later
 
 **Guest:** same cards without menus or Add tank; only Open (view-only) and STOP.
+
+### Screen 3 — Cockpit (per tank) (APPROVED)
+
+**A. Tank header (shared by the three tank tabs):** tank name + switcher ▾ · tabs Cockpit | Timeline | Settings.
+
+**B. Status bar (one compact row):**
+| Item | Shows |
+|---|---|
+| Connection | online + link delay (ms); red when degraded |
+| Battery | % + estimated minutes left; amber low, red critical |
+| WiFi | signal bars |
+| Control chip | You / AI / IR remote / None + **Take control** or **Release to AI** |
+| Surface profile | "Tile ▾" (tap to switch) |
+| Badges | child-play limits · obstacle brake OFF (warning) · recording ● · muted |
+
+**C. Main view — Camera ⇄ Map** (other in a picture-in-picture corner; tap to swap)
+- Camera overlays (toggleable): heading line + distance-ahead bar with time-to-collision (red inside the brake zone) · AI detections (boxes + labels + distance) · depth heat-map (opacity slider) · tilt horizon + pan/tilt mini-indicator · glass-to-glass delay readout.
+- Map: occupancy grid · tank pose + heading + trail · home marker · AI object pins (last-seen time) · tap "Go here" · mission waypoints · zoom/fit/centre-on-tank.
+
+**D. Controls zone:** left joystick = drive (smooth arcs, car-style reverse) · right joystick = camera (follows stick, springs home) + lock + home · max-speed slider · phone tilt-steering toggle.
+
+**E. Quick actions:** **STOP** (big, red, floating, always visible) · Record · Snapshot (stream / full 3 MP) · Sounds ▾ · LED ▾ · Obstacle brake on/off · Moves ▾ (turn 90° L/R, turn 180°, forward 50 cm, return home) · Child-play ▶.
+
+**F. Side panel (collapsible, tabs):**
+1. **AI** (default): command box (text + push-to-talk) with suggestion chips (What do you see? · Find the ball · Follow me · Go home) · active skill card (name, what it does, progress, Stop skill) · fun modes (Baby game, Follow me, Hide & seek, Patrol, Photographer, Guard) · live decision log (thinking → tool calls → results with thumbnails; spoken replies with play button).
+2. **Map & Missions:** saved missions → edit on map (add/move/delete points, loop, speed) → Save / Run / Cancel · live progress (waypoint 3/7) · set home here · return home · reset origin.
+3. **Status:** gauges (track speed L/R commanded vs actual, heading compass, pitch/roll, distance + TTC, battery V/sag/minutes, temperature, WiFi, link delay, Uno load, slip %, roughness) · active flags · calibration status summary (link to Settings).
+
+**G. Keyboard (desktop):** W A S D drive · arrows camera · **Space = STOP** · H camera home · L lock · M swap camera/map · R record · P snapshot · Enter → AI command box.
+
+**H. Banners/toasts:** alert banners (lifted, tilt, low/critical battery, link lost, body offline, firmware mismatch) · control banner ("IR remote has control" / "AI is driving — Take control") · toasts (surface suggestion, AI finished, mission done/failed + reason).
+
+**I. Phone (landscape):** full-screen main view; joysticks at bottom corners; STOP top-right; compact status chips top-left; side panel → swipe-up bottom sheet; PiP tap to swap.
+
+**J. Guest:** video + status bar + STOP only.

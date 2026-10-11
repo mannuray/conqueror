@@ -19,7 +19,7 @@
 - Pins: encoders (FIT0458, channel A only) left **A1**, right **A2** (PCINT1, rising edges only); passive buzzer **A0** (`tone()`, Timer2); ultrasonic trig **D13**, echo **D12**; IR receiver **D9** (custom NEC decoder, no IRremote); PCINT0 ISR shared by D9 + D12; servos pan **D10**, tilt **D11** (Servo lib, Timer1); WS2812 ×1 on **D4** (own bit-bang, no FastLED); button **D2**; battery **A3**; MPU6050 on I2C A4/A5 @ **0x68**.
 - UART **250000** baud on D0/D1 (shield switch **S1** disconnects the ESP32 for USB upload).
 - Frame `0xAA | len | type | seq | payload | crc8`, max payload 48, CRC-8 poly 0x07 — all from `cq_protocol.h`; never hand-code frame layouts.
-- No heap, no `String`, no STL, no exceptions/RTTI, no `virtual`, no `delay()`/`pulseIn()`, busy-waits ≤ 50 µs except the documented MPU6050 burst read (~380 µs).
+- No heap, no `String`, no STL, no exceptions/RTTI, no `virtual`, no `delay()`/`pulseIn()`, busy-waits ≤ 50 µs except the documented MPU6050 burst read (~380 µs) and I2C bus recovery (~100 µs, only after a Wire timeout).
 - ISRs capture only (< 10 µs); shared data `volatile` + `ATOMIC_BLOCK` for multi-byte reads.
 - Members use `m_` prefix; `enum class` everywhere; units in names (`_ms`, `_us`, `_deg`, `_pct`, `_mm`, `_cps`).
 - Domain code compiles on host (`CQ_HOST_TEST`) and AVR; it includes `types/`, `domain/`, `generated/` only.
@@ -75,6 +75,7 @@ firmware/uno/
 │       ├── app.h                        App context struct (grows)                         (Task 2+)
 │       ├── comms.h/.cpp                 RX pump + prioritised TX pump, telemetry stamping  (Task 2+)
 │       ├── routes.cpp                   PROGMEM routing table (rows added per task)        (Task 2+)
+│       ├── tasks.h                      declarations of app task/init entry points         (Task 3+)
 │       ├── motion_api.h                 control/calibration entry points + motion handlers (Tasks 6, 7, 11, 14)
 │       ├── apply_settings.cpp           pushes settings into domain objects               (Task 3+)
 │       └── *_task.cpp                   settings, imu, sensor, control, calibration, camera,
@@ -3665,17 +3666,17 @@ git commit -m "feat(uno): MPU6050 driver, attitude/yaw/bump/lift estimators, 200
 
 **Files:**
 - Create: `src/domain/estimation/ultrasonic_filter.{h,cpp}`, `battery_monitor.{h,cpp}`; `src/domain/input/nec_decoder.{h,cpp}`; `src/ports/ultrasonic.h`, `ir.h`, `battery_adc.h`, `button.h`; `src/drivers/pcint0_hub.cpp`, `battery_adc_uno.cpp`, `button_uno.cpp`; `src/app/sensor_tasks.cpp`
-- Modify: `src/app/app.h`, `src/main.cpp`
+- Modify: `src/app/app.h`, `src/app/tasks.h`, `src/app/comms.cpp`, `src/main.cpp`
 - Test: `test/test_sensors/test_main.cpp`
 
 **Interfaces:**
 - Consumes: `EchoState`, `IrEvent` (Task 1), `GlobalSettings` (Task 3), `EventQueue`.
 - Produces:
   - `cq::UltrasonicFilter`: `enum class Change : uint8_t { kNone, kFault, kRecovered }`; `Change onReading(EchoState st, uint16_t echo_us, uint8_t offset_mm, uint32_t now_ms)`, `uint16_t distMm() const` (`kClear = 0xFFFF`, `kFault = 0xFFFE`), `int16_t closingCmS() const`, `bool fault() const`, `bool valid() const`.
-  - `cq::BatteryMonitor`: `enum class Level : uint8_t { kUsb, kOk, kLow, kCritical }`; `Level update(uint16_t adc, uint16_t mv_per_count_x100, uint16_t low_mv, uint16_t crit_mv, uint32_t now_ms)` (returns the new level on change, else the current), `bool changed() const`, `uint16_t mv() const`, `Level level() const`.
+  - `cq::BatteryMonitor`: `enum class Level : uint8_t { kUsb, kOk, kLow, kCritical }`; `Level update(uint16_t adc, uint16_t mv_per_count_x100, uint16_t low_mv, uint16_t crit_mv, uint32_t now_ms)` (returns the new level on change, else the current; the voltage is the plain average of the last 4 samples, one sample per 10 Hz tick — LLD §9.13), `bool changed() const`, `uint16_t mv() const`, `Level level() const`.
   - `cq::NecDecoder`: `bool feed(uint32_t t_us, uint32_t now_ms, IrEvent& out)`.
   - Ports: `cq::port::ultrasonic::{begin(), trigger(), EchoState poll(uint16_t& echo_us)}`; `cq::port::ir::{begin(), bool popEdge(uint32_t& t_us)}`; `cq::port::battery_adc::{begin(), start(), bool ready(uint16_t& adc)}`; `cq::port::button::{begin(), bool pressed()}`.
-  - App members `UltrasonicFilter us; BatteryMonitor batt; NecDecoder nec; IrEvent ir_event; bool ir_pending;` and tasks `cq::app::ultrasonicTask()` (20 Hz), `batteryTask()` (10 Hz), `irTask()` (200 Hz), `sensorsInit()`.
+  - App members `UltrasonicFilter us; BatteryMonitor batt; NecDecoder nec; IrEvent ir_event; bool ir_pending;` and tasks `cq::app::ultrasonicTask()` (20 Hz), `batteryTask()` (10 Hz), `irTask()` (200 Hz), `sensorsInit()`, declared in `app/tasks.h`.
 
 - [ ] **Step 1: Write the failing sensor tests**
 
@@ -3775,21 +3776,34 @@ void test_nec_rejects_bad_inverse_and_noise() {
 
 void test_battery_levels_with_persistence() {
   BatteryMonitor b;
-  // 4.05 mV per count: 1975 counts ≈ 8000 mV
-  for (uint32_t t = 0; t < 3000; t += 100) b.update(1975, 405, 7000, 6600, t);
+  // Default scale 4050 = 40.5 mV per count (10-bit ADC behind the divider): 198 counts ≈ 8019 mV
+  for (uint32_t t = 0; t < 3000; t += 100) b.update(198, 4050, 7000, 6600, t);
   TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kOk), static_cast<int>(b.level()));
   TEST_ASSERT_UINT16_WITHIN(20, 8000, b.mv());
-  for (uint32_t t = 3000; t < 4000; t += 100) b.update(1700, 405, 7000, 6600, t);  // 6885 mV, < 2 s
+  for (uint32_t t = 3000; t < 4000; t += 100) b.update(170, 4050, 7000, 6600, t);  // 6885 mV, < 2 s
   TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kOk), static_cast<int>(b.level()));
-  for (uint32_t t = 4000; t < 9000; t += 100) b.update(1700, 405, 7000, 6600, t);
+  for (uint32_t t = 4000; t < 9000; t += 100) b.update(170, 4050, 7000, 6600, t);
   TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kLow), static_cast<int>(b.level()));
-  for (uint32_t t = 9000; t < 14000; t += 100) b.update(1600, 405, 7000, 6600, t);  // 6480 mV
+  for (uint32_t t = 9000; t < 14000; t += 100) b.update(160, 4050, 7000, 6600, t);  // 6480 mV
   TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kCritical), static_cast<int>(b.level()));
+}
+
+// LLD §9.13: one sample per tick, plain average of the last 4 ticks.
+void test_battery_four_sample_average() {
+  BatteryMonitor b;
+  b.update(200, 4050, 7000, 6600, 0);  // 8100 mV; the first sample alone is the average
+  TEST_ASSERT_EQUAL(8100, b.mv());
+  for (uint32_t t = 100; t < 400; t += 100) b.update(200, 4050, 7000, 6600, t);
+  TEST_ASSERT_EQUAL(8100, b.mv());
+  b.update(100, 4050, 7000, 6600, 400);  // 4050 mV: (3 x 8100 + 4050) / 4
+  TEST_ASSERT_EQUAL(7087, b.mv());
+  for (uint32_t t = 500; t < 800; t += 100) b.update(100, 4050, 7000, 6600, t);
+  TEST_ASSERT_EQUAL(4050, b.mv());  // the old samples are gone after 4 ticks
 }
 
 void test_battery_usb_power_is_not_an_alarm() {
   BatteryMonitor b;
-  for (uint32_t t = 0; t < 5000; t += 100) b.update(100, 405, 7000, 6600, t);  // ~400 mV: no battery
+  for (uint32_t t = 0; t < 5000; t += 100) b.update(10, 4050, 7000, 6600, t);  // 405 mV: no battery
   TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kUsb), static_cast<int>(b.level()));
 }
 
@@ -3802,6 +3816,7 @@ int main() {
   RUN_TEST(test_nec_decodes_frame_and_repeat);
   RUN_TEST(test_nec_rejects_bad_inverse_and_noise);
   RUN_TEST(test_battery_levels_with_persistence);
+  RUN_TEST(test_battery_four_sample_average);
   RUN_TEST(test_battery_usb_power_is_not_an_alarm);
   return UNITY_END();
 }
@@ -3916,19 +3931,23 @@ UltrasonicFilter::Change UltrasonicFilter::onReading(EchoState st, uint16_t echo
 
 namespace cq {
 
-// Smoothed pack voltage; low/critical need 2 s below the threshold, recovery needs +150 mV for 2 s.
+// Pack voltage = average of the last 4 samples (one per 10 Hz tick, LLD §9.13); low/critical need
+// 2 s below the threshold, recovery needs +150 mV for 2 s.
 // Below 3 V the board is USB powered (no pack): level kUsb, never an alarm.
 class BatteryMonitor {
  public:
   enum class Level : uint8_t { kUsb, kOk, kLow, kCritical };
+  static constexpr uint8_t kAvgSamples = 4;
   Level update(uint16_t adc, uint16_t mv_per_count_x100, uint16_t low_mv, uint16_t crit_mv, uint32_t now_ms);
   bool changed() const { return m_changed; }
-  uint16_t mv() const { return static_cast<uint16_t>(m_mv); }
+  uint16_t mv() const { return m_mv; }
   Level level() const { return m_level; }
 
  private:
-  float m_mv = 0.0f;
-  bool m_primed = false;
+  uint16_t m_samples_mv[kAvgSamples] = {};
+  uint8_t m_idx = 0;
+  uint8_t m_count = 0;  // samples so far, up to kAvgSamples (the average primes on the first one)
+  uint16_t m_mv = 0;
   Level m_level = Level::kOk;
   Level m_candidate = Level::kOk;
   uint32_t m_candidate_since_ms = 0;
@@ -3948,19 +3967,23 @@ namespace cq {
 
 BatteryMonitor::Level BatteryMonitor::update(uint16_t adc, uint16_t mv_per_count_x100, uint16_t low_mv,
                                              uint16_t crit_mv, uint32_t now_ms) {
-  const float mv = static_cast<float>(adc) * mv_per_count_x100 / 100.0f;
-  m_mv = m_primed ? m_mv + 0.2f * (mv - m_mv) : mv;
-  m_primed = true;
+  const uint32_t mv = (static_cast<uint32_t>(adc) * mv_per_count_x100 + 50u) / 100u;
+  m_samples_mv[m_idx] = mv > 0xFFFFu ? 0xFFFFu : static_cast<uint16_t>(mv);
+  m_idx = static_cast<uint8_t>((m_idx + 1) % kAvgSamples);
+  if (m_count < kAvgSamples) ++m_count;
+  uint32_t sum = 0;
+  for (uint8_t i = 0; i < m_count; ++i) sum += m_samples_mv[i];  // slots 0..m_count-1 are filled
+  m_mv = static_cast<uint16_t>(sum / m_count);
 
   Level target;
-  if (m_mv < 3000.0f) {
+  if (m_mv < 3000u) {
     target = Level::kUsb;
   } else if (m_mv < crit_mv) {
     target = Level::kCritical;
   } else if (m_mv < low_mv) {
     target = Level::kLow;
   } else if (m_level == Level::kLow || m_level == Level::kCritical) {
-    target = m_mv > low_mv + 150.0f ? Level::kOk : m_level;  // hysteresis on recovery
+    target = m_mv > static_cast<uint32_t>(low_mv) + 150u ? Level::kOk : m_level;  // hysteresis on recovery
   } else {
     target = Level::kOk;
   }
@@ -3975,7 +3998,7 @@ BatteryMonitor::Level BatteryMonitor::update(uint16_t adc, uint16_t mv_per_count
     m_candidate = target;
     m_candidate_since_ms = now_ms;
   }
-  const bool immediate = target == Level::kUsb && !m_changed && m_level == Level::kOk;
+  const bool immediate = target == Level::kUsb && m_level == Level::kOk;
   if (immediate || elapsed(now_ms, m_candidate_since_ms, 2000)) {
     m_level = target;
     m_changed = true;
@@ -4072,7 +4095,7 @@ bool NecDecoder::feed(uint32_t t_us, uint32_t now_ms, IrEvent& out) {
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_sensors`
-Expected: `8 Tests 0 Failures`.
+Expected: `9 Tests 0 Failures`.
 
 - [ ] **Step 5: Ports and drivers (PCINT0 hub for IR + echo, async ADC, button)**
 
@@ -4213,7 +4236,9 @@ namespace ultrasonic {
 void begin() {
   pinMode(board::kPinTrig, OUTPUT);
   digitalWrite(board::kPinTrig, LOW);
-  pinMode(board::kPinEcho, INPUT);
+  // Pull-up: HC-SR04 echo is push-pull, so harmless when connected; unplugged it reads a steady
+  // HIGH (no edges, no PCINT storm) → kNoEcho → US_FAULT.
+  pinMode(board::kPinEcho, INPUT_PULLUP);
   g_prev_pinb = PINB;
   PCMSK0 |= _BV(PCINT4);
   PCICR |= _BV(PCIE0);
@@ -4402,7 +4427,14 @@ void irTask() {
   s.flags2 = g_app.slow_flags;
 ```
 
-In `src/main.cpp` declarations add `void sensorsInit(); void ultrasonicTask(); void batteryTask(); void irTask();` (inside `namespace cq { namespace app { … } }`); before `// SETUP-END`: `cq::app::sensorsInit();`; rows before `// TASKS-END`:
+In `src/app/tasks.h` add before `// TASK-DECLS-END`:
+```cpp
+void sensorsInit();     // boot: ultrasonic, IR, battery ADC, button ports
+void ultrasonicTask();  // 20 Hz
+void batteryTask();     // 10 Hz
+void irTask();          // 200 Hz
+```
+In `src/main.cpp`: before `// SETUP-END` add `cq::app::sensorsInit();`; rows before `// TASKS-END`:
 ```cpp
     {cq::app::irTask, 5000UL, 0},
     {cq::app::ultrasonicTask, 50000UL, 0},

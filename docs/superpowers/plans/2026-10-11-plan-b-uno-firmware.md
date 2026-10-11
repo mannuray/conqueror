@@ -1938,8 +1938,8 @@ import time
 from collections.abc import Callable
 
 import serial  # pyserial
-
-from conqueror_protocol import FrameParser, build_frame, decode_frame, generated as g
+from conqueror_protocol import FrameParser, build_frame, decode_frame
+from conqueror_protocol import generated as g
 
 UNO = "uno_to_esp32"
 
@@ -2005,9 +2005,11 @@ def fmt_event(m: g.Event) -> str:
 def cmd_watch(link: Link, args: argparse.Namespace) -> None:
     def show(msg: object) -> None:
         if isinstance(msg, g.TelemFast):
-            print(f"FAST yaw={msg.yaw/100:.1f} rate={msg.yaw_rate/10:.1f} pitch={msg.pitch/100:.1f} "
-                  f"roll={msg.roll/100:.1f} pwm={msg.pwm_l},{msg.pwm_r} enc={msg.enc_l},{msg.enc_r} "
-                  f"dist={msg.dist_mm} flags={msg.flags:#06x} pan={msg.pan/10:.0f} tilt={msg.tilt/10:.0f}")
+            print(f"FAST yaw={msg.yaw/100:.1f} rate={msg.yaw_rate/10:.1f} "
+                  f"pitch={msg.pitch/100:.1f} roll={msg.roll/100:.1f} "
+                  f"pwm={msg.pwm_l},{msg.pwm_r} enc={msg.enc_l},{msg.enc_r} "
+                  f"dist={msg.dist_mm} flags={msg.flags:#06x} "
+                  f"pan={msg.pan/10:.0f} tilt={msg.tilt/10:.0f}")
         elif isinstance(msg, g.TelemSlow):
             print(f"SLOW up={msg.uptime_s}s batt={msg.batt_mv}mV temp={msg.temp/100:.1f}C "
                   f"owner={g.Owner(msg.owner).name} load={msg.loop_load}% max={msg.loop_max_us}us "

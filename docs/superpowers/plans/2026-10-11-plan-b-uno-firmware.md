@@ -10541,17 +10541,18 @@ git commit -m "feat(uno): sound/LED sequencers, annunciator, catalogue, buzzer +
 
 **Files:**
 - Create: `src/domain/input/ir_codes.h`, `ir_controller.{h,cpp}`, `boot_button.{h,cpp}`; `src/app/input_task.cpp`
-- Modify: `src/app/control_task.cpp`, `src/app/motion_api.h`, `src/main.cpp`
+- Modify: `src/app/control_task.cpp`, `src/app/motion_api.h`, `src/app/tasks.h`, `src/main.cpp`
 - Test: `test/test_input/test_main.cpp`
 
 **Interfaces:**
-- Consumes: `g_app.ir_event/ir_pending` (Task 5), `Arbitrator::onIrInput/releaseIr` (Task 6), `g_app.teleop_v/w` + `Primitives` (Tasks 10–11), `CameraHead::home/nudge` (Task 12), `SoundSequencer`, `LedSequencer`, `soundNotes` (Task 13), `LinkSession::setRequest` (Task 2), `port::button` (Task 5).
+- Consumes: `g_app.ir_event/ir_pending` (Task 5), `Arbitrator::onIrInput/releaseIr` (Task 6), `g_app.teleop_v/w`, `stopTeleop()` + `Primitives` (Tasks 10–11), `CameraHead::home/nudge` (Task 12), `SoundSequencer`, `LedSequencer`, `soundNotes` (Task 13), `LinkSession::setRequest` (Task 2), `port::button` (Task 5).
 - Produces:
   - `cq::ir_codes::kUp … kHash` (corrected NEC codes, MSB-first as received).
   - `cq::IrOutput { bool active; int8_t v; int8_t w; int8_t jog_pan; int8_t jog_tilt; bool stop; bool cam_home; bool speed_changed; bool toggle_mute; bool battery_check; bool turn_180; bool toggle_parking; bool cal_request; }` (`jog_pan` +1 = right, `jog_tilt` +1 = up).
   - `cq::IrController`: `bool onEvent(const IrEvent& e, IrOutput& out)` (true = known key → counts as IR input; one-shot flags only on the first frame, never on repeats), `bool tick(uint32_t now_ms, IrOutput& out)` (true when a held drive/jog key was released), `uint8_t speedPct() const`; `kReleaseMs = 200`, `kCalHoldMs = 3000`.
   - `cq::BootButton`: `enum class Action : uint8_t { kNone, kPress, kWifiThreshold, kAdminThreshold, kWifiReset, kAdminReset }`; `Action update(bool raw_pressed, uint32_t now_ms)`.
-  - `cq::app::startLocalTurn(int16_t angle_dd, uint8_t speed_pct) -> proto::AckStatus` (IR `0` key); `cq::app::inputTask()` (50 Hz).
+  - `cq::app::startLocalTurn(int16_t angle_dd, uint8_t speed_pct) -> proto::AckStatus` (IR `0` key, `motion_api.h`); `cq::app::inputTask()` (50 Hz, `app/tasks.h`).
+  - IR takeover (owner changes to IR) is handled here, before the IR command is applied: running primitives are cancelled (`CANCELLED`) and network teleop incl. DRIVE_RATE is stopped. The control task only reports `CONTROL_CHANGED`/`IR_OVERRIDE` (Task 11).
 
 Keymap (LLD §9.8, codes corrected): ▲/▼ drive ±ir_speed with heading hold, ◀/▶ spin (held; stop 200 ms after the last repeat) · OK stop + release to None · 1/3 camera pan left/right, 2/8 tilt up/down (held) · 5 camera home · 4/6 ir_speed −/+10 % (20–100, default 50, beep pitch ∝ speed) · 7 mute toggle · 9 battery check (LED colour + 3/2/1 beeps) · 0 gyro TURN by 180° · * parking-beeps toggle · # held 3 s → `CAL_REQUEST` event (no ESP32 → error beep).
 
@@ -11007,7 +11008,7 @@ proto::AckStatus startLocalTurn(int16_t angle_dd, uint8_t speed_pct) {
   return g_app.primitives.startTurn(m, g_prim, primInputs(), port::clock::nowMs());
 }
 ```
-The control task cancels primitives only when the owner *changes* to IR, so a TURN started by the IR owner keeps running; network motion is refused `NOT_OWNER` meanwhile.
+The input task cancels primitives only when the owner *changes* to IR (before it applies the key), so a TURN started by the IR `0` key keeps running — also when `0` is the first IR key; network motion is refused `NOT_OWNER` meanwhile.
 
 - [ ] **Step 6: Input task (IR → arbitration/teleop/camera/sounds, button → requests)**
 
@@ -11069,12 +11070,12 @@ void applyIr(const IrOutput& o, uint32_t now) {
     g_app.teleop_v = o.v;
     g_app.teleop_w = o.w;
   } else {
-    g_app.teleop_v = 0;
-    g_app.teleop_w = 0;
+    stopTeleop();  // also ends DRIVE_RATE mode: no spin may survive under IR ownership
   }
   g_jog_pan = o.jog_pan;
   g_jog_tilt = o.jog_tilt;
   if (o.stop) {
+    stopTeleop();
     g_app.primitives.cancel(proto::AckStatus::kCancelled);
     g_app.arbitrator.releaseIr();
   }
@@ -11115,7 +11116,12 @@ void inputTask() {
   if (g_app.ir_pending) {
     g_app.ir_pending = false;
     if (g_ir.onEvent(g_app.ir_event, out)) {
-      g_app.arbitrator.onIrInput(now);  // IR always wins and works with no ESP32 at all
+      // IR always wins and works with no ESP32 at all. On takeover end network primitives and teleop
+      // (incl. DRIVE_RATE) first, so the key applied next (e.g. `0` → TURN 180°) is not cancelled.
+      if (g_app.arbitrator.onIrInput(now)) {
+        g_app.primitives.cancel(proto::AckStatus::kCancelled);
+        stopTeleop();
+      }
       applyIr(out, now);
     }
   }
@@ -11151,7 +11157,11 @@ void inputTask() {
 }  // namespace app
 }  // namespace cq
 ```
-In `src/main.cpp` declare `void inputTask();` and add the row `{cq::app::inputTask, 20000UL, 0},`.
+In `src/app/tasks.h` add before `// TASK-DECLS-END`:
+```cpp
+void inputTask();  // 50 Hz: IR remote + mode button
+```
+and add `#include "app/tasks.h"` to `input_task.cpp`. In `src/main.cpp` add the row `{cq::app::inputTask, 20000UL, 0},` before `// TASKS-END`.
 
 - [ ] **Step 7: Build, flash, check with the remote (ESP32 absent)**
 
@@ -11161,9 +11171,11 @@ Unplug USB (battery on, tank on the floor, no link at all):
 2. `6`/`4` change speed (beep pitch rises/falls); `OK` stops at once and releases control (LED back to amber).
 3. Hold `1`/`3` → camera pans left/right; `2`/`8` tilt; `5` homes it.
 4. `9` → LED green + 3 beeps on a full pack; `7` mutes/unmutes; `*` toggles parking beeps (chirp up = on); `0` spins 180° (± 2°).
-5. Hold `#` 3 s → error beep (no ESP32). With USB + `… watch` running: `EVENT CAL_REQUEST`.
-6. With USB: `… drive 30 0 --seconds 5`, press ▲ during it → `EVENT IR_OVERRIDE`, `EVENT REJECTED a=16 b=1` (DRIVE refused `NOT_OWNER`), IR keeps control; 3 s after releasing, `… drive` works again.
-7. Power-cycle with the mode button held: release after 6 s, then start `… watch` → `WifiResetReq` printed every 500 ms (the smoke tool does not ESP_ACK it; Plan C does). Repeat holding 16 s → `AdminResetReq`.
+5. Hold `#` 3 s → error beep (no ESP32). With USB: start `… watch --seconds 20`, then hold `#` 3 s → `EVENT CAL_REQUEST`.
+Checks 6–8 use USB with the tank **on the stand** (tracks off the ground); each is one smoke run (opening the port reboots the Uno):
+6. `… drive 30 0 --seconds 10`, press and hold ▲ at ≈ 2 s for ≈ 2 s, then release → `EVENT IR_OVERRIDE`, `EVENT REJECTED a=16 b=1` (DRIVE refused `NOT_OWNER`) while IR holds control; ≈ 3 s after the release `EVENT CONTROL_CHANGED a=0` then `a=1`, and the printed `pwm` is non-zero again from the script's DRIVE stream — all in the same run.
+7. `… driverate 0 45 --seconds 6`, press `5` (camera home, a non-drive key) at ≈ 2 s → `EVENT IR_OVERRIDE`, the spin stops at once and stays stopped (`pwm=0,0`, `EVENT REJECTED a=17 b=1` for the DRIVE_RATE stream): IR ownership never keeps a network DRIVE_RATE spin.
+8. Start `… watch --seconds 40` first; hold the mode button and press the Uno RESET button (the watch keeps the port open, so the board does not reboot again), release the mode button after 6 s → `WifiResetReq` printed every 500 ms (the smoke tool does not ESP_ACK it; Plan C does). Repeat holding 16 s → `AdminResetReq`.
 
 - [ ] **Step 8: Commit**
 

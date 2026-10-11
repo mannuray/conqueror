@@ -75,8 +75,9 @@ firmware/uno/
 │       ├── app.h                        App context struct (grows)                         (Task 2+)
 │       ├── comms.h/.cpp                 RX pump + prioritised TX pump, telemetry stamping  (Task 2+)
 │       ├── routes.cpp                   PROGMEM routing table (rows added per task)        (Task 2+)
-│       ├── tasks.h                      declarations of app task/init entry points         (Task 3+)
+│       ├── tasks.h                      declarations of app task/init entry points         (Tasks 3–14)
 │       ├── motion_api.h                 control/calibration entry points + motion handlers (Tasks 6, 7, 11, 14)
+│       ├── camera_api.h                 configureCamera + CAM_* handlers                   (Task 12)
 │       ├── apply_settings.cpp           pushes settings into domain objects               (Task 3+)
 │       └── *_task.cpp                   settings, imu, sensor, control, calibration, camera,
 │                                        ui, input tasks                                    (Tasks 3–14)
@@ -11175,7 +11176,7 @@ Unplug USB (battery on, tank on the floor, no link at all):
 5. Hold `#` 3 s → error beep (no ESP32). With USB: start `… watch --seconds 20`, then hold `#` 3 s → `EVENT CAL_REQUEST`.
 Checks 6–8 use USB with the tank **on the stand** (tracks off the ground); each is one smoke run (opening the port reboots the Uno):
 6. `… drive 30 0 --seconds 10`, press and hold ▲ at ≈ 2 s for ≈ 2 s, then release → `EVENT IR_OVERRIDE`, `EVENT REJECTED a=16 b=1` (DRIVE refused `NOT_OWNER`) while IR holds control; ≈ 3 s after the release `EVENT CONTROL_CHANGED a=0` then `a=1`, and the printed `pwm` is non-zero again from the script's DRIVE stream — all in the same run.
-7. `… driverate 0 45 --seconds 6`, press `5` (camera home, a non-drive key) at ≈ 2 s → `EVENT IR_OVERRIDE`, the spin stops at once and stays stopped (`pwm=0,0`, `EVENT REJECTED a=17 b=1` for the DRIVE_RATE stream): IR ownership never keeps a network DRIVE_RATE spin.
+7. `… driverate 0 45 --seconds 6`, press `5` (camera home, a non-drive key) at ≈ 2 s → `EVENT IR_OVERRIDE`, the spin stops at once (`pwm=0,0`, `EVENT REJECTED a=17 b=1` for the DRIVE_RATE stream) for as long as IR owns: no spin survives under IR ownership. ≈ 3 s after the key (`ir_handback`) `EVENT CONTROL_CHANGED a=0` then `a=1`, and the still-running stream spins the tank again — that restart is the normal hand-back, not a fault.
 8. Start `… watch --seconds 40` first; hold the mode button and press the Uno RESET button (the watch keeps the port open, so the board does not reboot again), release the mode button after 6 s → `WifiResetReq` printed every 500 ms (the smoke tool does not ESP_ACK it; Plan C does). Repeat holding 16 s → `AdminResetReq`.
 
 - [ ] **Step 8: Commit**

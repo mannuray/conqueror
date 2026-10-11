@@ -1242,3 +1242,6 @@ Firmware: `drivers/board_config.h` build option selects the shield; only the mot
 ### Decision (2026-10-11): mounting and compass
 - Compass dropped (no magnetometer support anywhere). IMU = MPU6050 on the shield socket.
 - Stock baseplate mount; IMU axis mapping constant in `board_config.h`, measured at bring-up; bench mount check verifies (gravity → up axis, hand rotation → yaw sign).
+
+### Decision note (2026-10-11): frame parser resync (see §5.2)
+`FrameParser` must resync like the Plan A reference (`conqueror_protocol.framing`): when a length byte is out of range and is itself 0xAA, treat it as a new start of frame; after a CRC mismatch, rescan the bytes received after the false start for the next 0xAA, so noise or a cut-off frame does not cost the next good frame.

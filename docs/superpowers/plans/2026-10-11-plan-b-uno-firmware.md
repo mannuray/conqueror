@@ -8964,8 +8964,8 @@ git commit -m "feat(uno): closed-loop control pipeline with gyro heading, primit
 ### Task 12: Camera pan/tilt — smooth servo profiles, joystick hold/return-home, lock, CAM_* routes
 
 **Files:**
-- Create: `src/domain/camera/servo_profile.{h,cpp}`, `camera_head.{h,cpp}`; `src/ports/servos.h`; `src/drivers/servos_uno.cpp`; `src/app/camera_task.cpp`
-- Modify: `src/app/app.h`, `src/app/routes.cpp`, `src/app/apply_settings.cpp`, `src/main.cpp`, `tools/smoke/uno_smoke.py`
+- Create: `src/domain/camera/servo_profile.{h,cpp}`, `camera_head.{h,cpp}`; `src/ports/servos.h`; `src/drivers/servos_uno.cpp`; `src/app/camera_api.h`, `src/app/camera_task.cpp`
+- Modify: `src/app/app.h`, `src/app/tasks.h`, `src/app/routes.cpp`, `src/app/apply_settings.cpp`, `src/main.cpp`, `tools/smoke/uno_smoke.py`
 - Test: `test/test_camera/test_main.cpp`
 
 **Interfaces:**
@@ -8974,7 +8974,8 @@ git commit -m "feat(uno): closed-loop control pipeline with gyro heading, primit
   - `cq::ServoProfile`: `void reset(float pos_deg)`, `void setTarget(float deg)`, `void setLimits(float v_max_dps, float a_max_dps2)`, `float step(float dt_s)`, `float position() const`, `float target() const`, `bool moving() const`.
   - `cq::CameraConfig { uint8_t pan_min, pan_max, tilt_min, tilt_max; int16_t pan_trim_dd, tilt_trim_dd; uint16_t speed_dps, accel_dps2, return_delay_ms; bool idle_detach; }`; `cq::CameraHead`: `void configure(const CameraConfig&)`, `void joy(int8_t x, int8_t y, bool active, uint32_t now_ms)`, `void set(float pan_deg, float tilt_deg, float speed_dps)`, `void nudge(float dpan_deg, float dtilt_deg)`, `void home()`, `void lock(bool on)`, `void tick(float dt_s, uint32_t now_ms)`, `float panDeg() const`, `float tiltDeg() const`, `float panOutDeg() const`, `float tiltOutDeg() const`, `bool moving() const`, `bool wantAttached() const`; constants `kHomePan = 90`, `kHomeTilt = 90`, `kJoyTimeoutMs = 500`, `kDetachAfterMs = 2000`.
   - Port `cq::port::servos`: `begin()`, `attach(Axis)`, `detach(Axis)`, `writeDeg(Axis, float deg)`.
-  - `cq::app::cameraTask()` (50 Hz), `configureCamera()`, handlers `onCamJoy/onCamSet/onCamNudge/onCamHome/onCamLock`.
+  - `app/tasks.h`: `cq::app::cameraInit()`, `cameraTask()` (50 Hz); `app/camera_api.h` (like `motion_api.h`): `configureCamera()`, handlers `onCamJoy/onCamSet/onCamNudge/onCamHome/onCamLock`.
+  - Smoke: `cam joy X Y S [--lock] [--drive V W]`, `cam set|nudge|home`.
 
 - [ ] **Step 1: Write the failing camera tests**
 
@@ -9421,9 +9422,40 @@ void writeDeg(Axis a, float deg) {
 
 Add to `src/app/app.h`: `#include "domain/camera/camera_head.h"` and member `CameraHead camera;`.
 
+`src/app/camera_api.h`:
+```cpp
+#pragma once
+#include <stdint.h>
+
+#include "generated/cq_protocol.h"
+
+namespace cq {
+namespace app {
+
+// cameraInit/cameraTask are declared in app/tasks.h.
+void configureCamera();  // re-read servo settings (applySettings)
+
+proto::AckStatus onCamJoy(const uint8_t* p, uint8_t len);
+proto::AckStatus onCamSet(const uint8_t* p, uint8_t len);
+proto::AckStatus onCamNudge(const uint8_t* p, uint8_t len);
+proto::AckStatus onCamHome(const uint8_t* p, uint8_t len);
+proto::AckStatus onCamLock(const uint8_t* p, uint8_t len);
+
+}  // namespace app
+}  // namespace cq
+```
+
+In `src/app/tasks.h` add before `// TASK-DECLS-END`:
+```cpp
+void cameraInit();  // boot: servos to the home pulse, then attach
+void cameraTask();  // 50 Hz
+```
+
 `src/app/camera_task.cpp`:
 ```cpp
 #include "app/app.h"
+#include "app/camera_api.h"
+#include "app/tasks.h"
 #include "ports/clock.h"
 #include "ports/servos.h"
 
@@ -9501,15 +9533,7 @@ proto::AckStatus onCamLock(const uint8_t* p, uint8_t len) {
 }  // namespace cq
 ```
 
-In `src/app/routes.cpp` declare (inside `namespace cq { namespace app {`, before the anonymous namespace):
-```cpp
-proto::AckStatus onCamJoy(const uint8_t* p, uint8_t len);
-proto::AckStatus onCamSet(const uint8_t* p, uint8_t len);
-proto::AckStatus onCamNudge(const uint8_t* p, uint8_t len);
-proto::AckStatus onCamHome(const uint8_t* p, uint8_t len);
-proto::AckStatus onCamLock(const uint8_t* p, uint8_t len);
-```
-and add rows before `// ROUTES-END`:
+In `src/app/routes.cpp` add `#include "app/camera_api.h"` and rows before `// ROUTES-END`:
 ```cpp
     {static_cast<uint8_t>(proto::FrameType::kCamJoy), onCamJoy, false},
     {static_cast<uint8_t>(proto::FrameType::kCamSet), onCamSet, true},
@@ -9517,21 +9541,26 @@ and add rows before `// ROUTES-END`:
     {static_cast<uint8_t>(proto::FrameType::kCamHome), onCamHome, true},
     {static_cast<uint8_t>(proto::FrameType::kCamLock), onCamLock, true},
 ```
-In `src/app/apply_settings.cpp` declare `void configureCamera();` and call it before `// APPLY-END`.
-In `src/main.cpp` declare `void cameraInit(); void cameraTask();`; call `cq::app::cameraInit();` before `// SETUP-END` (after `settingsLoad()`); task row `{cq::app::cameraTask, 20000UL, 0},`.
+In `src/app/apply_settings.cpp` add `#include "app/camera_api.h"` and the line `configureCamera();` before `// APPLY-END`.
+In `src/main.cpp` (already includes `app/tasks.h`): call `cq::app::cameraInit();` before `// SETUP-END` (after `settingsLoad()`); task row `{cq::app::cameraTask, 20000UL, 0},` before `// TASKS-END`.
 
 - [ ] **Step 7: Smoke command for the camera**
 
 Add to `tools/smoke/uno_smoke.py`:
 ```python
 def cmd_cam(link: Link, args: argparse.Namespace) -> None:
-    """cam joy X Y SECONDS | cam set PAN TILT | cam nudge DPAN DTILT | cam home | cam lock 0/1"""
-    time.sleep(0.6)
+    """cam joy X Y SECONDS [--lock] [--drive V W] | cam set PAN TILT | cam nudge DPAN DTILT | cam home"""
+    link.handlers.append(print_ack)
+    wait_synced(link)
     v = args.values
+    if args.lock:  # same run: reopening the port reboots the Uno, which clears the lock
+        link.send(g.CamLock(on=1))
     if args.action == "joy":
         end = time.monotonic() + v[2]
         while time.monotonic() < end:
             link.send(g.CamJoy(x=int(v[0]), y=int(v[1]), active=1))
+            if args.drive is not None:  # drive while panning, same 50 ms loop
+                link.send(g.Drive(src=g.Source.HUMAN, v=args.drive[0], w=args.drive[1]))
             time.sleep(0.05)
         link.send(g.CamJoy(x=0, y=0, active=0))
     elif args.action == "set":
@@ -9540,30 +9569,36 @@ def cmd_cam(link: Link, args: argparse.Namespace) -> None:
         link.send(g.CamNudge(dpan=round(v[0] * 10), dtilt=round(v[1] * 10)))
     elif args.action == "home":
         link.send(g.CamHome())
-    elif args.action == "lock":
-        link.send(g.CamLock(on=int(v[0])))
     t0 = time.monotonic()
     while time.monotonic() - t0 < 2.0:
         fast = link.last.get("TelemFast")
         if isinstance(fast, g.TelemFast):
             print(f"pan={fast.pan / 10:.1f} tilt={fast.tilt / 10:.1f}")
         time.sleep(0.25)
+    slow = link.last.get("TelemSlow")
+    if isinstance(slow, g.TelemSlow):
+        print(f"SLOW load={slow.loop_load}% max={slow.loop_max_us}us")
 ```
 Register `"cam": cmd_cam` and in `main()`:
 ```python
     cm = sub.add_parser("cam")
-    cm.add_argument("action", choices=["joy", "set", "nudge", "home", "lock"])
+    cm.add_argument("action", choices=["joy", "set", "nudge", "home"])
     cm.add_argument("values", type=float, nargs="*")
+    cm.add_argument("--lock", action="store_true", help="send CAM_LOCK on first (same run)")
+    cm.add_argument("--drive", type=int, nargs=2, default=None, metavar=("V", "W"))
 ```
+Run (from `tools/smoke/`): `uv run ruff check . && uv run pyright`
+Expected: `All checks passed!`, `0 errors, 0 warnings, 0 informations`.
 
 - [ ] **Step 8: Build, flash, check on the stand**
 
 Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py && pio run -e uno -t upload`
-1. Power on: head moves smoothly to 90/90 once (no jump after that).
+Each line is one self-contained run (opening the port reboots the Uno, which clears the lock):
+1. Power on: the head snaps to 90/90 once (its start position is unknown, so this first move cannot be smoothed); after that every move is smooth with no jumps.
 2. `… cam joy 100 0 2` → pans smoothly fully right (camera looks right), holds while the stick is held, returns home ≈ 0.5 s after release.
-3. `… cam lock 1` then `… cam joy -50 50 2` → stays at the released position; `… cam lock 0`, `… cam home`.
-4. `… cam set 200 0` → stops at the configured limits (180 / 30); no buzzing at the end stops. If the head is off-centre at 90/90, set `pan_trim`/`tilt_trim` (0.1°) and save.
-5. Drive while panning (`… drive 0 40` in one terminal, `… cam joy 100 0 3` in another): no stutter in either, `SLOW load` < 60 %.
+3. `… cam joy -50 50 2 --lock` → `ACK OK` (lock), then after the release the head stays at the released position for the 2 s watch (no return home).
+4. `… cam set 200 0` → stops at the configured limits (180 / 30); no buzzing at the end stops. If the head is off-centre at 90/90, set `pan_trim`/`tilt_trim` (0.1°) with `… setting pan_trim <v> --save`. (Writing the limits themselves: keep `pan_min ≤ pan_max` / `tilt_min ≤ tilt_max` after every single write, else `SETTING_OUT_OF_RANGE`.)
+5. Drive while panning (stand, tracks off the ground): `… cam joy 100 0 3 --drive 40 0` → tracks and head move together with no stutter in either; the final `SLOW load` < 60 %.
 
 - [ ] **Step 9: Commit**
 

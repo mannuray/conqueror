@@ -2917,20 +2917,20 @@ git commit -m "feat(uno): settings store with PROGMEM descriptors, non-blocking 
 
 **Files:**
 - Create: `src/domain/estimation/imu_scale.h`, `attitude.{h,cpp}`, `yaw_integrator.{h,cpp}`, `bump_detector.{h,cpp}`, `lift_detector.{h,cpp}`, `accel_variance.{h,cpp}`; `src/ports/imu.h`; `src/drivers/imu_uno.cpp`; `src/app/imu_task.cpp`
-- Modify: `src/app/app.h`, `src/app/apply_settings.cpp`, `src/main.cpp`
+- Modify: `src/app/app.h`, `src/app/tasks.h`, `src/main.cpp`
 - Test: `test/test_estimation/test_main.cpp`
 
 **Interfaces:**
 - Consumes: `ImuRaw` (Task 1), `GlobalSettings` (Task 3), `EventQueue` (Task 2).
 - Produces:
   - `cq::imu_scale::kAccelLsbPerG = 8192.0f`, `kGyroLsbPerDps = 65.5f`, `tempCentiC(int16_t raw) -> int16_t`.
-  - `cq::Attitude`: `void reset(float pitch_deg, float roll_deg)`, `void update(float ax_g, float ay_g, float az_g, float gx_dps, float gy_dps, float dt_s)`, `float pitchDeg() const`, `float rollDeg() const`.
+  - `cq::Attitude`: `void reset(float pitch_deg, float roll_deg)`, `void update(float ax_g, float ay_g, float az_g, float gx_dps, float gy_dps, float dt_s)` (called at 200 Hz: gyro integration every call, accel correction — atan2/sqrt — every 4th call = 50 Hz, LLD §9.13), `void integrateGyro(float gx_dps, float gy_dps, float dt_s)`, `void correctAccel(float ax_g, float ay_g, float az_g)`, `float pitchDeg() const`, `float rollDeg() const`. Pitch nose-up + (`ax = +sin θ` nose up: the accelerometer reads specific force, +1 g up when level), roll right-side-down +.
   - `cq::YawIntegrator`: `void update(float rate_dps, float dt_s, bool stationary)`, `float yawDeg() const` (0..360, CCW +), `float rateDps() const`, `float totalDeg() const` (unwrapped), `void reset()`.
   - `cq::BumpDetector`: `bool update(float ax_g, float ay_g, uint16_t threshold_mg, uint32_t now_ms, int16_t& mg, int16_t& dir)`.
   - `cq::LiftDetector`: `enum class Change : uint8_t { kNone, kLifted, kLanded, kTilted, kLevel }`; `Change update(float az_g, float pitch_deg, float roll_deg, uint8_t tilt_limit_deg, uint32_t now_ms)`, `bool lifted() const`, `bool tilted() const`.
   - `cq::AccelVariance`: `void add(float mag_g, uint32_t now_ms)`, `uint16_t value() const` (mg², 1 s window).
-  - Port `cq::port::imu`: `bool begin()`, `bool read(ImuRaw& out)` (axis-mapped), `uint16_t i2cErrors()`.
-  - App members `Attitude attitude; YawIntegrator yaw; BumpDetector bump; LiftDetector lift; AccelVariance accel_var; bool imu_ok; uint8_t imu_fail_streak; float yaw_rate_dps; bool stationary;`; `cq::app::imuTask()` (200 Hz).
+  - Port `cq::port::imu`: `bool begin()` (also re-initialises the TWI; used for the 1 s re-init), `bool read(ImuRaw& out)` (axis-mapped), `uint16_t i2cErrors()`. On a Wire timeout the driver runs I2C bus recovery (9 SCL clocks + STOP + `Wire.begin()`, LLD §9.13) before returning false.
+  - App members `Attitude attitude; YawIntegrator yaw; BumpDetector bump; LiftDetector lift; AccelVariance accel_var; ImuRaw imu_raw; bool imu_ok; uint8_t imu_fail_streak; float yaw_rate_dps; bool stationary; uint16_t fast_flags; uint32_t slow_flags;`; `cq::app::imuInit()`, `cq::app::imuTask()` (200 Hz), declared in `app/tasks.h`. `imu_ok` goes false after 10 consecutive failed reads (`IMU_FAULT` event + `kImuFault` flag) and the task then retries `begin()` once per second; a successful re-init sets `imu_ok` and clears the flag.
 
 - [ ] **Step 1: Write the failing estimation tests**
 
@@ -2960,10 +2960,25 @@ void test_attitude_level_stays_zero() {
 void test_attitude_converges_to_accel_tilt() {
   Attitude a;
   a.reset(0, 0);
-  // nose up 20 deg: gravity has a negative x component in the tank frame
+  // nose up 20 deg: the accelerometer reads specific force (+1 g up when level), so it has a
+  // positive x component
   const float s = 0.3420f, c = 0.9397f;
-  for (int i = 0; i < 1000; ++i) a.update(-s, 0.0f, c, 0.0f, 0.0f, 0.005f);
+  for (int i = 0; i < 1000; ++i) a.update(s, 0.0f, c, 0.0f, 0.0f, 0.005f);
   TEST_ASSERT_FLOAT_WITHIN(0.5f, 20.0f, a.pitchDeg());
+}
+
+// LLD §9.13: gyro integration at 200 Hz (every call), atan2/sqrt correction at 50 Hz (every 4th).
+void test_attitude_accel_correction_every_fourth_call() {
+  Attitude a;
+  a.reset(0, 0);
+  const float s = 0.3420f, c = 0.9397f;  // accel says nose up 20 deg
+  for (int i = 0; i < 3; ++i) a.update(s, 0.0f, c, 0.0f, 0.0f, 0.005f);
+  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, a.pitchDeg());  // calls 1-3: gyro only
+  a.update(s, 0.0f, c, 0.0f, 0.0f, 0.005f);             // call 4: accel blend
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, (1.0f - Attitude::kAlpha) * 20.0f, a.pitchDeg());
+  a.reset(0, 0);
+  a.update(0.0f, 0.0f, 1.0f, 0.0f, -10.0f, 0.005f);  // gy -10 dps = nose up, integrated at once
+  TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.05f, a.pitchDeg());
 }
 
 void test_yaw_integrates_and_wraps() {
@@ -3036,6 +3051,7 @@ int main() {
   UNITY_BEGIN();
   RUN_TEST(test_attitude_level_stays_zero);
   RUN_TEST(test_attitude_converges_to_accel_tilt);
+  RUN_TEST(test_attitude_accel_correction_every_fourth_call);
   RUN_TEST(test_yaw_integrates_and_wraps);
   RUN_TEST(test_yaw_ignores_small_rate_when_stationary);
   RUN_TEST(test_bump_detects_front_hit_once);
@@ -3071,24 +3087,32 @@ inline int16_t tempCentiC(int16_t raw) { return static_cast<int16_t>((static_cas
 `src/domain/estimation/attitude.h`:
 ```cpp
 #pragma once
+#include <stdint.h>
 
 namespace cq {
 
 // Complementary filter for pitch (nose up +) and roll (right side down +), tank frame.
+// update() runs at 200 Hz: the gyro is integrated every call, the accelerometer correction
+// (atan2f x2 + sqrtf, the expensive part on AVR) every kAccelEvery-th call = 50 Hz (LLD §9.13).
 class Attitude {
  public:
-  static constexpr float kAlpha = 0.98f;
+  static constexpr uint8_t kAccelEvery = 4;
+  static constexpr float kAlpha = 0.92f;  // per 50 Hz correction (~0.98^4: ~0.25 s time constant)
   void reset(float pitch_deg, float roll_deg) {
     m_pitch_deg = pitch_deg;
     m_roll_deg = roll_deg;
+    m_div = 0;
   }
   void update(float ax_g, float ay_g, float az_g, float gx_dps, float gy_dps, float dt_s);
+  void integrateGyro(float gx_dps, float gy_dps, float dt_s);
+  void correctAccel(float ax_g, float ay_g, float az_g);
   float pitchDeg() const { return m_pitch_deg; }
   float rollDeg() const { return m_roll_deg; }
 
  private:
   float m_pitch_deg = 0.0f;
   float m_roll_deg = 0.0f;
+  uint8_t m_div = 0;
 };
 
 }  // namespace cq
@@ -3107,11 +3131,25 @@ constexpr float kRadToDeg = 57.29578f;
 }
 
 void Attitude::update(float ax_g, float ay_g, float az_g, float gx_dps, float gy_dps, float dt_s) {
-  const float acc_pitch = atan2f(-ax_g, sqrtf(ay_g * ay_g + az_g * az_g)) * kRadToDeg;
-  const float acc_roll = atan2f(ay_g, az_g) * kRadToDeg;
+  integrateGyro(gx_dps, gy_dps, dt_s);
+  if (++m_div >= kAccelEvery) {
+    m_div = 0;
+    correctAccel(ax_g, ay_g, az_g);
+  }
+}
+
+void Attitude::integrateGyro(float gx_dps, float gy_dps, float dt_s) {
   // gyro y (left axis) positive = nose down in a right-handed x-forward/z-up frame
-  m_pitch_deg = kAlpha * (m_pitch_deg - gy_dps * dt_s) + (1.0f - kAlpha) * acc_pitch;
-  m_roll_deg = kAlpha * (m_roll_deg + gx_dps * dt_s) + (1.0f - kAlpha) * acc_roll;
+  m_pitch_deg -= gy_dps * dt_s;
+  m_roll_deg += gx_dps * dt_s;
+}
+
+void Attitude::correctAccel(float ax_g, float ay_g, float az_g) {
+  // Specific force: +1 g up when level, so nose up gives ax = +sin(pitch).
+  const float acc_pitch = atan2f(ax_g, sqrtf(ay_g * ay_g + az_g * az_g)) * kRadToDeg;
+  const float acc_roll = atan2f(ay_g, az_g) * kRadToDeg;
+  m_pitch_deg = kAlpha * m_pitch_deg + (1.0f - kAlpha) * acc_pitch;
+  m_roll_deg = kAlpha * m_roll_deg + (1.0f - kAlpha) * acc_roll;
 }
 
 }  // namespace cq
@@ -3329,7 +3367,7 @@ void AccelVariance::add(float mag_g, uint32_t now_ms) {
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_estimation`
-Expected: `8 Tests 0 Failures`.
+Expected: `9 Tests 0 Failures`.
 
 - [ ] **Step 5: IMU port and MPU6050 driver**
 
@@ -3366,12 +3404,48 @@ namespace {
 
 uint16_t g_errors = 0;
 
+void configureWire() {
+  Wire.begin();
+  Wire.setClock(400000UL);
+  Wire.setWireTimeout(3000, true);  // 3 ms; resets the TWI on a stuck bus
+}
+
+// I2C bus recovery (LLD §9.13): a slave stuck mid-byte holds SDA low; clock SCL up to 9 times
+// until it lets go, then send a STOP and restart the TWI. Rare (only after a Wire timeout);
+// ~100 µs of 5 µs busy-waits, a documented exception like the burst read.
+void recoverBus() {
+  Wire.end();
+  pinMode(SDA, INPUT_PULLUP);
+  pinMode(SCL, OUTPUT);
+  for (uint8_t i = 0; i < 9 && digitalRead(SDA) == LOW; ++i) {
+    digitalWrite(SCL, LOW);
+    delayMicroseconds(5);
+    digitalWrite(SCL, HIGH);
+    delayMicroseconds(5);
+  }
+  pinMode(SDA, OUTPUT);  // STOP: SDA low → high while SCL is high
+  digitalWrite(SDA, LOW);
+  delayMicroseconds(5);
+  digitalWrite(SCL, HIGH);
+  delayMicroseconds(5);
+  pinMode(SDA, INPUT_PULLUP);
+  configureWire();
+}
+
+void onFailure() {
+  ++g_errors;
+  if (Wire.getWireTimeoutFlag()) {
+    Wire.clearWireTimeoutFlag();
+    recoverBus();
+  }
+}
+
 bool writeReg(uint8_t reg, uint8_t value) {
   Wire.beginTransmission(board::kImuAddress);
   Wire.write(reg);
   Wire.write(value);
   if (Wire.endTransmission() != 0) {
-    ++g_errors;
+    onFailure();
     return false;
   }
   return true;
@@ -3385,13 +3459,11 @@ int16_t pick(const int16_t v[3], int8_t map) {
 }  // namespace
 
 bool begin() {
-  Wire.begin();
-  Wire.setClock(400000UL);
-  Wire.setWireTimeout(3000, true);  // 3 ms; resets the TWI on a stuck bus
+  configureWire();
   Wire.beginTransmission(board::kImuAddress);
   Wire.write(0x75);  // WHO_AM_I
   if (Wire.endTransmission(false) != 0 || Wire.requestFrom(board::kImuAddress, static_cast<uint8_t>(1)) != 1) {
-    ++g_errors;
+    onFailure();
     return false;
   }
   if (Wire.read() != 0x68) return false;
@@ -3406,7 +3478,7 @@ bool read(ImuRaw& out) {
   Wire.beginTransmission(board::kImuAddress);
   Wire.write(0x3B);  // ACCEL_XOUT_H
   if (Wire.endTransmission(false) != 0 || Wire.requestFrom(board::kImuAddress, static_cast<uint8_t>(14)) != 14) {
-    ++g_errors;
+    onFailure();
     return false;
   }
   int16_t v[7];
@@ -3478,7 +3550,10 @@ namespace app {
 namespace {
 
 constexpr float kDt = 0.005f;
-constexpr uint8_t kFaultStreak = 10;  // 50 ms of failed reads
+constexpr uint8_t kFaultStreak = 10;     // 50 ms of failed reads
+constexpr uint32_t kReinitMs = 1000;     // begin() retry period while !imu_ok (<= ~3 ms per try)
+
+uint32_t g_last_init_ms = 0;
 
 void setFlag(proto::FastFlagBit bit, bool on) {
   const uint16_t m = static_cast<uint16_t>(1u << static_cast<uint8_t>(bit));
@@ -3488,34 +3563,45 @@ void setFlag(proto::FastFlagBit bit, bool on) {
 }  // namespace
 
 void imuInit() {
+  g_last_init_ms = port::clock::nowMs();
   g_app.imu_ok = port::imu::begin();
+  if (g_app.imu_ok) g_app.imu_fail_streak = 0;
   setFlag(proto::FastFlagBit::kImuFault, !g_app.imu_ok);
 }
 
 void imuTask() {
-  if (!g_app.imu_ok) return;
+  const uint32_t now = port::clock::nowMs();
+  if (!g_app.imu_ok) {
+    // Absent or faulted IMU: retry begin() once per second, never at 200 Hz (a stuck bus costs
+    // a 3 ms Wire timeout per transaction).
+    if (elapsed(now, g_last_init_ms, kReinitMs)) imuInit();
+    g_app.slow.err_i2c = port::imu::i2cErrors();
+    return;
+  }
   ImuRaw& r = g_app.imu_raw;
   if (!port::imu::read(r)) {
-    if (++g_app.imu_fail_streak == kFaultStreak) {
+    if (g_app.imu_fail_streak < 255) ++g_app.imu_fail_streak;  // saturates: no wrap, no repeat event
+    if (g_app.imu_fail_streak == kFaultStreak) {
       setFlag(proto::FastFlagBit::kImuFault, true);
       g_app.events.push(proto::EventKind::kImuFault);
+      g_app.imu_ok = false;  // the 1 s re-init above takes over
+      g_last_init_ms = now;
     }
     g_app.slow.err_i2c = port::imu::i2cErrors();
     return;
   }
-  if (g_app.imu_fail_streak >= kFaultStreak) setFlag(proto::FastFlagBit::kImuFault, false);
   g_app.imu_fail_streak = 0;
 
   const GlobalSettings& gs = g_app.settings.global();
-  const uint32_t now = port::clock::nowMs();
   const float ax = r.ax / imu_scale::kAccelLsbPerG;
   const float ay = r.ay / imu_scale::kAccelLsbPerG;
   const float az = r.az / imu_scale::kAccelLsbPerG;
-  const float gx = (r.gx - gs.gyro_bias_x) / imu_scale::kGyroLsbPerDps;
-  const float gy = (r.gy - gs.gyro_bias_y) / imu_scale::kGyroLsbPerDps;
-  const float gz = (r.gz - gs.gyro_bias_z) / imu_scale::kGyroLsbPerDps;
+  // float maths: int16 - int16 in 16-bit int would overflow for a saturated gyro with a bias
+  const float gx = (static_cast<float>(r.gx) - gs.gyro_bias_x) / imu_scale::kGyroLsbPerDps;
+  const float gy = (static_cast<float>(r.gy) - gs.gyro_bias_y) / imu_scale::kGyroLsbPerDps;
+  const float gz = (static_cast<float>(r.gz) - gs.gyro_bias_z) / imu_scale::kGyroLsbPerDps;
 
-  g_app.attitude.update(ax, ay, az, gx, gy, kDt);
+  g_app.attitude.update(ax, ay, az, gx, gy, kDt);  // accel correction inside at 50 Hz
   g_app.yaw.update(gz, kDt, g_app.stationary);
   g_app.yaw_rate_dps = g_app.yaw.rateDps();
   g_app.accel_var.add(sqrtf(ax * ax + ay * ay + az * az), now);
@@ -3553,13 +3639,18 @@ void imuTask() {
 }  // namespace cq
 ```
 
-In `src/main.cpp` add to the file-scope declarations: `namespace cq { namespace app { void imuInit(); void imuTask(); } }`; before `// SETUP-END`: `cq::app::imuInit();`; task row before `// TASKS-END`: `{cq::app::imuTask, 5000UL, 0},` (first row in the table so it runs first when several tasks are due).
+In `src/app/tasks.h` add before `// TASK-DECLS-END`:
+```cpp
+void imuInit();  // boot: MPU6050 begin(); also the 1 s re-init while !imu_ok
+void imuTask();  // 200 Hz
+```
+In `src/main.cpp`: before `// SETUP-END` add `cq::app::imuInit();`; insert `{cq::app::imuTask, 5000UL, 0},` as the **first** row, directly after `cq::Task g_tasks[] = {` (so it runs first when several tasks are due).
 
 - [ ] **Step 7: Build, flash, check attitude on the stand**
 
 Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py && pio run -e uno -t upload`
 Then: `uv run python uno_smoke.py --port PORT watch --seconds 15` (from `tools/smoke/`).
-Expected: tank level → `pitch≈0 roll≈0` (± a few degrees until the level calibration in Task 7), `flags` without bit 11 (`IMU_FAULT`). Lift the front by hand: `pitch` goes positive. Rotate the tank CCW (seen from above) by hand: `yaw` increases and `rate` is positive; a quick knock on the front bumper prints `EVENT BUMP … b=0`; lifting the tank clear prints `EVENT LIFTED` then `EVENT LANDED` when set down. If pitch/yaw signs are wrong, Task 7's mount check sets the axis map.
+Expected: tank level → `pitch≈0 roll≈0` (± a few degrees until the level calibration in Task 7), `flags` without bit 11 (`IMU_FAULT`). Lift the front by hand: `pitch` goes positive. Rotate the tank CCW (seen from above) by hand: `yaw` increases and `rate` is positive; a quick knock on the front bumper prints `EVENT BUMP … b=0`; lifting the tank clear prints `EVENT LIFTED` then `EVENT LANDED` when set down. If pitch/yaw signs are wrong, Task 7's mount check sets the axis map. I2C recovery: pull the MPU6050's SDA wire (or the module) for a moment → `EVENT IMU_FAULT` and `flags` bit 11 set, `load` stays normal (one re-init try per second, not 200 Hz); reconnect → bit 11 clears within ~1 s.
 
 - [ ] **Step 8: Commit**
 

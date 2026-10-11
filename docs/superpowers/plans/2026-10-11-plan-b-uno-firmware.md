@@ -7729,7 +7729,7 @@ git commit -m "feat(uno): per-track speed controller with capped-integrator free
   - `cq::TurnParams { float angle_deg; float max_rate_dps; float accel_dps2; float arc_v_pct; }`; `cq::TurnProfile`: `void start(const TurnParams&, float yaw_total_deg, uint32_t now_ms)`, `ProfileState tick(float yaw_total_deg, float yaw_rate_dps, float dt_s, uint32_t now_ms, MotionSetpoint& sp)`, `uint8_t progressPct() const`.
   - `cq::MoveParams { float dist_mm; float max_v_pct; float v_full_mm_s; float accel_mm_s2; float heading_deg; float counts_per_mm; }`; `cq::MoveProfile`: `void start(const MoveParams&, int32_t enc_l, int32_t enc_r, uint32_t now_ms)`, `ProfileState tick(int32_t enc_l, int32_t enc_r, bool stalled, float dt_s, uint32_t now_ms, MotionSetpoint& sp)`, `uint8_t progressPct() const`.
   - `cq::PrimitiveConfig { uint16_t turn_rate_max_dps; uint16_t track_width_mm; float v_full_mm_s; float counts_per_mm; bool encoders; bool imu_ok; }`; `cq::PrimitiveInputs { float yaw_deg; float yaw_total_deg; float yaw_rate_dps; int32_t enc_l; int32_t enc_r; bool stalled; }`; `cq::PrimitiveResult { proto::PrimitiveKind kind; bool ok; proto::AckStatus reason; }`.
-  - `cq::Primitives`: `proto::AckStatus startTurn(const proto::TurnMsg&, const PrimitiveConfig&, const PrimitiveInputs&, uint32_t now_ms)`, `proto::AckStatus startMove(const proto::MoveMsg&, const PrimitiveConfig&, const PrimitiveInputs&, uint32_t now_ms)`, `void cancel(proto::AckStatus reason)`, `bool tick(const PrimitiveInputs&, float dt_s, uint32_t now_ms, MotionSetpoint& sp)` (true while active), `bool takeResult(PrimitiveResult& out)`, `proto::PrimitiveKind active() const`, `uint8_t progressPct() const`.
+  - `cq::Primitives`: `proto::AckStatus startTurn(const proto::TurnMsg&, const PrimitiveConfig&, const PrimitiveInputs&, uint32_t now_ms)` (UNAVAILABLE without IMU; INVALID_COMMAND for speed 0/>100, a TurnMode other than BY/TO, or a speed/radius whose max turn rate is below `TurnProfile::kMinRateDps` = 15 °/s), `proto::AckStatus startMove(const proto::MoveMsg&, const PrimitiveConfig&, const PrimitiveInputs&, uint32_t now_ms)` (UNAVAILABLE without encoders or without IMU — MOVE holds the heading), `void cancel(proto::AckStatus reason)`, `bool tick(const PrimitiveInputs&, float dt_s, uint32_t now_ms, MotionSetpoint& sp)` (true while active), `bool takeResult(PrimitiveResult& out)`, `proto::PrimitiveKind active() const`, `uint8_t progressPct() const`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -7846,7 +7846,7 @@ void test_turn_stalls_when_yaw_does_not_move() {
   TEST_ASSERT_TRUE(p.takeResult(r));
   TEST_ASSERT_FALSE(r.ok);
   TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kStalled), static_cast<int>(r.reason));
-  TEST_ASSERT_UINT32_WITHIN(150, 1100, t);
+  TEST_ASSERT_UINT32_WITHIN(20, 1000, t);  // 1 s of < 3 °/s while commanding ≥ 15 °/s
 }
 
 void test_move_500mm_holds_heading_and_stops() {
@@ -7876,8 +7876,26 @@ void test_move_needs_encoders_turn_needs_imu() {
   no_imu.imu_ok = false;
   TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kUnavailable),
                     static_cast<int>(p.startTurn(turn(900, 50, 0), no_imu, in, 0)));
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kUnavailable),
+                    static_cast<int>(p.startMove(move(500, 40), no_imu, in, 0)));  // heading hold needs the gyro
   TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kInvalidCommand),
                     static_cast<int>(p.startTurn(turn(900, 0, 0), kCfg, in, 0)));
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kInvalidCommand),
+                    static_cast<int>(p.startTurn(turn(900, 50, 0, 5), kCfg, in, 0)));  // TurnMode 5 does not exist
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::PrimitiveKind::kNone), static_cast<int>(p.active()));
+}
+
+void test_turn_too_slow_is_rejected() {
+  Primitives p;
+  const PrimitiveInputs in{0, 0, 0, 0, 0, false};
+  // spin at 5 % → 9 °/s, below the 15 °/s minimum the profile and stall check rely on
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kInvalidCommand),
+                    static_cast<int>(p.startTurn(turn(900, 5, 0), kCfg, in, 0)));
+  // arc 10 % on a 50 cm radius → 32.9 mm/s / 500 mm ≈ 3.8 °/s
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kInvalidCommand),
+                    static_cast<int>(p.startTurn(turn(900, 10, 50), kCfg, in, 0)));
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kOk),
+                    static_cast<int>(p.startTurn(turn(900, 10, 0), kCfg, in, 0)));  // spin 10 % = 18 °/s
 }
 
 void test_link_loss_cancels_and_does_not_resume() {
@@ -7924,6 +7942,7 @@ int main() {
   RUN_TEST(test_turn_stalls_when_yaw_does_not_move);
   RUN_TEST(test_move_500mm_holds_heading_and_stops);
   RUN_TEST(test_move_needs_encoders_turn_needs_imu);
+  RUN_TEST(test_turn_too_slow_is_rejected);
   RUN_TEST(test_link_loss_cancels_and_does_not_resume);
   RUN_TEST(test_new_primitive_replaces_running_one);
   return UNITY_END();
@@ -8234,6 +8253,7 @@ proto::AckStatus Primitives::startTurn(const proto::TurnMsg& m, const PrimitiveC
                                        uint32_t now_ms) {
   if (!cfg.imu_ok) return proto::AckStatus::kUnavailable;
   if (m.speed == 0 || m.speed > 100) return proto::AckStatus::kInvalidCommand;
+  if ((m.mode & 0x7F) > static_cast<uint8_t>(proto::TurnMode::kTo)) return proto::AckStatus::kInvalidCommand;
   const bool pivot = (m.mode & 0x80) != 0;
   const proto::TurnMode mode = static_cast<proto::TurnMode>(m.mode & 0x7F);
   float angle = m.angle * 0.1f;
@@ -8248,6 +8268,8 @@ proto::AckStatus Primitives::startTurn(const proto::TurnMsg& m, const PrimitiveC
     if (rate_for_v < max_rate) max_rate = rate_for_v;
     arc_v_pct = max_rate * kDegToRad * radius_mm / cfg.v_full_mm_s * 100.0f;  // keeps v/ω = radius
   }
+  // Too slow to profile: the 15 °/s floor would over-speed the arc and the 3 °/s stall check would trip.
+  if (max_rate < TurnProfile::kMinRateDps) return proto::AckStatus::kInvalidCommand;
   cancel(proto::AckStatus::kCancelled);
   m_turn.start(TurnParams{angle, max_rate, kTurnAccelDps2, arc_v_pct}, in.yaw_total_deg, now_ms);
   m_active = proto::PrimitiveKind::kTurn;
@@ -8256,7 +8278,7 @@ proto::AckStatus Primitives::startTurn(const proto::TurnMsg& m, const PrimitiveC
 
 proto::AckStatus Primitives::startMove(const proto::MoveMsg& m, const PrimitiveConfig& cfg, const PrimitiveInputs& in,
                                        uint32_t now_ms) {
-  if (!cfg.encoders) return proto::AckStatus::kUnavailable;
+  if (!cfg.encoders || !cfg.imu_ok) return proto::AckStatus::kUnavailable;  // distance + gyro heading hold
   if (m.speed == 0 || m.speed > 100 || m.dist_mm == 0) return proto::AckStatus::kInvalidCommand;
   const float heading = m.heading == kHeadingCurrent ? in.yaw_deg : wrap360(m.heading * 0.1f);
   cancel(proto::AckStatus::kCancelled);
@@ -8311,7 +8333,7 @@ uint8_t Primitives::progressPct() const {
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_primitives`
-Expected: `8 Tests 0 Failures`.
+Expected: `9 Tests 0 Failures`.
 
 - [ ] **Step 5: Commit**
 

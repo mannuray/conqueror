@@ -721,3 +721,14 @@ Timers: T0 motor PWM + timekeeping, T1 servos, T2 buzzer; IR + ultrasonic via pi
 - **Roadmap:** spec now (design only; Plans B–D unchanged) → after Plan D: Python package + `bench logo run` → phase 4: ESP32 runner + program API → phase 5: IDE in Cockpit-lite → phase 6: library, natural language → code, explanations, vision words.
 - Next: language spec `docs/superpowers/specs/2026-10-11-05-tank-logo-design.md`.
 - Spec approved 2026-10-11 (`docs/superpowers/specs/2026-10-11-05-tank-logo-design.md` §12): English keywords only; events later (v2); no timed fallback without encoders (clear error); saved programs on the tank run from IR keys 1–9 in v2; `STOP` ends the whole program.
+
+## 21. Home deployment topology (DECIDED 2026-10-11)
+| Device | Role |
+|---|---|
+| Raspberry Pi (owner's, model TBD) | **Hub**: NestJS backend + SQLite + serves the web app; always on |
+| PC | **AI engine**; switched on when AI is wanted; connects to the hub as a client and may come and go |
+| Phone (Redmi Note 8 Pro) | **Controller**: Cockpit/IDE in the browser, phone-tilt steering, IR blaster as backup NEC remote, optional overhead camera for path checks |
+| Tank | Works standalone with the phone when the Pi and PC are off |
+- The phone is not used as the AI engine (CPU-only Python in Termux, no GPU — too weak for vision-first) nor as the primary hub host (no Docker, MIUI background killing, battery wear when always charging).
+- Hub on the Pi: arm64 Docker image if the Pi runs a 64-bit OS (Pi 3/4/5); armv7 (Pi 2 / 32-bit OS) would need an extra image or native install; armv6 (Pi 1/Zero) cannot run Node 24. Pi model to be confirmed.
+- Hub LLD notes for the Pi: never re-encode video on the Pi (store the MJPEG stream / remux only); recordings on a USB disk/SSD, not the SD card; `docker-compose` splits hub (Pi) and AI engine (PC) instead of one compose file.

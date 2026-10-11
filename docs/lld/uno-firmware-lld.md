@@ -604,18 +604,25 @@ classDiagram
     direction TB
     class FrameParser {
       -ParseState state_
-      -uint8 buf_[48]
-      -uint8 len_, idx_, crc_
+      -uint8 raw_[52]
+      -uint8 n_, rd_, end_
       +feed(uint8 byte) bool
-      +frame() const Frame&
+      +next() bool
+      +type() uint8
+      +seq() uint8
+      +len() uint8
+      +payload() const uint8*
       +errors() ParseErrors
+      -step(uint8 byte) bool
+      -resync()
     }
     class Frame {
-      <<struct>>
+      <<view of raw_>>
+      +uint8 len
       +uint8 type
       +uint8 seq
-      +uint8 len
-      +uint8 payload[48]
+      +uint8 payload[len]
+      +uint8 crc
     }
     class ParseErrors {
       <<struct>>
@@ -677,7 +684,9 @@ classDiagram
     FrameParser ..> Frame
     FrameParser ..> ParseErrors
 ```
-`ParseState {Sync, Len, Type, Seq, Payload, Crc}`. `Codec` has one decode/encode pair per message type (generated).
+`ParseState {Sync, Len, Type, Seq, Payload, Crc}`. `Codec` has one decode/encode pair per message type (generated); when `decode()` returns false the message contents are unspecified.
+
+**Parser API (revised 2026-10-11, see the resync note at the end):** `raw_[52]` holds the bytes after the sync (len, type, seq, payload, crc) and is the frame — `Frame` is a view of it, not a copy. `feed(byte)` returns true when a frame is ready; a resync replay can release more than one frame from one received byte, so the caller drains `next()` until it returns false before the next `feed()`: `for (bool r = p.feed(b); r; r = p.next()) dispatch(p);`. Frame accessors are valid until the next `feed()`/`next()`. Bytes waiting to be replayed live in the same `raw_` buffer behind the write position (no second buffer); the replay is iterative and bounded. `bad_crc` / `bad_len` count rejection events — a replayed byte can be rejected and counted again. RAM ≈ 64 B (raw 52 + 4 state bytes + 8 B counters).
 
 ### 5.2 Parser state machine
 ```mermaid
@@ -686,15 +695,18 @@ stateDiagram-v2
     Sync --> Len : byte == 0xAA
     Sync --> Sync : other byte (skip)
     Len --> Type : len ≤ 48
-    Len --> Sync : len > 48 → bad_len++
+    Len --> Len : len > 48 and == 0xAA → bad_len++ (new sync)
+    Len --> Sync : len > 48, other → bad_len++
     Type --> Seq
     Seq --> Payload : len > 0
     Seq --> Crc : len == 0
     Payload --> Payload : idx < len
     Payload --> Crc : idx == len
-    Crc --> Sync : crc ok → frame_ready
-    Crc --> Sync : crc bad → bad_crc++
+    Crc --> Sync : crc ok → frame ready
+    Crc --> Len : crc bad, 0xAA in bytes after sync → bad_crc++, replay bytes after it
+    Crc --> Sync : crc bad, no 0xAA → bad_crc++
 ```
+Replay (resync after a CRC mismatch): the bytes stored since the false sync (len … crc) are scanned for the first 0xAA; the bytes after it, followed by any bytes still waiting from an earlier replay, are fed back through the same states. Stored + waiting bytes shrink by at least one per resync, so the loop ends; worst case for one pathological received byte is under ~1.4 k byte steps and a few dozen CRC passes (a few ms at 16 MHz), ordinary noise costs a handful. Identical behaviour to `conqueror_protocol.framing.FrameParser` (Plan A).
 
 ### 5.3 Routing table (OCP through data, PROGMEM)
 | Type | Handler → target | Ack |
@@ -733,7 +745,8 @@ sequenceDiagram
     E->>L: 0xAA 03 10 seq [src v w] crc
     D->>L: readByte() × n
     D->>P: feed(byte)
-    P-->>D: frame_ready
+    P-->>D: true (frame ready)
+    Note over D,P: after handling, D calls next() until false (a resync replay may release more frames)
     D->>D: route[0x10] → onDrive
     D->>A: onNetwork(Drive v,w)
     A-->>D: Accepted (or NOT_OWNER → EVENT)
@@ -1157,7 +1170,7 @@ Lifted if **any**: sustained vertical acceleration deviation > 0.25 g for > 150 
 
 ### 9.18 Comms additions (fix 23, 26)
 - **UART 250000 baud** (0 % error at 16 MHz with U2X; supported by the ESP32).
-- Parser buffer **is** the frame (dispatch by reference; no duplicate `Frame.payload`); one shared 52 B TX encode buffer.
+- Parser buffer **is** the frame (dispatch by reference; no duplicate `Frame.payload`): one 52 B raw buffer (len, type, seq, payload, crc) that also holds bytes waiting for a resync replay; one shared 52 B TX encode buffer.
 - TxScheduler priority: **ACK > WIFI_RESET_REQ > EVENT > HELLO > CAL_DATA > TELEM_FAST > TELEM_SLOW**.
 - **NOT_OWNER / BUSY rejection events rate-limited** to 1 per 500 ms per source (a 20 Hz DRIVE stream cannot flood the queue).
 - **Uno owner `Network → None`:** no network motion command for 1 s and Primitives idle (bookkeeping only; human/AI handback is the ESP32's).
@@ -1205,7 +1218,7 @@ sequenceDiagram
 | Controllers + TargetLimiter + motion | ~170 |
 | Estimation (+ AccelVariance), safety, arbitration | ~130 |
 | Camera head, UI sequencers, Annunciator, TONE buffer (41) | ~140 |
-| Comms (parser = frame, TX buffer 52, event queue 8 × 6) | ~160 |
+| Comms (parser = frame: raw 52 + state ≈ 64, TX buffer 52, event queue 8 × 6) | ~160 |
 | Scheduler, ISR state, EepromWriter queue, CalScriptRunner, misc | ~190 |
 | Stack reserve | 400 |
 | **Total ≈ 1740 B → ~300 B headroom** | |
@@ -1245,3 +1258,4 @@ Firmware: `drivers/board_config.h` build option selects the shield; only the mot
 
 ### Decision note (2026-10-11): frame parser resync (see §5.2)
 `FrameParser` must resync like the Plan A reference (`conqueror_protocol.framing`): when a length byte is out of range and is itself 0xAA, treat it as a new start of frame; after a CRC mismatch, rescan the bytes received after the false start for the next 0xAA, so noise or a cut-off frame does not cost the next good frame.
+API consequence (agreed 2026-10-11 in the Plan A final review): a replay can complete more than one frame from one received byte, so `feed(byte)` returns the first ready frame and the caller drains `next()` until false (§5.1, §5.2, Plan B Task 2). The single `raw_[52]` buffer holds both the frame and the bytes waiting for replay (+3 B over the old 48 B buffer + header fields); the replay is iterative and bounded. `bad_crc` / `bad_len` count rejection events, so a replayed byte can be counted again. The Plan B host tests mirror the three Python resync tests.

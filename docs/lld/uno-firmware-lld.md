@@ -607,7 +607,8 @@ classDiagram
       -uint8 raw_[52]
       -uint8 n_, rd_, end_
       +feed(uint8 byte) bool
-      +next() bool
+      +next(uint8& budget) bool
+      +pending() bool
       +type() uint8
       +seq() uint8
       +len() uint8
@@ -686,7 +687,7 @@ classDiagram
 ```
 `ParseState {Sync, Len, Type, Seq, Payload, Crc}`. `Codec` has one decode/encode pair per message type (generated); when `decode()` returns false the message contents are unspecified.
 
-**Parser API (revised 2026-10-11, see the resync note at the end):** `raw_[52]` holds the bytes after the sync (len, type, seq, payload, crc) and is the frame — `Frame` is a view of it, not a copy. `feed(byte)` returns true when a frame is ready; a resync replay can release more than one frame from one received byte, so the caller drains `next()` until it returns false before the next `feed()`: `for (bool r = p.feed(b); r; r = p.next()) dispatch(p);`. Frame accessors are valid until the next `feed()`/`next()`. Bytes waiting to be replayed live in the same `raw_` buffer behind the write position (no second buffer); the replay is iterative and bounded. `bad_crc` / `bad_len` count rejection events — a replayed byte can be rejected and counted again. RAM ≈ 64 B (raw 52 + 4 state bytes + 8 B counters).
+**Parser API (revised 2026-10-11, see the resync notes at the end):** `raw_[52]` holds the bytes after the sync (len, type, seq, payload, crc) and is the frame — `Frame` is a view of it, not a copy. Work is resumable and bounded by the caller: `feed(byte)` queues one received byte and is legal only when `!pending()` (otherwise it returns false and changes nothing, so pending replay bytes are never dropped); `next(budget)` runs at most `budget` parser steps, decrementing it, and returns true when a frame is ready; whatever replay is left stays pending for the next call. Caller loop: `while (budget) { if (!p.pending()) { if (!read(b)) break; p.feed(b); } if (p.next(budget)) dispatch(p); }`. Frame accessors are valid until the next `feed()`/`next()`. Bytes waiting to be replayed live in the same `raw_` buffer behind the write position (no second buffer), which is why `feed()` refuses rather than appends: appending behind a full replay could need a 53rd byte. `bad_crc` / `bad_len` count rejection events — a replayed byte can be rejected and counted again. Frames, order and counters are the same as the Python parser for any stream and any budget split. RAM ≈ 64 B (raw 52 + 4 state bytes + 8 B counters); host tests add a step counter (`stepsTaken()`, `CQ_HOST_TEST` only).
 
 ### 5.2 Parser state machine
 ```mermaid
@@ -706,7 +707,7 @@ stateDiagram-v2
     Crc --> Len : crc bad, 0xAA in bytes after sync → bad_crc++, replay bytes after it
     Crc --> Sync : crc bad, no 0xAA → bad_crc++
 ```
-Replay (resync after a CRC mismatch): the bytes stored since the false sync (len … crc) are scanned for the first 0xAA; the bytes after it, followed by any bytes still waiting from an earlier replay, are fed back through the same states. Stored + waiting bytes shrink by at least one per resync, so the loop ends; worst case for one pathological received byte is under ~1.4 k byte steps and a few dozen CRC passes (a few ms at 16 MHz), ordinary noise costs a handful. Identical behaviour to `conqueror_protocol.framing.FrameParser` (Plan A).
+Replay (resync after a CRC mismatch): the bytes stored since the false sync (len … crc) are scanned for the first 0xAA; the bytes after it, followed by any bytes still waiting from an earlier replay, are fed back through the same states. Stored + waiting bytes shrink by at least one per resync, so the loop ends. Proven worst case for one received byte: about 700 parser steps and about 26 CRC passes (~676 CRC bytes), ≈ 4.6 ms at 16 MHz if run in one go — so the replay is resumable and `commsPoll` gives the parser at most 64 steps per loop pass (≈ 0.67 ms worst case, §9.18); ordinary noise costs a handful of steps. Identical behaviour to `conqueror_protocol.framing.FrameParser` (Plan A).
 
 ### 5.3 Routing table (OCP through data, PROGMEM)
 | Type | Handler → target | Ack |
@@ -743,10 +744,14 @@ sequenceDiagram
     participant A as Arbitrator
     participant C as ControlTask
     E->>L: 0xAA 03 10 seq [src v w] crc
-    D->>L: readByte() × n
+    Note over D,P: budget = 64 steps per loop pass
+    D->>P: pending()?
+    P-->>D: false
+    D->>L: readByte()
     D->>P: feed(byte)
-    P-->>D: true (frame ready)
-    Note over D,P: after handling, D calls next() until false (a resync replay may release more frames)
+    D->>P: next(budget)
+    P-->>D: true (frame ready), budget decremented
+    Note over D,P: loop while budget > 0: pending replay is stepped before any new byte is read; leftover replay waits for the next pass
     D->>D: route[0x10] → onDrive
     D->>A: onNetwork(Drive v,w)
     A-->>D: Accepted (or NOT_OWNER → EVENT)
@@ -1171,6 +1176,7 @@ Lifted if **any**: sustained vertical acceleration deviation > 0.25 g for > 150 
 ### 9.18 Comms additions (fix 23, 26)
 - **UART 250000 baud** (0 % error at 16 MHz with U2X; supported by the ESP32).
 - Parser buffer **is** the frame (dispatch by reference; no duplicate `Frame.payload`): one 52 B raw buffer (len, type, seq, payload, crc) that also holds bytes waiting for a resync replay; one shared 52 B TX encode buffer.
+- **Parser work per loop pass is bounded in steps, not bytes** (`kPollSteps = 64`): pending replay is drained first, new UART bytes are read only while nothing is pending. Worst case per pass (host model ~40 cycles/step, ~70 cycles/CRC byte; CRC bytes ≤ steps + 51 carried over): 64 × 40 + 115 × 70 ≈ 10.6 k cycles ≈ 0.66 ms; an adversarial search including resync scan/memmove found 10.8 k cycles ≈ 0.67 ms. Valid traffic costs one step per byte, so 64 bytes per pass — one full 64 B RX buffer (≈ 2.5 ms at 250000 baud) — against < 1 kB/s of real inbound traffic. A crafted flood overflows the RX buffer instead of stalling the 10 ms tick.
 - TxScheduler priority: **ACK > WIFI_RESET_REQ > EVENT > HELLO > CAL_DATA > TELEM_FAST > TELEM_SLOW**.
 - **NOT_OWNER / BUSY rejection events rate-limited** to 1 per 500 ms per source (a 20 Hz DRIVE stream cannot flood the queue).
 - **Uno owner `Network → None`:** no network motion command for 1 s and Primitives idle (bookkeeping only; human/AI handback is the ESP32's).
@@ -1218,7 +1224,7 @@ sequenceDiagram
 | Controllers + TargetLimiter + motion | ~170 |
 | Estimation (+ AccelVariance), safety, arbitration | ~130 |
 | Camera head, UI sequencers, Annunciator, TONE buffer (41) | ~140 |
-| Comms (parser = frame: raw 52 + state ≈ 64, TX buffer 52, event queue 8 × 6) | ~160 |
+| Comms (parser = frame: raw 52 + state ≈ 64 — the resumable step budget adds no RAM; TX buffer 52, event queue 8 × 6) | ~160 |
 | Scheduler, ISR state, EepromWriter queue, CalScriptRunner, misc | ~190 |
 | Stack reserve | 400 |
 | **Total ≈ 1740 B → ~300 B headroom** | |
@@ -1258,4 +1264,47 @@ Firmware: `drivers/board_config.h` build option selects the shield; only the mot
 
 ### Decision note (2026-10-11): frame parser resync (see §5.2)
 `FrameParser` must resync like the Plan A reference (`conqueror_protocol.framing`): when a length byte is out of range and is itself 0xAA, treat it as a new start of frame; after a CRC mismatch, rescan the bytes received after the false start for the next 0xAA, so noise or a cut-off frame does not cost the next good frame.
-API consequence (agreed 2026-10-11 in the Plan A final review): a replay can complete more than one frame from one received byte, so `feed(byte)` returns the first ready frame and the caller drains `next()` until false (§5.1, §5.2, Plan B Task 2). The single `raw_[52]` buffer holds both the frame and the bytes waiting for replay (+3 B over the old 48 B buffer + header fields); the replay is iterative and bounded. `bad_crc` / `bad_len` count rejection events, so a replayed byte can be counted again. The Plan B host tests mirror the three Python resync tests.
+API consequence (agreed 2026-10-11 in the Plan A final review): a replay can complete more than one frame from one received byte, so `feed(byte)` returned the first ready frame and the caller drained `next()` until false (superseded by the bounded-replay note below; current API in §5.1). The single `raw_[52]` buffer holds both the frame and the bytes waiting for replay (+3 B over the old 48 B buffer + header fields); the replay is iterative and bounded. `bad_crc` / `bad_len` count rejection events, so a replayed byte can be counted again. The Plan B host tests mirror the three Python resync tests.
+
+### Decision note (2026-10-11): bounded replay work per loop pass (supersedes the "drain `next()` until false" API above)
+Review finding: `commsPoll` bounded received bytes (64), not replay work. One crafted byte can trigger about 700 parser steps and about 26 CRC passes (≈ 4.6 ms at 16 MHz; the earlier "~1.4 k steps" figure was wrong), and a sustained crafted stream costs ≈ 2.2 k cycles per byte, so 64 bytes took ≈ 9 ms of the 10 ms tick — reachable through the unauthenticated ESP32 WiFi bridge. Also, `feed()` discarded an undrained replay.
+Decision (review option a): the replay is resumable. `bool next(uint8_t& budget)` runs at most `budget` steps; `bool pending()` says bytes remain; `feed()` is legal only when `!pending()` and refuses (returns false, changes nothing) otherwise — simpler than appending, which could need a 53rd buffer byte. `commsPoll` spends at most 64 steps per pass, pending replay first (≈ 0.67 ms worst case, §9.18). Frames, order and counters stay identical to `conqueror_protocol.framing` for any budget split. Plan B Task 2 host tests add: an adversarial nested-header stream matched against the Python parser at budgets 1/7/64/255, a check that no `next(budget)` call exceeds its budget, and pending replay surviving across calls with `feed()` refused meanwhile.
+
+### Decision notes (2026-10-11): Plan B pre-flight rulings — link, settings, IMU, battery, reset reason
+Agreed while polishing Plan B Tasks 1–5 (rulings R8–R12, R16 and review fixes); where they differ, these refine §5.4, §5.5, §6.1, §6.2, §9.13 and §9.17.
+- **Link events (§5.5):** `LinkSession::poll()` (10 ms) reports `kLost` on alive→dead (and runs the link-lost handling) and `kRestored` on dead→alive **only after a loss**; the first contact after boot raises no `LINK_RESTORED`.
+- **TX order (§5.4):** the TX pump peeks the head ACK/EVENT, sends, and pops only after the send succeeded, so a full TX buffer never reorders ACKs or events (no push-back to the tail).
+- **Settings ordering invariants (§9.17):** `Settings::set` also rejects with `SETTING_OUT_OF_RANGE` a value that would break `pan_min ≤ pan_max`, `tilt_min ≤ tilt_max`, `obstacle_stop < obstacle_slow` or `batt_crit < batt_low`, checked against the current values. The hub must order its writes (e.g. raise `pan_max` before `pan_min`). The settings CRC for slow telemetry is computed at 1 Hz, not per settings pass.
+- **Attitude rate (§9.13):** `Attitude::update()` runs at 200 Hz; it integrates the gyro every call and applies the accelerometer correction (`atan2`/`sqrt`) every 4th call (50 Hz) with α = 0.92 per correction (≈ 0.98⁴, same ~0.25 s time constant). Sign convention: the accelerometer reads specific force (+1 g up when level), so nose up gives `ax = +sin θ` and `pitch = atan2(ax, √(ay²+az²))`; +gy = nose down.
+- **I2C recovery (§9.13):** on a Wire timeout the IMU driver clocks SCL up to 9 times until SDA is released, sends a STOP and restarts the TWI (~100 µs of short busy-waits, a documented exception like the burst read). After 10 consecutive failed reads the IMU task raises `IMU_FAULT`, sets `imu_ok = false` (no more 200 Hz reads that could each cost a 3 ms timeout) and retries `begin()` once per second; a successful re-init clears the fault.
+- **Battery averaging (§9.13; supersedes the EMA in §6.2 and the driver-side average in §6.1):** the battery ADC driver returns one raw sample per 10 Hz tick; `BatteryMonitor` (domain) averages the last 4 samples. Low/critical persistence (2 s) and recovery hysteresis (+150 mV) unchanged.
+- **Reset reason (§9.13):** r2 from Optiboot ≥ 6 is trusted only when it holds nothing but reset-flag bits (`r2 != 0 && (r2 & ~0x0F) == 0`); otherwise, and with the stock Uno bootloader (which clears MCUSR), the reason is `Unknown`. The `.noinit` intentional-reset marker is consumed (cleared) on every boot.
+
+### Decision notes (2026-10-11): Plan B pre-flight rulings — ultrasonic, safety, motion (Tasks 5–10)
+Agreed while polishing Plan B Tasks 5–10 (rulings R1–R7, R17 and review fixes); where they differ, these refine §3.4, §4, §9.4, §9.5, §9.6, §9.16 and §9.18.
+- **Ultrasonic failure definition (§9.16, R17):** a *failed measurement* is `NoEcho` (no rising edge within 2 ms of the trigger) or an echo line held high so long that no ping could be sent for more than 250 ms (5 skipped 20 Hz pings — clones hold up to 200 ms; an unplugged sensor reads high through the `INPUT_PULLUP`). 3 consecutive failed measurements → `us_fault`. `Clear` (echo high > 25 ms, nothing in range) and up to 250 ms of skipped pings are never failures, so open rooms do not fault. The driver sends no trigger while the echo is high and then reports `Pending`; the counting lives in the pure `UltrasonicFilter` (host-tested).
+- **Sync gate and idle release (§9.4, §9.18, R2):** the `Arbitrator` holds `synced` (copied from `LinkSession::synced()` every control tick); before sync `requestNetwork()` and `beginCalibration()` return `BUSY`, IR is unaffected. `tick(now, link_alive, primitive_busy, cfg)` releases owner Network → None when no network motion command arrived for 1 s, no DRIVE stream is active (the deadman fires first) and no primitive runs; it only changes the owner (`CONTROL_CHANGED`). Link loss also clears `synced`, so network motion is BUSY again until the next HELLO_ACK.
+- **Stalled track cut (§9.6, R3):** `SafetyInputs.stall_mask` (bit 0 left, bit 1 right) makes `SafetySupervisor` output 0 on a stalled track (the other track keeps its command). Because the cut hides the requested direction, the app keeps both the PWM asked of the supervisor (`req_pwm_l/r`) and the PWM applied (`out_pwm_l/r`); `EncoderHealth` detects on the applied PWM and clears a stall on a reversal of the requested PWM. An ultrasonic fault (`dist_mm = 0xFFFE`) never blocks in the supervisor; the 50 % degraded cap is a target cap (`TargetLimiter`).
+- **Encoder fault vs stall timing (§9.6, R3):** detection window 0.5 s of drive above `keep + 15` PWM with no edges (the earlier plan used 300 ms); the keep value is taken per track *and direction*. A stall is held for 1 s regardless of the (cut) output, clears early when the requested PWM reverses, and must then be re-detected from scratch (another 0.5 s). Faults stay latched.
+- **Calibration abort (§9.7):** a network STOP aborts a running script (`CAL_RESULT CAL_CANCELLED`), as do IR and link loss; the aborted result reports the progress reached, not 0. Starting a script clears the stored DRIVE values so an old DRIVE never resumes after it.
+- **Mixer (§3.4, R5):** `mix()` applies turning priority — when `|v| + |w|` exceeds 100 %, `|v|` is reduced by the excess so `L − R` is kept (the earlier plan scaled both tracks by a ratio) — and the pivot fallback: with setting `pivot_fallback = 1`, a non-zero inner target (strictly smaller magnitude; a spin has none) below `keep_pct` becomes 0. `keep_pct` is not defined elsewhere; it is the track speed % at the deadband keep PWM, approximated as `mean(deadband_keep) × 100 / 255` (speed ∝ PWM). The calibration script `RATE_STEPS` keeps its own fixed ratio mapping (it measures the raw turn curve, not the mixer).
+- **Degraded caps (§9.5, §9.16, R1):** `Limits.degraded_cap_pct` (100 none, 50 ultrasonic fault, 30 IMU fault, the minimum when both) is applied with the envelope cap in the `TargetLimiter` (cap = min of the two, sets `capped` → flag `capped`). The supervisor itself never treats `0xFFFE` as an obstacle.
+- **Ramp from rest:** a ramp at 0 accelerates toward a target of either sign (the earlier sign test used the decel rate for the first step toward a negative target).
+- **Integrator freeze (§9.5, R4 — deviation kept on purpose):** `SpeedController::update(…, bool moving, bool capped)` freezes the speed PID integrator while the TargetLimiter reports `capped` (as §9.5 says) **and also** while the PWM output sits on its limit (envelope-derived `pwmLimitForCap` or 255). The second condition is extra anti-windup not in §9.5; it stops wind-up when a track is held or the battery is weak although nothing is capped.
+- **Primitive admission (§3.3, R6, R7):** TURN is refused with `INVALID_COMMAND` when its speed (and radius) give a maximum turn rate below the profile floor of 15 °/s (e.g. a 5 % spin or a 10 % arc on 50 cm), or when the TurnMode is neither BY nor TO; MOVE needs encoders **and** the IMU (it always holds a gyro heading) and is otherwise refused with `UNAVAILABLE`, like every TURN without the IMU. The ESP32/hub should offer only turn speeds that reach 15 °/s.
+
+### Decision notes (2026-10-11): Plan B pre-flight rulings — control pipeline, camera, UI, input (Tasks 11–15)
+Agreed while polishing Plan B Tasks 11–15; where they differ, these refine §3, §4, §9.2, §9.5, §9.8 and §9.18.
+- **Envelope accel cap (§4, §9.5):** the ramp uses `min(envelope accel_cap, accel_limit)` (accel_cap 0 = no cap); an envelope can only tighten the global limit, never loosen it. Deceleration stays 2 × that value.
+- **Deadman stop timing (§9.2):** `DEADMAN_STOP` fires 300 ms after the last DRIVE/DRIVE_RATE; the tracks then follow the SoftStop ramp, so they are stopped ≤ ~420 ms after the last command (not ≤ 330 ms). `flags2.deadman` stays set from `DEADMAN_STOP` until the next accepted DRIVE/DRIVE_RATE.
+- **Stalled track and the speed PID (§9.5, §9.6):** while `EncoderHealth` reports a stall the speed PID integrator of that track is frozen (same `capped` input as the TargetLimiter cap), so it does not wind up while the supervisor cuts the track and does not lurch when the stall clears.
+- **IMU lost during a primitive (§3.3, R7):** a running TURN is ended with `UNAVAILABLE`; a running MOVE continues without heading hold (w = 0) under the 30 % degraded cap.
+- **Teleop after an owner change (§9.18):** stored DRIVE/DRIVE_RATE values are cleared when the owner becomes None or Calibration (idle release, STOP, link loss, calibration), never resumed. The IR takeover (cancel primitives, clear DRIVE_RATE) happens in the input task *before* the IR command is applied, so a TURN started by the IR `0` key as the first IR key keeps running.
+- **Camera power-on (§9.9):** the servo start position is unknown at boot, so `cameraInit` writes the home pulse before attaching and the head snaps to 90/90 once; every later move goes through the `ServoProfile`. Camera entry points are declared in `app/camera_api.h` (handlers, `configureCamera`) and `app/tasks.h` (`cameraInit`, `cameraTask`).
+- **Alarm LED re-pick (§9.9):** the alarm layer is re-selected on any change of tilted, lifted, batt_crit, batt_low or selftest_critical (priority: self-test critical solid > tilted/lifted 250 ms blink > batt_crit 1000 ms blink > batt_low pulse), so the pattern always shows the highest remaining cause.
+- **WS2812 timing (§6, R14):** one extra `rjmp` after `dec` gives T1L ≈ 440 ns (spec ≥ 300 ns) and 20–21 cycles per bit ≈ 1.3 µs; one LED write keeps interrupts off ≈ 32 µs (the §2 port table's ~30 µs), still shorter than one 250000-baud UART byte. To be confirmed with a scope (hardware checklist).
+- **TONE with n = 0** is `INVALID_COMMAND` (not BUSY).
+
+### Decision notes (2026-10-11): Plan B final consistency check
+- **Reset reason without an intentional-reset marker (§9.13):** v1 has no software reboot path (no REBOOT frame, Uno updates are USB only), so the `.noinit` "intentional WDT reset" marker and `watchdog::markIntentionalReset()` are dropped. The reason comes only from MCUSR / plausible Optiboot r2; a watchdog reset is always a hang. Re-add the marker together with a reboot command if one is ever introduced.
+- **UI route handlers:** `onLed/onSound/onTone/onAudioMode` are declared in `app/ui_api.h` (like `camera_api.h` and `motion_api.h`); `app/tasks.h` keeps only task/init entry points.

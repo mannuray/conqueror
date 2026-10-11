@@ -604,7 +604,7 @@ package = false
 conqueror-protocol = { path = "../../protocol/python", editable = true }
 
 [dependency-groups]
-dev = ["ruff>=0.7"]
+dev = ["ruff>=0.7", "pyright>=1.1", "types-pyserial>=3.5"]
 
 [tool.ruff]
 line-length = 100
@@ -612,6 +612,11 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
 ```
 
 `tools/smoke/bridge_echo.py`:

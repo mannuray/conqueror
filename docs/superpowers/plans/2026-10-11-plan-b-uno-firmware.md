@@ -5349,6 +5349,10 @@ def print_ack(m: object) -> None:
 def cmd_drive(link: Link, args: argparse.Namespace) -> None:
     link.handlers.append(lambda m: print(fmt_event(m)) if isinstance(m, g.Event) else None)
     wait_synced(link)
+    # same run: opening the port reboots the Uno, which clears the envelope
+    if args.envelope is not None:
+        link.send(g.Envelope(speed_cap=args.envelope, accel_cap=0, lock_brake=0))
+        time.sleep(0.1)
     end = time.monotonic() + args.seconds
     while time.monotonic() < end:
         link.send(g.Drive(src=g.Source.HUMAN, v=args.v, w=args.w))
@@ -5388,6 +5392,7 @@ def cmd_deadman(link: Link, args: argparse.Namespace) -> None:
             print(f"motors stopped {int((time.monotonic() - t0) * 1000)} ms after the last DRIVE")
             break
         time.sleep(0.01)
+    time.sleep(max(0.0, t0 + 1.3 - time.monotonic()))  # keep printing events: idle release at ~1 s
 ```
 Register in `COMMANDS` (`"drive": cmd_drive, "stop": cmd_stop, "envelope": cmd_envelope, "deadman": cmd_deadman`) and in `main()`:
 ```python
@@ -5395,6 +5400,7 @@ Register in `COMMANDS` (`"drive": cmd_drive, "stop": cmd_stop, "envelope": cmd_e
     d.add_argument("v", type=int)
     d.add_argument("w", type=int)
     d.add_argument("--seconds", type=float, default=2.0)
+    d.add_argument("--envelope", type=int, default=None, help="speed cap %% sent before driving")
     sub.add_parser("stop")
     e = sub.add_parser("envelope")
     e.add_argument("cap", type=int)
@@ -5412,7 +5418,7 @@ Then from `tools/smoke/`:
 2. `… drive 0 40 --seconds 2` → left track backwards, right forwards (CCW spin).
 3. `… deadman` → `EVENT DEADMAN_STOP` and `motors stopped ~300-330 ms after the last DRIVE`, then `EVENT CONTROL_CHANGED a=0` about 1 s after the last DRIVE (Network → None, idle release).
 4. Hold a hand 10 cm in front of the sensor, `… drive 40 0` → `EVENT BLOCKED`, `pwm=0,0`; `… drive -40 0` → reverse turns.
-5. `… envelope 20 0 0` then `… drive 100 0` → `pwm=51,51`; `… envelope 100 0 0` to restore.
+5. `… drive 100 0 --envelope 20` → `pwm=51,51` (the envelope is sent in the same run: every smoke run reopens the port, which reboots the Uno and clears the envelope); `… envelope 20 0 0` alone → `ACK OK`.
 6. Start `… drive 40 0 --seconds 5` and pull the USB cable after 2 s → tracks stop within 0.3 s (link lost).
 
 - [ ] **Step 9: Commit**
@@ -6866,7 +6872,7 @@ On the stand (tracks free), from `tools/smoke/`:
 3. On the floor, level: `… bias` → prints five values and `EVENT SETTINGS_SAVED`; afterwards `watch` shows yaw drift < 1° per minute standing still.
 4. `… calibrate pwm_ramp --param 0 --csv ramp.csv` on the stand (left track forward, max 255) → phase 0 ramps up in 52 steps, phase 1 back down; CSV `v3` (|cps|) rises once `v0` (PWM) passes the deadband.
 5. After boot, `watch` shows `EVENT SELFTEST a=0 b=0` (a = 0x02 if the ultrasonic is unplugged).
-6. Stall cut (stand): `… drive 50 0 --seconds 4` and grip the left track firmly by hand → after ~0.5 s `EVENT STALL a=0`, `pwm=0,<n>` (left cut, right still driving) for 1 s, then the left track is driven again (and stalls again after 0.5 s if still held); `… drive -50 0` while it is cut → the left track runs backwards at once (reversal clears the stall).
+6. Stall cut (stand): `… drive 50 0 --seconds 4` and press a block of wood firmly against the left track until it stops (never grip a running track by hand — the sprocket is a pinch point) → after ~0.5 s `EVENT STALL a=0`, `pwm=0,<n>` (left cut, right still driving) for 1 s, then the left track is driven again (and stalls again after 0.5 s while still held). Clearing on reversal is covered by the host test.
 
 - [ ] **Step 11: Commit**
 

@@ -1304,3 +1304,7 @@ Agreed while polishing Plan B Tasks 11–15; where they differ, these refine §3
 - **Alarm LED re-pick (§9.9):** the alarm layer is re-selected on any change of tilted, lifted, batt_crit, batt_low or selftest_critical (priority: self-test critical solid > tilted/lifted 250 ms blink > batt_crit 1000 ms blink > batt_low pulse), so the pattern always shows the highest remaining cause.
 - **WS2812 timing (§6, R14):** one extra `rjmp` after `dec` gives T1L ≈ 440 ns (spec ≥ 300 ns) and 20–21 cycles per bit ≈ 1.3 µs; one LED write keeps interrupts off ≈ 32 µs (the §2 port table's ~30 µs), still shorter than one 250000-baud UART byte. To be confirmed with a scope (hardware checklist).
 - **TONE with n = 0** is `INVALID_COMMAND` (not BUSY).
+
+### Decision notes (2026-10-11): Plan B final consistency check
+- **Reset reason without an intentional-reset marker (§9.13):** v1 has no software reboot path (no REBOOT frame, Uno updates are USB only), so the `.noinit` "intentional WDT reset" marker and `watchdog::markIntentionalReset()` are dropped. The reason comes only from MCUSR / plausible Optiboot r2; a watchdog reset is always a hang. Re-add the marker together with a reboot command if one is ever introduced.
+- **UI route handlers:** `onLed/onSound/onTone/onAudioMode` are declared in `app/ui_api.h` (like `camera_api.h` and `motion_api.h`); `app/tasks.h` keeps only task/init entry points.

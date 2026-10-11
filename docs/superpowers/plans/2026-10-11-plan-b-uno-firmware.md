@@ -103,7 +103,7 @@ All commands run from `firmware/uno/` unless stated.
   - `cq::TaskFn = void (*)()`, `struct cq::Task { TaskFn fn; uint32_t period_us; uint32_t next_due_us; }`, `class cq::Scheduler(Task* tasks, uint8_t count)` with `void start(uint32_t now_us)`, `uint8_t runDue(uint32_t now_us)`, `uint16_t overruns() const`.
   - `class cq::LoadMeter` with `void add(uint32_t busy_us, uint32_t now_us)`, `uint8_t loadPct() const`, `uint16_t maxUs() const`.
   - `cq::clampf, signf, absf, wrap180, wrap360, elapsed(uint32_t now, uint32_t since, uint32_t interval)`.
-  - Ports: `cq::port::clock::nowUs() -> uint32_t`, `nowMs() -> uint32_t`; `cq::port::watchdog::enable()`, `kick()`, `resetReason() -> proto::ResetReason`, `markIntentionalReset()`.
+  - Ports: `cq::port::clock::nowUs() -> uint32_t`, `nowMs() -> uint32_t`; `cq::port::watchdog::enable()`, `kick()`, `resetReason() -> proto::ResetReason` (no intentional-reset marker: v1 has no software reboot path, see the LLD decision note).
   - `cq::board` constants (all pins, `kHasStandby`, direction polarity, IMU axis map).
   - Value types in `types/hw_types.h` (see code).
 
@@ -497,7 +497,6 @@ namespace watchdog {
 void enable();   // 1 s
 void kick();
 proto::ResetReason resetReason();
-void markIntentionalReset();  // sets a .noinit marker so the next boot reports kWatchdog reliably
 }  // namespace watchdog
 }  // namespace port
 }  // namespace cq
@@ -530,8 +529,6 @@ namespace {
 // Survive resets; filled before C++ init.
 uint8_t g_mcusr __attribute__((section(".noinit")));
 uint8_t g_r2 __attribute__((section(".noinit")));
-uint8_t g_marker __attribute__((section(".noinit")));
-constexpr uint8_t kIntentionalMarker = 0xA5;
 }  // namespace
 
 // Optiboot >= 6 passes MCUSR in r2. The stock Uno bootloader clears MCUSR and leaves r2 as garbage,
@@ -557,17 +554,12 @@ proto::ResetReason resetReason() {
   constexpr uint8_t kResetFlagBits = _BV(WDRF) | _BV(BORF) | _BV(EXTRF) | _BV(PORF);  // 0x0F
   const bool r2_plausible = g_r2 != 0 && (g_r2 & static_cast<uint8_t>(~kResetFlagBits)) == 0;
   const uint8_t flags = g_mcusr != 0 ? g_mcusr : (r2_plausible ? g_r2 : 0);
-  const bool intentional = g_marker == kIntentionalMarker;
-  g_marker = 0;  // one-shot; also clears power-on garbage
-  if (intentional) return proto::ResetReason::kWatchdog;
   if (flags & _BV(WDRF)) return proto::ResetReason::kWatchdog;
   if (flags & _BV(BORF)) return proto::ResetReason::kBrownOut;
   if (flags & _BV(EXTRF)) return proto::ResetReason::kExternal;
   if (flags & _BV(PORF)) return proto::ResetReason::kPowerOn;
   return proto::ResetReason::kUnknown;
 }
-
-void markIntentionalReset() { g_marker = kIntentionalMarker; }
 
 }  // namespace watchdog
 }  // namespace port

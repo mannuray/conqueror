@@ -34,7 +34,7 @@
 1. **ESP32 absent or crashed while driving with the IR remote** → the tank keeps obeying IR; it must not SoftStop (Task 6 test `test_ir_owner_ignores_link_loss`).
 2. **Link drops in the middle of a TURN/MOVE** → the primitive is cancelled with `LINK_LOST` and does **not** resume when the link returns (Task 10 test `test_link_loss_cancels_and_does_not_resume`, wired in Task 11).
 3. **Child-play envelope set to 20 %** → actual track targets never exceed 20 % and the speed PID does not wind up (Task 8 test `test_envelope_caps_targets`, Task 9 test `test_integrator_frozen_when_capped`).
-4. **A held track vs a broken encoder** → a held track is a stall (cleared later), a silent encoder while the gyro shows motion is a latched encoder fault (Task 7 test `test_fault_vs_stall`).
+4. **A held track vs a broken encoder** → a held track is a stall (the supervisor cuts that track; cleared on reversal or after 1 s), a silent encoder while the gyro shows motion is a latched encoder fault (Task 7 test `test_fault_vs_stall`).
 5. **Settings saved while the tank is driving or right after a firmware update** → EEPROM writes are spread one byte per pass (no watchdog reset, no lost UART bytes) and a bad CRC block falls back to defaults (Task 3 tests `test_writer_one_byte_per_step`, `test_serialize_roundtrip_and_bad_crc_loads_defaults`).
 
 ---

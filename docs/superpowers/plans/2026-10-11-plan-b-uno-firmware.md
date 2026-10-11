@@ -4524,7 +4524,7 @@ git commit -m "feat(uno): ultrasonic/IR via PCINT0 hub, NEC decoder, async batte
 
 **Files:**
 - Create: `src/types/pwm_output.h`; `src/domain/safety/envelope.{h,cpp}`, `safety_supervisor.{h,cpp}`; `src/domain/arbitration/arbitrator.{h,cpp}`; `src/ports/motor.h`; `src/drivers/motor_uno.cpp`; `src/app/motion_api.h`; `src/app/control_task.cpp` (v1, replaced in Task 11)
-- Modify: `src/app/app.h`, `src/app/routes.cpp`, `src/app/apply_settings.cpp`, `src/main.cpp`, `tools/smoke/uno_smoke.py`
+- Modify: `src/app/app.h`, `src/app/tasks.h`, `src/app/routes.cpp`, `src/app/apply_settings.cpp`, `src/main.cpp`, `tools/smoke/uno_smoke.py`
 - Test: `test/test_safety/test_main.cpp`
 
 **Interfaces:**
@@ -4532,10 +4532,11 @@ git commit -m "feat(uno): ultrasonic/IR via PCINT0 hub, NEC decoder, async batte
 - Produces:
   - `cq::PwmOutput`: `static PwmOutput zero()`, `int16_t left() const`, `int16_t right() const`, `bool enabled() const` (false = driver standby/coast); non-zero construction only via `friend class SafetySupervisor`.
   - `cq::Envelope`: `proto::AckStatus set(uint8_t speed_cap, uint8_t accel_cap, uint8_t lock_brake)`, `proto::AckStatus setBrake(bool on)`, `uint8_t speedCap() const`, `uint8_t accelCap() const`, `bool lockBrake() const`, `bool brakeOn() const`, `bool active() const`.
-  - `cq::Arbitrator`: `enum class Action : uint8_t { kNone, kDeadmanStop, kLinkLostStop, kIrReleased }`; `struct Config { uint16_t deadman_ms; uint16_t ir_handback_ms; }`; `proto::AckStatus requestNetwork(bool teleop, uint32_t now_ms)`, `void onNetworkStop()`, `bool onIrInput(uint32_t now_ms)` (true = owner changed to IR), `void releaseIr()` (IR OK key: owner → None), `proto::AckStatus beginCalibration()`, `void endCalibration()`, `Action tick(uint32_t now_ms, bool link_alive, const Config& cfg)`, `proto::Owner owner() const`, `bool takeOwnerChanged()`.
-  - `cq::SafetyInputs { bool lifted, tilted, batt_critical, brake_on; uint16_t dist_mm; uint8_t stop_cm; }`, `cq::SafetyStatus { bool blocked, halted, coast; }`, `cq::SafetySupervisor::apply(int16_t pwm_l, int16_t pwm_r, const SafetyInputs&, SafetyStatus&) -> PwmOutput`.
+  - `cq::Arbitrator`: `enum class Action : uint8_t { kNone, kDeadmanStop, kLinkLostStop, kIrReleased }`; `struct Config { uint16_t deadman_ms; uint16_t ir_handback_ms; }`; `void setSynced(bool)` (from `LinkSession::synced()` every control tick; boot = not synced), `proto::AckStatus requestNetwork(bool teleop, uint32_t now_ms)` (BUSY before sync — LLD §9.4), `void onNetworkStop()`, `bool onIrInput(uint32_t now_ms)` (true = owner changed to IR; works without sync), `void releaseIr()` (IR OK key: owner → None), `proto::AckStatus beginCalibration()` (BUSY before sync), `void endCalibration()`, `Action tick(uint32_t now_ms, bool link_alive, bool primitive_busy, const Config& cfg)` (also releases Network → None after `kNetworkIdleMs` = 1 s without a network motion command while no primitive runs — LLD §9.18), `proto::Owner owner() const`, `bool takeOwnerChanged()`.
+  - `cq::SafetyInputs { bool lifted, tilted, batt_critical, brake_on; uint16_t dist_mm; uint8_t stop_cm; uint8_t stall_mask; }` (`stall_mask` bit 0 left, bit 1 right: that track's output is cut — LLD §9.6; fed by Task 7), `cq::SafetyStatus { bool blocked, halted, coast; }`, `cq::SafetySupervisor::apply(int16_t pwm_l, int16_t pwm_r, const SafetyInputs&, SafetyStatus&) -> PwmOutput`. `dist_mm = 0xFFFE` (sensor fault) never blocks: the brake is unavailable and the degraded 50 % cap is applied to the targets by the `TargetLimiter` (Task 8, wired in Task 11).
   - Port `cq::port::motor`: `begin()`, `apply(const PwmOutput&)` — included only by `app/control_task.cpp`.
-  - `app/motion_api.h`: `controlInit()`, `controlTask()`, route handlers `onDrive`, `onStop`, `onBrake`, `onEnvelope`, `onOwnerHint` (signature `proto::AckStatus (const uint8_t*, uint8_t)`).
+  - `app/tasks.h`: `controlInit()`, `controlTask()`; `app/motion_api.h`: route handlers `onDrive`, `onStop`, `onBrake`, `onEnvelope`, `onOwnerHint` (signature `proto::AckStatus (const uint8_t*, uint8_t)`).
+  - App members `int16_t req_pwm_l, req_pwm_r` (PWM asked of the supervisor, before the gate — the direction of a stalled track for Task 7) next to `out_pwm_l/r`.
   - Smoke commands `drive V W --seconds S`, `stop`, `envelope CAP ACCEL LOCK`, `deadman`.
 
 - [ ] **Step 1: Write the failing safety tests**
@@ -4560,17 +4561,22 @@ static_assert(!std::is_constructible<PwmOutput, int16_t, int16_t, bool>::value,
 
 namespace {
 const Arbitrator::Config kCfg{300, 3000};
-SafetyInputs clearInputs() { return SafetyInputs{false, false, false, true, 0xFFFF, 15}; }
+SafetyInputs clearInputs() { return SafetyInputs{false, false, false, true, 0xFFFF, 15, 0}; }
+Arbitrator syncedArbitrator() {
+  Arbitrator a;
+  a.setSynced(true);  // HELLO_ACK received
+  return a;
+}
 }  // namespace
 
 void test_ir_owner_ignores_link_loss() {
-  Arbitrator a;
+  Arbitrator a;  // never synced: IR works with no ESP32
   TEST_ASSERT_TRUE(a.onIrInput(0));
   TEST_ASSERT_EQUAL(static_cast<int>(proto::Owner::kIr), static_cast<int>(a.owner()));
   // ESP32 absent: link never alive
   for (uint32_t t = 0; t < 2000; t += 10) {
     a.onIrInput(t);  // user keeps pressing
-    TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kNone), static_cast<int>(a.tick(t, false, kCfg)));
+    TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kNone), static_cast<int>(a.tick(t, false, false, kCfg)));
   }
   TEST_ASSERT_EQUAL(static_cast<int>(proto::Owner::kIr), static_cast<int>(a.owner()));
 }
@@ -4578,39 +4584,73 @@ void test_ir_owner_ignores_link_loss() {
 void test_ir_hands_back_after_idle() {
   Arbitrator a;
   a.onIrInput(0);
-  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kNone), static_cast<int>(a.tick(2999, true, kCfg)));
-  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kIrReleased), static_cast<int>(a.tick(3000, true, kCfg)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kNone), static_cast<int>(a.tick(2999, true, false, kCfg)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kIrReleased), static_cast<int>(a.tick(3000, true, false, kCfg)));
   TEST_ASSERT_EQUAL(static_cast<int>(proto::Owner::kNone), static_cast<int>(a.owner()));
 }
 
 void test_network_rejected_while_ir_owns() {
-  Arbitrator a;
+  Arbitrator a = syncedArbitrator();
   a.onIrInput(0);
   TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kNotOwner), static_cast<int>(a.requestNetwork(true, 10)));
 }
 
 void test_link_loss_stops_network_owner() {
-  Arbitrator a;
+  Arbitrator a = syncedArbitrator();
   TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kOk), static_cast<int>(a.requestNetwork(true, 0)));
-  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kLinkLostStop), static_cast<int>(a.tick(50, false, kCfg)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kLinkLostStop), static_cast<int>(a.tick(50, false, false, kCfg)));
   TEST_ASSERT_EQUAL(static_cast<int>(proto::Owner::kNone), static_cast<int>(a.owner()));
+  Arbitrator c = syncedArbitrator();  // calibration motion was started from the network: stops too
+  c.beginCalibration();
+  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kLinkLostStop), static_cast<int>(c.tick(50, false, false, kCfg)));
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::Owner::kNone), static_cast<int>(c.owner()));
 }
 
 void test_deadman_only_for_teleop() {
-  Arbitrator a;
+  Arbitrator a = syncedArbitrator();
   a.requestNetwork(true, 0);
-  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kNone), static_cast<int>(a.tick(299, true, kCfg)));
-  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kDeadmanStop), static_cast<int>(a.tick(300, true, kCfg)));
-  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kNone), static_cast<int>(a.tick(310, true, kCfg)));  // once
-  Arbitrator b;
-  b.requestNetwork(false, 0);  // TURN/MOVE primitive: no stream, no deadman
+  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kNone), static_cast<int>(a.tick(299, true, false, kCfg)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kDeadmanStop), static_cast<int>(a.tick(300, true, false, kCfg)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kNone), static_cast<int>(a.tick(310, true, false, kCfg)));  // once
+  Arbitrator b = syncedArbitrator();
+  b.requestNetwork(false, 0);  // TURN/MOVE primitive running: no stream, no deadman, no idle release
   for (uint32_t t = 0; t < 10000; t += 10) {
-    TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kNone), static_cast<int>(b.tick(t, true, kCfg)));
+    TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kNone), static_cast<int>(b.tick(t, true, true, kCfg)));
   }
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::Owner::kNetwork), static_cast<int>(b.owner()));
+}
+
+void test_network_motion_busy_until_synced() {
+  Arbitrator a;  // boot: no HELLO_ACK yet (LLD §9.4)
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kBusy), static_cast<int>(a.requestNetwork(true, 0)));
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kBusy), static_cast<int>(a.beginCalibration()));
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::Owner::kNone), static_cast<int>(a.owner()));
+  TEST_ASSERT_TRUE(a.onIrInput(10));  // IR is allowed before sync
+  a.releaseIr();
+  a.setSynced(true);
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kOk), static_cast<int>(a.requestNetwork(true, 20)));
+}
+
+void test_network_released_after_1s_idle() {
+  Arbitrator a = syncedArbitrator();
+  a.requestNetwork(true, 0);
+  a.takeOwnerChanged();
+  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kDeadmanStop), static_cast<int>(a.tick(300, true, false, kCfg)));
+  a.tick(999, true, false, kCfg);
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::Owner::kNetwork), static_cast<int>(a.owner()));
+  a.tick(1000, true, false, kCfg);  // LLD §9.18: 1 s without a network motion command, primitives idle
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::Owner::kNone), static_cast<int>(a.owner()));
+  TEST_ASSERT_TRUE(a.takeOwnerChanged());
+  Arbitrator b = syncedArbitrator();
+  b.requestNetwork(false, 0);  // a 5 s MOVE keeps the owner
+  for (uint32_t t = 0; t < 5000; t += 10) b.tick(t, true, true, kCfg);
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::Owner::kNetwork), static_cast<int>(b.owner()));
+  b.tick(5000, true, false, kCfg);  // primitive done, last command long ago → released
+  TEST_ASSERT_EQUAL(static_cast<int>(proto::Owner::kNone), static_cast<int>(b.owner()));
 }
 
 void test_calibration_busy_and_ir_override() {
-  Arbitrator a;
+  Arbitrator a = syncedArbitrator();
   TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kOk), static_cast<int>(a.beginCalibration()));
   TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kBusy), static_cast<int>(a.requestNetwork(true, 0)));
   TEST_ASSERT_TRUE(a.onIrInput(5));
@@ -4646,6 +4686,34 @@ void test_supervisor_blocks_forward_only() {
   TEST_ASSERT_FALSE(st.blocked);
 }
 
+void test_fault_range_does_not_block() {
+  // 0xFFFE = ultrasonic fault: the obstacle brake is unavailable (no phantom obstacle). The degraded
+  // 50 % cap is applied to the targets by the TargetLimiter (Task 8), not here.
+  SafetySupervisor s;
+  SafetyStatus st{};
+  SafetyInputs in = clearInputs();
+  in.dist_mm = 0xFFFE;
+  PwmOutput o = s.apply(150, 150, in, st);
+  TEST_ASSERT_EQUAL(150, o.left());
+  TEST_ASSERT_EQUAL(150, o.right());
+  TEST_ASSERT_FALSE(st.blocked);
+}
+
+void test_supervisor_cuts_stalled_track() {
+  SafetySupervisor s;
+  SafetyStatus st{};
+  SafetyInputs in = clearInputs();
+  in.stall_mask = 0x01;  // left stalled (LLD §9.6): only that track is cut
+  PwmOutput o = s.apply(150, 150, in, st);
+  TEST_ASSERT_EQUAL(0, o.left());
+  TEST_ASSERT_EQUAL(150, o.right());
+  TEST_ASSERT_TRUE(o.enabled());
+  in.stall_mask = 0x02;
+  o = s.apply(-150, 150, in, st);
+  TEST_ASSERT_EQUAL(-150, o.left());
+  TEST_ASSERT_EQUAL(0, o.right());
+}
+
 void test_supervisor_lift_coasts_tilt_halts_clamps() {
   SafetySupervisor s;
   SafetyStatus st{};
@@ -4672,9 +4740,13 @@ int main() {
   RUN_TEST(test_network_rejected_while_ir_owns);
   RUN_TEST(test_link_loss_stops_network_owner);
   RUN_TEST(test_deadman_only_for_teleop);
+  RUN_TEST(test_network_motion_busy_until_synced);
+  RUN_TEST(test_network_released_after_1s_idle);
   RUN_TEST(test_calibration_busy_and_ir_override);
   RUN_TEST(test_envelope_lock_forces_brake);
   RUN_TEST(test_supervisor_blocks_forward_only);
+  RUN_TEST(test_fault_range_does_not_block);
+  RUN_TEST(test_supervisor_cuts_stalled_track);
   RUN_TEST(test_supervisor_lift_coasts_tilt_halts_clamps);
   return UNITY_END();
 }
@@ -4779,6 +4851,8 @@ namespace cq {
 
 // Motion ownership (LLD §9.2): IR > calibration > network. Link loss stops only network/calibration
 // motion; the deadman applies only to streamed network teleop (DRIVE/DRIVE_RATE), never primitives.
+// Before sync (HELLO_ACK) network motion and calibration get BUSY; IR works (LLD §9.4). Network → None
+// after 1 s without a network motion command while no primitive runs (LLD §9.18).
 class Arbitrator {
  public:
   enum class Action : uint8_t { kNone, kDeadmanStop, kLinkLostStop, kIrReleased };
@@ -4786,7 +4860,9 @@ class Arbitrator {
     uint16_t deadman_ms;
     uint16_t ir_handback_ms;
   };
+  static constexpr uint16_t kNetworkIdleMs = 1000;
 
+  void setSynced(bool synced) { m_synced = synced; }
   proto::AckStatus requestNetwork(bool teleop, uint32_t now_ms);
   void onNetworkStop();
   bool onIrInput(uint32_t now_ms);
@@ -4795,7 +4871,7 @@ class Arbitrator {
   }
   proto::AckStatus beginCalibration();
   void endCalibration();
-  Action tick(uint32_t now_ms, bool link_alive, const Config& cfg);
+  Action tick(uint32_t now_ms, bool link_alive, bool primitive_busy, const Config& cfg);
   proto::Owner owner() const { return m_owner; }
   bool takeOwnerChanged() {
     const bool c = m_changed;
@@ -4810,8 +4886,10 @@ class Arbitrator {
   }
   proto::Owner m_owner = proto::Owner::kNone;
   bool m_changed = false;
+  bool m_synced = false;
   bool m_teleop = false;
   uint32_t m_last_teleop_ms = 0;
+  uint32_t m_last_network_ms = 0;
   uint32_t m_last_ir_ms = 0;
 };
 
@@ -4828,9 +4906,10 @@ namespace cq {
 
 proto::AckStatus Arbitrator::requestNetwork(bool teleop, uint32_t now_ms) {
   if (m_owner == proto::Owner::kIr) return proto::AckStatus::kNotOwner;
-  if (m_owner == proto::Owner::kCalibration) return proto::AckStatus::kBusy;
+  if (m_owner == proto::Owner::kCalibration || !m_synced) return proto::AckStatus::kBusy;
   setOwner(proto::Owner::kNetwork);
   m_teleop = teleop;
+  m_last_network_ms = now_ms;
   if (teleop) m_last_teleop_ms = now_ms;
   return proto::AckStatus::kOk;
 }
@@ -4850,6 +4929,7 @@ bool Arbitrator::onIrInput(uint32_t now_ms) {
 
 proto::AckStatus Arbitrator::beginCalibration() {
   if (m_owner == proto::Owner::kIr) return proto::AckStatus::kNotOwner;
+  if (!m_synced) return proto::AckStatus::kBusy;  // calibration is started from the network
   m_teleop = false;
   setOwner(proto::Owner::kCalibration);
   return proto::AckStatus::kOk;
@@ -4859,7 +4939,7 @@ void Arbitrator::endCalibration() {
   if (m_owner == proto::Owner::kCalibration) setOwner(proto::Owner::kNone);
 }
 
-Arbitrator::Action Arbitrator::tick(uint32_t now_ms, bool link_alive, const Config& cfg) {
+Arbitrator::Action Arbitrator::tick(uint32_t now_ms, bool link_alive, bool primitive_busy, const Config& cfg) {
   switch (m_owner) {
     case proto::Owner::kIr:
       if (elapsed(now_ms, m_last_ir_ms, cfg.ir_handback_ms)) {
@@ -4877,6 +4957,10 @@ Arbitrator::Action Arbitrator::tick(uint32_t now_ms, bool link_alive, const Conf
       if (m_teleop && elapsed(now_ms, m_last_teleop_ms, cfg.deadman_ms)) {
         m_teleop = false;
         return Action::kDeadmanStop;
+      }
+      if (m_owner == proto::Owner::kNetwork && !m_teleop && !primitive_busy &&
+          elapsed(now_ms, m_last_network_ms, kNetworkIdleMs)) {
+        setOwner(proto::Owner::kNone);  // bookkeeping only (CONTROL_CHANGED); nothing is moving
       }
       return Action::kNone;
     case proto::Owner::kNone:
@@ -4902,8 +4986,9 @@ struct SafetyInputs {
   bool tilted;
   bool batt_critical;
   bool brake_on;       // obstacle brake enabled (envelope may force it)
-  uint16_t dist_mm;    // 0xFFFF clear, 0xFFFE sensor fault
+  uint16_t dist_mm;    // 0xFFFF clear, 0xFFFE sensor fault (brake unavailable, never blocks)
   uint8_t stop_cm;
+  uint8_t stall_mask;  // bit 0 left, bit 1 right: stalled track, output cut (LLD §9.6)
 };
 
 struct SafetyStatus {
@@ -4941,8 +5026,8 @@ PwmOutput SafetySupervisor::apply(int16_t pwm_l, int16_t pwm_r, const SafetyInpu
     st.halted = true;
     return PwmOutput(0, 0, true);
   }
-  const int16_t l = clamp255(pwm_l);
-  const int16_t r = clamp255(pwm_r);
+  const int16_t l = (in.stall_mask & 0x01) ? 0 : clamp255(pwm_l);
+  const int16_t r = (in.stall_mask & 0x02) ? 0 : clamp255(pwm_r);
   const bool range_valid = in.dist_mm < 0xFFFE;
   const bool too_close = range_valid && in.dist_mm < static_cast<uint16_t>(in.stop_cm) * 10u;
   const int16_t forward = static_cast<int16_t>((l + r) / 2);
@@ -4959,7 +5044,7 @@ PwmOutput SafetySupervisor::apply(int16_t pwm_l, int16_t pwm_r, const SafetyInpu
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_safety`
-Expected: `9 Tests 0 Failures`.
+Expected: `13 Tests 0 Failures`.
 
 - [ ] **Step 5: Motor port and driver (both shields)**
 
@@ -5041,7 +5126,9 @@ Add to `src/app/app.h` includes and members:
   proto::OwnerHintValue owner_hint = proto::OwnerHintValue::kNone;
   int8_t teleop_v = 0;   // DRIVE, %
   int8_t teleop_w = 0;
-  int16_t out_pwm_l = 0;
+  int16_t req_pwm_l = 0;  // asked of the supervisor (before the gate): a stalled track's direction
+  int16_t req_pwm_r = 0;
+  int16_t out_pwm_l = 0;  // applied by the supervisor
   int16_t out_pwm_r = 0;
   uint32_t last_motion_ms = 0;
 ```
@@ -5056,9 +5143,7 @@ Add to `src/app/app.h` includes and members:
 namespace cq {
 namespace app {
 
-void controlInit();
-void controlTask();  // 100 Hz
-
+// Route handlers (controlInit/controlTask are declared in app/tasks.h).
 proto::AckStatus onDrive(const uint8_t* p, uint8_t len);
 proto::AckStatus onStop(const uint8_t* p, uint8_t len);
 proto::AckStatus onBrake(const uint8_t* p, uint8_t len);
@@ -5073,6 +5158,7 @@ proto::AckStatus onOwnerHint(const uint8_t* p, uint8_t len);
 ```cpp
 #include "app/app.h"
 #include "app/motion_api.h"
+#include "app/tasks.h"
 #include "domain/util/math_util.h"
 #include "ports/clock.h"
 #include "ports/motor.h"
@@ -5081,6 +5167,7 @@ namespace cq {
 namespace app {
 namespace {
 
+// Same 3-line helper as in imu_task/sensor_tasks: accepted duplication (file-local, no shared state).
 void setFast(proto::FastFlagBit bit, bool on) {
   const uint16_t m = static_cast<uint16_t>(1u << static_cast<uint8_t>(bit));
   g_app.fast_flags = on ? static_cast<uint16_t>(g_app.fast_flags | m) : static_cast<uint16_t>(g_app.fast_flags & ~m);
@@ -5136,8 +5223,9 @@ proto::AckStatus onEnvelope(const uint8_t* p, uint8_t len) {
   if (!proto::decode(p, len, m)) return proto::AckStatus::kInvalidCommand;
   const proto::AckStatus st = g_app.envelope.set(m.speed_cap, m.accel_cap, m.lock_brake);
   if (st == proto::AckStatus::kOk) {
-    g_app.events.push(proto::EventKind::kEnvelopeChanged, static_cast<int16_t>(m.speed_cap | (m.accel_cap << 8)),
-                      m.lock_brake);
+    const uint16_t packed = static_cast<uint16_t>(static_cast<uint16_t>(m.speed_cap) |
+                                                  static_cast<uint16_t>(static_cast<uint16_t>(m.accel_cap) << 8u));
+    g_app.events.push(proto::EventKind::kEnvelopeChanged, static_cast<int16_t>(packed), m.lock_brake);
     g_app.slow.env_speed_cap = m.speed_cap;
     g_app.slow.env_accel_cap = m.accel_cap;
     g_app.slow.env_lock_brake = m.lock_brake;
@@ -5156,7 +5244,10 @@ void controlTask() {
   const uint32_t now = port::clock::nowMs();
   const GlobalSettings& gs = g_app.settings.global();
   const Arbitrator::Config cfg{gs.deadman, gs.ir_handback};
-  switch (g_app.arbitrator.tick(now, g_app.link.alive(now), cfg)) {
+  // Network motion is BUSY until HELLO_ACK (LLD §9.4); a DRIVE in the same 10 ms as the HELLO_ACK may
+  // still get BUSY — the next one of the stream is accepted.
+  g_app.arbitrator.setSynced(g_app.link.synced());
+  switch (g_app.arbitrator.tick(now, g_app.link.alive(now), false /* v1: no primitives yet */, cfg)) {
     case Arbitrator::Action::kDeadmanStop:
       zeroTeleop();
       g_app.events.push(proto::EventKind::kDeadmanStop);
@@ -5172,6 +5263,9 @@ void controlTask() {
     g_app.events.push(proto::EventKind::kControlChanged, static_cast<int16_t>(g_app.arbitrator.owner()));
   }
 
+  // Only a network owner's DRIVE values count: an idle release, IR or calibration never resumes an old DRIVE.
+  if (g_app.arbitrator.owner() != proto::Owner::kNetwork) zeroTeleop();
+
   // v1 open loop: arcade mix, envelope cap in %, linear % → PWM.
   const float cap = g_app.envelope.speedCap();
   float l = clampf(static_cast<float>(g_app.teleop_v) - g_app.teleop_w, -100.0f, 100.0f);
@@ -5181,9 +5275,11 @@ void controlTask() {
   const int16_t pwm_l = static_cast<int16_t>(l * 2.55f);
   const int16_t pwm_r = static_cast<int16_t>(r * 2.55f);
 
+  g_app.req_pwm_l = pwm_l;
+  g_app.req_pwm_r = pwm_r;
   const SafetyInputs in{g_app.lift.lifted(), g_app.lift.tilted(),
                         g_app.batt.level() == BatteryMonitor::Level::kCritical, g_app.envelope.brakeOn(),
-                        g_app.us.distMm(), gs.obstacle_stop};
+                        g_app.us.distMm(), gs.obstacle_stop, 0 /* stall_mask: Task 7 */};
   const bool was_blocked = g_app.safety.blocked;
   const PwmOutput out = g_app.supervisor.apply(pwm_l, pwm_r, in, g_app.safety);
   port::motor::apply(out);
@@ -5225,15 +5321,34 @@ In `src/app/routes.cpp` add `#include "app/motion_api.h"` and rows before `// RO
     {static_cast<uint8_t>(proto::FrameType::kEnvelope), onEnvelope, true},
     {static_cast<uint8_t>(proto::FrameType::kOwnerHint), onOwnerHint, false},
 ```
-In `src/main.cpp` add `#include "app/motion_api.h"`; before `// SETUP-END` call `cq::app::controlInit();` **as the first line of SETUP-INIT** (motors safe before anything else); task row (second, after the IMU row): `{cq::app::controlTask, 10000UL, 0},`.
+In `src/app/tasks.h` add before `// TASK-DECLS-END`:
+```cpp
+void controlInit();  // boot: motor port in standby, outputs zero
+void controlTask();  // 100 Hz
+```
+In `src/main.cpp` (already includes `app/tasks.h`): insert `cq::app::controlInit();` immediately after the `// SETUP-INIT` comment line, before `settingsLoad()`/`imuInit()`/`sensorsInit()`, so the motors are safe first; insert the task row `{cq::app::controlTask, 10000UL, 0},` directly after the `imuTask` row (second row).
 
 - [ ] **Step 7: Smoke commands for driving and safety**
 
-Add to `tools/smoke/uno_smoke.py`:
+Add to `tools/smoke/uno_smoke.py` (`wait_synced` replaces a fixed sleep: opening the port reboots the Uno, and network motion gets `BUSY` until the HELLO exchange — LLD §9.4):
 ```python
+def wait_synced(link: Link, timeout: float = 4.0) -> None:
+    end = time.monotonic() + timeout
+    while not link.synced and time.monotonic() < end:
+        time.sleep(0.05)
+    if not link.synced:
+        print("no HELLO from the Uno - motion commands will be answered BUSY")
+    time.sleep(0.1)  # HELLO_ACK reaches the control task within one tick
+
+
+def print_ack(m: object) -> None:
+    if isinstance(m, g.Ack):
+        print(f"ACK {g.ACK_STATUS[m.status]}")
+
+
 def cmd_drive(link: Link, args: argparse.Namespace) -> None:
     link.handlers.append(lambda m: print(fmt_event(m)) if isinstance(m, g.Event) else None)
-    time.sleep(0.6)
+    wait_synced(link)
     end = time.monotonic() + args.seconds
     while time.monotonic() < end:
         link.send(g.Drive(src=g.Source.HUMAN, v=args.v, w=args.w))
@@ -5245,28 +5360,29 @@ def cmd_drive(link: Link, args: argparse.Namespace) -> None:
 
 
 def cmd_stop(link: Link, args: argparse.Namespace) -> None:
-    link.handlers.append(lambda m: print(f"ACK {g.ACK_STATUS[m.status]}") if isinstance(m, g.Ack) else None)
-    time.sleep(0.6)
+    link.handlers.append(print_ack)
+    wait_synced(link)
     link.send(g.Stop(src=g.Source.HUMAN))
     time.sleep(0.3)
 
 
 def cmd_envelope(link: Link, args: argparse.Namespace) -> None:
-    link.handlers.append(lambda m: print(f"ACK {g.ACK_STATUS[m.status]}") if isinstance(m, g.Ack) else None)
-    time.sleep(0.6)
+    link.handlers.append(print_ack)
+    wait_synced(link)
     link.send(g.Envelope(speed_cap=args.cap, accel_cap=args.accel, lock_brake=args.lock))
     time.sleep(0.3)
 
 
 def cmd_deadman(link: Link, args: argparse.Namespace) -> None:
-    """Drive at 30 % for 1 s, then stop streaming DRIVE (heartbeats continue): expect DEADMAN_STOP."""
+    """Drive 30 % for 1 s, then stop streaming DRIVE (heartbeats go on): expect DEADMAN_STOP."""
     link.handlers.append(lambda m: print(fmt_event(m)) if isinstance(m, g.Event) else None)
-    time.sleep(0.6)
+    wait_synced(link)
+    t0 = time.monotonic()
     for _ in range(20):
         link.send(g.Drive(src=g.Source.HUMAN, v=30, w=0))
+        t0 = time.monotonic()  # time of the last DRIVE
         time.sleep(0.05)
-    t0 = time.monotonic()
-    while time.monotonic() - t0 < 1.0:
+    while time.monotonic() - t0 < 1.5:
         fast = link.last.get("TelemFast")
         if isinstance(fast, g.TelemFast) and fast.pwm_l == 0 and fast.pwm_r == 0:
             print(f"motors stopped {int((time.monotonic() - t0) * 1000)} ms after the last DRIVE")
@@ -5294,7 +5410,7 @@ Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py && pi
 Then from `tools/smoke/`:
 1. `… drive 40 0 --seconds 2` → both tracks turn; `pwm=102,102`. Note which way each track turns (forward = top of the track moving toward the front). If a track runs backwards, flip its `kDir…ForwardHigh` in `board_config.h`, rebuild, re-check. If neither track moves while `pwm` is non-zero, the STBY pin assumption (D3) is wrong — stop and report (shield probe failure).
 2. `… drive 0 40 --seconds 2` → left track backwards, right forwards (CCW spin).
-3. `… deadman` → `EVENT DEADMAN_STOP` and `motors stopped ~300-330 ms after the last DRIVE`.
+3. `… deadman` → `EVENT DEADMAN_STOP` and `motors stopped ~300-330 ms after the last DRIVE`, then `EVENT CONTROL_CHANGED a=0` about 1 s after the last DRIVE (Network → None, idle release).
 4. Hold a hand 10 cm in front of the sensor, `… drive 40 0` → `EVENT BLOCKED`, `pwm=0,0`; `… drive -40 0` → reverse turns.
 5. `… envelope 20 0 0` then `… drive 100 0` → `pwm=51,51`; `… envelope 100 0 0` to restore.
 6. Start `… drive 40 0 --seconds 5` and pull the USB cable after 2 s → tracks stop within 0.3 s (link lost).

@@ -725,10 +725,10 @@ Timers: T0 motor PWM + timekeeping, T1 servos, T2 buzzer; IR + ultrasonic via pi
 ## 21. Home deployment topology (DECIDED 2026-10-11)
 | Device | Role |
 |---|---|
-| Raspberry Pi (owner's, model TBD) | **Hub**: NestJS backend + SQLite + serves the web app; always on |
+| Raspberry Pi 3 Model B (1 GB, owner's, 2017) | **Hub**: NestJS backend + SQLite + serves the web app; always on |
 | PC | **AI engine**; switched on when AI is wanted; connects to the hub as a client and may come and go |
 | Phone (Redmi Note 8 Pro) | **Controller**: Cockpit/IDE in the browser, phone-tilt steering, IR blaster as backup NEC remote, optional overhead camera for path checks |
 | Tank | Works standalone with the phone when the Pi and PC are off |
 - The phone is not used as the AI engine (CPU-only Python in Termux, no GPU — too weak for vision-first) nor as the primary hub host (no Docker, MIUI background killing, battery wear when always charging).
-- Hub on the Pi: arm64 Docker image if the Pi runs a 64-bit OS (Pi 3/4/5); armv7 (Pi 2 / 32-bit OS) would need an extra image or native install; armv6 (Pi 1/Zero) cannot run Node 24. Pi model to be confirmed.
+- Hub on the Pi: arm64 Docker image if the Pi runs a 64-bit OS (Pi 3/4/5); armv7 (Pi 2 / 32-bit OS) would need an extra image or native install; armv6 (Pi 1/Zero) cannot run Node 24. **Confirmed: Pi 3 Model B (1 GB)** → 64-bit Raspberry Pi OS Lite + the arm64 hub Docker image as specced; prefer Ethernet (WiFi is 2.4 GHz only); hub budget ~200–300 MB RAM.
 - Hub LLD notes for the Pi: never re-encode video on the Pi (store the MJPEG stream / remux only); recordings on a USB disk/SSD, not the SD card; `docker-compose` splits hub (Pi) and AI engine (PC) instead of one compose file.

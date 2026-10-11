@@ -1,4 +1,4 @@
-"""protogen command line: write | check."""
+"""protogen command line: write | check | diff."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from .diff import cmd_diff
 from .emit_cpp import emit_cpp
 from .emit_docs import emit_docs
 from .emit_python import emit_python
@@ -70,11 +71,15 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("write", help="regenerate all outputs")
     sub.add_parser("check", help="fail if outputs are stale or defs invalid")
+    diff = sub.add_parser("diff", help="detect breaking changes against a git ref")
+    diff.add_argument("--against", required=True)
     args = parser.parse_args(argv)
     root: Path = args.root
     if args.cmd == "write":
         return cmd_write(root)
-    return cmd_check(root)
+    if args.cmd == "check":
+        return cmd_check(root)
+    return cmd_diff(root, args.against)
 
 
 if __name__ == "__main__":

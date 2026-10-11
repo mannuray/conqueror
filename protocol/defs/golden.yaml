@@ -1,0 +1,20 @@
+- frame: HEARTBEAT
+  seq: 0
+  values: { esp_ms: 0x01020304 }
+  hex: "aa 04 01 00 04 03 02 01 94"
+- frame: STOP
+  seq: 5
+  values: { src: 1 }
+  hex: "aa 01 12 05 01 24"
+- frame: TURN
+  seq: 7
+  values: { src: 2, mode: 0x81, angle: -900, speed: 40, radius_cm: 0 }
+  hex: "aa 07 13 07 02 81 7c fc 28 00 00 e5"
+- frame: TONE
+  seq: 9
+  values: { n: 2, notes: [[440, 100], [880, 50]] }
+  hex: "aa 09 32 09 02 b8 01 64 00 70 03 32 00 5c"
+- frame: ACK
+  seq: 3
+  values: { ack_seq: 7, status: 0 }
+  hex: "aa 02 81 03 07 00 35"

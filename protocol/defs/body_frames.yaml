@@ -1,0 +1,313 @@
+# ---------------- ESP32 -> Uno (0x01-0x7F) ----------------
+- name: HEARTBEAT
+  type: 0x01
+  dir: esp32_to_uno
+  doc: Keep-alive every 100 ms. No valid frame for 300 ms = link lost on the Uno.
+  fields:
+    - { name: esp_ms, type: u32, unit: ms }
+- name: HELLO_ACK
+  type: 0x02
+  dir: esp32_to_uno
+  doc: Sent after ENVELOPE is acknowledged; the Uno marks the link synced.
+  fields:
+    - { name: proto, type: u8 }
+- name: HELLO_REQ
+  type: 0x03
+  dir: esp32_to_uno
+  doc: Ask the Uno to re-send HELLO.
+- name: ESP_ACK
+  type: 0x04
+  dir: esp32_to_uno
+  doc: Acknowledges Uno-originated requests (WIFI_RESET_REQ, ADMIN_RESET_REQ).
+  fields:
+    - { name: ack_seq, type: u8 }
+    - { name: status, type: u8, doc: index into ack_status }
+- name: DRIVE
+  type: 0x10
+  dir: esp32_to_uno
+  streaming: true
+  doc: Streamed joystick drive (<= 20 Hz). w > 0 turns left (CCW).
+  fields:
+    - { name: src, type: u8, enum: Source }
+    - { name: v, type: i8, unit: pct, range: [-100, 100] }
+    - { name: w, type: i8, unit: pct, range: [-100, 100] }
+- name: DRIVE_RATE
+  type: 0x11
+  dir: esp32_to_uno
+  streaming: true
+  doc: Streamed drive with closed-loop yaw rate.
+  fields:
+    - { name: src, type: u8, enum: Source }
+    - { name: v, type: i8, unit: pct, range: [-100, 100] }
+    - { name: yaw_rate, type: i16, unit: deg_s, scale: 0.1 }
+- name: STOP
+  type: 0x12
+  dir: esp32_to_uno
+  ack: true
+  doc: Immediate smooth stop; cancels primitives. Accepted from any source.
+  fields:
+    - { name: src, type: u8, enum: Source }
+- name: TURN
+  type: 0x13
+  dir: esp32_to_uno
+  ack: true
+  doc: Gyro turn by/to an angle; radius 0 = spin in place.
+  fields:
+    - { name: src, type: u8, enum: Source }
+    - { name: mode, type: u8, doc: "bits 0-6 TurnMode, bit 7 pivot" }
+    - { name: angle, type: i16, unit: deg, scale: 0.1 }
+    - { name: speed, type: u8, unit: pct, range: [0, 100] }
+    - { name: radius_cm, type: u16, unit: cm, sentinel: { 0: spin } }
+- name: MOVE
+  type: 0x14
+  dir: esp32_to_uno
+  ack: true
+  doc: Drive a distance with heading hold (needs encoders).
+  fields:
+    - { name: src, type: u8, enum: Source }
+    - { name: dist_mm, type: i32, unit: mm }
+    - { name: speed, type: u8, unit: pct, range: [0, 100] }
+    - { name: heading, type: i16, unit: deg, scale: 0.1, sentinel: { 32767: current } }
+- name: CANCEL
+  type: 0x15
+  dir: esp32_to_uno
+  ack: true
+  doc: Cancel the running primitive.
+  fields:
+    - { name: src, type: u8, enum: Source }
+- name: CAM_JOY
+  type: 0x20
+  dir: esp32_to_uno
+  streaming: true
+  doc: Absolute joystick camera; release returns home unless locked.
+  fields:
+    - { name: x, type: i8, unit: pct, range: [-100, 100] }
+    - { name: y, type: i8, unit: pct, range: [-100, 100] }
+    - { name: active, type: u8 }
+- name: CAM_SET
+  type: 0x21
+  dir: esp32_to_uno
+  ack: true
+  fields:
+    - { name: pan, type: i16, unit: deg, scale: 0.1 }
+    - { name: tilt, type: i16, unit: deg, scale: 0.1 }
+    - { name: speed, type: u8, unit: deg_s, scale: 2 }
+- name: CAM_NUDGE
+  type: 0x22
+  dir: esp32_to_uno
+  ack: true
+  fields:
+    - { name: dpan, type: i16, unit: deg, scale: 0.1 }
+    - { name: dtilt, type: i16, unit: deg, scale: 0.1 }
+- name: CAM_HOME
+  type: 0x23
+  dir: esp32_to_uno
+  ack: true
+- name: CAM_LOCK
+  type: 0x24
+  dir: esp32_to_uno
+  ack: true
+  fields:
+    - { name: "on", type: u8 }  # quoted: YAML 1.1 reads bare on as true
+- name: LED
+  type: 0x30
+  dir: esp32_to_uno
+  ack: true
+  doc: Custom LED layer (priority 4); alarms override.
+  fields:
+    - { name: mode, type: u8, enum: LedMode }
+    - { name: r, type: u8 }
+    - { name: g, type: u8 }
+    - { name: b, type: u8 }
+    - { name: period_ms, type: u16, unit: ms }
+    - { name: duration_ms, type: u16, unit: ms, sentinel: { 0: until_changed } }
+- name: SOUND
+  type: 0x31
+  dir: esp32_to_uno
+  ack: true
+  fields:
+    - { name: id, type: u8, enum: SoundId }
+- name: TONE
+  type: 0x32
+  dir: esp32_to_uno
+  ack: true
+  doc: Custom tone sequence, up to 10 notes.
+  fields:
+    - { name: n, type: u8 }
+    - name: notes
+      items: [{ name: hz, type: u16, unit: hz }, { name: ms, type: u16, unit: ms }]
+      count_field: n
+      max_count: 10
+- name: AUDIO_MODE
+  type: 0x33
+  dir: esp32_to_uno
+  ack: true
+  fields:
+    - { name: mode, type: u8, enum: AudioModeValue }
+- name: BRAKE
+  type: 0x40
+  dir: esp32_to_uno
+  ack: true
+  doc: Obstacle brake on/off; refused (ENVELOPE_LOCKED) while lock_brake.
+  fields:
+    - { name: "on", type: u8 }  # quoted: YAML 1.1 reads bare on as true
+- name: ENVELOPE
+  type: 0x41
+  dir: esp32_to_uno
+  ack: true
+  doc: Speed/accel caps; lock_brake=1 forces the obstacle brake on.
+  fields:
+    - { name: speed_cap, type: u8, unit: pct, range: [0, 100] }
+    - { name: accel_cap, type: u8, unit: pct_s }
+    - { name: lock_brake, type: u8 }
+- name: OWNER_HINT
+  type: 0x42
+  dir: esp32_to_uno
+  doc: Network owner for LED colour; re-sent on change and after re-sync.
+  fields:
+    - { name: owner, type: u8, enum: OwnerHintValue }
+- name: SETTING_SET
+  type: 0x50
+  dir: esp32_to_uno
+  ack: true
+  fields:
+    - { name: id, type: u8 }
+    - { name: value, type: i32, doc: fixed-point per settings.yaml scale }
+- name: SETTING_GET
+  type: 0x51
+  dir: esp32_to_uno
+  ack: true
+  doc: Reply is SETTING_VALUE.
+  fields:
+    - { name: id, type: u8 }
+- name: SETTINGS_SAVE
+  type: 0x52
+  dir: esp32_to_uno
+  ack: true
+  doc: Persist to EEPROM (deferred until stopped); settings_saved event when done.
+- name: CALIBRATE
+  type: 0x60
+  dir: esp32_to_uno
+  ack: true
+  doc: Run/cancel a calibration motion script; Uno streams CAL_DATA, ESP32 computes.
+  fields:
+    - { name: op, type: u8, enum: CalOp }
+    - { name: script, type: u8, enum: CalScript }
+    - { name: param, type: i32 }
+    - { name: profile, type: u8 }
+- name: PROFILE
+  type: 0x61
+  dir: esp32_to_uno
+  ack: true
+  fields:
+    - { name: op, type: u8, enum: ProfileOp }
+    - { name: index, type: u8, range: [0, 2] }
+
+# ---------------- Uno -> ESP32 (0x80-0xFF) ----------------
+- name: HELLO
+  type: 0x80
+  dir: uno_to_esp32
+  doc: Sent at boot every 500 ms until HELLO_ACK, and on HELLO_REQ.
+  fields:
+    - { name: fw, type: u16, doc: "major << 8 | minor" }
+    - { name: proto, type: u8 }
+    - { name: caps, type: u8, doc: "bit0 encoders enabled" }
+    - { name: reset_reason, type: u8, enum: ResetReason }
+- name: ACK
+  type: 0x81
+  dir: uno_to_esp32
+  fields:
+    - { name: ack_seq, type: u8 }
+    - { name: status, type: u8, doc: index into ack_status }
+- name: TELEM_FAST
+  type: 0x90
+  dir: uno_to_esp32
+  doc: 20 Hz motion telemetry.
+  fields:
+    - { name: uno_ms, type: u32, unit: ms }
+    - { name: yaw, type: u16, unit: deg, scale: 0.01, range: [0, 35999], doc: CCW positive }
+    - { name: yaw_rate, type: i16, unit: deg_s, scale: 0.1 }
+    - { name: pitch, type: i16, unit: deg, scale: 0.01 }
+    - { name: roll, type: i16, unit: deg, scale: 0.01 }
+    - { name: spd_cmd_l, type: i8, unit: pct }
+    - { name: spd_cmd_r, type: i8, unit: pct }
+    - { name: spd_act_l, type: i8, unit: pct, sentinel: { -128: not_available } }
+    - { name: spd_act_r, type: i8, unit: pct, sentinel: { -128: not_available } }
+    - { name: pwm_l, type: i16, range: [-255, 255] }
+    - { name: pwm_r, type: i16, range: [-255, 255] }
+    - { name: dist_mm, type: u16, unit: mm, sentinel: { 65535: clear, 65534: sensor_fault } }
+    - { name: closing_cm_s, type: i16, unit: cm_s }
+    - { name: pan, type: i16, unit: deg, scale: 0.1 }
+    - { name: tilt, type: i16, unit: deg, scale: 0.1 }
+    - { name: enc_l, type: i32, unit: counts }
+    - { name: enc_r, type: i32, unit: counts }
+    - { name: flags, type: u16, doc: FastFlagBit }
+    - { name: prim, type: u8, enum: PrimitiveKind }
+    - { name: prim_pct, type: u8, unit: pct }
+- name: TELEM_SLOW
+  type: 0x91
+  dir: uno_to_esp32
+  doc: 1 Hz health/status telemetry.
+  fields:
+    - { name: uptime_s, type: u32, unit: s }
+    - { name: reset_reason, type: u8, enum: ResetReason }
+    - { name: batt_mv, type: u16, unit: mV }
+    - { name: driving, type: u8 }
+    - { name: temp, type: i16, unit: degC, scale: 0.01 }
+    - { name: owner, type: u8, enum: Owner }
+    - { name: flags2, type: u32, doc: SlowFlagBit }
+    - { name: accel_var, type: u16 }
+    - { name: loop_load, type: u8, unit: pct }
+    - { name: loop_max_us, type: u16, unit: us }
+    - { name: free_ram, type: u16, unit: bytes }
+    - { name: err_frames, type: u16 }
+    - { name: err_i2c, type: u16 }
+    - { name: settings_crc, type: u16 }
+    - { name: env_speed_cap, type: u8, unit: pct }
+    - { name: env_accel_cap, type: u8, unit: pct_s }
+    - { name: env_lock_brake, type: u8 }
+    - { name: profile_idx, type: u8 }
+    - { name: cal_status, type: u8, count: 3, doc: "2 bits per calibration item (missing/ok)" }
+    - { name: hw, type: u8, doc: HwBit }
+- name: EVENT
+  type: 0x92
+  dir: uno_to_esp32
+  doc: Event kind from events.yaml with a/b packing.
+  fields:
+    - { name: kind, type: u8 }
+    - { name: a, type: i16 }
+    - { name: b, type: i16 }
+- name: SETTING_VALUE
+  type: 0x93
+  dir: uno_to_esp32
+  fields:
+    - { name: id, type: u8 }
+    - { name: value, type: i32 }
+- name: CAL_RESULT
+  type: 0x94
+  dir: uno_to_esp32
+  doc: Script progress/done/fail.
+  fields:
+    - { name: script, type: u8, enum: CalScript }
+    - { name: stage, type: u8 }
+    - { name: progress, type: u8, unit: pct }
+    - { name: status, type: u8, doc: index into ack_status }
+- name: CAL_DATA
+  type: 0x95
+  dir: uno_to_esp32
+  doc: Raw calibration samples at 50 Hz; per-script v[0..7] layout in docs/lld/protocol-generator-lld.md (CAL_DATA channel layouts).
+  fields:
+    - { name: script, type: u8, enum: CalScript }
+    - { name: phase, type: u8 }
+    - { name: t_ms, type: u16, unit: ms }
+    - { name: v, type: i16, count: 8 }
+- name: WIFI_RESET_REQ
+  type: 0x96
+  dir: uno_to_esp32
+  ack: true
+  doc: Mode button held 5 s at boot; re-sent every 500 ms until ESP_ACK.
+- name: ADMIN_RESET_REQ
+  type: 0x97
+  dir: uno_to_esp32
+  ack: true
+  doc: Mode button held 15 s at boot; re-sent every 500 ms until ESP_ACK.

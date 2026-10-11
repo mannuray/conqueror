@@ -1,0 +1,56 @@
+- { id: 1, name: encoders_enabled, scope: global, type: u8, unit: bool, min: 0, max: 1, default: 0 }
+- { id: 2, name: counts_per_rev, scope: global, type: u16, unit: counts, min: 1, max: 10000, default: 960 }
+- { id: 3, name: counts_per_cm, scope: global, type: u16, unit: counts_cm, scale: 0.01, min: 100, max: 60000, default: 7600 }
+- { id: 4, name: motor_v_max, scope: global, type: u16, unit: mV, min: 3000, max: 12000, default: 6000 }
+- { id: 5, name: accel_limit, scope: global, type: u16, unit: pct_s, min: 10, max: 1000, default: 200 }
+- { id: 6, name: turn_rate_max, scope: global, type: u16, unit: deg_s, min: 10, max: 720, default: 180 }
+- { id: 7, name: turn_rate_full_speed, scope: profile, type: u8, unit: pct, min: 10, max: 100, default: 40 }
+- { id: 8, name: track_width_eff, scope: profile, type: u16, unit: mm, min: 50, max: 500, default: 150 }
+- { id: 9, name: pivot_fallback, scope: global, type: u8, unit: bool, min: 0, max: 1, default: 1 }
+- { id: 10, name: reverse_steer, scope: global, type: u8, unit: enum, min: 0, max: 1, default: 0, doc: "0 car, 1 tank" }
+- { id: 11, name: obstacle_stop, scope: global, type: u8, unit: cm, min: 5, max: 100, default: 15 }
+- { id: 12, name: obstacle_slow, scope: global, type: u8, unit: cm, min: 10, max: 200, default: 50 }
+- { id: 13, name: tilt_limit, scope: global, type: u8, unit: deg, min: 10, max: 60, default: 35 }
+- { id: 14, name: bump_threshold, scope: global, type: u16, unit: mg, min: 500, max: 4000, default: 1500 }
+- { id: 15, name: deadman, scope: global, type: u16, unit: ms, min: 100, max: 2000, default: 300 }
+- { id: 16, name: batt_low, scope: global, type: u16, unit: mV, min: 6000, max: 8400, default: 7000 }
+- { id: 17, name: batt_crit, scope: global, type: u16, unit: mV, min: 5500, max: 8000, default: 6600 }
+- { id: 18, name: batt_mv_per_count, scope: global, type: u16, unit: mV, scale: 0.01, min: 1000, max: 10000, default: 4050 }
+- { id: 19, name: ir_handback, scope: global, type: u16, unit: ms, min: 500, max: 10000, default: 3000 }
+- { id: 20, name: parking_beeps, scope: global, type: u8, unit: bool, min: 0, max: 1, default: 0 }
+- { id: 21, name: cam_return_delay, scope: global, type: u16, unit: ms, min: 0, max: 5000, default: 500 }
+- { id: 22, name: servo_idle_detach, scope: global, type: u8, unit: bool, min: 0, max: 1, default: 0 }
+- { id: 23, name: pan_min, scope: global, type: u8, unit: deg, min: 0, max: 180, default: 0 }
+- { id: 24, name: pan_max, scope: global, type: u8, unit: deg, min: 0, max: 180, default: 180 }
+- { id: 25, name: tilt_min, scope: global, type: u8, unit: deg, min: 0, max: 180, default: 30 }
+- { id: 26, name: tilt_max, scope: global, type: u8, unit: deg, min: 0, max: 180, default: 110 }
+- { id: 27, name: pan_trim, scope: global, type: i16, unit: deg, scale: 0.1, min: -300, max: 300, default: 0 }
+- { id: 28, name: tilt_trim, scope: global, type: i16, unit: deg, scale: 0.1, min: -300, max: 300, default: 0 }
+- { id: 29, name: servo_speed, scope: global, type: u16, unit: deg_s, min: 10, max: 600, default: 120 }
+- { id: 30, name: servo_accel, scope: global, type: u16, unit: deg_s2, min: 50, max: 3000, default: 400 }
+- { id: 31, name: gyro_bias_x, scope: global, type: i16, unit: raw, min: -2000, max: 2000, default: 0 }
+- { id: 32, name: gyro_bias_y, scope: global, type: i16, unit: raw, min: -2000, max: 2000, default: 0 }
+- { id: 33, name: gyro_bias_z, scope: global, type: i16, unit: raw, min: -2000, max: 2000, default: 0 }
+- { id: 34, name: level_pitch, scope: global, type: i16, unit: deg, scale: 0.01, min: -2000, max: 2000, default: 0 }
+- { id: 35, name: level_roll, scope: global, type: i16, unit: deg, scale: 0.01, min: -2000, max: 2000, default: 0 }
+- { id: 36, name: ultrasonic_offset, scope: global, type: u8, unit: mm, min: 0, max: 100, default: 0 }
+- { id: 37, name: active_profile, scope: global, type: u8, unit: index, min: 0, max: 2, default: 0 }
+- { id: 40, name: deadband_start_l_fwd, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 70 }
+- { id: 41, name: deadband_start_l_rev, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 70 }
+- { id: 42, name: deadband_start_r_fwd, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 70 }
+- { id: 43, name: deadband_start_r_rev, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 70 }
+- { id: 44, name: deadband_keep_l_fwd, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 55 }
+- { id: 45, name: deadband_keep_l_rev, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 55 }
+- { id: 46, name: deadband_keep_r_fwd, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 55 }
+- { id: 47, name: deadband_keep_r_rev, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 55 }
+- { id: 48, name: max_cps_l, scope: profile, type: u16, unit: counts_s, min: 100, max: 20000, default: 2500 }
+- { id: 49, name: max_cps_r, scope: profile, type: u16, unit: counts_s, min: 100, max: 20000, default: 2500 }
+- { id: 52, name: pid_speed_kp, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 150 }
+- { id: 53, name: pid_speed_ki, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 800 }
+- { id: 54, name: pid_speed_kd, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 0 }
+- { id: 55, name: pid_rate_kp, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 1200 }
+- { id: 56, name: pid_rate_ki, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 400 }
+- { id: 57, name: pid_rate_kd, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 20 }
+- { id: 58, name: pid_heading_kp, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 3000 }
+- { id: 59, name: pid_heading_ki, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 0 }
+- { id: 60, name: pid_heading_kd, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 100 }

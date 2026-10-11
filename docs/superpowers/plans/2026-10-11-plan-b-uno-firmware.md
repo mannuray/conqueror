@@ -6881,6 +6881,7 @@ git commit -m "feat(uno): encoders + health, calibration script runner, self-tes
 
 **Files:**
 - Create: `src/domain/util/pid.{h,cpp}`; `src/domain/motion/ramp.{h,cpp}`, `deadband.{h,cpp}`, `battery_comp.h`, `mixer.{h,cpp}`, `target_limiter.{h,cpp}`
+- Modify: `src/domain/calibration/cal_script_runner.cpp` (Task 7: `pctToPwm` → `deadbandPwm`)
 - Test: `test/test_motion_blocks/test_main.cpp`
 
 **Interfaces:**
@@ -6890,8 +6891,8 @@ git commit -m "feat(uno): encoders + health, calibration script runner, self-tes
   - `cq::Ramp`: `float step(float target, float dt_s, float accel_per_s, float decel_per_s)`, `float value() const`, `void reset(float v = 0)`.
   - `cq::deadbandPwm(float pct, bool moving, uint8_t start_pwm, uint8_t keep_pwm) -> int16_t`.
   - `cq::batteryScale(uint16_t batt_mv, uint16_t motor_v_max_mv) -> float`.
-  - `cq::MixerConfig { uint8_t turn_full_speed_pct; bool car_reverse; }`, `cq::mix(float v_pct, float w_pct, const MixerConfig&, float& l_pct, float& r_pct)`.
-  - `cq::Limits { uint8_t speed_cap_pct; uint16_t dist_mm; uint8_t stop_cm; uint8_t slow_cm; bool brake_on; }`, `cq::Limited { float l, r; bool capped; bool slowed; }`, `cq::limitTargets(float l_pct, float r_pct, const Limits&) -> Limited`.
+  - `cq::MixerConfig { uint8_t turn_full_speed_pct; bool car_reverse; bool pivot_fallback; float keep_pct; }`, `cq::mix(float v_pct, float w_pct, const MixerConfig&, float& l_pct, float& r_pct)` — LLD §3.4: turning priority (when a track would exceed 100 %, |v| is reduced so the difference L−R is kept) and pivot fallback (setting `pivot_fallback`: a non-zero inner target below `keep_pct` → 0). `keep_pct` = the track speed % at the deadband keep PWM, ≈ `keep_pwm × 100 / 255` (Task 11 passes the mean of `deadband_keep`).
+  - `cq::Limits { uint8_t speed_cap_pct; uint16_t dist_mm; uint8_t stop_cm; uint8_t slow_cm; bool brake_on; uint8_t degraded_cap_pct; }` (`degraded_cap_pct`: 100 none, 50 ultrasonic fault, 30 IMU fault — min of both; LLD §9.5/§9.16), `cq::Limited { float l, r; bool capped; bool slowed; }`, `cq::limitTargets(float l_pct, float r_pct, const Limits&) -> Limited` (cap = min(envelope, degraded); `capped` → `FastFlagBit::kCapped` in Task 11).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -6934,7 +6935,7 @@ void test_pid_anti_windup_at_saturation() {
   p.setGains({1.0f, 10.0f, 0.0f});
   p.setLimits(-5.0f, 5.0f);
   for (int i = 0; i < 1000; ++i) p.update(10.0f, 0.01f, false);  // saturated the whole time
-  TEST_ASSERT_TRUE(p.integrator() <= 5.0f);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, p.integrator());  // P alone saturates: conditional integration adds nothing
   const float out = p.update(-1.0f, 0.01f, false);  // error reverses → output leaves the limit at once
   TEST_ASSERT_TRUE(out < 5.0f);
 }
@@ -6964,23 +6965,40 @@ void test_battery_scale() {
 }
 
 void test_mixer_turn_authority_and_car_reverse() {
-  const MixerConfig car{40, true};
+  const MixerConfig car{40, true, false, 0.0f};
   float l = 0, r = 0;
   mix(0.0f, 50.0f, car, l, r);  // spin CCW
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, -50.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 50.0f, r);
-  mix(100.0f, 50.0f, car, l, r);  // full speed: turn reduced to 40 % of 50 = 20, then normalised
+  mix(100.0f, 50.0f, car, l, r);  // full speed: turn reduced to 40 % of 50 = 20; turning priority → v 80
   TEST_ASSERT_FLOAT_WITHIN(0.1f, 100.0f, r);
-  TEST_ASSERT_FLOAT_WITHIN(0.1f, 66.7f, l);
+  TEST_ASSERT_FLOAT_WITHIN(0.1f, 60.0f, l);  // difference 40 kept (LLD §3.4)
   mix(-50.0f, 20.0f, car, l, r);  // car-style reverse: steering inverted
   TEST_ASSERT_TRUE(l > r);
-  const MixerConfig tank{40, false};
+  const MixerConfig tank{40, false, false, 0.0f};
   mix(-50.0f, 20.0f, tank, l, r);
   TEST_ASSERT_TRUE(r > l);
 }
 
+void test_mixer_pivot_fallback() {
+  const MixerConfig pivot{100, false, true, 20.0f};  // full turn authority, keep threshold 20 %
+  float l = 0, r = 0;
+  mix(100.0f, 30.0f, pivot, l, r);  // turning priority: v 100 → 70, difference 60 kept
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 40.0f, l);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 100.0f, r);
+  mix(30.0f, 25.0f, pivot, l, r);  // inner 5 % < keep 20 % → 0: pivot on the left track
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, l);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 55.0f, r);
+  mix(0.0f, 10.0f, pivot, l, r);  // spin in place has no inner track
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, -10.0f, l);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 10.0f, r);
+  const MixerConfig off{100, false, false, 20.0f};
+  mix(30.0f, 25.0f, off, l, r);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 5.0f, l);
+}
+
 void test_envelope_caps_targets() {
-  const Limits child{20, 0xFFFF, 15, 50, true};
+  const Limits child{20, 0xFFFF, 15, 50, true, 100};
   Limited o = limitTargets(100.0f, 100.0f, child);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 20.0f, o.l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 20.0f, o.r);
@@ -6994,14 +7012,34 @@ void test_envelope_caps_targets() {
 }
 
 void test_obstacle_slow_zone_scales_forward_only() {
-  const Limits l{100, 325, 15, 50, true};  // halfway between 15 and 50 cm
+  const Limits l{100, 325, 15, 50, true, 100};  // halfway between 15 and 50 cm
   Limited o = limitTargets(80.0f, 80.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(0.5f, 40.0f, o.l);
   TEST_ASSERT_TRUE(o.slowed);
   o = limitTargets(-80.0f, -80.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, -80.0f, o.l);
-  const Limits off{100, 325, 15, 50, false};
+  const Limits off{100, 325, 15, 50, false, 100};
   o = limitTargets(80.0f, 80.0f, off);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 80.0f, o.l);
+}
+
+void test_degraded_caps() {
+  const Limits us_fault{100, 0xFFFE, 15, 50, true, 50};  // brake unavailable → 50 % (LLD §9.16)
+  Limited o = limitTargets(80.0f, 80.0f, us_fault);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 50.0f, o.l);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 50.0f, o.r);
+  TEST_ASSERT_TRUE(o.capped);
+  TEST_ASSERT_FALSE(o.slowed);
+  const Limits imu_fault{100, 0xFFFF, 15, 50, true, 30};  // IMU fault → 30 %
+  o = limitTargets(-60.0f, 60.0f, imu_fault);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, -30.0f, o.l);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 30.0f, o.r);
+  const Limits child_and_fault{20, 0xFFFF, 15, 50, true, 30};  // the tighter cap wins
+  o = limitTargets(100.0f, 100.0f, child_and_fault);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 20.0f, o.l);
+  const Limits healthy{100, 0xFFFF, 15, 50, true, 100};
+  o = limitTargets(80.0f, -40.0f, healthy);
+  TEST_ASSERT_FALSE(o.capped);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 80.0f, o.l);
 }
 
@@ -7014,8 +7052,10 @@ int main() {
   RUN_TEST(test_deadband_kick_then_keep);
   RUN_TEST(test_battery_scale);
   RUN_TEST(test_mixer_turn_authority_and_car_reverse);
+  RUN_TEST(test_mixer_pivot_fallback);
   RUN_TEST(test_envelope_caps_targets);
   RUN_TEST(test_obstacle_slow_zone_scales_forward_only);
+  RUN_TEST(test_degraded_caps);
   return UNITY_END();
 }
 ```
@@ -7132,7 +7172,8 @@ class Ramp {
 namespace cq {
 
 float Ramp::step(float target, float dt_s, float accel_per_s, float decel_per_s) {
-  const bool same_sign = (target >= 0.0f) == (m_value >= 0.0f);
+  // From rest (value 0) any target is an acceleration in its own direction.
+  const bool same_sign = m_value == 0.0f || (target >= 0.0f) == (m_value > 0.0f);
   const bool accelerating = same_sign && absf(target) > absf(m_value);
   const float max_step = (accelerating ? accel_per_s : decel_per_s) * dt_s;
   const float diff = target - m_value;
@@ -7204,9 +7245,13 @@ namespace cq {
 struct MixerConfig {
   uint8_t turn_full_speed_pct;  // turning authority left at full speed (profile setting)
   bool car_reverse;             // reverse_steer == 0: steering inverted when reversing
+  bool pivot_fallback;          // setting pivot_fallback: inner track below keep_pct → 0
+  float keep_pct;               // track speed % at the deadband keep PWM (≈ keep_pwm × 100 / 255)
 };
 
-// Arcade mix v (forward %) + w (CCW %) → track targets in %, normalised to ±100.
+// Arcade mix v (forward %) + w (CCW %) → track targets in % (LLD §3.4). Turning priority: when a track
+// would exceed ±100 %, |v| is reduced so the difference L − R (the turn) is kept. Pivot fallback: a
+// non-zero inner target below keep_pct becomes 0 (the tank pivots instead of crawling that track).
 void mix(float v_pct, float w_pct, const MixerConfig& cfg, float& l_pct, float& r_pct);
 
 }  // namespace cq
@@ -7221,16 +7266,17 @@ void mix(float v_pct, float w_pct, const MixerConfig& cfg, float& l_pct, float& 
 namespace cq {
 
 void mix(float v_pct, float w_pct, const MixerConfig& cfg, float& l_pct, float& r_pct) {
-  const float authority = 1.0f - (1.0f - cfg.turn_full_speed_pct / 100.0f) * (absf(v_pct) / 100.0f);
-  float w = w_pct * authority;
-  if (cfg.car_reverse && v_pct < 0.0f) w = -w;
-  l_pct = v_pct - w;
-  r_pct = v_pct + w;
-  const float m = absf(l_pct) > absf(r_pct) ? absf(l_pct) : absf(r_pct);
-  if (m > 100.0f) {
-    l_pct *= 100.0f / m;
-    r_pct *= 100.0f / m;
-  }
+  float v = clampf(v_pct, -100.0f, 100.0f);
+  const float authority = 1.0f - (1.0f - cfg.turn_full_speed_pct / 100.0f) * (absf(v) / 100.0f);
+  float w = clampf(w_pct * authority, -100.0f, 100.0f);
+  if (cfg.car_reverse && v < 0.0f) w = -w;
+  const float excess = absf(v) + absf(w) - 100.0f;  // turning priority: give up speed, keep the turn
+  if (excess > 0.0f) v = v > 0.0f ? v - excess : v + excess;
+  l_pct = v - w;
+  r_pct = v + w;
+  if (!cfg.pivot_fallback) return;
+  float* inner = absf(l_pct) < absf(r_pct) ? &l_pct : (absf(r_pct) < absf(l_pct) ? &r_pct : nullptr);
+  if (inner != nullptr && *inner != 0.0f && absf(*inner) < cfg.keep_pct) *inner = 0.0f;
 }
 
 }  // namespace cq
@@ -7249,6 +7295,7 @@ struct Limits {
   uint8_t stop_cm;
   uint8_t slow_cm;
   bool brake_on;
+  uint8_t degraded_cap_pct;  // 100 none; 50 ultrasonic fault, 30 IMU fault (min of both) — LLD §9.5
 };
 
 struct Limited {
@@ -7258,8 +7305,9 @@ struct Limited {
   bool slowed;
 };
 
-// Applied in % BEFORE the speed controllers so a 20 % envelope means 20 % track speed. Both tracks are
-// scaled by the same factor (arc shape kept). Forward motion fades to 0 between slow_cm and stop_cm.
+// Applied in % BEFORE the speed controllers so a 20 % envelope means 20 % track speed. Cap = min(envelope,
+// degraded). Both tracks are scaled by the same factor (arc shape kept). Forward motion fades to 0
+// between slow_cm and stop_cm.
 Limited limitTargets(float l_pct, float r_pct, const Limits& lim);
 
 }  // namespace cq
@@ -7276,7 +7324,7 @@ namespace cq {
 Limited limitTargets(float l_pct, float r_pct, const Limits& lim) {
   Limited o{l_pct, r_pct, false, false};
   const float m = absf(l_pct) > absf(r_pct) ? absf(l_pct) : absf(r_pct);
-  const float cap = lim.speed_cap_pct;
+  const float cap = lim.speed_cap_pct < lim.degraded_cap_pct ? lim.speed_cap_pct : lim.degraded_cap_pct;
   if (m > cap && m > 0.0f) {
     o.l = l_pct * cap / m;
     o.r = r_pct * cap / m;
@@ -7298,10 +7346,15 @@ Limited limitTargets(float l_pct, float r_pct, const Limits& lim) {
 }  // namespace cq
 ```
 
+In `src/domain/calibration/cal_script_runner.cpp` (Task 7) add `#include "domain/motion/deadband.h"` and replace the body of `CalScriptRunner::pctToPwm` with the same map from its one implementation:
+```cpp
+int16_t CalScriptRunner::pctToPwm(float pct) const { return deadbandPwm(pct, true, m_cfg.keep_pwm, m_cfg.keep_pwm); }
+```
+
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_motion_blocks`
-Expected: `9 Tests 0 Failures`.
+Expected: `11 Tests 0 Failures`; `pio test -e native -f test_calibration` still `11 Tests 0 Failures` (pctToPwm now calls deadbandPwm).
 
 - [ ] **Step 5: Commit**
 

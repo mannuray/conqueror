@@ -8848,7 +8848,8 @@ def watch_primitive(link: Link) -> threading.Event:
 def print_pose(link: Link) -> None:
     fast = link.last.get("TelemFast")
     if isinstance(fast, g.TelemFast):
-        print(f"yaw={fast.yaw / 100:.1f} enc={fast.enc_l},{fast.enc_r} pwm={fast.pwm_l},{fast.pwm_r}")
+        pose = f"yaw={fast.yaw / 100:.1f} enc={fast.enc_l},{fast.enc_r}"
+        print(f"{pose} pwm={fast.pwm_l},{fast.pwm_r}")
 
 
 def wait_primitive(link: Link, done: threading.Event, timeout: float) -> None:
@@ -8921,10 +8922,10 @@ Register `"turn": cmd_turn, "move": cmd_move, "cancel": cmd_cancel, "driverate":
     t.add_argument("--radius", type=int, default=0)
     t.add_argument("--to", action="store_true")
     t.add_argument("--pivot", action="store_true")
-    t.add_argument("--then-to", type=float, default=None, help="then TURN to this heading (same run)")
-    t.add_argument("--cancel-after", type=float, default=None, help="send CANCEL after S seconds")
-    t.add_argument("--drop-link-after", type=float, default=None, help="pause all TX after S seconds")
-    t.add_argument("--restore-after", type=float, default=2.0, help="resume TX after S seconds")
+    t.add_argument("--then-to", type=float, default=None, help="then TURN to this heading")
+    t.add_argument("--cancel-after", type=float, default=None, help="send CANCEL after S s")
+    t.add_argument("--drop-link-after", type=float, default=None, help="pause all TX after S s")
+    t.add_argument("--restore-after", type=float, default=2.0, help="resume TX after S s")
     mv = sub.add_parser("move")
     mv.add_argument("mm", type=int)
     mv.add_argument("speed", type=int)
@@ -9549,7 +9550,7 @@ In `src/main.cpp` (already includes `app/tasks.h`): call `cq::app::cameraInit();
 Add to `tools/smoke/uno_smoke.py`:
 ```python
 def cmd_cam(link: Link, args: argparse.Namespace) -> None:
-    """cam joy X Y SECONDS [--lock] [--drive V W] | cam set PAN TILT | cam nudge DPAN DTILT | cam home"""
+    """cam joy X Y SECONDS [--lock] [--drive V W] | set PAN TILT | nudge DPAN DTILT | home"""
     link.handlers.append(print_ack)
     wait_synced(link)
     v = args.values
@@ -10482,7 +10483,7 @@ def cmd_led(link: Link, args: argparse.Namespace) -> None:
 def cmd_sound(link: Link, args: argparse.Namespace) -> None:
     link.handlers.append(print_ack)
     wait_synced(link)
-    if args.mode is not None:  # same run: reopening the port reboots the Uno (audio mode back to normal)
+    if args.mode is not None:  # same run: a new port open reboots the Uno (mode back to normal)
         link.send(g.AudioMode(mode=int(g.AudioModeValue[args.mode.upper()])))
         time.sleep(0.1)
     if args.name == "tone":
@@ -10510,7 +10511,7 @@ Register `"led": cmd_led, "sound": cmd_sound` and in `main()`:
     ld.add_argument("--period", type=int, default=500)
     ld.add_argument("--duration", type=int, default=3000)
     sd = sub.add_parser("sound")
-    sd.add_argument("name", help="catalogue name (startup, jingle, …), 'tone', or normal/quiet/mute")
+    sd.add_argument("name", help="catalogue name (startup, jingle, …), tone, or normal/quiet/mute")
     sd.add_argument("--mode", choices=["normal", "quiet", "mute"], default=None,
                     help="AUDIO_MODE sent first (same run)")
 ```
@@ -11198,7 +11199,7 @@ git commit -m "feat(uno): IR remote keymap (drive, camera jog, speed, battery ch
 - [ ] **Step 1: Run the whole host suite**
 
 Run: `pio test -e native`
-Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 15, `test_settings` 7, `test_estimation` 8, `test_sensors` 8, `test_safety` 9, `test_encoders` 3, `test_calibration` 11, `test_motion_blocks` 9, `test_controllers` 7, `test_primitives` 8, `test_camera` 7, `test_ui` 8, `test_input` 11 — **115 test cases, 0 failures**.
+Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 16, `test_settings` 8, `test_estimation` 9, `test_sensors` 11, `test_safety` 13, `test_encoders` 4, `test_calibration` 11, `test_motion_blocks` 11, `test_controllers` 8, `test_primitives` 9, `test_camera` 7, `test_ui` 9, `test_input` 11 — **131 test cases, 0 failures**.
 
 - [ ] **Step 2: Build gates and memory map**
 
@@ -11212,7 +11213,7 @@ Expected: the largest RAM symbols are `cq::g_app` (all domain state), the Serial
 Add to `tools/smoke/uno_smoke.py`:
 ```python
 def cmd_soak(link: Link, args: argparse.Namespace) -> None:
-    """Mixed traffic for N minutes on the stand; fails on resets, frame errors, RAM or loop budget."""
+    """Mixed traffic for N minutes on the stand; fails on resets, frame/I2C errors, RAM or load."""
     seen: dict[str, int] = {"min_ram": 65535, "max_loop_us": 0, "max_load": 0, "hello": 0}
     first: dict[str, int] = {}
     last: dict[str, int] = {}
@@ -11229,7 +11230,7 @@ def cmd_soak(link: Link, args: argparse.Namespace) -> None:
             seen["hello"] += 1  # a HELLO after the start = the Uno rebooted
 
     link.handlers.append(on)
-    time.sleep(1.0)
+    wait_synced(link)
     end = time.monotonic() + args.minutes * 60
     i = 0
     while time.monotonic() < end:
@@ -11254,10 +11255,14 @@ def cmd_soak(link: Link, args: argparse.Namespace) -> None:
     time.sleep(1.5)
     errs = last.get("err_frames", 0) - first.get("err_frames", 0)
     i2c = last.get("err_i2c", 0) - first.get("err_i2c", 0)
-    ok = (seen["hello"] == 0 and errs == 0 and i2c == 0 and seen["min_ram"] >= 250
-          and seen["max_load"] <= 70 and seen["max_loop_us"] <= 4000)
-    print(f"resets={seen['hello']} frame_errs={errs} i2c_errs={i2c} min_free_ram={seen['min_ram']} "
-          f"max_load={seen['max_load']}% max_loop={seen['max_loop_us']}us")
+    # No TELEM_SLOW at all (wrong port, dead link) or uptime going backwards (a reboot) also fails.
+    up = last.get("uptime", 0) - first.get("uptime", 0)
+    ok = (bool(first) and up >= int(args.minutes * 60) - 5 and seen["hello"] == 0 and errs == 0
+          and i2c == 0 and seen["min_ram"] >= 250 and seen["max_load"] <= 70
+          and seen["max_loop_us"] <= 4000)
+    print(f"uptime_delta={up}s resets={seen['hello']} frame_errs={errs} i2c_errs={i2c} "
+          f"min_free_ram={seen['min_ram']} max_load={seen['max_load']}% "
+          f"max_loop={seen['max_loop_us']}us")
     print("SOAK:", "PASS" if ok else "FAIL")
 ```
 Register `"soak": cmd_soak` and in `main()`:
@@ -11265,14 +11270,14 @@ Register `"soak": cmd_soak` and in `main()`:
     sk = sub.add_parser("soak")
     sk.add_argument("--minutes", type=float, default=10.0)
 ```
-Run: `cd tools/smoke && uv run ruff check . && uv run ruff format --check .`
-Expected: `All checks passed!`, no formatting changes (run `uv run ruff format .` in `tools/smoke/` if needed).
+Run (from `tools/smoke/`): `uv run ruff check . && uv run pyright`
+Expected: `All checks passed!`, `0 errors, 0 warnings, 0 informations` (strict mode, ruling R15: the smoke tool falls under the CLAUDE.md Python rule).
 
 - [ ] **Step 4: Soak on the stand**
 
 Tank on the stand, battery on, USB connected (S1 on upload/USB).
 Run (from `tools/smoke/`): `uv run python uno_smoke.py --port PORT soak --minutes 10`
-Expected: `resets=0 frame_errs=0 i2c_errs=0 min_free_ram≥250 max_load≤70% max_loop≤4000us` and `SOAK: PASS`. (TURN on the stand ends `STALLED` after 1 s because the gyro sees no rotation — expected.)
+Expected: `uptime_delta≥595s resets=0 frame_errs=0 i2c_errs=0 min_free_ram≥250 max_load≤70% max_loop≤4000us` and `SOAK: PASS`. (TURN on the stand ends `STALLED` after 1 s because the gyro sees no rotation — expected.)
 
 - [ ] **Step 5: Correct the IR codes in the LLD**
 
@@ -11298,13 +11303,20 @@ with
 | * `0x00FF42BD` | parking beeps toggle | — |
 | # `0x00FF52AD` | (hold 3 s) → `cal_request` to ESP32 | hold timer |
 ```
-and the sentence `0/*/# codes captured during hardware bring-up.` with `Codes verified against the original ELEGOO firmware constants (5, 8, 9 corrected and 0/*/# filled in on 2026-10-11, Plan B Task 14). Camera jog is implemented as repeated CameraHead::nudge at 60 °/s (no separate jog method).`
+and the whole line below the table
+```
+Codes are the 32-bit values as shifted in by the decoder in received order (matches the original firmware constants); 0/*/# codes captured during hardware bring-up. `IrKeymap` in PROGMEM; `ir_speed_pct` held by the Arbitrator. New `CameraHead::jog(pan_rate, tilt_rate)`.
+```
+with
+```
+Codes are the 32-bit values as shifted in by the decoder in received order. Codes verified against the original ELEGOO firmware constants (5, 8, 9 corrected and 0/*/# filled in on 2026-10-11, Plan B Task 14). Keys are decoded by `IrController` (a switch on the code; `ir_speed_pct` lives in `IrController`); camera jog is repeated `CameraHead::nudge` at 60 °/s (no separate jog method).
+```
 
 - [ ] **Step 6: Phase 1–2 sign-off (roadmap)**
 
 Tick each item; every one was already exercised in its task — this is the consolidated run on the final build:
-- Phase 1 (stand, USB): `probe` PASS · `mount` PASS · `watch` shows all sensors live (yaw, pitch/roll, dist, batt, enc, pan/tilt) · `EVENT SELFTEST a=0` · `setting … --save` survives a reset · `deadman` ≤ 330 ms · link pull stops the tracks · `soak` PASS · size gate PASS.
-- Phase 2 (floor, USB tether): `drive 40 0` heading within ±2° over 4 s · `turn 90 50` / `turn -360 50` within ±2° · `turn 90 50 --radius 50` quarter circle · `move 1000 40` = 100 ± 3 cm · obstacle slow + BLOCKED at ≈ 15 cm · envelope 20 % caps PWM ≤ 115 · TURN cancelled by link loss does not resume · IR remote drives with no ESP32.
+- Phase 1 (stand, USB): `probe` PASS · `mount` PASS · `watch` shows all sensors live (yaw, pitch/roll, dist, batt, enc, pan/tilt) · `EVENT SELFTEST a=0` · `setting … --save` survives a reset · `deadman`: `DEADMAN_STOP` at ≈ 300 ms, tracks stopped ≤ ~420 ms · link pull stops the tracks · unplugged ultrasonic → `US_FAULT` + 50 % cap · WS2812 timing on a scope (or "not measured", Task 13 Step 8 item 6) · `soak` PASS · size gate PASS.
+- Phase 2 (floor, USB tether): `drive 40 0` heading within ±2° over 4 s · `turn 90 50` / `turn -360 50` within ±2° · `turn 90 50 --then-to 0` back within ±2° · `turn 90 50 --radius 50` quarter circle · `move 1000 40` = 100 ± 3 cm · obstacle slow + BLOCKED at ≈ 15 cm · `drive 100 0 --envelope 20 --accel 50 --lock` caps PWM ≤ 115 · `turn 720 30 --drop-link-after 1 --restore-after 2`: TURN cancelled by link loss does not resume · IR remote drives with no ESP32 · IR key during a DRIVE_RATE spin stops it.
 
 - [ ] **Step 7: Commit**
 
@@ -11319,7 +11331,7 @@ Note: Plan A names these enums `AudioModeValue` and `OwnerHintValue` (C++ `proto
 
 ## Done when
 
-- `cd firmware/uno && pio test -e native` passes all 115 host tests; `pio run -e uno && python3 scripts/size_gate.py` passes the flash/RAM budget.
+- `cd firmware/uno && pio test -e native` passes all 131 host tests; `pio run -e uno && python3 scripts/size_gate.py` passes the flash/RAM budget.
 - The phase 1 and phase 2 sign-off lists in Task 15 are fully ticked on the real tank.
 - `tools/smoke/uno_smoke.py` covers handshake, telemetry, settings, driving, primitives, camera, LED/sound, calibration scripts, probe, mount check, bias and soak — the same link behaviour Plan C's bridge and Plan D's bench tool build on.
 - `docs/lld/uno-firmware-lld.md` §9.8 lists the corrected IR codes.

@@ -2065,19 +2065,19 @@ git commit -m "feat(uno): body link - parser, writer, queues, link session, TX s
 ### Task 3: Settings store, non-blocking EEPROM writer, SETTING routes
 
 **Files:**
-- Create: `src/domain/settings/crc16.h`, `settings.{h,cpp}`, `eeprom_writer.{h,cpp}`; `src/ports/eeprom.h`; `src/drivers/eeprom_uno.cpp`; `src/app/settings_task.cpp`
-- Modify: `src/app/app.h` (members), `src/app/routes.cpp` (rows), `src/main.cpp` (init + task)
+- Create: `src/domain/settings/crc16.h`, `settings.{h,cpp}`, `eeprom_writer.{h,cpp}`; `src/ports/eeprom.h`; `src/drivers/eeprom_uno.cpp`; `src/app/tasks.h`, `src/app/settings_task.cpp`, `src/app/apply_settings.cpp`
+- Modify: `src/app/app.h` (members), `src/app/routes.cpp` (rows), `src/app/comms.cpp` (`settings_crc` in slow telemetry), `src/main.cpp` (init + task)
 - Test: `test/test_settings/test_main.cpp`
 
 **Interfaces:**
 - Consumes: `proto::SettingId`, `proto::kSettingDescriptors`, `proto::kSettingCount`, `proto::SettingDescriptor`, `proto::WireType`, `proto::SettingScope`.
 - Produces:
-  - `struct cq::GlobalSettings` / `cq::ProfileSettings` (packed; field names = settings.yaml names), `class cq::Settings`: `void loadDefaults()`, `bool get(uint8_t id, int32_t& value) const`, `proto::AckStatus set(uint8_t id, int32_t value)`, `const GlobalSettings& global() const`, `const ProfileSettings& profile() const`, `uint16_t crc() const`, `uint8_t serialize(uint8_t block, uint8_t* out) const`, `bool deserialize(uint8_t block, const uint8_t* data, uint8_t len, uint16_t stored_crc)`, `static constexpr uint8_t kBlockGlobal = 0, kBlockProfile = 1`, `bool dirty() const`, `void clearDirty()`.
+  - `struct cq::GlobalSettings` / `cq::ProfileSettings` (packed; field names = settings.yaml names), `class cq::Settings`: `void loadDefaults()`, `bool get(uint8_t id, int32_t& value) const`, `proto::AckStatus set(uint8_t id, int32_t value)` (`kSettingUnknown`; `kSettingOutOfRange` when outside the descriptor range **or** when the value would break an ordering invariant against the current values — `pan_min ≤ pan_max`, `tilt_min ≤ tilt_max`, `obstacle_stop < obstacle_slow`, `batt_crit < batt_low`; the hub orders its writes), `const GlobalSettings& global() const`, `const ProfileSettings& profile() const`, `uint16_t crc() const`, `uint8_t serialize(uint8_t block, uint8_t* out) const`, `bool deserialize(uint8_t block, const uint8_t* data, uint8_t len, uint16_t stored_crc)`, `static constexpr uint8_t kBlockGlobal = 0, kBlockProfile = 1`, `bool dirty() const`, `void clearDirty()`.
   - `cq::crc16(const uint8_t* data, uint16_t len, uint16_t crc = 0xFFFF) -> uint16_t` (CCITT-FALSE).
   - `struct cq::EepromIo { uint8_t (*read)(uint16_t); bool (*writeAsync)(uint16_t, uint8_t); bool (*busy)(); }`, `class cq::EepromWriter`: `bool enqueue(uint16_t addr, const uint8_t* data, uint8_t len)`, `bool step(const EepromIo& io)` (≤ 1 byte written; returns true when idle), `bool idle() const`.
   - EEPROM layout: `kEeMagicAddr = 0` (`'C','Q'`, layout version 1); global block at 8: `[len][data…][crc lo][crc hi]`; profile block at 80.
   - Port `cq::port::eeprom`: `uint8_t read(uint16_t addr)`, `bool writeByteAsync(uint16_t addr, uint8_t v)`, `bool busy()`.
-  - App members `Settings settings; EepromWriter eewriter; bool save_requested; uint8_t settings_reset_mask;` and functions `cq::app::settingsLoad()`, `cq::app::settingsTask()`, `cq::app::applySettings()` (applies values to domain objects — extended by later tasks).
+  - App members `Settings settings; EepromWriter eewriter; bool save_requested; bool save_in_progress; bool moving;` (`settings_reset_mask` comes in Task 7) and functions `cq::app::settingsLoad()`, `cq::app::settingsTask()`, `cq::app::applySettings()` (applies values to domain objects — extended by later tasks), declared in the new `src/app/tasks.h` — the one header for app task/init entry points (later tasks add their declarations before `// TASK-DECLS-END`).
 
 - [ ] **Step 1: Write the failing settings tests**
 
@@ -2129,6 +2129,30 @@ void test_set_validates_range_and_unknown() {
                     static_cast<int>(s.set(static_cast<uint8_t>(proto::SettingId::kTiltLimit), 99)));
   TEST_ASSERT_EQUAL(static_cast<int>(proto::AckStatus::kSettingUnknown),
                     static_cast<int>(s.set(200, 1)));
+}
+
+// Ordering invariants are checked against the current values; the hub orders its writes.
+void test_set_rejects_cross_field_inversions() {
+  Settings s;
+  s.loadDefaults();  // pan 0..180, tilt 30..110, obstacle stop 15 / slow 50, batt crit 6600 / low 7000
+  const auto set = [&s](proto::SettingId id, int32_t v) {
+    return static_cast<int>(s.set(static_cast<uint8_t>(id), v));
+  };
+  const int ok = static_cast<int>(proto::AckStatus::kOk);
+  const int range = static_cast<int>(proto::AckStatus::kSettingOutOfRange);
+  TEST_ASSERT_EQUAL(ok, set(proto::SettingId::kPanMax, 90));
+  TEST_ASSERT_EQUAL(range, set(proto::SettingId::kPanMin, 91));   // min above max
+  TEST_ASSERT_EQUAL(ok, set(proto::SettingId::kPanMin, 90));      // equal is allowed
+  TEST_ASSERT_EQUAL(range, set(proto::SettingId::kPanMax, 89));   // max below min
+  TEST_ASSERT_EQUAL(90, s.global().pan_max);                      // rejected value not stored
+  TEST_ASSERT_EQUAL(range, set(proto::SettingId::kTiltMax, 29));
+  TEST_ASSERT_EQUAL(range, set(proto::SettingId::kTiltMin, 111));
+  TEST_ASSERT_EQUAL(range, set(proto::SettingId::kObstacleSlow, 15));  // slow must be > stop
+  TEST_ASSERT_EQUAL(range, set(proto::SettingId::kObstacleStop, 50));
+  TEST_ASSERT_EQUAL(ok, set(proto::SettingId::kObstacleStop, 49));
+  TEST_ASSERT_EQUAL(range, set(proto::SettingId::kBattCrit, 7000));    // crit must be < low
+  TEST_ASSERT_EQUAL(range, set(proto::SettingId::kBattLow, 6600));
+  TEST_ASSERT_EQUAL(ok, set(proto::SettingId::kBattLow, 6601));
 }
 
 void test_serialize_roundtrip_and_bad_crc_loads_defaults() {
@@ -2207,6 +2231,7 @@ int main() {
   RUN_TEST(test_defaults_match_descriptors);
   RUN_TEST(test_every_descriptor_has_a_slot);
   RUN_TEST(test_set_validates_range_and_unknown);
+  RUN_TEST(test_set_rejects_cross_field_inversions);
   RUN_TEST(test_serialize_roundtrip_and_bad_crc_loads_defaults);
   RUN_TEST(test_crc16_check_value);
   RUN_TEST(test_writer_one_byte_per_step);
@@ -2314,6 +2339,7 @@ class Settings {
 
  private:
   bool slot(uint8_t id, uint8_t*& ptr, proto::WireType& type, proto::SettingDescriptor& desc) const;
+  bool keepsOrder(uint8_t id, int32_t value) const;  // ordering invariants vs current values
   GlobalSettings m_global{};
   ProfileSettings m_profile{};
   bool m_dirty = false;
@@ -2330,13 +2356,12 @@ class Settings {
 
 #include "domain/settings/crc16.h"
 
+// PROGMEM itself comes from generated/cq_protocol.h (defined empty on host).
 #ifdef CQ_HOST_TEST
 #define CQ_READ_P(dst, src, n) memcpy((dst), (src), (n))
-#define CQ_PGM_U16(p) (*(p))
 #else
 #include <avr/pgmspace.h>
 #define CQ_READ_P(dst, src, n) memcpy_P((dst), (src), (n))
-#define CQ_PGM_U16(p) pgm_read_word(p)
 #endif
 
 namespace cq {
@@ -2380,6 +2405,23 @@ const Slot kSlots[] PROGMEM = {
 };
 #undef G
 #undef P
+
+// Ordering invariants between settings: lo <= hi, or lo < hi when strict.
+struct Order {
+  uint8_t lo;
+  uint8_t hi;
+  bool strict;
+};
+
+const Order kOrders[] PROGMEM = {
+    {static_cast<uint8_t>(proto::SettingId::kPanMin), static_cast<uint8_t>(proto::SettingId::kPanMax), false},
+    {static_cast<uint8_t>(proto::SettingId::kTiltMin), static_cast<uint8_t>(proto::SettingId::kTiltMax), false},
+    {static_cast<uint8_t>(proto::SettingId::kObstacleStop), static_cast<uint8_t>(proto::SettingId::kObstacleSlow),
+     true},
+    {static_cast<uint8_t>(proto::SettingId::kBattCrit), static_cast<uint8_t>(proto::SettingId::kBattLow), true},
+};
+
+bool inOrder(int32_t lo, int32_t hi, bool strict) { return strict ? lo < hi : lo <= hi; }
 
 uint8_t wireSize(proto::WireType t) {
   switch (t) {
@@ -2465,9 +2507,21 @@ proto::AckStatus Settings::set(uint8_t id, int32_t value) {
   proto::SettingDescriptor d;
   if (!slot(id, p, t, d)) return proto::AckStatus::kSettingUnknown;
   if (value < d.min || value > d.max) return proto::AckStatus::kSettingOutOfRange;
+  if (!keepsOrder(id, value)) return proto::AckStatus::kSettingOutOfRange;
   storeValue(p, t, value);
   m_dirty = true;
   return proto::AckStatus::kOk;
+}
+
+bool Settings::keepsOrder(uint8_t id, int32_t value) const {
+  for (uint8_t i = 0; i < sizeof kOrders / sizeof kOrders[0]; ++i) {
+    Order o;
+    CQ_READ_P(&o, &kOrders[i], sizeof o);
+    int32_t other = 0;
+    if (id == o.lo && get(o.hi, other) && !inOrder(value, other, o.strict)) return false;
+    if (id == o.hi && get(o.lo, other) && !inOrder(other, value, o.strict)) return false;
+  }
+  return true;
 }
 
 uint8_t Settings::serialize(uint8_t block, uint8_t* out) const {
@@ -2497,13 +2551,6 @@ uint16_t Settings::crc() const {
 
 }  // namespace cq
 ```
-Add near the top of `settings.cpp` (after the includes) so `PROGMEM` exists on host:
-```cpp
-#ifndef PROGMEM
-#define PROGMEM
-#endif
-```
-
 `src/domain/settings/eeprom_writer.h`:
 ```cpp
 #pragma once
@@ -2589,7 +2636,7 @@ Note: a full save is magic (3 B) + global (1 + 56 + 2) + profile (1 + 51 + 2) = 
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_settings`
-Expected: `7 Tests 0 Failures`.
+Expected: `8 Tests 0 Failures`.
 
 - [ ] **Step 5: EEPROM port and driver**
 
@@ -2658,9 +2705,26 @@ Add to `src/app/app.h` includes and members (inside `struct App`, after `encoder
   bool moving = false;  // set by the control task; saves are deferred while moving
 ```
 
+`src/app/tasks.h` (one declaration per app entry point; later tasks add theirs before `// TASK-DECLS-END`):
+```cpp
+#pragma once
+
+namespace cq {
+namespace app {
+
+void settingsLoad();   // boot: EEPROM → settings (defaults + SETTINGS_RESET on bad CRC/magic)
+void settingsTask();   // 50 Hz: deferred save, one EEPROM byte per pass
+void applySettings();  // pushes settings into domain objects (app/apply_settings.cpp)
+// TASK-DECLS-END
+
+}  // namespace app
+}  // namespace cq
+```
+
 `src/app/settings_task.cpp`:
 ```cpp
 #include "app/app.h"
+#include "app/tasks.h"
 #include "domain/settings/crc16.h"
 #include "ports/eeprom.h"
 
@@ -2697,8 +2761,6 @@ void queueBlock(uint8_t block, uint16_t addr) {
 
 }  // namespace
 
-void applySettings();  // defined in app/apply_settings.cpp (extended by later tasks)
-
 void settingsLoad() {
   g_app.settings.loadDefaults();
   uint8_t reset_mask = 0;
@@ -2730,7 +2792,6 @@ void settingsTask() {
     g_app.settings.clearDirty();
     g_app.events.push(proto::EventKind::kSettingsSaved);
   }
-  g_app.slow.settings_crc = g_app.settings.crc();
 }
 
 }  // namespace app
@@ -2740,6 +2801,7 @@ void settingsTask() {
 `src/app/apply_settings.cpp` (later tasks add lines inside `applySettings()` before `// APPLY-END`):
 ```cpp
 #include "app/app.h"
+#include "app/tasks.h"
 
 namespace cq {
 namespace app {
@@ -2783,7 +2845,7 @@ proto::AckStatus onSettingsSave(const uint8_t* p, uint8_t len) {
   return proto::AckStatus::kOk;
 }
 ```
-Also add above the anonymous namespace in `routes.cpp`: `void applySettings();` (inside `namespace cq { namespace app {`).
+Also add `#include "app/tasks.h"` to the includes of `routes.cpp` (for `applySettings()`).
 Add rows before `// ROUTES-END`:
 ```cpp
     {static_cast<uint8_t>(proto::FrameType::kSettingSet), onSettingSet, true},
@@ -2791,10 +2853,12 @@ Add rows before `// ROUTES-END`:
     {static_cast<uint8_t>(proto::FrameType::kSettingsSave), onSettingsSave, true},
 ```
 
-In `src/main.cpp` add declarations at file scope (after includes):
+`src/app/comms.cpp` — in `telemetrySlowDue()` add before `g_app.slow_due = true;` (CRC-16 over 107 B costs ~0.5 ms on AVR, so it runs at 1 Hz, not every settings pass):
 ```cpp
-namespace cq { namespace app { void settingsLoad(); void settingsTask(); } }
+  s.settings_crc = g_app.settings.crc();
 ```
+
+In `src/main.cpp` add `#include "app/tasks.h"` to the includes.
 Add before `// SETUP-END`: `cq::app::settingsLoad();`
 Add task row before `// TASKS-END`: `{cq::app::settingsTask, 20000UL, 0},`
 
@@ -2838,7 +2902,7 @@ Register: `COMMANDS["setting"] = cmd_setting`, and in `main()`:
 
 Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py && pio run -e uno -t upload`
 Then (from `tools/smoke/`): `uv run python uno_smoke.py --port PORT setting tilt_limit 40 --save`
-Expected: first boot after flashing prints `EVENT SETTINGS_RESET a=3`; then `ACK OK`, `tilt_limit = 40 (40 deg)`, `EVENT SETTINGS_SAVED`. Press the Uno reset button and run `… setting tilt_limit` → `tilt_limit = 40` and no `SETTINGS_RESET`.
+Expected: `ACK OK`, `tilt_limit = 40 (40 deg)`, `EVENT SETTINGS_SAVED`. (The first boot right after `-t upload` already emitted `SETTINGS_RESET a=3` and saved the defaults; opening the port reboots the Uno with valid EEPROM, so that event is not seen here. To see it, run `… watch` straight after an upload that changed the layout, or erase the magic first.) Press the Uno reset button and run `… setting tilt_limit` → `tilt_limit = 40` and no `SETTINGS_RESET`. Cross-field check: `… setting obstacle_stop 60` → `ACK SETTING_OUT_OF_RANGE` (would not be below `obstacle_slow` = 50).
 
 - [ ] **Step 9: Commit**
 

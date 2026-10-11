@@ -7374,7 +7374,7 @@ git commit -m "feat(uno): motion blocks - PID, ramp, deadband, battery compensat
 **Interfaces:**
 - Consumes: `Pid`, `PidGains`, `deadbandPwm` (Task 8), `wrap180`, `clampf`.
 - Produces:
-  - `cq::SpeedConfig { uint8_t start_pwm; uint8_t keep_pwm; uint16_t max_cps; PidGains gains; bool closed_loop; }`; `cq::SpeedController`: `void configure(const SpeedConfig&)`, `int16_t update(float target_pct, float actual_cps, float dt_s, int16_t pwm_limit, bool moving)`, `void reset()`, `bool saturated() const`, `float integrator() const`; `cq::pwmLimitForCap(uint8_t cap_pct, uint8_t keep_pwm) -> int16_t`.
+  - `cq::SpeedConfig { uint8_t start_pwm; uint8_t keep_pwm; uint16_t max_cps; PidGains gains; bool closed_loop; }`; `cq::SpeedController`: `void configure(const SpeedConfig&)`, `int16_t update(float target_pct, float actual_cps, float dt_s, int16_t pwm_limit, bool moving, bool capped)` (integrator frozen while `capped` — the TargetLimiter's `Limited.capped`, LLD §9.5 — OR while the output sits on `pwm_limit`), `void reset()`, `bool saturated() const`, `float integrator() const`; `cq::pwmLimitForCap(uint8_t cap_pct, uint8_t keep_pwm) -> int16_t`.
   - `cq::HeadingMode : uint8_t { kOff, kRate, kHold }`; `cq::HeadingConfig { PidGains rate; PidGains heading; uint16_t turn_rate_max_dps; }`; `cq::HeadingController`: `void configure(const HeadingConfig&)`, `float update(HeadingMode mode, float w_cmd_pct, float rate_target_dps, float heading_target_deg, float yaw_deg, float yaw_rate_dps, float dt_s, bool freeze)` (returns w % for the mixer), `float teleop(float v_pct, float w_pct, float yaw_deg, float yaw_rate_dps, float dt_s, bool freeze)` (stick w → rate mode; stick centred while driving → holds the captured heading), `void reset()`, `float heldHeading() const`, `bool holding() const`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -7401,17 +7401,17 @@ void test_open_loop_is_feedforward_only() {
   SpeedConfig c = closedCfg();
   c.closed_loop = false;
   s.configure(c);
-  TEST_ASSERT_EQUAL(155, s.update(50.0f, 0.0f, 0.01f, 255, true));
-  TEST_ASSERT_EQUAL(0, s.update(0.0f, 0.0f, 0.01f, 255, true));
+  TEST_ASSERT_EQUAL(155, s.update(50.0f, 0.0f, 0.01f, 255, true, false));
+  TEST_ASSERT_EQUAL(0, s.update(0.0f, 0.0f, 0.01f, 255, true, false));
 }
 
 void test_closed_loop_pushes_when_slow() {
   SpeedController s;
   s.configure(closedCfg());
-  const int16_t first = s.update(50.0f, 1250.0f, 0.01f, 255, true);  // on target (50 % of 2500 cps)
+  const int16_t first = s.update(50.0f, 1250.0f, 0.01f, 255, true, false);  // on target (50 % of 2500 cps)
   SpeedController t;
   t.configure(closedCfg());
-  const int16_t slow = t.update(50.0f, 500.0f, 0.01f, 255, true);    // 20 % actual
+  const int16_t slow = t.update(50.0f, 500.0f, 0.01f, 255, true, false);    // 20 % actual
   TEST_ASSERT_TRUE(slow > first);
 }
 
@@ -7421,14 +7421,27 @@ void test_integrator_frozen_when_capped() {
   const int16_t limit = pwmLimitForCap(20, 55);
   TEST_ASSERT_EQUAL(115, limit);  // 20 % → 95 PWM + 20 headroom
   int16_t out = 0;
-  for (int i = 0; i < 500; ++i) {  // 5 s with the track held: actual stays 0
-    out = s.update(20.0f, 0.0f, 0.01f, limit, true);
-    TEST_ASSERT_TRUE(out <= limit);
+  float i_frozen = 0.0f;
+  for (int i = 0; i < 500; ++i) {  // 5 s with the track held: actual stays 0 (output-saturation anti-windup)
+    out = s.update(20.0f, 0.0f, 0.01f, limit, true, false);
+    if (i == 99) i_frozen = s.integrator();  // the output reached the limit within ~0.5 s
   }
   TEST_ASSERT_TRUE(s.saturated());
   TEST_ASSERT_TRUE(s.integrator() < 15.0f);  // without the freeze it would reach 80
-  out = s.update(20.0f, 500.0f, 0.01f, limit, true);  // released and on target
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, i_frozen, s.integrator());  // nothing integrated while on the limit
+  out = s.update(20.0f, 500.0f, 0.01f, limit, true, false);  // released and on target
   TEST_ASSERT_TRUE(out < limit);
+}
+
+void test_integrator_frozen_while_target_capped() {
+  SpeedController s;
+  s.configure(closedCfg());
+  for (int i = 0; i < 100; ++i) {  // TargetLimiter capped the target: no wind-up even below the PWM limit
+    TEST_ASSERT_TRUE(s.update(20.0f, 0.0f, 0.01f, 255, true, true) < 255);
+  }
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, s.integrator());
+  s.update(20.0f, 0.0f, 0.01f, 255, true, false);  // cap lifted → integrates again
+  TEST_ASSERT_TRUE(s.integrator() > 0.0f);
 }
 
 void test_rate_mode_feedforward_and_feedback() {
@@ -7478,6 +7491,7 @@ int main() {
   RUN_TEST(test_open_loop_is_feedforward_only);
   RUN_TEST(test_closed_loop_pushes_when_slow);
   RUN_TEST(test_integrator_frozen_when_capped);
+  RUN_TEST(test_integrator_frozen_while_target_capped);
   RUN_TEST(test_rate_mode_feedforward_and_feedback);
   RUN_TEST(test_hold_corrects_drift_with_wraparound);
   RUN_TEST(test_off_mode_passes_stick_through);
@@ -7514,11 +7528,12 @@ struct SpeedConfig {
 int16_t pwmLimitForCap(uint8_t cap_pct, uint8_t keep_pwm);
 
 // One track: feed-forward through the deadband map + PID on measured speed (when closed loop).
-// The integrator freezes while the output sits on the PWM limit (envelope cap or 255).
+// The integrator freezes while the TargetLimiter caps the target (`capped`, LLD §9.5) and, as extra
+// anti-windup, while the output sits on the PWM limit (envelope cap or 255).
 class SpeedController {
  public:
   void configure(const SpeedConfig& cfg);
-  int16_t update(float target_pct, float actual_cps, float dt_s, int16_t pwm_limit, bool moving);
+  int16_t update(float target_pct, float actual_cps, float dt_s, int16_t pwm_limit, bool moving, bool capped);
   void reset() {
     m_pid.reset();
     m_saturated = false;
@@ -7556,7 +7571,8 @@ void SpeedController::configure(const SpeedConfig& cfg) {
   m_pid.setLimits(-100.0f, 100.0f);
 }
 
-int16_t SpeedController::update(float target_pct, float actual_cps, float dt_s, int16_t pwm_limit, bool moving) {
+int16_t SpeedController::update(float target_pct, float actual_cps, float dt_s, int16_t pwm_limit, bool moving,
+                                bool capped) {
   if (absf(target_pct) < 0.5f) {
     reset();
     return 0;
@@ -7564,7 +7580,7 @@ int16_t SpeedController::update(float target_pct, float actual_cps, float dt_s, 
   float cmd_pct = target_pct;
   if (m_cfg.closed_loop && m_cfg.max_cps > 0) {
     const float actual_pct = actual_cps * 100.0f / m_cfg.max_cps;
-    cmd_pct = clampf(target_pct + m_pid.update(target_pct - actual_pct, dt_s, m_saturated), -100.0f, 100.0f);
+    cmd_pct = clampf(target_pct + m_pid.update(target_pct - actual_pct, dt_s, m_saturated || capped), -100.0f, 100.0f);
   }
   int16_t pwm = deadbandPwm(cmd_pct, moving, m_cfg.start_pwm, m_cfg.keep_pwm);
   m_saturated = pwm >= pwm_limit || pwm <= -pwm_limit;
@@ -7688,7 +7704,7 @@ float HeadingController::teleop(float v_pct, float w_pct, float yaw_deg, float y
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_controllers`
-Expected: `7 Tests 0 Failures`.
+Expected: `8 Tests 0 Failures`.
 
 - [ ] **Step 5: Commit**
 

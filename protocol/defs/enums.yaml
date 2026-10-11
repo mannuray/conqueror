@@ -1,0 +1,47 @@
+- name: Source
+  doc: Who sent a network motion command (ESP32 already arbitrated human vs AI).
+  values: { NONE: 0, HUMAN: 1, AI: 2 }
+- name: Owner
+  doc: Motion owner as seen by the Uno.
+  values: { NONE: 0, NETWORK: 1, IR: 2, CALIBRATION: 3 }
+- name: OwnerHintValue
+  doc: Network owner sent to the Uno for the LED colour.
+  values: { NONE: 0, HUMAN: 1, AI: 2 }
+- name: TurnMode
+  doc: TURN.mode bits 0-6; bit 7 = pivot.
+  values: { BY: 0, TO: 1 }
+- name: LedMode
+  values: { "OFF": 0, SOLID: 1, BLINK: 2, PULSE: 3 }  # quoted: YAML 1.1 reads bare OFF as false
+- name: AudioModeValue
+  values: { NORMAL: 0, QUIET: 1, MUTE: 2 }
+- name: CalOp
+  values: { START: 0, CANCEL: 1 }
+- name: CalScript
+  values:
+    { STILL_SAMPLE: 0, PWM_RAMP: 1, FULL_SPIN: 2, SPIN_AND_ARC: 3, RATE_STEPS: 4,
+      RELAY_OSCILLATION: 5, DRIVE_COUNTS: 6, SERVO_NUDGE: 7, IDLE: 8 }
+- name: ProfileOp
+  values: { SELECT: 0, CREATE: 1, DELETE: 2 }
+- name: PrimitiveKind
+  values: { NONE: 0, TELEOP: 1, TURN: 2, MOVE: 3 }
+- name: ResetReason
+  values: { UNKNOWN: 0, POWER_ON: 1, EXTERNAL: 2, BROWN_OUT: 3, WATCHDOG: 4 }
+- name: SoundId
+  doc: Sounds a client may trigger with SOUND.
+  values:
+    { STARTUP: 1, READY: 2, SELFTEST_FAIL: 3, CHIRP_UP: 4, CHIRP_DOWN: 5, BLIP: 6, TICK: 7,
+      JINGLE: 8, THINKING: 9, OUCH: 10, ERROR: 11 }
+- name: FastFlagBit
+  doc: Bit positions in TELEM_FAST.flags.
+  values:
+    { BLOCKED: 0, LIFTED: 1, TILTED: 2, STALL_L: 3, STALL_R: 4, CAM_MOVING: 5, TURN_LIMITED: 6,
+      CAPPED: 7, SOFT_STOP: 8, HALTED: 9, LOCKED: 10, IMU_FAULT: 11, US_FAULT: 12,
+      ENCODER_FAULT: 13, CALIBRATING: 14, SYNCED: 15 }
+- name: SlowFlagBit
+  doc: Bit positions in TELEM_SLOW.flags2.
+  values:
+    { BATT_LOW: 0, BATT_CRITICAL: 1, LINK_LOST: 2, BRAKE_OFF: 3, MUTED: 4, QUIET: 5,
+      ENVELOPE: 6, DEADMAN: 7 }
+- name: HwBit
+  doc: Bit positions in TELEM_SLOW.hw.
+  values: { ENCODERS_ENABLED: 0, IMU_OK: 1, US_OK: 2 }

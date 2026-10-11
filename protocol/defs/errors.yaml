@@ -1,0 +1,67 @@
+domains:
+  - prefix: AUTH
+    range: [1000, 1999]
+    codes:
+      - { code: 1001, reason: AUTH_FAILED, http: 401, message: Invalid or revoked key }
+      - { code: 1002, reason: ROLE_FORBIDDEN, http: 403, message: Role may not do this }
+  - prefix: TANK
+    range: [2000, 2999]
+    codes:
+      - { code: 2001, reason: TANK_OFFLINE, http: 503, message: Tank is not responding }
+      - { code: 2002, reason: TANK_NOT_FOUND, http: 404, message: Unknown tank }
+  - prefix: COMMAND
+    range: [3000, 3999]
+    codes:
+      - { code: 3001, reason: NOT_OWNER, http: 409, message: Another source has control }
+      - { code: 3002, reason: BLOCKED, http: 422, message: Blocked by a safety rule }
+      - { code: 3003, reason: UNAVAILABLE, http: 422, message: Capability not available }
+      - { code: 3004, reason: ENVELOPE_LOCKED, http: 409, message: Locked by the safety envelope }
+      - { code: 3005, reason: BUSY, http: 409, message: "Busy, try again" }
+      - { code: 3006, reason: INVALID_COMMAND, http: 422, message: Invalid command }
+      - { code: 3007, reason: BODY_OFFLINE, http: 503, message: Body (Uno) offline }
+      - { code: 3008, reason: BODY_INCOMPATIBLE, http: 503, message: Body firmware incompatible }
+      - { code: 3009, reason: COMMAND_TIMEOUT, http: 504, message: No acknowledgement in time }
+      - { code: 3010, reason: RATE_LIMITED, http: 429, message: Too many commands }
+      - { code: 3011, reason: OWNER_LOST, http: 409, message: Controlling client lost }
+      - { code: 3012, reason: LINK_LOST, http: 503, message: Link to the body lost }
+      - { code: 3013, reason: CANCELLED, http: 409, message: Cancelled }
+      - { code: 3014, reason: TIMEOUT, http: 504, message: Primitive timed out }
+      - { code: 3015, reason: STALLED, http: 422, message: Track stalled }
+  - prefix: CALIBRATION
+    range: [6000, 6999]
+    codes:
+      - { code: 6001, reason: CAL_PRECONDITION, http: 409, message: Calibration preconditions not met }
+      - { code: 6002, reason: CAL_FAILED, http: 422, message: Calibration failed }
+      - { code: 6003, reason: CAL_CANCELLED, http: 409, message: Calibration cancelled }
+  - prefix: SETTINGS
+    range: [8000, 8999]
+    codes:
+      - { code: 8001, reason: SETTING_UNKNOWN, http: 404, message: Unknown setting }
+      - { code: 8002, reason: SETTING_OUT_OF_RANGE, http: 422, message: Value out of range }
+      - { code: 8003, reason: SETTINGS_SAVE_BUSY, http: 409, message: Save already in progress }
+      - { code: 8004, reason: ENVELOPE_MISMATCH, http: 409, message: Envelope differs from stored }
+  - prefix: SYSTEM
+    range: [9000, 9999]
+    codes:
+      - { code: 9001, reason: INTERNAL, http: 500, message: Internal error }
+      - { code: 9002, reason: CAMERA_TIMEOUT, http: 504, message: Camera timeout }
+# On-wire ACK/CAL_RESULT status byte = index into this list. Never reorder; append only.
+ack_status:
+  - OK
+  - NOT_OWNER
+  - BLOCKED
+  - UNAVAILABLE
+  - ENVELOPE_LOCKED
+  - BUSY
+  - INVALID_COMMAND
+  - CANCELLED
+  - TIMEOUT
+  - STALLED
+  - LINK_LOST
+  - SETTING_UNKNOWN
+  - SETTING_OUT_OF_RANGE
+  - SETTINGS_SAVE_BUSY
+  - CAL_PRECONDITION
+  - CAL_FAILED
+  - CAL_CANCELLED
+  - INTERNAL

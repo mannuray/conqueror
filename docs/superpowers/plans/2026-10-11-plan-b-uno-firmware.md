@@ -143,6 +143,17 @@ build_src_flags = -Wall -Wextra -Werror
 ```
 (`-Werror` applies to our sources only, not to Unity or the Arduino core.)
 
+- [ ] **Step 2a: First-build gate — the generated header compiles for AVR with `gnu++17`**
+
+Plan A only compiled `cq_protocol.h` with the host compiler. Before writing firmware code, prove avr-gcc 7.3 accepts it (it uses C++17 `inline` variables and `<avr/pgmspace.h>`). The toolchain lives under PlatformIO and exists only after the project packages are installed:
+```sh
+cd firmware/uno && pio pkg install -e uno
+echo '#include "generated/cq_protocol.h"' | ~/.platformio/packages/toolchain-atmelavr/bin/avr-g++ \
+  -std=gnu++17 -mmcu=atmega328p -Os -fno-exceptions -fno-rtti -Wall -Wextra -Werror \
+  -Isrc -x c++ -c - -o /dev/null && echo "cq_protocol.h OK on AVR"
+```
+Expected: `cq_protocol.h OK on AVR`, no warnings. If it fails, fix the emitter in `protocol/generator/` and regenerate (`cd protocol && uv run protogen write`); never edit the generated header.
+
 - [ ] **Step 3: Write the failing scheduler test**
 
 `test/test_scheduler/test_main.cpp`:
@@ -662,7 +673,8 @@ git commit -m "feat(uno): PlatformIO skeleton, scheduler, watchdog, board config
 **Interfaces:**
 - Consumes: `cq_protocol.h` (`crc8`, `kSync`, `kMaxPayload`, `FrameType`, `*Msg`, `encode/decode`, `AckStatus`, `EventKind`).
 - Produces:
-  - `cq::FrameParser`: `bool feed(uint8_t b)`, `uint8_t type() const`, `uint8_t seq() const`, `uint8_t len() const`, `const uint8_t* payload() const`, `ParseErrors& errors()`; `struct ParseErrors { uint16_t bad_crc, bad_len, unknown_type, tx_dropped; }`.
+  - `cq::FrameParser`: `bool feed(uint8_t b)` (true when a frame is ready), `bool next()` (continue a resync replay; true when another frame is ready — call until false before the next `feed`), `uint8_t type() const`, `uint8_t seq() const`, `uint8_t len() const`, `const uint8_t* payload() const` (valid until the next `feed`/`next`), `ParseErrors& errors()`; `struct ParseErrors { uint16_t bad_crc, bad_len, unknown_type, tx_dropped; }` — `bad_crc`/`bad_len` count rejection events (a replayed byte can be rejected and counted again). Resync rules match `conqueror_protocol.framing` (Uno LLD §5.2).
+  - On `proto::decode()` returning false, the message contents are unspecified — handlers must not use them.
   - `cq::FrameWriter`: `uint8_t build(uint8_t type, const uint8_t* payload, uint8_t len, uint8_t* out)` (returns total bytes), `void setSeq(uint8_t)`, `uint8_t lastSeq() const`.
   - `cq::EventQueue`: `bool push(proto::EventKind k, int16_t a = 0, int16_t b = 0)`, `bool pop(Event& out)`, `uint16_t dropped() const`; `struct Event { uint8_t kind; int16_t a; int16_t b; }`.
   - `cq::AckQueue`: `bool push(uint8_t seq, proto::AckStatus s)`, `bool pop(uint8_t& seq, proto::AckStatus& s)`.
@@ -690,40 +702,116 @@ void setUp() {}
 void tearDown() {}
 
 // Golden frames from protocol/defs/golden.yaml
+static const uint8_t kStop[] = {0xAA, 0x01, 0x12, 0x05, 0x01, 0x24};
 static const uint8_t kTurn[] = {0xAA, 0x07, 0x13, 0x07, 0x02, 0x81, 0x7C, 0xFC, 0x28, 0x00, 0x00, 0xE5};
 static const uint8_t kAck[] = {0xAA, 0x02, 0x81, 0x03, 0x07, 0x00, 0x35};
+
+// Feeds bytes the way commsPoll does (feed, then drain next()) and records frame types.
+struct Got {
+  uint8_t types[8];
+  uint8_t n;
+};
+static uint8_t feedAll(FrameParser& p, const uint8_t* data, uint8_t len, Got& got) {
+  uint8_t frames = 0;
+  for (uint8_t i = 0; i < len; ++i) {
+    for (bool ready = p.feed(data[i]); ready; ready = p.next()) {
+      if (got.n < sizeof got.types) got.types[got.n++] = p.type();
+      ++frames;
+    }
+  }
+  return frames;
+}
 
 void test_parser_decodes_golden_turn_with_noise() {
   FrameParser p;
   const uint8_t noise[] = {0x00, 0x13, 0xFF};
   for (uint8_t b : noise) TEST_ASSERT_FALSE(p.feed(b));
   bool ready = false;
-  for (uint8_t b : kTurn) ready = p.feed(b);
+  for (uint8_t b : kTurn) ready = p.feed(b);  // no replay pending: next() would return false
   TEST_ASSERT_TRUE(ready);
   TEST_ASSERT_EQUAL_HEX8(0x13, p.type());
   TEST_ASSERT_EQUAL(7, p.len());
   proto::TurnMsg m{};
   TEST_ASSERT_TRUE(proto::decode(p.payload(), p.len(), m));
   TEST_ASSERT_EQUAL(-900, m.angle);
+  TEST_ASSERT_FALSE(p.next());
 }
 
 void test_parser_bad_crc_then_good() {
   FrameParser p;
   uint8_t bad[sizeof kTurn];
   memcpy(bad, kTurn, sizeof kTurn);
-  bad[sizeof bad - 1] ^= 0xFF;
-  int frames = 0;
-  for (uint8_t b : bad) frames += p.feed(b) ? 1 : 0;
-  for (uint8_t b : kTurn) frames += p.feed(b) ? 1 : 0;
-  TEST_ASSERT_EQUAL(1, frames);
+  bad[sizeof bad - 1] ^= 0xFF;  // no 0xAA after the sync, so nothing to replay
+  Got got{};
+  TEST_ASSERT_EQUAL(0, feedAll(p, bad, sizeof bad, got));
+  TEST_ASSERT_EQUAL(1, feedAll(p, kTurn, sizeof kTurn, got));
+  TEST_ASSERT_EQUAL_HEX8(0x13, got.types[0]);
   TEST_ASSERT_EQUAL(1, p.errors().bad_crc);
 }
 
 void test_parser_rejects_long_len() {
   FrameParser p;
-  p.feed(0xAA);
-  p.feed(49);
+  const uint8_t data[] = {0xAA, 49, 0x10, 0x00};
+  Got got{};
+  TEST_ASSERT_EQUAL(0, feedAll(p, data, sizeof data, got));
   TEST_ASSERT_EQUAL(1, p.errors().bad_len);
+}
+
+// Resync tests mirror protocol/generator/tests/test_python_runtime.py.
+void test_parser_resyncs_after_stray_sync() {
+  FrameParser p;
+  Got got{};
+  const uint8_t stray = proto::kSync;
+  feedAll(p, &stray, 1, got);
+  TEST_ASSERT_EQUAL(1, feedAll(p, kStop, sizeof kStop, got));  // its 0xAA is a bad len, then a sync
+  TEST_ASSERT_EQUAL_HEX8(0x12, got.types[0]);
+  TEST_ASSERT_EQUAL(1, p.errors().bad_len);
+}
+
+void test_parser_recovers_good_frame_after_truncated_header() {
+  const uint8_t junk_a[] = {0xAA, 0x05};
+  const uint8_t junk_b[] = {0xAA, 0x03, 0x10, 0x00, 0x01};
+  const uint8_t* junks[] = {junk_a, junk_b};
+  const uint8_t sizes[] = {sizeof junk_a, sizeof junk_b};
+  for (uint8_t j = 0; j < 2; ++j) {
+    FrameParser p;
+    Got got{};
+    // The false header waits for its claimed length, so the stream continues past it: the
+    // trailing frames complete the false one, then the replay recovers every good frame.
+    feedAll(p, junks[j], sizes[j], got);
+    for (uint8_t k = 0; k < 3; ++k) feedAll(p, kStop, sizeof kStop, got);
+    TEST_ASSERT_EQUAL(3, got.n);
+    for (uint8_t k = 0; k < 3; ++k) TEST_ASSERT_EQUAL_HEX8(0x12, got.types[k]);
+    TEST_ASSERT_EQUAL(1, p.errors().bad_crc);
+  }
+}
+
+void test_parser_noise_with_many_syncs_then_good_frames() {
+  FrameParser p;
+  Got got{};
+  const uint8_t s = proto::kSync;
+  const uint8_t noise[] = {s, s, 0x00, s, proto::kMaxPayload + 1, s, 0x02, s};
+  feedAll(p, noise, sizeof noise, got);
+  feedAll(p, kStop, sizeof kStop, got);
+  feedAll(p, kTurn, sizeof kTurn, got);
+  feedAll(p, kStop, sizeof kStop, got);
+  TEST_ASSERT_EQUAL(3, got.n);
+  TEST_ASSERT_EQUAL_HEX8(0x12, got.types[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x13, got.types[1]);
+  TEST_ASSERT_EQUAL_HEX8(0x12, got.types[2]);
+}
+
+void test_parser_one_byte_can_release_two_frames() {
+  FrameParser p;
+  Got got{};
+  // A false header claiming 9 payload bytes swallows exactly two STOP frames (3 + 9 = 12 bytes);
+  // the CRC fails on the last byte and the replay completes both frames from that one feed().
+  const uint8_t junk[] = {0xAA, 0x09};
+  feedAll(p, junk, sizeof junk, got);
+  feedAll(p, kStop, sizeof kStop, got);
+  TEST_ASSERT_EQUAL(0, feedAll(p, kStop, sizeof kStop - 1, got));
+  TEST_ASSERT_EQUAL(2, feedAll(p, &kStop[sizeof kStop - 1], 1, got));
+  TEST_ASSERT_EQUAL(1, p.errors().bad_crc);
 }
 
 void test_writer_matches_golden_ack() {
@@ -796,6 +884,10 @@ int main() {
   RUN_TEST(test_parser_decodes_golden_turn_with_noise);
   RUN_TEST(test_parser_bad_crc_then_good);
   RUN_TEST(test_parser_rejects_long_len);
+  RUN_TEST(test_parser_resyncs_after_stray_sync);
+  RUN_TEST(test_parser_recovers_good_frame_after_truncated_header);
+  RUN_TEST(test_parser_noise_with_many_syncs_then_good_frames);
+  RUN_TEST(test_parser_one_byte_can_release_two_frames);
   RUN_TEST(test_writer_matches_golden_ack);
   RUN_TEST(test_event_queue_overflow_counts_drops);
   RUN_TEST(test_reject_limiter);
@@ -821,6 +913,8 @@ Expected: FAIL — `domain/comms/event_queue.h: No such file or directory`.
 
 namespace cq {
 
+// Counters. bad_crc / bad_len count rejection events: a replayed byte can be rejected again
+// and is then counted again.
 struct ParseErrors {
   uint16_t bad_crc;
   uint16_t bad_len;
@@ -828,25 +922,40 @@ struct ParseErrors {
   uint16_t tx_dropped;
 };
 
-// Byte-at-a-time parser for 0xAA | len | type | seq | payload | crc8. The payload buffer is
-// the frame (dispatch by reference; no copy).
+// Byte-at-a-time parser for 0xAA | len | type | seq | payload | crc8, resyncing like the Plan A
+// reference (conqueror_protocol.framing.FrameParser):
+//  - a length byte > kMaxPayload that is itself 0xAA is taken as a new sync (stay in kLen);
+//  - after a CRC mismatch the bytes received after the false sync are rescanned for the next
+//    0xAA and replayed, so a good frame hidden behind a bad one is not lost.
+// One buffer holds the raw bytes after sync (len, type, seq, payload, crc; at most 52); replayed
+// bytes live in the same buffer, behind the write position. The frame accessors read that buffer
+// (dispatch by reference, no copy) and are valid only until the next feed()/next() call.
+//
+// Usage — a replay can complete several frames from one received byte:
+//   for (bool ready = parser.feed(b); ready; ready = parser.next()) dispatch(parser);
+// Drain next() until it returns false before the next feed(); feed() drops undrained bytes.
 class FrameParser {
  public:
-  bool feed(uint8_t b);
-  uint8_t type() const { return m_type; }
-  uint8_t seq() const { return m_seq; }
-  uint8_t len() const { return m_len; }
-  const uint8_t* payload() const { return m_buf; }
+  static constexpr uint8_t kRawMax = proto::kMaxPayload + 4;  // len, type, seq, payload, crc
+
+  bool feed(uint8_t b);  // true when a frame is ready
+  bool next();           // continue a pending replay; true when another frame is ready
+  uint8_t len() const { return m_raw[0]; }
+  uint8_t type() const { return m_raw[1]; }
+  uint8_t seq() const { return m_raw[2]; }
+  const uint8_t* payload() const { return m_raw + 3; }
   ParseErrors& errors() { return m_errors; }
 
  private:
   enum class State : uint8_t { kSync, kLen, kType, kSeq, kPayload, kCrc };
+  bool step(uint8_t b);
+  void resync();
+
   State m_state = State::kSync;
-  uint8_t m_len = 0;
-  uint8_t m_type = 0;
-  uint8_t m_seq = 0;
-  uint8_t m_idx = 0;
-  uint8_t m_buf[proto::kMaxPayload] = {};
+  uint8_t m_n = 0;    // raw bytes stored since the (possibly false) sync
+  uint8_t m_rd = 0;   // next byte to replay
+  uint8_t m_end = 0;  // end of the bytes waiting to be replayed; m_n <= m_rd <= m_end
+  uint8_t m_raw[kRawMax] = {};
   ParseErrors m_errors{};
 };
 
@@ -857,48 +966,89 @@ class FrameParser {
 ```cpp
 #include "domain/comms/frame_parser.h"
 
+#include <string.h>
+
 namespace cq {
 
 bool FrameParser::feed(uint8_t b) {
+  // The new byte goes in the slot it will be stored in anyway; any undrained replay is dropped.
+  m_raw[m_n] = b;
+  m_rd = m_n;
+  m_end = static_cast<uint8_t>(m_n + 1);
+  return next();
+}
+
+bool FrameParser::next() {
+  // Iterative and bounded: each step consumes one pending byte, and each resync shrinks
+  // (stored + pending, <= kRawMax) by at least one. Worst case for one pathological received
+  // byte: under ~1.4 k steps and a few dozen CRC passes (a few ms at 16 MHz); real noise costs
+  // a handful of steps.
+  while (m_rd < m_end) {
+    if (step(m_raw[m_rd++])) return true;
+  }
+  m_rd = m_end = 0;
+  return false;
+}
+
+bool FrameParser::step(uint8_t b) {
+  if (m_state == State::kSync) {
+    if (b == proto::kSync) {
+      m_state = State::kLen;
+      m_n = 0;
+    }
+    return false;
+  }
+  m_raw[m_n++] = b;  // m_n <= m_rd, so this never overwrites a byte still waiting to be replayed
   switch (m_state) {
-    case State::kSync:
-      if (b == proto::kSync) m_state = State::kLen;
-      return false;
     case State::kLen:
       if (b > proto::kMaxPayload) {
         ++m_errors.bad_len;
-        m_state = State::kSync;
+        if (b == proto::kSync) {
+          m_n = 0;  // a fresh sync: stay in kLen
+        } else {
+          m_state = State::kSync;
+          m_n = 0;
+        }
         return false;
       }
-      m_len = b;
       m_state = State::kType;
       return false;
     case State::kType:
-      m_type = b;
       m_state = State::kSeq;
       return false;
     case State::kSeq:
-      m_seq = b;
-      m_idx = 0;
-      m_state = m_len ? State::kPayload : State::kCrc;
+      m_state = m_raw[0] ? State::kPayload : State::kCrc;
       return false;
     case State::kPayload:
-      m_buf[m_idx++] = b;
-      if (m_idx == m_len) m_state = State::kCrc;
+      if (m_n == 3 + m_raw[0]) m_state = State::kCrc;
       return false;
-    case State::kCrc: {
+    case State::kCrc:
       m_state = State::kSync;
-      const uint8_t head[3] = {m_len, m_type, m_seq};
-      uint8_t crc = proto::crc8(head, 3);
-      crc = proto::crc8(m_buf, m_len, crc);
-      if (crc != b) {
-        ++m_errors.bad_crc;
-        return false;
+      if (proto::crc8(m_raw, static_cast<uint8_t>(m_n - 1)) == b) {
+        m_n = 0;  // the frame stays readable in m_raw until the next feed()/next()
+        return true;
       }
-      return true;
-    }
+      ++m_errors.bad_crc;
+      resync();
+      return false;
+    case State::kSync:
+      break;
   }
   return false;
+}
+
+void FrameParser::resync() {
+  uint8_t k = 0;
+  while (k < m_n && m_raw[k] != proto::kSync) ++k;
+  if (k < m_n) {
+    // Replay m_raw[k+1 .. m_n) then the still-pending tail; move the tail down to follow them.
+    const uint8_t tail = static_cast<uint8_t>(m_end - m_rd);
+    memmove(m_raw + m_n, m_raw + m_rd, tail);
+    m_end = static_cast<uint8_t>(m_n + tail);
+    m_rd = static_cast<uint8_t>(k + 1);
+    m_state = State::kLen;
+  }
+  m_n = 0;
 }
 
 }  // namespace cq
@@ -1151,7 +1301,7 @@ bool LinkSession::requestDue(uint32_t now_ms, uint8_t& frame_type) {
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_comms`
-Expected: `8 Tests 0 Failures`.
+Expected: `12 Tests 0 Failures`.
 
 - [ ] **Step 5: Link port and UART driver**
 
@@ -1361,20 +1511,22 @@ void commsPoll() {
   uint8_t b = 0;
   uint8_t budget = 64;  // bound work per loop pass
   while (budget-- && port::link::readByte(b)) {
-    if (!g_app.parser.feed(b)) continue;
-    g_app.link.onValidFrame(port::clock::nowMs());
-    const uint8_t type = g_app.parser.type();
-    bool routed = false;
-    for (uint8_t i = 0; i < kRouteCount; ++i) {
-      Route r;
-      memcpy_P(&r, &kRoutes[i], sizeof r);
-      if (r.type != type) continue;
-      routed = true;
-      const proto::AckStatus st = r.handler(g_app.parser.payload(), g_app.parser.len());
-      if (r.needs_ack) g_app.acks.push(g_app.parser.seq(), st);
-      break;
+    // A resync replay can release several frames from one byte: drain next() before reading on.
+    for (bool ready = g_app.parser.feed(b); ready; ready = g_app.parser.next()) {
+      g_app.link.onValidFrame(port::clock::nowMs());
+      const uint8_t type = g_app.parser.type();
+      bool routed = false;
+      for (uint8_t i = 0; i < kRouteCount; ++i) {
+        Route r;
+        memcpy_P(&r, &kRoutes[i], sizeof r);
+        if (r.type != type) continue;
+        routed = true;
+        const proto::AckStatus st = r.handler(g_app.parser.payload(), g_app.parser.len());
+        if (r.needs_ack) g_app.acks.push(g_app.parser.seq(), st);
+        break;
+      }
+      if (!routed) ++g_app.parser.errors().unknown_type;
     }
-    if (!routed) ++g_app.parser.errors().unknown_type;
   }
 }
 
@@ -1465,6 +1617,7 @@ void telemetrySlowDue() {
   s.loop_load = g_app.load.loadPct();
   s.loop_max_us = g_app.load.maxUs();
   s.free_ram = freeRam();
+  // bad_crc / bad_len count rejection events; a resync replay can count the same bytes again.
   s.err_frames = static_cast<uint16_t>(g_app.parser.errors().bad_crc + g_app.parser.errors().bad_len +
                                        g_app.parser.errors().unknown_type);
   g_app.slow_due = true;

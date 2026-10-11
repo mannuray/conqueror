@@ -1,0 +1,26 @@
+- { name: BUMP, kind: 1, a: "g-force in mg", b: "direction 0 front, 1 back" }
+- { name: LIFTED, kind: 2 }
+- { name: LANDED, kind: 3 }
+- { name: TILTED, kind: 4, a: "pitch, 0.1 deg", b: "roll, 0.1 deg" }
+- { name: LEVEL, kind: 5 }
+- { name: STALL, kind: 6, a: "side 0 left, 1 right" }
+- { name: BLOCKED, kind: 7, a: "distance mm" }
+- { name: UNBLOCKED, kind: 8 }
+- { name: CONTROL_CHANGED, kind: 9, a: "Owner" }
+- { name: IR_OVERRIDE, kind: 10 }
+- { name: DEADMAN_STOP, kind: 11 }
+- { name: LINK_LOST, kind: 12 }
+- { name: LINK_RESTORED, kind: 13 }
+- { name: BATT_LOW, kind: 14, a: "mV" }
+- { name: BATT_CRITICAL, kind: 15, a: "mV" }
+- { name: PRIMITIVE_DONE, kind: 16, a: "PrimitiveKind | ok << 8", b: "ack_status index (reason)" }
+- { name: SELFTEST, kind: 17, a: "failure bitmask", b: "critical 0/1" }
+- { name: ENVELOPE_CHANGED, kind: 18, a: "speed_cap | accel_cap << 8", b: "lock_brake" }
+- { name: ENCODER_FAULT, kind: 19, a: "side 0 left, 1 right" }
+- { name: IMU_FAULT, kind: 20 }
+- { name: US_FAULT, kind: 21 }
+- { name: SETTINGS_SAVED, kind: 22 }
+- { name: SETTINGS_RESET, kind: 23, a: "block mask" }
+- { name: CAL_REQUEST, kind: 24 }
+- { name: BUTTON_PRESS, kind: 25 }
+- { name: REJECTED, kind: 26, a: "frame type", b: "ack_status index", doc: "rate-limited 1 per 500 ms per source" }

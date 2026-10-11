@@ -1,0 +1,6 @@
+protocol_version: 1
+sync: 0xAA
+max_payload: 48
+crc_poly: 0x07
+crc_init: 0x00
+baud: 250000

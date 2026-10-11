@@ -29,7 +29,7 @@
 
 1. **Bytes arriving in pieces or with noise before the sync byte** → the parser must still produce the frame once, intact (Task 5 test `test_parser_split_and_noise`).
 2. **A corrupted frame followed immediately by a good one** → bad CRC counted, the good frame still decoded (Task 5 `test_parser_bad_crc_then_good`).
-3. **Variable-length TONE with too many notes or a wrong length** → rejected cleanly in Python and C++, never an out-of-bounds read (Task 5 `test_tone_rejects_bad_count`; Task 6 vector `tone_too_long` check).
+3. **Variable-length TONE with too many notes or a wrong length** → rejected cleanly in Python and C++, never an out-of-bounds read (Task 5 `test_tone_rejects_bad_count`; Task 6 `test_cpp_tone_rejects_overlong`).
 4. **Signed extremes** (`i32` min, `i8` −128, `u32` max) → round-trip identically in Python and C++, literals compile on host and AVR (`extremes` vectors in Tasks 4–6).
 5. **Someone edits YAML and forgets to regenerate** → `protogen check` fails with the stale paths listed (Task 7 `test_check_detects_stale`).
 
@@ -49,7 +49,7 @@ protocol/
 │   │   ├── model.py        pydantic model of the defs (Task 1)
 │   │   ├── loader.py       YAML → model (Task 2)
 │   │   ├── validator.py    rules → list of issues (Task 3)
-│   │   ├── naming.py       PascalCase / k-prefixed names (Task 4)
+│   │   ├── naming.py       PascalCase / k-prefixed names (Task 3)
 │   │   ├── encoding.py     generator's independent encoder + crc8 (Task 4)
 │   │   ├── vectors.py      deterministic test vectors (Task 4)
 │   │   ├── emit_python.py  → conqueror_protocol/generated.py (Task 5)
@@ -120,6 +120,7 @@ packages = ["generator/protogen"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+src = ["generator", "python"]
 extend-exclude = ["python/conqueror_protocol/generated.py"]
 
 [tool.ruff.lint]
@@ -216,6 +217,11 @@ def test_field_needs_type_or_items() -> None:
 def test_struct_array_needs_count_field() -> None:
     with pytest.raises(ValidationError):
         Field(name="bad", items=[ItemField(name="x", type="u8")], max_count=3)
+
+
+def test_unknown_key_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        Field.model_validate({"name": "a", "type": "u8", "untis": "ms"})
 ```
 
 - [ ] **Step 4: Run it to see it fail**
@@ -227,13 +233,17 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'protogen.model'`.
 
 `protocol/generator/protogen/model.py`:
 ```python
-"""Pydantic model of protocol/defs."""
+"""Pydantic model of protocol/defs.
+
+Every model forbids unknown keys, so a YAML typo (or an unquoted comma in a flow mapping)
+fails loudly instead of being silently dropped.
+"""
 
 from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 from pydantic import Field as PField
 
 WireType = Literal["u8", "i8", "u16", "i16", "u32", "i32"]
@@ -251,6 +261,8 @@ WIRE_RANGE: dict[str, tuple[int, int]] = {
 
 
 class ItemField(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     type: WireType
     unit: str | None = None
@@ -258,6 +270,8 @@ class ItemField(BaseModel):
 
 class Field(BaseModel):
     """A payload field: scalar, fixed array (`count`) or struct array (`items`)."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     type: WireType | None = None
@@ -297,6 +311,8 @@ class Field(BaseModel):
 
 
 class Frame(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     type: int
     dir: Direction
@@ -313,12 +329,16 @@ class Frame(BaseModel):
 
 
 class EnumDef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     values: dict[str, int]
     doc: str = ""
 
 
 class ErrorDef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     code: int
     reason: str
     http: int
@@ -326,6 +346,8 @@ class ErrorDef(BaseModel):
 
 
 class ErrorDomain(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     prefix: str
     range: tuple[int, int]
     codes: list[ErrorDef] = PField(default_factory=list[ErrorDef])
@@ -333,6 +355,8 @@ class ErrorDomain(BaseModel):
 
 
 class EventDef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     kind: int
     a: str | None = None
@@ -341,6 +365,8 @@ class EventDef(BaseModel):
 
 
 class SettingDef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: int
     name: str
     scope: Literal["global", "profile"]
@@ -354,6 +380,8 @@ class SettingDef(BaseModel):
 
 
 class GoldenVector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     frame: str
     seq: int
     values: dict[str, Any]
@@ -361,6 +389,8 @@ class GoldenVector(BaseModel):
 
 
 class Meta(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     protocol_version: int
     sync: int
     max_payload: int
@@ -370,6 +400,8 @@ class Meta(BaseModel):
 
 
 class ProtocolModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     meta: Meta
     enums: list[EnumDef]
     frames: list[Frame]
@@ -389,7 +421,7 @@ class ProtocolModel(BaseModel):
 - [ ] **Step 6: Run the test to see it pass**
 
 Run: `cd protocol && uv run pytest generator/tests/test_model.py -v`
-Expected: 4 passed.
+Expected: 5 passed.
 
 - [ ] **Step 7: Lint and type-check**
 
@@ -432,6 +464,8 @@ def test_loads_real_defs() -> None:
     assert model.meta.max_payload == 48
     names = {f.name for f in model.frames}
     assert {"HEARTBEAT", "TURN", "TONE", "TELEM_FAST", "TELEM_SLOW", "CAL_DATA"} <= names
+    busy = next(e for d in model.errors for e in d.codes if e.reason == "BUSY")
+    assert busy.message == "Busy, try again"  # comma inside a flow mapping must be quoted
 
 
 def test_payload_sizes_match_lld() -> None:
@@ -859,7 +893,7 @@ domains:
       - { code: 3002, reason: BLOCKED, http: 422, message: Blocked by a safety rule }
       - { code: 3003, reason: UNAVAILABLE, http: 422, message: Capability not available }
       - { code: 3004, reason: ENVELOPE_LOCKED, http: 409, message: Locked by the safety envelope }
-      - { code: 3005, reason: BUSY, http: 409, message: Busy, try again }
+      - { code: 3005, reason: BUSY, http: 409, message: "Busy, try again" }
       - { code: 3006, reason: INVALID_COMMAND, http: 422, message: Invalid command }
       - { code: 3007, reason: BODY_OFFLINE, http: 503, message: Body (Uno) offline }
       - { code: 3008, reason: BODY_INCOMPATIBLE, http: 503, message: Body firmware incompatible }
@@ -1075,7 +1109,7 @@ def load(defs_dir: Path) -> ProtocolModel:
 - [ ] **Step 5: Run the tests to see them pass**
 
 Run: `cd protocol && uv run pytest generator/tests -v`
-Expected: all passed (8 tests).
+Expected: all passed (9 tests).
 
 - [ ] **Step 6: Lint, type-check, commit**
 
@@ -1091,14 +1125,24 @@ git commit -m "feat(protocol): body-link definitions (frames, enums, errors, eve
 ### Task 3: Validator
 
 **Files:**
-- Create: `protocol/generator/protogen/validator.py`
-- Test: `protocol/generator/tests/test_validator.py`
+- Create: `protocol/generator/protogen/naming.py`, `protocol/generator/protogen/validator.py`
+- Test: `protocol/generator/tests/test_naming.py`, `protocol/generator/tests/test_validator.py`
 
 **Interfaces:**
 - Consumes: `load()`, model classes.
-- Produces: `protogen.validator.validate(model: ProtocolModel) -> list[str]` (empty = valid).
+- Produces: `protogen.validator.validate(model: ProtocolModel) -> list[str]` (empty = valid); `naming.pascal(name: str) -> str` (`"TELEM_FAST"` → `"TelemFast"`), `naming.k_name(name: str) -> str` (`"TELEM_FAST"` → `"kTelemFast"`) — the validator uses `pascal` for the enum/frame-class clash rule, the emitters (Tasks 5–7) for generated names.
 
 - [ ] **Step 1: Write the failing tests**
+
+`protocol/generator/tests/test_naming.py`:
+```python
+from protogen.naming import k_name, pascal
+
+
+def test_naming() -> None:
+    assert pascal("TELEM_FAST") == "TelemFast"
+    assert k_name("TELEM_FAST") == "kTelemFast"
+```
 
 `protocol/generator/tests/test_validator.py`:
 ```python
@@ -1158,7 +1202,9 @@ def test_ack_status_unknown_reason() -> None:
 def test_setting_default_out_of_range() -> None:
     m = _model()
     m.settings.append(
-        SettingDef(id=99, name="bad", scope="global", type="u8", unit="x", min=0, max=10, default=11)
+        SettingDef(
+            id=99, name="bad", scope="global", type="u8", unit="x", min=0, max=10, default=11
+        )
     )
     assert any("bad" in i and "default" in i for i in validate(m))
 
@@ -1166,7 +1212,9 @@ def test_setting_default_out_of_range() -> None:
 def test_setting_range_exceeds_wire_type() -> None:
     m = _model()
     m.settings.append(
-        SettingDef(id=98, name="wide", scope="global", type="u8", unit="x", min=0, max=300, default=1)
+        SettingDef(
+            id=98, name="wide", scope="global", type="u8", unit="x", min=0, max=300, default=1
+        )
     )
     assert any("wide" in i and "wire" in i for i in validate(m))
 
@@ -1186,10 +1234,23 @@ def test_count_field_must_precede_array() -> None:
 
 - [ ] **Step 2: Run them to see them fail**
 
-Run: `cd protocol && uv run pytest generator/tests/test_validator.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'protogen.validator'`.
+Run: `cd protocol && uv run pytest generator/tests/test_naming.py generator/tests/test_validator.py -v`
+Expected: FAIL — `ModuleNotFoundError: No module named 'protogen.naming'` / `'protogen.validator'`.
 
-- [ ] **Step 3: Implement the validator**
+- [ ] **Step 3: Implement naming and the validator**
+
+`protocol/generator/protogen/naming.py`:
+```python
+"""Name conversions shared by the validator and the emitters."""
+
+
+def pascal(name: str) -> str:
+    return "".join(part.capitalize() for part in name.lower().split("_"))
+
+
+def k_name(name: str) -> str:
+    return "k" + pascal(name)
+```
 
 `protocol/generator/protogen/validator.py`:
 ```python
@@ -1198,6 +1259,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'protogen.validator'`.
 from __future__ import annotations
 
 from .model import WIRE_RANGE, Frame, ProtocolModel
+from .naming import pascal
 
 _DIR_RANGE = {"esp32_to_uno": (0x01, 0x7F), "uno_to_esp32": (0x80, 0xFF)}
 
@@ -1266,7 +1328,7 @@ def validate(model: ProtocolModel) -> list[str]:
         if reason not in reasons:
             issues.append(f"ack_status: unknown reason {reason}")
 
-    frame_classes = {"".join(p.capitalize() for p in f.name.lower().split("_")) for f in model.frames}
+    frame_classes = {pascal(f.name) for f in model.frames}
     for e in model.enums:
         if e.name in frame_classes:
             issues.append(f"enum {e.name}: name clash with a generated frame class")
@@ -1301,14 +1363,15 @@ def validate(model: ProtocolModel) -> list[str]:
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `cd protocol && uv run pytest generator/tests -v`
-Expected: all passed.
+Expected: all passed (21 tests: 5 model, 4 loader, 1 naming, 11 validator).
 
 - [ ] **Step 5: Lint, type-check, commit**
 
 Run: `cd protocol && uv run ruff check . && uv run ruff format --check . && uv run pyright`
 ```bash
-git add protocol/generator/protogen/validator.py protocol/generator/tests/test_validator.py
-git commit -m "feat(protocol): definition validator"
+git add protocol/generator/protogen/naming.py protocol/generator/protogen/validator.py \
+  protocol/generator/tests/test_naming.py protocol/generator/tests/test_validator.py
+git commit -m "feat(protocol): definition validator and shared naming helpers"
 ```
 
 ---
@@ -1316,12 +1379,11 @@ git commit -m "feat(protocol): definition validator"
 ### Task 4: Generator encoder, CRC, golden check and test vectors (JSON)
 
 **Files:**
-- Create: `protocol/generator/protogen/naming.py`, `encoding.py`, `vectors.py`, `emit_vectors.py`
+- Create: `protocol/generator/protogen/encoding.py`, `vectors.py`, `emit_vectors.py`
 - Test: `protocol/generator/tests/test_encoding.py`
 
 **Interfaces:**
 - Produces:
-  - `naming.pascal(name: str) -> str` (`"TELEM_FAST"` → `"TelemFast"`), `naming.k_name(name: str) -> str` (`"TELEM_FAST"` → `"kTelemFast"`).
   - `encoding.crc8(data: bytes, poly: int = 0x07, init: int = 0x00) -> int`, `encoding.encode_payload(frame: Frame, values: Mapping[str, Any]) -> bytes`, `encoding.build_frame(meta: Meta, frame: Frame, seq: int, values: Mapping[str, Any]) -> bytes`.
   - `vectors.Vector(frame: str, variant: str, seq: int, values: dict[str, Any], data: bytes)`, `vectors.make_vectors(model) -> list[Vector]` (typical + extremes per frame, then goldens with variant `"golden"`).
   - `emit_vectors.emit_vectors_json(model) -> str`.
@@ -1334,7 +1396,6 @@ from pathlib import Path
 
 from protogen.encoding import build_frame, crc8
 from protogen.loader import load
-from protogen.naming import k_name, pascal
 from protogen.vectors import make_vectors
 
 DEFS = Path(__file__).resolve().parents[2] / "defs"
@@ -1342,11 +1403,6 @@ DEFS = Path(__file__).resolve().parents[2] / "defs"
 
 def test_crc8_check_value() -> None:
     assert crc8(b"123456789") == 0xF4
-
-
-def test_naming() -> None:
-    assert pascal("TELEM_FAST") == "TelemFast"
-    assert k_name("TELEM_FAST") == "kTelemFast"
 
 
 def test_golden_vectors_match_generator_encoder() -> None:
@@ -1383,20 +1439,7 @@ def test_tone_extremes_use_max_count() -> None:
 Run: `cd protocol && uv run pytest generator/tests/test_encoding.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'protogen.encoding'`.
 
-- [ ] **Step 3: Implement naming, encoding, vectors, JSON emitter**
-
-`protocol/generator/protogen/naming.py`:
-```python
-"""Name conversions shared by emitters."""
-
-
-def pascal(name: str) -> str:
-    return "".join(part.capitalize() for part in name.lower().split("_"))
-
-
-def k_name(name: str) -> str:
-    return "k" + pascal(name)
-```
+- [ ] **Step 3: Implement encoding, vectors, JSON emitter**
 
 `protocol/generator/protogen/encoding.py`:
 ```python
@@ -1470,7 +1513,7 @@ class Vector:
 
 def _scalar(wire: str, idx: int, variant: str) -> int:
     if variant == "typical":
-        base = (idx + 1) * 3
+        base = ((idx + 1) * 3) % 100  # < 100: fits every wire type, incl. u8/i8 array elements
         return -base if wire.startswith("i") and idx % 2 else base
     lo, hi = WIRE_RANGE[wire]
     return hi if idx % 2 == 0 else lo
@@ -1542,7 +1585,7 @@ def emit_vectors_json(model: ProtocolModel) -> str:
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `cd protocol && uv run pytest generator/tests -v`
-Expected: all passed.
+Expected: all passed (26 tests: 21 earlier + 5 encoding).
 
 - [ ] **Step 5: Lint, type-check, commit**
 
@@ -1635,9 +1678,13 @@ class Message:
         for spec in self.FIELDS:
             value: Any = getattr(self, spec.name)
             if spec.items is not None:
-                assert spec.max_count is not None
-                if len(value) > spec.max_count:
-                    raise ValueError(f"{type(self).__name__}.{spec.name}: too many items")
+                assert spec.max_count is not None and spec.count_field is not None
+                count = getattr(self, spec.count_field)
+                if len(value) > spec.max_count or count != len(value):
+                    raise ValueError(
+                        f"{type(self).__name__}.{spec.name}: {len(value)} items, "
+                        f"{spec.count_field}={count}, max {spec.max_count}"
+                    )
                 fmt = "<" + "".join(FMT[w] for _, w in spec.items)
                 for item in value:
                     out += struct.pack(fmt, *item)
@@ -1960,29 +2007,30 @@ Expected: file `protocol/python/conqueror_protocol/generated.py` created (later 
 
 `protocol/generator/tests/test_python_runtime.py`:
 ```python
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 import pytest
 
-from conqueror_protocol import FrameParser, build_frame, decode_frame, generated
+from conqueror_protocol import FrameParser, RawFrame, build_frame, decode_frame, generated
 from conqueror_protocol.framing import crc8
 from protogen.loader import load
 from protogen.naming import pascal
-from protogen.vectors import make_vectors
+from protogen.vectors import Vector, make_vectors
 
 DEFS = Path(__file__).resolve().parents[2] / "defs"
 MODEL = load(DEFS)
 
 
-def _norm(v: Any) -> Any:
+def _norm(v: object) -> object:
     if isinstance(v, (list, tuple)):
-        return [_norm(x) for x in v]  # pyright: ignore[reportUnknownVariableType]
+        return [_norm(x) for x in cast(Sequence[object], v)]
     return v
 
 
 @pytest.mark.parametrize("vec", make_vectors(MODEL), ids=lambda v: f"{v.frame}-{v.variant}")
-def test_runtime_matches_vector(vec: Any) -> None:
+def test_runtime_matches_vector(vec: Vector) -> None:
     frame_def = MODEL.frame(vec.frame)
     parser = FrameParser()
     [raw] = parser.feed(vec.data)
@@ -2000,7 +2048,7 @@ def test_crc_check_value() -> None:
 def test_parser_split_and_noise() -> None:
     data = bytes.fromhex(MODEL.golden[2].hex.replace(" ", ""))
     parser = FrameParser()
-    frames = []
+    frames: list[RawFrame] = []
     for b in b"\x00\x13\xff" + data:
         frames += parser.feed(bytes([b]))
     assert len(frames) == 1
@@ -2028,6 +2076,10 @@ def test_tone_rejects_bad_count() -> None:
         generated.Tone.decode(bytes([11]) + bytes(44))
     with pytest.raises(ValueError):
         generated.Tone.decode(bytes([2]) + bytes(4))
+    with pytest.raises(ValueError):  # n disagrees with the number of notes
+        generated.Tone(n=3, notes=((440, 100),)).encode()
+    with pytest.raises(ValueError):  # more notes than max_count
+        generated.Tone(n=11, notes=((440, 100),) * 11).encode()
 
 
 def test_short_and_long_payloads_rejected() -> None:
@@ -2048,7 +2100,7 @@ def test_registry_and_tables() -> None:
 - [ ] **Step 5: Run the tests to see them pass**
 
 Run: `cd protocol && uv run pytest generator/tests -v`
-Expected: all passed (≈ 90 tests incl. one per vector).
+Expected: all passed (112 tests: 26 earlier + 79 `test_runtime_matches_vector` cases, one per vector, + 7 runtime tests).
 
 - [ ] **Step 6: Lint, type-check, commit**
 
@@ -2064,7 +2116,7 @@ git commit -m "feat(protocol): Python runtime package and emitter, cross-checked
 ### Task 6: Uno C++ header emitter and host C++ vector test
 
 **Files:**
-- Create: `protocol/generator/protogen/emit_cpp.py`; extend `protocol/generator/protogen/emit_vectors.py` with `emit_vectors_cpp`; generated `firmware/uno/src/generated/cq_protocol.h` and `protocol/tests/cpp/generated_vectors_test.cpp`
+- Create: `protocol/generator/protogen/emit_cpp.py`; extend `protocol/generator/protogen/emit_vectors.py` with `emit_vectors_cpp` (the generated `cq_protocol.h` / `generated_vectors_test.cpp` files are first written in Task 7; this task's test compiles fresh copies in a temp dir)
 - Test: `protocol/generator/tests/test_cpp_vectors.py`
 
 **Interfaces:**
@@ -2168,7 +2220,10 @@ UTYPE: dict[str, str] = {
     "u8": "uint8_t", "i8": "uint8_t", "u16": "uint16_t",
     "i16": "uint16_t", "u32": "uint32_t", "i32": "uint32_t",
 }
-SUFFIX: dict[str, str] = {"u8": "u8", "i8": "u8", "u16": "u16", "i16": "u16", "u32": "u32", "i32": "u32"}
+SUFFIX: dict[str, str] = {
+    "u8": "u8", "i8": "u8", "u16": "u16",
+    "i16": "u16", "u32": "u32", "i32": "u32",
+}
 WIRE_ENUM: dict[str, str] = {
     "u8": "kU8", "i8": "kI8", "u16": "kU16", "i16": "kI16", "u32": "kU32", "i32": "kI32",
 }
@@ -2439,12 +2494,15 @@ def _checks(model: ProtocolModel, frame_name: str, values: dict[str, Any]) -> li
             for k, element in enumerate(value):
                 lit = cpp_literal(int(element), f.type)
                 lines.append(
-                    f"  if (m.{f.name}[{k}] != static_cast<{CTYPE[f.type]}>({lit})) {{ return false; }}"
+                    f"  if (m.{f.name}[{k}] != static_cast<{CTYPE[f.type]}>({lit})) "
+                    "{ return false; }"
                 )
         else:
             assert f.type is not None
             lit = cpp_literal(int(value), f.type)
-            lines.append(f"  if (m.{f.name} != static_cast<{CTYPE[f.type]}>({lit})) {{ return false; }}")
+            lines.append(
+                f"  if (m.{f.name} != static_cast<{CTYPE[f.type]}>({lit})) {{ return false; }}"
+            )
     return lines
 
 
@@ -2468,8 +2526,10 @@ def emit_vectors_cpp(model: ProtocolModel) -> str:
             f"static bool {fn}() {{",
             f"  static const uint8_t frame[] = {{{data}}};",
             "  const uint8_t len = frame[1];",
-            f"  if (frame[0] != kSync || frame[2] != static_cast<uint8_t>({cls}::kType)) {{ return false; }}",
-            "  if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }",
+            f"  if (frame[0] != kSync || frame[2] != static_cast<uint8_t>({cls}::kType)) "
+            "{ return false; }",
+            "  if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) "
+            "{ return false; }",
             f"  {cls} m{{}};",
             "  if (!decode(frame + 4, len, m)) { return false; }",
         ]
@@ -2508,7 +2568,7 @@ Move the new imports to the top of `emit_vectors.py` (ruff `I` will flag their p
 - [ ] **Step 5: Run the tests to see them pass**
 
 Run: `cd protocol && uv run pytest generator/tests -v`
-Expected: all passed, including `test_cpp_codec_matches_all_vectors` (stdout `79 vectors, 0 failed` — 37 frames × 2 + 5 goldens) and `test_cpp_tone_rejects_overlong`.
+Expected: all passed (114 tests: 112 earlier + 2 C++), including `test_cpp_codec_matches_all_vectors` (stdout `79 vectors, 0 failed` — 37 frames × 2 + 5 goldens) and `test_cpp_tone_rejects_overlong` (both are skipped, not failed, on a machine without a C++ compiler).
 
 - [ ] **Step 6: Lint, type-check, commit**
 
@@ -2529,7 +2589,7 @@ git commit -m "feat(protocol): AVR-friendly C++ header emitter and host C++ vect
 - Test: `protocol/generator/tests/test_cli.py`
 
 **Interfaces:**
-- Produces: `protogen.cli.OUTPUTS: dict[str, Callable[[ProtocolModel], str]]`, `render_all(model) -> dict[str, str]`, `cmd_write(root: Path) -> int`, `cmd_check(root: Path) -> int`, `main(argv: list[str] | None = None) -> int`; console script `protogen write|check|diff`; `protogen.emit_docs.emit_docs(model) -> str`.
+- Produces: `protogen.cli.OUTPUTS: dict[str, Callable[[ProtocolModel], str]]`, `render_all(model) -> dict[str, str]`, `cmd_write(root: Path) -> int`, `cmd_check(root: Path) -> int`, `main(argv: list[str] | None = None) -> int`; console script `protogen write|check` (`diff` is registered in Task 8); `protogen.emit_docs.emit_docs(model) -> str`.
 
 - [ ] **Step 1: Write the failing CLI tests**
 
@@ -2538,7 +2598,11 @@ git commit -m "feat(protocol): AVR-friendly C++ header emitter and host C++ vect
 import shutil
 from pathlib import Path
 
+import pytest
+
 from protogen.cli import OUTPUTS, cmd_check, cmd_write
+from protogen.emit_docs import emit_docs
+from protogen.loader import load
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -2556,12 +2620,16 @@ def test_write_then_check_clean(tmp_path: Path) -> None:
     assert cmd_check(root) == 0
 
 
-def test_check_detects_stale(tmp_path: Path, capsys: object) -> None:
+def test_check_detects_stale(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     root = _tmp_root(tmp_path)
     cmd_write(root)
+    capsys.readouterr()
     header = root / "firmware/uno/src/generated/cq_protocol.h"
     header.write_text(header.read_text() + "// edited by hand\n")
     assert cmd_check(root) == 1
+    err = capsys.readouterr().err
+    assert "firmware/uno/src/generated/cq_protocol.h" in err
+    assert "protocol/vectors/frames.json" not in err
 
 
 def test_check_detects_missing_regeneration(tmp_path: Path) -> None:
@@ -2577,6 +2645,12 @@ def test_write_refuses_invalid_defs(tmp_path: Path) -> None:
     meta = root / "protocol/defs/meta.yaml"
     meta.write_text(meta.read_text().replace("max_payload: 48", "max_payload: 8"))
     assert cmd_write(root) == 1
+
+
+def test_docs_escape_pipes_in_table_cells() -> None:
+    text = emit_docs(load(ROOT / "protocol" / "defs"))
+    assert "major << 8 \\| minor" in text  # HELLO.fw doc
+    assert "PrimitiveKind \\| ok << 8" in text  # PRIMITIVE_DONE.a
 
 
 def test_committed_outputs_are_fresh() -> None:
@@ -2597,6 +2671,11 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'protogen.cli'`.
 from __future__ import annotations
 
 from .model import Field, ProtocolModel
+
+
+def _cell(text: str) -> str:
+    """Escape text for a Markdown table cell (a bare | would start a new column)."""
+    return text.replace("|", "\\|")
 
 
 def _field_type(f: Field) -> str:
@@ -2632,7 +2711,8 @@ def emit_docs(model: ProtocolModel) -> str:
         "# Body-link protocol reference",
         "",
         f"Protocol version **{m.protocol_version}** · UART **{m.baud}** baud · "
-        f"frame `0x{m.sync:02X} | len | type | seq | payload | crc8` · max payload **{m.max_payload}** · "
+        f"frame `0x{m.sync:02X} | len | type | seq | payload | crc8` · "
+        f"max payload **{m.max_payload}** · "
         f"CRC-8 poly 0x{m.crc_poly:02X} init 0x{m.crc_init:02X} · little-endian",
         "",
         "## Frames",
@@ -2650,17 +2730,25 @@ def emit_docs(model: ProtocolModel) -> str:
         ]
         if fr.fields:
             out += ["| Field | Type | Notes |", "|---|---|---|"]
-            out += [f"| {f.name} | {_field_type(f)} | {_notes(f)} |" for f in fr.fields]
+            out += [
+                f"| {f.name} | {_cell(_field_type(f))} | {_cell(_notes(f))} |" for f in fr.fields
+            ]
             out.append("")
     out += ["## Enums", ""]
     for e in model.enums:
         values = ", ".join(f"{k}={v}" for k, v in e.values.items())
         out.append(f"- **{e.name}**: {values}{' — ' + e.doc if e.doc else ''}")
     out += ["", "## Events (EVENT.kind)", "", "| Kind | Name | a | b |", "|---|---|---|---|"]
-    out += [f"| {ev.kind} | {ev.name} | {ev.a or ''} | {ev.b or ''} |" for ev in model.events]
+    out += [
+        f"| {ev.kind} | {ev.name} | {_cell(ev.a or '')} | {_cell(ev.b or '')} |"
+        for ev in model.events
+    ]
     out += ["", "## Errors", "", "| Code | Reason | HTTP | Message |", "|---|---|---|---|"]
     for d in model.errors:
-        out += [f"| {d.prefix}_{e.code} | {e.reason} | {e.http} | {e.message} |" for e in d.codes]
+        out += [
+            f"| {d.prefix}_{e.code} | {e.reason} | {e.http} | {_cell(e.message)} |"
+            for e in d.codes
+        ]
     out += ["", "## ACK status byte", ""]
     out += [f"{i}. {r}" for i, r in enumerate(model.ack_status)]
     out += [
@@ -2683,7 +2771,7 @@ def emit_docs(model: ProtocolModel) -> str:
 
 `protocol/generator/protogen/cli.py`:
 ```python
-"""protogen command line: write | check | diff."""
+"""protogen command line: write | check."""
 
 from __future__ import annotations
 
@@ -2755,17 +2843,11 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("write", help="regenerate all outputs")
     sub.add_parser("check", help="fail if outputs are stale or defs invalid")
-    diff = sub.add_parser("diff", help="detect breaking changes against a git ref")
-    diff.add_argument("--against", required=True)
     args = parser.parse_args(argv)
     root: Path = args.root
     if args.cmd == "write":
         return cmd_write(root)
-    if args.cmd == "check":
-        return cmd_check(root)
-    from .diff import cmd_diff
-
-    return cmd_diff(root, args.against)
+    return cmd_check(root)
 
 
 if __name__ == "__main__":
@@ -2796,7 +2878,7 @@ Expected: no output.
 - [ ] **Step 6: Generate everything and run all tests**
 
 Run: `cd protocol && uv run protogen write && uv run pytest generator/tests -v`
-Expected: `protogen: wrote 5 files`; all tests pass, including `test_committed_outputs_are_fresh`.
+Expected: `protogen: wrote 5 files`; all passed (120 tests: 114 earlier + 6 CLI/docs), including `test_committed_outputs_are_fresh`.
 
 - [ ] **Step 7: Record the LLD deviation and the CAL_DATA layout table**
 
@@ -2806,7 +2888,7 @@ Append to `docs/lld/protocol-generator-lld.md`:
 ## Implementation note (Plan A)
 - Jinja2 templates were replaced by small emitter functions (`emit_*.py`) that return text — simpler and unit-testable; no `templates/` folder.
 - ESP32 C++, TypeScript and client-JSON outputs are deferred to roadmap phases 4/5 (YAGNI); the Uno header is reused by the ESP32 bridge only as raw bytes (the bridge does not parse frames).
-- C++ host test: `protocol/tests/cpp/generated_vectors_test.cpp` (generated) is compiled and run by `pytest` (`test_cpp_vectors.py`).
+- C++ host test: `pytest` (`test_cpp_vectors.py`) emits a fresh copy of the header and the vector test into a temp dir, compiles and runs it. The committed `protocol/tests/cpp/generated_vectors_test.cpp` is the same text (kept for building outside pytest) and is only staleness-checked by `protogen check`; it is not what pytest compiles.
 
 ## CAL_DATA channel layouts (authoritative)
 Contract between the Uno `CalScriptRunner` (Plan B Task 7) and the reference calculators (Plan D Task 11, later the ESP32 port). `CAL_DATA {script, phase, t_ms u16 (ms since script start, wraps; host unwraps), v[8] i16}` at 50 Hz; unused channels 0. CCW yaw positive; encoder counts and cps signed by the commanded direction unless shown as |x|; ×10 = 0.1 units.
@@ -2839,11 +2921,12 @@ git commit -m "feat(protocol): docs emitter, protogen write/check, staleness hoo
 
 **Files:**
 - Create: `protocol/generator/protogen/diff.py`
+- Modify: `protocol/generator/protogen/cli.py` (register the `diff` subcommand)
 - Test: `protocol/generator/tests/test_diff.py`
 
 **Interfaces:**
 - Consumes: `load`, model classes.
-- Produces: `protogen.diff.breaking_changes(old: ProtocolModel, new: ProtocolModel) -> list[str]`, `protogen.diff.cmd_diff(root: Path, ref: str) -> int` (fails if breaking changes exist and `protocol_version` was not bumped).
+- Produces: `protogen.diff.breaking_changes(old: ProtocolModel, new: ProtocolModel) -> list[str]`, `protogen.diff.cmd_diff(root: Path, ref: str) -> int` (fails if breaking changes exist and `protocol_version` was not bumped); console script `protogen diff --against <ref>`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2963,12 +3046,37 @@ def cmd_diff(root: Path, ref: str) -> int:
     return 0
 ```
 
-- [ ] **Step 4: Run all tests and a real diff**
+- [ ] **Step 4: Register `diff` in the CLI**
+
+In `protocol/generator/protogen/cli.py`, change the module docstring to `"""protogen command line: write | check | diff."""`, add the import (with the other relative imports, sorted):
+```python
+from .diff import cmd_diff
+```
+and replace `main` with:
+```python
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="protogen")
+    parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("write", help="regenerate all outputs")
+    sub.add_parser("check", help="fail if outputs are stale or defs invalid")
+    diff = sub.add_parser("diff", help="detect breaking changes against a git ref")
+    diff.add_argument("--against", required=True)
+    args = parser.parse_args(argv)
+    root: Path = args.root
+    if args.cmd == "write":
+        return cmd_write(root)
+    if args.cmd == "check":
+        return cmd_check(root)
+    return cmd_diff(root, args.against)
+```
+
+- [ ] **Step 5: Run all tests and a real diff**
 
 Run: `cd protocol && uv run pytest generator/tests -v && uv run protogen diff --against HEAD`
-Expected: all tests pass; diff prints nothing and exits 0.
+Expected: all passed (126 tests: 120 earlier + 6 diff); diff prints nothing and exits 0.
 
-- [ ] **Step 5: Lint, type-check, commit**
+- [ ] **Step 6: Lint, type-check, commit**
 
 Run: `cd protocol && uv run ruff check . && uv run ruff format --check . && uv run pyright`
 ```bash

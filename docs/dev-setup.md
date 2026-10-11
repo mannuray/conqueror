@@ -11,6 +11,14 @@ The implementation plans show macOS commands. This page gives the Linux equivale
 | Claude Code + superpowers plugin | same on both — install Claude Code, then add the superpowers plugin | same |
 | GitHub access | SSH key added to GitHub | same (`ssh-keygen -t ed25519`, add the public key to GitHub) |
 
+## 1b. After every fresh clone (macOS and Linux)
+Run these once in the repo root; the commands are the same on both:
+```sh
+git config core.hooksPath .githooks   # enables the protocol staleness hook
+cd protocol && uv sync                # uv picks Python 3.12 from protocol/.python-version
+```
+The pre-commit hook (`.githooks/pre-commit` → `scripts/check-protocol.sh`) runs `uv run protogen check` in `protocol/`. It fails the commit if `protocol/defs/*.yaml` changed without regenerating the outputs; fix with `cd protocol && uv run protogen write`. Without `core.hooksPath` the hook never runs.
+
 ## 2. Serial ports (Uno and ESP32 over USB)
 | | macOS | Linux |
 |---|---|---|

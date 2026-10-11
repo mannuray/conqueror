@@ -28,7 +28,7 @@ Hobby robot platform: ELEGOO Conqueror tank rebuilt as **Uno body + ESP32 gatewa
 Execute with the superpowers skills (`subagent-driven-development` recommended, or `executing-plans`).
 
 ## Hard rules for code
-- **Generated files are never edited by hand** (`firmware/uno/src/generated/`, `protocol/python/conqueror_protocol/generated.py`, `protocol/vectors/`, `protocol/tests/cpp/`, `docs/protocol/reference.md`). Change `protocol/defs/*.yaml`, run `cd protocol && uv run protogen write`; the pre-commit hook runs `protogen check`.
+- **Generated files are never edited by hand** (`firmware/uno/src/generated/`, `protocol/python/conqueror_protocol/generated.py`, `protocol/vectors/`, `protocol/tests/cpp/`, `docs/protocol/reference.md`). Change `protocol/defs/*.yaml`, run `cd protocol && uv run protogen write`; the pre-commit hook runs `protogen check` (enable it on every fresh clone with `git config core.hooksPath .githooks` — see `docs/dev-setup.md` §1b).
 - Uno: no heap, no `virtual`, no `delay()`, ISRs capture-only, domain code never includes `ports/` or `Arduino.h`; only `SafetySupervisor` can produce motor output (`PwmOutput`).
 - Python: 3.12 via uv, type hints everywhere, ruff + pyright strict clean, asyncio without blocking the event loop.
 - The obstacle brake, deadman, link-loss stop and child-play envelope are safety features: never weaken them to make a test pass.

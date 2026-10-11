@@ -3674,10 +3674,10 @@ git commit -m "feat(uno): MPU6050 driver, attitude/yaw/bump/lift estimators, 200
 **Interfaces:**
 - Consumes: `EchoState`, `IrEvent` (Task 1), `GlobalSettings` (Task 3), `EventQueue`.
 - Produces:
-  - `cq::UltrasonicFilter`: `enum class Change : uint8_t { kNone, kFault, kRecovered }`; `Change onReading(EchoState st, uint16_t echo_us, uint8_t offset_mm, uint32_t now_ms)`, `uint16_t distMm() const` (`kClear = 0xFFFF`, `kFault = 0xFFFE`), `int16_t closingCmS() const`, `bool fault() const`, `bool valid() const`.
+  - `cq::UltrasonicFilter`: `enum class Change : uint8_t { kNone, kFault, kRecovered }`; `Change onReading(EchoState st, uint16_t echo_us, uint8_t offset_mm, uint32_t now_ms)`, `uint16_t distMm() const` (`kClear = 0xFFFF`, `kFault = 0xFFFE`), `int16_t closingCmS() const`, `bool fault() const`, `bool valid() const`. Fault semantics (LLD §9.16): only a *failed measurement* counts — `kNoEcho` (no rising edge within 2 ms of the trigger) or a `kPending` beyond `kMaxPending` ticks (echo line stuck high > 250 ms); 3 consecutive → fault. `kClear` (echo high > 25 ms: nothing in range) is never a fault.
   - `cq::BatteryMonitor`: `enum class Level : uint8_t { kUsb, kOk, kLow, kCritical }`; `Level update(uint16_t adc, uint16_t mv_per_count_x100, uint16_t low_mv, uint16_t crit_mv, uint32_t now_ms)` (returns the new level on change, else the current; the voltage is the plain average of the last 4 samples, one sample per 10 Hz tick — LLD §9.13), `bool changed() const`, `uint16_t mv() const`, `Level level() const`.
   - `cq::NecDecoder`: `bool feed(uint32_t t_us, uint32_t now_ms, IrEvent& out)`.
-  - Ports: `cq::port::ultrasonic::{begin(), trigger(), EchoState poll(uint16_t& echo_us)}`; `cq::port::ir::{begin(), bool popEdge(uint32_t& t_us)}`; `cq::port::battery_adc::{begin(), start(), bool ready(uint16_t& adc)}`; `cq::port::button::{begin(), bool pressed()}`.
+  - Ports: `cq::port::ultrasonic::{begin(), bool trigger(), EchoState poll(uint16_t& echo_us)}` (`trigger()` sends no ping and returns false while the echo line is still high; the next `poll()` then returns `kPending`); `cq::port::ir::{begin(), bool popEdge(uint32_t& t_us)}`; `cq::port::battery_adc::{begin(), start(), bool ready(uint16_t& adc)}`; `cq::port::button::{begin(), bool pressed()}`.
   - App members `UltrasonicFilter us; BatteryMonitor batt; NecDecoder nec; IrEvent ir_event; bool ir_pending;` and tasks `cq::app::ultrasonicTask()` (20 Hz), `batteryTask()` (10 Hz), `irTask()` (200 Hz), `sensorsInit()`, declared in `app/tasks.h`.
 
 - [ ] **Step 1: Write the failing sensor tests**
@@ -3720,14 +3720,49 @@ void test_ultrasonic_closing_speed() {
   TEST_ASSERT_INT16_WITHIN(5, 30, f.closingCmS());
 }
 
-void test_ultrasonic_fault_after_ten_no_echo_and_recovery() {
+void test_ultrasonic_fault_after_three_no_echo_and_recovery() {
   UltrasonicFilter f;
   UltrasonicFilter::Change c = UltrasonicFilter::Change::kNone;
-  for (int i = 0; i < 10; ++i) c = f.onReading(EchoState::kNoEcho, 0, 0, static_cast<uint32_t>(i) * 50);
+  for (int i = 0; i < 2; ++i) c = f.onReading(EchoState::kNoEcho, 0, 0, static_cast<uint32_t>(i) * 50);
+  TEST_ASSERT_FALSE(f.fault());
+  c = f.onReading(EchoState::kNoEcho, 0, 0, 100);  // 3rd consecutive failed measurement (LLD §9.16)
   TEST_ASSERT_EQUAL(static_cast<int>(UltrasonicFilter::Change::kFault), static_cast<int>(c));
   TEST_ASSERT_EQUAL_HEX16(UltrasonicFilter::kFault, f.distMm());
-  c = f.onReading(EchoState::kReady, 2915, 0, 600);
+  c = f.onReading(EchoState::kReady, 2915, 0, 150);
   TEST_ASSERT_EQUAL(static_cast<int>(UltrasonicFilter::Change::kRecovered), static_cast<int>(c));
+}
+
+void test_ultrasonic_open_space_and_clone_hold_are_not_faults() {
+  UltrasonicFilter f;
+  uint32_t t = 0;
+  for (int i = 0; i < 100; ++i, t += 50) {  // open room: echo high > 25 ms every time
+    TEST_ASSERT_EQUAL(static_cast<int>(UltrasonicFilter::Change::kNone),
+                      static_cast<int>(f.onReading(EchoState::kClear, 0, 0, t)));
+  }
+  for (int i = 0; i < 20; ++i) {  // clone holding the echo 200 ms: Clear, 4 skipped pings, Clear, …
+    f.onReading(EchoState::kClear, 0, 0, t);
+    t += 50;
+    for (int k = 0; k < 4; ++k, t += 50) f.onReading(EchoState::kPending, 0, 0, t);
+  }
+  TEST_ASSERT_FALSE(f.fault());
+  TEST_ASSERT_EQUAL_HEX16(UltrasonicFilter::kClear, f.distMm());
+  f.onReading(EchoState::kNoEcho, 0, 0, t);  // failures must be consecutive
+  f.onReading(EchoState::kNoEcho, 0, 0, t + 50);
+  f.onReading(EchoState::kClear, 0, 0, t + 100);
+  f.onReading(EchoState::kNoEcho, 0, 0, t + 150);
+  TEST_ASSERT_FALSE(f.fault());
+}
+
+void test_ultrasonic_stuck_high_echo_faults() {
+  UltrasonicFilter f;  // unplugged: the pull-up holds the echo line high, so no ping is ever sent
+  UltrasonicFilter::Change c = UltrasonicFilter::Change::kNone;
+  uint32_t t = 0;
+  for (uint8_t i = 0; i < UltrasonicFilter::kMaxPending + 2; ++i, t += 50) {
+    TEST_ASSERT_EQUAL(static_cast<int>(UltrasonicFilter::Change::kNone),
+                      static_cast<int>(f.onReading(EchoState::kPending, 0, 0, t)));
+  }
+  c = f.onReading(EchoState::kPending, 0, 0, t);  // 3rd pending beyond 250 ms → fault (400 ms in all)
+  TEST_ASSERT_EQUAL(static_cast<int>(UltrasonicFilter::Change::kFault), static_cast<int>(c));
 }
 
 namespace {
@@ -3814,7 +3849,9 @@ int main() {
   RUN_TEST(test_ultrasonic_distance_and_median);
   RUN_TEST(test_ultrasonic_offset_and_clear);
   RUN_TEST(test_ultrasonic_closing_speed);
-  RUN_TEST(test_ultrasonic_fault_after_ten_no_echo_and_recovery);
+  RUN_TEST(test_ultrasonic_fault_after_three_no_echo_and_recovery);
+  RUN_TEST(test_ultrasonic_open_space_and_clone_hold_are_not_faults);
+  RUN_TEST(test_ultrasonic_stuck_high_echo_faults);
   RUN_TEST(test_nec_decodes_frame_and_repeat);
   RUN_TEST(test_nec_rejects_bad_inverse_and_noise);
   RUN_TEST(test_battery_levels_with_persistence);
@@ -3840,12 +3877,17 @@ Expected: FAIL — `domain/estimation/battery_monitor.h: No such file or directo
 
 namespace cq {
 
-// Median of the last 3 readings, offset, clear (> 4 m or no return) and fault (10 × no echo).
+// Median of the last 3 readings, offset, clear (> 4 m or echo high > 25 ms: nothing in range) and
+// fault (LLD §9.16): 3 consecutive failed measurements. A failed measurement is kNoEcho (no rising edge
+// within 2 ms of the trigger) or a kPending beyond kMaxPending ticks (echo line stuck high > 250 ms:
+// clones hold it up to 200 ms; an unplugged sensor reads high through the pull-up). kClear never faults.
 class UltrasonicFilter {
  public:
   static constexpr uint16_t kClear = 0xFFFF;
   static constexpr uint16_t kFault = 0xFFFE;
   static constexpr uint16_t kMaxMm = 4000;
+  static constexpr uint8_t kFaultAfter = 3;
+  static constexpr uint8_t kMaxPending = 5;  // 5 × 50 ms = 250 ms of skipped pings
   enum class Change : uint8_t { kNone, kFault, kRecovered };
 
   Change onReading(EchoState st, uint16_t echo_us, uint8_t offset_mm, uint32_t now_ms);
@@ -3855,13 +3897,15 @@ class UltrasonicFilter {
   bool valid() const { return !m_fault && m_dist_mm != kClear; }
 
  private:
+  Change countFailure();
   uint16_t m_hist[3] = {kClear, kClear, kClear};
   uint8_t m_idx = 0;
   uint16_t m_dist_mm = kClear;
   uint16_t m_prev_mm = kClear;
   uint32_t m_prev_ms = 0;
   float m_closing_cm_s = 0.0f;
-  uint8_t m_no_echo = 0;
+  uint8_t m_failures = 0;  // consecutive failed measurements
+  uint8_t m_pending = 0;   // consecutive ticks without a ping (echo still high)
   bool m_fault = false;
 };
 
@@ -3886,19 +3930,25 @@ uint16_t median3(uint16_t a, uint16_t b, uint16_t c) {
 }
 }  // namespace
 
+UltrasonicFilter::Change UltrasonicFilter::countFailure() {
+  if (m_failures < 255) ++m_failures;
+  if (m_failures == kFaultAfter && !m_fault) {
+    m_fault = true;
+    return Change::kFault;
+  }
+  return Change::kNone;
+}
+
 UltrasonicFilter::Change UltrasonicFilter::onReading(EchoState st, uint16_t echo_us, uint8_t offset_mm,
                                                      uint32_t now_ms) {
   Change change = Change::kNone;
-  if (st == EchoState::kNoEcho) {
-    if (m_no_echo < 255) ++m_no_echo;
-    if (m_no_echo == 10 && !m_fault) {
-      m_fault = true;
-      change = Change::kFault;
-    }
-    return change;
+  if (st == EchoState::kPending) {  // no ping sent: echo still high from the previous one
+    if (m_pending < 255) ++m_pending;
+    return m_pending > kMaxPending ? countFailure() : change;
   }
-  if (st == EchoState::kPending) return change;
-  m_no_echo = 0;
+  m_pending = 0;
+  if (st == EchoState::kNoEcho) return countFailure();
+  m_failures = 0;  // the sensor answered (kReady or kClear)
   if (m_fault) {
     m_fault = false;
     change = Change::kRecovered;
@@ -4097,7 +4147,7 @@ bool NecDecoder::feed(uint32_t t_us, uint32_t now_ms, IrEvent& out) {
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_sensors`
-Expected: `9 Tests 0 Failures`.
+Expected: `11 Tests 0 Failures`.
 
 - [ ] **Step 5: Ports and drivers (PCINT0 hub for IR + echo, async ADC, button)**
 
@@ -4112,8 +4162,8 @@ namespace cq {
 namespace port {
 namespace ultrasonic {
 void begin();
-void trigger();                       // 10 µs pulse; arms the echo capture
-EchoState poll(uint16_t& echo_us);    // result of the previous trigger
+bool trigger();                       // 10 µs pulse + arms the echo capture; false (no ping) while echo is high
+EchoState poll(uint16_t& echo_us);    // result of the previous trigger; kPending if it sent no ping
 }  // namespace ultrasonic
 }  // namespace port
 }  // namespace cq
@@ -4187,6 +4237,8 @@ volatile uint32_t g_echo_rise_us = 0;
 volatile uint32_t g_echo_fall_us = 0;
 volatile bool g_echo_rose = false;
 volatile bool g_echo_fell = false;
+uint32_t g_trig_us = 0;  // main context only
+bool g_armed = false;    // the last trigger() sent a ping
 }  // namespace
 
 ISR(PCINT0_vect) {
@@ -4246,7 +4298,12 @@ void begin() {
   PCICR |= _BV(PCIE0);
 }
 
-void trigger() {
+bool trigger() {
+  // LLD §9.16: no new ping while the echo is still high (clone modules hold it up to 200 ms).
+  if (PINB & kEchoBit) {
+    g_armed = false;
+    return false;
+  }
   ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
     g_echo_rose = false;
     g_echo_fell = false;
@@ -4254,6 +4311,9 @@ void trigger() {
   digitalWrite(board::kPinTrig, HIGH);
   delayMicroseconds(10);
   digitalWrite(board::kPinTrig, LOW);
+  g_trig_us = micros();
+  g_armed = true;
+  return true;
 }
 
 EchoState poll(uint16_t& echo_us) {
@@ -4265,10 +4325,12 @@ EchoState poll(uint16_t& echo_us) {
     rose = g_echo_rose;
     fell = g_echo_fell;
   }
-  if (!rose) return EchoState::kNoEcho;   // sensor never answered
+  if (!g_armed) return EchoState::kPending;  // previous trigger() sent no ping
+  // No rising edge within 2 ms of the trigger → the sensor did not answer (a failed measurement).
+  if (!rose || static_cast<uint32_t>(rise - g_trig_us) > 2000UL) return EchoState::kNoEcho;
   if (!fell) return EchoState::kClear;    // echo still high after 50 ms: nothing in range
   const uint32_t w = fall - rise;
-  if (w > 30000UL) return EchoState::kClear;
+  if (w > 25000UL) return EchoState::kClear;  // LLD §9.16: echo high > 25 ms = nothing in range
   echo_us = static_cast<uint16_t>(w);
   return EchoState::kReady;
 }
@@ -4375,7 +4437,7 @@ void sensorsInit() {
   port::battery_adc::start();
 }
 
-// 20 Hz: read the previous ping, trigger the next one.
+// 20 Hz: read the previous ping, trigger the next one (skipped while the echo is still high).
 void ultrasonicTask() {
   uint16_t echo_us = 0;
   const EchoState st = port::ultrasonic::poll(echo_us);
@@ -4447,7 +4509,7 @@ In `src/main.cpp`: before `// SETUP-END` add `cq::app::sensorsInit();`; rows bef
 
 Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py && pio run -e uno -t upload`
 Then `… uno_smoke.py --port PORT watch --seconds 15`.
-Expected: hand at 30 cm in front of the sensor → `dist≈300` (± 10 mm); nothing in front → `dist=65535`; unplug the ultrasonic sensor → after 0.5 s `EVENT US_FAULT` and `dist=65534`, flags bit 12. With the battery switched on: `SLOW batt≈7400-8400mV`; USB only: `batt` < 3000 and no `BATT_*` event. If the battery reading disagrees with a multimeter by more than 2 %, set `batt_mv_per_count` = 4050 × (meter mV / reported mV) with `… setting batt_mv_per_count <value> --save`.
+Expected: hand at 30 cm in front of the sensor → `dist≈300` (± 10 mm); nothing in front → `dist=65535`; open room / nothing in range for a minute → never `US_FAULT`; unplug the ultrasonic sensor → within 0.5 s `EVENT US_FAULT` (0.15 s with the echo line low, 0.4 s when the pull-up holds it high) and `dist=65534`, flags bit 12; plug it back → `dist` valid again on the next ping. Add to the hardware checklist: with a clone module that holds the echo 200 ms, no `US_FAULT` in an open room. With the battery switched on: `SLOW batt≈7400-8400mV`; USB only: `batt` < 3000 and no `BATT_*` event. If the battery reading disagrees with a multimeter by more than 2 %, set `batt_mv_per_count` = 4050 × (meter mV / reported mV) with `… setting batt_mv_per_count <value> --save`.
 
 - [ ] **Step 8: Commit**
 

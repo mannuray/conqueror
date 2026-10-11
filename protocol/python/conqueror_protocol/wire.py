@@ -69,14 +69,23 @@ class Message:
                     )
                 fmt = "<" + "".join(FMT[w] for _, w in spec.items)
                 for item in value:
-                    out += struct.pack(fmt, *item)
+                    out += self._pack(spec, fmt, *item)
             elif spec.count is not None:
                 assert spec.wire is not None
-                out += struct.pack(f"<{spec.count}{FMT[spec.wire]}", *value)
+                out += self._pack(spec, f"<{spec.count}{FMT[spec.wire]}", *value)
             else:
                 assert spec.wire is not None
-                out += struct.pack("<" + FMT[spec.wire], value)
+                out += self._pack(spec, "<" + FMT[spec.wire], value)
         return bytes(out)
+
+    def _pack(self, spec: FieldSpec, fmt: str, *values: Any) -> bytes:
+        """struct.pack that reports out-of-range or wrong-shape values as ValueError."""
+        try:
+            return struct.pack(fmt, *values)
+        except struct.error as exc:
+            raise ValueError(
+                f"{type(self).__name__}.{spec.name}: cannot encode {values!r} as {fmt!r}: {exc}"
+            ) from exc
 
     @classmethod
     def decode(cls, payload: bytes) -> Self:

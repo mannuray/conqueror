@@ -121,3 +121,12 @@ def test_parser_noise_with_many_syncs_then_two_good_frames() -> None:
         for i in range(0, len(data), chunk):
             frames += parser.feed(data[i : i + chunk])
         assert [f.type for f in frames] == [0x12, 0x13, 0x12], chunk
+
+
+def test_encode_out_of_range_raises_value_error() -> None:
+    with pytest.raises(ValueError, match=r"Drive\.src"):
+        generated.Drive(src=300).encode()
+    with pytest.raises(ValueError, match=r"Drive\.v"):
+        generated.Drive(v=-129).encode()
+    with pytest.raises(ValueError, match=r"TelemSlow\.cal_status"):
+        generated.TelemSlow(cal_status=(1, 2)).encode()

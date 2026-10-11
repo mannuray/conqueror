@@ -1974,8 +1974,10 @@ class Link:
                     continue
                 self.last[type(msg).__name__] = msg
                 if isinstance(msg, g.Hello):
-                    print(f"HELLO fw={msg.fw:#06x} proto={msg.proto} caps={msg.caps} "
-                          f"reset={g.ResetReason(msg.reset_reason).name}")
+                    print(
+                        f"HELLO fw={msg.fw:#06x} proto={msg.proto} caps={msg.caps} "
+                        f"reset={g.ResetReason(msg.reset_reason).name}"
+                    )
                     self.send(g.HelloAck(proto=g.PROTOCOL_VERSION))
                     self.synced = True
                 for h in self.handlers:
@@ -1999,15 +2001,19 @@ def fmt_event(m: g.Event) -> str:
 def cmd_watch(link: Link, args: argparse.Namespace) -> None:
     def show(msg: object) -> None:
         if isinstance(msg, g.TelemFast):
-            print(f"FAST yaw={msg.yaw/100:.1f} rate={msg.yaw_rate/10:.1f} "
-                  f"pitch={msg.pitch/100:.1f} roll={msg.roll/100:.1f} "
-                  f"pwm={msg.pwm_l},{msg.pwm_r} enc={msg.enc_l},{msg.enc_r} "
-                  f"dist={msg.dist_mm} flags={msg.flags:#06x} "
-                  f"pan={msg.pan/10:.0f} tilt={msg.tilt/10:.0f}")
+            print(
+                f"FAST yaw={msg.yaw / 100:.1f} rate={msg.yaw_rate / 10:.1f} "
+                f"pitch={msg.pitch / 100:.1f} roll={msg.roll / 100:.1f} "
+                f"pwm={msg.pwm_l},{msg.pwm_r} enc={msg.enc_l},{msg.enc_r} "
+                f"dist={msg.dist_mm} flags={msg.flags:#06x} "
+                f"pan={msg.pan / 10:.0f} tilt={msg.tilt / 10:.0f}"
+            )
         elif isinstance(msg, g.TelemSlow):
-            print(f"SLOW up={msg.uptime_s}s batt={msg.batt_mv}mV temp={msg.temp/100:.1f}C "
-                  f"owner={g.Owner(msg.owner).name} load={msg.loop_load}% max={msg.loop_max_us}us "
-                  f"ram={msg.free_ram} errs={msg.err_frames} flags2={msg.flags2:#x}")
+            print(
+                f"SLOW up={msg.uptime_s}s batt={msg.batt_mv}mV temp={msg.temp / 100:.1f}C "
+                f"owner={g.Owner(msg.owner).name} load={msg.loop_load}% max={msg.loop_max_us}us "
+                f"ram={msg.free_ram} errs={msg.err_frames} flags2={msg.flags2:#x}"
+            )
         elif isinstance(msg, g.Event):
             print(fmt_event(msg))
         elif isinstance(msg, g.Ack):
@@ -2044,8 +2050,8 @@ if __name__ == "__main__":
 
 Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py`
 Expected: all native tests pass; `SUCCESS`; gate OK.
-Run (from `tools/smoke/`): `uv run ruff check . && uv run pyright`
-Expected: `All checks passed!`, `0 errors, 0 warnings, 0 informations`.
+Run (from `tools/smoke/`): `uv run ruff format --check . && uv run ruff check . && uv run pyright`
+Expected: `… already formatted`, `All checks passed!`, `0 errors, 0 warnings, 0 informations`. The plan's Python is `ruff format` clean; if the format check lists a file, the difference is your hand layout (e.g. the `COMMANDS` dict) — run `uv run ruff format .` and re-check.
 S1 → upload, `pio run -e uno -t upload`. Keep USB connected (S1 stays on "upload": the USB adapter now plays the ESP32).
 Run (from `tools/smoke/`): `uv run python uno_smoke.py --port /dev/cu.usbmodemXXXX watch --seconds 5` (genuine Uno: `usbmodem…`; CH340 clones: `usbserial…`)
 Expected: one `HELLO fw=0x0100 proto=1 caps=0 reset=…`, then `FAST …` lines at ~20 Hz (zeros), `SLOW up=… load=…% ram=…` each second, and **no** `EVENT LINK_RESTORED` (the first contact after boot is not a restore; LINK_RESTORED only follows a LINK_LOST). Stop the script: within 0.3 s the Uno raises `LINK_LOST` (not visible here — reopening the port resets the Uno).
@@ -5352,8 +5358,10 @@ def cmd_drive(link: Link, args: argparse.Namespace) -> None:
         link.send(g.Drive(src=g.Source.HUMAN, v=args.v, w=args.w))
         fast = link.last.get("TelemFast")
         if isinstance(fast, g.TelemFast):
-            print(f"pwm={fast.pwm_l},{fast.pwm_r} enc={fast.enc_l},{fast.enc_r} "
-                  f"yaw={fast.yaw/100:.1f} dist={fast.dist_mm} flags={fast.flags:#06x}")
+            print(
+                f"pwm={fast.pwm_l},{fast.pwm_r} enc={fast.enc_l},{fast.enc_r} "
+                f"yaw={fast.yaw / 100:.1f} dist={fast.dist_mm} flags={fast.flags:#06x}"
+            )
         time.sleep(0.05)
 
 
@@ -6736,8 +6744,9 @@ import csv
 import statistics
 
 
-def run_script(link: Link, script: g.CalScript, param: int, csv_path: str | None = None,
-               timeout: float = 30.0) -> list[g.CalData]:
+def run_script(
+    link: Link, script: g.CalScript, param: int, csv_path: str | None = None, timeout: float = 30.0
+) -> list[g.CalData]:
     samples: list[g.CalData] = []
     done = threading.Event()
     status: list[str] = []
@@ -6784,8 +6793,12 @@ def cmd_probe(link: Link, args: argparse.Namespace) -> None:
     """Shield probe (tank on the stand): STBY on D3 + direction pin polarity per track."""
     results: dict[str, bool] = {}
     # PWM_RAMP param: track (0 left, 1 right) | reverse << 1 | max PWM << 8
-    for name, param in (("left forward", 0x00), ("left reverse", 0x02), ("right forward", 0x01),
-                        ("right reverse", 0x03)):
+    for name, param in (
+        ("left forward", 0x00),
+        ("left reverse", 0x02),
+        ("right forward", 0x01),
+        ("right reverse", 0x03),
+    ):
         track = name.split()[0]
         input(f"Watch the {track} track, Enter runs '{name}' (ramp to PWM 120 and back)…")
         samples = run_script(link, g.CalScript.PWM_RAMP, param | (120 << 8), timeout=15)
@@ -6832,11 +6845,16 @@ def cmd_bias(link: Link, args: argparse.Namespace) -> None:
     gx, gy, gz = (round(statistics.mean(x.v[i] for x in s)) for i in (0, 1, 2))
     ax, ay, az = (statistics.mean(x.v[i] for x in s) / 8192 for i in (3, 4, 5))
     import math
+
     pitch = math.degrees(math.atan2(ax, math.hypot(ay, az)))  # same convention as Attitude (Task 4)
     roll = math.degrees(math.atan2(ay, az))
-    values = {g.SettingId.GYRO_BIAS_X: gx, g.SettingId.GYRO_BIAS_Y: gy, g.SettingId.GYRO_BIAS_Z: gz,
-              g.SettingId.LEVEL_PITCH: round(pitch * 100),
-              g.SettingId.LEVEL_ROLL: round(roll * 100)}
+    values = {
+        g.SettingId.GYRO_BIAS_X: gx,
+        g.SettingId.GYRO_BIAS_Y: gy,
+        g.SettingId.GYRO_BIAS_Z: gz,
+        g.SettingId.LEVEL_PITCH: round(pitch * 100),
+        g.SettingId.LEVEL_ROLL: round(roll * 100),
+    }
     for sid, v in values.items():
         link.send(g.SettingSet(id=sid, value=v))
         print(f"{sid.name.lower()} = {v}")
@@ -8854,8 +8872,15 @@ def wait_primitive(link: Link, done: threading.Event, timeout: float) -> None:
 
 def send_turn(link: Link, args: argparse.Namespace, angle: float, to: bool) -> None:
     mode = (g.TurnMode.TO if to else g.TurnMode.BY) | (0x80 if args.pivot else 0)
-    link.send(g.Turn(src=g.Source.HUMAN, mode=mode, angle=round(angle * 10), speed=args.speed,
-                     radius_cm=args.radius))
+    link.send(
+        g.Turn(
+            src=g.Source.HUMAN,
+            mode=mode,
+            angle=round(angle * 10),
+            speed=args.speed,
+            radius_cm=args.radius,
+        )
+    )
 
 
 def cmd_turn(link: Link, args: argparse.Namespace) -> None:
@@ -8930,8 +8955,8 @@ Register `"turn": cmd_turn, "move": cmd_move, "cancel": cmd_cancel, "driverate":
     dr.add_argument("rate", type=float)
     dr.add_argument("--seconds", type=float, default=3.0)
 ```
-Run (from `tools/smoke/`): `uv run ruff check . && uv run pyright`
-Expected: `All checks passed!`, `0 errors, 0 warnings, 0 informations`.
+Run (from `tools/smoke/`): `uv run ruff format --check . && uv run ruff check . && uv run pyright`
+Expected: `… already formatted`, `All checks passed!`, `0 errors, 0 warnings, 0 informations`.
 
 - [ ] **Step 6: Build, flash, floor tests (tethered USB, long cable, clear floor ≥ 2 × 2 m)**
 
@@ -9582,8 +9607,8 @@ Register `"cam": cmd_cam` and in `main()`:
     cm.add_argument("--lock", action="store_true", help="send CAM_LOCK on first (same run)")
     cm.add_argument("--drive", type=int, nargs=2, default=None, metavar=("V", "W"))
 ```
-Run (from `tools/smoke/`): `uv run ruff check . && uv run pyright`
-Expected: `All checks passed!`, `0 errors, 0 warnings, 0 informations`.
+Run (from `tools/smoke/`): `uv run ruff format --check . && uv run ruff check . && uv run pyright`
+Expected: `… already formatted`, `All checks passed!`, `0 errors, 0 warnings, 0 informations`.
 
 - [ ] **Step 8: Build, flash, check on the stand**
 
@@ -10490,8 +10515,16 @@ Add to `tools/smoke/uno_smoke.py`:
 def cmd_led(link: Link, args: argparse.Namespace) -> None:
     link.handlers.append(print_ack)
     wait_synced(link)
-    link.send(g.Led(mode=g.LedMode[args.mode.upper()], r=args.r, g=args.g, b=args.b,
-                    period_ms=args.period, duration_ms=args.duration))
+    link.send(
+        g.Led(
+            mode=g.LedMode[args.mode.upper()],
+            r=args.r,
+            g=args.g,
+            b=args.b,
+            period_ms=args.period,
+            duration_ms=args.duration,
+        )
+    )
     time.sleep(0.3)
 
 
@@ -10527,11 +10560,15 @@ Register `"led": cmd_led, "sound": cmd_sound` and in `main()`:
     ld.add_argument("--duration", type=int, default=3000)
     sd = sub.add_parser("sound")
     sd.add_argument("name", help="catalogue name (startup, jingle, …), tone, or normal/quiet/mute")
-    sd.add_argument("--mode", choices=["normal", "quiet", "mute"], default=None,
-                    help="AUDIO_MODE sent first (same run)")
+    sd.add_argument(
+        "--mode",
+        choices=["normal", "quiet", "mute"],
+        default=None,
+        help="AUDIO_MODE sent first (same run)",
+    )
 ```
-Run (from `tools/smoke/`): `uv run ruff check . && uv run pyright`
-Expected: `All checks passed!`, `0 errors, 0 warnings, 0 informations`.
+Run (from `tools/smoke/`): `uv run ruff format --check . && uv run ruff check . && uv run pyright`
+Expected: `… already formatted`, `All checks passed!`, `0 errors, 0 warnings, 0 informations`.
 
 - [ ] **Step 8: Build, flash, check**
 
@@ -11272,12 +11309,21 @@ def cmd_soak(link: Link, args: argparse.Namespace) -> None:
     i2c = last.get("err_i2c", 0) - first.get("err_i2c", 0)
     # No TELEM_SLOW at all (wrong port, dead link) or uptime going backwards (a reboot) also fails.
     up = last.get("uptime", 0) - first.get("uptime", 0)
-    ok = (bool(first) and up >= int(args.minutes * 60) - 5 and seen["hello"] == 0 and errs == 0
-          and i2c == 0 and seen["min_ram"] >= 250 and seen["max_load"] <= 70
-          and seen["max_loop_us"] <= 4000)
-    print(f"uptime_delta={up}s resets={seen['hello']} frame_errs={errs} i2c_errs={i2c} "
-          f"min_free_ram={seen['min_ram']} max_load={seen['max_load']}% "
-          f"max_loop={seen['max_loop_us']}us")
+    ok = (
+        bool(first)
+        and up >= int(args.minutes * 60) - 5
+        and seen["hello"] == 0
+        and errs == 0
+        and i2c == 0
+        and seen["min_ram"] >= 250
+        and seen["max_load"] <= 70
+        and seen["max_loop_us"] <= 4000
+    )
+    print(
+        f"uptime_delta={up}s resets={seen['hello']} frame_errs={errs} i2c_errs={i2c} "
+        f"min_free_ram={seen['min_ram']} max_load={seen['max_load']}% "
+        f"max_loop={seen['max_loop_us']}us"
+    )
     print("SOAK:", "PASS" if ok else "FAIL")
 ```
 Register `"soak": cmd_soak` and in `main()`:
@@ -11285,8 +11331,8 @@ Register `"soak": cmd_soak` and in `main()`:
     sk = sub.add_parser("soak")
     sk.add_argument("--minutes", type=float, default=10.0)
 ```
-Run (from `tools/smoke/`): `uv run ruff check . && uv run pyright`
-Expected: `All checks passed!`, `0 errors, 0 warnings, 0 informations` (strict mode, ruling R15: the smoke tool falls under the CLAUDE.md Python rule).
+Run (from `tools/smoke/`): `uv run ruff format --check . && uv run ruff check . && uv run pyright`
+Expected: `… already formatted`, `All checks passed!`, `0 errors, 0 warnings, 0 informations` (strict mode, ruling R15: the smoke tool falls under the CLAUDE.md Python rule).
 
 - [ ] **Step 4: Soak on the stand**
 

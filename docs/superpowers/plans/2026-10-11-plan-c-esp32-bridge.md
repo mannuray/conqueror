@@ -686,12 +686,17 @@ def handshake(host: str, port: int, seconds: float) -> int:
             for raw in parser.feed(chunk):
                 msg = decode_frame(raw, "uno_to_esp32")
                 if isinstance(msg, generated.Hello) and not synced:
-                    sock.sendall(build_frame(generated.HelloAck(proto=generated.PROTOCOL_VERSION), seq))
+                    sock.sendall(
+                        build_frame(generated.HelloAck(proto=generated.PROTOCOL_VERSION), seq)
+                    )
                     seq = (seq + 1) & 0xFF
                     synced = True
                     print(f"HELLO fw=0x{msg.fw:04X} proto={msg.proto} -> HELLO_ACK sent")
                 elif isinstance(msg, generated.TelemFast):
-                    print(f"TELEM_FAST yaw={msg.yaw / 100:.2f} dist_mm={msg.dist_mm} flags=0x{msg.flags:04X}")
+                    print(
+                        f"TELEM_FAST yaw={msg.yaw / 100:.2f} dist_mm={msg.dist_mm} "
+                        f"flags=0x{msg.flags:04X}"
+                    )
                 else:
                     print(type(msg).__name__, msg)
     print(f"done: frames={parser.stats.frames} bad_crc={parser.stats.bad_crc} synced={synced}")
@@ -716,6 +721,9 @@ def main() -> int:
 if __name__ == "__main__":
     sys.exit(main())
 ```
+
+Run (from `tools/smoke/`): `uv sync && uv run ruff format --check . && uv run ruff check . && uv run pyright`
+Expected: `… already formatted`, `All checks passed!`, `0 errors, 0 warnings, 0 informations` (strict mode, same gate as Plan B's `uno_smoke.py`; the check covers every script in `tools/smoke/`).
 
 - [ ] **Step 5: Build and flash**
 

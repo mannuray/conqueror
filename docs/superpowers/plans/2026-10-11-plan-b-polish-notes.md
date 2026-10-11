@@ -31,7 +31,7 @@ Commits: `8ae1a1c` (parser replay budget), `34df3c6`..`8d25f3f` (Tasks 1–5), `
 - Parser replay budget: `feed()` only when `!pending()`, `next(budget)`, `commsPoll` 64 steps per pass ≈ 0.67 ms worst case.
 - IR takeover cancels motion in the input task (no teleop zeroing in the control task).
 - Deadman trigger stays 300 ms (network Teleop only); with the closed-loop pipeline the tank is fully stopped ≈ 420 ms after the last command, including the SoftStop ramp.
-- `markIntentionalReset` removed (no software reboot path in v1) — **pending owner confirmation**; LLD §9.13 overridden by a dated decision note.
+- `markIntentionalReset` removed (no software reboot path in v1) — **confirmed by owner 2026-10-11** (a REBOOT command, if ever added, brings it back); LLD §9.13 overridden by a dated decision note.
 - New `app/ui_api.h` for LED/SOUND/TONE/AUDIO_MODE handlers (same pattern as `camera_api.h`, `motion_api.h`).
 
 ## Hardware steps

@@ -704,3 +704,19 @@ Timers: T0 motor PWM + timekeeping, T1 servos, T2 buzzer; IR + ultrasonic via pi
 - [ ] Uno↔ESP32 link format.
 - [x] Telemetry contents and rate (§12).
 - [x] Sound and LED catalogue (§8).
+
+## 20. Tank Logo — a Logo-like language to program the tank (DECIDED 2026-10-11)
+- **Who:** all three — children learning to code, the owner, and the AI engine (which writes programs).
+- **Authoring:** a small built-in code editor (IDE) in the web app (hub and standalone Cockpit-lite); no block editor for now.
+- **Language:** turtle commands map onto existing primitives — `FORWARD`/`BACK` → MOVE (cm, needs encoders), `RIGHT`/`LEFT` → TURN, `ARC` → arc turn; plus `REPEAT`, `TO … END` procedures, variables, `IF`, `WAIT`, sensor values (`DISTANCE`, `TILT`, `BATTERY`), `BEEP`/`PLAY`, `LED`, `LOOK` (camera). No pen: the app draws the turtle path from odometry.
+- **Split across tiers:**
+  - **ESP32 gateway — program runner:** receives a validated, compiled step list; runs it on the tank, waits for each primitive, evaluates simple sensor conditions, enforces loop/time limits, aborts on STOP / IR / owner change, reports the current line. Works standalone (no hub, no AI).
+  - **Hub / web app — IDE:** editor, syntax highlighting, child-friendly errors, path preview before running, step mode, live turtle path, saved-program library per child. Parses and compiles; uploads the step list.
+  - **AI engine:** natural language → Logo program (shown and previewed before it runs), explains code, **vision words** (`FIND`, `FOLLOW`, `WAIT UNTIL SEE …`). Programs using vision words run in the AI engine, which sends core steps to the tank.
+  - **Bench tool:** `bench logo run file.logo` — first runnable version, executes client-side command by command.
+  - **Uno:** no change.
+- **Two program kinds:** core programs run on the ESP32 standalone; AI programs (any vision word) run in the AI engine.
+- **One language, two parsers** (Python for bench/AI, TypeScript for the IDE), kept identical by a shared grammar spec + shared conformance test programs with expected step lists (same approach as the protocol vectors).
+- **Safety:** every step is an ordinary command, so obstacle brake, child-play envelope, deadman, tilt/lift all apply; STOP or IR aborts the whole program; loops have step and time limits; a program runs under its sender's priority (IR > human > AI).
+- **Roadmap:** spec now (design only; Plans B–D unchanged) → after Plan D: Python package + `bench logo run` → phase 4: ESP32 runner + program API → phase 5: IDE in Cockpit-lite → phase 6: library, natural language → code, explanations, vision words.
+- Next: language spec `docs/superpowers/specs/2026-10-11-05-tank-logo-design.md`.

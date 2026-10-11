@@ -54,6 +54,16 @@ Standard tests (initial pass criteria):
 - **Other upgrade candidate:** Arduino **Uno R4 Minima** (RA4M1 Cortex-M4 48 MHz, 32 KB RAM / 256 KB flash, **5 V logic**, same footprint) — new ARM driver set; verify interrupt-capable pins.
 - **Avoid with this 5 V shield:** 3.3 V-only boards (Due, Zero/M0, Metro M4, ESP32 Uno-shape boards).
 
+## Tank Logo (DECIDED 2026-10-11)
+Logo-like language to program the tank (children, owner, AI). Details: `docs/design-notes.md` §20; spec `docs/superpowers/specs/2026-10-11-05-tank-logo-design.md`.
+| When | What |
+|---|---|
+| Now | language spec only (Plans B–D unchanged) |
+| After Plan D | Python `conqueror_logo` package + `bench logo run` (client-side execution) |
+| Phase 4 | ESP32 program runner + program API (core programs run standalone) |
+| Phase 5 | built-in IDE in Cockpit-lite (editor, preview, line highlight) |
+| Phase 6 | program library, natural language → Logo, explanations, vision words (AI engine runs AI programs) |
+
 ## Out of the MVP (phases 0–5)
 Hub backend, Timeline/recording, missions/waypoints UI, multi-tank, AI engine, voice, themes beyond Phosphor, surface profiles (one default), OTA, full key management (admin key only), first-run polish.
 

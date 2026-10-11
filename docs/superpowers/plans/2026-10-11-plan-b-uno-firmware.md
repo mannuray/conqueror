@@ -5428,19 +5428,19 @@ git commit -m "feat(uno): safety core - PwmOutput, envelope, arbitrator, supervi
 
 **Files:**
 - Create: `src/domain/estimation/encoder_track.{h,cpp}`, `encoder_health.{h,cpp}`; `src/domain/calibration/cal_script_runner.{h,cpp}`, `cal_status.{h,cpp}`; `src/domain/selftest/self_test.h`; `src/ports/encoders.h`; `src/drivers/encoders_uno.cpp`; `src/app/calibration_task.cpp`, `src/app/selftest_task.cpp`
-- Modify: `src/app/app.h`, `src/app/motion_api.h`, `src/app/control_task.cpp`, `src/app/routes.cpp`, `src/main.cpp`, `tools/smoke/uno_smoke.py`
+- Modify: `src/app/app.h`, `src/app/tasks.h`, `src/app/motion_api.h`, `src/app/control_task.cpp`, `src/app/routes.cpp`, `src/app/settings_task.cpp`, `src/app/comms.cpp`, `src/main.cpp`, `tools/smoke/uno_smoke.py`
 - Test: `test/test_encoders/test_main.cpp`, `test/test_calibration/test_main.cpp`
 
 **Interfaces:**
 - Consumes: `EncoderSnapshot` (Task 1), `Arbitrator::beginCalibration/endCalibration` (Task 6), `Settings` (Task 3), `proto::CalScript`, `proto::CalOp`, `proto::CalDataMsg`, `proto::CalResultMsg`.
 - Produces:
   - `cq::EncoderTrack`: `void update(uint32_t edges, uint32_t period_us, uint32_t last_edge_us, uint32_t now_us, int8_t dir)`, `int32_t count() const`, `float cps() const`, `bool recent() const` (edge within 100 ms).
-  - `cq::EncoderHealth`: `struct Inputs { int16_t pwm_l, pwm_r; bool edges_l, edges_r; float yaw_rate_dps; uint8_t keep_l, keep_r; }`; `void update(const Inputs&, uint32_t now_ms)`, `bool stalled(uint8_t side) const`, `bool faulted(uint8_t side) const`, `uint8_t takeNewStalls()`, `uint8_t takeNewFaults()` (bit 0 left, bit 1 right), `void clearFaults()`.
+  - `cq::EncoderHealth`: `struct Inputs { int16_t pwm_l, pwm_r; int16_t req_l, req_r; bool edges_l, edges_r; float yaw_rate_dps; uint8_t keep_l, keep_r; }` (`pwm_*` applied last tick, `req_*` asked of the supervisor last tick); `void update(const Inputs&, uint32_t now_ms)`, `bool stalled(uint8_t side) const`, `uint8_t stalledMask() const` (→ `SafetyInputs.stall_mask`), `bool faulted(uint8_t side) const`, `uint8_t takeNewStalls()`, `uint8_t takeNewFaults()` (bit 0 left, bit 1 right), `void clearFaults()`. LLD §9.6: driven above the deadband for 0.5 s with no edges → fault (other evidence of motion, latched) or stall; a stall clears when the requested direction reverses or after 1 s, and then needs another 0.5 s to re-detect.
   - `cq::CalInputs`, `cq::CalConfig { uint16_t max_cps; uint16_t turn_rate_max_dps; uint8_t keep_pwm; }`, `cq::CalOutputs`, `cq::CalScriptRunner`: `void configure(const CalConfig&)`, `proto::AckStatus start(proto::CalScript s, int32_t param, bool encoders, uint32_t now_ms)`, `void cancel()`, `bool running() const`, `proto::CalScript script() const`, `void tick(uint32_t now_ms, const CalInputs&, CalOutputs&)`.
   - `cq::calStatus(const GlobalSettings&, const ProfileSettings&, uint8_t out[3])`.
   - `cq::SelfTest`: `enum class Check : uint8_t { kImu, kUltrasonic, kBattery, kSettings }`, `void report(Check, bool ok)`, `uint8_t failMask() const`, `bool critical() const`.
   - Port `cq::port::encoders`: `begin()`, `snapshot(EncoderSnapshot&)`.
-  - App: `cq::app::onCalibrate`, `calibrationTick(int16_t& pwm_l, int16_t& pwm_r) -> bool` (true while a script owns the motors), `calibrationAbort(proto::AckStatus)`, `encodersTick()`, `selfTestTask()`.
+  - App: `cq::app::onCalibrate`, `calibrationTick(int16_t& pwm_l, int16_t& pwm_r) -> bool` (true while a script owns the motors), `calibrationAbort(proto::AckStatus)`, `encodersTick()` (in `app/motion_api.h`); `selfTestTask()` (in `app/tasks.h`).
   - Smoke commands `calibrate SCRIPT [--param N] [--csv PATH]`, `probe`, `mount`, `bias`.
 
 - [ ] **Step 1: Write the failing encoder tests**
@@ -5483,40 +5483,61 @@ uint8_t runHealth(EncoderHealth& h, EncoderHealth::Inputs in, uint32_t from_ms, 
 }  // namespace
 
 void test_fault_vs_stall() {
-  // A: both tracks held against a wall, straight drive, no yaw → stall, never a fault
+  // A: both tracks held against a wall, straight drive, no yaw → stall after 0.5 s, never a fault
   EncoderHealth a;
-  TEST_ASSERT_EQUAL(0x03, runHealth(a, {150, 150, false, false, 0.0f, 55, 55}, 0, 500));
+  const EncoderHealth::Inputs held{150, 150, 150, 150, false, false, 0.0f, 55, 55};
+  TEST_ASSERT_EQUAL(0, runHealth(a, held, 0, 500));  // t = 0…490 ms: not yet
+  TEST_ASSERT_EQUAL(0x03, runHealth(a, held, 500, 510));
+  TEST_ASSERT_EQUAL(0x03, a.stalledMask());
   TEST_ASSERT_EQUAL(0, a.takeNewFaults());
-  runHealth(a, {0, 0, false, false, 0.0f, 55, 55}, 500, 600);
-  TEST_ASSERT_FALSE(a.stalled(0));
 
   // B: right encoder ticks, left silent, tank goes straight → left encoder broken (latched)
   EncoderHealth b;
-  runHealth(b, {150, 150, false, true, 0.5f, 55, 55}, 0, 500);
+  runHealth(b, {150, 150, 150, 150, false, true, 0.5f, 55, 55}, 0, 510);
   TEST_ASSERT_EQUAL(0x01, b.takeNewFaults());
-  runHealth(b, {0, 0, false, false, 0.0f, 55, 55}, 500, 1000);
+  runHealth(b, {0, 0, 0, 0, false, false, 0.0f, 55, 55}, 510, 1000);
   TEST_ASSERT_TRUE(b.faulted(0));  // latched
 
   // C: left track held while the right drives → tank pivots (yaw) → left is a stall
   EncoderHealth c;
-  TEST_ASSERT_EQUAL(0x01, runHealth(c, {150, 150, false, true, 35.0f, 55, 55}, 0, 500));
+  TEST_ASSERT_EQUAL(0x01, runHealth(c, {150, 150, 150, 150, false, true, 35.0f, 55, 55}, 0, 510));
   TEST_ASSERT_EQUAL(0, c.takeNewFaults());
 
   // D: spin, both encoders silent but the gyro shows rotation → both faulted
   EncoderHealth d;
-  runHealth(d, {-150, 150, false, false, 60.0f, 55, 55}, 0, 500);
+  runHealth(d, {-150, 150, -150, 150, false, false, 60.0f, 55, 55}, 0, 510);
   TEST_ASSERT_EQUAL(0x03, d.takeNewFaults());
+}
+
+void test_stall_clears_on_reverse_or_after_1s() {
+  const EncoderHealth::Inputs held{150, 150, 150, 150, false, false, 0.0f, 55, 55};
+  const EncoderHealth::Inputs cut{0, 0, 150, 150, false, false, 0.0f, 55, 55};  // supervisor cuts, still asked
+  EncoderHealth h;
+  runHealth(h, held, 0, 510);  // stalled at t = 500
+  TEST_ASSERT_TRUE(h.stalled(0));
+  runHealth(h, cut, 510, 1500);  // the cut output (PWM 0) does not clear it
+  TEST_ASSERT_TRUE(h.stalled(0));
+  runHealth(h, cut, 1500, 1510);  // 1 s after the stall
+  TEST_ASSERT_FALSE(h.stalled(0));
+  TEST_ASSERT_EQUAL(0, runHealth(h, held, 1510, 2000));  // re-detection needs another 0.5 s of drive
+  TEST_ASSERT_EQUAL(0x03, runHealth(h, held, 2000, 2020));
+
+  EncoderHealth r;
+  runHealth(r, held, 0, 510);
+  runHealth(r, {0, 0, -150, -150, false, false, 0.0f, 55, 55}, 510, 520);  // asked to back away
+  TEST_ASSERT_EQUAL(0, r.stalledMask());
 }
 
 void test_low_pwm_is_not_a_stall() {
   EncoderHealth h;
-  TEST_ASSERT_EQUAL(0, runHealth(h, {60, 60, false, false, 0.0f, 55, 55}, 0, 1000));  // below keep + 15
+  TEST_ASSERT_EQUAL(0, runHealth(h, {60, 60, 60, 60, false, false, 0.0f, 55, 55}, 0, 1000));  // below keep + 15
 }
 
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_track_counts_signed_and_speed);
   RUN_TEST(test_fault_vs_stall);
+  RUN_TEST(test_stall_clears_on_reverse_or_after_1s);
   RUN_TEST(test_low_pwm_is_not_a_stall);
   return UNITY_END();
 }
@@ -5848,25 +5869,30 @@ void EncoderTrack::update(uint32_t edges, uint32_t period_us, uint32_t last_edge
 
 namespace cq {
 
-// Silent encoder with drive PWM for 300 ms: a latched FAULT when other evidence says the track moves
-// (other track ticking + no yaw while driving straight, or a spin seen by the gyro with both encoders
-// silent); otherwise a STALL that clears when edges return or the PWM drops.
+// LLD §9.6. Silent encoder with drive PWM above the deadband for 0.5 s: a latched FAULT when other
+// evidence says the track moves (other track ticking + no yaw while driving straight, or a spin seen by
+// the gyro with both encoders silent); otherwise a STALL. The supervisor cuts a stalled track; the stall
+// clears when the requested direction reverses or after 1 s (then 0.5 s of drive to re-detect).
 class EncoderHealth {
  public:
   struct Inputs {
-    int16_t pwm_l;
+    int16_t pwm_l;  // applied last tick (after the safety gate)
     int16_t pwm_r;
+    int16_t req_l;  // asked of the supervisor last tick (a cut track still shows its direction)
+    int16_t req_r;
     bool edges_l;
     bool edges_r;
     float yaw_rate_dps;
     uint8_t keep_l;
     uint8_t keep_r;
   };
-  static constexpr uint16_t kDetectMs = 300;
+  static constexpr uint16_t kDetectMs = 500;
+  static constexpr uint16_t kStallHoldMs = 1000;
   static constexpr uint8_t kMargin = 15;
 
   void update(const Inputs& in, uint32_t now_ms);
   bool stalled(uint8_t side) const { return (m_stalled >> side) & 1u; }
+  uint8_t stalledMask() const { return m_stalled; }
   bool faulted(uint8_t side) const { return (m_faulted >> side) & 1u; }
   uint8_t takeNewStalls() {
     const uint8_t v = m_new_stalls;
@@ -5883,6 +5909,8 @@ class EncoderHealth {
  private:
   bool m_silent[2] = {false, false};
   uint32_t m_since_ms[2] = {0, 0};
+  uint32_t m_stall_ms[2] = {0, 0};
+  int8_t m_stall_dir[2] = {0, 0};
   uint8_t m_stalled = 0;
   uint8_t m_faulted = 0;
   uint8_t m_new_stalls = 0;
@@ -5902,6 +5930,7 @@ namespace cq {
 
 void EncoderHealth::update(const Inputs& in, uint32_t now_ms) {
   const int16_t pwm[2] = {in.pwm_l, in.pwm_r};
+  const int16_t req[2] = {in.req_l, in.req_r};
   const bool edges[2] = {in.edges_l, in.edges_r};
   const uint8_t keep[2] = {in.keep_l, in.keep_r};
   const bool straight = (in.pwm_l > 0 && in.pwm_r > 0) || (in.pwm_l < 0 && in.pwm_r < 0);
@@ -5910,19 +5939,26 @@ void EncoderHealth::update(const Inputs& in, uint32_t now_ms) {
 
   for (uint8_t s = 0; s < 2; ++s) {
     const uint8_t bit = static_cast<uint8_t>(1u << s);
+    if (m_stalled & bit) {  // held while the supervisor cuts the track (its applied PWM is 0)
+      const bool reversed = (m_stall_dir[s] > 0 && req[s] < 0) || (m_stall_dir[s] < 0 && req[s] > 0);
+      if (reversed || elapsed(now_ms, m_stall_ms[s], kStallHoldMs)) {
+        m_stalled = static_cast<uint8_t>(m_stalled & ~bit);
+        m_silent[s] = false;  // a new stall needs another kDetectMs of drive
+      }
+      continue;
+    }
     const int16_t mag = pwm[s] < 0 ? static_cast<int16_t>(-pwm[s]) : pwm[s];
     const bool driven = mag >= keep[s] + kMargin;
     const bool silent = driven && !edges[s];
     if (!silent) {
       m_silent[s] = false;
-      m_stalled = static_cast<uint8_t>(m_stalled & ~bit);
       continue;
     }
     if (!m_silent[s]) {
       m_silent[s] = true;
       m_since_ms[s] = now_ms;
     }
-    if (!elapsed(now_ms, m_since_ms[s], kDetectMs) || (m_stalled & bit) || (m_faulted & bit)) continue;
+    if (!elapsed(now_ms, m_since_ms[s], kDetectMs) || (m_faulted & bit)) continue;
     const uint8_t other = static_cast<uint8_t>(1 - s);
     const bool moving_evidence = (straight && edges[other] && yaw < 10.0f) || (spin && !edges[other] && yaw > 20.0f);
     if (moving_evidence) {
@@ -5931,6 +5967,8 @@ void EncoderHealth::update(const Inputs& in, uint32_t now_ms) {
     } else {
       m_stalled = static_cast<uint8_t>(m_stalled | bit);
       m_new_stalls = static_cast<uint8_t>(m_new_stalls | bit);
+      m_stall_ms[s] = now_ms;
+      m_stall_dir[s] = pwm[s] > 0 ? 1 : -1;
     }
   }
 }
@@ -6396,7 +6434,7 @@ class SelfTest {
 - [ ] **Step 6: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_encoders -f test_calibration`
-Expected: `test_encoders 3 Tests 0 Failures`, `test_calibration 11 Tests 0 Failures`.
+Expected: `test_encoders 4 Tests 0 Failures`, `test_calibration 11 Tests 0 Failures`.
 
 - [ ] **Step 7: Encoder port and driver (PCINT1, rising edges)**
 
@@ -6505,13 +6543,17 @@ proto::AckStatus onCalibrate(const uint8_t* p, uint8_t len);
 bool calibrationTick(int16_t& pwm_l, int16_t& pwm_r);  // true while a script drives the motors
 void calibrationAbort(proto::AckStatus reason);
 void encodersTick();  // 100 Hz, called by the control task before control
-void selfTestTask();  // 1 Hz
+```
+In `src/app/tasks.h` add before `// TASK-DECLS-END`:
+```cpp
+void selfTestTask();  // 1 Hz: hw bits, cal status, one-shot boot self-test
 ```
 
 `src/app/calibration_task.cpp`:
 ```cpp
 #include "app/app.h"
 #include "app/motion_api.h"
+#include "app/tasks.h"
 #include "domain/calibration/cal_status.h"
 #include "domain/estimation/imu_scale.h"
 #include "domain/util/math_util.h"
@@ -6534,6 +6576,7 @@ int8_t dirOf(int16_t pwm, int8_t prev) { return pwm > 0 ? 1 : (pwm < 0 ? -1 : pr
 int8_t g_dir_l = 1;
 int8_t g_dir_r = 1;
 uint32_t g_last_progress_ms = 0;
+uint8_t g_last_progress = 0;  // reported by calibrationAbort()
 
 }  // namespace
 
@@ -6547,8 +6590,11 @@ void encodersTick() {
 
   const ProfileSettings& ps = g_app.settings.profile();
   if (g_app.encoders_enabled) {
-    const EncoderHealth::Inputs hi{g_app.out_pwm_l, g_app.out_pwm_r, g_app.enc_l.recent(), g_app.enc_r.recent(),
-                                   g_app.yaw_rate_dps, ps.deadband_keep[0], ps.deadband_keep[2]};
+    // keep values by direction: deadband_keep = {left fwd, left rev, right fwd, right rev}
+    const EncoderHealth::Inputs hi{g_app.out_pwm_l, g_app.out_pwm_r, g_app.req_pwm_l, g_app.req_pwm_r,
+                                   g_app.enc_l.recent(), g_app.enc_r.recent(), g_app.yaw_rate_dps,
+                                   ps.deadband_keep[g_app.out_pwm_l < 0 ? 1 : 0],
+                                   ps.deadband_keep[g_app.out_pwm_r < 0 ? 3 : 2]};
     g_app.enc_health.update(hi, port::clock::nowMs());
     const uint8_t stalls = g_app.enc_health.takeNewStalls();
     const uint8_t faults = g_app.enc_health.takeNewFaults();
@@ -6581,6 +6627,8 @@ proto::AckStatus onCalibrate(const uint8_t* p, uint8_t len) {
   }
   const proto::AckStatus own = g_app.arbitrator.beginCalibration();
   if (own != proto::AckStatus::kOk) return own;
+  g_app.teleop_v = 0;  // an old DRIVE never resumes after the script
+  g_app.teleop_w = 0;
   const ProfileSettings& ps = g_app.settings.profile();
   const uint8_t keep = static_cast<uint8_t>(
       (ps.deadband_keep[0] + ps.deadband_keep[1] + ps.deadband_keep[2] + ps.deadband_keep[3]) / 4);
@@ -6603,7 +6651,7 @@ void calibrationAbort(proto::AckStatus reason) {
   const CalInputs in{};
   g_app.cal.tick(port::clock::nowMs(), in, out);
   g_app.arbitrator.endCalibration();
-  sendResult(script, 0, out.progress, reason);
+  sendResult(script, 0, g_last_progress, reason);  // progress reached before the abort
 }
 
 bool calibrationTick(int16_t& pwm_l, int16_t& pwm_r) {
@@ -6619,6 +6667,7 @@ bool calibrationTick(int16_t& pwm_l, int16_t& pwm_r) {
   const uint32_t now = port::clock::nowMs();
   const proto::CalScript script = g_app.cal.script();
   g_app.cal.tick(now, in, out);
+  g_last_progress = out.progress;
   if (out.sample) {
     g_app.cal_data = out.data;
     g_app.cal_data_pending = true;  // 50 Hz × 25 B fits easily in 250 kbaud next to telemetry
@@ -6660,6 +6709,8 @@ In `src/app/control_task.cpp` (v1):
 - in `controlInit()` add `port::encoders::begin();` (and `#include "ports/encoders.h"`);
 - at the top of `controlTask()` add `encodersTick();`;
 - in the arbitrator `switch`, add `calibrationAbort(proto::AckStatus::kLinkLost);` to the `kLinkLostStop` case (before `zeroTeleop()`);
+- in `onStop()` add `calibrationAbort(proto::AckStatus::kCalCancelled);` before `g_app.arbitrator.onNetworkStop();` (LLD §9.7: STOP aborts a script);
+- in the `SafetyInputs` initializer replace `0 /* stall_mask: Task 7 */` with `g_app.enc_health.stalledMask()` (LLD §9.6: a stalled track is cut);
 - replace the two lines
 ```cpp
   const int16_t pwm_l = static_cast<int16_t>(l * 2.55f);
@@ -6674,7 +6725,7 @@ with
 ```
 
 In `src/app/routes.cpp` add the row: `{static_cast<uint8_t>(proto::FrameType::kCalibrate), onCalibrate, true},`.
-In `src/main.cpp` add the task row `{cq::app::selfTestTask, 1000000UL, 0},`.
+In `src/main.cpp` add the task row `{cq::app::selfTestTask, 1000000UL, 0},` before `// TASKS-END`.
 In `src/app/comms.cpp` `telemetrySlowDue()` add `s.profile_idx = 0;`.
 
 - [ ] **Step 9: Smoke commands — calibrate, probe, mount, bias**
@@ -6696,7 +6747,8 @@ def run_script(link: Link, script: g.CalScript, param: int, csv_path: str | None
             samples.append(msg)
         elif isinstance(msg, g.CalResult):
             st = g.ACK_STATUS[msg.status]
-            print(f"CAL_RESULT {g.CalScript(msg.script).name} stage={msg.stage} {msg.progress}% {st}")
+            name = g.CalScript(msg.script).name
+            print(f"CAL_RESULT {name} stage={msg.stage} {msg.progress}% {st}")
             if msg.progress == 100 or st != "OK":
                 status.append(st)
                 done.set()
@@ -6706,7 +6758,7 @@ def run_script(link: Link, script: g.CalScript, param: int, csv_path: str | None
             done.set()
 
     link.handlers.append(on)
-    time.sleep(0.6)
+    wait_synced(link)
     link.send(g.Calibrate(op=g.CalOp.START, script=script, param=param, profile=0))
     done.wait(timeout)
     link.handlers.remove(on)
@@ -6729,12 +6781,13 @@ def ask(question: str) -> bool:
 
 
 def cmd_probe(link: Link, args: argparse.Namespace) -> None:
-    """Shield probe (tank on the stand): STBY on D3 and direction pin polarity, per track and direction."""
+    """Shield probe (tank on the stand): STBY on D3 + direction pin polarity per track."""
     results: dict[str, bool] = {}
     # PWM_RAMP param: track (0 left, 1 right) | reverse << 1 | max PWM << 8
     for name, param in (("left forward", 0x00), ("left reverse", 0x02), ("right forward", 0x01),
                         ("right reverse", 0x03)):
-        input(f"Watch the {name.split()[0]} track, press Enter to run '{name}' (ramp to PWM 120 and back)…")
+        track = name.split()[0]
+        input(f"Watch the {track} track, Enter runs '{name}' (ramp to PWM 120 and back)…")
         samples = run_script(link, g.CalScript.PWM_RAMP, param | (120 << 8), timeout=15)
         edges = max((s.v[2] for s in samples), default=0)  # |encoder counts| of the selected track
         moved = ask(f"Did the {name.split()[0]} track move {name.split()[1]}?")
@@ -6742,38 +6795,48 @@ def cmd_probe(link: Link, args: argparse.Namespace) -> None:
         print(f"  encoder edges seen: {edges}")
     print("PROBE RESULT:", "PASS" if all(results.values()) else f"FAIL {results}")
     if not all(results.values()):
-        print("Nothing moved at all → STBY (D3) wrong. Moved the wrong way → flip kDir*ForwardHigh.")
+        print("Nothing moved → STBY (D3) wrong. Moved the wrong way → flip kDir*ForwardHigh.")
 
 
 def cmd_mount(link: Link, args: argparse.Namespace) -> None:
     """IMU mount check: level, then nose up, then CCW rotation by hand."""
     input("Tank level and still. Enter…")
     s = run_script(link, g.CalScript.IDLE, 2000)
+    if not s:
+        print("no samples")
+        return
     ax, ay, az = (statistics.mean(x.v[i] for x in s) / 8192 for i in (3, 4, 5))
     print(f"level: ax={ax:+.2f} g ay={ay:+.2f} g az={az:+.2f} g  (expect 0, 0, +1)")
     input("Lift the FRONT ~3 cm and hold. Enter…")
     s = run_script(link, g.CalScript.IDLE, 1500)
+    if not s:
+        print("no samples")
+        return
     ax2 = statistics.mean(x.v[3] for x in s) / 8192
-    print(f"nose up: ax={ax2:+.2f} g  (expect negative)")
-    input("Put it down. Press Enter, then rotate the tank CCW (seen from above) by hand during 3 s…")
+    print(f"nose up: ax={ax2:+.2f} g  (expect positive: specific force, +sin(pitch))")
+    input("Put it down. Press Enter, then rotate the tank CCW (seen from above) by hand for 3 s…")
     s = run_script(link, g.CalScript.IDLE, 3000)
-    gz = max((x.v[2] for x in s), key=abs) / 65.5
+    gz = max((x.v[2] for x in s), key=abs, default=0) / 65.5
     print(f"CCW rotation: peak gz={gz:+.0f} °/s  (expect positive)")
-    ok = az > 0.8 and ax2 < -0.03 and gz > 20
+    ok = az > 0.8 and ax2 > 0.03 and gz > 20
     print("MOUNT CHECK:", "PASS" if ok else "FAIL → adjust kImuMapX/Y/Z in board_config.h")
 
 
 def cmd_bias(link: Link, args: argparse.Namespace) -> None:
-    """Reference calculator: gyro bias + level offsets from a 3 s still sample, written and saved."""
+    """Reference calculator: gyro bias + level offsets from a 3 s still sample, written + saved."""
     input("Tank on a level floor, motors off, do not touch. Enter…")
     s = run_script(link, g.CalScript.STILL_SAMPLE, 3000)
+    if not s:
+        print("no samples")
+        return
     gx, gy, gz = (round(statistics.mean(x.v[i] for x in s)) for i in (0, 1, 2))
     ax, ay, az = (statistics.mean(x.v[i] for x in s) / 8192 for i in (3, 4, 5))
     import math
-    pitch = math.degrees(math.atan2(-ax, math.hypot(ay, az)))
+    pitch = math.degrees(math.atan2(ax, math.hypot(ay, az)))  # same convention as Attitude (Task 4)
     roll = math.degrees(math.atan2(ay, az))
     values = {g.SettingId.GYRO_BIAS_X: gx, g.SettingId.GYRO_BIAS_Y: gy, g.SettingId.GYRO_BIAS_Z: gz,
-              g.SettingId.LEVEL_PITCH: round(pitch * 100), g.SettingId.LEVEL_ROLL: round(roll * 100)}
+              g.SettingId.LEVEL_PITCH: round(pitch * 100),
+              g.SettingId.LEVEL_ROLL: round(roll * 100)}
     for sid, v in values.items():
         link.send(g.SettingSet(id=sid, value=v))
         print(f"{sid.name.lower()} = {v}")
@@ -6803,6 +6866,7 @@ On the stand (tracks free), from `tools/smoke/`:
 3. On the floor, level: `… bias` → prints five values and `EVENT SETTINGS_SAVED`; afterwards `watch` shows yaw drift < 1° per minute standing still.
 4. `… calibrate pwm_ramp --param 0 --csv ramp.csv` on the stand (left track forward, max 255) → phase 0 ramps up in 52 steps, phase 1 back down; CSV `v3` (|cps|) rises once `v0` (PWM) passes the deadband.
 5. After boot, `watch` shows `EVENT SELFTEST a=0 b=0` (a = 0x02 if the ultrasonic is unplugged).
+6. Stall cut (stand): `… drive 50 0 --seconds 4` and grip the left track firmly by hand → after ~0.5 s `EVENT STALL a=0`, `pwm=0,<n>` (left cut, right still driving) for 1 s, then the left track is driven again (and stalls again after 0.5 s if still held); `… drive -50 0` while it is cut → the left track runs backwards at once (reversal clears the stall).
 
 - [ ] **Step 11: Commit**
 

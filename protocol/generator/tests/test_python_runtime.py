@@ -86,3 +86,38 @@ def test_registry_and_tables() -> None:
     assert generated.ERRORS["NOT_OWNER"].code == "COMMAND_3001"
     assert generated.SettingId.DEADMAN == 15
     assert generated.BAUD == 250000
+
+
+def _golden(i: int) -> bytes:
+    return bytes.fromhex(MODEL.golden[i].hex.replace(" ", ""))
+
+
+def test_parser_resyncs_after_stray_sync() -> None:
+    good = _golden(1)
+    parser = FrameParser()
+    frames = parser.feed(bytes([generated.SYNC]) + good)
+    assert [f.type for f in frames] == [0x12]
+    assert parser.stats.bad_len == 1
+
+
+def test_parser_recovers_good_frame_after_truncated_header() -> None:
+    good = _golden(1)
+    for junk in (bytes([generated.SYNC, 0x05]), bytes([generated.SYNC, 0x03, 0x10, 0x00, 0x01])):
+        parser = FrameParser()
+        # A false header waits for its claimed length, so the stream must continue past it;
+        # the trailing frame completes the false one and both good frames are recovered.
+        frames = parser.feed(junk + good + good + good)
+        assert [f.type for f in frames] == [0x12, 0x12, 0x12], junk.hex()
+        assert parser.stats.bad_crc == 1
+
+
+def test_parser_noise_with_many_syncs_then_two_good_frames() -> None:
+    sync = generated.SYNC
+    noise = bytes([sync, sync, 0x00, sync, generated.MAX_PAYLOAD + 1, sync, 0x02, sync])
+    data = noise + _golden(1) + _golden(2) + _golden(1)
+    for chunk in (len(data), 1, 3):
+        parser = FrameParser()
+        frames: list[RawFrame] = []
+        for i in range(0, len(data), chunk):
+            frames += parser.feed(data[i : i + chunk])
+        assert [f.type for f in frames] == [0x12, 0x13, 0x12], chunk

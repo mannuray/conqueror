@@ -673,7 +673,7 @@ git commit -m "feat(uno): PlatformIO skeleton, scheduler, watchdog, board config
 **Interfaces:**
 - Consumes: `cq_protocol.h` (`crc8`, `kSync`, `kMaxPayload`, `FrameType`, `*Msg`, `encode/decode`, `AckStatus`, `EventKind`).
 - Produces:
-  - `cq::FrameParser`: `bool feed(uint8_t b)` (true when a frame is ready), `bool next()` (continue a resync replay; true when another frame is ready — call until false before the next `feed`), `uint8_t type() const`, `uint8_t seq() const`, `uint8_t len() const`, `const uint8_t* payload() const` (valid until the next `feed`/`next`), `ParseErrors& errors()`; `struct ParseErrors { uint16_t bad_crc, bad_len, unknown_type, tx_dropped; }` — `bad_crc`/`bad_len` count rejection events (a replayed byte can be rejected and counted again). Resync rules match `conqueror_protocol.framing` (Uno LLD §5.2).
+  - `cq::FrameParser`: `bool feed(uint8_t b)` (queue one received byte; legal only when `!pending()`, otherwise returns false and changes nothing — pending replay bytes are never dropped), `bool next(uint8_t& budget)` (run at most `budget` parser steps, decrementing it; true when a frame is ready — the rest of a replay stays pending for the next call), `bool pending() const` (fed or replay bytes still to be stepped), `uint8_t type() const`, `uint8_t seq() const`, `uint8_t len() const`, `const uint8_t* payload() const` (valid until the next `feed`/`next`), `ParseErrors& errors()`, host-test only `uint32_t stepsTaken() const`; `struct ParseErrors { uint16_t bad_crc, bad_len, unknown_type, tx_dropped; }` — `bad_crc`/`bad_len` count rejection events (a replayed byte can be rejected and counted again). Resync rules match `conqueror_protocol.framing` (Uno LLD §5.2): same frames, order and counters for any stream and any budget split.
   - On `proto::decode()` returning false, the message contents are unspecified — handlers must not use them.
   - `cq::FrameWriter`: `uint8_t build(uint8_t type, const uint8_t* payload, uint8_t len, uint8_t* out)` (returns total bytes), `void setSeq(uint8_t)`, `uint8_t lastSeq() const`.
   - `cq::EventQueue`: `bool push(proto::EventKind k, int16_t a = 0, int16_t b = 0)`, `bool pop(Event& out)`, `uint16_t dropped() const`; `struct Event { uint8_t kind; int16_t a; int16_t b; }`.
@@ -706,17 +706,24 @@ static const uint8_t kStop[] = {0xAA, 0x01, 0x12, 0x05, 0x01, 0x24};
 static const uint8_t kTurn[] = {0xAA, 0x07, 0x13, 0x07, 0x02, 0x81, 0x7C, 0xFC, 0x28, 0x00, 0x00, 0xE5};
 static const uint8_t kAck[] = {0xAA, 0x02, 0x81, 0x03, 0x07, 0x00, 0x35};
 
-// Feeds bytes the way commsPoll does (feed, then drain next()) and records frame types.
+// Feeds bytes the way commsPoll does (feed only when nothing is pending, then run next() with a
+// step budget until the byte and its replay are done) and records frame types. A small budget
+// splits the replay across many next() calls; results must not depend on it.
 struct Got {
   uint8_t types[8];
   uint8_t n;
 };
-static uint8_t feedAll(FrameParser& p, const uint8_t* data, uint8_t len, Got& got) {
+static uint8_t feedAll(FrameParser& p, const uint8_t* data, uint8_t len, Got& got,
+                       uint8_t budget = 64) {
   uint8_t frames = 0;
   for (uint8_t i = 0; i < len; ++i) {
-    for (bool ready = p.feed(data[i]); ready; ready = p.next()) {
-      if (got.n < sizeof got.types) got.types[got.n++] = p.type();
-      ++frames;
+    if (!p.feed(data[i])) return 0xFF;  // refused only while pending(); the loop drains first
+    while (p.pending()) {
+      uint8_t left = budget;
+      if (p.next(left)) {
+        if (got.n < sizeof got.types) got.types[got.n++] = p.type();
+        ++frames;
+      }
     }
   }
   return frames;
@@ -724,17 +731,21 @@ static uint8_t feedAll(FrameParser& p, const uint8_t* data, uint8_t len, Got& go
 
 void test_parser_decodes_golden_turn_with_noise() {
   FrameParser p;
+  Got got{};
   const uint8_t noise[] = {0x00, 0x13, 0xFF};
-  for (uint8_t b : noise) TEST_ASSERT_FALSE(p.feed(b));
-  bool ready = false;
-  for (uint8_t b : kTurn) ready = p.feed(b);  // no replay pending: next() would return false
-  TEST_ASSERT_TRUE(ready);
+  TEST_ASSERT_EQUAL(0, feedAll(p, noise, sizeof noise, got));
+  TEST_ASSERT_EQUAL(0, feedAll(p, kTurn, sizeof kTurn - 1, got));
+  TEST_ASSERT_TRUE(p.feed(kTurn[sizeof kTurn - 1]));
+  uint8_t budget = 64;
+  TEST_ASSERT_TRUE(p.next(budget));
+  TEST_ASSERT_EQUAL(63, budget);  // one byte, one step: no replay
+  TEST_ASSERT_FALSE(p.pending());
   TEST_ASSERT_EQUAL_HEX8(0x13, p.type());
   TEST_ASSERT_EQUAL(7, p.len());
   proto::TurnMsg m{};
   TEST_ASSERT_TRUE(proto::decode(p.payload(), p.len(), m));
   TEST_ASSERT_EQUAL(-900, m.angle);
-  TEST_ASSERT_FALSE(p.next());
+  TEST_ASSERT_FALSE(p.next(budget));
 }
 
 void test_parser_bad_crc_then_good() {
@@ -805,13 +816,97 @@ void test_parser_one_byte_can_release_two_frames() {
   FrameParser p;
   Got got{};
   // A false header claiming 9 payload bytes swallows exactly two STOP frames (3 + 9 = 12 bytes);
-  // the CRC fails on the last byte and the replay completes both frames from that one feed().
+  // the CRC fails on the last byte and the replay completes both frames from that one byte.
   const uint8_t junk[] = {0xAA, 0x09};
   feedAll(p, junk, sizeof junk, got);
   feedAll(p, kStop, sizeof kStop, got);
   TEST_ASSERT_EQUAL(0, feedAll(p, kStop, sizeof kStop - 1, got));
   TEST_ASSERT_EQUAL(2, feedAll(p, &kStop[sizeof kStop - 1], 1, got));
   TEST_ASSERT_EQUAL(1, p.errors().bad_crc);
+}
+
+// Replay stays pending across next() calls; feed() refuses a byte while it is pending and the
+// replay survives. Same scenario as above, drained one step per call.
+void test_parser_pending_replay_survives_across_calls() {
+  FrameParser p;
+  Got got{};
+  const uint8_t junk[] = {0xAA, 0x09};
+  feedAll(p, junk, sizeof junk, got);
+  feedAll(p, kStop, sizeof kStop, got);
+  feedAll(p, kStop, sizeof kStop - 1, got);
+  TEST_ASSERT_TRUE(p.feed(kStop[sizeof kStop - 1]));
+  uint8_t one = 1;
+  TEST_ASSERT_FALSE(p.next(one));  // the CRC byte: mismatch, replay of 11 bytes queued
+  TEST_ASSERT_EQUAL(0, one);
+  TEST_ASSERT_TRUE(p.pending());
+  TEST_ASSERT_FALSE(p.feed(0x00));  // refused: nothing pending is dropped or overwritten
+  TEST_ASSERT_TRUE(p.pending());
+  uint8_t frames = 0;
+  uint8_t calls = 0;
+  while (p.pending()) {
+    uint8_t budget = 1;
+    if (p.next(budget)) ++frames;
+    ++calls;
+  }
+  TEST_ASSERT_EQUAL(2, frames);
+  TEST_ASSERT_EQUAL(11, calls);  // 0xAA..0x24 twice, minus the leading sync already scanned
+  TEST_ASSERT_EQUAL(1, p.errors().bad_crc);
+}
+
+// Nested false headers (... 2e aa 2c aa 2a aa ...) maximise replay. Expected frames and
+// counters come from conqueror_protocol.framing.FrameParser on the same bytes; they must not
+// depend on how the step budget splits the work, and no next() call may exceed its budget.
+static const uint8_t kAdversarial[] = {
+    0x25, 0x58, 0x2a, 0x19, 0x1f, 0xaa, 0x07, 0x44, 0x07, 0xaa, 0xfd, 0xaa, 0x2f, 0x55, 0xaa,
+    0x3d, 0x51, 0xaa, 0xad, 0x2a, 0x09, 0x1b, 0xe3, 0xaa, 0xaa, 0x13, 0x64, 0xa9, 0xaa, 0x6d,
+    0x44, 0x82, 0xaa, 0xeb, 0xaa, 0xaa, 0x25, 0x21, 0x03, 0x25, 0xfb, 0xaa, 0x30, 0xaa, 0x2e,
+    0xaa, 0x2c, 0xaa, 0x2a, 0xaa, 0x28, 0xaa, 0x26, 0xaa, 0x24, 0xaa, 0x22, 0xaa, 0x20, 0xaa,
+    0x1e, 0xaa, 0x1c, 0xaa, 0x1a, 0xaa, 0x18, 0xaa, 0x16, 0xaa, 0x14, 0xaa, 0x12, 0xaa, 0x10,
+    0xaa, 0x0e, 0xaa, 0x0c, 0xaa, 0x0a, 0xaa, 0x08, 0xaa, 0x06, 0xaa, 0x04, 0xaa, 0x02, 0xaa,
+    0x00, 0xaa, 0x58, 0xaa, 0xaa, 0x60, 0x64, 0xaa, 0x1e, 0x00, 0x3e, 0xf5, 0x8a, 0x9d, 0xaa,
+    0xe8, 0x29, 0x32, 0x0d, 0xe3, 0x1c, 0xaa, 0x1e, 0x11, 0x45, 0x1d, 0x0c, 0xaa, 0x38, 0x06};
+
+void test_parser_adversarial_stream_matches_reference_under_any_budget() {
+  const uint8_t budgets[] = {1, 7, 64, 255};
+  for (uint8_t budget : budgets) {
+    FrameParser p;
+    Got got{};
+    uint32_t max_one_byte = 0;  // steps spent on one received byte, replay included
+    for (uint8_t i = 0; i < sizeof kAdversarial; ++i) {
+      const uint32_t before = p.stepsTaken();
+      feedAll(p, &kAdversarial[i], 1, got, budget);
+      if (p.stepsTaken() - before > max_one_byte) max_one_byte = p.stepsTaken() - before;
+    }
+    // Good frames after the attack are all recovered, as in the reference.
+    for (uint8_t k = 0; k < 3; ++k) {
+      feedAll(p, kStop, sizeof kStop, got, budget);
+      feedAll(p, kTurn, sizeof kTurn, got, budget);
+    }
+    feedAll(p, kStop, sizeof kStop, got, budget);
+    TEST_ASSERT_EQUAL(7, got.n);
+    for (uint8_t k = 0; k < 7; ++k) TEST_ASSERT_EQUAL_HEX8(k % 2 ? 0x13 : 0x12, got.types[k]);
+    TEST_ASSERT_EQUAL(31, p.errors().bad_crc);
+    TEST_ASSERT_EQUAL(12, p.errors().bad_len);
+    TEST_ASSERT_LESS_OR_EQUAL(700, max_one_byte);  // the proven per-byte bound
+    TEST_ASSERT_TRUE(max_one_byte > 255);          // so a budget really does split it
+  }
+}
+
+void test_parser_next_never_exceeds_its_budget() {
+  FrameParser p;
+  for (uint8_t i = 0; i < sizeof kAdversarial; ++i) {
+    TEST_ASSERT_TRUE(p.feed(kAdversarial[i]));
+    while (p.pending()) {
+      const uint8_t given = static_cast<uint8_t>(1 + (i % 16));
+      uint8_t left = given;
+      const uint32_t before = p.stepsTaken();
+      p.next(left);
+      const uint32_t used = p.stepsTaken() - before;
+      TEST_ASSERT_LESS_OR_EQUAL(given, used);
+      TEST_ASSERT_EQUAL(given - left, used);  // the budget accounts for every step taken
+      TEST_ASSERT_TRUE(used > 0);             // progress while pending
+    }
+  }
 }
 
 void test_writer_matches_golden_ack() {
@@ -888,6 +983,9 @@ int main() {
   RUN_TEST(test_parser_recovers_good_frame_after_truncated_header);
   RUN_TEST(test_parser_noise_with_many_syncs_then_good_frames);
   RUN_TEST(test_parser_one_byte_can_release_two_frames);
+  RUN_TEST(test_parser_pending_replay_survives_across_calls);
+  RUN_TEST(test_parser_adversarial_stream_matches_reference_under_any_budget);
+  RUN_TEST(test_parser_next_never_exceeds_its_budget);
   RUN_TEST(test_writer_matches_golden_ack);
   RUN_TEST(test_event_queue_overflow_counts_drops);
   RUN_TEST(test_reject_limiter);
@@ -927,24 +1025,34 @@ struct ParseErrors {
 //  - a length byte > kMaxPayload that is itself 0xAA is taken as a new sync (stay in kLen);
 //  - after a CRC mismatch the bytes received after the false sync are rescanned for the next
 //    0xAA and replayed, so a good frame hidden behind a bad one is not lost.
-// One buffer holds the raw bytes after sync (len, type, seq, payload, crc; at most 52); replayed
-// bytes live in the same buffer, behind the write position. The frame accessors read that buffer
-// (dispatch by reference, no copy) and are valid only until the next feed()/next() call.
+// One buffer holds the raw bytes after sync (len, type, seq, payload, crc; at most 52); bytes
+// waiting to be replayed live in the same buffer, behind the write position. The frame accessors
+// read that buffer (dispatch by reference, no copy) and are valid only until the next
+// feed()/next() call.
 //
-// Usage — a replay can complete several frames from one received byte:
-//   for (bool ready = parser.feed(b); ready; ready = parser.next()) dispatch(parser);
-// Drain next() until it returns false before the next feed(); feed() drops undrained bytes.
+// Work is resumable and bounded by the caller. One received byte can cost up to ~700 parser
+// steps and ~26 CRC passes (~676 CRC bytes) of replay, so next() runs at most `budget` steps
+// (decremented in place) and keeps the rest pending for the next call:
+//   if (!parser.pending()) parser.feed(b);           // feed() only when nothing is pending
+//   if (parser.next(budget)) dispatch(parser);       // repeat while budget && pending()
+// feed() never discards pending replay bytes: while pending() it refuses the byte (returns
+// false) and changes nothing. Same frames, order and counters as the Python parser for any
+// stream and any budget split.
 class FrameParser {
  public:
   static constexpr uint8_t kRawMax = proto::kMaxPayload + 4;  // len, type, seq, payload, crc
 
-  bool feed(uint8_t b);  // true when a frame is ready
-  bool next();           // continue a pending replay; true when another frame is ready
+  bool feed(uint8_t b);           // queue one received byte; false (byte refused) if pending()
+  bool next(uint8_t& budget);     // run <= budget steps (decremented); true when a frame is ready
+  bool pending() const { return m_rd < m_end; }  // replay or fed bytes still to be stepped
   uint8_t len() const { return m_raw[0]; }
   uint8_t type() const { return m_raw[1]; }
   uint8_t seq() const { return m_raw[2]; }
   const uint8_t* payload() const { return m_raw + 3; }
   ParseErrors& errors() { return m_errors; }
+#ifdef CQ_HOST_TEST
+  uint32_t stepsTaken() const { return m_steps; }  // host-test instrumentation only
+#endif
 
  private:
   enum class State : uint8_t { kSync, kLen, kType, kSeq, kPayload, kCrc };
@@ -953,10 +1061,13 @@ class FrameParser {
 
   State m_state = State::kSync;
   uint8_t m_n = 0;    // raw bytes stored since the (possibly false) sync
-  uint8_t m_rd = 0;   // next byte to replay
-  uint8_t m_end = 0;  // end of the bytes waiting to be replayed; m_n <= m_rd <= m_end
+  uint8_t m_rd = 0;   // next byte to step
+  uint8_t m_end = 0;  // end of the bytes waiting to be stepped; while pending, m_n <= m_rd
   uint8_t m_raw[kRawMax] = {};
   ParseErrors m_errors{};
+#ifdef CQ_HOST_TEST
+  uint32_t m_steps = 0;
+#endif
 };
 
 }  // namespace cq
@@ -971,22 +1082,26 @@ class FrameParser {
 namespace cq {
 
 bool FrameParser::feed(uint8_t b) {
-  // The new byte goes in the slot it will be stored in anyway; any undrained replay is dropped.
-  m_raw[m_n] = b;
+  // Appending behind a replay could need a 53rd slot, so feed() is only legal when nothing is
+  // pending; a refused byte leaves the replay untouched (the caller drains first).
+  if (pending()) return false;
+  // At rest m_n <= 51 (a stored 52nd byte is always a CRC byte, which resets m_n).
+  m_raw[m_n] = b;  // the slot it will be stored in anyway
   m_rd = m_n;
   m_end = static_cast<uint8_t>(m_n + 1);
-  return next();
+  return true;
 }
 
-bool FrameParser::next() {
-  // Iterative and bounded: each step consumes one pending byte, and each resync shrinks
-  // (stored + pending, <= kRawMax) by at least one. Worst case for one pathological received
-  // byte: under ~1.4 k steps and a few dozen CRC passes (a few ms at 16 MHz); real noise costs
-  // a handful of steps.
-  while (m_rd < m_end) {
+bool FrameParser::next(uint8_t& budget) {
+  // Each step consumes one pending byte; each resync shrinks (stored + pending, <= kRawMax) by
+  // at least one, so a received byte costs at most ~700 steps and ~26 CRC passes in total.
+  while (budget != 0 && m_rd < m_end) {
+    --budget;
+#ifdef CQ_HOST_TEST
+    ++m_steps;
+#endif
     if (step(m_raw[m_rd++])) return true;
   }
-  m_rd = m_end = 0;
   return false;
 }
 
@@ -998,17 +1113,13 @@ bool FrameParser::step(uint8_t b) {
     }
     return false;
   }
-  m_raw[m_n++] = b;  // m_n <= m_rd, so this never overwrites a byte still waiting to be replayed
+  m_raw[m_n++] = b;  // m_n <= m_rd, so this never overwrites a byte still waiting to be stepped
   switch (m_state) {
     case State::kLen:
       if (b > proto::kMaxPayload) {
         ++m_errors.bad_len;
-        if (b == proto::kSync) {
-          m_n = 0;  // a fresh sync: stay in kLen
-        } else {
-          m_state = State::kSync;
-          m_n = 0;
-        }
+        if (b != proto::kSync) m_state = State::kSync;  // 0xAA: a fresh sync, stay in kLen
+        m_n = 0;
         return false;
       }
       m_state = State::kType;
@@ -1041,7 +1152,7 @@ void FrameParser::resync() {
   uint8_t k = 0;
   while (k < m_n && m_raw[k] != proto::kSync) ++k;
   if (k < m_n) {
-    // Replay m_raw[k+1 .. m_n) then the still-pending tail; move the tail down to follow them.
+    // Step m_raw[k+1 .. m_n) next, then the still-pending tail; move the tail down to follow.
     const uint8_t tail = static_cast<uint8_t>(m_end - m_rd);
     memmove(m_raw + m_n, m_raw + m_rd, tail);
     m_end = static_cast<uint8_t>(m_n + tail);
@@ -1301,7 +1412,7 @@ bool LinkSession::requestDue(uint32_t now_ms, uint8_t& frame_type) {
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_comms`
-Expected: `12 Tests 0 Failures`.
+Expected: `15 Tests 0 Failures`.
 
 - [ ] **Step 5: Link port and UART driver**
 
@@ -1507,26 +1618,42 @@ App g_app;
 
 namespace app {
 
+// Parser work per loop pass is bounded in parser steps, not received bytes: one hostile byte
+// can need ~700 steps and ~26 CRC passes of replay (input reachable through the unauthenticated
+// WiFi bridge), so the rest of a replay stays pending in the parser for the next pass.
+// Worst case per pass at 16 MHz (host model: ~40 cycles/step, ~70 cycles/CRC byte): CRC bytes in
+// one pass <= steps + 51 carried-over stored bytes, so 64 x 40 + (64 + 51) x 70 ~= 10.6 k cycles
+// ~= 0.66 ms (adversarial search incl. resync scan/memmove: 10.8 k cycles ~= 0.67 ms) <= ~1 ms.
+// Normal traffic costs one step per byte: commands + 10 Hz heartbeats are well under 1 kB/s
+// (< 10 bytes per 10 ms tick) against >= 64 bytes per pass; at line rate (25 kB/s) the 64-byte
+// RX buffer fills in ~2.5 ms, i.e. one full buffer per pass. Telemetry out (~20 Hz) does not use
+// the parser. A flood of crafted bytes overflows the RX buffer instead of stalling the loop;
+// the link-loss stop still applies.
+constexpr uint8_t kPollSteps = 64;
+
 void commsPoll() {
+  uint8_t budget = kPollSteps;
   uint8_t b = 0;
-  uint8_t budget = 64;  // bound work per loop pass
-  while (budget-- && port::link::readByte(b)) {
-    // A resync replay can release several frames from one byte: drain next() before reading on.
-    for (bool ready = g_app.parser.feed(b); ready; ready = g_app.parser.next()) {
-      g_app.link.onValidFrame(port::clock::nowMs());
-      const uint8_t type = g_app.parser.type();
-      bool routed = false;
-      for (uint8_t i = 0; i < kRouteCount; ++i) {
-        Route r;
-        memcpy_P(&r, &kRoutes[i], sizeof r);
-        if (r.type != type) continue;
-        routed = true;
-        const proto::AckStatus st = r.handler(g_app.parser.payload(), g_app.parser.len());
-        if (r.needs_ack) g_app.acks.push(g_app.parser.seq(), st);
-        break;
-      }
-      if (!routed) ++g_app.parser.errors().unknown_type;
+  while (budget != 0) {
+    // Finish pending replay work first; read a new byte only when none is left.
+    if (!g_app.parser.pending()) {
+      if (!port::link::readByte(b)) break;
+      g_app.parser.feed(b);  // always accepted: nothing is pending
     }
+    if (!g_app.parser.next(budget)) continue;  // consumed >= 1 step, so the loop ends
+    g_app.link.onValidFrame(port::clock::nowMs());
+    const uint8_t type = g_app.parser.type();
+    bool routed = false;
+    for (uint8_t i = 0; i < kRouteCount; ++i) {
+      Route r;
+      memcpy_P(&r, &kRoutes[i], sizeof r);
+      if (r.type != type) continue;
+      routed = true;
+      const proto::AckStatus st = r.handler(g_app.parser.payload(), g_app.parser.len());
+      if (r.needs_ack) g_app.acks.push(g_app.parser.seq(), st);
+      break;
+    }
+    if (!routed) ++g_app.parser.errors().unknown_type;
   }
 }
 
@@ -10288,7 +10415,7 @@ git commit -m "feat(uno): IR remote keymap (drive, camera jog, speed, battery ch
 - [ ] **Step 1: Run the whole host suite**
 
 Run: `pio test -e native`
-Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 8, `test_settings` 7, `test_estimation` 8, `test_sensors` 8, `test_safety` 9, `test_encoders` 3, `test_calibration` 11, `test_motion_blocks` 9, `test_controllers` 7, `test_primitives` 8, `test_camera` 7, `test_ui` 8, `test_input` 11 — **118 test cases, 0 failures**.
+Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 15, `test_settings` 7, `test_estimation` 8, `test_sensors` 8, `test_safety` 9, `test_encoders` 3, `test_calibration` 11, `test_motion_blocks` 9, `test_controllers` 7, `test_primitives` 8, `test_camera` 7, `test_ui` 8, `test_input` 11 — **115 test cases, 0 failures**.
 
 - [ ] **Step 2: Build gates and memory map**
 
@@ -10409,7 +10536,7 @@ Note: Plan A names these enums `AudioModeValue` and `OwnerHintValue` (C++ `proto
 
 ## Done when
 
-- `cd firmware/uno && pio test -e native` passes all 118 host tests; `pio run -e uno && python3 scripts/size_gate.py` passes the flash/RAM budget.
+- `cd firmware/uno && pio test -e native` passes all 115 host tests; `pio run -e uno && python3 scripts/size_gate.py` passes the flash/RAM budget.
 - The phase 1 and phase 2 sign-off lists in Task 15 are fully ticked on the real tank.
 - `tools/smoke/uno_smoke.py` covers handshake, telemetry, settings, driving, primitives, camera, LED/sound, calibration scripts, probe, mount check, bias and soak — the same link behaviour Plan C's bridge and Plan D's bench tool build on.
 - `docs/lld/uno-firmware-lld.md` §9.8 lists the corrected IR codes.

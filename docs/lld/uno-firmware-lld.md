@@ -607,7 +607,8 @@ classDiagram
       -uint8 raw_[52]
       -uint8 n_, rd_, end_
       +feed(uint8 byte) bool
-      +next() bool
+      +next(uint8& budget) bool
+      +pending() bool
       +type() uint8
       +seq() uint8
       +len() uint8
@@ -686,7 +687,7 @@ classDiagram
 ```
 `ParseState {Sync, Len, Type, Seq, Payload, Crc}`. `Codec` has one decode/encode pair per message type (generated); when `decode()` returns false the message contents are unspecified.
 
-**Parser API (revised 2026-10-11, see the resync note at the end):** `raw_[52]` holds the bytes after the sync (len, type, seq, payload, crc) and is the frame — `Frame` is a view of it, not a copy. `feed(byte)` returns true when a frame is ready; a resync replay can release more than one frame from one received byte, so the caller drains `next()` until it returns false before the next `feed()`: `for (bool r = p.feed(b); r; r = p.next()) dispatch(p);`. Frame accessors are valid until the next `feed()`/`next()`. Bytes waiting to be replayed live in the same `raw_` buffer behind the write position (no second buffer); the replay is iterative and bounded. `bad_crc` / `bad_len` count rejection events — a replayed byte can be rejected and counted again. RAM ≈ 64 B (raw 52 + 4 state bytes + 8 B counters).
+**Parser API (revised 2026-10-11, see the resync notes at the end):** `raw_[52]` holds the bytes after the sync (len, type, seq, payload, crc) and is the frame — `Frame` is a view of it, not a copy. Work is resumable and bounded by the caller: `feed(byte)` queues one received byte and is legal only when `!pending()` (otherwise it returns false and changes nothing, so pending replay bytes are never dropped); `next(budget)` runs at most `budget` parser steps, decrementing it, and returns true when a frame is ready; whatever replay is left stays pending for the next call. Caller loop: `while (budget) { if (!p.pending()) { if (!read(b)) break; p.feed(b); } if (p.next(budget)) dispatch(p); }`. Frame accessors are valid until the next `feed()`/`next()`. Bytes waiting to be replayed live in the same `raw_` buffer behind the write position (no second buffer), which is why `feed()` refuses rather than appends: appending behind a full replay could need a 53rd byte. `bad_crc` / `bad_len` count rejection events — a replayed byte can be rejected and counted again. Frames, order and counters are the same as the Python parser for any stream and any budget split. RAM ≈ 64 B (raw 52 + 4 state bytes + 8 B counters); host tests add a step counter (`stepsTaken()`, `CQ_HOST_TEST` only).
 
 ### 5.2 Parser state machine
 ```mermaid
@@ -706,7 +707,7 @@ stateDiagram-v2
     Crc --> Len : crc bad, 0xAA in bytes after sync → bad_crc++, replay bytes after it
     Crc --> Sync : crc bad, no 0xAA → bad_crc++
 ```
-Replay (resync after a CRC mismatch): the bytes stored since the false sync (len … crc) are scanned for the first 0xAA; the bytes after it, followed by any bytes still waiting from an earlier replay, are fed back through the same states. Stored + waiting bytes shrink by at least one per resync, so the loop ends; worst case for one pathological received byte is under ~1.4 k byte steps and a few dozen CRC passes (a few ms at 16 MHz), ordinary noise costs a handful. Identical behaviour to `conqueror_protocol.framing.FrameParser` (Plan A).
+Replay (resync after a CRC mismatch): the bytes stored since the false sync (len … crc) are scanned for the first 0xAA; the bytes after it, followed by any bytes still waiting from an earlier replay, are fed back through the same states. Stored + waiting bytes shrink by at least one per resync, so the loop ends. Proven worst case for one received byte: about 700 parser steps and about 26 CRC passes (~676 CRC bytes), ≈ 4.6 ms at 16 MHz if run in one go — so the replay is resumable and `commsPoll` gives the parser at most 64 steps per loop pass (≈ 0.67 ms worst case, §9.18); ordinary noise costs a handful of steps. Identical behaviour to `conqueror_protocol.framing.FrameParser` (Plan A).
 
 ### 5.3 Routing table (OCP through data, PROGMEM)
 | Type | Handler → target | Ack |
@@ -743,10 +744,14 @@ sequenceDiagram
     participant A as Arbitrator
     participant C as ControlTask
     E->>L: 0xAA 03 10 seq [src v w] crc
-    D->>L: readByte() × n
+    Note over D,P: budget = 64 steps per loop pass
+    D->>P: pending()?
+    P-->>D: false
+    D->>L: readByte()
     D->>P: feed(byte)
-    P-->>D: true (frame ready)
-    Note over D,P: after handling, D calls next() until false (a resync replay may release more frames)
+    D->>P: next(budget)
+    P-->>D: true (frame ready), budget decremented
+    Note over D,P: loop while budget > 0: pending replay is stepped before any new byte is read; leftover replay waits for the next pass
     D->>D: route[0x10] → onDrive
     D->>A: onNetwork(Drive v,w)
     A-->>D: Accepted (or NOT_OWNER → EVENT)
@@ -1171,6 +1176,7 @@ Lifted if **any**: sustained vertical acceleration deviation > 0.25 g for > 150 
 ### 9.18 Comms additions (fix 23, 26)
 - **UART 250000 baud** (0 % error at 16 MHz with U2X; supported by the ESP32).
 - Parser buffer **is** the frame (dispatch by reference; no duplicate `Frame.payload`): one 52 B raw buffer (len, type, seq, payload, crc) that also holds bytes waiting for a resync replay; one shared 52 B TX encode buffer.
+- **Parser work per loop pass is bounded in steps, not bytes** (`kPollSteps = 64`): pending replay is drained first, new UART bytes are read only while nothing is pending. Worst case per pass (host model ~40 cycles/step, ~70 cycles/CRC byte; CRC bytes ≤ steps + 51 carried over): 64 × 40 + 115 × 70 ≈ 10.6 k cycles ≈ 0.66 ms; an adversarial search including resync scan/memmove found 10.8 k cycles ≈ 0.67 ms. Valid traffic costs one step per byte, so 64 bytes per pass — one full 64 B RX buffer (≈ 2.5 ms at 250000 baud) — against < 1 kB/s of real inbound traffic. A crafted flood overflows the RX buffer instead of stalling the 10 ms tick.
 - TxScheduler priority: **ACK > WIFI_RESET_REQ > EVENT > HELLO > CAL_DATA > TELEM_FAST > TELEM_SLOW**.
 - **NOT_OWNER / BUSY rejection events rate-limited** to 1 per 500 ms per source (a 20 Hz DRIVE stream cannot flood the queue).
 - **Uno owner `Network → None`:** no network motion command for 1 s and Primitives idle (bookkeeping only; human/AI handback is the ESP32's).
@@ -1218,7 +1224,7 @@ sequenceDiagram
 | Controllers + TargetLimiter + motion | ~170 |
 | Estimation (+ AccelVariance), safety, arbitration | ~130 |
 | Camera head, UI sequencers, Annunciator, TONE buffer (41) | ~140 |
-| Comms (parser = frame: raw 52 + state ≈ 64, TX buffer 52, event queue 8 × 6) | ~160 |
+| Comms (parser = frame: raw 52 + state ≈ 64 — the resumable step budget adds no RAM; TX buffer 52, event queue 8 × 6) | ~160 |
 | Scheduler, ISR state, EepromWriter queue, CalScriptRunner, misc | ~190 |
 | Stack reserve | 400 |
 | **Total ≈ 1740 B → ~300 B headroom** | |
@@ -1258,4 +1264,8 @@ Firmware: `drivers/board_config.h` build option selects the shield; only the mot
 
 ### Decision note (2026-10-11): frame parser resync (see §5.2)
 `FrameParser` must resync like the Plan A reference (`conqueror_protocol.framing`): when a length byte is out of range and is itself 0xAA, treat it as a new start of frame; after a CRC mismatch, rescan the bytes received after the false start for the next 0xAA, so noise or a cut-off frame does not cost the next good frame.
-API consequence (agreed 2026-10-11 in the Plan A final review): a replay can complete more than one frame from one received byte, so `feed(byte)` returns the first ready frame and the caller drains `next()` until false (§5.1, §5.2, Plan B Task 2). The single `raw_[52]` buffer holds both the frame and the bytes waiting for replay (+3 B over the old 48 B buffer + header fields); the replay is iterative and bounded. `bad_crc` / `bad_len` count rejection events, so a replayed byte can be counted again. The Plan B host tests mirror the three Python resync tests.
+API consequence (agreed 2026-10-11 in the Plan A final review): a replay can complete more than one frame from one received byte, so `feed(byte)` returned the first ready frame and the caller drained `next()` until false (superseded by the bounded-replay note below; current API in §5.1). The single `raw_[52]` buffer holds both the frame and the bytes waiting for replay (+3 B over the old 48 B buffer + header fields); the replay is iterative and bounded. `bad_crc` / `bad_len` count rejection events, so a replayed byte can be counted again. The Plan B host tests mirror the three Python resync tests.
+
+### Decision note (2026-10-11): bounded replay work per loop pass (supersedes the "drain `next()` until false" API above)
+Review finding: `commsPoll` bounded received bytes (64), not replay work. One crafted byte can trigger about 700 parser steps and about 26 CRC passes (≈ 4.6 ms at 16 MHz; the earlier "~1.4 k steps" figure was wrong), and a sustained crafted stream costs ≈ 2.2 k cycles per byte, so 64 bytes took ≈ 9 ms of the 10 ms tick — reachable through the unauthenticated ESP32 WiFi bridge. Also, `feed()` discarded an undrained replay.
+Decision (review option a): the replay is resumable. `bool next(uint8_t& budget)` runs at most `budget` steps; `bool pending()` says bytes remain; `feed()` is legal only when `!pending()` and refuses (returns false, changes nothing) otherwise — simpler than appending, which could need a 53rd buffer byte. `commsPoll` spends at most 64 steps per pass, pending replay first (≈ 0.67 ms worst case, §9.18). Frames, order and counters stay identical to `conqueror_protocol.framing` for any budget split. Plan B Task 2 host tests add: an adversarial nested-header stream matched against the Python parser at budgets 1/7/64/255, a check that no `next(budget)` call exceeds its budget, and pending replay surviving across calls with `feed()` refused meanwhile.

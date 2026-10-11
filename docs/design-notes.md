@@ -720,3 +720,4 @@ Timers: T0 motor PWM + timekeeping, T1 servos, T2 buzzer; IR + ultrasonic via pi
 - **Safety:** every step is an ordinary command, so obstacle brake, child-play envelope, deadman, tilt/lift all apply; STOP or IR aborts the whole program; loops have step and time limits; a program runs under its sender's priority (IR > human > AI).
 - **Roadmap:** spec now (design only; Plans B–D unchanged) → after Plan D: Python package + `bench logo run` → phase 4: ESP32 runner + program API → phase 5: IDE in Cockpit-lite → phase 6: library, natural language → code, explanations, vision words.
 - Next: language spec `docs/superpowers/specs/2026-10-11-05-tank-logo-design.md`.
+- Spec approved 2026-10-11 (`docs/superpowers/specs/2026-10-11-05-tank-logo-design.md` §12): English keywords only; events later (v2); no timed fallback without encoders (clear error); saved programs on the tank run from IR keys 1–9 in v2; `STOP` ends the whole program.

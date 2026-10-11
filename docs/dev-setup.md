@@ -1,0 +1,41 @@
+# Developer machine setup (macOS and Linux)
+
+The implementation plans show macOS commands. This page gives the Linux equivalents. Use the column for your machine.
+
+## 1. Base tools
+| Need | macOS | Linux (Debian/Ubuntu) |
+|---|---|---|
+| Git + C/C++ compiler | `xcode-select --install` | `sudo apt install -y git build-essential` |
+| uv (Python 3.12 is installed by uv automatically) | `brew install uv` | `curl -LsSf https://astral.sh/uv/install.sh \| sh` then open a new shell |
+| PlatformIO (Plans B, C) | `uv tool install platformio` | `uv tool install platformio` |
+| Claude Code + superpowers plugin | same on both — install Claude Code, then add the superpowers plugin | same |
+| GitHub access | SSH key added to GitHub | same (`ssh-keygen -t ed25519`, add the public key to GitHub) |
+
+## 2. Serial ports (Uno and ESP32 over USB)
+| | macOS | Linux |
+|---|---|---|
+| Port names | `/dev/tty.usbserial-*`, `/dev/tty.usbmodem*`, `/dev/tty.wchusbserial*` | `/dev/ttyACM0` (Uno with 16U2), `/dev/ttyUSB0` (CH340: ESP32 board, Uno clones) |
+| Permissions | none | `sudo usermod -aG dialout $USER`, then **log out and back in** |
+| PlatformIO udev rules | not needed | `curl -fsSL https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/system/99-platformio-udev.rules \| sudo tee /etc/udev/rules.d/99-platformio-udev.rules && sudo udevadm control --reload-rules && sudo udevadm trigger` |
+| List ports | `ls /dev/tty.*` or `pio device list` | `ls /dev/ttyACM* /dev/ttyUSB*` or `pio device list` |
+If a plan says `--port /dev/tty.usbserial-XXXX`, use `--port /dev/ttyACM0` (or `/dev/ttyUSB0`) on Linux.
+
+## 3. Finding the WiFi bridge (mDNS)
+| | macOS | Linux |
+|---|---|---|
+| `.local` name resolution | built in | `sudo apt install -y avahi-daemon libnss-mdns` (usually preinstalled on desktop Ubuntu) |
+| Browse the bridge service | `dns-sd -B _cqbridge._tcp` | `avahi-browse -rt _cqbridge._tcp` (package `avahi-utils`) |
+| Ping | `ping conqueror-bridge.local` | same |
+The bench tool's `bench discover` works on both (it uses Python zeroconf).
+
+## 4. Bench tool specifics
+- Textual dashboard: works in any modern terminal on both.
+- **Hold-to-drive (`bench drive --hold`, pynput):** macOS needs Accessibility permission for the terminal; on Linux it works under **X11** but **not on Wayland** (use the default cruise-control driving there, or log into an X11 session).
+- Plots use matplotlib's headless backend — no display needed.
+
+## 5. Firewall
+The laptop connects **out** to the bridge on TCP 3333 and HTTP 81; no inbound ports are needed. If a strict firewall blocks mDNS, allow UDP 5353 on the local network or connect by IP.
+
+## 6. Working on two machines
+- One branch per plan (`plan-a`, `plan-b`, …); merge Plan A to `main` before starting B/C/D.
+- The machine physically connected to the tank runs the hardware steps of Plans B and C; Plans A and D (and B's host tests) run anywhere.

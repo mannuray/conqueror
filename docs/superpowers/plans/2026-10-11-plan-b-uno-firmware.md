@@ -14,6 +14,7 @@
 
 ## Global Constraints
 
+- **Platform:** commands are shown for macOS; on **Linux** use the equivalents in `docs/dev-setup.md` (uv install, serial port names `/dev/ttyACM0`/`/dev/ttyUSB0` + `dialout` group, PlatformIO udev rules, `avahi-browse` instead of `dns-sd`, hold-to-drive needs X11).
 - Hardware (confirmed): Arduino Uno + ELEGOO **SmartCar Shield V1.1, TB6612FNG**: PWM right (A) **D5**, PWM left (B) **D6**, AIN1 **D7**, BIN1 **D8**, STBY **D3** (HIGH = enabled, LOW = coast). Build option `-DSHIELD_SMARTCAR_V11_TB6612` (default) or `-DSHIELD_TANK_DRV8835` (PH/EN: PWM D5/D6, PH right D8, PH left D7, no STBY). Board option `-DBOARD_UNO`.
 - Pins: encoders (FIT0458, channel A only) left **A1**, right **A2** (PCINT1, rising edges only); passive buzzer **A0** (`tone()`, Timer2); ultrasonic trig **D13**, echo **D12**; IR receiver **D9** (custom NEC decoder, no IRremote); PCINT0 ISR shared by D9 + D12; servos pan **D10**, tilt **D11** (Servo lib, Timer1); WS2812 ×1 on **D4** (own bit-bang, no FastLED); button **D2**; battery **A3**; MPU6050 on I2C A4/A5 @ **0x68**.
 - UART **250000** baud on D0/D1 (shield switch **S1** disconnects the ESP32 for USB upload).

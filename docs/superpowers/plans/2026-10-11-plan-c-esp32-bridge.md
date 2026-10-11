@@ -14,6 +14,7 @@
 
 ## Global Constraints
 
+- **Platform:** commands are shown for macOS; on **Linux** use the equivalents in `docs/dev-setup.md` (uv install, serial port names `/dev/ttyACM0`/`/dev/ttyUSB0` + `dialout` group, PlatformIO udev rules, `avahi-browse` instead of `dns-sd`, hold-to-drive needs X11).
 - Board: ELEGOO ESP32-WROVER camera **V1.0** (no IO13 LED) — status goes to the USB serial log; LED support only with `-D CQ_STATUS_LED` on a V1.2 board.
 - Uno link: **UART2, RX = IO33, TX = IO4, 250000 baud, 8N1**.
 - Camera: OV3660 on the ELEGOO pin map `CAMERA_MODEL_M5STACK_WIDE`; stream VGA (640×480) JPEG quality 12, **one viewer**, port **81**, path `/stream`; compiled only with `-D CQ_BRIDGE_CAMERA` (on by default in `env:bridge`).

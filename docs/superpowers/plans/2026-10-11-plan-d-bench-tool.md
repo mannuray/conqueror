@@ -14,6 +14,7 @@
 
 ## Global Constraints
 
+- **Platform:** commands are shown for macOS; on **Linux** use the equivalents in `docs/dev-setup.md` (uv install, serial port names `/dev/ttyACM0`/`/dev/ttyUSB0` + `dialout` group, PlatformIO udev rules, `avahi-browse` instead of `dns-sd`, hold-to-drive needs X11).
 - Python **3.12**, uv project at `tools/bench/`, package `conqueror_bench`; `conqueror-protocol` from `../../protocol/python` (editable path source). Ruff + pyright strict clean; pytest with `asyncio_mode = "auto"`.
 - Link: frames via `conqueror_protocol.framing` only (no hand-built frames); **UART 250000 baud**; TCP bridge default port **3333**, host `conqueror-bridge.local`.
 - **Heartbeat every 100 ms** from its own task; **ack timeout 200 ms**; **STOP resent every 50 ms until acked, max 10 attempts**; handshake HELLO → (ENVELOPE if configured, must ack OK) → HELLO_ACK; HELLO_REQ if no HELLO within 1 s.

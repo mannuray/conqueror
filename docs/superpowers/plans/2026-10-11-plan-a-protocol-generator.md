@@ -14,6 +14,7 @@
 
 ## Global Constraints
 
+- **Platform:** commands are shown for macOS; on **Linux** use the equivalents in `docs/dev-setup.md` (uv install, serial port names `/dev/ttyACM0`/`/dev/ttyUSB0` + `dialout` group, PlatformIO udev rules, `avahi-browse` instead of `dns-sd`, hold-to-drive needs X11).
 - Frame layout: `0xAA | len | type | seq | payload | crc8`; CRC-8 poly `0x07`, init `0x00` (CRC-8/SMBUS, check value of `"123456789"` = `0xF4`) over `len, type, seq, payload`.
 - Max payload **48** bytes; all integers **little-endian**.
 - UART **250000** baud (recorded in `meta.yaml`; used by firmware and bench).

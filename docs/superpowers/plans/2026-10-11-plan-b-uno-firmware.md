@@ -8357,12 +8357,13 @@ git commit -m "feat(uno): TURN/MOVE primitives with trapezoid profiles, stall/ti
 - Modify: `src/app/app.h`, `src/app/routes.cpp`, `src/app/apply_settings.cpp`, `tools/smoke/uno_smoke.py`
 
 **Interfaces:**
-- Consumes: everything from Tasks 4–10 (`Arbitrator`, `SafetySupervisor`, `EncoderTrack/Health`, `HeadingController`, `SpeedController`, `Ramp`, `mix`, `limitTargets`, `batteryScale`, `Primitives`, `calibrationTick/Abort`, `encodersTick`).
+- Consumes: everything from Tasks 4–10 (`Arbitrator` incl. `setSynced`/4-argument `tick`, `SafetySupervisor` + `SafetyInputs.stall_mask`, `EncoderTrack/Health`, `HeadingController`, `SpeedController` (`capped` argument), `Ramp`, `mix` + `MixerConfig{…, pivot_fallback, keep_pct}`, `limitTargets` + `Limits.degraded_cap_pct`, `batteryScale`, `Primitives`, `calibrationTick/Abort`, `encodersTick`); `controlInit`/`controlTask` stay declared in `app/tasks.h` (Task 6).
 - Produces:
-  - Control order per 10 ms tick: encoders → arbitration → source (calibration | primitive | network/IR teleop) → heading → mixer → limiter (envelope %, obstacle slow) → ramps → speed controllers (PWM limit from the cap) → battery scale → `SafetySupervisor` → motor port.
-  - New handlers `onDriveRate`, `onTurn`, `onMove`, `onCancel`, `onProfile`; `configureMotion()` (called from `applySettings()` and after self-test changes).
+  - Control order per 10 ms tick: encoders → arbitration → source (calibration | primitive | network/IR teleop) → heading → mixer → limiter (envelope %, degraded cap, obstacle slow) → ramps (accel = min(envelope accel cap, `accel_limit`)) → speed controllers (PWM limit from the cap; integrator frozen while capped or the track is stalled) → battery scale → `SafetySupervisor` → motor port.
+  - New handlers `onDriveRate`, `onTurn`, `onMove`, `onCancel`, `onProfile`; `configureMotion()` (called from `applySettings()`); `stopTeleop()` (zeroes stick, DRIVE_RATE mode and rate — used by Task 14's IR controller).
+  - App `deadman_latched` (set by `DEADMAN_STOP`, cleared by the next accepted DRIVE/DRIVE_RATE; Task 13 reports it as `flags2.deadman`).
   - Events produced here: `CONTROL_CHANGED`, `IR_OVERRIDE`, `DEADMAN_STOP`, `PRIMITIVE_DONE` (`a = kind | ok << 8`, `b = reason`), `BLOCKED`/`UNBLOCKED`, `REJECTED`, `ENVELOPE_CHANGED`.
-  - Smoke commands `driverate V RATE`, `turn ANGLE SPEED [--radius CM] [--to] [--pivot]`, `move MM SPEED [--heading DEG]`, `cancel`.
+  - Smoke: `Link.paused` (simulated link loss); commands `driverate V RATE`, `turn ANGLE SPEED [--radius CM] [--to] [--pivot] [--then-to DEG] [--cancel-after S] [--drop-link-after S --restore-after S]`, `move MM SPEED [--heading DEG]`, `cancel`; `drive … --envelope CAP [--accel A] [--lock]`.
 
 - [ ] **Step 1: Replace the motion API header**
 
@@ -8376,9 +8377,9 @@ git commit -m "feat(uno): TURN/MOVE primitives with trapezoid profiles, stall/ti
 namespace cq {
 namespace app {
 
-void controlInit();
-void controlTask();     // 100 Hz
-void configureMotion(); // re-read settings into controllers
+// controlInit/controlTask/selfTestTask are declared in app/tasks.h.
+void configureMotion();  // re-read settings into controllers
+void stopTeleop();       // zero stick, DRIVE_RATE mode and rate (IR stop/takeover, Task 14)
 
 proto::AckStatus onDrive(const uint8_t* p, uint8_t len);
 proto::AckStatus onDriveRate(const uint8_t* p, uint8_t len);
@@ -8392,10 +8393,9 @@ proto::AckStatus onOwnerHint(const uint8_t* p, uint8_t len);
 proto::AckStatus onProfile(const uint8_t* p, uint8_t len);
 
 proto::AckStatus onCalibrate(const uint8_t* p, uint8_t len);
-bool calibrationTick(int16_t& pwm_l, int16_t& pwm_r);
+bool calibrationTick(int16_t& pwm_l, int16_t& pwm_r);  // true while a script drives the motors
 void calibrationAbort(proto::AckStatus reason);
-void encodersTick();
-void selfTestTask();
+void encodersTick();  // 100 Hz, called by the control task before control
 
 }  // namespace app
 }  // namespace cq
@@ -8414,6 +8414,7 @@ Add members (next to `teleop_v`/`teleop_w`):
 ```cpp
   bool teleop_rate_mode = false;  // DRIVE_RATE: closed-loop yaw rate instead of stick w
   float teleop_rate_dps = 0.0f;
+  bool deadman_latched = false;   // DEADMAN_STOP fired; cleared by the next accepted DRIVE/DRIVE_RATE
   Primitives primitives;
   HeadingController heading;
   SpeedController speed_l;
@@ -8429,6 +8430,7 @@ In `src/app/apply_settings.cpp` add `#include "app/motion_api.h"` and, before `/
 ```cpp
 #include "app/app.h"
 #include "app/motion_api.h"
+#include "app/tasks.h"
 #include "domain/motion/battery_comp.h"
 #include "domain/motion/mixer.h"
 #include "domain/motion/target_limiter.h"
@@ -8447,6 +8449,7 @@ PrimitiveConfig g_prim{180, 150, 329.0f, 7.6f, false, false};
 SpeedConfig g_cfg[4] = {};  // l_fwd, l_rev, r_fwd, r_rev
 bool g_soft_stop = false;
 
+// Same 3-line helper as in imu_task/sensor_tasks: accepted duplication (file-local, no shared state).
 void setFast(proto::FastFlagBit bit, bool on) {
   const uint16_t m = static_cast<uint16_t>(1u << static_cast<uint8_t>(bit));
   g_app.fast_flags = on ? static_cast<uint16_t>(g_app.fast_flags | m) : static_cast<uint16_t>(g_app.fast_flags & ~m);
@@ -8490,6 +8493,8 @@ int16_t scaled(int16_t pwm, float s) { return static_cast<int16_t>(static_cast<f
 
 }  // namespace
 
+void stopTeleop() { zeroTeleop(); }
+
 void configureMotion() {
   const GlobalSettings& gs = g_app.settings.global();
   const ProfileSettings& ps = g_app.settings.profile();
@@ -8519,6 +8524,7 @@ proto::AckStatus onDrive(const uint8_t* p, uint8_t len) {
   const proto::AckStatus st = networkMotion(static_cast<uint8_t>(proto::FrameType::kDrive), m.src, true);
   if (st != proto::AckStatus::kOk) return st;
   if (g_app.primitives.active() != proto::PrimitiveKind::kNone) g_app.primitives.cancel(proto::AckStatus::kCancelled);
+  g_app.deadman_latched = false;
   g_app.teleop_rate_mode = false;
   g_app.teleop_v = m.v;
   g_app.teleop_w = m.w;
@@ -8532,6 +8538,7 @@ proto::AckStatus onDriveRate(const uint8_t* p, uint8_t len) {
   const proto::AckStatus st = networkMotion(static_cast<uint8_t>(proto::FrameType::kDriveRate), m.src, true);
   if (st != proto::AckStatus::kOk) return st;
   if (g_app.primitives.active() != proto::PrimitiveKind::kNone) g_app.primitives.cancel(proto::AckStatus::kCancelled);
+  g_app.deadman_latched = false;
   g_app.teleop_rate_mode = true;
   g_app.teleop_v = m.v;
   g_app.teleop_rate_dps = clampf(m.yaw_rate * 0.1f, -static_cast<float>(g_prim.turn_rate_max_dps),
@@ -8546,7 +8553,8 @@ proto::AckStatus onStop(const uint8_t* p, uint8_t len) {
   g_app.primitives.cancel(proto::AckStatus::kCancelled);
   calibrationAbort(proto::AckStatus::kCalCancelled);
   g_app.arbitrator.onNetworkStop();
-  return proto::AckStatus::kOk;  // STOP is accepted from any source, even while IR owns (it is a no-op then)
+  // Accepted from any source. While IR owns, it only zeroes the current command; IR keeps ownership.
+  return proto::AckStatus::kOk;
 }
 
 proto::AckStatus onTurn(const uint8_t* p, uint8_t len) {
@@ -8565,6 +8573,7 @@ proto::AckStatus onMove(const uint8_t* p, uint8_t len) {
   const proto::AckStatus own = networkMotion(static_cast<uint8_t>(proto::FrameType::kMove), m.src, false);
   if (own != proto::AckStatus::kOk) return own;
   zeroTeleop();
+  g_prim.imu_ok = imuUsable();  // MOVE holds a gyro heading: UNAVAILABLE without the IMU (R7)
   g_prim.encoders = g_app.encoders_enabled && !g_app.enc_health.faulted(0) && !g_app.enc_health.faulted(1);
   return g_app.primitives.startMove(m, g_prim, primInputs(), port::clock::nowMs());
 }
@@ -8588,8 +8597,9 @@ proto::AckStatus onEnvelope(const uint8_t* p, uint8_t len) {
   if (!proto::decode(p, len, m)) return proto::AckStatus::kInvalidCommand;
   const proto::AckStatus st = g_app.envelope.set(m.speed_cap, m.accel_cap, m.lock_brake);
   if (st == proto::AckStatus::kOk) {
-    g_app.events.push(proto::EventKind::kEnvelopeChanged, static_cast<int16_t>(m.speed_cap | (m.accel_cap << 8)),
-                      m.lock_brake);
+    const uint16_t packed = static_cast<uint16_t>(static_cast<uint16_t>(m.speed_cap) |
+                                                  static_cast<uint16_t>(static_cast<uint16_t>(m.accel_cap) << 8u));
+    g_app.events.push(proto::EventKind::kEnvelopeChanged, static_cast<int16_t>(packed), m.lock_brake);
     g_app.slow.env_speed_cap = m.speed_cap;
     g_app.slow.env_accel_cap = m.accel_cap;
     g_app.slow.env_lock_brake = m.lock_brake;
@@ -8617,18 +8627,22 @@ void controlTask() {
   const GlobalSettings& gs = g_app.settings.global();
   encodersTick();
 
-  // 1. ownership and link/deadman rules
-  switch (g_app.arbitrator.tick(now, g_app.link.alive(now), Arbitrator::Config{gs.deadman, gs.ir_handback})) {
+  // 1. ownership and link/deadman rules. Network motion is BUSY until HELLO_ACK (LLD §9.4); the
+  //    Network → None idle release waits while a primitive runs (LLD §9.18).
+  g_app.arbitrator.setSynced(g_app.link.synced());
+  const bool prim_busy = g_app.primitives.active() != proto::PrimitiveKind::kNone;
+  switch (g_app.arbitrator.tick(now, g_app.link.alive(now), prim_busy, Arbitrator::Config{gs.deadman, gs.ir_handback})) {
     case Arbitrator::Action::kDeadmanStop:
       zeroTeleop();
       g_soft_stop = true;
+      g_app.deadman_latched = true;
       g_app.events.push(proto::EventKind::kDeadmanStop);
       break;
     case Arbitrator::Action::kLinkLostStop:
+      calibrationAbort(proto::AckStatus::kLinkLost);
       zeroTeleop();
       g_soft_stop = true;
       g_app.primitives.cancel(proto::AckStatus::kLinkLost);  // never resumed
-      calibrationAbort(proto::AckStatus::kLinkLost);
       break;
     case Arbitrator::Action::kIrReleased:
       zeroTeleop();
@@ -8639,10 +8653,11 @@ void controlTask() {
   if (g_app.arbitrator.takeOwnerChanged()) {
     const proto::Owner owner = g_app.arbitrator.owner();
     g_app.events.push(proto::EventKind::kControlChanged, static_cast<int16_t>(owner));
-    if (owner == proto::Owner::kIr) {
-      g_app.primitives.cancel(proto::AckStatus::kCancelled);
-      g_app.events.push(proto::EventKind::kIrOverride);
-    }
+    // IR takeover: Task 14's input task cancels primitives and stops teleop *before* the IR command is
+    // applied (doing it here would cancel a TURN the IR `0` key just started).
+    if (owner == proto::Owner::kIr) g_app.events.push(proto::EventKind::kIrOverride);
+    // An idle release, STOP or calibration never resumes an old DRIVE/DRIVE_RATE (IR writes teleop while it owns).
+    if (owner == proto::Owner::kNone || owner == proto::Owner::kCalibration) zeroTeleop();
   }
 
   // 2. motion source
@@ -8663,11 +8678,16 @@ void controlTask() {
     const ProfileSettings& ps = g_app.settings.profile();
     const float yaw = g_app.yaw.yawDeg();
     const float rate = g_app.yaw_rate_dps;
+    // A TURN cannot finish without the gyro (R7): end it; a running MOVE goes on without heading hold.
+    if (!imuUsable() && g_app.primitives.active() == proto::PrimitiveKind::kTurn) {
+      g_app.primitives.cancel(proto::AckStatus::kUnavailable);
+    }
     float v = 0.0f;
     MotionSetpoint sp{HeadingMode::kRate, 0.0f, 0.0f, 0.0f};
     if (g_app.primitives.tick(primInputs(), kDt, now, sp)) {
       v = sp.v_pct;
-      w = g_app.heading.update(sp.mode, 0.0f, sp.rate_dps, sp.heading_deg, yaw, rate, kDt, false);
+      w = imuUsable() ? g_app.heading.update(sp.mode, 0.0f, sp.rate_dps, sp.heading_deg, yaw, rate, kDt, false)
+                      : 0.0f;
     } else if (g_app.teleop_rate_mode) {
       v = g_app.teleop_v;
       w = imuUsable() ? g_app.heading.update(HeadingMode::kRate, 0.0f, g_app.teleop_rate_dps, 0.0f, yaw, rate, kDt, false)
@@ -8678,18 +8698,25 @@ void controlTask() {
                       : static_cast<float>(g_app.teleop_w);
     }
 
-    // 3. mix, envelope/obstacle limits in %, ramps
+    // 3. mix (turning priority, pivot fallback), envelope/degraded caps and obstacle slow in %, ramps
+    const float keep_pct = (ps.deadband_keep[0] + ps.deadband_keep[1] + ps.deadband_keep[2] + ps.deadband_keep[3]) *
+                           100.0f / (4.0f * 255.0f);
     float l = 0.0f, r = 0.0f;
-    mix(v, w, MixerConfig{ps.turn_rate_full_speed, gs.reverse_steer == 0}, l, r);
-    const Limited lim = limitTargets(
-        l, r, Limits{g_app.envelope.speedCap(), g_app.us.distMm(), gs.obstacle_stop, gs.obstacle_slow, g_app.envelope.brakeOn()});
+    mix(v, w, MixerConfig{ps.turn_rate_full_speed, gs.reverse_steer == 0, gs.pivot_fallback != 0, keep_pct}, l, r);
+    const uint8_t degraded = !imuUsable() ? 30 : (g_app.us.fault() ? 50 : 100);  // LLD §9.5/§9.16 (min of both)
+    const Limited lim = limitTargets(l, r, Limits{g_app.envelope.speedCap(), g_app.us.distMm(), gs.obstacle_stop,
+                                                  gs.obstacle_slow, g_app.envelope.brakeOn(), degraded});
     capped = lim.capped;
-    const float accel = g_app.envelope.accelCap() != 0 ? g_app.envelope.accelCap() : static_cast<float>(gs.accel_limit);
+    // The envelope accel cap may only tighten the global limit, never loosen it.
+    const float accel_lim = static_cast<float>(gs.accel_limit);
+    const float accel_env = static_cast<float>(g_app.envelope.accelCap());
+    const float accel = (accel_env != 0.0f && accel_env < accel_lim) ? accel_env : accel_lim;
     tgt_l = g_app.ramp_l.step(lim.l, kDt, accel, accel * 2.0f);
     tgt_r = g_app.ramp_r.step(lim.r, kDt, accel, accel * 2.0f);
     if (g_soft_stop && absf(tgt_l) < 0.5f && absf(tgt_r) < 0.5f) g_soft_stop = false;
 
-    // 4. per-track speed control (closed loop only with a healthy encoder)
+    // 4. per-track speed control (closed loop only with a healthy encoder). The integrator is frozen while
+    //    the target is capped (R4) or the supervisor cuts a stalled track (no wind-up → no lurch after 1 s).
     SpeedConfig cl = g_cfg[tgt_l >= 0.0f ? 0 : 1];
     SpeedConfig cr = g_cfg[tgt_r >= 0.0f ? 2 : 3];
     cl.closed_loop = cl.closed_loop && !g_app.enc_health.faulted(0);
@@ -8698,8 +8725,11 @@ void controlTask() {
     g_app.speed_r.configure(cr);
     const bool moving_l = g_app.encoders_enabled ? g_app.enc_l.recent() : g_app.moving;
     const bool moving_r = g_app.encoders_enabled ? g_app.enc_r.recent() : g_app.moving;
-    pwm_l = g_app.speed_l.update(tgt_l, g_app.enc_l.cps(), kDt, pwmLimitForCap(g_app.envelope.speedCap(), cl.keep_pwm), moving_l);
-    pwm_r = g_app.speed_r.update(tgt_r, g_app.enc_r.cps(), kDt, pwmLimitForCap(g_app.envelope.speedCap(), cr.keep_pwm), moving_r);
+    const uint8_t cap = g_app.envelope.speedCap();
+    pwm_l = g_app.speed_l.update(tgt_l, g_app.enc_l.cps(), kDt, pwmLimitForCap(cap, cl.keep_pwm), moving_l,
+                                 capped || g_app.enc_health.stalled(0));
+    pwm_r = g_app.speed_r.update(tgt_r, g_app.enc_r.cps(), kDt, pwmLimitForCap(cap, cr.keep_pwm), moving_r,
+                                 capped || g_app.enc_health.stalled(1));
 
     // 5. never more than motor_v_max on the 6 V motors
     const float s = batteryScale(g_app.batt.mv(), gs.motor_v_max);
@@ -8707,18 +8737,18 @@ void controlTask() {
     pwm_r = scaled(pwm_r, s);
   }
 
-  // 6. safety gate → motors
+  // 6. safety gate → motors (req_pwm_* = asked of the supervisor, used by EncoderHealth to clear a stall)
+  g_app.req_pwm_l = pwm_l;
+  g_app.req_pwm_r = pwm_r;
   const SafetyInputs in{g_app.lift.lifted(), g_app.lift.tilted(),
                         g_app.batt.level() == BatteryMonitor::Level::kCritical, g_app.envelope.brakeOn(),
-                        g_app.us.distMm(), gs.obstacle_stop};
+                        g_app.us.distMm(), gs.obstacle_stop, g_app.enc_health.stalledMask()};
   const bool was_blocked = g_app.safety.blocked;
   const PwmOutput out = g_app.supervisor.apply(pwm_l, pwm_r, in, g_app.safety);
   port::motor::apply(out);
 
-  if (g_app.safety.blocked && g_app.primitives.active() != proto::PrimitiveKind::kNone) {
-    g_app.primitives.cancel(proto::AckStatus::kBlocked);
-  }
-  if ((g_app.safety.halted || g_app.safety.coast) && g_app.primitives.active() != proto::PrimitiveKind::kNone) {
+  if ((g_app.safety.blocked || g_app.safety.halted || g_app.safety.coast) &&
+      g_app.primitives.active() != proto::PrimitiveKind::kNone) {
     g_app.primitives.cancel(proto::AckStatus::kBlocked);
   }
   pushPrimitiveResult();
@@ -8775,9 +8805,27 @@ In `src/app/routes.cpp` add before `// ROUTES-END`:
 
 - [ ] **Step 5: Smoke commands for primitives**
 
+Every smoke run reopens the serial port, which reboots the Uno (DTR) and clears its RAM state (owner, envelope, a running primitive). So each floor check below runs in **one** process: cancel, link loss, a second turn and the envelope are options of the same command (ruling R13).
+
+In `tools/smoke/uno_smoke.py`, class `Link` (Task 2): in `__init__` add `self.paused = False  # True: send nothing (simulated link loss)` after `self.synced = False`, and make the first line of `send()` (before `with self.lock:`) `if self.paused: return -1`. That stops heartbeats, commands and the HELLO_ACK reply alike, while RX keeps printing.
+
+In `cmd_drive` (Task 6) replace the envelope block with
+```python
+    if args.envelope is not None:
+        lock = 1 if args.lock else 0
+        link.send(g.Envelope(speed_cap=args.envelope, accel_cap=args.accel, lock_brake=lock))
+        time.sleep(0.1)
+```
+and add to the `drive` parser:
+```python
+    d.add_argument("--accel", type=int, default=0, help="envelope accel cap %%/s (with --envelope)")
+    d.add_argument("--lock", action="store_true", help="envelope locks the obstacle brake on")
+```
+
 Add to `tools/smoke/uno_smoke.py`:
 ```python
-def wait_primitive(link: Link, timeout: float) -> None:
+def watch_primitive(link: Link) -> threading.Event:
+    """Print ACKs/events; the returned flag is set by PRIMITIVE_DONE or by a refused command."""
     done = threading.Event()
 
     def on(msg: object) -> None:
@@ -8788,40 +8836,75 @@ def wait_primitive(link: Link, timeout: float) -> None:
         elif isinstance(msg, g.Event):
             print(fmt_event(msg))
             if msg.kind == g.EventKind.PRIMITIVE_DONE:
-                ok = (msg.a >> 8) & 1
-                print(f"  {g.PrimitiveKind(msg.a & 0xFF).name} {'OK' if ok else 'FAILED'} reason={g.ACK_STATUS[msg.b]}")
+                name = g.PrimitiveKind(msg.a & 0xFF).name
+                res = "OK" if (msg.a >> 8) & 1 else "FAILED"
+                print(f"  {name} {res} reason={g.ACK_STATUS[msg.b]}")
                 done.set()
 
     link.handlers.append(on)
-    done.wait(timeout)
+    return done
+
+
+def print_pose(link: Link) -> None:
     fast = link.last.get("TelemFast")
     if isinstance(fast, g.TelemFast):
-        print(f"yaw={fast.yaw / 100:.1f} enc={fast.enc_l},{fast.enc_r}")
+        print(f"yaw={fast.yaw / 100:.1f} enc={fast.enc_l},{fast.enc_r} pwm={fast.pwm_l},{fast.pwm_r}")
+
+
+def wait_primitive(link: Link, done: threading.Event, timeout: float) -> None:
+    done.wait(timeout)
+    done.clear()
+    print_pose(link)
+
+
+def send_turn(link: Link, args: argparse.Namespace, angle: float, to: bool) -> None:
+    mode = (g.TurnMode.TO if to else g.TurnMode.BY) | (0x80 if args.pivot else 0)
+    link.send(g.Turn(src=g.Source.HUMAN, mode=mode, angle=round(angle * 10), speed=args.speed,
+                     radius_cm=args.radius))
 
 
 def cmd_turn(link: Link, args: argparse.Namespace) -> None:
-    time.sleep(0.6)
-    mode = (g.TurnMode.TO if args.to else g.TurnMode.BY) | (0x80 if args.pivot else 0)
-    link.send(g.Turn(src=g.Source.HUMAN, mode=mode, angle=round(args.angle * 10), speed=args.speed,
-                     radius_cm=args.radius))
-    wait_primitive(link, 30)
+    done = watch_primitive(link)
+    wait_synced(link)
+    send_turn(link, args, args.angle, args.to)
+    if args.cancel_after is not None:
+        time.sleep(args.cancel_after)
+        link.send(g.Cancel(src=g.Source.HUMAN))
+    if args.drop_link_after is not None:
+        time.sleep(args.drop_link_after)
+        link.paused = True  # no heartbeats: the Uno declares LINK_LOST after 300 ms
+        print("link paused")
+        time.sleep(args.restore_after)
+        link.paused = False
+        print("link restored")
+        for _ in range(6):  # the turn must not resume: yaw stays put, pwm stays 0
+            time.sleep(0.5)
+            print_pose(link)
+        return
+    wait_primitive(link, done, 30)
+    if args.then_to is not None:
+        send_turn(link, args, args.then_to, True)
+        wait_primitive(link, done, 30)
 
 
 def cmd_move(link: Link, args: argparse.Namespace) -> None:
-    time.sleep(0.6)
+    done = watch_primitive(link)
+    wait_synced(link)
     heading = 32767 if args.heading is None else round(args.heading * 10)
     link.send(g.Move(src=g.Source.HUMAN, dist_mm=args.mm, speed=args.speed, heading=heading))
-    wait_primitive(link, 60)
+    wait_primitive(link, done, 60)
 
 
 def cmd_cancel(link: Link, args: argparse.Namespace) -> None:
-    time.sleep(0.6)
+    done = watch_primitive(link)
+    wait_synced(link)
     link.send(g.Cancel(src=g.Source.HUMAN))
-    wait_primitive(link, 2)
+    wait_primitive(link, done, 2)
 
 
 def cmd_driverate(link: Link, args: argparse.Namespace) -> None:
-    time.sleep(0.6)
+    link.handlers.append(lambda m: print(fmt_event(m)) if isinstance(m, g.Event) else None)
+    wait_synced(link)
     end = time.monotonic() + args.seconds
     while time.monotonic() < end:
         link.send(g.DriveRate(src=g.Source.HUMAN, v=args.v, yaw_rate=round(args.rate * 10)))
@@ -8838,6 +8921,10 @@ Register `"turn": cmd_turn, "move": cmd_move, "cancel": cmd_cancel, "driverate":
     t.add_argument("--radius", type=int, default=0)
     t.add_argument("--to", action="store_true")
     t.add_argument("--pivot", action="store_true")
+    t.add_argument("--then-to", type=float, default=None, help="then TURN to this heading (same run)")
+    t.add_argument("--cancel-after", type=float, default=None, help="send CANCEL after S seconds")
+    t.add_argument("--drop-link-after", type=float, default=None, help="pause all TX after S seconds")
+    t.add_argument("--restore-after", type=float, default=2.0, help="resume TX after S seconds")
     mv = sub.add_parser("move")
     mv.add_argument("mm", type=int)
     mv.add_argument("speed", type=int)
@@ -8848,19 +8935,22 @@ Register `"turn": cmd_turn, "move": cmd_move, "cancel": cmd_cancel, "driverate":
     dr.add_argument("rate", type=float)
     dr.add_argument("--seconds", type=float, default=3.0)
 ```
+Run (from `tools/smoke/`): `uv run ruff check . && uv run pyright`
+Expected: `All checks passed!`, `0 errors, 0 warnings, 0 informations`.
 
 - [ ] **Step 6: Build, flash, floor tests (tethered USB, long cable, clear floor ≥ 2 × 2 m)**
 
 Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py && pio run -e uno -t upload`
-Then from `tools/smoke/` (encoders enabled and `bias` done in Task 7):
+Then from `tools/smoke/` (encoders enabled and `bias` done in Task 7). Each line is one self-contained run (the Uno reboots when the script opens the port):
 1. Heading hold: `… drive 40 0 --seconds 4` → `yaw` stays within ±2° of its start; without IMU usable the tank would drift.
-2. Spin: `… turn 90 50` → `PRIMITIVE_DONE`, `TURN OK`, printed `yaw` within ±2° of start + 90; `… turn -360 50` → back within ±2°.
-3. Turn-to and arc: `… turn 0 50 --to` (back to heading 0); `… turn 90 50 --radius 50` drives a quarter circle (radius ≈ 50 cm by tape).
+2. Spin: `… turn 90 50` → `PRIMITIVE_DONE`, `TURN OK`, printed `yaw` within ±2° of 90 (yaw starts at 0 after the reboot); `… turn -360 50` → back within ±2° of 0.
+3. Turn-to and arc: `… turn 90 50 --then-to 0` → two `TURN OK`, final `yaw` within ±2° of 0; `… turn 90 50 --radius 50` drives a quarter circle (radius ≈ 50 cm by tape).
 4. Move: `… move 1000 40` → `MOVE OK`; tape: 100 cm ± 3 cm. If off, set `counts_per_cm` = 7600 × (enc distance / tape distance) via `… setting counts_per_cm <v> --save`.
-5. Cancel and link loss: start `… turn 720 30`, then in a second terminal `… cancel` → `TURN FAILED reason=CANCELLED`. Start `… turn 720 30`, pull the USB plug after 1 s, plug back in, run `watch` → the tank stopped within 0.3 s and does **not** continue the turn.
-6. Child-play envelope: `… envelope 20 50 1` then `… drive 100 0 --seconds 3` → `pwm` ≤ 115, `flags` bit 7 (`CAPPED`) set, tank crawls; `… envelope 100 0 0`.
+5. Cancel and link loss: `… turn 720 30 --cancel-after 2` → `TURN FAILED reason=CANCELLED`, tank stops. `… turn 720 30 --drop-link-after 1 --restore-after 2` → tank stops within ≈0.3 s of `link paused`; `EVENT LINK_LOST` and `TURN FAILED reason=LINK_LOST` print during the pause or right after `link restored`; after `link restored` the six `yaw=… pwm=0,0` lines show the turn does **not** resume.
+6. Child-play envelope: `… drive 100 0 --seconds 3 --envelope 20 --accel 50 --lock` → `pwm` ≤ 115, `flags` bit 7 (`CAPPED`, 0x0080) set, bit 10 (`LOCKED`) set, tank crawls and takes ≈0.4 s to reach its 20 % (accel cap 50 %/s instead of `accel_limit` 200 %/s).
 7. Obstacle: drive `… drive 60 0 --seconds 6` toward a wall → slows from 50 cm, `EVENT BLOCKED` at ≈ 15 cm, stops; `… drive -40 0` backs away.
-8. Deadman: `… deadman` → `DEADMAN_STOP`, stop ≤ 330 ms. `… move 300 30` then stop the script's DRIVE stream (none is sent) → the MOVE still completes (deadman does not apply to primitives).
+8. Deadman: `… deadman` → `EVENT DEADMAN_STOP` ≈300 ms after the last DRIVE, `motors stopped` ≤ ~420 ms after it (300 ms deadman + SoftStop ramp at 2 × `accel_limit` + one 50 ms TelemFast period). `… move 300 30` (no DRIVE stream at all) → `MOVE OK`: the deadman and the 1 s idle release do not apply while a primitive runs.
+9. Degraded cap (stand, tracks off the ground): unplug the ultrasonic sensor, `… drive 100 0 --seconds 3` → within ≈1 s `flags` has `US_FAULT` (0x1000) and `CAPPED` (0x0080), tracks at ≈ half speed (target capped to 50 %). Plug it back in.
 
 - [ ] **Step 7: Commit**
 

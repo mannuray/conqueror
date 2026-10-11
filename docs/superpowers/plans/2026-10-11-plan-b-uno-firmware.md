@@ -531,7 +531,8 @@ uint8_t g_marker __attribute__((section(".noinit")));
 constexpr uint8_t kIntentionalMarker = 0xA5;
 }  // namespace
 
-// Optiboot >= 6 passes MCUSR in r2; older bootloaders clear MCUSR (then we fall back to the marker).
+// Optiboot >= 6 passes MCUSR in r2. The stock Uno bootloader clears MCUSR and leaves r2 as garbage,
+// so r2 is trusted only when it holds nothing but reset-flag bits; otherwise the reason is kUnknown.
 extern "C" void cqCaptureR2() __attribute__((naked, used, section(".init0")));
 extern "C" void cqCaptureR2() { asm volatile("sts %0, r2" : "=m"(g_r2)); }
 
@@ -550,11 +551,12 @@ void enable() { wdt_enable(WDTO_1S); }
 void kick() { wdt_reset(); }
 
 proto::ResetReason resetReason() {
-  const uint8_t flags = g_mcusr != 0 ? g_mcusr : g_r2;
-  if (g_marker == kIntentionalMarker) {
-    g_marker = 0;
-    return proto::ResetReason::kWatchdog;
-  }
+  constexpr uint8_t kResetFlagBits = _BV(WDRF) | _BV(BORF) | _BV(EXTRF) | _BV(PORF);  // 0x0F
+  const bool r2_plausible = g_r2 != 0 && (g_r2 & static_cast<uint8_t>(~kResetFlagBits)) == 0;
+  const uint8_t flags = g_mcusr != 0 ? g_mcusr : (r2_plausible ? g_r2 : 0);
+  const bool intentional = g_marker == kIntentionalMarker;
+  g_marker = 0;  // one-shot; also clears power-on garbage
+  if (intentional) return proto::ResetReason::kWatchdog;
   if (flags & _BV(WDRF)) return proto::ResetReason::kWatchdog;
   if (flags & _BV(BORF)) return proto::ResetReason::kBrownOut;
   if (flags & _BV(EXTRF)) return proto::ResetReason::kExternal;
@@ -584,7 +586,7 @@ void heartbeatTask() {}
 cq::Task g_tasks[] = {
     {heartbeatTask, 1000000UL, 0},
 };
-cq::Scheduler g_scheduler(g_tasks, sizeof g_tasks / sizeof g_tasks[0]);
+cq::Scheduler g_scheduler(g_tasks, static_cast<uint8_t>(sizeof g_tasks / sizeof g_tasks[0]));
 cq::LoadMeter g_load;
 }  // namespace
 
@@ -650,9 +652,9 @@ if __name__ == "__main__":
 - [ ] **Step 9: Build, gate, upload, look at the boot line**
 
 Run: `pio run -e uno && python3 scripts/size_gate.py`
-Expected: `SUCCESS`; `size_gate: flash ~2000 / 30720 B, static RAM ~200 / 1750 B`.
+Expected: `SUCCESS`; `size_gate: flash ~2000 / 30720 B, static RAM ~200 / 1750 B`. A `cc1: warning: command-line option '-std=gnu++17' is valid for C++ but not for C` line per Arduino-core C file is expected and harmless (`[env] build_flags` reach the core's C files; `-Werror` is only in `build_src_flags`).
 Flip shield switch **S1** to "upload", connect USB, run: `pio run -e uno -t upload && pio device monitor -b 250000`
-Expected: `CQ boot reset=1` (power-on) or `2` (reset button). Exit the monitor (Ctrl-C).
+Expected: with Optiboot ≥ 6, `CQ boot reset=1` (power-on) or `2` (reset button); with the stock Uno bootloader (Optiboot 4.4 clears MCUSR and does not pass it in r2) `CQ boot reset=0` (unknown) is correct — note which bootloader the board has. Exit the monitor (Ctrl-C).
 
 - [ ] **Step 10: Commit**
 
@@ -666,7 +668,7 @@ git commit -m "feat(uno): PlatformIO skeleton, scheduler, watchdog, board config
 ### Task 2: Body link — parser, writer, queues, link session, TX scheduler, smoke script
 
 **Files:**
-- Create: `src/domain/comms/frame_parser.{h,cpp}`, `frame_writer.{h,cpp}`, `event_queue.{h,cpp}`, `link_session.{h,cpp}`; `src/ports/link.h`; `src/drivers/link_uno.cpp`; `src/app/app.h`, `src/app/comms.h`, `src/app/comms.cpp`, `src/app/routes.cpp`, `src/app/tx.cpp`; `tools/smoke/pyproject.toml`, `tools/smoke/uno_smoke.py`
+- Create: `src/domain/comms/frame_parser.{h,cpp}`, `frame_writer.{h,cpp}`, `event_queue.{h,cpp}`, `link_session.{h,cpp}`; `src/ports/link.h`; `src/drivers/link_uno.cpp`; `src/app/app.h`, `src/app/comms.h`, `src/app/comms.cpp`, `src/app/routes.cpp`; `tools/smoke/pyproject.toml`, `tools/smoke/uno_smoke.py`
 - Modify: `src/main.cpp`
 - Test: `test/test_comms/test_main.cpp`
 
@@ -676,12 +678,12 @@ git commit -m "feat(uno): PlatformIO skeleton, scheduler, watchdog, board config
   - `cq::FrameParser`: `bool feed(uint8_t b)` (queue one received byte; legal only when `!pending()`, otherwise returns false and changes nothing — pending replay bytes are never dropped), `bool next(uint8_t& budget)` (run at most `budget` parser steps, decrementing it; true when a frame is ready — the rest of a replay stays pending for the next call), `bool pending() const` (fed or replay bytes still to be stepped), `uint8_t type() const`, `uint8_t seq() const`, `uint8_t len() const`, `const uint8_t* payload() const` (valid until the next `feed`/`next`), `ParseErrors& errors()`, host-test only `uint32_t stepsTaken() const`; `struct ParseErrors { uint16_t bad_crc, bad_len, unknown_type, tx_dropped; }` — `bad_crc`/`bad_len` count rejection events (a replayed byte can be rejected and counted again). Resync rules match `conqueror_protocol.framing` (Uno LLD §5.2): same frames, order and counters for any stream and any budget split.
   - On `proto::decode()` returning false, the message contents are unspecified — handlers must not use them.
   - `cq::FrameWriter`: `uint8_t build(uint8_t type, const uint8_t* payload, uint8_t len, uint8_t* out)` (returns total bytes), `void setSeq(uint8_t)`, `uint8_t lastSeq() const`.
-  - `cq::EventQueue`: `bool push(proto::EventKind k, int16_t a = 0, int16_t b = 0)`, `bool pop(Event& out)`, `uint16_t dropped() const`; `struct Event { uint8_t kind; int16_t a; int16_t b; }`.
-  - `cq::AckQueue`: `bool push(uint8_t seq, proto::AckStatus s)`, `bool pop(uint8_t& seq, proto::AckStatus& s)`.
+  - `cq::EventQueue`: `bool push(proto::EventKind k, int16_t a = 0, int16_t b = 0)`, `bool peek(Event& out) const`, `bool pop(Event& out)`, `bool empty() const`, `uint16_t dropped() const`; `struct Event { uint8_t kind; int16_t a; int16_t b; }`.
+  - `cq::AckQueue`: `bool push(uint8_t seq, proto::AckStatus s)`, `bool peek(uint8_t& seq, proto::AckStatus& s) const`, `bool pop(uint8_t& seq, proto::AckStatus& s)`. The TX pump peeks, sends, and pops only after the send succeeded, so a full TX buffer never reorders ACKs or events.
   - `cq::RejectLimiter`: `bool allow(uint8_t source, uint32_t now_ms)` (one per 500 ms per source 0–2).
-  - `cq::LinkSession`: `onValidFrame(uint32_t now_ms)`, `bool alive(uint32_t now_ms) const`, `onLinkLost()`, `onHelloAck()`, `onHelloReq()`, `bool synced() const`, `bool helloDue(uint32_t now_ms)`, `setRequest(uint8_t frame_type)`, `bool requestDue(uint32_t now_ms, uint8_t& frame_type)`, `onRequestSent(uint8_t seq, uint32_t now_ms)`, `onEspAck(uint8_t ack_seq)`.
+  - `cq::LinkSession`: `onValidFrame(uint32_t now_ms)`, `bool alive(uint32_t now_ms) const`, `LinkChange poll(uint32_t now_ms)` (10 ms link watch: `kLost` on alive→dead, also calls `onLinkLost()`; `kRestored` on dead→alive **after a loss** — the first contact after boot returns `kNone`; `enum class LinkChange : uint8_t { kNone, kLost, kRestored }`), `onLinkLost()`, `onHelloAck()`, `onHelloReq()`, `bool synced() const`, `bool helloDue(uint32_t now_ms)`, `setRequest(uint8_t frame_type)`, `bool requestDue(uint32_t now_ms, uint8_t& frame_type)`, `onRequestSent(uint8_t seq, uint32_t now_ms)`, `onEspAck(uint8_t ack_seq)`.
   - Port `cq::port::link`: `begin(uint32_t baud)`, `bool readByte(uint8_t& b)`, `bool write(const uint8_t* data, uint8_t len)`, `uint8_t txFree()`.
-  - `cq::App` (app/app.h) with members listed in code; `cq::g_app`; `cq::app::commsPoll()`, `cq::app::txPump()`, `cq::app::telemetryFastDue()`, `cq::app::telemetrySlowDue()`; routing: `cq::app::Route { uint8_t type; proto::AckStatus (*handler)(const uint8_t*, uint8_t); bool needs_ack; }`, `cq::app::kRoutes[] PROGMEM`, `cq::app::kRouteCount`.
+  - `cq::App` (app/app.h) with members listed in code (`parser, writer, events, acks, rejects, link, fast, slow, fast_due, slow_due, cal_data(_pending), cal_result(_pending), setting_value(_pending), load, scheduler_overruns, reset_reason, encoders_enabled`); `cq::g_app`; `cq::app::commsPoll()`, `cq::app::txPump()`, `cq::app::telemetryFastDue()`, `cq::app::telemetrySlowDue()`; routing: `cq::app::Route { uint8_t type; proto::AckStatus (*handler)(const uint8_t*, uint8_t); bool needs_ack; }`, `cq::app::kRoutes[] PROGMEM`, `cq::app::kRouteCount`.
   - Smoke script CLI (in `tools/smoke/`): `uv run python uno_smoke.py --port <dev> watch`.
 
 - [ ] **Step 1: Write the failing comms tests**
@@ -929,8 +931,12 @@ void test_event_queue_overflow_counts_drops() {
   for (int i = 0; i < 10; ++i) q.push(proto::EventKind::kBump, static_cast<int16_t>(i));
   TEST_ASSERT_EQUAL(2, q.dropped());
   Event e{};
+  TEST_ASSERT_TRUE(q.peek(e));  // peek leaves it queued
+  TEST_ASSERT_EQUAL(0, e.a);
   TEST_ASSERT_TRUE(q.pop(e));
   TEST_ASSERT_EQUAL(0, e.a);
+  TEST_ASSERT_TRUE(q.pop(e));
+  TEST_ASSERT_EQUAL(1, e.a);
 }
 
 void test_reject_limiter() {
@@ -956,6 +962,22 @@ void test_link_session_alive_and_hello() {
   s.onLinkLost();
   TEST_ASSERT_FALSE(s.synced());
   TEST_ASSERT_TRUE(s.helloDue(901));
+}
+
+// First contact after boot is not a restore (LINK_RESTORED only after a LINK_LOST).
+void test_link_session_first_contact_is_not_a_restore() {
+  LinkSession s;
+  TEST_ASSERT_EQUAL(LinkChange::kNone, s.poll(0));
+  s.onValidFrame(10);
+  TEST_ASSERT_EQUAL(LinkChange::kNone, s.poll(10));    // first contact: no event
+  s.onHelloAck();
+  TEST_ASSERT_EQUAL(LinkChange::kNone, s.poll(300));
+  TEST_ASSERT_EQUAL(LinkChange::kLost, s.poll(400));   // 300 ms silence
+  TEST_ASSERT_FALSE(s.synced());                       // poll() ran onLinkLost()
+  TEST_ASSERT_EQUAL(LinkChange::kNone, s.poll(410));
+  s.onValidFrame(500);
+  TEST_ASSERT_EQUAL(LinkChange::kRestored, s.poll(500));
+  TEST_ASSERT_EQUAL(LinkChange::kNone, s.poll(510));
 }
 
 void test_link_session_request_resent_until_acked() {
@@ -990,6 +1012,7 @@ int main() {
   RUN_TEST(test_event_queue_overflow_counts_drops);
   RUN_TEST(test_reject_limiter);
   RUN_TEST(test_link_session_alive_and_hello);
+  RUN_TEST(test_link_session_first_contact_is_not_a_restore);
   RUN_TEST(test_link_session_request_resent_until_acked);
   return UNITY_END();
 }
@@ -1227,6 +1250,7 @@ struct Event {
 class EventQueue {
  public:
   bool push(proto::EventKind kind, int16_t a = 0, int16_t b = 0);
+  bool peek(Event& out) const;  // oldest event, not removed
   bool pop(Event& out);
   bool empty() const { return m_count == 0; }
   uint16_t dropped() const { return m_dropped; }
@@ -1242,6 +1266,7 @@ class EventQueue {
 class AckQueue {
  public:
   bool push(uint8_t seq, proto::AckStatus status);
+  bool peek(uint8_t& seq, proto::AckStatus& status) const;  // oldest ACK, not removed
   bool pop(uint8_t& seq, proto::AckStatus& status);
 
  private:
@@ -1284,6 +1309,12 @@ bool EventQueue::push(proto::EventKind kind, int16_t a, int16_t b) {
   return true;
 }
 
+bool EventQueue::peek(Event& out) const {
+  if (m_count == 0) return false;
+  out = m_ring[m_head];
+  return true;
+}
+
 bool EventQueue::pop(Event& out) {
   if (m_count == 0) return false;
   out = m_ring[m_head];
@@ -1298,6 +1329,13 @@ bool AckQueue::push(uint8_t seq, proto::AckStatus status) {
   m_seq[idx] = seq;
   m_status[idx] = status;
   ++m_count;
+  return true;
+}
+
+bool AckQueue::peek(uint8_t& seq, proto::AckStatus& status) const {
+  if (m_count == 0) return false;
+  seq = m_seq[m_head];
+  status = m_status[m_head];
   return true;
 }
 
@@ -1328,12 +1366,18 @@ bool RejectLimiter::allow(uint8_t source, uint32_t now_ms) {
 
 namespace cq {
 
+enum class LinkChange : uint8_t { kNone, kLost, kRestored };
+
 // Link liveness (300 ms), HELLO handshake (every 500 ms until HELLO_ACK) and one
 // Uno-originated request (WIFI/ADMIN reset) resent every 500 ms until ESP_ACK.
 class LinkSession {
  public:
   static constexpr uint16_t kLinkTimeoutMs = 300;
   static constexpr uint16_t kRepeatMs = 500;
+
+  // Link watch (every 10 ms): reports alive/dead edges and runs onLinkLost() on a loss.
+  // The first contact after boot is not a restore: LINK_RESTORED only follows a LINK_LOST.
+  LinkChange poll(uint32_t now_ms);
 
   void onValidFrame(uint32_t now_ms) {
     m_last_rx_ms = now_ms;
@@ -1366,6 +1410,8 @@ class LinkSession {
  private:
   uint32_t m_last_rx_ms = 0;
   bool m_seen = false;
+  bool m_was_alive = false;   // alive at the previous poll()
+  bool m_ever_alive = false;  // any contact since boot
   bool m_synced = false;
   bool m_hello_due = true;
   uint32_t m_last_hello_ms = 0;
@@ -1390,6 +1436,22 @@ bool LinkSession::alive(uint32_t now_ms) const {
   return m_seen && !elapsed(now_ms, m_last_rx_ms, static_cast<uint32_t>(kLinkTimeoutMs) + 1);
 }
 
+LinkChange LinkSession::poll(uint32_t now_ms) {
+  const bool now_alive = alive(now_ms);
+  const bool was_alive = m_was_alive;
+  m_was_alive = now_alive;
+  if (was_alive && !now_alive) {
+    onLinkLost();
+    return LinkChange::kLost;
+  }
+  if (!was_alive && now_alive) {
+    const bool first_contact = !m_ever_alive;
+    m_ever_alive = true;
+    return first_contact ? LinkChange::kNone : LinkChange::kRestored;
+  }
+  return LinkChange::kNone;
+}
+
 bool LinkSession::helloDue(uint32_t now_ms) {
   if (m_hello_due || (!m_synced && elapsed(now_ms, m_last_hello_ms, kRepeatMs))) {
     m_hello_due = false;
@@ -1412,7 +1474,7 @@ bool LinkSession::requestDue(uint32_t now_ms, uint8_t& frame_type) {
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_comms`
-Expected: `15 Tests 0 Failures`.
+Expected: `16 Tests 0 Failures`.
 
 - [ ] **Step 5: Link port and UART driver**
 
@@ -1494,7 +1556,6 @@ struct App {
   AckQueue acks;
   RejectLimiter rejects;
   LinkSession link;
-  bool link_was_alive = false;
   // telemetry staging
   proto::TelemFastMsg fast{};
   proto::TelemSlowMsg slow{};
@@ -1612,6 +1673,13 @@ const uint8_t kRouteCount = sizeof kRoutes / sizeof kRoutes[0];
 #include "ports/clock.h"
 #include "ports/link.h"
 
+// avr-libc heap symbols. Declared at global scope with C linkage: a block-scope `extern` inside
+// cq::app would name cq::app::__heap_start and fail to link.
+extern "C" {
+extern int __heap_start;
+extern char* __brkval;
+}
+
 namespace cq {
 
 App g_app;
@@ -1640,7 +1708,7 @@ void commsPoll() {
       if (!port::link::readByte(b)) break;
       g_app.parser.feed(b);  // always accepted: nothing is pending
     }
-    if (!g_app.parser.next(budget)) continue;  // consumed >= 1 step, so the loop ends
+    if (!g_app.parser.next(budget)) continue;  // next() consumed >= 1 step; the budget bounds the loop
     g_app.link.onValidFrame(port::clock::nowMs());
     const uint8_t type = g_app.parser.type();
     bool routed = false;
@@ -1691,14 +1759,13 @@ void txPump() {
   const uint32_t now = port::clock::nowMs();
   uint8_t seq = 0;
   proto::AckStatus st{};
-  while (g_app.acks.pop(seq, st)) {
+  // Peek, send, then pop: a full TX buffer leaves the item at the head, so order is kept.
+  while (g_app.acks.peek(seq, st)) {
     proto::AckMsg a{};
     a.ack_seq = seq;
     a.status = static_cast<uint8_t>(st);
-    if (!sendMsg(a)) {
-      g_app.acks.push(seq, st);
-      return;
-    }
+    if (!sendMsg(a)) return;
+    g_app.acks.pop(seq, st);
   }
   uint8_t req = 0;
   if (g_app.link.requestDue(now, req)) {
@@ -1706,16 +1773,13 @@ void txPump() {
     g_app.link.onRequestSent(g_app.writer.lastSeq(), now);
   }
   Event e{};
-  while (!g_app.events.empty()) {
-    g_app.events.pop(e);
+  while (g_app.events.peek(e)) {
     proto::EventMsg m{};
     m.kind = e.kind;
     m.a = e.a;
     m.b = e.b;
-    if (!sendMsg(m)) {
-      g_app.events.push(static_cast<proto::EventKind>(e.kind), e.a, e.b);
-      return;
-    }
+    if (!sendMsg(m)) return;
+    g_app.events.pop(e);
   }
   if (g_app.link.helloDue(now)) {
     proto::HelloMsg h{};
@@ -1751,11 +1815,10 @@ void telemetrySlowDue() {
 }
 
 uint16_t freeRam() {
-  extern int __heap_start;
-  extern int* __brkval;
   int top = 0;
-  const int free_bytes = __brkval == nullptr ? reinterpret_cast<int>(&top) - reinterpret_cast<int>(&__heap_start)
-                                             : reinterpret_cast<int>(&top) - reinterpret_cast<int>(__brkval);
+  const int free_bytes = ::__brkval == nullptr
+                             ? reinterpret_cast<int>(&top) - reinterpret_cast<int>(&::__heap_start)
+                             : reinterpret_cast<int>(&top) - reinterpret_cast<int>(::__brkval);
   return free_bytes < 0 ? 0 : static_cast<uint16_t>(free_bytes);
 }
 
@@ -1780,15 +1843,17 @@ Replace `src/main.cpp` with:
 namespace {
 
 void linkWatchTask() {
-  const uint32_t now = cq::port::clock::nowMs();
-  const bool alive = cq::g_app.link.alive(now);
-  if (cq::g_app.link_was_alive && !alive) {
-    cq::g_app.link.onLinkLost();
-    cq::g_app.events.push(cq::proto::EventKind::kLinkLost);
-  } else if (!cq::g_app.link_was_alive && alive) {
-    cq::g_app.events.push(cq::proto::EventKind::kLinkRestored);
+  // poll() runs onLinkLost() on a loss; the first contact after boot reports kNone.
+  switch (cq::g_app.link.poll(cq::port::clock::nowMs())) {
+    case cq::LinkChange::kLost:
+      cq::g_app.events.push(cq::proto::EventKind::kLinkLost);
+      break;
+    case cq::LinkChange::kRestored:
+      cq::g_app.events.push(cq::proto::EventKind::kLinkRestored);
+      break;
+    case cq::LinkChange::kNone:
+      break;
   }
-  cq::g_app.link_was_alive = alive;
 }
 
 // TASKS-BEGIN (later tasks add rows before TASKS-END)
@@ -1798,7 +1863,7 @@ cq::Task g_tasks[] = {
     {cq::app::telemetrySlowDue, 1000000UL, 0},
     // TASKS-END
 };
-cq::Scheduler g_scheduler(g_tasks, sizeof g_tasks / sizeof g_tasks[0]);
+cq::Scheduler g_scheduler(g_tasks, static_cast<uint8_t>(sizeof g_tasks / sizeof g_tasks[0]));
 
 }  // namespace
 
@@ -1841,7 +1906,7 @@ package = false
 conqueror-protocol = { path = "../../protocol/python", editable = true }
 
 [dependency-groups]
-dev = ["ruff>=0.7"]
+dev = ["ruff>=0.7", "pyright>=1.1", "types-pyserial>=3.5"]
 
 [tool.ruff]
 line-length = 100
@@ -1849,6 +1914,11 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
 ```
 
 `tools/smoke/uno_smoke.py`:
@@ -1977,9 +2047,11 @@ if __name__ == "__main__":
 
 Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py`
 Expected: all native tests pass; `SUCCESS`; gate OK.
+Run (from `tools/smoke/`): `uv run ruff check . && uv run pyright`
+Expected: `All checks passed!`, `0 errors, 0 warnings, 0 informations`.
 S1 → upload, `pio run -e uno -t upload`. Keep USB connected (S1 stays on "upload": the USB adapter now plays the ESP32).
-Run (from `tools/smoke/`): `uv run python uno_smoke.py --port /dev/cu.usbserial-XXXX watch --seconds 5`
-Expected: one `HELLO fw=0x0100 proto=1 caps=0 reset=…`, then `FAST …` lines at ~20 Hz (zeros), `SLOW up=… load=…% ram=…` each second, `EVENT LINK_RESTORED`. Stop the script: within 0.3 s the Uno would report `LINK_LOST` on the next run.
+Run (from `tools/smoke/`): `uv run python uno_smoke.py --port /dev/cu.usbmodemXXXX watch --seconds 5` (genuine Uno: `usbmodem…`; CH340 clones: `usbserial…`)
+Expected: one `HELLO fw=0x0100 proto=1 caps=0 reset=…`, then `FAST …` lines at ~20 Hz (zeros), `SLOW up=… load=…% ram=…` each second, and **no** `EVENT LINK_RESTORED` (the first contact after boot is not a restore; LINK_RESTORED only follows a LINK_LOST). Stop the script: within 0.3 s the Uno raises `LINK_LOST` (not visible here — reopening the port resets the Uno).
 
 - [ ] **Step 10: Commit**
 

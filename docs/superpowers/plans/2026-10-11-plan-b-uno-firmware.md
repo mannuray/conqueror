@@ -78,6 +78,7 @@ firmware/uno/
 │       ├── tasks.h                      declarations of app task/init entry points         (Tasks 3–14)
 │       ├── motion_api.h                 control/calibration entry points + motion handlers (Tasks 6, 7, 11, 14)
 │       ├── camera_api.h                 configureCamera + CAM_* handlers                   (Task 12)
+│       ├── ui_api.h                     LED/SOUND/TONE/AUDIO_MODE handlers                 (Task 13)
 │       ├── apply_settings.cpp           pushes settings into domain objects               (Task 3+)
 │       └── *_task.cpp                   settings, imu, sensor, control, calibration, camera,
 │                                        ui, input tasks                                    (Tasks 3–14)
@@ -9614,7 +9615,7 @@ git commit -m "feat(uno): camera pan/tilt with trapezoid servo profiles, joystic
 ### Task 13: Sounds and LED — sequencers, annunciator, catalogue, tone + WS2812 drivers, LED/SOUND/TONE/AUDIO_MODE
 
 **Files:**
-- Create: `src/domain/ui/sound_sequencer.{h,cpp}`, `led_sequencer.{h,cpp}`, `catalogues.{h,cpp}`, `annunciator.{h,cpp}`; `src/ports/tone.h`, `led.h`; `src/drivers/tone_uno.cpp`, `ws2812_uno.cpp`; `src/app/ui_task.cpp`
+- Create: `src/domain/ui/sound_sequencer.{h,cpp}`, `led_sequencer.{h,cpp}`, `catalogues.{h,cpp}`, `annunciator.{h,cpp}`; `src/ports/tone.h`, `led.h`; `src/drivers/tone_uno.cpp`, `ws2812_uno.cpp`; `src/app/ui_api.h`, `src/app/ui_task.cpp`
 - Modify: `src/app/app.h`, `src/app/tasks.h`, `src/app/imu_task.cpp`, `src/app/routes.cpp`, `src/app/comms.cpp`, `src/main.cpp`, `tools/smoke/uno_smoke.py`
 - Test: `test/test_ui/test_main.cpp`
 
@@ -9626,7 +9627,7 @@ git commit -m "feat(uno): camera pan/tilt with trapezoid servo profiles, joystic
   - `cq::soundNotes(proto::SoundId id, Note* out) -> uint8_t` (count, PROGMEM catalogue).
   - `cq::AnnState { bool synced, calibrating, blocked, lifted, tilted, batt_low, batt_crit, selftest_critical, reversing, forward, parking_beeps; proto::Owner owner; proto::OwnerHintValue hint; uint8_t bump_seq; bool selftest_done; bool selftest_failed; }`; `cq::Annunciator::update(const AnnState&, uint32_t now_ms, LedSequencer&, SoundSequencer&)`.
   - Ports `cq::port::tone::{begin(), play(uint16_t hz), stop()}`, `cq::port::led::{begin(), write(const Rgb&)}`.
-  - `app/tasks.h`: `cq::app::uiInit()`, `uiTask()` (50 Hz); handlers `onLed/onSound/onTone/onAudioMode` (declared in `routes.cpp`). The alarm LED layer is re-picked on any change of tilted/lifted/batt_crit/batt_low/selftest_critical.
+  - `app/tasks.h`: `cq::app::uiInit()`, `uiTask()` (50 Hz); `app/ui_api.h` (like `camera_api.h`): handlers `onLed/onSound/onTone/onAudioMode`. The alarm LED layer is re-picked on any change of tilted/lifted/batt_crit/batt_low/selftest_critical.
   - Smoke: `sound NAME [--mode normal|quiet|mute]`, `led MODE R G B`; `cmd_drive` prints the last `SLOW load/errs`.
 
 - [ ] **Step 1: Write the failing UI tests**
@@ -10342,10 +10343,31 @@ members:
 ```
 In `src/app/imu_task.cpp`, where a bump is detected, add `++g_app.bump_seq;` next to the `kBump` event push (make the `if` a block).
 
+`src/app/ui_api.h`:
+```cpp
+#pragma once
+#include <stdint.h>
+
+#include "generated/cq_protocol.h"
+
+namespace cq {
+namespace app {
+
+// uiInit/uiTask are declared in app/tasks.h.
+proto::AckStatus onLed(const uint8_t* p, uint8_t len);
+proto::AckStatus onSound(const uint8_t* p, uint8_t len);
+proto::AckStatus onTone(const uint8_t* p, uint8_t len);
+proto::AckStatus onAudioMode(const uint8_t* p, uint8_t len);
+
+}  // namespace app
+}  // namespace cq
+```
+
 `src/app/ui_task.cpp`:
 ```cpp
 #include "app/app.h"
 #include "app/tasks.h"
+#include "app/ui_api.h"
 #include "domain/ui/catalogues.h"
 #include "ports/clock.h"
 #include "ports/led.h"
@@ -10439,7 +10461,7 @@ proto::AckStatus onAudioMode(const uint8_t* p, uint8_t len) {
 ```
 `ToneMsg::decode` rejects `n > 10` (Plan A), so the copy loop is bounded.
 
-In `src/app/routes.cpp` declare `onLed`, `onSound`, `onTone`, `onAudioMode` (same signature, before the anonymous namespace) and add rows:
+In `src/app/routes.cpp` add `#include "app/ui_api.h"` and rows before `// ROUTES-END`:
 ```cpp
     {static_cast<uint8_t>(proto::FrameType::kLed), onLed, true},
     {static_cast<uint8_t>(proto::FrameType::kSound), onSound, true},

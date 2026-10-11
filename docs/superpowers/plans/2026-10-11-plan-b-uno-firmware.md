@@ -2069,7 +2069,7 @@ git commit -m "feat(uno): body link - parser, writer, queues, link session, TX s
 
 **Files:**
 - Create: `src/domain/settings/crc16.h`, `settings.{h,cpp}`, `eeprom_writer.{h,cpp}`; `src/ports/eeprom.h`; `src/drivers/eeprom_uno.cpp`; `src/app/tasks.h`, `src/app/settings_task.cpp`, `src/app/apply_settings.cpp`
-- Modify: `src/app/app.h` (members), `src/app/routes.cpp` (rows), `src/app/comms.cpp` (`settings_crc` in slow telemetry), `src/main.cpp` (init + task)
+- Modify: `src/app/app.h` (members), `src/app/routes.cpp` (rows), `src/app/comms.cpp` (`settings_crc` in slow telemetry), `src/main.cpp` (init + task), `tools/smoke/uno_smoke.py` (`setting` command)
 - Test: `test/test_settings/test_main.cpp`
 
 **Interfaces:**
@@ -4524,7 +4524,7 @@ git commit -m "feat(uno): ultrasonic/IR via PCINT0 hub, NEC decoder, async batte
 
 **Files:**
 - Create: `src/types/pwm_output.h`; `src/domain/safety/envelope.{h,cpp}`, `safety_supervisor.{h,cpp}`; `src/domain/arbitration/arbitrator.{h,cpp}`; `src/ports/motor.h`; `src/drivers/motor_uno.cpp`; `src/app/motion_api.h`; `src/app/control_task.cpp` (v1, replaced in Task 11)
-- Modify: `src/app/app.h`, `src/app/tasks.h`, `src/app/routes.cpp`, `src/app/apply_settings.cpp`, `src/main.cpp`, `tools/smoke/uno_smoke.py`
+- Modify: `src/app/app.h`, `src/app/tasks.h`, `src/app/routes.cpp`, `src/main.cpp`, `tools/smoke/uno_smoke.py`
 - Test: `test/test_safety/test_main.cpp`
 
 **Interfaces:**
@@ -5435,7 +5435,7 @@ git commit -m "feat(uno): safety core - PwmOutput, envelope, arbitrator, supervi
 ### Task 7: Encoders, encoder health, calibration scripts, self-test, shield probe and mount check
 
 **Files:**
-- Create: `src/domain/estimation/encoder_track.{h,cpp}`, `encoder_health.{h,cpp}`; `src/domain/calibration/cal_script_runner.{h,cpp}`, `cal_status.{h,cpp}`; `src/domain/selftest/self_test.h`; `src/ports/encoders.h`; `src/drivers/encoders_uno.cpp`; `src/app/calibration_task.cpp`, `src/app/selftest_task.cpp`
+- Create: `src/domain/estimation/encoder_track.{h,cpp}`, `encoder_health.{h,cpp}`; `src/domain/calibration/cal_script_runner.{h,cpp}`, `cal_status.{h,cpp}`; `src/domain/selftest/self_test.h`; `src/ports/encoders.h`; `src/drivers/encoders_uno.cpp`; `src/app/calibration_task.cpp` (also holds `selfTestTask()`)
 - Modify: `src/app/app.h`, `src/app/tasks.h`, `src/app/motion_api.h`, `src/app/control_task.cpp`, `src/app/routes.cpp`, `src/app/settings_task.cpp`, `src/app/comms.cpp`, `src/main.cpp`, `tools/smoke/uno_smoke.py`
 - Test: `test/test_encoders/test_main.cpp`, `test/test_calibration/test_main.cpp`
 

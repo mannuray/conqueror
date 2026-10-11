@@ -9613,18 +9613,19 @@ git commit -m "feat(uno): camera pan/tilt with trapezoid servo profiles, joystic
 
 **Files:**
 - Create: `src/domain/ui/sound_sequencer.{h,cpp}`, `led_sequencer.{h,cpp}`, `catalogues.{h,cpp}`, `annunciator.{h,cpp}`; `src/ports/tone.h`, `led.h`; `src/drivers/tone_uno.cpp`, `ws2812_uno.cpp`; `src/app/ui_task.cpp`
-- Modify: `src/app/app.h`, `src/app/imu_task.cpp`, `src/app/routes.cpp`, `src/app/comms.cpp`, `src/main.cpp`, `tools/smoke/uno_smoke.py`
+- Modify: `src/app/app.h`, `src/app/tasks.h`, `src/app/imu_task.cpp`, `src/app/routes.cpp`, `src/app/comms.cpp`, `src/main.cpp`, `tools/smoke/uno_smoke.py`
 - Test: `test/test_ui/test_main.cpp`
 
 **Interfaces:**
-- Consumes: `Rgb` (Task 1), `proto::SoundId`, `proto::LedMode`, `proto::AudioModeValue`, `proto::Owner`, `proto::OwnerHintValue`, `proto::LedMsg`, `proto::SoundMsg`, `proto::ToneMsg` (`notes[i].hz/.ms`), `proto::AudioModeMsg`.
+- Consumes: `Rgb` (Task 1), `proto::SoundId`, `proto::LedMode`, `proto::AudioModeValue`, `proto::Owner`, `proto::OwnerHintValue`, `proto::LedMsg`, `proto::SoundMsg`, `proto::ToneMsg` (`notes[i].hz/.ms`), `proto::AudioModeMsg`; `g_app.deadman_latched` (Task 11) → `flags2.deadman`.
 - Produces:
   - `cq::Note { uint16_t hz; uint16_t ms; }`; `cq::SoundSequencer`: `bool play(const Note* notes, uint8_t n, uint8_t priority, uint32_t now_ms)`, `void setMode(proto::AudioModeValue m)`, `proto::AudioModeValue mode() const`, `void stop()`, `bool tick(uint32_t now_ms, uint16_t& hz)` (true when the output changed; 0 = silence), `bool playing() const`; priorities `kPrioInfo = 1, kPrioEvent = 2, kPrioAlarm = 3`.
   - `cq::LedLayer : uint8_t { kAlarm, kAttention, kCustom, kStatus, kBase, kCount }` (lower = wins); `cq::LedPattern { proto::LedMode mode; Rgb color; uint16_t period_ms; uint16_t duration_ms; }`; `cq::LedSequencer`: `void set(LedLayer, const LedPattern&, uint32_t now_ms)`, `void clear(LedLayer)`, `Rgb output(uint32_t now_ms)`.
   - `cq::soundNotes(proto::SoundId id, Note* out) -> uint8_t` (count, PROGMEM catalogue).
   - `cq::AnnState { bool synced, calibrating, blocked, lifted, tilted, batt_low, batt_crit, selftest_critical, reversing, forward, parking_beeps; proto::Owner owner; proto::OwnerHintValue hint; uint8_t bump_seq; bool selftest_done; bool selftest_failed; }`; `cq::Annunciator::update(const AnnState&, uint32_t now_ms, LedSequencer&, SoundSequencer&)`.
   - Ports `cq::port::tone::{begin(), play(uint16_t hz), stop()}`, `cq::port::led::{begin(), write(const Rgb&)}`.
-  - `cq::app::uiTask()` (50 Hz), handlers `onLed/onSound/onTone/onAudioMode`.
+  - `app/tasks.h`: `cq::app::uiInit()`, `uiTask()` (50 Hz); handlers `onLed/onSound/onTone/onAudioMode` (declared in `routes.cpp`). The alarm LED layer is re-picked on any change of tilted/lifted/batt_crit/batt_low/selftest_critical.
+  - Smoke: `sound NAME [--mode normal|quiet|mute]`, `led MODE R G B`; `cmd_drive` prints the last `SLOW load/errs`.
 
 - [ ] **Step 1: Write the failing UI tests**
 
@@ -9765,6 +9766,24 @@ void test_annunciator_parking_beeps_only_when_enabled() {
   TEST_ASSERT_INT_WITHIN(1, 5, beeps);  // one TICK every 600 ms
 }
 
+void test_annunciator_alarm_follows_remaining_cause() {
+  Annunciator a;
+  LedSequencer l;
+  SoundSequencer snd;
+  AnnState s = base();
+  s.lifted = true;
+  s.batt_crit = true;
+  a.update(s, 0, l, snd);
+  TEST_ASSERT_TRUE((l.output(200) == Rgb{0, 0, 0}));  // 250 ms "lifted" blink: off half
+  s.lifted = false;                                    // put down, battery still critical
+  a.update(s, 1000, l, snd);
+  TEST_ASSERT_TRUE((l.output(1200) == Annunciator::kColorAlarm));  // 1000 ms batt_crit blink: on half
+  TEST_ASSERT_TRUE((l.output(1700) == Rgb{0, 0, 0}));              // off half
+  s.selftest_critical = true;                                      // critical self-test failure → solid
+  a.update(s, 2000, l, snd);
+  TEST_ASSERT_TRUE((l.output(2700) == Annunciator::kColorAlarm));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_sound_plays_notes_in_order);
@@ -9775,6 +9794,7 @@ int main() {
   RUN_TEST(test_annunciator_tilt_alarm_and_sound);
   RUN_TEST(test_annunciator_owner_colours);
   RUN_TEST(test_annunciator_parking_beeps_only_when_enabled);
+  RUN_TEST(test_annunciator_alarm_follows_remaining_cause);
   return UNITY_END();
 }
 ```
@@ -10137,10 +10157,10 @@ void Annunciator::update(const AnnState& s, uint32_t now_ms, LedSequencer& led, 
     sound(proto::SoundId::kTick, SoundSequencer::kPrioInfo, now_ms, snd);
   }
 
-  // LED layers (only re-set on change so blink phases stay steady)
-  const bool alarm = s.tilted || s.lifted || s.batt_crit || s.selftest_critical;
-  const bool alarm_prev = p.tilted || p.lifted || p.batt_crit || p.selftest_critical;
-  if (alarm != alarm_prev || s.batt_low != p.batt_low || s.tilted != p.tilted) {
+  // LED layers (only re-set on change so blink phases stay steady). Any change of an alarm input re-picks the
+  // pattern: e.g. lifted clears while batt_crit stays → the 1000 ms batt_crit blink takes over.
+  if (s.tilted != p.tilted || s.lifted != p.lifted || s.batt_crit != p.batt_crit || s.batt_low != p.batt_low ||
+      s.selftest_critical != p.selftest_critical) {
     if (s.selftest_critical) {
       led.set(LedLayer::kAlarm, {proto::LedMode::kSolid, kColorAlarm, 0, 0}, now_ms);
     } else if (s.tilted || s.lifted) {
@@ -10188,7 +10208,7 @@ void Annunciator::update(const AnnState& s, uint32_t now_ms, LedSequencer& led, 
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_ui`
-Expected: `8 Tests 0 Failures`.
+Expected: `9 Tests 0 Failures`.
 
 - [ ] **Step 5: Tone and WS2812 drivers**
 
@@ -10217,7 +10237,7 @@ namespace cq {
 namespace port {
 namespace led {
 void begin();
-void write(const Rgb& c);  // one WS2812; interrupts off ≈ 30 µs
+void write(const Rgb& c);  // one WS2812; interrupts off ≈ 32 µs
 }  // namespace led
 }  // namespace port
 }  // namespace cq
@@ -10241,7 +10261,7 @@ void stop() { ::noTone(board::kPinBuzzer); }
 }  // namespace cq
 ```
 
-`src/drivers/ws2812_uno.cpp` (original cycle-counted loop for 16 MHz; one bit ≈ 19 cycles ≈ 1.19 µs, T0H ≈ 6 cycles = 375 ns, T1H ≈ 13 cycles = 810 ns):
+`src/drivers/ws2812_uno.cpp` (original cycle-counted loop for 16 MHz; one bit ≈ 20–21 cycles ≈ 1.3 µs (spec 1.25 ± 0.6 µs), T0H ≈ 6 cycles = 375 ns, T1H ≈ 13 cycles = 810 ns, T1L ≈ 7 cycles = 440 ns (spec ≥ 300 ns — the second `rjmp` after `dec` keeps it off the minimum), T0L ≈ 15 cycles = 940 ns; 24 bits ≈ 32 µs with interrupts off, shorter than one 250000-baud UART byte (40 µs), so no RX byte is lost):
 ```cpp
 #include <Arduino.h>
 
@@ -10269,6 +10289,7 @@ void sendByte(uint8_t byte) {
       "  cbi  %[port], %[pin]   \n\t"  // 2  1-bit falls here (~13 cycles high)
       "  dec  %[bits]           \n\t"  // 1
       "  rjmp .+0               \n\t"  // 2
+      "  rjmp .+0               \n\t"  // 2  T1L ≈ 7 cycles (440 ns)
       "  brne 1b                \n\t"  // 2
       : [byte] "+r"(byte), [bits] "+r"(bits)
       : [port] "I"(_SFR_IO_ADDR(PORTD)), [pin] "I"(PORTD4));
@@ -10322,6 +10343,7 @@ In `src/app/imu_task.cpp`, where a bump is detected, add `++g_app.bump_seq;` nex
 `src/app/ui_task.cpp`:
 ```cpp
 #include "app/app.h"
+#include "app/tasks.h"
 #include "domain/ui/catalogues.h"
 #include "ports/clock.h"
 #include "ports/led.h"
@@ -10394,6 +10416,7 @@ proto::AckStatus onSound(const uint8_t* p, uint8_t len) {
 proto::AckStatus onTone(const uint8_t* p, uint8_t len) {
   proto::ToneMsg m{};
   if (!proto::decode(p, len, m)) return proto::AckStatus::kInvalidCommand;
+  if (m.n == 0) return proto::AckStatus::kInvalidCommand;  // nothing to play (play() would answer BUSY)
   Note n[SoundSequencer::kMaxNotes];
   for (uint8_t i = 0; i < m.n; ++i) n[i] = Note{m.notes[i].hz, m.notes[i].ms};
   return g_app.sound.play(n, m.n, SoundSequencer::kPrioEvent, port::clock::nowMs()) ? proto::AckStatus::kOk
@@ -10428,38 +10451,55 @@ In `src/app/comms.cpp` `telemetrySlowDue()` before `s.flags2 = g_app.slow_flags;
   const uint32_t brake_off = 1UL << static_cast<uint8_t>(proto::SlowFlagBit::kBrakeOff);
   const uint32_t envelope = 1UL << static_cast<uint8_t>(proto::SlowFlagBit::kEnvelope);
   const uint32_t link_lost = 1UL << static_cast<uint8_t>(proto::SlowFlagBit::kLinkLost);
-  g_app.slow_flags &= ~(muted | quiet | brake_off | envelope | link_lost);
+  const uint32_t deadman = 1UL << static_cast<uint8_t>(proto::SlowFlagBit::kDeadman);
+  g_app.slow_flags &= ~(muted | quiet | brake_off | envelope | link_lost | deadman);
   if (g_app.sound.mode() == proto::AudioModeValue::kMute) g_app.slow_flags |= muted;
   if (g_app.sound.mode() == proto::AudioModeValue::kQuiet) g_app.slow_flags |= quiet;
   if (!g_app.envelope.brakeOn()) g_app.slow_flags |= brake_off;
   if (g_app.envelope.active()) g_app.slow_flags |= envelope;
   if (!g_app.link.alive(port::clock::nowMs())) g_app.slow_flags |= link_lost;
+  if (g_app.deadman_latched) g_app.slow_flags |= deadman;  // Task 11: DEADMAN_STOP until the next DRIVE
 ```
-In `src/main.cpp` declare `void uiInit(); void uiTask();`; call `cq::app::uiInit();` before `// SETUP-END`; task row `{cq::app::uiTask, 20000UL, 0},`.
+In `src/app/tasks.h` add before `// TASK-DECLS-END`:
+```cpp
+void uiInit();  // boot: buzzer and WS2812 pins
+void uiTask();  // 50 Hz
+```
+In `src/main.cpp` (already includes `app/tasks.h`): call `cq::app::uiInit();` before `// SETUP-END`; task row `{cq::app::uiTask, 20000UL, 0},` before `// TASKS-END`.
 
 - [ ] **Step 7: Smoke commands for LED/sound**
 
 Add to `tools/smoke/uno_smoke.py`:
 ```python
 def cmd_led(link: Link, args: argparse.Namespace) -> None:
-    time.sleep(0.6)
-    link.send(g.Led(mode=g.LedMode[args.mode.upper()], r=args.r, g=args.g, b=args.b, period_ms=args.period,
-                    duration_ms=args.duration))
+    link.handlers.append(print_ack)
+    wait_synced(link)
+    link.send(g.Led(mode=g.LedMode[args.mode.upper()], r=args.r, g=args.g, b=args.b,
+                    period_ms=args.period, duration_ms=args.duration))
     time.sleep(0.3)
 
 
 def cmd_sound(link: Link, args: argparse.Namespace) -> None:
-    link.handlers.append(lambda m: print(f"ACK {g.ACK_STATUS[m.status]}") if isinstance(m, g.Ack) else None)
-    time.sleep(0.6)
+    link.handlers.append(print_ack)
+    wait_synced(link)
+    if args.mode is not None:  # same run: reopening the port reboots the Uno (audio mode back to normal)
+        link.send(g.AudioMode(mode=int(g.AudioModeValue[args.mode.upper()])))
+        time.sleep(0.1)
     if args.name == "tone":
-        link.send(g.Tone(n=3, notes=[(440, 200), (0, 100), (880, 200)]))
+        link.send(g.Tone(n=3, notes=((440, 200), (0, 100), (880, 200))))
     elif args.name in ("normal", "quiet", "mute"):
         link.send(g.AudioMode(mode=int(g.AudioModeValue[args.name.upper()])))
     else:
         link.send(g.Sound(id=g.SoundId[args.name.upper()]))
     time.sleep(1.0)
 ```
-where `g.AudioModeValue` is the generated enum (`NORMAL`, `QUIET`, `MUTE`) and `g.AudioMode` is the AUDIO_MODE frame class (Plan A names the enums `AudioModeValue`/`OwnerHintValue` to avoid clashing with the frame classes).
+where `g.AudioModeValue` is the generated enum (`NORMAL`, `QUIET`, `MUTE`) and `g.AudioMode` is the AUDIO_MODE frame class (Plan A names the enums `AudioModeValue`/`OwnerHintValue` to avoid clashing with the frame classes); `Tone.notes` is a tuple of `(hz, ms)` tuples (generated type `tuple[tuple[int, ...], ...]`).
+At the end of `cmd_drive` (Task 6) add:
+```python
+    slow = link.last.get("TelemSlow")
+    if isinstance(slow, g.TelemSlow):
+        print(f"SLOW load={slow.loop_load}% max={slow.loop_max_us}us errs={slow.err_frames}")
+```
 Register `"led": cmd_led, "sound": cmd_sound` and in `main()`:
 ```python
     ld = sub.add_parser("led")
@@ -10471,16 +10511,22 @@ Register `"led": cmd_led, "sound": cmd_sound` and in `main()`:
     ld.add_argument("--duration", type=int, default=3000)
     sd = sub.add_parser("sound")
     sd.add_argument("name", help="catalogue name (startup, jingle, …), 'tone', or normal/quiet/mute")
+    sd.add_argument("--mode", choices=["normal", "quiet", "mute"], default=None,
+                    help="AUDIO_MODE sent first (same run)")
 ```
+Run (from `tools/smoke/`): `uv run ruff check . && uv run pyright`
+Expected: `All checks passed!`, `0 errors, 0 warnings, 0 informations`.
 
 - [ ] **Step 8: Build, flash, check**
 
 Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py && pio run -e uno -t upload`
+Each numbered check is one run per command (opening the port reboots the Uno; RAM state such as the audio mode does not carry over):
 1. Boot: LED pulses amber (no ESP32); ≈ 2 s later the STARTUP jingle (or SELFTEST_FAIL with the ultrasonic unplugged). Start `… watch` → READY chirp, LED dim white.
 2. `… led blink 0 0 200 --period 400 --duration 3000` → blue blink for 3 s, then dim white again. While it blinks, tilt the tank past 35° → red fast blink overrides, OUCH sound.
-3. `… sound jingle`, `… sound tone`, `… sound quiet` then `… sound jingle` → `ACK BUSY`… (quiet: catalogue sounds refused, alarms still play), `… sound normal`.
-4. `… setting parking_beeps 1` then `… drive -30 0 --seconds 3` → CHIRP_DOWN then a tick every 0.6 s.
-5. `… drive 30 0` with `watch` running in another terminal: `SLOW load` stays < 60 % and no `err` increase while the LED blinks (WS2812 writes do not drop UART bytes).
+3. `… sound jingle` and `… sound tone` → `ACK OK`, both play; `… sound jingle --mode quiet` → `ACK OK` (mode) then `ACK BUSY` (quiet: catalogue sounds refused, alarms still play).
+4. Stand, tracks off the ground: `… setting parking_beeps 1 --save`, then `… drive -30 0 --seconds 3` → CHIRP_DOWN then a tick every 0.6 s; afterwards `… setting parking_beeps 0 --save`.
+5. Stand: hold a hand ≈ 10 cm in front of the ultrasonic sensor and run `… drive 30 0 --seconds 5` → `EVENT BLOCKED`, the LED blinks red (a WS2812 write every 100 ms with interrupts off ≈ 32 µs) while DRIVE frames stream; the final `SLOW load` < 60 % and `errs=0` (WS2812 writes do not drop UART bytes).
+6. Hardware checklist (R14, needs a scope or logic analyser ≥ 24 MS/s on D4): one bit ≈ 1.3 µs; T0H ≈ 375 ns, T1H ≈ 810 ns, T1L ≥ 300 ns (≈ 440 ns expected). If no scope is available, record "not measured" in the sign-off and rely on check 2 (correct colours, no flicker).
 
 - [ ] **Step 9: Commit**
 

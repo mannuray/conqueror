@@ -6716,7 +6716,7 @@ void selfTestTask() {
 In `src/app/control_task.cpp` (v1):
 - in `controlInit()` add `port::encoders::begin();` (and `#include "ports/encoders.h"`);
 - at the top of `controlTask()` add `encodersTick();`;
-- in the arbitrator `switch`, add `calibrationAbort(proto::AckStatus::kLinkLost);` to the `kLinkLostStop` case (before `zeroTeleop()`);
+- in the arbitrator `switch`, split the shared `kLinkLostStop`/`kIrReleased` case and give `kLinkLostStop` its own body `calibrationAbort(proto::AckStatus::kLinkLost); zeroTeleop(); break;` (`kIrReleased` keeps `zeroTeleop(); break;`);
 - in `onStop()` add `calibrationAbort(proto::AckStatus::kCalCancelled);` before `g_app.arbitrator.onNetworkStop();` (LLD §9.7: STOP aborts a script);
 - in the `SafetyInputs` initializer replace `0 /* stall_mask: Task 7 */` with `g_app.enc_health.stalledMask()` (LLD §9.6: a stalled track is cut);
 - replace the two lines
@@ -8819,7 +8819,12 @@ In `src/app/routes.cpp` add before `// ROUTES-END`:
 
 Every smoke run reopens the serial port, which reboots the Uno (DTR) and clears its RAM state (owner, envelope, a running primitive). So each floor check below runs in **one** process: cancel, link loss, a second turn and the envelope are options of the same command (ruling R13).
 
-In `tools/smoke/uno_smoke.py`, class `Link` (Task 2): in `__init__` add `self.paused = False  # True: send nothing (simulated link loss)` after `self.synced = False`, and make the first line of `send()` (before `with self.lock:`) `if self.paused: return -1`. That stops heartbeats, commands and the HELLO_ACK reply alike, while RX keeps printing.
+In `tools/smoke/uno_smoke.py`, class `Link` (Task 2): in `__init__` add `self.paused = False  # True: send nothing (simulated link loss)` after `self.synced = False`, and make these the first lines of `send()` (before `with self.lock:`):
+```python
+        if self.paused:
+            return -1
+```
+That stops heartbeats, commands and the HELLO_ACK reply alike, while RX keeps printing.
 
 In `cmd_drive` (Task 6) replace the envelope block with
 ```python

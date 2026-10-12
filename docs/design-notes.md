@@ -743,3 +743,15 @@ Timers: T0 motor PWM + timekeeping, T1 servos, T2 buzzer; IR + ultrasonic via pi
 - Board answers as **ATmega328P** with **Optiboot v4.4** at **115200** baud through a **CH340** USB chip (`/dev/ttyUSB0` on Linux). Plan B upload settings fit; Optiboot 4.4 does not pass MCUSR → Plan B ruling R16 (reset reason "unknown" unless plausible) applies to this board.
 - Installed firmware: 31.9 KB of 32 KB, ArduinoJson-based ELEGOO-style JSON commands (`D1`/`D2` keys) but not byte-identical to the 2021 ELEGOO source (no `_ok}` replies) — a newer/modified build. Replaced by Plan B.
 - The ESP32-S3 camera board is not detected over USB-C on either machine with cables that work for the Uno → suspect the board's USB-C power/data path; chip and pins to be confirmed another way (ELEGOO's current S3 code, or a different cable/adapter).
+
+## 24. ESP32-S3 pin map and old-firmware interface (recovered 2026-10-12)
+Source: read-only flash dump of the owner's board (source code lost) + disassembly of the running app. Chip via esptool: ESP32-S3 (QFN56) rev v0.2, 8 MB flash (GigaDevice), 8 MB embedded octal PSRAM, MAC 48:ca:43:9e:74:b4. Built as Arduino `esp32:esp32:esp32s3:CDCOnBoot=cdc,PSRAM=opi`.
+| Function | Pins / values | Confidence |
+|---|---|---|
+| UART to Uno (`Serial1`) | **RX GPIO3, TX GPIO40**, old firmware at 115200 8N1 | high |
+| Camera (= ESP32-S3-EYE map) | PWDN −1, RESET −1, XCLK 15, SDA 4, SCL 5, D7..D0 = 16, 17, 18, 12, 10, 8, 9, 11, VSYNC 6, HREF 7, PCLK 13; XCLK 20 MHz, JPEG | high |
+| USB | native USB-Serial/JTAG (GPIO19/20), enumerates as 303a:1001 → `/dev/ttyACM0` | confirmed |
+- GPIO3 is a strapping pin (JTAG source select, sampled at reset) — fine for UART RX after boot; note for the gateway LLD. GPIO 26–37 are taken by flash/octal PSRAM.
+- Old firmware interface: `/stream` (port 80), `/control` + `/cam_status` (port 81, camera settings only: res, quality, fps); **motion = raw UDP bridge on port 8888** (each datagram forwarded unchanged to the Uno, Uno lines returned to the sender); no STOP, no timeout on the ESP32 side. AP mode only: open setup portal on 8080 + DNS 53.
+- Old Uno protocol (ELEGOO JSON): `{"N":100}` = stop/standby; `{"N":2,"D1":dir,"D2":speed0-255,"T":ms}` = timed move (dir 1 left, 2 right, 3 forward, 4 backward).
+- Impact: Plan C and the ESP32 LLDs switch to target `esp32s3`, UART RX 3 / TX 40 at 250000, S3-EYE camera map, octal PSRAM; flashing via USB-CDC (`/dev/ttyACM0`). Revise when polishing Plan C.

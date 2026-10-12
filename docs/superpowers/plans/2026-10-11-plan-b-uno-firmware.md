@@ -11447,13 +11447,14 @@ git commit -m "feat(uno): sound/LED sequencers, annunciator, catalogue, buzzer +
 - Consumes: `g_app.ir_event/ir_pending` (Task 5), `Arbitrator::onIrInput/releaseIr` (Task 6), `g_app.teleop_v/w`, `stopTeleop()` + `Primitives` (Tasks 10–11), `CameraHead::home/nudge` (Task 12), `SoundSequencer`, `LedSequencer`, `soundNotes` (Task 13), `LinkSession::setRequest` (Task 2), `port::button` (Task 5).
 - Produces:
   - `cq::ir_codes::kUp … kHash` (corrected NEC codes, MSB-first as received).
-  - `cq::IrOutput { bool active; int8_t v; int8_t w; int8_t jog_pan; int8_t jog_tilt; bool stop; bool cam_home; bool speed_changed; bool toggle_mute; bool battery_check; bool turn_180; bool toggle_parking; bool cal_request; }` (`jog_pan` +1 = right, `jog_tilt` +1 = up).
-  - `cq::IrController`: `bool onEvent(const IrEvent& e, IrOutput& out)` (true = known key → counts as IR input; one-shot flags only on the first frame, never on repeats), `bool tick(uint32_t now_ms, IrOutput& out)` (true when a held drive/jog key was released), `uint8_t speedPct() const`; `kReleaseMs = 200`, `kCalHoldMs = 3000`.
+  - `cq::IrOutput { bool active; int8_t v; int8_t w; int8_t jog_pan; int8_t jog_tilt; bool stop; bool cam_home; bool speed_changed; bool toggle_mute; bool battery_check; bool turn_180; bool toggle_parking; bool cal_request; bool toggle_override; }` (`jog_pan` +1 = right, `jog_tilt` +1 = up).
+  - `cq::IrController`: `bool onEvent(const IrEvent& e, IrOutput& out)` (true = known key → counts as IR input; one-shot flags only on the first frame, never on repeats; `*` held `kOverrideHoldMs` → `toggle_override` once), `bool tick(uint32_t now_ms, IrOutput& out)` (true when a held drive/jog key was released or a `*` tap ended → `toggle_parking`; a release clears all one-shot flags), `uint8_t speedPct() const`; `kReleaseMs = 200`, `kCalHoldMs = 3000`, `kOverrideHoldMs = 2000` (LLD §10.5).
+  - Input task: IR driving (▲▼◀▶, 0) refreshes the Override idle timer (`onIrMotion`), OK ends Override (`kStop`), `toggle_override` → `SafetyOverride::requestIr(overrideGate(), now)` + `drainOverride()` (refusal: GRUMBLE + red toggle blinks); mute and parking toggles bump `g_app.toggle_seq` / set `toggle_on` (3 green/red blinks, Task 13).
   - `cq::BootButton`: `enum class Action : uint8_t { kNone, kPress, kWifiThreshold, kAdminThreshold, kWifiReset, kAdminReset }`; `Action update(bool raw_pressed, uint32_t now_ms)`.
   - `cq::app::startLocalTurn(int16_t angle_dd, uint8_t speed_pct) -> proto::AckStatus` (IR `0` key, `motion_api.h`); `cq::app::inputTask()` (50 Hz, `app/tasks.h`).
   - IR takeover (owner changes to IR) is handled here, before the IR command is applied: running primitives are cancelled (`CANCELLED`) and network teleop incl. DRIVE_RATE is stopped. The control task only reports `CONTROL_CHANGED`/`IR_OVERRIDE` (Task 11).
 
-Keymap (LLD §9.8, codes corrected): ▲/▼ drive ±ir_speed with heading hold, ◀/▶ spin (held; stop 200 ms after the last repeat) · OK stop + release to None · 1/3 camera pan left/right, 2/8 tilt up/down (held) · 5 camera home · 4/6 ir_speed −/+10 % (20–100, default 50, beep pitch ∝ speed) · 7 mute toggle · 9 battery check (LED colour + 3/2/1 beeps) · 0 gyro TURN by 180° · * parking-beeps toggle · # held 3 s → `CAL_REQUEST` event (no ESP32 → error beep).
+Keymap (LLD §9.8, codes corrected): ▲/▼ drive ±ir_speed with heading hold, ◀/▶ spin (held; stop 200 ms after the last repeat) · OK stop + release to None · 1/3 camera pan left/right, 2/8 tilt up/down (held) · 5 camera home · 4/6 ir_speed −/+10 % (20–100, default 50, beep pitch ∝ speed) · 7 mute toggle · 9 battery check (LED colour + 3/2/1 beeps) · 0 gyro TURN by 180° · * tap (acts on release) parking-beeps toggle, **`*` held 2 s → Safety Override on/off** (LLD §10.5; IR takes ownership on the first `*` frame) · # held 3 s → `CAL_REQUEST` event (no ESP32 → error beep).
 
 - [ ] **Step 1: Write the failing input tests**
 
@@ -11542,6 +11543,8 @@ void test_ir_one_shot_keys_ignore_repeats() {
   c.onEvent({ir_codes::k0, false, 1500}, o);
   TEST_ASSERT_TRUE(o.turn_180);
   c.onEvent({ir_codes::kStar, false, 2000}, o);
+  TEST_ASSERT_FALSE(o.toggle_parking);  // `*` acts on release (a hold may become Safety Override)
+  TEST_ASSERT_TRUE(c.tick(2200, o));
   TEST_ASSERT_TRUE(o.toggle_parking);
   TEST_ASSERT_FALSE(c.onEvent({0x12345678UL, false, 2500}, o));
 }
@@ -11557,6 +11560,41 @@ void test_ir_hash_hold_3s_requests_calibration_once() {
     requests += o.cal_request ? 1 : 0;
   }
   TEST_ASSERT_EQUAL(1, requests);
+}
+
+// LLD §10.5: `*` held 2 s toggles Safety Override once; releasing it then is not a parking-beeps tap.
+void test_ir_star_hold_2s_toggles_override_once() {
+  IrController c;
+  IrOutput o{};
+  int toggles = 0;
+  c.onEvent({ir_codes::kStar, false, 0}, o);
+  toggles += o.toggle_override ? 1 : 0;
+  for (uint32_t t = 108; t < 3000; t += 108) {
+    c.onEvent({ir_codes::kStar, true, t}, o);
+    toggles += o.toggle_override ? 1 : 0;
+    TEST_ASSERT_FALSE(o.toggle_parking);
+  }
+  TEST_ASSERT_EQUAL(1, toggles);
+  TEST_ASSERT_FALSE(c.tick(3500, o));  // released after the hold: no tap
+  TEST_ASSERT_FALSE(o.toggle_parking);
+  c.onEvent({ir_codes::kStar, false, 4000}, o);  // a short press 1.9 s long is still a tap
+  for (uint32_t t = 4108; t < 5900; t += 108) {
+    c.onEvent({ir_codes::kStar, true, t}, o);
+    TEST_ASSERT_FALSE(o.toggle_override);
+  }
+  TEST_ASSERT_TRUE(c.tick(6100, o));
+  TEST_ASSERT_TRUE(o.toggle_parking);
+}
+
+void test_ir_release_clears_one_shots() {
+  IrController c;
+  IrOutput o{};
+  c.onEvent({ir_codes::kUp, false, 0}, o);
+  c.onEvent({ir_codes::k7, false, 300}, o);  // mute pressed right after ▲ (no 200 ms gap in this pass)
+  TEST_ASSERT_TRUE(o.toggle_mute);
+  TEST_ASSERT_TRUE(c.tick(300, o));          // ▲ released in the same pass
+  TEST_ASSERT_FALSE(o.toggle_mute);          // not applied twice
+  TEST_ASSERT_FALSE(o.active);
 }
 
 void test_corrected_codes() {
@@ -11619,6 +11657,8 @@ int main() {
   RUN_TEST(test_ir_camera_jog_while_held);
   RUN_TEST(test_ir_one_shot_keys_ignore_repeats);
   RUN_TEST(test_ir_hash_hold_3s_requests_calibration_once);
+  RUN_TEST(test_ir_star_hold_2s_toggles_override_once);
+  RUN_TEST(test_ir_release_clears_one_shots);
   RUN_TEST(test_corrected_codes);
   RUN_TEST(test_short_press_after_boot);
   RUN_TEST(test_boot_hold_5s_requests_wifi_reset);
@@ -11686,25 +11726,31 @@ struct IrOutput {
   bool toggle_mute;
   bool battery_check;
   bool turn_180;
-  bool toggle_parking;
+  bool toggle_parking;   // `*` tap: reported on release (LLD §10.5)
   bool cal_request;
+  bool toggle_override;  // `*` held 2 s: Safety Override on/off (once per hold)
 };
 
 class IrController {
  public:
   static constexpr uint16_t kReleaseMs = 200;
   static constexpr uint16_t kCalHoldMs = 3000;
+  static constexpr uint16_t kOverrideHoldMs = 2000;
   bool onEvent(const IrEvent& e, IrOutput& out);
+  // true when a held drive/jog key was released or a `*` tap ended (out.toggle_parking); a release
+  // clears every one-shot flag of `out`, so an earlier key is never applied twice.
   bool tick(uint32_t now_ms, IrOutput& out);
   uint8_t speedPct() const { return m_speed_pct; }
 
  private:
-  enum class Hold : uint8_t { kNone, kDrive, kJog, kHash };
+  enum class Hold : uint8_t { kNone, kDrive, kJog, kHash, kStar };
   uint8_t m_speed_pct = 50;
   Hold m_hold = Hold::kNone;
   uint32_t m_last_ms = 0;
   uint32_t m_hash_start_ms = 0;
   bool m_hash_fired = false;
+  uint32_t m_star_start_ms = 0;
+  bool m_star_fired = false;
 };
 
 }  // namespace cq
@@ -11721,7 +11767,7 @@ namespace cq {
 
 bool IrController::onEvent(const IrEvent& e, IrOutput& out) {
   out.stop = out.cam_home = out.speed_changed = out.toggle_mute = false;
-  out.battery_check = out.turn_180 = out.toggle_parking = out.cal_request = false;
+  out.battery_check = out.turn_180 = out.toggle_parking = out.cal_request = out.toggle_override = false;
   const int8_t s = static_cast<int8_t>(m_speed_pct);
 
   // held keys: repeats keep them alive
@@ -11737,6 +11783,7 @@ bool IrController::onEvent(const IrEvent& e, IrOutput& out) {
     case ir_codes::k2: jt = 1; hold = Hold::kJog; break;
     case ir_codes::k8: jt = -1; hold = Hold::kJog; break;
     case ir_codes::kHash: hold = Hold::kHash; break;
+    case ir_codes::kStar: hold = Hold::kStar; break;
     default: break;
   }
   if (hold != Hold::kNone) {
@@ -11748,6 +11795,17 @@ bool IrController::onEvent(const IrEvent& e, IrOutput& out) {
       } else if (!m_hash_fired && elapsed(e.t_ms, m_hash_start_ms, kCalHoldMs)) {
         m_hash_fired = true;
         out.cal_request = true;
+      }
+      m_hold = hold;
+      return true;
+    }
+    if (hold == Hold::kStar) {  // tap → parking beeps (on release, tick); held 2 s → Safety Override
+      if (!e.repeat || m_hold != Hold::kStar) {
+        m_star_start_ms = e.t_ms;
+        m_star_fired = false;
+      } else if (!m_star_fired && elapsed(e.t_ms, m_star_start_ms, kOverrideHoldMs)) {
+        m_star_fired = true;
+        out.toggle_override = true;
       }
       m_hold = hold;
       return true;
@@ -11780,18 +11838,20 @@ bool IrController::onEvent(const IrEvent& e, IrOutput& out) {
     case ir_codes::k7: out.toggle_mute = true; return true;
     case ir_codes::k9: out.battery_check = true; return true;
     case ir_codes::k0: out.turn_180 = true; return true;
-    case ir_codes::kStar: out.toggle_parking = true; return true;
     default: return false;
   }
 }
 
 bool IrController::tick(uint32_t now_ms, IrOutput& out) {
   if (m_hold == Hold::kNone || !elapsed(now_ms, m_last_ms, kReleaseMs)) return false;
-  const bool released_motion = m_hold == Hold::kDrive || m_hold == Hold::kJog;
+  const Hold released = m_hold;
   m_hold = Hold::kNone;
-  out.active = false;
-  out.v = out.w = out.jog_pan = out.jog_tilt = 0;
-  return released_motion;
+  out = IrOutput{};  // not active, no jog, no one-shot flag left over from an earlier key
+  if (released == Hold::kStar) {
+    out.toggle_parking = !m_star_fired;  // released before 2 s = a tap
+    return out.toggle_parking;
+  }
+  return released == Hold::kDrive || released == Hold::kJog;
 }
 
 }  // namespace cq
@@ -11888,7 +11948,7 @@ BootButton::Action BootButton::update(bool raw_pressed, uint32_t now_ms) {
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_input`
-Expected: `11 Tests 0 Failures`.
+Expected: `13 Tests 0 Failures`.
 
 - [ ] **Step 5: Local TURN for the IR `0` key**
 
@@ -11968,6 +12028,7 @@ void applyIr(const IrOutput& o, uint32_t now) {
     g_app.teleop_rate_mode = false;
     g_app.teleop_v = o.v;
     g_app.teleop_w = o.w;
+    if (o.v != 0 || o.w != 0) g_app.safety_override.onIrMotion(true, now);  // IR driving keeps Override alive
   } else {
     stopTeleop();  // also ends DRIVE_RATE mode: no spin may survive under IR ownership
   }
@@ -11977,6 +12038,8 @@ void applyIr(const IrOutput& o, uint32_t now) {
     stopTeleop();
     g_app.primitives.cancel(proto::AckStatus::kCancelled);
     g_app.arbitrator.releaseIr();
+    g_app.safety_override.end(proto::OverrideReason::kStop);  // IR OK = STOP: ends Override
+    drainOverride();
   }
   if (o.cam_home) g_app.camera.home();
   if (o.speed_changed) {
@@ -11987,14 +12050,33 @@ void applyIr(const IrOutput& o, uint32_t now) {
     const bool muted = g_app.sound.mode() == proto::AudioModeValue::kMute;
     g_app.sound.setMode(muted ? proto::AudioModeValue::kNormal : proto::AudioModeValue::kMute);
     if (muted) play(proto::SoundId::kBlip);
+    ++g_app.toggle_seq;  // 3 blinks: green = mute on, red = off (LLD §10.6)
+    g_app.toggle_on = !muted;
   }
   if (o.battery_check) batteryCheck(now);
-  if (o.turn_180 && startLocalTurn(1800, g_ir.speedPct()) != proto::AckStatus::kOk) play(proto::SoundId::kError);
+  if (o.turn_180) {
+    if (startLocalTurn(1800, g_ir.speedPct()) == proto::AckStatus::kOk) {
+      g_app.safety_override.onIrMotion(true, now);
+    } else {
+      play(proto::SoundId::kError);
+    }
+  }
   if (o.toggle_parking) {
     int32_t v = 0;
     g_app.settings.get(static_cast<uint8_t>(proto::SettingId::kParkingBeeps), v);
     g_app.settings.set(static_cast<uint8_t>(proto::SettingId::kParkingBeeps), v ? 0 : 1);  // RAM until SETTINGS_SAVE
     play(v ? proto::SoundId::kChirpDown : proto::SoundId::kChirpUp);
+    ++g_app.toggle_seq;
+    g_app.toggle_on = v == 0;
+  }
+  if (o.toggle_override) {  // `*` held 2 s (LLD §10.5); IR took ownership on the first `*` frame
+    const proto::AckStatus st = g_app.safety_override.requestIr(overrideGate(), now);
+    drainOverride();  // event + override_seq → chirp and green/red blinks (Task 13)
+    if (st != proto::AckStatus::kOk) {  // envelope (child play), latched fault, or still network-bound
+      play(proto::SoundId::kGrumble);
+      ++g_app.toggle_seq;
+      g_app.toggle_on = false;
+    }
   }
   if (o.cal_request) {
     if (g_app.link.alive(now)) {
@@ -12069,7 +12151,8 @@ Unplug USB (battery on, tank on the floor, no link at all):
 1. Hold ▲ → drives forward holding heading; release → stops within 0.2 s. ◀/▶ spin, ▼ reverses. LED purple while IR owns; 3 s after the last key it returns to the amber "waiting" pulse.
 2. `6`/`4` change speed (beep pitch rises/falls); `OK` stops at once and releases control (LED back to amber).
 3. Hold `1`/`3` → camera pans left/right; `2`/`8` tilt; `5` homes it.
-4. `9` → LED green + 3 beeps on a full pack; `7` mutes/unmutes; `*` toggles parking beeps (chirp up = on); `0` spins 180° (± 2°).
+4. `9` → LED green + 3 beeps on a full pack; `7` mutes/unmutes (3 green blinks = muted, red = unmuted); a short `*` toggles parking beeps on release (chirp up + green blinks = on); `0` spins 180° (± 2°).
+4a. Safety Override (LLD §10.5, tank **on the stand**): hold `*` 2 s → up-chirp, 3 green blinks, amber-red pulse; hold a hand 10 cm in front and hold ▲ → the tracks keep turning (obstacle brake off); lift the tank → it still stops (lift never relaxed). Hold `*` 2 s again → down-chirp + 3 red blinks, the brake applies again. Enter it once more and wait 60 s without keys → it ends by itself (down-chirp); enter again and press OK → ends at once.
 5. Hold `#` 3 s → error beep (no ESP32). With USB: start `… watch --seconds 20`, then hold `#` 3 s → `EVENT CAL_REQUEST`.
 Checks 6–8 use USB with the tank **on the stand** (tracks off the ground); each is one smoke run (opening the port reboots the Uno):
 6. `… drive 30 0 --seconds 10`, press and hold ▲ at ≈ 2 s for ≈ 2 s, then release → `EVENT IR_OVERRIDE`, `EVENT REJECTED a=16 b=1` (DRIVE refused `NOT_OWNER`) while IR holds control; ≈ 3 s after the release `EVENT CONTROL_CHANGED a=0` then `a=1`, and the printed `pwm` is non-zero again from the script's DRIVE stream — all in the same run.

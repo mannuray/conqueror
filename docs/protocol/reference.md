@@ -222,7 +222,7 @@ Payload 1 bytes max.
 
 ### 0x41 ENVELOPE (esp32_to_uno) — ack
 
-Speed/accel caps; lock_brake=1 forces the obstacle brake on.
+Speed/accel caps. lock_brake is a bit set (EnvelopeFlagBit): bit 0 LOCK_BRAKE forces the obstacle brake on; bit 1 CHILD_PLAY marks the child_play preset (implies the brake lock, blocks Safety Override). Other bits must be 0 (INVALID_COMMAND).
 
 Payload 3 bytes max.
 
@@ -230,7 +230,7 @@ Payload 3 bytes max.
 |---|---|---|
 | speed_cap | u8 | unit pct; range 0.0..100.0 |
 | accel_cap | u8 | unit pct_s |
-| lock_brake | u8 |  |
+| lock_brake | u8 | EnvelopeFlagBit bits: 0 LOCK_BRAKE, 1 CHILD_PLAY |
 
 ### 0x42 OWNER_HINT (esp32_to_uno)
 
@@ -244,7 +244,7 @@ Payload 1 bytes max.
 
 ### 0x43 SAFETY_OVERRIDE (esp32_to_uno) — ack
 
-Safety Override on/off (human only; spec 02 A6.1). on=1 is refused with ROLE_FORBIDDEN when src is AI, ENVELOPE_LOCKED while an envelope is active, NOT_OWNER while IR owns motion, BLOCKED while a hard fault is latched, BUSY before sync. on=0 is accepted from any source.
+Safety Override on/off (human only; spec 02 A6.1). on=1 is refused with ROLE_FORBIDDEN when src is AI, ENVELOPE_LOCKED while the child-play envelope is active (adult envelopes allowed; their caps keep applying), NOT_OWNER while IR owns motion, BLOCKED while a hard fault is latched, BUSY before sync. on=0 is accepted from any source.
 
 Payload 2 bytes max.
 
@@ -381,7 +381,7 @@ Payload 36 bytes max.
 | settings_crc | u16 |  |
 | env_speed_cap | u8 | unit pct |
 | env_accel_cap | u8 | unit pct_s |
-| env_lock_brake | u8 |  |
+| env_lock_brake | u8 | EnvelopeFlagBit bits, as ENVELOPE.lock_brake |
 | profile_idx | u8 |  |
 | cal_status | u8[3] | 2 bits per calibration item (missing/ok) |
 | hw | u8 | HwBit |
@@ -464,6 +464,7 @@ Payload 0 bytes max.
 - **FastFlagBit**: BLOCKED=0, LIFTED=1, TILTED=2, STALL_L=3, STALL_R=4, CAM_MOVING=5, TURN_LIMITED=6, CAPPED=7, SOFT_STOP=8, HALTED=9, LOCKED=10, IMU_FAULT=11, US_FAULT=12, ENCODER_FAULT=13, CALIBRATING=14, SYNCED=15 — Bit positions in TELEM_FAST.flags.
 - **SlowFlagBit**: BATT_LOW=0, BATT_CRITICAL=1, LINK_LOST=2, BRAKE_OFF=3, MUTED=4, QUIET=5, ENVELOPE=6, DEADMAN=7, SAFETY_OVERRIDE=8 — Bit positions in TELEM_SLOW.flags2.
 - **HwBit**: ENCODERS_ENABLED=0, IMU_OK=1, US_OK=2 — Bit positions in TELEM_SLOW.hw.
+- **EnvelopeFlagBit**: LOCK_BRAKE=0, CHILD_PLAY=1 — Bit positions in ENVELOPE.lock_brake / TELEM_SLOW.env_lock_brake / EVENT ENVELOPE_CHANGED b. CHILD_PLAY implies LOCK_BRAKE; only CHILD_PLAY blocks Safety Override (owner decision 2026-10-12).
 - **OverrideReason**: NETWORK=0, IR=1, IDLE=2, MAX_TIME=3, STOP=4, OWNER_CHANGE=5, LINK_LOST=6, ENVELOPE=7 — EVENT SAFETY_OVERRIDE b - why Safety Override was entered or exited.
 
 ## Events (EVENT.kind)
@@ -487,7 +488,7 @@ Payload 0 bytes max.
 | 15 | BATT_CRITICAL | mV |  |
 | 16 | PRIMITIVE_DONE | PrimitiveKind \| ok << 8 | ack_status index (reason) |
 | 17 | SELFTEST | failure bitmask | critical 0/1 |
-| 18 | ENVELOPE_CHANGED | speed_cap \| accel_cap << 8 | lock_brake |
+| 18 | ENVELOPE_CHANGED | speed_cap \| accel_cap << 8 | lock_brake bits (EnvelopeFlagBit) |
 | 19 | ENCODER_FAULT | side 0 left, 1 right |  |
 | 20 | IMU_FAULT |  |  |
 | 21 | US_FAULT |  |  |

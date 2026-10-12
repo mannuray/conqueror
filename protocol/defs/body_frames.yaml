@@ -155,11 +155,14 @@
   type: 0x41
   dir: esp32_to_uno
   ack: true
-  doc: Speed/accel caps; lock_brake=1 forces the obstacle brake on.
+  doc: >-
+    Speed/accel caps. lock_brake is a bit set (EnvelopeFlagBit): bit 0 LOCK_BRAKE forces the
+    obstacle brake on; bit 1 CHILD_PLAY marks the child_play preset (implies the brake lock, blocks
+    Safety Override). Other bits must be 0 (INVALID_COMMAND).
   fields:
     - { name: speed_cap, type: u8, unit: pct, range: [0, 100] }
     - { name: accel_cap, type: u8, unit: pct_s }
-    - { name: lock_brake, type: u8 }
+    - { name: lock_brake, type: u8, doc: "EnvelopeFlagBit bits: 0 LOCK_BRAKE, 1 CHILD_PLAY" }
 - name: OWNER_HINT
   type: 0x42
   dir: esp32_to_uno
@@ -172,7 +175,8 @@
   ack: true
   doc: >-
     Safety Override on/off (human only; spec 02 A6.1). on=1 is refused with ROLE_FORBIDDEN when
-    src is AI, ENVELOPE_LOCKED while an envelope is active, NOT_OWNER while IR owns motion,
+    src is AI, ENVELOPE_LOCKED while the child-play envelope is active (adult envelopes allowed;
+    their caps keep applying), NOT_OWNER while IR owns motion,
     BLOCKED while a hard fault is latched, BUSY before sync. on=0 is accepted from any source.
   fields:
     - { name: src, type: u8, enum: Source }
@@ -276,7 +280,7 @@
     - { name: settings_crc, type: u16 }
     - { name: env_speed_cap, type: u8, unit: pct }
     - { name: env_accel_cap, type: u8, unit: pct_s }
-    - { name: env_lock_brake, type: u8 }
+    - { name: env_lock_brake, type: u8, doc: "EnvelopeFlagBit bits, as ENVELOPE.lock_brake" }
     - { name: profile_idx, type: u8 }
     - { name: cal_status, type: u8, count: 3, doc: "2 bits per calibration item (missing/ok)" }
     - { name: hw, type: u8, doc: HwBit }

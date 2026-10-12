@@ -1348,14 +1348,14 @@ def test_slow_decoding() -> None:
         uptime_s=10, reset_reason=int(g.ResetReason.WATCHDOG), batt_mv=7620, driving=1, temp=3140,
         owner=int(g.Owner.IR), flags2=1 << int(g.SlowFlagBit.BATT_LOW), accel_var=5, loop_load=38,
         loop_max_us=1200, free_ram=310, err_frames=1, err_i2c=0, settings_crc=0xBEEF,
-        env_speed_cap=20, env_accel_cap=30, env_lock_brake=1, profile_idx=0,
+        env_speed_cap=20, env_accel_cap=30, env_lock_brake=3, profile_idx=0,
         cal_status=(0b01000001, 0, 0), hw=0b011,
     )
     s = decode_slow(m, 2.0)
     assert s.batt_v == 7.62 and s.temp_c == 31.4
     assert s.reset_reason == "WATCHDOG" and s.owner == "IR"
     assert s.flags == frozenset({"batt_low"})
-    assert s.envelope == (20, 30, 1)
+    assert s.envelope == (20, 30, 3)
     assert s.cal_status[:4] == (1, 0, 0, 1)
     assert s.hw == frozenset({"encoders_enabled", "imu_ok"})
 
@@ -1805,9 +1805,15 @@ class CommandApi:
     async def brake(self, on: bool) -> AckResult:
         return await self._link.send(g.Brake(on=int(on)))
 
-    async def envelope(self, speed_cap: int, accel_cap: int, lock_brake: bool) -> AckResult:
+    async def envelope(
+        self, speed_cap: int, accel_cap: int, lock_brake: bool, child_play: bool = False
+    ) -> AckResult:
+        # lock_brake on the wire is a bit set (EnvelopeFlagBit): CHILD_PLAY marks the preset (blocks Override).
+        flags = (int(lock_brake) << int(g.EnvelopeFlagBit.LOCK_BRAKE)) | (
+            int(child_play) << int(g.EnvelopeFlagBit.CHILD_PLAY)
+        )
         return await self._link.send(
-            g.Envelope(speed_cap=speed_cap, accel_cap=accel_cap, lock_brake=int(lock_brake))
+            g.Envelope(speed_cap=speed_cap, accel_cap=accel_cap, lock_brake=flags)
         )
 
     # ---- settings ----------------------------------------------------------------------------------
@@ -4420,7 +4426,8 @@ from conqueror_bench.console import parse_command
         ("setting get deadman", "get_setting", {"name": "deadman"}),
         ("setting set batt_low 7100", "set_setting", {"name": "batt_low", "value": 7100.0}),
         ("settings save", "settings_save", {}),
-        ("envelope child_play", "envelope", {"speed_cap": 20, "accel_cap": 30, "lock_brake": True}),
+        ("envelope child_play", "envelope",
+         {"speed_cap": 20, "accel_cap": 30, "lock_brake": True, "child_play": True}),
     ],
 )
 def test_parse_command(line: str, method: str, kwargs: dict[str, object]) -> None:
@@ -4587,7 +4594,9 @@ def parse_command(line: str) -> ParsedCommand:
             case ["brake", ("on" | "off") as state]:
                 return ParsedCommand("brake", {"on": state == "on"})
             case ["envelope", "child_play"]:
-                return ParsedCommand("envelope", {"speed_cap": 20, "accel_cap": 30, "lock_brake": True})
+                return ParsedCommand("envelope", {
+                    "speed_cap": 20, "accel_cap": 30, "lock_brake": True, "child_play": True,
+                })
             case ["envelope", "none"]:
                 return ParsedCommand("envelope", {"speed_cap": 100, "accel_cap": 0, "lock_brake": False})
             case ["envelope", s, a, lock]:
@@ -4643,7 +4652,7 @@ from .transport import SerialTransport, TcpTransport, Transport, fake_pair
 
 app = typer.Typer(no_args_is_help=True, help="Conqueror bench tool")
 DEFAULT_SESSIONS = Path(__file__).resolve().parents[1] / "sessions"
-ENVELOPES = {"child_play": (20, 30, 1)}
+ENVELOPES = {"child_play": (20, 30, 3)}  # lock_brake bits: LOCK_BRAKE | CHILD_PLAY
 
 
 class Opts:

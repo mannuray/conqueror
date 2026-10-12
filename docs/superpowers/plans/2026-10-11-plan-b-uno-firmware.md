@@ -4600,13 +4600,13 @@ git commit -m "feat(uno): ultrasonic/IR via PCINT0 hub, NEC decoder, async batte
 - Consumes: `proto::Owner`, `proto::AckStatus`, `proto::EventKind`, `proto::FastFlagBit`; App sensor state (Tasks 4–5).
 - Produces:
   - `cq::PwmOutput`: `static PwmOutput zero()`, `int16_t left() const`, `int16_t right() const`, `bool enabled() const` (false = driver standby/coast); non-zero construction only via `friend class SafetySupervisor`.
-  - `cq::Envelope`: `proto::AckStatus set(uint8_t speed_cap, uint8_t accel_cap, uint8_t lock_brake)`, `proto::AckStatus setBrake(bool on)`, `uint8_t speedCap() const`, `uint8_t accelCap() const`, `bool lockBrake() const`, `bool brakeOn() const`, `bool active() const`.
+  - `cq::Envelope`: `proto::AckStatus set(uint8_t speed_cap, uint8_t accel_cap, uint8_t lock_brake)` (`lock_brake` = `EnvelopeFlagBit` bits; unknown bits → `kInvalidCommand`; CHILD_PLAY implies the lock), `proto::AckStatus setBrake(bool on)`, `uint8_t speedCap() const`, `uint8_t accelCap() const`, `bool lockBrake() const`, `bool childPlay() const`, `uint8_t flags() const`, `bool brakeOn() const`, `bool active() const`.
   - `cq::Arbitrator`: `enum class Action : uint8_t { kNone, kDeadmanStop, kLinkLostStop, kIrReleased }`; `struct Config { uint16_t deadman_ms; uint16_t ir_handback_ms; }`; `void setSynced(bool)` (from `LinkSession::synced()` every control tick; boot = not synced), `proto::AckStatus requestNetwork(bool teleop, uint32_t now_ms)` (BUSY before sync — LLD §9.4), `void onNetworkStop()`, `bool onIrInput(uint32_t now_ms)` (true = owner changed to IR; works without sync), `void releaseIr()` (IR OK key: owner → None), `proto::AckStatus beginCalibration()` (BUSY before sync), `void endCalibration()`, `Action tick(uint32_t now_ms, bool link_alive, bool primitive_busy, const Config& cfg)` (also releases Network → None after `kNetworkIdleMs` = 1 s without a network motion command while no primitive runs — LLD §9.18), `proto::Owner owner() const`, `bool takeOwnerChanged()`.
   - `cq::SafetyInputs { bool lifted, tilted, batt_critical, brake_on; uint16_t dist_mm; uint8_t stop_cm; uint8_t stall_mask; }` (`stall_mask` bit 0 left, bit 1 right: that track's output is cut — LLD §9.6; fed by Task 7), `cq::SafetyStatus { bool blocked, halted, coast; }`, `cq::SafetySupervisor::apply(int16_t pwm_l, int16_t pwm_r, const SafetyInputs&, SafetyStatus&) -> PwmOutput`. `dist_mm = 0xFFFE` (sensor fault) never blocks: the brake is unavailable and the degraded 50 % cap is applied to the targets by the `TargetLimiter` (Task 8, wired in Task 11).
   - Port `cq::port::motor`: `begin()`, `apply(const PwmOutput&)` — included only by `app/control_task.cpp`.
   - `app/tasks.h`: `controlInit()`, `controlTask()`; `app/motion_api.h`: route handlers `onDrive`, `onStop`, `onBrake`, `onEnvelope`, `onOwnerHint` (signature `proto::AckStatus (const uint8_t*, uint8_t)`).
   - App members `int16_t req_pwm_l, req_pwm_r` (PWM asked of the supervisor, before the gate — the direction of a stalled track for Task 7) next to `out_pwm_l/r`.
-  - `cq::SafetyOverride` (LLD §10, spec 02 §A6.1): `enum class Binder : uint8_t { kNone, kIr, kNetwork }`; `struct Gate { bool synced, envelope_active, fault_latched; proto::Owner owner; }`; `struct Config { uint8_t idle_s; uint16_t max_s; }`; `proto::AckStatus requestNetwork(bool on, proto::Source src, const Gate&, uint32_t now_ms)` (on = 0 → OK from any source; on = 1: `kRoleForbidden` unless src HUMAN, `kBusy` before sync, `kEnvelopeLocked` while an envelope is active, `kNotOwner` while IR/calibration owns or IR-bound, `kBlocked` while a fault is latched), `proto::AckStatus requestIr(const Gate&, uint32_t now_ms)` (toggle; the caller makes IR the owner and reports that owner change first), `void onOwner(proto::Owner)`, `void onNetworkMotion(proto::Source, bool driving, uint32_t now_ms)`, `void onIrMotion(bool driving, uint32_t now_ms)`, `void onOwnerHint(proto::OwnerHintValue)`, `void onLinkLost()`, `void end(proto::OverrideReason)`, `void tick(uint32_t now_ms, const Config&)`, `bool active() const`, `Binder binder() const`, `bool brakeOn(bool configured) const`, `uint8_t tiltLimit(uint8_t normal, uint8_t relaxed) const`, `bool takeEvent(bool& on, proto::OverrideReason& why)`.
+  - `cq::SafetyOverride` (LLD §10, spec 02 §A6.1): `enum class Binder : uint8_t { kNone, kIr, kNetwork }`; `struct Gate { bool synced, child_play, fault_latched; proto::Owner owner; }`; `struct Config { uint8_t idle_s; uint16_t max_s; }`; `proto::AckStatus requestNetwork(bool on, proto::Source src, const Gate&, uint32_t now_ms)` (on = 0 → OK from any source; on = 1: `kRoleForbidden` unless src HUMAN, `kBusy` before sync, `kEnvelopeLocked` while the child-play envelope is active (adult envelopes allowed), `kNotOwner` while IR/calibration owns or IR-bound, `kBlocked` while a fault is latched), `proto::AckStatus requestIr(const Gate&, uint32_t now_ms)` (toggle; the caller makes IR the owner and reports that owner change first), `void onOwner(proto::Owner)`, `void onNetworkMotion(proto::Source, bool driving, uint32_t now_ms)`, `void onIrMotion(bool driving, uint32_t now_ms)`, `void onOwnerHint(proto::OwnerHintValue)`, `void onLinkLost()`, `void end(proto::OverrideReason)`, `void tick(uint32_t now_ms, const Config&)`, `bool active() const`, `Binder binder() const`, `bool brakeOn(bool configured) const`, `uint8_t tiltLimit(uint8_t normal, uint8_t relaxed) const`, `bool takeEvent(bool& on, proto::OverrideReason& why)`.
   - App member `SafetyOverride safety_override`; `app/motion_api.h`: `onSafetyOverride` route handler, `overrideGate()`, `drainOverride()` (pushes `EVENT SAFETY_OVERRIDE {a = on, b = reason}`, sets `flags2` bit `kSafetyOverride`, bumps `g_app.override_seq` for the UI in Task 13).
   - Smoke commands `drive V W --seconds S`, `stop`, `envelope CAP ACCEL LOCK`, `deadman`, `override on|off [--ai]`.
 
@@ -4827,7 +4827,7 @@ void test_override_network_gate() {
   g.synced = false;
   TEST_ASSERT_EQUAL(st(proto::AckStatus::kBusy), st(o.requestNetwork(true, proto::Source::kHuman, g, 0)));
   g = okGate();
-  g.envelope_active = true;  // child play keeps all safety
+  g.child_play = true;  // child play keeps all safety
   TEST_ASSERT_EQUAL(st(proto::AckStatus::kEnvelopeLocked), st(o.requestNetwork(true, proto::Source::kHuman, g, 0)));
   g = okGate();
   g.owner = proto::Owner::kIr;
@@ -4863,9 +4863,9 @@ void test_override_ir_long_press_toggles() {
   TEST_ASSERT_EQUAL(st(proto::AckStatus::kOk), st(o.requestIr(g, 100)));  // second hold: off
   TEST_ASSERT_FALSE(o.active());
   assertEvent(o, false, proto::OverrideReason::kIr);
-  g.envelope_active = true;
+  g.child_play = true;
   TEST_ASSERT_EQUAL(st(proto::AckStatus::kEnvelopeLocked), st(o.requestIr(g, 200)));
-  g.envelope_active = false;
+  g.child_play = false;
   g.fault_latched = true;
   TEST_ASSERT_EQUAL(st(proto::AckStatus::kBlocked), st(o.requestIr(g, 200)));
   TEST_ASSERT_FALSE(o.active());
@@ -4963,6 +4963,35 @@ void test_override_relaxes_brake_only() {
   TEST_ASSERT_FALSE(o.brakeOn(false));
 }
 
+void test_override_allowed_with_adult_envelope() {
+  // Owner decision 4 (2026-10-12): only the child-play envelope blocks Override.
+  Envelope adult;
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kOk), st(adult.set(50, 40, 1)));  // custom caps + brake lock
+  TEST_ASSERT_FALSE(adult.childPlay());
+  TEST_ASSERT_EQUAL_HEX8(0x01, adult.flags());
+  SafetyOverride::Gate g = okGate();
+  g.child_play = adult.childPlay();
+  SafetyOverride o;
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kOk), st(o.requestNetwork(true, proto::Source::kHuman, g, 0)));
+  TEST_ASSERT_TRUE(o.active());
+  // the adult caps stay in force (TargetLimiter reads them); only the brake lock is relaxed
+  TEST_ASSERT_EQUAL(50, adult.speedCap());
+  TEST_ASSERT_EQUAL(40, adult.accelCap());
+  TEST_ASSERT_FALSE(o.brakeOn(adult.brakeOn()));
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kEnvelopeLocked), st(adult.setBrake(false)));  // BRAKE off still refused
+  // child play: bit 1 (implies the lock) refuses Override; unknown bits are invalid
+  Envelope child;
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kOk), st(child.set(20, 30, 2)));
+  TEST_ASSERT_TRUE(child.childPlay());
+  TEST_ASSERT_TRUE(child.lockBrake());
+  TEST_ASSERT_EQUAL_HEX8(0x03, child.flags());
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kInvalidCommand), st(child.set(20, 30, 4)));
+  SafetyOverride c;
+  g.child_play = child.childPlay();
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kEnvelopeLocked), st(c.requestNetwork(true, proto::Source::kHuman, g, 0)));
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kEnvelopeLocked), st(c.requestIr(g, 0)));
+}
+
 void test_override_tilt_65_with_hold() {
   SafetyOverride o;
   TEST_ASSERT_EQUAL(45, o.tiltLimit(45, 65));
@@ -5006,6 +5035,7 @@ int main() {
   RUN_TEST(test_override_expires_idle_and_max);
   RUN_TEST(test_override_ends_on_stop_owner_change_link_loss);
   RUN_TEST(test_override_relaxes_brake_only);
+  RUN_TEST(test_override_allowed_with_adult_envelope);
   RUN_TEST(test_override_tilt_65_with_hold);
   return UNITY_END();
 }
@@ -5055,7 +5085,9 @@ class PwmOutput {
 
 namespace cq {
 
-// Safety envelope from the ESP32 (child-play etc.). lock_brake forces the obstacle brake on.
+// Safety envelope from the ESP32 (child-play etc.). The wire byte lock_brake is a bit set
+// (proto::EnvelopeFlagBit): LOCK_BRAKE forces the obstacle brake on; CHILD_PLAY marks the child_play
+// preset, implies the brake lock and is the only envelope that blocks Safety Override (LLD §10.1).
 class Envelope {
  public:
   proto::AckStatus set(uint8_t speed_cap, uint8_t accel_cap, uint8_t lock_brake);
@@ -5063,6 +5095,11 @@ class Envelope {
   uint8_t speedCap() const { return m_speed_cap; }
   uint8_t accelCap() const { return m_accel_cap; }  // %/s, 0 = no cap
   bool lockBrake() const { return m_lock_brake; }
+  bool childPlay() const { return m_child_play; }
+  uint8_t flags() const {  // wire form, echoed in TELEM_SLOW.env_lock_brake / ENVELOPE_CHANGED b
+    return static_cast<uint8_t>((m_lock_brake ? 1u << static_cast<uint8_t>(proto::EnvelopeFlagBit::kLockBrake) : 0u) |
+                                (m_child_play ? 1u << static_cast<uint8_t>(proto::EnvelopeFlagBit::kChildPlay) : 0u));
+  }
   bool brakeOn() const { return m_brake_on || m_lock_brake; }
   bool active() const { return m_speed_cap < 100 || m_accel_cap != 0 || m_lock_brake; }
 
@@ -5070,6 +5107,7 @@ class Envelope {
   uint8_t m_speed_cap = 100;
   uint8_t m_accel_cap = 0;
   bool m_lock_brake = false;
+  bool m_child_play = false;
   bool m_brake_on = true;
 };
 
@@ -5083,10 +5121,15 @@ class Envelope {
 namespace cq {
 
 proto::AckStatus Envelope::set(uint8_t speed_cap, uint8_t accel_cap, uint8_t lock_brake) {
-  if (speed_cap > 100 || lock_brake > 1) return proto::AckStatus::kInvalidCommand;
+  constexpr uint8_t kLock = 1u << static_cast<uint8_t>(proto::EnvelopeFlagBit::kLockBrake);
+  constexpr uint8_t kChild = 1u << static_cast<uint8_t>(proto::EnvelopeFlagBit::kChildPlay);
+  if (speed_cap > 100 || (lock_brake & static_cast<uint8_t>(~(kLock | kChild))) != 0) {
+    return proto::AckStatus::kInvalidCommand;
+  }
   m_speed_cap = speed_cap;
   m_accel_cap = accel_cap;
-  m_lock_brake = lock_brake != 0;
+  m_child_play = (lock_brake & kChild) != 0;
+  m_lock_brake = (lock_brake & kLock) != 0 || m_child_play;  // child play always locks the brake
   return proto::AckStatus::kOk;
 }
 
@@ -5316,7 +5359,7 @@ class SafetyOverride {
   enum class Binder : uint8_t { kNone, kIr, kNetwork };  // who enabled it
   struct Gate {
     bool synced;           // LinkSession::synced()
-    bool envelope_active;  // Envelope::active(): child play (or any envelope) refuses Override
+    bool child_play;       // Envelope::childPlay(): only child play refuses Override (adult envelopes allowed)
     bool fault_latched;    // tilted / lifted / battery critical / self-test lock: Override never un-halts
     proto::Owner owner;    // Arbitrator::owner()
   };
@@ -5402,7 +5445,7 @@ proto::AckStatus SafetyOverride::requestNetwork(bool on, proto::Source src, cons
   }
   if (src != proto::Source::kHuman) return proto::AckStatus::kRoleForbidden;  // never the AI
   if (!g.synced) return proto::AckStatus::kBusy;
-  if (g.envelope_active) return proto::AckStatus::kEnvelopeLocked;  // child play keeps all safety
+  if (g.child_play) return proto::AckStatus::kEnvelopeLocked;  // child play keeps all safety
   if (g.owner == proto::Owner::kIr || g.owner == proto::Owner::kCalibration) return proto::AckStatus::kNotOwner;
   if (m_binder == Binder::kIr) return proto::AckStatus::kNotOwner;
   if (g.fault_latched) return proto::AckStatus::kBlocked;
@@ -5414,7 +5457,7 @@ proto::AckStatus SafetyOverride::requestIr(const Gate& g, uint32_t now_ms) {
     end(proto::OverrideReason::kIr);
     return proto::AckStatus::kOk;
   }
-  if (g.envelope_active) return proto::AckStatus::kEnvelopeLocked;
+  if (g.child_play) return proto::AckStatus::kEnvelopeLocked;
   if (g.fault_latched) return proto::AckStatus::kBlocked;
   if (active()) return proto::AckStatus::kNotOwner;  // network-bound: the IR takeover (onOwner) must end it first
   return enter(Binder::kIr, proto::OverrideReason::kIr, now_ms);
@@ -5470,7 +5513,7 @@ bool SafetyOverride::takeEvent(bool& on, proto::OverrideReason& why) {
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_safety`
-Expected: `19 Tests 0 Failures`.
+Expected: `20 Tests 0 Failures`.
 
 - [ ] **Step 5: Motor port and driver (both shields)**
 
@@ -5626,7 +5669,7 @@ SafetyOverride::Gate overrideGate() {
   // Task 7 adds the self-test lock to `fault`.
   const bool fault = g_app.lift.lifted() || g_app.lift.tilted() ||
                      g_app.batt.level() == BatteryMonitor::Level::kCritical;
-  return SafetyOverride::Gate{g_app.link.synced(), g_app.envelope.active(), fault, g_app.arbitrator.owner()};
+  return SafetyOverride::Gate{g_app.link.synced(), g_app.envelope.childPlay(), fault, g_app.arbitrator.owner()};
 }
 
 void drainOverride() {
@@ -5684,11 +5727,11 @@ proto::AckStatus onEnvelope(const uint8_t* p, uint8_t len) {
   if (st == proto::AckStatus::kOk) {
     const uint16_t packed = static_cast<uint16_t>(static_cast<uint16_t>(m.speed_cap) |
                                                   static_cast<uint16_t>(static_cast<uint16_t>(m.accel_cap) << 8u));
-    g_app.events.push(proto::EventKind::kEnvelopeChanged, static_cast<int16_t>(packed), m.lock_brake);
+    g_app.events.push(proto::EventKind::kEnvelopeChanged, static_cast<int16_t>(packed), g_app.envelope.flags());
     g_app.slow.env_speed_cap = m.speed_cap;
     g_app.slow.env_accel_cap = m.accel_cap;
-    g_app.slow.env_lock_brake = m.lock_brake;
-    if (g_app.envelope.active()) {  // child play (any envelope) ends Override in the same frame
+    g_app.slow.env_lock_brake = g_app.envelope.flags();  // EnvelopeFlagBit bits (child play = 3)
+    if (g_app.envelope.childPlay()) {  // only child play ends Override; an adult envelope keeps it (caps apply)
       g_app.safety_override.end(proto::OverrideReason::kEnvelope);
       drainOverride();
     }
@@ -5914,7 +5957,7 @@ Register in `COMMANDS` (`"drive": cmd_drive, "stop": cmd_stop, "envelope": cmd_e
     e = sub.add_parser("envelope")
     e.add_argument("cap", type=int)
     e.add_argument("accel", type=int)
-    e.add_argument("lock", type=int)
+    e.add_argument("lock", type=int, help="lock_brake bits: 1 lock brake, 3 child play (EnvelopeFlagBit)")
     sub.add_parser("deadman")
     o = sub.add_parser("override")
     o.add_argument("state", choices=["on", "off"])
@@ -9036,7 +9079,7 @@ SafetyOverride::Gate overrideGate() {
   const bool fault = g_app.lift.lifted() || g_app.lift.tilted() ||
                      g_app.batt.level() == BatteryMonitor::Level::kCritical ||
                      (g_app.self_test_done && g_app.self_test.critical());
-  return SafetyOverride::Gate{g_app.link.synced(), g_app.envelope.active(), fault, g_app.arbitrator.owner()};
+  return SafetyOverride::Gate{g_app.link.synced(), g_app.envelope.childPlay(), fault, g_app.arbitrator.owner()};
 }
 
 void drainOverride() {
@@ -9160,11 +9203,11 @@ proto::AckStatus onEnvelope(const uint8_t* p, uint8_t len) {
   if (st == proto::AckStatus::kOk) {
     const uint16_t packed = static_cast<uint16_t>(static_cast<uint16_t>(m.speed_cap) |
                                                   static_cast<uint16_t>(static_cast<uint16_t>(m.accel_cap) << 8u));
-    g_app.events.push(proto::EventKind::kEnvelopeChanged, static_cast<int16_t>(packed), m.lock_brake);
+    g_app.events.push(proto::EventKind::kEnvelopeChanged, static_cast<int16_t>(packed), g_app.envelope.flags());
     g_app.slow.env_speed_cap = m.speed_cap;
     g_app.slow.env_accel_cap = m.accel_cap;
-    g_app.slow.env_lock_brake = m.lock_brake;
-    if (g_app.envelope.active()) {  // child play (any envelope) ends Override in the same frame
+    g_app.slow.env_lock_brake = g_app.envelope.flags();  // EnvelopeFlagBit bits (child play = 3)
+    if (g_app.envelope.childPlay()) {  // only child play ends Override; an adult envelope keeps it (caps apply)
       g_app.safety_override.end(proto::OverrideReason::kEnvelope);
       drainOverride();
     }

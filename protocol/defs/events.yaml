@@ -15,7 +15,7 @@
 - { name: BATT_CRITICAL, kind: 15, a: "mV" }
 - { name: PRIMITIVE_DONE, kind: 16, a: "PrimitiveKind | ok << 8", b: "ack_status index (reason)" }
 - { name: SELFTEST, kind: 17, a: "failure bitmask", b: "critical 0/1" }
-- { name: ENVELOPE_CHANGED, kind: 18, a: "speed_cap | accel_cap << 8", b: "lock_brake" }
+- { name: ENVELOPE_CHANGED, kind: 18, a: "speed_cap | accel_cap << 8", b: "lock_brake bits (EnvelopeFlagBit)" }
 - { name: ENCODER_FAULT, kind: 19, a: "side 0 left, 1 right" }
 - { name: IMU_FAULT, kind: 20 }
 - { name: US_FAULT, kind: 21 }

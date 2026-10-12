@@ -92,7 +92,7 @@ Streaming commands (no ack; rejections reported once via `nack` without `id` + a
 | `tone` | `notes` [[freq_hz, ms], …] ≤10 | ai | custom tone sequence |
 | `audio_mode` | `normal`/`quiet`/`mute` | human | priority-1 alarms always play |
 | `obstacle_brake` | `on` | ai | disabling rejected (`ENVELOPE_LOCKED`) while envelope `lock_brake`; re-enabled at reboot |
-| `safety_override` | `on` bool | human (`on`); anyone (`off`) | spec 02 §A6.1: obstacle brake + bump stop off, tilt cut-off 65°; `ROLE_FORBIDDEN` for `ai` keys, `ENVELOPE_LOCKED` while an envelope is active, `BUSY` while a Tank Logo program runs, `BLOCKED` while a hard fault is latched; ends after 60 s idle / 5 min / STOP / owner change / link loss / reboot; the client must ask for confirmation |
+| `safety_override` | `on` bool | human (`on`); anyone (`off`) | spec 02 §A6.1: obstacle brake + bump stop off, tilt cut-off 65°; `ROLE_FORBIDDEN` for `ai` keys, `ENVELOPE_LOCKED` while the **child-play** envelope is active (an adult envelope does not block it; its speed/accel caps keep applying), `BUSY` while a Tank Logo program runs, `BLOCKED` while a hard fault is latched; ends after 60 s idle / 5 min / STOP / owner change / link loss / reboot; the client must ask for confirmation |
 | `envelope` | `preset` (`child_play`/`none`) or `speed_cap` %, `accel_cap` %/s, `lock_brake` bool | human (set/loosen/clear); ai may only tighten | enforced on the Uno |
 | `nav_goto` | `x`,`y` cm, `speed` % | ai | needs encoders |
 | `nav_home` | `speed` % | ai | return to origin |
@@ -110,7 +110,7 @@ Streaming commands (no ack; rejections reported once via `nack` without `id` + a
 
 Control ownership: motion/camera/LED/sound commands are accepted only from the current owner or a higher-priority source (which then becomes owner).
 **Same-role rule:** among clients of the same role (e.g. the app and the hub's human connection), the current owner keeps control until its handback timer expires (or it sends `release_control`); the others get `nack NOT_OWNER`. `stop` is accepted from everyone.
-`child_play` preset = `speed_cap 20`, `accel_cap 30`, `lock_brake true`.
+`child_play` preset = `speed_cap 20`, `accel_cap 30`, `lock_brake true`. On the body link the preset is marked explicitly: `ENVELOPE.lock_brake` is a bit set (`EnvelopeFlagBit`: bit 0 `LOCK_BRAKE`, bit 1 `CHILD_PLAY`, so child play = `3`); a custom (adult) envelope never sets `CHILD_PLAY`. The same bits come back in `TELEM_SLOW.env_lock_brake` and `envelope_changed`. Only `CHILD_PLAY` blocks Safety Override (owner decision 2026-10-12).
 
 ## 6. Tank → client messages
 
@@ -216,7 +216,7 @@ Frame: `0xAA | len | type | seq | payload[len] | crc8`
 | 0x40 | BRAKE | on u8 |
 | 0x41 | ENVELOPE | speed_cap u8, accel_cap u8, lock_brake u8 |
 | 0x42 | OWNER_HINT | owner u8 (for LED colour) |
-| 0x43 | SAFETY_OVERRIDE | src u8, on u8 (acked; refusals ROLE_FORBIDDEN / ENVELOPE_LOCKED / NOT_OWNER / BLOCKED / BUSY) |
+| 0x43 | SAFETY_OVERRIDE | src u8, on u8 (acked; refusals ROLE_FORBIDDEN / ENVELOPE_LOCKED (child play only) / NOT_OWNER / BLOCKED / BUSY) |
 | 0x50 | SETTING_SET | id u8, value i32 |
 | 0x51 | SETTING_GET | id u8 |
 | 0x52 | SETTINGS_SAVE | — |

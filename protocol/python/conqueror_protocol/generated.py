@@ -169,6 +169,13 @@ class HwBit(IntEnum):
     US_OK = 2
 
 
+class EnvelopeFlagBit(IntEnum):
+    """Bit positions in ENVELOPE.lock_brake / TELEM_SLOW.env_lock_brake / EVENT ENVELOPE_CHANGED b. CHILD_PLAY implies LOCK_BRAKE; only CHILD_PLAY blocks Safety Override (owner decision 2026-10-12)."""
+
+    LOCK_BRAKE = 0
+    CHILD_PLAY = 1
+
+
 class OverrideReason(IntEnum):
     """EVENT SAFETY_OVERRIDE b - why Safety Override was entered or exited."""
 
@@ -539,7 +546,7 @@ class Brake(Message):
 
 @dataclass(slots=True)
 class Envelope(Message):
-    """Speed/accel caps; lock_brake=1 forces the obstacle brake on."""
+    """Speed/accel caps. lock_brake is a bit set (EnvelopeFlagBit): bit 0 LOCK_BRAKE forces the obstacle brake on; bit 1 CHILD_PLAY marks the child_play preset (implies the brake lock, blocks Safety Override). Other bits must be 0 (INVALID_COMMAND)."""
 
     TYPE: ClassVar[int] = 0x41
     DIR: ClassVar[str] = "esp32_to_uno"
@@ -565,7 +572,7 @@ class OwnerHint(Message):
 
 @dataclass(slots=True)
 class SafetyOverride(Message):
-    """Safety Override on/off (human only; spec 02 A6.1). on=1 is refused with ROLE_FORBIDDEN when src is AI, ENVELOPE_LOCKED while an envelope is active, NOT_OWNER while IR owns motion, BLOCKED while a hard fault is latched, BUSY before sync. on=0 is accepted from any source."""
+    """Safety Override on/off (human only; spec 02 A6.1). on=1 is refused with ROLE_FORBIDDEN when src is AI, ENVELOPE_LOCKED while the child-play envelope is active (adult envelopes allowed; their caps keep applying), NOT_OWNER while IR owns motion, BLOCKED while a hard fault is latched, BUSY before sync. on=0 is accepted from any source."""
 
     TYPE: ClassVar[int] = 0x43
     DIR: ClassVar[str] = "esp32_to_uno"

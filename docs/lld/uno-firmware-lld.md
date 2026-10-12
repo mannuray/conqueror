@@ -1323,7 +1323,7 @@ Source: design-notes §25 (catalogue update from the old firmware) and §26 (Saf
 | `TargetLimiter` (Task 8, wired Task 11) | Its obstacle slow zone gets the same effective brake flag (no slow-down while Override is on). Envelope and degraded caps unchanged. |
 | `LiftDetector` (Task 4) | **Unchanged code**; the IMU task passes `override.tiltLimit(tilt_limit, override_tilt_deg)` instead of `tilt_limit`. The 300 ms hold and the release below limit − 5° stay. |
 | `Arbitrator` (Task 6) | Unchanged API. The app reports its owner changes to `SafetyOverride::onOwner()`. |
-| `Envelope` (Task 6) | Unchanged API. `active()` is the child-play/any-envelope gate; an ENVELOPE frame that is applied while Override is on ends Override first (`ENVELOPE`). |
+| `Envelope` (Task 6) | `lock_brake` byte is a bit set (`EnvelopeFlagBit`: bit 0 lock brake, bit 1 child play; other bits → `INVALID_COMMAND`); new `childPlay()`. Only `childPlay()` gates Override: a child-play ENVELOPE applied while Override is on ends it first (`ENVELOPE`); an adult envelope (set or cleared) keeps Override, and its speed/accel caps keep applying (owner decision 4, 2026-10-12). |
 | `IrController` (Task 14) | `*` tap acts on release (parking beeps); `*` held `kOverrideHoldMs = 2000` → `toggle_override` once per hold. |
 | `BatteryMonitor` (Task 5) / settings | Recovery hysteresis = setting `batt_hyst` (200 mV) for low **and** critical (replaces the fixed +150 mV and the §4.4 +0.3 V); `batt_low` default 7.2 V. |
 | `catalogues` (Task 13) | Flat PROGMEM note pool + `(id, offset, count)` index; old melodies as `SoundId` 12–23; STARTUP = old boot sweep (14 notes) → `SoundSequencer::kMaxNotes` 10 → 14 (TONE stays ≤ 10). |
@@ -1359,7 +1359,7 @@ classDiagram
     class Gate {
       <<struct>>
       +bool synced
-      +bool envelope_active
+      +bool child_play
       +bool fault_latched
       +Owner owner
     }
@@ -1391,7 +1391,9 @@ classDiagram
       +update(az, pitch, roll, tilt_limit_deg, now) Change
     }
     class Envelope {
+      +set(speed_cap, accel_cap, flags) AckStatus
       +active() bool
+      +childPlay() bool
       +brakeOn() bool
     }
     class Arbitrator {
@@ -1422,13 +1424,13 @@ classDiagram
     SafetySupervisor ..> SafetyInputs
     SafetyOverride ..> SafetyInputs : brakeOn()
     SafetyOverride ..> LiftDetector : tiltLimit()
-    Envelope ..> SafetyOverride : active() → Gate
+    Envelope ..> SafetyOverride : childPlay() → Gate
     Arbitrator ..> SafetyOverride : onOwner()
     IrController ..> SafetyOverride : toggle_override → requestIr()
     SafetyOverride ..> Annunciator : override_on
     Annunciator ..> LedSequencer
 ```
-The app (`control_task`, `input_task`, routes) is the only caller: it builds the `Gate` from `LinkSession::synced()`, `Envelope::active()`, `lift.lifted() || lift.tilted() || batt critical || selftest critical` and `Arbitrator::owner()`, and drains `takeEvent()` into `EVENT SAFETY_OVERRIDE {a = on, b = OverrideReason}` after every call (one slot is enough: each call changes the state at most once and the app drains immediately).
+The app (`control_task`, `input_task`, routes) is the only caller: it builds the `Gate` from `LinkSession::synced()`, `Envelope::childPlay()`, `lift.lifted() || lift.tilted() || batt critical || selftest critical` and `Arbitrator::owner()`, and drains `takeEvent()` into `EVENT SAFETY_OVERRIDE {a = on, b = OverrideReason}` after every call (one slot is enough: each call changes the state at most once and the app drains immediately).
 
 ### 10.2 Override state machine
 ```mermaid
@@ -1437,7 +1439,7 @@ stateDiagram-v2
     Off --> Arming : IR * pressed (IrController)
     Arming --> Off : * released before 2 s → parking-beeps toggle (tap)
     Arming --> On : * held 2 s → IR takeover + requestIr() OK
-    Arming --> Off : held 2 s but refused (envelope / fault) → grumble + red blinks
+    Arming --> Off : held 2 s but refused (child play / fault) → grumble + red blinks
     Off --> On : SAFETY_OVERRIDE on, src human, Gate OK → ACK OK
     Off --> Off : refused → ACK ROLE_FORBIDDEN / ENVELOPE_LOCKED / NOT_OWNER / BLOCKED / BUSY
     On --> Off : SAFETY_OVERRIDE off (NETWORK) · * held 2 s again (IR)
@@ -1446,13 +1448,13 @@ stateDiagram-v2
     On --> Off : any STOP — network or IR OK (STOP)
     On --> Off : owner → other principal · src=ai motion · OWNER_HINT ai · calibration (OWNER_CHANGE)
     On --> Off : link lost (LINK_LOST, network binder only)
-    On --> Off : ENVELOPE frame applied (ENVELOPE)
+    On --> Off : child-play ENVELOPE applied (ENVELOPE)
 ```
 - *Arming* lives in `IrController` (key held, timer); `SafetyOverride` itself has only Off/On.
 - **Binder:** `kIr` (entered by the remote) or `kNetwork` (entered by `SAFETY_OVERRIDE`). *Owner change* = the Uno owner becomes `Network`, `Ir` or `Calibration` and that is not the binder's owner. Owner → `None` (IR handback after 3 s, network idle release after 1 s) does **not** end Override; the idle timer does.
 - **Driving** (refreshes the idle timer) = an accepted motion command from the binder with a non-zero target: DRIVE/DRIVE_RATE with v or w ≠ 0, TURN, MOVE (network binder, `src = human`); IR ▲▼◀▶ and 0 (IR binder).
 - **Link loss** ends a network-bound Override; an IR-bound one ignores the link (IR works without the ESP32, §4.2).
-- **Entry gate, in order:** `on = 0` → end (if on) and `OK` from any source · `src = ai` → `ROLE_FORBIDDEN` · not synced → `BUSY` (network only) · `envelope.active()` → `ENVELOPE_LOCKED` · owner `Ir`/`Calibration` → `NOT_OWNER` (network only) · fault latched (tilted, lifted, battery critical, self-test lock) → `BLOCKED` · already on with the same binder → `OK` (no event) · else enter, event `{1, NETWORK|IR}`.
+- **Entry gate, in order:** `on = 0` → end (if on) and `OK` from any source · `src = ai` → `ROLE_FORBIDDEN` · not synced → `BUSY` (network only) · `envelope.childPlay()` → `ENVELOPE_LOCKED` (an adult envelope does not refuse) · owner `Ir`/`Calibration` → `NOT_OWNER` (network only) · fault latched (tilted, lifted, battery critical, self-test lock) → `BLOCKED` · already on with the same binder → `OK` (no event) · else enter, event `{1, NETWORK|IR}`.
 - **Why refuse while a fault is latched:** with the limit raised to 65°, a tank latched at 50° would release (< 60°) at once — Override must never un-halt the tank.
 
 ### 10.3 Network enable sequence
@@ -1471,7 +1473,7 @@ sequenceDiagram
         E-->>C: nack ROLE_FORBIDDEN (nothing forwarded)
     end
     E->>R: SAFETY_OVERRIDE {src human, on 1}
-    R->>A: synced? envelope.active()? owner? faults?
+    R->>A: synced? envelope.childPlay()? owner? faults?
     R->>O: requestNetwork(on, src, gate, now)
     alt refused
         O-->>R: ENVELOPE_LOCKED / NOT_OWNER / BLOCKED / BUSY / ROLE_FORBIDDEN
@@ -1489,7 +1491,7 @@ sequenceDiagram
         R->>O: onNetworkMotion(src, driving, now) per DRIVE/TURN/MOVE
         O->>O: tick(now, cfg): idle 60 s? max 300 s?
     end
-    O-->>T: event {0, IDLE | MAX_TIME | STOP | OWNER_CHANGE | LINK_LOST | ENVELOPE | NETWORK}
+    O-->>T: event {0, IDLE | MAX_TIME | STOP | OWNER_CHANGE | LINK_LOST | ENVELOPE (child play) | NETWORK}
     T->>T: red ×3 blinks + chirp down, pulse cleared; brake + 45° limit apply again
 ```
 
@@ -1500,7 +1502,8 @@ sequenceDiagram
 | Obstacle slow zone `obstacle_slow` | `TargetLimiter` brake flag | **off** (same effective flag) |
 | Tilt cut-off | `LiftDetector::update(…, tilt_limit_deg, …)` from the IMU task | limit = `max(tilt_limit, override_tilt_deg)` (65°); still needs 300 ms over the limit; release below limit − 5°. On exit the limit drops back to 45° and a tank still tilted past it halts 300 ms later |
 | Bump stop | — | Plan B v1 has **no** bump stop (bump = event + "ouch" only). If a bump stop is added later it must test `override.active()`; the bump event is always reported |
-| Lift, battery critical, stall cut, self-test lock, deadman/link-loss SoftStop, STOP, envelope caps, degraded caps | supervisor / arbitrator / TargetLimiter | **unchanged** — never consult the override |
+| Lift, battery critical, stall cut, self-test lock, deadman/link-loss SoftStop, STOP, envelope speed/accel caps (adult envelope while Override is on), degraded caps | supervisor / arbitrator / TargetLimiter | **unchanged** — never consult the override |
+| Adult envelope `LOCK_BRAKE` | `Envelope::brakeOn()` → `override.brakeOn()` | **relaxed** like the BRAKE setting (owner decision 4: Override relaxes only obstacle/bump/tilt; the lock still refuses `BRAKE off` and applies again on exit). Child play never reaches this row (it refuses/ends Override) |
 `flags2.brake_off` reports the *effective* brake (set while Override is on); `flags2.safety_override` (bit 8) = `override.active()`. `BrakeConfig`/`Envelope::brakeOn()` is never modified by Override, so the user's `BRAKE` choice applies again on exit.
 
 ### 10.5 IR key for the 2 s hold

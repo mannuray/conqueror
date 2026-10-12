@@ -49,6 +49,11 @@
 - name: HwBit
   doc: Bit positions in TELEM_SLOW.hw.
   values: { ENCODERS_ENABLED: 0, IMU_OK: 1, US_OK: 2 }
+- name: EnvelopeFlagBit
+  doc: >-
+    Bit positions in ENVELOPE.lock_brake / TELEM_SLOW.env_lock_brake / EVENT ENVELOPE_CHANGED b.
+    CHILD_PLAY implies LOCK_BRAKE; only CHILD_PLAY blocks Safety Override (owner decision 2026-10-12).
+  values: { LOCK_BRAKE: 0, CHILD_PLAY: 1 }
 - name: OverrideReason
   doc: EVENT SAFETY_OVERRIDE b - why Safety Override was entered or exited.
   values:

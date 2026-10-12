@@ -227,6 +227,11 @@ enum class HwBit : uint8_t {
   kUsOk = 2,
 };
 
+enum class EnvelopeFlagBit : uint8_t {
+  kLockBrake = 0,
+  kChildPlay = 1,
+};
+
 enum class OverrideReason : uint8_t {
   kNetwork = 0,
   kIr = 1,

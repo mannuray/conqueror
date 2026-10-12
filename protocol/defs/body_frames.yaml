@@ -166,6 +166,17 @@
   doc: Network owner for LED colour; re-sent on change and after re-sync.
   fields:
     - { name: owner, type: u8, enum: OwnerHintValue }
+- name: SAFETY_OVERRIDE
+  type: 0x43
+  dir: esp32_to_uno
+  ack: true
+  doc: >-
+    Safety Override on/off (human only; spec 02 A6.1). on=1 is refused with ROLE_FORBIDDEN when
+    src is AI, ENVELOPE_LOCKED while an envelope is active, NOT_OWNER while IR owns motion,
+    BLOCKED while a hard fault is latched, BUSY before sync. on=0 is accepted from any source.
+  fields:
+    - { name: src, type: u8, enum: Source }
+    - { name: "on", type: u8 }  # quoted: YAML 1.1 reads bare on as true
 - name: SETTING_SET
   type: 0x50
   dir: esp32_to_uno

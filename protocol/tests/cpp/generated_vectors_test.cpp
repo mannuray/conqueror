@@ -689,8 +689,38 @@ static bool vec_owner_hint_extremes_43() {
   return true;
 }
 
-static bool vec_setting_set_typical_44() {
-  static const uint8_t frame[] = {0xAA, 0x05, 0x50, 0x2C, 0x03, 0xFA, 0xFF, 0xFF, 0xFF, 0x2F};
+static bool vec_safety_override_typical_44() {
+  static const uint8_t frame[] = {0xAA, 0x02, 0x43, 0x2C, 0x03, 0x06, 0xF1};
+  const uint8_t len = frame[1];
+  if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(SafetyOverrideMsg::kType)) { return false; }
+  if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
+  SafetyOverrideMsg m{};
+  if (!decode(frame + 4, len, m)) { return false; }
+  if (m.src != static_cast<uint8_t>(3)) { return false; }
+  if (m.on != static_cast<uint8_t>(6)) { return false; }
+  uint8_t buf[kMaxPayload];
+  const uint8_t n = encode(m, buf);
+  if (n != len || memcmp(buf, frame + 4, len) != 0) { return false; }
+  return true;
+}
+
+static bool vec_safety_override_extremes_45() {
+  static const uint8_t frame[] = {0xAA, 0x02, 0x43, 0x2D, 0xFF, 0x00, 0x60};
+  const uint8_t len = frame[1];
+  if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(SafetyOverrideMsg::kType)) { return false; }
+  if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
+  SafetyOverrideMsg m{};
+  if (!decode(frame + 4, len, m)) { return false; }
+  if (m.src != static_cast<uint8_t>(255)) { return false; }
+  if (m.on != static_cast<uint8_t>(0)) { return false; }
+  uint8_t buf[kMaxPayload];
+  const uint8_t n = encode(m, buf);
+  if (n != len || memcmp(buf, frame + 4, len) != 0) { return false; }
+  return true;
+}
+
+static bool vec_setting_set_typical_46() {
+  static const uint8_t frame[] = {0xAA, 0x05, 0x50, 0x2E, 0x03, 0xFA, 0xFF, 0xFF, 0xFF, 0x7D};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(SettingSetMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -704,8 +734,8 @@ static bool vec_setting_set_typical_44() {
   return true;
 }
 
-static bool vec_setting_set_extremes_45() {
-  static const uint8_t frame[] = {0xAA, 0x05, 0x50, 0x2D, 0xFF, 0x00, 0x00, 0x00, 0x80, 0x80};
+static bool vec_setting_set_extremes_47() {
+  static const uint8_t frame[] = {0xAA, 0x05, 0x50, 0x2F, 0xFF, 0x00, 0x00, 0x00, 0x80, 0xD2};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(SettingSetMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -719,8 +749,8 @@ static bool vec_setting_set_extremes_45() {
   return true;
 }
 
-static bool vec_setting_get_typical_46() {
-  static const uint8_t frame[] = {0xAA, 0x01, 0x51, 0x2E, 0x03, 0x28};
+static bool vec_setting_get_typical_48() {
+  static const uint8_t frame[] = {0xAA, 0x01, 0x51, 0x30, 0x03, 0xA9};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(SettingGetMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -733,8 +763,8 @@ static bool vec_setting_get_typical_46() {
   return true;
 }
 
-static bool vec_setting_get_extremes_47() {
-  static const uint8_t frame[] = {0xAA, 0x01, 0x51, 0x2F, 0xFF, 0xC7};
+static bool vec_setting_get_extremes_49() {
+  static const uint8_t frame[] = {0xAA, 0x01, 0x51, 0x31, 0xFF, 0x46};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(SettingGetMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -747,8 +777,8 @@ static bool vec_setting_get_extremes_47() {
   return true;
 }
 
-static bool vec_settings_save_typical_48() {
-  static const uint8_t frame[] = {0xAA, 0x00, 0x52, 0x30, 0xB6};
+static bool vec_settings_save_typical_50() {
+  static const uint8_t frame[] = {0xAA, 0x00, 0x52, 0x32, 0xB8};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(SettingsSaveMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -760,8 +790,8 @@ static bool vec_settings_save_typical_48() {
   return true;
 }
 
-static bool vec_settings_save_extremes_49() {
-  static const uint8_t frame[] = {0xAA, 0x00, 0x52, 0x31, 0xB1};
+static bool vec_settings_save_extremes_51() {
+  static const uint8_t frame[] = {0xAA, 0x00, 0x52, 0x33, 0xBF};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(SettingsSaveMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -773,8 +803,8 @@ static bool vec_settings_save_extremes_49() {
   return true;
 }
 
-static bool vec_calibrate_typical_50() {
-  static const uint8_t frame[] = {0xAA, 0x07, 0x60, 0x32, 0x03, 0x06, 0x09, 0x00, 0x00, 0x00, 0x0C, 0xB8};
+static bool vec_calibrate_typical_52() {
+  static const uint8_t frame[] = {0xAA, 0x07, 0x60, 0x34, 0x03, 0x06, 0x09, 0x00, 0x00, 0x00, 0x0C, 0xD2};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(CalibrateMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -790,8 +820,8 @@ static bool vec_calibrate_typical_50() {
   return true;
 }
 
-static bool vec_calibrate_extremes_51() {
-  static const uint8_t frame[] = {0xAA, 0x07, 0x60, 0x33, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0x7F, 0x00, 0x82};
+static bool vec_calibrate_extremes_53() {
+  static const uint8_t frame[] = {0xAA, 0x07, 0x60, 0x35, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0x7F, 0x00, 0xE8};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(CalibrateMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -807,8 +837,8 @@ static bool vec_calibrate_extremes_51() {
   return true;
 }
 
-static bool vec_profile_typical_52() {
-  static const uint8_t frame[] = {0xAA, 0x02, 0x61, 0x34, 0x03, 0x06, 0xE0};
+static bool vec_profile_typical_54() {
+  static const uint8_t frame[] = {0xAA, 0x02, 0x61, 0x36, 0x03, 0x06, 0x36};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(ProfileMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -822,8 +852,8 @@ static bool vec_profile_typical_52() {
   return true;
 }
 
-static bool vec_profile_extremes_53() {
-  static const uint8_t frame[] = {0xAA, 0x02, 0x61, 0x35, 0xFF, 0x00, 0x71};
+static bool vec_profile_extremes_55() {
+  static const uint8_t frame[] = {0xAA, 0x02, 0x61, 0x37, 0xFF, 0x00, 0xA7};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(ProfileMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -837,8 +867,8 @@ static bool vec_profile_extremes_53() {
   return true;
 }
 
-static bool vec_hello_typical_54() {
-  static const uint8_t frame[] = {0xAA, 0x05, 0x80, 0x36, 0x03, 0x00, 0x06, 0x09, 0x0C, 0xC4};
+static bool vec_hello_typical_56() {
+  static const uint8_t frame[] = {0xAA, 0x05, 0x80, 0x38, 0x03, 0x00, 0x06, 0x09, 0x0C, 0x7D};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(HelloMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -854,8 +884,8 @@ static bool vec_hello_typical_54() {
   return true;
 }
 
-static bool vec_hello_extremes_55() {
-  static const uint8_t frame[] = {0xAA, 0x05, 0x80, 0x37, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0x90};
+static bool vec_hello_extremes_57() {
+  static const uint8_t frame[] = {0xAA, 0x05, 0x80, 0x39, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0x29};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(HelloMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -871,8 +901,8 @@ static bool vec_hello_extremes_55() {
   return true;
 }
 
-static bool vec_ack_typical_56() {
-  static const uint8_t frame[] = {0xAA, 0x02, 0x81, 0x38, 0x03, 0x06, 0x7E};
+static bool vec_ack_typical_58() {
+  static const uint8_t frame[] = {0xAA, 0x02, 0x81, 0x3A, 0x03, 0x06, 0xA8};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(AckMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -886,8 +916,8 @@ static bool vec_ack_typical_56() {
   return true;
 }
 
-static bool vec_ack_extremes_57() {
-  static const uint8_t frame[] = {0xAA, 0x02, 0x81, 0x39, 0xFF, 0x00, 0xEF};
+static bool vec_ack_extremes_59() {
+  static const uint8_t frame[] = {0xAA, 0x02, 0x81, 0x3B, 0xFF, 0x00, 0x39};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(AckMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -901,8 +931,8 @@ static bool vec_ack_extremes_57() {
   return true;
 }
 
-static bool vec_telem_fast_typical_58() {
-  static const uint8_t frame[] = {0xAA, 0x28, 0x90, 0x3A, 0x03, 0x00, 0x00, 0x00, 0x06, 0x00, 0x09, 0x00, 0xF4, 0xFF, 0x0F, 0x00, 0xEE, 0x15, 0xE8, 0x1B, 0xE2, 0xFF, 0x21, 0x00, 0x24, 0x00, 0x27, 0x00, 0xD6, 0xFF, 0x2D, 0x00, 0xD0, 0xFF, 0xFF, 0xFF, 0x33, 0x00, 0x00, 0x00, 0x36, 0x00, 0x39, 0x3C, 0x48};
+static bool vec_telem_fast_typical_60() {
+  static const uint8_t frame[] = {0xAA, 0x28, 0x90, 0x3C, 0x03, 0x00, 0x00, 0x00, 0x06, 0x00, 0x09, 0x00, 0xF4, 0xFF, 0x0F, 0x00, 0xEE, 0x15, 0xE8, 0x1B, 0xE2, 0xFF, 0x21, 0x00, 0x24, 0x00, 0x27, 0x00, 0xD6, 0xFF, 0x2D, 0x00, 0xD0, 0xFF, 0xFF, 0xFF, 0x33, 0x00, 0x00, 0x00, 0x36, 0x00, 0x39, 0x3C, 0x0C};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(TelemFastMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -934,8 +964,8 @@ static bool vec_telem_fast_typical_58() {
   return true;
 }
 
-static bool vec_telem_fast_extremes_59() {
-  static const uint8_t frame[] = {0xAA, 0x28, 0x90, 0x3B, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0x7F, 0x00, 0x80, 0xFF, 0x7F, 0x80, 0x7F, 0x80, 0x7F, 0x00, 0x80, 0xFF, 0x7F, 0x00, 0x00, 0xFF, 0x7F, 0x00, 0x80, 0xFF, 0x7F, 0x00, 0x00, 0x00, 0x80, 0xFF, 0xFF, 0xFF, 0x7F, 0x00, 0x00, 0xFF, 0x00, 0x85};
+static bool vec_telem_fast_extremes_61() {
+  static const uint8_t frame[] = {0xAA, 0x28, 0x90, 0x3D, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0x7F, 0x00, 0x80, 0xFF, 0x7F, 0x80, 0x7F, 0x80, 0x7F, 0x00, 0x80, 0xFF, 0x7F, 0x00, 0x00, 0xFF, 0x7F, 0x00, 0x80, 0xFF, 0x7F, 0x00, 0x00, 0x00, 0x80, 0xFF, 0xFF, 0xFF, 0x7F, 0x00, 0x00, 0xFF, 0x00, 0xC1};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(TelemFastMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -967,8 +997,8 @@ static bool vec_telem_fast_extremes_59() {
   return true;
 }
 
-static bool vec_telem_slow_typical_60() {
-  static const uint8_t frame[] = {0xAA, 0x24, 0x91, 0x3C, 0x03, 0x00, 0x00, 0x00, 0x06, 0x09, 0x00, 0x0C, 0x0F, 0x00, 0x12, 0x15, 0x00, 0x00, 0x00, 0x18, 0x00, 0x1B, 0x1E, 0x00, 0x21, 0x00, 0x24, 0x00, 0x27, 0x00, 0x2A, 0x00, 0x2D, 0x30, 0x33, 0x36, 0x2B, 0x2E, 0x31, 0x3C, 0x6A};
+static bool vec_telem_slow_typical_62() {
+  static const uint8_t frame[] = {0xAA, 0x24, 0x91, 0x3E, 0x03, 0x00, 0x00, 0x00, 0x06, 0x09, 0x00, 0x0C, 0x0F, 0x00, 0x12, 0x15, 0x00, 0x00, 0x00, 0x18, 0x00, 0x1B, 0x1E, 0x00, 0x21, 0x00, 0x24, 0x00, 0x27, 0x00, 0x2A, 0x00, 0x2D, 0x30, 0x33, 0x36, 0x2B, 0x2E, 0x31, 0x3C, 0x73};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(TelemSlowMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -1002,8 +1032,8 @@ static bool vec_telem_slow_typical_60() {
   return true;
 }
 
-static bool vec_telem_slow_extremes_61() {
-  static const uint8_t frame[] = {0xAA, 0x24, 0x91, 0x3D, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xFF, 0x00, 0xFF, 0x7F, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0x67};
+static bool vec_telem_slow_extremes_63() {
+  static const uint8_t frame[] = {0xAA, 0x24, 0x91, 0x3F, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xFF, 0x00, 0xFF, 0x7F, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0x7E};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(TelemSlowMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -1037,8 +1067,8 @@ static bool vec_telem_slow_extremes_61() {
   return true;
 }
 
-static bool vec_event_typical_62() {
-  static const uint8_t frame[] = {0xAA, 0x05, 0x92, 0x3E, 0x03, 0xFA, 0xFF, 0x09, 0x00, 0x0C};
+static bool vec_event_typical_64() {
+  static const uint8_t frame[] = {0xAA, 0x05, 0x92, 0x40, 0x03, 0xFA, 0xFF, 0x09, 0x00, 0x66};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(EventMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -1053,8 +1083,8 @@ static bool vec_event_typical_62() {
   return true;
 }
 
-static bool vec_event_extremes_63() {
-  static const uint8_t frame[] = {0xAA, 0x05, 0x92, 0x3F, 0xFF, 0x00, 0x80, 0xFF, 0x7F, 0x15};
+static bool vec_event_extremes_65() {
+  static const uint8_t frame[] = {0xAA, 0x05, 0x92, 0x41, 0xFF, 0x00, 0x80, 0xFF, 0x7F, 0x7F};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(EventMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -1069,8 +1099,8 @@ static bool vec_event_extremes_63() {
   return true;
 }
 
-static bool vec_setting_value_typical_64() {
-  static const uint8_t frame[] = {0xAA, 0x05, 0x93, 0x40, 0x03, 0xFA, 0xFF, 0xFF, 0xFF, 0x20};
+static bool vec_setting_value_typical_66() {
+  static const uint8_t frame[] = {0xAA, 0x05, 0x93, 0x42, 0x03, 0xFA, 0xFF, 0xFF, 0xFF, 0x72};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(SettingValueMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -1084,8 +1114,8 @@ static bool vec_setting_value_typical_64() {
   return true;
 }
 
-static bool vec_setting_value_extremes_65() {
-  static const uint8_t frame[] = {0xAA, 0x05, 0x93, 0x41, 0xFF, 0x00, 0x00, 0x00, 0x80, 0x8F};
+static bool vec_setting_value_extremes_67() {
+  static const uint8_t frame[] = {0xAA, 0x05, 0x93, 0x43, 0xFF, 0x00, 0x00, 0x00, 0x80, 0xDD};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(SettingValueMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -1099,8 +1129,8 @@ static bool vec_setting_value_extremes_65() {
   return true;
 }
 
-static bool vec_cal_result_typical_66() {
-  static const uint8_t frame[] = {0xAA, 0x04, 0x94, 0x42, 0x03, 0x06, 0x09, 0x0C, 0x71};
+static bool vec_cal_result_typical_68() {
+  static const uint8_t frame[] = {0xAA, 0x04, 0x94, 0x44, 0x03, 0x06, 0x09, 0x0C, 0x3A};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(CalResultMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -1116,8 +1146,8 @@ static bool vec_cal_result_typical_66() {
   return true;
 }
 
-static bool vec_cal_result_extremes_67() {
-  static const uint8_t frame[] = {0xAA, 0x04, 0x94, 0x43, 0xFF, 0x00, 0xFF, 0x00, 0xCB};
+static bool vec_cal_result_extremes_69() {
+  static const uint8_t frame[] = {0xAA, 0x04, 0x94, 0x45, 0xFF, 0x00, 0xFF, 0x00, 0x80};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(CalResultMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -1133,8 +1163,8 @@ static bool vec_cal_result_extremes_67() {
   return true;
 }
 
-static bool vec_cal_data_typical_68() {
-  static const uint8_t frame[] = {0xAA, 0x14, 0x95, 0x44, 0x03, 0x06, 0x09, 0x00, 0x5D, 0x00, 0xA0, 0xFF, 0x63, 0x00, 0xFE, 0xFF, 0x05, 0x00, 0xF8, 0xFF, 0x0B, 0x00, 0xF2, 0xFF, 0xC2};
+static bool vec_cal_data_typical_70() {
+  static const uint8_t frame[] = {0xAA, 0x14, 0x95, 0x46, 0x03, 0x06, 0x09, 0x00, 0x5D, 0x00, 0xA0, 0xFF, 0x63, 0x00, 0xFE, 0xFF, 0x05, 0x00, 0xF8, 0xFF, 0x0B, 0x00, 0xF2, 0xFF, 0x4D};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(CalDataMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -1157,8 +1187,8 @@ static bool vec_cal_data_typical_68() {
   return true;
 }
 
-static bool vec_cal_data_extremes_69() {
-  static const uint8_t frame[] = {0xAA, 0x14, 0x95, 0x45, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0x7F, 0x00, 0x80, 0xFF, 0x7F, 0x00, 0x80, 0xFF, 0x7F, 0x00, 0x80, 0xFF, 0x7F, 0x00, 0x80, 0x6B};
+static bool vec_cal_data_extremes_71() {
+  static const uint8_t frame[] = {0xAA, 0x14, 0x95, 0x47, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0x7F, 0x00, 0x80, 0xFF, 0x7F, 0x00, 0x80, 0xFF, 0x7F, 0x00, 0x80, 0xFF, 0x7F, 0x00, 0x80, 0xE4};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(CalDataMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -1181,8 +1211,8 @@ static bool vec_cal_data_extremes_69() {
   return true;
 }
 
-static bool vec_wifi_reset_req_typical_70() {
-  static const uint8_t frame[] = {0xAA, 0x00, 0x96, 0x46, 0x4A};
+static bool vec_wifi_reset_req_typical_72() {
+  static const uint8_t frame[] = {0xAA, 0x00, 0x96, 0x48, 0x60};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(WifiResetReqMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -1194,8 +1224,8 @@ static bool vec_wifi_reset_req_typical_70() {
   return true;
 }
 
-static bool vec_wifi_reset_req_extremes_71() {
-  static const uint8_t frame[] = {0xAA, 0x00, 0x96, 0x47, 0x4D};
+static bool vec_wifi_reset_req_extremes_73() {
+  static const uint8_t frame[] = {0xAA, 0x00, 0x96, 0x49, 0x67};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(WifiResetReqMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -1207,8 +1237,8 @@ static bool vec_wifi_reset_req_extremes_71() {
   return true;
 }
 
-static bool vec_admin_reset_req_typical_72() {
-  static const uint8_t frame[] = {0xAA, 0x00, 0x97, 0x48, 0x75};
+static bool vec_admin_reset_req_typical_74() {
+  static const uint8_t frame[] = {0xAA, 0x00, 0x97, 0x4A, 0x7B};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(AdminResetReqMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -1220,8 +1250,8 @@ static bool vec_admin_reset_req_typical_72() {
   return true;
 }
 
-static bool vec_admin_reset_req_extremes_73() {
-  static const uint8_t frame[] = {0xAA, 0x00, 0x97, 0x49, 0x72};
+static bool vec_admin_reset_req_extremes_75() {
+  static const uint8_t frame[] = {0xAA, 0x00, 0x97, 0x4B, 0x7C};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(AdminResetReqMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -1358,36 +1388,38 @@ static const Case kCases[] = {
   {"vec_envelope_extremes_41", vec_envelope_extremes_41},
   {"vec_owner_hint_typical_42", vec_owner_hint_typical_42},
   {"vec_owner_hint_extremes_43", vec_owner_hint_extremes_43},
-  {"vec_setting_set_typical_44", vec_setting_set_typical_44},
-  {"vec_setting_set_extremes_45", vec_setting_set_extremes_45},
-  {"vec_setting_get_typical_46", vec_setting_get_typical_46},
-  {"vec_setting_get_extremes_47", vec_setting_get_extremes_47},
-  {"vec_settings_save_typical_48", vec_settings_save_typical_48},
-  {"vec_settings_save_extremes_49", vec_settings_save_extremes_49},
-  {"vec_calibrate_typical_50", vec_calibrate_typical_50},
-  {"vec_calibrate_extremes_51", vec_calibrate_extremes_51},
-  {"vec_profile_typical_52", vec_profile_typical_52},
-  {"vec_profile_extremes_53", vec_profile_extremes_53},
-  {"vec_hello_typical_54", vec_hello_typical_54},
-  {"vec_hello_extremes_55", vec_hello_extremes_55},
-  {"vec_ack_typical_56", vec_ack_typical_56},
-  {"vec_ack_extremes_57", vec_ack_extremes_57},
-  {"vec_telem_fast_typical_58", vec_telem_fast_typical_58},
-  {"vec_telem_fast_extremes_59", vec_telem_fast_extremes_59},
-  {"vec_telem_slow_typical_60", vec_telem_slow_typical_60},
-  {"vec_telem_slow_extremes_61", vec_telem_slow_extremes_61},
-  {"vec_event_typical_62", vec_event_typical_62},
-  {"vec_event_extremes_63", vec_event_extremes_63},
-  {"vec_setting_value_typical_64", vec_setting_value_typical_64},
-  {"vec_setting_value_extremes_65", vec_setting_value_extremes_65},
-  {"vec_cal_result_typical_66", vec_cal_result_typical_66},
-  {"vec_cal_result_extremes_67", vec_cal_result_extremes_67},
-  {"vec_cal_data_typical_68", vec_cal_data_typical_68},
-  {"vec_cal_data_extremes_69", vec_cal_data_extremes_69},
-  {"vec_wifi_reset_req_typical_70", vec_wifi_reset_req_typical_70},
-  {"vec_wifi_reset_req_extremes_71", vec_wifi_reset_req_extremes_71},
-  {"vec_admin_reset_req_typical_72", vec_admin_reset_req_typical_72},
-  {"vec_admin_reset_req_extremes_73", vec_admin_reset_req_extremes_73},
+  {"vec_safety_override_typical_44", vec_safety_override_typical_44},
+  {"vec_safety_override_extremes_45", vec_safety_override_extremes_45},
+  {"vec_setting_set_typical_46", vec_setting_set_typical_46},
+  {"vec_setting_set_extremes_47", vec_setting_set_extremes_47},
+  {"vec_setting_get_typical_48", vec_setting_get_typical_48},
+  {"vec_setting_get_extremes_49", vec_setting_get_extremes_49},
+  {"vec_settings_save_typical_50", vec_settings_save_typical_50},
+  {"vec_settings_save_extremes_51", vec_settings_save_extremes_51},
+  {"vec_calibrate_typical_52", vec_calibrate_typical_52},
+  {"vec_calibrate_extremes_53", vec_calibrate_extremes_53},
+  {"vec_profile_typical_54", vec_profile_typical_54},
+  {"vec_profile_extremes_55", vec_profile_extremes_55},
+  {"vec_hello_typical_56", vec_hello_typical_56},
+  {"vec_hello_extremes_57", vec_hello_extremes_57},
+  {"vec_ack_typical_58", vec_ack_typical_58},
+  {"vec_ack_extremes_59", vec_ack_extremes_59},
+  {"vec_telem_fast_typical_60", vec_telem_fast_typical_60},
+  {"vec_telem_fast_extremes_61", vec_telem_fast_extremes_61},
+  {"vec_telem_slow_typical_62", vec_telem_slow_typical_62},
+  {"vec_telem_slow_extremes_63", vec_telem_slow_extremes_63},
+  {"vec_event_typical_64", vec_event_typical_64},
+  {"vec_event_extremes_65", vec_event_extremes_65},
+  {"vec_setting_value_typical_66", vec_setting_value_typical_66},
+  {"vec_setting_value_extremes_67", vec_setting_value_extremes_67},
+  {"vec_cal_result_typical_68", vec_cal_result_typical_68},
+  {"vec_cal_result_extremes_69", vec_cal_result_extremes_69},
+  {"vec_cal_data_typical_70", vec_cal_data_typical_70},
+  {"vec_cal_data_extremes_71", vec_cal_data_extremes_71},
+  {"vec_wifi_reset_req_typical_72", vec_wifi_reset_req_typical_72},
+  {"vec_wifi_reset_req_extremes_73", vec_wifi_reset_req_extremes_73},
+  {"vec_admin_reset_req_typical_74", vec_admin_reset_req_typical_74},
+  {"vec_admin_reset_req_extremes_75", vec_admin_reset_req_extremes_75},
   {"vec_heartbeat_golden_0", vec_heartbeat_golden_0},
   {"vec_stop_golden_5", vec_stop_golden_5},
   {"vec_turn_golden_7", vec_turn_golden_7},

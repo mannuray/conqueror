@@ -109,12 +109,24 @@ Control logic (controllers, safety rules, arbitration, codec) is hardware-indepe
 | Lift | **any of:** pickup transient (vertical accel spike while not driving over a bump), sudden tilt change, or (encoders) track free-spin — track speed at a given PWM well above the calibrated on-ground speed | stop + alarm; `lifted`; `landed` after level + steady 1 g for 1 s. Without encoders: transient/tilt only (best-effort) |
 | Bump | accel spike > `bump_g` (1.5 g) | 300 ms stop, `bump{g}` |
 | Stall | encoders: driven but no motion 0.5 s | cut that motor, `stall{side}` |
-| Battery | < `batt_low_v` (warning) / < `batt_crit_v` (motors disabled) under load, 2 s sustained | events + alarms |
+| Battery | < `batt_low` (7.2 V, warning) / < `batt_crit` (6.6 V, motors disabled) under load, 2 s sustained; each clears above its threshold + `batt_hyst` (0.2 V) | events + alarms |
 | Envelope | `speed_cap`, `accel_cap`; `lock_brake` forbids disabling the obstacle brake | clamp |
 | Self-test critical failure | IMU dead or battery read implausible | motors locked |
 
 - The obstacle brake can be disabled by `human`/`ai` (`BRAKE off`) unless the envelope locks it; it is always **on after reboot**.
 - Ultrasonic limits are documented: narrow forward cone; misses thin/low/angled objects → best-effort.
+
+### A6.1 Safety Override (added 2026-10-12, design-notes §26)
+A bounded "full control" mode for the **adult driver only**. It is the only designed way to weaken a safety check.
+
+| | |
+|---|---|
+| Relaxed while on | obstacle brake **off** (the `BRAKE` setting is kept and applies again on exit) · bump stop **off** (bump events still reported) · tilt cut-off raised to `override_tilt_deg` (65°, max 70°; tank tips at ~75°) — the 300 ms hold and 1 s level release still apply |
+| Never relaxed | deadman / link-loss stop · battery critical · stall cut · lift detection · STOP · self-test lock · degraded caps |
+| Who may enter | a human only: **IR remote** — hold `*` for 2 s (IR becomes owner) — or a network client with a **human/admin** key after a confirmation dialog (`SAFETY_OVERRIDE on`, `src = human`). **Never** an `ai` key (ESP32 and Uno both refuse: `ROLE_FORBIDDEN`), **never** a Tank Logo program (the language has no such command; the ESP32 turns Override off before a program starts and refuses it while one runs), **never while an envelope is active** (child play keeps all safety, its own caps and the normal 45° / 300 ms tilt limit → `ENVELOPE_LOCKED`) |
+| Refused also | IR owns motion and the request comes from the network (`NOT_OWNER`) · a hard fault is latched (tilt/lift/bump/critical battery, or self-test lock → `BLOCKED`; Override never un-halts the tank) · link not synced (`BUSY`) |
+| Ends | `override_idle_s` (60 s) without a driving command from the enabling side · `override_max_s` (5 min) after entry · any STOP (network or IR OK) · owner change to another principal (IR ↔ network, a `src = ai` motion command, `OWNER_HINT` ≠ human, calibration start) · link loss · an envelope set · a second 2 s `*` hold or `SAFETY_OVERRIDE off` · reboot (never persistent). The idle release Network/IR → None alone does **not** end it (the 60 s timer does) |
+| Shows | LED amber/red pulse over the base colour while on; 3 quick green blinks + up-chirp on enter, 3 quick red blinks + down-chirp on exit; `flags2.safety_override` (slow telemetry, bit 8); event `safety_override{on, reason}` on every entry/exit; hub timeline entry |
 
 ### A7. Arbitration on the Uno
 - Network commands arrive tagged `src` (human/ai) — the ESP32 already arbitrated between network clients.
@@ -130,27 +142,31 @@ Control logic (controllers, safety rules, arbitration, codec) is hardware-indepe
 | 1 / 3 | pan left / right while held · 2 / 8 tilt up / down while held · 5 camera home |
 | 4 / 6 | speed −/+ 10 % (beep pitch confirms) |
 | 7 | mute toggle · 9 battery check (LED + 3/2/1 beeps) · 0 gyro turn 180° |
-| * | parking beeps on/off · # (hold 3 s) motor calibration |
+| * | tap: parking beeps on/off (acts on release) · **hold 2 s: Safety Override on/off** (§A6.1) · # (hold 3 s) motor calibration |
 IR driving uses heading hold and is subject to the safety supervisor.
 
 ### A9. Sound and LED catalogues (priority layers; higher interrupts lower, lower resumes)
 Sounds (passive buzzer, non-blocking sequencer):
 | Pri | Event | Sound | Repeat |
 |---|---|---|---|
-| 1 | tilt danger | fast two-tone siren | while tilted |
+| 1 | tilt danger | siren built on the safety chirp 2500/3000/2500 Hz | while tilted |
 | 1 | lifted | rising whoop | once + every 3 s |
 | 1 | battery critical | three long low tones | every 10 s |
 | 2 | battery low | double beep | every 30 s |
 | 2 | bump | short falling "ouch" | once |
 | 2 | stall | low buzz | once |
 | 2 | link lost (deadman) | falling three-note | once |
+| 2 | obstacle brake stopped the tank | safety chirp 2500/3000/2500 Hz (160 ms) | once per stop |
+| 2 | Safety Override on / off | up-chirp / down-chirp | once |
 | 3 | reversing | beep… beep… | while reversing |
 | 3 | start forward | short chirp | once per start |
 | 3 | obstacle closing (`parking_beeps`) | rate ∝ 1/distance | while closing |
-| 4 | startup / ready / self-test fail | boot melody / two rising chirps / low error tone | once |
+| 4 | startup / ready / self-test fail | old rising sweep 200→3000 Hz + 1500/2000 tag (1.1 s) / two rising chirps / low error tone | once |
 | 4 | client connected/disconnected · owner changed · calibration start/done · "thinking" ack | up/down chirp · two-note blip · tick/jingle · soft blip | once |
 | 4 | custom (`SOUND`, `TONE`) | from client | on request |
 Audio modes: **mute** (only priority 1), **quiet** (priorities 1–2), normal.
+
+Named melodies (from the old firmware, `SOUND id`; also for the app, the AI and Tank Logo `SOUND`): `startup` (old 1), `success` (2), `fanfare` (3), `sad` (4), `safety_chirp` (5), `ack_blip` (6), `fail` (7), `confirm` (8), `question` (9), `ok_chirp` (10), `grumble` (11), `scan` (12), `goodbye` (13). Note tables: `docs/legacy/uno-old-led-buzzer.md` §1; ≈ 0.4 KB flash.
 
 LED (single RGB):
 | Pri | State | Pattern |
@@ -158,11 +174,17 @@ LED (single RGB):
 | 1 | tilt / lifted | fast red/blue alternate |
 | 1 | battery critical | red slow pulse |
 | 2 | battery low | amber blink every 2 s over base colour |
-| 2 | bump / stall | white flash · link lost: orange blink |
+| 2 | bump / stall | short white flash · link lost: orange blink |
+| 2 | obstacle brake stop | fast red blink (100/100 ms) while blocked |
+| 2 | Safety Override on | amber/red pulse over the base colour |
 | 3 | reversing | white/red blink · turning: amber blink |
 | 4 | startup | rainbow sweep · idle no client: blue breathing |
 | 4 | owner human / AI / IR | solid green / cyan / purple |
 | 4 | calibrating | yellow pulse · custom `LED` command |
+| 4 | toggle confirm (mute, quiet, parking beeps, Override) | 3 quick blinks (80/80 ms): green = on, red = off |
+
+Base colours **breathe** when idle (2 s triangle, 1 s below `batt_crit` + `batt_hyst`) and, while driving, brightness **rises with speed** (20 % → 100 % of `led_max`). All LED output is capped by `led_max` (default 50/255). Collision stays a short white flash (the old never-clearing white flicker was a bug).
+
 
 ### A10. Calibration (DECIDED: maximally automatic; surface profiles)
 
@@ -225,6 +247,7 @@ Critical (IMU, battery read) → motors locked. Non-critical (ultrasonic) → wa
 - Forwards **one** command stream to the Uno tagged with `src`; others get `nack NOT_OWNER`.
 - On owner change: send STOP, emit `control_changed`; to the AI client emit `control_returned` when it regains control.
 - IR ownership reported by the Uno overrides everything; network motion commands get `nack NOT_OWNER` meanwhile.
+- **Safety Override (§A6.1):** `safety_override` from an `ai` (or `viewer`) key → `nack ROLE_FORBIDDEN`, never forwarded; `on` while a Tank Logo program runs → `nack BUSY`; before starting a program and on a human → AI handback the gateway first sends `SAFETY_OVERRIDE off` (the Uno also ends it on any `src = ai` motion frame or `OWNER_HINT` ≠ human). Forwarded requests carry `src = human`.
 
 ### B3. Camera
 - Sensor PID read at boot (OV2640/OV3660/OV5640) → per-sensor defaults (flip, quality, framesize). Stock: **OV3660**.
@@ -279,6 +302,7 @@ WiFi networks, tank name, admin password hash, key hashes + roles + names, camer
 8. Child-play envelope: speed ≤ 20 %; AI cannot loosen it or disable the brake.
 9. IR overrides app; OK hands back; app overrides AI.
 10. Low-battery warning visible (bench supply or drained pack).
+11. Safety Override: AI key refused; refused with child-play active; IR `*` hold 2 s → green blinks + amber/red pulse; obstacle brake and bump stop off, tilt stops only past 65° (held 300 ms); deadman, link loss and lift still stop the tank; ends after 60 s idle, on STOP and on link loss.
 
 ### Hardware revision (2026-10-11): Smart Car Shield V1.1 — dual-shield support (authoritative)
 User confirmed the Uno shield is **ELEGOO SmartCar Shield V1.1** (Smart Robot Car V4 family); the ESP32 board is **V1.0** (no IO13 LED). **Motor driver chip confirmed by the user: TB6612FNG (2026-10-11).** Shield probe in bench bring-up still verifies the pin map (D3 standby, direction pins).

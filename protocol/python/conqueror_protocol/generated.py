@@ -112,6 +112,18 @@ class SoundId(IntEnum):
     THINKING = 9
     OUCH = 10
     ERROR = 11
+    SUCCESS = 12
+    FANFARE = 13
+    SAD = 14
+    SAFETY_CHIRP = 15
+    ACK_BLIP = 16
+    FAIL = 17
+    CONFIRM = 18
+    QUESTION = 19
+    OK_CHIRP = 20
+    GRUMBLE = 21
+    SCAN = 22
+    GOODBYE = 23
 
 
 class FastFlagBit(IntEnum):
@@ -146,6 +158,7 @@ class SlowFlagBit(IntEnum):
     QUIET = 5
     ENVELOPE = 6
     DEADMAN = 7
+    SAFETY_OVERRIDE = 8
 
 
 class HwBit(IntEnum):
@@ -154,6 +167,19 @@ class HwBit(IntEnum):
     ENCODERS_ENABLED = 0
     IMU_OK = 1
     US_OK = 2
+
+
+class OverrideReason(IntEnum):
+    """EVENT SAFETY_OVERRIDE b - why Safety Override was entered or exited."""
+
+    NETWORK = 0
+    IR = 1
+    IDLE = 2
+    MAX_TIME = 3
+    STOP = 4
+    OWNER_CHANGE = 5
+    LINK_LOST = 6
+    ENVELOPE = 7
 
 
 class EventKind(IntEnum):
@@ -183,6 +209,7 @@ class EventKind(IntEnum):
     CAL_REQUEST = 24
     BUTTON_PRESS = 25
     REJECTED = 26
+    SAFETY_OVERRIDE = 27
 
 
 class SettingId(IntEnum):
@@ -242,6 +269,11 @@ class SettingId(IntEnum):
     PID_HEADING_KP = 58
     PID_HEADING_KI = 59
     PID_HEADING_KD = 60
+    OVERRIDE_IDLE_S = 61
+    OVERRIDE_MAX_S = 62
+    OVERRIDE_TILT_DEG = 63
+    LED_MAX = 64
+    BATT_HYST = 65
 
 
 @dataclass(slots=True)
@@ -532,6 +564,19 @@ class OwnerHint(Message):
 
 
 @dataclass(slots=True)
+class SafetyOverride(Message):
+    """Safety Override on/off (human only; spec 02 A6.1). on=1 is refused with ROLE_FORBIDDEN when src is AI, ENVELOPE_LOCKED while an envelope is active, NOT_OWNER while IR owns motion, BLOCKED while a hard fault is latched, BUSY before sync. on=0 is accepted from any source."""
+
+    TYPE: ClassVar[int] = 0x43
+    DIR: ClassVar[str] = "esp32_to_uno"
+    ACK: ClassVar[bool] = True
+    STREAMING: ClassVar[bool] = False
+    FIELDS: ClassVar[tuple[FieldSpec, ...]] = (FieldSpec("src", "u8"), FieldSpec("on", "u8"),)
+    src: int = 0
+    on: int = 0
+
+
+@dataclass(slots=True)
 class SettingSet(Message):
     """SETTING_SET"""
 
@@ -787,6 +832,7 @@ REGISTRY: dict[tuple[str, int], type[Message]] = {
     ("esp32_to_uno", 0x40): Brake,
     ("esp32_to_uno", 0x41): Envelope,
     ("esp32_to_uno", 0x42): OwnerHint,
+    ("esp32_to_uno", 0x43): SafetyOverride,
     ("esp32_to_uno", 0x50): SettingSet,
     ("esp32_to_uno", 0x51): SettingGet,
     ("esp32_to_uno", 0x52): SettingsSave,
@@ -854,6 +900,7 @@ ACK_STATUS: tuple[str, ...] = (
     "CAL_FAILED",
     "CAL_CANCELLED",
     "INTERNAL",
+    "ROLE_FORBIDDEN",
 )
 
 SETTINGS: tuple[SettingInfo, ...] = (
@@ -872,7 +919,7 @@ SETTINGS: tuple[SettingInfo, ...] = (
     SettingInfo(13, "tilt_limit", "global", "u8", "deg", 1.0, 10, 60, 45),
     SettingInfo(14, "bump_threshold", "global", "u16", "mg", 1.0, 500, 4000, 1500),
     SettingInfo(15, "deadman", "global", "u16", "ms", 1.0, 100, 2000, 300),
-    SettingInfo(16, "batt_low", "global", "u16", "mV", 1.0, 6000, 8400, 7000),
+    SettingInfo(16, "batt_low", "global", "u16", "mV", 1.0, 6000, 8400, 7200),
     SettingInfo(17, "batt_crit", "global", "u16", "mV", 1.0, 5500, 8000, 6600),
     SettingInfo(18, "batt_mv_per_count", "global", "u16", "mV", 0.01, 1000, 10000, 4050),
     SettingInfo(19, "ir_handback", "global", "u16", "ms", 1.0, 500, 10000, 3000),
@@ -913,4 +960,9 @@ SETTINGS: tuple[SettingInfo, ...] = (
     SettingInfo(58, "pid_heading_kp", "profile", "i32", "gain", 0.001, 0, 100000, 3000),
     SettingInfo(59, "pid_heading_ki", "profile", "i32", "gain", 0.001, 0, 100000, 0),
     SettingInfo(60, "pid_heading_kd", "profile", "i32", "gain", 0.001, 0, 100000, 100),
+    SettingInfo(61, "override_idle_s", "global", "u8", "s", 1.0, 10, 60, 60),
+    SettingInfo(62, "override_max_s", "global", "u16", "s", 1.0, 30, 300, 300),
+    SettingInfo(63, "override_tilt_deg", "global", "u8", "deg", 1.0, 45, 70, 65),
+    SettingInfo(64, "led_max", "global", "u8", "level", 1.0, 10, 255, 50),
+    SettingInfo(65, "batt_hyst", "global", "u16", "mV", 1.0, 50, 500, 200),
 )

@@ -13,7 +13,7 @@
 - { id: 13, name: tilt_limit, scope: global, type: u8, unit: deg, min: 10, max: 60, default: 45 }
 - { id: 14, name: bump_threshold, scope: global, type: u16, unit: mg, min: 500, max: 4000, default: 1500 }
 - { id: 15, name: deadman, scope: global, type: u16, unit: ms, min: 100, max: 2000, default: 300 }
-- { id: 16, name: batt_low, scope: global, type: u16, unit: mV, min: 6000, max: 8400, default: 7000 }
+- { id: 16, name: batt_low, scope: global, type: u16, unit: mV, min: 6000, max: 8400, default: 7200 }
 - { id: 17, name: batt_crit, scope: global, type: u16, unit: mV, min: 5500, max: 8000, default: 6600 }
 - { id: 18, name: batt_mv_per_count, scope: global, type: u16, unit: mV, scale: 0.01, min: 1000, max: 10000, default: 4050 }
 - { id: 19, name: ir_handback, scope: global, type: u16, unit: ms, min: 500, max: 10000, default: 3000 }
@@ -54,3 +54,8 @@
 - { id: 58, name: pid_heading_kp, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 3000 }
 - { id: 59, name: pid_heading_ki, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 0 }
 - { id: 60, name: pid_heading_kd, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 100 }
+- { id: 61, name: override_idle_s, scope: global, type: u8, unit: s, min: 10, max: 60, default: 60, doc: "Safety Override ends after this long without driving" }
+- { id: 62, name: override_max_s, scope: global, type: u16, unit: s, min: 30, max: 300, default: 300, doc: "Safety Override hard time limit" }
+- { id: 63, name: override_tilt_deg, scope: global, type: u8, unit: deg, min: 45, max: 70, default: 65, doc: "tilt cut-off while Safety Override is on (300 ms hold still applies)" }
+- { id: 64, name: led_max, scope: global, type: u8, unit: level, min: 10, max: 255, default: 50, doc: "WS2812 brightness cap" }
+- { id: 65, name: batt_hyst, scope: global, type: u16, unit: mV, min: 50, max: 500, default: 200, doc: "recovery hysteresis for batt_low and batt_crit" }

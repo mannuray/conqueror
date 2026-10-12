@@ -65,3 +65,4 @@ ack_status:
   - CAL_FAILED
   - CAL_CANCELLED
   - INTERNAL
+  - ROLE_FORBIDDEN

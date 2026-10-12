@@ -491,149 +491,169 @@
       "hex": "aa 01 42 2b ff 8c"
     },
     {
-      "frame": "SETTING_SET",
+      "frame": "SAFETY_OVERRIDE",
       "variant": "typical",
       "seq": 44,
+      "values": {
+        "src": 3,
+        "on": 6
+      },
+      "hex": "aa 02 43 2c 03 06 f1"
+    },
+    {
+      "frame": "SAFETY_OVERRIDE",
+      "variant": "extremes",
+      "seq": 45,
+      "values": {
+        "src": 255,
+        "on": 0
+      },
+      "hex": "aa 02 43 2d ff 00 60"
+    },
+    {
+      "frame": "SETTING_SET",
+      "variant": "typical",
+      "seq": 46,
       "values": {
         "id": 3,
         "value": -6
       },
-      "hex": "aa 05 50 2c 03 fa ff ff ff 2f"
+      "hex": "aa 05 50 2e 03 fa ff ff ff 7d"
     },
     {
       "frame": "SETTING_SET",
       "variant": "extremes",
-      "seq": 45,
+      "seq": 47,
       "values": {
         "id": 255,
         "value": -2147483648
       },
-      "hex": "aa 05 50 2d ff 00 00 00 80 80"
+      "hex": "aa 05 50 2f ff 00 00 00 80 d2"
     },
     {
       "frame": "SETTING_GET",
       "variant": "typical",
-      "seq": 46,
+      "seq": 48,
       "values": {
         "id": 3
       },
-      "hex": "aa 01 51 2e 03 28"
+      "hex": "aa 01 51 30 03 a9"
     },
     {
       "frame": "SETTING_GET",
       "variant": "extremes",
-      "seq": 47,
+      "seq": 49,
       "values": {
         "id": 255
       },
-      "hex": "aa 01 51 2f ff c7"
+      "hex": "aa 01 51 31 ff 46"
     },
     {
       "frame": "SETTINGS_SAVE",
       "variant": "typical",
-      "seq": 48,
+      "seq": 50,
       "values": {},
-      "hex": "aa 00 52 30 b6"
+      "hex": "aa 00 52 32 b8"
     },
     {
       "frame": "SETTINGS_SAVE",
       "variant": "extremes",
-      "seq": 49,
+      "seq": 51,
       "values": {},
-      "hex": "aa 00 52 31 b1"
+      "hex": "aa 00 52 33 bf"
     },
     {
       "frame": "CALIBRATE",
       "variant": "typical",
-      "seq": 50,
+      "seq": 52,
       "values": {
         "op": 3,
         "script": 6,
         "param": 9,
         "profile": 12
       },
-      "hex": "aa 07 60 32 03 06 09 00 00 00 0c b8"
+      "hex": "aa 07 60 34 03 06 09 00 00 00 0c d2"
     },
     {
       "frame": "CALIBRATE",
       "variant": "extremes",
-      "seq": 51,
+      "seq": 53,
       "values": {
         "op": 255,
         "script": 0,
         "param": 2147483647,
         "profile": 0
       },
-      "hex": "aa 07 60 33 ff 00 ff ff ff 7f 00 82"
+      "hex": "aa 07 60 35 ff 00 ff ff ff 7f 00 e8"
     },
     {
       "frame": "PROFILE",
       "variant": "typical",
-      "seq": 52,
+      "seq": 54,
       "values": {
         "op": 3,
         "index": 6
       },
-      "hex": "aa 02 61 34 03 06 e0"
+      "hex": "aa 02 61 36 03 06 36"
     },
     {
       "frame": "PROFILE",
       "variant": "extremes",
-      "seq": 53,
+      "seq": 55,
       "values": {
         "op": 255,
         "index": 0
       },
-      "hex": "aa 02 61 35 ff 00 71"
+      "hex": "aa 02 61 37 ff 00 a7"
     },
     {
       "frame": "HELLO",
       "variant": "typical",
-      "seq": 54,
+      "seq": 56,
       "values": {
         "fw": 3,
         "proto": 6,
         "caps": 9,
         "reset_reason": 12
       },
-      "hex": "aa 05 80 36 03 00 06 09 0c c4"
+      "hex": "aa 05 80 38 03 00 06 09 0c 7d"
     },
     {
       "frame": "HELLO",
       "variant": "extremes",
-      "seq": 55,
+      "seq": 57,
       "values": {
         "fw": 65535,
         "proto": 0,
         "caps": 255,
         "reset_reason": 0
       },
-      "hex": "aa 05 80 37 ff ff 00 ff 00 90"
+      "hex": "aa 05 80 39 ff ff 00 ff 00 29"
     },
     {
       "frame": "ACK",
       "variant": "typical",
-      "seq": 56,
+      "seq": 58,
       "values": {
         "ack_seq": 3,
         "status": 6
       },
-      "hex": "aa 02 81 38 03 06 7e"
+      "hex": "aa 02 81 3a 03 06 a8"
     },
     {
       "frame": "ACK",
       "variant": "extremes",
-      "seq": 57,
+      "seq": 59,
       "values": {
         "ack_seq": 255,
         "status": 0
       },
-      "hex": "aa 02 81 39 ff 00 ef"
+      "hex": "aa 02 81 3b ff 00 39"
     },
     {
       "frame": "TELEM_FAST",
       "variant": "typical",
-      "seq": 58,
+      "seq": 60,
       "values": {
         "uno_ms": 3,
         "yaw": 6,
@@ -656,12 +676,12 @@
         "prim": 57,
         "prim_pct": 60
       },
-      "hex": "aa 28 90 3a 03 00 00 00 06 00 09 00 f4 ff 0f 00 ee 15 e8 1b e2 ff 21 00 24 00 27 00 d6 ff 2d 00 d0 ff ff ff 33 00 00 00 36 00 39 3c 48"
+      "hex": "aa 28 90 3c 03 00 00 00 06 00 09 00 f4 ff 0f 00 ee 15 e8 1b e2 ff 21 00 24 00 27 00 d6 ff 2d 00 d0 ff ff ff 33 00 00 00 36 00 39 3c 0c"
     },
     {
       "frame": "TELEM_FAST",
       "variant": "extremes",
-      "seq": 59,
+      "seq": 61,
       "values": {
         "uno_ms": 4294967295,
         "yaw": 0,
@@ -684,12 +704,12 @@
         "prim": 255,
         "prim_pct": 0
       },
-      "hex": "aa 28 90 3b ff ff ff ff 00 00 ff 7f 00 80 ff 7f 80 7f 80 7f 00 80 ff 7f 00 00 ff 7f 00 80 ff 7f 00 00 00 80 ff ff ff 7f 00 00 ff 00 85"
+      "hex": "aa 28 90 3d ff ff ff ff 00 00 ff 7f 00 80 ff 7f 80 7f 80 7f 00 80 ff 7f 00 00 ff 7f 00 80 ff 7f 00 00 00 80 ff ff ff 7f 00 00 ff 00 c1"
     },
     {
       "frame": "TELEM_SLOW",
       "variant": "typical",
-      "seq": 60,
+      "seq": 62,
       "values": {
         "uptime_s": 3,
         "reset_reason": 6,
@@ -716,12 +736,12 @@
         ],
         "hw": 60
       },
-      "hex": "aa 24 91 3c 03 00 00 00 06 09 00 0c 0f 00 12 15 00 00 00 18 00 1b 1e 00 21 00 24 00 27 00 2a 00 2d 30 33 36 2b 2e 31 3c 6a"
+      "hex": "aa 24 91 3e 03 00 00 00 06 09 00 0c 0f 00 12 15 00 00 00 18 00 1b 1e 00 21 00 24 00 27 00 2a 00 2d 30 33 36 2b 2e 31 3c 73"
     },
     {
       "frame": "TELEM_SLOW",
       "variant": "extremes",
-      "seq": 61,
+      "seq": 63,
       "values": {
         "uptime_s": 4294967295,
         "reset_reason": 0,
@@ -748,78 +768,78 @@
         ],
         "hw": 0
       },
-      "hex": "aa 24 91 3d ff ff ff ff 00 ff ff 00 ff 7f 00 ff ff ff ff 00 00 ff 00 00 ff ff 00 00 ff ff 00 00 ff 00 ff 00 ff 00 ff 00 67"
+      "hex": "aa 24 91 3f ff ff ff ff 00 ff ff 00 ff 7f 00 ff ff ff ff 00 00 ff 00 00 ff ff 00 00 ff ff 00 00 ff 00 ff 00 ff 00 ff 00 7e"
     },
     {
       "frame": "EVENT",
       "variant": "typical",
-      "seq": 62,
+      "seq": 64,
       "values": {
         "kind": 3,
         "a": -6,
         "b": 9
       },
-      "hex": "aa 05 92 3e 03 fa ff 09 00 0c"
+      "hex": "aa 05 92 40 03 fa ff 09 00 66"
     },
     {
       "frame": "EVENT",
       "variant": "extremes",
-      "seq": 63,
+      "seq": 65,
       "values": {
         "kind": 255,
         "a": -32768,
         "b": 32767
       },
-      "hex": "aa 05 92 3f ff 00 80 ff 7f 15"
+      "hex": "aa 05 92 41 ff 00 80 ff 7f 7f"
     },
     {
       "frame": "SETTING_VALUE",
       "variant": "typical",
-      "seq": 64,
+      "seq": 66,
       "values": {
         "id": 3,
         "value": -6
       },
-      "hex": "aa 05 93 40 03 fa ff ff ff 20"
+      "hex": "aa 05 93 42 03 fa ff ff ff 72"
     },
     {
       "frame": "SETTING_VALUE",
       "variant": "extremes",
-      "seq": 65,
+      "seq": 67,
       "values": {
         "id": 255,
         "value": -2147483648
       },
-      "hex": "aa 05 93 41 ff 00 00 00 80 8f"
+      "hex": "aa 05 93 43 ff 00 00 00 80 dd"
     },
     {
       "frame": "CAL_RESULT",
       "variant": "typical",
-      "seq": 66,
+      "seq": 68,
       "values": {
         "script": 3,
         "stage": 6,
         "progress": 9,
         "status": 12
       },
-      "hex": "aa 04 94 42 03 06 09 0c 71"
+      "hex": "aa 04 94 44 03 06 09 0c 3a"
     },
     {
       "frame": "CAL_RESULT",
       "variant": "extremes",
-      "seq": 67,
+      "seq": 69,
       "values": {
         "script": 255,
         "stage": 0,
         "progress": 255,
         "status": 0
       },
-      "hex": "aa 04 94 43 ff 00 ff 00 cb"
+      "hex": "aa 04 94 45 ff 00 ff 00 80"
     },
     {
       "frame": "CAL_DATA",
       "variant": "typical",
-      "seq": 68,
+      "seq": 70,
       "values": {
         "script": 3,
         "phase": 6,
@@ -835,12 +855,12 @@
           -14
         ]
       },
-      "hex": "aa 14 95 44 03 06 09 00 5d 00 a0 ff 63 00 fe ff 05 00 f8 ff 0b 00 f2 ff c2"
+      "hex": "aa 14 95 46 03 06 09 00 5d 00 a0 ff 63 00 fe ff 05 00 f8 ff 0b 00 f2 ff 4d"
     },
     {
       "frame": "CAL_DATA",
       "variant": "extremes",
-      "seq": 69,
+      "seq": 71,
       "values": {
         "script": 255,
         "phase": 0,
@@ -856,35 +876,35 @@
           -32768
         ]
       },
-      "hex": "aa 14 95 45 ff 00 ff ff ff 7f 00 80 ff 7f 00 80 ff 7f 00 80 ff 7f 00 80 6b"
+      "hex": "aa 14 95 47 ff 00 ff ff ff 7f 00 80 ff 7f 00 80 ff 7f 00 80 ff 7f 00 80 e4"
     },
     {
       "frame": "WIFI_RESET_REQ",
-      "variant": "typical",
-      "seq": 70,
-      "values": {},
-      "hex": "aa 00 96 46 4a"
-    },
-    {
-      "frame": "WIFI_RESET_REQ",
-      "variant": "extremes",
-      "seq": 71,
-      "values": {},
-      "hex": "aa 00 96 47 4d"
-    },
-    {
-      "frame": "ADMIN_RESET_REQ",
       "variant": "typical",
       "seq": 72,
       "values": {},
-      "hex": "aa 00 97 48 75"
+      "hex": "aa 00 96 48 60"
+    },
+    {
+      "frame": "WIFI_RESET_REQ",
+      "variant": "extremes",
+      "seq": 73,
+      "values": {},
+      "hex": "aa 00 96 49 67"
+    },
+    {
+      "frame": "ADMIN_RESET_REQ",
+      "variant": "typical",
+      "seq": 74,
+      "values": {},
+      "hex": "aa 00 97 4a 7b"
     },
     {
       "frame": "ADMIN_RESET_REQ",
       "variant": "extremes",
-      "seq": 73,
+      "seq": 75,
       "values": {},
-      "hex": "aa 00 97 49 72"
+      "hex": "aa 00 97 4b 7c"
     },
     {
       "frame": "HEARTBEAT",

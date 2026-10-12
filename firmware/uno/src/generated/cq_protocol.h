@@ -71,6 +71,7 @@ enum class FrameType : uint8_t {
   kBrake = 0x40,
   kEnvelope = 0x41,
   kOwnerHint = 0x42,
+  kSafetyOverride = 0x43,
   kSettingSet = 0x50,
   kSettingGet = 0x51,
   kSettingsSave = 0x52,
@@ -175,6 +176,18 @@ enum class SoundId : uint8_t {
   kThinking = 9,
   kOuch = 10,
   kError = 11,
+  kSuccess = 12,
+  kFanfare = 13,
+  kSad = 14,
+  kSafetyChirp = 15,
+  kAckBlip = 16,
+  kFail = 17,
+  kConfirm = 18,
+  kQuestion = 19,
+  kOkChirp = 20,
+  kGrumble = 21,
+  kScan = 22,
+  kGoodbye = 23,
 };
 
 enum class FastFlagBit : uint8_t {
@@ -205,12 +218,24 @@ enum class SlowFlagBit : uint8_t {
   kQuiet = 5,
   kEnvelope = 6,
   kDeadman = 7,
+  kSafetyOverride = 8,
 };
 
 enum class HwBit : uint8_t {
   kEncodersEnabled = 0,
   kImuOk = 1,
   kUsOk = 2,
+};
+
+enum class OverrideReason : uint8_t {
+  kNetwork = 0,
+  kIr = 1,
+  kIdle = 2,
+  kMaxTime = 3,
+  kStop = 4,
+  kOwnerChange = 5,
+  kLinkLost = 6,
+  kEnvelope = 7,
 };
 
 enum class EventKind : uint8_t {
@@ -240,6 +265,7 @@ enum class EventKind : uint8_t {
   kCalRequest = 24,
   kButtonPress = 25,
   kRejected = 26,
+  kSafetyOverride = 27,
 };
 
 enum class SettingId : uint8_t {
@@ -299,6 +325,11 @@ enum class SettingId : uint8_t {
   kPidHeadingKp = 58,
   kPidHeadingKi = 59,
   kPidHeadingKd = 60,
+  kOverrideIdleS = 61,
+  kOverrideMaxS = 62,
+  kOverrideTiltDeg = 63,
+  kLedMax = 64,
+  kBattHyst = 65,
 };
 
 enum class AckStatus : uint8_t {
@@ -320,6 +351,7 @@ enum class AckStatus : uint8_t {
   kCalFailed = 15,
   kCalCancelled = 16,
   kInternal = 17,
+  kRoleForbidden = 18,
 };
 
 struct HeartbeatMsg {
@@ -846,6 +878,29 @@ inline bool decode(const uint8_t* in, uint8_t len, OwnerHintMsg& m) {
   return true;
 }
 
+struct SafetyOverrideMsg {
+  static constexpr FrameType kType = FrameType::kSafetyOverride;
+  static constexpr uint8_t kFixedSize = 2;
+  static constexpr uint8_t kMaxSize = 2;
+  uint8_t src;
+  uint8_t on;
+};
+
+inline uint8_t encode(const SafetyOverrideMsg& m, uint8_t* out) {
+  uint8_t* p = out;
+  put_u8(p, static_cast<uint8_t>(m.src));
+  put_u8(p, static_cast<uint8_t>(m.on));
+  return static_cast<uint8_t>(p - out);
+}
+
+inline bool decode(const uint8_t* in, uint8_t len, SafetyOverrideMsg& m) {
+  if (len != SafetyOverrideMsg::kFixedSize) { return false; }
+  const uint8_t* p = in;
+  m.src = static_cast<uint8_t>(get_u8(p));
+  m.on = static_cast<uint8_t>(get_u8(p));
+  return true;
+}
+
 struct SettingSetMsg {
   static constexpr FrameType kType = FrameType::kSettingSet;
   static constexpr uint8_t kFixedSize = 5;
@@ -1342,7 +1397,7 @@ inline const SettingDescriptor kSettingDescriptors[] PROGMEM = {
   {13, SettingScope::kGlobal, WireType::kU8, 10L, 60L, 45L},
   {14, SettingScope::kGlobal, WireType::kU16, 500L, 4000L, 1500L},
   {15, SettingScope::kGlobal, WireType::kU16, 100L, 2000L, 300L},
-  {16, SettingScope::kGlobal, WireType::kU16, 6000L, 8400L, 7000L},
+  {16, SettingScope::kGlobal, WireType::kU16, 6000L, 8400L, 7200L},
   {17, SettingScope::kGlobal, WireType::kU16, 5500L, 8000L, 6600L},
   {18, SettingScope::kGlobal, WireType::kU16, 1000L, 10000L, 4050L},
   {19, SettingScope::kGlobal, WireType::kU16, 500L, 10000L, 3000L},
@@ -1383,10 +1438,15 @@ inline const SettingDescriptor kSettingDescriptors[] PROGMEM = {
   {58, SettingScope::kProfile, WireType::kI32, 0L, 100000L, 3000L},
   {59, SettingScope::kProfile, WireType::kI32, 0L, 100000L, 0L},
   {60, SettingScope::kProfile, WireType::kI32, 0L, 100000L, 100L},
+  {61, SettingScope::kGlobal, WireType::kU8, 10L, 60L, 60L},
+  {62, SettingScope::kGlobal, WireType::kU16, 30L, 300L, 300L},
+  {63, SettingScope::kGlobal, WireType::kU8, 45L, 70L, 65L},
+  {64, SettingScope::kGlobal, WireType::kU8, 10L, 255L, 50L},
+  {65, SettingScope::kGlobal, WireType::kU16, 50L, 500L, 200L},
 };
-constexpr uint8_t kSettingCount = 56;
+constexpr uint8_t kSettingCount = 61;
 
-inline const uint16_t kAckStatusCode[] PROGMEM = {0, 3001, 3002, 3003, 3004, 3005, 3006, 3013, 3014, 3015, 3012, 8001, 8002, 8003, 6001, 6002, 6003, 9001};
+inline const uint16_t kAckStatusCode[] PROGMEM = {0, 3001, 3002, 3003, 3004, 3005, 3006, 3013, 3014, 3015, 3012, 8001, 8002, 8003, 6001, 6002, 6003, 9001, 1002};
 
 }  // namespace proto
 }  // namespace cq

@@ -242,6 +242,17 @@ Payload 1 bytes max.
 |---|---|---|
 | owner | u8 | enum OwnerHintValue |
 
+### 0x43 SAFETY_OVERRIDE (esp32_to_uno) — ack
+
+Safety Override on/off (human only; spec 02 A6.1). on=1 is refused with ROLE_FORBIDDEN when src is AI, ENVELOPE_LOCKED while an envelope is active, NOT_OWNER while IR owns motion, BLOCKED while a hard fault is latched, BUSY before sync. on=0 is accepted from any source.
+
+Payload 2 bytes max.
+
+| Field | Type | Notes |
+|---|---|---|
+| src | u8 | enum Source |
+| on | u8 |  |
+
 ### 0x50 SETTING_SET (esp32_to_uno) — ack
 
 
@@ -449,10 +460,11 @@ Payload 0 bytes max.
 - **ProfileOp**: SELECT=0, CREATE=1, DELETE=2
 - **PrimitiveKind**: NONE=0, TELEOP=1, TURN=2, MOVE=3
 - **ResetReason**: UNKNOWN=0, POWER_ON=1, EXTERNAL=2, BROWN_OUT=3, WATCHDOG=4
-- **SoundId**: STARTUP=1, READY=2, SELFTEST_FAIL=3, CHIRP_UP=4, CHIRP_DOWN=5, BLIP=6, TICK=7, JINGLE=8, THINKING=9, OUCH=10, ERROR=11 — Sounds a client may trigger with SOUND.
+- **SoundId**: STARTUP=1, READY=2, SELFTEST_FAIL=3, CHIRP_UP=4, CHIRP_DOWN=5, BLIP=6, TICK=7, JINGLE=8, THINKING=9, OUCH=10, ERROR=11, SUCCESS=12, FANFARE=13, SAD=14, SAFETY_CHIRP=15, ACK_BLIP=16, FAIL=17, CONFIRM=18, QUESTION=19, OK_CHIRP=20, GRUMBLE=21, SCAN=22, GOODBYE=23 — Sounds a client may trigger with SOUND.
 - **FastFlagBit**: BLOCKED=0, LIFTED=1, TILTED=2, STALL_L=3, STALL_R=4, CAM_MOVING=5, TURN_LIMITED=6, CAPPED=7, SOFT_STOP=8, HALTED=9, LOCKED=10, IMU_FAULT=11, US_FAULT=12, ENCODER_FAULT=13, CALIBRATING=14, SYNCED=15 — Bit positions in TELEM_FAST.flags.
-- **SlowFlagBit**: BATT_LOW=0, BATT_CRITICAL=1, LINK_LOST=2, BRAKE_OFF=3, MUTED=4, QUIET=5, ENVELOPE=6, DEADMAN=7 — Bit positions in TELEM_SLOW.flags2.
+- **SlowFlagBit**: BATT_LOW=0, BATT_CRITICAL=1, LINK_LOST=2, BRAKE_OFF=3, MUTED=4, QUIET=5, ENVELOPE=6, DEADMAN=7, SAFETY_OVERRIDE=8 — Bit positions in TELEM_SLOW.flags2.
 - **HwBit**: ENCODERS_ENABLED=0, IMU_OK=1, US_OK=2 — Bit positions in TELEM_SLOW.hw.
+- **OverrideReason**: NETWORK=0, IR=1, IDLE=2, MAX_TIME=3, STOP=4, OWNER_CHANGE=5, LINK_LOST=6, ENVELOPE=7 — EVENT SAFETY_OVERRIDE b - why Safety Override was entered or exited.
 
 ## Events (EVENT.kind)
 
@@ -484,6 +496,7 @@ Payload 0 bytes max.
 | 24 | CAL_REQUEST |  |  |
 | 25 | BUTTON_PRESS |  |  |
 | 26 | REJECTED | frame type | ack_status index |
+| 27 | SAFETY_OVERRIDE | 1 entered, 0 exited | OverrideReason |
 
 ## Errors
 
@@ -538,6 +551,7 @@ Payload 0 bytes max.
 15. CAL_FAILED
 16. CAL_CANCELLED
 17. INTERNAL
+18. ROLE_FORBIDDEN
 
 ## Settings
 
@@ -558,7 +572,7 @@ Payload 0 bytes max.
 | 13 | tilt_limit | global | u8 | deg | 1.0 | 10 | 60 | 45 |
 | 14 | bump_threshold | global | u16 | mg | 1.0 | 500 | 4000 | 1500 |
 | 15 | deadman | global | u16 | ms | 1.0 | 100 | 2000 | 300 |
-| 16 | batt_low | global | u16 | mV | 1.0 | 6000 | 8400 | 7000 |
+| 16 | batt_low | global | u16 | mV | 1.0 | 6000 | 8400 | 7200 |
 | 17 | batt_crit | global | u16 | mV | 1.0 | 5500 | 8000 | 6600 |
 | 18 | batt_mv_per_count | global | u16 | mV | 0.01 | 1000 | 10000 | 4050 |
 | 19 | ir_handback | global | u16 | ms | 1.0 | 500 | 10000 | 3000 |
@@ -599,3 +613,8 @@ Payload 0 bytes max.
 | 58 | pid_heading_kp | profile | i32 | gain | 0.001 | 0 | 100000 | 3000 |
 | 59 | pid_heading_ki | profile | i32 | gain | 0.001 | 0 | 100000 | 0 |
 | 60 | pid_heading_kd | profile | i32 | gain | 0.001 | 0 | 100000 | 100 |
+| 61 | override_idle_s | global | u8 | s | 1.0 | 10 | 60 | 60 |
+| 62 | override_max_s | global | u16 | s | 1.0 | 30 | 300 | 300 |
+| 63 | override_tilt_deg | global | u8 | deg | 1.0 | 45 | 70 | 65 |
+| 64 | led_max | global | u8 | level | 1.0 | 10 | 255 | 50 |
+| 65 | batt_hyst | global | u16 | mV | 1.0 | 50 | 500 | 200 |

@@ -92,6 +92,7 @@ Streaming commands (no ack; rejections reported once via `nack` without `id` + a
 | `tone` | `notes` [[freq_hz, ms], …] ≤10 | ai | custom tone sequence |
 | `audio_mode` | `normal`/`quiet`/`mute` | human | priority-1 alarms always play |
 | `obstacle_brake` | `on` | ai | disabling rejected (`ENVELOPE_LOCKED`) while envelope `lock_brake`; re-enabled at reboot |
+| `safety_override` | `on` bool | human (`on`); anyone (`off`) | spec 02 §A6.1: obstacle brake + bump stop off, tilt cut-off 65°; `ROLE_FORBIDDEN` for `ai` keys, `ENVELOPE_LOCKED` while an envelope is active, `BUSY` while a Tank Logo program runs, `BLOCKED` while a hard fault is latched; ends after 60 s idle / 5 min / STOP / owner change / link loss / reboot; the client must ask for confirmation |
 | `envelope` | `preset` (`child_play`/`none`) or `speed_cap` %, `accel_cap` %/s, `lock_brake` bool | human (set/loosen/clear); ai may only tighten | enforced on the Uno |
 | `nav_goto` | `x`,`y` cm, `speed` % | ai | needs encoders |
 | `nav_home` | `speed` % | ai | return to origin |
@@ -131,7 +132,7 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 |---|---|
 | `batt_v`, `batt_pct`, `runtime_min`, `sag_v` | Uno (volts), ESP32 (pct, runtime, sag) |
 | `owner` (`ir`/`human`/`ai`/`none`), `owner_client` | Uno + ESP32 |
-| `flags`: turn_limited, blocked, lifted, tilted, stalled, batt_low, batt_critical, link_lost, brake_off, muted, quiet, envelope, body_offline | Uno/ESP32 |
+| `flags`: turn_limited, blocked, lifted, tilted, stalled, batt_low, batt_critical, link_lost, brake_off, muted, quiet, envelope, safety_override, body_offline | Uno/ESP32 |
 | `envelope` {speed_cap, accel_cap, lock_brake} | Uno |
 | `surface_profile` (active name), `calibration` {item: missing/ok/stale} | Uno |
 | `hw`: encoders, imu_ok, sensor | Uno/ESP32 |
@@ -146,7 +147,7 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 `bump{g}`, `lifted`, `landed`, `tilted{pitch,roll}`, `level`, `stall{side}`, `blocked{dist_cm}`, `unblocked`,
 `control_changed{owner,client}`, `control_returned` (to the AI), `deadman_stop`, `link_lost`, `link_restored`, `body_offline`, `body_online`,
 `batt_low{v}`, `batt_critical{v}`, `primitive_done{kind,ok,reason}`, `nav_done{ok,reason}`, `calibration{kind,stage,progress,result}`,
-`selftest{ok,failures[]}`, `nav_progress{waypoint,of,remaining_cm}`, `settings_reset`, `pose_degraded`, `waypoint_inaccurate`, `camera_reset`, `envelope_mismatch`, `surface_suggest{profile}`, `envelope_changed{…}`, `encoder_fault{side}`, `ir_override`.
+`selftest{ok,failures[]}`, `nav_progress{waypoint,of,remaining_cm}`, `settings_reset`, `pose_degraded`, `waypoint_inaccurate`, `camera_reset`, `envelope_mismatch`, `surface_suggest{profile}`, `envelope_changed{…}`, `encoder_fault{side}`, `ir_override`, `safety_override{on, reason}` (reason: network/ir/idle/max_time/stop/owner_change/link_lost/envelope).
 
 ## 7. Settings catalogue (persisted; Uno EEPROM or ESP32 NVS)
 
@@ -171,7 +172,9 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 | `tilt_limit_deg` | 45 (must persist 300 ms) | Uno |
 | `bump_g` | 1.5 | Uno |
 | `deadman_ms` | 300 | Uno |
-| `batt_low_v` / `batt_crit_v` | 7.0 / 6.6 (2S Li-ion, confirmed) | Uno |
+| `batt_low_v` / `batt_crit_v` / `batt_hyst` | 7.2 / 6.6 / 0.2 V (2S Li-ion; recovery above threshold + hysteresis) | Uno |
+| `override_idle_s` / `override_max_s` / `override_tilt_deg` | 60 s / 300 s / 65° (≤ 70°) | Uno |
+| `led_max` | 50 (of 255) | Uno |
 | `servo_limits{pan_min,pan_max,tilt_min,tilt_max}` | 0/180/30/110 | Uno |
 | `servo_trim{pan,tilt}`, `servo_speed`, `servo_accel` | 0,0 / 120 °/s / 400 °/s² | Uno |
 | `cam_return_delay_ms` | 500 | Uno |
@@ -213,6 +216,7 @@ Frame: `0xAA | len | type | seq | payload[len] | crc8`
 | 0x40 | BRAKE | on u8 |
 | 0x41 | ENVELOPE | speed_cap u8, accel_cap u8, lock_brake u8 |
 | 0x42 | OWNER_HINT | owner u8 (for LED colour) |
+| 0x43 | SAFETY_OVERRIDE | src u8, on u8 (acked; refusals ROLE_FORBIDDEN / ENVELOPE_LOCKED / NOT_OWNER / BLOCKED / BUSY) |
 | 0x50 | SETTING_SET | id u8, value i32 |
 | 0x51 | SETTING_GET | id u8 |
 | 0x52 | SETTINGS_SAVE | — |

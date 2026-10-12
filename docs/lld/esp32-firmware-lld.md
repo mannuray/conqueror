@@ -1064,3 +1064,12 @@ Shared objects: TankState (writers per group, mutex snapshot) · SessionRegistry
 - Clock sync: **offset + skew** (linear fit over sliding minima) to absorb Uno resonator drift; Spec 1 wording aligned ("from TELEM_FAST").
 - Internal RAM: plan for **~220 KB available**; camera DMA descriptors counted; `SPIRAM_TRY_ALLOCATE_WIFI_LWIP` enabled; **first milestone = skeleton build measured**, build gate: free internal heap ≥ 60 KB at idle with 2 viewers + 6 WS.
 - `KeyRecord.last_used` kept in RAM, flushed with lifetime stats (5 min). **NVS encryption: off by default** (documented risk: AP password and WiFi credentials readable with physical flash access); optional build flag to enable.
+
+### Decision note (2026-10-12): Safety Override gateway rules (spec 02 §A6.1)
+- New client command `safety_override {on}` → body frame `SAFETY_OVERRIDE` (0x43, `src`, `on`), acked.
+- **Authorize (§4.4 step 2):** `on = true` only from `human`/`admin` sessions; `ai` and `viewer` keys get `ROLE_FORBIDDEN` and nothing is forwarded. `on = false` is accepted from any authenticated session (it only tightens), like STOP.
+- **Arbitrate:** `on = true` from a human session that is not the current network owner (another human holds the timer) → `NOT_OWNER`; while IR owns motion → `NOT_OWNER` (the Uno also refuses).
+- **Tank Logo:** the program runner sends `SAFETY_OVERRIDE off` before a program starts and the gateway answers `BUSY` to `on` while a program runs. Programs never carry an Override instruction.
+- **Handover:** on human → AI handback (§4.7 timer or `release_control`) the gateway sends `SAFETY_OVERRIDE off` before `OWNER_HINT ai`. The Uno ends Override by itself on any `src = ai` motion frame, `OWNER_HINT` ≠ human, an envelope, STOP or link loss (defence in depth).
+- **Envelope (§4.5):** setting any envelope while Override is on is allowed; the Uno ends Override first (`safety_override{on:false, reason:envelope}`).
+- Event `SAFETY_OVERRIDE` (kind 27) → client event `safety_override{on, reason}`; `flags2` bit 8 → `flags.safety_override`. Never persisted in NVS; never restored at HELLO.

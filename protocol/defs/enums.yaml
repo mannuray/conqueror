@@ -30,7 +30,11 @@
   doc: Sounds a client may trigger with SOUND.
   values:
     { STARTUP: 1, READY: 2, SELFTEST_FAIL: 3, CHIRP_UP: 4, CHIRP_DOWN: 5, BLIP: 6, TICK: 7,
-      JINGLE: 8, THINKING: 9, OUCH: 10, ERROR: 11 }
+      JINGLE: 8, THINKING: 9, OUCH: 10, ERROR: 11,
+      SUCCESS: 12, FANFARE: 13, SAD: 14, SAFETY_CHIRP: 15, ACK_BLIP: 16, FAIL: 17, CONFIRM: 18,
+      QUESTION: 19, OK_CHIRP: 20, GRUMBLE: 21, SCAN: 22, GOODBYE: 23 }
+  # STARTUP (1) plays the old rising boot sweep (old melody 1); 12-23 are old melodies 2-13
+  # (docs/legacy/uno-old-led-buzzer.md); SAFETY_CHIRP = old melody 5.
 - name: FastFlagBit
   doc: Bit positions in TELEM_FAST.flags.
   values:
@@ -41,7 +45,12 @@
   doc: Bit positions in TELEM_SLOW.flags2.
   values:
     { BATT_LOW: 0, BATT_CRITICAL: 1, LINK_LOST: 2, BRAKE_OFF: 3, MUTED: 4, QUIET: 5,
-      ENVELOPE: 6, DEADMAN: 7 }
+      ENVELOPE: 6, DEADMAN: 7, SAFETY_OVERRIDE: 8 }
 - name: HwBit
   doc: Bit positions in TELEM_SLOW.hw.
   values: { ENCODERS_ENABLED: 0, IMU_OK: 1, US_OK: 2 }
+- name: OverrideReason
+  doc: EVENT SAFETY_OVERRIDE b - why Safety Override was entered or exited.
+  values:
+    { NETWORK: 0, IR: 1, IDLE: 2, MAX_TIME: 3, STOP: 4, OWNER_CHANGE: 5, LINK_LOST: 6,
+      ENVELOPE: 7 }

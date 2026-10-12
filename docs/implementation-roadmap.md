@@ -10,7 +10,7 @@ Principle: start minimal, get the tank driving straight lines and circles with r
 | 0 Protocol foundation | `protocol/` definitions + generator (C for Uno, C++ for ESP32, Python; TypeScript later) + error registry | — | — |
 | 1 Uno bring-up | skeleton with all drivers, flash/RAM measured, self-test, safety core, **shield probe** (verifies TB6612 standby on D3 and direction pins with tracks off the ground) | **USB**, tank on a stand | each sensor/motor; memory fit |
 | 2 Uno motion core | drive + heading hold, turn (spin/arc), move-distance, deadband/ramps, encoders, obstacle brake, deadman | USB on a stand | motors, encoders, gyro, first PID tuning |
-| 3 Bench tool + ESP32 WiFi bridge | Python bench tool; minimal ESP32 bridge firmware | **WiFi via the bridge (home network)** | free driving: straight line, circle, square, calibration, tuning |
+| 3 Bench tool + ESP32 WiFi bridge | Python bench tool; minimal ESP32 bridge firmware + **Basic Drive phone page** (design-notes §28) | **WiFi via the bridge (home network)** | free driving: straight line, circle, square, calibration, tuning |
 | 4 Full ESP32 gateway | gateway per ESP32 LLD (WS API, auth, camera, arbitration, STOP fast path) | WiFi (WebSocket API) | replaces the bridge |
 | 5 Cockpit lite (web) | first slice of the hub web app (React + MobX), connecting directly to the tank | WiFi, direct | phone/browser driving + test panel |
 | 6+ Full system | ESP32 calibration (port of Python reference maths), hub backend, Timeline, missions, AI engine, full security | — | complete design |

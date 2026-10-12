@@ -1502,7 +1502,7 @@ sequenceDiagram
 | Obstacle stop at `obstacle_stop` | `SafetySupervisor::apply` via `SafetyInputs.brake_on` | **off** (`brake_on = override.brakeOn(envelope.brakeOn())` = false) |
 | Obstacle slow zone `obstacle_slow` | `TargetLimiter` brake flag | **off** (same effective flag) |
 | Tilt cut-off | `LiftDetector::update(…, tilt_limit_deg, …)` from the IMU task | limit = `max(tilt_limit, override_tilt_deg)` (65°); still needs 300 ms over the limit; release below limit − 5°. On exit the limit drops back to 45° and a tank still tilted past it halts 300 ms later |
-| Bump stop | — | Plan B v1 has **no** bump stop (bump = event + "ouch" only). If a bump stop is added later it must test `override.active()`; the bump event is always reported |
+| Bump stop | — | Plan B v1 has **no** bump stop (bump = event + "ouch" only): **Override bump relaxation is a no-op until a bump stop exists** (owner decision 5). If a bump stop is added later it must test `override.active()`; the bump event is always reported |
 | Lift, battery critical, stall cut, self-test lock, deadman/link-loss SoftStop, STOP, envelope speed/accel caps (adult envelope while Override is on), degraded caps | supervisor / arbitrator / TargetLimiter | **unchanged** — never consult the override |
 | Adult envelope `LOCK_BRAKE` | `Envelope::brakeOn()` → `override.brakeOn()` | **relaxed** like the BRAKE setting (owner decision 4: Override relaxes only obstacle/bump/tilt; the lock still refuses `BRAKE off` and applies again on exit). Child play never reaches this row (it refuses/ends Override) |
 `flags2.brake_off` reports the *effective* brake (set while Override is on); `flags2.safety_override` (bit 8) = `override.active()`. `BrakeConfig`/`Envelope::brakeOn()` is never modified by Override, so the user's `BRAKE` choice applies again on exit.
@@ -1519,20 +1519,20 @@ sequenceDiagram
 - **Battery:** low < `batt_low` (7.2 V), critical < `batt_crit` (6.6 V), each 2 s sustained; recovery above threshold + `batt_hyst` (0.2 V) — low/critical as in the old firmware (7.2/7.4, 6.6/6.8 V).
 
 ### 10.7 Budget
-Flash ≈ +1.3 KB (SafetyOverride + app glue ~0.6 KB, LED styles ~0.3 KB, IR hold ~0.1 KB, sound table +0.05 KB, routes/settings ~0.2 KB) → estimated total 24.5–27.5 KB of the 30 KB gate. RAM ≈ +40 B (override 12, kMaxNotes +16, IR hold 4, LED style 4, misc) → ≈ 1780 B of 2048 including the 400 B stack reserve; the static RAM gate (≤ 1750 B) keeps its margin because the stack reserve is not static. Measure at Task 15; overflow plan unchanged (§13 of design-notes).
+Flash ≈ +1.7 KB (SafetyOverride + app glue ~0.6 KB, LED styles ~0.3 KB, IR hold ~0.1 KB, sound table +0.05 KB, routes/settings ~0.2 KB; owner decisions 2026-10-12: child-play flag ~0.05 KB, self-test lock + re-run ~0.25 KB, SettingsSaver ~0.1 KB net) → estimated total 24.9–27.9 KB of the 30 KB gate. RAM ≈ −10 B net (override 12, kMaxNotes +16, IR hold 4, LED style 4, misc; self-test lock +7; EEPROM writer queue 128 → 80 B and 6 → 4 ranges −56) → ≈ 1730 B of 2048 including the 400 B stack reserve; the static RAM gate (≤ 1750 B) keeps its margin because the stack reserve is not static. Measure at Task 15; overflow plan unchanged (§13 of design-notes).
 
-Plan B host tests after this revision: **148** (+16: Override 6 in `test_safety`, battery hysteresis 1 in `test_sensors`, catalogue/LED/annunciator 7 in `test_ui`, IR `*` hold 2 in `test_input`).
+Plan B host tests after this revision: **153** (+21: Override 6 + adult envelope 1 + self-test lock 3 in `test_safety` (23), per-block EEPROM save 1 in `test_settings` (9), battery hysteresis 1 in `test_sensors`, catalogue/LED/annunciator 7 in `test_ui`, IR `*` hold 2 in `test_input`).
 
-### 10.8 Pending owner confirmation (proposed in this revision)
-1. Override telemetry flag is `flags2` bit 8 (slow, 1 Hz) + the immediate `SAFETY_OVERRIDE` event: `TELEM_FAST.flags` has no free bit (widening it is a breaking change).
-2. IR key `*` for the 2 s hold (old code `0x42` assumed to be `*`; confirm at the Task 14/15 code capture); a `*` tap now acts on release.
-3. Entry refused with `BLOCKED` while a hard fault is latched (Override never un-halts the tank).
-4. Entry refused while **any** envelope is active, not only the child-play preset.
-5. Owner → None (idle release) does not end Override; only the 60 s idle timer, 5 min limit or another principal does.
-6. Plan B has **no bump stop** (bump = event + sound only, unlike spec 02 §A6's 300 ms stop), so "bump stop off" is a no-op today; add the bump stop to Plan B?
-7. Plan B never locks the motors on a critical self-test (only reports it); spec 02 §A11 says it should. Override already treats it as a latched fault.
-8. Plan B's Quiet mode plays alarms only, so the Override enter/exit chirp uses alarm priority (silent only in Mute).
-9. EEPROM writer queue now at 123 of 128 B (global block 66 B, profile 54 B, magic 3 B) — the next global setting needs a bigger queue.
+### 10.8 Owner confirmations — resolved (2026-10-12)
+1. **Accepted:** Override flag in `flags2` bit 8 (slow, 1 Hz) + the immediate `SAFETY_OVERRIDE` event (`TELEM_FAST.flags` has no free bit; widening it is breaking).
+2. **Accepted:** IR `*` held 2 s toggles Override; a `*` tap acts on release. Old code `0x42` = `*` is still to be **confirmed at the Task 14/15 code capture** (hardware checklist step kept).
+3. **Accepted:** entry refused with `BLOCKED` while a hard fault is latched (Override never un-halts the tank).
+4. **Changed:** only the **child-play** envelope refuses/ends Override. The Uno knows it from `ENVELOPE.lock_brake` bit 1 `CHILD_PLAY` (`EnvelopeFlagBit`, non-breaking). Adult envelopes do not block it; their speed/accel caps keep applying while Override relaxes only obstacle brake (incl. an adult `LOCK_BRAKE`), bump stop and tilt (§10.1, §10.4).
+5. (Not raised) Owner → None idle release does not end Override — unchanged.
+6. **Accepted:** Plan B only detects bumps (event + sound). **Override bump relaxation is a no-op until a bump stop exists**; a future bump stop must consult `override.active()` (§10.4).
+7. **Fixed:** a critical self-test failure locks all motion until a passing re-run or reboot; Override cannot lift it (§10.9).
+8. (Not raised) Quiet plays alarms only, so the Override chirp uses alarm priority — unchanged.
+9. **Fixed:** the EEPROM save is staged per block; the writer queue (now 80 B) can never overflow (§10.10).
 
 ### 10.9 Critical self-test lock (owner decision 6, 2026-10-12)
 A critical boot self-test failure **locks all motion** — network, IR and calibration — until a self-test re-run passes or the Uno reboots. Override cannot lift it (consistent with §10.2: Override never un-halts).

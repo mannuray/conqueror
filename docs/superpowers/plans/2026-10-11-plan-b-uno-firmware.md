@@ -12531,12 +12531,12 @@ git commit -m "feat(uno): IR remote keymap (drive, camera jog, speed, battery ch
 - [ ] **Step 1: Run the whole host suite**
 
 Run: `pio test -e native`
-Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 16, `test_settings` 8, `test_estimation` 10, `test_sensors` 12, `test_safety` 19, `test_encoders` 4, `test_calibration` 11, `test_motion_blocks` 11, `test_controllers` 8, `test_primitives` 9, `test_camera` 7, `test_ui` 16, `test_input` 13 — **148 test cases, 0 failures** (LLD Revision 3 added 16: Override 6, battery hysteresis 1, catalogue/LED/annunciator 7, IR `*` hold 2).
+Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 16, `test_settings` 9, `test_estimation` 10, `test_sensors` 12, `test_safety` 23, `test_encoders` 4, `test_calibration` 11, `test_motion_blocks` 11, `test_controllers` 8, `test_primitives` 9, `test_camera` 7, `test_ui` 16, `test_input` 13 — **153 test cases, 0 failures** (LLD Revision 3 added 21: Override 6 + adult envelope 1, critical self-test lock 3, EEPROM per-block save 1, battery hysteresis 1, catalogue/LED/annunciator 7, IR `*` hold 2).
 
 - [ ] **Step 2: Build gates and memory map**
 
 Run: `pio run -e uno && python3 scripts/size_gate.py`
-Expected: `size_gate: flash ≤ 30720 B, static RAM ≤ 1750 B` and exit 0. LLD §10.7 estimates Revision 3 (Safety Override, catalogue, LED styles, IR hold) at ≈ +1.3 KB flash and ≈ +40 B RAM (SoundSequencer buffer 14 notes, override state, LED style); if the gate fails, apply the LLD §9.20 / design-notes §13 overflow plan before trimming any safety feature.
+Expected: `size_gate: flash ≤ 30720 B, static RAM ≤ 1750 B` and exit 0. LLD §10.7 estimates Revision 3 (Safety Override, catalogue, LED styles, IR hold, child-play flag, self-test lock, per-block EEPROM save) at ≈ +1.7 KB flash (≈ 24.9–27.9 KB of 30 KB) and ≈ −10 B static RAM net (+40 B SoundSequencer 14 notes / override state / LED style, +7 B self-test lock, −56 B EEPROM writer queue 128 → 80 B); if the gate fails, apply the LLD §9.20 / design-notes §13 overflow plan before trimming any safety feature.
 Run: `~/.platformio/packages/toolchain-atmelavr/bin/avr-nm --size-sort -S -C .pio/build/uno/firmware.elf | grep -i " [bBdD] " | tail -15`
 Expected: the largest RAM symbols are `cq::g_app` (all domain state), the Serial RX/TX rings (64 + 64 B), `g_tx` (53 B) and the Servo table; nothing unexpected (no `String`, no `malloc`). Record the flash/RAM numbers in the commit message.
 
@@ -12672,7 +12672,7 @@ Note: Plan A names these enums `AudioModeValue` and `OwnerHintValue` (C++ `proto
 
 ## Done when
 
-- `cd firmware/uno && pio test -e native` passes all 148 host tests; `pio run -e uno && python3 scripts/size_gate.py` passes the flash/RAM budget.
+- `cd firmware/uno && pio test -e native` passes all 153 host tests; `pio run -e uno && python3 scripts/size_gate.py` passes the flash/RAM budget.
 - The phase 1 and phase 2 sign-off lists in Task 15 are fully ticked on the real tank.
 - `tools/smoke/uno_smoke.py` covers handshake, telemetry, settings, driving, primitives, camera, LED/sound, calibration scripts, probe, mount check, bias and soak — the same link behaviour Plan C's bridge and Plan D's bench tool build on.
 - `docs/lld/uno-firmware-lld.md` §9.8 lists the corrected IR codes.

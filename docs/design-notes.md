@@ -771,6 +771,7 @@ The old firmware could switch the safety stops off (`N=11`); the owner wants hum
 - **Ends:** after **60 s without driving** or **5 min** maximum, and on STOP, owner change, link loss or reboot. Never persistent.
 - CLAUDE.md safety rule reworded: never weakened **except through this designed Override**.
 - Follow-up (design-first): protocol additions (override command/event/flag, settings), spec 02 + Uno LLD sections, then Plan B tasks.
+- 2026-10-12 owner decisions on the Override design (Uno LLD §10.8): (1) flag in `flags2` bit 8 + event — accepted; (2) IR `*` held 2 s — accepted, code 0x42 confirmed at bring-up; (3) refused while a hard fault is latched — accepted; (4) **only the child-play envelope blocks Override** (marked by `ENVELOPE.lock_brake` bit 1 `CHILD_PLAY`); adult envelopes keep their speed/accel caps under Override; (5) Plan B only detects bumps — Override bump relaxation is a no-op until a bump stop exists; (6) **critical self-test failure (IMU missing/failed, battery reading implausible) locks all motion** until a passing `SELF_TEST` re-run or reboot, Override cannot lift it (LLD §10.9); (7) **EEPROM save staged per block** so the writer queue (128 → 80 B) can never overflow (LLD §10.10).
 
 ## 27. Self-describing firmware (DECIDED 2026-10-12)
 Lesson from the lost old firmware source: every board must be able to tell how to talk to it and where its code is.

@@ -1515,3 +1515,5 @@ sequenceDiagram
 
 ### 10.7 Budget
 Flash ≈ +1.3 KB (SafetyOverride + app glue ~0.6 KB, LED styles ~0.3 KB, IR hold ~0.1 KB, sound table +0.05 KB, routes/settings ~0.2 KB) → estimated total 24.5–27.5 KB of the 30 KB gate. RAM ≈ +40 B (override 12, kMaxNotes +16, IR hold 4, LED style 4, misc) → ≈ 1780 B of 2048 including the 400 B stack reserve; the static RAM gate (≤ 1750 B) keeps its margin because the stack reserve is not static. Measure at Task 15; overflow plan unchanged (§13 of design-notes).
+
+Plan B host tests after this revision: **147** (+15: Override 6 in `test_safety`, battery hysteresis 1 in `test_sensors`, catalogue/LED/annunciator 6 in `test_ui`, IR `*` hold 2 in `test_input`).

@@ -1328,7 +1328,7 @@ Source: design-notes §25 (catalogue update from the old firmware) and §26 (Saf
 | `BatteryMonitor` (Task 5) / settings | Recovery hysteresis = setting `batt_hyst` (200 mV) for low **and** critical (replaces the fixed +150 mV and the §4.4 +0.3 V); `batt_low` default 7.2 V. |
 | `catalogues` (Task 13) | Flat PROGMEM note pool + `(id, offset, count)` index; old melodies as `SoundId` 12–23; STARTUP = old boot sweep (14 notes) → `SoundSequencer::kMaxNotes` 10 → 14 (TONE stays ≤ 10). |
 | `LedSequencer` (Task 13) | New mode-independent brightness: `scale(Rgb, level)`; `kBase` layer **breathes** (triangle 2 s; 1 s when the battery is critical) when idle and is **speed-scaled** while driving; every output is capped by `led_max`. |
-| `Annunciator` (Task 13) | New inputs `override_on`, `toggle_seq/toggle_on`, `speed_pct`; new rules: Override pulse layer, toggle-confirm blinks, obstacle-stop red blink + safety chirp, tilt siren from the safety chirp. |
+| `Annunciator` (Task 13) | New `AnnState` inputs `override_on`, `override_seq`, `toggle_seq`, `toggle_on`, `driving`, `speed_pct`; new rules: Override pulse layer, toggle-confirm blinks, obstacle-stop red blink + safety chirp, tilt siren from the safety chirp. |
 | `GlobalSettings` (Task 3) | Fields `override_idle_s`, `override_max_s`, `override_tilt_deg`, `led_max`, `batt_hyst`. |
 
 ```mermaid
@@ -1408,8 +1408,9 @@ classDiagram
     }
     class LedSequencer {
       +set(LedLayer, LedPattern, now)
-      +setBase(Rgb, BaseStyle, uint8 speed_pct)
+      +active(LedLayer) bool
       +setMax(uint8 led_max)
+      +setBaseStyle(bool breathe, uint16 period_ms, uint8 level_pct)
       +output(now) Rgb
     }
     class BatteryMonitor {
@@ -1509,11 +1510,22 @@ sequenceDiagram
 - **Sound table:** flat `const Note kNotePool[] PROGMEM` + `const SoundIndex kSoundIndex[] PROGMEM = {id, offset, count}`. 23 sounds, 109 notes × 4 B + 23 × 3 B ≈ **505 B** flash (the Plan B per-row `Note[10]` layout would need 23 × 58 B ≈ 1.3 KB with a 14-note row). Net vs the old 11 × 42 B table: ≈ +45 B. `SoundSequencer::kMaxNotes` 14 → +16 B RAM (owned buffer). Old melody → id: 1 STARTUP, 2 SUCCESS, 3 FANFARE, 4 SAD, 5 SAFETY_CHIRP, 6 ACK_BLIP, 7 FAIL, 8 CONFIRM, 9 QUESTION, 10 OK_CHIRP, 11 GRUMBLE, 12 SCAN, 13 GOODBYE (notes exactly as `docs/legacy/uno-old-led-buzzer.md` §1; rests = `hz 0`).
 - **Tilt siren** = SAFETY_CHIRP repeated at alarm priority every 400 ms while tilted (replaces "ouch" on tilt). **Obstacle stop** (blocked rising edge) = SAFETY_CHIRP once, event priority, and LED `kAttention` red blink 100/100 ms while blocked (replaces the tick).
 - **Override** on/off = CHIRP_UP / CHIRP_DOWN at alarm priority (Plan B's Quiet plays alarms only; Mute silences all); LED `kAttention` layer while on: PULSE amber-red (255,60,0), period 1000 ms (one colour: `LedMode` has no two-colour pattern). Alarms (`kAlarm`) still win.
-- **Toggle confirm** (mute 7, parking `*` tap, Override): one-shot on layer `kAttention` (below `kAlarm`): BLINK 80/80 ms, duration 480 ms, green = on, red = off; after it expires the attention layer is re-picked (obstacle blink > Override pulse > none).
-- **Base colour styles:** `kBase` layer is styled by the sequencer: idle (no motion for 1 s) → breathe, triangle, period 2000 ms (1000 ms when battery critical), level 20 %…100 %; driving → level = 20 % + 80 % × max(|L|,|R|) / 100. Final level × `led_max` / 255. One integer multiply per channel; the WS2812 is written only on change (§6.4).
+- **Toggle confirm** (mute 7, parking `*` tap, Override): one-shot on layer `kAttention` (below `kAlarm`): BLINK 80/80 ms, duration 480 ms, green = on, red = off; after it expires the attention layer is re-picked (obstacle blink > Override pulse > none). It is also re-picked whenever the layer went inactive (e.g. the 2 s IR `9` battery-check colour expired) while blocked or Override still holds, so the Override indication never disappears while Override is on.
+- **Base colour styles:** `kBase` layer is styled by the sequencer: idle (not moving: `g_app.moving` false, 300 ms after the last non-zero output) → breathe, triangle, period 2000 ms (1000 ms when battery critical), level 20 %…100 %; driving → level = 20 % + 80 % × max(|L|,|R|) / 100. Final level × `led_max` / 255. One integer multiply per channel; the WS2812 is written only on change (§6.4).
 - **Battery:** low < `batt_low` (7.2 V), critical < `batt_crit` (6.6 V), each 2 s sustained; recovery above threshold + `batt_hyst` (0.2 V) — low/critical as in the old firmware (7.2/7.4, 6.6/6.8 V).
 
 ### 10.7 Budget
 Flash ≈ +1.3 KB (SafetyOverride + app glue ~0.6 KB, LED styles ~0.3 KB, IR hold ~0.1 KB, sound table +0.05 KB, routes/settings ~0.2 KB) → estimated total 24.5–27.5 KB of the 30 KB gate. RAM ≈ +40 B (override 12, kMaxNotes +16, IR hold 4, LED style 4, misc) → ≈ 1780 B of 2048 including the 400 B stack reserve; the static RAM gate (≤ 1750 B) keeps its margin because the stack reserve is not static. Measure at Task 15; overflow plan unchanged (§13 of design-notes).
 
-Plan B host tests after this revision: **147** (+15: Override 6 in `test_safety`, battery hysteresis 1 in `test_sensors`, catalogue/LED/annunciator 6 in `test_ui`, IR `*` hold 2 in `test_input`).
+Plan B host tests after this revision: **148** (+16: Override 6 in `test_safety`, battery hysteresis 1 in `test_sensors`, catalogue/LED/annunciator 7 in `test_ui`, IR `*` hold 2 in `test_input`).
+
+### 10.8 Pending owner confirmation (proposed in this revision)
+1. Override telemetry flag is `flags2` bit 8 (slow, 1 Hz) + the immediate `SAFETY_OVERRIDE` event: `TELEM_FAST.flags` has no free bit (widening it is a breaking change).
+2. IR key `*` for the 2 s hold (old code `0x42` assumed to be `*`; confirm at the Task 14/15 code capture); a `*` tap now acts on release.
+3. Entry refused with `BLOCKED` while a hard fault is latched (Override never un-halts the tank).
+4. Entry refused while **any** envelope is active, not only the child-play preset.
+5. Owner → None (idle release) does not end Override; only the 60 s idle timer, 5 min limit or another principal does.
+6. Plan B has **no bump stop** (bump = event + sound only, unlike spec 02 §A6's 300 ms stop), so "bump stop off" is a no-op today; add the bump stop to Plan B?
+7. Plan B never locks the motors on a critical self-test (only reports it); spec 02 §A11 says it should. Override already treats it as a latched fault.
+8. Plan B's Quiet mode plays alarms only, so the Override enter/exit chirp uses alarm priority (silent only in Mute).
+9. EEPROM writer queue now at 123 of 128 B (global block 66 B, profile 54 B, magic 3 B) — the next global setting needs a bigger queue.

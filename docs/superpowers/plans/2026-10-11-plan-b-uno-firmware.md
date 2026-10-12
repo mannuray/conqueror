@@ -10219,7 +10219,8 @@ git commit -m "feat(uno): camera pan/tilt with trapezoid servo profiles, joystic
   - `cq::Note { uint16_t hz; uint16_t ms; }`; `cq::SoundSequencer`: `bool play(const Note* notes, uint8_t n, uint8_t priority, uint32_t now_ms)`, `void setMode(proto::AudioModeValue m)`, `proto::AudioModeValue mode() const`, `void stop()`, `bool tick(uint32_t now_ms, uint16_t& hz)` (true when the output changed; 0 = silence), `bool playing() const`; priorities `kPrioInfo = 1, kPrioEvent = 2, kPrioAlarm = 3`.
   - `cq::LedLayer : uint8_t { kAlarm, kAttention, kCustom, kStatus, kBase, kCount }` (lower = wins); `cq::LedPattern { proto::LedMode mode; Rgb color; uint16_t period_ms; uint16_t duration_ms; }`; `cq::LedSequencer`: `void set(LedLayer, const LedPattern&, uint32_t now_ms)`, `void clear(LedLayer)`, `Rgb output(uint32_t now_ms)`.
   - `cq::soundNotes(proto::SoundId id, Note* out) -> uint8_t` (count, PROGMEM catalogue).
-  - `cq::AnnState { bool synced, calibrating, blocked, lifted, tilted, batt_low, batt_crit, selftest_critical, reversing, forward, parking_beeps; proto::Owner owner; proto::OwnerHintValue hint; uint8_t bump_seq; bool selftest_done; bool selftest_failed; }`; `cq::Annunciator::update(const AnnState&, uint32_t now_ms, LedSequencer&, SoundSequencer&)`.
+  - `cq::AnnState { bool synced, calibrating, blocked, lifted, tilted, batt_low, batt_crit, selftest_critical, reversing, forward, parking_beeps; proto::Owner owner; proto::OwnerHintValue hint; uint8_t bump_seq; bool selftest_done; bool selftest_failed; bool override_on; uint8_t override_seq; uint8_t toggle_seq; bool toggle_on; bool driving; uint8_t speed_pct; }`; `cq::Annunciator::update(const AnnState&, uint32_t now_ms, LedSequencer&, SoundSequencer&)`.
+  - Catalogue Revision 3 (LLD §10.6): flat PROGMEM note pool + `(id, offset, count)` index; STARTUP = the old boot sweep (14 notes, so `SoundSequencer::kMaxNotes` = 14; TONE stays ≤ 10); SoundId 12–23 = old melodies 2–13. `LedSequencer::setMax(uint8_t)` (setting `led_max`), `LedSequencer::setBaseStyle(bool breathe, uint16_t period_ms, uint8_t level_pct)` (SOLID base only: breathe 20–100 % idle, 20 % + 80 % × speed driving); `LedSequencer::kMinLevelPct = 20`. Annunciator: tilt siren = SAFETY_CHIRP every 400 ms; obstacle stop = SAFETY_CHIRP once + red 100/100 ms blink; Override = chirp up/down (alarm priority) + 3 green/red blinks, then an amber-red pulse; IR toggles (mute, parking) = 3 green/red blinks. App members `toggle_seq`, `toggle_on` (set by Task 14). `flags2.brake_off` reports the effective brake (off while Override is on).
   - Ports `cq::port::tone::{begin(), play(uint16_t hz), stop()}`, `cq::port::led::{begin(), write(const Rgb&)}`.
   - `app/tasks.h`: `cq::app::uiInit()`, `uiTask()` (50 Hz); `app/ui_api.h` (like `camera_api.h`): handlers `onLed/onSound/onTone/onAudioMode`. The alarm LED layer is re-picked on any change of tilted/lifted/batt_crit/batt_low/selftest_critical.
   - Smoke: `sound NAME [--mode normal|quiet|mute]`, `led MODE R G B`; `cmd_drive` prints the last `SLOW load/errs`.
@@ -10298,8 +10299,8 @@ void test_led_pulse_peaks_mid_period() {
 
 void test_catalogue() {
   Note n[SoundSequencer::kMaxNotes];
-  TEST_ASSERT_EQUAL(4, soundNotes(proto::SoundId::kStartup, n));
-  TEST_ASSERT_EQUAL(523, n[0].hz);
+  TEST_ASSERT_EQUAL(14, soundNotes(proto::SoundId::kStartup, n));  // old boot sweep
+  TEST_ASSERT_EQUAL(200, n[0].hz);
   TEST_ASSERT_EQUAL(0, soundNotes(static_cast<proto::SoundId>(200), n));
 }
 
@@ -10309,6 +10310,8 @@ AnnState base() {
   s.synced = true;
   s.owner = proto::Owner::kNone;
   s.hint = proto::OwnerHintValue::kNone;
+  s.driving = true;  // steady base colour at full level (no breathing) unless a test says otherwise
+  s.speed_pct = 100;
   return s;
 }
 }  // namespace
@@ -10381,6 +10384,119 @@ void test_annunciator_alarm_follows_remaining_cause() {
   TEST_ASSERT_TRUE((l.output(2700) == Annunciator::kColorAlarm));
 }
 
+// LLD §10.6: the old-firmware melodies keep their exact lengths (docs/legacy/uno-old-led-buzzer.md §1).
+void test_catalogue_old_melodies() {
+  struct Expect {
+    proto::SoundId id;
+    uint8_t count;
+    uint16_t total_ms;
+  };
+  const Expect e[] = {
+      {proto::SoundId::kStartup, 14, 1100}, {proto::SoundId::kSuccess, 9, 445},    {proto::SoundId::kFanfare, 9, 550},
+      {proto::SoundId::kSad, 6, 590},       {proto::SoundId::kSafetyChirp, 5, 160}, {proto::SoundId::kAckBlip, 2, 100},
+      {proto::SoundId::kFail, 5, 710},      {proto::SoundId::kConfirm, 7, 255},    {proto::SoundId::kQuestion, 6, 390},
+      {proto::SoundId::kOkChirp, 3, 100},   {proto::SoundId::kGrumble, 4, 260},    {proto::SoundId::kScan, 7, 350},
+      {proto::SoundId::kGoodbye, 4, 390},
+  };
+  Note n[SoundSequencer::kMaxNotes];
+  for (const Expect& x : e) {
+    TEST_ASSERT_EQUAL(x.count, soundNotes(x.id, n));
+    uint16_t total = 0;
+    for (uint8_t i = 0; i < x.count; ++i) total = static_cast<uint16_t>(total + n[i].ms);
+    TEST_ASSERT_EQUAL(x.total_ms, total);
+  }
+  soundNotes(proto::SoundId::kSafetyChirp, n);
+  TEST_ASSERT_EQUAL(3000, n[2].hz);
+}
+
+void test_led_max_caps_every_layer() {
+  LedSequencer l;
+  l.setMax(50);
+  l.set(LedLayer::kAlarm, {proto::LedMode::kSolid, {255, 0, 0}, 0, 0}, 0);
+  TEST_ASSERT_TRUE((l.output(0) == Rgb{50, 0, 0}));
+  l.clear(LedLayer::kAlarm);
+  l.set(LedLayer::kCustom, {proto::LedMode::kSolid, {0, 0, 200}, 0, 0}, 0);
+  TEST_ASSERT_TRUE((l.output(0) == Rgb{0, 0, 39}));
+}
+
+void test_led_base_breathes_idle_and_scales_with_speed() {
+  LedSequencer l;
+  l.set(LedLayer::kBase, {proto::LedMode::kSolid, {0, 200, 0}, 0, 0}, 0);
+  l.setBaseStyle(true, 2000, 100);              // idle: breathe 20 % → 100 % → 20 % over 2 s
+  TEST_ASSERT_EQUAL(40, l.output(0).g);         // 20 %
+  TEST_ASSERT_EQUAL(200, l.output(1000).g);     // 100 % mid-period
+  TEST_ASSERT_UINT8_WITHIN(2, 120, l.output(500).g);
+  l.setBaseStyle(false, 2000, 20);              // driving at 0 %
+  TEST_ASSERT_EQUAL(40, l.output(1000).g);
+  l.setBaseStyle(false, 2000, 100);             // driving at full speed
+  TEST_ASSERT_EQUAL(200, l.output(1000).g);
+  l.set(LedLayer::kStatus, {proto::LedMode::kSolid, {0, 0, 100}, 0, 0}, 0);
+  TEST_ASSERT_EQUAL(100, l.output(0).b);        // only the base layer is styled
+}
+
+void test_annunciator_obstacle_stop_chirp_and_blink() {
+  Annunciator a;
+  LedSequencer l;
+  SoundSequencer snd;
+  AnnState s = base();
+  a.update(s, 0, l, snd);
+  snd.stop();
+  s.blocked = true;
+  a.update(s, 20, l, snd);
+  uint16_t hz = 0;
+  TEST_ASSERT_TRUE(snd.tick(20, hz));
+  TEST_ASSERT_EQUAL(2500, hz);                                     // safety chirp, once
+  TEST_ASSERT_TRUE((l.output(20 + 50) == Annunciator::kColorAlarm));  // 100 ms on
+  TEST_ASSERT_TRUE((l.output(20 + 150) == Rgb{0, 0, 0}));            // 100 ms off
+  for (uint32_t t = 40; t < 1000; t += 20) {
+    a.update(s, t, l, snd);
+    snd.tick(t, hz);
+  }
+  TEST_ASSERT_FALSE(snd.playing());  // not repeated while blocked
+}
+
+void test_annunciator_override_pulse_and_toggle_blinks() {
+  Annunciator a;
+  LedSequencer l;
+  SoundSequencer snd;
+  AnnState s = base();
+  a.update(s, 0, l, snd);
+  s.override_on = true;
+  ++s.override_seq;
+  a.update(s, 100, l, snd);
+  TEST_ASSERT_TRUE(snd.playing());                                       // chirp up
+  TEST_ASSERT_TRUE((l.output(100 + 40) == Annunciator::kColorOn));        // green blink 1
+  TEST_ASSERT_TRUE((l.output(100 + 120) == Rgb{0, 0, 0}));
+  a.update(s, 600, l, snd);                                              // 480 ms later: pulse
+  TEST_ASSERT_TRUE((l.output(600 + 500) == Annunciator::kColorOverride)); // pulse peak
+  s.override_on = false;
+  ++s.override_seq;
+  a.update(s, 2000, l, snd);
+  TEST_ASSERT_TRUE((l.output(2000 + 40) == Annunciator::kColorAlarm));    // red blink = off
+  a.update(s, 2500, l, snd);
+  TEST_ASSERT_TRUE((l.output(2500 + 500) == Annunciator::kColorReady));   // back to the base colour
+  ++s.toggle_seq;                                                        // IR mute toggled on
+  s.toggle_on = true;
+  a.update(s, 3000, l, snd);
+  TEST_ASSERT_TRUE((l.output(3000 + 40) == Annunciator::kColorOn));
+}
+
+void test_annunciator_tilt_siren_repeats() {
+  Annunciator a;
+  LedSequencer l;
+  SoundSequencer snd;
+  AnnState s = base();
+  a.update(s, 0, l, snd);
+  s.tilted = true;
+  uint16_t hz = 0;
+  int starts = 0;
+  for (uint32_t t = 20; t < 2020; t += 20) {
+    a.update(s, t, l, snd);
+    if (snd.tick(t, hz) && hz == 3000) ++starts;  // one 3000 Hz note per chirp
+  }
+  TEST_ASSERT_INT_WITHIN(1, 5, starts);  // one safety chirp every 400 ms
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_sound_plays_notes_in_order);
@@ -10392,6 +10508,12 @@ int main() {
   RUN_TEST(test_annunciator_owner_colours);
   RUN_TEST(test_annunciator_parking_beeps_only_when_enabled);
   RUN_TEST(test_annunciator_alarm_follows_remaining_cause);
+  RUN_TEST(test_catalogue_old_melodies);
+  RUN_TEST(test_led_max_caps_every_layer);
+  RUN_TEST(test_led_base_breathes_idle_and_scales_with_speed);
+  RUN_TEST(test_annunciator_obstacle_stop_chirp_and_blink);
+  RUN_TEST(test_annunciator_override_pulse_and_toggle_blinks);
+  RUN_TEST(test_annunciator_tilt_siren_repeats);
   return UNITY_END();
 }
 ```
@@ -10420,7 +10542,7 @@ struct Note {
 // Non-blocking note player for the passive buzzer. Higher priority interrupts; QUIET plays alarms only.
 class SoundSequencer {
  public:
-  static constexpr uint8_t kMaxNotes = 10;
+  static constexpr uint8_t kMaxNotes = 14;  // STARTUP (old boot sweep) has 14; TONE stays <= 10
   static constexpr uint8_t kPrioInfo = 1;
   static constexpr uint8_t kPrioEvent = 2;
   static constexpr uint8_t kPrioAlarm = 3;
@@ -10523,15 +10645,27 @@ struct LedPattern {
 
 class LedSequencer {
  public:
+  static constexpr uint8_t kMinLevelPct = 20;  // breathing floor and level at standstill (LLD §10.6)
+
   void set(LedLayer layer, const LedPattern& p, uint32_t now_ms);
   void clear(LedLayer layer) { m_active[static_cast<uint8_t>(layer)] = false; }
+  // led_max (setting, default 50): every output is scaled by max / 255.
+  void setMax(uint8_t max) { m_max = max; }
+  // Style of a SOLID base layer (the owner colour): breathe (triangle 20..100 %, period) when idle, else a steady
+  // level in % (20 % + 80 % × speed while driving). Default: steady 100 % (no styling).
+  void setBaseStyle(bool breathe, uint16_t period_ms, uint8_t level_pct);
   Rgb output(uint32_t now_ms);
 
  private:
+  Rgb raw(uint32_t now_ms, uint8_t& layer);
   static constexpr uint8_t kLayers = static_cast<uint8_t>(LedLayer::kCount);
   LedPattern m_p[kLayers] = {};
   uint32_t m_start_ms[kLayers] = {};
   bool m_active[kLayers] = {};
+  uint8_t m_max = 255;
+  bool m_breathe = false;
+  uint16_t m_breathe_ms = 2000;
+  uint8_t m_level_pct = 100;
 };
 
 }  // namespace cq
@@ -10545,6 +10679,13 @@ class LedSequencer {
 
 namespace cq {
 
+namespace {
+Rgb scale(const Rgb& c, uint16_t num, uint16_t den) {
+  return Rgb{static_cast<uint8_t>(c.r * num / den), static_cast<uint8_t>(c.g * num / den),
+             static_cast<uint8_t>(c.b * num / den)};
+}
+}  // namespace
+
 void LedSequencer::set(LedLayer layer, const LedPattern& p, uint32_t now_ms) {
   const uint8_t i = static_cast<uint8_t>(layer);
   m_p[i] = p;
@@ -10552,7 +10693,13 @@ void LedSequencer::set(LedLayer layer, const LedPattern& p, uint32_t now_ms) {
   m_active[i] = true;
 }
 
-Rgb LedSequencer::output(uint32_t now_ms) {
+void LedSequencer::setBaseStyle(bool breathe, uint16_t period_ms, uint8_t level_pct) {
+  m_breathe = breathe;
+  m_breathe_ms = period_ms < 2 ? 2 : period_ms;
+  m_level_pct = level_pct > 100 ? 100 : level_pct;
+}
+
+Rgb LedSequencer::raw(uint32_t now_ms, uint8_t& layer) {
   for (uint8_t i = 0; i < kLayers; ++i) {
     if (!m_active[i]) continue;
     const LedPattern& p = m_p[i];
@@ -10560,6 +10707,7 @@ Rgb LedSequencer::output(uint32_t now_ms) {
       m_active[i] = false;
       continue;
     }
+    layer = i;
     const uint32_t period = p.period_ms == 0 ? 1000u : p.period_ms;
     const uint32_t phase = (now_ms - m_start_ms[i]) % period;
     switch (p.mode) {
@@ -10572,12 +10720,29 @@ Rgb LedSequencer::output(uint32_t now_ms) {
       case proto::LedMode::kPulse: {
         const uint32_t half = period / 2;
         const uint32_t level = phase < half ? (phase * 255u) / half : ((period - phase) * 255u) / half;
-        return Rgb{static_cast<uint8_t>(p.color.r * level / 255u), static_cast<uint8_t>(p.color.g * level / 255u),
-                   static_cast<uint8_t>(p.color.b * level / 255u)};
+        return scale(p.color, static_cast<uint16_t>(level), 255);
       }
     }
   }
+  layer = kLayers;
   return Rgb{0, 0, 0};
+}
+
+Rgb LedSequencer::output(uint32_t now_ms) {
+  uint8_t layer = kLayers;
+  Rgb c = raw(now_ms, layer);
+  const uint8_t base = static_cast<uint8_t>(LedLayer::kBase);
+  if (layer == base && m_p[base].mode == proto::LedMode::kSolid) {
+    uint8_t pct = m_level_pct;
+    if (m_breathe) {  // triangle on the global clock: 20 % → 100 % → 20 %
+      const uint32_t half = m_breathe_ms / 2u;
+      const uint32_t phase = now_ms % m_breathe_ms;
+      const uint32_t tri = phase < half ? phase : m_breathe_ms - phase;  // 0..half
+      pct = static_cast<uint8_t>(kMinLevelPct + (100u - kMinLevelPct) * tri / half);
+    }
+    c = scale(c, pct, 100);
+  }
+  return m_max == 255 ? c : scale(c, m_max, 255);
 }
 
 }  // namespace cq
@@ -10615,37 +10780,82 @@ uint8_t soundNotes(proto::SoundId id, Note* out);
 namespace cq {
 namespace {
 
-struct SoundDef {
+// One flat note pool + a small index (LLD §10.6): a 14-note row does not make every row 14 notes long.
+// Old-firmware melodies (docs/legacy/uno-old-led-buzzer.md §1) keep their exact notes; hz 0 = rest.
+const Note kPool[] PROGMEM = {
+    // 0 STARTUP = old melody 1, rising sweep + two-note tag (14)
+    {200, 150}, {0, 80}, {500, 120}, {0, 60}, {1000, 100}, {0, 40}, {1500, 60}, {2000, 60}, {2500, 60}, {3000, 60},
+    {0, 60}, {1500, 60}, {0, 40}, {2000, 150},
+    // 14 READY (2)
+    {784, 80}, {1047, 120},
+    // 16 SELFTEST_FAIL (3)
+    {400, 200}, {0, 80}, {300, 400},
+    // 19 CHIRP_UP (3), 22 CHIRP_DOWN (3), 25 BLIP (1), 26 TICK (1)
+    {1000, 40}, {1500, 40}, {2000, 40}, {2000, 40}, {1500, 40}, {1000, 40}, {1800, 30}, {2500, 15},
+    // 27 JINGLE (5), 32 THINKING (5)
+    {784, 120}, {659, 120}, {523, 120}, {659, 120}, {784, 240}, {600, 80}, {0, 80}, {700, 80}, {0, 80}, {800, 80},
+    // 37 OUCH (2), 39 ERROR (3)
+    {1200, 60}, {600, 150}, {300, 150}, {0, 60}, {300, 150},
+    // 42 SUCCESS = old 2 (9)
+    {800, 50}, {0, 25}, {1000, 50}, {0, 25}, {1400, 50}, {0, 25}, {1800, 80}, {0, 20}, {2200, 120},
+    // 51 FANFARE = old 3 (9)
+    {1200, 60}, {0, 30}, {1600, 60}, {0, 30}, {2000, 60}, {0, 50}, {2400, 80}, {0, 30}, {2400, 150},
+    // 60 SAD = old 4 (6)
+    {1500, 80}, {1200, 80}, {800, 100}, {0, 50}, {600, 80}, {400, 200},
+    // 66 SAFETY_CHIRP = old 5 (5)
+    {2500, 40}, {0, 20}, {3000, 40}, {0, 20}, {2500, 40},
+    // 71 ACK_BLIP = old 6 (2)
+    {1800, 40}, {1400, 60},
+    // 73 FAIL = old 7 (5)
+    {800, 150}, {0, 80}, {600, 150}, {0, 80}, {400, 250},
+    // 78 CONFIRM = old 8 (7)
+    {1500, 40}, {0, 20}, {2000, 40}, {0, 20}, {2500, 40}, {0, 15}, {2800, 80},
+    // 85 QUESTION = old 9 (6)
+    {800, 60}, {1200, 60}, {1600, 80}, {0, 30}, {1200, 60}, {2000, 100},
+    // 91 OK_CHIRP = old 10 (3)
+    {1500, 30}, {0, 20}, {2200, 50},
+    // 94 GRUMBLE = old 11 (4)
+    {300, 60}, {250, 60}, {300, 60}, {250, 80},
+    // 98 SCAN = old 12 (7)
+    {600, 50}, {1000, 50}, {1500, 50}, {2000, 50}, {1500, 50}, {1000, 50}, {600, 50},
+    // 105 GOODBYE = old 13 (4)
+    {1500, 80}, {1000, 80}, {600, 80}, {300, 150},
+};  // 109 notes = 436 B
+
+struct SoundIndex {
   uint8_t id;
-  uint8_t n;
-  Note notes[SoundSequencer::kMaxNotes];
+  uint8_t offset;
+  uint8_t count;
 };
 
 constexpr uint8_t id(proto::SoundId s) { return static_cast<uint8_t>(s); }
 
-const SoundDef kSounds[] PROGMEM = {
-    {id(proto::SoundId::kStartup), 4, {{523, 100}, {659, 100}, {784, 100}, {1047, 200}}},
-    {id(proto::SoundId::kReady), 2, {{784, 80}, {1047, 120}}},
-    {id(proto::SoundId::kSelftestFail), 3, {{400, 200}, {0, 80}, {300, 400}}},
-    {id(proto::SoundId::kChirpUp), 3, {{1000, 40}, {1500, 40}, {2000, 40}}},
-    {id(proto::SoundId::kChirpDown), 3, {{2000, 40}, {1500, 40}, {1000, 40}}},
-    {id(proto::SoundId::kBlip), 1, {{1800, 30}}},
-    {id(proto::SoundId::kTick), 1, {{2500, 15}}},
-    {id(proto::SoundId::kJingle), 5, {{784, 120}, {659, 120}, {523, 120}, {659, 120}, {784, 240}}},
-    {id(proto::SoundId::kThinking), 5, {{600, 80}, {0, 80}, {700, 80}, {0, 80}, {800, 80}}},
-    {id(proto::SoundId::kOuch), 2, {{1200, 60}, {600, 150}}},
-    {id(proto::SoundId::kError), 3, {{300, 150}, {0, 60}, {300, 150}}},
-};
+const SoundIndex kIndex[] PROGMEM = {
+    {id(proto::SoundId::kStartup), 0, 14},    {id(proto::SoundId::kReady), 14, 2},
+    {id(proto::SoundId::kSelftestFail), 16, 3}, {id(proto::SoundId::kChirpUp), 19, 3},
+    {id(proto::SoundId::kChirpDown), 22, 3},  {id(proto::SoundId::kBlip), 25, 1},
+    {id(proto::SoundId::kTick), 26, 1},       {id(proto::SoundId::kJingle), 27, 5},
+    {id(proto::SoundId::kThinking), 32, 5},   {id(proto::SoundId::kOuch), 37, 2},
+    {id(proto::SoundId::kError), 39, 3},      {id(proto::SoundId::kSuccess), 42, 9},
+    {id(proto::SoundId::kFanfare), 51, 9},    {id(proto::SoundId::kSad), 60, 6},
+    {id(proto::SoundId::kSafetyChirp), 66, 5}, {id(proto::SoundId::kAckBlip), 71, 2},
+    {id(proto::SoundId::kFail), 73, 5},       {id(proto::SoundId::kConfirm), 78, 7},
+    {id(proto::SoundId::kQuestion), 85, 6},   {id(proto::SoundId::kOkChirp), 91, 3},
+    {id(proto::SoundId::kGrumble), 94, 4},    {id(proto::SoundId::kScan), 98, 7},
+    {id(proto::SoundId::kGoodbye), 105, 4},
+};  // 23 × 3 B = 69 B
+
+static_assert(sizeof kPool / sizeof kPool[0] == 109, "pool offsets above assume 109 notes");
 
 }  // namespace
 
 uint8_t soundNotes(proto::SoundId sid, Note* out) {
-  for (uint8_t i = 0; i < sizeof kSounds / sizeof kSounds[0]; ++i) {
-    SoundDef d;
-    CQ_READ_P(&d, &kSounds[i], sizeof d);
+  for (uint8_t i = 0; i < sizeof kIndex / sizeof kIndex[0]; ++i) {
+    SoundIndex d;
+    CQ_READ_P(&d, &kIndex[i], sizeof d);
     if (d.id != static_cast<uint8_t>(sid)) continue;
-    for (uint8_t k = 0; k < d.n; ++k) out[k] = d.notes[k];
-    return d.n;
+    CQ_READ_P(out, &kPool[d.offset], static_cast<size_t>(d.count) * sizeof(Note));
+    return d.count;
   }
   return 0;
 }
@@ -10680,6 +10890,13 @@ struct AnnState {
   uint8_t bump_seq;
   bool selftest_done;
   bool selftest_failed;
+  // LLD §10.6 (Revision 3)
+  bool override_on;      // SafetyOverride::active()
+  uint8_t override_seq;  // +1 per Override enter/exit → chirp + toggle blinks
+  uint8_t toggle_seq;    // +1 per IR toggle (mute 7, parking-beeps * tap) → toggle blinks
+  bool toggle_on;        // state after that toggle (green = on, red = off)
+  bool driving;          // tracks moving (base colour scales with speed instead of breathing)
+  uint8_t speed_pct;     // max(|L|, |R|) output, %
 };
 
 // Turns robot state into LED layers and sounds (edges only; no event hooks needed).
@@ -10694,7 +10911,11 @@ class Annunciator {
   static constexpr Rgb kColorCal{120, 100, 0};     // yellow blink
   static constexpr Rgb kColorAlarm{255, 0, 0};
   static constexpr Rgb kColorLow{160, 50, 0};      // orange pulse
+  static constexpr Rgb kColorOverride{255, 60, 0}; // amber-red pulse while Safety Override is on
+  static constexpr Rgb kColorOn{0, 255, 0};        // toggle confirm: on
   static constexpr uint16_t kParkingBeepMs = 600;
+  static constexpr uint16_t kTiltSirenMs = 400;     // safety chirp repeat while tilted
+  static constexpr uint16_t kToggleBlinkMs = 480;   // 3 × (80 on + 80 off)
 
   void update(const AnnState& s, uint32_t now_ms, LedSequencer& led, SoundSequencer& snd);
 
@@ -10704,7 +10925,11 @@ class Annunciator {
   bool m_primed = false;
   uint32_t m_last_beep_ms = 0;
   uint32_t m_last_crit_ms = 0;
+  uint32_t m_last_siren_ms = 0;
+  uint32_t m_toggle_since_ms = 0;
+  bool m_toggle_active = false;
   bool m_prev_base_set = false;
+  void pickAttention(const AnnState& s, uint32_t now_ms, LedSequencer& led);
 };
 
 }  // namespace cq
@@ -10725,6 +10950,16 @@ void Annunciator::sound(proto::SoundId id, uint8_t prio, uint32_t now_ms, SoundS
   snd.play(n, count, prio, now_ms);
 }
 
+void Annunciator::pickAttention(const AnnState& s, uint32_t now_ms, LedSequencer& led) {
+  if (s.blocked) {
+    led.set(LedLayer::kAttention, {proto::LedMode::kBlink, kColorAlarm, 200, 0}, now_ms);
+  } else if (s.override_on) {
+    led.set(LedLayer::kAttention, {proto::LedMode::kPulse, kColorOverride, 1000, 0}, now_ms);
+  } else {
+    led.clear(LedLayer::kAttention);
+  }
+}
+
 void Annunciator::update(const AnnState& s, uint32_t now_ms, LedSequencer& led, SoundSequencer& snd) {
   const AnnState p = m_primed ? m_prev : AnnState{};
   m_primed = true;
@@ -10735,14 +10970,24 @@ void Annunciator::update(const AnnState& s, uint32_t now_ms, LedSequencer& led, 
           now_ms, snd);
   }
   if (s.synced && !p.synced) sound(proto::SoundId::kReady, SoundSequencer::kPrioInfo, now_ms, snd);
-  if ((s.tilted && !p.tilted) || s.bump_seq != p.bump_seq) sound(proto::SoundId::kOuch, SoundSequencer::kPrioAlarm, now_ms, snd);
+  // Tilt siren = the old safety chirp, repeated while tilted (LLD §10.6); a bump keeps its "ouch".
+  if (s.tilted && (!p.tilted || elapsed(now_ms, m_last_siren_ms, kTiltSirenMs))) {
+    m_last_siren_ms = now_ms;
+    sound(proto::SoundId::kSafetyChirp, SoundSequencer::kPrioAlarm, now_ms, snd);
+  }
+  if (s.bump_seq != p.bump_seq) sound(proto::SoundId::kOuch, SoundSequencer::kPrioAlarm, now_ms, snd);
   if (s.lifted && !p.lifted) sound(proto::SoundId::kBlip, SoundSequencer::kPrioEvent, now_ms, snd);
   if (s.batt_low && !p.batt_low) sound(proto::SoundId::kError, SoundSequencer::kPrioEvent, now_ms, snd);
   if (s.batt_crit && (!p.batt_crit || elapsed(now_ms, m_last_crit_ms, 30000))) {
     m_last_crit_ms = now_ms;
     sound(proto::SoundId::kError, SoundSequencer::kPrioAlarm, now_ms, snd);
   }
-  if (s.blocked && !p.blocked) sound(proto::SoundId::kTick, SoundSequencer::kPrioEvent, now_ms, snd);
+  if (s.blocked && !p.blocked) sound(proto::SoundId::kSafetyChirp, SoundSequencer::kPrioEvent, now_ms, snd);
+  // Safety Override enter/exit: chirp at alarm priority (plays in Quiet) + toggle blinks (below).
+  if (s.override_seq != p.override_seq) {
+    sound(s.override_on ? proto::SoundId::kChirpUp : proto::SoundId::kChirpDown, SoundSequencer::kPrioAlarm, now_ms,
+          snd);
+  }
   if (s.owner == proto::Owner::kIr && p.owner != proto::Owner::kIr) sound(proto::SoundId::kBlip, SoundSequencer::kPrioInfo, now_ms, snd);
   if (s.forward && !p.forward) sound(proto::SoundId::kChirpUp, SoundSequencer::kPrioInfo, now_ms, snd);
   if (s.reversing && !p.reversing) {
@@ -10770,12 +11015,18 @@ void Annunciator::update(const AnnState& s, uint32_t now_ms, LedSequencer& led, 
       led.clear(LedLayer::kAlarm);
     }
   }
-  if (s.blocked != p.blocked) {
-    if (s.blocked) {
-      led.set(LedLayer::kAttention, {proto::LedMode::kBlink, kColorAlarm, 200, 0}, now_ms);
-    } else {
-      led.clear(LedLayer::kAttention);
-    }
+  // Attention layer: toggle-confirm blinks > obstacle-stop red blink (100/100 ms) > Override pulse > none.
+  const bool toggled = s.toggle_seq != p.toggle_seq || s.override_seq != p.override_seq;
+  if (toggled) {
+    const bool on = s.override_seq != p.override_seq ? s.override_on : s.toggle_on;
+    led.set(LedLayer::kAttention, {proto::LedMode::kBlink, on ? kColorOn : kColorAlarm, 160, kToggleBlinkMs}, now_ms);
+    m_toggle_active = true;
+    m_toggle_since_ms = now_ms;
+  } else if (m_toggle_active && elapsed(now_ms, m_toggle_since_ms, kToggleBlinkMs)) {
+    m_toggle_active = false;
+    pickAttention(s, now_ms, led);
+  } else if (!m_toggle_active && (s.blocked != p.blocked || s.override_on != p.override_on)) {
+    pickAttention(s, now_ms, led);
   }
   if (s.calibrating != p.calibrating) {
     if (s.calibrating) {
@@ -10796,6 +11047,11 @@ void Annunciator::update(const AnnState& s, uint32_t now_ms, LedSequencer& led, 
     }
     led.set(LedLayer::kBase, base, now_ms);
   }
+  // Base colour: breathes when idle (2 s, 1 s on a critical battery), brightness rises with speed when driving.
+  const uint8_t speed = s.speed_pct > 100 ? 100 : s.speed_pct;
+  led.setBaseStyle(!s.driving, s.batt_crit ? 1000 : 2000,
+                   static_cast<uint8_t>(LedSequencer::kMinLevelPct +
+                                        (100u - LedSequencer::kMinLevelPct) * speed / 100u));
   m_prev = s;
 }
 
@@ -10805,7 +11061,7 @@ void Annunciator::update(const AnnState& s, uint32_t now_ms, LedSequencer& led, 
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_ui`
-Expected: `9 Tests 0 Failures`.
+Expected: `15 Tests 0 Failures`.
 
 - [ ] **Step 5: Tone and WS2812 drivers**
 
@@ -10934,6 +11190,8 @@ members:
   Annunciator annunciator;
   Rgb led_out{1, 1, 1};  // forces the first write
   uint8_t bump_seq = 0;
+  uint8_t toggle_seq = 0;  // +1 per IR toggle (mute, parking beeps) → 3 confirm blinks (Task 14)
+  bool toggle_on = false;  // state after the last toggle: green = on, red = off
 ```
 In `src/app/imu_task.cpp`, where a bump is detected, add `++g_app.bump_seq;` next to the `kBump` event push (make the `if` a block).
 
@@ -10995,6 +11253,15 @@ void uiTask() {
   s.bump_seq = g_app.bump_seq;
   s.selftest_done = g_app.self_test_done;
   s.selftest_failed = g_app.self_test.failMask() != 0;
+  s.override_on = g_app.safety_override.active();
+  s.override_seq = g_app.override_seq;
+  s.toggle_seq = g_app.toggle_seq;
+  s.toggle_on = g_app.toggle_on;
+  s.driving = g_app.moving;
+  const int16_t pl = g_app.out_pwm_l < 0 ? static_cast<int16_t>(-g_app.out_pwm_l) : g_app.out_pwm_l;
+  const int16_t pr = g_app.out_pwm_r < 0 ? static_cast<int16_t>(-g_app.out_pwm_r) : g_app.out_pwm_r;
+  s.speed_pct = static_cast<uint8_t>((pl > pr ? pl : pr) * 100 / 255);
+  g_app.led.setMax(gs.led_max);  // LLD §10.6: brightness cap (default 50/255, as the old firmware)
   g_app.annunciator.update(s, now, g_app.led, g_app.sound);
 
   uint16_t hz = 0;
@@ -11073,7 +11340,7 @@ In `src/app/comms.cpp` `telemetrySlowDue()` before `s.flags2 = g_app.slow_flags;
   g_app.slow_flags &= ~(muted | quiet | brake_off | envelope | link_lost | deadman);
   if (g_app.sound.mode() == proto::AudioModeValue::kMute) g_app.slow_flags |= muted;
   if (g_app.sound.mode() == proto::AudioModeValue::kQuiet) g_app.slow_flags |= quiet;
-  if (!g_app.envelope.brakeOn()) g_app.slow_flags |= brake_off;
+  if (!g_app.safety_override.brakeOn(g_app.envelope.brakeOn())) g_app.slow_flags |= brake_off;  // effective brake
   if (g_app.envelope.active()) g_app.slow_flags |= envelope;
   if (!g_app.link.alive(port::clock::nowMs())) g_app.slow_flags |= link_lost;
   if (g_app.deadman_latched) g_app.slow_flags |= deadman;  // Task 11: DEADMAN_STOP until the next DRIVE
@@ -11151,12 +11418,14 @@ Expected: `… already formatted`, `All checks passed!`, `0 errors, 0 warnings, 
 
 Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py && pio run -e uno -t upload`
 Each numbered check is one run per command (opening the port reboots the Uno; RAM state such as the audio mode does not carry over):
-1. Boot: LED pulses amber (no ESP32); ≈ 2 s later the STARTUP jingle (or SELFTEST_FAIL with the ultrasonic unplugged). Start `… watch` → READY chirp, LED dim white.
-2. `… led blink 0 0 200 --period 400 --duration 3000` → blue blink for 3 s, then dim white again. While it blinks, tilt the tank past 45° and hold it for over 300 ms → red fast blink overrides, OUCH sound.
+1. Boot: LED pulses amber (no ESP32); ≈ 2 s later the STARTUP sweep (200 → 3000 Hz + 1500/2000 tag, 1.1 s; SELFTEST_FAIL with the ultrasonic unplugged). Start `… watch` → READY chirp, LED dim white **breathing** (2 s); the LED never exceeds `led_max` (50/255).
+2. `… led blink 0 0 200 --period 400 --duration 3000` → blue blink for 3 s, then dim white again. While it blinks, tilt the tank past 45° and hold it for over 300 ms → red fast blink overrides, the safety-chirp siren (2500/3000/2500 Hz) repeats every 0.4 s while tilted.
 3. `… sound jingle` and `… sound tone` → `ACK OK`, both play; `… sound jingle --mode quiet` → `ACK OK` (mode) then `ACK BUSY` (quiet: catalogue sounds refused, alarms still play).
 4. Stand, tracks off the ground: `… setting parking_beeps 1 --save`, then `… drive -30 0 --seconds 3` → CHIRP_DOWN then a tick every 0.6 s; afterwards `… setting parking_beeps 0 --save`.
-5. Stand: hold a hand ≈ 10 cm in front of the ultrasonic sensor and run `… drive 30 0 --seconds 5` → `EVENT BLOCKED`, the LED blinks red (a WS2812 write every 100 ms with interrupts off ≈ 32 µs) while DRIVE frames stream; the final `SLOW load` < 60 % and `errs=0` (WS2812 writes do not drop UART bytes).
-6. Hardware checklist (R14, needs a scope or logic analyser ≥ 24 MS/s on D4): one bit ≈ 1.3 µs; T0H ≈ 375 ns, T1H ≈ 810 ns, T1L ≥ 300 ns (≈ 440 ns expected). If no scope is available, record "not measured" in the sign-off and rely on check 2 (correct colours, no flicker).
+5. Stand: hold a hand ≈ 10 cm in front of the ultrasonic sensor and run `… drive 30 0 --seconds 5` → `EVENT BLOCKED`, one safety chirp, the LED blinks red 100/100 ms (a WS2812 write every 100 ms with interrupts off ≈ 32 µs) while DRIVE frames stream; the final `SLOW load` < 60 % and `errs=0` (WS2812 writes do not drop UART bytes).
+6. Catalogue: `… sound success`, `fanfare`, `sad`, `safety_chirp`, `ack_blip`, `fail`, `confirm`, `question`, `ok_chirp`, `grumble`, `scan`, `goodbye` → `ACK OK`, each sounds like the old firmware's melody 2…13. `… drive 60 0 --seconds 3` (stand) → the green owner colour gets brighter with speed and breathes again ≈ 0.3 s after the stop.
+7. Override indication (stand): `… override on --drive 20 --seconds 3` → up-chirp, 3 quick green blinks, then an amber-red pulse while on; it ends at the reboot of the next run (never persistent). `… override on` then `… override off` in one session is covered by the smoke `override` command of Task 6 (down-chirp + 3 red blinks).
+8. Hardware checklist (R14, needs a scope or logic analyser ≥ 24 MS/s on D4): one bit ≈ 1.3 µs; T0H ≈ 375 ns, T1H ≈ 810 ns, T1L ≥ 300 ns (≈ 440 ns expected). If no scope is available, record "not measured" in the sign-off and rely on check 2 (correct colours, no flicker).
 
 - [ ] **Step 9: Commit**
 

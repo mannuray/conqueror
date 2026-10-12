@@ -7605,21 +7605,51 @@ def ask(question: str) -> bool:
 
 
 def cmd_selftest(link: Link, args: argparse.Namespace) -> None:
-    """Re-run the boot self-test (LLD §10.9): besides a reboot, the only way to lift a critical lock."""
-    done = threading.Event()
+    """Self-test re-run (LLD §10.9), all in ONE process: opening the port reboots the Uno (R13), and the
+    boot run (due 2 s after reset) must finish first — a SELF_TEST sent earlier gets BUSY."""
+    results: list[g.Event] = []
 
     def on(msg: object) -> None:
-        if isinstance(msg, g.Ack):
-            print(f"ACK {g.ACK_STATUS[msg.status]}")
-            if msg.status != 0:
-                done.set()
-        elif isinstance(msg, g.Event) and msg.kind == int(g.EventKind.SELFTEST):
-            print(f"EVENT SELFTEST a=0x{msg.a & 0xFF:02x} b={msg.b} ({'LOCKED' if msg.b else 'unlocked'})")
-            done.set()
+        if isinstance(msg, g.Event):
+            print(fmt_event(msg))
+            if msg.kind == int(g.EventKind.SELFTEST):
+                results.append(msg)
+
+    def wait_result(n: int, timeout: float) -> g.Event | None:
+        end = time.monotonic() + timeout
+        while len(results) < n and time.monotonic() < end:
+            time.sleep(0.05)
+        return results[n - 1] if len(results) >= n else None
+
+    def drive(seconds: float) -> None:  # DRIVE is streamed (no ACK): a refusal shows as EVENT REJECTED
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            link.send(g.Drive(src=g.Source.HUMAN, v=40, w=0))
+            fast = link.last.get("TelemFast")
+            if isinstance(fast, g.TelemFast):
+                print(f"pwm={fast.pwm_l},{fast.pwm_r}")
+            time.sleep(0.05)
+        link.send(g.Stop(src=g.Source.HUMAN))
 
     link.handlers.append(on)
-    link.send(g.Calibrate(op=g.CalOp.START, script=g.CalScript.SELF_TEST, param=0, profile=0))
-    done.wait(5.0)
+    link.handlers.append(print_ack)
+    wait_synced(link)
+    boot = wait_result(1, 5.0)
+    if boot is None:
+        print("no boot EVENT SELFTEST")
+        return
+    if args.lock_check:
+        if not boot.b:
+            print("boot run not locked: switch the battery off (Uno on USB only) and run again")
+            return
+        drive(1.0)  # expect EVENT REJECTED (BLOCKED) and pwm=0,0
+        link.send(g.Calibrate(op=g.CalOp.START, script=g.CalScript.PWM_RAMP, param=0, profile=0))  # ACK BLOCKED
+        time.sleep(0.3)
+        input("Switch the battery on, then Enter…")
+    link.send(g.Calibrate(op=g.CalOp.START, script=g.CalScript.SELF_TEST, param=0, profile=0))  # ACK OK
+    rerun = wait_result(2, 5.0)
+    if args.lock_check and rerun is not None and not rerun.b:
+        drive(1.0)  # unlocked by the re-run (no reboot): the tracks turn
 
 
 def cmd_probe(link: Link, args: argparse.Namespace) -> None:
@@ -7704,7 +7734,8 @@ Register `"calibrate": cmd_calibrate, "probe": cmd_probe, "mount": cmd_mount, "b
     sub.add_parser("probe")
     sub.add_parser("mount")
     sub.add_parser("bias")
-    sub.add_parser("selftest")
+    st = sub.add_parser("selftest")
+    st.add_argument("--lock-check", action="store_true", help="stand check 5a: locked boot → refusals → re-run")
 ```
 Move `import csv`, `import math` and `import statistics` to the top-level import block (ruff `I` order).
 
@@ -7718,7 +7749,7 @@ On the stand (tracks free), from `tools/smoke/`:
 3. On the floor, level: `… bias` → prints five values and `EVENT SETTINGS_SAVED`; afterwards `watch` shows yaw drift < 1° per minute standing still.
 4. `… calibrate pwm_ramp --param 0 --csv ramp.csv` on the stand (left track forward, max 255) → phase 0 ramps up in 52 steps, phase 1 back down; CSV `v3` (|cps|) rises once `v0` (PWM) passes the deadband.
 5. After boot, `watch` shows `EVENT SELFTEST a=0 b=0` (a = 0x02 if the ultrasonic is unplugged: a warning, b stays 0).
-5a. Critical self-test lock (LLD §10.9, stand): battery switch **off**, Uno on USB only → boot `EVENT SELFTEST a=0x04 b=1` (battery read implausible), error tone, solid red LED, `flags2` bit 9 (`SELFTEST_LOCKED`); `… drive 40 0` → `ACK BLOCKED`; IR ▲ → tracks do not move; `… calibrate pwm_ramp` → `ACK BLOCKED`. Battery switch on, `… selftest` → `ACK OK`, `EVENT SELFTEST a=0x00 b=0 (unlocked)`, success melody, red clears; `… drive 40 0 --seconds 1` turns the tracks.
+5a. Critical self-test lock (LLD §10.9, stand; one process, because every smoke run reboots the Uno): battery switch **off**, Uno on USB only → `… selftest --lock-check`: boot `EVENT SELFTEST a=0x04 b=1 (LOCKED)` (battery read implausible), error tone, solid red LED, `flags2` bit 9 (`SELFTEST_LOCKED`); the 1 s drive prints `EVENT REJECTED` (BLOCKED) and `pwm=0,0`; `CALIBRATE pwm_ramp` → `ACK BLOCKED`; press IR ▲ meanwhile → tracks stay still. At the prompt switch the battery on → `ACK OK`, `EVENT SELFTEST a=0x00 b=0 (unlocked)`, success melody, red clears, and the second 1 s drive turns the tracks.
 6. Stall cut (stand): `… drive 50 0 --seconds 4` and press a block of wood firmly against the left track until it stops (never grip a running track by hand — the sprocket is a pinch point) → after ~0.5 s `EVENT STALL a=0`, `pwm=0,<n>` (left cut, right still driving) for 1 s, then the left track is driven again (and stalls again after 0.5 s while still held). Clearing on reversal is covered by the host test.
 
 - [ ] **Step 11: Commit**
@@ -12430,7 +12461,7 @@ void applyIr(const IrOutput& o, uint32_t now) {
     }
   }
   if (o.cal_request) {
-    if (g_app.link.alive(now)) {
+    if (g_app.link.alive(now) && !g_app.self_test.locked()) {  // LLD §10.9: no calibration while locked
       g_app.events.push(proto::EventKind::kCalRequest);
       play(proto::SoundId::kBlip);
     } else {

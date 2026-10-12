@@ -85,7 +85,7 @@ User command (text/voice) ─► [5 Agent / LLM planner] ◄─ queries ─┤
 - **Child-play mode ("don't let the baby catch you"):**
   - Requires the `child_play` envelope (speed ≤ 20 %, gentle accel, brake locked) — **enforced by the Uno**; the AI cannot loosen it.
   - Requires the hub start confirmation (adult present, track guards, flat area).
-  - Child-play skills run **only while slow telemetry reports the envelope active**; if it disappears they stop immediately.
+  - Child-play skills run **only while slow telemetry reports the child-play envelope** (`env_lock_brake` bit 1 `CHILD_PLAY`; an adult envelope does not count); if it disappears they stop immediately.
   - `keep_away(baby)`: retreat/circle, never approach — **AI-level rule only** (the boards cannot see); camera depth helps but is not trusted for stairs/drop-offs.
   - Any bump/lift → the Uno stops; the skill pauses and re-evaluates.
 - Other fun modes: follow-me, hide-and-seek, pet play, photographer, guard/patrol with alerts, personality engine.

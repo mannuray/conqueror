@@ -732,3 +732,9 @@ Timers: T0 motor PWM + timekeeping, T1 servos, T2 buzzer; IR + ultrasonic via pi
 - The phone is not used as the AI engine (CPU-only Python in Termux, no GPU — too weak for vision-first) nor as the primary hub host (no Docker, MIUI background killing, battery wear when always charging).
 - Hub on the Pi: arm64 Docker image if the Pi runs a 64-bit OS (Pi 3/4/5); armv7 (Pi 2 / 32-bit OS) would need an extra image or native install; armv6 (Pi 1/Zero) cannot run Node 24. **Confirmed: Pi 3 Model B (1 GB)** → 64-bit Raspberry Pi OS Lite + the arm64 hub Docker image as specced; prefer Ethernet (WiFi is 2.4 GHz only); hub budget ~200–300 MB RAM.
 - Hub LLD notes for the Pi: never re-encode video on the Pi (store the MJPEG stream / remux only); recordings on a USB disk/SSD, not the SD card; `docker-compose` splits hub (Pi) and AI engine (PC) instead of one compose file.
+
+## 22. Hardware correction: the ESP32 board is an ESP32-S3 (2026-10-12)
+- Photo of the board: silkscreen **ESP32S3-Camera-V1.0**, module **ESP32-S3-WROOM-1**, USB-C connector, test points T1–T14. The tank joins the home network (owner-modified firmware) as `esp32s3-9e74b4.lan`.
+- Every earlier statement "ESP32-WROVER camera board V1.0" (specs 00/02, ESP32 LLD, bridge LLD, Plan C, CLAUDE.md) is **superseded**.
+- Impact: Uno and Plan B unchanged. Plan C and the ESP32 gateway LLD must change build target to `esp32s3`, the UART pins to the Uno and the camera pin map (WROVER pins IO33/IO4 do not apply), and check PSRAM size/mode (WROOM-1 Nx Ry variant, octal PSRAM if R8).
+- Open: pin map source — owner's modified firmware source, ELEGOO's ESP32-S3 kit code, or a read-only esptool flash dump. Plan C's first step must verify the chip with esptool before flashing.

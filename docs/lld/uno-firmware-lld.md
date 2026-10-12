@@ -1311,3 +1311,207 @@ Agreed while polishing Plan B Tasks 11–15; where they differ, these refine §3
 
 ### Decision note (2026-10-12): tilt cut-off
 - 2026-10-12 owner: `tilt_limit` default 45° (tank stable to ~75°), tilt must persist 300 ms. `LiftDetector` confirms `kTilted` only after the tilt has stayed over the limit for `kTiltHoldMs = 300` (separate since-timestamp; lift/land logic untouched). Release stays immediate below limit − 5° (hysteresis unchanged, no hold; simplest). Plan B Task 4 updated (extra test, host total 132).
+
+## 10. Revision 3 — Override mode and catalogue (2026-10-12)
+Source: design-notes §25 (catalogue update from the old firmware) and §26 (Safety Override), spec 02 §A6.1/§A8/§A9, protocol defs (frame `SAFETY_OVERRIDE` 0x43, event kind 27, `flags2` bit 8, settings 61–65). Authoritative where earlier sections differ. Class names follow Plan B (the code-level design), which refines §4/§6.4.
+
+### 10.1 What changes, per class
+| Class (Plan B task) | Change |
+|---|---|
+| **`SafetyOverride`** (new, `domain/safety/safety_override.{h,cpp}`, Task 6) | Owns the Override state: who enabled it (*binder*), entry time, last driving time; admission rules; expiry; one pending event. Pure, no `virtual`, no heap, ~12 B RAM. |
+| `SafetySupervisor` (Task 6) | **Unchanged code.** Its `SafetyInputs.brake_on` is now the *effective* brake `SafetyOverride::brakeOn(envelope.brakeOn())`; `tilted` comes from `LiftDetector` fed with the effective tilt limit. `lifted`, `batt_critical` and `stall_mask` never consult the override. |
+| `TargetLimiter` (Task 8, wired Task 11) | Its obstacle slow zone gets the same effective brake flag (no slow-down while Override is on). Envelope and degraded caps unchanged. |
+| `LiftDetector` (Task 4) | **Unchanged code**; the IMU task passes `override.tiltLimit(tilt_limit, override_tilt_deg)` instead of `tilt_limit`. The 300 ms hold and the release below limit − 5° stay. |
+| `Arbitrator` (Task 6) | Unchanged API. The app reports its owner changes to `SafetyOverride::onOwner()`. |
+| `Envelope` (Task 6) | Unchanged API. `active()` is the child-play/any-envelope gate; an ENVELOPE frame that is applied while Override is on ends Override first (`ENVELOPE`). |
+| `IrController` (Task 14) | `*` tap acts on release (parking beeps); `*` held `kOverrideHoldMs = 2000` → `toggle_override` once per hold. |
+| `BatteryMonitor` (Task 5) / settings | Recovery hysteresis = setting `batt_hyst` (200 mV) for low **and** critical (replaces the fixed +150 mV and the §4.4 +0.3 V); `batt_low` default 7.2 V. |
+| `catalogues` (Task 13) | Flat PROGMEM note pool + `(id, offset, count)` index; old melodies as `SoundId` 12–23; STARTUP = old boot sweep (14 notes) → `SoundSequencer::kMaxNotes` 10 → 14 (TONE stays ≤ 10). |
+| `LedSequencer` (Task 13) | New mode-independent brightness: `scale(Rgb, level)`; `kBase` layer **breathes** (triangle 2 s; 1 s when the battery is critical) when idle and is **speed-scaled** while driving; every output is capped by `led_max`. |
+| `Annunciator` (Task 13) | New inputs `override_on`, `toggle_seq/toggle_on`, `speed_pct`; new rules: Override pulse layer, toggle-confirm blinks, obstacle-stop red blink + safety chirp, tilt siren from the safety chirp. |
+| `GlobalSettings` (Task 3) | Fields `override_idle_s`, `override_max_s`, `override_tilt_deg`, `led_max`, `batt_hyst`. |
+
+```mermaid
+classDiagram
+    direction LR
+    class SafetyOverride {
+      -bool m_active
+      -Binder m_binder
+      -uint32 m_since_ms
+      -uint32 m_last_drive_ms
+      -bool m_ev_pending
+      -bool m_ev_on
+      -OverrideReason m_ev_reason
+      +requestNetwork(bool on, Source src, const Gate&, uint32 now) AckStatus
+      +requestIr(const Gate&, uint32 now) AckStatus
+      +onOwner(Owner owner)
+      +onNetworkMotion(Source src, bool driving, uint32 now)
+      +onIrMotion(bool driving, uint32 now)
+      +onOwnerHint(OwnerHintValue hint)
+      +end(OverrideReason why)
+      +tick(uint32 now, const Config&)
+      +active() bool
+      +binder() Binder
+      +brakeOn(bool configured) bool
+      +tiltLimit(uint8 normal, uint8 relaxed) uint8
+      +takeEvent(bool& on, OverrideReason& why) bool
+    }
+    class Gate {
+      <<struct>>
+      +bool synced
+      +bool envelope_active
+      +bool fault_latched
+      +Owner owner
+    }
+    class Config {
+      <<struct>>
+      +uint8 idle_s
+      +uint16 max_s
+    }
+    class Binder {
+      <<enum>>
+      kNone
+      kIr
+      kNetwork
+    }
+    class SafetySupervisor {
+      +apply(pwm_l, pwm_r, const SafetyInputs&, SafetyStatus&) PwmOutput
+    }
+    class SafetyInputs {
+      <<struct>>
+      +bool lifted
+      +bool tilted
+      +bool batt_critical
+      +bool brake_on  «effective»
+      +uint16 dist_mm
+      +uint8 stop_cm
+      +uint8 stall_mask
+    }
+    class LiftDetector {
+      +update(az, pitch, roll, tilt_limit_deg, now) Change
+    }
+    class Envelope {
+      +active() bool
+      +brakeOn() bool
+    }
+    class Arbitrator {
+      +owner() Owner
+      +onIrInput(now) bool
+    }
+    class IrController {
+      +onEvent(IrEvent, IrOutput&) bool
+      +tick(now, IrOutput&) bool
+      kOverrideHoldMs = 2000
+    }
+    class Annunciator {
+      +update(const AnnState&, now, LedSequencer&, SoundSequencer&)
+    }
+    class LedSequencer {
+      +set(LedLayer, LedPattern, now)
+      +setBase(Rgb, BaseStyle, uint8 speed_pct)
+      +setMax(uint8 led_max)
+      +output(now) Rgb
+    }
+    class BatteryMonitor {
+      +update(adc, mv_per_count, low, crit, hyst, now)
+    }
+    SafetyOverride ..> Gate
+    SafetyOverride ..> Config
+    SafetyOverride *-- Binder
+    SafetySupervisor ..> SafetyInputs
+    SafetyOverride ..> SafetyInputs : brakeOn()
+    SafetyOverride ..> LiftDetector : tiltLimit()
+    Envelope ..> SafetyOverride : active() → Gate
+    Arbitrator ..> SafetyOverride : onOwner()
+    IrController ..> SafetyOverride : toggle_override → requestIr()
+    SafetyOverride ..> Annunciator : override_on
+    Annunciator ..> LedSequencer
+```
+The app (`control_task`, `input_task`, routes) is the only caller: it builds the `Gate` from `LinkSession::synced()`, `Envelope::active()`, `lift.lifted() || lift.tilted() || batt critical || selftest critical` and `Arbitrator::owner()`, and drains `takeEvent()` into `EVENT SAFETY_OVERRIDE {a = on, b = OverrideReason}` after every call (one slot is enough: each call changes the state at most once and the app drains immediately).
+
+### 10.2 Override state machine
+```mermaid
+stateDiagram-v2
+    [*] --> Off : boot (never persistent)
+    Off --> Arming : IR * pressed (IrController)
+    Arming --> Off : * released before 2 s → parking-beeps toggle (tap)
+    Arming --> On : * held 2 s → IR takeover + requestIr() OK
+    Arming --> Off : held 2 s but refused (envelope / fault) → grumble + red blinks
+    Off --> On : SAFETY_OVERRIDE on, src human, Gate OK → ACK OK
+    Off --> Off : refused → ACK ROLE_FORBIDDEN / ENVELOPE_LOCKED / NOT_OWNER / BLOCKED / BUSY
+    On --> Off : SAFETY_OVERRIDE off (NETWORK) · * held 2 s again (IR)
+    On --> Off : override_idle_s without driving by the binder (IDLE)
+    On --> Off : override_max_s since entry (MAX_TIME)
+    On --> Off : any STOP — network or IR OK (STOP)
+    On --> Off : owner → other principal · src=ai motion · OWNER_HINT ai · calibration (OWNER_CHANGE)
+    On --> Off : link lost (LINK_LOST, network binder only)
+    On --> Off : ENVELOPE frame applied (ENVELOPE)
+```
+- *Arming* lives in `IrController` (key held, timer); `SafetyOverride` itself has only Off/On.
+- **Binder:** `kIr` (entered by the remote) or `kNetwork` (entered by `SAFETY_OVERRIDE`). *Owner change* = the Uno owner becomes `Network`, `Ir` or `Calibration` and that is not the binder's owner. Owner → `None` (IR handback after 3 s, network idle release after 1 s) does **not** end Override; the idle timer does.
+- **Driving** (refreshes the idle timer) = an accepted motion command from the binder with a non-zero target: DRIVE/DRIVE_RATE with v or w ≠ 0, TURN, MOVE (network binder, `src = human`); IR ▲▼◀▶ and 0 (IR binder).
+- **Link loss** ends a network-bound Override; an IR-bound one ignores the link (IR works without the ESP32, §4.2).
+- **Entry gate, in order:** `on = 0` → end (if on) and `OK` from any source · `src = ai` → `ROLE_FORBIDDEN` · not synced → `BUSY` (network only) · `envelope.active()` → `ENVELOPE_LOCKED` · owner `Ir`/`Calibration` → `NOT_OWNER` (network only) · fault latched (tilted, lifted, battery critical, self-test lock) → `BLOCKED` · already on with the same binder → `OK` (no event) · else enter, event `{1, NETWORK|IR}`.
+- **Why refuse while a fault is latched:** with the limit raised to 65°, a tank latched at 50° would release (< 60°) at once — Override must never un-halt the tank.
+
+### 10.3 Network enable sequence
+```mermaid
+sequenceDiagram
+    participant C as Client (human key)
+    participant E as ESP32 gateway
+    participant R as routes (Uno)
+    participant O as SafetyOverride
+    participant A as Arbitrator / Envelope
+    participant S as Supervisor path
+    participant T as Telemetry / UI
+    C->>E: safety_override {on:true} (after confirmation)
+    E->>E: role human/admin? no Logo program? network owner?
+    alt ai / viewer key
+        E-->>C: nack ROLE_FORBIDDEN (nothing forwarded)
+    end
+    E->>R: SAFETY_OVERRIDE {src human, on 1}
+    R->>A: synced? envelope.active()? owner? faults?
+    R->>O: requestNetwork(on, src, gate, now)
+    alt refused
+        O-->>R: ENVELOPE_LOCKED / NOT_OWNER / BLOCKED / BUSY / ROLE_FORBIDDEN
+        R-->>E: ACK status
+    else accepted
+        O-->>R: OK (event pending {1, NETWORK})
+        R-->>E: ACK OK
+        R->>T: EVENT SAFETY_OVERRIDE a=1 b=NETWORK · flags2 bit 8
+        T->>T: green ×3 blinks + chirp up, amber/red pulse layer
+    end
+    loop every control tick (100 Hz)
+        S->>O: brakeOn(envelope.brakeOn()) → false
+        S->>O: tiltLimit(45, 65) → 65 (IMU task, 200 Hz)
+        S->>S: supervisor: lifted / batt_critical / stall still cut
+        R->>O: onNetworkMotion(src, driving, now) per DRIVE/TURN/MOVE
+        O->>O: tick(now, cfg): idle 60 s? max 300 s?
+    end
+    O-->>T: event {0, IDLE | MAX_TIME | STOP | OWNER_CHANGE | LINK_LOST | ENVELOPE | NETWORK}
+    T->>T: red ×3 blinks + chirp down, pulse cleared; brake + 45° limit apply again
+```
+
+### 10.4 Exactly which checks consult the override
+| Check | Where | While Override is on |
+|---|---|---|
+| Obstacle stop at `obstacle_stop` | `SafetySupervisor::apply` via `SafetyInputs.brake_on` | **off** (`brake_on = override.brakeOn(envelope.brakeOn())` = false) |
+| Obstacle slow zone `obstacle_slow` | `TargetLimiter` brake flag | **off** (same effective flag) |
+| Tilt cut-off | `LiftDetector::update(…, tilt_limit_deg, …)` from the IMU task | limit = `max(tilt_limit, override_tilt_deg)` (65°); still needs 300 ms over the limit; release below limit − 5°. On exit the limit drops back to 45° and a tank still tilted past it halts 300 ms later |
+| Bump stop | — | Plan B v1 has **no** bump stop (bump = event + "ouch" only). If a bump stop is added later it must test `override.active()`; the bump event is always reported |
+| Lift, battery critical, stall cut, self-test lock, deadman/link-loss SoftStop, STOP, envelope caps, degraded caps | supervisor / arbitrator / TargetLimiter | **unchanged** — never consult the override |
+`flags2.brake_off` reports the *effective* brake (set while Override is on); `flags2.safety_override` (bit 8) = `override.active()`. `BrakeConfig`/`Envelope::brakeOn()` is never modified by Override, so the user's `BRAKE` choice applies again on exit.
+
+### 10.5 IR key for the 2 s hold
+§9.8 has no unused key (all 17 assigned). Chosen: **`*`** — the old firmware toggled its safety override with NEC command byte `0x42`, which is `*` on the common ELEGOO 17-key remote (to be confirmed at the bring-up code capture, Task 14/15). `*` tap (released < 2 s) keeps its parking-beeps toggle, now acted on release (≤ 200 ms after release, `kReleaseMs`); held 2 s → `toggle_override` (one-shot; releasing afterwards does nothing). The input task first takes IR ownership (`Arbitrator::onIrInput`, same takeover as a motion key: primitives cancelled, network teleop stopped), then calls `requestIr()`; a refusal plays `GRUMBLE` and 3 red blinks.
+
+### 10.6 Catalogue (design-notes §25)
+- **Sound table:** flat `const Note kNotePool[] PROGMEM` + `const SoundIndex kSoundIndex[] PROGMEM = {id, offset, count}`. 23 sounds, 109 notes × 4 B + 23 × 3 B ≈ **505 B** flash (the Plan B per-row `Note[10]` layout would need 23 × 58 B ≈ 1.3 KB with a 14-note row). Net vs the old 11 × 42 B table: ≈ +45 B. `SoundSequencer::kMaxNotes` 14 → +16 B RAM (owned buffer). Old melody → id: 1 STARTUP, 2 SUCCESS, 3 FANFARE, 4 SAD, 5 SAFETY_CHIRP, 6 ACK_BLIP, 7 FAIL, 8 CONFIRM, 9 QUESTION, 10 OK_CHIRP, 11 GRUMBLE, 12 SCAN, 13 GOODBYE (notes exactly as `docs/legacy/uno-old-led-buzzer.md` §1; rests = `hz 0`).
+- **Tilt siren** = SAFETY_CHIRP repeated at alarm priority every 400 ms while tilted (replaces "ouch" on tilt). **Obstacle stop** (blocked rising edge) = SAFETY_CHIRP once, event priority, and LED `kAttention` red blink 100/100 ms while blocked (replaces the tick).
+- **Override** on/off = CHIRP_UP / CHIRP_DOWN (event priority, not muted by Quiet); LED `kAttention` layer while on: PULSE alternating amber (255,140,0) / red (255,0,0), period 1000 ms. Alarms (`kAlarm`) still win.
+- **Toggle confirm** (mute 7, parking `*` tap, Override): `kAlarm`-independent one-shot on the `kCustom`-above layer `kAttention`: BLINK 80/80 ms, duration 480 ms, green = on, red = off; the previous attention pattern (Override pulse / obstacle blink) is re-picked after it.
+- **Base colour styles:** `kBase` layer is styled by the sequencer: idle (no motion for 1 s) → breathe, triangle, period 2000 ms (1000 ms when battery critical), level 20 %…100 %; driving → level = 20 % + 80 % × max(|L|,|R|) / 100. Final level × `led_max` / 255. One integer multiply per channel; the WS2812 is written only on change (§6.4).
+- **Battery:** low < `batt_low` (7.2 V), critical < `batt_crit` (6.6 V), each 2 s sustained; recovery above threshold + `batt_hyst` (0.2 V) — low/critical as in the old firmware (7.2/7.4, 6.6/6.8 V).
+
+### 10.7 Budget
+Flash ≈ +1.3 KB (SafetyOverride + app glue ~0.6 KB, LED styles ~0.3 KB, IR hold ~0.1 KB, sound table +0.05 KB, routes/settings ~0.2 KB) → estimated total 24.5–27.5 KB of the 30 KB gate. RAM ≈ +40 B (override 12, kMaxNotes +16, IR hold 4, LED style 4, misc) → ≈ 1780 B of 2048 including the 400 B stack reserve; the static RAM gate (≤ 1750 B) keeps its margin because the stack reserve is not static. Measure at Task 15; overflow plan unchanged (§13 of design-notes).

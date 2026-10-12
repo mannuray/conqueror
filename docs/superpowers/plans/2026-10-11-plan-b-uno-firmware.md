@@ -57,7 +57,7 @@ firmware/uno/
 │   ├── domain/
 │   │   ├── util/      math_util.h, scheduler.*, pid.*                                     (Tasks 1, 8)
 │   │   ├── comms/     frame_parser.*, frame_writer.*, event_queue.*, link_session.*        (Task 2)
-│   │   ├── settings/  settings.*, eeprom_writer.*, crc16.h                                 (Task 3)
+│   │   ├── settings/  settings.*, eeprom_writer.*, settings_saver.*, crc16.h                (Task 3)
 │   │   ├── estimation/ attitude.*, yaw_integrator.*, bump_detector.*, lift_detector.*,
 │   │   │              accel_variance.*, imu_scale.h, ultrasonic_filter.*, battery_monitor.*,
 │   │   │              encoder_track.*, encoder_health.*                                    (Tasks 4, 5, 7)
@@ -68,7 +68,7 @@ firmware/uno/
 │   │   │              heading_controller.*, speed_controller.*, motion_setpoint.h,
 │   │   │              turn_profile.*, move_profile.*, primitives.*                         (Tasks 8–10)
 │   │   ├── calibration/ cal_script_runner.*, cal_status.*                                  (Task 7)
-│   │   ├── selftest/  self_test.h                                                          (Task 7)
+│   │   ├── selftest/  self_test.h (motion lock)                                            (Task 6)
 │   │   ├── camera/    servo_profile.*, camera_head.*                                       (Task 12)
 │   │   └── ui/        sound_sequencer.*, led_sequencer.*, annunciator.*, catalogues.*      (Task 13)
 │   └── app/

@@ -738,3 +738,8 @@ Timers: T0 motor PWM + timekeeping, T1 servos, T2 buzzer; IR + ultrasonic via pi
 - Every earlier statement "ESP32-WROVER camera board V1.0" (specs 00/02, ESP32 LLD, bridge LLD, Plan C, CLAUDE.md) is **superseded**.
 - Impact: Uno and Plan B unchanged. Plan C and the ESP32 gateway LLD must change build target to `esp32s3`, the UART pins to the Uno and the camera pin map (WROVER pins IO33/IO4 do not apply), and check PSRAM size/mode (WROOM-1 Nx Ry variant, octal PSRAM if R8).
 - Open: pin map source — owner's modified firmware source, ELEGOO's ESP32-S3 kit code, or a read-only esptool flash dump. Plan C's first step must verify the chip with esptool before flashing.
+
+## 23. Uno read-back (2026-10-12, read-only, from the Linux dev machine)
+- Board answers as **ATmega328P** with **Optiboot v4.4** at **115200** baud through a **CH340** USB chip (`/dev/ttyUSB0` on Linux). Plan B upload settings fit; Optiboot 4.4 does not pass MCUSR → Plan B ruling R16 (reset reason "unknown" unless plausible) applies to this board.
+- Installed firmware: 31.9 KB of 32 KB, ArduinoJson-based ELEGOO-style JSON commands (`D1`/`D2` keys) but not byte-identical to the 2021 ELEGOO source (no `_ok}` replies) — a newer/modified build. Replaced by Plan B.
+- The ESP32-S3 camera board is not detected over USB-C on either machine with cables that work for the Uno → suspect the board's USB-C power/data path; chip and pins to be confirmed another way (ELEGOO's current S3 code, or a different cable/adapter).

@@ -2068,7 +2068,7 @@ git commit -m "feat(uno): body link - parser, writer, queues, link session, TX s
 ### Task 3: Settings store, non-blocking EEPROM writer, SETTING routes
 
 **Files:**
-- Create: `src/domain/settings/crc16.h`, `settings.{h,cpp}`, `eeprom_writer.{h,cpp}`; `src/ports/eeprom.h`; `src/drivers/eeprom_uno.cpp`; `src/app/tasks.h`, `src/app/settings_task.cpp`, `src/app/apply_settings.cpp`
+- Create: `src/domain/settings/crc16.h`, `settings.{h,cpp}`, `eeprom_writer.{h,cpp}`, `settings_saver.{h,cpp}` (LLD §10.10); `src/ports/eeprom.h`; `src/drivers/eeprom_uno.cpp`; `src/app/tasks.h`, `src/app/settings_task.cpp`, `src/app/apply_settings.cpp`
 - Modify: `src/app/app.h` (members), `src/app/routes.cpp` (rows), `src/app/comms.cpp` (`settings_crc` in slow telemetry), `src/main.cpp` (init + task), `tools/smoke/uno_smoke.py` (`setting` command)
 - Test: `test/test_settings/test_main.cpp`
 
@@ -2078,9 +2078,10 @@ git commit -m "feat(uno): body link - parser, writer, queues, link session, TX s
   - `struct cq::GlobalSettings` / `cq::ProfileSettings` (packed; field names = settings.yaml names), `class cq::Settings`: `void loadDefaults()`, `bool get(uint8_t id, int32_t& value) const`, `proto::AckStatus set(uint8_t id, int32_t value)` (`kSettingUnknown`; `kSettingOutOfRange` when outside the descriptor range **or** when the value would break an ordering invariant against the current values — `pan_min ≤ pan_max`, `tilt_min ≤ tilt_max`, `obstacle_stop < obstacle_slow`, `batt_crit < batt_low`; the hub orders its writes), `const GlobalSettings& global() const`, `const ProfileSettings& profile() const`, `uint16_t crc() const`, `uint8_t serialize(uint8_t block, uint8_t* out) const`, `bool deserialize(uint8_t block, const uint8_t* data, uint8_t len, uint16_t stored_crc)`, `static constexpr uint8_t kBlockGlobal = 0, kBlockProfile = 1`, `bool dirty() const`, `void clearDirty()`.
   - `cq::crc16(const uint8_t* data, uint16_t len, uint16_t crc = 0xFFFF) -> uint16_t` (CCITT-FALSE).
   - `struct cq::EepromIo { uint8_t (*read)(uint16_t); bool (*writeAsync)(uint16_t, uint8_t); bool (*busy)(); }`, `class cq::EepromWriter`: `bool enqueue(uint16_t addr, const uint8_t* data, uint8_t len)`, `bool step(const EepromIo& io)` (≤ 1 byte written; returns true when idle), `bool idle() const`.
-  - EEPROM layout: `kEeMagicAddr = 0` (`'C','Q'`, layout version 1); global block at 8: `[len][data…][crc lo][crc hi]`; profile block at 80.
+  - EEPROM layout (`settings_saver.h`): `kEeMagicAddr = 0` (`'C','Q'`, `kEeLayoutVersion` 1); global block at `kEeGlobalAddr` 8: `[len][data…][crc lo][crc hi]`; profile block at `kEeProfileAddr` 80; `static_assert`s for the layout and the queue fit.
+  - `class cq::SettingsSaver`: `void request()`, `bool busy() const`, `bool step(const Settings&, EepromWriter&, const EepromIo&, bool may_start)` (true on the pass that finished a save) — magic + global first, profile after the writer drained: the 80 B writer queue (`EepromWriter::kMaxBytes`) holds one block at most and can never overflow (LLD §10.10).
   - Port `cq::port::eeprom`: `uint8_t read(uint16_t addr)`, `bool writeByteAsync(uint16_t addr, uint8_t v)`, `bool busy()`.
-  - App members `Settings settings; EepromWriter eewriter; bool save_requested; bool save_in_progress; bool moving;` (`settings_reset_mask` comes in Task 7) and functions `cq::app::settingsLoad()`, `cq::app::settingsTask()`, `cq::app::applySettings()` (applies values to domain objects — extended by later tasks), declared in the new `src/app/tasks.h` — the one header for app task/init entry points (later tasks add their declarations before `// TASK-DECLS-END`).
+  - App members `Settings settings; EepromWriter eewriter; SettingsSaver saver; bool moving;` (`settings_reset_mask` comes in Task 7) and functions `cq::app::settingsLoad()`, `cq::app::settingsTask()`, `cq::app::applySettings()` (applies values to domain objects — extended by later tasks), declared in the new `src/app/tasks.h` — the one header for app task/init entry points (later tasks add their declarations before `// TASK-DECLS-END`).
 
 - [ ] **Step 1: Write the failing settings tests**
 
@@ -2092,6 +2093,7 @@ git commit -m "feat(uno): body link - parser, writer, queues, link session, TX s
 #include "domain/settings/crc16.h"
 #include "domain/settings/eeprom_writer.h"
 #include "domain/settings/settings.h"
+#include "domain/settings/settings_saver.h"
 
 using namespace cq;
 
@@ -2229,6 +2231,50 @@ void test_writer_waits_while_busy() {
   TEST_ASSERT_EQUAL(1, g_writes);
 }
 
+// LLD §10.10: every setting changed at once still saves completely (staged per block, no dropped bytes).
+void test_save_every_setting_at_once_never_overflows() {
+  memset(g_mem, 0xFF, sizeof g_mem);
+  g_busy = false;
+  Settings s;
+  s.loadDefaults();
+  for (uint8_t i = 0; i < proto::kSettingCount; ++i) {  // max where the ordering invariants allow, else min
+    const proto::SettingDescriptor& d = proto::kSettingDescriptors[i];
+    if (s.set(d.id, d.max) != proto::AckStatus::kOk) s.set(d.id, d.min);
+  }
+  EepromWriter w;
+  SettingsSaver saver;
+  const EepromIo io{fakeRead, fakeWrite, fakeBusy};
+  saver.request();
+  TEST_ASSERT_FALSE(saver.step(s, w, io, false));  // moving: the save waits
+  TEST_ASSERT_FALSE(saver.busy());
+  bool done = false;
+  for (int pass = 0; pass < 1000 && !done; ++pass) {
+    done = saver.step(s, w, io, true);
+    TEST_ASSERT_TRUE(w.idle() || saver.busy());
+    g_busy = false;  // the EEPROM write completes between scheduler passes
+  }
+  TEST_ASSERT_TRUE(done);
+  TEST_ASSERT_FALSE(saver.busy());
+  TEST_ASSERT_EQUAL('C', g_mem[kEeMagicAddr]);
+  TEST_ASSERT_EQUAL(kEeLayoutVersion, g_mem[kEeMagicAddr + 2]);
+  Settings r;
+  r.loadDefaults();
+  const uint16_t addrs[2] = {kEeGlobalAddr, kEeProfileAddr};
+  for (uint8_t b = 0; b < 2; ++b) {
+    const uint16_t a = addrs[b];
+    const uint8_t len = g_mem[a];
+    const uint16_t crc = static_cast<uint16_t>(g_mem[a + 1 + len] | (g_mem[a + 2 + len] << 8));
+    TEST_ASSERT_TRUE(r.deserialize(b == 0 ? Settings::kBlockGlobal : Settings::kBlockProfile, &g_mem[a + 1], len, crc));
+  }
+  for (uint8_t i = 0; i < proto::kSettingCount; ++i) {  // every value survived the round trip
+    int32_t want = 0;
+    int32_t got = 0;
+    s.get(proto::kSettingDescriptors[i].id, want);
+    r.get(proto::kSettingDescriptors[i].id, got);
+    TEST_ASSERT_EQUAL(want, got);
+  }
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_defaults_match_descriptors);
@@ -2238,6 +2284,7 @@ int main() {
   RUN_TEST(test_serialize_roundtrip_and_bad_crc_loads_defaults);
   RUN_TEST(test_crc16_check_value);
   RUN_TEST(test_writer_one_byte_per_step);
+  RUN_TEST(test_save_every_setting_at_once_never_overflows);
   RUN_TEST(test_writer_waits_while_busy);
   return UNITY_END();
 }
@@ -2317,8 +2364,9 @@ struct __attribute__((packed)) GlobalSettings {
   uint8_t led_max;             // 0..255 WS2812 brightness cap
   uint16_t batt_hyst;          // mV recovery hysteresis (low and critical)
 };
-// 63 B: the global EEPROM block (len + data + CRC = 66 B at address 8) still ends before kProfileAddr = 80, and
-// global + profile + magic (66 + 54 + 3 = 123 B) still fit the EepromWriter's 128 B queue.
+// 63 B: the global EEPROM block (len + data + CRC = 66 B at address 8) still ends before kEeProfileAddr = 80
+// (static_assert in settings_saver.h). Saves are staged per block (SettingsSaver), so the writer queue only
+// needs magic + global = 69 B of its 80 B.
 
 struct __attribute__((packed)) ProfileSettings {
   uint8_t turn_rate_full_speed;  // %
@@ -2577,11 +2625,12 @@ struct EepromIo {
 };
 
 // Writes queued byte ranges at most one byte per step(); unchanged bytes are skipped.
-// RAM: 128 B data + 6 ranges × 4 B (one EEPROM address per range, not per byte).
+// RAM: 80 B data + 4 ranges × 4 B (one EEPROM address per range, not per byte). SettingsSaver queues one
+// block at a time (≤ magic 3 + global 66 = 69 B), checked by static_asserts (LLD §10.10).
 class EepromWriter {
  public:
-  static constexpr uint8_t kMaxBytes = 128;
-  static constexpr uint8_t kMaxRanges = 6;
+  static constexpr uint8_t kMaxBytes = 80;
+  static constexpr uint8_t kMaxRanges = 4;
   bool enqueue(uint16_t addr, const uint8_t* data, uint8_t len);  // false if full
   bool step(const EepromIo& io);                                   // true when idle
   bool idle() const { return m_range_count == 0; }
@@ -2643,12 +2692,103 @@ bool EepromWriter::step(const EepromIo& io) {
 }  // namespace cq
 ```
 
-Note: a full save is magic (3 B) + global (1 + 56 + 2) + profile (1 + 51 + 2) = 116 B in 5 ranges, within 128 B / 6 ranges.
+`src/domain/settings/settings_saver.h`:
+```cpp
+#pragma once
+#include <stdint.h>
+
+#include "domain/settings/eeprom_writer.h"
+#include "domain/settings/settings.h"
+
+namespace cq {
+
+// EEPROM layout (LLD §7): magic 'C','Q',version at 0; global block at 8; profile block at 80.
+// A block is [len][data…][crc lo][crc hi] (CRC-16/CCITT-FALSE over data).
+constexpr uint16_t kEeMagicAddr = 0;
+constexpr uint8_t kEeLayoutVersion = 1;
+constexpr uint16_t kEeGlobalAddr = 8;
+constexpr uint16_t kEeProfileAddr = 80;
+constexpr uint8_t kEeMagicBytes = 3;
+constexpr uint8_t kEeGlobalBlockBytes = static_cast<uint8_t>(1 + sizeof(GlobalSettings) + 2);
+constexpr uint8_t kEeProfileBlockBytes = static_cast<uint8_t>(1 + sizeof(ProfileSettings) + 2);
+static_assert(kEeGlobalAddr + kEeGlobalBlockBytes <= kEeProfileAddr, "global block overlaps the profile block");
+// One block at a time (LLD §10.10): the writer queue only ever holds magic + global, or profile.
+static_assert(kEeMagicBytes + kEeGlobalBlockBytes <= EepromWriter::kMaxBytes, "writer queue too small");
+static_assert(kEeProfileBlockBytes <= EepromWriter::kMaxBytes, "writer queue too small");
+
+// Saves magic + global, waits for the writer to drain, then saves profile. However many settings
+// changed, the EepromWriter never holds more than one block, so it cannot overflow or drop bytes.
+class SettingsSaver {
+ public:
+  void request() { m_requested = true; }
+  bool busy() const { return m_stage != Stage::kIdle; }  // SETTINGS_SAVE → SETTINGS_SAVE_BUSY
+  // One scheduler pass (50 Hz): writes ≤ 1 byte. may_start = the tank is stopped.
+  // Returns true on the pass that finished a whole save.
+  bool step(const Settings& s, EepromWriter& w, const EepromIo& io, bool may_start);
+
+ private:
+  enum class Stage : uint8_t { kIdle, kGlobal, kProfile };
+  static bool queueBlock(const Settings& s, uint8_t block, uint16_t addr, EepromWriter& w);
+  Stage m_stage = Stage::kIdle;
+  bool m_requested = false;
+};
+
+}  // namespace cq
+```
+
+`src/domain/settings/settings_saver.cpp`:
+```cpp
+#include "domain/settings/settings_saver.h"
+
+#include "domain/settings/crc16.h"
+
+namespace cq {
+
+bool SettingsSaver::queueBlock(const Settings& s, uint8_t block, uint16_t addr, EepromWriter& w) {
+  uint8_t buf[kEeGlobalBlockBytes > kEeProfileBlockBytes ? kEeGlobalBlockBytes : kEeProfileBlockBytes];
+  const uint8_t len = s.serialize(block, buf + 1);
+  buf[0] = len;
+  const uint16_t crc = crc16(buf + 1, len);
+  buf[1 + len] = static_cast<uint8_t>(crc);
+  buf[2 + len] = static_cast<uint8_t>(crc >> 8);
+  return w.enqueue(addr, buf, static_cast<uint8_t>(len + 3));  // one range: data first, CRC last
+}
+
+bool SettingsSaver::step(const Settings& s, EepromWriter& w, const EepromIo& io, bool may_start) {
+  if (!w.step(io)) return false;  // still writing the current block
+  switch (m_stage) {
+    case Stage::kIdle: {
+      if (!m_requested || !may_start) return false;
+      const uint8_t magic[kEeMagicBytes] = {'C', 'Q', kEeLayoutVersion};
+      // The writer is empty here and the static_asserts guarantee the fit, so enqueue cannot fail;
+      // if it ever did, the request stays pending instead of being lost.
+      if (!w.enqueue(kEeMagicAddr, magic, kEeMagicBytes) || !queueBlock(s, Settings::kBlockGlobal, kEeGlobalAddr, w)) {
+        return false;
+      }
+      m_requested = false;
+      m_stage = Stage::kGlobal;
+      return false;
+    }
+    case Stage::kGlobal:
+      if (!queueBlock(s, Settings::kBlockProfile, kEeProfileAddr, w)) return false;  // retried next pass
+      m_stage = Stage::kProfile;
+      return false;
+    case Stage::kProfile:
+      m_stage = Stage::kIdle;
+      return true;
+  }
+  return false;
+}
+
+}  // namespace cq
+```
+
+Note (LLD §10.10): a save is staged per block — magic (3 B) + global (1 + 63 + 2 = 66 B) = 69 B, then profile (1 + 51 + 2 = 54 B) — so the 80 B queue can never overflow, however many settings changed; the binding limit for new global settings is the EEPROM layout (global block ≤ 72 B before address 80, 6 B left), enforced by a `static_assert`.
 
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_settings`
-Expected: `8 Tests 0 Failures`.
+Expected: `9 Tests 0 Failures`.
 
 - [ ] **Step 5: EEPROM port and driver**
 
@@ -2707,13 +2847,13 @@ Add to `src/app/app.h` includes and members (inside `struct App`, after `encoder
 ```cpp
 #include "domain/settings/eeprom_writer.h"
 #include "domain/settings/settings.h"
+#include "domain/settings/settings_saver.h"
 ```
 ```cpp
   // settings
   Settings settings;
   EepromWriter eewriter;
-  bool save_requested = false;
-  bool save_in_progress = false;
+  SettingsSaver saver;  // staged per block: the writer queue can never overflow (LLD §10.10)
   bool moving = false;  // set by the control task; saves are deferred while moving
 ```
 
@@ -2744,11 +2884,6 @@ namespace cq {
 namespace app {
 namespace {
 
-constexpr uint16_t kMagicAddr = 0;
-constexpr uint8_t kLayoutVersion = 1;
-constexpr uint16_t kGlobalAddr = 8;
-constexpr uint16_t kProfileAddr = 80;
-
 const EepromIo kIo{port::eeprom::read, port::eeprom::writeByteAsync, port::eeprom::busy};
 
 bool loadBlock(uint8_t block, uint16_t addr) {
@@ -2761,46 +2896,26 @@ bool loadBlock(uint8_t block, uint16_t addr) {
   return g_app.settings.deserialize(block, buf, len, crc);
 }
 
-void queueBlock(uint8_t block, uint16_t addr) {
-  uint8_t buf[66];
-  const uint8_t len = g_app.settings.serialize(block, buf + 1);
-  buf[0] = len;
-  const uint16_t crc = crc16(buf + 1, len);
-  g_app.eewriter.enqueue(addr, buf, static_cast<uint8_t>(len + 1));  // data first …
-  const uint8_t crc_bytes[2] = {static_cast<uint8_t>(crc), static_cast<uint8_t>(crc >> 8)};
-  g_app.eewriter.enqueue(static_cast<uint16_t>(addr + 1 + len), crc_bytes, 2);  // … CRC last
-}
-
 }  // namespace
 
 void settingsLoad() {
   g_app.settings.loadDefaults();
   uint8_t reset_mask = 0;
-  const bool magic_ok = port::eeprom::read(kMagicAddr) == 'C' && port::eeprom::read(kMagicAddr + 1) == 'Q' &&
-                        port::eeprom::read(kMagicAddr + 2) == kLayoutVersion;
-  if (!magic_ok || !loadBlock(Settings::kBlockGlobal, kGlobalAddr)) reset_mask |= 0x01;
-  if (!magic_ok || !loadBlock(Settings::kBlockProfile, kProfileAddr)) reset_mask |= 0x02;
+  const bool magic_ok = port::eeprom::read(kEeMagicAddr) == 'C' && port::eeprom::read(kEeMagicAddr + 1) == 'Q' &&
+                        port::eeprom::read(kEeMagicAddr + 2) == kEeLayoutVersion;
+  if (!magic_ok || !loadBlock(Settings::kBlockGlobal, kEeGlobalAddr)) reset_mask |= 0x01;
+  if (!magic_ok || !loadBlock(Settings::kBlockProfile, kEeProfileAddr)) reset_mask |= 0x02;
   if (reset_mask != 0) {
     g_app.events.push(proto::EventKind::kSettingsReset, reset_mask);
-    g_app.save_requested = true;  // persisted lazily by the writer, never synchronously at boot
+    g_app.saver.request();  // persisted lazily by the writer, never synchronously at boot
   }
   g_app.settings.clearDirty();
   applySettings();
 }
 
-// 50 Hz: deferred save when stopped; one EEPROM byte per pass.
+// 50 Hz: deferred save when stopped, one block at a time; one EEPROM byte per pass.
 void settingsTask() {
-  if (g_app.save_requested && !g_app.moving && !g_app.save_in_progress) {
-    const uint8_t magic[3] = {'C', 'Q', kLayoutVersion};
-    g_app.eewriter.enqueue(kMagicAddr, magic, 3);
-    queueBlock(Settings::kBlockGlobal, kGlobalAddr);
-    queueBlock(Settings::kBlockProfile, kProfileAddr);
-    g_app.save_requested = false;
-    g_app.save_in_progress = true;
-  }
-  const bool idle = g_app.eewriter.step(kIo);
-  if (g_app.save_in_progress && idle) {
-    g_app.save_in_progress = false;
+  if (g_app.saver.step(g_app.settings, g_app.eewriter, kIo, !g_app.moving)) {
     g_app.settings.clearDirty();
     g_app.events.push(proto::EventKind::kSettingsSaved);
   }
@@ -2852,8 +2967,8 @@ proto::AckStatus onSettingGet(const uint8_t* p, uint8_t len) {
 proto::AckStatus onSettingsSave(const uint8_t* p, uint8_t len) {
   proto::SettingsSaveMsg m{};
   if (!proto::decode(p, len, m)) return proto::AckStatus::kInvalidCommand;
-  if (g_app.save_in_progress) return proto::AckStatus::kSettingsSaveBusy;
-  g_app.save_requested = true;
+  if (g_app.saver.busy()) return proto::AckStatus::kSettingsSaveBusy;
+  g_app.saver.request();
   return proto::AckStatus::kOk;
 }
 ```

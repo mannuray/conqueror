@@ -1634,3 +1634,59 @@ sequenceDiagram
         S-->>U: runs+1 → SELFTEST_FAIL, solid red stays
     end
 ```
+
+### 10.10 EEPROM save cannot overflow (owner decision 7, 2026-10-12)
+**Problem:** a full save queued magic + global + profile (3 + 66 + 54 = 123 B) into the 128 B `EepromWriter` queue at once and ignored `enqueue()` failures — the next global setting would silently drop the profile block.
+**Chosen: stage the save per block** (rather than enlarging the queue, which only moves the limit and costs RAM). New pure class `SettingsSaver` (Plan B Task 3, `domain/settings/settings_saver.{h,cpp}`, 2 B RAM) queues magic + global (69 B), waits until the writer has drained, then queues profile (54 B). The queue therefore never holds more than one block and shrinks **128 → 80 B** (ranges 6 → 4): **−56 B static RAM**. `static_assert`s pin both limits at compile time: magic + global ≤ `EepromWriter::kMaxBytes`, profile ≤ `kMaxBytes`, and global block end ≤ 80 (the EEPROM layout, 6 B left, is now the binding limit for new global settings — growing it means a layout version bump). An `enqueue()` failure keeps the request pending instead of losing it. Each block is one range `[len][data][crc]`, still written in order (CRC last), so a power cut mid-block fails that block's CRC → defaults + `settings_reset` as before. Test: `test_save_every_setting_at_once_never_overflows` (every setting changed, full save, reload equals).
+
+```mermaid
+classDiagram
+    class SettingsSaver {
+      -Stage m_stage
+      -bool m_requested
+      +request()
+      +busy() bool
+      +step(const Settings&, EepromWriter&, const EepromIo&, bool may_start) bool
+      -queueBlock(const Settings&, block, addr, EepromWriter&)$ bool
+    }
+    class Stage {
+      <<enum>>
+      kIdle
+      kGlobal
+      kProfile
+    }
+    class EepromWriter {
+      +kMaxBytes = 80
+      +kMaxRanges = 4
+      +enqueue(addr, data, len) bool
+      +step(const EepromIo&) bool
+      +idle() bool
+    }
+    class Settings {
+      +serialize(block, out) uint8
+      +deserialize(block, data, len, crc) bool
+    }
+    SettingsSaver *-- Stage
+    SettingsSaver ..> EepromWriter
+    SettingsSaver ..> Settings
+```
+
+```mermaid
+sequenceDiagram
+    participant R as onSettingsSave / settingsLoad
+    participant T as settingsTask (50 Hz)
+    participant S as SettingsSaver
+    participant W as EepromWriter (80 B)
+    R->>S: request() (SETTINGS_SAVE → BUSY while busy())
+    loop each pass (≤ 1 byte written)
+        T->>S: step(settings, writer, io, !moving)
+        S->>W: step(io) — returns idle?
+        alt idle and kIdle and requested and stopped
+            S->>W: enqueue(magic 3 B) + enqueue(global 66 B) → kGlobal
+        else idle and kGlobal
+            S->>W: enqueue(profile 54 B) → kProfile
+        else idle and kProfile
+            S-->>T: true → clearDirty(), EVENT SETTINGS_SAVED
+        end
+    end
+```

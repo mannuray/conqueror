@@ -3721,7 +3721,7 @@ git commit -m "feat(uno): MPU6050 driver, attitude/yaw/bump/lift estimators, 200
 - Consumes: `EchoState`, `IrEvent` (Task 1), `GlobalSettings` (Task 3), `EventQueue`.
 - Produces:
   - `cq::UltrasonicFilter`: `enum class Change : uint8_t { kNone, kFault, kRecovered }`; `Change onReading(EchoState st, uint16_t echo_us, uint8_t offset_mm, uint32_t now_ms)`, `uint16_t distMm() const` (`kClear = 0xFFFF`, `kFault = 0xFFFE`), `int16_t closingCmS() const`, `bool fault() const`, `bool valid() const`. Fault semantics (LLD §9.16): only a *failed measurement* counts — `kNoEcho` (no rising edge within 2 ms of the trigger) or a `kPending` beyond `kMaxPending` ticks (echo line stuck high > 250 ms); 3 consecutive → fault. `kClear` (echo high > 25 ms: nothing in range) is never a fault.
-  - `cq::BatteryMonitor`: `enum class Level : uint8_t { kUsb, kOk, kLow, kCritical }`; `Level update(uint16_t adc, uint16_t mv_per_count_x100, uint16_t low_mv, uint16_t crit_mv, uint32_t now_ms)` (returns the new level on change, else the current; the voltage is the plain average of the last 4 samples, one sample per 10 Hz tick — LLD §9.13), `bool changed() const`, `uint16_t mv() const`, `Level level() const`.
+  - `cq::BatteryMonitor`: `enum class Level : uint8_t { kUsb, kOk, kLow, kCritical }`; `Level update(uint16_t adc, uint16_t mv_per_count_x100, uint16_t low_mv, uint16_t crit_mv, uint16_t hyst_mv, uint32_t now_ms)` (leaving low/critical needs threshold + `hyst_mv` = setting `batt_hyst`, LLD §10.6; returns the new level on change, else the current; the voltage is the plain average of the last 4 samples, one sample per 10 Hz tick — LLD §9.13), `bool changed() const`, `uint16_t mv() const`, `Level level() const`.
   - `cq::NecDecoder`: `bool feed(uint32_t t_us, uint32_t now_ms, IrEvent& out)`.
   - Ports: `cq::port::ultrasonic::{begin(), bool trigger(), EchoState poll(uint16_t& echo_us)}` (`trigger()` sends no ping and returns false while the echo line is still high; the next `poll()` then returns `kPending`); `cq::port::ir::{begin(), bool popEdge(uint32_t& t_us)}`; `cq::port::battery_adc::{begin(), start(), bool ready(uint16_t& adc)}`; `cq::port::button::{begin(), bool pressed()}`.
   - App members `UltrasonicFilter us; BatteryMonitor batt; NecDecoder nec; IrEvent ir_event; bool ir_pending;` and tasks `cq::app::ultrasonicTask()` (20 Hz), `batteryTask()` (10 Hz), `irTask()` (200 Hz), `sensorsInit()`, declared in `app/tasks.h`.
@@ -3860,34 +3860,55 @@ void test_nec_rejects_bad_inverse_and_noise() {
 void test_battery_levels_with_persistence() {
   BatteryMonitor b;
   // Default scale 4050 = 40.5 mV per count (10-bit ADC behind the divider): 198 counts ≈ 8019 mV
-  for (uint32_t t = 0; t < 3000; t += 100) b.update(198, 4050, 7000, 6600, t);
+  for (uint32_t t = 0; t < 3000; t += 100) b.update(198, 4050, 7200, 6600, 200, t);
   TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kOk), static_cast<int>(b.level()));
   TEST_ASSERT_UINT16_WITHIN(20, 8000, b.mv());
-  for (uint32_t t = 3000; t < 4000; t += 100) b.update(170, 4050, 7000, 6600, t);  // 6885 mV, < 2 s
+  for (uint32_t t = 3000; t < 4000; t += 100) b.update(170, 4050, 7200, 6600, 200, t);  // 6885 mV, < 2 s
   TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kOk), static_cast<int>(b.level()));
-  for (uint32_t t = 4000; t < 9000; t += 100) b.update(170, 4050, 7000, 6600, t);
+  for (uint32_t t = 4000; t < 9000; t += 100) b.update(170, 4050, 7200, 6600, 200, t);
   TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kLow), static_cast<int>(b.level()));
-  for (uint32_t t = 9000; t < 14000; t += 100) b.update(160, 4050, 7000, 6600, t);  // 6480 mV
+  for (uint32_t t = 9000; t < 14000; t += 100) b.update(160, 4050, 7200, 6600, 200, t);  // 6480 mV
   TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kCritical), static_cast<int>(b.level()));
 }
 
 // LLD §9.13: one sample per tick, plain average of the last 4 ticks.
 void test_battery_four_sample_average() {
   BatteryMonitor b;
-  b.update(200, 4050, 7000, 6600, 0);  // 8100 mV; the first sample alone is the average
+  b.update(200, 4050, 7200, 6600, 200, 0);  // 8100 mV; the first sample alone is the average
   TEST_ASSERT_EQUAL(8100, b.mv());
-  for (uint32_t t = 100; t < 400; t += 100) b.update(200, 4050, 7000, 6600, t);
+  for (uint32_t t = 100; t < 400; t += 100) b.update(200, 4050, 7200, 6600, 200, t);
   TEST_ASSERT_EQUAL(8100, b.mv());
-  b.update(100, 4050, 7000, 6600, 400);  // 4050 mV: (3 x 8100 + 4050) / 4
+  b.update(100, 4050, 7200, 6600, 200, 400);  // 4050 mV: (3 x 8100 + 4050) / 4
   TEST_ASSERT_EQUAL(7087, b.mv());
-  for (uint32_t t = 500; t < 800; t += 100) b.update(100, 4050, 7000, 6600, t);
+  for (uint32_t t = 500; t < 800; t += 100) b.update(100, 4050, 7200, 6600, 200, t);
   TEST_ASSERT_EQUAL(4050, b.mv());  // the old samples are gone after 4 ticks
 }
 
 void test_battery_usb_power_is_not_an_alarm() {
   BatteryMonitor b;
-  for (uint32_t t = 0; t < 5000; t += 100) b.update(10, 4050, 7000, 6600, t);  // 405 mV: no battery
+  for (uint32_t t = 0; t < 5000; t += 100) b.update(10, 4050, 7200, 6600, 200, t);  // 405 mV: no battery
   TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kUsb), static_cast<int>(b.level()));
+}
+
+// LLD §10.6: low 7.2 V / critical 6.6 V; leaving a level needs its threshold + batt_hyst (200 mV), 2 s.
+void test_battery_hysteresis_on_recovery() {
+  BatteryMonitor b;
+  uint32_t t = 0;
+  auto feed = [&](uint16_t adc, uint32_t ms) {
+    for (const uint32_t end = t + ms; t < end; t += 100) b.update(adc, 4050, 7200, 6600, 200, t);
+  };
+  feed(160, 3000);  // 6480 mV
+  TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kCritical), static_cast<int>(b.level()));
+  feed(166, 3000);  // 6723 mV: above critical but not by 200 mV
+  TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kCritical), static_cast<int>(b.level()));
+  feed(172, 3000);  // 6966 mV > 6800: back to low
+  TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kLow), static_cast<int>(b.level()));
+  feed(180, 3000);  // 7290 mV: above low but not by 200 mV
+  TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kLow), static_cast<int>(b.level()));
+  feed(184, 3000);  // 7452 mV > 7400: ok
+  TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kOk), static_cast<int>(b.level()));
+  feed(177, 3000);  // 7168 mV < 7200: low again (no hysteresis on the way down)
+  TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kLow), static_cast<int>(b.level()));
 }
 
 int main() {
@@ -3903,6 +3924,7 @@ int main() {
   RUN_TEST(test_battery_levels_with_persistence);
   RUN_TEST(test_battery_four_sample_average);
   RUN_TEST(test_battery_usb_power_is_not_an_alarm);
+  RUN_TEST(test_battery_hysteresis_on_recovery);
   return UNITY_END();
 }
 ```
@@ -4030,13 +4052,15 @@ UltrasonicFilter::Change UltrasonicFilter::onReading(EchoState st, uint16_t echo
 namespace cq {
 
 // Pack voltage = average of the last 4 samples (one per 10 Hz tick, LLD §9.13); low/critical need
-// 2 s below the threshold, recovery needs +150 mV for 2 s.
+// 2 s below the threshold; leaving critical or low needs that threshold + hyst_mv (setting batt_hyst, 200 mV) for 2 s
+// (LLD §10.6: critical → low above crit + hyst, low → ok above low + hyst).
 // Below 3 V the board is USB powered (no pack): level kUsb, never an alarm.
 class BatteryMonitor {
  public:
   enum class Level : uint8_t { kUsb, kOk, kLow, kCritical };
   static constexpr uint8_t kAvgSamples = 4;
-  Level update(uint16_t adc, uint16_t mv_per_count_x100, uint16_t low_mv, uint16_t crit_mv, uint32_t now_ms);
+  Level update(uint16_t adc, uint16_t mv_per_count_x100, uint16_t low_mv, uint16_t crit_mv, uint16_t hyst_mv,
+               uint32_t now_ms);
   bool changed() const { return m_changed; }
   uint16_t mv() const { return m_mv; }
   Level level() const { return m_level; }
@@ -4064,7 +4088,7 @@ class BatteryMonitor {
 namespace cq {
 
 BatteryMonitor::Level BatteryMonitor::update(uint16_t adc, uint16_t mv_per_count_x100, uint16_t low_mv,
-                                             uint16_t crit_mv, uint32_t now_ms) {
+                                             uint16_t crit_mv, uint16_t hyst_mv, uint32_t now_ms) {
   const uint32_t mv = (static_cast<uint32_t>(adc) * mv_per_count_x100 + 50u) / 100u;
   m_samples_mv[m_idx] = mv > 0xFFFFu ? 0xFFFFu : static_cast<uint16_t>(mv);
   m_idx = static_cast<uint8_t>((m_idx + 1) % kAvgSamples);
@@ -4073,19 +4097,18 @@ BatteryMonitor::Level BatteryMonitor::update(uint16_t adc, uint16_t mv_per_count
   for (uint8_t i = 0; i < m_count; ++i) sum += m_samples_mv[i];  // slots 0..m_count-1 are filled
   m_mv = static_cast<uint16_t>(sum / m_count);
 
+  const uint32_t low_exit = static_cast<uint32_t>(low_mv) + hyst_mv;   // hysteresis on recovery only
+  const uint32_t crit_exit = static_cast<uint32_t>(crit_mv) + hyst_mv;
   Level target;
   if (m_mv < 3000u) {
     target = Level::kUsb;
-  } else if (m_mv < crit_mv) {
-    target = Level::kCritical;
-  } else if (m_mv < low_mv) {
-    target = Level::kLow;
-  } else if (m_level == Level::kLow || m_level == Level::kCritical) {
-    target = m_mv > static_cast<uint32_t>(low_mv) + 150u ? Level::kOk : m_level;  // hysteresis on recovery
+  } else if (m_level == Level::kCritical) {
+    target = m_mv > low_exit ? Level::kOk : (m_mv > crit_exit ? Level::kLow : Level::kCritical);
+  } else if (m_level == Level::kLow) {
+    target = m_mv < crit_mv ? Level::kCritical : (m_mv > low_exit ? Level::kOk : Level::kLow);
   } else {
-    target = Level::kOk;
+    target = m_mv < crit_mv ? Level::kCritical : (m_mv < low_mv ? Level::kLow : Level::kOk);
   }
-  if (m_level == Level::kCritical && target == Level::kLow) target = Level::kCritical;
 
   m_changed = false;
   if (target == m_level) {
@@ -4193,7 +4216,7 @@ bool NecDecoder::feed(uint32_t t_us, uint32_t now_ms, IrEvent& out) {
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_sensors`
-Expected: `11 Tests 0 Failures`.
+Expected: `12 Tests 0 Failures`.
 
 - [ ] **Step 5: Ports and drivers (PCINT0 hub for IR + echo, async ADC, button)**
 
@@ -4505,7 +4528,7 @@ void batteryTask() {
   if (!port::battery_adc::ready(adc)) return;
   const GlobalSettings& gs = g_app.settings.global();
   const BatteryMonitor::Level lvl =
-      g_app.batt.update(adc, gs.batt_mv_per_count, gs.batt_low, gs.batt_crit, port::clock::nowMs());
+      g_app.batt.update(adc, gs.batt_mv_per_count, gs.batt_low, gs.batt_crit, gs.batt_hyst, port::clock::nowMs());
   if (g_app.batt.changed()) {
     if (lvl == BatteryMonitor::Level::kLow) g_app.events.push(proto::EventKind::kBattLow, g_app.batt.mv());
     if (lvl == BatteryMonitor::Level::kCritical) g_app.events.push(proto::EventKind::kBattCritical, g_app.batt.mv());

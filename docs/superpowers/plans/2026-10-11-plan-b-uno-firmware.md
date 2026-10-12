@@ -5567,6 +5567,7 @@ Add to `src/app/app.h` includes and members:
 #pragma once
 #include <stdint.h>
 
+#include "domain/safety/safety_override.h"
 #include "generated/cq_protocol.h"
 
 namespace cq {
@@ -5622,7 +5623,7 @@ void rejectEvent(uint8_t frame_type, uint8_t src, proto::AckStatus st) {
 }  // namespace
 
 SafetyOverride::Gate overrideGate() {
-  // Task 7 adds `|| (g_app.self_test_done && g_app.self_test.critical())` (self-test lock).
+  // Task 7 adds the self-test lock to `fault`.
   const bool fault = g_app.lift.lifted() || g_app.lift.tilted() ||
                      g_app.batt.level() == BatteryMonitor::Level::kCritical;
   return SafetyOverride::Gate{g_app.link.synced(), g_app.envelope.active(), fault, g_app.arbitrator.owner()};
@@ -7227,7 +7228,8 @@ void selfTestTask() {
 In `src/app/control_task.cpp` (v1):
 - in `controlInit()` add `port::encoders::begin();` (and `#include "ports/encoders.h"`);
 - at the top of `controlTask()` add `encodersTick();`;
-- in the arbitrator `switch`, split the shared `kLinkLostStop`/`kIrReleased` case and give `kLinkLostStop` its own body `calibrationAbort(proto::AckStatus::kLinkLost); zeroTeleop(); break;` (`kIrReleased` keeps `zeroTeleop(); break;`);
+- in the arbitrator `switch`, add `calibrationAbort(proto::AckStatus::kLinkLost);` as the first line of the `kLinkLostStop` case (Task 6 already gave it its own body: `zeroTeleop(); g_app.safety_override.onLinkLost(); break;`);
+- in `overrideGate()` extend `fault` with `|| (g_app.self_test_done && g_app.self_test.critical())` (LLD §10.2: Override is refused while the self-test lock holds);
 - in `onStop()` add `calibrationAbort(proto::AckStatus::kCalCancelled);` before `g_app.arbitrator.onNetworkStop();` (LLD §9.7: STOP aborts a script);
 - in the `SafetyInputs` initializer replace `0 /* stall_mask: Task 7 */` with `g_app.enc_health.stalledMask()` (LLD §9.6: a stalled track is cut);
 - replace the two lines
@@ -8885,7 +8887,8 @@ git commit -m "feat(uno): TURN/MOVE primitives with trapezoid profiles, stall/ti
   - Control order per 10 ms tick: encoders → arbitration → source (calibration | primitive | network/IR teleop) → heading → mixer → limiter (envelope %, degraded cap, obstacle slow) → ramps (accel = min(envelope accel cap, `accel_limit`)) → speed controllers (PWM limit from the cap; integrator frozen while capped or the track is stalled) → battery scale → `SafetySupervisor` → motor port.
   - New handlers `onDriveRate`, `onTurn`, `onMove`, `onCancel`, `onProfile`; `configureMotion()` (called from `applySettings()`); `stopTeleop()` (zeroes stick, DRIVE_RATE mode and rate — used by Task 14's IR controller).
   - App `deadman_latched` (set by `DEADMAN_STOP`, cleared by the next accepted DRIVE/DRIVE_RATE; Task 13 reports it as `flags2.deadman`).
-  - Events produced here: `CONTROL_CHANGED`, `IR_OVERRIDE`, `DEADMAN_STOP`, `PRIMITIVE_DONE` (`a = kind | ok << 8`, `b = reason`), `BLOCKED`/`UNBLOCKED`, `REJECTED`, `ENVELOPE_CHANGED`.
+  - Events produced here: `CONTROL_CHANGED`, `IR_OVERRIDE`, `DEADMAN_STOP`, `PRIMITIVE_DONE` (`a = kind | ok << 8`, `b = reason`), `BLOCKED`/`UNBLOCKED`, `REJECTED`, `ENVELOPE_CHANGED`, `SAFETY_OVERRIDE`.
+  - Safety Override (Task 6, LLD §10) carried into v2: `onSafetyOverride`, `overrideGate()` (now incl. the self-test lock), `drainOverride()`; DRIVE/DRIVE_RATE/TURN/MOVE report accepted motion (`onNetworkMotion`), STOP/envelope/OWNER_HINT ai/link loss/owner change end it, `tick()` every control tick; the effective brake feeds both `limitTargets` and the supervisor.
   - Smoke: `Link.paused` (simulated link loss); commands `driverate V RATE`, `turn ANGLE SPEED [--radius CM] [--to] [--pivot] [--then-to DEG] [--cancel-after S] [--drop-link-after S --restore-after S]`, `move MM SPEED [--heading DEG]`, `cancel`; `drive … --envelope CAP [--accel A] [--lock]`.
 
 - [ ] **Step 1: Replace the motion API header**
@@ -8895,6 +8898,7 @@ git commit -m "feat(uno): TURN/MOVE primitives with trapezoid profiles, stall/ti
 #pragma once
 #include <stdint.h>
 
+#include "domain/safety/safety_override.h"
 #include "generated/cq_protocol.h"
 
 namespace cq {
@@ -8914,6 +8918,9 @@ proto::AckStatus onBrake(const uint8_t* p, uint8_t len);
 proto::AckStatus onEnvelope(const uint8_t* p, uint8_t len);
 proto::AckStatus onOwnerHint(const uint8_t* p, uint8_t len);
 proto::AckStatus onProfile(const uint8_t* p, uint8_t len);
+proto::AckStatus onSafetyOverride(const uint8_t* p, uint8_t len);
+SafetyOverride::Gate overrideGate();  // Safety Override glue (Task 6, LLD §10)
+void drainOverride();
 
 proto::AckStatus onCalibrate(const uint8_t* p, uint8_t len);
 bool calibrationTick(int16_t& pwm_l, int16_t& pwm_r);  // true while a script drives the motors
@@ -9014,9 +9021,33 @@ proto::AckStatus networkMotion(uint8_t frame_type, uint8_t src, bool teleop) {
 
 int16_t scaled(int16_t pwm, float s) { return static_cast<int16_t>(static_cast<float>(pwm) * s); }
 
+// Accepted network motion: AI motion ends Override, human driving refreshes its idle timer (LLD §10.2).
+void overrideMotion(uint8_t src, bool driving) {
+  g_app.safety_override.onNetworkMotion(static_cast<proto::Source>(src), driving, port::clock::nowMs());
+  drainOverride();
+}
+
 }  // namespace
 
 void stopTeleop() { zeroTeleop(); }
+
+SafetyOverride::Gate overrideGate() {
+  const bool fault = g_app.lift.lifted() || g_app.lift.tilted() ||
+                     g_app.batt.level() == BatteryMonitor::Level::kCritical ||
+                     (g_app.self_test_done && g_app.self_test.critical());
+  return SafetyOverride::Gate{g_app.link.synced(), g_app.envelope.active(), fault, g_app.arbitrator.owner()};
+}
+
+void drainOverride() {
+  bool on = false;
+  proto::OverrideReason why = proto::OverrideReason::kNetwork;
+  while (g_app.safety_override.takeEvent(on, why)) {
+    g_app.events.push(proto::EventKind::kSafetyOverride, on ? 1 : 0, static_cast<int16_t>(why));
+    ++g_app.override_seq;
+  }
+  const uint32_t m = 1ul << static_cast<uint8_t>(proto::SlowFlagBit::kSafetyOverride);
+  g_app.slow_flags = g_app.safety_override.active() ? (g_app.slow_flags | m) : (g_app.slow_flags & ~m);
+}
 
 void configureMotion() {
   const GlobalSettings& gs = g_app.settings.global();
@@ -9051,6 +9082,7 @@ proto::AckStatus onDrive(const uint8_t* p, uint8_t len) {
   g_app.teleop_rate_mode = false;
   g_app.teleop_v = m.v;
   g_app.teleop_w = m.w;
+  overrideMotion(m.src, m.v != 0 || m.w != 0);
   return st;
 }
 
@@ -9066,6 +9098,7 @@ proto::AckStatus onDriveRate(const uint8_t* p, uint8_t len) {
   g_app.teleop_v = m.v;
   g_app.teleop_rate_dps = clampf(m.yaw_rate * 0.1f, -static_cast<float>(g_prim.turn_rate_max_dps),
                                  static_cast<float>(g_prim.turn_rate_max_dps));
+  overrideMotion(m.src, m.v != 0 || m.yaw_rate != 0);
   return st;
 }
 
@@ -9076,6 +9109,8 @@ proto::AckStatus onStop(const uint8_t* p, uint8_t len) {
   g_app.primitives.cancel(proto::AckStatus::kCancelled);
   calibrationAbort(proto::AckStatus::kCalCancelled);
   g_app.arbitrator.onNetworkStop();
+  g_app.safety_override.end(proto::OverrideReason::kStop);  // any STOP ends Override
+  drainOverride();
   // Accepted from any source. While IR owns, it only zeroes the current command; IR keeps ownership.
   return proto::AckStatus::kOk;
 }
@@ -9086,6 +9121,7 @@ proto::AckStatus onTurn(const uint8_t* p, uint8_t len) {
   const proto::AckStatus own = networkMotion(static_cast<uint8_t>(proto::FrameType::kTurn), m.src, false);
   if (own != proto::AckStatus::kOk) return own;
   zeroTeleop();
+  overrideMotion(m.src, true);
   g_prim.imu_ok = imuUsable();
   return g_app.primitives.startTurn(m, g_prim, primInputs(), port::clock::nowMs());
 }
@@ -9096,6 +9132,7 @@ proto::AckStatus onMove(const uint8_t* p, uint8_t len) {
   const proto::AckStatus own = networkMotion(static_cast<uint8_t>(proto::FrameType::kMove), m.src, false);
   if (own != proto::AckStatus::kOk) return own;
   zeroTeleop();
+  overrideMotion(m.src, true);
   g_prim.imu_ok = imuUsable();  // MOVE holds a gyro heading: UNAVAILABLE without the IMU (R7)
   g_prim.encoders = g_app.encoders_enabled && !g_app.enc_health.faulted(0) && !g_app.enc_health.faulted(1);
   return g_app.primitives.startMove(m, g_prim, primInputs(), port::clock::nowMs());
@@ -9126,6 +9163,10 @@ proto::AckStatus onEnvelope(const uint8_t* p, uint8_t len) {
     g_app.slow.env_speed_cap = m.speed_cap;
     g_app.slow.env_accel_cap = m.accel_cap;
     g_app.slow.env_lock_brake = m.lock_brake;
+    if (g_app.envelope.active()) {  // child play (any envelope) ends Override in the same frame
+      g_app.safety_override.end(proto::OverrideReason::kEnvelope);
+      drainOverride();
+    }
   }
   return st;
 }
@@ -9134,7 +9175,19 @@ proto::AckStatus onOwnerHint(const uint8_t* p, uint8_t len) {
   proto::OwnerHintMsg m{};
   if (!proto::decode(p, len, m)) return proto::AckStatus::kInvalidCommand;
   g_app.owner_hint = static_cast<proto::OwnerHintValue>(m.owner);
+  g_app.safety_override.onOwnerHint(g_app.owner_hint);  // handed to the AI → Override ends
+  drainOverride();
   return proto::AckStatus::kOk;
+}
+
+proto::AckStatus onSafetyOverride(const uint8_t* p, uint8_t len) {
+  proto::SafetyOverrideMsg m{};
+  if (!proto::decode(p, len, m)) return proto::AckStatus::kInvalidCommand;
+  const proto::AckStatus st = g_app.safety_override.requestNetwork(m.on != 0, static_cast<proto::Source>(m.src),
+                                                                   overrideGate(), port::clock::nowMs());
+  if (st != proto::AckStatus::kOk) rejectEvent(static_cast<uint8_t>(proto::FrameType::kSafetyOverride), m.src, st);
+  drainOverride();
+  return st;
 }
 
 proto::AckStatus onProfile(const uint8_t* p, uint8_t len) {
@@ -9166,6 +9219,7 @@ void controlTask() {
       zeroTeleop();
       g_soft_stop = true;
       g_app.primitives.cancel(proto::AckStatus::kLinkLost);  // never resumed
+      g_app.safety_override.onLinkLost();
       break;
     case Arbitrator::Action::kIrReleased:
       zeroTeleop();
@@ -9181,7 +9235,12 @@ void controlTask() {
     if (owner == proto::Owner::kIr) g_app.events.push(proto::EventKind::kIrOverride);
     // An idle release, STOP or calibration never resumes an old DRIVE/DRIVE_RATE (IR writes teleop while it owns).
     if (owner == proto::Owner::kNone || owner == proto::Owner::kCalibration) zeroTeleop();
+    g_app.safety_override.onOwner(owner);  // another principal took over → Override ends
   }
+  g_app.safety_override.tick(now, SafetyOverride::Config{gs.override_idle_s, gs.override_max_s});
+  drainOverride();
+  // Effective obstacle brake: off while Override is on (LLD §10.4), for the slow zone and the stop alike.
+  const bool brake_on = g_app.safety_override.brakeOn(g_app.envelope.brakeOn());
 
   // 2. motion source
   int16_t pwm_l = 0;
@@ -9228,7 +9287,7 @@ void controlTask() {
     mix(v, w, MixerConfig{ps.turn_rate_full_speed, gs.reverse_steer == 0, gs.pivot_fallback != 0, keep_pct}, l, r);
     const uint8_t degraded = !imuUsable() ? 30 : (g_app.us.fault() ? 50 : 100);  // LLD §9.5/§9.16 (min of both)
     const Limited lim = limitTargets(l, r, Limits{g_app.envelope.speedCap(), g_app.us.distMm(), gs.obstacle_stop,
-                                                  gs.obstacle_slow, g_app.envelope.brakeOn(), degraded});
+                                                  gs.obstacle_slow, brake_on, degraded});
     capped = lim.capped;
     // The envelope accel cap may only tighten the global limit, never loosen it.
     const float accel_lim = static_cast<float>(gs.accel_limit);
@@ -9263,8 +9322,9 @@ void controlTask() {
   // 6. safety gate → motors (req_pwm_* = asked of the supervisor, used by EncoderHealth to clear a stall)
   g_app.req_pwm_l = pwm_l;
   g_app.req_pwm_r = pwm_r;
+  // Override only reaches the supervisor through brake_on; lift, battery critical and stall never consult it.
   const SafetyInputs in{g_app.lift.lifted(), g_app.lift.tilted(),
-                        g_app.batt.level() == BatteryMonitor::Level::kCritical, g_app.envelope.brakeOn(),
+                        g_app.batt.level() == BatteryMonitor::Level::kCritical, brake_on,
                         g_app.us.distMm(), gs.obstacle_stop, g_app.enc_health.stalledMask()};
   const bool was_blocked = g_app.safety.blocked;
   const PwmOutput out = g_app.supervisor.apply(pwm_l, pwm_r, in, g_app.safety);
@@ -9325,6 +9385,7 @@ In `src/app/routes.cpp` add before `// ROUTES-END`:
     {static_cast<uint8_t>(proto::FrameType::kCancel), onCancel, true},
     {static_cast<uint8_t>(proto::FrameType::kProfile), onProfile, true},
 ```
+(The `kSafetyOverride` row from Task 6 stays; its handler and `overrideGate()`/`drainOverride()` now live in the v2 file.)
 
 - [ ] **Step 5: Smoke commands for primitives**
 

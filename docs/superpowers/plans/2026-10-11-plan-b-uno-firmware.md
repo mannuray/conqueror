@@ -5901,6 +5901,7 @@ def cmd_override(link: Link, args: argparse.Namespace) -> None:
             if isinstance(fast, g.TelemFast):
                 print(f"pwm={fast.pwm_l},{fast.pwm_r} dist={fast.dist_mm} pitch={fast.pitch / 100:.1f}")
             time.sleep(0.05)
+        time.sleep(0.6)  # keep printing events: DEADMAN_STOP 300 ms after the last DRIVE
 ```
 Register in `COMMANDS` (`"drive": cmd_drive, "stop": cmd_stop, "envelope": cmd_envelope, "deadman": cmd_deadman, "override": cmd_override`) and in `main()`:
 ```python
@@ -10481,6 +10482,23 @@ void test_annunciator_override_pulse_and_toggle_blinks() {
   TEST_ASSERT_TRUE((l.output(3000 + 40) == Annunciator::kColorOn));
 }
 
+void test_annunciator_override_pulse_returns_after_battery_check() {
+  Annunciator a;
+  LedSequencer l;
+  SoundSequencer snd;
+  AnnState s = base();
+  a.update(s, 0, l, snd);
+  s.override_on = true;
+  ++s.override_seq;
+  a.update(s, 100, l, snd);
+  a.update(s, 600, l, snd);  // toggle blinks over → pulse
+  l.set(LedLayer::kAttention, {proto::LedMode::kSolid, {0, 150, 0}, 0, 2000}, 1000);  // IR `9` battery check
+  TEST_ASSERT_TRUE((l.output(1500) == Rgb{0, 150, 0}));
+  l.output(3020);            // the 2 s pattern expires
+  a.update(s, 3020, l, snd);  // Override still on → its pulse comes back
+  TEST_ASSERT_TRUE((l.output(3020 + 500) == Annunciator::kColorOverride));
+}
+
 void test_annunciator_tilt_siren_repeats() {
   Annunciator a;
   LedSequencer l;
@@ -10513,6 +10531,7 @@ int main() {
   RUN_TEST(test_led_base_breathes_idle_and_scales_with_speed);
   RUN_TEST(test_annunciator_obstacle_stop_chirp_and_blink);
   RUN_TEST(test_annunciator_override_pulse_and_toggle_blinks);
+  RUN_TEST(test_annunciator_override_pulse_returns_after_battery_check);
   RUN_TEST(test_annunciator_tilt_siren_repeats);
   return UNITY_END();
 }
@@ -10649,6 +10668,8 @@ class LedSequencer {
 
   void set(LedLayer layer, const LedPattern& p, uint32_t now_ms);
   void clear(LedLayer layer) { m_active[static_cast<uint8_t>(layer)] = false; }
+  // false once cleared or expired (expiry is noticed by output(), i.e. one UI tick late)
+  bool active(LedLayer layer) const { return m_active[static_cast<uint8_t>(layer)]; }
   // led_max (setting, default 50): every output is scaled by max / 255.
   void setMax(uint8_t max) { m_max = max; }
   // Style of a SOLID base layer (the owner colour): breathe (triangle 20..100 %, period) when idle, else a steady
@@ -11025,7 +11046,11 @@ void Annunciator::update(const AnnState& s, uint32_t now_ms, LedSequencer& led, 
   } else if (m_toggle_active && elapsed(now_ms, m_toggle_since_ms, kToggleBlinkMs)) {
     m_toggle_active = false;
     pickAttention(s, now_ms, led);
-  } else if (!m_toggle_active && (s.blocked != p.blocked || s.override_on != p.override_on)) {
+  } else if (!m_toggle_active &&
+             (s.blocked != p.blocked || s.override_on != p.override_on ||
+              ((s.blocked || s.override_on) && !led.active(LedLayer::kAttention)))) {
+    // also after a one-shot attention pattern (e.g. the IR `9` battery check) expired: the obstacle blink /
+    // Override pulse must come back while its cause holds
     pickAttention(s, now_ms, led);
   }
   if (s.calibrating != p.calibrating) {
@@ -11061,7 +11086,7 @@ void Annunciator::update(const AnnState& s, uint32_t now_ms, LedSequencer& led, 
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_ui`
-Expected: `15 Tests 0 Failures`.
+Expected: `16 Tests 0 Failures`.
 
 - [ ] **Step 5: Tone and WS2812 drivers**
 
@@ -12180,7 +12205,7 @@ git commit -m "feat(uno): IR remote keymap (drive, camera jog, speed, battery ch
 - [ ] **Step 1: Run the whole host suite**
 
 Run: `pio test -e native`
-Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 16, `test_settings` 8, `test_estimation` 10, `test_sensors` 12, `test_safety` 19, `test_encoders` 4, `test_calibration` 11, `test_motion_blocks` 11, `test_controllers` 8, `test_primitives` 9, `test_camera` 7, `test_ui` 15, `test_input` 13 — **147 test cases, 0 failures** (LLD Revision 3 added 15: Override 6, battery hysteresis 1, catalogue/LED 6, IR `*` hold 2).
+Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 16, `test_settings` 8, `test_estimation` 10, `test_sensors` 12, `test_safety` 19, `test_encoders` 4, `test_calibration` 11, `test_motion_blocks` 11, `test_controllers` 8, `test_primitives` 9, `test_camera` 7, `test_ui` 16, `test_input` 13 — **148 test cases, 0 failures** (LLD Revision 3 added 16: Override 6, battery hysteresis 1, catalogue/LED/annunciator 7, IR `*` hold 2).
 
 - [ ] **Step 2: Build gates and memory map**
 
@@ -12321,7 +12346,7 @@ Note: Plan A names these enums `AudioModeValue` and `OwnerHintValue` (C++ `proto
 
 ## Done when
 
-- `cd firmware/uno && pio test -e native` passes all 147 host tests; `pio run -e uno && python3 scripts/size_gate.py` passes the flash/RAM budget.
+- `cd firmware/uno && pio test -e native` passes all 148 host tests; `pio run -e uno && python3 scripts/size_gate.py` passes the flash/RAM budget.
 - The phase 1 and phase 2 sign-off lists in Task 15 are fully ticked on the real tank.
 - `tools/smoke/uno_smoke.py` covers handshake, telemetry, settings, driving, primitives, camera, LED/sound, calibration scripts, probe, mount check, bias and soak — the same link behaviour Plan C's bridge and Plan D's bench tool build on.
 - `docs/lld/uno-firmware-lld.md` §9.8 lists the corrected IR codes.

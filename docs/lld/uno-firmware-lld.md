@@ -563,7 +563,7 @@ stateDiagram-v2
 
 ### 4.4 `gate()` rules (every 10 ms, in order)
 1. **Locked** → motors 0.
-2. **Hard faults → Halted, brake now:** tilt > limit (clears after level 1 s) · lifted (clears on landed) · bump > threshold (300 ms hold) · critical battery 2 s (clears above crit + 0.3 V hysteresis).
+2. **Hard faults → Halted, brake now:** tilt > limit (default 45°, must persist 300 ms; clears after level 1 s) · lifted (clears on landed) · bump > threshold (300 ms hold) · critical battery 2 s (clears above crit + 0.3 V hysteresis).
 3. **Stall (per track):** cut that track until the commanded direction changes or 1 s.
 4. **Deadman / link lost → SoftStop:** ramp to 0 over ~300 ms; recover on a fresh command.
 5. **Obstacle brake (if on):** split into `v = (L+R)/2`, `Δ = (R−L)/2`; if `v > 0` scale `v` by `clamp((dist − stop)/(slow − stop), 0, 1)`; recombine. Reverse and spin stay allowed; `blocked` at 0.
@@ -1308,3 +1308,6 @@ Agreed while polishing Plan B Tasks 11–15; where they differ, these refine §3
 ### Decision notes (2026-10-11): Plan B final consistency check
 - **Reset reason without an intentional-reset marker (§9.13):** v1 has no software reboot path (no REBOOT frame, Uno updates are USB only), so the `.noinit` "intentional WDT reset" marker and `watchdog::markIntentionalReset()` are dropped. The reason comes only from MCUSR / plausible Optiboot r2; a watchdog reset is always a hang. Re-add the marker together with a reboot command if one is ever introduced.
 - **UI route handlers:** `onLed/onSound/onTone/onAudioMode` are declared in `app/ui_api.h` (like `camera_api.h` and `motion_api.h`); `app/tasks.h` keeps only task/init entry points.
+
+### Decision note (2026-10-12): tilt cut-off
+- 2026-10-12 owner: `tilt_limit` default 45° (tank stable to ~75°), tilt must persist 300 ms. `LiftDetector` confirms `kTilted` only after the tilt has stayed over the limit for `kTiltHoldMs = 300` (separate since-timestamp; lift/land logic untouched). Release stays immediate below limit − 5° (hysteresis unchanged, no hold; simplest). Plan B Task 4 updated (extra test, host total 132).

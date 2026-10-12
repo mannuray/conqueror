@@ -105,7 +105,7 @@ Control logic (controllers, safety rules, arbitration, codec) is hardware-indepe
 |---|---|---|
 | Deadman | no drive update `deadman_ms` (300) during `drive`/`drive_rate`; or link lost 300 ms | smooth stop, `deadman_stop` |
 | Obstacle brake | `dist < obstacle_stop_cm` (15); proportional forward cap from `obstacle_slow_cm` (50) | forward motion limited/stopped; reverse/turn allowed; `blocked` |
-| Tilt | pitch/roll > `tilt_limit_deg` (35) | stop + alarm; locked until level 1 s |
+| Tilt | pitch/roll > `tilt_limit_deg` (45) for 300 ms | stop + alarm; locked until level 1 s |
 | Lift | **any of:** pickup transient (vertical accel spike while not driving over a bump), sudden tilt change, or (encoders) track free-spin — track speed at a given PWM well above the calibrated on-ground speed | stop + alarm; `lifted`; `landed` after level + steady 1 g for 1 s. Without encoders: transient/tilt only (best-effort) |
 | Bump | accel spike > `bump_g` (1.5 g) | 300 ms stop, `bump{g}` |
 | Stall | encoders: driven but no motion 0.5 s | cut that motor, `stall{side}` |
@@ -272,7 +272,7 @@ WiFi networks, tank name, admin password hash, key hashes + roles + names, camer
 2. App drive → lift thumb → stops within ~0.3 s (deadman).
 3. Kill WiFi/ESP32 power while driving → stops.
 4. Drive at a wall → slows from 50 cm, stops by ~15 cm; reverse allowed.
-5. Lift the tank **while driving** → motors stop, alarm. Tilt > 35° → stop, alarm.
+5. Lift the tank **while driving** → motors stop, alarm. Tilt > 45° (held 300 ms) → stop, alarm.
    Power-cycle with child-play active → envelope still active after boot.
 6. Tap the front → bump event + brief stop.
 7. Hold a track (encoders) → stall cut.

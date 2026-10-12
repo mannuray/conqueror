@@ -168,7 +168,7 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 | client: `stick_deadzone`, `stick_expo` | 5 %, 0.3 | app/hub |
 | `pid_speed{kp,ki,kd}`, `pid_heading{…}`, `pid_turn{…}` | tuned defaults | Uno |
 | `obstacle_stop_cm` / `obstacle_slow_cm` | 15 / 50 | Uno |
-| `tilt_limit_deg` | 35 | Uno |
+| `tilt_limit_deg` | 45 (must persist 300 ms) | Uno |
 | `bump_g` | 1.5 | Uno |
 | `deadman_ms` | 300 | Uno |
 | `batt_low_v` / `batt_crit_v` | 7.0 / 6.6 (2S Li-ion, confirmed) | Uno |

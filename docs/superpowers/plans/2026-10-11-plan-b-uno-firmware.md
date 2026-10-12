@@ -3017,31 +3017,51 @@ void test_lift_and_land() {
   LiftDetector l;
   uint32_t t = 0;
   for (; t < 200; t += 5) TEST_ASSERT_EQUAL(static_cast<int>(LiftDetector::Change::kNone),
-                                            static_cast<int>(l.update(1.0f, 0, 0, 35, t)));
+                                            static_cast<int>(l.update(1.0f, 0, 0, 45, t)));
   LiftDetector::Change c = LiftDetector::Change::kNone;
   for (; t < 300; t += 5) {
-    const LiftDetector::Change x = l.update(0.4f, 0, 0, 35, t);
+    const LiftDetector::Change x = l.update(0.4f, 0, 0, 45, t);
     if (x != LiftDetector::Change::kNone) c = x;
   }
   TEST_ASSERT_EQUAL(static_cast<int>(LiftDetector::Change::kLifted), static_cast<int>(c));
   TEST_ASSERT_TRUE(l.lifted());
   c = LiftDetector::Change::kNone;
   for (; t < 1000; t += 5) {
-    const LiftDetector::Change x = l.update(1.0f, 0, 0, 35, t);
+    const LiftDetector::Change x = l.update(1.0f, 0, 0, 45, t);
     if (x != LiftDetector::Change::kNone) c = x;
   }
   TEST_ASSERT_EQUAL(static_cast<int>(LiftDetector::Change::kLanded), static_cast<int>(c));
   TEST_ASSERT_FALSE(l.lifted());
 }
 
+void test_tilt_needs_300ms_hold() {
+  LiftDetector l;
+  // Over the limit for 295 ms only (a bump / turn artefact), then back level: never tilted.
+  for (uint32_t t = 0; t < 300; t += 5)
+    TEST_ASSERT_EQUAL(static_cast<int>(LiftDetector::Change::kNone),
+                      static_cast<int>(l.update(1.0f, 46.0f, 0, 45, t)));
+  TEST_ASSERT_EQUAL(static_cast<int>(LiftDetector::Change::kNone),
+                    static_cast<int>(l.update(1.0f, 20.0f, 0, 45, 300)));
+  TEST_ASSERT_FALSE(l.tilted());
+  // The hold restarts: a fresh excursion needs the full 300 ms again.
+  for (uint32_t t = 400; t < 700; t += 5)
+    TEST_ASSERT_EQUAL(static_cast<int>(LiftDetector::Change::kNone),
+                      static_cast<int>(l.update(1.0f, 46.0f, 0, 45, t)));
+  TEST_ASSERT_EQUAL(static_cast<int>(LiftDetector::Change::kTilted),
+                    static_cast<int>(l.update(1.0f, 46.0f, 0, 45, 700)));  // 300 ms since 400
+  TEST_ASSERT_TRUE(l.tilted());
+}
+
 void test_tilt_hysteresis() {
   LiftDetector l;
+  for (uint32_t t = 0; t < 300; t += 5) l.update(1.0f, 46.0f, 0, 45, t);
+  TEST_ASSERT_FALSE(l.tilted());
   TEST_ASSERT_EQUAL(static_cast<int>(LiftDetector::Change::kTilted),
-                    static_cast<int>(l.update(1.0f, 36.0f, 0, 35, 0)));
+                    static_cast<int>(l.update(1.0f, 46.0f, 0, 45, 300)));
   TEST_ASSERT_EQUAL(static_cast<int>(LiftDetector::Change::kNone),
-                    static_cast<int>(l.update(1.0f, 32.0f, 0, 35, 5)));  // inside hysteresis
+                    static_cast<int>(l.update(1.0f, 42.0f, 0, 45, 305)));  // inside hysteresis
   TEST_ASSERT_EQUAL(static_cast<int>(LiftDetector::Change::kLevel),
-                    static_cast<int>(l.update(1.0f, 29.0f, 0, 35, 10)));
+                    static_cast<int>(l.update(1.0f, 39.0f, 0, 45, 310)));  // release is immediate (no hold)
 }
 
 void test_accel_variance_window() {
@@ -3059,6 +3079,7 @@ int main() {
   RUN_TEST(test_yaw_ignores_small_rate_when_stationary);
   RUN_TEST(test_bump_detects_front_hit_once);
   RUN_TEST(test_lift_and_land);
+  RUN_TEST(test_tilt_needs_300ms_hold);
   RUN_TEST(test_tilt_hysteresis);
   RUN_TEST(test_accel_variance_window);
   return UNITY_END();
@@ -3263,10 +3284,13 @@ bool BumpDetector::update(float ax_g, float ay_g, uint16_t threshold_mg, uint32_
 
 namespace cq {
 
-// Lifted: |az| < 0.6 g for 60 ms. Landed: 0.85..1.15 g for 500 ms. Tilt with 5° hysteresis.
+// Lifted: |az| < 0.6 g for 60 ms. Landed: 0.85..1.15 g for 500 ms.
+// Tilted: |pitch| or |roll| over the limit (default 45°) continuously for kTiltHoldMs = 300 ms (filters bumps and
+// turn artefacts). Level: below limit - 5° (hysteresis), immediately, no hold.
 class LiftDetector {
  public:
   enum class Change : uint8_t { kNone, kLifted, kLanded, kTilted, kLevel };
+  static constexpr uint32_t kTiltHoldMs = 300;
   Change update(float az_g, float pitch_deg, float roll_deg, uint8_t tilt_limit_deg, uint32_t now_ms);
   bool lifted() const { return m_lifted; }
   bool tilted() const { return m_tilted; }
@@ -3274,6 +3298,8 @@ class LiftDetector {
  private:
   bool m_lifted = false;
   bool m_tilted = false;
+  bool m_over = false;  // tilt currently over the limit (not yet confirmed)
+  uint32_t m_over_since_ms = 0;
   bool m_cond = false;
   uint32_t m_cond_since_ms = 0;
 };
@@ -3292,9 +3318,20 @@ namespace cq {
 LiftDetector::Change LiftDetector::update(float az_g, float pitch_deg, float roll_deg, uint8_t tilt_limit_deg,
                                           uint32_t now_ms) {
   const float tilt = absf(pitch_deg) > absf(roll_deg) ? absf(pitch_deg) : absf(roll_deg);
-  if (!m_tilted && tilt > tilt_limit_deg) {
-    m_tilted = true;
-    return Change::kTilted;
+  if (!m_tilted) {
+    if (tilt > tilt_limit_deg) {
+      if (!m_over) {
+        m_over = true;
+        m_over_since_ms = now_ms;
+      }
+      if (elapsed(now_ms, m_over_since_ms, kTiltHoldMs)) {
+        m_tilted = true;
+        m_over = false;
+        return Change::kTilted;
+      }
+    } else {
+      m_over = false;  // dipped back under the limit: the hold restarts
+    }
   }
   if (m_tilted && tilt < static_cast<float>(tilt_limit_deg) - 5.0f) {
     m_tilted = false;
@@ -3370,7 +3407,7 @@ void AccelVariance::add(float mag_g, uint32_t now_ms) {
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_estimation`
-Expected: `9 Tests 0 Failures`.
+Expected: `10 Tests 0 Failures`.
 
 - [ ] **Step 5: IMU port and MPU6050 driver**
 
@@ -10580,7 +10617,7 @@ Expected: `… already formatted`, `All checks passed!`, `0 errors, 0 warnings, 
 Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py && pio run -e uno -t upload`
 Each numbered check is one run per command (opening the port reboots the Uno; RAM state such as the audio mode does not carry over):
 1. Boot: LED pulses amber (no ESP32); ≈ 2 s later the STARTUP jingle (or SELFTEST_FAIL with the ultrasonic unplugged). Start `… watch` → READY chirp, LED dim white.
-2. `… led blink 0 0 200 --period 400 --duration 3000` → blue blink for 3 s, then dim white again. While it blinks, tilt the tank past 35° → red fast blink overrides, OUCH sound.
+2. `… led blink 0 0 200 --period 400 --duration 3000` → blue blink for 3 s, then dim white again. While it blinks, tilt the tank past 45° and hold it for over 300 ms → red fast blink overrides, OUCH sound.
 3. `… sound jingle` and `… sound tone` → `ACK OK`, both play; `… sound jingle --mode quiet` → `ACK OK` (mode) then `ACK BUSY` (quiet: catalogue sounds refused, alarms still play).
 4. Stand, tracks off the ground: `… setting parking_beeps 1 --save`, then `… drive -30 0 --seconds 3` → CHIRP_DOWN then a tick every 0.6 s; afterwards `… setting parking_beeps 0 --save`.
 5. Stand: hold a hand ≈ 10 cm in front of the ultrasonic sensor and run `… drive 30 0 --seconds 5` → `EVENT BLOCKED`, the LED blinks red (a WS2812 write every 100 ms with interrupts off ≈ 32 µs) while DRIVE frames stream; the final `SLOW load` < 60 % and `errs=0` (WS2812 writes do not drop UART bytes).
@@ -11256,7 +11293,7 @@ git commit -m "feat(uno): IR remote keymap (drive, camera jog, speed, battery ch
 - [ ] **Step 1: Run the whole host suite**
 
 Run: `pio test -e native`
-Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 16, `test_settings` 8, `test_estimation` 9, `test_sensors` 11, `test_safety` 13, `test_encoders` 4, `test_calibration` 11, `test_motion_blocks` 11, `test_controllers` 8, `test_primitives` 9, `test_camera` 7, `test_ui` 9, `test_input` 11 — **131 test cases, 0 failures**.
+Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 16, `test_settings` 8, `test_estimation` 10, `test_sensors` 11, `test_safety` 13, `test_encoders` 4, `test_calibration` 11, `test_motion_blocks` 11, `test_controllers` 8, `test_primitives` 9, `test_camera` 7, `test_ui` 9, `test_input` 11 — **132 test cases, 0 failures**.
 
 - [ ] **Step 2: Build gates and memory map**
 
@@ -11397,7 +11434,7 @@ Note: Plan A names these enums `AudioModeValue` and `OwnerHintValue` (C++ `proto
 
 ## Done when
 
-- `cd firmware/uno && pio test -e native` passes all 131 host tests; `pio run -e uno && python3 scripts/size_gate.py` passes the flash/RAM budget.
+- `cd firmware/uno && pio test -e native` passes all 132 host tests; `pio run -e uno && python3 scripts/size_gate.py` passes the flash/RAM budget.
 - The phase 1 and phase 2 sign-off lists in Task 15 are fully ticked on the real tank.
 - `tools/smoke/uno_smoke.py` covers handshake, telemetry, settings, driving, primitives, camera, LED/sound, calibration scripts, probe, mount check, bias and soak — the same link behaviour Plan C's bridge and Plan D's bench tool build on.
 - `docs/lld/uno-firmware-lld.md` §9.8 lists the corrected IR codes.

@@ -555,7 +555,7 @@ Payload 0 bytes max.
 | 10 | reverse_steer | global | u8 | enum | 1.0 | 0 | 1 | 0 |
 | 11 | obstacle_stop | global | u8 | cm | 1.0 | 5 | 100 | 15 |
 | 12 | obstacle_slow | global | u8 | cm | 1.0 | 10 | 200 | 50 |
-| 13 | tilt_limit | global | u8 | deg | 1.0 | 10 | 60 | 35 |
+| 13 | tilt_limit | global | u8 | deg | 1.0 | 10 | 60 | 45 |
 | 14 | bump_threshold | global | u16 | mg | 1.0 | 500 | 4000 | 1500 |
 | 15 | deadman | global | u16 | ms | 1.0 | 100 | 2000 | 300 |
 | 16 | batt_low | global | u16 | mV | 1.0 | 6000 | 8400 | 7000 |

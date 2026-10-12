@@ -1339,7 +1339,7 @@ inline const SettingDescriptor kSettingDescriptors[] PROGMEM = {
   {10, SettingScope::kGlobal, WireType::kU8, 0L, 1L, 0L},
   {11, SettingScope::kGlobal, WireType::kU8, 5L, 100L, 15L},
   {12, SettingScope::kGlobal, WireType::kU8, 10L, 200L, 50L},
-  {13, SettingScope::kGlobal, WireType::kU8, 10L, 60L, 35L},
+  {13, SettingScope::kGlobal, WireType::kU8, 10L, 60L, 45L},
   {14, SettingScope::kGlobal, WireType::kU16, 500L, 4000L, 1500L},
   {15, SettingScope::kGlobal, WireType::kU16, 100L, 2000L, 300L},
   {16, SettingScope::kGlobal, WireType::kU16, 6000L, 8400L, 7000L},

@@ -102,6 +102,7 @@ Streaming commands (no ack; rejections reported once via `nack` without `id` + a
 | `nav_set_origin` | — | human | pose reset to (0,0,0) |
 | `calibrate` | `kind`: `gyro`/`level`/`battery`/`deadband`/`encoder_cpr`/`encoder_distance`/`balance`/`track_width`/`turn_curve`/`pid_autotune`/`servo_trim`/`ultrasonic_offset`, `profile`? | admin | event `calibration` progress/result |
 | `surface_profile` | `select` name \| `create` name (copy of active) \| `rename` \| `delete` | human (select), admin (others) | ≤3 profiles |
+| `selftest` | — | human | re-run the boot self-test (body `CALIBRATE` script `SELF_TEST`); `nack BUSY` while moving/calibrating/in Override; result event `selftest`. The only way besides a reboot to lift a critical self-test lock (spec 02 §A11) |
 | `calibrate_op` | `op`: accept / retry / skip / cancel | admin | controls the running calibration job |
 | `calibrate_input` | `kind`, value (e.g. `measured_cm`) | admin | completes interactive calibrations |
 | `camera_config` | `framesize`, `quality`, `vflip`, `hmirror`, `brightness`, … | admin | |
@@ -132,7 +133,7 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 |---|---|
 | `batt_v`, `batt_pct`, `runtime_min`, `sag_v` | Uno (volts), ESP32 (pct, runtime, sag) |
 | `owner` (`ir`/`human`/`ai`/`none`), `owner_client` | Uno + ESP32 |
-| `flags`: turn_limited, blocked, lifted, tilted, stalled, batt_low, batt_critical, link_lost, brake_off, muted, quiet, envelope, safety_override, body_offline | Uno/ESP32 |
+| `flags`: turn_limited, blocked, lifted, tilted, stalled, batt_low, batt_critical, link_lost, brake_off, muted, quiet, envelope, safety_override, selftest_locked, body_offline | Uno/ESP32 |
 | `envelope` {speed_cap, accel_cap, lock_brake} | Uno |
 | `surface_profile` (active name), `calibration` {item: missing/ok/stale} | Uno |
 | `hw`: encoders, imu_ok, sensor | Uno/ESP32 |
@@ -147,7 +148,7 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 `bump{g}`, `lifted`, `landed`, `tilted{pitch,roll}`, `level`, `stall{side}`, `blocked{dist_cm}`, `unblocked`,
 `control_changed{owner,client}`, `control_returned` (to the AI), `deadman_stop`, `link_lost`, `link_restored`, `body_offline`, `body_online`,
 `batt_low{v}`, `batt_critical{v}`, `primitive_done{kind,ok,reason}`, `nav_done{ok,reason}`, `calibration{kind,stage,progress,result}`,
-`selftest{ok,failures[]}`, `nav_progress{waypoint,of,remaining_cm}`, `settings_reset`, `pose_degraded`, `waypoint_inaccurate`, `camera_reset`, `envelope_mismatch`, `surface_suggest{profile}`, `envelope_changed{…}`, `encoder_fault{side}`, `ir_override`, `safety_override{on, reason}` (reason: network/ir/idle/max_time/stop/owner_change/link_lost/envelope).
+`selftest{ok,failures[],critical}`, `nav_progress{waypoint,of,remaining_cm}`, `settings_reset`, `pose_degraded`, `waypoint_inaccurate`, `camera_reset`, `envelope_mismatch`, `surface_suggest{profile}`, `envelope_changed{…}`, `encoder_fault{side}`, `ir_override`, `safety_override{on, reason}` (reason: network/ir/idle/max_time/stop/owner_change/link_lost/envelope).
 
 ## 7. Settings catalogue (persisted; Uno EEPROM or ESP32 NVS)
 

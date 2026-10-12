@@ -282,7 +282,7 @@ Payload 0 bytes max.
 
 ### 0x60 CALIBRATE (esp32_to_uno) — ack
 
-Run/cancel a calibration motion script; Uno streams CAL_DATA, ESP32 computes.
+Run/cancel a calibration motion script; Uno streams CAL_DATA, ESP32 computes. Script SELF_TEST re-runs the boot self-test instead (ACK OK / BUSY while moving; result in EVENT SELFTEST).
 
 Payload 7 bytes max.
 
@@ -456,13 +456,13 @@ Payload 0 bytes max.
 - **LedMode**: OFF=0, SOLID=1, BLINK=2, PULSE=3
 - **AudioModeValue**: NORMAL=0, QUIET=1, MUTE=2
 - **CalOp**: START=0, CANCEL=1
-- **CalScript**: STILL_SAMPLE=0, PWM_RAMP=1, FULL_SPIN=2, SPIN_AND_ARC=3, RATE_STEPS=4, RELAY_OSCILLATION=5, DRIVE_COUNTS=6, SERVO_NUDGE=7, IDLE=8
+- **CalScript**: STILL_SAMPLE=0, PWM_RAMP=1, FULL_SPIN=2, SPIN_AND_ARC=3, RATE_STEPS=4, RELAY_OSCILLATION=5, DRIVE_COUNTS=6, SERVO_NUDGE=7, IDLE=8, SELF_TEST=9
 - **ProfileOp**: SELECT=0, CREATE=1, DELETE=2
 - **PrimitiveKind**: NONE=0, TELEOP=1, TURN=2, MOVE=3
 - **ResetReason**: UNKNOWN=0, POWER_ON=1, EXTERNAL=2, BROWN_OUT=3, WATCHDOG=4
 - **SoundId**: STARTUP=1, READY=2, SELFTEST_FAIL=3, CHIRP_UP=4, CHIRP_DOWN=5, BLIP=6, TICK=7, JINGLE=8, THINKING=9, OUCH=10, ERROR=11, SUCCESS=12, FANFARE=13, SAD=14, SAFETY_CHIRP=15, ACK_BLIP=16, FAIL=17, CONFIRM=18, QUESTION=19, OK_CHIRP=20, GRUMBLE=21, SCAN=22, GOODBYE=23 — Sounds a client may trigger with SOUND.
 - **FastFlagBit**: BLOCKED=0, LIFTED=1, TILTED=2, STALL_L=3, STALL_R=4, CAM_MOVING=5, TURN_LIMITED=6, CAPPED=7, SOFT_STOP=8, HALTED=9, LOCKED=10, IMU_FAULT=11, US_FAULT=12, ENCODER_FAULT=13, CALIBRATING=14, SYNCED=15 — Bit positions in TELEM_FAST.flags.
-- **SlowFlagBit**: BATT_LOW=0, BATT_CRITICAL=1, LINK_LOST=2, BRAKE_OFF=3, MUTED=4, QUIET=5, ENVELOPE=6, DEADMAN=7, SAFETY_OVERRIDE=8 — Bit positions in TELEM_SLOW.flags2.
+- **SlowFlagBit**: BATT_LOW=0, BATT_CRITICAL=1, LINK_LOST=2, BRAKE_OFF=3, MUTED=4, QUIET=5, ENVELOPE=6, DEADMAN=7, SAFETY_OVERRIDE=8, SELFTEST_LOCKED=9 — Bit positions in TELEM_SLOW.flags2.
 - **HwBit**: ENCODERS_ENABLED=0, IMU_OK=1, US_OK=2 — Bit positions in TELEM_SLOW.hw.
 - **EnvelopeFlagBit**: LOCK_BRAKE=0, CHILD_PLAY=1 — Bit positions in ENVELOPE.lock_brake / TELEM_SLOW.env_lock_brake / EVENT ENVELOPE_CHANGED b. CHILD_PLAY implies LOCK_BRAKE; only CHILD_PLAY blocks Safety Override (owner decision 2026-10-12).
 - **OverrideReason**: NETWORK=0, IR=1, IDLE=2, MAX_TIME=3, STOP=4, OWNER_CHANGE=5, LINK_LOST=6, ENVELOPE=7 — EVENT SAFETY_OVERRIDE b - why Safety Override was entered or exited.
@@ -487,7 +487,7 @@ Payload 0 bytes max.
 | 14 | BATT_LOW | mV |  |
 | 15 | BATT_CRITICAL | mV |  |
 | 16 | PRIMITIVE_DONE | PrimitiveKind \| ok << 8 | ack_status index (reason) |
-| 17 | SELFTEST | failure bitmask | critical 0/1 |
+| 17 | SELFTEST | failure bitmask (bit 0 IMU, 1 ultrasonic, 2 battery read, 3 settings) | critical 0/1 (1 = all motion locked until a passing re-run or reboot) |
 | 18 | ENVELOPE_CHANGED | speed_cap \| accel_cap << 8 | lock_brake bits (EnvelopeFlagBit) |
 | 19 | ENCODER_FAULT | side 0 left, 1 right |  |
 | 20 | IMU_FAULT |  |  |

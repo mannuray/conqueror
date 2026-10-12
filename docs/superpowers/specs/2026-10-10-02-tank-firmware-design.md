@@ -111,7 +111,7 @@ Control logic (controllers, safety rules, arbitration, codec) is hardware-indepe
 | Stall | encoders: driven but no motion 0.5 s | cut that motor, `stall{side}` |
 | Battery | < `batt_low` (7.2 V, warning) / < `batt_crit` (6.6 V, motors disabled) under load, 2 s sustained; each clears above its threshold + `batt_hyst` (0.2 V) | events + alarms |
 | Envelope | `speed_cap`, `accel_cap`; `lock_brake` forbids disabling the obstacle brake | clamp |
-| Self-test critical failure | IMU dead or battery read implausible | motors locked |
+| Self-test critical failure | IMU dead or battery read implausible | all motion locked (network, IR, calibration) until a passing re-run or reboot; Override cannot lift it (§A11) |
 
 - The obstacle brake can be disabled by `human`/`ai` (`BRAKE off`) unless the envelope locks it; it is always **on after reboot**.
 - Ultrasonic limits are documented: narrow forward cone; misses thin/low/angled objects → best-effort.
@@ -220,6 +220,18 @@ Base colours **breathe** when idle (2 s triangle, 1 s below `batt_crit` + `batt_
 ### A11. Self-test at boot (~2 s; reported in `selftest` + beep/LED)
 IMU WHO_AM_I + not saturated · battery plausible · ultrasonic echo · encoders (if enabled) clean idle · settings CRC · reset reason.
 Critical (IMU, battery read) → motors locked. Non-critical (ultrasonic) → warning, obstacle brake reported unavailable.
+**Critical self-test lock (owner decision 2026-10-12):**
+| Result | Class | Effect |
+|---|---|---|
+| IMU missing / init or WHO_AM_I failed | **critical** | all motion locked |
+| Battery reading implausible (outside 5–9 V: open divider, wiring, Uno on USB only) | **critical** | all motion locked |
+| Ultrasonic no echo | warning | obstacle brake unavailable + degraded 50 % cap |
+| Settings CRC bad → defaults loaded | warning | `settings_reset`; defaults are compiled in, so settings can never be "invalid and not defaultable" |
+| Encoders not quiet at rest | warning (if enabled) | encoder fault flag |
+| Motor driver / STBY | not a boot check | the shield gives no driver feedback; the STBY/direction probe is a bench step on the stand (Plan B Task 7 `probe`) |
+- **Locked** = every motor output is zero: network (`drive`/`turn`/`move` → `nack BLOCKED`), IR motion keys (tracks stay still) and calibration scripts (`BLOCKED`). STOP, camera, LED, sound and settings still work.
+- Lifted only by a **passing self-test re-run** (`selftest` command → `CALIBRATE` script `SELF_TEST`; refused `BUSY` while moving, calibrating or in Override) or a reboot. **Safety Override can never lift it** (entry → `BLOCKED`, and the lock zeroes the output even if Override was already on).
+- Shows: `selftest{ok:false, critical:true}` event, `flags.selftest_locked` (slow telemetry `flags2` bit 9), low error tone (SELFTEST_FAIL) + solid red LED on every failing run; a passing re-run plays SUCCESS and clears the red.
 **Degraded caps (added):** ultrasonic fault (no echo at all) → obstacle brake unavailable + speed cap 50 %; IMU fault at runtime → heading hold off + speed cap 30 % + tilt/lift safety lost warning. Both reported as flags.
 
 ### A12. Memory budget (risk)

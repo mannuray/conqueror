@@ -19,7 +19,9 @@
 - name: CalScript
   values:
     { STILL_SAMPLE: 0, PWM_RAMP: 1, FULL_SPIN: 2, SPIN_AND_ARC: 3, RATE_STEPS: 4,
-      RELAY_OSCILLATION: 5, DRIVE_COUNTS: 6, SERVO_NUDGE: 7, IDLE: 8 }
+      RELAY_OSCILLATION: 5, DRIVE_COUNTS: 6, SERVO_NUDGE: 7, IDLE: 8, SELF_TEST: 9 }
+  # SELF_TEST (9): re-run the boot self-test (no motion, no CAL_RESULT; result = EVENT SELFTEST).
+  # The only way besides a reboot to lift a critical self-test motion lock (owner decision 2026-10-12).
 - name: ProfileOp
   values: { SELECT: 0, CREATE: 1, DELETE: 2 }
 - name: PrimitiveKind
@@ -45,7 +47,7 @@
   doc: Bit positions in TELEM_SLOW.flags2.
   values:
     { BATT_LOW: 0, BATT_CRITICAL: 1, LINK_LOST: 2, BRAKE_OFF: 3, MUTED: 4, QUIET: 5,
-      ENVELOPE: 6, DEADMAN: 7, SAFETY_OVERRIDE: 8 }
+      ENVELOPE: 6, DEADMAN: 7, SAFETY_OVERRIDE: 8, SELFTEST_LOCKED: 9 }
 - name: HwBit
   doc: Bit positions in TELEM_SLOW.hw.
   values: { ENCODERS_ENABLED: 0, IMU_OK: 1, US_OK: 2 }

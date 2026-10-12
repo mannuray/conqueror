@@ -204,7 +204,9 @@
   type: 0x60
   dir: esp32_to_uno
   ack: true
-  doc: Run/cancel a calibration motion script; Uno streams CAL_DATA, ESP32 computes.
+  doc: >-
+    Run/cancel a calibration motion script; Uno streams CAL_DATA, ESP32 computes. Script SELF_TEST
+    re-runs the boot self-test instead (ACK OK / BUSY while moving; result in EVENT SELFTEST).
   fields:
     - { name: op, type: u8, enum: CalOp }
     - { name: script, type: u8, enum: CalScript }

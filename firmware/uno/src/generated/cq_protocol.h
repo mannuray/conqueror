@@ -141,6 +141,7 @@ enum class CalScript : uint8_t {
   kDriveCounts = 6,
   kServoNudge = 7,
   kIdle = 8,
+  kSelfTest = 9,
 };
 
 enum class ProfileOp : uint8_t {
@@ -219,6 +220,7 @@ enum class SlowFlagBit : uint8_t {
   kEnvelope = 6,
   kDeadman = 7,
   kSafetyOverride = 8,
+  kSelftestLocked = 9,
 };
 
 enum class HwBit : uint8_t {

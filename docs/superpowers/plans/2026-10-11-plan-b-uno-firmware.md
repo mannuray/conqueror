@@ -4592,7 +4592,7 @@ git commit -m "feat(uno): ultrasonic/IR via PCINT0 hub, NEC decoder, async batte
 ### Task 6: Safety core — PwmOutput, envelope, arbitrator, supervisor, motor driver, open-loop DRIVE/STOP
 
 **Files:**
-- Create: `src/types/pwm_output.h`; `src/domain/safety/envelope.{h,cpp}`, `safety_supervisor.{h,cpp}`, `safety_override.{h,cpp}` (LLD §10); `src/domain/arbitration/arbitrator.{h,cpp}`; `src/ports/motor.h`; `src/drivers/motor_uno.cpp`; `src/app/motion_api.h`; `src/app/control_task.cpp` (v1, replaced in Task 11)
+- Create: `src/types/pwm_output.h`; `src/domain/safety/envelope.{h,cpp}`, `safety_supervisor.{h,cpp}`, `safety_override.{h,cpp}` (LLD §10); `src/domain/selftest/self_test.h` (the motion lock, LLD §10.9; Task 7 runs it at boot); `src/domain/arbitration/arbitrator.{h,cpp}`; `src/ports/motor.h`; `src/drivers/motor_uno.cpp`; `src/app/motion_api.h`; `src/app/control_task.cpp` (v1, replaced in Task 11)
 - Modify: `src/app/app.h`, `src/app/tasks.h`, `src/app/routes.cpp`, `src/app/imu_task.cpp` (effective tilt limit), `src/main.cpp`, `tools/smoke/uno_smoke.py`
 - Test: `test/test_safety/test_main.cpp`
 
@@ -4602,11 +4602,12 @@ git commit -m "feat(uno): ultrasonic/IR via PCINT0 hub, NEC decoder, async batte
   - `cq::PwmOutput`: `static PwmOutput zero()`, `int16_t left() const`, `int16_t right() const`, `bool enabled() const` (false = driver standby/coast); non-zero construction only via `friend class SafetySupervisor`.
   - `cq::Envelope`: `proto::AckStatus set(uint8_t speed_cap, uint8_t accel_cap, uint8_t lock_brake)` (`lock_brake` = `EnvelopeFlagBit` bits; unknown bits → `kInvalidCommand`; CHILD_PLAY implies the lock), `proto::AckStatus setBrake(bool on)`, `uint8_t speedCap() const`, `uint8_t accelCap() const`, `bool lockBrake() const`, `bool childPlay() const`, `uint8_t flags() const`, `bool brakeOn() const`, `bool active() const`.
   - `cq::Arbitrator`: `enum class Action : uint8_t { kNone, kDeadmanStop, kLinkLostStop, kIrReleased }`; `struct Config { uint16_t deadman_ms; uint16_t ir_handback_ms; }`; `void setSynced(bool)` (from `LinkSession::synced()` every control tick; boot = not synced), `proto::AckStatus requestNetwork(bool teleop, uint32_t now_ms)` (BUSY before sync — LLD §9.4), `void onNetworkStop()`, `bool onIrInput(uint32_t now_ms)` (true = owner changed to IR; works without sync), `void releaseIr()` (IR OK key: owner → None), `proto::AckStatus beginCalibration()` (BUSY before sync), `void endCalibration()`, `Action tick(uint32_t now_ms, bool link_alive, bool primitive_busy, const Config& cfg)` (also releases Network → None after `kNetworkIdleMs` = 1 s without a network motion command while no primitive runs — LLD §9.18), `proto::Owner owner() const`, `bool takeOwnerChanged()`.
-  - `cq::SafetyInputs { bool lifted, tilted, batt_critical, brake_on; uint16_t dist_mm; uint8_t stop_cm; uint8_t stall_mask; }` (`stall_mask` bit 0 left, bit 1 right: that track's output is cut — LLD §9.6; fed by Task 7), `cq::SafetyStatus { bool blocked, halted, coast; }`, `cq::SafetySupervisor::apply(int16_t pwm_l, int16_t pwm_r, const SafetyInputs&, SafetyStatus&) -> PwmOutput`. `dist_mm = 0xFFFE` (sensor fault) never blocks: the brake is unavailable and the degraded 50 % cap is applied to the targets by the `TargetLimiter` (Task 8, wired in Task 11).
+  - `cq::SafetyInputs { bool lifted, tilted, batt_critical, brake_on; uint16_t dist_mm; uint8_t stop_cm; uint8_t stall_mask; bool selftest_locked; }` (`stall_mask` bit 0 left, bit 1 right: that track's output is cut — LLD §9.6; fed by Task 7), `cq::SafetyStatus { bool blocked, halted, coast, locked; }` (`selftest_locked` → zero output, `halted` + `locked`; fed by Task 7, LLD §10.9), `cq::SafetySupervisor::apply(int16_t pwm_l, int16_t pwm_r, const SafetyInputs&, SafetyStatus&) -> PwmOutput`. `dist_mm = 0xFFFE` (sensor fault) never blocks: the brake is unavailable and the degraded 50 % cap is applied to the targets by the `TargetLimiter` (Task 8, wired in Task 11).
   - Port `cq::port::motor`: `begin()`, `apply(const PwmOutput&)` — included only by `app/control_task.cpp`.
   - `app/tasks.h`: `controlInit()`, `controlTask()`; `app/motion_api.h`: route handlers `onDrive`, `onStop`, `onBrake`, `onEnvelope`, `onOwnerHint` (signature `proto::AckStatus (const uint8_t*, uint8_t)`).
   - App members `int16_t req_pwm_l, req_pwm_r` (PWM asked of the supervisor, before the gate — the direction of a stalled track for Task 7) next to `out_pwm_l/r`.
   - `cq::SafetyOverride` (LLD §10, spec 02 §A6.1): `enum class Binder : uint8_t { kNone, kIr, kNetwork }`; `struct Gate { bool synced, child_play, fault_latched; proto::Owner owner; }`; `struct Config { uint8_t idle_s; uint16_t max_s; }`; `proto::AckStatus requestNetwork(bool on, proto::Source src, const Gate&, uint32_t now_ms)` (on = 0 → OK from any source; on = 1: `kRoleForbidden` unless src HUMAN, `kBusy` before sync, `kEnvelopeLocked` while the child-play envelope is active (adult envelopes allowed), `kNotOwner` while IR/calibration owns or IR-bound, `kBlocked` while a fault is latched), `proto::AckStatus requestIr(const Gate&, uint32_t now_ms)` (toggle; the caller makes IR the owner and reports that owner change first), `void onOwner(proto::Owner)`, `void onNetworkMotion(proto::Source, bool driving, uint32_t now_ms)`, `void onIrMotion(bool driving, uint32_t now_ms)`, `void onOwnerHint(proto::OwnerHintValue)`, `void onLinkLost()`, `void end(proto::OverrideReason)`, `void tick(uint32_t now_ms, const Config&)`, `bool active() const`, `Binder binder() const`, `bool brakeOn(bool configured) const`, `uint8_t tiltLimit(uint8_t normal, uint8_t relaxed) const`, `bool takeEvent(bool& on, proto::OverrideReason& why)`.
+  - `cq::SelfTest`: `enum class Check : uint8_t { kImu, kUltrasonic, kBattery, kSettings }`, `kCriticalMask` (IMU | battery read), `static bool batteryPlausible(uint16_t mv)`, `void begin()`, `void report(Check, bool ok)`, `void complete()` (latches/clears the motion lock), `uint8_t failMask() const`, `bool critical() const`, `bool locked() const`, `bool running() const`, `uint8_t runs() const` (LLD §10.9). Task 6 owns the lock (tested in `test_safety`); Task 7 runs the checks at boot and on `CALIBRATE SELF_TEST`.
   - App member `SafetyOverride safety_override`; `app/motion_api.h`: `onSafetyOverride` route handler, `overrideGate()`, `drainOverride()` (pushes `EVENT SAFETY_OVERRIDE {a = on, b = reason}`, sets `flags2` bit `kSafetyOverride`, bumps `g_app.override_seq` for the UI in Task 13).
   - Smoke commands `drive V W --seconds S`, `stop`, `envelope CAP ACCEL LOCK`, `deadman`, `override on|off [--ai]`.
 
@@ -4622,6 +4623,7 @@ git commit -m "feat(uno): ultrasonic/IR via PCINT0 hub, NEC decoder, async batte
 #include "domain/safety/envelope.h"
 #include "domain/safety/safety_override.h"
 #include "domain/safety/safety_supervisor.h"
+#include "domain/selftest/self_test.h"
 #include "types/pwm_output.h"
 
 using namespace cq;
@@ -4634,7 +4636,7 @@ static_assert(!std::is_constructible<PwmOutput, int16_t, int16_t, bool>::value,
 
 namespace {
 const Arbitrator::Config kCfg{300, 3000};
-SafetyInputs clearInputs() { return SafetyInputs{false, false, false, true, 0xFFFF, 15, 0}; }
+SafetyInputs clearInputs() { return SafetyInputs{false, false, false, true, 0xFFFF, 15, 0, false}; }
 Arbitrator syncedArbitrator() {
   Arbitrator a;
   a.setSynced(true);  // HELLO_ACK received
@@ -5015,6 +5017,99 @@ void test_override_tilt_65_with_hold() {
                     static_cast<int>(m.update(1.0f, 55.0f, 0, o.tiltLimit(45, 65), 300)));
 }
 
+// ---- Critical self-test lock (LLD §10.9, owner decision 6) ----
+void test_critical_selftest_locks_motion() {
+  SelfTest t;
+  t.begin();
+  t.report(SelfTest::Check::kImu, false);  // MPU6050 missing
+  t.report(SelfTest::Check::kBattery, true);
+  t.complete();
+  TEST_ASSERT_TRUE(t.locked());
+  SafetySupervisor s;
+  SafetyStatus st{};
+  SafetyInputs in = clearInputs();
+  in.selftest_locked = t.locked();
+  // network teleop, an IR key and a calibration script all reach the motors through apply()
+  PwmOutput o = s.apply(150, 150, in, st);
+  TEST_ASSERT_EQUAL(0, o.left());
+  TEST_ASSERT_EQUAL(0, o.right());
+  TEST_ASSERT_TRUE(st.locked);
+  TEST_ASSERT_TRUE(st.halted);  // running primitives are cancelled like on any halt
+  o = s.apply(-200, 120, in, st);
+  TEST_ASSERT_EQUAL(0, o.left());
+  TEST_ASSERT_EQUAL(0, o.right());
+  // battery read implausible (USB only / open divider) is critical too; ultrasonic and settings are warnings
+  SelfTest b;
+  b.begin();
+  b.report(SelfTest::Check::kBattery, SelfTest::batteryPlausible(0));
+  b.complete();
+  TEST_ASSERT_TRUE(b.locked());
+  TEST_ASSERT_TRUE(SelfTest::batteryPlausible(7400));
+  SelfTest w;
+  w.begin();
+  w.report(SelfTest::Check::kUltrasonic, false);
+  w.report(SelfTest::Check::kSettings, false);
+  w.complete();
+  TEST_ASSERT_EQUAL_HEX8(0x0A, w.failMask());
+  TEST_ASSERT_FALSE(w.locked());
+}
+
+void test_selftest_rerun_pass_unlocks() {
+  SelfTest t;
+  t.begin();
+  t.report(SelfTest::Check::kImu, false);
+  t.complete();
+  TEST_ASSERT_TRUE(t.locked());
+  TEST_ASSERT_EQUAL(1, t.runs());
+  t.begin();  // SELF_TEST re-run: the lock holds until the verdict
+  TEST_ASSERT_TRUE(t.running());
+  TEST_ASSERT_TRUE(t.locked());
+  t.report(SelfTest::Check::kImu, false);  // still failing → still locked
+  t.complete();
+  TEST_ASSERT_TRUE(t.locked());
+  t.begin();
+  t.report(SelfTest::Check::kImu, true);  // IMU back (1 s re-init) → pass unlocks
+  t.report(SelfTest::Check::kBattery, true);
+  t.report(SelfTest::Check::kUltrasonic, false);  // a warning does not keep the lock
+  t.complete();
+  TEST_ASSERT_FALSE(t.locked());
+  TEST_ASSERT_FALSE(t.running());
+  TEST_ASSERT_EQUAL(3, t.runs());
+  SafetySupervisor s;
+  SafetyStatus st{};
+  SafetyInputs in = clearInputs();
+  in.selftest_locked = t.locked();
+  TEST_ASSERT_EQUAL(150, s.apply(150, 150, in, st).left());
+  TEST_ASSERT_FALSE(st.locked);
+}
+
+void test_override_cannot_unlock_selftest() {
+  SelfTest t;
+  t.begin();
+  t.report(SelfTest::Check::kImu, false);
+  t.complete();
+  SafetyOverride::Gate g = okGate();
+  g.fault_latched = t.locked();  // app: overrideGate() folds the lock into fault_latched
+  SafetyOverride o;
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kBlocked), st(o.requestNetwork(true, proto::Source::kHuman, g, 0)));
+  g.owner = proto::Owner::kIr;
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kBlocked), st(o.requestIr(g, 0)));
+  TEST_ASSERT_FALSE(o.active());
+  // even with Override already on (entered before a failing re-run), the supervisor keeps every track still
+  SafetyOverride on;
+  on.requestNetwork(true, proto::Source::kHuman, okGate(), 0);
+  TEST_ASSERT_TRUE(on.active());
+  SafetySupervisor s;
+  SafetyStatus sst{};
+  SafetyInputs in = clearInputs();
+  in.brake_on = on.brakeOn(true);
+  in.selftest_locked = t.locked();
+  const PwmOutput out = s.apply(200, 200, in, sst);
+  TEST_ASSERT_EQUAL(0, out.left());
+  TEST_ASSERT_EQUAL(0, out.right());
+  TEST_ASSERT_TRUE(sst.locked);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ir_owner_ignores_link_loss);
@@ -5037,6 +5132,9 @@ int main() {
   RUN_TEST(test_override_relaxes_brake_only);
   RUN_TEST(test_override_allowed_with_adult_envelope);
   RUN_TEST(test_override_tilt_65_with_hold);
+  RUN_TEST(test_critical_selftest_locks_motion);
+  RUN_TEST(test_selftest_rerun_pass_unlocks);
+  RUN_TEST(test_override_cannot_unlock_selftest);
   return UNITY_END();
 }
 ```
@@ -5291,12 +5389,14 @@ struct SafetyInputs {
   uint16_t dist_mm;    // 0xFFFF clear, 0xFFFE sensor fault (brake unavailable, never blocks)
   uint8_t stop_cm;
   uint8_t stall_mask;  // bit 0 left, bit 1 right: stalled track, output cut (LLD §9.6)
+  bool selftest_locked;  // critical self-test failure: all motion locked (LLD §10.9); Override never lifts it
 };
 
 struct SafetyStatus {
   bool blocked;
-  bool halted;
+  bool halted;  // also set while selftest-locked (primitives are cancelled like on any halt)
   bool coast;
+  bool locked;  // selftest_locked applied
 };
 
 // Last gate before the motor port. Owns PwmOutput construction.
@@ -5319,10 +5419,15 @@ int16_t clamp255(int16_t v) { return v > 255 ? 255 : (v < -255 ? -255 : v); }
 }  // namespace
 
 PwmOutput SafetySupervisor::apply(int16_t pwm_l, int16_t pwm_r, const SafetyInputs& in, SafetyStatus& st) const {
-  st = SafetyStatus{false, false, false};
+  st = SafetyStatus{false, false, false, false};
   if (in.lifted) {
     st.coast = true;
     return PwmOutput(0, 0, false);  // tracks free-wheel while carried
+  }
+  if (in.selftest_locked) {  // network, IR and calibration output all pass here: nothing moves
+    st.locked = true;
+    st.halted = true;
+    return PwmOutput(0, 0, true);
   }
   if (in.tilted || in.batt_critical) {
     st.halted = true;
@@ -5510,10 +5615,58 @@ bool SafetyOverride::takeEvent(bool& on, proto::OverrideReason& why) {
 }  // namespace cq
 ```
 
+`src/domain/selftest/self_test.h`:
+```cpp
+#pragma once
+#include <stdint.h>
+
+namespace cq {
+
+// Boot self-test (LLD §7, §10.9). Critical = IMU missing/failed (no tilt/lift safety, no heading hold) and an
+// implausible battery reading (divider/wiring fault: battery safety blind). A critical result latches the
+// motion lock (SafetyInputs.selftest_locked) until a later run passes or the Uno reboots; Override never
+// lifts it. Ultrasonic and settings (defaults are compiled in, always valid) are warnings only.
+class SelfTest {
+ public:
+  enum class Check : uint8_t { kImu = 0, kUltrasonic = 1, kBattery = 2, kSettings = 3 };
+  static constexpr uint8_t kCriticalMask = (1u << 0) | (1u << 2);  // kImu | kBattery
+  static constexpr uint16_t kBattMinMv = 5000;  // 2S pack reads 6.0..8.4 V; outside 5..9 V = implausible
+  static constexpr uint16_t kBattMaxMv = 9000;
+  static bool batteryPlausible(uint16_t mv) { return mv >= kBattMinMv && mv <= kBattMaxMv; }
+
+  void begin() {  // a run starts (boot or SELF_TEST re-run); the lock stays as it is until complete()
+    m_fail = 0;
+    m_running = true;
+  }
+  void report(Check c, bool ok) {
+    const uint8_t bit = static_cast<uint8_t>(1u << static_cast<uint8_t>(c));
+    m_fail = ok ? static_cast<uint8_t>(m_fail & ~bit) : static_cast<uint8_t>(m_fail | bit);
+  }
+  void complete() {  // the run's verdict: lock on a critical failure, unlock on a pass
+    m_running = false;
+    m_locked = critical();
+    if (m_runs < 255) ++m_runs;
+  }
+  uint8_t failMask() const { return m_fail; }
+  bool critical() const { return (m_fail & kCriticalMask) != 0; }
+  bool locked() const { return m_locked; }
+  bool running() const { return m_running; }
+  uint8_t runs() const { return m_runs; }  // completed runs (the UI replays the result sound on change)
+
+ private:
+  uint8_t m_fail = 0;
+  uint8_t m_runs = 0;
+  bool m_locked = false;
+  bool m_running = false;
+};
+
+}  // namespace cq
+```
+
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_safety`
-Expected: `20 Tests 0 Failures`.
+Expected: `23 Tests 0 Failures`.
 
 - [ ] **Step 5: Motor port and driver (both shields)**
 
@@ -5805,7 +5958,7 @@ void controlTask() {
   const SafetyInputs in{g_app.lift.lifted(), g_app.lift.tilted(),
                         g_app.batt.level() == BatteryMonitor::Level::kCritical,
                         g_app.safety_override.brakeOn(g_app.envelope.brakeOn()), g_app.us.distMm(), gs.obstacle_stop,
-                        0 /* stall_mask: Task 7 */};
+                        0 /* stall_mask: Task 7 */, false /* selftest_locked: Task 7 */};
   const bool was_blocked = g_app.safety.blocked;
   const PwmOutput out = g_app.supervisor.apply(pwm_l, pwm_r, in, g_app.safety);
   port::motor::apply(out);
@@ -5991,21 +6144,20 @@ git commit -m "feat(uno): safety core - PwmOutput, envelope, arbitrator, supervi
 ### Task 7: Encoders, encoder health, calibration scripts, self-test, shield probe and mount check
 
 **Files:**
-- Create: `src/domain/estimation/encoder_track.{h,cpp}`, `encoder_health.{h,cpp}`; `src/domain/calibration/cal_script_runner.{h,cpp}`, `cal_status.{h,cpp}`; `src/domain/selftest/self_test.h`; `src/ports/encoders.h`; `src/drivers/encoders_uno.cpp`; `src/app/calibration_task.cpp` (also holds `selfTestTask()`)
+- Create: `src/domain/estimation/encoder_track.{h,cpp}`, `encoder_health.{h,cpp}`; `src/domain/calibration/cal_script_runner.{h,cpp}`, `cal_status.{h,cpp}`; `src/ports/encoders.h`; `src/drivers/encoders_uno.cpp`; `src/app/calibration_task.cpp` (also holds `selfTestTask()`)
 - Modify: `src/app/app.h`, `src/app/tasks.h`, `src/app/motion_api.h`, `src/app/control_task.cpp`, `src/app/routes.cpp`, `src/app/settings_task.cpp`, `src/app/comms.cpp`, `src/main.cpp`, `tools/smoke/uno_smoke.py`
 - Test: `test/test_encoders/test_main.cpp`, `test/test_calibration/test_main.cpp`
 
 **Interfaces:**
-- Consumes: `EncoderSnapshot` (Task 1), `Arbitrator::beginCalibration/endCalibration` (Task 6), `Settings` (Task 3), `proto::CalScript`, `proto::CalOp`, `proto::CalDataMsg`, `proto::CalResultMsg`.
+- Consumes: `EncoderSnapshot` (Task 1), `SelfTest` (Task 6), `Arbitrator::beginCalibration/endCalibration` (Task 6), `Settings` (Task 3), `proto::CalScript`, `proto::CalOp`, `proto::CalDataMsg`, `proto::CalResultMsg`.
 - Produces:
   - `cq::EncoderTrack`: `void update(uint32_t edges, uint32_t period_us, uint32_t last_edge_us, uint32_t now_us, int8_t dir)`, `int32_t count() const`, `float cps() const`, `bool recent() const` (edge within 100 ms).
   - `cq::EncoderHealth`: `struct Inputs { int16_t pwm_l, pwm_r; int16_t req_l, req_r; bool edges_l, edges_r; float yaw_rate_dps; uint8_t keep_l, keep_r; }` (`pwm_*` applied last tick, `req_*` asked of the supervisor last tick); `void update(const Inputs&, uint32_t now_ms)`, `bool stalled(uint8_t side) const`, `uint8_t stalledMask() const` (→ `SafetyInputs.stall_mask`), `bool faulted(uint8_t side) const`, `uint8_t takeNewStalls()`, `uint8_t takeNewFaults()` (bit 0 left, bit 1 right), `void clearFaults()`. LLD §9.6: driven above the deadband for 0.5 s with no edges → fault (other evidence of motion, latched) or stall; a stall clears when the requested direction reverses or after 1 s, and then needs another 0.5 s to re-detect.
   - `cq::CalInputs`, `cq::CalConfig { uint16_t max_cps; uint16_t turn_rate_max_dps; uint8_t keep_pwm; }`, `cq::CalOutputs`, `cq::CalScriptRunner`: `void configure(const CalConfig&)`, `proto::AckStatus start(proto::CalScript s, int32_t param, bool encoders, uint32_t now_ms)`, `void cancel()`, `bool running() const`, `proto::CalScript script() const`, `void tick(uint32_t now_ms, const CalInputs&, CalOutputs&)`.
   - `cq::calStatus(const GlobalSettings&, const ProfileSettings&, uint8_t out[3])`.
-  - `cq::SelfTest`: `enum class Check : uint8_t { kImu, kUltrasonic, kBattery, kSettings }`, `void report(Check, bool ok)`, `uint8_t failMask() const`, `bool critical() const`.
   - Port `cq::port::encoders`: `begin()`, `snapshot(EncoderSnapshot&)`.
   - App: `cq::app::onCalibrate`, `calibrationTick(int16_t& pwm_l, int16_t& pwm_r) -> bool` (true while a script owns the motors), `calibrationAbort(proto::AckStatus)`, `encodersTick()` (in `app/motion_api.h`); `selfTestTask()` (in `app/tasks.h`).
-  - Smoke commands `calibrate SCRIPT [--param N] [--csv PATH]`, `probe`, `mount`, `bias`.
+  - Smoke commands `calibrate SCRIPT [--param N] [--csv PATH]`, `probe`, `mount`, `bias`, `selftest` (CALIBRATE SELF_TEST re-run, LLD §10.9).
 
 - [ ] **Step 1: Write the failing encoder tests**
 
@@ -6540,7 +6692,7 @@ void EncoderHealth::update(const Inputs& in, uint32_t now_ms) {
 }  // namespace cq
 ```
 
-- [ ] **Step 5: Implement the calibration runner, cal status and self-test**
+- [ ] **Step 5: Implement the calibration runner and cal status** (`SelfTest` already exists from Task 6)
 
 `src/domain/calibration/cal_script_runner.h`:
 ```cpp
@@ -6970,31 +7122,6 @@ void calStatus(const GlobalSettings& g, const ProfileSettings& p, uint8_t out[3]
 }  // namespace cq
 ```
 
-`src/domain/selftest/self_test.h`:
-```cpp
-#pragma once
-#include <stdint.h>
-
-namespace cq {
-
-// Boot self-test result; an IMU failure is critical (no heading hold, no tilt/lift safety).
-class SelfTest {
- public:
-  enum class Check : uint8_t { kImu = 0, kUltrasonic = 1, kBattery = 2, kSettings = 3 };
-  void report(Check c, bool ok) {
-    const uint8_t bit = static_cast<uint8_t>(1u << static_cast<uint8_t>(c));
-    m_fail = ok ? static_cast<uint8_t>(m_fail & ~bit) : static_cast<uint8_t>(m_fail | bit);
-  }
-  uint8_t failMask() const { return m_fail; }
-  bool critical() const { return (m_fail & 0x01) != 0; }
-
- private:
-  uint8_t m_fail = 0;
-};
-
-}  // namespace cq
-```
-
 - [ ] **Step 6: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_encoders -f test_calibration`
@@ -7097,7 +7224,8 @@ Add to `src/app/app.h` includes and members:
   CalScriptRunner cal;
   SelfTest self_test;
   uint8_t settings_reset_mask = 0;
-  bool self_test_done = false;
+  bool self_test_pending = true;     // a run is due at self_test_due_ms (boot run, or a SELF_TEST re-run)
+  uint32_t self_test_due_ms = 2000;  // boot: 2 s after reset; re-run: +1500 ms (one 1 s IMU re-init try first)
 ```
 In `src/app/settings_task.cpp` `settingsLoad()`, after computing `reset_mask`, add: `g_app.settings_reset_mask = reset_mask;`.
 
@@ -7110,7 +7238,7 @@ void encodersTick();  // 100 Hz, called by the control task before control
 ```
 In `src/app/tasks.h` add before `// TASK-DECLS-END`:
 ```cpp
-void selfTestTask();  // 1 Hz: hw bits, cal status, one-shot boot self-test
+void selfTestTask();  // 1 Hz: hw bits, cal status, boot self-test + SELF_TEST re-runs
 ```
 
 `src/app/calibration_task.cpp`:
@@ -7184,6 +7312,15 @@ proto::AckStatus onCalibrate(const uint8_t* p, uint8_t len) {
     g_app.cal.cancel();
     return proto::AckStatus::kOk;
   }
+  if (script == proto::CalScript::kSelfTest) {  // LLD §10.9: re-run the self-test (no motion; exempt from the lock)
+    if (g_app.moving || g_app.cal.running() || g_app.self_test_pending || g_app.safety_override.active()) {
+      return proto::AckStatus::kBusy;
+    }
+    g_app.self_test_pending = true;
+    g_app.self_test_due_ms = port::clock::nowMs() + 1500;  // result: EVENT SELFTEST (+ sound) ≈ 1.5–2.5 s later
+    return proto::AckStatus::kOk;
+  }
+  if (g_app.self_test.locked()) return proto::AckStatus::kBlocked;  // LLD §10.9: no calibration motion while locked
   if (m.profile != 0) return proto::AckStatus::kUnavailable;  // MVP: one profile
   if (g_app.cal.running()) return proto::AckStatus::kBusy;
   if (g_app.lift.lifted() || g_app.lift.tilted() || g_app.moving || !g_app.imu_ok || g_app.envelope.active()) {
@@ -7256,13 +7393,17 @@ void selfTestTask() {
   if (g_app.imu_ok && g_app.imu_fail_streak == 0) hw |= 1u << static_cast<uint8_t>(proto::HwBit::kImuOk);
   if (!g_app.us.fault()) hw |= 1u << static_cast<uint8_t>(proto::HwBit::kUsOk);
   g_app.slow.hw = hw;
-  if (g_app.self_test_done || now < 2000) return;
-  g_app.self_test_done = true;
-  g_app.self_test.report(SelfTest::Check::kImu, g_app.imu_ok);
+  if (!g_app.self_test_pending || static_cast<int32_t>(now - g_app.self_test_due_ms) < 0) return;
+  g_app.self_test_pending = false;
+  g_app.self_test.begin();
+  g_app.self_test.report(SelfTest::Check::kImu, g_app.imu_ok);  // critical
   g_app.self_test.report(SelfTest::Check::kUltrasonic, !g_app.us.fault() && g_app.us.distMm() != UltrasonicFilter::kFault);
-  g_app.self_test.report(SelfTest::Check::kBattery, g_app.batt.level() != BatteryMonitor::Level::kCritical);
-  g_app.self_test.report(SelfTest::Check::kSettings, g_app.settings_reset_mask == 0);
-  g_app.events.push(proto::EventKind::kSelftest, g_app.self_test.failMask(), g_app.self_test.critical() ? 1 : 0);
+  g_app.self_test.report(SelfTest::Check::kBattery, SelfTest::batteryPlausible(g_app.batt.mv()));  // critical
+  g_app.self_test.report(SelfTest::Check::kSettings, g_app.settings_reset_mask == 0);  // warning: defaults loaded
+  g_app.self_test.complete();  // critical → motion locked (supervisor); pass → unlocked (LLD §10.9)
+  g_app.events.push(proto::EventKind::kSelftest, g_app.self_test.failMask(), g_app.self_test.locked() ? 1 : 0);
+  const uint32_t m = 1ul << static_cast<uint8_t>(proto::SlowFlagBit::kSelftestLocked);
+  g_app.slow_flags = g_app.self_test.locked() ? (g_app.slow_flags | m) : (g_app.slow_flags & ~m);
 }
 
 }  // namespace app
@@ -7273,7 +7414,9 @@ In `src/app/control_task.cpp` (v1):
 - in `controlInit()` add `port::encoders::begin();` (and `#include "ports/encoders.h"`);
 - at the top of `controlTask()` add `encodersTick();`;
 - in the arbitrator `switch`, add `calibrationAbort(proto::AckStatus::kLinkLost);` as the first line of the `kLinkLostStop` case (Task 6 already gave it its own body: `zeroTeleop(); g_app.safety_override.onLinkLost(); break;`);
-- in `overrideGate()` extend `fault` with `|| (g_app.self_test_done && g_app.self_test.critical())` (LLD §10.2: Override is refused while the self-test lock holds);
+- in `overrideGate()` extend `fault` with `|| g_app.self_test.locked()` (LLD §10.2/§10.9: Override is refused while the self-test lock holds — it can never lift it);
+- in `onDrive()` replace `const proto::AckStatus st = g_app.arbitrator.requestNetwork(true, port::clock::nowMs());` with `const proto::AckStatus st = g_app.self_test.locked() ? proto::AckStatus::kBlocked : g_app.arbitrator.requestNetwork(true, port::clock::nowMs());` (LLD §10.9: motion refused with `BLOCKED` while locked; Task 11's `networkMotion()` does the same for DRIVE/DRIVE_RATE/TURN/MOVE);
+- in the `SafetyInputs` initializer replace `false /* selftest_locked: Task 7 */` with `g_app.self_test.locked()` (the supervisor zeroes every motor output — network, IR and calibration);
 - in `onStop()` add `calibrationAbort(proto::AckStatus::kCalCancelled);` before `g_app.arbitrator.onNetworkStop();` (LLD §9.7: STOP aborts a script);
 - in the `SafetyInputs` initializer replace `0 /* stall_mask: Task 7 */` with `g_app.enc_health.stalledMask()` (LLD §9.6: a stalled track is cut);
 - replace the two lines
@@ -7344,6 +7487,24 @@ def cmd_calibrate(link: Link, args: argparse.Namespace) -> None:
 
 def ask(question: str) -> bool:
     return input(f"{question} [y/n] ").strip().lower().startswith("y")
+
+
+def cmd_selftest(link: Link, args: argparse.Namespace) -> None:
+    """Re-run the boot self-test (LLD §10.9): besides a reboot, the only way to lift a critical lock."""
+    done = threading.Event()
+
+    def on(msg: object) -> None:
+        if isinstance(msg, g.Ack):
+            print(f"ACK {g.ACK_STATUS[msg.status]}")
+            if msg.status != 0:
+                done.set()
+        elif isinstance(msg, g.Event) and msg.kind == int(g.EventKind.SELFTEST):
+            print(f"EVENT SELFTEST a=0x{msg.a & 0xFF:02x} b={msg.b} ({'LOCKED' if msg.b else 'unlocked'})")
+            done.set()
+
+    link.handlers.append(on)
+    link.send(g.Calibrate(op=g.CalOp.START, script=g.CalScript.SELF_TEST, param=0, profile=0))
+    done.wait(5.0)
 
 
 def cmd_probe(link: Link, args: argparse.Namespace) -> None:
@@ -7419,7 +7580,7 @@ def cmd_bias(link: Link, args: argparse.Namespace) -> None:
     link.send(g.SettingsSave())
     time.sleep(1.5)
 ```
-Register `"calibrate": cmd_calibrate, "probe": cmd_probe, "mount": cmd_mount, "bias": cmd_bias` and in `main()`:
+Register `"calibrate": cmd_calibrate, "probe": cmd_probe, "mount": cmd_mount, "bias": cmd_bias, "selftest": cmd_selftest` and in `main()`:
 ```python
     c = sub.add_parser("calibrate")
     c.add_argument("script", choices=[s.name.lower() for s in g.CalScript])
@@ -7428,6 +7589,7 @@ Register `"calibrate": cmd_calibrate, "probe": cmd_probe, "mount": cmd_mount, "b
     sub.add_parser("probe")
     sub.add_parser("mount")
     sub.add_parser("bias")
+    sub.add_parser("selftest")
 ```
 Move `import csv`, `import math` and `import statistics` to the top-level import block (ruff `I` order).
 
@@ -7440,7 +7602,8 @@ On the stand (tracks free), from `tools/smoke/`:
 2. `… mount` → `MOUNT CHECK: PASS` (otherwise fix the axis map, rebuild, repeat).
 3. On the floor, level: `… bias` → prints five values and `EVENT SETTINGS_SAVED`; afterwards `watch` shows yaw drift < 1° per minute standing still.
 4. `… calibrate pwm_ramp --param 0 --csv ramp.csv` on the stand (left track forward, max 255) → phase 0 ramps up in 52 steps, phase 1 back down; CSV `v3` (|cps|) rises once `v0` (PWM) passes the deadband.
-5. After boot, `watch` shows `EVENT SELFTEST a=0 b=0` (a = 0x02 if the ultrasonic is unplugged).
+5. After boot, `watch` shows `EVENT SELFTEST a=0 b=0` (a = 0x02 if the ultrasonic is unplugged: a warning, b stays 0).
+5a. Critical self-test lock (LLD §10.9, stand): battery switch **off**, Uno on USB only → boot `EVENT SELFTEST a=0x04 b=1` (battery read implausible), error tone, solid red LED, `flags2` bit 9 (`SELFTEST_LOCKED`); `… drive 40 0` → `ACK BLOCKED`; IR ▲ → tracks do not move; `… calibrate pwm_ramp` → `ACK BLOCKED`. Battery switch on, `… selftest` → `ACK OK`, `EVENT SELFTEST a=0x00 b=0 (unlocked)`, success melody, red clears; `… drive 40 0 --seconds 1` turns the tracks.
 6. Stall cut (stand): `… drive 50 0 --seconds 4` and press a block of wood firmly against the left track until it stops (never grip a running track by hand — the sprocket is a pinch point) → after ~0.5 s `EVENT STALL a=0`, `pwm=0,<n>` (left cut, right still driving) for 1 s, then the left track is driven again (and stalls again after 0.5 s while still held). Clearing on reversal is covered by the host test.
 
 - [ ] **Step 11: Commit**
@@ -9058,6 +9221,10 @@ void pushPrimitiveResult() {
 }
 
 proto::AckStatus networkMotion(uint8_t frame_type, uint8_t src, bool teleop) {
+  if (g_app.self_test.locked()) {  // LLD §10.9: critical self-test → every motion command refused
+    rejectEvent(frame_type, src, proto::AckStatus::kBlocked);
+    return proto::AckStatus::kBlocked;
+  }
   const proto::AckStatus st = g_app.arbitrator.requestNetwork(teleop, port::clock::nowMs());
   if (st != proto::AckStatus::kOk) rejectEvent(frame_type, src, st);
   return st;
@@ -9078,7 +9245,7 @@ void stopTeleop() { zeroTeleop(); }
 SafetyOverride::Gate overrideGate() {
   const bool fault = g_app.lift.lifted() || g_app.lift.tilted() ||
                      g_app.batt.level() == BatteryMonitor::Level::kCritical ||
-                     (g_app.self_test_done && g_app.self_test.critical());
+                     g_app.self_test.locked();  // LLD §10.9: Override can never lift the self-test lock
   return SafetyOverride::Gate{g_app.link.synced(), g_app.envelope.childPlay(), fault, g_app.arbitrator.owner()};
 }
 
@@ -9369,7 +9536,8 @@ void controlTask() {
   // Override only reaches the supervisor through brake_on; lift, battery critical and stall never consult it.
   const SafetyInputs in{g_app.lift.lifted(), g_app.lift.tilted(),
                         g_app.batt.level() == BatteryMonitor::Level::kCritical, brake_on,
-                        g_app.us.distMm(), gs.obstacle_stop, g_app.enc_health.stalledMask()};
+                        g_app.us.distMm(), gs.obstacle_stop, g_app.enc_health.stalledMask(),
+                        g_app.self_test.locked()};
   const bool was_blocked = g_app.safety.blocked;
   const PwmOutput out = g_app.supervisor.apply(pwm_l, pwm_r, in, g_app.safety);
   port::motor::apply(out);
@@ -10263,7 +10431,7 @@ git commit -m "feat(uno): camera pan/tilt with trapezoid servo profiles, joystic
   - `cq::Note { uint16_t hz; uint16_t ms; }`; `cq::SoundSequencer`: `bool play(const Note* notes, uint8_t n, uint8_t priority, uint32_t now_ms)`, `void setMode(proto::AudioModeValue m)`, `proto::AudioModeValue mode() const`, `void stop()`, `bool tick(uint32_t now_ms, uint16_t& hz)` (true when the output changed; 0 = silence), `bool playing() const`; priorities `kPrioInfo = 1, kPrioEvent = 2, kPrioAlarm = 3`.
   - `cq::LedLayer : uint8_t { kAlarm, kAttention, kCustom, kStatus, kBase, kCount }` (lower = wins); `cq::LedPattern { proto::LedMode mode; Rgb color; uint16_t period_ms; uint16_t duration_ms; }`; `cq::LedSequencer`: `void set(LedLayer, const LedPattern&, uint32_t now_ms)`, `void clear(LedLayer)`, `Rgb output(uint32_t now_ms)`.
   - `cq::soundNotes(proto::SoundId id, Note* out) -> uint8_t` (count, PROGMEM catalogue).
-  - `cq::AnnState { bool synced, calibrating, blocked, lifted, tilted, batt_low, batt_crit, selftest_critical, reversing, forward, parking_beeps; proto::Owner owner; proto::OwnerHintValue hint; uint8_t bump_seq; bool selftest_done; bool selftest_failed; bool override_on; uint8_t override_seq; uint8_t toggle_seq; bool toggle_on; bool driving; uint8_t speed_pct; }`; `cq::Annunciator::update(const AnnState&, uint32_t now_ms, LedSequencer&, SoundSequencer&)`.
+  - `cq::AnnState { bool synced, calibrating, blocked, lifted, tilted, batt_low, batt_crit, selftest_critical, reversing, forward, parking_beeps; proto::Owner owner; proto::OwnerHintValue hint; uint8_t bump_seq; uint8_t selftest_runs; bool selftest_failed; bool override_on; uint8_t override_seq; uint8_t toggle_seq; bool toggle_on; bool driving; uint8_t speed_pct; }`; `cq::Annunciator::update(const AnnState&, uint32_t now_ms, LedSequencer&, SoundSequencer&)`.
   - Catalogue Revision 3 (LLD §10.6): flat PROGMEM note pool + `(id, offset, count)` index; STARTUP = the old boot sweep (14 notes, so `SoundSequencer::kMaxNotes` = 14; TONE stays ≤ 10); SoundId 12–23 = old melodies 2–13. `LedSequencer::setMax(uint8_t)` (setting `led_max`), `LedSequencer::setBaseStyle(bool breathe, uint16_t period_ms, uint8_t level_pct)` (SOLID base only: breathe 20–100 % idle, 20 % + 80 % × speed driving); `LedSequencer::kMinLevelPct = 20`. Annunciator: tilt siren = SAFETY_CHIRP every 400 ms; obstacle stop = SAFETY_CHIRP once + red 100/100 ms blink; Override = chirp up/down (alarm priority) + 3 green/red blinks, then an amber-red pulse; IR toggles (mute, parking) = 3 green/red blinks. App members `toggle_seq`, `toggle_on` (set by Task 14). `flags2.brake_off` reports the effective brake (off while Override is on).
   - Ports `cq::port::tone::{begin(), play(uint16_t hz), stop()}`, `cq::port::led::{begin(), write(const Rgb&)}`.
   - `app/tasks.h`: `cq::app::uiInit()`, `uiTask()` (50 Hz); `app/ui_api.h` (like `camera_api.h`): handlers `onLed/onSound/onTone/onAudioMode`. The alarm LED layer is re-picked on any change of tilted/lifted/batt_crit/batt_low/selftest_critical.
@@ -10952,7 +11120,7 @@ struct AnnState {
   proto::Owner owner;
   proto::OwnerHintValue hint;
   uint8_t bump_seq;
-  bool selftest_done;
+  uint8_t selftest_runs;  // SelfTest::runs(): +1 per completed run (boot or SELF_TEST re-run)
   bool selftest_failed;
   // LLD §10.6 (Revision 3)
   bool override_on;      // SafetyOverride::active()
@@ -11029,9 +11197,9 @@ void Annunciator::update(const AnnState& s, uint32_t now_ms, LedSequencer& led, 
   m_primed = true;
 
   // sounds on edges
-  if (s.selftest_done && !p.selftest_done) {
-    sound(s.selftest_failed ? proto::SoundId::kSelftestFail : proto::SoundId::kStartup, SoundSequencer::kPrioEvent,
-          now_ms, snd);
+  if (s.selftest_runs != p.selftest_runs && s.selftest_runs != 0) {  // boot run and every re-run (LLD §10.9)
+    const proto::SoundId ok_id = s.selftest_runs == 1 ? proto::SoundId::kStartup : proto::SoundId::kSuccess;
+    sound(s.selftest_failed ? proto::SoundId::kSelftestFail : ok_id, SoundSequencer::kPrioEvent, now_ms, snd);
   }
   if (s.synced && !p.synced) sound(proto::SoundId::kReady, SoundSequencer::kPrioInfo, now_ms, snd);
   // Tilt siren = the old safety chirp, repeated while tilted (LLD §10.6); a bump keeps its "ouch".
@@ -11312,14 +11480,14 @@ void uiTask() {
   s.tilted = g_app.lift.tilted();
   s.batt_low = g_app.batt.level() == BatteryMonitor::Level::kLow;
   s.batt_crit = g_app.batt.level() == BatteryMonitor::Level::kCritical;
-  s.selftest_critical = g_app.self_test_done && g_app.self_test.critical();
+  s.selftest_critical = g_app.self_test.locked();
   s.reversing = g_app.out_pwm_l < 0 && g_app.out_pwm_r < 0;
   s.forward = g_app.out_pwm_l > 0 && g_app.out_pwm_r > 0;
   s.parking_beeps = gs.parking_beeps != 0;
   s.owner = g_app.arbitrator.owner();
   s.hint = g_app.owner_hint;
   s.bump_seq = g_app.bump_seq;
-  s.selftest_done = g_app.self_test_done;
+  s.selftest_runs = g_app.self_test.runs();
   s.selftest_failed = g_app.self_test.failMask() != 0;
   s.override_on = g_app.safety_override.active();
   s.override_seq = g_app.override_seq;

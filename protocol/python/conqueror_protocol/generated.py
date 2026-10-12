@@ -75,6 +75,7 @@ class CalScript(IntEnum):
     DRIVE_COUNTS = 6
     SERVO_NUDGE = 7
     IDLE = 8
+    SELF_TEST = 9
 
 
 class ProfileOp(IntEnum):
@@ -159,6 +160,7 @@ class SlowFlagBit(IntEnum):
     ENVELOPE = 6
     DEADMAN = 7
     SAFETY_OVERRIDE = 8
+    SELFTEST_LOCKED = 9
 
 
 class HwBit(IntEnum):
@@ -621,7 +623,7 @@ class SettingsSave(Message):
 
 @dataclass(slots=True)
 class Calibrate(Message):
-    """Run/cancel a calibration motion script; Uno streams CAL_DATA, ESP32 computes."""
+    """Run/cancel a calibration motion script; Uno streams CAL_DATA, ESP32 computes. Script SELF_TEST re-runs the boot self-test instead (ACK OK / BUSY while moving; result in EVENT SELFTEST)."""
 
     TYPE: ClassVar[int] = 0x60
     DIR: ClassVar[str] = "esp32_to_uno"

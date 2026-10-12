@@ -549,6 +549,7 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> Locked : self-test critical fail
+    Locked --> Normal : SELF_TEST re-run passes (§10.9)
     [*] --> Normal : self-test ok
     Normal --> Limited : obstacle slow zone / envelope active
     Limited --> Normal : clear
@@ -975,7 +976,7 @@ stateDiagram-v2
 ```
 - Calibration motion = local **Calibration** source in the Arbitrator, below IR (IR/STOP abort); safety supervisor fully active; no deadman.
 - 12 routines (CalKind, VARIANT POINT): gyro bias · level · battery divider · deadband · encoder cpr · distance · track balance · track width · turn-rate curve · PID auto-tune (relay) · servo trim · ultrasonic offset; each a step function returning `CalStep`, streamed as `CAL_RESULT`.
-- **Self-test (~2 s at boot):** IMU WHO_AM_I + not saturated · battery plausible · ultrasonic echo · encoders quiet at rest · settings CRCs · reset reason. Critical (IMU, battery read) → `Locked`; non-critical → warning + degraded feature; result event + startup sound/LED.
+- **Self-test (~2 s at boot):** IMU WHO_AM_I + not saturated · battery plausible · ultrasonic echo · encoders quiet at rest · settings CRCs · reset reason. Critical (IMU, battery read) → `Locked`; non-critical → warning + degraded feature; result event + startup sound/LED. **Revision 3:** the lock, the critical/warning list and the re-run are specified in §10.9 (authoritative).
 
 ---
 
@@ -1319,7 +1320,7 @@ Source: design-notes §25 (catalogue update from the old firmware) and §26 (Saf
 | Class (Plan B task) | Change |
 |---|---|
 | **`SafetyOverride`** (new, `domain/safety/safety_override.{h,cpp}`, Task 6) | Owns the Override state: who enabled it (*binder*), entry time, last driving time; admission rules; expiry; one pending event. Pure, no `virtual`, no heap, ~12 B RAM. |
-| `SafetySupervisor` (Task 6) | **Unchanged code.** Its `SafetyInputs.brake_on` is now the *effective* brake `SafetyOverride::brakeOn(envelope.brakeOn())`; `tilted` comes from `LiftDetector` fed with the effective tilt limit. `lifted`, `batt_critical` and `stall_mask` never consult the override. |
+| `SafetySupervisor` (Task 6) | One addition: `SafetyInputs.selftest_locked` → zero output, `SafetyStatus.locked` + `halted` (§10.9). Its `SafetyInputs.brake_on` is now the *effective* brake `SafetyOverride::brakeOn(envelope.brakeOn())`; `tilted` comes from `LiftDetector` fed with the effective tilt limit. `lifted`, `batt_critical` and `stall_mask` never consult the override. |
 | `TargetLimiter` (Task 8, wired Task 11) | Its obstacle slow zone gets the same effective brake flag (no slow-down while Override is on). Envelope and degraded caps unchanged. |
 | `LiftDetector` (Task 4) | **Unchanged code**; the IMU task passes `override.tiltLimit(tilt_limit, override_tilt_deg)` instead of `tilt_limit`. The 300 ms hold and the release below limit − 5° stay. |
 | `Arbitrator` (Task 6) | Unchanged API. The app reports its owner changes to `SafetyOverride::onOwner()`. |
@@ -1532,3 +1533,104 @@ Plan B host tests after this revision: **148** (+16: Override 6 in `test_safety`
 7. Plan B never locks the motors on a critical self-test (only reports it); spec 02 §A11 says it should. Override already treats it as a latched fault.
 8. Plan B's Quiet mode plays alarms only, so the Override enter/exit chirp uses alarm priority (silent only in Mute).
 9. EEPROM writer queue now at 123 of 128 B (global block 66 B, profile 54 B, magic 3 B) — the next global setting needs a bigger queue.
+
+### 10.9 Critical self-test lock (owner decision 6, 2026-10-12)
+A critical boot self-test failure **locks all motion** — network, IR and calibration — until a self-test re-run passes or the Uno reboots. Override cannot lift it (consistent with §10.2: Override never un-halts).
+
+| Check (`SelfTest::Check`, EVENT SELFTEST `a` bit) | Pass when | Class |
+|---|---|---|
+| `kImu` (bit 0) | `imu_ok` (MPU6050 `begin()` + WHO_AM_I; the IMU task retries `begin()` every 1 s) | **critical** |
+| `kUltrasonic` (bit 1) | sensor not faulted and an echo seen | warning (brake unavailable, degraded cap) |
+| `kBattery` (bit 2) | `SelfTest::batteryPlausible(batt.mv())`: 5000–9000 mV (2S pack 6.0–8.4 V) | **critical** (USB-only power reads ≈ 0 V → locked until the battery is on and a re-run passes) |
+| `kSettings` (bit 3) | no block reset to defaults at load | warning (defaults are compiled in, so "invalid and not defaultable" cannot happen) |
+| motor driver / STBY | — | not checked at boot: no driver feedback line; the STBY/direction `probe` is a stand step (Plan B Task 7) |
+
+```mermaid
+classDiagram
+    class SelfTest {
+      +kCriticalMask = IMU | BATTERY
+      +batteryPlausible(uint16 mv)$ bool
+      +begin()
+      +report(Check, bool ok)
+      +complete()
+      +failMask() uint8
+      +critical() bool
+      +locked() bool
+      +running() bool
+      +runs() uint8
+      -uint8 m_fail
+      -uint8 m_runs
+      -bool m_locked
+      -bool m_running
+    }
+    class SafetyInputs {
+      <<struct>>
+      +bool selftest_locked
+    }
+    class SafetyStatus {
+      <<struct>>
+      +bool locked
+    }
+    class SafetySupervisor {
+      +apply(pwm_l, pwm_r, const SafetyInputs&, SafetyStatus&) PwmOutput
+    }
+    class SafetyOverride {
+      +requestNetwork(on, src, const Gate&, now) AckStatus
+      +requestIr(const Gate&, now) AckStatus
+    }
+    class AnnState {
+      <<struct>>
+      +bool selftest_critical
+      +uint8 selftest_runs
+      +bool selftest_failed
+    }
+    SelfTest ..> SafetyInputs : locked()
+    SafetySupervisor ..> SafetyInputs
+    SafetySupervisor ..> SafetyStatus
+    SelfTest ..> SafetyOverride : locked() → Gate.fault_latched
+    SelfTest ..> AnnState : locked() / runs()
+```
+- `SelfTest` (Plan B Task 6, pure header ~4 B RAM) keeps the verdict: `begin()` clears the fail mask but **keeps** the lock; `complete()` sets `locked = critical()`. So the lock holds through a re-run until its verdict.
+- **Enforcement — one point:** `SafetyInputs.selftest_locked` makes `SafetySupervisor::apply` return a zero, driver-enabled output (`halted` + `locked`). Network teleop, IR keys and calibration scripts all pass through `apply`, so nothing can move. Lifted still coasts first.
+- **Refusals (existing statuses):** DRIVE/DRIVE_RATE/TURN/MOVE → `BLOCKED` (+ `REJECTED` event), CALIBRATE (any motion script) → `BLOCKED`, SAFETY_OVERRIDE on / IR `*` hold → `BLOCKED` (the lock is part of `Gate.fault_latched`). STOP, camera, LED/sound, settings stay available.
+- **Reporting:** EVENT SELFTEST `{a = fail mask, b = 1 locked / 0}` after every run; `flags2` bit 9 `SELFTEST_LOCKED` (new, append-only); annunciator: every completed run replays its sound (`selftest_runs` edge): fail → SELFTEST_FAIL (low error tone), pass → STARTUP on the boot run / SUCCESS on a re-run; solid red alarm layer while `locked()`.
+- **Re-run:** `CALIBRATE {op START, script SELF_TEST (9, new, append-only)}` → `OK` and the run is due 1.5 s later (time for one 1 s IMU re-init attempt); `BUSY` while moving, calibrating, a run is already due, or Override is on. Bench: `uno_smoke.py selftest`; hub/ESP32: client command `selftest`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending : reset (run due at 2 s)
+    Pending --> Unlocked : run passes (no critical bit)
+    Pending --> Locked : IMU or battery read fails
+    Locked --> Rerun : CALIBRATE SELF_TEST (not moving / calibrating / Override)
+    Unlocked --> Rerun : CALIBRATE SELF_TEST
+    Rerun --> Locked : critical failure (lock kept during the run)
+    Rerun --> Unlocked : pass → SUCCESS sound, red cleared
+    Locked --> [*] : reboot
+    note right of Locked
+      supervisor output zero (network, IR, calibration)
+      motion commands and Override → BLOCKED
+    end note
+```
+
+```mermaid
+sequenceDiagram
+    participant H as Bench / hub (human)
+    participant R as onCalibrate (Uno)
+    participant T as selfTestTask (1 Hz)
+    participant S as SelfTest
+    participant P as SafetySupervisor
+    participant U as Annunciator
+    Note over S,P: locked: every apply() returns zero
+    H->>R: CALIBRATE {START, SELF_TEST}
+    R-->>H: ACK OK (or BUSY)
+    R->>T: self_test_pending, due = now + 1.5 s
+    T->>S: begin() · report(IMU, batt, US, settings) · complete()
+    T-->>H: EVENT SELFTEST {mask, locked} · flags2 bit 9
+    alt pass
+        S-->>P: locked() = false → outputs flow again
+        S-->>U: runs+1 → SUCCESS, red alarm cleared
+    else critical
+        S-->>P: still locked
+        S-->>U: runs+1 → SELFTEST_FAIL, solid red stays
+    end
+```

@@ -1079,3 +1079,8 @@ Shared objects: TankState (writers per group, mutex snapshot) · SessionRegistry
 - Gateway: preset `child_play` → `ENVELOPE {20, 30, lock_brake = 3}`; a custom envelope → bit 0 from its `lock_brake` bool, bit 1 never set. The persisted NVS envelope stores the preset name, so HELLO re-sync restores bit 1.
 - §4.5 rules: setting `CHILD_PLAY` counts as **tightening** (ai allowed); clearing it is **loosening** (ai → `ENVELOPE_LOCKED`). Client telemetry `envelope.child_play` = `env_lock_brake` bit 1.
 - Event `SAFETY_OVERRIDE` (kind 27) → client event `safety_override{on, reason}`; `flags2` bit 8 → `flags.safety_override`. Never persisted in NVS; never restored at HELLO.
+
+### Decision note (2026-10-12): critical self-test lock (owner decision 6; spec 02 §A11)
+- The Uno locks all motion after a critical self-test failure (IMU missing/failed, battery reading implausible) until a passing re-run or reboot; Override cannot lift it.
+- New client command `selftest` (human/admin) → body `CALIBRATE {op START, script SELF_TEST}` (CalScript 9, append-only); the ACK (`OK` / `BUSY`) is the reply, the result arrives as event `selftest{ok, failures[], critical}` (EVENT SELFTEST `b` = locked).
+- Telemetry: `flags2` bit 9 `SELFTEST_LOCKED` → client `flags.selftest_locked`; motion commands get `nack BLOCKED` from the Uno while it is set. Calibration jobs check the flag before starting.

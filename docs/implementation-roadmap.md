@@ -65,7 +65,7 @@ Logo-like language to program the tank (children, owner, AI). Details: `docs/des
 | Phase 6 | program library, natural language → Logo, explanations, vision words (AI engine runs AI programs) |
 
 ## Out of the MVP (phases 0–5)
-Hub backend, Timeline/recording, missions/waypoints UI, multi-tank, AI engine, voice, themes beyond Phosphor, surface profiles (one default), OTA, full key management (admin key only), first-run polish.
+Hub backend, Timeline/recording, missions/waypoints UI, multi-tank, AI engine, voice, themes beyond Phosphor, surface profiles (one default), Uno OTA (ESP32 OTA is in Plan C, design-notes §28), full key management (admin key only), first-run polish.
 
 ## Open
 - (none for phases 0–3)

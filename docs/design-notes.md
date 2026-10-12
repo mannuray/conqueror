@@ -755,3 +755,19 @@ Source: read-only flash dump of the owner's board (source code lost) + disassemb
 - Old firmware interface: `/stream` (port 80), `/control` + `/cam_status` (port 81, camera settings only: res, quality, fps); **motion = raw UDP bridge on port 8888** (each datagram forwarded unchanged to the Uno, Uno lines returned to the sender); no STOP, no timeout on the ESP32 side. AP mode only: open setup portal on 8080 + DNS 53.
 - Old Uno protocol (ELEGOO JSON): `{"N":100}` = stop/standby; `{"N":2,"D1":dir,"D2":speed0-255,"T":ms}` = timed move (dir 1 left, 2 right, 3 forward, 4 backward).
 - Impact: Plan C and the ESP32 LLDs switch to target `esp32s3`, UART RX 3 / TX 40 at 250000, S3-EYE camera map, octal PSRAM; flashing via USB-CDC (`/dev/ttyACM0`). Revise when polishing Plan C.
+
+## 25. Catalogue update from the old firmware (DECIDED 2026-10-12)
+Compared the decoded old LED/buzzer behaviour (`docs/legacy/uno-old-led-buzzer.md`) with §8. Changes to §8:
+- **LED:** add *obstacle brake stop* → fast red blink (pri 2). Idle colours **breathe**; while driving, **brightness rises with speed**. Toggle confirmation: **3 quick blinks, green = on, red = off** (mute, quiet, parking beeps, override). Brightness cap setting **`led_max` default 50/255**. Startup stays rainbow; collision stays a short white flash (old never-clearing white flicker was a bug — discarded).
+- **Sounds:** startup = the old **rising sweep** (200, 500, 1000, 1500, 2000, 2500, 3000 Hz, then 1500/2000 Hz). Tilt siren is built on the old **2500/3000/2500 Hz chirp**; the same chirp plays **once** when the obstacle brake stops the tank. The old **13 melodies** become named catalogue sounds (≈0.5 KB flash) usable by the app, AI and Tank Logo `SOUND`. Low/critical battery sounds stay as in §8. Old blocking player discarded (new player is non-blocking).
+- **Battery:** low warning **7.2 V**, critical **6.6 V**, **0.2 V hysteresis** on both.
+
+## 26. Safety Override mode (DECIDED 2026-10-12)
+The old firmware could switch the safety stops off (`N=11`); the owner wants human full-control, but bounded:
+- **Relaxes:** obstacle brake and bump stop **off**; tilt cut-off raised to **65°** (tank tips at ~75°; wide, low centre of gravity).
+- **Never relaxed:** deadman / link-loss stop, battery critical, motor stall cut, lift detection, STOP.
+- **Who:** human only — IR remote (hold a key 2 s) or app/web with a human/admin key and a confirmation. **Never the AI, never a Tank Logo program, never while the child-play envelope is active.**
+- **Indication:** LED amber-red pulse over the base colour, chirp on enter/exit, telemetry flag, hub timeline entry.
+- **Ends:** after **60 s without driving** or **5 min** maximum, and on STOP, owner change, link loss or reboot. Never persistent.
+- CLAUDE.md safety rule reworded: never weakened **except through this designed Override**.
+- Follow-up (design-first): protocol additions (override command/event/flag, settings), spec 02 + Uno LLD sections, then Plan B tasks.

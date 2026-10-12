@@ -549,7 +549,7 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> Locked : self-test critical fail
-    Locked --> Normal : SELF_TEST re-run passes (§10.9)
+    Locked --> Normal : SELF_TEST re-run passes, or battery-only lock + 1 s valid (§10.9)
     [*] --> Normal : self-test ok
     Normal --> Limited : obstacle slow zone / envelope active
     Limited --> Normal : clear
@@ -1521,7 +1521,7 @@ sequenceDiagram
 ### 10.7 Budget
 Flash ≈ +1.7 KB (SafetyOverride + app glue ~0.6 KB, LED styles ~0.3 KB, IR hold ~0.1 KB, sound table +0.05 KB, routes/settings ~0.2 KB; owner decisions 2026-10-12: child-play flag ~0.05 KB, self-test lock + re-run ~0.25 KB, SettingsSaver ~0.1 KB net) → estimated total 24.9–27.9 KB of the 30 KB gate. RAM ≈ −10 B net (override 12, kMaxNotes +16, IR hold 4, LED style 4, misc; self-test lock +7; EEPROM writer queue 128 → 80 B and 6 → 4 ranges −56) → ≈ 1730 B of 2048 including the 400 B stack reserve; the static RAM gate (≤ 1750 B) keeps its margin because the stack reserve is not static. Measure at Task 15; overflow plan unchanged (§13 of design-notes).
 
-Plan B host tests after this revision: **153** (+21: Override 6 + adult envelope 1 + self-test lock 3 in `test_safety` (23), per-block EEPROM save 1 in `test_settings` (9), battery hysteresis 1 in `test_sensors`, catalogue/LED/annunciator 7 in `test_ui`, IR `*` hold 2 in `test_input`).
+Plan B host tests after this revision: **155** (+23: Override 6 + adult envelope 1 + self-test lock 5 in `test_safety` (25, incl. battery-only auto-clear and IMU-not-auto-cleared), per-block EEPROM save 1 in `test_settings` (9), battery hysteresis 1 in `test_sensors`, catalogue/LED/annunciator 7 in `test_ui`, IR `*` hold 2 in `test_input`).
 
 ### 10.8 Owner confirmations — resolved (2026-10-12)
 1. **Accepted:** Override flag in `flags2` bit 8 (slow, 1 Hz) + the immediate `SAFETY_OVERRIDE` event (`TELEM_FAST.flags` has no free bit; widening it is breaking).
@@ -1535,13 +1535,13 @@ Plan B host tests after this revision: **153** (+21: Override 6 + adult envelope
 9. **Fixed:** the EEPROM save is staged per block; the writer queue (now 80 B) can never overflow (§10.10).
 
 ### 10.9 Critical self-test lock (owner decision 6, 2026-10-12)
-A critical boot self-test failure **locks all motion** — network, IR and calibration — until a self-test re-run passes or the Uno reboots. Override cannot lift it (consistent with §10.2: Override never un-halts).
+A critical boot self-test failure **locks all motion** — network, IR and calibration — until a self-test re-run passes or the Uno reboots. **Exception (owner 2026-10-12):** a lock caused *only* by the battery-range check clears by itself once the battery reading has been valid for 1 s (below). Override cannot lift it (consistent with §10.2: Override never un-halts).
 
 | Check (`SelfTest::Check`, EVENT SELFTEST `a` bit) | Pass when | Class |
 |---|---|---|
 | `kImu` (bit 0) | `imu_ok` (MPU6050 `begin()` + WHO_AM_I; the IMU task retries `begin()` every 1 s) | **critical** |
 | `kUltrasonic` (bit 1) | sensor not faulted and an echo seen | warning (brake unavailable, degraded cap) |
-| `kBattery` (bit 2) | `SelfTest::batteryPlausible(batt.mv())`: 5000–9000 mV (2S pack 6.0–8.4 V) | **critical** (USB-only power reads ≈ 0 V → locked until the battery is on and a re-run passes) |
+| `kBattery` (bit 2) | `SelfTest::batteryPlausible(batt.mv())`: 5000–9000 mV (2S pack 6.0–8.4 V) | **critical** (USB-only power reads ≈ 0 V → locked; **auto-clears 1 s after the battery reads 5–9 V**, no re-run needed) |
 | `kSettings` (bit 3) | no block reset to defaults at load | warning (defaults are compiled in, so "invalid and not defaultable" cannot happen) |
 | motor driver / STBY | — | not checked at boot: no driver feedback line; the STBY/direction `probe` is a stand step (Plan B Task 7) |
 
@@ -1553,6 +1553,7 @@ classDiagram
       +begin()
       +report(Check, bool ok)
       +complete()
+      +tickBattery(bool plausible, uint32 now_ms) bool
       +failMask() uint8
       +critical() bool
       +locked() bool
@@ -1562,6 +1563,8 @@ classDiagram
       -uint8 m_runs
       -bool m_locked
       -bool m_running
+      -bool m_batt_valid
+      -uint32 m_batt_since
     }
     class SafetyInputs {
       <<struct>>
@@ -1591,6 +1594,7 @@ classDiagram
     SelfTest ..> AnnState : locked() / runs()
 ```
 - `SelfTest` (Plan B Task 6, pure header ~4 B RAM) keeps the verdict: `begin()` clears the fail mask but **keeps** the lock; `complete()` sets `locked = critical()`. So the lock holds through a re-run until its verdict.
+- **Battery-only auto-recovery (owner 2026-10-12):** `tickBattery(plausible, now_ms)` (10 Hz from `selfTestRecoverTask`) acts only while `locked && !running` and the fail mask's critical bits are exactly `kBattery`. It times how long `plausible` has held without a break (any implausible sample restarts the 1 s, `kBattRecoverMs`); then it clears the `kBattery` bit, sets `locked = critical()`, `runs+1` and returns true, and the app emits the usual EVENT SELFTEST `{mask, 0}`, clears `flags2` bit 9, and the annunciator plays SUCCESS and clears the red LED (`runs` edge). If the IMU bit is also set it never acts: an **IMU failure still needs an explicit SELF_TEST re-run (or reboot)**. Override cannot unlock (unchanged: it only reads `locked()`).
 - **Enforcement — one point:** `SafetyInputs.selftest_locked` makes `SafetySupervisor::apply` return a zero, driver-enabled output (`halted` + `locked`). Network teleop, IR keys and calibration scripts all pass through `apply`, so nothing can move. Lifted still coasts first.
 - **Refusals (existing statuses):** DRIVE/DRIVE_RATE/TURN/MOVE → `BLOCKED` (+ `REJECTED` event), CALIBRATE (any motion script) → `BLOCKED`, SAFETY_OVERRIDE on / IR `*` hold → `BLOCKED` (the lock is part of `Gate.fault_latched`). STOP, camera, LED/sound, settings stay available.
 - **Reporting:** EVENT SELFTEST `{a = fail mask, b = 1 locked / 0}` after every run; `flags2` bit 9 `SELFTEST_LOCKED` (new, append-only); annunciator: every completed run replays its sound (`selftest_runs` edge): fail → SELFTEST_FAIL (low error tone), pass → STARTUP on the boot run / SUCCESS on a re-run; solid red alarm layer while `locked()`.
@@ -1601,6 +1605,7 @@ stateDiagram-v2
     [*] --> Pending : reset (run due at 2 s)
     Pending --> Unlocked : run passes (no critical bit)
     Pending --> Locked : IMU or battery read fails
+    Locked --> Unlocked : battery-only lock, reading 5–9 V for 1 s (auto)
     Locked --> Rerun : CALIBRATE SELF_TEST (not moving / calibrating / Override)
     Unlocked --> Rerun : CALIBRATE SELF_TEST
     Rerun --> Locked : critical failure (lock kept during the run)
@@ -1609,6 +1614,7 @@ stateDiagram-v2
     note right of Locked
       supervisor output zero (network, IR, calibration)
       motion commands and Override → BLOCKED
+      IMU lock: re-run or reboot only
     end note
 ```
 
@@ -1633,6 +1639,10 @@ sequenceDiagram
         S-->>P: still locked
         S-->>U: runs+1 → SELFTEST_FAIL, solid red stays
     end
+    Note over T,S: battery-only lock (no IMU bit): selfTestRecoverTask 10 Hz
+    T->>S: tickBattery(batteryPlausible(mv), now)
+    S-->>T: true after 1 s continuously valid → lock cleared
+    T-->>H: EVENT SELFTEST {mask, 0} · flags2 bit 9 cleared · SUCCESS, red off
 ```
 
 ### 10.10 EEPROM save cannot overflow (owner decision 7, 2026-10-12)

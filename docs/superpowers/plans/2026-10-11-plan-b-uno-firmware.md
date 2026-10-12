@@ -4722,7 +4722,7 @@ git commit -m "feat(uno): ultrasonic/IR via PCINT0 hub, NEC decoder, async batte
   - `app/tasks.h`: `controlInit()`, `controlTask()`; `app/motion_api.h`: route handlers `onDrive`, `onStop`, `onBrake`, `onEnvelope`, `onOwnerHint` (signature `proto::AckStatus (const uint8_t*, uint8_t)`).
   - App members `int16_t req_pwm_l, req_pwm_r` (PWM asked of the supervisor, before the gate — the direction of a stalled track for Task 7) next to `out_pwm_l/r`.
   - `cq::SafetyOverride` (LLD §10, spec 02 §A6.1): `enum class Binder : uint8_t { kNone, kIr, kNetwork }`; `struct Gate { bool synced, child_play, fault_latched; proto::Owner owner; }`; `struct Config { uint8_t idle_s; uint16_t max_s; }`; `proto::AckStatus requestNetwork(bool on, proto::Source src, const Gate&, uint32_t now_ms)` (on = 0 → OK from any source; on = 1: `kRoleForbidden` unless src HUMAN, `kBusy` before sync, `kEnvelopeLocked` while the child-play envelope is active (adult envelopes allowed), `kNotOwner` while IR/calibration owns or IR-bound, `kBlocked` while a fault is latched), `proto::AckStatus requestIr(const Gate&, uint32_t now_ms)` (toggle; the caller makes IR the owner and reports that owner change first), `void onOwner(proto::Owner)`, `void onNetworkMotion(proto::Source, bool driving, uint32_t now_ms)`, `void onIrMotion(bool driving, uint32_t now_ms)`, `void onOwnerHint(proto::OwnerHintValue)`, `void onLinkLost()`, `void end(proto::OverrideReason)`, `void tick(uint32_t now_ms, const Config&)`, `bool active() const`, `Binder binder() const`, `bool brakeOn(bool configured) const`, `uint8_t tiltLimit(uint8_t normal, uint8_t relaxed) const`, `bool takeEvent(bool& on, proto::OverrideReason& why)`.
-  - `cq::SelfTest`: `enum class Check : uint8_t { kImu, kUltrasonic, kBattery, kSettings }`, `kCriticalMask` (IMU | battery read), `static bool batteryPlausible(uint16_t mv)`, `void begin()`, `void report(Check, bool ok)`, `void complete()` (latches/clears the motion lock), `uint8_t failMask() const`, `bool critical() const`, `bool locked() const`, `bool running() const`, `uint8_t runs() const` (LLD §10.9). Task 6 owns the lock (tested in `test_safety`); Task 7 runs the checks at boot and on `CALIBRATE SELF_TEST`.
+  - `cq::SelfTest`: `enum class Check : uint8_t { kImu, kUltrasonic, kBattery, kSettings }`, `kCriticalMask` (IMU | battery read), `static bool batteryPlausible(uint16_t mv)`, `void begin()`, `void report(Check, bool ok)`, `void complete()` (latches/clears the motion lock), `bool tickBattery(bool plausible, uint32_t now_ms)` (battery-only lock auto-clears after 1 s valid; returns true on the clearing tick), `uint8_t failMask() const`, `bool critical() const`, `bool locked() const`, `bool running() const`, `uint8_t runs() const` (LLD §10.9). Task 6 owns the lock (tested in `test_safety`); Task 7 runs the checks at boot and on `CALIBRATE SELF_TEST`.
   - App member `SafetyOverride safety_override`; `app/motion_api.h`: `onSafetyOverride` route handler, `overrideGate()`, `drainOverride()` (pushes `EVENT SAFETY_OVERRIDE {a = on, b = reason}`, sets `flags2` bit `kSafetyOverride`, bumps `g_app.override_seq` for the UI in Task 13).
   - Smoke commands `drive V W --seconds S`, `stop`, `envelope CAP ACCEL LOCK`, `deadman`, `override on|off [--ai]`.
 
@@ -5132,6 +5132,75 @@ void test_override_tilt_65_with_hold() {
                     static_cast<int>(m.update(1.0f, 55.0f, 0, o.tiltLimit(45, 65), 300)));
 }
 
+// ---- Battery-only lock auto-recovery (LLD §10.9, owner 2026-10-12) ----
+void test_battery_only_lock_clears_after_1s_valid() {
+  SelfTest t;
+  t.begin();
+  t.report(SelfTest::Check::kImu, true);
+  t.report(SelfTest::Check::kUltrasonic, false);  // a warning stays reported but never holds the lock
+  t.report(SelfTest::Check::kBattery, SelfTest::batteryPlausible(0));  // USB only
+  t.complete();
+  TEST_ASSERT_TRUE(t.locked());
+  TEST_ASSERT_EQUAL(1, t.runs());
+  TEST_ASSERT_FALSE(t.tickBattery(false, 0));
+  TEST_ASSERT_FALSE(t.tickBattery(true, 100));  // battery on: the 1 s starts
+  TEST_ASSERT_FALSE(t.tickBattery(true, 1099));  // 999 ms
+  TEST_ASSERT_FALSE(t.tickBattery(false, 1200));  // a glitch restarts it
+  TEST_ASSERT_FALSE(t.tickBattery(true, 1300));
+  TEST_ASSERT_FALSE(t.tickBattery(true, 2299));  // 999 ms again
+  TEST_ASSERT_TRUE(t.locked());
+  TEST_ASSERT_TRUE(t.tickBattery(true, 2300));  // 1000 ms continuously valid → cleared
+  TEST_ASSERT_FALSE(t.locked());
+  TEST_ASSERT_EQUAL_HEX8(0x02, t.failMask());  // only the ultrasonic warning is left
+  TEST_ASSERT_EQUAL(2, t.runs());  // the UI replays SUCCESS
+  TEST_ASSERT_FALSE(t.tickBattery(true, 2400));  // nothing more to do once unlocked
+  SafetySupervisor s;
+  SafetyStatus st{};
+  SafetyInputs in = clearInputs();
+  in.selftest_locked = t.locked();
+  TEST_ASSERT_EQUAL(150, s.apply(150, 150, in, st).left());
+  // clock wrap: 1 s counted with unsigned subtraction
+  SelfTest w;
+  w.begin();
+  w.report(SelfTest::Check::kBattery, false);
+  w.complete();
+  TEST_ASSERT_FALSE(w.tickBattery(true, 0xFFFFFF00u));
+  TEST_ASSERT_TRUE(w.tickBattery(true, 0xFFFFFF00u + 1000u));
+  TEST_ASSERT_FALSE(w.locked());
+}
+
+void test_imu_lock_not_auto_cleared() {
+  SelfTest t;  // IMU alone
+  t.begin();
+  t.report(SelfTest::Check::kImu, false);
+  t.report(SelfTest::Check::kBattery, true);
+  t.complete();
+  for (uint32_t ms = 0; ms <= 5000; ms += 100) TEST_ASSERT_FALSE(t.tickBattery(true, ms));
+  TEST_ASSERT_TRUE(t.locked());
+  SelfTest b;  // IMU + battery: a good battery does not clear either failure
+  b.begin();
+  b.report(SelfTest::Check::kImu, false);
+  b.report(SelfTest::Check::kBattery, false);
+  b.complete();
+  for (uint32_t ms = 0; ms <= 5000; ms += 100) TEST_ASSERT_FALSE(b.tickBattery(true, ms));
+  TEST_ASSERT_TRUE(b.locked());
+  TEST_ASSERT_EQUAL_HEX8(0x05, b.failMask());
+  b.begin();  // only an explicit re-run with both fixed unlocks
+  b.report(SelfTest::Check::kImu, true);
+  b.report(SelfTest::Check::kBattery, true);
+  b.complete();
+  TEST_ASSERT_FALSE(b.locked());
+  // a battery-only lock is not auto-cleared while a re-run is in progress (the run's verdict decides)
+  SelfTest r;
+  r.begin();
+  r.report(SelfTest::Check::kBattery, false);
+  r.complete();
+  r.begin();
+  TEST_ASSERT_FALSE(r.tickBattery(true, 0));
+  TEST_ASSERT_FALSE(r.tickBattery(true, 1500));
+  TEST_ASSERT_TRUE(r.locked());
+}
+
 // ---- Critical self-test lock (LLD §10.9, owner decision 6) ----
 void test_critical_selftest_locks_motion() {
   SelfTest t;
@@ -5250,6 +5319,8 @@ int main() {
   RUN_TEST(test_critical_selftest_locks_motion);
   RUN_TEST(test_selftest_rerun_pass_unlocks);
   RUN_TEST(test_override_cannot_unlock_selftest);
+  RUN_TEST(test_battery_only_lock_clears_after_1s_valid);
+  RUN_TEST(test_imu_lock_not_auto_cleared);
   return UNITY_END();
 }
 ```
@@ -5740,13 +5811,15 @@ namespace cq {
 // Boot self-test (LLD §7, §10.9). Critical = IMU missing/failed (no tilt/lift safety, no heading hold) and an
 // implausible battery reading (divider/wiring fault: battery safety blind). A critical result latches the
 // motion lock (SafetyInputs.selftest_locked) until a later run passes or the Uno reboots; Override never
-// lifts it. Ultrasonic and settings (defaults are compiled in, always valid) are warnings only.
+// lifts it. A lock caused ONLY by the battery check clears by itself after 1 s of valid readings (tickBattery,
+// owner 2026-10-12); an IMU failure never auto-clears. Ultrasonic and settings (defaults are compiled in, always valid) are warnings only.
 class SelfTest {
  public:
   enum class Check : uint8_t { kImu = 0, kUltrasonic = 1, kBattery = 2, kSettings = 3 };
   static constexpr uint8_t kCriticalMask = (1u << 0) | (1u << 2);  // kImu | kBattery
   static constexpr uint16_t kBattMinMv = 5000;  // 2S pack reads 6.0..8.4 V; outside 5..9 V = implausible
   static constexpr uint16_t kBattMaxMv = 9000;
+  static constexpr uint32_t kBattRecoverMs = 1000;  // battery valid this long (continuously) → battery-only lock clears
   static bool batteryPlausible(uint16_t mv) { return mv >= kBattMinMv && mv <= kBattMaxMv; }
 
   void begin() {  // a run starts (boot or SELF_TEST re-run); the lock stays as it is until complete()
@@ -5762,6 +5835,27 @@ class SelfTest {
     m_locked = critical();
     if (m_runs < 255) ++m_runs;
   }
+  // Battery-only auto-recovery: call ~10 Hz with the current battery verdict. Acts only while locked, no run in
+  // progress, and the critical failure is exactly the battery bit (an IMU failure needs an explicit re-run).
+  // Returns true on the tick that clears the lock (the app then emits EVENT SELFTEST / clears the flag).
+  bool tickBattery(bool plausible, uint32_t now_ms) {
+    constexpr uint8_t kBattBit = 1u << static_cast<uint8_t>(Check::kBattery);
+    if (!m_locked || m_running || (m_fail & kCriticalMask) != kBattBit || !plausible) {
+      m_batt_valid = false;  // any break (or a non-eligible state) restarts the 1 s
+      return false;
+    }
+    if (!m_batt_valid) {
+      m_batt_valid = true;
+      m_batt_since = now_ms;
+      return false;
+    }
+    if (static_cast<uint32_t>(now_ms - m_batt_since) < kBattRecoverMs) return false;
+    m_fail = static_cast<uint8_t>(m_fail & ~kBattBit);
+    m_locked = critical();  // false: the battery bit was the only critical one
+    m_batt_valid = false;
+    if (m_runs < 255) ++m_runs;  // counts like a passing run: the UI replays SUCCESS
+    return true;
+  }
   uint8_t failMask() const { return m_fail; }
   bool critical() const { return (m_fail & kCriticalMask) != 0; }
   bool locked() const { return m_locked; }
@@ -5773,6 +5867,8 @@ class SelfTest {
   uint8_t m_runs = 0;
   bool m_locked = false;
   bool m_running = false;
+  bool m_batt_valid = false;
+  uint32_t m_batt_since = 0;
 };
 
 }  // namespace cq
@@ -5781,7 +5877,7 @@ class SelfTest {
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_safety`
-Expected: `23 Tests 0 Failures`.
+Expected: `25 Tests 0 Failures`.
 
 - [ ] **Step 5: Motor port and driver (both shields)**
 
@@ -7354,6 +7450,7 @@ void encodersTick();  // 100 Hz, called by the control task before control
 In `src/app/tasks.h` add before `// TASK-DECLS-END`:
 ```cpp
 void selfTestTask();  // 1 Hz: hw bits, cal status, boot self-test + SELF_TEST re-runs
+void selfTestRecoverTask();  // 10 Hz: battery-only lock auto-clears after 1 s valid (LLD §10.9)
 ```
 
 `src/app/calibration_task.cpp`:
@@ -7500,6 +7597,12 @@ bool calibrationTick(int16_t& pwm_l, int16_t& pwm_r) {
   return !out.finished;
 }
 
+static void publishSelfTest() {
+  g_app.events.push(proto::EventKind::kSelftest, g_app.self_test.failMask(), g_app.self_test.locked() ? 1 : 0);
+  const uint32_t m = 1ul << static_cast<uint8_t>(proto::SlowFlagBit::kSelftestLocked);
+  g_app.slow_flags = g_app.self_test.locked() ? (g_app.slow_flags | m) : (g_app.slow_flags & ~m);
+}
+
 void selfTestTask() {
   const uint32_t now = port::clock::nowMs();
   calStatus(g_app.settings.global(), g_app.settings.profile(), g_app.slow.cal_status);
@@ -7516,9 +7619,13 @@ void selfTestTask() {
   g_app.self_test.report(SelfTest::Check::kBattery, SelfTest::batteryPlausible(g_app.batt.mv()));  // critical
   g_app.self_test.report(SelfTest::Check::kSettings, g_app.settings_reset_mask == 0);  // warning: defaults loaded
   g_app.self_test.complete();  // critical → motion locked (supervisor); pass → unlocked (LLD §10.9)
-  g_app.events.push(proto::EventKind::kSelftest, g_app.self_test.failMask(), g_app.self_test.locked() ? 1 : 0);
-  const uint32_t m = 1ul << static_cast<uint8_t>(proto::SlowFlagBit::kSelftestLocked);
-  g_app.slow_flags = g_app.self_test.locked() ? (g_app.slow_flags | m) : (g_app.slow_flags & ~m);
+  publishSelfTest();
+}
+
+// Battery-only lock (e.g. booted on USB only): once the battery reads 5-9 V for 1 s the lock clears by itself,
+// with the same event / flag / sound+LED (runs edge) as a passing re-run. IMU failures never take this path.
+void selfTestRecoverTask() {
+  if (g_app.self_test.tickBattery(SelfTest::batteryPlausible(g_app.batt.mv()), port::clock::nowMs())) publishSelfTest();
 }
 
 }  // namespace app
@@ -7548,7 +7655,7 @@ with
 ```
 
 In `src/app/routes.cpp` add the row: `{static_cast<uint8_t>(proto::FrameType::kCalibrate), onCalibrate, true},`.
-In `src/main.cpp` add the task row `{cq::app::selfTestTask, 1000000UL, 0},` before `// TASKS-END`.
+In `src/main.cpp` add the task rows `{cq::app::selfTestTask, 1000000UL, 0},` and `{cq::app::selfTestRecoverTask, 100000UL, 0},` before `// TASKS-END`.
 In `src/app/comms.cpp` `telemetrySlowDue()` add `s.profile_idx = 0;`.
 
 - [ ] **Step 9: Smoke commands — calibrate, probe, mount, bias**
@@ -7646,10 +7753,15 @@ def cmd_selftest(link: Link, args: argparse.Namespace) -> None:
         link.send(g.Calibrate(op=g.CalOp.START, script=g.CalScript.PWM_RAMP, param=0, profile=0))  # ACK BLOCKED
         time.sleep(0.3)
         input("Switch the battery on, then Enter…")
+        # battery-only lock: no re-run needed, EVENT SELFTEST b=0 arrives ~1 s after the battery reads valid
+        auto = wait_result(2, 5.0)
+        if auto is None or auto.b:
+            print("lock did not clear automatically")
+            return
+        drive(1.0)  # unlocked automatically (no reboot, no re-run): the tracks turn
+        return
     link.send(g.Calibrate(op=g.CalOp.START, script=g.CalScript.SELF_TEST, param=0, profile=0))  # ACK OK
-    rerun = wait_result(2, 5.0)
-    if args.lock_check and rerun is not None and not rerun.b:
-        drive(1.0)  # unlocked by the re-run (no reboot): the tracks turn
+    wait_result(2, 5.0)
 
 
 def cmd_probe(link: Link, args: argparse.Namespace) -> None:
@@ -7735,7 +7847,7 @@ Register `"calibrate": cmd_calibrate, "probe": cmd_probe, "mount": cmd_mount, "b
     sub.add_parser("mount")
     sub.add_parser("bias")
     st = sub.add_parser("selftest")
-    st.add_argument("--lock-check", action="store_true", help="stand check 5a: locked boot → refusals → re-run")
+    st.add_argument("--lock-check", action="store_true", help="stand check 5a: locked boot → refusals → automatic unlock")
 ```
 Move `import csv`, `import math` and `import statistics` to the top-level import block (ruff `I` order).
 
@@ -7749,7 +7861,7 @@ On the stand (tracks free), from `tools/smoke/`:
 3. On the floor, level: `… bias` → prints five values and `EVENT SETTINGS_SAVED`; afterwards `watch` shows yaw drift < 1° per minute standing still.
 4. `… calibrate pwm_ramp --param 0 --csv ramp.csv` on the stand (left track forward, max 255) → phase 0 ramps up in 52 steps, phase 1 back down; CSV `v3` (|cps|) rises once `v0` (PWM) passes the deadband.
 5. After boot, `watch` shows `EVENT SELFTEST a=0 b=0` (a = 0x02 if the ultrasonic is unplugged: a warning, b stays 0).
-5a. Critical self-test lock (LLD §10.9, stand; one process, because every smoke run reboots the Uno): battery switch **off**, Uno on USB only → `… selftest --lock-check`: boot `EVENT SELFTEST a=0x04 b=1 (LOCKED)` (battery read implausible), error tone, solid red LED, `flags2` bit 9 (`SELFTEST_LOCKED`); the 1 s drive prints `EVENT REJECTED` (BLOCKED) and `pwm=0,0`; `CALIBRATE pwm_ramp` → `ACK BLOCKED`; press IR ▲ meanwhile → tracks stay still. At the prompt switch the battery on → `ACK OK`, `EVENT SELFTEST a=0x00 b=0 (unlocked)`, success melody, red clears, and the second 1 s drive turns the tracks.
+5a. Critical self-test lock (LLD §10.9, stand; one process, because every smoke run reboots the Uno): battery switch **off**, Uno on USB only → `… selftest --lock-check`: boot `EVENT SELFTEST a=0x04 b=1 (LOCKED)` (battery read implausible), error tone, solid red LED, `flags2` bit 9 (`SELFTEST_LOCKED`); the 1 s drive prints `EVENT REJECTED` (BLOCKED) and `pwm=0,0`; `CALIBRATE pwm_ramp` → `ACK BLOCKED`; press IR ▲ meanwhile → tracks stay still. At the prompt switch the battery on → **no re-run needed**: about 1 s after the battery reads 5–9 V the lock clears by itself (battery-only lock): `EVENT SELFTEST a=0x00 b=0 (unlocked)`, success melody, red clears, and the second 1 s drive turns the tracks. (An IMU lock does not clear this way: unplug the IMU, expect it to stay locked after the battery is on, then `… selftest` re-run with the IMU fixed, or reboot — optional.)
 6. Stall cut (stand): `… drive 50 0 --seconds 4` and press a block of wood firmly against the left track until it stops (never grip a running track by hand — the sprocket is a pinch point) → after ~0.5 s `EVENT STALL a=0`, `pwm=0,<n>` (left cut, right still driving) for 1 s, then the left track is driven again (and stalls again after 0.5 s while still held). Clearing on reversal is covered by the host test.
 
 - [ ] **Step 11: Commit**
@@ -12562,7 +12674,7 @@ git commit -m "feat(uno): IR remote keymap (drive, camera jog, speed, battery ch
 - [ ] **Step 1: Run the whole host suite**
 
 Run: `pio test -e native`
-Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 16, `test_settings` 9, `test_estimation` 10, `test_sensors` 12, `test_safety` 23, `test_encoders` 4, `test_calibration` 11, `test_motion_blocks` 11, `test_controllers` 8, `test_primitives` 9, `test_camera` 7, `test_ui` 16, `test_input` 13 — **153 test cases, 0 failures** (LLD Revision 3 added 21: Override 6 + adult envelope 1, critical self-test lock 3, EEPROM per-block save 1, battery hysteresis 1, catalogue/LED/annunciator 7, IR `*` hold 2).
+Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 16, `test_settings` 9, `test_estimation` 10, `test_sensors` 12, `test_safety` 25, `test_encoders` 4, `test_calibration` 11, `test_motion_blocks` 11, `test_controllers` 8, `test_primitives` 9, `test_camera` 7, `test_ui` 16, `test_input` 13 — **155 test cases, 0 failures** (LLD Revision 3 added 23: Override 6 + adult envelope 1, critical self-test lock 3 + battery-only auto-clear 1 + IMU-not-auto-cleared 1, EEPROM per-block save 1, battery hysteresis 1, catalogue/LED/annunciator 7, IR `*` hold 2).
 
 - [ ] **Step 2: Build gates and memory map**
 
@@ -12703,7 +12815,7 @@ Note: Plan A names these enums `AudioModeValue` and `OwnerHintValue` (C++ `proto
 
 ## Done when
 
-- `cd firmware/uno && pio test -e native` passes all 153 host tests; `pio run -e uno && python3 scripts/size_gate.py` passes the flash/RAM budget.
+- `cd firmware/uno && pio test -e native` passes all 155 host tests; `pio run -e uno && python3 scripts/size_gate.py` passes the flash/RAM budget.
 - The phase 1 and phase 2 sign-off lists in Task 15 are fully ticked on the real tank.
 - `tools/smoke/uno_smoke.py` covers handshake, telemetry, settings, driving, primitives, camera, LED/sound, calibration scripts, probe, mount check, bias and soak — the same link behaviour Plan C's bridge and Plan D's bench tool build on.
 - `docs/lld/uno-firmware-lld.md` §9.8 lists the corrected IR codes.

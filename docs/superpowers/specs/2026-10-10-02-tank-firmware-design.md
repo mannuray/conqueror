@@ -224,13 +224,13 @@ Critical (IMU, battery read) → motors locked. Non-critical (ultrasonic) → wa
 | Result | Class | Effect |
 |---|---|---|
 | IMU missing / init or WHO_AM_I failed | **critical** | all motion locked |
-| Battery reading implausible (outside 5–9 V: open divider, wiring, Uno on USB only) | **critical** | all motion locked |
+| Battery reading implausible (outside 5–9 V: open divider, wiring, Uno on USB only) | **critical** | all motion locked; clears by itself after 1 s of valid readings |
 | Ultrasonic no echo | warning | obstacle brake unavailable + degraded 50 % cap |
 | Settings CRC bad → defaults loaded | warning | `settings_reset`; defaults are compiled in, so settings can never be "invalid and not defaultable" |
 | Encoders not quiet at rest | warning (if enabled) | encoder fault flag |
 | Motor driver / STBY | not a boot check | the shield gives no driver feedback; the STBY/direction probe is a bench step on the stand (Plan B Task 7 `probe`) |
 - **Locked** = every motor output is zero: network (`drive`/`turn`/`move` → `nack BLOCKED`), IR motion keys (tracks stay still) and calibration scripts (`BLOCKED`). STOP, camera, LED, sound and settings still work.
-- Lifted only by a **passing self-test re-run** (`selftest` command → `CALIBRATE` script `SELF_TEST`; refused `BUSY` while moving, calibrating or in Override) or a reboot. **Safety Override can never lift it** (entry → `BLOCKED`, and the lock zeroes the output even if Override was already on).
+- Lifted by a **passing self-test re-run** or a reboot, and (owner 2026-10-12) **automatically when the lock is caused only by the battery-range check**: the Uno re-checks the battery while locked and, once the reading has been 5-9 V continuously for 1 s, clears that failure and unlocks (same `selftest` event, SUCCESS sound, red LED cleared) if no other critical failure remains. An **IMU failure never auto-clears** (re-run or reboot). The explicit re-run (`selftest` command → `CALIBRATE` script `SELF_TEST`; refused `BUSY` while moving, calibrating or in Override) stays available. **Safety Override can never lift it** (entry → `BLOCKED`, and the lock zeroes the output even if Override was already on).
 - Shows: `selftest{ok:false, critical:true}` event, `flags.selftest_locked` (slow telemetry `flags2` bit 9), low error tone (SELFTEST_FAIL) + solid red LED on every failing run; a passing re-run plays SUCCESS and clears the red.
 **Degraded caps (added):** ultrasonic fault (no echo at all) → obstacle brake unavailable + speed cap 50 %; IMU fault at runtime → heading hold off + speed cap 30 % + tilt/lift safety lost warning. Both reported as flags.
 

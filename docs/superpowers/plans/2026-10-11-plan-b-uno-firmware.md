@@ -2153,7 +2153,7 @@ void test_set_rejects_cross_field_inversions() {
   TEST_ASSERT_EQUAL(range, set(proto::SettingId::kObstacleSlow, 15));  // slow must be > stop
   TEST_ASSERT_EQUAL(range, set(proto::SettingId::kObstacleStop, 50));
   TEST_ASSERT_EQUAL(ok, set(proto::SettingId::kObstacleStop, 49));
-  TEST_ASSERT_EQUAL(range, set(proto::SettingId::kBattCrit, 7000));    // crit must be < low
+  TEST_ASSERT_EQUAL(range, set(proto::SettingId::kBattCrit, 7200));    // crit must be < low (7200)
   TEST_ASSERT_EQUAL(range, set(proto::SettingId::kBattLow, 6600));
   TEST_ASSERT_EQUAL(ok, set(proto::SettingId::kBattLow, 6601));
 }
@@ -2311,7 +2311,14 @@ struct __attribute__((packed)) GlobalSettings {
   int16_t level_pitch, level_roll;                // ×0.01 °
   uint8_t ultrasonic_offset;   // mm
   uint8_t active_profile;
+  uint8_t override_idle_s;     // s  (Safety Override, LLD §10)
+  uint16_t override_max_s;     // s
+  uint8_t override_tilt_deg;   // °
+  uint8_t led_max;             // 0..255 WS2812 brightness cap
+  uint16_t batt_hyst;          // mV recovery hysteresis (low and critical)
 };
+// 63 B: the global EEPROM block (len + data + CRC = 66 B at address 8) still ends before kProfileAddr = 80, and
+// global + profile + magic (66 + 54 + 3 = 123 B) still fit the EepromWriter's 128 B queue.
 
 struct __attribute__((packed)) ProfileSettings {
   uint8_t turn_rate_full_speed;  // %
@@ -2396,6 +2403,8 @@ const Slot kSlots[] PROGMEM = {
     G(servo_accel, kServoAccel), G(gyro_bias_x, kGyroBiasX), G(gyro_bias_y, kGyroBiasY),
     G(gyro_bias_z, kGyroBiasZ), G(level_pitch, kLevelPitch), G(level_roll, kLevelRoll),
     G(ultrasonic_offset, kUltrasonicOffset), G(active_profile, kActiveProfile),
+    G(override_idle_s, kOverrideIdleS), G(override_max_s, kOverrideMaxS), G(override_tilt_deg, kOverrideTiltDeg),
+    G(led_max, kLedMax), G(batt_hyst, kBattHyst),
     P(deadband_start[0], kDeadbandStartLFwd), P(deadband_start[1], kDeadbandStartLRev),
     P(deadband_start[2], kDeadbandStartRFwd), P(deadband_start[3], kDeadbandStartRRev),
     P(deadband_keep[0], kDeadbandKeepLFwd), P(deadband_keep[1], kDeadbandKeepLRev),
@@ -4560,8 +4569,8 @@ git commit -m "feat(uno): ultrasonic/IR via PCINT0 hub, NEC decoder, async batte
 ### Task 6: Safety core — PwmOutput, envelope, arbitrator, supervisor, motor driver, open-loop DRIVE/STOP
 
 **Files:**
-- Create: `src/types/pwm_output.h`; `src/domain/safety/envelope.{h,cpp}`, `safety_supervisor.{h,cpp}`; `src/domain/arbitration/arbitrator.{h,cpp}`; `src/ports/motor.h`; `src/drivers/motor_uno.cpp`; `src/app/motion_api.h`; `src/app/control_task.cpp` (v1, replaced in Task 11)
-- Modify: `src/app/app.h`, `src/app/tasks.h`, `src/app/routes.cpp`, `src/main.cpp`, `tools/smoke/uno_smoke.py`
+- Create: `src/types/pwm_output.h`; `src/domain/safety/envelope.{h,cpp}`, `safety_supervisor.{h,cpp}`, `safety_override.{h,cpp}` (LLD §10); `src/domain/arbitration/arbitrator.{h,cpp}`; `src/ports/motor.h`; `src/drivers/motor_uno.cpp`; `src/app/motion_api.h`; `src/app/control_task.cpp` (v1, replaced in Task 11)
+- Modify: `src/app/app.h`, `src/app/tasks.h`, `src/app/routes.cpp`, `src/app/imu_task.cpp` (effective tilt limit), `src/main.cpp`, `tools/smoke/uno_smoke.py`
 - Test: `test/test_safety/test_main.cpp`
 
 **Interfaces:**
@@ -4574,7 +4583,9 @@ git commit -m "feat(uno): ultrasonic/IR via PCINT0 hub, NEC decoder, async batte
   - Port `cq::port::motor`: `begin()`, `apply(const PwmOutput&)` — included only by `app/control_task.cpp`.
   - `app/tasks.h`: `controlInit()`, `controlTask()`; `app/motion_api.h`: route handlers `onDrive`, `onStop`, `onBrake`, `onEnvelope`, `onOwnerHint` (signature `proto::AckStatus (const uint8_t*, uint8_t)`).
   - App members `int16_t req_pwm_l, req_pwm_r` (PWM asked of the supervisor, before the gate — the direction of a stalled track for Task 7) next to `out_pwm_l/r`.
-  - Smoke commands `drive V W --seconds S`, `stop`, `envelope CAP ACCEL LOCK`, `deadman`.
+  - `cq::SafetyOverride` (LLD §10, spec 02 §A6.1): `enum class Binder : uint8_t { kNone, kIr, kNetwork }`; `struct Gate { bool synced, envelope_active, fault_latched; proto::Owner owner; }`; `struct Config { uint8_t idle_s; uint16_t max_s; }`; `proto::AckStatus requestNetwork(bool on, proto::Source src, const Gate&, uint32_t now_ms)` (on = 0 → OK from any source; on = 1: `kRoleForbidden` unless src HUMAN, `kBusy` before sync, `kEnvelopeLocked` while an envelope is active, `kNotOwner` while IR/calibration owns or IR-bound, `kBlocked` while a fault is latched), `proto::AckStatus requestIr(const Gate&, uint32_t now_ms)` (toggle; the caller makes IR the owner and reports that owner change first), `void onOwner(proto::Owner)`, `void onNetworkMotion(proto::Source, bool driving, uint32_t now_ms)`, `void onIrMotion(bool driving, uint32_t now_ms)`, `void onOwnerHint(proto::OwnerHintValue)`, `void onLinkLost()`, `void end(proto::OverrideReason)`, `void tick(uint32_t now_ms, const Config&)`, `bool active() const`, `Binder binder() const`, `bool brakeOn(bool configured) const`, `uint8_t tiltLimit(uint8_t normal, uint8_t relaxed) const`, `bool takeEvent(bool& on, proto::OverrideReason& why)`.
+  - App member `SafetyOverride safety_override`; `app/motion_api.h`: `onSafetyOverride` route handler, `overrideGate()`, `drainOverride()` (pushes `EVENT SAFETY_OVERRIDE {a = on, b = reason}`, sets `flags2` bit `kSafetyOverride`, bumps `g_app.override_seq` for the UI in Task 13).
+  - Smoke commands `drive V W --seconds S`, `stop`, `envelope CAP ACCEL LOCK`, `deadman`, `override on|off [--ai]`.
 
 - [ ] **Step 1: Write the failing safety tests**
 
@@ -4584,7 +4595,9 @@ git commit -m "feat(uno): ultrasonic/IR via PCINT0 hub, NEC decoder, async batte
 #include <unity.h>
 
 #include "domain/arbitration/arbitrator.h"
+#include "domain/estimation/lift_detector.h"
 #include "domain/safety/envelope.h"
+#include "domain/safety/safety_override.h"
 #include "domain/safety/safety_supervisor.h"
 #include "types/pwm_output.h"
 
@@ -4770,6 +4783,186 @@ void test_supervisor_lift_coasts_tilt_halts_clamps() {
   TEST_ASSERT_EQUAL(-255, o.right());
 }
 
+// ---- Safety Override (LLD §10): human only, bounded, relaxes the obstacle brake and the tilt limit only ----
+namespace {
+SafetyOverride::Gate okGate() { return SafetyOverride::Gate{true, false, false, proto::Owner::kNetwork}; }
+const SafetyOverride::Config kOvCfg{60, 300};
+void assertEvent(SafetyOverride& o, bool on, proto::OverrideReason why) {
+  bool ev_on = !on;
+  proto::OverrideReason ev_why = proto::OverrideReason::kNetwork;
+  TEST_ASSERT_TRUE(o.takeEvent(ev_on, ev_why));
+  TEST_ASSERT_EQUAL(on, ev_on);
+  TEST_ASSERT_EQUAL(static_cast<int>(why), static_cast<int>(ev_why));
+}
+int st(proto::AckStatus s) { return static_cast<int>(s); }
+}  // namespace
+
+void test_override_network_gate() {
+  SafetyOverride o;
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kRoleForbidden), st(o.requestNetwork(true, proto::Source::kAi, okGate(), 0)));
+  SafetyOverride::Gate g = okGate();
+  g.synced = false;
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kBusy), st(o.requestNetwork(true, proto::Source::kHuman, g, 0)));
+  g = okGate();
+  g.envelope_active = true;  // child play keeps all safety
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kEnvelopeLocked), st(o.requestNetwork(true, proto::Source::kHuman, g, 0)));
+  g = okGate();
+  g.owner = proto::Owner::kIr;
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kNotOwner), st(o.requestNetwork(true, proto::Source::kHuman, g, 0)));
+  g = okGate();
+  g.fault_latched = true;  // never un-halts a tilted tank
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kBlocked), st(o.requestNetwork(true, proto::Source::kHuman, g, 0)));
+  bool on = false;
+  proto::OverrideReason why{};
+  TEST_ASSERT_FALSE(o.takeEvent(on, why));  // refusals post nothing
+  TEST_ASSERT_FALSE(o.active());
+  g = okGate();
+  g.owner = proto::Owner::kNone;  // nobody drives yet: a human may still enable it
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kOk), st(o.requestNetwork(true, proto::Source::kHuman, g, 0)));
+  TEST_ASSERT_TRUE(o.active());
+  assertEvent(o, true, proto::OverrideReason::kNetwork);
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kOk), st(o.requestNetwork(true, proto::Source::kHuman, okGate(), 5)));
+  TEST_ASSERT_FALSE(o.takeEvent(on, why));  // repeat: no second event
+  // off is accepted from any source, the AI included (it only tightens)
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kOk), st(o.requestNetwork(false, proto::Source::kAi, okGate(), 10)));
+  TEST_ASSERT_FALSE(o.active());
+  assertEvent(o, false, proto::OverrideReason::kNetwork);
+}
+
+void test_override_ir_long_press_toggles() {
+  SafetyOverride o;
+  SafetyOverride::Gate g{false, false, false, proto::Owner::kIr};  // IR works without the ESP32
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kOk), st(o.requestIr(g, 0)));
+  TEST_ASSERT_EQUAL(static_cast<int>(SafetyOverride::Binder::kIr), static_cast<int>(o.binder()));
+  assertEvent(o, true, proto::OverrideReason::kIr);
+  o.onLinkLost();  // the IR side does not need the link
+  TEST_ASSERT_TRUE(o.active());
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kOk), st(o.requestIr(g, 100)));  // second hold: off
+  TEST_ASSERT_FALSE(o.active());
+  assertEvent(o, false, proto::OverrideReason::kIr);
+  g.envelope_active = true;
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kEnvelopeLocked), st(o.requestIr(g, 200)));
+  g.envelope_active = false;
+  g.fault_latched = true;
+  TEST_ASSERT_EQUAL(st(proto::AckStatus::kBlocked), st(o.requestIr(g, 200)));
+  TEST_ASSERT_FALSE(o.active());
+}
+
+void test_override_expires_idle_and_max() {
+  SafetyOverride o;
+  bool on = false;
+  proto::OverrideReason why{};
+  o.requestNetwork(true, proto::Source::kHuman, okGate(), 1000);
+  o.takeEvent(on, why);
+  o.onNetworkMotion(proto::Source::kHuman, true, 30000);  // driving refreshes the idle timer
+  o.tick(89999, kOvCfg);
+  TEST_ASSERT_TRUE(o.active());
+  o.onNetworkMotion(proto::Source::kHuman, false, 60000);  // DRIVE 0,0 is not driving
+  o.tick(90000, kOvCfg);  // 60 s after the last driving command
+  TEST_ASSERT_FALSE(o.active());
+  assertEvent(o, false, proto::OverrideReason::kIdle);
+  // 5 min hard limit even while driving all the time
+  o.requestNetwork(true, proto::Source::kHuman, okGate(), 0);
+  o.takeEvent(on, why);
+  for (uint32_t t = 0; t < 300000; t += 1000) {
+    o.onNetworkMotion(proto::Source::kHuman, true, t);
+    o.tick(t, kOvCfg);
+  }
+  TEST_ASSERT_TRUE(o.active());
+  o.tick(300000, kOvCfg);
+  TEST_ASSERT_FALSE(o.active());
+  assertEvent(o, false, proto::OverrideReason::kMaxTime);
+}
+
+void test_override_ends_on_stop_owner_change_link_loss() {
+  SafetyOverride o;
+  bool on = false;
+  proto::OverrideReason why{};
+  o.requestNetwork(true, proto::Source::kHuman, okGate(), 0);
+  o.takeEvent(on, why);
+  o.end(proto::OverrideReason::kStop);  // any STOP (network or IR OK)
+  assertEvent(o, false, proto::OverrideReason::kStop);
+  o.requestNetwork(true, proto::Source::kHuman, okGate(), 0);
+  o.takeEvent(on, why);
+  o.onOwner(proto::Owner::kNone);  // idle release alone keeps it (the 60 s timer ends it)
+  TEST_ASSERT_TRUE(o.active());
+  o.onOwner(proto::Owner::kIr);  // IR took over
+  assertEvent(o, false, proto::OverrideReason::kOwnerChange);
+  o.requestNetwork(true, proto::Source::kHuman, okGate(), 0);
+  o.takeEvent(on, why);
+  o.onNetworkMotion(proto::Source::kAi, true, 10);  // the AI never drives with Override on
+  assertEvent(o, false, proto::OverrideReason::kOwnerChange);
+  o.requestNetwork(true, proto::Source::kHuman, okGate(), 0);
+  o.takeEvent(on, why);
+  o.onOwnerHint(proto::OwnerHintValue::kNone);  // human idle on the ESP32: kept
+  TEST_ASSERT_TRUE(o.active());
+  o.onOwnerHint(proto::OwnerHintValue::kAi);  // handed to the AI
+  assertEvent(o, false, proto::OverrideReason::kOwnerChange);
+  o.requestNetwork(true, proto::Source::kHuman, okGate(), 0);
+  o.takeEvent(on, why);
+  o.onLinkLost();
+  assertEvent(o, false, proto::OverrideReason::kLinkLost);
+  o.requestNetwork(true, proto::Source::kHuman, okGate(), 0);
+  o.takeEvent(on, why);
+  o.end(proto::OverrideReason::kEnvelope);  // ENVELOPE frame applied
+  assertEvent(o, false, proto::OverrideReason::kEnvelope);
+}
+
+void test_override_relaxes_brake_only() {
+  SafetyOverride o;
+  o.requestNetwork(true, proto::Source::kHuman, okGate(), 0);
+  SafetySupervisor s;
+  SafetyStatus sst{};
+  SafetyInputs in = clearInputs();
+  in.dist_mm = 100;  // 10 cm: would block
+  in.brake_on = o.brakeOn(true);
+  PwmOutput out = s.apply(150, 150, in, sst);
+  TEST_ASSERT_EQUAL(150, out.left());
+  TEST_ASSERT_FALSE(sst.blocked);
+  in.lifted = true;  // lift still coasts
+  out = s.apply(150, 150, in, sst);
+  TEST_ASSERT_FALSE(out.enabled());
+  in.lifted = false;
+  in.batt_critical = true;  // battery critical still halts
+  out = s.apply(150, 150, in, sst);
+  TEST_ASSERT_EQUAL(0, out.left());
+  TEST_ASSERT_TRUE(sst.halted);
+  in.batt_critical = false;
+  in.stall_mask = 0x02;  // stall still cuts the track
+  out = s.apply(150, 150, in, sst);
+  TEST_ASSERT_EQUAL(0, out.right());
+  // deadman still fires (the Arbitrator never consults the override)
+  Arbitrator a = syncedArbitrator();
+  a.requestNetwork(true, 0);
+  TEST_ASSERT_EQUAL(static_cast<int>(Arbitrator::Action::kDeadmanStop), static_cast<int>(a.tick(300, true, false, kCfg)));
+  o.end(proto::OverrideReason::kStop);
+  TEST_ASSERT_TRUE(o.brakeOn(true));  // the BRAKE setting applies again
+  TEST_ASSERT_FALSE(o.brakeOn(false));
+}
+
+void test_override_tilt_65_with_hold() {
+  SafetyOverride o;
+  TEST_ASSERT_EQUAL(45, o.tiltLimit(45, 65));
+  o.requestIr(SafetyOverride::Gate{false, false, false, proto::Owner::kIr}, 0);
+  TEST_ASSERT_EQUAL(65, o.tiltLimit(45, 65));
+  TEST_ASSERT_EQUAL(50, o.tiltLimit(50, 45));  // never below the normal limit
+  LiftDetector l;
+  for (uint32_t t = 0; t < 2000; t += 5)  // 55° is fine under Override
+    TEST_ASSERT_EQUAL(static_cast<int>(LiftDetector::Change::kNone),
+                      static_cast<int>(l.update(1.0f, 55.0f, 0, o.tiltLimit(45, 65), t)));
+  for (uint32_t t = 2000; t < 2300; t += 5)  // past 65° still needs the 300 ms hold
+    TEST_ASSERT_EQUAL(static_cast<int>(LiftDetector::Change::kNone),
+                      static_cast<int>(l.update(1.0f, 66.0f, 0, o.tiltLimit(45, 65), t)));
+  TEST_ASSERT_EQUAL(static_cast<int>(LiftDetector::Change::kTilted),
+                    static_cast<int>(l.update(1.0f, 66.0f, 0, o.tiltLimit(45, 65), 2300)));
+  // after exit the normal 45° limit applies again (with its hold)
+  LiftDetector m;
+  o.end(proto::OverrideReason::kIr);
+  for (uint32_t t = 0; t < 300; t += 5) m.update(1.0f, 55.0f, 0, o.tiltLimit(45, 65), t);
+  TEST_ASSERT_EQUAL(static_cast<int>(LiftDetector::Change::kTilted),
+                    static_cast<int>(m.update(1.0f, 55.0f, 0, o.tiltLimit(45, 65), 300)));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ir_owner_ignores_link_loss);
@@ -4785,6 +4978,12 @@ int main() {
   RUN_TEST(test_fault_range_does_not_block);
   RUN_TEST(test_supervisor_cuts_stalled_track);
   RUN_TEST(test_supervisor_lift_coasts_tilt_halts_clamps);
+  RUN_TEST(test_override_network_gate);
+  RUN_TEST(test_override_ir_long_press_toggles);
+  RUN_TEST(test_override_expires_idle_and_max);
+  RUN_TEST(test_override_ends_on_stop_owner_change_link_loss);
+  RUN_TEST(test_override_relaxes_brake_only);
+  RUN_TEST(test_override_tilt_65_with_hold);
   return UNITY_END();
 }
 ```
@@ -5078,10 +5277,177 @@ PwmOutput SafetySupervisor::apply(int16_t pwm_l, int16_t pwm_r, const SafetyInpu
 }  // namespace cq
 ```
 
+`src/domain/safety/safety_override.h`:
+```cpp
+#pragma once
+#include <stdint.h>
+
+#include "generated/cq_protocol.h"
+
+namespace cq {
+
+// Safety Override (LLD §10, spec 02 §A6.1): a bounded human-only mode that switches the obstacle brake off and
+// raises the tilt cut-off. Deadman/link loss, battery critical, stall cut, lift and STOP never consult it.
+class SafetyOverride {
+ public:
+  enum class Binder : uint8_t { kNone, kIr, kNetwork };  // who enabled it
+  struct Gate {
+    bool synced;           // LinkSession::synced()
+    bool envelope_active;  // Envelope::active(): child play (or any envelope) refuses Override
+    bool fault_latched;    // tilted / lifted / battery critical / self-test lock: Override never un-halts
+    proto::Owner owner;    // Arbitrator::owner()
+  };
+  struct Config {
+    uint8_t idle_s;   // override_idle_s
+    uint16_t max_s;   // override_max_s
+  };
+
+  // SAFETY_OVERRIDE frame. on = 0 is accepted from any source.
+  proto::AckStatus requestNetwork(bool on, proto::Source src, const Gate& g, uint32_t now_ms);
+  // IR `*` held 2 s: toggles. The caller has already made IR the owner.
+  proto::AckStatus requestIr(const Gate& g, uint32_t now_ms);
+  void onOwner(proto::Owner owner);                                      // every owner change
+  void onNetworkMotion(proto::Source src, bool driving, uint32_t now_ms);  // accepted network motion frame
+  void onIrMotion(bool driving, uint32_t now_ms);                       // accepted IR motion key
+  void onOwnerHint(proto::OwnerHintValue hint);                         // OWNER_HINT ai ends it
+  void onLinkLost();                                                    // ends a network-bound Override
+  void end(proto::OverrideReason why);                                  // STOP, envelope, …
+  void tick(uint32_t now_ms, const Config& cfg);                        // idle / max expiry
+
+  bool active() const { return m_binder != Binder::kNone; }
+  Binder binder() const { return m_binder; }
+  // Effective obstacle brake (supervisor + TargetLimiter) and tilt limit (LiftDetector).
+  bool brakeOn(bool configured) const { return configured && !active(); }
+  uint8_t tiltLimit(uint8_t normal, uint8_t relaxed) const {
+    return (active() && relaxed > normal) ? relaxed : normal;
+  }
+  bool takeEvent(bool& on, proto::OverrideReason& why);
+
+ private:
+  proto::AckStatus enter(Binder b, proto::OverrideReason why, uint32_t now_ms);
+  void post(bool on, proto::OverrideReason why);
+
+  Binder m_binder = Binder::kNone;
+  uint32_t m_since_ms = 0;
+  uint32_t m_last_drive_ms = 0;
+  bool m_ev_pending = false;
+  bool m_ev_on = false;
+  proto::OverrideReason m_ev_why = proto::OverrideReason::kNetwork;
+};
+
+}  // namespace cq
+```
+
+`src/domain/safety/safety_override.cpp`:
+```cpp
+#include "domain/safety/safety_override.h"
+
+namespace cq {
+
+namespace {
+bool ownerMatches(SafetyOverride::Binder b, proto::Owner o) {
+  return (b == SafetyOverride::Binder::kIr && o == proto::Owner::kIr) ||
+         (b == SafetyOverride::Binder::kNetwork && o == proto::Owner::kNetwork);
+}
+}  // namespace
+
+void SafetyOverride::post(bool on, proto::OverrideReason why) {
+  m_ev_pending = true;
+  m_ev_on = on;
+  m_ev_why = why;
+}
+
+proto::AckStatus SafetyOverride::enter(Binder b, proto::OverrideReason why, uint32_t now_ms) {
+  if (m_binder == b) return proto::AckStatus::kOk;  // already on for this side: no event
+  m_binder = b;
+  m_since_ms = now_ms;
+  m_last_drive_ms = now_ms;
+  post(true, why);
+  return proto::AckStatus::kOk;
+}
+
+void SafetyOverride::end(proto::OverrideReason why) {
+  if (!active()) return;
+  m_binder = Binder::kNone;
+  post(false, why);
+}
+
+proto::AckStatus SafetyOverride::requestNetwork(bool on, proto::Source src, const Gate& g, uint32_t now_ms) {
+  if (!on) {
+    end(proto::OverrideReason::kNetwork);
+    return proto::AckStatus::kOk;
+  }
+  if (src != proto::Source::kHuman) return proto::AckStatus::kRoleForbidden;  // never the AI
+  if (!g.synced) return proto::AckStatus::kBusy;
+  if (g.envelope_active) return proto::AckStatus::kEnvelopeLocked;  // child play keeps all safety
+  if (g.owner == proto::Owner::kIr || g.owner == proto::Owner::kCalibration) return proto::AckStatus::kNotOwner;
+  if (m_binder == Binder::kIr) return proto::AckStatus::kNotOwner;
+  if (g.fault_latched) return proto::AckStatus::kBlocked;
+  return enter(Binder::kNetwork, proto::OverrideReason::kNetwork, now_ms);
+}
+
+proto::AckStatus SafetyOverride::requestIr(const Gate& g, uint32_t now_ms) {
+  if (m_binder == Binder::kIr) {
+    end(proto::OverrideReason::kIr);
+    return proto::AckStatus::kOk;
+  }
+  if (g.envelope_active) return proto::AckStatus::kEnvelopeLocked;
+  if (g.fault_latched) return proto::AckStatus::kBlocked;
+  if (active()) return proto::AckStatus::kNotOwner;  // network-bound: the IR takeover (onOwner) must end it first
+  return enter(Binder::kIr, proto::OverrideReason::kIr, now_ms);
+}
+
+void SafetyOverride::onOwner(proto::Owner owner) {
+  if (active() && owner != proto::Owner::kNone && !ownerMatches(m_binder, owner)) {
+    end(proto::OverrideReason::kOwnerChange);
+  }
+}
+
+void SafetyOverride::onNetworkMotion(proto::Source src, bool driving, uint32_t now_ms) {
+  if (!active()) return;
+  if (src != proto::Source::kHuman || m_binder != Binder::kNetwork) {
+    end(proto::OverrideReason::kOwnerChange);  // AI motion, or network motion while IR-bound
+    return;
+  }
+  if (driving) m_last_drive_ms = now_ms;
+}
+
+void SafetyOverride::onIrMotion(bool driving, uint32_t now_ms) {
+  if (m_binder == Binder::kIr && driving) m_last_drive_ms = now_ms;
+}
+
+void SafetyOverride::onOwnerHint(proto::OwnerHintValue hint) {
+  if (hint == proto::OwnerHintValue::kAi && m_binder == Binder::kNetwork) end(proto::OverrideReason::kOwnerChange);
+}
+
+void SafetyOverride::onLinkLost() {
+  if (m_binder == Binder::kNetwork) end(proto::OverrideReason::kLinkLost);
+}
+
+void SafetyOverride::tick(uint32_t now_ms, const Config& cfg) {
+  if (!active()) return;
+  if (now_ms - m_since_ms >= static_cast<uint32_t>(cfg.max_s) * 1000u) {
+    end(proto::OverrideReason::kMaxTime);
+  } else if (now_ms - m_last_drive_ms >= static_cast<uint32_t>(cfg.idle_s) * 1000u) {
+    end(proto::OverrideReason::kIdle);
+  }
+}
+
+bool SafetyOverride::takeEvent(bool& on, proto::OverrideReason& why) {
+  if (!m_ev_pending) return false;
+  m_ev_pending = false;
+  on = m_ev_on;
+  why = m_ev_why;
+  return true;
+}
+
+}  // namespace cq
+```
+
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `pio test -e native -f test_safety`
-Expected: `13 Tests 0 Failures`.
+Expected: `19 Tests 0 Failures`.
 
 - [ ] **Step 5: Motor port and driver (both shields)**
 
@@ -5152,6 +5518,7 @@ Add to `src/app/app.h` includes and members:
 ```cpp
 #include "domain/arbitration/arbitrator.h"
 #include "domain/safety/envelope.h"
+#include "domain/safety/safety_override.h"
 #include "domain/safety/safety_supervisor.h"
 ```
 ```cpp
@@ -5160,6 +5527,8 @@ Add to `src/app/app.h` includes and members:
   Arbitrator arbitrator;
   SafetySupervisor supervisor;
   SafetyStatus safety{};
+  SafetyOverride safety_override;  // LLD §10: never persistent, off at boot
+  uint8_t override_seq = 0;        // +1 per Override enter/exit (UI blinks + chirp, Task 13)
   proto::OwnerHintValue owner_hint = proto::OwnerHintValue::kNone;
   int8_t teleop_v = 0;   // DRIVE, %
   int8_t teleop_w = 0;
@@ -5186,6 +5555,12 @@ proto::AckStatus onStop(const uint8_t* p, uint8_t len);
 proto::AckStatus onBrake(const uint8_t* p, uint8_t len);
 proto::AckStatus onEnvelope(const uint8_t* p, uint8_t len);
 proto::AckStatus onOwnerHint(const uint8_t* p, uint8_t len);
+proto::AckStatus onSafetyOverride(const uint8_t* p, uint8_t len);
+
+// Safety Override glue (LLD §10): the Gate from link/envelope/faults/owner, and the event drain that every
+// caller of SafetyOverride runs right after its call (one pending event slot).
+SafetyOverride::Gate overrideGate();
+void drainOverride();
 
 }  // namespace app
 }  // namespace cq
@@ -5223,6 +5598,24 @@ void rejectEvent(uint8_t frame_type, uint8_t src, proto::AckStatus st) {
 
 }  // namespace
 
+SafetyOverride::Gate overrideGate() {
+  // Task 7 adds `|| (g_app.self_test_done && g_app.self_test.critical())` (self-test lock).
+  const bool fault = g_app.lift.lifted() || g_app.lift.tilted() ||
+                     g_app.batt.level() == BatteryMonitor::Level::kCritical;
+  return SafetyOverride::Gate{g_app.link.synced(), g_app.envelope.active(), fault, g_app.arbitrator.owner()};
+}
+
+void drainOverride() {
+  bool on = false;
+  proto::OverrideReason why = proto::OverrideReason::kNetwork;
+  while (g_app.safety_override.takeEvent(on, why)) {
+    g_app.events.push(proto::EventKind::kSafetyOverride, on ? 1 : 0, static_cast<int16_t>(why));
+    ++g_app.override_seq;
+  }
+  const uint32_t m = 1ul << static_cast<uint8_t>(proto::SlowFlagBit::kSafetyOverride);
+  g_app.slow_flags = g_app.safety_override.active() ? (g_app.slow_flags | m) : (g_app.slow_flags & ~m);
+}
+
 void controlInit() {
   port::motor::begin();
   port::motor::apply(PwmOutput::zero());
@@ -5238,6 +5631,9 @@ proto::AckStatus onDrive(const uint8_t* p, uint8_t len) {
   }
   g_app.teleop_v = m.v;
   g_app.teleop_w = m.w;
+  g_app.safety_override.onNetworkMotion(static_cast<proto::Source>(m.src), m.v != 0 || m.w != 0,
+                                        port::clock::nowMs());
+  drainOverride();
   return st;
 }
 
@@ -5246,6 +5642,8 @@ proto::AckStatus onStop(const uint8_t* p, uint8_t len) {
   if (!proto::decode(p, len, m)) return proto::AckStatus::kInvalidCommand;
   zeroTeleop();
   g_app.arbitrator.onNetworkStop();
+  g_app.safety_override.end(proto::OverrideReason::kStop);
+  drainOverride();
   return proto::AckStatus::kOk;
 }
 
@@ -5266,6 +5664,10 @@ proto::AckStatus onEnvelope(const uint8_t* p, uint8_t len) {
     g_app.slow.env_speed_cap = m.speed_cap;
     g_app.slow.env_accel_cap = m.accel_cap;
     g_app.slow.env_lock_brake = m.lock_brake;
+    if (g_app.envelope.active()) {  // child play (any envelope) ends Override in the same frame
+      g_app.safety_override.end(proto::OverrideReason::kEnvelope);
+      drainOverride();
+    }
   }
   return st;
 }
@@ -5274,7 +5676,19 @@ proto::AckStatus onOwnerHint(const uint8_t* p, uint8_t len) {
   proto::OwnerHintMsg m{};
   if (!proto::decode(p, len, m)) return proto::AckStatus::kInvalidCommand;
   g_app.owner_hint = static_cast<proto::OwnerHintValue>(m.owner);
+  g_app.safety_override.onOwnerHint(g_app.owner_hint);  // handed to the AI → Override ends
+  drainOverride();
   return proto::AckStatus::kOk;
+}
+
+proto::AckStatus onSafetyOverride(const uint8_t* p, uint8_t len) {
+  proto::SafetyOverrideMsg m{};
+  if (!proto::decode(p, len, m)) return proto::AckStatus::kInvalidCommand;
+  const proto::AckStatus st = g_app.safety_override.requestNetwork(m.on != 0, static_cast<proto::Source>(m.src),
+                                                                   overrideGate(), port::clock::nowMs());
+  if (st != proto::AckStatus::kOk) rejectEvent(static_cast<uint8_t>(proto::FrameType::kSafetyOverride), m.src, st);
+  drainOverride();
+  return st;
 }
 
 void controlTask() {
@@ -5290,6 +5704,9 @@ void controlTask() {
       g_app.events.push(proto::EventKind::kDeadmanStop);
       break;
     case Arbitrator::Action::kLinkLostStop:
+      zeroTeleop();
+      g_app.safety_override.onLinkLost();
+      break;
     case Arbitrator::Action::kIrReleased:
       zeroTeleop();
       break;
@@ -5298,7 +5715,10 @@ void controlTask() {
   }
   if (g_app.arbitrator.takeOwnerChanged()) {
     g_app.events.push(proto::EventKind::kControlChanged, static_cast<int16_t>(g_app.arbitrator.owner()));
+    g_app.safety_override.onOwner(g_app.arbitrator.owner());
   }
+  g_app.safety_override.tick(now, SafetyOverride::Config{gs.override_idle_s, gs.override_max_s});
+  drainOverride();
 
   // Only a network owner's DRIVE values count: an idle release, IR or calibration never resumes an old DRIVE.
   if (g_app.arbitrator.owner() != proto::Owner::kNetwork) zeroTeleop();
@@ -5314,9 +5734,11 @@ void controlTask() {
 
   g_app.req_pwm_l = pwm_l;
   g_app.req_pwm_r = pwm_r;
+  // Override (LLD §10.4) only switches the obstacle brake off here; lift/battery/stall never consult it.
   const SafetyInputs in{g_app.lift.lifted(), g_app.lift.tilted(),
-                        g_app.batt.level() == BatteryMonitor::Level::kCritical, g_app.envelope.brakeOn(),
-                        g_app.us.distMm(), gs.obstacle_stop, 0 /* stall_mask: Task 7 */};
+                        g_app.batt.level() == BatteryMonitor::Level::kCritical,
+                        g_app.safety_override.brakeOn(g_app.envelope.brakeOn()), g_app.us.distMm(), gs.obstacle_stop,
+                        0 /* stall_mask: Task 7 */};
   const bool was_blocked = g_app.safety.blocked;
   const PwmOutput out = g_app.supervisor.apply(pwm_l, pwm_r, in, g_app.safety);
   port::motor::apply(out);
@@ -5357,6 +5779,11 @@ In `src/app/routes.cpp` add `#include "app/motion_api.h"` and rows before `// RO
     {static_cast<uint8_t>(proto::FrameType::kBrake), onBrake, true},
     {static_cast<uint8_t>(proto::FrameType::kEnvelope), onEnvelope, true},
     {static_cast<uint8_t>(proto::FrameType::kOwnerHint), onOwnerHint, false},
+    {static_cast<uint8_t>(proto::FrameType::kSafetyOverride), onSafetyOverride, true},
+```
+In `src/app/imu_task.cpp` (Task 4) the tilt check uses the effective limit (LLD §10.4 — 65° only while Override is on; the 300 ms hold is unchanged). Replace `g_app.lift.update(az, pitch, roll, gs.tilt_limit, now)` with:
+```cpp
+  switch (g_app.lift.update(az, pitch, roll, g_app.safety_override.tiltLimit(gs.tilt_limit, gs.override_tilt_deg), now)) {
 ```
 In `src/app/tasks.h` add before `// TASK-DECLS-END`:
 ```cpp
@@ -5432,8 +5859,26 @@ def cmd_deadman(link: Link, args: argparse.Namespace) -> None:
             break
         time.sleep(0.01)
     time.sleep(max(0.0, t0 + 1.3 - time.monotonic()))  # keep printing events: idle release at ~1 s
+
+
+def cmd_override(link: Link, args: argparse.Namespace) -> None:
+    """SAFETY_OVERRIDE on/off (LLD §10). --ai sends src=AI (must be refused: ROLE_FORBIDDEN)."""
+    link.handlers.append(print_ack)
+    link.handlers.append(lambda m: print(fmt_event(m)) if isinstance(m, g.Event) else None)
+    wait_synced(link)
+    src = g.Source.AI if args.ai else g.Source.HUMAN
+    link.send(g.SafetyOverride(src=src, on=1 if args.state == "on" else 0))
+    time.sleep(0.3)
+    if args.state == "on" and args.drive is not None:  # same run: reopening the port reboots the Uno
+        end = time.monotonic() + args.seconds
+        while time.monotonic() < end:
+            link.send(g.Drive(src=g.Source.HUMAN, v=args.drive, w=0))
+            fast = link.last.get("TelemFast")
+            if isinstance(fast, g.TelemFast):
+                print(f"pwm={fast.pwm_l},{fast.pwm_r} dist={fast.dist_mm} pitch={fast.pitch / 100:.1f}")
+            time.sleep(0.05)
 ```
-Register in `COMMANDS` (`"drive": cmd_drive, "stop": cmd_stop, "envelope": cmd_envelope, "deadman": cmd_deadman`) and in `main()`:
+Register in `COMMANDS` (`"drive": cmd_drive, "stop": cmd_stop, "envelope": cmd_envelope, "deadman": cmd_deadman, "override": cmd_override`) and in `main()`:
 ```python
     d = sub.add_parser("drive")
     d.add_argument("v", type=int)
@@ -5446,6 +5891,11 @@ Register in `COMMANDS` (`"drive": cmd_drive, "stop": cmd_stop, "envelope": cmd_e
     e.add_argument("accel", type=int)
     e.add_argument("lock", type=int)
     sub.add_parser("deadman")
+    o = sub.add_parser("override")
+    o.add_argument("state", choices=["on", "off"])
+    o.add_argument("--ai", action="store_true", help="send src=AI (expect ROLE_FORBIDDEN)")
+    o.add_argument("--drive", type=int, default=None, help="then drive at this %% (same run)")
+    o.add_argument("--seconds", type=float, default=3.0)
 ```
 
 - [ ] **Step 8: Build, flash, stand safety checks (tracks off the ground)**
@@ -5459,6 +5909,7 @@ Then from `tools/smoke/`:
 4. Hold a hand 10 cm in front of the sensor, `… drive 40 0` → `EVENT BLOCKED`, `pwm=0,0`; `… drive -40 0` → reverse turns.
 5. `… drive 100 0 --envelope 20` → `pwm=51,51` (the envelope is sent in the same run: every smoke run reopens the port, which reboots the Uno and clears the envelope); `… envelope 20 0 0` alone → `ACK OK`.
 6. Start `… drive 40 0 --seconds 5` and pull the USB cable after 2 s → tracks stop within 0.3 s (link lost).
+7. Safety Override (LLD §10): `… override on --ai` → `ACK ROLE_FORBIDDEN`. `… override on` → `ACK OK`, `EVENT SAFETY_OVERRIDE a=1 b=0`. Hand 10 cm in front of the sensor, `… override on --drive 30` → tracks keep turning (`pwm=76,76`, no `BLOCKED`); stop streaming → `DEADMAN_STOP` still fires. `… override off` → `EVENT SAFETY_OVERRIDE a=0 b=0`. (`--envelope` is not combined: an envelope refuses it with `ENVELOPE_LOCKED`.)
 
 - [ ] **Step 9: Commit**
 

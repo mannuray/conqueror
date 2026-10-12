@@ -771,3 +771,11 @@ The old firmware could switch the safety stops off (`N=11`); the owner wants hum
 - **Ends:** after **60 s without driving** or **5 min** maximum, and on STOP, owner change, link loss or reboot. Never persistent.
 - CLAUDE.md safety rule reworded: never weakened **except through this designed Override**.
 - Follow-up (design-first): protocol additions (override command/event/flag, settings), spec 02 + Uno LLD sections, then Plan B tasks.
+
+## 27. Self-describing firmware (DECIDED 2026-10-12)
+Lesson from the lost old firmware source: every board must be able to tell how to talk to it and where its code is.
+- **ESP32 read-only pages:** `/help` (human page) and `/info` (JSON) — firmware name, version, **git commit**, build date, repo URL; WiFi mode, IP, mDNS, ports, Uno link baud; protocol cheat-sheet **generated from `protocol/defs`** (frame format, main commands with example bytes, STOP, error codes); hardware facts (board, chip, pin map, flash/PSRAM); reflash commands (esptool/pio; Uno: Optiboot 115200, S1 switch); Uno firmware version/commit from HELLO.
+- **Embedded source:** the ESP32 build packs `git archive` of the whole repo (incl. Uno source; compressed, ~1–2 MB) into a separate flash partition, served read-only at `/source.tar.gz`.
+- **Rules:** read-only (no control, no settings — the dev bridge has no auth); **no secrets** (`secrets.h` is git-ignored and never packed); static, small.
+- **Habits:** embed the git commit + version in both firmwares (HELLO, `/info`, bench tool); tag every flashed release on GitHub with its binaries.
+- **Where:** Plan C bridge gets `/info` + `/help`; phase 4 gateway gets the full page + `/source.tar.gz`; Plan B reports version + commit in HELLO. Applied when polishing Plan C and in the gateway LLD revision.

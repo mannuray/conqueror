@@ -29,7 +29,7 @@
 - **Memory / tasks:** allocation at startup only (fixed pools for WS out messages, no `String` in hot paths); `link_task` (core 1, 2 ms tick) is the only owner of the UART, the core objects and the TCP client; httpd handlers talk to it through one FreeRTOS queue; free internal heap ≥ **120 KB** in steady state (reported in `/info`).
 - **Read-only self-description:** `/info`, `/help`, `/source.tar.gz` never control anything and never contain secrets; `secrets.h` is git-ignored and `pack_source.py` fails the build if a secret value appears in the archive.
 - **Security:** **DEVELOPER BRIDGE — NO AUTHENTICATION.** Anyone on the same network can drive the tank (WS and TCP). Home network only, never in release firmware; the boot log, `/help` and the README say so.
-- **Host tests:** `cd firmware/esp32 && pio test -e native` (Unity). Core code compiles with `-Wall -Wextra -Werror` on the host and on the ESP32.
+- **Host tests:** `cd firmware/esp32 && pio test -e native` (Unity). `src/core/` is pure C++ (no `Arduino.h`) built with `-Wall -Wextra -Werror` in `env:native`; the ESP32 build uses `-Wall -Wextra` (framework headers are not warning-clean).
 - **Commits:** Conventional Commits, one per task, each ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Generated files are never edited by hand (`firmware/uno/src/generated/`, `firmware/esp32/src/generated/`, `protocol/vectors/`, …) — change `protocol/defs/*.yaml` or the generator and run `cd protocol && uv run protogen write`.
 - **Hardware steps** (marked **[HW]**) are run with the owner present, **tank on a stand, tracks off the ground**, a STOP within reach (page STOP, bench Space, IR remote).
 
@@ -38,11 +38,12 @@
 1. **Phone goes to sleep / tab hidden while driving** → no more `drive` messages; the Uno deadman stops the tank within 300 ms; the bridge never repeats a DRIVE (Task 6 test `test_bridge_never_invents_drive`; Task 10 HW check "phone sleep").
 2. **Holding the joystick still** → the page keeps sending `drive` every 50 ms so the deadman does not stop a tank that the driver is holding (Task 7 page code `startDriveTimer`; Task 10 HW check).
 3. **Bench connects while a phone drives / second bench** → accepted and closed at once, logged; the phone keeps driving (Task 3 tests `test_bench_refused_while_phone_drives`, `test_second_bench_refused`).
-4. **Phone STOP while the bench holds the link** → STOP frame injected between two whole bench frames with `seq = lastSeq + 128`, resent until the ACK, ACK not forwarded to the bench (Task 2 `test_stop_resend_until_ack`, Task 4 `test_ack_swallowed_once`, `test_injected_frame_waits_for_partial`).
+4. **Phone STOP while the bench holds the link** → STOP frame injected between two whole bench frames with `seq = lastSeq + 128`, resent until the ACK, its ACKs not forwarded to the bench (Task 2 `test_stop_resend_until_ack`, Task 5 `test_injected_stop_acks_swallowed`, `test_injected_frame_waits_for_partial`).
 5. **Master change** (web → bench → web) → heartbeats stop at a frame boundary; when the web side takes over again it always starts with HELLO_REQ and only sends HELLO_ACK for `proto == 2` (Task 2 `test_handshake_rejects_wrong_proto`, Task 3 `test_bench_close_with_ws_clients_rehandshakes`).
 6. **IR remote takes over** → web driver dropped without STOP (the Uno already stopped), web motion nacked `NOT_OWNER` until the Uno reports another owner (Task 3 `test_ir_beats_phone`).
-7. **Interleaving** → TCP bytes and ESP32-originated frames never mix mid-frame on the UART; bad-CRC bench frames still pass (Task 2 `test_urgent_waits_for_chunk_boundary`, Task 4 `test_bad_crc_frame_forwarded`).
-8. **Secrets** → `secrets.h` never tracked, never in `/source.tar.gz`, never logged (Task 9 `pack_source.py` checks, Task 1 `.gitignore`).
+7. **Interleaving** → TCP bytes and ESP32-originated frames never mix mid-frame on the UART; bad-CRC bench frames still pass (Task 2 `test_urgent_waits_for_chunk_boundary`, Task 5 `test_bad_crc_frame_forwarded`).
+8. **Secrets** → `secrets.h` never tracked, never in `/source.tar.gz`, never logged (Task 9 `pack_source.py` checks, Task 1 `.gitignore` + `secrets_guard.h`).
+9. **A held-still stick or a flood of messages** → page resends `drive` every 50 ms; the bridge rate-limits (25/s drive) and reports a streaming rejection once, never per message (Task 6 `test_drive_rate_limit_25_per_second`, `test_stream_reject_reported_once`).
 
 ---
 
@@ -50,62 +51,72 @@
 
 ```
 firmware/esp32/
-├── platformio.ini                  envs bridge, bridge_release, bridge_ota, native (Task 1)
+├── platformio.ini                  envs bridge, bridge_release, bridge_ota, native (Task 1; scripts added in 2, 7, 9)
 ├── partitions_cq8m.csv             8 MB layout (Task 1)
 ├── README.md                       usage, security warning, hardware checklist (Task 10)
 ├── include/
-│   ├── board_config.h              pins, ports, timings, sizes (Task 1)
+│   ├── board_config.h              pins, ports, timings, camera map (Task 1)
 │   ├── secrets.example.h           committed template (Task 1)
+│   ├── secrets_guard.h             compile-time checks on secrets.h (Task 1)
 │   └── secrets.h                   git-ignored, local only
 ├── scripts/
 │   ├── stamp_version.py            pre: build/version.h (version, git commit, dirty, date) (Task 1)
-│   ├── check_chip.py               esptool flash-id gate, also pre-upload hook (Task 1)
 │   ├── protogen_check.py           pre: protogen check (Task 1)
+│   ├── check_chip.py               esptool flash-id gate, also pre-upload hook (Task 1)
 │   ├── native_paths.py             native env: CQ_VECTORS_PATH (Task 2)
-│   ├── pack_web.py                 pre: gzip web assets + icon → build/web_assets.h (Task 7, help in Task 9)
+│   ├── pack_web.py                 pre: gzip page/manifest/help + draw icon → build/web_assets.h (Task 7)
 │   ├── pack_source.py              pre: git archive → build/source.bin + secret checks (Task 9)
 │   ├── upload_source.py            custom targets upload_source / upload_source_ota (Task 9)
-│   └── ota.sh                      app + source over WiFi (Task 9)
+│   ├── ota.sh                      app + source over WiFi (Task 9)
+│   └── make_release.sh             tagged release → dist/ + gh release (Task 9)
 ├── src/
-│   ├── main.cpp                    setup()/loop() composition root (Task 1, grows)
+│   ├── main.cpp                    setup()/loop() composition root (Task 1, grows to Task 9)
 │   ├── core/                       pure C++ — no Arduino.h, host-tested
 │   │   ├── frame_parser.h/.cpp     resyncing parser (Task 2)
-│   │   ├── frame_tx.h/.cpp         whole-chunk TX queue + urgent slot (Task 2)
+│   │   ├── frame_tx.h/.cpp         whole-chunk TX queue + urgent STOP slot (Task 2)
 │   │   ├── body_link.h/.cpp        master: handshake, heartbeat, STOP resend, snapshot, events (Task 2)
 │   │   ├── link_owner.h/.cpp       who is master / driver (Task 3)
-│   │   ├── frame_aligner.h         passthrough frame boundaries, 50 ms flush, ACK swallow (Task 4)
+│   │   ├── wifi_policy.h           station / fallback AP decisions (Task 4)
+│   │   ├── frame_aligner.h         passthrough frame boundaries, 50 ms flush, ACK swallow (Task 5)
 │   │   ├── ws_codec.h/.cpp         JSON in → WsCommand (Task 6)
 │   │   ├── ws_json.h/.cpp          snapshot/events → JSON out (Task 6)
-│   │   └── ws_clients.h/.cpp       client table: names, rate limit, silence reap (Task 6)
+│   │   └── ws_clients.h/.cpp       client table: names, rate limits, silence reap (Task 6)
 │   ├── net/                        Arduino / ESP-IDF shell
 │   │   ├── log.h/.cpp              USB serial status log (Task 1)
 │   │   ├── uart_port.h/.cpp        Serial1 wrapper (Task 2)
-│   │   ├── link_task.h/.cpp        owns core + UART + TCP; command queue (Task 2, grows 3/4/6/9)
-│   │   ├── tcp_passthrough.h/.cpp  port 3333 (Task 4)
-│   │   ├── wifi_manager.h/.cpp     station / fallback AP (Task 5)
-│   │   ├── ota_service.h/.cpp      ArduinoOTA (Task 5)
-│   │   ├── http_server.h/.cpp      port 80: /, /ws, assets, /info, /help, /source.tar.gz (Tasks 6, 7, 9)
+│   │   ├── link_task.h/.cpp        owns core + UART + TCP + WS state; command queue (Tasks 2, 4, 5, 6)
+│   │   ├── wifi_manager.h/.cpp     station / fallback AP + mDNS (Task 4)
+│   │   ├── ota_service.h/.cpp      ArduinoOTA (Task 4)
+│   │   ├── tcp_passthrough.h/.cpp  port 3333 (Task 5)
+│   │   ├── http_server.h/.cpp      port 80 + WebSocket /ws (Task 6)
+│   │   ├── web_routes.h/.cpp       /, manifest, icon, /help from build/web_assets.h (Task 7)
 │   │   ├── camera_service.h/.cpp   esp32-camera, S3-EYE pins (Task 8)
 │   │   ├── stream_server.h/.cpp    port 81 /stream MJPEG (Task 8)
-│   │   ├── info_service.h/.cpp     /info JSON (Task 9)
-│   │   └── source_archive.h/.cpp   "source" partition reader (Task 9)
+│   │   ├── source_archive.h/.cpp   "source" partition + /source.tar.gz (Task 9)
+│   │   └── info_service.h/.cpp     /info JSON (Task 9)
 │   └── generated/help_protocol.html   protogen output — DO NOT EDIT (Task 9)
 ├── web/
 │   ├── basic_drive.html            the Basic Drive page (Task 7)
 │   ├── manifest.webmanifest        add-to-home-screen (Task 7)
 │   ├── help.html                   /help template (Task 9)
 │   └── help_logo.html              Tank Logo quick reference (hand-written, Task 9)
-└── test/                           Unity, env:native
-    ├── test_frame_parser/  test_frame_tx/  test_body_link/  test_link_owner/
-    └── test_frame_aligner/ test_ws_codec/  test_ws_json/    test_ws_clients/
+└── test/                           Unity, env:native (84 tests)
+    ├── support/frames.h, support/wire.h                    test helpers (Task 2)
+    ├── test_frame_parser/ test_frame_tx/ test_body_link/   (Task 2)
+    ├── test_link_owner/ (Task 3)   test_wifi_policy/ (Task 4)   test_frame_aligner/ (Task 5)
+    └── test_ws_codec/ test_ws_json/ test_ws_clients/       (Task 6)
 protocol/generator/protogen/emit_help.py      new protogen output (Task 9, Plan A addition)
+protocol/generator/protogen/cli.py            registers it (Task 9)
 protocol/generator/tests/test_emit_help.py    (Task 9)
-tools/smoke/bridge_echo.py                    TCP smoke script (Task 10; uv project shared with Plan B)
+tools/smoke/pyproject.toml                    shared with Plan B (Task 5, if not there yet)
+tools/smoke/bridge_echo.py                    tcp / tcp-busy (Task 5), ws / ws-owner (Task 6)
 .gitignore                                    + firmware/esp32/include/secrets.h (Task 1)
 .gitattributes                                export-ignore PNGs for the source archive (Task 9)
+CLAUDE.md                                     generated-files rule lists firmware/esp32/src/generated/ (Task 9)
+docs/lld/esp32-bridge-lld.md                  implementation notes (Task 10)
 ```
 
-> **Rewrite in progress:** Tasks 1–10 are being written; this marker is removed when the plan is complete.
+Task order note: the brief's order put the TCP passthrough before WiFi; here WiFi/mDNS/OTA is **Task 4** and the TCP passthrough **Task 5**, because the TCP server needs the network to be testable.
 
 ---
 

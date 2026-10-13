@@ -3442,3 +3442,913 @@ git commit -m "feat(esp32): WiFi station with fallback AP, mDNS and password-pro
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+---
+
+### Task 5: TCP 3333 passthrough for the bench tool, under the link owner
+
+**Files:**
+- Create: `firmware/esp32/src/core/frame_aligner.h`, `firmware/esp32/test/test_frame_aligner/test_main.cpp`, `firmware/esp32/src/net/tcp_passthrough.h`, `firmware/esp32/src/net/tcp_passthrough.cpp`, `tools/smoke/bridge_echo.py`; `tools/smoke/pyproject.toml` only if it does not exist yet (shared with Plan B — whichever plan runs first creates it with exactly the content below)
+- Modify: `firmware/esp32/src/net/link_task.cpp` (full new content below), `firmware/esp32/src/main.cpp` (start order)
+
+**Interfaces:**
+- Consumes: `LinkOwner` (Task 3), `FrameTx`/`BodyLink` (Task 2), `link_task` + `LinkStatus` (Task 4); Plan A's `conqueror_protocol` for the smoke script.
+- Produces:
+  - `cq::core::FrameAligner` — `template <class Sink> push(data, len, now, sink)`, `flushIfStale(now, sink)`, `discardPartial()`, `reset()`, `midFrame()`, `haveSeq()`, `lastSeq()`, `frames()`, `badCrc()`, `flushed()`; sink method `chunk(const uint8_t*, size_t, ChunkKind)`; `ChunkKind {kFrame, kBadFrame, kRaw}`; `kPartialFlushMs = 50`.
+  - `cq::core::AckSwallow` — `arm(seq, until_ms)`, `shouldDrop(frame, len, now) → bool`, `dropped()`.
+  - `cq::net::TcpPassthrough` — `begin()`, `poll(now, owner, tx, driver, refuse_all) → Actions`, `forwardFromUno(data, len, now)`, `active()`, `injectSeq()` (= bench `lastSeq + 128`), `swallowAck(seq, now)`, `close()`, `stats() → TcpStats{up, down, refused, sessions}`, `lastRefusal()`; `kBenchSilentMs = 1000`, `kSwallowMs = 500`.
+  - `tools/smoke/bridge_echo.py --host H tcp [--seconds S]` and `… tcp-busy`.
+
+- [ ] **Step 1: Write the failing aligner tests**
+
+`firmware/esp32/test/test_frame_aligner/test_main.cpp`:
+```cpp
+// FrameAligner + AckSwallow + FrameTx: transparent passthrough, whole chunks, injected STOP.
+#include <string.h>
+#include <unity.h>
+
+#include "../support/frames.h"
+#include "core/frame_aligner.h"
+#include "core/frame_tx.h"
+
+using cq::core::AckSwallow;
+using cq::core::ChunkKind;
+using cq::core::FrameAligner;
+using cq::core::FrameTx;
+namespace proto = cq::proto;
+
+namespace {
+
+struct Capture {
+  uint8_t bytes[1024];
+  size_t n = 0;
+  ChunkKind kinds[64];
+  size_t lens[64];
+  size_t chunks = 0;
+  void chunk(const uint8_t* d, size_t len, ChunkKind k) {
+    memcpy(bytes + n, d, len);
+    n += len;
+    kinds[chunks] = k;
+    lens[chunks++] = len;
+  }
+};
+
+struct TxSink {  // what link_task does for the bench -> Uno direction
+  FrameTx* tx;
+  void chunk(const uint8_t* d, size_t len, ChunkKind) { tx->push(d, len); }
+};
+
+size_t heartbeat(uint8_t seq, uint8_t* out) { return cqtest::frame(proto::HeartbeatMsg{7}, seq, out); }
+
+}  // namespace
+
+void setUp() {}
+void tearDown() {}
+
+void test_stream_is_forwarded_unchanged() {
+  uint8_t in[128] = {0x01, 0x02};
+  size_t n = 2;
+  n += heartbeat(1, in + n);
+  in[n++] = 0x55;
+  n += heartbeat(2, in + n);
+  FrameAligner a;
+  Capture c;
+  for (size_t i = 0; i < n; ++i) a.push(in + i, 1, 0, c);  // byte by byte
+  TEST_ASSERT_EQUAL(n, c.n);
+  TEST_ASSERT_EQUAL_MEMORY(in, c.bytes, n);
+  TEST_ASSERT_EQUAL(2, a.frames());
+  TEST_ASSERT_EQUAL(2, a.lastSeq());
+}
+
+void test_frames_are_single_chunks() {
+  uint8_t in[64];
+  const size_t n = heartbeat(9, in);
+  FrameAligner a;
+  Capture c;
+  a.push(in, 3, 0, c);
+  TEST_ASSERT_EQUAL(0, c.chunks);  // partial frame waits
+  TEST_ASSERT_TRUE(a.midFrame());
+  a.push(in + 3, n - 3, 1, c);
+  TEST_ASSERT_EQUAL(1, c.chunks);
+  TEST_ASSERT_EQUAL(n, c.lens[0]);
+  TEST_ASSERT_EQUAL(static_cast<int>(ChunkKind::kFrame), static_cast<int>(c.kinds[0]));
+}
+
+void test_bad_crc_frame_forwarded() {
+  uint8_t in[64];
+  const size_t n = heartbeat(3, in);
+  in[n - 1] ^= 0x5A;
+  FrameAligner a;
+  Capture c;
+  a.push(in, n, 0, c);
+  TEST_ASSERT_EQUAL(1, c.chunks);
+  TEST_ASSERT_EQUAL(static_cast<int>(ChunkKind::kBadFrame), static_cast<int>(c.kinds[0]));
+  TEST_ASSERT_EQUAL_MEMORY(in, c.bytes, n);
+  TEST_ASSERT_EQUAL(1, a.badCrc());
+}
+
+void test_sync_with_bad_length_is_raw() {
+  const uint8_t in[] = {0xAA, 0xC8, 0x10};
+  FrameAligner a;
+  Capture c;
+  a.push(in, sizeof(in), 0, c);
+  TEST_ASSERT_EQUAL(sizeof(in), c.n);
+  TEST_ASSERT_EQUAL_MEMORY(in, c.bytes, sizeof(in));
+  TEST_ASSERT_FALSE(a.midFrame());
+}
+
+void test_partial_flushed_raw_after_50ms() {
+  uint8_t in[64];
+  heartbeat(1, in);
+  FrameAligner a;
+  Capture c;
+  a.push(in, 4, 100, c);
+  a.flushIfStale(149, c);
+  TEST_ASSERT_EQUAL(0, c.n);
+  a.flushIfStale(150, c);
+  TEST_ASSERT_EQUAL(4, c.n);
+  TEST_ASSERT_EQUAL(static_cast<int>(ChunkKind::kRaw), static_cast<int>(c.kinds[0]));
+  TEST_ASSERT_EQUAL(1, a.flushed());
+}
+
+void test_partial_discarded_on_close() {
+  uint8_t in[64];
+  heartbeat(1, in);
+  FrameAligner a;
+  Capture c;
+  a.push(in, 5, 0, c);
+  a.discardPartial();
+  a.flushIfStale(1000, c);
+  TEST_ASSERT_EQUAL(0, c.n);
+}
+
+void test_injected_frame_waits_for_partial() {
+  FrameTx tx;
+  TxSink sink{&tx};
+  FrameAligner a;
+  uint8_t bench[64];
+  const size_t n = heartbeat(10, bench);
+  a.push(bench, 4, 0, sink);  // bench frame half received
+  const uint8_t stop[] = {0xAA, 0x01, 0x12, 0x8A, 0x01, 0x00};
+  tx.pushUrgent(stop, sizeof(stop));
+  const uint8_t* p = nullptr;
+  TEST_ASSERT_EQUAL(sizeof(stop), tx.peek(p));  // nothing of the bench frame is in the queue yet
+  tx.pop();
+  a.push(bench + 4, n - 4, 1, sink);
+  TEST_ASSERT_EQUAL(n, tx.peek(p));  // the bench frame follows whole
+  TEST_ASSERT_EQUAL_MEMORY(bench, p, n);
+}
+
+void test_injected_stop_acks_swallowed() {
+  AckSwallow s;
+  uint8_t f[16];
+  const uint8_t seq = static_cast<uint8_t>(200 + 128);  // lastSeq 200 + 128 wraps to 72
+  const size_t n = cqtest::frame(proto::AckMsg{seq, 0}, 4, f);
+  TEST_ASSERT_FALSE(s.shouldDrop(f, n, 0));  // not armed
+  s.arm(seq, 500);
+  TEST_ASSERT_TRUE(s.shouldDrop(f, n, 100));
+  TEST_ASSERT_TRUE(s.shouldDrop(f, n, 150));  // resend's ACK too
+  uint8_t other[16];
+  const size_t m = cqtest::frame(proto::AckMsg{static_cast<uint8_t>(seq + 1), 0}, 5, other);
+  TEST_ASSERT_FALSE(s.shouldDrop(other, m, 200));  // bench's own ACK passes
+  TEST_ASSERT_FALSE(s.shouldDrop(f, n, 500));      // window over
+  TEST_ASSERT_EQUAL(2, s.dropped());
+}
+
+int main() {
+  UNITY_BEGIN();
+  RUN_TEST(test_stream_is_forwarded_unchanged);
+  RUN_TEST(test_frames_are_single_chunks);
+  RUN_TEST(test_bad_crc_frame_forwarded);
+  RUN_TEST(test_sync_with_bad_length_is_raw);
+  RUN_TEST(test_partial_flushed_raw_after_50ms);
+  RUN_TEST(test_partial_discarded_on_close);
+  RUN_TEST(test_injected_frame_waits_for_partial);
+  RUN_TEST(test_injected_stop_acks_swallowed);
+  return UNITY_END();
+}
+```
+
+Run: `cd firmware/esp32 && pio test -e native -f test_frame_aligner`
+Expected: build error — `core/frame_aligner.h` not found.
+
+- [ ] **Step 2: Implement the aligner and the ACK swallow**
+
+`firmware/esp32/src/core/frame_aligner.h`:
+```cpp
+// Frame boundaries in the passthrough byte streams (bridge LLD R2.6/R2.8). Never changes a byte:
+// complete frames (CRC good or bad - passthrough stays transparent) and runs of bytes outside any
+// frame are handed to the sink as whole chunks; a partial frame waits for its remaining bytes and
+// is flushed raw after 50 ms (the Uno parser resyncs) or discarded when the client closes.
+// Sink: void chunk(const uint8_t* data, size_t len, ChunkKind kind). Pure C++, no heap.
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "cq_protocol.h"
+
+namespace cq {
+namespace core {
+
+constexpr uint32_t kPartialFlushMs = 50;
+constexpr size_t kRawRunMax = 64;
+
+enum class ChunkKind : uint8_t { kFrame, kBadFrame, kRaw };
+
+class FrameAligner {
+ public:
+  template <class Sink>
+  void push(const uint8_t* data, size_t len, uint32_t now_ms, Sink& sink) {
+    for (size_t i = 0; i < len; ++i) pushByte(data[i], now_ms, sink);
+    flushRaw(sink);  // bytes outside frames go out at once
+  }
+
+  template <class Sink>
+  void flushIfStale(uint32_t now_ms, Sink& sink) {
+    if (m_n != 0 && now_ms - m_started_ms >= kPartialFlushMs) {
+      sink.chunk(m_buf, m_n, ChunkKind::kRaw);
+      m_n = 0;
+      ++m_flushed;
+    }
+  }
+
+  void discardPartial() { m_n = 0; }
+  void reset() {
+    m_n = 0;
+    m_raw_n = 0;
+    m_have_seq = false;
+  }
+  bool midFrame() const { return m_n != 0; }
+  bool haveSeq() const { return m_have_seq; }
+  uint8_t lastSeq() const { return m_last_seq; }  // seq of the last complete frame
+  uint32_t frames() const { return m_frames; }
+  uint32_t badCrc() const { return m_bad_crc; }
+  uint32_t flushed() const { return m_flushed; }
+
+ private:
+  template <class Sink>
+  void pushByte(uint8_t b, uint32_t now_ms, Sink& sink) {
+    if (m_n == 0) {
+      if (b == proto::kSync) {
+        m_buf[0] = b;
+        m_n = 1;
+        m_started_ms = now_ms;
+      } else {
+        rawByte(b, sink);
+      }
+      return;
+    }
+    if (m_n == 1 && b > proto::kMaxPayload) {  // the SYNC did not start a frame
+      m_n = 0;
+      rawByte(proto::kSync, sink);
+      pushByte(b, now_ms, sink);  // b may itself be a SYNC
+      return;
+    }
+    m_buf[m_n++] = b;
+    if (m_n >= 2 && m_n == static_cast<size_t>(m_buf[1]) + 5u) {
+      const uint8_t crc = proto::crc8(m_buf + 1, static_cast<uint8_t>(m_buf[1] + 3));
+      const bool good = crc == m_buf[m_n - 1];
+      flushRaw(sink);
+      sink.chunk(m_buf, m_n, good ? ChunkKind::kFrame : ChunkKind::kBadFrame);
+      if (good) {
+        ++m_frames;
+        m_last_seq = m_buf[3];
+        m_have_seq = true;
+      } else {
+        ++m_bad_crc;
+      }
+      m_n = 0;
+    }
+  }
+
+  template <class Sink>
+  void rawByte(uint8_t b, Sink& sink) {
+    m_raw[m_raw_n++] = b;
+    if (m_raw_n == kRawRunMax) flushRaw(sink);
+  }
+
+  template <class Sink>
+  void flushRaw(Sink& sink) {
+    if (m_raw_n == 0) return;
+    sink.chunk(m_raw, m_raw_n, ChunkKind::kRaw);
+    m_raw_n = 0;
+  }
+
+  uint8_t m_buf[proto::kMaxPayload + 5] = {};
+  size_t m_n = 0;
+  uint32_t m_started_ms = 0;
+  uint8_t m_raw[kRawRunMax] = {};
+  size_t m_raw_n = 0;
+  uint8_t m_last_seq = 0;
+  bool m_have_seq = false;
+  uint32_t m_frames = 0;
+  uint32_t m_bad_crc = 0;
+  uint32_t m_flushed = 0;
+};
+
+// Drops the Uno's ACK(s) for a STOP the bridge injected during passthrough, so a stray ACK never
+// resolves a bench command (LLD R2.8 step 3). Resends produce one ACK each; all are dropped
+// until the deadline.
+class AckSwallow {
+ public:
+  void arm(uint8_t seq, uint32_t until_ms) {
+    m_seq = seq;
+    m_until_ms = until_ms;
+    m_armed = true;
+  }
+  bool shouldDrop(const uint8_t* frame, size_t len, uint32_t now_ms) {
+    if (!m_armed) return false;
+    if (static_cast<int32_t>(now_ms - m_until_ms) >= 0) {
+      m_armed = false;
+      return false;
+    }
+    if (len == 7 && frame[2] == static_cast<uint8_t>(proto::FrameType::kAck) &&
+        frame[4] == m_seq) {
+      ++m_dropped;
+      return true;
+    }
+    return false;
+  }
+  uint32_t dropped() const { return m_dropped; }
+
+ private:
+  uint8_t m_seq = 0;
+  uint32_t m_until_ms = 0;
+  bool m_armed = false;
+  uint32_t m_dropped = 0;
+};
+
+}  // namespace core
+}  // namespace cq
+```
+
+Run: `pio test -e native`
+Expected: `59 test cases: 59 succeeded`.
+
+- [ ] **Step 3: TCP passthrough (Arduino shell)**
+
+`firmware/esp32/src/net/tcp_passthrough.h`:
+```cpp
+// Bench tool on TCP 3333 (bridge LLD R2.7/R2.8): one client, frame-aligned both ways, refused
+// (accept + close) while a phone drives or a bench is already connected, dropped after 1 s
+// without a byte. Owned by link_task only.
+#pragma once
+
+#include <WiFi.h>
+#include <stdint.h>
+
+#include "core/frame_aligner.h"
+#include "core/frame_tx.h"
+#include "core/link_owner.h"
+
+namespace cq {
+namespace net {
+
+constexpr uint32_t kBenchSilentMs = 1000;
+constexpr uint32_t kSwallowMs = 500;
+
+struct TcpStats {
+  uint32_t up = 0;       // bench -> Uno bytes
+  uint32_t down = 0;     // Uno -> bench bytes
+  uint32_t refused = 0;  // connections accepted and closed at once
+  uint32_t sessions = 0;
+};
+
+class TcpPassthrough {
+ public:
+  void begin();
+  // Accepts/refuses, pumps bench bytes into tx, drops a closed or silent bench.
+  // Returns the LinkOwner actions to apply (connect / close).
+  core::Actions poll(uint32_t now_ms, core::LinkOwner& owner, core::FrameTx& tx,
+                     const char* driver, bool refuse_all);
+  void forwardFromUno(const uint8_t* data, size_t len, uint32_t now_ms);
+  bool active() { return m_active; }
+  uint8_t injectSeq() const { return static_cast<uint8_t>(m_up.lastSeq() + 128); }
+  void swallowAck(uint8_t seq, uint32_t now_ms) { m_swallow.arm(seq, now_ms + kSwallowMs); }
+  void close();  // drop the client now (OTA start); caller applies owner.onTcpClose()
+  const TcpStats& stats() const { return m_stats; }
+  const char* lastRefusal() const { return m_last_refusal; }
+
+ private:
+  struct UpSink {
+    core::FrameTx* tx;
+    TcpStats* stats;
+    void chunk(const uint8_t* d, size_t len, core::ChunkKind) {
+      if (tx->push(d, len)) stats->up += len;
+    }
+  };
+  struct DownSink {
+    WiFiClient* client;
+    core::AckSwallow* swallow;
+    TcpStats* stats;
+    uint32_t now_ms;
+    void chunk(const uint8_t* d, size_t len, core::ChunkKind kind) {
+      if (kind == core::ChunkKind::kFrame && swallow->shouldDrop(d, len, now_ms)) return;
+      stats->down += client->write(d, len);
+    }
+  };
+
+  WiFiServer m_server{3333};
+  WiFiClient m_client;
+  bool m_active = false;
+  uint32_t m_last_rx_ms = 0;
+  core::FrameAligner m_up;
+  core::FrameAligner m_down;
+  core::AckSwallow m_swallow;
+  TcpStats m_stats;
+  char m_last_refusal[48] = "";
+};
+
+}  // namespace net
+}  // namespace cq
+```
+
+`firmware/esp32/src/net/tcp_passthrough.cpp`:
+```cpp
+#include "net/tcp_passthrough.h"
+
+#include "board_config.h"
+#include "net/log.h"
+
+namespace cq {
+namespace net {
+
+void TcpPassthrough::begin() {
+  m_server.begin(board::kTcpPort);
+  m_server.setNoDelay(true);
+  logf("tcp: bench passthrough on port %u", board::kTcpPort);
+}
+
+core::Actions TcpPassthrough::poll(uint32_t now_ms, core::LinkOwner& owner, core::FrameTx& tx,
+                                   const char* driver, bool refuse_all) {
+  core::Actions out;
+  if (m_server.hasClient()) {
+    WiFiClient incoming = m_server.accept();
+    core::Actions a;
+    const bool refuse = refuse_all || owner.onTcpConnect(a) == core::Admit::kRefuseBusy;
+    if (refuse) {
+      incoming.stop();  // the bench reads EOF: "link closed by bridge"
+      ++m_stats.refused;
+      snprintf(m_last_refusal, sizeof(m_last_refusal), "%s",
+               refuse_all ? "ota in progress" : (m_active ? "bench connected" : driver));
+      logf("tcp refused: %s%s", m_last_refusal,
+           (refuse_all || m_active) ? "" : " is driving");
+    } else {
+      m_client = incoming;
+      m_client.setNoDelay(true);
+      m_active = true;
+      m_last_rx_ms = now_ms;
+      m_up.reset();
+      m_down.reset();
+      ++m_stats.sessions;
+      logf("tcp: bench connected from %s", m_client.remoteIP().toString().c_str());
+      out = a;
+    }
+  }
+  if (!m_active) return out;
+
+  uint8_t buf[256];
+  UpSink up{&tx, &m_stats};
+  int avail = m_client.available();
+  while (avail > 0) {
+    const int n = m_client.read(buf, avail < static_cast<int>(sizeof(buf)) ? avail : sizeof(buf));
+    if (n <= 0) break;
+    m_up.push(buf, static_cast<size_t>(n), now_ms, up);
+    m_last_rx_ms = now_ms;
+    avail = m_client.available();
+  }
+  m_up.flushIfStale(now_ms, up);
+  DownSink down{&m_client, &m_swallow, &m_stats, now_ms};
+  m_down.flushIfStale(now_ms, down);
+
+  const bool silent = now_ms - m_last_rx_ms >= kBenchSilentMs;
+  if (!m_client.connected() || silent) {
+    logf("tcp: bench %s", silent ? "silent for 1 s - dropped" : "disconnected");
+    close();
+    const core::Actions c = owner.onTcpClose();
+    out.bits |= c.bits;
+  }
+  return out;
+}
+
+void TcpPassthrough::forwardFromUno(const uint8_t* data, size_t len, uint32_t now_ms) {
+  if (!m_active) return;  // no bench: Uno bytes only feed BodyLink's parser
+  DownSink down{&m_client, &m_swallow, &m_stats, now_ms};
+  m_down.push(data, len, now_ms, down);
+}
+
+void TcpPassthrough::close() {
+  m_up.discardPartial();  // a half bench frame never reaches the Uno
+  m_down.discardPartial();
+  m_client.stop();
+  m_active = false;
+}
+
+}  // namespace net
+}  // namespace cq
+```
+
+- [ ] **Step 4: `link_task` pumps the bench (replace `src/net/link_task.cpp`)**
+
+`firmware/esp32/src/net/link_task.cpp`:
+```cpp
+#include "net/link_task.h"
+
+#include <Arduino.h>
+#include <string.h>
+
+#include "board_config.h"
+#include "core/frame_tx.h"
+#include "net/log.h"
+#include "net/tcp_passthrough.h"
+#include "net/uart_port.h"
+
+namespace cq {
+namespace net {
+namespace {
+
+QueueHandle_t g_queue = nullptr;
+portMUX_TYPE g_status_mux = portMUX_INITIALIZER_UNLOCKED;
+LinkStatus g_status;
+
+UartPort g_uart;
+core::FrameTx g_tx;
+core::BodyLink g_link(g_tx);
+core::LinkOwner g_owner;
+TcpPassthrough g_tcp;
+bool g_ota_active = false;
+
+void drainTx() {
+  const uint8_t* p = nullptr;
+  size_t len = 0;
+  while ((len = g_tx.peek(p)) != 0) {
+    if (g_uart.txFree() < len) return;  // next tick (UART drains 25 B/ms); never a partial chunk
+    g_uart.write(p, len);
+    g_tx.pop();
+  }
+}
+
+// Executes LinkOwner actions in the documented order.
+void apply(const core::Actions& a, uint32_t now) {
+  if (a.has(core::Actions::kStopMaster)) {
+    g_link.stopMaster();
+    g_tx.clear();  // drop queued ESP32 frames; a pending STOP (urgent slot) is kept
+  }
+  if (a.has(core::Actions::kInjectStop)) {
+    const uint8_t seq = g_tcp.injectSeq();  // bench lastSeq + 128: no collision with its commands
+    g_link.injectStop(seq, now);
+    g_tcp.swallowAck(seq, now);
+  }
+  if (a.has(core::Actions::kSendStop)) g_link.sendStop(now);
+  if (a.has(core::Actions::kHintNone)) g_link.setOwnerHint(proto::OwnerHintValue::kNone);
+  if (a.has(core::Actions::kHintHuman)) g_link.setOwnerHint(proto::OwnerHintValue::kHuman);
+  if (a.has(core::Actions::kStartMaster)) g_link.startMaster(now);
+}
+
+void handleLinkEvents(uint32_t now) {
+  core::LinkEvent ev{};
+  while (g_link.popEvent(ev)) {
+    switch (ev.kind) {
+      case core::LinkEventKind::kBodyOnline: {
+        const core::HelloInfo& h = g_link.hello();
+        logf("uno: synced fw %u.%u proto %u commit %08lx", h.fw >> 8, h.fw & 0xFF, h.proto,
+             static_cast<unsigned long>(h.commit));
+        apply(g_owner.onSynced(true), now);
+        break;
+      }
+      case core::LinkEventKind::kBodyOffline:
+        if (ev.code == 1) {
+          logf("uno: incompatible protocol %d (need %u) - flash Plan B firmware", ev.a,
+               proto::kProtocolVersion);
+        } else {
+          logf("uno: body offline (silent)");
+        }
+        apply(g_owner.onSynced(false), now);
+        break;
+      case core::LinkEventKind::kUnoEvent:
+        if (ev.code == static_cast<uint8_t>(proto::EventKind::kControlChanged)) {
+          apply(g_owner.onUnoOwner(static_cast<proto::Owner>(ev.a)), now);
+        }
+        break;
+      case core::LinkEventKind::kResetRequest:
+        logf("uno: %s reset request ignored (bridge has no stored settings)",
+             ev.code == static_cast<uint8_t>(proto::FrameType::kWifiResetReq) ? "WiFi" : "admin");
+        break;
+      case core::LinkEventKind::kStopResult:
+      case core::LinkEventKind::kAckResult:
+      default:
+        break;
+    }
+  }
+}
+
+void handleCommand(const LinkCommand& cmd, uint32_t now) {
+  if (cmd.kind == LinkCommand::Kind::kOtaStart) {
+    g_ota_active = true;  // from now on: drives nacked BUSY, benches refused
+    if (g_owner.state() == core::LinkState::kTcpPassthrough) {
+      g_tcp.close();
+      core::Actions a = g_owner.onTcpClose();  // InjectStop
+      a.bits &= static_cast<uint8_t>(~core::Actions::kStartMaster);
+      apply(a, now);
+    } else {
+      g_link.sendStop(now);  // resent until the Uno's ACK
+    }
+    g_link.stopMaster();  // heartbeats stop: Uno link-loss stop at standstill is harmless
+  }
+}
+
+void publishStatus() {
+  LinkStatus s;
+  s.state = g_owner.state();
+  s.ota_active = g_ota_active;
+  s.ota_allowed = g_owner.otaAllowed() && !g_ota_active;
+  s.synced = g_link.synced();
+  s.hello = g_link.hello();
+  s.ws_clients = g_owner.wsCount();
+  s.tcp_active = g_tcp.active();
+  s.tcp_refused = g_tcp.stats().refused;
+  snprintf(s.last_refusal, sizeof(s.last_refusal), "%s", g_tcp.lastRefusal());
+  s.tcp_up = g_tcp.stats().up;
+  s.tcp_down = g_tcp.stats().down;
+  if (s.state == core::LinkState::kTcpPassthrough) snprintf(s.driver, sizeof(s.driver), "bench");
+  s.frames_tx = g_link.stats().frames_tx;
+  s.frames_rx = g_link.stats().frames_rx;
+  s.bad_crc = g_link.parserStats().bad_crc;
+  portENTER_CRITICAL(&g_status_mux);
+  g_status = s;
+  portEXIT_CRITICAL(&g_status_mux);
+}
+
+void linkTask(void*) {
+  uint8_t rx[256];
+  uint32_t last_publish = 0;
+  TickType_t wake = xTaskGetTickCount();
+  for (;;) {
+    const uint32_t now = millis();
+    size_t n = 0;
+    while ((n = g_uart.read(rx, sizeof(rx))) != 0) {
+      g_link.onUartBytes(rx, n, now);  // snapshot, events, STOP ACKs - also in passthrough
+      g_tcp.forwardFromUno(rx, n, now);
+    }
+    LinkCommand cmd;
+    while (xQueueReceive(g_queue, &cmd, 0) == pdTRUE) handleCommand(cmd, now);
+    if (g_link.snapshot().slow_valid) {
+      apply(g_owner.onUnoOwner(static_cast<proto::Owner>(g_link.snapshot().slow.owner)), now);
+    }
+    apply(g_tcp.poll(now, g_owner, g_tx, "a phone", g_ota_active), now);
+    apply(g_owner.tick(now), now);
+    g_link.step(now);
+    handleLinkEvents(now);
+    drainTx();
+    if (now - last_publish >= 100) {
+      last_publish = now;
+      publishStatus();
+    }
+    vTaskDelayUntil(&wake, pdMS_TO_TICKS(board::kLinkTickMs));
+  }
+}
+
+}  // namespace
+
+void linkTaskStart() {
+  g_uart.begin();
+  g_tcp.begin();
+  g_queue = xQueueCreate(16, sizeof(LinkCommand));
+  xTaskCreatePinnedToCore(linkTask, "link", 6144, nullptr, 5, nullptr, 1);
+  logf("uno link: Serial1 RX %d TX %d %lu baud", board::kUnoRxPin, board::kUnoTxPin,
+       static_cast<unsigned long>(board::kUnoBaud));
+}
+
+bool linkPost(const LinkCommand& cmd, bool urgent) {
+  if (g_queue == nullptr) return false;
+  return (urgent ? xQueueSendToFront(g_queue, &cmd, 0) : xQueueSendToBack(g_queue, &cmd, 0)) ==
+         pdTRUE;
+}
+
+LinkStatus linkStatus() {
+  portENTER_CRITICAL(&g_status_mux);
+  const LinkStatus s = g_status;
+  portEXIT_CRITICAL(&g_status_mux);
+  return s;
+}
+
+}  // namespace net
+}  // namespace cq
+```
+
+In `firmware/esp32/src/main.cpp` `setup()`, the TCP server needs the network stack: move `cq::net::linkTaskStart();` **below** `g_wifi.begin(millis());` so the end of `setup()` reads:
+```cpp
+  g_wifi.begin(millis());
+  cq::net::linkTaskStart();
+  g_ota.begin();
+}
+```
+
+Run: `pio run -e bridge`
+Expected: `SUCCESS`.
+
+- [ ] **Step 5: Smoke script**
+
+`tools/smoke/pyproject.toml` (skip if Plan B already created it — the content is identical):
+
+`tools/smoke/pyproject.toml`:
+```toml
+[project]
+name = "conqueror-smoke"
+version = "0.1.0"
+description = "Stand and bridge smoke scripts (Plans B and C)"
+requires-python = ">=3.12"
+dependencies = ["conqueror-protocol", "pyserial>=3.5"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+conqueror-protocol = { path = "../../protocol/python", editable = true }
+
+[dependency-groups]
+dev = ["ruff>=0.7", "pyright>=1.1", "types-pyserial>=3.5"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+```
+
+`tools/smoke/bridge_echo.py`:
+```python
+#!/usr/bin/env python3
+"""Plan C bridge smoke checks over WiFi (developer bridge, no authentication).
+
+Run from tools/smoke/:
+  uv run python bridge_echo.py --host conqueror-bridge.local tcp --seconds 10
+  uv run python bridge_echo.py --host conqueror-bridge.local tcp-busy
+"""
+
+from __future__ import annotations
+
+import argparse
+import socket
+import threading
+import time
+
+from conqueror_protocol import FrameParser, build_frame, decode_frame
+from conqueror_protocol import generated as g
+from conqueror_protocol.wire import Message
+
+TCP_PORT = 3333
+SYNCED_BIT = 1 << g.FastFlagBit.SYNCED
+
+
+class TcpBench:
+    """Minimal bench: heartbeats, HELLO_REQ -> HELLO -> HELLO_ACK, frame counting."""
+
+    def __init__(self, host: str) -> None:
+        self.sock = socket.create_connection((host, TCP_PORT), timeout=5.0)
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.sock.settimeout(0.05)
+        self.parser = FrameParser()
+        self.seq = 0
+        self.lock = threading.Lock()
+        self.running = True
+        self.closed_by_peer = False
+        self.hello: g.Hello | None = None
+        self.counts: dict[str, int] = {}
+        self.synced_seen = False
+        threading.Thread(target=self._heartbeat, daemon=True).start()
+
+    def send(self, msg: Message) -> None:
+        with self.lock:
+            frame = build_frame(msg, self.seq)
+            self.seq = (self.seq + 1) & 0xFF
+            self.sock.sendall(frame)
+
+    def _heartbeat(self) -> None:
+        while self.running:
+            try:
+                self.send(g.Heartbeat(esp_ms=int(time.monotonic() * 1000) & 0xFFFFFFFF))
+            except OSError:
+                return
+            time.sleep(0.1)
+
+    def pump(self, seconds: float) -> None:
+        end = time.monotonic() + seconds
+        while time.monotonic() < end and self.running:
+            try:
+                data = self.sock.recv(1024)
+            except TimeoutError:
+                continue
+            if not data:
+                self.closed_by_peer = True
+                return
+            for raw in self.parser.feed(data):
+                msg = decode_frame(raw, "uno_to_esp32")
+                name = type(msg).__name__
+                self.counts[name] = self.counts.get(name, 0) + 1
+                self._on(msg)
+
+    def _on(self, msg: Message) -> None:
+        if isinstance(msg, g.Hello):
+            self.hello = msg
+            print(
+                f"HELLO fw={msg.fw >> 8}.{msg.fw & 0xFF} proto={msg.proto} "
+                f"commit={msg.commit:08x} -> HELLO_ACK sent"
+            )
+            self.send(g.HelloAck(proto=g.PROTOCOL_VERSION))
+        elif isinstance(msg, g.TelemFast) and msg.flags & SYNCED_BIT:
+            self.synced_seen = True
+
+    def close(self) -> None:
+        self.running = False
+        self.sock.close()
+
+
+def cmd_tcp(host: str, seconds: float) -> int:
+    bench = TcpBench(host)
+    bench.send(g.HelloReq())
+    bench.pump(seconds)
+    bench.close()
+    if bench.closed_by_peer:
+        print("closed by bridge (busy: a phone is driving, or another bench is connected)")
+        return 1
+    stats = bench.parser.stats
+    print(f"frames by type: {dict(sorted(bench.counts.items()))}")
+    print(f"done: frames={stats.frames} bad_crc={stats.bad_crc} synced={bench.synced_seen}")
+    ok = bench.hello is not None and bench.hello.proto == g.PROTOCOL_VERSION
+    return 0 if ok and bench.synced_seen and stats.bad_crc == 0 else 1
+
+
+def cmd_tcp_busy(host: str) -> int:
+    first = TcpBench(host)
+    first.send(g.HelloReq())
+    first.pump(0.5)
+    second = socket.create_connection((host, TCP_PORT), timeout=5.0)
+    second.settimeout(2.0)
+    try:
+        refused = second.recv(64) == b""
+    except TimeoutError:
+        refused = False
+    second.close()
+    first.close()
+    print(f"second bench refused: {refused}")
+    return 0 if refused else 1
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--host", default="conqueror-bridge.local")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    tcp = sub.add_parser("tcp", help="bench handshake through the TCP passthrough")
+    tcp.add_argument("--seconds", type=float, default=10.0)
+    sub.add_parser("tcp-busy", help="a second bench is accepted and closed at once")
+    args = parser.parse_args()
+    host: str = args.host
+    if args.cmd == "tcp":
+        return cmd_tcp(host, float(args.seconds))
+    return cmd_tcp_busy(host)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+Run (from `tools/smoke/`): `uv run ruff format --check . && uv run ruff check . && uv run pyright`
+Expected: `… files already formatted`, `All checks passed!`, `0 errors, 0 warnings, 0 informations`.
+
+- [ ] **Step 6 [HW]: Bench through the bridge (Plan B on the Uno, tank on a stand)**
+
+Run: `pio run -e bridge -t upload --upload-port /dev/ttyACM0`, then from `tools/smoke/`:
+```bash
+uv run python bridge_echo.py --host conqueror-bridge.local tcp --seconds 10
+```
+Expected:
+```
+HELLO fw=1.0 proto=2 commit=<8 hex> -> HELLO_ACK sent
+frames by type: {'Hello': 1, 'TelemFast': ~200, 'TelemSlow': ~10, …}
+done: frames=… bad_crc=0 synced=True
+```
+USB log: `tcp: bench connected from <laptop IP>` and, 1 s after the script ends, `tcp: bench disconnected` (or `silent for 1 s - dropped`).
+Then: `uv run python bridge_echo.py --host conqueror-bridge.local tcp-busy` → `second bench refused: True`; USB log `tcp refused: bench connected`.
+If Plan D is available: `uv run bench -H conqueror-bridge.local dash` shows live telemetry and `discover` lists `conqueror-bridge` (unchanged Plan D, `_cqbridge._tcp`).
+
+- [ ] **Step 7 [HW]: Laptop vanishes mid-turn (tank on a stand, tracks off the ground)**
+
+With Plan D: `uv run bench -H conqueror-bridge.local`, start `turn by 360` at 30 %, then switch the laptop's WiFi off.
+Expected: tracks stop within ~0.3 s (Uno link loss); the USB log shows `tcp: bench silent for 1 s - dropped`; after WiFi returns the turn does **not** resume and a new bench connection is accepted. (Without Plan D, run the `tcp` smoke command and switch WiFi off: the log shows the same drop.)
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add firmware/esp32/src firmware/esp32/test/test_frame_aligner tools/smoke/pyproject.toml tools/smoke/bridge_echo.py
+git commit -m "feat(esp32): frame-aligned TCP passthrough for the bench under the link owner
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```

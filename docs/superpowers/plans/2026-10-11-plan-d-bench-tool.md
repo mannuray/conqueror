@@ -4692,16 +4692,21 @@ def judge_drive(
 ) -> ProbeResult:
     if not encoders:
         ok = answer.strip().lower().startswith("y")
-        return ProbeResult("drive", ok, "confirmed by eye" if ok else "tracks did not move as expected")
+        return ProbeResult(
+            "drive", ok, "confirmed by eye" if ok else "tracks did not move as expected"
+        )
     dl = enc_after[0] - enc_before[0]
     dr = enc_after[1] - enc_before[1]
     if abs(dl) < MIN_COUNTS and abs(dr) < MIN_COUNTS:
         return ProbeResult(
-            "drive", False,
+            "drive",
+            False,
             "no motion: TB6612 needs D3 (standby) HIGH — check the SHIELD build option and wiring",
         )
     if (dl > 0) != (expect[0] > 0) or (dr > 0) != (expect[1] > 0):
-        return ProbeResult("drive", False, f"wrong direction mapping (L {dl}, R {dr}) — check pin map")
+        return ProbeResult(
+            "drive", False, f"wrong direction mapping (L {dl}, R {dr}) — check pin map"
+        )
     return ProbeResult("drive", True, f"L {dl} counts, R {dr} counts")
 
 
@@ -4709,7 +4714,9 @@ def judge_yaw(change_deg: float) -> ProbeResult:
     if 60.0 <= change_deg <= 120.0:
         return ProbeResult("yaw_sign", True, f"rotated {change_deg:.0f}° CCW as expected")
     if -120.0 <= change_deg <= -60.0:
-        return ProbeResult("yaw_sign", False, "yaw sign inverted — fix the IMU axis map in board_config.h")
+        return ProbeResult(
+            "yaw_sign", False, "yaw sign inverted — fix the IMU axis map in board_config.h"
+        )
     return ProbeResult("yaw_sign", False, f"rotation {change_deg:.0f}° not ~90° — retry")
 
 
@@ -4737,7 +4744,9 @@ async def shield_probe(tank: Tank, prompter: Prompter) -> list[ProbeResult]:
     return results
 
 
-async def mount_check(tank: Tank, prompter: Prompter, rotate_timeout_s: float = 10.0) -> list[ProbeResult]:
+async def mount_check(
+    tank: Tank, prompter: Prompter, rotate_timeout_s: float = 10.0
+) -> list[ProbeResult]:
     await prompter.ask("Place the tank on a flat floor, then Enter")
     await asyncio.sleep(0.3)
     fast = tank.model.fast
@@ -4745,13 +4754,18 @@ async def mount_check(tank: Tank, prompter: Prompter, rotate_timeout_s: float = 
     if fast is None:
         return [ProbeResult("level", False, "no telemetry")]
     level_ok = abs(fast.pitch_deg) < 10 and abs(fast.roll_deg) < 10
-    results.append(ProbeResult(
-        "level", level_ok,
-        f"pitch {fast.pitch_deg:.1f}°, roll {fast.roll_deg:.1f}°"
-        + ("" if level_ok else " — gravity axis wrong? check the IMU axis map"),
-    ))
+    results.append(
+        ProbeResult(
+            "level",
+            level_ok,
+            f"pitch {fast.pitch_deg:.1f}°, roll {fast.roll_deg:.1f}°"
+            + ("" if level_ok else " — gravity axis wrong? check the IMU axis map"),
+        )
+    )
     start = time.monotonic()
-    await prompter.ask("Rotate the tank by hand about 90° to the LEFT (counter-clockwise), then Enter")
+    await prompter.ask(
+        "Rotate the tank by hand about 90° to the LEFT (counter-clockwise), then Enter"
+    )
     await asyncio.sleep(rotate_timeout_s)
     samples = [s for s in tank.model.history if s.host_t >= start]
     results.append(judge_yaw(heading_change_deg(samples)))

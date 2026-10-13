@@ -1,4 +1,5 @@
 // WsCodec: the Basic Drive JSON slice (bridge LLD R2.9) in, robust against junk.
+#include <stdio.h>
 #include <string.h>
 #include <unity.h>
 
@@ -89,6 +90,20 @@ void test_ping_t0_is_valid_json_number() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"ping\",\"t0\":1e999}").kind));
 }
 
+// Review M7: a stop longer than LinkCommand::text (200 B), e.g. with a future "key" field, is still
+// recognised from the raw frame, so the bridge forwards it as a short stop instead of nacking it.
+void test_long_stop_is_still_a_stop() {
+  char big[320];
+  int n = snprintf(big, sizeof(big), "{\"t\":\"stop\",\"id\":9,\"key\":\"");
+  while (n < 300) big[n++] = 'k';
+  big[n++] = '"';
+  big[n++] = '}';
+  const WsCommand c = parseWsCommand(big, static_cast<size_t>(n));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kStop), K(c.kind));
+  TEST_ASSERT_TRUE(c.has_id);
+  TEST_ASSERT_EQUAL_INT32(9, c.id);
+}
+
 void test_unsupported_commands() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"turn\",\"angle\":90}").kind));
   TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"safety_override\"}").kind));
@@ -118,6 +133,7 @@ int main() {
   RUN_TEST(test_ping_echoes_t0_verbatim);
   RUN_TEST(test_id_out_of_range_is_invalid);
   RUN_TEST(test_ping_t0_is_valid_json_number);
+  RUN_TEST(test_long_stop_is_still_a_stop);
   RUN_TEST(test_unsupported_commands);
   RUN_TEST(test_junk_is_invalid);
   RUN_TEST(test_length_is_respected);

@@ -1096,15 +1096,15 @@ Mixer → TargetLimiter(obstacle scale on forward v, envelope speed_cap, degrade
 | ◀ `0x00FF22DD` / ▶ `0x00FFC23D` | Spin w = ±ir_speed | same |
 | OK `0x00FF02FD` | STOP + release to None | — |
 | 1 `0x00FF6897` / 3 `0x00FFB04F` | `CameraHead::jog(pan ∓rate)` | while held |
-| 2 `0x00FF9867` / 8 `0x00FF4AB5` | `jog(tilt ±rate)` | while held |
-| 5 `0x00FF38C7` | camera home | — |
+| 2 `0x00FF9867` / 8 `0x00FF38C7` | `jog(tilt ±rate)` | while held |
+| 5 `0x00FF18E7` | camera home | — |
 | 4 `0x00FF30CF` / 6 `0x00FF7A85` | ir_speed −/+ 10 % (20–100, default 50), beep pitch ∝ speed | — |
 | 7 `0x00FF10EF` | mute toggle | — |
-| 9 `0x00FF52AD` | battery check: LED colour + 3/2/1 beeps | — |
-| 0 | gyro TURN by 180° | — |
-| * | parking beeps toggle | — |
-| # | (hold 3 s) → `cal_request` to ESP32 | hold timer |
-Codes are the 32-bit values as shifted in by the decoder in received order (matches the original firmware constants); 0/*/# codes captured during hardware bring-up. `IrKeymap` in PROGMEM; `ir_speed_pct` held by the Arbitrator. New `CameraHead::jog(pan_rate, tilt_rate)`.
+| 9 `0x00FF5AA5` | battery check: LED colour + 3/2/1 beeps | — |
+| 0 `0x00FF4AB5` | gyro TURN by 180° | — |
+| * `0x00FF42BD` | parking beeps toggle | — |
+| # `0x00FF52AD` | (hold 3 s) → `cal_request` to ESP32 | hold timer |
+Codes are the 32-bit values as shifted in by the decoder in received order. Codes verified against the original ELEGOO firmware constants (5, 8, 9 corrected and 0/*/# filled in on 2026-10-11, Plan B Task 14). Keys are decoded by `IrController` (a switch on the code; `ir_speed_pct` lives in `IrController`); camera jog is repeated `CameraHead::nudge` at 60 °/s (no separate jog method).
 
 ### 9.9 Annunciator — when sounds and LED patterns play (fix 10)
 New pure class **`Annunciator`**: a PROGMEM table **condition → (SoundId, PatternId, priority, continuous?)** evaluated at 50 Hz from flags/events (tilted, lifted, batt_low/critical, bump, stall, link lost, reversing, start forward, turning, owner, calibrating, startup/ready/selftest fail).
@@ -1706,3 +1706,224 @@ sequenceDiagram
 - HELLO (0x80) gains `commit: u32` = the first 8 hex digits of the firmware's git commit read as a number (`git rev-parse --short=8 HEAD` → `0x1a2b3c4d`); `0` = built outside git / unknown. Payload 5 → **9 bytes**. Breaking change → **`protocol_version` 2** (nothing deployed yet).
 - Build: the `uno` PlatformIO env runs `extra_scripts = pre:scripts/git_commit.py`, which defines `CQ_GIT_COMMIT`; `drivers/board_config.h` defaults it to `0UL` and exposes `board::kGitCommit`. The `native` env (host tests) does not run the script and no domain code reads the value.
 - The commit is the checked-out `HEAD`; uncommitted edits are not marked. Flash release builds from a clean tree.
+
+## 11. Revision 4 — Mega 2560 board support (2026-10-13)
+
+Decision: `docs/design-notes.md` §29. The body board becomes the **Arduino Mega 2560** (ATmega2560, 16 MHz, 256 KB flash, 8 KB SRAM, 4 KB EEPROM) with the same ELEGOO SmartCar Shield V1.1 (TB6612). The Uno stays supported as a later **Lite** profile (stock tanks, no encoders). Domain code is unchanged; only `drivers/`, `board_config.h`, the build envs and the size gate know the board.
+
+### 11.1 Pin map and wiring
+
+| Function | Uno (shield) | Mega 2560 | Mega port/bit | Change |
+|---|---|---|---|---|
+| Motor PWM right / left | D5 / D6 | D5 / D6 | PE3 (Timer3) / PH3 (Timer4) | none (≈490 Hz PWM on the Mega instead of ≈980 Hz; fine for TT motors) |
+| Motor dir right / left, STBY | D7 / D8, D3 | same | PH4 / PH5, PE5 | none |
+| Servos pan / tilt | D10 / D11 = shield port **2** (pan) / port **1** (tilt), bench-confirmed 2026-10-13 | same | Servo lib uses Timer5 on the Mega | none |
+| Buzzer | A0 | A0 (shield port, unchanged) | PF0, `tone()` on Timer2 | none (owner kept it on the shield, 2026-10-13) |
+| Ultrasonic trig / echo | D13 / D12 | same | PB7 / **PB6 (PCINT6)** | echo bit changes (PCINT0 vector) |
+| IR receiver | D9 (PB1, PCINT1) | **jumper D9 → A14**; D9 left as high-impedance input | **PK6 (PCINT22)** | wiring + driver (PCINT2 vector) |
+| Encoders left / right | A1 / A2 (PC1/PC2, PCINT9/10) | **left A/B → A8/A9, right A/B → A10/A11** (direct wires, when fitted) | channel A: **PK0 / PK2 (PCINT16/18)**; B on PK1/PK3 for quadrature later | wiring + driver (PCINT2 vector) |
+| MPU6050 I2C | A4 (SDA) / A5 (SCL) | **jumpers 20 → A4, 21 → A5**; A4/A5 stay inputs | PD1 / PD0 (TWI) | wiring; `Wire`/`SDA`/`SCL` resolve to 20/21 automatically |
+| WS2812 LED | D4 (PD4) | D4 | **PG5** | LED bit-bang port changes |
+| Button | D2 | D2 | PE4 | none |
+| Battery | A3 | A3 | PF3 (ADC3, MUX5 = 0) | none |
+| ESP32 link | D0/D1 (Serial) via S1 | same (Serial) | PE0/PE1 | none (Serial1 on D18/D19 is a later option) |
+
+```mermaid
+flowchart LR
+  subgraph Shield["SmartCar Shield V1.1 (unchanged)"]
+    IMU["MPU6050 on A4/A5"]
+    IR["IR receiver on D9"]
+    ENC["Encoder connector (was A1/A2)"]
+  end
+  subgraph Mega["Mega 2560 headers"]
+    P20["D20 SDA"] --- J1((jumper)) --- IMU
+    P21["D21 SCL"] --- J2((jumper)) --- IMU
+    A14["A14 / PK6"] --- J3((jumper)) --- IR
+    A8["A8/A9 left A/B"] --- ENC
+    A10["A10/A11 right A/B"] --- ENC
+  end
+```
+
+### 11.2 Board abstraction (classes)
+
+```mermaid
+classDiagram
+  class board_config {
+    <<header, BOARD_UNO | BOARD_MEGA>>
+    +pins (motors, servos, buzzer, sensors)
+    +kPinIr, kPinEncLeft, kPinEncRight
+    +kLedPort, kLedBit
+    +kFlashLimit, kRamLimit
+  }
+  class PcintHub {
+    <<driver per board>>
+    +irBegin() / ultrasonicBegin() / encodersBegin()
+    ISR PCINT0: echo (both boards), IR (Uno)
+    ISR PCINT1: encoders (Uno)
+    ISR PCINT2: IR (PK6) + encoders (PK0, PK2) (Mega)
+  }
+  class Ws2812Driver {
+    +show(Rgb) uses kLedPort/kLedBit
+  }
+  class SizeGate {
+    +env uno: 30 KB / 1750 B
+    +env mega: 240 KB / 6 KB
+  }
+  board_config <.. PcintHub
+  board_config <.. Ws2812Driver
+```
+
+- `board_config.h` gains a `BOARD_MEGA` branch: same pin numbers except `kPinIr = A14` (68), `kPinBuzzer = A0` (54), `kPinEncLeft = A8` (62), `kPinEncRight = A10` (64) (B channels A9/A11 reserved); the LED driver takes its port/bit from the config (`PORTD/4` Uno, `PORTG/5` Mega).
+- **Pin-change interrupts:** on the Uno, PCINT0 serves IR + echo and PCINT1 the encoders. On the Mega, PCINT0 serves echo only (PB6) and **PCINT2 serves IR (PK6) and both encoders (PK0 left, PK2 right)**. Each ISR stays capture-only (< 10 µs): read the port once, XOR with the previous value, timestamp the changed bits.
+- `imu` bus recovery uses `SDA`/`SCL`, which are 20/21 on the Mega; the shield's A4/A5 pins are set to `INPUT` (no pull-up) at boot so they never fight the jumpers.
+- PlatformIO: new env `mega` (`board = megaatmega2560`, `-DBOARD_MEGA`, same flags, git-commit pre-script); `uno` env keeps `-DBOARD_UNO` for the later Lite profile; `native` unchanged.
+- Upload: genuine Mega (16U2) → `wiring` protocol at 115200 on `/dev/ttyACM*`; CH340 clones on `/dev/ttyUSB*`, same protocol.
+- Size gate: `--env mega` limits **flash 240 KB** (8 KB bootloader reserved), **static RAM 6 KB** (2 KB headroom for stack); `--env uno` keeps 30 KB / 1750 B.
+- Reset reason: the Mega's stk500v2 bootloader does not pass MCUSR either; R16 logic (trust r2 only when plausible) applies unchanged.
+
+### 11.3 Bring-up order (Mega)
+
+```mermaid
+sequenceDiagram
+  participant Owner
+  participant Mega
+  participant Bench as Linux (avrdude + smoke)
+  Owner->>Mega: fit Mega under the shield, jumpers 20→A4, 21→A5, D9→A14; encoders A8/A9 + A10/A11 when fitted
+  Bench->>Mega: flash Tasks 1–6 build (env mega)
+  Mega-->>Bench: boot line, HELLO (fw, proto 2, caps, commit)
+  Bench->>Mega: watch: IMU pitch/roll, ultrasonic, IR codes, battery
+  Owner->>Bench: tank on the stand → first motor test (Task 6 stand checks)
+```
+
+### 11.4 No-rework Mega (2026-10-13, supersedes the jumpers in §11.1)
+
+Principle (design-notes §30): the shield plugs onto the Mega as-is — no jumpers, no soldering. Encoder cables are independent wires and plug directly into the Mega header.
+
+| Function | Mega solution | Pins |
+|---|---|---|
+| IMU (MPU6050 on the shield's A4/A5) | **software I2C master** (`SoftI2c`), open-drain by toggling DDR (pin LOW = output 0, released = input + the module's pull-ups) | A4 = PF4 (SDA), A5 = PF5 (SCL) |
+| IR receiver (shield D9) | **20 kHz Timer1 sampler** (`IrSampler`) → falling-edge timestamps into the existing IR ring | D9 = PH6 |
+| Encoders | direct cables into the Mega, **PCINT2** (unchanged from Task 6b) | left A/B A8/A9 = PK0/PK1, right A/B A10/A11 = PK2/PK3 (channel A used) |
+| Echo, motors, servos, buzzer A0, LED, button, battery | unchanged | shield pins |
+
+```mermaid
+classDiagram
+  class SoftI2c {
+    <<driver, Mega only>>
+    +begin()
+    +write(addr, reg, data) bool
+    +read(addr, reg, buf, n) bool
+    +recover()  9 SCL clocks + STOP
+    -sdaLow()/sdaRelease()/sclLow()/sclRelease()
+    -bitDelay() ~2 µs (≈ 200–250 kHz)
+  }
+  class ImuDriver {
+    <<port imu>>
+    +begin() / read(ImuRaw&) / i2cErrors()
+  }
+  class IrSampler {
+    <<driver, Mega only>>
+    ISR TIMER1_COMPA 20 kHz
+    -prev PH6 level
+    +on falling edge: push micros() to IR ring
+  }
+  class EdgeDetector {
+    <<header-only, host-tested>>
+    +update(uint8_t level_bits) uint8_t falling
+    +rising(uint8_t level_bits) uint8_t
+  }
+  class PcintHub {
+    PCINT0: echo PB6
+    PCINT2: encoders PK0/PK2 (Mega)
+  }
+  ImuDriver ..> SoftI2c : BOARD_MEGA
+  ImuDriver ..> TwoWire : BOARD_UNO
+  IrSampler ..> EdgeDetector
+  PcintHub ..> EdgeDetector
+```
+
+```mermaid
+sequenceDiagram
+  participant T as imuTask (200 Hz)
+  participant D as imu driver
+  participant S as SoftI2c (A4/A5)
+  participant M as MPU6050
+  T->>D: read(raw)
+  D->>S: read(0x68, ACCEL_XOUT_H, 14 bytes)
+  S->>M: START, addr+W, reg, rSTART, addr+R
+  M-->>S: 14 bytes (ACK each, NACK last), STOP
+  alt NACK / SDA stuck low
+    S->>S: recover() (9 clocks + STOP)
+    D-->>T: false (fail streak → IMU_FAULT after 5)
+  else ok
+    D-->>T: true, axis-mapped ImuRaw
+  end
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> High
+  High --> Low: sample == 0 → push micros() (IR falling edge)
+  Low --> High: sample == 1
+  note right of High: Timer1 CTC, OCR1A = 99, prescaler 8 → 20 kHz; ISR < 2 µs
+```
+
+- **Timing/CPU:** IR sampler ISR ≈ 1.5–2 µs every 50 µs → ~3–4 % CPU; NEC marks/spaces are ≥ 560 µs, so 50 µs resolution is ample. Soft-I2C burst (≈ 150 bits at ~200 kHz) ≈ 0.7 ms per 5 ms IMU tick (documented exception to the 50 µs busy-wait rule, like the TWI burst it replaces); interrupts stay enabled (I2C tolerates the clock being stretched by ISRs because the master owns SCL).
+- **Timer use (Mega):** Timer1 = IR sampler (D11/D12 PWM unused); Timer2 = tone; Timer3/4 = motor PWM D5/D6; Timer5 = Servo.
+- **Uno build unchanged:** hardware TWI + PCINT (IR/echo PCINT0, encoders PCINT1).
+- **Tests:** `EdgeDetector` is host-tested; `SoftI2c` and `IrSampler` are verified on the hardware (IMU answers with real pitch/roll; IR codes decode).
+
+### 11.5 Scheduler phases (2026-10-13)
+
+**Finding (Mega bench, normal build):** load 51 % but `loop_max_us` 6776 µs, against the soak limit of 4000 µs. Per-pass profiling showed the worst pass every second ran **all 14 tasks**: every period is a multiple of 5 ms and every task started at phase 0, so the 1 s tasks landed in the same pass as the IMU (≈2.4 ms with software I2C), control (≈0.8 ms), slow telemetry (≈0.9 ms), camera and UI. Each task on its own was within budget, and the TX path never blocks (`link::write` skips when the ring is full).
+
+**Decision:** `Task` gets a `phase_us` field; `Scheduler::start()` sets `next_due = now + phase`. The periods are unchanged.
+
+| Phase | Tasks |
+|---|---|
+| 0 | imu (5 ms), ir (5 ms), telemetryFast, battery, selfTest, selfTestRecover |
+| 2.5 ms | control (10 ms), linkWatch, ultrasonic |
+| 7.5 ms | telemetrySlow (1 s), settings, camera |
+| 17.5 ms | ui, input |
+
+Control now runs 2.5 ms after a fresh IMU sample. **Measured:** load 52 %, `loop_max_us` 3304 µs, no resets.
+
+```mermaid
+classDiagram
+  class Task {
+    TaskFn fn
+    uint32_t period_us
+    uint32_t phase_us
+    uint32_t next_due_us
+  }
+  class Scheduler {
+    +start(now_us)
+    +runDue(now_us) uint8_t
+    +overruns() uint16_t
+  }
+  Scheduler o-- "n" Task
+```
+
+Host test: `test_phase_offsets_first_run_and_keeps_period`. The software I2C read stays as designed (≈0.75–1.2 ms). Removing its half-bit delay would break the MPU6050 fast-mode timing (tLOW ≥ 1.3 µs), so it is not used.
+
+### 11.6 Ultrasonic echo window for slow clone modules (2026-10-13, amends §9.16)
+
+**Finding (bench, owner's sensor on P9):** the module answers, but its echo rises **2.2 ms** after the trigger (genuine HC-SR04 ≈ 0.5 ms). Our window was 2 ms, so every ping counted as `NoEcho` and the sensor faulted. Measured with a standalone sketch: rise 2208 µs, echo 1496 µs = 25 cm.
+
+**Decision:** the "did it answer?" window becomes **10 ms** (`UltrasonicFilter::kMaxRiseUs`). 10 ms + the 25 ms clear limit still fits the 50 ms ping period, and a missing sensor still faults (no rise at all). The decision moves out of the driver into the pure `UltrasonicFilter::classify()`, so it is host-tested (`test_ultrasonic_classify_slow_clone_and_no_answer`).
+
+```mermaid
+classDiagram
+  class UltrasonicDriver {
+    <<driver: pcint_hub.cpp>>
+    +trigger() bool
+    +poll(echo_us) EchoState
+  }
+  class UltrasonicFilter {
+    +kMaxRiseUs = 10000
+    +kClearUs = 25000
+    +classify(rose, rise_delay_us, fell, width_us, echo_us)$ EchoState
+    +onReading(st, echo_us, offset_mm, now_ms) Change
+  }
+  UltrasonicDriver ..> UltrasonicFilter : classify()
+```

@@ -806,3 +806,39 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 - **Hardware rework (Mega):** I2C jumpers **20→A4 (SDA), 21→A5 (SCL)** (shield wires the MPU6050 to A4/A5; firmware keeps A4/A5 as inputs); encoder signal wires moved from A1/A2 to **A8 (left) / A9 (right)** (PCINT2; A0–A7 have no pin-change interrupts on the Mega); IR receiver: jumper **D9→A10** (D9 has no PCINT on the Mega; D9 stays a high-impedance input). LED on D4 is PG5 on the Mega (driver change only). Motors D5/D6/D7/D8/D3, servos D10/D11, buzzer A0, ultrasonic D12/D13, battery A3, button D2 unchanged.
 - **Stock tanks (owner question):** one codebase, two build profiles — **Full** (Mega: everything) and **Lite** (Uno: safety core, gyro heading/turn PID, DRIVE/TURN, sensors, IR, servos, basic sounds/LED; no encoder-only features — a stock tank has no encoders). HELLO `caps` is extended so clients hide/refuse unavailable features (as Tank Logo already does for `FORWARD` without encoders). Lite is designed and sized after Plan B is finished on the Mega.
 - Next: Uno LLD "Mega 2560 board support" section → Plan B revision (Mega build env + board-support task before Task 7; Mega-aware drivers in Tasks 7, 12, 13) → continue execution.
+
+- 2026-10-13 owner — Mega pins revised (LLD §11.1): IR jumper **D9→A14** (PK6); **buzzer moved off the shield to D24**; encoders (to be fitted later) **left A/B → A8/A9, right A/B → A10/A11** (channel A used now, B wired for quadrature later). Firmware starts with encoders disabled (stock gyro-only mode).
+- 2026-10-13 owner: **buzzer stays on the shield A0 port** (its ground is already there); only IR (A14) and the encoder pins change on the Mega.
+
+## 30. No hardware rework: the shield plugs onto the Mega as-is (DECIDED 2026-10-13)
+- **Principle (owner):** users must never need jumpers, soldering or rewiring to make the project work — "no messy hardware changes that make or break the project". The SmartCar Shield V1.1 plugs onto the Mega exactly as onto the Uno; every pin difference is handled in firmware.
+- **Supersedes** the jumper plan of §29 / LLD §11.1 (D20→A4, D21→A5, D9→A14, encoders on A8–A11): no jumpers at all.
+- **IMU (I2C on A4/A5):** on the Mega, A4/A5 are not the I2C pins → a small **software I2C master** (bit-banged, open-drain via DDR) on A4 (PF4) / A5 (PF5). The Uno keeps the hardware TWI.
+- **IR (D9):** on the Mega D9 has no pin-change interrupt → a **20 kHz timer sampler** (Timer1, free on the Mega) reads PH6 every 50 µs and reports falling edges to the NEC decoder. The Uno keeps its PCINT ISR. Echo (D12 = PB6) keeps PCINT0 on the Mega.
+- **Encoders (owner, 2026-10-13):** encoder cables are independent wires, not shield rework, so on the Mega they plug **directly into the Mega header**: left A/B → **A8/A9**, right A/B → **A10/A11** (PCINT2, channel A used now, B reserved for quadrature). Uno: A1/A2 on the shield as before.
+- Buzzer A0, motors, servos, LED, button, battery: unchanged (already worked).
+- Costs: ~3–5 % CPU for the IR sampler; IMU burst read ≈ 0.5–0.7 ms (vs 0.38 ms) — inside the 5 ms IMU period; both documented in LLD §11.4.
+- Order: LLD §11.4 → Plan B Task 6c (drivers + host test of the edge sampler) → code → hardware check (IMU answers, IR codes, encoders later).
+
+## 31. Scheduler phases fix the once-a-second 6.8 ms pass (DECIDED 2026-10-13)
+- On the Mega, max loop pass was 6.8 ms (limit 4 ms) while load was ~51 %. Cause: all tasks started at phase 0, so once a second all 14 tasks ran in one pass.
+- Fix: each task has a start phase (IMU 0, control 2.5 ms, slow telemetry/camera 7.5 ms, UI 17.5 ms). Measured max pass 3.3 ms, load 52 %. Details: LLD §11.5.
+- Investigated and rejected: removing the soft-I2C delays (breaks I2C timing), faster SCL polling (no gain).
+
+## 32. Servo ports on the shield (CONFIRMED on the bench 2026-10-13)
+- The SmartCar Shield V1.1 servo ports are labelled 1 and 2. Bench test (pan command only, then tilt only): **port 2 = D10 = pan (left/right)**, **port 1 = D11 = tilt (up/down)**.
+- Plug the pan servo into port 2 and the tilt servo into port 1; brown/black wire to G/−. Swapping plugs is the fix if they are mixed up; firmware keeps D10 pan / D11 tilt (no software swap).
+
+## 33. Ultrasonic: accept slow clone modules (DECIDED 2026-10-13)
+- The owner's ultrasonic answers 2.2 ms after the trigger; the firmware only waited 2 ms, so it reported a fault although the sensor works (25 cm measured).
+- The answer window is now 10 ms (still fits the 50 ms ping period). An unplugged or dead sensor still faults. LLD §11.6.
+
+## 34. Shield probe on the owner's tank: both tracks forward = direction pin HIGH (CONFIRMED 2026-10-13)
+- Probe on the stand (PWM ramp to 120 per track and direction): left forward/reverse correct; right ran backward with the ELEGOO starting guess (right forward = LOW).
+- Fix in firmware only (`board_config.h`: `kDirRightForwardHigh = true`); motor wiring stays stock. Re-probe: all four cases PASS.
+- Bench note: a calibration request sent within ~2 s of boot was refused (`CAL_PRECONDITION`); 3 s after sync it runs. An IR key press during a script cancels it (by design: IR takes ownership).
+
+## 35. Phase 2 floor tests run wirelessly after Plan C (DECIDED 2026-10-13)
+- The owner has no USB cable long enough for floor driving, and on the stand the gyro cannot see the tank turn (tracks in the air), so turn/heading/MOVE accuracy can only be proved on the floor.
+- Plan B is signed off on **Phase 1 (stand)** alone. **Phase 2 (floor)** runs after Plan C over WiFi: the ESP32 bridge passes TCP 3333 frame-aligned to the Mega, so the smoke tool only needs a TCP transport (pyserial `serial_for_url("socket://conqueror-bridge.local:3333")`) — or the Plan D bench tool. Shield switch S1 on the ESP32 side for these runs.
+

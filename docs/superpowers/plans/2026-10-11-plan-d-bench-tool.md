@@ -4368,9 +4368,9 @@ async def test_deadband_four_scripts(rig: SimRig) -> None:
 
 async def test_distance_uses_prompt(rig: SimRig) -> None:
     async with open_tank(rig.bench) as tank:
-        outcome = await CalibrationService(
-            tank, ScriptedPrompter({"measured_cm": "50"})
-        ).run("distance")
+        outcome = await CalibrationService(tank, ScriptedPrompter({"measured_cm": "50"})).run(
+            "distance"
+        )
     assert {w.name: w.raw for w in outcome.writes} == {"counts_per_cm": 15200}
 
 
@@ -4396,6 +4396,7 @@ Expected: FAIL — `ModuleNotFoundError`.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import math
 import time
 from typing import Any
@@ -4421,9 +4422,19 @@ class CalibrationService:
 
     async def _precheck(self) -> str | None:
         model = self.tank.model
-        deadline = time.monotonic() + SLOW_WAIT_S
-        while model.slow is None and time.monotonic() < deadline:
-            await asyncio.sleep(0.05)
+        if model.slow is None:
+            got_slow = asyncio.Event()
+
+            def on_model(topic: str, _payload: Any) -> None:
+                if topic == "slow":
+                    got_slow.set()
+
+            model.subscribe(on_model)
+            try:
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(got_slow.wait(), SLOW_WAIT_S)
+            finally:
+                model.unsubscribe(on_model)
         if model.fast is not None and model.fast.spd_cmd != (0, 0):
             return "tank is moving — stop first"
         if model.slow is not None and model.slow.envelope[0] < 100:
@@ -4435,7 +4446,9 @@ class CalibrationService:
         if (problem := await self._precheck()) is not None:
             return CalOutcome(False, error=problem)
         api = self.tank.api
-        settings = {name: await api.get_setting_raw(setting_info(name).id) for name in calc.settings_needed}
+        settings = {
+            name: await api.get_setting_raw(setting_info(name).id) for name in calc.settings_needed
+        }
         samples: dict[int, list[CalSample]] = {}
         start_t = time.monotonic()
         for idx, step in enumerate(calc.scripts()):
@@ -4464,10 +4477,16 @@ class CalibrationService:
 
         def on_update(topic: str, payload: Any) -> None:
             if topic == "cal_data" and payload.script == script:
-                bucket.append(CalSample(payload.script, payload.phase, payload.t_ms, tuple(payload.v)))
-            elif topic == "cal_result" and payload.script == script and not done.done():
-                if payload.status != 0 or payload.progress >= 100:  # progress updates are not the end
-                    done.set_result(payload)
+                bucket.append(
+                    CalSample(payload.script, payload.phase, payload.t_ms, tuple(payload.v))
+                )
+            elif (
+                topic == "cal_result"
+                and payload.script == script
+                and not done.done()
+                and (payload.status != 0 or payload.progress >= 100)  # progress is not the end
+            ):
+                done.set_result(payload)
 
         self.tank.model.subscribe(on_update)
         try:

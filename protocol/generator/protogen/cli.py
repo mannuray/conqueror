@@ -10,6 +10,7 @@ from pathlib import Path
 from .diff import cmd_diff
 from .emit_cpp import emit_cpp
 from .emit_docs import emit_docs
+from .emit_help import emit_help
 from .emit_python import emit_python
 from .emit_vectors import emit_vectors_cpp, emit_vectors_json
 from .loader import load
@@ -22,6 +23,7 @@ OUTPUTS: dict[str, Callable[[ProtocolModel], str]] = {
     "protocol/vectors/frames.json": emit_vectors_json,
     "protocol/tests/cpp/generated_vectors_test.cpp": emit_vectors_cpp,
     "docs/protocol/reference.md": emit_docs,
+    "firmware/esp32/src/generated/help_protocol.html": emit_help,
 }
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[3]

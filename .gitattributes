@@ -1,0 +1,4 @@
+# Source archive in the ESP32 "source" partition (bridge LLD R2.3 step 6): keep it small.
+# git archive reads this file from the archived commit, so it takes effect once committed.
+docs/design/stitch/** export-ignore
+*.png export-ignore

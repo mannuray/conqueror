@@ -9,7 +9,7 @@ from typing import ClassVar
 
 from .wire import ErrorInfo, FieldSpec, Message, SettingInfo
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 SYNC = 0xAA
 MAX_PAYLOAD = 48
 BAUD = 250000
@@ -657,11 +657,12 @@ class Hello(Message):
     DIR: ClassVar[str] = "uno_to_esp32"
     ACK: ClassVar[bool] = False
     STREAMING: ClassVar[bool] = False
-    FIELDS: ClassVar[tuple[FieldSpec, ...]] = (FieldSpec("fw", "u16"), FieldSpec("proto", "u8"), FieldSpec("caps", "u8"), FieldSpec("reset_reason", "u8"),)
+    FIELDS: ClassVar[tuple[FieldSpec, ...]] = (FieldSpec("fw", "u16"), FieldSpec("proto", "u8"), FieldSpec("caps", "u8"), FieldSpec("reset_reason", "u8"), FieldSpec("commit", "u32"),)
     fw: int = 0
     proto: int = 0
     caps: int = 0
     reset_reason: int = 0
+    commit: int = 0
 
 
 @dataclass(slots=True)

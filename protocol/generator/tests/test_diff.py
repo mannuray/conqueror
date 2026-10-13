@@ -1,3 +1,4 @@
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -9,6 +10,13 @@ from protogen.loader import load
 from protogen.model import Field
 
 DEFS = Path(__file__).resolve().parents[2] / "defs"
+
+
+def _bump_version(meta_text: str) -> str:
+    """Return meta.yaml text with protocol_version incremented, whatever its value."""
+    match = re.search(r"protocol_version: (\d+)", meta_text)
+    assert match is not None
+    return meta_text.replace(match.group(0), f"protocol_version: {int(match.group(1)) + 1}")
 
 
 def test_identical_is_not_breaking() -> None:
@@ -218,7 +226,7 @@ def test_cmd_diff_breaking_with_bump(repo: Path) -> None:
     _break_defs(repo)
     meta = repo / "protocol" / "defs" / "meta.yaml"
     meta.write_text(
-        meta.read_text(encoding="utf-8").replace("protocol_version: 1", "protocol_version: 2"),
+        _bump_version(meta.read_text(encoding="utf-8")),
         encoding="utf-8",
     )
     assert cmd_diff(repo, "HEAD") == 0

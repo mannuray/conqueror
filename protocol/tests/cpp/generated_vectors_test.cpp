@@ -868,7 +868,7 @@ static bool vec_profile_extremes_55() {
 }
 
 static bool vec_hello_typical_56() {
-  static const uint8_t frame[] = {0xAA, 0x05, 0x80, 0x38, 0x03, 0x00, 0x06, 0x09, 0x0C, 0x7D};
+  static const uint8_t frame[] = {0xAA, 0x09, 0x80, 0x38, 0x03, 0x00, 0x06, 0x09, 0x0C, 0x0F, 0x00, 0x00, 0x00, 0x8B};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(HelloMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -878,6 +878,7 @@ static bool vec_hello_typical_56() {
   if (m.proto != static_cast<uint8_t>(6)) { return false; }
   if (m.caps != static_cast<uint8_t>(9)) { return false; }
   if (m.reset_reason != static_cast<uint8_t>(12)) { return false; }
+  if (m.commit != static_cast<uint32_t>(15UL)) { return false; }
   uint8_t buf[kMaxPayload];
   const uint8_t n = encode(m, buf);
   if (n != len || memcmp(buf, frame + 4, len) != 0) { return false; }
@@ -885,7 +886,7 @@ static bool vec_hello_typical_56() {
 }
 
 static bool vec_hello_extremes_57() {
-  static const uint8_t frame[] = {0xAA, 0x05, 0x80, 0x39, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0x29};
+  static const uint8_t frame[] = {0xAA, 0x09, 0x80, 0x39, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x23};
   const uint8_t len = frame[1];
   if (frame[0] != kSync || frame[2] != static_cast<uint8_t>(HelloMsg::kType)) { return false; }
   if (crc8(frame + 1, static_cast<uint8_t>(len + 3)) != frame[4 + len]) { return false; }
@@ -895,6 +896,7 @@ static bool vec_hello_extremes_57() {
   if (m.proto != static_cast<uint8_t>(0)) { return false; }
   if (m.caps != static_cast<uint8_t>(255)) { return false; }
   if (m.reset_reason != static_cast<uint8_t>(0)) { return false; }
+  if (m.commit != static_cast<uint32_t>(4294967295UL)) { return false; }
   uint8_t buf[kMaxPayload];
   const uint8_t n = encode(m, buf);
   if (n != len || memcmp(buf, frame + 4, len) != 0) { return false; }

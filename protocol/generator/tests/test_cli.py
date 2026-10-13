@@ -1,3 +1,4 @@
+import re
 import shutil
 from pathlib import Path
 
@@ -8,6 +9,13 @@ from protogen.emit_docs import emit_docs
 from protogen.loader import load
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def _bump_version(meta_text: str) -> str:
+    """Return meta.yaml text with protocol_version incremented, whatever its value."""
+    match = re.search(r"protocol_version: (\d+)", meta_text)
+    assert match is not None
+    return meta_text.replace(match.group(0), f"protocol_version: {int(match.group(1)) + 1}")
 
 
 def _tmp_root(tmp_path: Path) -> Path:
@@ -39,7 +47,7 @@ def test_check_detects_missing_regeneration(tmp_path: Path) -> None:
     root = _tmp_root(tmp_path)
     cmd_write(root)
     meta = root / "protocol/defs/meta.yaml"
-    meta.write_text(meta.read_text().replace("protocol_version: 1", "protocol_version: 2"))
+    meta.write_text(_bump_version(meta.read_text()))
     assert cmd_check(root) == 1
 
 

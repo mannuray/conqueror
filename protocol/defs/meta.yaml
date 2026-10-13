@@ -1,4 +1,4 @@
-protocol_version: 1
+protocol_version: 2
 sync: 0xAA
 max_payload: 48
 crc_poly: 0x07

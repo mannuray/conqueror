@@ -12,7 +12,7 @@
 namespace cq {
 namespace proto {
 
-constexpr uint8_t kProtocolVersion = 1;
+constexpr uint8_t kProtocolVersion = 2;
 constexpr uint8_t kSync = 0xAA;
 constexpr uint8_t kMaxPayload = 48;
 constexpr uint32_t kBaud = 250000UL;
@@ -1023,12 +1023,13 @@ inline bool decode(const uint8_t* in, uint8_t len, ProfileMsg& m) {
 
 struct HelloMsg {
   static constexpr FrameType kType = FrameType::kHello;
-  static constexpr uint8_t kFixedSize = 5;
-  static constexpr uint8_t kMaxSize = 5;
+  static constexpr uint8_t kFixedSize = 9;
+  static constexpr uint8_t kMaxSize = 9;
   uint16_t fw;
   uint8_t proto;
   uint8_t caps;
   uint8_t reset_reason;
+  uint32_t commit;
 };
 
 inline uint8_t encode(const HelloMsg& m, uint8_t* out) {
@@ -1037,6 +1038,7 @@ inline uint8_t encode(const HelloMsg& m, uint8_t* out) {
   put_u8(p, static_cast<uint8_t>(m.proto));
   put_u8(p, static_cast<uint8_t>(m.caps));
   put_u8(p, static_cast<uint8_t>(m.reset_reason));
+  put_u32(p, static_cast<uint32_t>(m.commit));
   return static_cast<uint8_t>(p - out);
 }
 
@@ -1047,6 +1049,7 @@ inline bool decode(const uint8_t* in, uint8_t len, HelloMsg& m) {
   m.proto = static_cast<uint8_t>(get_u8(p));
   m.caps = static_cast<uint8_t>(get_u8(p));
   m.reset_reason = static_cast<uint8_t>(get_u8(p));
+  m.commit = static_cast<uint32_t>(get_u32(p));
   return true;
 }
 

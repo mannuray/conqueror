@@ -1706,3 +1706,91 @@ sequenceDiagram
 - HELLO (0x80) gains `commit: u32` = the first 8 hex digits of the firmware's git commit read as a number (`git rev-parse --short=8 HEAD` → `0x1a2b3c4d`); `0` = built outside git / unknown. Payload 5 → **9 bytes**. Breaking change → **`protocol_version` 2** (nothing deployed yet).
 - Build: the `uno` PlatformIO env runs `extra_scripts = pre:scripts/git_commit.py`, which defines `CQ_GIT_COMMIT`; `drivers/board_config.h` defaults it to `0UL` and exposes `board::kGitCommit`. The `native` env (host tests) does not run the script and no domain code reads the value.
 - The commit is the checked-out `HEAD`; uncommitted edits are not marked. Flash release builds from a clean tree.
+
+## 11. Revision 4 — Mega 2560 board support (2026-10-13)
+
+Decision: `docs/design-notes.md` §29. The body board becomes the **Arduino Mega 2560** (ATmega2560, 16 MHz, 256 KB flash, 8 KB SRAM, 4 KB EEPROM) with the same ELEGOO SmartCar Shield V1.1 (TB6612). The Uno stays supported as a later **Lite** profile (stock tanks, no encoders). Domain code is unchanged; only `drivers/`, `board_config.h`, the build envs and the size gate know the board.
+
+### 11.1 Pin map and wiring
+
+| Function | Uno (shield) | Mega 2560 | Mega port/bit | Change |
+|---|---|---|---|---|
+| Motor PWM right / left | D5 / D6 | D5 / D6 | PE3 (Timer3) / PH3 (Timer4) | none (≈490 Hz PWM on the Mega instead of ≈980 Hz; fine for TT motors) |
+| Motor dir right / left, STBY | D7 / D8, D3 | same | PH4 / PH5, PE5 | none |
+| Servos pan / tilt | D10 / D11 | same | Servo lib uses Timer5 on the Mega | none |
+| Buzzer | A0 | A0 | PF0, `tone()` on Timer2 | none |
+| Ultrasonic trig / echo | D13 / D12 | same | PB7 / **PB6 (PCINT6)** | echo bit changes (PCINT0 vector) |
+| IR receiver | D9 (PB1, PCINT1) | **jumper D9 → A10**; D9 left as high-impedance input | **PK2 (PCINT18)** | wiring + driver (PCINT2 vector) |
+| Encoders left / right | A1 / A2 (PC1/PC2, PCINT9/10) | **move wires to A8 / A9** | **PK0 / PK1 (PCINT16/17)** | wiring + driver (PCINT2 vector) |
+| MPU6050 I2C | A4 (SDA) / A5 (SCL) | **jumpers 20 → A4, 21 → A5**; A4/A5 stay inputs | PD1 / PD0 (TWI) | wiring; `Wire`/`SDA`/`SCL` resolve to 20/21 automatically |
+| WS2812 LED | D4 (PD4) | D4 | **PG5** | LED bit-bang port changes |
+| Button | D2 | D2 | PE4 | none |
+| Battery | A3 | A3 | PF3 (ADC3, MUX5 = 0) | none |
+| ESP32 link | D0/D1 (Serial) via S1 | same (Serial) | PE0/PE1 | none (Serial1 on D18/D19 is a later option) |
+
+```mermaid
+flowchart LR
+  subgraph Shield["SmartCar Shield V1.1 (unchanged)"]
+    IMU["MPU6050 on A4/A5"]
+    IR["IR receiver on D9"]
+    ENC["Encoder connector (was A1/A2)"]
+  end
+  subgraph Mega["Mega 2560 headers"]
+    P20["D20 SDA"] --- J1((jumper)) --- IMU
+    P21["D21 SCL"] --- J2((jumper)) --- IMU
+    A10["A10 / PK2"] --- J3((jumper)) --- IR
+    A8["A8 / PK0"] --- ENC
+    A9["A9 / PK1"] --- ENC
+  end
+```
+
+### 11.2 Board abstraction (classes)
+
+```mermaid
+classDiagram
+  class board_config {
+    <<header, BOARD_UNO | BOARD_MEGA>>
+    +pins (motors, servos, buzzer, sensors)
+    +kPinIr, kPinEncLeft, kPinEncRight
+    +kLedPort, kLedBit
+    +kFlashLimit, kRamLimit
+  }
+  class PcintHub {
+    <<driver per board>>
+    +irBegin() / ultrasonicBegin() / encodersBegin()
+    ISR PCINT0: echo (both boards), IR (Uno)
+    ISR PCINT1: encoders (Uno)
+    ISR PCINT2: IR + encoders (Mega)
+  }
+  class Ws2812Driver {
+    +show(Rgb) uses kLedPort/kLedBit
+  }
+  class SizeGate {
+    +env uno: 30 KB / 1750 B
+    +env mega: 240 KB / 6 KB
+  }
+  board_config <.. PcintHub
+  board_config <.. Ws2812Driver
+```
+
+- `board_config.h` gains a `BOARD_MEGA` branch: same pin numbers except `kPinIr = A10` (64), `kPinEncLeft = A8` (62), `kPinEncRight = A9` (63); the LED driver takes its port/bit from the config (`PORTD/4` Uno, `PORTG/5` Mega).
+- **Pin-change interrupts:** on the Uno, PCINT0 serves IR + echo and PCINT1 the encoders. On the Mega, PCINT0 serves echo only (PB6) and **PCINT2 serves IR (PK2) and both encoders (PK0/PK1)**. Each ISR stays capture-only (< 10 µs): read the port once, XOR with the previous value, timestamp the changed bits.
+- `imu` bus recovery uses `SDA`/`SCL`, which are 20/21 on the Mega; the shield's A4/A5 pins are set to `INPUT` (no pull-up) at boot so they never fight the jumpers.
+- PlatformIO: new env `mega` (`board = megaatmega2560`, `-DBOARD_MEGA`, same flags, git-commit pre-script); `uno` env keeps `-DBOARD_UNO` for the later Lite profile; `native` unchanged.
+- Upload: genuine Mega (16U2) → `wiring` protocol at 115200 on `/dev/ttyACM*`; CH340 clones on `/dev/ttyUSB*`, same protocol.
+- Size gate: `--env mega` limits **flash 240 KB** (8 KB bootloader reserved), **static RAM 6 KB** (2 KB headroom for stack); `--env uno` keeps 30 KB / 1750 B.
+- Reset reason: the Mega's stk500v2 bootloader does not pass MCUSR either; R16 logic (trust r2 only when plausible) applies unchanged.
+
+### 11.3 Bring-up order (Mega)
+
+```mermaid
+sequenceDiagram
+  participant Owner
+  participant Mega
+  participant Bench as Linux (avrdude + smoke)
+  Owner->>Mega: fit Mega under the shield, jumpers 20→A4, 21→A5, D9→A10; encoders to A8/A9
+  Bench->>Mega: flash Tasks 1–6 build (env mega)
+  Mega-->>Bench: boot line, HELLO (fw, proto 2, caps, commit)
+  Bench->>Mega: watch: IMU pitch/roll, ultrasonic, IR codes, battery
+  Owner->>Bench: tank on the stand → first motor test (Task 6 stand checks)
+```

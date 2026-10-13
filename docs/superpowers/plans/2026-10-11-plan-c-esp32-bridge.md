@@ -7081,7 +7081,8 @@ def build(project: pathlib.Path) -> None:
         "inline const Asset kAssets[] = {",
     ]
     for i, (uri, ctype, _, zipped) in enumerate(assets):
-        out.append(f'  {{"{uri}", "{ctype}", kAsset{i}, sizeof(kAsset{i}), {str(zipped).lower()}}},')
+        flag = "true" if zipped else "false"
+        out.append(f'  {{"{uri}", "{ctype}", kAsset{i}, sizeof(kAsset{i}), {flag}}},')
     out += [
         "};",
         "constexpr size_t kAssetCount = sizeof(kAssets) / sizeof(kAssets[0]);",

@@ -872,6 +872,9 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
   - **6-wire harness** to the head: VCC 5 V + GND (ESP32 logic), TX, RX, servo 5 V + servo GND straight from the base regulator (servo bursts never reach the ESP32 supply). Connector e.g. 6-pin JST-PH/XH.
   - **Base MCU: RP2040** (the smaller chips cannot hold the body firmware). PIO for the 2 quadrature encoders, WS2812 and IR; needs external QSPI flash (e.g. W25Q16) + 12 MHz crystal; 3.3 V I/O → level shifting for the ultrasonic echo and the WS2812 data line (e.g. 74AHCT1G125). RP2350 noted as a same-class alternative.
   - **Charging on the board through the same USB-C** that programs the RP2040; Li-ion 2S. 5 V USB → 2S needs a boost charger (IP2326/CS5090E class, or TI BQ25887 with cell balancing); USB-C PD input (IP2368 class) would be faster. Needs: cell balancing (in the charger or a 2S protection board), pack protection, NTC temperature sensing, fuse.
-- Still open: charger type (5 V boost vs USB-C PD), fixed 2S pack (recommended with on-board charging) vs loose 18650 cells, run-while-charging (power path), 2 or 4 motor channels, certification (BIS toys/Li-ion, WPC, EPR).
+  - **Fixed 2S Li-ion pack** with its own protection (not loose 18650 cells), **5 V USB-C boost charger** (works with any phone charger, ~3 h for 2500 mAh), **2 motor channels**.
+- **"No voltage thinking" for users** is a board-design rule, not only an MCU choice: every connector is 5 V-safe (5 V power on each, 5 V-tolerant inputs, outputs that 5 V parts accept; the WS2812 data line gets a 74AHCT1G125 buffer).
+- **MCU under discussion:** RP2040 (decided earlier) vs **RP2350A** (recommended: Cortex-M33 with FPU for the IMU/PID float maths, 520 KB RAM, 3 PIO blocks, 5 V-tolerant GPIO inputs; ~INR 20-30 more; use A4 stepping - erratum E9 on internal pull-downs) vs Renesas RA4M1 (true 5 V, FPU, official Arduino core, but ~3x the price, no PIO, 32 KB RAM).
+- Still open: final MCU, run-while-charging (power path), certification (BIS toys/Li-ion, WPC, EPR).
 - Next step once requirements are settled: a spec in `docs/superpowers/specs/` (design first).
 

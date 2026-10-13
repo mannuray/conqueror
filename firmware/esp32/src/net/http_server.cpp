@@ -46,6 +46,10 @@ void sendWork(void*) {
       ++g_dropped;
       continue;
     }
+    if (httpd_ws_get_fd_info(g_server, m.fd) != HTTPD_WS_CLIENT_WEBSOCKET) {
+      ++g_dropped;  // review M6: closed meanwhile, or the fd now belongs to another session
+      continue;
+    }
     httpd_ws_frame_t f{};
     f.final = true;
     f.type = HTTPD_WS_TYPE_TEXT;
@@ -130,7 +134,11 @@ void onSockClose(httpd_handle_t, int fd) {
   LinkCommand cmd{};
   cmd.kind = LinkCommand::Kind::kWsClose;  // link_task ignores sockets that were plain HTTP
   cmd.fd = fd;
-  linkPost(cmd, false);
+  // Review M6: a lost kWsClose would leave a ghost client whose fd number gets reused. linkPost
+  // waits 100 ms per try; link_task drains every 2 ms, so this only loops if link_task is stuck.
+  bool posted = false;
+  for (int i = 0; i < 10 && !posted; ++i) posted = linkPost(cmd, false);
+  if (!posted) logf("ws: close of fd %d not delivered to link_task", fd);
   close(fd);  // with a close_fn set, the application closes the socket
 }
 
@@ -179,8 +187,12 @@ bool wsSend(int fd, const char* json, size_t len) {
   return true;
 }
 
-void wsClose(int fd) {
-  if (g_server != nullptr) httpd_sess_trigger_close(g_server, fd);
+bool wsClose(int fd) {
+  // Only a live WebSocket session (review M6: never close an unrelated session that reused the fd).
+  if (g_server == nullptr || httpd_ws_get_fd_info(g_server, fd) != HTTPD_WS_CLIENT_WEBSOCKET) {
+    return false;
+  }
+  return httpd_sess_trigger_close(g_server, fd) == ESP_OK;
 }
 
 uint32_t wsDropped() { return g_dropped; }

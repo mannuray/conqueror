@@ -356,7 +356,12 @@ void reapSilent(uint32_t now) {
   const size_t n = g_ws.silent(now, fds, core::kMaxWsClients);
   for (size_t i = 0; i < n; ++i) {
     logf("ws: %s silent for 3 s - closing", g_ws.name(fds[i]));
-    wsClose(fds[i]);  // kWsClose follows -> LinkOwner STOP if it was the driver
+    if (!wsClose(fds[i])) {  // kWsClose follows -> LinkOwner STOP if it was the driver
+      LinkCommand gone{};    // review M6: a ghost (session already gone) - remove it here
+      gone.kind = LinkCommand::Kind::kWsClose;
+      gone.fd = fds[i];
+      handleCommand(gone, now);
+    }
   }
 }
 

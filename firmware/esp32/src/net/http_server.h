@@ -14,7 +14,7 @@ namespace net {
 bool httpServerStart();
 httpd_handle_t httpServer();
 bool wsSend(int fd, const char* json, size_t len);  // false: out queue full (counted)
-void wsClose(int fd);                               // reap / OTA: close a WS session
+bool wsClose(int fd);  // reap / OTA: close a WS session; false = not a live WS session (no kWsClose follows)
 uint32_t wsDropped();
 
 }  // namespace net

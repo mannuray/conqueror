@@ -43,7 +43,7 @@ class WifiPolicy {
         return WifiAction::kNone;
       case WifiMode::kFallbackAp:
       default:
-        if (sta_connected) {
+        if (sta_connected && !has_clients) {  // review M9: never drop the AP under connected phones
           m_mode = WifiMode::kStation;
           return WifiAction::kApOff;  // home network is back: AP off, station up
         }

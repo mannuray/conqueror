@@ -40,6 +40,16 @@ void test_retry_every_60s_only_without_clients() {
   TEST_ASSERT_EQUAL(A(WifiAction::kApOff), A(p.step(110000, true, false)));
 }
 
+// Review M9: the home network coming back does not drop the AP under connected phones.
+void test_ap_stays_while_clients_connected() {
+  WifiPolicy p;
+  p.begin(0);
+  p.step(30000, false, false);  // fallback AP
+  TEST_ASSERT_EQUAL(A(WifiAction::kNone), A(p.step(40000, true, true)));  // phone on the AP
+  TEST_ASSERT_EQUAL(static_cast<int>(WifiMode::kFallbackAp), static_cast<int>(p.mode()));
+  TEST_ASSERT_EQUAL(A(WifiAction::kApOff), A(p.step(50000, true, false)));  // phone gone
+}
+
 void test_station_lost_reconnects() {
   WifiPolicy p;
   p.begin(0);
@@ -53,6 +63,7 @@ int main() {
   RUN_TEST(test_station_connects);
   RUN_TEST(test_fallback_ap_after_30s);
   RUN_TEST(test_retry_every_60s_only_without_clients);
+  RUN_TEST(test_ap_stays_while_clients_connected);
   RUN_TEST(test_station_lost_reconnects);
   return UNITY_END();
 }

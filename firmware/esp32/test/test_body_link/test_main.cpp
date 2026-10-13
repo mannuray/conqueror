@@ -253,6 +253,19 @@ void test_telemetry_snapshot_and_events() {
   TEST_ASSERT_EQUAL(static_cast<int>(proto::EventKind::kDeadmanStop), ev.code);
 }
 
+// Review I1: link_task follows TELEM_SLOW.owner only when a new slow frame arrived (an IR takeover
+// from EVENT control_changed must not be undone by the 1 Hz frame's older owner on the next tick).
+void test_slow_count_counts_slow_frames() {
+  TEST_ASSERT_EQUAL_UINT32(0, bl->snapshot().slow_count);
+  uint8_t f[64];
+  size_t n = cqtest::frame(proto::TelemSlowMsg{}, 1, f);
+  unoSends(f, n, 5);
+  TEST_ASSERT_EQUAL_UINT32(1, bl->snapshot().slow_count);
+  n = cqtest::frame(proto::TelemSlowMsg{}, 2, f);
+  unoSends(f, n, 1005);
+  TEST_ASSERT_EQUAL_UINT32(2, bl->snapshot().slow_count);
+}
+
 void test_wifi_reset_request_answered_unavailable() {
   bl->startMaster(0);
   uint8_t f[16];
@@ -283,6 +296,7 @@ int main() {
   RUN_TEST(test_inject_stop_uses_callers_seq);
   RUN_TEST(test_cam_home_ack_and_timeout);
   RUN_TEST(test_telemetry_snapshot_and_events);
+  RUN_TEST(test_slow_count_counts_slow_frames);
   RUN_TEST(test_wifi_reset_request_answered_unavailable);
   return UNITY_END();
 }

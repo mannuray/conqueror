@@ -36,6 +36,7 @@ char g_json[core::kWsJsonMax];
 uint32_t g_ev_seq = 0;
 uint32_t g_tf_seq = 0;
 uint32_t g_last_fast_count = 0;
+uint32_t g_last_slow_count = 0;
 uint32_t g_last_ts_ms = 0;
 struct Waiter {
   int fd;
@@ -376,7 +377,10 @@ void linkTask(void*) {
     }
     LinkCommand cmd;
     while (xQueueReceive(g_queue, &cmd, 0) == pdTRUE) handleCommand(cmd, now);
-    if (g_link.snapshot().slow_valid) {
+    // Only a NEW slow frame updates the owner (review I1): re-applying the 1 Hz frame's older owner
+    // every tick would undo an IR takeover reported by EVENT control_changed.
+    if (g_link.snapshot().slow_count != g_last_slow_count) {
+      g_last_slow_count = g_link.snapshot().slow_count;
       apply(g_owner.onUnoOwner(static_cast<proto::Owner>(g_link.snapshot().slow.owner)), now);
     }
     const char* driver = g_owner.driverFd() != core::LinkOwner::kNoFd

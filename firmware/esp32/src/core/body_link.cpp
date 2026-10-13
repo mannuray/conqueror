@@ -102,7 +102,10 @@ void BodyLink::onFrame(const FrameView& f, uint32_t now_ms) {
       }
       break;
     case proto::FrameType::kTelemSlow:
-      if (proto::decode(f.payload, f.len, m_snap.slow)) m_snap.slow_valid = true;
+      if (proto::decode(f.payload, f.len, m_snap.slow)) {
+        m_snap.slow_valid = true;
+        ++m_snap.slow_count;
+      }
       break;
     case proto::FrameType::kEvent: {
       proto::EventMsg e{};

@@ -8510,3 +8510,142 @@ git tag bridge-v0.1.0 && git push origin bridge-v0.1.0
 cd firmware/esp32 && scripts/make_release.sh bridge-v0.1.0
 ```
 Expected: `pio run -e bridge_release` succeeds only on a clean, tagged tree; `dist/bridge-v0.1.0/` holds `bootloader.bin partitions.bin boot_app0.bin firmware.bin source.bin flash.sh`; `gh release create` prints the release URL. `flash.sh /dev/ttyACM0` refuses anything that is not an ESP32-S3. (`dist/` is already git-ignored by the root `.gitignore`.)
+
+---
+
+### Task 10: End-to-end checks, README, LLD implementation notes
+
+**Files:**
+- Create: `firmware/esp32/README.md`
+- Modify: `docs/lld/esp32-bridge-lld.md` (append "Implementation notes (Plan C)")
+
+**Interfaces:**
+- Consumes: everything above; `tools/smoke/bridge_echo.py` (`tcp`, `tcp-busy`, `ws`, `ws-owner`); Plan B on the Uno; Plan D bench tool if available.
+
+- [ ] **Step 1: README with the security warning and the hardware checklist**
+
+`firmware/esp32/README.md`:
+````markdown
+# Conqueror ESP32-S3 developer bridge (`firmware/esp32`, `env:bridge`)
+
+> **DEVELOPER BRIDGE — NO AUTHENTICATION.** Anyone on the same network can drive the tank (Basic
+> Drive page, WebSocket `/ws`, TCP 3333). Use it only on your home network. Never ship it in
+> release firmware. OTA is password-protected (MD5 challenge — fun, not real security).
+
+Board: ELEGOO **ESP32S3-Camera-V1.0** (ESP32-S3-WROOM-1, 8 MB flash, 8 MB octal PSRAM, USB-C).
+Design: `docs/lld/esp32-bridge-lld.md` Revision 2 · plan: `docs/superpowers/plans/2026-10-11-plan-c-esp32-bridge.md`.
+
+What it does:
+- **Basic Drive page** at `http://conqueror-bridge.local/` — joystick, STOP, speed, camera, telemetry.
+  The ESP32 is the body-link master for the page (handshake, heartbeats); every drive message from
+  the page becomes exactly one DRIVE frame, so a sleeping phone stops the tank (Uno deadman, 0.3 s).
+- **Bench passthrough** on TCP 3333 for the Plan D bench tool (frame-aligned, unchanged protocol).
+- **Camera** MJPEG at `http://conqueror-bridge.local:81/stream` (max 2 viewers).
+- **OTA** over WiFi (ArduinoOTA, only while nobody drives) — the Uno stays USB-only.
+- **Self-description**: `/info` (JSON), `/help` (people), `/source.tar.gz` (this exact source).
+
+Needs **Plan B firmware on the Uno** (protocol version 2); with another version the page shows
+"body offline — flash Plan B".
+
+## Setup
+1. `uv tool install platformio && uv tool install esptool` (Linux: udev rules + `dialout`, see `docs/dev-setup.md`).
+2. `cp include/secrets.example.h include/secrets.h` — home WiFi, fallback-AP password (≥ 8 chars),
+   OTA password (not `change-me`). `secrets.h` is git-ignored and never packed into the source archive.
+3. Check the chip, then flash over USB-C (hold BOOT while plugging in if no port appears):
+   ```bash
+   python3 scripts/check_chip.py --port /dev/ttyACM0      # macOS: /dev/cu.usbmodem*
+   pio run -e bridge -t upload --upload-port /dev/ttyACM0
+   pio run -e bridge -t upload_source --upload-port /dev/ttyACM0
+   pio device monitor -p /dev/ttyACM0 -b 115200            # boot log: version, IP, Uno HELLO
+   ```
+4. Shield switch **S1** in the "ESP32 connected" position (flip it only for Uno USB uploads).
+
+## Use
+| What | How |
+|---|---|
+| Drive from a phone | `http://conqueror-bridge.local/` (or the IP from the log); add to home screen for fullscreen |
+| Bench tool | `uv run bench -H conqueror-bridge.local dash` (`bench discover` finds `_cqbridge._tcp`) |
+| Camera only | `http://conqueror-bridge.local:81/stream` |
+| Facts | `/info`, `/help`, `/source.tar.gz` |
+| Update over WiFi | `CQ_OTA_PASSWORD=… scripts/ota.sh` (app + source; refused while someone drives) |
+| Release | `git tag bridge-vX.Y.Z && scripts/make_release.sh bridge-vX.Y.Z` |
+| Host tests | `pio test -e native` |
+| Smoke checks | `cd ../../tools/smoke && uv run python bridge_echo.py --host conqueror-bridge.local tcp|tcp-busy|ws|ws-owner` |
+
+Rules worth knowing: one driver at a time (first `drive` owns it, 5 s handback); other phones get
+`NOT_OWNER`, phones get `BUSY` while the bench is connected; a bench that arrives while a phone
+drives is closed at once; STOP works from everyone, always; the IR remote beats everyone. Home WiFi
+unreachable for 30 s → hotspot `conqueror-bridge` at `192.168.4.1`.
+
+## Hardware checklist (owner present, tank on a stand, tracks off the ground, STOP within reach)
+- [ ] Chip check: `check_chip.py` prints `OK - ESP32-S3, 8MB flash, 8MB PSRAM, MAC 48:ca:43:9e:74:b4`; a non-S3 board is refused.
+- [ ] USB flash on Linux via `/dev/ttyACM0`; boot log shows version, commit, `PSRAM 8 MB`, `running from partition app0|app1`.
+- [ ] Uno link: `uno: synced fw … proto 2 commit …` after a phone connects; unplugging the Uno cable gives `body offline`.
+- [ ] WiFi: station IP + `conqueror-bridge.local`; wrong password → fallback AP after 30 s.
+- [ ] Bench over TCP: `bridge_echo.py tcp` → `synced=True bad_crc=0`; `tcp-busy` → refused.
+- [ ] Phone drive: forward/turn/hold still keeps moving/release stops/STOP stops/speed slider scales.
+- [ ] Deadman: phone locks its screen while driving → tracks stop within ~0.3 s; unlock → no movement until the stick is touched again.
+- [ ] Ownership: second phone sees "Busy"; bench refused while a phone drives; IR remote takes over.
+- [ ] Camera: video on the page, pan/tilt stick returns home, third viewer gets 503.
+- [ ] OTA: `scripts/ota.sh` while idle works; while a phone drives, espota times out.
+- [ ] `/info` valid JSON with `uno.commit`, `source.matches_fw: true`; `/help` complete; `/source.tar.gz` has no `secrets.h`.
+````
+
+- [ ] **Step 2: Record the implementation decisions in the LLD**
+
+Append to `docs/lld/esp32-bridge-lld.md`:
+```markdown
+
+## Implementation notes (Plan C, 2026-10-13)
+- Toolchain: pioarduino 55.03.311 (Arduino-ESP32 3.3.11, ESP-IDF 5.5.5), board `esp32-s3-devkitc-1`, `qio_opi`, `partitions_cq8m.csv`; `-Werror` only in `env:native` (framework headers are not warning-clean).
+- mDNS services: `_cqbridge._tcp` 3333 (DNS-SD names ≤ 15 characters; Plan D's `discover` uses it), `_http._tcp` 80, `_arduino._tcp` 3232 — R1's `_conqueror-bridge._tcp` is not used.
+- One `link_task` owns UART, `BodyLink`, `LinkOwner`, `TcpPassthrough` and `WsClients`; `UartWriter` is realised as `FrameTx` (whole-chunk queue + one urgent STOP slot) drained only by `link_task`, so no mutex is needed. WS replies are queued and sent by the httpd task (`httpd_queue_work`).
+- STOP injected during passthrough is resent every 50 ms (max 10); **all** ACKs with that seq are swallowed for 500 ms (one per resend), not only the first.
+- The Uno's WIFI_RESET_REQ / ADMIN_RESET_REQ are answered with ESP_ACK `UNAVAILABLE` while the ESP32 is master (the bridge has no stored WiFi/admin settings); in passthrough the bench answers them.
+- WebSocket: `welcome` adds `you` (this client's name) and `owner_client`; streaming rejections (`drive`, `cam_joy`) are reported once per reason (`nack` without `id`, spec 01 §5); rate limits drive 25/s, cam_joy 25/s, all 60/s, STOP never; max 4 WS clients; Uno owner CALIBRATION is shown as `"human"`.
+- Camera: anyone may move the camera while nobody drives; while a phone drives only that phone may (`NOT_OWNER` otherwise); `BUSY` during passthrough.
+- `icon-192.png` is drawn by `scripts/pack_web.py` at build time (no PNG in git), so `.gitattributes` needs no `-export-ignore` exception; the source archive is 0.56 MB.
+- `/help` cheat-sheet examples are built by the protogen encoder from a fixed example list (golden.yaml has no HELLO/DRIVE/CAM_JOY vectors); the Tank Logo section is a placeholder until the phase-4 runner exists.
+- Chip check uses esptool `flash-id` (v5; `flash_id` fallback for v4) and accepts both `Chip is` and `Chip type:` output.
+```
+
+- [ ] **Step 3: Host checks**
+
+Run:
+```bash
+cd firmware/esp32 && pio test -e native && pio run -e bridge
+cd ../../protocol && uv run protogen check && uv run pytest -q
+cd ../tools/smoke && uv run ruff format --check . && uv run ruff check . && uv run pyright
+```
+Expected: `84 test cases: 84 succeeded`; bridge build `SUCCESS` with `pack_web` and `pack_source` lines; protogen check clean, `161 passed`; smoke scripts clean.
+
+- [ ] **Step 4 [HW]: Full hardware checklist (owner present; tank on a stand, tracks off the ground; IR remote and page STOP within reach)**
+
+Work through the README "Hardware checklist" in order. The safety-critical items, with expected results:
+1. **Chip + USB (Linux):** `python3 scripts/check_chip.py --port /dev/ttyACM0` → `OK - ESP32-S3, 8MB flash, 8MB PSRAM`; `pio run -e bridge -t upload --upload-port /dev/ttyACM0` and `-t upload_source` succeed.
+2. **Uno link:** from `tools/smoke/`: `uv run python bridge_echo.py --host conqueror-bridge.local tcp --seconds 10` → `synced=True`, `bad_crc=0`; `tcp-busy` → `True`; `ws --seconds 5` → `OK`; `ws-owner` → `owner rules OK`.
+3. **Phone drive on the stand:** Task 7 Step 5 items 1–6 all pass.
+4. **Deadman when the phone sleeps:** drive forward at ~30 % and press the phone's power button while holding the stick → tracks stop within ~0.3 s (USB log: no further DRIVE; the page later reconnects); about 3 s later the log shows `ws: phone-1 silent for 3 s - closing` (if the OS kept the socket) and the Uno is not moving. Unlock: the tank stays still until the stick is touched again.
+5. **Bench refused while a phone drives:** with the phone holding the stick, `uv run bench -H conqueror-bridge.local dash` (or `bridge_echo.py tcp`) → closed at once; log `tcp refused: phone-1 is driving`.
+6. **Phone STOP during bench passthrough:** bench (Plan D) runs `turn by 360` at 30 %; press STOP on the phone → tracks stop; the bench shows the stop in telemetry and is still connected (its own commands keep working).
+7. **OTA:** idle → `CQ_OTA_PASSWORD=… scripts/ota.sh` updates app and source (`/info` `matches_fw: true`); while a phone drives → espota times out, the tank keeps driving normally.
+8. **`/help`** shows version, commit, Uno version/commit, protocol tables and reflash commands; `/source.tar.gz` downloads and contains no `secrets.h`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add firmware/esp32/README.md docs/lld/esp32-bridge-lld.md
+git commit -m "docs(esp32-bridge): README with hardware checklist, LLD implementation notes
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+## Done when
+
+- `pio test -e native` passes all **84** host tests (parser on `protocol/vectors/`, frame TX, body link, link owner, WiFi policy, frame aligner, WS codec/JSON/clients) and `pio run -e bridge` builds with the page ≤ 25 KB gzipped (≈ 7 KB) and `/help` ≤ 16 KB (≈ 7 KB).
+- Protocol: `protogen write/check` include `firmware/esp32/src/generated/help_protocol.html`; protocol tests pass (161); CLAUDE.md lists the new generated path.
+- Python: `bridge_echo.py` and the build scripts are ruff + format clean; `bridge_echo.py` is pyright strict clean.
+- On hardware (owner present, tank on a stand): chip check refuses non-S3 boards; USB flash on Linux `/dev/ttyACM0`; station + mDNS, fallback AP after 30 s; Plan D bench works unchanged over TCP 3333 (`synced=True`, `bad_crc=0`); phone page drives, hold-still keeps moving, release/STOP stop, deadman stops a sleeping phone within ~0.3 s; ownership rules (NOT_OWNER, BUSY, bench refused, IR beats all); camera with 2 viewers; OTA works only while idle; `/info`, `/help`, `/source.tar.gz` correct and secret-free.
+- Plan B's Uno firmware (protocol 2) was flashed first; nothing on the Uno changed.

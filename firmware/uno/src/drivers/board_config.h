@@ -26,9 +26,9 @@ constexpr bool kHasStandby = false;
 #error "select a shield: -DSHIELD_SMARTCAR_V11_TB6612 or -DSHIELD_TANK_DRV8835"
 #endif
 
-// Direction pin level that drives each track forward. Measured by the shield probe (Task 7);
-// starting values from the ELEGOO tank firmware (right forward = LOW, left forward = HIGH).
-constexpr bool kDirRightForwardHigh = false;
+// Direction pin level that drives each track forward. Measured by the shield probe on the owner's
+// tank (2026-10-13): both forward = HIGH (the ELEGOO starting guess had right = LOW; it ran backward).
+constexpr bool kDirRightForwardHigh = true;
 constexpr bool kDirLeftForwardHigh = true;
 
 constexpr uint8_t kPinButton = 2;

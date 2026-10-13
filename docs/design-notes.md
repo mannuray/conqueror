@@ -833,3 +833,8 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 - The owner's ultrasonic answers 2.2 ms after the trigger; the firmware only waited 2 ms, so it reported a fault although the sensor works (25 cm measured).
 - The answer window is now 10 ms (still fits the 50 ms ping period). An unplugged or dead sensor still faults. LLD §11.6.
 
+## 34. Shield probe on the owner's tank: both tracks forward = direction pin HIGH (CONFIRMED 2026-10-13)
+- Probe on the stand (PWM ramp to 120 per track and direction): left forward/reverse correct; right ran backward with the ELEGOO starting guess (right forward = LOW).
+- Fix in firmware only (`board_config.h`: `kDirRightForwardHigh = true`); motor wiring stays stock. Re-probe: all four cases PASS.
+- Bench note: a calibration request sent within ~2 s of boot was refused (`CAL_PRECONDITION`); 3 s after sync it runs. An IR key press during a script cancels it (by design: IR takes ownership).
+

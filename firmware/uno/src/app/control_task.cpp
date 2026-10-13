@@ -170,6 +170,18 @@ proto::AckStatus onTurn(const uint8_t* p, uint8_t len) {
   return g_app.primitives.startTurn(m, g_prim, primInputs(), port::clock::nowMs());
 }
 
+proto::AckStatus startLocalTurn(int16_t angle_dd, uint8_t speed_pct) {
+  proto::TurnMsg m{};
+  m.src = static_cast<uint8_t>(proto::Source::kNone);
+  m.mode = static_cast<uint8_t>(proto::TurnMode::kBy);
+  m.angle = angle_dd;
+  m.speed = speed_pct;
+  m.radius_cm = 0;
+  zeroTeleop();
+  g_prim.imu_ok = imuUsable();
+  return g_app.primitives.startTurn(m, g_prim, primInputs(), port::clock::nowMs());
+}
+
 proto::AckStatus onMove(const uint8_t* p, uint8_t len) {
   proto::MoveMsg m{};
   if (!proto::decode(p, len, m)) return proto::AckStatus::kInvalidCommand;

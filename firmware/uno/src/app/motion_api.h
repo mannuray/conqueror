@@ -30,5 +30,6 @@ bool calibrationTick(int16_t& pwm_l, int16_t& pwm_r);  // true while a script dr
 void calibrationAbort(proto::AckStatus reason);
 void encodersTick();  // 100 Hz, called by the control task before control
 
+proto::AckStatus startLocalTurn(int16_t angle_dd, uint8_t speed_pct);
 }  // namespace app
 }  // namespace cq

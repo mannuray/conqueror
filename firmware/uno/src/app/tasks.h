@@ -20,6 +20,7 @@ void cameraInit();  // boot: servos to the home pulse, then attach
 void cameraTask();  // 50 Hz
 void uiInit();  // boot: buzzer and WS2812 pins
 void uiTask();  // 50 Hz
+void inputTask();  // 50 Hz: IR remote + mode button
 // TASK-DECLS-END
 
 }  // namespace app

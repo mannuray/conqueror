@@ -40,6 +40,7 @@ cq::Task g_tasks[] = {
     {cq::app::selfTestRecoverTask, 100000UL, 0},
     {cq::app::cameraTask, 20000UL, 0},
     {cq::app::uiTask, 20000UL, 0},
+    {cq::app::inputTask, 20000UL, 0},
     // TASKS-END
 };
 cq::Scheduler g_scheduler(g_tasks, static_cast<uint8_t>(sizeof g_tasks / sizeof g_tasks[0]));

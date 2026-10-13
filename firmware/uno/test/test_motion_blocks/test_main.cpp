@@ -143,6 +143,14 @@ void test_degraded_caps() {
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 80.0f, o.l);
 }
 
+void test_scale_pwm_caps_every_source() {
+  // Final review Important #2: the 6 V cap applies to calibration PWM too (full 8.4 V pack).
+  const float s = cq::batteryScale(8400, 6000);
+  TEST_ASSERT_EQUAL(182, cq::scalePwm(255, s));
+  TEST_ASSERT_EQUAL(-182, cq::scalePwm(-255, s));
+  TEST_ASSERT_EQUAL(120, cq::scalePwm(120, cq::batteryScale(0, 6000)));  // USB only: unscaled
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_pid_p_only_and_limits);
@@ -156,5 +164,6 @@ int main() {
   RUN_TEST(test_envelope_caps_targets);
   RUN_TEST(test_obstacle_slow_zone_scales_forward_only);
   RUN_TEST(test_degraded_caps);
+  RUN_TEST(test_scale_pwm_caps_every_source);
   return UNITY_END();
 }

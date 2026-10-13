@@ -10,4 +10,7 @@ inline float batteryScale(uint16_t batt_mv, uint16_t motor_v_max_mv) {
   return s < 0.5f ? 0.5f : s;
 }
 
+// Applies batteryScale to a signed PWM command (every motion source, calibration included).
+inline int16_t scalePwm(int16_t pwm, float scale) { return static_cast<int16_t>(static_cast<float>(pwm) * scale); }
+
 }  // namespace cq

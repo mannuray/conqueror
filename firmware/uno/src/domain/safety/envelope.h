@@ -22,6 +22,9 @@ class Envelope {
   }
   bool brakeOn() const { return m_brake_on || m_lock_brake; }
   bool active() const { return m_speed_cap < 100 || m_accel_cap != 0 || m_lock_brake; }
+  // LLD §9.7: calibration needs full authority, so any active envelope (child play included) refuses
+  // a script to start and stops a running one.
+  bool blocksCalibration() const { return active(); }
 
  private:
   uint8_t m_speed_cap = 100;

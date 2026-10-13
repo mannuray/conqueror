@@ -562,6 +562,16 @@ void test_override_cannot_unlock_selftest() {
   TEST_ASSERT_TRUE(sst.locked);
 }
 
+void test_envelope_blocks_calibration() {
+  // Final review Important #1: any active envelope (child play included) stops a running script.
+  cq::Envelope e;
+  TEST_ASSERT_FALSE(e.blocksCalibration());
+  TEST_ASSERT_EQUAL(static_cast<int>(cq::proto::AckStatus::kOk), static_cast<int>(e.set(20, 30, 3)));
+  TEST_ASSERT_TRUE(e.blocksCalibration());
+  TEST_ASSERT_EQUAL(static_cast<int>(cq::proto::AckStatus::kOk), static_cast<int>(e.set(100, 0, 0)));
+  TEST_ASSERT_FALSE(e.blocksCalibration());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ir_owner_ignores_link_loss);
@@ -589,5 +599,6 @@ int main() {
   RUN_TEST(test_override_cannot_unlock_selftest);
   RUN_TEST(test_battery_only_lock_clears_after_1s_valid);
   RUN_TEST(test_imu_lock_not_auto_cleared);
+  RUN_TEST(test_envelope_blocks_calibration);
   return UNITY_END();
 }

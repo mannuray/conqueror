@@ -63,8 +63,6 @@ proto::AckStatus networkMotion(uint8_t frame_type, uint8_t src, bool teleop) {
   return st;
 }
 
-int16_t scaled(int16_t pwm, float s) { return static_cast<int16_t>(static_cast<float>(pwm) * s); }
-
 // Accepted network motion: AI motion ends Override, human driving refreshes its idle timer (LLD §10.2).
 void overrideMotion(uint8_t src, bool driving) {
   g_app.safety_override.onNetworkMotion(static_cast<proto::Source>(src), driving, port::clock::nowMs());
@@ -219,6 +217,8 @@ proto::AckStatus onEnvelope(const uint8_t* p, uint8_t len) {
     g_app.slow.env_speed_cap = m.speed_cap;
     g_app.slow.env_accel_cap = m.accel_cap;
     g_app.slow.env_lock_brake = g_app.envelope.flags();  // EnvelopeFlagBit bits (child play = 3)
+    // A script runs without the target limiter, so an envelope arriving mid-script stops it (LLD §9.7).
+    if (g_app.envelope.blocksCalibration()) calibrationAbort(proto::AckStatus::kEnvelopeLocked);
     if (g_app.envelope.childPlay()) {  // only child play ends Override; an adult envelope keeps it (caps apply)
       g_app.safety_override.end(proto::OverrideReason::kEnvelope);
       drainOverride();
@@ -369,11 +369,12 @@ void controlTask() {
     pwm_r = g_app.speed_r.update(tgt_r, g_app.enc_r.cps(), kDt, pwmLimitForCap(cap, cr.keep_pwm), moving_r,
                                  capped || g_app.enc_health.stalled(1));
 
-    // 5. never more than motor_v_max on the 6 V motors
-    const float s = batteryScale(g_app.batt.mv(), gs.motor_v_max);
-    pwm_l = scaled(pwm_l, s);
-    pwm_r = scaled(pwm_r, s);
   }
+
+  // 5. never more than motor_v_max on the 6 V motors — every source, calibration scripts included
+  const float s = batteryScale(g_app.batt.mv(), gs.motor_v_max);
+  pwm_l = scalePwm(pwm_l, s);
+  pwm_r = scalePwm(pwm_r, s);
 
   // 6. safety gate → motors (req_pwm_* = asked of the supervisor, used by EncoderHealth to clear a stall)
   g_app.req_pwm_l = pwm_l;

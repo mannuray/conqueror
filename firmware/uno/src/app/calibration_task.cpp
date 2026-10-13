@@ -78,7 +78,7 @@ proto::AckStatus onCalibrate(const uint8_t* p, uint8_t len) {
   if (g_app.self_test.locked()) return proto::AckStatus::kBlocked;  // LLD §10.9: no calibration motion while locked
   if (m.profile != 0) return proto::AckStatus::kUnavailable;  // MVP: one profile
   if (g_app.cal.running()) return proto::AckStatus::kBusy;
-  if (g_app.lift.lifted() || g_app.lift.tilted() || g_app.moving || !g_app.imu_ok || g_app.envelope.active()) {
+  if (g_app.lift.lifted() || g_app.lift.tilted() || g_app.moving || !g_app.imu_ok || g_app.envelope.blocksCalibration()) {
     return proto::AckStatus::kCalPrecondition;  // LLD §9.7: refused while an envelope is active
   }
   const proto::AckStatus own = g_app.arbitrator.beginCalibration();

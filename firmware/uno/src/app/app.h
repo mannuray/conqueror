@@ -32,6 +32,9 @@
 #include "domain/motion/ramp.h"
 #include "domain/motion/speed_controller.h"
 #include "domain/camera/camera_head.h"
+#include "domain/ui/annunciator.h"
+#include "domain/ui/led_sequencer.h"
+#include "domain/ui/sound_sequencer.h"
 
 namespace cq {
 
@@ -119,6 +122,14 @@ struct App {
   bool self_test_pending = true;     // a run is due at self_test_due_ms (boot run, or a SELF_TEST re-run)
   uint32_t self_test_due_ms = 2000;  // boot: 2 s after reset; re-run: +1500 ms (one 1 s IMU re-init try first)
   CameraHead camera;
+  // ui
+  SoundSequencer sound;
+  LedSequencer led;
+  Annunciator annunciator;
+  Rgb led_out{1, 1, 1};  // forces the first write
+  uint8_t bump_seq = 0;
+  uint8_t toggle_seq = 0;  // +1 per IR toggle (mute, parking beeps) → 3 confirm blinks (Task 14)
+  bool toggle_on = false;  // state after the last toggle: green = on, red = off
 };
 
 extern App g_app;

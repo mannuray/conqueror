@@ -147,6 +147,19 @@ void telemetrySlowDue() {
   s.err_frames = static_cast<uint16_t>(g_app.parser.errors().bad_crc + g_app.parser.errors().bad_len +
                                        g_app.parser.errors().unknown_type);
   s.settings_crc = g_app.settings.crc();
+  const uint32_t muted = 1UL << static_cast<uint8_t>(proto::SlowFlagBit::kMuted);
+  const uint32_t quiet = 1UL << static_cast<uint8_t>(proto::SlowFlagBit::kQuiet);
+  const uint32_t brake_off = 1UL << static_cast<uint8_t>(proto::SlowFlagBit::kBrakeOff);
+  const uint32_t envelope = 1UL << static_cast<uint8_t>(proto::SlowFlagBit::kEnvelope);
+  const uint32_t link_lost = 1UL << static_cast<uint8_t>(proto::SlowFlagBit::kLinkLost);
+  const uint32_t deadman = 1UL << static_cast<uint8_t>(proto::SlowFlagBit::kDeadman);
+  g_app.slow_flags &= ~(muted | quiet | brake_off | envelope | link_lost | deadman);
+  if (g_app.sound.mode() == proto::AudioModeValue::kMute) g_app.slow_flags |= muted;
+  if (g_app.sound.mode() == proto::AudioModeValue::kQuiet) g_app.slow_flags |= quiet;
+  if (!g_app.safety_override.brakeOn(g_app.envelope.brakeOn())) g_app.slow_flags |= brake_off;  // effective brake
+  if (g_app.envelope.active()) g_app.slow_flags |= envelope;
+  if (!g_app.link.alive(port::clock::nowMs())) g_app.slow_flags |= link_lost;
+  if (g_app.deadman_latched) g_app.slow_flags |= deadman;  // Task 11: DEADMAN_STOP until the next DRIVE
   s.flags2 = g_app.slow_flags;
   s.profile_idx = 0;
   g_app.slow_due = true;

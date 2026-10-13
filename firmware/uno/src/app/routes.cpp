@@ -6,6 +6,7 @@
 #include "ports/clock.h"
 #include "app/motion_api.h"
 #include "app/camera_api.h"
+#include "app/ui_api.h"
 
 namespace cq {
 namespace app {
@@ -92,6 +93,10 @@ const Route kRoutes[] PROGMEM = {
     {static_cast<uint8_t>(proto::FrameType::kCamNudge), onCamNudge, true},
     {static_cast<uint8_t>(proto::FrameType::kCamHome), onCamHome, true},
     {static_cast<uint8_t>(proto::FrameType::kCamLock), onCamLock, true},
+    {static_cast<uint8_t>(proto::FrameType::kLed), onLed, true},
+    {static_cast<uint8_t>(proto::FrameType::kSound), onSound, true},
+    {static_cast<uint8_t>(proto::FrameType::kTone), onTone, true},
+    {static_cast<uint8_t>(proto::FrameType::kAudioMode), onAudioMode, true},
     // ROUTES-END
 };
 const uint8_t kRouteCount = sizeof kRoutes / sizeof kRoutes[0];

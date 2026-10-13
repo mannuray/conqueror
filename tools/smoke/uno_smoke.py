@@ -205,6 +205,9 @@ def cmd_drive(link: Link, args: argparse.Namespace) -> None:
                 f"yaw={fast.yaw / 100:.1f} dist={fast.dist_mm} flags={fast.flags:#06x}"
             )
         time.sleep(0.05)
+    slow = link.last.get("TelemSlow")
+    if isinstance(slow, g.TelemSlow):
+        print(f"SLOW load={slow.loop_load}% max={slow.loop_max_us}us errs={slow.err_frames}")
 
 
 def cmd_stop(link: Link, args: argparse.Namespace) -> None:
@@ -569,6 +572,37 @@ def cmd_cam(link: Link, args: argparse.Namespace) -> None:
         print(f"SLOW load={slow.loop_load}% max={slow.loop_max_us}us")
 
 
+def cmd_led(link: Link, args: argparse.Namespace) -> None:
+    link.handlers.append(print_ack)
+    wait_synced(link)
+    link.send(
+        g.Led(
+            mode=g.LedMode[args.mode.upper()],
+            r=args.r,
+            g=args.g,
+            b=args.b,
+            period_ms=args.period,
+            duration_ms=args.duration,
+        )
+    )
+    time.sleep(0.3)
+
+
+def cmd_sound(link: Link, args: argparse.Namespace) -> None:
+    link.handlers.append(print_ack)
+    wait_synced(link)
+    if args.mode is not None:  # same run: a new port open reboots the Uno (mode back to normal)
+        link.send(g.AudioMode(mode=int(g.AudioModeValue[args.mode.upper()])))
+        time.sleep(0.1)
+    if args.name == "tone":
+        link.send(g.Tone(n=3, notes=((440, 200), (0, 100), (880, 200))))
+    elif args.name in ("normal", "quiet", "mute"):
+        link.send(g.AudioMode(mode=int(g.AudioModeValue[args.name.upper()])))
+    else:
+        link.send(g.Sound(id=g.SoundId[args.name.upper()]))
+    time.sleep(1.0)
+
+
 COMMANDS: dict[str, Callable[[Link, argparse.Namespace], None]] = {"watch": cmd_watch}
 COMMANDS["setting"] = cmd_setting
 COMMANDS.update(
@@ -588,6 +622,8 @@ COMMANDS.update(
         "cancel": cmd_cancel,
         "driverate": cmd_driverate,
         "cam": cmd_cam,
+        "led": cmd_led,
+        "sound": cmd_sound,
     }
 )
 
@@ -659,6 +695,21 @@ def main() -> None:
     cm.add_argument("values", type=float, nargs="*")
     cm.add_argument("--lock", action="store_true", help="send CAM_LOCK on first (same run)")
     cm.add_argument("--drive", type=int, nargs=2, default=None, metavar=("V", "W"))
+    ld = sub.add_parser("led")
+    ld.add_argument("mode", choices=["off", "solid", "blink", "pulse"])
+    ld.add_argument("r", type=int)
+    ld.add_argument("g", type=int)
+    ld.add_argument("b", type=int)
+    ld.add_argument("--period", type=int, default=500)
+    ld.add_argument("--duration", type=int, default=3000)
+    sd = sub.add_parser("sound")
+    sd.add_argument("name", help="catalogue name (startup, jingle, …), tone, or normal/quiet/mute")
+    sd.add_argument(
+        "--mode",
+        choices=["normal", "quiet", "mute"],
+        default=None,
+        help="AUDIO_MODE sent first (same run)",
+    )
     args = ap.parse_args()
     link = Link(args.port)
     try:

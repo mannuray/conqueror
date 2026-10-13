@@ -1927,3 +1927,22 @@ classDiagram
   }
   UltrasonicDriver ..> UltrasonicFilter : classify()
 ```
+
+### 11.7 "Moving" at boot (2026-10-13)
+
+**Finding:** `moving = now − last_motion_ms < 300 ms` with `last_motion_ms` starting at 0 read as *moving* for the first 300 ms after boot. A calibration request in that window got `CAL_PRECONDITION`, and the yaw estimator's at-rest bias tracking (`stationary`) was off. Reproduced on the bench: refused with no delay after sync, accepted at +0.5 s.
+
+**Fix:** `MotionTimer` (domain/util) holds the last-motion time *and* whether any motion happened yet. It is never moving before the first `mark()`. Host test: `test_motion_timer_not_moving_at_boot`.
+
+```mermaid
+classDiagram
+  class MotionTimer {
+    +kHoldMs = 300
+    +mark(now_ms)
+    +moving(now_ms) bool
+    -m_last_ms uint32_t
+    -m_seen bool
+  }
+  class App { MotionTimer motion; bool moving; bool stationary }
+  App *-- MotionTimer
+```

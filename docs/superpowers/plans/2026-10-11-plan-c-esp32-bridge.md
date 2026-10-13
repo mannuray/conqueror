@@ -8509,4 +8509,4 @@ Every flashed release gets a tag and a GitHub release (design-notes §27): bridg
 git tag bridge-v0.1.0 && git push origin bridge-v0.1.0
 cd firmware/esp32 && scripts/make_release.sh bridge-v0.1.0
 ```
-Expected: `pio run -e bridge_release` succeeds only on a clean, tagged tree; `dist/bridge-v0.1.0/` holds `bootloader.bin partitions.bin boot_app0.bin firmware.bin source.bin flash.sh`; `gh release create` prints the release URL. `flash.sh /dev/ttyACM0` refuses anything that is not an ESP32-S3. (`dist/` is a build output: add `firmware/esp32/dist/` to `.gitignore` in the same commit as the first release.)
+Expected: `pio run -e bridge_release` succeeds only on a clean, tagged tree; `dist/bridge-v0.1.0/` holds `bootloader.bin partitions.bin boot_app0.bin firmware.bin source.bin flash.sh`; `gh release create` prints the release URL. `flash.sh /dev/ttyACM0` refuses anything that is not an ESP32-S3. (`dist/` is already git-ignored by the root `.gitignore`.)

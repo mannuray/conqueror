@@ -875,7 +875,8 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
   - **Fixed 2S Li-ion pack** with its own protection (not loose 18650 cells), **5 V USB-C boost charger** (works with any phone charger, ~3 h for 2500 mAh), **2 motor channels**.
 - **"No voltage thinking" for users** is a board-design rule, not only an MCU choice: every connector is 5 V-safe (5 V power on each, 5 V-tolerant inputs, outputs that 5 V parts accept; the WS2812 data line gets a 74AHCT1G125 buffer).
 - **MCU under discussion:** RP2040 (decided earlier) vs **RP2350A** (recommended: Cortex-M33 with FPU for the IMU/PID float maths, 520 KB RAM, 3 PIO blocks, 5 V-tolerant GPIO inputs; ~INR 20-30 more; use A4 stepping - erratum E9 on internal pull-downs) vs Renesas RA4M1 (true 5 V, FPU, official Arduino core, but ~3x the price, no PIO, 32 KB RAM).
-- **Decided (owner, 2026-10-14): MCU = RP2350A** (A4 stepping), **run while charging** - the charger must have power-path / load sharing. USB 5 V gives ~10 W: electronics, camera, WiFi and programming run from USB; driving bursts (15-20 W) draw the rest from the battery.
-- Still open: motor behaviour while USB is connected (suggested default: limited to slow speed, setting to allow full), charger IC with power path, certification (BIS toys/Li-ion, WPC, EPR).
+- **Decided (owner, 2026-10-14): MCU = RP2350A** (A4 stepping).
+- **Charging (owner, 2026-10-14, "keep it simple and cheap"): no run-while-charging.** Charge with the power switch off; a plain 5 V boost charger without power path. USB-C powers only the RP2350 (diode-fed 3.3 V) so it can be programmed at any time; motors, ESP32 and camera run from the battery only. If USB is connected while the switch is on, the firmware blocks the motors (no driving off with a cable attached).
+- Still open: certification for sale in India (BIS toys/Li-ion, WPC, EPR) - research task.
 - Next step once requirements are settled: a spec in `docs/superpowers/specs/` (design first).
 

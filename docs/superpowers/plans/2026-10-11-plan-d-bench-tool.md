@@ -132,6 +132,7 @@ typeCheckingMode = "strict"
 include = ["conqueror_bench", "tests"]
 pythonVersion = "3.12"
 reportMissingTypeStubs = false
+reportMissingModuleSource = false  # optional extras (pynput) may not be installed
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -2230,7 +2231,9 @@ def hold_state(pressed: set[str], speed: int) -> DriveCmd:
 
 
 class Teleop:
-    def __init__(self, api: CommandApi, cruise: CruiseControl | None = None, rate_hz: float = 20.0) -> None:
+    def __init__(
+        self, api: CommandApi, cruise: CruiseControl | None = None, rate_hz: float = 20.0
+    ) -> None:
         self.api = api
         self.cruise = cruise or CruiseControl()
         self.hold = False
@@ -2350,12 +2353,31 @@ from conqueror_bench.model import FastSample
 from conqueror_bench.odometry import PathPoint, integrate, wrap_deg
 
 
-def sample(t: float, yaw: float, enc: tuple[int, int], act: tuple[int | None, int | None] = (30, 30),
-           cmd: tuple[int, int] = (30, 30)) -> FastSample:
+def sample(
+    t: float,
+    yaw: float,
+    enc: tuple[int, int],
+    act: tuple[int | None, int | None] = (30, 30),
+    cmd: tuple[int, int] = (30, 30),
+) -> FastSample:
     return FastSample(
-        host_t=t, uno_ms=int(t * 1000), yaw_deg=yaw % 360, yaw_rate_dps=0.0, pitch_deg=0.0,
-        roll_deg=0.0, spd_cmd=cmd, spd_act=act, pwm=(0, 0), dist_cm=None, us_fault=False,
-        closing_cm_s=0, pan_deg=90.0, tilt_deg=90.0, enc=enc, flags=frozenset(), prim="NONE",
+        host_t=t,
+        uno_ms=int(t * 1000),
+        yaw_deg=yaw % 360,
+        yaw_rate_dps=0.0,
+        pitch_deg=0.0,
+        roll_deg=0.0,
+        spd_cmd=cmd,
+        spd_act=act,
+        pwm=(0, 0),
+        dist_cm=None,
+        us_fault=False,
+        closing_cm_s=0,
+        pan_deg=90.0,
+        tilt_deg=90.0,
+        enc=enc,
+        flags=frozenset(),
+        prim="NONE",
         prim_pct=0,
     )
 
@@ -2393,7 +2415,8 @@ def test_circle_fit_and_closure() -> None:
 
 def test_speed_hold() -> None:
     samples = [sample(i * 0.05, 0, (0, 0), act=(30 if i % 2 else 31, 29)) for i in range(80)]
-    assert speed_hold_pct(samples) == pytest.approx(100 * 1 / 30, abs=0.01)
+    # deviation from the mean (the roadmap criterion is "±5 %"): 30/31 around 30.5 -> ±0.5 of 30
+    assert speed_hold_pct(samples) == pytest.approx(100 * 0.5 / 30, abs=0.01)
 
 
 def test_speed_hold_without_encoders_is_nan() -> None:
@@ -2423,6 +2446,7 @@ Expected: FAIL — `ModuleNotFoundError`.
 
 from __future__ import annotations
 
+import itertools
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -2447,7 +2471,7 @@ def unwrapped_yaw(samples: Sequence[FastSample]) -> list[float]:
     if not samples:
         return []
     out = [samples[0].yaw_deg]
-    for prev, cur in zip(samples, samples[1:], strict=False):
+    for prev, cur in itertools.pairwise(samples):
         out.append(out[-1] + wrap_deg(cur.yaw_deg - prev.yaw_deg))
     return out
 
@@ -2476,6 +2500,7 @@ def integrate(samples: Sequence[FastSample], counts_per_cm: float) -> list[PathP
 
 from __future__ import annotations
 
+import itertools
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -2492,9 +2517,7 @@ def heading_change_deg(samples: Sequence[FastSample]) -> float:
 
 
 def path_length_cm(path: Sequence[PathPoint]) -> float:
-    return sum(
-        math.hypot(b.x_cm - a.x_cm, b.y_cm - a.y_cm) for a, b in zip(path, path[1:], strict=False)
-    )
+    return sum(math.hypot(b.x_cm - a.x_cm, b.y_cm - a.y_cm) for a, b in itertools.pairwise(path))
 
 
 def closure_cm(path: Sequence[PathPoint]) -> float:
@@ -2540,7 +2563,9 @@ class StepMetrics:
     steady_error: float
 
 
-def step_metrics(t: Sequence[float], y: Sequence[float], target: float, band: float = 0.05) -> StepMetrics:
+def step_metrics(
+    t: Sequence[float], y: Sequence[float], target: float, band: float = 0.05
+) -> StepMetrics:
     t0 = t[0]
     rise_lo = next((ti for ti, yi in zip(t, y, strict=True) if yi >= 0.1 * target), math.nan)
     rise_hi = next((ti for ti, yi in zip(t, y, strict=True) if yi >= 0.9 * target), math.nan)
@@ -2550,7 +2575,7 @@ def step_metrics(t: Sequence[float], y: Sequence[float], target: float, band: fl
     for ti, yi in zip(t, y, strict=True):
         if abs(yi - target) > band * abs(target):
             settling = ti
-    tail = y[-max(1, len(y) // 10):]
+    tail = y[-max(1, len(y) // 10) :]
     steady_error = target - sum(tail) / len(tail)
     return StepMetrics(rise_hi - rise_lo, overshoot, settling - t0, steady_error)
 ```
@@ -2598,9 +2623,26 @@ from conqueror_bench.recorder import Recorder, load_fast_csv, read_raw, replay_i
 
 def _telem(enc: int) -> g.TelemFast:
     return g.TelemFast(
-        uno_ms=1, yaw=100, yaw_rate=0, pitch=0, roll=0, spd_cmd_l=30, spd_cmd_r=30, spd_act_l=30,
-        spd_act_r=30, pwm_l=80, pwm_r=80, dist_mm=0xFFFF, closing_cm_s=0, pan=900, tilt=900,
-        enc_l=enc, enc_r=enc, flags=0, prim=0, prim_pct=0,
+        uno_ms=1,
+        yaw=100,
+        yaw_rate=0,
+        pitch=0,
+        roll=0,
+        spd_cmd_l=30,
+        spd_cmd_r=30,
+        spd_act_l=30,
+        spd_act_r=30,
+        pwm_l=80,
+        pwm_r=80,
+        dist_mm=0xFFFF,
+        closing_cm_s=0,
+        pan=900,
+        tilt=900,
+        enc_l=enc,
+        enc_r=enc,
+        flags=0,
+        prim=0,
+        prim_pct=0,
     )
 
 
@@ -2667,9 +2709,28 @@ from .model import FastSample, TankEvent, TankModel
 _HEADER = struct.Struct("<dBH")
 _DIRS = {"tx": 0, "rx": 1}
 FAST_COLUMNS = [
-    "host_t", "uno_ms", "yaw_deg", "yaw_rate_dps", "pitch_deg", "roll_deg", "spd_cmd_l",
-    "spd_cmd_r", "spd_act_l", "spd_act_r", "pwm_l", "pwm_r", "dist_cm", "us_fault",
-    "closing_cm_s", "pan_deg", "tilt_deg", "enc_l", "enc_r", "flags", "prim", "prim_pct",
+    "host_t",
+    "uno_ms",
+    "yaw_deg",
+    "yaw_rate_dps",
+    "pitch_deg",
+    "roll_deg",
+    "spd_cmd_l",
+    "spd_cmd_r",
+    "spd_act_l",
+    "spd_act_r",
+    "pwm_l",
+    "pwm_r",
+    "dist_cm",
+    "us_fault",
+    "closing_cm_s",
+    "pan_deg",
+    "tilt_deg",
+    "enc_l",
+    "enc_r",
+    "flags",
+    "prim",
+    "prim_pct",
 ]
 
 
@@ -2703,12 +2764,32 @@ class Recorder:
     def on_model(self, topic: str, payload: Any) -> None:
         if topic == "fast" and isinstance(payload, FastSample):
             s = payload
-            self._csv.writerow([
-                s.host_t, s.uno_ms, s.yaw_deg, s.yaw_rate_dps, s.pitch_deg, s.roll_deg,
-                s.spd_cmd[0], s.spd_cmd[1], _opt(s.spd_act[0]), _opt(s.spd_act[1]), s.pwm[0],
-                s.pwm[1], _opt(s.dist_cm), int(s.us_fault), s.closing_cm_s, s.pan_deg, s.tilt_deg,
-                s.enc[0], s.enc[1], "|".join(sorted(s.flags)), s.prim, s.prim_pct,
-            ])
+            self._csv.writerow(
+                [
+                    s.host_t,
+                    s.uno_ms,
+                    s.yaw_deg,
+                    s.yaw_rate_dps,
+                    s.pitch_deg,
+                    s.roll_deg,
+                    s.spd_cmd[0],
+                    s.spd_cmd[1],
+                    _opt(s.spd_act[0]),
+                    _opt(s.spd_act[1]),
+                    s.pwm[0],
+                    s.pwm[1],
+                    _opt(s.dist_cm),
+                    int(s.us_fault),
+                    s.closing_cm_s,
+                    s.pan_deg,
+                    s.tilt_deg,
+                    s.enc[0],
+                    s.enc[1],
+                    "|".join(sorted(s.flags)),
+                    s.prim,
+                    s.prim_pct,
+                ]
+            )
         elif topic == "event" and isinstance(payload, TankEvent):
             self._events.write(json.dumps(asdict(payload)) + "\n")
 
@@ -2767,18 +2848,24 @@ def load_fast_csv(path: Path) -> list[FastSample]:
         for r in csv.DictReader(fh):
             rows.append(
                 FastSample(
-                    host_t=float(r["host_t"]), uno_ms=int(r["uno_ms"]), yaw_deg=float(r["yaw_deg"]),
-                    yaw_rate_dps=float(r["yaw_rate_dps"]), pitch_deg=float(r["pitch_deg"]),
+                    host_t=float(r["host_t"]),
+                    uno_ms=int(r["uno_ms"]),
+                    yaw_deg=float(r["yaw_deg"]),
+                    yaw_rate_dps=float(r["yaw_rate_dps"]),
+                    pitch_deg=float(r["pitch_deg"]),
                     roll_deg=float(r["roll_deg"]),
                     spd_cmd=(int(r["spd_cmd_l"]), int(r["spd_cmd_r"])),
                     spd_act=(_int_or_none(r["spd_act_l"]), _int_or_none(r["spd_act_r"])),
                     pwm=(int(r["pwm_l"]), int(r["pwm_r"])),
                     dist_cm=None if r["dist_cm"] == "" else float(r["dist_cm"]),
-                    us_fault=r["us_fault"] == "1", closing_cm_s=int(r["closing_cm_s"]),
-                    pan_deg=float(r["pan_deg"]), tilt_deg=float(r["tilt_deg"]),
+                    us_fault=r["us_fault"] == "1",
+                    closing_cm_s=int(r["closing_cm_s"]),
+                    pan_deg=float(r["pan_deg"]),
+                    tilt_deg=float(r["tilt_deg"]),
                     enc=(int(r["enc_l"]), int(r["enc_r"])),
                     flags=frozenset(f for f in r["flags"].split("|") if f),
-                    prim=r["prim"], prim_pct=int(r["prim_pct"]),
+                    prim=r["prim"],
+                    prim_pct=int(r["prim_pct"]),
                 )
             )
     return rows

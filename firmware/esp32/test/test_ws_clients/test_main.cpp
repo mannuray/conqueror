@@ -55,6 +55,15 @@ void test_silent_clients_are_reported() {
   TEST_ASSERT_EQUAL(10, fds[0]);
 }
 
+// Review M3: a silent client is reported once (closing), not on every 2 ms tick until kWsClose.
+void test_silent_client_reported_once() {
+  c.add(10, 0);
+  int fds[4];
+  TEST_ASSERT_EQUAL(1, c.silent(3000, fds, 4));
+  TEST_ASSERT_EQUAL(0, c.silent(3002, fds, 4));
+  TEST_ASSERT_EQUAL(0, c.silent(9000, fds, 4));
+}
+
 void test_stream_reject_reported_once() {
   c.add(10, 0);
   TEST_ASSERT_TRUE(c.reportStreamReject(10, 1));
@@ -89,6 +98,7 @@ int main() {
   RUN_TEST(test_drive_rate_limit_25_per_second);
   RUN_TEST(test_total_limit);
   RUN_TEST(test_silent_clients_are_reported);
+  RUN_TEST(test_silent_client_reported_once);
   RUN_TEST(test_stream_reject_reported_once);
   RUN_TEST(test_stop_barrier_drops_motion_posted_before_stop);
   RUN_TEST(test_stop_barrier_survives_counter_wrap);

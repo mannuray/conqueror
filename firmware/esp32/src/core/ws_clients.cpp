@@ -53,10 +53,13 @@ bool WsClients::admit(int fd, WsCmdKind kind, uint32_t now_ms) {
   return true;
 }
 
-size_t WsClients::silent(uint32_t now_ms, int* out, size_t max) const {
+size_t WsClients::silent(uint32_t now_ms, int* out, size_t max) {
   size_t n = 0;
   for (size_t i = 0; i < m_count && n < max; ++i) {
-    if (now_ms - m_c[i].last_rx_ms >= kWsSilentMs) out[n++] = m_c[i].fd;
+    if (!m_c[i].closing && now_ms - m_c[i].last_rx_ms >= kWsSilentMs) {
+      m_c[i].closing = true;
+      out[n++] = m_c[i].fd;
+    }
   }
   return n;
 }

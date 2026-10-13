@@ -27,8 +27,9 @@ class WsClients {
   const char* name(int fd) const;                 // "" when unknown
   // Counts the message; false = over the limit (drop it, nack RATE_LIMITED). STOP always passes.
   bool admit(int fd, WsCmdKind kind, uint32_t now_ms);
-  // Up to max silent clients into out; returns how many.
-  size_t silent(uint32_t now_ms, int* out, size_t max) const;
+  // Up to max silent clients into out; returns how many. Each client is reported once (it is then
+  // closing; kWsClose removes it) - review M3.
+  size_t silent(uint32_t now_ms, int* out, size_t max);
   // Streaming rejections: true when this reason should be reported (first time in a row).
   bool reportStreamReject(int fd, uint8_t reason);
   void streamAccepted(int fd);
@@ -43,6 +44,7 @@ class WsClients {
     uint8_t cam_n;
     uint8_t total_n;
     uint8_t last_reject;  // 0xFF = none
+    bool closing;         // reported silent once
   };
   int find(int fd) const;
   Client m_c[kMaxWsClients] = {};

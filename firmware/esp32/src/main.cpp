@@ -71,8 +71,8 @@ void setup() {
   if (ESP.getPsramSize() == 0) {
     cq::net::logf("ERROR: no PSRAM - check board_build.arduino.memory_type = qio_opi");
   }
-  cq::net::linkTaskStart();
   g_wifi.begin(millis());
+  cq::net::linkTaskStart();
   g_ota.begin();
 }
 

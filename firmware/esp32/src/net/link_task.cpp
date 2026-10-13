@@ -380,6 +380,7 @@ void publishStatus() {
   s.frames_tx = g_link.stats().frames_tx;
   s.frames_rx = g_link.stats().frames_rx;
   s.bad_crc = g_link.parserStats().bad_crc;
+  s.tx_dropped = g_tx.dropped();
   s.tcp_up = g_tcp.stats().up;
   s.tcp_down = g_tcp.stats().down;
   portENTER_CRITICAL(&g_status_mux);

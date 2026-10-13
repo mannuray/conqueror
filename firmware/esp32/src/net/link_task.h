@@ -35,6 +35,7 @@ struct LinkStatus {
   uint32_t frames_tx = 0;
   uint32_t frames_rx = 0;
   uint32_t bad_crc = 0;
+  uint32_t tx_dropped = 0;  // chunks refused by a full FrameTx (bench or ESP32) - review M12
   uint32_t tcp_up = 0;    // bench -> Uno bytes
   uint32_t tcp_down = 0;  // Uno -> bench bytes
 };

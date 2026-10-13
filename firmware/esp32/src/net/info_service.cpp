@@ -112,11 +112,12 @@ esp_err_t serveInfo(httpd_req_t* req) {
           static_cast<unsigned long>(board::kUnoBaud));
   }
   o.add("\"link\":{\"owner\":\"%s\",\"driver\":\"%s\",\"clients\":{\"ws\":%u,\"tcp\":%u,"
-        "\"stream\":%u},\"frames_tx\":%lu,\"frames_rx\":%lu,\"bad_crc\":%lu,"
+        "\"stream\":%u},\"frames_tx\":%lu,\"frames_rx\":%lu,\"bad_crc\":%lu,\"tx_dropped\":%lu,"
         "\"tcp_refused\":%lu,\"last_refusal\":\"%s\",\"ota_allowed\":%s},",
         ownerName(s.state), s.driver, s.ws_clients, s.tcp_active ? 1u : 0u, streamViewers(),
         static_cast<unsigned long>(s.frames_tx), static_cast<unsigned long>(s.frames_rx),
-        static_cast<unsigned long>(s.bad_crc), static_cast<unsigned long>(s.tcp_refused),
+        static_cast<unsigned long>(s.bad_crc), static_cast<unsigned long>(s.tx_dropped),
+        static_cast<unsigned long>(s.tcp_refused),
         s.last_refusal, s.ota_allowed ? "true" : "false");
   o.add("\"uptime_s\":%lu,\"free_heap\":%lu,\"free_psram\":%lu}",
         static_cast<unsigned long>(millis() / 1000), static_cast<unsigned long>(ESP.getFreeHeap()),

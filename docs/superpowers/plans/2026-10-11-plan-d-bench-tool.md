@@ -4813,18 +4813,30 @@ from conqueror_bench.console import parse_command
     [
         ("stop", "stop", {}),
         ("drive 30 -20", "drive", {"v": 30, "w": -20}),
-        ("turn by 90 speed 40", "turn", {"by_deg": 90.0, "speed": 40, "radius_cm": 0, "pivot": False}),
-        ("turn to 180 speed 30 radius 50", "turn", {"to_deg": 180.0, "speed": 30, "radius_cm": 50, "pivot": False}),
+        (
+            "turn by 90 speed 40",
+            "turn",
+            {"by_deg": 90.0, "speed": 40, "radius_cm": 0, "pivot": False},
+        ),
+        (
+            "turn to 180 speed 30 radius 50",
+            "turn",
+            {"to_deg": 180.0, "speed": 30, "radius_cm": 50, "pivot": False},
+        ),
         ("turn by 45 pivot", "turn", {"by_deg": 45.0, "speed": 40, "radius_cm": 0, "pivot": True}),
         ("move 50 speed 30", "move", {"dist_cm": 50.0, "speed": 30, "heading_deg": None}),
         ("cam home", "cam_home", {}),
         ("cam nudge 5 -5", "cam_nudge", {"dpan_deg": 5.0, "dtilt_deg": -5.0}),
         ("brake off", "brake", {"on": False}),
+        ("override on", "safety_override", {"on": True}),
         ("setting get deadman", "get_setting", {"name": "deadman"}),
         ("setting set batt_low 7100", "set_setting", {"name": "batt_low", "value": 7100.0}),
         ("settings save", "settings_save", {}),
-        ("envelope child_play", "envelope",
-         {"speed_cap": 20, "accel_cap": 30, "lock_brake": True, "child_play": True}),
+        (
+            "envelope child_play",
+            "envelope",
+            {"speed_cap": 20, "accel_cap": 30, "lock_brake": True, "child_play": True},
+        ),
     ],
 )
 def test_parse_command(line: str, method: str, kwargs: dict[str, object]) -> None:
@@ -4841,8 +4853,15 @@ def test_parse_command_rejects_garbage() -> None:
 def test_cli_runs_straight_test_in_sim(tmp_path: object) -> None:
     result = CliRunner().invoke(
         app,
-        ["--sim", "test", "straight_200cm", "--answers", "lateral_cm=1,distance_cm=200",
-         "--sessions", str(tmp_path)],
+        [
+            "--sim",
+            "test",
+            "straight_200cm",
+            "--answers",
+            "lateral_cm=1,distance_cm=200",
+            "--sessions",
+            str(tmp_path),
+        ],
     )
     assert result.exit_code == 0, result.output
     assert "PASS" in result.output
@@ -4911,7 +4930,11 @@ def discover_bridges(timeout_s: float = 3.0) -> list[BridgeInfo]:
 def serial_ports() -> list[str]:
     from serial.tools import list_ports
 
-    return [p.device for p in list_ports.comports() if "usb" in p.device.lower() or "acm" in p.device.lower()]
+    return [
+        p.device
+        for p in list_ports.comports()
+        if "usb" in p.device.lower() or "acm" in p.device.lower()
+    ]
 ```
 
 - [ ] **Step 4: Implement the console parser**
@@ -4934,6 +4957,7 @@ USAGE = """usage:
   move <cm> [speed <%>] [heading <deg>]
   cam home | cam nudge <dpan> <dtilt> | cam set <pan> <tilt> | cam lock on|off
   brake on|off
+  override on|off        Safety Override (human only; refused in child play; auto-expires)
   envelope child_play | envelope none | envelope <speed%> <accel%/s> <lock 0|1>
   setting get <name> | setting set <name> <value> | settings save"""
 
@@ -4970,16 +4994,26 @@ def parse_command(line: str) -> ParsedCommand:
             case ["turn", ("by" | "to") as how, deg, *rest]:
                 o = _options(rest)
                 key = "by_deg" if how == "by" else "to_deg"
-                return ParsedCommand("turn", {
-                    key: float(deg), "speed": int(o.get("speed", 40)),
-                    "radius_cm": int(o.get("radius", 0)), "pivot": "pivot" in o,
-                })
+                return ParsedCommand(
+                    "turn",
+                    {
+                        key: float(deg),
+                        "speed": int(o.get("speed", 40)),
+                        "radius_cm": int(o.get("radius", 0)),
+                        "pivot": "pivot" in o,
+                    },
+                )
             case ["move", cm, *rest]:
                 o = _options(rest)
                 heading = float(o["heading"]) if "heading" in o else None
-                return ParsedCommand("move", {
-                    "dist_cm": float(cm), "speed": int(o.get("speed", 40)), "heading_deg": heading,
-                })
+                return ParsedCommand(
+                    "move",
+                    {
+                        "dist_cm": float(cm),
+                        "speed": int(o.get("speed", 40)),
+                        "heading_deg": heading,
+                    },
+                )
             case ["cam", "home"]:
                 return ParsedCommand("cam_home", {})
             case ["cam", "nudge", dp, dt]:
@@ -4990,16 +5024,31 @@ def parse_command(line: str) -> ParsedCommand:
                 return ParsedCommand("cam_lock", {"on": state == "on"})
             case ["brake", ("on" | "off") as state]:
                 return ParsedCommand("brake", {"on": state == "on"})
+            case ["override", ("on" | "off") as state]:
+                return ParsedCommand("safety_override", {"on": state == "on"})
             case ["envelope", "child_play"]:
-                return ParsedCommand("envelope", {
-                    "speed_cap": 20, "accel_cap": 30, "lock_brake": True, "child_play": True,
-                })
+                return ParsedCommand(
+                    "envelope",
+                    {
+                        "speed_cap": 20,
+                        "accel_cap": 30,
+                        "lock_brake": True,
+                        "child_play": True,
+                    },
+                )
             case ["envelope", "none"]:
-                return ParsedCommand("envelope", {"speed_cap": 100, "accel_cap": 0, "lock_brake": False})
+                return ParsedCommand(
+                    "envelope", {"speed_cap": 100, "accel_cap": 0, "lock_brake": False}
+                )
             case ["envelope", s, a, lock]:
-                return ParsedCommand("envelope", {
-                    "speed_cap": int(s), "accel_cap": int(a), "lock_brake": lock == "1",
-                })
+                return ParsedCommand(
+                    "envelope",
+                    {
+                        "speed_cap": int(s),
+                        "accel_cap": int(a),
+                        "lock_brake": lock == "1",
+                    },
+                )
             case ["setting", "get", name]:
                 return ParsedCommand("get_setting", {"name": name})
             case ["setting", "set", name, value]:
@@ -5098,7 +5147,9 @@ async def _with_tank(fn: Callable[[Tank], Awaitable[Any]]) -> Any:
     transport, cleanup = make_transport(OPTS.port, OPTS.host, OPTS.sim)
     hello_timeout = 5.0 if OPTS.port else 3.0
     try:
-        async with open_tank(transport, envelope=OPTS.envelope, hello_timeout_s=hello_timeout) as tank:
+        async with open_tank(
+            transport, envelope=OPTS.envelope, hello_timeout_s=hello_timeout
+        ) as tank:
             return await fn(tank)
     finally:
         if cleanup is not None:
@@ -5144,12 +5195,591 @@ def test(
 ) -> None:
     """Run a standard test (or `all`) and write a report."""
     names = sorted(p.stem for p in DEFS_DIR.glob("*.yaml")) if name == "all" else [name]
-    prompter: Prompter = ScriptedPrompter(_answers(answers)) if (answers or OPTS.sim) else ConsolePrompter()
+    prompter: Prompter = (
+        ScriptedPrompter(_answers(answers)) if (answers or OPTS.sim) else ConsolePrompter()
+    )
 
     async def run(tank: Tank) -> bool:
         ok = True
         for n in names:
-            result = await TestRunner(tank, prompter, sessions).run(load_test(DEFS_DIR / f"{n}.yaml"))
+            result = await TestRunner(tank, prompter, sessions).run(
+                load_test(DEFS_DIR / f"{n}.yaml")
+            )
+            report = await write_report_async(result, await tank.api.get_setting("counts_per_cm"))
+            typer.echo(f"{n}: {'PASS' if result.passed else 'FAIL'}  ({report})")
+            ok = ok and result.passed
+        return ok
+
+    if not asyncio.run(_with_tank(run)):
+        raise typer.Exit(1)
+
+
+@app.command()
+def compare(a: Path, b: Path, out: Annotated[Path, typer.Option()] = Path(".")) -> None:
+    """Compare two sessions (metrics table + overlaid paths)."""
+    typer.echo(compare_sessions(a, b, out))
+
+
+@app.command()
+def calibrate(item: str) -> None:
+    """Run one calibration item (or `wizard`), show new vs old, ask to accept."""
+    items = list(WIZARD_ORDER) if item == "wizard" else [item]
+    for i in items:
+        if i not in CALCULATORS:
+            raise typer.BadParameter(f"unknown item {i}; choose from {', '.join(CALCULATORS)}")
+    prompter = ConsolePrompter()
+
+    async def run(tank: Tank) -> None:
+        svc = CalibrationService(tank, prompter)
+        for i in items:
+            outcome = await svc.run(i)
+            if not outcome.ok:
+                typer.echo(f"{i}: FAILED — {outcome.error}")
+                continue
+            for name, old, new in await svc.summary(outcome):
+                typer.echo(f"  {name}: {old:g} → {new:g}")
+            if (await prompter.ask(f"Accept {i}? [y/n]")).lower().startswith("y"):
+                typer.echo("saved" if await svc.accept(outcome) else "save failed")
+
+    asyncio.run(_with_tank(run))
+
+
+@app.command()
+def tune(loop: str, magnitude: float = 45.0) -> None:
+    """Run a step test on a control loop (rate | speed | heading)."""
+    from .tuning import TuningService
+
+    async def run(tank: Tank) -> None:
+        typer.echo(str(await TuningService(tank).step_test(loop, magnitude)))
+
+    asyncio.run(_with_tank(run))
+
+
+@app.command()
+def probe() -> None:
+    """Shield probe (TB6612 standby/direction) and IMU mount check, on the stand."""
+    from .probe import mount_check, shield_probe
+
+    async def run(tank: Tank) -> None:
+        prompter = ConsolePrompter()
+        for r in await shield_probe(tank, prompter) + await mount_check(tank, prompter):
+            typer.echo(f"{'OK  ' if r.ok else 'FAIL'} {r.name}: {r.detail}")
+
+    asyncio.run(_with_tank(run))
+
+
+@app.command()
+def replay(session: Path) -> None:
+    """Replay a recorded session into a model and print a summary."""
+    from .model import TankModel
+
+    model = TankModel()
+    asyncio.run(replay_into(session, model))
+    typer.echo(f"{len(model.history)} telemetry samples, {len(model.events)} events")
+
+
+def main() -> None:
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    app()
+```
+
+- [ ] **Step 6: Run the tests to see them pass**
+
+Run: `cd tools/bench && uv run pytest tests/test_console_cli.py -v`
+Expected: 17 passed.
+
+- [ ] **Step 7: Lint, type-check, commit**
+
+Run: `cd tools/bench && uv run ruff check . && uv run ruff format --check . && uv run pyright`
+```bash
+git add tools/bench/conqueror_bench/discovery.py tools/bench/conqueror_bench/console.py tools/bench/conqueror_bench/cli.py tools/bench/tests/test_console_cli.py
+git commit -m "feat(bench): discovery, console commands and bench CLI"
+```
+
+---
+
+### Task 15: Textual dashboard
+
+**Files:**
+- Create: `tools/bench/conqueror_bench/app.py`
+- Modify: `tools/bench/conqueror_bench/cli.py` (adds the `drive` and `dash` commands, which open the dashboard)
+- Test: `tools/bench/tests/test_app.py`
+
+**Interfaces:**
+- Consumes: `Tank`, `Teleop`, `CruiseControl`, `parse_command`, `execute`, `TestRunner`, `CalibrationService`, `TuningService`, `DEFS_DIR`, `CALCULATORS`.
+- Produces: `BenchApp(tank, start_screen="dashboard", hold=False)` (Textual `App`) with screens `dashboard, drive, console, tests, calibrate, tune, sessions` (switch keys `F1`–`F7`); bindings on the Drive screen: `w s a d c q e space up down left right h 1-9`; `ModalPrompter` (Prompter implemented with a Textual input dialog). Quitting (`ctrl+q`) sends STOP before exit.
+
+- [ ] **Step 1: Write the failing UI smoke test**
+
+`tools/bench/tests/test_app.py`:
+```python
+from conqueror_protocol import generated as g
+
+from conqueror_bench.api import open_tank
+from conqueror_bench.app import BenchApp
+
+from .conftest import SimRig
+
+
+async def test_drive_keys_and_quit_sends_stop(rig: SimRig) -> None:
+    async with open_tank(rig.bench) as tank:
+        app = BenchApp(tank, start_screen="drive")
+        async with app.run_test() as pilot:
+            await pilot.press("w", "w", "a")
+            await pilot.pause(0.3)
+            assert app.teleop.cruise.speed == 20
+            assert app.teleop.cruise.steer == 20
+            drives = [m for m in rig.uno.received if isinstance(m, g.Drive)]
+            assert drives and drives[-1].v == 20 and drives[-1].w == 20
+            await pilot.press("space")
+            await pilot.pause(0.1)
+            assert any(isinstance(m, g.Stop) for m in rig.uno.received)
+            await pilot.press("ctrl+q")
+
+
+async def test_dashboard_shows_telemetry(rig: SimRig) -> None:
+    async with open_tank(rig.bench) as tank:
+        app = BenchApp(tank)
+        async with app.run_test() as pilot:
+            await pilot.pause(0.3)
+            assert "batt" in app.status_text().lower()
+            await pilot.press("ctrl+q")
+
+
+async def test_console_screen_runs_command(rig: SimRig) -> None:
+    async with open_tank(rig.bench) as tank:
+        app = BenchApp(tank, start_screen="console")
+        async with app.run_test() as pilot:
+            await pilot.press("c", "a", "m", "space", "h", "o", "m", "e", "enter")
+            await pilot.pause(0.2)
+            assert any(isinstance(m, g.CamHome) for m in rig.uno.received)
+            await pilot.press("ctrl+q")
+
+
+async def test_status_shows_override(rig: SimRig) -> None:
+    async with open_tank(rig.bench) as tank:
+        app = BenchApp(tank, start_screen="dashboard")
+        async with app.run_test() as pilot:
+            assert (await tank.api.safety_override(True)).ok
+            await pilot.pause(1.3)  # next 1 Hz slow telemetry frame carries the flag
+            assert "OVERRIDE" in app.status_text()
+            await pilot.press("ctrl+q")
+```
+
+- [ ] **Step 2: Run it to see it fail**
+
+Run: `cd tools/bench && uv run pytest tests/test_app.py -v`
+Expected: FAIL — `ModuleNotFoundError`.
+
+- [ ] **Step 3: Implement the app (thin shell over services)**
+
+`tools/bench/conqueror_bench/app.py`:
+```python
+"""Textual dashboard: thin UI over the services (all logic lives in the service modules)."""
+
+# Textual's public API returns partially-unknown generic types (Screen.app, App.install_screen,
+# App.get_screen) under pyright strict. This module is only the thin UI shell over the services,
+# so these three "unknown type" reports are relaxed here and nowhere else.
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
+# pyright: reportUnknownArgumentType=false
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any, ClassVar
+
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Vertical
+from textual.screen import ModalScreen, Screen
+from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Log, Static
+
+from .api import Tank
+from .calculators import CALCULATORS
+from .calibration import CalibrationService
+from .console import execute, parse_command
+from .runner import DEFS_DIR, TestRunner, load_test
+from .teleop import Teleop
+
+
+class AskDialog(ModalScreen[str]):
+    def __init__(self, prompt: str) -> None:
+        super().__init__()
+        self._prompt = prompt
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(Label(self._prompt), Input(id="answer"))
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.dismiss(event.value)
+
+
+class ModalPrompter:
+    def __init__(self, app: BenchApp) -> None:
+        self._app = app
+
+    async def ask(self, prompt: str) -> str:
+        return await self._app.push_screen_wait(AskDialog(prompt))
+
+    async def say(self, text: str) -> None:
+        self._app.log_line(text)
+
+
+class StatusPanel(Static):
+    pass
+
+
+class DashboardScreen(Screen[None]):
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield StatusPanel(id="status")
+        yield Log(id="events")
+        yield Footer()
+
+
+class DriveScreen(Screen[None]):
+    BINDINGS: ClassVar[list[Binding | tuple[str, str] | tuple[str, str, str]]] = [
+        Binding(k, f"key('{k}')", show=False)
+        for k in (
+            "w",
+            "s",
+            "a",
+            "d",
+            "c",
+            "q",
+            "e",
+            "space",
+            "up",
+            "down",
+            "left",
+            "right",
+            "h",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+        )
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield StatusPanel(id="status")
+        yield Static(
+            "W/S speed ±10 · A/D steer · C centre · Q/E spin · SPACE STOP · arrows camera · H home",
+            id="help",
+        )
+        yield Footer()
+
+    async def action_key(self, key: str) -> None:
+        app = self.app
+        assert isinstance(app, BenchApp)
+        action = await app.teleop.handle_key(key)
+        if action.kind == "quick_test":
+            names = sorted(p.stem for p in DEFS_DIR.glob("*.yaml"))
+            if 0 < action.value <= len(names):
+                app.run_worker(app.run_test_named(names[action.value - 1]))
+
+
+class ConsoleScreen(Screen[None]):
+    AUTO_FOCUS = "#cmd"  # typing goes straight into the command box
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Log(id="console_log")
+        yield Input(placeholder="command (try: turn by 90 speed 40)", id="cmd")
+        yield Footer()
+
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        app = self.app
+        assert isinstance(app, BenchApp)
+        log = self.query_one("#console_log", Log)
+        try:
+            out = await execute(app.tank.api, parse_command(event.value))
+        except (ValueError, KeyError) as exc:
+            out = str(exc)
+        log.write_line(f"> {event.value}\n{out}")
+        event.input.value = ""
+
+
+class ListScreen(Screen[None]):
+    def __init__(self, title: str, items: list[str], handler: str) -> None:
+        super().__init__()
+        self._title = title
+        self._items = items
+        self._handler = handler
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Label(self._title)
+        yield ListView(*[ListItem(Label(i), name=i) for i in self._items])
+        yield Footer()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        app = self.app
+        assert isinstance(app, BenchApp)
+        name = event.item.name or ""
+        app.run_worker(getattr(app, self._handler)(name))
+
+
+class BenchApp(App[None]):
+    TITLE = "Conqueror bench"
+    BINDINGS: ClassVar[list[Binding | tuple[str, str] | tuple[str, str, str]]] = [
+        Binding("f1", "show('dashboard')", "Dashboard"),
+        Binding("f2", "show('drive')", "Drive"),
+        Binding("f3", "show('console')", "Console"),
+        Binding("f4", "show('tests')", "Tests"),
+        Binding("f5", "show('calibrate')", "Calibrate"),
+        Binding("f6", "show('tune')", "Tune"),
+        Binding("f7", "show('sessions')", "Sessions"),
+        Binding("ctrl+q", "safe_quit", "Quit (STOP first)"),
+    ]
+
+    def __init__(self, tank: Tank, start_screen: str = "dashboard", hold: bool = False) -> None:
+        super().__init__()
+        self.tank = tank
+        self.teleop = Teleop(tank.api)
+        self.prompter = ModalPrompter(self)
+        self._start = start_screen
+        self._hold = hold
+        self._teleop_task: asyncio.Task[None] | None = None
+
+    def on_mount(self) -> None:
+        self.install_screen(DashboardScreen(), "dashboard")
+        self.install_screen(DriveScreen(), "drive")
+        self.install_screen(ConsoleScreen(), "console")
+        self.install_screen(
+            ListScreen("Tests", sorted(p.stem for p in DEFS_DIR.glob("*.yaml")), "run_test_named"),
+            "tests",
+        )
+        self.install_screen(
+            ListScreen("Calibration", list(CALCULATORS), "run_calibration"), "calibrate"
+        )
+        self.install_screen(
+            ListScreen("Tune (step test)", ["rate", "speed", "heading"], "run_tune"), "tune"
+        )
+        self.install_screen(ListScreen("Sessions", [], "noop"), "sessions")
+        self.push_screen(self._start)
+        self._teleop_task = asyncio.create_task(self.teleop.run())
+        if self._hold:
+            from .teleop import HoldKeyboard
+
+            HoldKeyboard(self.teleop, asyncio.get_running_loop()).start()
+        self.tank.model.subscribe(self._on_model)
+        self.set_interval(0.2, self._refresh)
+
+    def status_text(self) -> str:
+        f, s = self.tank.model.fast, self.tank.model.slow
+        parts = [f"speed {self.teleop.cruise.speed}% steer {self.teleop.cruise.steer}%"]
+        if f is not None:
+            dist = "clear" if f.dist_cm is None else f"{f.dist_cm:.0f} cm"
+            parts.append(
+                f"yaw {f.yaw_deg:.1f}° rate {f.yaw_rate_dps:.0f}°/s dist {dist} enc {f.enc}"
+            )
+        parts.append(f"batt {s.batt_v:.2f} V owner {s.owner}" if s is not None else "batt —")
+        if s is not None and "safety_override" in s.flags:
+            parts.insert(0, "⚠ OVERRIDE (obstacle/bump off, tilt 65°)")
+        if s is not None and "selftest_locked" in s.flags:
+            parts.insert(0, "⛔ LOCKED: self-test failed")
+        parts.append(
+            f"link tx {self.tank.link.stats.tx_frames} rx {self.tank.link.stats.rx_frames}"
+        )
+        return " · ".join(parts)
+
+    def _refresh(self) -> None:
+        for panel in self.screen.query(StatusPanel):
+            panel.update(self.status_text())
+
+    def _on_model(self, topic: str, payload: Any) -> None:
+        if topic == "event":
+            self.log_line(f"event {payload.kind} a={payload.a} b={payload.b}")
+
+    def log_line(self, text: str) -> None:
+        with_log = self.get_screen("dashboard").query("#events")
+        for log in with_log:
+            if isinstance(log, Log):
+                log.write_line(text)
+
+    def action_show(self, name: str) -> None:
+        self.switch_screen(name)
+
+    async def action_safe_quit(self) -> None:
+        await self.tank.api.stop()
+        if self._teleop_task is not None:
+            self._teleop_task.cancel()
+        self.exit()
+
+    async def run_test_named(self, name: str) -> None:
+        result = await TestRunner(self.tank, self.prompter, DEFS_DIR.parent / "sessions").run(
+            load_test(DEFS_DIR / f"{name}.yaml")
+        )
+        self.log_line(f"{name}: {'PASS' if result.passed else 'FAIL'} {result.metrics}")
+
+    async def run_calibration(self, item: str) -> None:
+        svc = CalibrationService(self.tank, self.prompter)
+        outcome = await svc.run(item)
+        if not outcome.ok:
+            self.log_line(f"{item}: FAILED — {outcome.error}")
+            return
+        rows = await svc.summary(outcome)
+        answer = await self.prompter.ask(
+            "Accept? " + ", ".join(f"{n} {o:g}→{v:g}" for n, o, v in rows) + " [y/n]"
+        )
+        if answer.lower().startswith("y"):
+            self.log_line("saved" if await svc.accept(outcome) else "save failed")
+
+    async def run_tune(self, loop: str) -> None:
+        from .tuning import TuningService
+
+        self.log_line(f"{loop}: {await TuningService(self.tank).step_test(loop, 45.0)}")
+
+    async def noop(self, name: str) -> None:
+        return None
+```
+
+- [ ] **Step 3b: Add the dashboard commands to the CLI**
+
+Task 14 deliberately left `drive` and `dash` out (they import `.app`, which only exists now). Replace the CLI with this version (Task 14 plus the two commands):
+
+`tools/bench/conqueror_bench/cli.py`:
+```python
+"""`bench` command line (Typer)."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+from collections.abc import Awaitable, Callable
+from contextlib import suppress
+from pathlib import Path
+from typing import Annotated, Any
+
+import typer
+
+from .api import Tank, open_tank
+from .calculators import CALCULATORS, WIZARD_ORDER
+from .calibration import CalibrationService
+from .discovery import discover_bridges, serial_ports
+from .prompter import ConsolePrompter, Prompter, ScriptedPrompter
+from .recorder import replay_into
+from .reporter import compare_sessions, write_report_async
+from .runner import DEFS_DIR, TestRunner, load_test
+from .sim import SimConfig, SimulatedUno
+from .transport import SerialTransport, TcpTransport, Transport, fake_pair
+
+app = typer.Typer(no_args_is_help=True, help="Conqueror bench tool")
+DEFAULT_SESSIONS = Path(__file__).resolve().parents[1] / "sessions"
+ENVELOPES = {"child_play": (20, 30, 3)}  # lock_brake bits: LOCK_BRAKE | CHILD_PLAY
+
+
+class Opts:
+    port: str | None = None
+    host: str | None = None
+    sim: bool = False
+    envelope: tuple[int, int, int] | None = None
+
+
+OPTS = Opts()
+
+
+@app.callback()
+def _global(
+    port: Annotated[str | None, typer.Option("--port", "-p", envvar="BENCH_PORT")] = None,
+    host: Annotated[str | None, typer.Option("--host", "-H", envvar="BENCH_HOST")] = None,
+    sim: Annotated[bool, typer.Option("--sim", help="use the simulated Uno")] = False,
+    envelope: Annotated[str, typer.Option(help="child_play or none")] = "none",
+) -> None:
+    OPTS.port, OPTS.host, OPTS.sim = port, host, sim
+    OPTS.envelope = ENVELOPES.get(envelope)
+
+
+def make_transport(
+    port: str | None, host: str | None, sim: bool
+) -> tuple[Transport, Callable[[], Awaitable[None]] | None]:
+    if sim:
+        bench, uno_side = fake_pair()
+        uno = SimulatedUno(uno_side, SimConfig(hello_interval_s=0.05, max_speed_cm_s=200.0))
+        task = asyncio.get_running_loop().create_task(uno.run())
+
+        async def cleanup() -> None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+        return bench, cleanup
+    if host:
+        return TcpTransport(host), None
+    if port:
+        return SerialTransport(port), None
+    raise typer.BadParameter("give --port, --host or --sim (try: bench discover)")
+
+
+async def _with_tank(fn: Callable[[Tank], Awaitable[Any]]) -> Any:
+    transport, cleanup = make_transport(OPTS.port, OPTS.host, OPTS.sim)
+    hello_timeout = 5.0 if OPTS.port else 3.0
+    try:
+        async with open_tank(
+            transport, envelope=OPTS.envelope, hello_timeout_s=hello_timeout
+        ) as tank:
+            return await fn(tank)
+    finally:
+        if cleanup is not None:
+            await cleanup()
+
+
+def _answers(spec: str) -> dict[str, str]:
+    return dict(pair.split("=", 1) for pair in spec.split(",") if "=" in pair)
+
+
+@app.command()
+def discover() -> None:
+    """List WiFi bridges (mDNS) and USB serial ports."""
+    for b in discover_bridges():
+        typer.echo(f"bridge  {b.name}  {b.host}:{b.port}")
+    for p in serial_ports():
+        typer.echo(f"serial  {p}")
+
+
+@app.command()
+def connect() -> None:
+    """Connect, print the HELLO and link stats, then disconnect (sends STOP)."""
+
+    async def run(tank: Tank) -> None:
+        typer.echo(f"connected: {tank.link.hello}")
+        await asyncio.sleep(1.0)
+        typer.echo(f"stats: {tank.link.stats}")
+
+    asyncio.run(_with_tank(run))
+
+
+@app.command()
+def stop() -> None:
+    """Send STOP (resent until acknowledged)."""
+    asyncio.run(_with_tank(lambda tank: tank.api.stop()))
+
+
+@app.command()
+def test(
+    name: str,
+    answers: Annotated[str, typer.Option(help="scripted inputs id=value,...")] = "",
+    sessions: Annotated[Path, typer.Option()] = DEFAULT_SESSIONS,
+) -> None:
+    """Run a standard test (or `all`) and write a report."""
+    names = sorted(p.stem for p in DEFS_DIR.glob("*.yaml")) if name == "all" else [name]
+    prompter: Prompter = (
+        ScriptedPrompter(_answers(answers)) if (answers or OPTS.sim) else ConsolePrompter()
+    )
+
+    async def run(tank: Tank) -> bool:
+        ok = True
+        for n in names:
+            result = await TestRunner(tank, prompter, sessions).run(
+                load_test(DEFS_DIR / f"{n}.yaml")
+            )
             report = await write_report_async(result, await tank.api.get_setting("counts_per_cm"))
             typer.echo(f"{n}: {'PASS' if result.passed else 'FAIL'}  ({report})")
             ok = ok and result.passed
@@ -5249,311 +5879,10 @@ def main() -> None:
     app()
 ```
 
-- [ ] **Step 6: Run the tests to see them pass**
-
-Run: `cd tools/bench && uv run pytest tests/test_console_cli.py -v`
-Expected: 16 passed.
-
-- [ ] **Step 7: Lint, type-check, commit**
-
-Run: `cd tools/bench && uv run ruff check . && uv run ruff format --check . && uv run pyright`
-```bash
-git add tools/bench/conqueror_bench/discovery.py tools/bench/conqueror_bench/console.py tools/bench/conqueror_bench/cli.py tools/bench/tests/test_console_cli.py
-git commit -m "feat(bench): discovery, console commands and bench CLI"
-```
-
----
-
-### Task 15: Textual dashboard
-
-**Files:**
-- Create: `tools/bench/conqueror_bench/app.py`
-- Test: `tools/bench/tests/test_app.py`
-
-**Interfaces:**
-- Consumes: `Tank`, `Teleop`, `CruiseControl`, `parse_command`, `execute`, `TestRunner`, `CalibrationService`, `TuningService`, `DEFS_DIR`, `CALCULATORS`.
-- Produces: `BenchApp(tank, start_screen="dashboard", hold=False)` (Textual `App`) with screens `dashboard, drive, console, tests, calibrate, tune, sessions` (switch keys `F1`–`F7`); bindings on the Drive screen: `w s a d c q e space up down left right h 1-9`; `ModalPrompter` (Prompter implemented with a Textual input dialog). Quitting (`ctrl+q`) sends STOP before exit.
-
-- [ ] **Step 1: Write the failing UI smoke test**
-
-`tools/bench/tests/test_app.py`:
-```python
-from conqueror_protocol import generated as g
-
-from conqueror_bench.api import open_tank
-from conqueror_bench.app import BenchApp
-
-from .conftest import SimRig
-
-
-async def test_drive_keys_and_quit_sends_stop(rig: SimRig) -> None:
-    async with open_tank(rig.bench) as tank:
-        app = BenchApp(tank, start_screen="drive")
-        async with app.run_test() as pilot:
-            await pilot.press("w", "w", "a")
-            await pilot.pause(0.3)
-            assert app.teleop.cruise.speed == 20
-            assert app.teleop.cruise.steer == 20
-            drives = [m for m in rig.uno.received if isinstance(m, g.Drive)]
-            assert drives and drives[-1].v == 20 and drives[-1].w == 20
-            await pilot.press("space")
-            await pilot.pause(0.1)
-            assert any(isinstance(m, g.Stop) for m in rig.uno.received)
-            await pilot.press("ctrl+q")
-
-
-async def test_dashboard_shows_telemetry(rig: SimRig) -> None:
-    async with open_tank(rig.bench) as tank:
-        app = BenchApp(tank)
-        async with app.run_test() as pilot:
-            await pilot.pause(0.3)
-            assert "batt" in app.status_text().lower()
-            await pilot.press("ctrl+q")
-
-
-async def test_console_screen_runs_command(rig: SimRig) -> None:
-    async with open_tank(rig.bench) as tank:
-        app = BenchApp(tank, start_screen="console")
-        async with app.run_test() as pilot:
-            await pilot.press("c", "a", "m", "space", "h", "o", "m", "e", "enter")
-            await pilot.pause(0.2)
-            assert any(isinstance(m, g.CamHome) for m in rig.uno.received)
-            await pilot.press("ctrl+q")
-```
-
-- [ ] **Step 2: Run it to see it fail**
-
-Run: `cd tools/bench && uv run pytest tests/test_app.py -v`
-Expected: FAIL — `ModuleNotFoundError`.
-
-- [ ] **Step 3: Implement the app (thin shell over services)**
-
-`tools/bench/conqueror_bench/app.py`:
-```python
-"""Textual dashboard: thin UI over the services (all logic lives in the service modules)."""
-
-from __future__ import annotations
-
-import asyncio
-from typing import Any, ClassVar
-
-from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.containers import Vertical
-from textual.screen import ModalScreen, Screen
-from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Log, Static
-
-from .api import Tank
-from .calculators import CALCULATORS
-from .calibration import CalibrationService
-from .console import execute, parse_command
-from .runner import DEFS_DIR, TestRunner, load_test
-from .teleop import Teleop
-
-
-class AskDialog(ModalScreen[str]):
-    def __init__(self, prompt: str) -> None:
-        super().__init__()
-        self._prompt = prompt
-
-    def compose(self) -> ComposeResult:
-        yield Vertical(Label(self._prompt), Input(id="answer"))
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.dismiss(event.value)
-
-
-class ModalPrompter:
-    def __init__(self, app: BenchApp) -> None:
-        self._app = app
-
-    async def ask(self, prompt: str) -> str:
-        return await self._app.push_screen_wait(AskDialog(prompt))
-
-    async def say(self, text: str) -> None:
-        self._app.log_line(text)
-
-
-class StatusPanel(Static):
-    pass
-
-
-class DashboardScreen(Screen[None]):
-    def compose(self) -> ComposeResult:
-        yield Header()
-        yield StatusPanel(id="status")
-        yield Log(id="events")
-        yield Footer()
-
-
-class DriveScreen(Screen[None]):
-    BINDINGS: ClassVar[list[Binding | tuple[str, str] | tuple[str, str, str]]] = [
-        Binding(k, f"key('{k}')", show=False)
-        for k in ("w", "s", "a", "d", "c", "q", "e", "space", "up", "down", "left", "right", "h",
-                  "1", "2", "3", "4", "5", "6", "7", "8", "9")
-    ]
-
-    def compose(self) -> ComposeResult:
-        yield Header()
-        yield StatusPanel(id="status")
-        yield Static("W/S speed ±10 · A/D steer · C centre · Q/E spin · SPACE STOP · arrows camera · H home",
-                     id="help")
-        yield Footer()
-
-    async def action_key(self, key: str) -> None:
-        app = self.app
-        assert isinstance(app, BenchApp)
-        action = await app.teleop.handle_key(key)
-        if action.kind == "quick_test":
-            names = sorted(p.stem for p in DEFS_DIR.glob("*.yaml"))
-            if 0 < action.value <= len(names):
-                app.run_worker(app.run_test_named(names[action.value - 1]))
-
-
-class ConsoleScreen(Screen[None]):
-    def compose(self) -> ComposeResult:
-        yield Header()
-        yield Log(id="console_log")
-        yield Input(placeholder="command (try: turn by 90 speed 40)", id="cmd")
-        yield Footer()
-
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        app = self.app
-        assert isinstance(app, BenchApp)
-        log = self.query_one("#console_log", Log)
-        try:
-            out = await execute(app.tank.api, parse_command(event.value))
-        except (ValueError, KeyError) as exc:
-            out = str(exc)
-        log.write_line(f"> {event.value}\n{out}")
-        event.input.value = ""
-
-
-class ListScreen(Screen[None]):
-    def __init__(self, title: str, items: list[str], handler: str) -> None:
-        super().__init__()
-        self._title = title
-        self._items = items
-        self._handler = handler
-
-    def compose(self) -> ComposeResult:
-        yield Header()
-        yield Label(self._title)
-        yield ListView(*[ListItem(Label(i), name=i) for i in self._items])
-        yield Footer()
-
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        app = self.app
-        assert isinstance(app, BenchApp)
-        name = event.item.name or ""
-        app.run_worker(getattr(app, self._handler)(name))
-
-
-class BenchApp(App[None]):
-    TITLE = "Conqueror bench"
-    BINDINGS: ClassVar[list[Binding | tuple[str, str] | tuple[str, str, str]]] = [
-        Binding("f1", "show('dashboard')", "Dashboard"),
-        Binding("f2", "show('drive')", "Drive"),
-        Binding("f3", "show('console')", "Console"),
-        Binding("f4", "show('tests')", "Tests"),
-        Binding("f5", "show('calibrate')", "Calibrate"),
-        Binding("f6", "show('tune')", "Tune"),
-        Binding("f7", "show('sessions')", "Sessions"),
-        Binding("ctrl+q", "safe_quit", "Quit (STOP first)"),
-    ]
-
-    def __init__(self, tank: Tank, start_screen: str = "dashboard", hold: bool = False) -> None:
-        super().__init__()
-        self.tank = tank
-        self.teleop = Teleop(tank.api)
-        self.prompter = ModalPrompter(self)
-        self._start = start_screen
-        self._hold = hold
-        self._teleop_task: asyncio.Task[None] | None = None
-
-    def on_mount(self) -> None:
-        self.install_screen(DashboardScreen(), "dashboard")
-        self.install_screen(DriveScreen(), "drive")
-        self.install_screen(ConsoleScreen(), "console")
-        self.install_screen(ListScreen("Tests", sorted(p.stem for p in DEFS_DIR.glob("*.yaml")),
-                                       "run_test_named"), "tests")
-        self.install_screen(ListScreen("Calibration", list(CALCULATORS), "run_calibration"), "calibrate")
-        self.install_screen(ListScreen("Tune (step test)", ["rate", "speed", "heading"], "run_tune"), "tune")
-        self.install_screen(ListScreen("Sessions", [], "noop"), "sessions")
-        self.push_screen(self._start)
-        self._teleop_task = asyncio.create_task(self.teleop.run())
-        if self._hold:
-            from .teleop import HoldKeyboard
-
-            HoldKeyboard(self.teleop, asyncio.get_running_loop()).start()
-        self.tank.model.subscribe(self._on_update)
-        self.set_interval(0.2, self._refresh)
-
-    def status_text(self) -> str:
-        f, s = self.tank.model.fast, self.tank.model.slow
-        parts = [f"speed {self.teleop.cruise.speed}% steer {self.teleop.cruise.steer}%"]
-        if f is not None:
-            dist = "clear" if f.dist_cm is None else f"{f.dist_cm:.0f} cm"
-            parts.append(f"yaw {f.yaw_deg:.1f}° rate {f.yaw_rate_dps:.0f}°/s dist {dist} enc {f.enc}")
-        parts.append(f"batt {s.batt_v:.2f} V owner {s.owner}" if s is not None else "batt —")
-        parts.append(f"link tx {self.tank.link.stats.tx_frames} rx {self.tank.link.stats.rx_frames}")
-        return " · ".join(parts)
-
-    def _refresh(self) -> None:
-        for panel in self.screen.query(StatusPanel):
-            panel.update(self.status_text())
-
-    def _on_update(self, topic: str, payload: Any) -> None:
-        if topic == "event":
-            self.log_line(f"event {payload.kind} a={payload.a} b={payload.b}")
-
-    def log_line(self, text: str) -> None:
-        with_log = self.get_screen("dashboard").query("#events")
-        for log in with_log:
-            if isinstance(log, Log):
-                log.write_line(text)
-
-    def action_show(self, name: str) -> None:
-        self.switch_screen(name)
-
-    async def action_safe_quit(self) -> None:
-        await self.tank.api.stop()
-        if self._teleop_task is not None:
-            self._teleop_task.cancel()
-        self.exit()
-
-    async def run_test_named(self, name: str) -> None:
-        result = await TestRunner(self.tank, self.prompter, DEFS_DIR.parent / "sessions").run(
-            load_test(DEFS_DIR / f"{name}.yaml")
-        )
-        self.log_line(f"{name}: {'PASS' if result.passed else 'FAIL'} {result.metrics}")
-
-    async def run_calibration(self, item: str) -> None:
-        svc = CalibrationService(self.tank, self.prompter)
-        outcome = await svc.run(item)
-        if not outcome.ok:
-            self.log_line(f"{item}: FAILED — {outcome.error}")
-            return
-        rows = await svc.summary(outcome)
-        answer = await self.prompter.ask(
-            "Accept? " + ", ".join(f"{n} {o:g}→{v:g}" for n, o, v in rows) + " [y/n]"
-        )
-        if answer.lower().startswith("y"):
-            self.log_line("saved" if await svc.accept(outcome) else "save failed")
-
-    async def run_tune(self, loop: str) -> None:
-        from .tuning import TuningService
-
-        self.log_line(f"{loop}: {await TuningService(self.tank).step_test(loop, 45.0)}")
-
-    async def noop(self, name: str) -> None:
-        return None
-```
-
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `cd tools/bench && uv run pytest tests/test_app.py -v`
-Expected: 3 passed.
+Expected: 4 passed.
 
 - [ ] **Step 5: Full suite, lint, type-check, commit**
 

@@ -1,6 +1,7 @@
 #include <Arduino.h>
 
 #include "drivers/board_config.h"
+#include "domain/estimation/imu_scale.h"
 #include "ports/imu.h"
 
 #if defined(BOARD_MEGA)
@@ -101,7 +102,7 @@ bool begin() {
     onFailure();
     return false;
   }
-  if (who != 0x68) return false;
+  if (!imu_scale::supportedWhoAmI(who)) return false;
   return writeReg(0x6B, 0x01)     // PWR_MGMT_1: wake, PLL with gyro X
          && writeReg(0x19, 0x04)  // SMPLRT_DIV: 1 kHz / 5 = 200 Hz
          && writeReg(0x1A, 0x03)  // CONFIG: DLPF 44 Hz

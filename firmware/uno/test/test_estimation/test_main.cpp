@@ -3,6 +3,7 @@
 #include "domain/estimation/accel_variance.h"
 #include "domain/estimation/attitude.h"
 #include "domain/estimation/bump_detector.h"
+#include "domain/estimation/imu_scale.h"
 #include "domain/estimation/lift_detector.h"
 #include "domain/estimation/yaw_integrator.h"
 
@@ -129,6 +130,14 @@ void test_accel_variance_window() {
   TEST_ASSERT_UINT16_WITHIN(1000, 10000, v.value());  // ±100 mg → 10000 mg²
 }
 
+void test_imu_id_accepts_mpu6050_family() {
+  TEST_ASSERT_TRUE(cq::imu_scale::supportedWhoAmI(0x68));   // MPU-6050
+  TEST_ASSERT_TRUE(cq::imu_scale::supportedWhoAmI(0x70));   // MPU-6500 (common clone)
+  TEST_ASSERT_TRUE(cq::imu_scale::supportedWhoAmI(0x71));   // MPU-9250
+  TEST_ASSERT_FALSE(cq::imu_scale::supportedWhoAmI(0x00));  // bus floating low
+  TEST_ASSERT_FALSE(cq::imu_scale::supportedWhoAmI(0xFF));  // bus floating high
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_attitude_level_stays_zero);
@@ -141,5 +150,6 @@ int main() {
   RUN_TEST(test_tilt_needs_300ms_hold);
   RUN_TEST(test_tilt_hysteresis);
   RUN_TEST(test_accel_variance_window);
+  RUN_TEST(test_imu_id_accepts_mpu6050_family);
   return UNITY_END();
 }

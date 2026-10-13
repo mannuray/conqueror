@@ -10,7 +10,8 @@ namespace {
 const EepromIo kIo{port::eeprom::read, port::eeprom::writeByteAsync, port::eeprom::busy};
 
 bool loadBlock(uint8_t block, uint16_t addr) {
-  uint8_t buf[64];
+  // Sized from the structs, so a growing settings block can never overflow it (review item 1).
+  uint8_t buf[sizeof(GlobalSettings) > sizeof(ProfileSettings) ? sizeof(GlobalSettings) : sizeof(ProfileSettings)];
   const uint8_t len = port::eeprom::read(addr);
   if (len == 0 || len > sizeof buf) return false;
   for (uint8_t i = 0; i < len; ++i) buf[i] = port::eeprom::read(static_cast<uint16_t>(addr + 1 + i));

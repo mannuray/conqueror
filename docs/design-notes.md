@@ -842,3 +842,15 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 - The owner has no USB cable long enough for floor driving, and on the stand the gyro cannot see the tank turn (tracks in the air), so turn/heading/MOVE accuracy can only be proved on the floor.
 - Plan B is signed off on **Phase 1 (stand)** alone. **Phase 2 (floor)** runs after Plan C over WiFi: the ESP32 bridge passes TCP 3333 frame-aligned to the Mega, so the smoke tool only needs a TCP transport (pyserial `serial_for_url("socket://conqueror-bridge.local:3333")`) — or the Plan D bench tool. Shield switch S1 on the ESP32 side for these runs.
 
+## 36. Plan B final-review minor items — what we did (DECIDED 2026-10-13)
+| # | Item | Decision |
+|---|---|---|
+| 1 | Settings loader buffer was a hand-written 64 B | **Fixed:** sized from the settings structs (can never be too small) |
+| 2 | "clearDirty after save can hide a change made mid-save" | **No change needed:** the dirty flag is not read anywhere; saving is explicit (SETTINGS_SAVE saves the values at that moment, a second SAVE during a save gets BUSY), so nothing is silently lost |
+| 3 | Smoke tool termios2 also needs the input speed (CIBAUD/BOTHER<<16) | **Plan D:** the bench tool's `SerialTransport` does it right (Plan D Global Constraints) |
+| 4 | Smoke tool's exit STOP is dropped while paused | **Leave:** firmware link-loss stops the tank anyway |
+| 5 | Encoder interrupt duration not measured | **When the encoders are fitted** (GPIO toggle + scope or micros) |
+| 6 | WS2812 low-time margin for some clone LEDs | **Leave** unless an LED misbehaves |
+| 7 | IMU check accepted only MPU-6050 (0x68) | **Fixed:** also MPU-6500 (0x70) and MPU-9250 (0x71), same register map; host test `test_imu_id_accepts_mpu6050_family` |
+| 8 | DRIVE_RATE UNAVAILABLE sends no REJECTED event | **Leave:** the ACK already says it |
+

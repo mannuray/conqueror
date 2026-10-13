@@ -40,15 +40,29 @@ void sendWork(void*) {
   }
 }
 
+// One marker per WebSocket session: set when link_task has been told about the client.
+uint8_t g_ws_open_marker = 0;
+void noFree(void*) {}  // the marker is static; httpd must not free it
+
+void postWsOpen(httpd_req_t* req, int fd) {
+  LinkCommand cmd{};
+  cmd.kind = LinkCommand::Kind::kWsOpen;
+  cmd.fd = fd;
+  linkPost(cmd, false);
+  req->sess_ctx = &g_ws_open_marker;
+  req->free_ctx = noFree;
+}
+
 esp_err_t wsHandler(httpd_req_t* req) {
   const int fd = httpd_req_to_sockfd(req);
-  if (req->method == HTTP_GET) {  // handshake done: a new WS client
-    LinkCommand cmd{};
-    cmd.kind = LinkCommand::Kind::kWsOpen;
-    cmd.fd = fd;
-    linkPost(cmd, false);
+  if (req->method == HTTP_GET) {  // handshake (only if the IDF build calls the handler for it)
+    postWsOpen(req, fd);
     return ESP_OK;
   }
+  // Arduino-ESP32 3.3 / IDF 5.5 does not call the handler for the handshake (and its post-handshake
+  // callback is compiled out), so a client is announced to link_task on its first frame. The page
+  // sends `hello` right after connecting, so it is registered before any drive (bench 2026-10-13).
+  if (req->sess_ctx == nullptr) postWsOpen(req, fd);
   static uint8_t buf[512];  // httpd task only
   httpd_ws_frame_t f{};
   esp_err_t err = httpd_ws_recv_frame(req, &f, 0);  // length first

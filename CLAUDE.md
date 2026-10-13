@@ -35,8 +35,8 @@ Execute with the superpowers skills (`subagent-driven-development` recommended, 
 
 ## Hardware facts (confirmed)
 - Arduino **Mega 2560** body board (switched 2026-10-13, design-notes §29; Uno = later Lite profile for stock tanks) + ELEGOO **SmartCar Shield V1.1** with **TB6612FNG**: PWMA D5 (right), PWMB D6 (left), AIN1 D7, BIN1 D8, **STBY D3**. DRV8835 supported as a build option.
-- Mega wiring (LLD §11): jumpers **D20→A4, D21→A5** (I2C), **D9→A10** (IR); encoders **left A8, right A9** (Uno: A1/A2).
-- FIT0458 TT encoder motors; passive buzzer **A0**; ultrasonic trig D13 / echo D12 (forward); IR receiver D9 (soldered on shield); servos D10 pan / D11 tilt (camera); WS2812 ×1 on D4; mode button D2; battery A3; MPU6050 I2C A4/A5 (0x68); 2S Li-ion battery.
+- Mega wiring (LLD §11): jumpers **D20→A4, D21→A5** (I2C), **D9→A14** (IR); **buzzer on D24** (off the shield); encoders (when fitted) **left A/B → A8/A9, right A/B → A10/A11** (Uno: A1/A2).
+- FIT0458 TT encoder motors; passive buzzer (Uno A0, Mega D24); ultrasonic trig D13 / echo D12 (forward); IR receiver D9 (soldered on shield); servos D10 pan / D11 tilt (camera); WS2812 ×1 on D4; mode button D2; battery A3; MPU6050 I2C A4/A5 (0x68); 2S Li-ion battery.
 - ESP32 camera board: **ELEGOO ESP32S3-Camera V1.0** with **ESP32-S3-WROOM-1** module, USB-C (confirmed by photo 2026-10-12; earlier docs said ESP32-WROVER — superseded). Camera reported as **OV3660**. 8 MB flash + 8 MB octal PSRAM (N8R8). ESP32 ↔ Uno UART: **RX GPIO3 / TX GPIO40** (recovered from the old firmware), our protocol runs it at **250000 baud**; camera pins = **ESP32-S3-EYE map** (see `docs/design-notes.md` §24). The older WROVER pins (IO33 / IO4) do not apply. Shield switch **S1** disconnects the ESP32 for Uno USB uploads.
 - Dropped / not used: compass, line-tracking module. Uno firmware updates are **USB only**.
 

@@ -39,12 +39,14 @@ constexpr uint8_t kPinEcho = 12;      // Uno PB4 (PCINT4), Mega PB6 (PCINT6); bo
 constexpr uint8_t kPinTrig = 13;
 
 #if defined(BOARD_MEGA)
-// LLD §11.1 wiring: jumpers D20->A4, D21->A5 (I2C), D9->A10 (IR); encoder wires on A8/A9.
-constexpr uint8_t kPinIr = 64;          // A10 = PK2 (PCINT18, vector PCINT2), jumper from shield D9
+// LLD §11.1 wiring: jumpers D20->A4, D21->A5 (I2C), D9->A14 (IR); buzzer on D24; encoders A8/A9 (L), A10/A11 (R).
+constexpr uint8_t kPinIr = 68;          // A14 = PK6 (PCINT22, vector PCINT2), jumper from shield D9
 constexpr uint8_t kPinIrShield = 9;     // shield D9 (PH6, no PCINT): kept a high-impedance input
-constexpr uint8_t kPinBuzzer = 54;      // A0
-constexpr uint8_t kPinEncLeft = 62;     // A8 = PK0 (PCINT16, vector PCINT2)
-constexpr uint8_t kPinEncRight = 63;    // A9 = PK1 (PCINT17, vector PCINT2)
+constexpr uint8_t kPinBuzzer = 24;      // D24, wired directly (off the shield); tone() on Timer2
+constexpr uint8_t kPinEncLeft = 62;     // A8 = PK0 (PCINT16, vector PCINT2), left channel A
+constexpr uint8_t kPinEncRight = 64;    // A10 = PK2 (PCINT18, vector PCINT2), right channel A
+constexpr uint8_t kPinEncLeftB = 63;    // A9 = PK1, left channel B (wired for quadrature later; unused)
+constexpr uint8_t kPinEncRightB = 65;   // A11 = PK3, right channel B (wired for quadrature later; unused)
 constexpr uint8_t kPinBattery = 57;     // A3 (ADC3)
 constexpr uint8_t kPinShieldSda = 58;   // A4, jumpered to D20: kept an input (TWI drives D20)
 constexpr uint8_t kPinShieldScl = 59;   // A5, jumpered to D21

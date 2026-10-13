@@ -10,9 +10,9 @@
 namespace {
 #if defined(BOARD_MEGA)
 constexpr uint8_t kEchoBit = _BV(PB6);   // D12
-constexpr uint8_t kIrBit = _BV(PK2);     // A10 (PCINT2 group)
-constexpr uint8_t kEncLeftBit = _BV(PK0);
-constexpr uint8_t kEncRightBit = _BV(PK1);
+constexpr uint8_t kIrBit = _BV(PK6);     // A14 (PCINT2 group)
+constexpr uint8_t kEncLeftBit = _BV(PK0);   // A8
+constexpr uint8_t kEncRightBit = _BV(PK2);  // A10
 volatile uint8_t g_prev_pink = 0xFF;
 #else
 constexpr uint8_t kIrBit = _BV(PB1);     // D9 (PCINT0 group)
@@ -98,10 +98,10 @@ namespace port {
 namespace ir {
 void begin() {
 #if defined(BOARD_MEGA)
-  pinMode(board::kPinIrShield, INPUT);  // jumpered to A10; never driven
+  pinMode(board::kPinIrShield, INPUT);  // jumpered to A14; never driven
   pinMode(board::kPinIr, INPUT);
   g_prev_pink = PINK;
-  PCMSK2 |= _BV(PCINT18);
+  PCMSK2 |= _BV(PCINT22);
   PCICR |= _BV(PCIE2);
 #else
   pinMode(board::kPinIr, INPUT);
@@ -187,7 +187,7 @@ void cq::drv::encodersEnablePcint() {
   pinMode(cq::board::kPinEncRight, INPUT_PULLUP);
 #if defined(BOARD_MEGA)
   g_prev_pink = PINK;
-  PCMSK2 |= _BV(PCINT16) | _BV(PCINT17);
+  PCMSK2 |= _BV(PCINT16) | _BV(PCINT18);
   PCICR |= _BV(PCIE2);
 #else
   g_prev_pinc = PINC;

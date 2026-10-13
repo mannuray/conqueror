@@ -28,6 +28,7 @@ void linkWatchTask() {
 // TASKS-BEGIN (later tasks add rows before TASKS-END)
 cq::Task g_tasks[] = {
     {cq::app::imuTask, 5000UL, 0},
+    {cq::app::controlTask, 10000UL, 0},
     {linkWatchTask, 10000UL, 0},
     {cq::app::telemetryFastDue, 50000UL, 0},
     {cq::app::telemetrySlowDue, 1000000UL, 0},
@@ -45,6 +46,7 @@ void setup() {
   cq::g_app.reset_reason = cq::port::watchdog::resetReason();
   cq::port::link::begin(cq::board::kBaud);
   // SETUP-INIT (later tasks add driver/domain init before SETUP-END)
+  cq::app::controlInit();
   cq::app::settingsLoad();
   cq::app::imuInit();
   cq::app::sensorsInit();

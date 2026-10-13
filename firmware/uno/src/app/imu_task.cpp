@@ -73,7 +73,7 @@ void imuTask() {
   int16_t mg = 0, dir = 0;
   if (g_app.bump.update(ax, ay, gs.bump_threshold, now, mg, dir)) g_app.events.push(proto::EventKind::kBump, mg, dir);
 
-  switch (g_app.lift.update(az, pitch, roll, gs.tilt_limit, now)) {
+  switch (g_app.lift.update(az, pitch, roll, g_app.safety_override.tiltLimit(gs.tilt_limit, gs.override_tilt_deg), now)) {
     case LiftDetector::Change::kLifted: g_app.events.push(proto::EventKind::kLifted); break;
     case LiftDetector::Change::kLanded: g_app.events.push(proto::EventKind::kLanded); break;
     case LiftDetector::Change::kTilted:

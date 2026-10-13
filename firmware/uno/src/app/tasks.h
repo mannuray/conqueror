@@ -12,6 +12,8 @@ void sensorsInit();     // boot: ultrasonic, IR, battery ADC, button ports
 void ultrasonicTask();  // 20 Hz
 void batteryTask();     // 10 Hz
 void irTask();          // 200 Hz
+void controlInit();  // boot: motor port in standby, outputs zero
+void controlTask();  // 100 Hz
 // TASK-DECLS-END
 
 }  // namespace app

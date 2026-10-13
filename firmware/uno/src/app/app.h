@@ -19,6 +19,10 @@
 #include "domain/estimation/battery_monitor.h"
 #include "domain/estimation/ultrasonic_filter.h"
 #include "domain/input/nec_decoder.h"
+#include "domain/arbitration/arbitrator.h"
+#include "domain/safety/envelope.h"
+#include "domain/safety/safety_override.h"
+#include "domain/safety/safety_supervisor.h"
 
 namespace cq {
 
@@ -72,6 +76,21 @@ struct App {
   NecDecoder nec;
   IrEvent ir_event{};
   bool ir_pending = false;  // consumed by the IR controller (Task 14)
+  // safety / arbitration
+  Envelope envelope;
+  Arbitrator arbitrator;
+  SafetySupervisor supervisor;
+  SafetyStatus safety{};
+  SafetyOverride safety_override;  // LLD §10: never persistent, off at boot
+  uint8_t override_seq = 0;        // +1 per Override enter/exit (UI blinks + chirp, Task 13)
+  proto::OwnerHintValue owner_hint = proto::OwnerHintValue::kNone;
+  int8_t teleop_v = 0;   // DRIVE, %
+  int8_t teleop_w = 0;
+  int16_t req_pwm_l = 0;  // asked of the supervisor (before the gate): a stalled track's direction
+  int16_t req_pwm_r = 0;
+  int16_t out_pwm_l = 0;  // applied by the supervisor
+  int16_t out_pwm_r = 0;
+  uint32_t last_motion_ms = 0;
 };
 
 extern App g_app;

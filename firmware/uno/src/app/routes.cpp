@@ -4,6 +4,7 @@
 #include "app/comms.h"
 #include "app/tasks.h"
 #include "ports/clock.h"
+#include "app/motion_api.h"
 
 namespace cq {
 namespace app {
@@ -73,6 +74,12 @@ const Route kRoutes[] PROGMEM = {
     {static_cast<uint8_t>(proto::FrameType::kSettingSet), onSettingSet, true},
     {static_cast<uint8_t>(proto::FrameType::kSettingGet), onSettingGet, true},
     {static_cast<uint8_t>(proto::FrameType::kSettingsSave), onSettingsSave, true},
+    {static_cast<uint8_t>(proto::FrameType::kDrive), onDrive, false},
+    {static_cast<uint8_t>(proto::FrameType::kStop), onStop, true},
+    {static_cast<uint8_t>(proto::FrameType::kBrake), onBrake, true},
+    {static_cast<uint8_t>(proto::FrameType::kEnvelope), onEnvelope, true},
+    {static_cast<uint8_t>(proto::FrameType::kOwnerHint), onOwnerHint, false},
+    {static_cast<uint8_t>(proto::FrameType::kSafetyOverride), onSafetyOverride, true},
     // ROUTES-END
 };
 const uint8_t kRouteCount = sizeof kRoutes / sizeof kRoutes[0];

@@ -130,8 +130,105 @@ def cmd_setting(link: Link, args: argparse.Namespace) -> None:
         time.sleep(1.5)
 
 
+def wait_synced(link: Link, timeout: float = 4.0) -> None:
+    end = time.monotonic() + timeout
+    while not link.synced and time.monotonic() < end:
+        time.sleep(0.05)
+    if not link.synced:
+        print("no HELLO from the Uno - motion commands will be answered BUSY")
+    time.sleep(0.1)  # HELLO_ACK reaches the control task within one tick
+
+
+def print_ack(m: object) -> None:
+    if isinstance(m, g.Ack):
+        print(f"ACK {g.ACK_STATUS[m.status]}")
+
+
+def cmd_drive(link: Link, args: argparse.Namespace) -> None:
+    link.handlers.append(lambda m: print(fmt_event(m)) if isinstance(m, g.Event) else None)
+    wait_synced(link)
+    # same run: opening the port reboots the Uno, which clears the envelope
+    if args.envelope is not None:
+        link.send(g.Envelope(speed_cap=args.envelope, accel_cap=0, lock_brake=0))
+        time.sleep(0.1)
+    end = time.monotonic() + args.seconds
+    while time.monotonic() < end:
+        link.send(g.Drive(src=g.Source.HUMAN, v=args.v, w=args.w))
+        fast = link.last.get("TelemFast")
+        if isinstance(fast, g.TelemFast):
+            print(
+                f"pwm={fast.pwm_l},{fast.pwm_r} enc={fast.enc_l},{fast.enc_r} "
+                f"yaw={fast.yaw / 100:.1f} dist={fast.dist_mm} flags={fast.flags:#06x}"
+            )
+        time.sleep(0.05)
+
+
+def cmd_stop(link: Link, args: argparse.Namespace) -> None:
+    link.handlers.append(print_ack)
+    wait_synced(link)
+    link.send(g.Stop(src=g.Source.HUMAN))
+    time.sleep(0.3)
+
+
+def cmd_envelope(link: Link, args: argparse.Namespace) -> None:
+    link.handlers.append(print_ack)
+    wait_synced(link)
+    link.send(g.Envelope(speed_cap=args.cap, accel_cap=args.accel, lock_brake=args.lock))
+    time.sleep(0.3)
+
+
+def cmd_deadman(link: Link, args: argparse.Namespace) -> None:
+    """Drive 30 % for 1 s, then stop streaming DRIVE (heartbeats go on): expect DEADMAN_STOP."""
+    link.handlers.append(lambda m: print(fmt_event(m)) if isinstance(m, g.Event) else None)
+    wait_synced(link)
+    t0 = time.monotonic()
+    for _ in range(20):
+        link.send(g.Drive(src=g.Source.HUMAN, v=30, w=0))
+        t0 = time.monotonic()  # time of the last DRIVE
+        time.sleep(0.05)
+    while time.monotonic() - t0 < 1.5:
+        fast = link.last.get("TelemFast")
+        if isinstance(fast, g.TelemFast) and fast.pwm_l == 0 and fast.pwm_r == 0:
+            print(f"motors stopped {int((time.monotonic() - t0) * 1000)} ms after the last DRIVE")
+            break
+        time.sleep(0.01)
+    time.sleep(max(0.0, t0 + 1.3 - time.monotonic()))  # keep printing events: idle release at ~1 s
+
+
+def cmd_override(link: Link, args: argparse.Namespace) -> None:
+    """SAFETY_OVERRIDE on/off (LLD §10). --ai sends src=AI (must be refused: ROLE_FORBIDDEN)."""
+    link.handlers.append(print_ack)
+    link.handlers.append(lambda m: print(fmt_event(m)) if isinstance(m, g.Event) else None)
+    wait_synced(link)
+    src = g.Source.AI if args.ai else g.Source.HUMAN
+    link.send(g.SafetyOverride(src=src, on=1 if args.state == "on" else 0))
+    time.sleep(0.3)
+    # same run: reopening the port reboots the Uno
+    if args.state == "on" and args.drive is not None:
+        end = time.monotonic() + args.seconds
+        while time.monotonic() < end:
+            link.send(g.Drive(src=g.Source.HUMAN, v=args.drive, w=0))
+            fast = link.last.get("TelemFast")
+            if isinstance(fast, g.TelemFast):
+                print(
+                    f"pwm={fast.pwm_l},{fast.pwm_r} dist={fast.dist_mm} "
+                    f"pitch={fast.pitch / 100:.1f}"
+                )
+            time.sleep(0.05)
+        time.sleep(0.6)  # keep printing events: DEADMAN_STOP 300 ms after the last DRIVE
+
+
 COMMANDS: dict[str, Callable[[Link, argparse.Namespace], None]] = {"watch": cmd_watch}
 COMMANDS["setting"] = cmd_setting
+COMMANDS.update(
+    {
+        "drive": cmd_drive,
+        "stop": cmd_stop,
+        "envelope": cmd_envelope,
+        "deadman": cmd_deadman,
+        "override": cmd_override,
+    }
+)
 
 
 def main() -> None:
@@ -144,6 +241,24 @@ def main() -> None:
     s.add_argument("name")
     s.add_argument("value", nargs="?", type=int)
     s.add_argument("--save", action="store_true")
+    d = sub.add_parser("drive")
+    d.add_argument("v", type=int)
+    d.add_argument("w", type=int)
+    d.add_argument("--seconds", type=float, default=2.0)
+    d.add_argument("--envelope", type=int, default=None, help="speed cap %% sent before driving")
+    sub.add_parser("stop")
+    e = sub.add_parser("envelope")
+    e.add_argument("cap", type=int)
+    e.add_argument("accel", type=int)
+    e.add_argument(
+        "lock", type=int, help="lock_brake bits: 1 lock brake, 3 child play (EnvelopeFlagBit)"
+    )
+    sub.add_parser("deadman")
+    o = sub.add_parser("override")
+    o.add_argument("state", choices=["on", "off"])
+    o.add_argument("--ai", action="store_true", help="send src=AI (expect ROLE_FORBIDDEN)")
+    o.add_argument("--drive", type=int, default=None, help="then drive at this %% (same run)")
+    o.add_argument("--seconds", type=float, default=3.0)
     args = ap.parse_args()
     link = Link(args.port)
     try:

@@ -234,6 +234,12 @@ classDiagram
       +reapSilent(now)
     }
     class WsClient { <<struct>> +int fd +char name[16] +uint32 last_rx_ms +RateLimiter limiter }
+    class StopBarrier {
+      <<STOP fast path on link_q>>
+      -uint32 seq_
+      +onStop(post_seq)
+      +stale(post_seq) bool
+    }
     class WsCodec { +parse(data, len, WsCommand&) ParseResult +encodeTf() +encodeTs() +encodeEv() +encodeAck() }
     class LinkOwner {
       -LinkState state_
@@ -270,9 +276,12 @@ classDiagram
     class UartWriter {
       <<single writer, one mutex>>
       +writeFrame(const uint8* frame, len) bool
+      +writeMotion(const uint8* frame, len) bool
+      +writeUrgent(const uint8* stop_frame, len) bool
       +writeRaw(data, len)
       +txFree() size_t
     }
+    note for UartWriter "STOP fast path: writeUrgent goes at the next frame boundary, ahead of queued frames,\nand discards queued not-yet-started motion frames (DRIVE / CAM_JOY); bench frames are never discarded.\nPlan C: FrameTx push(ChunkClass) / pushUrgent / purged()"
     class UartPort { <<Serial1>> RX GPIO3 · TX GPIO40 · 250000 · RX 2 KB / TX 1 KB }
     class TcpPassthrough {
       -WiFiServer server_ (3333)
@@ -305,6 +314,7 @@ classDiagram
     InfoService ..> BodyLink
     InfoService ..> LinkOwner
     WsDriveService *-- WsClient
+    WsDriveService *-- StopBarrier
     WsDriveService ..> WsCodec
     WsDriveService --> LinkOwner
     WsDriveService --> BodyLink

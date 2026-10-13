@@ -57,4 +57,12 @@ UltrasonicFilter::Change UltrasonicFilter::onReading(EchoState st, uint16_t echo
   return change;
 }
 
+EchoState UltrasonicFilter::classify(bool rose, uint32_t rise_delay_us, bool fell, uint32_t width_us,
+                                     uint16_t& echo_us) {
+  if (!rose || rise_delay_us > kMaxRiseUs) return EchoState::kNoEcho;  // the sensor did not answer
+  if (!fell || width_us > kClearUs) return EchoState::kClear;           // nothing in range
+  echo_us = static_cast<uint16_t>(width_us);
+  return EchoState::kReady;
+}
+
 }  // namespace cq

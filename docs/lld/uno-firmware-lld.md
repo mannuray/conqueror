@@ -1905,3 +1905,25 @@ classDiagram
 ```
 
 Host test: `test_phase_offsets_first_run_and_keeps_period`. The software I2C read stays as designed (≈0.75–1.2 ms). Removing its half-bit delay would break the MPU6050 fast-mode timing (tLOW ≥ 1.3 µs), so it is not used.
+
+### 11.6 Ultrasonic echo window for slow clone modules (2026-10-13, amends §9.16)
+
+**Finding (bench, owner's sensor on P9):** the module answers, but its echo rises **2.2 ms** after the trigger (genuine HC-SR04 ≈ 0.5 ms). Our window was 2 ms, so every ping counted as `NoEcho` and the sensor faulted. Measured with a standalone sketch: rise 2208 µs, echo 1496 µs = 25 cm.
+
+**Decision:** the "did it answer?" window becomes **10 ms** (`UltrasonicFilter::kMaxRiseUs`). 10 ms + the 25 ms clear limit still fits the 50 ms ping period, and a missing sensor still faults (no rise at all). The decision moves out of the driver into the pure `UltrasonicFilter::classify()`, so it is host-tested (`test_ultrasonic_classify_slow_clone_and_no_answer`).
+
+```mermaid
+classDiagram
+  class UltrasonicDriver {
+    <<driver: pcint_hub.cpp>>
+    +trigger() bool
+    +poll(echo_us) EchoState
+  }
+  class UltrasonicFilter {
+    +kMaxRiseUs = 10000
+    +kClearUs = 25000
+    +classify(rose, rise_delay_us, fell, width_us, echo_us)$ EchoState
+    +onReading(st, echo_us, offset_mm, now_ms) Change
+  }
+  UltrasonicDriver ..> UltrasonicFilter : classify()
+```

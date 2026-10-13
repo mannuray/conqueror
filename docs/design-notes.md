@@ -829,3 +829,7 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 - The SmartCar Shield V1.1 servo ports are labelled 1 and 2. Bench test (pan command only, then tilt only): **port 2 = D10 = pan (left/right)**, **port 1 = D11 = tilt (up/down)**.
 - Plug the pan servo into port 2 and the tilt servo into port 1; brown/black wire to G/−. Swapping plugs is the fix if they are mixed up; firmware keeps D10 pan / D11 tilt (no software swap).
 
+## 33. Ultrasonic: accept slow clone modules (DECIDED 2026-10-13)
+- The owner's ultrasonic answers 2.2 ms after the trigger; the firmware only waited 2 ms, so it reported a fault although the sensor works (25 cm measured).
+- The answer window is now 10 ms (still fits the 50 ms ping period). An unplugged or dead sensor still faults. LLD §11.6.
+

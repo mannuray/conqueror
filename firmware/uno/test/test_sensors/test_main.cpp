@@ -35,6 +35,22 @@ void test_ultrasonic_closing_speed() {
   TEST_ASSERT_INT16_WITHIN(5, 30, f.closingCmS());
 }
 
+void test_ultrasonic_classify_slow_clone_and_no_answer() {
+  uint16_t echo = 0;
+  // Bench module (2026-10-13): echo rises 2.2 ms after the trigger, 1496 µs wide = 25 cm.
+  TEST_ASSERT_EQUAL(static_cast<int>(EchoState::kReady),
+                    static_cast<int>(UltrasonicFilter::classify(true, 2208, true, 1496, echo)));
+  TEST_ASSERT_EQUAL_UINT16(1496, echo);
+  TEST_ASSERT_EQUAL(static_cast<int>(EchoState::kNoEcho),
+                    static_cast<int>(UltrasonicFilter::classify(false, 0, false, 0, echo)));
+  TEST_ASSERT_EQUAL(static_cast<int>(EchoState::kNoEcho),
+                    static_cast<int>(UltrasonicFilter::classify(true, UltrasonicFilter::kMaxRiseUs + 1, true, 500, echo)));
+  TEST_ASSERT_EQUAL(static_cast<int>(EchoState::kClear),
+                    static_cast<int>(UltrasonicFilter::classify(true, 600, false, 0, echo)));      // still high
+  TEST_ASSERT_EQUAL(static_cast<int>(EchoState::kClear),
+                    static_cast<int>(UltrasonicFilter::classify(true, 600, true, 25001, echo)));  // > 25 ms
+}
+
 void test_ultrasonic_fault_after_three_no_echo_and_recovery() {
   UltrasonicFilter f;
   UltrasonicFilter::Change c = UltrasonicFilter::Change::kNone;
@@ -206,5 +222,6 @@ int main() {
   RUN_TEST(test_battery_usb_power_is_not_an_alarm);
   RUN_TEST(test_battery_hysteresis_on_recovery);
   RUN_TEST(test_edge_detector_falling_and_rising);
+  RUN_TEST(test_ultrasonic_classify_slow_clone_and_no_answer);
   return UNITY_END();
 }

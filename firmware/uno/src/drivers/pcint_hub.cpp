@@ -3,6 +3,7 @@
 
 #include "drivers/board_config.h"
 #include "drivers/pcint_hub.h"
+#include "domain/estimation/ultrasonic_filter.h"
 #include "domain/util/edge_detector.h"
 #include "ports/ir.h"
 #include "ports/ultrasonic.h"
@@ -179,13 +180,7 @@ EchoState poll(uint16_t& echo_us) {
     fell = g_echo_fell;
   }
   if (!g_armed) return EchoState::kPending;  // previous trigger() sent no ping
-  // No rising edge within 2 ms of the trigger → the sensor did not answer (a failed measurement).
-  if (!rose || static_cast<uint32_t>(rise - g_trig_us) > 2000UL) return EchoState::kNoEcho;
-  if (!fell) return EchoState::kClear;    // echo still high after 50 ms: nothing in range
-  const uint32_t w = fall - rise;
-  if (w > 25000UL) return EchoState::kClear;  // LLD §9.16: echo high > 25 ms = nothing in range
-  echo_us = static_cast<uint16_t>(w);
-  return EchoState::kReady;
+  return UltrasonicFilter::classify(rose, rise - g_trig_us, fell, fall - rise, echo_us);
 }
 }  // namespace ultrasonic
 

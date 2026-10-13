@@ -809,3 +809,12 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 
 - 2026-10-13 owner — Mega pins revised (LLD §11.1): IR jumper **D9→A14** (PK6); **buzzer moved off the shield to D24**; encoders (to be fitted later) **left A/B → A8/A9, right A/B → A10/A11** (channel A used now, B wired for quadrature later). Firmware starts with encoders disabled (stock gyro-only mode).
 - 2026-10-13 owner: **buzzer stays on the shield A0 port** (its ground is already there); only IR (A14) and the encoder pins change on the Mega.
+
+## 30. No hardware rework: the shield plugs onto the Mega as-is (DECIDED 2026-10-13)
+- **Principle (owner):** users must never need jumpers, soldering or rewiring to make the project work — "no messy hardware changes that make or break the project". The SmartCar Shield V1.1 plugs onto the Mega exactly as onto the Uno; every pin difference is handled in firmware.
+- **Supersedes** the jumper plan of §29 / LLD §11.1 (D20→A4, D21→A5, D9→A14, encoders on A8–A11): no jumpers at all.
+- **IMU (I2C on A4/A5):** on the Mega, A4/A5 are not the I2C pins → a small **software I2C master** (bit-banged, open-drain via DDR) on A4 (PF4) / A5 (PF5). The Uno keeps the hardware TWI.
+- **IR (D9) and encoders (A1/A2):** on the Mega these pins have no pin-change interrupt → a **20 kHz timer sampler** (Timer1, free on the Mega) reads PH6 (D9) and PF1/PF2 (A1/A2) every 50 µs and reports IR falling edges and encoder rising edges (FIT0458 channel A ≤ ~2.6 kHz → pulses ≥ ~190 µs, sampled safely). The Uno keeps its PCINT ISRs. Echo (D12 = PB6) keeps PCINT0 on the Mega.
+- Buzzer A0, motors, servos, LED, button, battery: unchanged (already worked).
+- Costs: ~6–10 % CPU for the sampler; IMU burst read ≈ 0.5–0.7 ms (vs 0.38 ms) — inside the 5 ms IMU period; both documented in LLD §11.4.
+- Order: LLD §11.4 → Plan B Task 6c (drivers + host test of the edge sampler) → code → hardware check (IMU answers, IR codes, encoders later).

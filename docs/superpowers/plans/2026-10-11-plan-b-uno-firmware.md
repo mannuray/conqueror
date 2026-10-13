@@ -659,8 +659,9 @@ AVR_SIZE = Path.home() / ".platformio" / "packages" / "toolchain-atmelavr" / "bi
 
 
 def main() -> int:
-    out = subprocess.run([str(AVR_SIZE), "-A", str(ELF)], check=True, capture_output=True,
-                         text=True).stdout
+    out = subprocess.run(
+        [str(AVR_SIZE), "-A", str(ELF)], check=True, capture_output=True, text=True
+    ).stdout
     sections: dict[str, int] = {}
     for line in out.splitlines():
         parts = line.split()
@@ -6336,13 +6337,17 @@ def cmd_override(link: Link, args: argparse.Namespace) -> None:
     src = g.Source.AI if args.ai else g.Source.HUMAN
     link.send(g.SafetyOverride(src=src, on=1 if args.state == "on" else 0))
     time.sleep(0.3)
-    if args.state == "on" and args.drive is not None:  # same run: reopening the port reboots the Uno
+    # same run: reopening the port reboots the Uno
+    if args.state == "on" and args.drive is not None:
         end = time.monotonic() + args.seconds
         while time.monotonic() < end:
             link.send(g.Drive(src=g.Source.HUMAN, v=args.drive, w=0))
             fast = link.last.get("TelemFast")
             if isinstance(fast, g.TelemFast):
-                print(f"pwm={fast.pwm_l},{fast.pwm_r} dist={fast.dist_mm} pitch={fast.pitch / 100:.1f}")
+                print(
+                    f"pwm={fast.pwm_l},{fast.pwm_r} dist={fast.dist_mm} "
+                    f"pitch={fast.pitch / 100:.1f}"
+                )
             time.sleep(0.05)
         time.sleep(0.6)  # keep printing events: DEADMAN_STOP 300 ms after the last DRIVE
 ```
@@ -6357,7 +6362,9 @@ Register in `COMMANDS` (`"drive": cmd_drive, "stop": cmd_stop, "envelope": cmd_e
     e = sub.add_parser("envelope")
     e.add_argument("cap", type=int)
     e.add_argument("accel", type=int)
-    e.add_argument("lock", type=int, help="lock_brake bits: 1 lock brake, 3 child play (EnvelopeFlagBit)")
+    e.add_argument(
+        "lock", type=int, help="lock_brake bits: 1 lock brake, 3 child play (EnvelopeFlagBit)"
+    )
     sub.add_parser("deadman")
     o = sub.add_parser("override")
     o.add_argument("state", choices=["on", "off"])
@@ -7748,8 +7755,11 @@ def ask(question: str) -> bool:
 
 
 def cmd_selftest(link: Link, args: argparse.Namespace) -> None:
-    """Self-test re-run (LLD §10.9), all in ONE process: opening the port reboots the Uno (R13), and the
-    boot run (due 2 s after reset) must finish first — a SELF_TEST sent earlier gets BUSY."""
+    """Self-test re-run (LLD §10.9), all in ONE process.
+
+    Opening the port reboots the Uno (R13), and the boot run (due 2 s after reset) must finish
+    first — a SELF_TEST sent earlier gets BUSY.
+    """
     results: list[g.Event] = []
 
     def on(msg: object) -> None:
@@ -7764,7 +7774,8 @@ def cmd_selftest(link: Link, args: argparse.Namespace) -> None:
             time.sleep(0.05)
         return results[n - 1] if len(results) >= n else None
 
-    def drive(seconds: float) -> None:  # DRIVE is streamed (no ACK): a refusal shows as EVENT REJECTED
+    # DRIVE is streamed (no ACK): a refusal shows as EVENT REJECTED
+    def drive(seconds: float) -> None:
         end = time.monotonic() + seconds
         while time.monotonic() < end:
             link.send(g.Drive(src=g.Source.HUMAN, v=40, w=0))
@@ -7786,17 +7797,19 @@ def cmd_selftest(link: Link, args: argparse.Namespace) -> None:
             print("boot run not locked: switch the battery off (Uno on USB only) and run again")
             return
         drive(1.0)  # expect EVENT REJECTED (BLOCKED) and pwm=0,0
-        link.send(g.Calibrate(op=g.CalOp.START, script=g.CalScript.PWM_RAMP, param=0, profile=0))  # ACK BLOCKED
+        # ACK BLOCKED
+        link.send(g.Calibrate(op=g.CalOp.START, script=g.CalScript.PWM_RAMP, param=0, profile=0))
         time.sleep(0.3)
         input("Switch the battery on, then Enter…")
-        # battery-only lock: no re-run needed, EVENT SELFTEST b=0 arrives ~1 s after the battery reads valid
+        # battery-only lock: no re-run needed; EVENT SELFTEST b=0 arrives ~1 s after the
+        # battery reads valid
         auto = wait_result(2, 5.0)
         if auto is None or auto.b:
             print("lock did not clear automatically")
             return
         drive(1.0)  # unlocked automatically (no reboot, no re-run): the tracks turn
         return
-    link.send(g.Calibrate(op=g.CalOp.START, script=g.CalScript.SELF_TEST, param=0, profile=0))  # ACK OK
+    link.send(g.Calibrate(op=g.CalOp.START, script=g.CalScript.SELF_TEST, param=0, profile=0))  # OK
     wait_result(2, 5.0)
 
 
@@ -7883,7 +7896,11 @@ Register `"calibrate": cmd_calibrate, "probe": cmd_probe, "mount": cmd_mount, "b
     sub.add_parser("mount")
     sub.add_parser("bias")
     st = sub.add_parser("selftest")
-    st.add_argument("--lock-check", action="store_true", help="stand check 5a: locked boot → refusals → automatic unlock")
+    st.add_argument(
+        "--lock-check",
+        action="store_true",
+        help="stand check 5a: locked boot → refusals → automatic unlock",
+    )
 ```
 Move `import csv`, `import math` and `import statistics` to the top-level import block (ruff `I` order).
 

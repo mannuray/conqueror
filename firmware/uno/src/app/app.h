@@ -23,6 +23,10 @@
 #include "domain/safety/envelope.h"
 #include "domain/safety/safety_override.h"
 #include "domain/safety/safety_supervisor.h"
+#include "domain/calibration/cal_script_runner.h"
+#include "domain/estimation/encoder_health.h"
+#include "domain/estimation/encoder_track.h"
+#include "domain/selftest/self_test.h"
 
 namespace cq {
 
@@ -91,6 +95,15 @@ struct App {
   int16_t out_pwm_l = 0;  // applied by the supervisor
   int16_t out_pwm_r = 0;
   uint32_t last_motion_ms = 0;
+  // encoders / calibration / self-test
+  EncoderTrack enc_l;
+  EncoderTrack enc_r;
+  EncoderHealth enc_health;
+  CalScriptRunner cal;
+  SelfTest self_test;
+  uint8_t settings_reset_mask = 0;
+  bool self_test_pending = true;     // a run is due at self_test_due_ms (boot run, or a SELF_TEST re-run)
+  uint32_t self_test_due_ms = 2000;  // boot: 2 s after reset; re-run: +1500 ms (one 1 s IMU re-init try first)
 };
 
 extern App g_app;

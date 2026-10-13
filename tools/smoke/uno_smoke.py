@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import argparse
 import array
+import csv
+import math
+import statistics
 import struct
 import sys
 import termios
@@ -255,6 +258,183 @@ def cmd_override(link: Link, args: argparse.Namespace) -> None:
         time.sleep(0.6)  # keep printing events: DEADMAN_STOP 300 ms after the last DRIVE
 
 
+def run_script(
+    link: Link, script: g.CalScript, param: int, csv_path: str | None = None, timeout: float = 30.0
+) -> list[g.CalData]:
+    samples: list[g.CalData] = []
+    done = threading.Event()
+    status: list[str] = []
+
+    def on(msg: object) -> None:
+        if isinstance(msg, g.CalData):
+            samples.append(msg)
+        elif isinstance(msg, g.CalResult):
+            st = g.ACK_STATUS[msg.status]
+            name = g.CalScript(msg.script).name
+            print(f"CAL_RESULT {name} stage={msg.stage} {msg.progress}% {st}")
+            if msg.progress == 100 or st != "OK":
+                status.append(st)
+                done.set()
+        elif isinstance(msg, g.Ack) and msg.status != 0:
+            print(f"ACK {g.ACK_STATUS[msg.status]}")
+            status.append(g.ACK_STATUS[msg.status])
+            done.set()
+
+    link.handlers.append(on)
+    wait_synced(link)
+    link.send(g.Calibrate(op=g.CalOp.START, script=script, param=param, profile=0))
+    done.wait(timeout)
+    link.handlers.remove(on)
+    if csv_path:
+        with open(csv_path, "w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(["t_ms", "phase", *[f"v{i}" for i in range(8)]])
+            for s in samples:
+                w.writerow([s.t_ms, s.phase, *s.v])
+    print(f"{len(samples)} samples, result {status[0] if status else 'TIMEOUT'}")
+    return samples
+
+
+def cmd_calibrate(link: Link, args: argparse.Namespace) -> None:
+    run_script(link, g.CalScript[args.script.upper()], args.param, args.csv)
+
+
+def ask(question: str) -> bool:
+    return input(f"{question} [y/n] ").strip().lower().startswith("y")
+
+
+def cmd_selftest(link: Link, args: argparse.Namespace) -> None:
+    """Self-test re-run (LLD §10.9), all in ONE process.
+
+    Opening the port reboots the Uno (R13), and the boot run (due 2 s after reset) must finish
+    first — a SELF_TEST sent earlier gets BUSY.
+    """
+    results: list[g.Event] = []
+
+    def on(msg: object) -> None:
+        if isinstance(msg, g.Event):
+            print(fmt_event(msg))
+            if msg.kind == int(g.EventKind.SELFTEST):
+                results.append(msg)
+
+    def wait_result(n: int, timeout: float) -> g.Event | None:
+        end = time.monotonic() + timeout
+        while len(results) < n and time.monotonic() < end:
+            time.sleep(0.05)
+        return results[n - 1] if len(results) >= n else None
+
+    # DRIVE is streamed (no ACK): a refusal shows as EVENT REJECTED
+    def drive(seconds: float) -> None:
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            link.send(g.Drive(src=g.Source.HUMAN, v=40, w=0))
+            fast = link.last.get("TelemFast")
+            if isinstance(fast, g.TelemFast):
+                print(f"pwm={fast.pwm_l},{fast.pwm_r}")
+            time.sleep(0.05)
+        link.send(g.Stop(src=g.Source.HUMAN))
+
+    link.handlers.append(on)
+    link.handlers.append(print_ack)
+    wait_synced(link)
+    boot = wait_result(1, 5.0)
+    if boot is None:
+        print("no boot EVENT SELFTEST")
+        return
+    if args.lock_check:
+        if not boot.b:
+            print("boot run not locked: switch the battery off (Uno on USB only) and run again")
+            return
+        drive(1.0)  # expect EVENT REJECTED (BLOCKED) and pwm=0,0
+        # ACK BLOCKED
+        link.send(g.Calibrate(op=g.CalOp.START, script=g.CalScript.PWM_RAMP, param=0, profile=0))
+        time.sleep(0.3)
+        input("Switch the battery on, then Enter…")
+        # battery-only lock: no re-run needed; EVENT SELFTEST b=0 arrives ~1 s after the
+        # battery reads valid
+        auto = wait_result(2, 5.0)
+        if auto is None or auto.b:
+            print("lock did not clear automatically")
+            return
+        drive(1.0)  # unlocked automatically (no reboot, no re-run): the tracks turn
+        return
+    link.send(g.Calibrate(op=g.CalOp.START, script=g.CalScript.SELF_TEST, param=0, profile=0))  # OK
+    wait_result(2, 5.0)
+
+
+def cmd_probe(link: Link, args: argparse.Namespace) -> None:
+    """Shield probe (tank on the stand): STBY on D3 + direction pin polarity per track."""
+    results: dict[str, bool] = {}
+    # PWM_RAMP param: track (0 left, 1 right) | reverse << 1 | max PWM << 8
+    for name, param in (
+        ("left forward", 0x00),
+        ("left reverse", 0x02),
+        ("right forward", 0x01),
+        ("right reverse", 0x03),
+    ):
+        track = name.split()[0]
+        input(f"Watch the {track} track, Enter runs '{name}' (ramp to PWM 120 and back)…")
+        samples = run_script(link, g.CalScript.PWM_RAMP, param | (120 << 8), timeout=15)
+        edges = max((s.v[2] for s in samples), default=0)  # |encoder counts| of the selected track
+        moved = ask(f"Did the {name.split()[0]} track move {name.split()[1]}?")
+        results[name] = moved
+        print(f"  encoder edges seen: {edges}")
+    print("PROBE RESULT:", "PASS" if all(results.values()) else f"FAIL {results}")
+    if not all(results.values()):
+        print("Nothing moved → STBY (D3) wrong. Moved the wrong way → flip kDir*ForwardHigh.")
+
+
+def cmd_mount(link: Link, args: argparse.Namespace) -> None:
+    """IMU mount check: level, then nose up, then CCW rotation by hand."""
+    input("Tank level and still. Enter…")
+    s = run_script(link, g.CalScript.IDLE, 2000)
+    if not s:
+        print("no samples")
+        return
+    ax, ay, az = (statistics.mean(x.v[i] for x in s) / 8192 for i in (3, 4, 5))
+    print(f"level: ax={ax:+.2f} g ay={ay:+.2f} g az={az:+.2f} g  (expect 0, 0, +1)")
+    input("Lift the FRONT ~3 cm and hold. Enter…")
+    s = run_script(link, g.CalScript.IDLE, 1500)
+    if not s:
+        print("no samples")
+        return
+    ax2 = statistics.mean(x.v[3] for x in s) / 8192
+    print(f"nose up: ax={ax2:+.2f} g  (expect positive: specific force, +sin(pitch))")
+    input("Put it down. Press Enter, then rotate the tank CCW (seen from above) by hand for 3 s…")
+    s = run_script(link, g.CalScript.IDLE, 3000)
+    gz = max((x.v[2] for x in s), key=abs, default=0) / 65.5
+    print(f"CCW rotation: peak gz={gz:+.0f} °/s  (expect positive)")
+    ok = az > 0.8 and ax2 > 0.03 and gz > 20
+    print("MOUNT CHECK:", "PASS" if ok else "FAIL → adjust kImuMapX/Y/Z in board_config.h")
+
+
+def cmd_bias(link: Link, args: argparse.Namespace) -> None:
+    """Reference calculator: gyro bias + level offsets from a 3 s still sample, written + saved."""
+    input("Tank on a level floor, motors off, do not touch. Enter…")
+    s = run_script(link, g.CalScript.STILL_SAMPLE, 3000)
+    if not s:
+        print("no samples")
+        return
+    gx, gy, gz = (round(statistics.mean(x.v[i] for x in s)) for i in (0, 1, 2))
+    ax, ay, az = (statistics.mean(x.v[i] for x in s) / 8192 for i in (3, 4, 5))
+
+    pitch = math.degrees(math.atan2(ax, math.hypot(ay, az)))  # same convention as Attitude (Task 4)
+    roll = math.degrees(math.atan2(ay, az))
+    values = {
+        g.SettingId.GYRO_BIAS_X: gx,
+        g.SettingId.GYRO_BIAS_Y: gy,
+        g.SettingId.GYRO_BIAS_Z: gz,
+        g.SettingId.LEVEL_PITCH: round(pitch * 100),
+        g.SettingId.LEVEL_ROLL: round(roll * 100),
+    }
+    for sid, v in values.items():
+        link.send(g.SettingSet(id=sid, value=v))
+        print(f"{sid.name.lower()} = {v}")
+        time.sleep(0.05)
+    link.send(g.SettingsSave())
+    time.sleep(1.5)
+
+
 COMMANDS: dict[str, Callable[[Link, argparse.Namespace], None]] = {"watch": cmd_watch}
 COMMANDS["setting"] = cmd_setting
 COMMANDS.update(
@@ -264,6 +444,11 @@ COMMANDS.update(
         "envelope": cmd_envelope,
         "deadman": cmd_deadman,
         "override": cmd_override,
+        "calibrate": cmd_calibrate,
+        "probe": cmd_probe,
+        "mount": cmd_mount,
+        "bias": cmd_bias,
+        "selftest": cmd_selftest,
     }
 )
 
@@ -296,6 +481,19 @@ def main() -> None:
     o.add_argument("--ai", action="store_true", help="send src=AI (expect ROLE_FORBIDDEN)")
     o.add_argument("--drive", type=int, default=None, help="then drive at this %% (same run)")
     o.add_argument("--seconds", type=float, default=3.0)
+    c = sub.add_parser("calibrate")
+    c.add_argument("script", choices=[s.name.lower() for s in g.CalScript])
+    c.add_argument("--param", type=int, default=0)
+    c.add_argument("--csv")
+    sub.add_parser("probe")
+    sub.add_parser("mount")
+    sub.add_parser("bias")
+    st = sub.add_parser("selftest")
+    st.add_argument(
+        "--lock-check",
+        action="store_true",
+        help="stand check 5a: locked boot → refusals → automatic unlock",
+    )
     args = ap.parse_args()
     link = Link(args.port)
     try:

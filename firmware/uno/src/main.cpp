@@ -36,6 +36,8 @@ cq::Task g_tasks[] = {
     {cq::app::irTask, 5000UL, 0},
     {cq::app::ultrasonicTask, 50000UL, 0},
     {cq::app::batteryTask, 100000UL, 0},
+    {cq::app::selfTestTask, 1000000UL, 0},
+    {cq::app::selfTestRecoverTask, 100000UL, 0},
     // TASKS-END
 };
 cq::Scheduler g_scheduler(g_tasks, static_cast<uint8_t>(sizeof g_tasks / sizeof g_tasks[0]));

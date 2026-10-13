@@ -4,6 +4,7 @@
 #include "domain/util/math_util.h"
 #include "ports/clock.h"
 #include "ports/motor.h"
+#include "ports/encoders.h"
 
 namespace cq {
 namespace app {
@@ -29,9 +30,8 @@ void rejectEvent(uint8_t frame_type, uint8_t src, proto::AckStatus st) {
 }  // namespace
 
 SafetyOverride::Gate overrideGate() {
-  // Task 7 adds the self-test lock to `fault`.
   const bool fault = g_app.lift.lifted() || g_app.lift.tilted() ||
-                     g_app.batt.level() == BatteryMonitor::Level::kCritical;
+                     g_app.batt.level() == BatteryMonitor::Level::kCritical || g_app.self_test.locked();
   return SafetyOverride::Gate{g_app.link.synced(), g_app.envelope.childPlay(), fault, g_app.arbitrator.owner()};
 }
 
@@ -49,12 +49,14 @@ void drainOverride() {
 void controlInit() {
   port::motor::begin();
   port::motor::apply(PwmOutput::zero());
+  port::encoders::begin();
 }
 
 proto::AckStatus onDrive(const uint8_t* p, uint8_t len) {
   proto::DriveMsg m{};
   if (!proto::decode(p, len, m)) return proto::AckStatus::kInvalidCommand;
-  const proto::AckStatus st = g_app.arbitrator.requestNetwork(true, port::clock::nowMs());
+  const proto::AckStatus st = g_app.self_test.locked() ? proto::AckStatus::kBlocked
+                                                     : g_app.arbitrator.requestNetwork(true, port::clock::nowMs());
   if (st != proto::AckStatus::kOk) {
     rejectEvent(static_cast<uint8_t>(proto::FrameType::kDrive), m.src, st);
     return st;
@@ -71,6 +73,7 @@ proto::AckStatus onStop(const uint8_t* p, uint8_t len) {
   proto::StopMsg m{};
   if (!proto::decode(p, len, m)) return proto::AckStatus::kInvalidCommand;
   zeroTeleop();
+  calibrationAbort(proto::AckStatus::kCalCancelled);
   g_app.arbitrator.onNetworkStop();
   g_app.safety_override.end(proto::OverrideReason::kStop);
   drainOverride();
@@ -122,6 +125,7 @@ proto::AckStatus onSafetyOverride(const uint8_t* p, uint8_t len) {
 }
 
 void controlTask() {
+  encodersTick();
   const uint32_t now = port::clock::nowMs();
   const GlobalSettings& gs = g_app.settings.global();
   const Arbitrator::Config cfg{gs.deadman, gs.ir_handback};
@@ -134,6 +138,7 @@ void controlTask() {
       g_app.events.push(proto::EventKind::kDeadmanStop);
       break;
     case Arbitrator::Action::kLinkLostStop:
+      calibrationAbort(proto::AckStatus::kLinkLost);
       zeroTeleop();
       g_app.safety_override.onLinkLost();
       break;
@@ -159,8 +164,10 @@ void controlTask() {
   float r = clampf(static_cast<float>(g_app.teleop_v) + g_app.teleop_w, -100.0f, 100.0f);
   l = clampf(l, -cap, cap);
   r = clampf(r, -cap, cap);
-  const int16_t pwm_l = static_cast<int16_t>(l * 2.55f);
-  const int16_t pwm_r = static_cast<int16_t>(r * 2.55f);
+  int16_t pwm_l = static_cast<int16_t>(l * 2.55f);
+  int16_t pwm_r = static_cast<int16_t>(r * 2.55f);
+  const bool calibrating = calibrationTick(pwm_l, pwm_r);
+  setFast(proto::FastFlagBit::kCalibrating, calibrating);
 
   g_app.req_pwm_l = pwm_l;
   g_app.req_pwm_r = pwm_r;
@@ -168,7 +175,7 @@ void controlTask() {
   const SafetyInputs in{g_app.lift.lifted(), g_app.lift.tilted(),
                         g_app.batt.level() == BatteryMonitor::Level::kCritical,
                         g_app.safety_override.brakeOn(g_app.envelope.brakeOn()), g_app.us.distMm(), gs.obstacle_stop,
-                        0 /* stall_mask: Task 7 */, false /* selftest_locked: Task 7 */};
+                        g_app.enc_health.stalledMask(), g_app.self_test.locked()};
   const bool was_blocked = g_app.safety.blocked;
   const PwmOutput out = g_app.supervisor.apply(pwm_l, pwm_r, in, g_app.safety);
   port::motor::apply(out);

@@ -20,5 +20,9 @@ proto::AckStatus onSafetyOverride(const uint8_t* p, uint8_t len);
 SafetyOverride::Gate overrideGate();
 void drainOverride();
 
+proto::AckStatus onCalibrate(const uint8_t* p, uint8_t len);
+bool calibrationTick(int16_t& pwm_l, int16_t& pwm_r);  // true while a script drives the motors
+void calibrationAbort(proto::AckStatus reason);
+void encodersTick();  // 100 Hz, called by the control task before control
 }  // namespace app
 }  // namespace cq

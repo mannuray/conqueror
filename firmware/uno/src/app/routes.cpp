@@ -80,6 +80,7 @@ const Route kRoutes[] PROGMEM = {
     {static_cast<uint8_t>(proto::FrameType::kEnvelope), onEnvelope, true},
     {static_cast<uint8_t>(proto::FrameType::kOwnerHint), onOwnerHint, false},
     {static_cast<uint8_t>(proto::FrameType::kSafetyOverride), onSafetyOverride, true},
+    {static_cast<uint8_t>(proto::FrameType::kCalibrate), onCalibrate, true},
     // ROUTES-END
 };
 const uint8_t kRouteCount = sizeof kRoutes / sizeof kRoutes[0];

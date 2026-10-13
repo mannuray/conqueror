@@ -148,6 +148,7 @@ void telemetrySlowDue() {
                                        g_app.parser.errors().unknown_type);
   s.settings_crc = g_app.settings.crc();
   s.flags2 = g_app.slow_flags;
+  s.profile_idx = 0;
   g_app.slow_due = true;
 }
 

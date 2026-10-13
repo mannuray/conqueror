@@ -28,6 +28,7 @@ void settingsLoad() {
                         port::eeprom::read(kEeMagicAddr + 2) == kEeLayoutVersion;
   if (!magic_ok || !loadBlock(Settings::kBlockGlobal, kEeGlobalAddr)) reset_mask |= 0x01;
   if (!magic_ok || !loadBlock(Settings::kBlockProfile, kEeProfileAddr)) reset_mask |= 0x02;
+  g_app.settings_reset_mask = reset_mask;
   if (reset_mask != 0) {
     g_app.events.push(proto::EventKind::kSettingsReset, reset_mask);
     g_app.saver.request();  // persisted lazily by the writer, never synchronously at boot

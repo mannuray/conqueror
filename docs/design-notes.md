@@ -836,7 +836,7 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 ## 34. Shield probe on the owner's tank: both tracks forward = direction pin HIGH (CONFIRMED 2026-10-13)
 - Probe on the stand (PWM ramp to 120 per track and direction): left forward/reverse correct; right ran backward with the ELEGOO starting guess (right forward = LOW).
 - Fix in firmware only (`board_config.h`: `kDirRightForwardHigh = true`); motor wiring stays stock. Re-probe: all four cases PASS.
-- Bench note: a calibration request sent within ~2 s of boot was refused (`CAL_PRECONDITION`); 3 s after sync it runs. An IR key press during a script cancels it (by design: IR takes ownership).
+- Bench note: a calibration request sent right after boot was refused (`CAL_PRECONDITION`). Cause: "moving" read true for the first 300 ms after boot; fixed with `MotionTimer` (LLD §11.7). An IR key press during a script cancels it (by design: IR takes ownership).
 
 ## 35. Phase 2 floor tests run wirelessly after Plan C (DECIDED 2026-10-13)
 - The owner has no USB cable long enough for floor driving, and on the stand the gyro cannot see the tank turn (tracks in the air), so turn/heading/MOVE accuracy can only be proved on the floor.

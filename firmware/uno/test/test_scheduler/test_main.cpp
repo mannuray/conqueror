@@ -1,5 +1,6 @@
 #include <unity.h>
 
+#include "domain/util/motion_timer.h"
 #include "domain/util/scheduler.h"
 
 namespace {
@@ -64,6 +65,16 @@ void test_phase_offsets_first_run_and_keeps_period() {
   TEST_ASSERT_EQUAL(0, s.overruns());
 }
 
+void test_motion_timer_not_moving_at_boot() {
+  cq::MotionTimer m;
+  TEST_ASSERT_FALSE(m.moving(0));    // never moved: not moving, even in the first 300 ms
+  TEST_ASSERT_FALSE(m.moving(100));
+  m.mark(1000);
+  TEST_ASSERT_TRUE(m.moving(1000));
+  TEST_ASSERT_TRUE(m.moving(1299));
+  TEST_ASSERT_FALSE(m.moving(1300));  // 300 ms after the last motion
+}
+
 void test_load_meter() {
   cq::LoadMeter m;
   m.add(250000, 500000);
@@ -78,6 +89,7 @@ int main() {
   RUN_TEST(test_overrun_reschedules_from_now_without_bursts);
   RUN_TEST(test_wraparound_is_safe);
   RUN_TEST(test_phase_offsets_first_run_and_keeps_period);
+  RUN_TEST(test_motion_timer_not_moving_at_boot);
   RUN_TEST(test_load_meter);
   return UNITY_END();
 }

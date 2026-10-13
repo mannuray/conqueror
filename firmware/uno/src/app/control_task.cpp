@@ -399,8 +399,8 @@ void controlTask() {
   // 7. state + telemetry
   g_app.out_pwm_l = out.left();
   g_app.out_pwm_r = out.right();
-  if (out.left() != 0 || out.right() != 0) g_app.last_motion_ms = now;
-  g_app.moving = !elapsed(now, g_app.last_motion_ms, 300);
+  if (out.left() != 0 || out.right() != 0) g_app.motion.mark(now);
+  g_app.moving = g_app.motion.moving(now);
   g_app.stationary = !g_app.moving;
 
   setFast(proto::FastFlagBit::kBlocked, g_app.safety.blocked);

@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 
+#include "domain/util/motion_timer.h"
 #include "domain/comms/event_queue.h"
 #include "domain/comms/frame_parser.h"
 #include "domain/comms/frame_writer.h"
@@ -111,7 +112,7 @@ struct App {
   int16_t req_pwm_r = 0;
   int16_t out_pwm_l = 0;  // applied by the supervisor
   int16_t out_pwm_r = 0;
-  uint32_t last_motion_ms = 0;
+  MotionTimer motion;
   // encoders / calibration / self-test
   EncoderTrack enc_l;
   EncoderTrack enc_r;

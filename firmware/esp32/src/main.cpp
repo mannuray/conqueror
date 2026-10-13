@@ -5,13 +5,17 @@
 #include <esp_ota_ops.h>
 
 #include "board_config.h"
-#include "net/log.h"
 #include "net/link_task.h"
+#include "net/log.h"
+#include "net/ota_service.h"
+#include "net/wifi_manager.h"
 #include "secrets_guard.h"
 #include "version.h"
 
 namespace {
 
+cq::net::WifiManager g_wifi;
+cq::net::OtaService g_ota;
 uint32_t g_last_status_ms = 0;
 
 void logBanner() {
@@ -32,10 +36,31 @@ void logBanner() {
   logf("DEVELOPER BRIDGE - NO AUTHENTICATION - home network only");
 }
 
-void logStatus(uint32_t now_ms) {
-  cq::net::logf("status: up %lus heap %lu psram %lu", static_cast<unsigned long>(now_ms / 1000),
-                static_cast<unsigned long>(ESP.getFreeHeap()),
-                static_cast<unsigned long>(ESP.getFreePsram()));
+const char* stateName(cq::core::LinkState s) {
+  switch (s) {
+    case cq::core::LinkState::kWebHandshake:
+      return "web-handshake";
+    case cq::core::LinkState::kWebReady:
+      return "web-ready";
+    case cq::core::LinkState::kWebDriving:
+      return "web-driving";
+    case cq::core::LinkState::kTcpPassthrough:
+      return "bench";
+    case cq::core::LinkState::kIdle:
+    default:
+      return "idle";
+  }
+}
+
+bool hasClients(const cq::net::LinkStatus& s) { return s.ws_clients > 0 || s.tcp_active; }
+
+void logStatus(uint32_t now_ms, const cq::net::LinkStatus& s) {
+  cq::net::logf("status: up %lus wifi %s link %s uno %s ws %u tcp %u rx %lu tx %lu crc %lu heap %lu",
+                static_cast<unsigned long>(now_ms / 1000), g_wifi.modeName(), stateName(s.state),
+                s.synced ? "synced" : (s.hello.seen ? "seen" : "-"), s.ws_clients,
+                s.tcp_active ? 1u : 0u, static_cast<unsigned long>(s.frames_rx),
+                static_cast<unsigned long>(s.frames_tx), static_cast<unsigned long>(s.bad_crc),
+                static_cast<unsigned long>(ESP.getFreeHeap()));
 }
 
 }  // namespace
@@ -47,13 +72,18 @@ void setup() {
     cq::net::logf("ERROR: no PSRAM - check board_build.arduino.memory_type = qio_opi");
   }
   cq::net::linkTaskStart();
+  g_wifi.begin(millis());
+  g_ota.begin();
 }
 
 void loop() {
   const uint32_t now = millis();
+  const cq::net::LinkStatus s = cq::net::linkStatus();
+  g_wifi.step(now, hasClients(s));
+  g_ota.poll(s.ota_allowed && g_wifi.mode() != cq::core::WifiMode::kConnecting);
   if (now - g_last_status_ms >= cq::board::kStatusPeriodMs) {
     g_last_status_ms = now;
-    logStatus(now);
+    logStatus(now, s);
   }
   vTaskDelay(pdMS_TO_TICKS(10));
 }

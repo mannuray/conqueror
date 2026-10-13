@@ -3228,7 +3228,6 @@ struct LinkCommand {
   enum class Kind : uint8_t { kWsOpen, kWsClose, kWsText, kOtaStart };
   Kind kind;
   int fd;
-  uint32_t post_seq;  // WS handler's running number (core::StopBarrier); 0 for other kinds
   uint16_t len;
   char text[200];  // one WS JSON message (longer ones are refused by the WS handler)
 };

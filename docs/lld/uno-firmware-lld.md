@@ -1717,7 +1717,7 @@ Decision: `docs/design-notes.md` §29. The body board becomes the **Arduino Mega
 |---|---|---|---|---|
 | Motor PWM right / left | D5 / D6 | D5 / D6 | PE3 (Timer3) / PH3 (Timer4) | none (≈490 Hz PWM on the Mega instead of ≈980 Hz; fine for TT motors) |
 | Motor dir right / left, STBY | D7 / D8, D3 | same | PH4 / PH5, PE5 | none |
-| Servos pan / tilt | D10 / D11 | same | Servo lib uses Timer5 on the Mega | none |
+| Servos pan / tilt | D10 / D11 = shield port **2** (pan) / port **1** (tilt), bench-confirmed 2026-10-13 | same | Servo lib uses Timer5 on the Mega | none |
 | Buzzer | A0 | A0 (shield port, unchanged) | PF0, `tone()` on Timer2 | none (owner kept it on the shield, 2026-10-13) |
 | Ultrasonic trig / echo | D13 / D12 | same | PB7 / **PB6 (PCINT6)** | echo bit changes (PCINT0 vector) |
 | IR receiver | D9 (PB1, PCINT1) | **jumper D9 → A14**; D9 left as high-impedance input | **PK6 (PCINT22)** | wiring + driver (PCINT2 vector) |

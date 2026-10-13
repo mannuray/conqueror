@@ -824,3 +824,8 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 - On the Mega, max loop pass was 6.8 ms (limit 4 ms) while load was ~51 %. Cause: all tasks started at phase 0, so once a second all 14 tasks ran in one pass.
 - Fix: each task has a start phase (IMU 0, control 2.5 ms, slow telemetry/camera 7.5 ms, UI 17.5 ms). Measured max pass 3.3 ms, load 52 %. Details: LLD §11.5.
 - Investigated and rejected: removing the soft-I2C delays (breaks I2C timing), faster SCL polling (no gain).
+
+## 32. Servo ports on the shield (CONFIRMED on the bench 2026-10-13)
+- The SmartCar Shield V1.1 servo ports are labelled 1 and 2. Bench test (pan command only, then tilt only): **port 2 = D10 = pan (left/right)**, **port 1 = D11 = tilt (up/down)**.
+- Plug the pan servo into port 2 and the tilt servo into port 1; brown/black wire to G/−. Swapping plugs is the fix if they are mixed up; firmware keeps D10 pan / D11 tilt (no software swap).
+

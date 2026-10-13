@@ -7,6 +7,10 @@ Run from tools/smoke/:  uv run python uno_smoke.py --port PORT CMD ...
 from __future__ import annotations
 
 import argparse
+import array
+import struct
+import sys
+import termios
 import threading
 import time
 from collections.abc import Callable
@@ -17,10 +21,38 @@ from conqueror_protocol import generated as g
 
 UNO = "uno_to_esp32"
 
+# Linux: 250000 is not a named termios speed; pyserial's custom-speed path fails on some kernels
+# (seen on 7.0 with a CH340: EINVAL). Fall back to setting it with the termios2 BOTHER ioctl.
+_TCGETS2, _TCSETS2, _BOTHER, _CBAUD = 0x802C542A, 0x402C542B, 0o010000, 0o010017
+_TERMIOS2 = "4IB19sII"  # struct termios2: iflag, oflag, cflag, lflag, line, cc[19], ispeed, ospeed
+
+
+def open_serial(port: str, baud: int) -> serial.Serial:
+    try:
+        return serial.Serial(port, baud, timeout=0.01)
+    except (OSError, termios.error):
+        if not sys.platform.startswith("linux"):
+            raise
+    import fcntl
+
+    ser = serial.Serial(port, 115200, timeout=0.01)
+    fd = ser.fileno()
+    buf = array.array("i", [0] * 64)
+    fcntl.ioctl(fd, _TCGETS2, buf, True)
+    size = struct.calcsize(_TERMIOS2)
+    iflag, oflag, cflag, lflag, line, cc, _isp, _osp = struct.unpack(
+        _TERMIOS2, buf.tobytes()[:size]
+    )
+    cflag = (int(cflag) & ~_CBAUD) | _BOTHER
+    fcntl.ioctl(
+        fd, _TCSETS2, struct.pack(_TERMIOS2, iflag, oflag, cflag, lflag, line, cc, baud, baud)
+    )
+    return ser
+
 
 class Link:
     def __init__(self, port: str) -> None:
-        self.ser = serial.Serial(port, g.BAUD, timeout=0.01)
+        self.ser = open_serial(port, g.BAUD)
         self.parser = FrameParser()
         self.seq = 0
         self.lock = threading.Lock()
@@ -28,10 +60,14 @@ class Link:
         self.handlers: list[Callable[[object], None]] = []
         self.synced = False
         self.last: dict[str, object] = {}
+        # Opening the port resets the board; the Mega's stk500v2 bootloader stays in the bootloader
+        # while bytes arrive, so stay silent until the firmware speaks (or 2 s pass).
+        self.rx_seen = threading.Event()
         threading.Thread(target=self._rx, daemon=True).start()
         threading.Thread(target=self._heartbeat, daemon=True).start()
 
     def send(self, msg: object) -> int:
+        self.rx_seen.wait(2.5)  # never talk into the bootloader window (see __init__)
         with self.lock:
             seq = self.seq
             self.seq = (self.seq + 1) & 0xFF
@@ -47,6 +83,7 @@ class Link:
         while self.running:
             data = self.ser.read(256)
             for raw in self.parser.feed(data):
+                self.rx_seen.set()
                 try:
                     msg = decode_frame(raw, UNO)
                 except ValueError as exc:

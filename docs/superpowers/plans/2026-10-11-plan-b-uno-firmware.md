@@ -6813,6 +6813,15 @@ In `src/drivers/imu_uno.cpp`, at the top of `begin()`:
 Run: `pio test -e native && pio run -e mega && python3 scripts/size_gate.py mega && pio run -e uno && python3 scripts/size_gate.py uno`
 Expected: 76 tests pass; both `SUCCESS`; `size_gate[mega]: flash ~25500 / 245760 B, static RAM ~1360 / 6144 B` and the Uno still under its gate.
 
+- [ ] **Step 4b: Smoke tool fixes found on the real Mega (2026-10-13)**
+
+Two host-side issues showed up at the first Mega checkpoint; both are fixed in `tools/smoke/uno_smoke.py` (`Link`):
+1. **Linux + 250000 baud:** pyserial's custom-speed path fails with `termios.error: (22, 'Invalid argument')` on kernel 7.0 + CH340. `open_serial()` falls back to opening at 115200 and setting the speed with the `termios2` `BOTHER` ioctl (`TCGETS2`/`TCSETS2`); macOS is unaffected.
+2. **Mega bootloader:** opening the port resets the board, and the Mega's stk500v2 bootloader stays in the bootloader while bytes arrive. `Link.send()` (and so the heartbeat thread) waits for the first frame from the firmware (`rx_seen`, at most 2.5 s) before sending anything.
+The bench tool (Plan D, `SerialTransport` / `LinkSession`) needs the same two fixes for USB use with the Mega.
+
+Verified on the bare Mega (CH340 clone, `/dev/ttyUSB0`): `HELLO fw=0x0100 proto=2 caps=0 commit=<HEAD> reset=POWER_ON`; FAST at 20 Hz, SLOW at 1 Hz, `errs=0`; `IMU_FAULT`/`US_FAULT` with nothing attached; `setting tilt_limit 40 --save` survives a reset.
+
 - [ ] **Step 5: Commit**
 
 ```bash

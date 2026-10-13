@@ -332,15 +332,16 @@ void controlTask() {
                       : g_app.teleop_rate_dps * 100.0f / gs.turn_rate_max;
     } else {
       v = g_app.teleop_v;
-      w = imuUsable() ? g_app.heading.teleop(v, g_app.teleop_w, yaw, rate, kDt, false)
-                      : static_cast<float>(g_app.teleop_w);
+      // Car-style reverse flips only the driver's steering, before heading hold (design-notes §39).
+      const float steer = carSteer(v, static_cast<float>(g_app.teleop_w), gs.reverse_steer == 0);
+      w = imuUsable() ? g_app.heading.teleop(v, steer, yaw, rate, kDt, false) : steer;
     }
 
     // 3. mix (turning priority, pivot fallback), envelope/degraded caps and obstacle slow in %, ramps
     const float keep_pct = (ps.deadband_keep[0] + ps.deadband_keep[1] + ps.deadband_keep[2] + ps.deadband_keep[3]) *
                            100.0f / (4.0f * 255.0f);
     float l = 0.0f, r = 0.0f;
-    mix(v, w, MixerConfig{ps.turn_rate_full_speed, gs.reverse_steer == 0, gs.pivot_fallback != 0, keep_pct}, l, r);
+    mix(v, w, MixerConfig{ps.turn_rate_full_speed, gs.pivot_fallback != 0, keep_pct}, l, r);
     const uint8_t degraded = !imuUsable() ? 30 : (g_app.us.fault() ? 50 : 100);  // LLD §9.5/§9.16 (min of both)
     const Limited lim = limitTargets(l, r, Limits{g_app.envelope.speedCap(), g_app.us.distMm(), gs.obstacle_stop,
                                                   gs.obstacle_slow, brake_on, degraded});

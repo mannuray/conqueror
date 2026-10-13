@@ -92,6 +92,8 @@ void apply(const core::Actions& a, uint32_t now) {
   if (a.has(core::Actions::kStopMaster)) {
     g_link.stopMaster();
     g_tx.clear();  // drop queued ESP32 frames; a pending STOP (urgent slot) is kept
+    // Review M2: a web STOP still being resent when the bench takes over: its ACKs are ours.
+    if (g_link.stopPending()) g_tcp.swallowAck(g_link.pendingStopSeq(), now);
   }
   if (a.has(core::Actions::kInjectStop)) {
     const uint8_t seq = g_tcp.injectSeq();  // bench lastSeq + 128: no collision with its commands

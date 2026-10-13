@@ -92,6 +92,7 @@ class BodyLink {
   uint8_t sendStop(uint32_t now_ms);
   void injectStop(uint8_t seq, uint32_t now_ms);
   bool stopPending() const { return m_stop_sends != 0; }
+  uint8_t pendingStopSeq() const { return m_stop_seq; }  // valid while stopPending()
 
   bool popEvent(LinkEvent& ev);
   const HelloInfo& hello() const { return m_hello; }

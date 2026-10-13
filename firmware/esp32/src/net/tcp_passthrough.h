@@ -6,6 +6,7 @@
 #include <WiFi.h>
 #include <stdint.h>
 
+#include "core/body_link.h"
 #include "core/frame_aligner.h"
 #include "core/frame_tx.h"
 #include "core/link_owner.h"
@@ -14,7 +15,8 @@ namespace cq {
 namespace net {
 
 constexpr uint32_t kBenchSilentMs = 1000;
-constexpr uint32_t kSwallowMs = 500;
+// Covers all STOP resends plus the last ACKs timeout (review M2): 10 x 50 ms + 200 ms.
+constexpr uint32_t kSwallowMs = core::kStopResendMs * core::kStopMaxSends + core::kAckTimeoutMs;
 
 struct TcpStats {
   uint32_t up = 0;       // bench -> Uno bytes

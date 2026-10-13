@@ -342,7 +342,7 @@ try:
     commit8 = int(commit[:8], 16)
 except ValueError:
     commit8 = 0
-built = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+built = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 if env_name.endswith("_release") and (dirty or not commit):
     print("stamp_version: release build refused - commit or stash your changes first")
@@ -367,7 +367,7 @@ print(f"stamp_version: {version} commit={commit[:8] or '?'} dirty={dirty}")
 
 `firmware/esp32/scripts/protogen_check.py`:
 ```python
-"""PlatformIO pre-script: fail the build when generated protocol files are stale (LLD R2.3 step 2)."""
+"""PlatformIO pre-script: fail the build when generated protocol files are stale (LLD R2.3/2)."""
 
 import pathlib
 import shutil
@@ -495,7 +495,7 @@ if __name__ == "__main__":
 else:  # loaded by PlatformIO as an extra script
     Import("env")  # type: ignore[name-defined]  # noqa: F821
 
-    def _before_upload(source, target, env):  # type: ignore[no-untyped-def]  # noqa: ARG001
+    def _before_upload(source, target, env):  # type: ignore[no-untyped-def]
         if env.subst("$UPLOAD_PROTOCOL") == "espota":
             return
         pkg = env.PioPlatform().get_package_dir("tool-esptoolpy")
@@ -7548,3 +7548,965 @@ git commit -m "feat(esp32): S3-EYE camera with 2-viewer MJPEG stream on port 81
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+---
+
+### Task 9: Self-describing firmware — `/info`, `/help` (protogen cheat-sheet), `/source.tar.gz`, releases
+
+This task touches **Plan A's generator** (a new protogen output) and makes three commits: the protocol emitter, the `.gitattributes` export rules, and the ESP32 pages.
+
+**Files:**
+- Create: `protocol/generator/protogen/emit_help.py`, `protocol/generator/tests/test_emit_help.py`, `firmware/esp32/src/generated/help_protocol.html` (generated — never edit), `firmware/esp32/web/help.html`, `firmware/esp32/web/help_logo.html`, `.gitattributes`, `firmware/esp32/scripts/pack_source.py`, `firmware/esp32/scripts/upload_source.py`, `firmware/esp32/scripts/ota.sh`, `firmware/esp32/scripts/make_release.sh`, `firmware/esp32/src/net/source_archive.h`, `firmware/esp32/src/net/source_archive.cpp`, `firmware/esp32/src/net/info_service.h`, `firmware/esp32/src/net/info_service.cpp`
+- Modify: `protocol/generator/protogen/cli.py` (register the output), `CLAUDE.md` (generated-files rule), `firmware/esp32/platformio.ini` (scripts), `firmware/esp32/src/main.cpp` (register the services)
+
+**Interfaces:**
+- Consumes: `protogen.encoding.build_frame`, `ProtocolModel` (Plan A); `pack_web.py`'s `/help` assembly (Task 7); `linkStatus()` (Tasks 4–6), `WifiManager` (Task 4), `cameraSensorName()`, `streamViewers()` (Task 8); `CQ_*` stamp macros (Task 1).
+- Produces:
+  - `protogen.emit_help.emit_help(model) → str`, `EXAMPLES`, `example_values(model, values)`; new `OUTPUTS` entry `firmware/esp32/src/generated/help_protocol.html` (so `protogen write/check` and the pre-commit hook cover it).
+  - `cq::net::sourceBegin()`, `sourceValid()`, `sourceHeader() → SourceHeader` (64 B: magic `CQSRC1`, commit[40], dirty, length, crc32), `sourceRead(offset, buf, len)`, `sourceRegister()` (`GET /source.tar.gz`); `cq::net::infoRegister(const WifiManager&)` (`GET /info`, JSON per LLD R2.4 plus `link.tcp_refused`, `link.last_refusal`, `link.ota_allowed`).
+  - `build/source.bin` (pre-script), custom targets `upload_source` (USB, chip check first) and `upload_source_ota` (espota `-s`), `scripts/ota.sh`, `scripts/make_release.sh bridge-vX.Y.Z`.
+
+- [ ] **Step 1: Failing protogen test (in `protocol/`)**
+
+`protocol/generator/tests/test_emit_help.py`:
+```python
+from html.parser import HTMLParser
+from pathlib import Path
+
+from protogen.cli import OUTPUTS
+from protogen.emit_help import EXAMPLES, emit_help, example_values
+from protogen.encoding import build_frame
+from protogen.loader import load
+
+ROOT = Path(__file__).resolve().parents[3]
+MODEL = load(ROOT / "protocol" / "defs")
+
+
+def test_registered_as_output() -> None:
+    assert OUTPUTS["firmware/esp32/src/generated/help_protocol.html"] is emit_help
+
+
+def test_examples_are_the_encoder_bytes() -> None:
+    html = emit_help(MODEL)
+    for name, seq, raw in EXAMPLES:
+        data = build_frame(MODEL.meta, MODEL.frame(name), seq, example_values(MODEL, raw))
+        assert f"<code>{data.hex(' ')}</code>" in html, name
+
+
+def test_golden_stop_matches() -> None:
+    html = emit_help(MODEL)
+    assert "<code>aa 01 12 04 01" in html  # STOP src=HUMAN, same layout as golden.yaml
+
+
+def test_hello_uses_current_protocol_version() -> None:
+    v = MODEL.meta.protocol_version
+    assert f"BODY-LINK PROTOCOL v{v}" in emit_help(MODEL)
+    assert example_values(MODEL, {"proto": -1}) == {"proto": v}
+
+
+def test_lists_every_ack_status_and_error() -> None:
+    html = emit_help(MODEL)
+    for i, reason in enumerate(MODEL.ack_status):
+        assert f"{i} {reason}" in html
+    for d in MODEL.errors:
+        for e in d.codes:
+            assert f"{d.prefix}_{e.code}" in html
+
+
+def test_fragment_is_well_formed() -> None:
+    class Checker(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.stack: list[str] = []
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            self.stack.append(tag)
+
+        def handle_endtag(self, tag: str) -> None:
+            assert self.stack and self.stack[-1] == tag, (self.stack, tag)
+            self.stack.pop()
+
+    checker = Checker()
+    checker.feed(emit_help(MODEL))
+    assert checker.stack == []
+```
+
+Run: `cd protocol && uv run pytest generator/tests/test_emit_help.py -q`
+Expected: `ModuleNotFoundError: No module named 'protogen.emit_help'`.
+
+- [ ] **Step 2: The emitter, registered as a protogen output**
+
+`protocol/generator/protogen/emit_help.py`:
+```python
+"""Emit firmware/esp32/src/generated/help_protocol.html - the /help protocol cheat-sheet.
+
+An HTML fragment (no <html>/<body>) that scripts/pack_web.py inserts into web/help.html
+(ESP32 bridge LLD R2.3 step 4). Example bytes are built with the generator's own encoder,
+so they always match the frames the firmware sends.
+"""
+
+from __future__ import annotations
+
+from html import escape
+from typing import Any
+
+from .encoding import build_frame
+from .model import Frame, ProtocolModel
+
+# (frame, seq, values) - the commands a developer needs when poking the Uno by hand.
+EXAMPLES: list[tuple[str, int, dict[str, Any]]] = [
+    ("HEARTBEAT", 0, {"esp_ms": 1000}),
+    ("HELLO_REQ", 1, {}),
+    ("HELLO", 0, {"fw": 0x0100, "proto": -1, "caps": 0, "reset_reason": 1, "commit": 0x1A2B3C4D}),
+    ("HELLO_ACK", 2, {"proto": -1}),
+    ("DRIVE", 3, {"src": 1, "v": 40, "w": 0}),
+    ("STOP", 4, {"src": 1}),
+    ("ACK", 1, {"ack_seq": 4, "status": 0}),
+    ("CAM_JOY", 5, {"x": 0, "y": 50, "active": 1}),
+    ("CAM_HOME", 6, {}),
+    ("OWNER_HINT", 7, {"owner": 1}),
+]
+
+
+def example_values(model: ProtocolModel, values: dict[str, Any]) -> dict[str, Any]:
+    """-1 for proto means: the current protocol version."""
+    return {k: (model.meta.protocol_version if v == -1 else v) for k, v in values.items()}
+
+
+def _fields(frame: Frame) -> str:
+    if not frame.fields:
+        return "-"
+    return ", ".join(f"{f.name} {f.type or 'struct[]'}" for f in frame.fields)
+
+
+def _values(values: dict[str, Any]) -> str:
+    return ", ".join(f"{k}={v:#x}" if k == "commit" else f"{k}={v}" for k, v in values.items())
+
+
+def emit_help(model: ProtocolModel) -> str:
+    m = model.meta
+    out = [
+        "<!-- DO NOT EDIT - generated by protogen from protocol/defs -->",
+        '<section id="protocol">',
+        f"<h2>[ BODY-LINK PROTOCOL v{m.protocol_version} ]</h2>",
+        f"<p>UART <b>{m.baud}</b> 8N1 between ESP32 and Uno. Frame "
+        f"<code>{m.sync:02X} len type seq payload crc8</code>: len = payload bytes "
+        f"(max {m.max_payload}), seq = sender's counter, CRC-8 poly 0x{m.crc_poly:02X} "
+        f"init 0x{m.crc_init:02X} over len..payload, little-endian fields.</p>",
+        "<p>Master (ESP32 or bench) sends HEARTBEAT every 100 ms; the Uno stops network motion "
+        "after 300 ms without a valid frame and DRIVE after 300 ms without a new DRIVE. "
+        "Handshake: HELLO_REQ &rarr; HELLO &rarr; HELLO_ACK (proto must match).</p>",
+        "<h3>Main frames</h3>",
+        "<table><tr><th>Frame</th><th>Type</th><th>Fields</th><th>Example</th>"
+        "<th>Bytes (hex)</th></tr>",
+    ]
+    for name, seq, raw in EXAMPLES:
+        frame = model.frame(name)
+        values = example_values(model, raw)
+        data = build_frame(m, frame, seq, values).hex(" ")
+        out.append(
+            f"<tr><td>{name}</td><td>0x{frame.type:02X}</td><td>{escape(_fields(frame))}</td>"
+            f"<td>seq={seq}{', ' + escape(_values(values)) if values else ''}</td>"
+            f"<td><code>{data}</code></td></tr>"
+        )
+    out += [
+        "</table>",
+        "<h3>All frames</h3>",
+        "<table><tr><th>Type</th><th>Frame</th><th>Dir</th><th>Notes</th></tr>",
+    ]
+    for fr in model.frames:
+        flags = ", ".join(x for x, on in (("ack", fr.ack), ("streaming", fr.streaming)) if on)
+        arrow = "ESP32&rarr;Uno" if fr.dir == "esp32_to_uno" else "Uno&rarr;ESP32"
+        note = escape(fr.doc.split(". ")[0]) if fr.doc else ""
+        out.append(
+            f"<tr><td>0x{fr.type:02X}</td><td>{fr.name}</td><td>{arrow}</td>"
+            f"<td>{escape(flags)}{' - ' if flags and note else ''}{note}</td></tr>"
+        )
+    out += ["</table>", "<h3>ACK status byte</h3>", "<p>"]
+    out.append(" &middot; ".join(f"{i} {r}" for i, r in enumerate(model.ack_status)))
+    out += [
+        "</p>",
+        "<h3>Error codes (WebSocket nack)</h3>",
+        "<table><tr><th>Code</th><th>Reason</th><th>Message</th></tr>",
+    ]
+    for d in model.errors:
+        for e in d.codes:
+            out.append(
+                f"<tr><td>{d.prefix}_{e.code}</td><td>{e.reason}</td><td>{escape(e.message)}</td></tr>"
+            )
+    out += ["</table>", "</section>", ""]
+    return "\n".join(out)
+```
+
+In `protocol/generator/protogen/cli.py` add the import after `from .emit_docs import emit_docs`:
+```python
+from .emit_help import emit_help
+```
+and the output after the `docs/protocol/reference.md` line of `OUTPUTS`:
+```python
+    "firmware/esp32/src/generated/help_protocol.html": emit_help,
+```
+
+Run:
+```bash
+uv run protogen write && uv run protogen check && uv run pytest -q && uv run ruff format --check . && uv run ruff check . && uv run pyright
+```
+Expected: `protogen: wrote 6 files`; check exits 0; `161 passed` (155 before + 6 new); ruff clean; `0 errors, 0 warnings, 0 informations`. `firmware/esp32/src/generated/help_protocol.html` now exists (~9 KB: frame format, 10 example frames with bytes from the encoder — e.g. STOP `aa 01 12 04 01 31` — all frames, ACK status list, error codes).
+
+In `CLAUDE.md` ("Hard rules for code", first bullet) add the new generated path to the list, so it reads: "**Generated files are never edited by hand** (`firmware/uno/src/generated/`, `firmware/esp32/src/generated/`, `protocol/python/conqueror_protocol/generated.py`, `protocol/vectors/`, `protocol/tests/cpp/`, `docs/protocol/reference.md`)."
+
+Commit:
+```bash
+git add protocol/generator/protogen/emit_help.py protocol/generator/protogen/cli.py protocol/generator/tests/test_emit_help.py firmware/esp32/src/generated/help_protocol.html CLAUDE.md
+git commit -m "feat(protocol): protogen emits the ESP32 /help protocol cheat-sheet
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+Expected: the pre-commit hook (`protogen check`) passes.
+
+- [ ] **Step 3: Keep the source archive small (commit first — `git archive` reads `.gitattributes` from HEAD)**
+
+`.gitattributes`:
+```text
+# Source archive in the ESP32 "source" partition (bridge LLD R2.3 step 6): keep it small.
+# git archive reads this file from the archived commit, so it takes effect once committed.
+docs/design/stitch/** export-ignore
+*.png export-ignore
+```
+
+Commit and measure:
+```bash
+git add .gitattributes
+git commit -m "chore: export-ignore PNGs from git archive for the ESP32 source partition
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git archive --format=tar HEAD | gzip -9 | wc -c
+git archive --format=tar HEAD | tar -t | grep -c '\.png$'
+```
+Expected: about 560 000 bytes (measured 2026-10-13: 0.56 MB; 9.5 MB with the Stitch PNGs) and `0` PNG files. The icon is drawn at build time, so no `-export-ignore` exception is needed (deviation from LLD R2.3, recorded in Task 10).
+
+- [ ] **Step 4: `/help` page template and the Tank Logo quick reference**
+
+`firmware/esp32/web/help.html`:
+```html
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conqueror Bridge - Help</title>
+<link rel="icon" href="/icon-192.png">
+<style>
+:root { --bg: #050805; --panel: #0b120b; --line: #1d3a22; --ui: #33ff66; --dim: #1f9a40;
+  --warn: #ffb000; --danger: #ff3b30; --active: #e8ffe8; --text: #b8f5c8;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; }
+body { margin: 0 auto; max-width: 980px; padding: 12px 16px 40px; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+h1, h2, h3, code, pre, th { font-family: var(--mono); }
+h1 { color: var(--ui); text-shadow: 0 0 6px rgba(51, 255, 102, .45); font-size: 20px; }
+h2 { color: var(--ui); font-size: 15px; margin-top: 28px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+h3 { color: var(--active); font-size: 13px; }
+a { color: var(--ui); }
+code { color: var(--active); font-size: 12px; }
+pre { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px; overflow-x: auto; font-size: 12px; color: var(--active); }
+table { border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 12px; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; }
+th { color: var(--dim); font-weight: 600; }
+.warn { border: 1px solid var(--warn); color: var(--warn); border-radius: 4px; padding: 6px 10px; }
+.bad { border: 1px solid var(--danger); color: var(--danger); border-radius: 4px; padding: 6px 10px; }
+.note { color: var(--dim); }
+.hidden { display: none; }
+</style>
+</head>
+<body>
+<h1>[ CONQUEROR BRIDGE ]</h1>
+<p class="bad"><b>DEVELOPER BRIDGE - NO AUTHENTICATION.</b> Anyone on this network can drive the tank
+(page, WebSocket, TCP 3333). Use it only on your home network. Never in release firmware.</p>
+<p id="mismatch" class="warn hidden">The source archive does not match this firmware (the app was updated
+over WiFi without the source image). Run <code>scripts/ota.sh</code> or flash over USB.</p>
+
+<h2>[ WHAT THIS IS ]</h2>
+<p>Firmware <b id="fwName">conqueror-bridge</b> <b id="fwVersion">?</b>, commit <code id="fwCommit">?</code>
+<span id="fwDirty"></span>, built <span id="fwBuilt">?</span>.
+Source: <a id="repo" href="https://github.com/mannuray/conqueror">github.com/mannuray/conqueror</a> &middot;
+this exact source: <a href="/source.tar.gz">/source.tar.gz</a> &middot; live data: <a href="/info">/info</a>.</p>
+<p>ESP32-S3 WiFi bridge for the Conqueror tank: Basic Drive page for phones, TCP passthrough for the
+bench tool, camera stream, WiFi updates. The Uno body does the motion and all safety stops.</p>
+
+<h2>[ CONNECT ]</h2>
+<table>
+<tr><th>Address</th><td><code>http://conqueror-bridge.local/</code> or <code id="ip">?</code> (WiFi mode <span id="mode">?</span>)</td></tr>
+<tr><th>Fallback AP</th><td>Home WiFi not reachable for 30 s &rarr; WPA2 network <code>conqueror-bridge</code> (password in
+<code>secrets.h</code>), bridge at <code>192.168.4.1</code>; it retries the home network every 60 s while nobody is connected.</td></tr>
+<tr><th>Ports</th><td>80 page, <code>/ws</code> WebSocket, <code>/info</code>, <code>/help</code>, <code>/source.tar.gz</code> &middot;
+81 <code>/stream</code> MJPEG (max 2 viewers) &middot; 3333 bench TCP &middot; 3232 OTA &middot;
+mDNS <code>_http._tcp</code>, <code>_cqbridge._tcp</code>, <code>_arduino._tcp</code></td></tr>
+<tr><th>Uno</th><td>firmware <code id="unoFw">?</code>, commit <code id="unoCommit">?</code>, protocol <code id="unoProto">?</code>,
+link <span id="unoSynced">?</span>, last reset <span id="unoReset">?</span></td></tr>
+</table>
+
+<h2>[ DRIVE ]</h2>
+<ul>
+<li>Phone: open <a href="/">/</a> - joystick (release = stop), big STOP, speed slider, camera stick (returns home).
+One driver at a time; others see "Busy". STOP works from every page. The IR remote beats everyone.</li>
+<li>Bench tool (laptop): <code>uv run bench -H conqueror-bridge.local dash</code> (finds the bridge with
+<code>bench discover</code>). The bench is refused while a phone drives.</li>
+<li>Phone asleep or page closed: no more drive messages &rarr; the Uno stops within 0.3 s (deadman).</li>
+</ul>
+
+<!--CQ:PROTOCOL-->
+
+<h3>WebSocket API (first slice of the gateway API)</h3>
+<pre>&rarr; {"t":"hello","client":"basic-drive","proto":1}       &larr; {"t":"welcome",...}
+&rarr; {"t":"drive","v":-100..100,"w":-100..100}             (w &gt; 0 turns left; send every 50 ms while held)
+&rarr; {"t":"stop","id":1}                                   &larr; {"t":"ack","id":1}
+&rarr; {"t":"cam_joy","x":0,"y":50,"active":true}  {"t":"cam_home"}  {"t":"release_control"}  {"t":"ping","t0":0}
+&larr; tf (10 Hz) &middot; ts (1 Hz) &middot; ev &middot; nack {"code","reason","message"} &middot; pong</pre>
+
+<!--CQ:LOGO-->
+
+<h2>[ HARDWARE ]</h2>
+<table>
+<tr><th>Board</th><td id="board">ELEGOO ESP32S3-Camera-V1.0, ESP32-S3-WROOM-1</td></tr>
+<tr><th>Chip</th><td><span id="chip">ESP32-S3</span>, 8 MB flash, 8 MB octal PSRAM, MAC <code id="mac">?</code></td></tr>
+<tr><th>Uno link</th><td>UART1 RX GPIO3, TX GPIO40, 250000 8N1 (GPIO3 is a strapping pin - no pull-down)</td></tr>
+<tr><th>Camera</th><td><span id="camera">?</span>, ESP32-S3-EYE map: XCLK 15, SDA 4, SCL 5, D7..D0 = 16 17 18 12 10 8 9 11,
+VSYNC 6, HREF 7, PCLK 13, PWDN/RESET not connected</td></tr>
+<tr><th>USB</th><td>native USB (GPIO19/20), <code>303a:1001</code> &rarr; <code>/dev/ttyACM0</code> (Linux), <code>/dev/cu.usbmodem*</code> (macOS)</td></tr>
+<tr><th>Partitions</th><td>nvs 0x9000 &middot; otadata 0xE000 &middot; app0 0x10000 (3 MB) &middot; app1 0x310000 (3 MB) &middot;
+source 0x610000 (1.875 MB) &middot; coredump 0x7F0000</td></tr>
+</table>
+
+<h2>[ REFLASH ]</h2>
+<h3>ESP32 (this board)</h3>
+<pre>cd firmware/esp32
+python3 scripts/check_chip.py --port /dev/ttyACM0      # refuses anything but ESP32-S3 / 8 MB / 8 MB PSRAM
+pio run -e bridge -t upload --upload-port /dev/ttyACM0  # bootloader + partitions + app (chip check runs first)
+pio run -e bridge -t upload_source --upload-port /dev/ttyACM0   # source archive at 0x610000
+CQ_OTA_PASSWORD=... scripts/ota.sh                      # over WiFi: app + source (only while nobody drives)</pre>
+<p>Release binaries: GitHub releases <code>bridge-vX.Y.Z</code> with <code>flash.sh</code>. Hold BOOT while plugging in if no port appears.</p>
+<h3>Uno (body)</h3>
+<pre>Shield switch S1 to "upload" (disconnects the ESP32), then:
+cd firmware/uno && pio run -e uno -t upload    # USB only, Optiboot 115200
+S1 back afterwards.</pre>
+<p class="note">The Uno is never updated over WiFi.</p>
+<script>
+"use strict";
+fetch("/info").then(function (r) { return r.json(); }).then(function (i) {
+  function set(id, v) { var e = document.getElementById(id); if (e && v !== null && v !== undefined) e.textContent = v; }
+  set("fwVersion", i.fw.version); set("fwCommit", i.fw.commit.slice(0, 12)); set("fwBuilt", i.fw.built);
+  set("fwDirty", i.fw.dirty ? "(dirty build)" : "");
+  set("ip", i.net.ip || "-"); set("mode", i.net.mode);
+  set("unoFw", i.uno.fw); set("unoCommit", i.uno.commit); set("unoProto", i.uno.proto);
+  set("unoSynced", i.uno.synced ? "synced" : "not synced"); set("unoReset", i.uno.reset_reason);
+  set("chip", i.hw.chip); set("mac", i.hw.mac); set("camera", i.hw.camera);
+  if (!i.source.matches_fw) document.getElementById("mismatch").classList.remove("hidden");
+}).catch(function () { /* page stays static */ });
+</script>
+</body>
+</html>
+```
+
+`firmware/esp32/web/help_logo.html`:
+```html
+<!-- Tank Logo quick reference (hand-written; keep in step with docs/superpowers/specs/2026-10-11-05-tank-logo-design.md) -->
+<section id="logo">
+<h2>[ TANK LOGO - QUICK REFERENCE ]</h2>
+<p class="note">Placeholder for this developer bridge: the program runner arrives with the phase-4
+gateway firmware (it runs on the ESP32). This bridge cannot upload or run programs yet.</p>
+<table>
+<tr><th>Move</th><td><code>FORWARD n</code>/<code>FD</code>, <code>BACK n</code>/<code>BK</code> (cm, needs encoders) &middot;
+<code>RIGHT a</code>/<code>RT</code>, <code>LEFT a</code>/<code>LT</code> (degrees) &middot; <code>ARC a r</code> &middot;
+<code>SPEED p</code> (10-100 %, default 40) &middot; <code>HOME</code> &middot; <code>WAIT s</code></td></tr>
+<tr><th>Look / light / sound</th><td><code>LOOK LEFT|RIGHT|UP|DOWN|HOME</code>, <code>LOOK pan tilt</code> &middot;
+<code>LED RED</code> &hellip; <code>LED r g b</code> &middot; <code>BEEP</code> &middot; <code>PLAY [ C4 E4 G4 ]</code> &middot;
+<code>SOUND HAPPY</code> &middot; <code>SAY "text</code></td></tr>
+<tr><th>Values</th><td><code>DISTANCE</code> (cm, 999 = nothing) &middot; <code>HEADING</code> &middot; <code>TILT</code> &middot;
+<code>BATTERY</code> &middot; <code>RANDOM n</code> &middot; <code>REPCOUNT</code></td></tr>
+<tr><th>Language</th><td><code>REPEAT n [ ]</code> &middot; <code>FOREVER [ ]</code> &middot; <code>WHILE c [ ]</code> &middot;
+<code>IF c [ ]</code> &middot; <code>IFELSE c [ ] [ ]</code> &middot; <code>TO name :a &hellip; END</code> &middot;
+<code>MAKE "x 5</code>, <code>:x</code> &middot; <code>STOP</code> ends the whole program &middot; <code>; comment</code></td></tr>
+<tr><th>Limits</th><td>5 min run time &middot; 10 000 steps &middot; depth 16 &middot; 32 variables &middot;
+4 KB / 1000 instructions &middot; WAIT &le; 60 s &middot; FORWARD/BACK &le; 500 cm per step</td></tr>
+<tr><th>Safety</th><td>Every step is a normal MOVE/TURN: obstacle brake, envelope, deadman, tilt and battery
+cut-offs apply. STOP from anywhere (page, bench, IR, the <code>STOP</code> word) ends the program; it never resumes.</td></tr>
+</table>
+<pre>REPEAT 4 [ FORWARD 50  RIGHT 90 ]   ; a square
+REPEAT 10 [ IFELSE DISTANCE &lt; 30 [ BACK 10  LEFT 90 ] [ FORWARD 20 ] ]</pre>
+</section>
+```
+
+Run: `cd firmware/esp32 && python3 scripts/pack_web.py .`
+Expected: the line now ends with `/help ~7100 B` (budget 16 KB gzipped).
+
+- [ ] **Step 5: Source archive packer, upload targets, OTA helper, release script**
+
+`firmware/esp32/scripts/pack_source.py`:
+```python
+"""PlatformIO pre-script: git archive -> build/source.bin for the "source" partition (LLD R2.3/6).
+
+source.bin = 64-byte header (magic CQSRC1, 40-hex commit, dirty flag, payload length, CRC-32)
+             + gzip -9 of `git archive --format=tar HEAD` (honours .gitattributes export-ignore).
+The build fails when the payload does not fit the partition, when any secrets.h is in the tar,
+or when a password value from the local include/secrets.h appears anywhere in the tar.
+Standalone: python3 scripts/pack_source.py [project_dir]
+"""
+
+from __future__ import annotations
+
+import gzip
+import io
+import pathlib
+import re
+import struct
+import subprocess
+import sys
+import tarfile
+import zlib
+
+PARTITION_SIZE = 0x1E0000
+HEADER_SIZE = 64
+SECRET_KEYS = ("CQ_WIFI_PASSWORD", "CQ_AP_PASSWORD", "CQ_OTA_PASSWORD")
+
+
+def git(root: pathlib.Path, *args: str) -> bytes:
+    return subprocess.run(["git", *args], cwd=root, capture_output=True, check=True).stdout
+
+
+def defines(path: pathlib.Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    text = path.read_text(encoding="utf-8")
+    found: dict[str, str] = {}
+    for key in SECRET_KEYS:
+        m = re.search(rf'#define\s+{key}\s+"([^"]*)"', text)
+        if m:
+            found[key] = m.group(1)
+    return found
+
+
+def secret_values(project: pathlib.Path) -> dict[str, str]:
+    """Real secret values: template placeholders (secrets.example.h, committed) are skipped."""
+    real = defines(project / "include" / "secrets.h")
+    template = defines(project / "include" / "secrets.example.h")
+    return {k: v for k, v in real.items() if len(v) >= 4 and v != template.get(k)}
+
+
+def check_tar(tar_bytes: bytes, secrets: dict[str, str]) -> list[str]:
+    problems: list[str] = []
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes)) as tar:
+        for member in tar.getmembers():
+            if member.name.endswith("secrets.h"):
+                problems.append(f"{member.name} is in the archive")
+    for key, value in secrets.items():
+        if value.encode() in tar_bytes:
+            problems.append(f"the value of {key} appears in the archive")
+    return problems
+
+
+def header(commit: str, dirty: bool, payload: bytes) -> bytes:
+    head = struct.pack(
+        "<8s40sB3xII4x",
+        b"CQSRC1\0\0",
+        commit.encode().ljust(40, b"0")[:40],
+        1 if dirty else 0,
+        len(payload),
+        zlib.crc32(payload) & 0xFFFFFFFF,
+    )
+    assert len(head) == HEADER_SIZE
+    return head
+
+
+def build(project: pathlib.Path) -> int:
+    root = pathlib.Path(git(project, "rev-parse", "--show-toplevel").decode().strip())
+    commit = git(root, "rev-parse", "HEAD").decode().strip()
+    dirty = bool(git(root, "status", "--porcelain", "--untracked-files=no").strip())
+    tar_bytes = git(root, "archive", "--format=tar", "HEAD")
+    problems = check_tar(tar_bytes, secret_values(project))
+    if problems:
+        for p in problems:
+            print(f"pack_source: REFUSED - {p}")
+        return 1
+    payload = gzip.compress(tar_bytes, compresslevel=9, mtime=0)
+    if len(payload) > PARTITION_SIZE - HEADER_SIZE:
+        print(f"pack_source: {len(payload)} B does not fit the partition (check export-ignore)")
+        return 1
+    out = project / "build" / "source.bin"
+    out.parent.mkdir(exist_ok=True)
+    out.write_bytes(header(commit, dirty, payload) + payload)
+    note = " (DIRTY: packs HEAD, not your working tree)" if dirty else ""
+    print(f"pack_source: {len(payload)} B, commit {commit[:8]}{note} -> build/source.bin")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(build(pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()))
+else:  # PlatformIO extra script
+    Import("env")  # type: ignore[name-defined]  # noqa: F821 - SCons injects Import/env
+    if build(pathlib.Path(env.subst("$PROJECT_DIR"))) != 0:  # type: ignore[name-defined]  # noqa: F821
+        env.Exit(1)  # type: ignore[name-defined]  # noqa: F821
+```
+
+`firmware/esp32/scripts/upload_source.py`:
+```python
+"""PlatformIO post-script: custom targets for the source archive (bridge LLD R2.3 step 9, R2.5).
+
+pio run -e bridge -t upload_source --upload-port /dev/ttyACM0   # USB: chip check, then esptool
+pio run -e bridge_ota -t upload_source_ota                     # WiFi: espota -s (CQ_OTA_PASSWORD)
+"""
+
+import os
+import pathlib
+import sys
+
+Import("env")  # type: ignore[name-defined]  # noqa: F821 - SCons injects Import/env
+
+PROJECT = pathlib.Path(env.subst("$PROJECT_DIR"))  # type: ignore[name-defined]  # noqa: F821
+sys.path.insert(0, str(PROJECT / "scripts"))
+import check_chip  # noqa: E402
+
+SOURCE_BIN = PROJECT / "build" / "source.bin"
+SOURCE_OFFSET = "0x610000"
+
+
+def _upload_usb(target, source, env):  # type: ignore[no-untyped-def]
+    port = env.subst("$UPLOAD_PORT")
+    if not port:
+        env.AutodetectUploadPort()
+        port = env.subst("$UPLOAD_PORT")
+    pkg = env.PioPlatform().get_package_dir("tool-esptoolpy")
+    cmd = check_chip.esptool_cmd(env.subst("$PYTHONEXE"), pkg)
+    if check_chip.run_check(cmd, port) != 0:
+        return 1
+    return env.Execute(
+        " ".join(
+            [
+                *cmd,
+                "--chip",
+                "esp32s3",
+                "--port",
+                port,
+                "--baud",
+                "921600",
+                "write_flash",
+                SOURCE_OFFSET,
+                str(SOURCE_BIN),
+            ]
+        )
+    )
+
+
+def _upload_ota(target, source, env):  # type: ignore[no-untyped-def]
+    password = os.environ.get("CQ_OTA_PASSWORD", "")
+    if not password:
+        print("upload_source_ota: export CQ_OTA_PASSWORD first")
+        return 1
+    espota = pathlib.Path(env.PioPlatform().get_package_dir("framework-arduinoespressif32"))
+    return env.Execute(
+        f'"$PYTHONEXE" "{espota / "tools" / "espota.py"}" -i conqueror-bridge.local -p 3232 '
+        f'--auth="{password}" -s -f "{SOURCE_BIN}"'
+    )
+
+
+env.AddCustomTarget(  # type: ignore[name-defined]  # noqa: F821
+    name="upload_source",
+    dependencies=None,
+    actions=[_upload_usb],
+    title="Upload source",
+    description="write build/source.bin to the source partition (USB)",
+)
+env.AddCustomTarget(  # type: ignore[name-defined]  # noqa: F821
+    name="upload_source_ota",
+    dependencies=None,
+    actions=[_upload_ota],
+    title="Upload source OTA",
+    description="write build/source.bin over WiFi (espota -s)",
+)
+```
+
+`firmware/esp32/scripts/ota.sh`:
+```bash
+#!/usr/bin/env bash
+# App + source archive over WiFi (bridge LLD R2.5). Only works while nobody drives the tank.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+: "${CQ_OTA_PASSWORD:?export CQ_OTA_PASSWORD (the same value as in include/secrets.h)}"
+pio run -e bridge_ota -t upload
+echo "waiting 20 s for the bridge to reboot into the new slot and rejoin WiFi..."
+sleep 20
+pio run -e bridge_ota -t upload_source_ota
+```
+
+`firmware/esp32/scripts/make_release.sh`:
+```bash
+#!/usr/bin/env bash
+# Build a bridge release from a clean, tagged tree and publish it on GitHub (design-notes §27).
+#   git tag bridge-v0.1.0 && scripts/make_release.sh bridge-v0.1.0
+set -euo pipefail
+cd "$(dirname "$0")/.."
+TAG="${1:?usage: scripts/make_release.sh bridge-vX.Y.Z}"
+[[ "$TAG" == bridge-v* ]] || { echo "tag must start with bridge-v"; exit 1; }
+[ "$(git describe --tags --exact-match HEAD 2>/dev/null)" = "$TAG" ] || { echo "HEAD is not tagged $TAG"; exit 1; }
+pio run -e bridge_release   # refuses a dirty tree; also writes build/source.bin
+OUT="dist/$TAG"
+rm -rf "$OUT" && mkdir -p "$OUT"
+B=.pio/build/bridge_release
+cp "$B/bootloader.bin" "$B/partitions.bin" "$B/firmware.bin" build/source.bin "$OUT/"
+cp "$HOME/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin" "$OUT/"
+cat > "$OUT/flash.sh" <<'FLASH'
+#!/usr/bin/env bash
+# Flash this release over USB: ./flash.sh /dev/ttyACM0   (needs: uv tool install esptool)
+set -euo pipefail
+PORT="${1:?usage: ./flash.sh /dev/ttyACM0}"
+cd "$(dirname "$0")"
+esptool --chip esp32s3 --port "$PORT" flash_id | grep -Eq "Chip (is|type:) *ESP32-S3" || { echo "not an ESP32-S3 - refusing"; exit 1; }
+esptool --chip esp32s3 --port "$PORT" --baud 921600 write_flash --flash_mode dio --flash_size 8MB \
+  0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000 firmware.bin 0x610000 source.bin
+FLASH
+chmod +x "$OUT/flash.sh"
+gh release create "$TAG" "$OUT"/* --title "$TAG" \
+  --notes "ESP32-S3 developer bridge $TAG (commit $(git rev-parse --short HEAD)). DEVELOPER BRIDGE - NO AUTHENTICATION - home network only. Flash: ./flash.sh /dev/ttyACM0"
+echo "released $TAG"
+```
+
+Run: `chmod +x scripts/ota.sh scripts/make_release.sh && python3 scripts/pack_source.py .`
+Expected: `pack_source: ~560000 B, commit <8 hex> -> build/source.bin` (plus `(DIRTY: …)` while you have uncommitted changes). Negative check: temporarily put your real WiFi password into a comment of any tracked file, commit it on a throw-away branch, run again → `pack_source: REFUSED - the value of CQ_WIFI_PASSWORD appears in the archive`; delete the branch.
+
+In `firmware/esp32/platformio.ini` `[esp32]`, the scripts become:
+```ini
+extra_scripts =
+    pre:scripts/protogen_check.py
+    pre:scripts/stamp_version.py
+    pre:scripts/pack_web.py
+    pre:scripts/pack_source.py
+    post:scripts/check_chip.py
+    post:scripts/upload_source.py
+```
+
+- [ ] **Step 6: Source partition reader and `/info`**
+
+`firmware/esp32/src/net/source_archive.h`:
+```cpp
+// The "source" flash partition: 64-byte header + git archive (tar.gz) written by
+// scripts/pack_source.py (bridge LLD R2.3 step 6, R2.4). Read-only.
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+namespace cq {
+namespace net {
+
+struct SourceHeader {  // little-endian, 64 bytes
+  char magic[8];       // "CQSRC1\0\0"
+  char commit[40];     // git commit, 40 hex characters
+  uint8_t dirty;
+  uint8_t reserved[3];
+  uint32_t length;  // payload bytes after the header
+  uint32_t crc32;   // CRC-32 (zlib) of the payload
+  uint8_t pad[4];
+};
+static_assert(sizeof(SourceHeader) == 64, "header layout is shared with pack_source.py");
+
+bool sourceBegin();  // reads the header and checks the CRC once at boot (~0.5 MB read)
+bool sourceValid();
+const SourceHeader& sourceHeader();
+size_t sourceRead(size_t offset, uint8_t* buf, size_t len);  // payload offset
+void sourceRegister();  // GET /source.tar.gz on port 80 (after httpServerStart)
+
+}  // namespace net
+}  // namespace cq
+```
+
+`firmware/esp32/src/net/source_archive.cpp`:
+```cpp
+#include "net/source_archive.h"
+
+#include <esp_partition.h>
+#include <esp_rom_crc.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "net/http_server.h"
+#include "net/log.h"
+
+namespace cq {
+namespace net {
+namespace {
+
+const esp_partition_t* g_part = nullptr;
+SourceHeader g_header{};
+bool g_valid = false;
+uint8_t g_buf[4096];  // httpd task only (and once at boot)
+
+esp_err_t serveSource(httpd_req_t* req) {
+  if (!g_valid) {
+    httpd_resp_send_404(req);
+    return ESP_OK;
+  }
+  char disposition[80];
+  snprintf(disposition, sizeof(disposition), "attachment; filename=\"conqueror-%.8s.tar.gz\"",
+           g_header.commit);
+  httpd_resp_set_type(req, "application/gzip");
+  httpd_resp_set_hdr(req, "Content-Disposition", disposition);
+  for (size_t off = 0; off < g_header.length;) {
+    const size_t n = sourceRead(off, g_buf, sizeof(g_buf));
+    if (n == 0 || httpd_resp_send_chunk(req, reinterpret_cast<const char*>(g_buf),
+                                        static_cast<ssize_t>(n)) != ESP_OK) {
+      return ESP_FAIL;
+    }
+    off += n;
+  }
+  return httpd_resp_send_chunk(req, nullptr, 0);
+}
+
+}  // namespace
+
+bool sourceBegin() {
+  g_part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "source");
+  if (g_part == nullptr) {
+    logf("source: no \"source\" partition - wrong partition table?");
+    return false;
+  }
+  if (esp_partition_read(g_part, 0, &g_header, sizeof(g_header)) != ESP_OK ||
+      memcmp(g_header.magic, "CQSRC1\0\0", 8) != 0 ||
+      g_header.length > g_part->size - sizeof(SourceHeader)) {
+    logf("source: no archive (run: pio run -e bridge -t upload_source)");
+    return false;
+  }
+  uint32_t crc = 0;
+  for (size_t off = 0; off < g_header.length;) {
+    const size_t n = sourceRead(off, g_buf, sizeof(g_buf));
+    if (n == 0) return false;
+    crc = esp_rom_crc32_le(crc, g_buf, n);
+    off += n;
+  }
+  g_valid = crc == g_header.crc32;
+  logf("source: %lu bytes, commit %.8s%s, %s", static_cast<unsigned long>(g_header.length),
+       g_header.commit, g_header.dirty ? " (dirty)" : "", g_valid ? "CRC ok" : "CRC BAD");
+  return g_valid;
+}
+
+bool sourceValid() { return g_valid; }
+
+const SourceHeader& sourceHeader() { return g_header; }
+
+size_t sourceRead(size_t offset, uint8_t* buf, size_t len) {
+  if (g_part == nullptr || offset >= g_header.length) return 0;
+  const size_t n = (g_header.length - offset < len) ? g_header.length - offset : len;
+  if (esp_partition_read(g_part, sizeof(SourceHeader) + offset, buf, n) != ESP_OK) return 0;
+  return n;
+}
+
+void sourceRegister() {
+  httpd_uri_t u{};
+  u.uri = "/source.tar.gz";
+  u.method = HTTP_GET;
+  u.handler = serveSource;
+  httpd_register_uri_handler(httpServer(), &u);
+}
+
+}  // namespace net
+}  // namespace cq
+```
+
+`firmware/esp32/src/net/info_service.h`:
+```cpp
+// GET /info: read-only JSON self-description (bridge LLD R2.4, design-notes §27). No secrets.
+#pragma once
+
+#include "net/wifi_manager.h"
+
+namespace cq {
+namespace net {
+
+void infoRegister(const WifiManager& wifi);  // after httpServerStart()
+
+}  // namespace net
+}  // namespace cq
+```
+
+`firmware/esp32/src/net/info_service.cpp`:
+```cpp
+#include "net/info_service.h"
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <esp_mac.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "board_config.h"
+#include "net/camera_service.h"
+#include "net/http_server.h"
+#include "net/link_task.h"
+#include "net/source_archive.h"
+#include "net/stream_server.h"
+#include "version.h"
+
+namespace cq {
+namespace net {
+namespace {
+
+const WifiManager* g_wifi = nullptr;
+char g_json[2048];  // httpd task only
+
+class Out {
+ public:
+  void add(const char* fmt, ...) __attribute__((format(printf, 2, 3))) {
+    va_list ap;
+    va_start(ap, fmt);
+    const int n = vsnprintf(g_json + m_n, sizeof(g_json) - m_n, fmt, ap);
+    va_end(ap);
+    if (n > 0) m_n = (m_n + static_cast<size_t>(n) < sizeof(g_json)) ? m_n + n : sizeof(g_json) - 1;
+  }
+  size_t len() const { return m_n; }
+
+ private:
+  size_t m_n = 0;
+};
+
+const char* resetName(uint8_t r) {
+  static const char* const kNames[] = {"unknown", "power_on", "external", "brown_out", "watchdog"};
+  return r < 5 ? kNames[r] : "unknown";
+}
+
+const char* ownerName(core::LinkState s) {
+  switch (s) {
+    case core::LinkState::kTcpPassthrough:
+      return "bench";
+    case core::LinkState::kWebHandshake:
+    case core::LinkState::kWebReady:
+    case core::LinkState::kWebDriving:
+      return "web";
+    case core::LinkState::kIdle:
+    default:
+      return "none";
+  }
+}
+
+esp_err_t serveInfo(httpd_req_t* req) {
+  const LinkStatus s = linkStatus();
+  const SourceHeader& src = sourceHeader();
+  const bool src_ok = sourceValid();
+  uint8_t mac[6] = {};
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  char ip[16] = "";
+  g_wifi->ip(ip, sizeof(ip));
+  const bool station = g_wifi->mode() == core::WifiMode::kStation;
+  const unsigned rev = ESP.getChipRevision();
+
+  Out o;
+  o.add("{\"fw\":{\"name\":\"%s\",\"version\":\"%s\",\"commit\":\"%s\",\"dirty\":%s,"
+        "\"built\":\"%s\",\"repo\":\"%s\"},",
+        CQ_FW_NAME, CQ_FW_VERSION, CQ_GIT_COMMIT, CQ_GIT_DIRTY ? "true" : "false", CQ_BUILD_DATE,
+        CQ_REPO_URL);
+  if (src_ok) {
+    o.add("\"source\":{\"url\":\"/source.tar.gz\",\"commit\":\"%.40s\",\"matches_fw\":%s,"
+          "\"bytes\":%lu},",
+          src.commit, strncmp(src.commit, CQ_GIT_COMMIT, 40) == 0 ? "true" : "false",
+          static_cast<unsigned long>(src.length));
+  } else {
+    o.add("\"source\":{\"url\":null,\"commit\":null,\"matches_fw\":false,\"bytes\":0},");
+  }
+  o.add("\"hw\":{\"board\":\"%s\",\"chip\":\"%s rev v%u.%u\",\"flash_mb\":%lu,\"psram_mb\":%lu,"
+        "\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"camera\":\"%s\","
+        "\"pins\":{\"uno_rx\":%d,\"uno_tx\":%d,\"camera\":\"ESP32-S3-EYE map\"}},",
+        board::kBoardName, ESP.getChipModel(), rev / 100, rev % 100,
+        static_cast<unsigned long>(ESP.getFlashChipSize() >> 20),
+        static_cast<unsigned long>(ESP.getPsramSize() >> 20), mac[0], mac[1], mac[2], mac[3],
+        mac[4], mac[5], cameraSensorName(), board::kUnoRxPin, board::kUnoTxPin);
+  o.add("\"net\":{\"mode\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,"
+        "\"mdns\":\"%s.local\",\"ports\":{\"http\":%u,\"ws\":\"/ws\",\"stream\":%u,"
+        "\"bench_tcp\":%u,\"ota\":%u}},",
+        g_wifi->modeName(), station ? WiFi.SSID().c_str() : board::kFallbackSsid, ip,
+        g_wifi->rssi(), board::kHostname, board::kHttpPort, board::kStreamPort, board::kTcpPort,
+        board::kOtaPort);
+  if (s.hello.seen) {
+    char commit[12] = "null";
+    if (s.hello.commit != 0) {
+      snprintf(commit, sizeof(commit), "\"%08lx\"", static_cast<unsigned long>(s.hello.commit));
+    }
+    o.add("\"uno\":{\"baud\":%lu,\"synced\":%s,\"fw\":\"%u.%u\",\"commit\":%s,\"proto\":%u,"
+          "\"reset_reason\":\"%s\"},",
+          static_cast<unsigned long>(board::kUnoBaud), s.synced ? "true" : "false",
+          s.hello.fw >> 8, s.hello.fw & 0xFF, commit, s.hello.proto,
+          resetName(s.hello.reset_reason));
+  } else {
+    o.add("\"uno\":{\"baud\":%lu,\"synced\":null,\"fw\":null,\"commit\":null,\"proto\":null,"
+          "\"reset_reason\":null},",
+          static_cast<unsigned long>(board::kUnoBaud));
+  }
+  o.add("\"link\":{\"owner\":\"%s\",\"driver\":\"%s\",\"clients\":{\"ws\":%u,\"tcp\":%u,"
+        "\"stream\":%u},\"frames_tx\":%lu,\"frames_rx\":%lu,\"bad_crc\":%lu,"
+        "\"tcp_refused\":%lu,\"last_refusal\":\"%s\",\"ota_allowed\":%s},",
+        ownerName(s.state), s.driver, s.ws_clients, s.tcp_active ? 1u : 0u, streamViewers(),
+        static_cast<unsigned long>(s.frames_tx), static_cast<unsigned long>(s.frames_rx),
+        static_cast<unsigned long>(s.bad_crc), static_cast<unsigned long>(s.tcp_refused),
+        s.last_refusal, s.ota_allowed ? "true" : "false");
+  o.add("\"uptime_s\":%lu,\"free_heap\":%lu,\"free_psram\":%lu}",
+        static_cast<unsigned long>(millis() / 1000), static_cast<unsigned long>(ESP.getFreeHeap()),
+        static_cast<unsigned long>(ESP.getFreePsram()));
+
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  return httpd_resp_send(req, g_json, static_cast<ssize_t>(o.len()));
+}
+
+}  // namespace
+
+void infoRegister(const WifiManager& wifi) {
+  g_wifi = &wifi;
+  httpd_uri_t u{};
+  u.uri = "/info";
+  u.method = HTTP_GET;
+  u.handler = serveInfo;
+  httpd_register_uri_handler(httpServer(), &u);
+}
+
+}  // namespace net
+}  // namespace cq
+```
+
+In `firmware/esp32/src/main.cpp`: add `#include "net/info_service.h"` after `#include "net/http_server.h"` and `#include "net/source_archive.h"` after `#include "net/ota_service.h"`; after `cq::net::webRoutesRegister();` add:
+```cpp
+  cq::net::sourceBegin();
+  cq::net::sourceRegister();
+  cq::net::infoRegister(g_wifi);
+```
+
+Run: `pio run -e bridge`
+Expected: `pack_web: … /help …`, `pack_source: …`, `SUCCESS`.
+
+- [ ] **Step 7 [HW]: Flash app + source, then check the three pages**
+
+Run:
+```bash
+pio run -e bridge -t upload --upload-port /dev/ttyACM0
+pio run -e bridge -t upload_source --upload-port /dev/ttyACM0
+```
+Expected: both start with `check_chip: OK …`; USB log after reset: `source: ~560000 bytes, commit <8 hex>, CRC ok`.
+- `curl -s http://conqueror-bridge.local/info | python3 -m json.tool` → valid JSON; `fw.commit` = `git rev-parse HEAD`; `source.matches_fw: true`; `hw.chip: "ESP32-S3 rev v0.2"`, `flash_mb: 8`, `psram_mb: 8`, `mac: "48:ca:43:9e:74:b4"`, `camera: "OV3660"`; `uno.proto: 2`, `uno.commit` = the Uno build's 8 hex digits (or `null` if built outside git); `free_heap` ≥ 120000.
+- `curl -s -o /tmp/cq.tar.gz http://conqueror-bridge.local/source.tar.gz && tar -tzf /tmp/cq.tar.gz | head` → repository files; `tar -tzf /tmp/cq.tar.gz | grep -c secrets.h` → `0`.
+- Phone/laptop browser `http://conqueror-bridge.local/help` → version, commit, IP, Uno version filled in; protocol tables; Tank Logo reference; reflash commands; the red "NO AUTHENTICATION" note.
+- OTA mismatch: change a log string, commit, `pio run -e bridge_ota -t upload` (app only) → `/info` shows `source.matches_fw: false` and `/help` shows the amber warning; then `CQ_OTA_PASSWORD=… scripts/ota.sh` → `matches_fw: true` again.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add firmware/esp32/web firmware/esp32/scripts firmware/esp32/src firmware/esp32/platformio.ini
+git commit -m "feat(esp32): /info, /help and /source.tar.gz self-description with release script
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+- [ ] **Step 9: Releases (owner decides when; needs `gh auth login`)**
+
+Every flashed release gets a tag and a GitHub release (design-notes §27): bridge `bridge-vX.Y.Z`, Uno `uno-vX.Y.Z`.
+```bash
+git tag bridge-v0.1.0 && git push origin bridge-v0.1.0
+cd firmware/esp32 && scripts/make_release.sh bridge-v0.1.0
+```
+Expected: `pio run -e bridge_release` succeeds only on a clean, tagged tree; `dist/bridge-v0.1.0/` holds `bootloader.bin partitions.bin boot_app0.bin firmware.bin source.bin flash.sh`; `gh release create` prints the release URL. `flash.sh /dev/ttyACM0` refuses anything that is not an ESP32-S3. (`dist/` is a build output: add `firmware/esp32/dist/` to `.gitignore` in the same commit as the first release.)

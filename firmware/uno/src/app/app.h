@@ -31,6 +31,7 @@
 #include "domain/motion/primitives.h"
 #include "domain/motion/ramp.h"
 #include "domain/motion/speed_controller.h"
+#include "domain/camera/camera_head.h"
 
 namespace cq {
 
@@ -117,6 +118,7 @@ struct App {
   uint8_t settings_reset_mask = 0;
   bool self_test_pending = true;     // a run is due at self_test_due_ms (boot run, or a SELF_TEST re-run)
   uint32_t self_test_due_ms = 2000;  // boot: 2 s after reset; re-run: +1500 ms (one 1 s IMU re-init try first)
+  CameraHead camera;
 };
 
 extern App g_app;

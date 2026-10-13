@@ -537,6 +537,38 @@ def cmd_driverate(link: Link, args: argparse.Namespace) -> None:
         time.sleep(0.05)
 
 
+def cmd_cam(link: Link, args: argparse.Namespace) -> None:
+    """cam joy X Y SECONDS [--lock] [--drive V W] | set PAN TILT | nudge DPAN DTILT | home"""
+    link.handlers.append(print_ack)
+    wait_synced(link)
+    v = args.values
+    if args.lock:  # same run: reopening the port reboots the Uno, which clears the lock
+        link.send(g.CamLock(on=1))
+    if args.action == "joy":
+        end = time.monotonic() + v[2]
+        while time.monotonic() < end:
+            link.send(g.CamJoy(x=int(v[0]), y=int(v[1]), active=1))
+            if args.drive is not None:  # drive while panning, same 50 ms loop
+                link.send(g.Drive(src=g.Source.HUMAN, v=args.drive[0], w=args.drive[1]))
+            time.sleep(0.05)
+        link.send(g.CamJoy(x=0, y=0, active=0))
+    elif args.action == "set":
+        link.send(g.CamSet(pan=round(v[0] * 10), tilt=round(v[1] * 10), speed=0))
+    elif args.action == "nudge":
+        link.send(g.CamNudge(dpan=round(v[0] * 10), dtilt=round(v[1] * 10)))
+    elif args.action == "home":
+        link.send(g.CamHome())
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < 2.0:
+        fast = link.last.get("TelemFast")
+        if isinstance(fast, g.TelemFast):
+            print(f"pan={fast.pan / 10:.1f} tilt={fast.tilt / 10:.1f}")
+        time.sleep(0.25)
+    slow = link.last.get("TelemSlow")
+    if isinstance(slow, g.TelemSlow):
+        print(f"SLOW load={slow.loop_load}% max={slow.loop_max_us}us")
+
+
 COMMANDS: dict[str, Callable[[Link, argparse.Namespace], None]] = {"watch": cmd_watch}
 COMMANDS["setting"] = cmd_setting
 COMMANDS.update(
@@ -555,6 +587,7 @@ COMMANDS.update(
         "move": cmd_move,
         "cancel": cmd_cancel,
         "driverate": cmd_driverate,
+        "cam": cmd_cam,
     }
 )
 
@@ -621,6 +654,11 @@ def main() -> None:
     dr.add_argument("v", type=int)
     dr.add_argument("rate", type=float)
     dr.add_argument("--seconds", type=float, default=3.0)
+    cm = sub.add_parser("cam")
+    cm.add_argument("action", choices=["joy", "set", "nudge", "home"])
+    cm.add_argument("values", type=float, nargs="*")
+    cm.add_argument("--lock", action="store_true", help="send CAM_LOCK on first (same run)")
+    cm.add_argument("--drive", type=int, nargs=2, default=None, metavar=("V", "W"))
     args = ap.parse_args()
     link = Link(args.port)
     try:

@@ -16,6 +16,8 @@ void controlInit();  // boot: motor port in standby, outputs zero
 void controlTask();  // 100 Hz
 void selfTestTask();  // 1 Hz: hw bits, cal status, boot self-test + SELF_TEST re-runs
 void selfTestRecoverTask();  // 10 Hz: battery-only lock auto-clears after 1 s valid (LLD §10.9)
+void cameraInit();  // boot: servos to the home pulse, then attach
+void cameraTask();  // 50 Hz
 // TASK-DECLS-END
 
 }  // namespace app

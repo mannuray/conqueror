@@ -5,6 +5,7 @@
 #include "app/tasks.h"
 #include "ports/clock.h"
 #include "app/motion_api.h"
+#include "app/camera_api.h"
 
 namespace cq {
 namespace app {
@@ -86,6 +87,11 @@ const Route kRoutes[] PROGMEM = {
     {static_cast<uint8_t>(proto::FrameType::kMove), onMove, true},
     {static_cast<uint8_t>(proto::FrameType::kCancel), onCancel, true},
     {static_cast<uint8_t>(proto::FrameType::kProfile), onProfile, true},
+    {static_cast<uint8_t>(proto::FrameType::kCamJoy), onCamJoy, false},
+    {static_cast<uint8_t>(proto::FrameType::kCamSet), onCamSet, true},
+    {static_cast<uint8_t>(proto::FrameType::kCamNudge), onCamNudge, true},
+    {static_cast<uint8_t>(proto::FrameType::kCamHome), onCamHome, true},
+    {static_cast<uint8_t>(proto::FrameType::kCamLock), onCamLock, true},
     // ROUTES-END
 };
 const uint8_t kRouteCount = sizeof kRoutes / sizeof kRoutes[0];

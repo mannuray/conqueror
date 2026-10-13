@@ -38,6 +38,7 @@ cq::Task g_tasks[] = {
     {cq::app::batteryTask, 100000UL, 0},
     {cq::app::selfTestTask, 1000000UL, 0},
     {cq::app::selfTestRecoverTask, 100000UL, 0},
+    {cq::app::cameraTask, 20000UL, 0},
     // TASKS-END
 };
 cq::Scheduler g_scheduler(g_tasks, static_cast<uint8_t>(sizeof g_tasks / sizeof g_tasks[0]));
@@ -52,6 +53,7 @@ void setup() {
   cq::app::settingsLoad();
   cq::app::imuInit();
   cq::app::sensorsInit();
+  cq::app::cameraInit();
   // SETUP-END
   cq::port::watchdog::enable();
   g_scheduler.start(cq::port::clock::nowUs());

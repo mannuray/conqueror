@@ -883,12 +883,14 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
 | Sensors | Ultrasonic (HC-SR04), IR receiver, IMU breakout footprint (GY-521/MPU6050 class, plugs in like on the shield), battery voltage sense |
 | Optional sensors | Compass breakout (QMC5883L class), ToF (VL53L0X/L1X); proposed: a Qwiic/STEMMA QT I2C connector for any optional I2C sensor |
 | Output | Passive buzzer, 1 RGB LED (WS2812, buffered data line) |
-| Input | Mode button |
+| Input | Mode button (proposed: 2 user buttons - run/stop a saved Tank Logo program, simple menu, teaching) |
+| Status LEDs | GPIO status LEDs (owner, 2026-10-14 - idea from the Cytron Maker Pi RP2040: shows pin activity, helps learning and debugging) |
 | Head link | 6-wire harness: 5 V + GND (logic), TX, RX, servo 5 V + servo GND |
 | Power | 2S Li-ion pack (USB-C charging in the pack), common connector, main switch, reverse-polarity protection, fuse, 5 V regulator (logic, servos, head) |
 | 5 V-safe | Every connector 5 V-safe for the user (5 V power, 5 V-tolerant inputs, WS2812 buffer) |
 | Head | Off-the-shelf ESP32-S3 camera board on the gimbal (UART + servo pins, WiFi OTA) |
 
+- **Compared with the Cytron Maker Pi RP2040** (2026-10-14): a general education board - 1S/3.6-6 V motors (cannot run a 2S pack), no encoders/IMU/IR/camera link, not Uno-sized. Borrowed: GPIO status LEDs. **No Python on the board** (owner): Tank Logo is the beginner language. Connectors (proposed): robot connectors on 2.54 mm JST-XH like the ELEGOO kits; I2C expansion as a Qwiic socket plus a parallel 4-pin 2.54 mm header (jumper-friendly); no Grove.
 - Still open: certification for sale in India (BIS toys/Li-ion, WPC, EPR) - research task; optional wired ESP32 update through the base (RP2350 USB-to-UART bridge, ESP32-S3 software-forced download mode) - nice-to-have, OTA is the normal path.
 - Next step once requirements are settled: a spec in `docs/superpowers/specs/` (design first).
 

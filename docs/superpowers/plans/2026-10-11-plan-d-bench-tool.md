@@ -72,7 +72,7 @@ tools/bench/
 ### Task 1: Project scaffold and transports
 
 **Files:**
-- Create: `tools/bench/pyproject.toml`, `tools/bench/conqueror_bench/__init__.py`, `tools/bench/conqueror_bench/transport.py`, `tools/bench/tests/__init__.py`
+- Create: `tools/bench/pyproject.toml`, `tools/bench/.python-version`, `tools/bench/conqueror_bench/__init__.py`, `tools/bench/conqueror_bench/transport.py`, `tools/bench/tests/__init__.py`
 - Modify: `.gitignore` (add `tools/bench/sessions/`)
 - Test: `tools/bench/tests/test_transport.py`
 
@@ -145,6 +145,11 @@ asyncio_default_fixture_loop_scope = "function"
 ```
 
 `tools/bench/tests/__init__.py`: empty file.
+
+`tools/bench/.python-version` (pins Python 3.12 for uv, like `protocol/.python-version`; without it uv may pick a newer interpreter):
+```
+3.12
+```
 
 Append to `.gitignore`:
 ```
@@ -482,6 +487,7 @@ from __future__ import annotations
 import asyncio
 import math
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from conqueror_protocol import FrameParser, Message, build_frame, decode_frame
@@ -627,7 +633,9 @@ class SimulatedUno:
             await self._stop_motion("CANCELLED")
         elif isinstance(msg, g.Turn):
             angle = msg.angle / 10.0
-            delta = angle if (msg.mode & 0x7F) == int(g.TurnMode.BY) else _wrap(angle - self.yaw_deg)
+            delta = (
+                angle if (msg.mode & 0x7F) == int(g.TurnMode.BY) else _wrap(angle - self.yaw_deg)
+            )
             self._start_primitive("turn", g.PrimitiveKind.TURN, msg.speed, delta)
             self._radius_cm = msg.radius_cm
         elif isinstance(msg, g.Move):
@@ -670,7 +678,9 @@ class SimulatedUno:
         self.settings[sid] = value
         return 0
 
-    def _start_primitive(self, mode: str, kind: g.PrimitiveKind, speed: int, remaining: float) -> None:
+    def _start_primitive(
+        self, mode: str, kind: g.PrimitiveKind, speed: int, remaining: float
+    ) -> None:
         self.mode = mode
         self._prim = kind
         self._speed = speed
@@ -682,7 +692,9 @@ class SimulatedUno:
         self.mode = "idle"
         self._prim = g.PrimitiveKind.NONE
         self._v_pct = self._w_pct = 0.0
-        await self.emit_event(g.EventKind.PRIMITIVE_DONE, kind | (int(ok) << 8), _status(reason) if not ok else 0)
+        await self.emit_event(
+            g.EventKind.PRIMITIVE_DONE, kind | (int(ok) << 8), _status(reason) if not ok else 0
+        )
 
     async def _stop_motion(self, reason: str) -> None:
         if self.mode in ("turn", "move"):
@@ -754,8 +766,8 @@ class SimulatedUno:
         flags = 1 << int(g.FastFlagBit.SYNCED) if self.synced else 0
         return g.TelemFast(
             uno_ms=int(time.monotonic() * 1000) & 0xFFFFFFFF,
-            yaw=int(round(self.yaw_deg * 100)) % 36000,
-            yaw_rate=int(round(w_dps * 10)),
+            yaw=round(self.yaw_deg * 100) % 36000,
+            yaw_rate=round(w_dps * 10),
             pitch=0,
             roll=0,
             spd_cmd_l=pct,
@@ -805,20 +817,24 @@ class SimulatedUno:
             await asyncio.sleep(self.cfg.slow_interval_s)
 
     # ---- calibration scripts ------------------------------------------------------------------
-    async def _cal_sample(self, script: int, phase: int, t_ms: int, v: list[int]) -> None:
-        values = [max(-32768, min(32767, int(x))) for x in v + [0] * (8 - len(v))]
+    async def _cal_sample(self, script: int, phase: int, t_ms: int, v: Sequence[float]) -> None:
+        values = [max(-32768, min(32767, int(x))) for x in [*v, *([0] * (8 - len(v)))]]
         await self._send(g.CalData(script=script, phase=phase, t_ms=t_ms & 0xFFFF, v=tuple(values)))
         await asyncio.sleep(self.cfg.cal_sample_interval_s)
 
     async def _run_cal(self, script: int, param: int) -> None:
         cfg = self.cfg
         t = 0
-        await self._send(g.CalResult(script=script, stage=0, progress=0, status=0))  # started (like the Uno)
+        await self._send(
+            g.CalResult(script=script, stage=0, progress=0, status=0)
+        )  # started (like the Uno)
         if script == int(g.CalScript.STILL_SAMPLE):
             bx, by, bz = cfg.gyro_bias
             for i in range(100):
                 n = i % 3 - 1
-                await self._cal_sample(script, 0, t, [bx + n, by + n, bz + n, 0, 0, 8192, 2500, cfg.batt_mv])
+                await self._cal_sample(
+                    script, 0, t, [bx + n, by + n, bz + n, 0, 0, 8192, 2500, cfg.batt_mv]
+                )
                 t += 20
         elif script == int(g.CalScript.PWM_RAMP):
             cum = 0
@@ -841,13 +857,13 @@ class SimulatedUno:
             per_track = math.pi * cfg.track_width_eff_cm * cfg.counts_per_cm
             for i in range(51):
                 f = i / 50
-                await self._cal_sample(
-                    script, 0, t, [-per_track * f, per_track * f, 3600 * f, 900]
-                )
+                await self._cal_sample(script, 0, t, [-per_track * f, per_track * f, 3600 * f, 900])
                 t += 20
         elif script == int(g.CalScript.FULL_SPIN):
             for _ in range(50):
-                await self._cal_sample(script, 0, t, [-255, 255, -cfg.max_cps[0], cfg.max_cps[1], 2000])
+                await self._cal_sample(
+                    script, 0, t, [-255, 255, -cfg.max_cps[0], cfg.max_cps[1], 2000]
+                )
                 t += 20
         await self._send(g.CalResult(script=script, stage=0, progress=100, status=0))
 
@@ -946,6 +962,7 @@ async def test_handshake_and_heartbeat(rig: SimRig) -> None:
 
 async def test_envelope_sent_before_hello_ack(rig: SimRig) -> None:
     async with LinkSession(rig.bench, envelope=(20, 30, 1)):
+        await asyncio.sleep(0.05)  # let the simulated Uno process the HELLO_ACK just sent
         order = [type(m).__name__ for m in rig.uno.received if not isinstance(m, g.Heartbeat)]
         assert order.index("Envelope") < order.index("HelloAck")
         assert rig.uno.envelope == (20, 30, 1)
@@ -1013,6 +1030,20 @@ async def test_suspend_triggers_link_loss(rig: SimRig) -> None:
         await asyncio.sleep(0.1)
         assert rig.uno.link_lost_count == 1
         assert link.stats.suppressed > 0
+
+
+async def test_bridge_closing_during_handshake_reports_busy() -> None:
+    bench, uno_side = fake_pair()
+
+    async def refuse() -> None:
+        await asyncio.sleep(0.05)
+        await uno_side.close()
+
+    task = asyncio.create_task(refuse())
+    with pytest.raises(HandshakeError, match="busy"):
+        async with LinkSession(bench, hello_timeout_s=2.0):
+            pass
+    await task
 ```
 `ack_timeout` uses `_suspended_until` directly because the test needs an ack-less frame; `suspend()` is the public path for link-loss simulation.
 
@@ -1031,6 +1062,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from asyncio import FIRST_COMPLETED
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -1255,15 +1287,28 @@ class LinkSession:
             self.stats.bad_crc = self._parser.stats.bad_crc
             self.stats.bad_len = self._parser.stats.bad_len
 
-    async def _handshake(self) -> HelloInfo:
+    async def _wait_hello(self, timeout_s: float) -> bool:
+        """True when HELLO arrived, False on timeout; HandshakeError if the peer closed first."""
+        hello = asyncio.ensure_future(self._hello_event.wait())
+        closed = asyncio.ensure_future(self.closed.wait())
         try:
-            await asyncio.wait_for(self._hello_event.wait(), min(1.0, self._hello_timeout))
-        except TimeoutError:
+            await asyncio.wait({hello, closed}, timeout=timeout_s, return_when=FIRST_COMPLETED)
+        finally:
+            hello.cancel()
+            closed.cancel()
+        if self._hello_event.is_set():
+            return True
+        if self.closed.is_set():
+            raise HandshakeError(
+                "the bridge closed the connection: busy (a phone or another bench is driving)"
+            )
+        return False
+
+    async def _handshake(self) -> HelloInfo:
+        if not await self._wait_hello(min(1.0, self._hello_timeout)):
             await self.send(g.HelloReq())
-            try:
-                await asyncio.wait_for(self._hello_event.wait(), self._hello_timeout)
-            except TimeoutError as exc:
-                raise HandshakeError("no HELLO from the tank (power, cable, S1 switch?)") from exc
+            if not await self._wait_hello(self._hello_timeout):
+                raise HandshakeError("no HELLO from the tank (power, cable, S1 switch?)")
         hello = self._hello_msg
         assert hello is not None
         if hello.proto != g.PROTOCOL_VERSION:
@@ -1288,7 +1333,7 @@ class LinkSession:
 - [ ] **Step 5: Run the tests to see them pass**
 
 Run: `cd tools/bench && uv run pytest tests/test_link.py -v`
-Expected: 9 passed.
+Expected: 10 passed.
 
 - [ ] **Step 6: Lint, type-check, commit**
 

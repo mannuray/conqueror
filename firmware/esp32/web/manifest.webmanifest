@@ -1,0 +1,12 @@
+{
+  "name": "Conqueror Drive",
+  "short_name": "Conqueror",
+  "description": "Basic Drive page of the Conqueror tank (developer bridge, home network only)",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#050805",
+  "theme_color": "#050805",
+  "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" }]
+}

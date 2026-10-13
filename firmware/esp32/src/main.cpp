@@ -9,6 +9,7 @@
 #include "net/link_task.h"
 #include "net/log.h"
 #include "net/ota_service.h"
+#include "net/web_routes.h"
 #include "net/wifi_manager.h"
 #include "secrets_guard.h"
 #include "version.h"
@@ -74,6 +75,7 @@ void setup() {
   }
   g_wifi.begin(millis());
   cq::net::httpServerStart();
+  cq::net::webRoutesRegister();
   cq::net::linkTaskStart("none");  // camera sensor name arrives in Task 8
   g_ota.begin();
 }

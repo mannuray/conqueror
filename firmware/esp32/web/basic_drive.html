@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#050805">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Conqueror Drive</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<style>
+/* Basic Drive page (bridge LLD R2.9, design-notes §28). Phosphor theme (docs/design/hub-ux.md):
+   green UI on near-black; status colours are never green; glow only on chrome, never on video. */
+:root {
+  --bg: #050805; --panel: #0b120b; --line: #1d3a22; --ui: #33ff66; --dim: #1f9a40;
+  --warn: #ffb000; --danger: #ff3b30; --active: #e8ffe8; --text: #b8f5c8;
+  --glow: 0 0 6px rgba(51, 255, 102, .45);
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --pad: 12px;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.3 var(--mono); }
+body { overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: manipulation;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+button, input { font: inherit; color: inherit; }
+.app { height: 100%; display: grid; gap: 8px; padding: 8px;
+  grid-template-columns: 1fr 1fr; grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "bar bar" "cam cam" "tele tele" "drive side"; }
+.bar { grid-area: bar; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.cam { grid-area: cam; position: relative; min-height: 0; background: #000; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.tele { grid-area: tele; }
+.drive { grid-area: drive; }
+.side { grid-area: side; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px; position: relative; }
+.title { color: var(--ui); text-shadow: var(--glow); font-size: 11px; letter-spacing: .08em; margin: 0 0 6px; }
+.chip { border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px; font-size: 12px; background: var(--panel); white-space: nowrap; }
+.chip b { color: var(--active); font-weight: 600; }
+.brand { color: var(--ui); text-shadow: var(--glow); font-weight: 700; margin-right: 4px; }
+.ok { color: var(--ui); } .warn { color: var(--warn); } .bad { color: var(--danger); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); margin-right: 5px; vertical-align: 1px; }
+.dot.on { background: var(--ui); box-shadow: var(--glow); }
+.dot.wait { background: var(--warn); }
+#video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.novideo { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--dim); font-size: 13px; letter-spacing: .1em; }
+.hud { position: absolute; left: 6px; right: 6px; top: 6px; display: flex; justify-content: space-between; pointer-events: none; }
+.hud span { background: rgba(5, 8, 5, .7); border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; font-size: 12px; color: var(--active); }
+.banner { position: absolute; left: 6px; right: 6px; bottom: 6px; padding: 6px 8px; border-radius: 4px; font-size: 13px; display: none; text-align: center; background: rgba(5, 8, 5, .85); }
+.banner.show { display: block; }
+.banner.warn { border: 1px solid var(--warn); color: var(--warn); }
+.banner.bad { border: 1px solid var(--danger); color: var(--danger); }
+.grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.cell { border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; min-width: 0; }
+.cell small { display: block; color: var(--dim); font-size: 10px; letter-spacing: .08em; }
+.cell span { display: block; color: var(--active); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pad { position: relative; width: min(42vw, 30vh, 220px); aspect-ratio: 1; margin: 4px auto 0; border-radius: 50%;
+  border: 1px solid var(--dim); box-shadow: inset 0 0 18px rgba(51, 255, 102, .12); touch-action: none; }
+.pad::before, .pad::after { content: ""; position: absolute; background: var(--line); }
+.pad::before { left: 50%; top: 8%; bottom: 8%; width: 1px; } .pad::after { top: 50%; left: 8%; right: 8%; height: 1px; }
+.pad.small { width: min(28vw, 18vh, 130px); }
+.knob { position: absolute; left: 50%; top: 50%; width: 34%; height: 34%; margin: -17% 0 0 -17%; border-radius: 50%;
+  background: radial-gradient(circle, rgba(51, 255, 102, .5), rgba(51, 255, 102, .12)); border: 1px solid var(--ui); box-shadow: var(--glow); z-index: 1; }
+.pad.held .knob { background: radial-gradient(circle, rgba(232, 255, 232, .7), rgba(51, 255, 102, .25)); }
+.pad.off { opacity: .35; }
+.lbl { position: absolute; font-size: 10px; color: var(--dim); }
+.lbl.n { top: 3%; left: 50%; transform: translateX(-50%); } .lbl.s { bottom: 3%; left: 50%; transform: translateX(-50%); }
+.side { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+#stop { background: var(--danger); color: #fff; border: 0; border-radius: 4px; font-size: 22px; font-weight: 800; letter-spacing: .1em;
+  min-height: 64px; box-shadow: 0 0 10px rgba(255, 59, 48, .5); touch-action: manipulation; }
+#stop:active { transform: scale(.97); filter: brightness(1.2); }
+.row { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
+.btn { background: var(--panel); border: 1px solid var(--dim); border-radius: 4px; padding: 6px 8px; color: var(--ui); }
+.btn.on { background: var(--ui); color: #031; }
+input[type=range] { width: 100%; accent-color: var(--ui); }
+.hidden { display: none !important; }
+#toast { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); padding: 6px 12px; border-radius: 4px;
+  background: var(--panel); border: 1px solid var(--warn); color: var(--warn); font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 9; }
+#toast.show { opacity: 1; }
+@media (orientation: landscape) {
+  .app { grid-template-columns: minmax(150px, 26%) 1fr minmax(150px, 26%); grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "bar bar bar" "drive cam side" "drive tele side"; }
+  .pad { width: min(22vw, 52vh, 240px); }
+  .pad.small { width: min(14vw, 28vh, 140px); }
+  .grid { grid-template-columns: repeat(5, 1fr); }
+}
+@media (max-width: 360px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <span class="brand">[ CONQUEROR ]</span>
+    <span class="chip"><span id="wsDot" class="dot"></span><b id="wsTxt">OFFLINE</b></span>
+    <span class="chip">BODY <b id="bodyTxt">-</b></span>
+    <span class="chip">CTRL <b id="ownerChip">-</b></span>
+    <span class="chip">BATT <b id="battChip">-</b></span>
+  </header>
+
+  <section class="cam">
+    <img id="video" alt="">
+    <div id="noVideo" class="novideo">[ NO VIDEO ]</div>
+    <div class="hud"><span id="hudHead">HDG -</span><span id="hudDist">DIST -</span></div>
+    <div id="banner" class="banner"></div>
+  </section>
+
+  <section class="panel tele">
+    <p class="title">[ TELEMETRY ]</p>
+    <div class="grid">
+      <div class="cell"><small>BATTERY</small><span id="tBatt">-</span></div>
+      <div class="cell"><small>DISTANCE</small><span id="tDist">-</span></div>
+      <div class="cell"><small>TILT P/R</small><span id="tTilt">-</span></div>
+      <div class="cell"><small>HEADING</small><span id="tHead">-</span></div>
+      <div class="cell"><small>OWNER</small><span id="tOwner">-</span></div>
+    </div>
+  </section>
+
+  <section class="panel drive">
+    <div class="row"><p class="title">[ DRIVE ]</p><button id="tiltBtn" class="btn hidden" type="button">TILT OFF</button></div>
+    <div id="drivePad" class="pad off"><span class="lbl n">FWD</span><span class="lbl s">REV</span><div class="knob"></div></div>
+  </section>
+
+  <section class="panel side">
+    <button id="stop" type="button">STOP</button>
+    <div>
+      <div class="row"><p class="title">[ SPEED ]</p><b id="speedTxt">60%</b></div>
+      <input id="speed" type="range" min="10" max="100" step="5" value="60" aria-label="speed">
+    </div>
+    <div>
+      <div class="row"><p class="title">[ CAMERA ]</p><button id="camHome" class="btn" type="button">HOME</button></div>
+      <div id="camPad" class="pad small off"><span class="lbl n">UP</span><span class="lbl s">DOWN</span><div class="knob"></div></div>
+    </div>
+  </section>
+</div>
+<div id="toast"></div>
+<script>
+"use strict";
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var DRIVE_MS = 50;        // drive is re-sent every 50 ms while held: the bridge never repeats it
+  var DEADZONE = 0.05, EXPO = 0.3;
+  var ws = null, wsOpen = false, you = "", synced = false, owner = "none", ownerClient = "";
+  var nextId = 1, retryMs = 1000, pingTimer = 0;
+  var speed = 60;
+  try { speed = Number(localStorage.getItem("cq_speed")) || 60; } catch (e) { /* private mode */ }
+  $("speed").value = speed;
+  $("speedTxt").textContent = speed + "%";
+
+  // ---------- WebSocket ----------
+  function send(obj) {
+    if (ws && wsOpen) { ws.send(JSON.stringify(obj)); return true; }
+    return false;
+  }
+  function connect() {
+    setWs("wait", "CONNECTING");
+    ws = new WebSocket("ws://" + location.host + "/ws");
+    ws.onopen = function () {
+      wsOpen = true; retryMs = 1000;
+      setWs("on", "ONLINE");
+      send({ t: "hello", client: "basic-drive", proto: 1 });
+      clearInterval(pingTimer);
+      pingTimer = setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
+      setPads();
+    };
+    ws.onmessage = function (ev) {
+      var m;
+      try { m = JSON.parse(ev.data); } catch (e) { return; }
+      onMessage(m);
+    };
+    ws.onclose = function () {
+      wsOpen = false; synced = false;
+      clearInterval(pingTimer);
+      releaseAll(false);
+      setWs("", "OFFLINE");
+      setPads();
+      setTimeout(connect, retryMs);
+      retryMs = Math.min(retryMs * 2, 5000);
+    };
+    ws.onerror = function () { ws.close(); };
+  }
+  function setWs(cls, txt) {
+    $("wsDot").className = "dot " + cls;
+    $("wsTxt").textContent = txt;
+  }
+
+  function onMessage(m) {
+    switch (m.t) {
+      case "welcome":
+        you = m.you || "";
+        showOwner(m.owner, m.owner_client);
+        break;
+      case "tf": showFast(m); break;
+      case "ts": showSlow(m); break;
+      case "ev": onEvent(m); break;
+      case "nack": onNack(m); break;
+      default: break;  // ack, pong
+    }
+  }
+
+  // ---------- telemetry ----------
+  var BATT_CURVE = [[8.4, 100], [8.2, 90], [8.0, 80], [7.8, 65], [7.6, 50], [7.4, 35], [7.2, 20], [7.0, 10], [6.8, 5], [6.6, 0]];
+  function battPct(v) {  // 2S Li-ion, resting voltage
+    if (v >= BATT_CURVE[0][0]) return 100;
+    for (var i = 1; i < BATT_CURVE.length; i++) {
+      var hi = BATT_CURVE[i - 1], lo = BATT_CURVE[i];
+      if (v >= lo[0]) return Math.round(lo[1] + (v - lo[0]) * (hi[1] - lo[1]) / (hi[0] - lo[0]));
+    }
+    return 0;
+  }
+  function showFast(m) {
+    var head = Math.round(m.yaw) % 360;
+    $("tHead").textContent = head + "°";
+    $("hudHead").textContent = "HDG " + head + "°";
+    var d = m.dist_cm === null ? "CLEAR" : m.dist_cm + " cm";
+    $("tDist").textContent = d;
+    $("hudDist").textContent = "DIST " + d;
+    $("tDist").className = m.dist_cm !== null && m.dist_cm < 25 ? "bad" : "";
+    $("tTilt").textContent = m.pitch.toFixed(0) + "°/" + m.roll.toFixed(0) + "°";
+    var tilt = Math.max(Math.abs(m.pitch), Math.abs(m.roll));
+    $("tTilt").className = tilt > 35 ? "bad" : tilt > 20 ? "warn" : "";
+  }
+  function showSlow(m) {
+    if (m.batt_v !== null) {
+      var pct = battPct(m.batt_v);
+      var txt = m.batt_v.toFixed(2) + " V " + pct + "%";
+      var cls = m.flags.indexOf("batt_critical") >= 0 ? "bad" : m.flags.indexOf("batt_low") >= 0 ? "warn" : "";
+      $("tBatt").textContent = txt; $("tBatt").className = cls;
+      $("battChip").textContent = pct + "%"; $("battChip").className = cls;
+    }
+    var offline = m.flags.indexOf("body_offline") >= 0;
+    synced = !offline;
+    $("bodyTxt").textContent = offline ? "OFFLINE" : "OK";
+    $("bodyTxt").className = offline ? "bad" : "ok";
+    showOwner(m.owner, m.owner_client);
+    if (offline) banner("bad", "Tank body offline - check the Uno and the S1 switch");
+    else if (bannerKind === "bad") banner("", "");
+    setPads();
+  }
+  function showOwner(o, client) {
+    owner = o || "none"; ownerClient = client || "";
+    var txt = owner === "none" ? "FREE" : owner === "ir" ? "IR REMOTE" : (ownerClient === you ? "YOU" : ownerClient.toUpperCase() || "HUMAN");
+    $("ownerChip").textContent = txt;
+    $("tOwner").textContent = txt;
+    var busy = owner === "ir" || (owner === "human" && ownerClient !== you);
+    $("ownerChip").className = busy ? "warn" : "";
+    if (!busy && bannerKind === "warn") banner("", "");
+  }
+  function onEvent(m) {
+    if (m.kind === "control_changed") showOwner(m.owner, m.client);
+    else if (m.kind === "deadman_stop") toast("Stopped: no drive signal (deadman)");
+    else if (m.kind === "blocked") toast("Obstacle brake: " + m.dist_cm + " cm");
+    else if (m.kind === "ir_override") toast("IR remote took control");
+    else if (m.kind === "batt_critical") toast("Battery critical " + m.v.toFixed(2) + " V");
+    else if (m.kind === "body_offline" && m.reason === "BODY_INCOMPATIBLE")
+      banner("bad", "Uno protocol " + m.uno_proto + " - flash Plan B firmware (needs " + m.need_proto + ")");
+  }
+  function onNack(m) {
+    if (m.reason === "NOT_OWNER" || m.reason === "BUSY") {
+      var who = owner === "ir" ? "the IR remote" : (ownerClient || "someone");
+      banner("warn", "Busy - " + who + " is driving");
+    } else if (m.reason === "BODY_OFFLINE") {
+      banner("bad", "Tank body offline");
+    } else {
+      toast(m.reason + ": " + m.message);
+    }
+  }
+
+  var bannerKind = "", bannerTimer = 0;
+  function banner(kind, text) {
+    var b = $("banner");
+    bannerKind = kind;
+    b.className = "banner" + (kind ? " show " + kind : "");
+    b.textContent = text;
+    clearTimeout(bannerTimer);
+    if (kind === "warn") bannerTimer = setTimeout(function () { banner("", ""); }, 3000);
+  }
+  var toastTimer = 0;
+  function toast(text) {
+    var t = $("toast");
+    t.textContent = text; t.className = "show";
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.className = ""; }, 2500);
+  }
+
+  // ---------- joysticks (pointer events: touch + mouse) ----------
+  function shape(v) {  // deadzone + expo, keeps the sign
+    var a = Math.abs(v);
+    if (a < DEADZONE) return 0;
+    a = (a - DEADZONE) / (1 - DEADZONE);
+    a = (1 - EXPO) * a + EXPO * a * a * a;
+    return v < 0 ? -a : a;
+  }
+  function Stick(el, onMove, onRelease) {
+    var knob = el.querySelector(".knob"), id = null, self = this;
+    this.x = 0; this.y = 0; this.held = false;
+    function update(ev) {
+      var r = el.getBoundingClientRect(), rad = r.width / 2;
+      var dx = (ev.clientX - r.left - rad) / rad, dy = (ev.clientY - r.top - rad) / rad;
+      var len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 1) { dx /= len; dy /= len; }
+      self.x = dx; self.y = -dy;
+      knob.style.transform = "translate(" + (dx * rad * 0.7) + "px," + (dy * rad * 0.7) + "px)";
+      onMove();
+    }
+    this.release = function (notify) {
+      if (!self.held) return;
+      self.held = false; id = null; self.x = 0; self.y = 0;
+      knob.style.transform = "";
+      el.classList.remove("held");
+      if (notify) onRelease();
+    };
+    el.addEventListener("pointerdown", function (ev) {
+      if (!wsOpen || el.classList.contains("off") || id !== null) return;
+      id = ev.pointerId;
+      el.setPointerCapture(id);
+      self.held = true;
+      el.classList.add("held");
+      update(ev);
+      ev.preventDefault();
+    });
+    el.addEventListener("pointermove", function (ev) { if (ev.pointerId === id) update(ev); });
+    ["pointerup", "pointercancel", "lostpointercapture"].forEach(function (t) {
+      el.addEventListener(t, function (ev) { if (ev.pointerId === id) self.release(true); });
+    });
+  }
+
+  var driveTimer = 0, camTimer = 0, tiltOn = false, tilt = { v: 0, w: 0 };
+  function driveValues() {
+    var k = speed / 100;
+    if (tiltOn) return { v: Math.round(tilt.v * 100 * k), w: Math.round(tilt.w * 100 * k) };
+    // stick x right +, y up + -> v = y, w = -x (w > 0 turns left)
+    return { v: Math.round(shape(drive.y) * 100 * k), w: Math.round(-shape(drive.x) * 100 * k) };
+  }
+  function sendDrive() {
+    var d = driveValues();
+    send({ t: "drive", v: d.v, w: d.w });
+  }
+  function startDriveTimer() {
+    if (driveTimer) return;
+    sendDrive();
+    driveTimer = setInterval(sendDrive, DRIVE_MS);  // keeps streaming even when the stick is still
+  }
+  function stopDrive() {
+    clearInterval(driveTimer); driveTimer = 0;
+    send({ t: "stop", id: nextId++ });
+  }
+  var drive = new Stick($("drivePad"), startDriveTimer, stopDrive);
+
+  function sendCam() {
+    send({ t: "cam_joy", x: Math.round(cam.x * 100), y: Math.round(cam.y * 100), active: true });
+  }
+  var cam = new Stick($("camPad"), function () {
+    if (!camTimer) { sendCam(); camTimer = setInterval(sendCam, DRIVE_MS); }
+  }, function () {
+    clearInterval(camTimer); camTimer = 0;
+    send({ t: "cam_joy", x: 0, y: 0, active: false });  // the Uno glides home after its delay
+  });
+
+  function releaseAll(notify) {
+    drive.release(notify); cam.release(notify);
+    if (!notify) { clearInterval(driveTimer); driveTimer = 0; clearInterval(camTimer); camTimer = 0; }
+  }
+  function setPads() {
+    var off = !wsOpen;
+    $("drivePad").classList.toggle("off", off);
+    $("camPad").classList.toggle("off", off);
+  }
+
+  // ---------- buttons ----------
+  $("stop").addEventListener("pointerdown", function (ev) {
+    ev.preventDefault();
+    releaseAll(false);
+    send({ t: "stop", id: nextId++ });
+    if (navigator.vibrate) navigator.vibrate(60);
+  });
+  $("camHome").addEventListener("click", function () { send({ t: "cam_home", id: nextId++ }); });
+  $("speed").addEventListener("input", function (ev) {
+    speed = Number(ev.target.value);
+    $("speedTxt").textContent = speed + "%";
+    try { localStorage.setItem("cq_speed", String(speed)); } catch (e) { /* private mode */ }
+  });
+
+  // ---------- phone-tilt steering (only if the browser really delivers the sensor) ----------
+  function onOrientation(e) {
+    if (e.beta === null || e.gamma === null) return;
+    $("tiltBtn").classList.remove("hidden");
+    // phone held in landscape-ish, tilt forward = drive forward; side tilt = turn
+    var fwd = Math.max(-1, Math.min(1, -(e.beta - 45) / 30));
+    var side = Math.max(-1, Math.min(1, e.gamma / 30));
+    tilt.v = shape(fwd); tilt.w = -shape(side);
+  }
+  if (window.DeviceOrientationEvent) {
+    var needsPermission = typeof DeviceOrientationEvent.requestPermission === "function";
+    if (!needsPermission) window.addEventListener("deviceorientation", onOrientation);
+    else if (window.isSecureContext) $("tiltBtn").classList.remove("hidden");  // iOS: ask on tap
+  }
+  $("tiltBtn").addEventListener("click", function () {
+    function toggle() {
+      tiltOn = !tiltOn;
+      $("tiltBtn").textContent = tiltOn ? "TILT ON" : "TILT OFF";
+      $("tiltBtn").classList.toggle("on", tiltOn);
+      toast(tiltOn ? "Tilt steering: hold the pad to drive" : "Joystick steering");
+    }
+    if (!tiltOn && typeof DeviceOrientationEvent.requestPermission === "function") {
+      DeviceOrientationEvent.requestPermission().then(function (s) {
+        if (s === "granted") { window.addEventListener("deviceorientation", onOrientation); toggle(); }
+      });
+    } else {
+      toggle();
+    }
+  });
+
+  // ---------- safety: hidden page / closing = stop ----------
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) { releaseAll(false); send({ t: "stop", id: nextId++ }); }
+  });
+  window.addEventListener("pagehide", function () { releaseAll(false); send({ t: "stop" }); });
+  window.addEventListener("blur", function () { if (drive.held) drive.release(true); });
+
+  // ---------- camera (MJPEG on port 81, max 2 viewers) ----------
+  function startVideo() {
+    var img = $("video");
+    $("noVideo").classList.add("hidden");  // MJPEG streams do not reliably fire onload
+    img.style.visibility = "visible";
+    img.onerror = function () {
+      img.style.visibility = "hidden";  // no broken-image icon
+      $("noVideo").classList.remove("hidden");
+      setTimeout(startVideo, 3000);
+    };
+    img.src = "http://" + location.hostname + ":81/stream?t=" + Date.now();
+  }
+
+  connect();
+  startVideo();
+})();
+</script>
+</body>
+</html>

@@ -6,6 +6,7 @@
 
 #include "board_config.h"
 #include "net/log.h"
+#include "net/link_task.h"
 #include "secrets_guard.h"
 #include "version.h"
 
@@ -45,6 +46,7 @@ void setup() {
   if (ESP.getPsramSize() == 0) {
     cq::net::logf("ERROR: no PSRAM - check board_build.arduino.memory_type = qio_opi");
   }
+  cq::net::linkTaskStart();
 }
 
 void loop() {

@@ -6,6 +6,7 @@ pio run -e bridge_ota -t upload_source_ota                     # WiFi: espota -s
 
 import os
 import pathlib
+import subprocess
 import sys
 
 Import("env")  # type: ignore[name-defined]  # noqa: F821 - SCons injects Import/env
@@ -51,10 +52,12 @@ def _upload_ota(target, source, env):  # type: ignore[no-untyped-def]
         print("upload_source_ota: export CQ_OTA_PASSWORD first")
         return 1
     espota = pathlib.Path(env.PioPlatform().get_package_dir("framework-arduinoespressif32"))
-    return env.Execute(
-        f'"$PYTHONEXE" "{espota / "tools" / "espota.py"}" -i conqueror-bridge.local -p 3232 '
-        f'--auth="{password}" -s -f "{SOURCE_BIN}"'
-    )
+    host = os.environ.get("CQ_OTA_HOST", "conqueror-bridge.local")  # ota.sh passes the resolved IP
+    # Run without SCons echo: the command line holds the OTA password (never print it).
+    print(f"upload_source_ota: espota -i {host} -p 3232 --auth=*** -s -f {SOURCE_BIN}")
+    cmd = [env.subst("$PYTHONEXE"), str(espota / "tools" / "espota.py"), "-i", host, "-p", "3232",
+           f"--auth={password}", "-s", "-f", str(SOURCE_BIN)]
+    return subprocess.run(cmd, check=False).returncode
 
 
 env.AddCustomTarget(  # type: ignore[name-defined]  # noqa: F821

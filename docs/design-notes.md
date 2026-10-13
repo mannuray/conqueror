@@ -886,6 +886,7 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
 | Buttons | No extra user buttons (owner). RESET, MODE (5 s WiFi reset, 15 s admin reset) and BOOT (recovery only, recessed pinhole) - all right-angle, side-pressed, on the board edge |
 | Status LEDs | GPIO status LEDs (owner, 2026-10-14 - idea from the Cytron Maker Pi RP2040: shows pin activity, helps learning and debugging) |
 | Head link | 6-wire harness: 5 V + GND (logic), TX, RX, servo 5 V + servo GND |
+| RC input | One small connector (5 V, GND, 2 signal pins, 5 V-tolerant): hobby 2.4 GHz receivers (PPM/SBUS) or a toy 27 MHz decoder's on/off outputs (owner, 2026-10-14: no built-in 27 MHz receiver; Bluetooth gamepad via the ESP32 is a possible later firmware feature) |
 | Power | 2S Li-ion pack (USB-C charging in the pack), common connector, main switch, reverse-polarity protection, fuse, 5 V regulator (logic, servos, head) |
 | 5 V-safe | Every connector 5 V-safe for the user (5 V power, 5 V-tolerant inputs, WS2812 buffer) |
 | Head | Off-the-shelf ESP32-S3 camera board on the gimbal (UART + servo pins, WiFi OTA) |

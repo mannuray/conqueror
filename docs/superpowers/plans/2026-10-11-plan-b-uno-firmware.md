@@ -12727,7 +12727,7 @@ git commit -m "feat(uno): IR remote keymap (drive, camera jog, speed, battery ch
 - [ ] **Step 1: Run the whole host suite**
 
 Run: `pio test -e native`
-Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 16, `test_settings` 9, `test_estimation` 10, `test_sensors` 12, `test_safety` 25, `test_encoders` 4, `test_calibration` 11, `test_motion_blocks` 11, `test_controllers` 8, `test_primitives` 9, `test_camera` 7, `test_ui` 16, `test_input` 13 — **155 test cases, 0 failures** (LLD Revision 3 added 23: Override 6 + adult envelope 1, critical self-test lock 3 + battery-only auto-clear 1 + IMU-not-auto-cleared 1, EEPROM per-block save 1, battery hysteresis 1, catalogue/LED/annunciator 7, IR `*` hold 2).
+Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 16, `test_settings` 9, `test_estimation` 10, `test_sensors` 12, `test_safety` 25, `test_encoders` 4, `test_calibration` 11, `test_motion_blocks` 11, `test_controllers` 8, `test_primitives` 9, `test_camera` 7, `test_ui` 16, `test_input` 13 — **155 test cases, 0 failures** (131 before LLD Revision 3 and the tilt-hold decision; they added 24: tilt 300 ms hold 1, Override 6 + adult envelope 1, critical self-test lock 3 + battery-only auto-clear 1 + IMU-not-auto-cleared 1, EEPROM per-block save 1, battery hysteresis 1, catalogue/LED/annunciator 7, IR `*` hold 2).
 
 - [ ] **Step 2: Build gates and memory map**
 

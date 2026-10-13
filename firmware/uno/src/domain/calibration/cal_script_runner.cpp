@@ -1,6 +1,7 @@
 #include "domain/calibration/cal_script_runner.h"
 
 #include "domain/util/math_util.h"
+#include "domain/motion/deadband.h"
 
 namespace cq {
 namespace {
@@ -109,13 +110,7 @@ void CalScriptRunner::setOrigin(const CalInputs& in) {
   m_enc0_r = in.enc_r;
 }
 
-int16_t CalScriptRunner::pctToPwm(float pct) const {
-  const float mag = absf(pct);
-  if (mag < 0.5f) return 0;
-  const float base = m_cfg.keep_pwm;
-  const int16_t v = static_cast<int16_t>(clampf(base + (mag / 100.0f) * (255.0f - base), 0.0f, 255.0f) + 0.5f);
-  return pct < 0.0f ? static_cast<int16_t>(-v) : v;
-}
+int16_t CalScriptRunner::pctToPwm(float pct) const { return deadbandPwm(pct, true, m_cfg.keep_pwm, m_cfg.keep_pwm); }
 
 void CalScriptRunner::tickSpinAndArc(uint32_t now_ms, const CalInputs& in, CalOutputs& out, int16_t& l, int16_t& r) {
   const float dir = (m_param & 0x01) ? -1.0f : 1.0f;  // 0 = CCW (yaw +)

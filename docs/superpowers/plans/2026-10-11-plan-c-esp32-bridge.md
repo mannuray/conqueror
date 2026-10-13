@@ -2203,3 +2203,511 @@ git commit -m "feat(esp32): body link master with resyncing parser and frame-ali
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+---
+
+### Task 3: `LinkOwner` arbiter (who is master, who drives)
+
+**Files:**
+- Create: `firmware/esp32/src/core/link_owner.h`, `firmware/esp32/src/core/link_owner.cpp`, `firmware/esp32/test/test_link_owner/test_main.cpp`
+
+**Interfaces:**
+- Consumes: `cq::proto::Owner` (Uno's `TELEM_SLOW.owner` / EVENT `control_changed`).
+- Produces: `cq::core::LinkOwner` — `onWsOpen(fd)`, `onWsClose(fd)`, `onTcpConnect(Actions&) → Admit`, `onTcpClose()`, `onDrive(fd, now, Actions&) → Decision`, `onCamera(fd) → Decision`, `onStop(fd)`, `onRelease(fd)`, `onSynced(bool)`, `onUnoOwner(Owner)`, `tick(now)` (all return `Actions` unless noted); `state()`, `driverFd()`, `wsCount()`, `irActive()`, `otaAllowed()`; `LinkState {kIdle, kWebHandshake, kWebReady, kWebDriving, kTcpPassthrough}`, `Admit {kAccept, kRefuseBusy}`, `Decision {kSend, kNackNotOwner, kNackBusy, kNackBodyOffline}`, `Actions` bits `kStartMaster, kStopMaster, kSendStop, kInjectStop, kHintNone, kHintHuman, kOwnerChanged`; `kHandbackMs = 5000`. Used by `link_task` in Tasks 4 and 6, `OtaService` in Task 5.
+
+State machine implemented (bridge LLD R2.7; rate limiting lives in `WsClients`, Task 6; bench 1 s silence in `TcpPassthrough`, Task 4; WS 3 s silence in `WsClients`, Task 6):
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> WebHandshake : onWsOpen → StartMaster
+    Idle --> TcpPassthrough : onTcpConnect → Accept
+    WebHandshake --> WebReady : onSynced(true)
+    WebReady --> WebDriving : onDrive(A) → HintHuman, OwnerChanged
+    WebDriving --> WebReady : onRelease(A) / tick ≥ 5 s / onWsClose(A) → SendStop, HintNone
+    WebDriving --> WebReady : onUnoOwner(IR) → HintNone (no STOP)
+    WebReady --> WebHandshake : onSynced(false)
+    WebDriving --> WebHandshake : onSynced(false)
+    WebHandshake --> TcpPassthrough : onTcpConnect → StopMaster
+    WebReady --> TcpPassthrough : onTcpConnect → StopMaster
+    WebDriving --> WebDriving : onTcpConnect → RefuseBusy
+    TcpPassthrough --> TcpPassthrough : onTcpConnect → RefuseBusy · onDrive → NackBusy · onStop → InjectStop
+    TcpPassthrough --> WebHandshake : onTcpClose, WS clients → InjectStop, StartMaster
+    TcpPassthrough --> Idle : onTcpClose, no WS → InjectStop
+    WebHandshake --> Idle : last onWsClose → SendStop, StopMaster
+    WebReady --> Idle : last onWsClose → SendStop, StopMaster
+    WebDriving --> Idle : last onWsClose → SendStop, StopMaster
+```
+
+- [ ] **Step 1: Write the failing tests**
+
+`firmware/esp32/test/test_link_owner/test_main.cpp`:
+```cpp
+// LinkOwner: every transition of the bridge LLD R2.7 state diagram.
+#include <unity.h>
+
+#include "core/link_owner.h"
+
+using cq::core::Actions;
+using cq::core::Admit;
+using cq::core::Decision;
+using cq::core::LinkOwner;
+using cq::core::LinkState;
+using cq::proto::Owner;
+
+namespace {
+
+LinkOwner o;
+constexpr int kA = 11;  // phone A socket
+constexpr int kB = 12;  // phone B socket
+
+int st() { return static_cast<int>(o.state()); }
+int S(LinkState s) { return static_cast<int>(s); }
+int D(Decision d) { return static_cast<int>(d); }
+
+void readyWithA() {
+  o.onWsOpen(kA);
+  o.onSynced(true);
+}
+
+void drivingA(uint32_t now = 100) {
+  readyWithA();
+  Actions a;
+  o.onDrive(kA, now, a);
+}
+
+}  // namespace
+
+void setUp() { o = LinkOwner(); }
+void tearDown() {}
+
+void test_first_ws_starts_master() {
+  const Actions a = o.onWsOpen(kA);
+  TEST_ASSERT_TRUE(a.has(Actions::kStartMaster));
+  TEST_ASSERT_EQUAL(S(LinkState::kWebHandshake), st());
+  TEST_ASSERT_FALSE(o.onWsOpen(kB).has(Actions::kStartMaster));  // second client: no new master
+  TEST_ASSERT_EQUAL(2, o.wsCount());
+}
+
+void test_drive_before_sync_is_body_offline() {
+  o.onWsOpen(kA);
+  Actions a;
+  TEST_ASSERT_EQUAL(D(Decision::kNackBodyOffline), D(o.onDrive(kA, 0, a)));
+}
+
+void test_first_drive_takes_ownership() {
+  readyWithA();
+  TEST_ASSERT_EQUAL(S(LinkState::kWebReady), st());
+  Actions a;
+  TEST_ASSERT_EQUAL(D(Decision::kSend), D(o.onDrive(kA, 100, a)));
+  TEST_ASSERT_TRUE(a.has(Actions::kHintHuman));
+  TEST_ASSERT_TRUE(a.has(Actions::kOwnerChanged));
+  TEST_ASSERT_EQUAL(S(LinkState::kWebDriving), st());
+  TEST_ASSERT_EQUAL(kA, o.driverFd());
+  TEST_ASSERT_EQUAL(D(Decision::kSend), D(o.onDrive(kA, 150, a)));
+  TEST_ASSERT_FALSE(a.has(Actions::kOwnerChanged));  // already the owner
+}
+
+void test_other_phone_gets_not_owner() {
+  drivingA();
+  o.onWsOpen(kB);
+  Actions a;
+  TEST_ASSERT_EQUAL(D(Decision::kNackNotOwner), D(o.onDrive(kB, 120, a)));
+  TEST_ASSERT_EQUAL(D(Decision::kNackNotOwner), D(o.onCamera(kB)));
+  TEST_ASSERT_EQUAL(D(Decision::kSend), D(o.onCamera(kA)));
+}
+
+void test_handback_after_5s_without_drive() {
+  drivingA(100);
+  TEST_ASSERT_EQUAL(0, o.tick(5099).bits);
+  const Actions a = o.tick(5100);
+  TEST_ASSERT_TRUE(a.has(Actions::kSendStop));
+  TEST_ASSERT_TRUE(a.has(Actions::kHintNone));
+  TEST_ASSERT_EQUAL(S(LinkState::kWebReady), st());
+  TEST_ASSERT_EQUAL(LinkOwner::kNoFd, o.driverFd());
+}
+
+void test_release_control() {
+  drivingA();
+  TEST_ASSERT_EQUAL(0, o.onRelease(kB).bits);  // not the driver: ignored
+  const Actions a = o.onRelease(kA);
+  TEST_ASSERT_TRUE(a.has(Actions::kSendStop));
+  TEST_ASSERT_TRUE(a.has(Actions::kOwnerChanged));
+  TEST_ASSERT_EQUAL(S(LinkState::kWebReady), st());
+}
+
+void test_driver_close_with_others_left_stops_and_keeps_master() {
+  drivingA();
+  o.onWsOpen(kB);
+  const Actions a = o.onWsClose(kA);
+  TEST_ASSERT_TRUE(a.has(Actions::kSendStop));
+  TEST_ASSERT_FALSE(a.has(Actions::kStopMaster));
+  TEST_ASSERT_EQUAL(S(LinkState::kWebReady), st());
+}
+
+void test_last_ws_close_stops_and_goes_idle() {
+  drivingA();
+  const Actions a = o.onWsClose(kA);
+  TEST_ASSERT_TRUE(a.has(Actions::kSendStop));
+  TEST_ASSERT_TRUE(a.has(Actions::kStopMaster));
+  TEST_ASSERT_EQUAL(S(LinkState::kIdle), st());
+}
+
+void test_stop_from_anyone_in_every_state() {
+  TEST_ASSERT_TRUE(o.onStop(kB).has(Actions::kSendStop));  // Idle
+  drivingA();
+  o.onWsOpen(kB);
+  TEST_ASSERT_TRUE(o.onStop(kB).has(Actions::kSendStop));  // not the driver: still accepted
+  TEST_ASSERT_EQUAL(kA, o.driverFd());                      // STOP does not change the owner
+}
+
+void test_bench_connect_from_idle_and_ready() {
+  Actions a;
+  TEST_ASSERT_EQUAL(static_cast<int>(Admit::kAccept), static_cast<int>(o.onTcpConnect(a)));
+  TEST_ASSERT_FALSE(a.has(Actions::kStopMaster));
+  TEST_ASSERT_EQUAL(S(LinkState::kTcpPassthrough), st());
+  o = LinkOwner();
+  readyWithA();
+  TEST_ASSERT_EQUAL(static_cast<int>(Admit::kAccept), static_cast<int>(o.onTcpConnect(a)));
+  TEST_ASSERT_TRUE(a.has(Actions::kStopMaster));  // web master ends at a frame boundary
+  TEST_ASSERT_TRUE(a.has(Actions::kOwnerChanged));
+}
+
+void test_bench_refused_while_phone_drives() {
+  drivingA();
+  Actions a;
+  TEST_ASSERT_EQUAL(static_cast<int>(Admit::kRefuseBusy), static_cast<int>(o.onTcpConnect(a)));
+  TEST_ASSERT_EQUAL(0, a.bits);
+  TEST_ASSERT_EQUAL(S(LinkState::kWebDriving), st());
+}
+
+void test_second_bench_refused() {
+  Actions a;
+  o.onTcpConnect(a);
+  TEST_ASSERT_EQUAL(static_cast<int>(Admit::kRefuseBusy), static_cast<int>(o.onTcpConnect(a)));
+}
+
+void test_phone_during_passthrough_gets_busy_and_stop_is_injected() {
+  Actions a;
+  o.onTcpConnect(a);
+  o.onWsOpen(kA);
+  TEST_ASSERT_EQUAL(S(LinkState::kTcpPassthrough), st());
+  TEST_ASSERT_EQUAL(D(Decision::kNackBusy), D(o.onDrive(kA, 10, a)));
+  TEST_ASSERT_EQUAL(D(Decision::kNackBusy), D(o.onCamera(kA)));
+  const Actions s = o.onStop(kA);
+  TEST_ASSERT_TRUE(s.has(Actions::kInjectStop));
+  TEST_ASSERT_FALSE(s.has(Actions::kSendStop));
+}
+
+void test_bench_close_with_ws_clients_rehandshakes() {
+  Actions a;
+  o.onTcpConnect(a);
+  o.onWsOpen(kA);
+  const Actions c = o.onTcpClose();
+  TEST_ASSERT_TRUE(c.has(Actions::kInjectStop));
+  TEST_ASSERT_TRUE(c.has(Actions::kStartMaster));
+  TEST_ASSERT_EQUAL(S(LinkState::kWebHandshake), st());
+}
+
+void test_bench_close_alone_goes_idle() {
+  Actions a;
+  o.onTcpConnect(a);
+  const Actions c = o.onTcpClose();
+  TEST_ASSERT_TRUE(c.has(Actions::kInjectStop));
+  TEST_ASSERT_FALSE(c.has(Actions::kStartMaster));
+  TEST_ASSERT_EQUAL(S(LinkState::kIdle), st());
+}
+
+void test_ir_beats_phone() {
+  drivingA();
+  const Actions a = o.onUnoOwner(Owner::kIr);
+  TEST_ASSERT_FALSE(a.has(Actions::kSendStop));  // the Uno already stopped
+  TEST_ASSERT_TRUE(a.has(Actions::kOwnerChanged));
+  TEST_ASSERT_EQUAL(LinkOwner::kNoFd, o.driverFd());
+  Actions d;
+  TEST_ASSERT_EQUAL(D(Decision::kNackNotOwner), D(o.onDrive(kA, 200, d)));
+  o.onUnoOwner(Owner::kNetwork);
+  TEST_ASSERT_EQUAL(D(Decision::kSend), D(o.onDrive(kA, 300, d)));
+}
+
+void test_sync_lost_drops_driver_and_rehandshakes() {
+  drivingA();
+  const Actions a = o.onSynced(false);
+  TEST_ASSERT_EQUAL(S(LinkState::kWebHandshake), st());
+  TEST_ASSERT_EQUAL(LinkOwner::kNoFd, o.driverFd());
+  TEST_ASSERT_TRUE(a.has(Actions::kOwnerChanged));
+}
+
+void test_ota_allowed_only_when_nobody_drives() {
+  TEST_ASSERT_TRUE(o.otaAllowed());
+  readyWithA();
+  TEST_ASSERT_TRUE(o.otaAllowed());
+  Actions a;
+  o.onDrive(kA, 0, a);
+  TEST_ASSERT_FALSE(o.otaAllowed());
+  o = LinkOwner();
+  o.onTcpConnect(a);
+  TEST_ASSERT_FALSE(o.otaAllowed());
+}
+
+int main() {
+  UNITY_BEGIN();
+  RUN_TEST(test_first_ws_starts_master);
+  RUN_TEST(test_drive_before_sync_is_body_offline);
+  RUN_TEST(test_first_drive_takes_ownership);
+  RUN_TEST(test_other_phone_gets_not_owner);
+  RUN_TEST(test_handback_after_5s_without_drive);
+  RUN_TEST(test_release_control);
+  RUN_TEST(test_driver_close_with_others_left_stops_and_keeps_master);
+  RUN_TEST(test_last_ws_close_stops_and_goes_idle);
+  RUN_TEST(test_stop_from_anyone_in_every_state);
+  RUN_TEST(test_bench_connect_from_idle_and_ready);
+  RUN_TEST(test_bench_refused_while_phone_drives);
+  RUN_TEST(test_second_bench_refused);
+  RUN_TEST(test_phone_during_passthrough_gets_busy_and_stop_is_injected);
+  RUN_TEST(test_bench_close_with_ws_clients_rehandshakes);
+  RUN_TEST(test_bench_close_alone_goes_idle);
+  RUN_TEST(test_ir_beats_phone);
+  RUN_TEST(test_sync_lost_drops_driver_and_rehandshakes);
+  RUN_TEST(test_ota_allowed_only_when_nobody_drives);
+  return UNITY_END();
+}
+```
+
+Run: `cd firmware/esp32 && pio test -e native -f test_link_owner`
+Expected: build error — `core/link_owner.h` not found.
+
+- [ ] **Step 2: Implement**
+
+`firmware/esp32/src/core/link_owner.h`:
+```cpp
+// Who is the body-link master and who drives (bridge LLD R2.7, owner-accepted R2.14 #1/#2).
+// Bench owns the link from TCP connect. A phone owns driving from its first drive until
+// release_control, 5 s without drive, or its socket closes. STOP from anyone in every state.
+// IR on the Uno beats all. Pure C++: returns decisions and actions, the caller executes them.
+#pragma once
+
+#include <stdint.h>
+
+#include "cq_protocol.h"
+
+namespace cq {
+namespace core {
+
+constexpr uint32_t kHandbackMs = 5000;  // gateway human_handback_ms
+
+enum class LinkState : uint8_t { kIdle, kWebHandshake, kWebReady, kWebDriving, kTcpPassthrough };
+enum class Admit : uint8_t { kAccept, kRefuseBusy };
+enum class Decision : uint8_t { kSend, kNackNotOwner, kNackBusy, kNackBodyOffline };
+
+// Things the caller must do, in this order: kStopMaster, kInjectStop / kSendStop, kHintNone /
+// kHintHuman, kStartMaster, kOwnerChanged (broadcast ev control_changed + ts).
+struct Actions {
+  enum : uint8_t {
+    kStartMaster = 1 << 0,
+    kStopMaster = 1 << 1,
+    kSendStop = 1 << 2,    // ESP32 is (or was) master: STOP with BodyLink's own seq
+    kInjectStop = 1 << 3,  // passthrough: STOP with seq = lastSeq + 128, ACK swallowed
+    kHintNone = 1 << 4,
+    kHintHuman = 1 << 5,
+    kOwnerChanged = 1 << 6,
+  };
+  uint8_t bits = 0;
+  bool has(uint8_t a) const { return (bits & a) != 0; }
+};
+
+class LinkOwner {
+ public:
+  static constexpr int kNoFd = -1;
+
+  Actions onWsOpen(int fd);
+  Actions onWsClose(int fd);
+  Admit onTcpConnect(Actions& out);
+  Actions onTcpClose();
+  Decision onDrive(int fd, uint32_t now_ms, Actions& out);
+  Decision onCamera(int fd) const;  // cam_joy / cam_home: no ownership taken
+  Actions onStop(int fd);
+  Actions onRelease(int fd);
+  Actions onSynced(bool synced);
+  Actions onUnoOwner(proto::Owner owner);  // from TELEM_SLOW.owner or EVENT control_changed
+  Actions tick(uint32_t now_ms);
+
+  LinkState state() const { return m_state; }
+  int driverFd() const { return m_driver; }
+  uint8_t wsCount() const { return m_ws; }
+  bool irActive() const { return m_ir; }
+  bool otaAllowed() const {
+    return m_state == LinkState::kIdle || m_state == LinkState::kWebHandshake ||
+           m_state == LinkState::kWebReady;
+  }
+
+ private:
+  Actions dropDriver(bool send_stop);
+  bool webMaster() const {
+    return m_state == LinkState::kWebHandshake || m_state == LinkState::kWebReady ||
+           m_state == LinkState::kWebDriving;
+  }
+
+  LinkState m_state = LinkState::kIdle;
+  int m_driver = kNoFd;
+  uint8_t m_ws = 0;
+  bool m_synced = false;
+  bool m_ir = false;
+  uint32_t m_last_drive_ms = 0;
+};
+
+}  // namespace core
+}  // namespace cq
+```
+
+`firmware/esp32/src/core/link_owner.cpp`:
+```cpp
+#include "core/link_owner.h"
+
+namespace cq {
+namespace core {
+
+Actions LinkOwner::dropDriver(bool send_stop) {
+  Actions a;
+  if (m_driver == kNoFd) return a;
+  m_driver = kNoFd;
+  if (m_state == LinkState::kWebDriving) m_state = LinkState::kWebReady;
+  a.bits |= Actions::kHintNone | Actions::kOwnerChanged;
+  if (send_stop) a.bits |= Actions::kSendStop;
+  return a;
+}
+
+Actions LinkOwner::onWsOpen(int /*fd*/) {
+  Actions a;
+  ++m_ws;
+  if (m_state == LinkState::kIdle) {
+    m_state = LinkState::kWebHandshake;
+    m_synced = false;
+    a.bits |= Actions::kStartMaster;
+  }
+  return a;
+}
+
+Actions LinkOwner::onWsClose(int fd) {
+  Actions a;
+  if (m_ws > 0) --m_ws;
+  if (fd == m_driver) a = dropDriver(true);  // explicit STOP, belt and braces
+  if (m_ws == 0 && webMaster()) {
+    m_state = LinkState::kIdle;
+    m_synced = false;
+    a.bits |= Actions::kSendStop | Actions::kStopMaster;
+  }
+  return a;
+}
+
+Admit LinkOwner::onTcpConnect(Actions& out) {
+  out = Actions();
+  if (m_state == LinkState::kWebDriving || m_state == LinkState::kTcpPassthrough) {
+    return Admit::kRefuseBusy;  // accept + close at once; the bench sees EOF
+  }
+  if (webMaster()) out.bits |= Actions::kStopMaster;
+  m_state = LinkState::kTcpPassthrough;
+  m_synced = false;
+  out.bits |= Actions::kOwnerChanged;
+  return Admit::kAccept;
+}
+
+Actions LinkOwner::onTcpClose() {
+  Actions a;
+  if (m_state != LinkState::kTcpPassthrough) return a;
+  a.bits |= Actions::kInjectStop | Actions::kOwnerChanged;
+  if (m_ws > 0) {
+    m_state = LinkState::kWebHandshake;
+    a.bits |= Actions::kStartMaster;  // always starts with HELLO_REQ (Uno synced or not)
+  } else {
+    m_state = LinkState::kIdle;
+  }
+  return a;
+}
+
+Decision LinkOwner::onDrive(int fd, uint32_t now_ms, Actions& out) {
+  out = Actions();
+  if (m_state == LinkState::kTcpPassthrough) return Decision::kNackBusy;
+  if (m_ir) return Decision::kNackNotOwner;
+  if (m_state == LinkState::kIdle || m_state == LinkState::kWebHandshake) {
+    return Decision::kNackBodyOffline;
+  }
+  if (m_state == LinkState::kWebDriving && fd != m_driver) return Decision::kNackNotOwner;
+  if (m_state == LinkState::kWebReady) {
+    m_state = LinkState::kWebDriving;
+    m_driver = fd;
+    out.bits |= Actions::kHintHuman | Actions::kOwnerChanged;
+  }
+  m_last_drive_ms = now_ms;
+  return Decision::kSend;
+}
+
+Decision LinkOwner::onCamera(int fd) const {
+  if (m_state == LinkState::kTcpPassthrough) return Decision::kNackBusy;
+  if (m_state == LinkState::kIdle || m_state == LinkState::kWebHandshake) {
+    return Decision::kNackBodyOffline;
+  }
+  if (m_state == LinkState::kWebDriving && fd != m_driver) return Decision::kNackNotOwner;
+  return Decision::kSend;
+}
+
+Actions LinkOwner::onStop(int /*fd*/) {
+  Actions a;
+  a.bits |= (m_state == LinkState::kTcpPassthrough) ? Actions::kInjectStop : Actions::kSendStop;
+  return a;  // STOP never changes ownership (the driver keeps it for the handback window)
+}
+
+Actions LinkOwner::onRelease(int fd) {
+  if (fd != m_driver) return Actions();
+  return dropDriver(true);
+}
+
+Actions LinkOwner::onSynced(bool synced) {
+  Actions a;
+  m_synced = synced;
+  if (!webMaster()) return a;
+  if (synced && m_state == LinkState::kWebHandshake) {
+    m_state = LinkState::kWebReady;
+    a.bits |= Actions::kOwnerChanged;
+  } else if (!synced) {
+    a = dropDriver(false);  // Uno is gone: nothing to stop
+    m_state = LinkState::kWebHandshake;
+    a.bits |= Actions::kOwnerChanged;
+  }
+  return a;
+}
+
+Actions LinkOwner::onUnoOwner(proto::Owner owner) {
+  Actions a;
+  const bool ir = owner == proto::Owner::kIr;
+  if (ir == m_ir) return a;
+  m_ir = ir;
+  a.bits |= Actions::kOwnerChanged;
+  if (ir) {
+    const Actions d = dropDriver(false);  // the Uno already stopped for IR
+    a.bits |= d.bits;
+  }
+  return a;
+}
+
+Actions LinkOwner::tick(uint32_t now_ms) {
+  if (m_state == LinkState::kWebDriving && now_ms - m_last_drive_ms >= kHandbackMs) {
+    return dropDriver(true);
+  }
+  return Actions();
+}
+
+}  // namespace core
+}  // namespace cq
+```
+
+Run: `pio test -e native`
+Expected: `46 test cases: 46 succeeded` (Task 2's 28 + link_owner 18).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add firmware/esp32/src/core/link_owner.h firmware/esp32/src/core/link_owner.cpp firmware/esp32/test/test_link_owner
+git commit -m "feat(esp32): link owner arbiter for bench passthrough and phone driving
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```

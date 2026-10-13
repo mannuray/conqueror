@@ -57,6 +57,7 @@ core::Actions TcpPassthrough::poll(uint32_t now_ms, core::LinkOwner& owner, core
   const bool silent = now_ms - m_last_rx_ms >= kBenchSilentMs;
   if (!m_client.connected() || silent) {
     logf("tcp: bench %s", silent ? "silent for 1 s - dropped" : "disconnected");
+    tx.clear();  // review I3: a DRIVE that came with the disconnect must not follow the STOP below
     close();
     const core::Actions c = owner.onTcpClose();
     out.bits |= c.bits;

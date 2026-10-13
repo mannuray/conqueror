@@ -150,6 +150,31 @@ void test_injected_stop_acks_swallowed() {
   TEST_ASSERT_EQUAL(2, s.dropped());
 }
 
+// Review I3: when the bench disconnects (or OTA starts) its queued, not yet started chunks are
+// cleared BEFORE the injected STOP, so a DRIVE that arrived in the same tick never follows the STOP.
+void test_bench_close_clears_queued_drive_before_stop() {
+  FrameTx tx;
+  FrameAligner up;
+  TxSink sink{&tx};
+  uint8_t f[64];
+  size_t n = cqtest::frame(proto::DriveMsg{static_cast<uint8_t>(proto::Source::kHuman), 30, 0}, 10, f);
+  up.push(f, n, 0, sink);
+  n = cqtest::frame(proto::DriveMsg{static_cast<uint8_t>(proto::Source::kHuman), 30, 0}, 11, f);
+  up.push(f, n, 1, sink);
+  TEST_ASSERT_EQUAL(2, tx.queued());
+  // close path (TcpPassthrough::poll / OTA start): clear, then the injected STOP
+  tx.clear();
+  uint8_t stop[16];
+  const size_t sn = cqtest::frame(proto::StopMsg{static_cast<uint8_t>(proto::Source::kHuman)}, 139, stop);
+  tx.pushUrgent(stop, sn);
+  const uint8_t* out = nullptr;
+  const size_t len = tx.peek(out);
+  TEST_ASSERT_EQUAL(sn, len);
+  TEST_ASSERT_EQUAL(static_cast<uint8_t>(proto::FrameType::kStop), out[2]);
+  tx.pop();
+  TEST_ASSERT_EQUAL(0, tx.peek(out));  // no DRIVE after the STOP
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_stream_is_forwarded_unchanged);
@@ -160,5 +185,6 @@ int main() {
   RUN_TEST(test_partial_discarded_on_close);
   RUN_TEST(test_injected_frame_waits_for_partial);
   RUN_TEST(test_injected_stop_acks_swallowed);
+  RUN_TEST(test_bench_close_clears_queued_drive_before_stop);
   return UNITY_END();
 }

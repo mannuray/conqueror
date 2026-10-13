@@ -248,6 +248,7 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
     default:
       g_ota_active = true;  // from now on: drives nacked BUSY, benches and new phones refused
       if (g_owner.state() == core::LinkState::kTcpPassthrough) {
+        g_tx.clear();  // review I3: queued bench frames never follow the injected STOP
         g_tcp.close();
         core::Actions a = g_owner.onTcpClose();  // InjectStop
         a.bits &= static_cast<uint8_t>(~core::Actions::kStartMaster);

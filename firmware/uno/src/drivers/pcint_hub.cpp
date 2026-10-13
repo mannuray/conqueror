@@ -3,6 +3,7 @@
 
 #include "drivers/board_config.h"
 #include "drivers/pcint_hub.h"
+#include "domain/util/edge_detector.h"
 #include "ports/ir.h"
 #include "ports/ultrasonic.h"
 
@@ -10,10 +11,11 @@
 namespace {
 #if defined(BOARD_MEGA)
 constexpr uint8_t kEchoBit = _BV(PB6);   // D12
-constexpr uint8_t kIrBit = _BV(PK6);     // A14 (PCINT2 group)
+constexpr uint8_t kIrBit = _BV(PH6);     // D9, sampled by Timer1 at 20 kHz (LLD §11.4)
 constexpr uint8_t kEncLeftBit = _BV(PK0);   // A8
 constexpr uint8_t kEncRightBit = _BV(PK2);  // A10
 volatile uint8_t g_prev_pink = 0xFF;
+cq::EdgeDetector g_ir_edges;  // Timer1 ISR only
 #else
 constexpr uint8_t kIrBit = _BV(PB1);     // D9 (PCINT0 group)
 constexpr uint8_t kEchoBit = _BV(PB4);   // D12
@@ -69,12 +71,18 @@ ISR(PCINT0_vect) {
 }
 
 #if defined(BOARD_MEGA)
+// 20 kHz: D9 has no pin-change interrupt on the Mega. ~1.5 µs per call (LLD §11.4).
+// COMPB, not COMPA: the Servo library defines TIMER1_COMPA_vect on the Mega (it runs on Timer5).
+ISR(TIMER1_COMPB_vect) {
+  const uint8_t pinh = PINH;
+  if (g_ir_edges.update(pinh).falling & kIrBit) irEdge(kIrBit, 0, micros());
+}
+
 ISR(PCINT2_vect) {
   const uint32_t now = micros();
   const uint8_t pink = PINK;
   const uint8_t changed = pink ^ g_prev_pink;
   g_prev_pink = pink;
-  irEdge(changed, pink, now);
   const uint8_t rising = changed & pink;
   if (rising & (kEncLeftBit | kEncRightBit)) {
     cq::drv::encoderEdges(rising & kEncLeftBit, rising & kEncRightBit, now);
@@ -98,11 +106,13 @@ namespace port {
 namespace ir {
 void begin() {
 #if defined(BOARD_MEGA)
-  pinMode(board::kPinIrShield, INPUT);  // jumpered to A14; never driven
   pinMode(board::kPinIr, INPUT);
-  g_prev_pink = PINK;
-  PCMSK2 |= _BV(PCINT22);
-  PCICR |= _BV(PCIE2);
+  g_ir_edges.update(PINH);
+  TCCR1A = 0;
+  TCCR1B = _BV(WGM12) | _BV(CS11);  // CTC, prescaler 8 → 2 MHz
+  OCR1A = 99;                       // TOP: 2 MHz / 100 = 20 kHz
+  OCR1B = 50;                       // one COMPB match per period
+  TIMSK1 |= _BV(OCIE1B);
 #else
   pinMode(board::kPinIr, INPUT);
   g_prev_pinb = PINB;

@@ -1,6 +1,7 @@
 #include <unity.h>
 
 #include "domain/estimation/battery_monitor.h"
+#include "domain/util/edge_detector.h"
 #include "domain/estimation/ultrasonic_filter.h"
 #include "domain/input/nec_decoder.h"
 
@@ -179,6 +180,17 @@ void test_battery_hysteresis_on_recovery() {
   TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kLow), static_cast<int>(b.level()));
 }
 
+void test_edge_detector_falling_and_rising() {
+  // Mega IR sampler (LLD §11.4): falling/rising edges between two port samples.
+  cq::EdgeDetector d;  // starts with all lines high (idle IR level)
+  TEST_ASSERT_EQUAL_HEX8(0x00, d.update(0xFF).falling);
+  const cq::EdgeDetector::Edges e = d.update(0xBF);  // bit 6 went low
+  TEST_ASSERT_EQUAL_HEX8(0x40, e.falling);
+  TEST_ASSERT_EQUAL_HEX8(0x00, e.rising);
+  TEST_ASSERT_EQUAL_HEX8(0x00, d.update(0xBF).falling);  // still low: no new edge
+  TEST_ASSERT_EQUAL_HEX8(0x40, d.update(0xFF).rising);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ultrasonic_distance_and_median);
@@ -193,5 +205,6 @@ int main() {
   RUN_TEST(test_battery_four_sample_average);
   RUN_TEST(test_battery_usb_power_is_not_an_alarm);
   RUN_TEST(test_battery_hysteresis_on_recovery);
+  RUN_TEST(test_edge_detector_falling_and_rising);
   return UNITY_END();
 }

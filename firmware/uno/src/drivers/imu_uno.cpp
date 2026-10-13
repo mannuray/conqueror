@@ -1,8 +1,13 @@
 #include <Arduino.h>
-#include <Wire.h>
 
 #include "drivers/board_config.h"
 #include "ports/imu.h"
+
+#if defined(BOARD_MEGA)
+#include "drivers/soft_i2c.h"
+#else
+#include <Wire.h>
+#endif
 
 namespace cq {
 namespace port {
@@ -11,16 +16,41 @@ namespace {
 
 uint16_t g_errors = 0;
 
-void configureWire() {
+// ---- bus layer: hardware TWI on the Uno, software I2C on A4/A5 on the Mega (LLD §11.4) ----
+#if defined(BOARD_MEGA)
+void busBegin() { drv::soft_i2c::begin(); }
+bool busWrite(uint8_t reg, uint8_t value) { return drv::soft_i2c::writeReg(board::kImuAddress, reg, value); }
+bool busRead(uint8_t reg, uint8_t* buf, uint8_t n) {
+  return drv::soft_i2c::readRegs(board::kImuAddress, reg, buf, n);
+}
+void busRecover() { drv::soft_i2c::recover(); }
+bool busTimedOut() { return true; }  // every soft-I2C failure gets the (cheap) recovery
+#else
+void busBegin() {
   Wire.begin();
   Wire.setClock(400000UL);
   Wire.setWireTimeout(3000, true);  // 3 ms; resets the TWI on a stuck bus
 }
 
+bool busWrite(uint8_t reg, uint8_t value) {
+  Wire.beginTransmission(board::kImuAddress);
+  Wire.write(reg);
+  Wire.write(value);
+  return Wire.endTransmission() == 0;
+}
+
+bool busRead(uint8_t reg, uint8_t* buf, uint8_t n) {
+  Wire.beginTransmission(board::kImuAddress);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(board::kImuAddress, n) != n) return false;
+  for (uint8_t i = 0; i < n; ++i) buf[i] = static_cast<uint8_t>(Wire.read());
+  return true;
+}
+
 // I2C bus recovery (LLD §9.13): a slave stuck mid-byte holds SDA low; clock SCL up to 9 times
 // until it lets go, then send a STOP and restart the TWI. Rare (only after a Wire timeout);
 // ~100 µs of 5 µs busy-waits, a documented exception like the burst read.
-void recoverBus() {
+void busRecover() {
   Wire.end();
   pinMode(SDA, INPUT_PULLUP);
   pinMode(SCL, OUTPUT);
@@ -36,26 +66,25 @@ void recoverBus() {
   digitalWrite(SCL, HIGH);
   delayMicroseconds(5);
   pinMode(SDA, INPUT_PULLUP);
-  configureWire();
+  busBegin();
 }
+
+bool busTimedOut() {
+  if (!Wire.getWireTimeoutFlag()) return false;
+  Wire.clearWireTimeoutFlag();
+  return true;
+}
+#endif
 
 void onFailure() {
   ++g_errors;
-  if (Wire.getWireTimeoutFlag()) {
-    Wire.clearWireTimeoutFlag();
-    recoverBus();
-  }
+  if (busTimedOut()) busRecover();
 }
 
 bool writeReg(uint8_t reg, uint8_t value) {
-  Wire.beginTransmission(board::kImuAddress);
-  Wire.write(reg);
-  Wire.write(value);
-  if (Wire.endTransmission() != 0) {
-    onFailure();
-    return false;
-  }
-  return true;
+  if (busWrite(reg, value)) return true;
+  onFailure();
+  return false;
 }
 
 int16_t pick(const int16_t v[3], int8_t map) {
@@ -66,19 +95,13 @@ int16_t pick(const int16_t v[3], int8_t map) {
 }  // namespace
 
 bool begin() {
-#if defined(BOARD_MEGA)
-  // LLD §11.1: the shield's A4/A5 are jumpered to D20/D21 (TWI); never drive them.
-  pinMode(board::kPinShieldSda, INPUT);
-  pinMode(board::kPinShieldScl, INPUT);
-#endif
-  configureWire();
-  Wire.beginTransmission(board::kImuAddress);
-  Wire.write(0x75);  // WHO_AM_I
-  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(board::kImuAddress, static_cast<uint8_t>(1)) != 1) {
+  busBegin();
+  uint8_t who = 0;
+  if (!busRead(0x75, &who, 1)) {  // WHO_AM_I
     onFailure();
     return false;
   }
-  if (Wire.read() != 0x68) return false;
+  if (who != 0x68) return false;
   return writeReg(0x6B, 0x01)     // PWR_MGMT_1: wake, PLL with gyro X
          && writeReg(0x19, 0x04)  // SMPLRT_DIV: 1 kHz / 5 = 200 Hz
          && writeReg(0x1A, 0x03)  // CONFIG: DLPF 44 Hz
@@ -87,18 +110,13 @@ bool begin() {
 }
 
 bool read(ImuRaw& out) {
-  Wire.beginTransmission(board::kImuAddress);
-  Wire.write(0x3B);  // ACCEL_XOUT_H
-  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(board::kImuAddress, static_cast<uint8_t>(14)) != 14) {
+  uint8_t b[14];
+  if (!busRead(0x3B, b, 14)) {  // ACCEL_XOUT_H .. GYRO_ZOUT_L
     onFailure();
     return false;
   }
   int16_t v[7];
-  for (uint8_t i = 0; i < 7; ++i) {
-    const uint8_t hi = static_cast<uint8_t>(Wire.read());
-    const uint8_t lo = static_cast<uint8_t>(Wire.read());
-    v[i] = static_cast<int16_t>((hi << 8) | lo);
-  }
+  for (uint8_t i = 0; i < 7; ++i) v[i] = static_cast<int16_t>((b[2 * i] << 8) | b[2 * i + 1]);
   const int16_t acc[3] = {v[0], v[1], v[2]};
   const int16_t gyr[3] = {v[4], v[5], v[6]};
   out.ax = pick(acc, board::kImuMapX);

@@ -341,7 +341,7 @@ git commit -m "feat(bench): project scaffold and byte transports"
 
 **Interfaces:**
 - Consumes: `Transport`, `fake_pair`; `conqueror_protocol` (`FrameParser`, `build_frame`, `decode_frame`, `generated as g`).
-- Produces: `SimConfig` (dataclass fields shown below), `SimulatedUno(transport, config=None)` with `async run()`, `async emit_event(kind: g.EventKind, a: int = 0, b: int = 0)`, attributes `received: list[Message]`, `synced: bool`, `envelope: tuple[int,int,int] | None`, `brake_on: bool`, `yaw_deg`, `x_cm`, `y_cm`, `enc_l`, `enc_r`, `mode: str`, `settings: dict[int,int]`, `saved_settings: dict[int,int]`, `link_lost_count: int`.
+- Produces: `SimConfig` (dataclass fields shown below), `SimulatedUno(transport, config=None)` with `async run()`, `async emit_event(kind: g.EventKind, a: int = 0, b: int = 0)`, attributes `received: list[Message]`, `synced: bool`, `envelope: tuple[int,int,int] | None`, `brake_on: bool`, `yaw_deg`, `x_cm`, `y_cm`, `enc_l`, `enc_r`, `mode: str`, `settings: dict[int,int]`, `saved_settings: dict[int,int]`, `link_lost_count: int`. The simulator also models Safety Override (`override: bool`; human-only, BUSY before sync, ENVELOPE_LOCKED under child play, `SAFETY_OVERRIDE` event, slow `flags2` bit).
 
 - [ ] **Step 1: Write the failing simulator tests**
 
@@ -531,6 +531,7 @@ class SimulatedUno:
         self.synced = False
         self.envelope: tuple[int, int, int] | None = None
         self.brake_on = True
+        self.override = False
         self.x_cm = 0.0
         self.y_cm = 0.0
         self.yaw_deg = 0.0
@@ -562,6 +563,25 @@ class SimulatedUno:
 
     async def emit_event(self, kind: g.EventKind, a: int = 0, b: int = 0) -> None:
         await self._send(g.Event(kind=int(kind), a=a, b=b))
+
+    async def _override(self, msg: g.SafetyOverride) -> int:
+        """Uno rules (LLD Revision 3): human only, after sync, never under child play."""
+        if not msg.on:
+            if self.override:
+                self.override = False
+                await self.emit_event(g.EventKind.SAFETY_OVERRIDE, 0, int(g.OverrideReason.NETWORK))
+            return 0
+        if msg.src != int(g.Source.HUMAN):
+            return _status("ROLE_FORBIDDEN")
+        if not self.synced:
+            return _status("BUSY")
+        child = 1 << int(g.EnvelopeFlagBit.CHILD_PLAY)
+        if self.envelope is not None and self.envelope[2] & child:
+            return _status("ENVELOPE_LOCKED")
+        if not self.override:
+            self.override = True
+            await self.emit_event(g.EventKind.SAFETY_OVERRIDE, 1, int(g.OverrideReason.NETWORK))
+        return 0
 
     # ---- transport -------------------------------------------------------------------
     async def _send(self, msg: Message) -> None:
@@ -648,6 +668,8 @@ class SimulatedUno:
                 status = _status("ENVELOPE_LOCKED")
             else:
                 self.brake_on = bool(msg.on)
+        elif isinstance(msg, g.SafetyOverride):
+            status = await self._override(msg)
         elif isinstance(msg, g.SettingSet):
             status = self._set_setting(msg.id, msg.value)
         elif isinstance(msg, g.SettingGet):
@@ -798,7 +820,7 @@ class SimulatedUno:
                     driving=int(self.mode in ("teleop", "turn", "move")),
                     temp=2500,
                     owner=int(g.Owner.NETWORK if self.mode != "idle" else g.Owner.NONE),
-                    flags2=0,
+                    flags2=(1 << int(g.SlowFlagBit.SAFETY_OVERRIDE)) if self.override else 0,
                     accel_var=0,
                     loop_load=30,
                     loop_max_us=900,
@@ -1368,11 +1390,26 @@ from conqueror_bench.model import TankModel, decode_fast, decode_slow
 
 def _fast(**overrides: int) -> g.TelemFast:
     base: dict[str, int] = dict(
-        uno_ms=1000, yaw=35999, yaw_rate=-125, pitch=210, roll=-80, spd_cmd_l=40, spd_cmd_r=42,
-        spd_act_l=38, spd_act_r=41, pwm_l=150, pwm_r=155, dist_mm=630, closing_cm_s=12,
-        pan=900, tilt=750, enc_l=1000, enc_r=1010,
+        uno_ms=1000,
+        yaw=35999,
+        yaw_rate=-125,
+        pitch=210,
+        roll=-80,
+        spd_cmd_l=40,
+        spd_cmd_r=42,
+        spd_act_l=38,
+        spd_act_r=41,
+        pwm_l=150,
+        pwm_r=155,
+        dist_mm=630,
+        closing_cm_s=12,
+        pan=900,
+        tilt=750,
+        enc_l=1000,
+        enc_r=1010,
         flags=(1 << int(g.FastFlagBit.BLOCKED)) | (1 << int(g.FastFlagBit.SYNCED)),
-        prim=int(g.PrimitiveKind.MOVE), prim_pct=50,
+        prim=int(g.PrimitiveKind.MOVE),
+        prim_pct=50,
     )
     base.update(overrides)
     return g.TelemFast(**base)
@@ -1399,11 +1436,26 @@ def test_sentinels_decode_to_none_and_fault() -> None:
 
 def test_slow_decoding() -> None:
     m = g.TelemSlow(
-        uptime_s=10, reset_reason=int(g.ResetReason.WATCHDOG), batt_mv=7620, driving=1, temp=3140,
-        owner=int(g.Owner.IR), flags2=1 << int(g.SlowFlagBit.BATT_LOW), accel_var=5, loop_load=38,
-        loop_max_us=1200, free_ram=310, err_frames=1, err_i2c=0, settings_crc=0xBEEF,
-        env_speed_cap=20, env_accel_cap=30, env_lock_brake=3, profile_idx=0,
-        cal_status=(0b01000001, 0, 0), hw=0b011,
+        uptime_s=10,
+        reset_reason=int(g.ResetReason.WATCHDOG),
+        batt_mv=7620,
+        driving=1,
+        temp=3140,
+        owner=int(g.Owner.IR),
+        flags2=1 << int(g.SlowFlagBit.BATT_LOW),
+        accel_var=5,
+        loop_load=38,
+        loop_max_us=1200,
+        free_ram=310,
+        err_frames=1,
+        err_i2c=0,
+        settings_crc=0xBEEF,
+        env_speed_cap=20,
+        env_accel_cap=30,
+        env_lock_brake=3,
+        profile_idx=0,
+        cal_status=(0b01000001, 0, 0),
+        hw=0b011,
     )
     s = decode_slow(m, 2.0)
     assert s.batt_v == 7.62 and s.temp_c == 31.4
@@ -1633,7 +1685,7 @@ git commit -m "feat(bench): tank model decoding telemetry, events and sentinels"
 
 **Interfaces:**
 - Consumes: `LinkSession`, `TankModel`, `TankEvent`, `AckResult`.
-- Produces: `PrimitiveDone(kind: str, ok: bool, reason: str)`; `primitive_done_from(e: TankEvent) -> PrimitiveDone`; `setting_info(name: str) -> SettingInfo`; `CommandApi(link, model, src=g.Source.HUMAN)` with async methods `stop() -> AckResult`, `drive(v: int, w: int)`, `drive_rate(v: int, yaw_rate_dps: float)`, `turn(*, by_deg: float | None = None, to_deg: float | None = None, speed: int, radius_cm: int = 0, pivot: bool = False) -> AckResult`, `move(dist_cm: float, speed: int, heading_deg: float | None = None) -> AckResult`, `cancel()`, `cam_joy(x, y, active)`, `cam_set(pan_deg, tilt_deg, speed_dps=120)`, `cam_nudge(dpan_deg, dtilt_deg)`, `cam_home()`, `cam_lock(on)`, `led(mode: g.LedMode, r, g_, b, period_ms=0, duration_ms=0)`, `sound(sound: g.SoundId)`, `tone(notes: list[tuple[int,int]])`, `audio_mode(mode: g.AudioModeValue)`, `brake(on: bool)`, `envelope(speed_cap, accel_cap, lock_brake)`, `get_setting_raw(sid: int) -> int`, `set_setting_raw(sid: int, raw: int) -> AckResult`, `get_setting(name) -> float`, `set_setting(name, value: float) -> AckResult`, `settings_save(timeout_s=5.0) -> bool`, `calibrate(script: g.CalScript, param: int, profile: int = 0) -> AckResult`, `cal_cancel() -> AckResult`, `wait_primitive_done(timeout_s) -> PrimitiveDone`, `clear_primitive_results()`, `wait_event(kind: str, timeout_s: float, after_t: float = 0.0) -> TankEvent | None`; `Tank(link, model, api)`; `open_tank(transport, *, envelope=None, hello_timeout_s=3.0, heartbeat_s=0.1) -> AsyncContextManager[Tank]`.
+- Produces: `PrimitiveDone(kind: str, ok: bool, reason: str)`; `primitive_done_from(e: TankEvent) -> PrimitiveDone`; `setting_info(name: str) -> SettingInfo`; `CommandApi(link, model, src=g.Source.HUMAN)` with async methods `stop() -> AckResult`, `drive(v: int, w: int)`, `drive_rate(v: int, yaw_rate_dps: float)`, `turn(*, by_deg: float | None = None, to_deg: float | None = None, speed: int, radius_cm: int = 0, pivot: bool = False) -> AckResult`, `move(dist_cm: float, speed: int, heading_deg: float | None = None) -> AckResult`, `cancel()`, `cam_joy(x, y, active)`, `cam_set(pan_deg, tilt_deg, speed_dps=120)`, `cam_nudge(dpan_deg, dtilt_deg)`, `cam_home()`, `cam_lock(on)`, `led(mode: g.LedMode, r, g_, b, period_ms=0, duration_ms=0)`, `sound(sound: g.SoundId)`, `tone(notes: list[tuple[int,int]])`, `audio_mode(mode: g.AudioModeValue)`, `brake(on: bool)`, `envelope(speed_cap, accel_cap, lock_brake)`, `get_setting_raw(sid: int) -> int`, `set_setting_raw(sid: int, raw: int) -> AckResult`, `get_setting(name) -> float`, `set_setting(name, value: float) -> AckResult`, `settings_save(timeout_s=5.0) -> bool`, `calibrate(script: g.CalScript, param: int, profile: int = 0) -> AckResult`, `cal_cancel() -> AckResult`, `wait_primitive_done(timeout_s) -> PrimitiveDone`, `clear_primitive_results()`, `wait_event(kind: str, timeout_s: float, after_t: float = 0.0) -> TankEvent | None`; `Tank(link, model, api)`; `open_tank(transport, *, envelope=None, hello_timeout_s=3.0, heartbeat_s=0.1) -> AsyncContextManager[Tank]`. Also `CommandApi.safety_override(on: bool) -> AckResult` (sends `SAFETY_OVERRIDE` with the session source; the Uno refuses it for AI and under the child-play envelope).
 
 - [ ] **Step 1: Write the failing API tests**
 
@@ -1686,6 +1738,24 @@ async def test_wait_event(rig: SimRig) -> None:
         ev = await tank.api.wait_event("LIFTED", 1.0)
         assert ev is not None and ev.kind == "LIFTED"
         assert await tank.api.wait_event("TILTED", 0.1) is None
+
+
+async def test_safety_override_on_off(rig: SimRig) -> None:
+    async with open_tank(rig.bench) as tank:
+        assert (await tank.api.safety_override(True)).ok
+        ev = await tank.api.wait_event("SAFETY_OVERRIDE", 1.0)
+        assert ev is not None
+        assert rig.uno.override
+        assert (await tank.api.safety_override(False)).ok
+        assert not rig.uno.override
+
+
+async def test_safety_override_refused_in_child_play(rig: SimRig) -> None:
+    async with open_tank(rig.bench) as tank:
+        assert (await tank.api.envelope(30, 30, True, child_play=True)).ok
+        res = await tank.api.safety_override(True)
+        assert res.status == "ENVELOPE_LOCKED"
+        assert not rig.uno.override
 ```
 
 - [ ] **Step 2: Run them to see them fail**
@@ -1702,7 +1772,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'conqueror_bench.api'`.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -1772,7 +1842,7 @@ class CommandApi:
 
     async def drive_rate(self, v: int, yaw_rate_dps: float) -> None:
         await self._link.send(
-            g.DriveRate(src=self._src, v=_clamp(v), yaw_rate=int(round(yaw_rate_dps * 10)))
+            g.DriveRate(src=self._src, v=_clamp(v), yaw_rate=round(yaw_rate_dps * 10))
         )
 
     async def turn(
@@ -1790,14 +1860,15 @@ class CommandApi:
         angle = by_deg if by_deg is not None else to_deg
         assert angle is not None
         return await self._link.send(
-            g.Turn(src=self._src, mode=mode, angle=int(round(angle * 10)), speed=speed,
-                   radius_cm=radius_cm)
+            g.Turn(
+                src=self._src, mode=mode, angle=round(angle * 10), speed=speed, radius_cm=radius_cm
+            )
         )
 
     async def move(self, dist_cm: float, speed: int, heading_deg: float | None = None) -> AckResult:
-        heading = HEADING_CURRENT if heading_deg is None else int(round(heading_deg * 10))
+        heading = HEADING_CURRENT if heading_deg is None else round(heading_deg * 10)
         return await self._link.send(
-            g.Move(src=self._src, dist_mm=int(round(dist_cm * 10)), speed=speed, heading=heading)
+            g.Move(src=self._src, dist_mm=round(dist_cm * 10), speed=speed, heading=heading)
         )
 
     async def cancel(self) -> AckResult:
@@ -1813,7 +1884,9 @@ class CommandApi:
         except TimeoutError:
             return PrimitiveDone("UNKNOWN", False, "TIMEOUT")
 
-    async def wait_event(self, kind: str, timeout_s: float, after_t: float = 0.0) -> TankEvent | None:
+    async def wait_event(
+        self, kind: str, timeout_s: float, after_t: float = 0.0
+    ) -> TankEvent | None:
         for e in self._model.events:
             if e.kind == kind and e.host_t >= after_t:
                 return e
@@ -1822,7 +1895,7 @@ class CommandApi:
         )
         return result if isinstance(result, TankEvent) else None
 
-    # ---- camera / UI ------------------------------------------------------------------------------
+    # ---- camera / UI -----------------------------------------------------------------------------
     async def cam_joy(self, x: int, y: int, active: bool) -> None:
         await self._link.send(g.CamJoy(x=_clamp(x), y=_clamp(y), active=int(active)))
 
@@ -1862,7 +1935,8 @@ class CommandApi:
     async def envelope(
         self, speed_cap: int, accel_cap: int, lock_brake: bool, child_play: bool = False
     ) -> AckResult:
-        # lock_brake on the wire is a bit set (EnvelopeFlagBit): CHILD_PLAY marks the preset (blocks Override).
+        # lock_brake on the wire is a bit set (EnvelopeFlagBit):
+        # CHILD_PLAY marks the preset (blocks Override).
         flags = (int(lock_brake) << int(g.EnvelopeFlagBit.LOCK_BRAKE)) | (
             int(child_play) << int(g.EnvelopeFlagBit.CHILD_PLAY)
         )
@@ -1870,7 +1944,11 @@ class CommandApi:
             g.Envelope(speed_cap=speed_cap, accel_cap=accel_cap, lock_brake=flags)
         )
 
-    # ---- settings ----------------------------------------------------------------------------------
+    async def safety_override(self, on: bool) -> AckResult:
+        """Enter/exit Safety Override (human only; refused under the child-play envelope)."""
+        return await self._link.send(g.SafetyOverride(src=self._src, on=int(on)))
+
+    # ---- settings --------------------------------------------------------------------------------
     async def get_setting_raw(self, sid: int) -> int:
         waiter = asyncio.ensure_future(
             self._wait(lambda t, p: t == "setting_value" and p.id == sid, 1.0)
@@ -1893,7 +1971,7 @@ class CommandApi:
 
     async def set_setting(self, name: str, value: float) -> AckResult:
         info = setting_info(name)
-        return await self.set_setting_raw(info.id, int(round(value / info.scale)))
+        return await self.set_setting_raw(info.id, round(value / info.scale))
 
     async def settings_save(self, timeout_s: float = 5.0) -> bool:
         waiter = asyncio.ensure_future(
@@ -1905,7 +1983,7 @@ class CommandApi:
             return False
         return await waiter is not None
 
-    # ---- calibration ------------------------------------------------------------------------------
+    # ---- calibration -----------------------------------------------------------------------------
     async def calibrate(self, script: g.CalScript, param: int, profile: int = 0) -> AckResult:
         return await self._link.send(
             g.Calibrate(op=int(g.CalOp.START), script=int(script), param=param, profile=profile)
@@ -1935,7 +2013,7 @@ async def open_tank(
     envelope: tuple[int, int, int] | None = None,
     hello_timeout_s: float = 3.0,
     heartbeat_s: float = 0.1,
-) -> AsyncIterator[Tank]:
+) -> AsyncGenerator[Tank]:
     model = TankModel()
     link = LinkSession(
         transport, envelope=envelope, hello_timeout_s=hello_timeout_s, heartbeat_s=heartbeat_s
@@ -1949,7 +2027,7 @@ Note: `get_setting_raw`/`settings_save` arm the waiter with `ensure_future` **be
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `cd tools/bench && uv run pytest tests/test_api.py -v`
-Expected: 5 passed.
+Expected: 7 passed.
 
 - [ ] **Step 5: Lint, type-check, commit**
 

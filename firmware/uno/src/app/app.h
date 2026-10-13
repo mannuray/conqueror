@@ -16,6 +16,9 @@
 #include "domain/estimation/lift_detector.h"
 #include "domain/estimation/yaw_integrator.h"
 #include "types/hw_types.h"
+#include "domain/estimation/battery_monitor.h"
+#include "domain/estimation/ultrasonic_filter.h"
+#include "domain/input/nec_decoder.h"
 
 namespace cq {
 
@@ -63,6 +66,12 @@ struct App {
   bool stationary = true;  // set by the control task: no PWM output for 300 ms
   uint16_t fast_flags = 0;
   uint32_t slow_flags = 0;
+  // sensors
+  UltrasonicFilter us;
+  BatteryMonitor batt;
+  NecDecoder nec;
+  IrEvent ir_event{};
+  bool ir_pending = false;  // consumed by the IR controller (Task 14)
 };
 
 extern App g_app;

@@ -32,6 +32,9 @@ cq::Task g_tasks[] = {
     {cq::app::telemetryFastDue, 50000UL, 0},
     {cq::app::telemetrySlowDue, 1000000UL, 0},
     {cq::app::settingsTask, 20000UL, 0},
+    {cq::app::irTask, 5000UL, 0},
+    {cq::app::ultrasonicTask, 50000UL, 0},
+    {cq::app::batteryTask, 100000UL, 0},
     // TASKS-END
 };
 cq::Scheduler g_scheduler(g_tasks, static_cast<uint8_t>(sizeof g_tasks / sizeof g_tasks[0]));
@@ -44,6 +47,7 @@ void setup() {
   // SETUP-INIT (later tasks add driver/domain init before SETUP-END)
   cq::app::settingsLoad();
   cq::app::imuInit();
+  cq::app::sensorsInit();
   // SETUP-END
   cq::port::watchdog::enable();
   g_scheduler.start(cq::port::clock::nowUs());

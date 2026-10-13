@@ -147,6 +147,7 @@ void telemetrySlowDue() {
   s.err_frames = static_cast<uint16_t>(g_app.parser.errors().bad_crc + g_app.parser.errors().bad_len +
                                        g_app.parser.errors().unknown_type);
   s.settings_crc = g_app.settings.crc();
+  s.flags2 = g_app.slow_flags;
   g_app.slow_due = true;
 }
 

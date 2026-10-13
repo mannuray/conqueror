@@ -1055,6 +1055,16 @@ void test_clear_keeps_chunk_in_flight() {
   TEST_ASSERT_EQUAL(0, g_tx->peek(p));
 }
 
+void test_clear_keeps_urgent_stop() {
+  g_tx->push(kA, sizeof(kA));
+  g_tx->pushUrgent(kS, sizeof(kS));
+  g_tx->clear();  // master change drops queued ESP32 frames, never a pending STOP
+  const uint8_t* p = nullptr;
+  TEST_ASSERT_EQUAL(sizeof(kS), g_tx->peek(p));
+  g_tx->pop();
+  TEST_ASSERT_EQUAL(0, g_tx->peek(p));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_fifo_whole_chunks);
@@ -1062,6 +1072,7 @@ int main() {
   RUN_TEST(test_urgent_waits_for_chunk_boundary);
   RUN_TEST(test_full_queue_drops_and_counts);
   RUN_TEST(test_clear_keeps_chunk_in_flight);
+  RUN_TEST(test_clear_keeps_urgent_stop);
   return UNITY_END();
 }
 ```
@@ -1537,7 +1548,7 @@ class FrameTx {
   bool pushUrgent(const uint8_t* data, size_t len);  // replaces a not-yet-started urgent chunk
   size_t peek(const uint8_t*& data);                 // next chunk (0 = empty); stays until pop()
   void pop();                                        // the peeked chunk was written whole
-  void clear();                                      // drop everything not yet peeked
+  void clear();  // drop queued chunks not yet peeked; the urgent slot (STOP) is kept
   size_t queued() const { return m_count + (m_urgent_len ? 1 : 0); }
   uint32_t dropped() const { return m_dropped; }
 
@@ -1622,7 +1633,6 @@ void FrameTx::clear() {
   } else {
     m_count = 0;
   }
-  if (m_inflight != Inflight::kUrgent) m_urgent_len = 0;
 }
 
 }  // namespace core
@@ -1986,7 +1996,7 @@ bool BodyLink::popEvent(LinkEvent& ev) {
 ```
 
 Run: `pio test -e native`
-Expected: `28 test cases: 28 succeeded` (frame_parser 7, frame_tx 5, body_link 16).
+Expected: `29 test cases: 29 succeeded` (frame_parser 7, frame_tx 6, body_link 16).
 
 - [ ] **Step 6: UART port and `link_task` (Arduino shell)**
 
@@ -2701,7 +2711,7 @@ Actions LinkOwner::tick(uint32_t now_ms) {
 ```
 
 Run: `pio test -e native`
-Expected: `46 test cases: 46 succeeded` (Task 2's 28 + link_owner 18).
+Expected: `47 test cases: 47 succeeded` (Task 2's 29 + link_owner 18).
 
 - [ ] **Step 3: Commit**
 

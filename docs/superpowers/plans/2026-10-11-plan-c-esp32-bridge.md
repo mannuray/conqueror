@@ -691,7 +691,10 @@ def handshake(host: str, port: int, seconds: float) -> int:
                     )
                     seq = (seq + 1) & 0xFF
                     synced = True
-                    print(f"HELLO fw=0x{msg.fw:04X} proto={msg.proto} -> HELLO_ACK sent")
+                    print(
+                        f"HELLO fw=0x{msg.fw:04X} proto={msg.proto} commit={msg.commit:08x}"
+                        " -> HELLO_ACK sent"
+                    )
                 elif isinstance(msg, generated.TelemFast):
                     print(
                         f"TELEM_FAST yaw={msg.yaw / 100:.2f} dist_mm={msg.dist_mm} "
@@ -1347,7 +1350,7 @@ Prepare: remove the loopback jumper, reconnect the 4-pin cable to the Uno, shiel
 Run: `cd tools/smoke && uv run python bridge_echo.py --host conqueror-bridge.local --handshake --seconds 10`
 Expected:
 ```
-HELLO fw=0x0100 proto=1 -> HELLO_ACK sent
+HELLO fw=0x0100 proto=2 commit=… -> HELLO_ACK sent      (commit = the Uno build's git commit, 00000000 if built outside git)
 TELEM_FAST yaw=… dist_mm=… flags=0x8…      (bit 15 SYNCED set after the handshake)
 …
 done: frames=… bad_crc=0 synced=True

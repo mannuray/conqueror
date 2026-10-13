@@ -45,6 +45,7 @@
 firmware/uno/
 ├── platformio.ini                       envs: uno (avr), native (host tests)        (Task 1)
 ├── scripts/size_gate.py                 RAM/flash gate on the ELF                     (Task 1)
+├── scripts/git_commit.py                pre-build: -DCQ_GIT_COMMIT for HELLO          (Task 1)
 ├── src/
 │   ├── main.cpp                         composition root: App, task table, setup/loop (Task 1, grows)
 │   ├── generated/cq_protocol.h          from Plan A (do not edit)
@@ -94,7 +95,7 @@ All commands run from `firmware/uno/` unless stated.
 ### Task 1: PlatformIO skeleton, board config, scheduler, watchdog, size gate
 
 **Files:**
-- Create: `firmware/uno/platformio.ini`, `scripts/size_gate.py`, `src/main.cpp`, `src/types/hw_types.h`, `src/domain/util/math_util.h`, `src/domain/util/scheduler.h`, `src/domain/util/scheduler.cpp`, `src/ports/clock.h`, `src/ports/watchdog.h`, `src/drivers/board_config.h`, `src/drivers/clock_uno.cpp`, `src/drivers/watchdog_uno.cpp`
+- Create: `firmware/uno/platformio.ini`, `scripts/size_gate.py`, `scripts/git_commit.py`, `src/main.cpp`, `src/types/hw_types.h`, `src/domain/util/math_util.h`, `src/domain/util/scheduler.h`, `src/domain/util/scheduler.cpp`, `src/ports/clock.h`, `src/ports/watchdog.h`, `src/drivers/board_config.h`, `src/drivers/clock_uno.cpp`, `src/drivers/watchdog_uno.cpp`
 - Test: `test/test_scheduler/test_main.cpp`
 
 **Interfaces:**
@@ -104,7 +105,7 @@ All commands run from `firmware/uno/` unless stated.
   - `class cq::LoadMeter` with `void add(uint32_t busy_us, uint32_t now_us)`, `uint8_t loadPct() const`, `uint16_t maxUs() const`.
   - `cq::clampf, signf, absf, wrap180, wrap360, elapsed(uint32_t now, uint32_t since, uint32_t interval)`.
   - Ports: `cq::port::clock::nowUs() -> uint32_t`, `nowMs() -> uint32_t`; `cq::port::watchdog::enable()`, `kick()`, `resetReason() -> proto::ResetReason` (no intentional-reset marker: v1 has no software reboot path, see the LLD decision note).
-  - `cq::board` constants (all pins, `kHasStandby`, direction polarity, IMU axis map).
+  - `cq::board` constants (all pins, `kHasStandby`, direction polarity, IMU axis map, `kFwVersion`, `kGitCommit`).
   - Value types in `types/hw_types.h` (see code).
 
 - [ ] **Step 1: Install PlatformIO**
@@ -132,6 +133,7 @@ platform = atmelavr@^5
 board = uno
 framework = arduino
 lib_deps = arduino-libraries/Servo@^1.2.2
+extra_scripts = pre:scripts/git_commit.py
 build_flags = ${env.build_flags} -Os -flto -fno-exceptions -fno-rtti
 build_src_flags = -Wall -Wextra -Werror
 upload_speed = 115200
@@ -145,6 +147,33 @@ build_flags = ${env.build_flags} -DCQ_HOST_TEST -lm
 build_src_flags = -Wall -Wextra -Werror
 ```
 (`-Werror` applies to our sources only, not to Unity or the Arduino core.)
+
+`firmware/uno/scripts/git_commit.py` (runs inside PlatformIO's SCons before the `uno` build; plain Python + `git`, so it works the same on macOS and Linux; the `native` env does not run it, so host tests never depend on git):
+```python
+"""PlatformIO pre-script: define CQ_GIT_COMMIT for the HELLO frame (design-notes §27).
+
+CQ_GIT_COMMIT = first 8 hex digits of HEAD as a number (git rev-parse --short=8 HEAD);
+0 when git or the repository is not available.
+"""
+
+import subprocess
+
+Import("env")  # type: ignore[name-defined]  # noqa: F821 - SCons injects Import/env
+
+try:
+    rev = subprocess.run(
+        ["git", "rev-parse", "--short=8", "HEAD"],
+        cwd=env.subst("$PROJECT_DIR"),  # type: ignore[name-defined]  # noqa: F821
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    commit = int(rev[:8], 16)
+except (OSError, subprocess.CalledProcessError, ValueError):
+    commit = 0
+env.Append(CPPDEFINES=[("CQ_GIT_COMMIT", f"0x{commit:08X}UL")])  # type: ignore[name-defined]  # noqa: F821
+print(f"git_commit: CQ_GIT_COMMIT=0x{commit:08X}")
+```
 
 - [ ] **Step 2a: First-build gate — the generated header compiles for AVR with `gnu++17`**
 
@@ -466,6 +495,12 @@ constexpr int8_t kImuMapZ = 3;
 
 constexpr uint32_t kBaud = 250000UL;
 constexpr uint16_t kFwVersion = 0x0100;  // 1.0
+
+// Set by scripts/git_commit.py (uno env); 0 = built outside git / unknown. Sent in HELLO.
+#ifndef CQ_GIT_COMMIT
+#define CQ_GIT_COMMIT 0UL
+#endif
+constexpr uint32_t kGitCommit = CQ_GIT_COMMIT;
 
 }  // namespace board
 }  // namespace cq
@@ -1782,6 +1817,7 @@ void txPump() {
     h.proto = proto::kProtocolVersion;
     h.caps = g_app.encoders_enabled ? 1 : 0;
     h.reset_reason = static_cast<uint8_t>(g_app.reset_reason);
+    h.commit = board::kGitCommit;
     sendMsg(h);
   }
   if (g_app.setting_value_pending && sendMsg(g_app.setting_value)) g_app.setting_value_pending = false;
@@ -1976,7 +2012,7 @@ class Link:
                 if isinstance(msg, g.Hello):
                     print(
                         f"HELLO fw={msg.fw:#06x} proto={msg.proto} caps={msg.caps} "
-                        f"reset={g.ResetReason(msg.reset_reason).name}"
+                        f"commit={msg.commit:08x} reset={g.ResetReason(msg.reset_reason).name}"
                     )
                     self.send(g.HelloAck(proto=g.PROTOCOL_VERSION))
                     self.synced = True
@@ -2054,7 +2090,7 @@ Run (from `tools/smoke/`): `uv run ruff format --check . && uv run ruff check . 
 Expected: `… already formatted`, `All checks passed!`, `0 errors, 0 warnings, 0 informations`. The plan's Python is `ruff format` clean; if the format check lists a file, the difference is your hand layout (e.g. the `COMMANDS` dict) — run `uv run ruff format .` and re-check.
 S1 → upload, `pio run -e uno -t upload`. Keep USB connected (S1 stays on "upload": the USB adapter now plays the ESP32).
 Run (from `tools/smoke/`): `uv run python uno_smoke.py --port /dev/cu.usbmodemXXXX watch --seconds 5` (genuine Uno: `usbmodem…`; CH340 clones: `usbserial…`)
-Expected: one `HELLO fw=0x0100 proto=1 caps=0 reset=…`, then `FAST …` lines at ~20 Hz (zeros), `SLOW up=… load=…% ram=…` each second, and **no** `EVENT LINK_RESTORED` (the first contact after boot is not a restore; LINK_RESTORED only follows a LINK_LOST). Stop the script: within 0.3 s the Uno raises `LINK_LOST` (not visible here — reopening the port resets the Uno).
+Expected: one `HELLO fw=0x0100 proto=2 caps=0 commit=<git rev-parse --short=8 HEAD> reset=…` (the build log printed the same value as `git_commit: CQ_GIT_COMMIT=0x…`; `00000000` only when built outside git), then `FAST …` lines at ~20 Hz (zeros), `SLOW up=… load=…% ram=…` each second, and **no** `EVENT LINK_RESTORED` (the first contact after boot is not a restore; LINK_RESTORED only follows a LINK_LOST). Stop the script: within 0.3 s the Uno raises `LINK_LOST` (not visible here — reopening the port resets the Uno).
 
 - [ ] **Step 10: Commit**
 

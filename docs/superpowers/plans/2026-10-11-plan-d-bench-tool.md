@@ -589,6 +589,7 @@ class SimulatedUno:
                 proto=g.PROTOCOL_VERSION,
                 caps=1 if self.cfg.encoders else 0,
                 reset_reason=int(g.ResetReason.POWER_ON),
+                commit=0x0C0FFEE0,
             )
         )
 
@@ -878,7 +879,7 @@ git commit -m "feat(bench): simulated Uno speaking the body-link protocol"
 
 **Interfaces:**
 - Consumes: `Transport`, `SimulatedUno`, `conqueror_protocol`.
-- Produces: `AckResult(ok: bool, status: str)`; `HelloInfo(fw_major, fw_minor, proto, encoders: bool, reset_reason: str)`; `LinkStats(tx_frames, rx_frames, bad_crc, bad_len, decode_errors, ack_timeouts, stop_resends, suppressed)`; `HandshakeError(RuntimeError)`; `FrameSink` (Protocol: `tx(data: bytes)`, `rx(data: bytes)`); `LinkSession(transport, *, heartbeat_s=0.1, ack_timeout_s=0.2, hello_timeout_s=3.0, envelope: tuple[int,int,int] | None = None)` — async context manager; `.hello: HelloInfo | None`; `.stats`; `.closed: asyncio.Event`; `subscribe(cb: Callable[[Message, float], None])`; `set_sink(sink: FrameSink | None)`; `async send(msg) -> AckResult` (`"SENT"` for non-ack frames, `"TIMEOUT"` on no ack); `async stop(src: g.Source = g.Source.HUMAN) -> AckResult`; `async suspend(seconds: float)` (drops all outgoing bytes while suspended — simulated link loss).
+- Produces: `AckResult(ok: bool, status: str)`; `HelloInfo(fw_major, fw_minor, proto, encoders: bool, reset_reason: str, commit: int)` (`commit` = first 8 hex digits of the Uno firmware git commit, 0 = unknown; shown as `commit_hex`); `LinkStats(tx_frames, rx_frames, bad_crc, bad_len, decode_errors, ack_timeouts, stop_resends, suppressed)`; `HandshakeError(RuntimeError)`; `FrameSink` (Protocol: `tx(data: bytes)`, `rx(data: bytes)`); `LinkSession(transport, *, heartbeat_s=0.1, ack_timeout_s=0.2, hello_timeout_s=3.0, envelope: tuple[int,int,int] | None = None)` — async context manager; `.hello: HelloInfo | None`; `.stats`; `.closed: asyncio.Event`; `subscribe(cb: Callable[[Message, float], None])`; `set_sink(sink: FrameSink | None)`; `async send(msg) -> AckResult` (`"SENT"` for non-ack frames, `"TIMEOUT"` on no ack); `async stop(src: g.Source = g.Source.HUMAN) -> AckResult`; `async suspend(seconds: float)` (drops all outgoing bytes while suspended — simulated link loss).
 
 - [ ] **Step 1: Write the shared fixture**
 
@@ -936,6 +937,7 @@ async def test_handshake_and_heartbeat(rig: SimRig) -> None:
         assert link.hello is not None
         assert link.hello.proto == g.PROTOCOL_VERSION
         assert link.hello.encoders
+        assert link.hello.commit_hex == "0c0ffee0"
         await asyncio.sleep(0.35)
         beats = [m for m in rig.uno.received if isinstance(m, g.Heartbeat)]
         assert len(beats) >= 3
@@ -1058,6 +1060,11 @@ class HelloInfo:
     proto: int
     encoders: bool
     reset_reason: str
+    commit: int  # first 8 hex digits of the Uno firmware git commit; 0 = unknown
+
+    @property
+    def commit_hex(self) -> str:
+        return f"{self.commit:08x}"
 
 
 @dataclass(slots=True)
@@ -1273,7 +1280,9 @@ class LinkSession:
             reset = g.ResetReason(hello.reset_reason).name
         except ValueError:
             reset = "UNKNOWN"
-        return HelloInfo(hello.fw >> 8, hello.fw & 0xFF, hello.proto, bool(hello.caps & 1), reset)
+        return HelloInfo(
+            hello.fw >> 8, hello.fw & 0xFF, hello.proto, bool(hello.caps & 1), reset, hello.commit
+        )
 ```
 
 - [ ] **Step 5: Run the tests to see them pass**
@@ -5199,7 +5208,7 @@ Safety: quitting, Ctrl-C or a crash sends STOP first; if the laptop dies the Uno
 - [ ] **Step 2: USB bring-up on the stand (tracks off the ground)**
 
 Run: `cd tools/bench && uv run bench -p <port> connect`
-Expected: `connected: HelloInfo(fw_major=1, …, encoders=True|False, reset_reason='POWER_ON' or 'UNKNOWN')`, then link stats with `bad_crc=0`.
+Expected: `connected: HelloInfo(fw_major=1, …, encoders=True|False, reset_reason='POWER_ON' or 'UNKNOWN', commit=…)` (`commit` is the flashed Uno build's git commit as a number; 0 if it was built outside git), then link stats with `bad_crc=0`.
 
 Run: `uv run bench -p <port> probe`
 Expected: `OK   both forward`, `OK   spin left`, `OK   level`, `OK   yaw_sign` (fix firmware pin map / IMU axis map on any FAIL before continuing).

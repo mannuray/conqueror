@@ -1054,7 +1054,7 @@ sequenceDiagram
     U->>U: .init0 read reset reason (r2 / .noinit marker) · wdt_disable in .init3
     U->>U: load settings (RAM) · self-test (kicks WDT) · WiFi-reset window
     loop every 500 ms until HELLO_ACK
-        U->>E: HELLO {fw, proto, caps, reset_reason}
+        U->>E: HELLO {fw, proto, caps, reset_reason, commit}
     end
     E->>U: ENVELOPE (from NVS, if any)
     E->>U: HELLO_ACK {proto}
@@ -1700,3 +1700,9 @@ sequenceDiagram
         end
     end
 ```
+
+### 10.11 HELLO carries the git commit (design-notes §27, 2026-10-13)
+
+- HELLO (0x80) gains `commit: u32` = the first 8 hex digits of the firmware's git commit read as a number (`git rev-parse --short=8 HEAD` → `0x1a2b3c4d`); `0` = built outside git / unknown. Payload 5 → **9 bytes**. Breaking change → **`protocol_version` 2** (nothing deployed yet).
+- Build: the `uno` PlatformIO env runs `extra_scripts = pre:scripts/git_commit.py`, which defines `CQ_GIT_COMMIT`; `drivers/board_config.h` defaults it to `0UL` and exposes `board::kGitCommit`. The `native` env (host tests) does not run the script and no domain code reads the value.
+- The commit is the checked-out `HEAD`; uncommitted edits are not marked. Flash release builds from a clean tree.

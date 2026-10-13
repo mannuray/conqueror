@@ -159,11 +159,11 @@ All three are **read-only**: no control, no settings, no secrets. Port 80.
        "pins":{"uno_rx":3,"uno_tx":40,"camera":"ESP32-S3-EYE map"}},
  "net":{"mode":"station","ssid":"home","ip":"192.168.1.42","rssi":-58,"mdns":"conqueror-bridge.local",
         "ports":{"http":80,"ws":"/ws","stream":81,"bench_tcp":3333,"ota":3232}},
- "uno":{"baud":250000,"synced":true,"fw":"1.0","commit":"…","proto":1,"reset_reason":"power_on"},
+ "uno":{"baud":250000,"synced":true,"fw":"1.0","commit":"1a2b3c4d","proto":2,"reset_reason":"power_on"},
  "link":{"owner":"web","driver":"phone-2","clients":{"ws":2,"tcp":0,"stream":1},"frames_tx":1234,"frames_rx":5678,"bad_crc":0},
  "uptime_s":321,"free_heap":182000,"free_psram":7900000}
 ```
-- `uno.*` comes from the last HELLO seen (in either mode); Uno commit appears once Plan B adds it to HELLO (§27 habit) — until then `null`.
+- `uno.*` comes from the last HELLO seen (in either mode). `uno.commit` is HELLO `commit` (u32, protocol v2) printed as 8 lower-case hex digits; HELLO `commit` = 0 (Uno built outside git) → `null`; no HELLO seen yet → all `uno.*` except `baud` are `null`.
 - `source.matches_fw` is false when the app was updated over OTA without the source image (R2.5); `/help` shows a warning then.
 
 `/help` (one static HTML page, gzipped, ~10 KB): what this firmware is + version/commit/repo · how to connect (mDNS, IP, ports, AP fallback name) · how to drive (Basic Drive page at `/`, bench `bench --host conqueror-bridge.local`) · **protocol cheat-sheet** (generated, R2.3 step 4) · **Tank Logo quick reference** (R2.3 step 4) · hardware facts (board, chip, pin map, flash/PSRAM) · how to reflash (ESP32: chip check + esptool/pio commands, OTA command; Uno: USB only, Optiboot 115200, **S1 switch** to disconnect the ESP32 during uploads) · the security note (no authentication, home network only). Live values (IP, Uno version) are filled in by a few lines of JS from `/info`, so the page itself stays static.
@@ -419,7 +419,7 @@ sequenceDiagram
         B->>U: HEARTBEAT
     end
     B->>U: HELLO_REQ
-    U->>B: HELLO {fw, proto, caps}
+    U->>B: HELLO {fw, proto, caps, commit}
     B->>U: HELLO_ACK {proto} · OWNER_HINT NONE
     W-->>P: welcome {owner:none}
     U-->>B: TELEM_FAST 20 Hz / TELEM_SLOW 1 Hz

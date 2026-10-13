@@ -227,7 +227,7 @@ Frame: `0xAA | len | type | seq | payload[len] | crc8`
 ### Uno → ESP32
 | Type | Name | Payload |
 |---|---|---|
-| 0x80 | HELLO | fw u16, proto u8, caps u8, reset_reason u8 |
+| 0x80 | HELLO | fw u16, proto u8, caps u8, reset_reason u8, commit u32 (first 8 hex digits of the git commit; 0 = unknown; protocol v2) |
 | 0x81 | ACK | ack_seq u8, status u8 |
 | 0x90 | TELEM_FAST | uno_ms u32, yaw u16, yaw_rate i16, pitch i16, roll i16, spd_cmd i8×2, spd_act i8×2, pwm i16×2, dist_mm u16, pan i16, tilt i16, enc i32×2, flags u16, prim u8, prim_pct u8 (~40 B) |
 | 0x91 | TELEM_SLOW | uptime_s u32, reset_reason u8, batt_mv u16, driving u8, profile_idx u8, cal_status 3 B, hw u8, temp i16, owner u8, flags u32, accel_var u16, loop_load u8, loop_max_us u16, free_ram u16, err_frames u16, err_i2c u16, settings_crc u16, envelope u8×3 |

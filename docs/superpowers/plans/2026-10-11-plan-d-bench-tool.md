@@ -3739,12 +3739,16 @@ import math
 
 import pytest
 
-from conqueror_bench.calculators import CALCULATORS, LSB_PER_G, CalContext, CalSample, WIZARD_ORDER
+from conqueror_bench.calculators import CALCULATORS, LSB_PER_G, WIZARD_ORDER, CalContext, CalSample
 from conqueror_bench.model import FastSample
 
 
-def ctx(samples: dict[int, list[CalSample]], inputs: dict[str, float] | None = None,
-        settings: dict[str, int] | None = None, fast: list[FastSample] | None = None) -> CalContext:
+def ctx(
+    samples: dict[int, list[CalSample]],
+    inputs: dict[str, float] | None = None,
+    settings: dict[str, int] | None = None,
+    fast: list[FastSample] | None = None,
+) -> CalContext:
     return CalContext(samples, inputs or {}, settings or {}, fast or [], None)
 
 
@@ -3753,10 +3757,18 @@ def writes(outcome: object) -> dict[str, int]:
 
 
 def test_gyro_bias_mean_and_moved_rejection() -> None:
-    still = [CalSample(0, 0, i * 20, (12 + i % 3 - 1, -7, 35, 0, 0, 8192, 2500, 7800)) for i in range(100)]
+    still = [
+        CalSample(0, 0, i * 20, (12 + i % 3 - 1, -7, 35, 0, 0, 8192, 2500, 7800))
+        for i in range(100)
+    ]
     assert writes(CALCULATORS["gyro_bias"].compute(ctx({0: still}))) == {
-        "gyro_bias_x": 12, "gyro_bias_y": -7, "gyro_bias_z": 35}
-    moved = [CalSample(0, 0, i * 20, (0, 0, (i % 2) * 400, 0, 0, 8192, 2500, 7800)) for i in range(100)]
+        "gyro_bias_x": 12,
+        "gyro_bias_y": -7,
+        "gyro_bias_z": 35,
+    }
+    moved = [
+        CalSample(0, 0, i * 20, (0, 0, (i % 2) * 400, 0, 0, 8192, 2500, 7800)) for i in range(100)
+    ]
     out = CALCULATORS["gyro_bias"].compute(ctx({0: moved}))
     assert not out.ok and "moved" in out.error
 
@@ -3807,7 +3819,9 @@ def test_track_width() -> None:
 def test_balance() -> None:
     s = [CalSample(2, 0, 0, (-255, 255, -2400, 2600, 0))] * 20
     assert writes(CALCULATORS["track_balance"].compute(ctx({0: s}))) == {
-        "max_cps_l": 2400, "max_cps_r": 2600}
+        "max_cps_l": 2400,
+        "max_cps_r": 2600,
+    }
 
 
 def test_pid_relay_tyreus_luyben() -> None:
@@ -3826,7 +3840,27 @@ def test_pid_relay_tyreus_luyben() -> None:
 def test_battery_divider() -> None:
     from conqueror_bench.model import SlowSample
 
-    slow = SlowSample(0, 0, "", 7.5, False, 25, "NONE", frozenset(), 0, 0, 0, 0, 0, 0, 0, (100, 0, 0), 0, (), frozenset())
+    slow = SlowSample(
+        0,
+        0,
+        "",
+        7.5,
+        False,
+        25,
+        "NONE",
+        frozenset(),
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        (100, 0, 0),
+        0,
+        (),
+        frozenset(),
+    )
     c = CalContext({}, {"measured_v": 7.8}, {"batt_mv_per_count": 4050}, [], slow)
     assert writes(CALCULATORS["battery_divider"].compute(c)) == {"batt_mv_per_count": 4212}
 
@@ -3853,22 +3887,27 @@ Signs: CCW yaw positive; encoder counts/cps signed by the commanded direction un
 - STILL_SAMPLE / IDLE (param = duration ms, 0 → 3000): gx, gy, gz, ax, ay, az (raw MPU6050 counts,
     65.5 LSB per °/s = ±500 °/s, 8192 LSB per g = ±4 g), temp (0.01 °C), batt_mv
 - PWM_RAMP (param = track | reverse << 1 | max_pwm << 8, max 0 → 255; phase 0 ramp up, 1 ramp down;
-    5 PWM per 150 ms): |pwm|, yaw_rate (0.1 °/s), |encoder counts since start|, |cps| (selected track)
+    5 PWM per 150 ms): |pwm|, yaw_rate (0.1 °/s), |encoder counts since start|, |cps| (selected
+    track)
 - FULL_SPIN (param = pwm, 0 → 255; CCW until 720°): pwm_l, pwm_r, cps_l, cps_r, yaw_rate (0.1 °/s),
     yaw since start (0.1°), enc_l, enc_r since start
 - SPIN_AND_ARC (param bit 0 = CW; phase 0 = 360° spin at 90 °/s + 0.5 s settle, phase 1 = 90° arc at
-    PWM 150 and 30 °/s): enc_l, enc_r, yaw (0.1°) — all since phase start — yaw_rate (0.1 °/s), pwm_l, pwm_r
-- RATE_STEPS (param = speed steps 2–5, 0 → 4; phase = step index; step i drives speed 100·i/(n−1) % with a
-    full CCW turn command for 1.5 s): speed %, w % ×10 (1000), yaw_rate (0.1 °/s), cps_l, cps_r, pwm_l, pwm_r
-- RELAY_OSCILLATION (param = loop 0 speed, 1 rate, 2 heading; 8 s): setpoint ×10, measured ×10,
-    relay output in the PID's output unit (speed: % of max_cps → %; rate: °/s → w %; heading: ° → °/s),
+    PWM 150 and 30 °/s): enc_l, enc_r, yaw (0.1°) — all since phase start — yaw_rate (0.1 °/s),
     pwm_l, pwm_r
-- DRIVE_COUNTS (param = counts, 0 → 7600): enc_l, enc_r, yaw (0.1°) since start, pwm_l, pwm_r, cps_l, cps_r
+- RATE_STEPS (param = speed steps 2-5, 0 → 4; phase = step index; step i drives speed
+    100*i/(n-1) % with a full CCW turn command for 1.5 s): speed %, w % x10 (1000),
+    yaw_rate (0.1 °/s), cps_l, cps_r, pwm_l, pwm_r
+- RELAY_OSCILLATION (param = loop 0 speed, 1 rate, 2 heading; 8 s): setpoint x10, measured x10,
+    relay output in the PID's output unit (speed: % of max_cps → %; rate: °/s → w %;
+    heading: ° → °/s), pwm_l, pwm_r
+- DRIVE_COUNTS (param = counts, 0 → 7600): enc_l, enc_r, yaw (0.1°) since start, pwm_l, pwm_r,
+    cps_l, cps_r
 - SERVO_NUDGE: reserved, the Uno answers UNAVAILABLE (servo trim uses CAM_NUDGE + telemetry)
 """
 
 from __future__ import annotations
 
+import itertools
 import math
 import statistics
 from collections.abc import Sequence
@@ -3929,8 +3968,11 @@ class CalContext:
 
 
 class Calculator(Protocol):
-    item: str
-    settings_needed: tuple[str, ...]
+    @property
+    def item(self) -> str: ...
+
+    @property
+    def settings_needed(self) -> tuple[str, ...]: ...
 
     def scripts(self) -> list[ScriptStep]: ...
 
@@ -3948,8 +3990,11 @@ def _fail(error: str) -> CalOutcome:
 
 
 def _ok(**writes: int) -> CalOutcome:
-    return CalOutcome(True, tuple(SettingWrite(k, int(v)) for k, v in writes.items()),
-                      details={k: float(v) for k, v in writes.items()})
+    return CalOutcome(
+        True,
+        tuple(SettingWrite(k, int(v)) for k, v in writes.items()),
+        details={k: float(v) for k, v in writes.items()},
+    )
 
 
 class _Base:
@@ -4008,7 +4053,7 @@ class BatteryDivider(_Base):
             return _fail("no battery telemetry")
         measured = ctx.inputs.get("measured_v", math.nan)
         if not 5.0 <= measured <= 9.0:
-            return _fail("measured voltage outside 5–9 V")
+            return _fail("measured voltage outside 5-9 V")
         current = ctx.settings["batt_mv_per_count"]
         return _ok(batt_mv_per_count=round(current * measured / ctx.slow.batt_v))
 
@@ -4098,9 +4143,11 @@ class TrackBalance(_Base):
         s = ctx.samples.get(0, [])
         if len(s) < 10:
             return _fail("not enough samples")
+
         def p90(values: list[int]) -> int:
             ordered = sorted(abs(v) for v in values)
             return ordered[int(0.9 * (len(ordered) - 1))]
+
         return _ok(max_cps_l=p90([x.v[2] for x in s]), max_cps_r=p90([x.v[3] for x in s]))
 
 
@@ -4152,7 +4199,9 @@ class PidAutotune(_Base):
         self._loop_id = loop_id
 
     def scripts(self) -> list[ScriptStep]:
-        return [ScriptStep(g.CalScript.RELAY_OSCILLATION, self._loop_id, f"{self._loop} relay test")]
+        return [
+            ScriptStep(g.CalScript.RELAY_OSCILLATION, self._loop_id, f"{self._loop} relay test")
+        ]
 
     def compute(self, ctx: CalContext) -> CalOutcome:
         s = ctx.samples.get(0, [])
@@ -4164,7 +4213,7 @@ class PidAutotune(_Base):
         rises = [t[i] for i in range(1, len(err)) if err[i - 1] < 0 <= err[i]]
         if len(rises) < 3:
             return _fail("no sustained oscillation")
-        tu = statistics.fmean(b - a for a, b in zip(rises, rises[1:], strict=False))
+        tu = statistics.fmean(b - a for a, b in itertools.pairwise(rises))
         a = (max(err) - min(err)) / 2.0
         outs = [x.v[2] for x in s]
         d = (max(outs) - min(outs)) / 2.0
@@ -4174,11 +4223,13 @@ class PidAutotune(_Base):
         kp = ku / 2.2
         ti = 2.2 * tu
         td = tu / 6.3
-        return _ok(**{
-            f"pid_{self._loop}_kp": round(kp * 1000),
-            f"pid_{self._loop}_ki": round(kp / ti * 1000),
-            f"pid_{self._loop}_kd": round(kp * td * 1000),
-        })
+        return _ok(
+            **{
+                f"pid_{self._loop}_kp": round(kp * 1000),
+                f"pid_{self._loop}_ki": round(kp / ti * 1000),
+                f"pid_{self._loop}_kd": round(kp * td * 1000),
+            }
+        )
 
 
 class ServoTrim(_Base):
@@ -4214,22 +4265,42 @@ class UltrasonicOffset(_Base):
             return _fail("no ultrasonic readings or measurement")
         offset_mm = round((statistics.median(readings) - measured) * 10)
         if not 0 <= offset_mm <= 100:
-            return _fail(f"offset {offset_mm} mm outside 0–100 mm")
+            return _fail(f"offset {offset_mm} mm outside 0-100 mm")
         return _ok(ultrasonic_offset=offset_mm)
 
 
 CALCULATORS: dict[str, Calculator] = {
     c.item: c
     for c in (
-        GyroBias(), Level(), BatteryDivider(), Deadband(), EncoderCpr(), Distance(),
-        TrackBalance(), TrackWidth(), TurnCurve(), PidAutotune("speed", 0),
-        PidAutotune("rate", 1), PidAutotune("heading", 2), ServoTrim(), UltrasonicOffset(),
+        GyroBias(),
+        Level(),
+        BatteryDivider(),
+        Deadband(),
+        EncoderCpr(),
+        Distance(),
+        TrackBalance(),
+        TrackWidth(),
+        TurnCurve(),
+        PidAutotune("speed", 0),
+        PidAutotune("rate", 1),
+        PidAutotune("heading", 2),
+        ServoTrim(),
+        UltrasonicOffset(),
     )
 }
 
 WIZARD_ORDER: tuple[str, ...] = (
-    "battery_divider", "level", "gyro_bias", "deadband", "encoder_cpr", "distance",
-    "track_balance", "track_width", "turn_curve", "servo_trim", "ultrasonic_offset",
+    "battery_divider",
+    "level",
+    "gyro_bias",
+    "deadband",
+    "encoder_cpr",
+    "distance",
+    "track_balance",
+    "track_width",
+    "turn_curve",
+    "servo_trim",
+    "ultrasonic_offset",
 )
 ```
 The wizard order follows ESP32 LLD §7 / UX hub doc (battery → level → gyro → deadband → encoders/distance → balance → track width → turn curve → servos → ultrasonic); PID auto-tune is optional and run on request.

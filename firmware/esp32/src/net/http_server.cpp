@@ -27,16 +27,44 @@ QueueHandle_t g_out = nullptr;
 std::atomic<bool> g_work_pending{false};
 std::atomic<uint32_t> g_dropped{0};
 
+void queueSendWork();
+
+// Review I2: the httpd task also receives every drive/stop, so a send pass is bounded and a client
+// whose send fails (sleeping phone, full socket buffer) is closed instead of blocking again.
 void sendWork(void*) {
   g_work_pending = false;  // cleared first: a message posted while we drain queues new work
   static OutMsg m;         // httpd task only
-  while (xQueueReceive(g_out, &m, 0) == pdTRUE) {
+  constexpr int kMaxPerPass = 16;
+  int failed[4];
+  int n_failed = 0;
+  int sent = 0;
+  while (sent < kMaxPerPass && xQueueReceive(g_out, &m, 0) == pdTRUE) {
+    ++sent;
+    bool skip = false;
+    for (int i = 0; i < n_failed; ++i) skip = skip || failed[i] == m.fd;
+    if (skip) {
+      ++g_dropped;
+      continue;
+    }
     httpd_ws_frame_t f{};
     f.final = true;
     f.type = HTTPD_WS_TYPE_TEXT;
     f.payload = reinterpret_cast<uint8_t*>(m.data);
     f.len = m.len;
-    if (httpd_ws_send_frame_async(g_server, m.fd, &f) != ESP_OK) ++g_dropped;
+    if (httpd_ws_send_frame_async(g_server, m.fd, &f) != ESP_OK) {
+      ++g_dropped;
+      if (n_failed < 4) failed[n_failed++] = m.fd;
+      httpd_sess_trigger_close(g_server, m.fd);  // kWsClose follows: link_task drops the client
+    }
+  }
+  if (uxQueueMessagesWaiting(g_out) > 0) queueSendWork();  // rest in the next pass: receives run first
+}
+
+void queueSendWork() {
+  bool expected = false;
+  if (g_work_pending.compare_exchange_strong(expected, true) &&
+      httpd_queue_work(g_server, sendWork, nullptr) != ESP_OK) {
+    g_work_pending = false;
   }
 }
 
@@ -110,6 +138,8 @@ bool httpServerStart() {
   cfg.stack_size = 6144;
   cfg.core_id = 0;
   cfg.close_fn = onSockClose;
+  cfg.send_wait_timeout = 1;  // s (default 5): a stuck client must not stall drive/stop reception (I2)
+  cfg.recv_wait_timeout = 1;
   if (httpd_start(&g_server, &cfg) != ESP_OK) {
     logf("http: start failed");
     return false;
@@ -136,11 +166,7 @@ bool wsSend(int fd, const char* json, size_t len) {
     ++g_dropped;
     return false;
   }
-  bool expected = false;
-  if (g_work_pending.compare_exchange_strong(expected, true) &&
-      httpd_queue_work(g_server, sendWork, nullptr) != ESP_OK) {
-    g_work_pending = false;
-  }
+  queueSendWork();
   return true;
 }
 

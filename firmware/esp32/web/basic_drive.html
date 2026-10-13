@@ -333,6 +333,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     return { v: Math.round(shape(drive.y) * 100 * k), w: Math.round(-shape(drive.x) * 100 * k) };
   }
   function sendDrive() {
+    // Review I2: never queue drives behind a slow link (they would arrive late, in a burst).
+    // Skipping one is safe - the tank's deadman stops it if drives stop arriving.
+    if (ws && ws.bufferedAmount > 0) return;
     var d = driveValues();
     send({ t: "drive", v: d.v, w: d.w });
   }
@@ -348,6 +351,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   var drive = new Stick($("drivePad"), startDriveTimer, stopDrive);
 
   function sendCam() {
+    if (ws && ws.bufferedAmount > 0) return;  // same rule as drive (review I2)
     send({ t: "cam_joy", x: Math.round(cam.x * 100), y: Math.round(cam.y * 100), active: true });
   }
   var cam = new Stick($("camPad"), function () {

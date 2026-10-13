@@ -227,8 +227,6 @@ constexpr uint16_t kOtaPort = 3232;
 
 constexpr const char* kHostname = "conqueror-bridge";  // mDNS conqueror-bridge.local
 constexpr const char* kFallbackSsid = "conqueror-bridge";
-constexpr uint32_t kStationTimeoutMs = 30000;
-constexpr uint32_t kHomeRetryMs = 60000;
 constexpr uint32_t kStatusPeriodMs = 10000;
 constexpr uint32_t kLinkTickMs = 2;
 
@@ -2718,6 +2716,729 @@ Expected: `47 test cases: 47 succeeded` (Task 2's 29 + link_owner 18).
 ```bash
 git add firmware/esp32/src/core/link_owner.h firmware/esp32/src/core/link_owner.cpp firmware/esp32/test/test_link_owner
 git commit -m "feat(esp32): link owner arbiter for bench passthrough and phone driving
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 4: WiFi station + fallback AP, mDNS, ArduinoOTA, `link_task` gets the link owner
+
+(The TCP passthrough is Task 5: it needs the network from this task.)
+
+**Files:**
+- Create: `firmware/esp32/src/core/wifi_policy.h`, `firmware/esp32/test/test_wifi_policy/test_main.cpp`, `firmware/esp32/src/net/wifi_manager.h`, `firmware/esp32/src/net/wifi_manager.cpp`, `firmware/esp32/src/net/ota_service.h`, `firmware/esp32/src/net/ota_service.cpp`
+- Modify (full new content below): `firmware/esp32/src/net/link_task.h`, `firmware/esp32/src/net/link_task.cpp`, `firmware/esp32/src/main.cpp`
+
+**Interfaces:**
+- Consumes: `LinkOwner` (Task 3), `BodyLink`/`FrameTx` (Task 2), `secrets.h`, `cq::board::*`.
+- Produces:
+  - `cq::core::WifiPolicy` — `begin(now) → WifiAction`, `step(now, sta_connected, has_clients) → WifiAction`, `mode()`; `WifiMode {kConnecting, kStation, kFallbackAp}`, `WifiAction {kNone, kStartStation, kStationUp, kStartAp, kRetryStation, kApOff}`; `kStationTimeoutMs = 30000`, `kHomeRetryMs = 60000`.
+  - `cq::net::WifiManager` — `begin(now)`, `step(now, has_clients)`, `mode()`, `modeName()` (`"connecting"|"station"|"fallback_ap"`), `ip(char*, len)`, `rssi()`; mDNS `conqueror-bridge.local` with `_http._tcp` 80, `_cqbridge._tcp` 3333, `_arduino._tcp` 3232.
+  - `cq::net::OtaService` — `begin()`, `addStartHook(void(*)())`, `poll(bool allowed)`.
+  - `cq::net::LinkStatus` (state, ota_allowed, ota_active, synced, hello, driver, ws_clients, tcp_active, tcp_refused, last_refusal, frames_tx/rx, bad_crc, tcp_up/down) and `cq::net::linkStatus()`; `link_task` now applies `LinkOwner` actions, follows the Uno owner (IR) and handles `LinkCommand::Kind::kOtaStart`.
+
+- [ ] **Step 1: Write the failing WiFi policy test**
+
+`firmware/esp32/test/test_wifi_policy/test_main.cpp`:
+```cpp
+// WifiPolicy: station first, AP after 30 s, retry every 60 s only without clients.
+#include <unity.h>
+
+#include "core/wifi_policy.h"
+
+using cq::core::WifiAction;
+using cq::core::WifiMode;
+using cq::core::WifiPolicy;
+
+namespace {
+int A(WifiAction a) { return static_cast<int>(a); }
+}  // namespace
+
+void setUp() {}
+void tearDown() {}
+
+void test_station_connects() {
+  WifiPolicy p;
+  TEST_ASSERT_EQUAL(A(WifiAction::kStartStation), A(p.begin(0)));
+  TEST_ASSERT_EQUAL(A(WifiAction::kNone), A(p.step(1000, false, false)));
+  TEST_ASSERT_EQUAL(A(WifiAction::kStationUp), A(p.step(2000, true, false)));
+  TEST_ASSERT_EQUAL(static_cast<int>(WifiMode::kStation), static_cast<int>(p.mode()));
+}
+
+void test_fallback_ap_after_30s() {
+  WifiPolicy p;
+  p.begin(0);
+  TEST_ASSERT_EQUAL(A(WifiAction::kNone), A(p.step(29999, false, false)));
+  TEST_ASSERT_EQUAL(A(WifiAction::kStartAp), A(p.step(30000, false, false)));
+  TEST_ASSERT_EQUAL(static_cast<int>(WifiMode::kFallbackAp), static_cast<int>(p.mode()));
+}
+
+void test_retry_every_60s_only_without_clients() {
+  WifiPolicy p;
+  p.begin(0);
+  p.step(30000, false, false);
+  TEST_ASSERT_EQUAL(A(WifiAction::kNone), A(p.step(90000, false, true)));  // phone connected
+  TEST_ASSERT_EQUAL(A(WifiAction::kRetryStation), A(p.step(90001, false, false)));
+  TEST_ASSERT_EQUAL(A(WifiAction::kNone), A(p.step(100000, false, false)));
+  TEST_ASSERT_EQUAL(A(WifiAction::kApOff), A(p.step(110000, true, false)));
+}
+
+void test_station_lost_reconnects() {
+  WifiPolicy p;
+  p.begin(0);
+  p.step(10, true, false);
+  TEST_ASSERT_EQUAL(A(WifiAction::kStartStation), A(p.step(5000, false, false)));
+  TEST_ASSERT_EQUAL(A(WifiAction::kStartAp), A(p.step(35000, false, false)));
+}
+
+int main() {
+  UNITY_BEGIN();
+  RUN_TEST(test_station_connects);
+  RUN_TEST(test_fallback_ap_after_30s);
+  RUN_TEST(test_retry_every_60s_only_without_clients);
+  RUN_TEST(test_station_lost_reconnects);
+  return UNITY_END();
+}
+```
+
+Run: `cd firmware/esp32 && pio test -e native -f test_wifi_policy`
+Expected: build error — `core/wifi_policy.h` not found.
+
+- [ ] **Step 2: Implement the policy**
+
+`firmware/esp32/src/core/wifi_policy.h`:
+```cpp
+// WiFi station / fallback AP decisions (bridge LLD Revision 1 "WiFi behaviour", unchanged in R2):
+// try the home network; after 30 s start the WPA2 AP "conqueror-bridge"; while in AP mode retry the
+// home network every 60 s, but only when no WS/TCP/stream client is connected. Pure C++.
+#pragma once
+
+#include <stdint.h>
+
+namespace cq {
+namespace core {
+
+constexpr uint32_t kStationTimeoutMs = 30000;
+constexpr uint32_t kHomeRetryMs = 60000;
+
+enum class WifiMode : uint8_t { kConnecting, kStation, kFallbackAp };
+enum class WifiAction : uint8_t { kNone, kStartStation, kStationUp, kStartAp, kRetryStation, kApOff };
+
+class WifiPolicy {
+ public:
+  WifiAction begin(uint32_t now_ms) {
+    m_mode = WifiMode::kConnecting;
+    m_since_ms = now_ms;
+    return WifiAction::kStartStation;
+  }
+  WifiAction step(uint32_t now_ms, bool sta_connected, bool has_clients) {
+    switch (m_mode) {
+      case WifiMode::kConnecting:
+        if (sta_connected) {
+          m_mode = WifiMode::kStation;
+          return WifiAction::kStationUp;
+        }
+        if (now_ms - m_since_ms >= kStationTimeoutMs) {
+          m_mode = WifiMode::kFallbackAp;
+          m_since_ms = now_ms;
+          return WifiAction::kStartAp;
+        }
+        return WifiAction::kNone;
+      case WifiMode::kStation:
+        if (!sta_connected) {
+          m_mode = WifiMode::kConnecting;
+          m_since_ms = now_ms;
+          return WifiAction::kStartStation;
+        }
+        return WifiAction::kNone;
+      case WifiMode::kFallbackAp:
+      default:
+        if (sta_connected) {
+          m_mode = WifiMode::kStation;
+          return WifiAction::kApOff;  // home network is back: AP off, station up
+        }
+        if (!has_clients && now_ms - m_since_ms >= kHomeRetryMs) {
+          m_since_ms = now_ms;
+          return WifiAction::kRetryStation;  // AP stays up while the station retries
+        }
+        return WifiAction::kNone;
+    }
+  }
+  WifiMode mode() const { return m_mode; }
+
+ private:
+  WifiMode m_mode = WifiMode::kConnecting;
+  uint32_t m_since_ms = 0;
+};
+
+}  // namespace core
+}  // namespace cq
+```
+
+Run: `pio test -e native`
+Expected: `51 test cases: 51 succeeded`.
+
+- [ ] **Step 3: WiFi manager with mDNS**
+
+`firmware/esp32/src/net/wifi_manager.h`:
+```cpp
+// Station / fallback AP + mDNS (bridge LLD R2.6 WifiManager, MdnsAdvertiser). Arduino loop only.
+#pragma once
+
+#include <stdint.h>
+
+#include "core/wifi_policy.h"
+
+namespace cq {
+namespace net {
+
+class WifiManager {
+ public:
+  void begin(uint32_t now_ms);
+  void step(uint32_t now_ms, bool has_clients);
+  core::WifiMode mode() const { return m_policy.mode(); }
+  const char* modeName() const;
+  void ip(char* out, size_t len) const;  // "192.168.1.42" or "" when not up
+  int rssi() const;
+
+ private:
+  void startMdns();
+  core::WifiPolicy m_policy;
+  bool m_mdns = false;
+};
+
+}  // namespace net
+}  // namespace cq
+```
+
+`firmware/esp32/src/net/wifi_manager.cpp`:
+```cpp
+#include "net/wifi_manager.h"
+
+#include <ESPmDNS.h>
+#include <WiFi.h>
+
+#include "board_config.h"
+#include "net/log.h"
+#include "secrets.h"
+
+namespace cq {
+namespace net {
+
+void WifiManager::begin(uint32_t now_ms) {
+  WiFi.persistent(false);  // credentials come from secrets.h, not NVS
+  WiFi.setHostname(board::kHostname);
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);  // modem sleep adds 100+ ms latency to drive messages
+  m_policy.begin(now_ms);
+  WiFi.begin(CQ_WIFI_SSID, CQ_WIFI_PASSWORD);
+  logf("wifi: connecting to \"%s\"", CQ_WIFI_SSID);
+}
+
+void WifiManager::step(uint32_t now_ms, bool has_clients) {
+  const bool connected = WiFi.status() == WL_CONNECTED;
+  switch (m_policy.step(now_ms, connected, has_clients)) {
+    case core::WifiAction::kStationUp:
+    case core::WifiAction::kApOff:
+      if (WiFi.getMode() == WIFI_AP_STA) WiFi.mode(WIFI_STA);
+      logf("wifi: station up, IP %s, RSSI %d dBm, http://%s.local/", WiFi.localIP().toString().c_str(),
+           WiFi.RSSI(), board::kHostname);
+      startMdns();
+      break;
+    case core::WifiAction::kStartStation:
+      logf("wifi: station lost, reconnecting");
+      WiFi.reconnect();
+      break;
+    case core::WifiAction::kStartAp:
+      WiFi.mode(WIFI_AP_STA);
+      WiFi.softAP(board::kFallbackSsid, CQ_AP_PASSWORD);
+      logf("wifi: home network not reachable - fallback AP \"%s\" at %s", board::kFallbackSsid,
+           WiFi.softAPIP().toString().c_str());
+      startMdns();
+      break;
+    case core::WifiAction::kRetryStation:
+      logf("wifi: retrying home network (AP stays up)");
+      WiFi.begin(CQ_WIFI_SSID, CQ_WIFI_PASSWORD);
+      break;
+    case core::WifiAction::kNone:
+    default:
+      break;
+  }
+}
+
+void WifiManager::startMdns() {
+  if (m_mdns) return;
+  if (!MDNS.begin(board::kHostname)) {
+    logf("mdns: start failed");
+    return;
+  }
+  MDNS.addService("http", "tcp", board::kHttpPort);
+  MDNS.addService("cqbridge", "tcp", board::kTcpPort);  // Plan D: discover looks for _cqbridge._tcp
+  MDNS.enableArduino(board::kOtaPort, true);             // _arduino._tcp for espota
+  m_mdns = true;
+  logf("mdns: %s.local (_http._tcp 80, _cqbridge._tcp 3333, _arduino._tcp 3232)",
+       board::kHostname);
+}
+
+const char* WifiManager::modeName() const {
+  switch (m_policy.mode()) {
+    case core::WifiMode::kStation:
+      return "station";
+    case core::WifiMode::kFallbackAp:
+      return "fallback_ap";
+    case core::WifiMode::kConnecting:
+    default:
+      return "connecting";
+  }
+}
+
+void WifiManager::ip(char* out, size_t len) const {
+  IPAddress a;
+  if (m_policy.mode() == core::WifiMode::kStation) a = WiFi.localIP();
+  if (m_policy.mode() == core::WifiMode::kFallbackAp) a = WiFi.softAPIP();
+  if (len == 0) return;
+  out[0] = '\0';
+  if (a != IPAddress()) snprintf(out, len, "%s", a.toString().c_str());
+}
+
+int WifiManager::rssi() const {
+  return m_policy.mode() == core::WifiMode::kStation ? WiFi.RSSI() : 0;
+}
+
+}  // namespace net
+}  // namespace cq
+```
+
+- [ ] **Step 4: ArduinoOTA service**
+
+`firmware/esp32/src/net/ota_service.h`:
+```cpp
+// ArduinoOTA with a password (bridge LLD R2.5, R2.14 #3). Polled only while nobody drives.
+#pragma once
+
+#include <stdint.h>
+
+namespace cq {
+namespace net {
+
+class OtaService {
+ public:
+  using Hook = void (*)();
+  void begin();
+  void addStartHook(Hook hook);  // e.g. stop the camera (Task 8)
+  void poll(bool allowed);       // ArduinoOTA.handle() only when allowed
+
+ private:
+  static void onStart();
+  static constexpr int kMaxHooks = 4;
+  static Hook s_hooks[kMaxHooks];
+  static int s_hook_count;
+  bool m_started = false;
+};
+
+}  // namespace net
+}  // namespace cq
+```
+
+`firmware/esp32/src/net/ota_service.cpp`:
+```cpp
+#include "net/ota_service.h"
+
+#include <ArduinoOTA.h>
+
+#include "board_config.h"
+#include "net/link_task.h"
+#include "net/log.h"
+#include "secrets.h"
+
+namespace cq {
+namespace net {
+
+OtaService::Hook OtaService::s_hooks[OtaService::kMaxHooks] = {};
+int OtaService::s_hook_count = 0;
+
+void OtaService::begin() {
+  ArduinoOTA.setPort(board::kOtaPort);
+  ArduinoOTA.setHostname(board::kHostname);
+  ArduinoOTA.setPassword(CQ_OTA_PASSWORD);  // MD5 challenge: "fun, not ultra secure"
+  ArduinoOTA.setMdnsEnabled(false);         // WifiManager announces _arduino._tcp
+  ArduinoOTA.onStart(onStart);
+  ArduinoOTA.onEnd([]() { logf("ota: done - rebooting into the new slot"); });
+  ArduinoOTA.onError([](ota_error_t e) {
+    logf("ota: error %u - rebooting into the current firmware", static_cast<unsigned>(e));
+    vTaskDelay(pdMS_TO_TICKS(500));
+    ESP.restart();  // clients were closed and heartbeats stopped: start clean
+  });
+}
+
+void OtaService::addStartHook(Hook hook) {
+  if (s_hook_count < kMaxHooks) s_hooks[s_hook_count++] = hook;
+}
+
+void OtaService::onStart() {
+  logf("ota: start (%s) - stopping the tank and closing clients",
+       ArduinoOTA.getCommand() == U_FLASH ? "app" : "source partition");
+  LinkCommand cmd{};
+  cmd.kind = LinkCommand::Kind::kOtaStart;
+  linkPost(cmd, true);  // STOP, close WS/TCP, stop heartbeats
+  for (int i = 0; i < s_hook_count; ++i) s_hooks[i]();
+  vTaskDelay(pdMS_TO_TICKS(50));  // let link_task send the STOP before flash writes start
+}
+
+void OtaService::poll(bool allowed) {
+  if (!allowed) return;  // espota times out; retry when nobody drives
+  if (!m_started) {
+    ArduinoOTA.begin();  // needs the network up: first call after WiFi is ready
+    m_started = true;
+    logf("ota: ready on port %u (password from secrets.h)", board::kOtaPort);
+  }
+  ArduinoOTA.handle();
+}
+
+}  // namespace net
+}  // namespace cq
+```
+
+- [ ] **Step 5: `link_task` with the link owner and a status snapshot (replace both files)**
+
+`firmware/esp32/src/net/link_task.h`:
+```cpp
+// link_task: the only owner of the Uno UART, the body-link core objects, the link owner and the
+// bench TCP client (bridge LLD R2.11). Runs on core 1 every 2 ms. Other tasks talk to it only
+// through linkPost() and read a copy of its state with linkStatus().
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "core/body_link.h"
+#include "core/link_owner.h"
+
+namespace cq {
+namespace net {
+
+struct LinkCommand {
+  enum class Kind : uint8_t { kWsOpen, kWsClose, kWsText, kOtaStart };
+  Kind kind;
+  int fd;
+  uint16_t len;
+  char text[200];  // one WS JSON message (longer ones are refused by the WS handler)
+};
+
+struct LinkStatus {
+  core::LinkState state = core::LinkState::kIdle;
+  bool ota_allowed = true;
+  bool ota_active = false;
+  bool synced = false;
+  core::HelloInfo hello;
+  char driver[16] = "";   // "phone-2" / "bench" / ""
+  uint8_t ws_clients = 0;
+  bool tcp_active = false;
+  uint32_t tcp_refused = 0;
+  char last_refusal[48] = "";
+  uint32_t frames_tx = 0;
+  uint32_t frames_rx = 0;
+  uint32_t bad_crc = 0;
+  uint32_t tcp_up = 0;    // bench -> Uno bytes
+  uint32_t tcp_down = 0;  // Uno -> bench bytes
+};
+
+void linkTaskStart();
+bool linkPost(const LinkCommand& cmd, bool urgent);  // urgent (STOP, OTA) goes to the queue front
+LinkStatus linkStatus();                             // consistent copy, any task
+
+}  // namespace net
+}  // namespace cq
+```
+
+`firmware/esp32/src/net/link_task.cpp`:
+```cpp
+#include "net/link_task.h"
+
+#include <Arduino.h>
+#include <string.h>
+
+#include "board_config.h"
+#include "core/frame_tx.h"
+#include "net/log.h"
+#include "net/uart_port.h"
+
+namespace cq {
+namespace net {
+namespace {
+
+QueueHandle_t g_queue = nullptr;
+portMUX_TYPE g_status_mux = portMUX_INITIALIZER_UNLOCKED;
+LinkStatus g_status;
+
+UartPort g_uart;
+core::FrameTx g_tx;
+core::BodyLink g_link(g_tx);
+core::LinkOwner g_owner;
+bool g_ota_active = false;
+
+void drainTx() {
+  const uint8_t* p = nullptr;
+  size_t len = 0;
+  while ((len = g_tx.peek(p)) != 0) {
+    if (g_uart.txFree() < len) return;  // next tick (UART drains 25 B/ms); never a partial chunk
+    g_uart.write(p, len);
+    g_tx.pop();
+  }
+}
+
+// Executes LinkOwner actions in the documented order.
+void apply(const core::Actions& a, uint32_t now) {
+  if (a.has(core::Actions::kStopMaster)) {
+    g_link.stopMaster();
+    g_tx.clear();  // drop queued ESP32 frames; a pending STOP (urgent slot) is kept
+  }
+  if (a.has(core::Actions::kSendStop)) g_link.sendStop(now);
+  if (a.has(core::Actions::kHintNone)) g_link.setOwnerHint(proto::OwnerHintValue::kNone);
+  if (a.has(core::Actions::kHintHuman)) g_link.setOwnerHint(proto::OwnerHintValue::kHuman);
+  if (a.has(core::Actions::kStartMaster)) g_link.startMaster(now);
+}
+
+void handleLinkEvents(uint32_t now) {
+  core::LinkEvent ev{};
+  while (g_link.popEvent(ev)) {
+    switch (ev.kind) {
+      case core::LinkEventKind::kBodyOnline: {
+        const core::HelloInfo& h = g_link.hello();
+        logf("uno: synced fw %u.%u proto %u commit %08lx", h.fw >> 8, h.fw & 0xFF, h.proto,
+             static_cast<unsigned long>(h.commit));
+        apply(g_owner.onSynced(true), now);
+        break;
+      }
+      case core::LinkEventKind::kBodyOffline:
+        if (ev.code == 1) {
+          logf("uno: incompatible protocol %d (need %u) - flash Plan B firmware", ev.a,
+               proto::kProtocolVersion);
+        } else {
+          logf("uno: body offline (silent)");
+        }
+        apply(g_owner.onSynced(false), now);
+        break;
+      case core::LinkEventKind::kUnoEvent:
+        if (ev.code == static_cast<uint8_t>(proto::EventKind::kControlChanged)) {
+          apply(g_owner.onUnoOwner(static_cast<proto::Owner>(ev.a)), now);
+        }
+        break;
+      case core::LinkEventKind::kResetRequest:
+        logf("uno: %s reset request ignored (bridge has no stored settings)",
+             ev.code == static_cast<uint8_t>(proto::FrameType::kWifiResetReq) ? "WiFi" : "admin");
+        break;
+      case core::LinkEventKind::kStopResult:
+      case core::LinkEventKind::kAckResult:
+      default:
+        break;
+    }
+  }
+}
+
+void handleCommand(const LinkCommand& cmd, uint32_t now) {
+  if (cmd.kind == LinkCommand::Kind::kOtaStart) {
+    g_ota_active = true;  // from now on: drives nacked BUSY, benches refused
+    g_link.sendStop(now);  // resent until the Uno's ACK
+    g_link.stopMaster();   // heartbeats stop: Uno link-loss stop at standstill is harmless
+  }
+}
+
+void publishStatus() {
+  LinkStatus s;
+  s.state = g_owner.state();
+  s.ota_active = g_ota_active;
+  s.ota_allowed = g_owner.otaAllowed() && !g_ota_active;
+  s.synced = g_link.synced();
+  s.hello = g_link.hello();
+  s.ws_clients = g_owner.wsCount();
+  s.frames_tx = g_link.stats().frames_tx;
+  s.frames_rx = g_link.stats().frames_rx;
+  s.bad_crc = g_link.parserStats().bad_crc;
+  portENTER_CRITICAL(&g_status_mux);
+  g_status = s;
+  portEXIT_CRITICAL(&g_status_mux);
+}
+
+void linkTask(void*) {
+  uint8_t rx[256];
+  uint32_t last_publish = 0;
+  TickType_t wake = xTaskGetTickCount();
+  for (;;) {
+    const uint32_t now = millis();
+    size_t n = 0;
+    while ((n = g_uart.read(rx, sizeof(rx))) != 0) g_link.onUartBytes(rx, n, now);
+    LinkCommand cmd;
+    while (xQueueReceive(g_queue, &cmd, 0) == pdTRUE) handleCommand(cmd, now);
+    if (g_link.snapshot().slow_valid) {
+      apply(g_owner.onUnoOwner(static_cast<proto::Owner>(g_link.snapshot().slow.owner)), now);
+    }
+    apply(g_owner.tick(now), now);
+    g_link.step(now);
+    handleLinkEvents(now);
+    drainTx();
+    if (now - last_publish >= 100) {
+      last_publish = now;
+      publishStatus();
+    }
+    vTaskDelayUntil(&wake, pdMS_TO_TICKS(board::kLinkTickMs));
+  }
+}
+
+}  // namespace
+
+void linkTaskStart() {
+  g_uart.begin();
+  g_queue = xQueueCreate(16, sizeof(LinkCommand));
+  xTaskCreatePinnedToCore(linkTask, "link", 6144, nullptr, 5, nullptr, 1);
+  logf("uno link: Serial1 RX %d TX %d %lu baud", board::kUnoRxPin, board::kUnoTxPin,
+       static_cast<unsigned long>(board::kUnoBaud));
+}
+
+bool linkPost(const LinkCommand& cmd, bool urgent) {
+  if (g_queue == nullptr) return false;
+  return (urgent ? xQueueSendToFront(g_queue, &cmd, 0) : xQueueSendToBack(g_queue, &cmd, 0)) ==
+         pdTRUE;
+}
+
+LinkStatus linkStatus() {
+  portENTER_CRITICAL(&g_status_mux);
+  const LinkStatus s = g_status;
+  portEXIT_CRITICAL(&g_status_mux);
+  return s;
+}
+
+}  // namespace net
+}  // namespace cq
+```
+
+- [ ] **Step 6: Composition root (replace `src/main.cpp`)**
+
+`firmware/esp32/src/main.cpp`:
+```cpp
+// Conqueror ESP32-S3 developer bridge - composition root (bridge LLD R2.6).
+// DEVELOPER BRIDGE - NO AUTHENTICATION - home network only. Never in release firmware.
+#include <Arduino.h>
+#include <esp_mac.h>
+#include <esp_ota_ops.h>
+
+#include "board_config.h"
+#include "net/link_task.h"
+#include "net/log.h"
+#include "net/ota_service.h"
+#include "net/wifi_manager.h"
+#include "secrets_guard.h"
+#include "version.h"
+
+namespace {
+
+cq::net::WifiManager g_wifi;
+cq::net::OtaService g_ota;
+uint32_t g_last_status_ms = 0;
+
+void logBanner() {
+  using cq::net::logf;
+  logf("%s %s commit %.8s%s built %s", CQ_FW_NAME, CQ_FW_VERSION, CQ_GIT_COMMIT,
+       CQ_GIT_DIRTY ? " (dirty)" : "", CQ_BUILD_DATE);
+  logf("repo %s", CQ_REPO_URL);
+  uint8_t mac[6] = {};
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  logf("chip %s rev %u, %u MHz, flash %lu MB, PSRAM %lu MB, MAC %02x:%02x:%02x:%02x:%02x:%02x",
+       ESP.getChipModel(), static_cast<unsigned>(ESP.getChipRevision()),
+       static_cast<unsigned>(ESP.getCpuFreqMHz()),
+       static_cast<unsigned long>(ESP.getFlashChipSize() >> 20),
+       static_cast<unsigned long>(ESP.getPsramSize() >> 20), mac[0], mac[1], mac[2], mac[3], mac[4],
+       mac[5]);
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  logf("running from partition %s", running ? running->label : "?");
+  logf("DEVELOPER BRIDGE - NO AUTHENTICATION - home network only");
+}
+
+const char* stateName(cq::core::LinkState s) {
+  switch (s) {
+    case cq::core::LinkState::kWebHandshake:
+      return "web-handshake";
+    case cq::core::LinkState::kWebReady:
+      return "web-ready";
+    case cq::core::LinkState::kWebDriving:
+      return "web-driving";
+    case cq::core::LinkState::kTcpPassthrough:
+      return "bench";
+    case cq::core::LinkState::kIdle:
+    default:
+      return "idle";
+  }
+}
+
+bool hasClients(const cq::net::LinkStatus& s) { return s.ws_clients > 0 || s.tcp_active; }
+
+void logStatus(uint32_t now_ms, const cq::net::LinkStatus& s) {
+  cq::net::logf("status: up %lus wifi %s link %s uno %s ws %u tcp %u rx %lu tx %lu crc %lu heap %lu",
+                static_cast<unsigned long>(now_ms / 1000), g_wifi.modeName(), stateName(s.state),
+                s.synced ? "synced" : (s.hello.seen ? "seen" : "-"), s.ws_clients,
+                s.tcp_active ? 1u : 0u, static_cast<unsigned long>(s.frames_rx),
+                static_cast<unsigned long>(s.frames_tx), static_cast<unsigned long>(s.bad_crc),
+                static_cast<unsigned long>(ESP.getFreeHeap()));
+}
+
+}  // namespace
+
+void setup() {
+  cq::net::logBegin();
+  logBanner();
+  if (ESP.getPsramSize() == 0) {
+    cq::net::logf("ERROR: no PSRAM - check board_build.arduino.memory_type = qio_opi");
+  }
+  cq::net::linkTaskStart();
+  g_wifi.begin(millis());
+  g_ota.begin();
+}
+
+void loop() {
+  const uint32_t now = millis();
+  const cq::net::LinkStatus s = cq::net::linkStatus();
+  g_wifi.step(now, hasClients(s));
+  g_ota.poll(s.ota_allowed && g_wifi.mode() != cq::core::WifiMode::kConnecting);
+  if (now - g_last_status_ms >= cq::board::kStatusPeriodMs) {
+    g_last_status_ms = now;
+    logStatus(now, s);
+  }
+  vTaskDelay(pdMS_TO_TICKS(10));
+}
+```
+
+Run: `pio run -e bridge`
+Expected: `SUCCESS`.
+
+- [ ] **Step 7 [HW]: Station, mDNS, fallback AP**
+
+Run: `pio run -e bridge -t upload --upload-port /dev/ttyACM0 && pio device monitor -p /dev/ttyACM0 -b 115200`
+Expected within a few seconds:
+```
+[ …] wifi: connecting to "<ssid>"
+[ …] wifi: station up, IP 192.168.x.y, RSSI -5x dBm, http://conqueror-bridge.local/
+[ …] mdns: conqueror-bridge.local (_http._tcp 80, _cqbridge._tcp 3333, _arduino._tcp 3232)
+[ …] ota: ready on port 3232 (password from secrets.h)
+[ …] status: up 10s wifi station link idle uno seen ws 0 tcp 0 rx … tx 0 crc 0 heap …
+```
+From the laptop: `ping -c 3 conqueror-bridge.local` answers; macOS `dns-sd -B _cqbridge._tcp` (Linux `avahi-browse -rt _cqbridge._tcp`) lists `conqueror-bridge`.
+Fallback: put a wrong `CQ_WIFI_PASSWORD` in `secrets.h`, flash, wait 30 s → `wifi: home network not reachable - fallback AP "conqueror-bridge" at 192.168.4.1`; join that network from a phone with `CQ_AP_PASSWORD` and open `http://192.168.4.1/` (404 until Task 6 — the connection itself is the check). Restore the password and flash again.
+
+- [ ] **Step 8 [HW]: OTA update over WiFi**
+
+Run (same password as in `secrets.h`):
+```bash
+export CQ_OTA_PASSWORD='<your OTA password>'
+pio run -e bridge_ota -t upload
+```
+Expected: espota prints `Authenticating...OK`, `Uploading…`, `Done...`; the USB log shows `ota: start (app) - stopping the tank and closing clients`, `ota: done - rebooting into the new slot`, then after reboot `running from partition app1` (the other slot). With a wrong password espota fails at authentication and the bridge keeps running.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add firmware/esp32/src firmware/esp32/test/test_wifi_policy
+git commit -m "feat(esp32): WiFi station with fallback AP, mDNS and password-protected OTA
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```

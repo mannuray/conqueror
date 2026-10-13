@@ -5914,21 +5914,30 @@ cd tools/bench
 uv sync                       # add --extra hold for pynput hold-to-drive
 uv run bench --sim test all   # everything against the simulated Uno
 uv run bench discover         # WiFi bridges + USB serial ports
-uv run bench -p /dev/tty.usbserial-XXXX connect   # USB (shield switch S1 → USB)
+uv run bench -p /dev/tty.usbserial-XXXX connect   # USB on macOS (shield switch S1 → USB)
+uv run bench -p /dev/ttyUSB0 connect              # USB on Linux (the Uno's CH340 chip)
 uv run bench -H conqueror-bridge.local dash        # WiFi bridge
 ```
 Driving (cruise control): W/S speed ±10 % · A/D steer · C centre · Q/E spin · SPACE STOP · arrows camera · H camera home · 1–9 quick tests · F1–F7 screens · Ctrl+Q quit (sends STOP).
 Sessions land in `sessions/<date>_<time>_<test>/` (raw.bin, telemetry.csv, events.jsonl, inputs.json, result.json, report.md, plots/).
+Console extras: `override on|off` enters/leaves Safety Override (human only, refused in child play, auto-expires after 60 s idle / 5 min); the dashboard status line shows `⚠ OVERRIDE` or `⛔ LOCKED: self-test failed` when active.
+WiFi bridge: one driver at a time — while a phone drives through the Basic Drive page the bridge refuses the bench (`bridge busy`); the bridge drops a bench that stays silent for 1 s.
 Safety: quitting, Ctrl-C or a crash sends STOP first; if the laptop dies the Uno stops by itself (no heartbeat for 300 ms). The IR remote always overrides.
 ````
 
 - [ ] **Step 2: USB bring-up on the stand (tracks off the ground)**
 
 Run: `cd tools/bench && uv run bench -p <port> connect`
-Expected: `connected: HelloInfo(fw_major=1, …, encoders=True|False, reset_reason='POWER_ON' or 'UNKNOWN', commit=…)` (`commit` is the flashed Uno build's git commit as a number; 0 if it was built outside git), then link stats with `bad_crc=0`.
+Port: `/dev/ttyUSB0` on Linux (CH340), `/dev/tty.usbserial-*` on macOS. Tank **on the stand, tracks off the ground**, STOP within reach (Space or the IR remote).
+Expected: `connected: HelloInfo(fw_major=1, …, encoders=True|False, reset_reason='POWER_ON' or 'UNKNOWN' (the owner's Uno has Optiboot 4.4, which does not pass the reset cause → `UNKNOWN` is normal), commit=…)` (`commit` is the flashed Uno build's git commit as a number; 0 if it was built outside git), then link stats with `bad_crc=0`.
 
 Run: `uv run bench -p <port> probe`
-Expected: `OK   both forward`, `OK   spin left`, `OK   level`, `OK   yaw_sign` (fix firmware pin map / IMU axis map on any FAIL before continuing).
+Expected: `OK   both forward`, `OK   spin left`, `OK   level`, `OK   yaw_sign` (fix firmware pin map / IMU axis map on any FAIL before continuing). This settles the open pin-pairing question from the decoded old firmware (`docs/legacy/README.md`: PWM D6 with direction D7 vs our D5 with D7): watch which track turns and in which direction for each probe step.
+
+Then, still on the stand:
+- `uv run bench -p <port> console` → `override on` → expect `ACK OK` and `⚠ OVERRIDE` in the status line; leave it idle → it ends by itself after 60 s (event `SAFETY_OVERRIDE` a=0, reason `IDLE`). `envelope child_play` then `override on` → expect `ENVELOPE_LOCKED`.
+- Self-test lock: boot the Uno on USB only (battery off) → status shows `⛔ LOCKED`; switch the battery on → it unlocks by itself about 1 s later.
+- Tilt: tilt the tank by hand past 45° for more than 0.3 s while a slow drive is commanded → motors stop with the tilt alarm; back below 40° → clears.
 
 - [ ] **Step 3: Calibrate on the floor (USB cable long enough, or after Plan C over WiFi)**
 
@@ -5951,6 +5960,6 @@ git commit -m "docs(bench): usage and hardware acceptance"
 
 ## Done when
 
-- `cd tools/bench && uv run pytest` passes (transports, sim, link, model, api, teleop, metrics, recorder, runner, reporter, calculators, calibration, tuning/probe, console/CLI, app) and ruff + pyright are clean.
+- `cd tools/bench && uv run pytest` passes — **92 tests** (transports, sim, link, model, api, teleop, metrics, recorder, runner, reporter, calculators, calibration, tuning/probe, console/CLI, app) — and ruff, `ruff format --check` and pyright strict are clean.
 - `uv run bench --sim test all` runs all six tests against the simulated Uno (scripted answers) and writes a report per test. `safety_checks` needs a lift that the sim cannot fake from the CLI, so it reports `lift_detected` FAIL there. That is expected; the runner test covers it with an injected event.
 - Hardware acceptance (Task 16) completed once Plans B and C are flashed.

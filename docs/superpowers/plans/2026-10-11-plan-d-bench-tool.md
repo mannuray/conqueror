@@ -342,7 +342,7 @@ git commit -m "feat(bench): project scaffold and byte transports"
 
 **Interfaces:**
 - Consumes: `Transport`, `fake_pair`; `conqueror_protocol` (`FrameParser`, `build_frame`, `decode_frame`, `generated as g`).
-- Produces: `SimConfig` (dataclass fields shown below), `SimulatedUno(transport, config=None)` with `async run()`, `async emit_event(kind: g.EventKind, a: int = 0, b: int = 0)`, attributes `received: list[Message]`, `synced: bool`, `envelope: tuple[int,int,int] | None`, `brake_on: bool`, `yaw_deg`, `x_cm`, `y_cm`, `enc_l`, `enc_r`, `mode: str`, `settings: dict[int,int]`, `saved_settings: dict[int,int]`, `link_lost_count: int`. The simulator also models Safety Override (`override: bool`; human-only, BUSY before sync, ENVELOPE_LOCKED under child play, `SAFETY_OVERRIDE` event, slow `flags2` bit).
+- Produces: `SimConfig` (dataclass fields shown below), `SimulatedUno(transport, config=None)` with `async run()`, `async emit_event(kind: g.EventKind, a: int = 0, b: int = 0)`, attributes `received: list[Message]`, `synced: bool`, `envelope: tuple[int,int,int] | None`, `brake_on: bool`, `yaw_deg`, `x_cm`, `y_cm`, `enc_l`, `enc_r`, `mode: str`, `settings: dict[int,int]`, `saved_settings: dict[int,int]`, `link_lost_count: int`. `place_obstacle(distance_cm: float | None)` puts an obstacle in front of the tank at any time. The simulator also models Safety Override (`override: bool`; human-only, BUSY before sync, ENVELOPE_LOCKED under child play, `SAFETY_OVERRIDE` event, slow `flags2` bit).
 
 - [ ] **Step 1: Write the failing simulator tests**
 
@@ -554,6 +554,10 @@ class SimulatedUno:
         self._link_ok = True
         self._obstacle = self.cfg.obstacle_cm
         self._cal_task: asyncio.Task[None] | None = None
+
+    def place_obstacle(self, distance_cm: float | None) -> None:
+        """Put an obstacle this far in front of the tank now (None removes it)."""
+        self._obstacle = distance_cm
 
     async def run(self) -> None:
         async with asyncio.TaskGroup() as tg:
@@ -1376,7 +1380,7 @@ git commit -m "feat(bench): link session with heartbeat, handshake, acks and STO
 
 **Interfaces:**
 - Consumes: `conqueror_protocol.generated` (`TelemFast`, `TelemSlow`, `Event`, `SettingValue`, `CalData`, `CalResult`, enums).
-- Produces: `FastSample` (fields: `host_t, uno_ms, yaw_deg, yaw_rate_dps, pitch_deg, roll_deg, spd_cmd: tuple[int,int], spd_act: tuple[int|None,int|None], pwm: tuple[int,int], dist_cm: float|None, us_fault: bool, closing_cm_s: int, pan_deg, tilt_deg, enc: tuple[int,int], flags: frozenset[str], prim: str, prim_pct: int`); `SlowSample` (`host_t, uptime_s, reset_reason, batt_v, driving, temp_c, owner, flags, accel_var, loop_load, loop_max_us, free_ram, err_frames, err_i2c, settings_crc, envelope: tuple[int,int,int], profile_idx, cal_status: tuple[int, ...], hw: frozenset[str]`); `TankEvent(host_t, kind: str, a: int, b: int)`; `decode_fast(m, host_t) -> FastSample`; `decode_slow(m, host_t) -> SlowSample`; `TankModel()` with `.fast`, `.slow`, `.events: deque[TankEvent]` (200), `.history: deque[FastSample]` (12000 ≈ 10 min), `apply(msg, host_t=None)`, `subscribe(cb: Callable[[str, Any], None])` topics `"fast" | "slow" | "event" | "setting_value" | "cal_data" | "cal_result"`.
+- Produces: `FastSample` (fields: `host_t, uno_ms, yaw_deg, yaw_rate_dps, pitch_deg, roll_deg, spd_cmd: tuple[int,int], spd_act: tuple[int|None,int|None], pwm: tuple[int,int], dist_cm: float|None, us_fault: bool, closing_cm_s: int, pan_deg, tilt_deg, enc: tuple[int,int], flags: frozenset[str], prim: str, prim_pct: int`); `SlowSample` (`host_t, uptime_s, reset_reason, batt_v, driving, temp_c, owner, flags, accel_var, loop_load, loop_max_us, free_ram, err_frames, err_i2c, settings_crc, envelope: tuple[int,int,int], profile_idx, cal_status: tuple[int, ...], hw: frozenset[str]`); `TankEvent(host_t, kind: str, a: int, b: int)`; `decode_fast(m, host_t) -> FastSample`; `decode_slow(m, host_t) -> SlowSample`; `TankModel()` with `.fast`, `.slow`, `.events: deque[TankEvent]` (200), `.history: deque[FastSample]` (12000 ≈ 10 min), `apply(msg, host_t=None)`, `subscribe(cb: Callable[[str, Any], None])` topics `"fast" | "slow" | "event" | "setting_value" | "cal_data" | "cal_result"`. `TankModel.unsubscribe(cb)` removes a subscriber (used by the test runner).
 
 - [ ] **Step 1: Write the failing model tests**
 
@@ -1637,6 +1641,10 @@ class TankModel:
 
     def subscribe(self, cb: Callable[[str, Any], None]) -> None:
         self._subs.append(cb)
+
+    def unsubscribe(self, cb: Callable[[str, Any], None]) -> None:
+        if cb in self._subs:
+            self._subs.remove(cb)
 
     def _notify(self, topic: str, payload: Any) -> None:
         for cb in list(self._subs):
@@ -3021,7 +3029,7 @@ steps:
       as: link_loss_stop
       during:
         - drive_for: { v: 20, w: 0, seconds: 0.5 }
-        - simulate_link_loss: { seconds: 0.8 }
+        - simulate_link_loss: { seconds: 0.6 }
   - prompt: { text: "Place the box about 40 cm in front of the tank, then press Enter." }
   - expect_event:
       kind: BLOCKED
@@ -3067,7 +3075,12 @@ from .conftest import SimRig
 def test_all_standard_definitions_load() -> None:
     names = {load_test(p).name for p in DEFS_DIR.glob("*.yaml")}
     assert names == {
-        "straight_200cm", "circle_r50", "square_100", "spin_360", "speed_hold_30", "safety_checks"
+        "straight_200cm",
+        "circle_r50",
+        "square_100",
+        "spin_360",
+        "speed_hold_30",
+        "safety_checks",
     }
 
 
@@ -3102,7 +3115,9 @@ async def test_spin_end_to_end(rig: SimRig, tmp_path: Path) -> None:
 async def test_move_link_lost_reports_failure(rig: SimRig, tmp_path: Path) -> None:
     rig.uno.cfg.max_speed_cm_s = 10.0
     async with open_tank(rig.bench) as tank:
-        runner = TestRunner(tank, ScriptedPrompter({"lateral_cm": "0", "distance_cm": "1"}), tmp_path)
+        runner = TestRunner(
+            tank, ScriptedPrompter({"lateral_cm": "0", "distance_cm": "1"}), tmp_path
+        )
         definition = load_test(DEFS_DIR / "straight_200cm.yaml")
         run = asyncio.create_task(runner.run(definition))
         await asyncio.sleep(0.3)
@@ -3118,9 +3133,15 @@ async def test_safety_link_loss_flag(rig: SimRig, tmp_path: Path) -> None:
         await asyncio.sleep(0.2)
         await rig.uno.emit_event(g.EventKind.LIFTED)
 
-    rig.uno.cfg.obstacle_cm = 40.0
-    prompter = ScriptedPrompter(on_ask=lambda prompt: asyncio.ensure_future(lift_later())
-                                if "Lift" in prompt else None)
+    pending: list[asyncio.Future[None]] = []
+
+    def on_ask(prompt: str) -> None:
+        if "box" in prompt:
+            rig.uno.place_obstacle(40.0)
+        elif "Lift" in prompt:
+            pending.append(asyncio.ensure_future(lift_later()))
+
+    prompter = ScriptedPrompter(on_ask=on_ask)
     async with open_tank(rig.bench) as tank:
         result = await TestRunner(tank, prompter, tmp_path).run(
             load_test(DEFS_DIR / "safety_checks.yaml")
@@ -3198,6 +3219,7 @@ class ScriptedPrompter:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import math
 import time
 from collections.abc import Callable
@@ -3271,6 +3293,7 @@ def load_test(path: Path) -> TestDefinition:
 @dataclass
 class RunContext:
     samples: list[FastSample] = field(default_factory=list[FastSample])
+    sample_added: asyncio.Event = field(default_factory=asyncio.Event)
     events: list[TankEvent] = field(default_factory=list[TankEvent])
     primitives: list[PrimitiveDone] = field(default_factory=list[PrimitiveDone])
     inputs: dict[str, float] = field(default_factory=dict[str, float])
@@ -3382,6 +3405,7 @@ class TestRunner:
         def collect(topic: str, payload: Any) -> None:
             if topic == "fast":
                 ctx.samples.append(payload)
+                ctx.sample_added.set()
             elif topic == "event":
                 ctx.events.append(payload)
             rec.on_model(topic, payload)
@@ -3393,6 +3417,7 @@ class TestRunner:
             if definition.setup_prompt:
                 await self.prompter.ask(definition.setup_prompt)
             await self._steps(definition.steps, ctx)
+            await self._settle(ctx)
             await api.stop()
             for inp in definition.inputs:
                 answer = await self.prompter.ask(f"{inp.prompt} [{inp.id}]")
@@ -3403,19 +3428,42 @@ class TestRunner:
                     ctx.notes.append(f"input {inp.id}: not a number ({answer!r})")
         finally:
             self.tank.link.set_sink(None)
-            self.tank.model._subs.remove(collect)  # pyright: ignore[reportPrivateUsage]
+            self.tank.model.unsubscribe(collect)
         metrics = {m.name: METRICS[m.fn](ctx, m.args) for m in definition.metrics}
         verdicts = {
-            name: crit.passes(metrics.get(name, math.nan)) for name, crit in definition.pass_.items()
+            name: crit.passes(metrics.get(name, math.nan))
+            for name, crit in definition.pass_.items()
         }
         result = TestResult(
-            definition.name, metrics, verdicts, all(verdicts.values()), ctx.inputs, rec.path,
+            definition.name,
+            metrics,
+            verdicts,
+            all(verdicts.values()),
+            ctx.inputs,
+            rec.path,
             ctx.notes,
         )
         rec.save_inputs(ctx.inputs)
         rec.save_result(result.to_dict())
         rec.close()
         return result
+
+    @staticmethod
+    async def _wait_samples(ctx: RunContext, count: int, timeout_s: float) -> None:
+        """Wait until `count` more telemetry samples have been recorded (or the timeout)."""
+        target = len(ctx.samples) + count
+        deadline = time.monotonic() + timeout_s
+        while len(ctx.samples) < target:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            ctx.sample_added.clear()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(ctx.sample_added.wait(), remaining)
+
+    async def _settle(self, ctx: RunContext) -> None:
+        """Keep recording a few frames after the last step, so the final pose is included."""
+        await self._wait_samples(ctx, 3, 0.5)
 
     async def _steps(self, steps: list[dict[str, Any]], ctx: RunContext) -> None:
         for step in steps:
@@ -3425,18 +3473,26 @@ class TestRunner:
     async def _step(self, kind: str, args: dict[str, Any], ctx: RunContext) -> None:
         api = self.tank.api
         if kind == "set_origin":
-            ctx.origin_index = len(ctx.samples)
+            # Baseline = a fresh sample taken while still stationary (before the next command),
+            # not the first sample after it, which may already include motion.
+            await self._wait_samples(ctx, 1, 0.3)
+            ctx.origin_index = max(0, len(ctx.samples) - 1)
         elif kind == "move":
             api.clear_primitive_results()
-            res = await api.move(float(args["dist_cm"]), int(args["speed"]), args.get("heading_deg"))
+            res = await api.move(
+                float(args["dist_cm"]), int(args["speed"]), args.get("heading_deg")
+            )
             if not res.ok:
                 ctx.primitives.append(PrimitiveDone("MOVE", False, res.status))
                 ctx.notes.append(f"move rejected: {res.status}")
         elif kind == "turn":
             api.clear_primitive_results()
             res = await api.turn(
-                by_deg=args.get("by_deg"), to_deg=args.get("to_deg"), speed=int(args["speed"]),
-                radius_cm=int(args.get("radius_cm", 0)), pivot=bool(args.get("pivot", False)),
+                by_deg=args.get("by_deg"),
+                to_deg=args.get("to_deg"),
+                speed=int(args["speed"]),
+                radius_cm=int(args.get("radius_cm", 0)),
+                pivot=bool(args.get("pivot", False)),
             )
             if not res.ok:
                 ctx.primitives.append(PrimitiveDone("TURN", False, res.status))

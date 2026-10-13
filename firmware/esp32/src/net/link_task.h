@@ -16,6 +16,7 @@ struct LinkCommand {
   enum class Kind : uint8_t { kWsOpen, kWsClose, kWsText, kOtaStart };
   Kind kind;
   int fd;
+  uint32_t post_seq;  // WS handler's running number (core::StopBarrier); 0 for other kinds
   uint16_t len;
   char text[200];  // one WS JSON message (longer ones are refused by the WS handler)
 };
@@ -38,8 +39,8 @@ struct LinkStatus {
   uint32_t tcp_down = 0;  // Uno -> bench bytes
 };
 
-void linkTaskStart();
-bool linkPost(const LinkCommand& cmd, bool urgent);  // urgent (STOP, OTA) goes to the queue front
+void linkTaskStart(const char* camera_sensor);  // sensor name for welcome ("none" until Task 8)
+bool linkPost(const LinkCommand& cmd, bool to_front);  // to_front: WS stop (fast path), OTA start
 LinkStatus linkStatus();                             // consistent copy, any task
 
 }  // namespace net

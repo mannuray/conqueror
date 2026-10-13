@@ -5,6 +5,7 @@
 #include <esp_ota_ops.h>
 
 #include "board_config.h"
+#include "net/http_server.h"
 #include "net/link_task.h"
 #include "net/log.h"
 #include "net/ota_service.h"
@@ -72,7 +73,8 @@ void setup() {
     cq::net::logf("ERROR: no PSRAM - check board_build.arduino.memory_type = qio_opi");
   }
   g_wifi.begin(millis());
-  cq::net::linkTaskStart();
+  cq::net::httpServerStart();
+  cq::net::linkTaskStart("none");  // camera sensor name arrives in Task 8
   g_ota.begin();
 }
 

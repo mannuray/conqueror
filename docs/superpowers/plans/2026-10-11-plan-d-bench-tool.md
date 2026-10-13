@@ -3570,7 +3570,9 @@ from .conftest import SimRig
 
 async def test_report_and_compare(rig: SimRig, tmp_path: Path) -> None:
     async with open_tank(rig.bench) as tank:
-        runner = TestRunner(tank, ScriptedPrompter({"lateral_cm": "1", "distance_cm": "200"}), tmp_path)
+        runner = TestRunner(
+            tank, ScriptedPrompter({"lateral_cm": "1", "distance_cm": "200"}), tmp_path
+        )
         a = await runner.run(load_test(DEFS_DIR / "straight_200cm.yaml"))
         b = await runner.run(load_test(DEFS_DIR / "straight_200cm.yaml"))
     report = write_report(a)
@@ -3599,15 +3601,22 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import Any, cast
 
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
-from .odometry import integrate, unwrapped_yaw  # noqa: E402
-from .recorder import load_fast_csv  # noqa: E402
-from .runner import TestResult  # noqa: E402
+from .odometry import integrate, unwrapped_yaw
+from .recorder import load_fast_csv
+from .runner import TestResult
+
+
+def _subplots() -> tuple[Any, Any]:
+    """matplotlib's type hints are incomplete under pyright strict; treat figures as Any here."""
+    fig, ax = plt.subplots()
+    return cast(Any, fig), cast(Any, ax)
 
 
 def _plots(session: Path, counts_per_cm: float) -> None:
@@ -3615,24 +3624,32 @@ def _plots(session: Path, counts_per_cm: float) -> None:
     if not samples:
         return
     t = [s.host_t - samples[0].host_t for s in samples]
-    fig, ax = plt.subplots()
+    fig, ax = _subplots()
     ax.plot(t, [s.spd_cmd[0] for s in samples], label="cmd L")
     ax.plot(t, [s.spd_cmd[1] for s in samples], label="cmd R")
-    ax.plot(t, [s.spd_act[0] if s.spd_act[0] is not None else float("nan") for s in samples], label="act L")
-    ax.plot(t, [s.spd_act[1] if s.spd_act[1] is not None else float("nan") for s in samples], label="act R")
+    ax.plot(
+        t,
+        [s.spd_act[0] if s.spd_act[0] is not None else float("nan") for s in samples],
+        label="act L",
+    )
+    ax.plot(
+        t,
+        [s.spd_act[1] if s.spd_act[1] is not None else float("nan") for s in samples],
+        label="act R",
+    )
     ax.set_xlabel("s")
     ax.set_ylabel("%")
     ax.legend()
     fig.savefig(session / "plots" / "speed.png")
     plt.close(fig)
-    fig, ax = plt.subplots()
+    fig, ax = _subplots()
     ax.plot(t, unwrapped_yaw(samples))
     ax.set_xlabel("s")
     ax.set_ylabel("heading (deg, unwrapped)")
     fig.savefig(session / "plots" / "heading.png")
     plt.close(fig)
     path = integrate(samples, counts_per_cm)
-    fig, ax = plt.subplots()
+    fig, ax = _subplots()
     ax.plot([p.x_cm for p in path], [p.y_cm for p in path])
     ax.set_aspect("equal")
     ax.set_xlabel("x cm")
@@ -3657,7 +3674,8 @@ def write_report(result: TestResult, counts_per_cm: float = 76.0) -> Path:
     lines += [f"- {k}: {v}" for k, v in result.inputs.items()]
     if result.notes:
         lines += ["", "## Notes", ""] + [f"- {n}" for n in result.notes]
-    lines += ["", "![speed](plots/speed.png) ![heading](plots/heading.png) ![path](plots/path_xy.png)", ""]
+    plots = "![speed](plots/speed.png) ![heading](plots/heading.png) ![path](plots/path_xy.png)"
+    lines += ["", plots, ""]
     out = result.session_dir / "report.md"
     out.write_text("\n".join(lines))
     return out
@@ -3676,7 +3694,7 @@ def compare_sessions(a: Path, b: Path, out_dir: Path, counts_per_cm: float = 76.
         va = ra.get("metrics", {}).get(n, float("nan"))
         vb = rb.get("metrics", {}).get(n, float("nan"))
         lines.append(f"| {n} | {va:.2f} | {vb:.2f} |")
-    fig, ax = plt.subplots()
+    fig, ax = _subplots()
     for session in (a, b):
         path = integrate(load_fast_csv(session / "telemetry.csv"), counts_per_cm)
         ax.plot([p.x_cm for p in path], [p.y_cm for p in path], label=session.name)

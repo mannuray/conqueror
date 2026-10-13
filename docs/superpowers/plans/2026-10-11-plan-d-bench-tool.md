@@ -3826,7 +3826,7 @@ def test_balance() -> None:
 
 def test_pid_relay_tyreus_luyben() -> None:
     tu, a, d = 0.5, 20.0, 50.0
-    s = []
+    s: list[CalSample] = []
     for i in range(300):
         t = i * 0.01
         meas = a * math.sin(2 * math.pi * t / tu)

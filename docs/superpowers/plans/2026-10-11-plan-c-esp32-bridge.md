@@ -43,6 +43,7 @@
 5. **Master change** (web → bench → web) → heartbeats stop at a frame boundary; when the web side takes over again it always starts with HELLO_REQ and only sends HELLO_ACK for `proto == 2` (Task 2 `test_handshake_rejects_wrong_proto`, Task 3 `test_bench_close_with_ws_clients_rehandshakes`).
 6. **IR remote takes over** → web driver dropped without STOP (the Uno already stopped), web motion nacked `NOT_OWNER` until the Uno reports another owner (Task 3 `test_ir_beats_phone`).
 7. **Interleaving** → TCP bytes and ESP32-originated frames never mix mid-frame on the UART; bad-CRC bench frames still pass (Task 2 `test_urgent_waits_for_chunk_boundary`, Task 5 `test_bad_crc_frame_forwarded`).
+10. **STOP fast path** (controller ruling 2026-10-13) → a page or ESP32 STOP goes ahead of queued DRIVE/CAM_JOY (which are discarded, never sent after it) at the next frame boundary; a WS `stop` jumps `link_q` and drives posted before it are dropped (Task 2 `test_stop_jumps_queue`, `test_stop_never_cuts_motion_chunk_in_flight`, `test_stop_purges_queued_drive_and_cam_joy`; Task 6 `test_stop_barrier_drops_motion_posted_before_stop`).
 8. **Secrets** → `secrets.h` never tracked, never in `/source.tar.gz`, never logged (Task 9 `pack_source.py` checks, Task 1 `.gitignore` + `secrets_guard.h`).
 9. **A held-still stick or a flood of messages** → page resends `drive` every 50 ms; the bridge rate-limits (25/s drive) and reports a streaming rejection once, never per message (Task 6 `test_drive_rate_limit_25_per_second`, `test_stream_reject_reported_once`).
 
@@ -101,7 +102,7 @@ firmware/esp32/
 │   ├── manifest.webmanifest        add-to-home-screen (Task 7)
 │   ├── help.html                   /help template (Task 9)
 │   └── help_logo.html              Tank Logo quick reference (hand-written, Task 9)
-└── test/                           Unity, env:native (84 tests)
+└── test/                           Unity, env:native (89 tests)
     ├── support/frames.h, support/wire.h                    test helpers (Task 2)
     ├── test_frame_parser/ test_frame_tx/ test_body_link/   (Task 2)
     ├── test_link_owner/ (Task 3)   test_wifi_policy/ (Task 4)   test_frame_aligner/ (Task 5)
@@ -702,7 +703,7 @@ Expected: only `secrets.example.h` and `secrets_guard.h` from `include/` are com
 - Consumes: `cq_protocol.h` (`encode`/`decode`, `crc8`, `FrameType`, `*Msg`, `kProtocolVersion`), `protocol/vectors/frames.json`, `cq::board::*`, `cq::net::logf`.
 - Produces:
   - `cq::core::FrameParser` — `template <class F> feed(const uint8_t*, size_t, F&& on_frame)` with `on_frame(const FrameView&)`; `stats()` → `ParserStats{frames, bad_crc, bad_len}`; same resync rules as `conqueror_protocol.framing.FrameParser`.
-  - `cq::core::FrameTx` — `push(data, len)`, `pushUrgent(data, len)`, `peek(const uint8_t*&) → len`, `pop()`, `clear()`, `queued()`, `dropped()`; chunks ≤ 64 B, 32 slots, one urgent slot served at the next chunk boundary.
+  - `cq::core::FrameTx` — `push(data, len, ChunkClass = kKeep)`, `pushUrgent(data, len)` (purges queued `kMotion` chunks not yet started), `peek(const uint8_t*&) → len`, `pop()`, `clear()`, `queued()`, `dropped()`, `purged()`; chunks ≤ 64 B, 32 slots, one urgent slot served at the next chunk boundary (STOP fast path).
   - `cq::core::BodyLink(FrameTx&)` — `startMaster(now)`, `stopMaster()`, `master()`, `synced()`, `handshake()`, `step(now)`, `onUartBytes(data, len, now)`, `sendDrive(v, w)`, `sendCamJoy(x, y, active)`, `sendCamHome(now, seq&)`, `setOwnerHint(OwnerHintValue)`, `sendStop(now) → seq`, `injectStop(seq, now)`, `stopPending()`, `popEvent(LinkEvent&)`, `hello() → HelloInfo`, `snapshot() → TankSnapshot`, `parserStats()`, `stats()`, `lastRxMs()`; constants `kHeartbeatMs = 100`, `kHelloRetryMs = 1000`, `kUnoSilentMs = 1000`, `kStopResendMs = 50`, `kStopMaxSends = 10`, `kAckTimeoutMs = 200`, `kStatusTimeout = 0xFF`; `LinkEventKind {kUnoEvent, kStopResult, kAckResult, kBodyOnline, kBodyOffline, kResetRequest}`.
   - `cq::net::UartPort` (`begin`, `read`, `txFree`, `write`), `cq::net::LinkCommand {Kind {kWsOpen, kWsClose, kWsText, kOtaStart}, fd, len, text[200]}`, `cq::net::linkTaskStart()`, `cq::net::linkPost(cmd, urgent)`.
 
@@ -1068,6 +1069,34 @@ void test_clear_keeps_chunk_in_flight() {
   TEST_ASSERT_EQUAL(0, g_tx->peek(p));
 }
 
+void test_stop_jumps_queue() {
+  g_tx->push(kA, sizeof(kA), cq::core::ChunkClass::kMotion);  // DRIVE
+  g_tx->push(kB, sizeof(kB));                                 // HEARTBEAT
+  g_tx->push(kA, sizeof(kA), cq::core::ChunkClass::kMotion);  // CAM_JOY
+  g_tx->pushUrgent(kS, sizeof(kS));
+  const uint8_t* p = nullptr;
+  TEST_ASSERT_EQUAL(sizeof(kS), g_tx->peek(p));  // STOP first
+  g_tx->pop();
+  TEST_ASSERT_EQUAL(sizeof(kB), g_tx->peek(p));  // control frames keep their order
+  g_tx->pop();
+  TEST_ASSERT_EQUAL(0, g_tx->peek(p));  // no older drive restarts the tank after the STOP
+  TEST_ASSERT_EQUAL(2, g_tx->purged());
+}
+
+void test_stop_never_cuts_motion_chunk_in_flight() {
+  g_tx->push(kA, sizeof(kA), cq::core::ChunkClass::kMotion);
+  g_tx->push(kA, sizeof(kA), cq::core::ChunkClass::kMotion);
+  const uint8_t* p = nullptr;
+  g_tx->peek(p);  // the first drive is being written
+  g_tx->pushUrgent(kS, sizeof(kS));
+  TEST_ASSERT_EQUAL(sizeof(kA), g_tx->peek(p));  // finishes whole (frame-aligned)
+  g_tx->pop();
+  TEST_ASSERT_EQUAL(sizeof(kS), g_tx->peek(p));
+  g_tx->pop();
+  TEST_ASSERT_EQUAL(0, g_tx->peek(p));
+  TEST_ASSERT_EQUAL(1, g_tx->purged());
+}
+
 void test_clear_keeps_urgent_stop() {
   g_tx->push(kA, sizeof(kA));
   g_tx->pushUrgent(kS, sizeof(kS));
@@ -1085,6 +1114,8 @@ int main() {
   RUN_TEST(test_urgent_waits_for_chunk_boundary);
   RUN_TEST(test_full_queue_drops_and_counts);
   RUN_TEST(test_clear_keeps_chunk_in_flight);
+  RUN_TEST(test_stop_jumps_queue);
+  RUN_TEST(test_stop_never_cuts_motion_chunk_in_flight);
   RUN_TEST(test_clear_keeps_urgent_stop);
   return UNITY_END();
 }
@@ -1284,6 +1315,22 @@ void test_stop_resend_until_ack() {
   TEST_ASSERT_EQUAL(0, ev.status);
 }
 
+void test_stop_purges_queued_drive_and_cam_joy() {
+  bl->startMaster(0);
+  hello(proto::kProtocolVersion, 10);
+  wire->drain(*tx);
+  wire->clear();
+  bl->sendDrive(50, 0);  // queued, not yet on the UART
+  bl->sendCamJoy(10, 0, true);
+  bl->step(100);  // HEARTBEAT queued behind them
+  bl->sendStop(100);
+  wire->drain(*tx);
+  TEST_ASSERT_EQUAL(static_cast<uint8_t>(FT::kStop), wire->sent[0].type);  // STOP first
+  TEST_ASSERT_EQUAL(0, wire->count(FT::kDrive));  // the older drive never follows the STOP
+  TEST_ASSERT_EQUAL(0, wire->count(FT::kCamJoy));
+  TEST_ASSERT_EQUAL(1, wire->count(FT::kHeartbeat));
+}
+
 void test_stop_gives_up_after_ten_sends() {
   bl->sendStop(0);  // works without being master (passthrough / not synced)
   run(2, 1000);
@@ -1356,6 +1403,7 @@ int main() {
   RUN_TEST(test_drive_only_when_synced);
   RUN_TEST(test_bridge_never_invents_drive);
   RUN_TEST(test_stop_resend_until_ack);
+  RUN_TEST(test_stop_purges_queued_drive_and_cam_joy);
   RUN_TEST(test_stop_gives_up_after_ten_sends);
   RUN_TEST(test_inject_stop_uses_callers_seq);
   RUN_TEST(test_cam_home_ack_and_timeout);
@@ -1543,7 +1591,10 @@ FrameParser::Step FrameParser::step(uint8_t b) {
 // Whole-chunk TX queue in front of the Uno UART (bridge LLD R2.8). Every writer hands over complete
 // chunks (one frame, or one run of raw passthrough bytes); the single drainer (link_task) writes a
 // chunk only when the UART can take all of it, so chunks never interleave mid-frame. One urgent
-// slot (STOP) goes out at the next chunk boundary, ahead of queued chunks. Pure C++, no heap.
+// slot (STOP) goes out at the next chunk boundary, ahead of queued chunks (fast path, R2.8): it
+// never cuts the chunk being written, and it purges queued motion chunks (DRIVE / CAM_JOY) that
+// have not started, so an older drive can never follow the STOP and restart the tank. Passthrough
+// (bench) chunks are pushed as kKeep and never purged. Pure C++, no heap.
 #pragma once
 
 #include <stddef.h>
@@ -1552,29 +1603,38 @@ FrameParser::Step FrameParser::step(uint8_t b) {
 namespace cq {
 namespace core {
 
+enum class ChunkClass : uint8_t { kKeep, kMotion };  // kMotion: purged by a STOP (pushUrgent)
+
 class FrameTx {
  public:
   static constexpr size_t kMaxChunk = 64;  // > largest frame (53 B)
   static constexpr size_t kSlots = 32;
 
-  bool push(const uint8_t* data, size_t len);        // false (and counted) when full or too long
-  bool pushUrgent(const uint8_t* data, size_t len);  // replaces a not-yet-started urgent chunk
-  size_t peek(const uint8_t*& data);                 // next chunk (0 = empty); stays until pop()
-  void pop();                                        // the peeked chunk was written whole
+  // false (and counted) when full or too long
+  bool push(const uint8_t* data, size_t len, ChunkClass cls = ChunkClass::kKeep);
+  // STOP fast path: purges queued kMotion chunks not yet started, then fills the urgent slot
+  // (replaces a not-yet-started urgent chunk; false while an urgent chunk is being written).
+  bool pushUrgent(const uint8_t* data, size_t len);
+  size_t peek(const uint8_t*& data);  // next chunk (0 = empty); stays until pop()
+  void pop();                         // the peeked chunk was written whole
   void clear();  // drop queued chunks not yet peeked; the urgent slot (STOP) is kept
   size_t queued() const { return m_count + (m_urgent_len ? 1 : 0); }
   uint32_t dropped() const { return m_dropped; }
+  uint32_t purged() const { return m_purged; }  // motion chunks removed by a STOP
 
  private:
   enum class Inflight : uint8_t { kNone, kQueue, kUrgent };
+  void purgeMotion();
   uint8_t m_data[kSlots][kMaxChunk] = {};
   uint8_t m_len[kSlots] = {};
+  ChunkClass m_cls[kSlots] = {};
   size_t m_head = 0;
   size_t m_count = 0;
   uint8_t m_urgent[kMaxChunk] = {};
   size_t m_urgent_len = 0;
   Inflight m_inflight = Inflight::kNone;
   uint32_t m_dropped = 0;
+  uint32_t m_purged = 0;
 };
 
 }  // namespace core
@@ -1590,7 +1650,7 @@ class FrameTx {
 namespace cq {
 namespace core {
 
-bool FrameTx::push(const uint8_t* data, size_t len) {
+bool FrameTx::push(const uint8_t* data, size_t len, ChunkClass cls) {
   if (len == 0 || len > kMaxChunk || m_count == kSlots) {
     ++m_dropped;
     return false;
@@ -1598,12 +1658,37 @@ bool FrameTx::push(const uint8_t* data, size_t len) {
   const size_t tail = (m_head + m_count) % kSlots;
   memcpy(m_data[tail], data, len);
   m_len[tail] = static_cast<uint8_t>(len);
+  m_cls[tail] = cls;
   ++m_count;
   return true;
 }
 
+void FrameTx::purgeMotion() {
+  // Keeps the order of the remaining chunks; the chunk being written (if any) always stays.
+  const size_t first = (m_inflight == Inflight::kQueue) ? 1 : 0;
+  size_t kept = first;
+  for (size_t r = first; r < m_count; ++r) {
+    const size_t from = (m_head + r) % kSlots;
+    if (m_cls[from] == ChunkClass::kMotion) continue;
+    const size_t to = (m_head + kept) % kSlots;
+    if (to != from) {
+      memcpy(m_data[to], m_data[from], m_len[from]);
+      m_len[to] = m_len[from];
+      m_cls[to] = m_cls[from];
+    }
+    ++kept;
+  }
+  m_purged += static_cast<uint32_t>(m_count - kept);
+  m_count = kept;
+}
+
 bool FrameTx::pushUrgent(const uint8_t* data, size_t len) {
-  if (len == 0 || len > kMaxChunk || m_inflight == Inflight::kUrgent) {
+  if (len == 0 || len > kMaxChunk) {
+    ++m_dropped;
+    return false;
+  }
+  purgeMotion();  // also when the slot is busy: the resend 50 ms later must not trail a drive
+  if (m_inflight == Inflight::kUrgent) {
     ++m_dropped;
     return false;
   }
@@ -1744,7 +1829,8 @@ class BodyLink {
   void setOwnerHint(proto::OwnerHintValue hint);  // remembered; sent now if synced, and after HELLO
 
   // STOP {src HUMAN}: master -> own seq; passthrough -> injectStop with the caller's seq.
-  // Both use the urgent slot and are resent until the ACK. Returns the seq used.
+  // Both use the urgent slot (fast path: ahead of queued frames, never mid-frame; queued
+  // DRIVE/CAM_JOY are purged) and are resent until the ACK. Returns the seq used.
   uint8_t sendStop(uint32_t now_ms);
   void injectStop(uint8_t seq, uint32_t now_ms);
   bool stopPending() const { return m_stop_sends != 0; }
@@ -1757,11 +1843,12 @@ class BodyLink {
   uint32_t lastRxMs() const { return m_last_rx_ms; }
 
  private:
+  enum class Lane : uint8_t { kQueue, kMotion, kUrgent };  // kMotion: purged by a later STOP
   template <class Msg>
-  bool emit(const Msg& m, uint8_t seq, bool urgent);
+  bool emit(const Msg& m, uint8_t seq, Lane lane);
   template <class Msg>
-  bool emitNext(const Msg& m) {
-    return emit(m, m_next_seq++, false);
+  bool emitNext(const Msg& m, Lane lane = Lane::kQueue) {
+    return emit(m, m_next_seq++, lane);
   }
   void onFrame(const FrameView& f, uint32_t now_ms);
   void onHello(const proto::HelloMsg& h);
@@ -1805,7 +1892,7 @@ namespace cq {
 namespace core {
 
 template <class Msg>
-bool BodyLink::emit(const Msg& m, uint8_t seq, bool urgent) {
+bool BodyLink::emit(const Msg& m, uint8_t seq, Lane lane) {
   uint8_t frame[proto::kMaxPayload + 5];
   const uint8_t n = proto::encode(m, frame + 4);
   if (n == proto::kEncodeError || n > proto::kMaxPayload) return false;
@@ -1814,7 +1901,9 @@ bool BodyLink::emit(const Msg& m, uint8_t seq, bool urgent) {
   frame[2] = static_cast<uint8_t>(Msg::kType);
   frame[3] = seq;
   frame[4 + n] = proto::crc8(frame + 1, static_cast<uint8_t>(n + 3));
-  const bool ok = urgent ? m_tx.pushUrgent(frame, n + 5u) : m_tx.push(frame, n + 5u);
+  const bool ok = lane == Lane::kUrgent ? m_tx.pushUrgent(frame, n + 5u)
+                 : lane == Lane::kMotion ? m_tx.push(frame, n + 5u, ChunkClass::kMotion)
+                                         : m_tx.push(frame, n + 5u);
   if (ok) ++m_stats.frames_tx;
   return ok;
 }
@@ -1944,12 +2033,12 @@ void BodyLink::onHello(const proto::HelloMsg& h) {
 
 bool BodyLink::sendDrive(int8_t v, int8_t w) {
   if (!synced()) return false;
-  return emitNext(proto::DriveMsg{static_cast<uint8_t>(proto::Source::kHuman), v, w});
+  return emitNext(proto::DriveMsg{static_cast<uint8_t>(proto::Source::kHuman), v, w}, Lane::kMotion);
 }
 
 bool BodyLink::sendCamJoy(int8_t x, int8_t y, bool active) {
   if (!synced()) return false;
-  return emitNext(proto::CamJoyMsg{x, y, static_cast<uint8_t>(active ? 1 : 0)});
+  return emitNext(proto::CamJoyMsg{x, y, static_cast<uint8_t>(active ? 1 : 0)}, Lane::kMotion);
 }
 
 bool BodyLink::sendCamHome(uint32_t now_ms, uint8_t& seq_out) {
@@ -1983,7 +2072,7 @@ void BodyLink::injectStop(uint8_t seq, uint32_t now_ms) {
 void BodyLink::sendStopFrame() {
   // STOP is accepted by the Uno from any source in any state, so it goes out even before sync.
   // A full urgent slot (previous STOP still being written) also counts as an attempt.
-  emit(proto::StopMsg{static_cast<uint8_t>(proto::Source::kHuman)}, m_stop_seq, true);
+  emit(proto::StopMsg{static_cast<uint8_t>(proto::Source::kHuman)}, m_stop_seq, Lane::kUrgent);
   ++m_stop_sends;
 }
 
@@ -2009,7 +2098,7 @@ bool BodyLink::popEvent(LinkEvent& ev) {
 ```
 
 Run: `pio test -e native`
-Expected: `29 test cases: 29 succeeded` (frame_parser 7, frame_tx 6, body_link 16).
+Expected: `32 test cases: 32 succeeded` (frame_parser 7, frame_tx 8, body_link 17).
 
 - [ ] **Step 6: UART port and `link_task` (Arduino shell)**
 
@@ -2724,7 +2813,7 @@ Actions LinkOwner::tick(uint32_t now_ms) {
 ```
 
 Run: `pio test -e native`
-Expected: `47 test cases: 47 succeeded` (Task 2's 29 + link_owner 18).
+Expected: `50 test cases: 50 succeeded` (Task 2's 32 + link_owner 18).
 
 - [ ] **Step 3: Commit**
 
@@ -2892,7 +2981,7 @@ class WifiPolicy {
 ```
 
 Run: `pio test -e native`
-Expected: `51 test cases: 51 succeeded`.
+Expected: `54 test cases: 54 succeeded`.
 
 - [ ] **Step 3: WiFi manager with mDNS**
 
@@ -3139,6 +3228,7 @@ struct LinkCommand {
   enum class Kind : uint8_t { kWsOpen, kWsClose, kWsText, kOtaStart };
   Kind kind;
   int fd;
+  uint32_t post_seq;  // WS handler's running number (core::StopBarrier); 0 for other kinds
   uint16_t len;
   char text[200];  // one WS JSON message (longer ones are refused by the WS handler)
 };
@@ -3801,7 +3891,7 @@ class AckSwallow {
 ```
 
 Run: `pio test -e native`
-Expected: `59 test cases: 59 succeeded`.
+Expected: `62 test cases: 62 succeeded`.
 
 - [ ] **Step 3: TCP passthrough (Arduino shell)**
 
@@ -4383,7 +4473,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Produces:
   - `cq::core::parseWsCommand(text, len) → WsCommand{kind, has_id, id, v, w, x, y, active, t0, client}`; `WsCmdKind {kHello, kDrive, kStop, kCamJoy, kCamHome, kRelease, kPing, kUnsupported, kInvalid}`.
   - `cq::core::jsonWelcome / jsonTf / jsonTs / jsonUnoEvent / jsonControlChanged / jsonBody / jsonAck / jsonNackStatus / jsonNack / jsonPong` (each `(char* out, size_t cap, …) → size_t`), `ownerName(Owner)`, `ackReasonCode(status)`, `OwnerView{owner, client}`, `WelcomeInfo`, `BridgeReason {kNotOwner, kBusy, kBodyOffline, kRateLimited, kInvalidCommand, kTimeout}`, `kWsJsonMax = 384`.
-  - `cq::core::WsClients` — `add(fd, now)`, `remove(fd)`, `contains(fd)`, `count()`, `fdAt(i)`, `name(fd)` (`phone-N`), `admit(fd, kind, now)`, `silent(now, out, max)`, `reportStreamReject(fd, reason)`, `streamAccepted(fd)`; `kMaxWsClients = 4`, `kWsSilentMs = 3000`, `kStreamLimitPerS = 25`, `kTotalLimitPerS = 60`.
+  - `cq::core::WsClients` — `add(fd, now)`, `remove(fd)`, `contains(fd)`, `count()`, `fdAt(i)`, `name(fd)` (`phone-N`), `admit(fd, kind, now)`, `silent(now, out, max)`, `reportStreamReject(fd, reason)`, `streamAccepted(fd)`; `kMaxWsClients = 4`, `kWsSilentMs = 3000`, `kStreamLimitPerS = 25`, `kTotalLimitPerS = 60`; `cq::core::StopBarrier` — `onStop(post_seq)`, `stale(post_seq)`, `dropped()` (STOP fast path on `link_q`).
+  - `cq::net::LinkCommand` gains `post_seq` (stamped by the WS handler); `linkPost(cmd, to_front)` — `to_front` for WS `stop` and the OTA start.
   - `cq::net::httpServerStart()`, `httpServer() → httpd_handle_t` (Tasks 7 and 9 register URIs on it), `wsSend(fd, json, len)`, `wsClose(fd)`, `wsDropped()`.
   - `cq::net::linkTaskStart(const char* camera_sensor)` (signature change: the welcome message reports the sensor; `"none"` until Task 8).
   - `bridge_echo.py … ws [--seconds S]` and `… ws-owner`.
@@ -4688,6 +4779,7 @@ int main() {
 
 #include "core/ws_clients.h"
 
+using cq::core::StopBarrier;
 using cq::core::WsClients;
 using cq::core::WsCmdKind;
 
@@ -4748,6 +4840,25 @@ void test_stream_reject_reported_once() {
   TEST_ASSERT_TRUE(c.reportStreamReject(10, 2));
 }
 
+void test_stop_barrier_drops_motion_posted_before_stop() {
+  StopBarrier b;
+  TEST_ASSERT_FALSE(b.stale(5));  // no STOP yet
+  b.onStop(10);                   // posted 10th, handled first (queue front)
+  TEST_ASSERT_TRUE(b.stale(8));   // drives posted before it, still queued behind it
+  TEST_ASSERT_TRUE(b.stale(9));
+  TEST_ASSERT_FALSE(b.stale(11));  // the driver pushes the stick again after the STOP
+  b.onStop(7);                     // an older STOP handled late never lowers the barrier
+  TEST_ASSERT_TRUE(b.stale(9));
+  TEST_ASSERT_EQUAL(3, b.dropped());
+}
+
+void test_stop_barrier_survives_counter_wrap() {
+  StopBarrier b;
+  b.onStop(2);                         // counter wrapped: 0xFFFFFFFE was posted before 2
+  TEST_ASSERT_TRUE(b.stale(0xFFFFFFFEu));
+  TEST_ASSERT_FALSE(b.stale(3));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_names_and_capacity);
@@ -4755,6 +4866,8 @@ int main() {
   RUN_TEST(test_total_limit);
   RUN_TEST(test_silent_clients_are_reported);
   RUN_TEST(test_stream_reject_reported_once);
+  RUN_TEST(test_stop_barrier_drops_motion_posted_before_stop);
+  RUN_TEST(test_stop_barrier_survives_counter_wrap);
   return UNITY_END();
 }
 ```
@@ -5382,6 +5495,29 @@ class WsClients {
   uint32_t m_next_number = 1;
 };
 
+// STOP fast path on link_q (bridge LLD R2.11): the WS handler stamps every text message with a
+// post number and puts `stop` at the queue front. A drive / cam_joy posted before the STOP but
+// handled after it is stale and dropped silently - otherwise it would restart the tank. Global,
+// not per client: a STOP from any phone also cancels the driver's older drives.
+class StopBarrier {
+ public:
+  void onStop(uint32_t post_seq) {
+    if (!m_set || static_cast<int32_t>(post_seq - m_seq) > 0) m_seq = post_seq;
+    m_set = true;
+  }
+  bool stale(uint32_t post_seq) {  // counts the drops
+    const bool s = m_set && static_cast<int32_t>(post_seq - m_seq) < 0;
+    if (s) ++m_dropped;
+    return s;
+  }
+  uint32_t dropped() const { return m_dropped; }
+
+ private:
+  uint32_t m_seq = 0;
+  bool m_set = false;
+  uint32_t m_dropped = 0;
+};
+
 }  // namespace core
 }  // namespace cq
 ```
@@ -5468,7 +5604,7 @@ void WsClients::streamAccepted(int fd) {
 ```
 
 Run: `pio test -e native`
-Expected: `84 test cases: 84 succeeded` (ws_codec 11, ws_json 9, ws_clients 5).
+Expected: `89 test cases: 89 succeeded` (ws_codec 11, ws_json 9, ws_clients 7).
 
 - [ ] **Step 5: HTTP server with `/ws`**
 
@@ -5508,6 +5644,7 @@ uint32_t wsDropped();
 #include <atomic>
 
 #include "board_config.h"
+#include "core/ws_codec.h"
 #include "core/ws_json.h"
 #include "net/link_task.h"
 #include "net/log.h"
@@ -5558,16 +5695,20 @@ esp_err_t wsHandler(httpd_req_t* req) {
   err = httpd_ws_recv_frame(req, &f, f.len);
   if (err != ESP_OK) return err;
   if (f.type != HTTPD_WS_TYPE_TEXT) return ESP_OK;
+  static uint32_t s_post_seq = 0;  // httpd task only: one running number for all WS texts
   LinkCommand cmd{};
   cmd.kind = LinkCommand::Kind::kWsText;
   cmd.fd = fd;
+  cmd.post_seq = ++s_post_seq;
   if (f.len < sizeof(cmd.text)) {
     memcpy(cmd.text, buf, f.len);
     cmd.text[f.len] = '\0';
     cmd.len = static_cast<uint16_t>(f.len);
   }  // else len 0: link_task answers nack INVALID_COMMAND
-  // FIFO, STOP included: a page's stop must never overtake its own earlier drive, nor its close.
-  if (!linkPost(cmd, false)) ++g_dropped;
+  // STOP fast path (R2.11): `stop` jumps to the queue front. link_task's StopBarrier drops any
+  // drive / cam_joy posted before it, so an older drive can never restart the tank after it.
+  const bool stop = core::parseWsCommand(cmd.text, cmd.len).kind == core::WsCmdKind::kStop;
+  if (!linkPost(cmd, stop)) ++g_dropped;
   return ESP_OK;
 }
 
@@ -5658,6 +5799,7 @@ struct LinkCommand {
   enum class Kind : uint8_t { kWsOpen, kWsClose, kWsText, kOtaStart };
   Kind kind;
   int fd;
+  uint32_t post_seq;  // WS handler's running number (core::StopBarrier); 0 for other kinds
   uint16_t len;
   char text[200];  // one WS JSON message (longer ones are refused by the WS handler)
 };
@@ -5681,7 +5823,7 @@ struct LinkStatus {
 };
 
 void linkTaskStart(const char* camera_sensor);  // sensor name for welcome ("none" until Task 8)
-bool linkPost(const LinkCommand& cmd, bool to_front);  // to_front: OTA start only; WS is FIFO
+bool linkPost(const LinkCommand& cmd, bool to_front);  // to_front: WS stop (fast path), OTA start
 LinkStatus linkStatus();                             // consistent copy, any task
 
 }  // namespace net
@@ -5737,6 +5879,7 @@ Waiter g_stop_waiters[4];
 size_t g_stop_waiter_n = 0;
 Waiter g_cam_waiter{-1, -1};
 uint8_t g_cam_seq = 0;
+core::StopBarrier g_stop_barrier;  // STOP fast path: drop motion posted before a STOP
 
 void drainTx() {
   const uint8_t* p = nullptr;
@@ -5821,9 +5964,22 @@ void streamReject(int fd, core::BridgeReason r) {
 
 void handleWsText(const LinkCommand& cmd, uint32_t now) {
   const int fd = cmd.fd;
-  if (!g_ws.contains(fd)) return;
   const core::WsCommand c = core::parseWsCommand(cmd.text, cmd.len);
   const int32_t id = c.has_id ? c.id : -1;
+  if (c.kind == core::WsCmdKind::kStop) {  // fast path: may overtake its own kWsOpen - never lost
+    g_stop_barrier.onStop(cmd.post_seq);
+    apply(g_owner.onStop(fd), now);  // urgent slot; queued DRIVE/CAM_JOY frames are purged
+    if (g_ws.contains(fd)) {
+      g_ws.admit(fd, c.kind, now);  // never limited; counts as alive
+      if (g_stop_waiter_n < 4) g_stop_waiters[g_stop_waiter_n++] = Waiter{fd, id};
+    }
+    return;
+  }
+  if (!g_ws.contains(fd)) return;
+  if ((c.kind == core::WsCmdKind::kDrive || c.kind == core::WsCmdKind::kCamJoy) &&
+      g_stop_barrier.stale(cmd.post_seq)) {
+    return;  // posted before a STOP that was handled first: silently dropped
+  }
   if (!g_ws.admit(fd, c.kind, now)) {
     if (c.kind == core::WsCmdKind::kDrive || c.kind == core::WsCmdKind::kCamJoy) {
       streamReject(fd, core::BridgeReason::kRateLimited);
@@ -5857,9 +6013,7 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
       }
       break;
     }
-    case core::WsCmdKind::kStop:
-      apply(g_owner.onStop(fd), now);
-      if (g_stop_waiter_n < 4) g_stop_waiters[g_stop_waiter_n++] = Waiter{fd, id};
+    case core::WsCmdKind::kStop:  // handled above (fast path)
       break;
     case core::WsCmdKind::kCamJoy: {
       const core::Decision d = g_owner.onCamera(fd);
@@ -8616,7 +8770,7 @@ Append to `docs/lld/esp32-bridge-lld.md`:
 - Toolchain: pioarduino 55.03.311 (Arduino-ESP32 3.3.11, ESP-IDF 5.5.5), board `esp32-s3-devkitc-1`, `qio_opi`, `partitions_cq8m.csv`; `-Werror` only in `env:native` (framework headers are not warning-clean).
 - mDNS services: `_cqbridge._tcp` 3333 (DNS-SD names ≤ 15 characters; Plan D's `discover` uses it), `_http._tcp` 80, `_arduino._tcp` 3232 — R1's `_conqueror-bridge._tcp` is not used.
 - One `link_task` owns UART, `BodyLink`, `LinkOwner`, `TcpPassthrough` and `WsClients`; `UartWriter` is realised as `FrameTx` (whole-chunk queue + one urgent STOP slot) drained only by `link_task`, so no mutex is needed. WS replies are queued and sent by the httpd task (`httpd_queue_work`).
-- **Deviation from R2.11 "STOP goes to the queue front":** WS open/text/close are posted to `link_q` in FIFO order (100 ms wait, drained every 2 ms). Putting STOP (or a close) in front could overtake the same page's earlier `drive` (tank moves again after the STOP) or drop a STOP behind its own close. Only the OTA start goes to the front. The STOP frame itself still uses `FrameTx`'s urgent slot (next chunk boundary on the UART).
+- **STOP fast path (R2.11, controller ruling 2026-10-13):** a WS `stop` is posted to the **front** of `link_q` (open/close/other texts stay FIFO; 100 ms wait, drained every 2 ms); every WS text carries a running `post_seq` and `StopBarrier` drops a `drive`/`cam_joy` posted before a STOP that was handled first, so an older drive can never restart the tank (the Uno resumes on the next DRIVE after a STOP). On the UART the STOP uses `FrameTx`'s urgent slot: it waits for the chunk being written (never mid-frame, never inside a bench frame — the aligner only hands over whole frames), goes ahead of queued frames and **purges queued DRIVE/CAM_JOY frames** that have not started. Bench chunks in passthrough are never purged (transparency). A STOP is applied even if it overtakes its own client's `kWsOpen`; only its `ack` needs the client. ESP32-originated STOPs (driver gone, OTA start) take the same urgent path.
 - lwIP socket budget = 16 (the default limit): port 80 httpd 6 + listen + ctrl, port 81 httpd 2 + listen + ctrl, TCP 3333 listen + bench + one refused, OTA UDP 1. R2.12's "≤ 7 + 3 sockets" becomes 6 + 2.
 - STOP injected during passthrough is resent every 50 ms (max 10); **all** ACKs with that seq are swallowed for 500 ms (one per resend), not only the first.
 - The Uno's WIFI_RESET_REQ / ADMIN_RESET_REQ are answered with ESP_ACK `UNAVAILABLE` while the ESP32 is master (the bridge has no stored WiFi/admin settings); in passthrough the bench answers them.
@@ -8635,7 +8789,7 @@ cd firmware/esp32 && pio test -e native && pio run -e bridge
 cd ../../protocol && uv run protogen check && uv run pytest -q
 cd ../tools/smoke && uv run ruff format --check . && uv run ruff check . && uv run pyright
 ```
-Expected: `84 test cases: 84 succeeded`; bridge build `SUCCESS` with `pack_web` and `pack_source` lines; protogen check clean, `161 passed`; smoke scripts clean.
+Expected: `89 test cases: 89 succeeded`; bridge build `SUCCESS` with `pack_web` and `pack_source` lines; protogen check clean, `161 passed`; smoke scripts clean.
 
 - [ ] **Step 4 [HW]: Full hardware checklist (owner present; tank on a stand, tracks off the ground; IR remote and page STOP within reach)**
 
@@ -8662,7 +8816,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ## Done when
 
-- `pio test -e native` passes all **84** host tests (parser on `protocol/vectors/`, frame TX, body link, link owner, WiFi policy, frame aligner, WS codec/JSON/clients) and `pio run -e bridge` builds with the page ≤ 25 KB gzipped (≈ 7 KB) and `/help` ≤ 16 KB (≈ 7 KB).
+- `pio test -e native` passes all **89** host tests (parser on `protocol/vectors/`, frame TX, body link, link owner, WiFi policy, frame aligner, WS codec/JSON/clients) and `pio run -e bridge` builds with the page ≤ 25 KB gzipped (≈ 7 KB) and `/help` ≤ 16 KB (≈ 7 KB).
 - Protocol: `protogen write/check` include `firmware/esp32/src/generated/help_protocol.html`; protocol tests pass (161); CLAUDE.md lists the new generated path.
 - Python: `bridge_echo.py` and the build scripts are ruff + format clean; `bridge_echo.py` is pyright strict clean.
 - On hardware (owner present, tank on a stand): chip check refuses non-S3 boards; USB flash on Linux `/dev/ttyACM0`; station + mDNS, fallback AP after 30 s; Plan D bench works unchanged over TCP 3333 (`synced=True`, `bad_crc=0`); phone page drives, hold-still keeps moving, release/STOP stop, deadman stops a sleeping phone within ~0.3 s; ownership rules (NOT_OWNER, BUSY, bench refused, IR beats all); camera with 2 viewers; OTA works only while idle; `/info`, `/help`, `/source.tar.gz` correct and secret-free.

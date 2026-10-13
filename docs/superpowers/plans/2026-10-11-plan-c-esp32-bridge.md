@@ -7196,3 +7196,355 @@ git commit -m "feat(esp32): Basic Drive page embedded gzipped and served at /
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+---
+
+### Task 8: Camera — ESP32-S3-EYE pins, MJPEG on port 81, max 2 viewers, PSRAM frame buffers
+
+**Files:**
+- Create: `firmware/esp32/src/net/camera_service.h`, `firmware/esp32/src/net/camera_service.cpp`, `firmware/esp32/src/net/stream_server.h`, `firmware/esp32/src/net/stream_server.cpp`
+- Modify: `firmware/esp32/src/main.cpp` (full new content below)
+
+**Interfaces:**
+- Consumes: `cq::board::kCam*` pins (Task 1), `OtaService::addStartHook` (Task 4), `linkTaskStart(sensor)` (Task 6), the page's `<img>` on `:81/stream` (Task 7).
+- Produces: `cq::net::cameraBegin() → bool`, `cameraSensorName()`, `cameraGrab()`, `cameraRelease(fb)`, `cameraStop()`, `cameraStopped()`; `cq::net::streamServerStart()`, `streamViewers()`. The WS `welcome` now reports the real sensor (`caps.sensor`), the 3rd viewer gets `503` + `Retry-After: 3` (the page retries every 3 s), the WiFi "no clients" rule counts stream viewers, OTA stops the streams first.
+
+- [ ] **Step 1: Confirm the camera driver ships with the core**
+
+Run: `ls ~/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/ | grep -i camera`
+Expected: `espressif__esp32-camera` (or `esp32-camera`). If it is missing, **stop and ask the owner** (option: `lib_deps = espressif/esp32-camera` pinned to the version matching IDF 5.5).
+
+- [ ] **Step 2: Camera service**
+
+`firmware/esp32/src/net/camera_service.h`:
+```cpp
+// esp32-camera on the ESP32-S3-EYE pin map (design-notes §24): JPEG VGA, 2 frame buffers in PSRAM.
+#pragma once
+
+#include <esp_camera.h>
+
+namespace cq {
+namespace net {
+
+bool cameraBegin();              // false: no camera (the bridge works without it)
+const char* cameraSensorName();  // "OV3660" (expected), other sensor name, or "none"
+camera_fb_t* cameraGrab();
+void cameraRelease(camera_fb_t* fb);
+void cameraStop();  // OTA start: streams end, no more grabs
+bool cameraStopped();
+
+}  // namespace net
+}  // namespace cq
+```
+
+`firmware/esp32/src/net/camera_service.cpp`:
+```cpp
+#include "net/camera_service.h"
+
+#include <Arduino.h>
+
+#include <atomic>
+
+#include "board_config.h"
+#include "net/log.h"
+
+namespace cq {
+namespace net {
+namespace {
+bool g_ok = false;
+const char* g_name = "none";
+std::atomic<bool> g_stopped{false};
+}  // namespace
+
+bool cameraBegin() {
+  camera_config_t c{};
+  c.pin_pwdn = board::kCamPwdn;
+  c.pin_reset = board::kCamReset;
+  c.pin_xclk = board::kCamXclk;
+  c.pin_sccb_sda = board::kCamSda;
+  c.pin_sccb_scl = board::kCamScl;
+  c.pin_d7 = board::kCamD7;
+  c.pin_d6 = board::kCamD6;
+  c.pin_d5 = board::kCamD5;
+  c.pin_d4 = board::kCamD4;
+  c.pin_d3 = board::kCamD3;
+  c.pin_d2 = board::kCamD2;
+  c.pin_d1 = board::kCamD1;
+  c.pin_d0 = board::kCamD0;
+  c.pin_vsync = board::kCamVsync;
+  c.pin_href = board::kCamHref;
+  c.pin_pclk = board::kCamPclk;
+  c.xclk_freq_hz = static_cast<int>(board::kCamXclkHz);
+  c.ledc_timer = LEDC_TIMER_0;
+  c.ledc_channel = LEDC_CHANNEL_0;
+  c.pixel_format = PIXFORMAT_JPEG;
+  c.frame_size = FRAMESIZE_VGA;
+  c.jpeg_quality = 12;
+  c.fb_count = 2;
+  c.fb_location = CAMERA_FB_IN_PSRAM;
+  c.grab_mode = CAMERA_GRAB_LATEST;  // viewers always get the newest frame
+  const esp_err_t err = esp_camera_init(&c);
+  if (err != ESP_OK) {
+    logf("camera: init failed 0x%x - stream disabled (check the ribbon cable)",
+         static_cast<unsigned>(err));
+    return false;
+  }
+  sensor_t* s = esp_camera_sensor_get();
+  if (s != nullptr) {
+    const camera_sensor_info_t* info = esp_camera_sensor_get_info(&s->id);
+    g_name = info != nullptr ? info->name : "unknown";
+  }
+  g_ok = true;
+  logf("camera: %s, VGA JPEG q12, 2 frame buffers in PSRAM", g_name);
+  return true;
+}
+
+const char* cameraSensorName() { return g_name; }
+
+camera_fb_t* cameraGrab() { return (g_ok && !g_stopped) ? esp_camera_fb_get() : nullptr; }
+
+void cameraRelease(camera_fb_t* fb) {
+  if (fb != nullptr) esp_camera_fb_return(fb);
+}
+
+void cameraStop() { g_stopped = true; }
+
+bool cameraStopped() { return g_stopped; }
+
+}  // namespace net
+}  // namespace cq
+```
+
+- [ ] **Step 3: Stream server**
+
+`firmware/esp32/src/net/stream_server.h`:
+```cpp
+// MJPEG on port 81 /stream, max 2 viewers (bridge LLD R2.6 StreamServer, R2.14 #6). A separate
+// httpd instance: a stream blocks only its own socket task, never port 80.
+#pragma once
+
+#include <stdint.h>
+
+namespace cq {
+namespace net {
+
+bool streamServerStart();
+uint8_t streamViewers();
+
+}  // namespace net
+}  // namespace cq
+```
+
+`firmware/esp32/src/net/stream_server.cpp`:
+```cpp
+#include "net/stream_server.h"
+
+#include <Arduino.h>
+#include <esp_http_server.h>
+#include <stdio.h>
+
+#include <atomic>
+
+#include "board_config.h"
+#include "net/camera_service.h"
+#include "net/log.h"
+
+namespace cq {
+namespace net {
+namespace {
+
+constexpr const char* kBoundary = "cqframe";
+std::atomic<uint8_t> g_viewers{0};
+
+esp_err_t streamHandler(httpd_req_t* req) {
+  uint8_t n = g_viewers.load();
+  do {
+    if (n >= board::kMaxStreamViewers || cameraStopped()) {
+      httpd_resp_set_status(req, "503 Service Unavailable");
+      httpd_resp_set_hdr(req, "Retry-After", "3");
+      return httpd_resp_send(req, "max 2 viewers", HTTPD_RESP_USE_STRLEN);
+    }
+  } while (!g_viewers.compare_exchange_weak(n, static_cast<uint8_t>(n + 1)));
+  logf("stream: viewer joined (%u)", static_cast<unsigned>(n + 1));
+  httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=cqframe");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+  char part[96];
+  esp_err_t err = ESP_OK;
+  while (err == ESP_OK) {
+    camera_fb_t* fb = cameraGrab();
+    if (fb == nullptr) {
+      err = ESP_FAIL;  // camera stopped (OTA) or failed
+      break;
+    }
+    const int len = snprintf(part, sizeof(part),
+                             "\r\n--%s\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
+                             kBoundary, static_cast<unsigned>(fb->len));
+    err = httpd_resp_send_chunk(req, part, len);
+    if (err == ESP_OK) {
+      err = httpd_resp_send_chunk(req, reinterpret_cast<const char*>(fb->buf),
+                                  static_cast<ssize_t>(fb->len));
+    }
+    cameraRelease(fb);
+  }
+  const uint8_t left = static_cast<uint8_t>(--g_viewers);
+  logf("stream: viewer left (%u)", static_cast<unsigned>(left));
+  return err;
+}
+
+}  // namespace
+
+bool streamServerStart() {
+  httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+  cfg.server_port = board::kStreamPort;
+  cfg.ctrl_port = 32769;
+  cfg.max_open_sockets = 3;  // 2 viewers + 1 to answer 503
+  cfg.stack_size = 8192;
+  cfg.core_id = 0;
+  cfg.send_wait_timeout = 2;  // a stalled viewer is dropped, not waited for
+  httpd_handle_t server = nullptr;
+  if (httpd_start(&server, &cfg) != ESP_OK) {
+    logf("stream: start failed");
+    return false;
+  }
+  httpd_uri_t u{};
+  u.uri = "/stream";
+  u.method = HTTP_GET;
+  u.handler = streamHandler;
+  httpd_register_uri_handler(server, &u);
+  logf("stream: http://%s.local:%u/stream (max %u viewers)", board::kHostname, board::kStreamPort,
+       board::kMaxStreamViewers);
+  return true;
+}
+
+uint8_t streamViewers() { return g_viewers.load(); }
+
+}  // namespace net
+}  // namespace cq
+```
+
+- [ ] **Step 4: Composition root (replace `src/main.cpp`)**
+
+`firmware/esp32/src/main.cpp`:
+```cpp
+// Conqueror ESP32-S3 developer bridge - composition root (bridge LLD R2.6).
+// DEVELOPER BRIDGE - NO AUTHENTICATION - home network only. Never in release firmware.
+#include <Arduino.h>
+#include <esp_mac.h>
+#include <esp_ota_ops.h>
+
+#include "board_config.h"
+#include "net/camera_service.h"
+#include "net/http_server.h"
+#include "net/link_task.h"
+#include "net/log.h"
+#include "net/ota_service.h"
+#include "net/stream_server.h"
+#include "net/web_routes.h"
+#include "net/wifi_manager.h"
+#include "secrets_guard.h"
+#include "version.h"
+
+namespace {
+
+cq::net::WifiManager g_wifi;
+cq::net::OtaService g_ota;
+uint32_t g_last_status_ms = 0;
+
+void logBanner() {
+  using cq::net::logf;
+  logf("%s %s commit %.8s%s built %s", CQ_FW_NAME, CQ_FW_VERSION, CQ_GIT_COMMIT,
+       CQ_GIT_DIRTY ? " (dirty)" : "", CQ_BUILD_DATE);
+  logf("repo %s", CQ_REPO_URL);
+  uint8_t mac[6] = {};
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  logf("chip %s rev %u, %u MHz, flash %lu MB, PSRAM %lu MB, MAC %02x:%02x:%02x:%02x:%02x:%02x",
+       ESP.getChipModel(), static_cast<unsigned>(ESP.getChipRevision()),
+       static_cast<unsigned>(ESP.getCpuFreqMHz()),
+       static_cast<unsigned long>(ESP.getFlashChipSize() >> 20),
+       static_cast<unsigned long>(ESP.getPsramSize() >> 20), mac[0], mac[1], mac[2], mac[3], mac[4],
+       mac[5]);
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  logf("running from partition %s", running ? running->label : "?");
+  logf("DEVELOPER BRIDGE - NO AUTHENTICATION - home network only");
+}
+
+const char* stateName(cq::core::LinkState s) {
+  switch (s) {
+    case cq::core::LinkState::kWebHandshake:
+      return "web-handshake";
+    case cq::core::LinkState::kWebReady:
+      return "web-ready";
+    case cq::core::LinkState::kWebDriving:
+      return "web-driving";
+    case cq::core::LinkState::kTcpPassthrough:
+      return "bench";
+    case cq::core::LinkState::kIdle:
+    default:
+      return "idle";
+  }
+}
+
+bool hasClients(const cq::net::LinkStatus& s) {
+  return s.ws_clients > 0 || s.tcp_active || cq::net::streamViewers() > 0;
+}
+
+void logStatus(uint32_t now_ms, const cq::net::LinkStatus& s) {
+  cq::net::logf("status: up %lus wifi %s link %s uno %s ws %u tcp %u rx %lu tx %lu crc %lu heap %lu",
+                static_cast<unsigned long>(now_ms / 1000), g_wifi.modeName(), stateName(s.state),
+                s.synced ? "synced" : (s.hello.seen ? "seen" : "-"), s.ws_clients,
+                s.tcp_active ? 1u : 0u, static_cast<unsigned long>(s.frames_rx),
+                static_cast<unsigned long>(s.frames_tx), static_cast<unsigned long>(s.bad_crc),
+                static_cast<unsigned long>(ESP.getFreeHeap()));
+}
+
+}  // namespace
+
+void setup() {
+  cq::net::logBegin();
+  logBanner();
+  if (ESP.getPsramSize() == 0) {
+    cq::net::logf("ERROR: no PSRAM - check board_build.arduino.memory_type = qio_opi");
+  }
+  g_wifi.begin(millis());
+  cq::net::httpServerStart();
+  cq::net::webRoutesRegister();
+  const bool camera = cq::net::cameraBegin();
+  cq::net::linkTaskStart(cq::net::cameraSensorName());
+  if (camera) cq::net::streamServerStart();
+  g_ota.addStartHook(cq::net::cameraStop);
+  g_ota.begin();
+}
+
+void loop() {
+  const uint32_t now = millis();
+  const cq::net::LinkStatus s = cq::net::linkStatus();
+  g_wifi.step(now, hasClients(s));
+  g_ota.poll(s.ota_allowed && g_wifi.mode() != cq::core::WifiMode::kConnecting);
+  if (now - g_last_status_ms >= cq::board::kStatusPeriodMs) {
+    g_last_status_ms = now;
+    logStatus(now, s);
+  }
+  vTaskDelay(pdMS_TO_TICKS(10));
+}
+```
+
+Run: `pio run -e bridge`
+Expected: `SUCCESS`; Flash usage still far below the 3 MB slot (≈ 1.2–1.5 MB expected, LLD R2.2).
+
+- [ ] **Step 5 [HW]: Video (tank on a stand)**
+
+Flash (USB or `pio run -e bridge_ota -t upload`). USB log: `camera: OV3660, VGA JPEG q12, 2 frame buffers in PSRAM` and `stream: http://conqueror-bridge.local:81/stream (max 2 viewers)`. If the log shows another sensor name, write it down for `/info` (`hw.camera`) — nothing else changes.
+1. Laptop browser: `http://conqueror-bridge.local:81/stream` shows live video; the image is upright (if not: note it for the owner — `s->set_vflip(s, 1)` / `set_hmirror` is a one-line follow-up).
+2. Phone: the Basic Drive page shows the video in the camera box; move the camera stick → the picture pans/tilts; release → it glides back home after the Uno's delay; HOME button → home.
+3. Open a third viewer (second laptop tab): it gets `max 2 viewers`; close one viewer → within 3 s the waiting page picks the stream up again.
+4. `status:` log lines show `heap` ≥ 120 000 with one phone + one stream viewer (LLD R2.12 target; `free_heap` also appears in `/info` after Task 9).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add firmware/esp32/src
+git commit -m "feat(esp32): S3-EYE camera with 2-viewer MJPEG stream on port 81
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```

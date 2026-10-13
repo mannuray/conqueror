@@ -808,3 +808,4 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 - Next: Uno LLD "Mega 2560 board support" section → Plan B revision (Mega build env + board-support task before Task 7; Mega-aware drivers in Tasks 7, 12, 13) → continue execution.
 
 - 2026-10-13 owner — Mega pins revised (LLD §11.1): IR jumper **D9→A14** (PK6); **buzzer moved off the shield to D24**; encoders (to be fitted later) **left A/B → A8/A9, right A/B → A10/A11** (channel A used now, B wired for quadrature later). Firmware starts with encoders disabled (stock gyro-only mode).
+- 2026-10-13 owner: **buzzer stays on the shield A0 port** (its ground is already there); only IR (A14) and the encoder pins change on the Mega.

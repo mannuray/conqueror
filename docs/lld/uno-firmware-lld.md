@@ -1718,7 +1718,7 @@ Decision: `docs/design-notes.md` §29. The body board becomes the **Arduino Mega
 | Motor PWM right / left | D5 / D6 | D5 / D6 | PE3 (Timer3) / PH3 (Timer4) | none (≈490 Hz PWM on the Mega instead of ≈980 Hz; fine for TT motors) |
 | Motor dir right / left, STBY | D7 / D8, D3 | same | PH4 / PH5, PE5 | none |
 | Servos pan / tilt | D10 / D11 | same | Servo lib uses Timer5 on the Mega | none |
-| Buzzer | A0 | **D24, wired directly (off the shield)** | PA2, `tone()` on Timer2 | wiring (owner, 2026-10-13); shield A0 port freed |
+| Buzzer | A0 | A0 (shield port, unchanged) | PF0, `tone()` on Timer2 | none (owner kept it on the shield, 2026-10-13) |
 | Ultrasonic trig / echo | D13 / D12 | same | PB7 / **PB6 (PCINT6)** | echo bit changes (PCINT0 vector) |
 | IR receiver | D9 (PB1, PCINT1) | **jumper D9 → A14**; D9 left as high-impedance input | **PK6 (PCINT22)** | wiring + driver (PCINT2 vector) |
 | Encoders left / right | A1 / A2 (PC1/PC2, PCINT9/10) | **left A/B → A8/A9, right A/B → A10/A11** (direct wires, when fitted) | channel A: **PK0 / PK2 (PCINT16/18)**; B on PK1/PK3 for quadrature later | wiring + driver (PCINT2 vector) |
@@ -1741,7 +1741,6 @@ flowchart LR
     A14["A14 / PK6"] --- J3((jumper)) --- IR
     A8["A8/A9 left A/B"] --- ENC
     A10["A10/A11 right A/B"] --- ENC
-    D24["D24"] --- BUZ["Buzzer (direct wire)"]
   end
 ```
 
@@ -1774,7 +1773,7 @@ classDiagram
   board_config <.. Ws2812Driver
 ```
 
-- `board_config.h` gains a `BOARD_MEGA` branch: same pin numbers except `kPinIr = A14` (68), `kPinBuzzer = D24`, `kPinEncLeft = A8` (62), `kPinEncRight = A10` (64) (B channels A9/A11 reserved); the LED driver takes its port/bit from the config (`PORTD/4` Uno, `PORTG/5` Mega).
+- `board_config.h` gains a `BOARD_MEGA` branch: same pin numbers except `kPinIr = A14` (68), `kPinBuzzer = A0` (54), `kPinEncLeft = A8` (62), `kPinEncRight = A10` (64) (B channels A9/A11 reserved); the LED driver takes its port/bit from the config (`PORTD/4` Uno, `PORTG/5` Mega).
 - **Pin-change interrupts:** on the Uno, PCINT0 serves IR + echo and PCINT1 the encoders. On the Mega, PCINT0 serves echo only (PB6) and **PCINT2 serves IR (PK6) and both encoders (PK0 left, PK2 right)**. Each ISR stays capture-only (< 10 µs): read the port once, XOR with the previous value, timestamp the changed bits.
 - `imu` bus recovery uses `SDA`/`SCL`, which are 20/21 on the Mega; the shield's A4/A5 pins are set to `INPUT` (no pull-up) at boot so they never fight the jumpers.
 - PlatformIO: new env `mega` (`board = megaatmega2560`, `-DBOARD_MEGA`, same flags, git-commit pre-script); `uno` env keeps `-DBOARD_UNO` for the later Lite profile; `native` unchanged.
@@ -1789,7 +1788,7 @@ sequenceDiagram
   participant Owner
   participant Mega
   participant Bench as Linux (avrdude + smoke)
-  Owner->>Mega: fit Mega under the shield, jumpers 20→A4, 21→A5, D9→A14; buzzer on D24; encoders A8/A9 + A10/A11 when fitted
+  Owner->>Mega: fit Mega under the shield, jumpers 20→A4, 21→A5, D9→A14; encoders A8/A9 + A10/A11 when fitted
   Bench->>Mega: flash Tasks 1–6 build (env mega)
   Mega-->>Bench: boot line, HELLO (fw, proto 2, caps, commit)
   Bench->>Mega: watch: IMU pitch/roll, ultrasonic, IR codes, battery

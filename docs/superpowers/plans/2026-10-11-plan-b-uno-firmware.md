@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - **Platform:** commands are shown for macOS; on **Linux** use the equivalents in `docs/dev-setup.md` (uv install, serial port names `/dev/ttyACM0`/`/dev/ttyUSB0` + `dialout` group, PlatformIO udev rules, `avahi-browse` instead of `dns-sd`, hold-to-drive needs X11).
-- Hardware (confirmed): Arduino **Mega 2560** (from Task 6b; Uno kept as the later Lite profile — LLD §11 has the Mega pin map: jumpers D20→A4, D21→A5, D9→A14; buzzer D24; encoders A8/A9 left, A10/A11 right) + ELEGOO **SmartCar Shield V1.1, TB6612FNG**: PWM right (A) **D5**, PWM left (B) **D6**, AIN1 **D7**, BIN1 **D8**, STBY **D3** (HIGH = enabled, LOW = coast). Build option `-DSHIELD_SMARTCAR_V11_TB6612` (default) or `-DSHIELD_TANK_DRV8835` (PH/EN: PWM D5/D6, PH right D8, PH left D7, no STBY). Board option `-DBOARD_UNO`.
+- Hardware (confirmed): Arduino **Mega 2560** (from Task 6b; Uno kept as the later Lite profile — LLD §11 has the Mega pin map: jumpers D20→A4, D21→A5, D9→A14; buzzer A0; encoders A8/A9 left, A10/A11 right) + ELEGOO **SmartCar Shield V1.1, TB6612FNG**: PWM right (A) **D5**, PWM left (B) **D6**, AIN1 **D7**, BIN1 **D8**, STBY **D3** (HIGH = enabled, LOW = coast). Build option `-DSHIELD_SMARTCAR_V11_TB6612` (default) or `-DSHIELD_TANK_DRV8835` (PH/EN: PWM D5/D6, PH right D8, PH left D7, no STBY). Board option `-DBOARD_UNO`.
 - Pins: encoders (FIT0458, channel A only) left **A1**, right **A2** (PCINT1, rising edges only); passive buzzer **A0** (`tone()`, Timer2); ultrasonic trig **D13**, echo **D12**; IR receiver **D9** (custom NEC decoder, no IRremote); PCINT0 ISR shared by D9 + D12; servos pan **D10**, tilt **D11** (Servo lib, Timer1); WS2812 ×1 on **D4** (own bit-bang, no FastLED); button **D2**; battery **A3**; MPU6050 on I2C A4/A5 @ **0x68**.
 - UART **250000** baud on D0/D1 (shield switch **S1** disconnects the ESP32 for USB upload).
 - Frame `0xAA | len | type | seq | payload | crc8`, max payload 48, CRC-8 poly 0x07 — all from `cq_protocol.h`; never hand-code frame layouts.
@@ -6409,7 +6409,7 @@ git commit -m "feat(uno): safety core - PwmOutput, envelope, arbitrator, supervi
 
 **Interfaces:**
 - Produces: `cq::drv::encoderEdges(bool left_rising, bool right_rising, uint32_t now_us)` (called from the PCINT ISR; weak no-op until Task 7 provides it) and `cq::drv::encodersEnablePcint()`; `board::kPinIrShield`, `board::kPinShieldSda/Scl` (Mega only); `size_gate.py <env>`.
-- Wiring (owner, LLD §11.1, revised 2026-10-13): jumpers D20→A4, D21→A5, D9→A14 (IR); buzzer directly on D24 (off the shield); encoders (when fitted) left A/B → A8/A9, right A/B → A10/A11 (channel A used; B wired for quadrature later).
+- Wiring (owner, LLD §11.1, revised 2026-10-13): jumpers D20→A4, D21→A5, D9→A14 (IR); buzzer stays on the shield A0; encoders (when fitted) left A/B → A8/A9, right A/B → A10/A11 (channel A used; B wired for quadrature later).
 
 - [ ] **Step 1: Build environments and size gate**
 
@@ -6543,10 +6543,10 @@ constexpr uint8_t kPinEcho = 12;      // Uno PB4 (PCINT4), Mega PB6 (PCINT6); bo
 constexpr uint8_t kPinTrig = 13;
 
 #if defined(BOARD_MEGA)
-// LLD §11.1 wiring: jumpers D20->A4, D21->A5 (I2C), D9->A14 (IR); buzzer on D24; encoders A8/A9 (L), A10/A11 (R).
+// LLD §11.1 wiring: jumpers D20->A4, D21->A5 (I2C), D9->A14 (IR); buzzer on the shield A0; encoders A8/A9 (L), A10/A11 (R).
 constexpr uint8_t kPinIr = 68;          // A14 = PK6 (PCINT22, vector PCINT2), jumper from shield D9
 constexpr uint8_t kPinIrShield = 9;     // shield D9 (PH6, no PCINT): kept a high-impedance input
-constexpr uint8_t kPinBuzzer = 24;      // D24, wired directly (off the shield); tone() on Timer2
+constexpr uint8_t kPinBuzzer = 54;      // A0 (shield buzzer port, as on the Uno); tone() on Timer2
 constexpr uint8_t kPinEncLeft = 62;     // A8 = PK0 (PCINT16, vector PCINT2), left channel A
 constexpr uint8_t kPinEncRight = 64;    // A10 = PK2 (PCINT18, vector PCINT2), right channel A
 constexpr uint8_t kPinEncLeftB = 63;    // A9 = PK1, left channel B (wired for quadrature later; unused)

@@ -39,10 +39,10 @@ constexpr uint8_t kPinEcho = 12;      // Uno PB4 (PCINT4), Mega PB6 (PCINT6); bo
 constexpr uint8_t kPinTrig = 13;
 
 #if defined(BOARD_MEGA)
-// LLD §11.1 wiring: jumpers D20->A4, D21->A5 (I2C), D9->A14 (IR); buzzer on D24; encoders A8/A9 (L), A10/A11 (R).
+// LLD §11.1 wiring: jumpers D20->A4, D21->A5 (I2C), D9->A14 (IR); buzzer on the shield A0; encoders A8/A9 (L), A10/A11 (R).
 constexpr uint8_t kPinIr = 68;          // A14 = PK6 (PCINT22, vector PCINT2), jumper from shield D9
 constexpr uint8_t kPinIrShield = 9;     // shield D9 (PH6, no PCINT): kept a high-impedance input
-constexpr uint8_t kPinBuzzer = 24;      // D24, wired directly (off the shield); tone() on Timer2
+constexpr uint8_t kPinBuzzer = 54;      // A0 (shield buzzer port, as on the Uno); tone() on Timer2
 constexpr uint8_t kPinEncLeft = 62;     // A8 = PK0 (PCINT16, vector PCINT2), left channel A
 constexpr uint8_t kPinEncRight = 64;    // A10 = PK2 (PCINT18, vector PCINT2), right channel A
 constexpr uint8_t kPinEncLeftB = 63;    // A9 = PK1, left channel B (wired for quadrature later; unused)

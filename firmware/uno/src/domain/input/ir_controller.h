@@ -24,7 +24,9 @@ struct IrOutput {
 
 class IrController {
  public:
-  static constexpr uint16_t kReleaseMs = 200;
+  // Held key ends 350 ms after the last repeat: tolerates two lost NEC repeats (~108 ms apart);
+  // the decoder uses the same window (design-notes §39).
+  static constexpr uint16_t kReleaseMs = 350;
   static constexpr uint16_t kCalHoldMs = 3000;
   static constexpr uint16_t kOverrideHoldMs = 2000;
   bool onEvent(const IrEvent& e, IrOutput& out);

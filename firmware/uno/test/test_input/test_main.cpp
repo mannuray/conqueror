@@ -18,8 +18,9 @@ void test_ir_hold_up_drives_then_release_stops() {
   TEST_ASSERT_EQUAL(0, o.w);
   TEST_ASSERT_FALSE(c.tick(150, o));
   c.onEvent({ir_codes::kUp, true, 108}, o);  // NEC repeat while held
-  TEST_ASSERT_FALSE(c.tick(250, o));
-  TEST_ASSERT_TRUE(c.tick(310, o));          // 200 ms without a repeat → released
+  TEST_ASSERT_FALSE(c.tick(324, o));         // one repeat lost (216 ms): still held (§39)
+  TEST_ASSERT_FALSE(c.tick(457, o));
+  TEST_ASSERT_TRUE(c.tick(458, o));          // 350 ms without a repeat → released
   TEST_ASSERT_FALSE(o.active);
   TEST_ASSERT_EQUAL(0, o.v);
 }
@@ -59,9 +60,9 @@ void test_ir_camera_jog_while_held() {
   IrOutput o{};
   c.onEvent({ir_codes::k1, false, 0}, o);
   TEST_ASSERT_EQUAL(-1, o.jog_pan);
-  TEST_ASSERT_TRUE(c.tick(250, o));
+  TEST_ASSERT_TRUE(c.tick(350, o));  // kReleaseMs (350) after the last code
   TEST_ASSERT_EQUAL(0, o.jog_pan);
-  c.onEvent({ir_codes::k2, false, 300}, o);
+  c.onEvent({ir_codes::k2, false, 400}, o);
   TEST_ASSERT_EQUAL(1, o.jog_tilt);
   c.onEvent({ir_codes::k8, false, 400}, o);
   TEST_ASSERT_EQUAL(-1, o.jog_tilt);
@@ -82,7 +83,7 @@ void test_ir_one_shot_keys_ignore_repeats() {
   TEST_ASSERT_TRUE(o.turn_180);
   c.onEvent({ir_codes::kStar, false, 2000}, o);
   TEST_ASSERT_FALSE(o.toggle_parking);  // `*` acts on release (a hold may become Safety Override)
-  TEST_ASSERT_TRUE(c.tick(2200, o));
+  TEST_ASSERT_TRUE(c.tick(2350, o));
   TEST_ASSERT_TRUE(o.toggle_parking);
   TEST_ASSERT_FALSE(c.onEvent({0x12345678UL, false, 2500}, o));
 }
@@ -120,7 +121,7 @@ void test_ir_star_hold_2s_toggles_override_once() {
     c.onEvent({ir_codes::kStar, true, t}, o);
     TEST_ASSERT_FALSE(o.toggle_override);
   }
-  TEST_ASSERT_TRUE(c.tick(6100, o));
+  TEST_ASSERT_TRUE(c.tick(6300, o));
   TEST_ASSERT_TRUE(o.toggle_parking);
 }
 
@@ -128,9 +129,9 @@ void test_ir_release_clears_one_shots() {
   IrController c;
   IrOutput o{};
   c.onEvent({ir_codes::kUp, false, 0}, o);
-  c.onEvent({ir_codes::k7, false, 300}, o);  // mute pressed right after ▲ (no 200 ms gap in this pass)
+  c.onEvent({ir_codes::k7, false, 400}, o);  // mute pressed right after ▲ (no 350 ms gap in this pass)
   TEST_ASSERT_TRUE(o.toggle_mute);
-  TEST_ASSERT_TRUE(c.tick(300, o));          // ▲ released in the same pass
+  TEST_ASSERT_TRUE(c.tick(400, o));          // ▲ released in the same pass
   TEST_ASSERT_FALSE(o.toggle_mute);          // not applied twice
   TEST_ASSERT_FALSE(o.active);
 }

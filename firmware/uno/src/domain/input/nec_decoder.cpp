@@ -1,5 +1,6 @@
 #include "domain/input/nec_decoder.h"
 
+#include "domain/input/ir_controller.h"
 #include "domain/util/math_util.h"
 
 namespace cq {
@@ -19,7 +20,8 @@ bool NecDecoder::feed(uint32_t t_us, uint32_t now_ms, IrEvent& out) {
   }
   if (within(dt, 10500, 12000)) {  // 9 ms mark + 2.25 ms space: repeat
     m_state = State::kIdle;
-    if (!m_have_code || elapsed(now_ms, m_last_frame_ms, 200)) return false;
+    // 350 ms: one or two lost repeats (every ~108 ms) do not end a held key (design-notes §39)
+    if (!m_have_code || elapsed(now_ms, m_last_frame_ms, IrController::kReleaseMs)) return false;
     m_last_frame_ms = now_ms;
     out = IrEvent{m_last_code, true, now_ms};
     return true;

@@ -1,0 +1,27 @@
+[project]
+name = "conqueror-smoke"
+version = "0.1.0"
+description = "Stand and bridge smoke scripts (Plans B and C)"
+requires-python = ">=3.12"
+dependencies = ["conqueror-protocol", "pyserial>=3.5"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+conqueror-protocol = { path = "../../protocol/python", editable = true }
+
+[dependency-groups]
+dev = ["ruff>=0.7", "pyright>=1.1", "types-pyserial>=3.5"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false

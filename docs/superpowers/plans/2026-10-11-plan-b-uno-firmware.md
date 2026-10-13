@@ -1953,6 +1953,11 @@ typeCheckingMode = "strict"
 reportMissingTypeStubs = false
 ```
 
+`tools/smoke/.python-version` (pins Python 3.12 for uv, like `protocol/` and `tools/bench/`):
+```
+3.12
+```
+
 `tools/smoke/uno_smoke.py`:
 ```python
 #!/usr/bin/env python3

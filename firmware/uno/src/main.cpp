@@ -1,34 +1,56 @@
 #include <Arduino.h>
 
+#include "app/app.h"
+#include "app/comms.h"
 #include "domain/util/scheduler.h"
 #include "drivers/board_config.h"
 #include "ports/clock.h"
+#include "ports/link.h"
 #include "ports/watchdog.h"
 
 namespace {
-void heartbeatTask() {}
 
+void linkWatchTask() {
+  // poll() runs onLinkLost() on a loss; the first contact after boot reports kNone.
+  switch (cq::g_app.link.poll(cq::port::clock::nowMs())) {
+    case cq::LinkChange::kLost:
+      cq::g_app.events.push(cq::proto::EventKind::kLinkLost);
+      break;
+    case cq::LinkChange::kRestored:
+      cq::g_app.events.push(cq::proto::EventKind::kLinkRestored);
+      break;
+    case cq::LinkChange::kNone:
+      break;
+  }
+}
+
+// TASKS-BEGIN (later tasks add rows before TASKS-END)
 cq::Task g_tasks[] = {
-    {heartbeatTask, 1000000UL, 0},
+    {linkWatchTask, 10000UL, 0},
+    {cq::app::telemetryFastDue, 50000UL, 0},
+    {cq::app::telemetrySlowDue, 1000000UL, 0},
+    // TASKS-END
 };
 cq::Scheduler g_scheduler(g_tasks, static_cast<uint8_t>(sizeof g_tasks / sizeof g_tasks[0]));
-cq::LoadMeter g_load;
+
 }  // namespace
 
 void setup() {
-  const cq::proto::ResetReason reason = cq::port::watchdog::resetReason();
-  Serial.begin(cq::board::kBaud);
-  Serial.print(F("CQ boot reset="));
-  Serial.println(static_cast<uint8_t>(reason));
+  cq::g_app.reset_reason = cq::port::watchdog::resetReason();
+  cq::port::link::begin(cq::board::kBaud);
+  // SETUP-INIT (later tasks add driver/domain init before SETUP-END)
+  // SETUP-END
   cq::port::watchdog::enable();
   g_scheduler.start(cq::port::clock::nowUs());
 }
 
 void loop() {
   const uint32_t t0 = cq::port::clock::nowUs();
-  if (g_scheduler.runDue(t0) > 0) {
-    const uint32_t t1 = cq::port::clock::nowUs();
-    g_load.add(t1 - t0, t1);
-  }
+  cq::app::commsPoll();
+  const uint8_t ran = g_scheduler.runDue(t0);
+  cq::app::txPump();
+  const uint32_t t1 = cq::port::clock::nowUs();
+  if (ran > 0) cq::g_app.load.add(t1 - t0, t1);
+  cq::g_app.scheduler_overruns = g_scheduler.overruns();
   cq::port::watchdog::kick();
 }

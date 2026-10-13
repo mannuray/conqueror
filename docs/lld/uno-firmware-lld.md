@@ -1794,3 +1794,81 @@ sequenceDiagram
   Bench->>Mega: watch: IMU pitch/roll, ultrasonic, IR codes, battery
   Owner->>Bench: tank on the stand → first motor test (Task 6 stand checks)
 ```
+
+### 11.4 No-rework Mega (2026-10-13, supersedes the jumpers in §11.1)
+
+Principle (design-notes §30): the shield plugs onto the Mega as-is — no jumpers, no soldering. Encoder cables are independent wires and plug directly into the Mega header.
+
+| Function | Mega solution | Pins |
+|---|---|---|
+| IMU (MPU6050 on the shield's A4/A5) | **software I2C master** (`SoftI2c`), open-drain by toggling DDR (pin LOW = output 0, released = input + the module's pull-ups) | A4 = PF4 (SDA), A5 = PF5 (SCL) |
+| IR receiver (shield D9) | **20 kHz Timer1 sampler** (`IrSampler`) → falling-edge timestamps into the existing IR ring | D9 = PH6 |
+| Encoders | direct cables into the Mega, **PCINT2** (unchanged from Task 6b) | left A/B A8/A9 = PK0/PK1, right A/B A10/A11 = PK2/PK3 (channel A used) |
+| Echo, motors, servos, buzzer A0, LED, button, battery | unchanged | shield pins |
+
+```mermaid
+classDiagram
+  class SoftI2c {
+    <<driver, Mega only>>
+    +begin()
+    +write(addr, reg, data) bool
+    +read(addr, reg, buf, n) bool
+    +recover()  9 SCL clocks + STOP
+    -sdaLow()/sdaRelease()/sclLow()/sclRelease()
+    -bitDelay() ~2 µs (≈ 200–250 kHz)
+  }
+  class ImuDriver {
+    <<port imu>>
+    +begin() / read(ImuRaw&) / i2cErrors()
+  }
+  class IrSampler {
+    <<driver, Mega only>>
+    ISR TIMER1_COMPA 20 kHz
+    -prev PH6 level
+    +on falling edge: push micros() to IR ring
+  }
+  class EdgeDetector {
+    <<header-only, host-tested>>
+    +update(uint8_t level_bits) uint8_t falling
+    +rising(uint8_t level_bits) uint8_t
+  }
+  class PcintHub {
+    PCINT0: echo PB6
+    PCINT2: encoders PK0/PK2 (Mega)
+  }
+  ImuDriver ..> SoftI2c : BOARD_MEGA
+  ImuDriver ..> TwoWire : BOARD_UNO
+  IrSampler ..> EdgeDetector
+  PcintHub ..> EdgeDetector
+```
+
+```mermaid
+sequenceDiagram
+  participant T as imuTask (200 Hz)
+  participant D as imu driver
+  participant S as SoftI2c (A4/A5)
+  participant M as MPU6050
+  T->>D: read(raw)
+  D->>S: read(0x68, ACCEL_XOUT_H, 14 bytes)
+  S->>M: START, addr+W, reg, rSTART, addr+R
+  M-->>S: 14 bytes (ACK each, NACK last), STOP
+  alt NACK / SDA stuck low
+    S->>S: recover() (9 clocks + STOP)
+    D-->>T: false (fail streak → IMU_FAULT after 5)
+  else ok
+    D-->>T: true, axis-mapped ImuRaw
+  end
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> High
+  High --> Low: sample == 0 → push micros() (IR falling edge)
+  Low --> High: sample == 1
+  note right of High: Timer1 CTC, OCR1A = 99, prescaler 8 → 20 kHz; ISR < 2 µs
+```
+
+- **Timing/CPU:** IR sampler ISR ≈ 1.5–2 µs every 50 µs → ~3–4 % CPU; NEC marks/spaces are ≥ 560 µs, so 50 µs resolution is ample. Soft-I2C burst (≈ 150 bits at ~200 kHz) ≈ 0.7 ms per 5 ms IMU tick (documented exception to the 50 µs busy-wait rule, like the TWI burst it replaces); interrupts stay enabled (I2C tolerates the clock being stretched by ISRs because the master owns SCL).
+- **Timer use (Mega):** Timer1 = IR sampler (D11/D12 PWM unused); Timer2 = tone; Timer3/4 = motor PWM D5/D6; Timer5 = Servo.
+- **Uno build unchanged:** hardware TWI + PCINT (IR/echo PCINT0, encoders PCINT1).
+- **Tests:** `EdgeDetector` is host-tested; `SoftI2c` and `IrSampler` are verified on the hardware (IMU answers with real pitch/roll; IR codes decode).

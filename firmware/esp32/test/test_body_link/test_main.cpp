@@ -105,6 +105,17 @@ void test_handshake_acks_matching_proto_and_sends_owner_hint() {
   TEST_ASSERT_TRUE(popKind(LinkEventKind::kBodyOnline, ev));
 }
 
+// Review M11: handing the link to the bench (stopMaster) is not a lost body - no body_offline.
+void test_stop_master_is_not_body_offline() {
+  bl->startMaster(0);
+  hello(proto::kProtocolVersion, 50);
+  LinkEvent ev{};
+  TEST_ASSERT_TRUE(popKind(LinkEventKind::kBodyOnline, ev));
+  bl->stopMaster();
+  TEST_ASSERT_FALSE(popKind(LinkEventKind::kBodyOffline, ev));
+  TEST_ASSERT_FALSE(bl->master());
+}
+
 void test_handshake_rejects_wrong_proto() {
   bl->startMaster(0);
   hello(1, 50);
@@ -284,6 +295,7 @@ int main() {
   RUN_TEST(test_heartbeat_every_100ms);
   RUN_TEST(test_hello_req_repeats_every_second_until_hello);
   RUN_TEST(test_handshake_acks_matching_proto_and_sends_owner_hint);
+  RUN_TEST(test_stop_master_is_not_body_offline);
   RUN_TEST(test_handshake_rejects_wrong_proto);
   RUN_TEST(test_uno_reboot_hello_is_acked_again);
   RUN_TEST(test_silent_uno_restarts_handshake);

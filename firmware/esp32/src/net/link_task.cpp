@@ -42,7 +42,8 @@ struct Waiter {
   int fd;
   int32_t id;
 };
-Waiter g_stop_waiters[4];
+constexpr size_t kMaxStopWaiters = 2 * core::kMaxWsClients;  // review M8
+Waiter g_stop_waiters[kMaxStopWaiters];
 size_t g_stop_waiter_n = 0;
 Waiter g_cam_waiter{-1, -1};
 uint8_t g_cam_seq = 0;
@@ -87,6 +88,8 @@ void broadcastTs() {
   broadcast(core::jsonTs(g_json, sizeof(g_json), g_link.snapshot(), ownerView(), bodyOffline()));
 }
 
+void nack(int fd, int32_t id, core::BridgeReason r);
+
 // Executes LinkOwner actions in the documented order.
 void apply(const core::Actions& a, uint32_t now) {
   if (a.has(core::Actions::kStopMaster)) {
@@ -94,6 +97,12 @@ void apply(const core::Actions& a, uint32_t now) {
     g_tx.clear();  // drop queued ESP32 frames; a pending STOP (urgent slot) is kept
     // Review M2: a web STOP still being resent when the bench takes over: its ACKs are ours.
     if (g_link.stopPending()) g_tcp.swallowAck(g_link.pendingStopSeq(), now);
+    if (g_cam_waiter.fd != -1) {  // stopMaster() cancelled the CAM_HOME: answer it (review M8)
+      if (g_ws.contains(g_cam_waiter.fd)) {
+        nack(g_cam_waiter.fd, g_cam_waiter.id, core::BridgeReason::kTimeout);
+      }
+      g_cam_waiter = Waiter{-1, -1};
+    }
   }
   if (a.has(core::Actions::kInjectStop)) {
     const uint8_t seq = g_tcp.injectSeq();  // bench lastSeq + 128: no collision with its commands
@@ -140,7 +149,11 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
     apply(g_owner.onStop(fd), now);  // urgent slot; queued DRIVE/CAM_JOY frames are purged
     if (g_ws.contains(fd)) {
       g_ws.admit(fd, c.kind, now);  // never limited; counts as alive
-      if (g_stop_waiter_n < 4) g_stop_waiters[g_stop_waiter_n++] = Waiter{fd, id};
+      if (g_stop_waiter_n < kMaxStopWaiters) {
+        g_stop_waiters[g_stop_waiter_n++] = Waiter{fd, id};
+      } else {
+        nack(fd, id, core::BridgeReason::kBusy);  // review M8: answered; the STOP was still applied
+      }
     }
     return;
   }
@@ -197,6 +210,8 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
       const core::Decision d = g_owner.onCamera(fd);
       if (d != core::Decision::kSend) {
         nack(fd, id, reasonOf(d));
+      } else if (g_cam_waiter.fd != -1) {
+        nack(fd, id, core::BridgeReason::kBusy);  // review M8: one cam_home at a time, always answered
       } else if (g_link.sendCamHome(now, g_cam_seq)) {
         g_cam_waiter = Waiter{fd, id};
       } else {

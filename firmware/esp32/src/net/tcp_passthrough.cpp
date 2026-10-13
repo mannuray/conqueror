@@ -35,7 +35,9 @@ core::Actions TcpPassthrough::poll(uint32_t now_ms, core::LinkOwner& owner, core
       m_down.reset();
       ++m_stats.sessions;
       logf("tcp: bench connected from %s", m_client.remoteIP().toString().c_str());
-      out = a;
+      // Review M1: read nothing in this call. link_task applies StopMaster (which clears the TX
+      // queue of ESP32 frames) first; the bench's first frames are read on the next tick.
+      return a;
     }
   }
   if (!m_active) return out;

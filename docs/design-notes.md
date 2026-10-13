@@ -887,8 +887,8 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
 | Motors | 2 channels (TB6612-class), footprint for a 2nd driver (mecanum variant) |
 | Encoders | 2 connectors, A/B each |
 | Servos | 2 outputs (head has 2 more; a setting picks the servo host) |
-| Sensors | Ultrasonic (HC-SR04), IR receiver, IMU breakout footprint (GY-521/MPU6050 class, plugs in like on the shield), battery voltage sense |
-| Optional sensors | Compass breakout (QMC5883L class), ToF (VL53L0X/L1X); proposed: a Qwiic/STEMMA QT I2C connector for any optional I2C sensor |
+| Sensors | Ultrasonic (HC-SR04), IR receiver, gyro breakout socket (GY-521), battery voltage sense |
+| Optional sensors | Compass breakout socket (GY-271) at the board edge; Qwiic port for any other I2C sensor (ToF, newer IMUs, remote compass) |
 | Output | Passive buzzer, 1 RGB LED (WS2812, buffered data line) |
 | Input | Mode button (proposed: 2 user buttons - run/stop a saved Tank Logo program, simple menu, teaching) |
 | Status LEDs | GPIO status LEDs (owner, 2026-10-14 - idea from the Cytron Maker Pi RP2040: shows pin activity, helps learning and debugging) |
@@ -897,7 +897,7 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
 | 5 V-safe | Every connector 5 V-safe for the user (5 V power, 5 V-tolerant inputs, WS2812 buffer) |
 | Head | Off-the-shelf ESP32-S3 camera board on the gimbal (UART + servo pins, WiFi OTA) |
 
-- **Compared with the Cytron Maker Pi RP2040** (2026-10-14): a general education board - 1S/3.6-6 V motors (cannot run a 2S pack), no encoders/IMU/IR/camera link, not Uno-sized. Borrowed: GPIO status LEDs. **No Python on the board** (owner): Tank Logo is the beginner language. **Goal (owner, 2026-10-14): a good general-purpose robot board** - ELEGOO kits are one reference, not a compatibility target. **Connectors (owner): JST-XH 2.54 mm for the robot connectors, no Grove** (Grove's bigger footprint brings no real advantage; XH is compact, latching, cheap, easy to crimp and widely sold). I2C expansion (proposed): a Qwiic socket plus a parallel 4-pin 2.54 mm header.
+- **Compared with the Cytron Maker Pi RP2040** (2026-10-14): a general education board - 1S/3.6-6 V motors (cannot run a 2S pack), no encoders/IMU/IR/camera link, not Uno-sized. Borrowed: GPIO status LEDs. **No Python on the board** (owner): Tank Logo is the beginner language. **Goal (owner, 2026-10-14): a good general-purpose robot board** - ELEGOO kits are one reference, not a compatibility target. **Connectors (owner): JST-XH 2.54 mm for the robot connectors, no Grove** (Grove's bigger footprint brings no real advantage; XH is compact, latching, cheap, easy to crimp and widely sold). **I2C (owner, 2026-10-14): a Qwiic port for expansion + sockets for a gyro breakout and a compass breakout.** Sockets fixed to the common modules - gyro GY-521 (MPU6050, 8 pins: VCC GND SCL SDA XDA XCL AD0 INT), compass GY-271 (QMC5883L/HMC5883L, 5 pins: VCC GND SCL SDA DRDY); any other I2C sensor (newer IMUs, ToF) on Qwiic. Compass socket at the board edge, far from the motor connectors (motor magnets/current disturb it); for a reliable heading use a Qwiic compass on a short cable mounted high (e.g. the camera mast). Addresses do not clash: MPU6050 0x68, QMC5883L 0x0D / HMC5883L 0x1E, VL53L0X 0x29.
 - Still open: certification for sale in India (BIS toys/Li-ion, WPC, EPR) - research task; optional wired ESP32 update through the base (RP2350 USB-to-UART bridge, ESP32-S3 software-forced download mode) - nice-to-have, OTA is the normal path.
 - Next step once requirements are settled: a spec in `docs/superpowers/specs/` (design first).
 

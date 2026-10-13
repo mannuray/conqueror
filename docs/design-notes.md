@@ -859,3 +859,9 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 - **Fix now (owner):** all 12 minor review findings (M1–M12) of the Plan C final review.
 - **USB stays plugged in** until the first OTA update has worked on the board and the hardware checklist has passed; after that the ESP32 is updated over WiFi (the Mega stays USB-only).
 
+## 38. The ESP32 must run on tank power alone (REQUIREMENT, defect found 2026-10-13)
+- Found on the bench: with the USB cable removed (it broke), the ESP32 shows its red LED and a **dim green LED** but never joins WiFi and never opens the `conqueror-bridge` fallback AP — it does not get through start-up. With USB power it runs fine. The old ELEGOO firmware ran on tank power with the same camera settings (`docs/legacy/esp32s3-old-firmware.md`), so this is our defect.
+- Likely cause: brown-out resets — the 3.3 V supply sags when WiFi and the camera start; our bridge also keeps the radio fully on (`WiFi.setSleep(false)`), unlike the old firmware.
+- Fix build (needs a USB-C data cable once): (1) boot diagnostics — boot counter and last reset reasons kept in NVS, shown in the boot log and `/info`; (2) staged start — camera only after WiFi is up (or after 10 s); (3) WiFi TX power capped at 15 dBm. If brown-outs remain: re-enable modem sleep and measure the drive latency.
+- Side note from the old firmware: it set `vflip` and `hmirror` on the sensor — ours does not yet (picture may be upside down / mirrored); check on the page.
+

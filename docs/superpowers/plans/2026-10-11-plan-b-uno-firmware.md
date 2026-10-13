@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - **Platform:** commands are shown for macOS; on **Linux** use the equivalents in `docs/dev-setup.md` (uv install, serial port names `/dev/ttyACM0`/`/dev/ttyUSB0` + `dialout` group, PlatformIO udev rules, `avahi-browse` instead of `dns-sd`, hold-to-drive needs X11).
-- Hardware (confirmed): Arduino **Mega 2560** (from Task 6b; Uno kept as the later Lite profile — LLD §11 has the Mega pin map: jumpers D20→A4, D21→A5, D9→A14; buzzer A0; encoders A8/A9 left, A10/A11 right) + ELEGOO **SmartCar Shield V1.1, TB6612FNG**: PWM right (A) **D5**, PWM left (B) **D6**, AIN1 **D7**, BIN1 **D8**, STBY **D3** (HIGH = enabled, LOW = coast). Build option `-DSHIELD_SMARTCAR_V11_TB6612` (default) or `-DSHIELD_TANK_DRV8835` (PH/EN: PWM D5/D6, PH right D8, PH left D7, no STBY). Board option `-DBOARD_UNO`.
+- Hardware (confirmed): Arduino **Mega 2560** (from Task 6b; Uno kept as the later Lite profile — LLD §11 has the Mega pin map; **no hardware rework** (Task 6c, LLD §11.4): shield plugs on as-is, IMU by software I2C on A4/A5, IR on D9 timer-sampled, buzzer A0; encoders plug directly into A8/A9 left, A10/A11 right) + ELEGOO **SmartCar Shield V1.1, TB6612FNG**: PWM right (A) **D5**, PWM left (B) **D6**, AIN1 **D7**, BIN1 **D8**, STBY **D3** (HIGH = enabled, LOW = coast). Build option `-DSHIELD_SMARTCAR_V11_TB6612` (default) or `-DSHIELD_TANK_DRV8835` (PH/EN: PWM D5/D6, PH right D8, PH left D7, no STBY). Board option `-DBOARD_UNO`.
 - Pins: encoders (FIT0458, channel A only) left **A1**, right **A2** (PCINT1, rising edges only); passive buzzer **A0** (`tone()`, Timer2); ultrasonic trig **D13**, echo **D12**; IR receiver **D9** (custom NEC decoder, no IRremote); PCINT0 ISR shared by D9 + D12; servos pan **D10**, tilt **D11** (Servo lib, Timer1); WS2812 ×1 on **D4** (own bit-bang, no FastLED); button **D2**; battery **A3**; MPU6050 on I2C A4/A5 @ **0x68**.
 - UART **250000** baud on D0/D1 (shield switch **S1** disconnects the ESP32 for USB upload).
 - Frame `0xAA | len | type | seq | payload | crc8`, max payload 48, CRC-8 poly 0x07 — all from `cq_protocol.h`; never hand-code frame layouts.
@@ -6409,7 +6409,7 @@ git commit -m "feat(uno): safety core - PwmOutput, envelope, arbitrator, supervi
 
 **Interfaces:**
 - Produces: `cq::drv::encoderEdges(bool left_rising, bool right_rising, uint32_t now_us)` (called from the PCINT ISR; weak no-op until Task 7 provides it) and `cq::drv::encodersEnablePcint()`; `board::kPinIrShield`, `board::kPinShieldSda/Scl` (Mega only); `size_gate.py <env>`.
-- Wiring (owner, LLD §11.1, revised 2026-10-13): jumpers D20→A4, D21→A5, D9→A14 (IR); buzzer stays on the shield A0; encoders (when fitted) left A/B → A8/A9, right A/B → A10/A11 (channel A used; B wired for quadrature later).
+- Wiring (owner, LLD §11.1, revised 2026-10-13) — **superseded by Task 6c (no jumpers)**: jumpers D20→A4, D21→A5, D9→A14 (IR); buzzer stays on the shield A0; encoders (when fitted) left A/B → A8/A9, right A/B → A10/A11 (channel A used; B wired for quadrature later).
 
 - [ ] **Step 1: Build environments and size gate**
 
@@ -6830,6 +6830,37 @@ Verified on the bare Mega (CH340 clone, `/dev/ttyUSB0`): `HELLO fw=0x0100 proto=
 git add firmware/uno
 git commit -m "feat(uno): Mega 2560 board support - pin map, PCINT hub, per-env size gate"
 ```
+
+---
+
+### Task 6c: No-rework Mega — software I2C, IR timer sampler, encoders direct (design-notes §30, LLD §11.4)
+
+> As-built record: the owner rejected jumpers ("no messy hardware changes"), so this task replaced Task 6b's jumper wiring. Implemented in `b62dd12`; the loop-timing fix found on the bench is in `b610787` (LLD §11.5).
+
+**Files:**
+- Create: `src/drivers/soft_i2c.{h,cpp}` (Mega only), `src/domain/util/edge_detector.h`
+- Modify: `src/drivers/imu_uno.cpp` (bus layer: Wire on the Uno, soft I2C on the Mega), `src/drivers/pcint_hub.cpp` (Mega: Timer1 COMPB IR sampler, PCINT2 encoders, PCINT0 echo), `src/drivers/board_config.h` (Mega pins), `src/main.cpp` + `src/domain/util/scheduler.{h,cpp}` (task phases, Step 5)
+- Test: `test/test_sensors` (`test_edge_detector_falling_and_rising`), `test/test_scheduler` (`test_phase_offsets_first_run_and_keeps_period`)
+
+**Interfaces:**
+- Produces: `cq::drv::soft_i2c::{begin, writeReg, readRegs, recover}`; `cq::EdgeDetector::update(level) → {falling, rising}`; `Task{fn, period_us, phase_us, next_due_us}`.
+- Pins (Mega): SDA A4 = PF4, SCL A5 = PF5 (open drain via DDRF); IR D9 = PH6; echo D12 = PB6 (PCINT0); encoders left A8 = PK0, right A10 = PK2 (PCINT2; B channels A9/A11 reserved); buzzer A0.
+- Timers (Mega): T1 IR sampler (COMPB — the Servo library owns `TIMER1_COMPA_vect`), T2 tone, T3/T4 motor PWM, T5 Servo.
+
+- [x] **Step 1: Edge detector (host-tested)** — write `test_edge_detector_falling_and_rising` first, watch it fail, then `EdgeDetector` (previous level starts at 0xFF; falling = prev & ~level, rising = ~prev & level).
+
+- [x] **Step 2: IR sampler** — Timer1 CTC, prescaler 8, OCR1A 99 → 20 kHz; `ISR(TIMER1_COMPB_vect)` reads PINH and pushes a timestamp to the IR ring on a falling edge of PH6 (~1.5 µs per call, ~6 % CPU).
+
+- [x] **Step 3: Software I2C for the MPU6050** — open-drain bit-bang, 1 µs half-bit (fast-mode tLOW ≥ 1.3 µs must hold, so the delay stays), SCL release waits for the line (clock stretching), 9-clock bus recovery. 14-byte burst ≈ 0.75–1.2 ms with interrupts on.
+
+- [x] **Step 4: Encoders on PCINT2** — `encodersEnablePcint()` enables PK0/PK2; ISR passes rising edges to `encoderEdges()`.
+
+- [x] **Step 5: Scheduler phases (LLD §11.5)** — test first, then `phase_us`: IMU/IR 0, control/linkWatch/ultrasonic 2.5 ms, slow telemetry/settings/camera 7.5 ms, UI/input 17.5 ms.
+
+- [x] **Step 6: Verify**
+
+Run: `pio test -e native && pio run -e mega && python3 scripts/size_gate.py mega`, then flash and `uno_smoke.py watch`.
+Expected: 159 tests pass; `size_gate[mega]: flash ~61600 / 245760 B, static RAM ~2360 / 6144 B`; on the Mega with the shield plugged on: IMU answers (no `IMU_FAULT`, pitch/roll live), `load` ≈ 52 %, `max` ≤ 4000 µs (measured 3304 µs), `errs=0`. IR codes and encoders are checked at the hardware sign-off (Task 15).
 
 ---
 

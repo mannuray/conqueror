@@ -21,3 +21,6 @@ __pycache__/
 data/
 recordings/
 models/
+
+# ESP32 bridge secrets (WiFi, AP and OTA passwords) - never commit
+firmware/esp32/include/secrets.h

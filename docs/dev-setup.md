@@ -7,9 +7,12 @@ The implementation plans show macOS commands. This page gives the Linux equivale
 |---|---|---|
 | Git + C/C++ compiler | `xcode-select --install` | `sudo apt install -y git build-essential` |
 | uv (Python 3.12 is installed by uv automatically) | `brew install uv` | `curl -LsSf https://astral.sh/uv/install.sh \| sh` then open a new shell |
-| PlatformIO (Plans B, C) | `uv tool install platformio` | `uv tool install platformio` |
+| PlatformIO (Plans B, C) | `uv tool install --python 3.12 platformio` | `uv tool install --python 3.12 platformio` |
+| esptool (Plan C, ESP32-S3) | `uv tool install --python 3.12 esptool` | `uv tool install --python 3.12 esptool` |
 | Claude Code + superpowers plugin | same on both — install Claude Code, then add the superpowers plugin | same |
 | GitHub access | SSH key added to GitHub | same (`ssh-keygen -t ed25519`, add the public key to GitHub) |
+
+> `--python 3.12`: without it uv may reuse the system Python (macOS ships 3.9), which the pioarduino ESP32 platform and our build scripts (`datetime.UTC`) do not support. Re-run with `--force` to switch an existing install.
 
 ## 1b. After every fresh clone (macOS and Linux)
 Run these once in the repo root; the commands are the same on both:

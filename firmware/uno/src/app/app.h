@@ -5,6 +5,9 @@
 #include "domain/comms/frame_parser.h"
 #include "domain/comms/frame_writer.h"
 #include "domain/comms/link_session.h"
+#include "domain/settings/eeprom_writer.h"
+#include "domain/settings/settings.h"
+#include "domain/settings/settings_saver.h"
 #include "domain/util/scheduler.h"
 #include "generated/cq_protocol.h"
 
@@ -36,6 +39,11 @@ struct App {
   uint16_t scheduler_overruns = 0;
   proto::ResetReason reset_reason = proto::ResetReason::kUnknown;
   bool encoders_enabled = false;
+  // settings
+  Settings settings;
+  EepromWriter eewriter;
+  SettingsSaver saver;  // staged per block: the writer queue can never overflow (LLD §10.10)
+  bool moving = false;  // set by the control task; saves are deferred while moving
 };
 
 extern App g_app;

@@ -105,7 +105,33 @@ def cmd_watch(link: Link, args: argparse.Namespace) -> None:
     time.sleep(args.seconds)
 
 
+def cmd_setting(link: Link, args: argparse.Namespace) -> None:
+    info = next(s for s in g.SETTINGS if s.name == args.name)
+    done = threading.Event()
+
+    def show(msg: object) -> None:
+        if isinstance(msg, g.SettingValue) and msg.id == info.id:
+            print(f"{info.name} = {msg.value} ({msg.value * info.scale:g} {info.unit})")
+            done.set()
+        elif isinstance(msg, g.Ack):
+            print(f"ACK {g.ACK_STATUS[msg.status]}")
+        elif isinstance(msg, g.Event):
+            print(fmt_event(msg))
+
+    link.handlers.append(show)
+    time.sleep(0.6)
+    if args.value is not None:
+        link.send(g.SettingSet(id=info.id, value=args.value))
+        time.sleep(0.2)
+    link.send(g.SettingGet(id=info.id))
+    done.wait(1.0)
+    if args.save:
+        link.send(g.SettingsSave())
+        time.sleep(1.5)
+
+
 COMMANDS: dict[str, Callable[[Link, argparse.Namespace], None]] = {"watch": cmd_watch}
+COMMANDS["setting"] = cmd_setting
 
 
 def main() -> None:
@@ -114,6 +140,10 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     w = sub.add_parser("watch")
     w.add_argument("--seconds", type=float, default=10.0)
+    s = sub.add_parser("setting")
+    s.add_argument("name")
+    s.add_argument("value", nargs="?", type=int)
+    s.add_argument("--save", action="store_true")
     args = ap.parse_args()
     link = Link(args.port)
     try:

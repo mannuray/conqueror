@@ -2,6 +2,7 @@
 
 #include "app/app.h"
 #include "app/comms.h"
+#include "app/tasks.h"
 #include "domain/util/scheduler.h"
 #include "drivers/board_config.h"
 #include "ports/clock.h"
@@ -29,6 +30,7 @@ cq::Task g_tasks[] = {
     {linkWatchTask, 10000UL, 0},
     {cq::app::telemetryFastDue, 50000UL, 0},
     {cq::app::telemetrySlowDue, 1000000UL, 0},
+    {cq::app::settingsTask, 20000UL, 0},
     // TASKS-END
 };
 cq::Scheduler g_scheduler(g_tasks, static_cast<uint8_t>(sizeof g_tasks / sizeof g_tasks[0]));
@@ -39,6 +41,7 @@ void setup() {
   cq::g_app.reset_reason = cq::port::watchdog::resetReason();
   cq::port::link::begin(cq::board::kBaud);
   // SETUP-INIT (later tasks add driver/domain init before SETUP-END)
+  cq::app::settingsLoad();
   // SETUP-END
   cq::port::watchdog::enable();
   g_scheduler.start(cq::port::clock::nowUs());

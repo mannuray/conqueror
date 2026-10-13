@@ -819,3 +819,8 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 - Buzzer A0, motors, servos, LED, button, battery: unchanged (already worked).
 - Costs: ~3–5 % CPU for the IR sampler; IMU burst read ≈ 0.5–0.7 ms (vs 0.38 ms) — inside the 5 ms IMU period; both documented in LLD §11.4.
 - Order: LLD §11.4 → Plan B Task 6c (drivers + host test of the edge sampler) → code → hardware check (IMU answers, IR codes, encoders later).
+
+## 31. Scheduler phases fix the once-a-second 6.8 ms pass (DECIDED 2026-10-13)
+- On the Mega, max loop pass was 6.8 ms (limit 4 ms) while load was ~51 %. Cause: all tasks started at phase 0, so once a second all 14 tasks ran in one pass.
+- Fix: each task has a start phase (IMU 0, control 2.5 ms, slow telemetry/camera 7.5 ms, UI 17.5 ms). Measured max pass 3.3 ms, load 52 %. Details: LLD §11.5.
+- Investigated and rejected: removing the soft-I2C delays (breaks I2C timing), faster SCL polling (no gain).

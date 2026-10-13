@@ -8,7 +8,8 @@ using TaskFn = void (*)();
 struct Task {
   TaskFn fn;
   uint32_t period_us;
-  uint32_t next_due_us;
+  uint32_t phase_us;     // first run at start + phase: keeps heavy tasks out of the same pass
+  uint32_t next_due_us;  // set by start()
 };
 
 // Fixed task table, run-to-completion, no catch-up bursts (late task: next = now + period).

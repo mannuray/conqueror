@@ -1872,3 +1872,36 @@ stateDiagram-v2
 - **Timer use (Mega):** Timer1 = IR sampler (D11/D12 PWM unused); Timer2 = tone; Timer3/4 = motor PWM D5/D6; Timer5 = Servo.
 - **Uno build unchanged:** hardware TWI + PCINT (IR/echo PCINT0, encoders PCINT1).
 - **Tests:** `EdgeDetector` is host-tested; `SoftI2c` and `IrSampler` are verified on the hardware (IMU answers with real pitch/roll; IR codes decode).
+
+### 11.5 Scheduler phases (2026-10-13)
+
+**Finding (Mega bench, normal build):** load 51 % but `loop_max_us` 6776 µs, against the soak limit of 4000 µs. Per-pass profiling showed the worst pass every second ran **all 14 tasks**: every period is a multiple of 5 ms and every task started at phase 0, so the 1 s tasks landed in the same pass as the IMU (≈2.4 ms with software I2C), control (≈0.8 ms), slow telemetry (≈0.9 ms), camera and UI. Each task on its own was within budget, and the TX path never blocks (`link::write` skips when the ring is full).
+
+**Decision:** `Task` gets a `phase_us` field; `Scheduler::start()` sets `next_due = now + phase`. The periods are unchanged.
+
+| Phase | Tasks |
+|---|---|
+| 0 | imu (5 ms), ir (5 ms), telemetryFast, battery, selfTest, selfTestRecover |
+| 2.5 ms | control (10 ms), linkWatch, ultrasonic |
+| 7.5 ms | telemetrySlow (1 s), settings, camera |
+| 17.5 ms | ui, input |
+
+Control now runs 2.5 ms after a fresh IMU sample. **Measured:** load 52 %, `loop_max_us` 3304 µs, no resets.
+
+```mermaid
+classDiagram
+  class Task {
+    TaskFn fn
+    uint32_t period_us
+    uint32_t phase_us
+    uint32_t next_due_us
+  }
+  class Scheduler {
+    +start(now_us)
+    +runDue(now_us) uint8_t
+    +overruns() uint16_t
+  }
+  Scheduler o-- "n" Task
+```
+
+Host test: `test_phase_offsets_first_run_and_keeps_period`. The software I2C read stays as designed (≈0.75–1.2 ms). Removing its half-bit delay would break the MPU6050 fast-mode timing (tLOW ≥ 1.3 µs), so it is not used.

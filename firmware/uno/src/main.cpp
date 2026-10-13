@@ -26,21 +26,24 @@ void linkWatchTask() {
 }
 
 // TASKS-BEGIN (later tasks add rows before TASKS-END)
+// {fn, period, phase, 0}. Phases keep the heavy tasks in separate passes (LLD §11.5): IMU on the
+// 5 ms grid, control 2.5 ms after it, slow telemetry/camera at 7.5 ms, UI at 17.5 ms. With every
+// phase at 0 all 14 tasks met once a second in one ~6 ms pass.
 cq::Task g_tasks[] = {
-    {cq::app::imuTask, 5000UL, 0},
-    {cq::app::controlTask, 10000UL, 0},
-    {linkWatchTask, 10000UL, 0},
-    {cq::app::telemetryFastDue, 50000UL, 0},
-    {cq::app::telemetrySlowDue, 1000000UL, 0},
-    {cq::app::settingsTask, 20000UL, 0},
-    {cq::app::irTask, 5000UL, 0},
-    {cq::app::ultrasonicTask, 50000UL, 0},
-    {cq::app::batteryTask, 100000UL, 0},
-    {cq::app::selfTestTask, 1000000UL, 0},
-    {cq::app::selfTestRecoverTask, 100000UL, 0},
-    {cq::app::cameraTask, 20000UL, 0},
-    {cq::app::uiTask, 20000UL, 0},
-    {cq::app::inputTask, 20000UL, 0},
+    {cq::app::imuTask, 5000UL, 0UL, 0},
+    {cq::app::controlTask, 10000UL, 2500UL, 0},
+    {linkWatchTask, 10000UL, 2500UL, 0},
+    {cq::app::telemetryFastDue, 50000UL, 0UL, 0},
+    {cq::app::telemetrySlowDue, 1000000UL, 7500UL, 0},
+    {cq::app::settingsTask, 20000UL, 7500UL, 0},
+    {cq::app::irTask, 5000UL, 0UL, 0},
+    {cq::app::ultrasonicTask, 50000UL, 2500UL, 0},
+    {cq::app::batteryTask, 100000UL, 0UL, 0},
+    {cq::app::selfTestTask, 1000000UL, 0UL, 0},
+    {cq::app::selfTestRecoverTask, 100000UL, 0UL, 0},
+    {cq::app::cameraTask, 20000UL, 7500UL, 0},
+    {cq::app::uiTask, 20000UL, 17500UL, 0},
+    {cq::app::inputTask, 20000UL, 17500UL, 0},
     // TASKS-END
 };
 cq::Scheduler g_scheduler(g_tasks, static_cast<uint8_t>(sizeof g_tasks / sizeof g_tasks[0]));

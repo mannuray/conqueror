@@ -4,7 +4,7 @@ namespace cq {
 
 void Scheduler::start(uint32_t now_us) {
   for (uint8_t i = 0; i < m_count; ++i) {
-    m_tasks[i].next_due_us = now_us;
+    m_tasks[i].next_due_us = now_us + m_tasks[i].phase_us;
   }
 }
 

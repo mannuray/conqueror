@@ -5,10 +5,12 @@
 #include <esp_ota_ops.h>
 
 #include "board_config.h"
+#include "net/camera_service.h"
 #include "net/http_server.h"
 #include "net/link_task.h"
 #include "net/log.h"
 #include "net/ota_service.h"
+#include "net/stream_server.h"
 #include "net/web_routes.h"
 #include "net/wifi_manager.h"
 #include "secrets_guard.h"
@@ -54,7 +56,9 @@ const char* stateName(cq::core::LinkState s) {
   }
 }
 
-bool hasClients(const cq::net::LinkStatus& s) { return s.ws_clients > 0 || s.tcp_active; }
+bool hasClients(const cq::net::LinkStatus& s) {
+  return s.ws_clients > 0 || s.tcp_active || cq::net::streamViewers() > 0;
+}
 
 void logStatus(uint32_t now_ms, const cq::net::LinkStatus& s) {
   cq::net::logf("status: up %lus wifi %s link %s uno %s ws %u tcp %u rx %lu tx %lu crc %lu heap %lu",
@@ -76,7 +80,10 @@ void setup() {
   g_wifi.begin(millis());
   cq::net::httpServerStart();
   cq::net::webRoutesRegister();
-  cq::net::linkTaskStart("none");  // camera sensor name arrives in Task 8
+  const bool camera = cq::net::cameraBegin();
+  cq::net::linkTaskStart(cq::net::cameraSensorName());
+  if (camera) cq::net::streamServerStart();
+  g_ota.addStartHook(cq::net::cameraStop);
   g_ota.begin();
 }
 

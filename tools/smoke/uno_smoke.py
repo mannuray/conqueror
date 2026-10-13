@@ -62,6 +62,7 @@ class Link:
         self.running = True
         self.handlers: list[Callable[[object], None]] = []
         self.synced = False
+        self.paused = False  # True: send nothing (simulated link loss)
         self.last: dict[str, object] = {}
         # Opening the port resets the board; the Mega's stk500v2 bootloader stays in the bootloader
         # while bytes arrive, so stay silent until the firmware speaks (or 2 s pass).
@@ -70,6 +71,8 @@ class Link:
         threading.Thread(target=self._heartbeat, daemon=True).start()
 
     def send(self, msg: object) -> int:
+        if self.paused:
+            return -1
         self.rx_seen.wait(2.5)  # never talk into the bootloader window (see __init__)
         with self.lock:
             seq = self.seq
@@ -189,7 +192,8 @@ def cmd_drive(link: Link, args: argparse.Namespace) -> None:
     wait_synced(link)
     # same run: opening the port reboots the Uno, which clears the envelope
     if args.envelope is not None:
-        link.send(g.Envelope(speed_cap=args.envelope, accel_cap=0, lock_brake=0))
+        lock = 1 if args.lock else 0
+        link.send(g.Envelope(speed_cap=args.envelope, accel_cap=args.accel, lock_brake=lock))
         time.sleep(0.1)
     end = time.monotonic() + args.seconds
     while time.monotonic() < end:
@@ -435,6 +439,104 @@ def cmd_bias(link: Link, args: argparse.Namespace) -> None:
     time.sleep(1.5)
 
 
+def watch_primitive(link: Link) -> threading.Event:
+    """Print ACKs/events; the returned flag is set by PRIMITIVE_DONE or by a refused command."""
+    done = threading.Event()
+
+    def on(msg: object) -> None:
+        if isinstance(msg, g.Ack):
+            print(f"ACK {g.ACK_STATUS[msg.status]}")
+            if msg.status != 0:
+                done.set()
+        elif isinstance(msg, g.Event):
+            print(fmt_event(msg))
+            if msg.kind == g.EventKind.PRIMITIVE_DONE:
+                name = g.PrimitiveKind(msg.a & 0xFF).name
+                res = "OK" if (msg.a >> 8) & 1 else "FAILED"
+                print(f"  {name} {res} reason={g.ACK_STATUS[msg.b]}")
+                done.set()
+
+    link.handlers.append(on)
+    return done
+
+
+def print_pose(link: Link) -> None:
+    fast = link.last.get("TelemFast")
+    if isinstance(fast, g.TelemFast):
+        pose = f"yaw={fast.yaw / 100:.1f} enc={fast.enc_l},{fast.enc_r}"
+        print(f"{pose} pwm={fast.pwm_l},{fast.pwm_r}")
+
+
+def wait_primitive(link: Link, done: threading.Event, timeout: float) -> None:
+    done.wait(timeout)
+    done.clear()
+    print_pose(link)
+
+
+def send_turn(link: Link, args: argparse.Namespace, angle: float, to: bool) -> None:
+    mode = (g.TurnMode.TO if to else g.TurnMode.BY) | (0x80 if args.pivot else 0)
+    link.send(
+        g.Turn(
+            src=g.Source.HUMAN,
+            mode=mode,
+            angle=round(angle * 10),
+            speed=args.speed,
+            radius_cm=args.radius,
+        )
+    )
+
+
+def cmd_turn(link: Link, args: argparse.Namespace) -> None:
+    done = watch_primitive(link)
+    wait_synced(link)
+    send_turn(link, args, args.angle, args.to)
+    if args.cancel_after is not None:
+        time.sleep(args.cancel_after)
+        link.send(g.Cancel(src=g.Source.HUMAN))
+    if args.drop_link_after is not None:
+        time.sleep(args.drop_link_after)
+        link.paused = True  # no heartbeats: the Uno declares LINK_LOST after 300 ms
+        print("link paused")
+        time.sleep(args.restore_after)
+        link.paused = False
+        print("link restored")
+        for _ in range(6):  # the turn must not resume: yaw stays put, pwm stays 0
+            time.sleep(0.5)
+            print_pose(link)
+        return
+    wait_primitive(link, done, 30)
+    if args.then_to is not None:
+        send_turn(link, args, args.then_to, True)
+        wait_primitive(link, done, 30)
+
+
+def cmd_move(link: Link, args: argparse.Namespace) -> None:
+    done = watch_primitive(link)
+    wait_synced(link)
+    heading = 32767 if args.heading is None else round(args.heading * 10)
+    link.send(g.Move(src=g.Source.HUMAN, dist_mm=args.mm, speed=args.speed, heading=heading))
+    wait_primitive(link, done, 60)
+
+
+def cmd_cancel(link: Link, args: argparse.Namespace) -> None:
+    done = watch_primitive(link)
+    wait_synced(link)
+    link.send(g.Cancel(src=g.Source.HUMAN))
+    wait_primitive(link, done, 2)
+
+
+def cmd_driverate(link: Link, args: argparse.Namespace) -> None:
+    link.handlers.append(lambda m: print(fmt_event(m)) if isinstance(m, g.Event) else None)
+    wait_synced(link)
+    end = time.monotonic() + args.seconds
+    while time.monotonic() < end:
+        link.send(g.DriveRate(src=g.Source.HUMAN, v=args.v, yaw_rate=round(args.rate * 10)))
+        fast = link.last.get("TelemFast")
+        if isinstance(fast, g.TelemFast):
+            print(f"rate={fast.yaw_rate / 10:.1f} pwm={fast.pwm_l},{fast.pwm_r}")
+        time.sleep(0.05)
+
+
 COMMANDS: dict[str, Callable[[Link, argparse.Namespace], None]] = {"watch": cmd_watch}
 COMMANDS["setting"] = cmd_setting
 COMMANDS.update(
@@ -449,6 +551,10 @@ COMMANDS.update(
         "mount": cmd_mount,
         "bias": cmd_bias,
         "selftest": cmd_selftest,
+        "turn": cmd_turn,
+        "move": cmd_move,
+        "cancel": cmd_cancel,
+        "driverate": cmd_driverate,
     }
 )
 
@@ -468,6 +574,8 @@ def main() -> None:
     d.add_argument("w", type=int)
     d.add_argument("--seconds", type=float, default=2.0)
     d.add_argument("--envelope", type=int, default=None, help="speed cap %% sent before driving")
+    d.add_argument("--accel", type=int, default=0, help="envelope accel cap %%/s (with --envelope)")
+    d.add_argument("--lock", action="store_true", help="envelope locks the obstacle brake on")
     sub.add_parser("stop")
     e = sub.add_parser("envelope")
     e.add_argument("cap", type=int)
@@ -494,6 +602,25 @@ def main() -> None:
         action="store_true",
         help="stand check 5a: locked boot → refusals → automatic unlock",
     )
+    t = sub.add_parser("turn")
+    t.add_argument("angle", type=float)
+    t.add_argument("speed", type=int)
+    t.add_argument("--radius", type=int, default=0)
+    t.add_argument("--to", action="store_true")
+    t.add_argument("--pivot", action="store_true")
+    t.add_argument("--then-to", type=float, default=None, help="then TURN to this heading")
+    t.add_argument("--cancel-after", type=float, default=None, help="send CANCEL after S s")
+    t.add_argument("--drop-link-after", type=float, default=None, help="pause all TX after S s")
+    t.add_argument("--restore-after", type=float, default=2.0, help="resume TX after S s")
+    mv = sub.add_parser("move")
+    mv.add_argument("mm", type=int)
+    mv.add_argument("speed", type=int)
+    mv.add_argument("--heading", type=float)
+    sub.add_parser("cancel")
+    dr = sub.add_parser("driverate")
+    dr.add_argument("v", type=int)
+    dr.add_argument("rate", type=float)
+    dr.add_argument("--seconds", type=float, default=3.0)
     args = ap.parse_args()
     link = Link(args.port)
     try:

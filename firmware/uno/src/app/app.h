@@ -27,6 +27,10 @@
 #include "domain/estimation/encoder_health.h"
 #include "domain/estimation/encoder_track.h"
 #include "domain/selftest/self_test.h"
+#include "domain/motion/heading_controller.h"
+#include "domain/motion/primitives.h"
+#include "domain/motion/ramp.h"
+#include "domain/motion/speed_controller.h"
 
 namespace cq {
 
@@ -90,6 +94,15 @@ struct App {
   proto::OwnerHintValue owner_hint = proto::OwnerHintValue::kNone;
   int8_t teleop_v = 0;   // DRIVE, %
   int8_t teleop_w = 0;
+  bool teleop_rate_mode = false;  // DRIVE_RATE: closed-loop yaw rate instead of stick w
+  float teleop_rate_dps = 0.0f;
+  bool deadman_latched = false;   // DEADMAN_STOP fired; cleared by the next accepted DRIVE/DRIVE_RATE
+  Primitives primitives;
+  HeadingController heading;
+  SpeedController speed_l;
+  SpeedController speed_r;
+  Ramp ramp_l;
+  Ramp ramp_r;
   int16_t req_pwm_l = 0;  // asked of the supervisor (before the gate): a stalled track's direction
   int16_t req_pwm_r = 0;
   int16_t out_pwm_l = 0;  // applied by the supervisor

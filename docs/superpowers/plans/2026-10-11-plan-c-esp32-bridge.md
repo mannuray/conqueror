@@ -106,3 +106,573 @@ tools/smoke/bridge_echo.py                    TCP smoke script (Task 10; uv proj
 ```
 
 > **Rewrite in progress:** Tasks 1–10 are being written; this marker is removed when the plan is complete.
+
+---
+
+### Task 1: PlatformIO project for the ESP32-S3, partitions, secrets, version stamp, chip check, boot log
+
+**Files:**
+- Create: `firmware/esp32/platformio.ini`, `firmware/esp32/partitions_cq8m.csv`, `firmware/esp32/include/board_config.h`, `firmware/esp32/include/secrets.example.h`, `firmware/esp32/include/secrets_guard.h`, `firmware/esp32/scripts/stamp_version.py`, `firmware/esp32/scripts/protogen_check.py`, `firmware/esp32/scripts/check_chip.py`, `firmware/esp32/src/net/log.h`, `firmware/esp32/src/net/log.cpp`, `firmware/esp32/src/main.cpp`
+- Modify: `.gitignore` (add `firmware/esp32/include/secrets.h`; `build/` and `.pio/` are already ignored)
+
+**Interfaces:**
+- Consumes: `firmware/uno/src/generated/cq_protocol.h` (Plan A) via `-I ../uno/src/generated`.
+- Produces: envs `bridge`, `bridge_release` (refuses a dirty tree), `bridge_ota` (espota, Task 5/9), `native` (host tests of `src/core/`); `cq::board::*` constants (pins, ports, timings, camera map); `build/version.h` macros `CQ_FW_NAME`, `CQ_FW_VERSION`, `CQ_GIT_COMMIT` (40 hex), `CQ_GIT_COMMIT8` (u32), `CQ_GIT_DIRTY`, `CQ_BUILD_DATE`, `CQ_REPO_URL`; `secrets.h` macros `CQ_WIFI_SSID`, `CQ_WIFI_PASSWORD`, `CQ_AP_PASSWORD`, `CQ_OTA_PASSWORD`; `cq::net::logBegin()`, `cq::net::logf(fmt, ...)`; `scripts/check_chip.py --port P | --self-test` (also a pre-upload action for every USB upload).
+
+- [ ] **Step 1: Install PlatformIO and esptool**
+
+Run: `command -v uv || brew install uv; uv tool install platformio && uv tool install esptool && pio --version && esptool version`
+Expected: `PlatformIO Core, version 6.x.y` and an esptool version line (v4.8+ or v5.x). Linux: same commands; also install the PlatformIO udev rules and join `dialout` (`docs/dev-setup.md` §1).
+
+- [ ] **Step 2: Create the project files**
+
+`firmware/esp32/platformio.ini`:
+```ini
+; Conqueror ESP32-S3 firmware (ELEGOO ESP32S3-Camera-V1.0).
+; env:bridge = developer WiFi bridge + Basic Drive page (NO AUTHENTICATION - home network only).
+; env:native = host tests of src/core (Unity). env:gateway (full firmware) arrives in phase 4.
+
+[platformio]
+default_envs = bridge
+
+[esp32]
+platform = https://github.com/pioarduino/platform-espressif32/releases/download/55.03.311/platform-espressif32.zip
+framework = arduino
+board = esp32-s3-devkitc-1
+board_build.flash_size = 8MB
+board_upload.flash_size = 8MB
+board_build.arduino.memory_type = qio_opi
+board_build.partitions = partitions_cq8m.csv
+monitor_speed = 115200
+monitor_filters = esp32_exception_decoder
+upload_speed = 921600
+build_unflags = -std=gnu++11 -std=gnu++2b
+build_flags =
+    -std=gnu++17
+    -I ../uno/src/generated
+    -I build
+    -D BOARD_HAS_PSRAM
+    -D ARDUINO_USB_CDC_ON_BOOT=1
+    -D CORE_DEBUG_LEVEL=1
+; framework headers are not warning-clean, so -Werror is enforced on src/core in env:native
+build_src_flags = -Wall -Wextra
+extra_scripts =
+    pre:scripts/protogen_check.py
+    pre:scripts/stamp_version.py
+    post:scripts/check_chip.py
+
+[env:bridge]
+extends = esp32
+
+[env:bridge_release]
+extends = esp32
+build_flags = ${esp32.build_flags} -D CQ_RELEASE_BUILD
+
+[env:bridge_ota]
+extends = esp32
+upload_protocol = espota
+upload_port = conqueror-bridge.local
+upload_flags =
+    --port=3232
+    --auth=${sysenv.CQ_OTA_PASSWORD}
+
+[env:native]
+platform = native
+build_src_filter = +<core/>
+test_build_src = yes
+build_flags = -std=gnu++17 -I ../uno/src/generated -D CQ_HOST_TEST
+build_src_flags = -Wall -Wextra -Werror
+```
+
+`firmware/esp32/partitions_cq8m.csv`:
+```csv
+# ESP32-S3 8 MB layout (bridge LLD R2.2). Changing it needs a USB flash.
+# Name,   Type, SubType,  Offset,   Size,     Flags
+nvs,      data, nvs,      0x9000,   0x5000,
+otadata,  data, ota,      0xE000,   0x2000,
+app0,     app,  ota_0,    0x10000,  0x300000,
+app1,     app,  ota_1,    0x310000, 0x300000,
+source,   data, spiffs,   0x610000, 0x1E0000,
+coredump, data, coredump, 0x7F0000, 0x10000,
+```
+
+`firmware/esp32/include/board_config.h`:
+```cpp
+// ELEGOO ESP32S3-Camera-V1.0: pins, ports and sizes (bridge LLD R2.1, design-notes §24).
+#pragma once
+
+#include <stdint.h>
+
+#include "cq_protocol.h"
+
+namespace cq {
+namespace board {
+
+constexpr const char* kBoardName = "ESP32S3-Camera-V1.0";
+constexpr const char* kExpectedMac = "48:ca:43:9e:74:b4";  // owner's board (warning only)
+
+// Uno link: Serial1. GPIO3 is a strapping pin: input only after boot, no pull-down.
+constexpr int kUnoRxPin = 3;    // <- Uno TX
+constexpr int kUnoTxPin = 40;   // -> Uno RX
+constexpr uint32_t kUnoBaud = 250000UL;
+static_assert(kUnoBaud == proto::kBaud, "UART baud must match protocol/defs/meta.yaml");
+constexpr int kUartRxBufSize = 2048;
+constexpr int kUartTxBufSize = 1024;
+
+constexpr uint32_t kLogBaud = 115200UL;  // USB-CDC log
+constexpr uint16_t kHttpPort = 80;
+constexpr uint16_t kStreamPort = 81;
+constexpr uint16_t kTcpPort = 3333;
+constexpr uint16_t kOtaPort = 3232;
+
+constexpr const char* kHostname = "conqueror-bridge";  // mDNS conqueror-bridge.local
+constexpr const char* kFallbackSsid = "conqueror-bridge";
+constexpr uint32_t kStationTimeoutMs = 30000;
+constexpr uint32_t kHomeRetryMs = 60000;
+constexpr uint32_t kStatusPeriodMs = 10000;
+constexpr uint32_t kLinkTickMs = 2;
+
+constexpr uint8_t kMaxStreamViewers = 2;
+
+// Camera: ESP32-S3-EYE map (design-notes §24). -1 = not connected.
+constexpr int kCamPwdn = -1;
+constexpr int kCamReset = -1;
+constexpr int kCamXclk = 15;
+constexpr int kCamSda = 4;
+constexpr int kCamScl = 5;
+constexpr int kCamD7 = 16;
+constexpr int kCamD6 = 17;
+constexpr int kCamD5 = 18;
+constexpr int kCamD4 = 12;
+constexpr int kCamD3 = 10;
+constexpr int kCamD2 = 8;
+constexpr int kCamD1 = 9;
+constexpr int kCamD0 = 11;
+constexpr int kCamVsync = 6;
+constexpr int kCamHref = 7;
+constexpr int kCamPclk = 13;
+constexpr uint32_t kCamXclkHz = 20000000UL;
+
+}  // namespace board
+}  // namespace cq
+```
+
+`firmware/esp32/include/secrets.example.h`:
+```cpp
+// Template for include/secrets.h (git-ignored). Copy, then fill in:
+//   cp include/secrets.example.h include/secrets.h
+// Never commit secrets.h. pack_source.py fails the build if these values appear in the source archive.
+#pragma once
+
+#define CQ_WIFI_SSID "your-home-ssid"
+#define CQ_WIFI_PASSWORD "your-home-password"
+// Fallback hotspot "conqueror-bridge" (WPA2): at least 8 characters.
+#define CQ_AP_PASSWORD "change-me-too"
+// ArduinoOTA password (also export it as CQ_OTA_PASSWORD for `pio run -e bridge_ota -t upload`).
+// The build refuses "change-me".
+#define CQ_OTA_PASSWORD "change-me"
+```
+
+`firmware/esp32/include/secrets_guard.h`:
+```cpp
+// Compile-time checks on include/secrets.h (included by main.cpp only).
+#pragma once
+
+#if !__has_include("secrets.h")
+#error "include/secrets.h missing: cp include/secrets.example.h include/secrets.h and fill it in"
+#endif
+#include "secrets.h"
+
+#if !defined(CQ_WIFI_SSID) || !defined(CQ_WIFI_PASSWORD) || !defined(CQ_AP_PASSWORD) || \
+    !defined(CQ_OTA_PASSWORD)
+#error "secrets.h must define CQ_WIFI_SSID, CQ_WIFI_PASSWORD, CQ_AP_PASSWORD, CQ_OTA_PASSWORD"
+#endif
+
+namespace cq {
+namespace secrets_guard {
+constexpr bool streq(const char* a, const char* b) {
+  return *a == *b && (*a == '\0' || streq(a + 1, b + 1));
+}
+static_assert(!streq(CQ_OTA_PASSWORD, "change-me"), "set CQ_OTA_PASSWORD in secrets.h");
+static_assert(sizeof(CQ_OTA_PASSWORD) >= 9, "CQ_OTA_PASSWORD: at least 8 characters");
+static_assert(sizeof(CQ_AP_PASSWORD) >= 9, "CQ_AP_PASSWORD: WPA2 needs at least 8 characters");
+}  // namespace secrets_guard
+}  // namespace cq
+```
+
+Append to the repository's `.gitignore`:
+```text
+
+# ESP32 bridge secrets (WiFi, AP and OTA passwords) - never commit
+firmware/esp32/include/secrets.h
+```
+
+- [ ] **Step 3: Build scripts — version stamp, protocol freshness, chip check**
+
+`firmware/esp32/scripts/stamp_version.py`:
+```python
+"""PlatformIO pre-script: write build/version.h (bridge LLD R2.3 step 1, design-notes §27).
+
+CQ_FW_VERSION = git describe --tags --match 'bridge-v*' --always --dirty
+CQ_GIT_COMMIT = full HEAD hash, CQ_GIT_COMMIT8 = first 8 hex digits as a number (0 = unknown).
+env:bridge_release refuses a dirty tree. Plain Python + git: same on macOS and Linux.
+"""
+
+import datetime
+import pathlib
+import subprocess
+
+Import("env")  # type: ignore[name-defined]  # noqa: F821 - SCons injects Import/env
+
+project = pathlib.Path(env.subst("$PROJECT_DIR"))  # type: ignore[name-defined]  # noqa: F821
+env_name = env.subst("$PIOENV")  # type: ignore[name-defined]  # noqa: F821
+
+
+def git(*args: str) -> str:
+    try:
+        return subprocess.run(
+            ["git", *args], cwd=project, capture_output=True, text=True, check=True
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return ""
+
+
+commit = git("rev-parse", "HEAD")
+version = git("describe", "--tags", "--match", "bridge-v*", "--always", "--dirty") or "unknown"
+dirty = 1 if git("status", "--porcelain", "--untracked-files=no") else 0
+try:
+    commit8 = int(commit[:8], 16)
+except ValueError:
+    commit8 = 0
+built = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+if env_name.endswith("_release") and (dirty or not commit):
+    print("stamp_version: release build refused - commit or stash your changes first")
+    env.Exit(1)  # type: ignore[name-defined]  # noqa: F821
+
+out = project / "build" / "version.h"
+out.parent.mkdir(exist_ok=True)
+out.write_text(
+    "// generated by scripts/stamp_version.py - do not edit, git-ignored\n"
+    "#pragma once\n"
+    '#define CQ_FW_NAME "conqueror-bridge"\n'
+    f'#define CQ_FW_VERSION "{version}"\n'
+    f'#define CQ_GIT_COMMIT "{commit or "unknown"}"\n'
+    f"#define CQ_GIT_COMMIT8 0x{commit8:08X}UL\n"
+    f"#define CQ_GIT_DIRTY {dirty}\n"
+    f'#define CQ_BUILD_DATE "{built}"\n'
+    '#define CQ_REPO_URL "https://github.com/mannuray/conqueror"\n',
+    encoding="utf-8",
+)
+print(f"stamp_version: {version} commit={commit[:8] or '?'} dirty={dirty}")
+```
+
+`firmware/esp32/scripts/protogen_check.py`:
+```python
+"""PlatformIO pre-script: fail the build when generated protocol files are stale (LLD R2.3 step 2)."""
+
+import pathlib
+import shutil
+import subprocess
+
+Import("env")  # type: ignore[name-defined]  # noqa: F821 - SCons injects Import/env
+
+if env.subst("$PIOENV") != "native":  # type: ignore[name-defined]  # noqa: F821
+    protocol = pathlib.Path(env.subst("$PROJECT_DIR")).parents[1] / "protocol"  # type: ignore[name-defined]  # noqa: F821
+    if shutil.which("uv") is None:
+        print("protogen_check: uv not found (see docs/dev-setup.md)")
+        env.Exit(1)  # type: ignore[name-defined]  # noqa: F821
+    result = subprocess.run(["uv", "run", "protogen", "check"], cwd=protocol, check=False)
+    if result.returncode != 0:
+        print("protogen_check: stale generated files - run: cd protocol && uv run protogen write")
+        env.Exit(1)  # type: ignore[name-defined]  # noqa: F821
+    print("protogen_check: generated files are fresh")
+```
+
+`firmware/esp32/scripts/check_chip.py`:
+```python
+"""Refuse to flash anything that is not the ESP32-S3 N8R8 board (bridge LLD R2.3 step 8).
+
+Standalone:   python3 scripts/check_chip.py --port /dev/ttyACM0
+Self-test:    python3 scripts/check_chip.py --self-test
+PlatformIO:   loaded as post: script; runs before every USB upload (not before OTA).
+Works with esptool v4 ("Chip is ...", flash_id) and v5 ("Chip type: ...", flash-id).
+"""
+
+from __future__ import annotations
+
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+
+EXPECTED_MAC = "48:ca:43:9e:74:b4"
+
+CHIP_RE = re.compile(r"(?:Chip is|Chip type:)\s*(ESP32-S3)\b")
+FLASH_RE = re.compile(r"Detected flash size:\s*8MB")
+PSRAM_RE = re.compile(r"Embedded PSRAM 8MB")
+MAC_RE = re.compile(r"MAC:\s*([0-9a-fA-F:]{17})")
+
+
+def evaluate(text: str) -> tuple[list[str], str | None]:
+    """Return (problems, mac). No problems = safe to flash."""
+    problems: list[str] = []
+    if not CHIP_RE.search(text):
+        problems.append("chip is not an ESP32-S3")
+    if not FLASH_RE.search(text):
+        problems.append("flash size is not 8MB")
+    if not PSRAM_RE.search(text):
+        problems.append("no embedded 8MB PSRAM reported")
+    m = MAC_RE.search(text)
+    return problems, (m.group(1).lower() if m else None)
+
+
+def esptool_cmd(python: str = sys.executable, package_dir: str | None = None) -> list[str]:
+    if package_dir and pathlib.Path(package_dir, "esptool.py").exists():
+        return [python, str(pathlib.Path(package_dir, "esptool.py"))]
+    probe = subprocess.run([python, "-c", "import esptool"], capture_output=True, check=False)
+    if probe.returncode == 0:
+        return [python, "-m", "esptool"]
+    if shutil.which("uvx"):
+        return ["uvx", "--from", "esptool", "esptool"]
+    raise SystemExit("check_chip: esptool not found (uv tool install esptool)")
+
+
+def run_check(cmd: list[str], port: str) -> int:
+    text = ""
+    for verb in ("flash-id", "flash_id"):  # v5 name first, v4 fallback
+        proc = subprocess.run(
+            [*cmd, "--port", port, verb], capture_output=True, text=True, check=False
+        )
+        text = proc.stdout + proc.stderr
+        if proc.returncode == 0:
+            break
+    problems, mac = evaluate(text)
+    if problems:
+        print(text)
+        for p in problems:
+            print(f"check_chip: REFUSED - {p}")
+        return 1
+    print(f"check_chip: OK - ESP32-S3, 8MB flash, 8MB PSRAM, MAC {mac}")
+    if mac != EXPECTED_MAC:
+        print(f"check_chip: WARNING - MAC {mac} is not the owner's board ({EXPECTED_MAC})")
+    return 0
+
+
+V4_SAMPLE = """Chip is ESP32-S3 (QFN56) (revision v0.2)
+Features: WiFi, BLE, Embedded PSRAM 8MB (AP_3v3)
+MAC: 48:ca:43:9e:74:b4
+Detected flash size: 8MB"""
+V5_SAMPLE = """Chip type:          ESP32-S3 (QFN56) (revision v0.2)
+Features:           Wi-Fi, BT 5 (LE), Dual Core + LP Core, 240MHz, Embedded PSRAM 8MB (AP_3v3)
+MAC:                48:ca:43:9e:74:b4
+Detected flash size: 8MB"""
+WROVER_SAMPLE = """Chip is ESP32-D0WD-V3 (revision v3.0)
+Features: WiFi, BT, Dual Core, 240MHz
+MAC: 08:3a:f2:00:00:01
+Detected flash size: 4MB"""
+
+
+def self_test() -> int:
+    assert evaluate(V4_SAMPLE) == ([], EXPECTED_MAC)
+    assert evaluate(V5_SAMPLE) == ([], EXPECTED_MAC)
+    problems, _ = evaluate(WROVER_SAMPLE)
+    assert len(problems) == 3, problems
+    print("check_chip self-test: OK")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    if "--self-test" in argv:
+        return self_test()
+    if "--port" not in argv:
+        print("usage: check_chip.py --port /dev/ttyACM0 | --self-test")
+        return 2
+    return run_check(esptool_cmd(), argv[argv.index("--port") + 1])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+else:  # loaded by PlatformIO as an extra script
+    Import("env")  # type: ignore[name-defined]  # noqa: F821
+
+    def _before_upload(source, target, env):  # type: ignore[no-untyped-def]  # noqa: ARG001
+        if env.subst("$UPLOAD_PROTOCOL") == "espota":
+            return
+        pkg = env.PioPlatform().get_package_dir("tool-esptoolpy")
+        port = env.subst("$UPLOAD_PORT")
+        if not port:
+            env.AutodetectUploadPort()
+            port = env.subst("$UPLOAD_PORT")
+        if run_check(esptool_cmd(env.subst("$PYTHONEXE"), pkg), port) != 0:
+            env.Exit(1)
+
+    env.AddPreAction("upload", _before_upload)  # type: ignore[name-defined]  # noqa: F821
+```
+
+Run: `cd firmware/esp32 && python3 scripts/check_chip.py --self-test`
+Expected: `check_chip self-test: OK` (v4 and v5 esptool outputs accepted, a WROVER output refused with 3 problems).
+
+- [ ] **Step 4: Boot log and composition root**
+
+`firmware/esp32/src/net/log.h`:
+```cpp
+// USB-CDC status log ("[  12345] text"). Safe from any task; never logs secrets.
+#pragma once
+
+namespace cq {
+namespace net {
+
+void logBegin();
+void logf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+
+}  // namespace net
+}  // namespace cq
+```
+
+`firmware/esp32/src/net/log.cpp`:
+```cpp
+#include "net/log.h"
+
+#include <Arduino.h>
+#include <stdarg.h>
+#include <stdio.h>
+
+#include "board_config.h"
+
+namespace cq {
+namespace net {
+
+void logBegin() {
+  Serial.begin(board::kLogBaud);
+  const uint32_t t0 = millis();
+  while (!Serial && millis() - t0 < 2000) {
+    vTaskDelay(pdMS_TO_TICKS(10));  // wait up to 2 s for a USB host (boot log), never block forever
+  }
+}
+
+void logf(const char* fmt, ...) {
+  char line[224];
+  int n = snprintf(line, sizeof(line), "[%7lu] ", static_cast<unsigned long>(millis()));
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(line + n, sizeof(line) - static_cast<size_t>(n) - 2, fmt, ap);
+  va_end(ap);
+  size_t len = strlen(line);
+  line[len++] = '\r';
+  line[len++] = '\n';
+  Serial.write(reinterpret_cast<const uint8_t*>(line), len);  // one write: lines never mix
+}
+
+}  // namespace net
+}  // namespace cq
+```
+
+`firmware/esp32/src/main.cpp`:
+```cpp
+// Conqueror ESP32-S3 developer bridge - composition root (bridge LLD R2.6).
+// DEVELOPER BRIDGE - NO AUTHENTICATION - home network only. Never in release firmware.
+#include <Arduino.h>
+#include <esp_mac.h>
+#include <esp_ota_ops.h>
+
+#include "board_config.h"
+#include "net/log.h"
+#include "secrets_guard.h"
+#include "version.h"
+
+namespace {
+
+uint32_t g_last_status_ms = 0;
+
+void logBanner() {
+  using cq::net::logf;
+  logf("%s %s commit %.8s%s built %s", CQ_FW_NAME, CQ_FW_VERSION, CQ_GIT_COMMIT,
+       CQ_GIT_DIRTY ? " (dirty)" : "", CQ_BUILD_DATE);
+  logf("repo %s", CQ_REPO_URL);
+  uint8_t mac[6] = {};
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  logf("chip %s rev %u, %u MHz, flash %lu MB, PSRAM %lu MB, MAC %02x:%02x:%02x:%02x:%02x:%02x",
+       ESP.getChipModel(), static_cast<unsigned>(ESP.getChipRevision()),
+       static_cast<unsigned>(ESP.getCpuFreqMHz()),
+       static_cast<unsigned long>(ESP.getFlashChipSize() >> 20),
+       static_cast<unsigned long>(ESP.getPsramSize() >> 20), mac[0], mac[1], mac[2], mac[3], mac[4],
+       mac[5]);
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  logf("running from partition %s", running ? running->label : "?");
+  logf("DEVELOPER BRIDGE - NO AUTHENTICATION - home network only");
+}
+
+void logStatus(uint32_t now_ms) {
+  cq::net::logf("status: up %lus heap %lu psram %lu", static_cast<unsigned long>(now_ms / 1000),
+                static_cast<unsigned long>(ESP.getFreeHeap()),
+                static_cast<unsigned long>(ESP.getFreePsram()));
+}
+
+}  // namespace
+
+void setup() {
+  cq::net::logBegin();
+  logBanner();
+  if (ESP.getPsramSize() == 0) {
+    cq::net::logf("ERROR: no PSRAM - check board_build.arduino.memory_type = qio_opi");
+  }
+}
+
+void loop() {
+  const uint32_t now = millis();
+  if (now - g_last_status_ms >= cq::board::kStatusPeriodMs) {
+    g_last_status_ms = now;
+    logStatus(now);
+  }
+  vTaskDelay(pdMS_TO_TICKS(10));
+}
+```
+
+- [ ] **Step 5: Local secrets, then build**
+
+Run:
+```bash
+cd firmware/esp32 && cp include/secrets.example.h include/secrets.h
+git check-ignore -v include/secrets.h
+```
+Expected: `.gitignore:…:firmware/esp32/include/secrets.h	include/secrets.h`. Edit `include/secrets.h`: home SSID/password, an AP password (≥ 8 chars), an OTA password (not `change-me`).
+
+Run: `pio run -e bridge`
+Expected: `protogen_check: generated files are fresh`, `stamp_version: <version> commit=<8 hex> dirty=0|1`, then `SUCCESS`; RAM/Flash summary with Flash well under the 3 MB app slot (~0.3 MB at this point). With the unchanged template the build stops at `static_assert … set CQ_OTA_PASSWORD in secrets.h` — that is the intended guard.
+
+- [ ] **Step 6: Confirm the toolchain has WebSocket support in `esp_http_server` (LLD R2.11)**
+
+Run: `grep -rh "define CONFIG_HTTPD_WS_SUPPORT" ~/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/ | sort -u`
+Expected: `#define CONFIG_HTTPD_WS_SUPPORT 1`. If the line is missing, **stop and ask the owner**: the fallback in the LLD is the links2004 `WebSockets` library on port 80 (Task 6 changes only inside `http_server.cpp`).
+
+- [ ] **Step 7 [HW]: Chip check, first USB flash, boot log**
+
+Connect the board's USB-C directly (shield switch S1 position does not matter for the ESP32's own USB; hold BOOT while plugging in if no port appears). Find the port: Linux `ls /dev/ttyACM*` (expected `/dev/ttyACM0`), macOS `ls /dev/cu.usbmodem*`.
+
+Run: `python3 scripts/check_chip.py --port /dev/ttyACM0`
+Expected: `check_chip: OK - ESP32-S3, 8MB flash, 8MB PSRAM, MAC 48:ca:43:9e:74:b4` (another MAC only prints a WARNING). Anything else prints `REFUSED` — do not flash.
+
+Run: `pio run -e bridge -t upload --upload-port /dev/ttyACM0 && pio device monitor -p /dev/ttyACM0 -b 115200`
+Expected: the upload starts with the same `check_chip: OK` line (pre-upload hook); after reset the monitor shows:
+```
+[    2xx] conqueror-bridge <version> commit <8 hex> built 2026-…Z
+[    2xx] repo https://github.com/mannuray/conqueror
+[    2xx] chip ESP32-S3 rev 2, 240 MHz, flash 8 MB, PSRAM 8 MB, MAC 48:ca:43:9e:74:b4
+[    2xx] running from partition app0
+[    2xx] DEVELOPER BRIDGE - NO AUTHENTICATION - home network only
+[  10xxx] status: up 10s heap 3xxxxx psram 83xxxxx
+```
+(`rev 2` = esptool's v0.2.) Exit the monitor with `Ctrl-C`.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add .gitignore firmware/esp32/platformio.ini firmware/esp32/partitions_cq8m.csv firmware/esp32/include/board_config.h firmware/esp32/include/secrets.example.h firmware/esp32/include/secrets_guard.h firmware/esp32/scripts firmware/esp32/src
+git status --short | grep secrets.h && echo "STOP: secrets.h staged" || true
+git commit -m "feat(esp32): ESP32-S3 PlatformIO project, partitions, version stamp, chip check
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+Expected: only `secrets.example.h` and `secrets_guard.h` from `include/` are committed; no `STOP` line.

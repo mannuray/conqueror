@@ -1096,15 +1096,15 @@ Mixer → TargetLimiter(obstacle scale on forward v, envelope speed_cap, degrade
 | ◀ `0x00FF22DD` / ▶ `0x00FFC23D` | Spin w = ±ir_speed | same |
 | OK `0x00FF02FD` | STOP + release to None | — |
 | 1 `0x00FF6897` / 3 `0x00FFB04F` | `CameraHead::jog(pan ∓rate)` | while held |
-| 2 `0x00FF9867` / 8 `0x00FF4AB5` | `jog(tilt ±rate)` | while held |
-| 5 `0x00FF38C7` | camera home | — |
+| 2 `0x00FF9867` / 8 `0x00FF38C7` | `jog(tilt ±rate)` | while held |
+| 5 `0x00FF18E7` | camera home | — |
 | 4 `0x00FF30CF` / 6 `0x00FF7A85` | ir_speed −/+ 10 % (20–100, default 50), beep pitch ∝ speed | — |
 | 7 `0x00FF10EF` | mute toggle | — |
-| 9 `0x00FF52AD` | battery check: LED colour + 3/2/1 beeps | — |
-| 0 | gyro TURN by 180° | — |
-| * | parking beeps toggle | — |
-| # | (hold 3 s) → `cal_request` to ESP32 | hold timer |
-Codes are the 32-bit values as shifted in by the decoder in received order (matches the original firmware constants); 0/*/# codes captured during hardware bring-up. `IrKeymap` in PROGMEM; `ir_speed_pct` held by the Arbitrator. New `CameraHead::jog(pan_rate, tilt_rate)`.
+| 9 `0x00FF5AA5` | battery check: LED colour + 3/2/1 beeps | — |
+| 0 `0x00FF4AB5` | gyro TURN by 180° | — |
+| * `0x00FF42BD` | parking beeps toggle | — |
+| # `0x00FF52AD` | (hold 3 s) → `cal_request` to ESP32 | hold timer |
+Codes are the 32-bit values as shifted in by the decoder in received order. Codes verified against the original ELEGOO firmware constants (5, 8, 9 corrected and 0/*/# filled in on 2026-10-11, Plan B Task 14). Keys are decoded by `IrController` (a switch on the code; `ir_speed_pct` lives in `IrController`); camera jog is repeated `CameraHead::nudge` at 60 °/s (no separate jog method).
 
 ### 9.9 Annunciator — when sounds and LED patterns play (fix 10)
 New pure class **`Annunciator`**: a PROGMEM table **condition → (SoundId, PatternId, priority, continuous?)** evaluated at 50 Hz from flags/events (tilted, lifted, batt_low/critical, bump, stall, link lost, reversing, start forward, turning, owner, calibrating, startup/ready/selftest fail).

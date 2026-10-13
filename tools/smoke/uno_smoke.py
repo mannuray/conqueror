@@ -603,6 +603,69 @@ def cmd_sound(link: Link, args: argparse.Namespace) -> None:
     time.sleep(1.0)
 
 
+def cmd_soak(link: Link, args: argparse.Namespace) -> None:
+    """Mixed traffic for N minutes on the stand; fails on resets, frame/I2C errors, RAM or load."""
+    seen: dict[str, int] = {"min_ram": 65535, "max_loop_us": 0, "max_load": 0, "hello": 0}
+    first: dict[str, int] = {}
+    last: dict[str, int] = {}
+
+    def on(msg: object) -> None:
+        if isinstance(msg, g.TelemSlow):
+            if not first:
+                first.update(err_frames=msg.err_frames, err_i2c=msg.err_i2c, uptime=msg.uptime_s)
+            last.update(err_frames=msg.err_frames, err_i2c=msg.err_i2c, uptime=msg.uptime_s)
+            seen["min_ram"] = min(seen["min_ram"], msg.free_ram)
+            seen["max_loop_us"] = max(seen["max_loop_us"], msg.loop_max_us)
+            seen["max_load"] = max(seen["max_load"], msg.loop_load)
+        elif isinstance(msg, g.Hello) and first:
+            seen["hello"] += 1  # a HELLO after the start = the Uno rebooted
+
+    link.handlers.append(on)
+    wait_synced(link)
+    end = time.monotonic() + args.minutes * 60
+    i = 0
+    while time.monotonic() < end:
+        phase = i % 200
+        if phase < 60:
+            link.send(g.Drive(src=g.Source.HUMAN, v=30, w=(phase % 20) - 10))
+        elif phase == 60:
+            link.send(g.Stop(src=g.Source.HUMAN))
+        elif phase == 80:
+            link.send(g.Turn(src=g.Source.HUMAN, mode=0, angle=900, speed=40, radius_cm=0))
+        elif phase == 120:
+            link.send(g.CamSet(pan=(i % 1800), tilt=900, speed=0))
+        elif phase == 140:
+            link.send(g.Led(mode=g.LedMode.BLINK, r=0, g=0, b=80, period_ms=300, duration_ms=2000))
+        elif phase == 160:
+            link.send(g.SettingGet(id=g.SettingId.DEADMAN))
+        elif phase == 180:
+            link.send(g.Sound(id=g.SoundId.BLIP))
+        i += 1
+        time.sleep(0.05)
+    link.send(g.Stop(src=g.Source.HUMAN))
+    time.sleep(1.5)
+    errs = last.get("err_frames", 0) - first.get("err_frames", 0)
+    i2c = last.get("err_i2c", 0) - first.get("err_i2c", 0)
+    # No TELEM_SLOW at all (wrong port, dead link) or uptime going backwards (a reboot) also fails.
+    up = last.get("uptime", 0) - first.get("uptime", 0)
+    ok = (
+        bool(first)
+        and up >= int(args.minutes * 60) - 5
+        and seen["hello"] == 0
+        and errs == 0
+        and i2c == 0
+        and seen["min_ram"] >= 250
+        and seen["max_load"] <= 70
+        and seen["max_loop_us"] <= 4000
+    )
+    print(
+        f"uptime_delta={up}s resets={seen['hello']} frame_errs={errs} i2c_errs={i2c} "
+        f"min_free_ram={seen['min_ram']} max_load={seen['max_load']}% "
+        f"max_loop={seen['max_loop_us']}us"
+    )
+    print("SOAK:", "PASS" if ok else "FAIL")
+
+
 COMMANDS: dict[str, Callable[[Link, argparse.Namespace], None]] = {"watch": cmd_watch}
 COMMANDS["setting"] = cmd_setting
 COMMANDS.update(
@@ -624,6 +687,7 @@ COMMANDS.update(
         "cam": cmd_cam,
         "led": cmd_led,
         "sound": cmd_sound,
+        "soak": cmd_soak,
     }
 )
 
@@ -710,6 +774,8 @@ def main() -> None:
         default=None,
         help="AUDIO_MODE sent first (same run)",
     )
+    sk = sub.add_parser("soak")
+    sk.add_argument("--minutes", type=float, default=10.0)
     args = ap.parse_args()
     link = Link(args.port)
     try:

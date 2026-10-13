@@ -40,7 +40,8 @@ struct LinkStatus {
   uint32_t tcp_down = 0;  // Uno -> bench bytes
 };
 
-void linkTaskStart(const char* camera_sensor);  // sensor name for welcome ("none" until Task 8)
+void linkTaskStart(const char* (*camera_sensor)());  // sensor name for welcome, read when needed
+                                                      // (the camera starts after WiFi, §38)
 bool linkPost(const LinkCommand& cmd, bool to_front);  // to_front: WS stop (fast path), OTA start
 LinkStatus linkStatus();                             // consistent copy, any task
 

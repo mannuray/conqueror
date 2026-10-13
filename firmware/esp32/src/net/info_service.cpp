@@ -9,6 +9,7 @@
 
 #include "board_config.h"
 #include "core/ws_json.h"
+#include "net/boot_diag.h"
 #include "net/camera_service.h"
 #include "net/http_server.h"
 #include "net/link_task.h"
@@ -119,6 +120,9 @@ esp_err_t serveInfo(httpd_req_t* req) {
         static_cast<unsigned long>(s.bad_crc), static_cast<unsigned long>(s.tx_dropped),
         static_cast<unsigned long>(s.tcp_refused),
         s.last_refusal, s.ota_allowed ? "true" : "false");
+  char boot[200];
+  if (bootDiagJson(boot, sizeof(boot)) == 0) snprintf(boot, sizeof(boot), "null");
+  o.add("\"boot\":%s,", boot);  // design-notes §38
   o.add("\"uptime_s\":%lu,\"free_heap\":%lu,\"free_psram\":%lu}",
         static_cast<unsigned long>(millis() / 1000), static_cast<unsigned long>(ESP.getFreeHeap()),
         static_cast<unsigned long>(ESP.getFreePsram()));

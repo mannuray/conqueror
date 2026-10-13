@@ -15,6 +15,8 @@ void WifiManager::begin(uint32_t now_ms) {
   WiFi.setHostname(board::kHostname);
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);  // modem sleep adds 100+ ms latency to drive messages
+  // design-notes §38: 15 dBm (not 20) lowers the current peaks on tank power; plenty indoors.
+  WiFi.setTxPower(WIFI_POWER_15dBm);
   m_policy.begin(now_ms);
   WiFi.begin(CQ_WIFI_SSID, CQ_WIFI_PASSWORD);
   logf("wifi: connecting to \"%s\"", CQ_WIFI_SSID);

@@ -21,7 +21,8 @@ namespace {
 QueueHandle_t g_queue = nullptr;
 portMUX_TYPE g_status_mux = portMUX_INITIALIZER_UNLOCKED;
 LinkStatus g_status;
-const char* g_sensor = "none";
+const char* noSensor() { return "none"; }
+const char* (*g_sensor)() = noSensor;
 
 UartPort g_uart;
 core::FrameTx g_tx;
@@ -174,7 +175,7 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
   switch (c.kind) {
     case core::WsCmdKind::kHello: {
       const core::HelloInfo hello = g_link.hello();
-      const core::WelcomeInfo w{CQ_FW_VERSION, &hello, g_sensor, ownerView(), g_ws.name(fd)};
+      const core::WelcomeInfo w{CQ_FW_VERSION, &hello, g_sensor(), ownerView(), g_ws.name(fd)};
       sendTo(fd, core::jsonWelcome(g_json, sizeof(g_json), w));
       sendTo(fd, core::jsonTs(g_json, sizeof(g_json), g_link.snapshot(), ownerView(), bodyOffline()));
       break;
@@ -427,7 +428,7 @@ void linkTask(void*) {
 
 }  // namespace
 
-void linkTaskStart(const char* camera_sensor) {
+void linkTaskStart(const char* (*camera_sensor)()) {
   g_sensor = camera_sensor;
   g_uart.begin();
   g_tcp.begin();

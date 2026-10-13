@@ -5,6 +5,7 @@
 #include <esp_ota_ops.h>
 
 #include "board_config.h"
+#include "net/boot_diag.h"
 #include "net/camera_service.h"
 #include "net/http_server.h"
 #include "net/info_service.h"
@@ -23,6 +24,7 @@ namespace {
 cq::net::WifiManager g_wifi;
 cq::net::OtaService g_ota;
 uint32_t g_last_status_ms = 0;
+bool g_camera_started = false;
 
 void logBanner() {
   using cq::net::logf;
@@ -76,6 +78,7 @@ void logStatus(uint32_t now_ms, const cq::net::LinkStatus& s) {
 void setup() {
   cq::net::logBegin();
   logBanner();
+  cq::net::bootDiagBegin();  // design-notes §38: boot count + reset reason
   if (ESP.getPsramSize() == 0) {
     cq::net::logf("ERROR: no PSRAM - check board_build.arduino.memory_type = qio_opi");
   }
@@ -85,9 +88,8 @@ void setup() {
   cq::net::sourceBegin();
   cq::net::sourceRegister();
   cq::net::infoRegister(g_wifi);
-  const bool camera = cq::net::cameraBegin();
-  cq::net::linkTaskStart(cq::net::cameraSensorName());
-  if (camera) cq::net::streamServerStart();
+  cq::net::linkTaskStart(cq::net::cameraSensorName);
+  // The camera starts in loop() once WiFi is up (design-notes §38: no simultaneous current peaks).
   g_ota.addStartHook(cq::net::cameraStop);
   g_ota.begin();
 }
@@ -96,6 +98,11 @@ void loop() {
   const uint32_t now = millis();
   const cq::net::LinkStatus s = cq::net::linkStatus();
   g_wifi.step(now, hasClients(s));
+  // Staged start (design-notes §38): camera after the station is up, or after 10 s in any case.
+  if (!g_camera_started && (g_wifi.mode() == cq::core::WifiMode::kStation || now >= 10000)) {
+    g_camera_started = true;
+    if (cq::net::cameraBegin()) cq::net::streamServerStart();
+  }
   g_ota.poll(s.ota_allowed && g_wifi.mode() != cq::core::WifiMode::kConnecting);
   if (now - g_last_status_ms >= cq::board::kStatusPeriodMs) {
     g_last_status_ms = now;

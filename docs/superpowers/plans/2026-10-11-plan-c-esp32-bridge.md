@@ -2886,6 +2886,7 @@ Expected: `51 test cases: 51 succeeded`.
 // Station / fallback AP + mDNS (bridge LLD R2.6 WifiManager, MdnsAdvertiser). Arduino loop only.
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "core/wifi_policy.h"
@@ -3045,6 +3046,7 @@ class OtaService {
 ```cpp
 #include "net/ota_service.h"
 
+#include <Arduino.h>
 #include <ArduinoOTA.h>
 
 #include "board_config.h"
@@ -4349,6 +4351,2106 @@ Expected: tracks stop within ~0.3 s (Uno link loss); the USB log shows `tcp: ben
 ```bash
 git add firmware/esp32/src firmware/esp32/test/test_frame_aligner tools/smoke/pyproject.toml tools/smoke/bridge_echo.py
 git commit -m "feat(esp32): frame-aligned TCP passthrough for the bench under the link owner
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 6: WebSocket `/ws` drive service — JSON ⇄ body-link frames
+
+**Files:**
+- Create: `firmware/esp32/src/core/ws_codec.h`, `firmware/esp32/src/core/ws_codec.cpp`, `firmware/esp32/src/core/ws_json.h`, `firmware/esp32/src/core/ws_json.cpp`, `firmware/esp32/src/core/ws_clients.h`, `firmware/esp32/src/core/ws_clients.cpp`, `firmware/esp32/test/test_ws_codec/test_main.cpp`, `firmware/esp32/test/test_ws_json/test_main.cpp`, `firmware/esp32/test/test_ws_clients/test_main.cpp`, `firmware/esp32/src/net/http_server.h`, `firmware/esp32/src/net/http_server.cpp`
+- Modify (full new content below): `firmware/esp32/src/net/link_task.h`, `firmware/esp32/src/net/link_task.cpp`, `tools/smoke/bridge_echo.py`; `firmware/esp32/src/main.cpp` (start the HTTP server)
+
+**Interfaces:**
+- Consumes: `BodyLink`, `LinkOwner`, `TcpPassthrough`, `link_task` (Tasks 2–5); `cq_protocol.h` (`AckStatus`, `kAckStatusCode`, `EventKind`, `FastFlagBit`, `SlowFlagBit`, `Owner`).
+- Produces:
+  - `cq::core::parseWsCommand(text, len) → WsCommand{kind, has_id, id, v, w, x, y, active, t0, client}`; `WsCmdKind {kHello, kDrive, kStop, kCamJoy, kCamHome, kRelease, kPing, kUnsupported, kInvalid}`.
+  - `cq::core::jsonWelcome / jsonTf / jsonTs / jsonUnoEvent / jsonControlChanged / jsonBody / jsonAck / jsonNackStatus / jsonNack / jsonPong` (each `(char* out, size_t cap, …) → size_t`), `ownerName(Owner)`, `ackReasonCode(status)`, `OwnerView{owner, client}`, `WelcomeInfo`, `BridgeReason {kNotOwner, kBusy, kBodyOffline, kRateLimited, kInvalidCommand, kTimeout}`, `kWsJsonMax = 384`.
+  - `cq::core::WsClients` — `add(fd, now)`, `remove(fd)`, `contains(fd)`, `count()`, `fdAt(i)`, `name(fd)` (`phone-N`), `admit(fd, kind, now)`, `silent(now, out, max)`, `reportStreamReject(fd, reason)`, `streamAccepted(fd)`; `kMaxWsClients = 4`, `kWsSilentMs = 3000`, `kStreamLimitPerS = 25`, `kTotalLimitPerS = 60`.
+  - `cq::net::httpServerStart()`, `httpServer() → httpd_handle_t` (Tasks 7 and 9 register URIs on it), `wsSend(fd, json, len)`, `wsClose(fd)`, `wsDropped()`.
+  - `cq::net::linkTaskStart(const char* camera_sensor)` (signature change: the welcome message reports the sensor; `"none"` until Task 8).
+  - `bridge_echo.py … ws [--seconds S]` and `… ws-owner`.
+
+Message mapping implemented (bridge LLD R2.9; page mapping v = stick y, w = −stick x):
+
+| WS in | Checks | Body-link out | WS reply |
+|---|---|---|---|
+| `hello` | — | — | `welcome` (+ `you`: this client's name, + `owner_client`) then `ts` |
+| `drive{v,w}` | rate ≤ 25/s, `LinkOwner.onDrive` | `DRIVE{HUMAN, v, w}` 1:1 | none; a rejection → one `nack` without `id` per reason (`NOT_OWNER`, `BUSY`, `BODY_OFFLINE`, `RATE_LIMITED`) |
+| `stop{id?}` | never limited, any state | `STOP{HUMAN}` (urgent; injected in passthrough), resent until ACK | `ack{id}` on the Uno ACK, else `nack` with the Uno's status or `COMMAND_TIMEOUT` |
+| `cam_joy{x,y,active}` | rate ≤ 25/s, `onCamera` | `CAM_JOY{x, y, active}` 1:1 | streaming rejection as for drive |
+| `cam_home{id?}` | `onCamera` | `CAM_HOME` | `ack`/`nack` from the Uno ACK (200 ms timeout) |
+| `release_control{id?}` | — | `STOP` + `OWNER_HINT NONE` if it was the driver | `ack{id}` |
+| `ping{t0}` | — | — | `pong{t0, tank_ms}` |
+| anything else | — | — | `nack INVALID_COMMAND` |
+
+Out without a request: `tf` every 2nd TELEM_FAST (10 Hz), `ts` every 1 s and on owner change, `ev` for the slice's Uno events, `control_changed` (from LinkOwner), `body_online` / `body_offline` (`reason: BODY_INCOMPATIBLE` with `uno_proto` when the Uno is not protocol 2). Uno owner CALIBRATION is shown as `"human"` (someone runs it from the bench).
+
+- [ ] **Step 1: Write the failing tests**
+
+`firmware/esp32/test/test_ws_codec/test_main.cpp`:
+```cpp
+// WsCodec: the Basic Drive JSON slice (bridge LLD R2.9) in, robust against junk.
+#include <string.h>
+#include <unity.h>
+
+#include "core/ws_codec.h"
+
+using cq::core::parseWsCommand;
+using cq::core::WsCmdKind;
+using cq::core::WsCommand;
+
+namespace {
+WsCommand P(const char* s) { return parseWsCommand(s, strlen(s)); }
+int K(WsCmdKind k) { return static_cast<int>(k); }
+}  // namespace
+
+void setUp() {}
+void tearDown() {}
+
+void test_drive() {
+  const WsCommand c = P("{\"t\":\"drive\",\"v\":40,\"w\":-12}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kDrive), K(c.kind));
+  TEST_ASSERT_EQUAL(40, c.v);
+  TEST_ASSERT_EQUAL(-12, c.w);
+  TEST_ASSERT_FALSE(c.has_id);
+}
+
+void test_drive_clamps_and_rounds() {
+  const WsCommand c = P("{ \"t\" : \"drive\" , \"v\" : 250.4 , \"w\" : -33.6 }");
+  TEST_ASSERT_EQUAL(100, c.v);
+  TEST_ASSERT_EQUAL(-34, c.w);
+}
+
+void test_drive_needs_v_and_w() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"drive\",\"v\":10}").kind));
+}
+
+void test_stop_with_id() {
+  const WsCommand c = P("{\"t\":\"stop\",\"id\":7}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kStop), K(c.kind));
+  TEST_ASSERT_TRUE(c.has_id);
+  TEST_ASSERT_EQUAL(7, c.id);
+}
+
+void test_cam_joy() {
+  const WsCommand c = P("{\"t\":\"cam_joy\",\"x\":-100,\"y\":55,\"active\":true}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCamJoy), K(c.kind));
+  TEST_ASSERT_EQUAL(-100, c.x);
+  TEST_ASSERT_EQUAL(55, c.y);
+  TEST_ASSERT_TRUE(c.active);
+  TEST_ASSERT_FALSE(P("{\"t\":\"cam_joy\",\"x\":0,\"y\":0,\"active\":false}").active);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"cam_joy\",\"x\":0,\"y\":0}").kind));
+}
+
+void test_simple_kinds() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCamHome), K(P("{\"t\":\"cam_home\",\"id\":3}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kRelease), K(P("{\"t\":\"release_control\"}").kind));
+}
+
+void test_hello_ignores_key_and_nested() {
+  const WsCommand c = P(
+      "{\"t\":\"hello\",\"key\":\"abc\\\"def\",\"client\":\"basic-drive\",\"proto\":1,"
+      "\"extra\":{\"a\":[1,{\"b\":\"}\"}]}}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kHello), K(c.kind));
+  TEST_ASSERT_EQUAL_STRING("basic-drive", c.client);
+}
+
+void test_ping_echoes_t0_verbatim() {
+  const WsCommand c = P("{\"t\":\"ping\",\"t0\":1728734400123.5}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kPing), K(c.kind));
+  TEST_ASSERT_EQUAL_STRING("1728734400123.5", c.t0);
+  TEST_ASSERT_EQUAL_STRING("null", P("{\"t\":\"ping\"}").t0);
+}
+
+void test_unsupported_commands() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"turn\",\"angle\":90}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"safety_override\"}").kind));
+}
+
+void test_junk_is_invalid() {
+  const char* junk[] = {"", "x", "{", "{}", "{\"t\":}", "{\"t\":\"drive\",\"v\":1,\"w\":2",
+                        "{\"t\":\"drive\",\"v\":\"a\",\"w\":2}", "{\"t\":\"stop\"} trailing",
+                        "[\"t\",\"stop\"]", "{\"t\":\"drive\",\"v\":1e,\"w\":2}"};
+  for (const char* j : junk) TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P(j).kind));
+}
+
+void test_length_is_respected() {
+  const char* s = "{\"t\":\"stop\"}GARBAGE";
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kStop), K(parseWsCommand(s, 12).kind));
+}
+
+int main() {
+  UNITY_BEGIN();
+  RUN_TEST(test_drive);
+  RUN_TEST(test_drive_clamps_and_rounds);
+  RUN_TEST(test_drive_needs_v_and_w);
+  RUN_TEST(test_stop_with_id);
+  RUN_TEST(test_cam_joy);
+  RUN_TEST(test_simple_kinds);
+  RUN_TEST(test_hello_ignores_key_and_nested);
+  RUN_TEST(test_ping_echoes_t0_verbatim);
+  RUN_TEST(test_unsupported_commands);
+  RUN_TEST(test_junk_is_invalid);
+  RUN_TEST(test_length_is_respected);
+  return UNITY_END();
+}
+```
+
+`firmware/esp32/test/test_ws_json/test_main.cpp`:
+```cpp
+// WsJson: frames/snapshot -> the JSON the Basic Drive page reads (bridge LLD R2.9).
+#include <string.h>
+#include <unity.h>
+
+#include "core/ws_json.h"
+
+using namespace cq::core;
+namespace proto = cq::proto;
+
+namespace {
+char buf[kWsJsonMax];
+const OwnerView kNone{"none", ""};
+}  // namespace
+
+void setUp() { memset(buf, 0, sizeof(buf)); }
+void tearDown() {}
+
+void test_ack_reason_table_matches_generated_codes() {
+  for (uint8_t i = 0; i <= static_cast<uint8_t>(proto::AckStatus::kRoleForbidden); ++i) {
+    TEST_ASSERT_EQUAL(proto::kAckStatusCode[i], ackReasonCode(i));
+  }
+}
+
+void test_tf_scaling_and_sentinels() {
+  TankSnapshot s;
+  TEST_ASSERT_EQUAL(0, jsonTf(buf, sizeof(buf), 1, s));  // nothing before the first TELEM_FAST
+  s.fast_valid = true;
+  s.fast.uno_ms = 1234;
+  s.fast.yaw = 9050;     // 90.50 deg
+  s.fast.pitch = -125;   // -1.25 deg
+  s.fast.roll = 300;     // 3.00 deg
+  s.fast.dist_mm = 424;  // 42 cm
+  s.fast.pan = -155;     // -15.5 deg
+  s.fast.tilt = 200;
+  s.fast.spd_cmd_l = 40;
+  s.fast.spd_cmd_r = -40;
+  s.fast.flags = 1u << static_cast<unsigned>(proto::FastFlagBit::kCamMoving);
+  jsonTf(buf, sizeof(buf), 7, s);
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"tf\",\"seq\":7,\"tank_ms\":1234,\"yaw\":90.50,\"pitch\":-1.25,\"roll\":3.00,"
+      "\"dist_cm\":42,\"pan\":-15.5,\"tilt\":20.0,\"spd_cmd\":[40,-40],\"cam_moving\":true}",
+      buf);
+  s.fast.dist_mm = 65535;  // clear
+  jsonTf(buf, sizeof(buf), 8, s);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"dist_cm\":null"));
+  s.fast.dist_mm = 65534;  // sensor fault
+  jsonTf(buf, sizeof(buf), 9, s);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"dist_cm\":null"));
+}
+
+void test_ts_flags_owner_and_battery() {
+  TankSnapshot s;
+  s.slow_valid = true;
+  s.slow.batt_mv = 7620;
+  s.slow.flags2 = (1u << static_cast<unsigned>(proto::SlowFlagBit::kBattLow)) |
+                  (1u << static_cast<unsigned>(proto::SlowFlagBit::kBrakeOff));
+  s.slow.env_speed_cap = 100;
+  s.fast_valid = true;
+  s.fast.flags = 1u << static_cast<unsigned>(proto::FastFlagBit::kBlocked);
+  jsonTs(buf, sizeof(buf), s, OwnerView{"human", "phone-1"}, false);
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"ts\",\"batt_v\":7.62,\"owner\":\"human\",\"owner_client\":\"phone-1\","
+      "\"flags\":[\"blocked\",\"batt_low\",\"brake_off\"],"
+      "\"envelope\":{\"speed_cap\":100,\"accel_cap\":0,\"lock_brake\":0}}",
+      buf);
+  jsonTs(buf, sizeof(buf), TankSnapshot{}, kNone, true);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"batt_v\":null"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"flags\":[\"body_offline\"]"));
+}
+
+void test_owner_names() {
+  TEST_ASSERT_EQUAL_STRING("none", ownerName(proto::Owner::kNone));
+  TEST_ASSERT_EQUAL_STRING("human", ownerName(proto::Owner::kNetwork));
+  TEST_ASSERT_EQUAL_STRING("ir", ownerName(proto::Owner::kIr));
+  TEST_ASSERT_EQUAL_STRING("human", ownerName(proto::Owner::kCalibration));
+}
+
+void test_events_in_the_slice() {
+  jsonUnoEvent(buf, sizeof(buf), 3, 500, static_cast<uint8_t>(proto::EventKind::kBlocked), 284, 0);
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"ev\",\"seq\":3,\"tank_ms\":500,\"kind\":\"blocked\",\"dist_cm\":28}", buf);
+  jsonUnoEvent(buf, sizeof(buf), 4, 600, static_cast<uint8_t>(proto::EventKind::kBattLow), 7150,
+               0);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"kind\":\"batt_low\",\"v\":7.15"));
+  jsonUnoEvent(buf, sizeof(buf), 5, 700,
+               static_cast<uint8_t>(proto::EventKind::kSafetyOverride), 0, 2);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"on\":false,\"reason\":\"idle\""));
+  TEST_ASSERT_EQUAL(0, jsonUnoEvent(buf, sizeof(buf), 6, 0,
+                                    static_cast<uint8_t>(proto::EventKind::kSettingsSaved), 0, 0));
+  TEST_ASSERT_EQUAL(0, jsonUnoEvent(buf, sizeof(buf), 6, 0,
+                                    static_cast<uint8_t>(proto::EventKind::kControlChanged), 1, 0));
+}
+
+void test_control_changed_and_body() {
+  jsonControlChanged(buf, sizeof(buf), 9, 10, OwnerView{"human", "bench"});
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"ev\",\"seq\":9,\"tank_ms\":10,\"kind\":\"control_changed\",\"owner\":\"human\","
+      "\"client\":\"bench\"}",
+      buf);
+  jsonBody(buf, sizeof(buf), 1, 0, false, 1);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"reason\":\"BODY_INCOMPATIBLE\",\"uno_proto\":1"));
+  jsonBody(buf, sizeof(buf), 2, 0, true, -1);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"kind\":\"body_online\""));
+}
+
+void test_ack_and_nacks() {
+  jsonAck(buf, sizeof(buf), 7);
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"ack\",\"id\":7}", buf);
+  jsonNack(buf, sizeof(buf), 7, BridgeReason::kNotOwner);
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"nack\",\"id\":7,\"code\":\"COMMAND_3001\",\"reason\":\"NOT_OWNER\","
+      "\"message\":\"Another source has control\"}",
+      buf);
+  jsonNack(buf, sizeof(buf), -1, BridgeReason::kBusy);  // streaming: no id
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"nack\",\"code\":\"COMMAND_3005\",\"reason\":\"BUSY\",\"message\":\"Busy, try "
+      "again\"}",
+      buf);
+  jsonNackStatus(buf, sizeof(buf), 4, static_cast<uint8_t>(proto::AckStatus::kBlocked));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"code\":\"COMMAND_3002\",\"reason\":\"BLOCKED\""));
+  jsonNackStatus(buf, sizeof(buf), 5, kStatusTimeout);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"reason\":\"COMMAND_TIMEOUT\""));
+  jsonNack(buf, sizeof(buf), 6, BridgeReason::kBodyOffline);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"code\":\"COMMAND_3007\""));
+}
+
+void test_welcome_and_pong() {
+  HelloInfo h;
+  h.seen = true;
+  h.fw = 0x0100;
+  h.caps = 0;
+  jsonWelcome(buf, sizeof(buf), WelcomeInfo{"bridge-v0.2.0", &h, "OV3660", kNone, "phone-1"});
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"welcome\",\"role\":\"human\",\"you\":\"phone-1\",\"tank\":{\"name\":"
+      "\"conqueror-bridge\",\"fw\":{\"esp32\":\"bridge-v0.2.0\",\"uno\":\"1.0\"},\"proto\":2,"
+      "\"caps\":{\"encoders\":false,\"sensor\":\"OV3660\"}},\"owner\":\"none\",\"owner_client\":"
+      "\"\"}",
+      buf);
+  HelloInfo none;
+  jsonWelcome(buf, sizeof(buf), WelcomeInfo{"x", &none, "none", kNone, "phone-2"});
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"uno\":null"));
+  jsonPong(buf, sizeof(buf), "1728734400123.5", 99);
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"pong\",\"t0\":1728734400123.5,\"tank_ms\":99}", buf);
+}
+
+void test_too_small_buffer_returns_zero() {
+  char small[16];
+  TEST_ASSERT_EQUAL(0, jsonNack(small, sizeof(small), 1, BridgeReason::kBusy));
+}
+
+int main() {
+  UNITY_BEGIN();
+  RUN_TEST(test_ack_reason_table_matches_generated_codes);
+  RUN_TEST(test_tf_scaling_and_sentinels);
+  RUN_TEST(test_ts_flags_owner_and_battery);
+  RUN_TEST(test_owner_names);
+  RUN_TEST(test_events_in_the_slice);
+  RUN_TEST(test_control_changed_and_body);
+  RUN_TEST(test_ack_and_nacks);
+  RUN_TEST(test_welcome_and_pong);
+  RUN_TEST(test_too_small_buffer_returns_zero);
+  return UNITY_END();
+}
+```
+
+`firmware/esp32/test/test_ws_clients/test_main.cpp`:
+```cpp
+// WsClients: names, capacity, rate limits, silence reaping, one nack per streaming rejection.
+#include <unity.h>
+
+#include "core/ws_clients.h"
+
+using cq::core::WsClients;
+using cq::core::WsCmdKind;
+
+namespace {
+WsClients c;
+}
+
+void setUp() { c = WsClients(); }
+void tearDown() {}
+
+void test_names_and_capacity() {
+  TEST_ASSERT_TRUE(c.add(10, 0));
+  TEST_ASSERT_TRUE(c.add(11, 0));
+  TEST_ASSERT_EQUAL_STRING("phone-1", c.name(10));
+  TEST_ASSERT_EQUAL_STRING("phone-2", c.name(11));
+  TEST_ASSERT_TRUE(c.add(12, 0));
+  TEST_ASSERT_TRUE(c.add(13, 0));
+  TEST_ASSERT_FALSE(c.add(14, 0));  // max 4
+  TEST_ASSERT_TRUE(c.remove(10));
+  TEST_ASSERT_FALSE(c.remove(10));  // plain HTTP sockets also close: not ours
+  TEST_ASSERT_TRUE(c.add(14, 0));
+  TEST_ASSERT_EQUAL_STRING("phone-5", c.name(14));  // numbers are never reused
+}
+
+void test_drive_rate_limit_25_per_second() {
+  c.add(10, 0);
+  int accepted = 0;
+  for (int i = 0; i < 40; ++i) accepted += c.admit(10, WsCmdKind::kDrive, 10 + i) ? 1 : 0;
+  TEST_ASSERT_EQUAL(25, accepted);
+  TEST_ASSERT_TRUE(c.admit(10, WsCmdKind::kStop, 60));         // STOP is never limited
+  TEST_ASSERT_TRUE(c.admit(10, WsCmdKind::kCamJoy, 61));       // separate budget
+  TEST_ASSERT_TRUE(c.admit(10, WsCmdKind::kDrive, 1000));      // next window
+}
+
+void test_total_limit() {
+  c.add(10, 0);
+  int accepted = 0;
+  for (int i = 0; i < 80; ++i) accepted += c.admit(10, WsCmdKind::kPing, i) ? 1 : 0;
+  TEST_ASSERT_EQUAL(60, accepted);
+}
+
+void test_silent_clients_are_reported() {
+  c.add(10, 0);
+  c.add(11, 0);
+  c.admit(11, WsCmdKind::kPing, 2500);
+  int fds[4];
+  TEST_ASSERT_EQUAL(0, c.silent(2999, fds, 4));
+  TEST_ASSERT_EQUAL(1, c.silent(3000, fds, 4));
+  TEST_ASSERT_EQUAL(10, fds[0]);
+}
+
+void test_stream_reject_reported_once() {
+  c.add(10, 0);
+  TEST_ASSERT_TRUE(c.reportStreamReject(10, 1));
+  TEST_ASSERT_FALSE(c.reportStreamReject(10, 1));  // 20 Hz drive: one nack, not twenty
+  TEST_ASSERT_TRUE(c.reportStreamReject(10, 2));   // a new reason is reported
+  c.streamAccepted(10);
+  TEST_ASSERT_TRUE(c.reportStreamReject(10, 2));
+}
+
+int main() {
+  UNITY_BEGIN();
+  RUN_TEST(test_names_and_capacity);
+  RUN_TEST(test_drive_rate_limit_25_per_second);
+  RUN_TEST(test_total_limit);
+  RUN_TEST(test_silent_clients_are_reported);
+  RUN_TEST(test_stream_reject_reported_once);
+  return UNITY_END();
+}
+```
+
+Run: `cd firmware/esp32 && pio test -e native`
+Expected: build errors — `core/ws_codec.h`, `core/ws_json.h`, `core/ws_clients.h` not found.
+
+- [ ] **Step 2: JSON in**
+
+`firmware/esp32/src/core/ws_codec.h`:
+```cpp
+// WebSocket JSON in -> WsCommand (bridge LLD R2.9, spec 01 §4-5 names). Messages are small flat
+// objects; this is a fixed-buffer reader for exactly that (no JSON library, no heap). Unknown keys
+// (e.g. a gateway "key") are skipped, nested values are skipped, numbers are clamped to -100..100.
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+namespace cq {
+namespace core {
+
+enum class WsCmdKind : uint8_t {
+  kHello,
+  kDrive,
+  kStop,
+  kCamJoy,
+  kCamHome,
+  kRelease,
+  kPing,
+  kUnsupported,  // valid JSON, "t" not in the Basic Drive slice -> nack INVALID_COMMAND
+  kInvalid,      // not JSON / no "t" / bad field -> nack INVALID_COMMAND
+};
+
+struct WsCommand {
+  WsCmdKind kind = WsCmdKind::kInvalid;
+  bool has_id = false;
+  int32_t id = 0;
+  int8_t v = 0;  // drive: forward +
+  int8_t w = 0;  // drive: turn left + (page sends w = -x)
+  int8_t x = 0;  // cam_joy: pan right +
+  int8_t y = 0;  // cam_joy: tilt up +
+  bool active = false;
+  char t0[24] = "";  // ping: number echoed verbatim in pong
+  char client[24] = "";
+};
+
+WsCommand parseWsCommand(const char* text, size_t len);
+
+}  // namespace core
+}  // namespace cq
+```
+
+`firmware/esp32/src/core/ws_codec.cpp`:
+```cpp
+#include "core/ws_codec.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+namespace cq {
+namespace core {
+namespace {
+
+class Reader {
+ public:
+  Reader(const char* s, size_t n) : m_s(s), m_end(s + n) {}
+
+  void ws() {
+    while (m_s < m_end && (*m_s == ' ' || *m_s == '\t' || *m_s == '\r' || *m_s == '\n')) ++m_s;
+  }
+  bool eat(char c) {
+    ws();
+    if (m_s < m_end && *m_s == c) {
+      ++m_s;
+      return true;
+    }
+    return false;
+  }
+  bool peek(char c) {
+    ws();
+    return m_s < m_end && *m_s == c;
+  }
+  // Reads a string into out (truncated to cap-1); escapes are kept only for \" and \\.
+  bool str(char* out, size_t cap) {
+    if (!eat('"')) return false;
+    size_t n = 0;
+    while (m_s < m_end && *m_s != '"') {
+      char c = *m_s++;
+      if (c == '\\') {
+        if (m_s >= m_end) return false;
+        c = *m_s++;
+      }
+      if (n + 1 < cap) out[n++] = c;
+    }
+    if (cap) out[n] = '\0';
+    return eat('"');
+  }
+  // Copies a JSON number token verbatim (for t0) and returns its value.
+  bool num(double& value, char* raw, size_t cap) {
+    ws();
+    const char* start = m_s;
+    while (m_s < m_end && (strchr("+-.eE", *m_s) != nullptr || (*m_s >= '0' && *m_s <= '9'))) ++m_s;
+    const size_t n = static_cast<size_t>(m_s - start);
+    if (n == 0 || n >= 24) return false;
+    char tmp[24];
+    memcpy(tmp, start, n);
+    tmp[n] = '\0';
+    char* endp = nullptr;
+    value = strtod(tmp, &endp);
+    if (endp != tmp + n) return false;
+    if (raw && cap > n) {
+      memcpy(raw, tmp, n + 1);
+    }
+    return true;
+  }
+  bool word(const char* w) {
+    ws();
+    const size_t n = strlen(w);
+    if (static_cast<size_t>(m_end - m_s) < n || strncmp(m_s, w, n) != 0) return false;
+    m_s += n;
+    return true;
+  }
+  // Skips any value, including nested objects/arrays.
+  bool skip() {
+    ws();
+    if (m_s >= m_end) return false;
+    if (*m_s == '"') {
+      char dummy[2];
+      return str(dummy, sizeof(dummy));
+    }
+    if (*m_s == '{' || *m_s == '[') {
+      int depth = 0;
+      bool in_str = false;
+      while (m_s < m_end) {
+        const char c = *m_s++;
+        if (in_str) {
+          if (c == '\\') {
+            ++m_s;
+          } else if (c == '"') {
+            in_str = false;
+          }
+        } else if (c == '"') {
+          in_str = true;
+        } else if (c == '{' || c == '[') {
+          ++depth;
+        } else if (c == '}' || c == ']') {
+          if (--depth == 0) return true;
+        }
+      }
+      return false;
+    }
+    if (word("true") || word("false") || word("null")) return true;
+    double v = 0;
+    return num(v, nullptr, 0);
+  }
+  bool atEnd() {
+    ws();
+    return m_s == m_end;
+  }
+
+ private:
+  const char* m_s;
+  const char* m_end;
+};
+
+int8_t clampPct(double v) {
+  if (v > 100.0) return 100;
+  if (v < -100.0) return -100;
+  return static_cast<int8_t>(v < 0 ? v - 0.5 : v + 0.5);
+}
+
+WsCmdKind kindOf(const char* t) {
+  if (strcmp(t, "drive") == 0) return WsCmdKind::kDrive;
+  if (strcmp(t, "stop") == 0) return WsCmdKind::kStop;
+  if (strcmp(t, "cam_joy") == 0) return WsCmdKind::kCamJoy;
+  if (strcmp(t, "cam_home") == 0) return WsCmdKind::kCamHome;
+  if (strcmp(t, "release_control") == 0) return WsCmdKind::kRelease;
+  if (strcmp(t, "ping") == 0) return WsCmdKind::kPing;
+  if (strcmp(t, "hello") == 0) return WsCmdKind::kHello;
+  return WsCmdKind::kUnsupported;
+}
+
+}  // namespace
+
+WsCommand parseWsCommand(const char* text, size_t len) {
+  WsCommand c;
+  WsCommand bad;
+  Reader r(text, len);
+  char t[24] = "";
+  bool have_v = false, have_w = false, have_x = false, have_y = false, have_active = false;
+  if (!r.eat('{')) return bad;
+  if (!r.peek('}')) {
+    do {
+      char key[16];
+      if (!r.str(key, sizeof(key)) || !r.eat(':')) return bad;
+      double num = 0;
+      if (strcmp(key, "t") == 0) {
+        if (!r.str(t, sizeof(t))) return bad;
+      } else if (strcmp(key, "id") == 0) {
+        if (!r.num(num, nullptr, 0)) return bad;
+        c.has_id = true;
+        c.id = static_cast<int32_t>(num);
+      } else if (strcmp(key, "v") == 0 || strcmp(key, "w") == 0 || strcmp(key, "x") == 0 ||
+                 strcmp(key, "y") == 0) {
+        if (!r.num(num, nullptr, 0)) return bad;
+        const int8_t p = clampPct(num);
+        switch (key[0]) {
+          case 'v':
+            c.v = p;
+            have_v = true;
+            break;
+          case 'w':
+            c.w = p;
+            have_w = true;
+            break;
+          case 'x':
+            c.x = p;
+            have_x = true;
+            break;
+          default:
+            c.y = p;
+            have_y = true;
+            break;
+        }
+      } else if (strcmp(key, "active") == 0) {
+        if (r.word("true")) {
+          c.active = true;
+        } else if (!r.word("false")) {
+          return bad;
+        }
+        have_active = true;
+      } else if (strcmp(key, "t0") == 0) {
+        if (!r.num(num, c.t0, sizeof(c.t0))) return bad;
+      } else if (strcmp(key, "client") == 0) {
+        if (!r.str(c.client, sizeof(c.client))) return bad;
+      } else if (!r.skip()) {
+        return bad;
+      }
+    } while (r.eat(','));
+  }
+  if (!r.eat('}') || !r.atEnd() || t[0] == '\0') return bad;
+  c.kind = kindOf(t);
+  if (c.kind == WsCmdKind::kDrive && !(have_v && have_w)) return bad;
+  if (c.kind == WsCmdKind::kCamJoy && !(have_x && have_y && have_active)) return bad;
+  if (c.kind == WsCmdKind::kPing && c.t0[0] == '\0') snprintf(c.t0, sizeof(c.t0), "null");
+  return c;
+}
+
+}  // namespace core
+}  // namespace cq
+```
+
+- [ ] **Step 3: JSON out**
+
+`firmware/esp32/src/core/ws_json.h`:
+```cpp
+// Tank -> WebSocket JSON (bridge LLD R2.9, spec 01 §4 and §6 subset). Writes into caller buffers
+// with snprintf; every function returns the length, or 0 when nothing is to be sent / it did not
+// fit. Pure C++, no heap.
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "core/body_link.h"
+#include "cq_protocol.h"
+
+namespace cq {
+namespace core {
+
+constexpr size_t kWsJsonMax = 384;
+
+// Reasons the bridge itself produces (not on the Uno's ack_status list).
+enum class BridgeReason : uint8_t { kNotOwner, kBusy, kBodyOffline, kRateLimited, kInvalidCommand, kTimeout };
+
+struct OwnerView {
+  const char* owner;   // "none" | "human" | "ir"
+  const char* client;  // "phone-2" | "bench" | ""
+};
+
+struct WelcomeInfo {
+  const char* fw_esp32;
+  const HelloInfo* hello;  // uno fw / caps (null fields until a HELLO was seen)
+  const char* sensor;      // camera sensor name or "none"
+  OwnerView owner;
+  const char* you;  // this client's name, e.g. "phone-1"
+};
+
+size_t jsonWelcome(char* out, size_t cap, const WelcomeInfo& w);
+size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s);
+size_t jsonTs(char* out, size_t cap, const TankSnapshot& s, OwnerView owner, bool body_offline);
+// EVENT from the Uno; returns 0 for kinds outside the Basic Drive slice.
+size_t jsonUnoEvent(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint8_t kind, int16_t a,
+                    int16_t b);
+size_t jsonControlChanged(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, OwnerView owner);
+size_t jsonBody(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, bool online,
+                int uno_proto);  // uno_proto >= 0: offline because of an incompatible protocol
+size_t jsonAck(char* out, size_t cap, int32_t id);
+// id < 0: no "id" (streaming command rejected). status: Uno ack_status index or kStatusTimeout.
+size_t jsonNackStatus(char* out, size_t cap, int32_t id, uint8_t status);
+size_t jsonNack(char* out, size_t cap, int32_t id, BridgeReason reason);
+size_t jsonPong(char* out, size_t cap, const char* t0, uint32_t tank_ms);
+
+// Error code number behind an ack_status index (checked against kAckStatusCode in tests).
+uint16_t ackReasonCode(uint8_t status);
+
+// Uno owner -> spec 01 owner name. CALIBRATION shows as "human" (a person runs it from the bench).
+const char* ownerName(proto::Owner o);
+
+}  // namespace core
+}  // namespace cq
+```
+
+`firmware/esp32/src/core/ws_json.cpp`:
+```cpp
+#include "core/ws_json.h"
+
+#include <stdarg.h>
+#include <stdio.h>
+
+namespace cq {
+namespace core {
+namespace {
+
+struct ReasonInfo {
+  uint16_t code;
+  const char* reason;
+  const char* message;
+};
+
+// Index = on-wire ack_status (protocol/defs/errors.yaml, append-only). Codes are checked against
+// the generated kAckStatusCode table in test_ws_json.
+constexpr ReasonInfo kAckReasons[] = {
+    {0, "OK", "OK"},
+    {3001, "NOT_OWNER", "Another source has control"},
+    {3002, "BLOCKED", "Blocked by a safety rule"},
+    {3003, "UNAVAILABLE", "Capability not available"},
+    {3004, "ENVELOPE_LOCKED", "Locked by the safety envelope"},
+    {3005, "BUSY", "Busy, try again"},
+    {3006, "INVALID_COMMAND", "Invalid command"},
+    {3013, "CANCELLED", "Cancelled"},
+    {3014, "TIMEOUT", "Primitive timed out"},
+    {3015, "STALLED", "Track stalled"},
+    {3012, "LINK_LOST", "Link to the body lost"},
+    {8001, "SETTING_UNKNOWN", "Unknown setting"},
+    {8002, "SETTING_OUT_OF_RANGE", "Value out of range"},
+    {8003, "SETTINGS_SAVE_BUSY", "Save already in progress"},
+    {6001, "CAL_PRECONDITION", "Calibration preconditions not met"},
+    {6002, "CAL_FAILED", "Calibration failed"},
+    {6003, "CAL_CANCELLED", "Calibration cancelled"},
+    {9001, "INTERNAL", "Internal error"},
+    {1002, "ROLE_FORBIDDEN", "Role may not do this"},
+};
+constexpr size_t kAckReasonCount = sizeof(kAckReasons) / sizeof(kAckReasons[0]);
+static_assert(static_cast<size_t>(proto::AckStatus::kRoleForbidden) + 1 == kAckReasonCount,
+              "ack_status grew: add the new reason to kAckReasons");
+
+constexpr ReasonInfo kBridgeReasons[] = {
+    {3001, "NOT_OWNER", "Another source has control"},
+    {3005, "BUSY", "Busy, try again"},
+    {3007, "BODY_OFFLINE", "Body (Uno) offline"},
+    {3010, "RATE_LIMITED", "Too many commands"},
+    {3006, "INVALID_COMMAND", "Invalid command"},
+    {3009, "COMMAND_TIMEOUT", "No acknowledgement in time"},
+};
+
+const char* domain(uint16_t code) {
+  switch (code / 1000) {
+    case 1:
+      return "AUTH";
+    case 2:
+      return "TANK";
+    case 3:
+      return "COMMAND";
+    case 6:
+      return "CALIBRATION";
+    case 8:
+      return "SETTINGS";
+    default:
+      return "SYSTEM";
+  }
+}
+
+size_t fmt(char* out, size_t cap, const char* f, ...) __attribute__((format(printf, 3, 4)));
+size_t fmt(char* out, size_t cap, const char* f, ...) {
+  va_list ap;
+  va_start(ap, f);
+  const int n = vsnprintf(out, cap, f, ap);
+  va_end(ap);
+  return (n < 0 || static_cast<size_t>(n) >= cap) ? 0 : static_cast<size_t>(n);
+}
+
+size_t nack(char* out, size_t cap, int32_t id, const ReasonInfo& r) {
+  char id_part[24] = "";
+  if (id >= 0) snprintf(id_part, sizeof(id_part), "\"id\":%ld,", static_cast<long>(id));
+  return fmt(out, cap, "{\"t\":\"nack\",%s\"code\":\"%s_%u\",\"reason\":\"%s\",\"message\":\"%s\"}",
+             id_part, domain(r.code), r.code, r.reason, r.message);
+}
+
+bool bit(uint32_t v, unsigned b) { return ((v >> b) & 1u) != 0; }
+
+const char* overrideReason(int16_t b) {
+  static const char* const kNames[] = {"network", "ir",          "idle",      "max_time",
+                                       "stop",    "owner_change", "link_lost", "envelope"};
+  return (b >= 0 && b < 8) ? kNames[b] : "unknown";
+}
+
+}  // namespace
+
+const char* ownerName(proto::Owner o) {
+  switch (o) {
+    case proto::Owner::kIr:
+      return "ir";
+    case proto::Owner::kNetwork:
+    case proto::Owner::kCalibration:
+      return "human";
+    case proto::Owner::kNone:
+    default:
+      return "none";
+  }
+}
+
+size_t jsonWelcome(char* out, size_t cap, const WelcomeInfo& w) {
+  char uno[16] = "null";
+  if (w.hello->seen) snprintf(uno, sizeof(uno), "\"%u.%u\"", w.hello->fw >> 8, w.hello->fw & 0xFF);
+  return fmt(out, cap,
+             "{\"t\":\"welcome\",\"role\":\"human\",\"you\":\"%s\",\"tank\":{\"name\":"
+             "\"conqueror-bridge\",\"fw\":{\"esp32\":\"%s\",\"uno\":%s},\"proto\":%u,\"caps\":{"
+             "\"encoders\":%s,\"sensor\":\"%s\"}},\"owner\":\"%s\",\"owner_client\":\"%s\"}",
+             w.you, w.fw_esp32, uno, proto::kProtocolVersion,
+             (w.hello->seen && (w.hello->caps & 1u)) ? "true" : "false", w.sensor, w.owner.owner,
+             w.owner.client);
+}
+
+size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s) {
+  if (!s.fast_valid) return 0;
+  const proto::TelemFastMsg& f = s.fast;
+  char dist[12] = "null";  // 65535 clear, 65534 sensor fault
+  if (f.dist_mm < 65534) snprintf(dist, sizeof(dist), "%u", (f.dist_mm + 5u) / 10u);
+  const bool cam_moving = bit(f.flags, static_cast<unsigned>(proto::FastFlagBit::kCamMoving));
+  return fmt(out, cap,
+             "{\"t\":\"tf\",\"seq\":%lu,\"tank_ms\":%lu,\"yaw\":%.2f,\"pitch\":%.2f,\"roll\":%.2f,"
+             "\"dist_cm\":%s,\"pan\":%.1f,\"tilt\":%.1f,\"spd_cmd\":[%d,%d],\"cam_moving\":%s}",
+             static_cast<unsigned long>(seq), static_cast<unsigned long>(f.uno_ms), f.yaw / 100.0,
+             f.pitch / 100.0, f.roll / 100.0, dist, f.pan / 10.0, f.tilt / 10.0, f.spd_cmd_l,
+             f.spd_cmd_r, cam_moving ? "true" : "false");
+}
+
+size_t jsonTs(char* out, size_t cap, const TankSnapshot& s, OwnerView owner, bool body_offline) {
+  char flags[200] = "";
+  size_t n = 0;
+  auto add = [&](bool on, const char* name) {
+    if (!on) return;
+    const int k = snprintf(flags + n, sizeof(flags) - n, "%s\"%s\"", n ? "," : "", name);
+    if (k > 0 && static_cast<size_t>(k) < sizeof(flags) - n) n += static_cast<size_t>(k);
+  };
+  using FB = proto::FastFlagBit;
+  using SB = proto::SlowFlagBit;
+  const uint32_t ff = s.fast_valid ? s.fast.flags : 0;
+  const uint32_t sf = s.slow_valid ? s.slow.flags2 : 0;
+  add(bit(ff, static_cast<unsigned>(FB::kBlocked)), "blocked");
+  add(bit(ff, static_cast<unsigned>(FB::kTilted)), "tilted");
+  add(bit(ff, static_cast<unsigned>(FB::kLifted)), "lifted");
+  add(bit(sf, static_cast<unsigned>(SB::kBattLow)), "batt_low");
+  add(bit(sf, static_cast<unsigned>(SB::kBattCritical)), "batt_critical");
+  add(bit(sf, static_cast<unsigned>(SB::kLinkLost)), "link_lost");
+  add(bit(sf, static_cast<unsigned>(SB::kBrakeOff)), "brake_off");
+  add(bit(sf, static_cast<unsigned>(SB::kEnvelope)), "envelope");
+  add(bit(sf, static_cast<unsigned>(SB::kSafetyOverride)), "safety_override");
+  add(bit(sf, static_cast<unsigned>(SB::kSelftestLocked)), "selftest_locked");
+  add(body_offline, "body_offline");
+  char batt[12] = "null";
+  if (s.slow_valid) snprintf(batt, sizeof(batt), "%.2f", s.slow.batt_mv / 1000.0);
+  return fmt(out, cap,
+             "{\"t\":\"ts\",\"batt_v\":%s,\"owner\":\"%s\",\"owner_client\":\"%s\",\"flags\":[%s],"
+             "\"envelope\":{\"speed_cap\":%u,\"accel_cap\":%u,\"lock_brake\":%u}}",
+             batt, owner.owner, owner.client, flags, s.slow_valid ? s.slow.env_speed_cap : 100u,
+             s.slow_valid ? s.slow.env_accel_cap : 0u, s.slow_valid ? s.slow.env_lock_brake : 0u);
+}
+
+size_t jsonUnoEvent(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint8_t kind, int16_t a,
+                    int16_t b) {
+  char head[64];
+  snprintf(head, sizeof(head), "{\"t\":\"ev\",\"seq\":%lu,\"tank_ms\":%lu,\"kind\":",
+           static_cast<unsigned long>(seq), static_cast<unsigned long>(tank_ms));
+  using EK = proto::EventKind;
+  switch (static_cast<EK>(kind)) {
+    case EK::kIrOverride:
+      return fmt(out, cap, "%s\"ir_override\"}", head);
+    case EK::kDeadmanStop:
+      return fmt(out, cap, "%s\"deadman_stop\"}", head);
+    case EK::kBlocked:
+      return fmt(out, cap, "%s\"blocked\",\"dist_cm\":%d}", head, (a + 5) / 10);
+    case EK::kUnblocked:
+      return fmt(out, cap, "%s\"unblocked\"}", head);
+    case EK::kTilted:
+      return fmt(out, cap, "%s\"tilted\",\"pitch\":%.1f,\"roll\":%.1f}", head, a / 10.0, b / 10.0);
+    case EK::kLevel:
+      return fmt(out, cap, "%s\"level\"}", head);
+    case EK::kLifted:
+      return fmt(out, cap, "%s\"lifted\"}", head);
+    case EK::kLanded:
+      return fmt(out, cap, "%s\"landed\"}", head);
+    case EK::kBattLow:
+      return fmt(out, cap, "%s\"batt_low\",\"v\":%.2f}", head, static_cast<uint16_t>(a) / 1000.0);
+    case EK::kBattCritical:
+      return fmt(out, cap, "%s\"batt_critical\",\"v\":%.2f}", head,
+                 static_cast<uint16_t>(a) / 1000.0);
+    case EK::kLinkLost:
+      return fmt(out, cap, "%s\"link_lost\"}", head);
+    case EK::kLinkRestored:
+      return fmt(out, cap, "%s\"link_restored\"}", head);
+    case EK::kSafetyOverride:
+      return fmt(out, cap, "%s\"safety_override\",\"on\":%s,\"reason\":\"%s\"}", head,
+                 a == 1 ? "true" : "false", overrideReason(b));
+    default:
+      return 0;  // control_changed comes from LinkOwner; the rest is not in the slice
+  }
+}
+
+size_t jsonControlChanged(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, OwnerView owner) {
+  return fmt(out, cap,
+             "{\"t\":\"ev\",\"seq\":%lu,\"tank_ms\":%lu,\"kind\":\"control_changed\",\"owner\":"
+             "\"%s\",\"client\":\"%s\"}",
+             static_cast<unsigned long>(seq), static_cast<unsigned long>(tank_ms), owner.owner,
+             owner.client);
+}
+
+size_t jsonBody(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, bool online, int uno_proto) {
+  if (online || uno_proto < 0) {
+    return fmt(out, cap, "{\"t\":\"ev\",\"seq\":%lu,\"tank_ms\":%lu,\"kind\":\"%s\"}",
+               static_cast<unsigned long>(seq), static_cast<unsigned long>(tank_ms),
+               online ? "body_online" : "body_offline");
+  }
+  return fmt(out, cap,
+             "{\"t\":\"ev\",\"seq\":%lu,\"tank_ms\":%lu,\"kind\":\"body_offline\",\"reason\":"
+             "\"BODY_INCOMPATIBLE\",\"uno_proto\":%d,\"need_proto\":%u}",
+             static_cast<unsigned long>(seq), static_cast<unsigned long>(tank_ms), uno_proto,
+             proto::kProtocolVersion);
+}
+
+size_t jsonAck(char* out, size_t cap, int32_t id) {
+  if (id < 0) return fmt(out, cap, "{\"t\":\"ack\"}");
+  return fmt(out, cap, "{\"t\":\"ack\",\"id\":%ld}", static_cast<long>(id));
+}
+
+size_t jsonNackStatus(char* out, size_t cap, int32_t id, uint8_t status) {
+  if (status == kStatusTimeout) return jsonNack(out, cap, id, BridgeReason::kTimeout);
+  if (status >= kAckReasonCount) return nack(out, cap, id, kAckReasons[17]);  // INTERNAL
+  return nack(out, cap, id, kAckReasons[status]);
+}
+
+size_t jsonNack(char* out, size_t cap, int32_t id, BridgeReason reason) {
+  return nack(out, cap, id, kBridgeReasons[static_cast<size_t>(reason)]);
+}
+
+size_t jsonPong(char* out, size_t cap, const char* t0, uint32_t tank_ms) {
+  return fmt(out, cap, "{\"t\":\"pong\",\"t0\":%s,\"tank_ms\":%lu}", t0,
+             static_cast<unsigned long>(tank_ms));
+}
+
+uint16_t ackReasonCode(uint8_t status) {
+  return status < kAckReasonCount ? kAckReasons[status].code : 0;
+}
+
+}  // namespace core
+}  // namespace cq
+```
+
+- [ ] **Step 4: Client table**
+
+`firmware/esp32/src/core/ws_clients.h`:
+```cpp
+// WebSocket client table (bridge LLD R2.6 WsClient): up to 4 clients named phone-1, phone-2, ...;
+// per-client rate limits (drive and cam_joy 25 per second, everything 60 per second; STOP is never
+// limited); clients silent for 3 s are reaped (the page pings every 1 s); a streaming command
+// rejection is reported once per reason, not 20 times a second. Pure C++.
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "core/ws_codec.h"
+
+namespace cq {
+namespace core {
+
+constexpr size_t kMaxWsClients = 4;
+constexpr uint32_t kWsSilentMs = 3000;
+constexpr uint8_t kStreamLimitPerS = 25;
+constexpr uint8_t kTotalLimitPerS = 60;
+
+class WsClients {
+ public:
+  bool add(int fd, uint32_t now_ms);  // false: table full (caller closes the socket)
+  bool remove(int fd);                // false: not a WS client (plain HTTP socket)
+  bool contains(int fd) const { return find(fd) >= 0; }
+  size_t count() const { return m_count; }
+  int fdAt(size_t i) const { return m_c[i].fd; }  // i < count()
+  const char* name(int fd) const;                 // "" when unknown
+  // Counts the message; false = over the limit (drop it, nack RATE_LIMITED). STOP always passes.
+  bool admit(int fd, WsCmdKind kind, uint32_t now_ms);
+  // Up to max silent clients into out; returns how many.
+  size_t silent(uint32_t now_ms, int* out, size_t max) const;
+  // Streaming rejections: true when this reason should be reported (first time in a row).
+  bool reportStreamReject(int fd, uint8_t reason);
+  void streamAccepted(int fd);
+
+ private:
+  struct Client {
+    int fd;
+    char name[12];
+    uint32_t last_rx_ms;
+    uint32_t window_ms;
+    uint8_t stream_n;
+    uint8_t cam_n;
+    uint8_t total_n;
+    uint8_t last_reject;  // 0xFF = none
+  };
+  int find(int fd) const;
+  Client m_c[kMaxWsClients] = {};
+  size_t m_count = 0;
+  uint32_t m_next_number = 1;
+};
+
+}  // namespace core
+}  // namespace cq
+```
+
+`firmware/esp32/src/core/ws_clients.cpp`:
+```cpp
+#include "core/ws_clients.h"
+
+#include <stdio.h>
+
+namespace cq {
+namespace core {
+
+int WsClients::find(int fd) const {
+  for (size_t i = 0; i < m_count; ++i) {
+    if (m_c[i].fd == fd) return static_cast<int>(i);
+  }
+  return -1;
+}
+
+bool WsClients::add(int fd, uint32_t now_ms) {
+  if (m_count == kMaxWsClients || contains(fd)) return false;
+  Client& c = m_c[m_count++];
+  c = Client{};
+  c.fd = fd;
+  snprintf(c.name, sizeof(c.name), "phone-%lu", static_cast<unsigned long>(m_next_number++));
+  c.last_rx_ms = now_ms;
+  c.window_ms = now_ms;
+  c.last_reject = 0xFF;
+  return true;
+}
+
+bool WsClients::remove(int fd) {
+  const int i = find(fd);
+  if (i < 0) return false;
+  m_c[i] = m_c[--m_count];
+  return true;
+}
+
+const char* WsClients::name(int fd) const {
+  const int i = find(fd);
+  return i < 0 ? "" : m_c[i].name;
+}
+
+bool WsClients::admit(int fd, WsCmdKind kind, uint32_t now_ms) {
+  const int i = find(fd);
+  if (i < 0) return false;
+  Client& c = m_c[i];
+  c.last_rx_ms = now_ms;  // any message counts as alive
+  if (now_ms - c.window_ms >= 1000) {
+    c.window_ms = now_ms;
+    c.stream_n = c.cam_n = c.total_n = 0;
+  }
+  if (kind == WsCmdKind::kStop) return true;
+  if (c.total_n < 255) ++c.total_n;
+  if (c.total_n > kTotalLimitPerS) return false;
+  if (kind == WsCmdKind::kDrive) return ++c.stream_n <= kStreamLimitPerS;
+  if (kind == WsCmdKind::kCamJoy) return ++c.cam_n <= kStreamLimitPerS;
+  return true;
+}
+
+size_t WsClients::silent(uint32_t now_ms, int* out, size_t max) const {
+  size_t n = 0;
+  for (size_t i = 0; i < m_count && n < max; ++i) {
+    if (now_ms - m_c[i].last_rx_ms >= kWsSilentMs) out[n++] = m_c[i].fd;
+  }
+  return n;
+}
+
+bool WsClients::reportStreamReject(int fd, uint8_t reason) {
+  const int i = find(fd);
+  if (i < 0 || m_c[i].last_reject == reason) return false;
+  m_c[i].last_reject = reason;
+  return true;
+}
+
+void WsClients::streamAccepted(int fd) {
+  const int i = find(fd);
+  if (i >= 0) m_c[i].last_reject = 0xFF;
+}
+
+}  // namespace core
+}  // namespace cq
+```
+
+Run: `pio test -e native`
+Expected: `84 test cases: 84 succeeded` (ws_codec 11, ws_json 9, ws_clients 5).
+
+- [ ] **Step 5: HTTP server with `/ws`**
+
+`firmware/esp32/src/net/http_server.h`:
+```cpp
+// esp_http_server on port 80 (bridge LLD R2.6 HttpServer): WebSocket /ws here; the page and
+// assets (Task 7) and /info, /help, /source.tar.gz (Task 9) register their own URIs.
+// WS frames are received in the httpd task and posted to link_task; link_task's replies are
+// queued and sent by the httpd task (httpd_queue_work), never from another task directly.
+#pragma once
+
+#include <esp_http_server.h>
+#include <stddef.h>
+#include <stdint.h>
+
+namespace cq {
+namespace net {
+
+bool httpServerStart();
+httpd_handle_t httpServer();
+bool wsSend(int fd, const char* json, size_t len);  // false: out queue full (counted)
+void wsClose(int fd);                               // reap / OTA: close a WS session
+uint32_t wsDropped();
+
+}  // namespace net
+}  // namespace cq
+```
+
+`firmware/esp32/src/net/http_server.cpp`:
+```cpp
+#include "net/http_server.h"
+
+#include <Arduino.h>
+#include <lwip/sockets.h>
+#include <string.h>
+
+#include <atomic>
+
+#include "board_config.h"
+#include "core/ws_json.h"
+#include "net/link_task.h"
+#include "net/log.h"
+
+namespace cq {
+namespace net {
+namespace {
+
+struct OutMsg {
+  int fd;
+  uint16_t len;
+  char data[core::kWsJsonMax];
+};
+
+httpd_handle_t g_server = nullptr;
+QueueHandle_t g_out = nullptr;
+std::atomic<bool> g_work_pending{false};
+std::atomic<uint32_t> g_dropped{0};
+
+void sendWork(void*) {
+  g_work_pending = false;  // cleared first: a message posted while we drain queues new work
+  static OutMsg m;         // httpd task only
+  while (xQueueReceive(g_out, &m, 0) == pdTRUE) {
+    httpd_ws_frame_t f{};
+    f.final = true;
+    f.type = HTTPD_WS_TYPE_TEXT;
+    f.payload = reinterpret_cast<uint8_t*>(m.data);
+    f.len = m.len;
+    if (httpd_ws_send_frame_async(g_server, m.fd, &f) != ESP_OK) ++g_dropped;
+  }
+}
+
+esp_err_t wsHandler(httpd_req_t* req) {
+  const int fd = httpd_req_to_sockfd(req);
+  if (req->method == HTTP_GET) {  // handshake done: a new WS client
+    LinkCommand cmd{};
+    cmd.kind = LinkCommand::Kind::kWsOpen;
+    cmd.fd = fd;
+    linkPost(cmd, true);
+    return ESP_OK;
+  }
+  static uint8_t buf[512];  // httpd task only
+  httpd_ws_frame_t f{};
+  esp_err_t err = httpd_ws_recv_frame(req, &f, 0);  // length first
+  if (err != ESP_OK) return err;
+  if (f.len >= sizeof(buf)) return ESP_FAIL;  // oversized: httpd closes the socket
+  f.payload = buf;
+  err = httpd_ws_recv_frame(req, &f, f.len);
+  if (err != ESP_OK) return err;
+  if (f.type != HTTPD_WS_TYPE_TEXT) return ESP_OK;
+  LinkCommand cmd{};
+  cmd.kind = LinkCommand::Kind::kWsText;
+  cmd.fd = fd;
+  if (f.len < sizeof(cmd.text)) {
+    memcpy(cmd.text, buf, f.len);
+    cmd.text[f.len] = '\0';
+    cmd.len = static_cast<uint16_t>(f.len);
+  }  // else len 0: link_task answers nack INVALID_COMMAND
+  const bool urgent = cmd.len != 0 && strstr(cmd.text, "\"stop\"") != nullptr;
+  if (!linkPost(cmd, urgent)) ++g_dropped;
+  return ESP_OK;
+}
+
+void onSockClose(httpd_handle_t, int fd) {
+  LinkCommand cmd{};
+  cmd.kind = LinkCommand::Kind::kWsClose;  // link_task ignores sockets that were plain HTTP
+  cmd.fd = fd;
+  linkPost(cmd, true);
+  close(fd);  // with a close_fn set, the application closes the socket
+}
+
+}  // namespace
+
+bool httpServerStart() {
+  g_out = xQueueCreate(24, sizeof(OutMsg));  // allocated once at startup
+  httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+  cfg.server_port = board::kHttpPort;
+  cfg.ctrl_port = 32768;
+  cfg.max_open_sockets = 7;
+  cfg.max_uri_handlers = 12;
+  cfg.lru_purge_enable = true;
+  cfg.stack_size = 6144;
+  cfg.core_id = 0;
+  cfg.close_fn = onSockClose;
+  if (httpd_start(&g_server, &cfg) != ESP_OK) {
+    logf("http: start failed");
+    return false;
+  }
+  httpd_uri_t ws{};
+  ws.uri = "/ws";
+  ws.method = HTTP_GET;
+  ws.handler = wsHandler;
+  ws.is_websocket = true;
+  httpd_register_uri_handler(g_server, &ws);
+  logf("http: port %u, WebSocket /ws", board::kHttpPort);
+  return true;
+}
+
+httpd_handle_t httpServer() { return g_server; }
+
+bool wsSend(int fd, const char* json, size_t len) {
+  if (g_server == nullptr || len == 0 || len > core::kWsJsonMax) return false;
+  static OutMsg m;  // link_task only
+  m.fd = fd;
+  m.len = static_cast<uint16_t>(len);
+  memcpy(m.data, json, len);
+  if (xQueueSendToBack(g_out, &m, 0) != pdTRUE) {
+    ++g_dropped;
+    return false;
+  }
+  bool expected = false;
+  if (g_work_pending.compare_exchange_strong(expected, true) &&
+      httpd_queue_work(g_server, sendWork, nullptr) != ESP_OK) {
+    g_work_pending = false;
+  }
+  return true;
+}
+
+void wsClose(int fd) {
+  if (g_server != nullptr) httpd_sess_trigger_close(g_server, fd);
+}
+
+uint32_t wsDropped() { return g_dropped; }
+
+}  // namespace net
+}  // namespace cq
+```
+
+- [ ] **Step 6: `link_task` serves the WebSocket clients (replace both files)**
+
+`firmware/esp32/src/net/link_task.h`:
+```cpp
+// link_task: the only owner of the Uno UART, the body-link core objects, the link owner and the
+// bench TCP client (bridge LLD R2.11). Runs on core 1 every 2 ms. Other tasks talk to it only
+// through linkPost() and read a copy of its state with linkStatus().
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "core/body_link.h"
+#include "core/link_owner.h"
+
+namespace cq {
+namespace net {
+
+struct LinkCommand {
+  enum class Kind : uint8_t { kWsOpen, kWsClose, kWsText, kOtaStart };
+  Kind kind;
+  int fd;
+  uint16_t len;
+  char text[200];  // one WS JSON message (longer ones are refused by the WS handler)
+};
+
+struct LinkStatus {
+  core::LinkState state = core::LinkState::kIdle;
+  bool ota_allowed = true;
+  bool ota_active = false;
+  bool synced = false;
+  core::HelloInfo hello;
+  char driver[16] = "";   // "phone-2" / "bench" / ""
+  uint8_t ws_clients = 0;
+  bool tcp_active = false;
+  uint32_t tcp_refused = 0;
+  char last_refusal[48] = "";
+  uint32_t frames_tx = 0;
+  uint32_t frames_rx = 0;
+  uint32_t bad_crc = 0;
+  uint32_t tcp_up = 0;    // bench -> Uno bytes
+  uint32_t tcp_down = 0;  // Uno -> bench bytes
+};
+
+void linkTaskStart(const char* camera_sensor);  // sensor name for welcome ("none" until Task 8)
+bool linkPost(const LinkCommand& cmd, bool urgent);  // urgent (STOP, OTA) goes to the queue front
+LinkStatus linkStatus();                             // consistent copy, any task
+
+}  // namespace net
+}  // namespace cq
+```
+
+`firmware/esp32/src/net/link_task.cpp`:
+```cpp
+#include "net/link_task.h"
+
+#include <Arduino.h>
+#include <string.h>
+
+#include "board_config.h"
+#include "core/frame_tx.h"
+#include "core/ws_clients.h"
+#include "core/ws_codec.h"
+#include "core/ws_json.h"
+#include "net/http_server.h"
+#include "net/log.h"
+#include "net/tcp_passthrough.h"
+#include "net/uart_port.h"
+#include "version.h"
+
+namespace cq {
+namespace net {
+namespace {
+
+QueueHandle_t g_queue = nullptr;
+portMUX_TYPE g_status_mux = portMUX_INITIALIZER_UNLOCKED;
+LinkStatus g_status;
+const char* g_sensor = "none";
+
+UartPort g_uart;
+core::FrameTx g_tx;
+core::BodyLink g_link(g_tx);
+core::LinkOwner g_owner;
+TcpPassthrough g_tcp;
+core::WsClients g_ws;
+bool g_ota_active = false;
+
+// WS bookkeeping (link_task only)
+char g_json[core::kWsJsonMax];
+uint32_t g_ev_seq = 0;
+uint32_t g_tf_seq = 0;
+uint32_t g_last_fast_count = 0;
+uint32_t g_last_ts_ms = 0;
+struct Waiter {
+  int fd;
+  int32_t id;
+};
+Waiter g_stop_waiters[4];
+size_t g_stop_waiter_n = 0;
+Waiter g_cam_waiter{-1, -1};
+uint8_t g_cam_seq = 0;
+
+void drainTx() {
+  const uint8_t* p = nullptr;
+  size_t len = 0;
+  while ((len = g_tx.peek(p)) != 0) {
+    if (g_uart.txFree() < len) return;  // next tick (UART drains 25 B/ms); never a partial chunk
+    g_uart.write(p, len);
+    g_tx.pop();
+  }
+}
+
+core::OwnerView ownerView() {
+  if (g_owner.irActive()) return {"ir", ""};
+  if (g_owner.state() == core::LinkState::kTcpPassthrough) return {"human", "bench"};
+  if (g_owner.driverFd() != core::LinkOwner::kNoFd) return {"human", g_ws.name(g_owner.driverFd())};
+  return {"none", ""};
+}
+
+bool bodyOffline() {
+  if (g_owner.state() == core::LinkState::kTcpPassthrough) {
+    return millis() - g_link.lastRxMs() >= core::kUnoSilentMs;
+  }
+  return !g_link.synced();
+}
+
+uint32_t tankMs() { return g_link.snapshot().fast_valid ? g_link.snapshot().fast.uno_ms : 0; }
+
+void sendTo(int fd, size_t len) {
+  if (len) wsSend(fd, g_json, len);
+}
+
+void broadcast(size_t len) {
+  if (len == 0) return;
+  for (size_t i = 0; i < g_ws.count(); ++i) wsSend(g_ws.fdAt(i), g_json, len);
+}
+
+void broadcastTs() {
+  broadcast(core::jsonTs(g_json, sizeof(g_json), g_link.snapshot(), ownerView(), bodyOffline()));
+}
+
+// Executes LinkOwner actions in the documented order.
+void apply(const core::Actions& a, uint32_t now) {
+  if (a.has(core::Actions::kStopMaster)) {
+    g_link.stopMaster();
+    g_tx.clear();  // drop queued ESP32 frames; a pending STOP (urgent slot) is kept
+  }
+  if (a.has(core::Actions::kInjectStop)) {
+    const uint8_t seq = g_tcp.injectSeq();  // bench lastSeq + 128: no collision with its commands
+    g_link.injectStop(seq, now);
+    g_tcp.swallowAck(seq, now);
+  }
+  if (a.has(core::Actions::kSendStop)) g_link.sendStop(now);
+  if (a.has(core::Actions::kHintNone)) g_link.setOwnerHint(proto::OwnerHintValue::kNone);
+  if (a.has(core::Actions::kHintHuman)) g_link.setOwnerHint(proto::OwnerHintValue::kHuman);
+  if (a.has(core::Actions::kStartMaster)) g_link.startMaster(now);
+  if (a.has(core::Actions::kOwnerChanged)) {
+    broadcast(core::jsonControlChanged(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), ownerView()));
+    broadcastTs();
+  }
+}
+
+void nack(int fd, int32_t id, core::BridgeReason r) {
+  sendTo(fd, core::jsonNack(g_json, sizeof(g_json), id, r));
+}
+
+core::BridgeReason reasonOf(core::Decision d) {
+  switch (d) {
+    case core::Decision::kNackBusy:
+      return core::BridgeReason::kBusy;
+    case core::Decision::kNackBodyOffline:
+      return core::BridgeReason::kBodyOffline;
+    case core::Decision::kNackNotOwner:
+    default:
+      return core::BridgeReason::kNotOwner;
+  }
+}
+
+// drive / cam_joy are streaming: a rejection is reported once (nack without id), not per message.
+void streamReject(int fd, core::BridgeReason r) {
+  if (g_ws.reportStreamReject(fd, static_cast<uint8_t>(r))) nack(fd, -1, r);
+}
+
+void handleWsText(const LinkCommand& cmd, uint32_t now) {
+  const int fd = cmd.fd;
+  if (!g_ws.contains(fd)) return;
+  const core::WsCommand c = core::parseWsCommand(cmd.text, cmd.len);
+  const int32_t id = c.has_id ? c.id : -1;
+  if (!g_ws.admit(fd, c.kind, now)) {
+    if (c.kind == core::WsCmdKind::kDrive || c.kind == core::WsCmdKind::kCamJoy) {
+      streamReject(fd, core::BridgeReason::kRateLimited);
+    } else {
+      nack(fd, id, core::BridgeReason::kRateLimited);
+    }
+    return;
+  }
+  core::Actions a;
+  switch (c.kind) {
+    case core::WsCmdKind::kHello: {
+      const core::HelloInfo hello = g_link.hello();
+      const core::WelcomeInfo w{CQ_FW_VERSION, &hello, g_sensor, ownerView(), g_ws.name(fd)};
+      sendTo(fd, core::jsonWelcome(g_json, sizeof(g_json), w));
+      sendTo(fd, core::jsonTs(g_json, sizeof(g_json), g_link.snapshot(), ownerView(), bodyOffline()));
+      break;
+    }
+    case core::WsCmdKind::kDrive: {
+      if (g_ota_active) {
+        streamReject(fd, core::BridgeReason::kBusy);
+        break;
+      }
+      const core::Decision d = g_owner.onDrive(fd, now, a);
+      apply(a, now);
+      if (d != core::Decision::kSend) {
+        streamReject(fd, reasonOf(d));
+      } else if (g_link.sendDrive(c.v, c.w)) {  // 1:1 - the bridge never repeats a DRIVE
+        g_ws.streamAccepted(fd);
+      } else {
+        streamReject(fd, core::BridgeReason::kBodyOffline);
+      }
+      break;
+    }
+    case core::WsCmdKind::kStop:
+      apply(g_owner.onStop(fd), now);
+      if (g_stop_waiter_n < 4) g_stop_waiters[g_stop_waiter_n++] = Waiter{fd, id};
+      break;
+    case core::WsCmdKind::kCamJoy: {
+      const core::Decision d = g_owner.onCamera(fd);
+      if (d != core::Decision::kSend || g_ota_active) {
+        streamReject(fd, g_ota_active ? core::BridgeReason::kBusy : reasonOf(d));
+      } else if (g_link.sendCamJoy(c.x, c.y, c.active)) {
+        g_ws.streamAccepted(fd);
+      }
+      break;
+    }
+    case core::WsCmdKind::kCamHome: {
+      const core::Decision d = g_owner.onCamera(fd);
+      if (d != core::Decision::kSend) {
+        nack(fd, id, reasonOf(d));
+      } else if (g_link.sendCamHome(now, g_cam_seq)) {
+        g_cam_waiter = Waiter{fd, id};
+      } else {
+        nack(fd, id, core::BridgeReason::kBodyOffline);
+      }
+      break;
+    }
+    case core::WsCmdKind::kRelease:
+      apply(g_owner.onRelease(fd), now);
+      if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
+      break;
+    case core::WsCmdKind::kPing:
+      sendTo(fd, core::jsonPong(g_json, sizeof(g_json), c.t0, now));
+      break;
+    case core::WsCmdKind::kUnsupported:
+    case core::WsCmdKind::kInvalid:
+    default:
+      nack(fd, id, core::BridgeReason::kInvalidCommand);
+      break;
+  }
+}
+
+void closeAllClients() {
+  for (size_t i = 0; i < g_ws.count(); ++i) wsClose(g_ws.fdAt(i));  // kWsClose follows
+}
+
+void handleCommand(const LinkCommand& cmd, uint32_t now) {
+  switch (cmd.kind) {
+    case LinkCommand::Kind::kWsOpen:
+      if (g_ota_active || !g_ws.add(cmd.fd, now)) {
+        wsClose(cmd.fd);  // full (4 clients) or updating
+        return;
+      }
+      logf("ws: %s connected (%u clients)", g_ws.name(cmd.fd), static_cast<unsigned>(g_ws.count()));
+      apply(g_owner.onWsOpen(cmd.fd), now);
+      break;
+    case LinkCommand::Kind::kWsClose: {
+      if (!g_ws.contains(cmd.fd)) return;  // a plain HTTP socket
+      char name[12];
+      snprintf(name, sizeof(name), "%s", g_ws.name(cmd.fd));
+      const core::Actions a = g_owner.onWsClose(cmd.fd);
+      g_ws.remove(cmd.fd);
+      logf("ws: %s closed (%u clients)", name, static_cast<unsigned>(g_ws.count()));
+      apply(a, now);
+      break;
+    }
+    case LinkCommand::Kind::kWsText:
+      handleWsText(cmd, now);
+      break;
+    case LinkCommand::Kind::kOtaStart:
+    default:
+      g_ota_active = true;  // from now on: drives nacked BUSY, benches and new phones refused
+      if (g_owner.state() == core::LinkState::kTcpPassthrough) {
+        g_tcp.close();
+        core::Actions a = g_owner.onTcpClose();  // InjectStop
+        a.bits &= static_cast<uint8_t>(~core::Actions::kStartMaster);
+        apply(a, now);
+      } else {
+        g_link.sendStop(now);  // resent until the Uno's ACK
+      }
+      g_link.stopMaster();  // heartbeats stop: Uno link-loss stop at standstill is harmless
+      closeAllClients();
+      break;
+  }
+}
+
+void handleLinkEvents(uint32_t now) {
+  core::LinkEvent ev{};
+  while (g_link.popEvent(ev)) {
+    switch (ev.kind) {
+      case core::LinkEventKind::kBodyOnline: {
+        const core::HelloInfo& h = g_link.hello();
+        logf("uno: synced fw %u.%u proto %u commit %08lx", h.fw >> 8, h.fw & 0xFF, h.proto,
+             static_cast<unsigned long>(h.commit));
+        broadcast(core::jsonBody(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), true, -1));
+        apply(g_owner.onSynced(true), now);
+        break;
+      }
+      case core::LinkEventKind::kBodyOffline:
+        if (ev.code == 1) {
+          logf("uno: incompatible protocol %d (need %u) - flash Plan B firmware", ev.a,
+               proto::kProtocolVersion);
+        } else {
+          logf("uno: body offline (silent)");
+        }
+        broadcast(core::jsonBody(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), false,
+                                 ev.code == 1 ? ev.a : -1));
+        apply(g_owner.onSynced(false), now);
+        break;
+      case core::LinkEventKind::kUnoEvent:
+        if (ev.code == static_cast<uint8_t>(proto::EventKind::kControlChanged)) {
+          apply(g_owner.onUnoOwner(static_cast<proto::Owner>(ev.a)), now);
+        }
+        broadcast(core::jsonUnoEvent(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), ev.code, ev.a,
+                                     ev.b));
+        break;
+      case core::LinkEventKind::kStopResult:
+        for (size_t i = 0; i < g_stop_waiter_n; ++i) {
+          const Waiter& w = g_stop_waiters[i];
+          if (!g_ws.contains(w.fd)) continue;
+          sendTo(w.fd, ev.status == 0 ? core::jsonAck(g_json, sizeof(g_json), w.id)
+                                      : core::jsonNackStatus(g_json, sizeof(g_json), w.id,
+                                                             ev.status));
+        }
+        g_stop_waiter_n = 0;
+        break;
+      case core::LinkEventKind::kAckResult:
+        if (ev.seq == g_cam_seq && g_ws.contains(g_cam_waiter.fd)) {
+          sendTo(g_cam_waiter.fd,
+                 ev.status == 0
+                     ? core::jsonAck(g_json, sizeof(g_json), g_cam_waiter.id)
+                     : core::jsonNackStatus(g_json, sizeof(g_json), g_cam_waiter.id, ev.status));
+        }
+        g_cam_waiter = Waiter{-1, -1};
+        break;
+      case core::LinkEventKind::kResetRequest:
+      default:
+        logf("uno: %s reset request ignored (bridge has no stored settings)",
+             ev.code == static_cast<uint8_t>(proto::FrameType::kWifiResetReq) ? "WiFi" : "admin");
+        break;
+    }
+  }
+}
+
+void telemetry(uint32_t now) {
+  const core::TankSnapshot& s = g_link.snapshot();
+  if (s.fast_count != g_last_fast_count) {
+    g_last_fast_count = s.fast_count;
+    if ((s.fast_count & 1u) == 0) {  // Uno 20 Hz -> page 10 Hz (R2.14 #7)
+      broadcast(core::jsonTf(g_json, sizeof(g_json), ++g_tf_seq, s));
+    }
+  }
+  if (now - g_last_ts_ms >= 1000) {  // 1 Hz, also while the Uno is silent (body_offline)
+    g_last_ts_ms = now;
+    broadcastTs();
+  }
+}
+
+void reapSilent(uint32_t now) {
+  int fds[core::kMaxWsClients];
+  const size_t n = g_ws.silent(now, fds, core::kMaxWsClients);
+  for (size_t i = 0; i < n; ++i) {
+    logf("ws: %s silent for 3 s - closing", g_ws.name(fds[i]));
+    wsClose(fds[i]);  // kWsClose follows -> LinkOwner STOP if it was the driver
+  }
+}
+
+void publishStatus() {
+  LinkStatus s;
+  s.state = g_owner.state();
+  s.ota_active = g_ota_active;
+  s.ota_allowed = g_owner.otaAllowed() && !g_ota_active;
+  s.synced = g_link.synced();
+  s.hello = g_link.hello();
+  snprintf(s.driver, sizeof(s.driver), "%s", ownerView().client);
+  s.ws_clients = static_cast<uint8_t>(g_ws.count());
+  s.tcp_active = g_tcp.active();
+  s.tcp_refused = g_tcp.stats().refused;
+  snprintf(s.last_refusal, sizeof(s.last_refusal), "%s", g_tcp.lastRefusal());
+  s.frames_tx = g_link.stats().frames_tx;
+  s.frames_rx = g_link.stats().frames_rx;
+  s.bad_crc = g_link.parserStats().bad_crc;
+  s.tcp_up = g_tcp.stats().up;
+  s.tcp_down = g_tcp.stats().down;
+  portENTER_CRITICAL(&g_status_mux);
+  g_status = s;
+  portEXIT_CRITICAL(&g_status_mux);
+}
+
+void linkTask(void*) {
+  uint8_t rx[256];
+  uint32_t last_publish = 0;
+  TickType_t wake = xTaskGetTickCount();
+  for (;;) {
+    const uint32_t now = millis();
+    size_t n = 0;
+    while ((n = g_uart.read(rx, sizeof(rx))) != 0) {
+      g_link.onUartBytes(rx, n, now);  // snapshot, events, STOP ACKs - also in passthrough
+      g_tcp.forwardFromUno(rx, n, now);
+    }
+    LinkCommand cmd;
+    while (xQueueReceive(g_queue, &cmd, 0) == pdTRUE) handleCommand(cmd, now);
+    if (g_link.snapshot().slow_valid) {
+      apply(g_owner.onUnoOwner(static_cast<proto::Owner>(g_link.snapshot().slow.owner)), now);
+    }
+    const char* driver = g_owner.driverFd() != core::LinkOwner::kNoFd
+                             ? g_ws.name(g_owner.driverFd())
+                             : "a phone";
+    apply(g_tcp.poll(now, g_owner, g_tx, driver, g_ota_active), now);
+    apply(g_owner.tick(now), now);
+    reapSilent(now);
+    g_link.step(now);
+    handleLinkEvents(now);
+    telemetry(now);
+    drainTx();
+    if (now - last_publish >= 100) {
+      last_publish = now;
+      publishStatus();
+    }
+    vTaskDelayUntil(&wake, pdMS_TO_TICKS(board::kLinkTickMs));
+  }
+}
+
+}  // namespace
+
+void linkTaskStart(const char* camera_sensor) {
+  g_sensor = camera_sensor;
+  g_uart.begin();
+  g_tcp.begin();
+  g_queue = xQueueCreate(16, sizeof(LinkCommand));
+  xTaskCreatePinnedToCore(linkTask, "link", 8192, nullptr, 5, nullptr, 1);
+  logf("uno link: Serial1 RX %d TX %d %lu baud", board::kUnoRxPin, board::kUnoTxPin,
+       static_cast<unsigned long>(board::kUnoBaud));
+}
+
+bool linkPost(const LinkCommand& cmd, bool urgent) {
+  if (g_queue == nullptr) return false;
+  const TickType_t wait = urgent ? pdMS_TO_TICKS(100) : 0;  // STOP / open / close must not be lost
+  return (urgent ? xQueueSendToFront(g_queue, &cmd, wait)
+                 : xQueueSendToBack(g_queue, &cmd, wait)) == pdTRUE;
+}
+
+LinkStatus linkStatus() {
+  portENTER_CRITICAL(&g_status_mux);
+  const LinkStatus s = g_status;
+  portEXIT_CRITICAL(&g_status_mux);
+  return s;
+}
+
+}  // namespace net
+}  // namespace cq
+```
+
+In `firmware/esp32/src/main.cpp`: add `#include "net/http_server.h"` after `#include "board_config.h"`, and make the end of `setup()`:
+```cpp
+  g_wifi.begin(millis());
+  cq::net::httpServerStart();
+  cq::net::linkTaskStart("none");  // camera sensor name arrives in Task 8
+  g_ota.begin();
+}
+```
+
+Run: `pio run -e bridge`
+Expected: `SUCCESS`.
+
+- [ ] **Step 7: WebSocket smoke checks (replace `tools/smoke/bridge_echo.py`)**
+
+`tools/smoke/bridge_echo.py`:
+```python
+#!/usr/bin/env python3
+"""Plan C bridge smoke checks over WiFi (developer bridge, no authentication).
+
+Run from tools/smoke/:
+  uv run python bridge_echo.py --host conqueror-bridge.local tcp --seconds 10
+  uv run python bridge_echo.py --host conqueror-bridge.local tcp-busy
+  uv run python bridge_echo.py --host conqueror-bridge.local ws --seconds 5
+  uv run python bridge_echo.py --host conqueror-bridge.local ws-owner
+None of the checks moves the tank: the only drive messages are v=0, w=0.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import os
+import socket
+import struct
+import threading
+import time
+from typing import Any
+
+from conqueror_protocol import FrameParser, build_frame, decode_frame
+from conqueror_protocol import generated as g
+from conqueror_protocol.wire import Message
+
+TCP_PORT = 3333
+HTTP_PORT = 80
+SYNCED_BIT = 1 << g.FastFlagBit.SYNCED
+
+
+class TcpBench:
+    """Minimal bench: heartbeats, HELLO_REQ -> HELLO -> HELLO_ACK, frame counting."""
+
+    def __init__(self, host: str) -> None:
+        self.sock = socket.create_connection((host, TCP_PORT), timeout=5.0)
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.sock.settimeout(0.05)
+        self.parser = FrameParser()
+        self.seq = 0
+        self.lock = threading.Lock()
+        self.running = True
+        self.closed_by_peer = False
+        self.hello: g.Hello | None = None
+        self.counts: dict[str, int] = {}
+        self.synced_seen = False
+        threading.Thread(target=self._heartbeat, daemon=True).start()
+
+    def send(self, msg: Message) -> None:
+        with self.lock:
+            frame = build_frame(msg, self.seq)
+            self.seq = (self.seq + 1) & 0xFF
+            self.sock.sendall(frame)
+
+    def _heartbeat(self) -> None:
+        while self.running:
+            try:
+                self.send(g.Heartbeat(esp_ms=int(time.monotonic() * 1000) & 0xFFFFFFFF))
+            except OSError:
+                return
+            time.sleep(0.1)
+
+    def pump(self, seconds: float) -> None:
+        end = time.monotonic() + seconds
+        while time.monotonic() < end and self.running:
+            try:
+                data = self.sock.recv(1024)
+            except TimeoutError:
+                continue
+            if not data:
+                self.closed_by_peer = True
+                return
+            for raw in self.parser.feed(data):
+                msg = decode_frame(raw, "uno_to_esp32")
+                name = type(msg).__name__
+                self.counts[name] = self.counts.get(name, 0) + 1
+                self._on(msg)
+
+    def _on(self, msg: Message) -> None:
+        if isinstance(msg, g.Hello):
+            self.hello = msg
+            print(
+                f"HELLO fw={msg.fw >> 8}.{msg.fw & 0xFF} proto={msg.proto} "
+                f"commit={msg.commit:08x} -> HELLO_ACK sent"
+            )
+            self.send(g.HelloAck(proto=g.PROTOCOL_VERSION))
+        elif isinstance(msg, g.TelemFast) and msg.flags & SYNCED_BIT:
+            self.synced_seen = True
+
+    def close(self) -> None:
+        self.running = False
+        self.sock.close()
+
+
+def cmd_tcp(host: str, seconds: float) -> int:
+    bench = TcpBench(host)
+    bench.send(g.HelloReq())
+    bench.pump(seconds)
+    bench.close()
+    if bench.closed_by_peer:
+        print("closed by bridge (busy: a phone is driving, or another bench is connected)")
+        return 1
+    stats = bench.parser.stats
+    print(f"frames by type: {dict(sorted(bench.counts.items()))}")
+    print(f"done: frames={stats.frames} bad_crc={stats.bad_crc} synced={bench.synced_seen}")
+    ok = bench.hello is not None and bench.hello.proto == g.PROTOCOL_VERSION
+    return 0 if ok and bench.synced_seen and stats.bad_crc == 0 else 1
+
+
+def cmd_tcp_busy(host: str) -> int:
+    first = TcpBench(host)
+    first.send(g.HelloReq())
+    first.pump(0.5)
+    second = socket.create_connection((host, TCP_PORT), timeout=5.0)
+    second.settimeout(2.0)
+    try:
+        refused = second.recv(64) == b""
+    except TimeoutError:
+        refused = False
+    second.close()
+    first.close()
+    print(f"second bench refused: {refused}")
+    return 0 if refused else 1
+
+
+class WsClient:
+    """Tiny RFC 6455 text-frame client (stdlib only) for the bridge's /ws."""
+
+    def __init__(self, host: str) -> None:
+        self.sock = socket.create_connection((host, HTTP_PORT), timeout=5.0)
+        key = base64.b64encode(os.urandom(16)).decode()
+        request = (
+            f"GET /ws HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\n"
+            f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
+            "Sec-WebSocket-Version: 13\r\n\r\n"
+        )
+        self.sock.sendall(request.encode())
+        head = b""
+        while b"\r\n\r\n" not in head:
+            chunk = self.sock.recv(1)
+            if not chunk:
+                raise ConnectionError("bridge closed the WebSocket upgrade")
+            head += chunk
+        if b" 101 " not in head.split(b"\r\n", 1)[0]:
+            raise ConnectionError(f"upgrade refused: {head[:40]!r}")
+
+    def send(self, obj: dict[str, Any]) -> None:
+        payload = json.dumps(obj, separators=(",", ":")).encode()
+        mask = os.urandom(4)
+        if len(payload) < 126:
+            header = struct.pack("!BB", 0x81, 0x80 | len(payload))
+        else:
+            header = struct.pack("!BBH", 0x81, 0x80 | 126, len(payload))
+        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+        self.sock.sendall(header + mask + masked)
+
+    def _exact(self, n: int) -> bytes:
+        data = b""
+        while len(data) < n:
+            chunk = self.sock.recv(n - len(data))
+            if not chunk:
+                raise ConnectionError("WebSocket closed")
+            data += chunk
+        return data
+
+    def recv(self, timeout: float) -> dict[str, Any] | None:
+        """Next JSON message, or None on timeout."""
+        self.sock.settimeout(timeout)
+        try:
+            b0, b1 = self._exact(2)
+        except TimeoutError:
+            return None
+        self.sock.settimeout(5.0)
+        length = b1 & 0x7F
+        if length == 126:
+            (length,) = struct.unpack("!H", self._exact(2))
+        elif length == 127:
+            (length,) = struct.unpack("!Q", self._exact(8))
+        payload = self._exact(length)
+        opcode = b0 & 0x0F
+        if opcode == 0x8:
+            raise ConnectionError("WebSocket closed by the bridge")
+        if opcode != 0x1:
+            return self.recv(timeout)
+        message: dict[str, Any] = json.loads(payload)
+        return message
+
+    def wait_for(self, kind: str, seconds: float) -> dict[str, Any] | None:
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            msg = self.recv(max(0.01, end - time.monotonic()))
+            if msg is not None and msg.get("t") == kind:
+                return msg
+        return None
+
+    def close(self) -> None:
+        self.sock.close()
+
+
+def cmd_ws(host: str, seconds: float) -> int:
+    ws = WsClient(host)
+    ws.send({"t": "hello", "client": "bridge-echo", "proto": 1})
+    welcome = ws.wait_for("welcome", 2.0)
+    print(f"welcome: {welcome}")
+    ws.send({"t": "ping", "t0": 12345})
+    pong = ws.wait_for("pong", 2.0)
+    print(f"pong: {pong}")
+    counts: dict[str, int] = {}
+    last: dict[str, dict[str, Any]] = {}
+    end = time.monotonic() + seconds
+    next_ping = time.monotonic() + 1.0
+    while time.monotonic() < end:
+        if time.monotonic() >= next_ping:  # the bridge reaps clients silent for 3 s
+            ws.send({"t": "ping", "t0": 1})
+            next_ping += 1.0
+        msg = ws.recv(0.1)
+        if msg is None:
+            continue
+        kind = str(msg.get("t"))
+        counts[kind] = counts.get(kind, 0) + 1
+        last[kind] = msg
+    print(f"messages in {seconds:.0f} s: {counts}")
+    print(f"last tf: {last.get('tf')}")
+    print(f"last ts: {last.get('ts')}")
+    ws.send({"t": "stop", "id": 1})
+    ack = ws.wait_for("ack", 1.0)
+    print(f"stop -> {ack}")
+    ws.send({"t": "turn", "id": 2})
+    nack = ws.wait_for("nack", 1.0)
+    print(f"turn -> {nack}")
+    ws.close()
+    tf_rate = counts.get("tf", 0) / seconds
+    ok = (
+        welcome is not None
+        and pong is not None
+        and pong.get("t0") == 12345
+        and 7.0 <= tf_rate <= 12.0
+        and counts.get("ts", 0) >= seconds - 1
+        and ack is not None
+        and ack.get("id") == 1
+        and nack is not None
+        and nack.get("reason") == "INVALID_COMMAND"
+    )
+    print(f"tf {tf_rate:.1f} Hz -> {'OK' if ok else 'FAILED'}")
+    return 0 if ok else 1
+
+
+def hold_zero_drive(ws: WsClient, seconds: float) -> None:
+    """Owner by sending v=0, w=0 at 20 Hz (takes control, never moves the tank)."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        ws.send({"t": "drive", "v": 0, "w": 0})
+        ws.recv(0.05)
+
+
+def cmd_ws_owner(host: str) -> int:
+    phone = WsClient(host)
+    phone.send({"t": "hello", "client": "bridge-echo", "proto": 1})
+    phone.wait_for("welcome", 2.0)
+    phone.wait_for("ts", 2.0)
+    hold_zero_drive(phone, 1.0)
+    bench = socket.create_connection((host, TCP_PORT), timeout=5.0)
+    bench.settimeout(2.0)
+    try:
+        refused = bench.recv(64) == b""
+    except TimeoutError:
+        refused = False
+    bench.close()
+    print(f"bench refused while the phone drives: {refused}")
+    other = WsClient(host)
+    other.send({"t": "hello", "client": "bridge-echo-2", "proto": 1})
+    other.wait_for("welcome", 2.0)
+    other.send({"t": "drive", "v": 0, "w": 0})
+    not_owner = other.wait_for("nack", 1.0)
+    print(f"second phone drive -> {not_owner}")
+    other.close()
+    phone.send({"t": "release_control", "id": 9})
+    released = phone.wait_for("ack", 1.0)
+    phone.close()
+    time.sleep(0.5)
+    accepted = TcpBench(host)
+    accepted.send(g.HelloReq())
+    accepted.pump(1.0)
+    accepted.close()
+    print(f"bench after release: closed_by_peer={accepted.closed_by_peer}")
+    ok = (
+        refused
+        and not_owner is not None
+        and not_owner.get("reason") == "NOT_OWNER"
+        and released is not None
+        and not accepted.closed_by_peer
+    )
+    print("owner rules OK" if ok else "owner rules FAILED")
+    return 0 if ok else 1
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--host", default="conqueror-bridge.local")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    tcp = sub.add_parser("tcp", help="bench handshake through the TCP passthrough")
+    tcp.add_argument("--seconds", type=float, default=10.0)
+    sub.add_parser("tcp-busy", help="a second bench is accepted and closed at once")
+    ws = sub.add_parser("ws", help="WebSocket welcome, pong, telemetry rates, stop ack, nack")
+    ws.add_argument("--seconds", type=float, default=5.0)
+    sub.add_parser("ws-owner", help="phone owns -> bench refused, 2nd phone NOT_OWNER, release")
+    args = parser.parse_args()
+    host: str = args.host
+    if args.cmd == "tcp":
+        return cmd_tcp(host, float(args.seconds))
+    if args.cmd == "tcp-busy":
+        return cmd_tcp_busy(host)
+    if args.cmd == "ws":
+        return cmd_ws(host, float(args.seconds))
+    return cmd_ws_owner(host)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+Run (from `tools/smoke/`): `uv run ruff format --check . && uv run ruff check . && uv run pyright`
+Expected: clean (`0 errors`).
+
+- [ ] **Step 8 [HW]: WebSocket against the real Uno (tank on a stand; no check moves the tank)**
+
+Run: `pio run -e bridge -t upload --upload-port /dev/ttyACM0`, then from `tools/smoke/`:
+```bash
+uv run python bridge_echo.py --host conqueror-bridge.local ws --seconds 5
+uv run python bridge_echo.py --host conqueror-bridge.local ws-owner
+uv run python bridge_echo.py --host conqueror-bridge.local tcp --seconds 3
+```
+Expected:
+- `ws`: `welcome: {'t': 'welcome', 'role': 'human', 'you': 'phone-1', 'tank': {… 'fw': {'esp32': 'bridge-…', 'uno': '1.0'}, 'proto': 2 …}, 'owner': 'none', …}`, `pong: {'t': 'pong', 't0': 12345, …}`, about 50 `tf` and 5 `ts`, `stop -> {'t': 'ack', 'id': 1}`, `turn -> {… 'reason': 'INVALID_COMMAND' …}`, `tf ~10.0 Hz -> OK`. USB log: `ws: phone-1 connected (1 clients)`, `uno: synced …`, `ws: phone-1 closed (0 clients)`.
+- `ws-owner`: `bench refused while the phone drives: True`, second phone `… 'reason': 'NOT_OWNER' …`, `bench after release: closed_by_peer=False`, `owner rules OK`. USB log: `tcp refused: phone-1 is driving`.
+- `tcp` (after the WS checks): `synced=True` — the master change web → idle → bench works.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add firmware/esp32/src firmware/esp32/test tools/smoke/bridge_echo.py
+git commit -m "feat(esp32): WebSocket drive service mapping JSON to body-link frames
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```

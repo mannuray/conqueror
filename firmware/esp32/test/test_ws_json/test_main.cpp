@@ -148,6 +148,17 @@ void test_too_small_buffer_returns_zero() {
   TEST_ASSERT_EQUAL(0, jsonNack(small, sizeof(small), 1, BridgeReason::kBusy));
 }
 
+// Review M10: strings from outside (SSID) are escaped, so /info stays valid JSON.
+void test_json_escape() {
+  char out[32];
+  TEST_ASSERT_EQUAL(11, cq::core::jsonEscape(out, sizeof(out), "my \"wifi\\"));
+  TEST_ASSERT_EQUAL_STRING("my \\\"wifi\\\\", out);
+  cq::core::jsonEscape(out, sizeof(out), "a\x01" "b");
+  TEST_ASSERT_EQUAL_STRING("a\\u0001b", out);
+  cq::core::jsonEscape(out, 5, "abc\"def");  // never splits an escape at the end
+  TEST_ASSERT_EQUAL_STRING("abc", out);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ack_reason_table_matches_generated_codes);
@@ -159,5 +170,6 @@ int main() {
   RUN_TEST(test_ack_and_nacks);
   RUN_TEST(test_welcome_and_pong);
   RUN_TEST(test_too_small_buffer_returns_zero);
+  RUN_TEST(test_json_escape);
   return UNITY_END();
 }

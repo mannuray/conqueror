@@ -2,6 +2,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
 
 namespace cq {
 namespace core {
@@ -237,6 +238,31 @@ size_t jsonNackStatus(char* out, size_t cap, int32_t id, uint8_t status) {
 
 size_t jsonNack(char* out, size_t cap, int32_t id, BridgeReason reason) {
   return nack(out, cap, id, kBridgeReasons[static_cast<size_t>(reason)]);
+}
+
+size_t jsonEscape(char* out, size_t cap, const char* s) {
+  if (cap == 0) return 0;
+  size_t n = 0;
+  for (; *s != '\0'; ++s) {
+    const unsigned char c = static_cast<unsigned char>(*s);
+    char esc[7];
+    size_t k = 0;
+    if (c == '"' || c == '\\') {
+      esc[0] = '\\';
+      esc[1] = static_cast<char>(c);
+      k = 2;
+    } else if (c < 0x20) {
+      k = static_cast<size_t>(snprintf(esc, sizeof(esc), "\\u%04x", c));
+    } else {
+      esc[0] = static_cast<char>(c);
+      k = 1;
+    }
+    if (n + k + 1 > cap) break;
+    memcpy(out + n, esc, k);
+    n += k;
+  }
+  out[n] = '\0';
+  return n;
 }
 
 size_t jsonPong(char* out, size_t cap, const char* t0, uint32_t tank_ms) {

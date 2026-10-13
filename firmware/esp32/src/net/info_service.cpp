@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "board_config.h"
+#include "core/ws_json.h"
 #include "net/camera_service.h"
 #include "net/http_server.h"
 #include "net/link_task.h"
@@ -87,10 +88,12 @@ esp_err_t serveInfo(httpd_req_t* req) {
         static_cast<unsigned long>(ESP.getFlashChipSize() >> 20),
         static_cast<unsigned long>(ESP.getPsramSize() >> 20), mac[0], mac[1], mac[2], mac[3],
         mac[4], mac[5], cameraSensorName(), board::kUnoRxPin, board::kUnoTxPin);
+  char ssid[72];  // review M10: escaped, so a " or \\ in the SSID keeps /info valid JSON
+  core::jsonEscape(ssid, sizeof(ssid), station ? WiFi.SSID().c_str() : board::kFallbackSsid);
   o.add("\"net\":{\"mode\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,"
         "\"mdns\":\"%s.local\",\"ports\":{\"http\":%u,\"ws\":\"/ws\",\"stream\":%u,"
         "\"bench_tcp\":%u,\"ota\":%u}},",
-        g_wifi->modeName(), station ? WiFi.SSID().c_str() : board::kFallbackSsid, ip,
+        g_wifi->modeName(), ssid, ip,
         g_wifi->rssi(), board::kHostname, board::kHttpPort, board::kStreamPort, board::kTcpPort,
         board::kOtaPort);
   if (s.hello.seen) {

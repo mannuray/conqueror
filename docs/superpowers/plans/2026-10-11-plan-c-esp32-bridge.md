@@ -26,6 +26,7 @@
 - **WebSocket `/ws`:** JSON text frames exactly as LLD R2.9 (spec 01 §4–6 names): in `hello`, `drive{v,w}`, `stop`, `cam_joy{x,y,active}`, `cam_home`, `release_control`, `ping{t0}`; out `welcome`, `tf` (10 Hz), `ts` (1 Hz), `ev`, `ack`, `nack`, `pong`. Max **4** WS clients, rate limit **25 msg/s** per client. JSON is parsed and written by our own fixed-buffer code (`WsCodec`, `WsJson`) — no JSON library, no heap.
 - **WiFi:** station from git-ignored `include/secrets.h`; **30 s** without a connection → WPA2 fallback AP `conqueror-bridge` (password from `secrets.h`, ≥ 8 chars) at `192.168.4.1`; in AP mode retry the home network every **60 s** only while no WS/TCP/stream client is connected. mDNS host **`conqueror-bridge.local`**; services **`_cqbridge._tcp` port 3333** (Plan D's `discover` looks for exactly this; `_conqueror-bridge` would exceed the 15-character DNS-SD limit), `_http._tcp` port 80; ArduinoOTA adds `_arduino._tcp` port 3232.
 - **OTA:** ArduinoOTA, port 3232, password `CQ_OTA_PASSWORD` from `secrets.h` (build fails when missing or `change-me`); `ArduinoOTA.handle()` is polled **only while LinkOwner is Idle, WebHandshake or WebReady** (nobody driving, no bench). Uno firmware stays **USB only**.
+- **Sockets:** lwIP limit 16 → port 80 httpd max 6 open sockets (LRU purge), port 81 max 2.
 - **Memory / tasks:** allocation at startup only (fixed pools for WS out messages, no `String` in hot paths); `link_task` (core 1, 2 ms tick) is the only owner of the UART, the core objects and the TCP client; httpd handlers talk to it through one FreeRTOS queue; free internal heap ≥ **120 KB** in steady state (reported in `/info`).
 - **Read-only self-description:** `/info`, `/help`, `/source.tar.gz` never control anything and never contain secrets; `secrets.h` is git-ignored and `pack_source.py` fails the build if a secret value appears in the archive.
 - **Security:** **DEVELOPER BRIDGE — NO AUTHENTICATION.** Anyone on the same network can drive the tank (WS and TCP). Home network only, never in release firmware; the boot log, `/help` and the README say so.
@@ -503,7 +504,7 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-else:  # loaded by PlatformIO as an extra script
+elif "Import" in globals():  # loaded by PlatformIO as an extra script (not when imported)
     Import("env")  # type: ignore[name-defined]  # noqa: F821
 
     def _before_upload(source, target, env):  # type: ignore[no-untyped-def]
@@ -655,6 +656,9 @@ Expected: `protogen_check: generated files are fresh`, `stamp_version: <version>
 
 Run: `grep -rh "define CONFIG_HTTPD_WS_SUPPORT" ~/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/ | sort -u`
 Expected: `#define CONFIG_HTTPD_WS_SUPPORT 1`. If the line is missing, **stop and ask the owner**: the fallback in the LLD is the links2004 `WebSockets` library on port 80 (Task 6 changes only inside `http_server.cpp`).
+
+Run: `grep -rh "define CONFIG_LWIP_MAX_SOCKETS" ~/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/ | sort -u`
+Expected: `#define CONFIG_LWIP_MAX_SOCKETS 16` (or more). The bridge uses at most 16: port 80 httpd 6 open + listen + ctrl = 8 · port 81 httpd 2 open + listen + ctrl = 4 · TCP 3333 listen + bench + one refused bench = 3 · ArduinoOTA UDP 1. If the value is below 16, **stop and ask the owner** (lower port 80's `max_open_sockets` in Task 6).
 
 - [ ] **Step 7 [HW]: Chip check, first USB flash, boot log**
 
@@ -5542,7 +5546,7 @@ esp_err_t wsHandler(httpd_req_t* req) {
     LinkCommand cmd{};
     cmd.kind = LinkCommand::Kind::kWsOpen;
     cmd.fd = fd;
-    linkPost(cmd, true);
+    linkPost(cmd, false);
     return ESP_OK;
   }
   static uint8_t buf[512];  // httpd task only
@@ -5562,8 +5566,8 @@ esp_err_t wsHandler(httpd_req_t* req) {
     cmd.text[f.len] = '\0';
     cmd.len = static_cast<uint16_t>(f.len);
   }  // else len 0: link_task answers nack INVALID_COMMAND
-  const bool urgent = cmd.len != 0 && strstr(cmd.text, "\"stop\"") != nullptr;
-  if (!linkPost(cmd, urgent)) ++g_dropped;
+  // FIFO, STOP included: a page's stop must never overtake its own earlier drive, nor its close.
+  if (!linkPost(cmd, false)) ++g_dropped;
   return ESP_OK;
 }
 
@@ -5571,7 +5575,7 @@ void onSockClose(httpd_handle_t, int fd) {
   LinkCommand cmd{};
   cmd.kind = LinkCommand::Kind::kWsClose;  // link_task ignores sockets that were plain HTTP
   cmd.fd = fd;
-  linkPost(cmd, true);
+  linkPost(cmd, false);
   close(fd);  // with a close_fn set, the application closes the socket
 }
 
@@ -5582,7 +5586,7 @@ bool httpServerStart() {
   httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
   cfg.server_port = board::kHttpPort;
   cfg.ctrl_port = 32768;
-  cfg.max_open_sockets = 7;
+  cfg.max_open_sockets = 6;  // 4 WS + 2 page loads; lwIP budget: Task 1 Step 6
   cfg.max_uri_handlers = 12;
   cfg.lru_purge_enable = true;
   cfg.stack_size = 6144;
@@ -5677,7 +5681,7 @@ struct LinkStatus {
 };
 
 void linkTaskStart(const char* camera_sensor);  // sensor name for welcome ("none" until Task 8)
-bool linkPost(const LinkCommand& cmd, bool urgent);  // urgent (STOP, OTA) goes to the queue front
+bool linkPost(const LinkCommand& cmd, bool to_front);  // to_front: OTA start only; WS is FIFO
 LinkStatus linkStatus();                             // consistent copy, any task
 
 }  // namespace net
@@ -6085,11 +6089,11 @@ void linkTaskStart(const char* camera_sensor) {
        static_cast<unsigned long>(board::kUnoBaud));
 }
 
-bool linkPost(const LinkCommand& cmd, bool urgent) {
+bool linkPost(const LinkCommand& cmd, bool to_front) {
   if (g_queue == nullptr) return false;
-  const TickType_t wait = urgent ? pdMS_TO_TICKS(100) : 0;  // STOP / open / close must not be lost
-  return (urgent ? xQueueSendToFront(g_queue, &cmd, wait)
-                 : xQueueSendToBack(g_queue, &cmd, wait)) == pdTRUE;
+  const TickType_t wait = pdMS_TO_TICKS(100);  // drained every 2 ms: waits only if 16 are queued
+  return (to_front ? xQueueSendToFront(g_queue, &cmd, wait)
+                   : xQueueSendToBack(g_queue, &cmd, wait)) == pdTRUE;
 }
 
 LinkStatus linkStatus() {
@@ -7410,7 +7414,7 @@ bool streamServerStart() {
   httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
   cfg.server_port = board::kStreamPort;
   cfg.ctrl_port = 32769;
-  cfg.max_open_sockets = 3;  // 2 viewers + 1 to answer 503
+  cfg.max_open_sockets = 2;  // = max viewers; lwIP socket budget (Task 1 Step 6)
   cfg.stack_size = 8192;
   cfg.core_id = 0;
   cfg.send_wait_timeout = 2;  // a stalled viewer is dropped, not waited for
@@ -7549,7 +7553,7 @@ Expected: `SUCCESS`; Flash usage still far below the 3 MB slot (≈ 1.2–1.5 MB
 Flash (USB or `pio run -e bridge_ota -t upload`). USB log: `camera: OV3660, VGA JPEG q12, 2 frame buffers in PSRAM` and `stream: http://conqueror-bridge.local:81/stream (max 2 viewers)`. If the log shows another sensor name, write it down for `/info` (`hw.camera`) — nothing else changes.
 1. Laptop browser: `http://conqueror-bridge.local:81/stream` shows live video; the image is upright (if not: note it for the owner — `s->set_vflip(s, 1)` / `set_hmirror` is a one-line follow-up).
 2. Phone: the Basic Drive page shows the video in the camera box; move the camera stick → the picture pans/tilts; release → it glides back home after the Uno's delay; HOME button → home.
-3. Open a third viewer (second laptop tab): it gets `max 2 viewers`; close one viewer → within 3 s the waiting page picks the stream up again.
+3. Open a third viewer (second laptop tab): it is refused (socket closed at once — port 81 accepts only 2 sockets — or `503 max 2 viewers`); close one viewer → within 3 s the waiting page picks the stream up again.
 4. `status:` log lines show `heap` ≥ 120 000 with one phone + one stream viewer (LLD R2.12 target; `free_heap` also appears in `/info` after Task 9).
 
 - [ ] **Step 6: Commit**
@@ -8612,6 +8616,8 @@ Append to `docs/lld/esp32-bridge-lld.md`:
 - Toolchain: pioarduino 55.03.311 (Arduino-ESP32 3.3.11, ESP-IDF 5.5.5), board `esp32-s3-devkitc-1`, `qio_opi`, `partitions_cq8m.csv`; `-Werror` only in `env:native` (framework headers are not warning-clean).
 - mDNS services: `_cqbridge._tcp` 3333 (DNS-SD names ≤ 15 characters; Plan D's `discover` uses it), `_http._tcp` 80, `_arduino._tcp` 3232 — R1's `_conqueror-bridge._tcp` is not used.
 - One `link_task` owns UART, `BodyLink`, `LinkOwner`, `TcpPassthrough` and `WsClients`; `UartWriter` is realised as `FrameTx` (whole-chunk queue + one urgent STOP slot) drained only by `link_task`, so no mutex is needed. WS replies are queued and sent by the httpd task (`httpd_queue_work`).
+- **Deviation from R2.11 "STOP goes to the queue front":** WS open/text/close are posted to `link_q` in FIFO order (100 ms wait, drained every 2 ms). Putting STOP (or a close) in front could overtake the same page's earlier `drive` (tank moves again after the STOP) or drop a STOP behind its own close. Only the OTA start goes to the front. The STOP frame itself still uses `FrameTx`'s urgent slot (next chunk boundary on the UART).
+- lwIP socket budget = 16 (the default limit): port 80 httpd 6 + listen + ctrl, port 81 httpd 2 + listen + ctrl, TCP 3333 listen + bench + one refused, OTA UDP 1. R2.12's "≤ 7 + 3 sockets" becomes 6 + 2.
 - STOP injected during passthrough is resent every 50 ms (max 10); **all** ACKs with that seq are swallowed for 500 ms (one per resend), not only the first.
 - The Uno's WIFI_RESET_REQ / ADMIN_RESET_REQ are answered with ESP_ACK `UNAVAILABLE` while the ESP32 is master (the bridge has no stored WiFi/admin settings); in passthrough the bench answers them.
 - WebSocket: `welcome` adds `you` (this client's name) and `owner_client`; streaming rejections (`drive`, `cam_joy`) are reported once per reason (`nack` without `id`, spec 01 §5); rate limits drive 25/s, cam_joy 25/s, all 60/s, STOP never; max 4 WS clients; Uno owner CALIBRATION is shown as `"human"`.

@@ -1,8 +1,8 @@
 #pragma once
 #include <stdint.h>
 
-#if !defined(BOARD_UNO)
-#error "select a board: -DBOARD_UNO"
+#if !defined(BOARD_UNO) && !defined(BOARD_MEGA)
+#error "select a board: -DBOARD_MEGA or -DBOARD_UNO"
 #endif
 
 namespace cq {
@@ -32,16 +32,29 @@ constexpr bool kDirRightForwardHigh = false;
 constexpr bool kDirLeftForwardHigh = true;
 
 constexpr uint8_t kPinButton = 2;
-constexpr uint8_t kPinLed = 4;        // PD4
-constexpr uint8_t kPinIr = 9;         // PB1, PCINT1 (vector PCINT0)
+constexpr uint8_t kPinLed = 4;        // Uno PD4, Mega PG5 (the LED driver picks the port)
 constexpr uint8_t kPinServoPan = 10;
 constexpr uint8_t kPinServoTilt = 11;
-constexpr uint8_t kPinEcho = 12;      // PB4, PCINT4 (vector PCINT0)
+constexpr uint8_t kPinEcho = 12;      // Uno PB4 (PCINT4), Mega PB6 (PCINT6); both vector PCINT0
 constexpr uint8_t kPinTrig = 13;
-constexpr uint8_t kPinBuzzer = 14;    // A0
-constexpr uint8_t kPinEncLeft = 15;   // A1 = PC1 (vector PCINT1)
-constexpr uint8_t kPinEncRight = 16;  // A2 = PC2 (vector PCINT1)
-constexpr uint8_t kPinBattery = 17;   // A3
+
+#if defined(BOARD_MEGA)
+// LLD §11.1 wiring: jumpers D20->A4, D21->A5 (I2C), D9->A10 (IR); encoder wires on A8/A9.
+constexpr uint8_t kPinIr = 64;          // A10 = PK2 (PCINT18, vector PCINT2), jumper from shield D9
+constexpr uint8_t kPinIrShield = 9;     // shield D9 (PH6, no PCINT): kept a high-impedance input
+constexpr uint8_t kPinBuzzer = 54;      // A0
+constexpr uint8_t kPinEncLeft = 62;     // A8 = PK0 (PCINT16, vector PCINT2)
+constexpr uint8_t kPinEncRight = 63;    // A9 = PK1 (PCINT17, vector PCINT2)
+constexpr uint8_t kPinBattery = 57;     // A3 (ADC3)
+constexpr uint8_t kPinShieldSda = 58;   // A4, jumpered to D20: kept an input (TWI drives D20)
+constexpr uint8_t kPinShieldScl = 59;   // A5, jumpered to D21
+#else
+constexpr uint8_t kPinIr = 9;           // PB1, PCINT1 (vector PCINT0)
+constexpr uint8_t kPinBuzzer = 14;      // A0
+constexpr uint8_t kPinEncLeft = 15;     // A1 = PC1 (PCINT9, vector PCINT1)
+constexpr uint8_t kPinEncRight = 16;    // A2 = PC2 (PCINT10, vector PCINT1)
+constexpr uint8_t kPinBattery = 17;     // A3
+#endif
 
 constexpr uint8_t kImuAddress = 0x68;
 // Tank axis <- sensor axis (1 = X, 2 = Y, 3 = Z; negative = inverted). Measured by the mount check.

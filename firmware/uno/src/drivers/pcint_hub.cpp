@@ -2,13 +2,25 @@
 #include <util/atomic.h>
 
 #include "drivers/board_config.h"
+#include "drivers/pcint_hub.h"
 #include "ports/ir.h"
 #include "ports/ultrasonic.h"
 
-// PCINT0 serves D9 (PB1, IR) and D12 (PB4, echo). Capture only; < 10 µs.
+// Capture only in every ISR; < 10 µs (LLD §9.15, §11.2).
 namespace {
-constexpr uint8_t kIrBit = _BV(PB1);
-constexpr uint8_t kEchoBit = _BV(PB4);
+#if defined(BOARD_MEGA)
+constexpr uint8_t kEchoBit = _BV(PB6);   // D12
+constexpr uint8_t kIrBit = _BV(PK2);     // A10 (PCINT2 group)
+constexpr uint8_t kEncLeftBit = _BV(PK0);
+constexpr uint8_t kEncRightBit = _BV(PK1);
+volatile uint8_t g_prev_pink = 0xFF;
+#else
+constexpr uint8_t kIrBit = _BV(PB1);     // D9 (PCINT0 group)
+constexpr uint8_t kEchoBit = _BV(PB4);   // D12
+constexpr uint8_t kEncLeftBit = _BV(PC1);
+constexpr uint8_t kEncRightBit = _BV(PC2);
+volatile uint8_t g_prev_pinc = 0;
+#endif
 constexpr uint8_t kRing = 16;
 
 volatile uint8_t g_prev_pinb = 0xFF;
@@ -21,17 +33,15 @@ volatile bool g_echo_rose = false;
 volatile bool g_echo_fell = false;
 uint32_t g_trig_us = 0;  // main context only
 bool g_armed = false;    // the last trigger() sent a ping
-}  // namespace
 
-ISR(PCINT0_vect) {
-  const uint32_t now = micros();
-  const uint8_t pinb = PINB;
-  const uint8_t changed = pinb ^ g_prev_pinb;
-  g_prev_pinb = pinb;
-  if ((changed & kIrBit) && !(pinb & kIrBit) && g_ir_count < kRing) {
+inline void irEdge(uint8_t changed, uint8_t pins, uint32_t now) {
+  if ((changed & kIrBit) && !(pins & kIrBit) && g_ir_count < kRing) {
     g_ir_ring[(g_ir_head + g_ir_count) % kRing] = now;
     ++g_ir_count;
   }
+}
+
+inline void echoEdge(uint8_t changed, uint8_t pinb, uint32_t now) {
   if (changed & kEchoBit) {
     if (pinb & kEchoBit) {
       g_echo_rise_us = now;
@@ -42,16 +52,63 @@ ISR(PCINT0_vect) {
     }
   }
 }
+}  // namespace
+
+// Weak stand-in until the encoder driver (Task 7) provides the real capture.
+__attribute__((weak)) void cq::drv::encoderEdges(bool, bool, uint32_t) {}
+
+ISR(PCINT0_vect) {
+  const uint32_t now = micros();
+  const uint8_t pinb = PINB;
+  const uint8_t changed = pinb ^ g_prev_pinb;
+  g_prev_pinb = pinb;
+#if !defined(BOARD_MEGA)
+  irEdge(changed, pinb, now);
+#endif
+  echoEdge(changed, pinb, now);
+}
+
+#if defined(BOARD_MEGA)
+ISR(PCINT2_vect) {
+  const uint32_t now = micros();
+  const uint8_t pink = PINK;
+  const uint8_t changed = pink ^ g_prev_pink;
+  g_prev_pink = pink;
+  irEdge(changed, pink, now);
+  const uint8_t rising = changed & pink;
+  if (rising & (kEncLeftBit | kEncRightBit)) {
+    cq::drv::encoderEdges(rising & kEncLeftBit, rising & kEncRightBit, now);
+  }
+}
+#else
+ISR(PCINT1_vect) {
+  const uint32_t now = micros();
+  const uint8_t pinc = PINC;
+  const uint8_t rising = static_cast<uint8_t>((pinc ^ g_prev_pinc) & pinc);
+  g_prev_pinc = pinc;
+  if (rising & (kEncLeftBit | kEncRightBit)) {
+    cq::drv::encoderEdges(rising & kEncLeftBit, rising & kEncRightBit, now);
+  }
+}
+#endif
 
 namespace cq {
 namespace port {
 
 namespace ir {
 void begin() {
+#if defined(BOARD_MEGA)
+  pinMode(board::kPinIrShield, INPUT);  // jumpered to A10; never driven
+  pinMode(board::kPinIr, INPUT);
+  g_prev_pink = PINK;
+  PCMSK2 |= _BV(PCINT18);
+  PCICR |= _BV(PCIE2);
+#else
   pinMode(board::kPinIr, INPUT);
   g_prev_pinb = PINB;
   PCMSK0 |= _BV(PCINT1);
   PCICR |= _BV(PCIE0);
+#endif
 }
 
 bool popEdge(uint32_t& t_us) {
@@ -76,7 +133,11 @@ void begin() {
   // HIGH (no edges, no PCINT storm) → kNoEcho → US_FAULT.
   pinMode(board::kPinEcho, INPUT_PULLUP);
   g_prev_pinb = PINB;
+#if defined(BOARD_MEGA)
+  PCMSK0 |= _BV(PCINT6);
+#else
   PCMSK0 |= _BV(PCINT4);
+#endif
   PCICR |= _BV(PCIE0);
 }
 
@@ -120,3 +181,17 @@ EchoState poll(uint16_t& echo_us) {
 
 }  // namespace port
 }  // namespace cq
+
+void cq::drv::encodersEnablePcint() {
+  pinMode(cq::board::kPinEncLeft, INPUT_PULLUP);
+  pinMode(cq::board::kPinEncRight, INPUT_PULLUP);
+#if defined(BOARD_MEGA)
+  g_prev_pink = PINK;
+  PCMSK2 |= _BV(PCINT16) | _BV(PCINT17);
+  PCICR |= _BV(PCIE2);
+#else
+  g_prev_pinc = PINC;
+  PCMSK1 |= _BV(PCINT9) | _BV(PCINT10);
+  PCICR |= _BV(PCIE1);
+#endif
+}

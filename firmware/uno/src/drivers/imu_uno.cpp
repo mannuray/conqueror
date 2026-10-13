@@ -66,6 +66,11 @@ int16_t pick(const int16_t v[3], int8_t map) {
 }  // namespace
 
 bool begin() {
+#if defined(BOARD_MEGA)
+  // LLD §11.1: the shield's A4/A5 are jumpered to D20/D21 (TWI); never drive them.
+  pinMode(board::kPinShieldSda, INPUT);
+  pinMode(board::kPinShieldScl, INPUT);
+#endif
   configureWire();
   Wire.beginTransmission(board::kImuAddress);
   Wire.write(0x75);  // WHO_AM_I

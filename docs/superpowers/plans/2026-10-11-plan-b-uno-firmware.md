@@ -13321,7 +13321,8 @@ Codes are the 32-bit values as shifted in by the decoder in received order. Code
 
 Tick each item; every one was already exercised in its task — this is the consolidated run on the final build:
 - Phase 1 (stand, USB): `probe` PASS · `mount` PASS · `watch` shows all sensors live (yaw, pitch/roll, dist, batt, enc, pan/tilt) · `EVENT SELFTEST a=0` · `setting … --save` survives a reset · `deadman`: `DEADMAN_STOP` at ≈ 300 ms, tracks stopped ≤ ~420 ms · link pull stops the tracks · unplugged ultrasonic → `US_FAULT` + 50 % cap · WS2812 timing on a scope (or "not measured", Task 13 Step 8 item 6) · `soak` PASS · size gate PASS.
-- Phase 2 (floor, USB tether): `drive 40 0` heading within ±2° over 4 s · `turn 90 50` / `turn -360 50` within ±2° · `turn 90 50 --then-to 0` back within ±2° · `turn 90 50 --radius 50` quarter circle · `move 1000 40` = 100 ± 3 cm · obstacle slow + BLOCKED at ≈ 15 cm · `drive 100 0 --envelope 20 --accel 50 --lock` caps PWM ≤ 115 · `turn 720 30 --drop-link-after 1 --restore-after 2`: TURN cancelled by link loss does not resume · IR remote drives with no ESP32 · IR key during a DRIVE_RATE spin stops it.
+- **Phase 2 moved after Plan C (owner, 2026-10-13, design-notes §35):** run wirelessly through the ESP32 bridge (TCP 3333 passthrough), not on a USB tether. Phase 1 alone signs off Plan B.
+- Phase 2 (floor, over the bridge; originally USB tether): `drive 40 0` heading within ±2° over 4 s · `turn 90 50` / `turn -360 50` within ±2° · `turn 90 50 --then-to 0` back within ±2° · `turn 90 50 --radius 50` quarter circle · `move 1000 40` = 100 ± 3 cm · obstacle slow + BLOCKED at ≈ 15 cm · `drive 100 0 --envelope 20 --accel 50 --lock` caps PWM ≤ 115 · `turn 720 30 --drop-link-after 1 --restore-after 2`: TURN cancelled by link loss does not resume · IR remote drives with no ESP32 · IR key during a DRIVE_RATE spin stops it.
 
 - [ ] **Step 7: Commit**
 

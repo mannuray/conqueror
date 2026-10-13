@@ -838,3 +838,7 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 - Fix in firmware only (`board_config.h`: `kDirRightForwardHigh = true`); motor wiring stays stock. Re-probe: all four cases PASS.
 - Bench note: a calibration request sent within ~2 s of boot was refused (`CAL_PRECONDITION`); 3 s after sync it runs. An IR key press during a script cancels it (by design: IR takes ownership).
 
+## 35. Phase 2 floor tests run wirelessly after Plan C (DECIDED 2026-10-13)
+- The owner has no USB cable long enough for floor driving, and on the stand the gyro cannot see the tank turn (tracks in the air), so turn/heading/MOVE accuracy can only be proved on the floor.
+- Plan B is signed off on **Phase 1 (stand)** alone. **Phase 2 (floor)** runs after Plan C over WiFi: the ESP32 bridge passes TCP 3333 frame-aligned to the Mega, so the smoke tool only needs a TCP transport (pyserial `serial_for_url("socket://conqueror-bridge.local:3333")`) — or the Plan D bench tool. Shield switch S1 on the ESP32 side for these runs.
+

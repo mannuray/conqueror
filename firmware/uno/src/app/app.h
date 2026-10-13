@@ -10,6 +10,12 @@
 #include "domain/settings/settings_saver.h"
 #include "domain/util/scheduler.h"
 #include "generated/cq_protocol.h"
+#include "domain/estimation/accel_variance.h"
+#include "domain/estimation/attitude.h"
+#include "domain/estimation/bump_detector.h"
+#include "domain/estimation/lift_detector.h"
+#include "domain/estimation/yaw_integrator.h"
+#include "types/hw_types.h"
 
 namespace cq {
 
@@ -44,6 +50,19 @@ struct App {
   EepromWriter eewriter;
   SettingsSaver saver;  // staged per block: the writer queue can never overflow (LLD §10.10)
   bool moving = false;  // set by the control task; saves are deferred while moving
+  // imu
+  Attitude attitude;
+  YawIntegrator yaw;
+  BumpDetector bump;
+  LiftDetector lift;
+  AccelVariance accel_var;
+  ImuRaw imu_raw{};
+  bool imu_ok = false;
+  uint8_t imu_fail_streak = 0;
+  float yaw_rate_dps = 0.0f;
+  bool stationary = true;  // set by the control task: no PWM output for 300 ms
+  uint16_t fast_flags = 0;
+  uint32_t slow_flags = 0;
 };
 
 extern App g_app;

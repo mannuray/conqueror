@@ -27,6 +27,7 @@ void linkWatchTask() {
 
 // TASKS-BEGIN (later tasks add rows before TASKS-END)
 cq::Task g_tasks[] = {
+    {cq::app::imuTask, 5000UL, 0},
     {linkWatchTask, 10000UL, 0},
     {cq::app::telemetryFastDue, 50000UL, 0},
     {cq::app::telemetrySlowDue, 1000000UL, 0},
@@ -42,6 +43,7 @@ void setup() {
   cq::port::link::begin(cq::board::kBaud);
   // SETUP-INIT (later tasks add driver/domain init before SETUP-END)
   cq::app::settingsLoad();
+  cq::app::imuInit();
   // SETUP-END
   cq::port::watchdog::enable();
   g_scheduler.start(cq::port::clock::nowUs());

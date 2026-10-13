@@ -876,7 +876,26 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
 - **"No voltage thinking" for users** is a board-design rule, not only an MCU choice: every connector is 5 V-safe (5 V power on each, 5 V-tolerant inputs, outputs that 5 V parts accept; the WS2812 data line gets a 74AHCT1G125 buffer).
 - **MCU under discussion:** RP2040 (decided earlier) vs **RP2350A** (recommended: Cortex-M33 with FPU for the IMU/PID float maths, 520 KB RAM, 3 PIO blocks, 5 V-tolerant GPIO inputs; ~INR 20-30 more; use A4 stepping - erratum E9 on internal pull-downs) vs Renesas RA4M1 (true 5 V, FPU, official Arduino core, but ~3x the price, no PIO, 32 KB RAM).
 - **Decided (owner, 2026-10-14): MCU = RP2350A** (A4 stepping).
-- **Charging (owner, 2026-10-14, "keep it simple and cheap"): no run-while-charging.** Charge with the power switch off; a plain 5 V boost charger without power path. USB-C powers only the RP2350 (diode-fed 3.3 V) so it can be programmed at any time; motors, ESP32 and camera run from the battery only. If USB is connected while the switch is on, the firmware blocks the motors (no driving off with a cable attached).
-- Still open: certification for sale in India (BIS toys/Li-ion, WPC, EPR) - research task.
+- **Charging and cables (owner, 2026-10-14, supersedes the on-board charger above): USB-C everywhere, one cable type.** Today a user needs three cables (mini-USB battery charger, USB-B Uno/Mega, USB-C camera). New: the **2S Li-ion pack has its own USB-C charging port** and protection inside the pack; the **base board has no charger** (USB-C for programming only); the **camera board** keeps its USB-C (rarely needed - it updates over WiFi). Any phone charger charges the pack. Battery connector on the base: a common one (e.g. JST-XH 2-pin) because packs come from different suppliers. If USB is connected while the base is powered from the battery, the firmware blocks the motors.
+- **Motor channels (owner): 2 channels standard + an unfitted footprint for a second driver** (4-channel mecanum variant from the same PCB).
+
+### 40.1 Base board - requirement summary (2026-10-14)
+| Group | Requirement |
+|---|---|
+| Size | Uno outline 68.6 x 53.3 mm, Uno mounting holes; not shield-compatible |
+| MCU | RP2350A (A4 stepping), external QSPI flash, USB-C (programming) |
+| Motors | 2 channels (TB6612-class), footprint for a 2nd driver (mecanum variant) |
+| Encoders | 2 connectors, A/B each |
+| Servos | 2 outputs (head has 2 more; a setting picks the servo host) |
+| Sensors | Ultrasonic (HC-SR04), IR receiver, IMU breakout footprint (GY-521/MPU6050 class, plugs in like on the shield), battery voltage sense |
+| Optional sensors | Compass breakout (QMC5883L class), ToF (VL53L0X/L1X); proposed: a Qwiic/STEMMA QT I2C connector for any optional I2C sensor |
+| Output | Passive buzzer, 1 RGB LED (WS2812, buffered data line) |
+| Input | Mode button |
+| Head link | 6-wire harness: 5 V + GND (logic), TX, RX, servo 5 V + servo GND |
+| Power | 2S Li-ion pack (USB-C charging in the pack), common connector, main switch, reverse-polarity protection, fuse, 5 V regulator (logic, servos, head) |
+| 5 V-safe | Every connector 5 V-safe for the user (5 V power, 5 V-tolerant inputs, WS2812 buffer) |
+| Head | Off-the-shelf ESP32-S3 camera board on the gimbal (UART + servo pins, WiFi OTA) |
+
+- Still open: certification for sale in India (BIS toys/Li-ion, WPC, EPR) - research task; optional wired ESP32 update through the base (RP2350 USB-to-UART bridge, ESP32-S3 software-forced download mode) - nice-to-have, OTA is the normal path.
 - Next step once requirements are settled: a spec in `docs/superpowers/specs/` (design first).
 

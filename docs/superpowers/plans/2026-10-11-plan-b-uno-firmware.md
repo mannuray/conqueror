@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - **Platform:** commands are shown for macOS; on **Linux** use the equivalents in `docs/dev-setup.md` (uv install, serial port names `/dev/ttyACM0`/`/dev/ttyUSB0` + `dialout` group, PlatformIO udev rules, `avahi-browse` instead of `dns-sd`, hold-to-drive needs X11).
-- Hardware (confirmed): Arduino Uno + ELEGOO **SmartCar Shield V1.1, TB6612FNG**: PWM right (A) **D5**, PWM left (B) **D6**, AIN1 **D7**, BIN1 **D8**, STBY **D3** (HIGH = enabled, LOW = coast). Build option `-DSHIELD_SMARTCAR_V11_TB6612` (default) or `-DSHIELD_TANK_DRV8835` (PH/EN: PWM D5/D6, PH right D8, PH left D7, no STBY). Board option `-DBOARD_UNO`.
+- Hardware (confirmed): Arduino **Mega 2560** (from Task 6b; Uno kept as the later Lite profile — LLD §11 has the Mega pin map and the jumpers D20→A4, D21→A5, D9→A10, encoders on A8/A9) + ELEGOO **SmartCar Shield V1.1, TB6612FNG**: PWM right (A) **D5**, PWM left (B) **D6**, AIN1 **D7**, BIN1 **D8**, STBY **D3** (HIGH = enabled, LOW = coast). Build option `-DSHIELD_SMARTCAR_V11_TB6612` (default) or `-DSHIELD_TANK_DRV8835` (PH/EN: PWM D5/D6, PH right D8, PH left D7, no STBY). Board option `-DBOARD_UNO`.
 - Pins: encoders (FIT0458, channel A only) left **A1**, right **A2** (PCINT1, rising edges only); passive buzzer **A0** (`tone()`, Timer2); ultrasonic trig **D13**, echo **D12**; IR receiver **D9** (custom NEC decoder, no IRremote); PCINT0 ISR shared by D9 + D12; servos pan **D10**, tilt **D11** (Servo lib, Timer1); WS2812 ×1 on **D4** (own bit-bang, no FastLED); button **D2**; battery **A3**; MPU6050 on I2C A4/A5 @ **0x68**.
 - UART **250000** baud on D0/D1 (shield switch **S1** disconnects the ESP32 for USB upload).
 - Frame `0xAA | len | type | seq | payload | crc8`, max payload 48, CRC-8 poly 0x07 — all from `cq_protocol.h`; never hand-code frame layouts.
@@ -23,7 +23,7 @@
 - ISRs capture only (< 10 µs); shared data `volatile` + `ATOMIC_BLOCK` for multi-byte reads.
 - Members use `m_` prefix; `enum class` everywhere; units in names (`_ms`, `_us`, `_deg`, `_pct`, `_mm`, `_cps`).
 - Domain code compiles on host (`CQ_HOST_TEST`) and AVR; it includes `types/`, `domain/`, `generated/` only.
-- Build gates: static RAM ≤ **1750 B**, flash ≤ **30 KB** (`scripts/size_gate.py`).
+- Build gates (`scripts/size_gate.py <env>`): **Mega 2560 (default env `mega`, from Task 6b): flash ≤ 240 KB, static RAM ≤ 6 KB**; Uno (`uno`, later Lite profile): flash ≤ 30 KB, static RAM ≤ 1750 B. Body board switched to the Mega on 2026-10-13 (design-notes §29, LLD §11) after the Uno build reached 24 KB at Task 6.
 - Timing: IMU 200 Hz, control/safety 100 Hz, servos/UI/button 50 Hz, ultrasonic 20 Hz, battery 10 Hz, telemetry fast 20 Hz / slow 1 Hz; watchdog 1 s.
 - Safety rules (LLD §9.2): link loss stops only Network/Calibration motion; deadman 300 ms only for network Teleop; link loss cancels primitives (no resume); IR works with no ESP32.
 - MVP scope: one surface profile (index 0). `PROFILE` → `UNAVAILABLE` except `SELECT 0`. Calibration maths runs off-board; the Uno runs motion scripts and streams `CAL_DATA`.
@@ -6400,6 +6400,428 @@ git commit -m "feat(uno): safety core - PwmOutput, envelope, arbitrator, supervi
 
 ---
 
+### Task 6b: Mega 2560 board support (design-notes §29, LLD §11)
+
+**Files:**
+- Modify: `firmware/uno/platformio.ini` (new default env `mega`; `BOARD_*` moves out of `[env]`), `src/drivers/board_config.h` (Mega pin branch), `scripts/size_gate.py` (limits per env), `src/drivers/imu_uno.cpp` (A4/A5 inputs on the Mega)
+- Create: `src/drivers/pcint_hub.h`; rename `src/drivers/pcint0_hub.cpp` → `src/drivers/pcint_hub.cpp` (all pin-change ISRs, both boards)
+- Test: host suite unchanged (drivers are hardware-only); both AVR envs build and pass the size gate
+
+**Interfaces:**
+- Produces: `cq::drv::encoderEdges(bool left_rising, bool right_rising, uint32_t now_us)` (called from the PCINT ISR; weak no-op until Task 7 provides it) and `cq::drv::encodersEnablePcint()`; `board::kPinIrShield`, `board::kPinShieldSda/Scl` (Mega only); `size_gate.py <env>`.
+- Wiring (owner, LLD §11.1): jumpers D20→A4, D21→A5, D9→A10; encoder signal wires to A8 (left) / A9 (right).
+
+- [ ] **Step 1: Build environments and size gate**
+
+`firmware/uno/platformio.ini`:
+```ini
+[platformio]
+default_envs = mega
+
+[env]
+build_unflags = -std=gnu++11
+build_flags =
+  -std=gnu++17
+  -Isrc
+  -DSHIELD_SMARTCAR_V11_TB6612
+
+; Body board (design-notes §29, LLD §11): Mega 2560 = Full profile.
+[env:mega]
+platform = atmelavr@^5
+board = megaatmega2560
+framework = arduino
+lib_deps = arduino-libraries/Servo@^1.2.2
+extra_scripts = pre:scripts/git_commit.py
+build_flags = ${env.build_flags} -DBOARD_MEGA -Os -flto -fno-exceptions -fno-rtti
+build_src_flags = -Wall -Wextra -Werror
+upload_speed = 115200
+monitor_speed = 250000
+
+; Uno: kept building; becomes the Lite profile for stock tanks later.
+[env:uno]
+platform = atmelavr@^5
+board = uno
+framework = arduino
+lib_deps = arduino-libraries/Servo@^1.2.2
+extra_scripts = pre:scripts/git_commit.py
+build_flags = ${env.build_flags} -DBOARD_UNO -Os -flto -fno-exceptions -fno-rtti
+build_src_flags = -Wall -Wextra -Werror
+upload_speed = 115200
+monitor_speed = 250000
+
+[env:native]
+platform = native@^1
+build_src_filter = +<domain/> +<types/>
+test_build_src = yes
+build_flags = ${env.build_flags} -DCQ_HOST_TEST -lm
+build_src_flags = -Wall -Wextra -Werror
+```
+
+`firmware/uno/scripts/size_gate.py`:
+```python
+#!/usr/bin/env python3
+"""Fail if the Uno firmware exceeds the RAM/flash budget (LLD §9.20)."""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+# (flash, static RAM) budgets per PlatformIO env (LLD §9.20, §11.2).
+LIMITS = {"mega": (240 * 1024, 6 * 1024), "uno": (30 * 1024, 1750)}
+AVR_SIZE = Path.home() / ".platformio" / "packages" / "toolchain-atmelavr" / "bin" / "avr-size"
+
+
+def main() -> int:
+    env = sys.argv[1] if len(sys.argv) > 1 else "mega"
+    flash_limit, ram_limit = LIMITS[env]
+    elf = Path(__file__).resolve().parents[1] / ".pio" / "build" / env / "firmware.elf"
+    out = subprocess.run(
+        [str(AVR_SIZE), "-A", str(elf)], check=True, capture_output=True, text=True
+    ).stdout
+    sections: dict[str, int] = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0].startswith(".") and parts[1].isdigit():
+            sections[parts[0]] = int(parts[1])
+    flash = sections.get(".text", 0) + sections.get(".data", 0)
+    ram = sections.get(".data", 0) + sections.get(".bss", 0) + sections.get(".noinit", 0)
+    print(f"size_gate[{env}]: flash {flash} / {flash_limit} B, static RAM {ram} / {ram_limit} B")
+    if flash > flash_limit or ram > ram_limit:
+        print("size_gate: OVER BUDGET", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+- [ ] **Step 2: Board pin map**
+
+`src/drivers/board_config.h`:
+```cpp
+#pragma once
+#include <stdint.h>
+
+#if !defined(BOARD_UNO) && !defined(BOARD_MEGA)
+#error "select a board: -DBOARD_MEGA or -DBOARD_UNO"
+#endif
+
+namespace cq {
+namespace board {
+
+#if defined(SHIELD_SMARTCAR_V11_TB6612)
+constexpr uint8_t kPinPwmRight = 5;   // PWMA
+constexpr uint8_t kPinPwmLeft = 6;    // PWMB
+constexpr uint8_t kPinDirRight = 7;   // AIN1
+constexpr uint8_t kPinDirLeft = 8;    // BIN1
+constexpr uint8_t kPinStandby = 3;    // STBY, HIGH = enabled
+constexpr bool kHasStandby = true;
+#elif defined(SHIELD_TANK_DRV8835)
+constexpr uint8_t kPinPwmRight = 5;   // AIN2/EN
+constexpr uint8_t kPinPwmLeft = 6;    // BIN2/EN
+constexpr uint8_t kPinDirRight = 8;   // AIN1/PH
+constexpr uint8_t kPinDirLeft = 7;    // BIN1/PH
+constexpr uint8_t kPinStandby = 0xFF;
+constexpr bool kHasStandby = false;
+#else
+#error "select a shield: -DSHIELD_SMARTCAR_V11_TB6612 or -DSHIELD_TANK_DRV8835"
+#endif
+
+// Direction pin level that drives each track forward. Measured by the shield probe (Task 7);
+// starting values from the ELEGOO tank firmware (right forward = LOW, left forward = HIGH).
+constexpr bool kDirRightForwardHigh = false;
+constexpr bool kDirLeftForwardHigh = true;
+
+constexpr uint8_t kPinButton = 2;
+constexpr uint8_t kPinLed = 4;        // Uno PD4, Mega PG5 (the LED driver picks the port)
+constexpr uint8_t kPinServoPan = 10;
+constexpr uint8_t kPinServoTilt = 11;
+constexpr uint8_t kPinEcho = 12;      // Uno PB4 (PCINT4), Mega PB6 (PCINT6); both vector PCINT0
+constexpr uint8_t kPinTrig = 13;
+
+#if defined(BOARD_MEGA)
+// LLD §11.1 wiring: jumpers D20->A4, D21->A5 (I2C), D9->A10 (IR); encoder wires on A8/A9.
+constexpr uint8_t kPinIr = 64;          // A10 = PK2 (PCINT18, vector PCINT2), jumper from shield D9
+constexpr uint8_t kPinIrShield = 9;     // shield D9 (PH6, no PCINT): kept a high-impedance input
+constexpr uint8_t kPinBuzzer = 54;      // A0
+constexpr uint8_t kPinEncLeft = 62;     // A8 = PK0 (PCINT16, vector PCINT2)
+constexpr uint8_t kPinEncRight = 63;    // A9 = PK1 (PCINT17, vector PCINT2)
+constexpr uint8_t kPinBattery = 57;     // A3 (ADC3)
+constexpr uint8_t kPinShieldSda = 58;   // A4, jumpered to D20: kept an input (TWI drives D20)
+constexpr uint8_t kPinShieldScl = 59;   // A5, jumpered to D21
+#else
+constexpr uint8_t kPinIr = 9;           // PB1, PCINT1 (vector PCINT0)
+constexpr uint8_t kPinBuzzer = 14;      // A0
+constexpr uint8_t kPinEncLeft = 15;     // A1 = PC1 (PCINT9, vector PCINT1)
+constexpr uint8_t kPinEncRight = 16;    // A2 = PC2 (PCINT10, vector PCINT1)
+constexpr uint8_t kPinBattery = 17;     // A3
+#endif
+
+constexpr uint8_t kImuAddress = 0x68;
+// Tank axis <- sensor axis (1 = X, 2 = Y, 3 = Z; negative = inverted). Measured by the mount check.
+constexpr int8_t kImuMapX = 1;
+constexpr int8_t kImuMapY = 2;
+constexpr int8_t kImuMapZ = 3;
+
+constexpr uint32_t kBaud = 250000UL;
+constexpr uint16_t kFwVersion = 0x0100;  // 1.0
+
+// Set by scripts/git_commit.py (uno env); 0 = built outside git / unknown. Sent in HELLO.
+#ifndef CQ_GIT_COMMIT
+#define CQ_GIT_COMMIT 0UL
+#endif
+constexpr uint32_t kGitCommit = CQ_GIT_COMMIT;
+
+}  // namespace board
+}  // namespace cq
+```
+
+- [ ] **Step 3: Pin-change interrupt hub (both boards)**
+
+`src/drivers/pcint_hub.h`:
+```cpp
+#pragma once
+#include <stdint.h>
+
+// Pin-change interrupt hub (drivers only; LLD §11.2). All PCINT ISRs live in pcint_hub.cpp:
+//   Uno : PCINT0 = IR (PB1) + echo (PB4); PCINT1 = encoders (PC1/PC2)
+//   Mega: PCINT0 = echo (PB6);            PCINT2 = IR (PK2) + encoders (PK0/PK1)
+// Encoder capture is a hook the encoder driver implements (Task 7); a weak no-op stands in before.
+namespace cq {
+namespace drv {
+void encoderEdges(bool left_rising, bool right_rising, uint32_t now_us);  // called from the ISR
+void encodersEnablePcint();  // pull-ups + pin-change mask for both encoder pins
+}  // namespace drv
+}  // namespace cq
+```
+
+`src/drivers/pcint_hub.cpp`:
+```cpp
+#include <Arduino.h>
+#include <util/atomic.h>
+
+#include "drivers/board_config.h"
+#include "drivers/pcint_hub.h"
+#include "ports/ir.h"
+#include "ports/ultrasonic.h"
+
+// Capture only in every ISR; < 10 µs (LLD §9.15, §11.2).
+namespace {
+#if defined(BOARD_MEGA)
+constexpr uint8_t kEchoBit = _BV(PB6);   // D12
+constexpr uint8_t kIrBit = _BV(PK2);     // A10 (PCINT2 group)
+constexpr uint8_t kEncLeftBit = _BV(PK0);
+constexpr uint8_t kEncRightBit = _BV(PK1);
+volatile uint8_t g_prev_pink = 0xFF;
+#else
+constexpr uint8_t kIrBit = _BV(PB1);     // D9 (PCINT0 group)
+constexpr uint8_t kEchoBit = _BV(PB4);   // D12
+constexpr uint8_t kEncLeftBit = _BV(PC1);
+constexpr uint8_t kEncRightBit = _BV(PC2);
+volatile uint8_t g_prev_pinc = 0;
+#endif
+constexpr uint8_t kRing = 16;
+
+volatile uint8_t g_prev_pinb = 0xFF;
+volatile uint32_t g_ir_ring[kRing];
+volatile uint8_t g_ir_head = 0;
+volatile uint8_t g_ir_count = 0;
+volatile uint32_t g_echo_rise_us = 0;
+volatile uint32_t g_echo_fall_us = 0;
+volatile bool g_echo_rose = false;
+volatile bool g_echo_fell = false;
+uint32_t g_trig_us = 0;  // main context only
+bool g_armed = false;    // the last trigger() sent a ping
+
+inline void irEdge(uint8_t changed, uint8_t pins, uint32_t now) {
+  if ((changed & kIrBit) && !(pins & kIrBit) && g_ir_count < kRing) {
+    g_ir_ring[(g_ir_head + g_ir_count) % kRing] = now;
+    ++g_ir_count;
+  }
+}
+
+inline void echoEdge(uint8_t changed, uint8_t pinb, uint32_t now) {
+  if (changed & kEchoBit) {
+    if (pinb & kEchoBit) {
+      g_echo_rise_us = now;
+      g_echo_rose = true;
+    } else if (g_echo_rose) {
+      g_echo_fall_us = now;
+      g_echo_fell = true;
+    }
+  }
+}
+}  // namespace
+
+// Weak stand-in until the encoder driver (Task 7) provides the real capture.
+__attribute__((weak)) void cq::drv::encoderEdges(bool, bool, uint32_t) {}
+
+ISR(PCINT0_vect) {
+  const uint32_t now = micros();
+  const uint8_t pinb = PINB;
+  const uint8_t changed = pinb ^ g_prev_pinb;
+  g_prev_pinb = pinb;
+#if !defined(BOARD_MEGA)
+  irEdge(changed, pinb, now);
+#endif
+  echoEdge(changed, pinb, now);
+}
+
+#if defined(BOARD_MEGA)
+ISR(PCINT2_vect) {
+  const uint32_t now = micros();
+  const uint8_t pink = PINK;
+  const uint8_t changed = pink ^ g_prev_pink;
+  g_prev_pink = pink;
+  irEdge(changed, pink, now);
+  const uint8_t rising = changed & pink;
+  if (rising & (kEncLeftBit | kEncRightBit)) {
+    cq::drv::encoderEdges(rising & kEncLeftBit, rising & kEncRightBit, now);
+  }
+}
+#else
+ISR(PCINT1_vect) {
+  const uint32_t now = micros();
+  const uint8_t pinc = PINC;
+  const uint8_t rising = static_cast<uint8_t>((pinc ^ g_prev_pinc) & pinc);
+  g_prev_pinc = pinc;
+  if (rising & (kEncLeftBit | kEncRightBit)) {
+    cq::drv::encoderEdges(rising & kEncLeftBit, rising & kEncRightBit, now);
+  }
+}
+#endif
+
+namespace cq {
+namespace port {
+
+namespace ir {
+void begin() {
+#if defined(BOARD_MEGA)
+  pinMode(board::kPinIrShield, INPUT);  // jumpered to A10; never driven
+  pinMode(board::kPinIr, INPUT);
+  g_prev_pink = PINK;
+  PCMSK2 |= _BV(PCINT18);
+  PCICR |= _BV(PCIE2);
+#else
+  pinMode(board::kPinIr, INPUT);
+  g_prev_pinb = PINB;
+  PCMSK0 |= _BV(PCINT1);
+  PCICR |= _BV(PCIE0);
+#endif
+}
+
+bool popEdge(uint32_t& t_us) {
+  bool ok = false;
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+    if (g_ir_count > 0) {
+      t_us = g_ir_ring[g_ir_head];
+      g_ir_head = static_cast<uint8_t>((g_ir_head + 1) % kRing);
+      --g_ir_count;
+      ok = true;
+    }
+  }
+  return ok;
+}
+}  // namespace ir
+
+namespace ultrasonic {
+void begin() {
+  pinMode(board::kPinTrig, OUTPUT);
+  digitalWrite(board::kPinTrig, LOW);
+  // Pull-up: HC-SR04 echo is push-pull, so harmless when connected; unplugged it reads a steady
+  // HIGH (no edges, no PCINT storm) → kNoEcho → US_FAULT.
+  pinMode(board::kPinEcho, INPUT_PULLUP);
+  g_prev_pinb = PINB;
+#if defined(BOARD_MEGA)
+  PCMSK0 |= _BV(PCINT6);
+#else
+  PCMSK0 |= _BV(PCINT4);
+#endif
+  PCICR |= _BV(PCIE0);
+}
+
+bool trigger() {
+  // LLD §9.16: no new ping while the echo is still high (clone modules hold it up to 200 ms).
+  if (PINB & kEchoBit) {
+    g_armed = false;
+    return false;
+  }
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+    g_echo_rose = false;
+    g_echo_fell = false;
+  }
+  digitalWrite(board::kPinTrig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(board::kPinTrig, LOW);
+  g_trig_us = micros();
+  g_armed = true;
+  return true;
+}
+
+EchoState poll(uint16_t& echo_us) {
+  uint32_t rise = 0, fall = 0;
+  bool rose = false, fell = false;
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+    rise = g_echo_rise_us;
+    fall = g_echo_fall_us;
+    rose = g_echo_rose;
+    fell = g_echo_fell;
+  }
+  if (!g_armed) return EchoState::kPending;  // previous trigger() sent no ping
+  // No rising edge within 2 ms of the trigger → the sensor did not answer (a failed measurement).
+  if (!rose || static_cast<uint32_t>(rise - g_trig_us) > 2000UL) return EchoState::kNoEcho;
+  if (!fell) return EchoState::kClear;    // echo still high after 50 ms: nothing in range
+  const uint32_t w = fall - rise;
+  if (w > 25000UL) return EchoState::kClear;  // LLD §9.16: echo high > 25 ms = nothing in range
+  echo_us = static_cast<uint16_t>(w);
+  return EchoState::kReady;
+}
+}  // namespace ultrasonic
+
+}  // namespace port
+}  // namespace cq
+
+void cq::drv::encodersEnablePcint() {
+  pinMode(cq::board::kPinEncLeft, INPUT_PULLUP);
+  pinMode(cq::board::kPinEncRight, INPUT_PULLUP);
+#if defined(BOARD_MEGA)
+  g_prev_pink = PINK;
+  PCMSK2 |= _BV(PCINT16) | _BV(PCINT17);
+  PCICR |= _BV(PCIE2);
+#else
+  g_prev_pinc = PINC;
+  PCMSK1 |= _BV(PCINT9) | _BV(PCINT10);
+  PCICR |= _BV(PCIE1);
+#endif
+}
+```
+
+In `src/drivers/imu_uno.cpp`, at the top of `begin()`:
+```cpp
+#if defined(BOARD_MEGA)
+  // LLD §11.1: the shield's A4/A5 are jumpered to D20/D21 (TWI); never drive them.
+  pinMode(board::kPinShieldSda, INPUT);
+  pinMode(board::kPinShieldScl, INPUT);
+#endif
+```
+
+- [ ] **Step 4: Build both boards**
+
+Run: `pio test -e native && pio run -e mega && python3 scripts/size_gate.py mega && pio run -e uno && python3 scripts/size_gate.py uno`
+Expected: 76 tests pass; both `SUCCESS`; `size_gate[mega]: flash ~25500 / 245760 B, static RAM ~1360 / 6144 B` and the Uno still under its gate.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add firmware/uno
+git commit -m "feat(uno): Mega 2560 board support - pin map, PCINT hub, per-env size gate"
+```
+
+---
+
 ### Task 7: Encoders, encoder health, calibration scripts, self-test, shield probe and mount check
 
 **Files:**
@@ -7409,28 +7831,24 @@ void snapshot(EncoderSnapshot& out);  // atomic copy; counts are raw rising edge
 #include <util/atomic.h>
 
 #include "drivers/board_config.h"
+#include "drivers/pcint_hub.h"
 #include "ports/encoders.h"
 
+// The pin-change ISR lives in drivers/pcint_hub.cpp (Task 6b; Uno PCINT1, Mega PCINT2 shared with
+// IR); it calls encoderEdges() with the rising edges. Channel A only, rising edges (LLD §9.6).
 namespace {
-constexpr uint8_t kLeftBit = _BV(PC1);   // A1
-constexpr uint8_t kRightBit = _BV(PC2);  // A2
-volatile uint8_t g_prev = 0;
 volatile uint32_t g_edges_l = 0, g_edges_r = 0;
 volatile uint32_t g_last_l = 0, g_last_r = 0;
 volatile uint32_t g_period_l = 0, g_period_r = 0;
 }  // namespace
 
-ISR(PCINT1_vect) {
-  const uint32_t now = micros();
-  const uint8_t pins = PINC;
-  const uint8_t rising = static_cast<uint8_t>((pins ^ g_prev) & pins);
-  g_prev = pins;
-  if (rising & kLeftBit) {
+void cq::drv::encoderEdges(bool left_rising, bool right_rising, uint32_t now) {
+  if (left_rising) {
     g_period_l = now - g_last_l;
     g_last_l = now;
     ++g_edges_l;
   }
-  if (rising & kRightBit) {
+  if (right_rising) {
     g_period_r = now - g_last_r;
     g_last_r = now;
     ++g_edges_r;
@@ -7441,13 +7859,7 @@ namespace cq {
 namespace port {
 namespace encoders {
 
-void begin() {
-  pinMode(board::kPinEncLeft, INPUT_PULLUP);
-  pinMode(board::kPinEncRight, INPUT_PULLUP);
-  g_prev = PINC;
-  PCMSK1 |= _BV(PCINT9) | _BV(PCINT10);
-  PCICR |= _BV(PCIE1);
-}
+void begin() { drv::encodersEnablePcint(); }
 
 void snapshot(EncoderSnapshot& out) {
   ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
@@ -7911,7 +8323,7 @@ Move `import csv`, `import math` and `import statistics` to the top-level import
 
 - [ ] **Step 10: Build, flash, stand checks**
 
-Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py && pio run -e uno -t upload`
+Run: `pio test -e native && pio run -e mega && python3 scripts/size_gate.py mega && pio run -e mega -t upload`
 Enable encoders once: `… setting encoders_enabled 1 --save`.
 On the stand (tracks free), from `tools/smoke/`:
 1. `… probe` → answer per track; expect `PROBE RESULT: PASS` and non-zero `encoder edges seen` for every run.
@@ -10065,7 +10477,7 @@ Expected: `… already formatted`, `All checks passed!`, `0 errors, 0 warnings, 
 
 - [ ] **Step 6: Build, flash, floor tests (tethered USB, long cable, clear floor ≥ 2 × 2 m)**
 
-Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py && pio run -e uno -t upload`
+Run: `pio test -e native && pio run -e mega && python3 scripts/size_gate.py mega && pio run -e mega -t upload`
 Then from `tools/smoke/` (encoders enabled and `bias` done in Task 7). Each line is one self-contained run (the Uno reboots when the script opens the port):
 1. Heading hold: `… drive 40 0 --seconds 4` → `yaw` stays within ±2° of its start; without IMU usable the tank would drift.
 2. Spin: `… turn 90 50` → `PRIMITIVE_DONE`, `TURN OK`, printed `yaw` within ±2° of 90 (yaw starts at 0 after the reboot); `… turn -360 50` → back within ±2° of 0.
@@ -10717,7 +11129,7 @@ Expected: `… already formatted`, `All checks passed!`, `0 errors, 0 warnings, 
 
 - [ ] **Step 8: Build, flash, check on the stand**
 
-Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py && pio run -e uno -t upload`
+Run: `pio test -e native && pio run -e mega && python3 scripts/size_gate.py mega && pio run -e mega -t upload`
 Each line is one self-contained run (opening the port reboots the Uno, which clears the lock):
 1. Power on: the head snaps to 90/90 once (its start position is unknown, so this first move cannot be smoothed); after that every move is smooth with no jumps.
 2. `… cam joy 100 0 2` → pans smoothly fully right (camera looks right), holds while the stick is held, returns home ≈ 0.5 s after release.
@@ -11697,7 +12109,7 @@ void sendByte(uint8_t byte) {
       "  rjmp .+0               \n\t"  // 2  T1L ≈ 7 cycles (440 ns)
       "  brne 1b                \n\t"  // 2
       : [byte] "+r"(byte), [bits] "+r"(bits)
-      : [port] "I"(_SFR_IO_ADDR(PORTD)), [pin] "I"(PORTD4));
+      : [port] "I"(_SFR_IO_ADDR(kLedPortReg)), [pin] "I"(kLedPortBit));
 }
 
 }  // namespace
@@ -11723,7 +12135,16 @@ void write(const Rgb& c) {
 
 `board_config.h` already pins the LED to D4 = PD4; the driver asserts that assumption at compile time — add to `ws2812_uno.cpp` after the includes:
 ```cpp
-static_assert(cq::board::kPinLed == 4, "ws2812_uno.cpp drives PORTD4 directly");
+static_assert(cq::board::kPinLed == 4, "ws2812_uno.cpp drives D4 directly");
+// D4 is PD4 on the Uno and PG5 on the Mega (LLD §11.1). Both ports are in the low I/O space, so the
+// cycle-counted sbi/cbi timing is identical on both boards.
+#if defined(BOARD_MEGA)
+#define kLedPortReg PORTG
+#define kLedPortBit PORTG5
+#else
+#define kLedPortReg PORTD
+#define kLedPortBit PORTD4
+#endif
 ```
 
 - [ ] **Step 6: UI task, routes and audio flags**
@@ -11968,7 +12389,7 @@ Expected: `… already formatted`, `All checks passed!`, `0 errors, 0 warnings, 
 
 - [ ] **Step 8: Build, flash, check**
 
-Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py && pio run -e uno -t upload`
+Run: `pio test -e native && pio run -e mega && python3 scripts/size_gate.py mega && pio run -e mega -t upload`
 Each numbered check is one run per command (opening the port reboots the Uno; RAM state such as the audio mode does not carry over):
 1. Boot: LED pulses amber (no ESP32); ≈ 2 s later the STARTUP sweep (200 → 3000 Hz + 1500/2000 tag, 1.1 s; SELFTEST_FAIL with the ultrasonic unplugged). Start `… watch` → READY chirp, LED dim white **breathing** (2 s); the LED never exceeds `led_max` (50/255).
 2. `… led blink 0 0 200 --period 400 --duration 3000` → blue blink for 3 s, then dim white again. While it blinks, tilt the tank past 45° and hold it for over 300 ms → red fast blink overrides, the safety-chirp siren (2500/3000/2500 Hz) repeats every 0.4 s while tilted.
@@ -12698,7 +13119,7 @@ and add `#include "app/tasks.h"` to `input_task.cpp`. In `src/main.cpp` add the 
 
 - [ ] **Step 7: Build, flash, check with the remote (ESP32 absent)**
 
-Run: `pio test -e native && pio run -e uno && python3 scripts/size_gate.py && pio run -e uno -t upload`
+Run: `pio test -e native && pio run -e mega && python3 scripts/size_gate.py mega && pio run -e mega -t upload`
 Unplug USB (battery on, tank on the floor, no link at all):
 1. Hold ▲ → drives forward holding heading; release → stops within 0.2 s. ◀/▶ spin, ▼ reverses. LED purple while IR owns; 3 s after the last key it returns to the amber "waiting" pulse.
 2. `6`/`4` change speed (beep pitch rises/falls); `OK` stops at once and releases control (LED back to amber).
@@ -12736,8 +13157,8 @@ Expected: 14 suites pass — `test_scheduler` 4, `test_comms` 16, `test_settings
 
 - [ ] **Step 2: Build gates and memory map**
 
-Run: `pio run -e uno && python3 scripts/size_gate.py`
-Expected: `size_gate: flash ≤ 30720 B, static RAM ≤ 1750 B` and exit 0. LLD §10.7 estimates Revision 3 (Safety Override, catalogue, LED styles, IR hold, child-play flag, self-test lock, per-block EEPROM save) at ≈ +1.7 KB flash (≈ 24.9–27.9 KB of 30 KB) and ≈ −10 B static RAM net (+40 B SoundSequencer 14 notes / override state / LED style, +7 B self-test lock, −56 B EEPROM writer queue 128 → 80 B); if the gate fails, apply the LLD §9.20 / design-notes §13 overflow plan before trimming any safety feature.
+Run: `pio run -e mega && python3 scripts/size_gate.py mega`
+Expected: `size_gate[mega]: flash ≤ 245760 B, static RAM ≤ 6144 B` and exit 0 (the Uno Lite profile is sized separately later). LLD §10.7 estimates Revision 3 (Safety Override, catalogue, LED styles, IR hold, child-play flag, self-test lock, per-block EEPROM save) at ≈ +1.7 KB flash (≈ 24.9–27.9 KB of 30 KB) and ≈ −10 B static RAM net (+40 B SoundSequencer 14 notes / override state / LED style, +7 B self-test lock, −56 B EEPROM writer queue 128 → 80 B); if the gate fails, apply the LLD §9.20 / design-notes §13 overflow plan before trimming any safety feature.
 Run: `~/.platformio/packages/toolchain-atmelavr/bin/avr-nm --size-sort -S -C .pio/build/uno/firmware.elf | grep -i " [bBdD] " | tail -15`
 Expected: the largest RAM symbols are `cq::g_app` (all domain state), the Serial RX/TX rings (64 + 64 B), `g_tx` (53 B) and the Servo table; nothing unexpected (no `String`, no `malloc`). Record the flash/RAM numbers in the commit message.
 
@@ -12873,7 +13294,7 @@ Note: Plan A names these enums `AudioModeValue` and `OwnerHintValue` (C++ `proto
 
 ## Done when
 
-- `cd firmware/uno && pio test -e native` passes all 155 host tests; `pio run -e uno && python3 scripts/size_gate.py` passes the flash/RAM budget.
+- `cd firmware/uno && pio test -e native` passes all 155 host tests; `pio run -e mega && python3 scripts/size_gate.py mega` passes the flash/RAM budget.
 - The phase 1 and phase 2 sign-off lists in Task 15 are fully ticked on the real tank.
 - `tools/smoke/uno_smoke.py` covers handshake, telemetry, settings, driving, primitives, camera, LED/sound, calibration scripts, probe, mount check, bias and soak — the same link behaviour Plan C's bridge and Plan D's bench tool build on.
 - `docs/lld/uno-firmware-lld.md` §9.8 lists the corrected IR codes.

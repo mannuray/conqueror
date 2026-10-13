@@ -71,6 +71,24 @@ void test_ping_echoes_t0_verbatim() {
   TEST_ASSERT_EQUAL_STRING("null", P("{\"t\":\"ping\"}").t0);
 }
 
+// Review M4: id must be a non-negative integer that fits int32 (no UB cast, no silent "no id").
+void test_id_out_of_range_is_invalid() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"stop\",\"id\":1e30}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"stop\",\"id\":-1}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"stop\",\"id\":2.5}").kind));
+  const WsCommand c = P("{\"t\":\"stop\",\"id\":2147483647}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kStop), K(c.kind));
+  TEST_ASSERT_EQUAL_INT32(2147483647, c.id);
+}
+
+// Review M5: t0 is re-formatted, so pong always carries a valid JSON number.
+void test_ping_t0_is_valid_json_number() {
+  TEST_ASSERT_EQUAL_STRING("1", P("{\"t\":\"ping\",\"t0\":+1}").t0);
+  TEST_ASSERT_EQUAL_STRING("0.5", P("{\"t\":\"ping\",\"t0\":.5}").t0);
+  TEST_ASSERT_EQUAL_STRING("5", P("{\"t\":\"ping\",\"t0\":5.}").t0);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"ping\",\"t0\":1e999}").kind));
+}
+
 void test_unsupported_commands() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"turn\",\"angle\":90}").kind));
   TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"safety_override\"}").kind));
@@ -98,6 +116,8 @@ int main() {
   RUN_TEST(test_simple_kinds);
   RUN_TEST(test_hello_ignores_key_and_nested);
   RUN_TEST(test_ping_echoes_t0_verbatim);
+  RUN_TEST(test_id_out_of_range_is_invalid);
+  RUN_TEST(test_ping_t0_is_valid_json_number);
   RUN_TEST(test_unsupported_commands);
   RUN_TEST(test_junk_is_invalid);
   RUN_TEST(test_length_is_respected);

@@ -1,5 +1,6 @@
 #include "core/ws_codec.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,7 +43,7 @@ class Reader {
     if (cap) out[n] = '\0';
     return eat('"');
   }
-  // Copies a JSON number token verbatim (for t0) and returns its value.
+  // Reads a number; raw (for t0) gets it re-formatted as a valid JSON number (review M5).
   bool num(double& value, char* raw, size_t cap) {
     ws();
     const char* start = m_s;
@@ -54,10 +55,8 @@ class Reader {
     tmp[n] = '\0';
     char* endp = nullptr;
     value = strtod(tmp, &endp);
-    if (endp != tmp + n) return false;
-    if (raw && cap > n) {
-      memcpy(raw, tmp, n + 1);
-    }
+    if (endp != tmp + n || !isfinite(value)) return false;
+    if (raw && cap > 0) snprintf(raw, cap, "%.15g", value);
     return true;
   }
   bool word(const char* w) {
@@ -144,7 +143,8 @@ WsCommand parseWsCommand(const char* text, size_t len) {
       if (strcmp(key, "t") == 0) {
         if (!r.str(t, sizeof(t))) return bad;
       } else if (strcmp(key, "id") == 0) {
-        if (!r.num(num, nullptr, 0)) return bad;
+        // Review M4: a non-negative integer that fits int32 (no UB cast, no silent "no id").
+        if (!r.num(num, nullptr, 0) || num < 0 || num > 2147483647.0 || num != floor(num)) return bad;
         c.has_id = true;
         c.id = static_cast<int32_t>(num);
       } else if (strcmp(key, "v") == 0 || strcmp(key, "w") == 0 || strcmp(key, "x") == 0 ||

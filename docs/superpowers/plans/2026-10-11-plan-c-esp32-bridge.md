@@ -6454,3 +6454,745 @@ git commit -m "feat(esp32): WebSocket drive service mapping JSON to body-link fr
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+---
+
+### Task 7: The Basic Drive page — one HTML file, embedded gzipped, served at `/`
+
+**Files:**
+- Create: `firmware/esp32/web/basic_drive.html`, `firmware/esp32/web/manifest.webmanifest`, `firmware/esp32/scripts/pack_web.py`, `firmware/esp32/src/net/web_routes.h`, `firmware/esp32/src/net/web_routes.cpp`
+- Modify: `firmware/esp32/platformio.ini` (`pack_web.py` pre-script), `firmware/esp32/src/main.cpp` (register the routes)
+
+**Interfaces:**
+- Consumes: `/ws` API (Task 6), `httpServer()` (Task 6); MJPEG at `http://<host>:81/stream` (Task 8 — until then the page shows `[ NO VIDEO ]` and retries every 3 s).
+- Produces: `build/web_assets.h` (git-ignored): `cq::web::Asset{uri, type, data, len, gzip}`, `cq::web::kAssets[]`, `kAssetCount`; `cq::net::webRoutesRegister()`; page budget check (≤ 25 KB gzipped, today ≈ 7 KB); `/help` assembly from `web/help.html` + `src/generated/help_protocol.html` + `web/help_logo.html` (≤ 16 KB gzipped), active once Task 9 adds those files.
+
+Page behaviour (design-notes §28, LLD R2.9 — all safety-relevant):
+- **Drive stick** (pointer events, touch + mouse, `touch-action: none`): while held, `drive{v, w}` is sent **every 50 ms from a timer, also when the stick does not move** (the bridge never repeats a DRIVE, so a held-still stick would otherwise hit the Uno's 300 ms deadman). Mapping v = stick y, w = −stick x, deadzone 5 %, expo 0.3 (spec 01 client defaults), scaled by the speed slider (client-side only). **Release → timer stops + `stop{id}`.**
+- **STOP** button: `stop{id}` on `pointerdown` (no click delay), releases both sticks, vibrates if possible. Tab hidden / page hidden / window blur → `stop`.
+- **Camera stick** (small): `cam_joy{x, y, active:true}` every 50 ms while held; release → `cam_joy{0, 0, active:false}` (the Uno glides home after `cam_return_delay_ms`); HOME → `cam_home{id}`.
+- **Telemetry**: battery V + % (2S curve, computed in the page), distance (`CLEAR` for null), pitch/roll, heading (= yaw), owner (`FREE`, `YOU`, `PHONE-2`, `BENCH`, `IR REMOTE`). `nack NOT_OWNER` / `BUSY` → banner "Busy — <owner_client> is driving" (owner confirmation 2); `body_offline` → red banner (with "flash Plan B" when `BODY_INCOMPATIBLE`).
+- **Tilt steering** toggle appears **only after the browser delivers a real `deviceorientation` reading** (or, on iOS, only in a secure context where permission can be asked) — on plain `http://` most phones never show it (§28). With tilt on, the drive pad becomes "hold to drive" (release = stop).
+- Responsive: portrait = camera on top, telemetry, then drive stick + STOP/speed/camera; landscape = drive stick left, camera centre, controls right. Phosphor theme as plain CSS (green #33FF66 on #050805, amber #FFB000 warnings, red #FF3B30 STOP/danger, white-green #E8FFE8 values, 4 px corners, bracketed titles, glow only on chrome); system monospace fonts (no web fonts — the fallback AP has no internet).
+- WebSocket reconnects with backoff (1 → 5 s), `ping` every 1 s (the bridge reaps a client silent for 3 s); sticks are disabled while offline.
+- Add to home screen: `manifest.webmanifest` (`display: fullscreen`) + `icon-192.png` (drawn by `pack_web.py`, no binary in git).
+
+- [ ] **Step 1: The page**
+
+`firmware/esp32/web/basic_drive.html`:
+```html
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#050805">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Conqueror Drive</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<style>
+/* Basic Drive page (bridge LLD R2.9, design-notes §28). Phosphor theme (docs/design/hub-ux.md):
+   green UI on near-black; status colours are never green; glow only on chrome, never on video. */
+:root {
+  --bg: #050805; --panel: #0b120b; --line: #1d3a22; --ui: #33ff66; --dim: #1f9a40;
+  --warn: #ffb000; --danger: #ff3b30; --active: #e8ffe8; --text: #b8f5c8;
+  --glow: 0 0 6px rgba(51, 255, 102, .45);
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --pad: 12px;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.3 var(--mono); }
+body { overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: manipulation;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+button, input { font: inherit; color: inherit; }
+.app { height: 100%; display: grid; gap: 8px; padding: 8px;
+  grid-template-columns: 1fr 1fr; grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "bar bar" "cam cam" "tele tele" "drive side"; }
+.bar { grid-area: bar; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.cam { grid-area: cam; position: relative; min-height: 0; background: #000; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.tele { grid-area: tele; }
+.drive { grid-area: drive; }
+.side { grid-area: side; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px; position: relative; }
+.title { color: var(--ui); text-shadow: var(--glow); font-size: 11px; letter-spacing: .08em; margin: 0 0 6px; }
+.chip { border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px; font-size: 12px; background: var(--panel); white-space: nowrap; }
+.chip b { color: var(--active); font-weight: 600; }
+.brand { color: var(--ui); text-shadow: var(--glow); font-weight: 700; margin-right: 4px; }
+.ok { color: var(--ui); } .warn { color: var(--warn); } .bad { color: var(--danger); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); margin-right: 5px; vertical-align: 1px; }
+.dot.on { background: var(--ui); box-shadow: var(--glow); }
+.dot.wait { background: var(--warn); }
+#video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.novideo { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--dim); font-size: 13px; letter-spacing: .1em; }
+.hud { position: absolute; left: 6px; right: 6px; top: 6px; display: flex; justify-content: space-between; pointer-events: none; }
+.hud span { background: rgba(5, 8, 5, .7); border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; font-size: 12px; color: var(--active); }
+.banner { position: absolute; left: 6px; right: 6px; bottom: 6px; padding: 6px 8px; border-radius: 4px; font-size: 13px; display: none; text-align: center; background: rgba(5, 8, 5, .85); }
+.banner.show { display: block; }
+.banner.warn { border: 1px solid var(--warn); color: var(--warn); }
+.banner.bad { border: 1px solid var(--danger); color: var(--danger); }
+.grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.cell { border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; min-width: 0; }
+.cell small { display: block; color: var(--dim); font-size: 10px; letter-spacing: .08em; }
+.cell span { display: block; color: var(--active); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pad { position: relative; width: min(42vw, 30vh, 220px); aspect-ratio: 1; margin: 4px auto 0; border-radius: 50%;
+  border: 1px solid var(--dim); box-shadow: inset 0 0 18px rgba(51, 255, 102, .12); touch-action: none; }
+.pad::before, .pad::after { content: ""; position: absolute; background: var(--line); }
+.pad::before { left: 50%; top: 8%; bottom: 8%; width: 1px; } .pad::after { top: 50%; left: 8%; right: 8%; height: 1px; }
+.pad.small { width: min(28vw, 18vh, 130px); }
+.knob { position: absolute; left: 50%; top: 50%; width: 34%; height: 34%; margin: -17% 0 0 -17%; border-radius: 50%;
+  background: radial-gradient(circle, rgba(51, 255, 102, .5), rgba(51, 255, 102, .12)); border: 1px solid var(--ui); box-shadow: var(--glow); z-index: 1; }
+.pad.held .knob { background: radial-gradient(circle, rgba(232, 255, 232, .7), rgba(51, 255, 102, .25)); }
+.pad.off { opacity: .35; }
+.lbl { position: absolute; font-size: 10px; color: var(--dim); }
+.lbl.n { top: 3%; left: 50%; transform: translateX(-50%); } .lbl.s { bottom: 3%; left: 50%; transform: translateX(-50%); }
+.side { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+#stop { background: var(--danger); color: #fff; border: 0; border-radius: 4px; font-size: 22px; font-weight: 800; letter-spacing: .1em;
+  min-height: 64px; box-shadow: 0 0 10px rgba(255, 59, 48, .5); touch-action: manipulation; }
+#stop:active { transform: scale(.97); filter: brightness(1.2); }
+.row { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
+.btn { background: var(--panel); border: 1px solid var(--dim); border-radius: 4px; padding: 6px 8px; color: var(--ui); }
+.btn.on { background: var(--ui); color: #031; }
+input[type=range] { width: 100%; accent-color: var(--ui); }
+.hidden { display: none !important; }
+#toast { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); padding: 6px 12px; border-radius: 4px;
+  background: var(--panel); border: 1px solid var(--warn); color: var(--warn); font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 9; }
+#toast.show { opacity: 1; }
+@media (orientation: landscape) {
+  .app { grid-template-columns: minmax(150px, 26%) 1fr minmax(150px, 26%); grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "bar bar bar" "drive cam side" "drive tele side"; }
+  .pad { width: min(22vw, 52vh, 240px); }
+  .pad.small { width: min(14vw, 28vh, 140px); }
+  .grid { grid-template-columns: repeat(5, 1fr); }
+}
+@media (max-width: 360px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <span class="brand">[ CONQUEROR ]</span>
+    <span class="chip"><span id="wsDot" class="dot"></span><b id="wsTxt">OFFLINE</b></span>
+    <span class="chip">BODY <b id="bodyTxt">-</b></span>
+    <span class="chip">CTRL <b id="ownerChip">-</b></span>
+    <span class="chip">BATT <b id="battChip">-</b></span>
+  </header>
+
+  <section class="cam">
+    <img id="video" alt="">
+    <div id="noVideo" class="novideo">[ NO VIDEO ]</div>
+    <div class="hud"><span id="hudHead">HDG -</span><span id="hudDist">DIST -</span></div>
+    <div id="banner" class="banner"></div>
+  </section>
+
+  <section class="panel tele">
+    <p class="title">[ TELEMETRY ]</p>
+    <div class="grid">
+      <div class="cell"><small>BATTERY</small><span id="tBatt">-</span></div>
+      <div class="cell"><small>DISTANCE</small><span id="tDist">-</span></div>
+      <div class="cell"><small>TILT P/R</small><span id="tTilt">-</span></div>
+      <div class="cell"><small>HEADING</small><span id="tHead">-</span></div>
+      <div class="cell"><small>OWNER</small><span id="tOwner">-</span></div>
+    </div>
+  </section>
+
+  <section class="panel drive">
+    <div class="row"><p class="title">[ DRIVE ]</p><button id="tiltBtn" class="btn hidden" type="button">TILT OFF</button></div>
+    <div id="drivePad" class="pad off"><span class="lbl n">FWD</span><span class="lbl s">REV</span><div class="knob"></div></div>
+  </section>
+
+  <section class="panel side">
+    <button id="stop" type="button">STOP</button>
+    <div>
+      <div class="row"><p class="title">[ SPEED ]</p><b id="speedTxt">60%</b></div>
+      <input id="speed" type="range" min="10" max="100" step="5" value="60" aria-label="speed">
+    </div>
+    <div>
+      <div class="row"><p class="title">[ CAMERA ]</p><button id="camHome" class="btn" type="button">HOME</button></div>
+      <div id="camPad" class="pad small off"><span class="lbl n">UP</span><span class="lbl s">DOWN</span><div class="knob"></div></div>
+    </div>
+  </section>
+</div>
+<div id="toast"></div>
+<script>
+"use strict";
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var DRIVE_MS = 50;        // drive is re-sent every 50 ms while held: the bridge never repeats it
+  var DEADZONE = 0.05, EXPO = 0.3;
+  var ws = null, wsOpen = false, you = "", synced = false, owner = "none", ownerClient = "";
+  var nextId = 1, retryMs = 1000, pingTimer = 0;
+  var speed = 60;
+  try { speed = Number(localStorage.getItem("cq_speed")) || 60; } catch (e) { /* private mode */ }
+  $("speed").value = speed;
+  $("speedTxt").textContent = speed + "%";
+
+  // ---------- WebSocket ----------
+  function send(obj) {
+    if (ws && wsOpen) { ws.send(JSON.stringify(obj)); return true; }
+    return false;
+  }
+  function connect() {
+    setWs("wait", "CONNECTING");
+    ws = new WebSocket("ws://" + location.host + "/ws");
+    ws.onopen = function () {
+      wsOpen = true; retryMs = 1000;
+      setWs("on", "ONLINE");
+      send({ t: "hello", client: "basic-drive", proto: 1 });
+      clearInterval(pingTimer);
+      pingTimer = setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
+      setPads();
+    };
+    ws.onmessage = function (ev) {
+      var m;
+      try { m = JSON.parse(ev.data); } catch (e) { return; }
+      onMessage(m);
+    };
+    ws.onclose = function () {
+      wsOpen = false; synced = false;
+      clearInterval(pingTimer);
+      releaseAll(false);
+      setWs("", "OFFLINE");
+      setPads();
+      setTimeout(connect, retryMs);
+      retryMs = Math.min(retryMs * 2, 5000);
+    };
+    ws.onerror = function () { ws.close(); };
+  }
+  function setWs(cls, txt) {
+    $("wsDot").className = "dot " + cls;
+    $("wsTxt").textContent = txt;
+  }
+
+  function onMessage(m) {
+    switch (m.t) {
+      case "welcome":
+        you = m.you || "";
+        showOwner(m.owner, m.owner_client);
+        break;
+      case "tf": showFast(m); break;
+      case "ts": showSlow(m); break;
+      case "ev": onEvent(m); break;
+      case "nack": onNack(m); break;
+      default: break;  // ack, pong
+    }
+  }
+
+  // ---------- telemetry ----------
+  var BATT_CURVE = [[8.4, 100], [8.2, 90], [8.0, 80], [7.8, 65], [7.6, 50], [7.4, 35], [7.2, 20], [7.0, 10], [6.8, 5], [6.6, 0]];
+  function battPct(v) {  // 2S Li-ion, resting voltage
+    if (v >= BATT_CURVE[0][0]) return 100;
+    for (var i = 1; i < BATT_CURVE.length; i++) {
+      var hi = BATT_CURVE[i - 1], lo = BATT_CURVE[i];
+      if (v >= lo[0]) return Math.round(lo[1] + (v - lo[0]) * (hi[1] - lo[1]) / (hi[0] - lo[0]));
+    }
+    return 0;
+  }
+  function showFast(m) {
+    var head = Math.round(m.yaw) % 360;
+    $("tHead").textContent = head + "°";
+    $("hudHead").textContent = "HDG " + head + "°";
+    var d = m.dist_cm === null ? "CLEAR" : m.dist_cm + " cm";
+    $("tDist").textContent = d;
+    $("hudDist").textContent = "DIST " + d;
+    $("tDist").className = m.dist_cm !== null && m.dist_cm < 25 ? "bad" : "";
+    $("tTilt").textContent = m.pitch.toFixed(0) + "°/" + m.roll.toFixed(0) + "°";
+    var tilt = Math.max(Math.abs(m.pitch), Math.abs(m.roll));
+    $("tTilt").className = tilt > 35 ? "bad" : tilt > 20 ? "warn" : "";
+  }
+  function showSlow(m) {
+    if (m.batt_v !== null) {
+      var pct = battPct(m.batt_v);
+      var txt = m.batt_v.toFixed(2) + " V " + pct + "%";
+      var cls = m.flags.indexOf("batt_critical") >= 0 ? "bad" : m.flags.indexOf("batt_low") >= 0 ? "warn" : "";
+      $("tBatt").textContent = txt; $("tBatt").className = cls;
+      $("battChip").textContent = pct + "%"; $("battChip").className = cls;
+    }
+    var offline = m.flags.indexOf("body_offline") >= 0;
+    synced = !offline;
+    $("bodyTxt").textContent = offline ? "OFFLINE" : "OK";
+    $("bodyTxt").className = offline ? "bad" : "ok";
+    showOwner(m.owner, m.owner_client);
+    if (offline) banner("bad", "Tank body offline - check the Uno and the S1 switch");
+    else if (bannerKind === "bad") banner("", "");
+    setPads();
+  }
+  function showOwner(o, client) {
+    owner = o || "none"; ownerClient = client || "";
+    var txt = owner === "none" ? "FREE" : owner === "ir" ? "IR REMOTE" : (ownerClient === you ? "YOU" : ownerClient.toUpperCase() || "HUMAN");
+    $("ownerChip").textContent = txt;
+    $("tOwner").textContent = txt;
+    var busy = owner === "ir" || (owner === "human" && ownerClient !== you);
+    $("ownerChip").className = busy ? "warn" : "";
+    if (!busy && bannerKind === "warn") banner("", "");
+  }
+  function onEvent(m) {
+    if (m.kind === "control_changed") showOwner(m.owner, m.client);
+    else if (m.kind === "deadman_stop") toast("Stopped: no drive signal (deadman)");
+    else if (m.kind === "blocked") toast("Obstacle brake: " + m.dist_cm + " cm");
+    else if (m.kind === "ir_override") toast("IR remote took control");
+    else if (m.kind === "batt_critical") toast("Battery critical " + m.v.toFixed(2) + " V");
+    else if (m.kind === "body_offline" && m.reason === "BODY_INCOMPATIBLE")
+      banner("bad", "Uno protocol " + m.uno_proto + " - flash Plan B firmware (needs " + m.need_proto + ")");
+  }
+  function onNack(m) {
+    if (m.reason === "NOT_OWNER" || m.reason === "BUSY") {
+      var who = owner === "ir" ? "the IR remote" : (ownerClient || "someone");
+      banner("warn", "Busy - " + who + " is driving");
+    } else if (m.reason === "BODY_OFFLINE") {
+      banner("bad", "Tank body offline");
+    } else {
+      toast(m.reason + ": " + m.message);
+    }
+  }
+
+  var bannerKind = "", bannerTimer = 0;
+  function banner(kind, text) {
+    var b = $("banner");
+    bannerKind = kind;
+    b.className = "banner" + (kind ? " show " + kind : "");
+    b.textContent = text;
+    clearTimeout(bannerTimer);
+    if (kind === "warn") bannerTimer = setTimeout(function () { banner("", ""); }, 3000);
+  }
+  var toastTimer = 0;
+  function toast(text) {
+    var t = $("toast");
+    t.textContent = text; t.className = "show";
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.className = ""; }, 2500);
+  }
+
+  // ---------- joysticks (pointer events: touch + mouse) ----------
+  function shape(v) {  // deadzone + expo, keeps the sign
+    var a = Math.abs(v);
+    if (a < DEADZONE) return 0;
+    a = (a - DEADZONE) / (1 - DEADZONE);
+    a = (1 - EXPO) * a + EXPO * a * a * a;
+    return v < 0 ? -a : a;
+  }
+  function Stick(el, onMove, onRelease) {
+    var knob = el.querySelector(".knob"), id = null, self = this;
+    this.x = 0; this.y = 0; this.held = false;
+    function update(ev) {
+      var r = el.getBoundingClientRect(), rad = r.width / 2;
+      var dx = (ev.clientX - r.left - rad) / rad, dy = (ev.clientY - r.top - rad) / rad;
+      var len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 1) { dx /= len; dy /= len; }
+      self.x = dx; self.y = -dy;
+      knob.style.transform = "translate(" + (dx * rad * 0.7) + "px," + (dy * rad * 0.7) + "px)";
+      onMove();
+    }
+    this.release = function (notify) {
+      if (!self.held) return;
+      self.held = false; id = null; self.x = 0; self.y = 0;
+      knob.style.transform = "";
+      el.classList.remove("held");
+      if (notify) onRelease();
+    };
+    el.addEventListener("pointerdown", function (ev) {
+      if (!wsOpen || el.classList.contains("off") || id !== null) return;
+      id = ev.pointerId;
+      el.setPointerCapture(id);
+      self.held = true;
+      el.classList.add("held");
+      update(ev);
+      ev.preventDefault();
+    });
+    el.addEventListener("pointermove", function (ev) { if (ev.pointerId === id) update(ev); });
+    ["pointerup", "pointercancel", "lostpointercapture"].forEach(function (t) {
+      el.addEventListener(t, function (ev) { if (ev.pointerId === id) self.release(true); });
+    });
+  }
+
+  var driveTimer = 0, camTimer = 0, tiltOn = false, tilt = { v: 0, w: 0 };
+  function driveValues() {
+    var k = speed / 100;
+    if (tiltOn) return { v: Math.round(tilt.v * 100 * k), w: Math.round(tilt.w * 100 * k) };
+    // stick x right +, y up + -> v = y, w = -x (w > 0 turns left)
+    return { v: Math.round(shape(drive.y) * 100 * k), w: Math.round(-shape(drive.x) * 100 * k) };
+  }
+  function sendDrive() {
+    var d = driveValues();
+    send({ t: "drive", v: d.v, w: d.w });
+  }
+  function startDriveTimer() {
+    if (driveTimer) return;
+    sendDrive();
+    driveTimer = setInterval(sendDrive, DRIVE_MS);  // keeps streaming even when the stick is still
+  }
+  function stopDrive() {
+    clearInterval(driveTimer); driveTimer = 0;
+    send({ t: "stop", id: nextId++ });
+  }
+  var drive = new Stick($("drivePad"), startDriveTimer, stopDrive);
+
+  function sendCam() {
+    send({ t: "cam_joy", x: Math.round(cam.x * 100), y: Math.round(cam.y * 100), active: true });
+  }
+  var cam = new Stick($("camPad"), function () {
+    if (!camTimer) { sendCam(); camTimer = setInterval(sendCam, DRIVE_MS); }
+  }, function () {
+    clearInterval(camTimer); camTimer = 0;
+    send({ t: "cam_joy", x: 0, y: 0, active: false });  // the Uno glides home after its delay
+  });
+
+  function releaseAll(notify) {
+    drive.release(notify); cam.release(notify);
+    if (!notify) { clearInterval(driveTimer); driveTimer = 0; clearInterval(camTimer); camTimer = 0; }
+  }
+  function setPads() {
+    var off = !wsOpen;
+    $("drivePad").classList.toggle("off", off);
+    $("camPad").classList.toggle("off", off);
+  }
+
+  // ---------- buttons ----------
+  $("stop").addEventListener("pointerdown", function (ev) {
+    ev.preventDefault();
+    releaseAll(false);
+    send({ t: "stop", id: nextId++ });
+    if (navigator.vibrate) navigator.vibrate(60);
+  });
+  $("camHome").addEventListener("click", function () { send({ t: "cam_home", id: nextId++ }); });
+  $("speed").addEventListener("input", function (ev) {
+    speed = Number(ev.target.value);
+    $("speedTxt").textContent = speed + "%";
+    try { localStorage.setItem("cq_speed", String(speed)); } catch (e) { /* private mode */ }
+  });
+
+  // ---------- phone-tilt steering (only if the browser really delivers the sensor) ----------
+  function onOrientation(e) {
+    if (e.beta === null || e.gamma === null) return;
+    $("tiltBtn").classList.remove("hidden");
+    // phone held in landscape-ish, tilt forward = drive forward; side tilt = turn
+    var fwd = Math.max(-1, Math.min(1, -(e.beta - 45) / 30));
+    var side = Math.max(-1, Math.min(1, e.gamma / 30));
+    tilt.v = shape(fwd); tilt.w = -shape(side);
+  }
+  if (window.DeviceOrientationEvent) {
+    var needsPermission = typeof DeviceOrientationEvent.requestPermission === "function";
+    if (!needsPermission) window.addEventListener("deviceorientation", onOrientation);
+    else if (window.isSecureContext) $("tiltBtn").classList.remove("hidden");  // iOS: ask on tap
+  }
+  $("tiltBtn").addEventListener("click", function () {
+    function toggle() {
+      tiltOn = !tiltOn;
+      $("tiltBtn").textContent = tiltOn ? "TILT ON" : "TILT OFF";
+      $("tiltBtn").classList.toggle("on", tiltOn);
+      toast(tiltOn ? "Tilt steering: hold the pad to drive" : "Joystick steering");
+    }
+    if (!tiltOn && typeof DeviceOrientationEvent.requestPermission === "function") {
+      DeviceOrientationEvent.requestPermission().then(function (s) {
+        if (s === "granted") { window.addEventListener("deviceorientation", onOrientation); toggle(); }
+      });
+    } else {
+      toggle();
+    }
+  });
+
+  // ---------- safety: hidden page / closing = stop ----------
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) { releaseAll(false); send({ t: "stop", id: nextId++ }); }
+  });
+  window.addEventListener("pagehide", function () { releaseAll(false); send({ t: "stop" }); });
+  window.addEventListener("blur", function () { if (drive.held) drive.release(true); });
+
+  // ---------- camera (MJPEG on port 81, max 2 viewers) ----------
+  function startVideo() {
+    var img = $("video");
+    $("noVideo").classList.add("hidden");  // MJPEG streams do not reliably fire onload
+    img.style.visibility = "visible";
+    img.onerror = function () {
+      img.style.visibility = "hidden";  // no broken-image icon
+      $("noVideo").classList.remove("hidden");
+      setTimeout(startVideo, 3000);
+    };
+    img.src = "http://" + location.hostname + ":81/stream?t=" + Date.now();
+  }
+
+  connect();
+  startVideo();
+})();
+</script>
+</body>
+</html>
+```
+
+`firmware/esp32/web/manifest.webmanifest`:
+```json
+{
+  "name": "Conqueror Drive",
+  "short_name": "Conqueror",
+  "description": "Basic Drive page of the Conqueror tank (developer bridge, home network only)",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#050805",
+  "theme_color": "#050805",
+  "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" }]
+}
+```
+
+Run: `cd firmware/esp32 && python3 -c "import re;t=open('web/basic_drive.html').read();open('/tmp/cq_page.js','w').write(re.search(r'<script>(.*)</script>',t,re.S).group(1))" && node --check /tmp/cq_page.js && echo JS OK`
+Expected: `JS OK` (skip if Node is not installed; the browser check in Step 5 covers it).
+
+- [ ] **Step 2: Asset packer**
+
+`firmware/esp32/scripts/pack_web.py`:
+```python
+"""PlatformIO pre-script: web assets -> build/web_assets.h (bridge LLD R2.3 step 5).
+
+- web/basic_drive.html (served at /), web/manifest.webmanifest: gzip -9, served with
+  Content-Encoding: gzip. Budget: the page must stay <= 25 KB gzipped (LLD R2.12).
+- /icon-192.png: drawn here (no binary file in git), stored as PNG (already compressed).
+- /help: web/help.html with <!--CQ:PROTOCOL--> replaced by the protogen output
+  src/generated/help_protocol.html and <!--CQ:LOGO--> by web/help_logo.html (Task 9);
+  skipped while web/help.html does not exist.
+Also runnable alone: python3 scripts/pack_web.py [project_dir]
+"""
+
+from __future__ import annotations
+
+import gzip
+import pathlib
+import struct
+import sys
+import zlib
+
+PAGE_BUDGET = 25 * 1024
+HELP_BUDGET = 16 * 1024
+
+
+def png_icon(size: int = 192) -> bytes:
+    """Phosphor icon: near-black square, green ring, green forward chevron."""
+    bg, green, dim = (5, 8, 5), (51, 255, 102), (31, 154, 64)
+    c = (size - 1) / 2
+    rows = bytearray()
+    for y in range(size):
+        rows.append(0)  # filter: none
+        for x in range(size):
+            dx, dy = x - c, y - c
+            r = (dx * dx + dy * dy) ** 0.5
+            px = bg
+            if 0.36 * size <= r <= 0.43 * size:
+                px = green
+            elif r < 0.30 * size:
+                # chevron pointing up: two strokes from the tip
+                u = (y - 0.25 * size) / (0.40 * size)  # 0 at the tip, 1 at the bottom
+                if 0 <= u <= 1 and abs(abs(dx) - u * 0.26 * size) < 0.06 * size:
+                    px = green
+                elif r < 0.05 * size:
+                    px = dim
+            rows += bytes(px)
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    ihdr = struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", zlib.compress(bytes(rows), 9))
+        + chunk(b"IEND", b"")
+    )
+
+
+def gz(data: bytes) -> bytes:
+    return gzip.compress(data, compresslevel=9, mtime=0)  # mtime 0: reproducible builds
+
+
+def assemble_help(project: pathlib.Path) -> bytes | None:
+    page = project / "web" / "help.html"
+    if not page.exists():
+        return None
+    text = page.read_text(encoding="utf-8")
+    proto = (project / "src" / "generated" / "help_protocol.html").read_text(encoding="utf-8")
+    logo = (project / "web" / "help_logo.html").read_text(encoding="utf-8")
+    for marker in ("<!--CQ:PROTOCOL-->", "<!--CQ:LOGO-->"):
+        if marker not in text:
+            raise SystemExit(f"pack_web: {marker} missing in web/help.html")
+    return text.replace("<!--CQ:PROTOCOL-->", proto).replace("<!--CQ:LOGO-->", logo).encode()
+
+
+def c_array(name: str, data: bytes) -> str:
+    lines = [f"inline const uint8_t {name}[] = {{"]
+    for i in range(0, len(data), 20):
+        lines.append("  " + ", ".join(f"0x{b:02x}" for b in data[i : i + 20]) + ",")
+    lines.append("};")
+    return "\n".join(lines)
+
+
+def build(project: pathlib.Path) -> None:
+    web = project / "web"
+    # (url, content type, data, gzipped)
+    assets: list[tuple[str, str, bytes, bool]] = [
+        ("/", "text/html; charset=utf-8", gz((web / "basic_drive.html").read_bytes()), True),
+        (
+            "/manifest.webmanifest",
+            "application/manifest+json",
+            gz((web / "manifest.webmanifest").read_bytes()),
+            True,
+        ),
+        ("/icon-192.png", "image/png", png_icon(), False),
+    ]
+    if len(assets[0][2]) > PAGE_BUDGET:
+        raise SystemExit(f"pack_web: page {len(assets[0][2])} B gzipped > {PAGE_BUDGET} B budget")
+    help_page = assemble_help(project)
+    if help_page is not None:
+        packed = gz(help_page)
+        if len(packed) > HELP_BUDGET:
+            raise SystemExit(f"pack_web: /help {len(packed)} B gzipped > {HELP_BUDGET} B budget")
+        assets.append(("/help", "text/html; charset=utf-8", packed, True))
+    out = [
+        "// generated by scripts/pack_web.py - do not edit, git-ignored",
+        "#pragma once",
+        "#include <stddef.h>",
+        "#include <stdint.h>",
+        "namespace cq {",
+        "namespace web {",
+    ]
+    for i, (_, _, data, _) in enumerate(assets):
+        out.append(c_array(f"kAsset{i}", data))
+    out += [
+        "struct Asset {",
+        "  const char* uri;",
+        "  const char* type;",
+        "  const uint8_t* data;",
+        "  size_t len;",
+        "  bool gzip;",
+        "};",
+        "inline const Asset kAssets[] = {",
+    ]
+    for i, (uri, ctype, _, zipped) in enumerate(assets):
+        out.append(f'  {{"{uri}", "{ctype}", kAsset{i}, sizeof(kAsset{i}), {str(zipped).lower()}}},')
+    out += [
+        "};",
+        "constexpr size_t kAssetCount = sizeof(kAssets) / sizeof(kAssets[0]);",
+        "}  // namespace web",
+        "}  // namespace cq",
+        "",
+    ]
+    target = project / "build" / "web_assets.h"
+    target.parent.mkdir(exist_ok=True)
+    target.write_text("\n".join(out), encoding="utf-8")
+    sizes = ", ".join(f"{uri} {len(data)} B" for uri, _, data, _ in assets)
+    print(f"pack_web: {sizes}")
+
+
+if __name__ == "__main__":
+    build(pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve())
+else:  # PlatformIO extra script
+    Import("env")  # type: ignore[name-defined]  # noqa: F821 - SCons injects Import/env
+    build(pathlib.Path(env.subst("$PROJECT_DIR")))  # type: ignore[name-defined]  # noqa: F821
+```
+
+In `firmware/esp32/platformio.ini` `[esp32]`, add the packer after the version stamp:
+```ini
+extra_scripts =
+    pre:scripts/protogen_check.py
+    pre:scripts/stamp_version.py
+    pre:scripts/pack_web.py
+    post:scripts/check_chip.py
+```
+
+Run: `python3 scripts/pack_web.py .`
+Expected: `pack_web: / ~7000 B, /manifest.webmanifest ~260 B, /icon-192.png ~1300 B` and `build/web_assets.h` written (`git status` does not list it: `build/` is ignored).
+
+- [ ] **Step 3: Serve the assets**
+
+`firmware/esp32/src/net/web_routes.h`:
+```cpp
+// Static web assets from build/web_assets.h on port 80: / (Basic Drive page),
+// /manifest.webmanifest, /icon-192.png and, from Task 9 on, /help.
+#pragma once
+
+namespace cq {
+namespace net {
+
+void webRoutesRegister();  // after httpServerStart()
+
+}  // namespace net
+}  // namespace cq
+```
+
+`firmware/esp32/src/net/web_routes.cpp`:
+```cpp
+#include "net/web_routes.h"
+
+#include <string.h>
+
+#include "net/http_server.h"
+#include "net/log.h"
+#include "web_assets.h"
+
+namespace cq {
+namespace net {
+namespace {
+
+esp_err_t serveAsset(httpd_req_t* req) {
+  const web::Asset* a = static_cast<const web::Asset*>(req->user_ctx);
+  httpd_resp_set_type(req, a->type);
+  if (a->gzip) httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-cache");  // an OTA update shows up at once
+  return httpd_resp_send(req, reinterpret_cast<const char*>(a->data),
+                         static_cast<ssize_t>(a->len));
+}
+
+}  // namespace
+
+void webRoutesRegister() {
+  for (size_t i = 0; i < web::kAssetCount; ++i) {
+    httpd_uri_t u{};
+    u.uri = web::kAssets[i].uri;
+    u.method = HTTP_GET;
+    u.handler = serveAsset;
+    u.user_ctx = const_cast<web::Asset*>(&web::kAssets[i]);
+    httpd_register_uri_handler(httpServer(), &u);
+  }
+  logf("http: %u static assets (page %u B gzipped)", static_cast<unsigned>(web::kAssetCount),
+       static_cast<unsigned>(web::kAssets[0].len));
+}
+
+}  // namespace net
+}  // namespace cq
+```
+
+In `firmware/esp32/src/main.cpp`: add `#include "net/web_routes.h"` before `#include "net/wifi_manager.h"`, and right after `cq::net::httpServerStart();` add:
+```cpp
+  cq::net::webRoutesRegister();
+```
+
+Run: `pio run -e bridge`
+Expected: `pack_web: …` line, then `SUCCESS`.
+
+- [ ] **Step 4: Layout check in a desktop browser (no tank needed)**
+
+Run: `cd web && python3 -m http.server 8765` and open `http://localhost:8765/basic_drive.html`; use the browser's device toolbar at 390×844 (portrait) and 844×390 (landscape).
+Expected: portrait — header chips, camera box with `[ NO VIDEO ]`, telemetry row, drive pad left, STOP/speed/camera right; landscape — drive pad left, camera centre, STOP/speed/camera right; no horizontal scrolling; header shows `OFFLINE` (no WebSocket on this server) and the pads are dimmed. Stop the server with `Ctrl-C`.
+
+- [ ] **Step 5 [HW]: Drive from a phone (tank on a stand, tracks off the ground; IR remote within reach)**
+
+Flash: `pio run -e bridge -t upload --upload-port /dev/ttyACM0` (or OTA: `pio run -e bridge_ota -t upload`). On a phone in the home WiFi open `http://conqueror-bridge.local/` (Android without mDNS: use the IP from the USB log).
+Expected, one by one:
+1. Header `ONLINE`, `BODY OK`, `CTRL FREE`, battery `7.xx V nn%`; heading/tilt/distance update ~10×/s.
+2. Push the stick forward a little: both tracks turn forward; `CTRL YOU`. Push right: the tank turns right (w < 0). **Hold the stick still for 5 s: the tracks keep turning** (timer resend). Release: tracks stop at once.
+3. Speed slider 20 %: full stick gives slow tracks; 100 %: fast.
+4. While driving press STOP: tracks stop. Hand over: wait 5 s without driving → `CTRL FREE`.
+5. Second phone (or a second tab) on the page: while phone 1 drives, phone 2's stick shows "Busy — PHONE-1 is driving"; phone 2's STOP still stops the tank.
+6. IR remote: press a drive key while the phone drives → the tank obeys IR, the page shows `CTRL IR REMOTE` and the phone stick shows the busy banner.
+7. Add to home screen (Chrome menu → "Add to Home screen" / Safari share → "Add to Home Screen"): the icon is the green chevron and the page opens fullscreen.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add firmware/esp32/web firmware/esp32/scripts/pack_web.py firmware/esp32/src firmware/esp32/platformio.ini
+git commit -m "feat(esp32): Basic Drive page embedded gzipped and served at /
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```

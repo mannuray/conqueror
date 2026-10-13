@@ -1,0 +1,25 @@
+<!-- Tank Logo quick reference (hand-written; keep in step with docs/superpowers/specs/2026-10-11-05-tank-logo-design.md) -->
+<section id="logo">
+<h2>[ TANK LOGO - QUICK REFERENCE ]</h2>
+<p class="note">Placeholder for this developer bridge: the program runner arrives with the phase-4
+gateway firmware (it runs on the ESP32). This bridge cannot upload or run programs yet.</p>
+<table>
+<tr><th>Move</th><td><code>FORWARD n</code>/<code>FD</code>, <code>BACK n</code>/<code>BK</code> (cm, needs encoders) &middot;
+<code>RIGHT a</code>/<code>RT</code>, <code>LEFT a</code>/<code>LT</code> (degrees) &middot; <code>ARC a r</code> &middot;
+<code>SPEED p</code> (10-100 %, default 40) &middot; <code>HOME</code> &middot; <code>WAIT s</code></td></tr>
+<tr><th>Look / light / sound</th><td><code>LOOK LEFT|RIGHT|UP|DOWN|HOME</code>, <code>LOOK pan tilt</code> &middot;
+<code>LED RED</code> &hellip; <code>LED r g b</code> &middot; <code>BEEP</code> &middot; <code>PLAY [ C4 E4 G4 ]</code> &middot;
+<code>SOUND HAPPY</code> &middot; <code>SAY "text</code></td></tr>
+<tr><th>Values</th><td><code>DISTANCE</code> (cm, 999 = nothing) &middot; <code>HEADING</code> &middot; <code>TILT</code> &middot;
+<code>BATTERY</code> &middot; <code>RANDOM n</code> &middot; <code>REPCOUNT</code></td></tr>
+<tr><th>Language</th><td><code>REPEAT n [ ]</code> &middot; <code>FOREVER [ ]</code> &middot; <code>WHILE c [ ]</code> &middot;
+<code>IF c [ ]</code> &middot; <code>IFELSE c [ ] [ ]</code> &middot; <code>TO name :a &hellip; END</code> &middot;
+<code>MAKE "x 5</code>, <code>:x</code> &middot; <code>STOP</code> ends the whole program &middot; <code>; comment</code></td></tr>
+<tr><th>Limits</th><td>5 min run time &middot; 10 000 steps &middot; depth 16 &middot; 32 variables &middot;
+4 KB / 1000 instructions &middot; WAIT &le; 60 s &middot; FORWARD/BACK &le; 500 cm per step</td></tr>
+<tr><th>Safety</th><td>Every step is a normal MOVE/TURN: obstacle brake, envelope, deadman, tilt and battery
+cut-offs apply. STOP from anywhere (page, bench, IR, the <code>STOP</code> word) ends the program; it never resumes.</td></tr>
+</table>
+<pre>REPEAT 4 [ FORWARD 50  RIGHT 90 ]   ; a square
+REPEAT 10 [ IFELSE DISTANCE &lt; 30 [ BACK 10  LEFT 90 ] [ FORWARD 20 ] ]</pre>
+</section>

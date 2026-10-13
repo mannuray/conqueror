@@ -7,9 +7,11 @@
 #include "board_config.h"
 #include "net/camera_service.h"
 #include "net/http_server.h"
+#include "net/info_service.h"
 #include "net/link_task.h"
 #include "net/log.h"
 #include "net/ota_service.h"
+#include "net/source_archive.h"
 #include "net/stream_server.h"
 #include "net/web_routes.h"
 #include "net/wifi_manager.h"
@@ -80,6 +82,9 @@ void setup() {
   g_wifi.begin(millis());
   cq::net::httpServerStart();
   cq::net::webRoutesRegister();
+  cq::net::sourceBegin();
+  cq::net::sourceRegister();
+  cq::net::infoRegister(g_wifi);
   const bool camera = cq::net::cameraBegin();
   cq::net::linkTaskStart(cq::net::cameraSensorName());
   if (camera) cq::net::streamServerStart();

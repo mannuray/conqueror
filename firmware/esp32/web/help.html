@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conqueror Bridge - Help</title>
+<link rel="icon" href="/icon-192.png">
+<style>
+:root { --bg: #050805; --panel: #0b120b; --line: #1d3a22; --ui: #33ff66; --dim: #1f9a40;
+  --warn: #ffb000; --danger: #ff3b30; --active: #e8ffe8; --text: #b8f5c8;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; }
+body { margin: 0 auto; max-width: 980px; padding: 12px 16px 40px; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+h1, h2, h3, code, pre, th { font-family: var(--mono); }
+h1 { color: var(--ui); text-shadow: 0 0 6px rgba(51, 255, 102, .45); font-size: 20px; }
+h2 { color: var(--ui); font-size: 15px; margin-top: 28px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+h3 { color: var(--active); font-size: 13px; }
+a { color: var(--ui); }
+code { color: var(--active); font-size: 12px; }
+pre { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px; overflow-x: auto; font-size: 12px; color: var(--active); }
+table { border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 12px; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; }
+th { color: var(--dim); font-weight: 600; }
+.warn { border: 1px solid var(--warn); color: var(--warn); border-radius: 4px; padding: 6px 10px; }
+.bad { border: 1px solid var(--danger); color: var(--danger); border-radius: 4px; padding: 6px 10px; }
+.note { color: var(--dim); }
+.hidden { display: none; }
+</style>
+</head>
+<body>
+<h1>[ CONQUEROR BRIDGE ]</h1>
+<p class="bad"><b>DEVELOPER BRIDGE - NO AUTHENTICATION.</b> Anyone on this network can drive the tank
+(page, WebSocket, TCP 3333). Use it only on your home network. Never in release firmware.</p>
+<p id="mismatch" class="warn hidden">The source archive does not match this firmware (the app was updated
+over WiFi without the source image). Run <code>scripts/ota.sh</code> or flash over USB.</p>
+
+<h2>[ WHAT THIS IS ]</h2>
+<p>Firmware <b id="fwName">conqueror-bridge</b> <b id="fwVersion">?</b>, commit <code id="fwCommit">?</code>
+<span id="fwDirty"></span>, built <span id="fwBuilt">?</span>.
+Source: <a id="repo" href="https://github.com/mannuray/conqueror">github.com/mannuray/conqueror</a> &middot;
+this exact source: <a href="/source.tar.gz">/source.tar.gz</a> &middot; live data: <a href="/info">/info</a>.</p>
+<p>ESP32-S3 WiFi bridge for the Conqueror tank: Basic Drive page for phones, TCP passthrough for the
+bench tool, camera stream, WiFi updates. The Uno body does the motion and all safety stops.</p>
+
+<h2>[ CONNECT ]</h2>
+<table>
+<tr><th>Address</th><td><code>http://conqueror-bridge.local/</code> or <code id="ip">?</code> (WiFi mode <span id="mode">?</span>)</td></tr>
+<tr><th>Fallback AP</th><td>Home WiFi not reachable for 30 s &rarr; WPA2 network <code>conqueror-bridge</code> (password in
+<code>secrets.h</code>), bridge at <code>192.168.4.1</code>; it retries the home network every 60 s while nobody is connected.</td></tr>
+<tr><th>Ports</th><td>80 page, <code>/ws</code> WebSocket, <code>/info</code>, <code>/help</code>, <code>/source.tar.gz</code> &middot;
+81 <code>/stream</code> MJPEG (max 2 viewers) &middot; 3333 bench TCP &middot; 3232 OTA &middot;
+mDNS <code>_http._tcp</code>, <code>_cqbridge._tcp</code>, <code>_arduino._tcp</code></td></tr>
+<tr><th>Uno</th><td>firmware <code id="unoFw">?</code>, commit <code id="unoCommit">?</code>, protocol <code id="unoProto">?</code>,
+link <span id="unoSynced">?</span>, last reset <span id="unoReset">?</span></td></tr>
+</table>
+
+<h2>[ DRIVE ]</h2>
+<ul>
+<li>Phone: open <a href="/">/</a> - joystick (release = stop), big STOP, speed slider, camera stick (returns home).
+One driver at a time; others see "Busy". STOP works from every page. The IR remote beats everyone.</li>
+<li>Bench tool (laptop): <code>uv run bench -H conqueror-bridge.local dash</code> (finds the bridge with
+<code>bench discover</code>). The bench is refused while a phone drives.</li>
+<li>Phone asleep or page closed: no more drive messages &rarr; the Uno stops within 0.3 s (deadman).</li>
+</ul>
+
+<!--CQ:PROTOCOL-->
+
+<h3>WebSocket API (first slice of the gateway API)</h3>
+<pre>&rarr; {"t":"hello","client":"basic-drive","proto":1}       &larr; {"t":"welcome",...}
+&rarr; {"t":"drive","v":-100..100,"w":-100..100}             (w &gt; 0 turns left; send every 50 ms while held)
+&rarr; {"t":"stop","id":1}                                   &larr; {"t":"ack","id":1}
+&rarr; {"t":"cam_joy","x":0,"y":50,"active":true}  {"t":"cam_home"}  {"t":"release_control"}  {"t":"ping","t0":0}
+&larr; tf (10 Hz) &middot; ts (1 Hz) &middot; ev &middot; nack {"code","reason","message"} &middot; pong</pre>
+
+<!--CQ:LOGO-->
+
+<h2>[ HARDWARE ]</h2>
+<table>
+<tr><th>Board</th><td id="board">ELEGOO ESP32S3-Camera-V1.0, ESP32-S3-WROOM-1</td></tr>
+<tr><th>Chip</th><td><span id="chip">ESP32-S3</span>, 8 MB flash, 8 MB octal PSRAM, MAC <code id="mac">?</code></td></tr>
+<tr><th>Uno link</th><td>UART1 RX GPIO3, TX GPIO40, 250000 8N1 (GPIO3 is a strapping pin - no pull-down)</td></tr>
+<tr><th>Camera</th><td><span id="camera">?</span>, ESP32-S3-EYE map: XCLK 15, SDA 4, SCL 5, D7..D0 = 16 17 18 12 10 8 9 11,
+VSYNC 6, HREF 7, PCLK 13, PWDN/RESET not connected</td></tr>
+<tr><th>USB</th><td>native USB (GPIO19/20), <code>303a:1001</code> &rarr; <code>/dev/ttyACM0</code> (Linux), <code>/dev/cu.usbmodem*</code> (macOS)</td></tr>
+<tr><th>Partitions</th><td>nvs 0x9000 &middot; otadata 0xE000 &middot; app0 0x10000 (3 MB) &middot; app1 0x310000 (3 MB) &middot;
+source 0x610000 (1.875 MB) &middot; coredump 0x7F0000</td></tr>
+</table>
+
+<h2>[ REFLASH ]</h2>
+<h3>ESP32 (this board)</h3>
+<pre>cd firmware/esp32
+python3 scripts/check_chip.py --port /dev/ttyACM0      # refuses anything but ESP32-S3 / 8 MB / 8 MB PSRAM
+pio run -e bridge -t upload --upload-port /dev/ttyACM0  # bootloader + partitions + app (chip check runs first)
+pio run -e bridge -t upload_source --upload-port /dev/ttyACM0   # source archive at 0x610000
+CQ_OTA_PASSWORD=... scripts/ota.sh                      # over WiFi: app + source (only while nobody drives)</pre>
+<p>Release binaries: GitHub releases <code>bridge-vX.Y.Z</code> with <code>flash.sh</code>. Hold BOOT while plugging in if no port appears.</p>
+<h3>Uno (body)</h3>
+<pre>Shield switch S1 to "upload" (disconnects the ESP32), then:
+cd firmware/uno && pio run -e uno -t upload    # USB only, Optiboot 115200
+S1 back afterwards.</pre>
+<p class="note">The Uno is never updated over WiFi.</p>
+<script>
+"use strict";
+fetch("/info").then(function (r) { return r.json(); }).then(function (i) {
+  function set(id, v) { var e = document.getElementById(id); if (e && v !== null && v !== undefined) e.textContent = v; }
+  set("fwVersion", i.fw.version); set("fwCommit", i.fw.commit.slice(0, 12)); set("fwBuilt", i.fw.built);
+  set("fwDirty", i.fw.dirty ? "(dirty build)" : "");
+  set("ip", i.net.ip || "-"); set("mode", i.net.mode);
+  set("unoFw", i.uno.fw); set("unoCommit", i.uno.commit); set("unoProto", i.uno.proto);
+  set("unoSynced", i.uno.synced ? "synced" : "not synced"); set("unoReset", i.uno.reset_reason);
+  set("chip", i.hw.chip); set("mac", i.hw.mac); set("camera", i.hw.camera);
+  if (!i.source.matches_fw) document.getElementById("mismatch").classList.remove("hidden");
+}).catch(function () { /* page stays static */ });
+</script>
+</body>
+</html>

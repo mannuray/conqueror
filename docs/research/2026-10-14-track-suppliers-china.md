@@ -117,3 +117,11 @@
 - Ask for the factory's own photos and videos of the moulds. Ask whether they own the mould, which matters for future supply and for custom changes.
 - For 1688 and Taobao (often 30–50% cheaper, Chinese only), use a **sourcing agent** or forwarder (Superbuy, CSSBuy, or a Yiwu/Shenzhen agent). The agent can combine parts from several shops into one shipment to India.
 - Confirm the **HS code and the import duty in India**, and ask for DDP quotes for worldwide customers.
+
+## Addendum: reverse image search (Google Lens, 2026-10-14)
+Searched with crops of the owner's ELEGOO Conqueror kit photo.
+- **Track + sprocket crop:** the closest match is the **ACEBOTT "Tank Track Pack" QD004** (ACEBOTT, Shenzhen) — link tracks and grey toothed sprockets that look the same family as ELEGOO's, plus black idlers; **no road wheels, swing arms or shocks**. Sold in India at Robu, Robocraze, Probots, Zbotic, Indian Hobby Center (₹2,420-2,939 retail seen). Also RELAND SUN TP101 tracked chassis (Amazon.in).
+- **Road-wheel crop:** too generic (no useful matches).
+- **Assembled tank crop:** mostly ELEGOO itself; look-alike suspension chassis: TS100 / TC100 / TS300 "shock absorption" chassis (Amazon.in under CALANDIS, HEAVENGLOW, ZORLINA; ₹3,524 seen), IndiaMART "DIY Smart Robot Tank Chassis Kit" ₹3,349 (Faridabad), Probots "Smart Wireless Tank Robot car with PTZ camera", OSOYOO Robot Tank Car V2.0. These use larger motors, not TT.
+- **Not found:** the exact ELEGOO suspension set (8 grey road wheels on swing arms + small coil-over shocks with eyelets) as a separate product. The kit photo also shows the "springs" are **coil-over shock absorbers**, and the sprockets have about **14 teeth**.
+- **Next:** ask **ACEBOTT** (B2B) whether they also make the suspension parts / who makes their track; ask **ELEGOO support** for spare running-gear sets (samples, and possibly their supplier); 1688 image search ("以图搜图") via a sourcing agent with the same crops.

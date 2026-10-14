@@ -854,6 +854,13 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 | 7 | IMU check accepted only MPU-6050 (0x68) | **Fixed:** also MPU-6500 (0x70) and MPU-9250 (0x71), same register map; host test `test_imu_id_accepts_mpu6050_family` |
 | 8 | DRIVE_RATE UNAVAILABLE sends no REJECTED event | **Leave:** the ACK already says it |
 
+## 39. IR driving and motor power fixes (DECIDED 2026-10-13, owner)
+- **IR style stays hold-to-drive** (option A): the tank moves only while a key is held. The release window grows from 200 ms to **350 ms** (NEC repeats come every ~108 ms; one missed repeat already exceeded 200 ms and stopped the tank while the key was still held). A repeat after a short dropout resumes driving. Cruise/tap-to-go is not used (maybe later, adults only, never in child play).
+- **Motor voltage cap removed** (owner): `motor_v_max` default 12000 mV (above any 2S pack) — the motors get the full battery like the old ELEGOO firmware. The setting stays for anyone who wants a cap.
+- **Deadband defaults from the old firmware and the owner's tests** (old: below 80 off, lowest real PWM 110 — `docs/legacy/uno-old-protocol.md`; owner measured 80–110): `deadband_start` **110**, `deadband_keep` **90** (all four). Settings, so they can be tuned on the floor without reflashing.
+- **Bug fixed — reverse heading hold spun the tank:** the mixer's car-style reverse flip (`reverse_steer` 0) also inverted the gyro heading-hold correction, turning it into positive feedback. Only the driver's steering is flipped now; the correction never is. `carSteer()` flips the teleop steering before heading hold; the mixer never flips. Side effect: DRIVE_RATE and primitives (MOVE backwards) are now always physical turn rates in reverse too (they were flipped before — the same bug).
+- A tank that already saved settings keeps its old values: set the new values with SETTING + SETTINGS_SAVE once (defaults only apply to fresh boards).
+
 ## 40. Product idea: own base board + off-the-shelf camera head — requirements (IN DISCUSSION 2026-10-14)
 Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shield in kits like the ELEGOO Conqueror. Agreed so far:
 - **Two boards.** **Head:** an existing ESP32-S3 camera board (WiFi, camera, phone page) on the pan-tilt gimbal, linked to the base over UART — any ESP32 pin can be the UART, so a board only needs 2 free GPIOs + GND + 5 V input exposed (candidates: Seeed XIAO ESP32S3 Sense with U.FL antenna, Freenove ESP32-S3 CAM; the AI-Thinker ESP32-CAM is not recommended). **Base:** one board replacing Uno/Mega + shield (MCU, motor drivers, sensor connectors, power).

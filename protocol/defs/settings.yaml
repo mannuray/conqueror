@@ -1,7 +1,7 @@
 - { id: 1, name: encoders_enabled, scope: global, type: u8, unit: bool, min: 0, max: 1, default: 0 }
 - { id: 2, name: counts_per_rev, scope: global, type: u16, unit: counts, min: 1, max: 10000, default: 960 }
 - { id: 3, name: counts_per_cm, scope: global, type: u16, unit: counts_cm, scale: 0.01, min: 100, max: 60000, default: 7600 }
-- { id: 4, name: motor_v_max, scope: global, type: u16, unit: mV, min: 3000, max: 12000, default: 6000 }
+- { id: 4, name: motor_v_max, scope: global, type: u16, unit: mV, min: 3000, max: 12000, default: 12000 }
 - { id: 5, name: accel_limit, scope: global, type: u16, unit: pct_s, min: 10, max: 1000, default: 200 }
 - { id: 6, name: turn_rate_max, scope: global, type: u16, unit: deg_s, min: 10, max: 720, default: 180 }
 - { id: 7, name: turn_rate_full_speed, scope: profile, type: u8, unit: pct, min: 10, max: 100, default: 40 }
@@ -35,14 +35,14 @@
 - { id: 35, name: level_roll, scope: global, type: i16, unit: deg, scale: 0.01, min: -2000, max: 2000, default: 0 }
 - { id: 36, name: ultrasonic_offset, scope: global, type: u8, unit: mm, min: 0, max: 100, default: 0 }
 - { id: 37, name: active_profile, scope: global, type: u8, unit: index, min: 0, max: 2, default: 0 }
-- { id: 40, name: deadband_start_l_fwd, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 70 }
-- { id: 41, name: deadband_start_l_rev, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 70 }
-- { id: 42, name: deadband_start_r_fwd, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 70 }
-- { id: 43, name: deadband_start_r_rev, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 70 }
-- { id: 44, name: deadband_keep_l_fwd, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 55 }
-- { id: 45, name: deadband_keep_l_rev, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 55 }
-- { id: 46, name: deadband_keep_r_fwd, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 55 }
-- { id: 47, name: deadband_keep_r_rev, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 55 }
+- { id: 40, name: deadband_start_l_fwd, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 110 }
+- { id: 41, name: deadband_start_l_rev, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 110 }
+- { id: 42, name: deadband_start_r_fwd, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 110 }
+- { id: 43, name: deadband_start_r_rev, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 110 }
+- { id: 44, name: deadband_keep_l_fwd, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 90 }
+- { id: 45, name: deadband_keep_l_rev, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 90 }
+- { id: 46, name: deadband_keep_r_fwd, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 90 }
+- { id: 47, name: deadband_keep_r_rev, scope: profile, type: u8, unit: pwm, min: 0, max: 255, default: 90 }
 - { id: 48, name: max_cps_l, scope: profile, type: u16, unit: counts_s, min: 100, max: 20000, default: 2500 }
 - { id: 49, name: max_cps_r, scope: profile, type: u16, unit: counts_s, min: 100, max: 20000, default: 2500 }
 - { id: 52, name: pid_speed_kp, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 150 }

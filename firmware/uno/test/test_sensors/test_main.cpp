@@ -130,6 +130,25 @@ void test_nec_decodes_frame_and_repeat() {
   TEST_ASSERT_EQUAL_HEX32(0x00FF629DUL, e.code);
 }
 
+// design-notes §39: one lost repeat (216 ms gap) must not end the held key - repeats keep working.
+// design-notes §39: a repeat lost in the middle of a held key (216 ms between two repeats) must not
+// end the key - later repeats still count. Three lost repeats (> 350 ms) = the key was released.
+void test_nec_repeat_after_one_missed_repeat() {
+  NecDecoder d;
+  uint32_t edges[40];
+  const int n = necEdges(0x00FF629DUL, 1000000, edges);
+  IrEvent e{};
+  for (int i = 0; i < n; ++i) d.feed(edges[i], edges[i] / 1000, e);
+  auto repeatAt = [&](uint32_t t) {  // 9 ms + 2.25 ms repeat mark starting at t
+    d.feed(t, t / 1000, e);
+    return d.feed(t + 11250, (t + 11250) / 1000, e);
+  };
+  TEST_ASSERT_TRUE(repeatAt(1000000 + 108000));
+  TEST_ASSERT_TRUE(repeatAt(1000000 + 324000));   // the repeat at +216 ms was lost
+  TEST_ASSERT_TRUE(e.repeat);
+  TEST_ASSERT_FALSE(repeatAt(1000000 + 756000));  // +432 ms without a repeat: released
+}
+
 void test_nec_rejects_bad_inverse_and_noise() {
   NecDecoder d;
   uint32_t edges[40];
@@ -216,6 +235,7 @@ int main() {
   RUN_TEST(test_ultrasonic_open_space_and_clone_hold_are_not_faults);
   RUN_TEST(test_ultrasonic_stuck_high_echo_faults);
   RUN_TEST(test_nec_decodes_frame_and_repeat);
+  RUN_TEST(test_nec_repeat_after_one_missed_repeat);
   RUN_TEST(test_nec_rejects_bad_inverse_and_noise);
   RUN_TEST(test_battery_levels_with_persistence);
   RUN_TEST(test_battery_four_sample_average);

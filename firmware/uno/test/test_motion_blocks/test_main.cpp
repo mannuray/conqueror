@@ -64,24 +64,35 @@ void test_battery_scale() {
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, batteryScale(500, 6000));  // USB powered: no battery
 }
 
-void test_mixer_turn_authority_and_car_reverse() {
-  const MixerConfig car{40, true, false, 0.0f};
+void test_mixer_turn_authority() {
+  const MixerConfig cfg{40, false, 0.0f};
   float l = 0, r = 0;
-  mix(0.0f, 50.0f, car, l, r);  // spin CCW
+  mix(0.0f, 50.0f, cfg, l, r);  // spin CCW
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, -50.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 50.0f, r);
-  mix(100.0f, 50.0f, car, l, r);  // full speed: turn reduced to 40 % of 50 = 20; turning priority → v 80
+  mix(100.0f, 50.0f, cfg, l, r);  // full speed: turn reduced to 40 % of 50 = 20; turning priority → v 80
   TEST_ASSERT_FLOAT_WITHIN(0.1f, 100.0f, r);
   TEST_ASSERT_FLOAT_WITHIN(0.1f, 60.0f, l);  // difference 40 kept (LLD §3.4)
-  mix(-50.0f, 20.0f, car, l, r);  // car-style reverse: steering inverted
-  TEST_ASSERT_TRUE(l > r);
-  const MixerConfig tank{40, false, false, 0.0f};
-  mix(-50.0f, 20.0f, tank, l, r);
-  TEST_ASSERT_TRUE(r > l);
+}
+
+// design-notes §39: w into the mixer is a physical turn (CCW +) - also in reverse. A gyro heading
+// correction flipped in reverse became positive feedback and spun the tank.
+void test_mixer_never_flips_w_in_reverse() {
+  const MixerConfig cfg{40, false, 0.0f};
+  float l = 0, r = 0;
+  mix(-50.0f, 20.0f, cfg, l, r);
+  TEST_ASSERT_TRUE(r > l);  // CCW stays CCW
+}
+
+// Car-style steering (reverse_steer 0) flips only the DRIVER's teleop steering when reversing.
+void test_car_steer_flips_only_driver_input_in_reverse() {
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, -20.0f, carSteer(-50.0f, 20.0f, true));
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 20.0f, carSteer(50.0f, 20.0f, true));
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 20.0f, carSteer(-50.0f, 20.0f, false));  // tank style
 }
 
 void test_mixer_pivot_fallback() {
-  const MixerConfig pivot{100, false, true, 20.0f};  // full turn authority, keep threshold 20 %
+  const MixerConfig pivot{100, true, 20.0f};  // full turn authority, keep threshold 20 %
   float l = 0, r = 0;
   mix(100.0f, 30.0f, pivot, l, r);  // turning priority: v 100 → 70, difference 60 kept
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 40.0f, l);
@@ -92,7 +103,7 @@ void test_mixer_pivot_fallback() {
   mix(0.0f, 10.0f, pivot, l, r);  // spin in place has no inner track
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, -10.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 10.0f, r);
-  const MixerConfig off{100, false, false, 20.0f};
+  const MixerConfig off{100, false, 20.0f};
   mix(30.0f, 25.0f, off, l, r);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 5.0f, l);
 }
@@ -159,7 +170,9 @@ int main() {
   RUN_TEST(test_ramp_accel_and_faster_decel);
   RUN_TEST(test_deadband_kick_then_keep);
   RUN_TEST(test_battery_scale);
-  RUN_TEST(test_mixer_turn_authority_and_car_reverse);
+  RUN_TEST(test_mixer_turn_authority);
+  RUN_TEST(test_mixer_never_flips_w_in_reverse);
+  RUN_TEST(test_car_steer_flips_only_driver_input_in_reverse);
   RUN_TEST(test_mixer_pivot_fallback);
   RUN_TEST(test_envelope_caps_targets);
   RUN_TEST(test_obstacle_slow_zone_scales_forward_only);

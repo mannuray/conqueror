@@ -829,7 +829,7 @@ classDiagram
     LiftDetector ..> Attitude
 ```
 - Attitude: complementary filter (α = 0.98) minus level offsets.
-- Yaw: integrate `gz − bias`; **auto bias re-estimation** when not driven, encoders still, |rates| < 0.5 °/s for 5 s.
+- Yaw: integrate `gz − bias`; **auto bias re-estimation** when not driven, encoders still, |rates| < 0.5 °/s for 5 s. *(Not built until §11.8, which replaces this rule.)*
 - Bump: |a| minus its low-pass; spike > `bump_g` → bump + direction (x-axis sign).
 - Lift: any of vertical transient while not driving · sudden tilt change · (encoders) free-spin vs calibrated on-ground speed; landed = level + steady 1 g for 1 s.
 - Ultrasonic: median of 3; Timeout = no obstacle in range; closing speed over 50 ms.
@@ -1946,3 +1946,92 @@ classDiagram
   class App { MotionTimer motion; bool moving; bool stationary }
   App *-- MotionTimer
 ```
+
+### 11.8 Automatic gyro zero (2026-10-14, APPROVED by owner, memory only — amends §6.2)
+
+**Why.** §6.2 specified "auto bias re-estimation when not driven", but it was never built: the firmware subtracts the stored `gyro_bias_x/y/z` settings and nothing else. On the owner's Mega those were never calibrated (all 0). The turning axis read −0.20 °/s at rest, and heading hold turned that into a real left curve: ~10 cm over 3 m, down to ~4 cm after a manual `bias` calibration (design-notes §41). A gyro's zero also moves with temperature, and the MPU-6050 datasheet allows up to ±20 °/s initial zero-rate offset, so every tank needs this and a one-off calibration does not stay right. ELEGOO measures the zero at every power-on; we measure it **every time the tank stands still**.
+
+**Rules**
+1. **Quiet:** no motor output (`MotionTimer` not moving), not lifted or tilted, no calibration script or self-test running.
+2. **Settle:** the tank must be quiet for **1 s** before measuring (tracks and body stop rocking).
+3. **Window:** collect **2 s** of raw gyro samples (400 at 200 Hz) on all three axes: sum, min, max.
+4. **Valid window:** on every axis the spread (max − min) is **≤ 1.5 °/s** (98 raw; sensor noise is well inside this, a hand or a bump is not) and the mean is **≤ 20 °/s** (datasheet limit). Anything that breaks quiet ends the window and starts again from step 2.
+5. **Accept:** two valid windows **in a row agree within 0.3 °/s** (20 raw) on every axis → the new zero is their average. This rejects a slow, smooth hand rotation that would look like a steady offset for one window. First acceptance after boot: about 5 s of standing still.
+6. **Use:** the IMU task subtracts the tracker's zero instead of the stored setting (attitude uses x/y, yaw uses z).
+7. **Storage:** the tracker starts from the stored settings and keeps its value **in RAM only**. Nothing is written to EEPROM (no wear, settings CRC and `cal_status` unchanged). The manual `bias` calibration still writes the settings; when settings change, the tracker restarts from the new stored values.
+8. **No protocol change.** Telemetry `yaw_rate` is already zero-corrected, so a correct zero shows as 0.0 °/s at rest.
+9. **Unchanged:** the yaw integrator's at-rest clamp (0.5 °/s) and all safety features. The tracker never runs while the tank is driven, so it cannot change a running heading hold or turn.
+
+**Class diagram**
+```mermaid
+classDiagram
+  class GyroZeroTracker {
+    <<domain/estimation, pure>>
+    +kSettleMs = 1000
+    +kWindowSamples = 400
+    +kMaxSpreadRaw = 98
+    +kMaxZeroRaw = 1310
+    +kAgreeRaw = 20
+    +seed(stored_raw[3])
+    +update(raw[3], quiet, now_ms)
+    +zero(axis) float
+    +accepted() uint16
+    -m_state State
+    -m_quiet_since_ms uint32
+    -m_n uint16
+    -m_sum[3] int32
+    -m_min[3] int16
+    -m_max[3] int16
+    -m_have_prev bool
+    -m_prev[3] float
+    -m_zero[3] float
+    -m_seeded[3] int16
+    -m_seeded_valid bool
+    -m_accepted uint16
+  }
+  class ImuTask { +imuTask() }
+  class ApplySettings { +applySettings() }
+  class App { GyroZeroTracker gyro_zero; MotionTimer motion; LiftDetector lift }
+  App *-- GyroZeroTracker
+  ImuTask ..> GyroZeroTracker : update() then zero()
+  ApplySettings ..> GyroZeroTracker : seed(gyro_bias_x/y/z)
+```
+
+**State diagram**
+```mermaid
+stateDiagram-v2
+  [*] --> WaitQuiet : seed(stored)
+  WaitQuiet --> Settle : quiet
+  Settle --> WaitQuiet : not quiet
+  Settle --> Collect : quiet for 1 s
+  Collect --> WaitQuiet : not quiet (window dropped)
+  Collect --> Collect : sample (sum, min, max)
+  Collect --> Judge : 400 samples
+  Judge --> Collect : invalid (spread or size), prev cleared
+  Judge --> Collect : valid, no prev / disagrees, prev = this
+  Judge --> Collect : valid and agrees, zero = avg(prev, this), prev = this
+```
+
+**Sequence (one IMU sample, 200 Hz)**
+```mermaid
+sequenceDiagram
+  participant T as ImuTask
+  participant I as Imu port
+  participant Z as GyroZeroTracker
+  participant Y as YawIntegrator
+  T->>I: read raw ax..gz
+  T->>Z: update(raw g, quiet = !moving && !lifted && !tilted && !cal && !selftest, now)
+  T->>Z: zero(x), zero(y), zero(z)
+  T->>T: g = (raw - zero) / 65.5
+  T->>Y: update(gz, dt, stationary)
+```
+
+**RAM** ≈ 60 B (budget: static RAM 2370 / 6144 B). **Flash** ≈ 1 KB. Measured after implementation: +64 B RAM (2434 B), +1.3 KB flash (63218 B).
+
+**Implementation note:** `seed()` remembers the last stored values and restarts only when they change, because `applySettings()` runs after every setting change (`test_gyro_zero_reseed_only_on_change`). The manual still-sample calibration reads raw gyro values, so it is not affected by the learned zero.
+
+**Implementation plan** (one branch `gyro-auto-zero`, TDD, host tests first)
+1. `GyroZeroTracker` + host tests (`test_estimation`): accepts after settle + 2 agreeing windows; a bump (spread) is rejected; motion mid-window drops the window; two disagreeing windows (slow hand rotation) are not accepted; |zero| > 20 °/s rejected; `seed()` restarts from the stored values.
+2. Wire into `ImuTask` (subtract `zero()`), `quiet` from App state; `applySettings()` calls `seed()`.
+3. Build, size gate, flash. Bench check: set `gyro_bias_z` to 0 on the owner's Mega (uncalibrated, as before), stand still 6 s, recording shows rest `yaw_rate` going from −0.2 to 0.0 °/s. Restore the calibrated value afterwards.
+4. Floor check (owner): tape run, drift should stay at the calibrated ~4 cm without a manual calibration.

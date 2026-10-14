@@ -14,6 +14,7 @@
 #include "domain/estimation/accel_variance.h"
 #include "domain/estimation/attitude.h"
 #include "domain/estimation/bump_detector.h"
+#include "domain/estimation/gyro_zero_tracker.h"
 #include "domain/estimation/lift_detector.h"
 #include "domain/estimation/yaw_integrator.h"
 #include "types/hw_types.h"
@@ -73,6 +74,7 @@ struct App {
   // imu
   Attitude attitude;
   YawIntegrator yaw;
+  GyroZeroTracker gyro_zero;  // learned gyro zero (LLD §11.8), seeded from gyro_bias_x/y/z
   BumpDetector bump;
   LiftDetector lift;
   AccelVariance accel_var;

@@ -40,7 +40,7 @@ class IrController {
 
  private:
   enum class Hold : uint8_t { kNone, kDrive, kJog, kHash, kStar };
-  uint8_t m_speed_pct = 50;
+  uint8_t m_speed_pct = 80;  // design-notes §41: IR default 80%, ±10% steps
   Hold m_hold = Hold::kNone;
   uint32_t m_last_ms = 0;
   uint32_t m_code_ms = 0;     // time of the drive key's code (tap / hold decision)

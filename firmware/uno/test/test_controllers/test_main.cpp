@@ -103,6 +103,24 @@ void test_teleop_captures_heading_when_stick_centres() {
   TEST_ASSERT_FALSE(h.holding());
 }
 
+// design-notes §41 (owner): the gyro only keeps the tank straight. Any steering input is passed
+// through open-loop - no rate loop fighting the tracks (that made turns step).
+void test_teleop_steering_is_open_loop() {
+  HeadingController h;
+  h.configure(headingCfg());
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 40.0f, h.teleop(0.0f, 40.0f, 10.0f, 0.0f, 0.01f, false));
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 40.0f, h.teleop(0.0f, 40.0f, 30.0f, 200.0f, 0.01f, false));  // fast spin: unchanged
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, -25.0f, h.teleop(60.0f, -25.0f, 30.0f, -50.0f, 0.01f, false));  // curve
+}
+
+// After steering ends, nothing is commanded while the tank still rotates; then the heading is captured.
+void test_teleop_no_rate_braking_after_steering() {
+  HeadingController h;
+  h.configure(headingCfg());
+  h.teleop(50.0f, 40.0f, 10.0f, 60.0f, 0.01f, false);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, h.teleop(50.0f, 0.0f, 20.0f, 30.0f, 0.01f, false));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_open_loop_is_feedforward_only);
@@ -113,5 +131,7 @@ int main() {
   RUN_TEST(test_hold_corrects_drift_with_wraparound);
   RUN_TEST(test_off_mode_passes_stick_through);
   RUN_TEST(test_teleop_captures_heading_when_stick_centres);
+  RUN_TEST(test_teleop_steering_is_open_loop);
+  RUN_TEST(test_teleop_no_rate_braking_after_steering);
   return UNITY_END();
 }

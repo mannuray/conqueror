@@ -14,7 +14,7 @@ void test_ir_hold_up_drives_then_release_stops() {
   IrOutput o{};
   TEST_ASSERT_TRUE(c.onEvent({ir_codes::kUp, false, 0}, o));
   TEST_ASSERT_TRUE(o.active);
-  TEST_ASSERT_EQUAL(50, o.v);
+  TEST_ASSERT_EQUAL(80, o.v);
   TEST_ASSERT_EQUAL(0, o.w);
   c.onEvent({ir_codes::kUp, true, 108}, o);  // NEC repeat while held: a hold, not a tap
   TEST_ASSERT_FALSE(c.tick(150, o));
@@ -56,7 +56,7 @@ void test_ir_late_repeat_after_nudge_resumes() {
   TEST_ASSERT_TRUE(c.tick(150, o));
   TEST_ASSERT_TRUE(c.onEvent({ir_codes::kUp, true, 160}, o));
   TEST_ASSERT_TRUE(o.active);
-  TEST_ASSERT_EQUAL(50, o.v);
+  TEST_ASSERT_EQUAL(80, o.v);
 }
 
 void test_ir_directions_speed_and_ok() {
@@ -64,17 +64,17 @@ void test_ir_directions_speed_and_ok() {
   IrOutput o{};
   c.onEvent({ir_codes::k6, false, 0}, o);
   TEST_ASSERT_TRUE(o.speed_changed);
-  TEST_ASSERT_EQUAL(60, c.speedPct());
+  TEST_ASSERT_EQUAL(90, c.speedPct());
   c.onEvent({ir_codes::k4, false, 10}, o);
   c.onEvent({ir_codes::k4, false, 20}, o);
-  TEST_ASSERT_EQUAL(40, c.speedPct());
+  TEST_ASSERT_EQUAL(70, c.speedPct());
   c.onEvent({ir_codes::kLeft, false, 30}, o);
   TEST_ASSERT_EQUAL(0, o.v);
-  TEST_ASSERT_EQUAL(40, o.w);  // CCW
+  TEST_ASSERT_EQUAL(70, o.w);  // CCW
   c.onEvent({ir_codes::kRight, false, 40}, o);
-  TEST_ASSERT_EQUAL(-40, o.w);
+  TEST_ASSERT_EQUAL(-70, o.w);
   c.onEvent({ir_codes::kDown, false, 50}, o);
-  TEST_ASSERT_EQUAL(-40, o.v);
+  TEST_ASSERT_EQUAL(-70, o.v);
   c.onEvent({ir_codes::kOk, false, 60}, o);
   TEST_ASSERT_TRUE(o.stop);
   TEST_ASSERT_FALSE(o.active);

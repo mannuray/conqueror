@@ -962,3 +962,9 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
   - **Uno (the kit's original):** ESP32 started **first time** (`power_on`, no brownout), still up 52 s later.
   - The ESP32's own USB-C always starts it first time.
   So the **Mega board's 5 V route** (regulator on battery, USB fuse/switch on USB, plus the Mega's own draw) cannot carry the ESP32-S3's start-up surge; the Uno's can. Options to decide: a Mega board with a stronger 5 V route; power the ESP32 from its own USB-C (power bank, no rework); soften the ESP32 start-up in firmware (WiFi start delay, 160 MHz CPU, camera on demand); long term the base board's own 5 V supply.
+
+## 43. Back to the ELEGOO Uno, Lite profile (DECIDED 2026-10-14, owner)
+- **Why:** the Mega clone's 5 V route cannot start the ESP32-S3 camera board (A/B test above: Mega = brownout loop on battery, 7 brownouts on USB; ELEGOO Uno = clean start first time). Owner: "go with elegoo uno and lite profile"; the Mega (and the full feature set) waits for our own base board (spec 06).
+- **Board:** the ELEGOO Uno R3 that came with the kit (ATmega328P, 32 KB flash, 2 KB RAM, 1 KB EEPROM). The owner's other Uno R3 (FM-radio project) has the same chip; not used.
+- **Firmware:** one codebase, two profiles as planned in §29: **Lite** (Uno) and **Full** (Mega, kept building and tested). The Lite feature list, sizes and HELLO `caps` are designed next (Uno LLD section) and approved before any code.
+- Full build today: ~61 KB code, 2.4 KB RAM; Uno budget (size gate): 30 KB flash, 1750 B static RAM.

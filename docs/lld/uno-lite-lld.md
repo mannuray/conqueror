@@ -1,6 +1,6 @@
 # Uno Lite Firmware — Low-Level Design
 
-**Status:** PROPOSED (2026-10-14) — owner to approve before the implementation plan.
+**Status:** APPROVED by owner (2026-10-14).
 **Source:** spec 02 Part D (APPROVED 2026-10-14), design-notes §43. The full firmware (Mega, `src/app/`) is unchanged and tagged `full-firmware-2026-10-14`.
 
 ## 1. Goals and limits

@@ -16,6 +16,7 @@ void HeadingController::reset() {
   m_rate.reset();
   m_heading.reset();
   m_holding = false;
+  m_settle_s = 0.0f;
 }
 
 float HeadingController::rateLoop(float rate_target_dps, float yaw_rate_dps, float dt_s, bool freeze) {
@@ -50,10 +51,12 @@ float HeadingController::teleop(float v_pct, float w_pct, float yaw_deg, float y
     m_holding = false;
     m_heading.reset();
     m_rate.reset();
+    m_settle_s = 0.0f;
     return w_pct;
   }
   if (!m_holding) {
-    if (absf(yaw_rate_dps) > kCaptureRateDps) {  // let the turn settle (no active braking), then capture
+    if (absf(yaw_rate_dps) > kCaptureRateDps && m_settle_s < kSettleS) {  // let the turn settle (no braking)
+      m_settle_s += dt_s;
       return 0.0f;
     }
     m_holding = true;

@@ -17,6 +17,9 @@ struct HeadingConfig {
 class HeadingController {
  public:
   static constexpr float kCaptureRateDps = 5.0f;
+  // Longest wait for the rotation to settle after steering; then the heading is captured anyway, so a
+  // track that pulls the tank round cannot keep heading hold off (design-notes §41).
+  static constexpr float kSettleS = 0.3f;
   void configure(const HeadingConfig& cfg);
   float update(HeadingMode mode, float w_cmd_pct, float rate_target_dps, float heading_target_deg, float yaw_deg,
                float yaw_rate_dps, float dt_s, bool freeze);
@@ -32,6 +35,7 @@ class HeadingController {
   Pid m_heading;
   bool m_holding = false;
   float m_held_deg = 0.0f;
+  float m_settle_s = 0.0f;  // time spent waiting to capture
 };
 
 }  // namespace cq

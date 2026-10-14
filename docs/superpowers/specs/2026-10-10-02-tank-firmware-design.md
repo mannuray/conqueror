@@ -340,7 +340,7 @@ Firmware: `drivers/board_config.h` build option selects the shield; only the mot
 
 ---
 
-## Part D — Uno Lite firmware (2026-10-14, PROPOSED — owner to approve)
+## Part D — Uno Lite firmware (2026-10-14, APPROVED by owner incl. the proposed items)
 
 **Why:** the Mega clone cannot start the ESP32-S3 camera board; the ELEGOO Uno can (design-notes §43). The full firmware (~61 KB) cannot fit the Uno (32 KB, 2 KB RAM). Owner: *"let this be drivable, don't throw the current code, save it for the future full board; design what fits on the Uno, no bells and whistles"* and chose **option B**: a **new, small Uno app in the same project**.
 

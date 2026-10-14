@@ -13,7 +13,7 @@ Hobby robot platform: ELEGOO Conqueror tank rebuilt as **Uno body + ESP32 gatewa
 | What | Path |
 |---|---|
 | System specs (authoritative) | `docs/superpowers/specs/2026-10-10-0{0..4}-*-design.md` |
-| Low-level designs | `docs/lld/` — `uno-firmware-lld.md` (§9 Revision 2 + appended decision notes are authoritative), `esp32-firmware-lld.md` (§10 Revision 2), `protocol-generator-lld.md`, `bench-tool-lld.md`, `esp32-bridge-lld.md` |
+| Low-level designs | `docs/lld/` — `uno-firmware-lld.md` (§9 Revision 2 + appended decision notes are authoritative), `esp32-firmware-lld.md` (§10 Revision 2), `protocol-generator-lld.md`, `bench-tool-lld.md`, `esp32-bridge-lld.md`, **`uno-lite-lld.md`** (Uno Lite firmware, spec 02 Part D) |
 | Implementation plans | `docs/superpowers/plans/2026-10-11-plan-{a,b,c,d}-*.md` |
 | Roadmap & phase decisions | `docs/implementation-roadmap.md` |
 | Coding standards | `docs/standards/coding-standards.md` |

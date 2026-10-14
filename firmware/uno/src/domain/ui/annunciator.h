@@ -35,7 +35,7 @@ struct AnnState {
 // Turns robot state into LED layers and sounds (edges only; no event hooks needed).
 class Annunciator {
  public:
-  static constexpr Rgb kColorWaiting{60, 30, 0};   // amber pulse: no ESP32 yet
+  static constexpr Rgb kColorNoLink{0, 0, 120};    // blue, breathing when idle: no ESP32 link yet (spec 02)
   // Owner colours per LLD §9.9: IR purple, network human green, network AI cyan.
   static constexpr Rgb kColorReady{20, 20, 20};    // dim white: idle, ESP32 synced
   static constexpr Rgb kColorHuman{0, 120, 0};     // green
@@ -43,7 +43,8 @@ class Annunciator {
   static constexpr Rgb kColorIr{80, 0, 120};       // purple
   static constexpr Rgb kColorCal{120, 100, 0};     // yellow blink
   static constexpr Rgb kColorAlarm{255, 0, 0};
-  static constexpr Rgb kColorLow{160, 50, 0};      // orange pulse
+  static constexpr Rgb kColorLow{200, 110, 0};     // amber: short flash every 2 s over the base (spec 02)
+  static constexpr uint16_t kLowFlashMs = 150;
   static constexpr Rgb kColorOverride{255, 60, 0}; // amber-red pulse while Safety Override is on
   static constexpr Rgb kColorOn{0, 255, 0};        // toggle confirm: on
   static constexpr uint16_t kParkingBeepMs = 600;

@@ -2035,3 +2035,25 @@ sequenceDiagram
 2. Wire into `ImuTask` (subtract `zero()`), `quiet` from App state; `applySettings()` calls `seed()`.
 3. Build, size gate, flash. Bench check: set `gyro_bias_z` to 0 on the owner's Mega (uncalibrated, as before), stand still 6 s, recording shows rest `yaw_rate` going from −0.2 to 0.0 °/s. Restore the calibrated value afterwards.
 4. Floor check (owner): tape run, drift should stay at the calibrated ~4 cm without a manual calibration.
+
+### 11.9 LED states back to the spec (2026-10-14, owner)
+
+**Finding:** "no ESP32 link" (amber pulse) and "battery low" (orange pulse) looked the same. Both had drifted from spec 02's LED table, which says *idle, no client: blue breathing* and *battery low: amber blink every 2 s over the base colour*.
+
+**Change:** `kColorNoLink` = blue (0, 0, 120) as a solid base (the sequencer makes it breathe while idle, like the other base colours). Battery low = a **150 ms amber flash every 2 s** on the alarm layer. To show the base colour between flashes, `LedPattern` gets an internal field `flash_ms` (not on the wire; the `LED` frame and `LedMode` enum are unchanged): with `kBlink` and `flash_ms > 0`, the layer is lit for `flash_ms` at the start of each period and **see-through** for the rest, so the next lower active layer shows.
+
+```mermaid
+classDiagram
+  class LedPattern {
+    +LedMode mode
+    +Rgb color
+    +uint16 period_ms
+    +uint16 duration_ms
+    +uint16 flash_ms = 0
+  }
+  class LedSequencer { +set(LedLayer, LedPattern, now) +output(now) Rgb -raw(now, layer) Rgb }
+  class Annunciator { +kColorNoLink = (0,0,120) +kColorLow = (200,110,0) +kLowFlashMs = 150 +update(AnnState, now, LedSequencer, SoundSequencer) }
+  LedSequencer o-- LedPattern
+  Annunciator ..> LedSequencer
+```
+Tests: `test_led_flash_shows_base_between_flashes`, `test_annunciator_no_link_is_blue`, `test_annunciator_battery_low_is_short_amber_flash`.

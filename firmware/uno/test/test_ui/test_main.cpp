@@ -153,6 +153,43 @@ void test_annunciator_alarm_follows_remaining_cause() {
   TEST_ASSERT_TRUE((l.output(2700) == Annunciator::kColorAlarm));
 }
 
+// A flash (blink with flash_ms) is lit only for flash_ms at the start of each period; in between the layer is
+// see-through, so the colour below (the base) shows (spec 02 LED table: "amber blink every 2 s over base colour").
+void test_led_flash_shows_base_between_flashes() {
+  LedSequencer l;
+  l.set(LedLayer::kBase, {proto::LedMode::kSolid, {20, 20, 20}, 0, 0}, 0);
+  l.set(LedLayer::kAlarm, {proto::LedMode::kBlink, {200, 120, 0}, 2000, 0, 150}, 0);
+  TEST_ASSERT_TRUE((l.output(50) == Rgb{200, 120, 0}));    // flash
+  TEST_ASSERT_TRUE((l.output(500) == Rgb{20, 20, 20}));    // base shows through
+  TEST_ASSERT_TRUE((l.output(2050) == Rgb{200, 120, 0}));  // next flash
+}
+
+// Spec 02 LED table: no ESP32 link → blue breathing; battery low → short amber flash every 2 s over the base.
+// (They were amber pulse and orange pulse: too alike to tell apart, owner 2026-10-14.)
+void test_annunciator_no_link_is_blue() {
+  Annunciator a;
+  LedSequencer l;
+  SoundSequencer snd;
+  AnnState s = base();
+  s.synced = false;
+  a.update(s, 0, l, snd);
+  TEST_ASSERT_TRUE((l.output(0) == Annunciator::kColorNoLink));
+  TEST_ASSERT_EQUAL(0, Annunciator::kColorNoLink.r);
+  TEST_ASSERT_EQUAL(0, Annunciator::kColorNoLink.g);
+}
+
+void test_annunciator_battery_low_is_short_amber_flash() {
+  Annunciator a;
+  LedSequencer l;
+  SoundSequencer snd;
+  AnnState s = base();
+  s.batt_low = true;
+  a.update(s, 0, l, snd);
+  TEST_ASSERT_TRUE((l.output(50) == Annunciator::kColorLow));      // flash
+  TEST_ASSERT_TRUE((l.output(1000) == Annunciator::kColorReady));  // base (ready) shows between flashes
+  TEST_ASSERT_TRUE((l.output(2050) == Annunciator::kColorLow));
+}
+
 // LLD §10.6: the old-firmware melodies keep their exact lengths (docs/legacy/uno-old-led-buzzer.md §1).
 void test_catalogue_old_melodies() {
   struct Expect {
@@ -289,6 +326,9 @@ int main() {
   RUN_TEST(test_sound_priority_and_modes);
   RUN_TEST(test_led_layers_blink_and_expiry);
   RUN_TEST(test_led_pulse_peaks_mid_period);
+  RUN_TEST(test_led_flash_shows_base_between_flashes);
+  RUN_TEST(test_annunciator_no_link_is_blue);
+  RUN_TEST(test_annunciator_battery_low_is_short_amber_flash);
   RUN_TEST(test_catalogue);
   RUN_TEST(test_annunciator_tilt_alarm_and_sound);
   RUN_TEST(test_annunciator_owner_colours);

@@ -20,13 +20,18 @@ Part numbers below are manufacturer part numbers (MPN). **LCSC/JLCPCB numbers an
 
 ```mermaid
 flowchart LR
-  BAT[2S pack 6.0-8.4 V] --> PWR[Power entry:<br/>P-FET reverse + switch, fuse]
-  PWR --> VBAT((VBAT))
-  VBAT --> TB1[TB6612FNG #1<br/>motors L/R]
-  VBAT -.-> TB2[TB6612FNG #2 DNP<br/>motors C/D]
-  VBAT --> BUCK[5 V buck 3 A]
+  BAT[2S pack 6.0-8.4 V] --> JACK[Barrel jack DC-005<br/>switch contact cuts battery]
+  ADP[Adapter 7-12 V] --> JACK
+  JACK --> PWR[Power entry:<br/>P-FET reverse + switch, TVS, fuse]
+  PWR --> VBAT((VIN 6-12 V))
+  VBAT --> TB1[TB6612FNG #1<br/>motors A/B]
+  VBAT --> TB2[TB6612FNG #2<br/>motors C/D]
+  SW2[[MOTOR/SERVO switch]] -. STBY2 .-> TB2
+  VBAT --> BUCK[5 V logic buck 2-3 A]
   BUCK --> V5((5 V))
-  BUCK --> V5S((5 V servo))
+  VBAT --> SBUCK[Servo buck ~5 A<br/>5 V / 6 V jumper]
+  SBUCK --> V5S((Servo rail))
+  VBAT -. BATT jumper .-> V5S
   V5 --> DOR{Diode-OR}
   USBC[USB-C] --> DOR
   DOR --> LDO[3.3 V LDO] --> V33((3.3 V))
@@ -37,7 +42,7 @@ flowchart LR
   MCU -- PIO --> ENC[[Encoders L/R]]
   MCU -- PIO --> IRX[IR receiver]
   MCU -- PIO --> RC[[RC input]]
-  MCU -- PWM --> SRV[[Servo 1/2]]
+  MCU -- PWM --> SRV[[Servo 1/2 + servo 3-6 shared]]
   MCU -- PWM --> BZ[Buzzer driver]
   MCU --> BUF[74AHCT2G125] --> WS[WS2812 + chain out]
   BUF --> US[[Ultrasonic trig]]
@@ -67,60 +72,68 @@ GPIO 0-25 are 5 V-tolerant (IOVDD powered); 26-29 are 3.3 V only.
 | 2 / 3 | Motor L IN1 / IN2 | → TB6612 #1 AIN1/AIN2 | PWM slice 1 A/B, 20 kHz |
 | 4 / 5 | I2C SDA / SCL | 2.2 kΩ pull-ups to 3.3 V on the board | I2C0, 400 kHz |
 | 6 / 7 | Motor R IN1 / IN2 | → TB6612 #1 BIN1/BIN2 | PWM slice 3 A/B |
-| 8 / 9 | Motor C IN1 / IN2 | → TB6612 #2 (DNP) | PWM slice 4 |
-| 10 / 11 | Motor D IN1 / IN2 | → TB6612 #2 (DNP) | PWM slice 5 |
+| 8 / 9 | Motor C IN1 / IN2 **or** servo 3 / 4 | → TB6612 #2 AIN1/AIN2 **and** servo headers 3/4 (100 Ω series) | PWM slice 4: 20 kHz (MOTOR) or 50 Hz (SERVO) |
+| 10 / 11 | Motor D IN1 / IN2 **or** servo 5 / 6 | → TB6612 #2 BIN1/BIN2 **and** servo headers 5/6 | PWM slice 5 |
 | 12 / 13 | Servo 1 (pan) / 2 (tilt) | 100 Ω series | PWM slice 6, 50 Hz |
 | 14 | Buzzer | → MOSFET gate | PWM slice 7 A (tone) |
 | 15 | WS2812 data | → 74AHCT2G125 A | PIO0 |
 | 16 / 17 | Encoder L A / B | 5 V in, 1 kΩ series, 10 kΩ pull-up to 3.3 V | PIO1 quadrature |
 | 18 / 19 | Encoder R A / B | same | PIO1 quadrature |
-| 20 | Motor STBY (both drivers) | 100 kΩ pull-down → motors coast at reset | GPIO |
+| 20 | Motor STBY | → TB6612 #1 STBY directly; → TB6612 #2 STBY through switch pole 1 (SERVO position: STBY2 held low by 100 kΩ). 100 kΩ pull-downs → motors coast at reset | GPIO |
 | 21 | Ultrasonic trig | → 74AHCT2G125 B (5 V out) | GPIO |
 | 22 | Ultrasonic echo | 5 V in, 1 kΩ series | PIO2 (pulse width) |
 | 23 | IR receiver | 3.3 V on-board receiver / off-board via 1 kΩ | PIO2 (NEC edges) |
 | 24 / 25 | RC input 1 / 2 | 5 V in, 1 kΩ series | PIO2 (PPM, SBUS via pad inversion, digital) |
-| 26 | Battery voltage | divider 100 kΩ / 39 kΩ + 100 nF (8.4 V → 2.36 V; 9.5 V → 2.67 V) | ADC0 |
+| 26 | Input voltage (battery or adapter) | divider 100 kΩ / 22 kΩ + 100 nF (8.4 V → 1.51 V; 12 V → 2.16 V; 15 V transient → 2.70 V) | ADC0 |
 | 27 | USB VBUS sense | divider 100 kΩ / 100 kΩ (5 V → 2.5 V) | ADC1 |
 | 28 | MODE button | 10 kΩ pull-up to 3.3 V, 100 nF, switch to GND | GPIO |
-| 29 | Spare | 3.3 V only — test pad | ADC3 |
+| 29 | MOTOR/SERVO switch sense | switch pole 2 to GND, 10 kΩ pull-up to 3.3 V (3.3 V only) | GPIO |
 
-TB6612 PWMA/PWMB are tied high (3.3 V); each channel is driven by its two IN pins. Both decay modes stay available: **drive/coast** = PWM on IN1 with IN2 low; **drive/brake** = IN1 high with an inverted PWM on IN2. TB6612 logic VCC = 3.3 V.
+All 30 GPIO are used. TB6612 PWMA/PWMB are tied high (3.3 V); each channel is driven by its two IN pins. Both decay modes stay available: **drive/coast** = PWM on IN1 with IN2 low; **drive/brake** = IN1 high with an inverted PWM on IN2. TB6612 logic VCC = 3.3 V.
 
 PIO budget: PIO0 = WS2812; PIO1 = 2 quadrature counters (2 state machines); PIO2 = echo, IR, RC1, RC2 (4 state machines). All within RP2350's 3 x 4 state machines.
 
 ## 5. Power design
 
-### 5.1 Power entry (reverse protection + main switch in one P-FET)
-- Battery connector **JST-XH 2-pin** (B2B-XH-A), marked + / -.
-- **P-channel MOSFET** high-side (AO4407A class: 30 V, ≥ 10 A, low R_DS(on), SO-8): drain to battery +, source to VBAT, gate to GND **through the main slide switch**, 100 kΩ gate-source pull-up, **12 V zener** gate-source clamp. Switch open → FET off; battery reversed → FET stays off. A tiny slide switch carries only gate current — no high-current switch needed.
-- **Fuse** 5 A after the FET (NANO2 0451005 class or a 1812 PTC sized after the current budget).
-- **Bulk:** 220 µF / 16 V low-ESR on VBAT at the driver + 100 nF per driver VM pin.
+### 5.1 Power entry (battery or adapter; reverse protection + main switch in one P-FET)
+- **Battery:** JST-XH 2-pin (B2B-XH-A), marked + / -. **Adapter:** barrel jack **DC-005 class with a switch contact** (5.5 x 2.1 mm, centre positive), 7-12 V. The jack's switch contact is in series with the battery +: **inserting a plug disconnects the battery** — battery and adapter are never connected together.
+- **P-channel MOSFET** high-side (AO4407A class: 30 V, ≥ 10 A, low R_DS(on), SO-8): drain to the selected input, source to VIN, gate to GND **through the main slide switch**, 100 kΩ gate-source pull-up, **12 V zener** gate-source clamp. Switch open → FET off; input reversed → FET stays off. The slide switch carries only gate current.
+- **TVS** SMBJ15A class after the FET (adapter hot-plug transients). **Fuse** 5 A after the FET (NANO2 0451005 class or a PTC sized after the current test).
+- **Bulk:** 220 µF / **25 V** low-ESR on VIN at the drivers + 100 nF per driver VM pin. All VIN-side capacitors rated **≥ 25 V** (12 V adapter + transients).
 
 ### 5.2 Rails
 | Rail | Source | Part (class) | Load |
 |---|---|---|---|
-| VBAT 6.0-8.4 V | pack | — | motors (TB6612 VM), 5 V buck, battery divider |
-| 5 V, 3 A | buck from VBAT | **TPS563201** class (4.5-17 V in, 3 A, SOT-23-6) | head (ESP32 + camera ~0.5 A peaks), sensor connectors, GY-521/GY-271, WS2812, buzzer |
-| 5 V servo | same buck, **separate trace** from the output cap, 470 µF bulk at the servo headers | — | 2 servos (bursts ~1 A each) |
-| 3.3 V | LDO from diode-OR of 5 V and USB VBUS | **AP2112K-3.3** class (600 mA) + 2 Schottky diodes (B5819W class) | RP2354A, 74LVC244, IR receiver, Qwiic, I2C pull-ups |
+| VIN 6-12 V | pack or adapter | — | 2x TB6612 VM (≤ 13.5 V), both bucks, input divider |
+| 5 V logic, 2-3 A | buck from VIN | **TPS563201** class (4.5-17 V in, 3 A, SOT-23-6) | head (ESP32 + camera ~0.5 A peaks), sensor connectors, GY-521/GY-271, WS2812, buzzer |
+| Servo rail ~5 A | **servo buck** from VIN, output 5 V or 6 V by a **feedback-divider jumper**; or VIN direct (**BATT** jumper) | **TPS565208** class (4.5-17 V in, 5 A, SOT-23-6) | 6 servo headers; 1000 µF / 10 V bulk at the headers |
+| 3.3 V | LDO from diode-OR of 5 V logic and USB VBUS | **AP2112K-3.3** class (600 mA) + 2 Schottky diodes (B5819W class) | RP2354A, buffers, IR receiver, Qwiic, I2C pull-ups |
 
-- **USB-only (no battery):** VBUS → diode → LDO → 3.3 V. The RP2354A runs and can be programmed; the 5 V rail, motors and head stay off. The diodes stop USB back-feeding the 5 V rail.
-- **Battery 6.0 V minimum:** the buck needs headroom; the firmware already cuts motors at battery-critical, and the pack's protection cuts below ~6.0 V.
-- **5 V-tolerance rule (§1):** 3.3 V exists whenever 5 V exists (the LDO runs from 5 V); the 1 kΩ series resistors on all 5 V inputs limit current during the LDO start-up window.
+**Servo jumpers** (2.54 mm headers, labelled on the silkscreen):
+- **J_SRV_SRC:** BUCK | BATT. BATT = VIN straight to the servo rail — **HV servos on a 2S pack only, never with an adapter** (silkscreen: "BATT: HV servos + 2S only").
+- **J_SRV_V:** 5V | 6V — selects the servo buck feedback divider (only matters with BUCK).
+- Default from the factory: BUCK + 5V.
+
+- **USB-only (no battery/adapter):** VBUS → diode → LDO → 3.3 V. The RP2354A runs and can be programmed; the 5 V rail, servo rail, motors and head stay off.
+- **Low input:** the logic buck needs ~5.5 V+ at full load; the firmware cuts motors at battery-critical and the pack's protection cuts below ~6.0 V.
+- **5 V-tolerance rule (§1):** 3.3 V exists whenever 5 V exists; the 1 kΩ series resistors on all 5 V inputs limit current during the LDO start-up window.
+- **Adapter vs battery in firmware:** VIN above ~9 V → "adapter" (battery percentage and low-battery warnings disabled; motor PWM capped by the `motor_v_max` setting, which the user should set for 6 V motors).
 
 ### 5.3 Current budget (estimate, to confirm on the prototype)
 | Load | Typical | Peak |
 |---|---|---|
-| 2 TT motors (2S) | 0.3-0.6 A each | ~1.5-2 A each at stall |
-| 2 servos (SG90/MG90S) | 0.1 A | ~0.7-1 A each |
+| 2-4 TT motors (2S) | 0.3-0.6 A each | ~1.5-2 A each at stall |
+| Servos: 2 small (SG90/MG90S) / 6 arm (MG996R class) | 0.1 A each | ~1 A small, ~2.5 A arm, each |
 | Head ESP32-S3 + camera + WiFi | 0.25 A | 0.5 A |
 | RP2354A + logic + LEDs | 0.05 A | 0.1 A |
 | GY-521, ultrasonic, IR, Qwiic sensors | 0.05 A | 0.1 A |
-| **5 V buck output** | ~0.5 A | **~2.6 A** (both servos stalling + head) |
-| **VBAT total** | ~1.5 A | **~5 A** (motor stall + buck peak) |
+| **5 V logic buck** | ~0.4 A | ~0.8 A |
+| **Servo buck** | ~0.3 A | **5 A** (limit; 6 arm servos stalling together exceed it → the buck current-limits; arms move servos one or two at a time) |
+| **VIN total** | ~1.5 A | **~5 A** (fuse) |
 
 ## 6. Motor drivers
-- **TB6612FNG** (SSOP-24): VM 2.5-13.5 V, 1.2 A continuous / 3.2 A peak per channel, built-in thermal shutdown. #1 fitted (L/R); **#2 footprint DNP** (C/D, mecanum variant).
+- **TB6612FNG** (SSOP-24): VM 2.5-13.5 V, 1.2 A continuous / 3.2 A peak per channel, built-in thermal shutdown. **Both fitted on every board** (owner, 2026-10-14): #1 = motors A/B, #2 = motors C/D.
+- **MOTOR C/D ⇄ SERVO 3-6 switch** (2-pole slide switch, board edge): pole 1 breaks driver #2 STBY (SERVO → driver #2 off in hardware, so servo pulses can never move motors C/D); pole 2 tells the firmware (GPIO29). GPIO 8-11 stay wired to both driver #2 inputs (high-impedance CMOS) and servo headers 3-6. The firmware reads the switch at boot and sets up GPIO 8-11 accordingly; a change while running → outputs 8-11 off until reboot (event reported).
 - Per driver: 10 µF + 100 nF on VM close to the pins; motor outputs to **JST-XH 2-pin** per motor (M+, M-).
 - Recommended in the user guide: 100 nF across each motor's terminals (noise).
 
@@ -129,9 +142,11 @@ PIO budget: PIO0 = WS2812; PIO1 = 2 quadrature counters (2 state machines); PIO2
 | Connector | Pins (in order) | Notes |
 |---|---|---|
 | Battery | +, - | XH 2-pin |
-| Motor L / R (C / D DNP) | M+, M- | XH 2-pin each |
+| Motor A / B / C / D | M+, M- | XH 2-pin each |
+| Adapter | barrel jack 5.5 x 2.1 mm, centre + | DC-005 class with switch contact, 7-12 V |
 | Encoder L / R | 5V, GND, A, B | XH 4-pin |
-| Servo 1 / 2 | GND, 5V-servo, SIG | 3-pin 2.54 male header (standard servo plug) |
+| Servo 1-6 | GND, servo rail, SIG | 3-pin 2.54 male headers in a row (standard servo plug); 3-6 shared with motors C/D |
+| Servo jumpers | J_SRV_SRC (BUCK/BATT), J_SRV_V (5V/6V) | 2.54 headers + shunts, labelled |
 | Ultrasonic | 5V, TRIG, ECHO, GND | XH 4-pin |
 | IR (off-board) | 5V, GND, OUT | XH 3-pin; solder jumper selects on-board or off-board receiver (never both) |
 | RC input | 5V, GND, CH1, CH2 | XH 4-pin |
@@ -166,6 +181,7 @@ stateDiagram-v2
     BatteryUsb --> UsbOnly : switch off
     note right of UsbOnly : 3.3 V only - MCU runs, programmable; 5 V rail, head, motors off
     note right of BatteryUsb : everything on, firmware blocks the motors (VBUS present)
+    note left of Battery : "Battery" = 2S pack or 7-12 V adapter (barrel jack)
 ```
 
 ## 10. Firmware driver layer (RP2350 board port)
@@ -223,8 +239,13 @@ classDiagram
     +readRegs(addr, reg, buf, n) bool
     +writeReg(addr, reg, v) bool
   }
-  Rp2350Board *-- MotorPwm : 2 (4 with variant)
-  Rp2350Board *-- ServoOut : 2
+  class OutputModeSwitch {
+    +readAtBoot() OutputMode
+    +changedSinceBoot() bool
+  }
+  Rp2350Board *-- MotorPwm : 2 or 4
+  Rp2350Board *-- ServoOut : 2 or 6
+  Rp2350Board *-- OutputModeSwitch
   Rp2350Board *-- PioQuadrature : 2
   Rp2350Board *-- PioWs2812
   Rp2350Board *-- PioEdgeCapture : IR
@@ -271,8 +292,11 @@ sequenceDiagram
 | MCU | RP2354A (or RP2350A0A4 + W25Q16JV) | 1 | 1.1-1.4 |
 | Core inductor | AOTA-B201610S3R3-101-T | 1 | 0.10 |
 | Crystal 12 MHz | ABM8-272-T3 class | 1 | 0.15 |
-| Motor driver | TB6612FNG | 1 (+1 DNP) | 0.8-1.2 |
-| 5 V buck | TPS563201 + inductor + caps | 1 | 0.5 |
+| Motor driver | TB6612FNG | 2 | 1.6-2.4 |
+| MOTOR/SERVO switch | 2-pole slide switch | 1 | 0.05 |
+| 5 V logic buck | TPS563201 + inductor + caps | 1 | 0.5 |
+| Servo buck | TPS565208 + inductor + caps + 1000 µF | 1 | 0.7 |
+| Barrel jack + TVS | DC-005 (switched) + SMBJ15A | 1 | 0.15 |
 | 3.3 V LDO | AP2112K-3.3 | 1 | 0.08 |
 | P-FET | AO4407A | 1 | 0.10 |
 | Fuse | 5 A NANO2 / PTC | 1 | 0.15 |
@@ -286,7 +310,7 @@ sequenceDiagram
 | Switches | slide switch + 3 right-angle tactile | 4 | 0.15 |
 | Passives, LEDs | — | ~70 | 0.5 |
 | PCB 4-layer + assembly | per board at 100 | 1 | 3-5 |
-| **Total** | | | **~US$9-13** (≈ INR 750-1,100) |
+| **Total** | | | **~US$11-15** (≈ INR 900-1,250) |
 
 Estimates only — confirmed from LCSC pricing when the schematic is drawn.
 
@@ -295,11 +319,11 @@ Estimates only — confirmed from LCSC pricing when the schematic is drawn.
 | # | Item | Decide when |
 |---|---|---|
 | L1 | RP2354A availability at LCSC/JLCPCB; else RP2350A0A4 + W25Q16JV | schematic |
-| L2 | Buck part final (TPS563201 vs alternatives in stock) and a second servo buck yes/no | schematic + prototype current test |
+| L2 | Buck parts final (TPS563201 / TPS565208 or alternatives in stock) | schematic + prototype current test |
 | L3 | Status LED placement (edge / side-view) and which 8 signals | layout |
 | L4 | Exact Uno hole coordinates checked against the Arduino drawing | before layout |
 | L5 | Head-side adapter lead for the chosen camera board | after choosing the head board |
-| L6 | 4 encoders for the mecanum variant → RP2350B (open question O1 in spec 06) | owner |
+| L6 | Encoders for motors C/D in MOTOR position → RP2350B (open question O1 in spec 06) | owner |
 | L7 | Fuse type (NANO2 vs PTC) after the stall-current test | prototype |
 | L8 | Validation plan | when we get there (owner) |
 

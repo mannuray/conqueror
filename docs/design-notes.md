@@ -877,9 +877,9 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
 |---|---|
 | Size | Uno outline 68.6 x 53.3 mm, Uno mounting holes; not shield-compatible |
 | MCU | RP2350A (A4 stepping), external QSPI flash, USB-C (programming) |
-| Motors | 2 channels (TB6612-class), footprint for a 2nd driver (mecanum variant) |
+| Motors | 4 channels (2x TB6612), MOTOR C/D ⇄ SERVO 3-6 switch |
 | Encoders | 2 connectors, A/B each |
-| Servos | 2 outputs (pan/tilt), on the base only |
+| Servos | 2 dedicated + 4 shared with motors C/D = 6; dedicated servo buck, jumpers 5 V / 6 V / BATT; >6 via PCA9685 on Qwiic |
 | Sensors | Ultrasonic (HC-SR04), IR receiver, gyro breakout socket (GY-521), battery voltage sense |
 | Optional sensors | Compass breakout socket (GY-271) at the board edge; Qwiic port for any other I2C sensor (ToF, newer IMUs, remote compass) |
 | Output | Passive buzzer, 1 RGB LED (WS2812, buffered data line) |
@@ -887,7 +887,7 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
 | Status LEDs | GPIO status LEDs (owner, 2026-10-14 - idea from the Cytron Maker Pi RP2040: shows pin activity, helps learning and debugging) |
 | Head link | 4-wire harness: 5 V, GND, TX, RX |
 | RC input | One small connector (5 V, GND, 2 signal pins, 5 V-tolerant): hobby 2.4 GHz receivers (PPM/SBUS) or a toy 27 MHz decoder's on/off outputs (owner, 2026-10-14: no built-in 27 MHz receiver; Bluetooth gamepad via the ESP32 is a possible later firmware feature) |
-| Power | 2S Li-ion pack (USB-C charging in the pack), common connector, main switch, reverse-polarity protection, fuse, 5 V regulator (logic, servos, head) |
+| Power | 2S Li-ion pack (USB-C charging in the pack) or 7-12 V adapter (barrel jack); main switch, reverse-polarity protection, TVS, fuse; 5 V logic buck, servo buck, 3.3 V LDO |
 | 5 V-safe | Every connector 5 V-safe for the user (5 V power, 5 V-tolerant inputs, WS2812 buffer) |
 | Head | Off-the-shelf ESP32-S3 camera board on the gimbal (UART + servo pins, WiFi OTA) |
 
@@ -898,6 +898,7 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
 - **Tracks (owner wants the ELEGOO Conqueror / DFRobot Devastator style:** plastic track shoes joined by pins, toothed sprocket, sprung road wheels; Devastator: 43 mm drive wheel, ~225 x 220 x 108 mm, 780 g). No public supplier found. Plan: image search on 1688/Alibaba, a sourcing agent with photos + measurements (shoe width and pitch, sprocket teeth, road-wheel diameter), DFRobot B2B, ELEGOO support for samples; at volume, own injection-moulded track shoe.
 - Still open: certification for sale in India (BIS toys/Li-ion, WPC, EPR) - research task; optional wired ESP32 update through the base (RP2350 USB-to-UART bridge, ESP32-S3 software-forced download mode) - nice-to-have, OTA is the normal path.
 - **Superseded (owner, 2026-10-14): no servo pins on the camera head and no 6-wire harness** - little use, more complication. Servos (pan/tilt) only on the base; head link is a **4-wire harness** (5 V, GND, TX, RX). The servo-host setting is dropped. The entries above about head servos / 6-wire harness are kept as history.
+- **Outputs and power input (owner, 2026-10-14):** **both motor drivers fitted on every board**; a 2-pole **MOTOR C/D ⇄ SERVO 3-6 switch** (pole 1 disables driver 2 in hardware, pole 2 tells the firmware on GPIO29) → 4 motors + 2 servos, or 2 motors + 6 servos (car/tank, mecanum, arm); more than 6 servos via a PCA9685 on Qwiic. **Dedicated servo buck** (~5 A) with jumpers **5 V / 6 V / BATT** (BATT = HV servos on a 2S pack only). **Barrel jack** for a 7-12 V adapter (switched jack disconnects the battery when plugged) - input range 6-12 V, TVS, 25 V capacitors. Supersedes "2 channels + unfitted second driver".
 - **LLD drafted (2026-10-14):** `docs/lld/base-board-lld.md` - RP2354A (A4, 2 MB internal flash; fallback RP2350A0A4 + W25Q16JV), MCU core copied from the Raspberry Pi reference design, final pin map (5 V signals only on GPIO 0-25 with 1 kOhm series; ADC pins 26-29 not 5 V-tolerant), P-FET reverse protection doubling as the main switch, TPS563201-class 5 V 3 A buck with a separate servo trace, diode-OR USB/5 V into the 3.3 V LDO, TB6612FNG IN/IN drive, SN74AHCT2G125 for WS2812 + ultrasonic trig, SN74LVC244 status LEDs, 4-layer layout rules, BOM estimate ~US$9-13. Part numbers are MPNs; LCSC numbers checked when the schematic is drawn. KiCad not installed yet (owner to approve install).
 - **Spec written (2026-10-14):** `docs/superpowers/specs/2026-10-14-06-base-board-design.md` (draft for review) - next: LLD (exact parts, final pin map, layout rules), then a plan. The current tank development (Mega + shield + ESP32 bridge) stays unchanged.
 

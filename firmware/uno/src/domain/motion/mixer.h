@@ -19,7 +19,10 @@ inline float carSteer(float v_pct, float w_pct, bool car_reverse) {
   return (car_reverse && v_pct < 0.0f) ? -w_pct : w_pct;
 }
 
-// w is a physical turn (CCW +) in every direction; mix() never flips it.
-void mix(float v_pct, float w_pct, const MixerConfig& cfg, float& l_pct, float& r_pct);
+// w is a physical turn (CCW +) in every direction; mix() never flips it. Two turn inputs:
+// w_steer_pct = the driver's open-loop steering, reduced at speed by the turn authority;
+// w_ctrl_pct  = a closed-loop output (gyro heading hold, rate loop, primitive) - never reduced, the
+// controller already sets its size (design-notes §41: scaling halved the heading hold at 80 %).
+void mix(float v_pct, float w_steer_pct, float w_ctrl_pct, const MixerConfig& cfg, float& l_pct, float& r_pct);
 
 }  // namespace cq

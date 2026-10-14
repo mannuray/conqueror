@@ -67,12 +67,25 @@ void test_battery_scale() {
 void test_mixer_turn_authority() {
   const MixerConfig cfg{40, false, 0.0f};
   float l = 0, r = 0;
-  mix(0.0f, 50.0f, cfg, l, r);  // spin CCW
+  mix(0.0f, 50.0f, 0.0f, cfg, l, r);  // spin CCW
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, -50.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 50.0f, r);
-  mix(100.0f, 50.0f, cfg, l, r);  // full speed: turn reduced to 40 % of 50 = 20; turning priority → v 80
+  mix(100.0f, 50.0f, 0.0f, cfg, l, r);  // full speed: turn reduced to 40 % of 50 = 20; turning priority → v 80
   TEST_ASSERT_FLOAT_WITHIN(0.1f, 100.0f, r);
   TEST_ASSERT_FLOAT_WITHIN(0.1f, 60.0f, l);  // difference 40 kept (LLD §3.4)
+}
+
+// design-notes §41 (2026-10-14): the turn authority (less steering at speed) applies to the DRIVER's
+// steering only. The gyro's heading correction is not scaled - scaling halved it at 80 % speed.
+void test_mixer_gyro_correction_not_scaled_by_authority() {
+  const MixerConfig cfg{40, false, 0.0f};
+  float l = 0, r = 0;
+  mix(80.0f, 0.0f, 10.0f, cfg, l, r);  // gyro correction 10 % at 80 % speed: full 10
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 70.0f, l);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 90.0f, r);
+  mix(80.0f, 10.0f, 0.0f, cfg, l, r);  // driver steering 10 % at 80 % speed: authority 52 % → 5.2
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 74.8f, l);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 85.2f, r);
 }
 
 // design-notes §39: w into the mixer is a physical turn (CCW +) - also in reverse. A gyro heading
@@ -80,7 +93,7 @@ void test_mixer_turn_authority() {
 void test_mixer_never_flips_w_in_reverse() {
   const MixerConfig cfg{40, false, 0.0f};
   float l = 0, r = 0;
-  mix(-50.0f, 20.0f, cfg, l, r);
+  mix(-50.0f, 20.0f, 0.0f, cfg, l, r);
   TEST_ASSERT_TRUE(r > l);  // CCW stays CCW
 }
 
@@ -94,17 +107,17 @@ void test_car_steer_flips_only_driver_input_in_reverse() {
 void test_mixer_pivot_fallback() {
   const MixerConfig pivot{100, true, 20.0f};  // full turn authority, keep threshold 20 %
   float l = 0, r = 0;
-  mix(100.0f, 30.0f, pivot, l, r);  // turning priority: v 100 → 70, difference 60 kept
+  mix(100.0f, 30.0f, 0.0f, pivot, l, r);  // turning priority: v 100 → 70, difference 60 kept
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 40.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 100.0f, r);
-  mix(30.0f, 25.0f, pivot, l, r);  // inner 5 % < keep 20 % → 0: pivot on the left track
+  mix(30.0f, 25.0f, 0.0f, pivot, l, r);  // inner 5 % < keep 20 % → 0: pivot on the left track
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 55.0f, r);
-  mix(0.0f, 10.0f, pivot, l, r);  // spin in place has no inner track
+  mix(0.0f, 10.0f, 0.0f, pivot, l, r);  // spin in place has no inner track
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, -10.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 10.0f, r);
   const MixerConfig off{100, false, 20.0f};
-  mix(30.0f, 25.0f, off, l, r);
+  mix(30.0f, 25.0f, 0.0f, off, l, r);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 5.0f, l);
 }
 
@@ -171,6 +184,7 @@ int main() {
   RUN_TEST(test_deadband_kick_then_keep);
   RUN_TEST(test_battery_scale);
   RUN_TEST(test_mixer_turn_authority);
+  RUN_TEST(test_mixer_gyro_correction_not_scaled_by_authority);
   RUN_TEST(test_mixer_never_flips_w_in_reverse);
   RUN_TEST(test_car_steer_flips_only_driver_input_in_reverse);
   RUN_TEST(test_mixer_pivot_fallback);

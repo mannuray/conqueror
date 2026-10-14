@@ -321,6 +321,7 @@ void controlTask() {
       g_app.primitives.cancel(proto::AckStatus::kUnavailable);
     }
     float v = 0.0f;
+    float w_steer = 0.0f;  // driver's open-loop steering (w = closed-loop turn output)
     MotionSetpoint sp{HeadingMode::kRate, 0.0f, 0.0f, 0.0f};
     if (g_app.primitives.tick(primInputs(), kDt, now, sp)) {
       v = sp.v_pct;
@@ -328,20 +329,29 @@ void controlTask() {
                       : 0.0f;
     } else if (g_app.teleop_rate_mode) {
       v = g_app.teleop_v;
-      w = imuUsable() ? g_app.heading.update(HeadingMode::kRate, 0.0f, g_app.teleop_rate_dps, 0.0f, yaw, rate, kDt, false)
-                      : g_app.teleop_rate_dps * 100.0f / gs.turn_rate_max;
+      if (imuUsable()) {
+        w = g_app.heading.update(HeadingMode::kRate, 0.0f, g_app.teleop_rate_dps, 0.0f, yaw, rate, kDt, false);
+      } else {
+        w_steer = g_app.teleop_rate_dps * 100.0f / gs.turn_rate_max;  // no gyro: open-loop
+      }
     } else {
       v = g_app.teleop_v;
       // Car-style reverse flips only the driver's steering, before heading hold (design-notes §39).
       const float steer = carSteer(v, static_cast<float>(g_app.teleop_w), gs.reverse_steer == 0);
-      w = imuUsable() ? g_app.heading.teleop(v, steer, yaw, rate, kDt, false) : steer;
+      const float out = imuUsable() ? g_app.heading.teleop(v, steer, yaw, rate, kDt, false) : steer;
+      // Heading hold's correction is closed-loop (not reduced at speed); steering is the driver's (§41).
+      if (imuUsable() && g_app.heading.holding()) {
+        w = out;
+      } else {
+        w_steer = out;
+      }
     }
 
     // 3. mix (turning priority, pivot fallback), envelope/degraded caps and obstacle slow in %, ramps
     const float keep_pct = (ps.deadband_keep[0] + ps.deadband_keep[1] + ps.deadband_keep[2] + ps.deadband_keep[3]) *
                            100.0f / (4.0f * 255.0f);
     float l = 0.0f, r = 0.0f;
-    mix(v, w, MixerConfig{ps.turn_rate_full_speed, gs.pivot_fallback != 0, keep_pct}, l, r);
+    mix(v, w_steer, w, MixerConfig{ps.turn_rate_full_speed, gs.pivot_fallback != 0, keep_pct}, l, r);
     const uint8_t degraded = !imuUsable() ? 30 : (g_app.us.fault() ? 50 : 100);  // LLD §9.5/§9.16 (min of both)
     const Limited lim = limitTargets(l, r, Limits{g_app.envelope.speedCap(), g_app.us.distMm(), gs.obstacle_stop,
                                                   gs.obstacle_slow, brake_on, degraded});

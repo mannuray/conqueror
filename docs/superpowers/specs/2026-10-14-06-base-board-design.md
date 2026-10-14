@@ -1,4 +1,4 @@
-# Spec 06 — Base board (RP2350A) + camera head
+# Spec 06 — Base board (RP2354B) + camera head
 
 Status: **draft for review** (2026-10-14). Requirements agreed with the owner in `docs/design-notes.md` §40 / §40.1; this spec turns them into a hardware design. Next steps after approval: LLD (schematic-level: exact parts, final pin map, layout rules), then a plan.
 
@@ -20,10 +20,11 @@ flowchart LR
     ESP[ESP32-S3 + PSRAM] --- CAM[OV2640/OV3660]
     ESP --- WIFI((WiFi: phone page,<br/>bench, OTA))
   end
-  subgraph BASE["Base board (Uno outline, RP2350A)"]
-    MCU[RP2350A + QSPI flash]
+  subgraph BASE["Base board (Uno outline, RP2354B)"]
+    MCU[RP2354B, 2 MB flash inside]
     MCU --- DRV[2x motor driver, 4 ch<br/>switch: MOTOR C/D or SERVO 3-6]
-    MCU --- ENC[2x encoder A/B]
+    MCU --- ENC[4x encoder A/B]
+    MCU --- EXP[Expansion header<br/>6 GPIO + 4 ADC]
     MCU --- SRV[2 servo out (pan/tilt)<br/>+ 4 shared with motors C/D]
     MCU --- SENS[Ultrasonic · IR · RC input]
     MCU --- I2C[I2C: gyro socket · compass socket · Qwiic]
@@ -47,9 +48,9 @@ Roles (unchanged from the current architecture):
 | Group | Requirement |
 |---|---|
 | Size | Uno outline 68.6 x 53.3 mm, the 4 Uno mounting holes. Not shield-compatible |
-| MCU | **RP2350A** (QFN-60, 30 GPIO), **A4 stepping or later** (erratum E9: do not rely on internal pull-downs), external QSPI flash (≥ 2 MB), 12 MHz crystal |
+| MCU | **RP2354B** (owner, 2026-10-14): RP2350B (QFN-80, **48 GPIO**, 8 ADC) with **2 MB flash inside**, A4 stepping (erratum E9 fixed), 12 MHz crystal. Only US$0.10 more than the A package; LCSC C39843328 in stock (2026-10-14). Fallback: RP2350B + external QSPI flash |
 | Motors | **4 channels on every board** (2x TB6612-class, ≥ 1.2 A continuous / 3 A peak per channel, VM up to 12 V). Motors A/B always; motors C/D or servos 3-6 chosen by the **MOTOR C/D ⇄ SERVO 3-6 switch** (owner, 2026-10-14) |
-| Encoders | 2 connectors, quadrature A/B, 5 V supply |
+| Encoders | **4 connectors** (one per motor), quadrature A/B, 5 V supply |
 | Servos | **2 dedicated** (pan/tilt) **+ 4 shared** with motors C/D (SERVO position) = **6 servos**; more than 6 via a PCA9685 module on Qwiic. Servo power from a **dedicated servo buck** with jumpers **5 V / 6 V / BATT** (BATT = HV servos on a 2S pack only). Servos only on the base (owner, 2026-10-14: servo pins on the head dropped) |
 | Distance | HC-SR04 connector (5 V, trig, echo) |
 | IR | IR receiver at the front edge + a connector for an off-board receiver |
@@ -57,6 +58,7 @@ Roles (unchanged from the current architecture):
 | IMU | Socket for a **GY-521** breakout (MPU6050 class, 8 pins: VCC GND SCL SDA XDA XCL AD0 INT) |
 | Compass (optional) | Socket for a **GY-271** breakout (QMC5883L/HMC5883L, 5 pins: VCC GND SCL SDA DRDY) at the board edge, far from the motor connectors |
 | I2C expansion | 1 **Qwiic** (JST-SH 4-pin) port — ToF, newer IMUs, a remote compass |
+| Expansion header | 2.54 mm header with 5 V, 3.3 V, GND, **6 GPIO** (5 V-tolerant; UART1/I2C1/SPI capable) and **4 analog inputs** (3.3 V max, marked) for users' own add-ons |
 | Outputs | Passive buzzer · 1 WS2812 RGB LED (buffered data) · GPIO status LEDs |
 | Buttons | RESET, MODE (short press; 5 s WiFi reset; 15 s admin reset), BOOT (recovery only, recessed). No extra user buttons |
 | Sensing | Battery voltage · USB-VBUS present |
@@ -68,7 +70,7 @@ Roles (unchanged from the current architecture):
 | Robot | Switch | Motors | Servos |
 |---|---|---|---|
 | Car / tank | SERVO | 2 (A/B) | up to 6 (pan/tilt + 4) |
-| Mecanum / 4-motor tank | MOTOR | 4 (C/D without encoders) | 2 |
+| Mecanum / 4-motor tank | MOTOR | 4, each with an encoder | 2 |
 | Arm (or arm on a tank) | SERVO | 0-2 | 6 (+ PCA9685 on Qwiic for more) |
 
 Stationary robots (an arm on a desk) can run from a 7-12 V adapter; tracked/wheeled robots use the 2S pack (TT motors run too fast and hot at 12 V).
@@ -79,36 +81,43 @@ Stationary robots (an arm on a desk) can run from a 7-12 V adapter; tracked/whee
 3. **Enclosure rule.** Anything the user reaches or must see sits on a board edge, facing out: buttons are right-angle side-press switches. Proposed **service edge**: USB-C, main switch, RESET, MODE (one cut-out in an enclosure). IR receiver and RGB LED at edges or on connectors; status LEDs along an edge or side-view.
 4. **USB never drives motors.** If USB VBUS is present while the board runs from the battery, the firmware blocks the motors (no driving off with a cable attached).
 
-## 4. Draft pin plan (RP2350A)
+## 4. Draft pin plan (RP2354B)
 
-Draft for the LLD — it shows that everything fits; the LLD finalises it against the datasheet (PWM slices, PIO assignment, 5 V tolerance per pin).
+Draft for the LLD — the LLD finalises it against the datasheet (PWM slices, PIO assignment, 5 V tolerance per pin). On the B package the **ADC inputs are GPIO 40-47**; GPIO 26-39 are digital. **5 V signals only on GPIO 0-39**; GPIO 40-47 are treated as 3.3 V only (to be confirmed in the datasheet before the schematic).
 
-| GPIO | Function | Notes |
-|---|---|---|
-| 0 / 1 | UART0 TX / RX → head | Body link, 250000 baud |
-| 2 / 3 | Motor L IN1 / IN2 | PWM slice 1 (A/B), ~20 kHz; IN/IN drive (no separate PWM pin) |
-| 4 / 5 | I2C0 SDA / SCL | Gyro socket, compass socket, Qwiic (shared bus) |
-| 6 / 7 | Motor R IN1 / IN2 | PWM slice 3, ~20 kHz |
-| 8 / 9 | Motor C IN1 / IN2 **or** servo 3 / 4 | Set by the MOTOR/SERVO switch: 20 kHz motor PWM or 50 Hz servo (slice 4) |
-| 10 / 11 | Motor D IN1 / IN2 **or** servo 5 / 6 | Same (slice 5) |
-| 12 / 13 | Servo 1 / 2 | PWM slice 6, 50 Hz |
-| 14 | Buzzer | PWM slice 7 A (tone frequency) |
-| 15 | WS2812 data | PIO, through the 74AHCT1G125 buffer |
-| 16 / 17 | Encoder L A / B | PIO quadrature counter |
-| 18 / 19 | Encoder R A / B | PIO quadrature counter |
-| 20 | Motor driver STBY / enable | Low = all motors coast (also at reset). Driver 2 STBY also passes through the switch (SERVO = driver 2 off in hardware) |
-| 21 | Ultrasonic trig | |
-| 22 | Ultrasonic echo | PIO or edge capture |
-| 23 | IR receiver | PIO NEC capture (no 20 kHz sampling needed) |
-| 24 / 25 | RC input 1 / 2 | PIO: PPM, SBUS (inverted UART 100 kbaud) or digital |
-| 26 (ADC0) | Battery voltage | Divider from VBAT (ADC pins are **not** 5 V-tolerant — divider only) |
-| 27 (ADC1) | USB VBUS sense | Divider |
-| 28 | MODE button | External pull-up |
-| 29 (ADC3) | MOTOR/SERVO switch sense | 3.3 V only; the switch's second pole |
+| GPIO | Function | Electrical | Peripheral |
+|---|---|---|---|
+| 0 / 1 | Head UART TX / RX | 3.3 V (ESP32 is 3.3 V) | UART0 |
+| 2 / 3 | Motor A IN1 / IN2 | → TB6612 #1 AIN1/AIN2 | PWM slice 1, 20 kHz |
+| 4 / 5 | I2C SDA / SCL | 2.2 kΩ pull-ups to 3.3 V | I2C0, 400 kHz |
+| 6 / 7 | Motor B IN1 / IN2 | → TB6612 #1 BIN1/BIN2 | PWM slice 3 |
+| 8 / 9 | Motor C IN1 / IN2 **or** servo 3 / 4 | → TB6612 #2 AIN1/AIN2 **and** servo headers 3/4 (100 Ω) | PWM slice 4: 20 kHz (MOTOR) or 50 Hz (SERVO) |
+| 10 / 11 | Motor D IN1 / IN2 **or** servo 5 / 6 | → TB6612 #2 BIN1/BIN2 **and** servo headers 5/6 | PWM slice 5 |
+| 12 / 13 | Servo 1 (pan) / 2 (tilt) | 100 Ω series | PWM slice 6, 50 Hz |
+| 14 | Buzzer | → MOSFET gate | PWM slice 7 A (tone) |
+| 15 | WS2812 data | → 74AHCT2G125 A | PIO0 |
+| 16 / 17 | Encoder A (left) A / B | 5 V in, 1 kΩ series, 10 kΩ pull-up to 3.3 V | PIO1 quadrature |
+| 18 / 19 | Encoder B (right) A / B | same | PIO1 quadrature |
+| 20 | Motor STBY | → TB6612 #1 STBY; → TB6612 #2 STBY through switch pole 1 (SERVO: held low). 100 kΩ pull-downs → motors coast at reset | GPIO |
+| 21 | Ultrasonic trig | → 74AHCT2G125 B (5 V out) | GPIO |
+| 22 | Ultrasonic echo | 5 V in, 1 kΩ series | PIO2 |
+| 23 | IR receiver | on-board 3.3 V / off-board via 1 kΩ | PIO2 |
+| 24 / 25 | RC input 1 / 2 | 5 V in, 1 kΩ series | PIO2 (PPM, SBUS via pad inversion, digital) |
+| 26 / 27 | Encoder C A / B | 5 V in, 1 kΩ series, 10 kΩ pull-up | PIO1 quadrature |
+| 28 / 29 | Encoder D A / B | same | PIO1 quadrature |
+| 30 | MODE button | 10 kΩ pull-up to 3.3 V, 100 nF, switch to GND | GPIO |
+| 31 | MOTOR/SERVO switch sense | switch pole 2 to GND, 10 kΩ pull-up | GPIO |
+| 32 / 33 | Expansion (UART1 TX / RX capable) | 5 V-tolerant in, 1 kΩ series | expansion header |
+| 34 / 35 | Expansion (I2C1 / SPI capable) | 5 V-tolerant in, 1 kΩ series | expansion header |
+| 36 | GY-521 INT | from the socket (optional use) | GPIO |
+| 37 | GY-271 DRDY | from the socket (optional use) | GPIO |
+| 38 / 39 | Expansion GPIO | 5 V-tolerant in, 1 kΩ series | expansion header |
+| 40 (ADC0) | Input voltage (battery/adapter) | divider 100 kΩ / 22 kΩ + 100 nF (12 V → 2.16 V) | ADC |
+| 41 (ADC1) | USB VBUS sense | divider 100 kΩ / 100 kΩ | ADC |
+| 42-45 (ADC2-5) | Expansion analog inputs | **3.3 V max** (marked on the silkscreen), 1 kΩ series | expansion header |
+| 46 / 47 (ADC6/7) | Reserved: motor current sense (future) | test pads | ADC |
 
-Budget: **30 of 30 GPIO used**. **Consequence:** in MOTOR position, motors C/D have **no encoders**. If 4 encoders are wanted, the LLD switches to **RP2350B** (QFN-80, 48 GPIO) — open question O1.
-
-GY-521 INT, XDA/XCL and GY-271 DRDY are not wired to GPIO (the firmware polls; the current firmware already does).
+Budget: 48 GPIO — 36 used by the board, **6 GPIO + 4 ADC on the expansion header**, 2 ADC reserved for future motor current sensing. All 4 motors have encoders. PIO: 9 of 12 state machines (4 encoders, WS2812, echo, IR, 2 RC).
 
 ## 5. Power tree
 
@@ -188,7 +197,7 @@ To be written when we get there (owner, 2026-10-14). It will cover bring-up orde
 
 | # | Question | Notes |
 |---|---|---|
-| O1 | Encoders for motors C/D (MOTOR position)? | Needs RP2350B (48 GPIO); RP2350A has no pins left |
+| O1 | ~~Encoders for motors C/D?~~ | **Decided: RP2354B** - 4 encoders + expansion header (owner, 2026-10-14) |
 | O2 | Exact parts: motor driver (TB6612 vs DRV8833-class), 5 V buck, LDO, reverse-polarity MOSFET, fuse | LLD |
 | O3 | ~~One 5 V buck or a separate servo buck~~ | **Decided: separate servo buck** (6 servos, owner 2026-10-14) |
 | O4 | Status LEDs: which signals, buffered how, placement (edge / side-view) | LLD + layout |
@@ -198,8 +207,8 @@ To be written when we get there (owner, 2026-10-14). It will cover bring-up orde
 
 ## 11. Risks
 
-- **Pin budget is full** (30/30 on RP2350A) — any new need forces RP2350B or an I/O expander.
+- **Supply:** LCSC stock of RP2350-family chips has dropped sharply before — check before each order; reserve stock or use a Raspberry Pi approved reseller for production.
 - **Power integrity:** motor and servo noise on a small board; needs careful layout (star ground, bulk caps, separate servo trace).
 - **Compass accuracy** near motors — the socket is a convenience; reliable heading needs a remote (Qwiic) compass.
 - **Cost:** the electronics target (~INR 1,000-1,500 / US$12-18 BOM) has to hold at small volumes; market research suggests a retail of INR 1,999-2,499 for the board (`docs/research/2026-10-14-base-board-market-india.md`).
-- **Supply:** RP2350A stepping (A4+) and the camera board must be reliably available.
+- **Camera board** availability (off-the-shelf) must be checked per batch.

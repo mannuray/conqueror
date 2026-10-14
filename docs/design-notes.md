@@ -883,9 +883,9 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
 | Group | Requirement |
 |---|---|
 | Size | Uno outline 68.6 x 53.3 mm, Uno mounting holes; not shield-compatible |
-| MCU | RP2350A (A4 stepping), external QSPI flash, USB-C (programming) |
+| MCU | RP2354B (RP2350B + 2 MB flash inside), USB-C (programming) |
 | Motors | 4 channels (2x TB6612), MOTOR C/D ⇄ SERVO 3-6 switch |
-| Encoders | 2 connectors, A/B each |
+| Encoders | 4 connectors (one per motor), A/B each |
 | Servos | 2 dedicated + 4 shared with motors C/D = 6; dedicated servo buck, jumpers 5 V / 6 V / BATT; >6 via PCA9685 on Qwiic |
 | Sensors | Ultrasonic (HC-SR04), IR receiver, gyro breakout socket (GY-521), battery voltage sense |
 | Optional sensors | Compass breakout socket (GY-271) at the board edge; Qwiic port for any other I2C sensor (ToF, newer IMUs, remote compass) |
@@ -906,6 +906,7 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
 - Still open: certification for sale in India (BIS toys/Li-ion, WPC, EPR) - research task; optional wired ESP32 update through the base (RP2350 USB-to-UART bridge, ESP32-S3 software-forced download mode) - nice-to-have, OTA is the normal path.
 - **Superseded (owner, 2026-10-14): no servo pins on the camera head and no 6-wire harness** - little use, more complication. Servos (pan/tilt) only on the base; head link is a **4-wire harness** (5 V, GND, TX, RX). The servo-host setting is dropped. The entries above about head servos / 6-wire harness are kept as history.
 - **Outputs and power input (owner, 2026-10-14):** **both motor drivers fitted on every board**; a 2-pole **MOTOR C/D ⇄ SERVO 3-6 switch** (pole 1 disables driver 2 in hardware, pole 2 tells the firmware on GPIO29) → 4 motors + 2 servos, or 2 motors + 6 servos (car/tank, mecanum, arm); more than 6 servos via a PCA9685 on Qwiic. **Dedicated servo buck** (~5 A) with jumpers **5 V / 6 V / BATT** (BATT = HV servos on a 2S pack only). **Barrel jack** for a 7-12 V adapter (switched jack disconnects the battery when plugged) - input range 6-12 V, TVS, 25 V capacitors. Supersedes "2 channels + unfitted second driver".
+- **MCU changed to RP2354B (owner, 2026-10-14):** RP2350B package (QFN-80, 48 GPIO, ADC on GPIO 40-47) with 2 MB flash inside; only US$0.10 more than the A package; LCSC C39843328 in stock (~3,240, ~US$1.35 at volume, checked 2026-10-14; India: Hubtronics ~INR 130, stock varies). Gives encoders on all 4 motors and an expansion header (6 GPIO + 4 ADC). Supersedes RP2350A/RP2354A below.
 - **LLD drafted (2026-10-14):** `docs/lld/base-board-lld.md` - RP2354A (A4, 2 MB internal flash; fallback RP2350A0A4 + W25Q16JV), MCU core copied from the Raspberry Pi reference design, final pin map (5 V signals only on GPIO 0-25 with 1 kOhm series; ADC pins 26-29 not 5 V-tolerant), P-FET reverse protection doubling as the main switch, TPS563201-class 5 V 3 A buck with a separate servo trace, diode-OR USB/5 V into the 3.3 V LDO, TB6612FNG IN/IN drive, SN74AHCT2G125 for WS2812 + ultrasonic trig, SN74LVC244 status LEDs, 4-layer layout rules, BOM estimate ~US$9-13. Part numbers are MPNs; LCSC numbers checked when the schematic is drawn. KiCad not installed yet (owner to approve install).
 - **Spec written (2026-10-14):** `docs/superpowers/specs/2026-10-14-06-base-board-design.md` (draft for review) - next: LLD (exact parts, final pin map, layout rules), then a plan. The current tank development (Mega + shield + ESP32 bridge) stays unchanged.
 

@@ -14,10 +14,10 @@ void test_ir_hold_up_drives_then_release_stops() {
   IrOutput o{};
   TEST_ASSERT_TRUE(c.onEvent({ir_codes::kUp, false, 0}, o));
   TEST_ASSERT_TRUE(o.active);
-  TEST_ASSERT_EQUAL(50, o.v);
+  TEST_ASSERT_EQUAL(80, o.v);
   TEST_ASSERT_EQUAL(0, o.w);
+  c.onEvent({ir_codes::kUp, true, 108}, o);  // NEC repeat while held: a hold, not a tap
   TEST_ASSERT_FALSE(c.tick(150, o));
-  c.onEvent({ir_codes::kUp, true, 108}, o);  // NEC repeat while held
   TEST_ASSERT_FALSE(c.tick(324, o));         // one repeat lost (216 ms): still held (§39)
   TEST_ASSERT_FALSE(c.tick(457, o));
   TEST_ASSERT_TRUE(c.tick(458, o));          // 350 ms without a repeat → released
@@ -25,22 +25,56 @@ void test_ir_hold_up_drives_then_release_stops() {
   TEST_ASSERT_EQUAL(0, o.v);
 }
 
+// design-notes §41: a tap (no repeat within 150 ms) is a 0.15 s nudge, not the 350 ms hold window.
+void test_ir_tap_is_a_short_nudge() {
+  IrController c;
+  IrOutput o{};
+  TEST_ASSERT_TRUE(c.onEvent({ir_codes::kLeft, false, 1000}, o));
+  TEST_ASSERT_TRUE(o.active);
+  TEST_ASSERT_FALSE(c.tick(1149, o));
+  TEST_ASSERT_TRUE(c.tick(1150, o));  // released after the nudge
+  TEST_ASSERT_FALSE(o.active);
+  TEST_ASSERT_EQUAL(0, o.w);
+}
+
+// A held key's first repeat (~50 ms after the code) turns the tap into a hold: no stop at 150 ms.
+void test_ir_hold_is_not_cut_by_the_nudge() {
+  IrController c;
+  IrOutput o{};
+  c.onEvent({ir_codes::kRight, false, 0}, o);
+  c.onEvent({ir_codes::kRight, true, 52}, o);
+  TEST_ASSERT_FALSE(c.tick(150, o));
+  TEST_ASSERT_FALSE(c.tick(400, o));  // < 350 ms after the last repeat
+  TEST_ASSERT_TRUE(c.tick(402, o));   // 350 ms after the repeat at 52
+}
+
+// If the first repeat was lost the nudge ends, and a later repeat resumes driving.
+void test_ir_late_repeat_after_nudge_resumes() {
+  IrController c;
+  IrOutput o{};
+  c.onEvent({ir_codes::kUp, false, 0}, o);
+  TEST_ASSERT_TRUE(c.tick(150, o));
+  TEST_ASSERT_TRUE(c.onEvent({ir_codes::kUp, true, 160}, o));
+  TEST_ASSERT_TRUE(o.active);
+  TEST_ASSERT_EQUAL(80, o.v);
+}
+
 void test_ir_directions_speed_and_ok() {
   IrController c;
   IrOutput o{};
   c.onEvent({ir_codes::k6, false, 0}, o);
   TEST_ASSERT_TRUE(o.speed_changed);
-  TEST_ASSERT_EQUAL(60, c.speedPct());
+  TEST_ASSERT_EQUAL(90, c.speedPct());
   c.onEvent({ir_codes::k4, false, 10}, o);
   c.onEvent({ir_codes::k4, false, 20}, o);
-  TEST_ASSERT_EQUAL(40, c.speedPct());
+  TEST_ASSERT_EQUAL(70, c.speedPct());
   c.onEvent({ir_codes::kLeft, false, 30}, o);
   TEST_ASSERT_EQUAL(0, o.v);
-  TEST_ASSERT_EQUAL(40, o.w);  // CCW
+  TEST_ASSERT_EQUAL(70, o.w);  // CCW
   c.onEvent({ir_codes::kRight, false, 40}, o);
-  TEST_ASSERT_EQUAL(-40, o.w);
+  TEST_ASSERT_EQUAL(-70, o.w);
   c.onEvent({ir_codes::kDown, false, 50}, o);
-  TEST_ASSERT_EQUAL(-40, o.v);
+  TEST_ASSERT_EQUAL(-70, o.v);
   c.onEvent({ir_codes::kOk, false, 60}, o);
   TEST_ASSERT_TRUE(o.stop);
   TEST_ASSERT_FALSE(o.active);
@@ -191,6 +225,9 @@ void test_long_press_after_boot_is_ignored() {
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ir_hold_up_drives_then_release_stops);
+  RUN_TEST(test_ir_tap_is_a_short_nudge);
+  RUN_TEST(test_ir_hold_is_not_cut_by_the_nudge);
+  RUN_TEST(test_ir_late_repeat_after_nudge_resumes);
   RUN_TEST(test_ir_directions_speed_and_ok);
   RUN_TEST(test_ir_speed_limits);
   RUN_TEST(test_ir_camera_jog_while_held);

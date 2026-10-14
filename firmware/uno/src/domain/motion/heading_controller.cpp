@@ -16,6 +16,7 @@ void HeadingController::reset() {
   m_rate.reset();
   m_heading.reset();
   m_holding = false;
+  m_settle_s = 0.0f;
 }
 
 float HeadingController::rateLoop(float rate_target_dps, float yaw_rate_dps, float dt_s, bool freeze) {
@@ -45,14 +46,18 @@ float HeadingController::teleop(float v_pct, float w_pct, float yaw_deg, float y
     return 0.0f;
   }
   if (absf(w_pct) >= 1.0f) {
+    // Steering is open-loop (design-notes §41): the gyro only keeps the tank straight. A rate loop
+    // here fought the tracks' grip and made turns step.
     m_holding = false;
     m_heading.reset();
-    return update(HeadingMode::kRate, w_pct, w_pct * m_cfg.turn_rate_max_dps / 100.0f, 0.0f, yaw_deg, yaw_rate_dps,
-                  dt_s, freeze);
+    m_rate.reset();
+    m_settle_s = 0.0f;
+    return w_pct;
   }
   if (!m_holding) {
-    if (absf(yaw_rate_dps) > kCaptureRateDps) {  // let the turn settle before capturing
-      return update(HeadingMode::kRate, 0.0f, 0.0f, 0.0f, yaw_deg, yaw_rate_dps, dt_s, freeze);
+    if (absf(yaw_rate_dps) > kCaptureRateDps && m_settle_s < kSettleS) {  // let the turn settle (no braking)
+      m_settle_s += dt_s;
+      return 0.0f;
     }
     m_holding = true;
     m_held_deg = yaw_deg;

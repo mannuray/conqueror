@@ -1947,7 +1947,7 @@ classDiagram
   App *-- MotionTimer
 ```
 
-### 11.8 Automatic gyro zero (2026-10-14, PROPOSED — amends §6.2)
+### 11.8 Automatic gyro zero (2026-10-14, APPROVED by owner, memory only — amends §6.2)
 
 **Why.** §6.2 specified "auto bias re-estimation when not driven", but it was never built: the firmware subtracts the stored `gyro_bias_x/y/z` settings and nothing else. On the owner's Mega those were never calibrated (all 0). The turning axis read −0.20 °/s at rest, and heading hold turned that into a real left curve: ~10 cm over 3 m, down to ~4 cm after a manual `bias` calibration (design-notes §41). A gyro's zero also moves with temperature, and the MPU-6050 datasheet allows up to ±20 °/s initial zero-rate offset, so every tank needs this and a one-off calibration does not stay right. ELEGOO measures the zero at every power-on; we measure it **every time the tank stands still**.
 
@@ -1985,6 +1985,8 @@ classDiagram
     -m_have_prev bool
     -m_prev[3] float
     -m_zero[3] float
+    -m_seeded[3] int16
+    -m_seeded_valid bool
     -m_accepted uint16
   }
   class ImuTask { +imuTask() }
@@ -2024,7 +2026,9 @@ sequenceDiagram
   T->>Y: update(gz, dt, stationary)
 ```
 
-**RAM** ≈ 60 B (budget: static RAM 2370 / 6144 B). **Flash** ≈ 1 KB.
+**RAM** ≈ 60 B (budget: static RAM 2370 / 6144 B). **Flash** ≈ 1 KB. Measured after implementation: +64 B RAM (2434 B), +1.3 KB flash (63218 B).
+
+**Implementation note:** `seed()` remembers the last stored values and restarts only when they change, because `applySettings()` runs after every setting change (`test_gyro_zero_reseed_only_on_change`). The manual still-sample calibration reads raw gyro values, so it is not affected by the learned zero.
 
 **Implementation plan** (one branch `gyro-auto-zero`, TDD, host tests first)
 1. `GyroZeroTracker` + host tests (`test_estimation`): accepts after settle + 2 agreeing windows; a bump (spread) is rejected; motion mid-window drops the window; two disagreeing windows (slow hand rotation) are not accepted; |zero| > 20 °/s rejected; `seed()` restarts from the stored values.

@@ -57,10 +57,15 @@ void imuTask() {
   const float ax = r.ax / imu_scale::kAccelLsbPerG;
   const float ay = r.ay / imu_scale::kAccelLsbPerG;
   const float az = r.az / imu_scale::kAccelLsbPerG;
+  // Learn the gyro zero while the tank stands still (LLD §11.8); lift/tilt are from the previous sample.
+  const int16_t g_raw[3] = {r.gx, r.gy, r.gz};
+  const bool quiet = !g_app.moving && !g_app.lift.lifted() && !g_app.lift.tilted() && !g_app.cal.running() &&
+                     !g_app.self_test_pending;
+  g_app.gyro_zero.update(g_raw, quiet, now);
   // float maths: int16 - int16 in 16-bit int would overflow for a saturated gyro with a bias
-  const float gx = (static_cast<float>(r.gx) - gs.gyro_bias_x) / imu_scale::kGyroLsbPerDps;
-  const float gy = (static_cast<float>(r.gy) - gs.gyro_bias_y) / imu_scale::kGyroLsbPerDps;
-  const float gz = (static_cast<float>(r.gz) - gs.gyro_bias_z) / imu_scale::kGyroLsbPerDps;
+  const float gx = (static_cast<float>(r.gx) - g_app.gyro_zero.zero(0)) / imu_scale::kGyroLsbPerDps;
+  const float gy = (static_cast<float>(r.gy) - g_app.gyro_zero.zero(1)) / imu_scale::kGyroLsbPerDps;
+  const float gz = (static_cast<float>(r.gz) - g_app.gyro_zero.zero(2)) / imu_scale::kGyroLsbPerDps;
 
   g_app.attitude.update(ax, ay, az, gx, gy, kDt);  // accel correction inside at 50 Hz
   g_app.yaw.update(gz, kDt, g_app.stationary);

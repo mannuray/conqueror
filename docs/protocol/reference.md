@@ -612,7 +612,7 @@ Payload 0 bytes max.
 | 55 | pid_rate_kp | profile | i32 | gain | 0.001 | 0 | 100000 | 1200 |
 | 56 | pid_rate_ki | profile | i32 | gain | 0.001 | 0 | 100000 | 400 |
 | 57 | pid_rate_kd | profile | i32 | gain | 0.001 | 0 | 100000 | 20 |
-| 58 | pid_heading_kp | profile | i32 | gain | 0.001 | 0 | 100000 | 3000 |
+| 58 | pid_heading_kp | profile | i32 | gain | 0.001 | 0 | 100000 | 3500 |
 | 59 | pid_heading_ki | profile | i32 | gain | 0.001 | 0 | 100000 | 0 |
 | 60 | pid_heading_kd | profile | i32 | gain | 0.001 | 0 | 100000 | 100 |
 | 61 | override_idle_s | global | u8 | s | 1.0 | 10 | 60 | 60 |

@@ -51,7 +51,7 @@
 - { id: 55, name: pid_rate_kp, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 1200 }
 - { id: 56, name: pid_rate_ki, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 400 }
 - { id: 57, name: pid_rate_kd, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 20 }
-- { id: 58, name: pid_heading_kp, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 3000 }
+- { id: 58, name: pid_heading_kp, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 3500 }
 - { id: 59, name: pid_heading_ki, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 0 }
 - { id: 60, name: pid_heading_kd, scope: profile, type: i32, unit: gain, scale: 0.001, min: 0, max: 100000, default: 100 }
 - { id: 61, name: override_idle_s, scope: global, type: u8, unit: s, min: 10, max: 60, default: 60, doc: "Safety Override ends after this long without driving" }

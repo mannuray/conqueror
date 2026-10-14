@@ -968,3 +968,4 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
 - **Board:** the ELEGOO Uno R3 that came with the kit (ATmega328P, 32 KB flash, 2 KB RAM, 1 KB EEPROM). The owner's other Uno R3 (FM-radio project) has the same chip; not used.
 - **Firmware:** one codebase, two profiles as planned in §29: **Lite** (Uno) and **Full** (Mega, kept building and tested). The Lite feature list, sizes and HELLO `caps` are designed next (Uno LLD section) and approved before any code.
 - Full build today: ~61 KB code, 2.4 KB RAM; Uno budget (size gate): 30 KB flash, 1750 B static RAM.
+- **Uno firmware approach (owner, 2026-10-14): option B** — a new, small Uno app in the same project, reusing only small proven pieces, whole-number maths, same protocol to the ESP32; the full firmware stays (tag `full-firmware-2026-10-14`, Mega env keeps building). Spec 02 Part D (proposed) lists the features; owner to approve before the Uno Lite LLD.

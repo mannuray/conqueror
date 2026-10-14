@@ -337,3 +337,37 @@ Firmware: `drivers/board_config.h` build option selects the shield; only the mot
 - **Uno updates stay USB-only** (shield switch S1). Reason recorded: the ESP32↔Uno connector P1 carries only RX(IO33)/TX(IO4)/GND/VCC — no reset line, so the ESP32 cannot put the Uno into its bootloader. Future option (not planned): one wire ESP32 pad T14 (IO13) → 100 nF → Uno RESET + STK500 flashing from the ESP32 (esp-link approach).
 - ESP32 self-OTA unchanged (dual partitions + rollback).
 - 2022.03.23 ELEGOO package reviewed: its ESP32-WROVER-Camera-V1.2 schematic is identical to the one already used.
+
+---
+
+## Part D — Uno Lite firmware (2026-10-14, PROPOSED — owner to approve)
+
+**Why:** the Mega clone cannot start the ESP32-S3 camera board; the ELEGOO Uno can (design-notes §43). The full firmware (~61 KB) cannot fit the Uno (32 KB, 2 KB RAM). Owner: *"let this be drivable, don't throw the current code, save it for the future full board; design what fits on the Uno, no bells and whistles"* and chose **option B**: a **new, small Uno app in the same project**.
+
+### D1. Principles
+1. **Drivable first:** IR remote and phone/web driving, straight-line gyro hold. Nothing decorative unless space is left.
+2. **Safety rules unchanged (hard rule):** deadman, link-loss stop, STOP, obstacle brake, child-play envelope caps, battery low/critical, lift/tilt stop, boot self-test. No Override mode (stricter, not weaker).
+3. **Same protocol to the ESP32:** same frames, CRC and framing, so the bridge and phone page work unchanged. Frames the Lite app does not implement get `ACK UNAVAILABLE`. HELLO `caps` tells clients what is missing (new cap bits; protocol change in the LLD).
+4. **Budget:** **≤ 28 KB flash, ≤ 1.5 KB static RAM** (Uno: 32 KB / 2 KB; margin for bootloader and stack). Size gate on every build.
+5. **Whole-number maths** in the control loops (no float library, ~7 KB saved).
+6. **The full firmware is kept:** tag `full-firmware-2026-10-14`; the Mega env, its app and its 182 host tests keep building. Shared code (generated protocol, frame parser/writer, NEC decoder, small safety pieces) is reused only where it fits the budget.
+
+### D2. Features
+
+| Area | Uno Lite | Status |
+|---|---|---|
+| IR remote | tap = 0.15 s nudge, hold = drive (350 ms release), speed keys 6/4 (default 80 %, ±10 %), OK = stop | keep |
+| Phone / web | `DRIVE` (v, w), `STOP`, deadman, owner rules (network vs IR) | keep |
+| Straight line | gyro heading hold when not steering; steering open-loop; auto gyro zero at rest | keep |
+| Safety | see D1.2 | keep (hard rule) |
+| Encoders | counts in telemetry; left/right balance if it fits | keep (owner) |
+| Camera pan/tilt | `CAM_SET` / `CAM_HOME` positioning; smooth movement only if space is left | keep / optional |
+| LED | no ESP32 (blue) · ready (white) · driving · IR (purple) · alarm (red) | keep |
+| Sound | one short beep for keys and alarms | proposed |
+| Settings | small fixed set in EEPROM (gyro zero, deadband, motor trim, heading gain, IR speed); rest are constants | proposed |
+| Telemetry | `TELEM_FAST` / `TELEM_SLOW` / `EVENT` frames as now, key fields only | keep |
+| TURN by angle (Tank Logo/AI) | not in Lite (AI uses the full board later) | proposed drop |
+| Calibration scripts, Override, MOVE, DRIVE_RATE, melodies, LED/SOUND/TONE frames, bump/accel extras, profiles, full settings protocol | not in Lite | drop |
+
+### D3. Next
+Uno Lite LLD (classes, Mermaid diagrams, frame subset, RAM/flash plan per module, caps bits) → implementation plan → code, each approved by the owner. The first implementation step is a skeleton with all drivers, measured against D1.4 (as A12 asked originally).

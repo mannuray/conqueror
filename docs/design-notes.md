@@ -879,13 +879,13 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
 | MCU | RP2350A (A4 stepping), external QSPI flash, USB-C (programming) |
 | Motors | 2 channels (TB6612-class), footprint for a 2nd driver (mecanum variant) |
 | Encoders | 2 connectors, A/B each |
-| Servos | 2 outputs (head has 2 more; a setting picks the servo host) |
+| Servos | 2 outputs (pan/tilt), on the base only |
 | Sensors | Ultrasonic (HC-SR04), IR receiver, gyro breakout socket (GY-521), battery voltage sense |
 | Optional sensors | Compass breakout socket (GY-271) at the board edge; Qwiic port for any other I2C sensor (ToF, newer IMUs, remote compass) |
 | Output | Passive buzzer, 1 RGB LED (WS2812, buffered data line) |
 | Buttons | No extra user buttons (owner). RESET, MODE (5 s WiFi reset, 15 s admin reset) and BOOT (recovery only, recessed pinhole) - all right-angle, side-pressed, on the board edge |
 | Status LEDs | GPIO status LEDs (owner, 2026-10-14 - idea from the Cytron Maker Pi RP2040: shows pin activity, helps learning and debugging) |
-| Head link | 6-wire harness: 5 V + GND (logic), TX, RX, servo 5 V + servo GND |
+| Head link | 4-wire harness: 5 V, GND, TX, RX |
 | RC input | One small connector (5 V, GND, 2 signal pins, 5 V-tolerant): hobby 2.4 GHz receivers (PPM/SBUS) or a toy 27 MHz decoder's on/off outputs (owner, 2026-10-14: no built-in 27 MHz receiver; Bluetooth gamepad via the ESP32 is a possible later firmware feature) |
 | Power | 2S Li-ion pack (USB-C charging in the pack), common connector, main switch, reverse-polarity protection, fuse, 5 V regulator (logic, servos, head) |
 | 5 V-safe | Every connector 5 V-safe for the user (5 V power, 5 V-tolerant inputs, WS2812 buffer) |
@@ -897,5 +897,6 @@ Owner's goal: a cheaper, better local (India) replacement for the Uno/Mega + shi
 - **Market (owner, 2026-10-14): worldwide, not only India.** Pitch: ELEGOO/DFRobot-class tracked mechanics are good, their electronics weak (Devastator chassis alone ~US$85; Conqueror kit US$91-130) - same class of mechanics + our electronics (closed loop, IMU, camera head, phone driving, Tank Logo) at a lower price. Certification then also CE (RED), FCC, UKCA, RoHS, EN 71 if sold for children.
 - **Tracks (owner wants the ELEGOO Conqueror / DFRobot Devastator style:** plastic track shoes joined by pins, toothed sprocket, sprung road wheels; Devastator: 43 mm drive wheel, ~225 x 220 x 108 mm, 780 g). No public supplier found. Plan: image search on 1688/Alibaba, a sourcing agent with photos + measurements (shoe width and pitch, sprocket teeth, road-wheel diameter), DFRobot B2B, ELEGOO support for samples; at volume, own injection-moulded track shoe.
 - Still open: certification for sale in India (BIS toys/Li-ion, WPC, EPR) - research task; optional wired ESP32 update through the base (RP2350 USB-to-UART bridge, ESP32-S3 software-forced download mode) - nice-to-have, OTA is the normal path.
+- **Superseded (owner, 2026-10-14): no servo pins on the camera head and no 6-wire harness** - little use, more complication. Servos (pan/tilt) only on the base; head link is a **4-wire harness** (5 V, GND, TX, RX). The servo-host setting is dropped. The entries above about head servos / 6-wire harness are kept as history.
 - **Spec written (2026-10-14):** `docs/superpowers/specs/2026-10-14-06-base-board-design.md` (draft for review) - next: LLD (exact parts, final pin map, layout rules), then a plan. The current tank development (Mega + shield + ESP32 bridge) stays unchanged.
 

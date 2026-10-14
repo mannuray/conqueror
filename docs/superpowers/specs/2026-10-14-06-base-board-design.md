@@ -18,14 +18,13 @@ A **good general-purpose robot controller** for tracked and wheeled robots, sold
 flowchart LR
   subgraph HEAD["Camera head (off-the-shelf ESP32-S3 camera board, on the gimbal)"]
     ESP[ESP32-S3 + PSRAM] --- CAM[OV2640/OV3660]
-    ESP --- HSV[2x servo out<br/>when servo host = head]
     ESP --- WIFI((WiFi: phone page,<br/>bench, OTA))
   end
   subgraph BASE["Base board (Uno outline, RP2350A)"]
     MCU[RP2350A + QSPI flash]
     MCU --- DRV[Motor driver 2 ch<br/>+ footprint 2nd driver]
     MCU --- ENC[2x encoder A/B]
-    MCU --- SRV[2x servo out<br/>when servo host = base]
+    MCU --- SRV[2x servo out<br/>pan / tilt]
     MCU --- SENS[Ultrasonic · IR · RC input]
     MCU --- I2C[I2C: gyro socket · compass socket · Qwiic]
     MCU --- OUT[Buzzer · WS2812 · status LEDs]
@@ -33,7 +32,7 @@ flowchart LR
     MCU --- USB[USB-C: programming]
   end
   BAT[2S Li-ion pack<br/>own USB-C charging] --> BASE
-  BASE == "6-wire harness:<br/>5V, GND, TX, RX, servo 5V, servo GND" ==> HEAD
+  BASE == "4-wire harness:<br/>5V, GND, TX, RX" ==> HEAD
   DRV --> M[2 DC motors<br/>(4 in mecanum variant)]
 ```
 
@@ -50,7 +49,7 @@ Roles (unchanged from the current architecture):
 | MCU | **RP2350A** (QFN-60, 30 GPIO), **A4 stepping or later** (erratum E9: do not rely on internal pull-downs), external QSPI flash (≥ 2 MB), 12 MHz crystal |
 | Motors | **2 channels** standard (TB6612-class, ≥ 1.2 A continuous / 3 A peak per channel, VM up to 8.4 V); PCB footprint for a **2nd driver, unfitted** → 4-channel mecanum variant from the same PCB |
 | Encoders | 2 connectors, quadrature A/B, 5 V supply |
-| Servos | 2 outputs (3-pin), powered from the servo 5 V rail. A setting picks the **servo host** (base or head) — never both |
+| Servos | 2 outputs (3-pin, pan/tilt), powered from the servo 5 V rail. Servos only on the base (owner, 2026-10-14: servo pins on the head dropped — little use, more complication) |
 | Distance | HC-SR04 connector (5 V, trig, echo) |
 | IR | IR receiver at the front edge + a connector for an off-board receiver |
 | RC input | 1 connector: 5 V, GND, 2 signal pins — hobby 2.4 GHz receivers (PPM, SBUS) or a toy 27 MHz decoder's on/off outputs |
@@ -60,7 +59,7 @@ Roles (unchanged from the current architecture):
 | Outputs | Passive buzzer · 1 WS2812 RGB LED (buffered data) · GPIO status LEDs |
 | Buttons | RESET, MODE (short press; 5 s WiFi reset; 15 s admin reset), BOOT (recovery only, recessed). No extra user buttons |
 | Sensing | Battery voltage · USB-VBUS present |
-| Head link | 6-wire harness connector (§6) |
+| Head link | 4-wire harness connector (§6) |
 | USB | USB-C, programming only (RP2350 native USB) |
 | Power | 2S Li-ion pack with its own protection and USB-C charging; battery connector JST-XH 2-pin; reverse-polarity protection; fuse; main switch; 5 V and 3.3 V rails (§5) |
 
@@ -117,7 +116,7 @@ flowchart TB
   BUCK --> V5S((5 V servo rail<br/>separate trace + bulk cap))
   V5L --> HEADV[Head harness 5 V]
   V5L --> SENS5[Sensor connectors 5 V<br/>ultrasonic · encoders · RC · IR · I2C sockets]
-  V5S --> SERVOS[Base servos + head servo 5 V]
+  V5S --> SERVOS[Servo connectors]
   V5L --> OR{Diode-OR}
   USB[USB-C VBUS] --> OR
   OR --> LDO[3.3 V LDO]
@@ -128,11 +127,11 @@ flowchart TB
 
 - **No charging on the board** (owner, 2026-10-14). The pack charges itself over USB-C; the main switch should be off while charging.
 - **USB powers only the 3.3 V logic** (RP2350, flash) through the diode-OR, so the board can be programmed at any time without a battery. USB never back-feeds the 5 V rail, the motors or the head.
-- **Servo current stays off the logic rail:** servos (base and head) get their own 5 V trace from the buck with a bulk capacitor; the head's ESP32 is fed from the logic rail through the harness (servo bursts of 0.5-1 A caused brown-outs on the current tank's ESP32 — design-notes §38).
+- **Servo current stays off the logic rail:** the servos get their own 5 V trace from the buck with a bulk capacitor; the head's ESP32 is fed from the logic rail through the harness (servo bursts of 0.5-1 A can brown out an ESP32 — see design-notes §38).
 - **5 V buck ≥ 3 A:** 2 servos (bursts ~1 A each), head ESP32 + camera (~0.5 A peaks), WS2812, sensors. Exact part in the LLD; a second buck dedicated to the servos is an LLD option.
 - **Qwiic is a 3.3 V standard** — its connector gets 3.3 V, not 5 V (exception to rule 3.1.1, by standard; Qwiic modules expect 3.3 V).
 
-## 6. Head link — 6-wire harness
+## 6. Head link — 4-wire harness
 
 | Pin | Signal | Direction |
 |---|---|---|
@@ -140,22 +139,20 @@ flowchart TB
 | 2 | GND | — |
 | 3 | TX (base) → RX (head) | base → head, 3.3 V |
 | 4 | RX (base) ← TX (head) | head → base, 3.3 V |
-| 5 | Servo 5 V | base → head (head servos) |
-| 6 | Servo GND | — |
 
-Connector: JST-XH 6-pin on the base; the head side depends on the chosen camera board (adapter lead or a small carrier board). Pin order final in the LLD.
+Connector: JST-XH 4-pin on the base; the head side depends on the chosen camera board (usually an adapter lead). Pin order final in the LLD. (A 6-wire harness with servo power to the head was considered and dropped with the head servos, owner 2026-10-14.)
 
 ## 7. Camera head
 
 An **existing ESP32-S3 camera board**, not designed by us. Selection criteria:
 - ESP32-S3 with **PSRAM** (8 MB preferred), OV2640/OV3660 camera.
-- **2 free GPIOs** for the UART (not used by camera or PSRAM) + **2 more** for servos, a **5 V input** pin.
+- **2 free GPIOs** for the UART (not used by camera or PSRAM) and a **5 V input** pin.
 - **U.FL external antenna** preferred (metal chassis).
 - USB-C for recovery; normal updates over WiFi (OTA).
 
 Candidates: Seeed XIAO ESP32S3 Sense (U.FL, small), Freenove ESP32-S3-WROOM CAM. Not recommended: AI-Thinker ESP32-CAM (old ESP32, no USB, few pins).
 
-Head firmware = the current ESP32 bridge (Plan C) with: a servo-host role (camera behaviour moves to the head when the setting says so; protocol unchanged), board pin profiles per camera board.
+Head firmware = the current ESP32 bridge (Plan C) with board pin profiles per camera board. Pan/tilt stays on the base, as today.
 
 ## 8. Base firmware (what the port needs)
 
@@ -163,7 +160,7 @@ Reuse the current body firmware's design: protocol, domain logic (safety, contro
 - **Board layer for RP2350** (Arduino-Pico core): hardware PWM for motors/servos/buzzer, **PIO** for encoders, WS2812, IR and RC input, hardware I2C (no software I2C), ADC for battery and VBUS.
 - **FPU:** the IMU/PID float maths that cost ~2.4 ms per pass on the Mega become cheap.
 - **Settings** in flash (EEPROM emulation with wear levelling) instead of AVR EEPROM.
-- New behaviour: motors blocked while USB VBUS is present; servo-host setting; RC input mapped like the IR remote (an input source under the arbitrator).
+- New behaviour: motors blocked while USB VBUS is present; RC input mapped like the IR remote (an input source under the arbitrator).
 - HELLO reports the board type and fitted options (encoders, compass, 4-channel).
 
 Tank Logo, the phone page, the bench tool and the AI engine work unchanged through the head.
@@ -180,7 +177,7 @@ To be written when we get there (owner, 2026-10-14). It will cover bring-up orde
 | O2 | Exact parts: motor driver (TB6612 vs DRV8833-class), 5 V buck, LDO, reverse-polarity MOSFET, fuse | LLD |
 | O3 | One 5 V buck or a separate servo buck | LLD, after current budget |
 | O4 | Status LEDs: which signals, buffered how, placement (edge / side-view) | LLD + layout |
-| O5 | Head carrier: adapter lead vs a small carrier board with servo headers | Depends on the chosen camera board |
+| O5 | Head connection: adapter lead to the chosen camera board | Depends on the chosen camera board |
 | O6 | Certification: CE (RED), FCC, UKCA, RoHS; EN 71 / BIS toys if sold for children; Li-ion rules if packs ship | Research task; launch as a 14+ electronics board without cells defers the toy/battery rules (to confirm) |
 | O7 | Track/chassis supplier (Conqueror/Devastator style) | design-notes §40 sourcing plan |
 

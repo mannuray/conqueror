@@ -27,6 +27,14 @@ bool IrController::onEvent(const IrEvent& e, IrOutput& out) {
     default: break;
   }
   if (hold != Hold::kNone) {
+    if (hold == Hold::kDrive) {
+      if (e.repeat) {
+        m_seen_repeat = true;  // also a repeat arriving after a nudge ended: the key is held
+      } else {
+        m_code_ms = e.t_ms;
+        m_seen_repeat = false;
+      }
+    }
     m_last_ms = e.t_ms;
     if (hold == Hold::kHash) {
       if (!e.repeat || m_hold != Hold::kHash) {
@@ -83,7 +91,9 @@ bool IrController::onEvent(const IrEvent& e, IrOutput& out) {
 }
 
 bool IrController::tick(uint32_t now_ms, IrOutput& out) {
-  if (m_hold == Hold::kNone || !elapsed(now_ms, m_last_ms, kReleaseMs)) return false;
+  if (m_hold == Hold::kNone) return false;
+  const bool tap_done = m_hold == Hold::kDrive && !m_seen_repeat && elapsed(now_ms, m_code_ms, kNudgeMs);
+  if (!tap_done && !elapsed(now_ms, m_last_ms, kReleaseMs)) return false;
   const Hold released = m_hold;
   m_hold = Hold::kNone;
   out = IrOutput{};  // not active, no jog, no one-shot flag left over from an earlier key

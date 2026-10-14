@@ -22,9 +22,9 @@ flowchart LR
   end
   subgraph BASE["Base board (Uno outline, RP2350A)"]
     MCU[RP2350A + QSPI flash]
-    MCU --- DRV[Motor driver 2 ch<br/>+ footprint 2nd driver]
+    MCU --- DRV[2x motor driver, 4 ch<br/>switch: MOTOR C/D or SERVO 3-6]
     MCU --- ENC[2x encoder A/B]
-    MCU --- SRV[2x servo out<br/>pan / tilt]
+    MCU --- SRV[2 servo out (pan/tilt)<br/>+ 4 shared with motors C/D]
     MCU --- SENS[Ultrasonic · IR · RC input]
     MCU --- I2C[I2C: gyro socket · compass socket · Qwiic]
     MCU --- OUT[Buzzer · WS2812 · status LEDs]
@@ -32,8 +32,9 @@ flowchart LR
     MCU --- USB[USB-C: programming]
   end
   BAT[2S Li-ion pack<br/>own USB-C charging] --> BASE
+  ADP[DC adapter 7-12 V<br/>barrel jack] --> BASE
   BASE == "4-wire harness:<br/>5V, GND, TX, RX" ==> HEAD
-  DRV --> M[2 DC motors<br/>(4 in mecanum variant)]
+  DRV --> M[2 DC motors<br/>(4 in MOTOR position)]
 ```
 
 Roles (unchanged from the current architecture):
@@ -47,9 +48,9 @@ Roles (unchanged from the current architecture):
 |---|---|
 | Size | Uno outline 68.6 x 53.3 mm, the 4 Uno mounting holes. Not shield-compatible |
 | MCU | **RP2350A** (QFN-60, 30 GPIO), **A4 stepping or later** (erratum E9: do not rely on internal pull-downs), external QSPI flash (≥ 2 MB), 12 MHz crystal |
-| Motors | **2 channels** standard (TB6612-class, ≥ 1.2 A continuous / 3 A peak per channel, VM up to 8.4 V); PCB footprint for a **2nd driver, unfitted** → 4-channel mecanum variant from the same PCB |
+| Motors | **4 channels on every board** (2x TB6612-class, ≥ 1.2 A continuous / 3 A peak per channel, VM up to 12 V). Motors A/B always; motors C/D or servos 3-6 chosen by the **MOTOR C/D ⇄ SERVO 3-6 switch** (owner, 2026-10-14) |
 | Encoders | 2 connectors, quadrature A/B, 5 V supply |
-| Servos | 2 outputs (3-pin, pan/tilt), powered from the servo 5 V rail. Servos only on the base (owner, 2026-10-14: servo pins on the head dropped — little use, more complication) |
+| Servos | **2 dedicated** (pan/tilt) **+ 4 shared** with motors C/D (SERVO position) = **6 servos**; more than 6 via a PCA9685 module on Qwiic. Servo power from a **dedicated servo buck** with jumpers **5 V / 6 V / BATT** (BATT = HV servos on a 2S pack only). Servos only on the base (owner, 2026-10-14: servo pins on the head dropped) |
 | Distance | HC-SR04 connector (5 V, trig, echo) |
 | IR | IR receiver at the front edge + a connector for an off-board receiver |
 | RC input | 1 connector: 5 V, GND, 2 signal pins — hobby 2.4 GHz receivers (PPM, SBUS) or a toy 27 MHz decoder's on/off outputs |
@@ -61,7 +62,16 @@ Roles (unchanged from the current architecture):
 | Sensing | Battery voltage · USB-VBUS present |
 | Head link | 4-wire harness connector (§6) |
 | USB | USB-C, programming only (RP2350 native USB) |
-| Power | 2S Li-ion pack with its own protection and USB-C charging; battery connector JST-XH 2-pin; reverse-polarity protection; fuse; main switch; 5 V and 3.3 V rails (§5) |
+| Power | **2S Li-ion pack** (own protection and USB-C charging; JST-XH 2-pin) **or a 7-12 V DC adapter** (barrel jack, owner 2026-10-14; the jack's switch contact disconnects the battery when plugged). Input range 6-12 V; reverse-polarity protection; TVS; fuse; main switch; 5 V logic, 5 V/6 V servo and 3.3 V rails (§5). No charger on the board |
+
+### 3.0 One board, three robots
+| Robot | Switch | Motors | Servos |
+|---|---|---|---|
+| Car / tank | SERVO | 2 (A/B) | up to 6 (pan/tilt + 4) |
+| Mecanum / 4-motor tank | MOTOR | 4 (C/D without encoders) | 2 |
+| Arm (or arm on a tank) | SERVO | 0-2 | 6 (+ PCA9685 on Qwiic for more) |
+
+Stationary robots (an arm on a desk) can run from a 7-12 V adapter; tracked/wheeled robots use the 2S pack (TT motors run too fast and hot at 12 V).
 
 ### 3.1 Board-wide rules
 1. **5 V-safe connectors.** Users never think about voltage: every connector carries 5 V power; every input tolerates 5 V; every output works with 5 V parts. The only buffered output is the WS2812 data line (74AHCT1G125-class; WS2812 needs ~3.5 V high).
@@ -79,14 +89,14 @@ Draft for the LLD — it shows that everything fits; the LLD finalises it agains
 | 2 / 3 | Motor L IN1 / IN2 | PWM slice 1 (A/B), ~20 kHz; IN/IN drive (no separate PWM pin) |
 | 4 / 5 | I2C0 SDA / SCL | Gyro socket, compass socket, Qwiic (shared bus) |
 | 6 / 7 | Motor R IN1 / IN2 | PWM slice 3, ~20 kHz |
-| 8 / 9 | Motor C IN1 / IN2 | Mecanum variant only (slice 4) |
-| 10 / 11 | Motor D IN1 / IN2 | Mecanum variant only (slice 5) |
+| 8 / 9 | Motor C IN1 / IN2 **or** servo 3 / 4 | Set by the MOTOR/SERVO switch: 20 kHz motor PWM or 50 Hz servo (slice 4) |
+| 10 / 11 | Motor D IN1 / IN2 **or** servo 5 / 6 | Same (slice 5) |
 | 12 / 13 | Servo 1 / 2 | PWM slice 6, 50 Hz |
 | 14 | Buzzer | PWM slice 7 A (tone frequency) |
 | 15 | WS2812 data | PIO, through the 74AHCT1G125 buffer |
 | 16 / 17 | Encoder L A / B | PIO quadrature counter |
 | 18 / 19 | Encoder R A / B | PIO quadrature counter |
-| 20 | Motor driver STBY / enable | Low = all motors coast (also at reset) |
+| 20 | Motor driver STBY / enable | Low = all motors coast (also at reset). Driver 2 STBY also passes through the switch (SERVO = driver 2 off in hardware) |
 | 21 | Ultrasonic trig | |
 | 22 | Ultrasonic echo | PIO or edge capture |
 | 23 | IR receiver | PIO NEC capture (no 20 kHz sampling needed) |
@@ -94,9 +104,9 @@ Draft for the LLD — it shows that everything fits; the LLD finalises it agains
 | 26 (ADC0) | Battery voltage | Divider from VBAT (ADC pins are **not** 5 V-tolerant — divider only) |
 | 27 (ADC1) | USB VBUS sense | Divider |
 | 28 | MODE button | External pull-up |
-| 29 (ADC3) | Spare | Free for a later need |
+| 29 (ADC3) | MOTOR/SERVO switch sense | 3.3 V only; the switch's second pole |
 
-Budget: 29 of 30 GPIO used. **Consequence:** the mecanum variant has motor pins but **no encoder pins** for motors C/D. If 4 encoders are wanted, the LLD switches to **RP2350B** (QFN-80, 48 GPIO) — open question O1.
+Budget: **30 of 30 GPIO used**. **Consequence:** in MOTOR position, motors C/D have **no encoders**. If 4 encoders are wanted, the LLD switches to **RP2350B** (QFN-80, 48 GPIO) — open question O1.
 
 GY-521 INT, XDA/XCL and GY-271 DRDY are not wired to GPIO (the firmware polls; the current firmware already does).
 
@@ -105,31 +115,36 @@ GY-521 INT, XDA/XCL and GY-271 DRDY are not wired to GPIO (the firmware polls; t
 ```mermaid
 flowchart TB
   PACK[2S Li-ion pack 6.0-8.4 V<br/>own protection + USB-C charging] --> CON[JST-XH 2-pin]
-  CON --> RP[Reverse-polarity protection<br/>P-MOSFET]
+  ADP[DC adapter 7-12 V] --> JACK[Barrel jack<br/>switch contact cuts the battery]
+  CON --> JACK
+  JACK --> RP[P-FET: reverse protection<br/>+ main switch, TVS]
   RP --> FUSE[Fuse]
-  FUSE --> SW[Main switch]
-  SW --> VBAT((VBAT))
-  VBAT --> MD[Motor driver VM]
-  VBAT --> DIV[Divider → ADC0]
-  VBAT --> BUCK[5 V buck, ≥ 3 A]
-  BUCK --> V5L((5 V logic rail))
-  BUCK --> V5S((5 V servo rail<br/>separate trace + bulk cap))
+  FUSE --> VIN((VIN 6-12 V))
+  VIN --> MD[2x motor driver VM]
+  VIN --> DIV[Divider → ADC0]
+  VIN --> BUCK5[5 V buck, 2-3 A]
+  VIN --> SBUCK[Servo buck, ~5 A<br/>jumper 5 V / 6 V]
+  BUCK5 --> V5L((5 V logic))
+  SBUCK --> SJ{Servo source jumper}
+  VIN --> SJ
+  SJ --> V5S((Servo rail<br/>5 V / 6 V / BATT))
   V5L --> HEADV[Head harness 5 V]
-  V5L --> SENS5[Sensor connectors 5 V<br/>ultrasonic · encoders · RC · IR · I2C sockets]
-  V5S --> SERVOS[Servo connectors]
+  V5L --> SENS5[Sensor connectors 5 V]
+  V5S --> SERVOS[6 servo headers]
   V5L --> OR{Diode-OR}
   USB[USB-C VBUS] --> OR
   OR --> LDO[3.3 V LDO]
-  LDO --> V33((3.3 V: RP2350, flash, logic))
+  LDO --> V33((3.3 V: RP2350, logic))
   V33 --> QW[Qwiic port 3.3 V]
   USB --> VDIV[Divider → ADC1]
 ```
 
 - **No charging on the board** (owner, 2026-10-14). The pack charges itself over USB-C; the main switch should be off while charging.
+- **Battery or adapter, never both:** the barrel jack's switch contact disconnects the battery connector when a plug is inserted. Input range 6-12 V (motor drivers to 13.5 V, bucks to 17 V); TVS on the input.
 - **USB powers only the 3.3 V logic** (RP2350, flash) through the diode-OR, so the board can be programmed at any time without a battery. USB never back-feeds the 5 V rail, the motors or the head.
-- **Servo current stays off the logic rail:** the servos get their own 5 V trace from the buck with a bulk capacitor; the head's ESP32 is fed from the logic rail through the harness (servo bursts of 0.5-1 A can brown out an ESP32 — see design-notes §38).
-- **5 V buck ≥ 3 A:** 2 servos (bursts ~1 A each), head ESP32 + camera (~0.5 A peaks), WS2812, sensors. Exact part in the LLD; a second buck dedicated to the servos is an LLD option.
-- **Qwiic is a 3.3 V standard** — its connector gets 3.3 V, not 5 V (exception to rule 3.1.1, by standard; Qwiic modules expect 3.3 V).
+- **Servo power is separate from the logic rail:** a dedicated servo buck (~5 A, 5 V or 6 V by jumper) — up to 6 servos (MG996R-class arm servos peak ~2.5 A each); servo bursts can brown out an ESP32 (design-notes §38). The **BATT** jumper position feeds the servo rail straight from VIN for **HV servos on a 2S pack only** — never with a 12 V adapter (silkscreen warning; no pin is left to detect it).
+- **5 V logic buck 2-3 A:** head ESP32 + camera (~0.5 A peaks), sensors, GY-521/GY-271, WS2812, buzzer.
+- **Qwiic is a 3.3 V standard** — its connector gets 3.3 V, not 5 V (exception to rule 3.1.1, by standard).
 
 ## 6. Head link — 4-wire harness
 
@@ -160,7 +175,7 @@ Reuse the current body firmware's design: protocol, domain logic (safety, contro
 - **Board layer for RP2350** (Arduino-Pico core): hardware PWM for motors/servos/buzzer, **PIO** for encoders, WS2812, IR and RC input, hardware I2C (no software I2C), ADC for battery and VBUS.
 - **FPU:** the IMU/PID float maths that cost ~2.4 ms per pass on the Mega become cheap.
 - **Settings** in flash (EEPROM emulation with wear levelling) instead of AVR EEPROM.
-- New behaviour: motors blocked while USB VBUS is present; RC input mapped like the IR remote (an input source under the arbitrator).
+- New behaviour: motors blocked while USB VBUS is present; GPIO 8-11 set up as motor C/D or servo 3-6 from the MOTOR/SERVO switch at boot (live change → outputs off until reboot); RC input mapped like the IR remote (an input source under the arbitrator).
 - HELLO reports the board type and fitted options (encoders, compass, 4-channel).
 
 Tank Logo, the phone page, the bench tool and the AI engine work unchanged through the head.
@@ -173,9 +188,9 @@ To be written when we get there (owner, 2026-10-14). It will cover bring-up orde
 
 | # | Question | Notes |
 |---|---|---|
-| O1 | 4 encoders for the mecanum variant? | Needs RP2350B (48 GPIO); RP2350A has no pins left |
+| O1 | Encoders for motors C/D (MOTOR position)? | Needs RP2350B (48 GPIO); RP2350A has no pins left |
 | O2 | Exact parts: motor driver (TB6612 vs DRV8833-class), 5 V buck, LDO, reverse-polarity MOSFET, fuse | LLD |
-| O3 | One 5 V buck or a separate servo buck | LLD, after current budget |
+| O3 | ~~One 5 V buck or a separate servo buck~~ | **Decided: separate servo buck** (6 servos, owner 2026-10-14) |
 | O4 | Status LEDs: which signals, buffered how, placement (edge / side-view) | LLD + layout |
 | O5 | Head connection: adapter lead to the chosen camera board | Depends on the chosen camera board |
 | O6 | Certification: CE (RED), FCC, UKCA, RoHS; EN 71 / BIS toys if sold for children; Li-ion rules if packs ship | Research task; launch as a 14+ electronics board without cells defers the toy/battery rules (to confirm) |
@@ -183,7 +198,7 @@ To be written when we get there (owner, 2026-10-14). It will cover bring-up orde
 
 ## 11. Risks
 
-- **Pin budget is tight** (29/30 on RP2350A) — any new need forces RP2350B or an I/O expander.
+- **Pin budget is full** (30/30 on RP2350A) — any new need forces RP2350B or an I/O expander.
 - **Power integrity:** motor and servo noise on a small board; needs careful layout (star ground, bulk caps, separate servo trace).
 - **Compass accuracy** near motors — the socket is a convenience; reliable heading needs a remote (Qwiic) compass.
 - **Cost:** the electronics target (~INR 1,000-1,500 / US$12-18 BOM) has to hold at small volumes; market research suggests a retail of INR 1,999-2,499 for the board (`docs/research/2026-10-14-base-board-market-india.md`).

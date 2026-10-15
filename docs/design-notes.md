@@ -1040,3 +1040,33 @@ Notes: during check 7 the tank drove into a wall on the floor and the owner lift
 |---|---|---|
 | 12 | Straight line (Plan E Task 16), MAX/v 60 % | Run 1 (owner on the phone): 19 cm over 3.35 m, two obstacle-brake slow-downs mid-run; runs 2–3 (scripted v=60, w=0): **0 cm over ~3.1 m**, ~2 cm over 1.2 m (stopped by the obstacle brake 16 cm from a wall). Gyro heading held within ±1° in every run; heading hold ran the right track ~3–4 % faster on average (this tank pulls right). Passed — run 1 treated as a one-off. |
 | 13 | Stick steering feel (scripted left turns, MAX 60 %, two runs) | Angle rule works as designed (arcs keep both tracks forward, spin only sideways): 25° → 37/63 ≈ 10 °/s; 45° → ≈ 10 °/s (both runs slowed by the obstacle brake near a wall); 70° → 4/59 ≈ 28 °/s; spin −60/60 → **110–137 °/s**; fast 45° (71/71) → 35/97 ≈ 14–19 °/s. Response very uneven on the floor (skid-steer scrub: arcs gentle, spin fast). **Parked (owner, 2026-10-15)** until encoders give real speed / radius measurements: candidates A (pivot point 75° → ~60°, spin limit) and B (gyro turn-rate control). Also parked for design: near an obstacle the brake stops a 70° turn entirely — idea: remove only the forward part and keep the turn (forward stays fully blocked); safety feature, design and tests first. |
+
+## 53. Encoder wiring on the Uno (DECIDED 2026-10-15, owner: mini breadboard)
+FIT0458 encoder motors: the two motor wires go to the shield's **Left / Right** motor connectors as now; the encoder has four more wires — **5 V, GND, A, B**. The Uno (and a later Uno R4) uses **channel A only** (one pulse train per side; direction from the motor command); **B is not connected** (end insulated).
+
+**Shield port P7** (white 5-pin socket labelled **LineTrack**; the line-tracking module is dropped) — pins **GND, 5V, A2, A1, A0** (owner read the labels). The buzzer already uses **A0 and GND**. Two encoders need 2× 5 V and 2× GND, so P7's power is shared through a **mini breadboard** (170-point, self-adhesive, on the chassis) used as a power strip — no soldering, no board rework (§30):
+
+| From | To |
+|---|---|
+| P7 **GND** | breadboard − rail |
+| P7 **5V** | breadboard + rail |
+| buzzer leg 1 | P7 **A0** (passive buzzer: either way round) |
+| buzzer leg 2 | − rail |
+| left encoder **5V** / **GND** | + rail / − rail |
+| left encoder **A** | P7 **A1** |
+| right encoder **5V** / **GND** | + rail / − rail |
+| right encoder **A** | P7 **A2** |
+| both encoders **B** | not connected (insulate) |
+
+Parts: 1 mini breadboard; 1 × 5-pin **JST-XH 2.54 mm to Dupont** cable for P7 (or female–male Dupont jumpers if the socket grips them firmly); a few male–male jumpers. Load: two Hall encoders ≈ 10–20 mA each — no concern for the 5 V rail.
+
+Rules:
+- **Never take encoder power from the spare motor connectors** next to Left / Right: they are motor-driver outputs (battery voltage, PWM-switched, polarity reversing — wired in parallel with Left / Right on this 4WD shield); they would destroy an encoder.
+- **Check each encoder cable's colours** (DFRobot FIT0458 page / motor label) before connecting 5 V and GND; swapped polarity can kill the encoder.
+- The shield's right-edge Vin / GND / +5V pins are short stubs — only usable if a female Dupont really grips them; the breadboard avoids them.
+- **Mega** (full profile): unchanged — A/B straight into the Mega's **A8–A11**, power from the Mega's spare 5V/GND pins (§29).
+
+Bring-up after fitting: battery off while wiring; then turn each wheel by hand and watch the live counts (`counts_per_rev` default 960, verify), set `encoders_enabled`, check stall detection on the stand, then the parked steering tuning (§52) with real speed / radius data.
+
+## 54. Uno R4 Minima — discussed, not decided (2026-10-15)
+Owner raised the Arduino **Uno R4 Minima** as the next body board (the ESP32 brownout was the Mega clone's 5 V route, the ELEGOO Uno is fine). Points noted: same Uno shape and 5 V I/O (the shield fits, §30 kept); 256 KB flash / 32 KB RAM → the **full firmware** instead of Lite; USB separate from D0/D1 → no S1 flipping for uploads; switching 5 V regulator (current capacity to verify). Cost: port the hardware layer (PWM, encoder interrupts — R4 interrupt pins for A1/A2 to check, IR timing, I2C, WS2812, EEPROM emulation, servos); domain code and host tests carry over. If pursued: power test first (R4 + shield + ESP32 + servos on the battery), then spec / LLD / plan. Owner: discussion only for now.

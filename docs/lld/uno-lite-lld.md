@@ -299,3 +299,20 @@ classDiagram
   HeadingHoldLite ..> DriveMixLite
 ```
 Tests (`test_lite_motion`): `test_angle_mix_45_is_forward_arc` (71/71 → 35/97 order by side), `test_angle_mix_spin_only_near_sideways` (75° → inner 0, 80° → inner < 0, 90° → −m/+m), `test_angle_mix_reverse_both_tracks_back`, `test_ir_axes_unchanged` (±80 on each axis = old values), `test_straight_with_correction_unchanged` (w_steer 0 path = old values).
+
+## 17. Encoder wiring (owner, 2026-10-15; design-notes §53)
+Channel A only: left → **A1**, right → **A2**, both from the shield's **P7 (LineTrack: GND, 5V, A2, A1, A0)**; P7's 5 V / GND are shared with the buzzer (A0 + GND) through a mini breadboard power strip (no soldering). B not connected. No firmware change: `EncoderLite` already counts A1/A2 (PCINT1); `encoders_enabled` is switched on after the hand-turn count check.
+
+```mermaid
+flowchart LR
+  P7GND[P7 GND] --> RM[breadboard − rail]
+  P75V[P7 5V] --> RP[breadboard + rail]
+  RP --> LE[left encoder 5V]
+  RP --> REn[right encoder 5V]
+  RM --> LE2[left encoder GND]
+  RM --> RE2[right encoder GND]
+  RM --> BZ[buzzer leg]
+  LA[left encoder A] --> P7A1[P7 A1]
+  RA[right encoder A] --> P7A2[P7 A2]
+  BZ2[buzzer leg] --> P7A0[P7 A0]
+```

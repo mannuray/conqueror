@@ -129,19 +129,28 @@ size_t jsonWelcome(char* out, size_t cap, const WelcomeInfo& w) {
              capBit(*w.hello, proto::CapBit::kAudioLed), w.sensor, w.owner.owner, w.owner.client);
 }
 
-size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s) {
+namespace {
+const char* primName(PrimKind k) { return k == PrimKind::kRate ? "rate" : "turn"; }
+}  // namespace
+
+size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s, PrimitiveView prim) {
   if (!s.fast_valid) return 0;
   const proto::TelemFastMsg& f = s.fast;
   char dist[12] = "null";  // 65535 clear, 65534 sensor fault (+ "dist_fault":true so the page never shows CLEAR)
   if (f.dist_mm < 65534) snprintf(dist, sizeof(dist), "%u", (f.dist_mm + 5u) / 10u);
   const bool cam_moving = bit(f.flags, static_cast<unsigned>(proto::FastFlagBit::kCamMoving));
+  char progress[48] = "";
+  if (prim.active) {
+    snprintf(progress, sizeof(progress), ",\"primitive\":{\"kind\":\"%s\",\"pct\":%u}", primName(prim.kind),
+             static_cast<unsigned>(prim.pct));
+  }
   return fmt(out, cap,
              "{\"t\":\"tf\",\"seq\":%lu,\"tank_ms\":%lu,\"yaw\":%.2f,\"yaw_rate\":%.1f,\"pitch\":%.2f,\"roll\":%.2f,"
-             "\"dist_cm\":%s%s,\"pan\":%.1f,\"tilt\":%.1f,\"spd_cmd\":[%d,%d],\"cam_moving\":%s}",
+             "\"dist_cm\":%s%s,\"pan\":%.1f,\"tilt\":%.1f,\"spd_cmd\":[%d,%d],\"cam_moving\":%s%s}",
              static_cast<unsigned long>(seq), static_cast<unsigned long>(f.uno_ms), f.yaw / 100.0, f.yaw_rate / 10.0,
              f.pitch / 100.0, f.roll / 100.0, dist, f.dist_mm == 65534 ? ",\"dist_fault\":true" : "", f.pan / 10.0,
              f.tilt / 10.0, f.spd_cmd_l,
-             f.spd_cmd_r, cam_moving ? "true" : "false");
+             f.spd_cmd_r, cam_moving ? "true" : "false", progress);
 }
 
 size_t jsonTs(char* out, size_t cap, const TankSnapshot& s, OwnerView owner, bool body_offline) {
@@ -216,6 +225,19 @@ size_t jsonUnoEvent(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint8
     default:
       return 0;  // control_changed comes from LinkOwner; the rest is not in the slice
   }
+}
+
+size_t jsonPrimitiveDone(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, const PrimitiveEnd& e) {
+  static const char* const kReasons[] = {"done", "cancelled", "stop", "not_owner", "stalled", "timeout", "link",
+                                         "deadman"};
+  const uint8_t r = static_cast<uint8_t>(e.reason);
+  char id[20] = "";
+  if (e.id >= 0) snprintf(id, sizeof(id), ",\"id\":%ld", static_cast<long>(e.id));
+  return fmt(out, cap,
+             "{\"t\":\"ev\",\"seq\":%lu,\"tank_ms\":%lu,\"kind\":\"primitive_done\",\"prim\":\"%s\","
+             "\"ok\":%s,\"reason\":\"%s\"%s}",
+             static_cast<unsigned long>(seq), static_cast<unsigned long>(tank_ms), primName(e.kind),
+             e.ok ? "true" : "false", r < sizeof(kReasons) / sizeof(kReasons[0]) ? kReasons[r] : "done", id);
 }
 
 size_t jsonControlChanged(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, OwnerView owner) {

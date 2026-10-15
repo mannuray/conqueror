@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "core/body_link.h"
+#include "core/motion_service.h"
 #include "cq_protocol.h"
 
 namespace cq {
@@ -31,7 +32,16 @@ struct WelcomeInfo {
 };
 
 size_t jsonWelcome(char* out, size_t cap, const WelcomeInfo& w);
-size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s);
+// Bridge motion service progress for tf (Plan H, spec 01 §6.1 `primitive`).
+struct PrimitiveView {
+  bool active = false;
+  PrimKind kind = PrimKind::kNone;
+  uint8_t pct = 0;
+};
+
+size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s, PrimitiveView prim = PrimitiveView{});
+// {"t":"ev",...,"kind":"primitive_done","prim":"turn"|"rate","ok":b,"reason":"done"|...,"id"?} (bridge LLD R4.5)
+size_t jsonPrimitiveDone(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, const PrimitiveEnd& e);
 size_t jsonTs(char* out, size_t cap, const TankSnapshot& s, OwnerView owner, bool body_offline);
 // EVENT from the Uno; returns 0 for kinds outside the Basic Drive slice.
 size_t jsonUnoEvent(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint8_t kind, int16_t a,

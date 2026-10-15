@@ -197,6 +197,35 @@ void test_welcome_caps_bits() {
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"encoders\":true"));
 }
 
+// Plan H (bridge LLD R4.5 / R4.6): primitive_done from the bridge's motion service, tf.primitive progress.
+void test_primitive_done_and_tf_progress() {
+  PrimitiveEnd e;
+  e.kind = PrimKind::kTurn;
+  e.ok = true;
+  e.reason = EndReason::kDone;
+  e.id = 5;
+  jsonPrimitiveDone(buf, sizeof(buf), 9, 1234, e);
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"ev\",\"seq\":9,\"tank_ms\":1234,\"kind\":\"primitive_done\",\"prim\":\"turn\",\"ok\":true,"
+      "\"reason\":\"done\",\"id\":5}",
+      buf);
+  e.kind = PrimKind::kRate;
+  e.ok = false;
+  e.reason = EndReason::kNotOwner;
+  e.id = -1;
+  jsonPrimitiveDone(buf, sizeof(buf), 10, 1300, e);
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"ev\",\"seq\":10,\"tank_ms\":1300,\"kind\":\"primitive_done\",\"prim\":\"rate\",\"ok\":false,"
+      "\"reason\":\"not_owner\"}",
+      buf);
+  TankSnapshot s;
+  s.fast_valid = true;
+  jsonTf(buf, sizeof(buf), 1, s);
+  TEST_ASSERT_NULL(strstr(buf, "primitive"));
+  jsonTf(buf, sizeof(buf), 2, s, PrimitiveView{true, PrimKind::kTurn, 40});
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"cam_moving\":false,\"primitive\":{\"kind\":\"turn\",\"pct\":40}}"));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ack_reason_table_matches_generated_codes);
@@ -209,6 +238,7 @@ int main() {
   RUN_TEST(test_welcome_and_pong);
   RUN_TEST(test_welcome_caps_bits);
   RUN_TEST(test_ts_muted_quiet_flags);
+  RUN_TEST(test_primitive_done_and_tf_progress);
   RUN_TEST(test_too_small_buffer_returns_zero);
   RUN_TEST(test_json_escape);
   return UNITY_END();

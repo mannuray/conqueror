@@ -802,3 +802,107 @@ sequenceDiagram
 - Page: on 4 s of silence the page goes offline at once (`goOffline()`: inputs released, pads off, reconnect) instead of waiting for the browser's close; on `welcome` / `body_online` it only re-sends **lock on** (RC mode or its own LOCK) and never while a bench owns the link — it no longer drops another phone's lock with "off".
 - Comments: the known tiny fd-reuse window after `complete()` + `trigger_close` (accepted; the reverse order failed on the tank); `g_buf` belongs to the port-81 task.
 - Repo: `.superpowers/` and `.playwright-mcp/` ignored; CLAUDE.md index and roadmap brought up to date.
+
+## R4. Motion service — TURN and DRIVE_RATE on the bridge (spec 02 Part E, owner 2026-10-15)
+Scope of this revision: **TURN by / to (spin)** and **DRIVE_RATE** for a body without those capabilities (Uno Lite), capability routing, and the 50 Hz telemetry. MOVE, arcs with radius and pose come with the encoders (later revision). Everything new in `core/` is host-tested; `net/link_task` only wires it.
+
+### R4.1 Classes
+```mermaid
+classDiagram
+  class MotionRouter { <<core>> +route(kind, bodyCaps) Route }
+  class Route { <<enum>> Forward · Local · Unavailable }
+  class MotionService { <<core, host-tested>>
+    +startTurn(owner_fd, TurnCmd, now) Start
+    +driveRate(owner_fd, v, rate_dps, now) Start
+    +cancel(reason)
+    +onTelemetry(TelemSample, now) MotionOut
+    +tick(now) MotionOut
+    +active() bool
+    +progressPct() uint8 }
+  class TurnController { <<core>> +begin(start_cdeg, target_cdeg, speed_pct) +step(yaw_cdeg, rate_ddps, now) TurnStep }
+  class RateLoop { <<core>> +reset() +step(target_dps, rate_ddps, dt_ms) int8 w }
+  class TelemSample { yaw_cdeg · rate_ddps · flags · fresh }
+  class MotionOut { send bool · v int8 · w int8 · ended bool · end PrimitiveEnd }
+  class PrimitiveEnd { kind turn/rate · ok bool · reason Reason }
+  class Reason { <<enum>> Done · Cancelled · Stop · NotOwner · Stalled · Timeout · Link · Deadman }
+  class LinkTask { <<net>> parses turn / drive_rate / cancel · owner check · feeds TELEM_FAST · sendDrive(v, w) · broadcasts primitive_done }
+  MotionService *-- TurnController
+  MotionService *-- RateLoop
+  MotionService ..> TelemSample
+  MotionService ..> MotionOut
+  MotionOut *-- PrimitiveEnd
+  LinkTask ..> MotionRouter
+  LinkTask ..> MotionService
+```
+- **`MotionRouter`** (pure): `turn` → Forward if HELLO caps has `kTurn`, else Local; `drive_rate` → Forward if `kDriveRate`, else Local; `move` and `turn` with `radius_cm > 0` → Forward if `kMove` / encoders, else **Unavailable** (`nack UNAVAILABLE`, "needs encoders"). Forward = today's frame path (`TURN` / `DRIVE_RATE` frames, acked by the body) — designed now, exercised when a full-firmware body exists.
+- **`MotionService`** (Local path) owns at most one primitive, on behalf of one WebSocket client (`owner_fd`, src human / ai as for `drive`). It produces a `DRIVE {v, w}` every new TELEM_FAST (50 Hz = 20 ms) while active, and one `w = 0` + STOP when it ends.
+- **`welcome.tank.caps`** reports the effective capabilities: `turn` and `drive_rate` = body caps **or** the local service (true on the Uno Lite now); `move` = body `kMove` only (until encoders).
+
+### R4.2 Gateway commands (spec 01 §4, now parsed)
+| WS | Fields | Ack |
+|---|---|---|
+| `turn` | `by` ° (±1…720) **or** `to` ° (0…359), `speed` % (10…100, default 40), `radius_cm` (0 / omitted = spin), `id` | `ack id` on start; `ev primitive_done{kind:"turn", ok, reason, id}` at the end |
+| `drive_rate` | `v` % (−100…100), `yaw_rate` °/s (−180…180, + = CCW / left) | streaming like `drive` (≤ 20 Hz, no ack; rejection reported once) |
+| `cancel` | `id`? | `ack` (also when nothing runs) |
+Errors: both `by` and `to`, or neither → INVALID_COMMAND; out-of-range → INVALID_COMMAND; not owner → NOT_OWNER; OTA → BUSY; body offline → BODY_OFFLINE.
+
+### R4.3 TURN controller (spin)
+- Angles in centi-degrees, yaw wrapped 0…36000; `to` takes the shortest way; `by` keeps its sign and may exceed 180°.
+- Remaining error `e = wrap(target − yaw)`; **latency-compensated** `e_p = e − rate × 80 ms` (link + one telemetry period).
+- Command `w = sign(e_p) × clamp(Kp × |e_p|, w_min, speed)` with `Kp = 1.0 %/°`, `w_min = 12 %` (the Uno's deadband start PWM already breaks the tracks loose). When `e_p` changes sign the command reverses at `w_min` (small correction).
+- **Done:** `|e| ≤ 1.5°` and `|rate| < 5 °/s` for 200 ms (10 samples) → `w = 0`; the Uno's heading hold then settles (≤ 300 ms) and holds the new heading.
+- **Timeout:** `|angle| / 20 °/s + 3 s`. **Stalled:** `|w| ≥ w_min` and `|rate| < 2 °/s` for 1.5 s.
+- Expected ±1–2° (acceptance: 10 × 90° on the floor, owner measures; gyro log as evidence). Gains are constants in `motion_config.h` for floor tuning (not settings yet).
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Turning: turn (owner ok, route Local) / ack id
+  Turning --> Settling: |e| ≤ 1.5° and |rate| < 5 °/s
+  Settling --> Turning: leaves the window
+  Settling --> Idle: 200 ms in the window / w = 0, primitive_done ok
+  Turning --> Idle: cancel · STOP (anyone) · owner's drive / turn · owner change (IR, other) · timeout · stalled · body offline · owner socket closed / STOP + primitive_done(reason)
+```
+
+### R4.4 DRIVE_RATE loop
+- Target `r` from the client stream; `v` passed through. `w = ff × r + Kp × err + Ki × ∫err`, `err = r − rate`; `ff = 0.45 %/(°/s)` (floor data 2026-10-15: w 60 % spin ≈ 110–137 °/s), `Kp = 0.3`, `Ki = 0.6 /s`; `w` clamped to ±100 with anti-windup (integration stops while saturated); reset on start and on a sign change of `r`.
+- If the client's stream stops for 300 ms → STOP and end (`deadman`) — the same rule as `drive`.
+- The Uno receives ordinary `DRIVE {v, w}`: its angle mix, obstacle brake and caps apply; the loop simply asks for more `w` until the gyro agrees.
+
+### R4.5 Sequence (local TURN)
+```mermaid
+sequenceDiagram
+  participant P as Phone / hub
+  participant L as LinkTask
+  participant M as MotionService
+  participant U as Uno Lite
+  P->>L: {"t":"turn","by":90,"speed":40,"id":5}
+  L->>L: owner check (as drive), route = Local
+  L->>M: startTurn(fd, by 90, 40 %)
+  L-->>P: {"t":"ack","id":5}
+  loop every TELEM_FAST (50 Hz)
+    U-->>L: TELEM_FAST yaw, yaw_rate
+    L->>M: onTelemetry
+    M-->>L: send v 0, w ±12…40
+    L->>U: DRIVE (src human, v 0, w)
+  end
+  M-->>L: ended (done)
+  L->>U: DRIVE (0, 0) then STOP
+  L-->>P: ev primitive_done {kind turn, ok true, id 5}
+```
+
+### R4.6 Wiring rules in `link_task`
+- A primitive keeps the owner's drive alive: every service DRIVE goes through `g_owner.onDrive(owner_fd, now)`; a non-`Send` decision ends it with `NotOwner`.
+- Ends it: `stop` from anyone (fast path), the owner's `drive` / `turn` / `drive_rate` / `cancel`, `control_changed` away from the owner, `body_offline`, the owner's socket closing, OTA start.
+- Telemetry watchdog: no TELEM_FAST for 200 ms while active → end (`Link`) and STOP (the Uno's own link-loss and deadman also stop it).
+- `tf.primitive` = `{"kind":"turn","pct":nn}` while active (spec 01 §6.1); the page's tf stays 10 Hz (every 5th of the 50 Hz frames).
+
+### R4.7 Uno side (Uno Lite LLD §18)
+`telemetryFastDue` 50 ms → **20 ms** (50 Hz), Lite and full firmware; nothing else. TURN / DRIVE_RATE / MOVE frames keep answering `UNAVAILABLE` on the Lite (that is what routes them to the bridge).
+
+### R4.8 Tests
+Host (`test_motion_service`, `test_motion_router`, `test_ws_codec`, `test_ws_json`): router table; codec for turn / drive_rate / cancel (valid, both / neither of by-to, ranges); **closed-loop simulation** against a simple tank model (first-order turn response, 80 ms delay, ±3 °/s noise): `by 90`, `by −90`, `to` across 0°, `by 360` end within ±2° and before the timeout; cancel / STOP / owner loss / telemetry gap end with the right reason and a final `w = 0`; stall detection; drive_rate converges to ±10 % of target within 1 s and stops after 300 ms without updates; welcome caps on the Lite show turn / drive_rate true, move false.
+Hardware: 10 × 90° (left and right) on the floor, owner measures; a drive_rate check (stick → steady turn rate on two surfaces).
+
+### R4.9 Open UX question (needs the owner before the plan)
+The phone page shows **MOVES** when `caps.turn` is true — on the Uno Lite it becomes visible. Its sheet is a placeholder; a proposal for hub-ux Screen 7b: **Turn 90° left / right, 180°, Face start** (turn `to` the heading at power-on / page open), speed from MAX. To be approved before the plan includes it.

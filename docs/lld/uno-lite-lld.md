@@ -316,3 +316,6 @@ flowchart LR
   RA[right encoder A] --> P7A2[P7 A2]
   BZ2[buzzer leg] --> P7A0[P7 A0]
 ```
+
+## 18. TELEM_FAST at 50 Hz (spec 02 §E4, bridge LLD R4.7)
+`lite_app.cpp` scheduler: `telemetryFastDue` period 50000 µs → **20000 µs**. Same frame, no RAM change; ≈ 2.3 KB/s on the 250000-baud link. The full firmware's `main.cpp` table changes the same way. Size gate re-checked in the plan (flash unchanged expected). No TURN / DRIVE_RATE code on the Lite — the bridge's motion service runs them (bridge LLD R4).

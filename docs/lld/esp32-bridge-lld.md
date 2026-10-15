@@ -904,5 +904,5 @@ sequenceDiagram
 Host (`test_motion_service`, `test_motion_router`, `test_ws_codec`, `test_ws_json`): router table; codec for turn / drive_rate / cancel (valid, both / neither of by-to, ranges); **closed-loop simulation** against a simple tank model (first-order turn response, 80 ms delay, ±3 °/s noise): `by 90`, `by −90`, `to` across 0°, `by 360` end within ±2° and before the timeout; cancel / STOP / owner loss / telemetry gap end with the right reason and a final `w = 0`; stall detection; drive_rate converges to ±10 % of target within 1 s and stops after 300 ms without updates; welcome caps on the Lite show turn / drive_rate true, move false.
 Hardware: 10 × 90° (left and right) on the floor, owner measures; a drive_rate check (stick → steady turn rate on two surfaces).
 
-### R4.9 Open UX question (needs the owner before the plan)
-The phone page shows **MOVES** when `caps.turn` is true — on the Uno Lite it becomes visible. Its sheet is a placeholder; a proposal for hub-ux Screen 7b: **Turn 90° left / right, 180°, Face start** (turn `to` the heading at power-on / page open), speed from MAX. To be approved before the plan includes it.
+### R4.9 No MOVES button (owner, 2026-10-15)
+Measured moves are for the AI engine, Tank Logo and the hub; a human steers with the stick. The phone page therefore keeps **MOVES hidden** even when `caps.turn` is true (the button and placeholder sheet are removed from the page). TURN / DRIVE_RATE are tested by script (WebSocket client + tape measure), as the floor tests of 2026-10-15.

@@ -14,7 +14,7 @@ Hobby robot platform: ELEGOO Conqueror tank rebuilt as **Uno body + ESP32 gatewa
 |---|---|
 | System specs (authoritative) | `docs/superpowers/specs/` — `2026-10-10-0{0..4}-*-design.md` (system, protocol, tank firmware incl. Part D Uno Lite and Part E Uno/ESP32 feature split, hub, AI engine), `2026-10-11-05-tank-logo-design.md`, `2026-10-14-06-base-board-design.md` (parked) |
 | Low-level designs | `docs/lld/` — `uno-firmware-lld.md` (§9 Revision 2 + appended decision notes are authoritative), `esp32-firmware-lld.md` (§10 Revision 2), `protocol-generator-lld.md`, `bench-tool-lld.md`, `esp32-bridge-lld.md` (R3–R3.11: phone page, stream, review fixes), **`uno-lite-lld.md`** (Uno Lite firmware, spec 02 Part D), `base-board-lld.md` (parked) |
-| Implementation plans | `docs/superpowers/plans/` — `2026-10-11-plan-{a,b,c,d}-*.md`, `2026-10-14-plan-e-uno-lite.md`, `2026-10-15-plan-f-cockpit-lite.md`, `2026-10-15-plan-g-stick-mixing.md` |
+| Implementation plans | `docs/superpowers/plans/` — `2026-10-11-plan-{a,b,c,d}-*.md`, `2026-10-14-plan-e-uno-lite.md`, `2026-10-15-plan-f-cockpit-lite.md`, `2026-10-15-plan-g-stick-mixing.md`, `2026-10-15-plan-h-motion-service.md` |
 | Roadmap & phase decisions | `docs/implementation-roadmap.md` |
 | Coding standards | `docs/standards/coding-standards.md` |
 | Hub UX + Stitch screens | `docs/design/hub-ux.md`, `docs/design/stitch/` |
@@ -28,7 +28,7 @@ Hobby robot platform: ELEGOO Conqueror tank rebuilt as **Uno body + ESP32 gatewa
 5. **Plan E — Uno Lite** (the ELEGOO Uno is the body board again, design-notes §43) — done; 3 m floor run passed (§52).
 6. **Plan F — Cockpit-lite phone page** on the bridge — done (hardware checks §44–51).
 7. **Plan G — stick steering by angle** — done on the stand; floor feel parked until encoders (§52).
-Next: the ESP32 motion service (TURN / DRIVE_RATE, spec 02 Part E) — spec written, LLD and plan to come.
+8. **Plan H — bridge motion service** (TURN / DRIVE_RATE on the ESP32 for the Uno Lite, spec 02 Part E, bridge LLD R4) — planned, awaiting approval.
 Execute with the superpowers skills (`subagent-driven-development` recommended, or `executing-plans`).
 
 ## Hard rules for code

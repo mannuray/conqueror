@@ -59,40 +59,55 @@ void commsPoll() {
   }
 }
 
-void txPump() {
-  const uint32_t now = port::clock::nowMs();
+namespace {
+// Each returns false when the TX buffer is full: the item stays queued and order is kept (peek, send, pop).
+bool sendAcks() {
   uint8_t seq = 0;
   proto::AckStatus st{};
   while (g_lite.acks.peek(seq, st)) {
     proto::AckMsg a{};
     a.ack_seq = seq;
     a.status = static_cast<uint8_t>(st);
-    if (!sendMsg(a)) return;
+    if (!sendMsg(a)) return false;
     g_lite.acks.pop(seq, st);
   }
-  uint8_t req = 0;
-  if (g_lite.link.requestDue(now, req)) {
-    if (!sendRaw(req)) return;
-    g_lite.link.onRequestSent(g_lite.writer.lastSeq(), now);
-  }
+  return true;
+}
+
+bool sendEvents() {
   Event e{};
   while (g_lite.events.peek(e)) {
     proto::EventMsg m{};
     m.kind = e.kind;
     m.a = e.a;
     m.b = e.b;
-    if (!sendMsg(m)) return;
+    if (!sendMsg(m)) return false;
     g_lite.events.pop(e);
   }
-  if (g_lite.link.helloDue(now)) {
-    proto::HelloMsg h{};
-    h.fw = board::kFwVersion;
-    h.proto = proto::kProtocolVersion;
-    h.caps = lite_frames::helloCaps(g_lite.encoders_enabled);
-    h.reset_reason = static_cast<uint8_t>(g_lite.reset_reason);
-    h.commit = board::kGitCommit;
-    sendMsg(h);
+  return true;
+}
+
+void sendHello() {
+  proto::HelloMsg h{};
+  h.fw = board::kFwVersion;
+  h.proto = proto::kProtocolVersion;
+  h.caps = lite_frames::helloCaps(g_lite.encoders_enabled);
+  h.reset_reason = static_cast<uint8_t>(g_lite.reset_reason);
+  h.commit = board::kGitCommit;
+  sendMsg(h);
+}
+}  // namespace
+
+void txPump() {
+  const uint32_t now = port::clock::nowMs();
+  if (!sendAcks()) return;
+  uint8_t req = 0;
+  if (g_lite.link.requestDue(now, req)) {
+    if (!sendRaw(req)) return;
+    g_lite.link.onRequestSent(g_lite.writer.lastSeq(), now);
   }
+  if (!sendEvents()) return;
+  if (g_lite.link.helloDue(now)) sendHello();
   if (g_lite.setting_value_pending && sendMsg(g_lite.setting_value)) g_lite.setting_value_pending = false;
   if (g_lite.fast_due) {
     g_lite.fast.uno_ms = now;

@@ -1,14 +1,22 @@
 #include "domain/lite/tilt_lite.h"
 
+#ifdef CQ_HOST_TEST
+#define PROGMEM
+#define CQ_READ_WORD_P(p) (*(p))
+#else
+#include <avr/pgmspace.h>
+#define CQ_READ_WORD_P(p) pgm_read_word(p)
+#endif
+
 namespace cq {
 
 namespace {
-// tan²(5°·i) × 256 for i = 0..13 (0°..65°).
-const uint16_t kTan2Q8[14] = {0, 2, 8, 18, 34, 56, 85, 126, 180, 256, 364, 522, 768, 1177};
+// tan²(5°·i) × 256 for i = 0..13 (0°..65°); in flash (coding standard §2.2), not RAM.
+const uint16_t kTan2Q8[14] PROGMEM = {0, 2, 8, 18, 34, 56, 85, 126, 180, 256, 364, 522, 768, 1177};
 uint16_t tan2Q8(uint8_t deg) {
   uint8_t i = static_cast<uint8_t>(deg / 5);
   if (i > 13) i = 13;
-  return kTan2Q8[i];
+  return CQ_READ_WORD_P(&kTan2Q8[i]);
 }
 }  // namespace
 

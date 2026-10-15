@@ -26,15 +26,22 @@ proto::AckStatus networkMotion(uint8_t frame_type, uint8_t src) {
 template <typename Msg>
 bool dec(const uint8_t* p, uint8_t len, Msg& m) { return proto::decode(p, len, m); }
 
-proto::AckStatus handle(uint8_t type, const uint8_t* p, uint8_t len) {
+proto::AckStatus handleLink(uint8_t type, const uint8_t* p, uint8_t len) {
   using F = proto::FrameType;
   constexpr proto::AckStatus kBad = proto::AckStatus::kInvalidCommand;
-  const uint32_t now = port::clock::nowMs();
   switch (static_cast<F>(type)) {
     case F::kHeartbeat: { proto::HeartbeatMsg m{}; return dec(p, len, m) ? proto::AckStatus::kOk : kBad; }
     case F::kHelloAck: { proto::HelloAckMsg m{}; if (!dec(p, len, m)) return kBad; g_lite.link.onHelloAck(); return proto::AckStatus::kOk; }
     case F::kHelloReq: { proto::HelloReqMsg m{}; if (!dec(p, len, m)) return kBad; g_lite.link.onHelloReq(); return proto::AckStatus::kOk; }
     case F::kEspAck: { proto::EspAckMsg m{}; if (!dec(p, len, m)) return kBad; g_lite.link.onEspAck(m.ack_seq); return proto::AckStatus::kOk; }
+    default: return proto::AckStatus::kUnavailable;
+  }
+}
+
+proto::AckStatus handleMotion(uint8_t type, const uint8_t* p, uint8_t len) {
+  using F = proto::FrameType;
+  constexpr proto::AckStatus kBad = proto::AckStatus::kInvalidCommand;
+  switch (static_cast<F>(type)) {
     case F::kDrive: {
       proto::DriveMsg m{};
       if (!dec(p, len, m)) return kBad;
@@ -68,11 +75,28 @@ proto::AckStatus handle(uint8_t type, const uint8_t* p, uint8_t len) {
       return st;
     }
     case F::kOwnerHint: { proto::OwnerHintMsg m{}; if (!dec(p, len, m)) return kBad; g_lite.owner_hint = static_cast<proto::OwnerHintValue>(m.owner); return proto::AckStatus::kOk; }
+    default: return proto::AckStatus::kUnavailable;
+  }
+}
+
+proto::AckStatus handleCamera(uint8_t type, const uint8_t* p, uint8_t len) {
+  using F = proto::FrameType;
+  constexpr proto::AckStatus kBad = proto::AckStatus::kInvalidCommand;
+  const uint32_t now = port::clock::nowMs();
+  switch (static_cast<F>(type)) {
     case F::kCamJoy: { proto::CamJoyMsg m{}; if (!dec(p, len, m)) return kBad; g_lite.cam.joy(m.x, m.y, m.active != 0, now); return proto::AckStatus::kOk; }
     case F::kCamSet: { proto::CamSetMsg m{}; if (!dec(p, len, m)) return kBad; g_lite.cam.set(m.pan, m.tilt); return proto::AckStatus::kOk; }
     case F::kCamNudge: { proto::CamNudgeMsg m{}; if (!dec(p, len, m)) return kBad; g_lite.cam.nudge(m.dpan, m.dtilt); return proto::AckStatus::kOk; }
     case F::kCamHome: { proto::CamHomeMsg m{}; if (!dec(p, len, m)) return kBad; g_lite.cam.home(); return proto::AckStatus::kOk; }
     case F::kCamLock: { proto::CamLockMsg m{}; if (!dec(p, len, m)) return kBad; g_lite.cam.lock(m.on != 0); return proto::AckStatus::kOk; }
+    default: return proto::AckStatus::kUnavailable;
+  }
+}
+
+proto::AckStatus handleSettings(uint8_t type, const uint8_t* p, uint8_t len) {
+  using F = proto::FrameType;
+  constexpr proto::AckStatus kBad = proto::AckStatus::kInvalidCommand;
+  switch (static_cast<F>(type)) {
     case F::kSettingSet: {
       proto::SettingSetMsg m{};
       if (!dec(p, len, m)) return kBad;
@@ -97,8 +121,19 @@ proto::AckStatus handle(uint8_t type, const uint8_t* p, uint8_t len) {
       g_lite.save_requested = true;
       return proto::AckStatus::kOk;
     }
-    default:
-      return proto::AckStatus::kUnavailable;
+    default: return proto::AckStatus::kUnavailable;
+  }
+}
+
+// VARIANT POINT: the frame families of the Lite firmware (lite_frames.cpp decides which types are handled at all).
+proto::AckStatus handle(uint8_t type, const uint8_t* p, uint8_t len) {
+  using F = proto::FrameType;
+  switch (static_cast<F>(type)) {
+    case F::kHeartbeat: case F::kHelloAck: case F::kHelloReq: case F::kEspAck: return handleLink(type, p, len);
+    case F::kDrive: case F::kStop: case F::kBrake: case F::kEnvelope: case F::kOwnerHint: return handleMotion(type, p, len);
+    case F::kCamJoy: case F::kCamSet: case F::kCamNudge: case F::kCamHome: case F::kCamLock: return handleCamera(type, p, len);
+    case F::kSettingSet: case F::kSettingGet: case F::kSettingsSave: return handleSettings(type, p, len);
+    default: return proto::AckStatus::kUnavailable;
   }
 }
 

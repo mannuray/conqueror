@@ -35,26 +35,49 @@ uint8_t eeRead(uint16_t a) { return port::eeprom::read(a); }
 
 bool imuUsable() { return g_lite.imu_ok && g_lite.imu_fail_streak < kFaultStreak; }
 
+namespace {
+// IMU absent or faulted: retry begin() once per second, never at 200 Hz (a stuck bus costs a timeout per try).
+void imuRetry(uint32_t now) {
+  if (static_cast<uint32_t>(now - g_last_init_ms) >= kReinitMs) {
+    g_last_init_ms = now;
+    g_lite.imu_ok = port::imu::begin();
+    if (g_lite.imu_ok) g_lite.imu_fail_streak = 0;
+  }
+  setFast(proto::FastFlagBit::kImuFault, !g_lite.imu_ok);
+}
+
+void imuReadFailed(uint32_t now) {
+  if (g_lite.imu_fail_streak < 255) ++g_lite.imu_fail_streak;
+  if (g_lite.imu_fail_streak == kFaultStreak) {
+    g_lite.events.push(proto::EventKind::kImuFault);
+    g_lite.imu_ok = false;
+    g_last_init_ms = now;
+    setFast(proto::FastFlagBit::kImuFault, true);
+  }
+}
+
+void tiltEvents(TiltLite::Change c) {
+  switch (c) {
+    case TiltLite::Change::kLifted: g_lite.events.push(proto::EventKind::kLifted); break;
+    case TiltLite::Change::kLanded: g_lite.events.push(proto::EventKind::kLanded); break;
+    case TiltLite::Change::kTilted: g_lite.events.push(proto::EventKind::kTilted); break;
+    case TiltLite::Change::kLevel: g_lite.events.push(proto::EventKind::kLevel); break;
+    case TiltLite::Change::kNone: break;
+  }
+  setFast(proto::FastFlagBit::kLifted, g_lite.tilt.lifted());
+  setFast(proto::FastFlagBit::kTilted, g_lite.tilt.tilted());
+}
+}  // namespace
+
 void imuTask() {
   const uint32_t now = port::clock::nowMs();
   if (!g_lite.imu_ok) {
-    if (static_cast<uint32_t>(now - g_last_init_ms) >= kReinitMs) {
-      g_last_init_ms = now;
-      g_lite.imu_ok = port::imu::begin();
-      if (g_lite.imu_ok) g_lite.imu_fail_streak = 0;
-    }
-    setFast(proto::FastFlagBit::kImuFault, !g_lite.imu_ok);
+    imuRetry(now);
     return;
   }
   ImuRaw& r = g_lite.imu_raw;
   if (!port::imu::read(r)) {
-    if (g_lite.imu_fail_streak < 255) ++g_lite.imu_fail_streak;
-    if (g_lite.imu_fail_streak == kFaultStreak) {
-      g_lite.events.push(proto::EventKind::kImuFault);
-      g_lite.imu_ok = false;
-      g_last_init_ms = now;
-      setFast(proto::FastFlagBit::kImuFault, true);
-    }
+    imuReadFailed(now);
     return;
   }
   g_lite.imu_fail_streak = 0;
@@ -65,18 +88,9 @@ void imuTask() {
   if (gz > INT16_MAX) gz = INT16_MAX;
   if (gz < INT16_MIN) gz = INT16_MIN;
   g_lite.yaw.update(static_cast<int16_t>(gz), !g_lite.moving);
-  switch (g_lite.tilt.update(r.ax, r.ay, r.az, kTiltLimitDeg, now)) {
-    case TiltLite::Change::kLifted: g_lite.events.push(proto::EventKind::kLifted); break;
-    case TiltLite::Change::kLanded: g_lite.events.push(proto::EventKind::kLanded); break;
-    case TiltLite::Change::kTilted: g_lite.events.push(proto::EventKind::kTilted); break;
-    case TiltLite::Change::kLevel: g_lite.events.push(proto::EventKind::kLevel); break;
-    case TiltLite::Change::kNone: break;
-  }
-  setFast(proto::FastFlagBit::kLifted, g_lite.tilt.lifted());
-  setFast(proto::FastFlagBit::kTilted, g_lite.tilt.tilted());
-  proto::TelemFastMsg& f = g_lite.fast;
-  f.yaw = static_cast<uint16_t>(g_lite.yaw.yawCdeg());
-  f.yaw_rate = g_lite.yaw.rateDdps();
+  tiltEvents(g_lite.tilt.update(r.ax, r.ay, r.az, kTiltLimitDeg, now));
+  g_lite.fast.yaw = static_cast<uint16_t>(g_lite.yaw.yawCdeg());
+  g_lite.fast.yaw_rate = g_lite.yaw.rateDdps();
 }
 
 void irTask() {

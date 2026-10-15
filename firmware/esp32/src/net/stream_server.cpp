@@ -17,16 +17,15 @@ namespace {
 constexpr const char* kBoundary = "cqframe";
 std::atomic<uint8_t> g_viewers{0};
 
-esp_err_t streamHandler(httpd_req_t* req) {
-  uint8_t n = g_viewers.load();
-  do {
-    if (n >= board::kMaxStreamViewers || cameraStopped()) {
-      httpd_resp_set_status(req, "503 Service Unavailable");
-      httpd_resp_set_hdr(req, "Retry-After", "3");
-      return httpd_resp_send(req, "max 2 viewers", HTTPD_RESP_USE_STRLEN);
-    }
-  } while (!g_viewers.compare_exchange_weak(n, static_cast<uint8_t>(n + 1)));
-  logf("stream: viewer joined (%u)", static_cast<unsigned>(n + 1));
+void releaseViewer() {
+  const uint8_t left = static_cast<uint8_t>(--g_viewers);
+  logf("stream: viewer left (%u)", static_cast<unsigned>(left));
+}
+
+// R3.1: the frame loop runs in its own task (one per viewer) so the server task stays free
+// for /capture and the second viewer. Owns the async request copy and the viewer slot.
+void streamWorker(void* arg) {
+  httpd_req_t* req = static_cast<httpd_req_t*>(arg);
   httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=cqframe");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -34,10 +33,7 @@ esp_err_t streamHandler(httpd_req_t* req) {
   esp_err_t err = ESP_OK;
   while (err == ESP_OK) {
     camera_fb_t* fb = cameraGrab();
-    if (fb == nullptr) {
-      err = ESP_FAIL;  // camera stopped (OTA) or failed
-      break;
-    }
+    if (fb == nullptr) break;  // camera stopped (OTA) or failed
     const int len = snprintf(part, sizeof(part),
                              "\r\n--%s\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
                              kBoundary, static_cast<unsigned>(fb->len));
@@ -48,13 +44,39 @@ esp_err_t streamHandler(httpd_req_t* req) {
     }
     cameraRelease(fb);
   }
-  const uint8_t left = static_cast<uint8_t>(--g_viewers);
-  logf("stream: viewer left (%u)", static_cast<unsigned>(left));
-  return err;
+  httpd_req_async_handler_complete(req);
+  releaseViewer();
+  vTaskDelete(nullptr);
+}
+
+esp_err_t refuse(httpd_req_t* req, const char* text) {
+  httpd_resp_set_status(req, "503 Service Unavailable");
+  httpd_resp_set_hdr(req, "Retry-After", "3");
+  return httpd_resp_send(req, text, HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t streamHandler(httpd_req_t* req) {
+  uint8_t n = g_viewers.load();
+  do {
+    if (n >= board::kMaxStreamViewers || cameraStopped()) return refuse(req, "max 2 viewers");
+  } while (!g_viewers.compare_exchange_weak(n, static_cast<uint8_t>(n + 1)));
+  logf("stream: viewer joined (%u)", static_cast<unsigned>(n + 1));
+  httpd_req_t* copy = nullptr;
+  if (httpd_req_async_handler_begin(req, &copy) != ESP_OK) {
+    releaseViewer();
+    return refuse(req, "stream unavailable");
+  }
+  if (xTaskCreatePinnedToCore(streamWorker, "cq-stream", 6144, copy, 5, nullptr, 0) != pdPASS) {
+    httpd_req_async_handler_complete(copy);
+    releaseViewer();
+    return refuse(req, "stream unavailable");  // the original req is still ours to answer
+  }
+  return ESP_OK;
 }
 
 // Plan F (spec 01 §2 /api/capture, bridge slice: no key, stream resolution): one JPEG as a download for SNAP.
 // Shares port 81's two sockets with the viewers (the lwIP budget is full), so with two viewers open it is refused.
+// Served while a viewer streams: the viewers' frame loops run in their own tasks (R3.1).
 esp_err_t captureHandler(httpd_req_t* req) {
   camera_fb_t* fb = cameraStopped() ? nullptr : cameraGrab();
   if (fb == nullptr) {

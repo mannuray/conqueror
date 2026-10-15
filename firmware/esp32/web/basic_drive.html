@@ -88,6 +88,23 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .stick { position: relative; padding-top: 16px; }
 .stick .ttl { position: absolute; top: 0; left: 0; white-space: nowrap; }
 .right .stick .ttl { left: auto; right: 0; }
+/* RC two-hand mode (R3.4): throttle (vertical) and steering (horizontal) sliders; the camera ring shrinks to an indicator. */
+.slider { position: relative; border-radius: 32px; border: 2px solid rgba(51, 255, 102, .55); background: rgba(6, 18, 9, .6);
+  box-shadow: 0 0 16px rgba(51, 255, 102, .28), inset 0 0 18px rgba(51, 255, 102, .12); touch-action: none; }
+.slider.v { width: 64px; height: min(31vh, 21vw, 170px); }
+.slider.h { height: 64px; width: min(36vh, 24vw, 190px); }
+.slider::before { content: ""; position: absolute; background: rgba(51, 255, 102, .25); }
+.slider.v::before { top: 50%; left: 15%; right: 15%; height: 1px; } .slider.h::before { left: 50%; top: 15%; bottom: 15%; width: 1px; }
+.slider .knob { width: 48px; height: 48px; margin: -24px 0 0 -24px; }
+.slider.held .knob { background: radial-gradient(circle at 45% 40%, #33ff66, #14a83d 70%); color: #032; }
+.slider.off { opacity: .35; }
+.pad.mini { width: 72px; }
+.pad.mini .knob, .pad.mini .lbl { display: none; }
+body:not(.rc) #thrPad, body:not(.rc) #steerPad { display: none; }
+body.rc #drivePad, body.rc #tiltBtn, body.rc #camLock { display: none !important; }
+body.rc #video, body.rc #noVideo { touch-action: none; }
+.sgrid.two { grid-template-columns: 1fr 1fr; margin-top: 6px; }
+.btn.on { background: var(--ui); color: #032; }
 .stick .ttl i { font-style: normal; color: var(--active); margin-left: 4px; }
 .lbl { position: absolute; font-size: 7px; color: var(--dim); letter-spacing: .05em; }
 .lbl.n { top: 5%; left: 50%; transform: translateX(-50%); } .lbl.s { bottom: 5%; left: 50%; transform: translateX(-50%); }
@@ -126,7 +143,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 </style>
 </head>
 <body>
-<img id="video" alt="">
+<img id="video" alt="" draggable="false">
 <div id="noVideo" class="novideo">[ NO VIDEO ]</div>
 
 <div class="ov chips">
@@ -142,9 +159,11 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 <div id="banner" class="ov banner"></div>
 
 <div class="ov left">
-  <div class="stick"><span class="ttl">⇅ DRIVE // TANK</span>
+  <div class="stick"><span class="ttl" id="driveTtl">⇅ DRIVE // TANK</span>
     <div id="drivePad" class="pad off"><span class="lbl n">FWD</span><span class="lbl s">REV</span><span class="lbl w">L</span><span class="lbl e">R</span>
-      <div class="knob"><svg viewBox="0 0 24 24"><path d="M12 3l7 18-7-4-7 4z"/></svg></div></div></div>
+      <div class="knob"><svg viewBox="0 0 24 24"><path d="M12 3l7 18-7-4-7 4z"/></svg></div></div>
+    <div id="thrPad" class="slider v off"><span class="lbl n">FWD</span><span class="lbl s">REV</span>
+      <div class="knob"><svg viewBox="0 0 24 24"><path d="M12 4v16M7 9l5-5 5 5M7 15l5 5 5-5"/></svg></div></div></div>
   <button id="tiltBtn" class="btn glass tiltcard hidden" type="button"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2" transform="rotate(-20 12 12)"/></svg>TILT STEER<small id="tiltState">[ OFF ]</small></button>
 </div>
 <div class="ov right">
@@ -154,7 +173,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   </div>
   <div class="stick"><span class="ttl">▣ GIMBAL // <span id="camWho">CAM</span><i id="camAng"></i></span>
     <div id="camPad" class="pad small off"><span class="lbl n">UP</span><span class="lbl s">DOWN</span><span class="lbl w">PAN L</span><span class="lbl e">PAN R</span><div id="camDot" class="ghost"></div>
-      <div class="knob"><svg viewBox="0 0 24 24"><path d="M9 11V5a1.5 1.5 0 0 1 3 0v6M12 10V4a1.5 1.5 0 0 1 3 0v7M15 11V7a1.5 1.5 0 0 1 3 0v6a7 7 0 0 1-12 5l-2-3a1.5 1.5 0 0 1 2.5-1.5L9 15"/></svg></div></div></div>
+      <div class="knob"><svg viewBox="0 0 24 24"><path d="M9 11V5a1.5 1.5 0 0 1 3 0v6M12 10V4a1.5 1.5 0 0 1 3 0v7M15 11V7a1.5 1.5 0 0 1 3 0v6a7 7 0 0 1-12 5l-2-3a1.5 1.5 0 0 1 2.5-1.5L9 15"/></svg></div></div>
+    <div id="steerPad" class="slider h off"><span class="lbl w">L</span><span class="lbl e">R</span>
+      <div class="knob"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M4 12h6M14 12h6M12 14v6"/></svg></div></div></div>
 </div>
 
 <div class="ov mid">
@@ -172,6 +193,8 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 <div id="moreSheet" class="ov sheet glass">
   <p class="title">[ SPEED ] <b id="speedTxt">60%</b></p>
   <input id="speed" type="range" min="10" max="100" step="5" value="60" aria-label="speed">
+  <p class="title">[ CONTROLS ]</p>
+  <div class="sgrid two"><button id="ctlSingle" class="btn glass" type="button">SINGLE STICK</button><button id="ctlRc" class="btn glass" type="button">RC TWO-HAND</button></div>
 </div>
 <div id="toast"></div>
 <div id="rotate">[ ROTATE THE PHONE ]<br>landscape only</div>
@@ -235,6 +258,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
         you = m.you || "";
         showCaps(m.tank && m.tank.caps ? m.tank.caps : {});
         showOwner(m.owner, m.owner_client);
+        if (rc) setLock(true);  // RC mode: the camera stays where it is dragged (also after a reconnect / Uno reboot)
         break;
       case "tf": showFast(m); break;
       case "ts": showSlow(m); break;
@@ -355,8 +379,10 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     setPads();
   }
   // Camera position in the ring (R3.2): home = pan 90 / tilt 90; stick right = smaller pan, up = smaller tilt (§45).
+  var camPan = 90, camTilt = 90;  // last reported position: seeds a drag on the video (R3.4)
   function showCam(pan, tilt) {
     if (typeof pan !== "number" || typeof tilt !== "number") return;
+    camPan = pan; camTilt = tilt;
     var x = Math.max(-1, Math.min(1, (90 - pan) / 90)), y = Math.max(-1, Math.min(1, (90 - tilt) / 90));
     $("camDot").style.left = (50 + x * 45) + "%";
     $("camDot").style.top = (50 - y * 45) + "%";
@@ -440,16 +466,28 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     a = (1 - EXPO) * a + EXPO * a * a * a;
     return v < 0 ? -a : a;
   }
-  function Stick(el, onMove, onRelease) {
+  // axis "xy" = round pad, "y" = throttle slider, "x" = steering slider (R3.4)
+  function Stick(el, onMove, onRelease, axis) {
     var knob = el.querySelector(".knob"), id = null, self = this;
+    axis = axis || "xy";
     this.x = 0; this.y = 0; this.held = false;
     function update(ev) {
-      var r = el.getBoundingClientRect(), rad = r.width / 2;
-      var dx = (ev.clientX - r.left - rad) / rad, dy = (ev.clientY - r.top - rad) / rad;
-      var len = Math.sqrt(dx * dx + dy * dy);
-      if (len > 1) { dx /= len; dy /= len; }
+      var r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, dx = 0, dy = 0, tx = 0, ty = 0;
+      if (axis === "xy") {
+        var rad = r.width / 2;
+        dx = (ev.clientX - cx) / rad; dy = (ev.clientY - cy) / rad;
+        var len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 1) { dx /= len; dy /= len; }
+        tx = dx * rad * 0.7; ty = dy * rad * 0.7;
+      } else if (axis === "y") {
+        var hy = r.height / 2 - 26;
+        dy = Math.max(-1, Math.min(1, (ev.clientY - cy) / hy)); ty = dy * hy;
+      } else {
+        var hx = r.width / 2 - 26;
+        dx = Math.max(-1, Math.min(1, (ev.clientX - cx) / hx)); tx = dx * hx;
+      }
       self.x = dx; self.y = -dy;
-      knob.style.transform = "translate(" + (dx * rad * 0.7) + "px," + (dy * rad * 0.7) + "px)";
+      knob.style.transform = "translate(" + tx + "px," + ty + "px)";
       onMove();
     }
     this.release = function (notify) {
@@ -460,7 +498,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       if (notify) onRelease();
     };
     el.addEventListener("pointerdown", function (ev) {
-      if (!wsOpen || el.classList.contains("off") || el.classList.contains("ind") || id !== null) return;
+      if (!wsOpen || el.classList.contains("off") || el.classList.contains("ind") || el.classList.contains("mini") || id !== null) return;
       id = ev.pointerId;
       el.setPointerCapture(id);
       self.held = true;
@@ -474,9 +512,25 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     });
   }
 
-  var driveTimer = 0, camTimer = 0, tiltOn = false, tilt = { v: 0, w: 0 };
+  // RCMIX-BEGIN
+  // RC two-hand -> virtual stick (R3.4): steering sets the curve at any speed (full = the Uno's 75° pivot),
+  // zero throttle + steering = spin; below 15 % throttle the curve blends into the spin. t, s in -1..1.
+  function rcDrive(t, s) {
+    var at = Math.abs(t), as = Math.abs(s);
+    if (as === 0) return { v: t, w: 0 };
+    var b = Math.max(0, 1 - at / 0.15), th = as * 75;
+    th = (th + (90 - th) * b) * Math.PI / 180;
+    var m = at + (as - at) * b;
+    return { v: (t < 0 ? -1 : 1) * m * Math.cos(th), w: (s < 0 ? 1 : -1) * m * Math.sin(th) };
+  }
+  // RCMIX-END
+  var driveTimer = 0, camTimer = 0, tiltOn = false, tilt = { v: 0, w: 0 }, rc = false;
   function driveValues() {
     var k = speed / 100;
+    if (rc) {
+      var d = rcDrive(shape(thr.y), shape(steer.x));
+      return { v: Math.round(d.v * 100 * k), w: Math.round(d.w * 100 * k) };
+    }
     if (tiltOn) return { v: Math.round(tilt.v * 100 * k), w: Math.round(tilt.w * 100 * k) };
     // stick x right +, y up + -> v = y, w = -x (w > 0 turns left)
     return { v: Math.round(shape(drive.y) * 100 * k), w: Math.round(-shape(drive.x) * 100 * k) };
@@ -498,6 +552,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     send({ t: "stop", id: nextId++ });
   }
   var drive = new Stick($("drivePad"), startDriveTimer, stopDrive);
+  function rcRelease() { if (!thr.held && !steer.held) stopDrive(); }  // one thumb still on: keep driving
+  var thr = new Stick($("thrPad"), startDriveTimer, rcRelease, "y");
+  var steer = new Stick($("steerPad"), startDriveTimer, rcRelease, "x");
 
   function sendCam() {
     if (ws && ws.bufferedAmount > 0) return;  // same rule as drive (review I2)
@@ -511,13 +568,15 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   });
 
   function releaseAll(notify) {
-    drive.release(notify); cam.release(notify);
+    drive.release(notify); cam.release(notify); thr.release(false); steer.release(false); endLook();
     if (!notify) { clearInterval(driveTimer); driveTimer = 0; clearInterval(camTimer); camTimer = 0; }
   }
   function setPads() {
     var off = !wsOpen;
     $("drivePad").classList.toggle("off", off);
     $("camPad").classList.toggle("off", off);
+    $("thrPad").classList.toggle("off", off);
+    $("steerPad").classList.toggle("off", off);
   }
 
   // ---------- buttons ----------
@@ -590,12 +649,88 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     }
   });
 
+  // ---------- controls: single stick / RC two-hand (R3.4) ----------
+  function setLock(on) {
+    camLocked = on;
+    $("camLock").classList.toggle("on", on);
+    send({ t: "cam_lock", on: on, id: nextId++ });
+  }
+  function setControls(mode, fromUser) {
+    var was = rc;
+    if (driveTimer) { releaseAll(false); send({ t: "stop", id: nextId++ }); } else { releaseAll(false); }
+    rc = mode === "rc";
+    document.body.classList.toggle("rc", rc);
+    $("camPad").classList.toggle("mini", rc);
+    $("ctlSingle").classList.toggle("on", !rc);
+    $("ctlRc").classList.toggle("on", rc);
+    $("driveTtl").textContent = rc ? "⇅ THROTTLE" : "⇅ DRIVE // TANK";
+    try { localStorage.setItem("cq_controls", mode); } catch (e) { /* private mode */ }
+    if (fromUser && was !== rc) {
+      setLock(rc);
+      toast(rc ? "RC: left thumb throttle, right thumb steering, drag the video to look" : "Single stick");
+    }
+  }
+  $("ctlSingle").addEventListener("click", function () { setControls("single", true); });
+  $("ctlRc").addEventListener("click", function () { setControls("rc", true); });
+
+  // Drag on the video = look around (game style), RC mode only. Touches on controls never reach here.
+  var look = { id: null, sx: 0, sy: 0, bx: 0, by: 0, x: 0, y: 0, moved: false, timer: 0, lastTap: 0, tapX: 0, tapY: 0 };
+  function clamp100(v) { return Math.max(-100, Math.min(100, v)); }
+  function sendLook() {
+    if (ws && ws.bufferedAmount > 0) return;
+    send({ t: "cam_joy", x: Math.round(look.x), y: Math.round(look.y), active: true });
+  }
+  function endLook() {
+    if (look.id === null) return;
+    look.id = null;
+    clearInterval(look.timer); look.timer = 0;
+    if (look.moved) { sendLook(); send({ t: "cam_joy", x: 0, y: 0, active: false }); }  // LOCK keeps the view
+  }
+  function onVideo(ev) { return ev.target === $("video") || ev.target === $("noVideo"); }
+  document.addEventListener("pointerdown", function (ev) {
+    if (!rc || !onVideo(ev) || !wsOpen || look.id !== null || $("camPad").classList.contains("ind")) return;
+    look.id = ev.pointerId; look.sx = ev.clientX; look.sy = ev.clientY; look.moved = false;
+    look.bx = clamp100((90 - camPan) / 0.9); look.by = clamp100((90 - camTilt) / 0.9);  // Lite: 0.9° per unit
+    look.x = look.bx; look.y = look.by;
+    ev.preventDefault();
+  });
+  document.addEventListener("pointermove", function (ev) {
+    if (ev.pointerId !== look.id) return;
+    var dx = ev.clientX - look.sx, dy = ev.clientY - look.sy;
+    if (!look.moved && Math.abs(dx) + Math.abs(dy) < 10) return;
+    look.moved = true;
+    look.x = clamp100(look.bx + dx / window.innerWidth * 200);  // full width = 180° of pan; right = look right
+    look.y = clamp100(look.by - dy / window.innerWidth * 200);  // same degrees per pixel; up = look up
+    if (!look.timer) { sendLook(); look.timer = setInterval(sendLook, DRIVE_MS); }
+  });
+  ["pointerup", "pointercancel"].forEach(function (t) {
+    document.addEventListener(t, function (ev) {
+      if (ev.pointerId !== look.id) return;
+      var tap = !look.moved, now = Date.now();
+      endLook();
+      if (!tap || t === "pointercancel") return;
+      if (now - look.lastTap < 300 && Math.abs(ev.clientX - look.tapX) < 30 && Math.abs(ev.clientY - look.tapY) < 30) {
+        send({ t: "cam_home", id: nextId++ });  // double-tap = straight ahead
+        look.lastTap = 0;
+      } else {
+        look.lastTap = now; look.tapX = ev.clientX; look.tapY = ev.clientY;
+      }
+    });
+  });
+
+  var savedControls = "single";  // applied after the drag state exists (setControls releases a drag)
+  try { savedControls = localStorage.getItem("cq_controls") || "single"; } catch (e) { /* private mode */ }
+  setControls(savedControls, false);
+
   // ---------- safety: hidden page / closing = stop ----------
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) { releaseAll(false); send({ t: "stop", id: nextId++ }); }
   });
   window.addEventListener("pagehide", function () { releaseAll(false); send({ t: "stop" }); });
-  window.addEventListener("blur", function () { if (drive.held) drive.release(true); });
+  window.addEventListener("blur", function () {
+    if (drive.held) drive.release(true);
+    if (thr.held || steer.held) { thr.release(false); steer.release(false); stopDrive(); }
+  });
 
   // ---------- camera (MJPEG on port 81, max 2 viewers) ----------
   function startVideo() {

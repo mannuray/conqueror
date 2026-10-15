@@ -1,5 +1,11 @@
 #include <Arduino.h>
 
+#if defined(PROFILE_LITE)
+// Uno Lite firmware (spec 02 Part D, docs/lld/uno-lite-lld.md).
+#include "lite/lite_app.h"
+void setup() { cq::lite::setup(); }
+void loop() { cq::lite::loop(); }
+#else
 #include "app/app.h"
 #include "app/comms.h"
 #include "app/tasks.h"
@@ -75,3 +81,4 @@ void loop() {
   cq::g_app.scheduler_overruns = g_scheduler.overruns();
   cq::port::watchdog::kick();
 }
+#endif  // PROFILE_LITE

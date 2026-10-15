@@ -30,6 +30,12 @@ void writeDeg(Axis a, float deg) {
   g_servo[static_cast<uint8_t>(a)].writeMicroseconds(static_cast<int>(544.0f + deg * (1856.0f / 180.0f)));
 }
 
+void writeUs(Axis a, uint16_t us) {
+  if (us < 544) us = 544;
+  if (us > 2400) us = 2400;
+  g_servo[static_cast<uint8_t>(a)].writeMicroseconds(us);
+}
+
 }  // namespace servos
 }  // namespace port
 }  // namespace cq

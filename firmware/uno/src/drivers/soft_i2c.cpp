@@ -1,24 +1,35 @@
-#if defined(BOARD_MEGA)
 #include "drivers/soft_i2c.h"
 
 #include <avr/io.h>
 #include <util/delay.h>
 
 namespace {
-constexpr uint8_t kSda = _BV(PF4);  // A4
-constexpr uint8_t kScl = _BV(PF5);  // A5
+// A4 = SDA, A5 = SCL: port F on the Mega, port C (the TWI pins, used as plain GPIO) on the Uno.
+#if defined(BOARD_MEGA)
+#define I2C_DDR DDRF
+#define I2C_PIN PINF
+#define I2C_PORT PORTF
+constexpr uint8_t kSda = _BV(PF4);
+constexpr uint8_t kScl = _BV(PF5);
+#else
+#define I2C_DDR DDRC
+#define I2C_PIN PINC
+#define I2C_PORT PORTC
+constexpr uint8_t kSda = _BV(PC4);
+constexpr uint8_t kScl = _BV(PC5);
+#endif
 
 inline void halfBit() { _delay_us(1); }
-inline void sdaLow() { DDRF |= kSda; }
-inline void sdaRelease() { DDRF &= static_cast<uint8_t>(~kSda); }
-inline void sclLow() { DDRF |= kScl; }
-inline bool sdaHigh() { return (PINF & kSda) != 0; }
+inline void sdaLow() { I2C_DDR |= kSda; }
+inline void sdaRelease() { I2C_DDR &= static_cast<uint8_t>(~kSda); }
+inline void sclLow() { I2C_DDR |= kScl; }
+inline bool sdaHigh() { return (I2C_PIN & kSda) != 0; }
 
 // Releases SCL and waits (≤ 1 ms) for a slave that stretches the clock.
 bool sclRelease() {
-  DDRF &= static_cast<uint8_t>(~kScl);
+  I2C_DDR &= static_cast<uint8_t>(~kScl);
   for (uint16_t i = 0; i < 500; ++i) {
-    if (PINF & kScl) return true;
+    if (I2C_PIN & kScl) return true;
     _delay_us(2);
   }
   return false;
@@ -97,8 +108,8 @@ namespace drv {
 namespace soft_i2c {
 
 void begin() {
-  PORTF &= static_cast<uint8_t>(~(kSda | kScl));  // when driven, drive LOW; never source HIGH
-  DDRF &= static_cast<uint8_t>(~(kSda | kScl));   // both released
+  I2C_PORT &= static_cast<uint8_t>(~(kSda | kScl));  // when driven, drive LOW; never source HIGH
+  I2C_DDR &= static_cast<uint8_t>(~(kSda | kScl));   // both released
 }
 
 bool writeReg(uint8_t addr, uint8_t reg, uint8_t value) {
@@ -129,4 +140,3 @@ void recover() {
 }  // namespace soft_i2c
 }  // namespace drv
 }  // namespace cq
-#endif  // BOARD_MEGA

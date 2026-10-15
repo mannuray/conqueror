@@ -14,14 +14,13 @@ bool g_ok = false;
 const char* g_name = "none";
 std::atomic<bool> g_stopped{false};
 
-// Per-sensor orientation (ESP32 LLD: sensor PID at boot → profile). The stock OV3660 sits in the tank so its raw
-// image is upside down and mirrored; ELEGOO's original firmware set vflip and hmirror (docs/legacy/
-// esp32s3-old-firmware.md), and so do we (owner, 2026-10-15). Other sensors keep the driver defaults until tested.
+// Per-sensor orientation (ESP32 LLD: sensor PID at boot → profile). The stock OV3660 is mounted so its raw image is
+// flipped vertically (looks upside down and back-to-front): vflip only. vflip + hmirror (as ELEGOO's firmware) left
+// the image mirrored on the owner's tank (2026-10-15). Other sensors keep the driver defaults until tested.
 void applySensorDefaults(sensor_t* s) {
   if (s->id.PID == OV3660_PID) {
     s->set_vflip(s, 1);
-    s->set_hmirror(s, 1);
-    logf("camera: OV3660 orientation: vflip + hmirror");
+    logf("camera: OV3660 orientation: vflip");
   }
 }
 }  // namespace

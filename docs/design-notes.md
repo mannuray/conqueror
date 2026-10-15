@@ -866,3 +866,4 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 - Side note from the old firmware: it set `vflip` and `hmirror` on the sensor — ours does not yet (picture may be upside down / mirrored); check on the page.
 
 - **Camera image inverted (owner, 2026-10-15):** upside down and mirrored. Fix: OV3660 → vflip + hmirror at camera start, as ELEGOO did (ESP32 LLD decision note). Updated over WiFi (OTA).
+- **Camera, correction (2026-10-15):** vflip + hmirror left the image mirrored → **vflip only** (the raw image was only flipped vertically).

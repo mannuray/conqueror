@@ -1088,3 +1088,4 @@ Shared objects: TankState (writers per group, mutex snapshot) · SessionRegistry
 
 ### Decision (owner, 2026-10-15): camera orientation for the stock OV3660
 The OV3660 sits in the tank so its raw image is upside down and mirrored. `camera_service.cpp` applies per-sensor defaults right after `esp_camera_init` (sensor PID → profile, as planned in this LLD): **OV3660 → `set_vflip(1)` + `set_hmirror(1)`**, the same as ELEGOO's original firmware (`docs/legacy/esp32s3-old-firmware.md`). Other sensors keep the driver defaults until tested. Making flip/mirror user settings (hub UX §6 "Camera") stays a later item.
+- **Correction (owner, 2026-10-15):** with vflip + hmirror the image was upright but mirrored; the raw OV3660 image is only flipped vertically, so the default is **vflip only**.

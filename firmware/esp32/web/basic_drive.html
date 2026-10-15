@@ -36,8 +36,9 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .chip b { font-weight: 700; }
 #ownerChip { background: var(--ui); color: #032; border-radius: 4px; padding: 1px 5px; }
 #ownerChip.warn { background: var(--warn); color: #221500 !important; }  /* beats the global .warn text colour */
-/* Mode chip left of STOP with a clear gap (never a stand-in for STOP; ignored while driving). */
-#ctlChip { top: 17px; right: calc(var(--redge) + 128px); cursor: pointer; display: inline-flex; gap: 5px; align-items: center; }
+/* Speaker + mode chips left of STOP with a clear gap (never a stand-in for STOP; the mode chip is ignored while driving). */
+.rchips { top: 17px; right: calc(var(--redge) + 128px); display: flex; gap: 6px; }
+#ctlChip { cursor: pointer; display: inline-flex; gap: 5px; align-items: center; }
 #audioChip { cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
 #audioChip.muted { color: var(--warn); border-color: var(--warn); box-shadow: none; }
 .ok { color: var(--ui); } .warn { color: var(--warn) !important; } .bad { color: var(--danger) !important; }
@@ -104,7 +105,6 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 body:not(.rc) #thrPad, body:not(.rc) #steerPad { display: none; }
 body.rc #drivePad, body.rc #tiltBtn, body.rc #camLock { display: none !important; }
 body.rc #video, body.rc #noVideo { touch-action: none; }
-.sgrid.two { grid-template-columns: 1fr 1fr; margin-top: 6px; }
 .btn.on { background: var(--ui); color: #032; }
 .stick .ttl i { font-style: normal; color: var(--active); margin-left: 4px; }
 .lbl { position: absolute; font-size: 7px; color: var(--dim); letter-spacing: .05em; }
@@ -151,11 +151,10 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   <span class="chip glass"><span id="wsDot" class="dot"></span><b id="latChip">--</b></span>
     <span class="chip glass"><small>WIFI</small><b id="wifiChip">-</b></span>
   <span class="chip glass"><small>CTRL:</small><b id="ownerChip">-</b></span>
-  <button id="audioChip" class="chip glass" type="button" aria-label="mute or unmute the tank"><svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="audioWaves" d="M17 9a4 4 0 0 1 0 6M19.5 6.5a7.5 7.5 0 0 1 0 11"/><path id="audioCross" class="hidden" d="M17 9l5 6M22 9l-5 6"/></svg><b id="audioTxt"></b></button>
 </div>
 <div class="ov hdg glass"><span id="hdgL" class="side">-</span><span id="hdgC" class="main">▼ -</span><span id="hdgCard" class="card">-</span><span id="hdgR" class="side">-</span></div>
 <button id="stop" class="ov" type="button"><svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8a8 8 0 0 0 16 0v-3a2 2 0 0 0-4 0"/></svg>STOP</button>
-<button id="ctlChip" class="ov chip glass" type="button" aria-label="switch drive controls"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="10" rx="5"/><path d="M8 11v4M6 13h4M15.5 12h.01M17.5 14h.01"/></svg><b id="ctlTxt">STICK</b></button>
+<div class="ov rchips"><button id="audioChip" class="chip glass" type="button" aria-label="mute or unmute the tank"><svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="audioWaves" d="M17 9a4 4 0 0 1 0 6M19.5 6.5a7.5 7.5 0 0 1 0 11"/><path id="audioCross" class="hidden" d="M17 9l5 6M22 9l-5 6"/></svg><b id="audioTxt"></b></button><button id="ctlChip" class="chip glass" type="button" aria-label="switch drive controls"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="10" rx="5"/><path d="M8 11v4M6 13h4M15.5 12h.01M17.5 14h.01"/></svg><b id="ctlTxt">STICK</b></button></div>
 <div class="ov dist"><b id="distTxt" class="gval">-</b><div class="distbar"><div id="distMask"></div></div></div>
 <div class="ov batt"><b id="battTxt" class="gval">-</b><div id="battBar" class="battbar"><div id="battMask"></div></div></div>
 <div id="banner" class="ov banner"></div>
@@ -195,8 +194,6 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 <div id="moreSheet" class="ov sheet glass">
   <p class="title">[ SPEED ] <b id="speedTxt">60%</b></p>
   <input id="speed" type="range" min="10" max="100" step="5" value="60" aria-label="speed">
-  <p class="title">[ CONTROLS ]</p>
-  <div class="sgrid two"><button id="ctlSingle" class="btn glass" type="button">SINGLE STICK</button><button id="ctlRc" class="btn glass" type="button">RC TWO-HAND</button></div>
 </div>
 <div id="toast"></div>
 <div id="rotate">[ ROTATE THE PHONE ]<br>landscape only</div>
@@ -669,8 +666,6 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     rc = mode === "rc";
     document.body.classList.toggle("rc", rc);
     $("camPad").classList.toggle("mini", rc);
-    $("ctlSingle").classList.toggle("on", !rc);
-    $("ctlRc").classList.toggle("on", rc);
     $("driveTtl").textContent = rc ? "⇅ THROTTLE" : "⇅ DRIVE // TANK";
     $("ctlTxt").textContent = rc ? "RC" : "STICK";
     try { localStorage.setItem("cq_controls", mode); } catch (e) { /* private mode */ }
@@ -683,8 +678,6 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     if (drive.held || thr.held || steer.held) { toast("Release the controls to switch"); return; }
     setControls(rc ? "single" : "rc", true);
   });
-  $("ctlSingle").addEventListener("click", function () { setControls("single", true); });
-  $("ctlRc").addEventListener("click", function () { setControls("rc", true); });
 
   // Drag on the video = look around (game style), RC mode only. Touches on controls never reach here.
   var look = { id: null, sx: 0, sy: 0, bx: 0, by: 0, x: 0, y: 0, moved: false, timer: 0, lastTap: 0, tapX: 0, tapY: 0 };

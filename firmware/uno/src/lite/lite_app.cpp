@@ -1,6 +1,7 @@
 #include "drivers/board_config.h"
 #include "domain/util/scheduler.h"
 #include "lite/lite_app.h"
+#include "lite/lite_tasks.h"
 #include "ports/battery_adc.h"
 #include "ports/button.h"
 #include "ports/clock.h"
@@ -30,9 +31,18 @@ void motorsZeroTask() { port::motor::apply(PwmOutput::zero()); }
 
 // LITE-TASKS-BEGIN
 Task g_tasks[] = {
+    {imuTask, 5000UL, 0UL, 0},
+    {irTask, 5000UL, 0UL, 0},
     {linkWatchTask, 10000UL, 2500UL, 0},
     {motorsZeroTask, 10000UL, 2500UL, 0},
+    {encodersTask, 10000UL, 5000UL, 0},
+    {settingsTask, 20000UL, 7500UL, 0},
+    {ultrasonicTask, 50000UL, 2500UL, 0},
     {telemetryFastDue, 50000UL, 0UL, 0},
+    {buttonTask, 20000UL, 17500UL, 0},
+    {batteryTask, 100000UL, 7500UL, 0},
+    {selfTestRecoverTask, 100000UL, 7500UL, 0},
+    {selfTestTask, 100000UL, 7500UL, 0},
     {telemetrySlowDue, 1000000UL, 7500UL, 0},
 };
 // LITE-TASKS-END
@@ -43,7 +53,6 @@ void setup() {
   g_lite.reset_reason = port::watchdog::resetReason();
   port::link::begin(board::kBaud);
   port::motor::begin();
-  port::imu::begin();
   port::encoders::begin();
   port::ultrasonic::begin();
   port::ir::begin();
@@ -52,6 +61,10 @@ void setup() {
   port::led::begin();
   port::tone::begin();
   port::servos::begin();
+  settingsLoad();
+  g_lite.imu_ok = port::imu::begin();
+  port::ultrasonic::trigger();
+  port::battery_adc::start();
   port::watchdog::enable();
   g_scheduler.start(port::clock::nowUs());
 }

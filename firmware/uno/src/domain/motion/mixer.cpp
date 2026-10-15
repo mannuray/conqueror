@@ -11,7 +11,11 @@ namespace {
 void angleMix(float v, float w, float& l_pct, float& r_pct) {
   const float a = absf(v), b = absf(w);
   const float m = clampf((a > b ? a : b) + 0.375f * (a > b ? b : a), 0.0f, 100.0f);
-  const float t = b / (a + b);  // b != 0 here
+  if (a + b <= 0.0f) {  // review M23: steering cancelled by a correction at standstill → stop, never NaN
+    l_pct = r_pct = 0.0f;
+    return;
+  }
+  const float t = b / (a + b);
   constexpr float kPivotT = 0.789f;  // tan(75°) / (1 + tan(75°))
   const float inner = m * (t <= kPivotT ? 1.0f - t / kPivotT : -(t - kPivotT) / (1.0f - kPivotT));
   if (v >= 0.0f) {
@@ -29,7 +33,7 @@ void mix(float v_pct, float w_steer_pct, float w_ctrl_pct, const MixerConfig& cf
   const float w_steer = clampf(w_steer_pct, -100.0f, 100.0f);
   if (w_steer != 0.0f) {  // the driver steers (controllers give w_ctrl 0 then): angle mix, §A4.1
     angleMix(v, clampf(w_steer + w_ctrl_pct, -100.0f, 100.0f), l_pct, r_pct);
-  } else {  // straight + gyro correction, primitives, rate loops: arcade mix, unchanged
+  } else {  // straight + gyro correction, primitives, gyro rate loops: arcade mix, unchanged
     const float w = clampf(w_ctrl_pct, -100.0f, 100.0f);
     const float excess = absf(v) + absf(w) - 100.0f;  // turning priority: give up speed, keep the turn
     if (excess > 0.0f) v = v > 0.0f ? v - excess : v + excess;

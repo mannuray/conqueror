@@ -19,7 +19,7 @@ class CamLite {
   static constexpr int16_t kJogDd = 12;  // per 20 ms tick = 60 °/s (full firmware: 1.2° per tick)
   void set(int16_t pan_dd, int16_t tilt_dd);
   void nudge(int16_t dpan_dd, int16_t dtilt_dd);  // sums in int32: a large nudge saturates, never wraps
-  // IR jog keys held (1/3 pan, 2/8 tilt): direction kept until released; applyJog() every 20 ms = 60 °/s.
+  // IR jog keys held (4/6 pan, 2/8 tilt): direction kept until released; applyJog() every 20 ms = 60 °/s.
   void jog(int8_t pan_dir, int8_t tilt_dir) {
     m_jog_pan = pan_dir;
     m_jog_tilt = tilt_dir;

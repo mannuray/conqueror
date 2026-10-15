@@ -133,6 +133,15 @@ void test_mixer_angle_45_forward_arc_and_reverse() {
   TEST_ASSERT_FLOAT_WITHIN(0.01f, -35.61f, r);
 }
 
+// Review M23: driver steering cancelled exactly by a correction at standstill must give 0/0, never NaN.
+void test_mixer_angle_zero_input_is_stop() {
+  const MixerConfig cfg{40, false, 0.0f};
+  float l = 1, r = 1;
+  mix(0.0f, 10.0f, -10.0f, cfg, l, r);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, l);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, r);
+}
+
 void test_mixer_ir_axes_and_correction_unchanged() {
   const MixerConfig cfg{40, true, 20.0f};
   float l = 0, r = 0;
@@ -216,6 +225,7 @@ int main() {
   RUN_TEST(test_mixer_pivot_fallback);
   RUN_TEST(test_mixer_angle_45_forward_arc_and_reverse);
   RUN_TEST(test_mixer_ir_axes_and_correction_unchanged);
+  RUN_TEST(test_mixer_angle_zero_input_is_stop);
   RUN_TEST(test_envelope_caps_targets);
   RUN_TEST(test_obstacle_slow_zone_scales_forward_only);
   RUN_TEST(test_degraded_caps);

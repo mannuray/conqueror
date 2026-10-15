@@ -9,8 +9,9 @@ struct MixerConfig {
   float keep_pct;               // track speed % at the deadband keep PWM (≈ keep_pwm × 100 / 255)
 };
 
-// Arcade mix v (forward %) + w (CCW %) → track targets in % (LLD §3.4). Turning priority: when a track
-// would exceed ±100 %, |v| is reduced so the difference L − R (the turn) is kept. Pivot fallback: a
+// Track mix v (forward %) + w (CCW %) → track targets in % (LLD §3.4, spec 02 §A4.1): the driver's steering uses the
+// angle mix; controller outputs alone (w_steer 0) use the arcade mix - turning priority: when a track would exceed
+// ±100 %, |v| is reduced so the difference L − R (the turn) is kept. Pivot fallback: a
 // non-zero inner target below keep_pct becomes 0 (the tank pivots instead of crawling that track).
 // Car-style steering (reverse_steer 0): when reversing, the DRIVER's steering is inverted, like a car.
 // Apply it to the teleop input only - never to a gyro correction or a primitive's rate, which are

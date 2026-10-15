@@ -1017,3 +1017,17 @@ Sticks ~40 % larger; battery / range bars full height along the screen edges (st
 
 ## 50. Code review of the session's changes (DONE 2026-10-15, owner: "fix all", RC option A)
 Fresh review of 38 commits (page, bridge, Uno): 0 critical, 5 important (stream sockets not closed → frozen video; camera input not ended on owner change; RC throttle lift sped the tank up; camera lock lost after a Uno reboot; faulted range sensor shown as CLEAR), 24 minor. All important and most minor fixed with tests (bridge 110, Uno 252 host tests; page checked on a recorded fake connection); deferred items listed in bridge LLD R3.10.
+
+## 51. Plan C hardware checks (2026-10-15, bridge `9e9987d`, Uno `567c54d`, owner present)
+| # | Check | Result |
+|---|---|---|
+| 1 | Phone lock while driving | n/a (owner: cannot lock while driving); the same page-hidden path is check 10, deadman behind it |
+| 2 | Second phone while one drives | ✅ second phone's drive nacked NOT_OWNER (reported once); its STOP accepted (any viewer may stop, spec 01) |
+| 3 | IR takeover | ✅ IR owner at once, phone NOT_OWNER; hand-back ~3.3 s after the last key, the holding phone resumes |
+| 4 | Uno link cut (S1 to upload) | ✅ page "Tank body offline" (owner saw it); recovers by itself |
+| 5 | Third video viewer | ✅ two viewers stream, the third is not served (2 stream sockets) |
+| 6 | Bench TCP + second bench | ✅ heartbeating bench owns the link; second bench closed in 0.01 s, `/info` tcp_refused 1 "bench connected"; hand-back to web on close (a bench that sends nothing is dropped after 1 s, as designed) |
+| 7 | OTA while driving | ✅ not accepted while driving (espota kept retrying); went through after the STOP |
+| 8 | Bench killed mid-drive (RST, no STOP) | ✅ bridge noticed in 17 ms, injected STOP: tracks 0/0 within 95 ms |
+| 9 | Source download while driving | ⚠️ download correct (954,502 B, 455 files, 1.8 s) but driving disturbed: the download and the page's WebSocket share the port-80 server, drives were delayed → 3 deadman stops (safe) and one RATE_LIMITED burst. Known deferred item "move /source.tar.gz off port 80" |
+Notes: during check 7 the tank drove into a wall on the floor and the owner lifted it; the logged −100/100 track targets were heading hold reacting to the lift (targets are before the lift cut-off). Review in the floor tests whether the heading-hold correction should be capped to the driver's speed.

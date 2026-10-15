@@ -126,8 +126,8 @@ void controlTask() {
   f.spd_cmd_r = static_cast<int8_t>(pm_r / 10);
   f.spd_act_l = speedPctLite(g_lite.enc_l.cps(), out.left(), kMaxCps, g_lite.encoders_enabled);
   f.spd_act_r = speedPctLite(g_lite.enc_r.cps(), out.right(), kMaxCps, g_lite.encoders_enabled);
-  f.pan = g_lite.cam.pan();
-  f.tilt = g_lite.cam.tilt();
+  f.pan = g_lite.cam.outPan();
+  f.tilt = g_lite.cam.outTilt();
   f.flags = g_lite.fast_flags;
   g_lite.slow.owner = static_cast<uint8_t>(g_lite.arbitrator.owner());
   g_lite.slow.driving = g_lite.moving ? 1 : 0;

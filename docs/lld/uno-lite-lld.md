@@ -207,6 +207,8 @@ stateDiagram-v2
 
 **Measured skeleton (Plan E Task 1, 2026-10-15):** drivers + core + protocol + link + telemetry = **7,984 B flash, 712 B RAM** (estimate for these rows ≈ 12.0 KB / 0.66 KB). The first build was 928 B RAM because the Uno IMU driver used the Arduino Wire library (five 32-byte buffers); the Uno now uses the same software I2C on A4/A5 as the Mega (port C instead of port F), which removed ~210 B RAM and ~2 KB flash.
 
+**Measured, all core features (Plan E Task 15, 2026-10-15):** **24,060 B flash, 1,425 B static RAM**; with smooth camera movement (extra 1, +84 B): **24,144 B flash (84 %), 1,429 B RAM (93 %)**. Flash margin ≈ 4.5 KB; RAM is the tight resource (107 B left under the 1.5 KB gate, ~620 B free for the stack at run time). Encoder left/right balance (extra 2) is proposed to the owner as a separate small design, not built.
+
 Estimates from the Mega build (link-time optimisation merges small classes, so per-class figures are approximate). **Plan step 1 builds a skeleton with all drivers and measures**; if the total is off by more than 15 %, the plan stops for a review.
 
 ## 8. Space-dependent extras (owner order)

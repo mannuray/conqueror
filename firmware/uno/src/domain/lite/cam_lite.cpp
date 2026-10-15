@@ -4,6 +4,9 @@ namespace cq {
 
 namespace {
 int16_t clampI(int16_t v, int16_t lo, int16_t hi) { return v < lo ? lo : (v > hi ? hi : v); }
+int16_t toward(int16_t out, int16_t target, int16_t step) {
+  return clampI(target, static_cast<int16_t>(out - step), static_cast<int16_t>(out + step));
+}
 }  // namespace
 
 void CamLite::set(int16_t pan_dd, int16_t tilt_dd) {
@@ -21,6 +24,11 @@ void CamLite::joy(int8_t x, int8_t y, bool active, uint32_t now_ms) {
     m_return_pending = true;
     m_released_ms = now_ms;
   }
+}
+
+void CamLite::step() {
+  m_out_pan = toward(m_out_pan, m_pan, kStepDd);
+  m_out_tilt = toward(m_out_tilt, m_tilt, kStepDd);
 }
 
 void CamLite::tick(uint32_t now_ms) {

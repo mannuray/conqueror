@@ -81,6 +81,21 @@ void test_cam_joy_release_returns_home_unless_locked() {
   TEST_ASSERT_EQUAL_INT16(0, c.pan());  // locked: stays
 }
 
+// LLD §8 extra 1 (space allowed it): the servo output follows the target at most 24 deci-degrees per 20 ms tick
+// (120 °/s, the full firmware's servo_speed default); pan()/tilt() stay the targets.
+void test_cam_smooth_steps() {
+  CamLite c;
+  c.set(1800, 900);
+  c.step();
+  TEST_ASSERT_EQUAL_INT16(924, c.outPan());
+  TEST_ASSERT_EQUAL_INT16(900, c.outTilt());
+  for (int i = 0; i < 100; ++i) c.step();
+  TEST_ASSERT_EQUAL_INT16(1800, c.outPan());
+  c.set(1790, 900);
+  c.step();
+  TEST_ASSERT_EQUAL_INT16(1790, c.outPan());  // a small move lands exactly, no overshoot
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ann_base_colours);
@@ -88,5 +103,6 @@ int main() {
   RUN_TEST(test_beeper_plays_then_stops);
   RUN_TEST(test_cam_limits_and_us);
   RUN_TEST(test_cam_joy_release_returns_home_unless_locked);
+  RUN_TEST(test_cam_smooth_steps);
   return UNITY_END();
 }

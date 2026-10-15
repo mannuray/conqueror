@@ -42,6 +42,8 @@ Task g_tasks[] = {
     {batteryTask, 100000UL, 7500UL, 0},
     {selfTestRecoverTask, 100000UL, 7500UL, 0},
     {selfTestTask, 100000UL, 7500UL, 0},
+    {cameraTask, 20000UL, 7500UL, 0},
+    {uiTask, 50000UL, 17500UL, 0},
     {telemetrySlowDue, 1000000UL, 7500UL, 0},
 };
 // LITE-TASKS-END
@@ -60,6 +62,8 @@ void setup() {
   port::led::begin();
   port::tone::begin();
   port::servos::begin();
+  port::servos::attach(Axis::kPan);
+  port::servos::attach(Axis::kTilt);
   settingsLoad();
   g_lite.imu_ok = port::imu::begin();
   port::ultrasonic::trigger();

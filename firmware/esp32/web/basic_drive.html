@@ -36,6 +36,7 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .chip b { font-weight: 700; }
 #ownerChip { background: var(--ui); color: #032; border-radius: 4px; padding: 1px 5px; }
 #ownerChip.warn { background: var(--warn); color: #221500 !important; }  /* beats the global .warn text colour */
+#ctlChip { cursor: pointer; display: inline-flex; gap: 5px; align-items: center; }
 #audioChip { cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
 #audioChip.muted { color: var(--warn); border-color: var(--warn); box-shadow: none; }
 .ok { color: var(--ui); } .warn { color: var(--warn) !important; } .bad { color: var(--danger) !important; }
@@ -151,6 +152,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     <span class="chip glass"><small>WIFI</small><b id="wifiChip">-</b></span>
   <span class="chip glass"><small>CTRL:</small><b id="ownerChip">-</b></span>
   <button id="audioChip" class="chip glass" type="button" aria-label="mute or unmute the tank"><svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="audioWaves" d="M17 9a4 4 0 0 1 0 6M19.5 6.5a7.5 7.5 0 0 1 0 11"/><path id="audioCross" class="hidden" d="M17 9l5 6M22 9l-5 6"/></svg><b id="audioTxt"></b></button>
+  <button id="ctlChip" class="chip glass" type="button" aria-label="switch drive controls"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="10" rx="5"/><path d="M8 11v4M6 13h4M15.5 12h.01M17.5 14h.01"/></svg><b id="ctlTxt">STICK</b></button>
 </div>
 <div class="ov hdg glass"><span id="hdgL" class="side">-</span><span id="hdgC" class="main">▼ -</span><span id="hdgCard" class="card">-</span><span id="hdgR" class="side">-</span></div>
 <button id="stop" class="ov" type="button"><svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8a8 8 0 0 0 16 0v-3a2 2 0 0 0-4 0"/></svg>STOP</button>
@@ -664,12 +666,17 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     $("ctlSingle").classList.toggle("on", !rc);
     $("ctlRc").classList.toggle("on", rc);
     $("driveTtl").textContent = rc ? "⇅ THROTTLE" : "⇅ DRIVE // TANK";
+    $("ctlTxt").textContent = rc ? "RC" : "STICK";
     try { localStorage.setItem("cq_controls", mode); } catch (e) { /* private mode */ }
     if (fromUser && was !== rc) {
       setLock(rc);
       toast(rc ? "RC: left thumb throttle, right thumb steering, drag the video to look" : "Single stick");
     }
   }
+  $("ctlChip").addEventListener("click", function () {  // top-row mode chip: never switches mid-drive
+    if (drive.held || thr.held || steer.held) { toast("Release the controls to switch"); return; }
+    setControls(rc ? "single" : "rc", true);
+  });
   $("ctlSingle").addEventListener("click", function () { setControls("single", true); });
   $("ctlRc").addEventListener("click", function () { setControls("rc", true); });
 

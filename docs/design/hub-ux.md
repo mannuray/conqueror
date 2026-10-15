@@ -251,7 +251,7 @@ Mental model: **push the stick where you want the tank to go** — distance from
 Rules: no sudden switch from curving to spinning; spin only within ±15° of fully sideways; small movements precise; straight means straight. Later (gyro turn-rate step): the same stick gives the same turn on every floor. Firmware rule: spec 02 §A4.1.
 
 ### Drive controls — RC two-hand mode (owner, 2026-10-15, optional)
-Choice in the speed sheet: **Single stick** (default) / **RC two-hand**, remembered per phone. IR unchanged.
+Choice in the speed sheet: **Single stick** (default) / **RC two-hand**, remembered per phone. IR unchanged. **Mode chip** in the top row after the speaker chip (owner, 2026-10-15, 1A): `🕹 STICK` / `🎮 RC`; tap switches the mode directly; ignored while a drive control is held (toast "Release the controls to switch").
 - **Left thumb: throttle** — vertical slider, springs back to 0 (release = stop, deadman unchanged).
 - **Right thumb: steering** — horizontal slider, springs back to centre. Steering sets the **curve**, the same at any speed (full = pivot on the inner track); **zero throttle + steering = spin on the spot**; below 15 % throttle the curve tightens smoothly into the spin (no jump). MAX slider limits speed.
 - **Camera: drag on the video**, game style (slide right = look right, up = look up); full screen width = full pan range; on lift the camera **stays** (the page turns LOCK on in RC mode, off again in single stick); **double-tap the video** or HOME = straight ahead. The camera ring shrinks to a small indicator above the steering slider. TILT STEER and LOCK are hidden in RC mode.

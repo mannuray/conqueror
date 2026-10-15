@@ -240,14 +240,15 @@ The bridge's own page (`/` on `conqueror-bridge.local`, no hub, no login) follow
 Layout (landscape, full-screen video; portrait shows "rotate the phone"):
 | Area | Content |
 |---|---|
-| Top-left chips | link latency (ping round trip, ms) · battery % (2S curve from `batt_v`) · WiFi signal (bars from `/info` RSSI, refreshed every 10 s) · **CTRL**: YOU / phone-N / IR / bench / none |
-| Top centre | **heading tape** (±30° window, numbers every 10°, current heading boxed) |
+| Top-left chips | link latency (ping round trip, ms) · WiFi signal (bars from `/info` RSSI, refreshed every 10 s) · **CTRL**: YOU / phone-N / IR / bench / none |
+| Top centre | **heading pill** as the phone Cockpit: heading −15° · ▼ heading · compass letter · heading +15° |
+| Left edge | **battery gauge** (owner, 2026-10-15: mirrors the range gauge): vertical bar filling from the bottom = battery % (2S curve from `batt_v`), coloured by the tank's battery level (green OK, amber `batt_low`, red `batt_critical`); box beside it **BATT nn%** over **x.xx V**; on USB (< 5.5 V) the bar is grey and the box says **USB** |
 | Top-right | **STOP** (solid red, always visible) |
-| Right edge | **distance bar** (0–2 m, green → amber < 50 cm → red < obstacle stop), number on top |
+| Right edge | **distance bar** (0–2 m, green → amber < 50 cm → red < obstacle stop), **RANGE nn cm** box beside it |
 | Bottom-left | **drive joystick** · TILT STEER toggle (as today) |
 | Bottom-right | **camera joystick** with **LOCK** and **HOME** buttons beside it |
 | Bottom centre | pills: **SNAP** (save a photo) · **SOUNDS** (sheet with the melody names) · **MOVES** (only when the tank reports TURN/MOVE; hidden on the Uno Lite) · speed slider stays in the sheet behind ⋯ (as the phone Cockpit note says) |
-| Bottom line | vitals: speed % · heading ° · turn rate °/s · battery V |
+| Bottom line | vitals: speed % · heading ° · turn rate °/s (battery volts moved to the battery gauge, owner 2026-10-15) |
 | Banners | alarms from `ts.flags` / events (blocked, tilted, lifted, battery low/critical, link lost, self-test locked) as today, status colour + icon + text |
 Not on Cockpit-lite (hub only): REC, AI panel, map / PiP map, missions, detection boxes, surface chip, child-play toggle (needs login/roles; the bridge has no authentication).
 Capability rule: buttons for features the tank lacks are **hidden**, decided from `welcome.tank.caps` (HELLO CapBits): MOVES needs `turn`/`move`; SOUNDS needs `audio_led`.

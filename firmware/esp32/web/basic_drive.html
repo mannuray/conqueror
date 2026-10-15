@@ -48,12 +48,17 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
   display: flex; gap: 8px; align-items: center; }
 #stop svg { width: 18px; height: 18px; }
 #stop:active { transform: scale(.97); filter: brightness(1.2); }
-.dist { right: var(--redge); top: 70px; bottom: 150px; display: flex; gap: 6px; align-items: stretch; }
+.dist { right: var(--redge); top: 70px; bottom: 160px; display: flex; gap: 6px; align-items: stretch; }
 .range { align-self: center; padding: 5px 7px; text-align: center; }
 .range small { display: block; color: var(--dim); font-size: 9px; letter-spacing: .1em; }
-.range b { color: var(--warn); font-size: 13px; }
+.range b { color: var(--ui); font-size: 13px; }
 .distbar { width: 9px; border-radius: 5px; border: 1px solid var(--edge-c); position: relative; overflow: hidden;
   background: linear-gradient(to top, #33ff66 0%, #33ff66 45%, #ffb000 72%, #ff3b30 100%); }
+.batt { left: var(--edge); top: 70px; bottom: 160px; display: flex; gap: 6px; align-items: stretch; }
+.battbar { width: 9px; border-radius: 5px; border: 1px solid var(--edge-c); position: relative; overflow: hidden; background: rgba(5, 10, 6, .75); }
+#battFill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: var(--ui); box-shadow: 0 0 6px rgba(51, 255, 102, .6); }
+#battFill.warn { background: var(--warn); box-shadow: none; } #battFill.bad { background: var(--danger); box-shadow: none; } #battFill.usb { background: #7a857c; box-shadow: none; }
+.range i { display: block; font-style: normal; color: var(--dim); font-size: 10px; }
 #distMask { position: absolute; left: 0; right: 0; top: 0; height: 100%; background: rgba(5, 10, 6, .9); }
 .stick { display: flex; flex-direction: column; gap: 5px; align-items: center; }
 .stick .ttl { color: var(--ui); font-size: 10px; letter-spacing: .12em; text-shadow: var(--glow); }
@@ -110,13 +115,13 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 
 <div class="ov chips">
   <span class="chip glass"><span id="wsDot" class="dot"></span><b id="latChip">--</b></span>
-  <span class="chip glass"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 11v2"/></svg> <b id="battChip">-</b></span>
-  <span class="chip glass"><small>WIFI</small><b id="wifiChip">-</b></span>
+    <span class="chip glass"><small>WIFI</small><b id="wifiChip">-</b></span>
   <span class="chip glass"><small>CTRL:</small><b id="ownerChip">-</b></span>
 </div>
 <div class="ov hdg glass"><span id="hdgL" class="side">-</span><span id="hdgC" class="main">▼ -</span><span id="hdgCard" class="card">-</span><span id="hdgR" class="side">-</span></div>
 <button id="stop" class="ov" type="button"><svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8a8 8 0 0 0 16 0v-3a2 2 0 0 0-4 0"/></svg>STOP</button>
 <div class="ov dist"><div class="range glass"><small>RANGE</small><b id="distTxt">-</b></div><div class="distbar"><div id="distMask"></div></div></div>
+<div class="ov batt"><div class="battbar"><div id="battFill"></div></div><div class="range glass"><small>BATT</small><b id="battTxt">-</b><i id="battV"></i></div></div>
 <div id="banner" class="ov banner"></div>
 
 <div class="ov left">
@@ -243,9 +248,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     }
     return 0;
   }
-  var vit = { spd: "SPD -", hdg: "-°", rate: "-°/s", volt: "-" };
+  var vit = { spd: "SPD -", hdg: "-°", rate: "-°/s" };
   function showVitals() {
-    $("vitals").innerHTML = vit.spd + "<i>·</i>" + vit.hdg + "<i>·</i>" + vit.rate + "<i>·</i>" + vit.volt + "V";
+    $("vitals").innerHTML = vit.spd + "<i>·</i>" + vit.hdg + "<i>·</i>" + vit.rate;
   }
   var CARD = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
   function norm(a) { return ((Math.round(a) % 360) + 360) % 360; }
@@ -273,8 +278,12 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       var pct = battPct(m.batt_v);
       var cls = m.flags.indexOf("batt_critical") >= 0 ? "bad" : m.flags.indexOf("batt_low") >= 0 ? "warn" : "";
       // Below 5.5 V there is no pack: USB back-feed (same rule as the body firmware, spec 02 §D6.3).
-      $("battChip").textContent = m.batt_v < 5.5 ? "USB" : pct + "%"; $("battChip").className = cls;
-      vit.volt = m.batt_v.toFixed(2); showVitals();
+      var usb = m.batt_v < 5.5;
+      $("battTxt").textContent = usb ? "USB" : pct + "%";
+      $("battTxt").className = usb ? "" : cls || "ok";
+      $("battV").textContent = m.batt_v.toFixed(2) + " V";
+      $("battFill").style.height = (usb ? 100 : Math.max(3, pct)) + "%";
+      $("battFill").className = usb ? "usb" : cls;
     }
     var offline = m.flags.indexOf("body_offline") >= 0;
     synced = !offline;

@@ -379,3 +379,10 @@ Replaces the "one short beep" row of D2 (after Plan E the Uno has ≈ 4 KB flash
 3. **Owner addition: IR key click** — a short TICK on each new IR key press (not on NEC repeats while held), so every press is confirmed.
 4. **Phone/AI control** (§A9 "custom, on request"): `SOUND`, `TONE`, `AUDIO_MODE` and `LED` become handled instead of UNAVAILABLE; HELLO sets `CapBit::AUDIO_LED`.
 5. **RAM plan:** full annunciator + sequencer ≈ +110 B, `AnnunciatorLite`/`Beeper` ≈ −20 B, Lite-only EEPROM write buffer 80 → 32 B (the Lite block is 26 B) ≈ −48 B; target ≈ 1,445 B. **Safety valve:** if the measured build is above 1,500 B static RAM, item 4 is left out (sounds and LED of items 1–3 still ship).
+
+### D5. Second-review fixes and additions (owner, 2026-10-15)
+1. **Parity gaps fixed:** TELEM_SLOW reports mute/quiet (`flags2` MUTED/QUIET) and `err_i2c`; the boot button gives the full firmware's feedback (press blip, WiFi/admin threshold ticks, reset jingle + blue/magenta blink); `free_ram` becomes the **stack high-water headroom** (bytes never touched since boot), not a shallow snapshot; a camera command cancels a pending joystick return.
+2. **Stall detection** (safety): the full firmware's `EncoderHealth` (shared code; its yaw-rate input becomes whole °/s so the Lite build needs no floats) — a track driven above deadband-keep + 15 PWM with no encoder edges for 0.5 s is cut by the supervisor for 1 s (or until reversed); a latched encoder fault when other evidence says the track moves. Only with `encoders_enabled = 1`. **Encoders on the Uno are single-channel** (left A1, right A2, the old line-tracking header): speed only, the direction comes from the motor command — enough for stall detection.
+3. **Camera joystick timeout** 500 ms (phone lost while the stick is held → camera returns home, as the full firmware).
+4. **Servo idle detach:** the camera servos are released after 2 s still and re-attached on the next move (saves current on the weak 5 V route; full firmware has this as a setting, default off).
+5. Unchanged by owner decision: IMU-fail self-test lock lasts until reboot; IR speed resets to 80 % at boot.

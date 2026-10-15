@@ -252,3 +252,11 @@ classDiagram
 - Tests: `test_lite_frames` updated first (SOUND/TONE/AUDIO_MODE/LED handled, `helloCaps` = AUDIO_LED | encoders); RED → GREEN.
 - Safety valve: static RAM > 1,500 B → frames (spec §D4 item 4) stay UNAVAILABLE.
 - **Built (2026-10-15):** Uno **27,426 B flash (96 %), 1,483 B static RAM** — under the valve, so SOUND/TONE/AUDIO_MODE/LED are in. The raw IMU sample became a local in `imuTask` (−18 B); `TELEM_SLOW.free_ram` now reports the run-time stack margin (≈ 565 B expected) for the tank test. Flash is now the closer limit too: ≈ 1.2 KB left.
+
+## 13. Second-review fixes and additions (owner, 2026-10-15; spec 02 §D5)
+- `lite_telemetry::slowFlags(…, proto::AudioModeValue mode)` sets/clears MUTED and QUIET; `slow.err_i2c = port::imu::i2cErrors()`.
+- `buttonTask` plays the full input task's button sounds/blinks (BLIP, TICK at thresholds, JINGLE + blink on reset requests).
+- Stack high-water: `setup()` first paints `[__heap_start, SP − 32)` with 0xAA; `telemetrySlowDue` counts the untouched bytes from `__heap_start` → `free_ram` (≈ worst-case headroom; ≈ 285 B expected from the disassembly).
+- `EncoderHealth::Inputs::yaw_rate_dps` becomes `int16_t` (whole °/s); the full app passes `static_cast<int16_t>(yaw_rate_dps)`. Lite: `g_lite.enc_health`, inputs from the previous tick's applied and requested PWM, edges = `EncoderLite::moving()`, keep = `db_keep` by direction; `SafetyInputs.stall_mask = enc_health.stalledMask()` when encoders are enabled; events STALL / ENCODER_FAULT; FAST flags STALL_L/R, ENCODER_FAULT.
+- `CamLite`: `set()` clears a pending return; `tick(now)` also ends a joystick held without refresh for 500 ms and tracks stillness; `wantAttached()` false after 2 s still; `cameraTask` attaches/detaches the servos on change.
+- Tests first: `test_slow_flags_audio_mode`, `test_cam_set_cancels_pending_return`, `test_cam_joy_timeout_returns_home`, `test_cam_idle_detach_after_2s`; existing `test_encoders` updated to whole °/s.

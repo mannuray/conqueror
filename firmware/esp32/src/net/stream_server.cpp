@@ -53,6 +53,27 @@ esp_err_t streamHandler(httpd_req_t* req) {
   return err;
 }
 
+// Plan F (spec 01 §2 /api/capture, bridge slice: no key, stream resolution): one JPEG as a download for SNAP.
+// Shares port 81's two sockets with the viewers (the lwIP budget is full), so with two viewers open it is refused.
+esp_err_t captureHandler(httpd_req_t* req) {
+  camera_fb_t* fb = cameraStopped() ? nullptr : cameraGrab();
+  if (fb == nullptr) {
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    httpd_resp_set_hdr(req, "Retry-After", "3");
+    return httpd_resp_send(req, "camera unavailable", HTTPD_RESP_USE_STRLEN);
+  }
+  char disposition[64];
+  snprintf(disposition, sizeof(disposition), "attachment; filename=\"tank-%lu.jpg\"",
+           static_cast<unsigned long>(millis() / 1000UL));
+  httpd_resp_set_type(req, "image/jpeg");
+  httpd_resp_set_hdr(req, "Content-Disposition", disposition);
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+  const esp_err_t err = httpd_resp_send(req, reinterpret_cast<const char*>(fb->buf), static_cast<ssize_t>(fb->len));
+  cameraRelease(fb);
+  return err;
+}
+
 }  // namespace
 
 bool streamServerStart() {
@@ -73,7 +94,12 @@ bool streamServerStart() {
   u.method = HTTP_GET;
   u.handler = streamHandler;
   httpd_register_uri_handler(server, &u);
-  logf("stream: http://%s.local:%u/stream (max %u viewers)", board::kHostname, board::kStreamPort,
+  httpd_uri_t c{};
+  c.uri = "/capture";
+  c.method = HTTP_GET;
+  c.handler = captureHandler;
+  httpd_register_uri_handler(server, &c);
+  logf("stream: http://%s.local:%u/stream (max %u viewers), /capture", board::kHostname, board::kStreamPort,
        board::kMaxStreamViewers);
   return true;
 }

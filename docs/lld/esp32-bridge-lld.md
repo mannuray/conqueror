@@ -608,3 +608,4 @@ sequenceDiagram
   P->>B: GET :81/capture
   B-->>P: image/jpeg (attachment)
 ```
+- **`/capture` and sockets (Plan F Task 3):** port 81 keeps `max_open_sockets = 2` (the lwIP budget of 16 is fully used, R2 implementation notes), so a snapshot shares the two viewer sockets: with the phone's stream open it works; with two viewers it is refused (connection not accepted). The camera-stopped (OTA) path answers 503.

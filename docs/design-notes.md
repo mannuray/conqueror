@@ -1034,3 +1034,8 @@ Fresh review of 38 commits (page, bridge, Uno): 0 critical, 5 important (stream 
 | 9b | Source download while driving, after R3.11 (bridge `ad9e6c9`) | ✅ two downloads via the port-80 link (302 → :81), 956,548 B each, valid; driving: no deadman stop, no RATE_LIMITED |
 | 11 | Wrong WiFi password → fallback AP | not run on the tank (owner, 2026-10-15: router cannot be switched off); covered by the WifiPolicy host tests (30 s → AP, home retry only without clients) |
 Notes: during check 7 the tank drove into a wall on the floor and the owner lifted it; the logged −100/100 track targets were heading hold reacting to the lift (targets are before the lift cut-off). Review in the floor tests whether the heading-hold correction should be capped to the driver's speed.
+
+## 52. Floor tests on the Uno Lite (2026-10-15, Uno `567c54d`, bridge `ad9e6c9`, owner placing / measuring)
+| # | Test | Result |
+|---|---|---|
+| 12 | Straight line (Plan E Task 16), MAX/v 60 % | Run 1 (owner on the phone): 19 cm over 3.35 m, two obstacle-brake slow-downs mid-run; runs 2–3 (scripted v=60, w=0): **0 cm over ~3.1 m**, ~2 cm over 1.2 m (stopped by the obstacle brake 16 cm from a wall). Gyro heading held within ±1° in every run; heading hold ran the right track ~3–4 % faster on average (this tank pulls right). Passed — run 1 treated as a one-off. |

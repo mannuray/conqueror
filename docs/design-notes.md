@@ -867,3 +867,4 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 
 - **Camera image inverted (owner, 2026-10-15):** upside down and mirrored. Fix: OV3660 → vflip + hmirror at camera start, as ELEGOO did (ESP32 LLD decision note). Updated over WiFi (OTA).
 - **Camera, correction (2026-10-15):** vflip + hmirror left the image mirrored → **vflip only** (the raw image was only flipped vertically).
+- **Cockpit-lite (owner, 2026-10-15):** the ESP32 phone page follows the phone Cockpit design (hub-ux Screen 7b) within what the bridge can do; bridge adds sound / cam_lock / caps / yaw_rate / :81/capture (bridge LLD R3); Plan F written for approval. No new mock-up (owner).

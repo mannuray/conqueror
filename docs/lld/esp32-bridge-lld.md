@@ -568,3 +568,43 @@ Target `esp32s3` + R2.1 pins and flags · partition CSV · version stamp + relea
 - Build tools run on Python 3.12 (`uv tool install --python 3.12 platformio esptool`): macOS's system Python 3.9 is too old for the pioarduino platform and `datetime.UTC` in `stamp_version.py`.
 - **WebSocket open (found on the board, 2026-10-13):** Arduino-ESP32 3.3.11 / IDF 5.5 does not call the `/ws` handler for the handshake, and `ws_post_handshake_cb` is compiled out (`CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT` unset in the prebuilt libs). So `wsHandler` announces a client to `link_task` (`kWsOpen`) on its **first frame**, marked in the session context (`req->sess_ctx`); the handshake path stays for builds that do call it. The page sends `hello` right after connecting, so it is registered before any `drive`.
 - **OTA scripts (found on the first OTA, 2026-10-13):** PlatformIO runs espota with `--debug`, which prints its options including `auth`, and SCons echoes the `upload_source_ota` command line — the OTA password appeared in clear text. `scripts/ota.sh` now filters every output line (`auth=***`) and `upload_source.py` runs espota without echo; the exposed password was rotated. `ota.sh` also resolves `conqueror-bridge.local` to an IP once (espota's own lookup missed a slow mDNS answer). Verified: app → `app1`, source updated, `/info` `matches_fw: true`, password absent from the output.
+
+
+## R3. Cockpit-lite additions (owner, 2026-10-15; UX hub-ux.md Screen 7b)
+Four bridge additions, all named in protocol spec 01 (gateway), so the hub can reuse them:
+| Addition | Spec 01 | Bridge change |
+|---|---|---|
+| `{"t":"sound","name":"startup"}` | §4 `sound` | `WsCmdKind::kSound` → `SOUND {id}`; `name` = the `SoundId` enum name in lower snake case (generated list); unknown name → nack INVALID_COMMAND. Owner rules as `drive` (owner or none). |
+| `{"t":"cam_lock","on":true}` | §4 `cam_lock` | `WsCmdKind::kCamLock` → `CAM_LOCK {on}` |
+| `tf.yaw_rate` (°/s, one decimal) | §6.1 | `TankSnapshot` keeps `yaw_rate` from TELEM_FAST (0.1 °/s) |
+| `welcome.tank.caps` | §6 | adds `turn`, `move`, `drive_rate`, `audio_led`, `calibrate` booleans from HELLO `caps` (CapBit) next to `encoders`, `sensor` |
+| `GET :81/capture` | §2 `/api/capture` (slice: no key, stream resolution) | one JPEG from the camera buffer, `Content-Disposition: attachment; filename="tank-<uptime>.jpg"`; shares the stream server; refused (503) while the camera is stopped (OTA) |
+The page (`web/basic_drive.html`) gains the Screen 7b layout; budget unchanged (page + help + manifest ≤ 25 + 12 + 6 KB gzipped).
+
+```mermaid
+classDiagram
+  class WsCodec { <<core, host-tested>> +parseWsCommand(text, len) WsCommand }
+  class WsCommand { kind · id · v · w · x · y · active · on · sound_id · t0 · client }
+  class WsJson { <<core, host-tested>> +jsonWelcome(caps…) +jsonTf(+yaw_rate) }
+  class LinkTask { <<net>> routes kSound → SOUND, kCamLock → CAM_LOCK (owner rules as drive) }
+  class StreamServer { <<net>> /stream · NEW /capture }
+  class BasicDrivePage { <<web>> chips · heading tape · distance bar · joysticks · LOCK/HOME · SNAP · SOUNDS · MOVES(caps) · vitals }
+  WsCodec ..> WsCommand
+  LinkTask ..> WsCodec
+  LinkTask ..> WsJson
+  BasicDrivePage ..> LinkTask : WebSocket /ws
+  BasicDrivePage ..> StreamServer : :81 /stream, /capture
+```
+```mermaid
+sequenceDiagram
+  participant P as Phone page
+  participant B as Bridge (LinkTask)
+  participant U as Uno
+  P->>B: {"t":"sound","name":"fanfare","id":7}
+  B->>B: owner check (as drive)
+  B->>U: SOUND {id=FANFARE}
+  U-->>B: ACK OK (or UNAVAILABLE if the firmware has no sounds)
+  B-->>P: {"t":"ack","id":7} / nack
+  P->>B: GET :81/capture
+  B-->>P: image/jpeg (attachment)
+```

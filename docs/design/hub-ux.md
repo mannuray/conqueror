@@ -232,3 +232,22 @@ Full-size snapshot/clip; zoom/pan (3 MP stills); info (time, tank, resolution, t
   - `09-child-play-checklist-v1.png` — 4 required checks (3/4, start disabled + amber hint), locked limits, game options. Wording: limits are "enforced by tank firmware" (not "hardware interlock").
   - `10-theme-amber.png`, `11-theme-ice.png` — theme switch demo; layout identical, video untinted. Polish (Amber): warnings must use **yellow-white** (BRAKE ON, RELEASE TO AI currently amber = same as UI colour, violates the distinct-status rule). Remove duplicated "2.4 GHz" in the WiFi chip (all themes).
 - **Visual design status: COMPLETE (v1 set).** Remaining small polish items above are applied during implementation from these notes.
+
+
+### Screen 7b — Cockpit-lite: the ESP32 phone page (owner, 2026-10-15)
+The bridge's own page (`/` on `conqueror-bridge.local`, no hub, no login) follows the phone Cockpit (`stitch/07-cockpit-phone-v1.png`) in look and layout, minus everything that needs the hub or the AI engine. Same Phosphor tokens (already used by the page). No new mock-up (owner): the Stitch phone Cockpit is the reference.
+
+Layout (landscape, full-screen video; portrait shows "rotate the phone"):
+| Area | Content |
+|---|---|
+| Top-left chips | link latency (ping round trip, ms) · battery % (2S curve from `batt_v`) · WiFi signal (bars from `/info` RSSI, refreshed every 10 s) · **CTRL**: YOU / phone-N / IR / bench / none |
+| Top centre | **heading tape** (±30° window, numbers every 10°, current heading boxed) |
+| Top-right | **STOP** (solid red, always visible) |
+| Right edge | **distance bar** (0–2 m, green → amber < 50 cm → red < obstacle stop), number on top |
+| Bottom-left | **drive joystick** · TILT STEER toggle (as today) |
+| Bottom-right | **camera joystick** with **LOCK** and **HOME** buttons beside it |
+| Bottom centre | pills: **SNAP** (save a photo) · **SOUNDS** (sheet with the melody names) · **MOVES** (only when the tank reports TURN/MOVE; hidden on the Uno Lite) · speed slider stays in the sheet behind ⋯ (as the phone Cockpit note says) |
+| Bottom line | vitals: speed % · heading ° · turn rate °/s · battery V |
+| Banners | alarms from `ts.flags` / events (blocked, tilted, lifted, battery low/critical, link lost, self-test locked) as today, status colour + icon + text |
+Not on Cockpit-lite (hub only): REC, AI panel, map / PiP map, missions, detection boxes, surface chip, child-play toggle (needs login/roles; the bridge has no authentication).
+Capability rule: buttons for features the tank lacks are **hidden**, decided from `welcome.tank.caps` (HELLO CapBits): MOVES needs `turn`/`move`; SOUNDS needs `audio_led`.

@@ -731,7 +731,7 @@ stateDiagram-v2
 
 ### R3.10 Review fixes (owner, 2026-10-15: "fix all", RC option A) and diagrams for R3.5–R3.9
 Whole-branch review (60ec480..f275f7a): no critical, 5 important, 24 minor findings. Fixed:
-- **Stream sockets closed** when a viewer's frame loop ends (`httpd_sess_trigger_close` before `httpd_req_async_handler_complete`) — `complete` alone leaves the socket open (no LRU purge), freezing the page's video and filling the 2 stream sockets. Named task constants; "camera unavailable" vs "max 2 viewers".
+- **Stream sockets closed** when a viewer's frame loop ends (`httpd_req_async_handler_complete` **then** `httpd_sess_trigger_close`, handle and fd saved first — the reverse order lost the close while the async request still owned the session: on the tank port 81 stopped answering and heap fell; fixed and re-tested: 2×6 viewer cycles, capture 200, heap steady) — `complete` alone leaves the socket open (no LRU purge), freezing the page's video and filling the 2 stream sockets. Named task constants; "camera unavailable" vs "max 2 viewers".
 - **Camera input ends on owner change and on blur** (cam stream timer cleared, drag-to-look ended silently) — it pinned the camera at home after control returned.
 - **RC option A:** lifting the throttle while steering stops and drops the steering (press again from rest to spin); lifting the steering keeps the throttle. Lifting a thumb never speeds the tank up.
 - **Camera lock synced:** `cam_lock` (rc or the page's lock) on `welcome` and on `ev body_online` (a rebooted Uno starts unlocked); a refused lock reverts the button.

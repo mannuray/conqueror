@@ -49,9 +49,14 @@ void streamWorker(void* arg) {
     cameraRelease(fb);
   }
   // Review I1: complete() only hands the socket back - it is not closed (no LRU purge). Close it explicitly so the
-  // page's <img> sees the end, retries, and the two stream sockets never fill up with dead streams.
-  httpd_sess_trigger_close(req->handle, httpd_req_to_sockfd(req));
+  // page's <img> sees the end, retries, and the two stream sockets never fill up with dead streams. Order matters:
+  // hand the request back first (a close queued while the async request still owns the session is lost - seen on the
+  // tank: the session stayed open and port 81 stopped answering), then queue the close. complete() frees req, so the
+  // handle and socket are taken before.
+  httpd_handle_t server = req->handle;
+  const int sockfd = httpd_req_to_sockfd(req);
   httpd_req_async_handler_complete(req);
+  httpd_sess_trigger_close(server, sockfd);
   releaseViewer();
   vTaskDelete(nullptr);
 }

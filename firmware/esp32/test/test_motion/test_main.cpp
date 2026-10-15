@@ -3,6 +3,7 @@
 
 #include "core/motion_config.h"
 #include "core/motion_router.h"
+#include "core/rate_loop.h"
 #include "core/turn_controller.h"
 #include "cq_protocol.h"
 
@@ -120,6 +121,42 @@ void test_turn_tracks_multi_turn() {
   TEST_ASSERT_TRUE(tc.progressPct() >= 99);
 }
 
+// ---------- rate loop (0.1 °/s in, % out) ----------
+void test_rate_feed_forward_at_zero_error() {
+  RateLoop rl;
+  rl.reset();
+  const int8_t w = rl.step(900, 900, 20);  // 90 °/s wanted and measured: ff only, 0.45 x 90 = 40.5
+  TEST_ASSERT_INT_WITHIN(1, 40, w);
+  TEST_ASSERT_INT_WITHIN(1, -40, rl.step(-900, -900, 20));
+}
+
+void test_rate_integral_grows_on_shortfall() {
+  RateLoop rl;
+  rl.reset();
+  const int8_t first = rl.step(600, 300, 20);
+  int8_t later = first;
+  for (int i = 0; i < 25; ++i) later = rl.step(600, 300, 20);  // 0.5 s short by 30 °/s
+  TEST_ASSERT_TRUE(later > first);
+}
+
+void test_rate_anti_windup_and_clamp() {
+  RateLoop rl;
+  rl.reset();
+  int8_t w = 0;
+  for (int i = 0; i < 100; ++i) w = rl.step(1800, 0, 20);  // 180 °/s wanted, tank stuck: saturated 2 s
+  TEST_ASSERT_EQUAL_INT8(100, w);
+  w = rl.step(1800, 1800, 20);  // suddenly on target: no stored wind-up, back near feed-forward (81)
+  TEST_ASSERT_TRUE(w <= 86);
+}
+
+void test_rate_sign_change_resets_integral() {
+  RateLoop rl;
+  rl.reset();
+  for (int i = 0; i < 50; ++i) rl.step(600, 0, 20);  // build an integral to the left
+  const int8_t w = rl.step(-600, -600, 20);         // target flips right, on target: ff only
+  TEST_ASSERT_INT_WITHIN(1, -27, w);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_router_lite_runs_turn_and_rate_locally);
@@ -132,5 +169,9 @@ int main() {
   RUN_TEST(test_turn_window_hysteresis);
   RUN_TEST(test_turn_stalled_and_timeout);
   RUN_TEST(test_turn_tracks_multi_turn);
+  RUN_TEST(test_rate_feed_forward_at_zero_error);
+  RUN_TEST(test_rate_integral_grows_on_shortfall);
+  RUN_TEST(test_rate_anti_windup_and_clamp);
+  RUN_TEST(test_rate_sign_change_resets_integral);
   return UNITY_END();
 }

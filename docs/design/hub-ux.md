@@ -242,7 +242,7 @@ Layout (landscape, full-screen video; portrait shows "rotate the phone"):
 |---|---|
 | Top-left chips | link latency (ping round trip, ms) · WiFi signal (bars from `/info` RSSI, refreshed every 10 s) · **CTRL**: YOU / phone-N / IR / bench / none |
 | Top centre | **heading pill** as the phone Cockpit: heading −15° · ▼ heading · compass letter · heading +15° |
-| Left edge | **battery gauge** (owner, 2026-10-15: mirrors the range gauge): vertical bar filling from the bottom = battery % (2S curve from `batt_v`), coloured by the tank's battery level (green OK, amber `batt_low`, red `batt_critical`); box beside it **BATT nn%** over **x.xx V**; on USB (< 5.5 V) the bar is grey and the box says **USB** |
+| Left edge | **battery gauge** (owner, 2026-10-15: mirrors the range gauge): vertical bar filling from the bottom = battery % (2S curve from `batt_v`) over a colour scale like the range bar (owner, 2026-10-15): red at the bottom up to critical (6.6 V), amber at low (7.2 V ≈ 20 %), green above; the % text takes the tank's battery level colour (green OK, amber `batt_low`, red `batt_critical`); box beside it **BATT nn%** over **x.xx V**; on USB (< 5.5 V) the bar is grey and the box says **USB** |
 | Top-right | **STOP** (solid red, always visible) |
 | Right edge | **distance bar** (0–2 m, green → amber < 50 cm → red < obstacle stop), **RANGE nn cm** box beside it |
 | Bottom-left | **drive joystick** · TILT STEER toggle (as today) |

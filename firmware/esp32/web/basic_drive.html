@@ -55,9 +55,11 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .distbar { width: 9px; border-radius: 5px; border: 1px solid var(--edge-c); position: relative; overflow: hidden;
   background: linear-gradient(to top, #33ff66 0%, #33ff66 45%, #ffb000 72%, #ff3b30 100%); }
 .batt { left: var(--edge); top: 70px; bottom: 160px; display: flex; gap: 6px; align-items: stretch; }
-.battbar { width: 9px; border-radius: 5px; border: 1px solid var(--edge-c); position: relative; overflow: hidden; background: rgba(5, 10, 6, .75); }
-#battFill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: var(--ui); box-shadow: 0 0 6px rgba(51, 255, 102, .6); }
-#battFill.warn { background: var(--warn); box-shadow: none; } #battFill.bad { background: var(--danger); box-shadow: none; } #battFill.usb { background: #7a857c; box-shadow: none; }
+/* Battery scale as the range scale: red at the bottom (critical 6.6 V = 0 %), amber at low (7.2 V = 20 %), green above. */
+.battbar { width: 9px; border-radius: 5px; border: 1px solid var(--edge-c); position: relative; overflow: hidden;
+  background: linear-gradient(to top, #ff3b30 0%, #ff3b30 8%, #ffb000 20%, #33ff66 35%, #33ff66 100%); }
+.battbar.usb { background: #7a857c; }
+#battMask { position: absolute; left: 0; right: 0; top: 0; height: 100%; background: rgba(5, 10, 6, .9); }
 .range i { display: block; font-style: normal; color: var(--dim); font-size: 10px; }
 #distMask { position: absolute; left: 0; right: 0; top: 0; height: 100%; background: rgba(5, 10, 6, .9); }
 .stick { display: flex; flex-direction: column; gap: 5px; align-items: center; }
@@ -121,7 +123,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 <div class="ov hdg glass"><span id="hdgL" class="side">-</span><span id="hdgC" class="main">▼ -</span><span id="hdgCard" class="card">-</span><span id="hdgR" class="side">-</span></div>
 <button id="stop" class="ov" type="button"><svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8a8 8 0 0 0 16 0v-3a2 2 0 0 0-4 0"/></svg>STOP</button>
 <div class="ov dist"><div class="range glass"><small>RANGE</small><b id="distTxt">-</b></div><div class="distbar"><div id="distMask"></div></div></div>
-<div class="ov batt"><div class="battbar"><div id="battFill"></div></div><div class="range glass"><small>BATT</small><b id="battTxt">-</b><i id="battV"></i></div></div>
+<div class="ov batt"><div id="battBar" class="battbar"><div id="battMask"></div></div><div class="range glass"><small>BATT</small><b id="battTxt">-</b><i id="battV"></i></div></div>
 <div id="banner" class="ov banner"></div>
 
 <div class="ov left">
@@ -282,8 +284,8 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       $("battTxt").textContent = usb ? "USB" : pct + "%";
       $("battTxt").className = usb ? "" : cls || "ok";
       $("battV").textContent = m.batt_v.toFixed(2) + " V";
-      $("battFill").style.height = (usb ? 100 : Math.max(3, pct)) + "%";
-      $("battFill").className = usb ? "usb" : cls;
+      $("battMask").style.height = (usb ? 0 : 100 - Math.max(3, pct)) + "%";  // empty part masked, colour from the scale
+      $("battBar").className = usb ? "battbar usb" : "battbar";
     }
     var offline = m.flags.indexOf("body_offline") >= 0;
     synced = !offline;

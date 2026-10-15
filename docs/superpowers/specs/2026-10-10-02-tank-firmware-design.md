@@ -371,3 +371,9 @@ Firmware: `drivers/board_config.h` build option selects the shield; only the mot
 
 ### D3. Next
 Uno Lite LLD (classes, Mermaid diagrams, frame subset, RAM/flash plan per module, caps bits) → implementation plan → code, each approved by the owner. The first implementation step is a skeleton with all drivers, measured against D1.4 (as A12 asked originally).
+
+### D4. Change proposal (2026-10-15, PROPOSED — owner to approve): alarm/status sounds and phone sound/LED
+After Plan E the Uno Lite build has ≈ 4 KB flash left; RAM is the limit (1,403 / 1,536 B). Owner asked to add LED and sound now that there is space. Proposal (replaces the "one short beep" row of D2):
+1. **Alarm and status sounds** (reuse the tested `SoundSequencer` and the flash melody table `catalogues.cpp`): startup, ready (ESP32 linked), self-test fail, battery low, battery critical, obstacle stop, lifted/tilted, IR key click, speed up/down tone, mute toggle on IR key 7. Audio modes normal / quiet / mute as in the full firmware (alarms still sound in quiet).
+2. **Phone/AI control:** the `SOUND`, `TONE`, `AUDIO_MODE` and `LED` frames become handled instead of UNAVAILABLE; HELLO sets `CapBit::AUDIO_LED`.
+3. **RAM plan:** sequencer ≈ +70 B; Lite-only smaller EEPROM write buffer (80 → 32 B, the Lite block is 26 B) ≈ −48 B; target ≤ 1,450 B. If the measured build is above 1,500 B, step 2 is dropped and only step 1 ships.

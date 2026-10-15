@@ -226,3 +226,28 @@ After approval: implementation plan (`docs/superpowers/plans/2026-10-14-plan-e-u
 
 ## 11. Decision (owner, 2026-10-15): hardware I2C on the Uno
 On the Uno, A4/A5 are the ATmega328P's hardware TWI pins (the Mega needed software I2C only because they are plain GPIO there). Plan E Task 1 had moved the Uno to the software I2C to drop the Arduino Wire library's buffers (~210 B RAM). Owner-approved replacement: a small **register-level hardware TWI driver** (`drivers/twi_uno.cpp`, polled, 400 kHz, no buffers) behind a common interface `drivers/i2c_bus.h` (`drv::i2c::begin/writeReg/readRegs/recover`); the Mega keeps `soft_i2c.cpp`. Same hardware path ELEGOO used on these pins; one byte ≈ 25 µs, the 14-byte IMU burst ≈ 0.35 ms (blocking, the documented burst-read exception). Each wait for TWINT gives up after ~0.4 ms so a stuck bus fails the read instead of hanging. Uno: 24,452 B flash, 1,431 B RAM; Mega unchanged (63,272 B).
+
+## 12. Proposal (2026-10-15, PROPOSED): sounds and phone sound/LED (spec 02 Part D §D4)
+```mermaid
+classDiagram
+  class SoundSequencer { <<reused, domain/ui>> +play(notes, n, prio, now) +setMode(mode) +tick(now, hz) }
+  class Catalogues { <<reused, domain/ui, PROGMEM>> +soundNotes(SoundId, Note[]) uint8 }
+  class LiteSounds { <<NEW lite/, app glue>> +onEvent(kind) +onIr(IrOutput) +ui(now) }
+  class AnnunciatorLite { +update(state, now, led) }
+  class LiteRoutes { +SOUND / TONE / AUDIO_MODE / LED handled }
+  LiteSounds ..> SoundSequencer
+  LiteSounds ..> Catalogues
+  LiteRoutes ..> SoundSequencer
+  LiteRoutes ..> LedSequencer : LED frame → kCustom layer (alarms still win)
+```
+| Trigger | Sound (SoundId) | Priority |
+|---|---|---|
+| boot | STARTUP | event |
+| ESP32 linked (HELLO_ACK) | READY | info |
+| self-test locked | SELFTEST_FAIL | alarm |
+| battery low / critical | SAD / SAFETY_CHIRP (repeat every 10 s while critical) | alarm |
+| obstacle stop (blocked edge) | OUCH | alarm |
+| lifted / tilted | SAFETY_CHIRP | alarm |
+| IR key / speed key / key 7 | TICK / tone 400 + speed × 10 Hz / CHIRP_UP·DOWN | event |
+- `EepromWriter::kMaxBytes` becomes 32 under `PROFILE_LITE` (full firmware unchanged at 80); a host test pins that the 26-byte Lite block still fits.
+- Tests: host test for the event → SoundId table (pure function `liteSoundFor(EventKind)`); frame table test updated (SOUND/TONE/AUDIO_MODE/LED handled, caps = AUDIO_LED | encoders).

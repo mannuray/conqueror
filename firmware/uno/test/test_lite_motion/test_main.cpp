@@ -2,6 +2,7 @@
 
 #include "domain/lite/gyro_zero_lite.h"
 #include "domain/lite/yaw_lite.h"
+#include "domain/lite/heading_hold_lite.h"
 
 using namespace cq;
 
@@ -100,6 +101,87 @@ void test_yaw_still_clamp_only_when_stationary() {
   TEST_ASSERT_INT32_WITHIN(5, 305, y.yawCdeg());
 }
 
+namespace {
+HeadingHoldLite hh() {
+  HeadingHoldLite h;
+  h.configure(headingGainsFromMilli(3500, 1200));
+  return h;
+}
+}  // namespace
+
+void test_heading_gains_from_settings() {
+  const HeadingGains g = headingGainsFromMilli(3500, 1200);
+  TEST_ASSERT_EQUAL_INT16(1575, g.kp_q8);
+  TEST_ASSERT_EQUAL_INT16(307, g.kd_q8);
+}
+
+void test_heading_steering_is_open_loop() {
+  HeadingHoldLite h = hh();
+  int8_t s = 0, c = 0;
+  h.teleop(0, 40, true, 1000, 2000, s, c);
+  TEST_ASSERT_EQUAL_INT8(40, s);
+  TEST_ASSERT_EQUAL_INT8(0, c);
+  TEST_ASSERT_FALSE(h.holding());
+}
+
+void test_heading_captures_then_corrects_drift() {
+  HeadingHoldLite h = hh();
+  int8_t s = 0, c = 0;
+  h.teleop(80, 0, true, 1000, 0, s, c);  // straight, not rotating → capture 10.00°
+  TEST_ASSERT_TRUE(h.holding());
+  h.teleop(80, 0, true, 900, 0, s, c);   // drifted 1° clockwise → turn CCW (positive), ≈ 6 %
+  TEST_ASSERT_EQUAL_INT8(0, s);
+  TEST_ASSERT_INT8_WITHIN(1, 6, c);
+}
+
+void test_heading_rate_damping() {
+  HeadingHoldLite h = hh();
+  int8_t s = 0, c = 0;
+  h.teleop(80, 0, true, 1000, 0, s, c);
+  h.teleop(80, 0, true, 1000, 100, s, c);  // on heading but turning CCW at 10 °/s → push CW (≈ −12 %)
+  TEST_ASSERT_INT8_WITHIN(1, -12, c);
+}
+
+void test_heading_waits_for_turn_to_settle_max_300ms() {
+  HeadingHoldLite h = hh();
+  int8_t s = 0, c = 0;
+  h.teleop(80, 50, true, 0, 900, s, c);  // steering
+  for (int i = 0; i < 29; ++i) h.teleop(80, 0, true, 0, 200, s, c);  // still turning 20 °/s
+  TEST_ASSERT_FALSE(h.holding());
+  TEST_ASSERT_EQUAL_INT8(0, c);  // no braking while settling
+  h.teleop(80, 0, true, 0, 200, s, c);
+  h.teleop(80, 0, true, 0, 200, s, c);
+  TEST_ASSERT_TRUE(h.holding());  // 0.3 s passed: captured despite the pull
+}
+
+void test_heading_wraps_short_way() {
+  HeadingHoldLite h = hh();
+  int8_t s = 0, c = 0;
+  h.teleop(80, 0, true, 50, 0, s, c);      // hold 0.50°
+  h.teleop(80, 0, true, 35950, 0, s, c);   // now 359.50° = 1° clockwise of the hold → small CCW push
+  TEST_ASSERT_INT8_WITHIN(1, 6, c);
+}
+
+void test_heading_gyro_lost_is_open_loop() {
+  HeadingHoldLite h = hh();
+  int8_t s = 0, c = 0;
+  h.teleop(80, 0, true, 1000, 0, s, c);
+  h.teleop(80, 0, false, 500, 0, s, c);  // gyro gone: no stale correction
+  TEST_ASSERT_EQUAL_INT8(0, c);
+  TEST_ASSERT_EQUAL_INT8(0, s);
+  TEST_ASSERT_FALSE(h.holding());
+  h.teleop(80, 30, false, 500, 0, s, c);
+  TEST_ASSERT_EQUAL_INT8(30, s);
+}
+
+void test_heading_stop_resets() {
+  HeadingHoldLite h = hh();
+  int8_t s = 0, c = 0;
+  h.teleop(80, 0, true, 1000, 0, s, c);
+  h.teleop(0, 0, true, 1000, 0, s, c);
+  TEST_ASSERT_FALSE(h.holding());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_gzl_starts_from_stored);
@@ -112,6 +194,14 @@ int main() {
   RUN_TEST(test_yaw_integrates_ccw);
   RUN_TEST(test_yaw_wraps_below_zero);
   RUN_TEST(test_yaw_still_clamp_only_when_stationary);
+  RUN_TEST(test_heading_gains_from_settings);
+  RUN_TEST(test_heading_steering_is_open_loop);
+  RUN_TEST(test_heading_captures_then_corrects_drift);
+  RUN_TEST(test_heading_rate_damping);
+  RUN_TEST(test_heading_waits_for_turn_to_settle_max_300ms);
+  RUN_TEST(test_heading_wraps_short_way);
+  RUN_TEST(test_heading_gyro_lost_is_open_loop);
+  RUN_TEST(test_heading_stop_resets);
   // LITE-MOTION-TESTS-END
   return UNITY_END();
 }

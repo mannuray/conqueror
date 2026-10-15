@@ -36,6 +36,8 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .chip b { font-weight: 700; }
 #ownerChip { background: var(--ui); color: #032; border-radius: 4px; padding: 1px 5px; }
 #ownerChip.warn { background: var(--warn); color: #221500; }
+#audioChip { cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
+#audioChip.muted { color: var(--warn); border-color: var(--warn); box-shadow: none; }
 .ok { color: var(--ui); } .warn { color: var(--warn) !important; } .bad { color: var(--danger) !important; }
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); margin-right: 6px; vertical-align: 1px; }
 .dot.on { background: var(--ui); box-shadow: 0 0 6px var(--ui); } .dot.wait { background: var(--warn); }
@@ -119,6 +121,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   <span class="chip glass"><span id="wsDot" class="dot"></span><b id="latChip">--</b></span>
     <span class="chip glass"><small>WIFI</small><b id="wifiChip">-</b></span>
   <span class="chip glass"><small>CTRL:</small><b id="ownerChip">-</b></span>
+  <button id="audioChip" class="chip glass" type="button" aria-label="mute or unmute the tank"><svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="audioWaves" d="M17 9a4 4 0 0 1 0 6M19.5 6.5a7.5 7.5 0 0 1 0 11"/><path id="audioCross" class="hidden" d="M17 9l5 6M22 9l-5 6"/></svg><b id="audioTxt"></b></button>
 </div>
 <div class="ov hdg glass"><span id="hdgL" class="side">-</span><span id="hdgC" class="main">▼ -</span><span id="hdgCard" class="card">-</span><span id="hdgR" class="side">-</span></div>
 <button id="stop" class="ov" type="button"><svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8a8 8 0 0 0 16 0v-3a2 2 0 0 0-4 0"/></svg>STOP</button>
@@ -287,6 +290,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       $("battMask").style.height = (usb ? 0 : 100 - Math.max(3, pct)) + "%";  // empty part masked, colour from the scale
       $("battBar").className = usb ? "battbar usb" : "battbar";
     }
+    showAudio(m.flags.indexOf("muted") >= 0 ? "mute" : m.flags.indexOf("quiet") >= 0 ? "quiet" : "normal");
     var offline = m.flags.indexOf("body_offline") >= 0;
     synced = !offline;
     showOwner(m.owner, m.owner_client);
@@ -313,8 +317,19 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     else if (m.kind === "body_offline" && m.reason === "BODY_INCOMPATIBLE")
       banner("bad", "Uno protocol " + m.uno_proto + " - flash a matching body firmware (needs " + m.need_proto + ")");
   }
+  // Speaker chip (R3.1): the tank's audio state; tap toggles mute <-> normal (quiet stays IR / hub).
+  var audio = "normal", lastSoundId = -1;
+  function showAudio(mode) {
+    audio = mode;
+    $("audioChip").className = "chip glass" + (mode === "normal" ? "" : " muted");
+    $("audioWaves").classList.toggle("hidden", mode === "mute");
+    $("audioCross").classList.toggle("hidden", mode !== "mute");
+    $("audioTxt").textContent = mode === "quiet" ? "QUIET" : "";
+  }
   function onNack(m) {
-    if (m.reason === "NOT_OWNER" || m.reason === "BUSY") {
+    if (m.id === lastSoundId && audio !== "normal") {  // the Uno refuses sounds while muted / quiet
+      toast(audio === "mute" ? "Tank is muted - tap 🔊" : "Tank is in quiet mode - tap 🔊");
+    } else if (m.reason === "NOT_OWNER" || m.reason === "BUSY") {
       var who = owner === "ir" ? "the IR remote" : (ownerClient || "someone");
       banner("warn", "Busy - " + who + " is driving");
     } else if (m.reason === "BODY_OFFLINE") {
@@ -446,6 +461,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     send({ t: "stop", id: nextId++ });
     if (navigator.vibrate) navigator.vibrate(60);
   });
+  $("audioChip").addEventListener("click", function () {
+    send({ t: "audio_mode", mode: audio === "normal" ? "mute" : "normal", id: nextId++ });
+  });
   $("camHome").addEventListener("click", function () { send({ t: "cam_home", id: nextId++ }); });
   $("camLock").addEventListener("click", function () {
     camLocked = !camLocked;
@@ -470,7 +488,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   SOUNDS.forEach(function (name) {
     var b = document.createElement("button");
     b.className = "btn"; b.type = "button"; b.textContent = name.replace(/_/g, " ");
-    b.addEventListener("click", function () { send({ t: "sound", name: name, id: nextId++ }); });
+    b.addEventListener("click", function () { lastSoundId = nextId; send({ t: "sound", name: name, id: nextId++ }); });
     $("soundGrid").appendChild(b);
   });
 

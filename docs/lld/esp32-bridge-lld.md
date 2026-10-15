@@ -663,3 +663,24 @@ stateDiagram-v2
   Dragging --> Indicator: owner taken over (drag cancelled)
   Indicator --> Control: owner = you / none
 ```
+
+### R3.3 Display filters (owner, 2026-10-15)
+Page only (`web/basic_drive.html`): filters change what is **shown**, never what the tank decides (obstacle brake, battery cut-off, stall stay on raw values in the Uno).
+
+| Metric | Input rate | Filter |
+|---|---|---|
+| Range `tf.dist_cm` | 10 Hz | median of last 5 (null = clear = 999), then shown = median if closer, else shown += 0.3·(median − shown) |
+| Turn rate `tf.yaw_rate` | 10 Hz | EMA α = 0.3 (τ ≈ 0.3 s); \|x\| < 2 → 0 |
+| Speed / vitals text | 10 Hz | text redrawn at most every 250 ms |
+| Battery `ts.batt_v` | 1 Hz | mean of last 10 (reset when USB ↔ pack changes) |
+| Latency (pong) | 1 Hz | mean of last 5 |
+| Heading | — | none (gyro-integrated on the tank) |
+
+```mermaid
+classDiagram
+  class Median5 { -buf[5] +push(v) number }
+  class Ema { -alpha -value +push(v) number }
+  class MeanN { -n -buf +push(v) number +reset() }
+  class RangeView { Median5 · fast-closer / slow-farther }
+  RangeView ..> Median5
+```

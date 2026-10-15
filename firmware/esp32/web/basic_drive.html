@@ -315,13 +315,13 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     else if (bannerKind === "bad") banner("", "");
     setPads();
   }
-  // Camera position in the ring (R3.2): home = pan 90 / tilt 90; stick right = smaller pan, stick up = larger tilt.
+  // Camera position in the ring (R3.2): home = pan 90 / tilt 90; stick right = smaller pan, up = smaller tilt (§45).
   function showCam(pan, tilt) {
     if (typeof pan !== "number" || typeof tilt !== "number") return;
-    var x = Math.max(-1, Math.min(1, (90 - pan) / 90)), y = Math.max(-1, Math.min(1, (tilt - 90) / 90));
+    var x = Math.max(-1, Math.min(1, (90 - pan) / 90)), y = Math.max(-1, Math.min(1, (90 - tilt) / 90));
     $("camDot").style.left = (50 + x * 45) + "%";
     $("camDot").style.top = (50 - y * 45) + "%";
-    var p = Math.round(90 - pan), t = Math.round(tilt - 90);
+    var p = Math.round(90 - pan), t = Math.round(90 - tilt);
     $("camAng").textContent = (p > 0 ? "→" + p : p < 0 ? "←" + -p : "0") + "° " + (t > 0 ? "↑" + t : t < 0 ? "↓" + -t : "0") + "°";
   }
   function showOwner(o, client) {

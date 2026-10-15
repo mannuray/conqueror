@@ -647,3 +647,19 @@ sequenceDiagram
   V--xW: viewer closes
   W->>W: async_handler_complete, release slot, delete task
 ```
+
+### R3.2 Page refinements (owner, 2026-10-15)
+Page only (`web/basic_drive.html`), no bridge or protocol change — pan/tilt already arrive in `tf`:
+- **⚡ MAX nn%** pill replaces ⋯ (speed limit at a glance; tap → slider sheet).
+- Vitals line `SPEED nn% · TURN ±nn°/s` (the heading duplicate removed).
+- **Camera ring as indicator:** ghost dot at ((90 − pan)/90, (tilt − 90)/90) × ring radius; title angles; ring mode from the owner: `you`/`none` → control (knob), anyone else → indicator (knob hidden, input ignored, dot bright).
+
+```mermaid
+stateDiagram-v2
+  [*] --> Control
+  Control --> Dragging: touch (you own or nobody owns)
+  Dragging --> Control: release
+  Control --> Indicator: owner = IR / other phone / AI
+  Dragging --> Indicator: owner taken over (drag cancelled)
+  Indicator --> Control: owner = you / none
+```

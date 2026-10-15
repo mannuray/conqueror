@@ -246,9 +246,9 @@ Layout (landscape, full-screen video; portrait shows "rotate the phone"):
 | Top-right | **STOP** (solid red, always visible) |
 | Right edge | **distance bar** (0–2 m, green → amber < 50 cm → red < obstacle stop), **RANGE nn cm** box beside it |
 | Bottom-left | **drive joystick** · TILT STEER toggle (as today) |
-| Bottom-right | **camera joystick** with **LOCK** and **HOME** buttons beside it |
-| Bottom centre | pills: **SNAP** (save a photo) · **SOUNDS** (sheet with the melody names) · **MOVES** (only when the tank reports TURN/MOVE; hidden on the Uno Lite) · speed slider stays in the sheet behind ⋯ (as the phone Cockpit note says) |
-| Bottom line | vitals: speed % · heading ° · turn rate °/s (battery volts moved to the battery gauge, owner 2026-10-15) |
+| Bottom-right | **camera joystick** with **LOCK** and **HOME** buttons beside it. **Camera position in the ring** (owner, 2026-10-15): a ghost dot inside the ring shows where the camera points (ring edge = 90° from home; home = pan 90° / tilt 90° = centre; stick right = pan down, stick up = tilt up), title `GIMBAL // CAM ←20° ↑5°`. States: you dragging → knob bright, dot faint; you not touching → knob dim, dot normal (stays with LOCK, glides home without); someone else steers (IR, another phone, later AI/hub) → knob hidden, ring not touchable, dot bright, title `GIMBAL // IR` / `// PHONE-2` / `// AI` |
+| Bottom centre | pills: **SNAP** (save a photo) · **SOUNDS** (sheet with the melody names) · **MOVES** (only when the tank reports TURN/MOVE; hidden on the Uno Lite) · speed slider in a sheet behind the **⚡ MAX nn%** pill (owner, 2026-10-15: the pill shows the speed limit; was ⋯) |
+| Bottom line | vitals: **SPEED nn% · TURN ±nn°/s** (owner, 2026-10-15: heading only in the top pill; battery volts in the battery gauge). Top pill heading is gyro heading from power-on (0° = where the tank pointed at start; no compass) |
 | Banners | alarms from `ts.flags` / events (blocked, tilted, lifted, battery low/critical, link lost, self-test locked) as today, status colour + icon + text |
 Not on Cockpit-lite (hub only): REC, AI panel, map / PiP map, missions, detection boxes, surface chip, child-play toggle (needs login/roles; the bridge has no authentication).
 Capability rule: buttons for features the tank lacks are **hidden**, decided from `welcome.tank.caps` (HELLO CapBits): MOVES needs `turn`/`move`; SOUNDS needs `audio_led`.

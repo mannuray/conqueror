@@ -5,7 +5,8 @@ namespace cq {
 
 // Camera pan/tilt in deci-degrees. pan()/tilt() are the targets; step() moves the servo output toward them at
 // most kStepDd per 20 ms tick (120 °/s, smooth motion = LLD §8 extra 1).
-// Pan 0..1800 (x > 0 = right = lower angle), tilt 300..1100, home 900/900. Joystick release → home after 500 ms
+// Pan 0..1800 (x > 0 = right = lower angle), tilt 300..1100 (y > 0 = up = lower angle: this tank looks down at
+// larger angles, design-notes §45), home 900/900. Joystick release → home after 500 ms
 // unless locked.
 class CamLite {
  public:
@@ -24,7 +25,7 @@ class CamLite {
     m_jog_tilt = tilt_dir;
   }
   void applyJog() {
-    if (m_jog_pan != 0 || m_jog_tilt != 0) nudge(static_cast<int16_t>(-m_jog_pan * kJogDd), static_cast<int16_t>(m_jog_tilt * kJogDd));
+    if (m_jog_pan != 0 || m_jog_tilt != 0) nudge(static_cast<int16_t>(-m_jog_pan * kJogDd), static_cast<int16_t>(-m_jog_tilt * kJogDd));  // up = smaller tilt
   }
   void joy(int8_t x, int8_t y, bool active, uint32_t now_ms);
   void home() { set(kHome, kHome); }

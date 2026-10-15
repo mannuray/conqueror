@@ -134,7 +134,7 @@ void inputTask() {
   }
   if (g_ir.tick(now, out)) applyIr(out, now);
   if (g_jog_pan != 0 || g_jog_tilt != 0) {
-    g_app.camera.nudge(-g_jog_pan * kJogStepDeg, g_jog_tilt * kJogStepDeg);  // pan right = lower servo angle
+    g_app.camera.nudge(-g_jog_pan * kJogStepDeg, -g_jog_tilt * kJogStepDeg);  // right / up = lower servo angle (§45)
   }
 
   switch (g_button.update(port::button::pressed(), now)) {

@@ -59,13 +59,22 @@ void test_cam_nudge_large_saturates() {
 }
 
 // Final review M3: an IR jog key held moves the camera 12 deci-degrees per 20 ms camera tick (60 °/s, as the full
-// firmware), not one step per NEC repeat. Pan right (+1) = lower angle.
+// firmware), not one step per NEC repeat. Pan right (+1) = lower angle; tilt down (-1) = higher angle (§45).
+// Design-notes §45: on this tank a larger tilt angle looks down, so stick up = smaller tilt angle.
+void test_cam_joy_up_is_smaller_tilt() {
+  CamLite c;
+  c.joy(0, 50, true, 0);
+  TEST_ASSERT_EQUAL_INT16(450, c.tilt());
+  c.joy(0, -10, true, 20);
+  TEST_ASSERT_EQUAL_INT16(990, c.tilt());
+}
+
 void test_cam_held_jog_rate() {
   CamLite c;
   c.jog(1, -1);
   for (int i = 0; i < 5; ++i) c.applyJog();
   TEST_ASSERT_EQUAL_INT16(840, c.pan());
-  TEST_ASSERT_EQUAL_INT16(840, c.tilt());
+  TEST_ASSERT_EQUAL_INT16(960, c.tilt());
   c.jog(0, 0);
   c.applyJog();
   TEST_ASSERT_EQUAL_INT16(840, c.pan());
@@ -129,6 +138,7 @@ int main() {
   RUN_TEST(test_cam_smooth_steps);
   RUN_TEST(test_cam_nudge_large_saturates);
   RUN_TEST(test_cam_held_jog_rate);
+  RUN_TEST(test_cam_joy_up_is_smaller_tilt);
   RUN_TEST(test_cam_set_cancels_pending_return);
   RUN_TEST(test_cam_joy_timeout_returns_home);
   RUN_TEST(test_cam_idle_detach_after_2s);

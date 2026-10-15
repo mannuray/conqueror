@@ -27,7 +27,7 @@ void CamLite::joy(int8_t x, int8_t y, bool active, uint32_t now_ms) {
   if (active) {
     m_joy_active = true;
     m_joy_ms = now_ms;
-    set(static_cast<int16_t>(kHome - x * 9), static_cast<int16_t>(kHome + y * 9));
+    set(static_cast<int16_t>(kHome - x * 9), static_cast<int16_t>(kHome - y * 9));  // up = smaller tilt angle (§45)
     return;
   }
   m_joy_active = false;

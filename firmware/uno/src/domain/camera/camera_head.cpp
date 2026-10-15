@@ -44,8 +44,9 @@ void CameraHead::joy(int8_t x, int8_t y, bool active, uint32_t now_ms) {
   const float home_tilt = clampf(kHomeTilt, m_cfg.tilt_min, m_cfg.tilt_max);
   const float pan = x >= 0 ? home_pan - x / 100.0f * (home_pan - m_cfg.pan_min)
                            : home_pan - x / 100.0f * (m_cfg.pan_max - home_pan);
-  const float tilt = y >= 0 ? home_tilt + y / 100.0f * (m_cfg.tilt_max - home_tilt)
-                            : home_tilt + y / 100.0f * (home_tilt - m_cfg.tilt_min);
+  // Up (y > 0) = smaller tilt angle: on this tank a larger angle looks down (design-notes §45).
+  const float tilt = y >= 0 ? home_tilt - y / 100.0f * (home_tilt - m_cfg.tilt_min)
+                            : home_tilt - y / 100.0f * (m_cfg.tilt_max - home_tilt);
   target(pan, tilt);
 }
 

@@ -50,12 +50,12 @@ void test_joy_is_absolute_and_release_returns_home() {
   uint32_t t = 0;
   runJoy(h, t, 2000, 100, 0);  // full right
   TEST_ASSERT_FLOAT_WITHIN(0.5f, 0.0f, h.panDeg());
-  runJoy(h, t, 3000, 0, 100);  // straight, full up
+  runJoy(h, t, 3000, 0, 100);  // straight, full up = smallest tilt angle (design-notes §45: larger = down)
   TEST_ASSERT_FLOAT_WITHIN(0.5f, 90.0f, h.panDeg());
-  TEST_ASSERT_FLOAT_WITHIN(0.5f, 110.0f, h.tiltDeg());
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, 30.0f, h.tiltDeg());
   h.joy(0, 0, false, t);   // released
   run(h, t, t + 400);      // within the 500 ms return delay: stays
-  TEST_ASSERT_FLOAT_WITHIN(0.5f, 110.0f, h.tiltDeg());
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, 30.0f, h.tiltDeg());
   run(h, t, t + 1500);
   TEST_ASSERT_FLOAT_WITHIN(0.5f, CameraHead::kHomeTilt, h.tiltDeg());
 }
@@ -75,8 +75,8 @@ void test_joy_stream_timeout_counts_as_release() {
   CameraHead h;
   h.configure(kCfg);
   uint32_t t = 0;
-  runJoy(h, t, 1500, 0, -100);
-  TEST_ASSERT_FLOAT_WITHIN(0.5f, 30.0f, h.tiltDeg());
+  runJoy(h, t, 1500, 0, -100);  // full down = largest tilt angle
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, 110.0f, h.tiltDeg());
   run(h, t, 4000);  // stream stops: 500 ms timeout + 500 ms delay, then home
   TEST_ASSERT_FLOAT_WITHIN(0.5f, CameraHead::kHomeTilt, h.tiltDeg());
 }

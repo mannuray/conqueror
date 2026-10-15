@@ -24,3 +24,6 @@ models/
 
 # ESP32 bridge secrets (WiFi, AP and OTA passwords) - never commit
 firmware/esp32/include/secrets.h
+
+# Browser-test screenshots, logs and downloaded photos (local only)
+.playwright-mcp/

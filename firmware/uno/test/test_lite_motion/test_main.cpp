@@ -3,6 +3,7 @@
 #include "domain/lite/gyro_zero_lite.h"
 #include "domain/lite/yaw_lite.h"
 #include "domain/lite/heading_hold_lite.h"
+#include "domain/lite/drive_mix_lite.h"
 
 using namespace cq;
 
@@ -182,6 +183,58 @@ void test_heading_stop_resets() {
   TEST_ASSERT_FALSE(h.holding());
 }
 
+void test_mix_steering_scaled_gyro_not() {
+  Tracks t = mixLite(80, 0, 10, 40);  // gyro 10 % at 80 %: full 10
+  TEST_ASSERT_EQUAL_INT16(70, t.l);
+  TEST_ASSERT_EQUAL_INT16(90, t.r);
+  t = mixLite(80, 10, 0, 40);         // driver 10 % at 80 %: authority 52 % → 5
+  TEST_ASSERT_EQUAL_INT16(75, t.l);
+  TEST_ASSERT_EQUAL_INT16(85, t.r);
+}
+
+void test_mix_turning_priority() {
+  const Tracks t = mixLite(100, 50, 0, 40);  // w = 20 → v reduced to 80, difference 40 kept
+  TEST_ASSERT_EQUAL_INT16(60, t.l);
+  TEST_ASSERT_EQUAL_INT16(100, t.r);
+}
+
+void test_cap_keeps_ratio() {
+  bool capped = false;
+  const Tracks t = capLite(Tracks{40, 80}, 40, 0xFFFF, 15, 50, true, capped);
+  TEST_ASSERT_TRUE(capped);
+  TEST_ASSERT_EQUAL_INT16(20, t.l);
+  TEST_ASSERT_EQUAL_INT16(40, t.r);
+}
+
+void test_cap_obstacle_slows_forward_only() {
+  bool capped = false;
+  Tracks t = capLite(Tracks{60, 60}, 100, 325, 15, 50, true, capped);  // halfway between 150 and 500 mm
+  TEST_ASSERT_EQUAL_INT16(30, t.l);
+  t = capLite(Tracks{-60, -60}, 100, 325, 15, 50, true, capped);       // reversing: not slowed
+  TEST_ASSERT_EQUAL_INT16(-60, t.l);
+  t = capLite(Tracks{60, 60}, 100, 325, 15, 50, false, capped);        // brake off: not slowed
+  TEST_ASSERT_EQUAL_INT16(60, t.l);
+  t = capLite(Tracks{60, 60}, 100, 0xFFFE, 15, 50, true, capped);      // sensor fault: not slowed
+  TEST_ASSERT_EQUAL_INT16(60, t.l);
+}
+
+void test_ramp_accel_and_faster_decel() {
+  RampLite r;
+  r.step(100, 200);                         // 200 %/s → 2 % per 10 ms tick
+  TEST_ASSERT_EQUAL_INT16(20, r.value());   // 0.1 % units
+  for (int i = 0; i < 9; ++i) r.step(100, 200);
+  TEST_ASSERT_EQUAL_INT16(200, r.value());
+  r.step(0, 200);                           // decel twice as fast: −4 %
+  TEST_ASSERT_EQUAL_INT16(160, r.value());
+}
+
+void test_to_pwm_deadband() {
+  TEST_ASSERT_EQUAL_INT16(0, toPwmLite(4, false, 110, 90));
+  TEST_ASSERT_EQUAL_INT16(110, toPwmLite(5, false, 110, 90));   // start PWM at the first 0.5 %
+  TEST_ASSERT_EQUAL_INT16(222, toPwmLite(800, true, 110, 90));  // 90 + 0.8 × 165
+  TEST_ASSERT_EQUAL_INT16(-255, toPwmLite(-1000, true, 110, 90));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_gzl_starts_from_stored);
@@ -202,6 +255,12 @@ int main() {
   RUN_TEST(test_heading_wraps_short_way);
   RUN_TEST(test_heading_gyro_lost_is_open_loop);
   RUN_TEST(test_heading_stop_resets);
+  RUN_TEST(test_mix_steering_scaled_gyro_not);
+  RUN_TEST(test_mix_turning_priority);
+  RUN_TEST(test_cap_keeps_ratio);
+  RUN_TEST(test_cap_obstacle_slows_forward_only);
+  RUN_TEST(test_ramp_accel_and_faster_decel);
+  RUN_TEST(test_to_pwm_deadband);
   // LITE-MOTION-TESTS-END
   return UNITY_END();
 }

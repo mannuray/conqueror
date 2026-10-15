@@ -12,136 +12,130 @@
 <link rel="icon" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <style>
-/* Basic Drive page (bridge LLD R2.9, design-notes §28). Phosphor theme (docs/design/hub-ux.md):
-   green UI on near-black; status colours are never green; glow only on chrome, never on video. */
+/* Basic Drive v2 = Cockpit-lite (hub-ux.md Screen 7b, bridge LLD R3): the phone Cockpit layout over full-screen
+   video. Phosphor theme: green UI on near-black, status colours never green, glow only on chrome, never on video. */
 :root {
-  --bg: #050805; --panel: #0b120b; --line: #1d3a22; --ui: #33ff66; --dim: #1f9a40;
+  --bg: #050805; --panel: rgba(11, 18, 11, .78); --line: #1d3a22; --ui: #33ff66; --dim: #1f9a40;
   --warn: #ffb000; --danger: #ff3b30; --active: #e8ffe8; --text: #b8f5c8;
   --glow: 0 0 6px rgba(51, 255, 102, .45);
   --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
-  --pad: 12px;
+  --edge: max(8px, env(safe-area-inset-left));
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.3 var(--mono); }
-body { overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: manipulation;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-button, input { font: inherit; color: inherit; }
-.app { height: 100%; display: grid; gap: 8px; padding: 8px;
-  grid-template-columns: 1fr 1fr; grid-template-rows: auto minmax(0, 1fr) auto auto;
-  grid-template-areas: "bar bar" "cam cam" "tele tele" "drive side"; }
-.bar { grid-area: bar; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.cam { grid-area: cam; position: relative; min-height: 0; background: #000; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
-.tele { grid-area: tele; }
-.drive { grid-area: drive; }
-.side { grid-area: side; }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px; position: relative; }
-.title { color: var(--ui); text-shadow: var(--glow); font-size: 11px; letter-spacing: .08em; margin: 0 0 6px; }
-.chip { border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px; font-size: 12px; background: var(--panel); white-space: nowrap; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.3 var(--mono); }
+body { overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+button, input, a { font: inherit; color: inherit; }
+#video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.novideo { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--dim); letter-spacing: .1em; }
+.ov { position: fixed; z-index: 2; }
+.chips { top: 8px; left: var(--edge); display: flex; gap: 5px; flex-wrap: wrap; max-width: 46vw; }
+.chip { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px; white-space: nowrap; }
 .chip b { color: var(--active); font-weight: 600; }
-.brand { color: var(--ui); text-shadow: var(--glow); font-weight: 700; margin-right: 4px; }
-.ok { color: var(--ui); } .warn { color: var(--warn); } .bad { color: var(--danger); }
+.ok { color: var(--ui); } .warn { color: var(--warn) !important; } .bad { color: var(--danger) !important; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); margin-right: 5px; vertical-align: 1px; }
-.dot.on { background: var(--ui); box-shadow: var(--glow); }
-.dot.wait { background: var(--warn); }
-#video { width: 100%; height: 100%; object-fit: contain; display: block; }
-.novideo { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--dim); font-size: 13px; letter-spacing: .1em; }
-.hud { position: absolute; left: 6px; right: 6px; top: 6px; display: flex; justify-content: space-between; pointer-events: none; }
-.hud span { background: rgba(5, 8, 5, .7); border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; font-size: 12px; color: var(--active); }
-.banner { position: absolute; left: 6px; right: 6px; bottom: 6px; padding: 6px 8px; border-radius: 4px; font-size: 13px; display: none; text-align: center; background: rgba(5, 8, 5, .85); }
-.banner.show { display: block; }
-.banner.warn { border: 1px solid var(--warn); color: var(--warn); }
-.banner.bad { border: 1px solid var(--danger); color: var(--danger); }
-.grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
-.cell { border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; min-width: 0; }
-.cell small { display: block; color: var(--dim); font-size: 10px; letter-spacing: .08em; }
-.cell span { display: block; color: var(--active); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pad { position: relative; width: min(42vw, 30vh, 220px); aspect-ratio: 1; margin: 4px auto 0; border-radius: 50%;
-  border: 1px solid var(--dim); box-shadow: inset 0 0 18px rgba(51, 255, 102, .12); touch-action: none; }
+.dot.on { background: var(--ui); box-shadow: var(--glow); } .dot.wait { background: var(--warn); }
+.tape { top: 8px; left: 50%; transform: translateX(-50%); width: min(260px, 34vw); height: 30px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+#tapeC { width: 100%; height: 100%; display: block; }
+#stop { top: 8px; right: max(8px, env(safe-area-inset-right)); background: var(--danger); color: #fff; border: 0; border-radius: 4px;
+  font-size: 18px; font-weight: 800; letter-spacing: .1em; padding: 10px 18px; box-shadow: 0 0 10px rgba(255, 59, 48, .5); }
+#stop:active { transform: scale(.97); filter: brightness(1.2); }
+.dist { right: max(8px, env(safe-area-inset-right)); top: 64px; bottom: 120px; width: 26px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.dist small { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 3px; color: var(--active); font-size: 10px; text-align: center; min-width: 40px; }
+.distbar { flex: 1; width: 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); position: relative; overflow: hidden; }
+#distFill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: var(--ui); }
+.pad { position: relative; width: min(30vh, 22vw, 190px); aspect-ratio: 1; border-radius: 50%; border: 1px solid var(--dim);
+  background: rgba(5, 8, 5, .35); box-shadow: inset 0 0 18px rgba(51, 255, 102, .12); touch-action: none; }
 .pad::before, .pad::after { content: ""; position: absolute; background: var(--line); }
 .pad::before { left: 50%; top: 8%; bottom: 8%; width: 1px; } .pad::after { top: 50%; left: 8%; right: 8%; height: 1px; }
-.pad.small { width: min(28vw, 18vh, 130px); }
+.pad.small { width: min(24vh, 17vw, 150px); }
 .knob { position: absolute; left: 50%; top: 50%; width: 34%; height: 34%; margin: -17% 0 0 -17%; border-radius: 50%;
   background: radial-gradient(circle, rgba(51, 255, 102, .5), rgba(51, 255, 102, .12)); border: 1px solid var(--ui); box-shadow: var(--glow); z-index: 1; }
 .pad.held .knob { background: radial-gradient(circle, rgba(232, 255, 232, .7), rgba(51, 255, 102, .25)); }
 .pad.off { opacity: .35; }
-.lbl { position: absolute; font-size: 10px; color: var(--dim); }
+.lbl { position: absolute; font-size: 9px; color: var(--dim); }
 .lbl.n { top: 3%; left: 50%; transform: translateX(-50%); } .lbl.s { bottom: 3%; left: 50%; transform: translateX(-50%); }
-.side { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
-#stop { background: var(--danger); color: #fff; border: 0; border-radius: 4px; font-size: 22px; font-weight: 800; letter-spacing: .1em;
-  min-height: 64px; box-shadow: 0 0 10px rgba(255, 59, 48, .5); touch-action: manipulation; }
-#stop:active { transform: scale(.97); filter: brightness(1.2); }
-.row { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
-.btn { background: var(--panel); border: 1px solid var(--dim); border-radius: 4px; padding: 6px 8px; color: var(--ui); }
+.left { left: var(--edge); bottom: 10px; display: flex; align-items: flex-end; gap: 8px; }
+.right { right: 44px; bottom: 10px; display: flex; align-items: flex-end; gap: 8px; }
+.col { display: flex; flex-direction: column; gap: 6px; }
+.btn { background: var(--panel); border: 1px solid var(--dim); border-radius: 4px; padding: 6px 9px; color: var(--ui); text-decoration: none; text-align: center; }
 .btn.on { background: var(--ui); color: #031; }
+.mid { bottom: 8px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.pills { display: flex; gap: 5px; }
+.pill { border-radius: 14px; padding: 4px 10px; }
+.vitals { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; color: var(--active); white-space: nowrap; }
+.banner { top: 46px; left: 50%; transform: translateX(-50%); max-width: 70vw; padding: 6px 10px; border-radius: 4px; text-align: center;
+  background: rgba(5, 8, 5, .88); display: none; }
+.banner.show { display: block; } .banner.warn { border: 1px solid var(--warn); color: var(--warn); } .banner.bad { border: 1px solid var(--danger); color: var(--danger); }
+.sheet { left: 50%; bottom: 74px; transform: translateX(-50%); width: min(460px, 70vw); max-height: 55vh; overflow: auto; background: rgba(11, 18, 11, .95);
+  border: 1px solid var(--dim); border-radius: 4px; padding: 8px; display: none; z-index: 4; }
+.sheet.show { display: block; }
+.sheet .title { color: var(--ui); text-shadow: var(--glow); font-size: 11px; letter-spacing: .08em; margin: 0 0 6px; }
+.sgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
 input[type=range] { width: 100%; accent-color: var(--ui); }
 .hidden { display: none !important; }
-#toast { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); padding: 6px 12px; border-radius: 4px;
-  background: var(--panel); border: 1px solid var(--warn); color: var(--warn); font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 9; }
+#toast { position: fixed; left: 50%; top: 84px; transform: translateX(-50%); padding: 6px 12px; border-radius: 4px; z-index: 5;
+  background: var(--panel); border: 1px solid var(--warn); color: var(--warn); opacity: 0; transition: opacity .2s; pointer-events: none; }
 #toast.show { opacity: 1; }
-@media (orientation: landscape) {
-  .app { grid-template-columns: minmax(150px, 26%) 1fr minmax(150px, 26%); grid-template-rows: auto minmax(0, 1fr) auto;
-    grid-template-areas: "bar bar bar" "drive cam side" "drive tele side"; }
-  .pad { width: min(22vw, 52vh, 240px); }
-  .pad.small { width: min(14vw, 28vh, 140px); }
-  .grid { grid-template-columns: repeat(5, 1fr); }
-}
-@media (max-width: 360px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+#rotate { position: fixed; inset: 0; z-index: 9; display: none; align-items: center; justify-content: center; text-align: center; padding: 24px;
+  background: var(--bg); color: var(--ui); text-shadow: var(--glow); letter-spacing: .08em; }
+@media (orientation: portrait) { #rotate { display: flex; } }
+@media (max-height: 380px) { .pad { width: min(34vh, 20vw, 150px); } .pad.small { width: min(28vh, 15vw, 120px); } .chip { padding: 2px 5px; } }
 </style>
 </head>
 <body>
-<div class="app">
-  <header class="bar">
-    <span class="brand">[ CONQUEROR ]</span>
-    <span class="chip"><span id="wsDot" class="dot"></span><b id="wsTxt">OFFLINE</b></span>
-    <span class="chip">BODY <b id="bodyTxt">-</b></span>
-    <span class="chip">CTRL <b id="ownerChip">-</b></span>
-    <span class="chip">BATT <b id="battChip">-</b></span>
-  </header>
+<img id="video" alt="">
+<div id="noVideo" class="novideo">[ NO VIDEO ]</div>
 
-  <section class="cam">
-    <img id="video" alt="">
-    <div id="noVideo" class="novideo">[ NO VIDEO ]</div>
-    <div class="hud"><span id="hudHead">HDG -</span><span id="hudDist">DIST -</span></div>
-    <div id="banner" class="banner"></div>
-  </section>
+<div class="ov chips">
+  <span class="chip"><span id="wsDot" class="dot"></span><b id="latChip">--</b></span>
+  <span class="chip">BATT <b id="battChip">-</b></span>
+  <span class="chip">WIFI <b id="wifiChip">-</b></span>
+  <span class="chip">CTRL <b id="ownerChip">-</b></span>
+</div>
+<div class="ov tape"><canvas id="tapeC" width="260" height="30"></canvas></div>
+<button id="stop" class="ov" type="button">STOP</button>
+<div class="ov dist"><small id="distTxt">-</small><div class="distbar"><div id="distFill"></div></div></div>
+<div id="banner" class="ov banner"></div>
 
-  <section class="panel tele">
-    <p class="title">[ TELEMETRY ]</p>
-    <div class="grid">
-      <div class="cell"><small>BATTERY</small><span id="tBatt">-</span></div>
-      <div class="cell"><small>DISTANCE</small><span id="tDist">-</span></div>
-      <div class="cell"><small>TILT P/R</small><span id="tTilt">-</span></div>
-      <div class="cell"><small>HEADING</small><span id="tHead">-</span></div>
-      <div class="cell"><small>OWNER</small><span id="tOwner">-</span></div>
-    </div>
-  </section>
+<div class="ov left">
+  <div id="drivePad" class="pad off"><span class="lbl n">FWD</span><span class="lbl s">REV</span><div class="knob"></div></div>
+  <button id="tiltBtn" class="btn hidden" type="button">TILT OFF</button>
+</div>
+<div class="ov right">
+  <div class="col"><button id="camLock" class="btn" type="button">LOCK</button><button id="camHome" class="btn" type="button">HOME</button></div>
+  <div id="camPad" class="pad small off"><span class="lbl n">UP</span><span class="lbl s">DOWN</span><div class="knob"></div></div>
+</div>
 
-  <section class="panel drive">
-    <div class="row"><p class="title">[ DRIVE ]</p><button id="tiltBtn" class="btn hidden" type="button">TILT OFF</button></div>
-    <div id="drivePad" class="pad off"><span class="lbl n">FWD</span><span class="lbl s">REV</span><div class="knob"></div></div>
-  </section>
+<div class="ov mid">
+  <div class="pills">
+    <a id="snap" class="btn pill" download>SNAP</a>
+    <button id="soundsBtn" class="btn pill hidden" type="button">SOUNDS</button>
+    <button id="movesBtn" class="btn pill hidden" type="button">MOVES</button>
+    <button id="moreBtn" class="btn pill" type="button">&#8943;</button>
+  </div>
+  <div id="vitals" class="vitals">SPD -  ·  HDG -  ·  RATE -  ·  - V</div>
+</div>
 
-  <section class="panel side">
-    <button id="stop" type="button">STOP</button>
-    <div>
-      <div class="row"><p class="title">[ SPEED ]</p><b id="speedTxt">60%</b></div>
-      <input id="speed" type="range" min="10" max="100" step="5" value="60" aria-label="speed">
-    </div>
-    <div>
-      <div class="row"><p class="title">[ CAMERA ]</p><button id="camHome" class="btn" type="button">HOME</button></div>
-      <div id="camPad" class="pad small off"><span class="lbl n">UP</span><span class="lbl s">DOWN</span><div class="knob"></div></div>
-    </div>
-  </section>
+<div id="soundSheet" class="ov sheet"><p class="title">[ SOUNDS ]</p><div id="soundGrid" class="sgrid"></div></div>
+<div id="movesSheet" class="ov sheet"><p class="title">[ MOVES ]</p><div>Turn by angle and move by distance come with the hub (Tank Logo / AI).</div></div>
+<div id="moreSheet" class="ov sheet">
+  <p class="title">[ SPEED ] <b id="speedTxt">60%</b></p>
+  <input id="speed" type="range" min="10" max="100" step="5" value="60" aria-label="speed">
 </div>
 <div id="toast"></div>
+<div id="rotate">[ ROTATE THE PHONE ]<br>landscape only</div>
 <script>
 "use strict";
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var DRIVE_MS = 50;        // drive is re-sent every 50 ms while held: the bridge never repeats it
   var DEADZONE = 0.05, EXPO = 0.3;
+  var SOUNDS = ["startup", "ready", "selftest_fail", "chirp_up", "chirp_down", "blip", "tick", "jingle", "thinking", "ouch",
+    "error", "success", "fanfare", "sad", "safety_chirp", "ack_blip", "fail", "confirm", "question", "ok_chirp", "grumble",
+    "scan", "goodbye"];  // proto::SoundId order (spec 02 §A9 catalogue)
   var ws = null, wsOpen = false, you = "", synced = false, owner = "none", ownerClient = "";
-  var nextId = 1, retryMs = 1000, pingTimer = 0;
+  var nextId = 1, retryMs = 1000, pingTimer = 0, camLocked = false;
   var speed = 60;
   try { speed = Number(localStorage.getItem("cq_speed")) || 60; } catch (e) { /* private mode */ }
   $("speed").value = speed;
@@ -153,11 +147,11 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     return false;
   }
   function connect() {
-    setWs("wait", "CONNECTING");
+    setWs("wait", "...");
     ws = new WebSocket("ws://" + location.host + "/ws");
     ws.onopen = function () {
       wsOpen = true; retryMs = 1000;
-      setWs("on", "ONLINE");
+      setWs("on", "--");
       send({ t: "hello", client: "basic-drive", proto: 1 });
       clearInterval(pingTimer);
       pingTimer = setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
@@ -172,7 +166,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       wsOpen = false; synced = false;
       clearInterval(pingTimer);
       releaseAll(false);
-      setWs("", "OFFLINE");
+      setWs("", "OFF");
       setPads();
       setTimeout(connect, retryMs);
       retryMs = Math.min(retryMs * 2, 5000);
@@ -181,21 +175,34 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   }
   function setWs(cls, txt) {
     $("wsDot").className = "dot " + cls;
-    $("wsTxt").textContent = txt;
+    $("latChip").textContent = txt;
   }
 
   function onMessage(m) {
     switch (m.t) {
       case "welcome":
         you = m.you || "";
+        showCaps(m.tank && m.tank.caps ? m.tank.caps : {});
         showOwner(m.owner, m.owner_client);
         break;
       case "tf": showFast(m); break;
       case "ts": showSlow(m); break;
       case "ev": onEvent(m); break;
       case "nack": onNack(m); break;
-      default: break;  // ack, pong
+      case "pong": showLatency(m); break;
+      default: break;  // ack
     }
+  }
+  // Features the tank's firmware lacks are hidden (HELLO CapBits): MOVES needs turn/move, SOUNDS needs audio_led.
+  function showCaps(c) {
+    $("soundsBtn").classList.toggle("hidden", !c.audio_led);
+    $("movesBtn").classList.toggle("hidden", !(c.turn || c.move));
+  }
+  function showLatency(m) {
+    if (typeof m.t0 !== "number") return;
+    var ms = Math.max(0, Date.now() - m.t0);
+    $("latChip").textContent = ms + "ms";
+    $("latChip").className = ms > 250 ? "bad" : ms > 120 ? "warn" : "";
   }
 
   // ---------- telemetry ----------
@@ -208,40 +215,54 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     }
     return 0;
   }
+  var vit = { spd: "-", hdg: "-", rate: "-", volt: "-" };
+  function showVitals() { $("vitals").textContent = "SPD " + vit.spd + "  ·  HDG " + vit.hdg + "  ·  RATE " + vit.rate + "  ·  " + vit.volt + " V"; }
+  function drawTape(head) {  // ±30° window, a tick every 5°, numbers every 10°, current heading boxed
+    var c = $("tapeC"), g = c.getContext("2d"), w = c.width, h = c.height, px = w / 60;
+    g.clearRect(0, 0, w, h);
+    g.strokeStyle = "#1f9a40"; g.fillStyle = "#33ff66"; g.font = "10px monospace"; g.textAlign = "center";
+    var start = Math.ceil((head - 30) / 5) * 5;
+    for (var a = start; a <= head + 30; a += 5) {
+      var x = w / 2 + (a - head) * px, big = a % 10 === 0;
+      g.beginPath(); g.moveTo(x, h); g.lineTo(x, h - (big ? 9 : 5)); g.stroke();
+      if (big) g.fillText(String(((a % 360) + 360) % 360), x, 11);
+    }
+    g.fillStyle = "#e8ffe8"; g.fillRect(w / 2 - 1, h - 14, 2, 14);
+  }
   function showFast(m) {
-    var head = Math.round(m.yaw) % 360;
-    $("tHead").textContent = head + "°";
-    $("hudHead").textContent = "HDG " + head + "°";
-    var d = m.dist_cm === null ? "CLEAR" : m.dist_cm + " cm";
-    $("tDist").textContent = d;
-    $("hudDist").textContent = "DIST " + d;
-    $("tDist").className = m.dist_cm !== null && m.dist_cm < 25 ? "bad" : "";
-    $("tTilt").textContent = m.pitch.toFixed(0) + "°/" + m.roll.toFixed(0) + "°";
-    var tilt = Math.max(Math.abs(m.pitch), Math.abs(m.roll));
-    $("tTilt").className = tilt > 35 ? "bad" : tilt > 20 ? "warn" : "";
+    var head = ((Math.round(m.yaw) % 360) + 360) % 360;
+    drawTape(m.yaw);
+    vit.hdg = head + "°";
+    vit.rate = typeof m.yaw_rate === "number" ? m.yaw_rate.toFixed(0) + "°/s" : "-";
+    vit.spd = Math.max(Math.abs(m.spd_cmd[0]), Math.abs(m.spd_cmd[1])) + "%";
+    showVitals();
+    var d = m.dist_cm;
+    $("distTxt").textContent = d === null ? "CLEAR" : d + "cm";
+    var f = $("distFill");
+    var pct = d === null ? 0 : Math.max(4, 100 - Math.min(d, 200) / 2);  // fuller = closer (0–2 m)
+    f.style.height = pct + "%";
+    f.style.background = d !== null && d < 15 ? "#ff3b30" : d !== null && d < 50 ? "#ffb000" : "#33ff66";
   }
   function showSlow(m) {
     if (m.batt_v !== null) {
       var pct = battPct(m.batt_v);
-      var txt = m.batt_v.toFixed(2) + " V " + pct + "%";
       var cls = m.flags.indexOf("batt_critical") >= 0 ? "bad" : m.flags.indexOf("batt_low") >= 0 ? "warn" : "";
-      $("tBatt").textContent = txt; $("tBatt").className = cls;
       $("battChip").textContent = pct + "%"; $("battChip").className = cls;
+      vit.volt = m.batt_v.toFixed(2); showVitals();
     }
     var offline = m.flags.indexOf("body_offline") >= 0;
     synced = !offline;
-    $("bodyTxt").textContent = offline ? "OFFLINE" : "OK";
-    $("bodyTxt").className = offline ? "bad" : "ok";
     showOwner(m.owner, m.owner_client);
     if (offline) banner("bad", "Tank body offline - check the Uno and the S1 switch");
+    // The Uno hears nothing from the ESP32 although its telemetry arrives: S1 is in the upload position.
+    else if (m.flags.indexOf("link_lost") >= 0) banner("bad", "Uno can't hear the ESP32 - check switch S1");
     else if (bannerKind === "bad") banner("", "");
     setPads();
   }
   function showOwner(o, client) {
     owner = o || "none"; ownerClient = client || "";
-    var txt = owner === "none" ? "FREE" : owner === "ir" ? "IR REMOTE" : (ownerClient === you ? "YOU" : ownerClient.toUpperCase() || "HUMAN");
+    var txt = owner === "none" ? "FREE" : owner === "ir" ? "IR" : (ownerClient === you ? "YOU" : ownerClient.toUpperCase() || "HUMAN");
     $("ownerChip").textContent = txt;
-    $("tOwner").textContent = txt;
     var busy = owner === "ir" || (owner === "human" && ownerClient !== you);
     $("ownerChip").className = busy ? "warn" : "";
     if (!busy && bannerKind === "warn") banner("", "");
@@ -253,7 +274,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     else if (m.kind === "ir_override") toast("IR remote took control");
     else if (m.kind === "batt_critical") toast("Battery critical " + m.v.toFixed(2) + " V");
     else if (m.kind === "body_offline" && m.reason === "BODY_INCOMPATIBLE")
-      banner("bad", "Uno protocol " + m.uno_proto + " - flash Plan B firmware (needs " + m.need_proto + ")");
+      banner("bad", "Uno protocol " + m.uno_proto + " - flash a matching body firmware (needs " + m.need_proto + ")");
   }
   function onNack(m) {
     if (m.reason === "NOT_OWNER" || m.reason === "BUSY") {
@@ -270,7 +291,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   function banner(kind, text) {
     var b = $("banner");
     bannerKind = kind;
-    b.className = "banner" + (kind ? " show " + kind : "");
+    b.className = "ov banner" + (kind ? " show " + kind : "");
     b.textContent = text;
     clearTimeout(bannerTimer);
     if (kind === "warn") bannerTimer = setTimeout(function () { banner("", ""); }, 3000);
@@ -281,6 +302,16 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     t.textContent = text; t.className = "show";
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { t.className = ""; }, 2500);
+  }
+
+  // ---------- WiFi signal (from /info every 10 s) ----------
+  function pollWifi() {
+    fetch("/info", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
+      var rssi = d.net && typeof d.net.rssi === "number" ? d.net.rssi : null;
+      var bars = rssi === null ? "-" : rssi > -55 ? "▂▄▆█" : rssi > -65 ? "▂▄▆" : rssi > -75 ? "▂▄" : "▂";
+      $("wifiChip").textContent = bars;
+      $("wifiChip").className = rssi !== null && rssi <= -75 ? "warn" : "";
+    }).catch(function () { $("wifiChip").textContent = "-"; });
   }
 
   // ---------- joysticks (pointer events: touch + mouse) ----------
@@ -358,7 +389,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     if (!camTimer) { sendCam(); camTimer = setInterval(sendCam, DRIVE_MS); }
   }, function () {
     clearInterval(camTimer); camTimer = 0;
-    send({ t: "cam_joy", x: 0, y: 0, active: false });  // the Uno glides home after its delay
+    send({ t: "cam_joy", x: 0, y: 0, active: false });  // the Uno glides home after its delay unless locked
   });
 
   function releaseAll(notify) {
@@ -379,10 +410,31 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     if (navigator.vibrate) navigator.vibrate(60);
   });
   $("camHome").addEventListener("click", function () { send({ t: "cam_home", id: nextId++ }); });
+  $("camLock").addEventListener("click", function () {
+    camLocked = !camLocked;
+    $("camLock").classList.toggle("on", camLocked);
+    send({ t: "cam_lock", on: camLocked, id: nextId++ });
+    toast(camLocked ? "Camera stays where you leave it" : "Camera returns home on release");
+  });
+  $("snap").href = "http://" + location.hostname + ":81/capture";
   $("speed").addEventListener("input", function (ev) {
     speed = Number(ev.target.value);
     $("speedTxt").textContent = speed + "%";
     try { localStorage.setItem("cq_speed", String(speed)); } catch (e) { /* private mode */ }
+  });
+  var sheets = { soundsBtn: "soundSheet", movesBtn: "movesSheet", moreBtn: "moreSheet" };
+  Object.keys(sheets).forEach(function (b) {
+    $(b).addEventListener("click", function () {
+      var open = $(sheets[b]).classList.contains("show");
+      Object.keys(sheets).forEach(function (k) { $(sheets[k]).classList.remove("show"); });
+      if (!open) $(sheets[b]).classList.add("show");
+    });
+  });
+  SOUNDS.forEach(function (name) {
+    var b = document.createElement("button");
+    b.className = "btn"; b.type = "button"; b.textContent = name.replace(/_/g, " ");
+    b.addEventListener("click", function () { send({ t: "sound", name: name, id: nextId++ }); });
+    $("soundGrid").appendChild(b);
   });
 
   // ---------- phone-tilt steering (only if the browser really delivers the sensor) ----------
@@ -437,6 +489,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 
   connect();
   startVideo();
+  drawTape(0);
+  pollWifi();
+  setInterval(pollWifi, 10000);
 })();
 </script>
 </body>

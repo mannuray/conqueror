@@ -1,6 +1,7 @@
 #include <unity.h>
 
 #include "domain/lite/gyro_zero_lite.h"
+#include "domain/lite/yaw_lite.h"
 
 using namespace cq;
 
@@ -77,6 +78,28 @@ void test_gzl_reseed_only_on_change() {
   TEST_ASSERT_EQUAL_INT16(-15, g.zero());
 }
 
+// 65.5 raw = 1 °/s; 200 samples = 1 s → 655 raw for 200 samples = 10° = 1000 cdeg.
+void test_yaw_integrates_ccw() {
+  YawLite y;
+  for (int i = 0; i < 200; ++i) y.update(655, false);
+  TEST_ASSERT_INT32_WITHIN(2, 1000, y.yawCdeg());
+  TEST_ASSERT_EQUAL_INT16(100, y.rateDdps());  // 10.0 °/s
+}
+
+void test_yaw_wraps_below_zero() {
+  YawLite y;
+  for (int i = 0; i < 200; ++i) y.update(-655, false);  // 10° clockwise from 0
+  TEST_ASSERT_INT32_WITHIN(2, 35000, y.yawCdeg());
+}
+
+void test_yaw_still_clamp_only_when_stationary() {
+  YawLite y;
+  for (int i = 0; i < 200; ++i) y.update(20, true);  // 0.3 °/s noise at rest: ignored
+  TEST_ASSERT_EQUAL_INT32(0, y.yawCdeg());
+  for (int i = 0; i < 2000; ++i) y.update(20, false);  // same rate while moving: counted (≈ 3.05°)
+  TEST_ASSERT_INT32_WITHIN(5, 305, y.yawCdeg());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_gzl_starts_from_stored);
@@ -86,6 +109,9 @@ int main() {
   RUN_TEST(test_gzl_disagreeing_windows_not_learned);
   RUN_TEST(test_gzl_rejects_out_of_range);
   RUN_TEST(test_gzl_reseed_only_on_change);
+  RUN_TEST(test_yaw_integrates_ccw);
+  RUN_TEST(test_yaw_wraps_below_zero);
+  RUN_TEST(test_yaw_still_clamp_only_when_stationary);
   // LITE-MOTION-TESTS-END
   return UNITY_END();
 }

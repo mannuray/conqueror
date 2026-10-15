@@ -39,7 +39,7 @@ cq::Task g_tasks[] = {
     {cq::app::imuTask, 5000UL, 0UL, 0},
     {cq::app::controlTask, 10000UL, 2500UL, 0},
     {linkWatchTask, 10000UL, 2500UL, 0},
-    {cq::app::telemetryFastDue, 50000UL, 0UL, 0},
+    {cq::app::telemetryFastDue, 20000UL, 0UL, 0},  // 50 Hz (spec 02 §E4)
     {cq::app::telemetrySlowDue, 1000000UL, 7500UL, 0},
     {cq::app::settingsTask, 20000UL, 7500UL, 0},
     {cq::app::irTask, 5000UL, 0UL, 0},

@@ -38,7 +38,7 @@ struct HelloInfo {
 struct TankSnapshot {
   bool fast_valid = false;
   bool slow_valid = false;
-  uint32_t fast_count = 0;  // TELEM_FAST frames seen (tf is sent for every 2nd)
+  uint32_t fast_count = 0;  // TELEM_FAST frames seen (50 Hz; tf is sent for every 5th)
   uint32_t slow_count = 0;  // TELEM_SLOW frames seen (owner is applied once per new frame)
   proto::TelemFastMsg fast{};
   proto::TelemSlowMsg slow{};

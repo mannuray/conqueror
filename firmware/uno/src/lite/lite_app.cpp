@@ -37,7 +37,7 @@ Task g_tasks[] = {
     {encodersTask, 10000UL, 5000UL, 0},
     {settingsTask, 20000UL, 7500UL, 0},
     {ultrasonicTask, 50000UL, 2500UL, 0},
-    {telemetryFastDue, 50000UL, 0UL, 0},
+    {telemetryFastDue, 20000UL, 0UL, 0},  // 50 Hz for the bridge motion service (spec 02 §E4)
     {buttonTask, 20000UL, 17500UL, 0},
     {batteryTask, 100000UL, 7500UL, 0},
     {selfTestRecoverTask, 100000UL, 7500UL, 0},

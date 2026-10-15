@@ -368,7 +368,7 @@ void telemetry(uint32_t now) {
   const core::TankSnapshot& s = g_link.snapshot();
   if (s.fast_count != g_last_fast_count) {
     g_last_fast_count = s.fast_count;
-    if ((s.fast_count & 1u) == 0) {  // Uno 20 Hz -> page 10 Hz (R2.14 #7)
+    if (s.fast_count % 5u == 0) {  // Uno 50 Hz -> page 10 Hz (R2.14 #7, spec 02 §E4)
       broadcast(core::jsonTf(g_json, sizeof(g_json), ++g_tf_seq, s));
     }
   }

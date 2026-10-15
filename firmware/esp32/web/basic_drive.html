@@ -30,8 +30,8 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .novideo { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--dim); letter-spacing: .1em; }
 .ov { position: fixed; z-index: 2; }
 .glass { background: var(--glass); border: 1px solid var(--edge-c); border-radius: 7px; box-shadow: var(--glow); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
-.chips { top: 10px; left: var(--edge); display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(50vw - 120px); }
-.chip { padding: 5px 9px; white-space: nowrap; color: var(--ui); }
+.chips { top: 10px; left: var(--edge); display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(50vw - 95px); }
+.chip { padding: 5px 8px; white-space: nowrap; color: var(--ui); }
 .chip small { color: var(--dim); margin-right: 3px; letter-spacing: .05em; }
 .chip b { font-weight: 700; }
 #ownerChip { background: var(--ui); color: #032; border-radius: 4px; padding: 1px 5px; }
@@ -334,7 +334,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   function pollWifi() {
     fetch("/info", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
       var rssi = d.net && typeof d.net.rssi === "number" ? d.net.rssi : null;
-      var bars = rssi === null ? "WiFi -" : "WiFi " + (rssi > -55 ? "▂▄▆█" : rssi > -65 ? "▂▄▆" : rssi > -75 ? "▂▄" : "▂");
+      var bars = rssi === null ? "-" : (rssi > -55 ? "▂▄▆█" : rssi > -65 ? "▂▄▆" : rssi > -75 ? "▂▄" : "▂");
       $("wifiChip").textContent = bars;
       $("wifiChip").className = rssi !== null && rssi <= -75 ? "warn" : "";
     }).catch(function () { $("wifiChip").textContent = "-"; });

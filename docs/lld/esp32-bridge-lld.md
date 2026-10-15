@@ -725,3 +725,6 @@ stateDiagram-v2
 - **WiFi chip (1A):** Lucide `wifi` (RSSI > −55 dBm), `wifi-high` (> −65), `wifi-low` (> −75, amber), `wifi-zero` (≤ −75, amber), `wifi-off` (`/info` unreachable, red); no "WIFI" text.
 - **Equal rings:** the camera ring = the drive ring (`--pad-s` = `--pad`).
 - **RC like a stick transmitter:** throttle (left, vertical) and steering (right, horizontal) have the **same travel** (steering width = throttle height = `--pad`) and the **same centre height** (steering lifted by `--pad`/2 − 32 px); camera indicator + title above the steering slider, HOME to its left — all out of the thumbs' resting path.
+
+### R3.9 Heading tape (owner, 2026-10-15, option A)
+`<canvas id="hdgTape">` + `<b id="hdgVal">` in the top-centre glass (width min(280 px, 28 vw), 44 px tall). `drawTape(head)` (called per `tf`, 10 Hz) clears and redraws: 2.8 px per degree, minor tick every 5°, medium every 15°, labels every 15° step that is a multiple of 30° (numbers) or 45° (N, NE, E, SE, S, SW, W, NW — a letter wins over a number), fixed centre caret; canvas backing size = CSS size × devicePixelRatio (set on resize). No images, no libraries.

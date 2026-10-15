@@ -47,10 +47,11 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .ok { color: var(--ui); } .warn { color: var(--warn) !important; } .bad { color: var(--danger) !important; }
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); margin-right: 6px; vertical-align: 1px; }
 .dot.on { background: var(--ui); box-shadow: 0 0 6px var(--ui); } .dot.wait { background: var(--warn); }
-.hdg { top: 10px; left: 50%; transform: translateX(-50%); padding: 5px 14px; border-radius: 16px; white-space: nowrap; color: var(--ui); display: flex; gap: 12px; align-items: baseline; }
-.hdg .side { color: var(--dim); font-size: 11px; }
-.hdg .main { color: var(--active); font-size: 15px; font-weight: 700; text-shadow: var(--glow); }
-.hdg .card { color: var(--ui); font-weight: 700; }
+/* Heading tape (R3.9): HUD scale sliding under a fixed centre caret, exact heading boxed below. */
+.hdg { top: 8px; left: 50%; transform: translateX(-50%); width: min(280px, 28vw); height: 46px; padding: 0; border-radius: 10px; overflow: hidden; }
+#hdgTape { display: block; width: 100%; height: 30px; }
+#hdgVal { position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); padding: 0 8px; border: 1px solid var(--ui); border-radius: 4px;
+  background: rgba(5, 12, 7, .9); color: var(--active); font-size: 11px; line-height: 13px; text-shadow: var(--glow); }
 #stop { top: 10px; right: var(--redge); background: var(--danger); color: #fff; border: 1px solid #ff6a60; border-radius: 7px;
   font-size: 16px; font-weight: 800; letter-spacing: .12em; padding: 10px 18px; box-shadow: 0 0 14px rgba(255, 59, 48, .55);
   display: flex; gap: 8px; align-items: center; }
@@ -163,7 +164,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     <span class="chip glass" id="wifiChip" aria-label="WiFi signal">-</span>
   <span class="chip glass"><small>CTRL:</small><b id="ownerChip">-</b></span>
 </div>
-<div class="ov hdg glass"><span id="hdgL" class="side">-</span><span id="hdgC" class="main">▼ -</span><span id="hdgCard" class="card">-</span><span id="hdgR" class="side">-</span></div>
+<div class="ov hdg glass"><canvas id="hdgTape"></canvas><b id="hdgVal">-</b></div>
 <button id="stop" class="ov" type="button"><svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>STOP</button>
 <div class="ov rchips"><button id="audioChip" class="chip glass" type="button" aria-label="mute or unmute the tank"><svg viewBox="0 0 24 24" id="audioOn"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/></svg><svg viewBox="0 0 24 24" id="audioOff" class="hidden"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></svg><b id="audioTxt"></b></button><button id="ctlChip" class="chip glass" type="button" aria-label="switch drive controls"><svg viewBox="0 0 24 24" id="icStick"><path d="M21 17a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2Z"/><path d="M6 15v-2"/><path d="M12 15V9"/><circle cx="12" cy="6" r="3"/></svg><svg viewBox="0 0 24 24" id="icRc" class="hidden"><line x1="6" x2="10" y1="11" y2="11"/><line x1="8" x2="8" y1="9" y2="13"/><line x1="15" x2="15.01" y1="12" y2="12"/><line x1="18" x2="18.01" y1="10" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/></svg><b id="ctlTxt">STICK</b></button></div>
 <div class="ov dist"><b id="distTxt" class="gval">-</b><div class="distbar"><div id="distMask"></div></div></div>
@@ -344,12 +345,32 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   }
   var CARD = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
   function norm(a) { return ((Math.round(a) % 360) + 360) % 360; }
-  function drawTape(head) {  // heading pill as the Cockpit: 170°  ▼184°  S  200°
-    $("hdgL").textContent = norm(head - 15) + "°";
-    $("hdgC").textContent = "▼" + norm(head) + "°";
-    $("hdgCard").textContent = CARD[Math.round(norm(head) / 45) % 8];
-    $("hdgR").textContent = norm(head + 15) + "°";
+  // Heading tape (R3.9): 2.8 px per degree, ticks every 5° (longer every 15°), numbers every 30°, letters every 45°.
+  var TAPE_PX = 2.8;
+  function drawTape(head) {
+    var c = $("hdgTape"), dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+    if (!w) return;
+    if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+    var g = c.getContext("2d"), mid = w / 2, hd = norm(head);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    g.font = "bold 10px " + getComputedStyle(document.body).fontFamily;
+    g.textAlign = "center";
+    var span = Math.ceil(mid / TAPE_PX / 5) * 5 + 5;
+    for (var d = Math.floor((head - span) / 5) * 5; d <= head + span; d += 5) {
+      var x = mid + (d - head) * TAPE_PX, a = ((d % 360) + 360) % 360;
+      var major = a % 15 === 0;
+      g.strokeStyle = major ? "rgba(51,255,102,.85)" : "rgba(51,255,102,.4)";
+      g.lineWidth = 1;
+      g.beginPath(); g.moveTo(x, h); g.lineTo(x, h - (major ? 9 : 5)); g.stroke();
+      if (a % 45 === 0) { g.fillStyle = "#e8ffe8"; g.fillText(CARD[a / 45], x, 11); }
+      else if (a % 30 === 0) { g.fillStyle = "rgba(51,255,102,.8)"; g.fillText(String(a), x, 11); }
+    }
+    g.fillStyle = "#e8ffe8";  // fixed centre caret
+    g.beginPath(); g.moveTo(mid - 5, h); g.lineTo(mid + 5, h); g.lineTo(mid, h - 7); g.closePath(); g.fill();
+    $("hdgVal").textContent = hd + "°";
   }
+
   function showFast(m) {
     drawTape(m.yaw);
     var rate = turnRate(rateEma, m.yaw_rate);

@@ -187,14 +187,66 @@ void test_mix_steering_scaled_gyro_not() {
   Tracks t = mixLite(80, 0, 10, 40);  // gyro 10 % at 80 %: full 10
   TEST_ASSERT_EQUAL_INT16(70, t.l);
   TEST_ASSERT_EQUAL_INT16(90, t.r);
-  t = mixLite(80, 10, 0, 40);         // driver 10 % at 80 %: authority 52 % → 5
-  TEST_ASSERT_EQUAL_INT16(75, t.l);
-  TEST_ASSERT_EQUAL_INT16(85, t.r);
+  t = mixLite(80, 10, 0, 40);  // driver 10 % at 80 %: angle mix (spec 02 §A4.1), turn_full no longer scales it
+  TEST_ASSERT_EQUAL_INT16(71, t.l);
+  TEST_ASSERT_EQUAL_INT16(83, t.r);
 }
 
-void test_mix_turning_priority() {
-  const Tracks t = mixLite(100, 50, 0, 40);  // w = 20 → v reduced to 80, difference 40 kept
-  TEST_ASSERT_EQUAL_INT16(60, t.l);
+void test_mix_turning_priority() {  // §A4.1: a steering push keeps both tracks forward, outer at the stick magnitude
+  const Tracks t = mixLite(100, 50, 0, 40);
+  TEST_ASSERT_EQUAL_INT16(57, t.l);
+  TEST_ASSERT_EQUAL_INT16(100, t.r);
+}
+
+// Spec 02 §A4.1 (owner 2026-10-15): stick steering by angle.
+void test_angle_mix_45_is_forward_arc() {
+  Tracks t = mixLite(71, 71, 0, 100);  // up-left 45°: forward arc, inner (left) slower, never backwards
+  TEST_ASSERT_EQUAL_INT16(35, t.l);
+  TEST_ASSERT_EQUAL_INT16(97, t.r);
+  t = mixLite(71, -71, 0, 100);        // up-right
+  TEST_ASSERT_EQUAL_INT16(97, t.l);
+  TEST_ASSERT_EQUAL_INT16(35, t.r);
+  t = mixLite(35, 35, 0, 100);         // half push: same shape, slower
+  TEST_ASSERT_EQUAL_INT16(17, t.l);
+  TEST_ASSERT_EQUAL_INT16(48, t.r);
+}
+
+void test_angle_mix_spin_only_near_sideways() {
+  Tracks t = mixLite(26, 97, 0, 100);  // 75°: inner track stopped (pivot)
+  TEST_ASSERT_EQUAL_INT16(0, t.l);
+  TEST_ASSERT_EQUAL_INT16(100, t.r);
+  t = mixLite(17, 98, 0, 100);         // 80°: spin starting
+  TEST_ASSERT_EQUAL_INT16(-29, t.l);
+  TEST_ASSERT_EQUAL_INT16(100, t.r);
+  t = mixLite(0, 100, 0, 100);         // 90°: spin on the spot
+  TEST_ASSERT_EQUAL_INT16(-100, t.l);
+  TEST_ASSERT_EQUAL_INT16(100, t.r);
+}
+
+void test_angle_mix_reverse_both_tracks_back() {
+  const Tracks t = mixLite(-71, 71, 0, 100);  // reversing 45°: both tracks backwards (old mix: one forward)
+  TEST_ASSERT_EQUAL_INT16(-97, t.l);
+  TEST_ASSERT_EQUAL_INT16(-35, t.r);
+}
+
+void test_ir_axes_unchanged() {  // IR sends pure axes: identical tracks to the old mix
+  Tracks t = mixLite(80, 0, 0, 40);
+  TEST_ASSERT_EQUAL_INT16(80, t.l);
+  TEST_ASSERT_EQUAL_INT16(80, t.r);
+  t = mixLite(-80, 0, 0, 40);
+  TEST_ASSERT_EQUAL_INT16(-80, t.l);
+  TEST_ASSERT_EQUAL_INT16(-80, t.r);
+  t = mixLite(0, 80, 0, 40);
+  TEST_ASSERT_EQUAL_INT16(-80, t.l);
+  TEST_ASSERT_EQUAL_INT16(80, t.r);
+  t = mixLite(0, -80, 0, 40);
+  TEST_ASSERT_EQUAL_INT16(80, t.l);
+  TEST_ASSERT_EQUAL_INT16(-80, t.r);
+}
+
+void test_straight_with_correction_unchanged() {  // w_steer 0: the old arcade mix incl. turning priority
+  const Tracks t = mixLite(100, 0, 30, 40);
+  TEST_ASSERT_EQUAL_INT16(40, t.l);
   TEST_ASSERT_EQUAL_INT16(100, t.r);
 }
 
@@ -265,6 +317,11 @@ int main() {
   RUN_TEST(test_heading_stop_resets);
   RUN_TEST(test_mix_steering_scaled_gyro_not);
   RUN_TEST(test_mix_turning_priority);
+  RUN_TEST(test_angle_mix_45_is_forward_arc);
+  RUN_TEST(test_angle_mix_spin_only_near_sideways);
+  RUN_TEST(test_angle_mix_reverse_both_tracks_back);
+  RUN_TEST(test_ir_axes_unchanged);
+  RUN_TEST(test_straight_with_correction_unchanged);
   RUN_TEST(test_cap_keeps_ratio);
   RUN_TEST(test_cap_obstacle_slows_forward_only);
   RUN_TEST(test_ramp_accel_and_faster_decel);

@@ -4,7 +4,7 @@
 namespace cq {
 
 struct MixerConfig {
-  uint8_t turn_full_speed_pct;  // turning authority left at full speed (profile setting)
+  uint8_t turn_full_speed_pct;  // profile setting; no longer scales the stick (spec 02 §A4.1), kept for compatibility
   bool pivot_fallback;          // setting pivot_fallback: inner track below keep_pct → 0
   float keep_pct;               // track speed % at the deadband keep PWM (≈ keep_pwm × 100 / 255)
 };
@@ -20,7 +20,7 @@ inline float carSteer(float v_pct, float w_pct, bool car_reverse) {
 }
 
 // w is a physical turn (CCW +) in every direction; mix() never flips it. Two turn inputs:
-// w_steer_pct = the driver's open-loop steering, reduced at speed by the turn authority;
+// w_steer_pct = the driver's open-loop steering → angle mix (spec 02 §A4.1, owner 2026-10-15);
 // w_ctrl_pct  = a closed-loop output (gyro heading hold, rate loop, primitive) - never reduced, the
 // controller already sets its size (design-notes §41: scaling halved the heading hold at 80 %).
 void mix(float v_pct, float w_steer_pct, float w_ctrl_pct, const MixerConfig& cfg, float& l_pct, float& r_pct);

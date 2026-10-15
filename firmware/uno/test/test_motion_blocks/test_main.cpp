@@ -70,9 +70,9 @@ void test_mixer_turn_authority() {
   mix(0.0f, 50.0f, 0.0f, cfg, l, r);  // spin CCW
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, -50.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 50.0f, r);
-  mix(100.0f, 50.0f, 0.0f, cfg, l, r);  // full speed: turn reduced to 40 % of 50 = 20; turning priority → v 80
+  mix(100.0f, 50.0f, 0.0f, cfg, l, r);  // spec 02 §A4.1: angle mix, authority no longer scales the stick
   TEST_ASSERT_FLOAT_WITHIN(0.1f, 100.0f, r);
-  TEST_ASSERT_FLOAT_WITHIN(0.1f, 60.0f, l);  // difference 40 kept (LLD §3.4)
+  TEST_ASSERT_FLOAT_WITHIN(0.1f, 57.75f, l);
 }
 
 // design-notes §41 (2026-10-14): the turn authority (less steering at speed) applies to the DRIVER's
@@ -83,9 +83,9 @@ void test_mixer_gyro_correction_not_scaled_by_authority() {
   mix(80.0f, 0.0f, 10.0f, cfg, l, r);  // gyro correction 10 % at 80 % speed: full 10
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 70.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 90.0f, r);
-  mix(80.0f, 10.0f, 0.0f, cfg, l, r);  // driver steering 10 % at 80 % speed: authority 52 % → 5.2
-  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 74.8f, l);
-  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 85.2f, r);
+  mix(80.0f, 10.0f, 0.0f, cfg, l, r);  // driver steering 10 % at 80 %: angle mix (§A4.1)
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 71.96f, l);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 83.75f, r);
 }
 
 // design-notes §39: w into the mixer is a physical turn (CCW +) - also in reverse. A gyro heading
@@ -107,18 +107,44 @@ void test_car_steer_flips_only_driver_input_in_reverse() {
 void test_mixer_pivot_fallback() {
   const MixerConfig pivot{100, true, 20.0f};  // full turn authority, keep threshold 20 %
   float l = 0, r = 0;
-  mix(100.0f, 30.0f, 0.0f, pivot, l, r);  // turning priority: v 100 → 70, difference 60 kept
-  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 40.0f, l);
+  mix(100.0f, 30.0f, 0.0f, pivot, l, r);  // angle mix (§A4.1): inner 70.75 above keep, unchanged
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 70.75f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 100.0f, r);
-  mix(30.0f, 25.0f, 0.0f, pivot, l, r);  // inner 5 % < keep 20 % → 0: pivot on the left track
+  mix(30.0f, 25.0f, 0.0f, pivot, l, r);  // inner 16.7 % < keep 20 % → 0: pivot on the left track
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, l);
-  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 55.0f, r);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 39.375f, r);
   mix(0.0f, 10.0f, 0.0f, pivot, l, r);  // spin in place has no inner track
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, -10.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 10.0f, r);
   const MixerConfig off{100, false, 20.0f};
   mix(30.0f, 25.0f, 0.0f, off, l, r);
-  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 5.0f, l);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 16.69f, l);
+}
+
+// Spec 02 §A4.1 (owner 2026-10-15): stick steering by angle; pure axes and corrections keep the old mix.
+void test_mixer_angle_45_forward_arc_and_reverse() {
+  const MixerConfig cfg{40, false, 0.0f};
+  float l = 0, r = 0;
+  mix(70.71f, 70.71f, 0.0f, cfg, l, r);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 35.61f, l);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 97.23f, r);
+  mix(-70.71f, 70.71f, 0.0f, cfg, l, r);  // reversing: both tracks backwards
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, -97.23f, l);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, -35.61f, r);
+}
+
+void test_mixer_ir_axes_and_correction_unchanged() {
+  const MixerConfig cfg{40, true, 20.0f};
+  float l = 0, r = 0;
+  mix(80.0f, 0.0f, 0.0f, cfg, l, r);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 80.0f, l);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 80.0f, r);
+  mix(0.0f, -80.0f, 0.0f, cfg, l, r);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 80.0f, l);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, -80.0f, r);
+  mix(100.0f, 0.0f, 30.0f, cfg, l, r);  // gyro / primitive output: arcade mix with turning priority
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 40.0f, l);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 100.0f, r);
 }
 
 void test_envelope_caps_targets() {
@@ -188,6 +214,8 @@ int main() {
   RUN_TEST(test_mixer_never_flips_w_in_reverse);
   RUN_TEST(test_car_steer_flips_only_driver_input_in_reverse);
   RUN_TEST(test_mixer_pivot_fallback);
+  RUN_TEST(test_mixer_angle_45_forward_arc_and_reverse);
+  RUN_TEST(test_mixer_ir_axes_and_correction_unchanged);
   RUN_TEST(test_envelope_caps_targets);
   RUN_TEST(test_obstacle_slow_zone_scales_forward_only);
   RUN_TEST(test_degraded_caps);

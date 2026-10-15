@@ -27,6 +27,14 @@
 
 ---
 
+### Task 0: Bring the protocol CapBit change into the bridge branch
+
+`proto::CapBit` (HELLO capability bits) was added on branch `uno-lite`; `plan-c-exec` does not have it. Owner approved the merge (2026-10-15).
+
+- [ ] **Step 1:** `git merge uno-lite` into `plan-c-exec` (both are feature branches; `main` is not touched). Resolve conflicts (expected only in `docs/design-notes.md`: keep both sides).
+- [ ] **Step 2:** `cd protocol && uv run protogen check` (generated files consistent), `cd firmware/esp32 && pio test -e native && pio run -e bridge`, `cd firmware/uno && pio test -e native`.
+- [ ] **Step 3:** commit the merge.
+
 ### Task 1: Core — `sound` / `cam_lock` commands, caps and yaw_rate JSON (host-tested)
 
 **Files:** Modify `firmware/esp32/src/core/ws_codec.h/.cpp`, `firmware/esp32/src/core/ws_json.cpp`; Test: `firmware/esp32/test/test_ws_codec/test_main.cpp`, `firmware/esp32/test/test_ws_json/test_main.cpp`.
@@ -107,7 +115,7 @@ void test_tf_yaw_rate() {
 
 **Files:** Modify `firmware/esp32/web/basic_drive.html`; `scripts/pack_web.py` regenerates the gzipped asset.
 
-- [ ] **Step 1: Layout and widgets** as hub-ux.md Screen 7b: chip row (latency from ping RTT, battery %, WiFi bars from `/info` every 10 s, CTRL owner), heading tape (canvas or CSS strip, ±30°), STOP top-right, distance bar right edge (0–2 m, green/amber < 50 cm/red < 15 cm), drive joystick + TILT STEER, camera joystick + LOCK (`cam_lock` toggle) + HOME, pills SNAP (`<a download href=":81/capture">`), SOUNDS (sheet listing the 23 names → `sound`), MOVES (hidden unless `caps.turn || caps.move`; placeholder sheet, real moves come with the full firmware/hub), ⋯ sheet with the speed slider; vitals line (speed % from `spd_cmd`, heading, `yaw_rate`, `batt_v`); portrait → rotate hint.
+- [ ] **Step 1: Layout and widgets** as hub-ux.md Screen 7b: chip row (latency from ping RTT, battery %, WiFi bars from `/info` every 10 s, CTRL owner), heading tape (canvas or CSS strip, ±30°), STOP top-right, distance bar right edge (0–2 m, green/amber < 50 cm/red < 15 cm), drive joystick + TILT STEER, camera joystick + LOCK (`cam_lock` toggle) + HOME, **S1 hint**: when `ts.flags` has `link_lost` (the Uno hears nothing) while telemetry keeps arriving, show the banner "Uno can't hear the ESP32 — check switch S1" instead of only "command timeout" (owner, 2026-10-15: S1 left in the upload position caused exactly this); pills SNAP (`<a download href=":81/capture">`), SOUNDS (sheet listing the 23 names → `sound`), MOVES (hidden unless `caps.turn || caps.move`; placeholder sheet, real moves come with the full firmware/hub), ⋯ sheet with the speed slider; vitals line (speed % from `spd_cmd`, heading, `yaw_rate`, `batt_v`); portrait → rotate hint.
 - [ ] **Step 2: Size check:** `python3 scripts/pack_web.py` → page ≤ 25 KB gzipped.
 - [ ] **Step 3: Desktop check** in a browser against the live bridge (layout at 844×390 phone landscape and 390×844 portrait; STOP never covered).
 - [ ] **Step 4: Commit** `feat(esp32): Cockpit-lite phone page (hub-ux Screen 7b)`.
@@ -115,5 +123,5 @@ void test_tf_yaw_rate() {
 ### Task 5: OTA and owner check on the tank
 
 - [ ] **Step 1:** `scripts/ota.sh` (password from `secrets.h`, never printed); `/info` shows the new build, `matches_fw` true.
-- [ ] **Step 2 (owner, tank on the stand):** chips update; heading tape follows turning; distance bar follows a hand; SNAP downloads a photo; SOUNDS plays a melody; LOCK keeps the camera after release; MOVES hidden on the Uno Lite; STOP works; drive/deadman as before.
+- [ ] **Step 2 (owner, tank on the stand):** with S1 in the upload position the page shows the S1 hint; back in the ESP32 position it clears; chips update; heading tape follows turning; distance bar follows a hand; SNAP downloads a photo; SOUNDS plays a melody; LOCK keeps the camera after release; MOVES hidden on the Uno Lite; STOP works; drive/deadman as before.
 - [ ] **Step 3:** record results in design-notes; final review of the branch range.

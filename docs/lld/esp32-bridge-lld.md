@@ -684,3 +684,23 @@ classDiagram
   class RangeView { Median5 · fast-closer / slow-farther }
   RangeView ..> Median5
 ```
+
+### R3.4 RC two-hand controls (owner, 2026-10-15; hub-ux "Drive controls — RC two-hand mode")
+Page only; the bridge and the Uno are unchanged (the page converts to `drive {v, w}` and `cam_joy`).
+- `Stick(el, onMove, onRelease, axis)`: axis `"xy"` (pads), `"y"` (throttle slider), `"x"` (steering slider).
+- **RC → drive:** T = shape(throttle), S = shape(steer), θs = |S|·75°, T0 = 0.15. If S = 0: v = T, w = 0. Else blend b = max(0, 1 − |T|/T0): θ = θs + (90° − θs)·b, M = |T| + (|S| − |T|)·b; v = sign(T)·M·cos θ, w = −sign(S)·M·sin θ; × MAX. The Uno's angle mix (spec 02 §A4.1) turns that "virtual stick" into the tracks, so full steering = the 75° pivot at any speed and zero throttle = spin.
+- **Drag camera:** virtual camera stick (x, y) seeded from the last `tf.pan/tilt` (Lite mapping 0.9°/unit: x = (90 − pan)/0.9, y = (90 − tilt)/0.9); drag adds dx/width·200 to x and −dy/width·200 to y (game style, full width = 180°), clamped ±100, sent as `cam_joy active` at 20 Hz; release sends `active:false` (LOCK keeps it). Double-tap (2 taps < 300 ms, < 10 px) → `cam_home`. Entering RC mode (and every `welcome` while in it) sends `cam_lock on`; leaving sends `cam_lock off`.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Single: default / stored choice
+  Single --> RC: speed sheet "RC two-hand" (cam_lock on)
+  RC --> Single: speed sheet "Single stick" (cam_lock off)
+  state RC {
+    [*] --> Idle
+    Idle --> Driving: throttle or steering held (drive every 50 ms)
+    Driving --> Idle: both released (stop)
+    Idle --> Looking: drag starts on the video (cam_joy 20 Hz)
+    Looking --> Idle: lift (camera stays, LOCK)
+  }
+```

@@ -35,7 +35,7 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .chip small { color: var(--dim); margin-right: 3px; letter-spacing: .05em; }
 .chip b { font-weight: 700; }
 #ownerChip { background: var(--ui); color: #032; border-radius: 4px; padding: 1px 5px; }
-#ownerChip.warn { background: var(--warn); color: #221500; }
+#ownerChip.warn { background: var(--warn); color: #221500 !important; }  /* beats the global .warn text colour */
 #audioChip { cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
 #audioChip.muted { color: var(--warn); border-color: var(--warn); box-shadow: none; }
 .ok { color: var(--ui); } .warn { color: var(--warn) !important; } .bad { color: var(--danger) !important; }
@@ -84,6 +84,10 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .pad.held .ghost { opacity: .35; }
 .pad.ind .knob { display: none; }
 .pad.ind .ghost { width: 16%; height: 16%; margin: -8% 0 0 -8%; background: #d9ffe3; box-shadow: 0 0 14px #33ff66, 0 0 4px #fff; }
+/* Titles float above the rings: their length (owner name, angles) never moves the layout. */
+.stick { position: relative; padding-top: 16px; }
+.stick .ttl { position: absolute; top: 0; left: 0; white-space: nowrap; }
+.right .stick .ttl { left: auto; right: 0; }
 .stick .ttl i { font-style: normal; color: var(--active); margin-left: 4px; }
 .lbl { position: absolute; font-size: 7px; color: var(--dim); letter-spacing: .05em; }
 .lbl.n { top: 5%; left: 50%; transform: translateX(-50%); } .lbl.s { bottom: 5%; left: 50%; transform: translateX(-50%); }
@@ -117,6 +121,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 #rotate { position: fixed; inset: 0; z-index: 9; display: none; align-items: center; justify-content: center; text-align: center; padding: 24px;
   background: var(--bg); color: var(--ui); text-shadow: var(--glow); letter-spacing: .1em; }
 @media (orientation: portrait) { #rotate { display: flex; } }
+@media (max-width: 800px) { .pill .lab { display: none; } }  /* narrow phones: icon-only pills, MAX keeps its value */
 @media (max-height: 380px) { .pad { width: min(36vh, 19vw, 150px); } .pad.small { width: min(31vh, 16vw, 125px); } .chip { padding: 4px 7px; } }
 </style>
 </head>
@@ -154,9 +159,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 
 <div class="ov mid">
   <div class="pills">
-    <a id="snap" class="btn glass pill" download><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>SNAP</a>
-    <button id="soundsBtn" class="btn glass pill hidden" type="button"><svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9a4 4 0 0 1 0 6M19.5 6.5a7.5 7.5 0 0 1 0 11"/></svg>SOUNDS</button>
-    <button id="movesBtn" class="btn glass pill hidden" type="button"><svg viewBox="0 0 24 24"><circle cx="14" cy="4" r="2"/><path d="M8 21l3-6 3 2v5M10 9l4-2 3 4 3 1M10 9l-2 5H4"/></svg>MOVES</button>
+    <a id="snap" class="btn glass pill" download><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg><span class="lab">SNAP</span></a>
+    <button id="soundsBtn" class="btn glass pill hidden" type="button"><svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9a4 4 0 0 1 0 6M19.5 6.5a7.5 7.5 0 0 1 0 11"/></svg><span class="lab">SOUNDS</span></button>
+    <button id="movesBtn" class="btn glass pill hidden" type="button"><svg viewBox="0 0 24 24"><circle cx="14" cy="4" r="2"/><path d="M8 21l3-6 3 2v5M10 9l4-2 3 4 3 1M10 9l-2 5H4"/></svg><span class="lab">MOVES</span></button>
     <button id="moreBtn" class="btn glass pill" type="button"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>MAX <b id="maxTxt">60%</b></button>
   </div>
   <div id="vitals" class="vitals glass">-</div>

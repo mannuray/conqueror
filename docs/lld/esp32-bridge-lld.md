@@ -906,3 +906,12 @@ Hardware: 10 × 90° (left and right) on the floor, owner measures; a drive_rate
 
 ### R4.9 No MOVES button (owner, 2026-10-15)
 Measured moves are for the AI engine, Tank Logo and the hub; a human steers with the stick. The phone page therefore keeps **MOVES hidden** even when `caps.turn` is true (the button and placeholder sheet are removed from the page). TURN / DRIVE_RATE are tested by script (WebSocket client + tape measure), as the floor tests of 2026-10-15.
+
+### R4.10 Implementation notes (Plan H Tasks 1–6, 2026-10-15)
+- **Sign:** `turn by` + = CCW / left (the Uno's yaw); Tank Logo `RIGHT a` maps to `by −a`. `to` = shortest way; exactly opposite → +180°.
+- **Done window with hysteresis:** enter at |e| ≤ 1.5° (and |rate| < 5 °/s), leave only beyond 2.5° — no hunting around the target at `w_min`.
+- **Multi-turn:** the controller integrates the wrapped yaw steps, so `by 360` / `by −720` turn the full amount.
+- **Wire format:** `primitive_done` carries the primitive in `"prim"` (`"turn"` / `"rate"`) because `"kind"` is the event kind: `{"t":"ev",…,"kind":"primitive_done","prim":"turn","ok":true,"reason":"done","id":5}`; reasons `done, cancelled, stop, not_owner, stalled, timeout, link, deadman`. `tf.primitive = {"kind":"turn","pct":n}` while active.
+- **Routing for now:** Forward (a body that reports TURN / DRIVE_RATE) and Unavailable both answer `UNAVAILABLE` (code 3003); the frame path is left for when a full-firmware body exists. `move` stays an unsupported command until the encoder plan.
+- **Ends without extra frames** when a STOP is already on its way (STOP fast path, owner socket close, OTA, body offline), when the owner's own `drive` follows, and on `not_owner` (a bridge STOP would also stop the IR driver).
+- **Simulation result** (tank model: 2.2 °/s per %, 8 % static friction, 150 ms lag, 80 ms round trip, ±3 °/s noise): 21 runs (±90°, across 0° both ways, 360°, 10°, 180°; 3 seeds) all within 0.8°, 90° in ≈ 2 s. Floor acceptance is Task 7.

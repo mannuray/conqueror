@@ -1,9 +1,12 @@
 // Plan H (bridge LLD R4): motion router, turn target, turn controller, rate loop, motion service.
+#include <math.h>
 #include <unity.h>
 
 #include "core/motion_config.h"
 #include "core/motion_router.h"
+#include "core/motion_service.h"
 #include "core/rate_loop.h"
+#include "support/tank_model.h"
 #include "core/turn_controller.h"
 #include "cq_protocol.h"
 
@@ -157,6 +160,137 @@ void test_rate_sign_change_resets_integral() {
   TEST_ASSERT_INT_WITHIN(1, -27, w);
 }
 
+// ---------- motion service: closed loop against the tank model ----------
+namespace {
+struct TurnRun {
+  PrimitiveEnd end{};
+  bool ended = false;
+  double error_deg = 0;    // turned - requested, after 1 s of settling
+  int8_t last_w = 99;      // the final command the service sent
+  uint32_t ms = 0;
+};
+
+TurnRun runTurn(double start_yaw, bool has_to, int32_t by_cdeg, uint16_t to_cdeg, uint8_t speed = 40) {
+  cqtest::TankModel tank(start_yaw);
+  MotionService svc;
+  const uint16_t yaw0 = tank.reportedYawCdeg();
+  const int32_t delta = turnDelta(yaw0, has_to, by_cdeg, to_cdeg);
+  svc.startTurn(7, yaw0, delta, speed, 42, 0);
+  TurnRun r;
+  int8_t w = 0;
+  for (uint32_t t = 20; t <= 30000 && !r.ended; t += 20) {
+    tank.step(w);
+    const MotionOut o = svc.onTelemetry(tank.reportedYawCdeg(), tank.reportedRateDdps(), t);
+    if (o.send) {
+      w = o.w;
+      r.last_w = o.w;
+    }
+    if (o.ended) {
+      r.ended = true;
+      r.end = o.end;
+      r.ms = t;
+    }
+  }
+  for (int i = 0; i < 50; ++i) tank.step(0);  // 1 s with w = 0 (the Uno's heading hold takes over)
+  r.error_deg = tank.turnedDeg() - delta / 100.0;
+  return r;
+}
+}  // namespace
+
+void test_service_turn_closed_loop() {
+  const struct { double start; bool to; int32_t by; uint16_t to_c; } cases[] = {
+      {0, false, 9000, 0}, {0, false, -9000, 0}, {350, true, 0, 1000}, {10, true, 0, 35000}, {123, false, 36000, 0}};
+  for (const auto& c : cases) {
+    const TurnRun r = runTurn(c.start, c.to, c.by, c.to_c);
+    TEST_ASSERT_TRUE(r.ended);
+    TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDone), static_cast<int>(r.end.reason));
+    TEST_ASSERT_TRUE(r.end.ok);
+    TEST_ASSERT_EQUAL_INT32(42, r.end.id);
+    TEST_ASSERT_EQUAL_INT8(0, r.last_w);
+    TEST_ASSERT_TRUE_MESSAGE(fabs(r.error_deg) <= 2.0, "turn error above 2 degrees");
+  }
+}
+
+void test_turn_every_end_sends_zero_then_stop() {
+  const EndReason reasons[] = {EndReason::kCancelled, EndReason::kStop, EndReason::kNotOwner};
+  for (EndReason why : reasons) {
+    MotionService svc;
+    svc.startTurn(3, 0, 9000, 40, 1, 0);
+    svc.onTelemetry(0, 0, 20);
+    const MotionOut o = svc.cancel(why);
+    TEST_ASSERT_TRUE(o.ended);
+    TEST_ASSERT_TRUE(o.send);
+    TEST_ASSERT_EQUAL_INT8(0, o.w);
+    TEST_ASSERT_EQUAL_INT8(0, o.v);
+    TEST_ASSERT_FALSE(o.end.ok);
+    TEST_ASSERT_EQUAL(static_cast<int>(why), static_cast<int>(o.end.reason));
+    TEST_ASSERT_FALSE(svc.active());
+    TEST_ASSERT_FALSE(svc.cancel(why).ended);  // nothing left to end
+  }
+}
+
+void test_service_owner_loss_ends() {
+  MotionService svc;
+  svc.driveRate(5, 30, 300, 0);
+  TEST_ASSERT_EQUAL_INT(5, svc.ownerFd());
+  const MotionOut o = svc.cancel(EndReason::kNotOwner);
+  TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kRate), static_cast<int>(o.end.kind));
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kNotOwner), static_cast<int>(o.end.reason));
+}
+
+void test_service_telemetry_gap_ends_link() {
+  MotionService svc;
+  svc.startTurn(3, 0, 9000, 40, 1, 0);
+  svc.onTelemetry(0, 0, 20);
+  TEST_ASSERT_FALSE(svc.tick(200).ended);  // 180 ms since the last frame
+  const MotionOut o = svc.tick(221);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kLink), static_cast<int>(o.end.reason));
+  TEST_ASSERT_EQUAL_INT8(0, o.w);
+}
+
+void test_service_stuck_tank_ends_stalled() {
+  MotionService svc;
+  svc.startTurn(3, 0, 9000, 40, 1, 0);
+  MotionOut o;
+  uint32_t t = 0;
+  while (!o.ended && t < 10000) o = svc.onTelemetry(0, 0, t += 20);  // never moves
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kStalled), static_cast<int>(o.end.reason));
+  TEST_ASSERT_EQUAL_INT8(0, o.w);
+}
+
+void test_rate_deadman() {
+  MotionService svc;
+  svc.driveRate(5, 20, 450, 0);
+  TEST_ASSERT_TRUE(svc.onTelemetry(0, 0, 20).send);
+  TEST_ASSERT_FALSE(svc.onTelemetry(0, 0, 300).ended);  // 300 ms since the last drive_rate: still ok
+  const MotionOut o = svc.onTelemetry(0, 0, 320);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDeadman), static_cast<int>(o.end.reason));
+  TEST_ASSERT_EQUAL_INT8(0, o.w);
+  TEST_ASSERT_EQUAL_INT8(0, o.v);
+}
+
+void test_rate_converges_in_model() {
+  cqtest::TankModel tank(0);
+  MotionService svc;
+  int8_t w = 0;
+  double sum = 0;
+  int n = 0;
+  for (uint32_t t = 20; t <= 3000; t += 20) {
+    if (t % 100 == 20) svc.driveRate(5, 0, 600, t);  // the phone streams 60 °/s at 10 Hz
+    tank.step(w);
+    const MotionOut o = svc.onTelemetry(tank.reportedYawCdeg(), tank.reportedRateDdps(), t);
+    if (o.send) w = o.w;
+    if (t >= 1000) {
+      sum += tank.rateDps();
+      ++n;
+    }
+  }
+  TEST_ASSERT_TRUE_MESSAGE(fabs(sum / n - 60.0) <= 6.0, "drive_rate mean not within 10 % of 60 deg/s after 1 s");
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_router_lite_runs_turn_and_rate_locally);
@@ -173,5 +307,12 @@ int main() {
   RUN_TEST(test_rate_integral_grows_on_shortfall);
   RUN_TEST(test_rate_anti_windup_and_clamp);
   RUN_TEST(test_rate_sign_change_resets_integral);
+  RUN_TEST(test_service_turn_closed_loop);
+  RUN_TEST(test_turn_every_end_sends_zero_then_stop);
+  RUN_TEST(test_service_owner_loss_ends);
+  RUN_TEST(test_service_telemetry_gap_ends_link);
+  RUN_TEST(test_service_stuck_tank_ends_stalled);
+  RUN_TEST(test_rate_deadman);
+  RUN_TEST(test_rate_converges_in_model);
   return UNITY_END();
 }

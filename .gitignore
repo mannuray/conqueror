@@ -27,3 +27,6 @@ firmware/esp32/include/secrets.h
 
 # Browser-test screenshots, logs and downloaded photos (local only)
 .playwright-mcp/
+
+# Plan execution ledgers and briefs (local working notes)
+.superpowers/

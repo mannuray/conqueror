@@ -1,6 +1,19 @@
 # Implementation Roadmap
 
-Status: IN DISCUSSION · Date: 2026-10-11
+Status: phases 0–3 largely DONE (see "Where we are"), 2026-10-15 · first written 2026-10-11
+
+## Where we are (2026-10-15)
+| Item | State |
+|---|---|
+| Plan A protocol generator | done |
+| Plan B Uno firmware (full) | done; kept building for the Mega (tag `full-firmware-2026-10-14`) |
+| Plan C ESP32 bridge | done; hardware checks passed (design-notes §51) |
+| Plan D bench tool | not started |
+| Plan E Uno Lite (ELEGOO Uno is the body board, §43) | done; straight line 0–2 cm / 3 m (§52) |
+| Plan F Cockpit-lite phone page on the bridge (WebSocket `/ws`, video and `/capture` / `/source.tar.gz` on port 81) | done |
+| Plan G stick steering by angle | done; floor tuning parked until encoders |
+| Next | ESP32 motion service — TURN / DRIVE_RATE on the bridge for the Uno Lite (spec 02 Part E); encoders wired via P7 + breadboard (§53); Uno R4 Minima discussed, not decided (§54) |
+The phase table below is the original plan (2026-10-11); the bridge grew beyond the TCP passthrough into the phone page (Plan F), and the "Cockpit lite" of phase 5 means the React hub app.
 
 Principle: start minimal, get the tank driving straight lines and circles with real measurements first; build the complex parts (hub backend, missions, AI) later on top, without throwaway work.
 
@@ -49,7 +62,7 @@ Standard tests (initial pass criteria):
 
 ## Body board (DECIDED 2026-10-11)
 - **Now: Arduino Uno** (as designed). Firmware stays board-agnostic (ports/drivers + `BOARD_*` build option; domain code untouched by board changes).
-- **Later: Arduino Mega 2560** (owned). Port notes: I2C on pins 20/21 → 2 jumpers to A4/A5 (shield wires the MPU6050 to A4/A5 only); encoders direct to A8–A11 (PCINT2, full quadrature); IR on D9 via timer sampling (no PCINT on D9); optional 2-wire move of the ESP32 link to Serial1 (USB + ESP32 simultaneously, no S1 switching); check physical fit (Mega is ~33 mm longer).
+- **Later: Arduino Mega 2560** (owned). Port notes (superseded by design-notes §29–30: no jumpers, software I2C on A4/A5): I2C on pins 20/21 would have needed 2 jumpers to A4/A5 (shield wires the MPU6050 to A4/A5 only); encoders direct to A8–A11 (PCINT2, full quadrature); IR on D9 via timer sampling (no PCINT on D9); optional 2-wire move of the ESP32 link to Serial1 (USB + ESP32 simultaneously, no S1 switching); check physical fit (Mega is ~33 mm longer).
 - **Sensors (DECIDED 2026-10-11):** IR remote receiver stays (soldered on the shield). Line-tracking module stays removed (needs too little ground clearance; unreliable). **Uno: keep the forward ultrasonic** (obstacle brake). **Mega (to decide then):** candidate swap to ToF — forward VL53L1X (obstacle brake) + downward VL53L0X at the front edge (cliff/stair detection, new safety rule "no floor ahead → stop, reverse allowed"), both I2C with XSHUT on the freed D12/D13. Firmware: generalise the `ultrasonic` port to `range_forward` (+ future `range_cliff`); encoders on the Mega use full quadrature (A8–A11).
 - **Other upgrade candidate:** Arduino **Uno R4 Minima** (RA4M1 Cortex-M4 48 MHz, 32 KB RAM / 256 KB flash, **5 V logic**, same footprint) — new ARM driver set; verify interrupt-capable pins.
 - **Avoid with this 5 V shield:** 3.3 V-only boards (Due, Zero/M0, Metro M4, ESP32 Uno-shape boards).

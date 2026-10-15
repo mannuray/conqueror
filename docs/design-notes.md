@@ -855,7 +855,7 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 | 8 | DRIVE_RATE UNAVAILABLE sends no REJECTED event | **Leave:** the ACK already says it |
 
 ## 37. Plan C review follow-ups (DECIDED 2026-10-13)
-- **Deferred (owner):** moving `/source.tar.gz` off the port-80 control server (review I2 part c) — not urgent; revisit when the project is finished. Parts a, b, d of I2 are done (1 s socket timeouts, a stuck client is closed, the page skips drives while its send buffer is full).
+- **Deferred (owner):** moving `/source.tar.gz` off the port-80 control server (review I2 part c) — not urgent; revisit when the project is finished. *(Done 2026-10-15 after Plan C check 9 — bridge LLD R3.11.)* Parts a, b, d of I2 are done (1 s socket timeouts, a stuck client is closed, the page skips drives while its send buffer is full).
 - **Fix now (owner):** all 12 minor review findings (M1–M12) of the Plan C final review.
 - **USB stays plugged in** until the first OTA update has worked on the board and the hardware checklist has passed; after that the ESP32 is updated over WiFi (the Mega stays USB-only).
 

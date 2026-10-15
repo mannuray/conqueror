@@ -782,7 +782,7 @@ stateDiagram-v2
 ### R3.11 Source download on port 81 (owner, 2026-10-15, after Plan C check 9)
 Check 9 showed a 1 MB `/source.tar.gz` on port 80 holding up `/ws` drives (3 deadman stops, a RATE_LIMITED burst): both shared the port-80 server task. Now:
 - `/source.tar.gz` is served by the **port-81** server (`sourceRegister(streamServerHandle())`); port 80 keeps `/source.tar.gz` as a **302 redirect** to `http://<Host>:81/source.tar.gz` so `/info` (`source.url`) and the help link keep working.
-- The port-81 server starts even if the camera fails (`cameraReady()` false → `/stream` and `/capture` answer 503), so the source is always downloadable.
+- The port-81 server starts even if the camera fails (`cameraReady()` false → `/stream` and `/capture` answer 503), so the source stays downloadable without a camera. It starts with the camera stage (WiFi up or 10 s after boot); until it is registered, port 80 answers `/source.tar.gz` with 503 "not ready yet" (final review) instead of redirecting to a closed port. The Host check keeps IPv6 literals (`[fe80::1]`).
 - Limit: port 81 has 2 connections; with two video viewers open the download waits for one to close. The download blocks only the port-81 server task (viewers run in their own tasks; a new viewer or `/capture` waits ~2 s).
 
 ```mermaid
@@ -796,3 +796,9 @@ sequenceDiagram
   P81-->>C: application/gzip, 4 KB chunks
   Note over P80: /ws drives keep flowing meanwhile
 ```
+
+### R3.12 Final review fixes (owner, 2026-10-15)
+- Redirect only once port 81 serves the archive (`g_served`, atomic), else 503 + `Retry-After: 10`; IPv6-safe Host.
+- Page: on 4 s of silence the page goes offline at once (`goOffline()`: inputs released, pads off, reconnect) instead of waiting for the browser's close; on `welcome` / `body_online` it only re-sends **lock on** (RC mode or its own LOCK) and never while a bench owns the link — it no longer drops another phone's lock with "off".
+- Comments: the known tiny fd-reuse window after `complete()` + `trigger_close` (accepted; the reverse order failed on the tank); `g_buf` belongs to the port-81 task.
+- Repo: `.superpowers/` and `.playwright-mcp/` ignored; CLAUDE.md index and roadmap brought up to date.

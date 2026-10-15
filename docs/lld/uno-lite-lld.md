@@ -223,3 +223,6 @@ Estimates from the Mega build (link-time optimisation merges small classes, so p
 
 ## 10. Next
 After approval: implementation plan (`docs/superpowers/plans/2026-10-14-plan-e-uno-lite.md`) with step 1 = skeleton + size measurement, then one task per class/route group, TDD, size gate on every task.
+
+## 11. Decision (owner, 2026-10-15): hardware I2C on the Uno
+On the Uno, A4/A5 are the ATmega328P's hardware TWI pins (the Mega needed software I2C only because they are plain GPIO there). Plan E Task 1 had moved the Uno to the software I2C to drop the Arduino Wire library's buffers (~210 B RAM). Owner-approved replacement: a small **register-level hardware TWI driver** (`drivers/twi_uno.cpp`, polled, 400 kHz, no buffers) behind a common interface `drivers/i2c_bus.h` (`drv::i2c::begin/writeReg/readRegs/recover`); the Mega keeps `soft_i2c.cpp`. Same hardware path ELEGOO used on these pins; one byte ≈ 25 µs, the 14-byte IMU burst ≈ 0.35 ms (blocking, the documented burst-read exception). Each wait for TWINT gives up after ~0.4 ms so a stuck bus fails the read instead of hanging. Uno: 24,452 B flash, 1,431 B RAM; Mega unchanged (63,272 B).

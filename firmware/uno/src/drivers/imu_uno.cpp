@@ -4,7 +4,7 @@
 #include "domain/estimation/imu_scale.h"
 #include "ports/imu.h"
 
-#include "drivers/soft_i2c.h"
+#include "drivers/i2c_bus.h"
 
 namespace cq {
 namespace port {
@@ -13,13 +13,13 @@ namespace {
 
 uint16_t g_errors = 0;
 
-// ---- bus layer: software I2C on A4/A5 on both boards (Mega: LLD §11.4; Uno Lite: no Wire buffers, ~210 B RAM) ----
-void busBegin() { drv::soft_i2c::begin(); }
-bool busWrite(uint8_t reg, uint8_t value) { return drv::soft_i2c::writeReg(board::kImuAddress, reg, value); }
+// ---- bus layer: drivers/i2c_bus.h (Mega: software I2C, LLD §11.4; Uno: hardware TWI without Wire) ----
+void busBegin() { drv::i2c::begin(); }
+bool busWrite(uint8_t reg, uint8_t value) { return drv::i2c::writeReg(board::kImuAddress, reg, value); }
 bool busRead(uint8_t reg, uint8_t* buf, uint8_t n) {
-  return drv::soft_i2c::readRegs(board::kImuAddress, reg, buf, n);
+  return drv::i2c::readRegs(board::kImuAddress, reg, buf, n);
 }
-void busRecover() { drv::soft_i2c::recover(); }
+void busRecover() { drv::i2c::recover(); }
 bool busTimedOut() { return true; }  // every soft-I2C failure gets the (cheap) recovery
 
 void onFailure() {

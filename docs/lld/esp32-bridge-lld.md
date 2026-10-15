@@ -652,7 +652,7 @@ sequenceDiagram
 Page only (`web/basic_drive.html`), no bridge or protocol change — pan/tilt already arrive in `tf`:
 - **⚡ MAX nn%** pill replaces ⋯ (speed limit at a glance; tap → slider sheet).
 - Vitals line `SPEED nn% · TURN ±nn°/s` (the heading duplicate removed).
-- **Camera ring as indicator:** ghost dot at ((90 − pan)/90, (tilt − 90)/90) × ring radius; title angles; ring mode from the owner: `you`/`none` → control (knob), anyone else → indicator (knob hidden, input ignored, dot bright).
+- **Camera ring as indicator:** ghost dot at ((90 − pan)/90, (90 − tilt)/90) × ring radius (up = smaller tilt angle, design-notes §45); title angles; ring mode from the owner: `you`/`none` → control (knob), anyone else → indicator (knob hidden, input ignored, dot bright).
 
 ```mermaid
 stateDiagram-v2

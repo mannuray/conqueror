@@ -139,7 +139,7 @@ A bounded "full control" mode for the **adult driver only**. It is the only desi
 | ▲ ▼ | forward / backward while held (stop ~200 ms after last repeat) |
 | ◀ ▶ | spin left / right while held |
 | OK | STOP + hand control back |
-| 4 / 6 | pan left / right while held · 2 / 8 tilt up / down while held · 5 camera home (owner 2026-10-15: pan moved from 1/3 so 2/4/6/8 sit round 5 like arrows) |
+| 4 / 6 | pan left / right while held · 2 / 8 tilt up / down while held (camera really looks up on 2: on this tank up = smaller tilt servo angle, owner 2026-10-15) · 5 camera home (owner 2026-10-15: pan moved from 1/3 so 2/4/6/8 sit round 5 like arrows) |
 | 1 / 3 | speed −/+ 10 % (beep pitch confirms) (owner 2026-10-15: moved from 4/6) |
 | 7 | mute toggle · 9 battery check (LED + 3/2/1 beeps) · 0 gyro turn 180° |
 | * | tap: parking beeps on/off (acts on release) · **hold 2 s: Safety Override on/off** (§A6.1) · # (hold 3 s) motor calibration |

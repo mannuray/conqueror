@@ -2057,3 +2057,6 @@ classDiagram
   Annunciator ..> LedSequencer
 ```
 Tests: `test_led_flash_shows_base_between_flashes`, `test_annunciator_no_link_is_blue`, `test_annunciator_battery_low_is_short_amber_flash`.
+
+### Decision note (owner, 2026-10-15): tilt direction
+See Uno Lite LLD §15 — same rule in the full firmware: stick up / IR 2 → smaller tilt servo angle (this tank: larger angle = camera down). `CameraHead::joy` and the `input_task` IR nudge flip the tilt sign; CAM_SET / CAM_NUDGE / limits / telemetry stay in servo degrees.

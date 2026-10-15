@@ -268,3 +268,11 @@ classDiagram
 - `BatteryMonitor` (shared): `kUsb` when the average is < `kUsbMaxMv` = 5500 mV **and** `m_battery_seen` is false; `m_battery_seen` latches on the first average ≥ `kPackSeenMv` = 6000 mV (corrected 2026-10-15: with both at 5000 mV a servo-induced 5.07 V reading on USB latched it; test `test_battery_usb_jitter_stays_usb`). Tests: 4.7 V from boot → kUsb; battery seen then 4.8 V → kCritical (after 2 s).
 - `AnnState` (shared) gains `usb_power`; `Annunciator` alarm chain: … → batt_low → **usb_power: white (60,60,60) kBlink 2000 ms, flash 150 ms** → clear. The UI tasks (full and Lite) compute `selftest_critical`/`selftest_failed` from the fail mask with the battery bit removed when on USB power (an IMU failure stays solid red).
 - `size_gate.py`: uno flash 30 × 1024.
+
+## 15. Tilt direction (owner, 2026-10-15, option A; spec 02 §A8 note)
+Tank check: stick up and IR 2 moved the camera **down**. On this tank a **larger tilt servo angle = camera looks down** (pan was right: stick left = camera left = larger pan angle). Fix at the camera layer, same rule in both firmwares: an "up" request (CAM_JOY `y > 0`, IR 2 jog) moves tilt to a **smaller** angle.
+- `CamLite::joy` / `CameraHead::joy`: `y > 0` → home − y·(home − tilt_min); `y < 0` → toward tilt_max.
+- `CamLite::applyJog` / full `input_task` IR nudge: tilt step = −jog_tilt.
+- Unchanged: servo-degree interfaces (`CAM_SET`, `CAM_NUDGE`, settings `tilt_min`/`tilt_max`, telemetry `tilt`). With the defaults 30…110 the camera can look 60° up and 20° down (limits to be tuned on the tank, settings only).
+- A `tilt_reverse` setting (option B) waits until another mount exists.
+Tests: `test_cam_held_jog_rate` (IR up → tilt angle falls), `test_joy_is_absolute_and_release_returns_home` (stick up → tilt_min).

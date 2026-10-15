@@ -234,7 +234,13 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       clearInterval(pingTimer);
       lastRxAt = Date.now();
       pingTimer = setInterval(function () {  // review M8: a silent socket is closed and reconnected (not shown as live)
-        if (Date.now() - lastRxAt > 4000) { ws.close(); return; }
+        if (Date.now() - lastRxAt > 4000) {  // final review: show offline now, the browser's close may take long
+          var dead = ws;
+          dead.onclose = null; dead.onerror = null; dead.onmessage = null;
+          goOffline();
+          try { dead.close(); } catch (e) { /* already closed */ }
+          return;
+        }
         send({ t: "ping", t0: Date.now() });
       }, 1000);
       setPads();
@@ -245,16 +251,18 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       try { m = JSON.parse(ev.data); } catch (e) { return; }
       onMessage(m);
     };
-    ws.onclose = function () {
-      wsOpen = false; synced = false;
-      clearInterval(pingTimer);
-      releaseAll();
-      setWs("", "OFF");
-      setPads();
-      setTimeout(connect, retryMs);
-      retryMs = Math.min(retryMs * 2, 5000);
-    };
+    ws.onclose = goOffline;
     ws.onerror = function () { ws.close(); };
+  }
+  function goOffline() {  // socket closed or silent: everything released, pads off, reconnect
+    if (!wsOpen && pingTimer === 0) return;
+    wsOpen = false; synced = false;
+    clearInterval(pingTimer); pingTimer = 0;
+    releaseAll();
+    setWs("", "OFF");
+    setPads();
+    setTimeout(connect, retryMs);
+    retryMs = Math.min(retryMs * 2, 5000);
   }
   function setWs(cls, txt) {
     $("wsDot").className = "dot " + cls;
@@ -267,7 +275,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
         you = m.you || "";
         showCaps(m.tank && m.tank.caps ? m.tank.caps : {});
         showOwner(m.owner, m.owner_client);
-        setLock(rc || camLocked);  // sync the tank's lock to the page (RC: on); again on body_online (review I4)
+        resyncLock(m.owner_client);  // also on body_online (review I4)
         break;
       case "tf": showFast(m); break;
       case "ts": showSlow(m); break;
@@ -447,7 +455,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     else if (m.kind === "deadman_stop") toast("Stopped: no drive signal (deadman)");
     else if (m.kind === "blocked") toast("Obstacle brake: " + m.dist_cm + " cm");
     else if (m.kind === "ir_override") toast("IR remote took control");
-    else if (m.kind === "body_online") setLock(rc || camLocked);  // a rebooted Uno starts unlocked (review I4)
+    else if (m.kind === "body_online") resyncLock(ownerClient);  // a rebooted Uno starts unlocked (review I4)
     else if (m.kind === "batt_critical") toast("Battery critical " + m.v.toFixed(2) + " V");
     else if (m.kind === "body_offline" && m.reason === "BODY_INCOMPATIBLE")
       banner("bad", "Uno protocol " + m.uno_proto + " - flash a matching body firmware (needs " + m.need_proto + ")");
@@ -723,6 +731,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 
   // ---------- controls: single stick / RC two-hand (R3.4) ----------
   var lockAsk = { id: -1, prev: false };
+  // Final review: only ever re-send "lock on" (RC mode or our LOCK) - never "off", which would drop another phone's
+  // lock - and not while a bench owns the link (it would only be refused).
+  function resyncLock(client) { if ((rc || camLocked) && client !== "bench") setLock(true); }  // bench = TCP passthrough
   function showLock(on) { camLocked = on; $("camLock").classList.toggle("on", on); }
   function setLock(on) {
     lockAsk = { id: nextId, prev: camLocked };

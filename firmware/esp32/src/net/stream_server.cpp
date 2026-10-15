@@ -56,6 +56,8 @@ void streamWorker(void* arg) {
   httpd_handle_t server = req->handle;
   const int sockfd = httpd_req_to_sockfd(req);
   httpd_req_async_handler_complete(req);
+  // Known tiny window (final review): the server could close this fd and give the number to a new client before the
+  // queued close runs. Accepted - the reverse order lost the close on the tank and blocked port 81.
   httpd_sess_trigger_close(server, sockfd);
   releaseViewer();
   vTaskDelete(nullptr);
@@ -79,7 +81,9 @@ esp_err_t streamHandler(httpd_req_t* req) {
     releaseViewer();
     return refuse(req, "stream unavailable");
   }
-  if (xTaskCreatePinnedToCore(streamWorker, "cq-stream", kViewerStack, copy, kViewerPrio, nullptr, kViewerCore) != pdPASS) {
+  const BaseType_t made =
+      xTaskCreatePinnedToCore(streamWorker, "cq-stream", kViewerStack, copy, kViewerPrio, nullptr, kViewerCore);
+  if (made != pdPASS) {
     httpd_req_async_handler_complete(copy);
     releaseViewer();
     return refuse(req, "stream unavailable");  // the original req is still ours to answer

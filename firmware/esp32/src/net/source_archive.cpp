@@ -1,5 +1,7 @@
 #include "net/source_archive.h"
 
+#include <atomic>
+
 #include "board_config.h"
 
 #include <esp_partition.h>
@@ -17,7 +19,8 @@ namespace {
 const esp_partition_t* g_part = nullptr;
 SourceHeader g_header{};
 bool g_valid = false;
-uint8_t g_buf[4096];  // httpd task only (and once at boot)
+std::atomic<bool> g_served{false};  // set once /source.tar.gz is registered on port 81 (loop task), read by port 80
+uint8_t g_buf[4096];  // the port-81 httpd task only (and once at boot)
 
 esp_err_t serveSource(httpd_req_t* req) {
   if (!g_valid) {
@@ -83,17 +86,24 @@ void sourceRegister(httpd_handle_t server) {
   u.uri = "/source.tar.gz";
   u.method = HTTP_GET;
   u.handler = serveSource;
-  httpd_register_uri_handler(server, &u);
+  g_served = httpd_register_uri_handler(server, &u) == ESP_OK;
 }
 
 namespace {
 // R3.11 (owner, 2026-10-15): the archive moved to port 81 so a 1 MB download never holds up /ws drives on port 80.
 esp_err_t redirectSource(httpd_req_t* req) {
+  if (!g_served) {  // port 81 starts with the camera (WiFi up or 10 s after boot) - never redirect to a closed port
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    httpd_resp_set_hdr(req, "Retry-After", "10");
+    return httpd_resp_send(req, "source download not ready yet - try again in a few seconds", HTTPD_RESP_USE_STRLEN);
+  }
   char host[64] = "";
   if (httpd_req_get_hdr_value_str(req, "Host", host, sizeof(host)) != ESP_OK || host[0] == '\0') {
     snprintf(host, sizeof(host), "%s.local", board::kHostname);
   }
-  char* colon = strchr(host, ':');  // drop a port given by the client
+  // Drop a port given by the client; an IPv6 literal keeps its brackets ("[fe80::1]:80" -> "[fe80::1]").
+  char* end = host[0] == '[' ? strchr(host, ']') : host;
+  char* colon = end != nullptr ? strchr(end, ':') : nullptr;
   if (colon != nullptr) *colon = '\0';
   char location[96];
   snprintf(location, sizeof(location), "http://%s:%u/source.tar.gz", host, static_cast<unsigned>(board::kStreamPort));

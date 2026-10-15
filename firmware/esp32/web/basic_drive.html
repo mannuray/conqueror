@@ -254,10 +254,43 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   }
   function showLatency(m) {
     if (typeof m.t0 !== "number") return;
-    var ms = Math.max(0, Date.now() - m.t0);
+    var ms = Math.round(latMean.push(Math.max(0, Date.now() - m.t0)));
     $("latChip").textContent = ms + "ms";
     $("latChip").className = ms > 250 ? "bad" : ms > 120 ? "warn" : "";
   }
+
+  // ---------- display filters (R3.3): what is SHOWN only; the tank's safety logic uses raw values ----------
+  // FILTERS-BEGIN
+  function MeanN(n) {  // mean of the last n values
+    var buf = [];
+    this.push = function (v) { buf.push(v); if (buf.length > n) buf.shift(); var s = 0; for (var i = 0; i < buf.length; i++) s += buf[i]; return s / buf.length; };
+    this.reset = function () { buf = []; };
+  }
+  function Ema(alpha) {  // exponential average; first value taken as is
+    var v = null;
+    this.push = function (x) { v = v === null ? x : v + alpha * (x - v); return v; };
+    this.reset = function () { v = null; };
+  }
+  var RANGE_CLEAR = 999;  // "no echo" (dist_cm null) counts as far away
+  function RangeView() {  // median of 5 kills one-off echoes; closer shows at once, farther eases in
+    var buf = [], shown = null;
+    this.push = function (cm) {
+      buf.push(cm === null ? RANGE_CLEAR : cm);
+      if (buf.length > 5) buf.shift();
+      var med = buf.slice().sort(function (a, b) { return a - b; })[buf.length >> 1];
+      shown = shown === null || med < shown ? med : shown + 0.3 * (med - shown);
+      return shown >= 400 ? null : Math.round(shown);  // null = CLEAR
+    };
+  }
+  function turnRate(ema, raw) {  // median of 3 (one-off spikes), 0.3 s average, |x| < 2 °/s shown as 0
+    if (typeof raw !== "number") return null;
+    var b = ema.last3 = (ema.last3 || []).concat([raw]).slice(-3);
+    var v = ema.push(b.slice().sort(function (x, y) { return x - y; })[b.length >> 1]);
+    return Math.abs(v) < 2 ? 0 : Math.round(v);
+  }
+  // FILTERS-END
+  var rangeView = new RangeView(), rateEma = new Ema(0.3), battMean = new MeanN(10), latMean = new MeanN(5);
+  var battWasUsb = null, vitalsAt = 0;
 
   // ---------- telemetry ----------
   var BATT_CURVE = [[8.4, 100], [8.2, 90], [8.0, 80], [7.8, 65], [7.6, 50], [7.4, 35], [7.2, 20], [7.0, 10], [6.8, 5], [6.6, 0]];
@@ -271,6 +304,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   }
   var vit = { spd: "SPEED -", rate: "TURN -" };
   function showVitals() {
+    var now = Date.now();
+    if (now - vitalsAt < 250) return;  // text 4x/s: no digit flicker
+    vitalsAt = now;
     $("vitals").innerHTML = vit.spd + "<i>·</i>" + vit.rate;
   }
   var CARD = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -283,11 +319,12 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   }
   function showFast(m) {
     drawTape(m.yaw);
-    vit.rate = "TURN " + (typeof m.yaw_rate === "number" ? (m.yaw_rate > 0 ? "+" : "") + m.yaw_rate.toFixed(0) + "°/s" : "-");
+    var rate = turnRate(rateEma, m.yaw_rate);
+    vit.rate = "TURN " + (rate === null ? "-" : (rate > 0 ? "+" : "") + rate + "°/s");
     showCam(m.pan, m.tilt);
     vit.spd = "SPEED " + Math.max(Math.abs(m.spd_cmd[0]), Math.abs(m.spd_cmd[1])) + "%";
     showVitals();
-    var d = m.dist_cm;
+    var d = rangeView.push(m.dist_cm);
     $("distTxt").textContent = d === null ? "CLEAR" : d + "cm";
     var pct = d === null ? 0 : Math.max(4, 100 - Math.min(d, 200) / 2);  // fuller = closer (0–2 m); colour from the scale
     $("distMask").style.height = (100 - pct) + "%";
@@ -295,13 +332,15 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   }
   function showSlow(m) {
     if (m.batt_v !== null) {
-      var pct = battPct(m.batt_v);
+      var usb = m.batt_v < 5.5;
+      if (usb !== battWasUsb) { battMean.reset(); battWasUsb = usb; }  // USB <-> pack: start the average again
+      var v = battMean.push(m.batt_v);
+      var pct = battPct(v);
       var cls = m.flags.indexOf("batt_critical") >= 0 ? "bad" : m.flags.indexOf("batt_low") >= 0 ? "warn" : "";
       // Below 5.5 V there is no pack: USB back-feed (same rule as the body firmware, spec 02 §D6.3).
-      var usb = m.batt_v < 5.5;
       $("battTxt").textContent = usb ? "USB" : pct + "%";
       $("battTxt").className = usb ? "" : cls || "ok";
-      $("battV").textContent = m.batt_v.toFixed(2) + " V";
+      $("battV").textContent = v.toFixed(2) + " V";
       $("battMask").style.height = (usb ? 0 : 100 - Math.max(3, pct)) + "%";  // empty part masked, colour from the scale
       $("battBar").className = usb ? "battbar usb" : "battbar";
     }

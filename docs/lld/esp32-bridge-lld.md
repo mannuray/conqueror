@@ -670,7 +670,7 @@ Page only (`web/basic_drive.html`): filters change what is **shown**, never what
 | Metric | Input rate | Filter |
 |---|---|---|
 | Range `tf.dist_cm` | 10 Hz | median of last 5 (null = clear = 999), then shown = median if closer, else shown += 0.3·(median − shown) |
-| Turn rate `tf.yaw_rate` | 10 Hz | EMA α = 0.3 (τ ≈ 0.3 s); \|x\| < 2 → 0 |
+| Turn rate `tf.yaw_rate` | 10 Hz | median of last 3 (one-off spikes), then EMA α = 0.3 (τ ≈ 0.3 s); \|x\| < 2 → 0 |
 | Speed / vitals text | 10 Hz | text redrawn at most every 250 ms |
 | Battery `ts.batt_v` | 1 Hz | mean of last 10 (reset when USB ↔ pack changes) |
 | Latency (pong) | 1 Hz | mean of last 5 |

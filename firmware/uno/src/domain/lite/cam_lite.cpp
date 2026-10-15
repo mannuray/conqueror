@@ -1,0 +1,33 @@
+#include "domain/lite/cam_lite.h"
+
+namespace cq {
+
+namespace {
+int16_t clampI(int16_t v, int16_t lo, int16_t hi) { return v < lo ? lo : (v > hi ? hi : v); }
+}  // namespace
+
+void CamLite::set(int16_t pan_dd, int16_t tilt_dd) {
+  m_pan = clampI(pan_dd, kPanMin, kPanMax);
+  m_tilt = clampI(tilt_dd, kTiltMin, kTiltMax);
+}
+
+void CamLite::joy(int8_t x, int8_t y, bool active, uint32_t now_ms) {
+  if (active) {
+    m_return_pending = false;
+    set(static_cast<int16_t>(kHome - x * 9), static_cast<int16_t>(kHome + y * 9));
+    return;
+  }
+  if (!m_locked) {
+    m_return_pending = true;
+    m_released_ms = now_ms;
+  }
+}
+
+void CamLite::tick(uint32_t now_ms) {
+  if (m_return_pending && static_cast<uint32_t>(now_ms - m_released_ms) >= kReturnMs) {
+    m_return_pending = false;
+    home();
+  }
+}
+
+}  // namespace cq

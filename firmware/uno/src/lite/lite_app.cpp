@@ -27,14 +27,13 @@ void linkWatchTask() {
     case LinkChange::kNone: break;
   }
 }
-void motorsZeroTask() { port::motor::apply(PwmOutput::zero()); }
 
 // LITE-TASKS-BEGIN
 Task g_tasks[] = {
     {imuTask, 5000UL, 0UL, 0},
     {irTask, 5000UL, 0UL, 0},
     {linkWatchTask, 10000UL, 2500UL, 0},
-    {motorsZeroTask, 10000UL, 2500UL, 0},
+    {controlTask, 10000UL, 2500UL, 0},
     {encodersTask, 10000UL, 5000UL, 0},
     {settingsTask, 20000UL, 7500UL, 0},
     {ultrasonicTask, 50000UL, 2500UL, 0},

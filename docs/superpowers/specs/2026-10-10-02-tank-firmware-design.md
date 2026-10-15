@@ -372,8 +372,10 @@ Firmware: `drivers/board_config.h` build option selects the shield; only the mot
 ### D3. Next
 Uno Lite LLD (classes, Mermaid diagrams, frame subset, RAM/flash plan per module, caps bits) → implementation plan → code, each approved by the owner. The first implementation step is a skeleton with all drivers, measured against D1.4 (as A12 asked originally).
 
-### D4. Change proposal (2026-10-15, PROPOSED — owner to approve): alarm/status sounds and phone sound/LED
-After Plan E the Uno Lite build has ≈ 4 KB flash left; RAM is the limit (1,403 / 1,536 B). Owner asked to add LED and sound now that there is space. Proposal (replaces the "one short beep" row of D2):
-1. **Alarm and status sounds** (reuse the tested `SoundSequencer` and the flash melody table `catalogues.cpp`): startup, ready (ESP32 linked), self-test fail, battery low, battery critical, obstacle stop, lifted/tilted, IR key click, speed up/down tone, mute toggle on IR key 7. Audio modes normal / quiet / mute as in the full firmware (alarms still sound in quiet).
-2. **Phone/AI control:** the `SOUND`, `TONE`, `AUDIO_MODE` and `LED` frames become handled instead of UNAVAILABLE; HELLO sets `CapBit::AUDIO_LED`.
-3. **RAM plan:** sequencer ≈ +70 B; Lite-only smaller EEPROM write buffer (80 → 32 B, the Lite block is 26 B) ≈ −48 B; target ≤ 1,450 B. If the measured build is above 1,500 B, step 2 is dropped and only step 1 ships.
+### D4. Sounds and LED: the existing §A9 scheme (owner, 2026-10-15 — option A)
+Replaces the "one short beep" row of D2 (after Plan E the Uno has ≈ 4 KB flash left; RAM is the limit).
+1. **Same sounds and LED behaviour as the full firmware:** the Lite firmware reuses the full `Annunciator` (LED + sound rules of §A9 and the LED table), `SoundSequencer` and the old-firmware melody table (`catalogues.cpp`). `AnnunciatorLite` and `Beeper` are removed. Inputs the Lite firmware does not have stay off (calibration, Safety Override, bump, stall). Audio modes mute / quiet / normal; LED brightness cap `led_max` = 50 (full default).
+2. **IR sounds as the full input task:** speed keys 6/4 tone (400 + speed × 10 Hz), key 7 mute toggle (with the toggle blinks), key 9 battery check (LED + beeps).
+3. **Owner addition: IR key click** — a short TICK on each new IR key press (not on NEC repeats while held), so every press is confirmed.
+4. **Phone/AI control** (§A9 "custom, on request"): `SOUND`, `TONE`, `AUDIO_MODE` and `LED` become handled instead of UNAVAILABLE; HELLO sets `CapBit::AUDIO_LED`.
+5. **RAM plan:** full annunciator + sequencer ≈ +110 B, `AnnunciatorLite`/`Beeper` ≈ −20 B, Lite-only EEPROM write buffer 80 → 32 B (the Lite block is 26 B) ≈ −48 B; target ≈ 1,445 B. **Safety valve:** if the measured build is above 1,500 B static RAM, item 4 is left out (sounds and LED of items 1–3 still ship).

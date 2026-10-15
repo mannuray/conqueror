@@ -999,3 +999,4 @@ Results after the fixes (2026-10-15, bridge `b4316f7`, tank on the stand): SNAP 
 
 ## 45. Camera tilt direction (DECIDED 2026-10-15, owner option A)
 The Cockpit-lite camera ring showed the camera looking up while it looked down: stick up and IR 2 moved the tilt servo to a larger angle, which on this tank points the camera **down**. Pan was correct. Fix in the Uno camera layer (Lite and full): "up" = smaller tilt angle; servo-degree commands, limits and telemetry unchanged; the page ring uses up = smaller angle. A `tilt_reverse` setting only if another mount appears. Defaults 30–110 then give 60° up / 20° down — to tune on the tank. Details: Uno Lite LLD §15.
+Result (2026-10-15, Uno `83982b1` code, bridge `4bdaa77`): stick up → camera looks up (video shows the ceiling side), ring ↑36° with the dot above centre; pan unchanged (stick left = camera left, owner confirmed). Cockpit-lite checks all pass, including range (owner: "working perfectly").

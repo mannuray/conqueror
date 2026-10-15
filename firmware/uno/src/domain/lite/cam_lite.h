@@ -48,6 +48,7 @@ class CamLite {
   bool m_locked = false;
   bool m_joy_active = false;
   bool m_idle = false;
+  bool m_active = false;  // a command since the last tick (wakes the servos even if the move already finished)
   uint32_t m_still_since_ms = 0;
   bool m_return_pending = false;
   uint32_t m_joy_ms = 0;  // last joystick refresh while held, release time while a return is pending (RAM)

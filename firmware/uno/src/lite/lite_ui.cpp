@@ -25,13 +25,15 @@ AnnState annState() {
   s.tilted = g_lite.tilt.tilted();
   s.batt_low = g_lite.batt.level() == BatteryMonitor::Level::kLow;
   s.batt_crit = g_lite.batt.level() == BatteryMonitor::Level::kCritical;
-  s.selftest_critical = g_lite.self_test.locked();
+  s.usb_power = g_lite.batt.level() == BatteryMonitor::Level::kUsb;
+  const uint8_t shown = SelfTest::displayMask(g_lite.self_test.failMask(), s.usb_power);  // spec 02 §D6.3
+  s.selftest_critical = g_lite.self_test.locked() && (shown & SelfTest::kCriticalMask) != 0;
   s.reversing = g_lite.fast.pwm_l < 0 && g_lite.fast.pwm_r < 0;
   s.forward = g_lite.fast.pwm_l > 0 && g_lite.fast.pwm_r > 0;
   s.owner = g_lite.arbitrator.owner();
   s.hint = g_lite.owner_hint;
   s.selftest_runs = g_lite.self_test.runs();
-  s.selftest_failed = g_lite.self_test.failMask() != 0;
+  s.selftest_failed = shown != 0;
   s.toggle_seq = g_lite.toggle_seq;
   s.toggle_on = g_lite.toggle_on;
   s.driving = g_lite.moving;

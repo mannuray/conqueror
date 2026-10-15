@@ -320,6 +320,18 @@ void test_annunciator_tilt_siren_repeats() {
   TEST_ASSERT_INT_WITHIN(1, 5, starts);  // one safety chirp every 400 ms
 }
 
+// Spec 02 §D6.3: USB power = the normal colour plus a short white flash every 2 s (no solid red).
+void test_annunciator_usb_power_white_flash() {
+  Annunciator a;
+  LedSequencer l;
+  SoundSequencer snd;
+  AnnState s = base();
+  s.usb_power = true;
+  a.update(s, 0, l, snd);
+  TEST_ASSERT_TRUE((l.output(50) == Annunciator::kColorUsb));
+  TEST_ASSERT_TRUE((l.output(1000) == Annunciator::kColorReady));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_sound_plays_notes_in_order);
@@ -329,6 +341,7 @@ int main() {
   RUN_TEST(test_led_flash_shows_base_between_flashes);
   RUN_TEST(test_annunciator_no_link_is_blue);
   RUN_TEST(test_annunciator_battery_low_is_short_amber_flash);
+  RUN_TEST(test_annunciator_usb_power_white_flash);
   RUN_TEST(test_catalogue);
   RUN_TEST(test_annunciator_tilt_alarm_and_sound);
   RUN_TEST(test_annunciator_owner_colours);

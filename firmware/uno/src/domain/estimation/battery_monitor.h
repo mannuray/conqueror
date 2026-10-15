@@ -6,7 +6,7 @@ namespace cq {
 // Pack voltage = average of the last 4 samples (one per 10 Hz tick, LLD §9.13); low/critical need
 // 2 s below the threshold; leaving critical or low needs that threshold + hyst_mv (setting batt_hyst, 200 mV) for 2 s
 // (LLD §10.6: critical → low above crit + hyst, low → ok above low + hyst).
-// Below 3 V the board is USB powered (no pack): level kUsb, never an alarm.
+// Below 5 V with no pack seen since power-on the board is USB powered (≈ 4.7 V back-feed): level kUsb, never an alarm.
 class BatteryMonitor {
  public:
   enum class Level : uint8_t { kUsb, kOk, kLow, kCritical };
@@ -26,6 +26,7 @@ class BatteryMonitor {
   Level m_candidate = Level::kOk;
   uint32_t m_candidate_since_ms = 0;
   bool m_changed = false;
+  bool m_battery_seen = false;  // a pack (>= 5 V) was seen since power-on: below 5 V is then a sag, not USB
 };
 
 }  // namespace cq

@@ -17,7 +17,10 @@ BatteryMonitor::Level BatteryMonitor::update(uint16_t adc, uint16_t mv_per_count
   const uint32_t low_exit = static_cast<uint32_t>(low_mv) + hyst_mv;   // hysteresis on recovery only
   const uint32_t crit_exit = static_cast<uint32_t>(crit_mv) + hyst_mv;
   Level target;
-  if (m_mv < 3000u) {
+  // USB only back-feeds ≈ 4.7 V through the regulator (spec 02 §D6.3). Below 5 V counts as USB power only while no
+  // battery has been seen since power-on, so a real pack sagging mid-drive still reaches kCritical (motor cut).
+  if (m_mv >= 5000u) m_battery_seen = true;
+  if (m_mv < 5000u && !m_battery_seen) {
     target = Level::kUsb;
   } else if (m_level == Level::kCritical) {
     target = m_mv > low_exit ? Level::kOk : (m_mv > crit_exit ? Level::kLow : Level::kCritical);

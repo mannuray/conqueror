@@ -226,6 +226,21 @@ void test_edge_detector_falling_and_rising() {
   TEST_ASSERT_EQUAL_HEX8(0x40, d.update(0xFF).rising);
 }
 
+// Spec 02 §D6.3: USB only reads ~4.7 V (back-fed through the regulator) → USB power, not critical.
+void test_battery_usb_backfeed_is_usb() {
+  BatteryMonitor b;
+  for (uint32_t t = 0; t < 5000; t += 100) b.update(116, 4050, 7200, 6600, 200, t);  // 4698 mV, no battery yet
+  TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kUsb), static_cast<int>(b.level()));
+}
+
+// ... but once a battery was seen, a sag below 5 V is battery critical (the motor cut must stay).
+void test_battery_sag_after_battery_seen_is_critical() {
+  BatteryMonitor b;
+  for (uint32_t t = 0; t < 3000; t += 100) b.update(198, 4050, 7200, 6600, 200, t);    // 8 V pack
+  for (uint32_t t = 3000; t < 6000; t += 100) b.update(118, 4050, 7200, 6600, 200, t);  // 4.78 V under load
+  TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kCritical), static_cast<int>(b.level()));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ultrasonic_distance_and_median);
@@ -240,6 +255,8 @@ int main() {
   RUN_TEST(test_battery_levels_with_persistence);
   RUN_TEST(test_battery_four_sample_average);
   RUN_TEST(test_battery_usb_power_is_not_an_alarm);
+  RUN_TEST(test_battery_usb_backfeed_is_usb);
+  RUN_TEST(test_battery_sag_after_battery_seen_is_critical);
   RUN_TEST(test_battery_hysteresis_on_recovery);
   RUN_TEST(test_edge_detector_falling_and_rising);
   RUN_TEST(test_ultrasonic_classify_slow_clone_and_no_answer);

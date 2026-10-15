@@ -63,7 +63,7 @@ void Annunciator::update(const AnnState& s, uint32_t now_ms, LedSequencer& led, 
   // LED layers (only re-set on change so blink phases stay steady). Any change of an alarm input re-picks the
   // pattern: e.g. lifted clears while batt_crit stays → the 1000 ms batt_crit blink takes over.
   if (s.tilted != p.tilted || s.lifted != p.lifted || s.batt_crit != p.batt_crit || s.batt_low != p.batt_low ||
-      s.selftest_critical != p.selftest_critical) {
+      s.selftest_critical != p.selftest_critical || s.usb_power != p.usb_power) {
     if (s.selftest_critical) {
       led.set(LedLayer::kAlarm, {proto::LedMode::kSolid, kColorAlarm, 0, 0}, now_ms);
     } else if (s.tilted || s.lifted) {
@@ -72,6 +72,8 @@ void Annunciator::update(const AnnState& s, uint32_t now_ms, LedSequencer& led, 
       led.set(LedLayer::kAlarm, {proto::LedMode::kBlink, kColorAlarm, 1000, 0}, now_ms);
     } else if (s.batt_low) {
       led.set(LedLayer::kAlarm, {proto::LedMode::kBlink, kColorLow, 2000, 0, kLowFlashMs}, now_ms);
+    } else if (s.usb_power) {
+      led.set(LedLayer::kAlarm, {proto::LedMode::kBlink, kColorUsb, 2000, 0, kLowFlashMs}, now_ms);
     } else {
       led.clear(LedLayer::kAlarm);
     }

@@ -11,6 +11,7 @@ int16_t toward(int16_t out, int16_t target, int16_t step) {
 
 void CamLite::set(int16_t pan_dd, int16_t tilt_dd) {
   m_return_pending = false;  // a new command wins over a pending joystick return (full CameraHead)
+  m_active = true;
   m_pan = clampI(pan_dd, kPanMin, kPanMax);
   m_tilt = clampI(tilt_dd, kTiltMin, kTiltMax);
 }
@@ -49,7 +50,8 @@ void CamLite::tick(uint32_t now_ms) {
     m_return_pending = false;
     home();
   }
-  const bool moving = m_out_pan != m_pan || m_out_tilt != m_tilt;
+  const bool moving = m_active || m_out_pan != m_pan || m_out_tilt != m_tilt;
+  m_active = false;
   if (moving) {
     m_still_since_ms = now_ms;
     m_idle = false;

@@ -30,6 +30,7 @@ struct AnnState {
   bool toggle_on;        // state after that toggle (green = on, red = off)
   bool driving;          // tracks moving (base colour scales with speed instead of breathing)
   uint8_t speed_pct;     // max(|L|, |R|) output, %
+  bool usb_power;        // USB only, no battery (spec 02 §D6.3): white flash every 2 s over the base
 };
 
 // Turns robot state into LED layers and sounds (edges only; no event hooks needed).
@@ -43,6 +44,7 @@ class Annunciator {
   static constexpr Rgb kColorIr{80, 0, 120};       // purple
   static constexpr Rgb kColorCal{120, 100, 0};     // yellow blink
   static constexpr Rgb kColorAlarm{255, 0, 0};
+  static constexpr Rgb kColorUsb{60, 60, 60};     // white: 150 ms flash every 2 s on USB power
   static constexpr Rgb kColorLow{200, 110, 0};     // amber: short flash every 2 s over the base (spec 02)
   static constexpr uint16_t kLowFlashMs = 150;
   static constexpr Rgb kColorOverride{255, 60, 0}; // amber-red pulse while Safety Override is on

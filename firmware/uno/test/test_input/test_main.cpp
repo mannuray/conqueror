@@ -62,11 +62,11 @@ void test_ir_late_repeat_after_nudge_resumes() {
 void test_ir_directions_speed_and_ok() {
   IrController c;
   IrOutput o{};
-  c.onEvent({ir_codes::k6, false, 0}, o);
+  c.onEvent({ir_codes::k3, false, 0}, o);  // spec 02 §A8 (owner 2026-10-15): speed on 1/3
   TEST_ASSERT_TRUE(o.speed_changed);
   TEST_ASSERT_EQUAL(90, c.speedPct());
-  c.onEvent({ir_codes::k4, false, 10}, o);
-  c.onEvent({ir_codes::k4, false, 20}, o);
+  c.onEvent({ir_codes::k1, false, 10}, o);
+  c.onEvent({ir_codes::k1, false, 20}, o);
   TEST_ASSERT_EQUAL(70, c.speedPct());
   c.onEvent({ir_codes::kLeft, false, 30}, o);
   TEST_ASSERT_EQUAL(0, o.v);
@@ -83,16 +83,16 @@ void test_ir_directions_speed_and_ok() {
 void test_ir_speed_limits() {
   IrController c;
   IrOutput o{};
-  for (int i = 0; i < 10; ++i) c.onEvent({ir_codes::k6, false, static_cast<uint32_t>(i * 300)}, o);
+  for (int i = 0; i < 10; ++i) c.onEvent({ir_codes::k3, false, static_cast<uint32_t>(i * 300)}, o);
   TEST_ASSERT_EQUAL(100, c.speedPct());
-  for (int i = 0; i < 10; ++i) c.onEvent({ir_codes::k4, false, static_cast<uint32_t>(3000 + i * 300)}, o);
+  for (int i = 0; i < 10; ++i) c.onEvent({ir_codes::k1, false, static_cast<uint32_t>(3000 + i * 300)}, o);
   TEST_ASSERT_EQUAL(20, c.speedPct());
 }
 
 void test_ir_camera_jog_while_held() {
   IrController c;
   IrOutput o{};
-  c.onEvent({ir_codes::k1, false, 0}, o);
+  c.onEvent({ir_codes::k4, false, 0}, o);  // pan on 4/6 (owner 2026-10-15)
   TEST_ASSERT_EQUAL(-1, o.jog_pan);
   TEST_ASSERT_TRUE(c.tick(350, o));  // kReleaseMs (350) after the last code
   TEST_ASSERT_EQUAL(0, o.jog_pan);
@@ -100,6 +100,8 @@ void test_ir_camera_jog_while_held() {
   TEST_ASSERT_EQUAL(1, o.jog_tilt);
   c.onEvent({ir_codes::k8, false, 400}, o);
   TEST_ASSERT_EQUAL(-1, o.jog_tilt);
+  c.onEvent({ir_codes::k6, false, 800}, o);
+  TEST_ASSERT_EQUAL(1, o.jog_pan);
 }
 
 void test_ir_one_shot_keys_ignore_repeats() {

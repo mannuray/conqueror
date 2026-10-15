@@ -108,6 +108,20 @@ void test_cam_idle_detach_after_2s() {
   TEST_ASSERT_TRUE(c.wantAttached());
 }
 
+// Spec 02 §D6.1 (bug): one IR jog step (12 dd) is completed inside a tick by the smooth step; it must still wake
+// the detached servos.
+void test_cam_small_jog_wakes_servos() {
+  CamLite c;
+  c.tick(0);
+  c.tick(2000);
+  TEST_ASSERT_FALSE(c.wantAttached());
+  c.jog(1, 0);
+  c.applyJog();
+  c.step();  // the 12 dd move is done here, before the next tick
+  c.tick(2020);
+  TEST_ASSERT_TRUE(c.wantAttached());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_cam_limits_and_us);
@@ -118,5 +132,6 @@ int main() {
   RUN_TEST(test_cam_set_cancels_pending_return);
   RUN_TEST(test_cam_joy_timeout_returns_home);
   RUN_TEST(test_cam_idle_detach_after_2s);
+  RUN_TEST(test_cam_small_jog_wakes_servos);
   return UNITY_END();
 }

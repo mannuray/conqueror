@@ -121,7 +121,7 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 | `yaw`, `yaw_rate`, `pitch`, `roll` | °, °/s | Uno |
 | `spd_cmd` [L,R], `spd_act` [L,R] | % (`act` null without encoders) | Uno |
 | `pwm` [L,R] | −255..255 actual output | Uno |
-| `dist_cm` | ultrasonic, null if no echo | Uno |
+| `dist_cm` | ultrasonic, null if no echo; `dist_fault: true` added when the sensor faults (2026-10-15) | Uno |
 | `ttc_s` | time-to-collision, null if not closing | ESP32 |
 | `pan`, `tilt`, `cam_moving` | °, bool | Uno |
 | `enc` [L,R] | counts | Uno |

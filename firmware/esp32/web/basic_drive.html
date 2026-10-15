@@ -21,7 +21,7 @@
   --glow: 0 0 8px rgba(51, 255, 102, .35);
   --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
   /* Stick sizes (owner, 2026-10-15: ~40 % larger so fingers are not constrained); the side gauges end above them. */
-  --pad: min(44vh, 27vw, 230px); --pad-s: var(--pad);  /* equal rings (R3.8) */
+  --pad: min(44vh, 27vw, 230px);  /* both rings and the RC sliders (equal rings, R3.8) */
   --edge: max(10px, env(safe-area-inset-left)); --redge: max(10px, env(safe-area-inset-right));
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -70,13 +70,12 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .battbar.usb { background: #7a857c; }
 #battMask { position: absolute; left: 0; right: 0; top: 0; height: 100%; background: rgba(5, 10, 6, .9); }
 #distMask { position: absolute; left: 0; right: 0; top: 0; height: 100%; background: rgba(5, 10, 6, .9); }
-.stick { display: flex; flex-direction: column; gap: 5px; align-items: center; }
+.stick { position: relative; padding-top: 16px; display: flex; flex-direction: column; gap: 5px; align-items: center; }  /* title floats above */
 .stick .ttl { color: var(--ui); font-size: 10px; letter-spacing: .12em; text-shadow: var(--glow); }
 .pad { position: relative; width: var(--pad); aspect-ratio: 1; border-radius: 50%; border: 2px solid rgba(51, 255, 102, .55);
   background: radial-gradient(circle, rgba(6, 18, 9, .55) 55%, rgba(6, 18, 9, .8)); box-shadow: 0 0 16px rgba(51, 255, 102, .28), inset 0 0 22px rgba(51, 255, 102, .12); touch-action: none; }
 .pad::before, .pad::after { content: ""; position: absolute; background: rgba(51, 255, 102, .2); }
 .pad::before { left: 50%; top: 10%; bottom: 10%; width: 1px; } .pad::after { top: 50%; left: 10%; right: 10%; height: 1px; }
-.pad.small { width: var(--pad-s); }
 .knob { position: absolute; left: 50%; top: 50%; width: 34%; height: 34%; margin: -17% 0 0 -17%; border-radius: 50%; z-index: 1;
   background: radial-gradient(circle at 45% 40%, #1d7a35, #0b3d18 70%); border: 2px solid #33ff66;
   box-shadow: 0 0 18px rgba(51, 255, 102, .7), inset 0 0 10px rgba(51, 255, 102, .35);
@@ -91,7 +90,6 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .pad.ind .knob { display: none; }
 .pad.ind .ghost { width: 16%; height: 16%; margin: -8% 0 0 -8%; background: #d9ffe3; box-shadow: 0 0 14px #33ff66, 0 0 4px #fff; }
 /* Titles float above the rings: their length (owner name, angles) never moves the layout. */
-.stick { position: relative; padding-top: 16px; }
 .stick .ttl { position: absolute; top: 0; left: 0; white-space: nowrap; }
 .right .stick .ttl { left: auto; right: 0; }
 /* RC two-hand mode (R3.4): throttle (vertical) and steering (horizontal) sliders; the camera ring shrinks to an indicator. */
@@ -122,13 +120,9 @@ body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 
 .right { right: calc(var(--redge) + 24px); bottom: 10px; display: flex; align-items: flex-end; gap: 10px; }
 .col { display: flex; flex-direction: column; gap: 7px; margin-bottom: 8px; }
 .btn { padding: 6px 10px; color: var(--ui); text-decoration: none; text-align: center; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; justify-content: center; }
-.btn.on { background: var(--ui); color: #032; }
 /* TILT: a small icon button at the drive ring's top-right (owner 2026-10-15: room for the full-height gauges). */
 .left .tiltcard { position: absolute; top: -6px; right: -6px; margin: 0; padding: 7px; z-index: 2; }
-.tiltcard .lab { display: none; }
-.tiltcard { flex-direction: column; gap: 3px; padding: 8px 10px; margin-bottom: 8px; font-size: 10px; letter-spacing: .08em; }
 .tiltcard svg { width: 18px; height: 18px; }
-.tiltcard small { color: var(--dim); }
 .mid { bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 7px; }
 .pills { display: flex; gap: 6px; }
 .pill { border-radius: 16px; padding: 5px 12px; font-size: 11px; letter-spacing: .06em; }
@@ -150,9 +144,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 #rotate { position: fixed; inset: 0; z-index: 9; display: none; align-items: center; justify-content: center; text-align: center; padding: 24px;
   background: var(--bg); color: var(--ui); text-shadow: var(--glow); letter-spacing: .1em; }
 @media (orientation: portrait) { #rotate { display: flex; } }
-/* Narrow phones: icon-only pills (MAX keeps its value), LOCK / HOME / TILT STEER icon-only so the bigger sticks fit. */
-@media (max-width: 800px) { .pill .lab, .col .lab, .tiltcard .lab { display: none; } .col .btn, .tiltcard { padding: 8px; } }
-@media (max-height: 380px) { :root { --pad: min(55vh, 25vw, 200px); --pad-s: var(--pad); } .chip { padding: 4px 7px; } }
+/* Narrow phones: icon-only pills (MAX keeps its value) and LOCK / HOME, so the bigger sticks fit. */
+@media (max-width: 800px) { .pill .lab, .col .lab { display: none; } .col .btn { padding: 8px; } }
+@media (max-height: 380px) { :root { --pad: min(55vh, 25vw, 200px); } .chip { padding: 4px 7px; } }
 </style>
 </head>
 <body>
@@ -172,7 +166,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 <div id="banner" class="ov banner"></div>
 
 <div class="ov left">
-  <div class="stick"><span class="ttl" id="driveTtl">⇅ DRIVE // TANK</span><button id="tiltBtn" class="btn glass tiltcard hidden" type="button"><svg viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg><span class="lab">TILT STEER</span><small id="tiltState" class="lab">[ OFF ]</small></button>
+  <div class="stick"><span class="ttl" id="driveTtl">⇅ DRIVE // TANK</span><button id="tiltBtn" class="btn glass tiltcard hidden" type="button" aria-label="tilt steering on or off"><svg viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg></button>
     <div id="drivePad" class="pad off"><span class="lbl n">FWD</span><span class="lbl s">REV</span><span class="lbl w">L</span><span class="lbl e">R</span>
       <div class="knob"><svg viewBox="0 0 24 24"><polygon points="12 2 19 21 12 17 5 21 12 2"/></svg></div></div>
     <div id="thrPad" class="slider v off"><span class="lbl n">FWD</span><span class="lbl s">REV</span>
@@ -184,7 +178,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     <button id="camHome" class="btn glass" type="button"><svg viewBox="0 0 24 24"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/></svg><span class="lab">HOME</span></button>
   </div>
   <div class="stick"><span class="ttl">▣ GIMBAL // <span id="camWho">CAM</span><i id="camAng"></i></span>
-    <div id="camPad" class="pad small off"><span class="lbl n">UP</span><span class="lbl s">DOWN</span><span class="lbl w">PAN L</span><span class="lbl e">PAN R</span><div id="camDot" class="ghost"></div>
+    <div id="camPad" class="pad off"><span class="lbl n">UP</span><span class="lbl s">DOWN</span><span class="lbl w">PAN L</span><span class="lbl e">PAN R</span><div id="camDot" class="ghost"></div>
       <div class="knob"><svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="1"/><path d="M18.944 12.33a1 1 0 0 0 0-.66 7.5 7.5 0 0 0-13.888 0 1 1 0 0 0 0 .66 7.5 7.5 0 0 0 13.888 0"/></svg></div></div>
     <div id="steerPad" class="slider h off"><span class="lbl w">L</span><span class="lbl e">R</span>
       <div class="knob"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1"/></svg></div></div></div>
@@ -218,7 +212,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     "error", "success", "fanfare", "sad", "safety_chirp", "ack_blip", "fail", "confirm", "question", "ok_chirp", "grumble",
     "scan", "goodbye"];  // proto::SoundId order (spec 02 §A9 catalogue)
   var ws = null, wsOpen = false, you = "", synced = false, owner = "none", ownerClient = "";
-  var nextId = 1, retryMs = 1000, pingTimer = 0, camLocked = false;
+  var nextId = 1, retryMs = 1000, pingTimer = 0, camLocked = false, lastRxAt = 0;
   var speed = 60;
   try { speed = Number(localStorage.getItem("cq_speed")) || 60; } catch (e) { /* private mode */ }
   $("speed").value = speed;
@@ -238,18 +232,23 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       setWs("on", "--");
       send({ t: "hello", client: "basic-drive", proto: 1 });
       clearInterval(pingTimer);
-      pingTimer = setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
+      lastRxAt = Date.now();
+      pingTimer = setInterval(function () {  // review M8: a silent socket is closed and reconnected (not shown as live)
+        if (Date.now() - lastRxAt > 4000) { ws.close(); return; }
+        send({ t: "ping", t0: Date.now() });
+      }, 1000);
       setPads();
     };
     ws.onmessage = function (ev) {
       var m;
+      lastRxAt = Date.now();
       try { m = JSON.parse(ev.data); } catch (e) { return; }
       onMessage(m);
     };
     ws.onclose = function () {
       wsOpen = false; synced = false;
       clearInterval(pingTimer);
-      releaseAll(false);
+      releaseAll();
       setWs("", "OFF");
       setPads();
       setTimeout(connect, retryMs);
@@ -268,7 +267,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
         you = m.you || "";
         showCaps(m.tank && m.tank.caps ? m.tank.caps : {});
         showOwner(m.owner, m.owner_client);
-        if (rc) setLock(true);  // RC mode: the camera stays where it is dragged (also after a reconnect / Uno reboot)
+        setLock(rc || camLocked);  // sync the tank's lock to the page (RC: on); again on body_online (review I4)
         break;
       case "tf": showFast(m); break;
       case "ts": showSlow(m); break;
@@ -278,7 +277,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       case "ack":  // chip follows at once; ts (1 Hz, may still be older) is ignored for 2.5 s
         if (m.id === audioAsk.id) { showAudio(audioAsk.mode); audioHoldUntil = Date.now() + 2500; }
         break;
-      default: break;  // ack
+      default: break;  // other messages are not used by this page
     }
   }
   // Features the tank's firmware lacks are hidden (HELLO CapBits): MOVES needs turn/move, SOUNDS needs audio_led.
@@ -346,7 +345,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   var CARD = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
   function norm(a) { return ((Math.round(a) % 360) + 360) % 360; }
   // Heading tape (R3.9): 2.8 px per degree, ticks every 5° (longer every 15°), numbers every 30°, letters every 45°.
-  var TAPE_PX = 2.8;
+  var TAPE_PX = 2.8, tapeFont = "";
   function drawTape(head) {
     var c = $("hdgTape"), dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
     if (!w) return;
@@ -354,7 +353,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     var g = c.getContext("2d"), mid = w / 2, hd = norm(head);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
-    g.font = "bold 10px " + getComputedStyle(document.body).fontFamily;
+    g.font = tapeFont || (tapeFont = "bold 10px " + getComputedStyle(document.body).fontFamily);
     g.textAlign = "center";
     var span = Math.ceil(mid / TAPE_PX / 5) * 5 + 5;
     for (var d = Math.floor((head - span) / 5) * 5; d <= head + span; d += 5) {
@@ -378,6 +377,13 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     showCam(m.pan, m.tilt);
     vit.spd = "SPEED " + Math.max(Math.abs(m.spd_cmd[0]), Math.abs(m.spd_cmd[1])) + "%";
     showVitals();
+    if (m.dist_fault) {  // review I5: a faulted sensor is never shown as a clear path
+      rangeView = new RangeView();
+      $("distTxt").textContent = "FAULT";
+      $("distTxt").className = "gval bad";
+      $("distMask").style.height = "100%";
+      return;
+    }
     var d = rangeView.push(m.dist_cm);
     $("distTxt").textContent = d === null ? "CLEAR" : d + "cm";
     var pct = d === null ? 0 : Math.max(4, 100 - Math.min(d, 200) / 2);  // fuller = closer (0–2 m); colour from the scale
@@ -385,11 +391,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     $("distTxt").className = "gval " + (d !== null && d < 15 ? "bad" : d !== null && d < 50 ? "warn" : "ok");
   }
   // Battery value on top of the gauge (owner, 2026-10-15): the voltage (or USB); the bar shows the charge.
-  var batt = null;
-  function showBatt() {
-    if (!batt) return;
-    $("battTxt").textContent = batt.usb ? "USB" : batt.v.toFixed(2) + "V";
-    $("battTxt").className = "gval " + (batt.usb ? "" : batt.cls || "ok");
+  function showBatt(usb, v, cls) {
+    $("battTxt").textContent = usb ? "USB" : v.toFixed(2) + "V";
+    $("battTxt").className = "gval " + (usb ? "" : cls || "ok");
   }
   function showSlow(m) {
     if (m.batt_v !== null) {
@@ -399,8 +403,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       var pct = battPct(v);
       var cls = m.flags.indexOf("batt_critical") >= 0 ? "bad" : m.flags.indexOf("batt_low") >= 0 ? "warn" : "";
       // Below 5.5 V there is no pack: USB back-feed (same rule as the body firmware, spec 02 §D6.3).
-      batt = { usb: usb, pct: pct, v: v, cls: cls };
-      showBatt();
+      showBatt(usb, v, cls);
       $("battMask").style.height = (usb ? 0 : 100 - Math.max(3, pct)) + "%";  // empty part masked, colour from the scale
       $("battBar").className = usb ? "battbar usb" : "battbar";
     }
@@ -431,7 +434,10 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     $("ownerChip").textContent = txt;
     var busy = owner !== "none" && !(owner === "human" && ownerClient === you);  // someone else steers
     $("camPad").classList.toggle("ind", busy);  // ring becomes a camera indicator (R3.2)
-    if (busy && cam.held) cam.release(false);  // not ours any more: the owner's commands rule
+    if (busy) {  // not ours any more: stop our camera input (review I2) - the owner's commands rule
+      cam.release(false); clearInterval(camTimer); camTimer = 0;
+      endLook(true);
+    }
     $("camWho").textContent = !busy ? "CAM" : owner === "human" ? (ownerClient.toUpperCase() || "HUMAN") : owner.toUpperCase();
     $("ownerChip").className = busy ? "warn" : "";
     if (!busy && bannerKind === "warn") banner("", "");
@@ -441,6 +447,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     else if (m.kind === "deadman_stop") toast("Stopped: no drive signal (deadman)");
     else if (m.kind === "blocked") toast("Obstacle brake: " + m.dist_cm + " cm");
     else if (m.kind === "ir_override") toast("IR remote took control");
+    else if (m.kind === "body_online") setLock(rc || camLocked);  // a rebooted Uno starts unlocked (review I4)
     else if (m.kind === "batt_critical") toast("Battery critical " + m.v.toFixed(2) + " V");
     else if (m.kind === "body_offline" && m.reason === "BODY_INCOMPATIBLE")
       banner("bad", "Uno protocol " + m.uno_proto + " - flash a matching body firmware (needs " + m.need_proto + ")");
@@ -455,11 +462,15 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     $("audioTxt").textContent = mode === "quiet" ? "QUIET" : "";
   }
   function onNack(m) {
+    if (m.id === lockAsk.id) showLock(lockAsk.prev);  // refused: the button shows the real state (review I4)
+    var other = owner !== "none" && !(owner === "human" && ownerClient === you);
     if (m.id === lastSoundId && audio !== "normal") {  // the Uno refuses sounds while muted / quiet
       toast(audio === "mute" ? "Tank is muted - tap 🔊" : "Tank is in quiet mode - tap 🔊");
-    } else if (m.reason === "NOT_OWNER" || m.reason === "BUSY") {
+    } else if (m.reason === "NOT_OWNER" || (m.reason === "BUSY" && other)) {
       var who = owner === "ir" ? "the IR remote" : (ownerClient || "someone");
       banner("warn", "Busy - " + who + " is driving");
+    } else if (m.reason === "BUSY") {
+      toast("Tank busy - try again");  // e.g. two taps faster than the tank's acknowledgement (review M1)
     } else if (m.reason === "BODY_OFFLINE") {
       banner("bad", "Tank body offline");
     } else {
@@ -490,12 +501,17 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     $("wifiChip").innerHTML = '<svg viewBox="0 0 24 24">' + WIFI_ICON[k] + "</svg>";
     $("wifiChip").className = "chip glass " + cls;
   }
-  function pollWifi() {
-    fetch("/info", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
+  var wifiBusy = false;
+  function pollWifi() {  // one poll at a time, 5 s timeout (review M15)
+    if (wifiBusy) return;
+    wifiBusy = true;
+    var ctl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 5000);
+    fetch("/info", { cache: "no-store", signal: ctl ? ctl.signal : undefined }).then(function (r) { return r.json(); }).then(function (d) {
       var rssi = d.net && typeof d.net.rssi === "number" ? d.net.rssi : null;
       var k = rssi === null ? "zero" : rssi > -55 ? "full" : rssi > -65 ? "high" : rssi > -75 ? "low" : "zero";
-      showWifi(k, rssi !== null && rssi <= -65 ? "warn" : "");
-    }).catch(function () { showWifi("off", "bad"); });
+      showWifi(k, rssi === null || rssi <= -65 ? "warn" : "");
+    }).catch(function () { showWifi("off", "bad"); }).then(function () { clearTimeout(timer); wifiBusy = false; });
   }
 
   // ---------- joysticks (pointer events: touch + mouse) ----------
@@ -592,9 +608,12 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     send({ t: "stop", id: nextId++ });
   }
   var drive = new Stick($("drivePad"), startDriveTimer, stopDrive);
-  function rcRelease() { if (!thr.held && !steer.held) stopDrive(); }  // one thumb still on: keep driving
-  var thr = new Stick($("thrPad"), startDriveTimer, rcRelease, "y");
-  var steer = new Stick($("steerPad"), startDriveTimer, rcRelease, "x");
+  // Review I3 (owner option A): lifting a thumb never speeds the tank up. Throttle released while steering → stop and
+  // drop the steering too (press it again, throttle at rest, to spin). Steering released → keep going on the throttle.
+  function thrRelease() { if (steer.held) steer.release(false); stopDrive(); }
+  function steerRelease() { if (!thr.held) stopDrive(); }
+  var thr = new Stick($("thrPad"), startDriveTimer, thrRelease, "y");
+  var steer = new Stick($("steerPad"), startDriveTimer, steerRelease, "x");
 
   function sendCam() {
     if (ws && ws.bufferedAmount > 0) return;  // same rule as drive (review I2)
@@ -607,9 +626,11 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     send({ t: "cam_joy", x: 0, y: 0, active: false });  // the Uno glides home after its delay unless locked
   });
 
-  function releaseAll(notify) {
-    drive.release(notify); cam.release(notify); thr.release(false); steer.release(false); endLook();
-    if (!notify) { clearInterval(driveTimer); driveTimer = 0; clearInterval(camTimer); camTimer = 0; }
+  // Drops every input without sending (callers send the stop); an open camera stream ends by the Uno's 500 ms
+  // joystick timeout (review M2).
+  function releaseAll() {
+    drive.release(false); cam.release(false); thr.release(false); steer.release(false); endLook(true);
+    clearInterval(driveTimer); driveTimer = 0; clearInterval(camTimer); camTimer = 0;
   }
   function setPads() {
     var off = !wsOpen;
@@ -622,7 +643,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   // ---------- buttons ----------
   $("stop").addEventListener("pointerdown", function (ev) {
     ev.preventDefault();
-    releaseAll(false);
+    releaseAll();
     send({ t: "stop", id: nextId++ });
     if (navigator.vibrate) navigator.vibrate(60);
   });
@@ -632,12 +653,24 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   });
   $("camHome").addEventListener("click", function () { send({ t: "cam_home", id: nextId++ }); });
   $("camLock").addEventListener("click", function () {
-    camLocked = !camLocked;
-    $("camLock").classList.toggle("on", camLocked);
-    send({ t: "cam_lock", on: camLocked, id: nextId++ });
+    setLock(!camLocked);
     toast(camLocked ? "Camera stays where you leave it" : "Camera returns home on release");
   });
   $("snap").href = "http://" + location.hostname + ":81/capture";
+  // Review M9: fetch the photo and save it here - a failed capture never replaces the cockpit with an error page.
+  $("snap").addEventListener("click", function (ev) {
+    ev.preventDefault();
+    fetch($("snap").href, { cache: "no-store" }).then(function (r) {
+      if (!r.ok) throw new Error(String(r.status));
+      return r.blob();
+    }).then(function (b) {
+      var a = document.createElement("a"), url = URL.createObjectURL(b);
+      a.href = url; a.download = "tank-" + new Date().toISOString().replace(/[:.]/g, "-") + ".jpg";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+      toast("Photo saved");
+    }).catch(function () { toast("Photo failed - try again"); });
+  });
   $("speed").addEventListener("input", function (ev) {
     speed = Number(ev.target.value);
     $("speedTxt").textContent = speed + "%";
@@ -676,7 +709,6 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   $("tiltBtn").addEventListener("click", function () {
     function toggle() {
       tiltOn = !tiltOn;
-      $("tiltState").textContent = tiltOn ? "[ ON ]" : "[ OFF ]";
       $("tiltBtn").classList.toggle("on", tiltOn);
       toast(tiltOn ? "Tilt steering: hold the pad to drive" : "Joystick steering");
     }
@@ -690,14 +722,18 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   });
 
   // ---------- controls: single stick / RC two-hand (R3.4) ----------
+  var lockAsk = { id: -1, prev: false };
+  function showLock(on) { camLocked = on; $("camLock").classList.toggle("on", on); }
   function setLock(on) {
-    camLocked = on;
-    $("camLock").classList.toggle("on", on);
+    lockAsk = { id: nextId, prev: camLocked };
+    showLock(on);
     send({ t: "cam_lock", on: on, id: nextId++ });
   }
   function setControls(mode, fromUser) {
     var was = rc;
-    if (driveTimer) { releaseAll(false); send({ t: "stop", id: nextId++ }); } else { releaseAll(false); }
+    var driving = driveTimer !== 0;  // defensive: the mode chip already refuses while a control is held
+    releaseAll();
+    if (driving) send({ t: "stop", id: nextId++ });
     rc = mode === "rc";
     document.body.classList.toggle("rc", rc);
     $("camPad").classList.toggle("mini", rc);
@@ -723,11 +759,11 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     if (ws && ws.bufferedAmount > 0) return;
     send({ t: "cam_joy", x: Math.round(look.x), y: Math.round(look.y), active: true });
   }
-  function endLook() {
+  function endLook(silent) {  // silent: control was lost / page released - send nothing
     if (look.id === null) return;
     look.id = null;
     clearInterval(look.timer); look.timer = 0;
-    if (look.moved) { sendLook(); send({ t: "cam_joy", x: 0, y: 0, active: false }); }  // LOCK keeps the view
+    if (look.moved && !silent) { sendLook(); send({ t: "cam_joy", x: 0, y: 0, active: false }); }  // LOCK keeps the view
   }
   function onVideo(ev) { return ev.target === $("video") || ev.target === $("noVideo"); }
   document.addEventListener("pointerdown", function (ev) {
@@ -767,12 +803,14 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 
   // ---------- safety: hidden page / closing = stop ----------
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden) { releaseAll(false); send({ t: "stop", id: nextId++ }); }
+    if (document.hidden) { releaseAll(); send({ t: "stop", id: nextId++ }); }
   });
-  window.addEventListener("pagehide", function () { releaseAll(false); send({ t: "stop" }); });
+  window.addEventListener("pagehide", function () { releaseAll(); send({ t: "stop" }); });
   window.addEventListener("blur", function () {
     if (drive.held) drive.release(true);
     if (thr.held || steer.held) { thr.release(false); steer.release(false); stopDrive(); }
+    if (cam.held) cam.release(true);  // review I2: the camera stream ends too
+    endLook();
   });
 
   // ---------- camera (MJPEG on port 81, max 2 viewers) ----------

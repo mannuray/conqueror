@@ -678,25 +678,25 @@ Page only (`web/basic_drive.html`): filters change what is **shown**, never what
 
 ```mermaid
 classDiagram
-  class Median5 { -buf[5] +push(v) number }
+  class RangeView { -buf[5] median of 5 +push(cm or null) shown cm or null }
   class Ema { -alpha -value +push(v) number }
   class MeanN { -n -buf +push(v) number +reset() }
-  class RangeView { Median5 · fast-closer / slow-farther }
-  RangeView ..> Median5
+  class TurnRate { median of 3 then Ema(0.3), |x| < 2 → 0 }
+  TurnRate ..> Ema
 ```
 
 ### R3.4 RC two-hand controls (owner, 2026-10-15; hub-ux "Drive controls — RC two-hand mode")
 Page only; the bridge and the Uno are unchanged (the page converts to `drive {v, w}` and `cam_joy`).
 - `Stick(el, onMove, onRelease, axis)`: axis `"xy"` (pads), `"y"` (throttle slider), `"x"` (steering slider).
 - **RC → drive:** T = shape(throttle), S = shape(steer), θs = |S|·75°, T0 = 0.15. If S = 0: v = T, w = 0. Else blend b = max(0, 1 − |T|/T0): θ = θs + (90° − θs)·b, M = |T| + (|S| − |T|)·b; v = sign(T)·M·cos θ, w = −sign(S)·M·sin θ; × MAX. The Uno's angle mix (spec 02 §A4.1) turns that "virtual stick" into the tracks, so full steering = the 75° pivot at any speed and zero throttle = spin.
-- **Drag camera:** virtual camera stick (x, y) seeded from the last `tf.pan/tilt` (Lite mapping 0.9°/unit: x = (90 − pan)/0.9, y = (90 − tilt)/0.9); drag adds dx/width·200 to x and −dy/width·200 to y (game style, full width = 180°), clamped ±100, sent as `cam_joy active` at 20 Hz; release sends `active:false` (LOCK keeps it). Double-tap (2 taps < 300 ms, < 10 px) → `cam_home`. Entering RC mode (and every `welcome` while in it) sends `cam_lock on`; leaving sends `cam_lock off`.
+- **Drag camera:** virtual camera stick (x, y) seeded from the last `tf.pan/tilt` (Lite mapping 0.9°/unit: x = (90 − pan)/0.9, y = (90 − tilt)/0.9); drag adds dx/width·200 to x and −dy/width·200 to y (game style, full width = 180°), clamped ±100, sent as `cam_joy active` at 20 Hz; release sends `active:false` (LOCK keeps it). Double-tap (2 taps < 300 ms, within 30 px) → `cam_home`. Entering RC mode (and every `welcome` while in it) sends `cam_lock on`; leaving sends `cam_lock off`.
 - **Mode chip** (`#ctlChip`, top row): shows STICK / RC; tap → `setControls(other, true)` unless `drive`, `thr` or `steer` is held (toast, no switch) — a switch never happens mid-drive.
 
 ```mermaid
 stateDiagram-v2
   [*] --> Single: default / stored choice
-  Single --> RC: speed sheet "RC two-hand" (cam_lock on)
-  RC --> Single: speed sheet "Single stick" (cam_lock off)
+  Single --> RC: mode chip (cam_lock on)
+  RC --> Single: mode chip (cam_lock off)
   state RC {
     [*] --> Idle
     Idle --> Driving: throttle or steering held (drive every 50 ms)
@@ -711,7 +711,7 @@ stateDiagram-v2
 - Mode chip `#ctlChip` moved out of the full chip row to the top right, `right = edge + 128 px` (a clear gap left of STOP); still ignored while a drive control is held.
 - Speaker chip moved next to the mode chip (`.rchips`, top right, left of STOP); the speed sheet holds only the MAX slider — the mode chip is the only mode switch (owner, 2026-10-15).
 
-### R3.6 Bigger sticks (owner, 2026-10-15)
+### R3.6 Bigger sticks (owner, 2026-10-15) — sizes superseded by R3.8 (equal rings, `--pad` only)
 - Stick sizes as CSS variables: `--pad` = min(44vh, 29vw, 240px), `--pad-s` (camera) = min(40vh, 26vw, 210px); short screens (≤ 380 px tall, e.g. a phone with the browser bar) min(55vh, 27vw, 210px) / min(48vh, 23vw, 180px) — about 40 % larger than before. RC sliders follow (`--pad`, steering = 1.2·`--pad-s`).
 - Side gauges: from below STOP (60 px) down to `--pad` + 34 px, so they never meet the sticks (on very short screens the bars are short; the values stay).
 - Narrow screens (< 800 px): LOCK / HOME / TILT STEER icon-only (like the pills). RC mode: HOME stacks above the camera indicator.
@@ -719,7 +719,7 @@ stateDiagram-v2
 
 ### R3.7 Edge gauges full height, Lucide icons (owner, 2026-10-15)
 - **Gauges (option 1C):** battery and range bars run along the screen edges from below the top row (60 px) to 10 px above the bottom; both sticks sit 24 px further in (`.left` / `.right` offsets) so bars and sticks never touch. Values stay on top of the bars. TILT STEER becomes a small icon button at the drive ring's top-right corner (outside the circle).
-- **Icons:** Lucide (ISC/MIT-style licence, lucide-static, pinned version), **inlined** as SVG paths — never loaded from the network (the phone may be on the bridge's own WiFi without internet). Mapping: MAX `gauge`, mode chip `joystick` (STICK) / `gamepad-2` (RC), speaker `volume-2` / `volume-x`, SNAP `camera`, SOUNDS `music`, MOVES `footprints`, LOCK `lock` / `lock-open`, HOME `locate-fixed`, STOP `hand`, TILT `smartphone`, drive knob `navigation-2`, camera knob `scan-eye`, steering knob `circle-dot`, throttle knob `chevrons-up-down`, battery chip/none. Licence notice in the page head comment.
+- **Icons:** Lucide (ISC/MIT-style licence, lucide-static, pinned version), **inlined** as SVG paths — never loaded from the network (the phone may be on the bridge's own WiFi without internet). Mapping: MAX `gauge`, mode chip `joystick` (STICK) / `gamepad-2` (RC), speaker `volume-2` / `volume-x`, SNAP `camera`, SOUNDS `music`, MOVES `footprints`, LOCK `lock` (the ON state is the green fill), HOME `locate-fixed`, STOP `hand`, TILT `smartphone`, drive knob `navigation-2`, camera knob `scan-eye`, steering knob `circle-dot`, throttle knob `chevrons-up-down`, battery chip/none. Licence notice in the page head comment.
 
 ### R3.8 WiFi icon, equal rings, RC transmitter layout (owner, 2026-10-15)
 - **WiFi chip (1A):** Lucide `wifi` (RSSI > −55 dBm), `wifi-high` (> −65), `wifi-low` (> −75, amber), `wifi-zero` (≤ −75, amber), `wifi-off` (`/info` unreachable, red); no "WIFI" text.
@@ -727,4 +727,54 @@ stateDiagram-v2
 - **RC like a stick transmitter:** throttle (left, vertical) and steering (right, horizontal) have the **same travel** (steering width = throttle height = `--pad`) and the **same centre height** (steering lifted by `--pad`/2 − 32 px); camera indicator + title above the steering slider, HOME to its left — all out of the thumbs' resting path.
 
 ### R3.9 Heading tape (owner, 2026-10-15, option A)
-`<canvas id="hdgTape">` + `<b id="hdgVal">` in the top-centre glass (width min(280 px, 28 vw), 44 px tall). `drawTape(head)` (called per `tf`, 10 Hz) clears and redraws: 2.8 px per degree, minor tick every 5°, medium every 15°, labels every 15° step that is a multiple of 30° (numbers) or 45° (N, NE, E, SE, S, SW, W, NW — a letter wins over a number), fixed centre caret; canvas backing size = CSS size × devicePixelRatio (set on resize). No images, no libraries.
+`<canvas id="hdgTape">` + `<b id="hdgVal">` in the top-centre glass (width min(280 px, 28 vw), 46 px tall). `drawTape(head)` (called per `tf`, 10 Hz) clears and redraws: 2.8 px per degree, minor tick every 5°, medium every 15°, labels every 15° step that is a multiple of 30° (numbers) or 45° (N, NE, E, SE, S, SW, W, NW — a letter wins over a number), fixed centre caret; canvas backing size = CSS size × devicePixelRatio (set on resize). No images, no libraries.
+
+### R3.10 Review fixes (owner, 2026-10-15: "fix all", RC option A) and diagrams for R3.5–R3.9
+Whole-branch review (60ec480..f275f7a): no critical, 5 important, 24 minor findings. Fixed:
+- **Stream sockets closed** when a viewer's frame loop ends (`httpd_sess_trigger_close` before `httpd_req_async_handler_complete`) — `complete` alone leaves the socket open (no LRU purge), freezing the page's video and filling the 2 stream sockets. Named task constants; "camera unavailable" vs "max 2 viewers".
+- **Camera input ends on owner change and on blur** (cam stream timer cleared, drag-to-look ended silently) — it pinned the camera at home after control returned.
+- **RC option A:** lifting the throttle while steering stops and drops the steering (press again from rest to spin); lifting the steering keeps the throttle. Lifting a thumb never speeds the tank up.
+- **Camera lock synced:** `cam_lock` (rc or the page's lock) on `welcome` and on `ev body_online` (a rebooted Uno starts unlocked); a refused lock reverts the button.
+- **Range fault:** `tf` adds `"dist_fault":true` for a faulted sensor (spec 01 §6.1); the page shows red FAULT, never CLEAR.
+- Minor: BUSY wording (another driver vs "Tank busy - try again"); SNAP fetched as a blob and saved (a failed capture never leaves the page); WebSocket closed after 4 s of silence (reconnect); WiFi poll one at a time with a 5 s timeout, unknown RSSI amber; `cam_lock` needs `on`; audio modes from `proto::AudioModeValue`; sound list count `static_assert`ed against `proto::SoundId`; full-firmware `mix()` returns 0/0 instead of NaN when steering is cancelled at standstill; dead CSS/JS/ids removed; stale comments fixed.
+- Deferred (owner may revisit): splitting `handleWsText` / `parseWsCommand` (over 40 lines); per-viewer task stack allocated per connection (bounded by 2 viewers) instead of at start-up; drag-to-look mapping for the full firmware's camera ranges; ~7 % over-MAX near 20° stick angle; drag start from the servo position instead of its target.
+
+```mermaid
+classDiagram
+  class CockpitPage { <<web, basic_drive.html>> chips · heading tape · gauges · sticks / RC sliders · pills · sheets }
+  class HeadingTape { +drawTape(yaw) canvas 2.8 px/° }
+  class EdgeGauges { battery voltage + bar · range cm/CLEAR/FAULT + bar }
+  class TopRightChips { speaker chip · mode chip (STICK/RC) }
+  class Stick { +x +y +held +release(notify) axis xy/x/y }
+  class RcMapper { +rcDrive(t, s) virtual stick }
+  class DragLook { cam_joy 20 Hz · double-tap home }
+  class Filters { RangeView · TurnRate · MeanN }
+  CockpitPage *-- HeadingTape
+  CockpitPage *-- EdgeGauges
+  CockpitPage *-- TopRightChips
+  CockpitPage *-- Stick
+  CockpitPage *-- RcMapper
+  CockpitPage *-- DragLook
+  EdgeGauges ..> Filters
+```
+```mermaid
+sequenceDiagram
+  participant T as Throttle thumb
+  participant S as Steering thumb
+  participant P as Page
+  participant B as Bridge / Uno
+  T->>P: hold 70 %
+  S->>P: hold full right
+  P->>B: drive (pivot) every 50 ms
+  T-->>P: lift
+  P->>B: stop
+  P->>P: steering dropped (option A)
+  S-->>P: lift, press again from rest
+  P->>B: drive (spin) every 50 ms
+```
+```mermaid
+stateDiagram-v2
+  [*] --> Streaming: viewer slot + async handler + cq-stream task
+  Streaming --> Closing: send failed / camera stopped / frame timeout
+  Closing --> [*]: sess_trigger_close, async_handler_complete, slot released, task deleted
+```

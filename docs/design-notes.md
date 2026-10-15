@@ -1014,3 +1014,6 @@ Stand result (2026-10-15, bridge `2503830`, Uno `567c54d`, MAX 60 %, real touch 
 
 ## 49. Phone page polish (DECIDED 2026-10-15, owner)
 Sticks ~40 % larger; battery / range bars full height along the screen edges (sticks moved in); speaker and mode chips left of STOP, mode chip is the only mode switch; gauge values on top of the bars (voltage / cm); icons from Lucide, built into the page (no internet needed). Details: bridge LLD R3.5–R3.7.
+
+## 50. Code review of the session's changes (DONE 2026-10-15, owner: "fix all", RC option A)
+Fresh review of 38 commits (page, bridge, Uno): 0 critical, 5 important (stream sockets not closed → frozen video; camera input not ended on owner change; RC throttle lift sped the tank up; camera lock lost after a Uno reboot; faulted range sensor shown as CLEAR), 24 minor. All important and most minor fixed with tests (bridge 110, Uno 252 host tests; page checked on a recorded fake connection); deferred items listed in bridge LLD R3.10.

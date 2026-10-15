@@ -294,8 +294,8 @@ flowchart TD
 ```
 ```mermaid
 classDiagram
-  class DriveMixLite { +mixLite(v, w_steer, w_ctrl, turn_full) Tracks -angleMixLite(v, w) Tracks -arcadeMixLite(v, w_ctrl) Tracks }
+  class DriveMixLite { +mixLite(v, w_steer, w_ctrl, turn_full) Tracks -angleMixLite(v, w) Tracks }
   class HeadingHoldLite { +teleop() w_steer, w_ctrl (w_ctrl = 0 while steering) }
   HeadingHoldLite ..> DriveMixLite
 ```
-Tests (`test_drive_mix_lite`): `test_angle_mix_45_is_forward_arc` (71/71 → 35/97 order by side), `test_angle_mix_spin_only_near_sideways` (75° → inner 0, 80° → inner < 0, 90° → −m/+m), `test_angle_mix_reverse_both_tracks_back`, `test_ir_axes_unchanged` (±80 on each axis = old values), `test_straight_with_correction_unchanged` (w_steer 0 path = old values).
+Tests (`test_lite_motion`): `test_angle_mix_45_is_forward_arc` (71/71 → 35/97 order by side), `test_angle_mix_spin_only_near_sideways` (75° → inner 0, 80° → inner < 0, 90° → −m/+m), `test_angle_mix_reverse_both_tracks_back`, `test_ir_axes_unchanged` (±80 on each axis = old values), `test_straight_with_correction_unchanged` (w_steer 0 path = old values).

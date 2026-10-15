@@ -1031,4 +1031,5 @@ Fresh review of 38 commits (page, bridge, Uno): 0 critical, 5 important (stream 
 | 8 | Bench killed mid-drive (RST, no STOP) | ✅ bridge noticed in 17 ms, injected STOP: tracks 0/0 within 95 ms |
 | 9 | Source download while driving | ⚠️ download correct (954,502 B, 455 files, 1.8 s) but driving disturbed: the download and the page's WebSocket share the port-80 server, drives were delayed → 3 deadman stops (safe) and one RATE_LIMITED burst. Fixed the same day (owner): moved to port 81, port 80 redirects (bridge LLD R3.11); re-test below |
 | 10 | Phone sleeps while driving (power button) | ✅ tank stopped (owner observed) |
+| 9b | Source download while driving, after R3.11 (bridge `ad9e6c9`) | ✅ two downloads via the port-80 link (302 → :81), 956,548 B each, valid; driving: no deadman stop, no RATE_LIMITED |
 Notes: during check 7 the tank drove into a wall on the floor and the owner lifted it; the logged −100/100 track targets were heading hold reacting to the lift (targets are before the lift cut-off). Review in the floor tests whether the heading-hold correction should be capped to the driver's speed.

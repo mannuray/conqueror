@@ -710,3 +710,9 @@ stateDiagram-v2
 - Side gauges: the glass boxes are gone; each gauge is a column (value on top, thin bar below, aligned to its screen edge). Battery value = filtered voltage (`x.xxV`, status colour) or `USB`; range value = filtered `nncm` / `CLEAR`. The charge is read from the bar.
 - Mode chip `#ctlChip` moved out of the full chip row to the top right, `right = edge + 128 px` (a clear gap left of STOP); still ignored while a drive control is held.
 - Speaker chip moved next to the mode chip (`.rchips`, top right, left of STOP); the speed sheet holds only the MAX slider — the mode chip is the only mode switch (owner, 2026-10-15).
+
+### R3.6 Bigger sticks (owner, 2026-10-15)
+- Stick sizes as CSS variables: `--pad` = min(44vh, 29vw, 240px), `--pad-s` (camera) = min(40vh, 26vw, 210px); short screens (≤ 380 px tall, e.g. a phone with the browser bar) min(55vh, 27vw, 210px) / min(48vh, 23vw, 180px) — about 40 % larger than before. RC sliders follow (`--pad`, steering = 1.2·`--pad-s`).
+- Side gauges: from below STOP (60 px) down to `--pad` + 34 px, so they never meet the sticks (on very short screens the bars are short; the values stay).
+- Narrow screens (< 800 px): LOCK / HOME / TILT STEER icon-only (like the pills). RC mode: HOME stacks above the camera indicator.
+- Checked: no overlaps in single and RC mode at 710×317, 740×360, 844×390, 915×412. Tip for the owner: "Add to Home Screen" runs the page full screen (manifest), giving the sticks and gauges more height.

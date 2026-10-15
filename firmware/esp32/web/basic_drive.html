@@ -19,6 +19,8 @@
   --warn: #ffb000; --danger: #ff3b30; --active: #e8ffe8; --text: #b8f5c8;
   --glow: 0 0 8px rgba(51, 255, 102, .35);
   --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  /* Stick sizes (owner, 2026-10-15: ~40 % larger so fingers are not constrained); the side gauges end above them. */
+  --pad: min(44vh, 29vw, 240px); --pad-s: min(40vh, 26vw, 210px);
   --edge: max(10px, env(safe-area-inset-left)); --redge: max(10px, env(safe-area-inset-right));
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -54,11 +56,11 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 #stop svg { width: 18px; height: 18px; }
 #stop:active { transform: scale(.97); filter: brightness(1.2); }
 /* Side gauges (2A): a thin bar with its value on top, aligned to the screen edge; no box. */
-.dist { right: var(--redge); top: 46px; bottom: 160px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+.dist { right: var(--redge); top: 60px; bottom: calc(var(--pad) + 34px); display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
 .gval { font-size: 12px; font-weight: 700; color: var(--ui); white-space: nowrap; text-shadow: 0 0 3px #000, 0 0 6px rgba(0, 0, 0, .85); }
 .distbar { width: 9px; border-radius: 5px; border: 1px solid var(--edge-c); position: relative; overflow: hidden;
   background: linear-gradient(to top, #33ff66 0%, #33ff66 45%, #ffb000 72%, #ff3b30 100%); }
-.batt { left: var(--edge); top: 46px; bottom: 160px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.batt { left: var(--edge); top: 60px; bottom: calc(var(--pad) + 34px); display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 .distbar, .battbar { flex: 1; }
 /* Battery scale as the range scale: red at the bottom (critical 6.6 V = 0 %), amber at low (7.2 V = 20 %), green above. */
 .battbar { width: 9px; border-radius: 5px; border: 1px solid var(--edge-c); position: relative; overflow: hidden;
@@ -68,11 +70,11 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 #distMask { position: absolute; left: 0; right: 0; top: 0; height: 100%; background: rgba(5, 10, 6, .9); }
 .stick { display: flex; flex-direction: column; gap: 5px; align-items: center; }
 .stick .ttl { color: var(--ui); font-size: 10px; letter-spacing: .12em; text-shadow: var(--glow); }
-.pad { position: relative; width: min(31vh, 21vw, 170px); aspect-ratio: 1; border-radius: 50%; border: 2px solid rgba(51, 255, 102, .55);
+.pad { position: relative; width: var(--pad); aspect-ratio: 1; border-radius: 50%; border: 2px solid rgba(51, 255, 102, .55);
   background: radial-gradient(circle, rgba(6, 18, 9, .55) 55%, rgba(6, 18, 9, .8)); box-shadow: 0 0 16px rgba(51, 255, 102, .28), inset 0 0 22px rgba(51, 255, 102, .12); touch-action: none; }
 .pad::before, .pad::after { content: ""; position: absolute; background: rgba(51, 255, 102, .2); }
 .pad::before { left: 50%; top: 10%; bottom: 10%; width: 1px; } .pad::after { top: 50%; left: 10%; right: 10%; height: 1px; }
-.pad.small { width: min(29vh, 19vw, 150px); }
+.pad.small { width: var(--pad-s); }
 .knob { position: absolute; left: 50%; top: 50%; width: 34%; height: 34%; margin: -17% 0 0 -17%; border-radius: 50%; z-index: 1;
   background: radial-gradient(circle at 45% 40%, #1d7a35, #0b3d18 70%); border: 2px solid #33ff66;
   box-shadow: 0 0 18px rgba(51, 255, 102, .7), inset 0 0 10px rgba(51, 255, 102, .35);
@@ -93,8 +95,8 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 /* RC two-hand mode (R3.4): throttle (vertical) and steering (horizontal) sliders; the camera ring shrinks to an indicator. */
 .slider { position: relative; border-radius: 32px; border: 2px solid rgba(51, 255, 102, .55); background: rgba(6, 18, 9, .6);
   box-shadow: 0 0 16px rgba(51, 255, 102, .28), inset 0 0 18px rgba(51, 255, 102, .12); touch-action: none; }
-.slider.v { width: 64px; height: min(31vh, 21vw, 170px); }
-.slider.h { height: 64px; width: min(36vh, 24vw, 190px); }
+.slider.v { width: 64px; height: var(--pad); }
+.slider.h { height: 64px; width: calc(var(--pad-s) * 1.2); }
 .slider::before { content: ""; position: absolute; background: rgba(51, 255, 102, .25); }
 .slider.v::before { top: 50%; left: 15%; right: 15%; height: 1px; } .slider.h::before { left: 50%; top: 15%; bottom: 15%; width: 1px; }
 .slider .knob { width: 48px; height: 48px; margin: -24px 0 0 -24px; }
@@ -105,6 +107,8 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 body:not(.rc) #thrPad, body:not(.rc) #steerPad { display: none; }
 body.rc #drivePad, body.rc #tiltBtn, body.rc #camLock { display: none !important; }
 body.rc #video, body.rc #noVideo { touch-action: none; }
+body.rc .right { flex-direction: column; align-items: flex-end; gap: 4px; }  /* RC: HOME above the camera indicator, clear of the centre pills */
+body.rc .right .col { margin-bottom: 0; }
 .btn.on { background: var(--ui); color: #032; }
 .stick .ttl i { font-style: normal; color: var(--active); margin-left: 4px; }
 .lbl { position: absolute; font-size: 7px; color: var(--dim); letter-spacing: .05em; }
@@ -139,8 +143,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 #rotate { position: fixed; inset: 0; z-index: 9; display: none; align-items: center; justify-content: center; text-align: center; padding: 24px;
   background: var(--bg); color: var(--ui); text-shadow: var(--glow); letter-spacing: .1em; }
 @media (orientation: portrait) { #rotate { display: flex; } }
-@media (max-width: 800px) { .pill .lab { display: none; } }  /* narrow phones: icon-only pills, MAX keeps its value */
-@media (max-height: 380px) { .pad { width: min(36vh, 19vw, 150px); } .pad.small { width: min(31vh, 16vw, 125px); } .chip { padding: 4px 7px; } }
+/* Narrow phones: icon-only pills (MAX keeps its value), LOCK / HOME / TILT STEER icon-only so the bigger sticks fit. */
+@media (max-width: 800px) { .pill .lab, .col .lab, .tiltcard .lab { display: none; } .col .btn, .tiltcard { padding: 8px; } }
+@media (max-height: 380px) { :root { --pad: min(55vh, 27vw, 210px); --pad-s: min(48vh, 23vw, 180px); } .chip { padding: 4px 7px; } }
 </style>
 </head>
 <body>
@@ -165,12 +170,12 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       <div class="knob"><svg viewBox="0 0 24 24"><path d="M12 3l7 18-7-4-7 4z"/></svg></div></div>
     <div id="thrPad" class="slider v off"><span class="lbl n">FWD</span><span class="lbl s">REV</span>
       <div class="knob"><svg viewBox="0 0 24 24"><path d="M12 4v16M7 9l5-5 5 5M7 15l5 5 5-5"/></svg></div></div></div>
-  <button id="tiltBtn" class="btn glass tiltcard hidden" type="button"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2" transform="rotate(-20 12 12)"/></svg>TILT STEER<small id="tiltState">[ OFF ]</small></button>
+  <button id="tiltBtn" class="btn glass tiltcard hidden" type="button"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2" transform="rotate(-20 12 12)"/></svg><span class="lab">TILT STEER</span><small id="tiltState" class="lab">[ OFF ]</small></button>
 </div>
 <div class="ov right">
   <div class="col">
-    <button id="camLock" class="btn glass" type="button"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>LOCK</button>
-    <button id="camHome" class="btn glass" type="button"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/></svg>HOME</button>
+    <button id="camLock" class="btn glass" type="button"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span class="lab">LOCK</span></button>
+    <button id="camHome" class="btn glass" type="button"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/></svg><span class="lab">HOME</span></button>
   </div>
   <div class="stick"><span class="ttl">▣ GIMBAL // <span id="camWho">CAM</span><i id="camAng"></i></span>
     <div id="camPad" class="pad small off"><span class="lbl n">UP</span><span class="lbl s">DOWN</span><span class="lbl w">PAN L</span><span class="lbl e">PAN R</span><div id="camDot" class="ghost"></div>

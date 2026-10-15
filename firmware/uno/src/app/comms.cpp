@@ -119,7 +119,7 @@ void txPump() {
     proto::HelloMsg h{};
     h.fw = board::kFwVersion;
     h.proto = proto::kProtocolVersion;
-    h.caps = g_app.encoders_enabled ? 1 : 0;
+    h.caps = static_cast<uint8_t>(0xFEu | (g_app.encoders_enabled ? 1u : 0u));  // full firmware: CapBit 1..7 always
     h.reset_reason = static_cast<uint8_t>(g_app.reset_reason);
     h.commit = board::kGitCommit;
     sendMsg(h);

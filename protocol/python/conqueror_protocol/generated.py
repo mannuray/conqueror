@@ -171,6 +171,19 @@ class HwBit(IntEnum):
     US_OK = 2
 
 
+class CapBit(IntEnum):
+    """Bit positions in HELLO.caps - features this body firmware has (the Lite Uno firmware sets only ENCODERS when on)."""
+
+    ENCODERS = 0
+    TURN = 1
+    MOVE = 2
+    DRIVE_RATE = 3
+    CALIBRATE = 4
+    OVERRIDE = 5
+    AUDIO_LED = 6
+    SETTINGS_FULL = 7
+
+
 class EnvelopeFlagBit(IntEnum):
     """Bit positions in ENVELOPE.lock_brake / TELEM_SLOW.env_lock_brake / EVENT ENVELOPE_CHANGED b. CHILD_PLAY implies LOCK_BRAKE; only CHILD_PLAY blocks Safety Override (owner decision 2026-10-12)."""
 

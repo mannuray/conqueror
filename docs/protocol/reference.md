@@ -314,7 +314,7 @@ Payload 9 bytes max.
 |---|---|---|
 | fw | u16 | major << 8 \| minor |
 | proto | u8 |  |
-| caps | u8 | bit0 encoders enabled |
+| caps | u8 | CapBit bits: features this firmware has (bit0 = encoders enabled) |
 | reset_reason | u8 | enum ResetReason |
 | commit | u32 | first 8 hex digits of the firmware git commit as a number (git rev-parse --short=8 HEAD); 0 = unknown / not built from git |
 
@@ -465,6 +465,7 @@ Payload 0 bytes max.
 - **FastFlagBit**: BLOCKED=0, LIFTED=1, TILTED=2, STALL_L=3, STALL_R=4, CAM_MOVING=5, TURN_LIMITED=6, CAPPED=7, SOFT_STOP=8, HALTED=9, LOCKED=10, IMU_FAULT=11, US_FAULT=12, ENCODER_FAULT=13, CALIBRATING=14, SYNCED=15 — Bit positions in TELEM_FAST.flags.
 - **SlowFlagBit**: BATT_LOW=0, BATT_CRITICAL=1, LINK_LOST=2, BRAKE_OFF=3, MUTED=4, QUIET=5, ENVELOPE=6, DEADMAN=7, SAFETY_OVERRIDE=8, SELFTEST_LOCKED=9 — Bit positions in TELEM_SLOW.flags2.
 - **HwBit**: ENCODERS_ENABLED=0, IMU_OK=1, US_OK=2 — Bit positions in TELEM_SLOW.hw.
+- **CapBit**: ENCODERS=0, TURN=1, MOVE=2, DRIVE_RATE=3, CALIBRATE=4, OVERRIDE=5, AUDIO_LED=6, SETTINGS_FULL=7 — Bit positions in HELLO.caps - features this body firmware has (the Lite Uno firmware sets only ENCODERS when on).
 - **EnvelopeFlagBit**: LOCK_BRAKE=0, CHILD_PLAY=1 — Bit positions in ENVELOPE.lock_brake / TELEM_SLOW.env_lock_brake / EVENT ENVELOPE_CHANGED b. CHILD_PLAY implies LOCK_BRAKE; only CHILD_PLAY blocks Safety Override (owner decision 2026-10-12).
 - **OverrideReason**: NETWORK=0, IR=1, IDLE=2, MAX_TIME=3, STOP=4, OWNER_CHANGE=5, LINK_LOST=6, ENVELOPE=7 — EVENT SAFETY_OVERRIDE b - why Safety Override was entered or exited.
 

@@ -51,6 +51,9 @@
 - name: HwBit
   doc: Bit positions in TELEM_SLOW.hw.
   values: { ENCODERS_ENABLED: 0, IMU_OK: 1, US_OK: 2 }
+- name: CapBit
+  doc: Bit positions in HELLO.caps - features this body firmware has (the Lite Uno firmware sets only ENCODERS when on).
+  values: { ENCODERS: 0, TURN: 1, MOVE: 2, DRIVE_RATE: 3, CALIBRATE: 4, OVERRIDE: 5, AUDIO_LED: 6, SETTINGS_FULL: 7 }
 - name: EnvelopeFlagBit
   doc: >-
     Bit positions in ENVELOPE.lock_brake / TELEM_SLOW.env_lock_brake / EVENT ENVELOPE_CHANGED b.

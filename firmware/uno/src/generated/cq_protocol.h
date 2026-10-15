@@ -229,6 +229,17 @@ enum class HwBit : uint8_t {
   kUsOk = 2,
 };
 
+enum class CapBit : uint8_t {
+  kEncoders = 0,
+  kTurn = 1,
+  kMove = 2,
+  kDriveRate = 3,
+  kCalibrate = 4,
+  kOverride = 5,
+  kAudioLed = 6,
+  kSettingsFull = 7,
+};
+
 enum class EnvelopeFlagBit : uint8_t {
   kLockBrake = 0,
   kChildPlay = 1,

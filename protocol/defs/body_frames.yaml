@@ -228,7 +228,7 @@
   fields:
     - { name: fw, type: u16, doc: "major << 8 | minor" }
     - { name: proto, type: u8 }
-    - { name: caps, type: u8, doc: "bit0 encoders enabled" }
+    - { name: caps, type: u8, doc: "CapBit bits: features this firmware has (bit0 = encoders enabled)" }
     - { name: reset_reason, type: u8, enum: ResetReason }
     - { name: commit, type: u32, doc: "first 8 hex digits of the firmware git commit as a number (git rev-parse --short=8 HEAD); 0 = unknown / not built from git" }
 - name: ACK

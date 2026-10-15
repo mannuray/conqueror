@@ -2,6 +2,7 @@
 
 #include "domain/lite/tilt_lite.h"
 #include "domain/lite/range_lite.h"
+#include "domain/lite/encoder_lite.h"
 
 using namespace cq;
 
@@ -80,6 +81,27 @@ void test_range_clear_never_faults() {
   TEST_ASSERT_EQUAL_UINT16(RangeLite::kClear, r.distMm());
 }
 
+void test_encoder_cps_from_period() {
+  EncoderLite e;
+  e.update(100, 1000, 50000, 60000);  // 1 ms between edges → 1000 counts/s, last edge 10 ms ago
+  TEST_ASSERT_EQUAL_UINT16(1000, e.cps());
+  TEST_ASSERT_TRUE(e.moving());
+  TEST_ASSERT_EQUAL_INT32(100, e.count());
+}
+
+void test_encoder_stale_is_stopped() {
+  EncoderLite e;
+  e.update(100, 1000, 0, 150000);  // no edge for 150 ms
+  TEST_ASSERT_EQUAL_UINT16(0, e.cps());
+  TEST_ASSERT_FALSE(e.moving());
+}
+
+void test_encoder_speed_pct_sign_and_disabled() {
+  TEST_ASSERT_EQUAL_INT8(40, speedPctLite(1000, 120, 2500, true));
+  TEST_ASSERT_EQUAL_INT8(-40, speedPctLite(1000, -120, 2500, true));
+  TEST_ASSERT_EQUAL_INT8(-128, speedPctLite(1000, 120, 2500, false));  // "unknown", as the full firmware
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_tilt_level_stays_level);
@@ -89,6 +111,9 @@ int main() {
   RUN_TEST(test_range_median_of_three);
   RUN_TEST(test_range_fault_after_three_failures_and_recovers);
   RUN_TEST(test_range_clear_never_faults);
+  RUN_TEST(test_encoder_cps_from_period);
+  RUN_TEST(test_encoder_stale_is_stopped);
+  RUN_TEST(test_encoder_speed_pct_sign_and_disabled);
   // LITE-SENSORS-TESTS-END
   return UNITY_END();
 }

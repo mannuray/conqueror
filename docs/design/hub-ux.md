@@ -234,6 +234,22 @@ Full-size snapshot/clip; zoom/pan (3 MP stills); info (time, tank, resolution, t
 - **Visual design status: COMPLETE (v1 set).** Remaining small polish items above are applied during implementation from these notes.
 
 
+### Drive stick — what the user expects (owner, 2026-10-15)
+Applies to every single drive stick (Cockpit-lite, phone Cockpit, hub). IR has fixed keys and keeps its own behaviour.
+Mental model: **push the stick where you want the tank to go** — distance from the centre = speed, angle = how sharp the turn.
+
+| Stick | Expected |
+|---|---|
+| straight up | forward, perfectly straight |
+| slightly up | creep, precise |
+| up, a bit right | forward while gently curving right |
+| up-right 45° | a clear forward curve — **never a spin** |
+| almost sideways | tight turn, barely moving forward |
+| fully sideways | turn on the spot, calm speed (limited by the MAX slider) |
+| down / down-right | backwards / reversing curve like a car |
+| let go | smooth stop at once |
+Rules: no sudden switch from curving to spinning; spin only within ±15° of fully sideways; small movements precise; straight means straight. Later (gyro turn-rate step): the same stick gives the same turn on every floor. Firmware rule: spec 02 §A4.1.
+
 ### Screen 7b — Cockpit-lite: the ESP32 phone page (owner, 2026-10-15)
 The bridge's own page (`/` on `conqueror-bridge.local`, no hub, no login) follows the phone Cockpit (`stitch/07-cockpit-phone-v1.png`) in look and layout, minus everything that needs the hub or the AI engine. Same Phosphor tokens (already used by the page). No new mock-up (owner): the Stitch phone Cockpit is the reference.
 

@@ -93,6 +93,28 @@ Control logic (controllers, safety rules, arbitration, codec) is hardware-indepe
 
 **Primitives:** `TURN` (by/to angle, optional radius / pivot), `MOVE` (distance, needs encoders; heading hold at the given/current heading). One active at a time; new motion commands or `CANCEL`/`STOP` abort it; completion → `primitive_done`.
 
+### A4.1 Stick mixing by angle (owner, 2026-10-15; UX hub-ux.md "Drive stick")
+The old arcade mix (L = v − w, R = v + w, speed given up to keep the turn) ran the inner track backwards from about 35° of stick angle, so a 45° push spun the tank. New rule for the **driver's steering** (`w_steer ≠ 0`) in both firmwares; straight driving with the gyro correction (`w_steer = 0`), turn primitives and rate loops keep the old mix unchanged:
+- magnitude m = min(100, max(|v|,|w|) + 3/8 · min(|v|,|w|)) (stick distance, whole numbers);
+- sideways share t = |w| / (|v| + |w|) (0 straight … 1 sideways; 45° = 0.5);
+- inner/outer ratio r = 1 − t / 0.789 up to t = 0.789 (75°, inner track stopped), then falls to −1 at t = 1 (spin only within ±15° of sideways);
+- outer track = m, inner = r · m; forward: the turn side's track is inner; reversing: mirrored so both tracks run backwards (car-style steering unchanged).
+- **IR identical:** IR sends pure axes; on the axes both rules give the same tracks (pinned by a test).
+- Spin speed: limited by the client's speed (phone MAX slider); a Uno spin cap only if the floor test shows it is needed. The turn authority setting at speed (`turn_rate_full_speed` / Lite `turn_full`) no longer scales the stick (the angle already makes arcs at speed); the setting stays for compatibility.
+
+| Stick angle (full push) | Old rule L / R | New rule L / R | Tank |
+|---|---|---|---|
+| 0° | 100 / 100 | 100 / 100 | straight (heading hold) |
+| 20° | 32 / 100 | 66 / 100 | gentle curve |
+| 30° | 0 / 100 | 53 / 100 | curve |
+| **45°** | **−42 / 100 (spin)** | **35 / 97** | clear forward arc |
+| 60° | −74 / 100 | 19 / 100 | tight arc |
+| 75° | −94 / 100 | 0 / 100 | pivot on the inner track |
+| 80° | −96 / 100 | −30 / 100 | spin starting |
+| 90° | −100 / 100 | −100 / 100 | spin on the spot |
+| reverse 45° | −100 / 42 (one track forward!) | −97 / −35 | reversing arc |
+| IR ▲ 80 % / ◀ 80 % / ▶ 80 % | 80/80 · −80/80 · 80/−80 | **identical** | IR unchanged |
+
 ### A5. Pan/tilt servos
 - Trapezoidal motion (max `servo_speed`, `servo_accel`), 50 Hz updates in µs; soft limits + trim (EEPROM).
 - `CAM_JOY`: absolute stick→angle mapping inside the limits; on release → after `cam_return_delay_ms` glide home unless `CAM_LOCK`.

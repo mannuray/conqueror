@@ -1003,3 +1003,6 @@ Result (2026-10-15, Uno `83982b1` code, bridge `4bdaa77`): stick up → camera l
 
 ## 46. Page display filters (DECIDED 2026-10-15, owner)
 Range and turn rate jumped on the Cockpit-lite page. Owner chose all filters: range median-of-5 + closer-at-once, battery 10 s average, turn rate 0.3 s average with a 2 °/s dead band, vitals text 4×/s, latency mean of 5; heading unfiltered. Display only — the Uno's safety logic keeps raw values. Details: bridge LLD R3.3.
+
+## 47. Stick steering by angle (DECIDED 2026-10-15, owner)
+A 45° stick push spun the tank: the arcade mix ran the inner track backwards from ~35°. Owner: design from the user's expectation — push the stick where you want to go; spin only when fully sideways; IR keeps its fixed-key behaviour. One new rule for everyone (no source branch): on the pure axes it gives exactly the old tracks, so IR is unchanged by construction (pinned by a test). Spin speed is limited by the phone's MAX slider for now; a Uno spin cap only if the floor test needs it; gyro turn-rate control (same turn on every floor) is the next step. Details: spec 02 §A4.1, hub-ux "Drive stick", Uno Lite LLD §16.

@@ -2060,3 +2060,6 @@ Tests: `test_led_flash_shows_base_between_flashes`, `test_annunciator_no_link_is
 
 ### Decision note (owner, 2026-10-15): tilt direction
 See Uno Lite LLD §15 — same rule in the full firmware: stick up / IR 2 → smaller tilt servo angle (this tank: larger angle = camera down). `CameraHead::joy` and the `input_task` IR nudge flip the tilt sign; CAM_SET / CAM_NUDGE / limits / telemetry stay in servo degrees.
+
+### Decision note (owner, 2026-10-15): stick mixing by angle
+Same rule as Uno Lite LLD §16 in `mix()` (floats): `w_steer_pct != 0` → angle mix (m, t, r with the 75° pivot point and spin within ±15° of sideways), otherwise the existing arcade mix; `pivot_fallback` still applies to the inner track afterwards; `turn_full_speed_pct` no longer scales the driver's steering. Tests in `test_mixer`: 45° forward arc, spin only near sideways, reverse arc, IR axes and w_ctrl-only paths unchanged.

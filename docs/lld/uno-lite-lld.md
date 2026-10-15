@@ -276,3 +276,26 @@ Tank check: stick up and IR 2 moved the camera **down**. On this tank a **larger
 - Unchanged: servo-degree interfaces (`CAM_SET`, `CAM_NUDGE`, settings `tilt_min`/`tilt_max`, telemetry `tilt`). With the defaults 30…110 the camera can look 60° up and 20° down (limits to be tuned on the tank, settings only).
 - A `tilt_reverse` setting (option B) waits until another mount exists.
 Tests: `test_cam_held_jog_rate` (IR up → tilt angle falls), `test_joy_is_absolute_and_release_returns_home` (stick up → tilt_min).
+
+## 16. Stick mixing by angle (owner, 2026-10-15; spec 02 §A4.1)
+`mixLite(v, w_steer, w_ctrl, turn_full)` keeps its signature. `w_steer == 0` → today's code path, unchanged (straight + heading correction). `w_steer != 0` (heading hold guarantees `w_ctrl == 0` then) → new `angleMixLite(v, w_steer)`: integers only, ‰ ratios, no division by zero (`|v| + |w| > 0` there). `pivot_fallback` is not used by the Lite (as today).
+
+```mermaid
+flowchart TD
+  A[v, w_steer, w_ctrl] --> B{w_steer == 0?}
+  B -- yes --> C[old arcade mix: L = v − w_ctrl, R = v + w_ctrl, speed given up for the turn]
+  B -- no --> D["m = min(100, max + 3/8·min)"]
+  D --> E["t‰ = |w|·1000 / (|v|+|w|)"]
+  E --> F{"t ≤ 789?"}
+  F -- yes --> G["r‰ = 1000 − t·1000/789"]
+  F -- no --> H["r‰ = −(t − 789)·1000/211"]
+  G --> I[outer = m, inner = r·m/1000; w > 0: left inner (forward) / right inner (reverse, mirrored)]
+  H --> I
+```
+```mermaid
+classDiagram
+  class DriveMixLite { +mixLite(v, w_steer, w_ctrl, turn_full) Tracks -angleMixLite(v, w) Tracks -arcadeMixLite(v, w_ctrl) Tracks }
+  class HeadingHoldLite { +teleop() w_steer, w_ctrl (w_ctrl = 0 while steering) }
+  HeadingHoldLite ..> DriveMixLite
+```
+Tests (`test_drive_mix_lite`): `test_angle_mix_45_is_forward_arc` (71/71 → 35/97 order by side), `test_angle_mix_spin_only_near_sideways` (75° → inner 0, 80° → inner < 0, 90° → −m/+m), `test_angle_mix_reverse_both_tracks_back`, `test_ir_axes_unchanged` (±80 on each axis = old values), `test_straight_with_correction_unchanged` (w_steer 0 path = old values).

@@ -609,3 +609,41 @@ sequenceDiagram
   B-->>P: image/jpeg (attachment)
 ```
 - **`/capture` and sockets (Plan F Task 3):** port 81 keeps `max_open_sockets = 2` (the lwIP budget of 16 is fully used, R2 implementation notes), so a snapshot shares the two viewer sockets: with the phone's stream open it works; with two viewers it is refused (connection not accepted). The camera-stopped (OTA) path answers 503.
+
+### R3.1 Tank check fixes (owner, 2026-10-15, after the first Plan F tank check)
+Found on the tank: (1) port 81 served one request at a time — the stream handler loops inside the HTTP server task, so SNAP (`/capture`) and a second viewer hung while one viewer watched; (2) a sound on a muted tank came back as `BUSY` and the page could not tell the tank was muted.
+
+| Change | Detail |
+|---|---|
+| **Stream task per viewer** (owner option B) | `/stream` takes a viewer slot (max 2, as before), calls `httpd_req_async_handler_begin()` and hands the request copy to a new FreeRTOS task (`cq-stream`, 6 KB stack, core 0) that runs the frame loop and ends with `httpd_req_async_handler_complete()`. The server task is free at once, so `/capture` and the second viewer are served. Socket budget unchanged (`max_open_sockets = 2`): with two viewers open a snapshot is still refused. Task creation failure → the slot is released and the request answered 503. |
+| **`audio_mode`** (spec 01 §4) | `{"t":"audio_mode","mode":"normal"\|"quiet"\|"mute","id":n}` → `WsCmdKind::kAudioMode`, `WsCommand::audio_mode` (`proto::AudioModeValue`); unknown/missing mode → nack INVALID_COMMAND. Routed as `sound` (owner or nobody, shared acked slot) → `AUDIO_MODE {mode}`. |
+| **`ts.flags` gains `muted`, `quiet`** (spec 01 §6) | from TELEM_SLOW `flags2` (SlowFlagBit kMuted / kQuiet). |
+| **Speaker chip** (hub-ux Screen 7b) | shows the flags; tap sends `audio_mode` mute ↔ normal; a `sound` nacked while `muted` toasts "Tank is muted — tap 🔊". |
+
+```mermaid
+classDiagram
+  class StreamServer { <<net>> streamHandler() begins async · captureHandler() }
+  class StreamWorker { <<net, FreeRTOS task per viewer>> frame loop · async_handler_complete · releases viewer slot }
+  class WsCodec { +parseWsCommand() kAudioMode }
+  class WsJson { +jsonTs() muted · quiet }
+  class LinkTask { routes kAudioMode → AUDIO_MODE (as sound) }
+  StreamServer ..> StreamWorker : xTaskCreatePinnedToCore
+  LinkTask ..> WsCodec
+  LinkTask ..> WsJson
+```
+```mermaid
+sequenceDiagram
+  participant V as Viewer
+  participant S as HTTP server task (:81)
+  participant W as cq-stream task
+  participant C as Snapshot client
+  V->>S: GET /stream
+  S->>S: take viewer slot, async_handler_begin
+  S->>W: create task (request copy)
+  S-->>S: free for the next request
+  W-->>V: multipart JPEG frames …
+  C->>S: GET /capture
+  S-->>C: image/jpeg (served while W streams)
+  V--xW: viewer closes
+  W->>W: async_handler_complete, release slot, delete task
+```

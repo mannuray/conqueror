@@ -125,3 +125,24 @@ void test_tf_yaw_rate() {
 - [ ] **Step 1:** `scripts/ota.sh` (password from `secrets.h`, never printed); `/info` shows the new build, `matches_fw` true.
 - [ ] **Step 2 (owner, tank on the stand):** with S1 in the upload position the page shows the S1 hint; back in the ESP32 position it clears; chips update; heading tape follows turning; distance bar follows a hand; SNAP downloads a photo; SOUNDS plays a melody; LOCK keeps the camera after release; MOVES hidden on the Uno Lite; STOP works; drive/deadman as before.
 - [ ] **Step 3:** record results in design-notes; final review of the branch range.
+
+---
+## Addendum (owner, 2026-10-15, after the first tank check) — bridge LLD R3.1
+
+### Task 6: Stream task per viewer
+**Files:** Modify `firmware/esp32/src/net/stream_server.cpp`.
+- [ ] **Step 1:** `streamHandler` takes the viewer slot as today, then `httpd_req_async_handler_begin(req, &copy)`; `xTaskCreatePinnedToCore(streamWorker, "cq-stream", 6144, copy, 5, nullptr, 0)`; on failure release the slot, `httpd_req_async_handler_complete(copy)` and 503. `streamWorker` runs today's frame loop on `copy`, then `httpd_req_async_handler_complete(copy)`, releases the slot, `vTaskDelete(nullptr)`.
+- [ ] **Step 2:** `pio run -e bridge`; after OTA: with one viewer open, `curl :81/capture` → JPEG; a second `curl :81/stream` gets frames; a third viewer is refused (503 or not accepted).
+- [ ] **Step 3: Commit** `fix(esp32): each video viewer streams from its own task so /capture and a second viewer are served`.
+
+### Task 7: `audio_mode` command and `muted`/`quiet` flags (host-tested)
+**Files:** `src/core/ws_codec.h/.cpp`, `src/core/ws_json.cpp`, `src/net/link_task.cpp`, `src/core/body_link.h/.cpp`; tests `test/test_ws_codec`, `test/test_ws_json`.
+- [ ] **Step 1: Failing tests:** `test_audio_mode_parse` (`{"t":"audio_mode","mode":"mute","id":3}` → kAudioMode, AudioModeValue::kMute; `normal`, `quiet`; `"loud"` and missing → kInvalid); `test_ts_muted_quiet_flags` (flags2 with kMuted → `"muted"` in flags; kQuiet → `"quiet"`).
+- [ ] **Step 2:** run, expect FAIL. **Step 3:** implement; route kAudioMode like kSound (owner rule, shared acked slot) → `BodyLink::sendAudioMode(mode, now, seq)`. **Step 4:** whole native suite + `pio run -e bridge` pass.
+- [ ] **Step 5: Commit** `feat(esp32): audio_mode command and muted/quiet in ts flags`.
+
+### Task 8: Speaker chip on the page
+**Files:** `web/basic_drive.html`.
+- [ ] **Step 1:** chip after CTRL: 🔊 / muted (amber) / QUIET from `ts.flags`; tap → `audio_mode` mute ↔ normal (quiet → normal); a `sound` nack while muted → toast "Tank is muted — tap 🔊".
+- [ ] **Step 2:** pack size ≤ 25 KB gz; OTA; tank check: chip follows the IR mute key; tap mutes/unmutes; SNAP downloads while the page streams.
+- [ ] **Step 3: Commit** `feat(esp32): speaker chip (mute toggle) on the Cockpit-lite page`.

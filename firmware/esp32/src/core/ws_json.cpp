@@ -111,6 +111,10 @@ const char* capBit(const HelloInfo& h, proto::CapBit b) {
   return (h.seen && (h.caps & (1u << static_cast<uint8_t>(b)))) ? "true" : "false";
 }
 
+// Plan H (spec 02 §E2): turn / drive_rate are available with any body - the bridge's motion service runs them
+// when the body cannot; move still needs the body's encoders.
+const char* capOrLocal(const HelloInfo& h) { return h.seen ? "true" : "false"; }
+
 size_t jsonWelcome(char* out, size_t cap, const WelcomeInfo& w) {
   char uno[16] = "null";
   if (w.hello->seen) snprintf(uno, sizeof(uno), "\"%u.%u\"", w.hello->fw >> 8, w.hello->fw & 0xFF);
@@ -120,8 +124,8 @@ size_t jsonWelcome(char* out, size_t cap, const WelcomeInfo& w) {
              "\"encoders\":%s,\"turn\":%s,\"move\":%s,\"drive_rate\":%s,\"calibrate\":%s,\"audio_led\":%s,"
              "\"sensor\":\"%s\"}},\"owner\":\"%s\",\"owner_client\":\"%s\"}",
              w.you, w.fw_esp32, uno, proto::kProtocolVersion, capBit(*w.hello, proto::CapBit::kEncoders),
-             capBit(*w.hello, proto::CapBit::kTurn), capBit(*w.hello, proto::CapBit::kMove),
-             capBit(*w.hello, proto::CapBit::kDriveRate), capBit(*w.hello, proto::CapBit::kCalibrate),
+             capOrLocal(*w.hello), capBit(*w.hello, proto::CapBit::kMove),
+             capOrLocal(*w.hello), capBit(*w.hello, proto::CapBit::kCalibrate),
              capBit(*w.hello, proto::CapBit::kAudioLed), w.sensor, w.owner.owner, w.owner.client);
 }
 

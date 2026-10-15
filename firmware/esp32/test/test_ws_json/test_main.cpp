@@ -135,7 +135,7 @@ void test_welcome_and_pong() {
   TEST_ASSERT_EQUAL_STRING(
       "{\"t\":\"welcome\",\"role\":\"human\",\"you\":\"phone-1\",\"tank\":{\"name\":"
       "\"conqueror-bridge\",\"fw\":{\"esp32\":\"bridge-v0.2.0\",\"uno\":\"1.0\"},\"proto\":2,"
-      "\"caps\":{\"encoders\":false,\"turn\":false,\"move\":false,\"drive_rate\":false,\"calibrate\":false,"
+      "\"caps\":{\"encoders\":false,\"turn\":true,\"move\":false,\"drive_rate\":true,\"calibrate\":false,"
       "\"audio_led\":false,\"sensor\":\"OV3660\"}},\"owner\":\"none\",\"owner_client\":"
       "\"\"}",
       buf);
@@ -182,8 +182,14 @@ void test_welcome_caps_bits() {
   h.caps = 1u << static_cast<uint8_t>(proto::CapBit::kAudioLed);
   jsonWelcome(buf, sizeof(buf), WelcomeInfo{"x", &h, "OV3660", kNone, "phone-1"});
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"audio_led\":true"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, "\"turn\":false"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"turn\":true"));        // Plan H: the bridge's motion service runs it
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"drive_rate\":true"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"move\":false"));       // needs encoders
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"encoders\":false"));
+  h.seen = false;  // no body yet: nothing to turn
+  jsonWelcome(buf, sizeof(buf), WelcomeInfo{"x", &h, "OV3660", kNone, "phone-1"});
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"turn\":false"));
+  h.seen = true;
   h.caps = 0xFF;  // full firmware with encoders
   jsonWelcome(buf, sizeof(buf), WelcomeInfo{"x", &h, "OV3660", kNone, "phone-1"});
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"turn\":true"));

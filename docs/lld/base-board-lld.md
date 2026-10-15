@@ -1,0 +1,354 @@
+# Base board — Low-Level Design (draft)
+
+Status: **draft for review** (2026-10-14; MCU changed to RP2354B the same day). Implements `docs/superpowers/specs/2026-10-14-06-base-board-design.md` (spec 06). Scope: the electrical design of the RP2354B base board — parts, pin map, power, connectors, layout rules — plus the firmware driver layer the board needs. The current tank (Mega + shield + ESP32 bridge) is not affected.
+
+Primary reference for the MCU core: Raspberry Pi **"Hardware design with RP2350"** and its KiCad minimal design ([PDF](https://datasheets.raspberrypi.com/rp2350/hardware-design-with-rp2350.pdf)), and the **RP2350 datasheet** ([PDF](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf)). **Rule: the MCU core (power, core regulator, crystal, flash, USB, RUN/BOOT) copies the reference design exactly** — the reference says deviations need extensive testing.
+
+Part numbers below are manufacturer part numbers (MPN). **LCSC/JLCPCB numbers and stock are checked when the schematic is drawn** (step after this LLD) — none are quoted here to avoid unverified numbers.
+
+---
+
+## 1. Facts this design relies on (verified 2026-10-14)
+
+| Fact | Consequence | Source |
+|---|---|---|
+| RP2350 GPIO tolerate up to 5.5 V **only while IOVDD (3.3 V) is powered**; on the A package GPIO 0-25 are tolerant and the ADC pins 26-29 are not. On the **B package the ADC pins are GPIO 40-47** (GPIO 26-39 digital) | 5 V signals only on GPIO 0-39, each through a 1 kΩ series resistor; GPIO 40-47 treated as 3.3 V only (**confirm per pin in the datasheet before the schematic**); ADC pins only behind dividers | [RPi A4 announcement](https://www.raspberrypi.com/news/rp2350-a4-rp2354-and-a-new-hacking-challenge/), [forum](https://forums.raspberrypi.com/viewtopic.php?t=375118), [piers.rocks](https://piers.rocks/2025/08/25/rp2350-5v-gpios.html) |
+| A4 stepping fixes erratum E9 (GPIO latching with pull-downs) and adds **RP2354A/B** = RP2350A/B with **2 MB stacked flash** | **RP2354B** chosen (owner): no external flash; fallback RP2350B + W25Q16JV | [CNX Software](https://www.cnx-software.com/2025/page/51/?amp=1), [Hackaday](https://hackaday.com/2024/09/04/the-worsening-raspberry-pi-rp2350-e9-erratum-situation/) |
+| Core supply = on-chip switching regulator with a **specific inductor** (Abracon AOTA-B201610S3R3-101-T in the reference) and careful layout; 12 MHz crystal | Copy the reference circuit and placement | [Hardware design with RP2350](https://datasheets.raspberrypi.com/rp2350/hardware-design-with-rp2350.pdf), [NextPCB](https://www.nextpcb.com/blog/designing-custom-rp2350-pcbs-kicad), [JLCPCB layout guide](https://jlcpcb.com/blog/how-to-design-layout-with-rp2350) |
+
+## 2. Block diagram
+
+```mermaid
+flowchart LR
+  BAT[2S pack 6.0-8.4 V] --> JACK[Barrel jack DC-005<br/>switch contact cuts battery]
+  ADP[Adapter 7-12 V] --> JACK
+  JACK --> PWR[Power entry:<br/>P-FET reverse + switch, TVS, fuse]
+  PWR --> VBAT((VIN 6-12 V))
+  VBAT --> TB1[TB6612FNG #1<br/>motors A/B]
+  VBAT --> TB2[TB6612FNG #2<br/>motors C/D]
+  SW2[[MOTOR/SERVO switch]] -. STBY2 .-> TB2
+  VBAT --> BUCK[5 V logic buck 2-3 A]
+  BUCK --> V5((5 V))
+  VBAT --> SBUCK[Servo buck ~5 A<br/>5 V / 6 V jumper]
+  SBUCK --> V5S((Servo rail))
+  VBAT -. BATT jumper .-> V5S
+  V5 --> DOR{Diode-OR}
+  USBC[USB-C] --> DOR
+  DOR --> LDO[3.3 V LDO] --> V33((3.3 V))
+  V33 --> MCU[RP2354B<br/>core SMPS + 12 MHz xtal]
+  USBC -- D+/D- --> MCU
+  MCU -- UART0 --> HEAD[[Head 4-pin]]
+  MCU -- I2C0 --> I2C[[GY-521 · GY-271 · Qwiic]]
+  MCU -- PIO --> ENC[[Encoders A-D]]
+  MCU --> EXP[[Expansion header]]
+  MCU -- PIO --> IRX[IR receiver]
+  MCU -- PIO --> RC[[RC input]]
+  MCU -- PWM --> SRV[[Servo 1/2 + servo 3-6 shared]]
+  MCU -- PWM --> BZ[Buzzer driver]
+  MCU --> BUF[74AHCT2G125] --> WS[WS2812 + chain out]
+  BUF --> US[[Ultrasonic trig]]
+  MCU --> STAT[74LVC244 → status LEDs]
+```
+
+## 3. MCU subsystem
+
+| Item | Choice | Notes |
+|---|---|---|
+| MCU | **RP2354B** (QFN-80, A4, 2 MB internal flash; **LCSC C39843328**, ~3,240 in stock, ~US$1.35 at 500-1,000, checked 2026-10-14); fallback **RP2350B** + **W25Q16JVUXIQ** | Firmware estimate 300-600 KB (Arduino-Pico core + our code) + settings area — 2 MB is enough |
+| Core regulator | On-chip SMPS, inductor **AOTA-B201610S3R3-101-T** + caps exactly as the reference | Placement and loop area per reference |
+| Clock | 12 MHz crystal as the reference (ABM8-272-T3 class), load caps + 1 kΩ XOUT series resistor per reference | |
+| Decoupling | Per reference (100 nF per IOVDD/DVDD pin, bulk on 3.3 V) | |
+| RESET | Right-angle tactile switch RUN → GND, 10 kΩ pull-up per reference | Service edge |
+| BOOT | Recessed right-angle switch: QSPI_SS → 1 kΩ → GND per reference | Recovery only |
+| USB | USB-C 16-pin receptacle (USB 2.0), **CC1/CC2 5.1 kΩ to GND** (so C-to-C cables supply 5 V), **USBLC6-2SC6** ESD, D+/D- series resistors per reference | Service edge |
+
+## 4. Final pin map (RP2354B)
+
+GPIO 0-39 take 5 V signals (through 1 kΩ); GPIO 40-47 (ADC) are 3.3 V only.
+
+| GPIO | Function | Electrical | Peripheral |
+|---|---|---|---|
+| 0 / 1 | Head UART TX / RX | 3.3 V (ESP32 is 3.3 V) | UART0 |
+| 2 / 3 | Motor A IN1 / IN2 | → TB6612 #1 AIN1/AIN2 | PWM slice 1, 20 kHz |
+| 4 / 5 | I2C SDA / SCL | 2.2 kΩ pull-ups to 3.3 V | I2C0, 400 kHz |
+| 6 / 7 | Motor B IN1 / IN2 | → TB6612 #1 BIN1/BIN2 | PWM slice 3 |
+| 8 / 9 | Motor C IN1 / IN2 **or** servo 3 / 4 | → TB6612 #2 AIN1/AIN2 **and** servo headers 3/4 (100 Ω) | PWM slice 4: 20 kHz (MOTOR) or 50 Hz (SERVO) |
+| 10 / 11 | Motor D IN1 / IN2 **or** servo 5 / 6 | → TB6612 #2 BIN1/BIN2 **and** servo headers 5/6 | PWM slice 5 |
+| 12 / 13 | Servo 1 (pan) / 2 (tilt) | 100 Ω series | PWM slice 6, 50 Hz |
+| 14 | Buzzer | → MOSFET gate | PWM slice 7 A (tone) |
+| 15 | WS2812 data | → 74AHCT2G125 A | PIO0 |
+| 16 / 17 | Encoder A (left) A / B | 5 V in, 1 kΩ series, 10 kΩ pull-up to 3.3 V | PIO1 quadrature |
+| 18 / 19 | Encoder B (right) A / B | same | PIO1 quadrature |
+| 20 | Motor STBY | → TB6612 #1 STBY; → TB6612 #2 STBY through switch pole 1 (SERVO: held low). 100 kΩ pull-downs → motors coast at reset | GPIO |
+| 21 | Ultrasonic trig | → 74AHCT2G125 B (5 V out) | GPIO |
+| 22 | Ultrasonic echo | 5 V in, 1 kΩ series | PIO2 |
+| 23 | IR receiver | on-board 3.3 V / off-board via 1 kΩ | PIO2 |
+| 24 / 25 | RC input 1 / 2 | 5 V in, 1 kΩ series | PIO2 (PPM, SBUS via pad inversion, digital) |
+| 26 / 27 | Encoder C A / B | 5 V in, 1 kΩ series, 10 kΩ pull-up | PIO1 quadrature |
+| 28 / 29 | Encoder D A / B | same | PIO1 quadrature |
+| 30 | MODE button | 10 kΩ pull-up to 3.3 V, 100 nF, switch to GND | GPIO |
+| 31 | MOTOR/SERVO switch sense | switch pole 2 to GND, 10 kΩ pull-up | GPIO |
+| 32 / 33 | Expansion (UART1 TX / RX capable) | 5 V-tolerant in, 1 kΩ series | expansion header |
+| 34 / 35 | Expansion (I2C1 / SPI capable) | 5 V-tolerant in, 1 kΩ series | expansion header |
+| 36 | GY-521 INT | from the socket (optional use) | GPIO |
+| 37 | GY-271 DRDY | from the socket (optional use) | GPIO |
+| 38 / 39 | Expansion GPIO | 5 V-tolerant in, 1 kΩ series | expansion header |
+| 40 (ADC0) | Input voltage (battery/adapter) | divider 100 kΩ / 22 kΩ + 100 nF (12 V → 2.16 V) | ADC |
+| 41 (ADC1) | USB VBUS sense | divider 100 kΩ / 100 kΩ | ADC |
+| 42-45 (ADC2-5) | Expansion analog inputs | **3.3 V max** (marked on the silkscreen), 1 kΩ series | expansion header |
+| 46 / 47 (ADC6/7) | Reserved: motor current sense (future) | test pads | ADC |
+
+TB6612 PWMA/PWMB are tied high (3.3 V); each channel is driven by its two IN pins. Both decay modes stay available: **drive/coast** = PWM on IN1 with IN2 low; **drive/brake** = IN1 high with an inverted PWM on IN2. TB6612 logic VCC = 3.3 V.
+
+PIO budget (12 state machines): PIO0 = WS2812; PIO1 = 4 quadrature counters; PIO2 = echo, IR, RC1, RC2. 9 used, 3 spare.
+
+## 5. Power design
+
+### 5.1 Power entry (battery or adapter; reverse protection + main switch in one P-FET)
+- **Battery:** JST-XH 2-pin (B2B-XH-A), marked + / -. **Adapter:** barrel jack **DC-005 class with a switch contact** (5.5 x 2.1 mm, centre positive), 7-12 V. The jack's switch contact is in series with the battery +: **inserting a plug disconnects the battery** — battery and adapter are never connected together.
+- **P-channel MOSFET** high-side (AO4407A class: 30 V, ≥ 10 A, low R_DS(on), SO-8): drain to the selected input, source to VIN, gate to GND **through the main slide switch**, 100 kΩ gate-source pull-up, **12 V zener** gate-source clamp. Switch open → FET off; input reversed → FET stays off. The slide switch carries only gate current.
+- **TVS** SMBJ15A class after the FET (adapter hot-plug transients). **Fuse** 5 A after the FET (NANO2 0451005 class or a PTC sized after the current test).
+- **Bulk:** 220 µF / **25 V** low-ESR on VIN at the drivers + 100 nF per driver VM pin. All VIN-side capacitors rated **≥ 25 V** (12 V adapter + transients).
+
+### 5.2 Rails
+| Rail | Source | Part (class) | Load |
+|---|---|---|---|
+| VIN 6-12 V | pack or adapter | — | 2x TB6612 VM (≤ 13.5 V), both bucks, input divider |
+| 5 V logic, 2-3 A | buck from VIN | **TPS563201** class (4.5-17 V in, 3 A, SOT-23-6) | head (ESP32 + camera ~0.5 A peaks), sensor connectors, GY-521/GY-271, WS2812, buzzer |
+| Servo rail ~5 A | **servo buck** from VIN, output 5 V or 6 V by a **feedback-divider jumper**; or VIN direct (**BATT** jumper) | **TPS565208** class (4.5-17 V in, 5 A, SOT-23-6) | 6 servo headers; 1000 µF / 10 V bulk at the headers |
+| 3.3 V | LDO from diode-OR of 5 V logic and USB VBUS | **AP2112K-3.3** class (600 mA) + 2 Schottky diodes (B5819W class) | RP2354B, buffers, IR receiver, Qwiic, I2C pull-ups |
+
+**Servo jumpers** (2.54 mm headers, labelled on the silkscreen):
+- **J_SRV_SRC:** BUCK | BATT. BATT = VIN straight to the servo rail — **HV servos on a 2S pack only, never with an adapter** (silkscreen: "BATT: HV servos + 2S only").
+- **J_SRV_V:** 5V | 6V — selects the servo buck feedback divider (only matters with BUCK).
+- Default from the factory: BUCK + 5V.
+
+- **USB-only (no battery/adapter):** VBUS → diode → LDO → 3.3 V. The RP2354B runs and can be programmed; the 5 V rail, servo rail, motors and head stay off.
+- **Low input:** the logic buck needs ~5.5 V+ at full load; the firmware cuts motors at battery-critical and the pack's protection cuts below ~6.0 V.
+- **5 V-tolerance rule (§1):** 3.3 V exists whenever 5 V exists; the 1 kΩ series resistors on all 5 V inputs limit current during the LDO start-up window.
+- **Adapter vs battery in firmware:** VIN above ~9 V → "adapter" (battery percentage and low-battery warnings disabled; motor PWM capped by the `motor_v_max` setting, which the user should set for 6 V motors).
+
+### 5.3 Current budget (estimate, to confirm on the prototype)
+| Load | Typical | Peak |
+|---|---|---|
+| 2-4 TT motors (2S) | 0.3-0.6 A each | ~1.5-2 A each at stall |
+| Servos: 2 small (SG90/MG90S) / 6 arm (MG996R class) | 0.1 A each | ~1 A small, ~2.5 A arm, each |
+| Head ESP32-S3 + camera + WiFi | 0.25 A | 0.5 A |
+| RP2354B + logic + LEDs | 0.05 A | 0.1 A |
+| GY-521, ultrasonic, IR, Qwiic sensors | 0.05 A | 0.1 A |
+| **5 V logic buck** | ~0.4 A | ~0.8 A |
+| **Servo buck** | ~0.3 A | **5 A** (limit; 6 arm servos stalling together exceed it → the buck current-limits; arms move servos one or two at a time) |
+| **VIN total** | ~1.5 A | **~5 A** (fuse) |
+
+## 6. Motor drivers
+- **TB6612FNG** (SSOP-24): VM 2.5-13.5 V, 1.2 A continuous / 3.2 A peak per channel, built-in thermal shutdown. **Both fitted on every board** (owner, 2026-10-14): #1 = motors A/B, #2 = motors C/D.
+- **MOTOR C/D ⇄ SERVO 3-6 switch** (2-pole slide switch, board edge): pole 1 breaks driver #2 STBY (SERVO → driver #2 off in hardware, so servo pulses can never move motors C/D); pole 2 tells the firmware (GPIO31). GPIO 8-11 stay wired to both driver #2 inputs (high-impedance CMOS) and servo headers 3-6. The firmware reads the switch at boot and sets up GPIO 8-11 accordingly; a change while running → outputs 8-11 off until reboot (event reported).
+- Per driver: 10 µF + 100 nF on VM close to the pins; motor outputs to **JST-XH 2-pin** per motor (M+, M-).
+- Recommended in the user guide: 100 nF across each motor's terminals (noise).
+
+## 7. Connectors (all JST-XH 2.54 mm unless stated)
+
+| Connector | Pins (in order) | Notes |
+|---|---|---|
+| Battery | +, - | XH 2-pin |
+| Motor A / B / C / D | M+, M- | XH 2-pin each |
+| Adapter | barrel jack 5.5 x 2.1 mm, centre + | DC-005 class with switch contact, 7-12 V |
+| Encoder A / B / C / D | 5V, GND, A, B | XH 4-pin each |
+| Expansion | 5V, 3V3, GND x2, GPIO 32-35, 38, 39, ADC 42-45 (3.3 V max) | 2x8 2.54 mm male header, silkscreen per pin |
+| Servo 1-6 | GND, servo rail, SIG | 3-pin 2.54 male headers in a row (standard servo plug); 3-6 shared with motors C/D |
+| Servo jumpers | J_SRV_SRC (BUCK/BATT), J_SRV_V (5V/6V) | 2.54 headers + shunts, labelled |
+| Ultrasonic | 5V, TRIG, ECHO, GND | XH 4-pin |
+| IR (off-board) | 5V, GND, OUT | XH 3-pin; solder jumper selects on-board or off-board receiver (never both) |
+| RC input | 5V, GND, CH1, CH2 | XH 4-pin |
+| Head link | 5V, GND, TX, RX | XH 4-pin (TX/RX named from the base) |
+| WS2812 chain out | 5V, DOUT, GND | XH 3-pin (headlights) |
+| GY-521 socket | VCC(5V) GND SCL SDA XDA XCL AD0 INT | 1x8 female 2.54 header; XDA/XCL not connected; AD0 to GND (0x68); INT → GPIO36 |
+| GY-271 socket | VCC(5V) GND SCL SDA DRDY | 1x5 female 2.54 header, board edge far from motors; DRDY → GPIO37 |
+| Qwiic | GND, 3.3V, SDA, SCL | JST-SH 4-pin (SM04B-SRSS-TB), standard pin order |
+| USB-C | — | service edge |
+
+I2C addresses: MPU6050 0x68, QMC5883L 0x0D (HMC5883L 0x1E), VL53L0X 0x29 — no clash.
+
+## 8. Other circuits
+- **Level buffer:** **SN74AHCT2G125** powered from 5 V: channel A = WS2812 data (3.3 V in → 5 V out), channel B = ultrasonic TRIG (clone HC-SR04s may need > 3 V).
+- **WS2812:** WS2812B-2020 (or 5050) on the board at an edge, DOUT to the chain-out connector; 100 nF at the LED; 330 Ω series on data.
+- **Buzzer:** passive magnetic buzzer (12 mm, 5 V), low-side **AO3400** N-MOSFET from GPIO14 (100 Ω gate, 100 kΩ gate pull-down), flyback diode across the buzzer.
+- **Status LEDs:** **SN74LVC244** (8 buffers, 3.3 V) watching: head TX, head RX, IR, encoder L A, encoder R A, ultrasonic echo, RC1, motor STBY — each drives a 0603 LED + 1 kΩ. Inputs are high-impedance, so the LEDs never load the signals. Placement: one board edge, side-view LEDs where possible (open item L3). Plus a 5 V power LED.
+- **IR receiver:** VS1838B class at the front edge, powered from 3.3 V (output is then 3.3 V), 100 Ω + 4.7 µF supply filter.
+
+## 9. Power modes
+
+```mermaid
+stateDiagram-v2
+    [*] --> Off
+    Off --> UsbOnly : USB in, switch off
+    UsbOnly --> Off : USB out
+    Off --> Battery : switch on
+    Battery --> Off : switch off / pack protection
+    Battery --> BatteryUsb : USB in
+    BatteryUsb --> Battery : USB out
+    UsbOnly --> BatteryUsb : switch on
+    BatteryUsb --> UsbOnly : switch off
+    note right of UsbOnly : 3.3 V only - MCU runs, programmable; 5 V rail, head, motors off
+    note right of BatteryUsb : everything on, firmware blocks the motors (VBUS present)
+    note left of Battery : "Battery" = 2S pack or 7-12 V adapter (barrel jack)
+```
+
+## 10. Firmware driver layer (RP2350 board port)
+
+The body firmware keeps its `domain/` and `app/` layers and the `ports/` interfaces; the board adds a new `drivers/` set for RP2350 (Arduino-Pico core). Class view (C++ classes, no `virtual`, statically allocated — same coding rules as the Mega firmware):
+
+```mermaid
+classDiagram
+  class Rp2350Board {
+    +begin()
+    +vbusPresent() bool
+    +batteryMv() uint16
+  }
+  class MotorPwm {
+    +begin(pinIn1, pinIn2, slice)
+    +set(int16 pwm, DecayMode mode)
+    +standby(bool on)
+  }
+  class ServoOut {
+    +begin(pin)
+    +writeUs(uint16 us)
+  }
+  class PioQuadrature {
+    +begin(pio, sm, pinA)
+    +count() int32
+    +periodUs() uint32
+  }
+  class PioWs2812 {
+    +begin(pio, sm, pin)
+    +show(rgb)
+  }
+  class PioEdgeCapture {
+    +begin(pio, sm, pin)
+    +popEdge(t_us) bool
+  }
+  class PioRcInput {
+    +begin(pio, sm, pin, RcMode)
+    +channel(i) uint16
+    +fresh() bool
+  }
+  class EchoTimer {
+    +trigger()
+    +poll(echo_us) EchoState
+  }
+  class FlashSettingsStore {
+    +read(addr) uint8
+    +writeByteAsync(addr, v)
+    +busy() bool
+  }
+  class AdcSense {
+    +battery() uint16
+    +vbus() bool
+  }
+  class I2cBus {
+    +readRegs(addr, reg, buf, n) bool
+    +writeReg(addr, reg, v) bool
+  }
+  class OutputModeSwitch {
+    +readAtBoot() OutputMode
+    +changedSinceBoot() bool
+  }
+  Rp2350Board *-- MotorPwm : 2 or 4
+  Rp2350Board *-- ServoOut : 2 or 6
+  Rp2350Board *-- OutputModeSwitch
+  Rp2350Board *-- PioQuadrature : 4
+  Rp2350Board *-- PioWs2812
+  Rp2350Board *-- PioEdgeCapture : IR
+  Rp2350Board *-- PioRcInput
+  Rp2350Board *-- EchoTimer
+  Rp2350Board *-- FlashSettingsStore
+  Rp2350Board *-- AdcSense
+  Rp2350Board *-- I2cBus
+```
+
+These implement the existing `ports/` interfaces (`motor`, `encoders`, `ir`, `ultrasonic`, `eeprom`, `imu`, `battery`, `servo`, `led`, `tone`), so the domain code and its host tests are reused unchanged. New behaviour (domain level): `UsbMotorLock` (VBUS present → motors blocked, reported in telemetry) and an RC input source mapped like the IR remote under the arbitrator. Settings: EEPROM emulation in the last flash sectors with wear levelling (writes stay one byte per pass, as on the Mega).
+
+```mermaid
+sequenceDiagram
+  participant B as Rp2350Board
+  participant S as SafetySupervisor
+  participant M as MotorPwm
+  Note over B: every control tick (100 Hz)
+  B->>B: vbusPresent()?
+  alt USB connected
+    B->>S: motorLock(true)
+    S->>M: set(0) + standby(true)
+  else battery only
+    S->>M: set(pwm, mode) from the control chain
+  end
+```
+
+## 11. Board outline and layout rules
+
+- **Outline:** 68.58 x 53.34 mm (Uno). **Mounting holes** (3.2 mm, from the lower-left corner, USB/power edge on the left like an Uno): (13.97, 2.54), (15.24, 50.80), (66.04, 7.62), (66.04, 35.56) mm — **verify against the official Arduino Uno drawing** before layout.
+- **Layers:** 4-layer (signal / GND / power / signal) — solid ground under the RP2354B, crystal and USB; JLCPCB 4-layer prototypes are cheap.
+- **Service edge** (one side): USB-C, main switch, RESET, MODE, BOOT (recessed). IR receiver and WS2812 at the front edge; status LEDs along an edge.
+- **Motor power:** VBAT → FET → fuse → drivers → motor connectors on short, wide copper (≥ 2 mm on outer layers, or pours); motor ground returns straight to the battery connector (star point), never under the MCU.
+- **Buck:** copy the datasheet layout (tight input cap / switch node / inductor loop); switch node away from the crystal, I2C and the compass socket.
+- **MCU core:** copy the reference placement for the core-regulator inductor, crystal, flash (if external) and USB pair (90 Ω differential, short).
+- **Compass socket** at the edge farthest from the motor drivers, motor connectors and the buck inductor.
+- **Servo rail:** separate trace from the buck output capacitor to the servo headers, 470 µF at the headers.
+- **Test pads:** 3.3 V, 5 V, VIN, GND, SWD (SWDIO/SWCLK), UART0, GPIO46/47.
+
+## 12. Preliminary BOM (main parts, estimate)
+
+| Part | MPN (class) | Qty | Est. USD @100 |
+|---|---|---|---|
+| MCU | RP2354B (LCSC C39843328) | 1 | 1.35 |
+| Core inductor | AOTA-B201610S3R3-101-T | 1 | 0.10 |
+| Crystal 12 MHz | ABM8-272-T3 class | 1 | 0.15 |
+| Motor driver | TB6612FNG | 2 | 1.6-2.4 |
+| MOTOR/SERVO switch | 2-pole slide switch | 1 | 0.05 |
+| 5 V logic buck | TPS563201 + inductor + caps | 1 | 0.5 |
+| Servo buck | TPS565208 + inductor + caps + 1000 µF | 1 | 0.7 |
+| Barrel jack + TVS | DC-005 (switched) + SMBJ15A | 1 | 0.15 |
+| 3.3 V LDO | AP2112K-3.3 | 1 | 0.08 |
+| P-FET | AO4407A | 1 | 0.10 |
+| Fuse | 5 A NANO2 / PTC | 1 | 0.15 |
+| USB-C + ESD | 16-pin receptacle + USBLC6-2SC6 | 1 | 0.20 |
+| Level buffer | SN74AHCT2G125 | 1 | 0.10 |
+| Status buffer | SN74LVC244 | 1 | 0.10 |
+| WS2812B | 2020 or 5050 | 1 | 0.05 |
+| IR receiver | VS1838B class | 1 | 0.05 |
+| Buzzer + MOSFET | 12 mm passive + AO3400 | 1 | 0.15 |
+| Connectors | JST-XH (≈12), JST-SH 1, headers, sockets | — | 0.8-1.2 |
+| Switches | slide switch + 3 right-angle tactile | 4 | 0.15 |
+| Passives, LEDs | — | ~70 | 0.5 |
+| PCB 4-layer + assembly | per board at 100 | 1 | 3-5 |
+| **Total** | | | **~US$11-15** (≈ INR 900-1,250; RP2354B adds ~US$0.2 and 2 encoder connectors) |
+
+Estimates only — confirmed from LCSC pricing when the schematic is drawn.
+
+## 13. Open items
+
+| # | Item | Decide when |
+|---|---|---|
+| L1 | ~~MCU availability~~ RP2354B in stock at LCSC (C39843328) — re-check before each order | each order |
+| L2 | Buck parts final (TPS563201 / TPS565208 or alternatives in stock) | schematic + prototype current test |
+| L3 | Status LED placement (edge / side-view) and which 8 signals | layout |
+| L4 | Exact Uno hole coordinates checked against the Arduino drawing | before layout |
+| L5 | Head-side adapter lead for the chosen camera board | after choosing the head board |
+| L6 | ~~Encoders C/D~~ — decided: RP2354B, 4 encoders (owner) | done |
+| L7 | Fuse type (NANO2 vs PTC) after the stall-current test | prototype |
+| L8 | Validation plan | when we get there (owner) |
+| L9 | Confirm per-pin 5 V tolerance for the B package (GPIO 26-39 tolerant, 40-47 not) in the RP2350 datasheet | before the schematic |
+
+## Sources
+- [Hardware design with RP2350 (Raspberry Pi)](https://datasheets.raspberrypi.com/rp2350/hardware-design-with-rp2350.pdf)
+- [RP2350 datasheet](https://datasheets.raspberrypi.com/rp2350/rp2350-datasheet.pdf)
+- [RP2350 A4, RP2354 announcement](https://www.raspberrypi.com/news/rp2350-a4-rp2354-and-a-new-hacking-challenge/)
+- [RP2350 5V tolerance clarification (forum)](https://forums.raspberrypi.com/viewtopic.php?t=375118)
+- [RP2350 5V tolerant GPIOs (piers.rocks)](https://piers.rocks/2025/08/25/rp2350-5v-gpios.html)
+- [LCSC: RP2354B C39843328](https://www.lcsc.com/product-detail/C39843328.html)
+- [RP2350B pinout](https://rp2350b.pinout.xyz/)
+- [CNX Software: RP2350/RP2354 pricing](https://www.cnx-software.com/2025/03/18/buy-raspberry-pi-rp2350-mcu-rp2354a-and-rp2354b-variants/)
+- [CNX Software: A4 fixes E9, 2 MB flash variants](https://www.cnx-software.com/2025/page/51/?amp=1)
+- [Hackaday: RP2350 E9 erratum](https://hackaday.com/2024/09/04/the-worsening-raspberry-pi-rp2350-e9-erratum-situation/)
+- [NextPCB: custom RP2350 PCBs in KiCad](https://www.nextpcb.com/blog/designing-custom-rp2350-pcbs-kicad)
+- [JLCPCB: how to design layout with RP2350](https://jlcpcb.com/blog/how-to-design-layout-with-rp2350)
+- [DeepBlueEmbedded: RP2350 hardware PCB design in KiCad](https://deepbluembedded.com/rp2350-hardware-pcb-design-in-kicad-rp2350-schematic/)

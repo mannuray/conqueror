@@ -16,6 +16,11 @@ class SelfTest {
   static constexpr uint16_t kBattMaxMv = 9000;
   static constexpr uint32_t kBattRecoverMs = 1000;  // battery valid this long (continuously) → battery-only lock clears
   static bool batteryPlausible(uint16_t mv) { return mv >= kBattMinMv && mv <= kBattMaxMv; }
+  // What the LED/sound show (spec 02 §D6.3): on USB power (no pack) the battery check is expected to fail, so it is
+  // not shown as a fault. The lock itself is unchanged (no motor power on USB anyway).
+  static uint8_t displayMask(uint8_t fail_mask, bool usb_power) {
+    return usb_power ? static_cast<uint8_t>(fail_mask & ~(1u << static_cast<uint8_t>(Check::kBattery))) : fail_mask;
+  }
 
   void begin() {  // a run starts (boot or SELF_TEST re-run); the lock stays as it is until complete()
     m_fail = 0;

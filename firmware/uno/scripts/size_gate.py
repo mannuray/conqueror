@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 # (flash, static RAM) budgets per PlatformIO env (LLD §9.20, §11.2).
-LIMITS = {"mega": (240 * 1024, 6 * 1024), "uno": (30 * 1024, 1750)}
+LIMITS = {"mega": (240 * 1024, 6 * 1024), "uno": (30 * 1024, 1536)}
 AVR_SIZE = Path.home() / ".platformio" / "packages" / "toolchain-atmelavr" / "bin" / "avr-size"
 
 

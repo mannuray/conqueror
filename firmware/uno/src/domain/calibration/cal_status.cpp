@@ -3,9 +3,13 @@
 namespace cq {
 
 void calStatus(const GlobalSettings& g, const ProfileSettings& p, uint8_t out[3]) {
+  // "Calibrated" = differs from the generated defaults (never hard-code them: §39 changed them).
+  Settings defaults;
+  defaults.loadDefaults();
+  const ProfileSettings& d = defaults.profile();
   bool deadband = false;
   for (uint8_t i = 0; i < 4; ++i) {
-    deadband = deadband || p.deadband_start[i] != 70 || p.deadband_keep[i] != 55;
+    deadband = deadband || p.deadband_start[i] != d.deadband_start[i] || p.deadband_keep[i] != d.deadband_keep[i];
   }
   const bool items[10] = {
       g.gyro_bias_x != 0 || g.gyro_bias_y != 0 || g.gyro_bias_z != 0,

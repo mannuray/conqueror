@@ -139,8 +139,8 @@ A bounded "full control" mode for the **adult driver only**. It is the only desi
 | ▲ ▼ | forward / backward while held (stop ~200 ms after last repeat) |
 | ◀ ▶ | spin left / right while held |
 | OK | STOP + hand control back |
-| 1 / 3 | pan left / right while held · 2 / 8 tilt up / down while held · 5 camera home |
-| 4 / 6 | speed −/+ 10 % (beep pitch confirms) |
+| 4 / 6 | pan left / right while held · 2 / 8 tilt up / down while held · 5 camera home (owner 2026-10-15: pan moved from 1/3 so 2/4/6/8 sit round 5 like arrows) |
+| 1 / 3 | speed −/+ 10 % (beep pitch confirms) (owner 2026-10-15: moved from 4/6) |
 | 7 | mute toggle · 9 battery check (LED + 3/2/1 beeps) · 0 gyro turn 180° |
 | * | tap: parking beeps on/off (acts on release) · **hold 2 s: Safety Override on/off** (§A6.1) · # (hold 3 s) motor calibration |
 IR driving uses heading hold and is subject to the safety supervisor.
@@ -337,3 +337,58 @@ Firmware: `drivers/board_config.h` build option selects the shield; only the mot
 - **Uno updates stay USB-only** (shield switch S1). Reason recorded: the ESP32↔Uno connector P1 carries only RX(IO33)/TX(IO4)/GND/VCC — no reset line, so the ESP32 cannot put the Uno into its bootloader. Future option (not planned): one wire ESP32 pad T14 (IO13) → 100 nF → Uno RESET + STK500 flashing from the ESP32 (esp-link approach).
 - ESP32 self-OTA unchanged (dual partitions + rollback).
 - 2022.03.23 ELEGOO package reviewed: its ESP32-WROVER-Camera-V1.2 schematic is identical to the one already used.
+
+---
+
+## Part D — Uno Lite firmware (2026-10-14, APPROVED by owner incl. the proposed items)
+
+**Why:** the Mega clone cannot start the ESP32-S3 camera board; the ELEGOO Uno can (design-notes §43). The full firmware (~61 KB) cannot fit the Uno (32 KB, 2 KB RAM). Owner: *"let this be drivable, don't throw the current code, save it for the future full board; design what fits on the Uno, no bells and whistles"* and chose **option B**: a **new, small Uno app in the same project**.
+
+### D1. Principles
+1. **Drivable first:** IR remote and phone/web driving, straight-line gyro hold. Nothing decorative unless space is left.
+2. **Safety rules unchanged (hard rule):** deadman, link-loss stop, STOP, obstacle brake, child-play envelope caps, battery low/critical, lift/tilt stop, boot self-test. No Override mode (stricter, not weaker).
+3. **Same protocol to the ESP32:** same frames, CRC and framing, so the bridge and phone page work unchanged. Frames the Lite app does not implement get `ACK UNAVAILABLE`. HELLO `caps` tells clients what is missing (new cap bits; protocol change in the LLD).
+4. **Budget:** **≤ 30 KB flash (raised from 28 KB by the owner, 2026-10-15), ≤ 1.5 KB static RAM** (Uno: 32 KB / 2 KB; margin for bootloader and stack). Size gate on every build.
+5. **Whole-number maths** in the control loops (no float library, ~7 KB saved).
+6. **The full firmware is kept:** tag `full-firmware-2026-10-14`; the Mega env, its app and its 182 host tests keep building. Shared code (generated protocol, frame parser/writer, NEC decoder, small safety pieces) is reused only where it fits the budget.
+
+### D2. Features
+
+| Area | Uno Lite | Status |
+|---|---|---|
+| IR remote | tap = 0.15 s nudge, hold = drive (350 ms release), speed keys 6/4 (default 80 %, ±10 %), OK = stop | keep |
+| Phone / web | `DRIVE` (v, w), `STOP`, deadman, owner rules (network vs IR) | keep |
+| Straight line | gyro heading hold when not steering; steering open-loop; auto gyro zero at rest | keep |
+| Safety | see D1.2 | keep (hard rule) |
+| Encoders | counts in telemetry; left/right balance if it fits | keep (owner) |
+| Camera pan/tilt | `CAM_SET` / `CAM_HOME` positioning; smooth movement only if space is left | keep / optional |
+| LED | no ESP32 (blue) · ready (white) · driving · IR (purple) · alarm (red) | keep |
+| Sound | one short beep for keys and alarms | proposed |
+| Settings | small fixed set in EEPROM (gyro zero, deadband, motor trim, heading gain, IR speed); rest are constants | proposed |
+| Telemetry | `TELEM_FAST` / `TELEM_SLOW` / `EVENT` frames as now, key fields only | keep |
+| TURN by angle (Tank Logo/AI) | not in Lite (AI uses the full board later) | proposed drop |
+| Calibration scripts, Override, MOVE, DRIVE_RATE, melodies, LED/SOUND/TONE frames, bump/accel extras, profiles, full settings protocol | not in Lite | drop |
+
+### D3. Next
+Uno Lite LLD (classes, Mermaid diagrams, frame subset, RAM/flash plan per module, caps bits) → implementation plan → code, each approved by the owner. The first implementation step is a skeleton with all drivers, measured against D1.4 (as A12 asked originally).
+
+### D4. Sounds and LED: the existing §A9 scheme (owner, 2026-10-15 — option A)
+Replaces the "one short beep" row of D2 (after Plan E the Uno has ≈ 4 KB flash left; RAM is the limit).
+1. **Same sounds and LED behaviour as the full firmware:** the Lite firmware reuses the full `Annunciator` (LED + sound rules of §A9 and the LED table), `SoundSequencer` and the old-firmware melody table (`catalogues.cpp`). `AnnunciatorLite` and `Beeper` are removed. Inputs the Lite firmware does not have stay off (calibration, Safety Override, bump, stall). Audio modes mute / quiet / normal; LED brightness cap `led_max` = 50 (full default).
+2. **IR sounds as the full input task:** speed keys 6/4 tone (400 + speed × 10 Hz), key 7 mute toggle (with the toggle blinks), key 9 battery check (LED + beeps).
+3. **Owner addition: IR key click** — a short TICK on each new IR key press (not on NEC repeats while held), so every press is confirmed.
+4. **Phone/AI control** (§A9 "custom, on request"): `SOUND`, `TONE`, `AUDIO_MODE` and `LED` become handled instead of UNAVAILABLE; HELLO sets `CapBit::AUDIO_LED`.
+5. **RAM plan:** full annunciator + sequencer ≈ +110 B, `AnnunciatorLite`/`Beeper` ≈ −20 B, Lite-only EEPROM write buffer 80 → 32 B (the Lite block is 26 B) ≈ −48 B; target ≈ 1,445 B. **Safety valve:** if the measured build is above 1,500 B static RAM, item 4 is left out (sounds and LED of items 1–3 still ship).
+
+### D5. Second-review fixes and additions (owner, 2026-10-15)
+1. **Parity gaps fixed:** TELEM_SLOW reports mute/quiet (`flags2` MUTED/QUIET) and `err_i2c`; the boot button gives the full firmware's feedback (press blip, WiFi/admin threshold ticks, reset jingle + blue/magenta blink); `free_ram` becomes the **stack high-water headroom** (bytes never touched since boot), not a shallow snapshot; a camera command cancels a pending joystick return.
+2. **Stall detection** (safety): the full firmware's `EncoderHealth` (shared code; its yaw-rate input becomes whole °/s so the Lite build needs no floats) — a track driven above deadband-keep + 15 PWM with no encoder edges for 0.5 s is cut by the supervisor for 1 s (or until reversed); a latched encoder fault when other evidence says the track moves. Only with `encoders_enabled = 1`. **Encoders on the Uno are single-channel** (left A1, right A2, the old line-tracking header): speed only, the direction comes from the motor command — enough for stall detection.
+3. **Camera joystick timeout** 500 ms (phone lost while the stick is held → camera returns home, as the full firmware).
+4. **Servo idle detach:** the camera servos are released after 2 s still and re-attached on the next move (saves current on the weak 5 V route; full firmware has this as a setting, default off).
+5. Unchanged by owner decision: IMU-fail self-test lock lasts until reboot; IR speed resets to 80 % at boot.
+
+### D6. Camera wake-up fix, IR key swap, USB-power indication, flash budget (owner, 2026-10-15)
+1. **Camera wake-up (bug fix):** any new camera command (IR jog, CAM_SET/NUDGE/JOY/HOME) wakes the detached servos. Small IR jog steps were completed inside one tick and never woke them, so 1/3/2/8 did nothing after 2 s idle.
+2. **IR key swap (both firmwares, §A8):** speed −/+ on **1 / 3**, camera pan left/right on **4 / 6**; tilt 2/8 and home 5 unchanged.
+3. **USB power, clearly shown (both firmwares):** on USB only the battery input reads ≈ 4.7 V (USB back-feeds through the regulator), not "< 3 V" as assumed. New rule (corrected 2026-10-15 after a field bug): **below 5.5 V = USB power, but only while no pack (≥ 6.0 V, an empty 2S pack) has been seen since power-on**. The USB back-feed jumps 4.5–5.1 V when a servo moves; the first rule (both thresholds at 5.0 V) let one 5.07 V reading latch "battery seen", after which USB counted as battery critical until a restart — a real pack sagging below 5 V mid-drive still counts as battery critical (motor cut kept). On USB power: no battery alarms or self-test fail tone for the battery check; driving stays locked (no motor power anyway; the self-test lock is unchanged); LED = the normal colour **plus a 150 ms white flash every 2 s**. Solid red stays for real faults (IMU).
+4. **Flash budget 28 → 30 KB** (chip: 32,256 B usable); RAM stays ≤ 1.5 KB.

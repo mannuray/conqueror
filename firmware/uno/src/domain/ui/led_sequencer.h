@@ -14,6 +14,9 @@ struct LedPattern {
   Rgb color;
   uint16_t period_ms;
   uint16_t duration_ms;  // 0 = until changed
+  // kBlink only (internal, not on the wire): lit for flash_ms at the start of each period, see-through for the
+  // rest so the layer below shows - a short flash "over the base colour". 0 = plain blink (half on, half off).
+  uint16_t flash_ms = 0;
 };
 
 class LedSequencer {

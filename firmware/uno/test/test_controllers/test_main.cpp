@@ -103,6 +103,37 @@ void test_teleop_captures_heading_when_stick_centres() {
   TEST_ASSERT_FALSE(h.holding());
 }
 
+// design-notes §41 (owner): the gyro only keeps the tank straight. Any steering input is passed
+// through open-loop - no rate loop fighting the tracks (that made turns step).
+void test_teleop_steering_is_open_loop() {
+  HeadingController h;
+  h.configure(headingCfg());
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 40.0f, h.teleop(0.0f, 40.0f, 10.0f, 0.0f, 0.01f, false));
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 40.0f, h.teleop(0.0f, 40.0f, 30.0f, 200.0f, 0.01f, false));  // fast spin: unchanged
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, -25.0f, h.teleop(60.0f, -25.0f, 30.0f, -50.0f, 0.01f, false));  // curve
+}
+
+// After steering ends, nothing is commanded while the tank still rotates; then the heading is captured.
+void test_teleop_no_rate_braking_after_steering() {
+  HeadingController h;
+  h.configure(headingCfg());
+  h.teleop(50.0f, 40.0f, 10.0f, 60.0f, 0.01f, false);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, h.teleop(50.0f, 0.0f, 20.0f, 30.0f, 0.01f, false));
+}
+
+// The tank's own pull can keep it rotating above the capture rate after a curve (floor test 2026-10-14:
+// ~12 % track difference needed). Waiting for the rate to settle must not disable heading hold for good:
+// after kSettleS the heading is captured anyway and corrected.
+void test_teleop_captures_after_settle_time_despite_pull() {
+  HeadingController h;
+  h.configure(headingCfg());
+  h.teleop(50.0f, 40.0f, 10.0f, 60.0f, 0.01f, false);  // curve
+  float w = 0.0f;
+  for (int i = 0; i < 40; ++i) w = h.teleop(50.0f, 0.0f, 20.0f + i * 0.2f, 20.0f, 0.01f, false);  // 0.4 s at 20 deg/s
+  TEST_ASSERT_TRUE(h.holding());
+  TEST_ASSERT_TRUE(w < 0.0f);  // braking the pull
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_open_loop_is_feedforward_only);
@@ -113,5 +144,8 @@ int main() {
   RUN_TEST(test_hold_corrects_drift_with_wraparound);
   RUN_TEST(test_off_mode_passes_stick_through);
   RUN_TEST(test_teleop_captures_heading_when_stick_centres);
+  RUN_TEST(test_teleop_steering_is_open_loop);
+  RUN_TEST(test_teleop_no_rate_braking_after_steering);
+  RUN_TEST(test_teleop_captures_after_settle_time_despite_pull);
   return UNITY_END();
 }

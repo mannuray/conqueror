@@ -572,6 +572,16 @@ void test_envelope_blocks_calibration() {
   TEST_ASSERT_FALSE(e.blocksCalibration());
 }
 
+// Spec 02 §D6.3: on USB power the battery check is not shown as a fault (no solid red, no fail tone);
+// an IMU failure still is.
+void test_selftest_display_mask_on_usb() {
+  const uint8_t batt = 1u << static_cast<uint8_t>(SelfTest::Check::kBattery);
+  const uint8_t imu = 1u << static_cast<uint8_t>(SelfTest::Check::kImu);
+  TEST_ASSERT_EQUAL_UINT8(0, SelfTest::displayMask(batt, true));
+  TEST_ASSERT_EQUAL_UINT8(batt, SelfTest::displayMask(batt, false));
+  TEST_ASSERT_EQUAL_UINT8(imu, SelfTest::displayMask(imu | batt, true));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ir_owner_ignores_link_loss);
@@ -596,6 +606,7 @@ int main() {
   RUN_TEST(test_override_tilt_65_with_hold);
   RUN_TEST(test_critical_selftest_locks_motion);
   RUN_TEST(test_selftest_rerun_pass_unlocks);
+  RUN_TEST(test_selftest_display_mask_on_usb);
   RUN_TEST(test_override_cannot_unlock_selftest);
   RUN_TEST(test_battery_only_lock_clears_after_1s_valid);
   RUN_TEST(test_imu_lock_not_auto_cleared);

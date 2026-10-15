@@ -3,6 +3,7 @@
 #include "domain/estimation/accel_variance.h"
 #include "domain/estimation/attitude.h"
 #include "domain/estimation/bump_detector.h"
+#include "domain/estimation/gyro_zero_tracker.h"
 #include "domain/estimation/imu_scale.h"
 #include "domain/estimation/lift_detector.h"
 #include "domain/estimation/yaw_integrator.h"
@@ -138,6 +139,97 @@ void test_imu_id_accepts_mpu6050_family() {
   TEST_ASSERT_FALSE(cq::imu_scale::supportedWhoAmI(0xFF));  // bus floating high
 }
 
+// ---- GyroZeroTracker (LLD §11.8): IMU samples every 5 ms, raw gyro units (65.5 per deg/s) ----
+namespace {
+const int16_t kZero3[3] = {0, 0, 0};
+// Feeds n samples of (x, y, z) with +-3 raw alternating noise; returns the next sample time.
+uint32_t feed(GyroZeroTracker& g, int16_t x, int16_t y, int16_t z, int n, uint32_t t, bool quiet = true) {
+  for (int i = 0; i < n; ++i, t += 5) {
+    const int16_t d = (i & 1) ? 3 : -3;
+    const int16_t raw[3] = {static_cast<int16_t>(x + d), static_cast<int16_t>(y - d), static_cast<int16_t>(z + d)};
+    g.update(raw, quiet, t);
+  }
+  return t;
+}
+}  // namespace
+
+void test_gyro_zero_starts_from_stored() {
+  GyroZeroTracker g;
+  const int16_t stored[3] = {-86, -57, -17};
+  g.seed(stored);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, -86.0f, g.zero(0));
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, -17.0f, g.zero(2));
+  TEST_ASSERT_EQUAL(0, g.accepted());
+}
+
+// 1 s settle (200 samples) + two agreeing 2 s windows (400 each) → the zero is learned.
+void test_gyro_zero_learns_after_two_agreeing_windows() {
+  GyroZeroTracker g;
+  g.seed(kZero3);
+  uint32_t t = feed(g, 5, -3, -13, 200 + 400, 0);
+  TEST_ASSERT_EQUAL(0, g.accepted());  // one window is not enough
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, g.zero(2));
+  feed(g, 5, -3, -13, 400, t);
+  TEST_ASSERT_EQUAL(1, g.accepted());
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, 5.0f, g.zero(0));
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, -3.0f, g.zero(1));
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, -13.0f, g.zero(2));
+}
+
+// A bump (spread > 1.5 deg/s) makes the window invalid and breaks the pair.
+void test_gyro_zero_ignores_a_bump() {
+  GyroZeroTracker g;
+  g.seed(kZero3);
+  uint32_t t = feed(g, 0, 0, -13, 200 + 200, 0);
+  t = feed(g, 0, 0, 200, 1, t);  // knock
+  t = feed(g, 0, 0, -13, 199, t);  // end of the bumped window
+  feed(g, 0, 0, -13, 400, t);      // one clean window: no pair yet
+  TEST_ASSERT_EQUAL(0, g.accepted());
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, g.zero(2));
+}
+
+// Motion during a window drops it; measuring needs a new 1 s settle.
+void test_gyro_zero_motion_restarts_settle() {
+  GyroZeroTracker g;
+  g.seed(kZero3);
+  uint32_t t = feed(g, 0, 0, -13, 200 + 200, 0);
+  t = feed(g, 0, 0, -13, 1, t, false);  // driven
+  feed(g, 0, 0, -13, 800, t);           // settle 200 + window 400 + 200 of the next
+  TEST_ASSERT_EQUAL(0, g.accepted());
+}
+
+// A slow, smooth hand rotation looks steady within a window but not between windows: not learned.
+void test_gyro_zero_disagreeing_windows_not_learned() {
+  GyroZeroTracker g;
+  g.seed(kZero3);
+  uint32_t t = feed(g, 0, 0, 100, 200 + 400, 0);
+  t = feed(g, 0, 0, 140, 400, t);
+  feed(g, 0, 0, 180, 400, t);
+  TEST_ASSERT_EQUAL(0, g.accepted());
+}
+
+// Beyond the datasheet limit (20 deg/s = 1310 raw) the sensor is faulty or turning: not learned.
+void test_gyro_zero_rejects_out_of_range() {
+  GyroZeroTracker g;
+  g.seed(kZero3);
+  feed(g, 0, 0, 1400, 200 + 800, 0);
+  TEST_ASSERT_EQUAL(0, g.accepted());
+}
+
+// applySettings() runs after every setting change: seeding the same stored zero keeps what was learned;
+// a new stored zero (manual calibration) replaces it.
+void test_gyro_zero_reseed_only_on_change() {
+  GyroZeroTracker g;
+  g.seed(kZero3);
+  feed(g, 0, 0, -13, 200 + 800, 0);
+  TEST_ASSERT_EQUAL(1, g.accepted());
+  g.seed(kZero3);
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, -13.0f, g.zero(2));
+  const int16_t cal[3] = {1, 2, -15};
+  g.seed(cal);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, -15.0f, g.zero(2));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_attitude_level_stays_zero);
@@ -151,5 +243,12 @@ int main() {
   RUN_TEST(test_tilt_hysteresis);
   RUN_TEST(test_accel_variance_window);
   RUN_TEST(test_imu_id_accepts_mpu6050_family);
+  RUN_TEST(test_gyro_zero_starts_from_stored);
+  RUN_TEST(test_gyro_zero_learns_after_two_agreeing_windows);
+  RUN_TEST(test_gyro_zero_ignores_a_bump);
+  RUN_TEST(test_gyro_zero_motion_restarts_settle);
+  RUN_TEST(test_gyro_zero_disagreeing_windows_not_learned);
+  RUN_TEST(test_gyro_zero_rejects_out_of_range);
+  RUN_TEST(test_gyro_zero_reseed_only_on_change);
   return UNITY_END();
 }

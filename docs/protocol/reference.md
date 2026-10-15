@@ -314,7 +314,7 @@ Payload 9 bytes max.
 |---|---|---|
 | fw | u16 | major << 8 \| minor |
 | proto | u8 |  |
-| caps | u8 | bit0 encoders enabled |
+| caps | u8 | CapBit bits: features this firmware has (bit0 = encoders enabled) |
 | reset_reason | u8 | enum ResetReason |
 | commit | u32 | first 8 hex digits of the firmware git commit as a number (git rev-parse --short=8 HEAD); 0 = unknown / not built from git |
 
@@ -465,6 +465,7 @@ Payload 0 bytes max.
 - **FastFlagBit**: BLOCKED=0, LIFTED=1, TILTED=2, STALL_L=3, STALL_R=4, CAM_MOVING=5, TURN_LIMITED=6, CAPPED=7, SOFT_STOP=8, HALTED=9, LOCKED=10, IMU_FAULT=11, US_FAULT=12, ENCODER_FAULT=13, CALIBRATING=14, SYNCED=15 — Bit positions in TELEM_FAST.flags.
 - **SlowFlagBit**: BATT_LOW=0, BATT_CRITICAL=1, LINK_LOST=2, BRAKE_OFF=3, MUTED=4, QUIET=5, ENVELOPE=6, DEADMAN=7, SAFETY_OVERRIDE=8, SELFTEST_LOCKED=9 — Bit positions in TELEM_SLOW.flags2.
 - **HwBit**: ENCODERS_ENABLED=0, IMU_OK=1, US_OK=2 — Bit positions in TELEM_SLOW.hw.
+- **CapBit**: ENCODERS=0, TURN=1, MOVE=2, DRIVE_RATE=3, CALIBRATE=4, OVERRIDE=5, AUDIO_LED=6, SETTINGS_FULL=7 — Bit positions in HELLO.caps - features this body firmware has (the Lite Uno firmware sets only ENCODERS when on).
 - **EnvelopeFlagBit**: LOCK_BRAKE=0, CHILD_PLAY=1 — Bit positions in ENVELOPE.lock_brake / TELEM_SLOW.env_lock_brake / EVENT ENVELOPE_CHANGED b. CHILD_PLAY implies LOCK_BRAKE; only CHILD_PLAY blocks Safety Override (owner decision 2026-10-12).
 - **OverrideReason**: NETWORK=0, IR=1, IDLE=2, MAX_TIME=3, STOP=4, OWNER_CHANGE=5, LINK_LOST=6, ENVELOPE=7 — EVENT SAFETY_OVERRIDE b - why Safety Override was entered or exited.
 
@@ -562,7 +563,7 @@ Payload 0 bytes max.
 | 1 | encoders_enabled | global | u8 | bool | 1.0 | 0 | 1 | 0 |
 | 2 | counts_per_rev | global | u16 | counts | 1.0 | 1 | 10000 | 960 |
 | 3 | counts_per_cm | global | u16 | counts_cm | 0.01 | 100 | 60000 | 7600 |
-| 4 | motor_v_max | global | u16 | mV | 1.0 | 3000 | 12000 | 6000 |
+| 4 | motor_v_max | global | u16 | mV | 1.0 | 3000 | 12000 | 12000 |
 | 5 | accel_limit | global | u16 | pct_s | 1.0 | 10 | 1000 | 200 |
 | 6 | turn_rate_max | global | u16 | deg_s | 1.0 | 10 | 720 | 180 |
 | 7 | turn_rate_full_speed | profile | u8 | pct | 1.0 | 10 | 100 | 40 |
@@ -596,14 +597,14 @@ Payload 0 bytes max.
 | 35 | level_roll | global | i16 | deg | 0.01 | -2000 | 2000 | 0 |
 | 36 | ultrasonic_offset | global | u8 | mm | 1.0 | 0 | 100 | 0 |
 | 37 | active_profile | global | u8 | index | 1.0 | 0 | 2 | 0 |
-| 40 | deadband_start_l_fwd | profile | u8 | pwm | 1.0 | 0 | 255 | 70 |
-| 41 | deadband_start_l_rev | profile | u8 | pwm | 1.0 | 0 | 255 | 70 |
-| 42 | deadband_start_r_fwd | profile | u8 | pwm | 1.0 | 0 | 255 | 70 |
-| 43 | deadband_start_r_rev | profile | u8 | pwm | 1.0 | 0 | 255 | 70 |
-| 44 | deadband_keep_l_fwd | profile | u8 | pwm | 1.0 | 0 | 255 | 55 |
-| 45 | deadband_keep_l_rev | profile | u8 | pwm | 1.0 | 0 | 255 | 55 |
-| 46 | deadband_keep_r_fwd | profile | u8 | pwm | 1.0 | 0 | 255 | 55 |
-| 47 | deadband_keep_r_rev | profile | u8 | pwm | 1.0 | 0 | 255 | 55 |
+| 40 | deadband_start_l_fwd | profile | u8 | pwm | 1.0 | 0 | 255 | 110 |
+| 41 | deadband_start_l_rev | profile | u8 | pwm | 1.0 | 0 | 255 | 110 |
+| 42 | deadband_start_r_fwd | profile | u8 | pwm | 1.0 | 0 | 255 | 110 |
+| 43 | deadband_start_r_rev | profile | u8 | pwm | 1.0 | 0 | 255 | 110 |
+| 44 | deadband_keep_l_fwd | profile | u8 | pwm | 1.0 | 0 | 255 | 90 |
+| 45 | deadband_keep_l_rev | profile | u8 | pwm | 1.0 | 0 | 255 | 90 |
+| 46 | deadband_keep_r_fwd | profile | u8 | pwm | 1.0 | 0 | 255 | 90 |
+| 47 | deadband_keep_r_rev | profile | u8 | pwm | 1.0 | 0 | 255 | 90 |
 | 48 | max_cps_l | profile | u16 | counts_s | 1.0 | 100 | 20000 | 2500 |
 | 49 | max_cps_r | profile | u16 | counts_s | 1.0 | 100 | 20000 | 2500 |
 | 52 | pid_speed_kp | profile | i32 | gain | 0.001 | 0 | 100000 | 150 |
@@ -612,7 +613,7 @@ Payload 0 bytes max.
 | 55 | pid_rate_kp | profile | i32 | gain | 0.001 | 0 | 100000 | 1200 |
 | 56 | pid_rate_ki | profile | i32 | gain | 0.001 | 0 | 100000 | 400 |
 | 57 | pid_rate_kd | profile | i32 | gain | 0.001 | 0 | 100000 | 20 |
-| 58 | pid_heading_kp | profile | i32 | gain | 0.001 | 0 | 100000 | 3000 |
+| 58 | pid_heading_kp | profile | i32 | gain | 0.001 | 0 | 100000 | 3500 |
 | 59 | pid_heading_ki | profile | i32 | gain | 0.001 | 0 | 100000 | 0 |
 | 60 | pid_heading_kd | profile | i32 | gain | 0.001 | 0 | 100000 | 100 |
 | 61 | override_idle_s | global | u8 | s | 1.0 | 10 | 60 | 60 |

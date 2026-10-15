@@ -18,8 +18,8 @@ bool IrController::onEvent(const IrEvent& e, IrOutput& out) {
     case ir_codes::kDown: v = static_cast<int8_t>(-s); hold = Hold::kDrive; break;
     case ir_codes::kLeft: w = s; hold = Hold::kDrive; break;
     case ir_codes::kRight: w = static_cast<int8_t>(-s); hold = Hold::kDrive; break;
-    case ir_codes::k1: jp = -1; hold = Hold::kJog; break;
-    case ir_codes::k3: jp = 1; hold = Hold::kJog; break;
+    case ir_codes::k4: jp = -1; hold = Hold::kJog; break;  // pan on 4/6, speed on 1/3 (owner 2026-10-15, spec 02 §A8)
+    case ir_codes::k6: jp = 1; hold = Hold::kJog; break;
     case ir_codes::k2: jt = 1; hold = Hold::kJog; break;
     case ir_codes::k8: jt = -1; hold = Hold::kJog; break;
     case ir_codes::kHash: hold = Hold::kHash; break;
@@ -27,6 +27,14 @@ bool IrController::onEvent(const IrEvent& e, IrOutput& out) {
     default: break;
   }
   if (hold != Hold::kNone) {
+    if (hold == Hold::kDrive) {
+      if (e.repeat) {
+        m_seen_repeat = true;  // also a repeat arriving after a nudge ended: the key is held
+      } else {
+        m_code_ms = e.t_ms;
+        m_seen_repeat = false;
+      }
+    }
     m_last_ms = e.t_ms;
     if (hold == Hold::kHash) {
       if (!e.repeat || m_hold != Hold::kHash) {
@@ -67,9 +75,9 @@ bool IrController::onEvent(const IrEvent& e, IrOutput& out) {
       out.v = out.w = out.jog_pan = out.jog_tilt = 0;
       out.stop = true;
       return true;
-    case ir_codes::k4:
-    case ir_codes::k6: {
-      const int16_t next = static_cast<int16_t>(m_speed_pct + (e.code == ir_codes::k6 ? 10 : -10));
+    case ir_codes::k1:
+    case ir_codes::k3: {
+      const int16_t next = static_cast<int16_t>(m_speed_pct + (e.code == ir_codes::k3 ? 10 : -10));
       m_speed_pct = static_cast<uint8_t>(next < 20 ? 20 : (next > 100 ? 100 : next));
       out.speed_changed = true;
       return true;
@@ -83,7 +91,9 @@ bool IrController::onEvent(const IrEvent& e, IrOutput& out) {
 }
 
 bool IrController::tick(uint32_t now_ms, IrOutput& out) {
-  if (m_hold == Hold::kNone || !elapsed(now_ms, m_last_ms, kReleaseMs)) return false;
+  if (m_hold == Hold::kNone) return false;
+  const bool tap_done = m_hold == Hold::kDrive && !m_seen_repeat && elapsed(now_ms, m_code_ms, kNudgeMs);
+  if (!tap_done && !elapsed(now_ms, m_last_ms, kReleaseMs)) return false;
   const Hold released = m_hold;
   m_hold = Hold::kNone;
   out = IrOutput{};  // not active, no jog, no one-shot flag left over from an earlier key

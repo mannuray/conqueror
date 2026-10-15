@@ -25,7 +25,9 @@ void uiTask() {
   s.tilted = g_app.lift.tilted();
   s.batt_low = g_app.batt.level() == BatteryMonitor::Level::kLow;
   s.batt_crit = g_app.batt.level() == BatteryMonitor::Level::kCritical;
-  s.selftest_critical = g_app.self_test.locked();
+  s.usb_power = g_app.batt.level() == BatteryMonitor::Level::kUsb;
+  const uint8_t shown = SelfTest::displayMask(g_app.self_test.failMask(), s.usb_power);  // spec 02 §D6.3
+  s.selftest_critical = g_app.self_test.locked() && (shown & SelfTest::kCriticalMask) != 0;
   s.reversing = g_app.out_pwm_l < 0 && g_app.out_pwm_r < 0;
   s.forward = g_app.out_pwm_l > 0 && g_app.out_pwm_r > 0;
   s.parking_beeps = gs.parking_beeps != 0;
@@ -33,7 +35,7 @@ void uiTask() {
   s.hint = g_app.owner_hint;
   s.bump_seq = g_app.bump_seq;
   s.selftest_runs = g_app.self_test.runs();
-  s.selftest_failed = g_app.self_test.failMask() != 0;
+  s.selftest_failed = shown != 0;
   s.override_on = g_app.safety_override.active();
   s.override_seq = g_app.override_seq;
   s.toggle_seq = g_app.toggle_seq;

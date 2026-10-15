@@ -39,7 +39,7 @@ void encodersTick() {
   if (g_app.encoders_enabled) {
     // keep values by direction: deadband_keep = {left fwd, left rev, right fwd, right rev}
     const EncoderHealth::Inputs hi{g_app.out_pwm_l, g_app.out_pwm_r, g_app.req_pwm_l, g_app.req_pwm_r,
-                                   g_app.enc_l.recent(), g_app.enc_r.recent(), g_app.yaw_rate_dps,
+                                   g_app.enc_l.recent(), g_app.enc_r.recent(), static_cast<int16_t>(g_app.yaw_rate_dps),
                                    ps.deadband_keep[g_app.out_pwm_l < 0 ? 1 : 0],
                                    ps.deadband_keep[g_app.out_pwm_r < 0 ? 3 : 2]};
     g_app.enc_health.update(hi, port::clock::nowMs());

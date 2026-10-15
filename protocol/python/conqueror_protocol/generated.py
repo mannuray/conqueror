@@ -171,6 +171,19 @@ class HwBit(IntEnum):
     US_OK = 2
 
 
+class CapBit(IntEnum):
+    """Bit positions in HELLO.caps - features this body firmware has (the Lite Uno firmware sets only ENCODERS when on)."""
+
+    ENCODERS = 0
+    TURN = 1
+    MOVE = 2
+    DRIVE_RATE = 3
+    CALIBRATE = 4
+    OVERRIDE = 5
+    AUDIO_LED = 6
+    SETTINGS_FULL = 7
+
+
 class EnvelopeFlagBit(IntEnum):
     """Bit positions in ENVELOPE.lock_brake / TELEM_SLOW.env_lock_brake / EVENT ENVELOPE_CHANGED b. CHILD_PLAY implies LOCK_BRAKE; only CHILD_PLAY blocks Safety Override (owner decision 2026-10-12)."""
 
@@ -917,7 +930,7 @@ SETTINGS: tuple[SettingInfo, ...] = (
     SettingInfo(1, "encoders_enabled", "global", "u8", "bool", 1.0, 0, 1, 0),
     SettingInfo(2, "counts_per_rev", "global", "u16", "counts", 1.0, 1, 10000, 960),
     SettingInfo(3, "counts_per_cm", "global", "u16", "counts_cm", 0.01, 100, 60000, 7600),
-    SettingInfo(4, "motor_v_max", "global", "u16", "mV", 1.0, 3000, 12000, 6000),
+    SettingInfo(4, "motor_v_max", "global", "u16", "mV", 1.0, 3000, 12000, 12000),
     SettingInfo(5, "accel_limit", "global", "u16", "pct_s", 1.0, 10, 1000, 200),
     SettingInfo(6, "turn_rate_max", "global", "u16", "deg_s", 1.0, 10, 720, 180),
     SettingInfo(7, "turn_rate_full_speed", "profile", "u8", "pct", 1.0, 10, 100, 40),
@@ -951,14 +964,14 @@ SETTINGS: tuple[SettingInfo, ...] = (
     SettingInfo(35, "level_roll", "global", "i16", "deg", 0.01, -2000, 2000, 0),
     SettingInfo(36, "ultrasonic_offset", "global", "u8", "mm", 1.0, 0, 100, 0),
     SettingInfo(37, "active_profile", "global", "u8", "index", 1.0, 0, 2, 0),
-    SettingInfo(40, "deadband_start_l_fwd", "profile", "u8", "pwm", 1.0, 0, 255, 70),
-    SettingInfo(41, "deadband_start_l_rev", "profile", "u8", "pwm", 1.0, 0, 255, 70),
-    SettingInfo(42, "deadband_start_r_fwd", "profile", "u8", "pwm", 1.0, 0, 255, 70),
-    SettingInfo(43, "deadband_start_r_rev", "profile", "u8", "pwm", 1.0, 0, 255, 70),
-    SettingInfo(44, "deadband_keep_l_fwd", "profile", "u8", "pwm", 1.0, 0, 255, 55),
-    SettingInfo(45, "deadband_keep_l_rev", "profile", "u8", "pwm", 1.0, 0, 255, 55),
-    SettingInfo(46, "deadband_keep_r_fwd", "profile", "u8", "pwm", 1.0, 0, 255, 55),
-    SettingInfo(47, "deadband_keep_r_rev", "profile", "u8", "pwm", 1.0, 0, 255, 55),
+    SettingInfo(40, "deadband_start_l_fwd", "profile", "u8", "pwm", 1.0, 0, 255, 110),
+    SettingInfo(41, "deadband_start_l_rev", "profile", "u8", "pwm", 1.0, 0, 255, 110),
+    SettingInfo(42, "deadband_start_r_fwd", "profile", "u8", "pwm", 1.0, 0, 255, 110),
+    SettingInfo(43, "deadband_start_r_rev", "profile", "u8", "pwm", 1.0, 0, 255, 110),
+    SettingInfo(44, "deadband_keep_l_fwd", "profile", "u8", "pwm", 1.0, 0, 255, 90),
+    SettingInfo(45, "deadband_keep_l_rev", "profile", "u8", "pwm", 1.0, 0, 255, 90),
+    SettingInfo(46, "deadband_keep_r_fwd", "profile", "u8", "pwm", 1.0, 0, 255, 90),
+    SettingInfo(47, "deadband_keep_r_rev", "profile", "u8", "pwm", 1.0, 0, 255, 90),
     SettingInfo(48, "max_cps_l", "profile", "u16", "counts_s", 1.0, 100, 20000, 2500),
     SettingInfo(49, "max_cps_r", "profile", "u16", "counts_s", 1.0, 100, 20000, 2500),
     SettingInfo(52, "pid_speed_kp", "profile", "i32", "gain", 0.001, 0, 100000, 150),
@@ -967,7 +980,7 @@ SETTINGS: tuple[SettingInfo, ...] = (
     SettingInfo(55, "pid_rate_kp", "profile", "i32", "gain", 0.001, 0, 100000, 1200),
     SettingInfo(56, "pid_rate_ki", "profile", "i32", "gain", 0.001, 0, 100000, 400),
     SettingInfo(57, "pid_rate_kd", "profile", "i32", "gain", 0.001, 0, 100000, 20),
-    SettingInfo(58, "pid_heading_kp", "profile", "i32", "gain", 0.001, 0, 100000, 3000),
+    SettingInfo(58, "pid_heading_kp", "profile", "i32", "gain", 0.001, 0, 100000, 3500),
     SettingInfo(59, "pid_heading_ki", "profile", "i32", "gain", 0.001, 0, 100000, 0),
     SettingInfo(60, "pid_heading_kd", "profile", "i32", "gain", 0.001, 0, 100000, 100),
     SettingInfo(61, "override_idle_s", "global", "u8", "s", 1.0, 10, 60, 60),

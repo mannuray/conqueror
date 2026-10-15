@@ -41,6 +41,10 @@ Rgb LedSequencer::raw(uint32_t now_ms, uint8_t& layer) {
       case proto::LedMode::kSolid:
         return p.color;
       case proto::LedMode::kBlink:
+        if (p.flash_ms != 0) {
+          if (phase < p.flash_ms) return p.color;
+          continue;  // see-through between flashes: a lower layer shows
+        }
         return phase < period / 2 ? p.color : Rgb{0, 0, 0};
       case proto::LedMode::kPulse: {
         const uint32_t half = period / 2;

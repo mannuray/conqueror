@@ -1,5 +1,5 @@
 #if defined(BOARD_MEGA)
-#include "drivers/soft_i2c.h"
+#include "drivers/i2c_bus.h"
 
 #include <avr/io.h>
 #include <util/delay.h>
@@ -94,7 +94,7 @@ bool readByte(uint8_t& out, bool ack) {
 
 namespace cq {
 namespace drv {
-namespace soft_i2c {
+namespace i2c {
 
 void begin() {
   PORTF &= static_cast<uint8_t>(~(kSda | kScl));  // when driven, drive LOW; never source HIGH
@@ -126,7 +126,7 @@ void recover() {
   stop();
 }
 
-}  // namespace soft_i2c
+}  // namespace i2c
 }  // namespace drv
 }  // namespace cq
 #endif  // BOARD_MEGA

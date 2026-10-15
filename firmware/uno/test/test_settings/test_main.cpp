@@ -20,7 +20,7 @@ void test_defaults_match_descriptors() {
   TEST_ASSERT_TRUE(s.get(static_cast<uint8_t>(proto::SettingId::kCountsPerRev), v));
   TEST_ASSERT_EQUAL(960, v);
   TEST_ASSERT_TRUE(s.get(static_cast<uint8_t>(proto::SettingId::kPidHeadingKp), v));
-  TEST_ASSERT_EQUAL(3000, v);
+  TEST_ASSERT_EQUAL(3500, v);  // design-notes §41: stiffer heading hold
   TEST_ASSERT_EQUAL(300, s.global().deadman);
 }
 

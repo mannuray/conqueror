@@ -24,7 +24,13 @@ constexpr uint8_t kEncLeftBit = _BV(PC1);
 constexpr uint8_t kEncRightBit = _BV(PC2);
 volatile uint8_t g_prev_pinc = 0;
 #endif
+#if defined(PROFILE_LITE)
+// Uno Lite RAM budget: drained every 5 ms, NEC falling edges come at most every 1.125 ms → ≤ 5 per drain; 8 slots
+// hold ≈ 9 ms. An overflow drops edges (one missed key press), never anything unsafe.
+constexpr uint8_t kRing = 8;
+#else
 constexpr uint8_t kRing = 16;
+#endif
 
 volatile uint8_t g_prev_pinb = 0xFF;
 volatile uint32_t g_ir_ring[kRing];

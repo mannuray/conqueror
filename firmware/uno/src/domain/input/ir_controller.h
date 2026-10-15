@@ -24,7 +24,12 @@ struct IrOutput {
 
 class IrController {
  public:
-  static constexpr uint16_t kReleaseMs = 200;
+  // Held key ends 350 ms after the last repeat: tolerates two lost NEC repeats (~108 ms apart);
+  // the decoder uses the same window (design-notes §39).
+  static constexpr uint16_t kReleaseMs = 350;
+  // A drive key with no NEC repeat within kNudgeMs of its code was a tap: a short nudge, not the
+  // whole hold window (design-notes §41). Repeats come every ~108 ms, the first ~50 ms after the code.
+  static constexpr uint16_t kNudgeMs = 150;
   static constexpr uint16_t kCalHoldMs = 3000;
   static constexpr uint16_t kOverrideHoldMs = 2000;
   bool onEvent(const IrEvent& e, IrOutput& out);
@@ -35,9 +40,11 @@ class IrController {
 
  private:
   enum class Hold : uint8_t { kNone, kDrive, kJog, kHash, kStar };
-  uint8_t m_speed_pct = 50;
+  uint8_t m_speed_pct = 80;  // design-notes §41: IR default 80%, ±10% steps
   Hold m_hold = Hold::kNone;
   uint32_t m_last_ms = 0;
+  uint32_t m_code_ms = 0;     // time of the drive key's code (tap / hold decision)
+  bool m_seen_repeat = false; // a repeat arrived: a hold, not a tap
   uint32_t m_hash_start_ms = 0;
   bool m_hash_fired = false;
   uint32_t m_star_start_ms = 0;

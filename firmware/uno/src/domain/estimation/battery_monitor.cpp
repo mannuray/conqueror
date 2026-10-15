@@ -17,7 +17,11 @@ BatteryMonitor::Level BatteryMonitor::update(uint16_t adc, uint16_t mv_per_count
   const uint32_t low_exit = static_cast<uint32_t>(low_mv) + hyst_mv;   // hysteresis on recovery only
   const uint32_t crit_exit = static_cast<uint32_t>(crit_mv) + hyst_mv;
   Level target;
-  if (m_mv < 3000u) {
+  // USB only back-feeds ≈ 4.5–5.1 V through the regulator, jumping when a servo moves (spec 02 §D6.3). Below
+  // kUsbMaxMv counts as USB power only while no pack (≥ kPackSeenMv, an empty 2S pack) has been seen since power-on,
+  // so a real pack sagging mid-drive still reaches kCritical (motor cut). The gap keeps USB jitter from latching.
+  if (m_mv >= kPackSeenMv) m_battery_seen = true;
+  if (m_mv < kUsbMaxMv && !m_battery_seen) {
     target = Level::kUsb;
   } else if (m_level == Level::kCritical) {
     target = m_mv > low_exit ? Level::kOk : (m_mv > crit_exit ? Level::kLow : Level::kCritical);

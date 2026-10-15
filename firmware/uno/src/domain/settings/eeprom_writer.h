@@ -14,7 +14,11 @@ struct EepromIo {
 // block at a time (≤ magic 3 + global 66 = 69 B), checked by static_asserts (LLD §10.10).
 class EepromWriter {
  public:
+#if defined(PROFILE_LITE)
+  static constexpr uint8_t kMaxBytes = 32;  // Uno Lite: one 26-byte settings block (uno-lite LLD §12)
+#else
   static constexpr uint8_t kMaxBytes = 80;
+#endif
   static constexpr uint8_t kMaxRanges = 4;
   bool enqueue(uint16_t addr, const uint8_t* data, uint8_t len);  // false if full
   bool step(const EepromIo& io);                                   // true when idle

@@ -7,6 +7,7 @@
 #include "domain/comms/frame_writer.h"
 #include "domain/comms/link_session.h"
 #include "domain/estimation/battery_monitor.h"
+#include "domain/estimation/encoder_health.h"
 #include "domain/input/nec_decoder.h"
 #include "domain/lite/cam_lite.h"
 #include "domain/lite/drive_mix_lite.h"
@@ -60,6 +61,9 @@ struct LiteApp {
   BatteryMonitor batt;
   EncoderLite enc_l;
   EncoderLite enc_r;
+  EncoderHealth enc_health;  // stall / encoder fault (spec 02 §D5.2), only with encoders enabled
+  int16_t req_pwm_l = 0;     // asked of the supervisor last tick (a cut track still shows its direction)
+  int16_t req_pwm_r = 0;
   bool imu_ok = false;
   uint8_t imu_fail_streak = 0;
   NecDecoder nec;
@@ -98,6 +102,7 @@ void txPump();
 void telemetryFastDue();
 void telemetrySlowDue();
 void applySettings();
+void paintStack();  // first thing in setup(): stack high-water mark for TELEM_SLOW.free_ram
 
 }  // namespace lite
 }  // namespace cq

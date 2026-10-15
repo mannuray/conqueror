@@ -71,6 +71,43 @@ void test_cam_held_jog_rate() {
   TEST_ASSERT_EQUAL_INT16(840, c.pan());
 }
 
+// Second review M3: a camera command cancels a pending joystick return (as the full CameraHead).
+void test_cam_set_cancels_pending_return() {
+  CamLite c;
+  c.joy(100, 0, true, 0);
+  c.joy(0, 0, false, 100);  // released: return home due at 600
+  c.set(400, 900);          // CAM_SET / IR jog at 200
+  c.tick(700);
+  TEST_ASSERT_EQUAL_INT16(400, c.pan());
+}
+
+// §D5.3: a joystick held without refresh for 500 ms counts as released (phone lost) → home 500 ms later.
+void test_cam_joy_timeout_returns_home() {
+  CamLite c;
+  c.joy(100, 0, true, 0);
+  c.tick(499);
+  TEST_ASSERT_EQUAL_INT16(0, c.pan());
+  c.tick(500);   // no refresh for 500 ms: released at 500
+  c.tick(999);
+  TEST_ASSERT_EQUAL_INT16(0, c.pan());
+  c.tick(1000);  // return delay passed
+  TEST_ASSERT_EQUAL_INT16(900, c.pan());
+}
+
+// §D5.4: servos released after 2 s still, wanted again as soon as there is something to move.
+void test_cam_idle_detach_after_2s() {
+  CamLite c;
+  c.tick(0);
+  TEST_ASSERT_TRUE(c.wantAttached());
+  c.tick(1999);
+  TEST_ASSERT_TRUE(c.wantAttached());
+  c.tick(2000);
+  TEST_ASSERT_FALSE(c.wantAttached());
+  c.set(1000, 900);
+  c.tick(2010);
+  TEST_ASSERT_TRUE(c.wantAttached());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_cam_limits_and_us);
@@ -78,5 +115,8 @@ int main() {
   RUN_TEST(test_cam_smooth_steps);
   RUN_TEST(test_cam_nudge_large_saturates);
   RUN_TEST(test_cam_held_jog_rate);
+  RUN_TEST(test_cam_set_cancels_pending_return);
+  RUN_TEST(test_cam_joy_timeout_returns_home);
+  RUN_TEST(test_cam_idle_detach_after_2s);
   return UNITY_END();
 }

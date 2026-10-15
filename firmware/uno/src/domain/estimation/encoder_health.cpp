@@ -11,7 +11,7 @@ void EncoderHealth::update(const Inputs& in, uint32_t now_ms) {
   const uint8_t keep[2] = {in.keep_l, in.keep_r};
   const bool straight = (in.pwm_l > 0 && in.pwm_r > 0) || (in.pwm_l < 0 && in.pwm_r < 0);
   const bool spin = (in.pwm_l > 0 && in.pwm_r < 0) || (in.pwm_l < 0 && in.pwm_r > 0);
-  const float yaw = absf(in.yaw_rate_dps);
+  const int16_t yaw = in.yaw_rate_dps < 0 ? static_cast<int16_t>(-in.yaw_rate_dps) : in.yaw_rate_dps;
 
   for (uint8_t s = 0; s < 2; ++s) {
     const uint8_t bit = static_cast<uint8_t>(1u << s);
@@ -36,7 +36,7 @@ void EncoderHealth::update(const Inputs& in, uint32_t now_ms) {
     }
     if (!elapsed(now_ms, m_since_ms[s], kDetectMs) || (m_faulted & bit)) continue;
     const uint8_t other = static_cast<uint8_t>(1 - s);
-    const bool moving_evidence = (straight && edges[other] && yaw < 10.0f) || (spin && !edges[other] && yaw > 20.0f);
+    const bool moving_evidence = (straight && edges[other] && yaw < 10) || (spin && !edges[other] && yaw > 20);
     if (moving_evidence) {
       m_faulted = static_cast<uint8_t>(m_faulted | bit);
       m_new_faults = static_cast<uint8_t>(m_new_faults | bit);

@@ -51,14 +51,23 @@ void test_frames_sound_and_led_handled() {
 
 // Final review I1: TELEM_SLOW carries the same safety-state bits as the full firmware, and the hw byte.
 void test_slow_flags_safety_state() {
-  const uint32_t f = lite_telemetry::slowFlags(0, false, true, false, true);
+  const uint32_t f = lite_telemetry::slowFlags(0, false, true, false, true, proto::AudioModeValue::kNormal);
   TEST_ASSERT_TRUE(f & (1UL << static_cast<uint8_t>(proto::SlowFlagBit::kBrakeOff)));
   TEST_ASSERT_TRUE(f & (1UL << static_cast<uint8_t>(proto::SlowFlagBit::kEnvelope)));
   TEST_ASSERT_TRUE(f & (1UL << static_cast<uint8_t>(proto::SlowFlagBit::kLinkLost)));
   TEST_ASSERT_TRUE(f & (1UL << static_cast<uint8_t>(proto::SlowFlagBit::kDeadman)));
   const uint32_t battlow = 1UL << static_cast<uint8_t>(proto::SlowFlagBit::kBattLow);
-  // bits 6/7 (envelope, deadman) cleared when false; battery and mute/quiet (bits 4/5) are kept as they are
-  TEST_ASSERT_EQUAL_UINT32(battlow | 0x30, lite_telemetry::slowFlags(battlow | 0xF0, true, false, true, false) & 0xFF);
+  // bits 4..7 (muted, quiet, envelope, deadman) are rewritten every time; battery bits are kept
+  TEST_ASSERT_EQUAL_UINT32(battlow, lite_telemetry::slowFlags(battlow | 0xF0, true, false, true, false,
+                                                              proto::AudioModeValue::kNormal) & 0xFF);
+}
+
+// Second review I1: mute (IR key 7 / AUDIO_MODE) and quiet are reported, as the full firmware does.
+void test_slow_flags_audio_mode() {
+  const uint32_t muted = 1UL << static_cast<uint8_t>(proto::SlowFlagBit::kMuted);
+  const uint32_t quiet = 1UL << static_cast<uint8_t>(proto::SlowFlagBit::kQuiet);
+  TEST_ASSERT_EQUAL_UINT32(muted, lite_telemetry::slowFlags(0, true, false, true, false, proto::AudioModeValue::kMute) & (muted | quiet));
+  TEST_ASSERT_EQUAL_UINT32(quiet, lite_telemetry::slowFlags(0, true, false, true, false, proto::AudioModeValue::kQuiet) & (muted | quiet));
 }
 
 void test_hw_byte() {
@@ -73,6 +82,7 @@ int main() {
   RUN_TEST(test_frames_hello_caps);
   RUN_TEST(test_frames_sound_and_led_handled);
   RUN_TEST(test_slow_flags_safety_state);
+  RUN_TEST(test_slow_flags_audio_mode);
   RUN_TEST(test_hw_byte);
   return UNITY_END();
 }

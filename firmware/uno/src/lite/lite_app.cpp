@@ -51,6 +51,7 @@ Scheduler g_scheduler(g_tasks, static_cast<uint8_t>(sizeof g_tasks / sizeof g_ta
 }  // namespace
 
 void setup() {
+  paintStack();
   g_lite.reset_reason = port::watchdog::resetReason();
   port::link::begin(board::kBaud);
   port::motor::begin();

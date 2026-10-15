@@ -1,4 +1,5 @@
 #include "domain/lite/cam_lite.h"
+#include "domain/ui/catalogues.h"
 #include "lite/lite_app.h"
 #include "lite/lite_tasks.h"
 #include "ports/clock.h"
@@ -38,7 +39,14 @@ AnnState annState() {
   s.speed_pct = static_cast<uint8_t>(static_cast<int32_t>(pl > pr ? pl : pr) * 100 / 255);
   return s;
 }
+bool g_servos_attached = true;
 }  // namespace
+
+void playSound(proto::SoundId id, uint8_t prio, uint32_t now_ms) {
+  Note n[SoundSequencer::kMaxNotes];
+  const uint8_t count = soundNotes(id, n);
+  g_lite.sound.play(n, count, prio, now_ms);
+}
 
 void uiTask() {
   const uint32_t now = port::clock::nowMs();
@@ -63,6 +71,18 @@ void cameraTask() {
   g_lite.cam.tick(port::clock::nowMs());
   g_lite.cam.applyJog();
   g_lite.cam.step();  // smooth: at most 120 °/s
+  const bool want = g_lite.cam.wantAttached();  // released after 2 s still (spec 02 §D5.4)
+  if (want != g_servos_attached) {
+    if (want) {
+      port::servos::attach(Axis::kPan);
+      port::servos::attach(Axis::kTilt);
+    } else {
+      port::servos::detach(Axis::kPan);
+      port::servos::detach(Axis::kTilt);
+    }
+    g_servos_attached = want;
+  }
+  if (!want) return;
   port::servos::writeUs(Axis::kPan, CamLite::toUs(g_lite.cam.outPan()));
   port::servos::writeUs(Axis::kTilt, CamLite::toUs(g_lite.cam.outTilt()));
 }

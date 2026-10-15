@@ -137,14 +137,45 @@ void encodersTask() {
   g_lite.enc_r.update(s.count_r, s.period_r_us, s.last_edge_r_us, s.t_us);
   g_lite.fast.enc_l = g_lite.enc_l.count();
   g_lite.fast.enc_r = g_lite.enc_r.count();
+  if (!g_lite.encoders_enabled) return;
+  // Stall / encoder fault (shared EncoderHealth, LLD §9.6; spec 02 §D5.2): last tick's applied and asked PWM.
+  const LiteSettings& st = g_lite.settings.values();
+  const int16_t out_l = g_lite.fast.pwm_l, out_r = g_lite.fast.pwm_r;
+  const EncoderHealth::Inputs hi{out_l, out_r, g_lite.req_pwm_l, g_lite.req_pwm_r, g_lite.enc_l.moving(),
+                                 g_lite.enc_r.moving(), static_cast<int16_t>(g_lite.yaw.rateDdps() / 10),
+                                 st.db_keep[out_l < 0 ? 1 : 0], st.db_keep[out_r < 0 ? 3 : 2]};
+  g_lite.enc_health.update(hi, port::clock::nowMs());
+  const uint8_t stalls = g_lite.enc_health.takeNewStalls();
+  const uint8_t faults = g_lite.enc_health.takeNewFaults();
+  for (uint8_t sd = 0; sd < 2; ++sd) {
+    if (stalls & (1u << sd)) g_lite.events.push(proto::EventKind::kStall, sd);
+    if (faults & (1u << sd)) g_lite.events.push(proto::EventKind::kEncoderFault, sd);
+  }
 }
 
+// Same feedback as the full input task: the threshold ticks tell the user when to let go (spec 02 §D5.1).
 void buttonTask() {
-  switch (g_button.update(port::button::pressed(), port::clock::nowMs())) {
-    case BootButton::Action::kPress: g_lite.events.push(proto::EventKind::kButtonPress); break;
-    case BootButton::Action::kWifiReset: g_lite.link.setRequest(static_cast<uint8_t>(proto::FrameType::kWifiResetReq)); break;
-    case BootButton::Action::kAdminReset: g_lite.link.setRequest(static_cast<uint8_t>(proto::FrameType::kAdminResetReq)); break;
-    default: break;
+  const uint32_t now = port::clock::nowMs();
+  switch (g_button.update(port::button::pressed(), now)) {
+    case BootButton::Action::kPress:
+      g_lite.events.push(proto::EventKind::kButtonPress);
+      playSound(proto::SoundId::kBlip, SoundSequencer::kPrioEvent, now);
+      break;
+    case BootButton::Action::kWifiThreshold:
+    case BootButton::Action::kAdminThreshold:
+      playSound(proto::SoundId::kTick, SoundSequencer::kPrioAlarm, now);
+      break;
+    case BootButton::Action::kWifiReset:
+      g_lite.link.setRequest(static_cast<uint8_t>(proto::FrameType::kWifiResetReq));
+      playSound(proto::SoundId::kJingle, SoundSequencer::kPrioAlarm, now);
+      g_lite.led.set(LedLayer::kAttention, {proto::LedMode::kBlink, Rgb{0, 0, 255}, 200, 3000}, now);
+      break;
+    case BootButton::Action::kAdminReset:
+      g_lite.link.setRequest(static_cast<uint8_t>(proto::FrameType::kAdminResetReq));
+      playSound(proto::SoundId::kJingle, SoundSequencer::kPrioAlarm, now);
+      g_lite.led.set(LedLayer::kAttention, {proto::LedMode::kBlink, Rgb{255, 0, 255}, 200, 3000}, now);
+      break;
+    case BootButton::Action::kNone: break;
   }
 }
 

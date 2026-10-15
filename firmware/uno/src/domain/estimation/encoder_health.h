@@ -16,7 +16,7 @@ class EncoderHealth {
     int16_t req_r;
     bool edges_l;
     bool edges_r;
-    float yaw_rate_dps;
+    int16_t yaw_rate_dps;  // whole °/s (integer so the Uno Lite build needs no floats)
     uint8_t keep_l;
     uint8_t keep_r;
   };

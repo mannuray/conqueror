@@ -25,12 +25,6 @@ void zeroTeleop() {
   g_lite.teleop_w = 0;
 }
 
-void play(proto::SoundId id, uint8_t prio, uint32_t now) {
-  Note n[SoundSequencer::kMaxNotes];
-  const uint8_t count = soundNotes(id, n);
-  g_lite.sound.play(n, count, prio, now);
-}
-
 // IR key 9 (as the full input task): battery level as an LED colour for 2 s + 3/2/1 beeps.
 void batteryCheck(uint32_t now) {
   Rgb c{40, 40, 40};
@@ -61,7 +55,7 @@ void irExtras(const IrOutput& o, uint32_t now) {
   if (o.toggle_mute) {
     const bool muted = g_lite.sound.mode() == proto::AudioModeValue::kMute;
     g_lite.sound.setMode(muted ? proto::AudioModeValue::kNormal : proto::AudioModeValue::kMute);
-    if (muted) play(proto::SoundId::kBlip, SoundSequencer::kPrioEvent, now);
+    if (muted) playSound(proto::SoundId::kBlip, SoundSequencer::kPrioEvent, now);
     ++g_lite.toggle_seq;  // 3 blinks: green = mute on, red = off
     g_lite.toggle_on = !muted;
   }
@@ -76,7 +70,7 @@ void irInput(uint32_t now) {
     if (g_ir.onEvent(g_lite.ir_event, o)) {
       if (g_lite.arbitrator.onIrInput(now)) zeroTeleop();  // IR takeover: network command dropped first
       // Owner addition (spec 02 §D4): a click on each new key press, not on NEC repeats while held.
-      if (!g_lite.ir_event.repeat) play(proto::SoundId::kTick, SoundSequencer::kPrioInfo, now);
+      if (!g_lite.ir_event.repeat) playSound(proto::SoundId::kTick, SoundSequencer::kPrioInfo, now);
       have = true;
     }
   }
@@ -154,9 +148,12 @@ DriveOut driveTargets(const LiteSettings& s) {
 
 // 3. the safety gate: only the supervisor makes PwmOutput (hard rule)
 PwmOutput safetyGate(const LiteSettings& s, const DriveOut& d) {
+  const uint8_t stall_mask = g_lite.encoders_enabled ? g_lite.enc_health.stalledMask() : 0;  // §D5.2
   const SafetyInputs in{g_lite.tilt.lifted(), g_lite.tilt.tilted(),
                         g_lite.batt.level() == BatteryMonitor::Level::kCritical, g_lite.envelope.brakeOn(),
-                        g_lite.range.distMm(), s.obstacle_stop, 0, g_lite.self_test.locked()};
+                        g_lite.range.distMm(), s.obstacle_stop, stall_mask, g_lite.self_test.locked()};
+  g_lite.req_pwm_l = d.pwm_l;  // a cut track still shows its asked direction to EncoderHealth
+  g_lite.req_pwm_r = d.pwm_r;
   const bool was_blocked = g_lite.safety.blocked;
   const PwmOutput out = g_lite.supervisor.apply(d.pwm_l, d.pwm_r, in, g_lite.safety);
   if (g_lite.safety.blocked && !was_blocked) g_lite.events.push(proto::EventKind::kBlocked, static_cast<int16_t>(g_lite.range.distMm()));
@@ -174,6 +171,9 @@ void publish(uint32_t now, const PwmOutput& out, const DriveOut& d) {
   setFast(proto::FastFlagBit::kSoftStop, g_lite.soft_stop);
   setFast(proto::FastFlagBit::kLocked, g_lite.envelope.lockBrake());
   setFast(proto::FastFlagBit::kSynced, g_lite.link.synced());
+  setFast(proto::FastFlagBit::kStallL, g_lite.enc_health.stalled(0));
+  setFast(proto::FastFlagBit::kStallR, g_lite.enc_health.stalled(1));
+  setFast(proto::FastFlagBit::kEncoderFault, g_lite.enc_health.faulted(0) || g_lite.enc_health.faulted(1));
   proto::TelemFastMsg& f = g_lite.fast;
   f.pwm_l = out.left();
   f.pwm_r = out.right();

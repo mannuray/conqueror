@@ -4,12 +4,12 @@
 #include "drivers/board_config.h"
 #include "lite/lite_app.h"
 #include "ports/clock.h"
+#include "ports/imu.h"
 #include "ports/link.h"
 
-// avr-libc heap symbols, global scope with C linkage (as app/comms.cpp).
+// avr-libc heap start, global scope with C linkage (as app/comms.cpp).
 extern "C" {
 extern int __heap_start;
-extern char* __brkval;
 }
 
 namespace cq {
@@ -124,12 +124,23 @@ void txPump() {
 
 void telemetryFastDue() { g_lite.fast_due = true; }
 
-// Bytes between the heap top and the stack: the run-time stack margin (static RAM is ~1.5 KB of 2 KB).
-uint16_t freeRam() {
-  int top = 0;
-  const int free_bytes = ::__brkval == nullptr ? reinterpret_cast<int>(&top) - reinterpret_cast<int>(&::__heap_start)
-                                               : reinterpret_cast<int>(&top) - reinterpret_cast<int>(::__brkval);
-  return free_bytes < 0 ? 0 : static_cast<uint16_t>(free_bytes);
+namespace {
+constexpr uint8_t kPaint = 0xAA;
+uint8_t* heapStart() { return reinterpret_cast<uint8_t*>(&::__heap_start); }
+}  // namespace
+
+// Stack high-water mark (spec 02 §D5.1): at boot the free gap between the heap start and the stack is painted;
+// telemetry counts the bytes the stack has never reached since. No heap is used, so __brkval stays 0.
+void paintStack() {
+  uint8_t marker = 0;
+  for (uint8_t* p = heapStart(); p < &marker - 32; ++p) *p = kPaint;
+}
+
+uint16_t stackHeadroom() {
+  uint8_t marker = 0;
+  uint16_t n = 0;
+  for (const uint8_t* p = heapStart(); p < &marker && *p == kPaint; ++p) ++n;
+  return n;
 }
 
 void telemetrySlowDue() {
@@ -138,9 +149,11 @@ void telemetrySlowDue() {
   g_lite.slow.err_frames = static_cast<uint16_t>(g_lite.parser.errors().bad_crc + g_lite.parser.errors().bad_len +
                                                  g_lite.parser.errors().unknown_type);
   g_lite.slow_flags = lite_telemetry::slowFlags(g_lite.slow_flags, g_lite.envelope.brakeOn(), g_lite.envelope.active(),
-                                               g_lite.link.alive(port::clock::nowMs()), g_lite.deadman_latched);
+                                               g_lite.link.alive(port::clock::nowMs()), g_lite.deadman_latched,
+                                               g_lite.sound.mode());
   g_lite.slow.flags2 = g_lite.slow_flags;
-  g_lite.slow.free_ram = freeRam();
+  g_lite.slow.free_ram = stackHeadroom();
+  g_lite.slow.err_i2c = port::imu::i2cErrors();
   g_lite.slow.hw = lite_telemetry::hwByte(g_lite.encoders_enabled, imuUsable(), !g_lite.range.fault());
   g_lite.slow_due = true;
 }

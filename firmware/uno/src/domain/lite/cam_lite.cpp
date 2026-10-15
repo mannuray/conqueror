@@ -10,6 +10,7 @@ int16_t toward(int16_t out, int16_t target, int16_t step) {
 }  // namespace
 
 void CamLite::set(int16_t pan_dd, int16_t tilt_dd) {
+  m_return_pending = false;  // a new command wins over a pending joystick return (full CameraHead)
   m_pan = clampI(pan_dd, kPanMin, kPanMax);
   m_tilt = clampI(tilt_dd, kTiltMin, kTiltMax);
 }
@@ -23,13 +24,15 @@ void CamLite::nudge(int16_t dpan_dd, int16_t dtilt_dd) {
 
 void CamLite::joy(int8_t x, int8_t y, bool active, uint32_t now_ms) {
   if (active) {
-    m_return_pending = false;
+    m_joy_active = true;
+    m_joy_ms = now_ms;
     set(static_cast<int16_t>(kHome - x * 9), static_cast<int16_t>(kHome + y * 9));
     return;
   }
+  m_joy_active = false;
   if (!m_locked) {
     m_return_pending = true;
-    m_released_ms = now_ms;
+    m_joy_ms = now_ms;
   }
 }
 
@@ -39,9 +42,19 @@ void CamLite::step() {
 }
 
 void CamLite::tick(uint32_t now_ms) {
-  if (m_return_pending && static_cast<uint32_t>(now_ms - m_released_ms) >= kReturnMs) {
+  if (m_joy_active && static_cast<uint32_t>(now_ms - m_joy_ms) >= kJoyTimeoutMs) {
+    joy(0, 0, false, m_joy_ms + kJoyTimeoutMs);
+  }
+  if (m_return_pending && static_cast<uint32_t>(now_ms - m_joy_ms) >= kReturnMs) {
     m_return_pending = false;
     home();
+  }
+  const bool moving = m_out_pan != m_pan || m_out_tilt != m_tilt;
+  if (moving) {
+    m_still_since_ms = now_ms;
+    m_idle = false;
+  } else if (static_cast<uint32_t>(now_ms - m_still_since_ms) >= kDetachAfterMs) {
+    m_idle = true;
   }
 }
 

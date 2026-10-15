@@ -21,7 +21,7 @@
   --glow: 0 0 8px rgba(51, 255, 102, .35);
   --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
   /* Stick sizes (owner, 2026-10-15: ~40 % larger so fingers are not constrained); the side gauges end above them. */
-  --pad: min(44vh, 29vw, 240px); --pad-s: min(40vh, 26vw, 210px);
+  --pad: min(44vh, 27vw, 230px); --pad-s: var(--pad);  /* equal rings (R3.8) */
   --edge: max(10px, env(safe-area-inset-left)); --redge: max(10px, env(safe-area-inset-right));
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -97,7 +97,7 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .slider { position: relative; border-radius: 32px; border: 2px solid rgba(51, 255, 102, .55); background: rgba(6, 18, 9, .6);
   box-shadow: 0 0 16px rgba(51, 255, 102, .28), inset 0 0 18px rgba(51, 255, 102, .12); touch-action: none; }
 .slider.v { width: 64px; height: var(--pad); }
-.slider.h { height: 64px; width: calc(var(--pad-s) * 1.2); }
+.slider.h { height: 64px; width: var(--pad); }  /* same travel as the throttle (R3.8) */
 .slider::before { content: ""; position: absolute; background: rgba(51, 255, 102, .25); }
 .slider.v::before { top: 50%; left: 15%; right: 15%; height: 1px; } .slider.h::before { left: 50%; top: 15%; bottom: 15%; width: 1px; }
 .slider .knob { width: 48px; height: 48px; margin: -24px 0 0 -24px; }
@@ -108,8 +108,10 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 body:not(.rc) #thrPad, body:not(.rc) #steerPad { display: none; }
 body.rc #drivePad, body.rc #tiltBtn, body.rc #camLock { display: none !important; }
 body.rc #video, body.rc #noVideo { touch-action: none; }
-body.rc .right { flex-direction: column; align-items: flex-end; gap: 4px; }  /* RC: HOME above the camera indicator, clear of the centre pills */
-body.rc .right .col { margin-bottom: 0; }
+/* RC like a stick transmitter (R3.8): steering centred at the throttle's centre height; camera indicator above it,
+   HOME to its left - out of the thumbs' resting path. */
+body.rc #steerPad { margin-bottom: calc(var(--pad) / 2 - 32px); }
+body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 + 46px); bottom: calc(var(--pad) / 2 + 56px); }
 .btn.on { background: var(--ui); color: #032; }
 .stick .ttl i { font-style: normal; color: var(--active); margin-left: 4px; }
 .lbl { position: absolute; font-size: 7px; color: var(--dim); letter-spacing: .05em; }
@@ -149,7 +151,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 @media (orientation: portrait) { #rotate { display: flex; } }
 /* Narrow phones: icon-only pills (MAX keeps its value), LOCK / HOME / TILT STEER icon-only so the bigger sticks fit. */
 @media (max-width: 800px) { .pill .lab, .col .lab, .tiltcard .lab { display: none; } .col .btn, .tiltcard { padding: 8px; } }
-@media (max-height: 380px) { :root { --pad: min(55vh, 27vw, 210px); --pad-s: min(48vh, 23vw, 180px); } .chip { padding: 4px 7px; } }
+@media (max-height: 380px) { :root { --pad: min(55vh, 25vw, 200px); --pad-s: var(--pad); } .chip { padding: 4px 7px; } }
 </style>
 </head>
 <body>
@@ -158,7 +160,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 
 <div class="ov chips">
   <span class="chip glass"><span id="wsDot" class="dot"></span><b id="latChip">--</b></span>
-    <span class="chip glass"><small>WIFI</small><b id="wifiChip">-</b></span>
+    <span class="chip glass" id="wifiChip" aria-label="WiFi signal">-</span>
   <span class="chip glass"><small>CTRL:</small><b id="ownerChip">-</b></span>
 </div>
 <div class="ov hdg glass"><span id="hdgL" class="side">-</span><span id="hdgC" class="main">▼ -</span><span id="hdgCard" class="card">-</span><span id="hdgR" class="side">-</span></div>
@@ -462,13 +464,17 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   }
 
   // ---------- WiFi signal (from /info every 10 s) ----------
+  var WIFI_ICON = {"full": "<path d=\"M12 20h.01\"/><path d=\"M2 8.82a15 15 0 0 1 20 0\"/><path d=\"M5 12.859a10 10 0 0 1 14 0\"/><path d=\"M8.5 16.429a5 5 0 0 1 7 0\"/>", "high": "<path d=\"M12 20h.01\"/><path d=\"M5 12.859a10 10 0 0 1 14 0\"/><path d=\"M8.5 16.429a5 5 0 0 1 7 0\"/>", "low": "<path d=\"M12 20h.01\"/><path d=\"M8.5 16.429a5 5 0 0 1 7 0\"/>", "zero": "<path d=\"M12 20h.01\"/>", "off": "<path d=\"M12 20h.01\"/><path d=\"M8.5 16.429a5 5 0 0 1 7 0\"/><path d=\"M5 12.859a10 10 0 0 1 5.17-2.69\"/><path d=\"M19 12.859a10 10 0 0 0-2.007-1.523\"/><path d=\"M2 8.82a15 15 0 0 1 4.177-2.643\"/><path d=\"M22 8.82a15 15 0 0 0-11.288-3.764\"/><path d=\"m2 2 20 20\"/>"};  // Lucide (R3.8)
+  function showWifi(k, cls) {
+    $("wifiChip").innerHTML = '<svg viewBox="0 0 24 24">' + WIFI_ICON[k] + "</svg>";
+    $("wifiChip").className = "chip glass " + cls;
+  }
   function pollWifi() {
     fetch("/info", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
       var rssi = d.net && typeof d.net.rssi === "number" ? d.net.rssi : null;
-      var bars = rssi === null ? "-" : (rssi > -55 ? "▂▄▆█" : rssi > -65 ? "▂▄▆" : rssi > -75 ? "▂▄" : "▂");
-      $("wifiChip").textContent = bars;
-      $("wifiChip").className = rssi !== null && rssi <= -75 ? "warn" : "";
-    }).catch(function () { $("wifiChip").textContent = "-"; });
+      var k = rssi === null ? "zero" : rssi > -55 ? "full" : rssi > -65 ? "high" : rssi > -75 ? "low" : "zero";
+      showWifi(k, rssi !== null && rssi <= -65 ? "warn" : "");
+    }).catch(function () { showWifi("off", "bad"); });
   }
 
   // ---------- joysticks (pointer events: touch + mouse) ----------

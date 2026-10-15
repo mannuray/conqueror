@@ -720,3 +720,8 @@ stateDiagram-v2
 ### R3.7 Edge gauges full height, Lucide icons (owner, 2026-10-15)
 - **Gauges (option 1C):** battery and range bars run along the screen edges from below the top row (60 px) to 10 px above the bottom; both sticks sit 24 px further in (`.left` / `.right` offsets) so bars and sticks never touch. Values stay on top of the bars. TILT STEER becomes a small icon button at the drive ring's top-right corner (outside the circle).
 - **Icons:** Lucide (ISC/MIT-style licence, lucide-static, pinned version), **inlined** as SVG paths — never loaded from the network (the phone may be on the bridge's own WiFi without internet). Mapping: MAX `gauge`, mode chip `joystick` (STICK) / `gamepad-2` (RC), speaker `volume-2` / `volume-x`, SNAP `camera`, SOUNDS `music`, MOVES `footprints`, LOCK `lock` / `lock-open`, HOME `locate-fixed`, STOP `hand`, TILT `smartphone`, drive knob `navigation-2`, camera knob `scan-eye`, steering knob `circle-dot`, throttle knob `chevrons-up-down`, battery chip/none. Licence notice in the page head comment.
+
+### R3.8 WiFi icon, equal rings, RC transmitter layout (owner, 2026-10-15)
+- **WiFi chip (1A):** Lucide `wifi` (RSSI > −55 dBm), `wifi-high` (> −65), `wifi-low` (> −75, amber), `wifi-zero` (≤ −75, amber), `wifi-off` (`/info` unreachable, red); no "WIFI" text.
+- **Equal rings:** the camera ring = the drive ring (`--pad-s` = `--pad`).
+- **RC like a stick transmitter:** throttle (left, vertical) and steering (right, horizontal) have the **same travel** (steering width = throttle height = `--pad`) and the **same centre height** (steering lifted by `--pad`/2 − 32 px); camera indicator + title above the steering slider, HOME to its left — all out of the thumbs' resting path.

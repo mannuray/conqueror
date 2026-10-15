@@ -705,3 +705,7 @@ stateDiagram-v2
     Looking --> Idle: lift (camera stays, LOCK)
   }
 ```
+
+### R3.5 Compact gauges and mode chip place (owner, 2026-10-15)
+- Side gauges: the glass boxes are gone; each gauge is a column (value on top, thin bar below, aligned to its screen edge). Battery value = filtered voltage (`x.xxV`, status colour) or `USB`; range value = filtered `nncm` / `CLEAR`. The charge is read from the bar.
+- Mode chip `#ctlChip` moved out of the full chip row to the top right, `right = edge + 128 px` (a clear gap left of STOP); still ignored while a drive control is held.

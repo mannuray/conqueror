@@ -81,6 +81,8 @@ Streaming commands (no ack; rejections reported once via `nack` without `id` + a
 | `turn` | `by` ° **or** `to` ° (heading), `speed` %, `radius_cm`? (0/omitted = spin in place), `pivot`? bool | ai | gyro primitive; arc when radius > 0 (needs v > 0); ack on start, event `primitive_done` |
 | `move` | `dist_cm`, `speed` %, `heading`? ° | ai | needs encoders else `unavailable` |
 | `cancel` | — | ai | cancels current primitive |
+
+**Who runs `turn` / `drive_rate` / `move` (2026-10-15, spec 02 Part E):** the gateway forwards them to the body when HELLO `caps` reports the capability (full firmware); otherwise its own motion service runs them as `DRIVE` streams on the requester's behalf (Uno Lite). `turn` (spin, by / to) and `drive_rate` need only the gyro; `move` and arcs with an exact radius need encoders (`welcome.tank.caps`).
 | `release_control` | — | human | immediate human → AI handback |
 | `cam_joy` | `x`,`y` −100..100, `active` bool | ai | absolute joystick mapping; on `active:false` → return home after `cam_return_delay_ms` unless locked |
 | `cam_lock` | `on` | ai | keep current view; skip return-home |
@@ -115,7 +117,7 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 
 ## 6. Tank → client messages
 
-### 6.1 Fast telemetry `{"t":"tf", "seq", "tank_ms", …}` (≤20 Hz)
+### 6.1 Fast telemetry `{"t":"tf", "seq", "tank_ms", …}` (≤20 Hz to clients; the body sends TELEM_FAST at 50 Hz to the ESP32, spec 02 §E4)
 | Field | Unit | Source |
 |---|---|---|
 | `yaw`, `yaw_rate`, `pitch`, `roll` | °, °/s | Uno |
@@ -238,4 +240,4 @@ Frame: `0xAA | len | type | seq | payload[len] | crc8`
 | 0x96 | WIFI_RESET_REQ | — (mode button held 5 s at boot; resent until ACK) |
 | 0x97 | ADMIN_RESET_REQ | — (mode button held 15 s at boot; clears admin password + keys; resent until ACK) |
 
-Bandwidth: TELEM_FAST at 20 Hz ≈ 0.9 KB/s of 11.5 KB/s available.
+Bandwidth: TELEM_FAST at 50 Hz (2026-10-15, spec 02 §E4) ≈ 2.3 KB/s of 25 KB/s at 250000 baud (was 20 Hz ≈ 0.9 KB/s).

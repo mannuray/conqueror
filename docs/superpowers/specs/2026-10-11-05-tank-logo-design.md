@@ -28,7 +28,7 @@ REPEAT 10 [
 
 ## 3. Words (v1)
 
-### 3.1 Motion (core — run on the ESP32)
+### 3.1 Motion (core — run on the ESP32; `LEFT` / `RIGHT` / `HOME` need only the gyro, `FORWARD` / `BACK` / `ARC` need encoders — spec 02 Part E)
 | Word | Meaning | Maps to |
 |---|---|---|
 | `FORWARD n` / `FD n` | drive n cm forward, holding heading | MOVE distance (needs encoders, §9) |

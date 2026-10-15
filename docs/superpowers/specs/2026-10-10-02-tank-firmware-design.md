@@ -414,3 +414,49 @@ Replaces the "one short beep" row of D2 (after Plan E the Uno has ≈ 4 KB flash
 2. **IR key swap (both firmwares, §A8):** speed −/+ on **1 / 3**, camera pan left/right on **4 / 6**; tilt 2/8 and home 5 unchanged.
 3. **USB power, clearly shown (both firmwares):** on USB only the battery input reads ≈ 4.7 V (USB back-feeds through the regulator), not "< 3 V" as assumed. New rule (corrected 2026-10-15 after a field bug): **below 5.5 V = USB power, but only while no pack (≥ 6.0 V, an empty 2S pack) has been seen since power-on**. The USB back-feed jumps 4.5–5.1 V when a servo moves; the first rule (both thresholds at 5.0 V) let one 5.07 V reading latch "battery seen", after which USB counted as battery critical until a restart — a real pack sagging below 5 V mid-drive still counts as battery critical (motor cut kept). On USB power: no battery alarms or self-test fail tone for the battery check; driving stays locked (no motor power anyway; the self-test lock is unchanged); LED = the normal colour **plus a 150 ms white flash every 2 s**. Solid red stays for real faults (IMU).
 4. **Flash budget 28 → 30 KB** (chip: 32,256 B usable); RAM stays ≤ 1.5 KB.
+
+## Part E — Feature split: Uno = body and reflexes, ESP32 = everything WiFi-driven (owner, 2026-10-15)
+Decided in discussion (design-notes §55): the IR remote stays plain buttons (it never does measured moves), so every user of measured motion — phone, hub, AI engine, Tank Logo — arrives over WiFi through the ESP32. The Uno (Lite: 28.9 / 30.7 KB flash, 21 B spare RAM) keeps only what must work without the ESP32 or needs fast timing; the rest runs on the ESP32. This keeps the Uno Lite viable as the body board (the Uno R4 Minima becomes optional, §54 of the notes).
+
+### E1. Responsibilities
+| Feature | Where | Reason |
+|---|---|---|
+| Safety gate (`SafetySupervisor`), motor output, deadman, link-loss stop, obstacle brake, child-play caps, battery, lift / tilt, stall | **Uno** | must work alone; final authority over the motors |
+| IR driving | **Uno** | IR never passes through the ESP32 |
+| Gyro, encoder and ultrasonic reading | **Uno** | millisecond timing; sensors wired to the Uno |
+| Heading hold for straight driving | **Uno** | tight loop, proven (0–2 cm over 3 m); IR uses it too |
+| Alarm / status sounds and LEDs | **Uno** | warnings must work without WiFi |
+| Power-on settings (gyro zero, deadband, trims, limits, heading gain, IR speed) | **Uno** EEPROM | truth at power-on |
+| **TURN by angle / to heading, DRIVE_RATE** | **ESP32** (gyro only — no encoders needed) | only WiFi users ask for them |
+| **MOVE by distance, arcs with an exact radius, pose / return-home** | **ESP32**, once encoders are fitted | need distance |
+| Calibration routines, surface profiles | **ESP32** | test drives + maths; push results to the Uno |
+| Tank Logo runner | **ESP32** (spec 05 §3.1 already) | programs come from hub / phone |
+| Full settings store, profiles, backup | **ESP32** NVS | the Uno keeps its small set |
+| Melodies and LED shows | **ESP32** sends `TONE` / `LED` frames | frees Uno flash; alarms stay on the Uno |
+| Telemetry recording ("black box") | **ESP32** | memory |
+
+### E2. Capability routing (one command for every client)
+Clients always send the gateway commands of spec 01 §4 (`turn`, `drive_rate`, `move`, `cancel`). The bridge decides from the body board's HELLO `caps` (CapBits):
+- body reports the capability (full firmware on a Mega / R4: `turn`, `drive_rate`, `move`) → the bridge **forwards** the body-link frame and the body runs it (most precise);
+- body lacks it (Uno Lite) → the bridge's **motion service** runs it as a stream of ordinary `DRIVE` frames for the requesting client.
+Clients never need to know which board is fitted; `welcome.tank.caps` tells them what is available (e.g. `move` only with encoders).
+
+### E3. Motion service on the ESP32 (Uno Lite path)
+- **Input:** `TELEM_FAST` from the Uno at **50 Hz** (E4): `yaw` (0.01°), `yaw_rate` (0.1 °/s), `spd_cmd`, `enc`, `dist_mm`, flags.
+- **Output:** `DRIVE {src, v, w}` every 20 ms while a primitive runs — exactly what a phone sends, so every Uno safety rule applies unchanged (deadman, obstacle brake, caps, lift, battery); the Uno stays the final gate.
+- **TURN by / to (spin):** target heading from the start yaw (`by`) or absolute (`to`, shortest way); command `w` proportional to the remaining angle, capped by `speed`, with a minimum that still breaks the tracks loose, slowing near the target; **done** when |error| ≤ 1.5° and |yaw_rate| < 5 °/s for 200 ms → send `w = 0` (the Uno's heading hold then holds the new heading). Expected accuracy ±1–2° at 50 Hz (to be floor-tested; plan acceptance: 10 × 90° turns).
+- **DRIVE_RATE:** `v` passed through; `w` from a rate loop on `yaw_rate` (feed-forward + PI with anti-windup and output limits) until the measured turn rate matches the request.
+- **Ends:** `primitive_done{kind, ok, reason}` — `ok`, `cancelled` (`cancel`, `stop` from anyone, a new motion command from the owner), `not_owner` (IR takeover or another owner — seen as `control_changed`), `blocked` (obstacle brake: no progress while `blocked` / `capped` flags for > 2 s), `stalled` (no turn rate while commanding for > 1.5 s), `timeout` (angle / minimum rate + 3 s), `link` (body offline). Any end sends STOP.
+- **Ownership:** a primitive runs on behalf of the client that asked (`src` human / ai as for `drive`); the owner rules of `drive` apply.
+- **After encoders (later):** MOVE by distance (`enc` counts, `counts_per_cm`), arcs with radius (`v / ω` with measured speed), pose integration (§B4) — the same service.
+- **Progress:** `tf.primitive` = `turn` / `move` / `rate` + progress %.
+
+### E4. Uno changes
+- `TELEM_FAST` period **50 ms → 20 ms (50 Hz)** on the Uno Lite (and the full firmware for consistency); body link at 250000 baud carries ≈ 2.3 KB/s of 25 KB/s. No RAM cost (same frame, sent more often); CPU load checked in the LLD.
+- No TURN / MOVE / DRIVE_RATE code on the Uno Lite; their frames keep answering `ACK UNAVAILABLE`, and HELLO `caps` keeps those bits clear — that is what routes them to the ESP32 (E2).
+
+### E5. Order
+1. Spec / LLD / plan: **TURN (spin, by / to) and DRIVE_RATE on the ESP32** + the 50 Hz telemetry — work now, no encoders needed. Floor acceptance for accuracy.
+2. Encoders wired (design-notes §53) → MOVE, arcs, pose / return-home.
+3. Calibration, settings store and profiles, Tank Logo runner, melodies over `TONE`, telemetry recording — each its own small plan.
+Whether the phone's single stick switches to DRIVE_RATE (same turn on every floor) is a separate decision after the floor test (steering tuning is parked, notes §52).

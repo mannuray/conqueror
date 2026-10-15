@@ -261,3 +261,10 @@ classDiagram
 - `CamLite`: `set()` clears a pending return; `tick(now)` also ends a joystick held without refresh for 500 ms and tracks stillness; `wantAttached()` false after 2 s still; `cameraTask` attaches/detaches the servos on change.
 - Tests first: `test_slow_flags_audio_mode`, `test_cam_set_cancels_pending_return`, `test_cam_joy_timeout_returns_home`, `test_cam_idle_detach_after_2s`; existing `test_encoders` updated to whole °/s.
 - **Built (2026-10-15):** Uno **28,592 B flash (80 B under the 28,672 B gate), 1,533 B static RAM (3 B under 1,536 B)** with `-mcall-prologues` added to the Uno build (shared function prologue/epilogue code: −506 B flash, slightly slower calls); the camera's joystick-refresh and release times share one field (they are never needed together). **The Uno Lite firmware is now full** at the agreed gates; anything more needs a gate decision by the owner (the chip has 32,256 B usable flash, 2,048 B RAM).
+
+## 14. Camera wake-up, key swap, USB power, budget (owner, 2026-10-15; spec 02 §D6)
+- `CamLite::set()` marks activity; `tick()` treats "activity since last tick" like movement (wakes, restarts the 2 s still timer). Test `test_cam_small_jog_wakes_servos` (idle, then one 12 dd nudge → `wantAttached()`).
+- `IrController` (shared): k1/k3 = speed −/+, k4/k6 = jog pan −1/+1; tests in `test_input` updated first.
+- `BatteryMonitor` (shared): `kUsb` when the average is < 5000 mV **and** `m_battery_seen` is false; `m_battery_seen` latches on the first average ≥ 5000 mV. Tests: 4.7 V from boot → kUsb; battery seen then 4.8 V → kCritical (after 2 s).
+- `AnnState` (shared) gains `usb_power`; `Annunciator` alarm chain: … → batt_low → **usb_power: white (60,60,60) kBlink 2000 ms, flash 150 ms** → clear. The UI tasks (full and Lite) compute `selftest_critical`/`selftest_failed` from the fail mask with the battery bit removed when on USB power (an IMU failure stays solid red).
+- `size_gate.py`: uno flash 30 × 1024.

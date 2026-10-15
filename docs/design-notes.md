@@ -865,3 +865,4 @@ A small phone/web driving page served by the ESP32, so the tank can be driven fr
 - Fix build (needs a USB-C data cable once): (1) boot diagnostics — boot counter and last reset reasons kept in NVS, shown in the boot log and `/info`; (2) staged start — camera only after WiFi is up (or after 10 s); (3) WiFi TX power capped at 15 dBm. If brown-outs remain: re-enable modem sleep and measure the drive latency.
 - Side note from the old firmware: it set `vflip` and `hmirror` on the sensor — ours does not yet (picture may be upside down / mirrored); check on the page.
 
+- **Camera image inverted (owner, 2026-10-15):** upside down and mirrored. Fix: OV3660 → vflip + hmirror at camera start, as ELEGOO did (ESP32 LLD decision note). Updated over WiFi (OTA).

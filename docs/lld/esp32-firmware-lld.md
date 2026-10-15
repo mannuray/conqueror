@@ -1084,3 +1084,7 @@ Shared objects: TankState (writers per group, mutex snapshot) · SessionRegistry
 - The Uno locks all motion after a critical self-test failure (IMU missing/failed, battery reading implausible) until a passing re-run or reboot; Override cannot lift it.
 - New client command `selftest` (human/admin) → body `CALIBRATE {op START, script SELF_TEST}` (CalScript 9, append-only); the ACK (`OK` / `BUSY`) is the reply, the result arrives as event `selftest{ok, failures[], critical}` (EVENT SELFTEST `b` = locked).
 - Telemetry: `flags2` bit 9 `SELFTEST_LOCKED` → client `flags.selftest_locked`; motion commands get `nack BLOCKED` from the Uno while it is set. Calibration jobs check the flag before starting.
+
+
+### Decision (owner, 2026-10-15): camera orientation for the stock OV3660
+The OV3660 sits in the tank so its raw image is upside down and mirrored. `camera_service.cpp` applies per-sensor defaults right after `esp_camera_init` (sensor PID → profile, as planned in this LLD): **OV3660 → `set_vflip(1)` + `set_hmirror(1)`**, the same as ELEGOO's original firmware (`docs/legacy/esp32s3-old-firmware.md`). Other sensors keep the driver defaults until tested. Making flip/mirror user settings (hub UX §6 "Camera") stays a later item.

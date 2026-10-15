@@ -6,6 +6,12 @@
 #include "ports/clock.h"
 #include "ports/link.h"
 
+// avr-libc heap symbols, global scope with C linkage (as app/comms.cpp).
+extern "C" {
+extern int __heap_start;
+extern char* __brkval;
+}
+
 namespace cq {
 namespace lite {
 
@@ -118,6 +124,14 @@ void txPump() {
 
 void telemetryFastDue() { g_lite.fast_due = true; }
 
+// Bytes between the heap top and the stack: the run-time stack margin (static RAM is ~1.5 KB of 2 KB).
+uint16_t freeRam() {
+  int top = 0;
+  const int free_bytes = ::__brkval == nullptr ? reinterpret_cast<int>(&top) - reinterpret_cast<int>(&::__heap_start)
+                                               : reinterpret_cast<int>(&top) - reinterpret_cast<int>(::__brkval);
+  return free_bytes < 0 ? 0 : static_cast<uint16_t>(free_bytes);
+}
+
 void telemetrySlowDue() {
   g_lite.slow.uptime_s = port::clock::nowMs() / 1000u;
   g_lite.slow.reset_reason = static_cast<uint8_t>(g_lite.reset_reason);
@@ -126,6 +140,7 @@ void telemetrySlowDue() {
   g_lite.slow_flags = lite_telemetry::slowFlags(g_lite.slow_flags, g_lite.envelope.brakeOn(), g_lite.envelope.active(),
                                                g_lite.link.alive(port::clock::nowMs()), g_lite.deadman_latched);
   g_lite.slow.flags2 = g_lite.slow_flags;
+  g_lite.slow.free_ram = freeRam();
   g_lite.slow.hw = lite_telemetry::hwByte(g_lite.encoders_enabled, imuUsable(), !g_lite.range.fault());
   g_lite.slow_due = true;
 }

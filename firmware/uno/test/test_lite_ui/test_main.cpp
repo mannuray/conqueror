@@ -1,59 +1,11 @@
 #include <unity.h>
 
-#include "domain/lite/annunciator_lite.h"
-#include "domain/lite/beeper.h"
 #include "domain/lite/cam_lite.h"
 
 using namespace cq;
 
 void setUp() {}
 void tearDown() {}
-
-namespace {
-LiteUiState ready() {
-  LiteUiState s{};
-  s.synced = true;
-  s.owner = proto::Owner::kNone;
-  s.driving = true;  // steady base at full level (no breathing) for exact colours
-  s.speed_pct = 100;
-  return s;
-}
-}  // namespace
-
-void test_ann_base_colours() {
-  AnnunciatorLite a;
-  LedSequencer l;
-  LiteUiState s = ready();
-  a.update(s, 0, l);
-  TEST_ASSERT_TRUE((l.output(0) == AnnunciatorLite::kReady));
-  s.synced = false;
-  a.update(s, 10, l);
-  TEST_ASSERT_TRUE((l.output(10) == AnnunciatorLite::kNoLink));
-  s.owner = proto::Owner::kIr;
-  a.update(s, 20, l);
-  TEST_ASSERT_TRUE((l.output(20) == AnnunciatorLite::kIr));
-}
-
-void test_ann_alarm_priority() {
-  AnnunciatorLite a;
-  LedSequencer l;
-  LiteUiState s = ready();
-  s.locked = true;
-  a.update(s, 0, l);
-  TEST_ASSERT_TRUE((l.output(500) == AnnunciatorLite::kAlarm));  // solid
-  s.locked = false;
-  s.batt_low = true;
-  a.update(s, 1000, l);
-  TEST_ASSERT_TRUE((l.output(1050) == AnnunciatorLite::kLow));    // flash
-  TEST_ASSERT_TRUE((l.output(1500) == AnnunciatorLite::kReady));  // base between flashes
-}
-
-void test_beeper_plays_then_stops() {
-  Beeper b;
-  b.beep(1500, 80, 0);
-  TEST_ASSERT_EQUAL_UINT16(1500, b.tick(10));
-  TEST_ASSERT_EQUAL_UINT16(0, b.tick(80));
-}
 
 void test_cam_limits_and_us() {
   CamLite c;
@@ -121,9 +73,6 @@ void test_cam_held_jog_rate() {
 
 int main() {
   UNITY_BEGIN();
-  RUN_TEST(test_ann_base_colours);
-  RUN_TEST(test_ann_alarm_priority);
-  RUN_TEST(test_beeper_plays_then_stops);
   RUN_TEST(test_cam_limits_and_us);
   RUN_TEST(test_cam_joy_release_returns_home_unless_locked);
   RUN_TEST(test_cam_smooth_steps);

@@ -8,8 +8,6 @@
 #include "domain/comms/link_session.h"
 #include "domain/estimation/battery_monitor.h"
 #include "domain/input/nec_decoder.h"
-#include "domain/lite/annunciator_lite.h"
-#include "domain/lite/beeper.h"
 #include "domain/lite/cam_lite.h"
 #include "domain/lite/drive_mix_lite.h"
 #include "domain/lite/encoder_lite.h"
@@ -23,7 +21,9 @@
 #include "domain/safety/safety_supervisor.h"
 #include "domain/selftest/self_test.h"
 #include "domain/settings/eeprom_writer.h"
+#include "domain/ui/annunciator.h"
 #include "domain/ui/led_sequencer.h"
+#include "domain/ui/sound_sequencer.h"
 #include "domain/util/motion_timer.h"
 #include "generated/cq_protocol.h"
 #include "types/hw_types.h"
@@ -60,7 +60,6 @@ struct LiteApp {
   BatteryMonitor batt;
   EncoderLite enc_l;
   EncoderLite enc_r;
-  ImuRaw imu_raw{};
   bool imu_ok = false;
   uint8_t imu_fail_streak = 0;
   NecDecoder nec;
@@ -84,8 +83,10 @@ struct LiteApp {
   proto::OwnerHintValue owner_hint = proto::OwnerHintValue::kNone;
   CamLite cam;
   LedSequencer led;
-  AnnunciatorLite ann;
-  Beeper beeper;
+  Annunciator annunciator;  // full firmware LED + sound rules (spec 02 §A9, §D4)
+  SoundSequencer sound;
+  uint8_t toggle_seq = 0;  // +1 per IR mute toggle → confirm blinks
+  bool toggle_on = false;
   // LITE-STATE-END
 };
 extern LiteApp g_lite;

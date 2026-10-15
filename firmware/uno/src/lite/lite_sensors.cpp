@@ -14,6 +14,8 @@
 namespace cq {
 namespace lite {
 
+static_assert(SettingsLite::kBlockSize <= EepromWriter::kMaxBytes, "the Lite settings block must fit the EEPROM write buffer");
+
 namespace {
 constexpr uint8_t kFaultStreak = 10;
 constexpr uint32_t kReinitMs = 1000;
@@ -75,7 +77,7 @@ void imuTask() {
     imuRetry(now);
     return;
   }
-  ImuRaw& r = g_lite.imu_raw;
+  ImuRaw r{};  // local: only this task reads the raw sample (saves 18 B of static RAM)
   if (!port::imu::read(r)) {
     imuReadFailed(now);
     return;

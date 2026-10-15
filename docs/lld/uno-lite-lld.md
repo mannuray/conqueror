@@ -251,3 +251,4 @@ classDiagram
 - Removed: `domain/lite/annunciator_lite.*`, `domain/lite/beeper.h` and their tests (the full `test_ui` suite covers `Annunciator`).
 - Tests: `test_lite_frames` updated first (SOUND/TONE/AUDIO_MODE/LED handled, `helloCaps` = AUDIO_LED | encoders); RED → GREEN.
 - Safety valve: static RAM > 1,500 B → frames (spec §D4 item 4) stay UNAVAILABLE.
+- **Built (2026-10-15):** Uno **27,426 B flash (96 %), 1,483 B static RAM** — under the valve, so SOUND/TONE/AUDIO_MODE/LED are in. The raw IMU sample became a local in `imuTask` (−18 B); `TELEM_SLOW.free_ram` now reports the run-time stack margin (≈ 565 B expected) for the tank test. Flash is now the closer limit too: ≈ 1.2 KB left.

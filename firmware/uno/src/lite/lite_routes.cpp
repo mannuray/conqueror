@@ -1,4 +1,5 @@
 #include "domain/lite/lite_frames.h"
+#include "domain/ui/catalogues.h"
 #include "lite/lite_app.h"
 #include "ports/clock.h"
 
@@ -125,6 +126,42 @@ proto::AckStatus handleSettings(uint8_t type, const uint8_t* p, uint8_t len) {
   }
 }
 
+proto::AckStatus handleUi(uint8_t type, const uint8_t* p, uint8_t len) {
+  using F = proto::FrameType;
+  constexpr proto::AckStatus kBad = proto::AckStatus::kInvalidCommand;
+  const uint32_t now = port::clock::nowMs();
+  switch (static_cast<F>(type)) {
+    case F::kLed: {
+      proto::LedMsg m{};
+      if (!dec(p, len, m) || m.mode > static_cast<uint8_t>(proto::LedMode::kPulse)) return kBad;
+      g_lite.led.set(LedLayer::kCustom, {static_cast<proto::LedMode>(m.mode), {m.r, m.g, m.b}, m.period_ms, m.duration_ms}, now);
+      return proto::AckStatus::kOk;
+    }
+    case F::kSound: {
+      proto::SoundMsg m{};
+      if (!dec(p, len, m)) return kBad;
+      Note n[SoundSequencer::kMaxNotes];
+      const uint8_t count = soundNotes(static_cast<proto::SoundId>(m.id), n);
+      if (count == 0) return kBad;
+      return g_lite.sound.play(n, count, SoundSequencer::kPrioEvent, now) ? proto::AckStatus::kOk : proto::AckStatus::kBusy;
+    }
+    case F::kTone: {
+      proto::ToneMsg m{};
+      if (!dec(p, len, m) || m.n == 0) return kBad;
+      Note n[SoundSequencer::kMaxNotes];
+      for (uint8_t i = 0; i < m.n; ++i) n[i] = Note{m.notes[i].hz, m.notes[i].ms};
+      return g_lite.sound.play(n, m.n, SoundSequencer::kPrioEvent, now) ? proto::AckStatus::kOk : proto::AckStatus::kBusy;
+    }
+    case F::kAudioMode: {
+      proto::AudioModeMsg m{};
+      if (!dec(p, len, m) || m.mode > static_cast<uint8_t>(proto::AudioModeValue::kMute)) return kBad;
+      g_lite.sound.setMode(static_cast<proto::AudioModeValue>(m.mode));
+      return proto::AckStatus::kOk;
+    }
+    default: return proto::AckStatus::kUnavailable;
+  }
+}
+
 // VARIANT POINT: the frame families of the Lite firmware (lite_frames.cpp decides which types are handled at all).
 proto::AckStatus handle(uint8_t type, const uint8_t* p, uint8_t len) {
   using F = proto::FrameType;
@@ -133,6 +170,7 @@ proto::AckStatus handle(uint8_t type, const uint8_t* p, uint8_t len) {
     case F::kDrive: case F::kStop: case F::kBrake: case F::kEnvelope: case F::kOwnerHint: return handleMotion(type, p, len);
     case F::kCamJoy: case F::kCamSet: case F::kCamNudge: case F::kCamHome: case F::kCamLock: return handleCamera(type, p, len);
     case F::kSettingSet: case F::kSettingGet: case F::kSettingsSave: return handleSettings(type, p, len);
+    case F::kLed: case F::kSound: case F::kTone: case F::kAudioMode: return handleUi(type, p, len);
     default: return proto::AckStatus::kUnavailable;
   }
 }

@@ -1,6 +1,7 @@
 #include "domain/input/ir_controller.h"
 #include "domain/lite/drive_mix_lite.h"
 #include "domain/lite/encoder_lite.h"
+#include "domain/ui/catalogues.h"
 #include "lite/lite_app.h"
 #include "lite/lite_tasks.h"
 #include "ports/clock.h"
@@ -24,6 +25,49 @@ void zeroTeleop() {
   g_lite.teleop_w = 0;
 }
 
+void play(proto::SoundId id, uint8_t prio, uint32_t now) {
+  Note n[SoundSequencer::kMaxNotes];
+  const uint8_t count = soundNotes(id, n);
+  g_lite.sound.play(n, count, prio, now);
+}
+
+// IR key 9 (as the full input task): battery level as an LED colour for 2 s + 3/2/1 beeps.
+void batteryCheck(uint32_t now) {
+  Rgb c{40, 40, 40};
+  uint8_t count = 0;
+  switch (g_lite.batt.level()) {
+    case BatteryMonitor::Level::kOk: c = Rgb{0, 150, 0}; count = 3; break;
+    case BatteryMonitor::Level::kLow: c = Rgb{160, 80, 0}; count = 2; break;
+    case BatteryMonitor::Level::kCritical: c = Rgb{255, 0, 0}; count = 1; break;
+    case BatteryMonitor::Level::kUsb: break;  // no pack: white, no beeps
+  }
+  g_lite.led.set(LedLayer::kAttention, {proto::LedMode::kSolid, c, 0, 2000}, now);
+  Note n[SoundSequencer::kMaxNotes];
+  uint8_t k = 0;
+  for (uint8_t i = 0; i < count && k + 1 < SoundSequencer::kMaxNotes; ++i) {
+    n[k++] = Note{1500, 80};
+    n[k++] = Note{0, 120};
+  }
+  if (k > 0) g_lite.sound.play(n, k, SoundSequencer::kPrioEvent, now);
+}
+
+// Sounds and one-shot keys of an IR output (full input_task.cpp; Lite: no Override, parking beeps or TURN 180).
+void irExtras(const IrOutput& o, uint32_t now) {
+  if (o.cam_home) g_lite.cam.home();
+  if (o.speed_changed) {
+    const Note n{static_cast<uint16_t>(400 + g_ir.speedPct() * 10), 60};
+    g_lite.sound.play(&n, 1, SoundSequencer::kPrioEvent, now);
+  }
+  if (o.toggle_mute) {
+    const bool muted = g_lite.sound.mode() == proto::AudioModeValue::kMute;
+    g_lite.sound.setMode(muted ? proto::AudioModeValue::kNormal : proto::AudioModeValue::kMute);
+    if (muted) play(proto::SoundId::kBlip, SoundSequencer::kPrioEvent, now);
+    ++g_lite.toggle_seq;  // 3 blinks: green = mute on, red = off
+    g_lite.toggle_on = !muted;
+  }
+  if (o.battery_check) batteryCheck(now);
+}
+
 void irInput(uint32_t now) {
   IrOutput o{};
   bool have = false;
@@ -31,6 +75,8 @@ void irInput(uint32_t now) {
     g_lite.ir_pending = false;
     if (g_ir.onEvent(g_lite.ir_event, o)) {
       if (g_lite.arbitrator.onIrInput(now)) zeroTeleop();  // IR takeover: network command dropped first
+      // Owner addition (spec 02 §D4): a click on each new key press, not on NEC repeats while held.
+      if (!g_lite.ir_event.repeat) play(proto::SoundId::kTick, SoundSequencer::kPrioInfo, now);
       have = true;
     }
   }
@@ -47,8 +93,7 @@ void irInput(uint32_t now) {
     zeroTeleop();
     g_lite.arbitrator.releaseIr();
   }
-  if (o.cam_home) g_lite.cam.home();
-  if (o.speed_changed) g_lite.beeper.beep(static_cast<uint16_t>(400 + g_ir.speedPct() * 10), 60, now);
+  irExtras(o, now);
 }
 // 1. ownership, deadman and link loss (reused Arbitrator: same rules as the full firmware)
 void ownershipStep(uint32_t now) {

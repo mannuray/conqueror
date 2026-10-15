@@ -43,7 +43,7 @@ Task g_tasks[] = {
     {selfTestRecoverTask, 100000UL, 7500UL, 0},
     {selfTestTask, 100000UL, 7500UL, 0},
     {cameraTask, 20000UL, 7500UL, 0},
-    {uiTask, 50000UL, 17500UL, 0},
+    {uiTask, 20000UL, 17500UL, 0},
     {telemetrySlowDue, 1000000UL, 7500UL, 0},
 };
 // LITE-TASKS-END

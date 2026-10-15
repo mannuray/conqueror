@@ -15,6 +15,10 @@ namespace net {
 namespace {
 
 constexpr const char* kBoundary = "cqframe";
+// One FreeRTOS task per viewer (R3.1): stack, priority, core (core 0 with the HTTP server; the link task is on core 1).
+constexpr uint32_t kViewerStack = 6144;
+constexpr UBaseType_t kViewerPrio = 5;
+constexpr BaseType_t kViewerCore = 0;
 std::atomic<uint8_t> g_viewers{0};
 
 void releaseViewer() {
@@ -44,6 +48,9 @@ void streamWorker(void* arg) {
     }
     cameraRelease(fb);
   }
+  // Review I1: complete() only hands the socket back - it is not closed (no LRU purge). Close it explicitly so the
+  // page's <img> sees the end, retries, and the two stream sockets never fill up with dead streams.
+  httpd_sess_trigger_close(req->handle, httpd_req_to_sockfd(req));
   httpd_req_async_handler_complete(req);
   releaseViewer();
   vTaskDelete(nullptr);
@@ -58,7 +65,8 @@ esp_err_t refuse(httpd_req_t* req, const char* text) {
 esp_err_t streamHandler(httpd_req_t* req) {
   uint8_t n = g_viewers.load();
   do {
-    if (n >= board::kMaxStreamViewers || cameraStopped()) return refuse(req, "max 2 viewers");
+    if (cameraStopped()) return refuse(req, "camera unavailable");
+    if (n >= board::kMaxStreamViewers) return refuse(req, "max 2 viewers");
   } while (!g_viewers.compare_exchange_weak(n, static_cast<uint8_t>(n + 1)));
   logf("stream: viewer joined (%u)", static_cast<unsigned>(n + 1));
   httpd_req_t* copy = nullptr;
@@ -66,7 +74,7 @@ esp_err_t streamHandler(httpd_req_t* req) {
     releaseViewer();
     return refuse(req, "stream unavailable");
   }
-  if (xTaskCreatePinnedToCore(streamWorker, "cq-stream", 6144, copy, 5, nullptr, 0) != pdPASS) {
+  if (xTaskCreatePinnedToCore(streamWorker, "cq-stream", kViewerStack, copy, kViewerPrio, nullptr, kViewerCore) != pdPASS) {
     httpd_req_async_handler_complete(copy);
     releaseViewer();
     return refuse(req, "stream unavailable");  // the original req is still ours to answer

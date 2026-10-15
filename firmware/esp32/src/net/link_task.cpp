@@ -141,6 +141,15 @@ void streamReject(int fd, core::BridgeReason r) {
   if (g_ws.reportStreamReject(fd, static_cast<uint8_t>(r))) nack(fd, -1, r);
 }
 
+// SOUND / AUDIO_MODE / CAM_LOCK on the shared acked slot (Plan F, R3.1); false = not queued (body offline).
+bool sendAckedCommand(const core::WsCommand& c, uint32_t now, uint8_t& seq) {
+  switch (c.kind) {
+    case core::WsCmdKind::kSound: return g_link.sendSound(c.sound_id, now, seq);
+    case core::WsCmdKind::kAudioMode: return g_link.sendAudioMode(c.audio_mode, now, seq);
+    default: return g_link.sendCamLock(c.on, now, seq);
+  }
+}
+
 void handleWsText(const LinkCommand& cmd, uint32_t now) {
   const int fd = cmd.fd;
   const core::WsCommand c = core::parseWsCommand(cmd.text, cmd.len);
@@ -225,14 +234,11 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
     case core::WsCmdKind::kCamLock: {  // Plan F: owner or nobody (as the camera); acked by the Uno, one at a time
       const core::Decision d = g_owner.onCamera(fd);
       uint8_t seq = 0;
-      const bool sound = c.kind == core::WsCmdKind::kSound;
       if (d != core::Decision::kSend || g_ota_active) {
         nack(fd, id, g_ota_active ? core::BridgeReason::kBusy : reasonOf(d));
       } else if (g_cam_waiter.fd != -1) {
         nack(fd, id, core::BridgeReason::kBusy);
-      } else if (sound                                      ? g_link.sendSound(c.sound_id, now, seq)
-                 : c.kind == core::WsCmdKind::kAudioMode ? g_link.sendAudioMode(c.audio_mode, now, seq)
-                                                         : g_link.sendCamLock(c.on, now, seq)) {
+      } else if (sendAckedCommand(c, now, seq)) {
         g_cam_seq = seq;
         g_cam_waiter = Waiter{fd, id};
       } else {

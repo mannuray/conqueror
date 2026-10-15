@@ -157,6 +157,7 @@ void test_cam_lock() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kCamLock), K(c.kind));
   TEST_ASSERT_TRUE(c.on);
   TEST_ASSERT_FALSE(P("{\"t\":\"cam_lock\",\"on\":false}").on);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"cam_lock\"}").kind));  // review M20: "on" is required
 }
 
 int main() {

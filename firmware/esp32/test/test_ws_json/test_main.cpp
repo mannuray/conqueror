@@ -44,9 +44,10 @@ void test_tf_scaling_and_sentinels() {
   s.fast.dist_mm = 65535;  // clear
   jsonTf(buf, sizeof(buf), 8, s);
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"dist_cm\":null"));
-  s.fast.dist_mm = 65534;  // sensor fault
+  TEST_ASSERT_NULL(strstr(buf, "dist_fault"));  // clear is not a fault
+  s.fast.dist_mm = 65534;  // sensor fault: the page must not show "CLEAR" (review I5)
   jsonTf(buf, sizeof(buf), 9, s);
-  TEST_ASSERT_NOT_NULL(strstr(buf, "\"dist_cm\":null"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"dist_cm\":null,\"dist_fault\":true"));
 }
 
 void test_ts_flags_owner_and_battery() {

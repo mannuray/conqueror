@@ -47,7 +47,7 @@ struct TankSnapshot {
 enum class LinkEventKind : uint8_t {
   kUnoEvent,      // EVENT frame: code, a, b
   kStopResult,    // seq, status (ack_status index or kStatusTimeout)
-  kAckResult,     // CAM_HOME: seq, status
+  kAckResult,     // CAM_HOME / SOUND / AUDIO_MODE / CAM_LOCK: seq, status
   kBodyOnline,    // HELLO accepted
   kBodyOffline,   // code 0 = silent, 1 = incompatible protocol (a = Uno proto)
   kResetRequest,  // code = frame type (WIFI/ADMIN_RESET_REQ), answered UNAVAILABLE
@@ -109,7 +109,7 @@ class BodyLink {
   enum class Lane : uint8_t { kQueue, kMotion, kUrgent };  // kMotion: purged by a later STOP
   template <class Msg>
   bool emit(const Msg& m, uint8_t seq, Lane lane);
-  // One acked command at a time (CAM_HOME, SOUND, CAM_LOCK): its ACK or a timeout gives kAckResult.
+  // One acked command at a time (CAM_HOME, SOUND, AUDIO_MODE, CAM_LOCK): its ACK or a timeout gives kAckResult.
   template <typename Msg>
   bool sendAcked(const Msg& m, uint32_t now_ms, uint8_t& seq_out) {
     if (!synced()) return false;

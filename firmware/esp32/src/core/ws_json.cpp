@@ -128,14 +128,15 @@ size_t jsonWelcome(char* out, size_t cap, const WelcomeInfo& w) {
 size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s) {
   if (!s.fast_valid) return 0;
   const proto::TelemFastMsg& f = s.fast;
-  char dist[12] = "null";  // 65535 clear, 65534 sensor fault
+  char dist[12] = "null";  // 65535 clear, 65534 sensor fault (+ "dist_fault":true so the page never shows CLEAR)
   if (f.dist_mm < 65534) snprintf(dist, sizeof(dist), "%u", (f.dist_mm + 5u) / 10u);
   const bool cam_moving = bit(f.flags, static_cast<unsigned>(proto::FastFlagBit::kCamMoving));
   return fmt(out, cap,
              "{\"t\":\"tf\",\"seq\":%lu,\"tank_ms\":%lu,\"yaw\":%.2f,\"yaw_rate\":%.1f,\"pitch\":%.2f,\"roll\":%.2f,"
-             "\"dist_cm\":%s,\"pan\":%.1f,\"tilt\":%.1f,\"spd_cmd\":[%d,%d],\"cam_moving\":%s}",
+             "\"dist_cm\":%s%s,\"pan\":%.1f,\"tilt\":%.1f,\"spd_cmd\":[%d,%d],\"cam_moving\":%s}",
              static_cast<unsigned long>(seq), static_cast<unsigned long>(f.uno_ms), f.yaw / 100.0, f.yaw_rate / 10.0,
-             f.pitch / 100.0, f.roll / 100.0, dist, f.pan / 10.0, f.tilt / 10.0, f.spd_cmd_l,
+             f.pitch / 100.0, f.roll / 100.0, dist, f.dist_mm == 65534 ? ",\"dist_fault\":true" : "", f.pan / 10.0,
+             f.tilt / 10.0, f.spd_cmd_l,
              f.spd_cmd_r, cam_moving ? "true" : "false");
 }
 

@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cq_protocol.h"
+
 namespace cq {
 namespace core {
 namespace {
@@ -129,13 +131,14 @@ WsCmdKind kindOf(const char* t) {
   return WsCmdKind::kUnsupported;
 }
 
-}  // namespace
-
 // proto::SoundId names in lower snake case, in enum order (STARTUP = 1 ... GOODBYE = 23); spec 02 §A9 catalogue.
+// The page has the same list (web/basic_drive.html SOUNDS); the count is checked against the generated enum.
 const char* const kSoundNames[] = {"startup", "ready", "selftest_fail", "chirp_up", "chirp_down", "blip",
                                    "tick", "jingle", "thinking", "ouch", "error", "success",
                                    "fanfare", "sad", "safety_chirp", "ack_blip", "fail", "confirm",
                                    "question", "ok_chirp", "grumble", "scan", "goodbye"};
+static_assert(sizeof(kSoundNames) / sizeof(kSoundNames[0]) == static_cast<size_t>(proto::SoundId::kGoodbye),
+              "kSoundNames must list every proto::SoundId in order");
 
 uint8_t soundIdOf(const char* name) {
   for (uint8_t i = 0; i < sizeof(kSoundNames) / sizeof(kSoundNames[0]); ++i) {
@@ -144,12 +147,23 @@ uint8_t soundIdOf(const char* name) {
   return 0;
 }
 
+// audio_mode name -> proto::AudioModeValue; false for a missing or unknown name.
+bool audioModeOf(const char* name, uint8_t& out) {
+  using M = proto::AudioModeValue;
+  const M m = strcmp(name, "normal") == 0 ? M::kNormal : strcmp(name, "quiet") == 0 ? M::kQuiet : M::kMute;
+  if (m == M::kMute && strcmp(name, "mute") != 0) return false;
+  out = static_cast<uint8_t>(m);
+  return true;
+}
+
+}  // namespace
+
 WsCommand parseWsCommand(const char* text, size_t len) {
   WsCommand c;
   WsCommand bad;
   Reader r(text, len);
   char t[24] = "";
-  bool have_v = false, have_w = false, have_x = false, have_y = false, have_active = false;
+  bool have_v = false, have_w = false, have_x = false, have_y = false, have_active = false, have_on = false;
   char mode[8] = "";  // audio_mode
   char name[24] = "";
   if (!r.eat('{')) return bad;
@@ -200,6 +214,7 @@ WsCommand parseWsCommand(const char* text, size_t len) {
         } else if (!r.word("false")) {
           return bad;
         }
+        have_on = true;
       } else if (strcmp(key, "mode") == 0) {
         if (!r.str(mode, sizeof(mode))) return bad;
       } else if (strcmp(key, "name") == 0) {
@@ -222,17 +237,8 @@ WsCommand parseWsCommand(const char* text, size_t len) {
     c.sound_id = soundIdOf(name);  // missing or unknown name -> 0 -> invalid (never an out-of-range SoundId)
     if (c.sound_id == 0) return bad;
   }
-  if (c.kind == WsCmdKind::kAudioMode) {  // proto::AudioModeValue order; missing or unknown -> invalid
-    if (strcmp(mode, "normal") == 0) {
-      c.audio_mode = 0;
-    } else if (strcmp(mode, "quiet") == 0) {
-      c.audio_mode = 1;
-    } else if (strcmp(mode, "mute") == 0) {
-      c.audio_mode = 2;
-    } else {
-      return bad;
-    }
-  }
+  if (c.kind == WsCmdKind::kAudioMode && !audioModeOf(mode, c.audio_mode)) return bad;
+  if (c.kind == WsCmdKind::kCamLock && !have_on) return bad;  // review M20: like the other commands' fields
   return c;
 }
 

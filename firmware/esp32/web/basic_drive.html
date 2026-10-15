@@ -28,13 +28,13 @@ button, input, a { font: inherit; color: inherit; }
 #video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
 .novideo { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--dim); letter-spacing: .1em; }
 .ov { position: fixed; z-index: 2; }
-.chips { top: 8px; left: var(--edge); display: flex; gap: 5px; flex-wrap: wrap; max-width: 46vw; }
-.chip { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px; white-space: nowrap; }
+.chips { top: 8px; left: var(--edge); display: flex; gap: 4px; flex-wrap: wrap; max-width: calc(50vw - 110px); }
+.chip { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; white-space: nowrap; font-size: 12px; }
 .chip b { color: var(--active); font-weight: 600; }
 .ok { color: var(--ui); } .warn { color: var(--warn) !important; } .bad { color: var(--danger) !important; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); margin-right: 5px; vertical-align: 1px; }
 .dot.on { background: var(--ui); box-shadow: var(--glow); } .dot.wait { background: var(--warn); }
-.tape { top: 8px; left: 50%; transform: translateX(-50%); width: min(260px, 34vw); height: 30px; background: var(--panel);
+.tape { top: 8px; left: 50%; transform: translateX(-50%); width: min(200px, 24vw); height: 30px; background: var(--panel);
   border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 #tapeC { width: 100%; height: 100%; display: block; }
 #stop { top: 8px; right: max(8px, env(safe-area-inset-right)); background: var(--danger); color: #fff; border: 0; border-radius: 4px;
@@ -89,11 +89,11 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 
 <div class="ov chips">
   <span class="chip"><span id="wsDot" class="dot"></span><b id="latChip">--</b></span>
-  <span class="chip">BATT <b id="battChip">-</b></span>
-  <span class="chip">WIFI <b id="wifiChip">-</b></span>
+  <span class="chip">BAT <b id="battChip">-</b></span>
+  <span class="chip"><b id="wifiChip">-</b></span>
   <span class="chip">CTRL <b id="ownerChip">-</b></span>
 </div>
-<div class="ov tape"><canvas id="tapeC" width="260" height="30"></canvas></div>
+<div class="ov tape"><canvas id="tapeC" width="200" height="30"></canvas></div>
 <button id="stop" class="ov" type="button">STOP</button>
 <div class="ov dist"><small id="distTxt">-</small><div class="distbar"><div id="distFill"></div></div></div>
 <div id="banner" class="ov banner"></div>
@@ -247,7 +247,8 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     if (m.batt_v !== null) {
       var pct = battPct(m.batt_v);
       var cls = m.flags.indexOf("batt_critical") >= 0 ? "bad" : m.flags.indexOf("batt_low") >= 0 ? "warn" : "";
-      $("battChip").textContent = pct + "%"; $("battChip").className = cls;
+      // Below 5.5 V there is no pack: USB back-feed (same rule as the body firmware, spec 02 §D6.3).
+      $("battChip").textContent = m.batt_v < 5.5 ? "USB" : pct + "%"; $("battChip").className = cls;
       vit.volt = m.batt_v.toFixed(2); showVitals();
     }
     var offline = m.flags.indexOf("body_offline") >= 0;
@@ -308,7 +309,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   function pollWifi() {
     fetch("/info", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
       var rssi = d.net && typeof d.net.rssi === "number" ? d.net.rssi : null;
-      var bars = rssi === null ? "-" : rssi > -55 ? "▂▄▆█" : rssi > -65 ? "▂▄▆" : rssi > -75 ? "▂▄" : "▂";
+      var bars = rssi === null ? "WiFi -" : "WiFi " + (rssi > -55 ? "▂▄▆█" : rssi > -65 ? "▂▄▆" : rssi > -75 ? "▂▄" : "▂");
       $("wifiChip").textContent = bars;
       $("wifiChip").className = rssi !== null && rssi <= -75 ? "warn" : "";
     }).catch(function () { $("wifiChip").textContent = "-"; });

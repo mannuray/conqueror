@@ -516,8 +516,8 @@ The tank is stopped by the **Uno's deadman** 300 ms after the last drive message
 | Task / context | Core | Work |
 |---|---|---|
 | WiFi / lwIP (IDF) | 0 | network stack |
-| `httpd` port 80 (one worker task) | 0 | `/`, `/help`, `/info`, `/source.tar.gz` (chunked), `/ws` receive → posts `WsCommand` to `link_q` (STOP goes to the queue front) |
-| `httpd` port 81 | 0 | `/stream` MJPEG; blocks its own task only, never port 80 |
+| `httpd` port 80 (one worker task) | 0 | `/`, `/help`, `/info`, `/source.tar.gz` → 302 to port 81 (R3.11), `/ws` receive → posts `WsCommand` to `link_q` (STOP goes to the queue front) |
+| `httpd` port 81 | 0 | `/stream` MJPEG (a task per viewer, R3.1), `/capture`, `/source.tar.gz` (chunked, R3.11); never blocks port 80 |
 | `link_task` (prio above loop, 2 ms tick + UART event) | 1 | owns `BodyLink`, `LinkOwner`, `TcpPassthrough`, `UartWriter`: drains `link_q`, pumps UART ⇄ TCP, heartbeats, handshake, builds `tf/ts/ev` JSON and sends with `httpd_ws_send_frame_async` |
 | Arduino `loop()` | 1 | `WifiManager.step`, `OtaService.poll(allowed)`, mDNS, status log every 10 s |
 Only `link_task` touches the UART and the link state, so no locks are needed beyond the `UartWriter` mutex (kept for safety) and the queue. Verify at Plan C Task 1 that the pinned pioarduino core has `CONFIG_HTTPD_WS_SUPPORT=y`; if not, use the `WebSockets` (links2004) library on port 80 instead — the class design does not change.
@@ -777,4 +777,22 @@ stateDiagram-v2
   [*] --> Streaming: viewer slot + async handler + cq-stream task
   Streaming --> Closing: send failed / camera stopped / frame timeout
   Closing --> [*]: sess_trigger_close, async_handler_complete, slot released, task deleted
+```
+
+### R3.11 Source download on port 81 (owner, 2026-10-15, after Plan C check 9)
+Check 9 showed a 1 MB `/source.tar.gz` on port 80 holding up `/ws` drives (3 deadman stops, a RATE_LIMITED burst): both shared the port-80 server task. Now:
+- `/source.tar.gz` is served by the **port-81** server (`sourceRegister(streamServerHandle())`); port 80 keeps `/source.tar.gz` as a **302 redirect** to `http://<Host>:81/source.tar.gz` so `/info` (`source.url`) and the help link keep working.
+- The port-81 server starts even if the camera fails (`cameraReady()` false → `/stream` and `/capture` answer 503), so the source is always downloadable.
+- Limit: port 81 has 2 connections; with two video viewers open the download waits for one to close. The download blocks only the port-81 server task (viewers run in their own tasks; a new viewer or `/capture` waits ~2 s).
+
+```mermaid
+sequenceDiagram
+  participant C as Browser / curl
+  participant P80 as httpd :80 (page, /ws)
+  participant P81 as httpd :81 (stream, capture, source)
+  C->>P80: GET /source.tar.gz
+  P80-->>C: 302 Location http://host:81/source.tar.gz
+  C->>P81: GET /source.tar.gz
+  P81-->>C: application/gzip, 4 KB chunks
+  Note over P80: /ws drives keep flowing meanwhile
 ```

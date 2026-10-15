@@ -2,6 +2,8 @@
 // scripts/pack_source.py (bridge LLD R2.3 step 6, R2.4). Read-only.
 #pragma once
 
+#include <esp_http_server.h>
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -23,7 +25,8 @@ bool sourceBegin();  // reads the header and checks the CRC once at boot (~0.5 M
 bool sourceValid();
 const SourceHeader& sourceHeader();
 size_t sourceRead(size_t offset, uint8_t* buf, size_t len);  // payload offset
-void sourceRegister();  // GET /source.tar.gz on port 80 (after httpServerStart)
+void sourceRegister(httpd_handle_t server);  // GET /source.tar.gz on port 81 (R3.11: never delays /ws on port 80)
+void sourceRedirectRegister();               // port 80 /source.tar.gz -> 302 to port 81 (old links keep working)
 
 }  // namespace net
 }  // namespace cq

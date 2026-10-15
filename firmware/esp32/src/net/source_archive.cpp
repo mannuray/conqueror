@@ -1,5 +1,7 @@
 #include "net/source_archive.h"
 
+#include "board_config.h"
+
 #include <esp_partition.h>
 #include <esp_rom_crc.h>
 #include <stdio.h>
@@ -76,11 +78,36 @@ size_t sourceRead(size_t offset, uint8_t* buf, size_t len) {
   return n;
 }
 
-void sourceRegister() {
+void sourceRegister(httpd_handle_t server) {
   httpd_uri_t u{};
   u.uri = "/source.tar.gz";
   u.method = HTTP_GET;
   u.handler = serveSource;
+  httpd_register_uri_handler(server, &u);
+}
+
+namespace {
+// R3.11 (owner, 2026-10-15): the archive moved to port 81 so a 1 MB download never holds up /ws drives on port 80.
+esp_err_t redirectSource(httpd_req_t* req) {
+  char host[64] = "";
+  if (httpd_req_get_hdr_value_str(req, "Host", host, sizeof(host)) != ESP_OK || host[0] == '\0') {
+    snprintf(host, sizeof(host), "%s.local", board::kHostname);
+  }
+  char* colon = strchr(host, ':');  // drop a port given by the client
+  if (colon != nullptr) *colon = '\0';
+  char location[96];
+  snprintf(location, sizeof(location), "http://%s:%u/source.tar.gz", host, static_cast<unsigned>(board::kStreamPort));
+  httpd_resp_set_status(req, "302 Found");
+  httpd_resp_set_hdr(req, "Location", location);
+  return httpd_resp_send(req, nullptr, 0);
+}
+}  // namespace
+
+void sourceRedirectRegister() {
+  httpd_uri_t u{};
+  u.uri = "/source.tar.gz";
+  u.method = HTTP_GET;
+  u.handler = redirectSource;
   httpd_register_uri_handler(httpServer(), &u);
 }
 

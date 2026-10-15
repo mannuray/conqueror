@@ -81,5 +81,7 @@ void cameraStop() { g_stopped = true; }
 
 bool cameraStopped() { return g_stopped; }
 
+bool cameraReady() { return g_ok && !g_stopped; }
+
 }  // namespace net
 }  // namespace cq

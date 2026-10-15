@@ -86,7 +86,7 @@ void setup() {
   cq::net::httpServerStart();
   cq::net::webRoutesRegister();
   cq::net::sourceBegin();
-  cq::net::sourceRegister();
+  cq::net::sourceRedirectRegister();  // port 80 -> 81 (R3.11)
   cq::net::infoRegister(g_wifi);
   cq::net::linkTaskStart(cq::net::cameraSensorName);
   // The camera starts in loop() once WiFi is up (design-notes §38: no simultaneous current peaks).
@@ -101,7 +101,8 @@ void loop() {
   // Staged start (design-notes §38): camera after the station is up, or after 10 s in any case.
   if (!g_camera_started && (g_wifi.mode() == cq::core::WifiMode::kStation || now >= 10000)) {
     g_camera_started = true;
-    if (cq::net::cameraBegin()) cq::net::streamServerStart();
+    cq::net::cameraBegin();  // a failed camera still gets port 81: /source.tar.gz, and /stream /capture answer 503
+    if (cq::net::streamServerStart()) cq::net::sourceRegister(cq::net::streamServerHandle());
   }
   g_ota.poll(s.ota_allowed && g_wifi.mode() != cq::core::WifiMode::kConnecting);
   if (now - g_last_status_ms >= cq::board::kStatusPeriodMs) {

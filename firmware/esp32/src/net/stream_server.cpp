@@ -70,7 +70,7 @@ esp_err_t refuse(httpd_req_t* req, const char* text) {
 esp_err_t streamHandler(httpd_req_t* req) {
   uint8_t n = g_viewers.load();
   do {
-    if (cameraStopped()) return refuse(req, "camera unavailable");
+    if (!cameraReady()) return refuse(req, "camera unavailable");
     if (n >= board::kMaxStreamViewers) return refuse(req, "max 2 viewers");
   } while (!g_viewers.compare_exchange_weak(n, static_cast<uint8_t>(n + 1)));
   logf("stream: viewer joined (%u)", static_cast<unsigned>(n + 1));
@@ -91,7 +91,7 @@ esp_err_t streamHandler(httpd_req_t* req) {
 // Shares port 81's two sockets with the viewers (the lwIP budget is full), so with two viewers open it is refused.
 // Served while a viewer streams: the viewers' frame loops run in their own tasks (R3.1).
 esp_err_t captureHandler(httpd_req_t* req) {
-  camera_fb_t* fb = cameraStopped() ? nullptr : cameraGrab();
+  camera_fb_t* fb = cameraReady() ? cameraGrab() : nullptr;
   if (fb == nullptr) {
     httpd_resp_set_status(req, "503 Service Unavailable");
     httpd_resp_set_hdr(req, "Retry-After", "3");
@@ -109,6 +109,8 @@ esp_err_t captureHandler(httpd_req_t* req) {
   return err;
 }
 
+httpd_handle_t g_server = nullptr;  // port 81: /stream, /capture, /source.tar.gz (R3.11)
+
 }  // namespace
 
 bool streamServerStart() {
@@ -124,6 +126,7 @@ bool streamServerStart() {
     logf("stream: start failed");
     return false;
   }
+  g_server = server;
   httpd_uri_t u{};
   u.uri = "/stream";
   u.method = HTTP_GET;
@@ -138,6 +141,8 @@ bool streamServerStart() {
        board::kMaxStreamViewers);
   return true;
 }
+
+httpd_handle_t streamServerHandle() { return g_server; }
 
 uint8_t streamViewers() { return g_viewers.load(); }
 

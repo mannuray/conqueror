@@ -12,6 +12,7 @@ camera_fb_t* cameraGrab();
 void cameraRelease(camera_fb_t* fb);
 void cameraStop();  // OTA start: streams end, no more grabs
 bool cameraStopped();
+bool cameraReady();  // started and not stopped (OTA): port 81 also runs without a camera (R3.11)
 
 }  // namespace net
 }  // namespace cq

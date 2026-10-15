@@ -247,6 +247,27 @@ void test_cam_home_ack_and_timeout() {
   TEST_ASSERT_EQUAL(cq::core::kStatusTimeout, ev.status);
 }
 
+// Plan F: SOUND and CAM_LOCK use the same acked slot as CAM_HOME (one at a time, 200 ms timeout).
+void test_sound_and_cam_lock_acked() {
+  bl->startMaster(0);
+  hello(proto::kProtocolVersion, 10);
+  uint8_t seq = 0;
+  TEST_ASSERT_TRUE(bl->sendSound(13, 20, seq));
+  wire->drain(*tx);
+  TEST_ASSERT_NOT_NULL(wire->last(FT::kSound));
+  TEST_ASSERT_EQUAL(seq, wire->last(FT::kSound)->seq);
+  ack(seq, 0, 30);
+  LinkEvent ev{};
+  TEST_ASSERT_TRUE(popKind(LinkEventKind::kAckResult, ev));
+  TEST_ASSERT_EQUAL(0, ev.status);
+  TEST_ASSERT_TRUE(bl->sendCamLock(true, 40, seq));
+  wire->drain(*tx);
+  TEST_ASSERT_NOT_NULL(wire->last(FT::kCamLock));
+  run(42, 300);
+  TEST_ASSERT_TRUE(popKind(LinkEventKind::kAckResult, ev));
+  TEST_ASSERT_EQUAL(cq::core::kStatusTimeout, ev.status);
+}
+
 void test_telemetry_snapshot_and_events() {
   proto::TelemFastMsg tf{};
   tf.yaw = 9000;
@@ -310,5 +331,6 @@ int main() {
   RUN_TEST(test_telemetry_snapshot_and_events);
   RUN_TEST(test_slow_count_counts_slow_frames);
   RUN_TEST(test_wifi_reset_request_answered_unavailable);
+  RUN_TEST(test_sound_and_cam_lock_acked);
   return UNITY_END();
 }

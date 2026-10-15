@@ -84,6 +84,9 @@ class BodyLink {
   bool sendDrive(int8_t v, int8_t w);
   bool sendCamJoy(int8_t x, int8_t y, bool active);
   bool sendCamHome(uint32_t now_ms, uint8_t& seq_out);
+  // Plan F: share the one acked slot with CAM_HOME (kAckResult on ACK or after kAckTimeoutMs).
+  bool sendSound(uint8_t sound_id, uint32_t now_ms, uint8_t& seq_out);
+  bool sendCamLock(bool on, uint32_t now_ms, uint8_t& seq_out);
   void setOwnerHint(proto::OwnerHintValue hint);  // remembered; sent now if synced, and after HELLO
 
   // STOP {src HUMAN}: master -> own seq; passthrough -> injectStop with the caller's seq.
@@ -105,6 +108,17 @@ class BodyLink {
   enum class Lane : uint8_t { kQueue, kMotion, kUrgent };  // kMotion: purged by a later STOP
   template <class Msg>
   bool emit(const Msg& m, uint8_t seq, Lane lane);
+  // One acked command at a time (CAM_HOME, SOUND, CAM_LOCK): its ACK or a timeout gives kAckResult.
+  template <typename Msg>
+  bool sendAcked(const Msg& m, uint32_t now_ms, uint8_t& seq_out) {
+    if (!synced()) return false;
+    seq_out = m_next_seq;
+    if (!emitNext(m)) return false;
+    m_cam_seq = seq_out;
+    m_cam_pending = true;
+    m_cam_sent_ms = now_ms;
+    return true;
+  }
   template <class Msg>
   bool emitNext(const Msg& m, Lane lane = Lane::kQueue) {
     return emit(m, m_next_seq++, lane);

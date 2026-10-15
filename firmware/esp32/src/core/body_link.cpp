@@ -155,14 +155,14 @@ bool BodyLink::sendCamJoy(int8_t x, int8_t y, bool active) {
   return emitNext(proto::CamJoyMsg{x, y, static_cast<uint8_t>(active ? 1 : 0)}, Lane::kMotion);
 }
 
-bool BodyLink::sendCamHome(uint32_t now_ms, uint8_t& seq_out) {
-  if (!synced()) return false;
-  seq_out = m_next_seq;
-  if (!emitNext(proto::CamHomeMsg{})) return false;
-  m_cam_seq = seq_out;
-  m_cam_pending = true;
-  m_cam_sent_ms = now_ms;
-  return true;
+bool BodyLink::sendCamHome(uint32_t now_ms, uint8_t& seq_out) { return sendAcked(proto::CamHomeMsg{}, now_ms, seq_out); }
+
+bool BodyLink::sendSound(uint8_t sound_id, uint32_t now_ms, uint8_t& seq_out) {
+  return sendAcked(proto::SoundMsg{sound_id}, now_ms, seq_out);
+}
+
+bool BodyLink::sendCamLock(bool on, uint32_t now_ms, uint8_t& seq_out) {
+  return sendAcked(proto::CamLockMsg{static_cast<uint8_t>(on ? 1 : 0)}, now_ms, seq_out);
 }
 
 void BodyLink::setOwnerHint(proto::OwnerHintValue hint) {

@@ -128,6 +128,9 @@ WsCmdKind kindOf(const char* t) {
   if (strcmp(t, "sound") == 0) return WsCmdKind::kSound;
   if (strcmp(t, "cam_lock") == 0) return WsCmdKind::kCamLock;
   if (strcmp(t, "audio_mode") == 0) return WsCmdKind::kAudioMode;
+  if (strcmp(t, "turn") == 0) return WsCmdKind::kTurn;
+  if (strcmp(t, "drive_rate") == 0) return WsCmdKind::kDriveRate;
+  if (strcmp(t, "cancel") == 0) return WsCmdKind::kCancel;
   return WsCmdKind::kUnsupported;
 }
 
@@ -156,6 +159,47 @@ bool audioModeOf(const char* name, uint8_t& out) {
   return true;
 }
 
+// Plan H: the motion fields (turn by / to / speed / radius_cm, drive_rate yaw_rate) - ranges per LLD R4.2.
+struct MotionFields {
+  bool by = false;
+  bool to = false;
+  bool rate = false;
+  bool bad = false;
+};
+
+bool isWhole(double n) { return n == floor(n); }
+
+// True when `key` is a motion field (its value is consumed); a bad value sets mf.bad.
+bool readMotionField(const char* key, Reader& r, WsCommand& c, MotionFields& mf) {
+  const bool by = strcmp(key, "by") == 0, to = strcmp(key, "to") == 0, speed = strcmp(key, "speed") == 0;
+  const bool radius = strcmp(key, "radius_cm") == 0, rate = strcmp(key, "yaw_rate") == 0;
+  if (!(by || to || speed || radius || rate)) return false;
+  double n = 0;
+  if (!r.num(n, nullptr, 0)) {
+    mf.bad = true;
+  } else if (by) {
+    mf.bad = n < -720.0 || n > 720.0 || lround(n * 100.0) == 0;
+    c.turn_by_cdeg = static_cast<int32_t>(lround(n * 100.0));
+    mf.by = true;
+  } else if (to) {
+    mf.bad = n < 0.0 || n >= 360.0;
+    c.turn_to_cdeg = static_cast<uint16_t>(lround(n * 100.0) % 36000);
+    c.turn_has_to = true;
+    mf.to = true;
+  } else if (speed) {
+    mf.bad = n < 10.0 || n > 100.0 || !isWhole(n);
+    c.speed = static_cast<uint8_t>(n);
+  } else if (radius) {
+    mf.bad = n < 0.0 || n > 1000.0 || !isWhole(n);
+    c.radius_cm = static_cast<uint16_t>(n);
+  } else {
+    mf.bad = n < -180.0 || n > 180.0;
+    c.rate_ddps = static_cast<int16_t>(lround(n * 10.0));
+    mf.rate = true;
+  }
+  return true;
+}
+
 }  // namespace
 
 WsCommand parseWsCommand(const char* text, size_t len) {
@@ -165,6 +209,7 @@ WsCommand parseWsCommand(const char* text, size_t len) {
   char t[24] = "";
   bool have_v = false, have_w = false, have_x = false, have_y = false, have_active = false, have_on = false;
   char mode[8] = "";  // audio_mode
+  MotionFields mf;
   char name[24] = "";
   if (!r.eat('{')) return bad;
   if (!r.peek('}')) {
@@ -215,6 +260,8 @@ WsCommand parseWsCommand(const char* text, size_t len) {
           return bad;
         }
         have_on = true;
+      } else if (readMotionField(key, r, c, mf)) {
+        if (mf.bad) return bad;
       } else if (strcmp(key, "mode") == 0) {
         if (!r.str(mode, sizeof(mode))) return bad;
       } else if (strcmp(key, "name") == 0) {
@@ -238,7 +285,9 @@ WsCommand parseWsCommand(const char* text, size_t len) {
     if (c.sound_id == 0) return bad;
   }
   if (c.kind == WsCmdKind::kAudioMode && !audioModeOf(mode, c.audio_mode)) return bad;
-  if (c.kind == WsCmdKind::kCamLock && !have_on) return bad;  // review M20: like the other commands' fields
+  if (c.kind == WsCmdKind::kCamLock && !have_on) return bad;
+  if (c.kind == WsCmdKind::kTurn && mf.by == mf.to) return bad;  // exactly one of by / to
+  if (c.kind == WsCmdKind::kDriveRate && !(have_v && mf.rate)) return bad;  // review M20: like the other commands' fields
   return c;
 }
 

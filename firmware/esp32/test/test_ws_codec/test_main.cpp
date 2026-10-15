@@ -105,7 +105,7 @@ void test_long_stop_is_still_a_stop() {
 }
 
 void test_unsupported_commands() {
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"turn\",\"angle\":90}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"move\",\"dist_cm\":50}").kind));  // until encoders (Plan H ruling)
   TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"safety_override\"}").kind));
 }
 
@@ -160,6 +160,47 @@ void test_cam_lock() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"cam_lock\"}").kind));  // review M20: "on" is required
 }
 
+// Plan H (bridge LLD R4.2): turn / drive_rate / cancel.
+void test_turn_by_and_to() {
+  WsCommand c = P("{\"t\":\"turn\",\"by\":90,\"speed\":40,\"id\":5}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kTurn), K(c.kind));
+  TEST_ASSERT_FALSE(c.turn_has_to);
+  TEST_ASSERT_EQUAL_INT32(9000, c.turn_by_cdeg);
+  TEST_ASSERT_EQUAL_UINT8(40, c.speed);
+  TEST_ASSERT_TRUE(c.has_id);
+  c = P("{\"t\":\"turn\",\"to\":270}");
+  TEST_ASSERT_TRUE(c.turn_has_to);
+  TEST_ASSERT_EQUAL_UINT16(27000, c.turn_to_cdeg);
+  TEST_ASSERT_EQUAL_UINT8(40, c.speed);  // default
+  TEST_ASSERT_EQUAL_INT32(-72000, P("{\"t\":\"turn\",\"by\":-720}").turn_by_cdeg);
+  TEST_ASSERT_EQUAL_INT32(4550, P("{\"t\":\"turn\",\"by\":45.5}").turn_by_cdeg);
+  TEST_ASSERT_EQUAL_UINT16(30, P("{\"t\":\"turn\",\"by\":90,\"radius_cm\":30}").radius_cm);
+}
+
+void test_turn_invalid() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"turn\"}").kind));                    // neither
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"turn\",\"by\":90,\"to\":10}").kind));  // both
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"turn\",\"by\":721}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"turn\",\"by\":0}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"turn\",\"to\":360}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"turn\",\"to\":-1}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"turn\",\"by\":90,\"speed\":5}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"turn\",\"by\":90,\"speed\":101}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"turn\",\"by\":90,\"radius_cm\":-1}").kind));
+}
+
+void test_drive_rate_and_cancel() {
+  const WsCommand r = P("{\"t\":\"drive_rate\",\"v\":30,\"yaw_rate\":-45.5}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kDriveRate), K(r.kind));
+  TEST_ASSERT_EQUAL_INT8(30, r.v);
+  TEST_ASSERT_EQUAL_INT16(-455, r.rate_ddps);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"drive_rate\",\"v\":30,\"yaw_rate\":200}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"drive_rate\",\"v\":30}").kind));  // rate required
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"drive_rate\",\"yaw_rate\":10}").kind));  // v required
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCancel), K(P("{\"t\":\"cancel\",\"id\":3}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCancel), K(P("{\"t\":\"cancel\"}").kind));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_drive);
@@ -180,5 +221,8 @@ int main() {
   RUN_TEST(test_sound_unknown_name_invalid);
   RUN_TEST(test_cam_lock);
   RUN_TEST(test_audio_mode_parse);
+  RUN_TEST(test_turn_by_and_to);
+  RUN_TEST(test_turn_invalid);
+  RUN_TEST(test_drive_rate_and_cancel);
   return UNITY_END();
 }

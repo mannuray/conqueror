@@ -123,10 +123,25 @@ WsCmdKind kindOf(const char* t) {
   if (strcmp(t, "release_control") == 0) return WsCmdKind::kRelease;
   if (strcmp(t, "ping") == 0) return WsCmdKind::kPing;
   if (strcmp(t, "hello") == 0) return WsCmdKind::kHello;
+  if (strcmp(t, "sound") == 0) return WsCmdKind::kSound;
+  if (strcmp(t, "cam_lock") == 0) return WsCmdKind::kCamLock;
   return WsCmdKind::kUnsupported;
 }
 
 }  // namespace
+
+// proto::SoundId names in lower snake case, in enum order (STARTUP = 1 ... GOODBYE = 23); spec 02 §A9 catalogue.
+const char* const kSoundNames[] = {"startup", "ready", "selftest_fail", "chirp_up", "chirp_down", "blip",
+                                   "tick", "jingle", "thinking", "ouch", "error", "success",
+                                   "fanfare", "sad", "safety_chirp", "ack_blip", "fail", "confirm",
+                                   "question", "ok_chirp", "grumble", "scan", "goodbye"};
+
+uint8_t soundIdOf(const char* name) {
+  for (uint8_t i = 0; i < sizeof(kSoundNames) / sizeof(kSoundNames[0]); ++i) {
+    if (strcmp(name, kSoundNames[i]) == 0) return static_cast<uint8_t>(i + 1);
+  }
+  return 0;
+}
 
 WsCommand parseWsCommand(const char* text, size_t len) {
   WsCommand c;
@@ -134,6 +149,7 @@ WsCommand parseWsCommand(const char* text, size_t len) {
   Reader r(text, len);
   char t[24] = "";
   bool have_v = false, have_w = false, have_x = false, have_y = false, have_active = false;
+  char name[24] = "";
   if (!r.eat('{')) return bad;
   if (!r.peek('}')) {
     do {
@@ -176,6 +192,14 @@ WsCommand parseWsCommand(const char* text, size_t len) {
           return bad;
         }
         have_active = true;
+      } else if (strcmp(key, "on") == 0) {
+        if (r.word("true")) {
+          c.on = true;
+        } else if (!r.word("false")) {
+          return bad;
+        }
+      } else if (strcmp(key, "name") == 0) {
+        if (!r.str(name, sizeof(name))) return bad;
       } else if (strcmp(key, "t0") == 0) {
         if (!r.num(num, c.t0, sizeof(c.t0))) return bad;
       } else if (strcmp(key, "client") == 0) {
@@ -190,6 +214,10 @@ WsCommand parseWsCommand(const char* text, size_t len) {
   if (c.kind == WsCmdKind::kDrive && !(have_v && have_w)) return bad;
   if (c.kind == WsCmdKind::kCamJoy && !(have_x && have_y && have_active)) return bad;
   if (c.kind == WsCmdKind::kPing && c.t0[0] == '\0') snprintf(c.t0, sizeof(c.t0), "null");
+  if (c.kind == WsCmdKind::kSound) {
+    c.sound_id = soundIdOf(name);  // missing or unknown name -> 0 -> invalid (never an out-of-range SoundId)
+    if (c.sound_id == 0) return bad;
+  }
   return c;
 }
 

@@ -121,6 +121,31 @@ void test_length_is_respected() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kStop), K(parseWsCommand(s, 12).kind));
 }
 
+// Plan F (spec 01 §4): sound by catalogue name, cam_lock on/off.
+void test_sound_by_name() {
+  const WsCommand c = P("{\"t\":\"sound\",\"name\":\"fanfare\",\"id\":7}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSound), K(c.kind));
+  TEST_ASSERT_EQUAL_UINT8(13, c.sound_id);  // proto::SoundId::kFanfare
+  TEST_ASSERT_TRUE(c.has_id);
+  const WsCommand g = P("{\"t\":\"sound\",\"name\":\"goodbye\"}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSound), K(g.kind));
+  TEST_ASSERT_EQUAL_UINT8(23, g.sound_id);
+  TEST_ASSERT_EQUAL_UINT8(1, P("{\"t\":\"sound\",\"name\":\"startup\"}").sound_id);
+}
+
+void test_sound_unknown_name_invalid() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"sound\",\"name\":\"bogus\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"sound\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"sound\",\"name\":7}").kind));
+}
+
+void test_cam_lock() {
+  const WsCommand c = P("{\"t\":\"cam_lock\",\"on\":true,\"id\":2}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCamLock), K(c.kind));
+  TEST_ASSERT_TRUE(c.on);
+  TEST_ASSERT_FALSE(P("{\"t\":\"cam_lock\",\"on\":false}").on);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_drive);
@@ -137,5 +162,8 @@ int main() {
   RUN_TEST(test_unsupported_commands);
   RUN_TEST(test_junk_is_invalid);
   RUN_TEST(test_length_is_respected);
+  RUN_TEST(test_sound_by_name);
+  RUN_TEST(test_sound_unknown_name_invalid);
+  RUN_TEST(test_cam_lock);
   return UNITY_END();
 }

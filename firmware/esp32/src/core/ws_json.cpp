@@ -106,16 +106,23 @@ const char* ownerName(proto::Owner o) {
   }
 }
 
+// HELLO CapBits (Plan F): features the body firmware has; the page hides the rest.
+const char* capBit(const HelloInfo& h, proto::CapBit b) {
+  return (h.seen && (h.caps & (1u << static_cast<uint8_t>(b)))) ? "true" : "false";
+}
+
 size_t jsonWelcome(char* out, size_t cap, const WelcomeInfo& w) {
   char uno[16] = "null";
   if (w.hello->seen) snprintf(uno, sizeof(uno), "\"%u.%u\"", w.hello->fw >> 8, w.hello->fw & 0xFF);
   return fmt(out, cap,
              "{\"t\":\"welcome\",\"role\":\"human\",\"you\":\"%s\",\"tank\":{\"name\":"
              "\"conqueror-bridge\",\"fw\":{\"esp32\":\"%s\",\"uno\":%s},\"proto\":%u,\"caps\":{"
-             "\"encoders\":%s,\"sensor\":\"%s\"}},\"owner\":\"%s\",\"owner_client\":\"%s\"}",
-             w.you, w.fw_esp32, uno, proto::kProtocolVersion,
-             (w.hello->seen && (w.hello->caps & 1u)) ? "true" : "false", w.sensor, w.owner.owner,
-             w.owner.client);
+             "\"encoders\":%s,\"turn\":%s,\"move\":%s,\"drive_rate\":%s,\"calibrate\":%s,\"audio_led\":%s,"
+             "\"sensor\":\"%s\"}},\"owner\":\"%s\",\"owner_client\":\"%s\"}",
+             w.you, w.fw_esp32, uno, proto::kProtocolVersion, capBit(*w.hello, proto::CapBit::kEncoders),
+             capBit(*w.hello, proto::CapBit::kTurn), capBit(*w.hello, proto::CapBit::kMove),
+             capBit(*w.hello, proto::CapBit::kDriveRate), capBit(*w.hello, proto::CapBit::kCalibrate),
+             capBit(*w.hello, proto::CapBit::kAudioLed), w.sensor, w.owner.owner, w.owner.client);
 }
 
 size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s) {
@@ -125,9 +132,9 @@ size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s) {
   if (f.dist_mm < 65534) snprintf(dist, sizeof(dist), "%u", (f.dist_mm + 5u) / 10u);
   const bool cam_moving = bit(f.flags, static_cast<unsigned>(proto::FastFlagBit::kCamMoving));
   return fmt(out, cap,
-             "{\"t\":\"tf\",\"seq\":%lu,\"tank_ms\":%lu,\"yaw\":%.2f,\"pitch\":%.2f,\"roll\":%.2f,"
+             "{\"t\":\"tf\",\"seq\":%lu,\"tank_ms\":%lu,\"yaw\":%.2f,\"yaw_rate\":%.1f,\"pitch\":%.2f,\"roll\":%.2f,"
              "\"dist_cm\":%s,\"pan\":%.1f,\"tilt\":%.1f,\"spd_cmd\":[%d,%d],\"cam_moving\":%s}",
-             static_cast<unsigned long>(seq), static_cast<unsigned long>(f.uno_ms), f.yaw / 100.0,
+             static_cast<unsigned long>(seq), static_cast<unsigned long>(f.uno_ms), f.yaw / 100.0, f.yaw_rate / 10.0,
              f.pitch / 100.0, f.roll / 100.0, dist, f.pan / 10.0, f.tilt / 10.0, f.spd_cmd_l,
              f.spd_cmd_r, cam_moving ? "true" : "false");
 }

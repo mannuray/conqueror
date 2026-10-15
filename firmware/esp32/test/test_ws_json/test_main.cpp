@@ -32,12 +32,13 @@ void test_tf_scaling_and_sentinels() {
   s.fast.dist_mm = 424;  // 42 cm
   s.fast.pan = -155;     // -15.5 deg
   s.fast.tilt = 200;
+  s.fast.yaw_rate = -125;  // 0.1 deg/s → -12.5 (spec 01 §6.1, Plan F)
   s.fast.spd_cmd_l = 40;
   s.fast.spd_cmd_r = -40;
   s.fast.flags = 1u << static_cast<unsigned>(proto::FastFlagBit::kCamMoving);
   jsonTf(buf, sizeof(buf), 7, s);
   TEST_ASSERT_EQUAL_STRING(
-      "{\"t\":\"tf\",\"seq\":7,\"tank_ms\":1234,\"yaw\":90.50,\"pitch\":-1.25,\"roll\":3.00,"
+      "{\"t\":\"tf\",\"seq\":7,\"tank_ms\":1234,\"yaw\":90.50,\"yaw_rate\":-12.5,\"pitch\":-1.25,\"roll\":3.00,"
       "\"dist_cm\":42,\"pan\":-15.5,\"tilt\":20.0,\"spd_cmd\":[40,-40],\"cam_moving\":true}",
       buf);
   s.fast.dist_mm = 65535;  // clear
@@ -133,7 +134,8 @@ void test_welcome_and_pong() {
   TEST_ASSERT_EQUAL_STRING(
       "{\"t\":\"welcome\",\"role\":\"human\",\"you\":\"phone-1\",\"tank\":{\"name\":"
       "\"conqueror-bridge\",\"fw\":{\"esp32\":\"bridge-v0.2.0\",\"uno\":\"1.0\"},\"proto\":2,"
-      "\"caps\":{\"encoders\":false,\"sensor\":\"OV3660\"}},\"owner\":\"none\",\"owner_client\":"
+      "\"caps\":{\"encoders\":false,\"turn\":false,\"move\":false,\"drive_rate\":false,\"calibrate\":false,"
+      "\"audio_led\":false,\"sensor\":\"OV3660\"}},\"owner\":\"none\",\"owner_client\":"
       "\"\"}",
       buf);
   HelloInfo none;
@@ -159,6 +161,23 @@ void test_json_escape() {
   TEST_ASSERT_EQUAL_STRING("abc", out);
 }
 
+// Plan F: the page hides features from the tank's HELLO CapBits (Uno Lite = AUDIO_LED only).
+void test_welcome_caps_bits() {
+  HelloInfo h;
+  h.seen = true;
+  h.fw = 0x0100;
+  h.caps = 1u << static_cast<uint8_t>(proto::CapBit::kAudioLed);
+  jsonWelcome(buf, sizeof(buf), WelcomeInfo{"x", &h, "OV3660", kNone, "phone-1"});
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"audio_led\":true"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"turn\":false"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"encoders\":false"));
+  h.caps = 0xFF;  // full firmware with encoders
+  jsonWelcome(buf, sizeof(buf), WelcomeInfo{"x", &h, "OV3660", kNone, "phone-1"});
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"turn\":true"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"move\":true"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"encoders\":true"));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ack_reason_table_matches_generated_codes);
@@ -169,6 +188,7 @@ int main() {
   RUN_TEST(test_control_changed_and_body);
   RUN_TEST(test_ack_and_nacks);
   RUN_TEST(test_welcome_and_pong);
+  RUN_TEST(test_welcome_caps_bits);
   RUN_TEST(test_too_small_buffer_returns_zero);
   RUN_TEST(test_json_escape);
   return UNITY_END();

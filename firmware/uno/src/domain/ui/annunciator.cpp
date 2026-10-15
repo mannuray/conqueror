@@ -71,7 +71,7 @@ void Annunciator::update(const AnnState& s, uint32_t now_ms, LedSequencer& led, 
     } else if (s.batt_crit) {
       led.set(LedLayer::kAlarm, {proto::LedMode::kBlink, kColorAlarm, 1000, 0}, now_ms);
     } else if (s.batt_low) {
-      led.set(LedLayer::kAlarm, {proto::LedMode::kPulse, kColorLow, 2000, 0}, now_ms);
+      led.set(LedLayer::kAlarm, {proto::LedMode::kBlink, kColorLow, 2000, 0, kLowFlashMs}, now_ms);
     } else {
       led.clear(LedLayer::kAlarm);
     }
@@ -108,7 +108,7 @@ void Annunciator::update(const AnnState& s, uint32_t now_ms, LedSequencer& led, 
     } else if (s.owner == proto::Owner::kNetwork) {
       base.color = s.hint == proto::OwnerHintValue::kAi ? kColorAi : kColorHuman;
     } else if (!s.synced) {
-      base = LedPattern{proto::LedMode::kPulse, kColorWaiting, 2000, 0};
+      base.color = kColorNoLink;  // solid base: the sequencer makes it breathe while idle
     }
     led.set(LedLayer::kBase, base, now_ms);
   }

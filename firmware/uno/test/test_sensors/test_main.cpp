@@ -241,6 +241,18 @@ void test_battery_sag_after_battery_seen_is_critical() {
   TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kCritical), static_cast<int>(b.level()));
 }
 
+// Owner 2026-10-15 (bug): on USB only the back-fed reading jumps 4.5-5.1 V when a servo moves. It must stay USB
+// power - one sample above 5 V must not count as "a battery was seen" (that latched battery critical forever).
+void test_battery_usb_jitter_stays_usb() {
+  BatteryMonitor b;
+  uint32_t t = 0;
+  for (int r = 0; r < 10; ++r) {
+    for (int i = 0; i < 5; ++i, t += 100) b.update(126, 4050, 7200, 6600, 200, t);   // 5.10 V for 0.5 s (servo)
+    for (int i = 0; i < 30; ++i, t += 100) b.update(114, 4050, 7200, 6600, 200, t);  // 4.62 V for 3 s
+  }
+  TEST_ASSERT_EQUAL(static_cast<int>(BatteryMonitor::Level::kUsb), static_cast<int>(b.level()));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ultrasonic_distance_and_median);
@@ -256,6 +268,7 @@ int main() {
   RUN_TEST(test_battery_four_sample_average);
   RUN_TEST(test_battery_usb_power_is_not_an_alarm);
   RUN_TEST(test_battery_usb_backfeed_is_usb);
+  RUN_TEST(test_battery_usb_jitter_stays_usb);
   RUN_TEST(test_battery_sag_after_battery_seen_is_critical);
   RUN_TEST(test_battery_hysteresis_on_recovery);
   RUN_TEST(test_edge_detector_falling_and_rising);

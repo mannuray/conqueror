@@ -46,6 +46,7 @@ void uiTask() {
 
 void cameraTask() {
   g_lite.cam.tick(port::clock::nowMs());
+  g_lite.cam.applyJog();
   g_lite.cam.step();  // smooth: at most 120 °/s
   port::servos::writeUs(Axis::kPan, CamLite::toUs(g_lite.cam.outPan()));
   port::servos::writeUs(Axis::kTilt, CamLite::toUs(g_lite.cam.outTilt()));

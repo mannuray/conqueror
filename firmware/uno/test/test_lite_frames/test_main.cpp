@@ -1,6 +1,7 @@
 #include <unity.h>
 
 #include "domain/lite/lite_frames.h"
+#include "domain/lite/lite_telemetry.h"
 
 using namespace cq;
 using lite_frames::FrameUse;
@@ -38,10 +39,29 @@ void test_frames_hello_caps() {
   TEST_ASSERT_EQUAL_UINT8(1, lite_frames::helloCaps(true));
 }
 
+// Final review I1: TELEM_SLOW carries the same safety-state bits as the full firmware, and the hw byte.
+void test_slow_flags_safety_state() {
+  const uint32_t f = lite_telemetry::slowFlags(0, false, true, false, true);
+  TEST_ASSERT_TRUE(f & (1UL << static_cast<uint8_t>(proto::SlowFlagBit::kBrakeOff)));
+  TEST_ASSERT_TRUE(f & (1UL << static_cast<uint8_t>(proto::SlowFlagBit::kEnvelope)));
+  TEST_ASSERT_TRUE(f & (1UL << static_cast<uint8_t>(proto::SlowFlagBit::kLinkLost)));
+  TEST_ASSERT_TRUE(f & (1UL << static_cast<uint8_t>(proto::SlowFlagBit::kDeadman)));
+  const uint32_t battlow = 1UL << static_cast<uint8_t>(proto::SlowFlagBit::kBattLow);
+  // bits 6/7 (envelope, deadman) cleared when false; battery and mute/quiet (bits 4/5) are kept as they are
+  TEST_ASSERT_EQUAL_UINT32(battlow | 0x30, lite_telemetry::slowFlags(battlow | 0xF0, true, false, true, false) & 0xFF);
+}
+
+void test_hw_byte() {
+  TEST_ASSERT_EQUAL_UINT8(0x06, lite_telemetry::hwByte(false, true, true));
+  TEST_ASSERT_EQUAL_UINT8(0x01, lite_telemetry::hwByte(true, false, false));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_frames_driving_is_handled);
   RUN_TEST(test_frames_unsupported_are_unavailable);
   RUN_TEST(test_frames_hello_caps);
+  RUN_TEST(test_slow_flags_safety_state);
+  RUN_TEST(test_hw_byte);
   return UNITY_END();
 }

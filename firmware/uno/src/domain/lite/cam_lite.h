@@ -13,8 +13,17 @@ class CamLite {
   static constexpr int16_t kPanMin = 0, kPanMax = 1800, kTiltMin = 300, kTiltMax = 1100;
   static constexpr uint16_t kReturnMs = 500;
   static constexpr int16_t kStepDd = 24;
+  static constexpr int16_t kJogDd = 12;  // per 20 ms tick = 60 °/s (full firmware: 1.2° per tick)
   void set(int16_t pan_dd, int16_t tilt_dd);
-  void nudge(int16_t dpan_dd, int16_t dtilt_dd) { set(static_cast<int16_t>(m_pan + dpan_dd), static_cast<int16_t>(m_tilt + dtilt_dd)); }
+  void nudge(int16_t dpan_dd, int16_t dtilt_dd);  // sums in int32: a large nudge saturates, never wraps
+  // IR jog keys held (1/3 pan, 2/8 tilt): direction kept until released; applyJog() every 20 ms = 60 °/s.
+  void jog(int8_t pan_dir, int8_t tilt_dir) {
+    m_jog_pan = pan_dir;
+    m_jog_tilt = tilt_dir;
+  }
+  void applyJog() {
+    if (m_jog_pan != 0 || m_jog_tilt != 0) nudge(static_cast<int16_t>(-m_jog_pan * kJogDd), static_cast<int16_t>(m_jog_tilt * kJogDd));
+  }
   void joy(int8_t x, int8_t y, bool active, uint32_t now_ms);
   void home() { set(kHome, kHome); }
   void lock(bool on) { m_locked = on; }
@@ -31,6 +40,8 @@ class CamLite {
   int16_t m_tilt = kHome;
   int16_t m_out_pan = kHome;
   int16_t m_out_tilt = kHome;
+  int8_t m_jog_pan = 0;
+  int8_t m_jog_tilt = 0;
   bool m_locked = false;
   bool m_return_pending = false;
   uint32_t m_released_ms = 0;

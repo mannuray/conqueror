@@ -8,6 +8,9 @@ struct Tracks {
   int16_t r;
 };
 
+// DRIVE v/w arrive as int8 (−128..127); everything downstream assumes ±100 (−(−128) is still −128 in int8).
+inline int8_t clampDriveLite(int8_t x) { return x < -100 ? static_cast<int8_t>(-100) : (x > 100 ? static_cast<int8_t>(100) : x); }
+
 // Arcade mix (CCW +): the turn authority (less turning at speed) applies to the driver's steering only;
 // the gyro's w_ctrl goes in unscaled (design-notes §41). Turning priority keeps L − R when a track would exceed 100 %.
 Tracks mixLite(int8_t v, int8_t w_steer, int8_t w_ctrl, uint8_t turn_full_pct);

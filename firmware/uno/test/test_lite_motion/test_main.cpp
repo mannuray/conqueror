@@ -235,6 +235,14 @@ void test_to_pwm_deadband() {
   TEST_ASSERT_EQUAL_INT16(-255, toPwmLite(-1000, true, 110, 90));
 }
 
+// Final review M2: a DRIVE outside ±100 (the decoder accepts −128) is clamped, so the car-style reverse flip
+// of −128 cannot stay −128 and turn the wrong way.
+void test_drive_input_clamped() {
+  TEST_ASSERT_EQUAL_INT8(-100, clampDriveLite(-128));
+  TEST_ASSERT_EQUAL_INT8(100, clampDriveLite(127));
+  TEST_ASSERT_EQUAL_INT8(-40, clampDriveLite(-40));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_gzl_starts_from_stored);
@@ -261,6 +269,7 @@ int main() {
   RUN_TEST(test_cap_obstacle_slows_forward_only);
   RUN_TEST(test_ramp_accel_and_faster_decel);
   RUN_TEST(test_to_pwm_deadband);
+  RUN_TEST(test_drive_input_clamped);
   // LITE-MOTION-TESTS-END
   return UNITY_END();
 }

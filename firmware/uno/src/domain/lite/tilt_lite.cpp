@@ -21,9 +21,10 @@ bool TiltLite::over(uint8_t deg) const {
 }
 
 TiltLite::Change TiltLite::update(int16_t ax, int16_t ay, int16_t az, uint8_t limit_deg, uint32_t now_ms) {
-  m_fx = static_cast<int16_t>(m_fx + (ax - m_fx) / 8);
-  m_fy = static_cast<int16_t>(m_fy + (ay - m_fy) / 8);
-  m_fz = static_cast<int16_t>(m_fz + (az - m_fz) / 8);
+  // int32: on the AVR int is 16-bit and a saturated sample minus an opposite-sign filter value would wrap.
+  m_fx = static_cast<int16_t>(m_fx + (static_cast<int32_t>(ax) - m_fx) / 8);
+  m_fy = static_cast<int16_t>(m_fy + (static_cast<int32_t>(ay) - m_fy) / 8);
+  m_fz = static_cast<int16_t>(m_fz + (static_cast<int32_t>(az) - m_fz) / 8);
   if (!m_tilted) {
     if (over(limit_deg)) {
       if (!m_over) {

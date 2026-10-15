@@ -14,6 +14,13 @@ void CamLite::set(int16_t pan_dd, int16_t tilt_dd) {
   m_tilt = clampI(tilt_dd, kTiltMin, kTiltMax);
 }
 
+void CamLite::nudge(int16_t dpan_dd, int16_t dtilt_dd) {
+  const int32_t p = static_cast<int32_t>(m_pan) + dpan_dd;
+  const int32_t t = static_cast<int32_t>(m_tilt) + dtilt_dd;
+  set(static_cast<int16_t>(p < kPanMin ? kPanMin : (p > kPanMax ? kPanMax : p)),
+      static_cast<int16_t>(t < kTiltMin ? kTiltMin : (t > kTiltMax ? kTiltMax : t)));
+}
+
 void CamLite::joy(int8_t x, int8_t y, bool active, uint32_t now_ms) {
   if (active) {
     m_return_pending = false;

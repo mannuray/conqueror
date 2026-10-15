@@ -41,8 +41,8 @@ proto::AckStatus handle(uint8_t type, const uint8_t* p, uint8_t len) {
       const proto::AckStatus st = networkMotion(type, m.src);
       if (st != proto::AckStatus::kOk) return st;
       g_lite.deadman_latched = false;
-      g_lite.teleop_v = m.v;
-      g_lite.teleop_w = m.w;
+      g_lite.teleop_v = clampDriveLite(m.v);  // ±100 (the decoder accepts −128)
+      g_lite.teleop_w = clampDriveLite(m.w);
       return st;
     }
     case F::kStop: {

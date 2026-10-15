@@ -1,4 +1,6 @@
 #include "domain/lite/lite_frames.h"
+#include "domain/lite/lite_telemetry.h"
+#include "lite/lite_tasks.h"
 #include "drivers/board_config.h"
 #include "lite/lite_app.h"
 #include "ports/clock.h"
@@ -106,7 +108,10 @@ void telemetrySlowDue() {
   g_lite.slow.reset_reason = static_cast<uint8_t>(g_lite.reset_reason);
   g_lite.slow.err_frames = static_cast<uint16_t>(g_lite.parser.errors().bad_crc + g_lite.parser.errors().bad_len +
                                                  g_lite.parser.errors().unknown_type);
+  g_lite.slow_flags = lite_telemetry::slowFlags(g_lite.slow_flags, g_lite.envelope.brakeOn(), g_lite.envelope.active(),
+                                               g_lite.link.alive(port::clock::nowMs()), g_lite.deadman_latched);
   g_lite.slow.flags2 = g_lite.slow_flags;
+  g_lite.slow.hw = lite_telemetry::hwByte(g_lite.encoders_enabled, imuUsable(), !g_lite.range.fault());
   g_lite.slow_due = true;
 }
 

@@ -42,7 +42,7 @@ void irInput(uint32_t now) {
   } else {
     zeroTeleop();
   }
-  if (o.jog_pan != 0 || o.jog_tilt != 0) g_lite.cam.nudge(static_cast<int16_t>(-o.jog_pan * 12), static_cast<int16_t>(o.jog_tilt * 12));
+  g_lite.cam.jog(o.jog_pan, o.jog_tilt);  // held: applied every 20 ms in cameraTask (60 °/s); release → 0
   if (o.stop) {
     zeroTeleop();
     g_lite.arbitrator.releaseIr();

@@ -60,7 +60,11 @@ void imuTask() {
   g_lite.imu_fail_streak = 0;
   const bool quiet = !g_lite.moving && !g_lite.tilt.lifted() && !g_lite.tilt.tilted() && !g_lite.self_test_pending;
   g_lite.gyro_zero.update(r.gz, quiet, now);
-  g_lite.yaw.update(static_cast<int16_t>(r.gz - g_lite.gyro_zero.zero()), !g_lite.moving);
+  // int32 then saturate: on the AVR int is 16-bit and a saturated reading minus the zero would wrap.
+  int32_t gz = static_cast<int32_t>(r.gz) - g_lite.gyro_zero.zero();
+  if (gz > INT16_MAX) gz = INT16_MAX;
+  if (gz < INT16_MIN) gz = INT16_MIN;
+  g_lite.yaw.update(static_cast<int16_t>(gz), !g_lite.moving);
   switch (g_lite.tilt.update(r.ax, r.ay, r.az, kTiltLimitDeg, now)) {
     case TiltLite::Change::kLifted: g_lite.events.push(proto::EventKind::kLifted); break;
     case TiltLite::Change::kLanded: g_lite.events.push(proto::EventKind::kLanded); break;

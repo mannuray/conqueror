@@ -228,6 +228,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       case "ev": onEvent(m); break;
       case "nack": onNack(m); break;
       case "pong": showLatency(m); break;
+      case "ack":  // chip follows at once; ts (1 Hz, may still be older) is ignored for 2.5 s
+        if (m.id === audioAsk.id) { showAudio(audioAsk.mode); audioHoldUntil = Date.now() + 2500; }
+        break;
       default: break;  // ack
     }
   }
@@ -290,7 +293,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       $("battMask").style.height = (usb ? 0 : 100 - Math.max(3, pct)) + "%";  // empty part masked, colour from the scale
       $("battBar").className = usb ? "battbar usb" : "battbar";
     }
-    showAudio(m.flags.indexOf("muted") >= 0 ? "mute" : m.flags.indexOf("quiet") >= 0 ? "quiet" : "normal");
+    if (Date.now() >= audioHoldUntil) showAudio(m.flags.indexOf("muted") >= 0 ? "mute" : m.flags.indexOf("quiet") >= 0 ? "quiet" : "normal");
     var offline = m.flags.indexOf("body_offline") >= 0;
     synced = !offline;
     showOwner(m.owner, m.owner_client);
@@ -318,7 +321,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       banner("bad", "Uno protocol " + m.uno_proto + " - flash a matching body firmware (needs " + m.need_proto + ")");
   }
   // Speaker chip (R3.1): the tank's audio state; tap toggles mute <-> normal (quiet stays IR / hub).
-  var audio = "normal", lastSoundId = -1;
+  var audio = "normal", lastSoundId = -1, audioAsk = { id: -1, mode: "" }, audioHoldUntil = 0;
   function showAudio(mode) {
     audio = mode;
     $("audioChip").className = "chip glass" + (mode === "normal" ? "" : " muted");
@@ -462,7 +465,8 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     if (navigator.vibrate) navigator.vibrate(60);
   });
   $("audioChip").addEventListener("click", function () {
-    send({ t: "audio_mode", mode: audio === "normal" ? "mute" : "normal", id: nextId++ });
+    audioAsk = { id: nextId, mode: audio === "normal" ? "mute" : "normal" };
+    send({ t: "audio_mode", mode: audioAsk.mode, id: nextId++ });
   });
   $("camHome").addEventListener("click", function () { send({ t: "cam_home", id: nextId++ }); });
   $("camLock").addEventListener("click", function () {

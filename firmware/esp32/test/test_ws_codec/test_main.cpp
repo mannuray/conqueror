@@ -121,6 +121,19 @@ void test_length_is_respected() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kStop), K(parseWsCommand(s, 12).kind));
 }
 
+// R3.1 (spec 01 §4): audio_mode normal/quiet/mute -> proto::AudioModeValue 0/1/2.
+void test_audio_mode_parse() {
+  const WsCommand m = P("{\"t\":\"audio_mode\",\"mode\":\"mute\",\"id\":3}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kAudioMode), K(m.kind));
+  TEST_ASSERT_EQUAL_UINT8(2, m.audio_mode);
+  TEST_ASSERT_TRUE(m.has_id);
+  TEST_ASSERT_EQUAL_UINT8(0, P("{\"t\":\"audio_mode\",\"mode\":\"normal\"}").audio_mode);
+  TEST_ASSERT_EQUAL_UINT8(1, P("{\"t\":\"audio_mode\",\"mode\":\"quiet\"}").audio_mode);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kAudioMode), K(P("{\"t\":\"audio_mode\",\"mode\":\"quiet\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"audio_mode\",\"mode\":\"loud\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"audio_mode\"}").kind));
+}
+
 // Plan F (spec 01 §4): sound by catalogue name, cam_lock on/off.
 void test_sound_by_name() {
   const WsCommand c = P("{\"t\":\"sound\",\"name\":\"fanfare\",\"id\":7}");
@@ -165,5 +178,6 @@ int main() {
   RUN_TEST(test_sound_by_name);
   RUN_TEST(test_sound_unknown_name_invalid);
   RUN_TEST(test_cam_lock);
+  RUN_TEST(test_audio_mode_parse);
   return UNITY_END();
 }

@@ -158,6 +158,8 @@ size_t jsonTs(char* out, size_t cap, const TankSnapshot& s, OwnerView owner, boo
   add(bit(sf, static_cast<unsigned>(SB::kBattCritical)), "batt_critical");
   add(bit(sf, static_cast<unsigned>(SB::kLinkLost)), "link_lost");
   add(bit(sf, static_cast<unsigned>(SB::kBrakeOff)), "brake_off");
+  add(bit(sf, static_cast<unsigned>(SB::kMuted)), "muted");
+  add(bit(sf, static_cast<unsigned>(SB::kQuiet)), "quiet");
   add(bit(sf, static_cast<unsigned>(SB::kEnvelope)), "envelope");
   add(bit(sf, static_cast<unsigned>(SB::kSafetyOverride)), "safety_override");
   add(bit(sf, static_cast<unsigned>(SB::kSelftestLocked)), "selftest_locked");

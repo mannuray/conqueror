@@ -162,6 +162,18 @@ void test_json_escape() {
 }
 
 // Plan F: the page hides features from the tank's HELLO CapBits (Uno Lite = AUDIO_LED only).
+// R3.1: the tank's audio state reaches the page (speaker chip).
+void test_ts_muted_quiet_flags() {
+  TankSnapshot s;
+  s.slow_valid = true;
+  s.slow.flags2 = 1u << static_cast<unsigned>(proto::SlowFlagBit::kMuted);
+  jsonTs(buf, sizeof(buf), s, kNone, false);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"flags\":[\"muted\"]"));
+  s.slow.flags2 = 1u << static_cast<unsigned>(proto::SlowFlagBit::kQuiet);
+  jsonTs(buf, sizeof(buf), s, kNone, false);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"flags\":[\"quiet\"]"));
+}
+
 void test_welcome_caps_bits() {
   HelloInfo h;
   h.seen = true;
@@ -189,6 +201,7 @@ int main() {
   RUN_TEST(test_ack_and_nacks);
   RUN_TEST(test_welcome_and_pong);
   RUN_TEST(test_welcome_caps_bits);
+  RUN_TEST(test_ts_muted_quiet_flags);
   RUN_TEST(test_too_small_buffer_returns_zero);
   RUN_TEST(test_json_escape);
   return UNITY_END();

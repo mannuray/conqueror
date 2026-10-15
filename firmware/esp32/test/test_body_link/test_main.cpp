@@ -268,6 +268,22 @@ void test_sound_and_cam_lock_acked() {
   TEST_ASSERT_EQUAL(cq::core::kStatusTimeout, ev.status);
 }
 
+// R3.1: AUDIO_MODE {mode} on the same acked slot.
+void test_audio_mode_acked() {
+  bl->startMaster(0);
+  hello(proto::kProtocolVersion, 10);
+  uint8_t seq = 0;
+  TEST_ASSERT_TRUE(bl->sendAudioMode(2, 20, seq));
+  wire->drain(*tx);
+  TEST_ASSERT_NOT_NULL(wire->last(FT::kAudioMode));
+  TEST_ASSERT_EQUAL(seq, wire->last(FT::kAudioMode)->seq);
+  TEST_ASSERT_EQUAL_UINT8(2, wire->last(FT::kAudioMode)->payload[0]);
+  ack(seq, 0, 30);
+  LinkEvent ev{};
+  TEST_ASSERT_TRUE(popKind(LinkEventKind::kAckResult, ev));
+  TEST_ASSERT_EQUAL(0, ev.status);
+}
+
 void test_telemetry_snapshot_and_events() {
   proto::TelemFastMsg tf{};
   tf.yaw = 9000;
@@ -332,5 +348,6 @@ int main() {
   RUN_TEST(test_slow_count_counts_slow_frames);
   RUN_TEST(test_wifi_reset_request_answered_unavailable);
   RUN_TEST(test_sound_and_cam_lock_acked);
+  RUN_TEST(test_audio_mode_acked);
   return UNITY_END();
 }

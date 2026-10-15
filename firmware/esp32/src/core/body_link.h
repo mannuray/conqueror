@@ -87,6 +87,7 @@ class BodyLink {
   // Plan F: share the one acked slot with CAM_HOME (kAckResult on ACK or after kAckTimeoutMs).
   bool sendSound(uint8_t sound_id, uint32_t now_ms, uint8_t& seq_out);
   bool sendCamLock(bool on, uint32_t now_ms, uint8_t& seq_out);
+  bool sendAudioMode(uint8_t mode, uint32_t now_ms, uint8_t& seq_out);  // R3.1: proto::AudioModeValue
   void setOwnerHint(proto::OwnerHintValue hint);  // remembered; sent now if synced, and after HELLO
 
   // STOP {src HUMAN}: master -> own seq; passthrough -> injectStop with the caller's seq.

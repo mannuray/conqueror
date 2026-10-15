@@ -125,6 +125,7 @@ WsCmdKind kindOf(const char* t) {
   if (strcmp(t, "hello") == 0) return WsCmdKind::kHello;
   if (strcmp(t, "sound") == 0) return WsCmdKind::kSound;
   if (strcmp(t, "cam_lock") == 0) return WsCmdKind::kCamLock;
+  if (strcmp(t, "audio_mode") == 0) return WsCmdKind::kAudioMode;
   return WsCmdKind::kUnsupported;
 }
 
@@ -149,6 +150,7 @@ WsCommand parseWsCommand(const char* text, size_t len) {
   Reader r(text, len);
   char t[24] = "";
   bool have_v = false, have_w = false, have_x = false, have_y = false, have_active = false;
+  char mode[8] = "";  // audio_mode
   char name[24] = "";
   if (!r.eat('{')) return bad;
   if (!r.peek('}')) {
@@ -198,6 +200,8 @@ WsCommand parseWsCommand(const char* text, size_t len) {
         } else if (!r.word("false")) {
           return bad;
         }
+      } else if (strcmp(key, "mode") == 0) {
+        if (!r.str(mode, sizeof(mode))) return bad;
       } else if (strcmp(key, "name") == 0) {
         if (!r.str(name, sizeof(name))) return bad;
       } else if (strcmp(key, "t0") == 0) {
@@ -217,6 +221,17 @@ WsCommand parseWsCommand(const char* text, size_t len) {
   if (c.kind == WsCmdKind::kSound) {
     c.sound_id = soundIdOf(name);  // missing or unknown name -> 0 -> invalid (never an out-of-range SoundId)
     if (c.sound_id == 0) return bad;
+  }
+  if (c.kind == WsCmdKind::kAudioMode) {  // proto::AudioModeValue order; missing or unknown -> invalid
+    if (strcmp(mode, "normal") == 0) {
+      c.audio_mode = 0;
+    } else if (strcmp(mode, "quiet") == 0) {
+      c.audio_mode = 1;
+    } else if (strcmp(mode, "mute") == 0) {
+      c.audio_mode = 2;
+    } else {
+      return bad;
+    }
   }
   return c;
 }

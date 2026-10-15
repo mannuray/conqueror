@@ -165,6 +165,10 @@ bool BodyLink::sendCamLock(bool on, uint32_t now_ms, uint8_t& seq_out) {
   return sendAcked(proto::CamLockMsg{static_cast<uint8_t>(on ? 1 : 0)}, now_ms, seq_out);
 }
 
+bool BodyLink::sendAudioMode(uint8_t mode, uint32_t now_ms, uint8_t& seq_out) {
+  return sendAcked(proto::AudioModeMsg{mode}, now_ms, seq_out);
+}
+
 void BodyLink::setOwnerHint(proto::OwnerHintValue hint) {
   m_hint = hint;
   if (synced()) emitNext(proto::OwnerHintMsg{static_cast<uint8_t>(hint)});

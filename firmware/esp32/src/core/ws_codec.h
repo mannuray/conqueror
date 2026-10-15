@@ -19,6 +19,7 @@ enum class WsCmdKind : uint8_t {
   kPing,
   kSound,    // Plan F (spec 01 §4): {"t":"sound","name":"<catalogue name>"} -> SOUND
   kCamLock,  // {"t":"cam_lock","on":bool} -> CAM_LOCK
+  kAudioMode,  // R3.1: {"t":"audio_mode","mode":"normal"|"quiet"|"mute"} -> AUDIO_MODE
   kUnsupported,  // valid JSON, "t" not in the Basic Drive slice -> nack INVALID_COMMAND
   kInvalid,      // not JSON / no "t" / bad field -> nack INVALID_COMMAND
 };
@@ -34,6 +35,7 @@ struct WsCommand {
   bool active = false;
   uint8_t sound_id = 0;  // sound: proto::SoundId value (1..23)
   bool on = false;       // cam_lock
+  uint8_t audio_mode = 0;  // audio_mode: proto::AudioModeValue (0 normal, 1 quiet, 2 mute)
   char t0[24] = "";  // ping: number echoed verbatim in pong
   char client[24] = "";
 };

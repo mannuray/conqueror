@@ -221,6 +221,7 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
       break;
     }
     case core::WsCmdKind::kSound:
+    case core::WsCmdKind::kAudioMode:  // R3.1: as sound
     case core::WsCmdKind::kCamLock: {  // Plan F: owner or nobody (as the camera); acked by the Uno, one at a time
       const core::Decision d = g_owner.onCamera(fd);
       uint8_t seq = 0;
@@ -229,7 +230,9 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
         nack(fd, id, g_ota_active ? core::BridgeReason::kBusy : reasonOf(d));
       } else if (g_cam_waiter.fd != -1) {
         nack(fd, id, core::BridgeReason::kBusy);
-      } else if (sound ? g_link.sendSound(c.sound_id, now, seq) : g_link.sendCamLock(c.on, now, seq)) {
+      } else if (sound                                      ? g_link.sendSound(c.sound_id, now, seq)
+                 : c.kind == core::WsCmdKind::kAudioMode ? g_link.sendAudioMode(c.audio_mode, now, seq)
+                                                         : g_link.sendCamLock(c.on, now, seq)) {
         g_cam_seq = seq;
         g_cam_waiter = Waiter{fd, id};
       } else {

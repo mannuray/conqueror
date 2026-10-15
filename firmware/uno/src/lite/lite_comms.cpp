@@ -1,3 +1,4 @@
+#include "domain/lite/lite_frames.h"
 #include "drivers/board_config.h"
 #include "lite/lite_app.h"
 #include "ports/clock.h"
@@ -36,7 +37,7 @@ bool sendRaw(uint8_t type) {
 }
 }  // namespace
 
-// Defined in lite_routes.cpp from Task 11; the skeleton version lives here until then.
+// lite_routes.cpp: true when an ACK must be sent.
 bool route(uint8_t type, const uint8_t* p, uint8_t len, proto::AckStatus& st);
 
 void commsPoll() {
@@ -85,7 +86,7 @@ void txPump() {
     proto::HelloMsg h{};
     h.fw = board::kFwVersion;
     h.proto = proto::kProtocolVersion;
-    h.caps = g_lite.encoders_enabled ? 1 : 0;  // Task 11 replaces this with helloCaps()
+    h.caps = lite_frames::helloCaps(g_lite.encoders_enabled);
     h.reset_reason = static_cast<uint8_t>(g_lite.reset_reason);
     h.commit = board::kGitCommit;
     sendMsg(h);

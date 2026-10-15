@@ -18,20 +18,6 @@
 namespace cq {
 namespace lite {
 
-// Skeleton router (replaced by lite_routes.cpp in Task 11): link frames only; nothing else is acked.
-bool route(uint8_t type, const uint8_t* p, uint8_t len, proto::AckStatus& st) {
-  (void)st;
-  switch (static_cast<proto::FrameType>(type)) {
-    case proto::FrameType::kHelloAck: {
-      proto::HelloAckMsg m{};
-      if (proto::decode(p, len, m)) g_lite.link.onHelloAck();
-      return false;
-    }
-    case proto::FrameType::kHelloReq: g_lite.link.onHelloReq(); return false;
-    default: ++g_lite.parser.errors().unknown_type; return false;
-  }
-}
-
 namespace {
 void linkWatchTask() {
   switch (g_lite.link.poll(port::clock::nowMs())) {

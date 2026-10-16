@@ -27,6 +27,7 @@ UNO = "uno_to_esp32"
 # Linux: 250000 is not a named termios speed; pyserial's custom-speed path fails on some kernels
 # (seen on 7.0 with a CH340: EINVAL). Fall back to setting it with the termios2 BOTHER ioctl.
 _TCGETS2, _TCSETS2, _BOTHER, _CBAUD = 0x802C542A, 0x402C542B, 0o010000, 0o010017
+_IBSHIFT = 16  # input speed bits (CIBAUD) = CBAUD << 16: set them too, or ispeed stays old
 _TERMIOS2 = "4IB19sII"  # struct termios2: iflag, oflag, cflag, lflag, line, cc[19], ispeed, ospeed
 
 
@@ -46,7 +47,7 @@ def open_serial(port: str, baud: int) -> serial.Serial:
     iflag, oflag, cflag, lflag, line, cc, _isp, _osp = struct.unpack(
         _TERMIOS2, buf.tobytes()[:size]
     )
-    cflag = (int(cflag) & ~_CBAUD) | _BOTHER
+    cflag = (int(cflag) & ~(_CBAUD | (_CBAUD << _IBSHIFT))) | _BOTHER | (_BOTHER << _IBSHIFT)
     fcntl.ioctl(
         fd, _TCSETS2, struct.pack(_TERMIOS2, iflag, oflag, cflag, lflag, line, cc, baud, baud)
     )
@@ -107,6 +108,7 @@ class Link:
                     h(msg)
 
     def close(self) -> None:
+        self.paused = False  # a paused link (simulated loss) must still send the closing STOP
         self.send(g.Stop(src=g.Source.HUMAN))
         self.running = False
         time.sleep(0.15)

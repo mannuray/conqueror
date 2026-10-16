@@ -52,7 +52,10 @@ namespace i2c {
 
 void begin() {
   DDRC &= static_cast<uint8_t>(~(kSda | kScl));
-  PORTC |= kSda | kScl;  // internal pull-ups as the Wire library did (the IMU module also has its own)
+  // Internal pull-ups as the Wire library did (the IMU module also has its own). One bit per statement: each is a
+  // single atomic SBI, so the buzzer's tone ISR toggling PC0 (A0) on the same port is never lost (Plan E minor).
+  PORTC |= kSda;
+  PORTC |= kScl;
   TWSR = 0;              // prescaler 1
   TWBR = static_cast<uint8_t>((F_CPU / 400000UL - 16UL) / 2UL);  // 400 kHz
   TWCR = _BV(TWEN);

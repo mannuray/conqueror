@@ -21,6 +21,7 @@ void MotionService::driveRate(int fd, int8_t v, int16_t rate_ddps, uint32_t now_
     m_id = -1;
     m_rate.reset();
     m_wrong_way = false;
+    m_rate_stalling = false;
     m_last_telem_ms = now_ms;
   }
   m_rate_v = v;
@@ -74,6 +75,16 @@ MotionOut MotionService::stepRate(int16_t rate_ddps, uint32_t now_ms) {
     if (now_ms - m_wrong_since >= motion::kRateWrongWayMs) return finish(EndReason::kDiverged);
   } else {
     m_wrong_way = false;
+  }
+  // Final review I1: full power while the gyro sees no turn (jammed track, or the Uno's safety gate cutting the
+  // PWM) - end "stalled" as TURN does, never hold a stalled track (design-notes §56).
+  const int16_t r = rate_ddps < 0 ? static_cast<int16_t>(-rate_ddps) : rate_ddps;
+  if (saturated && r < motion::kStallRateDdps) {
+    if (!m_rate_stalling) m_rate_stall_since = now_ms;
+    m_rate_stalling = true;
+    if (now_ms - m_rate_stall_since >= motion::kStallMs) return finish(EndReason::kStalled);
+  } else {
+    m_rate_stalling = false;
   }
   return o;
 }

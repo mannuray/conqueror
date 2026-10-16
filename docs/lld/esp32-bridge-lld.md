@@ -850,7 +850,7 @@ Errors: both `by` and `to`, or neither → INVALID_COMMAND; out-of-range → INV
 - Angles in centi-degrees, yaw wrapped 0…36000; `to` takes the shortest way; `by` keeps its sign and may exceed 180°.
 - Remaining error `e = wrap(target − yaw)`; **latency-compensated** `e_p = e − rate × 80 ms` (link + one telemetry period).
 - Command `w = sign(e_p) × clamp(Kp × |e_p|, w_min, speed)` with `Kp = 1.0 %/°`, `w_min = 12 %` (the Uno's deadband start PWM already breaks the tracks loose). When `e_p` changes sign the command reverses at `w_min` (small correction).
-- **Done:** `|e| ≤ 1.5°` and `|rate| < 5 °/s` for 200 ms (10 samples) → `w = 0`; the Uno's heading hold then settles (≤ 300 ms) and holds the new heading.
+- **Done (R4.16, floor test):** enter the window at `|e| ≤ 1.5°` when the heading's own average rate over 200 ms is < 15 °/s; stay while `|e| ≤ 2.5°` (heading only); **w = 0 inside**; done after 300 ms in the window with < 2° net movement (else the hold restarts). *(Was: `|rate| < 5 °/s` for 200 ms — hunted on marble.)*
 - **Timeout:** `|angle| / 20 °/s + 3 s`. **Stalled:** `|w| ≥ w_min` and `|rate| < 2 °/s` for 1.5 s.
 - Expected ±1–2° (acceptance: 10 × 90° on the floor, owner measures; gyro log as evidence). Gains are constants in `motion_config.h` for floor tuning (not settings yet).
 
@@ -858,15 +858,17 @@ Errors: both `by` and `to`, or neither → INVALID_COMMAND; out-of-range → INV
 stateDiagram-v2
   [*] --> Idle
   Idle --> Turning: turn (owner ok, route Local) / ack id
-  Turning --> Settling: |e| ≤ 1.5° and |rate| < 5 °/s
-  Settling --> Turning: leaves the window
-  Settling --> Idle: 200 ms in the window / w = 0, primitive_done ok
+  Turning --> Settling: |e| ≤ 1.5° and 200 ms heading-average rate < 15 °/s / w = 0
+  Settling --> Turning: |e| > 2.5°
+  Settling --> Settling: 300 ms hold with ≥ 2° net movement / restart the hold
+  Settling --> Idle: 300 ms hold, < 2° net movement / primitive_done ok
   Turning --> Idle: cancel · STOP (anyone) · owner's drive / turn · owner change (IR, other) · timeout · stalled · body offline · owner socket closed / STOP + primitive_done(reason)
 ```
 
 ### R4.4 DRIVE_RATE loop
 - Target `r` from the client stream; `v` passed through. `w = ff × r + Kp × err + Ki × ∫err`, `err = r − rate`; `ff = 0.45 %/(°/s)` (floor data 2026-10-15: w 60 % spin ≈ 110–137 °/s), `Kp = 0.3`, `Ki = 0.6 /s`; `w` clamped to ±100 with anti-windup (integration stops while saturated); reset on start and on a sign change of `r`.
 - If the client's stream stops for 300 ms → STOP and end (`deadman`) — the same rule as `drive`.
+- **Guards:** `diverged` — |w| ≥ 95 % while turning > 5 °/s the wrong way for 0.5 s (R4.11); **`stalled` — |w| ≥ 95 % while |rate| < 2 °/s for 1.5 s** (jammed track, or the Uno's safety gate cutting the PWM — never hold a stalled track, design-notes §56; final review I1, R4.17).
 - The Uno receives ordinary `DRIVE {v, w}`: its angle mix, obstacle brake and caps apply; the loop simply asks for more `w` until the gyro agrees.
 
 ### R4.5 Sequence (local TURN)
@@ -970,4 +972,10 @@ Fix (`TurnController`):
 - **Stay** while |e| ≤ 2.5°, by heading only; **inside, w = 0** — no corrections at all.
 - **Done** after **300 ms** in the window with **< 2°** net movement over it (average < 6.7 °/s); otherwise the hold restarts (a real drift is not "done" and corrects once it leaves the window).
 - Constants `kWindowEnterRateDdps` 150, `kAvgRateMs` 200, `kWindowHoldMs` 300, `kSettleMoveCdeg` 200 (`kWindowRateDdps` removed). Host tests: `test_turn_shaking_at_target_finishes_without_corrections` (RED before: −12 %), `test_turn_slow_drift_is_not_done`, the hold / hysteresis tests now arrive at a stand-still; the 30 closed-loop runs stay within 2°.
+
+### R4.17 Final review fixes (2026-10-16)
+Final review of 25749de..a7409f0 (report `.superpowers/sdd/2026-10-15-plan-h-motion-service/final-review.md`): 0 Critical, 1 Important, 14 Minor.
+- **I1 fixed — drive_rate stall end:** saturated (|w| ≥ 95 %) with |rate| < 2 °/s for 1.5 s ends `stalled` (as TURN). Tests `test_rate_stalled_body_ends` (RED before: held 100 % for 15 s), `test_rate_straight_is_not_stalled`.
+- R4.3 turn diagram updated to the R4.16 window (review minor 13).
+- Minors deferred for the owner (listed in the ledger and the hand-over): turn by ≤ 1.5° ends done without moving; stream workers created with the camera disabled; uint8 settings change counter; unknown end reason maps to "done"; stale comments; drive_rate rate 0 with v ≠ 0 alternates with the Uno's heading hold; a missing "arrive while sweeping" unit test; the 10 s AP timeout also applies to a mid-session WiFi drop; IR-mid-turn hardware check; **a full TX queue ends a primitive "link" without a STOP** (Uno deadman bounds it); **no protocol-version bump for `Source::AUTO`** (a new bridge with an old Uno could flip reverse drive_rate — caught by the diverged guard after 0.5 s).
 

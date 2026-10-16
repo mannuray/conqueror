@@ -392,6 +392,39 @@ void test_rate_diverging_body_ends() {  // a body that flips anyway: guard ends 
   TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDiverged), static_cast<int>(why));
 }
 
+// Final review I1: a jammed track (or the Uno's safety gate cutting the PWM) lets the integral climb to full power;
+// drive_rate must end "stalled" instead of holding 100 % while the phone keeps streaming (design-notes §56).
+void test_rate_stalled_body_ends() {
+  MotionService svc;
+  svc.driveRate(5, 0, 300, 0);  // spin at 30 °/s
+  uint32_t t = 0;
+  bool ended = false;
+  EndReason why = EndReason::kDone;
+  uint32_t saturated_at = 0;
+  for (t = 20; t <= 15000 && !ended; t += 20) {
+    if (t % 100 == 0) svc.driveRate(5, 0, 300, t);  // the phone keeps streaming
+    const MotionOut o = svc.onTelemetry(0, 0, t);   // the tank does not turn at all
+    if (!saturated_at && (o.w >= motion::kRateSaturatedPct || o.w <= -motion::kRateSaturatedPct)) saturated_at = t;
+    ended = o.ended;
+    if (o.ended) why = o.end.reason;
+  }
+  TEST_ASSERT_TRUE(ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kStalled), static_cast<int>(why));
+  TEST_ASSERT_TRUE(saturated_at > 0);
+  TEST_ASSERT_TRUE(t - saturated_at >= motion::kStallMs);         // not before the stall time at full power
+  TEST_ASSERT_TRUE(t - saturated_at <= motion::kStallMs + 100);
+}
+
+// ... but a straight drive_rate (target 0, tank not turning) is never "stalled".
+void test_rate_straight_is_not_stalled() {
+  MotionService svc;
+  svc.driveRate(5, 30, 0, 0);
+  for (uint32_t t = 20; t <= 5000; t += 20) {
+    if (t % 100 == 0) svc.driveRate(5, 30, 0, t);
+    TEST_ASSERT_FALSE(svc.onTelemetry(0, 0, t).ended);
+  }
+}
+
 // ---------- Plan H review I1 / I2 / M3 / M4: MotionLink (service + owner + frames), with the real LinkOwner ----------
 namespace {
 constexpr int kFd = 21;
@@ -535,6 +568,8 @@ int main() {
   RUN_TEST(test_rate_converges_in_model);
   RUN_TEST(test_rate_reverse_converges);
   RUN_TEST(test_rate_diverging_body_ends);
+  RUN_TEST(test_rate_stalled_body_ends);
+  RUN_TEST(test_rate_straight_is_not_stalled);
   RUN_TEST(test_link_running_turn_sends_auto_drive);
   RUN_TEST(test_link_release_ends_and_never_retakes);
   RUN_TEST(test_link_lost_owner_never_retakes_even_if_not_told);

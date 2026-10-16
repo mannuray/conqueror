@@ -66,6 +66,8 @@ class MotionService {
   uint32_t m_rate_update_ms = 0;
   bool m_wrong_way = false;  // C1 guard: saturated with the measured rate opposite to the target ...
   uint32_t m_wrong_since = 0;  // ... since
+  bool m_rate_stalling = false;  // final review I1: saturated while the tank does not turn ...
+  uint32_t m_rate_stall_since = 0;  // ... since
   uint32_t m_last_telem_ms = 0;
 };
 

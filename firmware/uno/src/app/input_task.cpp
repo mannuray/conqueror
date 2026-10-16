@@ -54,6 +54,7 @@ void applyIr(const IrOutput& o, uint32_t now) {
     g_app.teleop_rate_mode = false;
     g_app.teleop_v = o.v;
     g_app.teleop_w = o.w;
+    g_app.teleop_auto = false;  // IR: a driver's input
     if (o.v != 0 || o.w != 0) g_app.safety_override.onIrMotion(true, now);  // IR driving keeps Override alive
   } else {
     stopTeleop();  // also ends DRIVE_RATE mode: no spin may survive under IR ownership

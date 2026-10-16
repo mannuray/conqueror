@@ -82,6 +82,7 @@ struct LiteApp {
   bool moving = false;
   int8_t teleop_v = 0;
   int8_t teleop_w = 0;
+  bool teleop_auto = false;  // last DRIVE came from the bridge motion service (src AUTO): no car-style flip
   bool deadman_latched = false;
   bool soft_stop = false;
   proto::OwnerHintValue owner_hint = proto::OwnerHintValue::kNone;

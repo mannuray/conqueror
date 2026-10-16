@@ -101,6 +101,7 @@ struct App {
   proto::OwnerHintValue owner_hint = proto::OwnerHintValue::kNone;
   int8_t teleop_v = 0;   // DRIVE, %
   int8_t teleop_w = 0;
+  bool teleop_auto = false;  // last DRIVE had src AUTO (bridge motion service): no car-style flip
   bool teleop_rate_mode = false;  // DRIVE_RATE: closed-loop yaw rate instead of stick w
   float teleop_rate_dps = 0.0f;
   bool deadman_latched = false;   // DEADMAN_STOP fired; cleared by the next accepted DRIVE/DRIVE_RATE

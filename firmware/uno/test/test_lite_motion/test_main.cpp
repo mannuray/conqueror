@@ -183,6 +183,15 @@ void test_heading_stop_resets() {
   TEST_ASSERT_FALSE(h.holding());
 }
 
+// Plan H review C1 (option A): car-style reverse steering flips only a driver's stick, never the bridge
+// controller's output (src AUTO) - a flipped controller output becomes positive feedback (design-notes §39).
+void test_steer_lite_car_flip_except_auto() {
+  TEST_ASSERT_EQUAL_INT8(-30, steerLite(-40, 30, true, false));   // car-style, reversing driver: flipped
+  TEST_ASSERT_EQUAL_INT8(30, steerLite(40, 30, true, false));     // forward: as given
+  TEST_ASSERT_EQUAL_INT8(30, steerLite(-40, 30, false, false));   // tank-style: never flipped
+  TEST_ASSERT_EQUAL_INT8(30, steerLite(-40, 30, true, true));     // bridge controller (AUTO): never flipped
+}
+
 void test_mix_steering_scaled_gyro_not() {
   Tracks t = mixLite(80, 0, 10, 40);  // gyro 10 % at 80 %: full 10
   TEST_ASSERT_EQUAL_INT16(70, t.l);
@@ -315,6 +324,7 @@ int main() {
   RUN_TEST(test_heading_wraps_short_way);
   RUN_TEST(test_heading_gyro_lost_is_open_loop);
   RUN_TEST(test_heading_stop_resets);
+  RUN_TEST(test_steer_lite_car_flip_except_auto);
   RUN_TEST(test_mix_steering_scaled_gyro_not);
   RUN_TEST(test_mix_turning_priority);
   RUN_TEST(test_angle_mix_45_is_forward_arc);

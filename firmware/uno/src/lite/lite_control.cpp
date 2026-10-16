@@ -79,6 +79,7 @@ void irInput(uint32_t now) {
   if (o.active) {
     g_lite.teleop_v = o.v;
     g_lite.teleop_w = o.w;
+    g_lite.teleop_auto = false;  // IR is a driver's input: car-style steering applies
   } else {
     zeroTeleop();
   }
@@ -126,7 +127,7 @@ struct DriveOut {
 DriveOut driveTargets(const LiteSettings& s) {
   DriveOut d{};
   const int8_t v = g_lite.teleop_v;
-  const int8_t steer = (s.reverse_steer == 0 && v < 0) ? static_cast<int8_t>(-g_lite.teleop_w) : g_lite.teleop_w;  // car-style
+  const int8_t steer = steerLite(v, g_lite.teleop_w, s.reverse_steer == 0, g_lite.teleop_auto);  // car-style
   int8_t w_steer = 0, w_ctrl = 0;
   g_lite.heading.teleop(v, steer, imuUsable(), g_lite.yaw.yawCdeg(), g_lite.yaw.rateDdps(), w_steer, w_ctrl);
   Tracks t = mixLite(v, w_steer, w_ctrl, s.turn_full);

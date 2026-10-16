@@ -51,6 +51,7 @@ proto::AckStatus handleMotion(uint8_t type, const uint8_t* p, uint8_t len) {
       g_lite.deadman_latched = false;
       g_lite.teleop_v = clampDriveLite(m.v);  // ±100 (the decoder accepts −128)
       g_lite.teleop_w = clampDriveLite(m.w);
+      g_lite.teleop_auto = m.src == static_cast<uint8_t>(proto::Source::kAuto);
       return st;
     }
     case F::kStop: {

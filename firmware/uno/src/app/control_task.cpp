@@ -124,6 +124,7 @@ proto::AckStatus onDrive(const uint8_t* p, uint8_t len) {
   g_app.teleop_rate_mode = false;
   g_app.teleop_v = m.v;
   g_app.teleop_w = m.w;
+  g_app.teleop_auto = m.src == static_cast<uint8_t>(proto::Source::kAuto);
   overrideMotion(m.src, m.v != 0 || m.w != 0);
   return st;
 }
@@ -337,7 +338,7 @@ void controlTask() {
     } else {
       v = g_app.teleop_v;
       // Car-style reverse flips only the driver's steering, before heading hold (design-notes §39).
-      const float steer = carSteer(v, static_cast<float>(g_app.teleop_w), gs.reverse_steer == 0);
+      const float steer = carSteer(v, static_cast<float>(g_app.teleop_w), gs.reverse_steer == 0 && !g_app.teleop_auto);
       const float out = imuUsable() ? g_app.heading.teleop(v, steer, yaw, rate, kDt, false) : steer;
       // Heading hold's correction is closed-loop (not reduced at speed); steering is the driver's (§41).
       if (imuUsable() && g_app.heading.holding()) {

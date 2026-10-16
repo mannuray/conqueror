@@ -11,6 +11,13 @@ struct Tracks {
 // DRIVE v/w arrive as int8 (−128..127); everything downstream assumes ±100 (−(−128) is still −128 in int8).
 inline int8_t clampDriveLite(int8_t x) { return x < -100 ? static_cast<int8_t>(-100) : (x > 100 ? static_cast<int8_t>(100) : x); }
 
+// Car-style reverse steering (reverse_steer 0): reversing flips the DRIVER's stick, like a car. Never the bridge
+// motion service's output (DRIVE src AUTO) - that w is a physical turn; flipped, it becomes positive feedback
+// (design-notes §39, Plan H review C1).
+inline int8_t steerLite(int8_t v, int8_t w, bool car_reverse, bool auto_src) {
+  return (car_reverse && v < 0 && !auto_src) ? static_cast<int8_t>(-w) : w;
+}
+
 // Track mix (CCW +), spec 02 §A4.1: the driver's steering (w_steer != 0) uses the angle mix (forward arc at 45°,
 // spin only near sideways); straight driving with the gyro's w_ctrl uses the arcade mix with turning priority
 // (L − R kept when a track would exceed 100 %). turn_full_pct is no longer used (kept for the setting).

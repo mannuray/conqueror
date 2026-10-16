@@ -19,6 +19,7 @@ Hobby robot platform: ELEGOO Conqueror tank rebuilt as **Uno body + ESP32 gatewa
 | Coding standards | `docs/standards/coding-standards.md` |
 | Hub UX + Stitch screens | `docs/design/hub-ux.md`, `docs/design/stitch/` |
 | Developer machine setup (macOS / Linux) | `docs/dev-setup.md` |
+| Hardware datasheets (encoder motor FIT0458, design-notes §56) | `docs/hardware/datasheets/` |
 
 ## Plan execution order (roadmap phases 0–3)
 1. **Plan A — protocol generator** (no hardware). Must be merged before B/C/D.

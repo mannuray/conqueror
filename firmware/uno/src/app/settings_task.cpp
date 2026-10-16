@@ -41,7 +41,7 @@ void settingsLoad() {
 // 50 Hz: deferred save when stopped, one block at a time; one EEPROM byte per pass.
 void settingsTask() {
   if (g_app.saver.step(g_app.settings, g_app.eewriter, kIo, !g_app.moving)) {
-    g_app.settings.clearDirty();
+    g_app.settings.markSaved(g_app.saver.savedChanges());  // a change made mid-save stays unsaved (dirty)
     g_app.events.push(proto::EventKind::kSettingsSaved);
   }
 }

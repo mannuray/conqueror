@@ -26,6 +26,7 @@ bool SettingsSaver::step(const Settings& s, EepromWriter& w, const EepromIo& io,
         return false;
       }
       m_requested = false;
+      m_changes_at_start = s.changes();
       m_stage = Stage::kGlobal;
       return false;
     }

@@ -160,6 +160,7 @@ proto::AckStatus Settings::set(uint8_t id, int32_t value) {
   if (!keepsOrder(id, value)) return proto::AckStatus::kSettingOutOfRange;
   storeValue(p, t, value);
   m_dirty = true;
+  ++m_changes;
   return proto::AckStatus::kOk;
 }
 

@@ -29,12 +29,14 @@ class SettingsSaver {
   // One scheduler pass (50 Hz): writes ≤ 1 byte. may_start = the tank is stopped.
   // Returns true on the pass that finished a whole save.
   bool step(const Settings& s, EepromWriter& w, const EepromIo& io, bool may_start);
+  uint8_t savedChanges() const { return m_changes_at_start; }  // Settings::changes() when the save began
 
  private:
   enum class Stage : uint8_t { kIdle, kGlobal, kProfile };
   static bool queueBlock(const Settings& s, uint8_t block, uint16_t addr, EepromWriter& w);
   Stage m_stage = Stage::kIdle;
   bool m_requested = false;
+  uint8_t m_changes_at_start = 0;
 };
 
 }  // namespace cq

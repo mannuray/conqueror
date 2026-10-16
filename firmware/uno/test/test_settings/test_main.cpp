@@ -8,6 +8,8 @@
 
 using namespace cq;
 
+constexpr int K_OK = static_cast<int>(proto::AckStatus::kOk);
+
 void setUp() {}
 void tearDown() {}
 
@@ -142,6 +144,35 @@ void test_writer_waits_while_busy() {
   TEST_ASSERT_EQUAL(1, g_writes);
 }
 
+// Deferred minor (Plan B review): a setting changed while a save is running is not in EEPROM, so the
+// finished save must leave the settings dirty; an untouched save clears it.
+void test_change_during_save_stays_dirty() {
+  for (int changed = 0; changed <= 1; ++changed) {
+    memset(g_mem, 0xFF, sizeof g_mem);
+    g_busy = false;
+    Settings s;
+    s.loadDefaults();
+    const proto::SettingDescriptor& d0 = proto::kSettingDescriptors[0];
+    const proto::SettingDescriptor& d1 = proto::kSettingDescriptors[1];
+    TEST_ASSERT_EQUAL(K_OK, static_cast<int>(s.set(d0.id, d0.min)));
+    EepromWriter w;
+    SettingsSaver saver;
+    const EepromIo io{fakeRead, fakeWrite, fakeBusy};
+    saver.request();
+    TEST_ASSERT_FALSE(saver.step(s, w, io, true));  // starts: global block queued
+    TEST_ASSERT_TRUE(saver.busy());
+    if (changed) TEST_ASSERT_EQUAL(K_OK, static_cast<int>(s.set(d1.id, d1.max)));  // mid-save change
+    bool done = false;
+    for (int pass = 0; pass < 1000 && !done; ++pass) {
+      done = saver.step(s, w, io, true);
+      g_busy = false;
+    }
+    TEST_ASSERT_TRUE(done);
+    s.markSaved(saver.savedChanges());
+    TEST_ASSERT_EQUAL(changed == 1, s.dirty());
+  }
+}
+
 // LLD §10.10: every setting changed at once still saves completely (staged per block, no dropped bytes).
 void test_save_every_setting_at_once_never_overflows() {
   memset(g_mem, 0xFF, sizeof g_mem);
@@ -196,6 +227,7 @@ int main() {
   RUN_TEST(test_crc16_check_value);
   RUN_TEST(test_writer_one_byte_per_step);
   RUN_TEST(test_save_every_setting_at_once_never_overflows);
+  RUN_TEST(test_change_during_save_stays_dirty);
   RUN_TEST(test_writer_waits_while_busy);
   return UNITY_END();
 }

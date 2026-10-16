@@ -72,6 +72,11 @@ class Settings {
   uint16_t crc() const;
   bool dirty() const { return m_dirty; }
   void clearDirty() { m_dirty = false; }
+  uint8_t changes() const { return m_changes; }  // bumped by every accepted set()
+  // A save that serialized the settings at `changes_at_start` finished: clean only if nothing changed since.
+  void markSaved(uint8_t changes_at_start) {
+    if (m_changes == changes_at_start) m_dirty = false;
+  }
 
  private:
   bool slot(uint8_t id, uint8_t*& ptr, proto::WireType& type, proto::SettingDescriptor& desc) const;
@@ -79,6 +84,7 @@ class Settings {
   GlobalSettings m_global{};
   ProfileSettings m_profile{};
   bool m_dirty = false;
+  uint8_t m_changes = 0;
 };
 
 }  // namespace cq

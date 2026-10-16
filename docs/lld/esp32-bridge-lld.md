@@ -43,7 +43,7 @@ classDiagram
 stateDiagram-v2
     [*] --> Connecting : boot (home network from secrets.h)
     Connecting --> Station : connected → mDNS, print IP on USB serial
-    Connecting --> FallbackAp : 30 s → WPA2 AP conqueror-bridge
+    Connecting --> FallbackAp : 10 s → WPA2 AP conqueror-bridge (was 30 s, R4.13)
     Station --> Connecting : link lost (retry)
     FallbackAp --> Connecting : retry home network every 60 s (only if no client)
 ```
@@ -936,4 +936,7 @@ Branch `small-fixes` (on top of `plan-h-motion`). Fixed:
 - Already done earlier (found while clearing): settings `loadBlock` buffer sized from the structs; WHO_AM_I accepts MPU-6500 / 9250.
 
 Still open (need hardware or a design decision): **drag-to-look for the full firmware's camera ranges** — the page cannot know the body's pan/tilt limits (HELLO has no profile or ranges; a protocol change to decide with the owner, low priority while the full firmware waits for its board); PCINT2 ISR duration and WS2812 timing — measure on hardware.
+
+### R4.13 Fallback AP after 10 s (owner, 2026-10-16)
+The bridge opens its own network `conqueror-bridge` **10 s** after it cannot reach the home WiFi (was 30 s): at boot, or 10 s after the home WiFi drops. A normal join takes ~2 s (logs 2026-10-16: 1.6–1.8 s), so 10 s leaves 5× margin; 5 s was rejected because some routers need 3–6 s for the WPA login plus DHCP. Opening the AP too early is harmless: while no client is connected the bridge retries the home WiFi every 60 s and switches back. `core::kStationTimeoutMs` = 10000; host tests `test_fallback_ap_after_10s`, `test_station_lost_reconnects`; help page updated.
 

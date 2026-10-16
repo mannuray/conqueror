@@ -1,4 +1,4 @@
-// WifiPolicy: station first, AP after 30 s, retry every 60 s only without clients.
+// WifiPolicy: station first, AP after 10 s (owner 2026-10-16; was 30 s), retry every 60 s only without clients.
 #include <unity.h>
 
 #include "core/wifi_policy.h"
@@ -22,11 +22,11 @@ void test_station_connects() {
   TEST_ASSERT_EQUAL(static_cast<int>(WifiMode::kStation), static_cast<int>(p.mode()));
 }
 
-void test_fallback_ap_after_30s() {
+void test_fallback_ap_after_10s() {
   WifiPolicy p;
   p.begin(0);
-  TEST_ASSERT_EQUAL(A(WifiAction::kNone), A(p.step(29999, false, false)));
-  TEST_ASSERT_EQUAL(A(WifiAction::kStartAp), A(p.step(30000, false, false)));
+  TEST_ASSERT_EQUAL(A(WifiAction::kNone), A(p.step(9999, false, false)));
+  TEST_ASSERT_EQUAL(A(WifiAction::kStartAp), A(p.step(10000, false, false)));
   TEST_ASSERT_EQUAL(static_cast<int>(WifiMode::kFallbackAp), static_cast<int>(p.mode()));
 }
 
@@ -55,13 +55,14 @@ void test_station_lost_reconnects() {
   p.begin(0);
   p.step(10, true, false);
   TEST_ASSERT_EQUAL(A(WifiAction::kStartStation), A(p.step(5000, false, false)));
-  TEST_ASSERT_EQUAL(A(WifiAction::kStartAp), A(p.step(35000, false, false)));
+  TEST_ASSERT_EQUAL(A(WifiAction::kNone), A(p.step(14999, false, false)));
+  TEST_ASSERT_EQUAL(A(WifiAction::kStartAp), A(p.step(15000, false, false)));  // 10 s after the loss
 }
 
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_station_connects);
-  RUN_TEST(test_fallback_ap_after_30s);
+  RUN_TEST(test_fallback_ap_after_10s);
   RUN_TEST(test_retry_every_60s_only_without_clients);
   RUN_TEST(test_ap_stays_while_clients_connected);
   RUN_TEST(test_station_lost_reconnects);

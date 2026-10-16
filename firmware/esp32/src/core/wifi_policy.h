@@ -1,6 +1,6 @@
 // WiFi station / fallback AP decisions (bridge LLD Revision 1 "WiFi behaviour", unchanged in R2):
-// try the home network; after 30 s start the WPA2 AP "conqueror-bridge"; while in AP mode retry the
-// home network every 60 s, but only when no WS/TCP/stream client is connected. Pure C++.
+// try the home network; after 10 s (owner 2026-10-16, was 30 s) start the WPA2 AP "conqueror-bridge"; while in
+// AP mode retry the home network every 60 s, but only when no WS/TCP/stream client is connected. Pure C++.
 #pragma once
 
 #include <stdint.h>
@@ -8,7 +8,7 @@
 namespace cq {
 namespace core {
 
-constexpr uint32_t kStationTimeoutMs = 30000;
+constexpr uint32_t kStationTimeoutMs = 10000;  // a normal join takes ~2 s
 constexpr uint32_t kHomeRetryMs = 60000;
 
 enum class WifiMode : uint8_t { kConnecting, kStation, kFallbackAp };

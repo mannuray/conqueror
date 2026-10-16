@@ -45,7 +45,7 @@ bench tool, camera stream, WiFi updates. The Uno body does the motion and all sa
 <h2>[ CONNECT ]</h2>
 <table>
 <tr><th>Address</th><td><code>http://conqueror-bridge.local/</code> or <code id="ip">?</code> (WiFi mode <span id="mode">?</span>)</td></tr>
-<tr><th>Fallback AP</th><td>Home WiFi not reachable for 30 s &rarr; WPA2 network <code>conqueror-bridge</code> (password in
+<tr><th>Fallback AP</th><td>Home WiFi not reachable for 10 s &rarr; WPA2 network <code>conqueror-bridge</code> (password in
 <code>secrets.h</code>), bridge at <code>192.168.4.1</code>; it retries the home network every 60 s while nobody is connected.</td></tr>
 <tr><th>Ports</th><td>80 page, <code>/ws</code> WebSocket, <code>/info</code>, <code>/help</code> &middot;
 81 <code>/stream</code> MJPEG (max 2 connections), <code>/capture</code>, <code>/source.tar.gz</code> (port 80 redirects) &middot; 3333 bench TCP &middot; 3232 OTA &middot;

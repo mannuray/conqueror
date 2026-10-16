@@ -49,6 +49,9 @@ constexpr int kCamD0 = 11;
 constexpr int kCamVsync = 6;
 constexpr int kCamHref = 7;
 constexpr int kCamPclk = 13;
+// Owner 2026-10-16: camera off until the module is replaced (it disturbs the WiFi, LLD R4.14); the camera returns
+// with the AI work. false = never started: /stream and /capture answer 503, the page shows no video.
+constexpr bool kCameraEnabled = false;
 // 10 MHz, not 20: with the camera at 20 MHz the WiFi lost half its packets (LLD R4.14, 2026-10-16).
 constexpr uint32_t kCamXclkHz = 10000000UL;
 

@@ -101,7 +101,12 @@ void loop() {
   // Staged start (design-notes §38): camera after the station is up, or after 10 s in any case.
   if (!g_camera_started && (g_wifi.mode() == cq::core::WifiMode::kStation || now >= 10000)) {
     g_camera_started = true;
-    cq::net::cameraBegin();  // a failed camera still gets port 81: /source.tar.gz, and /stream /capture answer 503
+    if (!cq::board::kCameraEnabled) {
+      cq::net::logf("camera: disabled (board::kCameraEnabled, LLD R4.14)");
+    } else {
+      cq::net::cameraBegin();
+    }
+    // A failed or disabled camera still gets port 81: /source.tar.gz, and /stream /capture answer 503.
     if (cq::net::streamServerStart()) cq::net::sourceRegister(cq::net::streamServerHandle());
   }
   g_ota.poll(s.ota_allowed && g_wifi.mode() != cq::core::WifiMode::kConnecting);

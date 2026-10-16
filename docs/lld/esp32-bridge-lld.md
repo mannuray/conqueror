@@ -960,3 +960,6 @@ So the radio, antenna and the rest of the bridge are fine and the running camera
 - Bridge variants (no Uno link task, no TCP poll, UART without task, 10 ms link tick) were each good on one boot and bad on another — **none is proven**; the "link task" lead is withdrawn.
 - Conclusion: the running camera is the trigger and the strength of its effect changes between boots — an electrical / RF coupling problem on the board or camera (module, ribbon, power), not a firmware feature. Options for the owner: replacement camera module or ribbon, shielding / ferrite / routing, an external-antenna board; in firmware, run the camera only while someone watches (sensor powered down otherwise) so control never depends on it.
 
+### R4.15 Camera off for now (owner, 2026-10-16)
+Owner decision: run **without the camera** until the module is replaced; the camera comes back with the AI work, so video is not needed meanwhile. `board::kCameraEnabled = false`: the bridge never starts the camera (log `camera: disabled`); port 81 still serves `/source.tar.gz`, `/stream` and `/capture` answer 503 "camera unavailable", the page shows its no-video state, `welcome.caps.sensor` is `"none"`. To re-enable: set it to `true` (XCLK stays 10 MHz, R4.14).
+

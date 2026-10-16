@@ -132,7 +132,10 @@ proto::AckStatus onDrive(const uint8_t* p, uint8_t len) {
 proto::AckStatus onDriveRate(const uint8_t* p, uint8_t len) {
   proto::DriveRateMsg m{};
   if (!proto::decode(p, len, m)) return proto::AckStatus::kInvalidCommand;
-  if (!imuUsable()) return proto::AckStatus::kUnavailable;
+  if (!imuUsable()) {  // DRIVE_RATE is not acked: a REJECTED event tells the sender (Plan B deferred minor)
+    rejectEvent(static_cast<uint8_t>(proto::FrameType::kDriveRate), m.src, proto::AckStatus::kUnavailable);
+    return proto::AckStatus::kUnavailable;
+  }
   const proto::AckStatus st = networkMotion(static_cast<uint8_t>(proto::FrameType::kDriveRate), m.src, true);
   if (st != proto::AckStatus::kOk) return st;
   if (g_app.primitives.active() != proto::PrimitiveKind::kNone) g_app.primitives.cancel(proto::AckStatus::kCancelled);

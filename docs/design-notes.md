@@ -1066,7 +1066,7 @@ Rules:
 - The shield's right-edge Vin / GND / +5V pins are short stubs — only usable if a female Dupont really grips them; the breadboard avoids them.
 - **Mega** (full profile): unchanged — A/B straight into the Mega's **A8–A11**, power from the Mega's spare 5V/GND pins (§29).
 
-Bring-up after fitting: battery off while wiring; then turn each wheel by hand and watch the live counts (`counts_per_rev` default 960, verify), set `encoders_enabled`, check stall detection on the stand, then the parked steering tuning (§52) with real speed / radius data.
+Bring-up after fitting: battery off while wiring; then turn each wheel by hand and watch the live counts (`counts_per_rev` default 960 — confirmed by the datasheet, §56), set `encoders_enabled`, check stall detection on the stand, then the parked steering tuning (§52) with real speed / radius data.
 
 ## 54. Uno R4 Minima — discussed, not decided (2026-10-15)
 Owner raised the Arduino **Uno R4 Minima** as the next body board (the ESP32 brownout was the Mega clone's 5 V route, the ELEGOO Uno is fine). Points noted: same Uno shape and 5 V I/O (the shield fits, §30 kept); 256 KB flash / 32 KB RAM → the **full firmware** instead of Lite; USB separate from D0/D1 → no S1 flipping for uploads; switching 5 V regulator (current capacity to verify). Cost: port the hardware layer (PWM, encoder interrupts — R4 interrupt pins for A1/A2 to check, IR timing, I2C, WS2812, EEPROM emulation, servos); domain code and host tests carry over. If pursued: power test first (R4 + shield + ESP32 + servos on the battery), then spec / LLD / plan. Owner: discussion only for now.
@@ -1079,3 +1079,33 @@ R4 Minima pinout findings (lastminuteengineers.com pinout page, read 2026-10-15)
 - **On the ESP32:** TURN by angle, MOVE by distance, DRIVE_RATE (closed loop on `TELEM_FAST` at 20 Hz, slowing near the target; expected ±2–3°, to be floor-tested); position tracking and return-home; calibration routines and surface profiles (push results to the Uno); Tank Logo interpreter; full settings store / profiles / backup; fun melodies and LED shows sent as custom tones (alarm / status sounds stay on the Uno); telemetry recording.
 - Why: the Uno is at 28.9 / 30.7 KB flash and 21 B spare RAM; moving these keeps the Uno Lite viable as the body board (the Uno R4 Minima becomes optional, §54).
 - Open: the bench tool's TCP passthrough relays raw frames — measured moves from the bench would go through the ESP32 service instead (design detail).
+
+## 56. Encoder motor datasheet facts (DFRobot FIT0458, recorded 2026-10-16)
+Our motors: **DFRobot "TT Geared Motor with Encoder (6V 160RPM 120:1 L Shape)"**, sold also as "Micro DC Motor with Encoder-SJ02", SKU **FIT0458**. Datasheet saved in the repo: [`docs/hardware/datasheets/dfrobot-fit0458-tt-encoder-motor.pdf`](hardware/datasheets/dfrobot-fit0458-tt-encoder-motor.pdf) (source: DFRobot via DigiKey, https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/5786/FIT0458.pdf; product page https://www.dfrobot.com/product-1458.html).
+
+| Item | Value |
+|---|---|
+| Gear ratio | 120:1 |
+| No-load speed | 160 rpm @ 6 V, 60 rpm @ 3 V (output shaft) |
+| No-load current | 0.17 A @ 6 V, 0.14 A @ 3 V |
+| **Stall current** | **2.8 A** (max) |
+| Stall / rated torque | 0.8 / 0.2 kgf·cm |
+| Motor voltage | 3–7.5 V (rated 6 V) |
+| Encoder | Hall, **quadrature A/B**, **8 pulses per motor-shaft turn on one channel → 960 per output-shaft turn** |
+| Encoder voltage | **4.5–7.5 V** (Uno 5 V is fine; not 3.3 V) |
+| Connectors | **2-pin motor plug** (+, −) and a separate **4-pin encoder plug** (A, B, GND, VCC — labels printed on the encoder board; go by the labels, colours vary) |
+| Weight | 50 g |
+
+Counts per output (wheel) turn by counting method:
+
+| Counting | Per motor turn | Per wheel turn |
+|---|---|---|
+| A rising edges only (**Uno Lite `EncoderLite`, default `counts_per_rev` = 960**) | 8 | **960** |
+| A both edges | 16 | 1920 |
+| A + B all edges (quadrature ×4) | 32 | 3840 |
+
+- **Bench check (2026-10-16, spare Uno, throw-away sketch):** turning the motor shaft one turn by hand gave 29 and 34 quadrature counts (datasheet: 32) — consistent; direction decoded correctly; no counts at rest.
+- **Pulse rate at the rated 160 rpm:** 960 × 160 / 60 ≈ **2 560 rising edges / s per motor** (≈ 5 100 / s both motors) — light load for the Uno's pin-change interrupt.
+- **Driver current:** 2.8 A stall is above the TB6612FNG's 1.2 A continuous (3.2 A peak) per channel → the Uno's stall detection must cut power quickly (it is designed to); never hold a stalled track.
+- The datasheet's example wiring uses D2/D3 interrupts and an L298; on the tank we keep §53 (A only on A1 / A2 via P7).
+

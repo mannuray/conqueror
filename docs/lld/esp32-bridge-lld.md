@@ -99,7 +99,7 @@ What changes in one paragraph: the bridge is no longer only a byte pump. It now 
 | Board | ELEGOO **ESP32S3-Camera-V1.0**, module ESP32-S3-WROOM-1, USB-C | §22 |
 | Chip | ESP32-S3 (QFN56) rev v0.2, **8 MB flash** (GigaDevice), **8 MB embedded octal PSRAM** | §24 (esptool) |
 | UART to the Uno | `Serial1`, **RX GPIO3, TX GPIO40**, **250000** 8N1 (old firmware used 115200) | §24 |
-| Camera | ESP32-S3-EYE map: PWDN −1, RESET −1, XCLK 15, SDA 4, SCL 5, D7..D0 = 16, 17, 18, 12, 10, 8, 9, 11, VSYNC 6, HREF 7, PCLK 13; XCLK 20 MHz, JPEG. Sensor: driver auto-detects (OV3660 expected, logged at boot) | §24 |
+| Camera | ESP32-S3-EYE map: PWDN −1, RESET −1, XCLK 15, SDA 4, SCL 5, D7..D0 = 16, 17, 18, 12, 10, 8, 9, 11, VSYNC 6, HREF 7, PCLK 13; XCLK **10 MHz** (was 20 MHz, R4.14), JPEG. Sensor: driver auto-detects (OV3660 expected, logged at boot) | §24 |
 | USB | native USB-Serial/JTAG (GPIO19/20), `303a:1001` → `/dev/ttyACM0` (Linux), `/dev/cu.usbmodem*` (macOS); used for flashing and the boot log | §24 |
 | Status LED | none (no IO13 LED) → status on USB serial log, `/info` and the bench tool | §22 |
 - GPIO3 is a strapping pin (JTAG source select, sampled at reset). It is only an input (UART RX) after boot, so it is fine; the Uno's TX idles high, which matches the default strap. Do not add a pull-down on it.
@@ -939,4 +939,16 @@ Still open (need hardware or a design decision): **drag-to-look for the full fir
 
 ### R4.13 Fallback AP after 10 s (owner, 2026-10-16)
 The bridge opens its own network `conqueror-bridge` **10 s** after it cannot reach the home WiFi (was 30 s): at boot, or 10 s after the home WiFi drops. A normal join takes ~2 s (logs 2026-10-16: 1.6–1.8 s), so 10 s leaves 5× margin; 5 s was rejected because some routers need 3–6 s for the WPA login plus DHCP. Opening the AP too early is harmless: while no client is connected the bridge retries the home WiFi every 60 s and switches back. `core::kStationTimeoutMs` = 10000; host tests `test_fallback_ap_after_10s`, `test_station_lost_reconnects`; help page updated.
+
+### R4.14 Camera clock 10 MHz — the camera was drowning the WiFi (owner, 2026-10-16)
+Symptom (from 2026-10-15, with the same main firmware that had worked): station joins with a strong signal (−35…−47 dBm) but most traffic is lost — 93–100 % ping loss, 1–2 s delays, phones dropped after 3–7 s ("silent for 3 s"); the same with the bridge's own AP and a phone next to it, on battery and on USB. Bisected with a throw-away test sketch over USB (home WiFi, channel 6):
+
+| Sketch | Pings | Median |
+|---|---|---|
+| WiFi only, TX 19.5 dBm | 40/40 | 5 ms |
+| WiFi only, TX 15 dBm | 40/40 | 6 ms |
+| + camera, XCLK 20 MHz (bridge settings) | 12/23 | 431 ms |
+| + camera, XCLK 10 MHz | 37/37 | 36 ms |
+
+So the radio and antenna are fine and the running camera interferes; why it started now is not proven (ribbon cable moved nearer the antenna, or the router's auto channel now on 6 where a 20 MHz harmonic, 2440 MHz, sits mid-channel). Fix: `board::kCamXclkHz` = **10 MHz**. Cost: fewer frames per second from the sensor (to measure; 16 MHz is the fallback if it is too slow). Also route the camera ribbon away from the module's antenna end.
 

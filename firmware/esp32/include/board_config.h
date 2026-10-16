@@ -49,7 +49,8 @@ constexpr int kCamD0 = 11;
 constexpr int kCamVsync = 6;
 constexpr int kCamHref = 7;
 constexpr int kCamPclk = 13;
-constexpr uint32_t kCamXclkHz = 20000000UL;
+// 10 MHz, not 20: with the camera at 20 MHz the WiFi lost half its packets (LLD R4.14, 2026-10-16).
+constexpr uint32_t kCamXclkHz = 10000000UL;
 
 }  // namespace board
 }  // namespace cq

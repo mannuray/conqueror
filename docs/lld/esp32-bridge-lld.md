@@ -914,4 +914,14 @@ Measured moves are for the AI engine, Tank Logo and the hub; a human steers with
 - **Wire format:** `primitive_done` carries the primitive in `"prim"` (`"turn"` / `"rate"`) because `"kind"` is the event kind: `{"t":"ev",…,"kind":"primitive_done","prim":"turn","ok":true,"reason":"done","id":5}`; reasons `done, cancelled, stop, not_owner, stalled, timeout, link, deadman`. `tf.primitive = {"kind":"turn","pct":n}` while active.
 - **Routing for now:** Forward (a body that reports TURN / DRIVE_RATE) and Unavailable both answer `UNAVAILABLE` (code 3003); the frame path is left for when a full-firmware body exists. `move` stays an unsupported command until the encoder plan.
 - **Ends without extra frames** when a STOP is already on its way (STOP fast path, owner socket close, OTA, body offline), when the owner's own `drive` follows, and on `not_owner` (a bridge STOP would also stop the IR driver).
-- **Simulation result** (tank model: 2.2 °/s per %, 8 % static friction, 150 ms lag, 80 ms round trip, ±3 °/s noise): 21 runs (±90°, across 0° both ways, 360°, 10°, 180°; 3 seeds) all within 0.8°, 90° in ≈ 2 s. Floor acceptance is Task 7.
+- **Simulation result** (tank model: 2.2 °/s per %, 8 % static friction, 150 ms lag, 80 ms round trip, ±3 °/s noise): 30 committed runs (10 cases × 3 seeds: ±90°, across 0° both ways, 360°, −720°, 10°, 180°, speeds 12 and 100) all within 0.8°, 90° in ≈ 2 s. Floor acceptance is Task 7.
+
+### R4.11 Review fixes (Plan H review, 2026-10-16)
+- **AUTO source (C1):** the motion service sends `DRIVE src = AUTO` (protocol enum `Source.AUTO = 3`). The Uno (Lite and full) never applies car-style reverse steering to AUTO frames, so `drive_rate` with `v < 0` no longer runs away. IR input clears the flag.
+- **MotionLink (I1):** `core::MotionLink` sits between `link_task` and `MotionService` and owns the frame policy: `LinkOut{drive, v, w, stop, event, end}`. Its frames use `LinkOwner::keepDriving(fd, now)` — check-only, refreshes the hand-back timer, **never takes ownership**; if the client no longer owns the tank the primitive ends `not_owner` with no frames. `release` ends the primitive; STOP is sent on an end only while the client still owns the tank. No redundant DRIVE 0/0 before the STOP (STOP purges the queue).
+- **Diverged guard:** a drive_rate that commands |w| ≥ 95 while the body turns > 5 °/s the other way for 500 ms ends with reason `diverged`.
+- **Codec:** `turn speed` ≥ 12 % (the minimum that breaks the tracks loose), `|by|` 1–720°, range checks before casts.
+- **Caps rule:** the welcome caps report `turn` / `drive_rate` as available only when the bridge runs them locally (body lacks the cap). `UNAVAILABLE` is the bridge reason 3003; for `drive_rate` it is reported once per stream. `drive_rate` shares the 25/s stream budget with `drive`.
+- **Rate loop:** the integral resets when the target rate is 0.
+- **Tests:** MotionLink cases (release, forgotten release, IR mid-primitive, bench after release, event frame policy, done before last frame, telemetry gap), reverse drive_rate converges with the car flip modelled, diverging body ends.
+

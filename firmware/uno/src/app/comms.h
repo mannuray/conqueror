@@ -17,7 +17,7 @@ extern const uint8_t kRouteCount;
 
 void commsPoll();   // every loop: RX bytes → parser → route → ACK queue
 void txPump();      // every loop: ACK > requests > EVENT > HELLO > CAL > FAST > SLOW
-void telemetryFastDue();  // 20 Hz task: marks fast telemetry due
+void telemetryFastDue();  // 50 Hz task: marks fast telemetry due
 void telemetrySlowDue();  // 1 Hz task: fills health fields, marks slow due
 uint16_t freeRam();
 

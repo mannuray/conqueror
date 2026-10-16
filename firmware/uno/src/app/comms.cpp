@@ -28,7 +28,7 @@ namespace app {
 // ~= 0.66 ms (adversarial search incl. resync scan/memmove: 10.8 k cycles ~= 0.67 ms) <= ~1 ms.
 // Normal traffic costs one step per byte: commands + 10 Hz heartbeats are well under 1 kB/s
 // (< 10 bytes per 10 ms tick) against >= 64 bytes per pass; at line rate (25 kB/s) the 64-byte
-// RX buffer fills in ~2.5 ms, i.e. one full buffer per pass. Telemetry out (~20 Hz) does not use
+// RX buffer fills in ~2.5 ms, i.e. one full buffer per pass. Telemetry out (~50 Hz) does not use
 // the parser. A flood of crafted bytes overflows the RX buffer instead of stalling the loop;
 // the link-loss stop still applies.
 constexpr uint8_t kPollSteps = 64;

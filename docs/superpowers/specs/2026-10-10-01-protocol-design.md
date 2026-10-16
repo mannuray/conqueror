@@ -128,7 +128,7 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 | `pan`, `tilt`, `cam_moving` | °, bool | Uno |
 | `enc` [L,R] | counts | Uno |
 | `pose` {x,y,θ}, `home_dist_cm` | cm, ° | ESP32 (null without encoders) |
-| `primitive` | `none`/`turn`/`move`/`nav` + progress % | Uno/ESP32 |
+| `primitive` | `turn`/`rate`/`move`/`nav` + progress %; omitted when idle | Uno/ESP32 |
 
 ### 6.2 Slow telemetry `{"t":"ts", …}` (1 Hz)
 | Field | Source |

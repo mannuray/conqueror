@@ -240,125 +240,131 @@ void handleCancel(int fd, int32_t id, uint32_t now) {
   if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
 }
 
+// STOP fast path: may overtake its own kWsOpen - never lost.
+void handleStop(const LinkCommand& cmd, int32_t id, uint32_t now) {
+  const int fd = cmd.fd;
+  g_stop_barrier.onStop(cmd.post_seq);
+  apply(g_owner.onStop(fd), now);  // urgent slot; queued DRIVE/CAM_JOY frames are purged
+  endMotion(core::MotionEvent::kStop, now);  // Plan H: a STOP from anyone ends a primitive
+  if (!g_ws.contains(fd)) return;
+  g_ws.admit(fd, core::WsCmdKind::kStop, now);  // never limited; counts as alive
+  if (g_stop_waiter_n < kMaxStopWaiters) {
+    g_stop_waiters[g_stop_waiter_n++] = Waiter{fd, id};
+  } else {
+    nack(fd, id, core::BridgeReason::kBusy);  // review M8: answered; the STOP was still applied
+  }
+}
+
+// False when the command is dropped (stale behind a STOP) or rate limited (answered).
+bool admitted(const LinkCommand& cmd, core::WsCmdKind kind, int32_t id, uint32_t now) {
+  const int fd = cmd.fd;
+  if (isMotion(kind) && g_stop_barrier.stale(cmd.post_seq)) {
+    return false;  // posted before a STOP that was handled first: silently dropped
+  }
+  if (g_ws.admit(fd, kind, now)) return true;
+  if (isStream(kind)) {
+    streamReject(fd, core::BridgeReason::kRateLimited);
+  } else {
+    nack(fd, id, core::BridgeReason::kRateLimited);
+  }
+  return false;
+}
+
+void handleHello(int fd) {
+  const core::HelloInfo hello = g_link.hello();
+  const core::WelcomeInfo w{CQ_FW_VERSION, &hello, g_sensor(), ownerView(), g_ws.name(fd)};
+  sendTo(fd, core::jsonWelcome(g_json, sizeof(g_json), w));
+  sendTo(fd, core::jsonTs(g_json, sizeof(g_json), g_link.snapshot(), ownerView(), bodyOffline()));
+}
+
+void handleDrive(int fd, const core::WsCommand& c, uint32_t now) {
+  if (g_ota_active) {
+    streamReject(fd, core::BridgeReason::kBusy);
+    return;
+  }
+  core::Actions a;
+  const core::Decision d = g_owner.onDrive(fd, now, a);
+  apply(a, now);
+  if (d == core::Decision::kSend && motionOwnedBy(fd)) endMotion(core::MotionEvent::kOwnerCommand, now);
+  if (d != core::Decision::kSend) {
+    streamReject(fd, reasonOf(d));
+  } else if (g_link.sendDrive(c.v, c.w)) {  // 1:1 - the bridge never repeats a DRIVE
+    g_ws.streamAccepted(fd);
+  } else {
+    streamReject(fd, core::BridgeReason::kBodyOffline);
+  }
+}
+
+void handleCamJoy(int fd, const core::WsCommand& c) {
+  const core::Decision d = g_owner.onCamera(fd);
+  if (d != core::Decision::kSend || g_ota_active) {
+    streamReject(fd, g_ota_active ? core::BridgeReason::kBusy : reasonOf(d));
+  } else if (g_link.sendCamJoy(c.x, c.y, c.active)) {
+    g_ws.streamAccepted(fd);
+  }
+}
+
+void handleCamHome(int fd, int32_t id, uint32_t now) {
+  const core::Decision d = g_owner.onCamera(fd);
+  if (d != core::Decision::kSend) {
+    nack(fd, id, reasonOf(d));
+  } else if (g_cam_waiter.fd != -1) {
+    nack(fd, id, core::BridgeReason::kBusy);  // review M8: one cam_home at a time, always answered
+  } else if (g_link.sendCamHome(now, g_cam_seq)) {
+    g_cam_waiter = Waiter{fd, id};
+  } else {
+    nack(fd, id, core::BridgeReason::kBodyOffline);
+  }
+}
+
+// SOUND / AUDIO_MODE (R3.1) / CAM_LOCK (Plan F): owner or nobody (as the camera); acked by the Uno, one at a time.
+void handleAcked(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
+  const core::Decision d = g_owner.onCamera(fd);
+  uint8_t seq = 0;
+  if (d != core::Decision::kSend || g_ota_active) {
+    nack(fd, id, g_ota_active ? core::BridgeReason::kBusy : reasonOf(d));
+  } else if (g_cam_waiter.fd != -1) {
+    nack(fd, id, core::BridgeReason::kBusy);
+  } else if (sendAckedCommand(c, now, seq)) {
+    g_cam_seq = seq;
+    g_cam_waiter = Waiter{fd, id};
+  } else {
+    nack(fd, id, core::BridgeReason::kBodyOffline);
+  }
+}
+
+void handleRelease(int fd, int32_t id, uint32_t now) {
+  apply(g_owner.onRelease(fd), now);
+  if (motionOwnedBy(fd)) endMotion(core::MotionEvent::kRelease, now);  // review I1: release ends a primitive
+  if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
+}
+
 void handleWsText(const LinkCommand& cmd, uint32_t now) {
   const int fd = cmd.fd;
   const core::WsCommand c = core::parseWsCommand(cmd.text, cmd.len);
   const int32_t id = c.has_id ? c.id : -1;
-  if (c.kind == core::WsCmdKind::kStop) {  // fast path: may overtake its own kWsOpen - never lost
-    g_stop_barrier.onStop(cmd.post_seq);
-    apply(g_owner.onStop(fd), now);  // urgent slot; queued DRIVE/CAM_JOY frames are purged
-    endMotion(core::MotionEvent::kStop, now);  // Plan H: a STOP from anyone ends a primitive
-    if (g_ws.contains(fd)) {
-      g_ws.admit(fd, c.kind, now);  // never limited; counts as alive
-      if (g_stop_waiter_n < kMaxStopWaiters) {
-        g_stop_waiters[g_stop_waiter_n++] = Waiter{fd, id};
-      } else {
-        nack(fd, id, core::BridgeReason::kBusy);  // review M8: answered; the STOP was still applied
-      }
-    }
+  if (c.kind == core::WsCmdKind::kStop) {
+    handleStop(cmd, id, now);
     return;
   }
-  if (!g_ws.contains(fd)) return;
-  if (isMotion(c.kind) && g_stop_barrier.stale(cmd.post_seq)) {
-    return;  // posted before a STOP that was handled first: silently dropped
-  }
-  if (!g_ws.admit(fd, c.kind, now)) {
-    if (isStream(c.kind)) {
-      streamReject(fd, core::BridgeReason::kRateLimited);
-    } else {
-      nack(fd, id, core::BridgeReason::kRateLimited);
-    }
-    return;
-  }
-  core::Actions a;
+  if (!g_ws.contains(fd) || !admitted(cmd, c.kind, id, now)) return;
   switch (c.kind) {
-    case core::WsCmdKind::kHello: {
-      const core::HelloInfo hello = g_link.hello();
-      const core::WelcomeInfo w{CQ_FW_VERSION, &hello, g_sensor(), ownerView(), g_ws.name(fd)};
-      sendTo(fd, core::jsonWelcome(g_json, sizeof(g_json), w));
-      sendTo(fd, core::jsonTs(g_json, sizeof(g_json), g_link.snapshot(), ownerView(), bodyOffline()));
-      break;
-    }
-    case core::WsCmdKind::kDrive: {
-      if (g_ota_active) {
-        streamReject(fd, core::BridgeReason::kBusy);
-        break;
-      }
-      const core::Decision d = g_owner.onDrive(fd, now, a);
-      apply(a, now);
-      if (d == core::Decision::kSend && motionOwnedBy(fd)) endMotion(core::MotionEvent::kOwnerCommand, now);
-      if (d != core::Decision::kSend) {
-        streamReject(fd, reasonOf(d));
-      } else if (g_link.sendDrive(c.v, c.w)) {  // 1:1 - the bridge never repeats a DRIVE
-        g_ws.streamAccepted(fd);
-      } else {
-        streamReject(fd, core::BridgeReason::kBodyOffline);
-      }
-      break;
-    }
-    case core::WsCmdKind::kStop:  // handled above (fast path)
-      break;
-    case core::WsCmdKind::kCamJoy: {
-      const core::Decision d = g_owner.onCamera(fd);
-      if (d != core::Decision::kSend || g_ota_active) {
-        streamReject(fd, g_ota_active ? core::BridgeReason::kBusy : reasonOf(d));
-      } else if (g_link.sendCamJoy(c.x, c.y, c.active)) {
-        g_ws.streamAccepted(fd);
-      }
-      break;
-    }
-    case core::WsCmdKind::kCamHome: {
-      const core::Decision d = g_owner.onCamera(fd);
-      if (d != core::Decision::kSend) {
-        nack(fd, id, reasonOf(d));
-      } else if (g_cam_waiter.fd != -1) {
-        nack(fd, id, core::BridgeReason::kBusy);  // review M8: one cam_home at a time, always answered
-      } else if (g_link.sendCamHome(now, g_cam_seq)) {
-        g_cam_waiter = Waiter{fd, id};
-      } else {
-        nack(fd, id, core::BridgeReason::kBodyOffline);
-      }
-      break;
-    }
+    case core::WsCmdKind::kHello: handleHello(fd); break;
+    case core::WsCmdKind::kDrive: handleDrive(fd, c, now); break;
+    case core::WsCmdKind::kStop: break;  // handled above (fast path)
+    case core::WsCmdKind::kCamJoy: handleCamJoy(fd, c); break;
+    case core::WsCmdKind::kCamHome: handleCamHome(fd, id, now); break;
     case core::WsCmdKind::kSound:
-    case core::WsCmdKind::kAudioMode:  // R3.1: as sound
-    case core::WsCmdKind::kCamLock: {  // Plan F: owner or nobody (as the camera); acked by the Uno, one at a time
-      const core::Decision d = g_owner.onCamera(fd);
-      uint8_t seq = 0;
-      if (d != core::Decision::kSend || g_ota_active) {
-        nack(fd, id, g_ota_active ? core::BridgeReason::kBusy : reasonOf(d));
-      } else if (g_cam_waiter.fd != -1) {
-        nack(fd, id, core::BridgeReason::kBusy);
-      } else if (sendAckedCommand(c, now, seq)) {
-        g_cam_seq = seq;
-        g_cam_waiter = Waiter{fd, id};
-      } else {
-        nack(fd, id, core::BridgeReason::kBodyOffline);
-      }
-      break;
-    }
-    case core::WsCmdKind::kTurn:
-      handleTurn(fd, id, c, now);
-      break;
-    case core::WsCmdKind::kDriveRate:
-      handleDriveRate(fd, c, now);
-      break;
-    case core::WsCmdKind::kCancel:
-      handleCancel(fd, id, now);
-      break;
-    case core::WsCmdKind::kRelease:
-      apply(g_owner.onRelease(fd), now);
-      if (motionOwnedBy(fd)) endMotion(core::MotionEvent::kRelease, now);  // review I1: release ends a primitive
-      if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
-      break;
-    case core::WsCmdKind::kPing:
-      sendTo(fd, core::jsonPong(g_json, sizeof(g_json), c.t0, now));
-      break;
+    case core::WsCmdKind::kAudioMode:
+    case core::WsCmdKind::kCamLock: handleAcked(fd, id, c, now); break;
+    case core::WsCmdKind::kTurn: handleTurn(fd, id, c, now); break;
+    case core::WsCmdKind::kDriveRate: handleDriveRate(fd, c, now); break;
+    case core::WsCmdKind::kCancel: handleCancel(fd, id, now); break;
+    case core::WsCmdKind::kRelease: handleRelease(fd, id, now); break;
+    case core::WsCmdKind::kPing: sendTo(fd, core::jsonPong(g_json, sizeof(g_json), c.t0, now)); break;
     case core::WsCmdKind::kUnsupported:
     case core::WsCmdKind::kInvalid:
-    default:
-      nack(fd, id, core::BridgeReason::kInvalidCommand);
-      break;
+    default: nack(fd, id, core::BridgeReason::kInvalidCommand); break;
   }
 }
 

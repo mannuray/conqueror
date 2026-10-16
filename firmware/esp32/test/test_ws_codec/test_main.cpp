@@ -205,6 +205,20 @@ void test_drive_rate_and_cancel() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kCancel), K(P("{\"t\":\"cancel\"}").kind));
 }
 
+// Refactor guard (split parseWsCommand): odd keys are skipped, not read as v/w/x/y; bad booleans reject.
+void test_odd_keys_and_bools() {
+  const WsCommand c = P("{\"\":5,\"vv\":7,\"t\":\"drive\",\"v\":10,\"w\":-3}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kDrive), K(c.kind));
+  TEST_ASSERT_EQUAL(10, c.v);
+  TEST_ASSERT_EQUAL(-3, c.w);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"drive\",\"\":1,\"v\":10}").kind));  // "" is not w
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"cam_lock\",\"on\":1}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"cam_joy\",\"x\":1,\"y\":2,\"active\":\"yes\"}").kind));
+  const WsCommand j = P("{\"t\":\"cam_joy\",\"x\":1,\"y\":2,\"active\":false}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCamJoy), K(j.kind));
+  TEST_ASSERT_FALSE(j.active);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_drive);
@@ -228,5 +242,6 @@ int main() {
   RUN_TEST(test_turn_by_and_to);
   RUN_TEST(test_turn_invalid);
   RUN_TEST(test_drive_rate_and_cancel);
+  RUN_TEST(test_odd_keys_and_bools);
   return UNITY_END();
 }

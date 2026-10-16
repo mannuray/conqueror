@@ -201,95 +201,93 @@ bool readMotionField(const char* key, Reader& r, WsCommand& c, MotionFields& mf)
   return true;
 }
 
+// What the field loop saw, for the per-command checks after it.
+struct Seen {
+  char t[24] = "";
+  bool v = false, w = false, x = false, y = false, active = false, on = false;
+  char mode[8] = "";  // audio_mode
+  char name[24] = "";
+  MotionFields mf;
+};
+
+bool readBool(Reader& r, bool& out, bool& seen) {
+  if (r.word("true")) {
+    out = true;
+  } else if (!r.word("false")) {
+    return false;
+  }
+  seen = true;
+  return true;
+}
+
+// One "key": value pair; false = malformed (the whole command is rejected).
+bool readField(const char* key, Reader& r, WsCommand& c, Seen& s) {
+  double num = 0;
+  if (strcmp(key, "t") == 0) return r.str(s.t, sizeof(s.t));
+  if (strcmp(key, "id") == 0) {
+    // Review M4: a non-negative integer that fits int32 (no UB cast, no silent "no id").
+    if (!r.num(num, nullptr, 0) || num < 0 || num > 2147483647.0 || num != floor(num)) return false;
+    c.has_id = true;
+    c.id = static_cast<int32_t>(num);
+    return true;
+  }
+  if (key[0] != '\0' && key[1] == '\0' && strchr("vwxy", key[0]) != nullptr) {
+    if (!r.num(num, nullptr, 0)) return false;
+    const int8_t p = clampPct(num);
+    switch (key[0]) {
+      case 'v': c.v = p; s.v = true; break;
+      case 'w': c.w = p; s.w = true; break;
+      case 'x': c.x = p; s.x = true; break;
+      default: c.y = p; s.y = true; break;
+    }
+    return true;
+  }
+  if (strcmp(key, "active") == 0) return readBool(r, c.active, s.active);
+  if (strcmp(key, "on") == 0) return readBool(r, c.on, s.on);
+  if (readMotionField(key, r, c, s.mf)) return !s.mf.bad;
+  if (strcmp(key, "mode") == 0) return r.str(s.mode, sizeof(s.mode));
+  if (strcmp(key, "name") == 0) return r.str(s.name, sizeof(s.name));
+  if (strcmp(key, "t0") == 0) return r.num(num, c.t0, sizeof(c.t0));
+  if (strcmp(key, "client") == 0) return r.str(c.client, sizeof(c.client));
+  return r.skip();
+}
+
+// The fields each command needs; fills the derived values. False = invalid command.
+bool complete(WsCommand& c, const Seen& s) {
+  c.kind = kindOf(s.t);
+  switch (c.kind) {
+    case WsCmdKind::kDrive: return s.v && s.w;
+    case WsCmdKind::kCamJoy: return s.x && s.y && s.active;
+    case WsCmdKind::kPing:
+      if (c.t0[0] == '\0') snprintf(c.t0, sizeof(c.t0), "null");
+      return true;
+    case WsCmdKind::kSound:
+      c.sound_id = soundIdOf(s.name);  // missing or unknown name -> 0 -> invalid (never an out-of-range SoundId)
+      return c.sound_id != 0;
+    case WsCmdKind::kAudioMode: return audioModeOf(s.mode, c.audio_mode);
+    case WsCmdKind::kCamLock: return s.on;
+    case WsCmdKind::kTurn: return s.mf.by != s.mf.to;  // exactly one of by / to
+    case WsCmdKind::kDriveRate: return s.v && s.mf.rate;  // review M20: like the other commands' fields
+    default: return true;
+  }
+}
+
 }  // namespace
 
 WsCommand parseWsCommand(const char* text, size_t len) {
   WsCommand c;
-  WsCommand bad;
+  const WsCommand bad;
   Reader r(text, len);
-  char t[24] = "";
-  bool have_v = false, have_w = false, have_x = false, have_y = false, have_active = false, have_on = false;
-  char mode[8] = "";  // audio_mode
-  MotionFields mf;
-  char name[24] = "";
+  Seen s;
   if (!r.eat('{')) return bad;
   if (!r.peek('}')) {
     do {
       char key[16];
-      if (!r.str(key, sizeof(key)) || !r.eat(':')) return bad;
-      double num = 0;
-      if (strcmp(key, "t") == 0) {
-        if (!r.str(t, sizeof(t))) return bad;
-      } else if (strcmp(key, "id") == 0) {
-        // Review M4: a non-negative integer that fits int32 (no UB cast, no silent "no id").
-        if (!r.num(num, nullptr, 0) || num < 0 || num > 2147483647.0 || num != floor(num)) return bad;
-        c.has_id = true;
-        c.id = static_cast<int32_t>(num);
-      } else if (strcmp(key, "v") == 0 || strcmp(key, "w") == 0 || strcmp(key, "x") == 0 ||
-                 strcmp(key, "y") == 0) {
-        if (!r.num(num, nullptr, 0)) return bad;
-        const int8_t p = clampPct(num);
-        switch (key[0]) {
-          case 'v':
-            c.v = p;
-            have_v = true;
-            break;
-          case 'w':
-            c.w = p;
-            have_w = true;
-            break;
-          case 'x':
-            c.x = p;
-            have_x = true;
-            break;
-          default:
-            c.y = p;
-            have_y = true;
-            break;
-        }
-      } else if (strcmp(key, "active") == 0) {
-        if (r.word("true")) {
-          c.active = true;
-        } else if (!r.word("false")) {
-          return bad;
-        }
-        have_active = true;
-      } else if (strcmp(key, "on") == 0) {
-        if (r.word("true")) {
-          c.on = true;
-        } else if (!r.word("false")) {
-          return bad;
-        }
-        have_on = true;
-      } else if (readMotionField(key, r, c, mf)) {
-        if (mf.bad) return bad;
-      } else if (strcmp(key, "mode") == 0) {
-        if (!r.str(mode, sizeof(mode))) return bad;
-      } else if (strcmp(key, "name") == 0) {
-        if (!r.str(name, sizeof(name))) return bad;
-      } else if (strcmp(key, "t0") == 0) {
-        if (!r.num(num, c.t0, sizeof(c.t0))) return bad;
-      } else if (strcmp(key, "client") == 0) {
-        if (!r.str(c.client, sizeof(c.client))) return bad;
-      } else if (!r.skip()) {
-        return bad;
-      }
+      if (!r.str(key, sizeof(key)) || !r.eat(':') || !readField(key, r, c, s)) return bad;
     } while (r.eat(','));
   }
-  if (!r.eat('}') || !r.atEnd() || t[0] == '\0') return bad;
-  c.kind = kindOf(t);
-  if (c.kind == WsCmdKind::kDrive && !(have_v && have_w)) return bad;
-  if (c.kind == WsCmdKind::kCamJoy && !(have_x && have_y && have_active)) return bad;
-  if (c.kind == WsCmdKind::kPing && c.t0[0] == '\0') snprintf(c.t0, sizeof(c.t0), "null");
-  if (c.kind == WsCmdKind::kSound) {
-    c.sound_id = soundIdOf(name);  // missing or unknown name -> 0 -> invalid (never an out-of-range SoundId)
-    if (c.sound_id == 0) return bad;
-  }
-  if (c.kind == WsCmdKind::kAudioMode && !audioModeOf(mode, c.audio_mode)) return bad;
-  if (c.kind == WsCmdKind::kCamLock && !have_on) return bad;
-  if (c.kind == WsCmdKind::kTurn && mf.by == mf.to) return bad;  // exactly one of by / to
-  if (c.kind == WsCmdKind::kDriveRate && !(have_v && mf.rate)) return bad;  // review M20: like the other commands' fields
-  return c;
+  if (!r.eat('}') || !r.atEnd() || s.t[0] == '\0') return bad;
+  return complete(c, s) ? c : bad;
 }
 
 }  // namespace core

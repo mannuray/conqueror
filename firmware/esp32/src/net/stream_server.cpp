@@ -6,6 +6,10 @@
 
 #include <atomic>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+
 #include "board_config.h"
 #include "net/camera_service.h"
 #include "net/log.h"
@@ -15,21 +19,22 @@ namespace net {
 namespace {
 
 constexpr const char* kBoundary = "cqframe";
-// One FreeRTOS task per viewer (R3.1): stack, priority, core (core 0 with the HTTP server; the link task is on core 1).
+// One FreeRTOS worker per viewer slot (R3.1), created once at start-up and reused (no task create / delete per
+// connection): stack, priority, core (core 0 with the HTTP server; the link task is on core 1).
 constexpr uint32_t kViewerStack = 6144;
 constexpr UBaseType_t kViewerPrio = 5;
 constexpr BaseType_t kViewerCore = 0;
 std::atomic<uint8_t> g_viewers{0};
+QueueHandle_t g_jobs = nullptr;  // async request copies waiting for a free worker
 
 void releaseViewer() {
   const uint8_t left = static_cast<uint8_t>(--g_viewers);
   logf("stream: viewer left (%u)", static_cast<unsigned>(left));
 }
 
-// R3.1: the frame loop runs in its own task (one per viewer) so the server task stays free
-// for /capture and the second viewer. Owns the async request copy and the viewer slot.
-void streamWorker(void* arg) {
-  httpd_req_t* req = static_cast<httpd_req_t*>(arg);
+// R3.1: the frame loop runs in a worker task (one per viewer slot) so the server task stays free
+// for /capture and the second viewer. Owns the async request copy and the viewer slot while it streams.
+void serveStream(httpd_req_t* req) {
   httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=cqframe");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -60,7 +65,13 @@ void streamWorker(void* arg) {
   // queued close runs. Accepted - the reverse order lost the close on the tank and blocked port 81.
   httpd_sess_trigger_close(server, sockfd);
   releaseViewer();
-  vTaskDelete(nullptr);
+}
+
+void streamWorker(void*) {
+  for (;;) {
+    httpd_req_t* req = nullptr;
+    if (xQueueReceive(g_jobs, &req, portMAX_DELAY) == pdTRUE && req != nullptr) serveStream(req);
+  }
 }
 
 esp_err_t refuse(httpd_req_t* req, const char* text) {
@@ -81,9 +92,7 @@ esp_err_t streamHandler(httpd_req_t* req) {
     releaseViewer();
     return refuse(req, "stream unavailable");
   }
-  const BaseType_t made =
-      xTaskCreatePinnedToCore(streamWorker, "cq-stream", kViewerStack, copy, kViewerPrio, nullptr, kViewerCore);
-  if (made != pdPASS) {
+  if (xQueueSend(g_jobs, &copy, 0) != pdTRUE) {  // cannot happen while viewers <= workers; answered anyway
     httpd_req_async_handler_complete(copy);
     releaseViewer();
     return refuse(req, "stream unavailable");  // the original req is still ours to answer
@@ -118,6 +127,18 @@ httpd_handle_t g_server = nullptr;  // port 81: /stream, /capture, /source.tar.g
 }  // namespace
 
 bool streamServerStart() {
+  g_jobs = xQueueCreate(board::kMaxStreamViewers, sizeof(httpd_req_t*));
+  if (g_jobs == nullptr) {
+    logf("stream: start failed (queue)");
+    return false;
+  }
+  for (uint8_t i = 0; i < board::kMaxStreamViewers; ++i) {
+    if (xTaskCreatePinnedToCore(streamWorker, "cq-stream", kViewerStack, nullptr, kViewerPrio, nullptr, kViewerCore) !=
+        pdPASS) {
+      logf("stream: start failed (worker %u)", static_cast<unsigned>(i));
+      return false;
+    }
+  }
   httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
   cfg.server_port = board::kStreamPort;
   cfg.ctrl_port = 32769;

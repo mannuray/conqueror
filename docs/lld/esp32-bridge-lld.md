@@ -949,6 +949,8 @@ Symptom (from 2026-10-15, with the same main firmware that had worked): station 
 | WiFi only, TX 15 dBm | 40/40 | 6 ms |
 | + camera, XCLK 20 MHz (bridge settings) | 12/23 | 431 ms |
 | + camera, XCLK 10 MHz | 37/37 | 36 ms |
+| Full bridge (main + 10 MHz), camera on | 14/20 (Mac), 10/10 (Linux) | 0.2–0.7 s; `/info` 1–6 s |
+| Full bridge, camera **not started** | 30/30 | 15 ms; `/info` 0.03 s |
 
-So the radio and antenna are fine and the running camera interferes; why it started now is not proven (ribbon cable moved nearer the antenna, or the router's auto channel now on 6 where a 20 MHz harmonic, 2440 MHz, sits mid-channel). Fix: `board::kCamXclkHz` = **10 MHz**. Cost: fewer frames per second from the sensor (to measure; 16 MHz is the fallback if it is too slow). Also route the camera ribbon away from the module's antenna end.
+So the radio, antenna and the rest of the bridge are fine and the running camera interferes; 10 MHz only reduces it. The same camera worked at 20 MHz until 2026-10-15, so a **physical cause is most likely** (camera module / ribbon moved, damaged or touching the module) — to inspect; why it started now is not proven (ribbon cable moved nearer the antenna, or the router's auto channel now on 6 where a 20 MHz harmonic, 2440 MHz, sits mid-channel). Fix: `board::kCamXclkHz` = **10 MHz**. Cost: fewer frames per second from the sensor (to measure; 16 MHz is the fallback if it is too slow). Also route the camera ribbon away from the module's antenna end.
 

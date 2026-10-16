@@ -78,6 +78,14 @@ Decision LinkOwner::onDrive(int fd, uint32_t now_ms, Actions& out) {
   return Decision::kSend;
 }
 
+Decision LinkOwner::keepDriving(int fd, uint32_t now_ms) {
+  if (m_state == LinkState::kTcpPassthrough) return Decision::kNackBusy;
+  if (m_state == LinkState::kIdle || m_state == LinkState::kWebHandshake) return Decision::kNackBodyOffline;
+  if (m_ir || m_state != LinkState::kWebDriving || fd != m_driver) return Decision::kNackNotOwner;
+  m_last_drive_ms = now_ms;
+  return Decision::kSend;
+}
+
 Decision LinkOwner::onCamera(int fd) const {
   if (m_state == LinkState::kTcpPassthrough) return Decision::kNackBusy;
   if (m_state == LinkState::kIdle || m_state == LinkState::kWebHandshake) {

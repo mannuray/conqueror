@@ -16,7 +16,7 @@ namespace core {
 constexpr size_t kWsJsonMax = 384;
 
 // Reasons the bridge itself produces (not on the Uno's ack_status list).
-enum class BridgeReason : uint8_t { kNotOwner, kBusy, kBodyOffline, kRateLimited, kInvalidCommand, kTimeout };
+enum class BridgeReason : uint8_t { kNotOwner, kBusy, kBodyOffline, kRateLimited, kInvalidCommand, kTimeout, kUnavailable };
 
 struct OwnerView {
   const char* owner;   // "none" | "human" | "ir"

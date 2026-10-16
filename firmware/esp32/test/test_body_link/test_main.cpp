@@ -166,6 +166,9 @@ void test_drive_only_when_synced() {
   TEST_ASSERT_EQUAL(static_cast<uint8_t>(proto::Source::kHuman), d->payload[0]);
   TEST_ASSERT_EQUAL(40, static_cast<int8_t>(d->payload[1]));
   TEST_ASSERT_EQUAL(-20, static_cast<int8_t>(d->payload[2]));
+  TEST_ASSERT_TRUE(bl->sendDrive(-30, 25, proto::Source::kAuto));  // Plan H: the motion service's frames
+  wire->drain(*tx);
+  TEST_ASSERT_EQUAL(static_cast<uint8_t>(proto::Source::kAuto), wire->last(FT::kDrive)->payload[0]);
 }
 
 void test_bridge_never_invents_drive() {

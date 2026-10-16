@@ -81,7 +81,7 @@ class BodyLink {
   void onUartBytes(const uint8_t* data, size_t len, uint32_t now_ms);
 
   // Client commands (master + synced only; false = not sent).
-  bool sendDrive(int8_t v, int8_t w);
+  bool sendDrive(int8_t v, int8_t w, proto::Source src = proto::Source::kHuman);  // AUTO = motion service
   bool sendCamJoy(int8_t x, int8_t y, bool active);
   bool sendCamHome(uint32_t now_ms, uint8_t& seq_out);
   // Plan F: share the one acked slot with CAM_HOME (kAckResult on ACK or after kAckTimeoutMs).

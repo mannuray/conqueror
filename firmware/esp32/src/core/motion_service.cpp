@@ -20,6 +20,7 @@ void MotionService::driveRate(int fd, int8_t v, int16_t rate_ddps, uint32_t now_
     m_fd = fd;
     m_id = -1;
     m_rate.reset();
+    m_wrong_way = false;
     m_last_telem_ms = now_ms;
   }
   m_rate_v = v;
@@ -62,6 +63,18 @@ MotionOut MotionService::stepRate(int16_t rate_ddps, uint32_t now_ms) {
   o.send = true;
   o.v = m_rate_v;
   o.w = m_rate.step(m_rate_target, rate_ddps, static_cast<uint16_t>(dt));
+  // Review C1 guard: full power while the gyro sees the opposite turn = the loop runs away (e.g. a body that
+  // flips w when reversing) - end it instead of spinning faster and faster.
+  const bool saturated = o.w >= motion::kRateSaturatedPct || o.w <= -motion::kRateSaturatedPct;
+  const bool opposite = (m_rate_target > 0 && rate_ddps < -motion::kRateWrongWayDdps) ||
+                        (m_rate_target < 0 && rate_ddps > motion::kRateWrongWayDdps);
+  if (saturated && opposite) {
+    if (!m_wrong_way) m_wrong_since = now_ms;
+    m_wrong_way = true;
+    if (now_ms - m_wrong_since >= motion::kRateWrongWayMs) return finish(EndReason::kDiverged);
+  } else {
+    m_wrong_way = false;
+  }
   return o;
 }
 

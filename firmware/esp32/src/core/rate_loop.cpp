@@ -11,7 +11,10 @@ void RateLoop::reset() {
 }
 
 int8_t RateLoop::step(int16_t target_ddps, int16_t rate_ddps, uint16_t dt_ms) {
-  if ((target_ddps > 0 && m_last_target < 0) || (target_ddps < 0 && m_last_target > 0)) m_integral = 0.0f;
+  // A sign change or a zero target starts afresh (review M2: no leftover w at target 0).
+  if (target_ddps == 0 || (target_ddps > 0 && m_last_target < 0) || (target_ddps < 0 && m_last_target > 0)) {
+    m_integral = 0.0f;
+  }
   m_last_target = target_ddps;
   const float target = target_ddps / 10.0f, err = (target_ddps - rate_ddps) / 10.0f;
   const float pre = motion::kRateFfPctPerDps * target + motion::kRateKpPctPerDps * err;

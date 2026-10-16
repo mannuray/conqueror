@@ -36,6 +36,10 @@ void test_drive_rate_limit_25_per_second() {
   TEST_ASSERT_TRUE(c.admit(10, WsCmdKind::kStop, 60));         // STOP is never limited
   TEST_ASSERT_TRUE(c.admit(10, WsCmdKind::kCamJoy, 61));       // separate budget
   TEST_ASSERT_TRUE(c.admit(10, WsCmdKind::kDrive, 1000));      // next window
+  // Plan H review: drive_rate is a stream like drive (same 25/s budget)
+  int rate_ok = 0;
+  for (int i = 0; i < 40; ++i) rate_ok += c.admit(10, WsCmdKind::kDriveRate, 2000 + i) ? 1 : 0;
+  TEST_ASSERT_EQUAL(25, rate_ok);
 }
 
 void test_total_limit() {

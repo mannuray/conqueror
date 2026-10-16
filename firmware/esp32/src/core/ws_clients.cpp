@@ -48,7 +48,7 @@ bool WsClients::admit(int fd, WsCmdKind kind, uint32_t now_ms) {
   if (kind == WsCmdKind::kStop) return true;
   if (c.total_n < 255) ++c.total_n;
   if (c.total_n > kTotalLimitPerS) return false;
-  if (kind == WsCmdKind::kDrive) return ++c.stream_n <= kStreamLimitPerS;
+  if (kind == WsCmdKind::kDrive || kind == WsCmdKind::kDriveRate) return ++c.stream_n <= kStreamLimitPerS;
   if (kind == WsCmdKind::kCamJoy) return ++c.cam_n <= kStreamLimitPerS;
   return true;
 }

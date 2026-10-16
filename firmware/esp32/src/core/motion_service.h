@@ -12,7 +12,17 @@ namespace cq {
 namespace core {
 
 enum class PrimKind : uint8_t { kNone, kTurn, kRate };
-enum class EndReason : uint8_t { kDone, kCancelled, kStop, kNotOwner, kStalled, kTimeout, kLink, kDeadman };
+enum class EndReason : uint8_t {
+  kDone,
+  kCancelled,
+  kStop,
+  kNotOwner,
+  kStalled,
+  kTimeout,
+  kLink,
+  kDeadman,
+  kDiverged,  // drive_rate saturated while the tank turns the other way (review C1 guard)
+};
 
 struct PrimitiveEnd {
   PrimKind kind = PrimKind::kNone;
@@ -54,6 +64,8 @@ class MotionService {
   int8_t m_rate_v = 0;
   int16_t m_rate_target = 0;
   uint32_t m_rate_update_ms = 0;
+  bool m_wrong_way = false;  // C1 guard: saturated with the measured rate opposite to the target ...
+  uint32_t m_wrong_since = 0;  // ... since
   uint32_t m_last_telem_ms = 0;
 };
 

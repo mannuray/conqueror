@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "core/motion_config.h"
 #include "cq_protocol.h"
 
 namespace cq {
@@ -177,24 +178,24 @@ bool readMotionField(const char* key, Reader& r, WsCommand& c, MotionFields& mf)
   double n = 0;
   if (!r.num(n, nullptr, 0)) {
     mf.bad = true;
-  } else if (by) {
-    mf.bad = n < -720.0 || n > 720.0 || lround(n * 100.0) == 0;
-    c.turn_by_cdeg = static_cast<int32_t>(lround(n * 100.0));
+  } else if (by) {  // ±1..720° (LLD R4.2)
+    mf.bad = fabs(n) < 1.0 || fabs(n) > 720.0;
+    if (!mf.bad) c.turn_by_cdeg = static_cast<int32_t>(lround(n * 100.0));
     mf.by = true;
   } else if (to) {
     mf.bad = n < 0.0 || n >= 360.0;
-    c.turn_to_cdeg = static_cast<uint16_t>(lround(n * 100.0) % 36000);
+    if (!mf.bad) c.turn_to_cdeg = static_cast<uint16_t>(lround(n * 100.0) % 36000);
     c.turn_has_to = true;
     mf.to = true;
-  } else if (speed) {
-    mf.bad = n < 10.0 || n > 100.0 || !isWhole(n);
-    c.speed = static_cast<uint8_t>(n);
+  } else if (speed) {  // w_min .. 100 % (below w_min the tracks do not turn: review M1)
+    mf.bad = n < motion::kTurnWMin || n > 100.0 || !isWhole(n);
+    if (!mf.bad) c.speed = static_cast<uint8_t>(n);
   } else if (radius) {
     mf.bad = n < 0.0 || n > 1000.0 || !isWhole(n);
-    c.radius_cm = static_cast<uint16_t>(n);
+    if (!mf.bad) c.radius_cm = static_cast<uint16_t>(n);
   } else {
     mf.bad = n < -180.0 || n > 180.0;
-    c.rate_ddps = static_cast<int16_t>(lround(n * 10.0));
+    if (!mf.bad) c.rate_ddps = static_cast<int16_t>(lround(n * 10.0));
     mf.rate = true;
   }
   return true;

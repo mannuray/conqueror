@@ -1,5 +1,5 @@
 // DRIVE_RATE on the bridge (bridge LLD R4.4): w = ff * r + Kp * err + Ki * integral(err), |w| <= 100,
-// integration frozen while saturated (anti-windup), integral reset when the target changes sign.
+// integration frozen while saturated (anti-windup), integral reset when the target changes sign or is zero.
 #pragma once
 
 #include <stdint.h>

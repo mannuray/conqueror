@@ -24,6 +24,9 @@ constexpr float kRateFfPctPerDps = 0.45f;  // floor data 2026-10-15: w 60 % spin
 constexpr float kRateKpPctPerDps = 0.3f;
 constexpr float kRateKiPctPerDeg = 0.6f;   // per (°/s · s)
 constexpr uint32_t kRateDeadmanMs = 300;   // no drive_rate update for 300 ms -> stop (as drive)
+constexpr int8_t kRateSaturatedPct = 95;   // C1 guard: |w| >= 95 % ...
+constexpr int16_t kRateWrongWayDdps = 50;  // ... while turning > 5 °/s the other way ...
+constexpr uint32_t kRateWrongWayMs = 500;  // ... for 0.5 s -> end (diverged)
 
 // Service
 constexpr uint32_t kTelemGapMs = 200;      // no TELEM_FAST for 200 ms while active -> end (link)

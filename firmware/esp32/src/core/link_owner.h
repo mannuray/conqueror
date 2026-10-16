@@ -43,6 +43,9 @@ class LinkOwner {
   Actions onTcpClose();
   Decision onDrive(int fd, uint32_t now_ms, Actions& out);
   Decision onCamera(int fd) const;  // cam_joy / cam_home: no ownership taken
+  // Plan H review I1: a running primitive keeps its owner alive (handback timer) but never takes ownership -
+  // Send only while `fd` is the web driver; otherwise the primitive ends.
+  Decision keepDriving(int fd, uint32_t now_ms);
   Actions onStop(int fd);
   Actions onRelease(int fd);
   Actions onSynced(bool synced);

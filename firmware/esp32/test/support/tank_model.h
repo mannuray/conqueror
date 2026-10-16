@@ -14,8 +14,11 @@ class TankModel {
   explicit TankModel(double start_yaw_deg, uint32_t seed = 12345) : m_yaw(start_yaw_deg), m_seed(seed) {
     for (int i = 0; i < kDelay; ++i) m_cmd[i] = 0, m_tel_yaw[i] = start_yaw_deg, m_tel_rate[i] = 0;
   }
-  // Advance 20 ms with the command `w` (%) just sent by the bridge.
-  void step(int8_t w) {
+  // A body that flips w when reversing (car-style, ignoring src AUTO) - to test the bridge's divergence guard.
+  void setCarFlip(bool on) { m_car_flip = on; }
+  // Advance 20 ms with the command (v, w) (%) just sent by the bridge.
+  void step(int8_t w, int8_t v = 0) {
+    if (m_car_flip && v < 0) w = static_cast<int8_t>(-w);
     m_cmd[m_head] = w;
     const int8_t applied = m_cmd[(m_head + 1) % kDelay];  // sent 2 ticks (40 ms) ago
     const double target = (applied > -8 && applied < 8) ? 0.0 : applied * 2.2;
@@ -49,6 +52,7 @@ class TankModel {
   double m_tel_rate[kDelay];
   int m_head = 0;
   uint32_t m_seed;
+  bool m_car_flip = false;
 };
 
 }  // namespace cqtest

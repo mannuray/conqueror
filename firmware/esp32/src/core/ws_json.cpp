@@ -48,6 +48,7 @@ constexpr ReasonInfo kBridgeReasons[] = {
     {3010, "RATE_LIMITED", "Too many commands"},
     {3006, "INVALID_COMMAND", "Invalid command"},
     {3009, "COMMAND_TIMEOUT", "No acknowledgement in time"},
+    {3003, "UNAVAILABLE", "Capability not available"},  // Plan H: e.g. turn with radius / move without encoders
 };
 
 const char* domain(uint16_t code) {
@@ -111,9 +112,12 @@ const char* capBit(const HelloInfo& h, proto::CapBit b) {
   return (h.seen && (h.caps & (1u << static_cast<uint8_t>(b)))) ? "true" : "false";
 }
 
-// Plan H (spec 02 §E2): turn / drive_rate are available with any body - the bridge's motion service runs them
-// when the body cannot; move still needs the body's encoders.
-const char* capOrLocal(const HelloInfo& h) { return h.seen ? "true" : "false"; }
+// Plan H (spec 02 §E2): turn / drive_rate are available when the bridge's motion service runs them - a body
+// without them (Uno Lite). A body that has them is not forwarded to yet (review M7), so false there for now;
+// move still needs the body's encoders.
+const char* localOnly(const HelloInfo& h, proto::CapBit b) {
+  return (h.seen && !(h.caps & (1u << static_cast<uint8_t>(b)))) ? "true" : "false";
+}
 
 size_t jsonWelcome(char* out, size_t cap, const WelcomeInfo& w) {
   char uno[16] = "null";
@@ -124,8 +128,8 @@ size_t jsonWelcome(char* out, size_t cap, const WelcomeInfo& w) {
              "\"encoders\":%s,\"turn\":%s,\"move\":%s,\"drive_rate\":%s,\"calibrate\":%s,\"audio_led\":%s,"
              "\"sensor\":\"%s\"}},\"owner\":\"%s\",\"owner_client\":\"%s\"}",
              w.you, w.fw_esp32, uno, proto::kProtocolVersion, capBit(*w.hello, proto::CapBit::kEncoders),
-             capOrLocal(*w.hello), capBit(*w.hello, proto::CapBit::kMove),
-             capOrLocal(*w.hello), capBit(*w.hello, proto::CapBit::kCalibrate),
+             localOnly(*w.hello, proto::CapBit::kTurn), capBit(*w.hello, proto::CapBit::kMove),
+             localOnly(*w.hello, proto::CapBit::kDriveRate), capBit(*w.hello, proto::CapBit::kCalibrate),
              capBit(*w.hello, proto::CapBit::kAudioLed), w.sensor, w.owner.owner, w.owner.client);
 }
 
@@ -229,7 +233,7 @@ size_t jsonUnoEvent(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint8
 
 size_t jsonPrimitiveDone(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, const PrimitiveEnd& e) {
   static const char* const kReasons[] = {"done", "cancelled", "stop", "not_owner", "stalled", "timeout", "link",
-                                         "deadman"};
+                                         "deadman", "diverged"};
   const uint8_t r = static_cast<uint8_t>(e.reason);
   char id[20] = "";
   if (e.id >= 0) snprintf(id, sizeof(id), ",\"id\":%ld", static_cast<long>(e.id));

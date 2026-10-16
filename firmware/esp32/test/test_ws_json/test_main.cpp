@@ -190,11 +190,14 @@ void test_welcome_caps_bits() {
   jsonWelcome(buf, sizeof(buf), WelcomeInfo{"x", &h, "OV3660", kNone, "phone-1"});
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"turn\":false"));
   h.seen = true;
-  h.caps = 0xFF;  // full firmware with encoders
+  h.caps = 0xFF;  // full firmware with encoders: its TURN / DRIVE_RATE are not forwarded yet (Plan H review M7)
   jsonWelcome(buf, sizeof(buf), WelcomeInfo{"x", &h, "OV3660", kNone, "phone-1"});
-  TEST_ASSERT_NOT_NULL(strstr(buf, "\"turn\":true"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"turn\":false"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"drive_rate\":false"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"move\":true"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"encoders\":true"));
+  jsonNack(buf, sizeof(buf), 4, BridgeReason::kUnavailable);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"code\":\"COMMAND_3003\",\"reason\":\"UNAVAILABLE\""));
 }
 
 // Plan H (bridge LLD R4.5 / R4.6): primitive_done from the bridge's motion service, tf.primitive progress.

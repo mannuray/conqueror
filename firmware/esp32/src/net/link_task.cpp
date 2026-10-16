@@ -8,7 +8,7 @@
 #include "core/ws_clients.h"
 #include "core/ws_codec.h"
 #include "core/motion_router.h"
-#include "core/motion_service.h"
+#include "core/motion_link.h"
 #include "core/ws_json.h"
 #include "net/http_server.h"
 #include "net/log.h"
@@ -51,7 +51,7 @@ size_t g_stop_waiter_n = 0;
 Waiter g_cam_waiter{-1, -1};
 uint8_t g_cam_seq = 0;
 core::StopBarrier g_stop_barrier;  // STOP fast path: drop motion posted before a STOP
-core::MotionService g_motion;      // Plan H: TURN / DRIVE_RATE run by the bridge for a body that cannot
+core::MotionLink g_motion(g_owner);  // Plan H: TURN / DRIVE_RATE run by the bridge for a body that cannot
 
 void drainTx() {
   const uint8_t* p = nullptr;
@@ -144,42 +144,25 @@ void streamReject(int fd, core::BridgeReason r) {
   if (g_ws.reportStreamReject(fd, static_cast<uint8_t>(r))) nack(fd, -1, r);
 }
 
-// Plan H (bridge LLD R4.6): a primitive ended. `frames`: send DRIVE 0/0 + STOP (not when a STOP is already on its
-// way, the owner's own drive follows, or another source owns the body - a bridge STOP would stop IR driving).
-void endMotion(const core::MotionOut& o, uint32_t now, bool frames) {
-  if (!o.ended) return;
-  if (frames) {
-    g_link.sendDrive(0, 0);
-    g_link.sendStop(now);
-  }
-  broadcast(core::jsonPrimitiveDone(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), o.end));
-}
-
-// A service output: DRIVE through the owner rules (keeps the owner alive), or the end of the primitive.
-void sendMotion(const core::MotionOut& o, uint32_t now) {
-  if (o.ended) {
-    endMotion(o, now, true);
+// Plan H (bridge LLD R4.6): execute a MotionLink decision - DRIVE src AUTO, STOP, primitive_done.
+void runMotion(const core::LinkOut& o, uint32_t now) {
+  if (o.drive && !g_link.sendDrive(o.v, o.w, proto::Source::kAuto)) {
+    runMotion(g_motion.onEvent(core::MotionEvent::kBodyOffline, now), now);  // the body went away
     return;
   }
-  if (!o.send) return;
-  core::Actions a;
-  const core::Decision d = g_owner.onDrive(g_motion.ownerFd(), now, a);
-  apply(a, now);
-  if (d != core::Decision::kSend) {
-    endMotion(g_motion.cancel(core::EndReason::kNotOwner), now, false);
-  } else if (!g_link.sendDrive(o.v, o.w)) {
-    endMotion(g_motion.cancel(core::EndReason::kLink), now, false);
-  }
+  if (o.stop) g_link.sendStop(now);  // STOP purges queued motion frames: no DRIVE 0/0 needed (review M11)
+  if (o.event) broadcast(core::jsonPrimitiveDone(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), o.end));
 }
 
-// The owner's own new motion command replaces a running primitive (no STOP in between).
-void ownerReplacesMotion(int fd, uint32_t now) {
-  if (g_motion.active() && g_motion.ownerFd() == fd) endMotion(g_motion.cancel(core::EndReason::kCancelled), now, false);
-}
+void endMotion(core::MotionEvent e, uint32_t now) { runMotion(g_motion.onEvent(e, now), now); }
 
-void nackStatus(int fd, int32_t id, proto::AckStatus st) {
-  sendTo(fd, core::jsonNackStatus(g_json, sizeof(g_json), id, static_cast<uint8_t>(st)));
+bool motionOwnedBy(int fd) { return g_motion.service().active() && g_motion.service().ownerFd() == fd; }
+
+// Streaming commands (one rejection reported per stream) and every motion command (dropped behind a STOP).
+bool isStream(core::WsCmdKind k) {
+  return k == core::WsCmdKind::kDrive || k == core::WsCmdKind::kCamJoy || k == core::WsCmdKind::kDriveRate;
 }
+bool isMotion(core::WsCmdKind k) { return isStream(k) || k == core::WsCmdKind::kTurn; }
 
 // SOUND / AUDIO_MODE / CAM_LOCK on the shared acked slot (Plan F, R3.1); false = not queued (body offline).
 bool sendAckedCommand(const core::WsCommand& c, uint32_t now, uint8_t& seq) {
@@ -197,7 +180,7 @@ void handleTurn(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
     return;
   }
   if (core::routeTurn(g_link.hello().caps, c.radius_cm) != core::Route::kLocal) {
-    nackStatus(fd, id, proto::AckStatus::kUnavailable);  // arc needs encoders; Forward: no full-firmware body yet
+    nack(fd, id, core::BridgeReason::kUnavailable);  // arc needs encoders; Forward: no full-firmware body yet
     return;
   }
   const core::TankSnapshot& snap = g_link.snapshot();
@@ -212,9 +195,9 @@ void handleTurn(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
     nack(fd, id, reasonOf(d));
     return;
   }
-  endMotion(g_motion.cancel(core::EndReason::kCancelled), now, false);  // a new turn replaces the old primitive
+  endMotion(core::MotionEvent::kOwnerCommand, now);  // a new turn replaces the old primitive
   const int32_t delta = core::turnDelta(snap.fast.yaw, c.turn_has_to, c.turn_by_cdeg, c.turn_to_cdeg);
-  g_motion.startTurn(fd, snap.fast.yaw, delta, c.speed, id, now);
+  g_motion.service().startTurn(fd, snap.fast.yaw, delta, c.speed, id, now);
   if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
 }
 
@@ -225,7 +208,7 @@ void handleDriveRate(int fd, const core::WsCommand& c, uint32_t now) {
     return;
   }
   if (core::routeDriveRate(g_link.hello().caps) != core::Route::kLocal) {
-    nackStatus(fd, -1, proto::AckStatus::kUnavailable);  // Forward: no full-firmware body yet
+    streamReject(fd, core::BridgeReason::kUnavailable);  // Forward: no full-firmware body yet (once per stream)
     return;
   }
   if (bodyOffline()) {
@@ -239,11 +222,22 @@ void handleDriveRate(int fd, const core::WsCommand& c, uint32_t now) {
     streamReject(fd, reasonOf(d));
     return;
   }
-  if (g_motion.active() && (g_motion.kind() != core::PrimKind::kRate || g_motion.ownerFd() != fd)) {
-    endMotion(g_motion.cancel(core::EndReason::kCancelled), now, false);
+  const core::MotionService& svc = g_motion.service();
+  if (svc.active() && (svc.kind() != core::PrimKind::kRate || svc.ownerFd() != fd)) {
+    endMotion(core::MotionEvent::kOwnerCommand, now);
   }
-  g_motion.driveRate(fd, c.v, c.rate_ddps, now);
+  g_motion.service().driveRate(fd, c.v, c.rate_ddps, now);
   g_ws.streamAccepted(fd);
+}
+
+// cancel: the owner ends its primitive (STOP while still the owner); acked also when nothing runs.
+void handleCancel(int fd, int32_t id, uint32_t now) {
+  if (g_motion.service().active() && g_motion.service().ownerFd() != fd) {
+    nack(fd, id, core::BridgeReason::kNotOwner);
+    return;
+  }
+  endMotion(core::MotionEvent::kCancel, now);
+  if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
 }
 
 void handleWsText(const LinkCommand& cmd, uint32_t now) {
@@ -253,7 +247,7 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
   if (c.kind == core::WsCmdKind::kStop) {  // fast path: may overtake its own kWsOpen - never lost
     g_stop_barrier.onStop(cmd.post_seq);
     apply(g_owner.onStop(fd), now);  // urgent slot; queued DRIVE/CAM_JOY frames are purged
-    endMotion(g_motion.cancel(core::EndReason::kStop), now, false);  // Plan H: a STOP from anyone ends a primitive
+    endMotion(core::MotionEvent::kStop, now);  // Plan H: a STOP from anyone ends a primitive
     if (g_ws.contains(fd)) {
       g_ws.admit(fd, c.kind, now);  // never limited; counts as alive
       if (g_stop_waiter_n < kMaxStopWaiters) {
@@ -265,14 +259,11 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
     return;
   }
   if (!g_ws.contains(fd)) return;
-  const bool motion = c.kind == core::WsCmdKind::kDrive || c.kind == core::WsCmdKind::kCamJoy ||
-                      c.kind == core::WsCmdKind::kDriveRate || c.kind == core::WsCmdKind::kTurn;
-  if (motion && g_stop_barrier.stale(cmd.post_seq)) {
+  if (isMotion(c.kind) && g_stop_barrier.stale(cmd.post_seq)) {
     return;  // posted before a STOP that was handled first: silently dropped
   }
   if (!g_ws.admit(fd, c.kind, now)) {
-    if (c.kind == core::WsCmdKind::kDrive || c.kind == core::WsCmdKind::kCamJoy ||
-        c.kind == core::WsCmdKind::kDriveRate) {
+    if (isStream(c.kind)) {
       streamReject(fd, core::BridgeReason::kRateLimited);
     } else {
       nack(fd, id, core::BridgeReason::kRateLimited);
@@ -295,7 +286,7 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
       }
       const core::Decision d = g_owner.onDrive(fd, now, a);
       apply(a, now);
-      if (d == core::Decision::kSend) ownerReplacesMotion(fd, now);  // the owner's stick takes over a primitive
+      if (d == core::Decision::kSend && motionOwnedBy(fd)) endMotion(core::MotionEvent::kOwnerCommand, now);
       if (d != core::Decision::kSend) {
         streamReject(fd, reasonOf(d));
       } else if (g_link.sendDrive(c.v, c.w)) {  // 1:1 - the bridge never repeats a DRIVE
@@ -353,15 +344,11 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
       handleDriveRate(fd, c, now);
       break;
     case core::WsCmdKind::kCancel:
-      if (g_motion.active() && g_motion.ownerFd() != fd) {
-        nack(fd, id, core::BridgeReason::kNotOwner);
-        break;
-      }
-      endMotion(g_motion.cancel(core::EndReason::kCancelled), now, true);
-      if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
+      handleCancel(fd, id, now);
       break;
     case core::WsCmdKind::kRelease:
       apply(g_owner.onRelease(fd), now);
+      if (motionOwnedBy(fd)) endMotion(core::MotionEvent::kRelease, now);  // review I1: release ends a primitive
       if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
       break;
     case core::WsCmdKind::kPing:
@@ -393,9 +380,7 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
       if (!g_ws.contains(cmd.fd)) return;  // a plain HTTP socket
       char name[12];
       snprintf(name, sizeof(name), "%s", g_ws.name(cmd.fd));
-      if (g_motion.active() && g_motion.ownerFd() == cmd.fd) {  // onWsClose sends the STOP for its driver
-        endMotion(g_motion.cancel(core::EndReason::kCancelled), now, false);
-      }
+      if (motionOwnedBy(cmd.fd)) endMotion(core::MotionEvent::kOwnerClosed, now);  // onWsClose STOPs its driver
       const core::Actions a = g_owner.onWsClose(cmd.fd);
       g_ws.remove(cmd.fd);
       logf("ws: %s closed (%u clients)", name, static_cast<unsigned>(g_ws.count()));
@@ -408,7 +393,7 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
     case LinkCommand::Kind::kOtaStart:
     default:
       g_ota_active = true;  // from now on: drives nacked BUSY, benches and new phones refused
-      endMotion(g_motion.cancel(core::EndReason::kCancelled), now, false);  // the STOP below stops it
+      endMotion(core::MotionEvent::kOta, now);  // the STOP below stops it
       if (g_owner.state() == core::LinkState::kTcpPassthrough) {
         g_tx.clear();  // review I3: queued bench frames never follow the injected STOP
         g_tcp.close();
@@ -445,7 +430,7 @@ void handleLinkEvents(uint32_t now) {
         }
         broadcast(core::jsonBody(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), false,
                                  ev.code == 1 ? ev.a : -1));
-        endMotion(g_motion.cancel(core::EndReason::kLink), now, false);
+        endMotion(core::MotionEvent::kBodyOffline, now);
         apply(g_owner.onSynced(false), now);
         break;
       case core::LinkEventKind::kUnoEvent:
@@ -487,13 +472,14 @@ void telemetry(uint32_t now) {
   const core::TankSnapshot& s = g_link.snapshot();
   if (s.fast_count != g_last_fast_count) {
     g_last_fast_count = s.fast_count;
-    if (g_motion.active()) sendMotion(g_motion.onTelemetry(s.fast.yaw, s.fast.yaw_rate, now), now);  // 50 Hz
+    runMotion(g_motion.onTelemetry(s.fast.yaw, s.fast.yaw_rate, now), now);  // 50 Hz
     if (s.fast_count % 5u == 0) {  // Uno 50 Hz -> page 10 Hz (R2.14 #7, spec 02 §E4)
-      const core::PrimitiveView pv{g_motion.active(), g_motion.kind(), g_motion.progressPct()};
+      const core::MotionService& svc = g_motion.service();
+      const core::PrimitiveView pv{svc.active(), svc.kind(), svc.progressPct()};
       broadcast(core::jsonTf(g_json, sizeof(g_json), ++g_tf_seq, s, pv));
     }
   }
-  sendMotion(g_motion.tick(now), now);  // telemetry gap / drive_rate deadman
+  runMotion(g_motion.tick(now), now);  // telemetry gap / drive_rate deadman
   if (now - g_last_ts_ms >= 1000) {  // 1 Hz, also while the Uno is silent (body_offline)
     g_last_ts_ms = now;
     broadcastTs();

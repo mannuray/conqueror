@@ -145,9 +145,9 @@ void BodyLink::onHello(const proto::HelloMsg& h) {
   if (!was_synced) pushEvent({LinkEventKind::kBodyOnline, 0, 0, 0, 0, 0});
 }
 
-bool BodyLink::sendDrive(int8_t v, int8_t w) {
+bool BodyLink::sendDrive(int8_t v, int8_t w, proto::Source src) {
   if (!synced()) return false;
-  return emitNext(proto::DriveMsg{static_cast<uint8_t>(proto::Source::kHuman), v, w}, Lane::kMotion);
+  return emitNext(proto::DriveMsg{static_cast<uint8_t>(src), v, w}, Lane::kMotion);
 }
 
 bool BodyLink::sendCamJoy(int8_t x, int8_t y, bool active) {

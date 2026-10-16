@@ -2,7 +2,9 @@
 #include <math.h>
 #include <unity.h>
 
+#include "core/link_owner.h"
 #include "core/motion_config.h"
+#include "core/motion_link.h"
 #include "core/motion_router.h"
 #include "core/motion_service.h"
 #include "core/rate_loop.h"
@@ -170,8 +172,9 @@ struct TurnRun {
   uint32_t ms = 0;
 };
 
-TurnRun runTurn(double start_yaw, bool has_to, int32_t by_cdeg, uint16_t to_cdeg, uint8_t speed = 40) {
-  cqtest::TankModel tank(start_yaw);
+TurnRun runTurn(double start_yaw, bool has_to, int32_t by_cdeg, uint16_t to_cdeg, uint8_t speed = 40,
+               uint32_t seed = 12345) {
+  cqtest::TankModel tank(start_yaw, seed);
   MotionService svc;
   const uint16_t yaw0 = tank.reportedYawCdeg();
   const int32_t delta = turnDelta(yaw0, has_to, by_cdeg, to_cdeg);
@@ -191,17 +194,20 @@ TurnRun runTurn(double start_yaw, bool has_to, int32_t by_cdeg, uint16_t to_cdeg
       r.ms = t;
     }
   }
-  for (int i = 0; i < 50; ++i) tank.step(0);  // 1 s with w = 0 (the Uno's heading hold takes over)
+  for (int i = 0; i < 50; ++i) tank.step(0);  // 1 s coasting with w = 0 (the bridge then sends STOP)
   r.error_deg = tank.turnedDeg() - delta / 100.0;
   return r;
 }
 }  // namespace
 
 void test_service_turn_closed_loop() {
-  const struct { double start; bool to; int32_t by; uint16_t to_c; } cases[] = {
-      {0, false, 9000, 0}, {0, false, -9000, 0}, {350, true, 0, 1000}, {10, true, 0, 35000}, {123, false, 36000, 0}};
-  for (const auto& c : cases) {
-    const TurnRun r = runTurn(c.start, c.to, c.by, c.to_c);
+  const struct { double start; bool to; int32_t by; uint16_t to_c; uint8_t speed; } cases[] = {
+      {0, false, 9000, 0, 40},  {0, false, -9000, 0, 40}, {350, true, 0, 1000, 40}, {10, true, 0, 35000, 40},
+      {123, false, 36000, 0, 40}, {0, false, 1000, 0, 40}, {0, false, 18000, 0, 40}, {0, false, -72000, 0, 40},
+      {0, false, 9000, 0, 12},  {0, false, 9000, 0, 100}};
+  const uint32_t seeds[] = {1u, 7u, 99u};
+  for (const auto& c : cases) for (uint32_t seed : seeds) {
+    const TurnRun r = runTurn(c.start, c.to, c.by, c.to_c, c.speed, seed);
     TEST_ASSERT_TRUE(r.ended);
     TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDone), static_cast<int>(r.end.reason));
     TEST_ASSERT_TRUE(r.end.ok);
@@ -291,6 +297,167 @@ void test_rate_converges_in_model() {
   TEST_ASSERT_TRUE_MESSAGE(fabs(sum / n - 60.0) <= 6.0, "drive_rate mean not within 10 % of 60 deg/s after 1 s");
 }
 
+// Plan H review M2: a zero target clears the integral (no leftover w that makes the Uno's heading hold chatter).
+void test_rate_zero_target_clears_integral() {
+  RateLoop rl;
+  rl.reset();
+  for (int i = 0; i < 100; ++i) rl.step(600, 300, 20);  // 2 s short: integral built up
+  TEST_ASSERT_EQUAL_INT8(0, rl.step(0, 0, 20));
+}
+
+// ---------- Plan H review C1: reversing drive_rate ----------
+namespace {
+double rateRun(int8_t v, int16_t target_ddps, bool body_flips, EndReason* why, bool* ended) {
+  cqtest::TankModel tank(0);
+  tank.setCarFlip(body_flips);
+  MotionService svc;
+  int8_t w = 0, vv = 0;
+  double sum = 0;
+  int n = 0;
+  *ended = false;
+  for (uint32_t t = 20; t <= 3000 && !*ended; t += 20) {
+    if (t % 100 == 20) svc.driveRate(5, v, target_ddps, t);
+    tank.step(w, vv);
+    const MotionOut o = svc.onTelemetry(tank.reportedYawCdeg(), tank.reportedRateDdps(), t);
+    if (o.send) w = o.w, vv = o.v;
+    if (o.ended) *ended = true, *why = o.end.reason, w = o.w;
+    if (t >= 1000) sum += tank.rateDps(), ++n;
+  }
+  return n ? sum / n : 0.0;
+}
+}  // namespace
+
+void test_rate_reverse_converges() {  // the Uno honours src AUTO: no flip when reversing
+  EndReason why = EndReason::kDone;
+  bool ended = false;
+  const double mean = rateRun(-30, 300, false, &why, &ended);
+  TEST_ASSERT_FALSE(ended);
+  TEST_ASSERT_TRUE_MESSAGE(fabs(mean - 30.0) <= 3.0, "reversing drive_rate not within 10 % of 30 deg/s");
+}
+
+void test_rate_diverging_body_ends() {  // a body that flips anyway: guard ends it instead of a full-power spin
+  EndReason why = EndReason::kDone;
+  bool ended = false;
+  rateRun(-30, 300, true, &why, &ended);
+  TEST_ASSERT_TRUE(ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDiverged), static_cast<int>(why));
+}
+
+// ---------- Plan H review I1 / I2 / M3 / M4: MotionLink (service + owner + frames), with the real LinkOwner ----------
+namespace {
+constexpr int kFd = 21;
+struct Rig {
+  LinkOwner owner;
+  MotionLink ml{owner};
+  Rig() {
+    owner.onWsOpen(kFd);
+    owner.onSynced(true);
+    Actions a;
+    owner.onDrive(kFd, 0, a);  // the turn command took ownership
+    ml.service().startTurn(kFd, 0, 9000, 40, 1, 0);
+  }
+};
+}  // namespace
+
+void test_link_running_turn_sends_auto_drive() {
+  Rig r;
+  const LinkOut o = r.ml.onTelemetry(0, 0, 20);
+  TEST_ASSERT_TRUE(o.drive);
+  TEST_ASSERT_EQUAL_INT8(40, o.w);
+  TEST_ASSERT_FALSE(o.stop);
+  TEST_ASSERT_FALSE(o.event);
+}
+
+void test_link_release_ends_and_never_retakes() {
+  Rig r;
+  r.ml.onTelemetry(0, 0, 20);
+  r.owner.onRelease(kFd);  // release_control: the owner logic already sends the STOP
+  const LinkOut e = r.ml.onEvent(MotionEvent::kRelease, 30);
+  TEST_ASSERT_TRUE(e.event);
+  TEST_ASSERT_FALSE(e.drive);
+  TEST_ASSERT_FALSE(e.stop);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kCancelled), static_cast<int>(e.end.reason));
+  TEST_ASSERT_FALSE(r.ml.onTelemetry(0, 0, 40).drive);
+  TEST_ASSERT_EQUAL(static_cast<int>(LinkState::kWebReady), static_cast<int>(r.owner.state()));
+}
+
+void test_link_lost_owner_never_retakes_even_if_not_told() {  // robustness: a path that forgets the event
+  Rig r;
+  r.ml.onTelemetry(0, 0, 20);
+  r.owner.onRelease(kFd);
+  const LinkOut o = r.ml.onTelemetry(100, 0, 40);
+  TEST_ASSERT_TRUE(o.event);
+  TEST_ASSERT_FALSE(o.drive);
+  TEST_ASSERT_FALSE(o.stop);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kNotOwner), static_cast<int>(o.end.reason));
+  TEST_ASSERT_EQUAL(LinkOwner::kNoFd, r.owner.driverFd());
+}
+
+void test_link_ir_takeover_ends_without_frames() {
+  Rig r;
+  r.ml.onTelemetry(0, 0, 20);
+  r.owner.onUnoOwner(proto::Owner::kIr);
+  const LinkOut o = r.ml.onTelemetry(100, 0, 40);
+  TEST_ASSERT_TRUE(o.event);
+  TEST_ASSERT_FALSE(o.drive);
+  TEST_ASSERT_FALSE(o.stop);  // a bridge STOP would also stop the IR driver
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kNotOwner), static_cast<int>(o.end.reason));
+}
+
+void test_link_bench_after_release_ends_without_frames() {
+  Rig r;
+  r.owner.onRelease(kFd);
+  Actions a;
+  TEST_ASSERT_EQUAL(static_cast<int>(Admit::kAccept), static_cast<int>(r.owner.onTcpConnect(a)));
+  const LinkOut o = r.ml.onTelemetry(0, 0, 20);
+  TEST_ASSERT_TRUE(o.event);
+  TEST_ASSERT_FALSE(o.drive);
+  TEST_ASSERT_FALSE(o.stop);
+}
+
+void test_link_events_frames_policy() {
+  const struct { MotionEvent e; bool stop; EndReason why; } cases[] = {
+      {MotionEvent::kStop, false, EndReason::kStop},          {MotionEvent::kOwnerClosed, false, EndReason::kCancelled},
+      {MotionEvent::kOta, false, EndReason::kCancelled},      {MotionEvent::kBodyOffline, false, EndReason::kLink},
+      {MotionEvent::kOwnerCommand, false, EndReason::kCancelled}, {MotionEvent::kCancel, true, EndReason::kCancelled}};
+  for (const auto& c : cases) {
+    Rig r;
+    r.ml.onTelemetry(0, 0, 20);
+    const LinkOut o = r.ml.onEvent(c.e, 30);
+    TEST_ASSERT_TRUE(o.event);
+    TEST_ASSERT_FALSE(o.drive);
+    TEST_ASSERT_EQUAL(c.stop, o.stop);
+    TEST_ASSERT_EQUAL(static_cast<int>(c.why), static_cast<int>(o.end.reason));
+    TEST_ASSERT_FALSE(r.ml.service().active());
+    TEST_ASSERT_FALSE(r.ml.onEvent(c.e, 40).event);  // nothing left to end
+  }
+}
+
+void test_link_done_sends_stop_but_not_after_ir() {
+  Rig r;  // reaches the window and is done after 200 ms; the STOP goes out while still the owner
+  LinkOut o;
+  uint32_t t = 20;
+  while (!o.event && t < 2000) o = r.ml.onTelemetry(8990, 0, t += 20);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDone), static_cast<int>(o.end.reason));
+  TEST_ASSERT_TRUE(o.stop);
+  Rig r2;  // same, but IR took over just before the final frame (review M3): no bridge STOP
+  t = 20;
+  for (int i = 0; i < 10; ++i) r2.ml.onTelemetry(8990, 0, t += 20);
+  r2.owner.onUnoOwner(proto::Owner::kIr);
+  o = r2.ml.onTelemetry(8990, 0, t += 20);
+  TEST_ASSERT_TRUE(o.event);
+  TEST_ASSERT_FALSE(o.stop);
+}
+
+void test_link_telemetry_gap_stops_while_owner() {
+  Rig r;
+  r.ml.onTelemetry(0, 0, 20);
+  const LinkOut o = r.ml.tick(300);
+  TEST_ASSERT_TRUE(o.event);
+  TEST_ASSERT_TRUE(o.stop);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kLink), static_cast<int>(o.end.reason));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_router_lite_runs_turn_and_rate_locally);
@@ -307,6 +474,7 @@ int main() {
   RUN_TEST(test_rate_integral_grows_on_shortfall);
   RUN_TEST(test_rate_anti_windup_and_clamp);
   RUN_TEST(test_rate_sign_change_resets_integral);
+  RUN_TEST(test_rate_zero_target_clears_integral);
   RUN_TEST(test_service_turn_closed_loop);
   RUN_TEST(test_turn_every_end_sends_zero_then_stop);
   RUN_TEST(test_service_owner_loss_ends);
@@ -314,5 +482,15 @@ int main() {
   RUN_TEST(test_service_stuck_tank_ends_stalled);
   RUN_TEST(test_rate_deadman);
   RUN_TEST(test_rate_converges_in_model);
+  RUN_TEST(test_rate_reverse_converges);
+  RUN_TEST(test_rate_diverging_body_ends);
+  RUN_TEST(test_link_running_turn_sends_auto_drive);
+  RUN_TEST(test_link_release_ends_and_never_retakes);
+  RUN_TEST(test_link_lost_owner_never_retakes_even_if_not_told);
+  RUN_TEST(test_link_ir_takeover_ends_without_frames);
+  RUN_TEST(test_link_bench_after_release_ends_without_frames);
+  RUN_TEST(test_link_events_frames_policy);
+  RUN_TEST(test_link_done_sends_stop_but_not_after_ir);
+  RUN_TEST(test_link_telemetry_gap_stops_while_owner);
   return UNITY_END();
 }

@@ -205,6 +205,21 @@ void test_ota_allowed_only_when_nobody_drives() {
   TEST_ASSERT_FALSE(o.otaAllowed());
 }
 
+// Plan H review I1: the motion service keeps an existing owner alive but never takes ownership.
+void test_keep_driving_never_takes_ownership() {
+  readyWithA();
+  TEST_ASSERT_EQUAL(D(Decision::kNackNotOwner), D(o.keepDriving(kA, 100)));
+  TEST_ASSERT_EQUAL(S(LinkState::kWebReady), st());
+  TEST_ASSERT_EQUAL(LinkOwner::kNoFd, o.driverFd());
+  drivingA(100);
+  TEST_ASSERT_EQUAL(D(Decision::kSend), D(o.keepDriving(kA, 4000)));
+  TEST_ASSERT_EQUAL(0, o.tick(5100).bits);  // refreshed at 4000: no handback yet
+  o.onWsOpen(kB);
+  TEST_ASSERT_EQUAL(D(Decision::kNackNotOwner), D(o.keepDriving(kB, 4100)));
+  o.onUnoOwner(Owner::kIr);
+  TEST_ASSERT_EQUAL(D(Decision::kNackNotOwner), D(o.keepDriving(kA, 4200)));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_first_ws_starts_master);
@@ -213,6 +228,7 @@ int main() {
   RUN_TEST(test_other_phone_gets_not_owner);
   RUN_TEST(test_handback_after_5s_without_drive);
   RUN_TEST(test_release_control);
+  RUN_TEST(test_keep_driving_never_takes_ownership);
   RUN_TEST(test_driver_close_with_others_left_stops_and_keeps_master);
   RUN_TEST(test_last_ws_close_stops_and_goes_idle);
   RUN_TEST(test_stop_from_anyone_in_every_state);

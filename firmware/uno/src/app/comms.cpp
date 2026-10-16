@@ -82,6 +82,7 @@ bool sendRaw(uint8_t type) {
   const uint8_t total = g_app.writer.build(type, nullptr, 0, g_tx);
   if (port::link::txFree() < total) {
     g_app.writer.setSeq(g_app.writer.lastSeq());
+    ++g_app.parser.errors().tx_dropped;  // counted like sendMsg (Plan E deferred minor)
     return false;
   }
   return port::link::write(g_tx, total);

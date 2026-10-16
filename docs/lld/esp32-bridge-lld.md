@@ -737,7 +737,7 @@ Whole-branch review (60ec480..f275f7a): no critical, 5 important, 24 minor findi
 - **Camera lock synced:** `cam_lock` (rc or the page's lock) on `welcome` and on `ev body_online` (a rebooted Uno starts unlocked); a refused lock reverts the button.
 - **Range fault:** `tf` adds `"dist_fault":true` for a faulted sensor (spec 01 §6.1); the page shows red FAULT, never CLEAR.
 - Minor: BUSY wording (another driver vs "Tank busy - try again"); SNAP fetched as a blob and saved (a failed capture never leaves the page); WebSocket closed after 4 s of silence (reconnect); WiFi poll one at a time with a 5 s timeout, unknown RSSI amber; `cam_lock` needs `on`; audio modes from `proto::AudioModeValue`; sound list count `static_assert`ed against `proto::SoundId`; full-firmware `mix()` returns 0/0 instead of NaN when steering is cancelled at standstill; dead CSS/JS/ids removed; stale comments fixed.
-- Deferred (owner may revisit): splitting `handleWsText` / `parseWsCommand` (over 40 lines); per-viewer task stack allocated per connection (bounded by 2 viewers) instead of at start-up; drag-to-look mapping for the full firmware's camera ranges; ~7 % over-MAX near 20° stick angle; drag start from the servo position instead of its target.
+- Deferred (owner may revisit): splitting `handleWsText` / `parseWsCommand` (over 40 lines); per-viewer task stack allocated per connection (bounded by 2 viewers) instead of at start-up; drag-to-look mapping for the full firmware's camera ranges; ~7 % over-MAX near 20° stick angle; drag start from the servo position instead of its target. *(2026-10-16: all fixed except the full-firmware drag mapping — see R4.12.)*
 
 ```mermaid
 classDiagram
@@ -924,4 +924,16 @@ Measured moves are for the AI engine, Tank Logo and the hub; a human steers with
 - **Caps rule:** the welcome caps report `turn` / `drive_rate` as available only when the bridge runs them locally (body lacks the cap). `UNAVAILABLE` is the bridge reason 3003; for `drive_rate` it is reported once per stream. `drive_rate` shares the 25/s stream budget with `drive`.
 - **Rate loop:** the integral resets when the target rate is 0.
 - **Tests:** MotionLink cases (release, forgotten release, IR mid-primitive, bench after release, event frame policy, done before last frame, telemetry gap), reverse drive_rate converges with the car flip modelled, diverging body ends.
+
+### R4.12 Deferred small items cleared (2026-10-16, owner: "fix the small items")
+Branch `small-fixes` (on top of `plan-h-motion`). Fixed:
+- **Bridge:** `parseWsCommand` split into `readField` / `complete`; `handleWsText` split into one handler per command (behaviour unchanged, codec guard test added). Stream viewers: **two worker tasks created once at start-up** and fed through a queue (no task create / delete per connection) — to be checked on the tank (two phones, reconnects).
+- **Page:** a camera drag started while the head is still slewing begins from the page's last target, not the moving position.
+- **Uno (Lite and full):** stick distance by an **exact square root** (Lite: integer `isqrt16`; full: `sqrtf`) — the outer track never exceeds MAX (the old estimate `max + 3/8·min` was up to ~7 % over near 20°). Spec 02 §A4.1 and the Lite LLD updated.
+- **Uno (full):** a setting changed while a save runs stays dirty (`Settings::changes()` / `markSaved()`); DRIVE_RATE refused for an unusable IMU sends a REJECTED event.
+- **Uno Lite:** settings loaded from EEPROM are range-checked like `SETTING_SET` (out of range → defaults); `sendRaw` counts `tx_dropped` (also full); I2C `begin()` sets the PORTC pull-ups one bit at a time (atomic `SBI`), so the A0 buzzer's tone toggle is never lost.
+- **Smoke tool:** the termios2 fallback also sets the input speed (CIBAUD); `close()` sends its STOP even while paused.
+- Already done earlier (found while clearing): settings `loadBlock` buffer sized from the structs; WHO_AM_I accepts MPU-6500 / 9250.
+
+Still open (need hardware or a design decision): **drag-to-look for the full firmware's camera ranges** — the page cannot know the body's pan/tilt limits (HELLO has no profile or ranges; a protocol change to decide with the owner, low priority while the full firmware waits for its board); PCINT2 ISR duration and WS2812 timing — measure on hardware.
 

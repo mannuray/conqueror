@@ -93,6 +93,7 @@ enum class Source : uint8_t {
   kNone = 0,
   kHuman = 1,
   kAi = 2,
+  kAuto = 3,
 };
 
 enum class Owner : uint8_t {

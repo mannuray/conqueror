@@ -16,11 +16,12 @@ BAUD = 250000
 
 
 class Source(IntEnum):
-    """Who sent a network motion command (ESP32 already arbitrated human vs AI)."""
+    """Who sent a network motion command (ESP32 already arbitrated human vs AI). AUTO = the bridge's closed-loop motion service (TURN / DRIVE_RATE for a body without them): its w is a physical turn, never flipped by car-style reverse steering (spec 02 Part E, design-notes §39)."""
 
     NONE = 0
     HUMAN = 1
     AI = 2
+    AUTO = 3
 
 
 class Owner(IntEnum):
@@ -348,7 +349,7 @@ class EspAck(Message):
 
 @dataclass(slots=True)
 class Drive(Message):
-    """Streamed joystick drive (<= 20 Hz). w > 0 turns left (CCW)."""
+    """Streamed drive (phones <= 20 Hz; the bridge motion service 50 Hz). w > 0 turns left (CCW); with src AUTO the body never flips w when reversing."""
 
     TYPE: ClassVar[int] = 0x10
     DIR: ClassVar[str] = "esp32_to_uno"
@@ -693,7 +694,7 @@ class Ack(Message):
 
 @dataclass(slots=True)
 class TelemFast(Message):
-    """20 Hz motion telemetry."""
+    """50 Hz motion telemetry (spec 02 §E4)."""
 
     TYPE: ClassVar[int] = 0x90
     DIR: ClassVar[str] = "uno_to_esp32"

@@ -26,7 +26,7 @@
   type: 0x10
   dir: esp32_to_uno
   streaming: true
-  doc: Streamed joystick drive (<= 20 Hz). w > 0 turns left (CCW).
+  doc: "Streamed drive (phones <= 20 Hz; the bridge motion service 50 Hz). w > 0 turns left (CCW); with src AUTO the body never flips w when reversing."
   fields:
     - { name: src, type: u8, enum: Source }
     - { name: v, type: i8, unit: pct, range: [-100, 100] }
@@ -240,7 +240,7 @@
 - name: TELEM_FAST
   type: 0x90
   dir: uno_to_esp32
-  doc: 20 Hz motion telemetry.
+  doc: 50 Hz motion telemetry (spec 02 §E4).
   fields:
     - { name: uno_ms, type: u32, unit: ms }
     - { name: yaw, type: u16, unit: deg, scale: 0.01, range: [0, 35999], doc: CCW positive }

@@ -1,6 +1,6 @@
 - name: Source
-  doc: Who sent a network motion command (ESP32 already arbitrated human vs AI).
-  values: { NONE: 0, HUMAN: 1, AI: 2 }
+  doc: "Who sent a network motion command (ESP32 already arbitrated human vs AI). AUTO = the bridge's closed-loop motion service (TURN / DRIVE_RATE for a body without them): its w is a physical turn, never flipped by car-style reverse steering (spec 02 Part E, design-notes §39)."
+  values: { NONE: 0, HUMAN: 1, AI: 2, AUTO: 3 }
 - name: Owner
   doc: Motion owner as seen by the Uno.
   values: { NONE: 0, NETWORK: 1, IR: 2, CALIBRATION: 3 }

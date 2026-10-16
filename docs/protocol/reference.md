@@ -44,7 +44,7 @@ Payload 2 bytes max.
 
 ### 0x10 DRIVE (esp32_to_uno) — streaming
 
-Streamed joystick drive (<= 20 Hz). w > 0 turns left (CCW).
+Streamed drive (phones <= 20 Hz; the bridge motion service 50 Hz). w > 0 turns left (CCW); with src AUTO the body never flips w when reversing.
 
 Payload 3 bytes max.
 
@@ -331,7 +331,7 @@ Payload 2 bytes max.
 
 ### 0x90 TELEM_FAST (uno_to_esp32)
 
-20 Hz motion telemetry.
+50 Hz motion telemetry (spec 02 §E4).
 
 Payload 40 bytes max.
 
@@ -450,7 +450,7 @@ Payload 0 bytes max.
 
 ## Enums
 
-- **Source**: NONE=0, HUMAN=1, AI=2 — Who sent a network motion command (ESP32 already arbitrated human vs AI).
+- **Source**: NONE=0, HUMAN=1, AI=2, AUTO=3 — Who sent a network motion command (ESP32 already arbitrated human vs AI). AUTO = the bridge's closed-loop motion service (TURN / DRIVE_RATE for a body without them): its w is a physical turn, never flipped by car-style reverse steering (spec 02 Part E, design-notes §39).
 - **Owner**: NONE=0, NETWORK=1, IR=2, CALIBRATION=3 — Motion owner as seen by the Uno.
 - **OwnerHintValue**: NONE=0, HUMAN=1, AI=2 — Network owner sent to the Uno for the LED colour.
 - **TurnMode**: BY=0, TO=1 — TURN.mode bits 0-6; bit 7 = pivot.

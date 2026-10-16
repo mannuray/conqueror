@@ -22,7 +22,7 @@
 <tr><td>0x02</td><td>HELLO_ACK</td><td>ESP32&rarr;Uno</td><td>Sent after ENVELOPE is acknowledged; the Uno marks the link synced.</td></tr>
 <tr><td>0x03</td><td>HELLO_REQ</td><td>ESP32&rarr;Uno</td><td>Ask the Uno to re-send HELLO.</td></tr>
 <tr><td>0x04</td><td>ESP_ACK</td><td>ESP32&rarr;Uno</td><td>Acknowledges Uno-originated requests (WIFI_RESET_REQ, ADMIN_RESET_REQ).</td></tr>
-<tr><td>0x10</td><td>DRIVE</td><td>ESP32&rarr;Uno</td><td>streaming - Streamed joystick drive (&lt;= 20 Hz)</td></tr>
+<tr><td>0x10</td><td>DRIVE</td><td>ESP32&rarr;Uno</td><td>streaming - Streamed drive (phones &lt;= 20 Hz; the bridge motion service 50 Hz)</td></tr>
 <tr><td>0x11</td><td>DRIVE_RATE</td><td>ESP32&rarr;Uno</td><td>streaming - Streamed drive with closed-loop yaw rate.</td></tr>
 <tr><td>0x12</td><td>STOP</td><td>ESP32&rarr;Uno</td><td>ack - Immediate smooth stop; cancels primitives</td></tr>
 <tr><td>0x13</td><td>TURN</td><td>ESP32&rarr;Uno</td><td>ack - Gyro turn by/to an angle; radius 0 = spin in place.</td></tr>
@@ -48,7 +48,7 @@
 <tr><td>0x61</td><td>PROFILE</td><td>ESP32&rarr;Uno</td><td>ack</td></tr>
 <tr><td>0x80</td><td>HELLO</td><td>Uno&rarr;ESP32</td><td>Sent at boot every 500 ms until HELLO_ACK, and on HELLO_REQ.</td></tr>
 <tr><td>0x81</td><td>ACK</td><td>Uno&rarr;ESP32</td><td></td></tr>
-<tr><td>0x90</td><td>TELEM_FAST</td><td>Uno&rarr;ESP32</td><td>20 Hz motion telemetry.</td></tr>
+<tr><td>0x90</td><td>TELEM_FAST</td><td>Uno&rarr;ESP32</td><td>50 Hz motion telemetry (spec 02 §E4).</td></tr>
 <tr><td>0x91</td><td>TELEM_SLOW</td><td>Uno&rarr;ESP32</td><td>1 Hz health/status telemetry.</td></tr>
 <tr><td>0x92</td><td>EVENT</td><td>Uno&rarr;ESP32</td><td>Event kind from events.yaml with a/b packing.</td></tr>
 <tr><td>0x93</td><td>SETTING_VALUE</td><td>Uno&rarr;ESP32</td><td></td></tr>

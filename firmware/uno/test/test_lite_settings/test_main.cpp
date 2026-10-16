@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include <string.h>
 #include <unity.h>
 
@@ -71,6 +72,23 @@ void test_settings_garbage_eeprom_gives_defaults() {
   TEST_ASSERT_FALSE(s.load(rd));
 }
 
+// Plan E deferred minor: a CRC-valid block with an out-of-range value (e.g. a stop distance of 0 that
+// would switch off the obstacle brake) is not trusted: defaults are used, as for a bad CRC.
+void test_settings_out_of_range_block_gives_defaults() {
+  SettingsLite s;
+  s.defaults();
+  TEST_ASSERT_EQUAL_UINT8(SettingsLite::kBlockSize, s.encode(g_mem));
+  g_mem[3 + offsetof(LiteSettings, obstacle_stop)] = 0;  // below the 5 cm minimum
+  g_mem[3 + sizeof(LiteSettings)] = proto::crc8(g_mem + 2, static_cast<uint8_t>(sizeof(LiteSettings) + 1));
+  SettingsLite r;
+  TEST_ASSERT_FALSE(r.load(rd));
+  TEST_ASSERT_EQUAL_UINT8(15, r.values().obstacle_stop);
+  g_mem[3 + offsetof(LiteSettings, obstacle_stop)] = 20;  // in range: loaded
+  g_mem[3 + sizeof(LiteSettings)] = proto::crc8(g_mem + 2, static_cast<uint8_t>(sizeof(LiteSettings) + 1));
+  TEST_ASSERT_TRUE(r.load(rd));
+  TEST_ASSERT_EQUAL_UINT8(20, r.values().obstacle_stop);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_settings_defaults);
@@ -78,5 +96,6 @@ int main() {
   RUN_TEST(test_settings_unknown_id_is_unavailable);
   RUN_TEST(test_settings_round_trip_through_eeprom_block);
   RUN_TEST(test_settings_garbage_eeprom_gives_defaults);
+  RUN_TEST(test_settings_out_of_range_block_gives_defaults);
   return UNITY_END();
 }

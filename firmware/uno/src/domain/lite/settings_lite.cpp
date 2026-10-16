@@ -32,7 +32,18 @@ bool SettingsLite::load(uint8_t (*read)(uint16_t)) {
   buf[0] = sizeof(LiteSettings);
   for (uint8_t i = 0; i < sizeof(LiteSettings); ++i) buf[i + 1] = read(static_cast<uint16_t>(kAddr + 3 + i));
   if (proto::crc8(buf, sizeof buf) != read(static_cast<uint16_t>(kAddr + 3 + sizeof(LiteSettings)))) return false;
-  memcpy(&m_s, buf + 1, sizeof(LiteSettings));
+  // Plan E deferred minor: every loaded value passes the same range check as SETTING_SET, else defaults.
+  SettingsLite loaded;
+  memcpy(&loaded.m_s, buf + 1, sizeof(LiteSettings));
+  for (uint16_t id = 0; id < 256; ++id) {  // every id the Lite knows (no table: RAM is tight)
+    int32_t v = 0;
+    const uint8_t i8 = static_cast<uint8_t>(id);
+    if (loaded.get(i8, v) && set(i8, v) != proto::AckStatus::kOk) {
+      defaults();
+      return false;
+    }
+  }
+  m_s = loaded.m_s;
   return true;
 }
 

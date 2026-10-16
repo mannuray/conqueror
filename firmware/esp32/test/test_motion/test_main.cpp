@@ -76,27 +76,76 @@ void test_turn_latency_compensation_brakes_early() {
   TEST_ASSERT_EQUAL_INT8(-motion::kTurnWMin, s.w);
 }
 
-void test_turn_done_after_200ms_in_window() {
+namespace {
+// Arrive at `yaw` and stand still until the heading average sees it (the window needs < 15 °/s over 200 ms):
+// returns the time the window was entered (first w == 0).
+uint32_t settleAt(TurnController& tc, uint16_t yaw, uint32_t& t) {
+  for (int i = 0; i < 40; ++i) {
+    if (tc.step(yaw, 0, t += 20).w == 0) return t;
+  }
+  return 0;
+}
+}  // namespace
+
+void test_turn_done_after_hold_in_window() {
   TurnController tc;
   tc.begin(0, 9000, 40, 0);
-  uint32_t t = 20;
-  TurnStep s = tc.step(8950, 10, t);  // 0.5° off, 1 °/s: in the window
-  TEST_ASSERT_EQUAL_INT8(0, s.w);
-  TEST_ASSERT_FALSE(s.done);
-  for (int i = 0; i < 9; ++i) s = tc.step(8960, 0, t += 20);
-  TEST_ASSERT_FALSE(s.done);  // 180 ms
+  uint32_t t = 0;
+  const uint32_t entered = settleAt(tc, 8960, t);  // 0.4° off, still: enters the window
+  TEST_ASSERT_TRUE(entered > 0);
+  TurnStep s{};
+  while (t + 20 < entered + motion::kWindowHoldMs) {
+    s = tc.step(8960, 0, t += 20);
+    TEST_ASSERT_EQUAL_INT8(0, s.w);
+    TEST_ASSERT_FALSE(s.done);
+  }
   s = tc.step(8960, 0, t += 20);
-  TEST_ASSERT_TRUE(s.done);   // 200 ms
+  TEST_ASSERT_TRUE(s.done);   // hold reached
+}
+
+// Floor test 2026-10-16 (marble): on target the tank shook left-right (gyro +-55 °/s, heading +-1°); the momentary
+// rate kept it out of the window and the latency term turned the jerks into +-12 % corrections until the timeout.
+// Inside the window the command is 0 whatever the rate, and the turn ends after the hold.
+void test_turn_shaking_at_target_finishes_without_corrections() {
+  TurnController tc;
+  tc.begin(0, 9000, 40, 0);
+  TurnStep s{};
+  uint32_t t = 0;
+  bool done = false;
+  for (int i = 0; i < 60 && !done; ++i) {
+    const bool up = i % 2 == 0;
+    s = tc.step(up ? 8900 : 9050, up ? 550 : -550, t += 20);  // -1° / +0.5°, jerking +-55 °/s
+    if (t > motion::kAvgRateMs + 20) TEST_ASSERT_EQUAL_INT8(0, s.w);  // once the arrival left the average
+    done = s.done;
+  }
+  TEST_ASSERT_TRUE(done);
+  TEST_ASSERT_TRUE(t <= motion::kAvgRateMs + motion::kWindowHoldMs + 60);  // average settles, then the hold
+}
+
+// A real slow drift through the window (8 °/s) is not "done": it is still moving, and corrects once it leaves.
+void test_turn_slow_drift_is_not_done() {
+  TurnController tc;
+  tc.begin(0, 9000, 40, 0);
+  TurnStep s{};
+  uint32_t t = 0;
+  int32_t yaw = 8860;  // 1.4° short, drifting on at 8 °/s (16 cdeg per 20 ms)
+  while (yaw < 9260) {
+    s = tc.step(static_cast<uint16_t>(yaw), 80, t += 20);
+    TEST_ASSERT_FALSE(s.done);
+    yaw += 16;
+  }
+  s = tc.step(static_cast<uint16_t>(yaw), 80, t += 20);  // 2.7° past: out of the window
+  TEST_ASSERT_TRUE(s.w < 0);  // corrects back
 }
 
 void test_turn_window_hysteresis() {
   TurnController tc;
   tc.begin(0, 9000, 40, 0);
-  TurnStep s = tc.step(8900, 0, 20);  // 1° off: in
+  uint32_t t = 0;
+  TEST_ASSERT_TRUE(settleAt(tc, 8900, t) > 0);  // 1° off: in
+  TurnStep s = tc.step(8800, 0, t += 20);  // 2° off: still settling (exit band 2.5°)
   TEST_ASSERT_EQUAL_INT8(0, s.w);
-  s = tc.step(8800, 0, 40);  // 2° off: still settling (exit band 2.5°)
-  TEST_ASSERT_EQUAL_INT8(0, s.w);
-  s = tc.step(8700, 0, 60);  // 3° off: leaves the window, drives again
+  s = tc.step(8700, 0, t += 20);  // 3° off: leaves the window, drives again
   TEST_ASSERT_EQUAL_INT8(motion::kTurnWMin, s.w);
 }
 
@@ -466,7 +515,9 @@ int main() {
   RUN_TEST(test_turn_far_error_runs_at_speed_toward_target);
   RUN_TEST(test_turn_near_error_keeps_minimum);
   RUN_TEST(test_turn_latency_compensation_brakes_early);
-  RUN_TEST(test_turn_done_after_200ms_in_window);
+  RUN_TEST(test_turn_done_after_hold_in_window);
+  RUN_TEST(test_turn_shaking_at_target_finishes_without_corrections);
+  RUN_TEST(test_turn_slow_drift_is_not_done);
   RUN_TEST(test_turn_window_hysteresis);
   RUN_TEST(test_turn_stalled_and_timeout);
   RUN_TEST(test_turn_tracks_multi_turn);

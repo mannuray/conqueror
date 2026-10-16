@@ -11,10 +11,14 @@ namespace motion {
 constexpr int32_t kTurnKpPctPerDeg = 1;      // w = 1 % per degree still to go
 constexpr int8_t kTurnWMin = 12;             // % - smallest command that still turns
 constexpr int32_t kLatencyDdpsToCdeg = 8;    // e_p = e - rate * 80 ms  ->  rate_ddps * 8 / 10 (0.01°)
-constexpr int32_t kWindowInCdeg = 150;       // done window: |e| <= 1.5° ...
+// Target window by heading only (floor test 2026-10-16, LLD R4.16): inside it w = 0 whatever the gyro rate (a
+// shaking tank reads +-55 °/s on target), done once held with little net movement (rate averaged over the hold).
+constexpr int32_t kWindowInCdeg = 150;       // window: |e| <= 1.5° and the heading's own average rate over
+constexpr int16_t kWindowEnterRateDdps = 150;  // the last 200 ms < 15 °/s (not still sweeping through) ...
+constexpr uint32_t kAvgRateMs = 200;
 constexpr int32_t kWindowOutCdeg = 250;      // ... left again only beyond 2.5° (no hunting around the target)
-constexpr int16_t kWindowRateDdps = 50;      // ... and |rate| < 5 °/s
-constexpr uint32_t kWindowHoldMs = 200;      // ... for 200 ms
+constexpr uint32_t kWindowHoldMs = 300;      // done: in the window for 300 ms ...
+constexpr int32_t kSettleMoveCdeg = 200;     // ... moving < 2° over it (avg < 6.7 °/s), else the hold restarts
 constexpr int16_t kStallRateDdps = 20;       // stalled: |rate| < 2 °/s while commanding >= w_min ...
 constexpr uint32_t kStallMs = 1500;          // ... for 1.5 s
 constexpr uint32_t kTimeoutBaseMs = 3000;    // timeout = |angle| / 20 °/s + 3 s

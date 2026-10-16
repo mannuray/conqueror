@@ -963,3 +963,11 @@ So the radio, antenna and the rest of the bridge are fine and the running camera
 ### R4.15 Camera off for now (owner, 2026-10-16)
 Owner decision: run **without the camera** until the module is replaced; the camera comes back with the AI work, so video is not needed meanwhile. `board::kCameraEnabled = false`: the bridge never starts the camera (log `camera: disabled`); port 81 still serves `/source.tar.gz`, `/stream` and `/capture` answer 503 "camera unavailable", the page shows its no-video state, `welcome.caps.sensor` is `"none"`. To re-enable: set it to `true` (XCLK stays 10 MHz, R4.14).
 
+### R4.16 Turn settling on a slippery floor (Plan H Task 7 floor test, 2026-10-16, owner approved)
+Floor test on marble: `turn by 90` at speed 40 reached 90° in ~1.1 s (peak 120 °/s), then **shook left-right** for 6 s until the 7.5 s timeout. Cause: the done window required the *momentary* gyro rate < 5 °/s, which a jerking tank never shows (±55 °/s while the heading stayed within ±2°), and outside the window the latency term (e − rate · 80 ms) turned those jerks into a phantom ±4.4° error and ±12 % corrections — a limit cycle.
+Fix (`TurnController`):
+- **Enter** the window at |e| ≤ 1.5° only if the **heading's own average rate over the last 200 ms** is < 15 °/s (still sweeping through at speed → keep braking). The average comes from the unwrapped heading history (16 samples), so a shaking gyro averages out.
+- **Stay** while |e| ≤ 2.5°, by heading only; **inside, w = 0** — no corrections at all.
+- **Done** after **300 ms** in the window with **< 2°** net movement over it (average < 6.7 °/s); otherwise the hold restarts (a real drift is not "done" and corrects once it leaves the window).
+- Constants `kWindowEnterRateDdps` 150, `kAvgRateMs` 200, `kWindowHoldMs` 300, `kSettleMoveCdeg` 200 (`kWindowRateDdps` removed). Host tests: `test_turn_shaking_at_target_finishes_without_corrections` (RED before: −12 %), `test_turn_slow_drift_is_not_done`, the hold / hysteresis tests now arrive at a stand-still; the 30 closed-loop runs stay within 2°.
+

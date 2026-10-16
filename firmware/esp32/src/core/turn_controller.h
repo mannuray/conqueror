@@ -1,5 +1,5 @@
 // TURN (spin) on the bridge (bridge LLD R4.3): proportional to the angle still to go, latency-compensated, with a
-// minimum command, a done window with hysteresis, stall and timeout detection. Whole numbers only.
+// minimum command, a heading-only done window with hysteresis (w = 0 inside), stall and timeout. Whole numbers only.
 #pragma once
 
 #include <stdint.h>
@@ -26,7 +26,10 @@ class TurnController {
 
  private:
   int8_t command(int32_t error_cdeg, int16_t rate_ddps) const;
-  bool settling(int32_t error_cdeg, int16_t rate_ddps, uint32_t now_ms);
+  bool inWindow(int32_t error_cdeg, uint32_t now_ms);
+  void remember(uint32_t now_ms);
+  int32_t avgRateDdps(uint32_t now_ms) const;  // from the heading over ~kAvgRateMs (a shaking gyro averages out)
+  bool settled(uint32_t now_ms);
   bool stalledFor(int8_t w, int16_t rate_ddps, uint32_t now_ms);
 
   int32_t m_delta = 0;      // target, relative to the start (0.01°)
@@ -37,6 +40,12 @@ class TurnController {
   uint32_t m_timeout_ms = 0;
   bool m_in_window = false;
   uint32_t m_window_since = 0;
+  int32_t m_window_pos = 0;  // m_pos when the current hold began
+  static constexpr uint8_t kHist = 16;  // >= kAvgRateMs at 50 Hz
+  int32_t m_hist_pos[kHist] = {};
+  uint32_t m_hist_ms[kHist] = {};
+  uint8_t m_hist_n = 0;
+  uint8_t m_hist_head = 0;
   bool m_stalling = false;
   uint32_t m_stall_since = 0;
 };

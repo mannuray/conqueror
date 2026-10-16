@@ -380,7 +380,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     drawTape(m.yaw);
     var rate = turnRate(rateEma, m.yaw_rate);
     vit.rate = "TURN " + (rate === null ? "-" : (rate > 0 ? "+" : "") + rate + "°/s");
-    showCam(m.pan, m.tilt);
+    showCam(m.pan, m.tilt); camMoving = m.cam_moving === true;
     vit.spd = "SPEED " + Math.max(Math.abs(m.spd_cmd[0]), Math.abs(m.spd_cmd[1])) + "%";
     showVitals();
     if (m.dist_fault) {  // review I5: a faulted sensor is never shown as a clear path
@@ -424,7 +424,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     setPads();
   }
   // Camera position in the ring (R3.2): home = pan 90 / tilt 90; stick right = smaller pan, up = smaller tilt (§45).
-  var camPan = 90, camTilt = 90;  // last reported position: seeds a drag on the video (R3.4)
+  var camPan = 90, camTilt = 90, camMoving = false;  // last reported position: seeds a drag on the video (R3.4)
   function showCam(pan, tilt) {
     if (typeof pan !== "number" || typeof tilt !== "number") return;
     camPan = pan; camTilt = tilt;
@@ -762,11 +762,13 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   });
 
   // Drag on the video = look around (game style), RC mode only. Touches on controls never reach here.
-  var look = { id: null, sx: 0, sy: 0, bx: 0, by: 0, x: 0, y: 0, moved: false, timer: 0, lastTap: 0, tapX: 0, tapY: 0 };
+  var look = { id: null, sx: 0, sy: 0, bx: 0, by: 0, x: 0, y: 0, moved: false, timer: 0, lastTap: 0, tapX: 0, tapY: 0,
+              tx: 0, ty: 0, tAt: 0 };  // tx/ty: last target this page sent (tAt: when)
   function clamp100(v) { return Math.max(-100, Math.min(100, v)); }
   function sendLook() {
     if (ws && ws.bufferedAmount > 0) return;
     send({ t: "cam_joy", x: Math.round(look.x), y: Math.round(look.y), active: true });
+    look.tx = look.x; look.ty = look.y; look.tAt = Date.now();
   }
   function endLook(silent) {  // silent: control was lost / page released - send nothing
     if (look.id === null) return;
@@ -778,7 +780,11 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   document.addEventListener("pointerdown", function (ev) {
     if (!rc || !onVideo(ev) || !wsOpen || look.id !== null || $("camPad").classList.contains("ind")) return;
     look.id = ev.pointerId; look.sx = ev.clientX; look.sy = ev.clientY; look.moved = false;
-    look.bx = clamp100((90 - camPan) / 0.9); look.by = clamp100((90 - camTilt) / 0.9);  // Lite: 0.9° per unit
+    if (camMoving && Date.now() - look.tAt < 3000) {  // still slewing to our last target: start from the target
+      look.bx = look.tx; look.by = look.ty;
+    } else {
+      look.bx = clamp100((90 - camPan) / 0.9); look.by = clamp100((90 - camTilt) / 0.9);  // Lite: 0.9° per unit
+    }
     look.x = look.bx; look.y = look.by;
     ev.preventDefault();
   });
@@ -799,6 +805,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       if (!tap || t === "pointercancel") return;
       if (now - look.lastTap < 300 && Math.abs(ev.clientX - look.tapX) < 30 && Math.abs(ev.clientY - look.tapY) < 30) {
         send({ t: "cam_home", id: nextId++ });  // double-tap = straight ahead
+        look.tx = 0; look.ty = 0; look.tAt = Date.now();
         look.lastTap = 0;
       } else {
         look.lastTap = now; look.tapX = ev.clientX; look.tapY = ev.clientY;

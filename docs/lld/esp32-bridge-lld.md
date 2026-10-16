@@ -954,3 +954,9 @@ Symptom (from 2026-10-15, with the same main firmware that had worked): station 
 
 So the radio, antenna and the rest of the bridge are fine and the running camera interferes; 10 MHz only reduces it. The same camera worked at 20 MHz until 2026-10-15, so a **physical cause is most likely** (camera module / ribbon moved, damaged or touching the module) — to inspect; why it started now is not proven (ribbon cable moved nearer the antenna, or the router's auto channel now on 6 where a 20 MHz harmonic, 2440 MHz, sits mid-channel). Fix: `board::kCamXclkHz` = **10 MHz**. Cost: fewer frames per second from the sensor (to measure; 16 MHz is the fallback if it is too slow). Also route the camera ribbon away from the module's antenna end.
 
+**R4.14 follow-up (same day, more runs).** Results vary strongly from one boot to the next with the *same* firmware, so single runs mislead:
+- **Camera not running: clean every time** (5 boots: test sketch at 19.5 / 15 dBm, bridge with the camera not started ×2, mode cycle "off" while the link was good).
+- **Camera running: bad on most boots, clean on some** — at 10 MHz and 20 MHz, QVGA / VGA / SVGA, frames in PSRAM or DRAM, continuous or capture-on-request; a bad state can outlast stopping the camera by ~40 s.
+- Bridge variants (no Uno link task, no TCP poll, UART without task, 10 ms link tick) were each good on one boot and bad on another — **none is proven**; the "link task" lead is withdrawn.
+- Conclusion: the running camera is the trigger and the strength of its effect changes between boots — an electrical / RF coupling problem on the board or camera (module, ribbon, power), not a firmware feature. Options for the owner: replacement camera module or ribbon, shielding / ferrite / routing, an external-antenna board; in firmware, run the camera only while someone watches (sensor powered down otherwise) so control never depends on it.
+

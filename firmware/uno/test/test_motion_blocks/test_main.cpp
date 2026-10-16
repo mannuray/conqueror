@@ -1,3 +1,5 @@
+#include <math.h>
+#include <stdio.h>
 #include <unity.h>
 
 #include "domain/motion/battery_comp.h"
@@ -84,8 +86,8 @@ void test_mixer_gyro_correction_not_scaled_by_authority() {
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 70.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 90.0f, r);
   mix(80.0f, 10.0f, 0.0f, cfg, l, r);  // driver steering 10 % at 80 %: angle mix (§A4.1)
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, 71.96f, l);
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, 83.75f, r);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 69.27f, l);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 80.62f, r);  // outer = stick distance |(80, 10)|
 }
 
 // design-notes §39: w into the mixer is a physical turn (CCW +) - also in reverse. A gyro heading
@@ -110,15 +112,15 @@ void test_mixer_pivot_fallback() {
   mix(100.0f, 30.0f, 0.0f, pivot, l, r);  // angle mix (§A4.1): inner 70.75 above keep, unchanged
   TEST_ASSERT_FLOAT_WITHIN(0.01f, 70.75f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 100.0f, r);
-  mix(30.0f, 25.0f, 0.0f, pivot, l, r);  // inner 16.7 % < keep 20 % → 0: pivot on the left track
+  mix(30.0f, 25.0f, 0.0f, pivot, l, r);  // inner 16.6 % < keep 20 % → 0: pivot on the left track
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, l);
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, 39.375f, r);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 39.05f, r);
   mix(0.0f, 10.0f, 0.0f, pivot, l, r);  // spin in place has no inner track
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, -10.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 10.0f, r);
   const MixerConfig off{100, false, 20.0f};
   mix(30.0f, 25.0f, 0.0f, off, l, r);
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, 16.69f, l);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 16.55f, l);
 }
 
 // Spec 02 §A4.1 (owner 2026-10-15): stick steering by angle; pure axes and corrections keep the old mix.
@@ -126,11 +128,11 @@ void test_mixer_angle_45_forward_arc_and_reverse() {
   const MixerConfig cfg{40, false, 0.0f};
   float l = 0, r = 0;
   mix(70.71f, 70.71f, 0.0f, cfg, l, r);
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, 35.61f, l);
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, 97.23f, r);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 36.63f, l);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, r);
   mix(-70.71f, 70.71f, 0.0f, cfg, l, r);  // reversing: both tracks backwards
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, -97.23f, l);
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, -35.61f, r);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, -100.0f, l);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, -36.63f, r);
 }
 
 // Review M23: driver steering cancelled exactly by a correction at standstill must give 0/0, never NaN.
@@ -140,6 +142,20 @@ void test_mixer_angle_zero_input_is_stop() {
   mix(0.0f, 10.0f, -10.0f, cfg, l, r);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, l);
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, r);
+}
+
+// Deferred minor (bridge LLD R3.11): outer track = the stick distance, never above MAX (old "big + 0.375 small"
+// was ~7 % over near 20°). Full stick at MAX 60 %, every angle 1..90°.
+void test_mixer_angle_never_over_max() {
+  const MixerConfig cfg{40, false, 0.0f};
+  for (int deg = 1; deg <= 90; ++deg) {
+    const float th = static_cast<float>(deg) * 3.14159265f / 180.0f;
+    float l = 0, r = 0;
+    mix(60.0f * cosf(th), 60.0f * sinf(th), 0.0f, cfg, l, r);
+    char msg[16];
+    snprintf(msg, sizeof(msg), "deg %d", deg);
+    TEST_ASSERT_FLOAT_WITHIN_MESSAGE(0.01f, 60.0f, l > r ? l : r, msg);
+  }
 }
 
 void test_mixer_ir_axes_and_correction_unchanged() {
@@ -226,6 +242,7 @@ int main() {
   RUN_TEST(test_mixer_angle_45_forward_arc_and_reverse);
   RUN_TEST(test_mixer_ir_axes_and_correction_unchanged);
   RUN_TEST(test_mixer_angle_zero_input_is_stop);
+  RUN_TEST(test_mixer_angle_never_over_max);
   RUN_TEST(test_envelope_caps_targets);
   RUN_TEST(test_obstacle_slow_zone_scales_forward_only);
   RUN_TEST(test_degraded_caps);

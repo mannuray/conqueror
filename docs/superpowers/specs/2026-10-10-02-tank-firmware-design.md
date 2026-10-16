@@ -95,7 +95,7 @@ Control logic (controllers, safety rules, arbitration, codec) is hardware-indepe
 
 ### A4.1 Stick mixing by angle (owner, 2026-10-15; UX hub-ux.md "Drive stick")
 The old arcade mix (L = v − w, R = v + w, speed given up to keep the turn) ran the inner track backwards from about 35° of stick angle, so a 45° push spun the tank. New rule for the **driver's steering** (`w_steer ≠ 0`) in both firmwares; straight driving with the gyro correction (`w_steer = 0`), turn primitives and rate loops keep the old mix unchanged:
-- magnitude m = min(100, max(|v|,|w|) + 3/8 · min(|v|,|w|)) (stick distance, whole numbers);
+- magnitude m = min(100, √(v² + w²)) (stick distance; the Uno Lite uses an integer square root, whole numbers — the earlier estimate max + 3/8·min was up to ~7 % over MAX near 20°);
 - sideways share t = |w| / (|v| + |w|) (0 straight … 1 sideways; 45° = 0.5);
 - inner/outer ratio r = 1 − t / 0.789 up to t = 0.789 (75°, inner track stopped), then falls to −1 at t = 1 (spin only within ±15° of sideways);
 - outer track = m, inner = r · m; forward: the turn side's track is inner; reversing: mirrored so both tracks run backwards (car-style steering unchanged).

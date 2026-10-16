@@ -284,7 +284,7 @@ Tests: `test_cam_held_jog_rate` (IR up → tilt angle falls), `test_joy_is_absol
 flowchart TD
   A[v, w_steer, w_ctrl] --> B{w_steer == 0?}
   B -- yes --> C[old arcade mix: L = v − w_ctrl, R = v + w_ctrl, speed given up for the turn]
-  B -- no --> D["m = min(100, max + 3/8·min)"]
+  B -- no --> D["m = min(100, isqrt(v² + w²))"]
   D --> E["t‰ = |w|·1000 / (|v|+|w|)"]
   E --> F{"t ≤ 789?"}
   F -- yes --> G["r‰ = 1000 − t·1000/789"]

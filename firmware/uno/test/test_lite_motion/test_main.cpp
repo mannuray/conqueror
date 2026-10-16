@@ -1,3 +1,5 @@
+#include <math.h>
+#include <stdio.h>
 #include <unity.h>
 
 #include "domain/lite/gyro_zero_lite.h"
@@ -197,8 +199,8 @@ void test_mix_steering_scaled_gyro_not() {
   TEST_ASSERT_EQUAL_INT16(70, t.l);
   TEST_ASSERT_EQUAL_INT16(90, t.r);
   t = mixLite(80, 10, 0, 40);  // driver 10 % at 80 %: angle mix (spec 02 §A4.1), turn_full no longer scales it
-  TEST_ASSERT_EQUAL_INT16(71, t.l);
-  TEST_ASSERT_EQUAL_INT16(83, t.r);
+  TEST_ASSERT_EQUAL_INT16(68, t.l);
+  TEST_ASSERT_EQUAL_INT16(80, t.r);  // outer = stick distance |(80, 10)| = 80
 }
 
 void test_mix_turning_priority() {  // §A4.1: a steering push keeps both tracks forward, outer at the stick magnitude
@@ -210,14 +212,14 @@ void test_mix_turning_priority() {  // §A4.1: a steering push keeps both tracks
 // Spec 02 §A4.1 (owner 2026-10-15): stick steering by angle.
 void test_angle_mix_45_is_forward_arc() {
   Tracks t = mixLite(71, 71, 0, 100);  // up-left 45°: forward arc, inner (left) slower, never backwards
-  TEST_ASSERT_EQUAL_INT16(35, t.l);
-  TEST_ASSERT_EQUAL_INT16(97, t.r);
+  TEST_ASSERT_EQUAL_INT16(36, t.l);
+  TEST_ASSERT_EQUAL_INT16(100, t.r);
   t = mixLite(71, -71, 0, 100);        // up-right
-  TEST_ASSERT_EQUAL_INT16(97, t.l);
-  TEST_ASSERT_EQUAL_INT16(35, t.r);
+  TEST_ASSERT_EQUAL_INT16(100, t.l);
+  TEST_ASSERT_EQUAL_INT16(36, t.r);
   t = mixLite(35, 35, 0, 100);         // half push: same shape, slower
   TEST_ASSERT_EQUAL_INT16(17, t.l);
-  TEST_ASSERT_EQUAL_INT16(48, t.r);
+  TEST_ASSERT_EQUAL_INT16(49, t.r);
 }
 
 void test_angle_mix_spin_only_near_sideways() {
@@ -226,16 +228,32 @@ void test_angle_mix_spin_only_near_sideways() {
   TEST_ASSERT_EQUAL_INT16(100, t.r);
   t = mixLite(17, 98, 0, 100);         // 80°: spin starting
   TEST_ASSERT_EQUAL_INT16(-29, t.l);
-  TEST_ASSERT_EQUAL_INT16(100, t.r);
+  TEST_ASSERT_EQUAL_INT16(99, t.r);
   t = mixLite(0, 100, 0, 100);         // 90°: spin on the spot
   TEST_ASSERT_EQUAL_INT16(-100, t.l);
   TEST_ASSERT_EQUAL_INT16(100, t.r);
 }
 
+// Deferred minor (bridge LLD R3.11): the outer track follows the stick distance, never above MAX (old estimate
+// "big + 3/8 small" was ~7 % over near 20°). Full stick at MAX 60 %, every angle 1..90°.
+void test_angle_mix_never_over_max() {
+  for (int deg = 1; deg <= 90; ++deg) {
+    const double th = deg * 3.14159265358979 / 180.0;
+    const int8_t v = static_cast<int8_t>(lround(60.0 * cos(th)));
+    const int8_t w = static_cast<int8_t>(lround(60.0 * sin(th)));
+    if (w == 0) continue;
+    const Tracks t = mixLite(v, w, 0, 100);
+    const int16_t outer = t.l > t.r ? t.l : t.r;
+    char msg[16];
+    snprintf(msg, sizeof(msg), "deg %d", deg);
+    TEST_ASSERT_TRUE_MESSAGE(outer <= 61 && outer >= 59, msg);
+  }
+}
+
 void test_angle_mix_reverse_both_tracks_back() {
   const Tracks t = mixLite(-71, 71, 0, 100);  // reversing 45°: both tracks backwards (old mix: one forward)
-  TEST_ASSERT_EQUAL_INT16(-97, t.l);
-  TEST_ASSERT_EQUAL_INT16(-35, t.r);
+  TEST_ASSERT_EQUAL_INT16(-100, t.l);
+  TEST_ASSERT_EQUAL_INT16(-36, t.r);
 }
 
 void test_ir_axes_unchanged() {  // IR sends pure axes: identical tracks to the old mix
@@ -329,6 +347,7 @@ int main() {
   RUN_TEST(test_mix_turning_priority);
   RUN_TEST(test_angle_mix_45_is_forward_arc);
   RUN_TEST(test_angle_mix_spin_only_near_sideways);
+  RUN_TEST(test_angle_mix_never_over_max);
   RUN_TEST(test_angle_mix_reverse_both_tracks_back);
   RUN_TEST(test_ir_axes_unchanged);
   RUN_TEST(test_straight_with_correction_unchanged);

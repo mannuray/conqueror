@@ -1,5 +1,7 @@
 #include "domain/motion/mixer.h"
 
+#include <math.h>
+
 #include "domain/util/math_util.h"
 
 namespace cq {
@@ -10,7 +12,7 @@ namespace {
 // sideways (spin only within ±15° of sideways). Reversing mirrors it. Pure axes give the old arcade mix.
 void angleMix(float v, float w, float& l_pct, float& r_pct) {
   const float a = absf(v), b = absf(w);
-  const float m = clampf((a > b ? a : b) + 0.375f * (a > b ? b : a), 0.0f, 100.0f);
+  const float m = clampf(sqrtf(a * a + b * b), 0.0f, 100.0f);  // the stick distance, exactly
   if (a + b <= 0.0f) {  // review M23: steering cancelled by a correction at standstill → stop, never NaN
     l_pct = r_pct = 0.0f;
     return;

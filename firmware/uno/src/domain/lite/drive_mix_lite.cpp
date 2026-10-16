@@ -6,13 +6,26 @@ namespace {
 int16_t absI(int16_t v) { return v < 0 ? static_cast<int16_t>(-v) : v; }
 int16_t clampI(int16_t v, int16_t lo, int16_t hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
+// floor(sqrt(n)) for n < 2^16 (bit by bit, no floats): the stick distance |(v, w)| exactly.
+uint16_t isqrt16(uint16_t n) {
+  uint16_t r = 0;
+  for (uint16_t bit = 1u << 14; bit != 0; bit >>= 2) {
+    if (n >= r + bit) {
+      n = static_cast<uint16_t>(n - (r + bit));
+      r = static_cast<uint16_t>((r >> 1) + bit);
+    } else {
+      r >>= 1;
+    }
+  }
+  return r;
+}
+
 // Spec 02 §A4.1: the driver's steering by stick angle. Stick distance m sets the outer track; the sideways
 // share t (‰) slows the inner track: 1000‰ straight, 0 at 75° (t = 789, pivot), -1000‰ fully sideways (spin
 // only within ±15° of sideways). Reversing mirrors it so both tracks run backwards. Pure axes give the old mix.
 Tracks angleMixLite(int16_t v, int16_t w) {
   const int16_t a = absI(v), b = absI(w);
-  const int16_t big = a > b ? a : b, small = a > b ? b : a;
-  const int16_t m = clampI(static_cast<int16_t>(big + small * 3 / 8), 0, 100);
+  const int16_t m = clampI(static_cast<int16_t>(isqrt16(static_cast<uint16_t>(a * a + b * b))), 0, 100);
   const int16_t t = static_cast<int16_t>(static_cast<int32_t>(b) * 1000 / (a + b));  // b != 0 here
   constexpr int16_t kPivotT = 789;  // tan(75°) / (1 + tan(75°))
   const int16_t r = t <= kPivotT ? static_cast<int16_t>(1000 - static_cast<int32_t>(t) * 1000 / kPivotT)

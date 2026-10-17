@@ -12,7 +12,7 @@
 namespace cq {
 namespace proto {
 
-constexpr uint8_t kProtocolVersion = 2;
+constexpr uint8_t kProtocolVersion = 3;
 constexpr uint8_t kSync = 0xAA;
 constexpr uint8_t kMaxPayload = 48;
 constexpr uint32_t kBaud = 250000UL;

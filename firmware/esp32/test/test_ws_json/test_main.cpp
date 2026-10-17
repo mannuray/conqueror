@@ -134,7 +134,7 @@ void test_welcome_and_pong() {
   jsonWelcome(buf, sizeof(buf), WelcomeInfo{"bridge-v0.2.0", &h, "OV3660", kNone, "phone-1"});
   TEST_ASSERT_EQUAL_STRING(
       "{\"t\":\"welcome\",\"role\":\"human\",\"you\":\"phone-1\",\"tank\":{\"name\":"
-      "\"conqueror-bridge\",\"fw\":{\"esp32\":\"bridge-v0.2.0\",\"uno\":\"1.0\"},\"proto\":2,"
+      "\"conqueror-bridge\",\"fw\":{\"esp32\":\"bridge-v0.2.0\",\"uno\":\"1.0\"},\"proto\":3,"
       "\"caps\":{\"encoders\":false,\"turn\":true,\"move\":false,\"drive_rate\":true,\"calibrate\":false,"
       "\"audio_led\":false,\"sensor\":\"OV3660\"}},\"owner\":\"none\",\"owner_client\":"
       "\"\"}",

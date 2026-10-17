@@ -1,4 +1,6 @@
-protocol_version: 2
+# 3 (2026-10-16): DRIVE src AUTO = 3 (bridge motion service) changes how the Uno mixes a DRIVE - a body that does
+# not know AUTO would car-flip a reversing drive_rate, so new bridge + old Uno must not sync (final review minor 14).
+protocol_version: 3
 sync: 0xAA
 max_payload: 48
 crc_poly: 0x07

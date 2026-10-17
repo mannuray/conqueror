@@ -9,7 +9,7 @@ from typing import ClassVar
 
 from .wire import ErrorInfo, FieldSpec, Message, SettingInfo
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 SYNC = 0xAA
 MAX_PAYLOAD = 48
 BAUD = 250000

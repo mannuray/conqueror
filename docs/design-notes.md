@@ -1148,3 +1148,10 @@ After mounting the encoder motors, every command ran backwards (forward → back
 ## 62. Encoder features approved (owner, 2026-10-17)
 Spec 02 Part F approved with: straight driving by **encoders plus gyro** (encoder distance sync inner, gyro heading hold outer); on a stall **stop both tracks** until the driver commands again; heading-hold runaway guard **30° / 0.5 s**, no motion until STOP or a new command; **phase 1 = Uno** (F1.1 straight sync, F1.2 speed-based stall, F1.3 runaway guard, F1.4 plain mix for src AUTO) as one plan, **phase 2 = ESP32** (MOVE, arcs, minimum drive_rate command, calibration) as a second plan, phase 3 pose / go-to / gyro tuning. Next: Uno Lite LLD section for phase 1.
 
+## 63. Plan I floor results so far (2026-10-17)
+Uno `d4994e0f` / bridge `f9068cc`, encoders on, marble floor.
+- **Straight, 40 % × 8 s (two runs, recorded over WiFi with `td_record.py`):** no events; heading change −0.8° / −0.4°; encoder counts L/R 12 028 / 12 174 (1.2 %) and 11 973 / 12 213 (2.0 %). Owner measured **160 cm (63 in) travelled, 2.5 cm (1 in) drift to the left** (≈ 0.9°, matching the gyro). → **~75.6 counts / cm, ~12.7 cm per wheel turn** (for phase 2 MOVE). The remaining drift is heading capture / gyro zero: **gyro tuning** (owner: after the encoder plan).
+- **Held track, 25 %:** first run missed a stuck left track while the heading hold flipped its PWM → fixed (stall time adds up, LLD §19.6). Then right held: `stall` right, left held: `stall` left — **both tracks cut and held while the stick stayed on, STOP freed them**. A held track keeps slipping at ~40 % of its expected speed, so at 15 % it took 3–4.5 s → **owner: threshold 30 %** (`kSlowPct`).
+- The heading hold reverses the free track when one is held (pivoting the tank) until the stall trips — to revisit in gyro tuning.
+- **Deferred (owner):** the unplugged-encoder fault test — needs the tank opened; do it next time it is open.
+

@@ -123,10 +123,18 @@ void test_stall_held_track_trips_in_half_a_second() {
   TEST_ASSERT_EQUAL_INT8(1, side);
 }
 
+// Owner 2026-10-17: threshold 30 % of the expected speed (a held, slipping track ran at ~40 % and took 3-4 s at 15 %).
 void test_stall_slow_but_moving_is_not_stall() {
   StallGuardLite g;
   int8_t side = -1;
-  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(run(g, drive(130, 130, 969, 200, -5), 2000, side)));
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(run(g, drive(130, 130, 969, 340, -5), 2000, side)));  // 35 %
+}
+
+void test_stall_slipping_track_at_25_pct_trips() {
+  StallGuardLite g;
+  int8_t side = -1;
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kStall), R(run(g, drive(130, 130, 969, 242, -20), 600, side)));
+  TEST_ASSERT_EQUAL_INT8(1, side);
 }
 
 void test_stall_dead_encoder_while_straight_is_fault() {
@@ -244,6 +252,7 @@ int main() {
   RUN_TEST(test_sync_rebases_after_inactive);
   RUN_TEST(test_stall_held_track_trips_in_half_a_second);
   RUN_TEST(test_stall_slow_but_moving_is_not_stall);
+  RUN_TEST(test_stall_slipping_track_at_25_pct_trips);
   RUN_TEST(test_stall_dead_encoder_while_straight_is_fault);
   RUN_TEST(test_stall_below_keep_is_not_driven);
   RUN_TEST(test_stall_disabled_does_nothing);

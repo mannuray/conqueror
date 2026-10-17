@@ -11,13 +11,15 @@ class RollLearner {
  public:
   void begin(int32_t counts_at_stop, uint32_t now_ms);
   // One TELEM_FAST while watching: true when a reading is ready in `mm` (then watching stops). Driven again in the
-  // window or a reading outside 0..kRollMaxMm -> no reading, watching stops.
+  // window (a non-zero PWM after it had dropped to 0 - frames sent before the STOP arrived still show the old PWM)
+  // or a reading outside 0..kRollMaxMm -> no reading, watching stops.
   bool observe(int32_t counts, bool driven, uint16_t cpm, uint32_t now_ms, int32_t& mm);
   bool watching() const { return m_on; }
   void cancel() { m_on = false; }
 
  private:
   bool m_on = false;
+  bool m_zero_seen = false;  // the PWM has dropped to 0 since the STOP
   int32_t m_stop = 0;
   int32_t m_last = 0;
   uint32_t m_start_ms = 0;

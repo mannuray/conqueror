@@ -7,6 +7,7 @@ namespace core {
 
 void RollLearner::begin(int32_t counts_at_stop, uint32_t now_ms) {
   m_on = true;
+  m_zero_seen = false;
   m_stop = counts_at_stop;
   m_last = counts_at_stop;
   m_start_ms = now_ms;
@@ -15,7 +16,9 @@ void RollLearner::begin(int32_t counts_at_stop, uint32_t now_ms) {
 
 bool RollLearner::observe(int32_t counts, bool driven, uint16_t cpm, uint32_t now_ms, int32_t& mm) {
   if (!m_on) return false;
-  if (driven) {  // someone drives again: the counts are no longer roll-on
+  if (!driven) {
+    m_zero_seen = true;
+  } else if (m_zero_seen) {  // someone drives again: the counts are no longer roll-on
     m_on = false;
     return false;
   }

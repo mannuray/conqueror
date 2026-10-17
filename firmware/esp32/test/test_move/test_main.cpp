@@ -297,8 +297,9 @@ void test_roll_learner_gives_up_and_discards() {
   for (uint32_t t = 20; t <= motion::kRollWindowMs && !ready; t += 20) ready = rl.observe(static_cast<int32_t>(t / 4), false, kCpm, t, mm);
   TEST_ASSERT_TRUE(ready);
   TEST_ASSERT_EQUAL_INT32(19, mm);  // 150 counts
-  rl.begin(0, 0);  // driven again in the window: no reading
-  TEST_ASSERT_FALSE(rl.observe(30, true, kCpm, 20, mm));
+  rl.begin(0, 0);  // driven again in the window (after the PWM was 0): no reading
+  TEST_ASSERT_FALSE(rl.observe(10, false, kCpm, 20, mm));
+  TEST_ASSERT_FALSE(rl.observe(30, true, kCpm, 40, mm));
   TEST_ASSERT_FALSE(rl.watching());
   rl.begin(0, 0);  // more than 80 mm: no reading
   ready = false;
@@ -312,6 +313,24 @@ void test_roll_average() {
   TEST_ASSERT_EQUAL_UINT16(26, rollAverage(25, 28));  // (75 + 28 + 2) / 4 = 26
   TEST_ASSERT_EQUAL_UINT16(19, rollAverage(25, 0));   // (75 + 0 + 2) / 4 = 19
   TEST_ASSERT_EQUAL_UINT16(39, rollAverage(25, 80));
+}
+
+
+void test_roll_learner_ignores_frames_still_in_flight() {  // floor 2026-10-17: TELEM_FAST sent before the STOP arrived
+  RollLearner rl;
+  rl.begin(0, 0);
+  int32_t mm = 0;
+  TEST_ASSERT_FALSE(rl.observe(20, true, kCpm, 20, mm));  // the old PWM is still reported ...
+  TEST_ASSERT_FALSE(rl.observe(40, true, kCpm, 40, mm));
+  TEST_ASSERT_TRUE(rl.watching());                         // ... not "driven again"
+  bool ready = false;
+  for (uint32_t t = 60; t <= 400 && !ready; t += 20) ready = rl.observe(t < 200 ? 50 + static_cast<int32_t>(t) : 250, false, kCpm, t, mm);
+  TEST_ASSERT_TRUE(ready);
+  TEST_ASSERT_EQUAL_INT32(33, mm);  // 250 counts
+  rl.begin(0, 0);  // after the PWM was 0, a driven frame is a new drive: no reading
+  TEST_ASSERT_FALSE(rl.observe(10, false, kCpm, 20, mm));
+  TEST_ASSERT_FALSE(rl.observe(20, true, kCpm, 40, mm));
+  TEST_ASSERT_FALSE(rl.watching());
 }
 
 int main() {
@@ -333,5 +352,6 @@ int main() {
   RUN_TEST(test_roll_learner_settles_and_measures);
   RUN_TEST(test_roll_learner_gives_up_and_discards);
   RUN_TEST(test_roll_average);
+  RUN_TEST(test_roll_learner_ignores_frames_still_in_flight);
   return UNITY_END();
 }

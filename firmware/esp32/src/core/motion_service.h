@@ -1,6 +1,6 @@
 // Bridge motion service (spec 02 §E3, bridge LLD R4 / R7 / R8): runs one TURN, DRIVE_RATE, MOVE (Plan K), arc or
-// pivot (Plan L) for one WebSocket client on a body that cannot (Uno Lite). Driven by each TELEM_FAST (50 Hz); its output is an ordinary DRIVE {v, w}, so
-// every Uno safety rule applies. Every end returns w = 0 (the caller then sends DRIVE 0/0 and STOP).
+// pivot (Plan L) for one WebSocket client on a body that cannot (Uno Lite). Driven by each TELEM_FAST (50 Hz); its
+// output is an ordinary DRIVE {v, w}, so every Uno safety rule applies. Every end returns w = 0 (the caller then sends DRIVE 0/0 and STOP).
 #pragma once
 
 #include <stdint.h>
@@ -67,6 +67,8 @@ class MotionService {
   PrimKind kind() const { return m_kind; }
   int ownerFd() const { return m_fd; }
   uint8_t progressPct() const;
+  bool limited() const { return m_kind == PrimKind::kRate && m_rate_limited; }  // Plan L: spin clamped to 65 °/s
+  int16_t rateTargetDdps() const { return m_rate_target; }
 
  private:
   MotionOut finish(EndReason why);
@@ -85,6 +87,7 @@ class MotionService {
   ArcController m_arc;
   int8_t m_rate_v = 0;
   int16_t m_rate_target = 0;
+  bool m_rate_limited = false;
   uint32_t m_rate_update_ms = 0;
   bool m_wrong_way = false;  // C1 guard: saturated with the measured rate opposite to the target ...
   uint32_t m_wrong_since = 0;  // ... since

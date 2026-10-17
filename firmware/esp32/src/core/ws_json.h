@@ -37,6 +37,7 @@ struct PrimitiveView {
   bool active = false;
   PrimKind kind = PrimKind::kNone;
   uint8_t pct = 0;
+  bool limited = false;  // Plan L: drive_rate clamped to the slowest smooth spin
 };
 
 size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s, PrimitiveView prim = PrimitiveView{});

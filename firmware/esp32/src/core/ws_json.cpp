@@ -151,10 +151,10 @@ size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s, Primit
   char dist[12] = "null";  // 65535 clear, 65534 sensor fault (+ "dist_fault":true so the page never shows CLEAR)
   if (f.dist_mm < 65534) snprintf(dist, sizeof(dist), "%u", (f.dist_mm + 5u) / 10u);
   const bool cam_moving = bit(f.flags, static_cast<unsigned>(proto::FastFlagBit::kCamMoving));
-  char progress[48] = "";
+  char progress[64] = "";
   if (prim.active) {
-    snprintf(progress, sizeof(progress), ",\"primitive\":{\"kind\":\"%s\",\"pct\":%u}", primName(prim.kind),
-             static_cast<unsigned>(prim.pct));
+    snprintf(progress, sizeof(progress), ",\"primitive\":{\"kind\":\"%s\",\"pct\":%u%s}", primName(prim.kind),
+             static_cast<unsigned>(prim.pct), prim.limited ? ",\"limited\":true" : "");
   }
   return fmt(out, cap,
              "{\"t\":\"tf\",\"seq\":%lu,\"tank_ms\":%lu,\"yaw\":%.2f,\"yaw_rate\":%.1f,\"pitch\":%.2f,\"roll\":%.2f,"

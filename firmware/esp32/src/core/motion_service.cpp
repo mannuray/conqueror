@@ -24,6 +24,10 @@ void MotionService::driveRate(int fd, int8_t v, int16_t rate_ddps, uint32_t now_
     m_rate_stalling = false;
     m_last_telem_ms = now_ms;
   }
+  // Plan L (spec 02 §H6): a spin slower than 65 °/s cannot run smoothly - clamp it and say so.
+  const int16_t mag = rate_ddps < 0 ? static_cast<int16_t>(-rate_ddps) : rate_ddps;
+  m_rate_limited = v == 0 && mag > 0 && mag < motion::kSpinMinDdps;
+  if (m_rate_limited) rate_ddps = rate_ddps < 0 ? static_cast<int16_t>(-motion::kSpinMinDdps) : motion::kSpinMinDdps;
   m_rate_v = v;
   m_rate_target = rate_ddps;
   m_rate_update_ms = now_ms;

@@ -392,6 +392,15 @@ void test_tf_move_progress_and_calib_reply() {
   TEST_ASSERT_EQUAL_STRING("{\"t\":\"calib\",\"counts_per_m\":7480,\"roll_mm\":25}", buf);
 }
 
+void test_tf_primitive_limited() {
+  TankSnapshot s;
+  s.fast_valid = true;
+  jsonTf(buf, sizeof(buf), 1, s, PrimitiveView{true, PrimKind::kRate, 0, true});
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"primitive\":{\"kind\":\"rate\",\"pct\":0,\"limited\":true}"));
+  jsonTf(buf, sizeof(buf), 1, s, PrimitiveView{true, PrimKind::kTurn, 42, false});
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"primitive\":{\"kind\":\"turn\",\"pct\":42}"));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ack_reason_table_matches_generated_codes);
@@ -415,5 +424,6 @@ int main() {
   RUN_TEST(test_ts_encoder_fault_flag);
   RUN_TEST(test_primitive_done_move_with_moved_cm);
   RUN_TEST(test_tf_move_progress_and_calib_reply);
+  RUN_TEST(test_tf_primitive_limited);
   return UNITY_END();
 }

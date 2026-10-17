@@ -343,7 +343,7 @@ void test_rate_converges_in_model() {
   double sum = 0;
   int n = 0;
   for (uint32_t t = 20; t <= 3000; t += 20) {
-    if (t % 100 == 20) svc.driveRate(5, 0, 600, t);  // the phone streams 60 °/s at 10 Hz
+    if (t % 100 == 20) svc.driveRate(5, 0, 800, t);  // the phone streams 80 °/s at 10 Hz (above the 65 °/s floor, Plan L)
     tank.step(w);
     const MotionOut o = svc.onTelemetry(tank.reportedYawCdeg(), tank.reportedRateDdps(), t);
     if (o.send) w = o.w;
@@ -352,7 +352,7 @@ void test_rate_converges_in_model() {
       ++n;
     }
   }
-  TEST_ASSERT_TRUE_MESSAGE(fabs(sum / n - 60.0) <= 6.0, "drive_rate mean not within 10 % of 60 deg/s after 1 s");
+  TEST_ASSERT_TRUE_MESSAGE(fabs(sum / n - 80.0) <= 8.0, "drive_rate mean not within 10 % of 80 deg/s after 1 s");
 }
 
 // Plan H review M2: a zero target clears the integral (no leftover w that makes the Uno's heading hold chatter).
@@ -761,6 +761,20 @@ void test_link_uno_stall_ends_an_arc_not_a_pivot() {
   }
 }
 
+// Plan L (spec 02 §H6): a spinning drive_rate is never slower than the slowest smooth spin.
+void test_rate_clamp_to_minimum_spin() {  // Review Focus 5
+  const struct { int8_t v; int16_t asked; int16_t got; bool limited; } cases[] = {
+      {0, 50, motion::kSpinMinDdps, true},   {0, -50, -motion::kSpinMinDdps, true}, {0, -10, -motion::kSpinMinDdps, true},
+      {0, 0, 0, false},                       {0, 800, 800, false},                  {0, motion::kSpinMinDdps, motion::kSpinMinDdps, false},
+      {30, 50, 50, false}};
+  for (const auto& c : cases) {
+    MotionService svc;
+    svc.driveRate(3, c.v, c.asked, 0);
+    TEST_ASSERT_EQUAL_INT16(c.got, svc.rateTargetDdps());
+    TEST_ASSERT_EQUAL(c.limited, svc.limited());
+  }
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_router_lite_runs_turn_and_rate_locally);
@@ -812,5 +826,6 @@ int main() {
   RUN_TEST(test_service_pivot_speed_floor);
   RUN_TEST(test_service_arc_runs_and_cancels);
   RUN_TEST(test_link_uno_stall_ends_an_arc_not_a_pivot);
+  RUN_TEST(test_rate_clamp_to_minimum_spin);
   return UNITY_END();
 }

@@ -2,6 +2,7 @@
 #include <unity.h>
 
 #include "domain/lite/motion_latch_lite.h"
+#include "domain/lite/stall_guard_lite.h"
 #include "domain/lite/track_sync_lite.h"
 
 using namespace cq;
@@ -96,6 +97,66 @@ void test_sync_rebases_after_inactive() {
   TEST_ASSERT_EQUAL_INT16(40, t.r);
 }
 
+// ---------- StallGuardLite ----------
+namespace {
+StallGuardLite::Inputs drive(int16_t pl, int16_t pr, uint16_t cl, uint16_t cr, int16_t yaw = 0) {
+  return StallGuardLite::Inputs{pl, pr, 90, 90, cl, cr, yaw, true};
+}
+// expected cps at pwm 130, keep 90: 4000 * 40 / 165 = 969; 15 % = 145
+StallGuardLite::Result run(StallGuardLite& g, const StallGuardLite::Inputs& in, uint32_t ms, int8_t& side) {
+  StallGuardLite::Result r = StallGuardLite::Result::kNone;
+  for (uint32_t t = 0; t <= ms && r == StallGuardLite::Result::kNone; t += 20) r = g.update(in, t, side);
+  return r;
+}
+int R(StallGuardLite::Result r) { return static_cast<int>(r); }
+}  // namespace
+
+void test_stall_held_track_trips_in_half_a_second() {
+  StallGuardLite g;
+  int8_t side = -1;
+  // right held: creeping at 40 counts/s (< 145), tank turning toward it (yaw -25 °/s)
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(g.update(drive(130, 130, 969, 40, -25), 0, side)));
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(g.update(drive(130, 130, 969, 40, -25), 480, side)));
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kStall), R(g.update(drive(130, 130, 969, 40, -25), 500, side)));
+  TEST_ASSERT_EQUAL_INT8(1, side);
+}
+
+void test_stall_slow_but_moving_is_not_stall() {
+  StallGuardLite g;
+  int8_t side = -1;
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(run(g, drive(130, 130, 969, 200, -5), 2000, side)));
+}
+
+void test_stall_dead_encoder_while_straight_is_fault() {
+  StallGuardLite g;
+  int8_t side = -1;
+  // left reads 0 while the tank drives straight (right moving, no yaw): broken encoder, not a stall
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kFault), R(run(g, drive(130, 130, 0, 969, 0), 600, side)));
+  TEST_ASSERT_EQUAL_INT8(0, side);
+  TEST_ASSERT_TRUE(g.faulted(0));
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(run(g, drive(130, 130, 0, 969, 0), 600, side)));  // once
+}
+
+void test_stall_below_keep_is_not_driven() {
+  StallGuardLite g;
+  int8_t side = -1;
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(run(g, drive(100, 100, 0, 0, 0), 2000, side)));
+}
+
+void test_stall_disabled_does_nothing() {
+  StallGuardLite g;
+  int8_t side = -1;
+  StallGuardLite::Inputs in = drive(130, 130, 0, 0, 0);
+  in.enabled = false;
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(run(g, in, 2000, side)));
+}
+
+void test_stall_both_held_is_stall() {
+  StallGuardLite g;
+  int8_t side = -1;
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kStall), R(run(g, drive(130, 130, 0, 0, 0), 600, side)));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_latch_trips_and_masks_both_tracks);
@@ -107,5 +168,11 @@ int main() {
   RUN_TEST(test_sync_clamped);
   RUN_TEST(test_sync_inactive_when_disabled);
   RUN_TEST(test_sync_rebases_after_inactive);
+  RUN_TEST(test_stall_held_track_trips_in_half_a_second);
+  RUN_TEST(test_stall_slow_but_moving_is_not_stall);
+  RUN_TEST(test_stall_dead_encoder_while_straight_is_fault);
+  RUN_TEST(test_stall_below_keep_is_not_driven);
+  RUN_TEST(test_stall_disabled_does_nothing);
+  RUN_TEST(test_stall_both_held_is_stall);
   return UNITY_END();
 }

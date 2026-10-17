@@ -1158,3 +1158,19 @@ Uno `d4994e0f` / bridge `f9068cc`, encoders on, marble floor.
 - **Runaway guard (F1.3), wrong-direction test build, forward 25 %:** full-power spin; **`heading_fault` cut both tracks ~0.5 s after the error passed 30°** (≈ −100°, coasted to −110°). **Found:** after the STOP the motors ran again at −249 / 249 for 0.3 s — the ramps kept their full-spin targets while the latch cut the output and ramped down from them on release. **Fixed** (ramps + heading hold reset while latched); re-test: after the STOP the PWM stayed 0 / 0.
 - **Normal build `7b11e8a7`** (correct directions, stall 30 %, ramp fix): forward 25 % × 10 s straight, PWM ~125 / 130, counts equal. The faster 30 % held-track trip was not re-run (owner: skip; covered by `test_stall_slipping_track_at_25_pct_trips`).
 
+## 64. Encoders-only straight runs: the tank is mechanically biased right (owner experiment, 2026-10-17)
+Question (owner): with both tracks turning exactly the same amount, does the tank go straight? Method: heading hold gains set to 0 in RAM over the bench port (`pid_heading_kp`, `pid_rate_kp`; restored to 3500 / 1200 after each run, never saved), only the encoder sync (§F1.1) active; 40 % × 8 s on marble, recorded with `td_record.py`, owner measured the drift.
+
+| Run | Counts L / R | End heading | Heading through the run (25 / 50 / 75 / 100 %) | Drift (owner) |
+|---|---|---|---|---|
+| 1 | 12 521 / 12 555 | −6.4° | — | — |
+| 2 | 12 500 / 12 556 | −3.9° | — | 1 cm right (168 cm) |
+| 3 | 12 487 / 12 521 | −3.6° | +0.7 / +1.6 / −0.8 / −3.4 | ≈ same, right |
+| 4 | 12 537 / 12 581 | −5.3° | −0.4 / −2.6 / −4.4 / −5.3 | 3 cm right |
+| 5 | 12 585 / 12 602 | −6.8° | −0.1 / −2.2 / −4.8 / −6.8 | 5 cm right |
+| gyro on (§63) | 12 028 / 12 174 | −0.8° / −0.4° | — | 2.5 cm **left** (160 cm) |
+
+- Equal track turns (0.1–0.3 %) still curve **right 4–7° per ~1.6 m** — a repeatable mechanical bias (the left track carries the tank further per turn: tension, sprocket or grip). The encoders cannot see it (they count turns, not ground distance).
+- The gyro hold keeps the heading within 1° but settles slightly off (2.5 cm left): zero offset / heading captured after the start.
+- **Next (proposed):** a left/right **balance factor** learned from encoder runs (cancels the steady right bias at the source) plus **gyro tuning** (zero recalibration, capture the heading at the start, gain), each change checked with the tape and the recorder; target ≤ 1 cm per 1.6 m.
+

@@ -130,6 +130,7 @@ body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 
 .vitals i { color: var(--dim); font-style: normal; margin: 0 6px; }
 .banner { top: 52px; left: 50%; transform: translateX(-50%); max-width: 66vw; padding: 7px 12px; border-radius: 7px; text-align: center;
   background: rgba(10, 4, 4, .85); display: none; }
+.banner.centre { top: 50%; transform: translate(-50%, -50%); padding: 4px 12px; white-space: nowrap; max-width: none; z-index: 5; }
 .banner.show { display: block; } .banner.warn { border: 1px solid var(--warn); color: var(--warn); } .banner.bad { border: 1px solid var(--danger); color: var(--danger); box-shadow: 0 0 10px rgba(255, 59, 48, .35); }
 .sheet { left: 50%; bottom: 82px; transform: translateX(-50%); width: min(470px, 66vw); max-height: 52vh; overflow: auto; padding: 10px; display: none; z-index: 4; background: rgba(6, 14, 8, .94); }
 .sheet.show { display: block; }
@@ -219,6 +220,8 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 
   // ---------- WebSocket ----------
   function send(obj) {
+    // Bridge LLD R6: the driver's STOP or drive 0/0 is exactly what frees the Uno's stall / fault latch.
+    if (latchAt && (obj.t === "stop" || (obj.t === "drive" && obj.v === 0 && obj.w === 0))) clearLatch();
     if (ws && wsOpen) { ws.send(JSON.stringify(obj)); return true; }
     return false;
   }
@@ -382,6 +385,10 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     vit.rate = "TURN " + (rate === null ? "-" : (rate > 0 ? "+" : "") + rate + "°/s");
     showCam(m.pan, m.tilt); camMoving = m.cam_moving === true;
     vit.spd = "SPEED " + Math.max(Math.abs(m.spd_cmd[0]), Math.abs(m.spd_cmd[1])) + "%";
+    if (latchAt) {  // backup: the tank drives again, or 10 s passed for a phone that is not driving
+      var age = Date.now() - latchAt, moving = m.spd_cmd[0] !== 0 || m.spd_cmd[1] !== 0;
+      if ((moving && age > 1000) || (driveTimer === 0 && age > 10000)) clearLatch();
+    }
     showVitals();
     if (m.dist_fault) {  // review I5: a faulted sensor is never shown as a clear path
       rangeView = new RangeView();
@@ -420,6 +427,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     if (offline) banner("bad", "Tank body offline - check the Uno and the S1 switch");
     // The Uno hears nothing from the ESP32 although its telemetry arrives: S1 is in the upload position.
     else if (m.flags.indexOf("link_lost") >= 0) banner("bad", "Uno can't hear the ESP32 - check switch S1");
+    else if (latchAt) banner("bad", latchText, true);  // a stall / fault stop stays up until the driver releases
     else if (bannerKind === "bad") banner("", "");
     setPads();
   }
@@ -455,6 +463,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     else if (m.kind === "ir_override") toast("IR remote took control");
     else if (m.kind === "body_online") resyncLock(ownerClient);  // a rebooted Uno starts unlocked (review I4)
     else if (m.kind === "batt_critical") toast("Battery critical " + m.v.toFixed(2) + " V");
+    else if (m.kind === "stall" || m.kind === "encoder_fault" || m.kind === "heading_fault") showLatch(m);
     else if (m.kind === "body_offline" && m.reason === "BODY_INCOMPATIBLE")
       banner("bad", "Uno protocol " + m.uno_proto + " - flash a matching body firmware (needs " + m.need_proto + ")");
   }
@@ -484,11 +493,27 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     }
   }
 
+  // Bridge LLD R6 / spec 02 §F1: the Uno stopped both tracks (stall, encoder fault, steering runaway) and keeps them
+  // stopped until the driver releases the stick or presses STOP - say so until then.
+  var latchAt = 0, latchText = "";
+  function showLatch(m) {
+    var side = m.side === "left" ? "left" : "right";
+    var text = m.kind === "stall" ? "Stopped: " + side + " track stuck - release to drive"
+      : m.kind === "encoder_fault" ? "Stopped: " + side + " encoder fault - check its wire"
+      : "Stopped: steering ran away - check motor wiring";
+    latchAt = Date.now(); latchText = text;
+    banner("bad", text, true);  // middle of the screen: the driver is looking at the video, not the top bar
+    if (navigator.vibrate) navigator.vibrate(200);
+  }
+  function clearLatch() {
+    latchAt = 0;
+    if (bannerKind === "bad") banner("", "");
+  }
   var bannerKind = "", bannerTimer = 0;
-  function banner(kind, text) {
+  function banner(kind, text, mid) {
     var b = $("banner");
     bannerKind = kind;
-    b.className = "ov banner" + (kind ? " show " + kind : "");
+    b.className = "ov banner" + (kind ? " show " + kind : "") + (mid ? " centre" : "");
     b.textContent = text;
     clearTimeout(bannerTimer);
     if (kind === "warn") bannerTimer = setTimeout(function () { banner("", ""); }, 3000);

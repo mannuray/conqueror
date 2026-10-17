@@ -1112,3 +1112,149 @@ An encoder fault stays until the Uno restarts (kept by design — owner: "keep r
 - **Bridge:** `jsonTs` adds `"encoder_fault"` to `ts.flags` while `TELEM_FAST.flags` bit `kEncoderFault` is set (test `test_ts_encoder_fault_flag`). No Uno or protocol change.
 - **Page:** while that flag is in `ts`, a small amber line under the heading tape: `Right encoder off - restart the tank to re-arm` (side taken from the `encoder_fault` event if this page saw it, else `Encoder off - …`). It does not use the banner slot, so it stays visible after the red stop banner clears; it goes when the flag goes (restart).
 - Checked in the local browser (fake WebSocket): note without / with side, stays after STOP, clears when the flag goes. **On the tank (bridge `9038193`, stand): dead-stopped track → red fault banner → amber note stayed after release → gone after a restart — "working" (owner).**
+
+---
+
+## Revision 7 — MOVE by distance + counts-per-cm calibration (Plan K; spec 02 Part G, design-notes §68)
+
+### R7.0 Scope
+Bridge only: the motion service gains a third primitive, `move`, run as `DRIVE {src AUTO, v, w = 0}` on every `TELEM_FAST`; `counts_per_m` lives in NVS with a `calib` WebSocket command; `tools/smoke/move.py` drives and calibrates. No Uno, body-frame or protocol-version change. Existing behaviour of `turn` / `drive_rate` unchanged (their tests stay green).
+
+### R7.1 WebSocket API
+- `{"t":"move","dist_cm":n,"speed"?:p,"id"?}` — `dist_cm` integer, 1 ≤ |n| ≤ 500; `speed` integer 10…100, default 40; any `heading` key → `INVALID_COMMAND` ("heading not supported"). Parsed into `WsCmdKind::kMove`, `WsCommand.move_cm` (int16), `WsCommand.speed`. Motion command: dropped behind a STOP like `turn` (`isMotion`).
+- `{"t":"calib","counts_per_m"?:n,"id"?}` → `WsCmdKind::kCalib`, `has_cpm`, `cpm` (uint16). Without the field: reply `{"t":"calib","counts_per_m":n}` to that client (any role). With it: 3000…15000 else `INVALID_COMMAND`; sender must be the driver (`LinkOwner::driverFd()`) else `NOT_OWNER`; a running primitive → `BUSY`; saved → ack + the same `calib` reply.
+- `primitive_done` gains `"prim":"move"`, reasons `"blocked"`, `"encoder_fault"`, and for moves `"moved_cm":x.x` (one decimal, counted at the end). `tf.primitive.kind = "move"` with its pct.
+- `welcome.tank.caps.move` = body has `kMove` (forwarded, later) **or** (body has `kEncoders` and not `kMove`) — the motion service runs it.
+
+### R7.2 Classes
+```mermaid
+classDiagram
+  class MotionTelem {
+    +uint16_t yaw_cdeg
+    +int16_t rate_ddps
+    +int32_t enc_l
+    +int32_t enc_r
+    +uint32_t flags  %% TELEM_FAST FastFlagBit
+  }
+  class MoveController {
+    +begin(int32_t enc_l, int32_t enc_r, int16_t dist_cm, uint8_t speed, uint16_t cpm, uint32_t now)
+    +step(MotionTelem t, uint32_t now) MoveStep
+    +progressPct() uint8_t
+    +movedMm() int32_t
+    -int32_t m_start_l, m_start_r, m_target  %% counts, > 0
+    -int8_t m_dir  %% +1 / -1
+    -int32_t m_done  %% counts travelled (direction-signed)
+    -int32_t m_last_progress, uint32_t m_progress_ms
+    -uint32_t m_blocked_since, m_deadline
+  }
+  class MoveStep {
+    +int8_t v
+    +bool done
+    +bool stalled
+    +bool blocked
+    +bool timeout
+  }
+  class MotionService {
+    +startMove(int fd, MotionTelem t, int16_t cm, uint8_t speed, uint16_t cpm, int32_t id, uint32_t now)
+    +onTelemetry(MotionTelem t, uint32_t now) MotionOut
+    +cancel(EndReason) MotionOut
+    -stepMove(MotionTelem, uint32_t) MotionOut
+  }
+  class PrimitiveEnd {
+    +PrimKind kind  %% + kMove
+    +EndReason reason  %% + kBlocked, kEncoderFault
+    +bool has_moved
+    +int32_t moved_mm
+  }
+  class MotionLink {
+    +onTelemetry(MotionTelem t, uint32_t now) LinkOut
+    +onEvent(MotionEvent e, uint32_t now) LinkOut  %% + kBodyStall, kBodyEncoderFault
+  }
+  class CountsPerM {
+    <<namespace motion>>
+    +kCpmDefault = 7560
+    +kCpmMin = 3000
+    +kCpmMax = 15000
+    +validCpm(uint32_t) bool
+  }
+  class MotionStore {
+    <<net, Preferences "cq_motion">>
+    +load() uint16_t  %% default when missing / out of range
+    +save(uint16_t cpm) bool
+  }
+  MotionService --> MoveController
+  MotionService ..> MoveStep
+  MotionLink --> MotionService
+  MotionService ..> PrimitiveEnd
+  MotionStore ..> CountsPerM
+```
+- `MotionTelem` replaces the `(yaw, rate)` arguments of `MotionService::onTelemetry` / `MotionLink::onTelemetry` (turn and rate use only yaw / rate).
+- `routeMove(caps)`: `kMove` → Forward; `kEncoders` → **Local**; else Unavailable (was: Unavailable without kMove).
+- Tuning constants in `motion_config.h`: `kMoveSlowCm = 10`, `kMoveCrawlPct = 15`, `kMoveSpeedMin = 10`, `kMoveSpeedDefault = 40`, `kMoveMaxCm = 500`, `kMoveStallMs = 1500`, `kMoveStallCm = 1`, `kMoveBlockedMs = 2000`, `kMoveTimeoutCmPerS = 5`, `kMoveTimeoutBaseMs = 3000`.
+
+### R7.3 MoveController behaviour
+- `begin`: target = |cm| × cpm / 100 counts (≥ 1); dir = sign(cm); deadline = now + |cm| × 1000 / 5 + 3000 ms; progress reference = 0 at now.
+- `step`: travelled = dir × ((enc_l − start_l) + (enc_r − start_r)) / 2.
+  - travelled ≥ target → `done` (v 0).
+  - remaining = target − travelled; slow zone = kMoveSlowCm × cpm / 100 counts; |v| = remaining ≥ slow ? speed : crawl + (speed − crawl) × remaining / slow (integer, never below crawl; speed < crawl → speed). v = dir × |v|.
+  - progress: travelled grew by ≥ kMoveStallCm since the reference → new reference (now); else now − reference ≥ 1.5 s → `stalled`.
+  - `blocked` flag (FastFlagBit::kBlocked) continuously for ≥ 2 s → `blocked` (its time also restarts the progress reference, so an obstacle ends as `blocked`, not `stalled`).
+  - now ≥ deadline → `timeout`.
+- `progressPct` = min(100, travelled × 100 / target), 0 while travelled < 0; `movedMm` = travelled × 1000 / cpm.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Cruise : startMove
+  Cruise --> SlowDown : remaining < 10 cm
+  Cruise --> SlowDown : move shorter than 10 cm (from the start)
+  SlowDown --> Done : travelled >= target
+  Cruise --> Ended : stalled / blocked / timeout / Uno stall / encoder_fault / cancel / stop / not_owner / link
+  SlowDown --> Ended : same ends
+  Done --> [*] : DRIVE 0/0 + STOP, primitive_done ok
+  Ended --> [*] : STOP (while owner), primitive_done reason
+```
+
+### R7.4 Uno events during a move
+`handleLinkEvents`: EVENT `stall` → `MotionEvent::kBodyStall`, `encoder_fault` → `kBodyEncoderFault`. `MotionLink::onEvent` ends a running **move** with `stalled` / `encoder_fault` **and a STOP while the client is still the owner** (the Uno has already stopped both tracks; the STOP ends the primitive cleanly). For turn / rate these events change nothing (they keep their own stall checks — unchanged behaviour).
+
+### R7.5 Sequence
+```mermaid
+sequenceDiagram
+  participant T as move.py
+  participant L as LinkTask
+  participant S as MotionService / MoveController
+  participant U as Uno
+  T->>L: {"t":"move","dist_cm":100,"speed":40,"id":7}
+  L->>L: route Local, encoders ok, onDrive(fd) = Send
+  L->>S: startMove(fd, telem, 100, 40, cpm, 7)
+  L-->>T: ack 7
+  loop every TELEM_FAST (20 ms)
+    U->>L: TELEM_FAST (enc, flags)
+    L->>S: onTelemetry
+    S-->>L: DRIVE v (40 -> crawl in the last 10 cm), w 0
+    L->>U: DRIVE src AUTO
+  end
+  S-->>L: ended done, moved_mm
+  L->>U: STOP
+  L-->>T: primitive_done prim move ok moved_cm
+  T->>L: debug td (0.5 s later: counts after roll-on)
+```
+
+### R7.6 Link task wiring
+- `handleMove(fd, id, c, now)` (pattern of `handleTurn`): OTA → BUSY; `routeMove` ≠ Local → UNAVAILABLE; body offline / no telemetry → BODY_OFFLINE; `TELEM_FAST.flags` `kEncoderFault` → UNAVAILABLE; `onDrive` ≠ Send → its nack; end the old primitive (`kOwnerCommand`); `startMove(…, g_cpm, …)`; ack.
+- `handleCalib(fd, id, c)`: as R7.1; `MotionStore::save` then `g_cpm = n`. `g_cpm` loaded once at boot (`MotionStore::load`).
+- `runMotion(g_motion.onTelemetry(MotionTelem{…from snap.fast…}, now), now)`; `progressPct` / `PrimitiveView` include move.
+
+### R7.7 Tool `tools/smoke/move.py`
+Python 3.12, typed, ruff + pyright strict; uses `bridge_echo.WsClient` like `td_record.py`.
+- `move.py CM [--speed P] [--host H]`: hello → debug on (10 Hz) → `move` → waits for `primitive_done` (prints reason, `moved_cm`) → 0.5 s → last `td` counts → prints counted / after-roll cm (with the bridge's `counts_per_m`, read by `calib`) and heading change → release.
+- `move.py --calibrate [--speed P]`: loop: run `move 100`, ask "measured cm?" (blank = discard run), `cpm_i = counts_travelled_after_roll × 100 / measured`; print the running mean; "again / save / quit"; save → `calib` with round(mean).
+- Pure helpers `counts_travelled(start, end, direction)`, `new_cpm(counts, measured_cm)`, `mean_cpm(runs)` unit-tested (`tools/smoke/tests/test_move_math.py`; pytest added as a dev dependency of `tools/smoke`).
+
+### R7.8 Tests (host, `pio test -e native`)
+- `test_move` (new suite): MoveController against a plant (counts follow v with a 60 ms lag, ~1 cm roll-on after v 0): 100 cm done at target; v = speed until 10 cm to go, then falls to the crawl; 5 cm move crawls; reverse (−50) counts down and ends done; progress 0 → 100; stalled (no counts 1.5 s); blocked flag 2 s → blocked (not stalled); timeout; `movedMm`.
+- `test_motion` (existing suite: service, link, router): move start / replace by owner command; Uno stall / encoder_fault events end a move (STOP while owner) and leave a turn unchanged; cancel / STOP / not_owner / link ends for move; existing turn / rate tests updated to `MotionTelem`.
+- `test_ws_codec`: move ranges (0, ±501, 9 / 101 speed, non-integer), default speed, `heading` refused, calib with / without value, range.
+- `test_ws_json`: `primitive_done` move with `moved_cm` (e.g. 99.6), new reasons, `tf.primitive` move, `calib` reply, `caps.move` true for an Uno with encoders.
+- (`test_motion`) routeMove with / without kEncoders / kMove.
+- MotionStore is a thin Preferences wrapper (hardware): checked on the tank — save, reboot, read back.

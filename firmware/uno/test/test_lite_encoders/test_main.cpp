@@ -159,6 +159,39 @@ void test_stall_both_held_is_stall() {
   TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kStall), R(run(g, drive(130, 130, 0, 0, 0), 600, side)));
 }
 
+// Floor test 2026-10-17: the left track did not move while the heading hold flipped its PWM (+130 / 100 / -110);
+// each dip below "driven" restarted the timer, so it never tripped. Driven-and-slow time now adds up; it pauses while
+// not driven and resets only when the side moves properly or idles at 0.
+void test_stall_flapping_pwm_still_trips() {
+  StallGuardLite g;
+  int8_t side = -1;
+  const int16_t pattern[] = {130, 130, 130, 100, 100, -110, -110, 100, 130, 130, 130};  // 220 ms of driven per loop
+  StallGuardLite::Result r = StallGuardLite::Result::kNone;
+  uint32_t t = 0;
+  for (int loop = 0; loop < 10 && r == StallGuardLite::Result::kNone; ++loop) {
+    for (int16_t p : pattern) {
+      r = g.update(StallGuardLite::Inputs{p, 160, 90, 90, 0, 800, -30, true}, t, side);  // left never moves
+      t += 20;
+      if (r != StallGuardLite::Result::kNone) break;
+    }
+  }
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kStall), R(r));
+  TEST_ASSERT_EQUAL_INT8(0, side);
+}
+
+void test_stall_idle_resets_the_timer() {
+  StallGuardLite g;
+  int8_t side = -1;
+  uint32_t t = 0;
+  for (; t < 300; t += 20) TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(g.update(drive(130, 130, 0, 0), t, side)));
+  for (; t < 600; t += 20) TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(g.update(drive(0, 0, 0, 0), t, side)));
+  for (; t < 900; t += 20) TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(g.update(drive(130, 130, 0, 0), t, side)));
+  // 300 ms + idle + 300 ms: not yet (the idle reset it); 200 ms more trips
+  StallGuardLite::Result r = StallGuardLite::Result::kNone;
+  for (; t < 1200 && r == StallGuardLite::Result::kNone; t += 20) r = g.update(drive(130, 130, 0, 0), t, side);
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kStall), R(r));
+}
+
 // ---------- RunawayGuardLite / HeadingHoldLite::errorCdeg ----------
 void test_runaway_reversed_motor_trips() {
   RunawayGuardLite g;
@@ -215,6 +248,8 @@ int main() {
   RUN_TEST(test_stall_below_keep_is_not_driven);
   RUN_TEST(test_stall_disabled_does_nothing);
   RUN_TEST(test_stall_both_held_is_stall);
+  RUN_TEST(test_stall_flapping_pwm_still_trips);
+  RUN_TEST(test_stall_idle_resets_the_timer);
   RUN_TEST(test_runaway_reversed_motor_trips);
   RUN_TEST(test_runaway_normal_correction_never_trips);
   RUN_TEST(test_runaway_needs_saturation_and_holding);

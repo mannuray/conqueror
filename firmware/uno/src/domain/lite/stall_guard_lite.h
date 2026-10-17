@@ -6,7 +6,9 @@ namespace cq {
 // Spec 02 §F1.2 / LLD uno-lite §19.1: a driven side is stalled when its speed stays below 15 % of the speed expected
 // for its PWM for 0.5 s (replaces "no edge at all": a held track still creeps at 960 counts / wheel turn). A side that
 // reads 0 while the tank clearly drives straight (other side moving, both PWMs same sign, |yaw| < 10 °/s) is a
-// broken encoder instead (fault, once, checks off for that side).
+// broken encoder instead (fault, once, checks off for that side). The driven-and-slow time adds up: it pauses while a
+// side is not driven (the heading hold may flip its PWM through the deadband, floor test 2026-10-17) and resets only
+// when the side moves properly or sits at PWM 0 for 200 ms.
 class StallGuardLite {
  public:
   struct Inputs {
@@ -26,12 +28,15 @@ class StallGuardLite {
   static constexpr uint16_t kDetectMs = 500;
   Result update(const Inputs& in, uint32_t now_ms, int8_t& side);
   bool faulted(uint8_t s) const { return (m_faulted >> s) & 1u; }
-  void reset() { m_slow = 0; }
+  static constexpr uint16_t kIdleResetMs = 200;
+  void reset() { m_acc[0] = m_acc[1] = m_idle[0] = m_idle[1] = 0; }
 
  private:
-  uint8_t m_slow = 0;  // bit per side: slow since m_since[s]
+  uint16_t m_acc[2] = {0, 0};   // driven-and-slow time, ms
+  uint16_t m_idle[2] = {0, 0};  // time at PWM 0, ms
   uint8_t m_faulted = 0;
-  uint32_t m_since[2] = {0, 0};
+  bool m_started = false;
+  uint32_t m_last_ms = 0;
 };
 
 }  // namespace cq

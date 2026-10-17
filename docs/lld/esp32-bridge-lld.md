@@ -1105,4 +1105,4 @@ stateDiagram-v2
 ```
 
 ### R6.4 Tests
-Local browser with a fake WebSocket (Playwright, 844 × 390): event shows the centred banner (25 px tall); a `ts` keeps it; STOP clears it and sends one `stop`; a heading_fault shows the runaway text; touching the throttle clears it. Hardware: held track on the stand with the phone (§67).
+Local browser with a fake WebSocket (Playwright, 844 × 390): event shows the centred banner (25 px tall); a `ts` keeps it; STOP clears it and sends one `stop`; a heading_fault shows the runaway text; touching the throttle clears it. Hardware (bridge `2ad6ed8`): held track on the stand — banner centred, cleared on release, repeatable (§67; a dead-stopped track on the stand reads as an encoder fault — slow it instead).

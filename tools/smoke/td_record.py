@@ -10,6 +10,7 @@ values as extra columns, prints a summary and switches the stream off again.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import time
 from pathlib import Path
@@ -95,11 +96,20 @@ def record(host: str, hz: int, seconds: float, out: Path) -> int:
     rows: list[dict[str, Any]] = []
     slow: dict[str, Any] = {}
     start = time.monotonic()
+    last_ping = start
     with out.open("w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(TD_COLUMNS + TDS_COLUMNS)
         while time.monotonic() - start < seconds:
-            msg = ws.recv(0.5)
+            now = time.monotonic()
+            if now - last_ping >= 1.0:  # the bridge closes a client silent for 3 s (LLD R2.6)
+                ws.send({"t": "ping", "t0": int(now * 1000)})
+                last_ping = now
+            try:
+                msg = ws.recv(0.2)
+            except ConnectionError as exc:
+                print(f"connection lost after {now - start:.1f} s: {exc}")
+                break
             if msg is None:
                 continue
             kind = msg.get("t")
@@ -112,7 +122,8 @@ def record(host: str, hz: int, seconds: float, out: Path) -> int:
                 print(f"bridge refused: {msg.get('reason')} {msg.get('message', '')}")
                 ws.close()
                 return 1
-    ws.send({"t": "debug", "on": False})
+    with contextlib.suppress(OSError):  # already closed
+        ws.send({"t": "debug", "on": False})
     ws.close()
     if len(rows) < 2:
         print("no td messages received (bridge without LLD R5 firmware, or the Uno is offline)")

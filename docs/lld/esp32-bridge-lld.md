@@ -1050,3 +1050,6 @@ sequenceDiagram
 ### R5.6 Tests (host)
 Codec: `debug` on/off, `hz` 10/50/default, bad `hz` / missing `on` → invalid. WsClients: set / clear / reset on remove and re-add, per-client seq. WsJson: exact `td` / `tds` strings for a known snapshot (incl. null `act` / `dist_mm`, `dist_fault`), length < `kWsJsonMax`. Link task wiring: hardware check — the recorder at 10 and 50 Hz shows ~10 / ~50 rows/s and encoder counts that move with the tracks.
 
+### R5.7 Hardware check (2026-10-17)
+Bridge `66bd0d4` over OTA, tank idle on the table: `td_record.py` received **81 rows in 8.0 s (10.1/s) at 10 Hz** and **399 rows in 8.0 s (50.1/s) at 50 Hz**, all fields filled, `tds` once a second (battery 8.3 V, free RAM 259 B). The recorder pings once a second — the bridge closes a client silent for 3 s (found on the first run). The Uno Lite reports `loop_load` / `loop_max_us` as 0 (not measured by the Lite). Driving check with encoder counts: next floor session.
+

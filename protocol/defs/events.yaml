@@ -25,3 +25,4 @@
 - { name: BUTTON_PRESS, kind: 25 }
 - { name: REJECTED, kind: 26, a: "frame type", b: "ack_status index", doc: "rate-limited 1 per 500 ms per source" }
 - { name: SAFETY_OVERRIDE, kind: 27, a: "1 entered, 0 exited", b: "OverrideReason" }
+- { name: HEADING_FAULT, kind: 28, a: "heading error, whole degrees", doc: "heading hold ran away (error growing past 30° with the correction saturated 0.5 s): both tracks stopped until STOP or the command returns to 0 (spec 02 §F1.3)" }

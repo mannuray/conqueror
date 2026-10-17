@@ -233,6 +233,7 @@ class EventKind(IntEnum):
     BUTTON_PRESS = 25
     REJECTED = 26
     SAFETY_OVERRIDE = 27
+    HEADING_FAULT = 28
 
 
 class SettingId(IntEnum):

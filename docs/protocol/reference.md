@@ -500,6 +500,7 @@ Payload 0 bytes max.
 | 25 | BUTTON_PRESS |  |  |
 | 26 | REJECTED | frame type | ack_status index |
 | 27 | SAFETY_OVERRIDE | 1 entered, 0 exited | OverrideReason |
+| 28 | HEADING_FAULT | heading error, whole degrees |  |
 
 ## Errors
 

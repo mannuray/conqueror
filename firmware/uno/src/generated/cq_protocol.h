@@ -285,6 +285,7 @@ enum class EventKind : uint8_t {
   kButtonPress = 25,
   kRejected = 26,
   kSafetyOverride = 27,
+  kHeadingFault = 28,
 };
 
 enum class SettingId : uint8_t {

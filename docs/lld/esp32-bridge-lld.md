@@ -1379,7 +1379,7 @@ sequenceDiagram
   participant S as MotionService / ArcController
   participant U as Uno
   C->>L: {"t":"turn","by":90,"radius_cm":60,"speed":40,"id":3}
-  L->>L: routeTurn Local, arcBand(60) = 31..75 ok, onDrive = Send
+  L->>L: routeTurn Local, arcBand(60) = 31..74 ok, onDrive = Send
   L->>S: startArc(fd, telem, 9000, 60, 40, cpm, 3)
   L-->>C: ack 3
   loop TELEM_FAST 50 Hz

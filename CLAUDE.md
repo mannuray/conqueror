@@ -14,7 +14,7 @@ Hobby robot platform: ELEGOO Conqueror tank rebuilt as **Uno body + ESP32 gatewa
 |---|---|
 | System specs (authoritative) | `docs/superpowers/specs/` — `2026-10-10-0{0..4}-*-design.md` (system, protocol, tank firmware incl. Part D Uno Lite and Part E Uno/ESP32 feature split, hub, AI engine), `2026-10-11-05-tank-logo-design.md`, `2026-10-14-06-base-board-design.md` (parked) |
 | Low-level designs | `docs/lld/` — `uno-firmware-lld.md` (§9 Revision 2 + appended decision notes are authoritative), `esp32-firmware-lld.md` (§10 Revision 2), `protocol-generator-lld.md`, `bench-tool-lld.md`, `esp32-bridge-lld.md` (R3–R3.11: phone page, stream, review fixes; R4–R4.17: motion service, WiFi / camera, floor-test fixes; R5 debug stream; R6 stall banner), **`uno-lite-lld.md`** (Uno Lite firmware, spec 02 Part D), `base-board-lld.md` (parked) |
-| Implementation plans | `docs/superpowers/plans/` — `2026-10-11-plan-{a,b,c,d}-*.md`, `2026-10-14-plan-e-uno-lite.md`, `2026-10-15-plan-f-cockpit-lite.md`, `2026-10-15-plan-g-stick-mixing.md`, `2026-10-15-plan-h-motion-service.md`, `2026-10-17-plan-i-encoder-phase1.md`, `2026-10-17-plan-j-straight-tuning.md`, `2026-10-17-plan-k-move-by-distance.md` |
+| Implementation plans | `docs/superpowers/plans/` — `2026-10-11-plan-{a,b,c,d}-*.md`, `2026-10-14-plan-e-uno-lite.md`, `2026-10-15-plan-f-cockpit-lite.md`, `2026-10-15-plan-g-stick-mixing.md`, `2026-10-15-plan-h-motion-service.md`, `2026-10-17-plan-i-encoder-phase1.md`, `2026-10-17-plan-j-straight-tuning.md`, `2026-10-17-plan-k-move-by-distance.md`, `2026-10-17-plan-l-arcs-pivots.md` |
 | Roadmap & phase decisions | `docs/implementation-roadmap.md` |
 | Coding standards | `docs/standards/coding-standards.md` |
 | Hub UX + Stitch screens | `docs/design/hub-ux.md`, `docs/design/stitch/` |
@@ -34,8 +34,9 @@ Hobby robot platform: ELEGOO Conqueror tank rebuilt as **Uno body + ESP32 gatewa
 10. **Plan I — encoder features phase 1** (Uno Lite: track sync, stall by speed 30 %, runaway guard, stop-both latch, plain mix for AUTO; spec 02 Part F, Uno Lite LLD §19) — done, merged 2026-10-17 (floor results design-notes §63–§64).
 11. **Plan J — straight-driving tuning** (heading-hold integral + `track_balance` 19 ‰, spec 02 §F5, Uno Lite LLD §20) — done, merged 2026-10-17: ~1 cm over 2.5 m (design-notes §65).
 12. **Phone page stall / fault banner + "encoder off" note** (bridge LLD R6, design-notes §67) — done, merged 2026-10-17; every banner is one slim centred line.
-13. **Plan K — MOVE by distance + counts_per_m calibration + learned early stop** (bridge only; spec 02 Part G incl. §G6, bridge LLD R7) — done, merged 2026-10-17, floor-accepted: ±1 cm (design-notes §69); `counts_per_m` 7514 in the bridge NVS; `tools/smoke/move.py`. Then Plan L (arcs, minimum drive_rate, max_cps calibration).
-14. **Later:** parked: mode button D2 to switch home WiFi / own AP (§67). Uno Lite flash is at 96 % (~1.2 KB left).
+13. **Plan K — MOVE by distance + counts_per_m calibration + learned early stop** (bridge only; spec 02 Part G incl. §G6, bridge LLD R7) — done, merged 2026-10-17, floor-accepted: ±1 cm (design-notes §69); `counts_per_m` 7514 in the bridge NVS; `tools/smoke/move.py`.
+14. **Plan L — arcs, pivots, minimum drive_rate** (bridge only; spec 02 Part H, bridge LLD R8; Uno kMaxCps 2500 already merged) — planned, awaiting approval.
+15. **Later:** parked: mode button D2 to switch home WiFi / own AP (§67). Uno Lite flash is at 96 % (~1.2 KB left).
 Execute with the superpowers skills (`subagent-driven-development` recommended, or `executing-plans`).
 
 ## Hard rules for code

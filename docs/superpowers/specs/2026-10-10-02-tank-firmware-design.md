@@ -571,7 +571,7 @@ An arc of radius R at centre speed v needs the inner track at v·(1 − B/2R) �
 
 | R (cm) | 31 | 40 | 49 | 60 | 80 | 100 | 150 |
 |---|---|---|---|---|---|---|---|
-| speed band (%) | 56 | 43–64 | 36–70 | 31–75 | 25–80 | 23–84 | 19–89 |
+| speed band (%) | 56 | 43–64 | 36–69 | 31–74 | 26–80 | 23–83 | 19–88 |
 
 - An arc whose speed is outside its band, or with R < 31 cm (and R > 0), is **refused** with `INVALID_COMMAND` and a helpful message, e.g. `"radius 40 cm: use speed 43-64 %, or pivot"`, `"radius 20 cm too tight (min 31): use pivot"`.
 - The band uses the H1 model (constants in the bridge, re-measurable): low = p(v_min / (1 − k)), high = p(v_max / (1 + k)), k = B / 2R, p(v) = (v − 15.5) / 0.18, rounded inward.

@@ -980,3 +980,73 @@ Final review of 25749de..a7409f0 (report `.superpowers/sdd/2026-10-15-plan-h-mot
 - Minors deferred for the owner (listed in the ledger and the hand-over): turn by ≤ 1.5° ends done without moving; stream workers created with the camera disabled; uint8 settings change counter; unknown end reason maps to "done"; stale comments; drive_rate rate 0 with v ≠ 0 alternates with the Uno's heading hold; a missing "arrive while sweeping" unit test; the 10 s AP timeout also applies to a mid-session WiFi drop; IR-mid-turn hardware check; **a full TX queue ends a primitive "link" without a STOP** (Uno deadman bounds it); **no protocol-version bump for `Source::AUTO`** (a new bridge with an old Uno could flip reverse drive_rate — caught by the diverged guard after 0.5 s).
 - **Owner-approved minor fixes (2026-10-17):** (12) a DRIVE that cannot be queued while the body is still synced ends the primitive `link` **with a STOP** (`MotionEvent::kTxFull`; `kBodyOffline` only when the body is gone) — test in `test_link_events_frames_policy`; (14) **protocol version 3** (`protocol/defs/meta.yaml`): a new bridge marks an old Uno *incompatible* and never syncs it, so AUTO frames cannot reach a body that would car-flip them. Both boards and the Linux smoke tools' protocol copy must move to 3 together.
 
+---
+
+## Revision 5 — Debug metrics over WiFi (owner approved 2026-10-17, design-notes §61)
+
+### R5.0 Why and scope
+Floor tests need the body's raw numbers (encoder counts, applied PWM, measured speed, heading, loop health) without a USB cable and S1 flipping. The Uno already sends them in `TELEM_FAST` (50 Hz) and `TELEM_SLOW` (1 Hz); the bridge forwards only the phone subset (`tf` 10 Hz, `ts`). Revision 5 adds an **opt-in per-client debug stream** — bridge only: **no Uno change, no protocol (frame) change**, no extra load for clients that do not ask. Developer feature like the rest of the bridge (no authentication, home network).
+
+### R5.1 WebSocket API (spec 01 §5 / §6.5)
+- **Command** `{"t":"debug","on":true|false,"hz":10|50,"id"?}` — any role (read-only data; no ownership). `hz` optional, default 10; anything else → INVALID_COMMAND. `on:false` stops it. Acked when `id` is given. Counted in the client's command budget (not the stream budget).
+- **`{"t":"td",…}`** fast debug, sent to that client only, at 10 Hz (every 5th TELEM_FAST) or 50 Hz (every frame):
+  `{"t":"td","seq":n,"uno_ms":u,"enc":[l,r],"pwm":[l,r],"cmd":[l,r],"act":[l|null,r|null],"yaw":d,"rate":d,"pitch":d,"roll":d,"dist_mm":m|null,"closing":c,"pan":d,"tilt":d,"flags":raw,"prim":k,"pct":p}`
+  — units: `enc` counts (rising edges, 960 / wheel turn, §56); `pwm` −255..255 applied; `cmd` / `act` % (`act` null = unknown, −128 on the wire); `yaw` 0..360°, `rate` °/s, `pitch`/`roll` °; `dist_mm` null = no echo (65535) or fault (65534, then `"dist_fault":true`); `closing` cm/s; `pan`/`tilt` °; `flags` = raw `TELEM_FAST.flags` (FastFlagBit); `prim`/`pct` = the body's own primitive fields. `seq` counts this client's `td`.
+- **`{"t":"tds",…}`** slow debug, to the same clients once per new `TELEM_SLOW`:
+  `{"t":"tds","uptime_s","reset_reason","batt_mv","driving","temp","owner","flags2","accel_var","loop_load","loop_max_us","free_ram","err_frames","err_i2c","settings_crc","env":[speed,accel,lock],"profile","cal":[a,b,c],"hw"}` — all raw `TELEM_SLOW` values.
+- Not included (not in the frames): the PWM *asked* of the safety supervisor, and the bridge's own motion-service internals (the latter could follow later as `tdm`).
+
+### R5.2 Classes
+```mermaid
+classDiagram
+  class WsCommand {
+    +WsCmdKind kind  %% + kDebug
+    +bool on
+    +uint8_t debug_hz  %% 10 or 50
+  }
+  class WsClients {
+    +setDebug(fd, uint8_t div) bool
+    +debugDiv(fd) uint8_t  %% 0 off, 1 = 50 Hz, 5 = 10 Hz
+    +nextDebugSeq(fd) uint32_t
+  }
+  class WsJson {
+    +jsonTd(out, cap, seq, TankSnapshot) size_t
+    +jsonTds(out, cap, TankSnapshot) size_t
+  }
+  class LinkTask {
+    -telemetry(now)
+    -sendDebug(TankSnapshot, bool fast, bool slow)
+  }
+  WsCommand <.. LinkTask : parse "debug"
+  LinkTask --> WsClients : div / seq per client
+  LinkTask --> WsJson : td / tds
+```
+- `WsClients::Client` gains `uint8_t debug_div` (0 = off) and `uint32_t debug_seq`; both reset on `add` / `remove`, so a reconnecting client starts off.
+- `parseWsCommand`: `"debug"` → `WsCmdKind::kDebug`; needs `on`; `hz` ∈ {10, 50} (default 10).
+
+### R5.3 Sequence
+```mermaid
+sequenceDiagram
+  participant R as Recorder (WS client)
+  participant L as LinkTask
+  participant U as Uno
+  R->>L: {"t":"debug","on":true,"hz":50,"id":1}
+  L-->>R: {"t":"ack","id":1}
+  loop every TELEM_FAST (50 Hz)
+    U->>L: TELEM_FAST
+    L-->>R: {"t":"td",...} (if fast_count % div == 0)
+  end
+  U->>L: TELEM_SLOW (1 Hz)
+  L-->>R: {"t":"tds",...}
+  R->>L: {"t":"debug","on":false}
+```
+
+### R5.4 Load
+`td` ≈ 230 B; at 50 Hz ≈ 12 KB/s per debug client (camera off, R4.15). JSON is built once per frame and sent to each debug client (fan-out like `tf`). `kWsJsonMax` (384 B) covers both messages (tests check the length).
+
+### R5.5 Recorder tool (`tools/smoke/td_record.py`, Python 3.12, typed, ruff + pyright strict)
+`uv run python td_record.py [--host conqueror-bridge.local] [--hz 50] [--seconds 10] [--out run.csv]`: connects as a viewer (never takes control), sends `debug on`, writes one CSV row per `td` (+ the latest `tds` values as columns), prints a summary (rows, achieved rate, encoder counts per side and per second, heading change, PWM range), sends `debug off`. Driving during a recording stays with the phone, IR or a test script; the recorder only watches.
+
+### R5.6 Tests (host)
+Codec: `debug` on/off, `hz` 10/50/default, bad `hz` / missing `on` → invalid. WsClients: set / clear / reset on remove and re-add, per-client seq. WsJson: exact `td` / `tds` strings for a known snapshot (incl. null `act` / `dist_mm`, `dist_fault`), length < `kWsJsonMax`. Link task wiring: hardware check — the recorder at 10 and 50 Hz shows ~10 / ~50 rows/s and encoder counts that move with the tracks.
+

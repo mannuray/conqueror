@@ -146,6 +146,9 @@ Control ownership: motion/camera/LED/sound commands are accepted only from the c
 | `esp`: rssi, fps, clients, temp_c, link_latency_ms, free_heap | ESP32 |
 | `lifetime`: distance_m, runtime_h, power_ons | ESP32 (NVS, saved every 5 min) |
 
+### 6.2a Debug metrics `{"t":"td",…}` / `{"t":"tds",…}` (opt-in, bridge LLD R5, 2026-10-17)
+A client sends `{"t":"debug","on":true,"hz":10|50}` (any role; `on:false` stops). It then alone receives `td` — raw `TELEM_FAST` values (enc, pwm, cmd, act, yaw, rate, pitch, roll, dist_mm, closing, pan, tilt, flags, prim, pct) at 10 or 50 Hz — and `tds` — raw `TELEM_SLOW` values (uptime, batt_mv, loop load, free RAM, error counters, settings CRC, envelope, calibration, hw) once a second. For developer tools (recorder); the phone page does not use it.
+
 ### 6.3 Events `{"t":"ev","seq","tank_ms","kind",…}`
 `bump{g}`, `lifted`, `landed`, `tilted{pitch,roll}`, `level`, `stall{side}`, `blocked{dist_cm}`, `unblocked`,
 `control_changed{owner,client}`, `control_returned` (to the AI), `deadman_stop`, `link_lost`, `link_restored`, `body_offline`, `body_online`,

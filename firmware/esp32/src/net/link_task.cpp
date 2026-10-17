@@ -1,4 +1,5 @@
 #include "core/motion_config.h"
+#include "core/arc_limits.h"
 #include "core/move_controller.h"
 #include "core/roll_learner.h"
 #include "net/motion_store.h"
@@ -204,20 +205,34 @@ bool sendAckedCommand(const core::WsCommand& c, uint32_t now, uint8_t& seq) {
   }
 }
 
-// turn (LLD R4.2 / R4.6): Local on a body without TURN; Forward / Unavailable answered UNAVAILABLE for now.
+// turn (LLD R4.2 / R4.6 / R8): spin, arc or pivot - Local on a body without TURN / MOVE; Forward / Unavailable
+// answered UNAVAILABLE for now.
 void handleTurn(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
   if (g_ota_active) {
     nack(fd, id, core::BridgeReason::kBusy);
     return;
   }
-  if (core::routeTurn(g_link.hello().caps, c.radius_cm) != core::Route::kLocal) {
-    nack(fd, id, core::BridgeReason::kUnavailable);  // arc needs encoders; Forward: no full-firmware body yet
+  if (core::routeTurn(g_link.hello().caps, c.radius_cm, c.pivot) != core::Route::kLocal) {
+    nack(fd, id, core::BridgeReason::kUnavailable);  // arc / pivot need encoders; Forward: no full-firmware body yet
     return;
   }
   const core::TankSnapshot& snap = g_link.snapshot();
   if (bodyOffline() || !snap.fast_valid) {
     nack(fd, id, core::BridgeReason::kBodyOffline);
     return;
+  }
+  if (c.radius_cm > 0) {  // Plan L: arcs need trustworthy counts and a radius / speed the tracks can drive
+    if ((snap.fast.flags >> static_cast<unsigned>(proto::FastFlagBit::kEncoderFault)) & 1u) {
+      nack(fd, id, core::BridgeReason::kUnavailable);
+      return;
+    }
+    const core::ArcBand b = core::arcBand(c.radius_cm);
+    if (!b.possible || c.speed < b.lo || c.speed > b.hi) {
+      char why[96];
+      core::arcRefusal(why, sizeof(why), c.radius_cm);
+      sendTo(fd, core::jsonNackMessage(g_json, sizeof(g_json), id, core::BridgeReason::kInvalidCommand, why));
+      return;
+    }
   }
   core::Actions a;
   const core::Decision d = g_owner.onDrive(fd, now, a);
@@ -229,7 +244,13 @@ void handleTurn(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
   endMotion(core::MotionEvent::kOwnerCommand, now);  // a new turn replaces the old primitive
   g_roll.cancel();  // §G6: a new primitive - the last move's roll-on is no longer measurable
   const int32_t delta = core::turnDelta(snap.fast.yaw, c.turn_has_to, c.turn_by_cdeg, c.turn_to_cdeg);
-  g_motion.service().startTurn(fd, snap.fast.yaw, delta, c.speed, id, now);
+  if (c.radius_cm > 0) {
+    g_motion.service().startArc(fd, telemOf(snap), delta, c.radius_cm, c.speed, g_cpm, id, now);
+  } else if (c.pivot) {
+    g_motion.service().startPivot(fd, snap.fast.yaw, delta, c.speed, id, now);
+  } else {
+    g_motion.service().startTurn(fd, snap.fast.yaw, delta, c.speed, id, now);
+  }
   if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
 }
 
@@ -610,7 +631,7 @@ void telemetry(uint32_t now) {
     runMotion(g_motion.onTelemetry(telemOf(s), now), now);  // 50 Hz
     if (s.fast_count % 5u == 0) {  // Uno 50 Hz -> page 10 Hz (R2.14 #7, spec 02 §E4)
       const core::MotionService& svc = g_motion.service();
-      const core::PrimitiveView pv{svc.active(), svc.kind(), svc.progressPct()};
+      const core::PrimitiveView pv{svc.active(), svc.kind(), svc.progressPct(), svc.limited()};
       broadcast(core::jsonTf(g_json, sizeof(g_json), ++g_tf_seq, s, pv));
     }
   }

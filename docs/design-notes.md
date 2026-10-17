@@ -1196,3 +1196,7 @@ Same set-up as §65 (5 cm spacer start along a wall, 40 % × 14 s, ~246–249 cm
 - Why encoders alone cannot hold a line: they measure sprocket turns, not ground travel (slip, track tension / effective size, skid) — equal turns still curved 30 cm (§64); the gyro measures the actual heading.
 - Weak spot of the current design: the sync enforces a **fixed** ratio (1 + balance); on another floor / battery level the right ratio changes and the sync then pushes against the gyro until the integral catches up. **Candidate improvement (owner to decide):** learn `track_balance` automatically from the count ratio the gyro needs while holding a straight line (slow, bounded), so sync and gyro agree on any floor.
 
+
+## 67. Phone page shows stall / fault stops (owner, 2026-10-17)
+- Deferred Plan I minor done first: on a Uno stall / encoder fault / steering runaway stop the phone page shows a **slim red line in the middle of the screen** (owner: "show the banner in the middle", "let it be slim") until the driver releases — bridge LLD R6. Page only; no Uno or protocol change.
+- **Idea parked for later (owner):** use the shield's mode button (D2), unused on the Lite, to switch the bridge between home WiFi and its own access point. Open points to discuss: which press (short press ignored while driving vs long press) and whether the choice is remembered after a restart.

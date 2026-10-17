@@ -1053,3 +1053,56 @@ Codec: `debug` on/off, `hz` 10/50/default, bad `hz` / missing `on` → invalid. 
 ### R5.7 Hardware check (2026-10-17)
 Bridge `66bd0d4` over OTA, tank idle on the table: `td_record.py` received **81 rows in 8.0 s (10.1/s) at 10 Hz** and **399 rows in 8.0 s (50.1/s) at 50 Hz**, all fields filled, `tds` once a second (battery 8.3 V, free RAM 259 B). The recorder pings once a second — the bridge closes a client silent for 3 s (found on the first run). The Uno Lite reports `loop_load` / `loop_max_us` as 0 (not measured by the Lite). Driving check with encoder counts: next floor session.
 
+
+---
+
+## Revision 6 — Phone page: stall / fault stop banner (owner approved 2026-10-17, design-notes §67)
+
+### R6.0 Why and scope
+Plan I made the Uno stop **both** tracks and hold them stopped (MotionLatchLite) on a stall, an encoder fault or a steering runaway, until the driver releases (STOP, DRIVE 0/0, IR drive key up). The phone page only showed a short toast, so the driver saw a tank that "ignores the stick". Revision 6 is **page only** (`firmware/esp32/web/basic_drive.html`): no bridge C++, no Uno, no protocol change — the bridge already forwards the events (`ws_json.cpp`: `stall` / `encoder_fault` with `side`, `heading_fault` with `err_deg`).
+
+### R6.1 Behaviour
+- On `{"t":"ev","kind":"stall"|"encoder_fault"|"heading_fault"}` the page shows a **slim red one-line banner in the middle of the screen** (the driver watches the video, not the top bar) and vibrates 200 ms:
+  - `Stopped: <side> track stuck - release to drive`
+  - `Stopped: <side> encoder fault - check its wire`
+  - `Stopped: steering ran away - check motor wiring`
+- It stays up exactly while the Uno holds the stop: it clears when **this page sends** `stop` or `drive 0/0` (the same messages that free the Uno's latch; touching a stick sends 0/0 first, so the touch already releases). A second latch event replaces the text.
+- Backups (another client or the IR remote released it): clears when `tf.spd_cmd` shows the tracks driven again for > 1 s after the event, or after 10 s while this page is not driving.
+- The 1 Hz `ts` handler re-shows the latch text instead of clearing "bad" banners while the body is online; body-offline / S1 banners still take the (top) slot when they apply.
+- Other banners (busy, body offline, protocol mismatch) keep their place at the top. CSS class `.banner.centre` (not `.mid` — that name is the bottom control cluster).
+
+### R6.2 Page parts
+```mermaid
+classDiagram
+  class LatchBanner {
+    -number latchAt  %% ms of the event, 0 = none
+    -string latchText
+    +showLatch(ev)
+    +clearLatch()
+  }
+  class Banner {
+    -string bannerKind  %% "", warn, bad
+    +banner(kind, text, centre)
+  }
+  class Socket {
+    +send(obj)  %% stop / drive 0,0 -> clearLatch()
+    +onMessage(m)
+  }
+  Socket --> LatchBanner : ev stall / encoder_fault / heading_fault
+  Socket --> LatchBanner : tf (backup clear), ts (re-show)
+  LatchBanner --> Banner
+```
+
+### R6.3 States
+```mermaid
+stateDiagram-v2
+  [*] --> Hidden
+  Hidden --> Shown : ev stall / encoder_fault / heading_fault
+  Shown --> Shown : another latch event (text replaced) / ts (re-shown)
+  Shown --> Hidden : page sends stop or drive 0/0
+  Shown --> Hidden : tf tracks driven > 1 s after the event
+  Shown --> Hidden : 10 s and this page not driving
+```
+
+### R6.4 Tests
+Local browser with a fake WebSocket (Playwright, 844 × 390): event shows the centred banner (25 px tall); a `ts` keeps it; STOP clears it and sends one `stop`; a heading_fault shows the runaway text; touching the throttle clears it. Hardware: held track on the stand with the phone (§67).

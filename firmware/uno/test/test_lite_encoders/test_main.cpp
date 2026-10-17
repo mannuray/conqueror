@@ -111,6 +111,25 @@ void test_sync_rebases_after_inactive() {
   TEST_ASSERT_EQUAL_INT16(40, t.r);
 }
 
+// Final review M1 (re-graded: one track twitching backwards at creep speed): the correction slows a track at most to
+// 0 - never reverses it - and never pushes one past ±100.
+void test_sync_never_flips_or_overdrives() {
+  TrackSyncLite s;
+  s.apply(Tracks{5, 5}, true, 0, 0, 0, 0);
+  Tracks t = s.apply(Tracks{5, 5}, true, 300, 0, 800, 0);  // big error at 5 %: c = 15
+  TEST_ASSERT_TRUE(t.l >= 0);
+  TEST_ASSERT_TRUE(t.r >= 5);
+  TrackSyncLite r;
+  r.apply(Tracks{-5, -5}, true, 0, 0, 0, 0);
+  t = r.apply(Tracks{-5, -5}, true, 300, 0, 800, 0);  // reverse
+  TEST_ASSERT_TRUE(t.l <= 0);
+  TrackSyncLite h;
+  h.apply(Tracks{98, 98}, true, 0, 0, 0, 0);
+  t = h.apply(Tracks{98, 98}, true, 0, 300, 0, 800);  // right ahead: left sped up
+  TEST_ASSERT_TRUE(t.l <= 100);
+  TEST_ASSERT_TRUE(t.r <= 100);
+}
+
 // ---------- StallGuardLite ----------
 namespace {
 StallGuardLite::Inputs drive(int16_t pl, int16_t pr, uint16_t cl, uint16_t cr, int16_t yaw = 0) {
@@ -263,6 +282,7 @@ int main() {
   RUN_TEST(test_sync_clamped);
   RUN_TEST(test_sync_inactive_when_disabled);
   RUN_TEST(test_sync_rebases_after_inactive);
+  RUN_TEST(test_sync_never_flips_or_overdrives);
   RUN_TEST(test_stall_held_track_trips_in_half_a_second);
   RUN_TEST(test_stall_slow_but_moving_is_not_stall);
   RUN_TEST(test_stall_slipping_track_at_25_pct_trips);

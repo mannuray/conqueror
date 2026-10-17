@@ -2,7 +2,13 @@
 
 namespace cq {
 namespace {
-int16_t towardZero(int16_t v, int16_t d) { return v >= 0 ? static_cast<int16_t>(v - d) : static_cast<int16_t>(v + d); }
+// Moves v's magnitude down by d (d < 0: up), keeping its sign and |v| <= 100: the correction may stop a track,
+// never reverse it or overdrive it (final review M1).
+int16_t towardZero(int16_t v, int16_t d) {
+  const int16_t mag = static_cast<int16_t>((v >= 0 ? v : -v) - d);
+  const int16_t m = mag < 0 ? 0 : (mag > 100 ? 100 : mag);
+  return v >= 0 ? m : static_cast<int16_t>(-m);
+}
 }  // namespace
 
 Tracks TrackSyncLite::apply(Tracks t, bool active, int32_t count_l, int32_t count_r, uint16_t cps_l, uint16_t cps_r) {

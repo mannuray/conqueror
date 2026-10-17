@@ -185,6 +185,15 @@ void test_ts_muted_quiet_flags() {
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"flags\":[\"quiet\"]"));
 }
 
+// Bridge LLD R6.5: an encoder the Uno switched off (sticky until restart) reaches the page.
+void test_ts_encoder_fault_flag() {
+  TankSnapshot s;
+  s.fast_valid = true;
+  s.fast.flags = 1u << static_cast<unsigned>(proto::FastFlagBit::kEncoderFault);
+  jsonTs(buf, sizeof(buf), s, kNone, false);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"flags\":[\"encoder_fault\"]"));
+}
+
 void test_welcome_caps_bits() {
   HelloInfo h;
   h.seen = true;
@@ -355,5 +364,6 @@ int main() {
   RUN_TEST(test_primitive_done_and_tf_progress);
   RUN_TEST(test_too_small_buffer_returns_zero);
   RUN_TEST(test_json_escape);
+  RUN_TEST(test_ts_encoder_fault_flag);
   return UNITY_END();
 }

@@ -132,6 +132,10 @@ body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 
 .banner { top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 90vw; padding: 4px 12px; border-radius: 7px; text-align: center;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 5;
   background: rgba(10, 4, 4, .85); display: none; }
+/* R6.5: an encoder the Uno switched off stays off until a restart - a small amber line under the heading tape. */
+.encnote { top: 60px; left: 50%; transform: translateX(-50%); padding: 2px 10px; border-radius: 7px; white-space: nowrap;
+  border: 1px solid var(--warn); color: var(--warn); background: rgba(10, 8, 2, .85); font-size: .85em; display: none; }
+.encnote.show { display: block; }
 .banner.show { display: block; } .banner.warn { border: 1px solid var(--warn); color: var(--warn); } .banner.bad { border: 1px solid var(--danger); color: var(--danger); box-shadow: 0 0 10px rgba(255, 59, 48, .35); }
 .sheet { left: 50%; bottom: 82px; transform: translateX(-50%); width: min(470px, 66vw); max-height: 52vh; overflow: auto; padding: 10px; display: none; z-index: 4; background: rgba(6, 14, 8, .94); }
 .sheet.show { display: block; }
@@ -166,6 +170,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 <div class="ov dist"><b id="distTxt" class="gval">-</b><div class="distbar"><div id="distMask"></div></div></div>
 <div class="ov batt"><b id="battTxt" class="gval">-</b><div id="battBar" class="battbar"><div id="battMask"></div></div></div>
 <div id="banner" class="ov banner"></div>
+<div id="encNote" class="ov encnote"></div>
 
 <div class="ov left">
   <div class="stick"><span class="ttl" id="driveTtl">⇅ DRIVE // TANK</span><button id="tiltBtn" class="btn glass tiltcard hidden" type="button" aria-label="tilt steering on or off"><svg viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg></button>
@@ -430,6 +435,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     else if (m.flags.indexOf("link_lost") >= 0) banner("bad", "Uno can't hear the ESP32 - check switch S1");
     else if (latchAt) banner("bad", latchText);  // a stall / fault stop stays up until the driver releases
     else if (bannerKind === "bad") banner("", "");
+    showEncNote(m.flags.indexOf("encoder_fault") >= 0);
     setPads();
   }
   // Camera position in the ring (R3.2): home = pan 90 / tilt 90; stick right = smaller pan, up = smaller tilt (§45).
@@ -496,12 +502,20 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 
   // Bridge LLD R6 / spec 02 §F1: the Uno stopped both tracks (stall, encoder fault, steering runaway) and keeps them
   // stopped until the driver releases the stick or presses STOP - say so until then.
-  var latchAt = 0, latchText = "";
+  var latchAt = 0, latchText = "", encSide = "";
+  function showEncNote(on) {  // R6.5: from ts; the side is known only if this page saw the event
+    var n = $("encNote");
+    n.textContent = (encSide ? encSide.charAt(0).toUpperCase() + encSide.slice(1) + " encoder" : "Encoder") +
+      " off - restart the tank to re-arm";
+    n.className = "ov encnote" + (on ? " show" : "");
+    if (!on) encSide = "";
+  }
   function showLatch(m) {
     var side = m.side === "left" ? "left" : "right";
     var text = m.kind === "stall" ? "Stopped: " + side + " track stuck - release to drive"
       : m.kind === "encoder_fault" ? "Stopped: " + side + " encoder fault - check its wire"
       : "Stopped: steering ran away - check motor wiring";
+    if (m.kind === "encoder_fault") encSide = side;
     latchAt = Date.now(); latchText = text;
     banner("bad", text);  // middle of the screen: the driver is looking at the video, not the top bar
     if (navigator.vibrate) navigator.vibrate(200);

@@ -211,6 +211,7 @@ size_t jsonTs(char* out, size_t cap, const TankSnapshot& s, OwnerView owner, boo
   add(bit(ff, static_cast<unsigned>(FB::kBlocked)), "blocked");
   add(bit(ff, static_cast<unsigned>(FB::kTilted)), "tilted");
   add(bit(ff, static_cast<unsigned>(FB::kLifted)), "lifted");
+  add(bit(ff, static_cast<unsigned>(FB::kEncoderFault)), "encoder_fault");  // R6.5: sticky until the Uno restarts
   add(bit(sf, static_cast<unsigned>(SB::kBattLow)), "batt_low");
   add(bit(sf, static_cast<unsigned>(SB::kBattCritical)), "batt_critical");
   add(bit(sf, static_cast<unsigned>(SB::kLinkLost)), "link_lost");

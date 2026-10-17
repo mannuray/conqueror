@@ -1111,4 +1111,4 @@ Local browser with a fake WebSocket (Playwright, 844 × 390): event shows the ce
 An encoder fault stays until the Uno restarts (kept by design — owner: "keep restart"); that side then has no stall detection and no track sync. So the driver knows:
 - **Bridge:** `jsonTs` adds `"encoder_fault"` to `ts.flags` while `TELEM_FAST.flags` bit `kEncoderFault` is set (test `test_ts_encoder_fault_flag`). No Uno or protocol change.
 - **Page:** while that flag is in `ts`, a small amber line under the heading tape: `Right encoder off - restart the tank to re-arm` (side taken from the `encoder_fault` event if this page saw it, else `Encoder off - …`). It does not use the banner slot, so it stays visible after the red stop banner clears; it goes when the flag goes (restart).
-- Checked in the local browser (fake WebSocket): note without / with side, stays after STOP, clears when the flag goes.
+- Checked in the local browser (fake WebSocket): note without / with side, stays after STOP, clears when the flag goes. **On the tank (bridge `9038193`, stand): dead-stopped track → red fault banner → amber note stayed after release → gone after a restart — "working" (owner).**

@@ -508,7 +508,7 @@ Phase 2 (§F2) is split: **Plan K = F2.1 MOVE + the `counts_per_cm` half of F2.4
 - Routing (§E2, `motion_router`): body with the MOVE cap → forward (full firmware, later); otherwise the bridge's motion service runs it — but only when the body reports **encoders** (HELLO cap) **and** `TELEM_FAST` shows no `encoder_fault`; else `UNAVAILABLE`. `welcome.tank.caps.move` = true when the motion service can run it.
 
 ### G2. Running a move (bridge `MoveController`, part of the motion service)
-- **Distance** = mean of (enc_l − start_l) and (enc_r − start_r) — the Uno signs the counts by drive direction — ÷ `counts_per_cm`; target in counts = |dist_cm| × counts_per_m / 100.
+- **Distance** = mean of (enc_l − start_l) and (enc_r − start_r) — the Uno counts rising edges, so the counts **rise in both directions** (plan K review C1); the sign of the move comes from `dist_cm` — ÷ `counts_per_cm`; target in counts = |dist_cm| × counts_per_m / 100.
 - **Output:** `DRIVE {src AUTO, v, w = 0}` every telemetry frame (50 Hz). The Uno drives straight (heading hold + integral, track sync + balance) and keeps every safety rule; its acceleration ramp smooths the start.
 - **Profile:** cruise at `speed`; over the last **10 cm** v falls linearly to the **crawl** (`kMoveCrawlPct` ≈ 15 %, the slowest that moves both tracks — floor-tuned); a move shorter than 10 cm crawls throughout. Sign of v = sign of dist_cm.
 - **Stop:** when the counted distance reaches the target → DRIVE 0/0 + STOP (the Uno's hold resets at 0/0, the tank keeps its heading).

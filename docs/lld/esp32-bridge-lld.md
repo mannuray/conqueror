@@ -1194,7 +1194,7 @@ classDiagram
 
 ### R7.3 MoveController behaviour
 - `begin`: target = |cm| × cpm / 100 counts (≥ 1); dir = sign(cm); deadline = now + |cm| × 1000 / 5 + 3000 ms; progress reference = 0 at now.
-- `step`: travelled = dir × ((enc_l − start_l) + (enc_r − start_r)) / 2.
+- `step`: travelled = ((enc_l − start_l) + (enc_r − start_r)) / 2 — raw deltas: the Uno's counts rise forward **and** reverse (review C1); never their absolute value, so a Uno restart (counts back to 0) gives a negative distance and ends `stalled`, not a false `done`. `dir` only signs v and `movedMm`.
   - travelled ≥ target → `done` (v 0).
   - remaining = target − travelled; slow zone = kMoveSlowCm × cpm / 100 counts; |v| = remaining ≥ slow ? speed : crawl + (speed − crawl) × remaining / slow (integer, never below crawl; speed < crawl → speed). v = dir × |v|.
   - progress: travelled grew by ≥ kMoveStallCm since the reference → new reference (now); else now − reference ≥ 1.5 s → `stalled`.

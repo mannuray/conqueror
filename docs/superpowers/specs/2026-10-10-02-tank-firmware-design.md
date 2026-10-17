@@ -498,3 +498,41 @@ Measured: with equal track turns (encoders only) the tank curves right ~1 °/s (
 | F5.3 | **Straight report tool** | `tools/smoke/straight_report.py run.csv`: heading profile through the run, end heading, estimated sideways drift, count ratio and the suggested `track_balance`. |
 Acceptance: three normal-mode 16 s runs at 40 % on the tape: **≤ 1 cm** sideways over ~3.1 m, heading within ±0.5° after the first second. *Met as run (§65): 14 s runs, ~2.5 m along a wall from a 5 cm spacer start, ~1 cm, heading ±0.3° with one brief +1.1° — the shorter distance and spacer start because eye placement on the tape varied ~2.4°.*
 
+
+## Part G — Plan K: MOVE by distance + counts-per-cm calibration (encoder phase 2a; agreed with the owner 2026-10-17, design-notes §68)
+Phase 2 (§F2) is split: **Plan K = F2.1 MOVE + the `counts_per_cm` half of F2.4**; **Plan L (later) = F2.2 arcs, F2.3 minimum drive_rate, `max_cps` calibration**. Plan K is **bridge only** (no Uno change, no body-frame / protocol-version change); moves are sent from a laptop script — phone, Tank Logo and AI use the same `move` command later (a phone control needs its own UX step first).
+
+### G1. Command and routing
+- `{"t":"move","dist_cm":±n,"speed"?:%,"id"?}` (spec 01 §4): `dist_cm` integer 1…500 in size, + forward, − reverse; `speed` 10…100, default 40. Spec 01's optional `heading` is **refused** (`INVALID_COMMAND`, "heading not supported") — the Uno's heading hold already keeps the start heading.
+- Owner rules as `turn` (spec 02 §E3): runs for the requesting client, its frames never take ownership; a new motion command or drive from the owner replaces it.
+- Routing (§E2, `motion_router`): body with the MOVE cap → forward (full firmware, later); otherwise the bridge's motion service runs it — but only when the body reports **encoders** (HELLO cap) **and** `TELEM_FAST` shows no `encoder_fault`; else `UNAVAILABLE`. `welcome.tank.caps.move` = true when the motion service can run it.
+
+### G2. Running a move (bridge `MoveController`, part of the motion service)
+- **Distance** = mean of (enc_l − start_l) and (enc_r − start_r) — the Uno signs the counts by drive direction — ÷ `counts_per_cm`; target in counts = |dist_cm| × counts_per_m / 100.
+- **Output:** `DRIVE {src AUTO, v, w = 0}` every telemetry frame (50 Hz). The Uno drives straight (heading hold + integral, track sync + balance) and keeps every safety rule; its acceleration ramp smooths the start.
+- **Profile:** cruise at `speed`; over the last **10 cm** v falls linearly to the **crawl** (`kMoveCrawlPct` ≈ 15 %, the slowest that moves both tracks — floor-tuned); a move shorter than 10 cm crawls throughout. Sign of v = sign of dist_cm.
+- **Stop:** when the counted distance reaches the target → DRIVE 0/0 + STOP (the Uno's hold resets at 0/0, the tank keeps its heading).
+- **Progress:** `tf.primitive = {"kind":"move","pct":…}` (counted / target).
+
+### G3. Ends — `primitive_done{kind:"move", ok, reason, moved_cm}`
+| reason | ok | when |
+|---|---|---|
+| `done` | true | counted distance ≥ target |
+| `stalled` | false | Uno `stall` event, or < 1 cm progress in 1.5 s while commanding |
+| `encoder_fault` (new) | false | Uno `encoder_fault` event (distance no longer trusted) |
+| `blocked` (new) | false | `TELEM_FAST` `blocked` flag (obstacle brake) for > 2 s |
+| `timeout` | false | longer than \|dist_cm\| / 5 cm/s + 3 s |
+| `cancelled` / `stop` / `not_owner` / `link` | false | as TURN (§E3) |
+`moved_cm` (one decimal) = counted distance at the end, before the roll-on. Every end sends DRIVE 0/0 + STOP under the §E3 rules (not on `not_owner`).
+
+### G4. `counts_per_cm` calibration and storage
+- Stored on the bridge (NVS) as **`counts_per_m`**, integer, range 3000…15000, default **7560** (75.6 / cm, design-notes §63); an out-of-range stored value is ignored at boot (default used).
+- `{"t":"calib"}` → `{"t":"calib","counts_per_m":n}`; `{"t":"calib","counts_per_m":n,"id"?}` sets + saves — **owner only, not while a primitive runs** (else nack); out of range → `INVALID_COMMAND`.
+- Tool `tools/smoke/move.py` (Python 3.12, typed, ruff + pyright strict):
+  - `move.py <cm> [--speed %]`: takes control, sends `move`, waits for `primitive_done`, waits 0.5 s, reads the final counts from the debug stream (`td`, bridge LLD R5), prints counted-at-stop / after-roll distance and heading change, releases.
+  - `move.py --calibrate [--speed %]`: runs `move 100`, asks the owner the tape-measured distance, new `counts_per_m` = counts travelled (incl. roll) × 100 / measured cm; averages the runs, then offers to save (`calib`).
+
+### G5. Tests and acceptance
+- **Host (native):** MoveController against a simulated tank (lag + roll-on): 100 cm done at target, slow-down from 10 cm to the crawl, < 10 cm crawls, reverse, progress 0→100; every end in G3; codec (`move` ranges, `heading` refused, `calib` read / set / range / owner / busy), routing (`UNAVAILABLE` with encoders off or faulted), `primitive_done` JSON with `moved_cm`, NVS default / save / out-of-range. Tool maths (average, roll) unit-tested.
+- **Hardware (owner present, STOP in reach, recorded with `td_record.py`):** stand — `move 50` slows and ends `done`, STOP mid-move ends `stop`; floor — 3 × `--calibrate` on a taped 1 m, then 3 × `move 100` @ 40 %, 1 × `move 200` @ 40 %, 2 × `move -50`, 2 × `move 100` @ 70 %. **Acceptance: ±1 cm of the asked distance at 40 % (±2 cm at 70 %)**, sideways as normal straight driving (~1 cm / 2.5 m); held track → `stalled`; box ahead → `blocked`.
+- If the roll-on misses ±1 cm: follow-up decision — stop early by a learned roll-on distance (not in Plan K).

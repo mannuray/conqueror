@@ -1188,7 +1188,7 @@ classDiagram
   MotionService ..> PrimitiveEnd
   MotionStore ..> CountsPerM
 ```
-- `MotionTelem` replaces the `(yaw, rate)` arguments of `MotionService::onTelemetry` / `MotionLink::onTelemetry` (turn and rate use only yaw / rate).
+- `MotionTelem` is the argument of `MotionService::onTelemetry` / `MotionLink::onTelemetry`; the old `(yaw, rate)` form stays as a thin inline overload for turn / rate callers and tests (plan K: no churn in the Plan H tests).
 - `routeMove(caps)`: `kMove` → Forward; `kEncoders` → **Local**; else Unavailable (was: Unavailable without kMove).
 - Tuning constants in `motion_config.h`: `kMoveSlowCm = 10`, `kMoveCrawlPct = 15`, `kMoveSpeedMin = 10`, `kMoveSpeedDefault = 40`, `kMoveMaxCm = 500`, `kMoveStallMs = 1500`, `kMoveStallCm = 1`, `kMoveBlockedMs = 2000`, `kMoveTimeoutCmPerS = 5`, `kMoveTimeoutBaseMs = 3000`.
 

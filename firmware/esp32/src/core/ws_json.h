@@ -40,9 +40,12 @@ struct PrimitiveView {
 };
 
 size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s, PrimitiveView prim = PrimitiveView{});
-// {"t":"ev",...,"kind":"primitive_done","prim":"turn"|"rate","ok":b,"reason":"done"|...,"id"?} (bridge LLD R4.5)
+// {"t":"ev",...,"kind":"primitive_done","prim":"turn"|"rate"|"move","ok":b,"reason":"done"|...,"moved_cm"? (move),
+// "id"?} (bridge LLD R4.5, R7.1)
 size_t jsonPrimitiveDone(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, const PrimitiveEnd& e);
 size_t jsonTs(char* out, size_t cap, const TankSnapshot& s, OwnerView owner, bool body_offline);
+// Plan K (LLD R7.1): {"t":"calib","counts_per_m":n} - reply to calib (read or after a save).
+size_t jsonCalib(char* out, size_t cap, uint16_t counts_per_m);
 // LLD R5 debug stream: raw TELEM_FAST ("td") / TELEM_SLOW ("tds") values; 0 before the first frame.
 size_t jsonTd(char* out, size_t cap, uint32_t seq, const TankSnapshot& s);
 size_t jsonTds(char* out, size_t cap, const TankSnapshot& s);

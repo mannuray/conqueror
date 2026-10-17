@@ -358,6 +358,40 @@ void test_td_tds_fit_worst_case() {
   TEST_ASSERT_TRUE(jsonTds(buf, sizeof(buf), s) > 0);
 }
 
+// Plan K (bridge LLD R7.1): move ends, progress, calib reply.
+void test_primitive_done_move_with_moved_cm() {
+  PrimitiveEnd e;
+  e.kind = PrimKind::kMove;
+  e.ok = true;
+  e.reason = EndReason::kDone;
+  e.id = 7;
+  e.has_moved = true;
+  e.moved_mm = 996;
+  jsonPrimitiveDone(buf, sizeof(buf), 3, 500, e);
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"ev\",\"seq\":3,\"tank_ms\":500,\"kind\":\"primitive_done\",\"prim\":\"move\",\"ok\":true,"
+      "\"reason\":\"done\",\"moved_cm\":99.6,\"id\":7}",
+      buf);
+  e.ok = false;
+  e.id = -1;
+  e.moved_mm = -503;
+  e.reason = EndReason::kBlocked;
+  jsonPrimitiveDone(buf, sizeof(buf), 4, 600, e);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"reason\":\"blocked\",\"moved_cm\":-50.3}"));
+  e.reason = EndReason::kEncoderFault;
+  jsonPrimitiveDone(buf, sizeof(buf), 5, 700, e);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"reason\":\"encoder_fault\""));
+}
+
+void test_tf_move_progress_and_calib_reply() {
+  TankSnapshot s;
+  s.fast_valid = true;
+  jsonTf(buf, sizeof(buf), 1, s, PrimitiveView{true, PrimKind::kMove, 42});
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"primitive\":{\"kind\":\"move\",\"pct\":42}"));
+  jsonCalib(buf, sizeof(buf), 7480);
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"calib\",\"counts_per_m\":7480}", buf);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ack_reason_table_matches_generated_codes);
@@ -379,5 +413,7 @@ int main() {
   RUN_TEST(test_too_small_buffer_returns_zero);
   RUN_TEST(test_json_escape);
   RUN_TEST(test_ts_encoder_fault_flag);
+  RUN_TEST(test_primitive_done_move_with_moved_cm);
+  RUN_TEST(test_tf_move_progress_and_calib_reply);
   return UNITY_END();
 }

@@ -142,7 +142,7 @@ size_t jsonWelcome(char* out, size_t cap, const WelcomeInfo& w) {
 }
 
 namespace {
-const char* primName(PrimKind k) { return k == PrimKind::kRate ? "rate" : "turn"; }
+const char* primName(PrimKind k) { return k == PrimKind::kRate ? "rate" : k == PrimKind::kMove ? "move" : "turn"; }
 }  // namespace
 
 size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s, PrimitiveView prim) {
@@ -287,15 +287,25 @@ size_t jsonUnoEvent(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint8
 
 size_t jsonPrimitiveDone(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, const PrimitiveEnd& e) {
   static const char* const kReasons[] = {"done", "cancelled", "stop", "not_owner", "stalled", "timeout", "link",
-                                         "deadman", "diverged"};
+                                         "deadman", "diverged", "blocked", "encoder_fault"};
   const uint8_t r = static_cast<uint8_t>(e.reason);
   char id[20] = "";
   if (e.id >= 0) snprintf(id, sizeof(id), ",\"id\":%ld", static_cast<long>(e.id));
+  char moved[24] = "";
+  if (e.has_moved) {
+    const long mm = static_cast<long>(e.moved_mm);
+    const long a = mm < 0 ? -mm : mm;
+    snprintf(moved, sizeof(moved), ",\"moved_cm\":%s%ld.%ld", mm < 0 ? "-" : "", a / 10, a % 10);
+  }
   return fmt(out, cap,
              "{\"t\":\"ev\",\"seq\":%lu,\"tank_ms\":%lu,\"kind\":\"primitive_done\",\"prim\":\"%s\","
-             "\"ok\":%s,\"reason\":\"%s\"%s}",
+             "\"ok\":%s,\"reason\":\"%s\"%s%s}",
              static_cast<unsigned long>(seq), static_cast<unsigned long>(tank_ms), primName(e.kind),
-             e.ok ? "true" : "false", r < sizeof(kReasons) / sizeof(kReasons[0]) ? kReasons[r] : "done", id);
+             e.ok ? "true" : "false", r < sizeof(kReasons) / sizeof(kReasons[0]) ? kReasons[r] : "done", moved, id);
+}
+
+size_t jsonCalib(char* out, size_t cap, uint16_t counts_per_m) {
+  return fmt(out, cap, "{\"t\":\"calib\",\"counts_per_m\":%u}", static_cast<unsigned>(counts_per_m));
 }
 
 size_t jsonControlChanged(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, OwnerView owner) {

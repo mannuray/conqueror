@@ -1,3 +1,6 @@
+#include "core/motion_config.h"
+#include "core/move_controller.h"
+#include "net/motion_store.h"
 #include "net/link_task.h"
 
 #include <Arduino.h>
@@ -53,6 +56,7 @@ Waiter g_cam_waiter{-1, -1};
 uint8_t g_cam_seq = 0;
 core::StopBarrier g_stop_barrier;  // STOP fast path: drop motion posted before a STOP
 core::MotionLink g_motion(g_owner);  // Plan H: TURN / DRIVE_RATE run by the bridge for a body that cannot
+uint16_t g_cpm = core::motion::kCpmDefault;  // Plan K: counts per metre (NVS)
 
 void drainTx() {
   const uint8_t* p = nullptr;
@@ -161,11 +165,24 @@ void endMotion(core::MotionEvent e, uint32_t now) { runMotion(g_motion.onEvent(e
 
 bool motionOwnedBy(int fd) { return g_motion.service().active() && g_motion.service().ownerFd() == fd; }
 
+// Plan K: the TELEM_FAST fields the motion service uses.
+core::MotionTelem telemOf(const core::TankSnapshot& s) {
+  core::MotionTelem t;
+  t.yaw_cdeg = s.fast.yaw;
+  t.rate_ddps = s.fast.yaw_rate;
+  t.enc_l = s.fast.enc_l;
+  t.enc_r = s.fast.enc_r;
+  t.flags = s.fast.flags;
+  return t;
+}
+
 // Streaming commands (one rejection reported per stream) and every motion command (dropped behind a STOP).
 bool isStream(core::WsCmdKind k) {
   return k == core::WsCmdKind::kDrive || k == core::WsCmdKind::kCamJoy || k == core::WsCmdKind::kDriveRate;
 }
-bool isMotion(core::WsCmdKind k) { return isStream(k) || k == core::WsCmdKind::kTurn; }
+bool isMotion(core::WsCmdKind k) {
+  return isStream(k) || k == core::WsCmdKind::kTurn || k == core::WsCmdKind::kMove;
+}
 
 // SOUND / AUDIO_MODE / CAM_LOCK on the shared acked slot (Plan F, R3.1); false = not queued (body offline).
 bool sendAckedCommand(const core::WsCommand& c, uint32_t now, uint8_t& seq) {
@@ -231,6 +248,55 @@ void handleDriveRate(int fd, const core::WsCommand& c, uint32_t now) {
   }
   g_motion.service().driveRate(fd, c.v, c.rate_ddps, now);
   g_ws.streamAccepted(fd);
+}
+
+// move (Plan K, LLD R7.6): Local for an Uno with encoders and no encoder fault; Forward / Unavailable answered
+// UNAVAILABLE (no full-firmware body yet).
+void handleMove(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
+  if (g_ota_active) {
+    nack(fd, id, core::BridgeReason::kBusy);
+    return;
+  }
+  if (core::routeMove(g_link.hello().caps) != core::Route::kLocal) {
+    nack(fd, id, core::BridgeReason::kUnavailable);  // encoders off
+    return;
+  }
+  const core::TankSnapshot& snap = g_link.snapshot();
+  if (bodyOffline() || !snap.fast_valid) {
+    nack(fd, id, core::BridgeReason::kBodyOffline);
+    return;
+  }
+  if ((snap.fast.flags >> static_cast<unsigned>(proto::FastFlagBit::kEncoderFault)) & 1u) {
+    nack(fd, id, core::BridgeReason::kUnavailable);  // an encoder is switched off until the Uno restarts
+    return;
+  }
+  core::Actions a;
+  const core::Decision d = g_owner.onDrive(fd, now, a);
+  apply(a, now);
+  if (d != core::Decision::kSend) {
+    nack(fd, id, reasonOf(d));
+    return;
+  }
+  endMotion(core::MotionEvent::kOwnerCommand, now);  // a new move replaces the old primitive
+  g_motion.service().startMove(fd, telemOf(snap), c.move_cm, c.speed, g_cpm, id, now);
+  if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
+}
+
+// calib (Plan K, LLD R7.1): read for anyone; set only by the driver, not while a primitive runs.
+void handleCalib(int fd, int32_t id, const core::WsCommand& c) {
+  if (c.has_cpm) {
+    if (g_owner.driverFd() != fd) {
+      nack(fd, id, core::BridgeReason::kNotOwner);
+      return;
+    }
+    if (g_motion.service().active() || !net::motionStoreSave(c.cpm)) {
+      nack(fd, id, core::BridgeReason::kBusy);
+      return;
+    }
+    g_cpm = c.cpm;
+    if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
+  }
+  sendTo(fd, core::jsonCalib(g_json, sizeof(g_json), g_cpm));
 }
 
 // cancel: the owner ends its primitive (STOP while still the owner); acked also when nothing runs.
@@ -369,6 +435,8 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
     case core::WsCmdKind::kTurn: handleTurn(fd, id, c, now); break;
     case core::WsCmdKind::kDriveRate: handleDriveRate(fd, c, now); break;
     case core::WsCmdKind::kCancel: handleCancel(fd, id, now); break;
+    case core::WsCmdKind::kMove: handleMove(fd, id, c, now); break;
+    case core::WsCmdKind::kCalib: handleCalib(fd, id, c); break;
     case core::WsCmdKind::kRelease: handleRelease(fd, id, now); break;
     case core::WsCmdKind::kDebug: handleDebug(fd, id, c); break;
     case core::WsCmdKind::kPing: sendTo(fd, core::jsonPong(g_json, sizeof(g_json), c.t0, now)); break;
@@ -455,6 +523,11 @@ void handleLinkEvents(uint32_t now) {
         }
         broadcast(core::jsonUnoEvent(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), ev.code, ev.a,
                                      ev.b));
+        if (ev.code == static_cast<uint8_t>(proto::EventKind::kStall)) {
+          endMotion(core::MotionEvent::kBodyStall, now);  // Plan K: ends a move (turn / rate unchanged)
+        } else if (ev.code == static_cast<uint8_t>(proto::EventKind::kEncoderFault)) {
+          endMotion(core::MotionEvent::kBodyEncoderFault, now);
+        }
         break;
       case core::LinkEventKind::kStopResult:
         for (size_t i = 0; i < g_stop_waiter_n; ++i) {
@@ -503,7 +576,7 @@ void telemetry(uint32_t now) {
   if (new_fast || new_slow) sendDebug(s, new_fast, new_slow);
   if (new_fast) {
     g_last_fast_count = s.fast_count;
-    runMotion(g_motion.onTelemetry(s.fast.yaw, s.fast.yaw_rate, now), now);  // 50 Hz
+    runMotion(g_motion.onTelemetry(telemOf(s), now), now);  // 50 Hz
     if (s.fast_count % 5u == 0) {  // Uno 50 Hz -> page 10 Hz (R2.14 #7, spec 02 §E4)
       const core::MotionService& svc = g_motion.service();
       const core::PrimitiveView pv{svc.active(), svc.kind(), svc.progressPct()};
@@ -595,6 +668,7 @@ void linkTask(void*) {
 
 void linkTaskStart(const char* (*camera_sensor)()) {
   g_sensor = camera_sensor;
+  g_cpm = net::motionStoreLoad();  // Plan K: before the link task runs
   g_uart.begin();
   g_tcp.begin();
   g_queue = xQueueCreate(16, sizeof(LinkCommand));

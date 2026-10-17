@@ -2,6 +2,7 @@
 #include <unity.h>
 
 #include "domain/lite/motion_latch_lite.h"
+#include "domain/lite/drive_mix_lite.h"
 #include "domain/lite/heading_hold_lite.h"
 #include "domain/lite/runaway_guard_lite.h"
 #include "domain/lite/stall_guard_lite.h"
@@ -128,6 +129,35 @@ void test_sync_never_flips_or_overdrives() {
   t = h.apply(Tracks{98, 98}, true, 0, 300, 0, 800);  // right ahead: left sped up
   TEST_ASSERT_TRUE(t.l <= 100);
   TEST_ASSERT_TRUE(t.r <= 100);
+}
+
+// ---------- plan J: track balance (spec 02 §F5.1) ----------
+void test_balance_feed_forward() {
+  Tracks t = balanceTracks(Tracks{40, 40}, 20);  // right asked 2 % more: 40*990/1000 = 39.6 -> 39, 40*1010/1000 -> 40
+  TEST_ASSERT_EQUAL_INT16(39, t.l);
+  TEST_ASSERT_EQUAL_INT16(40, t.r);
+  t = balanceTracks(Tracks{80, 80}, 20);
+  TEST_ASSERT_EQUAL_INT16(79, t.l);
+  TEST_ASSERT_EQUAL_INT16(80, t.r);
+  t = balanceTracks(Tracks{-80, -80}, 20);  // reverse: magnitudes, right still more
+  TEST_ASSERT_EQUAL_INT16(-79, t.l);
+  TEST_ASSERT_EQUAL_INT16(-80, t.r);
+  t = balanceTracks(Tracks{100, 100}, 100);  // clamp
+  TEST_ASSERT_TRUE(t.r <= 100);
+  t = balanceTracks(Tracks{40, -40}, 20);  // spin: untouched
+  TEST_ASSERT_EQUAL_INT16(40, t.l);
+  TEST_ASSERT_EQUAL_INT16(-40, t.r);
+}
+
+void test_sync_ratio_target() {
+  TrackSyncLite s;
+  s.apply(Tracks{40, 40}, true, 0, 0, 1000, 1019, 19);
+  Tracks t = s.apply(Tracks{40, 40}, true, 1000, 1019, 1000, 1019, 19);  // right 1.9 % more = target: no correction
+  TEST_ASSERT_EQUAL_INT16(0, s.correctionPct());
+  TEST_ASSERT_EQUAL_INT16(40, t.l);
+  t = s.apply(Tracks{40, 40}, true, 2000, 2000, 1000, 1000, 19);  // equal counts: right is behind its target
+  TEST_ASSERT_TRUE(s.correctionPct() > 0);                         // left slowed / right sped up
+  TEST_ASSERT_TRUE(t.r >= t.l);
 }
 
 // ---------- StallGuardLite ----------
@@ -283,6 +313,8 @@ int main() {
   RUN_TEST(test_sync_inactive_when_disabled);
   RUN_TEST(test_sync_rebases_after_inactive);
   RUN_TEST(test_sync_never_flips_or_overdrives);
+  RUN_TEST(test_balance_feed_forward);
+  RUN_TEST(test_sync_ratio_target);
   RUN_TEST(test_stall_held_track_trips_in_half_a_second);
   RUN_TEST(test_stall_slow_but_moving_is_not_stall);
   RUN_TEST(test_stall_slipping_track_at_25_pct_trips);

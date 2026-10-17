@@ -18,7 +18,9 @@ class TrackSyncLite {
     m_active = false;
     m_c = 0;
   }
-  Tracks apply(Tracks t, bool active, int32_t count_l, int32_t count_r, uint16_t cps_l, uint16_t cps_r);
+  // balance_pm (spec 02 §F5.1): the right track is expected to turn balance ‰ more than the left (0 = equal counts).
+  Tracks apply(Tracks t, bool active, int32_t count_l, int32_t count_r, uint16_t cps_l, uint16_t cps_r,
+               int16_t balance_pm = 0);
   int16_t correctionPct() const { return m_c; }
 
  private:

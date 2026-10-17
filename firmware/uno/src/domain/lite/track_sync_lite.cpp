@@ -11,7 +11,8 @@ int16_t towardZero(int16_t v, int16_t d) {
 }
 }  // namespace
 
-Tracks TrackSyncLite::apply(Tracks t, bool active, int32_t count_l, int32_t count_r, uint16_t cps_l, uint16_t cps_r) {
+Tracks TrackSyncLite::apply(Tracks t, bool active, int32_t count_l, int32_t count_r, uint16_t cps_l, uint16_t cps_r,
+                            int16_t balance_pm) {
   if (!active) {
     reset();
     return t;
@@ -21,10 +22,12 @@ Tracks TrackSyncLite::apply(Tracks t, bool active, int32_t count_l, int32_t coun
     m_base_l = count_l;
     m_base_r = count_r;
   }
-  int32_t ahead = (count_l - m_base_l) - (count_r - m_base_r);  // > 0: left has gone further
+  const int32_t dl = count_l - m_base_l, dr = count_r - m_base_r;
+  int32_t ahead = (dl * (1000 + balance_pm) - dr * 1000) / 1000;  // > 0: left ahead of its share
   if (ahead > kSyncMaxCounts) ahead = kSyncMaxCounts;
   if (ahead < -kSyncMaxCounts) ahead = -kSyncMaxCounts;
-  int32_t c = ahead / kSyncCountsPerPct + (static_cast<int32_t>(cps_l) - cps_r) / kSyncCpsPerPct;
+  const int32_t dcps = (static_cast<int32_t>(cps_l) * (1000 + balance_pm) - static_cast<int32_t>(cps_r) * 1000) / 1000;
+  int32_t c = ahead / kSyncCountsPerPct + dcps / kSyncCpsPerPct;
   if (c > kSyncMaxPct) c = kSyncMaxPct;
   if (c < -kSyncMaxPct) c = -kSyncMaxPct;
   m_c = static_cast<int16_t>(c);

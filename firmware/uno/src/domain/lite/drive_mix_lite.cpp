@@ -55,6 +55,18 @@ Tracks liteMix(int8_t v, int8_t w_steer, int8_t w_ctrl, bool auto_src, uint8_t t
   return mixLite(v, 0, static_cast<int8_t>(w), turn_full_pct);
 }
 
+Tracks balanceTracks(Tracks t, int16_t balance_pm) {
+  if (balance_pm == 0 || t.l == 0 || t.r == 0 || ((t.l > 0) != (t.r > 0))) return t;
+  const int32_t fl = 1000 - balance_pm / 2, fr = 1000 + (balance_pm - balance_pm / 2);
+  int32_t l = static_cast<int32_t>(t.l < 0 ? -t.l : t.l) * fl / 1000;
+  int32_t r = static_cast<int32_t>(t.r < 0 ? -t.r : t.r) * fr / 1000;
+  if (l > 100) l = 100;
+  if (r > 100) r = 100;
+  t.l = static_cast<int16_t>(t.l < 0 ? -l : l);
+  t.r = static_cast<int16_t>(t.r < 0 ? -r : r);
+  return t;
+}
+
 Tracks capLite(Tracks t, uint8_t cap_pct, uint16_t dist_mm, uint8_t stop_cm, uint8_t slow_cm, bool brake_on,
                bool& capped) {
   capped = false;

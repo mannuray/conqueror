@@ -411,7 +411,7 @@ Review of Plan I (`.superpowers/sdd/2026-10-17-plan-i-encoder-phase1/final-revie
 - Minors deferred (owner list): stale stall-guard timing after re-enabling encoders; runaway "grew" without margin; the disabled-encoders test does not exercise the app gate; 30 % not re-run on the floor; sync and hold in parallel; a misclassified encoder fault disables that side's stall check until reboot; the latch is invisible after its one-shot event and the phone page ignores stall / fault events; doc drift.
 - Uno Lite after the fixes: flash 30 288 B, RAM 1 524 B; host tests 282.
 
-## 20. Straight-driving tuning (spec 02 §F5, DRAFT 2026-10-17)
+## 20. Straight-driving tuning (spec 02 §F5, approved and done 2026-10-17)
 
 ### 20.1 Classes
 ```mermaid
@@ -443,4 +443,10 @@ heading hold (now P + I + D) → `liteMix` → **`balanceTracks`** (straight onl
 
 ### 20.3 Tests and budget
 Host: `balanceTracks` (+19 ‰ at 40/40 → 40/41 rounding, reverse, steering untouched, clamp); sync ratio (counts in ratio 1.019 → no correction; equal counts → corrects toward R); heading hold integral (a constant disturbance that P alone leaves at a steady error is driven to ~0 in a simulated loop; integral resets on steer / stop; clamp); settings migration (a block of the previous size `offsetof(LiteSettings, track_balance)` loads with `track_balance` = 0; the new block round-trips). Budget: ~+300 B flash, +4 B RAM.
+
+### 20.4 As built and review fixes (2026-10-17)
+- Budget measured: Uno Lite **31 028 B flash (96.2 %), 1 532 B RAM** (+740 B / +8 B for plan J). About 1.2 KB of flash is left — future Lite features must be small.
+- Final review: 0 Critical / 0 Important / 7 Minor. Fixed: **M1** sync ratio maths without the `dl × (1000 + b)` product (UB overflow after ~260 m of one straight stretch; the wrap happened to cancel, test `test_sync_ratio_no_overflow_on_long_stretch`); **M2** the integral is **frozen while the obstacle brake or the latch holds the tank** (`freezeIntegral`, set each tick) and does not grow while P is saturated — no wound-up swerve on release (`test_hold_integral_frozen_while_blocked`).
+- Note (M7): flashing an older firmware after a save resets the Lite settings to defaults (an old build does not know the longer block) — re-set `track_balance` / `encoders_enabled` after a downgrade.
+- Saved on the tank: `track_balance` = 19 ‰, `encoders_enabled` = 1, heading gains 3500 / 1200.
 

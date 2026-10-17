@@ -1289,3 +1289,114 @@ classDiagram
 - `MoveController::step`: `done` when travelled ≥ `m_stop_at`; progress still against the full target.
 - Link task: when `runMotion` broadcasts a move `done`, `g_roll.begin(mean(enc_l, enc_r))`; on each TELEM_FAST while watching, `observe(mean, pwm_l ≠ 0 ∨ pwm_r ≠ 0, g_cpm, now, mm)` → `g_roll_mm = rollAverage(g_roll_mm, mm)`, `MotionStore::saveRoll` when it changed by ≥ 1 mm; `startMove(…, g_roll_mm)`; a new primitive cancels the learner. `jsonCalib(out, cap, cpm, roll_mm)` → `{"t":"calib","counts_per_m":n,"roll_mm":m}`; the link task appends learner diagnostics: `,"roll_last":mm|-1,"roll_watched":n,"roll_read":n}` (last reading, moves watched / readings taken since boot — the floor check that found the in-flight frames).
 - Tests (`test_move`): learner — settles after 100 ms without change, gives up at 600 ms, discards when driven, discards > 80 mm, average maths; MoveController — stops `roll` early, never before half the target; `test_ws_json` calib with roll_mm.
+
+---
+
+## Revision 8 — Arcs, pivots, minimum drive_rate (Plan L; spec 02 Part H, design-notes §70)
+
+### R8.0 Scope
+Bridge only (no Uno or protocol change). The motion service gains two primitives — **arc** (`turn` + `radius_cm`, gyro-closed: ω = v_meas / R) and **pivot** (`turn` + `pivot`, the spin controller with the inside track at 0) — a radius / speed **band check** with a helpful refusal, and a **65 °/s minimum** for spinning `drive_rate`. Spin, drive_rate with v ≠ 0 and move are unchanged.
+
+### R8.1 WebSocket API
+- `turn` gains `"pivot":bool` (`WsCommand.pivot`); `pivot` with `radius_cm` > 0 → `INVALID_COMMAND`. Speed for every turn 12…100 (unchanged).
+- A refused arc → `{"t":"nack","id"?,"code":"COMMAND_3006","reason":"INVALID_COMMAND","message":"radius 40 cm: use speed 43-64 %, or pivot"}` or `"... radius 20 cm too tight (min 31): use pivot"` (`jsonNackMessage`).
+- `primitive_done` for arcs and pivots: `"prim":"turn"` (as the spin). `tf.primitive`: `{"kind":"turn"|"rate"|"move","pct":p,"limited"?:true}` — `limited` while a spinning drive_rate is clamped.
+- Routing `routeTurn(caps, radius_cm, pivot)`: spin as before; arc or pivot → `kMove` cap: Forward; `kEncoders`: **Local**; else Unavailable. An arc is also UNAVAILABLE while `TELEM_FAST` shows `encoder_fault`.
+
+### R8.2 Classes
+```mermaid
+classDiagram
+  class ArcBand {
+    +bool possible
+    +uint8_t lo  %% speed %
+    +uint8_t hi
+  }
+  class ArcLimits {
+    <<functions>>
+    +arcBand(uint16_t radius_cm) ArcBand
+    +arcMinRadiusCm() uint16_t  %% 31 with the H1 model
+    +arcRefusal(char* out, size_t cap, uint16_t radius_cm) size_t
+  }
+  class ArcController {
+    +begin(MotionTelem t, int32_t delta_cdeg, uint16_t radius_cm, uint8_t speed, uint16_t cpm, uint32_t now)
+    +step(MotionTelem t, uint32_t now) ArcStep
+    +progressPct() uint8_t
+    -RateLoop m_rate
+    -int32_t m_delta, m_pos  %% 0.01°
+    -counts / ms history  %% speed over 100 ms
+  }
+  class ArcStep {
+    +int8_t v
+    +int8_t w
+    +bool done, stalled, blocked, timeout, diverged
+  }
+  class MotionService {
+    +startArc(int fd, MotionTelem t, int32_t delta, uint16_t radius, uint8_t speed, uint16_t cpm, int32_t id, uint32_t now)
+    +startPivot(int fd, uint16_t yaw, int32_t delta, uint8_t speed, int32_t id, uint32_t now)
+    +driveRate(fd, v, rate, now)  %% v = 0: |rate| < 65 °/s -> 65, limited
+    +limited() bool
+    -stepArc() / stepPivot()
+  }
+  class PrimKind {
+    <<enum>>
+    kNone, kTurn, kRate, kMove, kArc, kPivot
+  }
+  ArcLimits ..> ArcBand
+  MotionService --> ArcController
+  MotionService --> TurnController : spin + pivot
+  ArcController --> RateLoop
+  ArcController ..> ArcStep
+```
+- Constants (`motion_config.h`, spec H1): `kTrackWidthCm 19`, `kTrackSpeedOffsetCmS 15.5`, `kTrackSpeedSlopeCmS 0.18`, `kTrackVMinCmS 17.7`, `kTrackVMaxCmS 33.5`, `kSpinMinDdps 650`, `kArcSpeedWindowMs 100`, `kArcStallMs 1500`, `kArcTimeoutCmPerS 5`, `kArcTimeoutBaseMs 3000`.
+- `PrimitiveView` gains `bool limited`; `jsonNackMessage(out, cap, id, BridgeReason, message)` (message JSON-escaped).
+
+### R8.3 Behaviour
+- **Band:** k = B / 2R; lo = ⌈p(v_min / (1 − k))⌉, hi = ⌊p(v_max / (1 + k))⌋, p(v) = (v − 15.5) / 0.18; lo ≥ 12; possible = R > B/2 ∧ lo ≤ hi.
+- **Arc step** (every TELEM_FAST): heading turned (unwrapped, 0.01°); measured centre speed v = Δ(mean counts) over the last ≥ 100 ms ÷ counts_per_cm; target ω = dir · 573 · v / R (0.1 °/s); w = RateLoop(ω, gyro rate, dt); out v = speed, w.
+  - done: heading still to go ≤ |rate| × 80 ms (`kLatencyDdpsToCdeg`).
+  - stalled: < 1 cm of counts **and** < 2° of heading for 1.5 s; with the ultrasonic < 25 cm → blocked; the blocked flag for 2 s → blocked (as MOVE).
+  - timeout: R · |θ| (rad) / 5 cm/s + 3 s. diverged: |w| ≥ 95 with the gyro > 5 °/s the wrong way for 0.5 s.
+  - Uno `stall` / `encoder_fault` events end an arc as they end a move (`MotionLink::onEvent`, kinds kMove and kArc).
+- **Pivot:** `TurnController::begin(yaw, delta, max(speed / 2, 12))`; each step v = |w| (so L = v − w and R = v + w give the inside track 0, the outside 2|w| ≤ speed, or 24 % at the minimum); ends as the spin.
+- **drive_rate clamp:** in `driveRate`, v = 0 ∧ 0 < |rate| < 650 → rate = ±650, `limited` = true; else false.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Refused : arc outside its band / R < 31 cm (nack with message)
+  [*] --> Arc : turn + radius_cm in band
+  Arc --> Arc : TELEM_FAST: v_meas -> ω = v/R -> rate loop -> DRIVE v, w
+  Arc --> Done : heading to go <= rate x 80 ms
+  Arc --> Ended : stalled / blocked / timeout / diverged / Uno stall / encoder_fault / cancel / stop / not_owner / link
+  Done --> [*] : DRIVE 0/0 + STOP, primitive_done ok
+  Ended --> [*] : STOP (while owner), primitive_done reason
+```
+
+### R8.4 Sequence (arc)
+```mermaid
+sequenceDiagram
+  participant C as turn.py / phone
+  participant L as LinkTask
+  participant S as MotionService / ArcController
+  participant U as Uno
+  C->>L: {"t":"turn","by":90,"radius_cm":60,"speed":40,"id":3}
+  L->>L: routeTurn Local, arcBand(60) = 31..75 ok, onDrive = Send
+  L->>S: startArc(fd, telem, 9000, 60, 40, cpm, 3)
+  L-->>C: ack 3
+  loop TELEM_FAST 50 Hz
+    U->>L: yaw, rate, enc
+    L->>S: onTelemetry
+    S-->>L: DRIVE v 40, w (rate loop toward v_meas / R)
+    L->>U: DRIVE src AUTO
+  end
+  S-->>L: done
+  L->>U: STOP
+  L-->>C: primitive_done prim turn ok
+```
+
+### R8.5 Tool `tools/smoke/turn.py`
+`turn.py DEG [--radius R | --pivot] [--speed P] [--host H]`: debug on (50 Hz), sends `turn`, waits for `primitive_done` (or prints the nack message), integrates the path from the `td` stream (mean counts → cm, yaw → direction) and prints the end heading change and the end position (forward x, left y in cm) next to the geometric arc point (R·sin θ, R·(1 − cos θ)). Pure helper `integrate(samples, counts_per_cm) -> (x, y)` unit-tested.
+
+### R8.6 Tests (host)
+- `test_arc` (new): band for R 31 / 40 / 49 / 60 / 100 / 150 against the spec H3 table, R 30 impossible, `arcMinRadiusCm` 31, refusal strings; ArcController against a plant (counts from v, yaw rate from w with lag): left / right arcs end within 2° of the target heading, ω tracks v / R, stalled / blocked / timeout / diverged ends, progress.
+- `test_motion`: pivot output (inside track 0, outside ≤ speed), startArc / startPivot in the service and the link, Uno stall ends an arc but not a pivot, drive_rate clamp (50 → 650, −50 → −650, 0 → 0, v ≠ 0 untouched) and `limited()`, router with pivot.
+- `test_ws_codec`: `pivot` field, pivot + radius invalid. `test_ws_json`: `tf.primitive.limited`, `jsonNackMessage`.

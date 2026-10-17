@@ -105,7 +105,7 @@ void test_long_stop_is_still_a_stop() {
 }
 
 void test_unsupported_commands() {
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"move\",\"dist_cm\":50}").kind));  // until encoders (Plan H ruling)
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"go_to\",\"x\":1}").kind));  // move is parsed since Plan K
   TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"safety_override\"}").kind));
 }
 
@@ -237,6 +237,56 @@ void test_debug_command() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"debug\",\"on\":true,\"hz\":\"x\"}").kind));
 }
 
+// Plan K (bridge LLD R7.1): move and calib.
+void test_move_fields_and_ranges() {
+  WsCommand c = P("{\"t\":\"move\",\"dist_cm\":100,\"speed\":40,\"id\":7}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kMove), K(c.kind));
+  TEST_ASSERT_EQUAL_INT16(100, c.move_cm);
+  TEST_ASSERT_EQUAL_UINT8(40, c.speed);
+  TEST_ASSERT_EQUAL_INT32(7, c.id);
+  c = P("{\"t\":\"move\",\"dist_cm\":-50}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kMove), K(c.kind));
+  TEST_ASSERT_EQUAL_INT16(-50, c.move_cm);
+  TEST_ASSERT_EQUAL_UINT8(40, c.speed);  // default
+  TEST_ASSERT_EQUAL_INT16(500, P("{\"t\":\"move\",\"dist_cm\":500}").move_cm);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kMove), K(P("{\"t\":\"move\",\"dist_cm\":1,\"speed\":100}").kind));
+  const char* bad[] = {
+      "{\"t\":\"move\"}",                                  // no distance
+      "{\"t\":\"move\",\"dist_cm\":0}",                    // zero
+      "{\"t\":\"move\",\"dist_cm\":501}",                  // too far
+      "{\"t\":\"move\",\"dist_cm\":-501}",
+      "{\"t\":\"move\",\"dist_cm\":10.5}",                 // whole cm only
+      "{\"t\":\"move\",\"dist_cm\":10,\"speed\":9}",       // below 10 %
+      "{\"t\":\"move\",\"dist_cm\":10,\"speed\":101}",
+      "{\"t\":\"move\",\"dist_cm\":10,\"speed\":40.5}",
+      "{\"t\":\"move\",\"dist_cm\":10,\"heading\":90}",    // not supported in Plan K
+  };
+  for (const char* s : bad) TEST_ASSERT_EQUAL_MESSAGE(K(WsCmdKind::kInvalid), K(P(s).kind), s);
+}
+
+void test_speed_limits_per_command() {  // Review Focus 5
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kMove), K(P("{\"t\":\"move\",\"dist_cm\":10,\"speed\":10}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"turn\",\"by\":90,\"speed\":10}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kTurn), K(P("{\"t\":\"turn\",\"by\":90,\"speed\":12}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kTurn), K(P("{\"speed\":12,\"by\":90,\"t\":\"turn\"}").kind));  // any key order
+}
+
+void test_calib_read_and_set() {
+  WsCommand c = P("{\"t\":\"calib\"}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCalib), K(c.kind));
+  TEST_ASSERT_FALSE(c.has_cpm);
+  c = P("{\"t\":\"calib\",\"counts_per_m\":7480,\"id\":3}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCalib), K(c.kind));
+  TEST_ASSERT_TRUE(c.has_cpm);
+  TEST_ASSERT_EQUAL_UINT16(7480, c.cpm);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCalib), K(P("{\"t\":\"calib\",\"counts_per_m\":3000}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCalib), K(P("{\"t\":\"calib\",\"counts_per_m\":15000}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"calib\",\"counts_per_m\":2999}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"calib\",\"counts_per_m\":15001}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"calib\",\"counts_per_m\":7480.5}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"calib\",\"counts_per_m\":\"x\"}").kind));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_drive);
@@ -262,5 +312,8 @@ int main() {
   RUN_TEST(test_drive_rate_and_cancel);
   RUN_TEST(test_odd_keys_and_bools);
   RUN_TEST(test_debug_command);
+  RUN_TEST(test_move_fields_and_ranges);
+  RUN_TEST(test_speed_limits_per_command);
+  RUN_TEST(test_calib_read_and_set);
   return UNITY_END();
 }

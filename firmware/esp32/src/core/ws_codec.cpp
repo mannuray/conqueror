@@ -133,6 +133,8 @@ WsCmdKind kindOf(const char* t) {
   if (strcmp(t, "drive_rate") == 0) return WsCmdKind::kDriveRate;
   if (strcmp(t, "cancel") == 0) return WsCmdKind::kCancel;
   if (strcmp(t, "debug") == 0) return WsCmdKind::kDebug;
+  if (strcmp(t, "move") == 0) return WsCmdKind::kMove;
+  if (strcmp(t, "calib") == 0) return WsCmdKind::kCalib;
   return WsCmdKind::kUnsupported;
 }
 
@@ -188,8 +190,8 @@ bool readMotionField(const char* key, Reader& r, WsCommand& c, MotionFields& mf)
     if (!mf.bad) c.turn_to_cdeg = static_cast<uint16_t>(lround(n * 100.0) % 36000);
     c.turn_has_to = true;
     mf.to = true;
-  } else if (speed) {  // w_min .. 100 % (below w_min the tracks do not turn: review M1)
-    mf.bad = n < motion::kTurnWMin || n > 100.0 || !isWhole(n);
+  } else if (speed) {  // 1..100 here; the per-command minimum (turn w_min - review M1, move 10 %) is in complete()
+    mf.bad = n < 1.0 || n > 100.0 || !isWhole(n);
     if (!mf.bad) c.speed = static_cast<uint8_t>(n);
   } else if (radius) {
     mf.bad = n < 0.0 || n > 1000.0 || !isWhole(n);
@@ -209,6 +211,7 @@ struct Seen {
   char mode[8] = "";  // audio_mode
   char name[24] = "";
   MotionFields mf;
+  bool dist = false, heading = false;  // move (Plan K)
 };
 
 bool readBool(Reader& r, bool& out, bool& seen) {
@@ -255,6 +258,22 @@ bool readField(const char* key, Reader& r, WsCommand& c, Seen& s) {
     c.debug_hz = static_cast<uint8_t>(num);
     return true;
   }
+  if (strcmp(key, "dist_cm") == 0) {  // move: whole cm, 1..500 in size
+    if (!r.num(num, nullptr, 0) || !isWhole(num) || num == 0.0 || fabs(num) > motion::kMoveMaxCm) return false;
+    c.move_cm = static_cast<int16_t>(num);
+    s.dist = true;
+    return true;
+  }
+  if (strcmp(key, "heading") == 0) {  // move heading: not in Plan K (spec 02 §G1) - refused in complete()
+    s.heading = true;
+    return r.skip();
+  }
+  if (strcmp(key, "counts_per_m") == 0) {  // calib set
+    if (!r.num(num, nullptr, 0) || !isWhole(num) || num < motion::kCpmMin || num > motion::kCpmMax) return false;
+    c.has_cpm = true;
+    c.cpm = static_cast<uint16_t>(num);
+    return true;
+  }
   return r.skip();
 }
 
@@ -272,7 +291,9 @@ bool complete(WsCommand& c, const Seen& s) {
       return c.sound_id != 0;
     case WsCmdKind::kAudioMode: return audioModeOf(s.mode, c.audio_mode);
     case WsCmdKind::kCamLock: return s.on;
-    case WsCmdKind::kTurn: return s.mf.by != s.mf.to;  // exactly one of by / to
+    case WsCmdKind::kTurn: return s.mf.by != s.mf.to && c.speed >= motion::kTurnWMin;  // exactly one of by / to
+    case WsCmdKind::kMove: return s.dist && !s.heading && c.speed >= motion::kMoveSpeedMin;
+    case WsCmdKind::kCalib: return true;
     case WsCmdKind::kDriveRate: return s.v && s.mf.rate;  // review M20: like the other commands' fields
     case WsCmdKind::kDebug: return s.on;
     default: return true;

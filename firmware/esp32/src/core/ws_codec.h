@@ -24,6 +24,8 @@ enum class WsCmdKind : uint8_t {
   kDriveRate,  // {"t":"drive_rate","v":%,"yaw_rate":deg/s} (stream) -> motion service / DRIVE_RATE
   kCancel,     // {"t":"cancel"} -> ends the running primitive
   kDebug,      // LLD R5: {"t":"debug","on":bool,"hz"?:10|50} -> this client gets td / tds
+  kMove,       // Plan K (LLD R7.1): {"t":"move","dist_cm":±1..500,"speed"?:10..100} -> motion service
+  kCalib,      // {"t":"calib","counts_per_m"?:3000..15000} -> read / set the bridge's counts_per_m (NVS)
   kUnsupported,  // valid JSON, "t" not in the Basic Drive slice -> nack INVALID_COMMAND
   kInvalid,      // not JSON / no "t" / bad field -> nack INVALID_COMMAND
 };
@@ -43,10 +45,13 @@ struct WsCommand {
   int32_t turn_by_cdeg = 0;   // turn by: ±100..72000 (0.01°); ±720° does not fit 16 bits
   bool turn_has_to = false;   // turn to an absolute heading instead of by
   uint16_t turn_to_cdeg = 0;  // turn to: 0..35999 (0.01°)
-  uint8_t speed = 40;         // turn: 10..100 %
+  uint8_t speed = 40;         // turn: 12..100 %, move: 10..100 % (checked per command)
   uint16_t radius_cm = 0;     // turn: 0 = spin in place (> 0 needs encoders)
   int16_t rate_ddps = 0;      // drive_rate: -1800..1800 (0.1 °/s, + = CCW / left)
   uint8_t debug_hz = 10;      // debug: 10 or 50
+  int16_t move_cm = 0;        // move: ±1..500 (+ forward)
+  bool has_cpm = false;       // calib: set (else read)
+  uint16_t cpm = 0;           // calib: counts per metre
   char t0[24] = "";  // ping: number echoed verbatim in pong
   char client[24] = "";
 };

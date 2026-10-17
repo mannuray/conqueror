@@ -40,6 +40,14 @@ void test_router_full_body_forwards() {
   TEST_ASSERT_EQUAL(R(Route::kForward), R(routeMove(full)));
 }
 
+// Plan K (bridge LLD R7.2): an Uno with encoders gets MOVE from the bridge's motion service.
+void test_router_move_needs_encoders() {
+  const uint8_t enc = kLiteCaps | bit(proto::CapBit::kEncoders);
+  TEST_ASSERT_EQUAL(R(Route::kLocal), R(routeMove(enc)));
+  TEST_ASSERT_EQUAL(R(Route::kUnavailable), R(routeMove(kLiteCaps)));  // encoders off -> no MOVE
+  TEST_ASSERT_EQUAL(R(Route::kForward), R(routeMove(enc | bit(proto::CapBit::kMove))));
+}
+
 // ---------- turn target (0.01°, + = CCW / left) ----------
 void test_turn_target_wrap() {
   TEST_ASSERT_EQUAL_INT32(2000, turnDelta(35000, true, 0, 1000));    // 350° -> to 10°: +20° (short way)
@@ -547,6 +555,7 @@ int main() {
   UNITY_BEGIN();
   RUN_TEST(test_router_lite_runs_turn_and_rate_locally);
   RUN_TEST(test_router_full_body_forwards);
+  RUN_TEST(test_router_move_needs_encoders);
   RUN_TEST(test_turn_target_wrap);
   RUN_TEST(test_turn_far_error_runs_at_speed_toward_target);
   RUN_TEST(test_turn_near_error_keeps_minimum);

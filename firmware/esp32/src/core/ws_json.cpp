@@ -1,5 +1,7 @@
 #include "core/ws_json.h"
 
+#include "core/motion_router.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -114,9 +116,15 @@ const char* capBit(const HelloInfo& h, proto::CapBit b) {
 
 // Plan H (spec 02 §E2): turn / drive_rate are available when the bridge's motion service runs them - a body
 // without them (Uno Lite). A body that has them is not forwarded to yet (review M7), so false there for now;
-// move still needs the body's encoders.
+// move: run by the bridge when the body has encoders (Plan K).
 const char* localOnly(const HelloInfo& h, proto::CapBit b) {
   return (h.seen && !(h.caps & (1u << static_cast<uint8_t>(b)))) ? "true" : "false";
+}
+
+// Plan K (LLD R7.1): MOVE is available when the body has its own (as before) or the bridge runs it for a body
+// with encoders.
+const char* moveCap(const HelloInfo& h) {
+  return h.seen && routeMove(h.caps) != Route::kUnavailable ? "true" : "false";
 }
 
 size_t jsonWelcome(char* out, size_t cap, const WelcomeInfo& w) {
@@ -128,7 +136,7 @@ size_t jsonWelcome(char* out, size_t cap, const WelcomeInfo& w) {
              "\"encoders\":%s,\"turn\":%s,\"move\":%s,\"drive_rate\":%s,\"calibrate\":%s,\"audio_led\":%s,"
              "\"sensor\":\"%s\"}},\"owner\":\"%s\",\"owner_client\":\"%s\"}",
              w.you, w.fw_esp32, uno, proto::kProtocolVersion, capBit(*w.hello, proto::CapBit::kEncoders),
-             localOnly(*w.hello, proto::CapBit::kTurn), capBit(*w.hello, proto::CapBit::kMove),
+             localOnly(*w.hello, proto::CapBit::kTurn), moveCap(*w.hello),
              localOnly(*w.hello, proto::CapBit::kDriveRate), capBit(*w.hello, proto::CapBit::kCalibrate),
              capBit(*w.hello, proto::CapBit::kAudioLed), w.sensor, w.owner.owner, w.owner.client);
 }

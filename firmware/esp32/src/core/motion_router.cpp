@@ -18,7 +18,8 @@ Route routeDriveRate(uint8_t body_caps) {
 }
 
 Route routeMove(uint8_t body_caps) {
-  return has(body_caps, proto::CapBit::kMove) ? Route::kForward : Route::kUnavailable;
+  if (has(body_caps, proto::CapBit::kMove)) return Route::kForward;
+  return has(body_caps, proto::CapBit::kEncoders) ? Route::kLocal : Route::kUnavailable;  // Plan K: bridge MOVE
 }
 
 }  // namespace core

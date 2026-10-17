@@ -11,7 +11,7 @@ enum class Route : uint8_t { kForward, kLocal, kUnavailable };
 
 Route routeTurn(uint8_t body_caps, uint16_t radius_cm);  // radius > 0 = arc: needs the body's MOVE (encoders)
 Route routeDriveRate(uint8_t body_caps);
-Route routeMove(uint8_t body_caps);
+Route routeMove(uint8_t body_caps);  // MOVE: body's own, else the bridge with the body's encoders (Plan K)
 
 }  // namespace core
 }  // namespace cq

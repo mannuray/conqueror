@@ -194,6 +194,19 @@ void test_ts_encoder_fault_flag() {
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"flags\":[\"encoder_fault\"]"));
 }
 
+// Plan K: caps.move is true when the bridge runs MOVE (Uno with encoders, no MOVE of its own).
+void test_welcome_caps_move_with_encoders() {
+  HelloInfo h;
+  h.seen = true;
+  h.fw = 0x0100;
+  h.caps = (1u << static_cast<uint8_t>(proto::CapBit::kAudioLed)) | (1u << static_cast<uint8_t>(proto::CapBit::kEncoders));
+  jsonWelcome(buf, sizeof(buf), WelcomeInfo{"x", &h, "OV3660", kNone, "phone-1"});
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"move\":true"));
+  h.caps = 1u << static_cast<uint8_t>(proto::CapBit::kAudioLed);
+  jsonWelcome(buf, sizeof(buf), WelcomeInfo{"x", &h, "OV3660", kNone, "phone-1"});
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"move\":false"));
+}
+
 void test_welcome_caps_bits() {
   HelloInfo h;
   h.seen = true;
@@ -357,6 +370,7 @@ int main() {
   RUN_TEST(test_ack_and_nacks);
   RUN_TEST(test_welcome_and_pong);
   RUN_TEST(test_welcome_caps_bits);
+  RUN_TEST(test_welcome_caps_move_with_encoders);
   RUN_TEST(test_ts_muted_quiet_flags);
   RUN_TEST(test_td_raw_fast_values);
   RUN_TEST(test_tds_raw_slow_values);

@@ -140,10 +140,11 @@ DriveOut driveTargets(const LiteSettings& s) {
     g_lite.latch.trip(MotionLatchLite::Reason::kHeading, -1);
   }
   Tracks t = liteMix(v, w_steer, w_ctrl, g_lite.teleop_auto, s.turn_full);  // §F1.4
+  if (w_steer == 0 && !g_lite.teleop_auto) t = balanceTracks(t, s.track_balance);  // §F5.1 (straight only)
   const bool straight = g_lite.encoders_enabled && !g_lite.stall.faulted(0) && !g_lite.stall.faulted(1) &&
                         w_steer == 0 && t.l != 0 && t.r != 0 && ((t.l > 0) == (t.r > 0)) && !g_lite.latch.latched();
   t = g_lite.sync.apply(t, straight, g_lite.enc_l.count(), g_lite.enc_r.count(), g_lite.enc_l.cps(),
-                        g_lite.enc_r.cps());  // §F1.1: encoders inside, gyro outside
+                        g_lite.enc_r.cps(), s.track_balance);  // §F1.1 + §F5.1: count ratio, gyro outside
   const uint8_t degraded_pct = !imuUsable() ? 30 : (g_lite.range.fault() ? 50 : 100);
   const uint8_t cap_pct = g_lite.envelope.speedCap() < degraded_pct ? g_lite.envelope.speedCap() : degraded_pct;
   t = capLite(t, cap_pct, g_lite.range.distMm(), s.obstacle_stop, s.obstacle_slow, g_lite.envelope.brakeOn(), d.capped);

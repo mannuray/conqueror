@@ -460,3 +460,32 @@ Clients never need to know which board is fitted; `welcome.tank.caps` tells them
 2. Encoders wired (design-notes §53) → MOVE, arcs, pose / return-home.
 3. Calibration, settings store and profiles, Tank Logo runner, melodies over `TONE`, telemetry recording — each its own small plan.
 Whether the phone's single stick switches to DRIVE_RATE (same turn on every floor) is a separate decision after the floor test (steering tuning is parked, notes §52).
+
+## Part F — Encoder features (DRAFT for owner review, 2026-10-17; design-notes §59–§61)
+Encoders are fitted and counting (§59: A only, rising edges, **960 counts / wheel turn**, ~1200 counts/s at 30 % no load; direction from the command). Part E's split stays: **reflexes on the Uno** (IR must benefit, Uno is the safety authority), **measured motion on the ESP32**. Uno Lite budget: ~3 KB flash free, very little RAM — every Uno item below is small integer code.
+
+### F1. Uno (reflexes) — phase 1
+| # | Feature | Behaviour (proposed) | Why on the Uno |
+|---|---|---|---|
+| F1.1 | **Straight driving by encoders** | While driving straight (w = 0, both tracks driven the same way): keep the two tracks' **counted distance equal** — a small integer PI on (counts_L − counts_R) since straight driving began trims the two PWMs. The **gyro heading hold stays as the slow outer correction** (slip, surface); the encoder sync is the fast inner one. Off when `encoders_enabled` = 0 or an encoder is faulted (gyro only, as today). | IR straight driving; fast loop |
+| F1.2 | **Stall by speed, not by silence** | A driven side is **stalled** when its measured speed stays **below 15 % of the speed expected for its applied PWM** for 0.5 s (expected = `max_cps` × (|pwm| − keep) / (255 − keep); `max_cps` per side, measured). Replaces "no edge at all for 0.5 s" (§61: a held track still creeps at 960 counts/turn). Encoder *fault* only with clear evidence (other side moving, tank turning the wrong way for the stopped side). | safety authority |
+| F1.3 | **Heading-hold runaway guard** | If the heading error keeps **growing past 30°** while the correction is **saturated** for 0.5 s → stop both tracks, `heading_fault` event, no motion until a STOP or a new command from the owner. Catches a reversed motor / wrong wiring (§60). | safety |
+| F1.4 | **Plain mix for `src AUTO`** | DRIVE frames from the bridge's motion service use the plain mix (L = v − w, R = v + w); the stick-by-angle mix stays for humans. Fixes the arc shortfall (§58). | mixing lives on the Uno |
+
+### F2. ESP32 (measured motion) — phase 2
+| # | Feature | Behaviour (proposed) |
+|---|---|---|
+| F2.1 | **MOVE by distance** | `{"t":"move","cm":±n,"speed":%}`: drives straight (DRIVE src AUTO, w = 0 → the Uno's heading hold + F1.1) until the mean encoder distance reaches the target; slows over the last ~10 cm; `primitive_done` `done` / `stalled` / `blocked` / `timeout` / owner rules as TURN. |
+| F2.2 | **Arcs with a radius** | `turn` with `radius_cm` > 0: ω = v / r with v from encoder speed (cm/s); the rate loop tracks ω (needs F1.4); ends at the target heading. |
+| F2.3 | **Minimum drive_rate command** | below the speed that keeps the tracks moving the rate loop pulses (stick-slip on marble, §58): apply a minimum |w| (like TURN's 12 %) or report `turn_limited` for rates the floor cannot do smoothly. |
+| F2.4 | **Calibration** | `counts_per_cm` (owner drives a taped 1 m by script; default from 960 / sprocket circumference) and `max_cps` per side (script on the stand); stored in the ESP32 (NVS) and `max_cps` pushed to the Uno settings. |
+
+### F3. Later — phase 3
+Pose integration and `go-to` / return-home (§B4), then **gyro tuning** with the encoders as reference (§61). Each phase: its own plan, host tests, then floor tests recorded with `td_record.py` (bridge LLD R5).
+
+### F4. Open questions for the owner
+1. F1.1 — encoder sync **plus** gyro (recommended), or encoders only for straight lines?
+2. F1.2 — on a stall: cut **that track** for 1 s then retry (today's rule), or **stop both tracks** until the driver commands again (recommended: simpler, safer)?
+3. F1.3 — the 30° / 0.5 s thresholds and "no motion until STOP / new command" — OK?
+4. Order — phase 1 (Uno) first as one plan, then phase 2 (ESP32) as a second plan (recommended)?
+

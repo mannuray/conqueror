@@ -1,5 +1,6 @@
 #include "domain/lite/settings_lite.h"
 
+#include <stddef.h>
 #include <string.h>
 
 namespace cq {
@@ -23,18 +24,24 @@ void SettingsLite::defaults() {
   m_s.obstacle_slow = 50;
   m_s.reverse_steer = 0;
   m_s.encoders_enabled = 0;
+  m_s.track_balance = 0;
 }
 
 bool SettingsLite::load(uint8_t (*read)(uint16_t)) {
   defaults();
-  if (read(kAddr) != kMagic0 || read(kAddr + 1) != kMagic1 || read(kAddr + 2) != sizeof(LiteSettings)) return false;
+  const uint8_t stored = read(kAddr + 2);
+  constexpr uint8_t kPrevSize = static_cast<uint8_t>(offsetof(LiteSettings, track_balance));  // before plan J
+  if (read(kAddr) != kMagic0 || read(kAddr + 1) != kMagic1 || (stored != sizeof(LiteSettings) && stored != kPrevSize)) {
+    return false;
+  }
   uint8_t buf[sizeof(LiteSettings) + 1];
-  buf[0] = sizeof(LiteSettings);
-  for (uint8_t i = 0; i < sizeof(LiteSettings); ++i) buf[i + 1] = read(static_cast<uint16_t>(kAddr + 3 + i));
-  if (proto::crc8(buf, sizeof buf) != read(static_cast<uint16_t>(kAddr + 3 + sizeof(LiteSettings)))) return false;
+  buf[0] = stored;
+  for (uint8_t i = 0; i < stored; ++i) buf[i + 1] = read(static_cast<uint16_t>(kAddr + 3 + i));
+  if (proto::crc8(buf, static_cast<uint8_t>(stored + 1)) != read(static_cast<uint16_t>(kAddr + 3 + stored))) return false;
   // Plan E deferred minor: every loaded value passes the same range check as SETTING_SET, else defaults.
   SettingsLite loaded;
-  memcpy(&loaded.m_s, buf + 1, sizeof(LiteSettings));
+  loaded.defaults();  // fields not in an older block keep their defaults (plan J)
+  memcpy(&loaded.m_s, buf + 1, stored);
   for (uint16_t id = 0; id < 256; ++id) {  // every id the Lite knows (no table: RAM is tight)
     int32_t v = 0;
     const uint8_t i8 = static_cast<uint8_t>(id);
@@ -71,6 +78,7 @@ bool SettingsLite::get(uint8_t id, int32_t& v) const {
     case Id::kObstacleSlow: v = m_s.obstacle_slow; return true;
     case Id::kReverseSteer: v = m_s.reverse_steer; return true;
     case Id::kEncodersEnabled: v = m_s.encoders_enabled; return true;
+    case Id::kTrackBalance: v = m_s.track_balance; return true;
     default: return false;
   }
 }
@@ -100,6 +108,7 @@ proto::AckStatus SettingsLite::set(uint8_t id, int32_t v) {
     case Id::kObstacleSlow: if (!inRange(v, 10, 200)) return kRange; m_s.obstacle_slow = static_cast<uint8_t>(v); return kOk;
     case Id::kReverseSteer: if (!inRange(v, 0, 1)) return kRange; m_s.reverse_steer = static_cast<uint8_t>(v); return kOk;
     case Id::kEncodersEnabled: if (!inRange(v, 0, 1)) return kRange; m_s.encoders_enabled = static_cast<uint8_t>(v); return kOk;
+    case Id::kTrackBalance: if (!inRange(v, -100, 100)) return kRange; m_s.track_balance = static_cast<int16_t>(v); return kOk;
     default: return proto::AckStatus::kUnavailable;
   }
 }

@@ -17,6 +17,7 @@ struct LiteSettings {
   uint8_t obstacle_slow;
   uint8_t reverse_steer;
   uint8_t encoders_enabled;
+  int16_t track_balance;  // ‰, spec 02 §F5.1 (plan J; older EEPROM blocks end before it)
 };
 
 // The Lite settings (spec 02 Part D): existing SettingId numbers, so the bridge and bench tools work unchanged.

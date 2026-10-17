@@ -89,6 +89,35 @@ void test_settings_out_of_range_block_gives_defaults() {
   TEST_ASSERT_EQUAL_UINT8(20, r.values().obstacle_stop);
 }
 
+void test_settings_track_balance_range() {
+  SettingsLite s;
+  s.defaults();
+  TEST_ASSERT_EQUAL(proto::AckStatus::kOk, s.set(id(proto::SettingId::kTrackBalance), 19));
+  int32_t v = 0;
+  TEST_ASSERT_TRUE(s.get(id(proto::SettingId::kTrackBalance), v));
+  TEST_ASSERT_EQUAL_INT32(19, v);
+  TEST_ASSERT_EQUAL(proto::AckStatus::kSettingOutOfRange, s.set(id(proto::SettingId::kTrackBalance), 101));
+}
+
+// Plan J review focus 1: a block saved before plan J (no track_balance) still loads; the new field takes its default.
+void test_settings_previous_block_still_loads() {
+  SettingsLite s;
+  s.defaults();
+  s.set(id(proto::SettingId::kEncodersEnabled), 1);
+  const uint8_t old_size = static_cast<uint8_t>(offsetof(LiteSettings, track_balance));
+  uint8_t full[SettingsLite::kBlockSize];
+  s.encode(full);
+  g_mem[0] = SettingsLite::kMagic0;
+  g_mem[1] = SettingsLite::kMagic1;
+  g_mem[2] = old_size;
+  memcpy(g_mem + 3, full + 3, old_size);
+  g_mem[3 + old_size] = proto::crc8(g_mem + 2, static_cast<uint8_t>(old_size + 1));
+  SettingsLite r;
+  TEST_ASSERT_TRUE(r.load(rd));
+  TEST_ASSERT_EQUAL_UINT8(1, r.values().encoders_enabled);
+  TEST_ASSERT_EQUAL_INT16(0, r.values().track_balance);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_settings_defaults);
@@ -97,5 +126,7 @@ int main() {
   RUN_TEST(test_settings_round_trip_through_eeprom_block);
   RUN_TEST(test_settings_garbage_eeprom_gives_defaults);
   RUN_TEST(test_settings_out_of_range_block_gives_defaults);
+  RUN_TEST(test_settings_track_balance_range);
+  RUN_TEST(test_settings_previous_block_still_loads);
   return UNITY_END();
 }

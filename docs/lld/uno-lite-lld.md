@@ -319,3 +319,84 @@ flowchart LR
 
 ## 18. TELEM_FAST at 50 Hz (spec 02 §E4, bridge LLD R4.7)
 `lite_app.cpp` scheduler: `telemetryFastDue` period 50000 µs → **20000 µs**. Same frame, no RAM change; ≈ 2.3 KB/s on the 250000-baud link. The full firmware's `main.cpp` table changes the same way. Size gate re-checked in the plan (flash unchanged expected). No TURN / DRIVE_RATE code on the Lite — the bridge's motion service runs them (bridge LLD R4).
+
+## 19. Encoder features, phase 1 (spec 02 Part F §F1, approved 2026-10-17, design-notes §62)
+Scope: **Uno Lite**. The full firmware (Mega, waiting for its board) gets only F1.4 (plain mix for `src AUTO`); it keeps its own `EncoderHealth` / encoder PID until it is revised (ruling: no hardware to test it on; cost: the Mega build behaves like before for stalls).
+
+### 19.1 Classes (domain, whole numbers, no heap, no virtual)
+```mermaid
+classDiagram
+  class TrackSyncLite {
+    +reset()
+    +step(bool active, uint32 count_l, uint32 count_r, uint16 cps_l, uint16 cps_r) int16
+    -int32 m_base_l, m_base_r
+    -bool m_active
+  }
+  class StallGuardLite {
+    +update(Inputs in, uint32 now_ms)
+    +newStallSide() int8
+    +newFault() uint8
+    -uint32 m_slow_since[2]
+  }
+  class RunawayGuardLite {
+    +step(int32 err_cdeg, int8 w_ctrl, bool holding) bool
+    -uint8 m_ticks
+    -int32 m_last_abs
+  }
+  class MotionLatchLite {
+    +trip(Reason r)
+    +clearIfReleased(int8 v, int8 w, bool stop)
+    +latched() bool
+    +reason() Reason
+  }
+  class HeadingHoldLite {
+    +teleop(...)
+    +errorCdeg() int32
+  }
+  StallGuardLite --> MotionLatchLite : stall
+  RunawayGuardLite --> MotionLatchLite : heading fault
+  RunawayGuardLite ..> HeadingHoldLite : error, w_ctrl
+  MotionLatchLite --> SafetySupervisor : stall_mask = 0b11 while latched
+```
+- **TrackSyncLite (F1.1):** active only while driving straight — `encoders_enabled`, no encoder fault, both track targets non-zero with the same sign, no driver steering (`w_steer == 0`). On activation it records both counts as the base. Output `c` (0.1 %, clamped ±150 = ±15 %) = `Kd × (Δcount_L − Δcount_R)` + `Kv × (cps_L − cps_R)`, with `Δcount` since the base; the distance term is clamped (anti-windup ±200 counts). Applied to the **magnitudes** after the mix: the faster side is slowed by `c/2`, the slower one sped up by `c/2` (works forward and in reverse). The gyro heading hold keeps running on top (slow outer loop: slip). Constants in `drive_mix_lite.h`, floor-tuned with `td_record.py`.
+- **StallGuardLite (F1.2):** replaces `EncoderHealth` on the Lite. A side is *driven* when |applied PWM| ≥ keep + 15. Expected speed `exp = max_cps × (|pwm| − keep) / (255 − keep)`; the side is *slow* when `cps < exp × 15 / 100`. Slow for **500 ms** → if the other side is moving and the gyro shows the tank turning toward the slow side (or turning when it should not), it is a **stall**; if the other side moves, the tank is not turning and the slow side reads 0 cps for 500 ms while the tank clearly drives straight (gyro |rate| < 10 °/s, both PWMs same sign), the encoder is **faulted** (`ENCODER_FAULT` event, track sync off, stall checks off for that side until reboot). `max_cps` per side = setting (default 4000 counts/s at 255, measured no-load ~1200 at 30 %).
+- **RunawayGuardLite (F1.3):** watches the heading hold while it is holding: if |error| > **30°** and still growing while |w_ctrl| = 100 for **0.5 s** (50 ticks of 10 ms) → trip.
+- **MotionLatchLite:** one latch for both guards (owner: **stop both tracks** until the driver commands again). While latched, `SafetyInputs.stall_mask = 0b11` (both tracks cut by the supervisor — no supervisor change). Cleared by **STOP** (any source), or when the active owner's command returns to **v = 0, w = 0** (stick / IR key released); the next non-zero command drives again.
+- **F1.4:** `driveTargets()` — if `teleop_auto`, the heading hold's `w_steer` is passed to `mixLite` as `w_ctrl` (plain mix L = v − w, R = v + w); humans keep the angle mix.
+
+### 19.2 Latch state
+```mermaid
+stateDiagram-v2
+  [*] --> Free
+  Free --> Latched: stall (side) / STALL event + both tracks cut
+  Free --> Latched: runaway (|err| > 30° growing, w_ctrl saturated 0.5 s) / HEADING_FAULT event
+  Latched --> Free: STOP (any source)
+  Latched --> Free: owner command back to v = 0, w = 0
+```
+
+### 19.3 Control tick (10 ms)
+```mermaid
+sequenceDiagram
+  participant C as controlTask
+  participant H as HeadingHoldLite
+  participant M as mixLite
+  participant T as TrackSyncLite
+  participant G as StallGuard / RunawayGuard
+  participant L as MotionLatchLite
+  participant S as SafetySupervisor
+  C->>H: teleop(v, steer) -> w_steer / w_ctrl
+  C->>M: mix (plain for AUTO)
+  C->>T: step(straight?, counts, cps) -> c (differential)
+  C->>C: caps, ramp, deadband -> pwm
+  C->>G: update (pwm, cps, yaw rate, heading error)
+  G->>L: trip on stall / runaway
+  C->>L: clearIfReleased(v, w, stop)
+  C->>S: apply(pwm, stall_mask = latched ? 0b11 : 0)
+```
+
+### 19.4 Protocol
+`EventKind` gains **`HEADING_FAULT` (28)**, `a` = heading error in whole degrees (additive: events are forwarded generically; no version bump). `STALL` (6) keeps `a` = side. `TELEM_FAST.flags`: `STALL_L` / `STALL_R` show the side that tripped while latched; `HALTED` is set by the supervisor as today.
+
+### 19.5 Budget and tests
+Estimated **+0.8–1.2 KB flash** (`EncoderHealth` leaves the Lite build, ~0.4 KB back), **+~24 B RAM**. Host tests per class: track sync (equal / unequal counts, reverse, clamp, inactive while steering, reset on re-entry); stall guard (held track at 25 % → stall in 0.5 s; slow but moving at 20 % of expected → no stall; creep at 960 counts/turn → stall; encoder unplugged while driving straight → fault, not stall); runaway (reversed motor model → trip in ≤ 0.6 s; normal correction never trips); latch (STOP clears, release clears, a new command while latched stays cut); F1.4 (AUTO frame w = 30 → L = v − 30, R = v + 30). Hardware: floor runs recorded with `td_record.py` — straight 3 m (drift), held-track stall, unplugged-encoder fault, and the reversed-motor build to prove the runaway guard.
+

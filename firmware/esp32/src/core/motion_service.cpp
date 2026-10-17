@@ -38,6 +38,53 @@ void MotionService::startMove(int fd, const MotionTelem& t, int16_t dist_cm, uin
   m_last_telem_ms = now_ms;
 }
 
+void MotionService::startArc(int fd, const MotionTelem& t, int32_t delta_cdeg, uint16_t radius_cm, uint8_t speed_pct,
+                             uint16_t cpm, int32_t id, uint32_t now_ms) {
+  m_kind = PrimKind::kArc;
+  m_fd = fd;
+  m_id = id;
+  m_arc.begin(t, delta_cdeg, radius_cm, speed_pct, cpm, now_ms);
+  m_last_telem_ms = now_ms;
+}
+
+void MotionService::startPivot(int fd, uint16_t yaw_cdeg, int32_t delta_cdeg, uint8_t speed_pct, int32_t id,
+                               uint32_t now_ms) {
+  m_kind = PrimKind::kPivot;
+  m_fd = fd;
+  m_id = id;
+  // outside track = 2|w| <= speed; the spin's minimum w still applies (12 % -> outside 24 %)
+  uint8_t half = static_cast<uint8_t>(speed_pct / 2);
+  if (half < motion::kTurnWMin) half = static_cast<uint8_t>(motion::kTurnWMin);
+  m_turn.begin(yaw_cdeg, delta_cdeg, half, now_ms);
+  m_last_telem_ms = now_ms;
+}
+
+MotionOut MotionService::stepArc(const MotionTelem& t, uint32_t now_ms) {
+  const ArcStep s = m_arc.step(t, now_ms);
+  if (s.done) return finish(EndReason::kDone);
+  if (s.stalled) return finish(EndReason::kStalled);
+  if (s.blocked) return finish(EndReason::kBlocked);
+  if (s.timeout) return finish(EndReason::kTimeout);
+  if (s.diverged) return finish(EndReason::kDiverged);
+  MotionOut o;
+  o.send = true;
+  o.v = s.v;
+  o.w = s.w;
+  return o;
+}
+
+MotionOut MotionService::stepPivot(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms) {
+  const TurnStep s = m_turn.step(yaw_cdeg, rate_ddps, now_ms);
+  if (s.done) return finish(EndReason::kDone);
+  if (s.stalled) return finish(EndReason::kStalled);
+  if (s.timeout) return finish(EndReason::kTimeout);
+  MotionOut o;
+  o.send = true;
+  o.w = s.w;
+  o.v = static_cast<int8_t>(s.w < 0 ? -s.w : s.w);  // plain mix: the inside track gets v - |w| = 0
+  return o;
+}
+
 MotionOut MotionService::finish(EndReason why) {
   MotionOut o;
   o.send = true;  // v = 0, w = 0
@@ -120,6 +167,8 @@ MotionOut MotionService::onTelemetry(const MotionTelem& t, uint32_t now_ms) {
   switch (m_kind) {
     case PrimKind::kTurn: o = stepTurn(t.yaw_cdeg, t.rate_ddps, now_ms); break;
     case PrimKind::kMove: o = stepMove(t, now_ms); break;
+    case PrimKind::kArc: o = stepArc(t, now_ms); break;
+    case PrimKind::kPivot: o = stepPivot(t.yaw_cdeg, t.rate_ddps, now_ms); break;
     default: o = stepRate(t.rate_ddps, now_ms); break;
   }
   m_last_telem_ms = now_ms;
@@ -138,6 +187,8 @@ MotionOut MotionService::tick(uint32_t now_ms) {
 uint8_t MotionService::progressPct() const {
   if (m_kind == PrimKind::kTurn) return m_turn.progressPct();
   if (m_kind == PrimKind::kMove) return m_move.progressPct();
+  if (m_kind == PrimKind::kArc) return m_arc.progressPct();
+  if (m_kind == PrimKind::kPivot) return m_turn.progressPct();
   return 0;
 }
 

@@ -686,6 +686,81 @@ void test_link_move_ends_like_turn() {  // cancel / STOP / owner loss / gap - th
   }
 }
 
+// ---------- Plan L (bridge LLD R8): arcs and pivots ----------
+void test_router_arc_and_pivot_need_encoders() {
+  const uint8_t enc = kLiteCaps | bit(proto::CapBit::kEncoders);
+  TEST_ASSERT_EQUAL(R(Route::kLocal), R(routeTurn(enc, 60)));
+  TEST_ASSERT_EQUAL(R(Route::kLocal), R(routeTurn(enc, 0, true)));
+  TEST_ASSERT_EQUAL(R(Route::kUnavailable), R(routeTurn(kLiteCaps, 0, true)));
+  TEST_ASSERT_EQUAL(R(Route::kLocal), R(routeTurn(kLiteCaps, 0)));  // the spin needs only the gyro
+  TEST_ASSERT_EQUAL(R(Route::kForward), R(routeTurn(enc | bit(proto::CapBit::kMove), 60)));
+}
+
+void test_service_pivot_keeps_inside_track_still() {
+  for (int dir = -1; dir <= 1; dir += 2) {
+    MotionService svc;
+    svc.startPivot(3, 0, dir * 9000, 40, 1, 0);
+    TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kPivot), static_cast<int>(svc.kind()));
+    const MotionOut o = svc.onTelemetry(0, 0, 20);
+    TEST_ASSERT_TRUE(o.send);
+    const int l = o.v - o.w, r = o.v + o.w;  // the Uno's plain AUTO mix
+    TEST_ASSERT_EQUAL_INT(0, dir > 0 ? l : r);           // inside track stopped
+    TEST_ASSERT_TRUE((dir > 0 ? r : l) <= 40);           // outside at most the asked speed
+    TEST_ASSERT_TRUE((dir > 0 ? r : l) > 0);
+  }
+}
+
+void test_service_pivot_speed_floor() {  // Review Focus 4
+  MotionService svc;
+  svc.startPivot(3, 0, 9000, 12, 1, 0);
+  const MotionOut o = svc.onTelemetry(0, 0, 20);
+  TEST_ASSERT_EQUAL_INT8(motion::kTurnWMin, o.w);
+  TEST_ASSERT_EQUAL_INT8(motion::kTurnWMin, o.v);  // outside track 24 %, never a stalled 12 %
+}
+
+void test_service_arc_runs_and_cancels() {
+  MotionService svc;
+  svc.startArc(3, encAt(0), 9000, 60, 40, motion::kCpmDefault, 2, 0);
+  TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kArc), static_cast<int>(svc.kind()));
+  const MotionOut o = svc.onTelemetry(encAt(30), 20);
+  TEST_ASSERT_TRUE(o.send);
+  TEST_ASSERT_EQUAL_INT8(40, o.v);
+  const MotionOut e = svc.cancel(EndReason::kCancelled);
+  TEST_ASSERT_TRUE(e.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kArc), static_cast<int>(e.end.kind));
+  TEST_ASSERT_FALSE(e.end.has_moved);
+  TEST_ASSERT_EQUAL_INT32(2, e.end.id);
+}
+
+void test_link_uno_stall_ends_an_arc_not_a_pivot() {
+  {
+    LinkOwner owner;
+    MotionLink ml{owner};
+    owner.onWsOpen(kFd);
+    owner.onSynced(true);
+    Actions a;
+    owner.onDrive(kFd, 0, a);
+    ml.service().startArc(kFd, encAt(0), 9000, 60, 40, motion::kCpmDefault, 4, 0);
+    ml.onTelemetry(encAt(0), 20);
+    const LinkOut o = ml.onEvent(MotionEvent::kBodyStall, 30);
+    TEST_ASSERT_TRUE(o.event);
+    TEST_ASSERT_TRUE(o.stop);
+    TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kStalled), static_cast<int>(o.end.reason));
+  }
+  {
+    LinkOwner owner;
+    MotionLink ml{owner};
+    owner.onWsOpen(kFd);
+    owner.onSynced(true);
+    Actions a;
+    owner.onDrive(kFd, 0, a);
+    ml.service().startPivot(kFd, 0, 9000, 40, 5, 0);
+    ml.onTelemetry(0, 0, 20);
+    TEST_ASSERT_FALSE(ml.onEvent(MotionEvent::kBodyStall, 30).event);  // pivots keep the spin's own stall check
+    TEST_ASSERT_TRUE(ml.service().active());
+  }
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_router_lite_runs_turn_and_rate_locally);
@@ -732,5 +807,10 @@ int main() {
   RUN_TEST(test_link_uno_stall_and_fault_end_a_move_with_stop);
   RUN_TEST(test_link_uno_stall_leaves_a_turn_alone);
   RUN_TEST(test_link_move_ends_like_turn);
+  RUN_TEST(test_router_arc_and_pivot_need_encoders);
+  RUN_TEST(test_service_pivot_keeps_inside_track_still);
+  RUN_TEST(test_service_pivot_speed_floor);
+  RUN_TEST(test_service_arc_runs_and_cancels);
+  RUN_TEST(test_link_uno_stall_ends_an_arc_not_a_pivot);
   return UNITY_END();
 }

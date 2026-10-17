@@ -146,6 +146,12 @@ DriveOut driveTargets(const LiteSettings& s) {
   const uint16_t accel_env_pct_s = g_lite.envelope.accelCap();  // the envelope may only tighten the global limit
   const uint16_t accel_pct_s =
       (accel_env_pct_s != 0 && accel_env_pct_s < s.accel_limit) ? accel_env_pct_s : s.accel_limit;
+  if (g_lite.latch.latched()) {  // floor test 2026-10-17: while both tracks are cut the ramps must not keep the old
+    g_lite.ramp_l.reset();       // targets - a STOP / release would otherwise ramp DOWN from them and re-run the
+    g_lite.ramp_r.reset();       // motors (seen: -249 / 249 for 0.3 s after a heading fault). Start from standstill.
+    g_lite.heading.reset();
+    t.l = t.r = 0;
+  }
   d.pm_l = g_lite.ramp_l.step(t.l, accel_pct_s);
   d.pm_r = g_lite.ramp_r.step(t.r, accel_pct_s);
   if (g_lite.soft_stop && d.pm_l == 0 && d.pm_r == 0) g_lite.soft_stop = false;

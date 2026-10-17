@@ -8,6 +8,8 @@ namespace net {
 
 uint16_t motionStoreLoad();             // the saved value, or motion::kCpmDefault when missing / out of range
 bool motionStoreSave(uint16_t cpm);     // false when out of range or the flash write failed
+uint16_t motionStoreLoadRoll();         // spec 02 §G6: learned roll-on (mm), default 25, 0..80
+bool motionStoreSaveRoll(uint16_t mm);
 
 }  // namespace net
 }  // namespace cq

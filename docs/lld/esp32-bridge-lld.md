@@ -1258,3 +1258,30 @@ Python 3.12, typed, ruff + pyright strict; uses `bridge_echo.WsClient` like `td_
 - `test_ws_json`: `primitive_done` move with `moved_cm` (e.g. 99.6), new reasons, `tf.primitive` move, `calib` reply, `caps.move` true for an Uno with encoders.
 - (`test_motion`) routeMove with / without kEncoders / kMove.
 - MotionStore is a thin Preferences wrapper (hardware): checked on the tank — save, reboot, read back.
+
+### R7.9 Learned early stop (spec 02 §G6, owner 2026-10-17)
+```mermaid
+classDiagram
+  class RollLearner {
+    +begin(int32_t counts_at_stop, uint32_t now)
+    +observe(int32_t counts, bool driven, uint16_t cpm, uint32_t now, int32_t& mm) bool
+    +watching() bool
+    +cancel()
+    -bool m_on
+    -int32_t m_stop, m_last
+    -uint32_t m_start_ms, m_change_ms
+  }
+  class MoveController {
+    +begin(..., uint32_t now, uint16_t roll_mm = 0)
+    -int32_t m_stop_at  %% max(target - roll counts, target / 2)
+  }
+  class MotionStore {
+    +loadRoll() uint16_t  %% default 25, 0..80
+    +saveRoll(uint16_t mm) bool
+  }
+  RollLearner ..> MotionStore : average saved when changed >= 1 mm
+```
+- `rollAverage(old_mm, reading_mm)` = (3 × old + reading + 2) / 4; constants `kRollDefaultMm 25`, `kRollMaxMm 80`, `kRollSettleMs 100`, `kRollWindowMs 600` (`motion_config.h`).
+- `MoveController::step`: `done` when travelled ≥ `m_stop_at`; progress still against the full target.
+- Link task: when `runMotion` broadcasts a move `done`, `g_roll.begin(mean(enc_l, enc_r))`; on each TELEM_FAST while watching, `observe(mean, pwm_l ≠ 0 ∨ pwm_r ≠ 0, g_cpm, now, mm)` → `g_roll_mm = rollAverage(g_roll_mm, mm)`, `MotionStore::saveRoll` when it changed by ≥ 1 mm; `startMove(…, g_roll_mm)`; a new primitive cancels the learner. `jsonCalib(out, cap, cpm, roll_mm)` → `{"t":"calib","counts_per_m":n,"roll_mm":m}`.
+- Tests (`test_move`): learner — settles after 100 ms without change, gives up at 600 ms, discards when driven, discards > 80 mm, average maths; MoveController — stops `roll` early, never before half the target; `test_ws_json` calib with roll_mm.

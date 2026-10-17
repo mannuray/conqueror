@@ -44,8 +44,8 @@ size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s, Primit
 // "id"?} (bridge LLD R4.5, R7.1)
 size_t jsonPrimitiveDone(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, const PrimitiveEnd& e);
 size_t jsonTs(char* out, size_t cap, const TankSnapshot& s, OwnerView owner, bool body_offline);
-// Plan K (LLD R7.1): {"t":"calib","counts_per_m":n} - reply to calib (read or after a save).
-size_t jsonCalib(char* out, size_t cap, uint16_t counts_per_m);
+// Plan K (LLD R7.1 / R7.9): {"t":"calib","counts_per_m":n,"roll_mm":m} - reply to calib (read or after a save).
+size_t jsonCalib(char* out, size_t cap, uint16_t counts_per_m, uint16_t roll_mm);
 // LLD R5 debug stream: raw TELEM_FAST ("td") / TELEM_SLOW ("tds") values; 0 before the first frame.
 size_t jsonTd(char* out, size_t cap, uint32_t seq, const TankSnapshot& s);
 size_t jsonTds(char* out, size_t cap, const TankSnapshot& s);

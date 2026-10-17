@@ -535,4 +535,12 @@ Phase 2 (§F2) is split: **Plan K = F2.1 MOVE + the `counts_per_cm` half of F2.4
 ### G5. Tests and acceptance
 - **Host (native):** MoveController against a simulated tank (lag + roll-on): 100 cm done at target, slow-down from 10 cm to the crawl, < 10 cm crawls, reverse, progress 0→100; every end in G3; codec (`move` ranges, `heading` refused, `calib` read / set / range / owner / busy), routing (`UNAVAILABLE` with encoders off or faulted), `primitive_done` JSON with `moved_cm`, NVS default / save / out-of-range. Tool maths (average, roll) unit-tested.
 - **Hardware (owner present, STOP in reach, recorded with `td_record.py`):** stand — `move 50` slows and ends `done`, STOP mid-move ends `stop`; floor — 3 × `--calibrate` on a taped 1 m, then 3 × `move 100` @ 40 %, 1 × `move 200` @ 40 %, 2 × `move -50`, 2 × `move 100` @ 70 %. **Acceptance: ±1 cm of the asked distance at 40 % (±2 cm at 70 %)**, sideways as normal straight driving (~1 cm / 2.5 m); held track → `stalled`; box ahead → `blocked`.
-- If the roll-on misses ±1 cm: follow-up decision — stop early by a learned roll-on distance (not in Plan K).
+- Roll-on missed ±1 cm on the floor (2026-10-17: ~2.5–2.8 cm at the crawl, design-notes §69) → **G6 added to Plan K (owner).**
+
+### G6. Learned early stop (owner, 2026-10-17)
+The crawl cannot be slower: 15 % is already lifted by the Uno's dead-band compensation to PWM ~116 (~19 cm/s), and the tracks roll on ~2.5 cm after the STOP. So the bridge **learns the roll-on and stops early by it**:
+- **Measure** (bridge, after every move that ends `done`): watch the mean encoder count after the STOP until it has not changed for 100 ms (at most 600 ms); roll-on = that change, in **mm** (÷ counts_per_m, so it survives a recalibration). Discarded if the tracks are driven again in the window (any non-zero PWM in TELEM_FAST) or the reading is outside 0–80 mm.
+- **Average:** `roll = (3 × old + reading) / 4` (rounded); start **25 mm**; saved in NVS (`cq_motion` / `roll`) only when it changes by ≥ 1 mm.
+- **Use:** a move stops when the counted distance reaches **target − roll**, but never before **half the target** (short moves).
+- `calib` reply gains `"roll_mm"`; `moved_cm` stays the distance counted at the stop.
+- Acceptance unchanged: **±1 cm at 40 %** on the tape (after one or two moves have refined the roll-on).

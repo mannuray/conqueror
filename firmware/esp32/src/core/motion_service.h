@@ -51,7 +51,7 @@ class MotionService {
   void driveRate(int fd, int8_t v, int16_t rate_ddps, uint32_t now_ms);  // starts or updates the stream
   MotionOut cancel(EndReason why);
   void startMove(int fd, const MotionTelem& t, int16_t dist_cm, uint8_t speed_pct, uint16_t cpm, int32_t id,
-                 uint32_t now_ms);
+                 uint32_t now_ms, uint16_t roll_mm = 0);
   MotionOut onTelemetry(const MotionTelem& t, uint32_t now_ms);
   MotionOut onTelemetry(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms) {  // turn / rate callers
     MotionTelem t;

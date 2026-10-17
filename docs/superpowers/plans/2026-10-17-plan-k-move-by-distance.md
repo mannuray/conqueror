@@ -1624,3 +1624,16 @@ git push -u origin plan-k
 ```
 
 - [ ] **Step 7: Final review and merge** — whole-branch review (`git diff main...plan-k`), fix Critical / Important findings with a failing test first, then **ask the owner before merging `plan-k` into main**.
+
+---
+
+### Task 9 (added 2026-10-17, owner): learned early stop (spec 02 §G6, LLD R7.9)
+
+Floor result that triggered it: the count stop is accurate (100.0–100.3 cm counted) but the tracks roll on 2.4–2.8 cm after the STOP at the crawl (15 % → PWM ~116 after the Uno's dead-band lift, ~19 cm/s), so `move 100` ends at ~103 cm.
+
+**Files:** Create `firmware/esp32/src/core/roll_learner.h/.cpp`; modify `motion_config.h` (`kRollDefaultMm 25`, `kRollMaxMm 80`, `kRollSettleMs 100`, `kRollWindowMs 600`), `move_controller.h/.cpp` (`begin(..., roll_mm = 0)`, `m_stop_at = max(target − roll counts, target / 2)`, slow-down toward `m_stop_at`), `motion_service.h/.cpp` (`startMove(..., roll_mm = 0)`), `ws_json.h/.cpp` (`jsonCalib(out, cap, cpm, roll_mm)`), `net/motion_store.h/.cpp` (`motionStoreLoadRoll`, `motionStoreSaveRoll`, key `roll`), `net/link_task.cpp` (learner after a move `done`, observe on each TELEM_FAST with `driven = pwm_l ≠ 0 ∨ pwm_r ≠ 0`, average saved when changed, `startMove(..., g_roll_mm)`, cancel on a new move). Tests: `test/test_move` (+5), `test/test_ws_json` (calib string).
+
+- [x] **Step 1: failing tests** — `test_move_stops_early_by_roll` (stops 189 counts = 25 mm short, progress 97 %), `test_move_early_stop_never_before_half` (3 cm move stops ≥ 113 counts), `test_roll_learner_settles_and_measures` (143 counts → 18 mm after 100 ms unchanged), `test_roll_learner_gives_up_and_discards` (600 ms limit → 19 mm; driven → none; > 80 mm → none), `test_roll_average` ((3 × old + r + 2) / 4); calib JSON `{"t":"calib","counts_per_m":7480,"roll_mm":25}`. Ran: build FAIL (`roll_learner.h` missing, `jsonCalib` arity).
+- [x] **Step 2: implement** as listed above (code in the commit).
+- [x] **Step 3:** `pio test -e native` → 190/190; `pio run -e bridge` → SUCCESS.
+- [ ] **Step 4: floor** — OTA; 3 × `move.py 100` (back edge on the start mark, read the tape at the back edge): after one or two moves **100 ± 1 cm**; the bridge log / `calib` shows the learned `roll_mm`.

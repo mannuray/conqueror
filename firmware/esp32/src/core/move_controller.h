@@ -27,7 +27,9 @@ struct MoveStep {
 
 class MoveController {
  public:
-  void begin(int32_t enc_l, int32_t enc_r, int16_t dist_cm, uint8_t speed_pct, uint16_t cpm, uint32_t now_ms);
+  // roll_mm: learned roll-on after the STOP (spec 02 §G6) - stop that much early, never before half the target.
+  void begin(int32_t enc_l, int32_t enc_r, int16_t dist_cm, uint8_t speed_pct, uint16_t cpm, uint32_t now_ms,
+             uint16_t roll_mm = 0);
   MoveStep step(const MotionTelem& t, uint32_t now_ms);
   uint8_t progressPct() const;
   int32_t movedMm() const;  // signed like dist_cm
@@ -36,6 +38,7 @@ class MoveController {
   int32_t m_start_l = 0;
   int32_t m_start_r = 0;
   int32_t m_target = 1;       // counts, > 0
+  int32_t m_stop_at = 1;      // counts: target - roll-on, >= target / 2
   int32_t m_slow = 1;         // slow zone, counts
   int32_t m_stall_counts = 1;  // progress that counts as moving
   int32_t m_done = 0;         // travelled, counts (rise in both directions; m_dir gives v / moved signs)

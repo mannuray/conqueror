@@ -30,11 +30,11 @@ void MotionService::driveRate(int fd, int8_t v, int16_t rate_ddps, uint32_t now_
 }
 
 void MotionService::startMove(int fd, const MotionTelem& t, int16_t dist_cm, uint8_t speed_pct, uint16_t cpm,
-                              int32_t id, uint32_t now_ms) {
+                              int32_t id, uint32_t now_ms, uint16_t roll_mm) {
   m_kind = PrimKind::kMove;
   m_fd = fd;
   m_id = id;
-  m_move.begin(t.enc_l, t.enc_r, dist_cm, speed_pct, cpm, now_ms);
+  m_move.begin(t.enc_l, t.enc_r, dist_cm, speed_pct, cpm, now_ms, roll_mm);
   m_last_telem_ms = now_ms;
 }
 

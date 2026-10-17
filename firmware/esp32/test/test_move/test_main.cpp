@@ -3,6 +3,7 @@
 
 #include "core/motion_config.h"
 #include "core/move_controller.h"
+#include "core/roll_learner.h"
 #include "cq_protocol.h"
 
 using namespace cq::core;
@@ -248,6 +249,71 @@ void test_cpm_limits() {
   TEST_ASSERT_FALSE(motion::validCpm(0));
 }
 
+
+// ---------- spec 02 §G6 / LLD R7.9: learned early stop ----------
+void test_move_stops_early_by_roll() {
+  Plant p;
+  MoveController mc;
+  mc.begin(p.enc_l, p.enc_r, 100, 40, kCpm, 0, 25);  // roll-on 25 mm = 189 counts
+  const int32_t start = (p.enc_l + p.enc_r) / 2;
+  const Run r = runUntilEnd(mc, p, 30000);
+  TEST_ASSERT_TRUE(r.last.done);
+  const int32_t at_stop = (p.enc_l + p.enc_r) / 2 - start;
+  TEST_ASSERT_INT32_WITHIN(8, 7560 - 189, at_stop);  // stopped 2.5 cm short of the target ...
+  TEST_ASSERT_UINT8_WITHIN(1, 97, mc.progressPct());  // ... progress still against the full target
+}
+
+void test_move_early_stop_never_before_half() {
+  Plant p;
+  MoveController mc;
+  mc.begin(p.enc_l, p.enc_r, 3, 40, kCpm, 0, 25);  // 3 cm = 226 counts, roll 189 -> capped at 113
+  const int32_t start = (p.enc_l + p.enc_r) / 2;
+  const Run r = runUntilEnd(mc, p, 10000);
+  TEST_ASSERT_TRUE(r.last.done);
+  TEST_ASSERT_TRUE((p.enc_l + p.enc_r) / 2 - start >= 113);
+}
+
+void test_roll_learner_settles_and_measures() {
+  RollLearner rl;
+  rl.begin(5000, 0);
+  int32_t mm = -1;
+  const int32_t counts[] = {5040, 5080, 5110, 5130, 5140, 5143, 5143, 5143, 5143, 5143, 5143};
+  uint32_t t = 0;
+  bool ready = false;
+  for (int32_t c : counts) {
+    ready = rl.observe(c, false, kCpm, t += 20, mm);
+    if (ready) break;
+  }
+  TEST_ASSERT_TRUE(ready);   // 100 ms without a change
+  TEST_ASSERT_EQUAL_INT32(18, mm);  // 143 counts at 75.6 / cm = 18.9 -> 18 mm
+  TEST_ASSERT_FALSE(rl.watching());
+}
+
+void test_roll_learner_gives_up_and_discards() {
+  RollLearner rl;
+  int32_t mm = 0;
+  rl.begin(0, 0);  // counts keep changing: a reading at the 600 ms limit
+  bool ready = false;
+  for (uint32_t t = 20; t <= motion::kRollWindowMs && !ready; t += 20) ready = rl.observe(static_cast<int32_t>(t / 4), false, kCpm, t, mm);
+  TEST_ASSERT_TRUE(ready);
+  TEST_ASSERT_EQUAL_INT32(19, mm);  // 150 counts
+  rl.begin(0, 0);  // driven again in the window: no reading
+  TEST_ASSERT_FALSE(rl.observe(30, true, kCpm, 20, mm));
+  TEST_ASSERT_FALSE(rl.watching());
+  rl.begin(0, 0);  // more than 80 mm: no reading
+  ready = false;
+  for (uint32_t t = 20; t <= 200 && !ready; t += 20) ready = rl.observe(1000, false, kCpm, t, mm);
+  TEST_ASSERT_FALSE(ready);
+  TEST_ASSERT_FALSE(rl.watching());
+}
+
+void test_roll_average() {
+  TEST_ASSERT_EQUAL_UINT16(25, rollAverage(25, 25));
+  TEST_ASSERT_EQUAL_UINT16(26, rollAverage(25, 28));  // (75 + 28 + 2) / 4 = 26
+  TEST_ASSERT_EQUAL_UINT16(19, rollAverage(25, 0));   // (75 + 0 + 2) / 4 = 19
+  TEST_ASSERT_EQUAL_UINT16(39, rollAverage(25, 80));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_move_done_at_target);
@@ -262,5 +328,10 @@ int main() {
   RUN_TEST(test_move_speed_below_crawl_never_zero);
   RUN_TEST(test_move_short_move_stays_slow);
   RUN_TEST(test_cpm_limits);
+  RUN_TEST(test_move_stops_early_by_roll);
+  RUN_TEST(test_move_early_stop_never_before_half);
+  RUN_TEST(test_roll_learner_settles_and_measures);
+  RUN_TEST(test_roll_learner_gives_up_and_discards);
+  RUN_TEST(test_roll_average);
   return UNITY_END();
 }

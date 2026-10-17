@@ -47,6 +47,11 @@ constexpr uint16_t kCpmDefault = 7560;
 constexpr uint16_t kCpmMin = 3000;
 constexpr uint16_t kCpmMax = 15000;
 inline bool validCpm(uint32_t n) { return n >= kCpmMin && n <= kCpmMax; }
+// Learned early stop (spec 02 §G6): roll-on after the STOP, mm.
+constexpr uint16_t kRollDefaultMm = 25;     // floor 2026-10-17: 24-28 mm at the crawl
+constexpr int32_t kRollMaxMm = 80;          // readings above are discarded
+constexpr uint32_t kRollSettleMs = 100;     // counts unchanged this long -> settled
+constexpr uint32_t kRollWindowMs = 600;     // ... or at most this long after the STOP
 
 // Service
 constexpr uint32_t kTelemGapMs = 200;      // no TELEM_FAST for 200 ms while active -> end (link)

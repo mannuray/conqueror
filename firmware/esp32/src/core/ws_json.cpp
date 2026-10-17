@@ -304,8 +304,9 @@ size_t jsonPrimitiveDone(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, 
              e.ok ? "true" : "false", r < sizeof(kReasons) / sizeof(kReasons[0]) ? kReasons[r] : "done", moved, id);
 }
 
-size_t jsonCalib(char* out, size_t cap, uint16_t counts_per_m) {
-  return fmt(out, cap, "{\"t\":\"calib\",\"counts_per_m\":%u}", static_cast<unsigned>(counts_per_m));
+size_t jsonCalib(char* out, size_t cap, uint16_t counts_per_m, uint16_t roll_mm) {
+  return fmt(out, cap, "{\"t\":\"calib\",\"counts_per_m\":%u,\"roll_mm\":%u}", static_cast<unsigned>(counts_per_m),
+             static_cast<unsigned>(roll_mm));
 }
 
 size_t jsonControlChanged(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, OwnerView owner) {

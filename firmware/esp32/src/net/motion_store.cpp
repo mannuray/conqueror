@@ -30,5 +30,26 @@ bool motionStoreSave(uint16_t cpm) {
   return ok;
 }
 
+uint16_t motionStoreLoadRoll() {
+  uint16_t v = core::motion::kRollDefaultMm;
+  Preferences p;
+  if (p.begin("cq_motion", true)) {
+    const uint16_t saved = p.getUShort("roll", 0xFFFF);
+    if (saved <= core::motion::kRollMaxMm) v = saved;
+    p.end();
+  }
+  logf("motion: roll-on %u mm", static_cast<unsigned>(v));
+  return v;
+}
+
+bool motionStoreSaveRoll(uint16_t mm) {
+  if (mm > core::motion::kRollMaxMm) return false;
+  Preferences p;
+  if (!p.begin("cq_motion", false)) return false;
+  const bool ok = p.putUShort("roll", mm) == sizeof(uint16_t);
+  p.end();
+  return ok;
+}
+
 }  // namespace net
 }  // namespace cq

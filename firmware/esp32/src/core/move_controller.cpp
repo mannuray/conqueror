@@ -7,7 +7,7 @@ namespace cq {
 namespace core {
 
 void MoveController::begin(int32_t enc_l, int32_t enc_r, int16_t dist_cm, uint8_t speed_pct, uint16_t cpm,
-                           uint32_t now_ms) {
+                           uint32_t now_ms, uint16_t roll_mm) {
   const int32_t cm = dist_cm < 0 ? -dist_cm : dist_cm;
   m_start_l = enc_l;
   m_start_r = enc_r;
@@ -15,6 +15,9 @@ void MoveController::begin(int32_t enc_l, int32_t enc_r, int16_t dist_cm, uint8_
   m_cpm = cpm;
   m_target = cm * cpm / 100;
   if (m_target < 1) m_target = 1;
+  m_stop_at = m_target - static_cast<int32_t>(roll_mm) * cpm / 1000;  // the tracks roll on into the target
+  if (m_stop_at < m_target / 2) m_stop_at = m_target / 2;
+  if (m_stop_at < 1) m_stop_at = 1;
   m_slow = motion::kMoveSlowCm * cpm / 100;
   m_stall_counts = motion::kMoveStallCm * cpm / 100;
   m_speed = speed_pct;
@@ -31,7 +34,7 @@ MoveStep MoveController::step(const MotionTelem& t, uint32_t now_ms) {
   // raw mean delta - never its absolute value: after an Uno restart the counts drop and the move must stall, not
   // report a false done.
   m_done = ((t.enc_l - m_start_l) + (t.enc_r - m_start_r)) / 2;
-  if (m_done >= m_target) {
+  if (m_done >= m_stop_at) {
     s.done = true;
     return s;
   }
@@ -59,7 +62,7 @@ MoveStep MoveController::step(const MotionTelem& t, uint32_t now_ms) {
     return s;
   }
   const int32_t crawl = m_speed < motion::kMoveCrawlPct ? m_speed : motion::kMoveCrawlPct;
-  const int32_t remaining = m_target - m_done;  // > 0 here
+  const int32_t remaining = m_stop_at - m_done;  // > 0 here: slow down toward the stop point
   int32_t mag = m_speed;
   if (remaining < m_slow) mag = crawl + (m_speed - crawl) * remaining / m_slow;
   s.v = static_cast<int8_t>(m_dir * mag);

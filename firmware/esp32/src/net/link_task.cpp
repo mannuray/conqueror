@@ -1,5 +1,6 @@
 #include "core/motion_config.h"
 #include "core/move_controller.h"
+#include "core/roll_learner.h"
 #include "net/motion_store.h"
 #include "net/link_task.h"
 
@@ -57,6 +58,8 @@ uint8_t g_cam_seq = 0;
 core::StopBarrier g_stop_barrier;  // STOP fast path: drop motion posted before a STOP
 core::MotionLink g_motion(g_owner);  // Plan H: TURN / DRIVE_RATE run by the bridge for a body that cannot
 uint16_t g_cpm = core::motion::kCpmDefault;  // Plan K: counts per metre (NVS)
+uint16_t g_roll_mm = core::motion::kRollDefaultMm;  // spec 02 §G6: learned roll-on after a move's STOP (NVS)
+core::RollLearner g_roll;
 
 void drainTx() {
   const uint8_t* p = nullptr;
@@ -159,6 +162,10 @@ void runMotion(const core::LinkOut& o, uint32_t now) {
   }
   if (o.stop) g_link.sendStop(now);  // STOP purges queued motion frames: no DRIVE 0/0 needed (review M11)
   if (o.event) broadcast(core::jsonPrimitiveDone(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), o.end));
+  if (o.event && o.end.kind == core::PrimKind::kMove && o.end.reason == core::EndReason::kDone) {
+    const core::TankSnapshot& s = g_link.snapshot();  // §G6: watch the roll-on from here
+    g_roll.begin((s.fast.enc_l + s.fast.enc_r) / 2, now);
+  }
 }
 
 void endMotion(core::MotionEvent e, uint32_t now) { runMotion(g_motion.onEvent(e, now), now); }
@@ -278,7 +285,8 @@ void handleMove(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
     return;
   }
   endMotion(core::MotionEvent::kOwnerCommand, now);  // a new move replaces the old primitive
-  g_motion.service().startMove(fd, telemOf(snap), c.move_cm, c.speed, g_cpm, id, now);
+  g_roll.cancel();  // a new move: the last one's roll-on is no longer measurable
+  g_motion.service().startMove(fd, telemOf(snap), c.move_cm, c.speed, g_cpm, id, now, g_roll_mm);
   if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
 }
 
@@ -296,7 +304,7 @@ void handleCalib(int fd, int32_t id, const core::WsCommand& c) {
     g_cpm = c.cpm;
     if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
   }
-  sendTo(fd, core::jsonCalib(g_json, sizeof(g_json), g_cpm));
+  sendTo(fd, core::jsonCalib(g_json, sizeof(g_json), g_cpm, g_roll_mm));
 }
 
 // cancel: the owner ends its primitive (STOP while still the owner); acked also when nothing runs.
@@ -576,6 +584,13 @@ void telemetry(uint32_t now) {
   if (new_fast || new_slow) sendDebug(s, new_fast, new_slow);
   if (new_fast) {
     g_last_fast_count = s.fast_count;
+    int32_t roll = 0;  // §G6: learn the roll-on of the last move from the frames after its STOP
+    if (g_roll.watching() &&
+        g_roll.observe((s.fast.enc_l + s.fast.enc_r) / 2, s.fast.pwm_l != 0 || s.fast.pwm_r != 0, g_cpm, now, roll)) {
+      const uint16_t next = core::rollAverage(g_roll_mm, roll);
+      logf("motion: roll-on %ld mm -> average %u mm", static_cast<long>(roll), static_cast<unsigned>(next));
+      if (next != g_roll_mm && net::motionStoreSaveRoll(next)) g_roll_mm = next;
+    }
     runMotion(g_motion.onTelemetry(telemOf(s), now), now);  // 50 Hz
     if (s.fast_count % 5u == 0) {  // Uno 50 Hz -> page 10 Hz (R2.14 #7, spec 02 §E4)
       const core::MotionService& svc = g_motion.service();
@@ -669,6 +684,7 @@ void linkTask(void*) {
 void linkTaskStart(const char* (*camera_sensor)()) {
   g_sensor = camera_sensor;
   g_cpm = net::motionStoreLoad();  // Plan K: before the link task runs
+  g_roll_mm = net::motionStoreLoadRoll();
   g_uart.begin();
   g_tcp.begin();
   g_queue = xQueueCreate(16, sizeof(LinkCommand));

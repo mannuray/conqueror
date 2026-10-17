@@ -461,7 +461,7 @@ Clients never need to know which board is fitted; `welcome.tank.caps` tells them
 3. Calibration, settings store and profiles, Tank Logo runner, melodies over `TONE`, telemetry recording — each its own small plan.
 Whether the phone's single stick switches to DRIVE_RATE (same turn on every floor) is a separate decision after the floor test (steering tuning is parked, notes §52).
 
-## Part F — Encoder features (DRAFT for owner review, 2026-10-17; design-notes §59–§61)
+## Part F — Encoder features (APPROVED by owner 2026-10-17; design-notes §59–§62)
 Encoders are fitted and counting (§59: A only, rising edges, **960 counts / wheel turn**, ~1200 counts/s at 30 % no load; direction from the command). Part E's split stays: **reflexes on the Uno** (IR must benefit, Uno is the safety authority), **measured motion on the ESP32**. Uno Lite budget: ~3 KB flash free, very little RAM — every Uno item below is small integer code.
 
 ### F1. Uno (reflexes) — phase 1
@@ -483,9 +483,8 @@ Encoders are fitted and counting (§59: A only, rising edges, **960 counts / whe
 ### F3. Later — phase 3
 Pose integration and `go-to` / return-home (§B4), then **gyro tuning** with the encoders as reference (§61). Each phase: its own plan, host tests, then floor tests recorded with `td_record.py` (bridge LLD R5).
 
-### F4. Open questions for the owner
-1. F1.1 — encoder sync **plus** gyro (recommended), or encoders only for straight lines?
-2. F1.2 — on a stall: cut **that track** for 1 s then retry (today's rule), or **stop both tracks** until the driver commands again (recommended: simpler, safer)?
-3. F1.3 — the 30° / 0.5 s thresholds and "no motion until STOP / new command" — OK?
-4. Order — phase 1 (Uno) first as one plan, then phase 2 (ESP32) as a second plan (recommended)?
-
+### F4. Owner decisions (2026-10-17)
+1. F1.1 — **encoders plus gyro**: encoder sync is the fast inner loop, the gyro heading hold the slow outer one.
+2. F1.2 — on a stall **stop both tracks** until the driver commands again (no 1 s cut-and-retry).
+3. F1.3 — runaway guard thresholds **30° / 0.5 s**, no motion until STOP or a new command: OK.
+4. Order — **phase 1 (Uno) first as one plan**, then phase 2 (ESP32) as a second plan.

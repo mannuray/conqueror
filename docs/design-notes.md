@@ -1145,3 +1145,6 @@ After mounting the encoder motors, every command ran backwards (forward → back
 - **Also into the encoder plan:** encoder straight driving (track-speed matching), MOVE by distance and arcs, the plain mix for src AUTO (arc shortfall, §58), the minimum drive_rate command on slippery floors (§58), and a **heading-hold runaway guard** (error growing while the correction is saturated → stop + fault, §60).
 - **Debug metrics over WiFi** requested by the owner (no USB for floor tests) — design proposed (bridge-only opt-in `td` / `tds` stream + a recorder tool), awaiting approval.
 
+## 62. Encoder features approved (owner, 2026-10-17)
+Spec 02 Part F approved with: straight driving by **encoders plus gyro** (encoder distance sync inner, gyro heading hold outer); on a stall **stop both tracks** until the driver commands again; heading-hold runaway guard **30° / 0.5 s**, no motion until STOP or a new command; **phase 1 = Uno** (F1.1 straight sync, F1.2 speed-based stall, F1.3 runaway guard, F1.4 plain mix for src AUTO) as one plan, **phase 2 = ESP32** (MOVE, arcs, minimum drive_rate command, calibration) as a second plan, phase 3 pose / go-to / gyro tuning. Next: Uno Lite LLD section for phase 1.
+

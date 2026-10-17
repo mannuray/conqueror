@@ -1069,7 +1069,7 @@ Plan I made the Uno stop **both** tracks and hold them stopped (MotionLatchLite)
 - It stays up exactly while the Uno holds the stop: it clears when **this page sends** `stop` or `drive 0/0` (the same messages that free the Uno's latch; touching a stick sends 0/0 first, so the touch already releases). A second latch event replaces the text.
 - Backups (another client or the IR remote released it): clears when `tf.spd_cmd` shows the tracks driven again for > 1 s after the event, or after 10 s while this page is not driving.
 - The 1 Hz `ts` handler re-shows the latch text instead of clearing "bad" banners while the body is online; body-offline / S1 banners still take the (top) slot when they apply.
-- Other banners (busy, body offline, protocol mismatch) keep their place at the top. CSS class `.banner.centre` (not `.mid` — that name is the bottom control cluster).
+- **Every banner** (stall / fault stops, S1 "Uno can't hear the ESP32", body offline, protocol mismatch, busy) uses the same slim one-line style in the middle of the video (owner, after the S1 banner showed at the top). Text longer than 90 % of the width ends in "…".
 
 ### R6.2 Page parts
 ```mermaid
@@ -1082,7 +1082,7 @@ classDiagram
   }
   class Banner {
     -string bannerKind  %% "", warn, bad
-    +banner(kind, text, centre)
+    +banner(kind, text)
   }
   class Socket {
     +send(obj)  %% stop / drive 0,0 -> clearLatch()

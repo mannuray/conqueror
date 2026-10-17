@@ -128,9 +128,10 @@ body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 
 .pill { border-radius: 16px; padding: 5px 12px; font-size: 11px; letter-spacing: .06em; }
 .vitals { padding: 5px 14px; border-radius: 16px; color: var(--active); white-space: nowrap; letter-spacing: .03em; }
 .vitals i { color: var(--dim); font-style: normal; margin: 0 6px; }
-.banner { top: 52px; left: 50%; transform: translateX(-50%); max-width: 66vw; padding: 7px 12px; border-radius: 7px; text-align: center;
+/* Bridge LLD R6: one slim line in the middle of the video for every banner (stall / fault stops, S1, offline, busy). */
+.banner { top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 90vw; padding: 4px 12px; border-radius: 7px; text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 5;
   background: rgba(10, 4, 4, .85); display: none; }
-.banner.centre { top: 50%; transform: translate(-50%, -50%); padding: 4px 12px; white-space: nowrap; max-width: none; z-index: 5; }
 .banner.show { display: block; } .banner.warn { border: 1px solid var(--warn); color: var(--warn); } .banner.bad { border: 1px solid var(--danger); color: var(--danger); box-shadow: 0 0 10px rgba(255, 59, 48, .35); }
 .sheet { left: 50%; bottom: 82px; transform: translateX(-50%); width: min(470px, 66vw); max-height: 52vh; overflow: auto; padding: 10px; display: none; z-index: 4; background: rgba(6, 14, 8, .94); }
 .sheet.show { display: block; }
@@ -427,7 +428,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     if (offline) banner("bad", "Tank body offline - check the Uno and the S1 switch");
     // The Uno hears nothing from the ESP32 although its telemetry arrives: S1 is in the upload position.
     else if (m.flags.indexOf("link_lost") >= 0) banner("bad", "Uno can't hear the ESP32 - check switch S1");
-    else if (latchAt) banner("bad", latchText, true);  // a stall / fault stop stays up until the driver releases
+    else if (latchAt) banner("bad", latchText);  // a stall / fault stop stays up until the driver releases
     else if (bannerKind === "bad") banner("", "");
     setPads();
   }
@@ -502,7 +503,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       : m.kind === "encoder_fault" ? "Stopped: " + side + " encoder fault - check its wire"
       : "Stopped: steering ran away - check motor wiring";
     latchAt = Date.now(); latchText = text;
-    banner("bad", text, true);  // middle of the screen: the driver is looking at the video, not the top bar
+    banner("bad", text);  // middle of the screen: the driver is looking at the video, not the top bar
     if (navigator.vibrate) navigator.vibrate(200);
   }
   function clearLatch() {
@@ -510,10 +511,10 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     if (bannerKind === "bad") banner("", "");
   }
   var bannerKind = "", bannerTimer = 0;
-  function banner(kind, text, mid) {
+  function banner(kind, text) {
     var b = $("banner");
     bannerKind = kind;
-    b.className = "ov banner" + (kind ? " show " + kind : "") + (mid ? " centre" : "");
+    b.className = "ov banner" + (kind ? " show " + kind : "");
     b.textContent = text;
     clearTimeout(bannerTimer);
     if (kind === "warn") bannerTimer = setTimeout(function () { banner("", ""); }, 3000);

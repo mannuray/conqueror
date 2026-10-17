@@ -1139,3 +1139,9 @@ After mounting the encoder motors, every command ran backwards (forward → back
 - Check after any motor or wiring change: a gentle forward and a spin-left on the stand must move the right way **before** any closed-loop test.
 - **Gap found (to decide):** a reversed motor turns the Uno's heading hold into positive feedback with nothing to stop it. Proposed guard: heading error growing while the correction is saturated → stop + fault event.
 
+## 61. After the encoder bring-up: encoder plan next, gyro tuning after it (owner, 2026-10-17)
+- **Straight driving drifts** with the new motors (owner's IR straight run). Today the encoders only count — straight driving is the gyro heading hold (tuned on the old motors, §52); the settings were also running on defaults (self-test bit 3) until the 2026-10-17 save, gyro zero offset included. **Owner: leave the gyro for now; do the encoder plan first, then fine-tune the gyro.**
+- **Stall detection with these encoders (found 2026-10-17):** `EncoderHealth` needs *no edge at all* for 500 ms on a driven side; at 960 counts / wheel turn a hand-held track still creeps, so no stall is declared; on a stand a stopped side with the other moving and no yaw is classified as an *encoder fault*. → **Into the encoder plan:** a speed-based stall (measured speed < ~15 % of the speed expected for the applied power for 0.5 s).
+- **Also into the encoder plan:** encoder straight driving (track-speed matching), MOVE by distance and arcs, the plain mix for src AUTO (arc shortfall, §58), the minimum drive_rate command on slippery floors (§58), and a **heading-hold runaway guard** (error growing while the correction is saturated → stop + fault, §60).
+- **Debug metrics over WiFi** requested by the owner (no USB for floor tests) — design proposed (bridge-only opt-in `td` / `tds` stream + a recorder tool), awaiting approval.
+

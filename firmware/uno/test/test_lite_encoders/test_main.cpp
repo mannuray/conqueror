@@ -160,6 +160,68 @@ void test_sync_ratio_target() {
   TEST_ASSERT_TRUE(t.r >= t.l);
 }
 
+// ---------- plan J: heading-hold integral (spec 02 §F5.2) ----------
+namespace {
+// Plant: a steady bias turns the tank right; w_ctrl (%) turns it left at 2 °/s per %, reached with a 100 ms lag
+// (a real tank has inertia; an instant plant makes the D term an artificial algebraic loop). 10 ms ticks, 0.01°.
+struct HoldPlant {
+  int32_t yaw_m = 100000;  // 0.001°: 100.000° (fine enough that slow turns are not lost to rounding)
+  int32_t rate = 0;        // 0.1 °/s
+  int8_t ws = 0, wc = 0;
+  void tick(HeadingHoldLite& h, int16_t bias_pct) {
+    const int32_t target = 20 * (wc - bias_pct);
+    rate += (target - rate) / 10;  // first-order, tau ~100 ms
+    yaw_m += rate;                 // 0.1 °/s x 10 ms = 0.001° per unit
+    h.teleop(40, 0, true, yaw_m / 10, static_cast<int16_t>(rate), ws, wc);
+  }
+};
+// Mean heading error (0.01°) over the last `avg` ticks: a 1 % command step (~2 °/s here) makes any hold wobble a
+// little; the integral's job is a mean of ~0 where P alone parks at ~bias / Kp.
+int32_t simulateHold(HeadingHoldLite& h, int ticks, int16_t bias_pct, int avg = 1000) {
+  HoldPlant p;
+  int64_t sum = 0;
+  for (int i = 0; i < ticks; ++i) {
+    p.tick(h, bias_pct);
+    if (i >= ticks - avg) sum += h.errorCdeg();
+  }
+  return static_cast<int32_t>(sum / avg);
+}
+}  // namespace
+
+void test_hold_integral_removes_steady_error() {
+  HeadingHoldLite h;
+  h.configure(headingGainsFromMilli(3500, 1200));
+  const int32_t err = simulateHold(h, 3000, 4);  // 30 s against a 4 % bias; mean of the last 10 s
+  TEST_ASSERT_TRUE(err < 10 && err > -10);       // within 0.1° (P alone parks at ~4 / 6.15 = 0.65°)
+}
+
+void test_hold_integral_resets_on_steer_and_stop() {
+  HeadingHoldLite h;
+  h.configure(headingGainsFromMilli(3500, 1200));
+  simulateHold(h, 1000, 4, 1);
+  int8_t ws = 0, wc = 0;
+  h.teleop(40, 30, true, 10000, 0, ws, wc);  // steering: hold off
+  h.teleop(40, 0, true, 10000, 0, ws, wc);   // new capture
+  TEST_ASSERT_EQUAL_INT8(0, wc);             // no integral carried over
+  simulateHold(h, 1000, 4, 1);
+  h.teleop(0, 0, true, 10000, 0, ws, wc);    // stop
+  h.teleop(40, 0, true, 10000, 0, ws, wc);
+  TEST_ASSERT_EQUAL_INT8(0, wc);
+}
+
+void test_hold_integral_settles_without_saturation() {
+  HeadingHoldLite h;
+  h.configure(headingGainsFromMilli(3500, 1200));
+  HoldPlant p;
+  int8_t peak = 0;
+  for (int i = 0; i < 3000; ++i) {
+    p.tick(h, 4);
+    const int8_t a = p.wc < 0 ? static_cast<int8_t>(-p.wc) : p.wc;
+    if (a > peak) peak = a;
+  }
+  TEST_ASSERT_TRUE(peak < 100);  // never saturates (the Plan I runaway guard needs saturation)
+}
+
 // ---------- StallGuardLite ----------
 namespace {
 StallGuardLite::Inputs drive(int16_t pl, int16_t pr, uint16_t cl, uint16_t cr, int16_t yaw = 0) {
@@ -315,6 +377,9 @@ int main() {
   RUN_TEST(test_sync_never_flips_or_overdrives);
   RUN_TEST(test_balance_feed_forward);
   RUN_TEST(test_sync_ratio_target);
+  RUN_TEST(test_hold_integral_removes_steady_error);
+  RUN_TEST(test_hold_integral_resets_on_steer_and_stop);
+  RUN_TEST(test_hold_integral_settles_without_saturation);
   RUN_TEST(test_stall_held_track_trips_in_half_a_second);
   RUN_TEST(test_stall_slow_but_moving_is_not_stall);
   RUN_TEST(test_stall_slipping_track_at_25_pct_trips);

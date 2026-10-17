@@ -10,6 +10,7 @@ void HeadingHoldLite::reset() {
   m_state = State::kIdle;
   m_settle = 0;
   m_err = 0;
+  m_i = 0;
 }
 
 void HeadingHoldLite::teleop(int8_t v, int8_t w, bool gyro_ok, int32_t yaw_cdeg, int16_t rate_ddps, int8_t& w_steer,
@@ -28,6 +29,7 @@ void HeadingHoldLite::teleop(int8_t v, int8_t w, bool gyro_ok, int32_t yaw_cdeg,
   if (w != 0) {
     m_state = State::kSteering;
     m_err = 0;
+    m_i = 0;
     w_steer = w;
     return;
   }
@@ -42,13 +44,24 @@ void HeadingHoldLite::teleop(int8_t v, int8_t w, bool gyro_ok, int32_t yaw_cdeg,
       return;
     }
     m_held_cdeg = yaw_cdeg;
+    m_i = 0;
     m_state = State::kHolding;
   }
   int32_t err = m_held_cdeg - yaw_cdeg;  // short way round: −18000..17999
   if (err >= 18000) err -= 36000;
   if (err < -18000) err += 36000;
   m_err = err;
-  int32_t out = static_cast<int32_t>(m_g.kp_q8) * err / 25600 - static_cast<int32_t>(m_g.kd_q8) * rate_ddps / 2560;
+  m_i += err;
+  if (m_g.kp_q8 > 0) {
+    const int32_t lim = kIMaxPct * 25600L * kIDivTicks / m_g.kp_q8;  // |Ki · m_i| <= 15 %
+    if (m_i > lim) m_i = lim;
+    if (m_i < -lim) m_i = -lim;
+  } else {
+    m_i = 0;
+  }
+  int32_t out = static_cast<int32_t>(m_g.kp_q8) * err / 25600 +
+                static_cast<int32_t>(m_g.kp_q8) * m_i / (25600L * kIDivTicks) -
+                static_cast<int32_t>(m_g.kd_q8) * rate_ddps / 2560;
   if (out > 100) out = 100;
   if (out < -100) out = -100;
   w_ctrl = static_cast<int8_t>(out);

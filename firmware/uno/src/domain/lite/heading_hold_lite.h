@@ -18,6 +18,10 @@ class HeadingHoldLite {
  public:
   static constexpr int16_t kCaptureDdps = 50;
   static constexpr uint8_t kSettleTicks = 30;  // 10 ms control ticks
+  // Spec 02 §F5.2 (plan J): integral removes the steady error a P-only hold keeps against a bias. Ki = Kp / 4 per
+  // second (400 ticks); its contribution is clamped to ±15 %.
+  static constexpr int32_t kIDivTicks = 400;
+  static constexpr int32_t kIMaxPct = 15;
   void configure(const HeadingGains& g) { m_g = g; }
   // One of w_steer (driver, open loop) and w_ctrl (hold) is set; the other is 0.
   void teleop(int8_t v_pct, int8_t w_pct, bool gyro_ok, int32_t yaw_cdeg, int16_t rate_ddps, int8_t& w_steer,
@@ -33,6 +37,7 @@ class HeadingHoldLite {
   int32_t m_held_cdeg = 0;
   uint8_t m_settle = 0;
   int32_t m_err = 0;
+  int32_t m_i = 0;  // integral of the error, 0.01° × ticks
 };
 
 }  // namespace cq

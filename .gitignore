@@ -30,3 +30,6 @@ firmware/esp32/include/secrets.h
 
 # Plan execution ledgers and briefs (local working notes)
 .superpowers/
+
+# td_record.py output
+tools/smoke/*.csv

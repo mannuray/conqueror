@@ -545,3 +545,52 @@ The crawl cannot be slower: 15 % is already lifted by the Uno's dead-band compen
 - `calib` reply gains `"roll_mm"`; `moved_cm` stays the distance counted at the stop.
 - Acceptance unchanged: **±1 cm at 40 %** on the tape (after one or two moves have refined the roll-on).
 - *Met as run (design-notes §69): 3 × 100 cm @ 40 % → 101 / 101 / 101 cm, 200 cm → 201 cm (2 cm left), 2 × −50 cm → 50 / 49.5, 70 % → 100 / 101 / 101 cm; held track → `stalled`, box → `blocked`. `counts_per_m` 7514, roll-on learned 25 → 27 mm.*
+
+## Part H — Plan L: arcs, pivots, minimum drive_rate (encoder phase 2b; agreed with the owner 2026-10-17, design-notes §70)
+Bridge only (no Uno change, protocol 3 unchanged): the motion service gains arc and pivot turns and a minimum spin rate for `drive_rate`. The top-speed half of §F2.4 is already done (Uno `kMaxCps` 4000 → 2500, measured, merged). The learned head start for arcs is a later plan.
+
+### H1. Measured facts the design uses (2026-10-17)
+| Fact | Value | Source |
+|---|---|---|
+| Track width B (centre to centre) | **19 cm** (3.5 cm tracks, 15.5 cm inside gap) → pivot radius 9.5 cm | owner, ruler |
+| Track speed v(p) for speed p % (straight, floor) | **v ≈ 15.5 + 0.18 · p cm/s** (15 % → 18, 40 % → 22.7, 100 % → 33.5) | recordings §69 / §70 |
+| Slowest forward track speed (dead-band lift) | **v_min ≈ 17.7 cm/s**: a track is 0 or ≥ v_min | §69 recording |
+| Fastest track speed | **v_max ≈ 33.5 cm/s** (2500 counts/s) | full-power spin §70 |
+| Slowest smooth spin | **≈ 65 °/s** (steering 8 %: 65 ± 3 °/s; all smooth) | floor spins §70 |
+| Distance | 75.1 counts / cm (`counts_per_m` 7514, NVS) | Plan K §69 |
+Conventions (ROS REP 103/105): + = counter-clockwise / left; the radius is measured to the tank's centre.
+
+### H2. Commands
+- **Arc:** `{"t":"turn","by"|"to":deg,"radius_cm":R,"speed"?:p,"id"?}` — forward only; `speed` = the tank-centre speed (default 40); `by` ±1…720° (+ left), `to` the shortest way, as for the spin.
+- **Pivot:** `{"t":"turn","by"|"to":deg,"pivot":true,"speed"?:p}` — the inside track stays stopped, the outside track drives at `speed`; `radius_cm` and `pivot` together → `INVALID_COMMAND`.
+- `radius_cm` 0 or absent and no `pivot` → the existing spin (Plan H, unchanged).
+- Routing: arcs and pivots run in the bridge's motion service for an Uno with encoders (arcs need the measured speed); without encoders → `UNAVAILABLE`; a body with its own MOVE / arc support → forward (later).
+
+### H3. Arc: which radius at which speed (refusal)
+An arc of radius R at centre speed v needs the inner track at v·(1 − B/2R) ≥ v_min and the outer at v·(1 + B/2R) ≤ v_max. So each radius has a usable **speed band**; **below ~31 cm no speed works** (smooth arcs need R ≥ 31 cm):
+
+| R (cm) | 31 | 40 | 49 | 60 | 80 | 100 | 150 |
+|---|---|---|---|---|---|---|---|
+| speed band (%) | 56 | 43–64 | 36–70 | 31–75 | 25–80 | 23–84 | 19–89 |
+
+- An arc whose speed is outside its band, or with R < 31 cm (and R > 0), is **refused** with `INVALID_COMMAND` and a helpful message, e.g. `"radius 40 cm: use speed 43-64 %, or pivot"`, `"radius 20 cm too tight (min 31): use pivot"`.
+- The band uses the H1 model (constants in the bridge, re-measurable): low = p(v_min / (1 − k)), high = p(v_max / (1 + k)), k = B / 2R, p(v) = (v − 15.5) / 0.18, rounded inward.
+
+### H4. Arc control (gyro-closed, owner option 1)
+- Every TELEM_FAST: measured centre speed **v_meas** = mean of the two tracks' counts/s ÷ counts_per_cm (counts rise in both directions; forward only); target turn rate **ω = v_meas / R** (°/s = 57.3 · v / R, signed by the turn direction).
+- Output `DRIVE {src AUTO, v = speed, w}`: w from the existing drive_rate loop (feed-forward + PI on the gyro rate, anti-windup) tracking ω. Starting from rest ω rises with v_meas, so the arc starts on its curve.
+- **End:** when the heading still to go ≤ the rate-latency lead (rate × 80 ms, as the spin) → DRIVE 0/0 + STOP; `primitive_done{prim:"turn", ok, reason}`.
+- Ends as the spin and the move: `done`, `stalled` (Uno stall event, or no turn rate and no counts for 1.5 s while commanding), `encoder_fault`, `blocked` (as MOVE §G3), `timeout` (arc length R·θ / 5 cm/s + 3 s), `diverged` (rate loop saturated with the gyro turning the other way for 0.5 s — the Plan H guard), `cancelled` / `stop` / `not_owner` / `link`.
+- `tf.primitive = {"kind":"turn","pct":…}` (heading turned / asked).
+
+### H5. Pivot control
+- The spin's `TurnController` (heading to go → w, minimum, done window, latency lead) computes w; the bridge sends **v = |w|** with w, so with the plain AUTO mix (L = v − w, R = v + w) the inside track gets **0** and the outside **2|w|**, capped so the outside track's % ≤ `speed`.
+- Ends as the spin.
+
+### H6. Minimum spin rate for `drive_rate` (owner option 1)
+- With `v = 0`, a requested |yaw_rate| between 0 and **65 °/s** is **clamped to 65 °/s** (same sign); 0 stays 0 (stop). With `v ≠ 0` no clamp (the stick's own arcs, unchanged).
+- While clamped, `tf.primitive` carries `"limited":true` so the client knows the tank turns faster than asked.
+
+### H7. Tests and acceptance
+- **Host:** speed-band maths for the table radii; arc refusal messages; the arc controller against a plant (v from counts, ω tracking, ends at the target heading, each end); pivot output (inside track 0, outside ≤ speed); drive_rate clamp (5 → 65, −5 → −65, 0 → 0, v ≠ 0 untouched) and the `limited` flag; codec (`pivot` + `radius_cm` invalid, ranges); JSON.
+- **Floor (owner present, recorded with `td_record.py`):** arcs 90° at R 60 cm / 40 % and R 100 cm / 40 %, left and right: **end heading ±3°**, end position within **±5 cm** of the geometric point (R·sin θ, R·(1 − cos θ)), measured from a start mark; pivot 90° left and right: **±3°**, the inside track does not move (eye / encoder counts); a refused arc (R 20) answers the message; `drive_rate` 10 °/s spin turns smoothly at ~65 °/s with `limited`.

@@ -501,7 +501,10 @@ void test_link_events_frames_policy() {
   const struct { MotionEvent e; bool stop; EndReason why; } cases[] = {
       {MotionEvent::kStop, false, EndReason::kStop},          {MotionEvent::kOwnerClosed, false, EndReason::kCancelled},
       {MotionEvent::kOta, false, EndReason::kCancelled},      {MotionEvent::kBodyOffline, false, EndReason::kLink},
-      {MotionEvent::kOwnerCommand, false, EndReason::kCancelled}, {MotionEvent::kCancel, true, EndReason::kCancelled}};
+      {MotionEvent::kOwnerCommand, false, EndReason::kCancelled}, {MotionEvent::kCancel, true, EndReason::kCancelled},
+      // Final review minor 12: the TX queue was full while the body is still synced - end "link" but send the STOP
+      // (urgent slot, purges queued motion) instead of leaving the last w running until the Uno's deadman.
+      {MotionEvent::kTxFull, true, EndReason::kLink}};
   for (const auto& c : cases) {
     Rig r;
     r.ml.onTelemetry(0, 0, 20);

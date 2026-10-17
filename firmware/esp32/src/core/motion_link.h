@@ -22,6 +22,7 @@ enum class MotionEvent : uint8_t {
   kBodyOffline,   // the Uno is gone
   kOwnerCommand,  // the owner's own drive / turn / drive_rate replaces it (its frames follow)
   kCancel,        // the owner's cancel: STOP from here
+  kTxFull,        // a DRIVE could not be queued while the body is still synced: end "link" with a STOP
 };
 
 struct LinkOut {

@@ -48,6 +48,7 @@ LinkOut MotionLink::onEvent(MotionEvent e, uint32_t now_ms) {
                         : e == MotionEvent::kBodyOffline ? EndReason::kLink
                                                          : EndReason::kCancelled;
   if (e == MotionEvent::kCancel) return finished(m_svc.cancel(why), fd, now_ms);
+  if (e == MotionEvent::kTxFull) return finished(m_svc.cancel(EndReason::kLink), fd, now_ms);  // review minor 12
   return eventOnly(m_svc.cancel(why));  // the STOP is already on its way, or the owner's own frames follow
 }
 

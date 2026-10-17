@@ -147,7 +147,9 @@ void streamReject(int fd, core::BridgeReason r) {
 // Plan H (bridge LLD R4.6): execute a MotionLink decision - DRIVE src AUTO, STOP, primitive_done.
 void runMotion(const core::LinkOut& o, uint32_t now) {
   if (o.drive && !g_link.sendDrive(o.v, o.w, proto::Source::kAuto)) {
-    runMotion(g_motion.onEvent(core::MotionEvent::kBodyOffline, now), now);  // the body went away
+    // Body gone: no frame can reach it. Queue full while synced: the STOP still goes (urgent slot, review minor 12).
+    const core::MotionEvent e = g_link.synced() ? core::MotionEvent::kTxFull : core::MotionEvent::kBodyOffline;
+    runMotion(g_motion.onEvent(e, now), now);
     return;
   }
   if (o.stop) g_link.sendStop(now);  // STOP purges queued motion frames: no DRIVE 0/0 needed (review M11)

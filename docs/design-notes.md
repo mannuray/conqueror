@@ -1182,4 +1182,5 @@ Uno `38ee2380` (Plan J: heading-hold integral, `track_balance`, plus the Plan I 
 - **Integral + `track_balance` = +19 ‰** (from the count ratio of normal runs, `straight_report.py`): runs 1, 2, 4 — heading within **±0.2…0.3°** (one brief +1.1°), end vs start direction −0.06° / +0.01° / −0.11°, estimated sideways 0.0 / 0.2 / 0.2 cm; **owner: ~1 cm right, ~1 cm right, "almost straight"** over ~2.5 m. Run 3 hit the wall at the end (discarded). **Target met.**
 - Saved on the Uno (SETTINGS_SAVE): `track_balance` 19, `encoders_enabled` 1, heading gains 3500 / 1200.
 - Before / after (≈ 2.5–3 m): encoders only ~30 cm → gyro P-only 4 cm → **integral + balance ~1 cm**.
+- **Held-track recheck (Plan I review fixes on the tank):** 25 %, right track held → `stall` right ~0.5 s after the hold (30 % threshold), both tracks 0 / 0 while the stick stayed on; a 0.6 s stream gap fired `deadman_stop` and the resumed stick still found 0 / 0 (review I1 fixed — before, the deadman released the latch); STOP released it.
 

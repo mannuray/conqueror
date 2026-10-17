@@ -1174,3 +1174,12 @@ Question (owner): with both tracks turning exactly the same amount, does the tan
 - The gyro hold keeps the heading within 1° but settles slightly off (2.5 cm left): zero offset / heading captured after the start.
 - **Next (proposed):** a left/right **balance factor** learned from encoder runs (cancels the steady right bias at the source) plus **gyro tuning** (zero recalibration, capture the heading at the start, gain), each change checked with the tape and the recorder; target ≤ 1 cm per 1.6 m.
 
+## 65. Plan J floor results — straight driving to ~1 cm over 2.5 m (2026-10-17)
+Uno `38ee2380` (Plan J: heading-hold integral, `track_balance`, plus the Plan I review fixes), bridge `f9068cc`, encoders on, 40 % × 14 s on marble, recorded with `td_record.py`, reported with `straight_report.py`.
+- **Gyro checks first:** stillness 65 s → heading 0.000° (by design: below 0.5 °/s is ignored while not driven, so resting drift is hidden); **hand rotations:** back to the line −0.24° / −0.29°, 90° → 90.56°, **180° → 179.97°**, full 360° → 357.85° (2.15° short: hand placement or ~0.6 % scale — matters for `turn by` / pose, not for straight lines). Right turns read negative (correct).
+- **Measurement lesson:** placing the tank "on the tape" by eye varied by ~2.4° between placements (part placement, part slow nudges below the 0.5 °/s rest filter) — worth ±6 cm over 2.8 m, more than the drift being measured; the tape itself was straight (start / end 0.3–0.7°). Starting against a wall guided the tank (it rubbed and turned back) — fixed by a **5 cm spacer start**: parallel to the wall, spacers removed, gap measured at the end.
+- **Integral only (balance 0):** heading within ±0.5…0.7° of the start, small steady right lean; spacer run ≈ 2 cm right over 248 cm (within line-up accuracy).
+- **Integral + `track_balance` = +19 ‰** (from the count ratio of normal runs, `straight_report.py`): runs 1, 2, 4 — heading within **±0.2…0.3°** (one brief +1.1°), end vs start direction −0.06° / +0.01° / −0.11°, estimated sideways 0.0 / 0.2 / 0.2 cm; **owner: ~1 cm right, ~1 cm right, "almost straight"** over ~2.5 m. Run 3 hit the wall at the end (discarded). **Target met.**
+- Saved on the Uno (SETTINGS_SAVE): `track_balance` 19, `encoders_enabled` 1, heading gains 3500 / 1200.
+- Before / after (≈ 2.5–3 m): encoders only ~30 cm → gyro P-only 4 cm → **integral + balance ~1 cm**.
+

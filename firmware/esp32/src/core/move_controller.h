@@ -15,6 +15,7 @@ struct MotionTelem {
   int32_t enc_l = 0;
   int32_t enc_r = 0;
   uint32_t flags = 0;
+  uint16_t dist_mm = 0xFFFF;  // forward ultrasonic: 65535 no echo, 65534 sensor fault
 };
 
 struct MoveStep {

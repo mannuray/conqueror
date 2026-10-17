@@ -54,7 +54,12 @@ MoveStep MoveController::step(const MotionTelem& t, uint32_t now_ms) {
     m_ref = m_done;
     m_ref_ms = now_ms;
   } else if (now_ms - m_ref_ms >= motion::kMoveStallMs) {
-    s.stalled = true;
+    const bool obstacle = m_dir > 0 && t.dist_mm < motion::kMoveObstacleMm;  // the sensor looks forward
+    if (obstacle) {
+      s.blocked = true;
+    } else {
+      s.stalled = true;
+    }
     return s;
   }
   if (static_cast<int32_t>(now_ms - m_deadline) >= 0) {

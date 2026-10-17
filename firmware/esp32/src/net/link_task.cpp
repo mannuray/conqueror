@@ -183,6 +183,7 @@ core::MotionTelem telemOf(const core::TankSnapshot& s) {
   t.enc_l = s.fast.enc_l;
   t.enc_r = s.fast.enc_r;
   t.flags = s.fast.flags;
+  t.dist_mm = s.fast.dist_mm;
   return t;
 }
 

@@ -40,6 +40,8 @@ constexpr int32_t kMoveMaxCm = 500;            // |dist_cm| 1..500
 constexpr uint32_t kMoveStallMs = 1500;        // stalled: < kMoveStallCm progress for 1.5 s
 constexpr int32_t kMoveStallCm = 1;
 constexpr uint32_t kMoveBlockedMs = 2000;      // blocked flag (obstacle brake) for 2 s -> end blocked
+constexpr uint16_t kMoveObstacleMm = 250;      // no progress with an obstacle this close ahead -> blocked (the Uno's
+                                               // slow-down stops the tank without its blocked flag, floor 2026-10-17)
 constexpr int32_t kMoveTimeoutCmPerS = 5;      // timeout = |cm| / 5 cm/s + 3 s
 constexpr uint32_t kMoveTimeoutBaseMs = 3000;
 // counts_per_m (Plan K, spec 02 §G4): NVS, default from the 160 cm tape run (design-notes §63).

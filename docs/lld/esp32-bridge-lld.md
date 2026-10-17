@@ -1200,6 +1200,7 @@ classDiagram
   - progress: travelled grew by ≥ kMoveStallCm since the reference → new reference (now); else now − reference ≥ 1.5 s → `stalled`.
   - `blocked` flag (FastFlagBit::kBlocked) continuously for ≥ 2 s → `blocked` (its time also restarts the progress reference, so an obstacle ends as `blocked`, not `stalled`).
   - now ≥ deadline → `timeout`.
+  - no progress for 1.5 s on a **forward** move with `dist_mm` < `kMoveObstacleMm` (250) → `blocked` instead of `stalled` (`MotionTelem.dist_mm` from TELEM_FAST; floor 2026-10-17: the Uno's slow-down stops the tank without its blocked flag).
 - `progressPct` = min(100, travelled × 100 / target), 0 while travelled < 0; `movedMm` = travelled × 1000 / cpm.
 
 ```mermaid

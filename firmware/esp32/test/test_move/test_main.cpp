@@ -333,6 +333,28 @@ void test_roll_learner_ignores_frames_still_in_flight() {  // floor 2026-10-17: 
   TEST_ASSERT_FALSE(rl.watching());
 }
 
+
+// Floor 2026-10-17: the Uno's obstacle slow-down glides the tank to a stop ~15 cm short of a box without ever setting
+// its blocked flag - a forward move that stops with an obstacle close ends blocked, not stalled.
+void test_move_stopped_by_obstacle_is_blocked() {
+  struct Case { int16_t cm; uint16_t dist_mm; bool blocked; } cases[] = {
+      {100, 153, true},     // box ahead
+      {100, 65535, false},  // no echo: a real stall
+      {100, 400, false},    // far away: a real stall
+      {-100, 153, false},   // reversing: the sensor looks forward
+  };
+  for (const Case& c : cases) {
+    Plant p;  // never stepped: no progress
+    MoveController mc;
+    mc.begin(p.enc_l, p.enc_r, c.cm, 40, kCpm, 0);
+    MotionTelem t = p.telem();
+    t.dist_mm = c.dist_mm;
+    const MoveStep s = mc.step(t, motion::kMoveStallMs);
+    TEST_ASSERT_EQUAL(c.blocked, s.blocked);
+    TEST_ASSERT_EQUAL(!c.blocked, s.stalled);
+  }
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_move_done_at_target);
@@ -353,5 +375,6 @@ int main() {
   RUN_TEST(test_roll_learner_gives_up_and_discards);
   RUN_TEST(test_roll_average);
   RUN_TEST(test_roll_learner_ignores_frames_still_in_flight);
+  RUN_TEST(test_move_stopped_by_obstacle_is_blocked);
   return UNITY_END();
 }

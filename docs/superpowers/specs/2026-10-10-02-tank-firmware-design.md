@@ -520,7 +520,7 @@ Phase 2 (§F2) is split: **Plan K = F2.1 MOVE + the `counts_per_cm` half of F2.4
 | `done` | true | counted distance ≥ target |
 | `stalled` | false | Uno `stall` event, or < 1 cm progress in 1.5 s while commanding |
 | `encoder_fault` (new) | false | Uno `encoder_fault` event (distance no longer trusted) |
-| `blocked` (new) | false | `TELEM_FAST` `blocked` flag (obstacle brake) for > 2 s |
+| `blocked` (new) | false | `TELEM_FAST` `blocked` flag (obstacle brake) for > 2 s, **or** a forward move without progress for 1.5 s with the ultrasonic distance < 25 cm (the Uno's obstacle slow-down glides the tank to a stop ~15 cm short of the obstacle without setting `blocked`, floor 2026-10-17) |
 | `timeout` | false | longer than \|dist_cm\| / 5 cm/s + 3 s |
 | `cancelled` / `stop` / `not_owner` / `link` | false | as TURN (§E3) |
 `moved_cm` (one decimal) = counted distance at the end, before the roll-on. Every end sends DRIVE 0/0 + STOP under the §E3 rules (not on `not_owner`).

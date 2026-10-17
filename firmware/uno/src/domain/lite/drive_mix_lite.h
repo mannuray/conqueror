@@ -22,6 +22,9 @@ inline int8_t steerLite(int8_t v, int8_t w, bool car_reverse, bool auto_src) {
 // spin only near sideways); straight driving with the gyro's w_ctrl uses the arcade mix with turning priority
 // (L − R kept when a track would exceed 100 %). turn_full_pct is no longer used (kept for the setting).
 Tracks mixLite(int8_t v, int8_t w_steer, int8_t w_ctrl, uint8_t turn_full_pct);
+// Spec 02 §F1.4: the bridge motion service's frames (src AUTO) are a controller's output - plain mix; the driver's
+// stick keeps the angle mix (§A4.1).
+Tracks liteMix(int8_t v, int8_t w_steer, int8_t w_ctrl, bool auto_src, uint8_t turn_full_pct);
 // Envelope / degraded speed cap (ratio kept) and the obstacle slow zone (forward only, brake on, valid range).
 Tracks capLite(Tracks t, uint8_t cap_pct, uint16_t dist_mm, uint8_t stop_cm, uint8_t slow_cm, bool brake_on,
                bool& capped);

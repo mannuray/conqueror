@@ -250,6 +250,16 @@ void test_angle_mix_never_over_max() {
   }
 }
 
+// Spec 02 §F1.4: the bridge's AUTO frames use the plain mix (L = v - w, R = v + w); humans keep the angle mix.
+void test_auto_frames_use_plain_mix() {
+  Tracks t = liteMix(30, 30, 0, true, 100);  // AUTO arc: steering passed as a plain correction
+  TEST_ASSERT_EQUAL_INT16(0, t.l);
+  TEST_ASSERT_EQUAL_INT16(60, t.r);
+  t = liteMix(30, 30, 0, false, 100);  // human: angle mix (45° -> outer = stick distance 42)
+  TEST_ASSERT_EQUAL_INT16(42, t.r);
+  TEST_ASSERT_TRUE(t.l > 0);
+}
+
 void test_angle_mix_reverse_both_tracks_back() {
   const Tracks t = mixLite(-71, 71, 0, 100);  // reversing 45°: both tracks backwards (old mix: one forward)
   TEST_ASSERT_EQUAL_INT16(-100, t.l);
@@ -348,6 +358,7 @@ int main() {
   RUN_TEST(test_angle_mix_45_is_forward_arc);
   RUN_TEST(test_angle_mix_spin_only_near_sideways);
   RUN_TEST(test_angle_mix_never_over_max);
+  RUN_TEST(test_auto_frames_use_plain_mix);
   RUN_TEST(test_angle_mix_reverse_both_tracks_back);
   RUN_TEST(test_ir_axes_unchanged);
   RUN_TEST(test_straight_with_correction_unchanged);

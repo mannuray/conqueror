@@ -49,6 +49,12 @@ Tracks mixLite(int8_t v8, int8_t w_steer, int8_t w_ctrl, uint8_t /*turn_full_pct
   return Tracks{static_cast<int16_t>(v - w), static_cast<int16_t>(v + w)};
 }
 
+Tracks liteMix(int8_t v, int8_t w_steer, int8_t w_ctrl, bool auto_src, uint8_t turn_full_pct) {
+  if (!auto_src) return mixLite(v, w_steer, w_ctrl, turn_full_pct);
+  const int16_t w = clampI(static_cast<int16_t>(w_steer + w_ctrl), -100, 100);
+  return mixLite(v, 0, static_cast<int8_t>(w), turn_full_pct);
+}
+
 Tracks capLite(Tracks t, uint8_t cap_pct, uint16_t dist_mm, uint8_t stop_cm, uint8_t slow_cm, bool brake_on,
                bool& capped) {
   capped = false;

@@ -344,8 +344,8 @@ void controlTask() {
       const float steer = carSteer(v, static_cast<float>(g_app.teleop_w), gs.reverse_steer == 0 && !g_app.teleop_auto);
       const float out = imuUsable() ? g_app.heading.teleop(v, steer, yaw, rate, kDt, false) : steer;
       // Heading hold's correction is closed-loop (not reduced at speed); steering is the driver's (§41).
-      if (imuUsable() && g_app.heading.holding()) {
-        w = out;
+      if ((imuUsable() && g_app.heading.holding()) || g_app.teleop_auto) {
+        w = out;  // heading hold, or the bridge's AUTO frame: plain mix (spec 02 §F1.4)
       } else {
         w_steer = out;
       }

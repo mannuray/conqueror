@@ -23,6 +23,7 @@ enum class WsCmdKind : uint8_t {
   kTurn,       // Plan H (LLD R4.2): {"t":"turn","by"|"to":deg,"speed"?,"radius_cm"?} -> motion service / TURN
   kDriveRate,  // {"t":"drive_rate","v":%,"yaw_rate":deg/s} (stream) -> motion service / DRIVE_RATE
   kCancel,     // {"t":"cancel"} -> ends the running primitive
+  kDebug,      // LLD R5: {"t":"debug","on":bool,"hz"?:10|50} -> this client gets td / tds
   kUnsupported,  // valid JSON, "t" not in the Basic Drive slice -> nack INVALID_COMMAND
   kInvalid,      // not JSON / no "t" / bad field -> nack INVALID_COMMAND
 };
@@ -45,6 +46,7 @@ struct WsCommand {
   uint8_t speed = 40;         // turn: 10..100 %
   uint16_t radius_cm = 0;     // turn: 0 = spin in place (> 0 needs encoders)
   int16_t rate_ddps = 0;      // drive_rate: -1800..1800 (0.1 °/s, + = CCW / left)
+  uint8_t debug_hz = 10;      // debug: 10 or 50
   char t0[24] = "";  // ping: number echoed verbatim in pong
   char client[24] = "";
 };

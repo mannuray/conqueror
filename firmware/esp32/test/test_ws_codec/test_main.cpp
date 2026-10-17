@@ -219,6 +219,24 @@ void test_odd_keys_and_bools() {
   TEST_ASSERT_FALSE(j.active);
 }
 
+// Bridge LLD R5: opt-in debug stream - "on" required, hz 10 (default) or 50.
+void test_debug_command() {
+  WsCommand c = P("{\"t\":\"debug\",\"on\":true,\"hz\":50,\"id\":4}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kDebug), K(c.kind));
+  TEST_ASSERT_TRUE(c.on);
+  TEST_ASSERT_EQUAL_UINT8(50, c.debug_hz);
+  TEST_ASSERT_TRUE(c.has_id);
+  c = P("{\"t\":\"debug\",\"on\":true}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kDebug), K(c.kind));
+  TEST_ASSERT_EQUAL_UINT8(10, c.debug_hz);  // default
+  c = P("{\"t\":\"debug\",\"on\":false}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kDebug), K(c.kind));
+  TEST_ASSERT_FALSE(c.on);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"debug\",\"on\":true,\"hz\":20}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"debug\",\"hz\":10}").kind));  // on required
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"debug\",\"on\":true,\"hz\":\"x\"}").kind));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_drive);
@@ -243,5 +261,6 @@ int main() {
   RUN_TEST(test_turn_invalid);
   RUN_TEST(test_drive_rate_and_cancel);
   RUN_TEST(test_odd_keys_and_bools);
+  RUN_TEST(test_debug_command);
   return UNITY_END();
 }

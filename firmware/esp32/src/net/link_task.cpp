@@ -36,6 +36,7 @@ bool g_ota_active = false;
 
 // WS bookkeeping (link_task only)
 char g_json[core::kWsJsonMax];
+uint32_t g_last_debug_slow = 0;  // LLD R5: TELEM_SLOW count last seen by the debug stream
 uint32_t g_ev_seq = 0;
 uint32_t g_tf_seq = 0;
 uint32_t g_last_fast_count = 0;
@@ -335,6 +336,12 @@ void handleAcked(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
   }
 }
 
+// LLD R5: opt-in debug stream for this client only (any role: read-only data).
+void handleDebug(int fd, int32_t id, const core::WsCommand& c) {
+  g_ws.setDebug(fd, c.on ? static_cast<uint8_t>(c.debug_hz == 50 ? 1 : 5) : 0);
+  if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
+}
+
 void handleRelease(int fd, int32_t id, uint32_t now) {
   apply(g_owner.onRelease(fd), now);
   if (motionOwnedBy(fd)) endMotion(core::MotionEvent::kRelease, now);  // review I1: release ends a primitive
@@ -363,6 +370,7 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
     case core::WsCmdKind::kDriveRate: handleDriveRate(fd, c, now); break;
     case core::WsCmdKind::kCancel: handleCancel(fd, id, now); break;
     case core::WsCmdKind::kRelease: handleRelease(fd, id, now); break;
+    case core::WsCmdKind::kDebug: handleDebug(fd, id, c); break;
     case core::WsCmdKind::kPing: sendTo(fd, core::jsonPong(g_json, sizeof(g_json), c.t0, now)); break;
     case core::WsCmdKind::kUnsupported:
     case core::WsCmdKind::kInvalid:
@@ -476,9 +484,24 @@ void handleLinkEvents(uint32_t now) {
   }
 }
 
+// LLD R5: td (every div-th TELEM_FAST) / tds (each new TELEM_SLOW) to the clients that asked for them.
+void sendDebug(const core::TankSnapshot& s, bool fast, bool slow) {
+  for (size_t i = 0; i < g_ws.count(); ++i) {
+    const int fd = g_ws.fdAt(i);
+    const uint8_t div = g_ws.debugDiv(fd);
+    if (div == 0) continue;
+    if (fast && s.fast_count % div == 0) sendTo(fd, core::jsonTd(g_json, sizeof(g_json), g_ws.nextDebugSeq(fd), s));
+    if (slow) sendTo(fd, core::jsonTds(g_json, sizeof(g_json), s));  // g_json is shared: built per client
+  }
+}
+
 void telemetry(uint32_t now) {
   const core::TankSnapshot& s = g_link.snapshot();
-  if (s.fast_count != g_last_fast_count) {
+  const bool new_slow = s.slow_count != g_last_debug_slow;
+  g_last_debug_slow = s.slow_count;
+  const bool new_fast = s.fast_count != g_last_fast_count;
+  if (new_fast || new_slow) sendDebug(s, new_fast, new_slow);
+  if (new_fast) {
     g_last_fast_count = s.fast_count;
     runMotion(g_motion.onTelemetry(s.fast.yaw, s.fast.yaw_rate, now), now);  // 50 Hz
     if (s.fast_count % 5u == 0) {  // Uno 50 Hz -> page 10 Hz (R2.14 #7, spec 02 §E4)

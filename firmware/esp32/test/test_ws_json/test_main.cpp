@@ -229,6 +229,103 @@ void test_primitive_done_and_tf_progress() {
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"cam_moving\":false,\"primitive\":{\"kind\":\"turn\",\"pct\":40}}"));
 }
 
+// Bridge LLD R5: debug messages carry the raw TELEM_FAST / TELEM_SLOW values.
+void test_td_raw_fast_values() {
+  TankSnapshot s;
+  TEST_ASSERT_EQUAL(0, jsonTd(buf, sizeof(buf), 1, s));  // nothing before the first TELEM_FAST
+  s.fast_valid = true;
+  s.fast.uno_ms = 1234;
+  s.fast.enc_l = 100;
+  s.fast.enc_r = -5;
+  s.fast.pwm_l = 130;
+  s.fast.pwm_r = -130;
+  s.fast.spd_cmd_l = 25;
+  s.fast.spd_cmd_r = -25;
+  s.fast.spd_act_l = -128;  // unknown
+  s.fast.spd_act_r = 12;
+  s.fast.yaw = 9050;
+  s.fast.yaw_rate = -125;
+  s.fast.pitch = -125;
+  s.fast.roll = 300;
+  s.fast.dist_mm = 424;
+  s.fast.closing_cm_s = -7;
+  s.fast.pan = -155;
+  s.fast.tilt = 200;
+  s.fast.flags = 5;
+  s.fast.prim = 1;
+  s.fast.prim_pct = 40;
+  jsonTd(buf, sizeof(buf), 3, s);
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"td\",\"seq\":3,\"uno_ms\":1234,\"enc\":[100,-5],\"pwm\":[130,-130],\"cmd\":[25,-25],"
+      "\"act\":[null,12],\"yaw\":90.50,\"rate\":-12.5,\"pitch\":-1.25,\"roll\":3.00,\"dist_mm\":424,"
+      "\"closing\":-7,\"pan\":-15.5,\"tilt\":20.0,\"flags\":5,\"prim\":1,\"pct\":40}",
+      buf);
+  s.fast.dist_mm = 65534;  // sensor fault
+  jsonTd(buf, sizeof(buf), 4, s);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"dist_mm\":null,\"dist_fault\":true"));
+  s.fast.dist_mm = 65535;  // no echo
+  jsonTd(buf, sizeof(buf), 5, s);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"dist_mm\":null,\"closing"));
+}
+
+void test_tds_raw_slow_values() {
+  TankSnapshot s;
+  TEST_ASSERT_EQUAL(0, jsonTds(buf, sizeof(buf), s));
+  s.slow_valid = true;
+  s.slow.uptime_s = 77;
+  s.slow.reset_reason = 1;
+  s.slow.batt_mv = 7860;
+  s.slow.driving = 1;
+  s.slow.temp = -3;
+  s.slow.owner = 2;
+  s.slow.flags2 = 512;
+  s.slow.accel_var = 9;
+  s.slow.loop_load = 41;
+  s.slow.loop_max_us = 1800;
+  s.slow.free_ram = 259;
+  s.slow.err_frames = 2;
+  s.slow.err_i2c = 0;
+  s.slow.settings_crc = 4660;
+  s.slow.env_speed_cap = 60;
+  s.slow.env_accel_cap = 50;
+  s.slow.env_lock_brake = 1;
+  s.slow.profile_idx = 0;
+  s.slow.cal_status[0] = 1;
+  s.slow.cal_status[1] = 0;
+  s.slow.cal_status[2] = 2;
+  s.slow.hw = 3;
+  jsonTds(buf, sizeof(buf), s);
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"tds\",\"uptime_s\":77,\"reset_reason\":1,\"batt_mv\":7860,\"driving\":1,\"temp\":-3,"
+      "\"owner\":2,\"flags2\":512,\"accel_var\":9,\"loop_load\":41,\"loop_max_us\":1800,\"free_ram\":259,"
+      "\"err_frames\":2,\"err_i2c\":0,\"settings_crc\":4660,\"env\":[60,50,1],\"profile\":0,\"cal\":[1,0,2],"
+      "\"hw\":3}",
+      buf);
+}
+
+// Worst-case values still fit kWsJsonMax (a truncated message would be dropped: fmt returns 0).
+void test_td_tds_fit_worst_case() {
+  TankSnapshot s;
+  s.fast_valid = true;
+  s.slow_valid = true;
+  s.fast.uno_ms = 4294967295u;
+  s.fast.enc_l = -2147483647 - 1;
+  s.fast.enc_r = -2147483647 - 1;
+  s.fast.pwm_l = s.fast.pwm_r = -32768;
+  s.fast.spd_cmd_l = s.fast.spd_cmd_r = s.fast.spd_act_l = s.fast.spd_act_r = -127;
+  s.fast.yaw = 65535;
+  s.fast.yaw_rate = s.fast.pitch = s.fast.roll = s.fast.closing_cm_s = s.fast.pan = s.fast.tilt = -32768;
+  s.fast.dist_mm = 65534;
+  s.fast.flags = 65535;
+  s.fast.prim = s.fast.prim_pct = 255;
+  TEST_ASSERT_TRUE(jsonTd(buf, sizeof(buf), 4294967295u, s) > 0);
+  s.slow.uptime_s = s.slow.flags2 = 4294967295u;
+  s.slow.temp = -32768;
+  s.slow.batt_mv = s.slow.accel_var = s.slow.loop_max_us = s.slow.free_ram = 65535;
+  s.slow.err_frames = s.slow.err_i2c = s.slow.settings_crc = 65535;
+  TEST_ASSERT_TRUE(jsonTds(buf, sizeof(buf), s) > 0);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ack_reason_table_matches_generated_codes);
@@ -241,6 +338,9 @@ int main() {
   RUN_TEST(test_welcome_and_pong);
   RUN_TEST(test_welcome_caps_bits);
   RUN_TEST(test_ts_muted_quiet_flags);
+  RUN_TEST(test_td_raw_fast_values);
+  RUN_TEST(test_tds_raw_slow_values);
+  RUN_TEST(test_td_tds_fit_worst_case);
   RUN_TEST(test_primitive_done_and_tf_progress);
   RUN_TEST(test_too_small_buffer_returns_zero);
   RUN_TEST(test_json_escape);

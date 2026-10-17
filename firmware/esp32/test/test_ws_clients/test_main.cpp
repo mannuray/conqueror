@@ -96,6 +96,29 @@ void test_stop_barrier_survives_counter_wrap() {
   TEST_ASSERT_FALSE(b.stale(3));
 }
 
+// Bridge LLD R5: per-client debug divider (0 off, 1 = 50 Hz, 5 = 10 Hz) and td sequence; reset on remove / re-add.
+void test_debug_per_client() {
+  WsClients w;
+  w.add(10, 0);
+  w.add(11, 0);
+  TEST_ASSERT_EQUAL_UINT8(0, w.debugDiv(10));
+  TEST_ASSERT_TRUE(w.setDebug(10, 5));
+  TEST_ASSERT_EQUAL_UINT8(5, w.debugDiv(10));
+  TEST_ASSERT_EQUAL_UINT8(0, w.debugDiv(11));  // only the asking client
+  TEST_ASSERT_EQUAL_UINT32(1, w.nextDebugSeq(10));
+  TEST_ASSERT_EQUAL_UINT32(2, w.nextDebugSeq(10));
+  TEST_ASSERT_TRUE(w.setDebug(10, 0));
+  TEST_ASSERT_EQUAL_UINT8(0, w.debugDiv(10));
+  TEST_ASSERT_FALSE(w.setDebug(99, 1));  // unknown client
+  TEST_ASSERT_EQUAL_UINT8(0, w.debugDiv(99));
+  w.setDebug(11, 1);
+  w.remove(11);
+  w.add(11, 0);  // the fd comes back as a new client: starts off, seq from 1
+  TEST_ASSERT_EQUAL_UINT8(0, w.debugDiv(11));
+  w.setDebug(11, 1);
+  TEST_ASSERT_EQUAL_UINT32(1, w.nextDebugSeq(11));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_names_and_capacity);
@@ -106,5 +129,6 @@ int main() {
   RUN_TEST(test_stream_reject_reported_once);
   RUN_TEST(test_stop_barrier_drops_motion_posted_before_stop);
   RUN_TEST(test_stop_barrier_survives_counter_wrap);
+  RUN_TEST(test_debug_per_client);
   return UNITY_END();
 }

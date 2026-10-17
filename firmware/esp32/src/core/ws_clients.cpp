@@ -31,6 +31,23 @@ bool WsClients::remove(int fd) {
   return true;
 }
 
+bool WsClients::setDebug(int fd, uint8_t div) {
+  const int i = find(fd);
+  if (i < 0) return false;
+  m_c[i].debug_div = div;
+  return true;
+}
+
+uint8_t WsClients::debugDiv(int fd) const {
+  const int i = find(fd);
+  return i < 0 ? 0 : m_c[i].debug_div;
+}
+
+uint32_t WsClients::nextDebugSeq(int fd) {
+  const int i = find(fd);
+  return i < 0 ? 0 : ++m_c[i].debug_seq;
+}
+
 const char* WsClients::name(int fd) const {
   const int i = find(fd);
   return i < 0 ? "" : m_c[i].name;

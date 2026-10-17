@@ -33,6 +33,10 @@ class WsClients {
   // Streaming rejections: true when this reason should be reported (first time in a row).
   bool reportStreamReject(int fd, uint8_t reason);
   void streamAccepted(int fd);
+  // LLD R5 debug stream: divider of the 50 Hz TELEM_FAST (0 off, 1 = 50 Hz, 5 = 10 Hz) and this client's td seq.
+  bool setDebug(int fd, uint8_t div);
+  uint8_t debugDiv(int fd) const;
+  uint32_t nextDebugSeq(int fd);
 
  private:
   struct Client {
@@ -45,6 +49,8 @@ class WsClients {
     uint8_t total_n;
     uint8_t last_reject;  // 0xFF = none
     bool closing;         // reported silent once
+    uint8_t debug_div;    // 0 = no debug stream
+    uint32_t debug_seq;
   };
   int find(int fd) const;
   Client m_c[kMaxWsClients] = {};

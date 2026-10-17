@@ -132,6 +132,7 @@ WsCmdKind kindOf(const char* t) {
   if (strcmp(t, "turn") == 0) return WsCmdKind::kTurn;
   if (strcmp(t, "drive_rate") == 0) return WsCmdKind::kDriveRate;
   if (strcmp(t, "cancel") == 0) return WsCmdKind::kCancel;
+  if (strcmp(t, "debug") == 0) return WsCmdKind::kDebug;
   return WsCmdKind::kUnsupported;
 }
 
@@ -249,6 +250,11 @@ bool readField(const char* key, Reader& r, WsCommand& c, Seen& s) {
   if (strcmp(key, "name") == 0) return r.str(s.name, sizeof(s.name));
   if (strcmp(key, "t0") == 0) return r.num(num, c.t0, sizeof(c.t0));
   if (strcmp(key, "client") == 0) return r.str(c.client, sizeof(c.client));
+  if (strcmp(key, "hz") == 0) {  // debug: 10 or 50 only (LLD R5)
+    if (!r.num(num, nullptr, 0) || (num != 10.0 && num != 50.0)) return false;
+    c.debug_hz = static_cast<uint8_t>(num);
+    return true;
+  }
   return r.skip();
 }
 
@@ -268,6 +274,7 @@ bool complete(WsCommand& c, const Seen& s) {
     case WsCmdKind::kCamLock: return s.on;
     case WsCmdKind::kTurn: return s.mf.by != s.mf.to;  // exactly one of by / to
     case WsCmdKind::kDriveRate: return s.v && s.mf.rate;  // review M20: like the other commands' fields
+    case WsCmdKind::kDebug: return s.on;
     default: return true;
   }
 }

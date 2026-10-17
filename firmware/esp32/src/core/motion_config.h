@@ -32,6 +32,22 @@ constexpr int8_t kRateSaturatedPct = 95;   // C1 guard: |w| >= 95 % ...
 constexpr int16_t kRateWrongWayDdps = 50;  // ... while turning > 5 °/s the other way ...
 constexpr uint32_t kRateWrongWayMs = 500;  // ... for 0.5 s -> end (diverged)
 
+// MOVE by distance (Plan K, bridge LLD R7.3): counts from TELEM_FAST enc_l / enc_r (signed by drive direction).
+constexpr int32_t kMoveSlowCm = 10;            // slow-down zone before the target
+constexpr int32_t kMoveCrawlPct = 15;          // slowest v that still moves both tracks (floor-tuned)
+constexpr uint8_t kMoveSpeedMin = 10;          // move speed 10..100 %
+constexpr int32_t kMoveMaxCm = 500;            // |dist_cm| 1..500
+constexpr uint32_t kMoveStallMs = 1500;        // stalled: < kMoveStallCm progress for 1.5 s
+constexpr int32_t kMoveStallCm = 1;
+constexpr uint32_t kMoveBlockedMs = 2000;      // blocked flag (obstacle brake) for 2 s -> end blocked
+constexpr int32_t kMoveTimeoutCmPerS = 5;      // timeout = |cm| / 5 cm/s + 3 s
+constexpr uint32_t kMoveTimeoutBaseMs = 3000;
+// counts_per_m (Plan K, spec 02 §G4): NVS, default from the 160 cm tape run (design-notes §63).
+constexpr uint16_t kCpmDefault = 7560;
+constexpr uint16_t kCpmMin = 3000;
+constexpr uint16_t kCpmMax = 15000;
+inline bool validCpm(uint32_t n) { return n >= kCpmMin && n <= kCpmMax; }
+
 // Service
 constexpr uint32_t kTelemGapMs = 200;      // no TELEM_FAST for 200 ms while active -> end (link)
 

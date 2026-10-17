@@ -1,0 +1,264 @@
+// Plan K (bridge LLD R7.3 / R7.8): MoveController against a straight-driving plant.
+#include <unity.h>
+
+#include "core/motion_config.h"
+#include "core/move_controller.h"
+#include "cq_protocol.h"
+
+using namespace cq::core;
+namespace proto = cq::proto;
+
+namespace {
+constexpr uint16_t kCpm = 7560;  // 75.6 counts / cm
+const uint32_t kBlockedBit = 1u << static_cast<unsigned>(proto::FastFlagBit::kBlocked);
+
+// Counts per 20 ms follow v with a 3-tick (60 ms) lag at 0.4 count per % per tick (40 % ~ 800 counts/s, both
+// tracks); after the command drops to 0 the tank rolls on for 5 ticks at half its last step (~0.2 cm at a crawl).
+struct Plant {
+  int32_t enc_l = 1000, enc_r = 2000;  // arbitrary start counts
+  uint32_t flags = 0;
+  int8_t hist[3] = {0, 0, 0};
+  uint8_t head = 0;
+  int32_t last_step = 0;
+  int roll_ticks = 0;
+  void step(int8_t v) {
+    const int8_t applied = hist[head];
+    hist[head] = v;
+    head = static_cast<uint8_t>((head + 1) % 3);
+    int32_t d = applied * 4 / 10;
+    if (applied == 0 && last_step != 0 && roll_ticks == 0) roll_ticks = 5;
+    if (applied == 0 && roll_ticks > 0) {
+      d = last_step / 2;
+      if (--roll_ticks == 0) last_step = 0;
+    } else {
+      last_step = d;
+    }
+    enc_l += d;
+    enc_r += d;
+  }
+  MotionTelem telem() const {
+    MotionTelem t;
+    t.enc_l = enc_l;
+    t.enc_r = enc_r;
+    t.flags = flags;
+    return t;
+  }
+};
+
+struct Run {
+  MoveStep last;
+  uint32_t t = 0;
+  int8_t max_v = 0;
+  int8_t min_abs_v = 127;
+};
+
+// Steps controller + plant every 20 ms until an end or `limit_ms`.
+Run runUntilEnd(MoveController& mc, Plant& p, uint32_t limit_ms) {
+  Run r;
+  while (r.t < limit_ms) {
+    r.t += 20;
+    r.last = mc.step(p.telem(), r.t);
+    if (r.last.done || r.last.stalled || r.last.blocked || r.last.timeout) break;
+    const int8_t a = r.last.v < 0 ? static_cast<int8_t>(-r.last.v) : r.last.v;
+    if (a > r.max_v) r.max_v = a;
+    if (a < r.min_abs_v) r.min_abs_v = a;
+    p.step(r.last.v);
+  }
+  return r;
+}
+}  // namespace
+
+void setUp() {}
+void tearDown() {}
+
+void test_move_done_at_target() {
+  Plant p;
+  MoveController mc;
+  mc.begin(p.enc_l, p.enc_r, 100, 40, kCpm, 0);
+  const Run r = runUntilEnd(mc, p, 30000);
+  TEST_ASSERT_TRUE(r.last.done);
+  TEST_ASSERT_EQUAL_INT8(0, r.last.v);
+  TEST_ASSERT_INT32_WITHIN(5, 1000, mc.movedMm());  // counted at the stop: at most one crawl tick past 100 cm
+  TEST_ASSERT_GREATER_OR_EQUAL_INT32(1000, mc.movedMm());
+  TEST_ASSERT_EQUAL_UINT8(100, mc.progressPct());
+}
+
+void test_move_profile_cruise_then_crawl() {
+  Plant p;
+  MoveController mc;
+  mc.begin(p.enc_l, p.enc_r, 100, 40, kCpm, 0);
+  const int32_t target = 100 * kCpm / 100, slow = motion::kMoveSlowCm * kCpm / 100;
+  const int32_t start = (p.enc_l + p.enc_r) / 2;
+  int8_t prev = 127;
+  uint32_t t = 0;
+  for (;;) {
+    t += 20;
+    const MoveStep s = mc.step(p.telem(), t);
+    if (s.done) break;
+    const int32_t remaining = target - ((p.enc_l + p.enc_r) / 2 - start);
+    if (remaining >= slow) {
+      TEST_ASSERT_EQUAL_INT8(40, s.v);  // cruise
+    } else {
+      TEST_ASSERT_TRUE(s.v <= prev);    // only falls in the slow zone ...
+      TEST_ASSERT_TRUE(s.v >= motion::kMoveCrawlPct);  // ... never below the crawl
+    }
+    prev = s.v;
+    p.step(s.v);
+  }
+  TEST_ASSERT_TRUE(prev <= motion::kMoveCrawlPct + 1);  // arrives at a crawl
+}
+
+void test_move_reverse_counts_down() {
+  Plant p;
+  MoveController mc;
+  mc.begin(p.enc_l, p.enc_r, -50, 40, kCpm, 0);
+  const MoveStep first = mc.step(p.telem(), 20);
+  TEST_ASSERT_EQUAL_INT8(-40, first.v);
+  p.step(first.v);
+  const Run r = runUntilEnd(mc, p, 30000);
+  TEST_ASSERT_TRUE(r.last.done);
+  TEST_ASSERT_TRUE(p.enc_l < 1000);  // counted down
+  TEST_ASSERT_INT32_WITHIN(5, -500, mc.movedMm());
+}
+
+void test_move_progress_rises() {
+  Plant p;
+  MoveController mc;
+  mc.begin(p.enc_l, p.enc_r, 100, 40, kCpm, 0);
+  TEST_ASSERT_EQUAL_UINT8(0, mc.progressPct());
+  uint8_t last = 0;
+  uint32_t t = 0;
+  for (int i = 0; i < 200; ++i) {
+    const MoveStep s = mc.step(p.telem(), t += 20);
+    TEST_ASSERT_TRUE(mc.progressPct() >= last);
+    last = mc.progressPct();
+    p.step(s.v);
+  }
+  TEST_ASSERT_TRUE(last > 10 && last < 100);
+}
+
+void test_move_stalled_without_progress() {
+  Plant p;  // the plant is never stepped: no counts at all
+  MoveController mc;
+  mc.begin(p.enc_l, p.enc_r, 100, 40, kCpm, 0);
+  MoveStep s;
+  for (uint32_t t = 20; t < motion::kMoveStallMs; t += 20) {
+    s = mc.step(p.telem(), t);
+    TEST_ASSERT_FALSE(s.stalled);
+  }
+  s = mc.step(p.telem(), motion::kMoveStallMs);
+  TEST_ASSERT_TRUE(s.stalled);
+}
+
+void test_move_blocked_after_two_seconds_not_stalled() {
+  Plant p;
+  p.flags = kBlockedBit;  // obstacle brake holds the tank: no counts
+  MoveController mc;
+  mc.begin(p.enc_l, p.enc_r, 100, 40, kCpm, 0);
+  MoveStep s;
+  for (uint32_t t = 20; t < motion::kMoveBlockedMs; t += 20) {
+    s = mc.step(p.telem(), t);
+    TEST_ASSERT_FALSE(s.stalled);
+    TEST_ASSERT_FALSE(s.blocked);
+  }
+  s = mc.step(p.telem(), motion::kMoveBlockedMs + 20);
+  TEST_ASSERT_TRUE(s.blocked);
+}
+
+void test_move_brief_block_continues() {  // Review Focus 2
+  Plant p;
+  MoveController mc;
+  mc.begin(p.enc_l, p.enc_r, 30, 40, kCpm, 0);
+  uint32_t t = 0;
+  for (int i = 0; i < 50; ++i) p.step(mc.step(p.telem(), t += 20).v);  // 1 s driving
+  p.flags = kBlockedBit;
+  for (int i = 0; i < 50; ++i) TEST_ASSERT_FALSE(mc.step(p.telem(), t += 20).blocked);  // 1 s held, no counts
+  p.flags = 0;
+  MoveStep s;
+  do {
+    s = mc.step(p.telem(), t += 20);
+    TEST_ASSERT_FALSE(s.stalled || s.blocked || s.timeout);
+    p.step(s.v);
+  } while (!s.done && t < 30000);
+  TEST_ASSERT_TRUE(s.done);
+}
+
+void test_move_timeout() {
+  Plant p;
+  MoveController mc;
+  mc.begin(p.enc_l, p.enc_r, 100, 40, kCpm, 0);
+  const uint32_t deadline = 100 * 1000 / motion::kMoveTimeoutCmPerS + motion::kMoveTimeoutBaseMs;  // 23 s
+  MoveStep s;
+  for (uint32_t t = 20; t < deadline; t += 20) {
+    if (t % 1400 == 0) p.enc_l += 80, p.enc_r += 80;  // just over 1 cm every 1.4 s: never stalled, far too slow
+    s = mc.step(p.telem(), t);
+    TEST_ASSERT_FALSE(s.timeout || s.stalled || s.done);
+  }
+  s = mc.step(p.telem(), deadline);
+  TEST_ASSERT_TRUE(s.timeout);
+}
+
+void test_move_counts_reset_ends_stalled() {  // Review Focus 1: the Uno restarted mid-move
+  Plant p;
+  MoveController mc;
+  mc.begin(p.enc_l, p.enc_r, 200, 40, kCpm, 0);
+  uint32_t t = 0;
+  for (int i = 0; i < 100; ++i) p.step(mc.step(p.telem(), t += 20).v);  // 2 s driving
+  p.enc_l = 0;
+  p.enc_r = 0;
+  const uint32_t reset_at = t;
+  MoveStep s;
+  do {
+    s = mc.step(p.telem(), t += 20);
+    TEST_ASSERT_FALSE(s.done);
+    p.step(s.v);
+  } while (!s.stalled && t < reset_at + 5000);
+  TEST_ASSERT_TRUE(s.stalled);
+  TEST_ASSERT_TRUE(t - reset_at <= motion::kMoveStallMs + 100);
+}
+
+void test_move_speed_below_crawl_never_zero() {  // Review Focus 3
+  Plant p;
+  MoveController mc;
+  mc.begin(p.enc_l, p.enc_r, 10, motion::kMoveSpeedMin, kCpm, 0);  // 10 cm at 10 % ~ 4 s (timeout 5 s)
+  const Run r = runUntilEnd(mc, p, 30000);
+  TEST_ASSERT_TRUE(r.last.done);
+  TEST_ASSERT_EQUAL_INT8(motion::kMoveSpeedMin, r.min_abs_v);
+  TEST_ASSERT_EQUAL_INT8(motion::kMoveSpeedMin, r.max_v);
+}
+
+void test_move_short_move_stays_slow() {  // Review Focus 4
+  Plant p;
+  MoveController mc;
+  mc.begin(p.enc_l, p.enc_r, 1, 100, kCpm, 0);
+  const Run r = runUntilEnd(mc, p, 10000);
+  TEST_ASSERT_TRUE(r.last.done);
+  TEST_ASSERT_TRUE(r.max_v <= 23);  // 15 + 85 × 75 / 756 at the start
+  TEST_ASSERT_TRUE(r.min_abs_v >= motion::kMoveCrawlPct);
+}
+
+void test_cpm_limits() {
+  TEST_ASSERT_TRUE(motion::validCpm(7560));
+  TEST_ASSERT_TRUE(motion::validCpm(3000));
+  TEST_ASSERT_TRUE(motion::validCpm(15000));
+  TEST_ASSERT_FALSE(motion::validCpm(2999));
+  TEST_ASSERT_FALSE(motion::validCpm(15001));
+  TEST_ASSERT_FALSE(motion::validCpm(0));
+}
+
+int main() {
+  UNITY_BEGIN();
+  RUN_TEST(test_move_done_at_target);
+  RUN_TEST(test_move_profile_cruise_then_crawl);
+  RUN_TEST(test_move_reverse_counts_down);
+  RUN_TEST(test_move_progress_rises);
+  RUN_TEST(test_move_stalled_without_progress);
+  RUN_TEST(test_move_blocked_after_two_seconds_not_stalled);
+  RUN_TEST(test_move_brief_block_continues);
+  RUN_TEST(test_move_timeout);
+  RUN_TEST(test_move_counts_reset_ends_stalled);
+  RUN_TEST(test_move_speed_below_crawl_never_zero);
+  RUN_TEST(test_move_short_move_stays_slow);
+  RUN_TEST(test_cpm_limits);
+  return UNITY_END();
+}

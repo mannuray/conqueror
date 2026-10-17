@@ -350,6 +350,7 @@ enum class SettingId : uint8_t {
   kOverrideTiltDeg = 63,
   kLedMax = 64,
   kBattHyst = 65,
+  kTrackBalance = 66,
 };
 
 enum class AckStatus : uint8_t {
@@ -1466,8 +1467,9 @@ inline const SettingDescriptor kSettingDescriptors[] PROGMEM = {
   {63, SettingScope::kGlobal, WireType::kU8, 45L, 70L, 65L},
   {64, SettingScope::kGlobal, WireType::kU8, 10L, 255L, 50L},
   {65, SettingScope::kGlobal, WireType::kU16, 50L, 500L, 200L},
+  {66, SettingScope::kGlobal, WireType::kI16, -100L, 100L, 0L},
 };
-constexpr uint8_t kSettingCount = 61;
+constexpr uint8_t kSettingCount = 62;
 
 inline const uint16_t kAckStatusCode[] PROGMEM = {0, 3001, 3002, 3003, 3004, 3005, 3006, 3013, 3014, 3015, 3012, 8001, 8002, 8003, 6001, 6002, 6003, 9001, 1002};
 

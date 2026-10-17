@@ -622,3 +622,4 @@ Payload 0 bytes max.
 | 63 | override_tilt_deg | global | u8 | deg | 1.0 | 45 | 70 | 65 |
 | 64 | led_max | global | u8 | level | 1.0 | 10 | 255 | 50 |
 | 65 | batt_hyst | global | u16 | mV | 1.0 | 50 | 500 | 200 |
+| 66 | track_balance | global | i16 | permille | 1.0 | -100 | 100 | 0 |

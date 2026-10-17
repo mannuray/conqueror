@@ -42,7 +42,7 @@ const Slot kSlots[] PROGMEM = {
     G(gyro_bias_z, kGyroBiasZ), G(level_pitch, kLevelPitch), G(level_roll, kLevelRoll),
     G(ultrasonic_offset, kUltrasonicOffset), G(active_profile, kActiveProfile),
     G(override_idle_s, kOverrideIdleS), G(override_max_s, kOverrideMaxS), G(override_tilt_deg, kOverrideTiltDeg),
-    G(led_max, kLedMax), G(batt_hyst, kBattHyst),
+    G(led_max, kLedMax), G(batt_hyst, kBattHyst), G(track_balance, kTrackBalance),
     P(deadband_start[0], kDeadbandStartLFwd), P(deadband_start[1], kDeadbandStartLRev),
     P(deadband_start[2], kDeadbandStartRFwd), P(deadband_start[3], kDeadbandStartRRev),
     P(deadband_keep[0], kDeadbandKeepLFwd), P(deadband_keep[1], kDeadbandKeepLRev),

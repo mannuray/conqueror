@@ -298,6 +298,7 @@ class SettingId(IntEnum):
     OVERRIDE_TILT_DEG = 63
     LED_MAX = 64
     BATT_HYST = 65
+    TRACK_BALANCE = 66
 
 
 @dataclass(slots=True)
@@ -990,4 +991,5 @@ SETTINGS: tuple[SettingInfo, ...] = (
     SettingInfo(63, "override_tilt_deg", "global", "u8", "deg", 1.0, 45, 70, 65),
     SettingInfo(64, "led_max", "global", "u8", "level", 1.0, 10, 255, 50),
     SettingInfo(65, "batt_hyst", "global", "u16", "mV", 1.0, 50, 500, 200),
+    SettingInfo(66, "track_balance", "global", "i16", "permille", 1.0, -100, 100, 0),
 )

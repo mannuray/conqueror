@@ -9,7 +9,7 @@ namespace cq {
 // EEPROM layout (LLD §7): magic 'C','Q',version at 0; global block at 8; profile block at 80.
 // A block is [len][data…][crc lo][crc hi] (CRC-16/CCITT-FALSE over data).
 constexpr uint16_t kEeMagicAddr = 0;
-constexpr uint8_t kEeLayoutVersion = 1;
+constexpr uint8_t kEeLayoutVersion = 2;  // 2: track_balance added (plan J) - a full board resets once
 constexpr uint16_t kEeGlobalAddr = 8;
 constexpr uint16_t kEeProfileAddr = 80;
 constexpr uint8_t kEeMagicBytes = 3;

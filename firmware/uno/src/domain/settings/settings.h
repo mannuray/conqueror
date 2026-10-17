@@ -41,10 +41,11 @@ struct __attribute__((packed)) GlobalSettings {
   uint8_t override_tilt_deg;   // °
   uint8_t led_max;             // 0..255 WS2812 brightness cap
   uint16_t batt_hyst;          // mV recovery hysteresis (low and critical)
+  int16_t track_balance;       // ‰, spec 02 §F5.1 (the Lite uses it; plan J)
 };
-// 63 B: the global EEPROM block (len + data + CRC = 66 B at address 8) still ends before kEeProfileAddr = 80
+// 65 B: the global EEPROM block (len + data + CRC = 68 B at address 8) still ends before kEeProfileAddr = 80
 // (static_assert in settings_saver.h). Saves are staged per block (SettingsSaver), so the writer queue only
-// needs magic + global = 69 B of its 80 B.
+// needs magic + global = 71 B of its 80 B.
 
 struct __attribute__((packed)) ProfileSettings {
   uint8_t turn_rate_full_speed;  // %

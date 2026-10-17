@@ -59,3 +59,4 @@
 - { id: 63, name: override_tilt_deg, scope: global, type: u8, unit: deg, min: 45, max: 70, default: 65, doc: "tilt cut-off while Safety Override is on (300 ms hold still applies)" }
 - { id: 64, name: led_max, scope: global, type: u8, unit: level, min: 10, max: 255, default: 50, doc: "WS2812 brightness cap" }
 - { id: 65, name: batt_hyst, scope: global, type: u16, unit: mV, min: 50, max: 500, default: 200, doc: "recovery hysteresis for batt_low and batt_crit" }
+- { id: 66, name: track_balance, scope: global, type: i16, unit: permille, min: -100, max: 100, default: 0, doc: "straight driving: the right track is asked for this many per mille more than the left (spec 02 §F5.1)" }

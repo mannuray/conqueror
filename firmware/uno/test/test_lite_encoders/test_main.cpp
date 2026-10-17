@@ -27,11 +27,23 @@ void test_latch_trips_and_masks_both_tracks() {
 void test_latch_stays_while_command_held() {
   MotionLatchLite l;
   l.trip(MotionLatchLite::Reason::kHeading, -1);
-  for (int i = 0; i < 100; ++i) l.clearIfReleased(40, 0);  // driver keeps the stick forward
+  for (int i = 0; i < 100; ++i) l.onDriverCommand(40, 0);  // driver keeps the stick forward
   TEST_ASSERT_TRUE(l.latched());
-  l.clearIfReleased(0, 0);  // released
+  l.onDriverCommand(0, 0);  // the driver's own 0/0 (released stick)
   TEST_ASSERT_FALSE(l.latched());
   TEST_ASSERT_EQUAL_INT8(-1, l.side());
+}
+
+// Final review I1: only the driver's actions release it - the firmware zeroing the command (deadman after a 300 ms
+// stream gap, link loss) must not; the still-held stick's next frame must find the tank still stopped.
+void test_latch_not_released_by_firmware_zeroing() {
+  MotionLatchLite l;
+  l.trip(MotionLatchLite::Reason::kStall, 1);
+  // (deadman / link loss zero teleop inside the Uno: no driver call here)
+  for (int i = 0; i < 10; ++i) l.onDriverCommand(40, 0);  // stream resumes with the stick still held
+  TEST_ASSERT_TRUE(l.latched());
+  l.onDriverRelease();  // IR drive key let go / STOP
+  TEST_ASSERT_FALSE(l.latched());
 }
 
 void test_latch_clear_by_stop_and_first_trip_wins() {
@@ -243,6 +255,7 @@ int main() {
   UNITY_BEGIN();
   RUN_TEST(test_latch_trips_and_masks_both_tracks);
   RUN_TEST(test_latch_stays_while_command_held);
+  RUN_TEST(test_latch_not_released_by_firmware_zeroing);
   RUN_TEST(test_latch_clear_by_stop_and_first_trip_wins);
   RUN_TEST(test_sync_equal_counts_no_change);
   RUN_TEST(test_sync_slows_faster_left);

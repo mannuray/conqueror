@@ -15,6 +15,7 @@ constexpr uint16_t kDeadmanMs = 300;      // full default (setting 15)
 constexpr uint16_t kIrHandbackMs = 3000;  // full default (setting 19)
 constexpr uint16_t kMaxCps = StallGuardLite::kMaxCps;  // 4000 counts/s at PWM 255 (design-notes §59)
 IrController g_ir;
+bool g_ir_driving = false;  // an IR drive key is held (its release frees the stall / runaway latch)
 
 void setFast(proto::FastFlagBit bit, bool on) {
   const uint16_t m = static_cast<uint16_t>(1u << static_cast<uint8_t>(bit));
@@ -80,8 +81,11 @@ void irInput(uint32_t now) {
     g_lite.teleop_v = o.v;
     g_lite.teleop_w = o.w;
     g_lite.teleop_auto = false;  // IR is a driver's input: car-style steering applies
+    g_ir_driving = true;
   } else {
     zeroTeleop();
+    if (g_ir_driving) g_lite.latch.onDriverRelease();  // drive key let go (spec 02 §F4; not a camera key)
+    g_ir_driving = false;
   }
   g_lite.cam.jog(o.jog_pan, o.jog_tilt);  // held: applied every 20 ms in cameraTask (60 °/s); release → 0
   if (o.stop) {
@@ -209,7 +213,6 @@ void controlTask() {
   const LiteSettings& s = g_lite.settings.values();
   ownershipStep(now);
   irInput(now);
-  g_lite.latch.clearIfReleased(g_lite.teleop_v, g_lite.teleop_w);  // owner (§F4): released stick / key frees it
   const DriveOut d = driveTargets(s);
   const PwmOutput out = safetyGate(s, d);
   port::motor::apply(out);

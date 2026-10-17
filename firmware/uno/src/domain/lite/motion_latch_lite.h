@@ -5,6 +5,8 @@ namespace cq {
 
 // Spec 02 §F1 / LLD uno-lite §19: one latch for stall, encoder fault and heading runaway. Owner (2026-10-17): stop
 // BOTH tracks until STOP or until the driver's command returns to v = 0, w = 0; the first trip's reason is kept.
+// Only the DRIVER's actions release it (final review I1): an accepted DRIVE 0/0, STOP, the IR drive key let go -
+// never the firmware zeroing the command (deadman, link loss), or the held stick would drive straight back in.
 class MotionLatchLite {
  public:
   enum class Reason : uint8_t { kNone, kStall, kEncoderFault, kHeading };
@@ -17,9 +19,10 @@ class MotionLatchLite {
     m_reason = Reason::kNone;
     m_side = -1;
   }
-  void clearIfReleased(int8_t v, int8_t w) {
+  void onDriverCommand(int8_t v, int8_t w) {  // an accepted DRIVE frame from the owner
     if (v == 0 && w == 0) clear();
   }
+  void onDriverRelease() { clear(); }  // IR drive key let go while IR drove
   bool latched() const { return m_reason != Reason::kNone; }
   Reason reason() const { return m_reason; }
   int8_t side() const { return m_side; }

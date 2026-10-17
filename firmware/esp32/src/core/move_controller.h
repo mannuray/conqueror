@@ -8,7 +8,7 @@
 namespace cq {
 namespace core {
 
-// The TELEM_FAST fields the motion service uses (0.01°, 0.1 °/s, counts, FastFlagBit).
+// The TELEM_FAST fields the motion service uses (0.01°, 0.1 °/s, counts rising in both directions, FastFlagBit).
 struct MotionTelem {
   uint16_t yaw_cdeg = 0;
   int16_t rate_ddps = 0;
@@ -38,7 +38,7 @@ class MoveController {
   int32_t m_target = 1;       // counts, > 0
   int32_t m_slow = 1;         // slow zone, counts
   int32_t m_stall_counts = 1;  // progress that counts as moving
-  int32_t m_done = 0;         // travelled in the move direction, counts
+  int32_t m_done = 0;         // travelled, counts (rise in both directions; m_dir gives v / moved signs)
   int32_t m_ref = 0;          // m_done at the last progress
   int8_t m_dir = 1;
   uint8_t m_speed = 40;

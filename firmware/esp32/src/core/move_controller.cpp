@@ -27,7 +27,10 @@ void MoveController::begin(int32_t enc_l, int32_t enc_r, int16_t dist_cm, uint8_
 
 MoveStep MoveController::step(const MotionTelem& t, uint32_t now_ms) {
   MoveStep s;
-  m_done = m_dir * ((t.enc_l - m_start_l) + (t.enc_r - m_start_r)) / 2;
+  // The Uno counts rising edges only: the counts rise forward and reverse (final review C1), so the distance is the
+  // raw mean delta - never its absolute value: after an Uno restart the counts drop and the move must stall, not
+  // report a false done.
+  m_done = ((t.enc_l - m_start_l) + (t.enc_r - m_start_r)) / 2;
   if (m_done >= m_target) {
     s.done = true;
     return s;

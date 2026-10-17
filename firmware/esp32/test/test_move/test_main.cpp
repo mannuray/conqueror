@@ -12,8 +12,9 @@ namespace {
 constexpr uint16_t kCpm = 7560;  // 75.6 counts / cm
 const uint32_t kBlockedBit = 1u << static_cast<unsigned>(proto::FastFlagBit::kBlocked);
 
-// Counts per 20 ms follow v with a 3-tick (60 ms) lag at 0.4 count per % per tick (40 % ~ 800 counts/s, both
-// tracks); after the command drops to 0 the tank rolls on for 5 ticks at half its last step (~0.2 cm at a crawl).
+// Counts per 20 ms follow |v| with a 3-tick (60 ms) lag at 0.4 count per % per tick (40 % ~ 800 counts/s, both
+// tracks) - like the Uno Lite they only count up, forward or reverse (rising edges, final review C1); after the
+// command drops to 0 the tank rolls on for 5 ticks at half its last step (~0.2 cm at a crawl).
 struct Plant {
   int32_t enc_l = 1000, enc_r = 2000;  // arbitrary start counts
   uint32_t flags = 0;
@@ -26,6 +27,7 @@ struct Plant {
     hist[head] = v;
     head = static_cast<uint8_t>((head + 1) % 3);
     int32_t d = applied * 4 / 10;
+    if (d < 0) d = -d;  // unsigned edge counts
     if (applied == 0 && last_step != 0 && roll_ticks == 0) roll_ticks = 5;
     if (applied == 0 && roll_ticks > 0) {
       d = last_step / 2;
@@ -108,7 +110,7 @@ void test_move_profile_cruise_then_crawl() {
   TEST_ASSERT_TRUE(prev <= motion::kMoveCrawlPct + 1);  // arrives at a crawl
 }
 
-void test_move_reverse_counts_down() {
+void test_move_reverse_with_rising_counts() {
   Plant p;
   MoveController mc;
   mc.begin(p.enc_l, p.enc_r, -50, 40, kCpm, 0);
@@ -117,7 +119,7 @@ void test_move_reverse_counts_down() {
   p.step(first.v);
   const Run r = runUntilEnd(mc, p, 30000);
   TEST_ASSERT_TRUE(r.last.done);
-  TEST_ASSERT_TRUE(p.enc_l < 1000);  // counted down
+  TEST_ASSERT_TRUE(p.enc_l > 1000);  // the Uno's counts rise in reverse too
   TEST_ASSERT_INT32_WITHIN(5, -500, mc.movedMm());
 }
 
@@ -250,7 +252,7 @@ int main() {
   UNITY_BEGIN();
   RUN_TEST(test_move_done_at_target);
   RUN_TEST(test_move_profile_cruise_then_crawl);
-  RUN_TEST(test_move_reverse_counts_down);
+  RUN_TEST(test_move_reverse_with_rising_counts);
   RUN_TEST(test_move_progress_rises);
   RUN_TEST(test_move_stalled_without_progress);
   RUN_TEST(test_move_blocked_after_two_seconds_not_stalled);

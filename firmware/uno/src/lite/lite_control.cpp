@@ -13,7 +13,7 @@ namespace lite {
 namespace {
 constexpr uint16_t kDeadmanMs = 300;      // full default (setting 15)
 constexpr uint16_t kIrHandbackMs = 3000;  // full default (setting 19)
-constexpr uint16_t kMaxCps = 2500;        // full default (settings 48/49)
+constexpr uint16_t kMaxCps = StallGuardLite::kMaxCps;  // 4000 counts/s at PWM 255 (design-notes §59)
 IrController g_ir;
 
 void setFast(proto::FastFlagBit bit, bool on) {
@@ -86,6 +86,7 @@ void irInput(uint32_t now) {
   g_lite.cam.jog(o.jog_pan, o.jog_tilt);  // held: applied every 20 ms in cameraTask (60 °/s); release → 0
   if (o.stop) {
     zeroTeleop();
+    g_lite.latch.clear();  // IR OK = STOP
     g_lite.arbitrator.releaseIr();
   }
   irExtras(o, now);
@@ -130,7 +131,15 @@ DriveOut driveTargets(const LiteSettings& s) {
   const int8_t steer = steerLite(v, g_lite.teleop_w, s.reverse_steer == 0, g_lite.teleop_auto);  // car-style
   int8_t w_steer = 0, w_ctrl = 0;
   g_lite.heading.teleop(v, steer, imuUsable(), g_lite.yaw.yawCdeg(), g_lite.yaw.rateDdps(), w_steer, w_ctrl);
-  Tracks t = mixLite(v, w_steer, w_ctrl, s.turn_full);
+  if (g_lite.runaway.step(g_lite.heading.holding(), g_lite.heading.errorCdeg(), w_ctrl)) {  // spec 02 §F1.3
+    g_lite.events.push(proto::EventKind::kHeadingFault, static_cast<int16_t>(g_lite.heading.errorCdeg() / 100));
+    g_lite.latch.trip(MotionLatchLite::Reason::kHeading, -1);
+  }
+  Tracks t = liteMix(v, w_steer, w_ctrl, g_lite.teleop_auto, s.turn_full);  // §F1.4
+  const bool straight = g_lite.encoders_enabled && !g_lite.stall.faulted(0) && !g_lite.stall.faulted(1) &&
+                        w_steer == 0 && t.l != 0 && t.r != 0 && ((t.l > 0) == (t.r > 0)) && !g_lite.latch.latched();
+  t = g_lite.sync.apply(t, straight, g_lite.enc_l.count(), g_lite.enc_r.count(), g_lite.enc_l.cps(),
+                        g_lite.enc_r.cps());  // §F1.1: encoders inside, gyro outside
   const uint8_t degraded_pct = !imuUsable() ? 30 : (g_lite.range.fault() ? 50 : 100);
   const uint8_t cap_pct = g_lite.envelope.speedCap() < degraded_pct ? g_lite.envelope.speedCap() : degraded_pct;
   t = capLite(t, cap_pct, g_lite.range.distMm(), s.obstacle_stop, s.obstacle_slow, g_lite.envelope.brakeOn(), d.capped);
@@ -149,12 +158,10 @@ DriveOut driveTargets(const LiteSettings& s) {
 
 // 3. the safety gate: only the supervisor makes PwmOutput (hard rule)
 PwmOutput safetyGate(const LiteSettings& s, const DriveOut& d) {
-  const uint8_t stall_mask = g_lite.encoders_enabled ? g_lite.enc_health.stalledMask() : 0;  // §D5.2
+  const uint8_t stall_mask = g_lite.latch.stallMask();  // spec 02 §F1 / §F4: both tracks while latched
   const SafetyInputs in{g_lite.tilt.lifted(), g_lite.tilt.tilted(),
                         g_lite.batt.level() == BatteryMonitor::Level::kCritical, g_lite.envelope.brakeOn(),
                         g_lite.range.distMm(), s.obstacle_stop, stall_mask, g_lite.self_test.locked()};
-  g_lite.req_pwm_l = d.pwm_l;  // a cut track still shows its asked direction to EncoderHealth
-  g_lite.req_pwm_r = d.pwm_r;
   const bool was_blocked = g_lite.safety.blocked;
   const PwmOutput out = g_lite.supervisor.apply(d.pwm_l, d.pwm_r, in, g_lite.safety);
   if (g_lite.safety.blocked && !was_blocked) g_lite.events.push(proto::EventKind::kBlocked, static_cast<int16_t>(g_lite.range.distMm()));
@@ -172,9 +179,10 @@ void publish(uint32_t now, const PwmOutput& out, const DriveOut& d) {
   setFast(proto::FastFlagBit::kSoftStop, g_lite.soft_stop);
   setFast(proto::FastFlagBit::kLocked, g_lite.envelope.lockBrake());
   setFast(proto::FastFlagBit::kSynced, g_lite.link.synced());
-  setFast(proto::FastFlagBit::kStallL, g_lite.enc_health.stalled(0));
-  setFast(proto::FastFlagBit::kStallR, g_lite.enc_health.stalled(1));
-  setFast(proto::FastFlagBit::kEncoderFault, g_lite.enc_health.faulted(0) || g_lite.enc_health.faulted(1));
+  const bool stalled = g_lite.latch.reason() == MotionLatchLite::Reason::kStall;
+  setFast(proto::FastFlagBit::kStallL, stalled && g_lite.latch.side() == 0);
+  setFast(proto::FastFlagBit::kStallR, stalled && g_lite.latch.side() == 1);
+  setFast(proto::FastFlagBit::kEncoderFault, g_lite.stall.faulted(0) || g_lite.stall.faulted(1));
   proto::TelemFastMsg& f = g_lite.fast;
   f.pwm_l = out.left();
   f.pwm_r = out.right();
@@ -195,6 +203,7 @@ void controlTask() {
   const LiteSettings& s = g_lite.settings.values();
   ownershipStep(now);
   irInput(now);
+  g_lite.latch.clearIfReleased(g_lite.teleop_v, g_lite.teleop_w);  // owner (§F4): released stick / key frees it
   const DriveOut d = driveTargets(s);
   const PwmOutput out = safetyGate(s, d);
   port::motor::apply(out);

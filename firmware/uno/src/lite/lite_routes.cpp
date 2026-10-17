@@ -59,6 +59,7 @@ proto::AckStatus handleMotion(uint8_t type, const uint8_t* p, uint8_t len) {
       if (!dec(p, len, m)) return kBad;
       g_lite.teleop_v = 0;
       g_lite.teleop_w = 0;
+      g_lite.latch.clear();  // spec 02 §F4: STOP frees the stall / runaway latch
       g_lite.arbitrator.onNetworkStop();
       return proto::AckStatus::kOk;
     }

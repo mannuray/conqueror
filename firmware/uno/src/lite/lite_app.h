@@ -7,16 +7,19 @@
 #include "domain/comms/frame_writer.h"
 #include "domain/comms/link_session.h"
 #include "domain/estimation/battery_monitor.h"
-#include "domain/estimation/encoder_health.h"
 #include "domain/input/nec_decoder.h"
 #include "domain/lite/cam_lite.h"
 #include "domain/lite/drive_mix_lite.h"
 #include "domain/lite/encoder_lite.h"
 #include "domain/lite/gyro_zero_lite.h"
 #include "domain/lite/heading_hold_lite.h"
+#include "domain/lite/motion_latch_lite.h"
 #include "domain/lite/range_lite.h"
+#include "domain/lite/runaway_guard_lite.h"
 #include "domain/lite/settings_lite.h"
+#include "domain/lite/stall_guard_lite.h"
 #include "domain/lite/tilt_lite.h"
+#include "domain/lite/track_sync_lite.h"
 #include "domain/lite/yaw_lite.h"
 #include "domain/safety/envelope.h"
 #include "domain/safety/safety_supervisor.h"
@@ -61,9 +64,10 @@ struct LiteApp {
   BatteryMonitor batt;
   EncoderLite enc_l;
   EncoderLite enc_r;
-  EncoderHealth enc_health;  // stall / encoder fault (spec 02 §D5.2), only with encoders enabled
-  int16_t req_pwm_l = 0;     // asked of the supervisor last tick (a cut track still shows its direction)
-  int16_t req_pwm_r = 0;
+  StallGuardLite stall;      // spec 02 §F1.2 (only with encoders enabled)
+  TrackSyncLite sync;        // §F1.1 straight driving: encoders inside, gyro outside
+  RunawayGuardLite runaway;  // §F1.3
+  MotionLatchLite latch;     // owner (§F4): stall / fault / runaway stop both tracks until released
   bool imu_ok = false;
   uint8_t imu_fail_streak = 0;
   NecDecoder nec;

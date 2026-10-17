@@ -1132,3 +1132,10 @@ Firmware: Uno and bridge `6cdf7c3` / bridge `ddfc17f` (branch `small-fixes` on `
 - **Side check by a curve (v 30, w 30 → L 15 %, R 42 %):** first L 4029 > R 3063 → **encoder A wires were swapped**; after swapping A1 ↔ A2 at P7: **L 3002 < R 4081 — correct**. Rule: the motor in the shield's **left** socket has its encoder A on **A1**, right on **A2** (label both cables per side before mounting). Direction comes from the command (single channel).
 - Next (stand, motors mounted): `encoders_enabled` = 1, stall detection check, then the parked steering tuning (§52) and the MOVE / arcs plan.
 
+## 60. FIT0458 motors reversed in firmware (owner, 2026-10-17)
+After mounting the encoder motors, every command ran backwards (forward → backward, spin left → spin right): the new motors' power leads have the opposite polarity to the old motors, and the motor-end plug cannot be re-pinned. Symptom on the stand: the heading hold's corrections turned the tank the wrong way and grew to a **full-power spin (−100 / +100, 111 °/s)** within ~0.6 s — stopped by the test script's safety stop.
+- **Owner decision: fix it in software,** not by re-soldering: `board_config.h` `kDirLeftForwardHigh = kDirRightForwardHigh = false` (was `true`, §39 probe). Only the direction-pin level flips in `motor_uno.cpp`; safety, deadman, heading hold and all domain code are unchanged. Applies to Lite and full builds (same shield, same motors).
+- If the motors are ever re-wired (e.g. when crimping the XH plugs with the pins swapped), flip both back to `true`.
+- Check after any motor or wiring change: a gentle forward and a spin-left on the stand must move the right way **before** any closed-loop test.
+- **Gap found (to decide):** a reversed motor turns the Uno's heading hold into positive feedback with nothing to stop it. Proposed guard: heading error growing while the correction is saturated → stop + fault event.
+

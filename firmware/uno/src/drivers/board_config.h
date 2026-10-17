@@ -28,8 +28,10 @@ constexpr bool kHasStandby = false;
 
 // Direction pin level that drives each track forward. Measured by the shield probe on the owner's
 // tank (2026-10-13): both forward = HIGH (the ELEGOO starting guess had right = LOW; it ran backward).
-constexpr bool kDirRightForwardHigh = true;
-constexpr bool kDirLeftForwardHigh = true;
+// 2026-10-17 (design-notes §60): the FIT0458 encoder motors are wired the opposite way round (their cable cannot
+// be re-pinned), so both are reversed here - forward = LOW. Only this level flips; everything above is unchanged.
+constexpr bool kDirRightForwardHigh = false;
+constexpr bool kDirLeftForwardHigh = false;
 
 constexpr uint8_t kPinButton = 2;
 constexpr uint8_t kPinLed = 4;        // Uno PD4, Mega PG5 (the LED driver picks the port)

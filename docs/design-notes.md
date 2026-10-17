@@ -1184,3 +1184,15 @@ Uno `38ee2380` (Plan J: heading-hold integral, `track_balance`, plus the Plan I 
 - Before / after (≈ 2.5–3 m): encoders only ~30 cm → gyro P-only 4 cm → **integral + balance ~1 cm**.
 - **Held-track recheck (Plan I review fixes on the tank):** 25 %, right track held → `stall` right ~0.5 s after the hold (30 % threshold), both tracks 0 / 0 while the stick stayed on; a 0.6 s stream gap fired `deadman_stop` and the resumed stick still found 0 / 0 (review I1 fixed — before, the deadman released the latch); STOP released it.
 
+## 66. Do the encoders help straight driving? A/B test (owner, 2026-10-17)
+Same set-up as §65 (5 cm spacer start along a wall, 40 % × 14 s, ~246–249 cm, integral + `track_balance` 19 ‰); `encoders_enabled` switched to 0 in RAM for B (restored to 1 afterwards; stall detection is off while it is 0).
+| | A: encoders on (sync + balance + integral) | B: encoders off (balance + integral) |
+|---|---|---|
+| Owner gap | ~1, ~1, "almost straight" cm right (≈ 0.8 avg) | ~1, **2.5** cm right (≈ 1.8 avg) |
+| Heading range | ±0.2–0.3° (one brief +1.1°) | ±0.3–0.4° |
+| Estimated sideways (`straight_report.py`) | 0.0 / 0.2 / 0.2 cm | 0.8 / 0.8 cm |
+| Count ratio R/L | 1.7–1.8 % | 1.8–1.9 % (counted, not used) |
+- **Reading:** the gyro hold + integral + balance do the main work (30 cm → ~2 cm); the encoder sync **roughly halves the remaining drift and the heading wobble** on this floor — a hint (2–3 runs each, ±1 cm measurement noise), not proof.
+- Why encoders alone cannot hold a line: they measure sprocket turns, not ground travel (slip, track tension / effective size, skid) — equal turns still curved 30 cm (§64); the gyro measures the actual heading.
+- Weak spot of the current design: the sync enforces a **fixed** ratio (1 + balance); on another floor / battery level the right ratio changes and the sync then pushes against the gyro until the integral catches up. **Candidate improvement (owner to decide):** learn `track_balance` automatically from the count ratio the gyro needs while holding a straight line (slow, bounded), so sync and gyro agree on any floor.
+

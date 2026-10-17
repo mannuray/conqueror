@@ -28,7 +28,9 @@ class HeadingHoldLite {
               int8_t& w_ctrl);
   void reset();
   bool holding() const { return m_state == State::kHolding; }
-  int32_t errorCdeg() const { return m_err; }  // last held-heading error (0.01°), 0 when not holding (spec 02 §F1.3)
+  int32_t errorCdeg() const { return m_err; }
+  // Plan J review M2: frozen while the obstacle brake / latch holds the tank (no wound-up swerve on release).
+  void freezeIntegral(bool frozen) { m_i_frozen = frozen; }  // last held-heading error (0.01°), 0 when not holding (spec 02 §F1.3)
 
  private:
   enum class State : uint8_t { kIdle, kSteering, kSettling, kHolding };
@@ -38,6 +40,7 @@ class HeadingHoldLite {
   uint8_t m_settle = 0;
   int32_t m_err = 0;
   int32_t m_i = 0;  // integral of the error, 0.01° × ticks
+  bool m_i_frozen = false;
 };
 
 }  // namespace cq

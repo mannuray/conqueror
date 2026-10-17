@@ -23,10 +23,10 @@ Tracks TrackSyncLite::apply(Tracks t, bool active, int32_t count_l, int32_t coun
     m_base_r = count_r;
   }
   const int32_t dl = count_l - m_base_l, dr = count_r - m_base_r;
-  int32_t ahead = (dl * (1000 + balance_pm) - dr * 1000) / 1000;  // > 0: left ahead of its share
+  int32_t ahead = (dl - dr) + dl / 1000 * balance_pm;  // > 0: left ahead of its share (no overflow: review M1)
   if (ahead > kSyncMaxCounts) ahead = kSyncMaxCounts;
   if (ahead < -kSyncMaxCounts) ahead = -kSyncMaxCounts;
-  const int32_t dcps = (static_cast<int32_t>(cps_l) * (1000 + balance_pm) - static_cast<int32_t>(cps_r) * 1000) / 1000;
+  const int32_t dcps = (static_cast<int32_t>(cps_l) - cps_r) + static_cast<int32_t>(cps_l) * balance_pm / 1000;
   int32_t c = ahead / kSyncCountsPerPct + dcps / kSyncCpsPerPct;
   if (c > kSyncMaxPct) c = kSyncMaxPct;
   if (c < -kSyncMaxPct) c = -kSyncMaxPct;

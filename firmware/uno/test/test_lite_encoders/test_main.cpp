@@ -160,6 +160,17 @@ void test_sync_ratio_target() {
   TEST_ASSERT_TRUE(t.r >= t.l);
 }
 
+// Plan J review M1: the ratio maths must not overflow on a long straight stretch (~260 m at 1.95 M counts before).
+void test_sync_ratio_no_overflow_on_long_stretch() {
+  TrackSyncLite s;
+  s.apply(Tracks{40, 40}, true, 0, 0, 1000, 1000, 19);
+  const int32_t dl = 3000000;  // ~400 m without leaving straight driving
+  const int32_t dr = dl + dl * 19 / 1000;
+  const Tracks t = s.apply(Tracks{40, 40}, true, dl, dr, 1000, 1019, 19);
+  TEST_ASSERT_EQUAL_INT16(0, s.correctionPct());  // exactly on the ratio: no correction
+  TEST_ASSERT_EQUAL_INT16(40, t.l);
+}
+
 // ---------- plan J: heading-hold integral (spec 02 §F5.2) ----------
 namespace {
 // Plant: a steady bias turns the tank right; w_ctrl (%) turns it left at 2 °/s per %, reached with a 100 ms lag
@@ -220,6 +231,21 @@ void test_hold_integral_settles_without_saturation() {
     if (a > peak) peak = a;
   }
   TEST_ASSERT_TRUE(peak < 100);  // never saturates (the Plan I runaway guard needs saturation)
+}
+
+// Plan J review M2: while the obstacle brake / latch holds the tank the integral is frozen (no swerve on release).
+void test_hold_integral_frozen_while_blocked() {
+  HeadingHoldLite h;
+  h.configure(headingGainsFromMilli(3500, 1200));
+  int8_t ws = 0, wc = 0;
+  h.teleop(40, 0, true, 10000, 0, ws, wc);  // capture 100.00°
+  h.freezeIntegral(true);                   // blocked: stick held, tank still, 2° off
+  for (int i = 0; i < 2000; ++i) h.teleop(40, 0, true, 9800, 0, ws, wc);
+  const int8_t frozen = wc;                 // P only: 2° x 6.15 %/° = 12 %
+  h.freezeIntegral(false);
+  h.teleop(40, 0, true, 9800, 0, ws, wc);
+  TEST_ASSERT_EQUAL_INT8(12, frozen);
+  TEST_ASSERT_TRUE(wc <= 13);               // no 20 s of wound-up integral on release
 }
 
 // ---------- StallGuardLite ----------
@@ -380,6 +406,8 @@ int main() {
   RUN_TEST(test_hold_integral_removes_steady_error);
   RUN_TEST(test_hold_integral_resets_on_steer_and_stop);
   RUN_TEST(test_hold_integral_settles_without_saturation);
+  RUN_TEST(test_sync_ratio_no_overflow_on_long_stretch);
+  RUN_TEST(test_hold_integral_frozen_while_blocked);
   RUN_TEST(test_stall_held_track_trips_in_half_a_second);
   RUN_TEST(test_stall_slow_but_moving_is_not_stall);
   RUN_TEST(test_stall_slipping_track_at_25_pct_trips);

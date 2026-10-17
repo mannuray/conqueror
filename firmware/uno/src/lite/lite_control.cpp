@@ -134,6 +134,7 @@ DriveOut driveTargets(const LiteSettings& s) {
   const int8_t v = g_lite.teleop_v;
   const int8_t steer = steerLite(v, g_lite.teleop_w, s.reverse_steer == 0, g_lite.teleop_auto);  // car-style
   int8_t w_steer = 0, w_ctrl = 0;
+  g_lite.heading.freezeIntegral(g_lite.safety.blocked || g_lite.latch.latched());  // plan J review M2
   g_lite.heading.teleop(v, steer, imuUsable(), g_lite.yaw.yawCdeg(), g_lite.yaw.rateDdps(), w_steer, w_ctrl);
   if (g_lite.runaway.step(g_lite.heading.holding(), g_lite.heading.errorCdeg(), w_ctrl)) {  // spec 02 §F1.3
     g_lite.events.push(proto::EventKind::kHeadingFault, static_cast<int16_t>(g_lite.heading.errorCdeg() / 100));

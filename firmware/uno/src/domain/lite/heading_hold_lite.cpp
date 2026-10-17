@@ -51,7 +51,8 @@ void HeadingHoldLite::teleop(int8_t v, int8_t w, bool gyro_ok, int32_t yaw_cdeg,
   if (err >= 18000) err -= 36000;
   if (err < -18000) err += 36000;
   m_err = err;
-  m_i += err;
+  const int32_t p = static_cast<int32_t>(m_g.kp_q8) * err / 25600;
+  if (!m_i_frozen && p < 100 && p > -100) m_i += err;  // review M2: frozen when held, no wind-up while P saturates
   if (m_g.kp_q8 > 0) {
     const int32_t lim = kIMaxPct * 25600L * kIDivTicks / m_g.kp_q8;  // |Ki · m_i| <= 15 %
     if (m_i > lim) m_i = lim;
@@ -59,7 +60,7 @@ void HeadingHoldLite::teleop(int8_t v, int8_t w, bool gyro_ok, int32_t yaw_cdeg,
   } else {
     m_i = 0;
   }
-  int32_t out = static_cast<int32_t>(m_g.kp_q8) * err / 25600 +
+  int32_t out = p +
                 static_cast<int32_t>(m_g.kp_q8) * m_i / (25600L * kIDivTicks) -
                 static_cast<int32_t>(m_g.kd_q8) * rate_ddps / 2560;
   if (out > 100) out = 100;

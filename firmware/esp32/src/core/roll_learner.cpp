@@ -29,6 +29,7 @@ bool RollLearner::observe(int32_t counts, bool driven, uint16_t cpm, uint32_t no
   const bool settled = now_ms - m_change_ms >= motion::kRollSettleMs || now_ms - m_start_ms >= motion::kRollWindowMs;
   if (!settled) return false;
   m_on = false;
+  if (!m_zero_seen) return false;  // review 2 I1: the PWM never dropped to 0 - still driving, not roll-on
   const int32_t r = (m_last - m_stop) * 1000 / cpm;
   if (r < 0 || r > motion::kRollMaxMm) return false;
   mm = r;

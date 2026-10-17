@@ -539,7 +539,7 @@ Phase 2 (§F2) is split: **Plan K = F2.1 MOVE + the `counts_per_cm` half of F2.4
 
 ### G6. Learned early stop (owner, 2026-10-17)
 The crawl cannot be slower: 15 % is already lifted by the Uno's dead-band compensation to PWM ~116 (~19 cm/s), and the tracks roll on ~2.5 cm after the STOP. So the bridge **learns the roll-on and stops early by it**:
-- **Measure** (bridge, after every move that ends `done`): watch the mean encoder count after the STOP until it has not changed for 100 ms (at most 600 ms); roll-on = that change, in **mm** (÷ counts_per_m, so it survives a recalibration). Discarded if the tracks are driven again in the window (any non-zero PWM in TELEM_FAST) or the reading is outside 0–80 mm.
+- **Measure** (bridge, after every move that ends `done`): watch the mean encoder count after the STOP until it has not changed for 100 ms (at most 600 ms); roll-on = that change, in **mm** (÷ counts_per_m, so it survives a recalibration). Discarded if the tracks are driven again in the window (a non-zero PWM in TELEM_FAST **after it had dropped to 0** — frames sent before the STOP took effect still show the old PWM, floor 2026-10-17), if the PWM never dropped to 0 in the window, if a new drive / primitive starts (it cancels the watch), or if the reading is outside 0–80 mm.
 - **Average:** `roll = (3 × old + reading) / 4` (rounded); start **25 mm**; saved in NVS (`cq_motion` / `roll`) only when it changes by ≥ 1 mm.
 - **Use:** a move stops when the counted distance reaches **target − roll**, but never before **half the target** (short moves).
 - `calib` reply gains `"roll_mm"`; `moved_cm` stays the distance counted at the stop.

@@ -84,3 +84,15 @@ def test_save_retakes_control_first() -> (
     assert i_drive < i_calib
     drive = ws.sent[i_drive]
     assert drive["v"] == 0 and drive["w"] == 0
+
+
+def test_ask_passes_eof_on() -> (
+    None
+):  # review 2 I2: a closed stdin must end the tool, not drive again
+    s = Session(ws=FakeWs())
+
+    def closed(_prompt: str) -> str:
+        raise EOFError
+
+    with pytest.raises(EOFError):
+        s.ask("press Enter", closed)

@@ -80,10 +80,20 @@ class Session:
     def ask(self, prompt: str, reader: Callable[[str], str] = input) -> str:
         """input() with pings meanwhile: the bridge drops a client that is silent for 3 s."""
         answer: list[str] = []
-        t = threading.Thread(target=lambda: answer.append(reader(prompt)), daemon=True)
+        error: list[BaseException] = []
+
+        def read() -> None:
+            try:
+                answer.append(reader(prompt))
+            except BaseException as e:  # EOF / closed stdin must end the tool, never drive again
+                error.append(e)
+
+        t = threading.Thread(target=read, daemon=True)
         t.start()
         while t.is_alive():
             self.pump_until(lambda _m: False, 0.3)
+        if error:
+            raise error[0]
         return answer[0] if answer else ""
 
     def fresh_td(self) -> Message:
@@ -169,7 +179,7 @@ def calibrate(s: Session, speed: int) -> int:
                 print(f"saved counts_per_m {mean} (was {cpm})")
                 return 0
             return 1
-        if choice == "q":
+        if choice != "a":  # only an explicit "a" drives again
             return 0
 
 

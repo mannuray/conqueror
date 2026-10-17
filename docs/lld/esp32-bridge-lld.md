@@ -1122,7 +1122,7 @@ Bridge only: the motion service gains a third primitive, `move`, run as `DRIVE {
 
 ### R7.1 WebSocket API
 - `{"t":"move","dist_cm":n,"speed"?:p,"id"?}` — `dist_cm` integer, 1 ≤ |n| ≤ 500; `speed` integer 10…100, default 40; any `heading` key → `INVALID_COMMAND` ("heading not supported"). Parsed into `WsCmdKind::kMove`, `WsCommand.move_cm` (int16), `WsCommand.speed`. Motion command: dropped behind a STOP like `turn` (`isMotion`).
-- `{"t":"calib","counts_per_m"?:n,"id"?}` → `WsCmdKind::kCalib`, `has_cpm`, `cpm` (uint16). Without the field: reply `{"t":"calib","counts_per_m":n}` to that client (any role). With it: 3000…15000 else `INVALID_COMMAND`; sender must be the driver (`LinkOwner::driverFd()`) else `NOT_OWNER`; a running primitive → `BUSY`; saved → ack + the same `calib` reply.
+- `{"t":"calib","counts_per_m"?:n,"id"?}` → `WsCmdKind::kCalib`, `has_cpm`, `cpm` (uint16). Without the field: reply `{"t":"calib","counts_per_m":n,"roll_mm":m,"roll_last":…,"roll_watched":…,"roll_read":…}` (R7.9) to that client (any role). With it: 3000…15000 else `INVALID_COMMAND`; sender must be the driver (`LinkOwner::driverFd()`) else `NOT_OWNER`; a running primitive → `BUSY`; saved → ack + the same `calib` reply.
 - `primitive_done` gains `"prim":"move"`, reasons `"blocked"`, `"encoder_fault"`, and for moves `"moved_cm":x.x` (one decimal, counted at the end). `tf.primitive.kind = "move"` with its pct.
 - `welcome.tank.caps.move` = body has `kMove` (forwarded, later) **or** (body has `kEncoders` and not `kMove`) — the motion service runs it.
 
@@ -1269,6 +1269,7 @@ classDiagram
     +watching() bool
     +cancel()
     -bool m_on
+    -bool m_zero_seen  %% the PWM dropped to 0 since the STOP
     -int32_t m_stop, m_last
     -uint32_t m_start_ms, m_change_ms
   }
@@ -1283,6 +1284,8 @@ classDiagram
   RollLearner ..> MotionStore : average saved when changed >= 1 mm
 ```
 - `rollAverage(old_mm, reading_mm)` = (3 × old + reading + 2) / 4; constants `kRollDefaultMm 25`, `kRollMaxMm 80`, `kRollSettleMs 100`, `kRollWindowMs 600` (`motion_config.h`).
+- `RollLearner::observe`: a non-zero PWM counts as "driven again" (discard) only **after** a 0-PWM frame was seen (`m_zero_seen`: frames in flight before the STOP took effect still carry the old PWM — floor 2026-10-17); at settle there is **no reading unless `m_zero_seen`** (still driving, e.g. a turn right after the move — review 2 I1).
+- Any accepted non-zero `drive`, `turn`, `drive_rate` or `move` calls `g_roll.cancel()`.
 - `MoveController::step`: `done` when travelled ≥ `m_stop_at`; progress still against the full target.
-- Link task: when `runMotion` broadcasts a move `done`, `g_roll.begin(mean(enc_l, enc_r))`; on each TELEM_FAST while watching, `observe(mean, pwm_l ≠ 0 ∨ pwm_r ≠ 0, g_cpm, now, mm)` → `g_roll_mm = rollAverage(g_roll_mm, mm)`, `MotionStore::saveRoll` when it changed by ≥ 1 mm; `startMove(…, g_roll_mm)`; a new primitive cancels the learner. `jsonCalib(out, cap, cpm, roll_mm)` → `{"t":"calib","counts_per_m":n,"roll_mm":m}`.
+- Link task: when `runMotion` broadcasts a move `done`, `g_roll.begin(mean(enc_l, enc_r))`; on each TELEM_FAST while watching, `observe(mean, pwm_l ≠ 0 ∨ pwm_r ≠ 0, g_cpm, now, mm)` → `g_roll_mm = rollAverage(g_roll_mm, mm)`, `MotionStore::saveRoll` when it changed by ≥ 1 mm; `startMove(…, g_roll_mm)`; a new primitive cancels the learner. `jsonCalib(out, cap, cpm, roll_mm)` → `{"t":"calib","counts_per_m":n,"roll_mm":m}`; the link task appends learner diagnostics: `,"roll_last":mm|-1,"roll_watched":n,"roll_read":n}` (last reading, moves watched / readings taken since boot — the floor check that found the in-flight frames).
 - Tests (`test_move`): learner — settles after 100 ms without change, gives up at 600 ms, discards when driven, discards > 80 mm, average maths; MoveController — stops `roll` early, never before half the target; `test_ws_json` calib with roll_mm.

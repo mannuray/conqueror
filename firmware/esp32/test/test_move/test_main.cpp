@@ -355,6 +355,19 @@ void test_move_stopped_by_obstacle_is_blocked() {
   }
 }
 
+
+void test_roll_learner_never_reads_without_a_stop_seen() {  // review 2 I1: a turn right after the move
+  RollLearner rl;
+  rl.begin(0, 0);
+  int32_t mm = 0;
+  bool ready = false;
+  for (uint32_t t = 20; t <= motion::kRollWindowMs + 100 && rl.watching(); t += 20) {
+    ready = rl.observe(static_cast<int32_t>(t / 4), true, kCpm, t, mm) || ready;  // PWM never 0: still driving
+  }
+  TEST_ASSERT_FALSE(ready);
+  TEST_ASSERT_FALSE(rl.watching());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_move_done_at_target);
@@ -376,5 +389,6 @@ int main() {
   RUN_TEST(test_roll_average);
   RUN_TEST(test_roll_learner_ignores_frames_still_in_flight);
   RUN_TEST(test_move_stopped_by_obstacle_is_blocked);
+  RUN_TEST(test_roll_learner_never_reads_without_a_stop_seen);
   return UNITY_END();
 }

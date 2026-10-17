@@ -227,6 +227,7 @@ void handleTurn(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
     return;
   }
   endMotion(core::MotionEvent::kOwnerCommand, now);  // a new turn replaces the old primitive
+  g_roll.cancel();  // §G6: a new primitive - the last move's roll-on is no longer measurable
   const int32_t delta = core::turnDelta(snap.fast.yaw, c.turn_has_to, c.turn_by_cdeg, c.turn_to_cdeg);
   g_motion.service().startTurn(fd, snap.fast.yaw, delta, c.speed, id, now);
   if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
@@ -257,6 +258,7 @@ void handleDriveRate(int fd, const core::WsCommand& c, uint32_t now) {
   if (svc.active() && (svc.kind() != core::PrimKind::kRate || svc.ownerFd() != fd)) {
     endMotion(core::MotionEvent::kOwnerCommand, now);
   }
+  g_roll.cancel();  // §G6: a new primitive - the last move's roll-on is no longer measurable
   g_motion.service().driveRate(fd, c.v, c.rate_ddps, now);
   g_ws.streamAccepted(fd);
 }
@@ -374,6 +376,7 @@ void handleDrive(int fd, const core::WsCommand& c, uint32_t now) {
   const core::Decision d = g_owner.onDrive(fd, now, a);
   apply(a, now);
   if (d == core::Decision::kSend && motionOwnedBy(fd)) endMotion(core::MotionEvent::kOwnerCommand, now);
+  if (d == core::Decision::kSend && (c.v != 0 || c.w != 0)) g_roll.cancel();  // §G6: driving again, no roll-on
   if (d != core::Decision::kSend) {
     streamReject(fd, reasonOf(d));
   } else if (g_link.sendDrive(c.v, c.w)) {  // 1:1 - the bridge never repeats a DRIVE

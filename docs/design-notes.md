@@ -1188,11 +1188,11 @@ Uno `38ee2380` (Plan J: heading-hold integral, `track_balance`, plus the Plan I 
 Same set-up as §65 (5 cm spacer start along a wall, 40 % × 14 s, ~246–249 cm, integral + `track_balance` 19 ‰); `encoders_enabled` switched to 0 in RAM for B (restored to 1 afterwards; stall detection is off while it is 0).
 | | A: encoders on (sync + balance + integral) | B: encoders off (balance + integral) |
 |---|---|---|
-| Owner gap | ~1, ~1, "almost straight" cm right (≈ 0.8 avg) | ~1, **2.5** cm right (≈ 1.8 avg) |
-| Heading range | ±0.2–0.3° (one brief +1.1°) | ±0.3–0.4° |
-| Estimated sideways (`straight_report.py`) | 0.0 / 0.2 / 0.2 cm | 0.8 / 0.8 cm |
+| Owner gap | ~1, ~1, "almost straight" cm right (≈ 0.8 avg) | ~1 R, 2.5 R, **0.5 L** cm (≈ 1.3 avg size) |
+| Heading range | ±0.2–0.3° around 0 (one brief +1.1°) | steady right lean −0.2…−0.4° (run 3: −0.83° at the stop) |
+| Estimated sideways (`straight_report.py`) | 0.0 / 0.2 / 0.2 cm | 0.8 / 0.8 / 0.9 cm |
 | Count ratio R/L | 1.7–1.8 % | 1.8–1.9 % (counted, not used) |
-- **Reading:** the gyro hold + integral + balance do the main work (30 cm → ~2 cm); the encoder sync **roughly halves the remaining drift and the heading wobble** on this floor — a hint (2–3 runs each, ±1 cm measurement noise), not proof.
+- **Reading (3 runs each):** both ≈ 1 cm over 2.5 m — the gyro hold + integral + balance do the work (30 cm → ~1 cm); the difference (0.8 vs 1.3 cm) is within the ±1 cm measurement noise. The heading logs show the sync's effect more clearly: with it the heading centres on 0, without it a small steady right lean the integral works off. On a known floor the encoder sync is a modest extra; its value is stall detection, distance / speed (phase 2) and learning the balance on new floors.
 - Why encoders alone cannot hold a line: they measure sprocket turns, not ground travel (slip, track tension / effective size, skid) — equal turns still curved 30 cm (§64); the gyro measures the actual heading.
 - Weak spot of the current design: the sync enforces a **fixed** ratio (1 + balance); on another floor / battery level the right ratio changes and the sync then pushes against the gyro until the integral catches up. **Candidate improvement (owner to decide):** learn `track_balance` automatically from the count ratio the gyro needs while holding a straight line (slow, bounded), so sync and gyro agree on any floor.
 

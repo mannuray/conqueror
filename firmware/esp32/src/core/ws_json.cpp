@@ -345,6 +345,14 @@ size_t jsonNack(char* out, size_t cap, int32_t id, BridgeReason reason) {
   return nack(out, cap, id, kBridgeReasons[static_cast<size_t>(reason)]);
 }
 
+size_t jsonNackMessage(char* out, size_t cap, int32_t id, BridgeReason reason, const char* message) {
+  char esc[128];
+  if (jsonEscape(esc, sizeof(esc), message) == 0 && message[0] != '\0') return 0;
+  ReasonInfo r = kBridgeReasons[static_cast<size_t>(reason)];
+  r.message = esc;
+  return nack(out, cap, id, r);
+}
+
 size_t jsonEscape(char* out, size_t cap, const char* s) {
   if (cap == 0) return 0;
   size_t n = 0;

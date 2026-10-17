@@ -287,6 +287,17 @@ void test_calib_read_and_set() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"calib\",\"counts_per_m\":\"x\"}").kind));
 }
 
+// Plan L (bridge LLD R8.1): pivot.
+void test_turn_pivot_field() {
+  WsCommand c = P("{\"t\":\"turn\",\"by\":90,\"pivot\":true}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kTurn), K(c.kind));
+  TEST_ASSERT_TRUE(c.pivot);
+  TEST_ASSERT_FALSE(P("{\"t\":\"turn\",\"by\":90}").pivot);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"turn\",\"by\":90,\"pivot\":true,\"radius_cm\":60}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"turn\",\"by\":90,\"pivot\":1}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kTurn), K(P("{\"t\":\"turn\",\"by\":90,\"pivot\":false,\"radius_cm\":60}").kind));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_drive);
@@ -315,5 +326,6 @@ int main() {
   RUN_TEST(test_move_fields_and_ranges);
   RUN_TEST(test_speed_limits_per_command);
   RUN_TEST(test_calib_read_and_set);
+  RUN_TEST(test_turn_pivot_field);
   return UNITY_END();
 }

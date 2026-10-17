@@ -212,6 +212,7 @@ struct Seen {
   char name[24] = "";
   MotionFields mf;
   bool dist = false, heading = false;  // move (Plan K)
+  bool pivot = false;                  // turn (Plan L)
 };
 
 bool readBool(Reader& r, bool& out, bool& seen) {
@@ -248,6 +249,7 @@ bool readField(const char* key, Reader& r, WsCommand& c, Seen& s) {
   }
   if (strcmp(key, "active") == 0) return readBool(r, c.active, s.active);
   if (strcmp(key, "on") == 0) return readBool(r, c.on, s.on);
+  if (strcmp(key, "pivot") == 0) return readBool(r, c.pivot, s.pivot);
   if (readMotionField(key, r, c, s.mf)) return !s.mf.bad;
   if (strcmp(key, "mode") == 0) return r.str(s.mode, sizeof(s.mode));
   if (strcmp(key, "name") == 0) return r.str(s.name, sizeof(s.name));
@@ -291,7 +293,8 @@ bool complete(WsCommand& c, const Seen& s) {
       return c.sound_id != 0;
     case WsCmdKind::kAudioMode: return audioModeOf(s.mode, c.audio_mode);
     case WsCmdKind::kCamLock: return s.on;
-    case WsCmdKind::kTurn: return s.mf.by != s.mf.to && c.speed >= motion::kTurnWMin;  // exactly one of by / to
+    case WsCmdKind::kTurn:  // exactly one of by / to; a pivot has no radius (Plan L)
+      return s.mf.by != s.mf.to && c.speed >= motion::kTurnWMin && !(c.pivot && c.radius_cm > 0);
     case WsCmdKind::kMove: return s.dist && !s.heading && c.speed >= motion::kMoveSpeedMin;
     case WsCmdKind::kCalib: return true;
     case WsCmdKind::kDriveRate: return s.v && s.mf.rate;  // review M20: like the other commands' fields

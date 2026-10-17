@@ -47,6 +47,7 @@ struct WsCommand {
   uint16_t turn_to_cdeg = 0;  // turn to: 0..35999 (0.01°)
   uint8_t speed = 40;         // turn: 12..100 %, move: 10..100 % (checked per command)
   uint16_t radius_cm = 0;     // turn: 0 = spin in place (> 0 needs encoders)
+  bool pivot = false;         // turn: pivot around the inside track (Plan L)
   int16_t rate_ddps = 0;      // drive_rate: -1800..1800 (0.1 °/s, + = CCW / left)
   uint8_t debug_hz = 10;      // debug: 10 or 50
   int16_t move_cm = 0;        // move: ±1..500 (+ forward)

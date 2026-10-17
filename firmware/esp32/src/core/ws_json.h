@@ -60,6 +60,8 @@ size_t jsonAck(char* out, size_t cap, int32_t id);
 // id < 0: no "id" (streaming command rejected). status: Uno ack_status index or kStatusTimeout.
 size_t jsonNackStatus(char* out, size_t cap, int32_t id, uint8_t status);
 size_t jsonNack(char* out, size_t cap, int32_t id, BridgeReason reason);
+// Plan L: nack with its own message (JSON-escaped), e.g. the arc band refusal.
+size_t jsonNackMessage(char* out, size_t cap, int32_t id, BridgeReason reason, const char* message);
 // Escapes s for a JSON string body (" \\ and control characters); never splits an escape at the
 // end of out. Returns the length written (out is always NUL-terminated when cap > 0). Review M10.
 size_t jsonEscape(char* out, size_t cap, const char* s);

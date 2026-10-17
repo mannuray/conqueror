@@ -401,6 +401,16 @@ void test_tf_primitive_limited() {
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"primitive\":{\"kind\":\"turn\",\"pct\":42}"));
 }
 
+void test_nack_with_message() {
+  jsonNackMessage(buf, sizeof(buf), 3, BridgeReason::kInvalidCommand, "radius 40 cm: use speed 43-64 %, or pivot");
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"nack\",\"id\":3,\"code\":\"COMMAND_3006\",\"reason\":\"INVALID_COMMAND\","
+      "\"message\":\"radius 40 cm: use speed 43-64 %, or pivot\"}",
+      buf);
+  jsonNackMessage(buf, sizeof(buf), -1, BridgeReason::kInvalidCommand, "say \"hi\"");
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"message\":\"say \\\"hi\\\"\""));  // escaped
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ack_reason_table_matches_generated_codes);
@@ -425,5 +435,6 @@ int main() {
   RUN_TEST(test_primitive_done_move_with_moved_cm);
   RUN_TEST(test_tf_move_progress_and_calib_reply);
   RUN_TEST(test_tf_primitive_limited);
+  RUN_TEST(test_nack_with_message);
   return UNITY_END();
 }

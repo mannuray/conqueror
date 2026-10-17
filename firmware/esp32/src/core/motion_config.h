@@ -55,6 +55,19 @@ constexpr int32_t kRollMaxMm = 80;          // readings above are discarded
 constexpr uint32_t kRollSettleMs = 100;     // counts unchanged this long -> settled
 constexpr uint32_t kRollWindowMs = 600;     // ... or at most this long after the STOP
 
+// Arcs and pivots (Plan L, spec 02 §H1): floor-measured model 2026-10-17, re-measurable.
+constexpr double kTrackWidthCm = 19.0;          // B, centre to centre (pivot radius 9.5 cm)
+constexpr double kTrackSpeedOffsetCmS = 15.5;   // track speed v(p) = 15.5 + 0.18 p cm/s
+constexpr double kTrackSpeedSlopeCmS = 0.18;
+constexpr double kTrackVMinCmS = 17.7;          // a track runs at 0 or >= this (the Uno's dead-band lift)
+constexpr double kTrackVMaxCmS = 33.5;          // full power
+constexpr int16_t kSpinMinDdps = 650;           // slowest smooth spin: 65 °/s
+constexpr uint32_t kArcSpeedWindowMs = 100;     // measured speed over the newest frames >= 100 ms apart
+constexpr uint32_t kArcStallMs = 1500;          // < 1 cm of counts and < 2° of heading for 1.5 s -> stalled
+constexpr int32_t kArcStallCdeg = 200;
+constexpr int32_t kArcTimeoutCmPerS = 5;        // timeout = arc length / 5 cm/s + 3 s
+constexpr uint32_t kArcTimeoutBaseMs = 3000;
+
 // Service
 constexpr uint32_t kTelemGapMs = 200;      // no TELEM_FAST for 200 ms while active -> end (link)
 

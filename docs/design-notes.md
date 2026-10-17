@@ -1209,3 +1209,23 @@ Same set-up as §65 (5 cm spacer start along a wall, 40 % × 14 s, ~246–249 cm
 - **Phase 2 split:** Plan K = MOVE + counts-per-cm calibration; Plan L = arcs, minimum drive_rate, `max_cps` calibration.
 - Owner choices: moves from a **laptop script** only in Plan K (no phone control yet); stop by **slowing to a crawl over the last 10 cm** (early stop by learned roll-on only if needed); calibration by **measuring a real `move 100`** on a tape, averaged over 2–3 runs, saved on the bridge.
 - Design agreed section by section → spec 02 **Part G** (written for owner review).
+
+## 69. Plan K floor results — MOVE by distance to ±1 cm (2026-10-17)
+Bridge only (Uno unchanged). Back edge of the tank on a floor mark, tape read at the back edge.
+- **Stand / first checks:** `move 50` ends `done`; STOP mid-move ends `stop`; `counts_per_m` survives a restart (NVS).
+- **Review C1 (before the floor runs):** the Uno counts rising edges only, so the counts rise in reverse too — reverse moves would never have ended `done`; fixed in the bridge (raw deltas) and the tool. Reverse then: `move -50` → `done`.
+- **Calibration:** three tape readings of "113 cm" were a misread **103** (owner); with that, every run fits **75.1 counts/cm → `counts_per_m` 7514** (two clean runs 7528 / 7501). The old 75.6 (§63) was close.
+- **Roll-on:** the count stop was accurate (100.0–100.3 cm counted) but the tracks rolled on **2.4–2.8 cm** after the STOP: the 15 % crawl is lifted by the Uno's dead-band compensation to PWM ~116 (~19 cm/s), it cannot go slower → **spec §G6 learned early stop** (owner): stop by the learned roll-on (start 25 mm). Floor fix on the way: the learner first discarded every reading (TELEM_FAST frames sent before the STOP took effect still show the old PWM) → "driven again" only after the PWM dropped to 0. Learned: 32 mm reading at 70 % → average 27 mm.
+- **Accuracy with the early stop (owner tape):**
+
+| Run | Asked | Tape | Sideways |
+|---|---|---|---|
+| 3 × 40 % | 100 cm | 101, 101, 101 | none |
+| 40 % | 200 cm | 201 | 2 cm left |
+| 2 × reverse 40 % | −50 cm | 50, 49.5 | none |
+| 3 × 70 % | 100 cm | 100, 101, 101 (1 unmeasured) | none |
+
+  **Pass:** ±1 cm at 40 % and at 70 %; heading within ±0.6° at every end.
+- **Held track:** dead-stopped → `encoder_fault` (on the floor too: the held tank barely rotated, −3.7°; sticky until restart, the phone shows "encoder off"); slowed hard → **`stalled`** at 51.5 cm. Pass.
+- **Box ahead:** the Uno's obstacle slow-down glided the tank to a stop ~15 cm short **without its blocked flag**, so the move first ended `stalled` → bridge rule: no progress on a forward move with the ultrasonic < 25 cm = **`blocked`** (spec G3). Then: `blocked` at 43.6 cm. Pass.
+- **Open:** the 200 cm run drifted 2 cm left (stick driving ~1 cm / 2.5 m) — AUTO frames skip the Uno's `track_balance` feed-forward (review I2; owner: test as is first). Watch it; the fix is one Uno line (apply the balance to straight AUTO frames). Review minors deferred (ledger).

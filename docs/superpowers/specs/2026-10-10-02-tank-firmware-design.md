@@ -544,3 +544,4 @@ The crawl cannot be slower: 15 % is already lifted by the Uno's dead-band compen
 - **Use:** a move stops when the counted distance reaches **target − roll**, but never before **half the target** (short moves).
 - `calib` reply gains `"roll_mm"`; `moved_cm` stays the distance counted at the stop.
 - Acceptance unchanged: **±1 cm at 40 %** on the tape (after one or two moves have refined the roll-on).
+- *Met as run (design-notes §69): 3 × 100 cm @ 40 % → 101 / 101 / 101 cm, 200 cm → 201 cm (2 cm left), 2 × −50 cm → 50 / 49.5, 70 % → 100 / 101 / 101 cm; held track → `stalled`, box → `blocked`. `counts_per_m` 7514, roll-on learned 25 → 27 mm.*

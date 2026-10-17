@@ -253,7 +253,7 @@ namespace {
 StallGuardLite::Inputs drive(int16_t pl, int16_t pr, uint16_t cl, uint16_t cr, int16_t yaw = 0) {
   return StallGuardLite::Inputs{pl, pr, 90, 90, cl, cr, yaw, true};
 }
-// expected cps at pwm 130, keep 90: 4000 * 40 / 165 = 969; 15 % = 145
+// expected cps at pwm 130, keep 90: 2500 * 40 / 165 = 606; 30 % = 181
 StallGuardLite::Result run(StallGuardLite& g, const StallGuardLite::Inputs& in, uint32_t ms, int8_t& side) {
   StallGuardLite::Result r = StallGuardLite::Result::kNone;
   for (uint32_t t = 0; t <= ms && r == StallGuardLite::Result::kNone; t += 20) r = g.update(in, t, side);
@@ -265,10 +265,10 @@ int R(StallGuardLite::Result r) { return static_cast<int>(r); }
 void test_stall_held_track_trips_in_half_a_second() {
   StallGuardLite g;
   int8_t side = -1;
-  // right held: creeping at 40 counts/s (< 145), tank turning toward it (yaw -25 °/s)
-  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(g.update(drive(130, 130, 969, 40, -25), 0, side)));
-  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(g.update(drive(130, 130, 969, 40, -25), 480, side)));
-  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kStall), R(g.update(drive(130, 130, 969, 40, -25), 500, side)));
+  // right held: creeping at 40 counts/s (< 181), tank turning toward it (yaw -25 °/s)
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(g.update(drive(130, 130, 606, 40, -25), 0, side)));
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(g.update(drive(130, 130, 606, 40, -25), 480, side)));
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kStall), R(g.update(drive(130, 130, 606, 40, -25), 500, side)));
   TEST_ASSERT_EQUAL_INT8(1, side);
 }
 
@@ -276,14 +276,22 @@ void test_stall_held_track_trips_in_half_a_second() {
 void test_stall_slow_but_moving_is_not_stall() {
   StallGuardLite g;
   int8_t side = -1;
-  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(run(g, drive(130, 130, 969, 340, -5), 2000, side)));  // 35 %
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(run(g, drive(130, 130, 606, 212, -5), 2000, side)));  // 35 %
 }
 
 void test_stall_slipping_track_at_25_pct_trips() {
   StallGuardLite g;
   int8_t side = -1;
-  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kStall), R(run(g, drive(130, 130, 969, 242, -20), 600, side)));
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kStall), R(run(g, drive(130, 130, 606, 151, -20), 600, side)));  // 25 %
   TEST_ASSERT_EQUAL_INT8(1, side);
+}
+
+// Floor / stand 2026-10-17 (design-notes §70): full power measured ~2500 counts/s per track, not 4000 - a loaded but
+// healthy track at 900 counts/s (36 % of the real top speed) must not count as stuck.
+void test_stall_uses_measured_top_speed() {
+  StallGuardLite g;
+  int8_t side = -1;
+  TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kNone), R(run(g, drive(255, 255, 2500, 900, -5), 2000, side)));
 }
 
 void test_stall_dead_encoder_while_straight_is_fault() {
@@ -411,6 +419,7 @@ int main() {
   RUN_TEST(test_stall_held_track_trips_in_half_a_second);
   RUN_TEST(test_stall_slow_but_moving_is_not_stall);
   RUN_TEST(test_stall_slipping_track_at_25_pct_trips);
+  RUN_TEST(test_stall_uses_measured_top_speed);
   RUN_TEST(test_stall_dead_encoder_while_straight_is_fault);
   RUN_TEST(test_stall_below_keep_is_not_driven);
   RUN_TEST(test_stall_disabled_does_nothing);

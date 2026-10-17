@@ -22,7 +22,7 @@ class StallGuardLite {
     bool enabled;  // encoders_enabled
   };
   enum class Result : uint8_t { kNone, kStall, kFault };
-  static constexpr uint16_t kMaxCps = 4000;  // counts/s at PWM 255 (phase 1 constant, design-notes §59)
+  static constexpr uint16_t kMaxCps = 2500;  // counts/s at PWM 255, measured on the stand 2026-10-17 (§70; was 4000)
   static constexpr uint8_t kMargin = 15;
   static constexpr uint8_t kSlowPct = 30;  // owner 2026-10-17 (was 15: a held, slipping track took 3-4 s)
   static constexpr uint16_t kDetectMs = 500;

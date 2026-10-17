@@ -13,7 +13,7 @@ namespace lite {
 namespace {
 constexpr uint16_t kDeadmanMs = 300;      // full default (setting 15)
 constexpr uint16_t kIrHandbackMs = 3000;  // full default (setting 19)
-constexpr uint16_t kMaxCps = StallGuardLite::kMaxCps;  // 4000 counts/s at PWM 255 (design-notes §59)
+constexpr uint16_t kMaxCps = StallGuardLite::kMaxCps;  // 2500 counts/s at PWM 255 (design-notes §70)
 IrController g_ir;
 bool g_ir_driving = false;  // an IR drive key is held (its release frees the stall / runaway latch)
 

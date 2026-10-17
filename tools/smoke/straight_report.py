@@ -47,7 +47,8 @@ def report(path: Path) -> int:
     if dl > 0:
         print(
             f"suggested track_balance ≈ {round((dr / dl - 1) * 1000)} ‰ (this run's count ratio - "
-            "meaningful from a normal run with the gyro hold on; with the hold off the counts are forced equal)"
+            "only meaningful from a normal run with the gyro hold on; "
+            "with the hold off the counts are forced equal)"
         )
     return 0
 

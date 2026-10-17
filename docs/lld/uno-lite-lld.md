@@ -411,3 +411,36 @@ Review of Plan I (`.superpowers/sdd/2026-10-17-plan-i-encoder-phase1/final-revie
 - Minors deferred (owner list): stale stall-guard timing after re-enabling encoders; runaway "grew" without margin; the disabled-encoders test does not exercise the app gate; 30 % not re-run on the floor; sync and hold in parallel; a misclassified encoder fault disables that side's stall check until reboot; the latch is invisible after its one-shot event and the phone page ignores stall / fault events; doc drift.
 - Uno Lite after the fixes: flash 30 288 B, RAM 1 524 B; host tests 282.
 
+## 20. Straight-driving tuning (spec 02 §F5, DRAFT 2026-10-17)
+
+### 20.1 Classes
+```mermaid
+classDiagram
+  class TrackSyncLite {
+    +apply(Tracks t, bool active, int32 count_l, int32 count_r, uint16 cps_l, uint16 cps_r, int16 balance_pm) Tracks
+  }
+  class HeadingHoldLite {
+    +teleop(...)
+    -int32 m_i  %% integral, 0.01° × ticks, clamped
+  }
+  class SettingsLite {
+    +track_balance int16 (‰)
+  }
+  class balanceTracks {
+    <<function>>
+    +balanceTracks(Tracks t, int16 balance_pm) Tracks
+  }
+  SettingsLite --> balanceTracks : balance
+  SettingsLite --> TrackSyncLite : balance
+```
+- **`balanceTracks(t, b)`** (`drive_mix_lite`): while both targets have the same sign, scales the magnitudes `|l| × (1000 − b/2) / 1000`, `|r| × (1000 + b/2) / 1000` (clamped to 100) — feed-forward, also with encoders off. Not applied while the driver steers or for `src AUTO` turns (straight only).
+- **`TrackSyncLite::apply(…, balance_pm)`**: the distance term compares `Δcount_L × (1000 + b)` with `Δcount_R × 1000` (the right track is expected to turn `b` ‰ more); the speed term compares `cps_L × (1000 + b)` with `cps_R × 1000`. `b = 0` is today's behaviour (existing tests unchanged).
+- **`HeadingHoldLite`** gains `m_i`: while holding, `m_i += err` each 10 ms tick, clamped so `Ki × m_i` ≤ ±15 %; `out = Kp × err + Ki × m_i − Kd × rate`, `Ki` = Kp / 4 per second (`kIDivTicks` = 400 control ticks, floor-tuned), integral contribution clamped to ±15 %; reset on steering, stop and capture.
+- **`SettingsLite`**: new field `track_balance` (int16, ‰) appended to `LiteSettings`; the EEPROM loader accepts the previous block size (fields up to `encoders_enabled`) and keeps the default for the new field — a saved Lite block survives the update. Setting id **66** `track_balance` (global, i16, ‰, −100…100, default 0) in `protocol/defs/settings.yaml`; the full firmware gets the slot too (`GlobalSettings`, layout version 2 — its EEPROM resets once; no full board in use).
+
+### 20.2 Tick (unchanged order, two additions)
+heading hold (now P + I + D) → `liteMix` → **`balanceTracks`** (straight only) → track sync (**ratio target**) → caps → ramp → deadband → supervisor.
+
+### 20.3 Tests and budget
+Host: `balanceTracks` (+19 ‰ at 40/40 → 40/41 rounding, reverse, steering untouched, clamp); sync ratio (counts in ratio 1.019 → no correction; equal counts → corrects toward R); heading hold integral (a constant disturbance that P alone leaves at a steady error is driven to ~0 in a simulated loop; integral resets on steer / stop; clamp); settings migration (a block of the previous size `offsetof(LiteSettings, track_balance)` loads with `track_balance` = 0; the new block round-trips). Budget: ~+300 B flash, +4 B RAM.
+

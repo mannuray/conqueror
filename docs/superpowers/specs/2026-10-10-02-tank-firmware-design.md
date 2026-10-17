@@ -488,3 +488,13 @@ Pose integration and `go-to` / return-home (§B4), then **gyro tuning** with the
 2. F1.2 — on a stall **stop both tracks** until the driver commands again (no 1 s cut-and-retry).
 3. F1.3 — runaway guard thresholds **30° / 0.5 s**, no motion until STOP or a new command: OK.
 4. Order — **phase 1 (Uno) first as one plan**, then phase 2 (ESP32) as a second plan.
+
+### F5. Straight-driving tuning (DRAFT for owner review, 2026-10-17; design-notes §63–§64)
+Measured: with equal track turns (encoders only) the tank curves right ~1 °/s (−13.4° and ~30 cm over 3.3 m); with the gyro hold it ends 4 cm right over 3.1 m with the heading parked at −0.5…−1.0° the whole run, and the right track turning 1.9 % more. Cause: the heading hold is **proportional only** — fighting a steady bias needs a steady correction, so it keeps a steady error (~0.6°). The gyro zero is not the cause (the Lite re-learns it at every ~5 s standstill).
+| # | Feature | Behaviour (proposed) |
+|---|---|---|
+| F5.1 | **Track balance** | Setting `track_balance` (‰, −100…+100, default 0): while driving straight the right track is asked for `balance` ‰ more than the left (feed-forward on the track targets) and the encoder sync keeps the **count ratio** R/L = 1 + balance instead of equal counts. Works with encoders off too (feed-forward only). Measured from a normal run: balance ≈ (counts_R / counts_L − 1) × 1000 (here ≈ +19 ‰). |
+| F5.2 | **Integral in the heading hold** | A small, clamped integral on the heading error (reset whenever the hold restarts): removes the steady error for any remaining or changing bias (floor, battery). |
+| F5.3 | **Straight report tool** | `tools/smoke/straight_report.py run.csv`: heading profile through the run, end heading, estimated sideways drift, count ratio and the suggested `track_balance`. |
+Acceptance: three normal-mode 16 s runs at 40 % on the tape: **≤ 1 cm** sideways over ~3.1 m, heading within ±0.5° after the first second.
+

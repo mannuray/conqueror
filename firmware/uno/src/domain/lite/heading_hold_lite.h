@@ -24,6 +24,7 @@ class HeadingHoldLite {
               int8_t& w_ctrl);
   void reset();
   bool holding() const { return m_state == State::kHolding; }
+  int32_t errorCdeg() const { return m_err; }  // last held-heading error (0.01°), 0 when not holding (spec 02 §F1.3)
 
  private:
   enum class State : uint8_t { kIdle, kSteering, kSettling, kHolding };
@@ -31,6 +32,7 @@ class HeadingHoldLite {
   State m_state = State::kIdle;
   int32_t m_held_cdeg = 0;
   uint8_t m_settle = 0;
+  int32_t m_err = 0;
 };
 
 }  // namespace cq

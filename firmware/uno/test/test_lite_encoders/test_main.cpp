@@ -2,6 +2,8 @@
 #include <unity.h>
 
 #include "domain/lite/motion_latch_lite.h"
+#include "domain/lite/heading_hold_lite.h"
+#include "domain/lite/runaway_guard_lite.h"
 #include "domain/lite/stall_guard_lite.h"
 #include "domain/lite/track_sync_lite.h"
 
@@ -157,6 +159,45 @@ void test_stall_both_held_is_stall() {
   TEST_ASSERT_EQUAL(R(StallGuardLite::Result::kStall), R(run(g, drive(130, 130, 0, 0, 0), 600, side)));
 }
 
+// ---------- RunawayGuardLite / HeadingHoldLite::errorCdeg ----------
+void test_runaway_reversed_motor_trips() {
+  RunawayGuardLite g;
+  bool tripped = false;
+  int32_t err = 3100;
+  for (int i = 0; i < 60 && !tripped; ++i) {
+    tripped = g.step(true, err, 100);  // saturated correction, error growing 1° per tick
+    err += 100;
+  }
+  TEST_ASSERT_TRUE(tripped);
+}
+
+void test_runaway_normal_correction_never_trips() {
+  RunawayGuardLite g;
+  int32_t err = 4000;  // big error after a bump, shrinking under a saturated correction
+  for (int i = 0; i < 200; ++i) {
+    TEST_ASSERT_FALSE(g.step(true, err, err > 1000 ? 100 : 40));
+    if (err > 0) err -= 30;
+  }
+}
+
+void test_runaway_needs_saturation_and_holding() {
+  RunawayGuardLite g;
+  for (int i = 0; i < 100; ++i) TEST_ASSERT_FALSE(g.step(true, 3500 + i * 50, 80));   // not saturated
+  for (int i = 0; i < 100; ++i) TEST_ASSERT_FALSE(g.step(false, 3500 + i * 50, 100));  // not holding
+}
+
+void test_heading_hold_exposes_error() {
+  HeadingHoldLite h;
+  int8_t ws = 0, wc = 0;
+  TEST_ASSERT_EQUAL_INT32(0, h.errorCdeg());
+  h.teleop(40, 0, true, 1000, 0, ws, wc);   // captures 10.00° (still)
+  h.teleop(40, 0, true, 1250, 0, ws, wc);   // drifted to 12.50°: error -2.50°
+  TEST_ASSERT_TRUE(h.holding());
+  TEST_ASSERT_EQUAL_INT32(-250, h.errorCdeg());
+  h.teleop(0, 0, true, 1250, 0, ws, wc);    // stopped: reset
+  TEST_ASSERT_EQUAL_INT32(0, h.errorCdeg());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_latch_trips_and_masks_both_tracks);
@@ -174,5 +215,9 @@ int main() {
   RUN_TEST(test_stall_below_keep_is_not_driven);
   RUN_TEST(test_stall_disabled_does_nothing);
   RUN_TEST(test_stall_both_held_is_stall);
+  RUN_TEST(test_runaway_reversed_motor_trips);
+  RUN_TEST(test_runaway_normal_correction_never_trips);
+  RUN_TEST(test_runaway_needs_saturation_and_holding);
+  RUN_TEST(test_heading_hold_exposes_error);
   return UNITY_END();
 }

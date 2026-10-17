@@ -7,6 +7,7 @@
 #include "core/motion_link.h"
 #include "core/motion_router.h"
 #include "core/motion_service.h"
+#include "core/move_controller.h"
 #include "core/rate_loop.h"
 #include "support/tank_model.h"
 #include "core/turn_controller.h"
@@ -551,6 +552,140 @@ void test_link_telemetry_gap_stops_while_owner() {
   TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kLink), static_cast<int>(o.end.reason));
 }
 
+// ---------- Plan K (bridge LLD R7.4 / R7.6): moves in the service and the link ----------
+namespace {
+MotionTelem encAt(int32_t counts) {
+  MotionTelem t;
+  t.enc_l = counts;
+  t.enc_r = counts;
+  return t;
+}
+struct MoveRig {
+  LinkOwner owner;
+  MotionLink ml{owner};
+  MoveRig() {
+    owner.onWsOpen(kFd);
+    owner.onSynced(true);
+    Actions a;
+    owner.onDrive(kFd, 0, a);  // the move command took ownership
+    ml.service().startMove(kFd, encAt(0), 10, 40, motion::kCpmDefault, 4, 0);  // 10 cm = 756 counts
+  }
+};
+}  // namespace
+
+void test_service_move_runs_and_ends_done_with_moved() {
+  MotionService svc;
+  svc.startMove(3, encAt(500), 10, 40, motion::kCpmDefault, 5, 0);
+  TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kMove), static_cast<int>(svc.kind()));
+  MotionOut o;
+  int32_t counts = 500;
+  uint32_t t = 0;
+  for (int i = 0; i < 1000 && !o.ended; ++i) {
+    o = svc.onTelemetry(encAt(counts), t += 20);
+    if (!o.ended) {
+      TEST_ASSERT_TRUE(o.send);
+      TEST_ASSERT_EQUAL_INT8(0, o.w);
+      TEST_ASSERT_TRUE(o.v > 0);
+    }
+    counts += 20;
+  }
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_TRUE(o.end.ok);
+  TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kMove), static_cast<int>(o.end.kind));
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDone), static_cast<int>(o.end.reason));
+  TEST_ASSERT_TRUE(o.end.has_moved);
+  TEST_ASSERT_TRUE(o.end.moved_mm >= 100 && o.end.moved_mm <= 103);
+  TEST_ASSERT_EQUAL_INT32(5, o.end.id);
+  TEST_ASSERT_FALSE(svc.active());
+}
+
+void test_service_move_progress_and_blocked_end() {
+  MotionService svc;
+  svc.startMove(3, encAt(0), 10, 40, motion::kCpmDefault, -1, 0);
+  svc.onTelemetry(encAt(378), 20);  // half way
+  TEST_ASSERT_EQUAL_UINT8(50, svc.progressPct());
+  MotionTelem held = encAt(378);
+  held.flags = 1u << static_cast<unsigned>(proto::FastFlagBit::kBlocked);
+  MotionOut o;
+  for (uint32_t t = 40; t <= 2100 && !o.ended; t += 20) o = svc.onTelemetry(held, t);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+  TEST_ASSERT_TRUE(o.end.has_moved);
+}
+
+void test_turn_end_has_no_moved() {
+  MotionService svc;
+  svc.startTurn(3, 0, 9000, 40, 1, 0);
+  const MotionOut o = svc.cancel(EndReason::kCancelled);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_FALSE(o.end.has_moved);
+}
+
+void test_link_move_sends_auto_drive_straight() {
+  MoveRig r;
+  const LinkOut o = r.ml.onTelemetry(encAt(0), 20);
+  TEST_ASSERT_TRUE(o.drive);
+  TEST_ASSERT_EQUAL_INT8(40, o.v);
+  TEST_ASSERT_EQUAL_INT8(0, o.w);
+}
+
+void test_link_uno_stall_and_fault_end_a_move_with_stop() {
+  const struct { MotionEvent e; EndReason why; } cases[] = {{MotionEvent::kBodyStall, EndReason::kStalled},
+                                                            {MotionEvent::kBodyEncoderFault, EndReason::kEncoderFault}};
+  for (const auto& c : cases) {
+    MoveRig r;
+    r.ml.onTelemetry(encAt(0), 20);
+    const LinkOut o = r.ml.onEvent(c.e, 30);
+    TEST_ASSERT_TRUE(o.event);
+    TEST_ASSERT_TRUE(o.stop);  // still the owner: the move ends cleanly with a STOP
+    TEST_ASSERT_FALSE(o.drive);
+    TEST_ASSERT_EQUAL(static_cast<int>(c.why), static_cast<int>(o.end.reason));
+    TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kMove), static_cast<int>(o.end.kind));
+    TEST_ASSERT_FALSE(r.ml.service().active());
+  }
+}
+
+void test_link_uno_stall_leaves_a_turn_alone() {
+  Rig r;  // the Plan H turn rig
+  r.ml.onTelemetry(0, 0, 20);
+  TEST_ASSERT_FALSE(r.ml.onEvent(MotionEvent::kBodyStall, 30).event);
+  TEST_ASSERT_FALSE(r.ml.onEvent(MotionEvent::kBodyEncoderFault, 40).event);
+  TEST_ASSERT_TRUE(r.ml.service().active());
+}
+
+void test_link_move_ends_like_turn() {  // cancel / STOP / owner loss / gap - the Plan H rules for a move
+  {
+    MoveRig r;
+    r.ml.onTelemetry(encAt(0), 20);
+    const LinkOut o = r.ml.onEvent(MotionEvent::kCancel, 30);
+    TEST_ASSERT_TRUE(o.stop);
+    TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kCancelled), static_cast<int>(o.end.reason));
+  }
+  {
+    MoveRig r;
+    r.ml.onTelemetry(encAt(0), 20);
+    const LinkOut o = r.ml.onEvent(MotionEvent::kStop, 30);
+    TEST_ASSERT_FALSE(o.stop);  // the STOP is already on its way
+    TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kStop), static_cast<int>(o.end.reason));
+  }
+  {
+    MoveRig r;
+    r.ml.onTelemetry(encAt(0), 20);
+    r.owner.onUnoOwner(proto::Owner::kIr);
+    const LinkOut o = r.ml.onTelemetry(encAt(20), 40);
+    TEST_ASSERT_TRUE(o.event);
+    TEST_ASSERT_FALSE(o.stop);
+    TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kNotOwner), static_cast<int>(o.end.reason));
+  }
+  {
+    MoveRig r;
+    r.ml.onTelemetry(encAt(0), 20);
+    const LinkOut o = r.ml.tick(300);
+    TEST_ASSERT_TRUE(o.stop);
+    TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kLink), static_cast<int>(o.end.reason));
+  }
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_router_lite_runs_turn_and_rate_locally);
@@ -590,5 +725,12 @@ int main() {
   RUN_TEST(test_link_events_frames_policy);
   RUN_TEST(test_link_done_sends_stop_but_not_after_ir);
   RUN_TEST(test_link_telemetry_gap_stops_while_owner);
+  RUN_TEST(test_service_move_runs_and_ends_done_with_moved);
+  RUN_TEST(test_service_move_progress_and_blocked_end);
+  RUN_TEST(test_turn_end_has_no_moved);
+  RUN_TEST(test_link_move_sends_auto_drive_straight);
+  RUN_TEST(test_link_uno_stall_and_fault_end_a_move_with_stop);
+  RUN_TEST(test_link_uno_stall_leaves_a_turn_alone);
+  RUN_TEST(test_link_move_ends_like_turn);
   return UNITY_END();
 }

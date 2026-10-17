@@ -23,6 +23,8 @@ enum class MotionEvent : uint8_t {
   kOwnerCommand,  // the owner's own drive / turn / drive_rate replaces it (its frames follow)
   kCancel,        // the owner's cancel: STOP from here
   kTxFull,        // a DRIVE could not be queued while the body is still synced: end "link" with a STOP
+  kBodyStall,         // Plan K: Uno EVENT stall - ends a move (stalled) with a STOP; turn / rate unchanged
+  kBodyEncoderFault,  // Plan K: Uno EVENT encoder_fault - ends a move (encoder_fault) with a STOP
 };
 
 struct LinkOut {
@@ -39,7 +41,13 @@ class MotionLink {
   explicit MotionLink(LinkOwner& owner) : m_owner(owner) {}
   MotionService& service() { return m_svc; }
   const MotionService& service() const { return m_svc; }
-  LinkOut onTelemetry(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms);
+  LinkOut onTelemetry(const MotionTelem& t, uint32_t now_ms);
+  LinkOut onTelemetry(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms) {  // turn / rate callers
+    MotionTelem t;
+    t.yaw_cdeg = yaw_cdeg;
+    t.rate_ddps = rate_ddps;
+    return onTelemetry(t, now_ms);
+  }
   LinkOut tick(uint32_t now_ms);
   LinkOut onEvent(MotionEvent e, uint32_t now_ms);
 

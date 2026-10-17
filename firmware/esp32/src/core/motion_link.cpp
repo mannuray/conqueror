@@ -19,10 +19,10 @@ LinkOut MotionLink::finished(const MotionOut& o, int fd, uint32_t now_ms) {
   return out;
 }
 
-LinkOut MotionLink::onTelemetry(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms) {
+LinkOut MotionLink::onTelemetry(const MotionTelem& t, uint32_t now_ms) {
   if (!m_svc.active()) return LinkOut{};
   const int fd = m_svc.ownerFd();
-  const MotionOut o = m_svc.onTelemetry(yaw_cdeg, rate_ddps, now_ms);
+  const MotionOut o = m_svc.onTelemetry(t, now_ms);
   if (o.ended) return finished(o, fd, now_ms);
   if (!o.send) return LinkOut{};
   const Decision d = m_owner.keepDriving(fd, now_ms);  // never takes ownership (review I1)
@@ -44,6 +44,11 @@ LinkOut MotionLink::tick(uint32_t now_ms) {
 LinkOut MotionLink::onEvent(MotionEvent e, uint32_t now_ms) {
   if (!m_svc.active()) return LinkOut{};
   const int fd = m_svc.ownerFd();
+  if (e == MotionEvent::kBodyStall || e == MotionEvent::kBodyEncoderFault) {
+    if (m_svc.kind() != PrimKind::kMove) return LinkOut{};  // turn / rate keep their own stall checks
+    const EndReason r = e == MotionEvent::kBodyStall ? EndReason::kStalled : EndReason::kEncoderFault;
+    return finished(m_svc.cancel(r), fd, now_ms);  // the Uno already stopped both tracks; STOP while owner
+  }
   const EndReason why = e == MotionEvent::kStop          ? EndReason::kStop
                         : e == MotionEvent::kBodyOffline ? EndReason::kLink
                                                          : EndReason::kCancelled;

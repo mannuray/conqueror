@@ -1,17 +1,19 @@
-// Bridge motion service (spec 02 §E3, bridge LLD R4): runs one TURN or DRIVE_RATE for one WebSocket client on a
+// Bridge motion service (spec 02 §E3, bridge LLD R4 / R7): runs one TURN, DRIVE_RATE or MOVE (Plan K) for one
+// WebSocket client on a
 // body that cannot (Uno Lite). Driven by each TELEM_FAST (50 Hz); its output is an ordinary DRIVE {v, w}, so
 // every Uno safety rule applies. Every end returns w = 0 (the caller then sends DRIVE 0/0 and STOP).
 #pragma once
 
 #include <stdint.h>
 
+#include "core/move_controller.h"
 #include "core/rate_loop.h"
 #include "core/turn_controller.h"
 
 namespace cq {
 namespace core {
 
-enum class PrimKind : uint8_t { kNone, kTurn, kRate };
+enum class PrimKind : uint8_t { kNone, kTurn, kRate, kMove };
 enum class EndReason : uint8_t {
   kDone,
   kCancelled,
@@ -22,6 +24,8 @@ enum class EndReason : uint8_t {
   kLink,
   kDeadman,
   kDiverged,  // drive_rate saturated while the tank turns the other way (review C1 guard)
+  kBlocked,       // Plan K: the obstacle brake held a move for 2 s
+  kEncoderFault,  // Plan K: the Uno reported an encoder fault during a move (distance not trusted)
 };
 
 struct PrimitiveEnd {
@@ -29,6 +33,8 @@ struct PrimitiveEnd {
   bool ok = false;
   EndReason reason = EndReason::kDone;
   int32_t id = -1;
+  bool has_moved = false;  // Plan K: a move reports its counted distance
+  int32_t moved_mm = 0;
 };
 
 struct MotionOut {
@@ -44,7 +50,15 @@ class MotionService {
   void startTurn(int fd, uint16_t yaw_cdeg, int32_t delta_cdeg, uint8_t speed_pct, int32_t id, uint32_t now_ms);
   void driveRate(int fd, int8_t v, int16_t rate_ddps, uint32_t now_ms);  // starts or updates the stream
   MotionOut cancel(EndReason why);
-  MotionOut onTelemetry(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms);
+  void startMove(int fd, const MotionTelem& t, int16_t dist_cm, uint8_t speed_pct, uint16_t cpm, int32_t id,
+                 uint32_t now_ms);
+  MotionOut onTelemetry(const MotionTelem& t, uint32_t now_ms);
+  MotionOut onTelemetry(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms) {  // turn / rate callers
+    MotionTelem t;
+    t.yaw_cdeg = yaw_cdeg;
+    t.rate_ddps = rate_ddps;
+    return onTelemetry(t, now_ms);
+  }
   MotionOut tick(uint32_t now_ms);  // telemetry gap / deadman without new frames
   bool active() const { return m_kind != PrimKind::kNone; }
   PrimKind kind() const { return m_kind; }
@@ -55,12 +69,14 @@ class MotionService {
   MotionOut finish(EndReason why);
   MotionOut stepTurn(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms);
   MotionOut stepRate(int16_t rate_ddps, uint32_t now_ms);
+  MotionOut stepMove(const MotionTelem& t, uint32_t now_ms);
 
   PrimKind m_kind = PrimKind::kNone;
   int m_fd = -1;
   int32_t m_id = -1;
   TurnController m_turn;
   RateLoop m_rate;
+  MoveController m_move;
   int8_t m_rate_v = 0;
   int16_t m_rate_target = 0;
   uint32_t m_rate_update_ms = 0;

@@ -29,6 +29,15 @@ void MotionService::driveRate(int fd, int8_t v, int16_t rate_ddps, uint32_t now_
   m_rate_update_ms = now_ms;
 }
 
+void MotionService::startMove(int fd, const MotionTelem& t, int16_t dist_cm, uint8_t speed_pct, uint16_t cpm,
+                              int32_t id, uint32_t now_ms) {
+  m_kind = PrimKind::kMove;
+  m_fd = fd;
+  m_id = id;
+  m_move.begin(t.enc_l, t.enc_r, dist_cm, speed_pct, cpm, now_ms);
+  m_last_telem_ms = now_ms;
+}
+
 MotionOut MotionService::finish(EndReason why) {
   MotionOut o;
   o.send = true;  // v = 0, w = 0
@@ -37,6 +46,10 @@ MotionOut MotionService::finish(EndReason why) {
   o.end.ok = why == EndReason::kDone;
   o.end.reason = why;
   o.end.id = m_id;
+  if (m_kind == PrimKind::kMove) {
+    o.end.has_moved = true;
+    o.end.moved_mm = m_move.movedMm();
+  }
   m_kind = PrimKind::kNone;
   m_fd = -1;
   m_id = -1;
@@ -89,10 +102,26 @@ MotionOut MotionService::stepRate(int16_t rate_ddps, uint32_t now_ms) {
   return o;
 }
 
-MotionOut MotionService::onTelemetry(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms) {
+MotionOut MotionService::stepMove(const MotionTelem& t, uint32_t now_ms) {
+  const MoveStep s = m_move.step(t, now_ms);
+  if (s.done) return finish(EndReason::kDone);
+  if (s.stalled) return finish(EndReason::kStalled);
+  if (s.blocked) return finish(EndReason::kBlocked);
+  if (s.timeout) return finish(EndReason::kTimeout);
+  MotionOut o;
+  o.send = true;
+  o.v = s.v;  // w = 0: the Uno's heading hold keeps it straight
+  return o;
+}
+
+MotionOut MotionService::onTelemetry(const MotionTelem& t, uint32_t now_ms) {
   if (!active()) return MotionOut{};
-  const MotionOut o =
-      m_kind == PrimKind::kTurn ? stepTurn(yaw_cdeg, rate_ddps, now_ms) : stepRate(rate_ddps, now_ms);
+  MotionOut o;
+  switch (m_kind) {
+    case PrimKind::kTurn: o = stepTurn(t.yaw_cdeg, t.rate_ddps, now_ms); break;
+    case PrimKind::kMove: o = stepMove(t, now_ms); break;
+    default: o = stepRate(t.rate_ddps, now_ms); break;
+  }
   m_last_telem_ms = now_ms;
   return o;
 }
@@ -106,7 +135,11 @@ MotionOut MotionService::tick(uint32_t now_ms) {
   return MotionOut{};
 }
 
-uint8_t MotionService::progressPct() const { return m_kind == PrimKind::kTurn ? m_turn.progressPct() : 0; }
+uint8_t MotionService::progressPct() const {
+  if (m_kind == PrimKind::kTurn) return m_turn.progressPct();
+  if (m_kind == PrimKind::kMove) return m_move.progressPct();
+  return 0;
+}
 
 }  // namespace core
 }  // namespace cq

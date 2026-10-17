@@ -93,6 +93,16 @@ void test_events_in_the_slice() {
                                     static_cast<uint8_t>(proto::EventKind::kControlChanged), 1, 0));
 }
 
+// Plan I (spec 01 §6.3, spec 02 §F1): the Uno's stall / encoder fault / heading runaway reach the phone.
+void test_encoder_safety_events() {
+  jsonUnoEvent(buf, sizeof(buf), 7, 800, static_cast<uint8_t>(proto::EventKind::kStall), 1, 0);
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"ev\",\"seq\":7,\"tank_ms\":800,\"kind\":\"stall\",\"side\":\"right\"}", buf);
+  jsonUnoEvent(buf, sizeof(buf), 8, 900, static_cast<uint8_t>(proto::EventKind::kEncoderFault), 0, 0);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"kind\":\"encoder_fault\",\"side\":\"left\"}"));
+  jsonUnoEvent(buf, sizeof(buf), 9, 950, static_cast<uint8_t>(proto::EventKind::kHeadingFault), -34, 0);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"kind\":\"heading_fault\",\"err_deg\":-34}"));
+}
+
 void test_control_changed_and_body() {
   jsonControlChanged(buf, sizeof(buf), 9, 10, OwnerView{"human", "bench"});
   TEST_ASSERT_EQUAL_STRING(
@@ -333,6 +343,7 @@ int main() {
   RUN_TEST(test_ts_flags_owner_and_battery);
   RUN_TEST(test_owner_names);
   RUN_TEST(test_events_in_the_slice);
+  RUN_TEST(test_encoder_safety_events);
   RUN_TEST(test_control_changed_and_body);
   RUN_TEST(test_ack_and_nacks);
   RUN_TEST(test_welcome_and_pong);

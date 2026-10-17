@@ -265,6 +265,12 @@ size_t jsonUnoEvent(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint8
     case EK::kSafetyOverride:
       return fmt(out, cap, "%s\"safety_override\",\"on\":%s,\"reason\":\"%s\"}", head,
                  a == 1 ? "true" : "false", overrideReason(b));
+    case EK::kStall:  // plan I (spec 02 §F1.2): both tracks stopped until released
+      return fmt(out, cap, "%s\"stall\",\"side\":\"%s\"}", head, a == 0 ? "left" : "right");
+    case EK::kEncoderFault:
+      return fmt(out, cap, "%s\"encoder_fault\",\"side\":\"%s\"}", head, a == 0 ? "left" : "right");
+    case EK::kHeadingFault:  // §F1.3
+      return fmt(out, cap, "%s\"heading_fault\",\"err_deg\":%d}", head, a);
     default:
       return 0;  // control_changed comes from LinkOwner; the rest is not in the slice
   }

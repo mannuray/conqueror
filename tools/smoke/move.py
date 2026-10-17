@@ -12,18 +12,25 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import threading
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 
 from bridge_echo import WsClient
 
 Message = dict[str, Any]
 
 
-def counts_travelled(start: tuple[int, int], end: tuple[int, int], direction: int) -> int:
-    """Mean of both tracks' counts in the move direction."""
-    return direction * ((end[0] - start[0]) + (end[1] - start[1])) // 2
+class WsLike(Protocol):
+    def send(self, obj: dict[str, Any]) -> None: ...
+    def recv(self, timeout: float) -> dict[str, Any] | None: ...
+    def close(self) -> None: ...
+
+
+def counts_travelled(start: tuple[int, int], end: tuple[int, int]) -> int:
+    """Mean of both tracks' counts - the Uno counts rising edges, so they rise in reverse too."""
+    return ((end[0] - start[0]) + (end[1] - start[1])) // 2
 
 
 def new_cpm(counts: int, measured_cm: float) -> int:
@@ -46,8 +53,8 @@ def wrap_deg(d: float) -> float:
 class Session:
     """One WebSocket client: debug stream (10 Hz) for the counts, pings keep it connected."""
 
-    def __init__(self, host: str) -> None:
-        self.ws = WsClient(host)
+    def __init__(self, host: str = "", ws: WsLike | None = None) -> None:
+        self.ws: WsLike = ws if ws is not None else WsClient(host)
         self.ws.send({"t": "hello", "client": "move-tool", "proto": 1})
         self.ws.send({"t": "debug", "on": True, "hz": 10})
         self.last_td: Message | None = None
@@ -70,6 +77,15 @@ class Session:
                 return msg
         return None
 
+    def ask(self, prompt: str, reader: Callable[[str], str] = input) -> str:
+        """input() with pings meanwhile: the bridge drops a client that is silent for 3 s."""
+        answer: list[str] = []
+        t = threading.Thread(target=lambda: answer.append(reader(prompt)), daemon=True)
+        t.start()
+        while t.is_alive():
+            self.pump_until(lambda _m: False, 0.3)
+        return answer[0] if answer else ""
+
     def fresh_td(self) -> Message:
         self.last_td = None
         msg = self.pump_until(lambda m: m.get("t") == "td", 2.0)
@@ -87,6 +103,8 @@ class Session:
     def save_counts_per_m(self, cpm: int) -> bool:
         self.next_id += 1
         mid = self.next_id
+        # Control is handed back 5 s after a move: take it again (drive 0/0 never moves the tank).
+        self.ws.send({"t": "drive", "v": 0, "w": 0})
         self.ws.send({"t": "calib", "counts_per_m": cpm, "id": mid})
         msg = self.pump_until(lambda m: m.get("id") == mid and m.get("t") in ("ack", "nack"), 3.0)
         if msg is None or msg.get("t") == "nack":
@@ -111,11 +129,9 @@ class Session:
             raise RuntimeError("no primitive_done - press STOP")
         self.pump_until(lambda _m: False, 0.5)  # roll-on
         end = self.fresh_td()
-        direction = 1 if cm > 0 else -1
         counts = counts_travelled(
             (int(start["enc"][0]), int(start["enc"][1])),
             (int(end["enc"][0]), int(end["enc"][1])),
-            direction,
         )
         return done, counts, wrap_deg(float(end["yaw"]) - float(start["yaw"]))
 
@@ -139,14 +155,14 @@ def calibrate(s: Session, speed: int) -> int:
     cpm = s.counts_per_m()
     runs: list[int] = []
     while True:
-        input("Place the tank at the start of the 1 m tape, then press Enter to drive 100 cm ...")
+        s.ask("Place the tank at the start of the 1 m tape, then press Enter to drive 100 cm ...")
         done, counts, heading = s.move(100, speed)
         report(done, counts, heading, cpm)
-        text = input("How far did it go on the tape (cm)? (blank = discard this run) ").strip()
+        text = s.ask("How far did it go on the tape (cm)? (blank = discard this run) ").strip()
         if text:
             runs.append(new_cpm(counts, float(text)))
             print(f"run {len(runs)}: {runs[-1]} counts/m - mean of {len(runs)}: {mean_cpm(runs)}")
-        choice = input("[a]gain, [s]ave the mean, [q]uit without saving? ").strip().lower()
+        choice = s.ask("[a]gain, [s]ave the mean, [q]uit without saving? ").strip().lower()
         if choice == "s" and runs:
             mean = mean_cpm(runs)
             if s.save_counts_per_m(mean):

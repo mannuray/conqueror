@@ -464,6 +464,7 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
     }
   }
   function connect() {
+    if (document.hidden || (ws && ws.readyState <= 1)) return;  // design-notes §77: no link while hidden
     ws = new WebSocket("ws://" + location.host + "/ws");
     ws.onopen = function () {
       open = true; retry = 500; scanDone();
@@ -481,6 +482,9 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
     ws.onerror = function () { ws.close(); };
   }
   setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) { if (ws && ws.readyState <= 1) ws.close(); } else { retry = 500; connect(); }
+  });
   connect();
 })();
 </script>

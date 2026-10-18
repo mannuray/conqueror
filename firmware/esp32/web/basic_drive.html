@@ -233,6 +233,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     return false;
   }
   function connect() {
+    // design-notes §77: a hidden page holds no link - a background tab (timers slowed) would connect, go silent
+    // and be reaped every few seconds, making the tank beep and blink; it reconnects when shown again.
+    if (document.hidden || (ws && ws.readyState <= 1)) return;
     setWs("wait", "...");
     ws = new WebSocket("ws://" + location.host + "/ws");
     ws.onopen = function () {
@@ -863,7 +866,13 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 
   // ---------- safety: hidden page / closing = stop ----------
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden) { releaseAll(); send({ t: "stop", id: nextId++ }); }
+    if (document.hidden) {
+      releaseAll(); send({ t: "stop", id: nextId++ });
+      stopVideo();
+      if (ws && ws.readyState <= 1) ws.close();  // the STOP above is sent first (queued before the close)
+    } else {
+      retryMs = 1000; connect(); startVideo();
+    }
   });
   window.addEventListener("pagehide", function () { releaseAll(); send({ t: "stop" }); });
   window.addEventListener("blur", function () {
@@ -874,14 +883,22 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   });
 
   // ---------- camera (MJPEG on port 81, max 2 viewers) ----------
+  var videoTimer = 0;
+  function stopVideo() {
+    clearTimeout(videoTimer); videoTimer = 0;
+    var img = $("video");
+    img.onerror = null; img.removeAttribute("src");  // closes the MJPEG connection
+  }
   function startVideo() {
+    if (document.hidden) return;
+    clearTimeout(videoTimer); videoTimer = 0;
     var img = $("video");
     $("noVideo").classList.add("hidden");  // MJPEG streams do not reliably fire onload
     img.style.visibility = "visible";
     img.onerror = function () {
       img.style.visibility = "hidden";  // no broken-image icon
       $("noVideo").classList.remove("hidden");
-      setTimeout(startVideo, 3000);
+      videoTimer = setTimeout(startVideo, 3000);
     };
     img.src = "http://" + location.hostname + ":81/stream?t=" + Date.now();
   }

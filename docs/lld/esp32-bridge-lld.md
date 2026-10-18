@@ -1607,3 +1607,20 @@ Always `BodyLink::sendStop` (resent until the ACK), then `stopMaster` — the ol
 
 ### R10.5 Tests
 Native suite 228/228: the 16 bench-only tests were removed (`test_frame_aligner` 9, `test_link_owner` 6, `test_body_link` 1); `test_motion` "after release ends without frames" keeps its check without the bench connect. Tank: `bridge_echo.py no-tcp` → `port 3333 closed`; drive page, STOP and a STOP from a second device on the stand.
+
+## Revision 11 — Hidden pages hold no link (design-notes §77, 2026-10-18)
+A browser slows repeating timers in a hidden tab (Chrome: once a minute), so an open drive page's 1 s ping stopped, the bridge reaped it after 3 s, and its one-shot reconnect timer brought it straight back — every ~4 s the Uno synced (white + "ready" sound) and lost the link (blue).
+- `basic_drive.html`: `connect()` returns while `document.hidden` (or while a socket is open / opening). `visibilitychange` → hidden: `releaseAll()`, `stop`, `stopVideo()` (MJPEG `src` removed, retry timer cleared), `ws.close()` (the STOP is queued before the close frame); visible: `retryMs = 1000`, `connect()`, `startVideo()`.
+- `settings.html`: the same guard in `connect()`; hidden → `ws.close()`, visible → `connect()`.
+- Unchanged: the bridge's 3 s silence reap and the Uno's link-loss stop stay the safety net for pages that vanish without an event.
+- Test: page test with a stand-in WebSocket — hide → `stop`, `close`, no reconnect for 6 s, no video `src`; show → `open /ws`, `hello`.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Connected : page shown
+  Connected --> Hidden : visibilitychange hidden / STOP, close socket + video
+  Hidden --> Connected : visibilitychange visible / connect, start video
+  Connected --> Reconnecting : socket closed or silent 4 s
+  Reconnecting --> Connected : connect (only while shown)
+  Reconnecting --> Hidden : page hidden (no reconnect)
+```

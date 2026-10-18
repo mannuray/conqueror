@@ -281,7 +281,11 @@ label { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
   }
 
   // ---------- Maintenance ----------
-  $("mRestart").addEventListener("click", function () { send({ t: "restart", id: nextId++ }); });
+  var restartId = -1, restarting = false;
+  $("mRestart").addEventListener("click", function () {
+    restartId = nextId++;
+    if (!send({ t: "restart", id: restartId })) toast("Not connected");
+  });
   $("mForget").addEventListener("click", function () { send({ t: "wifi_forget", id: nextId++ }); });
   var TD = ["t_s", "seq", "uno_ms", "enc_l", "enc_r", "pwm_l", "pwm_r", "cmd_l", "cmd_r", "act_l", "act_r", "yaw", "rate",
             "pitch", "roll", "dist_mm", "dist_fault", "closing", "pan", "tilt", "flags", "prim", "pct"];
@@ -341,13 +345,20 @@ label { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
       case "confirm_expired": hideConfirm("Not confirmed - nothing changed"); break;
       case "nack": hideConfirm(""); scanDone(); toast(m.message || m.reason || "Refused"); break;
       case "td": if (rec) rec.rows.push(tdRow(m, (Date.now() - rec.t0) / 1000)); break;
+      case "ack":
+        if (m.id === restartId) {  // owner: the restart needs feedback
+          restarting = true; restartId = -1;
+          clearInterval(confirmTimer); $("confirm").textContent = "Restarting the bridge …"; $("confirm").className = "show";
+        }
+        break;
       default: break;
     }
   }
   function connect() {
     ws = new WebSocket("ws://" + location.host + "/ws");
     ws.onopen = function () {
-      open = true; retry = 500; scanDone(); $("link").textContent = "online"; $("link").style.color = "var(--ui)";
+      open = true; retry = 500; scanDone(); $("link").textContent = "online";
+      if (restarting) { restarting = false; hideConfirm("Bridge back online ✓"); } $("link").style.color = "var(--ui)";
       send({ t: "hello", client: "settings", proto: 1 });
       send({ t: "wifi_status" }); send({ t: "calib" });
       [66, 11, 12, 1].forEach(function (id) { send({ t: "setting", setting_id: id }); });

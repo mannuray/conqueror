@@ -58,7 +58,7 @@ Designs: `docs/design/stitch/15-tank-logo-desktop-v2.png` (laptop: programs · e
 - **While running:** the current line highlighted; the **planned path** (turtle preview, Spec 5 §10) and the **driven path** from the encoders and heading.
 - **Programs:** saved programs and examples; new / rename / delete.
 - **Phone and laptop:** laptop = editor and path side by side; phone = editor and path as two panes you swipe or tab between, run bar at the bottom.
-- Open questions (decide with the Stitch screens): where programs are saved (on the tank, shared by every device — or in the browser); what happens to a running program when its page is hidden or another device drives (Spec 5 §5.2 runner rules + the one-driver rule).
+- **Decided (owner, 2026-10-18, design-notes §81):** programs are **saved on the tank** (every device sees the same list); a running program **stops** when its page is hidden or disconnects, or when another device takes control — the same as driving by hand (a hidden page holds no link, one driver at a time). STOP from any device still ends it at once.
 
 ## 3. Settings — 4 tabs (WiFi and Tank built; Tune and Log new)
 | Tab | Contents |

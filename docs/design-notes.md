@@ -1325,3 +1325,8 @@ Bridge only (Uno unchanged since kMaxCps 2500). Owner measured with marks: S (ta
 - **Function list (owner):** live sensors — already on Drive, deeper ones on Settings; graphs — Settings; calibration wizard — Settings; event log — Settings; firmware upload from the browser — not needed; camera options — Settings; child-play mode — Settings; moves panel — not needed, Logo does it; AI — the only big new page.
 - **Structure:** one tank app on the bridge, Drive as home, a ☰ MENU (replacing ⚙ SET) to **Logo** (new), **Settings** (tabs **WiFi · Tank · Tune · Log**; graphs on Tune — owner OK), **AI** (served by the AI engine on the laptop, the app links to it — owner OK), **Help**. Plain HTML/CSS/JS, no React (the React plan went with the hub).
 - Document: `docs/design/bridge-ux.md` (supersedes `hub-ux.md` for one tank). Next: Stitch screens for Logo.
+
+## 81. Tank Logo screens — two decisions (owner, 2026-10-18)
+- Screens v2 (laptop + phone): `docs/design/stitch/15-tank-logo-desktop-v2.png`, `16-tank-logo-mobile-v2.png` (Stitch, corrected by hand).
+- **Programs are saved on the tank** — one list for every device (already in v1; Spec 5 §12 item 7).
+- **A running program stops** when its page is hidden or disconnects, or when another device takes control — like driving by hand; STOP from anywhere ends it at once (Spec 5 §12 item 8).

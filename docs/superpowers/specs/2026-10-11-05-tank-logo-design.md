@@ -187,3 +187,5 @@ Both parsers must pass every conformance test; CI (or the pre-commit hook) runs 
 4. **Saved programs on the tank** (9 slots in ESP32 flash, run from IR remote keys 1–9): **yes, in v2**.
 5. **`STOP` ends the whole program** and stops the tank (confirmed).
 6. Error domain **PROGRAM 7000–7999** — free in `protocol/defs/errors.yaml`; add it when the Logo work starts.
+7. **(2026-10-18, design-notes §81) Saved programs on the tank already in v1** (supersedes the "v2" in item 4 for the list itself; running them from the IR remote keys stays v2): the IDE lists, saves, renames and deletes programs stored on the ESP32, shared by every device.
+8. **(2026-10-18, design-notes §81) A program stops when its page goes away:** page hidden or disconnected, or another device takes control → the program ends (`program_ended {reason}`) and the tank stops — the same rules as driving by hand (bridge LLD R11 hidden pages, the one-driver rule).

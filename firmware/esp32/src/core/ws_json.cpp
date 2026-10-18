@@ -51,6 +51,7 @@ constexpr ReasonInfo kBridgeReasons[] = {
     {3006, "INVALID_COMMAND", "Invalid command"},
     {3009, "COMMAND_TIMEOUT", "No acknowledgement in time"},
     {3003, "UNAVAILABLE", "Capability not available"},  // Plan H: e.g. turn with radius / move without encoders
+    {3011, "STOPPED", "Stopped by another device - release the stick to drive again"},  // design-notes §72
 };
 
 const char* domain(uint16_t code) {
@@ -309,6 +310,50 @@ size_t jsonCalib(char* out, size_t cap, uint16_t counts_per_m, uint16_t roll_mm)
              static_cast<unsigned>(roll_mm));
 }
 
+size_t jsonWifiStatus(char* out, size_t cap, const WifiStatusView& v) {
+  char ssid[72], saved[3 * 72 + 8] = "";
+  jsonEscape(ssid, sizeof(ssid), v.ssid ? v.ssid : "");
+  size_t n = 0;
+  for (uint8_t i = 0; i < v.n_saved && i < 3; ++i) {
+    char e[72];
+    jsonEscape(e, sizeof(e), v.saved[i]);
+    const int k = snprintf(saved + n, sizeof(saved) - n, "%s\"%s\"", n ? "," : "", e);
+    if (k > 0 && static_cast<size_t>(k) < sizeof(saved) - n) n += static_cast<size_t>(k);
+  }
+  return fmt(out, cap,
+             "{\"t\":\"wifi_status\",\"mode\":\"%s\",\"ssid\":\"%s\",\"rssi\":%d,\"ip\":\"%s\",\"host\":\"%s\","
+             "\"saved\":[%s],\"ap_ssid\":\"%s\"}",
+             v.mode, ssid, v.rssi, v.ip, v.host, saved, v.ap_ssid);
+}
+
+size_t jsonWifiScan(char* out, size_t cap, const ScanEntry* nets, size_t count) {
+  char list[320] = "";
+  size_t n = 0;
+  for (size_t i = 0; i < count && i < 12; ++i) {
+    char e[72];
+    jsonEscape(e, sizeof(e), nets[i].ssid);
+    const int k = snprintf(list + n, sizeof(list) - n, "%s{\"ssid\":\"%s\",\"rssi\":%d,\"secure\":%s}", n ? "," : "",
+                           e, nets[i].rssi, nets[i].secure ? "true" : "false");
+    if (k <= 0 || static_cast<size_t>(k) >= sizeof(list) - n) break;  // keep what fits (kWsJsonMax)
+    n += static_cast<size_t>(k);
+  }
+  return fmt(out, cap, "{\"t\":\"wifi_scan\",\"nets\":[%s]}", list);
+}
+
+size_t jsonConfirm(char* out, size_t cap, const char* what, uint8_t secs) {
+  return fmt(out, cap, "{\"t\":\"confirm\",\"what\":\"%s\",\"secs\":%u}", what, static_cast<unsigned>(secs));
+}
+size_t jsonConfirmed(char* out, size_t cap, const char* what) {
+  return fmt(out, cap, "{\"t\":\"confirmed\",\"what\":\"%s\"}", what);
+}
+size_t jsonConfirmExpired(char* out, size_t cap, const char* what) {
+  return fmt(out, cap, "{\"t\":\"confirm_expired\",\"what\":\"%s\"}", what);
+}
+size_t jsonSetting(char* out, size_t cap, uint8_t id, int32_t value) {
+  return fmt(out, cap, "{\"t\":\"setting\",\"id\":%u,\"value\":%ld}", static_cast<unsigned>(id),
+             static_cast<long>(value));
+}
+
 size_t jsonControlChanged(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, OwnerView owner) {
   return fmt(out, cap,
              "{\"t\":\"ev\",\"seq\":%lu,\"tank_ms\":%lu,\"kind\":\"control_changed\",\"owner\":"
@@ -366,6 +411,23 @@ size_t jsonEscape(char* out, size_t cap, const char* s) {
       k = 2;
     } else if (c < 0x20) {
       k = static_cast<size_t>(snprintf(esc, sizeof(esc), "\\u%04x", c));
+    } else if (c >= 0x80) {  // Plan M review I4: only valid UTF-8 goes out (a WebSocket text frame must be UTF-8)
+      const size_t len = c >= 0xC2 && c <= 0xDF ? 2 : (c >= 0xE0 && c <= 0xEF ? 3 : (c >= 0xF0 && c <= 0xF4 ? 4 : 0));
+      bool ok = len != 0;
+      for (size_t i = 1; ok && i < len; ++i) {
+        const unsigned char d = static_cast<unsigned char>(s[i]);
+        ok = d >= 0x80 && d <= 0xBF;  // also stops at the terminator (0x00)
+      }
+      if (ok) {
+        memcpy(esc, s, len);
+        k = len;
+        s += len - 1;
+      } else {
+        esc[0] = static_cast<char>(0xEF);  // U+FFFD replacement character
+        esc[1] = static_cast<char>(0xBF);
+        esc[2] = static_cast<char>(0xBD);
+        k = 3;
+      }
     } else {
       esc[0] = static_cast<char>(c);
       k = 1;

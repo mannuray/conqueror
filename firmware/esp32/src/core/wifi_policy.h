@@ -1,6 +1,7 @@
 // WiFi station / fallback AP decisions (bridge LLD Revision 1 "WiFi behaviour", unchanged in R2):
 // try the home network; after 10 s (owner 2026-10-16, was 30 s) start the WPA2 AP "conqueror-bridge"; while in
-// AP mode retry the home network every 60 s, but only when no WS/TCP/stream client is connected. Pure C++.
+// AP mode retry the home network every 60 s, but only when no WS/TCP/stream client is connected. Plan M: a forced AP
+// (double press / confirmed wifi_mode) stays until switched back. Pure C++.
 #pragma once
 
 #include <stdint.h>
@@ -11,7 +12,7 @@ namespace core {
 constexpr uint32_t kStationTimeoutMs = 10000;  // a normal join takes ~2 s
 constexpr uint32_t kHomeRetryMs = 60000;
 
-enum class WifiMode : uint8_t { kConnecting, kStation, kFallbackAp };
+enum class WifiMode : uint8_t { kConnecting, kStation, kFallbackAp, kForcedAp };
 enum class WifiAction : uint8_t { kNone, kStartStation, kStationUp, kStartAp, kRetryStation, kApOff };
 
 class WifiPolicy {
@@ -41,6 +42,8 @@ class WifiPolicy {
           return WifiAction::kStartStation;
         }
         return WifiAction::kNone;
+      case WifiMode::kForcedAp:  // Plan M: stays on its AP until switched back (no station retries)
+        return WifiAction::kNone;
       case WifiMode::kFallbackAp:
       default:
         if (sta_connected && !has_clients) {  // review M9: never drop the AP under connected phones
@@ -54,6 +57,12 @@ class WifiPolicy {
         return WifiAction::kNone;
     }
   }
+  WifiAction forceAp(uint32_t now_ms) {  // Plan M: double press / confirmed wifi_mode ap - no station retries
+    m_mode = WifiMode::kForcedAp;
+    m_since_ms = now_ms;
+    return WifiAction::kStartAp;
+  }
+  WifiAction forceHome(uint32_t now_ms) { return begin(now_ms); }  // as boot: scan, strongest saved, 10 s
   WifiMode mode() const { return m_mode; }
 
  private:

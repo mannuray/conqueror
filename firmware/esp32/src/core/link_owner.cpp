@@ -7,6 +7,7 @@ Actions LinkOwner::dropDriver(bool send_stop) {
   Actions a;
   if (m_driver == kNoFd) return a;
   m_driver = kNoFd;
+  m_stop_hold = false;
   if (m_state == LinkState::kWebDriving) m_state = LinkState::kWebReady;
   a.bits |= Actions::kHintNone | Actions::kOwnerChanged;
   if (send_stop) a.bits |= Actions::kSendStop;
@@ -61,7 +62,7 @@ Actions LinkOwner::onTcpClose() {
   return a;
 }
 
-Decision LinkOwner::onDrive(int fd, uint32_t now_ms, Actions& out) {
+Decision LinkOwner::onDrive(int fd, uint32_t now_ms, Actions& out, bool moving) {
   out = Actions();
   if (m_state == LinkState::kTcpPassthrough) return Decision::kNackBusy;
   if (m_ir) return Decision::kNackNotOwner;
@@ -74,7 +75,11 @@ Decision LinkOwner::onDrive(int fd, uint32_t now_ms, Actions& out) {
     m_driver = fd;
     out.bits |= Actions::kHintHuman | Actions::kOwnerChanged;
   }
-  m_last_drive_ms = now_ms;
+  m_last_drive_ms = now_ms;  // also while held: the driver keeps control (a handback would let it retake and drive)
+  if (m_stop_hold && fd == m_driver) {
+    if (moving) return Decision::kNackStopped;
+    m_stop_hold = false;  // stick released (0/0) or a deliberate new command
+  }
   return Decision::kSend;
 }
 
@@ -95,8 +100,11 @@ Decision LinkOwner::onCamera(int fd) const {
   return Decision::kSend;
 }
 
-Actions LinkOwner::onStop(int /*fd*/) {
+Actions LinkOwner::onStop(int fd) {
   Actions a;
+  // design-notes §72: a STOP from anyone but the driver holds the driver's moving frames until it lets go;
+  // the driver's own STOP (its page's STOP / stick release) clears a hold.
+  if (m_state == LinkState::kWebDriving) m_stop_hold = fd != m_driver;
   a.bits |= (m_state == LinkState::kTcpPassthrough) ? Actions::kInjectStop : Actions::kSendStop;
   return a;  // STOP never changes ownership (the driver keeps it for the handback window)
 }

@@ -48,6 +48,7 @@ enum class LinkEventKind : uint8_t {
   kUnoEvent,      // EVENT frame: code, a, b
   kStopResult,    // seq, status (ack_status index or kStatusTimeout)
   kAckResult,     // CAM_HOME / SOUND / AUDIO_MODE / CAM_LOCK: seq, status
+  kSettingValue,  // Plan M: SETTING_VALUE - code = id, a / b = value low / high 16 bits
   kBodyOnline,    // HELLO accepted
   kBodyOffline,   // code 0 = silent, 1 = incompatible protocol (a = Uno proto)
   kResetRequest,  // code = frame type (WIFI/ADMIN_RESET_REQ), answered UNAVAILABLE
@@ -88,6 +89,13 @@ class BodyLink {
   bool sendSound(uint8_t sound_id, uint32_t now_ms, uint8_t& seq_out);
   bool sendCamLock(bool on, uint32_t now_ms, uint8_t& seq_out);
   bool sendAudioMode(uint8_t mode, uint32_t now_ms, uint8_t& seq_out);  // R3.1: proto::AudioModeValue
+  // Plan M: the settings page and the WiFi switch feedback (same acked slot, one at a time).
+  bool sendLed(uint8_t mode, uint8_t r, uint8_t g, uint8_t b, uint16_t period_ms, uint16_t duration_ms, uint32_t now_ms,
+               uint8_t& seq_out);
+  bool sendSettingGet(uint8_t id, uint32_t now_ms, uint8_t& seq_out);
+  bool sendSettingSet(uint8_t id, int32_t value, uint32_t now_ms, uint8_t& seq_out);
+  bool sendSettingsSave(uint32_t now_ms, uint8_t& seq_out);
+  bool ackPending() const { return m_cam_pending; }
   void setOwnerHint(proto::OwnerHintValue hint);  // remembered; sent now if synced, and after HELLO
 
   // STOP {src HUMAN}: master -> own seq; passthrough -> injectStop with the caller's seq.

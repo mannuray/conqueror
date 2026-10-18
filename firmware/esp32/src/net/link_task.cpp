@@ -1,8 +1,11 @@
 #include "core/motion_config.h"
+#include "core/acked_ops.h"
 #include "core/arc_limits.h"
+#include "core/confirm.h"
 #include "core/move_controller.h"
 #include "core/roll_learner.h"
 #include "net/motion_store.h"
+#include "net/wifi_manager.h"
 #include "net/link_task.h"
 
 #include <Arduino.h>
@@ -55,6 +58,13 @@ constexpr size_t kMaxStopWaiters = 2 * core::kMaxWsClients;  // review M8
 Waiter g_stop_waiters[kMaxStopWaiters];
 size_t g_stop_waiter_n = 0;
 Waiter g_cam_waiter{-1, -1};
+// Plan M (bridge LLD R9): confirmations by the tank's button, the WiFi double press, acked Uno ops for the page.
+core::ConfirmGate g_gate;
+core::ButtonRouter g_button{g_gate};
+core::AckedOps g_ops;
+uint32_t g_restart_at = 0;
+void askConfirm(const core::PendingChange& c, uint32_t now);
+void sendCalib(int fd);
 uint8_t g_cam_seq = 0;
 core::StopBarrier g_stop_barrier;  // STOP fast path: drop motion posted before a STOP
 core::MotionLink g_motion(g_owner);  // Plan H: TURN / DRIVE_RATE run by the bridge for a body that cannot
@@ -144,6 +154,8 @@ core::BridgeReason reasonOf(core::Decision d) {
       return core::BridgeReason::kBusy;
     case core::Decision::kNackBodyOffline:
       return core::BridgeReason::kBodyOffline;
+    case core::Decision::kNackStopped:
+      return core::BridgeReason::kStopped;
     case core::Decision::kNackNotOwner:
     default:
       return core::BridgeReason::kNotOwner;
@@ -318,7 +330,16 @@ void handleMove(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
 }
 
 // calib (Plan K, LLD R7.1): read for anyone; set only by the driver, not while a primitive runs.
-void handleCalib(int fd, int32_t id, const core::WsCommand& c) {
+void handleCalib(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
+  if (c.calib_reset >= 0) {  // Plan M: reset to the default - confirmed by the tank's button
+    core::PendingChange ch;
+    ch.kind = core::ChangeKind::kCalibReset;
+    ch.fd = fd;
+    ch.id = id;
+    ch.calib_what = static_cast<uint8_t>(c.calib_reset);
+    askConfirm(ch, now);
+    return;
+  }
   if (c.has_cpm) {
     if (g_owner.driverFd() != fd) {
       nack(fd, id, core::BridgeReason::kNotOwner);
@@ -331,6 +352,10 @@ void handleCalib(int fd, int32_t id, const core::WsCommand& c) {
     g_cpm = c.cpm;
     if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
   }
+  sendCalib(fd);
+}
+
+void sendCalib(int fd) {
   size_t n = core::jsonCalib(g_json, sizeof(g_json) - 64, g_cpm, g_roll_mm);
   if (n > 1) {  // + roll-on learner diagnostics (spec 02 §G6 floor check): replace the closing brace
     const int k = snprintf(g_json + n - 1, sizeof(g_json) - n + 1, ",\"roll_last\":%ld,\"roll_watched\":%u,\"roll_read\":%u}",
@@ -339,6 +364,269 @@ void handleCalib(int fd, int32_t id, const core::WsCommand& c) {
     if (k > 0) n = n - 1 + static_cast<size_t>(k);
   }
   sendTo(fd, n);
+}
+
+
+// ---------- Plan M (spec 02 Part I, bridge LLD R9): WiFi, settings page, confirmations ----------
+bool settingReadable(uint8_t id) { return id == 1 || id == 11 || id == 12 || id == 66; }
+
+void pushFeedback(bool to_ap) {  // the tank says which mode it went to: jingle + blue (home) / white (own AP)
+  core::AckedOp snd;
+  snd.kind = core::AckedOp::kSound;
+  snd.a = static_cast<uint8_t>(proto::SoundId::kJingle);
+  g_ops.push(snd);
+  core::AckedOp led;
+  led.kind = core::AckedOp::kLed;
+  led.a = static_cast<uint8_t>(proto::LedMode::kBlink);
+  led.r = to_ap ? 255 : 0;
+  led.g = to_ap ? 255 : 0;
+  led.b = 255;
+  led.period_ms = 200;
+  led.duration_ms = 3000;
+  g_ops.push(led);
+}
+
+bool wifiIsAp() {
+  net::WifiSnapshot s;
+  net::wifiSnapshot(s);
+  return strcmp(s.mode, "ap") == 0;
+}
+
+void sendWifiStatus(int fd) {
+  net::WifiSnapshot s;
+  net::wifiSnapshot(s);
+  char host[40];
+  snprintf(host, sizeof(host), "%s.local", board::kHostname);
+  core::WifiStatusView v{s.mode, s.ssid, s.rssi, s.ip, host, {s.saved[0], s.saved[1], s.saved[2]}, s.n_saved,
+                         board::kFallbackSsid};
+  sendTo(fd, core::jsonWifiStatus(g_json, sizeof(g_json), v));
+}
+
+// A change from the page: held until the tank's button is pressed (or 30 s pass).
+void askConfirm(const core::PendingChange& c, uint32_t now) {
+  g_gate.begin(c, now);
+  sendTo(c.fd, core::jsonConfirm(g_json, sizeof(g_json), core::changeName(c.kind),
+                                 static_cast<uint8_t>(core::ConfirmGate::kWindowMs / 1000)));
+}
+
+void handleSettingsCommand(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
+  core::PendingChange ch;
+  ch.fd = fd;
+  ch.id = id;
+  switch (c.kind) {
+    case core::WsCmdKind::kWifiStatus: sendWifiStatus(fd); return;
+    case core::WsCmdKind::kWifiScan: {
+      net::WifiRequest r;
+      r.kind = net::WifiRequest::kScan;
+      r.fd = fd;
+      r.id = id;
+      if (!net::wifiPost(r)) nack(fd, id, core::BridgeReason::kBusy);
+      return;
+    }
+    case core::WsCmdKind::kWifiSave:
+      ch.kind = core::ChangeKind::kWifiSave;
+      ch.slot = c.slot;
+      snprintf(ch.ssid, sizeof(ch.ssid), "%s", c.ssid);
+      snprintf(ch.pass, sizeof(ch.pass), "%s", c.password);
+      break;
+    case core::WsCmdKind::kWifiForget:
+      ch.kind = core::ChangeKind::kWifiForget;
+      ch.slot = c.slot;
+      break;
+    case core::WsCmdKind::kWifiMode:
+      ch.kind = core::ChangeKind::kWifiMode;
+      ch.ap = c.wifi_ap;
+      break;
+    case core::WsCmdKind::kApPassword:
+      ch.kind = core::ChangeKind::kApPassword;
+      snprintf(ch.pass, sizeof(ch.pass), "%s", c.password);
+      break;
+    case core::WsCmdKind::kSetting:
+      if (!settingReadable(c.setting_id)) {
+        nack(fd, id, core::BridgeReason::kInvalidCommand);
+        return;
+      }
+      if (!c.has_value) {  // read: SETTING_GET -> SETTING_VALUE
+        core::AckedOp op;
+        op.kind = core::AckedOp::kSettingGet;
+        op.a = c.setting_id;
+        op.fd = fd;
+        op.id = id;
+        if (!g_ops.push(op)) nack(fd, id, core::BridgeReason::kBusy);
+        return;
+      }
+      if (c.setting_id != 66 || c.value < -100 || c.value > 100) {  // v1: only track_balance may change
+        nack(fd, id, core::BridgeReason::kInvalidCommand);
+        return;
+      }
+      ch.kind = core::ChangeKind::kSetting;
+      ch.setting_id = c.setting_id;
+      ch.value = c.value;
+      break;
+    case core::WsCmdKind::kRestart:
+      if (g_ota_active || g_motion.service().active()) {
+        nack(fd, id, core::BridgeReason::kBusy);
+        return;
+      }
+      if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
+      g_restart_at = now + 500;
+      logf("bridge: restart asked by %s", g_ws.name(fd));
+      return;
+    default:
+      return;
+  }
+  askConfirm(ch, now);
+}
+
+void applyChange(core::PendingChange& ch, uint32_t now) {
+  (void)now;
+  const char* what = core::changeName(ch.kind);
+  net::WifiRequest r;
+  r.fd = ch.fd;
+  r.id = ch.id;
+  switch (ch.kind) {
+    case core::ChangeKind::kWifiSave:
+      r.kind = net::WifiRequest::kSave;
+      r.slot = ch.slot;
+      snprintf(r.ssid, sizeof(r.ssid), "%s", ch.ssid);
+      snprintf(r.pass, sizeof(r.pass), "%s", ch.pass);
+      break;
+    case core::ChangeKind::kWifiForget:
+      r.kind = net::WifiRequest::kForget;
+      r.slot = ch.slot;
+      break;
+    case core::ChangeKind::kWifiMode:
+      r.kind = net::WifiRequest::kMode;
+      r.ap = ch.ap;
+      pushFeedback(ch.ap);
+      break;
+    case core::ChangeKind::kApPassword:
+      r.kind = net::WifiRequest::kApPassword;
+      snprintf(r.pass, sizeof(r.pass), "%s", ch.pass);
+      break;
+    case core::ChangeKind::kCalibReset:
+      if (ch.calib_what == 0) {
+        g_cpm = core::motion::kCpmDefault;
+        net::motionStoreSave(g_cpm);
+      } else {
+        g_roll_mm = core::motion::kRollDefaultMm;
+        net::motionStoreSaveRoll(g_roll_mm);
+      }
+      sendTo(ch.fd, core::jsonConfirmed(g_json, sizeof(g_json), what));
+      sendCalib(ch.fd);
+      memset(ch.pass, 0, sizeof(ch.pass));
+      return;
+    case core::ChangeKind::kSetting: {
+      core::AckedOp set;
+      set.kind = core::AckedOp::kSettingSet;
+      set.a = ch.setting_id;
+      set.value = ch.value;
+      g_ops.push(set);
+      core::AckedOp save;
+      save.kind = core::AckedOp::kSettingsSave;
+      g_ops.push(save);
+      core::AckedOp get;  // the reply shows what the Uno stored
+      get.kind = core::AckedOp::kSettingGet;
+      get.a = ch.setting_id;
+      get.fd = ch.fd;
+      get.id = ch.id;
+      g_ops.push(get);
+      sendTo(ch.fd, core::jsonConfirmed(g_json, sizeof(g_json), what));
+      return;
+    }
+    case core::ChangeKind::kNone:
+    default:
+      return;
+  }
+  memset(ch.pass, 0, sizeof(ch.pass));
+  if (!net::wifiPost(r)) nack(ch.fd, ch.id, core::BridgeReason::kBusy);
+  memset(r.pass, 0, sizeof(r.pass));
+}
+
+void onButtonPress(uint32_t now) {
+  switch (g_button.onPress(now)) {
+    case core::ButtonAction::kConfirm: {
+      core::PendingChange ch;
+      if (g_gate.take(ch)) {
+        logf("settings: %s confirmed on the tank", core::changeName(ch.kind));
+        applyChange(ch, now);
+      }
+      break;
+    }
+    case core::ButtonAction::kToggleWifi: {
+      const bool to_ap = !wifiIsAp();
+      net::WifiRequest r;
+      r.kind = net::WifiRequest::kMode;
+      r.ap = to_ap;
+      net::wifiPost(r);
+      pushFeedback(to_ap);
+      logf("wifi: double press - %s", to_ap ? "own AP" : "home WiFi");
+      break;
+    }
+    case core::ButtonAction::kNone:
+    default:
+      break;
+  }
+}
+
+// Each tick: expired confirmations, WiFi results, the next acked op, a pending restart.
+void settingsTick(uint32_t now) {
+  core::PendingChange old;
+  if (g_gate.expired(now, old)) {
+    if (g_ws.contains(old.fd)) sendTo(old.fd, core::jsonConfirmExpired(g_json, sizeof(g_json), core::changeName(old.kind)));
+    memset(old.pass, 0, sizeof(old.pass));
+  }
+  net::WifiResult res;
+  while (net::wifiPoll(res)) {
+    if (!g_ws.contains(res.fd)) continue;
+    static const char* const kWhat[] = {"wifi_status", "wifi_scan", "wifi_save", "wifi_forget", "wifi_mode",
+                                        "ap_password"};
+    switch (res.kind) {
+      case net::WifiResult::kStatus: sendWifiStatus(res.fd); break;
+      case net::WifiResult::kScan: {
+        net::WifiSnapshot s;
+        net::wifiSnapshot(s);
+        sendTo(res.fd, core::jsonWifiScan(g_json, sizeof(g_json), s.scan, s.n_scan));
+        break;
+      }
+      case net::WifiResult::kApplied:
+        sendTo(res.fd, core::jsonConfirmed(g_json, sizeof(g_json), res.req < 6 ? kWhat[res.req] : "wifi"));
+        sendWifiStatus(res.fd);
+        break;
+      case net::WifiResult::kFailed:
+        sendTo(res.fd, core::jsonNackMessage(g_json, sizeof(g_json), res.id, core::BridgeReason::kInvalidCommand,
+                                             res.text));
+        break;
+    }
+  }
+  core::AckedOp op;
+  if (g_ops.busy() && g_ops.timedOut(now)) {  // review I1: no answer (bench took over, lost frame) - never stuck
+    if (g_ops.front(op) && op.fd >= 0 && g_ws.contains(op.fd)) nack(op.fd, op.id, core::BridgeReason::kTimeout);
+    g_ops.done();
+  }
+  if (!g_ops.busy() && !g_link.ackPending() && g_cam_waiter.fd == -1 && g_ops.front(op)) {
+    uint8_t seq = 0;
+    bool sent = false;
+    switch (op.kind) {
+      case core::AckedOp::kSound: sent = g_link.sendSound(op.a, now, seq); break;
+      case core::AckedOp::kLed:
+        sent = g_link.sendLed(op.a, op.r, op.g, op.b, op.period_ms, op.duration_ms, now, seq);
+        break;
+      case core::AckedOp::kSettingGet:
+        sent = g_link.sendSettingGet(op.a, now, seq);
+        break;
+      case core::AckedOp::kSettingSet: sent = g_link.sendSettingSet(op.a, op.value, now, seq); break;
+      case core::AckedOp::kSettingsSave: sent = g_link.sendSettingsSave(now, seq); break;
+    }
+    if (sent) {
+      g_ops.markSent(seq, now);
+    } else if (!g_link.synced()) {  // body offline: answer and drop it
+      if (op.fd >= 0 && g_ws.contains(op.fd)) nack(op.fd, op.id, core::BridgeReason::kBodyOffline);
+      g_ops.markSent(0, now);
+      g_ops.done();
+    }
+  }
+  if (g_restart_at != 0 && static_cast<int32_t>(now - g_restart_at) >= 0) ESP.restart();
 }
 
 // cancel: the owner ends its primitive (STOP while still the owner); acked also when nothing runs.
@@ -394,7 +682,7 @@ void handleDrive(int fd, const core::WsCommand& c, uint32_t now) {
     return;
   }
   core::Actions a;
-  const core::Decision d = g_owner.onDrive(fd, now, a);
+  const core::Decision d = g_owner.onDrive(fd, now, a, c.v != 0 || c.w != 0);  // §72: a held stick stays stopped
   apply(a, now);
   if (d == core::Decision::kSend && motionOwnedBy(fd)) endMotion(core::MotionEvent::kOwnerCommand, now);
   if (d == core::Decision::kSend && (c.v != 0 || c.w != 0)) g_roll.cancel();  // §G6: driving again, no roll-on
@@ -420,7 +708,7 @@ void handleCamHome(int fd, int32_t id, uint32_t now) {
   const core::Decision d = g_owner.onCamera(fd);
   if (d != core::Decision::kSend) {
     nack(fd, id, reasonOf(d));
-  } else if (g_cam_waiter.fd != -1) {
+  } else if (g_cam_waiter.fd != -1 || g_link.ackPending()) {
     nack(fd, id, core::BridgeReason::kBusy);  // review M8: one cam_home at a time, always answered
   } else if (g_link.sendCamHome(now, g_cam_seq)) {
     g_cam_waiter = Waiter{fd, id};
@@ -435,7 +723,7 @@ void handleAcked(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
   uint8_t seq = 0;
   if (d != core::Decision::kSend || g_ota_active) {
     nack(fd, id, g_ota_active ? core::BridgeReason::kBusy : reasonOf(d));
-  } else if (g_cam_waiter.fd != -1) {
+  } else if (g_cam_waiter.fd != -1 || g_link.ackPending()) {  // Plan M: a settings op may hold the slot
     nack(fd, id, core::BridgeReason::kBusy);
   } else if (sendAckedCommand(c, now, seq)) {
     g_cam_seq = seq;
@@ -479,7 +767,15 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
     case core::WsCmdKind::kDriveRate: handleDriveRate(fd, c, now); break;
     case core::WsCmdKind::kCancel: handleCancel(fd, id, now); break;
     case core::WsCmdKind::kMove: handleMove(fd, id, c, now); break;
-    case core::WsCmdKind::kCalib: handleCalib(fd, id, c); break;
+    case core::WsCmdKind::kCalib: handleCalib(fd, id, c, now); break;
+    case core::WsCmdKind::kWifiStatus:
+    case core::WsCmdKind::kWifiScan:
+    case core::WsCmdKind::kWifiSave:
+    case core::WsCmdKind::kWifiForget:
+    case core::WsCmdKind::kWifiMode:
+    case core::WsCmdKind::kApPassword:
+    case core::WsCmdKind::kSetting:
+    case core::WsCmdKind::kRestart: handleSettingsCommand(fd, id, c, now); break;
     case core::WsCmdKind::kRelease: handleRelease(fd, id, now); break;
     case core::WsCmdKind::kDebug: handleDebug(fd, id, c); break;
     case core::WsCmdKind::kPing: sendTo(fd, core::jsonPong(g_json, sizeof(g_json), c.t0, now)); break;
@@ -509,6 +805,7 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
       snprintf(name, sizeof(name), "%s", g_ws.name(cmd.fd));
       if (motionOwnedBy(cmd.fd)) endMotion(core::MotionEvent::kOwnerClosed, now);  // onWsClose STOPs its driver
       const core::Actions a = g_owner.onWsClose(cmd.fd);
+      g_gate.dropClient(cmd.fd);  // Plan M: a waiting change of that client is dropped (review focus 4)
       g_ws.remove(cmd.fd);
       logf("ws: %s closed (%u clients)", name, static_cast<unsigned>(g_ws.count()));
       apply(a, now);
@@ -566,7 +863,9 @@ void handleLinkEvents(uint32_t now) {
         }
         broadcast(core::jsonUnoEvent(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), ev.code, ev.a,
                                      ev.b));
-        if (ev.code == static_cast<uint8_t>(proto::EventKind::kStall)) {
+        if (ev.code == static_cast<uint8_t>(proto::EventKind::kButtonPress)) {
+          onButtonPress(now);  // Plan M: confirm a waiting change, or the WiFi double press
+        } else if (ev.code == static_cast<uint8_t>(proto::EventKind::kStall)) {
           endMotion(core::MotionEvent::kBodyStall, now);  // Plan K: ends a move (turn / rate unchanged)
         } else if (ev.code == static_cast<uint8_t>(proto::EventKind::kEncoderFault)) {
           endMotion(core::MotionEvent::kBodyEncoderFault, now);
@@ -583,6 +882,16 @@ void handleLinkEvents(uint32_t now) {
         g_stop_waiter_n = 0;
         break;
       case core::LinkEventKind::kAckResult:
+        if (g_ops.isCurrent(ev.seq)) {  // Plan M: a settings / feedback op answered
+          core::AckedOp op;
+          const bool have = g_ops.front(op);
+          if (have && ev.status == 0 && op.kind == core::AckedOp::kSettingGet) break;  // review I5: wait for its VALUE
+          if (have && ev.status != 0 && op.fd >= 0 && g_ws.contains(op.fd)) {
+            sendTo(op.fd, core::jsonNackStatus(g_json, sizeof(g_json), op.id, ev.status));
+          }
+          g_ops.done();
+          break;
+        }
         if (ev.seq == g_cam_seq && g_ws.contains(g_cam_waiter.fd)) {
           sendTo(g_cam_waiter.fd,
                  ev.status == 0
@@ -591,6 +900,16 @@ void handleLinkEvents(uint32_t now) {
         }
         g_cam_waiter = Waiter{-1, -1};
         break;
+      case core::LinkEventKind::kSettingValue: {  // Plan M: SETTING_GET answer - completes the GET op (review I5)
+        const int32_t v = static_cast<int32_t>((static_cast<uint32_t>(static_cast<uint16_t>(ev.b)) << 16) |
+                                               static_cast<uint16_t>(ev.a));
+        core::AckedOp op;
+        if (g_ops.busy() && g_ops.front(op) && op.kind == core::AckedOp::kSettingGet && op.a == ev.code) {
+          if (op.fd >= 0 && g_ws.contains(op.fd)) sendTo(op.fd, core::jsonSetting(g_json, sizeof(g_json), ev.code, v));
+          g_ops.done();
+        }
+        break;
+      }
       case core::LinkEventKind::kResetRequest:
       default:
         logf("uno: %s reset request ignored (bridge has no stored settings)",
@@ -707,6 +1026,7 @@ void linkTask(void*) {
     g_link.step(now);
     handleLinkEvents(now);
     telemetry(now);
+    settingsTick(now);  // Plan M
     drainTx();
     if (now - last_publish >= 100) {
       last_publish = now;

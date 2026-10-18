@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050805">
+<title>Conqueror Settings</title>
+<link rel="icon" href="/icon-192.png">
+<style>
+/* Plan M (spec 02 Part I, bridge LLD R9): the bridge's settings page. Look per the Stitch screens (Phosphor Cockpit):
+   docs/design/stitch/12-bridge-settings-desktop-v2.png, 13-…-wifi-mobile-v1.png, 14-…-tank-mobile-v1.png. Two tabs
+   (owner 2026-10-18): WiFi, and Tank = info + calibration + maintenance. No STOP here (design-notes §72).
+   Icons: Lucide (lucide-static v0.460.0, ISC licence, (c) Lucide Contributors / Cole Bemis), inlined - no network. */
+:root {
+  --bg: #050805; --panel: #070f08; --edge-c: rgba(51, 255, 102, .32); --line: rgba(51, 255, 102, .14); --ui: #33ff66;
+  --dim: #1f9a40; --warn: #ffb000; --danger: #ff3b30; --active: #e8ffe8; --text: #b8f5c8;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 var(--mono); }
+body { background-image: repeating-linear-gradient(0deg, rgba(51, 255, 102, .025) 0 1px, transparent 1px 3px); }
+a, button, input { font: inherit; color: inherit; }
+svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; flex: none; }
+header { padding: 10px max(12px, env(safe-area-inset-left)) 8px; border-bottom: 1px solid var(--edge-c); }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.top a { color: var(--ui); text-decoration: none; letter-spacing: .08em; font-weight: 700; }
+.top h1 { font-size: 13px; margin: 0; color: var(--ui); letter-spacing: .14em; }
+.chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+.chip { border: 1px solid var(--edge-c); padding: 4px 6px; color: var(--ui); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; letter-spacing: .06em; }
+.chip.warn { color: var(--warn); border-color: rgba(255, 176, 0, .5); }
+.wrap { display: flex; flex-direction: column; max-width: 1180px; margin: 0 auto; }
+nav { display: flex; margin: 10px 12px 0; border: 1px solid var(--edge-c); padding: 3px; gap: 3px; }
+nav button { flex: 1; background: none; border: 0; padding: 8px 4px; color: var(--dim); cursor: pointer; letter-spacing: .12em; font-weight: 700; }
+nav button.on { color: #022; background: var(--ui); }
+main { padding: 10px 12px 10px; display: grid; grid-template-columns: 1fr; gap: 10px; align-content: start; }
+section { display: none; }
+section.on { display: contents; }
+.card { position: relative; background: var(--panel); border: 1px solid var(--edge-c); padding: 12px; }
+.card::before, .card::after { content: ""; position: absolute; width: 7px; height: 7px; border: 1px solid var(--ui); }
+.card::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+.card::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+.card h2 { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; padding-bottom: 8px; font-size: 12px; color: var(--ui); letter-spacing: .12em; border-bottom: 1px solid var(--line); }
+.card h2 .tag { margin-left: auto; color: var(--dim); font-size: 10px; font-weight: 400; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.row:last-of-type { border-bottom: 0; }
+.row > span:first-child { color: var(--dim); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.row b { color: var(--ui); font-weight: 600; text-align: right; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+.kv small, .box small { display: block; color: var(--dim); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+.kv b { color: var(--ui); font-weight: 600; word-break: break-all; }
+.big { font-size: 22px; color: var(--ui); font-weight: 700; }
+.big small { font-size: 12px; color: var(--dim); font-weight: 400; margin-left: 4px; display: inline; }
+.box { border: 1px solid var(--line); padding: 8px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; background: none; border: 1px solid var(--ui); color: var(--ui); padding: 8px 12px; cursor: pointer; letter-spacing: .1em; font-weight: 700; text-transform: uppercase; font-size: 11px; }
+.btn.warn { border-color: var(--warn); color: var(--warn); }
+.btn.bad { border-color: var(--danger); color: var(--danger); }
+.btn.fill { background: var(--ui); color: #022; }
+.btn.fillw { background: var(--warn); border-color: var(--warn); color: #221500; }
+.btn.wide { width: 100%; margin-top: 8px; }
+.btn.ico { padding: 6px; }
+.btn:disabled { opacity: .45; cursor: default; }
+.btnrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+input { width: 100%; background: #020502; border: 1px solid var(--edge-c); padding: 9px; color: var(--active); }
+input:focus { outline: none; border-color: var(--ui); }
+label { display: flex; justify-content: space-between; color: var(--dim); font-size: 10px; letter-spacing: .1em; margin: 10px 0 4px; text-transform: uppercase; }
+.hint { color: var(--dim); font-size: 11px; margin-top: 8px; font-style: italic; }
+.hint.w { color: var(--warn); }
+.badge { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--dim); color: var(--dim); font-size: 9px; letter-spacing: .1em; padding: 1px 5px; text-transform: uppercase; }
+.badge.on { border-color: var(--ui); color: var(--ui); background: rgba(51, 255, 102, .1); }
+.badge.w { border-color: var(--warn); color: var(--warn); }
+.bars { display: inline-flex; align-items: flex-end; gap: 1px; height: 11px; vertical-align: -1px; }
+.bars i { width: 3px; background: rgba(51, 255, 102, .2); }
+.bars i.on { background: var(--ui); }
+.bars i:nth-child(1) { height: 3px; } .bars i:nth-child(2) { height: 5px; } .bars i:nth-child(3) { height: 8px; } .bars i:nth-child(4) { height: 11px; }
+.net { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); padding: 8px; margin-bottom: 6px; }
+.net .n { flex: 1; min-width: 0; }
+.net .n b { display: block; color: var(--active); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.net .n small { color: var(--dim); font-size: 10px; }
+.net .slotno { color: var(--dim); }
+.net.free { justify-content: center; color: var(--dim); border-style: dashed; font-size: 11px; letter-spacing: .1em; }
+.found { display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.found:hover, .found.sel { background: rgba(51, 255, 102, .08); }
+.found.sel { border-left: 2px solid var(--ui); }
+.found span:not(.badge) { flex: 1; color: var(--active); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.found small { color: var(--dim); }
+#nFound { border: 1px solid var(--line); }
+#nFound:empty { display: none; }
+.stepper { display: grid; grid-template-columns: 40px 1fr 40px auto; margin-top: 10px; }
+.stepper .btn { padding: 8px 0; }
+.stepper input { text-align: center; border-left: 0; border-right: 0; font-weight: 700; color: var(--ui); }
+.stepper .save { margin-left: 8px; padding: 8px 14px; }
+.battbar { height: 6px; border: 1px solid var(--edge-c); margin-top: 5px; }
+.battbar div { height: 100%; background: var(--ui); width: 0; }
+#confirm { display: none; position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 5; width: min(520px, 94vw); border: 1px solid var(--warn); color: var(--warn); background: rgba(14, 10, 2, .97); padding: 10px 12px; }
+#confirm.show { display: block; }
+#confirm .h { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: .08em; font-size: 12px; }
+#confirm .h span { margin-left: auto; white-space: nowrap; flex: none; border: 1px solid var(--warn); padding: 0 5px; }
+#confirm .pb { height: 3px; background: rgba(255, 176, 0, .2); margin-top: 8px; }
+#confirm .pb div { height: 100%; background: var(--warn); width: 100%; }
+#toast { display: none; position: fixed; left: 50%; top: 70px; transform: translateX(-50%); z-index: 6; max-width: 92vw; border: 1px solid var(--danger); color: var(--danger); background: rgba(10, 4, 4, .96); padding: 8px 12px; }
+#toast.ok { border-color: var(--ui); color: var(--ui); background: rgba(4, 12, 6, .96); }
+#toast.show { display: block; }
+footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing: .12em; padding: 6px 0 96px; }
+@media (min-width: 900px) {
+  .wrap { flex-direction: row; }
+  nav { flex-direction: column; width: 210px; margin: 14px 0 0 14px; align-self: flex-start; border: 0; padding: 0; gap: 6px; }
+  nav button { text-align: left; padding: 10px 12px; border: 1px solid var(--edge-c); display: flex; gap: 8px; align-items: center; }
+  main { flex: 1; grid-template-columns: 1fr 1fr; padding: 14px; }
+  .chips { display: flex; justify-content: flex-end; margin-top: 0; }
+  header .inner { display: flex; align-items: center; gap: 16px; max-width: 1180px; margin: 0 auto; }
+  .top { flex: 1; justify-content: flex-start; gap: 18px; }
+}
+</style>
+</head>
+<body>
+<header><div class="inner">
+  <div class="top">
+    <a href="/"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>DRIVE</a>
+    <h1>TANK SETTINGS</h1>
+  </div>
+  <div class="chips">
+    <span class="chip" id="cBatt">-- V</span>
+    <span class="chip" id="cWifi">WIFI --</span>
+    <span class="chip" id="cUno">● UNO --</span>
+  </div>
+</div></header>
+<div class="wrap">
+<nav id="tabs">
+  <button data-tab="wifi" class="on" type="button"><svg viewBox="0 0 24 24"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.86a10 10 0 0 1 14 0"/><path d="M8.5 16.43a5 5 0 0 1 7 0"/></svg> WI-FI</button>
+  <button data-tab="tank" type="button"><svg viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg> TANK</button>
+</nav>
+<main>
+<section id="t-wifi" class="on">
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9"/><path d="M7.8 4.7a6.14 6.14 0 0 0-.8 7.5"/><circle cx="12" cy="9" r="2"/><path d="M16.2 4.8c2 2 2.26 5.11.8 7.47"/><path d="M19.1 1.9a9.96 9.96 0 0 1 0 14.1"/><path d="M9.5 18h5"/><path d="m8 22 4-11 4 11"/></svg>[ 01 // CONNECTION ]</h2>
+    <div class="row"><span>Mode</span><b id="wMode">--</b></div>
+    <div class="row"><span>Network</span><b id="wSsid">--</b></div>
+    <div class="row"><span>Signal</span><b id="wRssi">--</b></div>
+    <div class="row"><span>IP address</span><b id="wIp">--</b></div>
+    <div class="row"><span>Hostname</span><b id="wHost">--</b></div>
+    <button class="btn warn wide" id="wSwitch" type="button"><svg viewBox="0 0 24 24"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg><span>Switch</span></button>
+    <div class="hint" style="text-align:center">// or double-press the tank's button</div>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>[ 02 // SAVED NETWORKS ]<span class="tag badge" id="wSlots">-/3 SLOTS</span></h2>
+    <div id="wSaved"></div>
+    <div class="btnrow">
+      <button class="btn fill" id="wAdd" type="button"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg>Add</button>
+      <button class="btn" id="wScan" type="button"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg><span>Scan</span></button>
+    </div>
+  </div>
+  <div class="card" id="addCard"><h2><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>[ 03 // ADD NETWORK ]<span class="tag" id="nSlot">NEW</span></h2>
+    <label>Found networks <span>2.4 GHz only</span></label>
+    <div id="nFound"></div>
+    <div class="hint" id="nFoundHint" style="margin-top:0">Press Scan, then tap a network - or type its name.</div>
+    <label for="nSsid">Network name <span>max 32</span></label>
+    <input id="nSsid" maxlength="32" autocomplete="off" placeholder="network name">
+    <label for="nPass">Password <span>8-63 · empty = open</span></label>
+    <input id="nPass" type="password" maxlength="63" autocomplete="new-password">
+    <button class="btn fillw wide" id="nSave" type="button"><svg viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>Save &amp; connect</button>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6.01 18H6"/><path d="M10.01 18H10"/><path d="M15 10v4"/><path d="M17.84 7.17a4 4 0 0 0-5.66 0"/><path d="M20.66 4.34a8 8 0 0 0-11.31 0"/></svg>[ 04 // OWN WIFI ]<span class="tag badge w" id="aState">STANDBY</span></h2>
+    <div class="row"><span>Name</span><b id="aSsid">conqueror-bridge</b></div>
+    <div class="row"><span>Address</span><b>192.168.4.1</b></div>
+    <label for="aPass">New password <span>8-63</span></label>
+    <input id="aPass" type="password" maxlength="63" autocomplete="new-password">
+    <button class="btn warn wide" id="aSave" type="button">Change password</button>
+    <div class="hint">// Used when you switch, or when no saved network is found after 10 s.</div>
+  </div>
+</section>
+<section id="t-tank">
+  <div class="card"><h2><svg viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>[ 01 // BRIDGE ]<span class="tag">ESP32-S3</span></h2>
+    <div class="cols">
+      <div class="kv"><small>Firmware</small><b id="iFw">--</b></div>
+      <div class="kv"><small>Uptime</small><b id="iUp">--</b></div>
+      <div class="kv"><small>Free memory</small><b id="iMem">--</b></div>
+      <div class="kv"><small>Last restart</small><b id="iBoot">--</b></div>
+    </div>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>[ 02 // UNO BODY ]<span class="tag">250 kBd</span></h2>
+    <div class="cols">
+      <div class="kv"><small>Firmware</small><b id="iUno">--</b></div>
+      <div class="kv"><small>Last restart</small><b id="iUnoReset">--</b></div>
+    </div>
+    <div class="row" style="margin-top:8px"><span>Battery (2S)</span><b id="iBatt">--</b></div>
+    <div class="battbar"><div id="iBattBar"></div></div>
+    <div class="row"><span>Encoders</span><b id="iEnc">--</b></div>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/></svg>[ 03 // DISTANCE ]<span class="tag">ODOMETRY</span></h2>
+    <div class="cols">
+      <div class="box"><small>Counts / metre</small><div class="big" id="kCpm">--</div>
+        <button class="btn warn wide" id="kResetCpm" type="button">Reset 7560</button></div>
+      <div class="box"><small>Learned roll-on</small><div class="big"><span id="kRoll">--</span><small>mm</small></div>
+        <button class="btn warn wide" id="kResetRoll" type="button">Reset 25 mm</button></div>
+    </div>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>[ 04 // STRAIGHT DRIVING ]</h2>
+    <div class="row"><span>Track balance</span><span class="big"><span id="kBal">--</span><small>‰</small></span></div>
+    <div class="stepper">
+      <button class="btn" id="kMinus" type="button">−</button>
+      <input id="kBalIn" type="number" min="-100" max="100" step="1" inputmode="numeric">
+      <button class="btn" id="kPlus" type="button">+</button>
+      <button class="btn fillw save" id="kBalSave" type="button">Save</button>
+    </div>
+    <div class="hint w">// Changes need a press of the tank's button</div>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>[ 05 // SAFETY ]<span class="tag badge w"><svg viewBox="0 0 24 24" style="width:10px;height:10px"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>READ ONLY</span></h2>
+    <div class="row"><span>Obstacle stop</span><b id="kStop">--</b></div>
+    <div class="row"><span>Obstacle slow-down</span><b id="kSlow">--</b></div>
+    <div class="row"><span>Encoders enabled</span><b id="kEncOn">--</b></div>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>[ 06 // TRACK MODEL ]<span class="tag">KINEMATICS</span></h2>
+    <div class="row"><span>Track width</span><b>19 cm</b></div>
+    <div class="box" style="margin:6px 0"><small>Speed v(p)</small><div style="color:var(--ui)">15.5 + 0.18 · p cm/s</div></div>
+    <div class="row"><span>Slowest / fastest track</span><b>17.7 / 33.5 cm/s</b></div>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>[ 07 // MAINTENANCE ]</h2>
+    <button class="btn wide" id="mCsv" type="button"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>Record 10 s CSV</button>
+    <button class="btn warn wide" id="mRestart" type="button"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Restart bridge</button>
+    <button class="btn bad wide" id="mForget" type="button"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>Forget all WiFi</button>
+    <div class="hint" id="mCsvState">The recording downloads to this device.</div>
+  </div>
+</section>
+</main>
+</div>
+<footer id="foot">BRIDGE -- · PHYSICAL CONFIRMATION: READY</footer>
+<div id="confirm"><div class="h"><svg viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><b id="cText">PRESS THE TANK'S BUTTON</b><span id="cSecs">30 s</span></div>
+  <div class="pb"><div id="cBar"></div></div></div>
+<div id="toast"></div>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var SVG_BATT = '<svg viewBox="0 0 24 24"><rect width="10" height="16" x="7" y="5" rx="2"/><path d="M10 2h4"/></svg>';
+  var SVG_LOCK = '<svg viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+  var SVG_EDIT = '<svg viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/></svg>';
+  var SVG_DEL = '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+  var ws = null, open = false, nextId = 1, retry = 500, wifi = null, editSlot = -1, fw = "--", scan = {};
+  var confirmUntil = 0, confirmSecs = 30, confirmTimer = 0, toastTimer = 0, rec = null;
+
+  function send(o) { if (ws && open) { ws.send(JSON.stringify(o)); return true; } return false; }
+  function toast(t, ok) {
+    $("toast").textContent = t; $("toast").className = "show" + (ok ? " ok" : "");
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { $("toast").className = ""; }, 4000);
+  }
+  function bars(rssi) {  // markup only from numbers - never from an SSID
+    var n = rssi >= -55 ? 4 : rssi >= -65 ? 3 : rssi >= -75 ? 2 : rssi >= -85 ? 1 : 0, h = '<span class="bars">';
+    for (var i = 0; i < 4; i++) h += '<i class="' + (i < n ? "on" : "") + '"></i>';
+    return h + "</span>";
+  }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+  var WHAT = { wifi_save: "SAVE THE NETWORK", wifi_forget: "FORGET", wifi_mode: "SWITCH WIFI",
+               ap_password: "CHANGE THE PASSWORD", calib: "RESET", setting: "SAVE THE SETTING" };
+  function setFoot(waiting) { $("foot").textContent = "BRIDGE " + fw + " · PHYSICAL CONFIRMATION: " + (waiting ? "WAITING" : "READY"); }
+  function showConfirm(what, secs) {
+    confirmSecs = secs; confirmUntil = Date.now() + secs * 1000; clearInterval(confirmTimer);
+    $("cText").textContent = "PRESS THE TANK'S BUTTON TO " + (WHAT[what] || String(what).toUpperCase());
+    var tick = function () {
+      var left = Math.max(0, (confirmUntil - Date.now()) / 1000);
+      $("cSecs").textContent = Math.ceil(left) + " s"; $("cBar").style.width = (100 * left / confirmSecs) + "%";
+    };
+    tick(); confirmTimer = setInterval(tick, 200); $("confirm").className = "show"; setFoot(true);
+  }
+  function hideConfirm(text, ok) {
+    clearInterval(confirmTimer); $("confirm").className = ""; setFoot(false);
+    if (text) toast(text, ok);
+  }
+
+  // ---------- tabs ----------
+  $("tabs").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    Array.prototype.forEach.call($("tabs").children, function (x) { x.className = x === b ? "on" : ""; });
+    ["wifi", "tank"].forEach(function (t) { $("t-" + t).className = t === b.dataset.tab ? "on" : ""; });
+    if (b.dataset.tab === "tank") loadInfo();
+  });
+
+  // ---------- WiFi ----------
+  function renderWifi(m) {
+    wifi = m;
+    var names = { home: "HOME (STA)", connecting: "CONNECTING", ap_fallback: "OWN WIFI (FALLBACK)", ap: "OWN WIFI" };
+    var home = m.mode === "home";
+    $("wMode").textContent = names[m.mode] || m.mode;
+    $("wSsid").textContent = m.ssid ? '"' + m.ssid + '"' : "--";
+    $("wRssi").innerHTML = home ? bars(m.rssi) + " " + Number(m.rssi) + " dBm" : "--";
+    $("wIp").textContent = m.ip || "--";
+    $("wHost").textContent = m.host || "--";
+    $("aSsid").textContent = m.ap_ssid || "conqueror-bridge";
+    $("aState").textContent = m.mode === "ap" || m.mode === "ap_fallback" ? "ON AIR" : "STANDBY";
+    $("cWifi").className = "chip";
+    $("cWifi").innerHTML = home ? "HOME " + bars(m.rssi) : (m.mode === "connecting" ? "CONNECTING" : "OWN WIFI");
+    var toAp = m.mode !== "ap";
+    $("wSwitch").querySelector("span").textContent = toAp ? "Switch to own WiFi" : "Switch to home WiFi";
+    $("wSwitch").dataset.ap = toAp ? "1" : "0";
+    var box = $("wSaved"); box.textContent = "";
+    var used = 0;
+    (m.saved || []).forEach(function (name, i) {
+      if (!name) { box.appendChild(el("div", "net free", "+ [ SLOT " + (i + 1) + " // FREE ]")); return; }
+      used++;
+      var row = el("div", "net");
+      row.appendChild(el("span", "slotno", (i + 1) + "."));
+      var n = el("div", "n"); n.appendChild(el("b", "", name));
+      var connected = home && name === m.ssid;
+      var meta = el("small");
+      meta.appendChild(el("span", "badge" + (connected ? " on" : ""), connected ? "✓ CONNECTED" : "STANDBY"));
+      if (connected) meta.appendChild(document.createTextNode("  " + m.rssi + " dBm"));
+      else if (scan[name] !== undefined) meta.appendChild(document.createTextNode("  " + scan[name] + " dBm"));
+      n.appendChild(meta); row.appendChild(n);
+      var ed = el("button", "btn ico"); ed.type = "button"; ed.innerHTML = SVG_EDIT; ed.title = "Edit";
+      ed.onclick = function () {
+        editSlot = i; $("nSsid").value = name; $("nPass").value = ""; $("nSlot").textContent = "EDIT SLOT " + (i + 1);
+        $("addCard").scrollIntoView({ behavior: "smooth" }); $("nPass").focus();
+      };
+      var rm = el("button", "btn ico bad"); rm.type = "button"; rm.innerHTML = SVG_DEL; rm.title = "Remove";
+      rm.onclick = function () { send({ t: "wifi_forget", slot: i + 1, id: nextId++ }); };
+      row.appendChild(ed); row.appendChild(rm); box.appendChild(row);
+    });
+    $("wSlots").textContent = used + "/3 SLOTS";
+  }
+  $("wSwitch").addEventListener("click", function () {
+    send({ t: "wifi_mode", mode: $("wSwitch").dataset.ap === "1" ? "ap" : "home", id: nextId++ });
+  });
+  $("wAdd").addEventListener("click", function () {
+    editSlot = -1; $("nSlot").textContent = "NEW"; $("nSsid").value = ""; $("nPass").value = "";
+    $("addCard").scrollIntoView({ behavior: "smooth" }); $("nSsid").focus();
+  });
+  var scanTimer = 0;
+  function scanDone() { clearTimeout(scanTimer); $("wScan").disabled = false; $("wScan").querySelector("span").textContent = "Scan"; }
+  $("wScan").addEventListener("click", function () {
+    if (!send({ t: "wifi_scan", id: nextId++ })) { toast("Not connected"); return; }
+    $("wScan").disabled = true; $("wScan").querySelector("span").textContent = "Scanning …";
+    scanTimer = setTimeout(function () { scanDone(); toast("No scan answer - try again"); }, 10000);  // never stuck
+  });
+  function renderScan(nets) {
+    var found = $("nFound"); found.textContent = ""; scan = {};
+    nets.forEach(function (n) {
+      scan[n.ssid] = n.rssi;
+      var row = el("div", "found");
+      var ic = el("i"); ic.innerHTML = n.secure ? SVG_LOCK : ""; row.appendChild(ic);
+      row.appendChild(el("span", "", n.ssid));
+      if (!n.secure) row.appendChild(el("span", "badge on", "OPEN"));
+      var s = el("small"); s.innerHTML = Number(n.rssi) + " dBm " + bars(n.rssi); row.appendChild(s);
+      row.onclick = function () {
+        Array.prototype.forEach.call(found.children, function (x) { x.classList.remove("sel"); });
+        row.classList.add("sel"); $("nSsid").value = n.ssid; $("nPass").focus();
+      };
+      found.appendChild(row);
+    });
+    $("nFoundHint").textContent = nets.length ? "Tap a network, then type its password." : "No networks found (the tank sees 2.4 GHz only).";
+    if (wifi) renderWifi(wifi);
+  }
+  $("nSave").addEventListener("click", function () {
+    var ssid = $("nSsid").value.trim(), pass = $("nPass").value;
+    if (!ssid) { toast("Enter a network name"); return; }
+    if (pass.length && (pass.length < 8 || pass.length > 63)) { toast("Password: 8-63 characters, or empty"); return; }
+    var o = { t: "wifi_save", ssid: ssid, password: pass, id: nextId++ };
+    if (editSlot >= 0) o.slot = editSlot + 1;
+    send(o);
+    $("nPass").value = "";  // never keep a password on the page
+  });
+  $("aSave").addEventListener("click", function () {
+    var pass = $("aPass").value;
+    if (pass.length < 8 || pass.length > 63) { toast("Password: 8-63 characters"); return; }
+    send({ t: "ap_password", password: pass, id: nextId++ });
+    $("aPass").value = "";
+  });
+
+  // ---------- Tank info ----------
+  function fmtUp(s) { var h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return h + " h " + m + " m"; }
+  function loadInfo() {
+    fetch("/info").then(function (r) { return r.json(); }).then(function (d) {
+      fw = d.fw ? d.fw.version : "--"; setFoot($("confirm").className === "show");
+      $("iFw").textContent = fw;
+      $("iUp").textContent = fmtUp(d.uptime_s || 0);
+      $("iMem").textContent = Math.round((d.free_heap || 0) / 1024) + " KB · " + Math.round((d.free_psram || 0) / 1048576) + " MB PSRAM";
+      $("iBoot").textContent = d.boot && d.boot.reason ? d.boot.reason : "--";
+      $("iUno").textContent = d.uno && d.uno.fw ? "Lite " + d.uno.fw + " (proto " + d.uno.proto + ")" : "offline";
+      $("iUnoReset").textContent = d.uno && d.uno.reset_reason ? d.uno.reset_reason : "--";
+    }).catch(function () {});
+  }
+  function showBatt(v) {
+    $("cBatt").innerHTML = SVG_BATT + " " + v.toFixed(2) + " V";
+    $("iBatt").textContent = v.toFixed(2) + " V";
+    $("iBattBar").style.width = Math.max(0, Math.min(100, (v - 6.6) / 1.8 * 100)) + "%";  // 2S: 6.6 .. 8.4 V
+  }
+
+  // ---------- Calibration ----------
+  $("kResetCpm").addEventListener("click", function () { send({ t: "calib", reset: "counts_per_m", id: nextId++ }); });
+  $("kResetRoll").addEventListener("click", function () { send({ t: "calib", reset: "roll", id: nextId++ }); });
+  function stepBal(d) {
+    var v = parseInt($("kBalIn").value, 10);
+    if (isNaN(v)) v = parseInt($("kBal").textContent, 10) || 0;
+    $("kBalIn").value = Math.max(-100, Math.min(100, v + d));
+  }
+  $("kMinus").addEventListener("click", function () { stepBal(-1); });
+  $("kPlus").addEventListener("click", function () { stepBal(1); });
+  $("kBalSave").addEventListener("click", function () {
+    var v = parseInt($("kBalIn").value, 10);
+    if (isNaN(v) || v < -100 || v > 100) { toast("Track balance: -100 … 100"); return; }
+    send({ t: "setting", setting_id: 66, value: v, id: nextId++ });
+  });
+  var SETTING_EL = { 66: ["kBal", ""], 11: ["kStop", " cm"], 12: ["kSlow", " cm"], 1: ["kEncOn", ""] };
+  function onSetting(m) {
+    var e = SETTING_EL[m.id]; if (!e) return;
+    $(e[0]).textContent = m.id === 1 ? (m.value ? "✓ YES" : "NO") : m.value + e[1];
+    if (m.id === 66 && document.activeElement !== $("kBalIn")) $("kBalIn").value = m.value;
+  }
+
+  // ---------- Maintenance ----------
+  var restartId = -1, restarting = false;
+  $("mRestart").addEventListener("click", function () {
+    restartId = nextId++;
+    if (!send({ t: "restart", id: restartId })) toast("Not connected");
+  });
+  $("mForget").addEventListener("click", function () { send({ t: "wifi_forget", id: nextId++ }); });
+  var TD = ["t_s", "seq", "uno_ms", "enc_l", "enc_r", "pwm_l", "pwm_r", "cmd_l", "cmd_r", "act_l", "act_r", "yaw", "rate",
+            "pitch", "roll", "dist_mm", "dist_fault", "closing", "pan", "tilt", "flags", "prim", "pct"];
+  function tdRow(m, t) {
+    var n = function (x) { return x === null || x === undefined ? "" : x; };
+    return [t.toFixed(3), m.seq, m.uno_ms, m.enc[0], m.enc[1], m.pwm[0], m.pwm[1], m.cmd[0], m.cmd[1], n(m.act[0]), n(m.act[1]),
+            m.yaw, m.rate, m.pitch, m.roll, n(m.dist_mm), m.dist_fault ? 1 : 0, m.closing, m.pan, m.tilt, m.flags, m.prim, m.pct].join(",");
+  }
+  $("mCsv").addEventListener("click", function () {
+    if (rec) return;
+    if (!send({ t: "debug", on: true, hz: 50, id: nextId++ })) { toast("Not connected"); return; }
+    rec = { t0: Date.now(), rows: [TD.join(",")] };
+    $("mCsvState").textContent = "Recording 10 s …";
+    setTimeout(function () {
+      send({ t: "debug", on: false });
+      var blob = new Blob([rec.rows.join("\n") + "\n"], { type: "text/csv" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "tank-" + new Date().toISOString().replace(/[:.]/g, "-") + ".csv";
+      document.body.appendChild(a); a.click(); a.remove();
+      $("mCsvState").textContent = (rec.rows.length - 1) + " rows downloaded.";
+      rec = null;
+    }, 10000);
+  });
+
+  // ---------- WebSocket ----------
+  function onMessage(m) {
+    switch (m.t) {
+      case "welcome":
+        $("cUno").textContent = m.tank && m.tank.fw && m.tank.fw.uno ? "● UNO ONLINE" : "● UNO OFFLINE";
+        break;
+      case "ts":
+        if (m.batt_v !== null && m.batt_v !== undefined) showBatt(m.batt_v);
+        var off = (m.flags || []).indexOf("body_offline") >= 0;
+        $("cUno").textContent = off ? "● UNO OFFLINE" : "● UNO ONLINE"; $("cUno").className = "chip" + (off ? " warn" : "");
+        $("iEnc").textContent = (m.flags || []).indexOf("encoder_fault") >= 0 ? "OFF - restart the tank" : "✓ OK";
+        break;
+      case "wifi_status": renderWifi(m); break;
+      case "wifi_scan": scanDone(); renderScan(m.nets || []); break;
+      case "calib": $("kCpm").textContent = m.counts_per_m; $("kRoll").textContent = m.roll_mm; break;
+      case "setting": onSetting(m); break;
+      case "confirm": showConfirm(m.what, m.secs || 30); break;
+      case "confirmed": hideConfirm("Done ✓", true); editSlot = -1; $("nSlot").textContent = "NEW"; break;
+      case "confirm_expired": hideConfirm("Not confirmed - nothing changed"); break;
+      case "nack": hideConfirm(""); scanDone(); toast(m.message || m.reason || "Refused"); break;
+      case "td": if (rec) rec.rows.push(tdRow(m, (Date.now() - rec.t0) / 1000)); break;
+      case "ack":
+        if (m.id === restartId) {  // owner: the restart needs feedback
+          restarting = true; restartId = -1; toast("Restarting the bridge …", true);
+        }
+        break;
+      default: break;
+    }
+  }
+  function connect() {
+    ws = new WebSocket("ws://" + location.host + "/ws");
+    ws.onopen = function () {
+      open = true; retry = 500; scanDone();
+      if (restarting) { restarting = false; toast("Bridge back online ✓", true); }
+      send({ t: "hello", client: "settings", proto: 1 });
+      send({ t: "wifi_status" }); send({ t: "calib" });
+      [66, 11, 12, 1].forEach(function (id) { send({ t: "setting", setting_id: id }); });
+      loadInfo();
+    };
+    ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } onMessage(m); };
+    ws.onclose = function () {
+      open = false; $("cWifi").textContent = "RECONNECTING"; $("cWifi").className = "chip warn";
+      setTimeout(connect, retry); retry = Math.min(retry * 2, 5000);
+    };
+    ws.onerror = function () { ws.close(); };
+  }
+  setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
+  connect();
+})();
+</script>
+</body>
+</html>

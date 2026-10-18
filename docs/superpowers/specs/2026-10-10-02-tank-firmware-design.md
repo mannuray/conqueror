@@ -624,8 +624,8 @@ Bridge only: no Uno change, no body-frame change (protocol 3) — the Uno's exis
 | `{"t":"restart"}` | ack, then restart after 0.5 s | refused while a primitive runs (BUSY) |
 - Errors as today (`nack` with a reason); a command that needs the Uno while it is offline → `BODY_OFFLINE`.
 
-### I4. The `/settings` page (UX: design-notes §72, `docs/design/stitch/12-bridge-settings-desktop-v2.png`)
-- Served by the bridge (gzipped like the drive page); linked from the drive page's menu; phone = **tabs**, desktop = left navigation; the drive page's Phosphor style; the **Emergency STOP** stays on every tab.
+### I4. The `/settings` page (UX: design-notes §72, `docs/design/stitch/12-bridge-settings-desktop-v2.png`; as built: phone screens `13-bridge-settings-wifi-mobile-v1.png`, `14-bridge-settings-tank-mobile-v1.png`)
+- Served by the bridge (gzipped like the drive page); linked from the drive page's menu; **two tabs — WiFi and Tank** (Tank = info + calibration + maintenance; owner 2026-10-18: four tabs were too thin); phone = tabs, desktop = left navigation; the drive page's Phosphor style; **no STOP on the settings page** (owner 2026-10-18: a STOP from a device that is not driving only stopped the tank for one frame — see design-notes §72; STOP stays on the drive page).
 - **WiFi:** connection card (mode, network, signal, IP, hostname, "switch to own WiFi / home" + "or double-press the tank's button"), saved networks (max 3: edit / remove, add, scan), add-network form (scanned names, password, Save & connect, confirmation countdown), own AP card (name, change password, address 192.168.4.1, the fallback note).
 - **Tank info:** bridge / Uno versions, battery, uptime, restart reasons, encoder state (from `/info`, `welcome`, `ts`).
 - **Calibration:** `counts_per_m` and roll-on (reset, confirmed), `track_balance` (edit, confirmed), arc model values (read-only).
@@ -637,4 +637,5 @@ Plain HTTP on the home network: passwords cross the LAN unencrypted while being 
 
 ### I6. Tests and acceptance
 - **Host:** saved-network store (add, edit, remove, full, first-boot seed, password rules), strongest-visible selection, double-press detector (≤ 1 s, ignores a press while confirming), confirmation state machine (confirm, expire, replace), command codec + JSON (no password in any reply), the `setting` allowlist.
+- *As run (design-notes §73): double press both ways, add a network with the press, expiry, track_balance edit, CSV, restart — pass; router-off failover skipped; the settings STOP removed (§72).*
 - **Tank (owner present):** double press switches home ↔ AP both ways (sound + LED, phone rejoins); add a second network with the button confirmation and see it used after a restart; a change without the press expires; `track_balance` edit reaches the Uno and survives its restart; the CSV downloads on the phone; restart bridge works.

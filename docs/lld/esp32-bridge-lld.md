@@ -1510,3 +1510,10 @@ sequenceDiagram
 
 ### R9.5 Tests (host)
 `test_wifi_store` (seed, save new / edit / full, forget one / all, password rules, encode / decode, corrupt blob → empty, pickStrongest), `test_confirm` (gate: confirm, expire once, replace; DoublePress gap; ButtonRouter: press with waiting = confirm, two presses = toggle, a confirming press never starts a double), `test_wifi_policy` (forced AP: no retries, home after toggle), codec + JSON (all new commands; **no password in any JSON**), the setting allowlist.
+
+### R9.6 STOP hold (safety fix, design-notes §72, owner 2026-10-18)
+A STOP from a device that is **not** the driver used to stop the tank for one frame only: `LinkOwner::onStop` kept the driver, whose next DRIVE (20 Hz while its stick is held) restarted the tank. Now:
+- `LinkOwner::onStop(fd)` while driving: `m_stop_hold = (fd != driver)` — another device's STOP holds; the driver's own STOP (its page's STOP / stick release) clears a hold.
+- `LinkOwner::onDrive(fd, now, out, moving)`: while held, the driver's **moving** frames (`v ≠ 0 ∨ w ≠ 0`) → `Decision::kNackStopped` → `nack STOPPED` (code 3011, once per stream); a 0/0 frame or a new primitive (`turn` / `move` / `drive_rate`, `moving = false`) clears the hold. The driver keeps control while held (its timer is refreshed) so a handback can never let it retake and drive.
+- Drive page: `nack STOPPED` → the red centred banner "Stopped by another device - release the stick to drive again" (cleared by the page's own STOP / 0/0, as the stall banner).
+- Tests (`test_link_owner`): held until the stick is released; the driver's own STOP never holds; a new primitive or the driver's STOP releases.

@@ -2,6 +2,8 @@
 #include <string.h>
 #include <unity.h>
 
+#include "core/wifi_store.h"
+
 #include "core/ws_json.h"
 
 using namespace cq::core;
@@ -411,6 +413,58 @@ void test_nack_with_message() {
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"message\":\"say \\\"hi\\\"\""));  // escaped
 }
 
+// Plan M: replies (no password ever).
+void test_wifi_status_and_scan() {
+  WifiStatusView v{"home", "MyHome", -54, "192.168.31.167", "conqueror-bridge.local", {"MyHome", "Office", ""}, 2,
+                   "conqueror-bridge"};
+  jsonWifiStatus(buf, sizeof(buf), v);
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"wifi_status\",\"mode\":\"home\",\"ssid\":\"MyHome\",\"rssi\":-54,\"ip\":\"192.168.31.167\","
+      "\"host\":\"conqueror-bridge.local\",\"saved\":[\"MyHome\",\"Office\"],\"ap_ssid\":\"conqueror-bridge\"}",
+      buf);
+  ScanEntry nets[2] = {};
+  strcpy(nets[0].ssid, "Office-5G");
+  nets[0].rssi = -58;
+  nets[0].secure = true;
+  strcpy(nets[1].ssid, "Cafe");
+  nets[1].rssi = -80;
+  nets[1].secure = false;
+  jsonWifiScan(buf, sizeof(buf), nets, 2);
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"wifi_scan\",\"nets\":[{\"ssid\":\"Office-5G\",\"rssi\":-58,\"secure\":true},"
+      "{\"ssid\":\"Cafe\",\"rssi\":-80,\"secure\":false}]}",
+      buf);
+}
+
+void test_wifi_status_escapes_ssid() {  // Review Focus 5
+  WifiStatusView v{"home", "Bob's \"Net\"\\", -60, "1.2.3.4", "h", {"Bob's \"Net\"\\", "", ""}, 1, "ap"};
+  jsonWifiStatus(buf, sizeof(buf), v);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"ssid\":\"Bob's \\\"Net\\\"\\\\\""));
+}
+
+void test_confirm_replies_and_setting() {
+  jsonConfirm(buf, sizeof(buf), "wifi_save", 30);
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"confirm\",\"what\":\"wifi_save\",\"secs\":30}", buf);
+  jsonConfirmed(buf, sizeof(buf), "wifi_mode");
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"confirmed\",\"what\":\"wifi_mode\"}", buf);
+  jsonConfirmExpired(buf, sizeof(buf), "ap_password");
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"confirm_expired\",\"what\":\"ap_password\"}", buf);
+  jsonSetting(buf, sizeof(buf), 66, -12);
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"setting\",\"id\":66,\"value\":-12}", buf);
+}
+
+
+// Plan M review I4: a neighbour's SSID in Latin-1 / GBK must not make the WebSocket text frame invalid UTF-8.
+void test_json_escape_replaces_invalid_utf8() {
+  char out[32];
+  jsonEscape(out, sizeof(out), "Caf\xE9");          // Latin-1 e-acute: invalid UTF-8
+  TEST_ASSERT_EQUAL_STRING("Caf\xEF\xBF\xBD", out);  // U+FFFD
+  jsonEscape(out, sizeof(out), "Caf\xC3\xA9");      // valid UTF-8 e-acute stays
+  TEST_ASSERT_EQUAL_STRING("Caf\xC3\xA9", out);
+  jsonEscape(out, sizeof(out), "\xFF\xC3");         // garbage + a truncated sequence
+  TEST_ASSERT_EQUAL_STRING("\xEF\xBF\xBD\xEF\xBF\xBD", out);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ack_reason_table_matches_generated_codes);
@@ -436,5 +490,9 @@ int main() {
   RUN_TEST(test_tf_move_progress_and_calib_reply);
   RUN_TEST(test_tf_primitive_limited);
   RUN_TEST(test_nack_with_message);
+  RUN_TEST(test_wifi_status_and_scan);
+  RUN_TEST(test_wifi_status_escapes_ssid);
+  RUN_TEST(test_confirm_replies_and_setting);
+  RUN_TEST(test_json_escape_replaces_invalid_utf8);
   return UNITY_END();
 }

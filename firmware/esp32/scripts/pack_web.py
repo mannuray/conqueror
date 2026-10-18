@@ -19,6 +19,7 @@ import zlib
 
 PAGE_BUDGET = 25 * 1024
 HELP_BUDGET = 16 * 1024
+SETTINGS_BUDGET = 24 * 1024  # Plan M: /settings, gzipped
 
 
 def png_icon(size: int = 192) -> bytes:
@@ -96,6 +97,10 @@ def build(project: pathlib.Path) -> None:
     ]
     if len(assets[0][2]) > PAGE_BUDGET:
         raise SystemExit(f"pack_web: page {len(assets[0][2])} B gzipped > {PAGE_BUDGET} B budget")
+    settings = gz((web / "settings.html").read_bytes())  # Plan M (spec 02 Part I)
+    if len(settings) > SETTINGS_BUDGET:
+        raise SystemExit(f"pack_web: /settings {len(settings)} B gzipped > {SETTINGS_BUDGET} B budget")
+    assets.append(("/settings", "text/html; charset=utf-8", settings, True))
     help_page = assemble_help(project)
     if help_page is not None:
         packed = gz(help_page)

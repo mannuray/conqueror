@@ -1238,9 +1238,9 @@ Glue (Arduino WiFi + Preferences + FreeRTOS): no host test runs it; checked by t
 
 ### Task 9: Tank acceptance, docs, review (owner present)
 
-- [ ] **Step 1:** OTA (password from `secrets.h`, never printed; log filtered and deleted); `/info` shows the commit; the bridge joins the home network from the seeded store (no behaviour change).
-- [ ] **Step 2:** Double press on the tank → jingle + white LED, the bridge's AP appears, the phone joins `conqueror-bridge`, `/settings` shows mode `ap`; double press again → blue LED, back on home WiFi.
-- [ ] **Step 3:** From the page: add a second network (e.g. a phone hotspot) → confirm countdown → press the tank's button → saved; restart the bridge with the home router off → it joins the hotspot. A change left unconfirmed shows "expired" after 30 s and nothing changed.
-- [ ] **Step 4:** `track_balance` edit (e.g. 19 → 18 → 19) with the button; the value reads back after a Uno restart. `calib` reset roll → 25 mm (then let a move re-learn it).
-- [ ] **Step 5:** Record 10 s CSV downloads on the phone; Restart bridge works; the STOP button on the settings page stops a drive started from another phone.
-- [ ] **Step 6:** design-notes §73 (results), spec Part I "as run", LLD R9 as built, CLAUDE.md plan list; whole-branch review (fresh reviewer); fix Critical / Important with a failing test first; ask the owner before merging `plan-m`.
+- [x] **Step 1:** OTA (password from `secrets.h`, never printed; log filtered and deleted); `/info` shows the commit; the bridge joins the home network from the seeded store (no behaviour change).
+- [x] **Step 2:** Double press on the tank → jingle + white LED, the bridge's AP appears, the phone joins `conqueror-bridge`, `/settings` shows mode `ap`; double press again → blue LED, back on home WiFi.
+- [x] **Step 3 (router-off failover skipped by the owner):** From the page: add a second network (e.g. a phone hotspot) → confirm countdown → press the tank's button → saved; restart the bridge with the home router off → it joins the hotspot. A change left unconfirmed shows "expired" after 30 s and nothing changed.
+- [x] **Step 4:** `track_balance` edit (e.g. 19 → 18 → 19) with the button; the value reads back after a Uno restart. `calib` reset roll → 25 mm (then let a move re-learn it).
+- [x] **Step 5:** Record 10 s CSV downloads; Restart bridge works. (The settings-page STOP was removed — design-notes §72.)
+- [x] **Step 6:** design-notes §73 (results), spec Part I "as run", LLD R9 as built, CLAUDE.md plan list; whole-branch review (fresh reviewer); fix Critical / Important with a failing test first; ask the owner before merging `plan-m`.

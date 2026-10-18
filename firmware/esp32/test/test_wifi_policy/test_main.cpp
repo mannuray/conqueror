@@ -59,6 +59,21 @@ void test_station_lost_reconnects() {
   TEST_ASSERT_EQUAL(A(WifiAction::kStartAp), A(p.step(15000, false, false)));  // 10 s after the loss
 }
 
+// Plan M (bridge LLD R9.3): forced AP by double press / confirmed wifi_mode.
+void test_forced_ap_has_no_retries_and_home_restarts() {
+  WifiPolicy p;
+  p.begin(0);
+  p.step(2000, true, false);  // station up
+  TEST_ASSERT_EQUAL(static_cast<int>(WifiAction::kStartAp), static_cast<int>(p.forceAp(3000)));
+  TEST_ASSERT_EQUAL(static_cast<int>(WifiMode::kForcedAp), static_cast<int>(p.mode()));
+  for (uint32_t t = 3000; t < 300000; t += 1000) {
+    TEST_ASSERT_EQUAL(static_cast<int>(WifiAction::kNone), static_cast<int>(p.step(t, false, false)));
+  }
+  TEST_ASSERT_EQUAL(static_cast<int>(WifiAction::kStartStation), static_cast<int>(p.forceHome(300000)));
+  TEST_ASSERT_EQUAL(static_cast<int>(WifiMode::kConnecting), static_cast<int>(p.mode()));
+  TEST_ASSERT_EQUAL(static_cast<int>(WifiAction::kStationUp), static_cast<int>(p.step(302000, true, false)));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_station_connects);
@@ -66,5 +81,6 @@ int main() {
   RUN_TEST(test_retry_every_60s_only_without_clients);
   RUN_TEST(test_ap_stays_while_clients_connected);
   RUN_TEST(test_station_lost_reconnects);
+  RUN_TEST(test_forced_ap_has_no_retries_and_home_restarts);
   return UNITY_END();
 }

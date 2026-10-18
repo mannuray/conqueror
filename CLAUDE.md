@@ -36,8 +36,8 @@ Hobby robot platform: ELEGOO Conqueror tank rebuilt as **Uno body + ESP32 gatewa
 12. **Phone page stall / fault banner + "encoder off" note** (bridge LLD R6, design-notes §67) — done, merged 2026-10-17; every banner is one slim centred line.
 13. **Plan K — MOVE by distance + counts_per_m calibration + learned early stop** (bridge only; spec 02 Part G incl. §G6, bridge LLD R7) — done, merged 2026-10-17, floor-accepted: ±1 cm (design-notes §69); `counts_per_m` 7514 in the bridge NVS; `tools/smoke/move.py`.
 14. **Plan L — arcs, pivots, minimum drive_rate** (bridge only; spec 02 Part H, bridge LLD R8; Uno kMaxCps 2500) — done, merged 2026-10-18 (design-notes §71): pivots / refusals / slow-spin clamp pass; **arc path (±5 cm) re-test after the left road wheel repair**; `tools/smoke/turn.py`.
-15. **Plan M — WiFi modes (double press) + `/settings` page** (bridge only; spec 02 Part I, bridge LLD R9) — done on the tank 2026-10-18 (design-notes §73); ≤ 3 networks in NVS, button-confirmed changes, two tabs. A STOP from any device now holds until the driver releases its stick (§72, LLD R9.6).
-16. **Later:** parked: mode button D2 to switch home WiFi / own AP (§67). Uno Lite flash is at 96 % (~1.2 KB left).
+15. **Plan M — WiFi modes (double press) + `/settings` page** (bridge only; spec 02 Part I, bridge LLD R9) — done on the tank and merged 2026-10-18 (design-notes §73); ≤ 3 networks in NVS, button-confirmed changes, two tabs. A STOP from any device now holds until the driver releases its stick (§72, LLD R9.6).
+16. **Next (owner to pick):** arc re-test + track_balance re-measure after the left road wheel repair; Plan L / M deferred minors; Plan D bench tool (retire / replace / keep); camera + AI phase. Uno Lite flash is at 96 % (~1.2 KB left).
 Execute with the superpowers skills (`subagent-driven-development` recommended, or `executing-plans`).
 
 ## Hard rules for code

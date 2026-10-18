@@ -2,6 +2,7 @@
 #include <string.h>
 #include <unity.h>
 
+#include "core/acked_ops.h"
 #include "core/confirm.h"
 
 using namespace cq::core;
@@ -95,6 +96,34 @@ void test_change_names() {
   TEST_ASSERT_EQUAL_STRING("setting", changeName(ChangeKind::kSetting));
 }
 
+
+void test_acked_ops_one_at_a_time() {
+  AckedOps q;
+  AckedOp a{};
+  a.kind = AckedOp::kSound;
+  AckedOp b{};
+  b.kind = AckedOp::kLed;
+  TEST_ASSERT_TRUE(q.push(a));
+  TEST_ASSERT_TRUE(q.push(b));
+  AckedOp f{};
+  TEST_ASSERT_TRUE(q.front(f));
+  TEST_ASSERT_EQUAL(AckedOp::kSound, f.kind);
+  TEST_ASSERT_FALSE(q.busy());
+  q.markSent(42, 0);
+  TEST_ASSERT_TRUE(q.busy());
+  TEST_ASSERT_TRUE(q.isCurrent(42));
+  TEST_ASSERT_FALSE(q.isCurrent(43));
+  q.done();  // ACK (or timeout) for 42: next op
+  TEST_ASSERT_FALSE(q.busy());
+  TEST_ASSERT_TRUE(q.front(f));
+  TEST_ASSERT_EQUAL(AckedOp::kLed, f.kind);
+  q.markSent(43, 10);
+  q.done();
+  TEST_ASSERT_TRUE(q.empty());
+  for (int i = 0; i < 8; ++i) TEST_ASSERT_TRUE(q.push(a));
+  TEST_ASSERT_FALSE(q.push(a));  // full
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_gate_confirm_then_empty);
@@ -105,5 +134,6 @@ int main() {
   RUN_TEST(test_double_press_three_presses_one_toggle);
   RUN_TEST(test_router_confirms_while_waiting_and_never_doubles);
   RUN_TEST(test_change_names);
+  RUN_TEST(test_acked_ops_one_at_a_time);
   return UNITY_END();
 }

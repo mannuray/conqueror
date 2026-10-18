@@ -1266,3 +1266,12 @@ Bridge only (Uno unchanged since kMaxCps 2500). Owner measured with marks: S (ta
 - **Settings page tabs (owner, first look on the tank):** four tabs were too thin → **two tabs: WiFi, and Tank** (info + calibration + maintenance on one tab). Page only.
 - **Safety finding (Plan M floor check, 2026-10-18):** the settings page's STOP while another client drives stopped the tank for only one frame — `LinkOwner::onStop` sends STOP but keeps the driver, whose next DRIVE (≤ 50 ms) restarts the tank. Pre-existing (Plans C/H: "STOP from anyone" never said the stop holds); the drive page's own STOP works only because that driver stops sending. Owner to choose the fix (recommended: the bridge holds the stop until the driver releases its stick, as the Uno's stall latch).
 - **Owner: remove the STOP from the settings page** (a STOP from a non-driving device makes no sense there). **Open item:** the same gap between two drive pages — a second phone's STOP is undone by the driving phone's next DRIVE (≤ 50 ms); fix later (recommended: the bridge holds a STOP until the driver releases its stick).
+
+## 73. Plan M results on the tank (2026-10-18)
+- First boot of the new bridge: the `secrets.h` network seeded into slot 1, rejoined home WiFi in ~5 s.
+- **Double press:** home → own AP (white LED, phone joined `conqueror-bridge`, page showed OWN WIFI) → home (blue LED). Pass.
+- **Add a network + button confirmation:** phone hotspot saved as slot 2 after one press ("Done ✓"). Found on the way: scan results were hidden in the name field's suggestions → a visible tappable list; the Scan button could stay disabled when the page lost its connection (a phone running a hotspot drops its own WiFi) → 10 s timeout + re-enable on reconnect; the tank sees **2.4 GHz only** (hotspot must use 2.4 GHz). Router-off failover test skipped (owner).
+- **Unconfirmed change expires** (track_balance 18 without a press → "Not confirmed", stayed 19). **Confirmed edits** 18 → 19 read back from the Uno. Pass.
+- **CSV download**, **restart** (software reset, uptime reset) — restart had no feedback → "Restarting … / back online ✓". Pass.
+- **Tabs:** four were too thin → two (WiFi, Tank).
+- **STOP on the settings page removed** (owner) after the safety finding in §72; the cross-device STOP-hold remains an open item.

@@ -637,4 +637,5 @@ Plain HTTP on the home network: passwords cross the LAN unencrypted while being 
 
 ### I6. Tests and acceptance
 - **Host:** saved-network store (add, edit, remove, full, first-boot seed, password rules), strongest-visible selection, double-press detector (≤ 1 s, ignores a press while confirming), confirmation state machine (confirm, expire, replace), command codec + JSON (no password in any reply), the `setting` allowlist.
+- *As run (design-notes §73): double press both ways, add a network with the press, expiry, track_balance edit, CSV, restart — pass; router-off failover skipped; the settings STOP removed (§72).*
 - **Tank (owner present):** double press switches home ↔ AP both ways (sound + LED, phone rejoins); add a second network with the button confirmation and see it used after a restart; a change without the press expires; `track_balance` edit reaches the Uno and survives its restart; the CSV downloads on the phone; restart bridge works.

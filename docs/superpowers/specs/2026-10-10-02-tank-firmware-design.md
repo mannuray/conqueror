@@ -606,7 +606,7 @@ Bridge only: no Uno change, no body-frame change (protocol 3) — the Uno's exis
 - **Mode chip / status:** `wifi_status` reports mode (`home` / `ap` / `ap_fallback` / `connecting`), network name, RSSI, IP, hostname, the saved names (never passwords).
 
 ### I2. Changes and the physical confirmation
-- A change (`wifi_save`, `wifi_forget`, `ap_password`, `calib` reset, `setting` set) does **not** apply at once: the bridge answers `{"t":"confirm","what":…,"secs":30}` to that client and waits.
+- A change from a client (`wifi_save`, `wifi_forget`, `wifi_mode`, `ap_password`, `calib` reset, `setting` set) does **not** apply at once: the bridge answers `{"t":"confirm","what":…,"secs":30}` to that client and waits.
 - A **single press of the tank's button within 30 s** applies it → `{"t":"confirmed","what":…}` (+ the result); no press → `{"t":"confirm_expired"}`; a new change replaces the waiting one. While a confirmation waits a press only confirms (it never counts towards a double press).
 - Applying `wifi_save` with the network that is in use, or a mode change, drops the WebSocket (the client reconnects on the new network).
 
@@ -617,7 +617,7 @@ Bridge only: no Uno change, no body-frame change (protocol 3) — the Uno's exis
 | `{"t":"wifi_scan"}` | `{"t":"wifi_scan","nets":[{"ssid","rssi","secure"}…]}` (≤ 12, strongest first) | async, ~3 s |
 | `{"t":"wifi_save","slot"?:1-3,"ssid","password"}` | confirm → `confirmed` | new or edit; full store → slot required |
 | `{"t":"wifi_forget","slot"?}` | confirm → `confirmed` | one slot or all; all → own AP until a network is saved |
-| `{"t":"wifi_mode","mode":"home"|"ap"}` | ack (no confirmation: the same as the double press) | |
+| `{"t":"wifi_mode","mode":"home"|"ap"}` | confirm → `confirmed` | the same switch as the double press, but confirmed by a press (owner) |
 | `{"t":"ap_password","password"}` | confirm → `confirmed` | 8…63 chars |
 | `{"t":"setting","id","value"?}` | `{"t":"setting","id","value"}` | Uno settings by id: **get** any of the allowlist, **set** only `track_balance` (66) in v1 (then `SETTINGS_SAVE`); safety settings (`obstacle_stop`, `obstacle_slow`) read-only |
 | `{"t":"calib","reset":"counts_per_m"|"roll"}` | confirm → `confirmed` + `calib` | defaults 7560 / 25 mm |
@@ -633,7 +633,7 @@ Bridge only: no Uno change, no body-frame change (protocol 3) — the Uno's exis
 - Second step (later): driving feel (max speed, `accel_limit`, heading gain, reverse steering, sound mode).
 
 ### I5. Security notes
-Plain HTTP on the home network: passwords cross the LAN unencrypted while being saved (as OTA today) — acceptable for development, never release firmware. The button confirmation proves someone is at the tank; anyone on the network can still view the page and switch modes (the same as pressing the button twice).
+Plain HTTP on the home network: passwords cross the LAN unencrypted while being saved (as OTA today) — acceptable for development, never release firmware. The button confirmation proves someone is at the tank; anyone on the network can still view the page; every change, including a mode switch from the page, needs the press (owner).
 
 ### I6. Tests and acceptance
 - **Host:** saved-network store (add, edit, remove, full, first-boot seed, password rules), strongest-visible selection, double-press detector (≤ 1 s, ignores a press while confirming), confirmation state machine (confirm, expire, replace), command codec + JSON (no password in any reply), the `setting` allowlist.

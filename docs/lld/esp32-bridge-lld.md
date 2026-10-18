@@ -1400,3 +1400,113 @@ sequenceDiagram
 - `test_arc` (new): band for R 31 / 40 / 49 / 60 / 100 / 150 against the spec H3 table, R 30 impossible, `arcMinRadiusCm` 31, refusal strings; ArcController against a plant (counts from v, yaw rate from w with lag): left / right arcs end within 2° of the target heading, ω tracks v / R, stalled / blocked / timeout / diverged ends, progress.
 - `test_motion`: pivot output (inside track 0, outside ≤ speed), startArc / startPivot in the service and the link, Uno stall ends an arc but not a pivot, drive_rate clamp (50 → 650, −50 → −650, 0 → 0, v ≠ 0 untouched) and `limited()`, router with pivot.
 - `test_ws_codec`: `pivot` field, pivot + radius invalid. `test_ws_json`: `tf.primitive.limited`, `jsonNackMessage`.
+
+---
+
+## Revision 9 — WiFi modes + `/settings` page (spec 02 Part I, design-notes §72)
+
+### R9.0 Scope
+Bridge only. WiFi: ≤ 3 saved networks in NVS (seeded from `secrets.h`), strongest-visible join, own-AP fallback (10 s) and a **forced AP** by double press or the page; every change from a client waits for a **button confirmation** (30 s). New WebSocket commands, Uno settings via the existing SETTING frames, a new `/settings` page. Spin / move / arcs unchanged.
+
+### R9.1 Threads
+- **Link task** (core 1): all WebSocket traffic (`wsSend` is link-task only), the Uno link, the button logic (`ButtonRouter`) and the confirmation gate (`ConfirmGate`).
+- **Arduino loop** (`WifiService`, core 1 loop): the WiFi radio (`WiFi.*`, scans), NVS of the WiFi store.
+- Between them two FreeRTOS queues: **`WifiRequest`** (link → loop: status, scan, apply save / forget / mode / ap password) and **`WifiResult`** (loop → link: status snapshot, scan list, applied / failed) — the link task turns results into JSON for the asking client.
+
+### R9.2 Classes
+```mermaid
+classDiagram
+  class WifiStore {
+    <<core, pure>>
+    +kSlots = 3
+    +seed(ssid, pass, ap_pass)
+    +save(int slot, ssid, pass) Result  %% slot -1 = first free
+    +forget(int slot)  %% -1 = all
+    +setApPassword(pass) Result
+    +names(out) / count()
+    +pickStrongest(ScanEntry*, n) int  %% slot or -1
+    +encode(uint8_t* out) size_t / decode(in, n) bool
+  }
+  class WifiPolicy {
+    <<core>>
+    +begin(now) / step(now, sta_connected, has_clients) WifiAction
+    +forceAp(now) WifiAction  %% kStartAp, no retries
+    +forceHome(now) WifiAction  %% as boot
+    +mode() WifiMode  %% + kForcedAp
+  }
+  class ConfirmGate {
+    <<core>>
+    +kWindowMs = 30000
+    +begin(int fd, PendingChange c, now)  %% replaces a waiting one
+    +onPress(now) PendingChange*  %% applies
+    +tick(now) bool  %% true = expired (once)
+    +waiting() bool
+  }
+  class DoublePress {
+    <<core>>
+    +kGapMs = 1000
+    +onPress(now) bool  %% true = second press within 1 s
+  }
+  class ButtonRouter {
+    <<core>>
+    +onPress(now) ButtonAction  %% kConfirm / kToggleWifi / kNone
+  }
+  class PendingChange {
+    +Kind kind  %% WifiSave, WifiForget, WifiMode, ApPassword, CalibReset, Setting
+    +int8_t slot
+    +char ssid[33], pass[64]
+    +uint8_t setting_id
+    +int32_t value
+  }
+  class WifiService {
+    <<net, Arduino loop>>
+    +begin(now) / step(now, has_clients)
+    +post(WifiRequest) / poll(WifiResult&)
+    -WifiStore m_store
+    -WifiPolicy m_policy
+  }
+  ButtonRouter --> ConfirmGate
+  ButtonRouter --> DoublePress
+  ConfirmGate --> PendingChange
+  WifiService --> WifiStore
+  WifiService --> WifiPolicy
+```
+- `WifiStore` blob in NVS `cq_wifi` / `store` (version byte, 3 × {ssid 33, pass 64}, ap_pass 64); passwords never leave the bridge (no JSON field, no log line).
+- `BodyLink` gains `sendLed(mode, r, g, b, period_ms, now, seq)`, `sendSettingGet(id)`, `sendSettingSet(id, value)`, `sendSettingsSave()` (acked slots like SOUND) and a `kSettingValue` link event from `SETTING_VALUE`.
+
+### R9.3 Behaviour
+```mermaid
+stateDiagram-v2
+  [*] --> Connecting : boot / forceHome (scan, strongest saved)
+  Connecting --> Station : joined
+  Connecting --> FallbackAp : 10 s
+  FallbackAp --> Station : saved network back, no clients (60 s retries)
+  Station --> Connecting : lost
+  Station --> ForcedAp : double press / confirmed wifi_mode ap
+  FallbackAp --> ForcedAp : double press / confirmed wifi_mode ap
+  ForcedAp --> Connecting : double press / confirmed wifi_mode home
+```
+- **Button:** EVENT `button_press` → `ButtonRouter::onPress`: a waiting confirmation → **kConfirm** (apply it); else `DoublePress` → second press ≤ 1 s → **kToggleWifi** (Station / Connecting / FallbackAp → ForcedAp; ForcedAp → Connecting). Toggling sends `SOUND` (jingle) + `LED` (blue home, white AP, 3 s).
+- **Confirmation:** a change command → `ConfirmGate::begin` + `{"t":"confirm","what","secs":30}`; press → apply → `{"t":"confirmed","what"}` (+ result: `wifi_status`, `calib`, `setting`); `tick` expiry → `{"t":"confirm_expired","what"}` to that client; the client closing drops it.
+- **Uno setting:** `setting` get → SETTING_GET → SETTING_VALUE → `{"t":"setting","id","value"}`; set (allowlist: 66 `track_balance`) → confirm → SETTING_SET → SETTINGS_SAVE → reply. Read allowlist: 66, 11 `obstacle_stop`, 12 `obstacle_slow`, `encoders_enabled`.
+- **Restart:** `restart` → ack → the loop restarts after 0.5 s (refused BUSY while a primitive runs or OTA).
+- **Page:** `web/settings.html` → `/settings` (pack_web, own budget); drive page menu gets a "Settings" link.
+
+### R9.4 Sequence (add a network)
+```mermaid
+sequenceDiagram
+  participant P as /settings page
+  participant L as LinkTask (ConfirmGate)
+  participant U as Uno
+  participant W as WifiService (loop)
+  P->>L: {"t":"wifi_save","ssid":"Office","password":"…"}
+  L-->>P: {"t":"confirm","what":"wifi_save","secs":30}
+  U->>L: EVENT button_press
+  L->>W: WifiRequest save(slot, ssid, pass)
+  W->>W: WifiStore.save + NVS
+  W-->>L: WifiResult applied + status
+  L-->>P: {"t":"confirmed","what":"wifi_save"} + wifi_status
+```
+
+### R9.5 Tests (host)
+`test_wifi_store` (seed, save new / edit / full, forget one / all, password rules, encode / decode, corrupt blob → empty, pickStrongest), `test_confirm` (gate: confirm, expire once, replace; DoublePress gap; ButtonRouter: press with waiting = confirm, two presses = toggle, a confirming press never starts a double), `test_wifi_policy` (forced AP: no retries, home after toggle), codec + JSON (all new commands; **no password in any JSON**), the setting allowlist.

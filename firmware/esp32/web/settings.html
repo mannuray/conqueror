@@ -8,7 +8,8 @@
 <link rel="icon" href="/icon-192.png">
 <style>
 /* Plan M (spec 02 Part I, bridge LLD R9): the bridge's settings page. Phosphor tokens as the drive page; layout per
-   docs/design/stitch/12-bridge-settings-desktop-v2.png (desktop: left navigation) and tabs on the phone. */
+   docs/design/stitch/12-bridge-settings-desktop-v2.png (desktop: left navigation) and tabs on the phone. Two tabs
+   (owner 2026-10-18): WiFi, and Tank = info + calibration + maintenance (separate tabs were too thin). */
 :root {
   --bg: #050805; --panel: #08140a; --edge-c: rgba(51, 255, 102, .38); --ui: #33ff66; --dim: #1f9a40;
   --warn: #ffb000; --danger: #ff3b30; --active: #e8ffe8; --text: #b8f5c8;
@@ -71,8 +72,6 @@ label { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
 <nav id="tabs">
   <button data-tab="wifi" class="on" type="button">WI-FI</button>
   <button data-tab="tank" type="button">TANK</button>
-  <button data-tab="calib" type="button">CALIB</button>
-  <button data-tab="maint" type="button">MAINT</button>
 </nav>
 <main>
 <section id="t-wifi" class="on">
@@ -120,8 +119,7 @@ label { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
     <div class="row"><span>Battery</span><span id="iBatt">--</span></div>
     <div class="row"><span>Encoders</span><span id="iEnc">--</span></div>
   </div>
-</section>
-<section id="t-calib">
+
   <div class="card"><h2>DISTANCE</h2>
     <div class="row"><span>Counts per metre</span><span id="kCpm">--</span></div>
     <div class="row"><span>Learned roll-on</span><span id="kRoll">--</span></div>
@@ -142,8 +140,7 @@ label { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
     <div class="row"><span>Track speed v(p)</span><span>15.5 + 0.18·p cm/s</span></div>
     <div class="row"><span>Slowest / fastest track</span><span>17.7 / 33.5 cm/s</span></div>
   </div>
-</section>
-<section id="t-maint">
+
   <div class="card"><h2>MAINTENANCE</h2>
     <button class="btn" id="mCsv" type="button">Record 10 s CSV</button>
     <button class="btn warn" id="mRestart" type="button">Restart bridge</button>
@@ -188,7 +185,7 @@ label { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
   $("tabs").addEventListener("click", function (e) {
     var b = e.target.closest("button"); if (!b) return;
     Array.prototype.forEach.call($("tabs").children, function (x) { x.className = x === b ? "on" : ""; });
-    ["wifi", "tank", "calib", "maint"].forEach(function (t) { $("t-" + t).className = t === b.dataset.tab ? "on" : ""; });
+    ["wifi", "tank"].forEach(function (t) { $("t-" + t).className = t === b.dataset.tab ? "on" : ""; });
     if (b.dataset.tab === "tank") loadInfo();
   });
 

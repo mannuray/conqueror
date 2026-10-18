@@ -625,7 +625,7 @@ Bridge only: no Uno change, no body-frame change (protocol 3) — the Uno's exis
 - Errors as today (`nack` with a reason); a command that needs the Uno while it is offline → `BODY_OFFLINE`.
 
 ### I4. The `/settings` page (UX: design-notes §72, `docs/design/stitch/12-bridge-settings-desktop-v2.png`)
-- Served by the bridge (gzipped like the drive page); linked from the drive page's menu; phone = **tabs**, desktop = left navigation; the drive page's Phosphor style; the **Emergency STOP** stays on every tab.
+- Served by the bridge (gzipped like the drive page); linked from the drive page's menu; **two tabs — WiFi and Tank** (Tank = info + calibration + maintenance; owner 2026-10-18: four tabs were too thin); phone = tabs, desktop = left navigation; the drive page's Phosphor style; the **Emergency STOP** stays on every tab.
 - **WiFi:** connection card (mode, network, signal, IP, hostname, "switch to own WiFi / home" + "or double-press the tank's button"), saved networks (max 3: edit / remove, add, scan), add-network form (scanned names, password, Save & connect, confirmation countdown), own AP card (name, change password, address 192.168.4.1, the fallback note).
 - **Tank info:** bridge / Uno versions, battery, uptime, restart reasons, encoder state (from `/info`, `welcome`, `ts`).
 - **Calibration:** `counts_per_m` and roll-on (reset, confirmed), `track_balance` (edit, confirmed), arc model values (read-only).

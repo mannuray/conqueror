@@ -1275,3 +1275,4 @@ Bridge only (Uno unchanged since kMaxCps 2500). Owner measured with marks: S (ta
 - **CSV download**, **restart** (software reset, uptime reset) — restart had no feedback → "Restarting … / back online ✓". Pass.
 - **Tabs:** four were too thin → two (WiFi, Tank).
 - **STOP on the settings page removed** (owner) after the safety finding in §72; the cross-device STOP-hold remains an open item.
+- **STOP hold fixed and floor-checked (2026-10-18, bridge a045935):** a script drove at 20 % streaming DRIVE at 20 Hz; the owner pressed STOP on the phone's drive page at 1.08 s → `nack STOPPED`, tracks stopped at 1.09 s and stayed stopped for the remaining ~5 s (0 of 246 telemetry frames moving) although the script kept sending. Open item §72 closed (bridge LLD R9.6).

@@ -216,7 +216,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   var DEADZONE = 0.05, EXPO = 0.3;
   var SOUNDS = ["startup", "ready", "selftest_fail", "chirp_up", "chirp_down", "blip", "tick", "jingle", "thinking", "ouch",
     "error", "success", "fanfare", "sad", "safety_chirp", "ack_blip", "fail", "confirm", "question", "ok_chirp", "grumble",
-    "scan", "goodbye"];  // proto::SoundId order (spec 02 §A9 catalogue)
+    "scan", "goodbye", "horn"];  // proto::SoundId order (spec 02 §A9 catalogue)
   var ws = null, wsOpen = false, you = "", synced = false, owner = "none", ownerClient = "";
   var nextId = 1, retryMs = 1000, pingTimer = 0, camLocked = false, lastRxAt = 0;
   var speed = 60;

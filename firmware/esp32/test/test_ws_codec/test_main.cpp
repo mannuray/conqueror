@@ -144,6 +144,7 @@ void test_sound_by_name() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kSound), K(g.kind));
   TEST_ASSERT_EQUAL_UINT8(23, g.sound_id);
   TEST_ASSERT_EQUAL_UINT8(1, P("{\"t\":\"sound\",\"name\":\"startup\"}").sound_id);
+  TEST_ASSERT_EQUAL_UINT8(24, P("{\"t\":\"sound\",\"name\":\"horn\"}").sound_id);  // design-notes §75
 }
 
 void test_sound_unknown_name_invalid() {

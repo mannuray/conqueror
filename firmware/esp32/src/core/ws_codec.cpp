@@ -146,13 +146,13 @@ WsCmdKind kindOf(const char* t) {
   return WsCmdKind::kUnsupported;
 }
 
-// proto::SoundId names in lower snake case, in enum order (STARTUP = 1 ... GOODBYE = 23); spec 02 §A9 catalogue.
+// proto::SoundId names in lower snake case, in enum order (STARTUP = 1 ... HORN = 24); spec 02 §A9 catalogue.
 // The page has the same list (web/basic_drive.html SOUNDS); the count is checked against the generated enum.
 const char* const kSoundNames[] = {"startup", "ready", "selftest_fail", "chirp_up", "chirp_down", "blip",
                                    "tick", "jingle", "thinking", "ouch", "error", "success",
                                    "fanfare", "sad", "safety_chirp", "ack_blip", "fail", "confirm",
-                                   "question", "ok_chirp", "grumble", "scan", "goodbye"};
-static_assert(sizeof(kSoundNames) / sizeof(kSoundNames[0]) == static_cast<size_t>(proto::SoundId::kGoodbye),
+                                   "question", "ok_chirp", "grumble", "scan", "goodbye", "horn"};
+static_assert(sizeof(kSoundNames) / sizeof(kSoundNames[0]) == static_cast<size_t>(proto::SoundId::kHorn),
               "kSoundNames must list every proto::SoundId in order");
 
 uint8_t soundIdOf(const char* name) {

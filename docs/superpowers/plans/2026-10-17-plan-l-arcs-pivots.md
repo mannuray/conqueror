@@ -1161,9 +1161,9 @@ if __name__ == "__main__":
 
 ### Task 8: Floor acceptance, docs, review (owner present)
 
-- [ ] **Step 1:** OTA the bridge (password from `secrets.h`, never printed; log filtered and deleted); `curl /info` shows the commit.
-- [ ] **Step 2 (floor; ask first, ~1.5 m clear):** start mark at the tank's centre point and heading line; `turn.py 90 --radius 60` and `turn.py -90 --radius 60`, `turn.py 90 --radius 100` and `-90`; owner measures the end heading and the centre's position. **Pass: ±3°, ±5 cm** of (R, ±R).
+- [x] **Step 1:** OTA the bridge (password from `secrets.h`, never printed; log filtered and deleted); `curl /info` shows the commit.
+- [ ] **Step 2 (floor; ask first, ~1.5 m clear) — deferred until the left road wheel is repaired (§71):** start mark at the tank's centre point and heading line; `turn.py 90 --radius 60` and `turn.py -90 --radius 60`, `turn.py 90 --radius 100` and `-90`; owner measures the end heading and the centre's position. **Pass: ±3°, ±5 cm** of (R, ±R).
 - [ ] **Step 3 (floor):** `turn.py 90 --pivot` and `-90 --pivot`: ±3°; the inside track does not move (owner's eye; the inside count change < 1 cm in the `td` stream).
-- [ ] **Step 4:** `turn.py 90 --radius 20` → `refused: radius 20 cm too tight (min 31): use pivot`; `turn.py 90 --radius 40` (default 40 %) → `refused: radius 40 cm: use speed 43-64 %, or pivot`.
-- [ ] **Step 5 (floor):** a 3 s `drive_rate` spin at 10 °/s (throwaway script) turns smoothly at ~65 °/s and `tf.primitive.limited` is true.
-- [ ] **Step 6:** design-notes §71 (results), spec Part H "as run", LLD R8 as built, CLAUDE.md plan list; whole-branch review (fresh reviewer), fix Critical / Important with a failing test first; ask the owner before merging `plan-l`.
+- [x] **Step 4:** `turn.py 90 --radius 20` → `refused: radius 20 cm too tight (min 31): use pivot`; `turn.py 90 --radius 40` (default 40 %) → `refused: radius 40 cm: use speed 43-64 %, or pivot`.
+- [x] **Step 5 (floor):** a 3 s `drive_rate` spin at 10 °/s (throwaway script) turns smoothly at ~65 °/s and `tf.primitive.limited` is true.
+- [x] **Step 6:** design-notes §71 (results), spec Part H "as run", LLD R8 as built, CLAUDE.md plan list; whole-branch review (fresh reviewer), fix Critical / Important with a failing test first; ask the owner before merging `plan-l`.

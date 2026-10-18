@@ -35,7 +35,7 @@ Hobby robot platform: ELEGOO Conqueror tank rebuilt as **Uno body + ESP32 gatewa
 11. **Plan J — straight-driving tuning** (heading-hold integral + `track_balance` 19 ‰, spec 02 §F5, Uno Lite LLD §20) — done, merged 2026-10-17: ~1 cm over 2.5 m (design-notes §65).
 12. **Phone page stall / fault banner + "encoder off" note** (bridge LLD R6, design-notes §67) — done, merged 2026-10-17; every banner is one slim centred line.
 13. **Plan K — MOVE by distance + counts_per_m calibration + learned early stop** (bridge only; spec 02 Part G incl. §G6, bridge LLD R7) — done, merged 2026-10-17, floor-accepted: ±1 cm (design-notes §69); `counts_per_m` 7514 in the bridge NVS; `tools/smoke/move.py`.
-14. **Plan L — arcs, pivots, minimum drive_rate** (bridge only; spec 02 Part H, bridge LLD R8; Uno kMaxCps 2500 already merged) — planned, awaiting approval.
+14. **Plan L — arcs, pivots, minimum drive_rate** (bridge only; spec 02 Part H, bridge LLD R8; Uno kMaxCps 2500) — done, merged 2026-10-18 (design-notes §71): pivots / refusals / slow-spin clamp pass; **arc path (±5 cm) re-test after the left road wheel repair**; `tools/smoke/turn.py`.
 15. **Later:** parked: mode button D2 to switch home WiFi / own AP (§67). Uno Lite flash is at 96 % (~1.2 KB left).
 Execute with the superpowers skills (`subagent-driven-development` recommended, or `executing-plans`).
 

@@ -2,6 +2,8 @@
 
 Status: CONTENT APPROVED (visual design next) · Date: 2026-10-10 · Visual design tool: Google Stitch (after content is agreed)
 
+> **Superseded for the single-tank setup by `docs/design/bridge-ux.md` (2026-10-18, design-notes §79–§80).** Kept for history; the drive-stick sections below still apply to the Drive screen.
+
 ## Principles
 - **Full screen** = a place you stay and work in. **Dialog** = a short task with an end. **Panel/tab** = information you want next to the main thing.
 - Safety controls are never more than one tap away in any tank view.

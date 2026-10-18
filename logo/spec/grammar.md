@@ -16,7 +16,7 @@ The reader works on the source text as UTF-8; only ASCII is meaningful outside c
 | whitespace | spaces, tabs, line breaks — separate tokens, otherwise meaningless (statements end by input counting, §4) | |
 | comment | `;` to the end of the line | `; draw a square` |
 | NUMBER | digits, optionally `.` and more digits; a leading digit is required | `50` `2.5` `0.25` (not `.5`) |
-| NAME | a letter, then letters, digits or `_`, optionally ending in `?` | `FORWARD` `side_2` `OBSTACLE?` |
+| NAME | a letter, then letters, digits, `_` or `#`, optionally ending in `?` | `FORWARD` `side_2` `OBSTACLE?` `C#5` |
 | INPUT | `:` immediately followed by a NAME | `:size` |
 | QUOTED | `"` immediately followed by characters up to whitespace, `[`, `]`, `(` or `)` | `"cat` `"Done!` `"DOUBLE` |
 | `[` `]` `(` `)` | brackets | |

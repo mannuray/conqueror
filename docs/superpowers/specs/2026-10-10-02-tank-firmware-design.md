@@ -619,7 +619,7 @@ Bridge only: no Uno change, no body-frame change (protocol 3) — the Uno's exis
 | `{"t":"wifi_forget","slot"?}` | confirm → `confirmed` | one slot or all; all → own AP until a network is saved |
 | `{"t":"wifi_mode","mode":"home"|"ap"}` | confirm → `confirmed` | the same switch as the double press, but confirmed by a press (owner) |
 | `{"t":"ap_password","password"}` | confirm → `confirmed` | 8…63 chars |
-| `{"t":"setting","id","value"?}` | `{"t":"setting","id","value"}` | Uno settings by id: **get** any of the allowlist, **set** only `track_balance` (66) in v1 (then `SETTINGS_SAVE`); safety settings (`obstacle_stop`, `obstacle_slow`) read-only |
+| `{"t":"setting","setting_id","value"?}` | `{"t":"setting","id","value"}` | Uno settings by id: **get** any of the allowlist, **set** only `track_balance` (66) in v1 (then `SETTINGS_SAVE`); safety settings (`obstacle_stop`, `obstacle_slow`) read-only |
 | `{"t":"calib","reset":"counts_per_m"|"roll"}` | confirm → `confirmed` + `calib` | defaults 7560 / 25 mm |
 | `{"t":"restart"}` | ack, then restart after 0.5 s | refused while a primitive runs (BUSY) |
 - Errors as today (`nack` with a reason); a command that needs the Uno while it is offline → `BODY_OFFLINE`.

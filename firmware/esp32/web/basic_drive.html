@@ -283,7 +283,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
         you = m.you || "";
         showCaps(m.tank && m.tank.caps ? m.tank.caps : {});
         showOwner(m.owner, m.owner_client);
-        resyncLock(m.owner_client);  // also on body_online (review I4)
+        resyncLock();  // also on body_online (review I4)
         break;
       case "tf": showFast(m); break;
       case "ts": showSlow(m); break;
@@ -469,7 +469,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     else if (m.kind === "deadman_stop") toast("Stopped: no drive signal (deadman)");
     else if (m.kind === "blocked") toast("Obstacle brake: " + m.dist_cm + " cm");
     else if (m.kind === "ir_override") toast("IR remote took control");
-    else if (m.kind === "body_online") resyncLock(ownerClient);  // a rebooted Uno starts unlocked (review I4)
+    else if (m.kind === "body_online") resyncLock();  // a rebooted Uno starts unlocked (review I4)
     else if (m.kind === "batt_critical") toast("Battery critical " + m.v.toFixed(2) + " V");
     else if (m.kind === "stall" || m.kind === "encoder_fault" || m.kind === "heading_fault") showLatch(m);
     else if (m.kind === "body_offline" && m.reason === "BODY_INCOMPATIBLE")
@@ -774,7 +774,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   // ---------- controls: single stick / RC two-hand (R3.4) ----------
   var lockAsk = { id: -1, prev: false };
   // Final review: only ever re-send "lock on" (RC mode or our LOCK) - never "off", which would drop another phone's
-  // lock - and not while a bench owns the link (it would only be refused).
+  // lock.
   function resyncLock() { if (rc || camLocked) setLock(true); }
   function showLock(on) { camLocked = on; $("camLock").classList.toggle("on", on); }
   function setLock(on) {

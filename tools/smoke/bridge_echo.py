@@ -19,11 +19,9 @@ import struct
 import time
 from typing import Any
 
-from conqueror_protocol import generated as g
 
 OLD_BENCH_PORT = 3333  # removed from the bridge (design-notes §74); `no-tcp` checks it stays closed
 HTTP_PORT = 80
-SYNCED_BIT = 1 << g.FastFlagBit.SYNCED
 
 
 class WsClient:

@@ -35,17 +35,14 @@ If a plan says `--port /dev/tty.usbserial-XXXX`, use `--port /dev/ttyACM0` (or `
 | | macOS | Linux |
 |---|---|---|
 | `.local` name resolution | built in | `sudo apt install -y avahi-daemon libnss-mdns` (usually preinstalled on desktop Ubuntu) |
-| Browse the bridge service | `dns-sd -B _cqbridge._tcp` | `avahi-browse -rt _cqbridge._tcp` (package `avahi-utils`) |
+| Browse the bridge service | `dns-sd -B _http._tcp` | `avahi-browse -rt _http._tcp` (package `avahi-utils`) |
 | Ping | `ping conqueror-bridge.local` | same |
-The bench tool's `bench discover` works on both (it uses Python zeroconf).
 
-## 4. Bench tool specifics
-- Textual dashboard: works in any modern terminal on both.
-- **Hold-to-drive (`bench drive --hold`, pynput):** macOS needs Accessibility permission for the terminal; on Linux it works under **X11** but **not on Wayland** (use the default cruise-control driving there, or log into an X11 session).
-- Plots use matplotlib's headless backend — no display needed.
+## 4. Bench tool
+Retired 2026-10-18 (design-notes §74); the laptop tools are `tools/smoke/` (`move.py`, `turn.py`, `td_record.py`, `straight_report.py`).
 
 ## 5. Firewall
-The laptop connects **out** to the bridge on TCP 3333 and HTTP 81; no inbound ports are needed. If a strict firewall blocks mDNS, allow UDP 5353 on the local network or connect by IP.
+The laptop connects **out** to the bridge on HTTP 80 / 81 and OTA 3232; no inbound ports are needed. If a strict firewall blocks mDNS, allow UDP 5353 on the local network or connect by IP.
 
 ## 6. Working on two machines
 - One branch per plan (`plan-a`, `plan-b`, …); merge Plan A to `main` before starting B/C/D.

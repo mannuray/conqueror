@@ -30,8 +30,7 @@ void BodyLink::startMaster(uint32_t now_ms) {
   emitNext(proto::HelloReqMsg{});
 }
 
-// A deliberate handover (bench connects, OTA): not a lost body, so no kBodyOffline (review M11).
-// While the bench drives, link_task reports body health from the Uno's traffic (bodyOffline()).
+// A deliberate stop (last web client gone, OTA): not a lost body, so no kBodyOffline (review M11).
 void BodyLink::stopMaster() {
   m_master = false;
   m_hs = HandshakeState::kIdle;

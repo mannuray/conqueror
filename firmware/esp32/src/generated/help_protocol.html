@@ -2,7 +2,7 @@
 <section id="protocol">
 <h2>[ BODY-LINK PROTOCOL v3 ]</h2>
 <p>UART <b>250000</b> 8N1 between ESP32 and Uno. Frame <code>AA len type seq payload crc8</code>: len = payload bytes (max 48), seq = sender's counter, CRC-8 poly 0x07 init 0x00 over len..payload, little-endian fields.</p>
-<p>Master (ESP32 or bench) sends HEARTBEAT every 100 ms; the Uno stops network motion after 300 ms without a valid frame and DRIVE after 300 ms without a new DRIVE. Handshake: HELLO_REQ &rarr; HELLO &rarr; HELLO_ACK (proto must match).</p>
+<p>The master (the ESP32) sends HEARTBEAT every 100 ms; the Uno stops network motion after 300 ms without a valid frame and DRIVE after 300 ms without a new DRIVE. Handshake: HELLO_REQ &rarr; HELLO &rarr; HELLO_ACK (proto must match).</p>
 <h3>Main frames</h3>
 <table><tr><th>Frame</th><th>Type</th><th>Fields</th><th>Example</th><th>Bytes (hex)</th></tr>
 <tr><td>HEARTBEAT</td><td>0x01</td><td>esp_ms u32</td><td>seq=0, esp_ms=1000</td><td><code>aa 04 01 00 e8 03 00 00 35</code></td></tr>

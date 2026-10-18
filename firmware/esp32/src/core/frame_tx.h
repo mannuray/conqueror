@@ -1,10 +1,9 @@
 // Whole-chunk TX queue in front of the Uno UART (bridge LLD R2.8). Every writer hands over complete
-// chunks (one frame, or one run of raw passthrough bytes); the single drainer (link_task) writes a
+// chunks (one frame each); the single drainer (link_task) writes a
 // chunk only when the UART can take all of it, so chunks never interleave mid-frame. One urgent
 // slot (STOP) goes out at the next chunk boundary, ahead of queued chunks (fast path, R2.8): it
 // never cuts the chunk being written, and it purges queued motion chunks (DRIVE / CAM_JOY) that
-// have not started, so an older drive can never follow the STOP and restart the tank. Passthrough
-// (bench) chunks are pushed as kKeep and never purged. Pure C++, no heap.
+// have not started, so an older drive can never follow the STOP and restart the tank. Pure C++, no heap.
 #pragma once
 
 #include <stddef.h>

@@ -53,7 +53,7 @@ def emit_help(model: ProtocolModel) -> str:
         f"<code>{m.sync:02X} len type seq payload crc8</code>: len = payload bytes "
         f"(max {m.max_payload}), seq = sender's counter, CRC-8 poly 0x{m.crc_poly:02X} "
         f"init 0x{m.crc_init:02X} over len..payload, little-endian fields.</p>",
-        "<p>Master (ESP32 or bench) sends HEARTBEAT every 100 ms; the Uno stops network motion "
+        "<p>The master (the ESP32) sends HEARTBEAT every 100 ms; the Uno stops network motion "
         "after 300 ms without a valid frame and DRIVE after 300 ms without a new DRIVE. "
         "Handshake: HELLO_REQ &rarr; HELLO &rarr; HELLO_ACK (proto must match).</p>",
         "<h3>Main frames</h3>",

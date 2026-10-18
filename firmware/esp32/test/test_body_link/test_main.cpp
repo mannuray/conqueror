@@ -329,6 +329,40 @@ void test_wifi_reset_request_answered_unavailable() {
   TEST_ASSERT_EQUAL(static_cast<uint8_t>(proto::AckStatus::kUnavailable), a->payload[1]);
 }
 
+
+// Plan M (bridge LLD R9.2): settings / LED through the acked slot; SETTING_VALUE becomes an event.
+void test_setting_frames_and_value_event() {
+  bl->startMaster(0);
+  hello(proto::kProtocolVersion, 10);
+  uint8_t seq = 0;
+  TEST_ASSERT_TRUE(bl->sendSettingGet(66, 20, seq));
+  TEST_ASSERT_TRUE(bl->ackPending());
+  wire->drain(*tx);
+  TEST_ASSERT_NOT_NULL(wire->last(FT::kSettingGet));
+  ack(seq, 0, 30);
+  TEST_ASSERT_FALSE(bl->ackPending());
+  uint8_t f[32];
+  const size_t n = cqtest::frame(proto::SettingValueMsg{66, -12}, 11, f);
+  unoSends(f, n, 40);
+  LinkEvent ev{};
+  TEST_ASSERT_TRUE(popKind(LinkEventKind::kSettingValue, ev));
+  TEST_ASSERT_EQUAL_UINT8(66, ev.code);
+  const int32_t v = static_cast<int32_t>((static_cast<uint32_t>(static_cast<uint16_t>(ev.b)) << 16) |
+                                         static_cast<uint16_t>(ev.a));
+  TEST_ASSERT_EQUAL_INT32(-12, v);
+  TEST_ASSERT_TRUE(bl->sendSettingSet(66, 19, 50, seq));
+  wire->drain(*tx);
+  TEST_ASSERT_NOT_NULL(wire->last(FT::kSettingSet));
+  ack(seq, 0, 60);
+  TEST_ASSERT_TRUE(bl->sendSettingsSave(70, seq));
+  wire->drain(*tx);
+  TEST_ASSERT_NOT_NULL(wire->last(FT::kSettingsSave));
+  ack(seq, 0, 80);
+  TEST_ASSERT_TRUE(bl->sendLed(static_cast<uint8_t>(proto::LedMode::kBlink), 0, 0, 255, 200, 3000, 90, seq));
+  wire->drain(*tx);
+  TEST_ASSERT_NOT_NULL(wire->last(FT::kLed));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_start_master_sends_heartbeat_and_hello_req);
@@ -352,5 +386,6 @@ int main() {
   RUN_TEST(test_wifi_reset_request_answered_unavailable);
   RUN_TEST(test_sound_and_cam_lock_acked);
   RUN_TEST(test_audio_mode_acked);
+  RUN_TEST(test_setting_frames_and_value_event);
   return UNITY_END();
 }

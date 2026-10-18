@@ -113,6 +113,15 @@ void BodyLink::onFrame(const FrameView& f, uint32_t now_ms) {
       }
       break;
     }
+    case proto::FrameType::kSettingValue: {  // Plan M: the settings page asked (SETTING_GET)
+      proto::SettingValueMsg m{};
+      if (proto::decode(f.payload, f.len, m)) {
+        const uint32_t u = static_cast<uint32_t>(m.value);
+        pushEvent({LinkEventKind::kSettingValue, m.id, f.seq, 0, static_cast<int16_t>(u & 0xFFFFu),
+                   static_cast<int16_t>(u >> 16)});
+      }
+      break;
+    }
     case proto::FrameType::kWifiResetReq:
     case proto::FrameType::kAdminResetReq:
       if (m_master) {
@@ -122,7 +131,7 @@ void BodyLink::onFrame(const FrameView& f, uint32_t now_ms) {
       }
       break;
     default:
-      break;  // SETTING_VALUE, CAL_*: only the bench uses them (passthrough)
+      break;  // CAL_*: only the bench uses them (passthrough)
   }
 }
 
@@ -167,6 +176,23 @@ bool BodyLink::sendCamLock(bool on, uint32_t now_ms, uint8_t& seq_out) {
 
 bool BodyLink::sendAudioMode(uint8_t mode, uint32_t now_ms, uint8_t& seq_out) {
   return sendAcked(proto::AudioModeMsg{mode}, now_ms, seq_out);
+}
+
+bool BodyLink::sendLed(uint8_t mode, uint8_t r, uint8_t g, uint8_t b, uint16_t period_ms, uint16_t duration_ms,
+                       uint32_t now_ms, uint8_t& seq_out) {
+  return sendAcked(proto::LedMsg{mode, r, g, b, period_ms, duration_ms}, now_ms, seq_out);
+}
+
+bool BodyLink::sendSettingGet(uint8_t id, uint32_t now_ms, uint8_t& seq_out) {
+  return sendAcked(proto::SettingGetMsg{id}, now_ms, seq_out);
+}
+
+bool BodyLink::sendSettingSet(uint8_t id, int32_t value, uint32_t now_ms, uint8_t& seq_out) {
+  return sendAcked(proto::SettingSetMsg{id, value}, now_ms, seq_out);
+}
+
+bool BodyLink::sendSettingsSave(uint32_t now_ms, uint8_t& seq_out) {
+  return sendAcked(proto::SettingsSaveMsg{}, now_ms, seq_out);
 }
 
 void BodyLink::setOwnerHint(proto::OwnerHintValue hint) {

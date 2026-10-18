@@ -1330,3 +1330,15 @@ Bridge only (Uno unchanged since kMaxCps 2500). Owner measured with marks: S (ta
 - Screens v2 (laptop + phone): `docs/design/stitch/15-tank-logo-desktop-v2.png`, `16-tank-logo-mobile-v2.png` (Stitch, corrected by hand).
 - **Programs are saved on the tank** — one list for every device (already in v1; Spec 5 §12 item 7).
 - **A running program stops** when its page is hidden or disconnects, or when another device takes control — like driving by hand; STOP from anywhere ends it at once (Spec 5 §12 item 8).
+
+## 82. Tank Logo language — first decisions for spec 05 v2 (owner, 2026-10-18/19)
+Before the grammar, the word table and the test cases are written (owner: "the CFG, spec and grammar first"):
+- **(a)** `WAIT UNTIL cond` for every program (≤ 60 s), not only AI programs.
+- **(b)** No `FOR` loop in v1 (`REPEAT` + `REPCOUNT`).
+- **(d)** Recursion allowed — "recursion is Logo's main feature".
+- **(e)** Procedures can **optionally** give back a value (`OUTPUT`).
+- **(f)** New reporter `OBSTACLE?` — something closer than the obstacle-stop distance.
+- **(g)** New reporter `TIMER` — seconds since the program started.
+- **(h) Option C:** when a move is stopped by an obstacle (the Uno brake, unchanged), a program that uses `BLOCKED?` anywhere carries on (`BLOCKED?` = the last move was cut short); a program that does not ends with "Something is in the way on line n". Stall, tilt, low battery and STOP still end every program.
+- **Style: functional at the core (owner: option B).** No `MAKE`: values come in as procedure inputs and go out with `OUTPUT`; lists are values (list words and higher-order words such as `MAP`, `FILTER`); motion / light / sound stay commands executed in order. This reverses **(c)** (values were to be numbers only) and brings `OUTPUT` into v1. Follow-on choices (lambda form, tail calls, memory on the ESP32, which list words) are being decided next.
+- Still open from 2026-10-18: turn sign (classic right = positive), `ARC LEFT/RIGHT a r` with the 31 cm limit, `PIVOT LEFT/RIGHT a`, real `SOUND` names, parse / check / compile on the ESP32.

@@ -4,16 +4,20 @@
 
 #include <stdint.h>
 
+#include "core/motion_config.h"
+
 namespace cq {
 namespace core {
 
 class RateLoop {
  public:
   void reset();
+  void setFeedForward(float pct_per_dps) { m_ff = pct_per_dps; }  // Plan L: arcs need their own (kept by reset)
   int8_t step(int16_t target_ddps, int16_t rate_ddps, uint16_t dt_ms);  // 0.1 °/s in, % out (+ = CCW / left)
 
  private:
   float m_integral = 0.0f;  // °/s · s
+  float m_ff = motion::kRateFfPctPerDps;  // % per °/s: spins 0.45, arcs kArcFfPctPerDps
   int16_t m_last_target = 0;
 };
 

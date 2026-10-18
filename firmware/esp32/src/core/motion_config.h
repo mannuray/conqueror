@@ -62,6 +62,8 @@ constexpr double kTrackSpeedSlopeCmS = 0.18;
 constexpr double kTrackVMinCmS = 17.7;          // a track runs at 0 or >= this (the Uno's dead-band lift)
 constexpr double kTrackVMaxCmS = 33.5;          // full power
 constexpr int16_t kSpinMinDdps = 650;           // slowest smooth spin: 65 °/s
+constexpr float kArcFfPctPerDps = 1.15f;        // arc feed-forward: 1 % of w gives ~0.85 °/s with both tracks forward
+                                                // (floor 2026-10-18, R 60 @ 40 %); spins keep kRateFfPctPerDps 0.45
 constexpr uint32_t kArcSpeedWindowMs = 100;     // measured speed over the newest frames >= 100 ms apart
 constexpr uint32_t kArcStallMs = 1500;          // < 1 cm of counts and < 2° of heading for 1.5 s -> stalled
 constexpr int32_t kArcStallCdeg = 200;

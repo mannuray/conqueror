@@ -578,7 +578,7 @@ An arc of radius R at centre speed v needs the inner track at v·(1 − B/2R) �
 
 ### H4. Arc control (gyro-closed, owner option 1)
 - Every TELEM_FAST: measured centre speed **v_meas** = mean of the two tracks' counts/s ÷ counts_per_cm (counts rise in both directions; forward only); target turn rate **ω = v_meas / R** (°/s = 57.3 · v / R, signed by the turn direction).
-- Output `DRIVE {src AUTO, v = speed, w}`: w from the existing drive_rate loop (feed-forward + PI on the gyro rate, anti-windup) tracking ω. Starting from rest ω rises with v_meas, so the arc starts on its curve.
+- Output `DRIVE {src AUTO, v = speed, w}`: w from the existing drive_rate loop (feed-forward + PI on the gyro rate, anti-windup) tracking ω. **The arc uses its own feed-forward, 1.15 % of w per °/s** (first floor arc 2026-10-18: with both tracks forward 1 % of w gives only ~0.85 °/s; the spin's 0.45 left the arc too straight — review I1); spins keep 0.45. Starting from rest ω rises with v_meas, so the arc starts on its curve.
 - **End:** when the heading still to go ≤ the rate-latency lead (rate × 80 ms, as the spin) → DRIVE 0/0 + STOP; `primitive_done{prim:"turn", ok, reason}`.
 - Ends as the spin and the move: `done`, `stalled` (Uno stall event, or no turn rate and no counts for 1.5 s while commanding), `encoder_fault`, `blocked` (as MOVE §G3), `timeout` (arc length R·θ / 5 cm/s + 3 s), `diverged` (rate loop saturated with the gyro turning the other way for 0.5 s — the Plan H guard), `cancelled` / `stop` / `not_owner` / `link`.
 - `tf.primitive = {"kind":"turn","pct":…}` (heading turned / asked).

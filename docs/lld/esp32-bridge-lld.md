@@ -1352,7 +1352,7 @@ classDiagram
 
 ### R8.3 Behaviour
 - **Band:** k = B / 2R; lo = ⌈p(v_min / (1 − k))⌉, hi = ⌊p(v_max / (1 + k))⌋, p(v) = (v − 15.5) / 0.18; lo ≥ 12; possible = R > B/2 ∧ lo ≤ hi.
-- **Arc step** (every TELEM_FAST): heading turned (unwrapped, 0.01°); measured centre speed v = Δ(mean counts) over the last ≥ 100 ms ÷ counts_per_cm; target ω = dir · 573 · v / R (0.1 °/s); w = RateLoop(ω, gyro rate, dt); out v = speed, w.
+- **Arc step** (every TELEM_FAST): heading turned (unwrapped, 0.01°); measured centre speed v = Δ(mean counts) over the last ≥ 100 ms ÷ counts_per_cm; target ω = dir · 573 · v / R (0.1 °/s); w = RateLoop(ω, gyro rate, dt) with **`setFeedForward(kArcFfPctPerDps = 1.15)`** (measured: 0.85 °/s per % in an arc; the spin keeps 0.45); out v = speed, w.
   - done: heading still to go ≤ |rate| × 80 ms (`kLatencyDdpsToCdeg`).
   - stalled: < 1 cm of counts **and** < 2° of heading for 1.5 s; with the ultrasonic < 25 cm → blocked; the blocked flag for 2 s → blocked (as MOVE).
   - timeout: R · |θ| (rad) / 5 cm/s + 3 s. diverged: |w| ≥ 95 with the gyro > 5 °/s the wrong way for 0.5 s.

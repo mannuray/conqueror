@@ -49,7 +49,8 @@ void test_arc_refusal_messages() {
 // ---------- ArcController against a plant ----------
 namespace {
 constexpr uint16_t kCpm = 7560;
-// Counts follow v (spec H1 speed model, 75.6 counts / cm) and the turn rate follows w (2.2 °/s per %, 150 ms lag),
+// Counts follow v (spec H1 speed model, 75.6 counts / cm) and the turn rate follows w (0.85 °/s per % - measured in
+// an arc on the floor 2026-10-18, both tracks forward; a spin gets ~2.2), 150 ms lag,
 // both acting on the command sent 3 frames earlier (60 ms).
 struct ArcPlant {
   double yaw_deg = 0.0, rate_dps = 0.0, counts = 0.0;
@@ -64,7 +65,7 @@ struct ArcPlant {
     head = static_cast<uint8_t>((head + 1) % 3);
     const double v_cm = av > 0 ? motion::kTrackSpeedOffsetCmS + motion::kTrackSpeedSlopeCmS * av : 0.0;
     counts += v_cm * 75.6 * 0.02;
-    rate_dps += (aw * 2.2 - rate_dps) * (0.02 / 0.15);
+    rate_dps += (aw * 0.85 - rate_dps) * (0.02 / 0.15);
     yaw_deg += rate_dps * 0.02;
   }
   MotionTelem telem() const {
@@ -213,6 +214,19 @@ void test_arc_more_than_one_turn() {  // Review Focus 2
   TEST_ASSERT_FLOAT_WITHIN(static_cast<float>(3.0), static_cast<float>(400.0), static_cast<float>(p.yaw_deg));
 }
 
+
+void test_arc_reaches_its_rate_within_a_second() {  // floor 2026-10-18: the spin's feed-forward left arcs too straight
+  ArcPlant p;
+  ArcController ac;
+  uint32_t t = 0;
+  ac.begin(p.telem(), 18000, 60, 40, kCpm, 0);
+  for (int i = 0; i < 60; ++i) {  // 1.2 s
+    const ArcStep s = ac.step(p.telem(), t += 20);
+    p.step(s.v, s.w);
+  }
+  TEST_ASSERT_FLOAT_WITHIN(0.2f * 21.7f, 21.7f, static_cast<float>(p.rate_dps));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_arc_band_matches_spec_table);
@@ -225,5 +239,6 @@ int main() {
   RUN_TEST(test_arc_diverged);
   RUN_TEST(test_arc_counts_reset_never_turns_backwards);
   RUN_TEST(test_arc_more_than_one_turn);
+  RUN_TEST(test_arc_reaches_its_rate_within_a_second);
   return UNITY_END();
 }

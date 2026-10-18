@@ -10,6 +10,7 @@ namespace core {
 void ArcController::begin(const MotionTelem& t, int32_t delta_cdeg, uint16_t radius_cm, uint8_t speed_pct,
                           uint16_t cpm, uint32_t now_ms) {
   m_rate.reset();
+  m_rate.setFeedForward(motion::kArcFfPctPerDps);
   m_delta = delta_cdeg;
   m_pos = 0;
   m_dir = delta_cdeg < 0 ? -1 : 1;

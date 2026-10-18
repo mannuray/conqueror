@@ -51,7 +51,8 @@ flowchart LR
 As today: live video, drive stick or RC two-hand mode, camera stick / drag-to-look, LOCK / HOME, STOP, battery and distance bars, heading tape, speed / turn readout, SNAP, SOUNDS sheet (24 sounds incl. horn), MAX speed sheet, mute, banners (stall, fault, encoder off, "stopped by another device"). Change: ⚙ SET → ☰ MENU.
 Not added here (owner, 2026-10-18): a moves panel (Logo does it), deep diagnostics (Settings → Tank).
 
-## 2. Logo (new — content outline; screens come from Stitch next)
+## 2. Logo (new — v2 screens for owner review)
+Designs: `docs/design/stitch/15-tank-logo-desktop-v2.png` (laptop: programs · editor · path side by side) and `16-tank-logo-mobile-v2.png` (phone portrait: PROGRAM / PATH tabs, run bar at the bottom); HTML in `docs/design/stitch/html/`. Generated in Stitch (Phosphor), then corrected by hand: invented labels removed (interpreter names, memory, baud, RPM, "E-STOP OVERRIDE" link), heading sign fixed (right turn = −90°), ☰ MENU added. Shown state: `square` running, line 3, round 2 of 4.
 - **Editor:** the program text with line numbers, word help / autocomplete from `logo/spec/words.yaml`, child-friendly error messages (Spec 5).
 - **Run controls:** RUN, STOP (the big red one, always visible), STEP (pause after each line), speed limit.
 - **While running:** the current line highlighted; the **planned path** (turtle preview, Spec 5 §10) and the **driven path** from the encoders and heading.

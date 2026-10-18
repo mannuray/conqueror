@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>TANK LOGO - Robot Tank Control Hub</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Fonts: JetBrains Mono for monospace terminal fidelity & IBM Plex Sans -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;0,800;1,400&amp;family=Public+Sans:wght@400;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {},
+          borderRadius: {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          fontFamily: {
+            headline: ["JetBrains Mono", "Public Sans", "monospace"],
+            display: ["JetBrains Mono", "Public Sans", "monospace"],
+            body: ["IBM Plex Sans", "sans-serif"],
+            label: ["JetBrains Mono", "Public Sans", "monospace"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    /* Phosphor CRT Scanlines & Screen Texture */
+    .crt-overlay {
+      background: linear-gradient(
+        rgba(18, 16, 16, 0) 50%, 
+        rgba(0, 0, 0, 0.4) 50%
+      ), linear-gradient(
+        90deg,
+        rgba(51, 255, 102, 0.02),
+        rgba(51, 255, 102, 0.01),
+        rgba(51, 255, 102, 0.02)
+      );
+      background-size: 100% 4px, 6px 100%;
+      pointer-events: none;
+    }
+    .phosphor-glow {
+      text-shadow: 0 0 6px rgba(51, 255, 102, 0.65), 0 0 12px rgba(51, 255, 102, 0.3);
+    }
+    .amber-glow {
+      text-shadow: 0 0 6px rgba(255, 176, 0, 0.7), 0 0 14px rgba(255, 176, 0, 0.35);
+    }
+    .red-glow {
+      box-shadow: 0 0 14px rgba(239, 68, 68, 0.6);
+    }
+    /* Technical corner brackets */
+    .bracket-corner {
+      position: relative;
+    }
+    .bracket-corner::before {
+      content: "";
+      position: absolute;
+      top: -1px;
+      left: -1px;
+      width: 6px;
+      height: 6px;
+      border-top: 2px solid #33FF66;
+      border-left: 2px solid #33FF66;
+    }
+    .bracket-corner::after {
+      content: "";
+      position: absolute;
+      bottom: -1px;
+      right: -1px;
+      width: 6px;
+      height: 6px;
+      border-bottom: 2px solid #33FF66;
+      border-right: 2px solid #33FF66;
+    }
+    /* Hide scrollbars for toolbars while keeping scrollability */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-[#050805] text-[#33FF66] font-mono min-h-screen flex flex-col justify-between selection:bg-[#33FF66]/30 selection:text-[#E8FFE8] overflow-x-hidden antialiased">
+<!-- Atmospheric Scanline Layer -->
+<div class="fixed inset-0 crt-overlay z-40 pointer-events-none"></div>
+<!-- MAIN WRAPPER: Mobile Portrait Viewport Frame -->
+<div class="w-full max-w-md mx-auto flex flex-col min-h-screen pb-24 relative z-10">
+<!-- 1. TOP HEADER & TELEMETRY STRIP -->
+<header class="w-full bg-[#050805] border-b border-[#33FF66]/40 sticky top-0 z-30">
+<!-- TopAppBar Anchor from Shared Components -->
+<div class="flex justify-between items-center w-full px-3 py-2.5 bg-[#050805]">
+<!-- Leading: Drive Return link -->
+<a class="flex items-center gap-1 text-[#33FF66] hover:text-[#E8FFE8] text-xs font-bold tracking-wider active:opacity-75 transition-opacity" href="#drive">
+<span class="tracking-widest">‹ DRIVE</span>
+</a>
+<!-- Brand Title: Exact Casing -->
+<div class="flex items-center gap-1.5">
+<span class="text-xs font-mono font-bold tracking-widest text-[#33FF66] phosphor-glow">[ TANK LOGO ]</span>
+</div>
+<!-- Trailing: menu + STOP -->
+<div class="flex items-center gap-2"><button class="border border-[#33FF66]/50 text-[#33FF66] px-2 py-1 rounded flex items-center" aria-label="menu"><span class="material-symbols-outlined text-sm">menu</span></button>
+<button class="bg-[#EF4444] hover:bg-[#dc2626] text-white font-mono font-bold text-xs uppercase px-3 py-1 rounded flex items-center gap-1 red-glow active:scale-95 transition-all">
+<span class="material-symbols-outlined text-sm font-bold">front_hand</span>
+<span>STOP</span>
+</button></div>
+</div>
+<!-- Telemetry Status Strip -->
+<div class="grid grid-cols-3 gap-2 px-3 py-1.5 bg-[#0A0F0A] border-t border-[#33FF66]/20 text-[11px]">
+<!-- Battery Voltage -->
+<div class="flex items-center justify-center gap-1.5 py-0.5 px-1 rounded border border-[#33FF66]/30 bg-[#050805]">
+<span class="material-symbols-outlined text-[13px] text-[#33FF66]">battery_charging_full</span>
+<span class="font-bold text-[#E8FFE8] tracking-tight">8.18 V</span>
+</div>
+<!-- Telemetry Wi-Fi -->
+<div class="flex items-center justify-center gap-1.5 py-0.5 px-1 rounded border border-[#33FF66]/30 bg-[#050805]">
+<span class="material-symbols-outlined text-[13px] text-[#33FF66]">wifi</span>
+<span class="font-bold text-[#33FF66] tracking-tight">HOME -54 dBm</span>
+</div>
+<!-- Link State -->
+<div class="flex items-center justify-center gap-1.5 py-0.5 px-1 rounded border border-[#33FF66]/30 bg-[#050805]">
+<span class="inline-block w-2 h-2 rounded-full bg-[#33FF66] shadow-[0_0_6px_#33FF66] animate-pulse"></span>
+<span class="font-bold text-[#33FF66] tracking-tight">UNO ONLINE</span>
+</div>
+</div>
+</header>
+<!-- MAIN INTERACTIVE CONTENT AREA -->
+<main class="flex-1 px-3 pt-2.5 pb-4 flex flex-col gap-2.5">
+<!-- 2. PROGRAM PICKER & TABS ROW -->
+<section class="flex flex-col gap-2">
+<!-- Selector row with program tools -->
+<div class="flex items-center justify-between gap-1.5">
+<!-- Program Dropdown Chip -->
+<div class="flex-1 flex items-center justify-between px-2.5 py-1.5 bg-[#0A0F0A] border border-[#33FF66]/50 rounded cursor-pointer hover:border-[#33FF66] group transition-colors">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-xs text-[#33FF66]/70">terminal</span>
+<span class="text-xs font-bold text-[#E8FFE8] tracking-wider">square</span>
+</div>
+<span class="material-symbols-outlined text-sm text-[#33FF66] group-hover:translate-y-0.5 transition-transform">arrow_drop_down</span>
+</div>
+<!-- Utility Quick Actions -->
+<div class="flex items-center gap-1">
+<!-- New Program -->
+<button class="p-1.5 bg-[#0A0F0A] border border-[#33FF66]/40 hover:bg-[#33FF66]/10 hover:border-[#33FF66] text-[#33FF66] rounded active:scale-95 transition-all" title="New Program">
+<span class="material-symbols-outlined text-sm">note_add</span>
+</button>
+<!-- Rename Program -->
+<button class="p-1.5 bg-[#0A0F0A] border border-[#33FF66]/40 hover:bg-[#33FF66]/10 hover:border-[#33FF66] text-[#33FF66] rounded active:scale-95 transition-all" title="Rename">
+<span class="material-symbols-outlined text-sm">edit</span>
+</button>
+<!-- Delete Program -->
+<button class="p-1.5 bg-[#0A0F0A] border border-[#FF3B30]/40 hover:bg-[#FF3B30]/10 hover:border-[#FF3B30] text-[#FF3B30] rounded active:scale-95 transition-all" title="Delete">
+<span class="material-symbols-outlined text-sm">delete</span>
+</button>
+</div>
+</div>
+<!-- Navigation Tabs: PROGRAM (Active) vs PATH -->
+<div class="grid grid-cols-2 gap-1.5 pt-0.5">
+<button class="py-1 px-3 bg-[#33FF66]/20 border-2 border-[#33FF66] text-[#E8FFE8] font-bold text-xs uppercase tracking-widest text-center shadow-[0_0_8px_rgba(51,255,102,0.25)]">
+            [ PROGRAM ]
+          </button>
+<button class="py-1 px-3 bg-[#0A0F0A] border border-[#33FF66]/30 text-[#33FF66]/60 hover:text-[#33FF66] font-bold text-xs uppercase tracking-widest text-center transition-colors">
+            PATH
+          </button>
+</div>
+</section>
+<!-- 3. PROGRAM TAB CONTENT (Code Editor Card) -->
+<section class="bg-[#0A0F0A] border border-[#33FF66]/40 bracket-corner p-2.5 flex flex-col gap-2 relative">
+<!-- Card Header with corner ticks -->
+<div class="flex items-center justify-between border-b border-[#33FF66]/20 pb-1.5">
+<span class="text-[11px] font-bold tracking-wider text-[#33FF66] phosphor-glow">
+            [ 01 // PROGRAM : square ]
+          </span>
+<span class="text-[10px] text-[#33FF66]/60 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-[#FFB000] animate-ping"></span>
+            RUNNING
+          </span>
+</div>
+<!-- Code Editor Surface with Syntax Highlighting -->
+<div class="font-mono text-xs leading-5 select-text overflow-x-auto bg-[#050805] p-2 border border-[#33FF66]/20 rounded">
+<!-- Line 01: Comment -->
+<div class="flex items-center font-mono">
+<span class="w-6 text-[10px] text-[#33FF66]/40 select-none text-right pr-2">01</span>
+<span class="text-[#33FF66]/50 italic">; draw a square, then celebrate</span>
+</div>
+<!-- Line 02: TO definition -->
+<div class="flex items-center font-mono">
+<span class="w-6 text-[10px] text-[#33FF66]/40 select-none text-right pr-2">02</span>
+<span><strong class="text-[#33FF66] font-bold">TO</strong> SQUARE <span class="text-[#FFB000]">:size</span></span>
+</div>
+<!-- Line 03: Actively Running Highlight Line -->
+<div class="flex items-center bg-[#FFB000]/15 border-l-4 border-[#FFB000] -ml-2 pl-1 py-0.5 rounded-r my-0.5">
+<span class="w-5 text-[10px] text-[#FFB000] font-bold select-none text-right pr-2">03</span>
+<span class="flex-1 text-[#E8FFE8]">
+                <strong class="text-[#33FF66] font-bold">REPEAT</strong> <span class="text-[#FFB000] font-bold">4</span> [ FORWARD <span class="text-[#FFB000]">:size</span>  RIGHT <span class="text-[#FFB000]">90</span> ]
+            </span>
+<span class="text-[9px] bg-[#FFB000] text-[#050805] font-black px-1 py-0.2 rounded uppercase tracking-tighter whitespace-nowrap mr-1 shadow-sm">
+              round 2 of 4
+            </span>
+</div>
+<!-- Line 04: END definition -->
+<div class="flex items-center font-mono">
+<span class="w-6 text-[10px] text-[#33FF66]/40 select-none text-right pr-2">04</span>
+<span class="text-[#33FF66] font-bold">END</span>
+</div>
+<!-- Line 05: Spacer -->
+<div class="flex items-center font-mono">
+<span class="w-6 text-[10px] text-[#33FF66]/30 select-none text-right pr-2">05</span>
+<span> </span>
+</div>
+<!-- Line 06: SPEED -->
+<div class="flex items-center font-mono">
+<span class="w-6 text-[10px] text-[#33FF66]/40 select-none text-right pr-2">06</span>
+<span>SPEED <span class="text-[#FFB000]">40</span></span>
+</div>
+<!-- Line 07: Call SQUARE -->
+<div class="flex items-center font-mono">
+<span class="w-6 text-[10px] text-[#33FF66]/40 select-none text-right pr-2">07</span>
+<span>SQUARE <span class="text-[#FFB000]">50</span></span>
+</div>
+<!-- Line 08: Actuators -->
+<div class="flex items-center font-mono">
+<span class="w-6 text-[10px] text-[#33FF66]/40 select-none text-right pr-2">08</span>
+<span>LED GREEN  BEEP</span>
+</div>
+<!-- Line 09: SAY Statement -->
+<div class="flex items-center font-mono">
+<span class="w-6 text-[10px] text-[#33FF66]/40 select-none text-right pr-2">09</span>
+<span>SAY <span class="text-[#33FF66]/90">"Done!</span></span>
+</div>
+</div>
+<!-- Command Palette Quick-Insert Strip (Horizontal Scroll) -->
+<div class="flex flex-col gap-1 pt-1">
+<div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 text-[11px] font-bold">
+<button class="px-2 py-0.5 bg-[#050805] border border-[#33FF66]/40 hover:border-[#33FF66] hover:bg-[#33FF66]/20 text-[#33FF66] rounded whitespace-nowrap active:scale-95 transition-all">FORWARD</button>
+<button class="px-2 py-0.5 bg-[#050805] border border-[#33FF66]/40 hover:border-[#33FF66] hover:bg-[#33FF66]/20 text-[#33FF66] rounded whitespace-nowrap active:scale-95 transition-all">BACK</button>
+<button class="px-2 py-0.5 bg-[#050805] border border-[#33FF66]/40 hover:border-[#33FF66] hover:bg-[#33FF66]/20 text-[#33FF66] rounded whitespace-nowrap active:scale-95 transition-all">LEFT</button>
+<button class="px-2 py-0.5 bg-[#050805] border border-[#33FF66]/40 hover:border-[#33FF66] hover:bg-[#33FF66]/20 text-[#33FF66] rounded whitespace-nowrap active:scale-95 transition-all">RIGHT</button>
+<button class="px-2 py-0.5 bg-[#050805] border border-[#33FF66]/40 hover:border-[#33FF66] hover:bg-[#33FF66]/20 text-[#33FF66] rounded whitespace-nowrap active:scale-95 transition-all">ARC</button>
+<button class="px-2 py-0.5 bg-[#050805] border border-[#FFB000]/50 hover:border-[#FFB000] hover:bg-[#FFB000]/20 text-[#FFB000] rounded whitespace-nowrap active:scale-95 transition-all">REPEAT [ ]</button>
+<button class="px-2 py-0.5 bg-[#050805] border border-[#33FF66]/40 hover:border-[#33FF66] hover:bg-[#33FF66]/20 text-[#33FF66] rounded whitespace-nowrap active:scale-95 transition-all">WAIT</button>
+<button class="px-2 py-0.5 bg-[#050805] border border-[#33FF66]/40 hover:border-[#33FF66] hover:bg-[#33FF66]/20 text-[#33FF66] rounded whitespace-nowrap active:scale-95 transition-all">LED</button>
+<button class="px-2 py-0.5 bg-[#050805] border border-[#33FF66]/40 hover:border-[#33FF66] hover:bg-[#33FF66]/20 text-[#33FF66] rounded whitespace-nowrap active:scale-95 transition-all">BEEP</button>
+<button class="px-2 py-0.5 bg-[#050805] border border-[#33FF66]/40 hover:border-[#33FF66] hover:bg-[#33FF66]/20 text-[#33FF66] rounded whitespace-nowrap active:scale-95 transition-all">SAY</button>
+</div>
+<!-- Syntax Quick Help Hint -->
+<div class="flex items-center gap-1.5 text-[10px] text-[#33FF66]/60 px-0.5">
+<span class="material-symbols-outlined text-[12px] text-[#FFB000]">info</span>
+<span class="tracking-tight">FORWARD n — drive n cm forward</span>
+</div>
+</div>
+</section>
+<!-- 4. CONSOLE & PATH MINI-PREVIEW CARD -->
+<section class="bg-[#0A0F0A] border border-[#33FF66]/40 bracket-corner p-2 flex items-center justify-between gap-2.5">
+<!-- Telemetry & Terminal Line output -->
+<div class="flex-1 flex flex-col justify-between h-full py-0.5">
+<div class="flex items-center gap-1.5 text-[10px] text-[#33FF66]/60 border-b border-[#33FF66]/20 pb-1">
+<span class="text-[#33FF66] font-bold">[ MESSAGES ]</span>
+<span></span>
+</div>
+<div class="py-1">
+<div class="text-[11px] font-mono text-[#E8FFE8] flex items-center gap-1.5">
+<span class="text-[#FFB000] font-bold">&gt;&gt;</span>
+<span>line 3: <span class="text-[#FFB000] font-bold">RIGHT 90</span></span>
+</div>
+<div class="text-[9px] text-[#33FF66]/50 uppercase tracking-wider">line 3: FORWARD 50 · done</div>
+</div>
+<div class="text-[9px] text-[#33FF66]/70 flex items-center gap-1">
+<span class="material-symbols-outlined text-[10px]">touch_app</span>
+<span>(tap to open PATH)</span>
+</div>
+</div>
+<!-- Inset Thumbnail Tank Path Preview -->
+<div class="w-20 h-20 bg-[#050805] border-2 border-[#33FF66]/50 rounded relative flex items-center justify-center cursor-pointer group hover:border-[#33FF66] transition-colors p-1">
+<!-- CRT grid lines on canvas -->
+<div class="absolute inset-0 bg-[radial-gradient(#33FF66_1px,transparent_1px)] [background-size:6px_6px] opacity-20 pointer-events-none"></div>
+<!-- Path Vector: Square drawing representation -->
+<svg class="w-14 h-14" fill="none" viewbox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+<!-- Already traversed path lines (glowing) -->
+<path class="drop-shadow-[0_0_4px_#33FF66]" d="M 14 46 L 14 14 L 46 14" stroke="#33FF66" stroke-linecap="square" stroke-width="2"></path>
+<!-- Planned remaining dashed lines -->
+<path d="M 46 14 L 46 46 L 14 46" stroke="#33FF66" stroke-dasharray="3 3" stroke-opacity="0.4" stroke-width="1.5"></path>
+<!-- Tank Marker Glyph (Facing East, turning South) -->
+<g transform="translate(46, 14) rotate(90)">
+<!-- Tank chassis -->
+<rect fill="#FFB000" height="8" rx="1" width="10" x="-5" y="-4"></rect>
+<!-- Treads -->
+<rect fill="#33FF66" height="2" width="12" x="-6" y="-6"></rect>
+<rect fill="#33FF66" height="2" width="12" x="-6" y="4"></rect>
+<!-- Turret tip -->
+<line stroke="#050805" stroke-linecap="round" stroke-width="2" x1="0" x2="6" y1="0" y2="0"></line>
+</g>
+</svg>
+<!-- Path badge -->
+<span class="absolute bottom-0.5 right-0.5 text-[8px] bg-[#0A0F0A]/90 text-[#33FF66] font-mono px-0.5 border border-[#33FF66]/30">
+            50cm²
+          </span>
+</div>
+</section>
+</main>
+<!-- 5. DOCKED FIXED BOTTOM CONTROLS & BOTTOMNAVBAR INTEGRATION -->
+<!-- Adheres strictly to Shared Components BottomNavBar specifications with requested controls -->
+<footer class="fixed bottom-0 left-0 w-full z-50 bg-[#0A0F0A] border-t border-[#33FF66]/40 flex flex-col">
+<!-- Real-time Status Ticker above button controls -->
+<div class="w-full bg-[#050805] px-3 py-1 flex items-center justify-between border-b border-[#33FF66]/20 text-[11px] font-mono">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-[#FFB000] animate-pulse"></span>
+<span class="text-[#FFB000] font-bold tracking-wider amber-glow">
+            RUNNING · line 3 · 0:14
+          </span>
+</div>
+<div class="flex items-center gap-2 text-[10px]">
+<span class="text-[#33FF66]/60">LIMIT 5:00</span>
+</div>
+</div>
+<!-- Execution Navigation Row: thumb-friendly primary actions -->
+<div class="w-full max-w-md mx-auto grid grid-cols-4 gap-1.5 p-2 bg-[#0A0F0A]">
+<!-- RUN Button (Primary Amber Highlight Action as specified) -->
+<button class="flex flex-col items-center justify-center bg-[#FFB000] text-[#050805] font-bold border border-[#FFB000] rounded py-1.5 px-2 active:scale-95 transition-transform shadow-[0_0_10px_rgba(255,176,0,0.4)]">
+<span class="material-symbols-outlined text-lg leading-none" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+<span class="font-mono uppercase text-[10px] tracking-wider mt-0.5 font-black">RUN</span>
+</button>
+<!-- STEP Button -->
+<button class="flex flex-col items-center justify-center bg-[#050805] text-[#33FF66] border border-[#33FF66]/50 rounded py-1.5 px-2 hover:bg-[#33FF66]/10 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-lg leading-none">redo</span>
+<span class="font-mono uppercase text-[10px] tracking-wider mt-0.5">STEP</span>
+</button>
+<!-- PAUSE Button -->
+<button class="flex flex-col items-center justify-center bg-[#050805] text-[#33FF66] border border-[#33FF66]/50 rounded py-1.5 px-2 hover:bg-[#33FF66]/10 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-lg leading-none">pause</span>
+<span class="font-mono uppercase text-[10px] tracking-wider mt-0.5">PAUSE</span>
+</button>
+<!-- SPEED Toggle Chip (Alternative action in clear/config slot) -->
+<button class="flex flex-col items-center justify-center bg-[#050805] text-[#33FF66] border border-[#33FF66]/40 rounded py-1.5 px-2 hover:border-[#33FF66] active:scale-95 transition-all">
+<span class="text-xs font-bold text-[#FFB000]">SPD</span>
+<span class="font-mono uppercase text-[10px] tracking-wider mt-0.5 text-[#E8FFE8]">40%</span>
+</button>
+</div>
+</footer>
+</div>
+<!-- Micro-interactions logic -->
+<script>
+    // Audio feedback synth simulation & UI reactivity
+    document.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        // Haptic feedback if supported
+        if (window.navigator && window.navigator.vibrate) {
+          window.navigator.vibrate(15);
+        }
+      });
+    });
+  </script>
+</body></html>

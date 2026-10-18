@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Tank Logo</title>
+<!-- Google Fonts: JetBrains Mono for authentic retro CRT terminal aesthetic & Public Sans / IBM Plex Sans -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@300;400;500;700;800&amp;family=Public+Sans:wght@400;600;700;900&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN with plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            crt: {
+              bg: '#050805',
+              panel: '#0A0F0A',
+              border: '#33FF66',
+              phosphor: '#33FF66',
+              glow: '#33FF6680',
+              amber: '#FFB000',
+              danger: '#FF3333',
+              ok: '#E8FFE8'
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          fontFamily: {
+            headline: ["JetBrains Mono", "Public Sans", "monospace"],
+            display: ["JetBrains Mono", "Public Sans", "monospace"],
+            body: ["IBM Plex Sans", "sans-serif"],
+            label: ["JetBrains Mono", "Public Sans", "monospace"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    /* Phosphor CRT Scanlines & Screen Glow */
+    body {
+      background-color: #050805;
+      color: #33FF66;
+      font-family: 'JetBrains Mono', monospace;
+      overflow-x: hidden;
+    }
+
+    .crt-scanlines {
+      background: linear-gradient(
+        rgba(18, 16, 16, 0) 50%, 
+        rgba(0, 0, 0, 0.45) 50%
+      ), linear-gradient(
+        90deg,
+        rgba(51, 255, 102, 0.02),
+        rgba(0, 255, 100, 0.01),
+        rgba(51, 255, 102, 0.02)
+      );
+      background-size: 100% 3px, 6px 100%;
+      pointer-events: none;
+    }
+
+    .phosphor-glow {
+      text-shadow: 0 0 6px rgba(51, 255, 102, 0.65), 0 0 12px rgba(51, 255, 102, 0.35);
+    }
+
+    .amber-glow {
+      text-shadow: 0 0 6px rgba(255, 176, 0, 0.7);
+    }
+
+    .box-phosphor {
+      box-shadow: 0 0 10px -2px rgba(51, 255, 102, 0.25), inset 0 0 12px -4px rgba(51, 255, 102, 0.12);
+    }
+
+    .box-amber {
+      box-shadow: 0 0 12px rgba(255, 176, 0, 0.35);
+    }
+
+    /* Custom Terminal Scrollbar */
+    ::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #050805;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #33FF6640;
+      border-radius: 2px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #33FF6699;
+    }
+  </style>
+</head>
+<body class="bg-[#050805] text-[#33FF66] min-h-screen flex flex-col font-mono selection:bg-[#33FF66]/30 selection:text-white relative">
+<!-- Subtle CRT scanline overlay (applied only to chrome/surrounding interface) -->
+<div class="fixed inset-0 crt-scanlines z-50 pointer-events-none opacity-60"></div>
+<!-- TOP HEADER BAR (Anchored Shared Component Layout + Specific Requirements) -->
+<header class="flex justify-between items-center w-full px-4 h-12 sticky top-0 z-40 bg-[#050805] border-b border-[#33FF66]/40 select-none">
+<!-- Left: Navigation and Brand Anchor -->
+<div class="flex items-center gap-4">
+<a class="flex items-center gap-1.5 text-xs text-[#33FF66]/70 hover:text-[#33FF66] transition-colors border border-[#33FF66]/30 px-2 py-0.5 rounded-DEFAULT hover:bg-[#33FF66]/10 active:translate-y-px" href="#">
+<span class="text-xs">&lt;</span>
+<span class="tracking-wider">DRIVE</span>
+</a>
+<div class="flex items-center gap-2">
+<div class="font-headline font-black text-sm tracking-widest text-[#33FF66] border border-[#33FF66]/40 px-2 py-0.5 rounded-DEFAULT phosphor-glow bg-[#0A0F0A]">
+          TANK LOGO
+        </div>
+
+</div>
+
+</div>
+<!-- Right: Telemetry chips & EMERGENCY STOP -->
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1.5 bg-[#0A0F0A] border border-[#33FF66]/40 px-2 py-1 text-[11px] rounded-DEFAULT"><span class="material-symbols-outlined text-[14px]">menu</span><span class="tracking-wide font-medium">MENU</span></div>
+<!-- Battery Status -->
+<div class="flex items-center gap-1.5 bg-[#0A0F0A] border border-[#33FF66]/40 px-2 py-1 text-[11px] rounded-DEFAULT">
+<span class="material-symbols-outlined text-[14px] text-[#33FF66]">battery_charging_full</span>
+<span class="text-[#33FF66] tracking-wide font-medium">[ 8.18 V ]</span>
+</div>
+<!-- WiFi Telemetry -->
+<div class="flex items-center gap-1.5 bg-[#0A0F0A] border border-[#33FF66]/40 px-2 py-1 text-[11px] rounded-DEFAULT hidden sm:flex">
+<span class="material-symbols-outlined text-[14px] text-[#33FF66]">wifi</span>
+<span class="text-[#33FF66] tracking-wide font-medium">[ HOME -54 dBm ]</span>
+</div>
+<!-- Tank Link Status -->
+<div class="flex items-center gap-1.5 bg-[#0A0F0A] border border-[#33FF66]/40 px-2 py-1 text-[11px] rounded-DEFAULT">
+<span class="inline-block w-2 h-2 rounded-full bg-[#33FF66] animate-pulse shadow-[0_0_8px_#33FF66]"></span>
+<span class="text-[#33FF66] font-medium tracking-wide">[ ● UNO ONLINE ]</span>
+</div>
+<!-- Prominent Solid High-Visibility Red EMERGENCY STOP button -->
+<button class="flex items-center gap-1.5 bg-[#FF3333] hover:bg-[#e62222] text-white px-3 py-1 text-xs font-bold tracking-wider rounded-DEFAULT transition-all shadow-[0_0_14px_rgba(255,51,51,0.6)] active:scale-95 ml-2 cursor-pointer border border-red-400">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">front_hand</span>
+<span class="font-extrabold text-[11px] tracking-widest uppercase">STOP</span>
+</button>
+</div>
+</header>
+<!-- MAIN COCKPIT VIEWPORT: THREE COLUMN DENSE LAYOUT -->
+<main class="flex-1 w-full max-w-[1920px] mx-auto p-3 grid grid-cols-1 md:grid-cols-12 gap-3 pb-9">
+<!-- ==========================================
+         COLUMN 1 (Left Sidebar): [ PROGRAMS ]
+         ========================================== -->
+<aside class="md:col-span-3 lg:col-span-2 flex flex-col gap-3">
+<!-- Programs Panel -->
+<div class="bg-[#0A0F0A] border border-[#33FF66]/40 rounded-DEFAULT p-2.5 flex flex-col justify-between box-phosphor h-full min-h-[580px]">
+<div>
+<!-- Panel Header with Corner Brackets -->
+<div class="flex items-center justify-between pb-2 border-b border-[#33FF66]/30 mb-3">
+<div class="flex items-center gap-1.5 text-xs font-bold tracking-wider phosphor-glow">
+<span class="text-[#33FF66]/50">┌</span>
+<span>[ PROGRAMS ]</span>
+<span class="text-[#33FF66]/50">┐</span>
+</div>
+
+</div>
+<!-- New Program Action -->
+<button class="w-full mb-3 flex items-center justify-center gap-1.5 py-1.5 px-3 border border-[#33FF66]/60 text-xs text-[#33FF66] hover:bg-[#33FF66]/20 transition-all font-bold tracking-wider rounded-DEFAULT active:translate-y-px">
+<span class="material-symbols-outlined text-xs">add</span>
+<span>[ + NEW ]</span>
+</button>
+<!-- Saved Routines List -->
+<div class="space-y-1">
+<div class="text-[10px] text-[#33FF66]/50 uppercase tracking-widest px-1 mb-1">Saved on the tank</div>
+<!-- Active Program: square -->
+<div class="flex items-center justify-between px-2.5 py-1.5 bg-[#33FF66]/15 border-l-2 border-[#33FF66] text-[#33FF66] rounded-DEFAULT font-semibold text-xs cursor-pointer shadow-[inset_0_0_8px_rgba(51,255,102,0.15)]">
+<div class="flex items-center gap-1.5">
+<span class="text-[#FFB000] font-bold">&gt;</span>
+<span class="phosphor-glow">square</span>
+</div>
+<span class="text-[10px] text-[#FFB000] font-mono tracking-tighter">RUNNING</span>
+</div>
+<!-- Program: explore -->
+<div class="flex items-center justify-between px-2.5 py-1.5 text-[#33FF66]/70 hover:text-[#33FF66] hover:bg-[#33FF66]/5 transition-colors rounded-DEFAULT text-xs cursor-pointer">
+<div class="flex items-center gap-1.5">
+<span class="text-transparent">&gt;</span>
+<span>explore</span>
+</div>
+
+</div>
+<!-- Program: dance -->
+<div class="flex items-center justify-between px-2.5 py-1.5 text-[#33FF66]/70 hover:text-[#33FF66] hover:bg-[#33FF66]/5 transition-colors rounded-DEFAULT text-xs cursor-pointer">
+<div class="flex items-center gap-1.5">
+<span class="text-transparent">&gt;</span>
+<span>dance</span>
+</div>
+
+</div>
+<!-- Program: spiral -->
+<div class="flex items-center justify-between px-2.5 py-1.5 text-[#33FF66]/70 hover:text-[#33FF66] hover:bg-[#33FF66]/5 transition-colors rounded-DEFAULT text-xs cursor-pointer">
+<div class="flex items-center gap-1.5">
+<span class="text-transparent">&gt;</span>
+<span>spiral</span>
+</div>
+
+</div>
+</div>
+<!-- Section: EXAMPLES -->
+<div class="mt-5 pt-3 border-t border-[#33FF66]/20 space-y-1">
+<div class="flex items-center justify-between px-1 mb-1">
+<span class="text-[10px] text-[#33FF66]/50 uppercase tracking-widest">[ EXAMPLES ]</span>
+
+</div>
+<div class="px-2.5 py-1.5 text-xs text-[#33FF66]/60 hover:text-[#33FF66] hover:bg-[#33FF66]/5 transition-colors cursor-pointer rounded-DEFAULT flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[13px] text-[#33FF66]/50">menu_book</span>
+<span>first square</span>
+</div>
+<div class="px-2.5 py-1.5 text-xs text-[#33FF66]/60 hover:text-[#33FF66] hover:bg-[#33FF66]/5 transition-colors cursor-pointer rounded-DEFAULT flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[13px] text-[#33FF66]/50">sensors</span>
+<span>avoid walls</span>
+</div>
+<div class="px-2.5 py-1.5 text-xs text-[#33FF66]/60 hover:text-[#33FF66] hover:bg-[#33FF66]/5 transition-colors cursor-pointer rounded-DEFAULT flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[13px] text-[#33FF66]/50">explore</span>
+<span>look around</span>
+</div>
+</div>
+</div>
+</div>
+</aside>
+<!-- ==========================================
+         COLUMN 2 (Center Workspace): [ 01 // PROGRAM : square ]
+         ========================================== -->
+<section class="md:col-span-9 lg:col-span-6 flex flex-col gap-3">
+<div class="bg-[#0A0F0A] border border-[#33FF66]/40 rounded-DEFAULT p-3 flex flex-col justify-between box-phosphor h-full">
+<div>
+<!-- Workspace Title Bar with Corner Ticks -->
+<div class="flex items-center justify-between pb-2 mb-2 border-b border-[#33FF66]/30">
+<div class="flex items-center gap-2">
+<span class="text-[#33FF66]/60 font-bold">┌</span>
+<h2 class="text-xs font-bold tracking-wider text-[#33FF66] phosphor-glow">
+                [ 01 // PROGRAM : square ]
+              </h2>
+<span class="text-[#33FF66]/60 font-bold">┐</span>
+</div>
+<div class="flex items-center gap-2 text-[10px]">
+<span class="text-[#FFB000] border border-[#FFB000]/40 px-1.5 py-0.5 font-bold">RUNNING</span>
+</div>
+</div>
+<!-- Code Editor Body -->
+<div class="bg-[#050805] border border-[#33FF66]/30 rounded-DEFAULT p-2.5 font-mono text-xs overflow-x-auto shadow-inner relative min-h-[470px]">
+<table class="w-full border-collapse">
+<tbody>
+<!-- Line 01 -->
+<tr class="leading-relaxed hover:bg-[#33FF66]/5">
+<td class="w-8 select-none text-right pr-4 text-[#33FF66]/40 font-mono text-[11px]">01</td>
+<td class="text-[#33FF66]/50 italic">; draw a square, then celebrate</td>
+</tr>
+<!-- Line 02 -->
+<tr class="leading-relaxed hover:bg-[#33FF66]/5">
+<td class="w-8 select-none text-right pr-4 text-[#33FF66]/40 font-mono text-[11px]">02</td>
+<td>
+<span class="text-[#33FF66] font-bold">TO</span>
+<span class="text-[#33FF66] font-bold">SQUARE</span>
+<span class="text-[#7DFFD4] font-medium">:size</span>
+</td>
+</tr>
+<!-- Line 03: ACTIVE / RUNNING STEP HIGHLIGHTED WITH AMBER -->
+<tr class="leading-relaxed bg-[#FFB000]/15 border-l-2 border-[#FFB000] box-amber">
+<td class="w-8 select-none text-right pr-4 text-[#FFB000] font-bold font-mono text-[11px]">03</td>
+<td class="py-0.5 flex items-center justify-between pr-2">
+<div>
+                        <span class="text-[#33FF66] font-bold">REPEAT</span>
+<span class="text-[#FFB000] font-bold">4</span>
+<span class="text-[#33FF66]">[</span>
+<span class="text-[#33FF66] font-bold">FORWARD</span>
+<span class="text-[#7DFFD4] font-medium">:size</span>  
+                      <span class="text-[#33FF66] font-bold">RIGHT</span>
+<span class="text-[#FFB000] font-bold">90</span>
+<span class="text-[#33FF66]">]</span>
+</div>
+<span class="text-[9px] bg-[#FFB000] text-black font-extrabold px-1.5 py-0.2 rounded-DEFAULT tracking-wider animate-pulse whitespace-nowrap">
+                      [ ROUND 2 OF 4 ]
+                    </span>
+</td>
+</tr>
+<!-- Line 04 -->
+<tr class="leading-relaxed hover:bg-[#33FF66]/5">
+<td class="w-8 select-none text-right pr-4 text-[#33FF66]/40 font-mono text-[11px]">04</td>
+<td class="text-[#33FF66] font-bold">END</td>
+</tr>
+<!-- Line 05 (Empty) -->
+<tr class="leading-relaxed hover:bg-[#33FF66]/5">
+<td class="w-8 select-none text-right pr-4 text-[#33FF66]/20 font-mono text-[11px]">05</td>
+<td> </td>
+</tr>
+<!-- Line 06 -->
+<tr class="leading-relaxed hover:bg-[#33FF66]/5">
+<td class="w-8 select-none text-right pr-4 text-[#33FF66]/40 font-mono text-[11px]">06</td>
+<td>
+<span class="text-[#33FF66] font-bold">SPEED</span>
+<span class="text-[#FFB000] font-bold">40</span>
+</td>
+</tr>
+<!-- Line 07 -->
+<tr class="leading-relaxed hover:bg-[#33FF66]/5">
+<td class="w-8 select-none text-right pr-4 text-[#33FF66]/40 font-mono text-[11px]">07</td>
+<td>
+<span class="text-[#33FF66] font-bold">SQUARE</span>
+<span class="text-[#FFB000] font-bold">50</span>
+</td>
+</tr>
+<!-- Line 08 -->
+<tr class="leading-relaxed hover:bg-[#33FF66]/5">
+<td class="w-8 select-none text-right pr-4 text-[#33FF66]/40 font-mono text-[11px]">08</td>
+<td>
+<span class="text-[#33FF66] font-bold">LED</span>
+<span class="text-[#99FFCC] font-semibold">GREEN</span>  
+                    <span class="text-[#33FF66] font-bold">BEEP</span>
+</td>
+</tr>
+<!-- Line 09 -->
+<tr class="leading-relaxed hover:bg-[#33FF66]/5">
+<td class="w-8 select-none text-right pr-4 text-[#33FF66]/40 font-mono text-[11px]">09</td>
+<td>
+<span class="text-[#33FF66] font-bold">SAY</span>
+<span class="text-[#FFE082]">"Done!"</span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Slim Word Help Bar -->
+<div class="mt-2.5 p-2 bg-[#050805] border border-[#33FF66]/30 rounded-DEFAULT">
+<div class="flex items-center justify-between text-[11px] mb-1.5 text-[#33FF66]/80">
+<div class="flex items-center gap-1.5">
+<span class="text-[#FFB000] font-bold">?</span>
+<span class="text-[#E8FFE8] font-medium">FORWARD n</span>
+<span class="text-[#33FF66]/60">— drive n cm forward</span>
+</div>
+<span class="text-[9px] text-[#33FF66]/40 uppercase tracking-widest">Word help</span>
+</div>
+<!-- Quick Word Chips -->
+<div class="flex flex-wrap gap-1.5">
+<button class="px-2 py-0.5 text-[10px] bg-[#0A0F0A] hover:bg-[#33FF66]/20 text-[#33FF66] border border-[#33FF66]/40 rounded-DEFAULT transition-all font-mono">[ FORWARD ]</button>
+<button class="px-2 py-0.5 text-[10px] bg-[#0A0F0A] hover:bg-[#33FF66]/20 text-[#33FF66] border border-[#33FF66]/40 rounded-DEFAULT transition-all font-mono">[ BACK ]</button>
+<button class="px-2 py-0.5 text-[10px] bg-[#0A0F0A] hover:bg-[#33FF66]/20 text-[#33FF66] border border-[#33FF66]/40 rounded-DEFAULT transition-all font-mono">[ LEFT ]</button>
+<button class="px-2 py-0.5 text-[10px] bg-[#0A0F0A] hover:bg-[#33FF66]/20 text-[#33FF66] border border-[#33FF66]/40 rounded-DEFAULT transition-all font-mono">[ RIGHT ]</button>
+<button class="px-2 py-0.5 text-[10px] bg-[#0A0F0A] hover:bg-[#33FF66]/20 text-[#33FF66] border border-[#33FF66]/40 rounded-DEFAULT transition-all font-mono">[ ARC ]</button>
+<button class="px-2 py-0.5 text-[10px] bg-[#0A0F0A] hover:bg-[#33FF66]/20 text-[#33FF66] border border-[#33FF66]/40 rounded-DEFAULT transition-all font-mono">[ REPEAT ]</button>
+<button class="px-2 py-0.5 text-[10px] bg-[#0A0F0A] hover:bg-[#33FF66]/20 text-[#33FF66] border border-[#33FF66]/40 rounded-DEFAULT transition-all font-mono">[ WAIT ]</button>
+<button class="px-2 py-0.5 text-[10px] bg-[#0A0F0A] hover:bg-[#33FF66]/20 text-[#33FF66] border border-[#33FF66]/40 rounded-DEFAULT transition-all font-mono">[ LED ]</button>
+<button class="px-2 py-0.5 text-[10px] bg-[#0A0F0A] hover:bg-[#33FF66]/20 text-[#33FF66] border border-[#33FF66]/40 rounded-DEFAULT transition-all font-mono">[ BEEP ]</button>
+</div>
+</div>
+</div>
+<!-- Center Column Bottom Strip: Terminal Log Feed + Execution Controls -->
+<div class="mt-3 space-y-2">
+<!-- Console Log Strip -->
+<div class="bg-[#050805] border border-[#33FF66]/30 rounded-DEFAULT p-2 font-mono text-[11px] space-y-1">
+<div class="flex items-center justify-between text-[9px] text-[#33FF66]/40 border-b border-[#33FF66]/20 pb-0.5 mb-1">
+<span>MESSAGES</span>
+<span></span>
+</div>
+<div class="text-[#33FF66]/70"><span class="text-[#33FF66]/40">[12:44:01]</span> program started</div>
+<div class="text-[#33FF66]/70"><span class="text-[#33FF66]/40">[12:44:02]</span> line 3: FORWARD 50</div>
+<div class="text-[#FFB000] font-semibold flex items-center justify-between">
+<span><span class="text-[#FFB000]/60">[12:44:04]</span> line 3: RIGHT 90</span>
+
+</div>
+</div>
+<!-- Execution Progress Bar (38% Filled) -->
+<div class="w-full bg-[#050805] border border-[#33FF66]/30 h-2 rounded-DEFAULT overflow-hidden p-0.5">
+<div class="bg-gradient-to-r from-[#33FF66] to-[#FFB000] h-full rounded-DEFAULT" style="width: 38%"></div>
+</div>
+<!-- Bottom Run Bar -->
+<div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#33FF66]/20">
+<div class="flex items-center gap-2">
+<!-- Active RUN button (Amber) -->
+<button class="bg-[#FFB000] text-black font-extrabold px-3 py-1 text-xs rounded-DEFAULT flex items-center gap-1.5 shadow-[0_0_10px_rgba(255,176,0,0.5)] active:translate-y-px cursor-pointer">
+<span class="text-[14px]">▶</span>
+<span>RUN</span>
+</button>
+<!-- Step Button -->
+<button class="border border-[#33FF66]/60 hover:bg-[#33FF66]/15 text-[#33FF66] font-bold px-2.5 py-1 text-xs rounded-DEFAULT transition-all">
+                [ STEP ]
+              </button>
+<!-- Pause Button -->
+<button class="border border-[#33FF66]/60 hover:bg-[#33FF66]/15 text-[#33FF66] font-bold px-2.5 py-1 text-xs rounded-DEFAULT transition-all">
+                [ ⏸ PAUSE ]
+              </button>
+</div>
+<!-- Indicators -->
+<div class="flex items-center gap-3 text-xs">
+<span class="bg-[#050805] border border-[#33FF66]/40 px-2 py-0.5 text-[10px] text-[#33FF66] font-mono">
+                [ SPEED 40% ]
+              </span>
+<div class="flex items-center gap-1.5 text-[#FFB000] font-bold text-xs amber-glow">
+<span class="inline-block w-2 h-2 rounded-full bg-[#FFB000] animate-ping"></span>
+<span>● RUNNING · line 3</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- ==========================================
+         COLUMN 3 (Right Column): [ 02 // PATH ]
+         ========================================== -->
+<section class="md:col-span-12 lg:col-span-4 flex flex-col gap-3">
+<div class="bg-[#0A0F0A] border border-[#33FF66]/40 rounded-DEFAULT p-3 flex flex-col justify-between box-phosphor h-full">
+<div>
+<!-- Title with Scale Tag -->
+<div class="flex items-center justify-between pb-2 mb-2 border-b border-[#33FF66]/30">
+<div class="flex items-center gap-1.5">
+<span class="text-[#33FF66]/50">┌</span>
+<h2 class="text-xs font-bold tracking-wider text-[#33FF66] phosphor-glow">
+                [ 02 // PATH ]
+              </h2>
+<span class="text-[#33FF66]/50">┘</span>
+</div>
+<span class="text-[10px] text-[#33FF66]/70 border border-[#33FF66]/30 px-1.5 py-0.5 bg-[#050805]">
+              [ 5 cm GRID // SCALE 50 cm ]
+            </span>
+</div>
+<!-- Path Display Canvas / Coordinate Grid (SVG Vector Display) -->
+<div class="relative w-full aspect-square max-h-[380px] bg-[#050805] border border-[#33FF66]/40 rounded-DEFAULT overflow-hidden flex items-center justify-center">
+<!-- Technical Grid & Odometry SVG -->
+<svg class="w-full h-full" viewbox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+<!-- Grid Pattern 5cm intervals -->
+<defs>
+<pattern height="25" id="grid" patternunits="userSpaceOnUse" width="25">
+<path d="M 25 0 L 0 0 0 25" fill="none" stroke="#33FF66" stroke-opacity="0.12" stroke-width="0.5"></path>
+</pattern>
+<pattern height="75" id="subgrid" patternunits="userSpaceOnUse" width="75">
+<path d="M 75 0 L 0 0 0 75" fill="none" stroke="#33FF66" stroke-opacity="0.25" stroke-width="0.8"></path>
+</pattern>
+<filter height="140%" id="glow-bright" width="140%" x="-20%" y="-20%">
+<fegaussianblur result="blur" stddeviation="3"></fegaussianblur>
+<femerge>
+<femergenode in="blur"></femergenode>
+<femergenode in="SourceGraphic"></femergenode>
+</femerge>
+</filter>
+</defs>
+<!-- Apply Grids -->
+<rect fill="url(#grid)" height="100%" width="100%"></rect>
+<rect fill="url(#subgrid)" height="100%" width="100%"></rect>
+<!-- Crosshairs at Center & Origin -->
+<line stroke="#33FF66" stroke-dasharray="3,3" stroke-opacity="0.2" stroke-width="0.75" x1="150" x2="150" y1="0" y2="300"></line>
+<line stroke="#33FF66" stroke-dasharray="3,3" stroke-opacity="0.2" stroke-width="0.75" x1="0" x2="300" y1="150" y2="150"></line>
+<!-- Axis labels -->
+
+
+<!-- Planned Path: Clean Dashed Green Box (50cm x 50cm scale ~ 150px x 150px) -->
+<!-- Origin: (75, 225) -> (75, 75) -> (225, 75) -> (225, 225) -> Back to (75, 225) -->
+<rect fill="none" height="150" stroke="#33FF66" stroke-dasharray="6,4" stroke-opacity="0.4" stroke-width="1.5" width="150" x="75" y="75"></rect>
+<!-- Driven Path So Far: Solid Glowing Phosphor Green Lines -->
+<!-- Segment 1: from (75,225) up to (75,75) [Forward 50cm] -->
+<line stroke="#33FF66" stroke-linecap="round" stroke-width="3" x1="75" x2="75" y1="225" y2="75"></line>
+<!-- Segment 2: from (75,75) right to (150,75) [Forward half of side 2, currently turning/moving] -->
+<line stroke="#33FF66" stroke-linecap="round" stroke-width="3" x1="75" x2="160" y1="75" y2="75"></line>
+<!-- Start Marker (Origin at 75, 225) -->
+<circle cx="75" cy="225" fill="#0A0F0A" r="4.5" stroke="#33FF66" stroke-width="2"></circle>
+<circle cx="75" cy="225" fill="#33FF66" r="1.5"></circle>
+<text fill="#33FF66" font-family="monospace" font-size="9" font-weight="bold" x="50" y="240">(0,0) START</text>
+<!-- Current Robot Tank Marker: Glyph / Directional arrow at (160, 75) heading ~92° -->
+<g transform="translate(160, 75) rotate(0)">
+<!-- Tank Body Outline -->
+<rect fill="#050805" height="16" rx="2" stroke="#FFB000" stroke-width="1.8" width="20" x="-10" y="-8"></rect>
+<!-- Left Track -->
+<rect fill="#FFB000" height="3" opacity="0.9" width="22" x="-11" y="-10"></rect>
+<!-- Right Track -->
+<rect fill="#FFB000" height="3" opacity="0.9" width="22" x="-11" y="7"></rect>
+<!-- Barrel / Heading pointer -->
+<line stroke="#FFB000" stroke-linecap="round" stroke-width="2.5" x1="0" x2="15" y1="0" y2="0"></line>
+<!-- Center Turret -->
+<circle cx="0" cy="0" fill="#FFB000" r="4"></circle>
+</g>
+<!-- Live Heading / Target Arc Visualizer -->
+<path d="M 160 75 L 190 76" stroke="#FFB000" stroke-dasharray="2,2" stroke-opacity="0.8" stroke-width="1"></path>
+<text fill="#FFB000" font-family="monospace" font-size="8" font-weight="bold" x="170" y="66">−90°</text>
+<!-- Scale Marker Bar -->
+<line stroke="#33FF66" stroke-width="2" x1="20" x2="70" y1="270" y2="270"></line>
+<line stroke="#33FF66" stroke-width="2" x1="20" x2="20" y1="266" y2="274"></line>
+<line stroke="#33FF66" stroke-width="2" x1="70" x2="70" y1="266" y2="274"></line>
+<text fill="#33FF66" font-family="monospace" font-size="8" x="32" y="265">50 cm</text>
+</svg>
+<!-- Coordinate HUD Overlay Tag inside Canvas -->
+<div class="absolute top-2 left-2 bg-[#050805]/90 border border-[#33FF66]/30 px-1.5 py-0.5 text-[9px] text-[#33FF66]/80 font-mono">
+              28 cm · 50 cm
+            </div>
+
+</div>
+</div>
+<!-- Telemetry Readouts Below Grid -->
+<div class="mt-3 space-y-2">
+<!-- Primary 3-Metric Cluster -->
+<div class="grid grid-cols-3 gap-2 text-center">
+<div class="bg-[#050805] border border-[#33FF66]/40 p-1.5 rounded-DEFAULT">
+<div class="text-[9px] text-[#33FF66]/60 uppercase">Heading</div>
+<div class="text-xs font-bold text-[#FFB000] font-mono">−90°</div>
+</div>
+<div class="bg-[#050805] border border-[#33FF66]/40 p-1.5 rounded-DEFAULT">
+<div class="text-[9px] text-[#33FF66]/60 uppercase">Distance</div>
+<div class="text-xs font-bold text-[#33FF66] font-mono">999 cm</div>
+</div>
+<div class="bg-[#050805] border border-[#33FF66]/40 p-1.5 rounded-DEFAULT">
+<div class="text-[9px] text-[#33FF66]/60 uppercase">Elapsed</div>
+<div class="text-xs font-bold text-[#33FF66] font-mono">0:14 / 5:00</div>
+</div>
+</div>
+<!-- Secondary Wheel Encoder Readouts -->
+<div class="bg-[#050805] border border-[#33FF66]/30 px-2 py-1.5 rounded-DEFAULT flex items-center justify-between text-[11px] font-mono">
+<div class="flex items-center gap-1">
+<span class="text-[#33FF66]/50">LEFT</span>
+<span class="text-[#33FF66] font-bold">3740</span>
+</div>
+<span class="text-[#33FF66]/30">|</span>
+<div class="flex items-center gap-1">
+<span class="text-[#33FF66]/50">RIGHT</span>
+<span class="text-[#33FF66] font-bold">3755</span>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- FOOTER BAR (Anchored Shared Component Blueprint + Specific Requirements) -->
+<footer class="fixed bottom-0 left-0 w-full z-40 flex justify-between items-center px-4 h-7 bg-[#050805] border-t border-[#33FF66]/40 text-[10px] uppercase tracking-widest select-none">
+<!-- Left: Firmware & Bridge Version -->
+<div class="flex items-center gap-3 text-[#33FF66]/70">
+<span class="text-[#33FF66] font-semibold">BRIDGE 8361f00</span>
+
+</div>
+<!-- Center: Operational Constraints -->
+<div class="text-[#33FF66] hidden md:block font-mono tracking-wider">
+      PROGRAM LIMITS: 5 MIN · 500 CM PER STEP
+    </div>
+<!-- Right: Runtime Status & Links -->
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1 text-[#33FF66]">
+<span class="inline-block w-1.5 h-1.5 rounded-full bg-[#33FF66] shadow-[0_0_6px_#33FF66]"></span>
+<span class="font-bold">NO ERRORS</span>
+</div>
+
+</div>
+</footer>
+</body></html>

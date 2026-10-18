@@ -124,6 +124,20 @@ void test_acked_ops_one_at_a_time() {
   TEST_ASSERT_FALSE(q.push(a));  // full
 }
 
+
+// Plan M review I1: an op whose answer never comes (bench took over, frame lost) must not block the queue forever.
+void test_acked_ops_time_out() {
+  AckedOps q;
+  AckedOp a{};
+  q.push(a);
+  q.markSent(5, 1000);
+  TEST_ASSERT_FALSE(q.timedOut(1000 + AckedOps::kTimeoutMs - 1));
+  TEST_ASSERT_TRUE(q.timedOut(1000 + AckedOps::kTimeoutMs));
+  q.done();
+  TEST_ASSERT_FALSE(q.busy());
+  TEST_ASSERT_FALSE(q.timedOut(999999));  // nothing in flight
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_gate_confirm_then_empty);
@@ -135,5 +149,6 @@ int main() {
   RUN_TEST(test_router_confirms_while_waiting_and_never_doubles);
   RUN_TEST(test_change_names);
   RUN_TEST(test_acked_ops_one_at_a_time);
+  RUN_TEST(test_acked_ops_time_out);
   return UNITY_END();
 }

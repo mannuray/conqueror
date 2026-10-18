@@ -128,6 +128,18 @@ void test_store_edit_in_use_flags_reconnect() {  // Review Focus 1: the caller c
   TEST_ASSERT_EQUAL_STRING("password9", s.pass(in_use));  // changed: WifiManager reconnects (Task 5)
 }
 
+
+// Plan M review (security): a store without a valid own-AP password must never start an open AP.
+void test_store_decode_rejects_open_ap() {
+  WifiStore a;
+  a.clear();
+  a.save(-1, "Home", "password1");  // no AP password set
+  uint8_t blob[WifiStore::kBlobSize];
+  a.encode(blob);
+  WifiStore b;
+  TEST_ASSERT_FALSE(b.decode(blob, sizeof(blob)));  // -> re-seeded from secrets.h by the caller
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_store_seed_and_read);
@@ -138,5 +150,6 @@ int main() {
   RUN_TEST(test_store_encode_decode_round_trip);
   RUN_TEST(test_store_decode_rejects_corrupt);
   RUN_TEST(test_store_edit_in_use_flags_reconnect);
+  RUN_TEST(test_store_decode_rejects_open_ap);
   return UNITY_END();
 }

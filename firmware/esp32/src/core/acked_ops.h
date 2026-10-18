@@ -21,6 +21,7 @@ struct AckedOp {
 class AckedOps {
  public:
   static constexpr uint8_t kCap = 8;
+  static constexpr uint32_t kTimeoutMs = 600;  // review I1: the answer never came (bench took over, lost frame)
   bool push(const AckedOp& op);
   bool front(AckedOp& out) const;
   bool empty() const { return m_n == 0; }
@@ -31,6 +32,7 @@ class AckedOps {
     m_sent_ms = now_ms;
   }
   bool isCurrent(uint8_t seq) const { return m_sent && seq == m_seq; }
+  bool timedOut(uint32_t now_ms) const { return m_sent && now_ms - m_sent_ms >= kTimeoutMs; }
   void done();  // the current op answered (ACK / timeout): drop it, next may go
 
  private:

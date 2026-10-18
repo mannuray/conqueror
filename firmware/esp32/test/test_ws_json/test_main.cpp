@@ -453,6 +453,18 @@ void test_confirm_replies_and_setting() {
   TEST_ASSERT_EQUAL_STRING("{\"t\":\"setting\",\"id\":66,\"value\":-12}", buf);
 }
 
+
+// Plan M review I4: a neighbour's SSID in Latin-1 / GBK must not make the WebSocket text frame invalid UTF-8.
+void test_json_escape_replaces_invalid_utf8() {
+  char out[32];
+  jsonEscape(out, sizeof(out), "Caf\xE9");          // Latin-1 e-acute: invalid UTF-8
+  TEST_ASSERT_EQUAL_STRING("Caf\xEF\xBF\xBD", out);  // U+FFFD
+  jsonEscape(out, sizeof(out), "Caf\xC3\xA9");      // valid UTF-8 e-acute stays
+  TEST_ASSERT_EQUAL_STRING("Caf\xC3\xA9", out);
+  jsonEscape(out, sizeof(out), "\xFF\xC3");         // garbage + a truncated sequence
+  TEST_ASSERT_EQUAL_STRING("\xEF\xBF\xBD\xEF\xBF\xBD", out);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ack_reason_table_matches_generated_codes);
@@ -481,5 +493,6 @@ int main() {
   RUN_TEST(test_wifi_status_and_scan);
   RUN_TEST(test_wifi_status_escapes_ssid);
   RUN_TEST(test_confirm_replies_and_setting);
+  RUN_TEST(test_json_escape_replaces_invalid_utf8);
   return UNITY_END();
 }

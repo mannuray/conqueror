@@ -410,6 +410,23 @@ size_t jsonEscape(char* out, size_t cap, const char* s) {
       k = 2;
     } else if (c < 0x20) {
       k = static_cast<size_t>(snprintf(esc, sizeof(esc), "\\u%04x", c));
+    } else if (c >= 0x80) {  // Plan M review I4: only valid UTF-8 goes out (a WebSocket text frame must be UTF-8)
+      const size_t len = c >= 0xC2 && c <= 0xDF ? 2 : (c >= 0xE0 && c <= 0xEF ? 3 : (c >= 0xF0 && c <= 0xF4 ? 4 : 0));
+      bool ok = len != 0;
+      for (size_t i = 1; ok && i < len; ++i) {
+        const unsigned char d = static_cast<unsigned char>(s[i]);
+        ok = d >= 0x80 && d <= 0xBF;  // also stops at the terminator (0x00)
+      }
+      if (ok) {
+        memcpy(esc, s, len);
+        k = len;
+        s += len - 1;
+      } else {
+        esc[0] = static_cast<char>(0xEF);  // U+FFFD replacement character
+        esc[1] = static_cast<char>(0xBF);
+        esc[2] = static_cast<char>(0xBD);
+        k = 3;
+      }
     } else {
       esc[0] = static_cast<char>(c);
       k = 1;

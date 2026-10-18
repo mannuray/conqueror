@@ -129,6 +129,10 @@ bool WifiStore::decode(const uint8_t* in, size_t n) {
     p += kPassSize;
   }
   memcpy(m_ap_pass, p, kPassSize);
+  if (!validPass(m_ap_pass, false)) {  // review (security): never an open own AP - re-seed instead
+    clear();
+    return false;
+  }
   return true;
 }
 

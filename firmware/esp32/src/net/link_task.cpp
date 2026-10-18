@@ -62,7 +62,6 @@ Waiter g_cam_waiter{-1, -1};
 core::ConfirmGate g_gate;
 core::ButtonRouter g_button{g_gate};
 core::AckedOps g_ops;
-Waiter g_setting_asker{-1, -1};  // the client of the SETTING_GET in flight
 uint32_t g_restart_at = 0;
 void askConfirm(const core::PendingChange& c, uint32_t now);
 void sendCalib(int fd);
@@ -599,6 +598,10 @@ void settingsTick(uint32_t now) {
     }
   }
   core::AckedOp op;
+  if (g_ops.busy() && g_ops.timedOut(now)) {  // review I1: no answer (bench took over, lost frame) - never stuck
+    if (g_ops.front(op) && op.fd >= 0 && g_ws.contains(op.fd)) nack(op.fd, op.id, core::BridgeReason::kTimeout);
+    g_ops.done();
+  }
   if (!g_ops.busy() && !g_link.ackPending() && g_cam_waiter.fd == -1 && g_ops.front(op)) {
     uint8_t seq = 0;
     bool sent = false;
@@ -609,7 +612,6 @@ void settingsTick(uint32_t now) {
         break;
       case core::AckedOp::kSettingGet:
         sent = g_link.sendSettingGet(op.a, now, seq);
-        if (sent) g_setting_asker = Waiter{op.fd, op.id};
         break;
       case core::AckedOp::kSettingSet: sent = g_link.sendSettingSet(op.a, op.value, now, seq); break;
       case core::AckedOp::kSettingsSave: sent = g_link.sendSettingsSave(now, seq); break;
@@ -880,9 +882,10 @@ void handleLinkEvents(uint32_t now) {
       case core::LinkEventKind::kAckResult:
         if (g_ops.isCurrent(ev.seq)) {  // Plan M: a settings / feedback op answered
           core::AckedOp op;
-          if (g_ops.front(op) && ev.status != 0 && op.fd >= 0 && g_ws.contains(op.fd)) {
+          const bool have = g_ops.front(op);
+          if (have && ev.status == 0 && op.kind == core::AckedOp::kSettingGet) break;  // review I5: wait for its VALUE
+          if (have && ev.status != 0 && op.fd >= 0 && g_ws.contains(op.fd)) {
             sendTo(op.fd, core::jsonNackStatus(g_json, sizeof(g_json), op.id, ev.status));
-            if (op.kind == core::AckedOp::kSettingGet) g_setting_asker = Waiter{-1, -1};
           }
           g_ops.done();
           break;
@@ -895,11 +898,14 @@ void handleLinkEvents(uint32_t now) {
         }
         g_cam_waiter = Waiter{-1, -1};
         break;
-      case core::LinkEventKind::kSettingValue: {  // Plan M: SETTING_GET answer for the settings page
+      case core::LinkEventKind::kSettingValue: {  // Plan M: SETTING_GET answer - completes the GET op (review I5)
         const int32_t v = static_cast<int32_t>((static_cast<uint32_t>(static_cast<uint16_t>(ev.b)) << 16) |
                                                static_cast<uint16_t>(ev.a));
-        if (g_ws.contains(g_setting_asker.fd)) sendTo(g_setting_asker.fd, core::jsonSetting(g_json, sizeof(g_json), ev.code, v));
-        g_setting_asker = Waiter{-1, -1};
+        core::AckedOp op;
+        if (g_ops.busy() && g_ops.front(op) && op.kind == core::AckedOp::kSettingGet && op.a == ev.code) {
+          if (op.fd >= 0 && g_ws.contains(op.fd)) sendTo(op.fd, core::jsonSetting(g_json, sizeof(g_json), ev.code, v));
+          g_ops.done();
+        }
         break;
       }
       case core::LinkEventKind::kResetRequest:

@@ -103,8 +103,16 @@ void WifiManager::startScan(bool join, int fd, int32_t id) {
   }
   m_join_scan = m_join_scan || join;
   if (m_scanning) return;
-  if (WiFi.scanNetworks(true) == WIFI_SCAN_FAILED) {
+  if (WiFi.scanNetworks(true) == WIFI_SCAN_FAILED) {  // e.g. while the station is joining (review I3)
     logf("wifi: scan could not start");
+    if (m_scan_fd >= 0) {
+      WifiRequest r;
+      r.kind = WifiRequest::kScan;
+      r.fd = m_scan_fd;
+      r.id = m_scan_id;
+      post(WifiResult::kFailed, r, "scan busy, try again in a few seconds");
+      m_scan_fd = -1;
+    }
     return;
   }
   m_scanning = true;
@@ -163,7 +171,8 @@ void WifiManager::handle(WifiRequest& r, uint32_t now_ms) {
       startScan(false, r.fd, r.id);
       break;
     case WifiRequest::kSave: {
-      const bool was_in_use = inUse(r.ssid);
+      // review I2: the slot's old name counts too (renaming the network in use), and a join in progress restarts
+      const bool was_in_use = inUse(r.ssid) || (r.slot >= 0 && inUse(m_store.ssid(static_cast<uint8_t>(r.slot))));
       const core::StoreResult s = m_store.save(r.slot, r.ssid, r.pass);
       if (s != core::StoreResult::kOk) {
         post(WifiResult::kFailed, r, storeError(s));
@@ -182,11 +191,11 @@ void WifiManager::handle(WifiRequest& r, uint32_t now_ms) {
       break;
     }
     case WifiRequest::kForget: {
-      bool was_in_use = false;
+      bool was_in_use = m_policy.mode() == core::WifiMode::kConnecting;  // review I2: a join may be on those credentials
       if (r.slot < 0) {
-        was_in_use = m_policy.mode() == core::WifiMode::kStation;
+        was_in_use = was_in_use || m_policy.mode() == core::WifiMode::kStation;
       } else {
-        was_in_use = inUse(m_store.ssid(static_cast<uint8_t>(r.slot)));
+        was_in_use = was_in_use || inUse(m_store.ssid(static_cast<uint8_t>(r.slot)));
       }
       const core::StoreResult s = m_store.forget(r.slot);
       if (s != core::StoreResult::kOk) {

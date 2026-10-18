@@ -1357,7 +1357,7 @@ classDiagram
   - stalled: < 1 cm of counts **and** < 2° of heading for 1.5 s; with the ultrasonic < 25 cm → blocked; the blocked flag for 2 s → blocked (as MOVE).
   - timeout: R · |θ| (rad) / 5 cm/s + 3 s. diverged: |w| ≥ 95 with the gyro > 5 °/s the wrong way for 0.5 s.
   - Uno `stall` / `encoder_fault` events end an arc as they end a move (`MotionLink::onEvent`, kinds kMove and kArc).
-- **Pivot:** `TurnController::begin(yaw, delta, max(speed / 2, 12))`; each step v = |w| (so L = v − w and R = v + w give the inside track 0, the outside 2|w| ≤ speed, or 24 % at the minimum); ends as the spin.
+- **Pivot:** `TurnController::begin(yaw, delta, max(speed / 2, 12))`; each step **v = w for a left pivot, v = −w for a right pivot** (for both signs of w: a correction back past the target reverses the outside track and never swings round the other track — floor 2026-10-18, review M5; was v = |w|) (so L = v − w and R = v + w give the inside track 0, the outside 2|w| ≤ speed, or 24 % at the minimum); ends as the spin.
 - **drive_rate clamp:** in `driveRate`, v = 0 ∧ 0 < |rate| < 650 → rate = ±650, `limited` = true; else false.
 
 ```mermaid

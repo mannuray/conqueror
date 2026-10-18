@@ -56,6 +56,7 @@ void MotionService::startPivot(int fd, uint16_t yaw_cdeg, int32_t delta_cdeg, ui
   m_kind = PrimKind::kPivot;
   m_fd = fd;
   m_id = id;
+  m_pivot_dir = delta_cdeg < 0 ? -1 : 1;
   // outside track = 2|w| <= speed; the spin's minimum w still applies (12 % -> outside 24 %)
   uint8_t half = static_cast<uint8_t>(speed_pct / 2);
   if (half < motion::kTurnWMin) half = static_cast<uint8_t>(motion::kTurnWMin);
@@ -85,7 +86,9 @@ MotionOut MotionService::stepPivot(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_
   MotionOut o;
   o.send = true;
   o.w = s.w;
-  o.v = static_cast<int8_t>(s.w < 0 ? -s.w : s.w);  // plain mix: the inside track gets v - |w| = 0
+  // Plain mix L = v - w, R = v + w: a left pivot holds L = 0 (v = w), a right pivot R = 0 (v = -w) - also while
+  // correcting back past the target, when the outside track reverses (floor 2026-10-18, review M5).
+  o.v = static_cast<int8_t>(m_pivot_dir > 0 ? s.w : -s.w);
   return o;
 }
 

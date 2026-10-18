@@ -85,6 +85,7 @@ class MotionService {
   RateLoop m_rate;
   MoveController m_move;
   ArcController m_arc;
+  int8_t m_pivot_dir = 1;  // +1 left pivot (left track still), -1 right pivot
   int8_t m_rate_v = 0;
   int16_t m_rate_target = 0;
   bool m_rate_limited = false;

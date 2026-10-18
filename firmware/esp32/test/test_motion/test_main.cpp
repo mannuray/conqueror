@@ -775,6 +775,24 @@ void test_rate_clamp_to_minimum_spin() {  // Review Focus 5
   }
 }
 
+
+// Floor 2026-10-18 (review M5): a pivot that corrects back past its target must still hold the same (inside) track -
+// the outside track reverses; it never swings round the other track.
+void test_service_pivot_correction_keeps_the_same_track() {
+  for (int dir = -1; dir <= 1; dir += 2) {
+    MotionService svc;
+    svc.startPivot(3, 0, dir * 9000, 40, 1, 0);
+    // 5° past the target, still: the controller turns back
+    const uint16_t past = static_cast<uint16_t>(dir > 0 ? 9500 : 36000 - 9500);
+    MotionOut o = svc.onTelemetry(past, 0, 20);
+    TEST_ASSERT_TRUE(o.send);
+    TEST_ASSERT_TRUE(dir > 0 ? o.w < 0 : o.w > 0);  // turning back
+    const int l = o.v - o.w, r = o.v + o.w;
+    TEST_ASSERT_EQUAL_INT(0, dir > 0 ? l : r);     // the inside track stays still
+    TEST_ASSERT_TRUE((dir > 0 ? r : l) < 0);       // the outside track backs up
+  }
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_router_lite_runs_turn_and_rate_locally);
@@ -827,5 +845,6 @@ int main() {
   RUN_TEST(test_service_arc_runs_and_cancels);
   RUN_TEST(test_link_uno_stall_ends_an_arc_not_a_pivot);
   RUN_TEST(test_rate_clamp_to_minimum_spin);
+  RUN_TEST(test_service_pivot_correction_keeps_the_same_track);
   return UNITY_END();
 }

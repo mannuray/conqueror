@@ -188,7 +188,7 @@ Sounds (passive buzzer, non-blocking sequencer):
 | 4 | custom (`SOUND`, `TONE`) | from client | on request |
 Audio modes: **mute** (only priority 1), **quiet** (priorities 1–2), normal.
 
-Named melodies (from the old firmware, `SOUND id`; also for the app, the AI and Tank Logo `SOUND`): `startup` (old 1), `success` (2), `fanfare` (3), `sad` (4), `safety_chirp` (5), `ack_blip` (6), `fail` (7), `confirm` (8), `question` (9), `ok_chirp` (10), `grumble` (11), `scan` (12), `goodbye` (13). Note tables: `docs/legacy/uno-old-led-buzzer.md` §1; ≈ 0.4 KB flash.
+Named melodies (from the old firmware, `SOUND id`; also for the app, the AI and Tank Logo `SOUND`): `startup` (old 1), `success` (2), `fanfare` (3), `sad` (4), `safety_chirp` (5), `ack_blip` (6), `fail` (7), `confirm` (8), `question` (9), `ok_chirp` (10), `grumble` (11), `scan` (12), `goodbye` (13); plus **`horn`** (id 24, new 2026-10-18, design-notes §75: two short honks, 450 Hz 150 ms · rest 70 ms · 450 Hz 300 ms). Note tables: `docs/legacy/uno-old-led-buzzer.md` §1; ≈ 0.4 KB flash.
 
 LED (single RGB):
 | Pri | State | Pattern |

@@ -1282,3 +1282,9 @@ Bridge only (Uno unchanged since kMaxCps 2500). Owner measured with marks: S (ta
 - **Decision:** Plan D is retired without being executed. Written 2026-10-11, before the phone page, the motion service and the encoders; everything it was for now exists elsewhere — driving: phone drive page; straight / turn / spin tests with numbers: `tools/smoke/move.py`, `turn.py`, `straight_report.py`; calibration and tuning: on the bridge (counts_per_m, learned roll-on, track_balance) and `/settings`; recording: `td_record.py` and the CSV button; a simulated Uno: the bridge's native tests. The plan files stay for history, marked retired.
 - **Also removed (owner):** the bridge's TCP 3333 passthrough (raw protocol frames straight to the Uno, bypassing the motion service), its `_cqbridge._tcp` mDNS entry and `tools/smoke/bridge_echo.py`. Reason: an unused, unauthenticated second way to the motors. Design and results: bridge LLD R10.
 - **Tank Logo (spec 05):** was to run inside the bench tool; its runner's home (hub or AI engine) is decided when Logo work starts.
+
+## 75. 24th sound `horn` (owner, 2026-10-18)
+- The phone's sound sheet showed 23 buttons in a 3-column grid (one gap); owner: add one more sound so the grid is even. Options: (A) a real new sound, (B) a page-only "random" button. **Owner: A, a horn.**
+- `SoundId` gains **`HORN: 24`** (not breaking: enum additions need no protocol version bump, protocol-generator LLD). Melody: two short honks, 450 Hz 150 ms · rest 70 ms · 450 Hz 300 ms; +15 B Uno flash (Uno Lite had ~1.2 KB left).
+- The same change gives the sound buttons their green outline (they showed the browser's default grey).
+- Flash the Uno (USB) and the bridge (OTA); an old Uno answers an unknown sound id with an ACK error, nothing else breaks.

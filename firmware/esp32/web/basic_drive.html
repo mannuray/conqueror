@@ -141,7 +141,8 @@ body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 
 .sheet.show { display: block; }
 .sheet .title { color: var(--ui); text-shadow: var(--glow); font-size: 11px; letter-spacing: .1em; margin: 0 0 8px; }
 .sgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.sgrid .btn { font-size: 11px; }
+.sgrid .btn { font-size: 11px; background: rgba(51, 255, 102, .05); border: 1px solid var(--edge-c); border-radius: 5px; padding: 8px 6px; }
+.sgrid .btn:active { background: var(--ui); color: #032; }
 input[type=range] { width: 100%; accent-color: var(--ui); }
 .hidden { display: none !important; }
 #toast { position: fixed; left: 50%; top: 92px; transform: translateX(-50%); padding: 7px 12px; border-radius: 7px; z-index: 5;

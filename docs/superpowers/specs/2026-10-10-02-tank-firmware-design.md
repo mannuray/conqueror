@@ -595,3 +595,46 @@ An arc of radius R at centre speed v needs the inner track at v·(1 − B/2R) �
 - **Host:** speed-band maths for the table radii; arc refusal messages; the arc controller against a plant (v from counts, ω tracking, ends at the target heading, each end); pivot output (inside track 0, outside ≤ speed); drive_rate clamp (5 → 65, −5 → −65, 0 → 0, v ≠ 0 untouched) and the `limited` flag; codec (`pivot` + `radius_cm` invalid, ranges); JSON.
 - **Floor (owner present, recorded with `td_record.py`):** arcs 90° at R 60 cm / 40 % and R 100 cm / 40 %, left and right: **end heading ±3°**, end position within **±5 cm** of the geometric point (R·sin θ, R·(1 − cos θ)), measured from a start mark; pivot 90° left and right: **±3°**, the inside track does not move (eye / encoder counts); a refused arc (R 20) answers the message; `drive_rate` 10 °/s spin turns smoothly at ~65 °/s with `limited`.
 - *As run (design-notes §71): refusals, pivots (±2.3°, inside track 0) and the clamp pass; arc heading ~90° by eye; arc path left +6 cm / right −10 cm (a sideways slide to the right, suspected broken left road wheel) — **arc path acceptance deferred until the wheel is repaired** (owner).*
+
+## Part I — Bridge WiFi modes + `/settings` page (agreed with the owner 2026-10-18, design-notes §72)
+Bridge only: no Uno change, no body-frame change (protocol 3) — the Uno's existing `EVENT button_press`, `SETTING_SET` / `SETTING_GET` / `SETTINGS_SAVE` / `SETTING_VALUE` frames are used. Development-grade like the rest of the bridge (no accounts); changes need a press of the tank's button.
+
+### I1. WiFi modes
+- **Saved networks:** up to **3** (name ≤ 32 B, password 0 or 8…63 B) in NVS (`cq_wifi`). First boot with an empty store: the `secrets.h` network becomes network 1. The **own AP password** (≥ 8 chars, WPA2) is stored in NVS too, first copied from `secrets.h`.
+- **Boot:** scan, join the **strongest saved network that is visible**; none joins within **10 s** → own AP `conqueror-bridge` (as today). While in the AP fallback the bridge keeps retrying the saved networks (as today).
+- **Double press** of the tank's button (two `button_press` events ≤ **1 s** apart, nothing waiting for confirmation): **home ↔ own AP**. Forced AP stays on the AP (no retries) until switched back or restarted; forced home behaves as boot. **Not remembered** across restarts (owner). Feedback: Uno sound (`SOUND` frame) + LED (blue home, white own AP).
+- **Mode chip / status:** `wifi_status` reports mode (`home` / `ap` / `ap_fallback` / `connecting`), network name, RSSI, IP, hostname, the saved names (never passwords).
+
+### I2. Changes and the physical confirmation
+- A change (`wifi_save`, `wifi_forget`, `ap_password`, `calib` reset, `setting` set) does **not** apply at once: the bridge answers `{"t":"confirm","what":…,"secs":30}` to that client and waits.
+- A **single press of the tank's button within 30 s** applies it → `{"t":"confirmed","what":…}` (+ the result); no press → `{"t":"confirm_expired"}`; a new change replaces the waiting one. While a confirmation waits a press only confirms (it never counts towards a double press).
+- Applying `wifi_save` with the network that is in use, or a mode change, drops the WebSocket (the client reconnects on the new network).
+
+### I3. WebSocket commands (JSON, as spec 01; passwords never echoed or logged)
+| Command | Reply | Notes |
+|---|---|---|
+| `{"t":"wifi_status"}` | `{"t":"wifi_status","mode","ssid","rssi","ip","host","saved":[names],"ap_ssid"}` | any client |
+| `{"t":"wifi_scan"}` | `{"t":"wifi_scan","nets":[{"ssid","rssi","secure"}…]}` (≤ 12, strongest first) | async, ~3 s |
+| `{"t":"wifi_save","slot"?:1-3,"ssid","password"}` | confirm → `confirmed` | new or edit; full store → slot required |
+| `{"t":"wifi_forget","slot"?}` | confirm → `confirmed` | one slot or all; all → own AP until a network is saved |
+| `{"t":"wifi_mode","mode":"home"|"ap"}` | ack (no confirmation: the same as the double press) | |
+| `{"t":"ap_password","password"}` | confirm → `confirmed` | 8…63 chars |
+| `{"t":"setting","id","value"?}` | `{"t":"setting","id","value"}` | Uno settings by id: **get** any of the allowlist, **set** only `track_balance` (66) in v1 (then `SETTINGS_SAVE`); safety settings (`obstacle_stop`, `obstacle_slow`) read-only |
+| `{"t":"calib","reset":"counts_per_m"|"roll"}` | confirm → `confirmed` + `calib` | defaults 7560 / 25 mm |
+| `{"t":"restart"}` | ack, then restart after 0.5 s | refused while a primitive runs (BUSY) |
+- Errors as today (`nack` with a reason); a command that needs the Uno while it is offline → `BODY_OFFLINE`.
+
+### I4. The `/settings` page (UX: design-notes §72, `docs/design/stitch/12-bridge-settings-desktop-v2.png`)
+- Served by the bridge (gzipped like the drive page); linked from the drive page's menu; phone = **tabs**, desktop = left navigation; the drive page's Phosphor style; the **Emergency STOP** stays on every tab.
+- **WiFi:** connection card (mode, network, signal, IP, hostname, "switch to own WiFi / home" + "or double-press the tank's button"), saved networks (max 3: edit / remove, add, scan), add-network form (scanned names, password, Save & connect, confirmation countdown), own AP card (name, change password, address 192.168.4.1, the fallback note).
+- **Tank info:** bridge / Uno versions, battery, uptime, restart reasons, encoder state (from `/info`, `welcome`, `ts`).
+- **Calibration:** `counts_per_m` and roll-on (reset, confirmed), `track_balance` (edit, confirmed), arc model values (read-only).
+- **Maintenance:** restart bridge; forget all networks (confirmed); **record 10 s CSV** — the page itself streams `debug` at 50 Hz and downloads the CSV (same columns as `td_record.py`; no bridge change).
+- Second step (later): driving feel (max speed, `accel_limit`, heading gain, reverse steering, sound mode).
+
+### I5. Security notes
+Plain HTTP on the home network: passwords cross the LAN unencrypted while being saved (as OTA today) — acceptable for development, never release firmware. The button confirmation proves someone is at the tank; anyone on the network can still view the page and switch modes (the same as pressing the button twice).
+
+### I6. Tests and acceptance
+- **Host:** saved-network store (add, edit, remove, full, first-boot seed, password rules), strongest-visible selection, double-press detector (≤ 1 s, ignores a press while confirming), confirmation state machine (confirm, expire, replace), command codec + JSON (no password in any reply), the `setting` allowlist.
+- **Tank (owner present):** double press switches home ↔ AP both ways (sound + LED, phone rejoins); add a second network with the button confirmation and see it used after a restart; a change without the press expires; `track_balance` edit reaches the Uno and survives its restart; the CSV downloads on the phone; restart bridge works.

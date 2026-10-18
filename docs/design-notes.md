@@ -1290,3 +1290,9 @@ Bridge only (Uno unchanged since kMaxCps 2500). Owner measured with marks: S (ta
 - The same change gives the sound buttons their green outline (they showed the browser's default grey).
 - Flash the Uno (USB) and the bridge (OTA); an old Uno answers an unknown sound id with an ACK error, nothing else breaks.
 - **Checked on the tank (2026-10-18, stand):** Uno flashed (31 044 B, 96.2 %), sound sheet shows 8 × 3 buttons with the green outline, `horn` plays two short honks.
+
+## 76. Camera re-check with ELEGOO's original firmware (owner, 2026-10-18)
+- **Why:** before calling the camera off for good, compare with the firmware it came with. Differences from ours (`docs/legacy/esp32s3-old-firmware.md`): camera started **before** WiFi, WiFi power save left on, default TX power, XCLK 20 MHz, arduino-esp32 3.3.7 (ours 3.3.11). Web: arduino-esp32 issue #11846 (camera streaming + network broken after 3.3.x, closed as stale); an old Espressif forum thread blaming a 20 MHz camera clock coupling into the antenna.
+- **Test:** full 8 MB backup of the board (`~/tank-dump/bridge-backup-2026-10-18.bin` on the Linux machine, never copied off it), then the original ELEGOO flash image written back.
+- **Result:** ELEGOO's firmware prints **"Camera OK"**, then **fails to join the home network on 3 of 3 boots** (10 s, then its setup AP), with the network name confirmed by hash to be the same 2.4 GHz network (channel 6, signal 100 %) our bridge joins in ~5 s with the camera off. A password typo cannot be fully excluded, but the owner re-entered it carefully.
+- **Conclusion:** ELEGOO's own firmware has the same trouble on this board → the cause is the camera hardware (module / ribbon / coupling into the antenna), not our firmware. Our firmware restored from the backup (bridge 8361f00, settings and calibration intact).

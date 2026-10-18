@@ -25,7 +25,7 @@ Hobby robot platform: ELEGOO Conqueror tank rebuilt as **Uno body + ESP32 gatewa
 1. **Plan A — protocol generator** (no hardware). Must be merged before B/C/D.
 2. **Plan B — Uno firmware** (needs the tank on a stand for hardware steps; host tests run anywhere).
 3. **Plan C — ESP32 WiFi bridge** (needs the ESP32 board).
-4. **Plan D — bench tool** (simulated Uno for nearly all tests; hardware only for acceptance) — not started.
+4. **Plan D — bench tool** — **retired 2026-10-18**, never executed (design-notes §74); TCP 3333 passthrough removed from the bridge.
 5. **Plan E — Uno Lite** (the ELEGOO Uno is the body board again, design-notes §43) — done; 3 m floor run passed (§52).
 6. **Plan F — Cockpit-lite phone page** on the bridge — done (hardware checks §44–51).
 7. **Plan G — stick steering by angle** — done on the stand; floor feel parked until encoders (§52).
@@ -37,7 +37,7 @@ Hobby robot platform: ELEGOO Conqueror tank rebuilt as **Uno body + ESP32 gatewa
 13. **Plan K — MOVE by distance + counts_per_m calibration + learned early stop** (bridge only; spec 02 Part G incl. §G6, bridge LLD R7) — done, merged 2026-10-17, floor-accepted: ±1 cm (design-notes §69); `counts_per_m` 7514 in the bridge NVS; `tools/smoke/move.py`.
 14. **Plan L — arcs, pivots, minimum drive_rate** (bridge only; spec 02 Part H, bridge LLD R8; Uno kMaxCps 2500) — done, merged 2026-10-18 (design-notes §71): pivots / refusals / slow-spin clamp pass; **arc path (±5 cm) re-test after the left road wheel repair**; `tools/smoke/turn.py`.
 15. **Plan M — WiFi modes (double press) + `/settings` page** (bridge only; spec 02 Part I, bridge LLD R9) — done on the tank and merged 2026-10-18 (design-notes §73); ≤ 3 networks in NVS, button-confirmed changes, two tabs. A STOP from any device now holds until the driver releases its stick (§72, LLD R9.6).
-16. **Next (owner to pick):** arc re-test + track_balance re-measure after the left road wheel repair; Plan L / M deferred minors; Plan D bench tool (retire / replace / keep); camera + AI phase. Uno Lite flash is at 96 % (~1.2 KB left).
+16. **Next (owner to pick):** arc re-test + track_balance re-measure after the left road wheel repair; Plan L / M deferred minors; camera + AI phase. Uno Lite flash is at 96 % (~1.2 KB left).
 Execute with the superpowers skills (`subagent-driven-development` recommended, or `executing-plans`).
 
 ## Hard rules for code

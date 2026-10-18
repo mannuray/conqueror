@@ -166,13 +166,13 @@ The compiler decides the kind. Uploading an AI program with no AI engine gives: 
 ## 10. Preview simulator
 - Runs the IR with ideal turtle physics (exact distances and angles) and draws the expected path in the IDE before anything moves.
 - Sensor values in the preview: `DISTANCE` = 999, `BATTERY` = 100, `RANDOM` = seeded; branches that depend on sensors are drawn dashed with a note.
-- Same simulator (Python) powers `bench logo run --dry`.
+- Same simulator (Python) powers a dry run (`--dry`) in whichever client runs Logo programs (the bench tool was retired 2026-10-18, design-notes §74).
 
 ## 11. Implementation layout (for the LLDs)
 | Part | Where | Language |
 |---|---|---|
 | Word table, grammar, conformance tests | `logo/spec/` (`words.yaml`, `grammar.md`, `tests/*.yaml`: source → expected IR or error, plus simulator trace) | data |
-| Parser, checker, compiler, simulator, runner | `logo/python/conqueror_logo` — used by bench tool and AI engine | Python |
+| Parser, checker, compiler, simulator, runner | `logo/python/conqueror_logo` — used by the AI engine / hub (bench tool retired, design-notes §74) | Python |
 | Parser, checker, compiler, simulator | IDE package in the hub web app | TypeScript |
 | Program runner (core) | ESP32 gateway firmware | C++ |
 | Program API | ESP32 client API (upload / run / step / stop / events) and the hub API | per protocol spec |

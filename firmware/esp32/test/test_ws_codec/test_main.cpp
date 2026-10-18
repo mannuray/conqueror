@@ -298,6 +298,45 @@ void test_turn_pivot_field() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kTurn), K(P("{\"t\":\"turn\",\"by\":90,\"pivot\":false,\"radius_cm\":60}").kind));
 }
 
+// Plan M (bridge LLD R9 / spec 02 §I3).
+void test_wifi_commands() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kWifiStatus), K(P("{\"t\":\"wifi_status\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kWifiScan), K(P("{\"t\":\"wifi_scan\"}").kind));
+  WsCommand c = P("{\"t\":\"wifi_save\",\"slot\":2,\"ssid\":\"Office\",\"password\":\"secret123\",\"id\":4}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kWifiSave), K(c.kind));
+  TEST_ASSERT_EQUAL_INT8(1, c.slot);  // JSON 1..3 -> 0..2
+  TEST_ASSERT_EQUAL_STRING("Office", c.ssid);
+  TEST_ASSERT_EQUAL_STRING("secret123", c.password);
+  c = P("{\"t\":\"wifi_save\",\"ssid\":\"Open\",\"password\":\"\"}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kWifiSave), K(c.kind));
+  TEST_ASSERT_EQUAL_INT8(-1, c.slot);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"wifi_save\",\"password\":\"x\"}").kind));  // no ssid
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"wifi_save\",\"ssid\":\"A\",\"slot\":4,\"password\":\"\"}").kind));
+  c = P("{\"t\":\"wifi_forget\",\"slot\":1}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kWifiForget), K(c.kind));
+  TEST_ASSERT_EQUAL_INT8(0, c.slot);
+  TEST_ASSERT_EQUAL_INT8(-1, P("{\"t\":\"wifi_forget\"}").slot);  // all
+  TEST_ASSERT_TRUE(P("{\"t\":\"wifi_mode\",\"mode\":\"ap\"}").wifi_ap);
+  TEST_ASSERT_FALSE(P("{\"t\":\"wifi_mode\",\"mode\":\"home\"}").wifi_ap);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"wifi_mode\",\"mode\":\"x\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kApPassword), K(P("{\"t\":\"ap_password\",\"password\":\"abcdefgh\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kRestart), K(P("{\"t\":\"restart\"}").kind));
+}
+
+void test_setting_and_calib_reset() {
+  WsCommand c = P("{\"t\":\"setting\",\"setting_id\":66}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSetting), K(c.kind));
+  TEST_ASSERT_EQUAL_UINT8(66, c.setting_id);
+  TEST_ASSERT_FALSE(c.has_value);
+  c = P("{\"t\":\"setting\",\"setting_id\":66,\"value\":-12}");
+  TEST_ASSERT_TRUE(c.has_value);
+  TEST_ASSERT_EQUAL_INT32(-12, c.value);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"setting\"}").kind));
+  TEST_ASSERT_EQUAL_INT8(0, P("{\"t\":\"calib\",\"reset\":\"counts_per_m\"}").calib_reset);
+  TEST_ASSERT_EQUAL_INT8(1, P("{\"t\":\"calib\",\"reset\":\"roll\"}").calib_reset);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"calib\",\"reset\":\"x\"}").kind));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_drive);
@@ -327,5 +366,7 @@ int main() {
   RUN_TEST(test_speed_limits_per_command);
   RUN_TEST(test_calib_read_and_set);
   RUN_TEST(test_turn_pivot_field);
+  RUN_TEST(test_wifi_commands);
+  RUN_TEST(test_setting_and_calib_reset);
   return UNITY_END();
 }

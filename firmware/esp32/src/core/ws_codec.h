@@ -26,6 +26,14 @@ enum class WsCmdKind : uint8_t {
   kDebug,      // LLD R5: {"t":"debug","on":bool,"hz"?:10|50} -> this client gets td / tds
   kMove,       // Plan K (LLD R7.1): {"t":"move","dist_cm":±1..500,"speed"?:10..100} -> motion service
   kCalib,      // {"t":"calib","counts_per_m"?:3000..15000} -> read / set the bridge's counts_per_m (NVS)
+  kWifiStatus,  // Plan M (spec 02 §I3): {"t":"wifi_status"} -> wifi_status
+  kWifiScan,    // {"t":"wifi_scan"} -> wifi_scan (async)
+  kWifiSave,    // {"t":"wifi_save","slot"?:1-3,"ssid","password"} -> confirm
+  kWifiForget,  // {"t":"wifi_forget","slot"?} -> confirm (no slot = all)
+  kWifiMode,    // {"t":"wifi_mode","mode":"home"|"ap"} -> confirm
+  kApPassword,  // {"t":"ap_password","password"} -> confirm
+  kSetting,     // {"t":"setting","setting_id","value"?} -> setting (set: confirm)
+  kRestart,     // {"t":"restart"} -> ack, restart after 0.5 s
   kUnsupported,  // valid JSON, "t" not in the Basic Drive slice -> nack INVALID_COMMAND
   kInvalid,      // not JSON / no "t" / bad field -> nack INVALID_COMMAND
 };
@@ -50,6 +58,14 @@ struct WsCommand {
   bool pivot = false;         // turn: pivot around the inside track (Plan L)
   int16_t rate_ddps = 0;      // drive_rate: -1800..1800 (0.1 °/s, + = CCW / left)
   uint8_t debug_hz = 10;      // debug: 10 or 50
+  char ssid[33] = "";      // wifi_save (Plan M)
+  char password[64] = "";  // wifi_save / ap_password - never logged or echoed
+  int8_t slot = -1;        // wifi_save / wifi_forget: 0..2, -1 = first free / all
+  bool wifi_ap = false;    // wifi_mode: true = own AP
+  uint8_t setting_id = 0;  // setting
+  bool has_value = false;
+  int32_t value = 0;
+  int8_t calib_reset = -1;  // calib: 0 counts_per_m, 1 roll
   int16_t move_cm = 0;        // move: ±1..500 (+ forward)
   bool has_cpm = false;       // calib: set (else read)
   uint16_t cpm = 0;           // calib: counts per metre

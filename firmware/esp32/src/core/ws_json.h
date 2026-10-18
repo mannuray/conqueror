@@ -8,6 +8,7 @@
 
 #include "core/body_link.h"
 #include "core/motion_service.h"
+#include "core/wifi_store.h"
 #include "cq_protocol.h"
 
 namespace cq {
@@ -47,6 +48,23 @@ size_t jsonPrimitiveDone(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, 
 size_t jsonTs(char* out, size_t cap, const TankSnapshot& s, OwnerView owner, bool body_offline);
 // Plan K (LLD R7.1 / R7.9): {"t":"calib","counts_per_m":n,"roll_mm":m} - reply to calib (read or after a save).
 size_t jsonCalib(char* out, size_t cap, uint16_t counts_per_m, uint16_t roll_mm);
+// Plan M (spec 02 §I3): WiFi status / scan, the confirmation replies, Uno settings. Never a password.
+struct WifiStatusView {
+  const char* mode;  // "home" / "connecting" / "ap_fallback" / "ap"
+  const char* ssid;
+  int rssi;
+  const char* ip;
+  const char* host;
+  const char* saved[3];
+  uint8_t n_saved;
+  const char* ap_ssid;
+};
+size_t jsonWifiStatus(char* out, size_t cap, const WifiStatusView& v);
+size_t jsonWifiScan(char* out, size_t cap, const ScanEntry* nets, size_t count);
+size_t jsonConfirm(char* out, size_t cap, const char* what, uint8_t secs);
+size_t jsonConfirmed(char* out, size_t cap, const char* what);
+size_t jsonConfirmExpired(char* out, size_t cap, const char* what);
+size_t jsonSetting(char* out, size_t cap, uint8_t id, int32_t value);
 // LLD R5 debug stream: raw TELEM_FAST ("td") / TELEM_SLOW ("tds") values; 0 before the first frame.
 size_t jsonTd(char* out, size_t cap, uint32_t seq, const TankSnapshot& s);
 size_t jsonTds(char* out, size_t cap, const TankSnapshot& s);

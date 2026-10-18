@@ -135,6 +135,14 @@ WsCmdKind kindOf(const char* t) {
   if (strcmp(t, "debug") == 0) return WsCmdKind::kDebug;
   if (strcmp(t, "move") == 0) return WsCmdKind::kMove;
   if (strcmp(t, "calib") == 0) return WsCmdKind::kCalib;
+  if (strcmp(t, "wifi_status") == 0) return WsCmdKind::kWifiStatus;
+  if (strcmp(t, "wifi_scan") == 0) return WsCmdKind::kWifiScan;
+  if (strcmp(t, "wifi_save") == 0) return WsCmdKind::kWifiSave;
+  if (strcmp(t, "wifi_forget") == 0) return WsCmdKind::kWifiForget;
+  if (strcmp(t, "wifi_mode") == 0) return WsCmdKind::kWifiMode;
+  if (strcmp(t, "ap_password") == 0) return WsCmdKind::kApPassword;
+  if (strcmp(t, "setting") == 0) return WsCmdKind::kSetting;
+  if (strcmp(t, "restart") == 0) return WsCmdKind::kRestart;
   return WsCmdKind::kUnsupported;
 }
 
@@ -208,11 +216,13 @@ bool readMotionField(const char* key, Reader& r, WsCommand& c, MotionFields& mf)
 struct Seen {
   char t[24] = "";
   bool v = false, w = false, x = false, y = false, active = false, on = false;
-  char mode[8] = "";  // audio_mode
+  char mode[8] = "";  // audio_mode / wifi_mode
   char name[24] = "";
   MotionFields mf;
   bool dist = false, heading = false;  // move (Plan K)
   bool pivot = false;                  // turn (Plan L)
+  bool ssid = false, password = false, setting_id = false;  // Plan M
+  char reset[16] = "";                                      // calib reset
 };
 
 bool readBool(Reader& r, bool& out, bool& seen) {
@@ -270,6 +280,32 @@ bool readField(const char* key, Reader& r, WsCommand& c, Seen& s) {
     s.heading = true;
     return r.skip();
   }
+  if (strcmp(key, "ssid") == 0) {  // Plan M: 1..32 bytes (checked again by WifiStore)
+    s.ssid = r.str(c.ssid, sizeof(c.ssid));
+    return s.ssid;
+  }
+  if (strcmp(key, "password") == 0) {
+    s.password = r.str(c.password, sizeof(c.password));
+    return s.password;
+  }
+  if (strcmp(key, "slot") == 0) {  // JSON 1..3
+    if (!r.num(num, nullptr, 0) || !isWhole(num) || num < 1 || num > 3) return false;
+    c.slot = static_cast<int8_t>(num - 1);
+    return true;
+  }
+  if (strcmp(key, "value") == 0) {  // setting
+    if (!r.num(num, nullptr, 0) || !isWhole(num) || num < -2147483648.0 || num > 2147483647.0) return false;
+    c.value = static_cast<int32_t>(num);
+    c.has_value = true;
+    return true;
+  }
+  if (strcmp(key, "reset") == 0) return r.str(s.reset, sizeof(s.reset));
+  if (strcmp(key, "setting_id") == 0) {  // setting: the Uno setting (the command id stays "id")
+    if (!r.num(num, nullptr, 0) || !isWhole(num) || num < 0 || num > 255) return false;
+    c.setting_id = static_cast<uint8_t>(num);
+    s.setting_id = true;
+    return true;
+  }
   if (strcmp(key, "counts_per_m") == 0) {  // calib set
     if (!r.num(num, nullptr, 0) || !isWhole(num) || num < motion::kCpmMin || num > motion::kCpmMax) return false;
     c.has_cpm = true;
@@ -296,7 +332,20 @@ bool complete(WsCommand& c, const Seen& s) {
     case WsCmdKind::kTurn:  // exactly one of by / to; a pivot has no radius (Plan L)
       return s.mf.by != s.mf.to && c.speed >= motion::kTurnWMin && !(c.pivot && c.radius_cm > 0);
     case WsCmdKind::kMove: return s.dist && !s.heading && c.speed >= motion::kMoveSpeedMin;
-    case WsCmdKind::kCalib: return true;
+    case WsCmdKind::kWifiSave: return s.ssid && s.password;
+    case WsCmdKind::kWifiForget: return true;
+    case WsCmdKind::kWifiMode:
+      c.wifi_ap = strcmp(s.mode, "ap") == 0;
+      return c.wifi_ap || strcmp(s.mode, "home") == 0;
+    case WsCmdKind::kApPassword: return s.password;
+    case WsCmdKind::kSetting: return s.setting_id;
+    case WsCmdKind::kCalib:
+      if (s.reset[0] == '\0') return true;
+      c.calib_reset = strcmp(s.reset, "counts_per_m") == 0 ? 0 : (strcmp(s.reset, "roll") == 0 ? 1 : -1);
+      return c.calib_reset >= 0;
+    case WsCmdKind::kWifiStatus:
+    case WsCmdKind::kWifiScan:
+    case WsCmdKind::kRestart: return true;
     case WsCmdKind::kDriveRate: return s.v && s.mf.rate;  // review M20: like the other commands' fields
     case WsCmdKind::kDebug: return s.on;
     default: return true;

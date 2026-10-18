@@ -4,6 +4,8 @@
 
 #include <atomic>
 
+#include <driver/gpio.h>
+
 #include "board_config.h"
 #include "net/log.h"
 
@@ -53,6 +55,12 @@ bool cameraBegin() {
   c.fb_location = CAMERA_FB_IN_PSRAM;
   c.grab_mode = CAMERA_GRAB_LATEST;  // viewers always get the newest frame
   const esp_err_t err = esp_camera_init(&c);
+  // LLD R12: gentle clock edges, also after a failed init (it can leave the clock running).
+  gpio_set_drive_capability(static_cast<gpio_num_t>(board::kCamXclk),
+                            static_cast<gpio_drive_cap_t>(board::kCamXclkDrive));
+  gpio_drive_cap_t drive = GPIO_DRIVE_CAP_DEFAULT;
+  gpio_get_drive_capability(static_cast<gpio_num_t>(board::kCamXclk), &drive);
+  logf("camera: xclk GPIO%d drive %d", board::kCamXclk, static_cast<int>(drive));
   if (err != ESP_OK) {
     logf("camera: init failed 0x%x - stream disabled (check the ribbon cable)",
          static_cast<unsigned>(err));

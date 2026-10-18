@@ -110,7 +110,8 @@ body.rc #video, body.rc #noVideo { touch-action: none; }
 /* RC like a stick transmitter (R3.8): steering centred at the throttle's centre height; camera indicator above it,
    HOME to its left - out of the thumbs' resting path. */
 body.rc #steerPad { margin-bottom: calc(var(--pad) / 2 - 32px); }
-body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 + 46px); bottom: calc(var(--pad) / 2 + 56px); }
+body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 + 46px); bottom: calc(var(--pad) / 2 + 56px);
+  z-index: 2; /* above the camera stick's box, which covered HOME in RC (design-notes §78) */ }
 .btn.on { background: var(--ui); color: #032; }
 .stick .ttl i { font-style: normal; color: var(--active); margin-left: 4px; }
 .lbl { position: absolute; font-size: 7px; color: var(--dim); letter-spacing: .05em; }

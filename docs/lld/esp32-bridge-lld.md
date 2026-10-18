@@ -1624,3 +1624,24 @@ stateDiagram-v2
   Reconnecting --> Connected : connect (only while shown)
   Reconnecting --> Hidden : page hidden (no reconnect)
 ```
+
+## Revision 12 — Camera back on with a gentle clock edge (owner 2026-10-18, design-notes §76)
+Supersedes R4.15 ("camera off") and explains R4.14: the camera clock (XCLK, GPIO15, 10 MHz square wave from LEDC) switched with sharp edges at the driver's default **drive strength 2**; on this board those edges couple into the WiFi antenna (83–100 % ping loss with the camera on, 16–54 % with only the clock and no camera). At **drive 0** (weakest) the camera streams at 20–25 fps with 0 % loss (bench tests, design-notes §76).
+- `cameraBegin()`: right after `esp_camera_init` — on success **and** on failure (a failed init can leave the clock running) — `gpio_set_drive_capability(board::kCamXclk, GPIO_DRIVE_CAP_0)` (`board::kCamXclkDrive`), read back and logged.
+- `board::kCameraEnabled = true`; XCLK stays 10 MHz (R4.14).
+- The staged start stays (camera after the station is up, design-notes §38).
+- Safety unchanged: driving never depends on video; if the camera ever disturbs the WiFi again, the deadman / link-loss stops still stop the tank.
+
+```mermaid
+sequenceDiagram
+  participant M as main loop
+  participant C as CameraService
+  participant D as esp32-camera
+  participant G as GPIO15 (XCLK)
+  M->>C: cameraBegin() (WiFi up or 10 s)
+  C->>D: esp_camera_init(config)
+  D->>G: LEDC 10 MHz, drive 2 (driver default)
+  C->>G: gpio_set_drive_capability(DRIVE_CAP_0)
+  C->>C: log "xclk drive 0"
+```
+Tank check: 3 boots — pings + drive page with video; a short stand drive with video on (drive, release, STOP).

@@ -1308,3 +1308,8 @@ Bridge only (Uno unchanged since kMaxCps 2500). Owner measured with marks: S (ta
   - **GPIO15 drive strength** (camera unplugged): drive 3 (strongest) 74–100 % loss; **drive 0 (weakest) 0 %**; drive 1 ≈ 0–4 % but ~1 s delays. The camera driver leaves the pin at drive 2.
   - **Camera plugged in and streaming, fresh boot:** driver default drive 2 → 83–100 % loss; **drive 0 → 0 % loss, 6–8 ms, 20–25 fps, 0 failed frames, clean picture** (2 of 2 boots); drive 0 also cleared the bad state left by drive 2.
 - **Revised conclusion:** the sharp edges of the camera clock (XCLK) couple into the antenna on this board; **gentler edges (GPIO15 drive 0) fix it in firmware** — no new camera or board needed. Proposed bridge change (owner to approve): set GPIO15 to drive 0 right after `esp_camera_init`, then turn the camera back on and re-test on the tank. Test photos deleted (they showed a person).
+
+## 78. RC mode: camera HOME button did nothing (owner, 2026-10-18)
+- **Cause:** in RC mode the LOCK / HOME column is moved (absolute position) over the camera stick's box; the stick box sat on top, so a tap on HOME hit the box and sent nothing (page test: `elementFromPoint` = `.stick` at 844×390 and 1200×700).
+- **Fix:** `body.rc .right .col { z-index: 2 }`. Page test at 844×390, 667×375, 932×430, 1200×700: HOME sends `cam_home` in single-stick and RC; the steering slider still gets its taps.
+- Found during the camera-back-on stand check (bridge LLD R12): driving, release, STOP and turning with live video all fine.

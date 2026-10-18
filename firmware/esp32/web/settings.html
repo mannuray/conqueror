@@ -22,7 +22,6 @@ header { display: flex; align-items: center; gap: 8px; padding: 8px max(10px, en
 header a { color: var(--ui); text-decoration: none; border: 1px solid var(--edge-c); padding: 4px 8px; border-radius: 6px; }
 header h1 { font-size: 14px; margin: 0 auto 0 4px; color: var(--ui); letter-spacing: .08em; }
 .chip { border: 1px solid var(--edge-c); border-radius: 6px; padding: 3px 7px; color: var(--ui); white-space: nowrap; }
-#stop { background: var(--danger); color: #fff; border: 0; border-radius: 6px; padding: 7px 12px; font-weight: 700; letter-spacing: .08em; cursor: pointer; }
 .wrap { display: flex; min-height: calc(100vh - 50px); }
 nav { display: flex; gap: 4px; padding: 8px 10px; }
 nav button { flex: 1; background: none; border: 1px solid var(--edge-c); border-radius: 6px; padding: 7px 4px; color: var(--dim); cursor: pointer; letter-spacing: .06em; }
@@ -68,7 +67,6 @@ label { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
   <span class="chip" id="cWifi">WiFi --</span>
   <span class="chip" id="cUno">UNO --</span>
   <span class="chip" id="link">offline</span>
-  <button id="stop" type="button">STOP</button>
 </header>
 <div class="wrap">
 <nav id="tabs">
@@ -192,9 +190,6 @@ label { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
     ["wifi", "tank"].forEach(function (t) { $("t-" + t).className = t === b.dataset.tab ? "on" : ""; });
     if (b.dataset.tab === "tank") loadInfo();
   });
-
-  // ---------- STOP (always) ----------
-  $("stop").addEventListener("pointerdown", function () { if (!send({ t: "stop", id: nextId++ })) toast("Not connected"); });
 
   // ---------- WiFi ----------
   function renderWifi(m) {

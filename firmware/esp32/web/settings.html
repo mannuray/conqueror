@@ -44,6 +44,8 @@ label { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
 .hint { color: var(--dim); font-size: 11px; margin-top: 6px; }
 .slot { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px dashed rgba(51, 255, 102, .15); }
 .slot .btn { margin-top: 0; padding: 3px 8px; }
+.slot.found { cursor: pointer; } .slot.found:hover { background: rgba(51, 255, 102, .08); }
+#nFound { margin: 4px 0 6px; } #nFound .hint { margin-top: 0; }
 #confirm { display: none; position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 5; max-width: 92vw; border: 1px solid var(--warn); color: var(--warn); background: rgba(10, 8, 2, .95); border-radius: 8px; padding: 10px 14px; text-align: center; }
 #confirm.show { display: block; }
 #toast { display: none; position: fixed; left: 50%; top: 60px; transform: translateX(-50%); z-index: 6; max-width: 92vw; border: 1px solid var(--danger); color: var(--danger); background: rgba(10, 4, 4, .95); border-radius: 8px; padding: 8px 12px; }
@@ -89,9 +91,11 @@ label { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
     <button class="btn" id="wScan" type="button">Scan</button>
   </div>
   <div class="card"><h2>ADD / EDIT NETWORK</h2>
+    <div class="hint" style="margin-top:0">Press Scan above, then tap a network (2.4 GHz only), or type its name.</div>
     <label for="nSsid">NETWORK NAME</label>
     <input id="nSsid" list="nList" maxlength="32" autocomplete="off" placeholder="name, or Scan and pick">
     <datalist id="nList"></datalist>
+    <div id="nFound"></div>
     <label for="nPass">PASSWORD (8-63, empty for an open network)</label>
     <input id="nPass" type="password" maxlength="63" autocomplete="new-password">
     <button class="btn warn" id="nSave" type="button">Save &amp; connect</button>
@@ -311,9 +315,18 @@ label { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
       case "wifi_status": renderWifi(m); break;
       case "wifi_scan":
         $("wScan").disabled = false;
-        var dl = $("nList"); dl.textContent = "";
-        (m.nets || []).forEach(function (n) { var o = document.createElement("option"); o.value = n.ssid; o.label = n.rssi + " dBm" + (n.secure ? "" : " open"); dl.appendChild(o); });
-        toast((m.nets || []).length + " networks found - pick one in the name field");
+        var dl = $("nList"), found = $("nFound"); dl.textContent = ""; found.textContent = "";
+        (m.nets || []).forEach(function (n) {
+          var o = document.createElement("option"); o.value = n.ssid; o.label = n.rssi + " dBm" + (n.secure ? "" : " open"); dl.appendChild(o);
+          var row = document.createElement("div"); row.className = "slot found";  // tap to use (owner: the list must be visible)
+          var name = document.createElement("span"); name.textContent = n.ssid;
+          var sig = document.createElement("span"); sig.className = "hint"; sig.textContent = n.rssi + " dBm" + (n.secure ? "" : " · open");
+          row.appendChild(name); row.appendChild(sig);
+          row.onclick = function () { $("nSsid").value = n.ssid; $("nPass").focus(); };
+          found.appendChild(row);
+        });
+        if (!(m.nets || []).length) found.textContent = "No networks found (the tank sees 2.4 GHz only).";
+        $("tabs").querySelector('[data-tab="wifi"]').click();
         break;
       case "calib": $("kCpm").textContent = m.counts_per_m; $("kRoll").textContent = m.roll_mm + " mm"; break;
       case "setting": onSetting(m); break;

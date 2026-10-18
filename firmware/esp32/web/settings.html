@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050805">
+<title>Conqueror Settings</title>
+<link rel="icon" href="/icon-192.png">
+<style>
+/* Plan M (spec 02 Part I, bridge LLD R9): the bridge's settings page. Phosphor tokens as the drive page; layout per
+   docs/design/stitch/12-bridge-settings-desktop-v2.png (desktop: left navigation) and tabs on the phone. */
+:root {
+  --bg: #050805; --panel: #08140a; --edge-c: rgba(51, 255, 102, .38); --ui: #33ff66; --dim: #1f9a40;
+  --warn: #ffb000; --danger: #ff3b30; --active: #e8ffe8; --text: #b8f5c8;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 var(--mono); }
+a, button, input, select { font: inherit; color: inherit; }
+header { display: flex; align-items: center; gap: 8px; padding: 8px max(10px, env(safe-area-inset-left)); border-bottom: 1px solid var(--edge-c); flex-wrap: wrap; }
+header a { color: var(--ui); text-decoration: none; border: 1px solid var(--edge-c); padding: 4px 8px; border-radius: 6px; }
+header h1 { font-size: 14px; margin: 0 auto 0 4px; color: var(--ui); letter-spacing: .08em; }
+.chip { border: 1px solid var(--edge-c); border-radius: 6px; padding: 3px 7px; color: var(--ui); white-space: nowrap; }
+#stop { background: var(--danger); color: #fff; border: 0; border-radius: 6px; padding: 7px 12px; font-weight: 700; letter-spacing: .08em; cursor: pointer; }
+.wrap { display: flex; min-height: calc(100vh - 50px); }
+nav { display: flex; gap: 4px; padding: 8px 10px; }
+nav button { flex: 1; background: none; border: 1px solid var(--edge-c); border-radius: 6px; padding: 7px 4px; color: var(--dim); cursor: pointer; letter-spacing: .06em; }
+nav button.on { color: var(--ui); background: rgba(51, 255, 102, .1); border-color: var(--ui); }
+main { flex: 1; padding: 10px; display: grid; grid-template-columns: 1fr; gap: 10px; align-content: start; }
+section { display: none; }
+section.on { display: contents; }
+.card { background: var(--panel); border: 1px solid var(--edge-c); border-radius: 8px; padding: 10px; }
+.card h2 { margin: 0 0 8px; font-size: 12px; color: var(--ui); letter-spacing: .1em; }
+.row { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px dashed rgba(51, 255, 102, .15); }
+.row:last-child { border-bottom: 0; }
+.row span:first-child { color: var(--dim); }
+.btn { background: none; border: 1px solid var(--ui); color: var(--ui); border-radius: 6px; padding: 6px 10px; margin: 6px 6px 0 0; cursor: pointer; }
+.btn.warn { border-color: var(--warn); color: var(--warn); }
+.btn.bad { border-color: var(--danger); color: var(--danger); }
+.btn:disabled { opacity: .4; cursor: default; }
+input { width: 100%; background: #030603; border: 1px solid var(--edge-c); border-radius: 6px; padding: 7px; margin: 4px 0 2px; }
+label { color: var(--dim); font-size: 11px; letter-spacing: .06em; }
+.hint { color: var(--dim); font-size: 11px; margin-top: 6px; }
+.slot { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px dashed rgba(51, 255, 102, .15); }
+.slot .btn { margin-top: 0; padding: 3px 8px; }
+#confirm { display: none; position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 5; max-width: 92vw; border: 1px solid var(--warn); color: var(--warn); background: rgba(10, 8, 2, .95); border-radius: 8px; padding: 10px 14px; text-align: center; }
+#confirm.show { display: block; }
+#toast { display: none; position: fixed; left: 50%; top: 60px; transform: translateX(-50%); z-index: 6; max-width: 92vw; border: 1px solid var(--danger); color: var(--danger); background: rgba(10, 4, 4, .95); border-radius: 8px; padding: 8px 12px; }
+#toast.show { display: block; }
+#link { color: var(--warn); }
+@media (min-width: 900px) {
+  .wrap { flex-direction: row; }
+  nav { flex-direction: column; width: 210px; border-right: 1px solid var(--edge-c); padding: 12px; }
+  nav button { flex: none; text-align: left; padding: 9px 10px; }
+  main { grid-template-columns: 1fr 1fr; padding: 16px; }
+}
+@media (max-width: 899px) { .wrap { flex-direction: column; } }
+</style>
+</head>
+<body>
+<header>
+  <a href="/">‹ DRIVE</a>
+  <h1>TANK SETTINGS</h1>
+  <span class="chip" id="cBatt">-- V</span>
+  <span class="chip" id="cWifi">WiFi --</span>
+  <span class="chip" id="cUno">UNO --</span>
+  <span class="chip" id="link">offline</span>
+  <button id="stop" type="button">STOP</button>
+</header>
+<div class="wrap">
+<nav id="tabs">
+  <button data-tab="wifi" class="on" type="button">WI-FI</button>
+  <button data-tab="tank" type="button">TANK</button>
+  <button data-tab="calib" type="button">CALIB</button>
+  <button data-tab="maint" type="button">MAINT</button>
+</nav>
+<main>
+<section id="t-wifi" class="on">
+  <div class="card"><h2>CONNECTION</h2>
+    <div class="row"><span>Mode</span><span id="wMode">--</span></div>
+    <div class="row"><span>Network</span><span id="wSsid">--</span></div>
+    <div class="row"><span>Signal</span><span id="wRssi">--</span></div>
+    <div class="row"><span>IP address</span><span id="wIp">--</span></div>
+    <div class="row"><span>Hostname</span><span id="wHost">--</span></div>
+    <button class="btn warn" id="wSwitch" type="button">Switch</button>
+    <div class="hint">Or double-press the tank's button.</div>
+  </div>
+  <div class="card"><h2>SAVED NETWORKS (MAX 3)</h2>
+    <div id="wSaved"></div>
+    <button class="btn" id="wScan" type="button">Scan</button>
+  </div>
+  <div class="card"><h2>ADD / EDIT NETWORK</h2>
+    <label for="nSsid">NETWORK NAME</label>
+    <input id="nSsid" list="nList" maxlength="32" autocomplete="off" placeholder="name, or Scan and pick">
+    <datalist id="nList"></datalist>
+    <label for="nPass">PASSWORD (8-63, empty for an open network)</label>
+    <input id="nPass" type="password" maxlength="63" autocomplete="new-password">
+    <button class="btn warn" id="nSave" type="button">Save &amp; connect</button>
+    <div class="hint" id="nSlot">New network (first free slot)</div>
+  </div>
+  <div class="card"><h2>OWN WIFI (ACCESS POINT)</h2>
+    <div class="row"><span>Name</span><span id="aSsid">conqueror-bridge</span></div>
+    <div class="row"><span>Address</span><span>192.168.4.1</span></div>
+    <label for="aPass">NEW PASSWORD (8-63)</label>
+    <input id="aPass" type="password" maxlength="63" autocomplete="new-password">
+    <button class="btn warn" id="aSave" type="button">Change password</button>
+    <div class="hint">Used when you switch (button or above), or when no saved network is found after 10 s.</div>
+  </div>
+</section>
+<section id="t-tank">
+  <div class="card"><h2>BRIDGE</h2>
+    <div class="row"><span>Firmware</span><span id="iFw">--</span></div>
+    <div class="row"><span>Uptime</span><span id="iUp">--</span></div>
+    <div class="row"><span>Memory</span><span id="iMem">--</span></div>
+    <div class="row"><span>Hardware</span><span id="iHw">--</span></div>
+  </div>
+  <div class="card"><h2>UNO</h2>
+    <div class="row"><span>Firmware</span><span id="iUno">--</span></div>
+    <div class="row"><span>Last restart</span><span id="iUnoReset">--</span></div>
+    <div class="row"><span>Battery</span><span id="iBatt">--</span></div>
+    <div class="row"><span>Encoders</span><span id="iEnc">--</span></div>
+  </div>
+</section>
+<section id="t-calib">
+  <div class="card"><h2>DISTANCE</h2>
+    <div class="row"><span>Counts per metre</span><span id="kCpm">--</span></div>
+    <div class="row"><span>Learned roll-on</span><span id="kRoll">--</span></div>
+    <button class="btn warn" id="kResetCpm" type="button">Reset counts/m (7560)</button>
+    <button class="btn warn" id="kResetRoll" type="button">Reset roll-on (25 mm)</button>
+  </div>
+  <div class="card"><h2>STRAIGHT DRIVING</h2>
+    <div class="row"><span>Track balance (‰)</span><span id="kBal">--</span></div>
+    <label for="kBalIn">NEW VALUE (-100 … 100)</label>
+    <input id="kBalIn" type="number" min="-100" max="100" step="1">
+    <button class="btn warn" id="kBalSave" type="button">Save track balance</button>
+  </div>
+  <div class="card"><h2>READ ONLY</h2>
+    <div class="row"><span>Obstacle stop</span><span id="kStop">--</span></div>
+    <div class="row"><span>Obstacle slow-down</span><span id="kSlow">--</span></div>
+    <div class="row"><span>Encoders enabled</span><span id="kEncOn">--</span></div>
+    <div class="row"><span>Track width B</span><span>19 cm</span></div>
+    <div class="row"><span>Track speed v(p)</span><span>15.5 + 0.18·p cm/s</span></div>
+    <div class="row"><span>Slowest / fastest track</span><span>17.7 / 33.5 cm/s</span></div>
+  </div>
+</section>
+<section id="t-maint">
+  <div class="card"><h2>MAINTENANCE</h2>
+    <button class="btn" id="mCsv" type="button">Record 10 s CSV</button>
+    <button class="btn warn" id="mRestart" type="button">Restart bridge</button>
+    <button class="btn bad" id="mForget" type="button">Forget all WiFi networks</button>
+    <div class="hint" id="mCsvState">The recording downloads to this device.</div>
+  </div>
+</section>
+</main>
+</div>
+<div id="confirm"></div>
+<div id="toast"></div>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var ws = null, open = false, nextId = 1, retry = 500, wifi = null, editSlot = -1;
+  var confirmUntil = 0, confirmTimer = 0, toastTimer = 0, rec = null;
+
+  function send(o) { if (ws && open) { ws.send(JSON.stringify(o)); return true; } return false; }
+  function toast(t) {
+    $("toast").textContent = t; $("toast").className = "show";
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { $("toast").className = ""; }, 4000);
+  }
+  var WHAT = { wifi_save: "save the network", wifi_forget: "forget", wifi_mode: "switch WiFi",
+               ap_password: "change the own-WiFi password", calib: "reset the calibration", setting: "save the setting" };
+  function showConfirm(what, secs) {
+    confirmUntil = Date.now() + secs * 1000;
+    clearInterval(confirmTimer);
+    var tick = function () {
+      var left = Math.max(0, Math.round((confirmUntil - Date.now()) / 1000));
+      $("confirm").textContent = "Press the tank's button to " + (WHAT[what] || what) + " — " + left + " s";
+    };
+    tick(); confirmTimer = setInterval(tick, 250); $("confirm").className = "show";
+  }
+  function hideConfirm(text) {
+    clearInterval(confirmTimer);
+    if (text) { $("confirm").textContent = text; setTimeout(function () { $("confirm").className = ""; }, 2500); }
+    else $("confirm").className = "";
+  }
+
+  // ---------- tabs ----------
+  $("tabs").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    Array.prototype.forEach.call($("tabs").children, function (x) { x.className = x === b ? "on" : ""; });
+    ["wifi", "tank", "calib", "maint"].forEach(function (t) { $("t-" + t).className = t === b.dataset.tab ? "on" : ""; });
+    if (b.dataset.tab === "tank") loadInfo();
+  });
+
+  // ---------- STOP (always) ----------
+  $("stop").addEventListener("pointerdown", function () { if (!send({ t: "stop", id: nextId++ })) toast("Not connected"); });
+
+  // ---------- WiFi ----------
+  function renderWifi(m) {
+    wifi = m;
+    var names = { home: "HOME", connecting: "CONNECTING", ap_fallback: "OWN WIFI (fallback)", ap: "OWN WIFI" };
+    $("wMode").textContent = names[m.mode] || m.mode;
+    $("wSsid").textContent = m.ssid || "--";
+    $("wRssi").textContent = m.mode === "home" ? m.rssi + " dBm" : "--";
+    $("wIp").textContent = m.ip || "--";
+    $("wHost").textContent = m.host || "--";
+    $("aSsid").textContent = m.ap_ssid || "conqueror-bridge";
+    $("cWifi").textContent = m.mode === "home" ? "HOME " + m.rssi + " dBm" : (m.mode === "connecting" ? "CONNECTING" : "OWN WIFI");
+    var toAp = m.mode !== "ap";
+    $("wSwitch").textContent = toAp ? "Switch to own WiFi (" + (m.ap_ssid || "conqueror-bridge") + ")" : "Switch to home WiFi";
+    $("wSwitch").dataset.ap = toAp ? "1" : "0";
+    var box = $("wSaved"); box.textContent = "";
+    (m.saved || []).forEach(function (name, i) {
+      var row = document.createElement("div"); row.className = "slot";
+      var label = document.createElement("span");
+      label.textContent = (i + 1) + ". " + (name || "— free —") + (name && name === m.ssid && m.mode === "home" ? "  ✓" : "");
+      row.appendChild(label);
+      var btns = document.createElement("span");
+      if (name) {
+        var ed = document.createElement("button"); ed.className = "btn"; ed.type = "button"; ed.textContent = "Edit";
+        ed.onclick = function () { editSlot = i; $("nSsid").value = name; $("nPass").value = ""; $("nSlot").textContent = "Editing slot " + (i + 1); $("nPass").focus(); };
+        var rm = document.createElement("button"); rm.className = "btn bad"; rm.type = "button"; rm.textContent = "Remove";
+        rm.onclick = function () { send({ t: "wifi_forget", slot: i + 1, id: nextId++ }); };
+        btns.appendChild(ed); btns.appendChild(rm);
+      }
+      row.appendChild(btns); box.appendChild(row);
+    });
+  }
+  $("wSwitch").addEventListener("click", function () {
+    send({ t: "wifi_mode", mode: $("wSwitch").dataset.ap === "1" ? "ap" : "home", id: nextId++ });
+  });
+  $("wScan").addEventListener("click", function () { $("wScan").disabled = true; send({ t: "wifi_scan", id: nextId++ }); });
+  $("nSave").addEventListener("click", function () {
+    var ssid = $("nSsid").value.trim(), pass = $("nPass").value;
+    if (!ssid) { toast("Enter a network name"); return; }
+    if (pass.length && (pass.length < 8 || pass.length > 63)) { toast("Password: 8-63 characters, or empty"); return; }
+    var o = { t: "wifi_save", ssid: ssid, password: pass, id: nextId++ };
+    if (editSlot >= 0) o.slot = editSlot + 1;
+    send(o);
+    $("nPass").value = "";  // never keep a password on the page
+  });
+  $("aSave").addEventListener("click", function () {
+    var pass = $("aPass").value;
+    if (pass.length < 8 || pass.length > 63) { toast("Password: 8-63 characters"); return; }
+    send({ t: "ap_password", password: pass, id: nextId++ });
+    $("aPass").value = "";
+  });
+
+  // ---------- Tank info ----------
+  function fmtUp(s) { var h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return h + " h " + m + " m"; }
+  function loadInfo() {
+    fetch("/info").then(function (r) { return r.json(); }).then(function (d) {
+      $("iFw").textContent = d.fw ? d.fw.version : "--";
+      $("iUp").textContent = fmtUp(d.uptime_s || 0);
+      $("iMem").textContent = Math.round((d.free_heap || 0) / 1024) + " KB heap, " + Math.round((d.free_psram || 0) / 1048576) + " MB PSRAM free";
+      $("iHw").textContent = d.hw ? d.hw.flash_mb + " MB flash, " + d.hw.psram_mb + " MB PSRAM" : "--";
+      $("iUno").textContent = d.uno && d.uno.fw ? "Lite " + d.uno.fw + " (proto " + d.uno.proto + ")" : "offline";
+      $("iUnoReset").textContent = d.uno && d.uno.reset_reason ? d.uno.reset_reason : "--";
+    }).catch(function () {});
+  }
+
+  // ---------- Calibration ----------
+  $("kResetCpm").addEventListener("click", function () { send({ t: "calib", reset: "counts_per_m", id: nextId++ }); });
+  $("kResetRoll").addEventListener("click", function () { send({ t: "calib", reset: "roll", id: nextId++ }); });
+  $("kBalSave").addEventListener("click", function () {
+    var v = parseInt($("kBalIn").value, 10);
+    if (isNaN(v) || v < -100 || v > 100) { toast("Track balance: -100 … 100"); return; }
+    send({ t: "setting", setting_id: 66, value: v, id: nextId++ });
+  });
+  var SETTING_EL = { 66: ["kBal", ""], 11: ["kStop", " cm"], 12: ["kSlow", " cm"], 1: ["kEncOn", ""] };
+  function onSetting(m) {
+    var e = SETTING_EL[m.id]; if (!e) return;
+    $(e[0]).textContent = m.id === 1 ? (m.value ? "yes" : "no") : m.value + e[1];
+  }
+
+  // ---------- Maintenance ----------
+  $("mRestart").addEventListener("click", function () { send({ t: "restart", id: nextId++ }); });
+  $("mForget").addEventListener("click", function () { send({ t: "wifi_forget", id: nextId++ }); });
+  var TD = ["t_s", "seq", "uno_ms", "enc_l", "enc_r", "pwm_l", "pwm_r", "cmd_l", "cmd_r", "act_l", "act_r", "yaw", "rate",
+            "pitch", "roll", "dist_mm", "dist_fault", "closing", "pan", "tilt", "flags", "prim", "pct"];
+  function tdRow(m, t) {
+    var n = function (x) { return x === null || x === undefined ? "" : x; };
+    return [t.toFixed(3), m.seq, m.uno_ms, m.enc[0], m.enc[1], m.pwm[0], m.pwm[1], m.cmd[0], m.cmd[1], n(m.act[0]), n(m.act[1]),
+            m.yaw, m.rate, m.pitch, m.roll, n(m.dist_mm), m.dist_fault ? 1 : 0, m.closing, m.pan, m.tilt, m.flags, m.prim, m.pct].join(",");
+  }
+  $("mCsv").addEventListener("click", function () {
+    if (rec) return;
+    if (!send({ t: "debug", on: true, hz: 50, id: nextId++ })) { toast("Not connected"); return; }
+    rec = { t0: Date.now(), rows: [TD.join(",")] };
+    $("mCsvState").textContent = "Recording 10 s …";
+    setTimeout(function () {
+      send({ t: "debug", on: false });
+      var blob = new Blob([rec.rows.join("\n") + "\n"], { type: "text/csv" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "tank-" + new Date().toISOString().replace(/[:.]/g, "-") + ".csv";
+      document.body.appendChild(a); a.click(); a.remove();
+      $("mCsvState").textContent = (rec.rows.length - 1) + " rows downloaded.";
+      rec = null;
+    }, 10000);
+  });
+
+  // ---------- WebSocket ----------
+  function onMessage(m) {
+    switch (m.t) {
+      case "welcome":
+        $("cUno").textContent = m.tank && m.tank.fw && m.tank.fw.uno ? "UNO " + m.tank.fw.uno : "UNO offline";
+        break;
+      case "ts":
+        if (m.batt_v !== null && m.batt_v !== undefined) { $("cBatt").textContent = m.batt_v.toFixed(2) + " V"; $("iBatt").textContent = m.batt_v.toFixed(2) + " V"; }
+        $("cUno").textContent = (m.flags || []).indexOf("body_offline") >= 0 ? "UNO offline" : "UNO online";
+        $("iEnc").textContent = (m.flags || []).indexOf("encoder_fault") >= 0 ? "an encoder is off - restart the tank" : "OK";
+        break;
+      case "wifi_status": renderWifi(m); break;
+      case "wifi_scan":
+        $("wScan").disabled = false;
+        var dl = $("nList"); dl.textContent = "";
+        (m.nets || []).forEach(function (n) { var o = document.createElement("option"); o.value = n.ssid; o.label = n.rssi + " dBm" + (n.secure ? "" : " open"); dl.appendChild(o); });
+        toast((m.nets || []).length + " networks found - pick one in the name field");
+        break;
+      case "calib": $("kCpm").textContent = m.counts_per_m; $("kRoll").textContent = m.roll_mm + " mm"; break;
+      case "setting": onSetting(m); break;
+      case "confirm": showConfirm(m.what, m.secs || 30); break;
+      case "confirmed": hideConfirm("Done ✓"); editSlot = -1; $("nSlot").textContent = "New network (first free slot)"; break;
+      case "confirm_expired": hideConfirm("Not confirmed - nothing changed"); break;
+      case "nack": hideConfirm(""); $("wScan").disabled = false; toast(m.message || m.reason || "Refused"); break;
+      case "td": if (rec) rec.rows.push(tdRow(m, (Date.now() - rec.t0) / 1000)); break;
+      default: break;
+    }
+  }
+  function connect() {
+    ws = new WebSocket("ws://" + location.host + "/ws");
+    ws.onopen = function () {
+      open = true; retry = 500; $("link").textContent = "online"; $("link").style.color = "var(--ui)";
+      send({ t: "hello", client: "settings", proto: 1 });
+      send({ t: "wifi_status" }); send({ t: "calib" });
+      [66, 11, 12, 1].forEach(function (id) { send({ t: "setting", setting_id: id }); });
+      loadInfo();
+    };
+    ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } onMessage(m); };
+    ws.onclose = function () {
+      open = false; $("link").textContent = "reconnecting - join conqueror-bridge if the tank switched WiFi";
+      $("link").style.color = "var(--warn)";
+      setTimeout(connect, retry); retry = Math.min(retry * 2, 5000);
+    };
+    ws.onerror = function () { ws.close(); };
+  }
+  setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
+  connect();
+})();
+</script>
+</body>
+</html>

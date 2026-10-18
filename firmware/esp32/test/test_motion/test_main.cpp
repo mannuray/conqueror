@@ -495,11 +495,9 @@ void test_link_ir_takeover_ends_without_frames() {
   TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kNotOwner), static_cast<int>(o.end.reason));
 }
 
-void test_link_bench_after_release_ends_without_frames() {
+void test_link_after_release_ends_without_frames() {
   Rig r;
-  r.owner.onRelease(kFd);
-  Actions a;
-  TEST_ASSERT_EQUAL(static_cast<int>(Admit::kAccept), static_cast<int>(r.owner.onTcpConnect(a)));
+  r.owner.onRelease(kFd);  // release already sent the STOP
   const LinkOut o = r.ml.onTelemetry(0, 0, 20);
   TEST_ASSERT_TRUE(o.event);
   TEST_ASSERT_FALSE(o.drive);
@@ -828,7 +826,7 @@ int main() {
   RUN_TEST(test_link_release_ends_and_never_retakes);
   RUN_TEST(test_link_lost_owner_never_retakes_even_if_not_told);
   RUN_TEST(test_link_ir_takeover_ends_without_frames);
-  RUN_TEST(test_link_bench_after_release_ends_without_frames);
+  RUN_TEST(test_link_after_release_ends_without_frames);
   RUN_TEST(test_link_events_frames_policy);
   RUN_TEST(test_link_done_sends_stop_but_not_after_ir);
   RUN_TEST(test_link_telemetry_gap_stops_while_owner);

@@ -20,7 +20,6 @@
 #include "core/ws_json.h"
 #include "net/http_server.h"
 #include "net/log.h"
-#include "net/tcp_passthrough.h"
 #include "net/uart_port.h"
 #include "version.h"
 
@@ -38,7 +37,6 @@ UartPort g_uart;
 core::FrameTx g_tx;
 core::BodyLink g_link(g_tx);
 core::LinkOwner g_owner;
-TcpPassthrough g_tcp;
 core::WsClients g_ws;
 bool g_ota_active = false;
 
@@ -86,17 +84,11 @@ void drainTx() {
 
 core::OwnerView ownerView() {
   if (g_owner.irActive()) return {"ir", ""};
-  if (g_owner.state() == core::LinkState::kTcpPassthrough) return {"human", "bench"};
   if (g_owner.driverFd() != core::LinkOwner::kNoFd) return {"human", g_ws.name(g_owner.driverFd())};
   return {"none", ""};
 }
 
-bool bodyOffline() {
-  if (g_owner.state() == core::LinkState::kTcpPassthrough) {
-    return millis() - g_link.lastRxMs() >= core::kUnoSilentMs;
-  }
-  return !g_link.synced();
-}
+bool bodyOffline() { return !g_link.synced(); }
 
 uint32_t tankMs() { return g_link.snapshot().fast_valid ? g_link.snapshot().fast.uno_ms : 0; }
 
@@ -120,19 +112,12 @@ void apply(const core::Actions& a, uint32_t now) {
   if (a.has(core::Actions::kStopMaster)) {
     g_link.stopMaster();
     g_tx.clear();  // drop queued ESP32 frames; a pending STOP (urgent slot) is kept
-    // Review M2: a web STOP still being resent when the bench takes over: its ACKs are ours.
-    if (g_link.stopPending()) g_tcp.swallowAck(g_link.pendingStopSeq(), now);
     if (g_cam_waiter.fd != -1) {  // stopMaster() cancelled the CAM_HOME: answer it (review M8)
       if (g_ws.contains(g_cam_waiter.fd)) {
         nack(g_cam_waiter.fd, g_cam_waiter.id, core::BridgeReason::kTimeout);
       }
       g_cam_waiter = Waiter{-1, -1};
     }
-  }
-  if (a.has(core::Actions::kInjectStop)) {
-    const uint8_t seq = g_tcp.injectSeq();  // bench lastSeq + 128: no collision with its commands
-    g_link.injectStop(seq, now);
-    g_tcp.swallowAck(seq, now);
   }
   if (a.has(core::Actions::kSendStop)) g_link.sendStop(now);
   if (a.has(core::Actions::kHintNone)) g_link.setOwnerHint(proto::OwnerHintValue::kNone);
@@ -600,7 +585,7 @@ void settingsTick(uint32_t now) {
     }
   }
   core::AckedOp op;
-  if (g_ops.busy() && g_ops.timedOut(now)) {  // review I1: no answer (bench took over, lost frame) - never stuck
+  if (g_ops.busy() && g_ops.timedOut(now)) {  // review I1: no answer (lost frame) - never stuck
     if (g_ops.front(op) && op.fd >= 0 && g_ws.contains(op.fd)) nack(op.fd, op.id, core::BridgeReason::kTimeout);
     g_ops.done();
   }
@@ -816,17 +801,9 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
       break;
     case LinkCommand::Kind::kOtaStart:
     default:
-      g_ota_active = true;  // from now on: drives nacked BUSY, benches and new phones refused
+      g_ota_active = true;  // from now on: drives nacked BUSY, new phones refused
       endMotion(core::MotionEvent::kOta, now);  // the STOP below stops it
-      if (g_owner.state() == core::LinkState::kTcpPassthrough) {
-        g_tx.clear();  // review I3: queued bench frames never follow the injected STOP
-        g_tcp.close();
-        core::Actions a = g_owner.onTcpClose();  // InjectStop
-        a.bits &= static_cast<uint8_t>(~core::Actions::kStartMaster);
-        apply(a, now);
-      } else {
-        g_link.sendStop(now);  // resent until the Uno's ACK
-      }
+      g_link.sendStop(now);  // resent until the Uno's ACK
       g_link.stopMaster();  // heartbeats stop: Uno link-loss stop at standstill is harmless
       closeAllClients();
       break;
@@ -984,15 +961,10 @@ void publishStatus() {
   s.hello = g_link.hello();
   snprintf(s.driver, sizeof(s.driver), "%s", ownerView().client);
   s.ws_clients = static_cast<uint8_t>(g_ws.count());
-  s.tcp_active = g_tcp.active();
-  s.tcp_refused = g_tcp.stats().refused;
-  snprintf(s.last_refusal, sizeof(s.last_refusal), "%s", g_tcp.lastRefusal());
   s.frames_tx = g_link.stats().frames_tx;
   s.frames_rx = g_link.stats().frames_rx;
   s.bad_crc = g_link.parserStats().bad_crc;
   s.tx_dropped = g_tx.dropped();
-  s.tcp_up = g_tcp.stats().up;
-  s.tcp_down = g_tcp.stats().down;
   portENTER_CRITICAL(&g_status_mux);
   g_status = s;
   portEXIT_CRITICAL(&g_status_mux);
@@ -1006,8 +978,7 @@ void linkTask(void*) {
     const uint32_t now = millis();
     size_t n = 0;
     while ((n = g_uart.read(rx, sizeof(rx))) != 0) {
-      g_link.onUartBytes(rx, n, now);  // snapshot, events, STOP ACKs - also in passthrough
-      g_tcp.forwardFromUno(rx, n, now);
+      g_link.onUartBytes(rx, n, now);  // snapshot, events, STOP ACKs
     }
     LinkCommand cmd;
     while (xQueueReceive(g_queue, &cmd, 0) == pdTRUE) handleCommand(cmd, now);
@@ -1017,10 +988,6 @@ void linkTask(void*) {
       g_last_slow_count = g_link.snapshot().slow_count;
       apply(g_owner.onUnoOwner(static_cast<proto::Owner>(g_link.snapshot().slow.owner)), now);
     }
-    const char* driver = g_owner.driverFd() != core::LinkOwner::kNoFd
-                             ? g_ws.name(g_owner.driverFd())
-                             : "a phone";
-    apply(g_tcp.poll(now, g_owner, g_tx, driver, g_ota_active), now);
     apply(g_owner.tick(now), now);
     reapSilent(now);
     g_link.step(now);
@@ -1043,7 +1010,6 @@ void linkTaskStart(const char* (*camera_sensor)()) {
   g_cpm = net::motionStoreLoad();  // Plan K: before the link task runs
   g_roll_mm = net::motionStoreLoadRoll();
   g_uart.begin();
-  g_tcp.begin();
   g_queue = xQueueCreate(16, sizeof(LinkCommand));
   xTaskCreatePinnedToCore(linkTask, "link", 8192, nullptr, 5, nullptr, 1);
   logf("uno link: Serial1 RX %d TX %d %lu baud", board::kUnoRxPin, board::kUnoTxPin,

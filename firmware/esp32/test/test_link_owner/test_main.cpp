@@ -4,7 +4,6 @@
 #include "core/link_owner.h"
 
 using cq::core::Actions;
-using cq::core::Admit;
 using cq::core::Decision;
 using cq::core::LinkOwner;
 using cq::core::LinkState;
@@ -116,63 +115,6 @@ void test_stop_from_anyone_in_every_state() {
   TEST_ASSERT_EQUAL(kA, o.driverFd());                      // STOP does not change the owner
 }
 
-void test_bench_connect_from_idle_and_ready() {
-  Actions a;
-  TEST_ASSERT_EQUAL(static_cast<int>(Admit::kAccept), static_cast<int>(o.onTcpConnect(a)));
-  TEST_ASSERT_FALSE(a.has(Actions::kStopMaster));
-  TEST_ASSERT_EQUAL(S(LinkState::kTcpPassthrough), st());
-  o = LinkOwner();
-  readyWithA();
-  TEST_ASSERT_EQUAL(static_cast<int>(Admit::kAccept), static_cast<int>(o.onTcpConnect(a)));
-  TEST_ASSERT_TRUE(a.has(Actions::kStopMaster));  // web master ends at a frame boundary
-  TEST_ASSERT_TRUE(a.has(Actions::kOwnerChanged));
-}
-
-void test_bench_refused_while_phone_drives() {
-  drivingA();
-  Actions a;
-  TEST_ASSERT_EQUAL(static_cast<int>(Admit::kRefuseBusy), static_cast<int>(o.onTcpConnect(a)));
-  TEST_ASSERT_EQUAL(0, a.bits);
-  TEST_ASSERT_EQUAL(S(LinkState::kWebDriving), st());
-}
-
-void test_second_bench_refused() {
-  Actions a;
-  o.onTcpConnect(a);
-  TEST_ASSERT_EQUAL(static_cast<int>(Admit::kRefuseBusy), static_cast<int>(o.onTcpConnect(a)));
-}
-
-void test_phone_during_passthrough_gets_busy_and_stop_is_injected() {
-  Actions a;
-  o.onTcpConnect(a);
-  o.onWsOpen(kA);
-  TEST_ASSERT_EQUAL(S(LinkState::kTcpPassthrough), st());
-  TEST_ASSERT_EQUAL(D(Decision::kNackBusy), D(o.onDrive(kA, 10, a)));
-  TEST_ASSERT_EQUAL(D(Decision::kNackBusy), D(o.onCamera(kA)));
-  const Actions s = o.onStop(kA);
-  TEST_ASSERT_TRUE(s.has(Actions::kInjectStop));
-  TEST_ASSERT_FALSE(s.has(Actions::kSendStop));
-}
-
-void test_bench_close_with_ws_clients_rehandshakes() {
-  Actions a;
-  o.onTcpConnect(a);
-  o.onWsOpen(kA);
-  const Actions c = o.onTcpClose();
-  TEST_ASSERT_TRUE(c.has(Actions::kInjectStop));
-  TEST_ASSERT_TRUE(c.has(Actions::kStartMaster));
-  TEST_ASSERT_EQUAL(S(LinkState::kWebHandshake), st());
-}
-
-void test_bench_close_alone_goes_idle() {
-  Actions a;
-  o.onTcpConnect(a);
-  const Actions c = o.onTcpClose();
-  TEST_ASSERT_TRUE(c.has(Actions::kInjectStop));
-  TEST_ASSERT_FALSE(c.has(Actions::kStartMaster));
-  TEST_ASSERT_EQUAL(S(LinkState::kIdle), st());
-}
-
 void test_ir_beats_phone() {
   drivingA();
   const Actions a = o.onUnoOwner(Owner::kIr);
@@ -199,9 +141,6 @@ void test_ota_allowed_only_when_nobody_drives() {
   TEST_ASSERT_TRUE(o.otaAllowed());
   Actions a;
   o.onDrive(kA, 0, a);
-  TEST_ASSERT_FALSE(o.otaAllowed());
-  o = LinkOwner();
-  o.onTcpConnect(a);
   TEST_ASSERT_FALSE(o.otaAllowed());
 }
 
@@ -266,12 +205,6 @@ int main() {
   RUN_TEST(test_driver_close_with_others_left_stops_and_keeps_master);
   RUN_TEST(test_last_ws_close_stops_and_goes_idle);
   RUN_TEST(test_stop_from_anyone_in_every_state);
-  RUN_TEST(test_bench_connect_from_idle_and_ready);
-  RUN_TEST(test_bench_refused_while_phone_drives);
-  RUN_TEST(test_second_bench_refused);
-  RUN_TEST(test_phone_during_passthrough_gets_busy_and_stop_is_injected);
-  RUN_TEST(test_bench_close_with_ws_clients_rehandshakes);
-  RUN_TEST(test_bench_close_alone_goes_idle);
   RUN_TEST(test_ir_beats_phone);
   RUN_TEST(test_sync_lost_drops_driver_and_rehandshakes);
   RUN_TEST(test_ota_allowed_only_when_nobody_drives);

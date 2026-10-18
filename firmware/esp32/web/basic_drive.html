@@ -775,7 +775,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   var lockAsk = { id: -1, prev: false };
   // Final review: only ever re-send "lock on" (RC mode or our LOCK) - never "off", which would drop another phone's
   // lock - and not while a bench owns the link (it would only be refused).
-  function resyncLock(client) { if ((rc || camLocked) && client !== "bench") setLock(true); }  // bench = TCP passthrough
+  function resyncLock() { if (rc || camLocked) setLock(true); }
   function showLock(on) { camLocked = on; $("camLock").classList.toggle("on", on); }
   function setLock(on) {
     lockAsk = { id: nextId, prev: camLocked };

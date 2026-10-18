@@ -1,8 +1,8 @@
 // The ESP32 side of the body link when the ESP32 is the master (bridge LLD R2.6-R2.8).
 // Master: HEARTBEAT every 100 ms; HELLO_REQ at start and every 1 s until a HELLO with
 // proto == kProtocolVersion, then HELLO_ACK + OWNER_HINT (no ENVELOPE - R2.14 #5). STOP is resent
-// every 50 ms until the Uno's ACK (max 10 sends). Uno frames are always parsed (also during TCP
-// passthrough) to keep the snapshot, HELLO info and events for the web clients.
+// every 50 ms until the Uno's ACK (max 10 sends). Uno frames are always parsed (also while not
+// master) to keep the snapshot, HELLO info and events for the web clients.
 // It never originates DRIVE/CAM_JOY: those are sent 1:1 for client messages. Pure C++.
 #pragma once
 
@@ -98,13 +98,9 @@ class BodyLink {
   bool ackPending() const { return m_cam_pending; }
   void setOwnerHint(proto::OwnerHintValue hint);  // remembered; sent now if synced, and after HELLO
 
-  // STOP {src HUMAN}: master -> own seq; passthrough -> injectStop with the caller's seq.
-  // Both use the urgent slot (fast path: ahead of queued frames, never mid-frame; queued
+  // STOP {src HUMAN} with the next own seq, master or not. Uses the urgent slot (fast path: ahead of queued frames, never mid-frame; queued
   // DRIVE/CAM_JOY are purged) and are resent until the ACK. Returns the seq used.
   uint8_t sendStop(uint32_t now_ms);
-  void injectStop(uint8_t seq, uint32_t now_ms);
-  bool stopPending() const { return m_stop_sends != 0; }
-  uint8_t pendingStopSeq() const { return m_stop_seq; }  // valid while stopPending()
 
   bool popEvent(LinkEvent& ev);
   const HelloInfo& hello() const { return m_hello; }

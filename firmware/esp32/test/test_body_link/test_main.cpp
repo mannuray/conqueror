@@ -148,7 +148,7 @@ void test_silent_uno_restarts_handshake() {
 }
 
 void test_not_master_never_sends_heartbeat_or_hello_ack() {
-  hello(proto::kProtocolVersion, 10);  // bench is master (passthrough)
+  hello(proto::kProtocolVersion, 10);  // no web client: the bridge stays silent (idle)
   run(0, 1000);
   TEST_ASSERT_EQUAL(0, wire->count(FT::kHeartbeat));
   TEST_ASSERT_EQUAL(0, wire->count(FT::kHelloAck));
@@ -221,18 +221,12 @@ void test_stop_purges_queued_drive_and_cam_joy() {
 }
 
 void test_stop_gives_up_after_ten_sends() {
-  bl->sendStop(0);  // works without being master (passthrough / not synced)
+  bl->sendStop(0);  // works without being master (idle / not synced)
   run(2, 1000);
   TEST_ASSERT_EQUAL(10, wire->count(FT::kStop));
   LinkEvent ev{};
   TEST_ASSERT_TRUE(popKind(LinkEventKind::kStopResult, ev));
   TEST_ASSERT_EQUAL(cq::core::kStatusTimeout, ev.status);
-}
-
-void test_inject_stop_uses_callers_seq() {
-  bl->injectStop(200, 0);
-  wire->drain(*tx);
-  TEST_ASSERT_EQUAL(200, wire->last(FT::kStop)->seq);
 }
 
 void test_cam_home_ack_and_timeout() {
@@ -379,7 +373,6 @@ int main() {
   RUN_TEST(test_stop_resend_until_ack);
   RUN_TEST(test_stop_purges_queued_drive_and_cam_joy);
   RUN_TEST(test_stop_gives_up_after_ten_sends);
-  RUN_TEST(test_inject_stop_uses_callers_seq);
   RUN_TEST(test_cam_home_ack_and_timeout);
   RUN_TEST(test_telemetry_snapshot_and_events);
   RUN_TEST(test_slow_count_counts_slow_frames);

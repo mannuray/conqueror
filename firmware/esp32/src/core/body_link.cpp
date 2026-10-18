@@ -131,13 +131,13 @@ void BodyLink::onFrame(const FrameView& f, uint32_t now_ms) {
       }
       break;
     default:
-      break;  // CAL_*: only the bench uses them (passthrough)
+      break;  // CAL_*: unused (the bench tool was retired, design-notes §74)
   }
 }
 
 void BodyLink::onHello(const proto::HelloMsg& h) {
   m_hello = HelloInfo{true, h.fw, h.proto, h.caps, h.reset_reason, h.commit};
-  if (!m_master) return;  // bench is master: it answers its own HELLO
+  if (!m_master) return;  // idle (no web client): the bridge stays silent
   if (h.proto != proto::kProtocolVersion) {
     m_hs = HandshakeState::kIncompatible;
     if (!m_incompatible_reported) {
@@ -201,16 +201,11 @@ void BodyLink::setOwnerHint(proto::OwnerHintValue hint) {
 }
 
 uint8_t BodyLink::sendStop(uint32_t now_ms) {
-  const uint8_t seq = m_next_seq++;
-  injectStop(seq, now_ms);
-  return seq;
-}
-
-void BodyLink::injectStop(uint8_t seq, uint32_t now_ms) {
-  m_stop_seq = seq;
+  m_stop_seq = m_next_seq++;
   m_stop_sends = 0;
   m_stop_last_ms = now_ms;
   sendStopFrame();
+  return m_stop_seq;
 }
 
 void BodyLink::sendStopFrame() {

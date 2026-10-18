@@ -37,34 +37,8 @@ Actions LinkOwner::onWsClose(int fd) {
   return a;
 }
 
-Admit LinkOwner::onTcpConnect(Actions& out) {
-  out = Actions();
-  if (m_state == LinkState::kWebDriving || m_state == LinkState::kTcpPassthrough) {
-    return Admit::kRefuseBusy;  // accept + close at once; the bench sees EOF
-  }
-  if (webMaster()) out.bits |= Actions::kStopMaster;
-  m_state = LinkState::kTcpPassthrough;
-  m_synced = false;
-  out.bits |= Actions::kOwnerChanged;
-  return Admit::kAccept;
-}
-
-Actions LinkOwner::onTcpClose() {
-  Actions a;
-  if (m_state != LinkState::kTcpPassthrough) return a;
-  a.bits |= Actions::kInjectStop | Actions::kOwnerChanged;
-  if (m_ws > 0) {
-    m_state = LinkState::kWebHandshake;
-    a.bits |= Actions::kStartMaster;  // always starts with HELLO_REQ (Uno synced or not)
-  } else {
-    m_state = LinkState::kIdle;
-  }
-  return a;
-}
-
 Decision LinkOwner::onDrive(int fd, uint32_t now_ms, Actions& out, bool moving) {
   out = Actions();
-  if (m_state == LinkState::kTcpPassthrough) return Decision::kNackBusy;
   if (m_ir) return Decision::kNackNotOwner;
   if (m_state == LinkState::kIdle || m_state == LinkState::kWebHandshake) {
     return Decision::kNackBodyOffline;
@@ -84,7 +58,6 @@ Decision LinkOwner::onDrive(int fd, uint32_t now_ms, Actions& out, bool moving) 
 }
 
 Decision LinkOwner::keepDriving(int fd, uint32_t now_ms) {
-  if (m_state == LinkState::kTcpPassthrough) return Decision::kNackBusy;
   if (m_state == LinkState::kIdle || m_state == LinkState::kWebHandshake) return Decision::kNackBodyOffline;
   if (m_ir || m_state != LinkState::kWebDriving || fd != m_driver) return Decision::kNackNotOwner;
   m_last_drive_ms = now_ms;
@@ -92,7 +65,6 @@ Decision LinkOwner::keepDriving(int fd, uint32_t now_ms) {
 }
 
 Decision LinkOwner::onCamera(int fd) const {
-  if (m_state == LinkState::kTcpPassthrough) return Decision::kNackBusy;
   if (m_state == LinkState::kIdle || m_state == LinkState::kWebHandshake) {
     return Decision::kNackBodyOffline;
   }
@@ -105,7 +77,7 @@ Actions LinkOwner::onStop(int fd) {
   // design-notes §72: a STOP from anyone but the driver holds the driver's moving frames until it lets go;
   // the driver's own STOP (its page's STOP / stick release) clears a hold.
   if (m_state == LinkState::kWebDriving) m_stop_hold = fd != m_driver;
-  a.bits |= (m_state == LinkState::kTcpPassthrough) ? Actions::kInjectStop : Actions::kSendStop;
+  a.bits |= Actions::kSendStop;
   return a;  // STOP never changes ownership (the driver keeps it for the handback window)
 }
 

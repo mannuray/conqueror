@@ -22,7 +22,6 @@ constexpr int kUartTxBufSize = 1024;
 constexpr uint32_t kLogBaud = 115200UL;  // USB-CDC log
 constexpr uint16_t kHttpPort = 80;
 constexpr uint16_t kStreamPort = 81;
-constexpr uint16_t kTcpPort = 3333;
 constexpr uint16_t kOtaPort = 3232;
 
 constexpr const char* kHostname = "conqueror-bridge";  // mDNS conqueror-bridge.local

@@ -1,5 +1,5 @@
-// link_task: the only owner of the Uno UART, the body-link core objects, the link owner and the
-// bench TCP client (bridge LLD R2.11). Runs on core 1 every 2 ms. Other tasks talk to it only
+// link_task: the only owner of the Uno UART, the body-link core objects and the link owner
+// (bridge LLD R2.11; the bench TCP client was removed, R10). Runs on core 1 every 2 ms. Other tasks talk to it only
 // through linkPost() and read a copy of its state with linkStatus().
 #pragma once
 
@@ -27,17 +27,12 @@ struct LinkStatus {
   bool ota_active = false;
   bool synced = false;
   core::HelloInfo hello;
-  char driver[16] = "";   // "phone-2" / "bench" / ""
+  char driver[16] = "";   // "phone-2" / ""
   uint8_t ws_clients = 0;
-  bool tcp_active = false;
-  uint32_t tcp_refused = 0;
-  char last_refusal[48] = "";
   uint32_t frames_tx = 0;
   uint32_t frames_rx = 0;
   uint32_t bad_crc = 0;
-  uint32_t tx_dropped = 0;  // chunks refused by a full FrameTx (bench or ESP32) - review M12
-  uint32_t tcp_up = 0;    // bench -> Uno bytes
-  uint32_t tcp_down = 0;  // Uno -> bench bytes
+  uint32_t tx_dropped = 0;  // chunks refused by a full FrameTx - review M12
 };
 
 void linkTaskStart(const char* (*camera_sensor)());  // sensor name for welcome, read when needed

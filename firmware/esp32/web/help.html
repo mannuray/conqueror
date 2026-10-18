@@ -39,15 +39,19 @@ over WiFi without the source image). Run <code>scripts/ota.sh</code> or flash ov
 <span id="fwDirty"></span>, built <span id="fwBuilt">?</span>.
 Source: <a id="repo" href="https://github.com/mannuray/conqueror">github.com/mannuray/conqueror</a> &middot;
 this exact source: <a href="/source.tar.gz">/source.tar.gz</a> &middot; live data: <a href="/info">/info</a>.</p>
-<p>ESP32-S3 WiFi bridge for the Conqueror tank: Basic Drive page for phones, TCP passthrough for the
-bench tool, camera stream, WiFi updates. The Uno body does the motion and all safety stops.</p>
+<p>ESP32-S3 WiFi bridge for the Conqueror tank: the drive page for phones, a <a href="/settings">settings page</a>,
+measured motion (turn, arc, pivot, move by distance), a debug stream, TCP passthrough for bench tools, WiFi updates.
+The Uno body does the driving itself and all safety stops. The camera is off for now (design-notes §57).</p>
 
 <h2>[ CONNECT ]</h2>
 <table>
 <tr><th>Address</th><td><code>http://conqueror-bridge.local/</code> or <code id="ip">?</code> (WiFi mode <span id="mode">?</span>)</td></tr>
-<tr><th>Fallback AP</th><td>Home WiFi not reachable for 10 s &rarr; WPA2 network <code>conqueror-bridge</code> (password in
-<code>secrets.h</code>), bridge at <code>192.168.4.1</code>; it retries the home network every 60 s while nobody is connected.</td></tr>
-<tr><th>Ports</th><td>80 page, <code>/ws</code> WebSocket, <code>/info</code>, <code>/help</code> &middot;
+<tr><th>Home WiFi</th><td>Up to 3 saved networks (first one from <code>secrets.h</code>), the strongest visible one is joined.
+Add / edit / remove them on <a href="/settings">/settings</a>. The tank sees <b>2.4 GHz</b> networks only.</td></tr>
+<tr><th>Own WiFi</th><td>WPA2 network <code>conqueror-bridge</code>, bridge at <code>192.168.4.1</code>:
+<b>double-press the tank's button</b> to switch home &harr; own WiFi (jingle + LED: white = own WiFi, blue = home; not remembered
+after a restart), or automatically when no saved network answers for 10 s (it then retries every 60 s while nobody is connected).</td></tr>
+<tr><th>Ports</th><td>80 page, <code>/settings</code>, <code>/ws</code> WebSocket, <code>/info</code>, <code>/help</code> &middot;
 81 <code>/stream</code> MJPEG (max 2 connections), <code>/capture</code>, <code>/source.tar.gz</code> (port 80 redirects) &middot; 3333 bench TCP &middot; 3232 OTA &middot;
 mDNS <code>_http._tcp</code>, <code>_cqbridge._tcp</code>, <code>_arduino._tcp</code></td></tr>
 <tr><th>Uno</th><td>firmware <code id="unoFw">?</code>, commit <code id="unoCommit">?</code>, protocol <code id="unoProto">?</code>,
@@ -56,20 +60,44 @@ link <span id="unoSynced">?</span>, last reset <span id="unoReset">?</span></td>
 
 <h2>[ DRIVE ]</h2>
 <ul>
-<li>Phone: open <a href="/">/</a> - joystick (release = stop), big STOP, speed slider, camera stick (returns home).
-One driver at a time; others see "Busy". STOP works from every page. The IR remote beats everyone.</li>
-<li>Bench tool (laptop): <code>uv run bench -H conqueror-bridge.local dash</code> (finds the bridge with
-<code>bench discover</code>). The bench is refused while a phone drives.</li>
+<li>Phone: open <a href="/">/</a> - stick (release = stop), big STOP, max speed, camera stick. One driver at a time;
+others see "Busy". The IR remote beats everyone.</li>
+<li><b>STOP from any device holds:</b> after a STOP from a phone that is not driving, the driving phone is refused
+("Stopped by another device") until its driver lets go of the stick.</li>
+<li>Stops the tank makes itself (red banner on the page, release the stick to drive again): a stuck track, an encoder fault
+(off until the tank restarts), a steering runaway, the obstacle brake.</li>
 <li>Phone asleep or page closed: no more drive messages &rarr; the Uno stops within 0.3 s (deadman).</li>
+<li>Laptop tools (<code>tools/smoke</code>): <code>move.py 100</code> (cm), <code>turn.py 90 --radius 60</code> / <code>--pivot</code>,
+<code>td_record.py</code> (debug CSV), <code>straight_report.py</code>.</li>
 </ul>
 
 <!--CQ:PROTOCOL-->
 
-<h3>WebSocket API (first slice of the gateway API)</h3>
-<pre>&rarr; {"t":"hello","client":"basic-drive","proto":1}       &larr; {"t":"welcome",...}
+<h2>[ SETTINGS ]</h2>
+<p><a href="/settings">/settings</a> - WiFi tab (connection, switch home / own WiFi, up to 3 saved networks, scan, add / edit,
+own-WiFi password) and Tank tab (bridge and Uno info, counts per metre and roll-on, track balance, read-only safety values,
+10 s CSV recording, restart). <b>Every change waits for one press of the tank's button</b> (30 s), otherwise nothing changes.
+Passwords are never shown or logged.</p>
+
+<h3>WebSocket API</h3>
+<pre>&rarr; {"t":"hello","client":"name","proto":1}             &larr; {"t":"welcome",...}
 &rarr; {"t":"drive","v":-100..100,"w":-100..100}             (w &gt; 0 turns left; send every 50 ms while held)
 &rarr; {"t":"stop","id":1}                                   &larr; {"t":"ack","id":1}
 &rarr; {"t":"cam_joy","x":0,"y":50,"active":true}  {"t":"cam_home"}  {"t":"release_control"}  {"t":"ping","t0":0}
+&rarr; {"t":"sound","name":"jingle"}  {"t":"audio_mode","mode":"normal|quiet|mute"}  {"t":"cam_lock","on":true}
+motion (bridge, src AUTO):
+&rarr; {"t":"turn","by":90,"speed":40}  ("to":heading; + = left)    spin
+&rarr; {"t":"turn","by":90,"radius_cm":60,"speed":40}               arc (needs encoders, refused outside its speed band)
+&rarr; {"t":"turn","by":90,"pivot":true,"speed":40}                 pivot round the inside track
+&rarr; {"t":"move","dist_cm":100,"speed":40}                        straight by distance (+ / -)
+&rarr; {"t":"drive_rate","v":0,"yaw_rate":30}                       turn-rate stream (spin floor 65 deg/s)
+&rarr; {"t":"cancel"}                                    &larr; ev primitive_done {"prim","ok","reason","moved_cm"?}
+&rarr; {"t":"calib"}  {"t":"calib","counts_per_m":7514}  {"t":"calib","reset":"counts_per_m|roll"}
+&rarr; {"t":"debug","on":true,"hz":10|50}                &larr; td (fast) / tds (slow) debug telemetry
+settings (changes answer {"t":"confirm"} and wait for the tank's button):
+&rarr; {"t":"wifi_status"}  {"t":"wifi_scan"}  {"t":"wifi_save","slot":1-3,"ssid","password"}  {"t":"wifi_forget","slot"?}
+&rarr; {"t":"wifi_mode","mode":"home|ap"}  {"t":"ap_password","password"}  {"t":"setting","setting_id":66,"value"?}
+&rarr; {"t":"restart"}                                   &larr; confirm / confirmed / confirm_expired
 &larr; tf (10 Hz) &middot; ts (1 Hz) &middot; ev &middot; nack {"code","reason","message"} &middot; pong</pre>
 
 <!--CQ:LOGO-->

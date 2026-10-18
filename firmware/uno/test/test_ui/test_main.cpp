@@ -203,6 +203,7 @@ void test_catalogue_old_melodies() {
       {proto::SoundId::kFail, 5, 710},      {proto::SoundId::kConfirm, 7, 255},    {proto::SoundId::kQuestion, 6, 390},
       {proto::SoundId::kOkChirp, 3, 100},   {proto::SoundId::kGrumble, 4, 260},    {proto::SoundId::kScan, 7, 350},
       {proto::SoundId::kGoodbye, 4, 390},
+      {proto::SoundId::kHorn, 3, 520},  // new, design-notes §75 (not an old melody)
   };
   Note n[SoundSequencer::kMaxNotes];
   for (const Expect& x : e) {
@@ -213,6 +214,10 @@ void test_catalogue_old_melodies() {
   }
   soundNotes(proto::SoundId::kSafetyChirp, n);
   TEST_ASSERT_EQUAL(3000, n[2].hz);
+  soundNotes(proto::SoundId::kHorn, n);
+  TEST_ASSERT_EQUAL(450, n[0].hz);
+  TEST_ASSERT_EQUAL(0, n[1].hz);
+  TEST_ASSERT_EQUAL(450, n[2].hz);
 }
 
 void test_led_max_caps_every_layer() {

@@ -1,5 +1,7 @@
 # Plan D — Bench Tool Implementation Plan
 
+> **RETIRED 2026-10-18 (owner, design-notes §74) — never executed.** Its jobs are done by the phone drive page, `/settings`, the bridge's own calibration and the `tools/smoke/` scripts (`move.py`, `turn.py`, `straight_report.py`, `td_record.py`). Kept for history only; the bridge's TCP 3333 passthrough it needed is removed.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build `bench`, a laptop tool that plays the ESP32's role on the body link (USB serial or the ESP32 WiFi bridge) to drive the tank, run the standard straight/circle/square/spin/speed/safety tests with measured pass/fail reports, calibrate (reference Python maths) and tune it.

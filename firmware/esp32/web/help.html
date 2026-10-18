@@ -30,7 +30,7 @@ th { color: var(--dim); font-weight: 600; }
 <body>
 <h1>[ CONQUEROR BRIDGE ]</h1>
 <p class="bad"><b>DEVELOPER BRIDGE - NO AUTHENTICATION.</b> Anyone on this network can drive the tank
-(page, WebSocket, TCP 3333). Use it only on your home network. Never in release firmware.</p>
+(page, WebSocket). Use it only on your home network. Never in release firmware.</p>
 <p id="mismatch" class="warn hidden">The source archive does not match this firmware (the app was updated
 over WiFi without the source image). Run <code>scripts/ota.sh</code> or flash over USB.</p>
 
@@ -40,7 +40,7 @@ over WiFi without the source image). Run <code>scripts/ota.sh</code> or flash ov
 Source: <a id="repo" href="https://github.com/mannuray/conqueror">github.com/mannuray/conqueror</a> &middot;
 this exact source: <a href="/source.tar.gz">/source.tar.gz</a> &middot; live data: <a href="/info">/info</a>.</p>
 <p>ESP32-S3 WiFi bridge for the Conqueror tank: the drive page for phones, a <a href="/settings">settings page</a>,
-measured motion (turn, arc, pivot, move by distance), a debug stream, TCP passthrough for bench tools, WiFi updates.
+measured motion (turn, arc, pivot, move by distance), a debug stream, WiFi updates.
 The Uno body does the driving itself and all safety stops. The camera is off for now (design-notes §57).</p>
 
 <h2>[ CONNECT ]</h2>
@@ -52,8 +52,8 @@ Add / edit / remove them on <a href="/settings">/settings</a>. The tank sees <b>
 <b>double-press the tank's button</b> to switch home &harr; own WiFi (jingle + LED: white = own WiFi, blue = home; not remembered
 after a restart), or automatically when no saved network answers for 10 s (it then retries every 60 s while nobody is connected).</td></tr>
 <tr><th>Ports</th><td>80 page, <code>/settings</code>, <code>/ws</code> WebSocket, <code>/info</code>, <code>/help</code> &middot;
-81 <code>/stream</code> MJPEG (max 2 connections), <code>/capture</code>, <code>/source.tar.gz</code> (port 80 redirects) &middot; 3333 bench TCP &middot; 3232 OTA &middot;
-mDNS <code>_http._tcp</code>, <code>_cqbridge._tcp</code>, <code>_arduino._tcp</code></td></tr>
+81 <code>/stream</code> MJPEG (max 2 connections), <code>/capture</code>, <code>/source.tar.gz</code> (port 80 redirects) &middot; 3232 OTA &middot;
+mDNS <code>_http._tcp</code>, <code>_arduino._tcp</code></td></tr>
 <tr><th>Uno</th><td>firmware <code id="unoFw">?</code>, commit <code id="unoCommit">?</code>, protocol <code id="unoProto">?</code>,
 link <span id="unoSynced">?</span>, last reset <span id="unoReset">?</span></td></tr>
 </table>

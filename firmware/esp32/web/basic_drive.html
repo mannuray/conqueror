@@ -141,7 +141,8 @@ body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 
 .sheet.show { display: block; }
 .sheet .title { color: var(--ui); text-shadow: var(--glow); font-size: 11px; letter-spacing: .1em; margin: 0 0 8px; }
 .sgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.sgrid .btn { font-size: 11px; }
+.sgrid .btn { font-size: 11px; background: rgba(51, 255, 102, .05); border: 1px solid var(--edge-c); border-radius: 5px; padding: 8px 6px; }
+.sgrid .btn:active { background: var(--ui); color: #032; }
 input[type=range] { width: 100%; accent-color: var(--ui); }
 .hidden { display: none !important; }
 #toast { position: fixed; left: 50%; top: 92px; transform: translateX(-50%); padding: 7px 12px; border-radius: 7px; z-index: 5;
@@ -215,7 +216,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   var DEADZONE = 0.05, EXPO = 0.3;
   var SOUNDS = ["startup", "ready", "selftest_fail", "chirp_up", "chirp_down", "blip", "tick", "jingle", "thinking", "ouch",
     "error", "success", "fanfare", "sad", "safety_chirp", "ack_blip", "fail", "confirm", "question", "ok_chirp", "grumble",
-    "scan", "goodbye"];  // proto::SoundId order (spec 02 §A9 catalogue)
+    "scan", "goodbye", "horn"];  // proto::SoundId order (spec 02 §A9 catalogue)
   var ws = null, wsOpen = false, you = "", synced = false, owner = "none", ownerClient = "";
   var nextId = 1, retryMs = 1000, pingTimer = 0, camLocked = false, lastRxAt = 0;
   var speed = 60;
@@ -282,7 +283,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
         you = m.you || "";
         showCaps(m.tank && m.tank.caps ? m.tank.caps : {});
         showOwner(m.owner, m.owner_client);
-        resyncLock(m.owner_client);  // also on body_online (review I4)
+        resyncLock();  // also on body_online (review I4)
         break;
       case "tf": showFast(m); break;
       case "ts": showSlow(m); break;
@@ -468,7 +469,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     else if (m.kind === "deadman_stop") toast("Stopped: no drive signal (deadman)");
     else if (m.kind === "blocked") toast("Obstacle brake: " + m.dist_cm + " cm");
     else if (m.kind === "ir_override") toast("IR remote took control");
-    else if (m.kind === "body_online") resyncLock(ownerClient);  // a rebooted Uno starts unlocked (review I4)
+    else if (m.kind === "body_online") resyncLock();  // a rebooted Uno starts unlocked (review I4)
     else if (m.kind === "batt_critical") toast("Battery critical " + m.v.toFixed(2) + " V");
     else if (m.kind === "stall" || m.kind === "encoder_fault" || m.kind === "heading_fault") showLatch(m);
     else if (m.kind === "body_offline" && m.reason === "BODY_INCOMPATIBLE")
@@ -773,8 +774,8 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   // ---------- controls: single stick / RC two-hand (R3.4) ----------
   var lockAsk = { id: -1, prev: false };
   // Final review: only ever re-send "lock on" (RC mode or our LOCK) - never "off", which would drop another phone's
-  // lock - and not while a bench owns the link (it would only be refused).
-  function resyncLock(client) { if ((rc || camLocked) && client !== "bench") setLock(true); }  // bench = TCP passthrough
+  // lock.
+  function resyncLock() { if (rc || camLocked) setLock(true); }
   function showLock(on) { camLocked = on; $("camLock").classList.toggle("on", on); }
   function setLock(on) {
     lockAsk = { id: nextId, prev: camLocked };

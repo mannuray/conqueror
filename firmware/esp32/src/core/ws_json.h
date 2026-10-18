@@ -22,7 +22,7 @@ enum class BridgeReason : uint8_t { kNotOwner, kBusy, kBodyOffline, kRateLimited
 
 struct OwnerView {
   const char* owner;   // "none" | "human" | "ir"
-  const char* client;  // "phone-2" | "bench" | ""
+  const char* client;  // "phone-2" | ""
 };
 
 struct WelcomeInfo {

@@ -1,5 +1,7 @@
 # Plan D — plan polish notes (2026-10-13)
 
+> Plan D was **retired on 2026-10-18** without being executed (design-notes §74).
+
 Plan D (bench tool) was polished natively (no subagents, owner request): every task's code was extracted from the plan, built in a scratch workspace against the real Plan A `conqueror_protocol` (protocol v2), and run through pytest, ruff, `ruff format --check` and pyright strict; fixes were written back into the plan. Final check: the whole tool rebuilt **from the plan text alone** → **92 tests pass**, all gates clean. Nothing was executed in the repo.
 
 ## Defects found and fixed

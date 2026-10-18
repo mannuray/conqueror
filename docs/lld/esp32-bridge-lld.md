@@ -334,6 +334,7 @@ Enums: `LinkState {Idle, WebHandshake, WebReady, WebDriving, TcpPassthrough}` ·
 - `FrameAligner` is a light parser used only to find frame boundaries in the passthrough byte streams (sync, length, CRC). It never changes or drops bytes, except the one ACK frame swallowed in R2.8.
 
 ### R2.7 Link owner — who is the body-link master
+> **Superseded in part by R10 (2026-10-18):** the bench / TCP passthrough rules below are removed; the web rules stand.
 The Uno accepts one master at a time (one heartbeat stream, one handshake). Rules:
 - **The bench owns the link from TCP connect** (it handshakes and heartbeats at once), not from its first drive.
 - **A phone owns driving from its first `drive`** until `release_control`, 5 s without a drive message (gateway `human_handback_ms`), or its WebSocket closes. Other phones get `nack NOT_OWNER`.
@@ -374,6 +375,7 @@ Notes on the transitions:
 - **The Uno is not changed**: deadman 300 ms on streamed DRIVE, link-loss after 300 ms without any valid frame, `synced` gate, IR owner — all exactly as Uno LLD §9.2, §9.4 and Revision R2.
 
 ### R2.8 Frame-aligned UART writer and STOP injection
+> **Superseded in part by R10 (2026-10-18):** `FrameAligner`, `AckSwallow` and STOP injection are removed; `FrameTx` (the single UART writer) stands.
 One `UartWriter` owns `Serial1` TX behind one mutex. **Every writer hands it whole frames**, so frames never interleave mid-frame:
 - `BodyLink` (ESP32-originated frames) encodes a full frame with the generated codec and calls `writeFrame()`.
 - `TcpPassthrough` runs TCP bytes through `FrameAligner up_`: complete frames (CRC good **or bad** — passthrough stays transparent for tests that send broken frames) go out with `writeFrame()`; bytes outside any frame go out with `writeRaw()` at once. A partial frame waits for its remaining bytes; if they do not arrive within **50 ms** the partial bytes are flushed raw (keeps odd bench tests transparent; the Uno parser resyncs). On TCP close the partial frame is **discarded**, then STOP is injected.
@@ -1517,3 +1519,91 @@ A STOP from a device that is **not** the driver used to stop the tank for one fr
 - `LinkOwner::onDrive(fd, now, out, moving)`: while held, the driver's **moving** frames (`v ≠ 0 ∨ w ≠ 0`) → `Decision::kNackStopped` → `nack STOPPED` (code 3011, once per stream); a 0/0 frame or a new primitive (`turn` / `move` / `drive_rate`, `moving = false`) clears the hold. The driver keeps control while held (its timer is refreshed) so a handback can never let it retake and drive.
 - Drive page: `nack STOPPED` → the red centred banner "Stopped by another device - release the stick to drive again" (cleared by the page's own STOP / 0/0, as the stall banner).
 - Tests (`test_link_owner`): held until the stick is released; the driver's own STOP never holds; a new primitive or the driver's STOP releases.
+
+## Revision 10 — Bench TCP passthrough removed (owner 2026-10-18, design-notes §74)
+Plan D (the bench tool) was retired without being executed, so its TCP 3333 passthrough (R2.7, R2.8, R2.11) was an unused, unauthenticated second way to the motors that skipped the motion service and the STOP hold. Removed.
+
+### R10.1 What goes, what stays
+| Removed | Stays |
+|---|---|
+| `net/TcpPassthrough` (TCP 3333 listener), `core/FrameAligner` + `AckSwallow`, `test_frame_aligner` | `core/FrameTx` — the single UART writer, urgent STOP slot (`test_frame_tx`) |
+| `LinkState::kTcpPassthrough`, `Admit`, `LinkOwner::onTcpConnect / onTcpClose`, `Actions::kInjectStop` | `LinkOwner` web states, STOP from anyone in every state, STOP hold (R9.6), IR beats all, 5 s handback |
+| `BodyLink::injectStop`, `pendingStopSeq`, `stopPending` (STOP has one path: `sendStop`, own seq, resent until the ACK) | `BodyLink` master / idle switch: no web client → the bridge stays silent → Uno link-loss stop |
+| `board::kTcpPort`, mDNS `_cqbridge._tcp`, `/info` `clients.tcp`, `tcp_refused`, `last_refusal`, `ports.bench_tcp`, status `tcp_*` | `/info` `clients.ws`, `clients.stream`, `ota_allowed` |
+| `bridge_echo.py tcp` / `tcp-busy`, the bench half of `ws-owner` | `bridge_echo.py` `WsClient` (used by `move.py`, `td_record.py`), new `no-tcp` check |
+
+### R10.2 Classes (after)
+```mermaid
+classDiagram
+  class LinkOwner {
+    -LinkState m_state
+    -int m_driver
+    -bool m_stop_hold
+    -uint8 m_ws
+    -bool m_synced
+    -bool m_ir
+    +onWsOpen(fd) Actions
+    +onWsClose(fd) Actions
+    +onDrive(fd, now, out, moving) Decision
+    +keepDriving(fd, now) Decision
+    +onCamera(fd) Decision
+    +onStop(fd) Actions
+    +onRelease(fd) Actions
+    +onSynced(bool) Actions
+    +onUnoOwner(Owner) Actions
+    +tick(now) Actions
+    +otaAllowed() bool
+  }
+  class Actions {
+    kStartMaster
+    kStopMaster
+    kSendStop
+    kHintNone
+    kHintHuman
+    kOwnerChanged
+  }
+  class BodyLink {
+    +startMaster(now)
+    +stopMaster()
+    +sendStop(now) uint8
+    +onUartBytes(bytes, n, now)
+    +step(now)
+  }
+  class FrameTx {
+    +push(chunk) bool
+    +pushUrgent(frame)
+    +clear()
+  }
+  class LinkTask {
+    -LinkOwner g_owner
+    -BodyLink g_link
+    -FrameTx g_tx
+    +apply(Actions, now)
+  }
+  LinkTask --> LinkOwner : decisions
+  LinkTask --> BodyLink : executes Actions
+  BodyLink --> FrameTx : frames (STOP via urgent slot)
+  LinkOwner ..> Actions : returns
+```
+
+### R10.3 Link states (after)
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> WebHandshake : first WebSocket opens / StartMaster
+  WebHandshake --> WebReady : Uno synced
+  WebReady --> WebDriving : first drive (owner)
+  WebDriving --> WebReady : release / 5 s without drive / driver closes (SendStop)
+  WebReady --> WebHandshake : Uno sync lost
+  WebDriving --> WebHandshake : Uno sync lost (driver dropped)
+  WebHandshake --> Idle : last WebSocket closes (SendStop + StopMaster)
+  WebReady --> Idle : last WebSocket closes
+  WebDriving --> Idle : last WebSocket closes
+  note right of WebDriving : STOP from anyone in every state;\nfrom a non-driver it holds (R9.6)
+```
+
+### R10.4 OTA start
+Always `BodyLink::sendStop` (resent until the ACK), then `stopMaster` — the old bench branch (clear the queue, close the bench, inject a STOP) is gone.
+
+### R10.5 Tests
+Native suite 228/228: the 16 bench-only tests were removed (`test_frame_aligner` 9, `test_link_owner` 6, `test_body_link` 1); `test_motion` "after release ends without frames" keeps its check without the bench connect. Tank: `bridge_echo.py no-tcp` → `port 3333 closed`; drive page, STOP and a STOP from a second device on the stand.

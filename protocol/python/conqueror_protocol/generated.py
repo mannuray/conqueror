@@ -126,6 +126,7 @@ class SoundId(IntEnum):
     GRUMBLE = 21
     SCAN = 22
     GOODBYE = 23
+    HORN = 24
 
 
 class FastFlagBit(IntEnum):

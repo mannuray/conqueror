@@ -1,7 +1,7 @@
 // Plan H review I1 / I2 (bridge LLD R4.6): the decisions between a running primitive, the link owner and the
 // frames to the body, in one host-tested place. The link task only executes a LinkOut.
 // Rules: a primitive never takes ownership (LinkOwner::keepDriving); while running it sends DRIVE src AUTO;
-// it ends with a STOP only while its client still owns the body - never after IR / another client / the bench
+// it ends with a STOP only while its client still owns the body - never after IR / another client
 // took over (a bridge STOP would stop them), and not when a STOP is already on its way.
 #pragma once
 

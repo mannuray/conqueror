@@ -53,7 +53,9 @@ const Note kPool[] PROGMEM = {
     {600, 50}, {1000, 50}, {1500, 50}, {2000, 50}, {1500, 50}, {1000, 50}, {600, 50},
     // 105 GOODBYE = old 13 (4)
     {1500, 80}, {1000, 80}, {600, 80}, {300, 150},
-};  // 109 notes = 436 B
+    // 109 HORN = new, design-notes §75 (3): two short honks
+    {450, 150}, {0, 70}, {450, 300},
+};  // 112 notes = 448 B
 
 struct SoundIndex {
   uint8_t id;
@@ -75,10 +77,10 @@ const SoundIndex kIndex[] PROGMEM = {
     {id(proto::SoundId::kFail), 73, 5},       {id(proto::SoundId::kConfirm), 78, 7},
     {id(proto::SoundId::kQuestion), 85, 6},   {id(proto::SoundId::kOkChirp), 91, 3},
     {id(proto::SoundId::kGrumble), 94, 4},    {id(proto::SoundId::kScan), 98, 7},
-    {id(proto::SoundId::kGoodbye), 105, 4},
-};  // 23 × 3 B = 69 B
+    {id(proto::SoundId::kGoodbye), 105, 4},   {id(proto::SoundId::kHorn), 109, 3},
+};  // 24 × 3 B = 72 B
 
-static_assert(sizeof kPool / sizeof kPool[0] == 109, "pool offsets above assume 109 notes");
+static_assert(sizeof kPool / sizeof kPool[0] == 112, "pool offsets above assume 112 notes");
 
 }  // namespace
 

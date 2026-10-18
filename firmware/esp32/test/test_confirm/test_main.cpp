@@ -125,7 +125,7 @@ void test_acked_ops_one_at_a_time() {
 }
 
 
-// Plan M review I1: an op whose answer never comes (bench took over, frame lost) must not block the queue forever.
+// Plan M review I1: an op whose answer never comes (frame lost) must not block the queue forever.
 void test_acked_ops_time_out() {
   AckedOps q;
   AckedOp a{};

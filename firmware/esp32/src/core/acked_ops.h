@@ -21,7 +21,7 @@ struct AckedOp {
 class AckedOps {
  public:
   static constexpr uint8_t kCap = 8;
-  static constexpr uint32_t kTimeoutMs = 600;  // review I1: the answer never came (bench took over, lost frame)
+  static constexpr uint32_t kTimeoutMs = 600;  // review I1: the answer never came (lost frame)
   bool push(const AckedOp& op);
   bool front(AckedOp& out) const;
   bool empty() const { return m_n == 0; }

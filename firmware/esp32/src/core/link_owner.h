@@ -1,6 +1,6 @@
 // Who is the body-link master and who drives (bridge LLD R2.7, owner-accepted R2.14 #1/#2).
-// Bench owns the link from TCP connect. A phone owns driving from its first drive until
-// release_control, 5 s without drive, or its socket closes. STOP from anyone in every state.
+// The ESP32 is the master while a web client is connected (the bench TCP passthrough was removed, LLD R10).
+// A phone owns driving from its first drive until release_control, 5 s without drive, or its socket closes. STOP from anyone in every state.
 // IR on the Uno beats all. Pure C++: returns decisions and actions, the caller executes them.
 #pragma once
 
@@ -13,18 +13,16 @@ namespace core {
 
 constexpr uint32_t kHandbackMs = 5000;  // gateway human_handback_ms
 
-enum class LinkState : uint8_t { kIdle, kWebHandshake, kWebReady, kWebDriving, kTcpPassthrough };
-enum class Admit : uint8_t { kAccept, kRefuseBusy };
+enum class LinkState : uint8_t { kIdle, kWebHandshake, kWebReady, kWebDriving };
 enum class Decision : uint8_t { kSend, kNackNotOwner, kNackBusy, kNackBodyOffline, kNackStopped };
 
-// Things the caller must do, in this order: kStopMaster, kInjectStop / kSendStop, kHintNone /
+// Things the caller must do, in this order: kStopMaster, kSendStop, kHintNone /
 // kHintHuman, kStartMaster, kOwnerChanged (broadcast ev control_changed + ts).
 struct Actions {
   enum : uint8_t {
     kStartMaster = 1 << 0,
     kStopMaster = 1 << 1,
-    kSendStop = 1 << 2,    // ESP32 is (or was) master: STOP with BodyLink's own seq
-    kInjectStop = 1 << 3,  // passthrough: STOP with seq = lastSeq + 128, ACK swallowed
+    kSendStop = 1 << 2,  // STOP with BodyLink's own seq (resent until the Uno's ACK)
     kHintNone = 1 << 4,
     kHintHuman = 1 << 5,
     kOwnerChanged = 1 << 6,
@@ -39,8 +37,6 @@ class LinkOwner {
 
   Actions onWsOpen(int fd);
   Actions onWsClose(int fd);
-  Admit onTcpConnect(Actions& out);
-  Actions onTcpClose();
   // moving: a drive frame with v or w != 0. After a STOP from another device the driver's moving frames are refused
   // (kNackStopped) until it releases its stick (a 0/0 frame), its own STOP, or a new primitive (moving = false).
   Decision onDrive(int fd, uint32_t now_ms, Actions& out, bool moving = false);

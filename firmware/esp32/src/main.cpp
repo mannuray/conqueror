@@ -52,8 +52,6 @@ const char* stateName(cq::core::LinkState s) {
       return "web-ready";
     case cq::core::LinkState::kWebDriving:
       return "web-driving";
-    case cq::core::LinkState::kTcpPassthrough:
-      return "bench";
     case cq::core::LinkState::kIdle:
     default:
       return "idle";
@@ -61,14 +59,14 @@ const char* stateName(cq::core::LinkState s) {
 }
 
 bool hasClients(const cq::net::LinkStatus& s) {
-  return s.ws_clients > 0 || s.tcp_active || cq::net::streamViewers() > 0;
+  return s.ws_clients > 0 || cq::net::streamViewers() > 0;
 }
 
 void logStatus(uint32_t now_ms, const cq::net::LinkStatus& s) {
-  cq::net::logf("status: up %lus wifi %s link %s uno %s ws %u tcp %u rx %lu tx %lu crc %lu heap %lu",
+  cq::net::logf("status: up %lus wifi %s link %s uno %s ws %u rx %lu tx %lu crc %lu heap %lu",
                 static_cast<unsigned long>(now_ms / 1000), g_wifi.modeName(), stateName(s.state),
                 s.synced ? "synced" : (s.hello.seen ? "seen" : "-"), s.ws_clients,
-                s.tcp_active ? 1u : 0u, static_cast<unsigned long>(s.frames_rx),
+                static_cast<unsigned long>(s.frames_rx),
                 static_cast<unsigned long>(s.frames_tx), static_cast<unsigned long>(s.bad_crc),
                 static_cast<unsigned long>(ESP.getFreeHeap()));
 }

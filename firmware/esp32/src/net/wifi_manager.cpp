@@ -341,10 +341,9 @@ void WifiManager::startMdns() {
     return;
   }
   MDNS.addService("http", "tcp", board::kHttpPort);
-  MDNS.addService("cqbridge", "tcp", board::kTcpPort);  // Plan D: discover looks for _cqbridge._tcp
-  MDNS.enableArduino(board::kOtaPort, true);             // _arduino._tcp for espota
+  MDNS.enableArduino(board::kOtaPort, true);  // _arduino._tcp for espota
   m_mdns = true;
-  logf("mdns: %s.local (_http._tcp 80, _cqbridge._tcp 3333, _arduino._tcp 3232)", board::kHostname);
+  logf("mdns: %s.local (_http._tcp 80, _arduino._tcp 3232)", board::kHostname);
 }
 
 const char* WifiManager::modeName() const {

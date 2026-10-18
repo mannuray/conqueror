@@ -8,7 +8,7 @@ Status: phases 0–3 largely DONE (see "Where we are"), 2026-10-15 · first writ
 | Plan A protocol generator | done |
 | Plan B Uno firmware (full) | done; kept building for the Mega (tag `full-firmware-2026-10-14`) |
 | Plan C ESP32 bridge | done; hardware checks passed (design-notes §51) |
-| Plan D bench tool | not started |
+| Plan D bench tool | **retired 2026-10-18**, never executed (design-notes §74): phone page, `/settings`, bridge calibration and `tools/smoke/` cover it |
 | Plan E Uno Lite (ELEGOO Uno is the body board, §43) | done; straight line 0–2 cm / 3 m (§52) |
 | Plan F Cockpit-lite phone page on the bridge (WebSocket `/ws`, video and `/capture` / `/source.tar.gz` on port 81) | done |
 | Plan G stick steering by angle | done; floor tuning parked until encoders |
@@ -72,7 +72,7 @@ Logo-like language to program the tank (children, owner, AI). Details: `docs/des
 | When | What |
 |---|---|
 | Now | language spec only (Plans B–D unchanged) |
-| After Plan D | Python `conqueror_logo` package + `bench logo run` (client-side execution) |
+| Later (Plan D retired) | Python `conqueror_logo` package; where it runs (hub or AI engine) is decided with that work (design-notes §74) |
 | Phase 4 | ESP32 program runner + program API (core programs run standalone) |
 | Phase 5 | built-in IDE in Cockpit-lite (editor, preview, line highlight) |
 | Phase 6 | program library, natural language → Logo, explanations, vision words (AI engine runs AI programs) |

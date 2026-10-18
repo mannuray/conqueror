@@ -51,6 +51,7 @@ constexpr ReasonInfo kBridgeReasons[] = {
     {3006, "INVALID_COMMAND", "Invalid command"},
     {3009, "COMMAND_TIMEOUT", "No acknowledgement in time"},
     {3003, "UNAVAILABLE", "Capability not available"},  // Plan H: e.g. turn with radius / move without encoders
+    {3011, "STOPPED", "Stopped by another device - release the stick to drive again"},  // design-notes §72
 };
 
 const char* domain(uint16_t code) {

@@ -220,6 +220,40 @@ void test_keep_driving_never_takes_ownership() {
   TEST_ASSERT_EQUAL(D(Decision::kNackNotOwner), D(o.keepDriving(kA, 4200)));
 }
 
+
+// Safety fix (design-notes §72): a STOP from a device that is not driving must hold - the driver's next
+// DRIVE (sent 20 times a second while its stick is held) would otherwise restart the tank at once.
+void test_stop_from_another_device_holds_until_the_stick_is_released() {
+  drivingA();
+  o.onWsOpen(kB);
+  o.onStop(kB);
+  Actions a;
+  TEST_ASSERT_EQUAL(D(Decision::kNackStopped), D(o.onDrive(kA, 200, a, true)));   // stick still held: refused
+  TEST_ASSERT_EQUAL(D(Decision::kNackStopped), D(o.onDrive(kA, 250, a, true)));
+  TEST_ASSERT_EQUAL(D(Decision::kSend), D(o.onDrive(kA, 300, a, false)));         // released (0/0): passes ...
+  TEST_ASSERT_EQUAL(D(Decision::kSend), D(o.onDrive(kA, 350, a, true)));          // ... and drives again
+  TEST_ASSERT_EQUAL(kA, o.driverFd());
+}
+
+void test_the_drivers_own_stop_does_not_hold() {
+  drivingA();
+  o.onStop(kA);  // the drive page's STOP / stick release
+  Actions a;
+  TEST_ASSERT_EQUAL(D(Decision::kSend), D(o.onDrive(kA, 200, a, true)));
+}
+
+void test_a_new_primitive_or_the_drivers_stop_releases_the_hold() {
+  drivingA();
+  o.onWsOpen(kB);
+  o.onStop(kB);
+  Actions a;
+  TEST_ASSERT_EQUAL(D(Decision::kSend), D(o.onDrive(kA, 200, a)));  // turn / move: a deliberate new command
+  TEST_ASSERT_EQUAL(D(Decision::kSend), D(o.onDrive(kA, 250, a, true)));
+  o.onStop(kB);
+  o.onStop(kA);  // the driver lets go (its page sends stop)
+  TEST_ASSERT_EQUAL(D(Decision::kSend), D(o.onDrive(kA, 300, a, true)));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_first_ws_starts_master);
@@ -241,5 +275,8 @@ int main() {
   RUN_TEST(test_ir_beats_phone);
   RUN_TEST(test_sync_lost_drops_driver_and_rehandshakes);
   RUN_TEST(test_ota_allowed_only_when_nobody_drives);
+  RUN_TEST(test_stop_from_another_device_holds_until_the_stick_is_released);
+  RUN_TEST(test_the_drivers_own_stop_does_not_hold);
+  RUN_TEST(test_a_new_primitive_or_the_drivers_stop_releases_the_hold);
   return UNITY_END();
 }

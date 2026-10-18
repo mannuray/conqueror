@@ -495,6 +495,8 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       toast("Tank busy - try again");  // e.g. two taps faster than the tank's acknowledgement (review M1)
     } else if (m.reason === "BODY_OFFLINE") {
       banner("bad", "Tank body offline");
+    } else if (m.reason === "STOPPED") {  // design-notes §72: STOP from another device - held until the stick is released
+      showLatch({ kind: "stopped" });
     } else {
       toast(m.reason + ": " + m.message);
     }
@@ -514,6 +516,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     var side = m.side === "left" ? "left" : "right";
     var text = m.kind === "stall" ? "Stopped: " + side + " track stuck - release to drive"
       : m.kind === "encoder_fault" ? "Stopped: " + side + " encoder fault - check its wire"
+      : m.kind === "stopped" ? "Stopped by another device - release the stick to drive again"
       : "Stopped: steering ran away - check motor wiring";
     if (m.kind === "encoder_fault") encSide = side;
     latchAt = Date.now(); latchText = text;

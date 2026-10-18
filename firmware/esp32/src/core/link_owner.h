@@ -15,7 +15,7 @@ constexpr uint32_t kHandbackMs = 5000;  // gateway human_handback_ms
 
 enum class LinkState : uint8_t { kIdle, kWebHandshake, kWebReady, kWebDriving, kTcpPassthrough };
 enum class Admit : uint8_t { kAccept, kRefuseBusy };
-enum class Decision : uint8_t { kSend, kNackNotOwner, kNackBusy, kNackBodyOffline };
+enum class Decision : uint8_t { kSend, kNackNotOwner, kNackBusy, kNackBodyOffline, kNackStopped };
 
 // Things the caller must do, in this order: kStopMaster, kInjectStop / kSendStop, kHintNone /
 // kHintHuman, kStartMaster, kOwnerChanged (broadcast ev control_changed + ts).
@@ -41,7 +41,9 @@ class LinkOwner {
   Actions onWsClose(int fd);
   Admit onTcpConnect(Actions& out);
   Actions onTcpClose();
-  Decision onDrive(int fd, uint32_t now_ms, Actions& out);
+  // moving: a drive frame with v or w != 0. After a STOP from another device the driver's moving frames are refused
+  // (kNackStopped) until it releases its stick (a 0/0 frame), its own STOP, or a new primitive (moving = false).
+  Decision onDrive(int fd, uint32_t now_ms, Actions& out, bool moving = false);
   Decision onCamera(int fd) const;  // cam_joy / cam_home: no ownership taken
   // Plan H review I1: a running primitive keeps its owner alive (handback timer) but never takes ownership -
   // Send only while `fd` is the web driver; otherwise the primitive ends.
@@ -70,6 +72,7 @@ class LinkOwner {
 
   LinkState m_state = LinkState::kIdle;
   int m_driver = kNoFd;
+  bool m_stop_hold = false;  // design-notes §72: a STOP from another device holds until the stick is released
   uint8_t m_ws = 0;
   bool m_synced = false;
   bool m_ir = false;

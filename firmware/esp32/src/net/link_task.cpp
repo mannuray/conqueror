@@ -154,6 +154,8 @@ core::BridgeReason reasonOf(core::Decision d) {
       return core::BridgeReason::kBusy;
     case core::Decision::kNackBodyOffline:
       return core::BridgeReason::kBodyOffline;
+    case core::Decision::kNackStopped:
+      return core::BridgeReason::kStopped;
     case core::Decision::kNackNotOwner:
     default:
       return core::BridgeReason::kNotOwner;
@@ -680,7 +682,7 @@ void handleDrive(int fd, const core::WsCommand& c, uint32_t now) {
     return;
   }
   core::Actions a;
-  const core::Decision d = g_owner.onDrive(fd, now, a);
+  const core::Decision d = g_owner.onDrive(fd, now, a, c.v != 0 || c.w != 0);  // §72: a held stick stays stopped
   apply(a, now);
   if (d == core::Decision::kSend && motionOwnedBy(fd)) endMotion(core::MotionEvent::kOwnerCommand, now);
   if (d == core::Decision::kSend && (c.v != 0 || c.w != 0)) g_roll.cancel();  // §G6: driving again, no roll-on

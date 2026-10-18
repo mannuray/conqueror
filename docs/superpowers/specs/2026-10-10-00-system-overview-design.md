@@ -2,6 +2,8 @@
 
 Status: REVIEWED (open items closed 2026-10-10) · Date: 2026-10-10 · Source: brainstorming session, `docs/design-notes.md`
 
+> **2026-10-18 (owner, design-notes §79): single tank, no separate hub.** All web pages (drive, settings, help, Tank Logo editor) and the Logo runner live on the ESP32 bridge; the only off-tank piece is the AI engine (Python, laptop / PC), which connects directly to the bridge. Spec 3 (hub) is parked; where this overview mentions the hub, read "the bridge" for pages and "the AI engine" for AI work.
+
 Spec set:
 | # | Spec | Scope |
 |---|---|---|

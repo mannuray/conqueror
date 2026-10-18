@@ -1,0 +1,183 @@
+# Programs that must be read without errors, and exactly how (README.md: the `reads` notation).
+# v1 = levels 1-2 + OUTPUT. Level-3 list words: tests/level3.yaml (v1.1).
+
+- name: two moves, input counting
+  source: FD 50 RT 90
+  expect: ok
+  reads: (FORWARD 50) (RIGHT 90)
+
+- name: case and short forms do not matter
+  source: fd 50 Rt 90 forward 10
+  expect: ok
+  reads: (FORWARD 50) (RIGHT 90) (FORWARD 10)
+
+- name: square with REPEAT
+  source: REPEAT 4 [ FD 50 RT 90 ]
+  expect: ok
+  reads: (REPEAT 4 [ (FORWARD 50) (RIGHT 90) ])
+
+- name: comments and line breaks
+  source: |
+    ; a square
+    REPEAT 4 [
+      FD 50   ; one side
+      RT 90
+    ]
+  expect: ok
+  reads: (REPEAT 4 [ (FORWARD 50) (RIGHT 90) ])
+
+- name: the spec's first program (own word used after its definition)
+  source: |
+    TO SQUARE :size
+      REPEAT 4 [ FORWARD :size  RIGHT 90 ]
+    END
+    SPEED 40
+    SQUARE 50
+    LED GREEN  BEEP
+    SAY "Done!
+  expect: ok
+  your_words: {SQUARE: {inputs: 1, gives_value: false}}
+  reads: >
+    (TO SQUARE (:size) [ (REPEAT 4 [ (FORWARD :size) (RIGHT 90) ]) ])
+    (SPEED 40) (SQUARE 50) (LED GREEN) (BEEP) (SAY "Done!)
+
+- name: own word used before its definition (pass 1)
+  source: |
+    SQUARE 30
+    TO SQUARE :s  REPEAT 4 [ FD :s RT 90 ]  END
+  expect: ok
+  reads: (SQUARE 30) (TO SQUARE (:s) [ (REPEAT 4 [ (FORWARD :s) (RIGHT 90) ]) ])
+
+- name: inputs are arithmetic
+  source: |
+    TO GROW :n  FD :n + 5  RT 90  GROW :n + 5  END
+  expect: ok
+  reads: (TO GROW (:n) [ (FORWARD (+ :n 5)) (RIGHT 90) (GROW (+ :n 5)) ])
+
+- name: binary minus with spaces or with no space before it
+  source: FD 10 - 5 FD 10-5
+  expect: ok
+  reads: (FORWARD (- 10 5)) (FORWARD (- 10 5))
+
+- name: negative number
+  source: LOOK [ -30 10 ]
+  expect: ok
+  reads: (LOOK {-30 10})
+
+- name: precedence * before +
+  source: FD 2 + 3 * 4
+  expect: ok
+  reads: (FORWARD (+ 2 (* 3 4)))
+
+- name: brackets
+  source: FD (2 + 3) * 4
+  expect: ok
+  reads: (FORWARD (* (+ 2 3) 4))
+
+- name: a word's input stops before a comparison (differs from classic Logo)
+  source: IF RANDOM 2 = 1 [ BEEP ]
+  expect: ok
+  reads: (IF (= (RANDOM 2) 1) [ (BEEP) ])
+
+- name: IF with one block, then the next statement
+  source: IF OBSTACLE? [ BK 10 ] FD 20
+  expect: ok
+  reads: (IF (OBSTACLE?) [ (BACK 10) ]) (FORWARD 20)
+
+- name: IFELSE and a sensor
+  source: IFELSE DISTANCE < 30 [ BK 10 LT 90 ] [ FD 20 ]
+  expect: ok
+  reads: (IFELSE (< (DISTANCE) 30) [ (BACK 10) (LEFT 90) ] [ (FORWARD 20) ])
+
+- name: AND / OR / NOT precedence
+  source: IF NOT OBSTACLE? AND DISTANCE > 50 OR TIMER > 10 [ BEEP ]
+  expect: ok
+  reads: (IF (OR (AND (NOT (OBSTACLE?)) (> (DISTANCE) 50)) (> (TIMER) 10)) [ (BEEP) ])
+
+- name: WHILE
+  source: WHILE NOT OBSTACLE? [ FD 10 ]
+  expect: ok
+  reads: (WHILE (NOT (OBSTACLE?)) [ (FORWARD 10) ])
+
+- name: WAIT UNTIL
+  source: WAIT UNTIL DISTANCE < 20 BEEP
+  expect: ok
+  reads: (WAIT-UNTIL (< (DISTANCE) 20)) (BEEP)
+
+- name: explore - uses BLOCKED?, so a cut-short move does not end the program
+  source: FOREVER [ FD 50 IF BLOCKED? [ BK 10 RT 90 ] ]
+  expect: ok
+  handles_obstacles: true
+  reads: (FOREVER [ (FORWARD 50) (IF (BLOCKED?) [ (BACK 10) (RIGHT 90) ]) ])
+
+- name: a program without BLOCKED? does not handle obstacles
+  source: FD 100
+  expect: ok
+  handles_obstacles: false
+  reads: (FORWARD 100)
+
+- name: ARC and PIVOT - LEFT / RIGHT at a side place are presets
+  source: ARC RIGHT 90 50 PIVOT LEFT 90 LEFT 45
+  expect: ok
+  reads: (ARC RIGHT 90 50) (PIVOT LEFT 90) (LEFT 45)
+
+- name: colour, look and sound presets, and their list / word forms
+  source: LED RED LED [ 255 128 0 ] LOOK UP LOOK HOME SOUND HORN SOUND "fanfare
+  expect: ok
+  reads: (LED RED) (LED {255 128 0}) (LOOK UP) (LOOK HOME) (SOUND HORN) (SOUND "fanfare)
+
+- name: HOME the command and HOME the look preset
+  source: HOME LOOK HOME
+  expect: ok
+  reads: (HOME) (LOOK HOME)
+
+- name: notes
+  source: PLAY [ C4 E4 2 G4 R C#5 ]
+  expect: ok
+  reads: (PLAY {C4 E4 2 G4 R C#5})
+
+- name: SAY a list
+  source: SAY [ well done ]
+  expect: ok
+  reads: (SAY {well done})
+
+- name: REPCOUNT and REMAINDER
+  source: REPEAT 6 [ IF REMAINDER REPCOUNT 2 = 0 [ BEEP ] FD REPCOUNT * 10 ]
+  expect: ok
+  reads: (REPEAT 6 [ (IF (= (REMAINDER (REPCOUNT) 2) 0) [ (BEEP) ]) (FORWARD (* (REPCOUNT) 10)) ])
+
+- name: recursion - a spiral (tail call)
+  source: |
+    TO SPIRAL :n
+      IF :n > 100 [ STOP ]
+      FD :n RT 90
+      SPIRAL :n + 5
+    END
+    SPIRAL 10
+  expect: ok
+  your_words: {SPIRAL: {inputs: 1, gives_value: false}}
+  reads: >
+    (TO SPIRAL (:n) [ (IF (> :n 100) [ (STOP) ]) (FORWARD :n) (RIGHT 90) (SPIRAL (+ :n 5)) ])
+    (SPIRAL 10)
+
+- name: OUTPUT - a word that gives back a value (v1)
+  source: |
+    TO DOUBLE :x  OUTPUT :x * 2  END
+    TO SIDE  OUTPUT 50  END
+    FD DOUBLE SIDE
+  expect: ok
+  your_words: {DOUBLE: {inputs: 1, gives_value: true}, SIDE: {inputs: 0, gives_value: true}}
+  reads: (TO DOUBLE (:x) [ (OUTPUT (* :x 2)) ]) (TO SIDE () [ (OUTPUT 50) ]) (FORWARD (DOUBLE (SIDE)))
+
+- name: a true/false input to your own word needs brackets
+  source: |
+    TO MAYBE :ok  IF :ok [ BEEP ]  END
+    MAYBE (DISTANCE < 30)
+  expect: ok
+  reads: (TO MAYBE (:ok) [ (IF :ok [ (BEEP) ]) ]) (MAYBE (< (DISTANCE) 30))
+
+- name: quoted word ends at a bracket
+  source: IF SEE? "ball[ BEEP ]
+  expect: ok
+  reads: (IF (SEE? "ball) [ (BEEP) ])
+  note: SEE? needs the AI engine - a core program gets 7020 from the checker; this case only checks the reading

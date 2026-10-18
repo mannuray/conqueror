@@ -1,0 +1,137 @@
+# Programs that must be refused before anything moves: the FIRST error, its line and column (1-based).
+# Messages come from words.yaml `errors`; `message_has` checks a piece of the friendly text.
+
+- name: unknown word with a suggestion
+  source: SQAURE 50
+  expect: {error: 7001, line: 1, col: 1}
+  message_has: Did you mean SQUARE
+  note: only when SQUARE is defined; without it the suggestion is the closest built-in
+
+- name: missing input
+  source: FORWARD
+  expect: {error: 7002, line: 1, col: 1}
+  message_has: FORWARD 50
+
+- name: unclosed bracket
+  source: |
+    REPEAT 4 [ FD 50
+    RT 90
+  expect: {error: 7003, line: 1, col: 10}
+  message_has: never closes
+
+- name: TO without END
+  source: TO SQUARE :s FD :s
+  expect: {error: 7003, line: 1, col: 1}
+
+- name: "-5 with a space before it starts a new value"
+  source: FD 10 -5
+  expect: {error: 7004, line: 1, col: 7}
+  message_has: "10 - 5"
+
+- name: a list as a statement
+  source: "[ FD 50 ]"
+  expect: {error: 7004, line: 1, col: 1}
+
+- name: a value-giving word used as a statement
+  source: |
+    TO SIDE OUTPUT 50 END
+    SIDE
+  expect: {error: 7004, line: 2, col: 1}
+  message_has: SIDE
+
+- name: a command used as a value
+  source: |
+    TO SQUARE :s REPEAT 4 [ FD :s RT 90 ] END
+    FD SQUARE 10
+  expect: {error: 7005, line: 2, col: 4}
+
+- name: "? outside a template"
+  source: FD ?
+  expect: {error: 7006, line: 1, col: 4}
+
+- name: the same word defined twice
+  source: |
+    TO A FD 10 END
+    TO A FD 20 END
+  expect: {error: 7007, line: 2, col: 4}
+
+- name: a built-in word as your own name
+  source: TO FORWARD :n BK :n END
+  expect: {error: 7008, line: 1, col: 4}
+
+- name: a preset word as your own name
+  source: TO RED BEEP END
+  expect: {error: 7008, line: 1, col: 4}
+
+- name: an input that does not exist here
+  source: |
+    TO SQUARE :size REPEAT 4 [ FD :sise RT 90 ] END
+  expect: {error: 7009, line: 1, col: 31}
+  message_has: ":size"
+
+- name: an input used outside its word
+  source: |
+    TO A :x FD :x END
+    FD :x
+  expect: {error: 7009, line: 2, col: 4}
+
+- name: TO inside a block
+  source: REPEAT 2 [ TO A BEEP END ]
+  expect: {error: 7017, line: 1, col: 12}
+
+- name: chained comparison
+  source: IF 1 < DISTANCE < 50 [ BEEP ]
+  expect: {error: 7018, line: 1, col: 17}
+
+- name: IFELSE with one block
+  source: IFELSE OBSTACLE? [ BK 10 ]
+  expect: {error: 7002, line: 1, col: 1}
+  message_has: two [ ] blocks
+
+- name: REPEAT without a block
+  source: REPEAT 4 FD 50
+  expect: {error: 7023, line: 1, col: 10}
+
+- name: OUTPUT outside TO
+  source: OUTPUT 5
+  expect: {error: 7026, line: 1, col: 1}
+
+- name: MAKE is not in Tank Logo
+  source: MAKE "x 5
+  expect: {error: 7027, line: 1, col: 1}
+
+- name: a level-3 list word in v1
+  source: FD FIRST [ 10 20 ]
+  expect: {error: 7030, line: 1, col: 4}
+  version: v1
+
+- name: a range known before running
+  source: FD 600
+  expect: {error: 7025, line: 1, col: 4}
+  message_has: "1 to 500 cm"
+
+- name: an arc that is too tight (radius known before running)
+  source: ARC RIGHT 90 20
+  expect: {error: 7022, line: 1, col: 14}
+  message_has: Try PIVOT
+
+- name: a bad character
+  source: FD 50 @
+  expect: {error: 7016, line: 1, col: 7}
+
+- name: a number that is too big
+  source: FD 10000000
+  expect: {error: 7015, line: 1, col: 4}
+
+- name: WAIT UNTIL - UNTIL only right after WAIT
+  source: WAIT 2 UNTIL TIMER > 3
+  expect: {error: 7001, line: 1, col: 8}
+
+- name: a vision word in a core program
+  source: IF SEE? "ball [ BEEP ]
+  expect: {error: 7020, line: 1, col: 4}
+
+- name: FORWARD on a tank without encoders
+  source: FD 50
+  tank: {encoders: false}
+  expect: {error: 7021, line: 1, col: 1}

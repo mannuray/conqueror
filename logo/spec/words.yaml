@@ -1,0 +1,484 @@
+# Tank Logo — word table (v2). Single source of truth for the reader on the ESP32 (parser / checker / compiler)
+# and for the editor's word help. Grammar and input types: logo/spec/grammar.md. Decisions: design-notes §81-§83.
+# Status: DRAFT for owner review, 2026-10-19.
+#
+# Fields per word:
+#   name / aliases   - case-insensitive
+#   level            - 1 Starter, 2 Explorer, 3 Expert (editor grouping only; v1 builds levels 1-2 plus OUTPUT,
+#                      the other level-3 words are reserved until v1.1)
+#   kind             - command (a statement), reporter (gives back a value), control (special form, grammar.md §3),
+#                      operator (infix, grammar.md §6), constant
+#   inputs           - in order: name, type (grammar.md §5), unit, range [min, max] (checked when known, else at run time)
+#   gives            - what a reporter gives back
+#   does             - what the tank does (motion maps onto the bridge's motion service; nothing new on the Uno)
+#   needs            - encoders | ai (the word is refused with the matching error when the need is not met)
+#   help / example   - shown in the editor; plain words, no jargon
+
+version: 2
+
+limits:
+  run_time_s: 300            # the whole program
+  wait_s: 60                 # WAIT and WAIT UNTIL
+  move_cm: 500               # FORWARD / BACK per step
+  source_bytes: 8192
+  words_of_your_own: 64      # TO definitions
+  inputs_per_word: 8
+  nesting: 100               # non-tail calls (tail calls use no stack, grammar.md §8)
+  name_chars: 32
+  number_abs_max: 1000000    # values are 1/1000 fixed point
+  list_cells: 50000          # level 3 (v1.1): the list pool in PSRAM, garbage collected
+
+presets:
+  side: [LEFT, RIGHT]
+  colour: [RED, GREEN, BLUE, YELLOW, PURPLE, WHITE, ORANGE, "OFF"]   # quoted: YAML would read OFF as false
+  look: [LEFT, RIGHT, UP, DOWN, HOME]
+  # the tank's sound catalogue (protocol SoundId 1-24, spec 02 §A9, design-notes §75)
+  sound: [STARTUP, READY, SELFTEST_FAIL, CHIRP_UP, CHIRP_DOWN, BLIP, TICK, JINGLE, THINKING, OUCH, ERROR, SUCCESS,
+          FANFARE, SAD, SAFETY_CHIRP, ACK_BLIP, FAIL, CONFIRM, QUESTION, OK_CHIRP, GRUMBLE, SCAN, GOODBYE, HORN]
+  notes: "C4..B6 (sharps as C#4), R = rest; each note may be followed by its length in quarter beats (default 1 = 0.25 s)"
+
+words:
+  # ---------------------------------------------------------------- level 1: Starter
+  - name: FORWARD
+    aliases: [FD]
+    level: 1
+    kind: command
+    inputs: [{name: distance, type: number, unit: cm, range: [1, 500]}]
+    does: MOVE by +distance at the current SPEED, holding the heading
+    needs: [encoders]
+    help: drive forward that many centimetres
+    example: FORWARD 50
+  - name: BACK
+    aliases: [BK]
+    level: 1
+    kind: command
+    inputs: [{name: distance, type: number, unit: cm, range: [1, 500]}]
+    does: MOVE by -distance (no sensor at the back - the obstacle brake only looks forward)
+    needs: [encoders]
+    help: drive backward that many centimetres
+    example: BACK 20
+  - name: RIGHT
+    aliases: [RT]
+    level: 1
+    kind: command
+    inputs: [{name: angle, type: number, unit: deg, range: [1, 720]}]
+    does: TURN by -angle on the spot (Logo turns right = positive; the tank's left = positive, converted here)
+    help: turn right on the spot
+    example: RIGHT 90
+  - name: LEFT
+    aliases: [LT]
+    level: 1
+    kind: command
+    inputs: [{name: angle, type: number, unit: deg, range: [1, 720]}]
+    does: TURN by +angle on the spot
+    help: turn left on the spot
+    example: LEFT 90
+  - name: SPEED
+    level: 1
+    kind: command
+    inputs: [{name: percent, type: number, unit: "%", range: [10, 100]}]
+    does: sets the speed of the following moves (default 40); capped by the child-play limits when they are on
+    help: how fast the next moves go
+    example: SPEED 60
+  - name: WAIT
+    level: 1
+    kind: command
+    inputs: [{name: seconds, type: number, unit: s, range: [0, 60]}]
+    does: pause (decimals allowed); see also WAIT UNTIL (level 2)
+    help: wait that many seconds
+    example: WAIT 1.5
+  - name: REPEAT
+    level: 1
+    kind: control
+    inputs: [{name: times, type: number, range: [0, 10000]}, {name: steps, type: block}]
+    does: runs the steps that many times; REPCOUNT tells which round it is
+    help: do the steps in [ ] again and again
+    example: REPEAT 4 [ FD 50 RT 90 ]
+  - name: LED
+    level: 1
+    kind: command
+    inputs: [{name: colour, type: colour}]
+    does: sets the tank's light (a colour word or a list [r g b], 0-255 each)
+    help: change the light
+    example: LED GREEN
+  - name: BEEP
+    level: 1
+    kind: command
+    does: a short beep
+    help: beep once
+    example: BEEP
+  - name: SOUND
+    level: 1
+    kind: command
+    inputs: [{name: sound, type: sound}]
+    does: plays a sound from the tank's catalogue (presets.sound)
+    help: play a sound
+    example: SOUND HORN
+  - name: LOOK
+    level: 1
+    kind: command
+    inputs: [{name: where, type: look}]
+    does: moves the camera head to a preset, or to a list [pan tilt] in degrees from the centre (kept inside the camera's limits)
+    help: point the camera
+    example: LOOK LEFT
+  - name: HOME
+    level: 1
+    kind: command
+    does: TURN to the heading the program started with
+    help: turn back the way you started
+    example: HOME
+  - name: STOP
+    level: 1
+    kind: control
+    does: ends the whole program and stops the tank (Spec 5 §12.5)
+    help: stop everything
+    example: IF OBSTACLE? [ STOP ]
+
+  # ---------------------------------------------------------------- level 2: Explorer
+  - name: ARC
+    level: 2
+    kind: command
+    inputs: [{name: side, type: side}, {name: angle, type: number, unit: deg, range: [1, 360]},
+             {name: radius, type: number, unit: cm, range: [31, 300]}]
+    does: TURN by +-angle along a circle of that radius (Plan L); the speed is moved into the radius's working band with a note
+    needs: [encoders]
+    help: drive along part of a circle; the smallest circle is 31 cm
+    example: ARC RIGHT 90 50
+  - name: PIVOT
+    level: 2
+    kind: command
+    inputs: [{name: side, type: side}, {name: angle, type: number, unit: deg, range: [1, 360]}]
+    does: TURN by +-angle around the track on that side, which stays still (Plan L)
+    needs: [encoders]
+    help: turn around one track
+    example: PIVOT LEFT 90
+  - name: PLAY
+    level: 2
+    kind: command
+    inputs: [{name: notes, type: notes}]
+    does: plays the notes one after another (TONE frames)
+    help: play a tune
+    example: PLAY [ C4 E4 G4 2 ]
+  - name: SAY
+    level: 2
+    kind: command
+    inputs: [{name: words, type: text}]
+    does: the page shows the text and speaks it; nothing happens on the tank
+    help: say something
+    example: SAY [ well done ]
+  - name: TO
+    level: 2
+    kind: control
+    does: "defines your own word: TO name :input1 :input2 ... END (grammar.md §3-4)"
+    help: teach the tank a new word
+    example: "TO SQUARE :size  REPEAT 4 [ FD :size RT 90 ]  END"
+  - name: IF
+    level: 2
+    kind: control
+    inputs: [{name: test, type: condition}, {name: steps, type: block}]
+    help: do the steps only if the test is true
+    example: IF OBSTACLE? [ BK 10 ]
+  - name: IFELSE
+    level: 2
+    kind: control
+    inputs: [{name: test, type: condition}, {name: yes, type: block}, {name: no, type: block}]
+    help: do the first steps if the test is true, else the second
+    example: IFELSE DISTANCE < 30 [ RT 90 ] [ FD 20 ]
+  - name: WHILE
+    level: 2
+    kind: control
+    inputs: [{name: test, type: condition}, {name: steps, type: block}]
+    help: keep doing the steps while the test is true
+    example: WHILE NOT OBSTACLE? [ FD 10 ]
+  - name: FOREVER
+    level: 2
+    kind: control
+    inputs: [{name: steps, type: block}]
+    does: repeats until STOP, the program ends, or the run-time limit
+    help: do the steps again and again, for ever
+    example: FOREVER [ FD 50 IF BLOCKED? [ BK 10 RT 90 ] ]
+  - name: WAIT UNTIL
+    level: 2
+    kind: control
+    inputs: [{name: test, type: condition}]
+    does: waits until the test is true, at most limits.wait_s; then the program goes on
+    help: wait until something happens
+    example: WAIT UNTIL DISTANCE < 20
+  - name: DISTANCE
+    level: 2
+    kind: reporter
+    gives: cm to the nearest thing ahead (ultrasonic); 999 when nothing is seen
+    help: how far away the thing in front is
+    example: IF DISTANCE < 30 [ RT 90 ]
+  - name: OBSTACLE?
+    level: 2
+    kind: reporter
+    gives: TRUE when something is closer than the tank's obstacle-stop distance (15 cm)
+    help: is something right in front?
+    example: IF OBSTACLE? [ BK 10 ]
+  - name: BLOCKED?
+    level: 2
+    kind: reporter
+    gives: TRUE when the last move was cut short by the obstacle brake
+    does: using it anywhere means a cut-short move does not end the program (design-notes §82 h)
+    help: did the last move get stopped by something in the way?
+    example: FD 100 IF BLOCKED? [ SAY "oops ]
+  - name: HEADING
+    level: 2
+    kind: reporter
+    gives: degrees turned since the program started, -180 to 180, right = positive
+    help: which way the tank points now
+    example: IF HEADING > 45 [ HOME ]
+  - name: TILT
+    level: 2
+    kind: reporter
+    gives: body tilt in degrees
+    help: how much the tank leans
+    example: IF TILT > 20 [ STOP ]
+  - name: BATTERY
+    level: 2
+    kind: reporter
+    gives: battery in %, 0 at 6.6 V to 100 at 8.4 V (2S pack)
+    help: how full the battery is
+    example: IF BATTERY < 20 [ SAY [ I am tired ] ]
+  - name: TIMER
+    level: 2
+    kind: reporter
+    gives: seconds since the program started (with decimals)
+    help: how long the program has been running
+    example: WHILE TIMER < 10 [ FD 10 RT 30 ]
+  - name: RANDOM
+    level: 2
+    kind: reporter
+    inputs: [{name: n, type: number, range: [1, 1000000]}]
+    gives: a whole number from 0 to n - 1
+    help: a surprise number
+    example: RT RANDOM 360
+  - name: REPCOUNT
+    level: 2
+    kind: reporter
+    gives: the round of the innermost REPEAT or FOREVER (1, 2, ...)
+    help: which round of REPEAT this is
+    example: REPEAT 5 [ FD REPCOUNT * 10 RT 72 ]
+  - name: REMAINDER
+    level: 2
+    kind: reporter
+    inputs: [{name: a, type: number}, {name: b, type: number}]
+    gives: what is left after dividing a by b
+    help: the leftover of a division (is a number even?)
+    example: IF REMAINDER REPCOUNT 2 = 0 [ BEEP ]
+  - name: ABS
+    level: 2
+    kind: reporter
+    inputs: [{name: x, type: number}]
+    gives: x without its minus sign
+    example: ABS HEADING
+  - name: ROUND
+    level: 2
+    kind: reporter
+    inputs: [{name: x, type: number}]
+    gives: x rounded to the nearest whole number
+    example: ROUND DISTANCE / 10
+  - name: "TRUE"
+    level: 2
+    kind: constant
+    gives: true
+  - name: "FALSE"
+    level: 2
+    kind: constant
+    gives: false
+  - name: AND
+    level: 2
+    kind: operator
+    help: "both tests true (infix: a AND b)"
+  - name: OR
+    level: 2
+    kind: operator
+    help: "at least one test true (infix: a OR b)"
+  - name: NOT
+    level: 2
+    kind: operator
+    help: the opposite of a test
+
+  # ---------------------------------------------------------------- level 3: Expert (OUTPUT in v1; the rest reserved in v1, built in v1.1)
+  - name: OUTPUT
+    aliases: [OP]
+    level: 3
+    kind: control
+    inputs: [{name: value, type: any}]
+    does: ends your word and gives back the value (only inside TO ... END)
+    help: give back an answer from your own word
+    example: "TO DOUBLE :x  OUTPUT :x * 2  END"
+  - name: FIRST
+    level: 3
+    kind: reporter
+    inputs: [{name: list, type: list}]
+    gives: the first item
+    example: FIRST [ 10 20 30 ]
+  - name: LAST
+    level: 3
+    kind: reporter
+    inputs: [{name: list, type: list}]
+    gives: the last item
+  - name: BUTFIRST
+    aliases: [BF]
+    level: 3
+    kind: reporter
+    inputs: [{name: list, type: list}]
+    gives: the list without its first item
+  - name: BUTLAST
+    aliases: [BL]
+    level: 3
+    kind: reporter
+    inputs: [{name: list, type: list}]
+    gives: the list without its last item
+  - name: ITEM
+    level: 3
+    kind: reporter
+    inputs: [{name: n, type: number, range: [1, 50000]}, {name: list, type: list}]
+    gives: item number n (the first is 1)
+  - name: COUNT
+    level: 3
+    kind: reporter
+    inputs: [{name: list, type: list}]
+    gives: how many items
+  - name: EMPTY?
+    level: 3
+    kind: reporter
+    inputs: [{name: list, type: list}]
+    gives: TRUE for []
+  - name: MEMBER?
+    level: 3
+    kind: reporter
+    inputs: [{name: thing, type: any}, {name: list, type: list}]
+    gives: TRUE when the thing is in the list
+  - name: LIST
+    level: 3
+    kind: reporter
+    inputs: [{name: a, type: any}, {name: b, type: any}]
+    gives: a new list of the two values (values are looked up, unlike [ ])
+    example: LIST :x :y
+  - name: FPUT
+    level: 3
+    kind: reporter
+    inputs: [{name: thing, type: any}, {name: list, type: list}]
+    gives: a new list with the thing in front
+  - name: LPUT
+    level: 3
+    kind: reporter
+    inputs: [{name: thing, type: any}, {name: list, type: list}]
+    gives: a new list with the thing at the end
+  - name: SENTENCE
+    aliases: [SE]
+    level: 3
+    kind: reporter
+    inputs: [{name: a, type: any}, {name: b, type: any}]
+    gives: the two values joined into one flat list
+  - name: MAP
+    level: 3
+    kind: reporter
+    inputs: [{name: how, type: template}, {name: list, type: list}]
+    gives: a new list with the template applied to every item (? = the item)
+    example: MAP [ ? * 2 ] [ 1 2 3 ]
+  - name: FILTER
+    level: 3
+    kind: reporter
+    inputs: [{name: test, type: template}, {name: list, type: list}]
+    gives: the items for which the test is TRUE
+    example: FILTER [ ? > 10 ] [ 5 15 25 ]
+  - name: REDUCE
+    level: 3
+    kind: reporter
+    inputs: [{name: how, type: template}, {name: list, type: list}]
+    gives: the items combined two at a time (?1 = the result so far, ?2 = the next item)
+    example: REDUCE [ ?1 + ?2 ] [ 1 2 3 4 ]
+  - name: FOREACH
+    level: 3
+    kind: control
+    inputs: [{name: list, type: list}, {name: steps, type: template-block}]
+    does: runs the steps once for every item (? = the item)
+    example: FOREACH [ 50 100 50 ] [ FD ? RT 120 ]
+  - name: WORD?
+    level: 3
+    kind: reporter
+    inputs: [{name: thing, type: any}]
+    gives: TRUE for a word
+  - name: NUMBER?
+    level: 3
+    kind: reporter
+    inputs: [{name: thing, type: any}]
+    gives: TRUE for a number
+  - name: LIST?
+    level: 3
+    kind: reporter
+    inputs: [{name: thing, type: any}]
+    gives: TRUE for a list
+
+  # ---------------------------------------------------------------- AI programs only (run by the AI engine, Spec 5 §6)
+  - name: SEE?
+    level: 3
+    kind: reporter
+    inputs: [{name: thing, type: any}]
+    needs: [ai]
+    gives: TRUE when the camera sees the thing now
+    example: IF SEE? "ball [ SOUND FANFARE ]
+  - name: FIND
+    level: 3
+    kind: command
+    inputs: [{name: thing, type: any}]
+    needs: [ai]
+    does: turns around looking for the thing; stops facing it, or ends with "not found"
+  - name: FOLLOW
+    level: 3
+    kind: command
+    inputs: [{name: thing, type: any}, {name: seconds, type: number, unit: s, range: [1, 60]}]
+    needs: [ai]
+    does: follows the thing, keeping a safe distance
+  - name: HOWMANY
+    level: 3
+    kind: reporter
+    inputs: [{name: thing, type: any}]
+    needs: [ai]
+    gives: how many of the thing the camera sees (renamed from COUNT, which now counts list items)
+
+# Reserved words (cannot name your own word): every name and alias above, the presets, END, UNTIL, MAKE, RUN, FOR,
+# WHEN (v2 events). MAKE / RUN / FOR give a friendly "not in Tank Logo" message (design-notes §83).
+reserved: [END, UNTIL, MAKE, RUN, FOR, WHEN]
+
+errors:   # PROGRAM 7000-7999 (Spec 5 §8); {..} are filled in by the checker
+  7001: "I don't know how to {word}. Did you mean {suggestion}?"
+  7002: "{word} needs {what}, like {example}."
+  7003: "The {bracket} on line {line} never closes. Add a {closer}."
+  7004: "You didn't say what to do with {value}."
+  7005: "{word} doesn't give back a value, so it can't be used here."
+  7006: "? only means something inside MAP, FILTER, REDUCE or FOREACH."
+  7007: "{word} is defined twice (lines {a} and {b})."
+  7008: "{word} is already a word of the tank — pick another name."
+  7009: "There is no :{name} here. Did you mean :{suggestion}?"
+  7010: "The program is too big ({what})."
+  7011: "Too many words inside each other (more than 100)."
+  7012: "{word} needs {type}, but got {value}."
+  7013: "Can't divide by zero on line {line}."
+  7014: "This program used too much memory."
+  7015: "{token} is too long or too big."
+  7016: "I don't understand the character {char} on line {line}."
+  7017: "TO can only be used at the start of a line, not inside [ ] or another TO."
+  7018: "Use AND to test two things: :x > 1 AND :x < 5."
+  7019: "Hint: inside [ ] values are not looked up — use LIST :a :b."
+  7020: "{word} needs the AI engine."
+  7021: "This tank can't measure distance yet ({word} needs encoders)."
+  7022: "{word} {angle} {radius} is too tight — the smallest circle is 31 cm. Try PIVOT."
+  7023: "{word} needs its steps in [ ], like {example}."
+  7024: "Something is in the way on line {line}."
+  7025: "{word} needs {what} from {min} to {max} {unit}."
+  7026: "OUTPUT can only be used inside TO ... END."
+  7027: "{word} is not in Tank Logo. {hint}"
+  7030: "{word} arrives in a later version."
+  7031: "{word} finished without giving back a value."
+  7040: "Stopped by you."
+  7041: "The time limit (5 minutes) is up."
+  7042: "The battery is low."
+  7043: "The tank tilted too much."
+  7044: "A track got stuck."
+  7045: "Someone else took control."
+  7046: "The page was closed or hidden."

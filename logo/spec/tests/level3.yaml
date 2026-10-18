@@ -1,0 +1,61 @@
+# Level 3 (v1.1): lists and the words that take a template. In v1 each of these gives 7030 (tests/errors.yaml).
+
+- name: a data list is not looked up
+  source: SAY [ :a FD 50 ]
+  expect: ok
+  hint: 7019
+  reads: (SAY {:a FD 50})
+
+- name: LIST builds a list from values
+  source: |
+    TO PAIR :a :b  OUTPUT LIST :a :b  END
+    SAY PAIR 1 2
+  expect: ok
+  reads: (TO PAIR (:a :b) [ (OUTPUT (LIST :a :b)) ]) (SAY (PAIR 1 2))
+
+- name: MAP with a ? template
+  source: SAY MAP [ ? * 2 ] [ 1 2 3 ]
+  expect: ok
+  reads: (SAY (MAP [ (* ? 2) ] {1 2 3}))
+
+- name: MAP with a word's name
+  source: |
+    TO DOUBLE :x OUTPUT :x * 2 END
+    SAY MAP "DOUBLE [ 1 2 3 ]
+  expect: ok
+  reads: (TO DOUBLE (:x) [ (OUTPUT (* :x 2)) ]) (SAY (MAP "DOUBLE {1 2 3}))
+
+- name: FILTER and REDUCE
+  source: SAY REDUCE [ ?1 + ?2 ] FILTER [ ? > 10 ] [ 5 15 25 ]
+  expect: ok
+  reads: (SAY (REDUCE [ (+ ?1 ?2) ] (FILTER [ (> ? 10) ] {5 15 25})))
+
+- name: FOREACH runs moves for every item
+  source: FOREACH [ 50 100 50 ] [ FD ? RT 120 ]
+  expect: ok
+  reads: (FOREACH {50 100 50} [ (FORWARD ?) (RIGHT 120) ])
+
+- name: a template can use its word's inputs
+  source: |
+    TO GROW :k OUTPUT MAP [ ? * :k ] [ 1 2 3 ] END
+    SAY GROW 10
+  expect: ok
+  reads: (TO GROW (:k) [ (OUTPUT (MAP [ (* ? :k) ] {1 2 3})) ]) (SAY (GROW 10))
+
+- name: recursion over a list (tail call)
+  source: |
+    TO WALK :sides
+      IF EMPTY? :sides [ STOP ]
+      FD FIRST :sides RT 90
+      WALK BF :sides
+    END
+    WALK [ 50 30 50 30 ]
+  expect: ok
+  reads: >
+    (TO WALK (:sides) [ (IF (EMPTY? :sides) [ (STOP) ]) (FORWARD (FIRST :sides)) (RIGHT 90) (WALK (BUTFIRST :sides)) ])
+    (WALK {50 30 50 30})
+
+- name: "= compares whole lists"
+  source: IF [ 1 2 ] = LIST 1 2 [ BEEP ]
+  expect: ok
+  reads: (IF (= {1 2} (LIST 1 2)) [ (BEEP) ])

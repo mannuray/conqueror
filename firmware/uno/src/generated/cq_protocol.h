@@ -190,6 +190,7 @@ enum class SoundId : uint8_t {
   kGrumble = 21,
   kScan = 22,
   kGoodbye = 23,
+  kHorn = 24,
 };
 
 enum class FastFlagBit : uint8_t {

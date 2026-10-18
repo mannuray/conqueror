@@ -34,8 +34,8 @@
     { STARTUP: 1, READY: 2, SELFTEST_FAIL: 3, CHIRP_UP: 4, CHIRP_DOWN: 5, BLIP: 6, TICK: 7,
       JINGLE: 8, THINKING: 9, OUCH: 10, ERROR: 11,
       SUCCESS: 12, FANFARE: 13, SAD: 14, SAFETY_CHIRP: 15, ACK_BLIP: 16, FAIL: 17, CONFIRM: 18,
-      QUESTION: 19, OK_CHIRP: 20, GRUMBLE: 21, SCAN: 22, GOODBYE: 23 }
-  # STARTUP (1) plays the old rising boot sweep (old melody 1); 12-23 are old melodies 2-13
+      QUESTION: 19, OK_CHIRP: 20, GRUMBLE: 21, SCAN: 22, GOODBYE: 23, HORN: 24 }
+  # STARTUP (1) plays the old rising boot sweep (old melody 1); 12-23 are old melodies 2-13; 24 HORN is new (design-notes §75)
   # (docs/legacy/uno-old-led-buzzer.md); SAFETY_CHIRP = old melody 5.
 - name: FastFlagBit
   doc: Bit positions in TELEM_FAST.flags.

@@ -734,6 +734,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   });
   $("zSave").addEventListener("click", function () {
     if (!wiz.cpm) return;
+    send({ t: "drive", v: 0, w: 0 });  // control goes back 5 s after the move: take it again (never moves; as move.py)
     send({ t: "calib", counts_per_m: wiz.cpm, id: nextId++ });
   });
 
@@ -807,7 +808,10 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   function onLog(m) {
     if (m.last < LOG.next) { LOG.items = []; LOG.next = 0; LOG.gap = false; logAsk(); return; }  // the bridge restarted
     var now = Date.now();
-    (m.entries || []).forEach(function (e) { e.got = now; LOG.items.push(e); LOG.next = Math.max(LOG.next, e.seq); });
+    (m.entries || []).forEach(function (e) {
+      if (e.seq <= LOG.next) return;  // a page asked twice (poll + paging): never show a row twice
+      e.got = now; LOG.items.push(e); LOG.next = e.seq;
+    });
     if (m.gap) LOG.gap = true;
     if (LOG.items.length > 200) LOG.items.splice(0, LOG.items.length - 200);
     renderLog();
@@ -910,6 +914,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     ws = new WebSocket("ws://" + location.host + "/ws");
     ws.onopen = function () {
       open = true; retry = 500; scanDone(); debugHz = 0; anchor = null;
+      LOG.items = []; LOG.next = 0; LOG.gap = false;  // a new link may be a restarted bridge: read the log afresh
       if (restarting) { restarting = false; toast("Bridge back online ✓", true); }
       send({ t: "hello", client: "settings", proto: 1 });
       send({ t: "wifi_status" }); send({ t: "calib" });

@@ -15,6 +15,7 @@ namespace {
 class Reader {
  public:
   Reader(const char* s, size_t n) : m_s(s), m_end(s + n) {}
+  bool cut() const { return m_cut; }  // the last str() did not fit and was truncated
 
   void ws() {
     while (m_s < m_end && (*m_s == ' ' || *m_s == '\t' || *m_s == '\r' || *m_s == '\n')) ++m_s;
@@ -35,6 +36,7 @@ class Reader {
   bool str(char* out, size_t cap) {
     if (!eat('"')) return false;
     size_t n = 0;
+    m_cut = false;
     while (m_s < m_end && *m_s != '"') {
       char c = *m_s++;
       if (c == '\\') {
@@ -42,6 +44,7 @@ class Reader {
         c = *m_s++;
       }
       if (n + 1 < cap) out[n++] = c;
+      else m_cut = true;
     }
     if (cap) out[n] = '\0';
     return eat('"');
@@ -110,6 +113,7 @@ class Reader {
  private:
   const char* m_s;
   const char* m_end;
+  bool m_cut = false;
 };
 
 int8_t clampPct(double v) {
@@ -349,7 +353,7 @@ bool readField(const char* key, Reader& r, WsCommand& c, Seen& s) {
   if (strcmp(key, "ai_url") == 0) {  // app_set
     if (!r.str(c.ai_url, sizeof(c.ai_url))) return false;
     c.has_ai_url = true;
-    s.url_bad = !appUrlValid(c.ai_url);
+    s.url_bad = r.cut() || !appUrlValid(c.ai_url);  // never store an address cut short (final review I3)
     return true;
   }
   if (strcmp(key, "setting_id") == 0) {  // setting: the Uno setting (the command id stays "id")

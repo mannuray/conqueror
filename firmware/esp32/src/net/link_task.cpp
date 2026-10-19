@@ -405,6 +405,10 @@ void sendWifiStatus(int fd) {
 
 // A change from the page: held until the tank's button is pressed (or 30 s pass).
 void askConfirm(const core::PendingChange& c, uint32_t now) {
+  if (g_gate.busyFor(c.fd)) {  // Plan O final review I2: another device's change waits for the button
+    nack(c.fd, c.id, core::BridgeReason::kBusy);
+    return;
+  }
   g_gate.begin(c, now);
   sendTo(c.fd, core::jsonConfirm(g_json, sizeof(g_json), core::changeName(c.kind),
                                  static_cast<uint8_t>(core::ConfirmGate::kWindowMs / 1000)));

@@ -33,6 +33,8 @@ class ConfirmGate {
     m_waiting = true;
   }
   bool waiting() const { return m_waiting; }
+  // Plan O final review I2: another client's change is waiting - a new one is refused, never swapped in
+  bool busyFor(int fd) const { return m_waiting && m_change.fd != fd; }
   const PendingChange& pending() const { return m_change; }
   bool take(PendingChange& out);
   bool expired(uint32_t now_ms, PendingChange& out);

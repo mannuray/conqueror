@@ -368,6 +368,19 @@ void test_camera_set_fields_and_ranges() {
   TEST_ASSERT_EQUAL(0, P("{\"t\":\"calib\",\"reset\":\"counts_per_m\"}").calib_reset);  // calib keeps its string reset
 }
 
+void test_app_url_too_long_is_refused_by_the_parser() {  // Plan O final review I3: never stored cut short
+  char js[300];
+  char url[201];
+  memset(url, 'a', sizeof(url) - 1);
+  memcpy(url, "http://", 7);
+  url[200] = '\0';
+  snprintf(js, sizeof(js), "{\"t\":\"app_set\",\"ai_url\":\"%s\"}", url);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P(js).kind));
+  url[96] = '\0';  // exactly 96 characters is fine
+  snprintf(js, sizeof(js), "{\"t\":\"app_set\",\"ai_url\":\"%s\"}", url);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kAppSet), K(P(js).kind));
+}
+
 void test_app_url_validation() {
   const WsCommand a = P("{\"t\":\"app_set\",\"ai_url\":\"http://192.168.31.8:8000/\"}");
   TEST_ASSERT_EQUAL(K(WsCmdKind::kAppSet), K(a.kind));
@@ -421,5 +434,6 @@ int main() {
   RUN_TEST(test_tank_log_selftest);
   RUN_TEST(test_camera_set_fields_and_ranges);
   RUN_TEST(test_app_url_validation);
+  RUN_TEST(test_app_url_too_long_is_refused_by_the_parser);
   return UNITY_END();
 }

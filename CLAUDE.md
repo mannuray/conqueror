@@ -39,7 +39,7 @@ Hobby robot platform: ELEGOO Conqueror tank rebuilt as **Uno body + ESP32 gatewa
 15. **Plan M — WiFi modes (double press) + `/settings` page** (bridge only; spec 02 Part I, bridge LLD R9) — done on the tank and merged 2026-10-18 (design-notes §73); ≤ 3 networks in NVS, button-confirmed changes, two tabs. A STOP from any device now holds until the driver releases its stick (§72, LLD R9.6).
 16. **Plan O — the tank app** (☰ menu, four-tab `/settings`, Tune graphs + distance wizard, Log, camera settings; bridge LLD R13–R14) — merged 2026-10-19 (owner: before the tank checks), stand-checked (design-notes §93–§97); floor wizard check pending.
 17. **Plan P — bridge structure refactor** (controllers + ports, size check, watchdog; bridge LLD R15) — merged 2026-10-19 (§98–§99; owner: merged before its tank checks); tank checks after the Logo work and the road-wheel fix.
-18. **Next:** Tank Logo (Plans N1–N4); then the road-wheel fix, motor power, the pending tank checks of O and P, the arc re-test. Uno Lite flash is at 96 % (~1.2 KB left).
+18. **Plan N1 — Tank Logo reader** (lexer, iterative parser, checker, `logogen` generator; Tank Logo LLD) — done 2026-10-19: all 67 v1 conformance cases pass (design-notes §88). **Next:** Tank Logo Plans N2–N4; then the road-wheel fix, motor power, the pending tank checks of O and P, the arc re-test. Uno Lite flash is at 96 % (~1.2 KB left).
 Execute with the superpowers skills (`subagent-driven-development` recommended, or `executing-plans`).
 
 ## Hard rules for code

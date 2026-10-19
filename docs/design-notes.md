@@ -1370,6 +1370,12 @@ A review of the v2 grammar (pasted by the owner) raised four points; all applied
 - **Editor: colouring, easy for children** (owner: "it's for the kids so it should be easy for them"): colour by kind of word (moves, turns, loops/choices, light/sound/look, numbers, your own words, comments, unknown words underlined), big text, word buttons that insert the word with its example value selected, errors under the line with a ▲ under the word (LLD §14).
 - Compile on a separate task: recommendation kept (not objected to). LLD marked approved.
 
+## 88. Plan N1 — Tank Logo reader (2026-10-19)
+- Generator `logogen` (logo/), reader in `firmware/esp32/src/logo/` (lexer, two-pass iterative parser, checker, reads printer); host tests incl. every v1 case of `logo/spec/tests` (count: 67 — 35 reading + 32 errors; the 2 v1.1 cases are skipped by design). Whole native suite 423 / 423; the bridge builds with the reader compiled in (nothing calls it yet).
+- Spec fixes found while planning: the "unknown word" case now defines SQUARE; the SEE? reading case is reading-only (`check: false`); IFELSE has a `missing` text; a too-big number stays a NUMBER token (clamped) so 7015 is the first error.
+- Size limits (coding standards §3.1) applied to the plan's code: the parser is split into four files and the checker into small helpers; precedence, operator names and node brackets are tables. Each split was checked against a golden record (every conformance case plus ~50 broken texts, both capability sets): output byte-identical before and after.
+- Two small fixes beyond the plan: a too-deep operator stack (more than 128 waiting operators) is now 7010 "too deeply nested" like the operand stack (before: silent, or an overrun for NOT); the minus-hint buffer is 112 bytes (a compiler truncation warning).
+
 ## 89. Build order: the tank app first, then Logo (owner, 2026-10-19)
 - Owner: "first build the tank app, then Logo, and then the Logo UI." Order: **Plan O — the tank app** (☰ menu on Drive; Settings in 4 tabs WiFi · Tank · Tune · Log with the new cards — live sensors, self-test, camera, child-play card, Tune graphs + calibration wizard, the event log; bridge work behind them) → **Plans N1–N3 — the Logo engine** (reader, runner, on the tank) → **Plan N4 — the Logo page** inside the finished app.
 - Plan N1 (`docs/superpowers/plans/2026-10-19-plan-n1-logo-reader.md`) stays written; it runs after Plan O. Next: bridge LLD Revision 13 (the tank app), then Plan O.

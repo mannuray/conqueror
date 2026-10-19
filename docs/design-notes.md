@@ -1393,3 +1393,9 @@ From the code (research for bridge LLD R13):
 - Built in Plan O Task 1: board temperature, integer pitch/roll and the self-test on request cost **+632 B** even with 16-bit-only maths (angles 470, self-test 120, temperature 40) → 580 B left. Owner: "it's getting too tight — use only what is useful".
 - Usefulness: tilt angles low (safety already has the tilted/lifted alarms; flat floors read 0–2°), temperature low (the chip's own), self-test medium (re-check after a fix without a power cycle). **Owner: self-test only** → **31 144 / 32 256 B** (1 112 B free).
 - Consequences: the Tank tab's Live sensors card shows the tilted / lifted alarms, no angles or temperature; `ts.temp_c` is not added; Logo's `TILT` becomes **`TILTED?`** (true while tilted past the limit or lifted). Angles return with a bigger body board.
+
+## 93. Settings → Tank → Camera shows the live picture (owner, 2026-10-19)
+On the stand check of Plan O the owner asked to see the camera feed next to the camera settings, so a change (size, quality, brightness, flip …) is seen at once.
+- Options discussed: **A** live preview always on while the Tank tab is open; B a PREVIEW button (on demand); C a still picture after each change.
+- **Owner: A.** The settings page does the important work; seeing the effect matters more than saving one viewer place and some WiFi.
+- How: the Camera card shows the MJPEG stream (`:81/stream`) under its title while the Tank tab is open and the page is visible; it stops when the tab changes or the page is hidden. It counts as one of the 2 viewers — with the Drive page also streaming the limit is reached and the card says so. Page-only change, no bridge code.

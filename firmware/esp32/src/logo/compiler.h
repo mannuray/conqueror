@@ -62,6 +62,14 @@ class Compiler {
   // compiler_stmt.cpp
   bool stepCall(Work& w);
   bool stepEffect(Work& w, uint8_t kind);
+  bool stepRepeat(Work& w);
+  bool stepForever(Work& w);
+  bool stepIf(Work& w);
+  bool stepIfElse(Work& w);
+  bool stepWhile(Work& w);
+  bool stepWaitUntil(Work& w);
+  bool stepOutput(Work& w);
+  bool stepStop(Work& w);
 
   const Parser& m_parser;
   const char* m_src;

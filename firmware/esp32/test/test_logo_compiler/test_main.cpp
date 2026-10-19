@@ -140,6 +140,64 @@ void test_step_mode_stops_at_each_line() {
   TEST_ASSERT_EQUAL(4, g_vm.line());
 }
 
+// ---------------------------------------------------------------- Task 4: control flow and your words
+
+void test_repeat_and_repcount() {
+  TEST_ASSERT_TRUE(run("REPEAT 3 [ FD REPCOUNT * 10 ] REPEAT 0 [ BEEP ] REPEAT 2 [ REPEAT 2 [ FD REPCOUNT ] ]"));
+  TEST_ASSERT_EQUAL_STRING("FORWARD 10 | FORWARD 20 | FORWARD 30 | FORWARD 1 | FORWARD 2 | FORWARD 1 | FORWARD 2",
+                           g_trace);
+}
+
+void test_if_ifelse_while() {
+  TEST_ASSERT_TRUE(run("IFELSE 1 < 2 [ FD 1 ] [ FD 2 ] IF 2 < 1 [ FD 3 ] WHILE DISTANCE > 10 [ FD 10 ] BEEP", 45));  // FD 1 also comes 10 cm closer
+  TEST_ASSERT_EQUAL_STRING("FORWARD 1 | FORWARD 10 | FORWARD 10 | FORWARD 10 | BEEP", g_trace);
+}
+
+void test_wait_until_goes_on_after_its_limit() {
+  TEST_ASSERT_TRUE(run("WAIT UNTIL DISTANCE < 0 FD 1"));
+  TEST_ASSERT_EQUAL_STRING("WAIT UNTIL | FORWARD 1", g_trace);
+  TEST_ASSERT_EQUAL(VmStatus::kHalt, g_end);
+  TEST_ASSERT_TRUE(run("WAIT UNTIL DISTANCE < 50 FD 1", 30));  // already true: no tick
+  TEST_ASSERT_EQUAL_STRING("WAIT UNTIL | FORWARD 1", g_trace);
+}
+
+void test_forever_ends_only_with_stop() {
+  TEST_ASSERT_TRUE(run("FOREVER [ FD 10 IF DISTANCE < 15 [ STOP ] ] BEEP", 40));
+  TEST_ASSERT_EQUAL_STRING("FORWARD 10 | FORWARD 10 | FORWARD 10", g_trace);
+  TEST_ASSERT_EQUAL(VmStatus::kStop, g_end);
+}
+
+void test_your_words_inputs_and_output() {
+  TEST_ASSERT_TRUE(run("TO SQUARE :size REPEAT 4 [ FD :size RT 90 ] END\nTO DOUBLE :x OUTPUT :x * 2 END\n"
+                       "SQUARE DOUBLE 5"));
+  TEST_ASSERT_EQUAL(8, g_effects);
+  TEST_ASSERT_EQUAL(0, strncmp(g_trace, "FORWARD 10 | RIGHT 90", 21));
+}
+
+void test_tail_calls_run_in_one_frame() {
+  TEST_ASSERT_TRUE(run("TO COUNTDOWN :n IFELSE :n = 0 [ BEEP ] [ COUNTDOWN :n - 1 ] END COUNTDOWN 500"));
+  TEST_ASSERT_EQUAL_STRING("BEEP", g_trace);
+  TEST_ASSERT_TRUE(run("TO PING :n IF :n > 0 [ PONG :n - 1 2 ] END\nTO PONG :n :k IF :n > 0 [ PING :n - 1 ] END\n"
+                       "PING 300 BEEP"));
+  TEST_ASSERT_EQUAL_STRING("BEEP", g_trace);
+  TEST_ASSERT_TRUE(run("TO SUM :n :acc IFELSE :n = 0 [ OUTPUT :acc ] [ OUTPUT SUM :n - 1 :acc + :n ] END\n"
+                       "FD (SUM 300 0) / 1000"));
+  TEST_ASSERT_EQUAL_STRING("FORWARD 45.15", g_trace);
+}
+
+void test_reporter_without_output_and_output_inside_loops() {
+  TEST_ASSERT_TRUE(run("TO SIDE IF 1 > 2 [ OUTPUT 5 ] END FD SIDE"));
+  TEST_ASSERT_EQUAL(7031, g_vm.error().code);
+  TEST_ASSERT_TRUE(run("TO F REPEAT 5 [ OUTPUT REPCOUNT * 100 ] END REPEAT 2 [ FD F + REPCOUNT ]"));
+  TEST_ASSERT_EQUAL_STRING("FORWARD 101 | FORWARD 102", g_trace);
+}
+
+void test_stop_inside_a_word_ends_the_program() {
+  TEST_ASSERT_TRUE(run("TO S STOP END REPEAT 3 [ FD 1 S ] FD 9"));
+  TEST_ASSERT_EQUAL_STRING("FORWARD 1", g_trace);
+  TEST_ASSERT_EQUAL(VmStatus::kStop, g_end);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_effects_in_order_with_their_values);
@@ -152,5 +210,13 @@ int main(int, char**) {
   RUN_TEST(test_your_word_without_loops);
   RUN_TEST(test_deep_calls_end_with_7011);
   RUN_TEST(test_step_mode_stops_at_each_line);
+  RUN_TEST(test_repeat_and_repcount);
+  RUN_TEST(test_if_ifelse_while);
+  RUN_TEST(test_wait_until_goes_on_after_its_limit);
+  RUN_TEST(test_forever_ends_only_with_stop);
+  RUN_TEST(test_your_words_inputs_and_output);
+  RUN_TEST(test_tail_calls_run_in_one_frame);
+  RUN_TEST(test_reporter_without_output_and_output_inside_loops);
+  RUN_TEST(test_stop_inside_a_word_ends_the_program);
   return UNITY_END();
 }

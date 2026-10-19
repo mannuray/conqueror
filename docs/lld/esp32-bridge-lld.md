@@ -1822,7 +1822,7 @@ stateDiagram-v2
 **Tests** (`test_link_owner`): `begin()` starts the master once; a client opening starts nothing; the last client closing keeps the master and sends no STOP when nobody drove; the driver's phone closing sends STOP and keeps the master; drive before sync → BODY_OFFLINE (unchanged). Tank check: double press with and without a phone connected → jingle + blink both times; a page connecting / leaving adds no *link lost* rows to the Log.
 
 
-## Revision 15 — Bridge structure: controllers and ports (design-notes §97, §98) — DRAFT for owner review
+## Revision 15 — Bridge structure: controllers and ports (design-notes §97, §98) — APPROVED (owner, 2026-10-19; incl. R15.5 queueing, R15.10 limits, 3 s watchdog)
 `net/link_task.cpp` (1176 lines, 34 globals, 53 functions) held the composition root, all application logic and the I/O glue; none of its rules were host-tested. This revision moves the logic into **application controllers** (`app/`) that reach the outside only through **ports** (`ports/`), keeps the pure **deciders** in `core/` (owner's choice "A with B"), and leaves `link_task.cpp` as the root and loop. **Behaviour is unchanged** — no Uno, protocol-byte, WebSocket-JSON or page change — except the one noted in R15.5.
 
 ### R15.1 Rules (also in `docs/standards/coding-standards.md` §3)

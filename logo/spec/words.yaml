@@ -6,6 +6,7 @@
 #   name / aliases   - case-insensitive
 #   level            - 1 Starter, 2 Explorer, 3 Expert (editor grouping only; v1 builds levels 1-2 plus OUTPUT,
 #                      the other level-3 words are reserved until v1.1)
+#   group            - the editor colour (LLD §21.3): move, turn, flow, show, sense, maths
 #   kind             - command (a statement), reporter (gives back a value), control (special form, grammar.md §3),
 #                      operator (infix, grammar.md §6), constant
 #   inputs           - in order: name, type (grammar.md §5), unit, range [min, max] (checked when known, else at run time)
@@ -49,6 +50,7 @@ words:
     aliases: [FD]
     level: 1
     kind: command
+    group: move
     inputs: [{name: distance, type: number, unit: cm, range: [1, 500]}]
     does: MOVE by +distance at the current SPEED, holding the heading
     needs: [encoders]
@@ -58,6 +60,7 @@ words:
     aliases: [BK]
     level: 1
     kind: command
+    group: move
     inputs: [{name: distance, type: number, unit: cm, range: [1, 500]}]
     does: MOVE by -distance (no sensor at the back - the obstacle brake only looks forward)
     needs: [encoders]
@@ -67,6 +70,7 @@ words:
     aliases: [RT]
     level: 1
     kind: command
+    group: turn
     inputs: [{name: angle, type: number, unit: deg, range: [1, 720]}]
     does: TURN by -angle on the spot (Logo turns right = positive; the tank's left = positive, converted here)
     help: turn right on the spot
@@ -75,6 +79,7 @@ words:
     aliases: [LT]
     level: 1
     kind: command
+    group: turn
     inputs: [{name: angle, type: number, unit: deg, range: [1, 720]}]
     does: TURN by +angle on the spot
     help: turn left on the spot
@@ -82,6 +87,7 @@ words:
   - name: SPEED
     level: 1
     kind: command
+    group: move
     inputs: [{name: percent, type: number, unit: "%", range: [10, 100]}]
     does: sets the speed of the following moves (default 40); capped by the child-play limits when they are on
     help: how fast the next moves go
@@ -89,6 +95,7 @@ words:
   - name: WAIT
     level: 1
     kind: command
+    group: flow
     inputs: [{name: seconds, type: number, unit: s, range: [0, 60]}]
     does: pause (decimals allowed); see also WAIT UNTIL (level 2)
     help: wait that many seconds
@@ -96,6 +103,7 @@ words:
   - name: REPEAT
     level: 1
     kind: control
+    group: flow
     inputs: [{name: times, type: number, range: [0, 10000]}, {name: steps, type: block}]
     does: runs the steps that many times; REPCOUNT tells which round it is
     help: do the steps in [ ] again and again
@@ -103,6 +111,7 @@ words:
   - name: LED
     level: 1
     kind: command
+    group: show
     inputs: [{name: colour, type: colour}]
     does: sets the tank's light (a colour word or a list [r g b], 0-255 each)
     help: change the light
@@ -110,12 +119,14 @@ words:
   - name: BEEP
     level: 1
     kind: command
+    group: show
     does: a short beep
     help: beep once
     example: BEEP
   - name: SOUND
     level: 1
     kind: command
+    group: show
     inputs: [{name: sound, type: sound}]
     does: plays a sound from the tank's catalogue (presets.sound)
     help: play a sound
@@ -123,6 +134,7 @@ words:
   - name: LOOK
     level: 1
     kind: command
+    group: show
     inputs: [{name: where, type: look}]
     does: moves the camera head to a preset, or to a list [pan tilt] in degrees from the centre (kept inside the camera's limits)
     help: point the camera
@@ -130,12 +142,14 @@ words:
   - name: HOME
     level: 1
     kind: command
+    group: move
     does: TURN to the heading the program started with
     help: turn back the way you started
     example: HOME
   - name: STOP
     level: 1
     kind: control
+    group: flow
     does: ends the whole program and stops the tank (Spec 5 §12.5)
     help: stop everything
     example: IF OBSTACLE? [ STOP ]
@@ -144,6 +158,7 @@ words:
   - name: ARC
     level: 2
     kind: command
+    group: move
     inputs: [{name: side, type: side}, {name: angle, type: number, unit: deg, range: [1, 360]},
              {name: radius, type: number, unit: cm, range: [31, 300]}]
     does: TURN by +-angle along a circle of that radius (Plan L); the speed is moved into the radius's working band with a note
@@ -153,6 +168,7 @@ words:
   - name: PIVOT
     level: 2
     kind: command
+    group: move
     inputs: [{name: side, type: side}, {name: angle, type: number, unit: deg, range: [1, 360]}]
     does: TURN by +-angle around the track on that side, which stays still (Plan L)
     needs: [encoders]
@@ -161,6 +177,7 @@ words:
   - name: PLAY
     level: 2
     kind: command
+    group: show
     inputs: [{name: notes, type: notes}]
     does: plays the notes one after another (TONE frames)
     help: play a tune
@@ -168,6 +185,7 @@ words:
   - name: SAY
     level: 2
     kind: command
+    group: show
     inputs: [{name: words, type: text}]
     does: the page shows the text and speaks it; nothing happens on the tank
     help: say something
@@ -175,18 +193,21 @@ words:
   - name: TO
     level: 2
     kind: control
+    group: flow
     does: "defines your own word: TO name :input1 :input2 ... END (grammar.md §3-4)"
     help: teach the tank a new word
     example: "TO SQUARE :size  REPEAT 4 [ FD :size RT 90 ]  END"
   - name: IF
     level: 2
     kind: control
+    group: flow
     inputs: [{name: test, type: condition}, {name: steps, type: block}]
     help: do the steps only if the test is true
     example: IF OBSTACLE? [ BK 10 ]
   - name: IFELSE
     level: 2
     kind: control
+    group: flow
     inputs: [{name: test, type: condition}, {name: "yes", type: block}, {name: "no", type: block}]  # quoted: YAML 1.1 reads bare yes / no as booleans
     help: do the first steps if the test is true, else the second
     example: IFELSE DISTANCE < 30 [ RT 90 ] [ FD 20 ]
@@ -194,12 +215,14 @@ words:
   - name: WHILE
     level: 2
     kind: control
+    group: flow
     inputs: [{name: test, type: condition}, {name: steps, type: block}]
     help: keep doing the steps while the test is true
     example: WHILE NOT OBSTACLE? [ FD 10 ]
   - name: FOREVER
     level: 2
     kind: control
+    group: flow
     inputs: [{name: steps, type: block}]
     does: repeats until STOP, the program ends, or the run-time limit
     help: do the steps again and again, for ever
@@ -207,6 +230,7 @@ words:
   - name: WAIT UNTIL
     level: 2
     kind: control
+    group: flow
     inputs: [{name: test, type: condition}]
     does: waits until the test is true, at most limits.wait_s; then the program goes on
     help: wait until something happens
@@ -214,18 +238,21 @@ words:
   - name: DISTANCE
     level: 2
     kind: reporter
+    group: sense
     gives: cm to the nearest thing ahead (ultrasonic); 999 when nothing is seen
     help: how far away the thing in front is
     example: IF DISTANCE < 30 [ RT 90 ]
   - name: OBSTACLE?
     level: 2
     kind: reporter
+    group: sense
     gives: TRUE when something is closer than the tank's obstacle-stop distance (15 cm)
     help: is something right in front?
     example: IF OBSTACLE? [ BK 10 ]
   - name: BLOCKED?
     level: 2
     kind: reporter
+    group: sense
     gives: TRUE when the last move was cut short by the obstacle brake
     does: using it anywhere means a cut-short move does not end the program (design-notes §82 h)
     help: did the last move get stopped by something in the way?
@@ -233,30 +260,35 @@ words:
   - name: HEADING
     level: 2
     kind: reporter
+    group: sense
     gives: degrees turned since the program started, -180 to 180, right = positive
     help: which way the tank points now
     example: IF HEADING > 45 [ HOME ]
   - name: TILTED?
     level: 2
     kind: reporter
+    group: sense
     gives: TRUE while the tank is tilted past its limit or lifted (the Uno's alarm; no angles on the Uno Lite, design-notes §92)
     help: is the tank leaning a lot or lifted up?
     example: IF TILTED? [ STOP ]
   - name: BATTERY
     level: 2
     kind: reporter
+    group: sense
     gives: battery in %, 0 at 6.6 V to 100 at 8.4 V (2S pack)
     help: how full the battery is
     example: IF BATTERY < 20 [ SAY [ I am tired ] ]
   - name: TIMER
     level: 2
     kind: reporter
+    group: sense
     gives: seconds since the program started (with decimals)
     help: how long the program has been running
     example: WHILE TIMER < 10 [ FD 10 RT 30 ]
   - name: RANDOM
     level: 2
     kind: reporter
+    group: maths
     inputs: [{name: n, type: number, range: [1, 1000000]}]
     gives: a whole number from 0 to n - 1
     help: a surprise number
@@ -264,12 +296,14 @@ words:
   - name: REPCOUNT
     level: 2
     kind: reporter
+    group: sense
     gives: the round of the innermost REPEAT or FOREVER (1, 2, ...)
     help: which round of REPEAT this is
     example: REPEAT 5 [ FD REPCOUNT * 10 RT 72 ]
   - name: REMAINDER
     level: 2
     kind: reporter
+    group: maths
     inputs: [{name: a, type: number}, {name: b, type: number}]
     gives: what is left after dividing a by b
     help: the leftover of a division (is a number even?)
@@ -277,34 +311,41 @@ words:
   - name: ABS
     level: 2
     kind: reporter
+    group: maths
     inputs: [{name: x, type: number}]
     gives: x without its minus sign
     example: ABS HEADING
   - name: ROUND
     level: 2
     kind: reporter
+    group: maths
     inputs: [{name: x, type: number}]
     gives: x rounded to the nearest whole number
     example: ROUND DISTANCE / 10
   - name: "TRUE"
     level: 2
     kind: constant
+    group: maths
     gives: true
   - name: "FALSE"
     level: 2
     kind: constant
+    group: maths
     gives: false
   - name: AND
     level: 2
     kind: operator
+    group: maths
     help: "both tests true (infix: a AND b)"
   - name: OR
     level: 2
     kind: operator
+    group: maths
     help: "at least one test true (infix: a OR b)"
   - name: NOT
     level: 2
     kind: operator
+    group: maths
     help: the opposite of a test
 
   # ---------------------------------------------------------------- level 3: Expert (OUTPUT in v1; the rest reserved in v1, built in v1.1)
@@ -312,6 +353,7 @@ words:
     aliases: [OP]
     level: 3
     kind: control
+    group: flow
     inputs: [{name: value, type: any}]
     does: ends your word and gives back the value (only inside TO ... END)
     help: give back an answer from your own word
@@ -319,105 +361,124 @@ words:
   - name: FIRST
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: list, type: list}]
     gives: the first item
     example: FIRST [ 10 20 30 ]
   - name: LAST
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: list, type: list}]
     gives: the last item
   - name: BUTFIRST
     aliases: [BF]
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: list, type: list}]
     gives: the list without its first item
   - name: BUTLAST
     aliases: [BL]
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: list, type: list}]
     gives: the list without its last item
   - name: ITEM
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: n, type: number, range: [1, 50000]}, {name: list, type: list}]
     gives: item number n (the first is 1)
   - name: COUNT
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: list, type: list}]
     gives: how many items
   - name: EMPTY?
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: list, type: list}]
     gives: TRUE for []
   - name: MEMBER?
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: thing, type: any}, {name: list, type: list}]
     gives: TRUE when the thing is in the list
   - name: LIST
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: a, type: any}, {name: b, type: any}]
     gives: a new list of the two values (values are looked up, unlike [ ])
     example: LIST :x :y
   - name: FPUT
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: thing, type: any}, {name: list, type: list}]
     gives: a new list with the thing in front
   - name: LPUT
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: thing, type: any}, {name: list, type: list}]
     gives: a new list with the thing at the end
   - name: SENTENCE
     aliases: [SE]
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: a, type: any}, {name: b, type: any}]
     gives: the two values joined into one flat list
   - name: MAP
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: how, type: template}, {name: list, type: list}]
     gives: a new list with the template applied to every item (? = the item)
     example: MAP [ ? * 2 ] [ 1 2 3 ]
   - name: FILTER
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: test, type: template}, {name: list, type: list}]
     gives: the items for which the test is TRUE
     example: FILTER [ ? > 10 ] [ 5 15 25 ]
   - name: REDUCE
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: how, type: template}, {name: list, type: list}]
     gives: the items combined two at a time (?1 = the result so far, ?2 = the next item)
     example: REDUCE [ ?1 + ?2 ] [ 1 2 3 4 ]
   - name: FOREACH
     level: 3
     kind: control
+    group: flow
     inputs: [{name: list, type: list}, {name: steps, type: template-block}]
     does: runs the steps once for every item (? = the item)
     example: FOREACH [ 50 100 50 ] [ FD ? RT 120 ]
   - name: WORD?
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: thing, type: any}]
     gives: TRUE for a word
   - name: NUMBER?
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: thing, type: any}]
     gives: TRUE for a number
   - name: LIST?
     level: 3
     kind: reporter
+    group: maths
     inputs: [{name: thing, type: any}]
     gives: TRUE for a list
 
@@ -425,6 +486,7 @@ words:
   - name: SEE?
     level: 3
     kind: reporter
+    group: sense
     inputs: [{name: thing, type: any}]
     needs: [ai]
     gives: TRUE when the camera sees the thing now
@@ -432,18 +494,21 @@ words:
   - name: FIND
     level: 3
     kind: command
+    group: move
     inputs: [{name: thing, type: any}]
     needs: [ai]
     does: turns around looking for the thing; stops facing it, or ends with "not found"
   - name: FOLLOW
     level: 3
     kind: command
+    group: move
     inputs: [{name: thing, type: any}, {name: seconds, type: number, unit: s, range: [1, 60]}]
     needs: [ai]
     does: follows the thing, keeping a safe distance
   - name: HOWMANY
     level: 3
     kind: reporter
+    group: sense
     inputs: [{name: thing, type: any}]
     needs: [ai]
     gives: how many of the thing the camera sees (renamed from COUNT, which now counts list items)

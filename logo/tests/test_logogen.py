@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -87,3 +88,31 @@ def test_run_cases_carry_their_world_and_ending() -> None:
 def test_world_motion_numbers_are_checked() -> None:
     with pytest.raises(ValueError, match="motion 0"):
         model._bits([0])  # pyright: ignore[reportPrivateUsage]
+
+
+def test_every_word_has_a_colour_group() -> None:
+    s = spec()
+    assert all(w.group in model.GROUPS for w in s.words)
+    groups = {
+        n: s.word(n).group for n in ("FORWARD", "RIGHT", "WAIT", "LED", "DISTANCE", "AND", "FIRST")
+    }
+    assert groups == {
+        "FORWARD": "move",
+        "RIGHT": "turn",
+        "WAIT": "flow",
+        "LED": "show",
+        "DISTANCE": "sense",
+        "AND": "maths",
+        "FIRST": "maths",
+    }
+
+
+def test_words_json_carries_the_group() -> None:
+    data = json.loads(emit.render_words_json(spec()))
+    fd = next(w for w in data["words"] if w["name"] == "FORWARD")
+    assert fd["group"] == "move"
+
+
+def test_a_word_without_a_group_is_refused() -> None:
+    with pytest.raises(ValueError, match="FD2: unknown group"):
+        model._load_words([{"name": "FD2", "kind": "command", "level": 1}])  # pyright: ignore[reportPrivateUsage]

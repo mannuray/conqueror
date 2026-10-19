@@ -1421,3 +1421,9 @@ Found on the Plan O stand check: the WiFi double press switched the network but 
 Stand check: switching *low light* showed no change. It only raised the sensor's gain ceiling (4× → 32×), which matters only in real darkness.
 - Options: A night mode + 32× gain ceiling + one step brighter exposure; B gain ceiling only (as built); C remove the switch.
 - **Owner: A.** Low light on = `set_aec2(1)` (night mode: the sensor may use longer exposures, so the frame rate drops in the dark), `set_gainceiling(32X)`, `set_ae_level(+1)`; off = `set_aec2(0)`, `4X`, `set_ae_level(0)`. Saved with the other camera settings.
+
+## 97. Firmware review: small fixes now, bridge refactor before anything new (owner, 2026-10-19)
+A fresh SOLID / coding-standards review of the bridge (and the Uno Lite change) after the Plan O stand checks: `core/` fits the standard (pure, host-tested, no heap / virtual); `net/link_task.cpp` does not — 34 globals, 53 functions, 6 over ~40 lines; it is composition root, application logic and I/O glue at once (standard S and D rules), and none of its rules are host-tested. No safety or hard-rule break; nothing blocks the tank tests.
+- **Fix on `plan-o` now:** (1) errors no longer dropped silently (big replies, WiFi mode result queue, NVS saves), (2) a size guard in the log reply, (3) the dead `kStopMaster` path after R14 removed, (4) compile-time checks on the event / log name tables, (5) LLD drift corrected.
+- **Owner: refactor before any new feature or work.** One "bridge structure" plan next: split `link_task.cpp` into host-tested `core/` controllers, one owner of the shared acked slot, table-driven command parsing, `ws_json` by page, the task watchdog, generated event names. Logo N2–N4 and the AI phase wait for it.
+- **Camera low light (§96) showed no visible change on the stand** — parked until the AI phase (owner): check then whether the OV3660 driver accepts night mode / exposure level.

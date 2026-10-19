@@ -37,8 +37,8 @@ Hobby robot platform: ELEGOO Conqueror tank rebuilt as **Uno body + ESP32 gatewa
 13. **Plan K — MOVE by distance + counts_per_m calibration + learned early stop** (bridge only; spec 02 Part G incl. §G6, bridge LLD R7) — done, merged 2026-10-17, floor-accepted: ±1 cm (design-notes §69); `counts_per_m` 7514 in the bridge NVS; `tools/smoke/move.py`.
 14. **Plan L — arcs, pivots, minimum drive_rate** (bridge only; spec 02 Part H, bridge LLD R8; Uno kMaxCps 2500) — done, merged 2026-10-18 (design-notes §71): pivots / refusals / slow-spin clamp pass; **arc path (±5 cm) re-test after the left road wheel repair**; `tools/smoke/turn.py`.
 15. **Plan M — WiFi modes (double press) + `/settings` page** (bridge only; spec 02 Part I, bridge LLD R9) — done on the tank and merged 2026-10-18 (design-notes §73); ≤ 3 networks in NVS, button-confirmed changes, two tabs. A STOP from any device now holds until the driver releases its stick (§72, LLD R9.6).
-16. **Plan O — the tank app** (☰ menu, four-tab `/settings`, Tune graphs + distance wizard, Log, camera settings; bridge LLD R13–R14) — built on branch `plan-o`, stand-checked (design-notes §93–§97); floor wizard check pending.
-17. **Plan P — bridge structure refactor** (controllers + ports, size check, watchdog; bridge LLD R15) — built on branch `plan-p-bridge-structure` (§98–§99); tank checks after the Logo work and the road-wheel fix. Merge `plan-o` first.
+16. **Plan O — the tank app** (☰ menu, four-tab `/settings`, Tune graphs + distance wizard, Log, camera settings; bridge LLD R13–R14) — merged 2026-10-19 (owner: before the tank checks), stand-checked (design-notes §93–§97); floor wizard check pending.
+17. **Plan P — bridge structure refactor** (controllers + ports, size check, watchdog; bridge LLD R15) — merged 2026-10-19 (§98–§99; owner: merged before its tank checks); tank checks after the Logo work and the road-wheel fix.
 18. **Next:** Tank Logo (Plans N1–N4); then the road-wheel fix, motor power, the pending tank checks of O and P, the arc re-test. Uno Lite flash is at 96 % (~1.2 KB left).
 Execute with the superpowers skills (`subagent-driven-development` recommended, or `executing-plans`).
 

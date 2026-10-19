@@ -1443,4 +1443,4 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - **Watchdog (owner: on):** besides the link task and the loop (3 s), core 0's idle-task check stays on, as before Plan P.
 - **Tank checks (owner): after the Logo work and the road-wheel fix,** when the motor power is adjusted anyway: R15.11 stand + floor lists and the `CQ_WDT_TEST` restart check. The tank already runs the refactored bridge (`f60fdd5`): `/info` has the same 59 fields, the Uno syncs at boot, the Log works.
 - Merge order unchanged: `plan-o` first, then `plan-p-bridge-structure`.
-
+- **Merged (owner, 2026-10-19):** `plan-o` and `plan-p-bridge-structure` merged into `main` before their tank checks (all host suites green on `main`); Plan N1 (Tank Logo reader) starts from `main`.

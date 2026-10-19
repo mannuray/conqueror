@@ -20,7 +20,6 @@ Vm g_vm;
 char g_trace[2048];
 VmStatus g_end;
 int g_effects;
-int g_until_ticks = 3;  // WAIT UNTIL gives up after this many ticks (the host's 60 s)
 
 void record(const Effect& e) {
   if (e.kind == EffectKind::kTick) return;
@@ -35,11 +34,13 @@ void record(const Effect& e) {
   ++g_effects;
 }
 
-// The host's side of an effect: FORWARD brings the wall 10 cm closer; WAIT UNTIL ticks count towards its limit.
+// The host's side of an effect: FORWARD brings the wall 10 cm closer; each WAIT UNTIL tick lets 20 s pass.
 void host(const Effect& e, Sensors& s, int& ticks) {
   if (e.kind == EffectKind::kForward) s.distance_milli -= 10000;
-  if (e.kind == EffectKind::kUntilStart) ticks = 0;
-  if (e.kind == EffectKind::kTick) s.until_over = ++ticks >= g_until_ticks;
+  if (e.kind == EffectKind::kTick) {
+    s.timer_milli += 20000;
+    ++ticks;
+  }
 }
 
 // False when the program was refused before running (Diagnostics has why).
@@ -209,6 +210,30 @@ void test_reporter_ending_with_a_command_call_is_7031() {
   TEST_ASSERT_EQUAL(7031, g_vm.error().code);
 }
 
+// Plan N3 Task 1: every WAIT UNTIL has its own 60 s - also one inside a word that another WAIT UNTIL's test calls.
+void test_wait_until_inside_a_reporter_has_its_own_deadline() {
+  TEST_ASSERT_TRUE(run("TO F WAIT UNTIL DISTANCE < 0 OUTPUT FALSE END\nWAIT UNTIL F BEEP"));
+  TEST_ASSERT_EQUAL_STRING("WAIT UNTIL | WAIT UNTIL | BEEP", g_trace);
+  TEST_ASSERT_EQUAL(VmStatus::kHalt, g_end);
+}
+
+// Plan N3 Task 1: 100 calls of a 3-input word reach the 100-calls limit (7011) before the value stack runs out.
+void test_deep_calls_with_inputs_are_7011_not_7014() {
+  TEST_ASSERT_TRUE(run("TO D :a :b :c D :a :b :c BEEP END D 1 2 3"));
+  TEST_ASSERT_EQUAL(7011, g_vm.error().code);
+}
+
+// Plan N3 Task 1: a compiled program says so; a failed compile does not.
+void test_program_ok_flag() {
+  TEST_ASSERT_TRUE(run("FD 10"));
+  TEST_ASSERT_TRUE(g_prog.ok);
+  static char src[6000];
+  src[0] = '\0';
+  for (int i = 0; i < 1100; ++i) strcat(src, "BEEP ");
+  TEST_ASSERT_FALSE(run(src));
+  TEST_ASSERT_FALSE(g_prog.ok);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_effects_in_order_with_their_values);
@@ -230,5 +255,8 @@ int main(int, char**) {
   RUN_TEST(test_reporter_without_output_and_output_inside_loops);
   RUN_TEST(test_stop_inside_a_word_ends_the_program);
   RUN_TEST(test_reporter_ending_with_a_command_call_is_7031);
+  RUN_TEST(test_wait_until_inside_a_reporter_has_its_own_deadline);
+  RUN_TEST(test_deep_calls_with_inputs_are_7011_not_7014);
+  RUN_TEST(test_program_ok_flag);
   return UNITY_END();
 }

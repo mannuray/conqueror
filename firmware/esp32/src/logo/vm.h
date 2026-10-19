@@ -21,7 +21,6 @@ struct Sensors {
   bool tilted = false;
   int32_t battery_milli = 100000;   // %
   int32_t timer_milli = 0;          // seconds since the start
-  bool until_over = false;          // WAIT UNTIL has waited its 60 s
 };
 
 enum class VmStatus : uint8_t { kYield, kLine, kEffect, kHalt, kStop, kError };
@@ -42,7 +41,7 @@ struct RunError {
 class Vm {
  public:
   static constexpr uint8_t kMaxFrames = gen::kNesting + 1;  // the program's own frame + 100 calls (7011)
-  static constexpr uint16_t kMaxValues = 256;
+  static constexpr uint16_t kMaxValues = 1024;  // 100 calls of an 8-input word reach 7011 first (N3)
   static constexpr uint8_t kMaxLoops = 128;
 
   void load(const Program& p, uint32_t seed);

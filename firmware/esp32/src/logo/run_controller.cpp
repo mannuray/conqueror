@@ -62,17 +62,19 @@ bool waits(ActKind k) { return k == ActKind::kWait || k == ActKind::kTone || k =
 
 }  // namespace
 
-void RunController::start(const Program& p, const RunConfig& cfg, const RunTelem& t, uint32_t now_ms) {
+bool RunController::start(const Program& p, const RunConfig& cfg, const RunTelem& t, uint32_t now_ms) {
+  if (!p.ok) return false;
   m_p = &p;
   m_cfg = cfg;
   m_vm.load(p, cfg.seed);
   m_vm.setStepping(cfg.step);
   m_state = RunState::kRunning;
   m_start = now_ms;
-  m_wake = m_until = 0;
+  m_wake = 0;
   m_start_yaw = t.yaw_cdeg;
   m_speed = 40;
   m_blocked = false;
+  return true;
 }
 
 RunOut RunController::tick(const RunTelem& t, uint32_t now_ms) {
@@ -134,7 +136,6 @@ void RunController::carry(const Action& a, const RunTelem& t, uint32_t now_ms, R
     return;
   }
   if (a.kind == ActKind::kSpeed) m_speed = a.speed_pct;
-  if (a.kind == ActKind::kUntilStart) m_until = now_ms + static_cast<uint32_t>(gen::kWaitS) * 1000u;
   if (waits(a.kind)) {
     m_wake = now_ms + (a.kind == ActKind::kTick ? 1 : a.ms);
     m_state = RunState::kWaiting;
@@ -151,7 +152,6 @@ Sensors RunController::sensors(const RunTelem& t, uint32_t now_ms) const {
   s.tilted = t.tilted;
   s.battery_milli = static_cast<int32_t>(t.battery_pct) * 1000;
   s.timer_milli = static_cast<int32_t>(now_ms - m_start);
-  s.until_over = static_cast<int32_t>(now_ms - m_until) >= 0;
   return s;
 }
 

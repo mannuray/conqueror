@@ -12,7 +12,7 @@ using OpFn = void (*)(Vm&, const Instr&);
 constexpr OpFn kOps[] = {VmOps::halt,     VmOps::line,     VmOps::pushN, VmOps::pushB, VmOps::pushC, VmOps::arg,
                          VmOps::op,       VmOps::sensor,   VmOps::callB, VmOps::jmp,   VmOps::jz,    VmOps::jnz,
                          VmOps::loopInit, VmOps::loopNext, VmOps::call,  VmOps::tcall, VmOps::ret,   VmOps::retV,
-                         VmOps::effect,   VmOps::stop,     VmOps::fail};
+                         VmOps::effect,   VmOps::stop,     VmOps::fail,  VmOps::untilOver, VmOps::pop};
 static_assert(sizeof kOps / sizeof kOps[0] == static_cast<size_t>(OpCode::kCount), "one handler per OpCode");
 
 // The word a condition belongs to (Instr::a of kJz / kJnz), for 7012.
@@ -114,7 +114,7 @@ void VmOps::op(Vm& vm, const Instr& in) {
 void VmOps::sensor(Vm& vm, const Instr& in) {
   const Sensors& s = *vm.m_sensors;
   const Sensor k = static_cast<Sensor>(in.a);
-  if (k != Sensor::kUntilOver) vm.m_sensor_read = true;
+  vm.m_sensor_read = true;
   switch (k) {  // VARIANT POINT: sensors (words.yaml level 2 reporters)
     case Sensor::kDistance: vm.push(num(s.distance_milli)); return;
     case Sensor::kObstacle: vm.push(boolean(s.obstacle)); return;
@@ -123,7 +123,6 @@ void VmOps::sensor(Vm& vm, const Instr& in) {
     case Sensor::kTilted: vm.push(boolean(s.tilted)); return;
     case Sensor::kBattery: vm.push(num(s.battery_milli)); return;
     case Sensor::kTimer: vm.push(num(s.timer_milli)); return;
-    case Sensor::kUntilOver: vm.push(boolean(s.until_over)); return;
   }
 }
 
@@ -255,6 +254,14 @@ void VmOps::fail(Vm& vm, const Instr& in) {
   const DiagArg a[] = {{"word", word}};
   vm.error(static_cast<uint16_t>(in.n), a, 1);
 }
+
+// UNTIL_OVER: the WAIT UNTIL whose start time (TIMER) is on top of the stack has waited its 60 s (it stays there).
+void VmOps::untilOver(Vm& vm, const Instr&) {
+  const int32_t start = vm.m_stack[vm.m_sp - 1].n;
+  vm.push(boolean(vm.m_sensors->timer_milli - start >= static_cast<int32_t>(gen::kWaitS) * 1000));
+}
+
+void VmOps::pop(Vm& vm, const Instr&) { vm.pop(); }
 
 }  // namespace logo
 }  // namespace cq

@@ -50,7 +50,8 @@ bool Compiler::compile(const Node* program, bool handles_obstacles, Program& out
   while (m_ns > 0 && !m_failed) {
     if (stepNode(m_st[m_ns - 1])) --m_ns;
   }
-  return !m_failed;
+  out.ok = !m_failed;
+  return out.ok;
 }
 
 bool Compiler::stepNode(Work& w) {

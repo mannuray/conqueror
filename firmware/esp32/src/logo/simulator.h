@@ -65,7 +65,6 @@ class Simulator {
   PathBuffer* m_out = nullptr;
   Pose m_pose;
   uint32_t m_ms = 0;
-  uint32_t m_until = 0;
   uint8_t m_speed = 40;
   uint16_t m_line = 0;
   bool m_full = false;

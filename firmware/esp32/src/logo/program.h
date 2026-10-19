@@ -19,10 +19,10 @@ struct Value {
 
 enum class OpCode : uint8_t {
   kHalt, kLine, kPushN, kPushB, kPushC, kArg, kOp, kSensor, kCallB, kJmp, kJz, kJnz,
-  kLoopInit, kLoopNext, kCall, kTCall, kRet, kRetV, kEffect, kStop, kFail,
+  kLoopInit, kLoopNext, kCall, kTCall, kRet, kRetV, kEffect, kStop, kFail, kUntilOver, kPop,
   kCount
 };
-enum class Sensor : uint8_t { kDistance, kObstacle, kBlocked, kHeading, kTilted, kBattery, kTimer, kUntilOver };
+enum class Sensor : uint8_t { kDistance, kObstacle, kBlocked, kHeading, kTilted, kBattery, kTimer };
 enum class Builtin : uint8_t { kRandom, kRemainder, kAbs, kRound, kRepcount };
 enum class EffectKind : uint8_t {
   kForward, kBack, kRight, kLeft, kSpeed, kWait, kLed, kBeep, kSound, kLook, kHome,
@@ -69,6 +69,7 @@ struct Program {
   ProcEntry procs[gen::kMaxProcs];
   uint8_t n_procs = 0;
   bool handles_obstacles = false;
+  bool ok = false;  // compiled completely (Plan N3: a failed compile is never run)
 
   void clear();
   int16_t addWord(const char* s, uint16_t len);  // -1 when full

@@ -1,5 +1,6 @@
 #include "core/ws_json.h"
 #include "core/ws_json_util.h"
+#include "generated/cq_protocol_names.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -8,17 +9,7 @@ namespace cq {
 namespace core {
 using namespace detail;
 
-const char* unoEventName(uint8_t kind) {
-  static const char* const kNames[] = {"unknown", "bump", "lifted", "landed", "tilted", "level", "stall", "blocked",
-                                       "unblocked", "control_changed", "ir_override", "deadman_stop", "link_lost",
-                                       "link_restored", "batt_low", "batt_critical", "primitive_done", "selftest",
-                                       "envelope_changed", "encoder_fault", "imu_fault", "us_fault", "settings_saved",
-                                       "settings_reset", "cal_request", "button_press", "rejected", "safety_override",
-                                       "heading_fault"};
-  static_assert(sizeof(kNames) / sizeof(kNames[0]) == static_cast<size_t>(proto::EventKind::kHeadingFault) + 1,
-                "a Uno event without a name - add it here (design-notes §97 fix 4)");
-  return kind < sizeof(kNames) / sizeof(kNames[0]) ? kNames[kind] : "unknown";
-}
+const char* unoEventName(uint8_t kind) { return proto::eventName(kind); }  // generated (LLD R15.7)
 
 size_t jsonTank(char* out, size_t cap, const TankView& v) {
   static const char* const kSizes[] = {"QVGA", "VGA", "SVGA", "HD"};

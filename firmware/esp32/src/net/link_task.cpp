@@ -7,7 +7,8 @@
 #include "net/motion_store.h"
 #include "net/wifi_manager.h"
 #include "core/event_log.h"
-#include "net/app_settings.h"
+#include "app/replies.h"
+#include "app/tank_app_controller.h"
 #include "net/camera_service.h"
 #include "net/stream_server.h"
 #include <esp_system.h>
@@ -47,9 +48,9 @@ bool g_ota_active = false;
 
 // WS bookkeeping (link_task only)
 char g_json[core::kWsJsonMax];
-char g_big[core::kWsBigMax];    // Plan O: tank and log replies (25 log entries do not fit g_json)
 core::EventLog g_log;          // Plan O (LLD R13): the Log tab
-char g_ai_url[97] = "";        // the AI engine's page (NVS cq_app)
+app::Replies g_out(g_ws);      // Plan P: the controllers' replies (LLD R15.3)
+app::TankAppController g_tank(g_out, g_log, g_link);  // Plan P Task 6
 uint32_t g_last_debug_slow = 0;  // LLD R5: TELEM_SLOW count last seen by the debug stream
 uint32_t g_ev_seq = 0;
 uint32_t g_tf_seq = 0;
@@ -781,83 +782,6 @@ void handleRelease(int fd, int32_t id, uint32_t now) {
   if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
 }
 
-// Plan O (bridge LLD R13): the Tank tab's facts. `posted`: camera settings just posted (not applied yet).
-void sendTank(int fd, const net::CamSettings* posted) {
-  core::TankView v;
-  v.st = g_link.selfTest();
-  v.st_age_s = v.st.seen ? (millis() - v.st.at_ms) / 1000u : 0;
-  v.hw = g_link.snapshot().slow_valid ? g_link.snapshot().slow.hw : 0;
-  const net::CamSettings cs = posted != nullptr ? *posted : net::cameraSettings();
-  v.cam_size = cs.size;
-  v.cam_quality = cs.quality;
-  v.cam_fps = cs.fps_cap;
-  v.cam_bright = cs.brightness;
-  v.cam_contrast = cs.contrast;
-  v.cam_low = cs.low_light;
-  v.cam_vflip = cs.vflip;
-  v.cam_hmirror = cs.hmirror;
-  v.viewers = net::streamViewers();
-  const net::CamStats st = net::cameraStats(millis());
-  v.fps_x10 = st.fps_x10;
-  v.kbps = st.kbps;
-  v.ai_url = g_ai_url;
-  const size_t n = core::jsonTank(g_big, sizeof(g_big), v);
-  if (n == 0 || !wsSend(fd, g_big, n)) logf("tank: reply to %s not sent (%u B)", g_ws.name(fd), static_cast<unsigned>(n));
-}
-
-void sendLog(int fd, uint32_t since, uint32_t now) {
-  core::LogEntry e[25];
-  bool gap = false;
-  const uint8_t n = g_log.since(since, e, 25, gap);
-  const size_t len = core::jsonLog(g_big, sizeof(g_big), e, n, g_log.last(), gap, now);
-  if (len == 0 || !wsSend(fd, g_big, len)) logf("log: reply to %s not sent (%u B)", g_ws.name(fd), static_cast<unsigned>(len));
-}
-
-void handleCameraSet(int fd, int32_t id, const core::WsCommand& c) {
-  net::CamSettings s = c.cam.reset ? net::cameraDefaults() : net::cameraSettings();
-  if (c.cam.has_size) s.size = c.cam.size;
-  if (c.cam.has_quality) s.quality = c.cam.quality;
-  if (c.cam.has_fps) s.fps_cap = c.cam.fps;
-  if (c.cam.has_bright) s.brightness = c.cam.bright;
-  if (c.cam.has_contrast) s.contrast = c.cam.contrast;
-  if (c.cam.has_low) s.low_light = c.cam.low;
-  if (c.cam.has_vflip) s.vflip = c.cam.vflip;
-  if (c.cam.has_hmirror) s.hmirror = c.cam.hmirror;
-  if (!net::cameraPost(s)) {
-    nack(fd, id, core::BridgeReason::kUnavailable);  // no camera
-    return;
-  }
-  if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
-  sendTank(fd, &s);
-}
-
-void handleSelfTest(int fd, int32_t id) {
-  const core::TankSnapshot& s = g_link.snapshot();
-  if (bodyOffline()) {
-    nack(fd, id, core::BridgeReason::kBodyOffline);
-    return;
-  }
-  if (g_motion.service().active() || g_owner.state() == core::LinkState::kWebDriving ||
-      (s.slow_valid && s.slow.driving != 0)) {
-    nack(fd, id, core::BridgeReason::kBusy);  // the tank must stand still
-    return;
-  }
-  core::AckedOp op;
-  op.kind = core::AckedOp::kSelfTest;
-  op.fd = fd;
-  op.id = id;
-  if (!g_ops.push(op)) nack(fd, id, core::BridgeReason::kBusy);
-}
-
-void handleAppSet(int fd, int32_t id, const core::WsCommand& c) {
-  if (!net::appAiUrlSave(c.ai_url)) {  // short NVS write (rare, page action)
-    nack(fd, id, core::BridgeReason::kBusy);
-    return;
-  }
-  snprintf(g_ai_url, sizeof(g_ai_url), "%s", c.ai_url);
-  if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
-}
-
 void handleWsText(const LinkCommand& cmd, uint32_t now) {
   const int fd = cmd.fd;
   const core::WsCommand c = core::parseWsCommand(cmd.text, cmd.len);
@@ -890,11 +814,11 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
     case core::WsCmdKind::kSetting:
     case core::WsCmdKind::kRestart: handleSettingsCommand(fd, id, c, now); break;
     case core::WsCmdKind::kRelease: handleRelease(fd, id, now); break;
-    case core::WsCmdKind::kTank: sendTank(fd, nullptr); break;
-    case core::WsCmdKind::kLog: sendLog(fd, c.log_since, now); break;
-    case core::WsCmdKind::kCameraSet: handleCameraSet(fd, id, c); break;
-    case core::WsCmdKind::kSelfTest: handleSelfTest(fd, id); break;
-    case core::WsCmdKind::kAppSet: handleAppSet(fd, id, c); break;
+    case core::WsCmdKind::kTank: g_tank.onTank(fd, now); break;
+    case core::WsCmdKind::kLog: g_tank.onLog(fd, c.log_since, now); break;
+    case core::WsCmdKind::kCameraSet: g_tank.onCameraSet(fd, id, c, now); break;
+    case core::WsCmdKind::kSelfTest: g_tank.onSelfTest(fd, id); break;
+    case core::WsCmdKind::kAppSet: g_tank.onAppSet(fd, id, c); break;
     case core::WsCmdKind::kDebug: handleDebug(fd, id, c); break;
     case core::WsCmdKind::kPing: sendTo(fd, core::jsonPong(g_json, sizeof(g_json), c.t0, now)); break;
     case core::WsCmdKind::kUnsupported:
@@ -1154,7 +1078,20 @@ void linkTaskStart(const char* (*camera_sensor)()) {
   g_sensor = camera_sensor;
   g_cpm = net::motionStoreLoad();  // Plan K: before the link task runs
   g_roll_mm = net::motionStoreLoadRoll();
-  net::appAiUrlLoad(g_ai_url, sizeof(g_ai_url));  // Plan O
+  g_tank.begin();  // Plan O / Plan P: the AI address
+  g_tank.setSelfTestHooks({[] { return bodyOffline(); },
+                           [] {
+                             const core::TankSnapshot& s = g_link.snapshot();
+                             return g_motion.service().active() || g_owner.state() == core::LinkState::kWebDriving ||
+                                    (s.slow_valid && s.slow.driving != 0);  // the tank must stand still
+                           },
+                           [](int fd, int32_t id) {
+                             core::AckedOp op;
+                             op.kind = core::AckedOp::kSelfTest;
+                             op.fd = fd;
+                             op.id = id;
+                             return g_ops.push(op);
+                           }});
   g_log.add(core::LogKind::kBoot, static_cast<int32_t>(esp_reset_reason()), 0, "", 0, millis());
   g_uart.begin();
   g_queue = xQueueCreate(16, sizeof(LinkCommand));

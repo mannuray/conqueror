@@ -44,6 +44,7 @@ flowchart LR
   S --- T1[WiFi] & T2[Tank] & T3[Tune] & T4[Log]
 ```
 - On Drive the **⚙ SET** chip becomes **☰ MENU**; the menu sheet lists Logo, Settings, AI, Help (AI greyed out with "not set up" until its address is saved in Settings).
+- Design: `docs/design/stitch/17-drive-menu-v1.png` (drawn on the real drive page; STOP stays bright above the dimmed screen).
 - Every other screen has the same header: **‹ DRIVE**, the screen title, and the status chips (battery, WiFi mode, Uno online) as on `/settings` today.
 - The AI page opens in a new tab at the address saved in Settings (it is served by the laptop, not the tank).
 
@@ -67,6 +68,8 @@ Designs: `docs/design/stitch/15-tank-logo-desktop-v2.png` (laptop: programs · e
 | **Tank** | as built (bridge, Uno body, distance calibration values, straight driving, safety, track model, maintenance) **+ deeper sensors** (encoder counts, tilt, distance sensor raw, self-test result + run again) **+ camera options** (resolution, quality, flip) **+ child-play mode** card (checklist, limits, switched on with the tank's button; designed separately) |
 | **Tune** | **calibration wizard** (counts per metre, track balance, roll-on — guided steps replacing the laptop `move.py` routine; after the left road-wheel repair) and **live graphs** (speed per track, heading, track balance over the last minute, next to the value being tuned) |
 | **Log** | recent events, newest first: stops and why (stall, obstacle, link lost, STOP from another device, battery), WiFi mode changes, restarts; from a small ring buffer on the bridge; CSV download |
+
+Designs: **Tune** `docs/design/stitch/18-bridge-settings-tune-mobile-v1.png` — live graph (left / right track speed, last 60 s, HOLD, CSV), calibration status (distance 7514 · balance 19 ‰ · roll-on 27 mm learned, RE-RUN / RESET), the active wizard step with its own DRIVE 1 m and STOP (the only place on Settings that moves the tank) and the measured-distance input that shows the new value before saving (tank-button confirm); **Log** `docs/design/stitch/19-bridge-settings-log-mobile-v2.png` — filters ALL / STOPS / WIFI / SYSTEM, CSV, events newest first with a plain reason, last 200 kept, cleared on restart. Both drawn in the Phosphor style; the Tune screen was built by hand from the Log frame after two failed Stitch runs.
 
 ## 4. AI (later)
 Served by the AI engine on the laptop (its local FastAPI page, Spec 4): what the camera sees with detections, what the AI is doing and why (decision log), the command box (text / voice). The tank app only links to it; Drive shows "AI driving" in the owner chip and STOP always wins.

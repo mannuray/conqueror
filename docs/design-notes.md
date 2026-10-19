@@ -1356,3 +1356,7 @@ A review of the v2 grammar (pasted by the owner) raised four points; all applied
 2. **List literals are in v1** (constants stored with the program: `LED [255 128 0]`, `LOOK`, `PLAY`, `SAY`, inputs to your own words, `=`); only building / taking lists apart at run time waits for v1.1 → v1 has no list pool and no garbage collector (grammar.md §1).
 3. **Tail position defined exactly** (grammar.md §8): last statement of a word; the last statement of each block of an `IF`/`IFELSE` in tail position; `OUTPUT` of a single call; never inside a loop or template body (the review's suggestion to count loop bodies was wrong — the loop goes round again); any of your words, not only self-calls (two words calling each other).
 4. **Every refusal has exactly one code** (grammar.md §11); new `PROGRAM_7029` for an unknown preset (`LED PINK`); malformed templates map to 7005 / 7004. Tests added for each.
+
+## 85. UI closed except the AI screen (owner, 2026-10-19)
+- **STOP in the Tune wizard: OK (owner).** The calibration step drives the tank, so it has its own red STOP next to DRIVE 1 m — the only STOP on Settings; the rule "no STOP on Settings" (§72) stays for everything that cannot move the tank.
+- **Close the UI completely except the AI screen (owner):** the Settings → Tank additions (live sensors, self-test, camera options, child-play card) are designed now; the AI screen comes with the AI work.

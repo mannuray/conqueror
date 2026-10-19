@@ -19,6 +19,7 @@ bool appAiUrlLoad(char* out, size_t cap) {
 bool appAiUrlSave(const char* url) {
   Preferences p;
   if (!p.begin("cq_app", false)) return false;
+  // an empty address clears it: remove() is false when nothing was saved, which is fine
   const bool ok = url[0] == '\0' ? (p.remove("ai") || true) : p.putString("ai", url) == strlen(url);
   p.end();
   return ok;

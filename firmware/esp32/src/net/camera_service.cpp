@@ -51,8 +51,11 @@ bool loadSettings(CamSettings& c) {
 
 void saveSettings(const CamSettings& c) {
   Preferences p;
-  if (!p.begin("cq_cam", false)) return;
-  p.putBytes("s", &c, sizeof(c));
+  if (!p.begin("cq_cam", false)) {
+    logf("camera: settings not saved (NVS open failed)");
+    return;
+  }
+  if (p.putBytes("s", &c, sizeof(c)) != sizeof(c)) logf("camera: settings not saved (NVS write failed)");
   p.end();
 }
 const char* g_name = "none";

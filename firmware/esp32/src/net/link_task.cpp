@@ -116,17 +116,22 @@ void broadcastTs() {
 void nack(int fd, int32_t id, core::BridgeReason r);
 
 // Executes LinkOwner actions in the documented order.
-void apply(const core::Actions& a, uint32_t now) {
-  if (a.has(core::Actions::kStopMaster)) {
-    g_link.stopMaster();
-    g_tx.clear();  // drop queued ESP32 frames; a pending STOP (urgent slot) is kept
-    if (g_cam_waiter.fd != -1) {  // stopMaster() cancelled the CAM_HOME: answer it (review M8)
-      if (g_ws.contains(g_cam_waiter.fd)) {
-        nack(g_cam_waiter.fd, g_cam_waiter.id, core::BridgeReason::kTimeout);
-      }
-      g_cam_waiter = Waiter{-1, -1};
-    }
+// R14: the link is stopped only for an OTA update (the bridge restarts after it). Answers whatever waited for the Uno.
+void stopLinkForOta() {
+  g_link.stopMaster();
+  g_tx.clear();  // drop queued ESP32 frames; a pending STOP (urgent slot) is kept
+  if (g_cam_waiter.fd != -1) {  // stopMaster() cancelled the CAM_HOME: answer it (review M8)
+    if (g_ws.contains(g_cam_waiter.fd)) nack(g_cam_waiter.fd, g_cam_waiter.id, core::BridgeReason::kTimeout);
+    g_cam_waiter = Waiter{-1, -1};
   }
+  core::AckedOp op;
+  while (g_ops.front(op)) {  // design-notes §97: queued settings / feedback ops are answered, not left waiting
+    if (op.fd >= 0 && g_ws.contains(op.fd)) nack(op.fd, op.id, core::BridgeReason::kBusy);
+    g_ops.done();
+  }
+}
+
+void apply(const core::Actions& a, uint32_t now) {
   if (a.has(core::Actions::kSendStop)) g_link.sendStop(now);
   if (a.has(core::Actions::kHintNone)) g_link.setOwnerHint(proto::OwnerHintValue::kNone);
   if (a.has(core::Actions::kHintHuman)) g_link.setOwnerHint(proto::OwnerHintValue::kHuman);
@@ -525,10 +530,10 @@ void applyChange(core::PendingChange& ch, uint32_t now) {
     case core::ChangeKind::kCalibReset:
       if (ch.calib_what == 0) {
         g_cpm = core::motion::kCpmDefault;
-        net::motionStoreSave(g_cpm);
+        if (!net::motionStoreSave(g_cpm)) logf("calib: counts_per_m reset not saved (NVS)");
       } else {
         g_roll_mm = core::motion::kRollDefaultMm;
-        net::motionStoreSaveRoll(g_roll_mm);
+        if (!net::motionStoreSaveRoll(g_roll_mm)) logf("calib: roll-on reset not saved (NVS)");
       }
       sendTo(ch.fd, core::jsonConfirmed(g_json, sizeof(g_json), what));
       sendCalib(ch.fd);
@@ -797,7 +802,7 @@ void sendTank(int fd, const net::CamSettings* posted) {
   v.kbps = st.kbps;
   v.ai_url = g_ai_url;
   const size_t n = core::jsonTank(g_big, sizeof(g_big), v);
-  if (n) wsSend(fd, g_big, n);
+  if (n == 0 || !wsSend(fd, g_big, n)) logf("tank: reply to %s not sent (%u B)", g_ws.name(fd), static_cast<unsigned>(n));
 }
 
 void sendLog(int fd, uint32_t since, uint32_t now) {
@@ -805,7 +810,7 @@ void sendLog(int fd, uint32_t since, uint32_t now) {
   bool gap = false;
   const uint8_t n = g_log.since(since, e, 25, gap);
   const size_t len = core::jsonLog(g_big, sizeof(g_big), e, n, g_log.last(), gap, now);
-  if (len) wsSend(fd, g_big, len);
+  if (len == 0 || !wsSend(fd, g_big, len)) logf("log: reply to %s not sent (%u B)", g_ws.name(fd), static_cast<unsigned>(len));
 }
 
 void handleCameraSet(int fd, int32_t id, const core::WsCommand& c) {
@@ -934,7 +939,7 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
       g_log.add(core::LogKind::kOta, 0, 0, "", tankMs(), now);
       endMotion(core::MotionEvent::kOta, now);  // the STOP below stops it
       g_link.sendStop(now);  // resent until the Uno's ACK
-      g_link.stopMaster();  // heartbeats stop: Uno link-loss stop at standstill is harmless
+      stopLinkForOta();  // heartbeats stop: Uno link-loss stop at standstill is harmless (design-notes §95)
       closeAllClients();
       break;
   }

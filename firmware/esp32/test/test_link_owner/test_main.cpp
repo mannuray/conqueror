@@ -105,7 +105,6 @@ void test_driver_close_with_others_left_stops_and_keeps_master() {
   o.onWsOpen(kB);
   const Actions a = o.onWsClose(kA);
   TEST_ASSERT_TRUE(a.has(Actions::kSendStop));
-  TEST_ASSERT_FALSE(a.has(Actions::kStopMaster));
   TEST_ASSERT_EQUAL(S(LinkState::kWebReady), st());
 }
 
@@ -113,7 +112,6 @@ void test_last_ws_close_of_the_driver_stops_and_keeps_master() {  // R14
   drivingA();
   const Actions a = o.onWsClose(kA);
   TEST_ASSERT_TRUE(a.has(Actions::kSendStop));
-  TEST_ASSERT_FALSE(a.has(Actions::kStopMaster));
   TEST_ASSERT_EQUAL(S(LinkState::kWebReady), st());
   TEST_ASSERT_EQUAL(0, o.wsCount());
 }

@@ -1364,3 +1364,8 @@ A review of the v2 grammar (pasted by the owner) raised four points; all applied
 
 ## 86. Tank Logo LLD drafted (2026-10-19)
 `docs/lld/tank-logo-lld.md`: reader on the ESP32 (lexer, two-pass iterative parser — the firmware rules forbid recursion, checker, compiler to a small instruction set with tail calls), runner in the link task in ≤ 500-instruction slices, effects mapped onto the existing motion service and Uno commands (no new safety rules; new BodyLink `sendTone` / `sendCamSet` for frames that already exist), planned path by simulation and driven path by odometry, saved programs in a new 256 KB LittleFS partition (app slots 3.0 → 2.875 MB; needs one USB flash), WebSocket `logo_*` commands and events, the `/logo` page, code generated from `words.yaml`. Open for the owner: the partition change, compiling on a separate task, a plain textarea editor.
+
+## 87. Tank Logo LLD decisions (owner, 2026-10-19)
+- **Partition change: yes** (256 KB LittleFS `logo`, app slots 2.875 MB, one USB flash).
+- **Editor: colouring, easy for children** (owner: "it's for the kids so it should be easy for them"): colour by kind of word (moves, turns, loops/choices, light/sound/look, numbers, your own words, comments, unknown words underlined), big text, word buttons that insert the word with its example value selected, errors under the line with a ▲ under the word (LLD §14).
+- Compile on a separate task: recommendation kept (not objected to). LLD marked approved.

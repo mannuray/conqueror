@@ -1,6 +1,6 @@
 # Tank Logo — Low-Level Design (v1)
 
-Status: **DRAFT for owner review** · Date: 2026-10-19
+Status: **APPROVED (owner, 2026-10-19)** · Date: 2026-10-19
 Spec: `docs/superpowers/specs/2026-10-11-05-tank-logo-design.md` (Revision 2) · Language: `logo/spec/grammar.md`, `logo/spec/words.yaml`, `logo/spec/tests/` · UX: `docs/design/bridge-ux.md` §2, screens `docs/design/stitch/15-…`, `16-…` · Decisions: design-notes §79–§85 · Bridge: `docs/lld/esp32-bridge-lld.md` (motion service R4/R7/R8, ownership R2.7/R9.6/R10, hidden pages R11)
 
 ## 0. Scope of v1
@@ -322,6 +322,7 @@ The program drives **as its page's WebSocket client** (`fd`): `logo_run` takes c
 ## 14. The `/logo` page
 - Plain HTML/CSS/JS, one file (`web/logo.html`, budget 24 KB gzipped) + the generated `words.json`; the Phosphor look and layout of screens 15/16; header with ‹ DRIVE, ☰ MENU, status chips, STOP.
 - **Editor:** a `<textarea>` with a line-number gutter and a colouring overlay (`<pre>` behind the text, coloured from a small tokenizer that only colours — it never decides meaning); the running line highlighted from `logo_line`.
+- **Made for children (owner, 2026-10-19):** colour by kind of word, the same colours in the editor, the word buttons and the help — **moves** (`FD BK ARC PIVOT HOME`) bright green, **turns** (`RT LT`) amber-green, **loops and choices** (`REPEAT IF IFELSE WHILE FOREVER WAIT UNTIL`) cyan, **light, sound, look** (`LED BEEP SOUND PLAY LOOK SAY`) purple-pink, **numbers** amber, **your own words** white, **comments** dim, **unknown words** underlined red while typing; 16 px monospace minimum (18 px on the phone), generous line height; tapping a word button inserts it with its example value selected (`FD 50` with `50` selected, so the child just types the number); `REPEAT` inserts `REPEAT 4 [  ]` with the cursor inside the brackets; error messages appear right under the line, as a plain sentence with a ▲ under the word.
 - **Check as you type:** 600 ms after the last key, `logo_check`; errors shown under their line (code + friendly text), the planned path drawn; RUN is enabled only with no errors.
 - **Word help:** from `words.json`, level-1 words first, "more words" shows levels 2 (and 3, marked "later"); tapping a word inserts it.
 - **Path:** planned path (dashed where uncertain) + driven path from `logo_pose`; grid 5 cm, start marker, tank arrow.
@@ -354,7 +355,7 @@ Generated files are never edited by hand (CLAUDE.md hard rule).
 - **Page:** check-as-you-type with a fake WebSocket, error display, path drawing, run bar states, hidden page.
 - **Tank (stand, then floor):** run `square`, the explore program with an obstacle, STOP mid-program, a second device taking control, hiding the page.
 
-## 18. Open points for the owner
-1. **Partition change** (§12): one USB flash of the bridge to add the 256 KB `logo` area — OK?
-2. **Compile on a separate task** (§1) — recommended; the alternative (compile inside the link task) is simpler but can delay the link by tens of ms for big programs.
-3. **The editor is a plain textarea with colouring** (no code-editor library) — keeps the page small; enough for programs of a few dozen lines.
+## 18. Decisions (owner, 2026-10-19, design-notes §87)
+1. **Partition change (§12): yes** — one USB flash of the bridge for the 256 KB `logo` area.
+2. **Compile on a separate task (§1):** the recommendation stands (owner did not object).
+3. **Editor: a textarea with colouring, made easy for children** (§14) — colour by kind of word, big text, tap-to-insert with the value selected.

@@ -61,13 +61,40 @@ class Parser {
   bool nameAllowed(uint16_t at);
   uint16_t scanBody(ProcInfo& p, uint16_t i);
   void addProc(const ProcInfo& p);
-  // pass 2 steps
+  // pass 2 statements (parser_stmt.cpp)
   void stepSeq(Frame& f);
-  void stepCall(Frame& f);
-  void stepExpr(Frame& f);
-  void stepList(Frame& f);
+  void seqAtEof(const Frame& f);
+  void seqAtBracket(const Frame& f);
+  bool seqBlockWord(const Frame& f, const Token& t);
+  bool seqSpecialWord(const Token& t);
+  void seqWord(const Token& t);
   void parseDef();
   void skipToEnd();
+  void stepCall(Frame& f);
+  bool inputEnds(const Frame& f) const;
+  void readInput(Frame& f);
+  void callBlock(Frame& f, const char* name, const char* example);
+  void callNotes(Frame& f);
+  void callPreset(Frame& f, gen::InType type, const char* name);
+  void openList(uint16_t at);
+  void stepList(Frame& f);
+  void closeList(const Frame& f);
+  void listItem(Frame& f);
+  // pass 2 expressions (parser_expr.cpp)
+  void stepExpr(Frame& f);
+  void exprOperand(Frame& f);
+  void nameOperand(const Frame& f);
+  bool boolOperand(const Token& t);
+  void notOperand(const Frame& f);
+  void notAValue(uint16_t at, int16_t word);
+  void missingOperand(const Frame& f);
+  void exprOperator(Frame& f, Op op);
+  void exprClose(const Frame& f);
+  void extraValue(const Frame& f);
+  bool pushOp(Op op, uint16_t at);
+  void reduceFor(const Frame& f, Op op);
+  void reduceTop();
+  void finishExpr();
   // frames
   bool push(const Frame& f);
   void pushSeq(Close c, Node* n, uint16_t open);
@@ -76,8 +103,6 @@ class Parser {
   void startCall(int16_t word, uint16_t tok);
   void startProcCall(int16_t proc, uint16_t tok);
   void deliver(Node* n);
-  void finishExpr();
-  void reduceTop();
   bool pushOperand(Node* n);
   // helpers
   const Token& tok() const { return m_toks->t[m_i]; }
@@ -87,13 +112,17 @@ class Parser {
   bool givesValue(const Token& t) const;
   bool isStatementStart(const Token& t) const;
   bool isCommandWord(const Token& t) const;
+  // diagnostics and recovery (parser_diag.cpp)
   void error(uint16_t code, uint16_t tok, const DiagArg* a = nullptr, uint8_t n = 0);
+  void tooMany(const char* what, uint16_t at);
+  void unclosed(uint16_t open, const char* bracket, const char* closer);
   void minusHint(uint16_t at);
   void unknownWord(uint16_t at);
   void leftover(uint16_t at);
   void missingInput(const Frame& call);
   void fail(bool skip);
   void unwindToSeq();
+  int resyncStart();
   void resync();
   void inputSpec(const Frame& call, gen::InType& type, const char*& what, const char*& example,
                  const char*& name) const;

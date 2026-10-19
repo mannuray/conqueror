@@ -10,16 +10,8 @@ namespace logo {
 
 Node* Parser::make(NodeKind k, uint16_t tok) {
   Node* n = m_pool.make(k, tok);
-  if (n == nullptr && !m_abort) {
-    const DiagArg a[] = {{"what", "too many words"}};
-    m_d.add(7010, tokAt(tok).line, tokAt(tok).col, a, 1);
-    m_abort = true;
-  }
+  if (n == nullptr && !m_abort) tooMany("too many words", tok);
   return n;
-}
-
-void Parser::error(uint16_t code, uint16_t at, const DiagArg* a, uint8_t n) {
-  m_d.add(code, tokAt(at).line, tokAt(at).col, a, n);
 }
 
 int16_t Parser::findProc(const Token& t) const {
@@ -75,10 +67,7 @@ uint16_t Parser::scanBody(ProcInfo& p, uint16_t i) {
       return static_cast<uint16_t>(i + 1);
     }
   }
-  char line[8];
-  snprintf(line, sizeof line, "%u", static_cast<unsigned>(tokAt(p.to_tok).line));
-  const DiagArg a[] = {{"bracket", "TO"}, {"line", line}, {"closer", "END"}};
-  error(7003, p.to_tok, a, 3);
+  unclosed(p.to_tok, "TO", "END");
   return i;
 }
 
@@ -139,7 +128,135 @@ Node* Parser::parse(const char* src, const TokenList& toks) {
   m_last_value_tok = 0xFFFF;
   collectDefinitions();
   m_root = make(NodeKind::kProgram, 0);
-  return m_root;  // Task 5 adds pass 2 here
+  if (m_root == nullptr) return nullptr;
+  pushSeq(Close::kEof, m_root, 0);
+  while (m_nf > 0 && !m_abort) {
+    Frame& f = m_f[m_nf - 1];
+    switch (f.kind) {  // VARIANT POINT: parser frames
+      case FK::kSeq: stepSeq(f); break;
+      case FK::kCall: stepCall(f); break;
+      case FK::kExpr: stepExpr(f); break;
+      case FK::kList: stepList(f); break;
+    }
+  }
+  return m_root;
+}
+
+bool Parser::push(const Frame& f) {
+  if (m_nf >= kMaxFrames) {
+    tooMany("too deeply nested", m_i);
+    return false;
+  }
+  m_f[m_nf++] = f;
+  return true;
+}
+
+void Parser::pushSeq(Close c, Node* n, uint16_t open) {
+  Frame f;
+  f.kind = FK::kSeq;
+  f.close = c;
+  f.node = n;
+  f.open_tok = open;
+  push(f);
+}
+
+void Parser::pushExpr(bool full, Close c, bool wrap, uint16_t open) {
+  Frame f;
+  f.kind = FK::kExpr;
+  f.close = c;
+  f.full = full;
+  f.wrap_template = wrap;
+  f.open_tok = open;
+  f.opnd_base = m_nopnd;
+  f.op_base = m_nops;
+  push(f);
+}
+
+void Parser::pushList(Node* n, uint16_t open, bool attached) {
+  Frame f;
+  f.kind = FK::kList;
+  f.node = n;
+  f.open_tok = open;
+  f.attached = attached;
+  push(f);
+}
+
+void Parser::startCall(int16_t word, uint16_t at) {
+  Node* n = make(NodeKind::kCall, at);
+  if (n == nullptr) return;
+  n->ref = word;
+  Frame f;
+  f.kind = FK::kCall;
+  f.node = n;
+  f.open_tok = at;
+  push(f);
+}
+
+void Parser::startProcCall(int16_t proc, uint16_t at) {
+  Node* n = make(NodeKind::kProcCall, at);
+  if (n == nullptr) return;
+  n->ref = proc;
+  Frame f;
+  f.kind = FK::kCall;
+  f.node = n;
+  f.open_tok = at;
+  push(f);
+}
+
+bool Parser::pushOperand(Node* n) {
+  if (m_nopnd >= kMaxStack) {
+    tooMany("too deeply nested", m_i);
+    return false;
+  }
+  m_opnd[m_nopnd++] = n;
+  return true;
+}
+
+void Parser::deliver(Node* n) {
+  if (m_nf == 0 || n == nullptr) return;
+  Frame& p = m_f[m_nf - 1];
+  switch (p.kind) {
+    case FK::kSeq: case FK::kList: p.node->add(n); break;
+    case FK::kCall: p.node->add(n); ++p.next_input; break;
+    case FK::kExpr:
+      pushOperand(n);
+      p.expect_operand = false;
+      m_last_value_tok = static_cast<uint16_t>(m_i - 1);
+      break;
+  }
+}
+
+bool Parser::givesValue(const Token& t) const {
+  if (t.kind != Tok::kName) return false;
+  if (tokenIs(m_src, t, "TRUE") || tokenIs(m_src, t, "FALSE")) return true;
+  const int16_t w = findWord(m_src, t);
+  if (w >= 0) return gen::kWords[w].kind == gen::WordKind::kReporter;
+  const int16_t p = findProc(t);
+  return p >= 0 && m_procs[p].gives_value;
+}
+
+bool Parser::isCommandWord(const Token& t) const {
+  if (t.kind != Tok::kName) return false;
+  const int16_t w = findWord(m_src, t);
+  if (w >= 0) {
+    const gen::WordKind k = gen::kWords[w].kind;
+    return k == gen::WordKind::kCommand || k == gen::WordKind::kControl;
+  }
+  const int16_t p = findProc(t);
+  return p >= 0 && !m_procs[p].gives_value;
+}
+
+bool Parser::startsValue(const Token& t) const {
+  switch (t.kind) {
+    case Tok::kNumber: case Tok::kQuoted: case Tok::kInput: case Tok::kPlaceholder:
+    case Tok::kLParen: case Tok::kLBracket: case Tok::kNeg: return true;
+    case Tok::kName: return givesValue(t) || tokenIs(m_src, t, "NOT");
+    default: return false;
+  }
+}
+
+bool Parser::isStatementStart(const Token& t) const {
+  return isCommandWord(t) || tokenIs(m_src, t, "END");
 }
 
 }  // namespace logo

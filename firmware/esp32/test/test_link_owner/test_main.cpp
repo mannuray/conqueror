@@ -1,4 +1,4 @@
-// LinkOwner: every transition of the bridge LLD R2.7 state diagram.
+// LinkOwner: every transition of the bridge LLD R2.7 state diagram, R14: one master, always on.
 #include <unity.h>
 
 #include "core/link_owner.h"
@@ -20,6 +20,7 @@ int S(LinkState s) { return static_cast<int>(s); }
 int D(Decision d) { return static_cast<int>(d); }
 
 void readyWithA() {
+  o.begin();
   o.onWsOpen(kA);
   o.onSynced(true);
 }
@@ -35,15 +36,24 @@ void drivingA(uint32_t now = 100) {
 void setUp() { o = LinkOwner(); }
 void tearDown() {}
 
-void test_first_ws_starts_master() {
-  const Actions a = o.onWsOpen(kA);
+void test_begin_starts_the_master_once() {  // R14: at boot, with no phone
+  TEST_ASSERT_EQUAL(S(LinkState::kIdle), st());
+  const Actions a = o.begin();
   TEST_ASSERT_TRUE(a.has(Actions::kStartMaster));
   TEST_ASSERT_EQUAL(S(LinkState::kWebHandshake), st());
-  TEST_ASSERT_FALSE(o.onWsOpen(kB).has(Actions::kStartMaster));  // second client: no new master
+  TEST_ASSERT_FALSE(o.begin().has(Actions::kStartMaster));
+}
+
+void test_a_phone_opening_starts_nothing() {  // R14: phones never change the link
+  TEST_ASSERT_EQUAL(0, o.onWsOpen(kA).bits);
+  TEST_ASSERT_EQUAL(S(LinkState::kIdle), st());
+  o.begin();
+  TEST_ASSERT_EQUAL(0, o.onWsOpen(kB).bits);
   TEST_ASSERT_EQUAL(2, o.wsCount());
 }
 
 void test_drive_before_sync_is_body_offline() {
+  o.begin();
   o.onWsOpen(kA);
   Actions a;
   TEST_ASSERT_EQUAL(D(Decision::kNackBodyOffline), D(o.onDrive(kA, 0, a)));
@@ -99,12 +109,19 @@ void test_driver_close_with_others_left_stops_and_keeps_master() {
   TEST_ASSERT_EQUAL(S(LinkState::kWebReady), st());
 }
 
-void test_last_ws_close_stops_and_goes_idle() {
+void test_last_ws_close_of_the_driver_stops_and_keeps_master() {  // R14
   drivingA();
   const Actions a = o.onWsClose(kA);
   TEST_ASSERT_TRUE(a.has(Actions::kSendStop));
-  TEST_ASSERT_TRUE(a.has(Actions::kStopMaster));
-  TEST_ASSERT_EQUAL(S(LinkState::kIdle), st());
+  TEST_ASSERT_FALSE(a.has(Actions::kStopMaster));
+  TEST_ASSERT_EQUAL(S(LinkState::kWebReady), st());
+  TEST_ASSERT_EQUAL(0, o.wsCount());
+}
+
+void test_last_ws_close_of_a_watcher_changes_nothing() {  // R14: no STOP, no master change
+  readyWithA();
+  TEST_ASSERT_EQUAL(0, o.onWsClose(kA).bits);
+  TEST_ASSERT_EQUAL(S(LinkState::kWebReady), st());
 }
 
 void test_stop_from_anyone_in_every_state() {
@@ -195,7 +212,8 @@ void test_a_new_primitive_or_the_drivers_stop_releases_the_hold() {
 
 int main() {
   UNITY_BEGIN();
-  RUN_TEST(test_first_ws_starts_master);
+  RUN_TEST(test_begin_starts_the_master_once);
+  RUN_TEST(test_a_phone_opening_starts_nothing);
   RUN_TEST(test_drive_before_sync_is_body_offline);
   RUN_TEST(test_first_drive_takes_ownership);
   RUN_TEST(test_other_phone_gets_not_owner);
@@ -203,7 +221,8 @@ int main() {
   RUN_TEST(test_release_control);
   RUN_TEST(test_keep_driving_never_takes_ownership);
   RUN_TEST(test_driver_close_with_others_left_stops_and_keeps_master);
-  RUN_TEST(test_last_ws_close_stops_and_goes_idle);
+  RUN_TEST(test_last_ws_close_of_the_driver_stops_and_keeps_master);
+  RUN_TEST(test_last_ws_close_of_a_watcher_changes_nothing);
   RUN_TEST(test_stop_from_anyone_in_every_state);
   RUN_TEST(test_ir_beats_phone);
   RUN_TEST(test_sync_lost_drops_driver_and_rehandshakes);

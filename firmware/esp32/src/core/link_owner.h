@@ -35,6 +35,7 @@ class LinkOwner {
  public:
   static constexpr int kNoFd = -1;
 
+  Actions begin();  // R14 (design-notes §95): the bridge is the Uno link's only master, from boot
   Actions onWsOpen(int fd);
   Actions onWsClose(int fd);
   // moving: a drive frame with v or w != 0. After a STOP from another device the driver's moving frames are refused

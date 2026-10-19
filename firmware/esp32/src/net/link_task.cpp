@@ -1113,6 +1113,7 @@ void linkTask(void*) {
   uint8_t rx[256];
   uint32_t last_publish = 0;
   TickType_t wake = xTaskGetTickCount();
+  apply(g_owner.begin(), millis());  // R14 (design-notes §95): master of the Uno link from boot, with or without phones
   for (;;) {
     const uint32_t now = millis();
     size_t n = 0;

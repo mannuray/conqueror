@@ -441,6 +441,7 @@ struct Rig {
   LinkOwner owner;
   MotionLink ml{owner};
   Rig() {
+    owner.begin();  // R14: the bridge is master from boot
     owner.onWsOpen(kFd);
     owner.onSynced(true);
     Actions a;
@@ -562,6 +563,7 @@ struct MoveRig {
   LinkOwner owner;
   MotionLink ml{owner};
   MoveRig() {
+    owner.begin();  // R14: the bridge is master from boot
     owner.onWsOpen(kFd);
     owner.onSynced(true);
     Actions a;
@@ -734,6 +736,7 @@ void test_link_uno_stall_ends_an_arc_not_a_pivot() {
   {
     LinkOwner owner;
     MotionLink ml{owner};
+    owner.begin();  // R14: the bridge is master from boot
     owner.onWsOpen(kFd);
     owner.onSynced(true);
     Actions a;
@@ -748,6 +751,7 @@ void test_link_uno_stall_ends_an_arc_not_a_pivot() {
   {
     LinkOwner owner;
     MotionLink ml{owner};
+    owner.begin();  // R14: the bridge is master from boot
     owner.onWsOpen(kFd);
     owner.onSynced(true);
     Actions a;

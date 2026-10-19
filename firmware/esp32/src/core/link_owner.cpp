@@ -14,9 +14,8 @@ Actions LinkOwner::dropDriver(bool send_stop) {
   return a;
 }
 
-Actions LinkOwner::onWsOpen(int /*fd*/) {
+Actions LinkOwner::begin() {
   Actions a;
-  ++m_ws;
   if (m_state == LinkState::kIdle) {
     m_state = LinkState::kWebHandshake;
     m_synced = false;
@@ -25,16 +24,15 @@ Actions LinkOwner::onWsOpen(int /*fd*/) {
   return a;
 }
 
+Actions LinkOwner::onWsOpen(int /*fd*/) {  // R14: phones are clients of the bridge - the link does not change
+  ++m_ws;
+  return Actions();
+}
+
 Actions LinkOwner::onWsClose(int fd) {
-  Actions a;
   if (m_ws > 0) --m_ws;
-  if (fd == m_driver) a = dropDriver(true);  // explicit STOP, belt and braces
-  if (m_ws == 0 && webMaster()) {
-    m_state = LinkState::kIdle;
-    m_synced = false;
-    a.bits |= Actions::kSendStop | Actions::kStopMaster;
-  }
-  return a;
+  if (fd == m_driver) return dropDriver(true);  // explicit STOP, belt and braces; the master stays (R14)
+  return Actions();
 }
 
 Decision LinkOwner::onDrive(int fd, uint32_t now_ms, Actions& out, bool moving) {

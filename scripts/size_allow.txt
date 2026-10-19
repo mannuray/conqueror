@@ -7,15 +7,6 @@ firmware/esp32/src/core/motion_link.cpp:cq::core::MotionLink::onEvent  # baselin
 firmware/esp32/src/core/motion_service.cpp:cq::core::MotionService::stepRate  # baseline 2026-10-19
 firmware/esp32/src/core/move_controller.cpp:cq::core::MoveController::step  # baseline 2026-10-19
 firmware/esp32/src/core/wifi_policy.h:cq::core::WifiPolicy::step  # baseline 2026-10-19
-firmware/esp32/src/core/ws_codec.cpp  # baseline 2026-10-19
-firmware/esp32/src/core/ws_codec.cpp:cq::core::appUrlValid  # baseline 2026-10-19
-firmware/esp32/src/core/ws_codec.cpp:cq::core::complete  # baseline 2026-10-19
-firmware/esp32/src/core/ws_codec.cpp:cq::core::kindOf  # baseline 2026-10-19
-firmware/esp32/src/core/ws_codec.cpp:cq::core::parseWsCommand  # baseline 2026-10-19
-firmware/esp32/src/core/ws_codec.cpp:cq::core::Reader::num  # baseline 2026-10-19
-firmware/esp32/src/core/ws_codec.cpp:cq::core::Reader::skip  # baseline 2026-10-19
-firmware/esp32/src/core/ws_codec.cpp:cq::core::readField  # baseline 2026-10-19
-firmware/esp32/src/core/ws_codec.cpp:cq::core::readMotionField  # baseline 2026-10-19
 firmware/esp32/src/net/camera_service.cpp:cq::net::cameraBegin  # baseline 2026-10-19
 firmware/esp32/src/net/http_server.cpp:cq::net::wsHandler  # baseline 2026-10-19
 firmware/esp32/src/net/info_service.cpp:cq::net::serveInfo  # baseline 2026-10-19

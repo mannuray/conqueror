@@ -1452,3 +1452,10 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - **Tank checks (owner): after the Logo work and the road-wheel fix,** when the motor power is adjusted anyway: R15.11 stand + floor lists and the `CQ_WDT_TEST` restart check. The tank already runs the refactored bridge (`f60fdd5`): `/info` has the same 59 fields, the Uno syncs at boot, the Log works.
 - Merge order unchanged: `plan-o` first, then `plan-p-bridge-structure`.
 - **Merged (owner, 2026-10-19):** `plan-o` and `plan-p-bridge-structure` merged into `main` before their tank checks (all host suites green on `main`); Plan N1 (Tank Logo reader) starts from `main`.
+
+## 100. Tank Logo after N1: the split of N2-N4, run tests, duplicate inputs (owner, 2026-10-19)
+- **Plan N1 merged into `main`** (owner: yes, 2026-10-19).
+- **N2 = everything testable on the laptop:** compiler, runner (VM), effect mapping, run states and endings (RunController with a fake motion layer), planned-path simulator — all pure C++ in `src/logo/`, host-tested; no tank needed. **N3 = on the tank:** the logo worker task, saved programs (the `logo` partition, one USB flash), the WebSocket `logo_*` commands, BodyLink `sendTone` / `sendCamSet`, odometry, link-task wiring, stand + floor checks. **N4 = the `/logo` page.**
+- **Run tests in the spec:** new `logo/spec/tests/running.yaml` — a program → the list of things the tank is asked to do and how the program ends; generated into C++ tests by `logogen` like the reading cases, so any later runner (the Python one for the AI engine) must pass the same file.
+- **The same input name twice (`TO A :x :x`) is refused** with a new code **7032** "{word} has two inputs called :{name} — give each its own name.", at the second one (grammar.md §11: one code per kind of mistake). Done in N2.
+- `TILT` needs no decision: the word table already has `TILTED?` (the Uno's tilted / lifted alarm, §92).

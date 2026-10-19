@@ -81,6 +81,19 @@ void watchdogBegin() {
   esp_task_wdt_add(nullptr);  // the Arduino loop task (setup runs on it)
 }
 
+// Plan P Task 13 tank check only (build flag CQ_WDT_TEST): the loop stops feeding the watchdog once, 60 s after boot.
+void watchdogTest(uint32_t now) {
+#ifdef CQ_WDT_TEST
+  static bool s_tested = false;
+  if (s_tested || now < 60000) return;
+  s_tested = true;
+  cq::net::logf("wdt test: loop blocked for 4 s - the bridge must restart (task watchdog)");
+  vTaskDelay(pdMS_TO_TICKS(4000));
+#else
+  (void)now;
+#endif
+}
+
 void watchdogLoopOff() { esp_task_wdt_delete(nullptr); }  // OTA: the upload blocks loop() for ~30 s
 
 void setup() {
@@ -107,6 +120,7 @@ void setup() {
 void loop() {
   esp_task_wdt_reset();
   const uint32_t now = millis();
+  watchdogTest(now);
   const cq::net::LinkStatus s = cq::net::linkStatus();
   g_wifi.step(now, hasClients(s));
   cq::net::cameraApplyPending();  // Plan O: camera settings from the page (sensor setters + NVS, off the link task)

@@ -49,7 +49,7 @@ flowchart LR
 - The AI page opens in a new tab at the address saved in Settings (it is served by the laptop, not the tank).
 
 ## 1. Drive (built)
-As today: live video, drive stick or RC two-hand mode, camera stick / drag-to-look, LOCK / HOME, STOP, battery and distance bars, heading tape, speed / turn readout, SNAP, SOUNDS sheet (24 sounds incl. horn), MAX speed sheet, mute, banners (stall, fault, encoder off, "stopped by another device"). Change: ⚙ SET → ☰ MENU.
+As today: live video, drive stick or RC two-hand mode, camera stick / drag-to-look, LOCK / HOME, STOP, battery and distance bars, heading tape, speed / turn readout, SNAP, SOUNDS sheet (24 sounds incl. horn), MAX speed sheet, mute, banners (stall, fault, encoder off, "stopped by another device"). Change: ⚙ SET → ☰ MENU; a camera chip (`▣ VGA · 14 fps`) whose sheet sets picture size and frame-rate limit (design-notes §94).
 Not added here (owner, 2026-10-18): a moves panel (Logo does it), deep diagnostics (Settings → Tank).
 
 ## 2. Logo (new — v2 screens for owner review)

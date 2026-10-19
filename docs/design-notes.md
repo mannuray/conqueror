@@ -1399,3 +1399,10 @@ On the stand check of Plan O the owner asked to see the camera feed next to the 
 - Options discussed: **A** live preview always on while the Tank tab is open; B a PREVIEW button (on demand); C a still picture after each change.
 - **Owner: A.** The settings page does the important work; seeing the effect matters more than saving one viewer place and some WiFi.
 - How: the Camera card shows the MJPEG stream (`:81/stream`) under its title while the Tank tab is open and the page is visible; it stops when the tab changes or the page is hidden. It counts as one of the 2 viewers — with the Drive page also streaming the limit is reached and the card says so. Page-only change, no bridge code.
+
+## 94. Camera chip and sheet on the Drive page (owner, 2026-10-19)
+Asked during the Plan O stand checks: show the camera's state while driving and let the driver change it there.
+- **Chip** in the bottom row next to SNAP / MAX: `▣ VGA · 14 fps`, amber below 8 fps (the WiFi is struggling). The Drive page asks `{"t":"tank"}` every 2 s while it is visible — page only, no bridge change (also keeps the bridge's fps / kbit/s window short, review M3).
+- **CAMERA sheet** on a tap: picture size QVGA · VGA · SVGA · HD and frame-rate limit MAX · 15 · 10 · 5 (`camera_set`), plus a link to Settings → Tank → Camera. Brightness, contrast, low light, flip and mirror stay in Settings (set once).
+- Anyone on the Drive page may change it (as in Settings); saved on the tank, so it applies for every viewer. Locked like the other adult settings when child play comes.
+- Measured on the stand, one viewer (Plan O): QVGA 13.9 fps 0.3 Mbit/s · VGA 13.9 fps 1.0 · SVGA 13.9 fps 1.4 · HD 8.7 fps 1.6; the limits 5 / 10 give 5.0 / 10.1 fps; at HD 40 pings 0 % loss, 7 ms average, 15 ms worst.

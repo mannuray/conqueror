@@ -20,7 +20,8 @@ constexpr size_t kWsBigMax = 3584;  // Plan O: tank / log replies - sent through
 
 // Reasons the bridge itself produces (not on the Uno's ack_status list).
 enum class BridgeReason : uint8_t { kNotOwner, kBusy, kBodyOffline, kRateLimited, kInvalidCommand, kTimeout, kUnavailable,
-                                    kStopped };  // kStopped: design-notes §72 STOP hold
+                                    kStopped,  // kStopped: design-notes §72 STOP hold
+                                    kCheckAgain, kNotRunning };  // Plan N3: logo_run / logo_step / logo_stop
 
 struct OwnerView {
   const char* owner;   // "none" | "human" | "ir"
@@ -104,6 +105,16 @@ const char* unoEventName(uint8_t kind);  // proto::EventKind in lower snake case
 size_t jsonTank(char* out, size_t cap, const TankView& v);
 size_t jsonLog(char* out, size_t cap, const LogEntry* e, uint8_t n, uint32_t last, bool gap, uint32_t now_ms);
 size_t jsonPong(char* out, size_t cap, const char* t0, uint32_t tank_ms);
+
+// Plan N3 (Tank Logo LLD §20.4): the logo_* events, {"t":"ev","seq","tank_ms","kind":"logo_…",…} to every client.
+size_t jsonLogoStarted(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, const char* name, const char* by);
+size_t jsonLogoLine(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint16_t line, int32_t round);
+size_t jsonLogoPose(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, int32_t x_mm, int32_t y_mm, int16_t heading);
+size_t jsonLogoSay(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, const char* text);
+size_t jsonLogoNote(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint16_t line, const char* msg);
+// reason "finished" when code is 0, else the error code number
+size_t jsonLogoEnded(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint16_t code, uint16_t line,
+                     const char* msg);
 
 // Error code number behind an ack_status index (checked against kAckStatusCode in tests).
 uint16_t ackReasonCode(uint8_t status);

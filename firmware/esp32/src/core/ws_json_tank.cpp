@@ -30,8 +30,8 @@ size_t jsonTank(char* out, size_t cap, const TankView& v) {
 namespace {
 
 const char* const kLogKinds[] = {"boot", "uno", "primitive", "stop_hold", "client_lost", "body_online",
-                                 "body_offline", "wifi_mode", "restart", "ota"};
-static_assert(sizeof(kLogKinds) / sizeof(kLogKinds[0]) == static_cast<size_t>(LogKind::kOta) + 1, "a LogKind without a name");
+                                 "body_offline", "wifi_mode", "restart", "ota", "logo"};
+static_assert(sizeof(kLogKinds) / sizeof(kLogKinds[0]) == static_cast<size_t>(LogKind::kLogo) + 1, "a LogKind without a name");
 
 // One entry as JSON (with a leading comma unless first); its length, or 0 when it does not fit `cap`.
 size_t logItem(char* out, size_t cap, const LogEntry& x, bool first, uint32_t now_ms) {

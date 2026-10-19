@@ -239,7 +239,9 @@ struct Seen {
 bool readBool(Reader& r, bool& out, bool& seen) {
   if (r.word("true")) {
     out = true;
-  } else if (!r.word("false")) {
+  } else if (r.word("false")) {
+    out = false;  // tank check: the field's default may be true (vflip) - always write what was sent
+  } else {
     return false;
   }
   seen = true;

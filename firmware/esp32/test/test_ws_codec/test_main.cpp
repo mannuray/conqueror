@@ -349,6 +349,15 @@ void test_tank_log_selftest() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kSelfTest), K(P("{\"t\":\"selftest\",\"id\":3}").kind));
 }
 
+void test_camera_set_false_turns_a_switch_off() {  // tank check: "flip upside down is always on"
+  const WsCommand c = P("{\"t\":\"camera_set\",\"vflip\":false,\"id\":5}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCameraSet), K(c.kind));
+  TEST_ASSERT_TRUE(c.cam.has_vflip);
+  TEST_ASSERT_FALSE(c.cam.vflip);
+  const WsCommand d = P("{\"t\":\"camera_set\",\"low_light\":false,\"hmirror\":false}");
+  TEST_ASSERT_TRUE(d.cam.has_low && !d.cam.low && d.cam.has_hmirror && !d.cam.hmirror);
+}
+
 void test_camera_set_fields_and_ranges() {
   const WsCommand c = P("{\"t\":\"camera_set\",\"size\":\"SVGA\",\"quality\":20,\"fps_cap\":10,\"brightness\":-1,"
                         "\"low_light\":true,\"hmirror\":false,\"id\":4}");
@@ -433,6 +442,7 @@ int main() {
   RUN_TEST(test_setting_and_calib_reset);
   RUN_TEST(test_tank_log_selftest);
   RUN_TEST(test_camera_set_fields_and_ranges);
+  RUN_TEST(test_camera_set_false_turns_a_switch_off);
   RUN_TEST(test_app_url_validation);
   RUN_TEST(test_app_url_too_long_is_refused_by_the_parser);
   return UNITY_END();

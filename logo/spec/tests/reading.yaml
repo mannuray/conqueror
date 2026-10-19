@@ -180,7 +180,7 @@
   source: IF SEE? "ball[ BEEP ]
   expect: ok
   reads: (IF (SEE? "ball) [ (BEEP) ])
-  note: SEE? needs the AI engine - a core program gets 7020 from the checker; this case only checks the reading
+  check: false   # SEE? is an AI word: only the reading is tested here
 
 - name: a data list keeps -5 as its own number
   source: LOOK [ 10 -5 ]

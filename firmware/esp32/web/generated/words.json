@@ -1,0 +1,1107 @@
+{
+ "words": [
+  {
+   "name": "FORWARD",
+   "aliases": [
+    "FD"
+   ],
+   "kind": "command",
+   "level": 1,
+   "needs": [
+    "encoders"
+   ],
+   "inputs": [
+    {
+     "name": "distance",
+     "type": "number",
+     "unit": "cm"
+    }
+   ],
+   "help": "drive forward that many centimetres",
+   "example": "FORWARD 50"
+  },
+  {
+   "name": "BACK",
+   "aliases": [
+    "BK"
+   ],
+   "kind": "command",
+   "level": 1,
+   "needs": [
+    "encoders"
+   ],
+   "inputs": [
+    {
+     "name": "distance",
+     "type": "number",
+     "unit": "cm"
+    }
+   ],
+   "help": "drive backward that many centimetres",
+   "example": "BACK 20"
+  },
+  {
+   "name": "RIGHT",
+   "aliases": [
+    "RT"
+   ],
+   "kind": "command",
+   "level": 1,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "angle",
+     "type": "number",
+     "unit": "deg"
+    }
+   ],
+   "help": "turn right on the spot",
+   "example": "RIGHT 90"
+  },
+  {
+   "name": "LEFT",
+   "aliases": [
+    "LT"
+   ],
+   "kind": "command",
+   "level": 1,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "angle",
+     "type": "number",
+     "unit": "deg"
+    }
+   ],
+   "help": "turn left on the spot",
+   "example": "LEFT 90"
+  },
+  {
+   "name": "SPEED",
+   "aliases": [],
+   "kind": "command",
+   "level": 1,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "percent",
+     "type": "number",
+     "unit": "%"
+    }
+   ],
+   "help": "how fast the next moves go",
+   "example": "SPEED 60"
+  },
+  {
+   "name": "WAIT",
+   "aliases": [],
+   "kind": "command",
+   "level": 1,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "seconds",
+     "type": "number",
+     "unit": "s"
+    }
+   ],
+   "help": "wait that many seconds",
+   "example": "WAIT 1.5"
+  },
+  {
+   "name": "REPEAT",
+   "aliases": [],
+   "kind": "control",
+   "level": 1,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "times",
+     "type": "number",
+     "unit": ""
+    },
+    {
+     "name": "steps",
+     "type": "block",
+     "unit": ""
+    }
+   ],
+   "help": "do the steps in [ ] again and again",
+   "example": "REPEAT 4 [ FD 50 RT 90 ]"
+  },
+  {
+   "name": "LED",
+   "aliases": [],
+   "kind": "command",
+   "level": 1,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "colour",
+     "type": "colour",
+     "unit": ""
+    }
+   ],
+   "help": "change the light",
+   "example": "LED GREEN"
+  },
+  {
+   "name": "BEEP",
+   "aliases": [],
+   "kind": "command",
+   "level": 1,
+   "needs": [],
+   "inputs": [],
+   "help": "beep once",
+   "example": "BEEP"
+  },
+  {
+   "name": "SOUND",
+   "aliases": [],
+   "kind": "command",
+   "level": 1,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "sound",
+     "type": "sound",
+     "unit": ""
+    }
+   ],
+   "help": "play a sound",
+   "example": "SOUND HORN"
+  },
+  {
+   "name": "LOOK",
+   "aliases": [],
+   "kind": "command",
+   "level": 1,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "where",
+     "type": "look",
+     "unit": ""
+    }
+   ],
+   "help": "point the camera",
+   "example": "LOOK LEFT"
+  },
+  {
+   "name": "HOME",
+   "aliases": [],
+   "kind": "command",
+   "level": 1,
+   "needs": [],
+   "inputs": [],
+   "help": "turn back the way you started",
+   "example": "HOME"
+  },
+  {
+   "name": "STOP",
+   "aliases": [],
+   "kind": "control",
+   "level": 1,
+   "needs": [],
+   "inputs": [],
+   "help": "stop everything",
+   "example": "IF OBSTACLE? [ STOP ]"
+  },
+  {
+   "name": "ARC",
+   "aliases": [],
+   "kind": "command",
+   "level": 2,
+   "needs": [
+    "encoders"
+   ],
+   "inputs": [
+    {
+     "name": "side",
+     "type": "side",
+     "unit": ""
+    },
+    {
+     "name": "angle",
+     "type": "number",
+     "unit": "deg"
+    },
+    {
+     "name": "radius",
+     "type": "number",
+     "unit": "cm"
+    }
+   ],
+   "help": "drive along part of a circle; the smallest circle is 31 cm",
+   "example": "ARC RIGHT 90 50"
+  },
+  {
+   "name": "PIVOT",
+   "aliases": [],
+   "kind": "command",
+   "level": 2,
+   "needs": [
+    "encoders"
+   ],
+   "inputs": [
+    {
+     "name": "side",
+     "type": "side",
+     "unit": ""
+    },
+    {
+     "name": "angle",
+     "type": "number",
+     "unit": "deg"
+    }
+   ],
+   "help": "turn around one track",
+   "example": "PIVOT LEFT 90"
+  },
+  {
+   "name": "PLAY",
+   "aliases": [],
+   "kind": "command",
+   "level": 2,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "notes",
+     "type": "notes",
+     "unit": ""
+    }
+   ],
+   "help": "play a tune",
+   "example": "PLAY [ C4 E4 G4 2 ]"
+  },
+  {
+   "name": "SAY",
+   "aliases": [],
+   "kind": "command",
+   "level": 2,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "words",
+     "type": "text",
+     "unit": ""
+    }
+   ],
+   "help": "say something",
+   "example": "SAY [ well done ]"
+  },
+  {
+   "name": "TO",
+   "aliases": [],
+   "kind": "control",
+   "level": 2,
+   "needs": [],
+   "inputs": [],
+   "help": "teach the tank a new word",
+   "example": "TO SQUARE :size  REPEAT 4 [ FD :size RT 90 ]  END"
+  },
+  {
+   "name": "IF",
+   "aliases": [],
+   "kind": "control",
+   "level": 2,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "test",
+     "type": "condition",
+     "unit": ""
+    },
+    {
+     "name": "steps",
+     "type": "block",
+     "unit": ""
+    }
+   ],
+   "help": "do the steps only if the test is true",
+   "example": "IF OBSTACLE? [ BK 10 ]"
+  },
+  {
+   "name": "IFELSE",
+   "aliases": [],
+   "kind": "control",
+   "level": 2,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "test",
+     "type": "condition",
+     "unit": ""
+    },
+    {
+     "name": "True",
+     "type": "block",
+     "unit": ""
+    },
+    {
+     "name": "False",
+     "type": "block",
+     "unit": ""
+    }
+   ],
+   "help": "do the first steps if the test is true, else the second",
+   "example": "IFELSE DISTANCE < 30 [ RT 90 ] [ FD 20 ]"
+  },
+  {
+   "name": "WHILE",
+   "aliases": [],
+   "kind": "control",
+   "level": 2,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "test",
+     "type": "condition",
+     "unit": ""
+    },
+    {
+     "name": "steps",
+     "type": "block",
+     "unit": ""
+    }
+   ],
+   "help": "keep doing the steps while the test is true",
+   "example": "WHILE NOT OBSTACLE? [ FD 10 ]"
+  },
+  {
+   "name": "FOREVER",
+   "aliases": [],
+   "kind": "control",
+   "level": 2,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "steps",
+     "type": "block",
+     "unit": ""
+    }
+   ],
+   "help": "do the steps again and again, for ever",
+   "example": "FOREVER [ FD 50 IF BLOCKED? [ BK 10 RT 90 ] ]"
+  },
+  {
+   "name": "WAIT UNTIL",
+   "aliases": [],
+   "kind": "control",
+   "level": 2,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "test",
+     "type": "condition",
+     "unit": ""
+    }
+   ],
+   "help": "wait until something happens",
+   "example": "WAIT UNTIL DISTANCE < 20"
+  },
+  {
+   "name": "DISTANCE",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 2,
+   "needs": [],
+   "inputs": [],
+   "help": "how far away the thing in front is",
+   "example": "IF DISTANCE < 30 [ RT 90 ]"
+  },
+  {
+   "name": "OBSTACLE?",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 2,
+   "needs": [],
+   "inputs": [],
+   "help": "is something right in front?",
+   "example": "IF OBSTACLE? [ BK 10 ]"
+  },
+  {
+   "name": "BLOCKED?",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 2,
+   "needs": [],
+   "inputs": [],
+   "help": "did the last move get stopped by something in the way?",
+   "example": "FD 100 IF BLOCKED? [ SAY \"oops ]"
+  },
+  {
+   "name": "HEADING",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 2,
+   "needs": [],
+   "inputs": [],
+   "help": "which way the tank points now",
+   "example": "IF HEADING > 45 [ HOME ]"
+  },
+  {
+   "name": "TILTED?",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 2,
+   "needs": [],
+   "inputs": [],
+   "help": "is the tank leaning a lot or lifted up?",
+   "example": "IF TILTED? [ STOP ]"
+  },
+  {
+   "name": "BATTERY",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 2,
+   "needs": [],
+   "inputs": [],
+   "help": "how full the battery is",
+   "example": "IF BATTERY < 20 [ SAY [ I am tired ] ]"
+  },
+  {
+   "name": "TIMER",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 2,
+   "needs": [],
+   "inputs": [],
+   "help": "how long the program has been running",
+   "example": "WHILE TIMER < 10 [ FD 10 RT 30 ]"
+  },
+  {
+   "name": "RANDOM",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 2,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "n",
+     "type": "number",
+     "unit": ""
+    }
+   ],
+   "help": "a surprise number",
+   "example": "RT RANDOM 360"
+  },
+  {
+   "name": "REPCOUNT",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 2,
+   "needs": [],
+   "inputs": [],
+   "help": "which round of REPEAT this is",
+   "example": "REPEAT 5 [ FD REPCOUNT * 10 RT 72 ]"
+  },
+  {
+   "name": "REMAINDER",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 2,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "a",
+     "type": "number",
+     "unit": ""
+    },
+    {
+     "name": "b",
+     "type": "number",
+     "unit": ""
+    }
+   ],
+   "help": "the leftover of a division (is a number even?)",
+   "example": "IF REMAINDER REPCOUNT 2 = 0 [ BEEP ]"
+  },
+  {
+   "name": "ABS",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 2,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "x",
+     "type": "number",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": "ABS HEADING"
+  },
+  {
+   "name": "ROUND",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 2,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "x",
+     "type": "number",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": "ROUND DISTANCE / 10"
+  },
+  {
+   "name": "TRUE",
+   "aliases": [],
+   "kind": "constant",
+   "level": 2,
+   "needs": [],
+   "inputs": [],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "FALSE",
+   "aliases": [],
+   "kind": "constant",
+   "level": 2,
+   "needs": [],
+   "inputs": [],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "AND",
+   "aliases": [],
+   "kind": "operator",
+   "level": 2,
+   "needs": [],
+   "inputs": [],
+   "help": "both tests true (infix: a AND b)",
+   "example": ""
+  },
+  {
+   "name": "OR",
+   "aliases": [],
+   "kind": "operator",
+   "level": 2,
+   "needs": [],
+   "inputs": [],
+   "help": "at least one test true (infix: a OR b)",
+   "example": ""
+  },
+  {
+   "name": "NOT",
+   "aliases": [],
+   "kind": "operator",
+   "level": 2,
+   "needs": [],
+   "inputs": [],
+   "help": "the opposite of a test",
+   "example": ""
+  },
+  {
+   "name": "OUTPUT",
+   "aliases": [
+    "OP"
+   ],
+   "kind": "control",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "value",
+     "type": "any",
+     "unit": ""
+    }
+   ],
+   "help": "give back an answer from your own word",
+   "example": "TO DOUBLE :x  OUTPUT :x * 2  END"
+  },
+  {
+   "name": "FIRST",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "list",
+     "type": "list",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": "FIRST [ 10 20 30 ]"
+  },
+  {
+   "name": "LAST",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "list",
+     "type": "list",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "BUTFIRST",
+   "aliases": [
+    "BF"
+   ],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "list",
+     "type": "list",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "BUTLAST",
+   "aliases": [
+    "BL"
+   ],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "list",
+     "type": "list",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "ITEM",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "n",
+     "type": "number",
+     "unit": ""
+    },
+    {
+     "name": "list",
+     "type": "list",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "COUNT",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "list",
+     "type": "list",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "EMPTY?",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "list",
+     "type": "list",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "MEMBER?",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "thing",
+     "type": "any",
+     "unit": ""
+    },
+    {
+     "name": "list",
+     "type": "list",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "LIST",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "a",
+     "type": "any",
+     "unit": ""
+    },
+    {
+     "name": "b",
+     "type": "any",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": "LIST :x :y"
+  },
+  {
+   "name": "FPUT",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "thing",
+     "type": "any",
+     "unit": ""
+    },
+    {
+     "name": "list",
+     "type": "list",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "LPUT",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "thing",
+     "type": "any",
+     "unit": ""
+    },
+    {
+     "name": "list",
+     "type": "list",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "SENTENCE",
+   "aliases": [
+    "SE"
+   ],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "a",
+     "type": "any",
+     "unit": ""
+    },
+    {
+     "name": "b",
+     "type": "any",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "MAP",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "how",
+     "type": "template",
+     "unit": ""
+    },
+    {
+     "name": "list",
+     "type": "list",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": "MAP [ ? * 2 ] [ 1 2 3 ]"
+  },
+  {
+   "name": "FILTER",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "test",
+     "type": "template",
+     "unit": ""
+    },
+    {
+     "name": "list",
+     "type": "list",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": "FILTER [ ? > 10 ] [ 5 15 25 ]"
+  },
+  {
+   "name": "REDUCE",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "how",
+     "type": "template",
+     "unit": ""
+    },
+    {
+     "name": "list",
+     "type": "list",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": "REDUCE [ ?1 + ?2 ] [ 1 2 3 4 ]"
+  },
+  {
+   "name": "FOREACH",
+   "aliases": [],
+   "kind": "control",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "list",
+     "type": "list",
+     "unit": ""
+    },
+    {
+     "name": "steps",
+     "type": "template-block",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": "FOREACH [ 50 100 50 ] [ FD ? RT 120 ]"
+  },
+  {
+   "name": "WORD?",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "thing",
+     "type": "any",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "NUMBER?",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "thing",
+     "type": "any",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "LIST?",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [],
+   "inputs": [
+    {
+     "name": "thing",
+     "type": "any",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "SEE?",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [
+    "ai"
+   ],
+   "inputs": [
+    {
+     "name": "thing",
+     "type": "any",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": "IF SEE? \"ball [ SOUND FANFARE ]"
+  },
+  {
+   "name": "FIND",
+   "aliases": [],
+   "kind": "command",
+   "level": 3,
+   "needs": [
+    "ai"
+   ],
+   "inputs": [
+    {
+     "name": "thing",
+     "type": "any",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "FOLLOW",
+   "aliases": [],
+   "kind": "command",
+   "level": 3,
+   "needs": [
+    "ai"
+   ],
+   "inputs": [
+    {
+     "name": "thing",
+     "type": "any",
+     "unit": ""
+    },
+    {
+     "name": "seconds",
+     "type": "number",
+     "unit": "s"
+    }
+   ],
+   "help": "",
+   "example": ""
+  },
+  {
+   "name": "HOWMANY",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 3,
+   "needs": [
+    "ai"
+   ],
+   "inputs": [
+    {
+     "name": "thing",
+     "type": "any",
+     "unit": ""
+    }
+   ],
+   "help": "",
+   "example": ""
+  }
+ ],
+ "presets": {
+  "side": [
+   "LEFT",
+   "RIGHT"
+  ],
+  "colour": [
+   "RED",
+   "GREEN",
+   "BLUE",
+   "YELLOW",
+   "PURPLE",
+   "WHITE",
+   "ORANGE",
+   "OFF"
+  ],
+  "look": [
+   "LEFT",
+   "RIGHT",
+   "UP",
+   "DOWN",
+   "HOME"
+  ],
+  "sound": [
+   "STARTUP",
+   "READY",
+   "SELFTEST_FAIL",
+   "CHIRP_UP",
+   "CHIRP_DOWN",
+   "BLIP",
+   "TICK",
+   "JINGLE",
+   "THINKING",
+   "OUCH",
+   "ERROR",
+   "SUCCESS",
+   "FANFARE",
+   "SAD",
+   "SAFETY_CHIRP",
+   "ACK_BLIP",
+   "FAIL",
+   "CONFIRM",
+   "QUESTION",
+   "OK_CHIRP",
+   "GRUMBLE",
+   "SCAN",
+   "GOODBYE",
+   "HORN"
+  ]
+ }
+}

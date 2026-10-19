@@ -15,6 +15,7 @@ Each `*.yaml` file is a list of cases:
   handles_obstacles: false        # optional: the program uses BLOCKED? (design-notes §82 h)
   tail_calls: [COUNTDOWN]         # optional: the words whose calls in tail position reuse the frame (grammar.md §8)
   version: v1.1                   # optional: the case applies from that version (default v1)
+  check: false                    # optional: only the reading is tested (the checker is not run)
 ```
 
 Error cases:

@@ -96,6 +96,7 @@ void loop() {
   const uint32_t now = millis();
   const cq::net::LinkStatus s = cq::net::linkStatus();
   g_wifi.step(now, hasClients(s));
+  cq::net::cameraApplyPending();  // Plan O: camera settings from the page (sensor setters + NVS, off the link task)
   // Staged start (design-notes §38): camera after the station is up, or after 10 s in any case.
   if (!g_camera_started && (g_wifi.mode() == cq::core::WifiMode::kStation || now >= 10000)) {
     g_camera_started = true;

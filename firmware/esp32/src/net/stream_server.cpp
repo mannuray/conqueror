@@ -40,7 +40,14 @@ void serveStream(httpd_req_t* req) {
   httpd_resp_set_hdr(req, "Cache-Control", "no-store");
   char part[96];
   esp_err_t err = ESP_OK;
+  uint32_t last_ms = 0;
   while (err == ESP_OK) {
+    const uint8_t cap = cameraSettings().fps_cap;  // Plan O: frame-rate limit per viewer
+    if (cap > 0) {
+      const uint32_t gap = 1000u / cap, since = millis() - last_ms;
+      if (since < gap) vTaskDelay(pdMS_TO_TICKS(gap - since));
+    }
+    last_ms = millis();
     camera_fb_t* fb = cameraGrab();
     if (fb == nullptr) break;  // camera stopped (OTA) or failed
     const int len = snprintf(part, sizeof(part),
@@ -51,6 +58,7 @@ void serveStream(httpd_req_t* req) {
       err = httpd_resp_send_chunk(req, reinterpret_cast<const char*>(fb->buf),
                                   static_cast<ssize_t>(fb->len));
     }
+    if (err == ESP_OK) cameraCountFrame(static_cast<uint32_t>(fb->len));
     cameraRelease(fb);
   }
   // Review I1: complete() only hands the socket back - it is not closed (no LRU purge). Close it explicitly so the

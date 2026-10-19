@@ -1373,3 +1373,12 @@ A review of the v2 grammar (pasted by the owner) raised four points; all applied
 ## 89. Build order: the tank app first, then Logo (owner, 2026-10-19)
 - Owner: "first build the tank app, then Logo, and then the Logo UI." Order: **Plan O — the tank app** (☰ menu on Drive; Settings in 4 tabs WiFi · Tank · Tune · Log with the new cards — live sensors, self-test, camera, child-play card, Tune graphs + calibration wizard, the event log; bridge work behind them) → **Plans N1–N3 — the Logo engine** (reader, runner, on the tank) → **Plan N4 — the Logo page** inside the finished app.
 - Plan N1 (`docs/superpowers/plans/2026-10-19-plan-n1-logo-reader.md`) stays written; it runs after Plan O. Next: bridge LLD Revision 13 (the tank app), then Plan O.
+
+## 90. Tank app — facts that change the designed screens (2026-10-19)
+From the code (research for bridge LLD R13):
+- **No IMU temperature and no tilt angles on the Uno Lite** (TELEM_SLOW `temp` and TELEM_FAST `pitch`/`roll` are always 0). The Live sensors card drops temperature and shows the *tilted / lifted* alarms instead of angles. (Logo's `TILT` word needs a decision in Plan N2: give 0 / refuse on the Lite.)
+- **The self-test cannot be re-run on the Lite** (CALIBRATE → UNAVAILABLE): the card shows the last start-up result and says a restart runs the checks again; no button.
+- **Camera settings are compile-time constants today** → new run-time setters + NVS `cq_cam`.
+- **The bridge keeps no event history** (logs go to USB only) → new `EventLog` ring (200 entries) feeding the Log tab; several Uno events are dropped today (SELFTEST, IMU/US fault, envelope changed …) and will be logged.
+- **Child play:** the Uno Lite supports ENVELOPE (incl. the CHILD_PLAY bit) but the bridge never sends it; the Tank card stays read-only until the child-play safety design.
+- Live graphs use the existing `debug` stream (`td` 10 Hz: encoder counts) — no new telemetry.

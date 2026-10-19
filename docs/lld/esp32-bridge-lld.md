@@ -1645,3 +1645,111 @@ sequenceDiagram
   C->>C: log "xclk drive 0"
 ```
 Tank check: 3 boots — pings + drive page with video; a short stand drive with video on (drive, release, STOP).
+
+## Revision 13 — The tank app (Plan O; UX `docs/design/bridge-ux.md`, design-notes §80, §85, §89, §90) — DRAFT for owner review
+Builds the designed app except Logo and AI: the ☰ menu on Drive, `/settings` in four tabs (WiFi · Tank · Tune · Log) with the new cards, and the bridge pieces behind them. Facts from the code (2026-10-19) that shape it are listed in design-notes §90.
+
+### R13.1 Pages
+- **Drive (`basic_drive.html`):** the ⚙ SET chip becomes **☰ MENU**; a sheet with **LOGO** (greyed, "coming soon" until Plan N4), **SETTINGS**, **AI** (greyed "not set up" until an address is saved; when set, opens it in a new tab), **HELP**. STOP stays above the dimmed screen.
+- **Settings (`settings.html`, budget raised 24 → 36 KB gzipped):** four tabs; the tab is remembered in the URL hash (`/settings#tune`).
+  - **WiFi** — unchanged.
+  - **Tank** — 01 Bridge, 02 Uno body (battery bar, encoders), **03 Live sensors** (distance ahead, heading, turn rate from `tf`; encoder counts and track speed from `td` at 10 Hz while the tab is open; *tilted / lifted* alarms from `ts` flags — the Lite measures no tilt angles and no temperature), **04 Self-test** (last start-up result per check: motion sensor, distance sensor, battery, settings; *locked* when a critical check failed; "a restart runs the checks again" — the Lite cannot re-run them on request), **05 Camera** (viewers n / 2, picture size QVGA / VGA / SVGA, quality, flip, mirror — saved on the bridge), **06 Child play** (read-only now: shows the current envelope from `ts`; the checklist and *turn on* come with the child-play safety design), 07 Safety (read only), 08 Track model, 09 Maintenance (+ the AI address field).
+  - **Tune** — **01 Live graphs** (track speed L/R in cm/s from `td` encoder deltas × counts-per-metre, heading from `tf`, balance = right/left speed ratio in ‰; last 60 s; HOLD; CSV), 02 Distance (moved from Tank: counts per metre, roll-on, resets), 03 Straight driving (moved: track-balance stepper), **04 Calibration wizard** (distance step: DRIVE 1 m + STOP → measured cm → new counts per metre shown → SAVE confirmed by the tank's button; the balance step uses the stepper; roll-on is learned).
+  - **Log** — filters ALL / STOPS / WIFI / SYSTEM, newest first, CSV; polls while the tab is open.
+
+### R13.2 Bridge pieces
+| Piece | Where | What |
+|---|---|---|
+| `EventLog` | `core/event_log.h/.cpp` (pure, host-tested) | ring of **200** `LogEntry {seq, t_ms (bridge uptime), uno_ms, kind, a, b, client[12]}`; `add()`, `since(seq, out[], max)`; cleared on restart |
+| log sources | `net/link_task.cpp` | every Uno EVENT the Lite sends (incl. today's dropped ones: SELFTEST, IMU_FAULT, US_FAULT, ENVELOPE_CHANGED, SETTINGS_SAVED/RESET, REJECTED), primitive ends other than *done*, STOP hold (*stopped by another device*, with both client names), client silent / closed while driving (*link lost*), body online / offline, WiFi mode changes (posted by `WifiManager` through its result queue), restart asked, OTA start, the ESP32 boot reason (first entry) |
+| `SelfTestRecord` | `core/body_link` | keeps the last EVENT SELFTEST (mask, locked, `uno_ms`) and `hw` from TELEM_SLOW |
+| `CameraSettings` | `net/camera_service` + NVS `cq_cam` | `{size: QVGA/VGA/SVGA, quality 10–40, vflip, hmirror}`; applied at run time with the sensor's setters (on the camera's own task, through a queue); defaults = today's constants |
+| `AppSettings` | NVS `cq_app` | `ai_url` (≤ 96 chars, `http://…` only) |
+| calibration save | `link_task` `handleCalib` | a `calib` **set** from any client now waits for the tank's button (`ConfirmGate`, like Plan M changes) — also for `tools/smoke/move.py` |
+
+### R13.3 WebSocket additions
+| Client → bridge | Reply |
+|---|---|
+| `{"t":"tank"}` | `{"t":"tank","selftest":{"seen":bool,"mask":n,"locked":bool,"age_s":n},"hw":{"encoders","imu","us"},"camera":{"size","quality","vflip","hmirror","viewers"},"ai_url":"…"}` |
+| `{"t":"log","since":n,"id"?}` | `{"t":"log","entries":[{"seq","age_s","kind","a","b","client"}…],"last":n}` — at most 25 per reply; the page asks again until it has them all |
+| `{"t":"camera_set","size"?,"quality"?,"vflip"?,"hmirror"?,"id"}` | `ack` / `nack INVALID_COMMAND`; then `tank` to the sender |
+| `{"t":"app_set","ai_url":"…","id"}` | `ack` / `nack INVALID_COMMAND` (bad URL) |
+
+### R13.4 Classes
+```mermaid
+classDiagram
+  class EventLog {
+    +static kCap = 200
+    +add(kind, a, b, client, uno_ms, now_ms) uint32
+    +since(seq, LogEntry* out, max) uint8
+    +last() uint32
+  }
+  class LogEntry {
+    uint32 seq
+    uint32 t_ms
+    uint32 uno_ms
+    LogKind kind
+    int32 a
+    int32 b
+    char client[12]
+  }
+  class SelfTestRecord {
+    bool seen
+    uint8 mask
+    bool locked
+    uint32 uno_ms
+  }
+  class CameraSettings {
+    FrameSize size
+    uint8 quality
+    bool vflip
+    bool hmirror
+    +load() / save()
+    +apply(sensor_t*)
+  }
+  class AppSettings {
+    char ai_url[97]
+    +load() / save()
+    +valid(url) bool
+  }
+  EventLog --> LogEntry
+  LinkTask --> EventLog : add()
+  LinkTask --> SelfTestRecord
+  LinkTask ..> CameraSettings : camera_set (queue)
+  LinkTask ..> AppSettings : app_set
+```
+
+### R13.5 Sequences
+```mermaid
+sequenceDiagram
+  participant P as /settings (Log tab)
+  participant L as link task
+  participant E as EventLog
+  P->>L: {"t":"log","since":0}
+  L->>E: since(0, 25)
+  L-->>P: {"t":"log","entries":[…25],"last":57}
+  P->>L: {"t":"log","since":25}
+  L-->>P: {"t":"log","entries":[…25],"last":57}
+  loop every 2 s while the tab is open
+    P->>L: {"t":"log","since":57}
+    L-->>P: {"t":"log","entries":[],"last":57}
+  end
+```
+```mermaid
+sequenceDiagram
+  participant P as /settings (Tune wizard)
+  participant L as link task
+  participant U as Uno
+  P->>L: {"t":"debug","on":true,"hz":10}
+  P->>L: {"t":"move","dist_cm":100,"speed":40,"id":1}
+  L->>U: DRIVE src AUTO (motion service)
+  L-->>P: ack 1 · td (encoder counts) · ev primitive_done
+  P->>P: measured cm → counts per metre = counts × 100 / cm
+  P->>L: {"t":"calib","counts_per_m":7295,"id":2}
+  L-->>P: {"t":"confirm","what":"calib","secs":30}
+  U->>L: EVENT button_press
+  L-->>P: {"t":"confirmed","what":"calib"} · calib
+```
+
+### R13.6 Tests
+Host: `test_event_log` (ring wrap at 200, `since` paging, seq gaps after wrap, client name truncation), `test_ws_codec` / `test_ws_json` (tank, log, camera_set, app_set — URL validation, size / quality ranges), `test_body_link` (SelfTestRecord from EVENT SELFTEST). Page tests with a stand-in WebSocket: menu, tabs + hash, live sensors from fake `tf`/`td`/`ts`, graphs, the wizard flow, log paging. Tank: menu links, camera settings change the stream, log shows a STOP from another device and a WiFi switch, wizard on the floor.

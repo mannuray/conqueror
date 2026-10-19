@@ -318,7 +318,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
         resyncLock();  // also on body_online (review I4)
         send({ t: "tank" });  // R13.1: only for the menu's AI address
         break;
-      case "tank": showAi(m.ai_url || ""); showCam(m.camera); break;
+      case "tank": showAi(m.ai_url || ""); showCamera(m.camera); break;
       case "tf": showFast(m); break;
       case "ts": showSlow(m); break;
       case "ev": onEvent(m); break;
@@ -763,7 +763,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   });
   var sheets = { soundsBtn: "soundSheet", moreBtn: "moreSheet", menuBtn: "menuSheet", camBtn: "camSheet" };
   // design-notes §94: camera chip + sheet; the state comes from {"t":"tank"} every 2 s while the page is visible
-  function showCam(c) {
+  function showCamera(c) {
     if (!c) return;
     var fps = c.viewers ? c.fps / c.viewers : 0;  // the bridge counts frames for all viewers together
     $("camTxt").textContent = c.size + (fps ? " · " + Math.round(fps) + " fps" : "");

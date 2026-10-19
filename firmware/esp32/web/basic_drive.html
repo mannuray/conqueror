@@ -150,6 +150,10 @@ body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 
 .mi b { display: block; letter-spacing: .08em; } .mi small { color: var(--dim); }
 .mi i { margin-left: auto; font-style: normal; }
 .mi.off { opacity: .5; pointer-events: none; }
+.sgrid.four { grid-template-columns: repeat(4, 1fr); margin-bottom: 8px; }
+.sgrid .btn.on { background: var(--ui); color: #032; }
+#camBtn.slow { color: var(--warn); border-color: var(--warn); }
+.sheet a.btn { display: block; text-align: center; text-decoration: none; }
 .mi .bdg { border: 1px solid var(--warn); color: var(--warn); font-size: 9px; padding: 1px 5px; white-space: nowrap; }
 .sheet .title { color: var(--ui); text-shadow: var(--glow); font-size: 11px; letter-spacing: .1em; margin: 0 0 8px; }
 .sgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
@@ -209,6 +213,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     <a id="snap" class="btn glass pill" download><svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg><span class="lab">SNAP</span></a>
     <button id="soundsBtn" class="btn glass pill hidden" type="button"><svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span class="lab">SOUNDS</span></button>
     <button id="moreBtn" class="btn glass pill" type="button"><svg viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>MAX <b id="maxTxt">60%</b></button>
+    <button id="camBtn" class="btn glass pill" type="button" aria-label="camera picture size and frame rate"><svg viewBox="0 0 24 24"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg><b id="camTxt">--</b></button>
   </div>
   <div id="vitals" class="vitals glass">-</div>
 </div>
@@ -217,6 +222,11 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 <div id="moreSheet" class="ov sheet glass">
   <p class="title">[ SPEED ] <b id="speedTxt">60%</b></p>
   <input id="speed" type="range" min="10" max="100" step="5" value="60" aria-label="speed">
+</div>
+<div id="camSheet" class="ov sheet glass"><p class="title">[ CAMERA ] <b id="camNow"></b></p>
+  <p class="title">PICTURE SIZE</p><div id="camSize" class="sgrid four"><button class="btn" type="button" data-v="QVGA">QVGA</button><button class="btn" type="button" data-v="VGA">VGA</button><button class="btn" type="button" data-v="SVGA">SVGA</button><button class="btn" type="button" data-v="HD">HD</button></div>
+  <p class="title">FRAME-RATE LIMIT</p><div id="camFps" class="sgrid four"><button class="btn" type="button" data-v="0">MAX</button><button class="btn" type="button" data-v="15">15</button><button class="btn" type="button" data-v="10">10</button><button class="btn" type="button" data-v="5">5</button></div>
+  <div class="sgrid"><a class="btn" href="/settings#tank">MORE IN SETTINGS ›</a></div>
 </div>
 <div id="dim" class="ov"></div>
 <div id="menuSheet" class="ov sheet glass"><p class="title">[ MENU ]</p>
@@ -308,7 +318,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
         resyncLock();  // also on body_online (review I4)
         send({ t: "tank" });  // R13.1: only for the menu's AI address
         break;
-      case "tank": showAi(m.ai_url || ""); break;
+      case "tank": showAi(m.ai_url || ""); showCam(m.camera); break;
       case "tf": showFast(m); break;
       case "ts": showSlow(m); break;
       case "ev": onEvent(m); break;
@@ -751,7 +761,25 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     $("maxTxt").textContent = speed + "%";
     try { localStorage.setItem("cq_speed", String(speed)); } catch (e) { /* private mode */ }
   });
-  var sheets = { soundsBtn: "soundSheet", moreBtn: "moreSheet", menuBtn: "menuSheet" };
+  var sheets = { soundsBtn: "soundSheet", moreBtn: "moreSheet", menuBtn: "menuSheet", camBtn: "camSheet" };
+  // design-notes §94: camera chip + sheet; the state comes from {"t":"tank"} every 2 s while the page is visible
+  function showCam(c) {
+    if (!c) return;
+    var fps = c.viewers ? c.fps / c.viewers : 0;  // the bridge counts frames for all viewers together
+    $("camTxt").textContent = c.size + (fps ? " · " + Math.round(fps) + " fps" : "");
+    $("camBtn").classList.toggle("slow", fps > 0 && fps < 8);
+    $("camNow").textContent = c.viewers ? fps.toFixed(1) + " fps · " + c.kbps + " kbit/s" : "";
+    [["camSize", c.size], ["camFps", String(c.fps_cap)]].forEach(function (x) {
+      Array.prototype.forEach.call($(x[0]).children, function (b) { b.classList.toggle("on", b.dataset.v === x[1]); });
+    });
+  }
+  $("camSize").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (b) send({ t: "camera_set", size: b.dataset.v, id: nextId++ });
+  });
+  $("camFps").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (b) send({ t: "camera_set", fps_cap: Number(b.dataset.v), id: nextId++ });
+  });
+  setInterval(function () { if (!document.hidden) send({ t: "tank" }); }, 2000);
   function showAi(url) {  // R13.1: greyed until an address is saved; the bridge only stores http:// addresses
     var ok = /^http:\/\//.test(url);
     if (ok) $("miAi").href = url; else $("miAi").removeAttribute("href");

@@ -613,7 +613,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     cam = m.camera || null;
     if (cam) {
       $("cViewers").textContent = cam.viewers + " / 2";
-      $("cNow").textContent = cam.viewers ? Number(cam.fps).toFixed(1) + " fps · " + cam.kbps + " kbit/s" : "nobody watching";
+      $("cNow").textContent = cam.viewers ? (cam.fps / cam.viewers).toFixed(1) + " fps" + (cam.viewers > 1 ? " each" : "") + " · " + cam.kbps + " kbit/s" : "nobody watching";  // frames are counted for all viewers
       segOn("cSize", cam.size); segOn("cFps", cam.fps_cap);
       if (document.activeElement !== $("cQual")) $("cQual").value = cam.quality;
       $("cQualV").textContent = cam.quality;

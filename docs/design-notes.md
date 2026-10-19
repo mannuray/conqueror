@@ -1484,3 +1484,6 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 ## 103. The tank's source archive was nearly full (2026-10-19)
 - The bridge packs `git archive HEAD` (gzip) into the 1.875 MB `source` partition (bridge LLD R2.3). On `main` it reached 1,952,601 of 1,966,016 bytes; the N3 plan or N3's code would have broken the bridge build ("pack_source: does not fit").
 - Fix: `docs/hardware/datasheets/**` is `export-ignore` (third-party PDFs, available online; they stay in git). The archive drops to about 1.5 MB. Nothing of our own work leaves it.
+
+## 104. Plan N3 confirmed (owner, 2026-10-19)
+- Owner: "confirm and native" — Plan N3 (`docs/superpowers/plans/2026-10-19-plan-n3-logo-on-tank.md`) and its ten rules are confirmed: async `/logo/*` jobs on the worker; the program keeps the drive with `keepDriving`; the ending's STOP only while it still owns the drive; bridge codes 3016 CHECK_AGAIN / 3017 NOT_RUNNING; LOOK → servo angles (900 centre, right / up smaller), BEEP = BLIP; PLAY in timed TONE chunks; batt_critical → 7042, tilted / lifted → 7043; memory as built; source offset from the partition table, flash partitions first; Log kind `logo`, the smoke tool pings. Executed natively; stand checks (Task 12) with the owner; floor checks (Task 13) after the road-wheel fix.

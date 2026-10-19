@@ -89,6 +89,10 @@ Same as §2 except:
 - **Allocation at startup only;** none in hot paths (video, control, body link). No Arduino `String` in hot paths; JSON via fixed-capacity documents.
 - Domain (arbitration, navigation, auth rules) is pure C++, host-buildable.
 - Secrets (key hashes, passwords) never logged.
+- **Bridge layout (bridge LLD R15, design-notes §98):** `net/link_task.cpp` is the link task's composition root and loop only — no handler logic. Application logic lives in `app/` controllers that reach the outside through `ports/` (link-time implementations); pure deciders stay in `core/`. **Every new behaviour names its controller in the LLD before it is planned.**
+
+### 3.1 Size check (all firmware)
+`scripts/size_check.py` runs in the pre-commit hook on `firmware/esp32/src` and `firmware/uno/src` (generated code excluded): file ≤ 400 lines, function ≤ 40 lines of code, cyclomatic complexity ≤ 10. Exceptions only through `scripts/size_allow.txt`, each with a reason; final reviews report whole-file numbers, not only the diff.
 
 ---
 

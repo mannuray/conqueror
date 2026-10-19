@@ -1821,3 +1821,171 @@ stateDiagram-v2
 
 **Tests** (`test_link_owner`): `begin()` starts the master once; a client opening starts nothing; the last client closing keeps the master and sends no STOP when nobody drove; the driver's phone closing sends STOP and keeps the master; drive before sync → BODY_OFFLINE (unchanged). Tank check: double press with and without a phone connected → jingle + blink both times; a page connecting / leaving adds no *link lost* rows to the Log.
 
+
+## Revision 15 — Bridge structure: controllers and ports (design-notes §97, §98) — DRAFT for owner review
+`net/link_task.cpp` (1176 lines, 34 globals, 53 functions) held the composition root, all application logic and the I/O glue; none of its rules were host-tested. This revision moves the logic into **application controllers** (`app/`) that reach the outside only through **ports** (`ports/`), keeps the pure **deciders** in `core/` (owner's choice "A with B"), and leaves `link_task.cpp` as the root and loop. **Behaviour is unchanged** — no Uno, protocol-byte, WebSocket-JSON or page change — except the one noted in R15.5.
+
+### R15.1 Rules (also in `docs/standards/coding-standards.md` §3)
+- `net/link_task.cpp` is the link task's **composition root and loop only**: static objects, wiring, the UART pump, the command queue, ticking the controllers. No handler logic.
+- **Every new behaviour names its controller in the LLD** before it is planned; a plan that adds logic to `link_task.cpp` is refused at design time.
+- Controllers depend on ports (headers; real versions in `net/`, fakes in `test/support`, chosen at **link time** — no `virtual`, standard §1.1) and on `core/` deciders; never on Arduino / ESP-IDF headers.
+- A pre-commit **size check** (R15.10) enforces the standard's sizes.
+
+### R15.2 Layers and files
+```
+net/link_task.cpp   composition root + loop (~200 lines)
+app/                command_router · uno_channel · drive_controller · motion_controller · settings_controller ·
+                    tank_app_controller · uno_event_router · telemetry_publisher      (host-tested)
+ports/              client_out.h · motion_store.h · app_store.h · wifi_control.h · camera_control.h · system_control.h
+core/               deciders as today: BodyLink, LinkOwner, MotionLink, ConfirmGate, ButtonRouter, AckedOps, EventLog,
+                    WsClients, StopBarrier, RollLearner, ws_codec (by table), ws_json (split by page)
+net/                port implementations (http_server, motion_store, app_settings, wifi_manager, camera_service, …)
+test/support/       fake ports that record every call
+```
+
+### R15.3 Ports (1–5 functions each)
+| Port | Functions | Real version |
+|---|---|---|
+| `ClientOut` | `sendTo(fd, json, len)`, `broadcast(json, len)`, `close(fd)` | `net/http_server` (`wsSend`, `wsClose`) |
+| `MotionStore` | `loadCpm()`, `saveCpm(v)`, `loadRoll()`, `saveRoll(v)` | `net/motion_store` |
+| `AppStore` | `loadAiUrl(out, cap)`, `saveAiUrl(url)` | `net/app_settings` |
+| `WifiControl` | `post(request)`, `poll(result)`, `snapshot(out)` | `net/wifi_manager` |
+| `CameraControl` | `post(settings)`, `settings()`, `defaults()`, `stats(now)`, `viewers()` | `net/camera_service`, `net/stream_server` |
+| `SystemControl` | `restart()`, `resetReason()` | ESP-IDF |
+The UART stays in `BodyLink`/`FrameTx` (already pure, fed by the loop). Time is passed as `now`.
+
+### R15.4 Controllers
+| Controller | Responsibility | Owns |
+|---|---|---|
+| `CommandRouter` | one table `WsCmdKind → handler`; admission (rate limit, STOP barrier) before the handler | — |
+| `UnoChannel` | every frame to the Uno that waits for an answer; one queue of requests; STOP keeps BodyLink's urgent slot | `BodyLink`, `FrameTx`, `AckedOps` (grown to all requests), stop waiters |
+| `DriveController` | drive, STOP (+ hold, log), release, camera stick / home, silent-client reaping, owner actions | `LinkOwner`, `StopBarrier` |
+| `MotionController` | turn, drive_rate, move, cancel, primitive ends, roll-on learning, counts per metre | `MotionLink`, `RollLearner`, cpm, roll |
+| `SettingsController` | WiFi commands, calib / setting, confirmations, the tank's button, feedback, restart | `ConfirmGate`, `ButtonRouter` |
+| `TankAppController` | tank, log, camera_set, selftest, app_set | AI address |
+| `UnoEventRouter` | Uno events and link changes → the right controller + the Log | — |
+| `TelemetryPublisher` | ts / tf / td / tds broadcasts, status for `/info` | sequence counters |
+Shared domain objects handed in by the root: `EventLog`, `WsClients`.
+
+```mermaid
+classDiagram
+  class LinkTaskRoot {
+    +loop() 2 ms tick
+  }
+  class CommandRouter {
+    +dispatch(cmd, now)
+  }
+  class UnoChannel {
+    +request(UnoRequest) bool
+    +stop(fd, id, now)
+    +onLinkEvent(ev)
+    +tick(now)
+  }
+  class DriveController {
+    +onDrive() onStop() onRelease()
+    +onCamJoy() onCamHome()
+    +onClientClosed(fd) tick(now)
+  }
+  class MotionController {
+    +onTurn() onMove() onDriveRate() onCancel()
+    +onTelemetry(now)
+  }
+  class SettingsController {
+    +onSettingsCommand() onButtonPress()
+    +tick(now)
+  }
+  class TankAppController {
+    +onTank() onLog() onCameraSet() onSelfTest() onAppSet()
+  }
+  class UnoEventRouter {
+    +route(LinkEvent)
+  }
+  class TelemetryPublisher {
+    +tick(now)
+  }
+  class ClientOut {
+    <<port>>
+  }
+  LinkTaskRoot --> CommandRouter
+  LinkTaskRoot --> UnoEventRouter
+  LinkTaskRoot --> TelemetryPublisher
+  CommandRouter --> DriveController
+  CommandRouter --> MotionController
+  CommandRouter --> SettingsController
+  CommandRouter --> TankAppController
+  DriveController --> UnoChannel
+  MotionController --> UnoChannel
+  SettingsController --> UnoChannel
+  TankAppController --> UnoChannel
+  UnoEventRouter --> UnoChannel
+  DriveController ..> LinkOwner
+  MotionController ..> MotionLink
+  SettingsController ..> ConfirmGate
+  DriveController ..> ClientOut
+  TankAppController ..> ClientOut
+```
+
+### R15.5 UnoChannel — one owner of the answer slot
+Today three things guard BodyLink's single acked slot (`m_cam_pending`, the camera waiter, the `AckedOps` queue) with two timeouts and ACKs routed in two places. `UnoChannel` owns it alone:
+- every acked frame (cam_home, cam_lock, sound, audio_mode, LED, setting get / set / save, calibrate) is an `UnoRequest {kind, payload, fd, id}` in **one FIFO of 8**; one in flight; **one timeout** (BodyLink's 200 ms); the answer goes to `fd` (ack / nack) when `fd ≥ 0`, feedback requests have `fd = -1`.
+- STOP is not a request: it keeps BodyLink's urgent slot, resent until the Uno's ACK; stop waiters are answered from `onLinkEvent(kStopResult)`.
+- link lost / OTA → every queued request answered (`BODY_OFFLINE` / `BUSY`) and dropped.
+- **The one behaviour change:** a drive-page sound / audio / camera-lock / camera-home that arrives while another request is in flight **waits in the queue** instead of being refused `BUSY`; `BUSY` only when the queue is full.
+
+```mermaid
+sequenceDiagram
+  participant P as phone (drive page)
+  participant R as CommandRouter
+  participant D as DriveController
+  participant C as UnoChannel
+  participant B as BodyLink
+  participant U as Uno
+  P->>R: {"t":"stop","id":7}
+  R->>D: onStop(fd, 7) (never rate limited, STOP barrier set)
+  D->>D: LinkOwner.onStop → hold if not the driver · log stop_hold
+  D->>C: stop(fd, 7, now)
+  C->>B: sendStop (urgent slot, queued motion purged)
+  B->>U: STOP (resent until ACK)
+  D->>MotionController: end primitive (MotionEvent::kStop)
+  U-->>B: ACK
+  B-->>C: LinkEvent kStopResult
+  C-->>P: {"t":"ack","id":7}
+```
+```mermaid
+sequenceDiagram
+  participant S as SettingsController
+  participant P as phone
+  participant C as UnoChannel
+  participant U as Uno
+  S->>C: request(sound jingle, fd -1) · request(LED blink, fd -1)
+  P->>C: request(cam_home, fd 3, id 9)
+  C->>U: SOUND (in flight)
+  U-->>C: ACK → next
+  C->>U: LED
+  U-->>C: ACK → next
+  C->>U: CAM_HOME
+  U-->>C: ACK
+  C-->>P: {"t":"ack","id":9}
+```
+
+### R15.6 Command parsing by table (`core/ws_codec`)
+One table entry per command: `{name, WsCmdKind, field reader, completeness check}` (marked `VARIANT POINT`); each command parses into its own small struct inside a tagged `WsCommand` instead of one struct holding every field. Adding a command = one table row + its reader + its handler row in `CommandRouter`. The 35 parser tests stay unchanged and must pass.
+
+### R15.7 `ws_json` by page, generated names
+`ws_json.cpp` (500 lines, 24 builders) becomes `ws_json_drive`, `ws_json_motion`, `ws_json_settings`, `ws_json_tank` + a small shared `ws_json_util` (fmt, escape). The protocol generator also writes `name(EventKind)`, `name(Owner)`, `name(AckStatus)` for C++ (and Python); `ws_json` uses them — no hand-copied name lists.
+
+### R15.8 Task watchdog
+The link task and the Arduino loop task subscribe to the ESP-IDF task watchdog and feed it every tick / loop; **3 s** without a feed → restart. Camera and stream tasks are not watched. Safety does not depend on it (a stuck bridge already stops the tank through the Uno's link-loss stop); it brings the bridge back by itself.
+
+### R15.9 What does not change
+Uno firmware; protocol bytes; WebSocket JSON (except R15.5's queueing); the pages; `tools/smoke`; the STOP urgent slot; LinkOwner / ConfirmGate / AckedOps rules; R14 (one master, always on).
+
+### R15.10 Guards
+- `scripts/size_check.py` in the pre-commit hook (`lizard` via `uv`): `firmware/esp32/src` and `firmware/uno/src` (generated code excluded) — file ≤ **400** lines, function ≤ **40** lines of code, cyclomatic complexity ≤ **10**. Today's offenders start on an allow-list (`scripts/size_allow.txt`) that this plan empties for the bridge; the Uno list stays as it is and is reported.
+- Every final review reports whole-file numbers (largest files, longest functions), not only the diff.
+
+### R15.11 Tests
+- Fake ports (`test/support/fake_*`) record calls; one test file per controller (`test_drive_controller`, `test_motion_controller`, `test_settings_controller`, `test_tank_app_controller`, `test_uno_channel`, `test_command_router`, `test_telemetry_publisher`).
+- **Drive / STOP pinned before the drive code moves:** STOP from anyone is sent and resent until ACK, answered to every waiter; STOP hold for a non-driver; 5 s handback; driver's phone closing → STOP; a primitive ends on STOP and when its owner leaves; drive before sync → BODY_OFFLINE; STOP never rate limited; motion posted before a STOP is dropped.
+- Existing 246 host tests keep passing throughout.
+- Tank (end): stand — drive, STOP, STOP from a second phone, camera stick / home, sounds, tank button confirm, WiFi double press with and without a phone, Log, camera settings; floor — 1 m move, a 90° turn.

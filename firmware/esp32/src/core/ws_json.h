@@ -16,6 +16,7 @@ namespace cq {
 namespace core {
 
 constexpr size_t kWsJsonMax = 384;
+constexpr size_t kWsBigMax = 3584;  // Plan O: tank / log replies - sent through their own small queue (http_server)
 
 // Reasons the bridge itself produces (not on the Uno's ack_status list).
 enum class BridgeReason : uint8_t { kNotOwner, kBusy, kBodyOffline, kRateLimited, kInvalidCommand, kTimeout, kUnavailable,

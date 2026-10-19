@@ -47,7 +47,7 @@ bool g_ota_active = false;
 
 // WS bookkeeping (link_task only)
 char g_json[core::kWsJsonMax];
-char g_big[3584];              // Plan O: tank and log replies (25 log entries do not fit g_json)
+char g_big[core::kWsBigMax];    // Plan O: tank and log replies (25 log entries do not fit g_json)
 core::EventLog g_log;          // Plan O (LLD R13): the Log tab
 char g_ai_url[97] = "";        // the AI engine's page (NVS cq_app)
 uint32_t g_last_debug_slow = 0;  // LLD R5: TELEM_SLOW count last seen by the debug stream

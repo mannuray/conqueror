@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050805">
+<title>Tank Logo</title>
+<link rel="icon" href="/icon-192.png">
+<style>
+/* Plan N4 (Tank Logo LLD §21): write, check, run and step Tank Logo programs. Look per the Stitch screens
+   docs/design/stitch/15-tank-logo-desktop-v2.png (laptop) and 16-tank-logo-mobile-v2.png (phone), without the speed
+   and PAUSE controls (design-notes §106). STOP is on this page because it moves the tank (§72). */
+:root {
+  --bg: #050805; --panel: #070f08; --edge-c: rgba(51, 255, 102, .32); --line: rgba(51, 255, 102, .14); --ui: #33ff66;
+  --dim: #1f9a40; --warn: #ffb000; --danger: #ff3b30; --active: #e8ffe8; --text: #b8f5c8;
+  --move: #33ff66; --turn: #b5e853; --flow: #3ee0e8; --show: #ff7ad9; --sense: #8cc8ff; --maths: #dfe8df;
+  --num: #ffb000; --own: #ffffff; --cmt: #4f7a5a;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 var(--mono); }
+body { background-image: repeating-linear-gradient(0deg, rgba(51, 255, 102, .025) 0 1px, transparent 1px 3px); padding-bottom: 76px; }
+a, button, input, textarea, select { font: inherit; color: inherit; }
+button { background: transparent; border: 1px solid var(--edge-c); color: var(--ui); padding: 8px 10px; letter-spacing: .06em; cursor: pointer; }
+button:disabled { opacity: .35; cursor: default; }
+svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
+header { padding: 10px max(12px, env(safe-area-inset-left)) 8px; border-bottom: 1px solid var(--edge-c); }
+.top { display: flex; align-items: center; gap: 8px; }
+.top a { color: var(--ui); text-decoration: none; letter-spacing: .08em; font-weight: 700; }
+.top h1 { flex: 1; font-size: 13px; margin: 0; color: var(--ui); letter-spacing: .14em; text-align: center; }
+#stop { background: var(--danger); color: #fff; border-color: var(--danger); font-weight: 700; padding: 8px 14px; }
+.chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+.chip { border: 1px solid var(--edge-c); padding: 4px 6px; color: var(--ui); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+.chip.warn { color: var(--warn); border-color: rgba(255, 176, 0, .5); }
+#menu { display: none; position: absolute; right: 12px; top: 52px; z-index: 5; background: var(--panel); border: 1px solid var(--edge-c); }
+#menu.on { display: block; } #menu a { display: block; padding: 12px 18px; color: var(--ui); text-decoration: none; border-bottom: 1px solid var(--line); }
+main { padding: 10px 12px; display: grid; gap: 10px; }
+.card { border: 1px solid var(--edge-c); background: var(--panel); padding: 10px; min-width: 0; }
+.card h2 { margin: 0 0 8px; font-size: 12px; color: var(--ui); letter-spacing: .1em; display: flex; justify-content: space-between; gap: 8px; }
+.badge { color: var(--warn); border: 1px solid rgba(255, 176, 0, .5); padding: 0 6px; font-size: 11px; }
+.progbar { display: flex; gap: 6px; } .progbar span { display: none; } .progbar select { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--edge-c); color: var(--ui); padding: 8px; }
+#plist { display: none; list-style: none; margin: 0; padding: 0; }
+#plist li { padding: 7px 10px; cursor: pointer; color: var(--text); } #plist li.on { color: var(--ui); background: rgba(51, 255, 102, .08); border-left: 2px solid var(--ui); }
+#plist .sec { color: var(--dim); font-size: 11px; cursor: default; letter-spacing: .1em; padding-top: 12px; }
+.dot::after { content: " ●"; color: var(--warn); }
+#tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; } #tabs button.on { background: rgba(51, 255, 102, .12); color: var(--active); border-color: var(--ui); }
+.ed { position: relative; display: flex; border: 1px solid var(--line); background: var(--bg); height: 46vh; min-height: 220px; }
+#gut, #hl, #src { margin: 0; font: 16px/1.6 var(--mono); padding: 8px 0; white-space: pre; tab-size: 2; }
+#gut { width: 3.2em; text-align: right; padding-right: 8px; color: var(--cmt); overflow: hidden; user-select: none; flex: none; }
+#gut .err { color: var(--danger); } #gut .run { color: var(--warn); }
+.edw { position: relative; flex: 1; min-width: 0; overflow: hidden; }
+#hl, #src { position: absolute; inset: 0; padding-left: 4px; padding-right: 8px; }
+#hl { overflow: hidden; pointer-events: none; color: var(--text); }
+#src { width: 100%; height: 100%; resize: none; border: 0; outline: 0; background: transparent; color: transparent; caret-color: var(--active); overflow: auto; }
+#src[readonly] { caret-color: transparent; }
+#hl div { min-height: 1.6em; position: relative; } #hl div.run { background: rgba(255, 176, 0, .14); box-shadow: inset 3px 0 var(--warn); }
+.rnd { margin-left: 12px; font-style: normal; font-size: 11px; color: #000; background: var(--warn); padding: 1px 6px; vertical-align: 2px; }
+.g-move { color: var(--move); } .g-turn { color: var(--turn); } .g-flow { color: var(--flow); } .g-show { color: var(--show); }
+.g-sense { color: var(--sense); } .g-maths { color: var(--maths); } .num { color: var(--num); } .own { color: var(--own); }
+.inp { color: var(--own); font-style: italic; } .str { color: var(--text); } .cmt { color: var(--cmt); font-style: italic; } .op { color: var(--dim); }
+.bad { text-decoration: underline wavy var(--danger); } .err { text-decoration: underline wavy var(--danger); text-underline-offset: 3px; }
+.pad { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; } .pad button { padding: 7px 9px; font-size: 13px; }
+.pad button small { color: var(--dim); } .help { margin-top: 6px; color: var(--dim); min-height: 1.4em; }
+#diags { margin-top: 8px; } .diag { border-left: 3px solid var(--danger); padding: 6px 8px; margin-bottom: 6px; cursor: pointer; }
+.diag.warn { border-color: var(--warn); } .diag pre { margin: 0; font: 15px/1.4 var(--mono); color: var(--active); overflow: hidden; }
+.diag p { margin: 2px 0 0; font-size: 14px; color: var(--active); }
+.msgs { display: flex; gap: 10px; } #log { flex: 1; min-width: 0; max-height: 9.5em; overflow: auto; font-size: 12px; }
+#log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } #log .say { color: var(--show); } #log .end { color: var(--warn); }
+#mini { width: 84px; height: 84px; border: 1px solid var(--line); flex: none; cursor: pointer; }
+.pathw { position: relative; height: 52vh; min-height: 260px; border: 1px solid var(--line); background: var(--bg); }
+#path { width: 100%; height: 100%; display: block; }
+#pnote { position: absolute; left: 8px; top: 6px; color: var(--dim); font-size: 11px; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; text-align: center; }
+.stats div { border: 1px solid var(--line); padding: 6px; } .stats small { display: block; color: var(--dim); font-size: 10px; letter-spacing: .1em; }
+.stats b { color: var(--ui); font-size: 14px; white-space: nowrap; }
+#bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--edge-c); padding: 8px 12px max(8px, env(safe-area-inset-bottom)); display: flex; gap: 8px; align-items: center; z-index: 4; }
+#status { flex: 1; min-width: 0; font-size: 12px; color: var(--ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#status.s-warn { color: var(--warn); } #status.s-bad { color: var(--danger); }
+#run { background: var(--warn); color: #000; border-color: var(--warn); font-weight: 700; padding: 12px 18px; }
+#step { padding: 12px 14px; }
+.sheet { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, .7); z-index: 9; align-items: center; justify-content: center; }
+.sheet.on { display: flex; } .sheet .card { width: min(360px, 92vw); } .sheet input { width: 100%; background: var(--bg); border: 1px solid var(--edge-c); padding: 10px; margin: 8px 0; color: var(--active); }
+.sheet .row { display: flex; gap: 8px; justify-content: flex-end; } .sheet p { margin: 4px 0; } .sheet .why { color: var(--warn); min-height: 1.4em; }
+.hide { display: none !important; }
+@media (max-width: 899px) { body:not(.tpath) #cPath { display: none; } body.tpath #cEdit, body.tpath #cMsg { display: none; } }
+@media (min-width: 900px) {
+  body { padding-bottom: 0; }
+  header .inner { display: flex; align-items: center; gap: 16px; } .top { flex: 1; } .top h1 { text-align: left; }
+  .chips { display: flex; margin-top: 0; }
+  main { grid-template-columns: 220px minmax(0, 1.2fr) minmax(0, 1fr); align-items: start; }
+  #cProg { grid-row: span 3; } #plist { display: block; } .progbar select, #tabs { display: none; }
+  .progbar { flex-wrap: wrap; } .progbar span { display: inline; } .progbar button { flex: 1; }
+  #cEdit { grid-column: 2; } #cMsg { grid-column: 2; } #cPath { grid-column: 3; grid-row: 1 / span 3; }
+  #mini { display: none; } #bar { position: static; grid-column: 2; border: 1px solid var(--edge-c); padding: 8px; }
+  .ed { height: 52vh; }
+}
+</style>
+</head>
+<body>
+<header><div class="inner">
+  <div class="top">
+    <a href="/"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>DRIVE</a>
+    <h1>[ TANK LOGO ]</h1>
+    <button id="mbtn" type="button" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <button id="stop" type="button">STOP</button>
+  </div>
+  <div class="chips">
+    <span class="chip" id="cBatt">-- V</span>
+    <span class="chip" id="cWifi">WIFI --</span>
+    <span class="chip" id="cUno">● UNO --</span>
+  </div>
+</div></header>
+<nav id="menu"><a href="/">DRIVE</a><a href="/settings">SETTINGS</a><a href="/help">HELP</a></nav>
+<main>
+<section class="card" id="cProg">
+  <h2>[ PROGRAMS ]</h2>
+  <div class="progbar">
+    <select id="psel" aria-label="Program"></select>
+    <button id="pnew" type="button" title="New program"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span> NEW</span></button>
+    <button id="psave" type="button" title="Save on the tank"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg><span> SAVE</span></button>
+    <button id="pren" type="button" title="Rename"><svg viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/></svg><span> RENAME</span></button>
+    <button id="pdel" type="button" title="Delete" style="color:var(--danger)"><svg viewBox="0 0 24 24"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg><span> DELETE</span></button>
+  </div>
+  <ul id="plist"></ul>
+</section>
+<div id="tabs"><button type="button" class="on" data-t="prog">[ PROGRAM ]</button><button type="button" data-t="path">PATH</button></div>
+<section class="card" id="cEdit">
+  <h2><span id="title">[ 01 // PROGRAM ]</span><span class="badge hide" id="state"></span></h2>
+  <div class="ed"><pre id="gut"></pre><div class="edw"><pre id="hl" aria-hidden="true"></pre>
+    <textarea id="src" wrap="off" spellcheck="false" autocapitalize="characters" autocomplete="off" aria-label="Program text"></textarea></div></div>
+  <div id="diags"></div>
+  <div class="pad" id="pad"></div>
+  <div class="help" id="help"></div>
+</section>
+<section class="card" id="cMsg">
+  <h2>[ MESSAGES ]</h2>
+  <div class="msgs"><div id="log"></div><canvas id="mini" title="Open the path"></canvas></div>
+</section>
+<section class="card" id="cPath">
+  <h2>[ 02 // PATH ]<span id="pgrid" class="badge">5 cm GRID</span></h2>
+  <div class="pathw"><canvas id="path"></canvas><span id="pnote"></span></div>
+  <div class="stats">
+    <div><small>HEADING</small><b id="sHead">--</b></div>
+    <div><small>DISTANCE AHEAD</small><b id="sDist">--</b></div>
+    <div><small>TIME</small><b id="sTime">0:00 / 5:00</b></div>
+  </div>
+</section>
+<div id="bar">
+  <span id="status">● CONNECTING</span>
+  <button id="step" type="button">STEP</button>
+  <button id="run" type="button">▶ RUN</button>
+</div>
+</main>
+<div class="sheet" id="nameS"><div class="card">
+  <h2 id="nameT">SAVE AS</h2>
+  <p>Name: 1-24 letters a-z, numbers, _ or -</p>
+  <input id="nameI" maxlength="24" autocapitalize="none" spellcheck="false">
+  <p class="why" id="nameW"></p>
+  <div class="row"><button id="nameC" type="button">CANCEL</button><button id="nameO" type="button">OK</button></div>
+</div></div>
+<div class="sheet" id="delS"><div class="card">
+  <h2>DELETE</h2><p id="delT"></p>
+  <div class="row"><button id="delC" type="button">CANCEL</button><button id="delO" type="button" style="color:var(--danger)">DELETE</button></div>
+</div></div>
+<script>
+<!--CQ:LOGO_JS-->
+</script>
+<script>
+(function () {
+  "use strict";
+  var W = <!--CQ:WORDS-->;
+  var L = LogoCore, $ = function (id) { return document.getElementById(id); };
+  var idx = L.wordIndex(W.words, W.presets), src = $("src");
+  var sched = new L.CheckScheduler(600, 500), bar = L.runBarStart(), drafts = new L.Drafts(storage());
+  var http = new L.RequestQueue(function (p, o) { return fetch(p, o); }, function (f, ms) { setTimeout(f, ms); }, 500, 20);  // ≤ 10 s of busy
+  var ws = null, open = false, linked = false, retry = 500, nextId = 1, runId = 0, stepId = 0;
+  var cur = { name: "", example: false, saved: "" }, progs = [], own = {}, diags = [], planned = [], cutShort = false;
+  var driven = [], pose = null, startedAt = 0, logLines = [];
+  var NEW = "<new>", START_TEXT = "; my program\nFORWARD 50\nRIGHT 90\n";
+
+  function storage() { try { return window.localStorage; } catch (e) { return null; } }
+  function remember(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* drafts off */ } }
+  function recall(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+  function send(o) { if (ws && open) { ws.send(JSON.stringify(o)); return true; } return false; }
+  function clock(ms) { var s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2); }
+
+  // ---------- editor ----------
+  function lineStarts(text) { var a = [0]; for (var i = 0; i < text.length; i++) if (text[i] === "\n") a.push(i + 1); return a; }
+  function render() {
+    var text = src.value, spans = L.colour(text, idx, own), starts = lineStarts(text), errAt = {}, errLine = {};
+    diags.forEach(function (d) {
+      if (d.line >= 1 && d.line <= starts.length) { errAt[starts[d.line - 1] + Math.max(0, d.col - 1)] = 1; errLine[d.line] = 1; }
+    });
+    var running = L.locked(bar) || bar.st === "ended" ? bar.line : 0, lines = [], cell = "";
+    spans.forEach(function (s) {
+      var hit = false;
+      Object.keys(errAt).forEach(function (k) { if (k >= s.from && k < s.to && s.cls !== "sp") hit = true; });
+      text.slice(s.from, s.to).split("\n").forEach(function (part, i) {
+        if (i > 0) { lines.push(cell); cell = ""; }
+        if (part) cell += '<span class="' + s.cls + (hit ? " err" : "") + '">' + esc(part) + "</span>";
+      });
+    });
+    lines.push(cell);
+    var gut = "";
+    $("hl").innerHTML = lines.map(function (h, i) {
+      var n = i + 1, run = n === running && L.locked(bar);
+      gut += '<div class="' + (errLine[n] ? "err" : run ? "run" : "") + '">' + (errLine[n] ? "▲" : "") + n + "</div>";
+      return '<div class="' + (run ? "run" : "") + '">' + h + (run && bar.round ? '<i class="rnd">ROUND ' + bar.round + "</i>" : "") + "</div>";
+    }).join("");
+    $("gut").innerHTML = gut;
+    scrollSync();
+  }
+  function scrollSync() { $("hl").scrollTop = $("gut").scrollTop = src.scrollTop; $("hl").scrollLeft = src.scrollLeft; }
+  function edited() {
+    if (L.locked(bar)) return;
+    bar = L.runBar(bar, { e: "edit" });
+    sched.edited(Date.now());
+    drafts.keep(cur.name || NEW, src.value, cur.saved);
+    soon(); showProgs(); showBar();
+  }
+  var pending = false;  // one colouring per screen frame, however fast the keys come (an 8 KB text ≈ 11 ms)
+  function soon() { if (!pending) { pending = true; requestAnimationFrame(function () { pending = false; render(); }); } }
+  src.addEventListener("input", edited);
+  src.addEventListener("scroll", scrollSync);
+  src.addEventListener("keydown", function (e) {
+    if (e.key === "Tab" && !src.readOnly) { e.preventDefault(); put("  ", 0, 0); }
+  });
+  function put(text, a, b) {
+    var s = src.selectionStart, v = src.value;
+    src.value = v.slice(0, s) + text + v.slice(src.selectionEnd);
+    src.setSelectionRange(s + a + (a ? 0 : text.length), s + b + (b ? 0 : text.length));
+    edited();
+  }
+  function setText(text) {  // another program: its own mistakes, plan and path
+    src.value = text; diags = []; own = {}; planned = []; driven = []; pose = null; cutShort = false;
+    sched.edited(Date.now() - 600); bar = L.runBar(bar, { e: "edit" }); render(); showDiags(); draw();
+  }
+
+  // ---------- word buttons (levels, §83) ----------
+  var more = false;
+  function showPad() {
+    var pad = $("pad"); pad.textContent = "";
+    W.words.forEach(function (w) {
+      var later = w.level === 3 && w.name !== "OUTPUT";  // v1: levels 1-2 and OUTPUT
+      if (w.level > 1 && !more) return;
+      var b = el("button", "g-" + w.group, w.name);
+      b.type = "button";
+      if (later) { b.disabled = true; b.appendChild(el("small", "", " later")); }
+      b.addEventListener("click", function () { insert(w); });
+      pad.appendChild(b);
+    });
+    var m = el("button", "", more ? "FEWER WORDS ▴" : "MORE WORDS ▾"); m.type = "button";
+    m.addEventListener("click", function () { more = !more; showPad(); });
+    pad.appendChild(m);
+  }
+  function insert(w) {
+    if (L.locked(bar)) return;
+    var r = L.insertWord(src.value, src.selectionStart, src.selectionEnd, w);
+    src.value = r.text; src.focus(); src.setSelectionRange(r.selStart, r.selEnd);
+    var ins = (w.inputs || []).map(function (i) { return i.name; }).join(" ");
+    $("help").textContent = "? " + w.name + (ins ? " " + ins : "") + " - " + w.help;
+    edited();
+  }
+
+  // ---------- checking (§21.5) ----------
+  function checkTick() {
+    var e = sched.due(Date.now());
+    if (!e) return;
+    var text = src.value;
+    bar = L.runBar(bar, { e: "checking" }); showBar();
+    http.send("POST", "/logo/check" + (cur.name ? "?name=" + encodeURIComponent(cur.name) : ""), text).then(function (r) {
+      var m = r.data;
+      if (r.status !== 200 || !m || typeof m !== "object") { sched.busy(e, Date.now()); return; }
+      if (!sched.replied(e)) return;
+      diags = m.diags || []; own = {};
+      (m.words || []).forEach(function (w) { own[w.name] = 1; });
+      planned = L.plannedRuns(m.path); cutShort = !!m.cut_short;
+      bar = L.runBar(bar, { e: "checked", ok: !!m.ok, prog: m.prog || 0 });
+      showDiags(); render(); draw(); act(); showBar();
+    });
+  }
+  setInterval(checkTick, 100);
+  function showDiags() {
+    var box = $("diags"), lines = src.value.split("\n"); box.textContent = "";
+    diags.slice(0, 5).forEach(function (d) {
+      var row = el("div", "diag" + (d.warning ? " warn" : "")), text = lines[d.line - 1] || "";
+      var pre = el("pre", "", "line " + d.line + ": " + text + "\n" + new Array(("line " + d.line + ": ").length + Math.max(0, d.col - 1) + 1).join(" ") + "▲");
+      row.appendChild(pre); row.appendChild(el("p", "", d.msg + " (" + d.code + ")"));
+      row.addEventListener("click", function () { goTo(d.line, d.col); });
+      box.appendChild(row);
+    });
+  }
+  function goTo(line, col) {
+    var s = lineStarts(src.value), at = (s[line - 1] || 0) + Math.max(0, col - 1);
+    src.focus(); src.setSelectionRange(at, at);
+  }
+
+  // ---------- running (§21.6) ----------
+  function act() {
+    var a = bar.act; bar.act = null;
+    if (a === "run") {
+      runId = nextId++; startedAt = 0;
+      if (!send({ t: "logo_run", prog: bar.prog, step: bar.step, id: runId })) bar = L.runBar(bar, { e: "nack", reason: "OFFLINE", message: "Not connected to the tank." });
+    } else if (a === "check") sched.now(Date.now());
+    else if (a === "step") { stepId = nextId++; send({ t: "logo_step", id: stepId }); }
+    else if (a === "stop") { send({ t: "stop", id: nextId++ }); send({ t: "logo_stop", id: nextId++ }); }
+  }
+  function onBar(ev) { var was = bar.st; bar = L.runBar(bar, ev); act(); if (bar.st !== was) lockEditor(); showBar(); }
+  function lockEditor() {
+    src.readOnly = L.locked(bar);
+    if (bar.st === "running" && !startedAt) { startedAt = Date.now(); driven = []; pose = null; logLines = []; log("program started", ""); }
+    render();
+  }
+  $("run").addEventListener("click", function () { if (bar.st === "stepping") onBar({ e: "step" }); else onBar({ e: "run", step: false }); });
+  $("step").addEventListener("click", function () { if (bar.st === "stepping") onBar({ e: "step" }); else onBar({ e: "run", step: true }); });
+  $("stop").addEventListener("click", function () { onBar({ e: "stop" }); });
+  function showBar() {
+    var s = bar, st = $("status"), t = "", cls = "";
+    var n = diags.filter(function (d) { return !d.warning; }).length;
+    if (s.other && !L.locked(s)) { t = "● A PROGRAM IS RUNNING ON ANOTHER DEVICE"; cls = "s-warn"; }
+    else if (s.st === "editing" || s.st === "checking") t = "● CHECKING …";
+    else if (s.st === "mistakes") { t = "● " + n + (n === 1 ? " MISTAKE" : " MISTAKES") + " - see under the program"; cls = "s-bad"; }
+    else if (s.st === "ready") t = s.msg ? "● " + s.msg : "● READY";
+    else if (s.st === "starting") t = "● STARTING …";
+    else if (s.st === "running") { t = "● RUNNING · line " + (s.line || "-") + " · " + clock(Date.now() - startedAt); cls = "s-warn"; }
+    else if (s.st === "stepping") { t = "● STEP · line " + s.line + " - press STEP for the next line"; cls = "s-warn"; }
+    else if (s.st === "ended") { t = L.endText(s.end); cls = s.end && s.end.reason === "finished" ? "" : "s-bad"; }
+    if (!open && !L.locked(s)) { t = "● NOT CONNECTED"; cls = "s-warn"; }
+    st.textContent = t; st.className = cls;
+    $("run").disabled = !(L.canRun(s) || s.st === "stepping") || !open;
+    $("run").textContent = s.st === "stepping" ? "▶ NEXT" : "▶ RUN";
+    $("step").disabled = !(L.canRun(s) || s.st === "stepping") || !open;
+    $("state").textContent = L.locked(s) ? "RUNNING" : s.st === "ended" ? "ENDED" : "";
+    $("state").className = "badge" + ($("state").textContent ? "" : " hide");
+    $("sTime").textContent = (L.locked(s) ? clock(Date.now() - startedAt) : "0:00") + " / 5:00";
+    $("psave").disabled = $("pdel").disabled = $("pren").disabled = L.locked(s);
+    if (!L.locked(s) && s.st !== "running") startedAt = s.st === "ended" ? startedAt : 0;
+  }
+  setInterval(function () { if (L.locked(bar)) showBar(); }, 1000);
+  function log(text, cls) {
+    var d = new Date(), t = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2);
+    logLines.push({ t: "[" + t + "] " + text, cls: cls }); if (logLines.length > 60) logLines.shift();
+    var box = $("log"); box.textContent = "";
+    logLines.forEach(function (l) { box.appendChild(el("div", l.cls, l.t)); });
+    box.scrollTop = box.scrollHeight;
+  }
+  function onEvent(m) {
+    var mine = bar.mine || bar.st === "starting";
+    switch (m.kind) {
+      case "logo_started": onBar({ e: "started" }); break;
+      case "logo_line":
+        onBar({ e: "line", line: m.line, round: m.round });
+        if (mine) { log("line " + m.line + ": " + (src.value.split("\n")[m.line - 1] || "").trim(), ""); render(); }
+        break;
+      case "logo_pose":
+        onBar({ e: "pose" });
+        if (mine) { pose = { x: m.x_cm, y: m.y_cm, h: m.heading }; driven.push({ x: m.x_cm, y: m.y_cm }); $("sHead").textContent = m.heading + "°"; draw(); }
+        break;
+      case "logo_say": if (mine) log("SAY " + m.text, "say"); break;
+      case "logo_note": if (mine) log("line " + m.line + ": " + m.msg, ""); break;
+      case "logo_ended":
+        var ours = bar.mine;
+        onBar({ e: "ended", reason: m.reason, line: m.line, msg: m.msg });
+        if (ours) { log(L.endText(bar.end), "end"); render(); }
+        break;
+      default: break;
+    }
+  }
+
+  // ---------- path (§21.7) ----------
+  function canvasFit(c) {
+    var r = c.getBoundingClientRect(), k = window.devicePixelRatio || 1;
+    c.width = Math.max(1, Math.round(r.width * k)); c.height = Math.max(1, Math.round(r.height * k));
+    var g = c.getContext("2d"); g.setTransform(k, 0, 0, k, 0, 0);
+    return { g: g, w: r.width, h: r.height };
+  }
+  function drawOn(c, small) {
+    var f = canvasFit(c), g = f.g, all = [];
+    if (f.w < 2) return;
+    planned.forEach(function (run) { all = all.concat(run.pts); });
+    var v = L.fitView(all.concat(driven), f.w, f.h, small ? 6 : 24);
+    g.clearRect(0, 0, f.w, f.h);
+    if (!small) {
+      g.strokeStyle = "rgba(51,255,102,.10)"; g.lineWidth = 1; g.beginPath();
+      var o = L.toScreen(v, 0, 0), step = v.grid * v.scale;
+      for (var x = o.x % step; x < f.w; x += step) { g.moveTo(x, 0); g.lineTo(x, f.h); }
+      for (var y = o.y % step; y < f.h; y += step) { g.moveTo(0, y); g.lineTo(f.w, y); }
+      g.stroke();
+      $("pgrid").textContent = v.grid + " cm GRID";
+    }
+    g.lineWidth = small ? 1.5 : 2;
+    planned.forEach(function (run) {
+      g.strokeStyle = "rgba(51,255,102,.55)"; g.setLineDash(run.solid ? [] : [6, 5]); line(g, v, run.pts);
+    });
+    g.setLineDash([]);
+    if (driven.length > 1) { g.strokeStyle = "#ffb000"; g.lineWidth = small ? 2 : 3; line(g, v, driven); }
+    var s = L.toScreen(v, 0, 0);
+    g.strokeStyle = "#33ff66"; g.lineWidth = 1.5; g.beginPath(); g.arc(s.x, s.y, small ? 3 : 6, 0, 7); g.stroke();
+    var at = pose || lastPlanned();
+    if (at) arrow(g, v, at, small ? 5 : 10);
+    if (!small) {
+      var cm = [100, 50, 25, 10, 5].filter(function (c) { return c * v.scale <= f.w / 4; })[0] || 5, len = cm * v.scale;
+      g.fillStyle = "#1f9a40"; g.fillRect(f.w - 14 - len, f.h - 14, len, 2);  // bottom right: a scale of about 1/4 width
+      g.font = "11px monospace"; g.fillText(cm + " cm", f.w - 14 - len, f.h - 20);
+      g.fillText("(0,0) START", s.x + 9, s.y + 16);
+    }
+  }
+  function line(g, v, pts) {
+    g.beginPath();
+    pts.forEach(function (p, i) { var s = L.toScreen(v, p.x, p.y); if (i) g.lineTo(s.x, s.y); else g.moveTo(s.x, s.y); });
+    g.stroke();
+  }
+  function lastPlanned() {
+    var r = planned[planned.length - 1]; if (!r) return null;
+    var p = r.pts[r.pts.length - 1];
+    return { x: p.x, y: p.y, h: r.endH || 0 };
+  }
+  function arrow(g, v, p, size) {
+    var s = L.toScreen(v, p.x, p.y), a = (p.h || 0) * Math.PI / 180, dx = Math.sin(a), dy = -Math.cos(a);
+    g.fillStyle = "#ffb000"; g.beginPath();
+    g.moveTo(s.x + dx * size * 1.4, s.y + dy * size * 1.4);
+    g.lineTo(s.x - dy * size * .8 - dx * size, s.y + dx * size * .8 - dy * size);
+    g.lineTo(s.x + dy * size * .8 - dx * size, s.y - dx * size * .8 - dy * size);
+    g.closePath(); g.fill();
+  }
+  function draw() {
+    drawOn($("path"), false); drawOn($("mini"), true);
+    $("pnote").textContent = cutShort ? "path cut short (a limit was reached)" : "";
+  }
+  window.addEventListener("resize", draw);
+  $("mini").addEventListener("click", function () { tab("path"); });
+  function tab(t) {
+    document.body.classList.toggle("tpath", t === "path");
+    Array.prototype.forEach.call($("tabs").children, function (b) { b.classList.toggle("on", b.dataset.t === t); });
+    draw();
+  }
+  $("tabs").addEventListener("click", function (e) { if (e.target.dataset.t) tab(e.target.dataset.t); });
+
+  // ---------- programs and drafts (§21.8) ----------
+  function prog(name) { return "/logo/programs/" + encodeURIComponent(name); }
+  function loadList() {
+    return http.send("GET", "/logo/programs").then(function (r) {
+      if (r.status === 200 && r.data && r.data.programs) { progs = r.data.programs; showProgs(); }
+    });
+  }
+  function label(p) { return p.name; }
+  function showProgs() {
+    var sel = $("psel"), ul = $("plist"), mine = progs.filter(function (p) { return !p.example; }), ex = progs.filter(function (p) { return p.example; });
+    sel.textContent = ""; ul.textContent = "";
+    function item(p, isNew) {
+      var name = isNew ? NEW : p.name, on = (cur.name || NEW) === name, dot = drafts.unsaved(name);
+      var o = el("option", "", (isNew ? "(new program)" : label(p)) + (dot ? " ●" : "")); o.value = name; o.selected = on; sel.appendChild(o);
+      var li = el("li", (on ? "on" : "") + (dot ? " dot" : ""), (on ? "> " : "") + (isNew ? "(new program)" : label(p)));
+      li.addEventListener("click", function () { openProg(name); }); ul.appendChild(li);
+    }
+    ul.appendChild(el("li", "sec", "SAVED ON THE TANK"));
+    item(null, true); mine.forEach(function (p) { item(p, false); });
+    ul.appendChild(el("li", "sec", "[ EXAMPLES ]"));
+    ex.forEach(function (p) { item(p, false); });
+    $("title").textContent = "[ 01 // PROGRAM : " + (cur.name || "new") + " ]" + (drafts.unsaved(cur.name || NEW) ? " ●" : "");
+  }
+  $("psel").addEventListener("change", function () { openProg($("psel").value); });
+  function openProg(name) {
+    if (L.locked(bar)) { showProgs(); return; }
+    var p = progs.filter(function (q) { return q.name === name; })[0], d = drafts.restore(name);
+    cur = { name: name === NEW ? "" : name, example: !!(p && p.example), saved: "" };
+    remember("cq.logo.last", name);
+    if (name === NEW) { cur.saved = ""; setText(d ? d.text : START_TEXT); showProgs(); return; }
+    http.send("GET", prog(name)).then(function (r) {
+      if (r.status !== 200 || typeof r.data !== "string") { log("Could not open " + name + (r.status === 0 ? " - not connected." : "."), "end"); return; }
+      cur.saved = r.data;
+      if (d && d.text !== r.data) {  // a draft is never hidden (§106); the tank's copy may have changed meanwhile
+        setText(d.text); drafts.keep(name, d.text, r.data);
+        if (d.saved !== r.data) log(name + " was changed on the tank since your draft - SAVE keeps your draft.", "end");
+      } else setText(r.data);
+      showProgs();
+    });
+  }
+  $("pnew").addEventListener("click", function () { openProg(NEW); });
+  function askName(title, start, then) {
+    $("nameT").textContent = title; $("nameI").value = start; $("nameW").textContent = ""; $("nameS").classList.add("on");
+    $("nameI").focus();
+    $("nameO").onclick = function () {
+      var n = $("nameI").value.trim().toLowerCase();
+      if (!/^[a-z0-9_-]{1,24}$/.test(n)) { $("nameW").textContent = "Use 1-24 of a-z, 0-9, _ or -"; return; }
+      then(n);
+    };
+  }
+  $("nameC").addEventListener("click", function () { $("nameS").classList.remove("on"); });
+  var WHY = { NAME: "That name cannot be used.", FULL: "The tank is full (32 programs) - delete one first.",
+    TOO_BIG: "The program is too long (8 KB).", EXAMPLE: "Examples cannot be changed - pick a new name.",
+    RUNNING: "Not while a program runs." };
+  function save(name, text) {
+    return http.send("PUT", prog(name), text).then(function (r) {
+      var m = r.data;
+      if (r.status === 0) return "Not connected to the tank.";
+      if (!m || typeof m !== "object") return r.status === 503 ? "The tank is busy - try again." : "Not saved.";
+      return m.ok ? "" : WHY[m.why] || m.why || "Not saved.";
+    });
+  }
+  function saveAs(title, then) {
+    var replace = "";
+    askName(title, cur.example ? "" : cur.name, function (n) {
+      var text = src.value, taken = progs.some(function (p) { return p.name === n; });
+      if (taken && n !== cur.name && replace !== n) {  // never replace another program without a second press
+        replace = n; $("nameW").textContent = n + " is already on the tank - press OK again to replace it."; return;
+      }
+      save(n, text).then(function (why) {
+        if (why) { $("nameW").textContent = why; return; }
+        $("nameS").classList.remove("on");
+        drafts.clear(cur.name || NEW);
+        var old = cur.name; cur = { name: n, example: false, saved: text }; remember("cq.logo.last", n);
+        if (then) then(old);
+        loadList();
+      });
+    });
+  }
+  $("psave").addEventListener("click", function () {
+    if (!cur.name || cur.example) { saveAs("SAVE AS"); return; }
+    var text = src.value;
+    save(cur.name, text).then(function (why) {
+      if (why) { log(why, "end"); return; }
+      cur.saved = text; drafts.clear(cur.name); log("saved " + cur.name, ""); loadList();
+    });
+  });
+  $("pren").addEventListener("click", function () {
+    if (!cur.name || cur.example) { saveAs("SAVE AS"); return; }
+    saveAs("RENAME", function (old) {
+      if (old && old !== cur.name) http.send("DELETE", prog(old)).then(loadList);
+    });
+  });
+  $("pdel").addEventListener("click", function () {
+    if (!cur.name) { setText(""); drafts.clear(NEW); showProgs(); return; }
+    if (cur.example) { log(WHY.EXAMPLE, "end"); return; }
+    $("delT").textContent = "Delete " + cur.name + " from the tank?"; $("delS").classList.add("on");
+  });
+  $("delC").addEventListener("click", function () { $("delS").classList.remove("on"); });
+  $("delO").addEventListener("click", function () {
+    var name = cur.name;
+    http.send("DELETE", prog(name)).then(function (r) {
+      var m = r.data;
+      $("delS").classList.remove("on");
+      if (!m || typeof m !== "object" || !m.ok) { log(m && WHY[m.why] || "Not deleted.", "end"); return; }
+      drafts.clear(name); loadList().then(function () { openProg(NEW); });
+    });
+  });
+  $("mbtn").addEventListener("click", function () { $("menu").classList.toggle("on"); });
+
+  // ---------- tank link (bridge R11: no link while the page is hidden) ----------
+  function bars(rssi) { return rssi >= -55 ? "▂▄▆█" : rssi >= -65 ? "▂▄▆" : rssi >= -75 ? "▂▄" : "▂"; }
+  function onMessage(m) {
+    switch (m.t) {
+      case "welcome": $("cUno").textContent = m.tank && m.tank.fw && m.tank.fw.uno ? "● UNO ONLINE" : "● UNO OFFLINE"; break;
+      case "ts":
+        if (m.batt_v !== null && m.batt_v !== undefined) $("cBatt").textContent = m.batt_v < 5.5 ? "USB" : m.batt_v.toFixed(2) + " V";
+        var off = (m.flags || []).indexOf("body_offline") >= 0;
+        $("cUno").textContent = off ? "● UNO OFFLINE" : "● UNO ONLINE"; $("cUno").className = "chip" + (off ? " warn" : "");
+        break;
+      case "tf": $("sDist").textContent = m.dist_cm === null || m.dist_cm === undefined ? "--" : m.dist_cm + " cm"; break;
+      case "wifi_status": $("cWifi").textContent = m.mode === "home" ? "HOME " + bars(m.rssi) : "OWN WIFI"; $("cWifi").className = "chip"; break;
+      case "ev": if (m.kind && m.kind.indexOf("logo_") === 0) onEvent(m); break;
+      case "ack": if (m.id === runId) { onBar({ e: "ack" }); lockEditor(); } break;
+      case "nack":
+        if (m.id === runId) onBar({ e: "nack", reason: m.reason, message: m.message });
+        else if (m.id === stepId) log(m.message || "STEP refused", "end");
+        break;
+      default: break;
+    }
+  }
+  function connect() {
+    if (document.hidden || (ws && ws.readyState <= 1)) return;
+    ws = new WebSocket("ws://" + location.host + "/ws");
+    ws.onopen = function () {
+      open = true; retry = 500; send({ t: "hello", client: "logo", proto: 1 }); send({ t: "wifi_status" });
+      if (linked) loadList();  // a new link may be a restarted bridge; the first list comes from the start below
+      linked = true; showBar();
+    };
+    ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } onMessage(m); };
+    ws.onclose = function () {
+      open = false; $("cWifi").textContent = "RECONNECTING"; $("cWifi").className = "chip warn";
+      onBar({ e: "closed" }); lockEditor();
+      setTimeout(connect, retry); retry = Math.min(retry * 2, 5000);
+    };
+    ws.onerror = function () { ws.close(); };
+  }
+  setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) { onBar({ e: "hidden" }); if (ws && ws.readyState <= 1) ws.close(); } else { retry = 500; connect(); lockEditor(); }
+  });
+
+  showPad();
+  var last = recall("cq.logo.last") || NEW, d0 = drafts.restore(NEW);
+  if (last === NEW) setText(d0 ? d0.text : START_TEXT);
+  connect();
+  loadList().then(function () { if (last !== NEW) openProg(last); else showProgs(); });
+  tab("prog");
+})();
+</script>
+</body>
+</html>

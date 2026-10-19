@@ -1459,3 +1459,18 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - **Run tests in the spec:** new `logo/spec/tests/running.yaml` — a program → the list of things the tank is asked to do and how the program ends; generated into C++ tests by `logogen` like the reading cases, so any later runner (the Python one for the AI engine) must pass the same file.
 - **The same input name twice (`TO A :x :x`) is refused** with a new code **7032** "{word} has two inputs called :{name} — give each its own name.", at the second one (grammar.md §11: one code per kind of mistake). Done in N2.
 - `TILT` needs no decision: the word table already has `TILTED?` (the Uno's tilted / lifted alarm, §92).
+
+## 101. Plan N2 — the Tank Logo runner (2026-10-19)
+- Built on the laptop, nothing on the tank yet (§100): compiler, Vm, effect mapping, RunController, simulator (Tank Logo LLD §19). Run tests in `logo/spec/tests/running.yaml` (count: 27), generated into `test_logo_running`.
+- **Rules decided while planning (owner reviewed the plan):**
+  - `REPCOUNT` is the round of the innermost REPEAT / FOREVER that is running, also from inside a word it calls; 0 outside any loop.
+  - `BLOCKED?` is true after a move cut short by the obstacle brake, until the next move, turn, arc or pivot ends.
+  - `REPEAT 2.5` runs 2 rounds (the whole part); a negative count is 7025.
+  - Moves are whole centimetres (`FD 2.5` → 3 cm); turns keep 0.01°.
+  - `=` compares words without regard to case and lists by their items.
+  - New codes: **7033** "A number got too big on line n (more than 1000000)." (any result past ±1 000 000); **7034** "The tank's body stopped answering." (link lost, deadman, OTA, body offline). A move that times out or diverges is 7044 (stuck).
+  - LED colours (r g b): RED 255 0 0, GREEN 0 255 0, BLUE 0 0 255, YELLOW 255 200 0, PURPLE 160 0 255, WHITE 255 255 255, ORANGE 255 100 0, OFF 0 0 0. LOOK presets (degrees from the centre, right / up = +): LEFT −60 0, RIGHT 60 0, UP 0 30, DOWN 0 −30; HOME = the camera's home. Both in `words.yaml` (`colour_rgb`, `look_deg`).
+  - Notes: C4–B6 (equal temperament, A4 440 Hz), lengths 0.25–16 quarter beats (1 = 250 ms), at most 64 notes; a `PLAY` list is checked before anything moves (7029 / 7025). The runner waits for the whole tune; N3 sends it in TONE frames of up to 10 notes.
+  - `LED`, `BEEP`, `SOUND`, `LOOK`, `SAY` do not wait; `WAIT`, `PLAY` and every motion do.
+- **Reader fixes found on the way:** 7025 for a word without a unit (`REPEAT 20000`, `RANDOM 0`) gave an empty message — templates now have optional placeholders `{unit?}`; IFELSE's inputs were read by YAML as `True` / `False` (now `"yes"` / `"no"`, so its message says "steps in [ ]"); a block can hold more than 255 statements (`Node::count` 16-bit); the same input name twice is 7032 (§100).
+- **Final review fix:** a word that gives back a value but ends with a call of a command word crashed the runner (the call was treated as a tail call and left without a value). A tail call now needs both words of the same kind; that program ends with 7031. Second guard: taking a value from an empty stack ends the run with 7014. Deferred to N3: Program "ok" flag (never run a failed compile), stack sizes on the tasks, rate-limiting effects that do not wait (`FOREVER [ LED RED ]`), a deeper value stack (so 100 calls of a 3-input word reach 7011, not 7014), one WAIT UNTIL deadline per wait.

@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "logo/generated/words.h"
+#include "logo/notes.h"
 #include "logo/words.h"
 
 namespace cq {
@@ -91,6 +92,7 @@ void Checker::visitCall(Node* n, int16_t def, const Caps& caps, CheckResult& r) 
   needsAndLevel(w, n->tok, caps);
   if (is(w.name, "OUTPUT") && def < 0) error(7026, n->tok);
   if (is(w.name, "BLOCKED?")) r.handles_obstacles = true;
+  if (is(w.name, "PLAY") && n->first != nullptr && n->first->kind == NodeKind::kList) checkNotes(n->first);
   uint8_t i = 0;
   for (const Node* c = n->first; c != nullptr && i < w.n_inputs; c = c->next, ++i) checkRange(n, w, i, c);
 }
@@ -121,6 +123,37 @@ void Checker::arcTooTight(const Node* call, const Node* radius) {
   error(7022, radius->tok, a, 3);
 }
 
+// A PLAY list (words.yaml presets.notes): every item a note or the length of the note before it, 1 to 64 notes.
+void Checker::checkNotes(const Node* list) {
+  NoteReader rd;
+  for (const Node* c = list->first; c != nullptr; c = c->next) {
+    const Token& t = m_toks.t[c->tok];
+    NoteReader::Err e = NoteReader::Err::kNotANote;
+    if (c->kind == NodeKind::kWord) e = rd.word(m_src + t.start, t.len);
+    if (c->kind == NodeKind::kNumber) e = rd.number(c->milli);
+    if (e != NoteReader::Err::kNone) {
+      notesError(static_cast<uint8_t>(e), c);
+      return;
+    }
+  }
+  if (rd.count() == 0) notesError(static_cast<uint8_t>(NoteReader::Err::kTooMany), list);
+}
+
+// 7029 for an item that is not a note; 7025 for a length or a note count out of range.
+void Checker::notesError(uint8_t err, const Node* at) {
+  if (static_cast<NoteReader::Err>(err) == NoteReader::Err::kNotANote) {
+    char given[40];
+    tokenText(m_src, m_toks.t[at->tok], given, sizeof given);
+    const DiagArg a[] = {{"word", "PLAY"}, {"choices", "the notes C4 to B6 (C#4 for a sharp) and R"}, {"given", given}};
+    error(7029, at->tok, a, 3);
+    return;
+  }
+  const bool len = static_cast<NoteReader::Err>(err) == NoteReader::Err::kLength;
+  const DiagArg a[] = {{"word", "PLAY"}, {"what", len ? "a length" : "a tune"}, {"min", len ? "0.25" : "1"},
+                       {"max", len ? "16" : "64"}, {"unit", len ? "beats" : "notes"}};
+  error(7025, at->tok, a, 5);
+}
+
 // 7019 (a warning): a :name inside a list is only a word there.
 void Checker::listWarning(const Node* list) {
   for (const Node* c = list->first; c != nullptr; c = c->next) {
@@ -131,12 +164,15 @@ void Checker::listWarning(const Node* list) {
   }
 }
 
-void Checker::markTails(Node* body, CheckResult& r) {
+// A call in tail position reuses the frame only when both words are the same kind (grammar.md §8): in a word that
+// gives back a value that is OUTPUT's call; a command word called last there must return, then 7031 follows.
+void Checker::markTails(int16_t def, Node* body, CheckResult& r) {
+  const bool gives = m_p.proc(static_cast<uint8_t>(def)).gives_value;
   TailStack st;
   st.push(body->last);
   while (st.ns > 0) {
     Node* n = st.n[--st.ns];
-    if (n->kind == NodeKind::kProcCall) {
+    if (n->kind == NodeKind::kProcCall && m_p.proc(static_cast<uint8_t>(n->ref)).gives_value == gives) {
       n->tail = true;
       if (n->ref < 64) r.tail_callees |= (1ULL << n->ref);
     } else if (n->kind == NodeKind::kCall) {
@@ -148,7 +184,7 @@ void Checker::markTails(Node* body, CheckResult& r) {
 // Checks one node; returns the definition its children are inside, or kSkipChildren.
 int16_t Checker::visit(Node* n, int16_t def, bool in_template, const Caps& caps, CheckResult& r) {
   switch (n->kind) {  // VARIANT POINT: checked node kinds
-    case NodeKind::kDef: markTails(n->last, r); return n->ref;
+    case NodeKind::kDef: markTails(n->ref, n->last, r); return n->ref;
     case NodeKind::kCall: visitCall(n, def, caps, r); return def;
     case NodeKind::kInput:
       if (def != kParamList) visitInput(n, def);

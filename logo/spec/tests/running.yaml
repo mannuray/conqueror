@@ -1,0 +1,171 @@
+# Tank Logo run tests (Plan N2, design-notes §100): what a program asks the tank to do, in order, and how it ends.
+# Every runner (the ESP32 one in v1; the AI engine's later) must pass these. Format: README.md "Run tests".
+
+- name: a square
+  source: REPEAT 4 [ FD 50 RT 90 ]
+  does: [FORWARD 50, RIGHT 90, FORWARD 50, RIGHT 90, FORWARD 50, RIGHT 90, FORWARD 50, RIGHT 90]
+  ends: finished
+
+- name: your own word with an input
+  source: |
+    TO SQUARE :size
+      REPEAT 4 [ FORWARD :size  RIGHT 90 ]
+    END
+    SQUARE 30
+  does: [FORWARD 30, RIGHT 90, FORWARD 30, RIGHT 90, FORWARD 30, RIGHT 90, FORWARD 30, RIGHT 90]
+  ends: finished
+
+- name: REPCOUNT and arithmetic in inputs
+  source: REPEAT 3 [ FD REPCOUNT * 10 RT 360 / 4 ]  FD 10 - 5  FD (2 + 3) * 4
+  does: [FORWARD 10, RIGHT 90, FORWARD 20, RIGHT 90, FORWARD 30, RIGHT 90, FORWARD 5, FORWARD 20]
+  ends: finished
+
+- name: a fraction of a REPEAT counts whole rounds
+  source: REPEAT 2.5 [ BEEP ]
+  does: [BEEP, BEEP]
+  ends: finished
+
+- name: IFELSE with a sensor
+  source: IFELSE DISTANCE < 30 [ BK 10 LT 90 ] [ FD 20 ]
+  world: {distance: 20}
+  does: [BACK 10, LEFT 90]
+  ends: finished
+
+- name: WHILE stops before it starts
+  source: WHILE NOT OBSTACLE? [ FD 10 ]  BEEP
+  world: {distance: 10}
+  does: [BEEP]
+  ends: finished
+
+- name: words are compared without regard to case
+  source: IF "cat = "CAT [ BEEP ]
+  does: [BEEP]
+  ends: finished
+
+- name: a word that gives back a value
+  source: |
+    TO DOUBLE :x  OUTPUT :x * 2  END
+    FD DOUBLE 25
+  does: [FORWARD 50]
+  ends: finished
+
+- name: tail calls - a countdown of 500 in one frame
+  source: TO COUNTDOWN :n IFELSE :n = 0 [ BEEP ] [ COUNTDOWN :n - 1 ] END COUNTDOWN 500
+  does: [BEEP]
+  ends: finished
+
+- name: tail calls - two words calling each other
+  source: |
+    TO PING :n  IF :n > 0 [ PONG :n - 1 ]  END
+    TO PONG :n  IF :n > 0 [ PING :n - 1 ]  END
+    PING 300  BEEP
+  does: [BEEP]
+  ends: finished
+
+- name: too many words inside each other
+  source: |
+    TO D :n  OUTPUT 1 + D :n + 1  END
+    FD D 0
+  does: []
+  ends: {error: 7011, line: 1}
+
+- name: STOP ends the program
+  source: REPEAT 10 [ FD 10  IF REPCOUNT = 3 [ STOP ] ]
+  does: [FORWARD 10, FORWARD 10, FORWARD 10]
+  ends: {error: 7040, line: 1}
+
+- name: an obstacle ends a program without BLOCKED?
+  source: |
+    FD 100
+    FD 20
+  world: {cut_short: [1]}
+  does: [FORWARD 100]
+  ends: {error: 7024, line: 1}
+  message_has: "in the way on line 1"
+
+- name: a program with BLOCKED? carries on
+  source: |
+    FD 100
+    IF BLOCKED? [ BK 10  RT 90 ]
+    FD 20
+    IF BLOCKED? [ BEEP ]
+  world: {cut_short: [1]}
+  does: [FORWARD 100, BACK 10, RIGHT 90, FORWARD 20]
+  ends: finished
+
+- name: a stuck track ends the program
+  source: FD 50 FD 50
+  world: {stuck: [2]}
+  does: [FORWARD 50, FORWARD 50]
+  ends: {error: 7044, line: 1}
+
+- name: divide by zero has its line
+  source: |
+    FD 10
+    FD 5 / 0
+  does: [FORWARD 10]
+  ends: {error: 7013, line: 2}
+
+- name: a number that grows too big
+  source: FD 1000000 * 2
+  does: []
+  ends: {error: 7033, line: 1}
+
+- name: a word where a number is needed
+  source: SAY "cat + 1
+  does: []
+  ends: {error: 7012, line: 1}
+  message_has: "+ needs a number, but got cat"
+
+- name: a range known only while running
+  source: |
+    TO F :n  FD :n  END
+    F 600
+  does: []
+  ends: {error: 7025, line: 1}
+  message_has: "from 1 to 500 cm"
+
+- name: an arc too tight while running
+  source: |
+    TO A :r  ARC LEFT 90 :r  END
+    A 20
+  does: []
+  ends: {error: 7022, line: 1}
+
+- name: a word that should give back a value but does not
+  source: |
+    TO SIDE  IF 1 > 2 [ OUTPUT 5 ]  END
+    FD SIDE
+  does: []
+  ends: {error: 7031, line: 1}
+
+- name: light, sound, camera, tune and speech
+  source: LED GREEN  LED [ 255 128 0 ]  SOUND HORN  LOOK UP  LOOK [ 30 -10 ]  PLAY [ C4 E4 2 R ]  SAY [ well done ]
+  does: [LED 0 255 0, LED 255 128 0, SOUND HORN, LOOK 0 30, LOOK 30 -10, PLAY 262/250 330/500 0/250, SAY well done]
+  ends: finished
+
+- name: speed, wait, arc and pivot
+  source: SPEED 60  WAIT 1.5  ARC RIGHT 90 50  PIVOT LEFT 45
+  does: [SPEED 60, WAIT 1.5, ARC RIGHT 90 50, PIVOT LEFT 45]
+  ends: finished
+
+- name: HEADING and HOME
+  source: RT 45  LT 15  FD HEADING  HOME
+  does: [RIGHT 45, LEFT 15, FORWARD 30, HOME]
+  ends: finished
+
+- name: WAIT UNTIL that is already true
+  source: WAIT UNTIL DISTANCE < 20  BEEP
+  world: {distance: 10}
+  does: [WAIT-UNTIL, BEEP]
+  ends: finished
+
+- name: WAIT UNTIL gives up after 60 s and the program goes on
+  source: WAIT UNTIL DISTANCE < 5  BEEP
+  does: [WAIT-UNTIL, BEEP]
+  ends: finished
+
+- name: the time limit
+  source: FOREVER [ WAIT 60 ]
+  does: [WAIT 60, WAIT 60, WAIT 60, WAIT 60, WAIT 60]
+  ends: {error: 7041, line: 1}

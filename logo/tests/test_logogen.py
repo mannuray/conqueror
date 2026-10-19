@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from logogen import emit, model
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,3 +51,39 @@ def test_words_h_mentions_every_word_and_error() -> None:
     for w in s.words:
         assert f'"{w.name}"' in text
     assert "7029" in text and "kCases" not in text
+
+
+def test_ifelse_inputs_are_yes_and_no_not_booleans() -> None:
+    ins = spec().word("IFELSE").inputs
+    assert [i.name for i in ins] == ["test", "yes", "no"]
+    assert ins[1].what == "steps in [ ]"
+
+
+def test_colour_rgb_and_look_deg_follow_the_presets() -> None:
+    s = spec()
+    text = emit.render_words_h(s)
+    assert "inline constexpr Rgb kColourRgb[] = {{255, 0, 0}," in text
+    assert "{0, 0, true}" in text  # LOOK HOME
+    assert "kRunTimeS = 300" in text and "kNesting = 100" in text
+
+
+def test_a_colour_without_rgb_is_refused() -> None:
+    s = spec()
+    del s.colour_rgb["RED"]
+    with pytest.raises(ValueError, match="colour_rgb: RED"):
+        model._check_preset_data(s)  # pyright: ignore[reportPrivateUsage]
+
+
+def test_run_cases_carry_their_world_and_ending() -> None:
+    runs = spec().run_cases
+    square = next(r for r in runs if r.name == "a square")
+    assert square.does.startswith("FORWARD 50 | RIGHT 90") and square.end_code == 0
+    blocked = next(r for r in runs if r.name == "an obstacle ends a program without BLOCKED?")
+    assert (blocked.cut_short, blocked.end_code, blocked.end_line) == (1, 7024, 1)
+    text = emit.render_running_h(spec())
+    assert "#define LOGO_RUN_CASES(X) X(0)" in text
+
+
+def test_world_motion_numbers_are_checked() -> None:
+    with pytest.raises(ValueError, match="motion 0"):
+        model._bits([0])  # pyright: ignore[reportPrivateUsage]

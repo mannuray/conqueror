@@ -118,6 +118,23 @@ def render_words_h(spec: Spec) -> str:
             f"inline constexpr const char* k{cname}[] = {{{', '.join(c_string(v) for v in vals)}}};\n"
         )
         lines.append(f"inline constexpr uint8_t k{cname}Count = {len(vals)};\n")
+    lines.append("\nstruct Rgb { uint8_t r; uint8_t g; uint8_t b; };  // indexed like kColours\n")
+    rgb = [spec.colour_rgb[c] for c in spec.presets["colour"]]
+    lines.append(
+        "inline constexpr Rgb kColourRgb[] = {"
+        + ", ".join(f"{{{r}, {g}, {b}}}" for r, g, b in rgb)
+        + "};\n"
+    )
+    lines.append(
+        "struct LookDeg { int16_t pan; int16_t tilt; bool home; };  // indexed like kLooks; right / up = +\n"
+    )
+    looks = [
+        "{0, 0, true}"
+        if n == "HOME"
+        else f"{{{spec.look_deg[n][0]}, {spec.look_deg[n][1]}, false}}"
+        for n in spec.presets["look"]
+    ]
+    lines.append(f"inline constexpr LookDeg kLookDeg[] = {{{', '.join(looks)}}};\n")
     lines.append(
         f"\ninline constexpr const char* kReserved[] = {{{', '.join(c_string(r) for r in spec.reserved)}}};\n"
     )
@@ -133,6 +150,9 @@ def render_words_h(spec: Spec) -> str:
     lines.append(f"inline constexpr uint8_t kMaxProcs = {lim['words_of_your_own']};\n")
     lines.append(f"inline constexpr uint8_t kNameChars = {lim['name_chars']};\n")
     lines.append(f"inline constexpr int32_t kNumberAbsMaxMilli = {lim['number_abs_max'] * 1000};\n")
+    lines.append(f"inline constexpr uint16_t kRunTimeS = {lim['run_time_s']};\n")
+    lines.append(f"inline constexpr uint8_t kWaitS = {lim['wait_s']};\n")
+    lines.append(f"inline constexpr uint8_t kNesting = {lim['nesting']};\n")
     lines.append("\n}  // namespace gen\n}  // namespace logo\n}  // namespace cq\n")
     return "".join(lines)
 
@@ -172,5 +192,24 @@ def render_cases_h(spec: Spec) -> str:
         )
     lines.append(
         "};\n\n#define LOGO_CASES(X) " + " ".join(f"X({i})" for i in range(len(spec.cases))) + "\n"
+    )
+    return "".join(lines)
+
+
+def render_running_h(spec: Spec) -> str:
+    struct_line = (
+        "struct RunCase { const char* name; const char* src; const char* does; int end_code; int end_line; "
+        "const char* message_has; int distance_cm; unsigned long long cut_short; unsigned long long stuck; };\n\n"
+    )
+    lines = [HEADER, "#pragma once\n\n", struct_line, "static const RunCase kRunCases[] = {\n"]
+    for c in spec.run_cases:
+        lines.append(
+            f"    {{{c_string(c.name)}, {c_string(c.src)}, {c_string(c.does)}, {c.end_code}, {c.end_line}, "
+            f"{c_string(c.message_has)}, {c.distance_cm}, {c.cut_short}ULL, {c.stuck}ULL}},\n"
+        )
+    lines.append(
+        "};\n\n#define LOGO_RUN_CASES(X) "
+        + " ".join(f"X({i})" for i in range(len(spec.run_cases)))
+        + "\n"
     )
     return "".join(lines)

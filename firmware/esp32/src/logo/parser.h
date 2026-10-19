@@ -61,6 +61,7 @@ class Parser {
   bool nameAllowed(uint16_t at);
   uint16_t scanBody(ProcInfo& p, uint16_t i);
   void addProc(const ProcInfo& p);
+  void sameInput(const ProcInfo& p, uint16_t at);
   // pass 2 statements (parser_stmt.cpp)
   void stepSeq(Frame& f);
   void seqAtEof(const Frame& f);

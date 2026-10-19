@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "core/arc_limits.h"
+#include "core/motion_config.h"
 #include "core/motion_router.h"
 #include "core/turn_controller.h"
 #include "ports/log_out.h"
@@ -35,7 +36,10 @@ bool MotionController::encoderFault() const {
   return ((m_link.snapshot().fast.flags >> static_cast<unsigned>(proto::FastFlagBit::kEncoderFault)) & 1u) != 0;
 }
 
-bool MotionController::ownedBy(int fd) const { return active() && m_motion.service().ownerFd() == fd; }
+bool MotionController::ownedBy(int fd) const {  // Plan N3: a running Logo program counts as its page's primitive
+  if (m_h.logo_fd != nullptr && m_h.logo_fd() == fd && fd >= 0) return true;
+  return active() && m_motion.service().ownerFd() == fd;
+}
 
 core::PrimitiveView MotionController::view() const {
   const core::MotionService& svc = m_motion.service();
@@ -53,6 +57,7 @@ void MotionController::run(const core::LinkOut& o, uint32_t now) {
   if (o.stop) m_link.sendStop(now);  // STOP purges queued motion frames: no DRIVE 0/0 needed (review M11)
   if (!o.event) return;
   m_out.all(core::jsonPrimitiveDone(m_out.buf(), m_out.cap(), m_tel.nextEventSeq(), m_tel.tankMs(), o.end));
+  if (o.end.id == kLogoPrimitive && m_h.logo_end != nullptr) m_h.logo_end(o.end, now);
   if (o.end.reason != core::EndReason::kDone) {  // Plan O: why a move / turn ended early
     m_log.add(core::LogKind::kPrimitive, static_cast<int32_t>(o.end.reason), static_cast<int32_t>(o.end.kind), "",
               m_tel.tankMs(), now);
@@ -63,7 +68,43 @@ void MotionController::run(const core::LinkOut& o, uint32_t now) {
   }
 }
 
-void MotionController::end(core::MotionEvent e, uint32_t now) { run(m_motion.onEvent(e, now), now); }
+void MotionController::end(core::MotionEvent e, uint32_t now) {
+  run(m_motion.onEvent(e, now), now);
+  if (m_h.logo_event != nullptr) m_h.logo_event(e, now);  // Plan N3: also between the program's motions
+}
+
+// Why a Logo motion cannot start now (true + why), or false.
+bool MotionController::logoRefused(const logo::Action& a, core::BridgeReason& why) const {
+  const bool counted = a.kind == logo::ActKind::kMove || a.kind == logo::ActKind::kArc || a.kind == logo::ActKind::kPivot;
+  if (m_h.ota()) {
+    why = core::BridgeReason::kBusy;
+  } else if (!m_link.synced() || !m_link.snapshot().fast_valid) {
+    why = core::BridgeReason::kBodyOffline;
+  } else if (counted && (core::routeMove(m_link.hello().caps) != core::Route::kLocal || encoderFault())) {
+    why = core::BridgeReason::kUnavailable;
+  } else {
+    return false;
+  }
+  return true;
+}
+
+bool MotionController::startLogo(int fd, const logo::Action& a, uint32_t now, core::BridgeReason& why) {
+  if (logoRefused(a, why)) return false;
+  m_roll.cancel();  // §G6: a new primitive
+  const core::TankSnapshot& snap = m_link.snapshot();
+  core::MotionService& svc = m_motion.service();
+  const uint8_t spin = a.speed_pct < core::motion::kTurnWMin ? core::motion::kTurnWMin : a.speed_pct;
+  switch (a.kind) {  // VARIANT POINT: Logo motions (Tank Logo LLD §10)
+    case logo::ActKind::kMove:
+      svc.startMove(fd, telemOf(snap), a.dist_cm, a.speed_pct, m_cpm, kLogoPrimitive, now, m_roll_mm);
+      return true;
+    case logo::ActKind::kArc:
+      svc.startArc(fd, telemOf(snap), a.delta_cdeg, a.radius_cm, a.speed_pct, m_cpm, kLogoPrimitive, now);
+      return true;
+    case logo::ActKind::kPivot: svc.startPivot(fd, snap.fast.yaw, a.delta_cdeg, spin, kLogoPrimitive, now); return true;
+    default: svc.startTurn(fd, snap.fast.yaw, a.delta_cdeg, spin, kLogoPrimitive, now); return true;  // turn, HOME
+  }
+}
 
 bool MotionController::claimed(int fd, int32_t id, uint32_t now) {
   const core::Decision d = m_h.claim(fd, now);

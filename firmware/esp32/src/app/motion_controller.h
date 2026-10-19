@@ -12,15 +12,22 @@
 #include "core/motion_link.h"
 #include "core/roll_learner.h"
 #include "core/ws_codec.h"
+#include "logo/effects.h"
 
 namespace cq {
 namespace app {
 
 class MotionController {
  public:
+  static constexpr int32_t kLogoPrimitive = -2;  // Plan N3: the id of a running Logo program's primitives
   struct Hooks {  // until DriveController owns these (Plan P Task 11)
     core::Decision (*claim)(int fd, uint32_t now);  // take / keep ownership (applies the owner's actions)
     bool (*ota)();
+    // Plan N3 (Tank Logo LLD §20.5): the running program's fd (-1 none), the end of its primitive, and every event
+    // that ends a drive (STOP, release, page closed, OTA, body offline, stall, the owner's own command).
+    int (*logo_fd)() = nullptr;
+    void (*logo_end)(const core::PrimitiveEnd& e, uint32_t now) = nullptr;
+    void (*logo_event)(core::MotionEvent e, uint32_t now) = nullptr;
   };
 
   MotionController(Replies& out, core::EventLog& log, core::BodyLink& link, core::LinkOwner& owner,
@@ -35,6 +42,9 @@ class MotionController {
   void onTelemetry(uint32_t now);  // a new TELEM_FAST: roll-on observation + the service step (50 Hz)
   void tick(uint32_t now);         // telemetry gap / drive_rate deadman
   void end(core::MotionEvent e, uint32_t now);
+  // Plan N3: a Logo program's move / turn / arc / pivot / HOME (ownership is the program's; no reply). False with
+  // why (kUnavailable: no encoders or an encoder fault; kBodyOffline; kBusy: OTA) when it cannot start.
+  bool startLogo(int fd, const logo::Action& a, uint32_t now, core::BridgeReason& why);
   bool ownedBy(int fd) const;
   bool active() const { return m_motion.service().active(); }
   void cancelRollOn() { m_roll.cancel(); }  // driving again / a new primitive
@@ -53,6 +63,7 @@ class MotionController {
   bool claimed(int fd, int32_t id, uint32_t now);
   void observeRoll(uint32_t now);
   bool encoderFault() const;
+  bool logoRefused(const logo::Action& a, core::BridgeReason& why) const;
 
   Replies& m_out;
   core::EventLog& m_log;
@@ -60,7 +71,7 @@ class MotionController {
   TelemetryPublisher& m_tel;
   core::MotionLink m_motion;
   core::RollLearner m_roll;
-  Hooks m_h{nullptr, nullptr};
+  Hooks m_h{nullptr, nullptr, nullptr, nullptr, nullptr};
   uint16_t m_cpm = 0;
   uint16_t m_roll_mm = 0;
   int32_t m_roll_last = -1;  // diagnostics in the calib reply: last reading (mm, -1 none) ...

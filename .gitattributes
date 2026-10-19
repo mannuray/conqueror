@@ -2,3 +2,5 @@
 # git archive reads this file from the archived commit, so it takes effect once committed.
 docs/design/stitch/** export-ignore
 *.png export-ignore
+# Third-party datasheets (PDF, available online) stay in git but not in the tank's source archive (design-notes §103).
+docs/hardware/datasheets/** export-ignore

@@ -1480,3 +1480,7 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - Why: the link task (2 ms loop, STOP path) never handles program text and its messages stay ≤ 200 B; the tank runs what the child saw checked; big replies need no splitting. Changes Tank Logo LLD §13 (was WebSocket only) - the N3 LLD revision says how.
 - **Owner: pacing option A.** A program's LED / BEEP / SOUND / LOOK / PLAY (TONE) waits for the Uno's ACK before it goes on (paces itself, about 30-50 a second at most; no flooding of the 8-slot request queue); no ACK within the request queue's 0.6 s backstop ends the program with 7034; a refusal (e.g. camera locked) is logged and the program goes on. SAY goes to the page and is followed by a fixed 0.2 s pause.
 - **Tank Logo LLD §20 approved (owner, "write the plan"),** including: the driver's own `drive` / `turn` / `move` during a program ends it (7045); `BEEP` = SOUND BLIP; no saving / deleting while a program runs; OTA never starts during a program (it ends it first, 7034); encoders from the Uno's HELLO caps.
+
+## 103. The tank's source archive was nearly full (2026-10-19)
+- The bridge packs `git archive HEAD` (gzip) into the 1.875 MB `source` partition (bridge LLD R2.3). On `main` it reached 1,952,601 of 1,966,016 bytes; the N3 plan or N3's code would have broken the bridge build ("pack_source: does not fit").
+- Fix: `docs/hardware/datasheets/**` is `export-ignore` (third-party PDFs, available online; they stay in git). The archive drops to about 1.5 MB. Nothing of our own work leaves it.

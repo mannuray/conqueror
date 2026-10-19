@@ -48,6 +48,14 @@ bool Vm::push(Value v) {
   return true;
 }
 
+Value Vm::pop() {
+  if (m_sp == 0) {
+    error(7014);
+    return Value();
+  }
+  return m_stack[--m_sp];
+}
+
 void Vm::error(uint16_t code, const DiagArg* a, uint8_t n) {
   m_error.code = code;
   m_error.line = m_line;

@@ -305,6 +305,14 @@ void test_value_text_nested_lists() {
   TEST_ASSERT_EQUAL_STRING("well [-2.5] TRUE", out);
 }
 
+// Final review C1 (second guard): taking a value from an empty stack ends the run with 7014, never reads past it.
+void test_vm_empty_stack_is_7014_not_a_crash() {
+  fx(EffectKind::kForward, 1);
+  emit(OpCode::kHalt);
+  TEST_ASSERT_EQUAL(VmStatus::kError, start());
+  TEST_ASSERT_EQUAL(7014, g_vm.error().code);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_vm_arithmetic_and_effect);
@@ -324,5 +332,6 @@ int main(int, char**) {
   RUN_TEST(test_vm_step_mode_pauses_at_each_new_line);
   RUN_TEST(test_vm_host_fail_ends_the_run);
   RUN_TEST(test_value_text_nested_lists);
+  RUN_TEST(test_vm_empty_stack_is_7014_not_a_crash);
   return UNITY_END();
 }

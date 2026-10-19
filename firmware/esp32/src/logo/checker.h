@@ -54,7 +54,7 @@ class Checker {
   void listWarning(const Node* list);
   void checkNotes(const Node* list);
   void notesError(uint8_t err, const Node* at);
-  void markTails(Node* body, CheckResult& r);
+  void markTails(int16_t def, Node* body, CheckResult& r);
   void error(uint16_t code, uint16_t tok, const DiagArg* a = nullptr, uint8_t n = 0);
 
   const Parser& m_p;

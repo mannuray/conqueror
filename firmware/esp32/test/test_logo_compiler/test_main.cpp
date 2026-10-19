@@ -198,6 +198,17 @@ void test_stop_inside_a_word_ends_the_program() {
   TEST_ASSERT_EQUAL(VmStatus::kStop, g_end);
 }
 
+// Final review C1: a word that gives back a value but ends with a call of a command word is 7031, not a crash
+// (the call is not a tail call: TCALL would leave the frame without a value).
+void test_reporter_ending_with_a_command_call_is_7031() {
+  TEST_ASSERT_TRUE(run("TO Q\nBEEP\nEND\nTO P :n\nIF :n > 0 [ OUTPUT 1 ]\nQ\nEND\nFD P 0"));
+  TEST_ASSERT_EQUAL_STRING("BEEP", g_trace);
+  TEST_ASSERT_EQUAL(VmStatus::kError, g_end);
+  TEST_ASSERT_EQUAL(7031, g_vm.error().code);
+  TEST_ASSERT_TRUE(run("TO Q BEEP END\nTO P :n IF :n > 0 [ OUTPUT 1 ] IF :n = 0 [ Q ] END\nFD P 0"));
+  TEST_ASSERT_EQUAL(7031, g_vm.error().code);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_effects_in_order_with_their_values);
@@ -218,5 +229,6 @@ int main(int, char**) {
   RUN_TEST(test_tail_calls_run_in_one_frame);
   RUN_TEST(test_reporter_without_output_and_output_inside_loops);
   RUN_TEST(test_stop_inside_a_word_ends_the_program);
+  RUN_TEST(test_reporter_ending_with_a_command_call_is_7031);
   return UNITY_END();
 }

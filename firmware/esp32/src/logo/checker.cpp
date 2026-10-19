@@ -164,12 +164,15 @@ void Checker::listWarning(const Node* list) {
   }
 }
 
-void Checker::markTails(Node* body, CheckResult& r) {
+// A call in tail position reuses the frame only when both words are the same kind (grammar.md §8): in a word that
+// gives back a value that is OUTPUT's call; a command word called last there must return, then 7031 follows.
+void Checker::markTails(int16_t def, Node* body, CheckResult& r) {
+  const bool gives = m_p.proc(static_cast<uint8_t>(def)).gives_value;
   TailStack st;
   st.push(body->last);
   while (st.ns > 0) {
     Node* n = st.n[--st.ns];
-    if (n->kind == NodeKind::kProcCall) {
+    if (n->kind == NodeKind::kProcCall && m_p.proc(static_cast<uint8_t>(n->ref)).gives_value == gives) {
       n->tail = true;
       if (n->ref < 64) r.tail_callees |= (1ULL << n->ref);
     } else if (n->kind == NodeKind::kCall) {
@@ -181,7 +184,7 @@ void Checker::markTails(Node* body, CheckResult& r) {
 // Checks one node; returns the definition its children are inside, or kSkipChildren.
 int16_t Checker::visit(Node* n, int16_t def, bool in_template, const Caps& caps, CheckResult& r) {
   switch (n->kind) {  // VARIANT POINT: checked node kinds
-    case NodeKind::kDef: markTails(n->last, r); return n->ref;
+    case NodeKind::kDef: markTails(n->ref, n->last, r); return n->ref;
     case NodeKind::kCall: visitCall(n, def, caps, r); return def;
     case NodeKind::kInput:
       if (def != kParamList) visitInput(n, def);

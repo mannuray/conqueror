@@ -76,6 +76,8 @@ void test_check_tail_positions() {
   TEST_ASSERT_TRUE(r.tail_callees == 0);
   r = C("TO PING :n IF :n > 0 [ RT 10 PONG :n - 1 ] END TO PONG :n IF :n > 0 [ LT 10 PING :n - 1 ] END PING 3");
   TEST_ASSERT_TRUE(r.tail_callees == 3);
+  r = C("TO Q BEEP END TO P :n IF :n > 0 [ OUTPUT 1 ] Q END FD P 0");
+  TEST_ASSERT_TRUE(r.tail_callees == 0);  // final review C1: a value word ending with a command call
   r = C("TO SUM :n :acc IFELSE :n = 0 [ OUTPUT :acc ] [ OUTPUT SUM :n - 1 :acc + :n ] END FD SUM 20 0");
   TEST_ASSERT_TRUE(r.tail_callees == 1);
 }

@@ -71,8 +71,10 @@ class Vm {
   };
 
   bool push(Value v);
-  Value pop() { return m_stack[--m_sp]; }
-  void signal(VmStatus s) { m_signal = s; }
+  Value pop();  // 7014 on an empty stack (never reads past it)
+  void signal(VmStatus s) {
+    if (m_done != VmStatus::kError) m_signal = s;  // an error in the same step wins
+  }
   void error(uint16_t code, const DiagArg* a = nullptr, uint8_t n = 0);
   void typeError(const char* word, const char* type, Value got);
   void leaveFrame();

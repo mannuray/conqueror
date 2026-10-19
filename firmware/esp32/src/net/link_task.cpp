@@ -8,6 +8,7 @@
 #include "net/wifi_manager.h"
 #include "core/event_log.h"
 #include "app/replies.h"
+#include "app/settings_controller.h"
 #include "app/tank_app_controller.h"
 #include "net/camera_service.h"
 #include "net/stream_server.h"
@@ -51,6 +52,7 @@ char g_json[core::kWsJsonMax];
 core::EventLog g_log;          // Plan O (LLD R13): the Log tab
 app::Replies g_out(g_ws);      // Plan P: the controllers' replies (LLD R15.3)
 app::TankAppController g_tank(g_out, g_log, g_link);  // Plan P Task 6
+app::SettingsController g_settings(g_out, g_log, g_link);  // Plan P Task 7
 uint32_t g_last_debug_slow = 0;  // LLD R5: TELEM_SLOW count last seen by the debug stream
 uint32_t g_ev_seq = 0;
 uint32_t g_tf_seq = 0;
@@ -66,11 +68,7 @@ Waiter g_stop_waiters[kMaxStopWaiters];
 size_t g_stop_waiter_n = 0;
 Waiter g_cam_waiter{-1, -1};
 // Plan M (bridge LLD R9): confirmations by the tank's button, the WiFi double press, acked Uno ops for the page.
-core::ConfirmGate g_gate;
-core::ButtonRouter g_button{g_gate};
 core::AckedOps g_ops;
-uint32_t g_restart_at = 0;
-void askConfirm(const core::PendingChange& c, uint32_t now);
 void sendCalib(int fd);
 uint8_t g_cam_seq = 0;
 core::StopBarrier g_stop_barrier;  // STOP fast path: drop motion posted before a STOP
@@ -331,37 +329,6 @@ void handleMove(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
   if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
 }
 
-// calib (Plan K, LLD R7.1): read for anyone; set only by the driver, not while a primitive runs.
-void handleCalib(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
-  if (c.calib_reset >= 0) {  // Plan M: reset to the default - confirmed by the tank's button
-    core::PendingChange ch;
-    ch.kind = core::ChangeKind::kCalibReset;
-    ch.fd = fd;
-    ch.id = id;
-    ch.calib_what = static_cast<uint8_t>(c.calib_reset);
-    askConfirm(ch, now);
-    return;
-  }
-  if (c.has_cpm) {  // Plan O (owner, design-notes §91): a save waits for the tank's button
-    if (g_owner.driverFd() != fd) {
-      nack(fd, id, core::BridgeReason::kNotOwner);
-      return;
-    }
-    if (g_motion.service().active()) {
-      nack(fd, id, core::BridgeReason::kBusy);
-      return;
-    }
-    core::PendingChange ch;
-    ch.kind = core::ChangeKind::kCalibSet;
-    ch.fd = fd;
-    ch.id = id;
-    ch.cpm = c.cpm;
-    askConfirm(ch, now);
-    return;
-  }
-  sendCalib(fd);
-}
-
 void sendCalib(int fd) {
   size_t n = core::jsonCalib(g_json, sizeof(g_json) - 64, g_cpm, g_roll_mm);
   if (n > 1) {  // + roll-on learner diagnostics (spec 02 §G6 floor check): replace the closing brace
@@ -375,260 +342,9 @@ void sendCalib(int fd) {
 
 
 // ---------- Plan M (spec 02 Part I, bridge LLD R9): WiFi, settings page, confirmations ----------
-bool settingReadable(uint8_t id) { return id == 1 || id == 11 || id == 12 || id == 66; }
 
-void pushFeedback(bool to_ap) {  // the tank says which mode it went to: jingle + blue (home) / white (own AP)
-  core::AckedOp snd;
-  snd.kind = core::AckedOp::kSound;
-  snd.a = static_cast<uint8_t>(proto::SoundId::kJingle);
-  g_ops.push(snd);
-  core::AckedOp led;
-  led.kind = core::AckedOp::kLed;
-  led.a = static_cast<uint8_t>(proto::LedMode::kBlink);
-  led.r = to_ap ? 255 : 0;
-  led.g = to_ap ? 255 : 0;
-  led.b = 255;
-  led.period_ms = 200;
-  led.duration_ms = 3000;
-  g_ops.push(led);
-}
-
-bool wifiIsAp() {
-  net::WifiSnapshot s;
-  net::wifiSnapshot(s);
-  return strcmp(s.mode, "ap") == 0;
-}
-
-void sendWifiStatus(int fd) {
-  net::WifiSnapshot s;
-  net::wifiSnapshot(s);
-  char host[40];
-  snprintf(host, sizeof(host), "%s.local", board::kHostname);
-  core::WifiStatusView v{s.mode, s.ssid, s.rssi, s.ip, host, {s.saved[0], s.saved[1], s.saved[2]}, s.n_saved,
-                         board::kFallbackSsid};
-  sendTo(fd, core::jsonWifiStatus(g_json, sizeof(g_json), v));
-}
-
-// A change from the page: held until the tank's button is pressed (or 30 s pass).
-void askConfirm(const core::PendingChange& c, uint32_t now) {
-  if (g_gate.busyFor(c.fd)) {  // Plan O final review I2: another device's change waits for the button
-    nack(c.fd, c.id, core::BridgeReason::kBusy);
-    return;
-  }
-  g_gate.begin(c, now);
-  sendTo(c.fd, core::jsonConfirm(g_json, sizeof(g_json), core::changeName(c.kind),
-                                 static_cast<uint8_t>(core::ConfirmGate::kWindowMs / 1000)));
-}
-
-void handleSettingsCommand(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
-  core::PendingChange ch;
-  ch.fd = fd;
-  ch.id = id;
-  switch (c.kind) {
-    case core::WsCmdKind::kWifiStatus: sendWifiStatus(fd); return;
-    case core::WsCmdKind::kWifiScan: {
-      net::WifiRequest r;
-      r.kind = net::WifiRequest::kScan;
-      r.fd = fd;
-      r.id = id;
-      if (!net::wifiPost(r)) nack(fd, id, core::BridgeReason::kBusy);
-      return;
-    }
-    case core::WsCmdKind::kWifiSave:
-      ch.kind = core::ChangeKind::kWifiSave;
-      ch.slot = c.slot;
-      snprintf(ch.ssid, sizeof(ch.ssid), "%s", c.ssid);
-      snprintf(ch.pass, sizeof(ch.pass), "%s", c.password);
-      break;
-    case core::WsCmdKind::kWifiForget:
-      ch.kind = core::ChangeKind::kWifiForget;
-      ch.slot = c.slot;
-      break;
-    case core::WsCmdKind::kWifiMode:
-      ch.kind = core::ChangeKind::kWifiMode;
-      ch.ap = c.wifi_ap;
-      break;
-    case core::WsCmdKind::kApPassword:
-      ch.kind = core::ChangeKind::kApPassword;
-      snprintf(ch.pass, sizeof(ch.pass), "%s", c.password);
-      break;
-    case core::WsCmdKind::kSetting:
-      if (!settingReadable(c.setting_id)) {
-        nack(fd, id, core::BridgeReason::kInvalidCommand);
-        return;
-      }
-      if (!c.has_value) {  // read: SETTING_GET -> SETTING_VALUE
-        core::AckedOp op;
-        op.kind = core::AckedOp::kSettingGet;
-        op.a = c.setting_id;
-        op.fd = fd;
-        op.id = id;
-        if (!g_ops.push(op)) nack(fd, id, core::BridgeReason::kBusy);
-        return;
-      }
-      if (c.setting_id != 66 || c.value < -100 || c.value > 100) {  // v1: only track_balance may change
-        nack(fd, id, core::BridgeReason::kInvalidCommand);
-        return;
-      }
-      ch.kind = core::ChangeKind::kSetting;
-      ch.setting_id = c.setting_id;
-      ch.value = c.value;
-      break;
-    case core::WsCmdKind::kRestart:
-      if (g_ota_active || g_motion.service().active()) {
-        nack(fd, id, core::BridgeReason::kBusy);
-        return;
-      }
-      if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
-      g_restart_at = now + 500;
-      logf("bridge: restart asked by %s", g_ws.name(fd));
-      g_log.add(core::LogKind::kRestart, 0, 0, g_ws.name(fd), tankMs(), now);
-      return;
-    default:
-      return;
-  }
-  askConfirm(ch, now);
-}
-
-void applyChange(core::PendingChange& ch, uint32_t now) {
-  (void)now;
-  const char* what = core::changeName(ch.kind);
-  net::WifiRequest r;
-  r.fd = ch.fd;
-  r.id = ch.id;
-  switch (ch.kind) {
-    case core::ChangeKind::kWifiSave:
-      r.kind = net::WifiRequest::kSave;
-      r.slot = ch.slot;
-      snprintf(r.ssid, sizeof(r.ssid), "%s", ch.ssid);
-      snprintf(r.pass, sizeof(r.pass), "%s", ch.pass);
-      break;
-    case core::ChangeKind::kWifiForget:
-      r.kind = net::WifiRequest::kForget;
-      r.slot = ch.slot;
-      break;
-    case core::ChangeKind::kWifiMode:
-      r.kind = net::WifiRequest::kMode;
-      r.ap = ch.ap;
-      pushFeedback(ch.ap);
-      break;
-    case core::ChangeKind::kApPassword:
-      r.kind = net::WifiRequest::kApPassword;
-      snprintf(r.pass, sizeof(r.pass), "%s", ch.pass);
-      break;
-    case core::ChangeKind::kCalibSet:  // Plan O: checked again now - no primitive may be running (the driver may
-                                       // have changed during the 30 s; the save itself is not motion)
-      if (g_motion.service().active() || !net::motionStoreSave(ch.cpm)) {
-        if (g_ws.contains(ch.fd)) nack(ch.fd, ch.id, core::BridgeReason::kBusy);
-        return;
-      }
-      g_cpm = ch.cpm;
-      if (g_ws.contains(ch.fd)) {
-        sendTo(ch.fd, core::jsonConfirmed(g_json, sizeof(g_json), what));
-        sendCalib(ch.fd);
-      }
-      return;
-    case core::ChangeKind::kCalibReset:
-      if (ch.calib_what == 0) {
-        g_cpm = core::motion::kCpmDefault;
-        if (!net::motionStoreSave(g_cpm)) logf("calib: counts_per_m reset not saved (NVS)");
-      } else {
-        g_roll_mm = core::motion::kRollDefaultMm;
-        if (!net::motionStoreSaveRoll(g_roll_mm)) logf("calib: roll-on reset not saved (NVS)");
-      }
-      sendTo(ch.fd, core::jsonConfirmed(g_json, sizeof(g_json), what));
-      sendCalib(ch.fd);
-      memset(ch.pass, 0, sizeof(ch.pass));
-      return;
-    case core::ChangeKind::kSetting: {
-      core::AckedOp set;
-      set.kind = core::AckedOp::kSettingSet;
-      set.a = ch.setting_id;
-      set.value = ch.value;
-      g_ops.push(set);
-      core::AckedOp save;
-      save.kind = core::AckedOp::kSettingsSave;
-      g_ops.push(save);
-      core::AckedOp get;  // the reply shows what the Uno stored
-      get.kind = core::AckedOp::kSettingGet;
-      get.a = ch.setting_id;
-      get.fd = ch.fd;
-      get.id = ch.id;
-      g_ops.push(get);
-      sendTo(ch.fd, core::jsonConfirmed(g_json, sizeof(g_json), what));
-      return;
-    }
-    case core::ChangeKind::kNone:
-    default:
-      return;
-  }
-  memset(ch.pass, 0, sizeof(ch.pass));
-  if (!net::wifiPost(r)) nack(ch.fd, ch.id, core::BridgeReason::kBusy);
-  memset(r.pass, 0, sizeof(r.pass));
-}
-
-void onButtonPress(uint32_t now) {
-  switch (g_button.onPress(now)) {
-    case core::ButtonAction::kConfirm: {
-      core::PendingChange ch;
-      if (g_gate.take(ch)) {
-        logf("settings: %s confirmed on the tank", core::changeName(ch.kind));
-        applyChange(ch, now);
-      }
-      break;
-    }
-    case core::ButtonAction::kToggleWifi: {
-      const bool to_ap = !wifiIsAp();
-      net::WifiRequest r;
-      r.kind = net::WifiRequest::kMode;
-      r.ap = to_ap;
-      net::wifiPost(r);
-      pushFeedback(to_ap);
-      logf("wifi: double press - %s", to_ap ? "own AP" : "home WiFi");
-      break;
-    }
-    case core::ButtonAction::kNone:
-    default:
-      break;
-  }
-}
-
-// Each tick: expired confirmations, WiFi results, the next acked op, a pending restart.
-void settingsTick(uint32_t now) {
-  core::PendingChange old;
-  if (g_gate.expired(now, old)) {
-    if (g_ws.contains(old.fd)) sendTo(old.fd, core::jsonConfirmExpired(g_json, sizeof(g_json), core::changeName(old.kind)));
-    memset(old.pass, 0, sizeof(old.pass));
-  }
-  net::WifiResult res;
-  while (net::wifiPoll(res)) {
-    if (res.kind == net::WifiResult::kModeChanged) {  // Plan O: 0 home, 1 own AP (forced), 2 fallback AP
-      const auto m = static_cast<core::WifiMode>(res.id);
-      g_log.add(core::LogKind::kWifiMode, m == core::WifiMode::kStation ? 0 : (m == core::WifiMode::kForcedAp ? 1 : 2), 0, "",
-                tankMs(), now);
-      continue;
-    }
-    if (!g_ws.contains(res.fd)) continue;
-    static const char* const kWhat[] = {"wifi_status", "wifi_scan", "wifi_save", "wifi_forget", "wifi_mode",
-                                        "ap_password"};
-    switch (res.kind) {
-      case net::WifiResult::kStatus: sendWifiStatus(res.fd); break;
-      case net::WifiResult::kScan: {
-        net::WifiSnapshot s;
-        net::wifiSnapshot(s);
-        sendTo(res.fd, core::jsonWifiScan(g_json, sizeof(g_json), s.scan, s.n_scan));
-        break;
-      }
-      case net::WifiResult::kApplied:
-        sendTo(res.fd, core::jsonConfirmed(g_json, sizeof(g_json), res.req < 6 ? kWhat[res.req] : "wifi"));
-        sendWifiStatus(res.fd);
-        break;
-      case net::WifiResult::kFailed:
-        sendTo(res.fd, core::jsonNackMessage(g_json, sizeof(g_json), res.id, core::BridgeReason::kInvalidCommand,
-                                             res.text));
-        break;
-    }
-  }
+// Each tick: the next acked Uno request (Plan M ops; moves into UnoChannel in Plan P Task 10).
+void opsTick(uint32_t now) {
   core::AckedOp op;
   if (g_ops.busy() && g_ops.timedOut(now)) {  // review I1: no answer (lost frame) - never stuck
     if (g_ops.front(op) && op.fd >= 0 && g_ws.contains(op.fd)) nack(op.fd, op.id, core::BridgeReason::kTimeout);
@@ -660,7 +376,6 @@ void settingsTick(uint32_t now) {
       g_ops.done();
     }
   }
-  if (g_restart_at != 0 && static_cast<int32_t>(now - g_restart_at) >= 0) ESP.restart();
 }
 
 // cancel: the owner ends its primitive (STOP while still the owner); acked also when nothing runs.
@@ -804,7 +519,7 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
     case core::WsCmdKind::kDriveRate: handleDriveRate(fd, c, now); break;
     case core::WsCmdKind::kCancel: handleCancel(fd, id, now); break;
     case core::WsCmdKind::kMove: handleMove(fd, id, c, now); break;
-    case core::WsCmdKind::kCalib: handleCalib(fd, id, c, now); break;
+    case core::WsCmdKind::kCalib: g_settings.onCalib(fd, id, c, now); break;
     case core::WsCmdKind::kWifiStatus:
     case core::WsCmdKind::kWifiScan:
     case core::WsCmdKind::kWifiSave:
@@ -812,7 +527,7 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
     case core::WsCmdKind::kWifiMode:
     case core::WsCmdKind::kApPassword:
     case core::WsCmdKind::kSetting:
-    case core::WsCmdKind::kRestart: handleSettingsCommand(fd, id, c, now); break;
+    case core::WsCmdKind::kRestart: g_settings.onCommand(fd, id, c, now); break;
     case core::WsCmdKind::kRelease: handleRelease(fd, id, now); break;
     case core::WsCmdKind::kTank: g_tank.onTank(fd, now); break;
     case core::WsCmdKind::kLog: g_tank.onLog(fd, c.log_since, now); break;
@@ -848,7 +563,7 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
       if (motionOwnedBy(cmd.fd)) endMotion(core::MotionEvent::kOwnerClosed, now);  // onWsClose STOPs its driver
       if (cmd.fd == g_owner.driverFd()) g_log.add(core::LogKind::kClientLost, 0, 0, name, tankMs(), now);  // Plan O
       const core::Actions a = g_owner.onWsClose(cmd.fd);
-      g_gate.dropClient(cmd.fd);  // Plan M: a waiting change of that client is dropped (review focus 4)
+      g_settings.onClientClosed(cmd.fd);  // Plan M: a waiting change of that client is dropped (review focus 4)
       g_ws.remove(cmd.fd);
       logf("ws: %s closed (%u clients)", name, static_cast<unsigned>(g_ws.count()));
       apply(a, now);
@@ -906,7 +621,7 @@ void handleLinkEvents(uint32_t now) {
           g_log.add(core::LogKind::kUno, ev.code, ev.a, "", tankMs(), now);
         }
         if (ev.code == static_cast<uint8_t>(proto::EventKind::kButtonPress)) {
-          onButtonPress(now);  // Plan M: confirm a waiting change, or the WiFi double press
+          g_settings.onButtonPress(now);  // Plan M: confirm a waiting change, or the WiFi double press
         } else if (ev.code == static_cast<uint8_t>(proto::EventKind::kStall)) {
           endMotion(core::MotionEvent::kBodyStall, now);  // Plan K: ends a move (turn / rate unchanged)
         } else if (ev.code == static_cast<uint8_t>(proto::EventKind::kEncoderFault)) {
@@ -1062,7 +777,8 @@ void linkTask(void*) {
     g_link.step(now);
     handleLinkEvents(now);
     telemetry(now);
-    settingsTick(now);  // Plan M
+    g_settings.tick(now);  // Plan M: confirmations, WiFi results, restart
+    opsTick(now);
     drainTx();
     if (now - last_publish >= 100) {
       last_publish = now;
@@ -1079,6 +795,9 @@ void linkTaskStart(const char* (*camera_sensor)()) {
   g_cpm = net::motionStoreLoad();  // Plan K: before the link task runs
   g_roll_mm = net::motionStoreLoadRoll();
   g_tank.begin();  // Plan O / Plan P: the AI address
+  g_settings.setHooks({[] { return g_motion.service().active(); }, [] { return g_ota_active; },
+                       [] { return g_owner.driverFd(); }, [](int fd) { sendCalib(fd); },
+                       [](const core::AckedOp& op) { return g_ops.push(op); }, &g_cpm, &g_roll_mm});
   g_tank.setSelfTestHooks({[] { return bodyOffline(); },
                            [] {
                              const core::TankSnapshot& s = g_link.snapshot();

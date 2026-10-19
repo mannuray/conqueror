@@ -24,7 +24,8 @@ a, button, input, textarea, select { font: inherit; color: inherit; }
 button { background: transparent; border: 1px solid var(--edge-c); color: var(--ui); padding: 8px 10px; letter-spacing: .06em; cursor: pointer; }
 button:disabled { opacity: .35; cursor: default; }
 svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
-header { padding: 10px max(12px, env(safe-area-inset-left)) 8px; border-bottom: 1px solid var(--edge-c); }
+header { padding: 10px max(12px, env(safe-area-inset-left)) 8px; border-bottom: 1px solid var(--edge-c);
+  position: sticky; top: 0; z-index: 10; background: var(--bg); }  /* STOP always on screen (§21.6), above the sheets */
 .top { display: flex; align-items: center; gap: 8px; }
 .top a { color: var(--ui); text-decoration: none; letter-spacing: .08em; font-weight: 700; }
 .top h1 { flex: 1; font-size: 13px; margin: 0; color: var(--ui); letter-spacing: .14em; text-align: center; }
@@ -32,7 +33,7 @@ header { padding: 10px max(12px, env(safe-area-inset-left)) 8px; border-bottom: 
 .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
 .chip { border: 1px solid var(--edge-c); padding: 4px 6px; color: var(--ui); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
 .chip.warn { color: var(--warn); border-color: rgba(255, 176, 0, .5); }
-#menu { display: none; position: absolute; right: 12px; top: 52px; z-index: 5; background: var(--panel); border: 1px solid var(--edge-c); }
+#menu { display: none; position: fixed; right: 12px; top: 52px; z-index: 11; background: var(--panel); border: 1px solid var(--edge-c); }
 #menu.on { display: block; } #menu a { display: block; padding: 12px 18px; color: var(--ui); text-decoration: none; border-bottom: 1px solid var(--line); }
 main { padding: 10px 12px; display: grid; gap: 10px; }
 .card { border: 1px solid var(--edge-c); background: var(--panel); padding: 10px; min-width: 0; }
@@ -175,7 +176,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   var http = new L.RequestQueue(function (p, o) { return fetch(p, o); }, function (f, ms) { setTimeout(f, ms); }, 500, 20);  // ≤ 10 s of busy
   var ws = null, open = false, linked = false, retry = 500, nextId = 1, runId = 0, stepId = 0;
   var cur = { name: "", example: false, saved: "" }, progs = [], own = {}, diags = [], planned = [], cutShort = false;
-  var driven = [], pose = null, startedAt = 0, logLines = [];
+  var driven = [], pose = null, startedAt = 0, logLines = [], loading = 0, want = 0;  // a program being opened
   var NEW = "<new>", START_TEXT = "; my program\nFORWARD 50\nRIGHT 90\n";
 
   function storage() { try { return window.localStorage; } catch (e) { return null; } }
@@ -214,12 +215,22 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   }
   function scrollSync() { $("hl").scrollTop = $("gut").scrollTop = src.scrollTop; $("hl").scrollLeft = src.scrollLeft; }
   function edited() {
-    if (L.locked(bar)) return;
+    if (L.locked(bar) || loading) return;
     bar = L.runBar(bar, { e: "edit" });
     sched.edited(Date.now());
-    drafts.keep(cur.name || NEW, src.value, cur.saved);
-    soon(); showProgs(); showBar();
+    keepSoon(); soon(); showBar();
   }
+  // The draft is written 300 ms after the last key (and at once when the page is hidden or left), not per key.
+  var keepTimer = 0;
+  function keepSoon() { clearTimeout(keepTimer); keepTimer = setTimeout(flushDraft, 300); }
+  function flushDraft() {
+    if (!keepTimer) return;
+    clearTimeout(keepTimer); keepTimer = 0;
+    var was = drafts.unsaved(cur.name || NEW);
+    drafts.keep(cur.name || NEW, src.value, cur.saved);
+    if (drafts.unsaved(cur.name || NEW) !== was) showProgs();
+  }
+  window.addEventListener("pagehide", flushDraft);
   var pending = false;  // one colouring per screen frame, however fast the keys come (an 8 KB text ≈ 11 ms)
   function soon() { if (!pending) { pending = true; requestAnimationFrame(function () { pending = false; render(); }); } }
   src.addEventListener("input", edited);
@@ -256,7 +267,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     pad.appendChild(m);
   }
   function insert(w) {
-    if (L.locked(bar)) return;
+    if (L.locked(bar) || loading) return;
     var r = L.insertWord(src.value, src.selectionStart, src.selectionEnd, w);
     src.value = r.text; src.focus(); src.setSelectionRange(r.selStart, r.selEnd);
     var ins = (w.inputs || []).map(function (i) { return i.name; }).join(" ");
@@ -309,13 +320,15 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   }
   function onBar(ev) { var was = bar.st; bar = L.runBar(bar, ev); act(); if (bar.st !== was) lockEditor(); showBar(); }
   function lockEditor() {
-    src.readOnly = L.locked(bar);
+    src.readOnly = L.locked(bar) || loading > 0;
     if (bar.st === "running" && !startedAt) { startedAt = Date.now(); driven = []; pose = null; logLines = []; log("program started", ""); }
     render();
   }
   $("run").addEventListener("click", function () { if (bar.st === "stepping") onBar({ e: "step" }); else onBar({ e: "run", step: false }); });
   $("step").addEventListener("click", function () { if (bar.st === "stepping") onBar({ e: "step" }); else onBar({ e: "run", step: true }); });
-  $("stop").addEventListener("click", function () { onBar({ e: "stop" }); });
+  // STOP on the first touch (a tap that slides would become a scroll and never click), and from the keyboard
+  $("stop").addEventListener("pointerdown", function () { onBar({ e: "stop" }); });
+  $("stop").addEventListener("click", function (e) { if (e.detail === 0) onBar({ e: "stop" }); });
   function showBar() {
     var s = bar, st = $("status"), t = "", cls = "";
     var n = diags.filter(function (d) { return !d.warning; }).length;
@@ -352,7 +365,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
       case "logo_started": onBar({ e: "started" }); break;
       case "logo_line":
         onBar({ e: "line", line: m.line, round: m.round });
-        if (mine) { log("line " + m.line + ": " + (src.value.split("\n")[m.line - 1] || "").trim(), ""); render(); }
+        if (mine) { log("line " + m.line + ": " + (src.value.split("\n")[m.line - 1] || "").trim(), ""); soon(); }
         break;
       case "logo_pose":
         onBar({ e: "pose" });
@@ -462,15 +475,24 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     $("title").textContent = "[ 01 // PROGRAM : " + (cur.name || "new") + " ]" + (drafts.unsaved(cur.name || NEW) ? " ●" : "");
   }
   $("psel").addEventListener("change", function () { openProg($("psel").value); });
+  // The editor switches to a program only when its text has arrived; until then it is read-only and keeps the
+  // program it shows (a failed open changes nothing - SAVE never writes one program's text under another's name).
   function openProg(name) {
     if (L.locked(bar)) { showProgs(); return; }
-    var p = progs.filter(function (q) { return q.name === name; })[0], d = drafts.restore(name);
-    cur = { name: name === NEW ? "" : name, example: !!(p && p.example), saved: "" };
-    remember("cq.logo.last", name);
-    if (name === NEW) { cur.saved = ""; setText(d ? d.text : START_TEXT); showProgs(); return; }
+    flushDraft();
+    var p = progs.filter(function (q) { return q.name === name; })[0], example = !!(p && p.example), token = ++want;
+    if (name === NEW) { cur = { name: "", example: false, saved: "" }; remember("cq.logo.last", NEW); loading = 0; lockEditor();
+      var d0 = drafts.restore(NEW); setText(d0 ? d0.text : START_TEXT); showProgs(); return; }
+    loading = token; lockEditor();
     http.send("GET", prog(name)).then(function (r) {
-      if (r.status !== 200 || typeof r.data !== "string") { log("Could not open " + name + (r.status === 0 ? " - not connected." : "."), "end"); return; }
-      cur.saved = r.data;
+      if (token !== want) return;  // another program was asked for meanwhile
+      loading = 0; lockEditor();
+      if (r.status !== 200 || typeof r.data !== "string") {
+        log("Could not open " + name + (r.status === 0 ? " - not connected." : r.status === 404 ? " - it is not on the tank any more." : "."), "end");
+        showProgs(); return;
+      }
+      var d = drafts.restore(name);
+      cur = { name: name, example: example, saved: r.data }; remember("cq.logo.last", name);
       if (d && d.text !== r.data) {  // a draft is never hidden (§106); the tank's copy may have changed meanwhile
         setText(d.text); drafts.keep(name, d.text, r.data);
         if (d.saved !== r.data) log(name + " was changed on the tank since your draft - SAVE keeps your draft.", "end");
@@ -510,8 +532,10 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
       save(n, text).then(function (why) {
         if (why) { $("nameW").textContent = why; return; }
         $("nameS").classList.remove("on");
-        drafts.clear(cur.name || NEW);
+        flushDraft(); drafts.clear(cur.name || NEW);
         var old = cur.name; cur = { name: n, example: false, saved: text }; remember("cq.logo.last", n);
+        drafts.keep(n, src.value, text);  // text typed while the save waited stays a draft (§106: nothing lost)
+        showProgs();
         if (then) then(old);
         loadList();
       });
@@ -522,7 +546,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     var text = src.value;
     save(cur.name, text).then(function (why) {
       if (why) { log(why, "end"); return; }
-      cur.saved = text; drafts.clear(cur.name); log("saved " + cur.name, ""); loadList();
+      cur.saved = text; flushDraft(); drafts.keep(cur.name, src.value, text); log("saved " + cur.name, ""); loadList(); showProgs();
     });
   });
   $("pren").addEventListener("click", function () {
@@ -532,13 +556,14 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     });
   });
   $("pdel").addEventListener("click", function () {
-    if (!cur.name) { setText(""); drafts.clear(NEW); showProgs(); return; }
     if (cur.example) { log(WHY.EXAMPLE, "end"); return; }
-    $("delT").textContent = "Delete " + cur.name + " from the tank?"; $("delS").classList.add("on");
+    $("delT").textContent = cur.name ? "Delete " + cur.name + " from the tank?" : "Clear this new program? Its text is not saved anywhere.";
+    $("delS").classList.add("on");
   });
   $("delC").addEventListener("click", function () { $("delS").classList.remove("on"); });
   $("delO").addEventListener("click", function () {
     var name = cur.name;
+    if (!name) { $("delS").classList.remove("on"); flushDraft(); drafts.clear(NEW); setText(""); showProgs(); return; }
     http.send("DELETE", prog(name)).then(function (r) {
       var m = r.data;
       $("delS").classList.remove("on");
@@ -587,14 +612,15 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   }
   setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden) { onBar({ e: "hidden" }); if (ws && ws.readyState <= 1) ws.close(); } else { retry = 500; connect(); lockEditor(); }
+    if (document.hidden) { flushDraft(); onBar({ e: "hidden" }); if (ws && ws.readyState <= 1) ws.close(); } else { retry = 500; connect(); lockEditor(); }
   });
 
   showPad();
-  var last = recall("cq.logo.last") || NEW, d0 = drafts.restore(NEW);
-  if (last === NEW) setText(d0 ? d0.text : START_TEXT);
+  var last = recall("cq.logo.last") || NEW, first = drafts.restore(NEW);
+  setText(first ? first.text : START_TEXT);  // shown at once; a saved last program replaces it once its text arrives
+  if (last !== NEW) { loading = -1; lockEditor(); }
   connect();
-  loadList().then(function () { if (last !== NEW) openProg(last); else showProgs(); });
+  loadList().then(function () { if (last !== NEW) { loading = 0; openProg(last); } else showProgs(); });
   tab("prog");
 })();
 </script>

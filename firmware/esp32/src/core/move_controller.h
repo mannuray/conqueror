@@ -36,6 +36,9 @@ class MoveController {
   int32_t movedMm() const;  // signed like dist_cm
 
  private:
+  bool blockedTooLong(const MotionTelem& t, uint32_t now_ms);
+  bool stuck(const MotionTelem& t, uint32_t now_ms, MoveStep& s);
+  int8_t rampedV() const;
   int32_t m_start_l = 0;
   int32_t m_start_r = 0;
   int32_t m_target = 1;       // counts, > 0

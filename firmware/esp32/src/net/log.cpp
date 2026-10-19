@@ -22,12 +22,16 @@ void logBegin() {
 }
 
 void logf(const char* fmt, ...) {
-  char line[224];
-  int n = snprintf(line, sizeof(line), "[%7lu] ", static_cast<unsigned long>(millis()));
   va_list ap;
   va_start(ap, fmt);
-  vsnprintf(line + n, sizeof(line) - static_cast<size_t>(n) - 2, fmt, ap);
+  vlogf(fmt, ap);
   va_end(ap);
+}
+
+void vlogf(const char* fmt, va_list ap) {
+  char line[224];
+  int n = snprintf(line, sizeof(line), "[%7lu] ", static_cast<unsigned long>(millis()));
+  vsnprintf(line + n, sizeof(line) - static_cast<size_t>(n) - 2, fmt, ap);
   size_t len = strlen(line);
   line[len++] = '\r';
   line[len++] = '\n';

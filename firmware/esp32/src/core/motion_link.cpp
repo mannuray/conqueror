@@ -41,6 +41,13 @@ LinkOut MotionLink::tick(uint32_t now_ms) {
   return o.ended ? finished(o, fd, now_ms) : LinkOut{};
 }
 
+namespace {
+EndReason reasonOf(MotionEvent e) {
+  if (e == MotionEvent::kStop) return EndReason::kStop;
+  return e == MotionEvent::kBodyOffline ? EndReason::kLink : EndReason::kCancelled;
+}
+}  // namespace
+
 LinkOut MotionLink::onEvent(MotionEvent e, uint32_t now_ms) {
   if (!m_svc.active()) return LinkOut{};
   const int fd = m_svc.ownerFd();
@@ -49,12 +56,9 @@ LinkOut MotionLink::onEvent(MotionEvent e, uint32_t now_ms) {
     const EndReason r = e == MotionEvent::kBodyStall ? EndReason::kStalled : EndReason::kEncoderFault;
     return finished(m_svc.cancel(r), fd, now_ms);  // the Uno already stopped both tracks; STOP while owner
   }
-  const EndReason why = e == MotionEvent::kStop          ? EndReason::kStop
-                        : e == MotionEvent::kBodyOffline ? EndReason::kLink
-                                                         : EndReason::kCancelled;
-  if (e == MotionEvent::kCancel) return finished(m_svc.cancel(why), fd, now_ms);
+  if (e == MotionEvent::kCancel) return finished(m_svc.cancel(reasonOf(e)), fd, now_ms);
   if (e == MotionEvent::kTxFull) return finished(m_svc.cancel(EndReason::kLink), fd, now_ms);  // review minor 12
-  return eventOnly(m_svc.cancel(why));  // the STOP is already on its way, or the owner's own frames follow
+  return eventOnly(m_svc.cancel(reasonOf(e)));  // the STOP is already on its way, or the owner's own frames follow
 }
 
 }  // namespace core

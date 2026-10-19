@@ -100,6 +100,22 @@ void postWsOpen(httpd_req_t* req, int fd) {
   req->free_ctx = noFree;
 }
 
+// The frame text into the link command; review M7: too long for link_q - a stop must still stop, so it is forwarded
+// as a short stop (same id); anything else gets len 0 and link_task answers nack INVALID_COMMAND.
+void copyText(LinkCommand& cmd, const uint8_t* buf, size_t len) {
+  if (len < sizeof(cmd.text)) {
+    memcpy(cmd.text, buf, len);
+    cmd.text[len] = '\0';
+    cmd.len = static_cast<uint16_t>(len);
+    return;
+  }
+  const core::WsCommand big = core::parseWsCommand(reinterpret_cast<const char*>(buf), len);
+  if (big.kind != core::WsCmdKind::kStop) return;
+  const int n = big.has_id ? snprintf(cmd.text, sizeof(cmd.text), "{\"t\":\"stop\",\"id\":%ld}", static_cast<long>(big.id))
+                           : snprintf(cmd.text, sizeof(cmd.text), "{\"t\":\"stop\"}");
+  cmd.len = static_cast<uint16_t>(n);
+}
+
 esp_err_t wsHandler(httpd_req_t* req) {
   const int fd = httpd_req_to_sockfd(req);
   if (req->method == HTTP_GET) {  // handshake (only if the IDF build calls the handler for it)
@@ -124,20 +140,7 @@ esp_err_t wsHandler(httpd_req_t* req) {
   cmd.kind = LinkCommand::Kind::kWsText;
   cmd.fd = fd;
   cmd.post_seq = ++s_post_seq;
-  if (f.len < sizeof(cmd.text)) {
-    memcpy(cmd.text, buf, f.len);
-    cmd.text[f.len] = '\0';
-    cmd.len = static_cast<uint16_t>(f.len);
-  } else {
-    // Review M7: too long for link_q. A stop must still stop: forward it as a short stop (same id).
-    const core::WsCommand big = core::parseWsCommand(reinterpret_cast<const char*>(buf), f.len);
-    if (big.kind == core::WsCmdKind::kStop) {
-      const int n = big.has_id ? snprintf(cmd.text, sizeof(cmd.text), "{\"t\":\"stop\",\"id\":%ld}",
-                                          static_cast<long>(big.id))
-                               : snprintf(cmd.text, sizeof(cmd.text), "{\"t\":\"stop\"}");
-      cmd.len = static_cast<uint16_t>(n);
-    }  // anything else: len 0, link_task answers nack INVALID_COMMAND
-  }
+  copyText(cmd, buf, f.len);
   // STOP fast path (R2.11): `stop` jumps to the queue front. link_task's StopBarrier drops any
   // drive / cam_joy posted before it, so an older drive can never restart the tank after it.
   const bool stop = core::parseWsCommand(cmd.text, cmd.len).kind == core::WsCmdKind::kStop;

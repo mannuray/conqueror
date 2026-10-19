@@ -1,0 +1,180 @@
+// MotionController: turn / move / drive_rate / cancel, primitive ends, counts per metre (bridge LLD R4, R7, R8, R15.4).
+#include <string.h>
+#include <unity.h>
+
+#include "../support/frames.h"
+#include "../support/wire.h"
+#include "app/motion_controller.h"
+#include "core/arc_limits.h"
+#include "core/ws_codec.h"
+#include "fakes/fake_ports.h"
+
+using namespace cq;
+using FT = proto::FrameType;
+
+namespace {
+core::WsClients ws;
+app::Replies out(ws);
+core::EventLog logbook;
+core::FrameTx* tx = nullptr;
+core::BodyLink* link = nullptr;
+core::LinkOwner owner;
+app::TelemetryPublisher* tel = nullptr;
+app::MotionController* mc = nullptr;
+cqtest::Wire wire;
+core::Decision g_claim = core::Decision::kSend;
+bool g_ota = false;
+
+core::WsCommand P(const char* s) { return core::parseWsCommand(s, strlen(s)); }
+bool has(int fd, const char* needle) { return fakes::countTo(fd, needle) > 0; }
+
+void unoSends(const uint8_t* f, size_t n, uint32_t now) { link->onUartBytes(f, n, now); }
+
+void syncedWithEncoders(uint32_t flags = 0) {
+  link->startMaster(0);
+  owner.begin();
+  owner.onWsOpen(3);
+  owner.onWsOpen(4);
+  owner.onSynced(true);
+  uint8_t f[64];
+  size_t n = cqtest::frame(proto::HelloMsg{0x0100, proto::kProtocolVersion, 1, 1, 0x1UL}, 1, f);  // caps: encoders only
+  unoSends(f, n, 10);
+  proto::TelemFastMsg t{};
+  t.flags = flags;
+  n = cqtest::frame(t, 2, f);
+  unoSends(f, n, 20);
+  wire.drain(*tx);
+  wire.clear();
+}
+}  // namespace
+
+void setUp() {
+  fakes::reset();
+  ws = core::WsClients();
+  ws.add(3, 0);
+  ws.add(4, 0);
+  logbook = core::EventLog();
+  owner = core::LinkOwner();
+  delete mc;
+  delete tel;
+  delete link;
+  delete tx;
+  tx = new core::FrameTx();
+  link = new core::BodyLink(*tx);
+  tel = new app::TelemetryPublisher(out, *link);
+  mc = new app::MotionController(out, logbook, *link, owner, *tel);
+  g_claim = core::Decision::kSend;
+  g_ota = false;
+  mc->setHooks({[](int fd, uint32_t now) {
+                  if (g_claim != core::Decision::kSend) return g_claim;
+                  core::Actions a;
+                  return owner.onDrive(fd, now, a);  // the real ownership rules
+                },
+                [] { return g_ota; }});
+  mc->begin();
+  wire.clear();
+}
+void tearDown() {}
+
+void test_begin_loads_counts_and_roll_on() {
+  TEST_ASSERT_EQUAL(7514, mc->cpm());
+  TEST_ASSERT_EQUAL(27, mc->rollMm());
+}
+
+void test_turn_needs_a_synced_body() {
+  mc->onTurn(3, 1, P("{\"t\":\"turn\",\"by\":90,\"speed\":40,\"id\":1}"), 100);
+  TEST_ASSERT_TRUE(has(3, "BODY_OFFLINE"));
+}
+
+void test_turn_needs_ownership_and_acks() {
+  syncedWithEncoders();
+  g_claim = core::Decision::kNackNotOwner;
+  mc->onTurn(3, 1, P("{\"t\":\"turn\",\"by\":90,\"speed\":40,\"id\":1}"), 100);
+  TEST_ASSERT_TRUE(has(3, "NOT_OWNER"));
+  g_claim = core::Decision::kSend;
+  mc->onTurn(3, 2, P("{\"t\":\"turn\",\"by\":90,\"speed\":40,\"id\":2}"), 100);
+  TEST_ASSERT_TRUE(has(3, "\"t\":\"ack\",\"id\":2"));
+  TEST_ASSERT_TRUE(mc->active());
+  TEST_ASSERT_TRUE(mc->ownedBy(3));
+}
+
+void test_turn_refused_busy_during_ota() {
+  syncedWithEncoders();
+  g_ota = true;
+  mc->onTurn(3, 1, P("{\"t\":\"turn\",\"by\":90,\"speed\":40,\"id\":1}"), 100);
+  TEST_ASSERT_TRUE(has(3, "BUSY"));
+}
+
+void test_arc_outside_its_speed_band_is_invalid_with_a_reason() {
+  syncedWithEncoders();
+  uint16_t radius = 0;  // a radius whose speed band does not include 40 %
+  for (uint16_t r = 1; r <= 1000 && radius == 0; ++r) {
+    const core::ArcBand b = core::arcBand(r);
+    if (!b.possible || 40 < b.lo || 40 > b.hi) radius = r;
+  }
+  TEST_ASSERT_NOT_EQUAL(0, radius);
+  char cmd[96];
+  snprintf(cmd, sizeof(cmd), "{\"t\":\"turn\",\"by\":90,\"radius_cm\":%u,\"speed\":40,\"id\":1}", radius);
+  mc->onTurn(3, 1, P(cmd), 100);
+  TEST_ASSERT_TRUE(has(3, "INVALID_COMMAND"));
+  TEST_ASSERT_FALSE(mc->active());
+}
+
+void test_move_refused_with_an_encoder_fault() {
+  syncedWithEncoders(1u << static_cast<unsigned>(proto::FastFlagBit::kEncoderFault));
+  mc->onMove(3, 1, P("{\"t\":\"move\",\"dist_cm\":100,\"speed\":40,\"id\":1}"), 100);
+  TEST_ASSERT_TRUE(has(3, "UNAVAILABLE"));
+}
+
+void test_move_ended_by_stop_is_broadcast_and_logged_without_a_second_stop() {
+  syncedWithEncoders();
+  mc->onMove(3, 1, P("{\"t\":\"move\",\"dist_cm\":100,\"speed\":40,\"id\":1}"), 100);
+  TEST_ASSERT_TRUE(mc->active());
+  mc->end(core::MotionEvent::kStop, 200);  // the STOP handler already sent STOP
+  TEST_ASSERT_FALSE(mc->active());
+  wire.drain(*tx);
+  TEST_ASSERT_EQUAL(0, wire.count(FT::kStop));
+  TEST_ASSERT_TRUE(has(4, "primitive_done"));  // every client
+  TEST_ASSERT_EQUAL(1, logbook.last());       // ended early
+}
+
+void test_cancelled_move_sends_stop() {
+  syncedWithEncoders();
+  mc->onMove(3, 1, P("{\"t\":\"move\",\"dist_cm\":100,\"speed\":40,\"id\":1}"), 100);
+  mc->end(core::MotionEvent::kCancel, 200);
+  wire.drain(*tx);
+  TEST_ASSERT_EQUAL(1, wire.count(FT::kStop));
+}
+
+void test_cancel_by_another_client_is_not_owner() {
+  syncedWithEncoders();
+  mc->onMove(3, 1, P("{\"t\":\"move\",\"dist_cm\":100,\"speed\":40,\"id\":1}"), 100);
+  mc->onCancel(4, 2, 150);
+  TEST_ASSERT_TRUE(has(4, "NOT_OWNER"));
+  TEST_ASSERT_TRUE(mc->active());
+  mc->onCancel(3, 3, 160);
+  TEST_ASSERT_TRUE(has(3, "\"t\":\"ack\",\"id\":3"));
+  TEST_ASSERT_FALSE(mc->active());
+}
+
+void test_calib_reply_has_counts_and_roll_diagnostics() {
+  mc->sendCalib(3);
+  const std::string j = fakes::lastTo(3);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, j.find("\"counts_per_m\":7514"));
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, j.find("\"roll_watched\":0"));
+}
+
+int main() {
+  UNITY_BEGIN();
+  RUN_TEST(test_begin_loads_counts_and_roll_on);
+  RUN_TEST(test_turn_needs_a_synced_body);
+  RUN_TEST(test_turn_needs_ownership_and_acks);
+  RUN_TEST(test_turn_refused_busy_during_ota);
+  RUN_TEST(test_arc_outside_its_speed_band_is_invalid_with_a_reason);
+  RUN_TEST(test_move_refused_with_an_encoder_fault);
+  RUN_TEST(test_move_ended_by_stop_is_broadcast_and_logged_without_a_second_stop);
+  RUN_TEST(test_cancelled_move_sends_stop);
+  RUN_TEST(test_cancel_by_another_client_is_not_owner);
+  RUN_TEST(test_calib_reply_has_counts_and_roll_diagnostics);
+  return UNITY_END();
+}

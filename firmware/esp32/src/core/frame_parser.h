@@ -66,6 +66,9 @@ class FrameParser {
     }
   }
   Step step(uint8_t b);
+  void onLen(uint8_t b);
+  void onHeader(uint8_t b);
+  Step onCrc(uint8_t b);
 
   State m_state = State::kSync;
   uint8_t m_len = 0;

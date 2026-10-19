@@ -28,6 +28,39 @@ void MoveController::begin(int32_t enc_l, int32_t enc_r, int16_t dist_cm, uint8_
   m_blocked = false;
 }
 
+// The obstacle brake has held the move for kMoveBlockedMs.
+bool MoveController::blockedTooLong(const MotionTelem& t, uint32_t now_ms) {
+  if (((t.flags >> static_cast<unsigned>(proto::FastFlagBit::kBlocked)) & 1u) == 0) {
+    m_blocked = false;
+    return false;
+  }
+  if (!m_blocked) m_blocked_since = now_ms;
+  m_blocked = true;
+  m_ref_ms = now_ms;  // an obstacle ends as blocked, never as stalled
+  return now_ms - m_blocked_since >= motion::kMoveBlockedMs;
+}
+
+// No progress for kMoveStallMs: stalled, or blocked when something is close ahead.
+bool MoveController::stuck(const MotionTelem& t, uint32_t now_ms, MoveStep& s) {
+  if (m_done - m_ref >= m_stall_counts) {
+    m_ref = m_done;
+    m_ref_ms = now_ms;
+    return false;
+  }
+  if (now_ms - m_ref_ms < motion::kMoveStallMs) return false;
+  s.blocked = m_dir > 0 && t.dist_mm < motion::kMoveObstacleMm;  // the sensor looks forward
+  s.stalled = !s.blocked;
+  return true;
+}
+
+int8_t MoveController::rampedV() const {  // slow down toward the stop point (remaining > 0 here)
+  const int32_t crawl = m_speed < motion::kMoveCrawlPct ? m_speed : motion::kMoveCrawlPct;
+  const int32_t remaining = m_stop_at - m_done;
+  int32_t mag = m_speed;
+  if (remaining < m_slow) mag = crawl + (m_speed - crawl) * remaining / m_slow;
+  return static_cast<int8_t>(m_dir * mag);
+}
+
 MoveStep MoveController::step(const MotionTelem& t, uint32_t now_ms) {
   MoveStep s;
   // The Uno counts rising edges only: the counts rise forward and reverse (final review C1), so the distance is the
@@ -38,39 +71,16 @@ MoveStep MoveController::step(const MotionTelem& t, uint32_t now_ms) {
     s.done = true;
     return s;
   }
-  const bool blocked = ((t.flags >> static_cast<unsigned>(proto::FastFlagBit::kBlocked)) & 1u) != 0;
-  if (blocked) {
-    if (!m_blocked) m_blocked_since = now_ms;
-    m_blocked = true;
-    m_ref_ms = now_ms;  // an obstacle ends as blocked, never as stalled
-    if (now_ms - m_blocked_since >= motion::kMoveBlockedMs) {
-      s.blocked = true;
-      return s;
-    }
-  } else {
-    m_blocked = false;
-  }
-  if (m_done - m_ref >= m_stall_counts) {
-    m_ref = m_done;
-    m_ref_ms = now_ms;
-  } else if (now_ms - m_ref_ms >= motion::kMoveStallMs) {
-    const bool obstacle = m_dir > 0 && t.dist_mm < motion::kMoveObstacleMm;  // the sensor looks forward
-    if (obstacle) {
-      s.blocked = true;
-    } else {
-      s.stalled = true;
-    }
+  if (blockedTooLong(t, now_ms)) {
+    s.blocked = true;
     return s;
   }
+  if (stuck(t, now_ms, s)) return s;
   if (static_cast<int32_t>(now_ms - m_deadline) >= 0) {
     s.timeout = true;
     return s;
   }
-  const int32_t crawl = m_speed < motion::kMoveCrawlPct ? m_speed : motion::kMoveCrawlPct;
-  const int32_t remaining = m_stop_at - m_done;  // > 0 here: slow down toward the stop point
-  int32_t mag = m_speed;
-  if (remaining < m_slow) mag = crawl + (m_speed - crawl) * remaining / m_slow;
-  s.v = static_cast<int8_t>(m_dir * mag);
+  s.v = rampedV();
   return s;
 }
 

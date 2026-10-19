@@ -20,7 +20,7 @@ Run these once in the repo root; the commands are the same on both:
 git config core.hooksPath .githooks   # enables the protocol staleness hook
 cd protocol && uv sync                # uv picks Python 3.12 from protocol/.python-version
 ```
-The pre-commit hook (`.githooks/pre-commit` → `scripts/check-protocol.sh`) runs `uv run protogen check` in `protocol/`. It fails the commit if `protocol/defs/*.yaml` changed without regenerating the outputs; fix with `cd protocol && uv run protogen write`. Without `core.hooksPath` the hook never runs.
+The pre-commit hook (`.githooks/pre-commit` → `scripts/check-protocol.sh`) runs `uv run protogen check` in `protocol/`. It fails the commit if `protocol/defs/*.yaml` changed without regenerating the outputs; fix with `cd protocol && uv run protogen write`. Without `core.hooksPath` the hook never runs. It also runs `scripts/size_check.py` (coding standard §3.1: files ≤ 400 lines, functions ≤ 40 NLOC / complexity ≤ 10; exceptions in `scripts/size_allow.txt`), which needs `uv` (`uvx lizard@1.24.1`).
 
 ## 2. Serial ports (Uno and ESP32 over USB)
 | | macOS | Linux |

@@ -37,31 +37,38 @@ void BodyLink::stopMaster() {
   m_cam_pending = false;
 }
 
+// Master duties: heartbeat, an Uno gone silent, HELLO_REQ until synced.
+void BodyLink::masterStep(uint32_t now_ms) {
+  if (now_ms - m_last_hb_ms >= kHeartbeatMs) {
+    m_last_hb_ms = now_ms;
+    emitNext(proto::HeartbeatMsg{now_ms});
+  }
+  if (m_hs == HandshakeState::kSynced && now_ms - m_last_rx_ms >= kUnoSilentMs) {
+    m_hs = HandshakeState::kWaitHello;  // Uno gone or rebooting: start over with HELLO_REQ
+    pushEvent({LinkEventKind::kBodyOffline, 0, 0, 0, 0, 0});
+    m_last_req_ms = now_ms - kHelloRetryMs;
+  }
+  if (m_hs != HandshakeState::kSynced && now_ms - m_last_req_ms >= kHelloRetryMs) {
+    m_last_req_ms = now_ms;
+    emitNext(proto::HelloReqMsg{});
+  }
+}
+
+// STOP is resent until the Uno's ACK, kStopMaxSends times at most.
+void BodyLink::stopResend(uint32_t now_ms) {
+  if (m_stop_sends == 0 || now_ms - m_stop_last_ms < kStopResendMs) return;
+  if (m_stop_sends >= kStopMaxSends) {
+    m_stop_sends = 0;
+    pushEvent({LinkEventKind::kStopResult, 0, m_stop_seq, kStatusTimeout, 0, 0});
+    return;
+  }
+  m_stop_last_ms = now_ms;
+  sendStopFrame();
+}
+
 void BodyLink::step(uint32_t now_ms) {
-  if (m_master) {
-    if (now_ms - m_last_hb_ms >= kHeartbeatMs) {
-      m_last_hb_ms = now_ms;
-      emitNext(proto::HeartbeatMsg{now_ms});
-    }
-    if (m_hs == HandshakeState::kSynced && now_ms - m_last_rx_ms >= kUnoSilentMs) {
-      m_hs = HandshakeState::kWaitHello;  // Uno gone or rebooting: start over with HELLO_REQ
-      pushEvent({LinkEventKind::kBodyOffline, 0, 0, 0, 0, 0});
-      m_last_req_ms = now_ms - kHelloRetryMs;
-    }
-    if (m_hs != HandshakeState::kSynced && now_ms - m_last_req_ms >= kHelloRetryMs) {
-      m_last_req_ms = now_ms;
-      emitNext(proto::HelloReqMsg{});
-    }
-  }
-  if (m_stop_sends != 0 && now_ms - m_stop_last_ms >= kStopResendMs) {
-    if (m_stop_sends >= kStopMaxSends) {
-      m_stop_sends = 0;
-      pushEvent({LinkEventKind::kStopResult, 0, m_stop_seq, kStatusTimeout, 0, 0});
-    } else {
-      m_stop_last_ms = now_ms;
-      sendStopFrame();
-    }
-  }
+  if (m_master) masterStep(now_ms);
+  stopResend(now_ms);
   if (m_cam_pending && now_ms - m_cam_sent_ms >= kAckTimeoutMs) {
     m_cam_pending = false;
     pushEvent({LinkEventKind::kAckResult, 0, m_cam_seq, kStatusTimeout, 0, 0});
@@ -70,6 +77,55 @@ void BodyLink::step(uint32_t now_ms) {
 
 void BodyLink::onUartBytes(const uint8_t* data, size_t len, uint32_t now_ms) {
   m_parser.feed(data, len, [this, now_ms](const FrameView& f) { onFrame(f, now_ms); });
+}
+
+void BodyLink::onAckFrame(const FrameView& f) {
+  proto::AckMsg a{};
+  if (!proto::decode(f.payload, f.len, a)) return;
+  if (m_stop_sends != 0 && a.ack_seq == m_stop_seq) {
+    m_stop_sends = 0;
+    pushEvent({LinkEventKind::kStopResult, 0, a.ack_seq, a.status, 0, 0});
+  } else if (m_cam_pending && a.ack_seq == m_cam_seq) {
+    m_cam_pending = false;
+    pushEvent({LinkEventKind::kAckResult, 0, a.ack_seq, a.status, 0, 0});
+  }
+}
+
+void BodyLink::onTelemFrame(const FrameView& f) {
+  if (f.type == static_cast<uint8_t>(proto::FrameType::kTelemFast)) {
+    if (!proto::decode(f.payload, f.len, m_snap.fast)) return;
+    m_snap.fast_valid = true;
+    ++m_snap.fast_count;
+    return;
+  }
+  if (!proto::decode(f.payload, f.len, m_snap.slow)) return;
+  m_snap.slow_valid = true;
+  ++m_snap.slow_count;
+}
+
+void BodyLink::onEventFrame(const FrameView& f, uint32_t now_ms) {
+  proto::EventMsg e{};
+  if (!proto::decode(f.payload, f.len, e)) return;
+  pushEvent({LinkEventKind::kUnoEvent, e.kind, f.seq, 0, e.a, e.b});
+  if (e.kind != static_cast<uint8_t>(proto::EventKind::kSelftest)) return;
+  m_self_test.seen = true;  // Plan O
+  m_self_test.mask = static_cast<uint8_t>(e.a);
+  m_self_test.locked = e.b != 0;
+  m_self_test.at_ms = now_ms;
+}
+
+void BodyLink::onSettingValueFrame(const FrameView& f) {  // Plan M: the settings page asked (SETTING_GET)
+  proto::SettingValueMsg m{};
+  if (!proto::decode(f.payload, f.len, m)) return;
+  const uint32_t u = static_cast<uint32_t>(m.value);
+  pushEvent({LinkEventKind::kSettingValue, m.id, f.seq, 0, static_cast<int16_t>(u & 0xFFFFu), static_cast<int16_t>(u >> 16)});
+}
+
+void BodyLink::onResetRequest(const FrameView& f) {
+  if (!m_master) return;
+  const proto::EspAckMsg ack{f.seq, static_cast<uint8_t>(proto::AckStatus::kUnavailable)};
+  emitNext(ack);
+  pushEvent({LinkEventKind::kResetRequest, f.type, f.seq, 0, 0, 0});
 }
 
 void BodyLink::onFrame(const FrameView& f, uint32_t now_ms) {
@@ -81,62 +137,14 @@ void BodyLink::onFrame(const FrameView& f, uint32_t now_ms) {
       if (proto::decode(f.payload, f.len, h)) onHello(h);
       break;
     }
-    case proto::FrameType::kAck: {
-      proto::AckMsg a{};
-      if (!proto::decode(f.payload, f.len, a)) break;
-      if (m_stop_sends != 0 && a.ack_seq == m_stop_seq) {
-        m_stop_sends = 0;
-        pushEvent({LinkEventKind::kStopResult, 0, a.ack_seq, a.status, 0, 0});
-      } else if (m_cam_pending && a.ack_seq == m_cam_seq) {
-        m_cam_pending = false;
-        pushEvent({LinkEventKind::kAckResult, 0, a.ack_seq, a.status, 0, 0});
-      }
-      break;
-    }
+    case proto::FrameType::kAck: onAckFrame(f); break;
     case proto::FrameType::kTelemFast:
-      if (proto::decode(f.payload, f.len, m_snap.fast)) {
-        m_snap.fast_valid = true;
-        ++m_snap.fast_count;
-      }
-      break;
-    case proto::FrameType::kTelemSlow:
-      if (proto::decode(f.payload, f.len, m_snap.slow)) {
-        m_snap.slow_valid = true;
-        ++m_snap.slow_count;
-      }
-      break;
-    case proto::FrameType::kEvent: {
-      proto::EventMsg e{};
-      if (proto::decode(f.payload, f.len, e)) {
-        pushEvent({LinkEventKind::kUnoEvent, e.kind, f.seq, 0, e.a, e.b});
-        if (e.kind == static_cast<uint8_t>(proto::EventKind::kSelftest)) {  // Plan O
-          m_self_test.seen = true;
-          m_self_test.mask = static_cast<uint8_t>(e.a);
-          m_self_test.locked = e.b != 0;
-          m_self_test.at_ms = now_ms;
-        }
-      }
-      break;
-    }
-    case proto::FrameType::kSettingValue: {  // Plan M: the settings page asked (SETTING_GET)
-      proto::SettingValueMsg m{};
-      if (proto::decode(f.payload, f.len, m)) {
-        const uint32_t u = static_cast<uint32_t>(m.value);
-        pushEvent({LinkEventKind::kSettingValue, m.id, f.seq, 0, static_cast<int16_t>(u & 0xFFFFu),
-                   static_cast<int16_t>(u >> 16)});
-      }
-      break;
-    }
+    case proto::FrameType::kTelemSlow: onTelemFrame(f); break;
+    case proto::FrameType::kEvent: onEventFrame(f, now_ms); break;
+    case proto::FrameType::kSettingValue: onSettingValueFrame(f); break;
     case proto::FrameType::kWifiResetReq:
-    case proto::FrameType::kAdminResetReq:
-      if (m_master) {
-        const proto::EspAckMsg ack{f.seq, static_cast<uint8_t>(proto::AckStatus::kUnavailable)};
-        emitNext(ack);
-        pushEvent({LinkEventKind::kResetRequest, f.type, f.seq, 0, 0, 0});
-      }
-      break;
-    default:
-      break;  // CAL_*: unused (the bench tool was retired, design-notes §74)
+    case proto::FrameType::kAdminResetReq: onResetRequest(f); break;
+    default: break;  // CAL_*: unused (the bench tool was retired, design-notes §74)
   }
 }
 

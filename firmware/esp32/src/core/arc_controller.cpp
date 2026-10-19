@@ -56,68 +56,89 @@ int32_t ArcController::speedCmS10(int32_t counts, uint32_t now_ms) {
   return static_cast<int32_t>(d * 1000000 / (static_cast<int64_t>(dt) * m_cpm));
 }
 
-ArcStep ArcController::step(const MotionTelem& t, uint32_t now_ms) {
-  ArcStep s;
+// Turned far enough: the heading still to go is covered by the lag (also tracks the unwrapped heading).
+bool ArcController::arrived(const MotionTelem& t) {
   m_pos += wrapDeltaCdeg(static_cast<int32_t>(t.yaw_cdeg) - static_cast<int32_t>(m_last_yaw));
   m_last_yaw = t.yaw_cdeg;
   const int32_t to_go = m_dir * (m_delta - m_pos);
   const int32_t rate = t.rate_ddps < 0 ? -t.rate_ddps : t.rate_ddps;
-  if (to_go <= rate * motion::kLatencyDdpsToCdeg / 10) {  // the heading still to go is covered by the lag
+  return to_go <= rate * motion::kLatencyDdpsToCdeg / 10;
+}
+
+// The obstacle brake has held the arc for kMoveBlockedMs.
+bool ArcController::blockedTooLong(const MotionTelem& t, uint32_t now_ms) {
+  if (((t.flags >> static_cast<unsigned>(proto::FastFlagBit::kBlocked)) & 1u) == 0) {
+    m_blocked = false;
+    return false;
+  }
+  if (!m_blocked) m_blocked_since = now_ms;
+  m_blocked = true;
+  m_ref_ms = now_ms;  // an obstacle ends as blocked, never as stalled
+  return now_ms - m_blocked_since >= motion::kMoveBlockedMs;
+}
+
+// Neither the counts nor the heading moved for kArcStallMs: stalled, or blocked when something is close.
+bool ArcController::stuck(const MotionTelem& t, int32_t counts, uint32_t now_ms, ArcStep& s) {
+  const int32_t dpos = m_pos - m_ref_pos;
+  if (counts - m_ref_counts >= m_stall_counts || dpos >= motion::kArcStallCdeg || dpos <= -motion::kArcStallCdeg) {
+    m_ref_counts = counts;
+    m_ref_pos = m_pos;
+    m_ref_ms = now_ms;
+    return false;
+  }
+  if (now_ms - m_ref_ms < motion::kArcStallMs) return false;
+  s.blocked = t.dist_mm < motion::kMoveObstacleMm;
+  s.stalled = !s.blocked;
+  return true;
+}
+
+// ω for the measured speed on the radius (57.3 v / R), through the rate loop.
+void ArcController::steer(const MotionTelem& t, int32_t v10, uint32_t now_ms, ArcStep& s) {
+  uint32_t dt = now_ms - m_last_ms;
+  if (dt == 0 || dt > 100) dt = 20;
+  m_last_ms = now_ms;
+  m_target_ddps = static_cast<int16_t>(m_dir * 573 * v10 / (10 * static_cast<int32_t>(m_radius)));
+  s.w = m_rate.step(m_target_ddps, t.rate_ddps, static_cast<uint16_t>(dt));
+  s.v = static_cast<int8_t>(m_speed);
+}
+
+// Saturated while turning the other way for kRateWrongWayMs: diverged (review C1 guard).
+void ArcController::checkWrongWay(const MotionTelem& t, uint32_t now_ms, ArcStep& s) {
+  const bool saturated = s.w >= motion::kRateSaturatedPct || s.w <= -motion::kRateSaturatedPct;
+  const bool opposite = (m_dir > 0 && t.rate_ddps < -motion::kRateWrongWayDdps) ||
+                        (m_dir < 0 && t.rate_ddps > motion::kRateWrongWayDdps);
+  if (!(saturated && opposite)) {
+    m_wrong = false;
+    return;
+  }
+  if (!m_wrong) m_wrong_since = now_ms;
+  m_wrong = true;
+  if (now_ms - m_wrong_since < motion::kRateWrongWayMs) return;
+  s.diverged = true;
+  s.v = 0;
+  s.w = 0;
+}
+
+ArcStep ArcController::step(const MotionTelem& t, uint32_t now_ms) {
+  ArcStep s;
+  if (arrived(t)) {
     s.done = true;
     m_finished = true;
     return s;
   }
   const int32_t counts = (t.enc_l + t.enc_r) / 2;
   const int32_t v10 = speedCmS10(counts, now_ms);
-  const bool blocked_flag = ((t.flags >> static_cast<unsigned>(proto::FastFlagBit::kBlocked)) & 1u) != 0;
-  if (blocked_flag) {
-    if (!m_blocked) m_blocked_since = now_ms;
-    m_blocked = true;
-    m_ref_ms = now_ms;  // an obstacle ends as blocked, never as stalled
-    if (now_ms - m_blocked_since >= motion::kMoveBlockedMs) {
-      s.blocked = true;
-      return s;
-    }
-  } else {
-    m_blocked = false;
-  }
-  const int32_t dpos = m_pos - m_ref_pos;
-  if (counts - m_ref_counts >= m_stall_counts || dpos >= motion::kArcStallCdeg || dpos <= -motion::kArcStallCdeg) {
-    m_ref_counts = counts;
-    m_ref_pos = m_pos;
-    m_ref_ms = now_ms;
-  } else if (now_ms - m_ref_ms >= motion::kArcStallMs) {
-    if (t.dist_mm < motion::kMoveObstacleMm) {
-      s.blocked = true;
-    } else {
-      s.stalled = true;
-    }
+  if (blockedTooLong(t, now_ms)) {
+    s.blocked = true;
     return s;
   }
+  if (stuck(t, counts, now_ms, s)) return s;
   if (static_cast<int32_t>(now_ms - m_deadline) >= 0) {
     s.timeout = true;
     return s;
   }
-  uint32_t dt = now_ms - m_last_ms;
-  if (dt == 0 || dt > 100) dt = 20;
-  m_last_ms = now_ms;
-  m_target_ddps = static_cast<int16_t>(m_dir * 573 * v10 / (10 * static_cast<int32_t>(m_radius)));  // 57.3 v / R
-  s.w = m_rate.step(m_target_ddps, t.rate_ddps, static_cast<uint16_t>(dt));
-  s.v = static_cast<int8_t>(m_speed);
-  const bool saturated = s.w >= motion::kRateSaturatedPct || s.w <= -motion::kRateSaturatedPct;
-  const bool opposite = (m_dir > 0 && t.rate_ddps < -motion::kRateWrongWayDdps) ||
-                        (m_dir < 0 && t.rate_ddps > motion::kRateWrongWayDdps);
-  if (saturated && opposite) {
-    if (!m_wrong) m_wrong_since = now_ms;
-    m_wrong = true;
-    if (now_ms - m_wrong_since >= motion::kRateWrongWayMs) {
-      s.diverged = true;
-      s.v = 0;
-      s.w = 0;
-    }
-  } else {
-    m_wrong = false;
-  }
+  steer(t, v10, now_ms, s);
+  checkWrongWay(t, now_ms, s);
   return s;
 }
 

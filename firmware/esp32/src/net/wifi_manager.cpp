@@ -161,75 +161,68 @@ bool WifiManager::inUse(const char* ssid) const {
          strcmp(WiFi.SSID().c_str(), ssid) == 0;
 }
 
+// A store change done in RAM and on flash: true; otherwise the failure is posted to the page.
+bool WifiManager::stored(core::StoreResult res, const WifiRequest& r) {
+  if (res != core::StoreResult::kOk) {
+    post(WifiResult::kFailed, r, storeError(res));
+    return false;
+  }
+  if (!saveStore()) {
+    post(WifiResult::kFailed, r, "could not write flash");
+    return false;
+  }
+  return true;
+}
+
+void WifiManager::handleSave(const WifiRequest& r, uint32_t now_ms) {
+  // review I2: the slot's old name counts too (renaming the network in use), and a join in progress restarts
+  const bool was_in_use = inUse(r.ssid) || (r.slot >= 0 && inUse(m_store.ssid(static_cast<uint8_t>(r.slot))));
+  if (!stored(m_store.save(r.slot, r.ssid, r.pass), r)) return;
+  logf("wifi: saved network \"%s\"", r.ssid);
+  post(WifiResult::kApplied, r);
+  const bool rejoin = was_in_use || m_policy.mode() != core::WifiMode::kStation;  // new credentials: rejoin (focus 1)
+  if (rejoin && m_policy.mode() != core::WifiMode::kForcedAp) {
+    m_defer = 3;
+    m_defer_at = now_ms + kDeferMs;
+  }
+}
+
+void WifiManager::handleForget(const WifiRequest& r, uint32_t now_ms) {
+  bool was_in_use = m_policy.mode() == core::WifiMode::kConnecting;  // review I2: a join may be on those credentials
+  if (r.slot < 0) {
+    was_in_use = was_in_use || m_policy.mode() == core::WifiMode::kStation;
+  } else {
+    was_in_use = was_in_use || inUse(m_store.ssid(static_cast<uint8_t>(r.slot)));
+  }
+  if (!stored(m_store.forget(r.slot), r)) return;
+  logf("wifi: forgot %s", r.slot < 0 ? "all networks" : "a network");
+  post(WifiResult::kApplied, r);
+  if (!was_in_use) return;
+  m_defer = 3;
+  m_defer_at = now_ms + kDeferMs;
+}
+
+void WifiManager::handleApPassword(const WifiRequest& r, uint32_t now_ms) {
+  if (!stored(m_store.setApPassword(r.pass), r)) return;
+  logf("wifi: own AP password changed");
+  post(WifiResult::kApplied, r);
+  const core::WifiMode m = m_policy.mode();
+  if (m != core::WifiMode::kFallbackAp && m != core::WifiMode::kForcedAp) return;
+  m_defer = m == core::WifiMode::kForcedAp ? 1 : 0;  // restart the AP with the new password
+  if (m_defer == 0) WiFi.softAP(board::kFallbackSsid, m_store.apPass());
+  m_defer_at = now_ms + kDeferMs;
+}
+
 void WifiManager::handle(WifiRequest& r, uint32_t now_ms) {
   switch (r.kind) {
     case WifiRequest::kStatus:
       refreshSnapshot();
       post(WifiResult::kStatus, r);
       break;
-    case WifiRequest::kScan:
-      startScan(false, r.fd, r.id);
-      break;
-    case WifiRequest::kSave: {
-      // review I2: the slot's old name counts too (renaming the network in use), and a join in progress restarts
-      const bool was_in_use = inUse(r.ssid) || (r.slot >= 0 && inUse(m_store.ssid(static_cast<uint8_t>(r.slot))));
-      const core::StoreResult s = m_store.save(r.slot, r.ssid, r.pass);
-      if (s != core::StoreResult::kOk) {
-        post(WifiResult::kFailed, r, storeError(s));
-      } else if (!saveStore()) {
-        post(WifiResult::kFailed, r, "could not write flash");
-      } else {
-        logf("wifi: saved network \"%s\"", r.ssid);
-        post(WifiResult::kApplied, r);
-        if (was_in_use || m_policy.mode() != core::WifiMode::kStation) {  // new credentials: rejoin (focus 1)
-          if (m_policy.mode() != core::WifiMode::kForcedAp) {
-            m_defer = 3;
-            m_defer_at = now_ms + kDeferMs;
-          }
-        }
-      }
-      break;
-    }
-    case WifiRequest::kForget: {
-      bool was_in_use = m_policy.mode() == core::WifiMode::kConnecting;  // review I2: a join may be on those credentials
-      if (r.slot < 0) {
-        was_in_use = was_in_use || m_policy.mode() == core::WifiMode::kStation;
-      } else {
-        was_in_use = was_in_use || inUse(m_store.ssid(static_cast<uint8_t>(r.slot)));
-      }
-      const core::StoreResult s = m_store.forget(r.slot);
-      if (s != core::StoreResult::kOk) {
-        post(WifiResult::kFailed, r, storeError(s));
-      } else if (!saveStore()) {
-        post(WifiResult::kFailed, r, "could not write flash");
-      } else {
-        logf("wifi: forgot %s", r.slot < 0 ? "all networks" : "a network");
-        post(WifiResult::kApplied, r);
-        if (was_in_use) {
-          m_defer = 3;
-          m_defer_at = now_ms + kDeferMs;
-        }
-      }
-      break;
-    }
-    case WifiRequest::kApPassword: {
-      const core::StoreResult s = m_store.setApPassword(r.pass);
-      if (s != core::StoreResult::kOk) {
-        post(WifiResult::kFailed, r, storeError(s));
-      } else if (!saveStore()) {
-        post(WifiResult::kFailed, r, "could not write flash");
-      } else {
-        logf("wifi: own AP password changed");
-        post(WifiResult::kApplied, r);
-        const core::WifiMode m = m_policy.mode();
-        if (m == core::WifiMode::kFallbackAp || m == core::WifiMode::kForcedAp) {
-          m_defer = m == core::WifiMode::kForcedAp ? 1 : 0;  // restart the AP with the new password
-          if (m_defer == 0) WiFi.softAP(board::kFallbackSsid, m_store.apPass());
-          m_defer_at = now_ms + kDeferMs;
-        }
-      }
-      break;
-    }
+    case WifiRequest::kScan: startScan(false, r.fd, r.id); break;
+    case WifiRequest::kSave: handleSave(r, now_ms); break;
+    case WifiRequest::kForget: handleForget(r, now_ms); break;
+    case WifiRequest::kApPassword: handleApPassword(r, now_ms); break;
     case WifiRequest::kMode:
       post(WifiResult::kApplied, r);
       m_defer = r.ap ? 1 : 2;
@@ -258,39 +251,33 @@ void WifiManager::applyDeferred(uint32_t now_ms) {
   refreshSnapshot();
 }
 
-void WifiManager::step(uint32_t now_ms, bool has_clients) {
-  WifiRequest req;
-  while (g_req != nullptr && xQueueReceive(g_req, &req, 0) == pdTRUE) handle(req, now_ms);
-  applyDeferred(now_ms);
-  if (m_scanning) {
-    const int n = WiFi.scanComplete();
-    if (n >= 0 || n == WIFI_SCAN_FAILED) {
-      m_scanning = false;
-      collectScan(n < 0 ? 0 : n);
-      WiFi.scanDelete();
-      if (m_join_scan && m_policy.mode() != core::WifiMode::kForcedAp &&
-          m_policy.mode() != core::WifiMode::kStation) {
-        joinStrongest();
-      }
-      m_join_scan = false;
-      refreshSnapshot();
-      if (m_scan_fd >= 0) {
-        WifiRequest r;
-        r.kind = WifiRequest::kScan;
-        r.fd = m_scan_fd;
-        r.id = m_scan_id;
-        post(WifiResult::kScan, r);
-        m_scan_fd = -1;
-      }
-    }
-  }
-  const bool connected = WiFi.status() == WL_CONNECTED;
-  switch (m_policy.step(now_ms, connected, has_clients)) {
+// A finished scan: results in, join the strongest saved network if this was a join scan, answer the page.
+void WifiManager::finishScan() {
+  const int n = WiFi.scanComplete();
+  if (n < 0 && n != WIFI_SCAN_FAILED) return;  // still running
+  m_scanning = false;
+  collectScan(n < 0 ? 0 : n);
+  WiFi.scanDelete();
+  const core::WifiMode m = m_policy.mode();
+  if (m_join_scan && m != core::WifiMode::kForcedAp && m != core::WifiMode::kStation) joinStrongest();
+  m_join_scan = false;
+  refreshSnapshot();
+  if (m_scan_fd < 0) return;
+  WifiRequest r;
+  r.kind = WifiRequest::kScan;
+  r.fd = m_scan_fd;
+  r.id = m_scan_id;
+  post(WifiResult::kScan, r);
+  m_scan_fd = -1;
+}
+
+void WifiManager::doAction(core::WifiAction a) {
+  switch (a) {
     case core::WifiAction::kStationUp:
     case core::WifiAction::kApOff:
       if (WiFi.getMode() == WIFI_AP_STA) WiFi.mode(WIFI_STA);
-      logf("wifi: station up, IP %s, RSSI %d dBm, http://%s.local/", WiFi.localIP().toString().c_str(),
-           WiFi.RSSI(), board::kHostname);
+      logf("wifi: station up, IP %s, RSSI %d dBm, http://%s.local/", WiFi.localIP().toString().c_str(), WiFi.RSSI(),
+           board::kHostname);
       startMdns();
       refreshSnapshot();
       break;
@@ -307,19 +294,30 @@ void WifiManager::step(uint32_t now_ms, bool has_clients) {
       startScan(true, -1, -1);
       break;
     case core::WifiAction::kNone:
-    default:
-      break;
+    default: break;
   }
+}
+
+void WifiManager::reportMode() {  // Plan O: home / own AP / fallback AP into the event log
+  const core::WifiMode m = m_policy.mode();
+  if (m == m_reported_mode || m == core::WifiMode::kConnecting || g_res == nullptr) return;
+  WifiResult res;
+  res.kind = WifiResult::kModeChanged;
+  res.id = static_cast<int32_t>(m);
+  if (xQueueSendToBack(g_res, &res, 0) == pdTRUE) m_reported_mode = m;  // full: tried again next step
+}
+
+void WifiManager::step(uint32_t now_ms, bool has_clients) {
+  WifiRequest req;
+  while (g_req != nullptr && xQueueReceive(g_req, &req, 0) == pdTRUE) handle(req, now_ms);
+  applyDeferred(now_ms);
+  if (m_scanning) finishScan();
+  doAction(m_policy.step(now_ms, WiFi.status() == WL_CONNECTED, has_clients));
   if (now_ms - m_last_snapshot_ms >= 1000) {
     m_last_snapshot_ms = now_ms;
     refreshSnapshot();
   }
-  if (m_policy.mode() != m_reported_mode && m_policy.mode() != core::WifiMode::kConnecting && g_res != nullptr) {
-    WifiResult res;  // Plan O: home / own AP / fallback AP into the event log
-    res.kind = WifiResult::kModeChanged;
-    res.id = static_cast<int32_t>(m_policy.mode());
-    if (xQueueSendToBack(g_res, &res, 0) == pdTRUE) m_reported_mode = m_policy.mode();  // full: tried again next step
-  }
+  reportMode();
 }
 
 void WifiManager::refreshSnapshot() {

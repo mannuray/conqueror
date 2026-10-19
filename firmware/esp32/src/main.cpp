@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <esp_mac.h>
 #include <esp_ota_ops.h>
+#include <esp_task_wdt.h>
 
 #include "board_config.h"
 #include "net/boot_diag.h"
@@ -73,6 +74,29 @@ void logStatus(uint32_t now_ms, const cq::net::LinkStatus& s) {
 
 }  // namespace
 
+// R15.8 (design-notes §98, §99): the link task and this loop are watched (3 s), and core 0's idle task as before (owner:
+// keep that check - a frozen core 0 with WiFi / camera restarts the bridge); camera / stream tasks are not subscribed.
+void watchdogBegin() {
+  const esp_task_wdt_config_t wdt{3000, 1u << 0, true};  // timeout_ms, idle-task check on core 0, panic -> restart
+  esp_task_wdt_reconfigure(&wdt);
+  esp_task_wdt_add(nullptr);  // the Arduino loop task (setup runs on it)
+}
+
+// Plan P Task 13 tank check only (build flag CQ_WDT_TEST): the loop stops feeding the watchdog once, 60 s after boot.
+void watchdogTest(uint32_t now) {
+#ifdef CQ_WDT_TEST
+  static bool s_tested = false;
+  if (s_tested || now < 60000) return;
+  s_tested = true;
+  cq::net::logf("wdt test: loop blocked for 4 s - the bridge must restart (task watchdog)");
+  vTaskDelay(pdMS_TO_TICKS(4000));
+#else
+  (void)now;
+#endif
+}
+
+void watchdogLoopOff() { esp_task_wdt_delete(nullptr); }  // OTA: the upload blocks loop() for ~30 s
+
 void setup() {
   cq::net::logBegin();
   logBanner();
@@ -86,14 +110,18 @@ void setup() {
   cq::net::sourceBegin();
   cq::net::sourceRedirectRegister();  // port 80 -> 81 (R3.11)
   cq::net::infoRegister(g_wifi);
+  watchdogBegin();
   cq::net::linkTaskStart(cq::net::cameraSensorName);
   // The camera starts in loop() once WiFi is up (design-notes §38: no simultaneous current peaks).
   g_ota.addStartHook(cq::net::cameraStop);
+  g_ota.addStartHook(watchdogLoopOff);
   g_ota.begin();
 }
 
 void loop() {
+  esp_task_wdt_reset();
   const uint32_t now = millis();
+  watchdogTest(now);
   const cq::net::LinkStatus s = cq::net::linkStatus();
   g_wifi.step(now, hasClients(s));
   cq::net::cameraApplyPending();  // Plan O: camera settings from the page (sensor setters + NVS, off the link task)

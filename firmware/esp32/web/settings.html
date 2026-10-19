@@ -104,6 +104,9 @@ label { display: flex; justify-content: space-between; color: var(--dim); font-s
 footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing: .12em; padding: 6px 0 96px; }
 /* Plan O (bridge LLD R13.1): Tune and Log tabs, Tank cards 03-09. Screens 18-20. */
 .span { grid-column: 1 / -1; }
+.prev { position: relative; aspect-ratio: 4 / 3; background: #000; border: 1px solid var(--line); margin-bottom: 8px; }
+.prev img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.prev span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 8px; color: var(--dim); font-size: 11px; letter-spacing: .08em; }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; margin-top: 6px; }
 .seg button { background: none; border: 1px solid var(--edge-c); color: var(--dim); padding: 6px 2px; cursor: pointer; font-size: 11px; letter-spacing: .08em; font-weight: 700; }
 .seg button.on { background: var(--ui); border-color: var(--ui); color: #022; }
@@ -233,6 +236,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     <div class="hint">// The tank must stand still. A failed critical check (IMU, battery) blocks driving until it passes.</div>
   </div>
   <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>[ 05 // CAMERA ]</h2>
+    <div class="prev"><img id="cPrev" alt=""><span id="cPrevMsg">[ NO VIDEO ]</span></div>
     <div class="row"><span>Viewers</span><b id="cViewers">--</b></div>
     <div class="row"><span>Now</span><b id="cNow">--</b></div>
     <label>Picture size</label>
@@ -378,6 +382,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     Array.prototype.forEach.call($("tabs").children, function (x) { x.className = x.dataset.tab === t ? "on" : ""; });
     TABS.forEach(function (x) { $("t-" + x).className = x === t ? "on" : ""; });
     clearInterval(tankTimer); clearInterval(logTimer);
+    preview(t === "tank" && !document.hidden);
     if (t === "tank") { loadInfo(); send({ t: "tank" }); tankTimer = setInterval(function () { send({ t: "tank" }); }, 2000); }
     if (t === "tune") requestDraw();
     if (t === "log") { logAsk(); logTimer = setInterval(logAsk, 2000); }
@@ -624,6 +629,21 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     stId = nextId++;
     if (!send({ t: "selftest", id: stId })) toast("Not connected");
   });
+  // design-notes §93: the live picture while the Tank tab is open and the page is visible (one of the 2 viewers)
+  var prevTimer = 0;
+  function preview(on) {
+    var img = $("cPrev");
+    clearTimeout(prevTimer); prevTimer = 0;
+    img.onerror = null;
+    if (!on) { img.removeAttribute("src"); img.style.visibility = "hidden"; $("cPrevMsg").textContent = "[ NO VIDEO ]"; return; }
+    $("cPrevMsg").textContent = ""; img.style.visibility = "visible";
+    img.onerror = function () {  // no picture: the camera is off or 2 viewers already watch - try again in 3 s
+      img.style.visibility = "hidden";
+      $("cPrevMsg").textContent = cam && cam.viewers >= 2 ? "2 viewers already watch - close a Drive page to see the picture here" : "[ NO VIDEO ]";
+      prevTimer = setTimeout(function () { if (tab === "tank" && !document.hidden) preview(true); }, 3000);
+    };
+    img.src = "http://" + location.hostname + ":81/stream?t=" + Date.now();
+  }
   function camSet(o) {
     o.t = "camera_set"; o.id = nextId++;
     if (!send(o)) toast("Not connected");
@@ -932,7 +952,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   }
   setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden) { if (ws && ws.readyState <= 1) ws.close(); } else { retry = 500; connect(); }
+    if (document.hidden) { preview(false); if (ws && ws.readyState <= 1) ws.close(); } else { retry = 500; connect(); }
   });
   showTab(location.hash.slice(1));
   connect();

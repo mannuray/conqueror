@@ -16,12 +16,6 @@ firmware/esp32/src/core/ws_codec.cpp:cq::core::Reader::num  # baseline 2026-10-1
 firmware/esp32/src/core/ws_codec.cpp:cq::core::Reader::skip  # baseline 2026-10-19
 firmware/esp32/src/core/ws_codec.cpp:cq::core::readField  # baseline 2026-10-19
 firmware/esp32/src/core/ws_codec.cpp:cq::core::readMotionField  # baseline 2026-10-19
-firmware/esp32/src/core/ws_json.cpp  # baseline 2026-10-19
-firmware/esp32/src/core/ws_json.cpp:cq::core::jsonEscape  # baseline 2026-10-19
-firmware/esp32/src/core/ws_json.cpp:cq::core::jsonLog  # baseline 2026-10-19
-firmware/esp32/src/core/ws_json.cpp:cq::core::jsonTank  # baseline 2026-10-19
-firmware/esp32/src/core/ws_json.cpp:cq::core::jsonTs  # baseline 2026-10-19
-firmware/esp32/src/core/ws_json.cpp:cq::core::jsonUnoEvent  # baseline 2026-10-19
 firmware/esp32/src/net/camera_service.cpp:cq::net::cameraBegin  # baseline 2026-10-19
 firmware/esp32/src/net/http_server.cpp:cq::net::wsHandler  # baseline 2026-10-19
 firmware/esp32/src/net/info_service.cpp:cq::net::serveInfo  # baseline 2026-10-19

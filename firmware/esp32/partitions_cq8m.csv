@@ -1,8 +1,9 @@
-# ESP32-S3 8 MB layout (bridge LLD R2.2). Changing it needs a USB flash.
+# ESP32-S3 8 MB layout (bridge LLD R2.2; Tank Logo LLD §12 / §20.7: + the 256 KB "logo" area). Changing it needs a USB flash.
 # Name,   Type, SubType,  Offset,   Size,     Flags
 nvs,      data, nvs,      0x9000,   0x5000,
 otadata,  data, ota,      0xE000,   0x2000,
-app0,     app,  ota_0,    0x10000,  0x300000,
-app1,     app,  ota_1,    0x310000, 0x300000,
-source,   data, spiffs,   0x610000, 0x1E0000,
+app0,     app,  ota_0,    0x10000,  0x2E0000,
+app1,     app,  ota_1,    0x2F0000, 0x2E0000,
+source,   data, spiffs,   0x5D0000, 0x1E0000,
+logo,     data, littlefs, 0x7B0000, 0x40000,
 coredump, data, coredump, 0x7F0000, 0x10000,

@@ -125,8 +125,8 @@ tank app:
 <tr><th>Camera</th><td><span id="camera">?</span>, ESP32-S3-EYE map: XCLK 15, SDA 4, SCL 5, D7..D0 = 16 17 18 12 10 8 9 11,
 VSYNC 6, HREF 7, PCLK 13, PWDN/RESET not connected</td></tr>
 <tr><th>USB</th><td>native USB (GPIO19/20), <code>303a:1001</code> &rarr; <code>/dev/ttyACM0</code> (Linux), <code>/dev/cu.usbmodem*</code> (macOS)</td></tr>
-<tr><th>Partitions</th><td>nvs 0x9000 &middot; otadata 0xE000 &middot; app0 0x10000 (3 MB) &middot; app1 0x310000 (3 MB) &middot;
-source 0x610000 (1.875 MB) &middot; coredump 0x7F0000</td></tr>
+<tr><th>Partitions</th><td>nvs 0x9000 &middot; otadata 0xE000 &middot; app0 0x10000 (2.875 MB) &middot; app1 0x2F0000 (2.875 MB) &middot;
+source 0x5D0000 (1.875 MB) &middot; logo 0x7B0000 (256 KB, saved Tank Logo programs) &middot; coredump 0x7F0000</td></tr>
 </table>
 
 <h2>[ REFLASH ]</h2>
@@ -134,7 +134,7 @@ source 0x610000 (1.875 MB) &middot; coredump 0x7F0000</td></tr>
 <pre>cd firmware/esp32
 python3 scripts/check_chip.py --port /dev/ttyACM0      # refuses anything but ESP32-S3 / 8 MB / 8 MB PSRAM
 pio run -e bridge -t upload --upload-port /dev/ttyACM0  # bootloader + partitions + app (chip check runs first)
-pio run -e bridge -t upload_source --upload-port /dev/ttyACM0   # source archive at 0x610000
+pio run -e bridge -t upload_source --upload-port /dev/ttyACM0   # source archive at 0x5D0000
 CQ_OTA_PASSWORD=... scripts/ota.sh                      # over WiFi: app + source (only while nobody drives)</pre>
 <p>Release binaries: GitHub releases <code>bridge-vX.Y.Z</code> with <code>flash.sh</code>. Hold BOOT while plugging in if no port appears.</p>
 <h3>Uno (body)</h3>

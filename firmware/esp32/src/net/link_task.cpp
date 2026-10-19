@@ -5,8 +5,11 @@
 #include <esp_system.h>
 #include <esp_task_wdt.h>
 
+#include <new>
+
 #include "app/command_router.h"
 #include "app/drive_controller.h"
+#include "app/logo_controller.h"
 #include "app/motion_controller.h"
 #include "app/replies.h"
 #include "app/settings_controller.h"
@@ -23,6 +26,7 @@
 #include "core/ws_codec.h"
 #include "core/ws_json.h"
 #include "net/log.h"
+#include "net/logo_worker.h"
 #include "net/uart_port.h"
 #include "version.h"
 
@@ -51,7 +55,11 @@ app::SettingsController g_settings(g_out, g_log, g_link);
 app::TankAppController g_tank(g_out, g_log, g_link);
 app::DriveController g_drive(g_out, g_log, g_owner, g_uno, g_motion, g_settings, g_tel);
 app::UnoEventRouter g_events(g_out, g_log, g_tel, g_link);
-app::CommandRouter g_router(g_drive, g_motion, g_settings, g_tank, g_tel, g_out);
+// Plan N3: built in linkTaskStart - the running program and its Vm live in the logo worker's memory (PSRAM).
+alignas(app::LogoController) unsigned char g_logo_mem[sizeof(app::LogoController)];
+alignas(app::CommandRouter) unsigned char g_router_mem[sizeof(app::CommandRouter)];
+app::LogoController* g_logo = nullptr;
+app::CommandRouter* g_router = nullptr;
 
 void drainTx() {
   const uint8_t* p = nullptr;
@@ -67,7 +75,7 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
   switch (cmd.kind) {
     case LinkCommand::Kind::kWsOpen: g_drive.onClientOpen(cmd.fd, now); break;
     case LinkCommand::Kind::kWsClose: g_drive.onClientClose(cmd.fd, now); break;
-    case LinkCommand::Kind::kWsText: g_router.onText(cmd.fd, cmd.text, cmd.len, cmd.post_seq, now); break;
+    case LinkCommand::Kind::kWsText: g_router->onText(cmd.fd, cmd.text, cmd.len, cmd.post_seq, now); break;
     case LinkCommand::Kind::kOtaStart:
     default: g_drive.startOta(now); break;
   }
@@ -96,6 +104,7 @@ void publishStatus() {
   s.frames_rx = g_link.stats().frames_rx;
   s.bad_crc = g_link.parserStats().bad_crc;
   s.tx_dropped = g_tx.dropped();
+  s.logo_running = g_logo->running();
   portENTER_CRITICAL(&g_status_mux);
   g_status = s;
   portEXIT_CRITICAL(&g_status_mux);
@@ -112,6 +121,7 @@ void step(uint32_t now) {
   core::LinkEvent ev{};
   while (g_link.popEvent(ev)) g_events.route(ev, now);
   telemetry(now);
+  g_logo->tick(now);     // Plan N3: a running Tank Logo program's slice
   g_settings.tick(now);  // confirmations, WiFi results, restart
   g_uno.tick(now);       // the next acked Uno request
   drainTx();
@@ -137,7 +147,13 @@ void linkTask(void*) {
 // ---- wiring: the hooks between the controllers (captureless functions; no virtual, standard §1.1) ----
 void wireViews() {
   g_tel.setViews({[] { return g_drive.ownerView(); }, [] { return g_motion.view(); }, [] { return !g_link.synced(); }});
-  g_motion.setHooks({[](int fd, uint32_t now) { return g_drive.claim(fd, now); }, [] { return g_drive.otaActive(); }});
+  app::MotionController::Hooks m;
+  m.claim = [](int fd, uint32_t now) { return g_drive.claim(fd, now); };
+  m.ota = [] { return g_drive.otaActive(); };
+  m.logo_fd = [] { return g_logo->fd(); };  // Plan N3: a running program is its page's primitive
+  m.logo_end = [](const core::PrimitiveEnd& e, uint32_t now) { g_logo->onPrimitiveEnd(e, now); };
+  m.logo_event = [](core::MotionEvent e, uint32_t now) { g_logo->onMotionEvent(e, now); };
+  g_motion.setHooks(m);
 }
 
 void wireEvents() {
@@ -157,6 +173,10 @@ void wireEvents() {
   sinks.ack_result = [](uint8_t seq, uint8_t status) { g_uno.onAck(seq, status); };
   sinks.stop_result = [](uint8_t status) { g_uno.onStopResult(status); };
   sinks.setting_value = [](uint8_t id, int32_t v) { g_uno.onSettingValue(id, v); };
+  sinks.alarm = [](uint8_t e, uint32_t now) {  // Plan N3: ends a running Tank Logo program
+    g_logo->onUnoAlarm(e == static_cast<uint8_t>(proto::EventKind::kBattCritical) ? logo::RunEvent::kBatteryLow
+                                                                                  : logo::RunEvent::kTilt, now);
+  };
   g_events.setSinks(sinks);
 }
 
@@ -181,13 +201,37 @@ void wireSettingsAndTank() {
   g_tank.setSelfTestHooks({[] { return !g_link.synced(); }, [] { return !standingStill(); }, queueSelfTest});
 }
 
+// Plan N3 (Tank Logo LLD §20.5): the running program's hooks into the drive, the motion service and the Uno.
+void wireLogo() {
+  app::LogoController::Hooks h;
+  h.claim = [](int fd, uint32_t now) { return g_drive.claim(fd, now); };
+  h.keep = [](int fd, uint32_t now) { return g_owner.keepDriving(fd, now); };
+  h.ota = [] { return g_drive.otaActive(); };
+  h.take = logoTake;
+  h.start_motion = [](int fd, const logo::Action& a, uint32_t now, core::BridgeReason& why) {
+    return g_motion.startLogo(fd, a, now, why);
+  };
+  h.stop_tank = [](bool owns, uint32_t now) {
+    if (g_motion.active()) g_motion.end(core::MotionEvent::kCancel, now);  // STOPs only while its client owns it
+    if (owns) g_link.sendStop(now);  // R4.6: never a STOP for a phone or the IR remote that took over
+  };
+  h.release = [](int fd, uint32_t now) { g_drive.onRelease(fd, -1, now); };
+  h.uno_request = [](const core::AckedOp& op) { return g_uno.request(op); };
+  h.cpm = [] { return g_motion.cpm(); };
+  g_logo->setHooks(h);
+  g_uno.setLogoDone([](uint8_t status) { g_logo->onUnoDone(status, millis()); });
+}
+
 }  // namespace
 
 void linkTaskStart(const char* (*camera_sensor)()) {
   g_sensor = camera_sensor;
   g_motion.begin();  // Plan K: counts per metre and roll-on, before the link task runs
   g_tank.begin();    // Plan O: the AI address
-  g_router.setHello(CQ_FW_VERSION, g_sensor);
+  g_logo = new (g_logo_mem) app::LogoController(g_out, g_log, g_link, g_tel, logoRunningProgram(), logoVm());
+  g_router = new (g_router_mem) app::CommandRouter(g_drive, g_motion, g_settings, g_tank, *g_logo, g_tel, g_out);
+  g_router->setHello(CQ_FW_VERSION, g_sensor);
+  wireLogo();
   wireViews();
   wireEvents();
   wireSettingsAndTank();

@@ -6,6 +6,9 @@
 #include <esp_task_wdt.h>
 
 #include "board_config.h"
+#include "net/logo_http.h"
+#include "net/logo_worker.h"
+#include "net/program_store.h"
 #include "net/boot_diag.h"
 #include "net/camera_service.h"
 #include "net/http_server.h"
@@ -110,6 +113,9 @@ void setup() {
   cq::net::sourceBegin();
   cq::net::sourceRedirectRegister();  // port 80 -> 81 (R3.11)
   cq::net::infoRegister(g_wifi);
+  cq::net::logoWorkerBegin();  // Plan N3: Tank Logo (PSRAM), before the link task builds its LogoController
+  cq::net::programStoreBegin();
+  cq::net::logoHttpRegister();
   watchdogBegin();
   cq::net::linkTaskStart(cq::net::cameraSensorName);
   // The camera starts in loop() once WiFi is up (design-notes §38: no simultaneous current peaks).

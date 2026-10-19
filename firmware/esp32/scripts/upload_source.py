@@ -16,7 +16,17 @@ sys.path.insert(0, str(PROJECT / "scripts"))
 import check_chip  # noqa: E402
 
 SOURCE_BIN = PROJECT / "build" / "source.bin"
-SOURCE_OFFSET = "0x610000"
+
+
+def _source_offset() -> str:  # from the partition table, so a new layout can never write the wrong place (Plan N3)
+    for line in (PROJECT / "partitions_cq8m.csv").read_text().splitlines():
+        cols = [c.strip() for c in line.split(",")]
+        if cols and cols[0] == "source":
+            return cols[3]
+    raise RuntimeError("partitions_cq8m.csv has no 'source' partition")
+
+
+SOURCE_OFFSET = _source_offset()
 
 
 def _upload_usb(target, source, env):  # type: ignore[no-untyped-def]

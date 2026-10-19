@@ -705,3 +705,204 @@ stateDiagram-v2
   - **§20.6:** check workspace ≈ 319 KB PSRAM (token list and node pool bigger than estimated), worker stack 16 KB (the checker keeps ≈ 6 KB on its stack); running program + Vm ≈ 36 KB. Measured: an 8 KB `FOREVER` check takes 41-43 ms on the bridge.
 - **Files:** `logo/{check_job, check_json, check_box, program_names, odometry}`, `app/{logo_controller, logo_actions}`, `core/ws_json_logo.cpp`, `net/{logo_worker, logo_http, program_store}`, `tools/smoke/logo.py`; changes in MotionController, UnoChannel, BodyLink (`sendTone`, `sendCamSet`), AckedOps, the codec, the router, UnoEventRouter (alarm sink), the link task and `main.cpp` (bridge LLD R16).
 - **On the stand:** turns end "stuck" (7044) - a spin cannot turn the body there; turns and the square are floor checks. Opening the bridge's USB serial port resets it.
+
+## 21. Revision N4 — the `/logo` page (approved by the owner 2026-10-19, design-notes §106)
+Plan N4 builds the page of §14 on the N3 transport (§20): program text over HTTP, control and events over the WebSocket. **This section replaces §14 where they differ.** The page changes nothing in how programs run; the bridge only serves it.
+
+### 21.1 Decisions (owner, design-notes §106)
+- No speed-limit control and no PAUSE in v1: the run bar is **RUN · STEP · STOP** (STEP starts the program in step mode; each later press runs the next line).
+- Unsaved text is kept as a **draft in that browser** (`localStorage`) and restored when the page opens; a dot by the program name shows "not saved on the tank". No leave-warning, no automatic writes to the tank.
+- Heading after a right turn is positive (§83); screens 15 / 16 showed `-90°` and are superseded there.
+- Each word gets a **`group`** in `logo/spec/words.yaml` (generated into `words.json`) that picks its colour.
+
+### 21.2 Files
+| File | Job |
+|---|---|
+| `firmware/esp32/web/logo.html` | the page: layout of screens 15 (laptop: programs · editor · path) and 16 (phone: PROGRAM / PATH tabs, run bar at the bottom); header ‹ DRIVE, ☰ MENU, battery / WiFi / Uno chips, STOP |
+| `firmware/esp32/web/logo.js` | the page's deciding code as plain functions and small classes, no DOM inside (`colour`, `insertWord`, `Drafts`, `fitView`, `RunBar`, `CheckScheduler`); `module.exports` when loaded by Node |
+| `firmware/esp32/web/test/logo.test.js` | Node built-in test runner (`node --test`), no packages |
+| `scripts/pack_web.py` | `/logo`: `logo.html` with `<!--CQ:LOGO_JS-->` replaced by `logo.js` and `<!--CQ:WORDS-->` by `generated/words.json`; gzip; **budget 24 KB gzipped** |
+| `src/net/http_server.cpp` | `GET /logo` (exact URI; the `/logo/*` handlers of N3 are unchanged) |
+| `web/basic_drive.html`, `web/help.html` | the ☰ MENU's Logo item enabled (now "COMING SOON"); Help links to `/logo` |
+| `logo/spec/words.yaml`, `logo/generator` | `group` per word; `words.json` carries it; a generator test that every word has one |
+
+### 21.3 Groups and colours
+| `group` | Words | Colour (Phosphor) |
+|---|---|---|
+| `move` | `FORWARD BACK ARC PIVOT HOME SPEED` | bright green |
+| `turn` | `RIGHT LEFT` | amber-green |
+| `flow` | `REPEAT FOREVER IF IFELSE WHILE WAIT UNTIL TO END OUTPUT STOP` | cyan |
+| `show` | `LED BEEP SOUND PLAY LOOK SAY` | purple-pink |
+| `sense` | sensors and reporters (`DISTANCE OBSTACLE? BLOCKED? TILT BATTERY TIMER HEADING REPCOUNT RANDOM`) | light blue (quiet) |
+| `maths` | operators, list words, `TRUE` / `FALSE` | soft white |
+| — (page tokenizer) | numbers amber · your own words white · `:inputs` white italic · comments dim · words not in the list and not your own: red underline |
+The exact word lists follow `words.yaml` (every word gets one group); the table shows the intent.
+
+### 21.4 Parts
+```mermaid
+classDiagram
+  class LogoPage {
+    +start()
+    -onKey()
+    -onRun(step)
+    -onStop()
+  }
+  class TankLink {
+    +connect(name)
+    +send(obj) id
+    +onEvent(kind, fn)
+    +onReply(id, fn)
+    +hidden()
+  }
+  class LogoApi {
+    +check(text) CheckReply
+    +list() Program[]
+    +load(name) text
+    +save(name, text) SaveReply
+    +remove(name) SaveReply
+  }
+  class CheckScheduler {
+    +edited(now)
+    +due(now) bool
+    +replied(reply)
+    +busy(now)
+  }
+  class RunBar {
+    +state
+    +dispatch(event) RunBarState
+  }
+  class Editor {
+    +setText(text)
+    +showDiags(diags)
+    +highlight(line, round)
+    +lock(on)
+  }
+  class Colour {
+    +colour(text, words, own) Span[]
+  }
+  class WordPad {
+    +insertWord(text, sel, word) Edit
+  }
+  class PathView {
+    +fitView(points, box) View
+    +drawPlanned(points)
+    +addPose(pose)
+  }
+  class Drafts {
+    +keep(name, text, saved)
+    +restore(name) Draft
+    +clear(name)
+    +unsaved(name) bool
+  }
+  class ProgramList {
+    +refresh()
+    +open(name)
+    +saveAs(name)
+    +rename(from, to)
+    +remove(name)
+  }
+  LogoPage --> TankLink
+  LogoPage --> LogoApi
+  LogoPage --> CheckScheduler
+  LogoPage --> RunBar
+  LogoPage --> Editor
+  LogoPage --> PathView
+  LogoPage --> ProgramList
+  Editor --> Colour
+  Editor --> WordPad
+  ProgramList --> Drafts
+  ProgramList --> LogoApi
+```
+- **Pure (in `logo.js`, tested by Node):** `Colour`, `WordPad.insertWord`, `Drafts` (storage passed in), `PathView.fitView`, `CheckScheduler`, `RunBar`. **DOM only (in `logo.html`):** `LogoPage`, `Editor`, `PathView` drawing, `ProgramList`, `TankLink` (the same `hello` / reconnect / hidden-page handling as Drive, bridge R11).
+
+### 21.5 Checking as you type
+```mermaid
+sequenceDiagram
+  participant E as Editor
+  participant S as CheckScheduler
+  participant A as LogoApi
+  participant H as bridge (POST /logo/check)
+  E->>S: edited(now)
+  Note over S: 600 ms after the last key
+  S->>A: check(text)
+  A->>H: POST /logo/check (≤ 8 KB)
+  alt 200
+    H-->>A: {ok, prog, diags, words, handles_obstacles, path, cut_short, sim_error}
+    A-->>S: replied → RunBar CHECKED(ok, prog)
+    S-->>E: showDiags (under each line, ▲ under the word); own words → Colour
+  else 503 busy
+    H-->>A: busy
+    A-->>S: busy → try again 0.5 s later
+  end
+```
+- A reply to an older text is dropped (each check carries the text's edit number). Text over 8 KB is shown as 7010 by the bridge, like any mistake.
+- Mistakes are shown with their code and plain sentence; RUN and STEP are enabled only for `ok` (warnings allowed).
+
+### 21.6 Running
+```mermaid
+sequenceDiagram
+  participant P as page
+  participant T as TankLink (/ws)
+  participant B as bridge
+  P->>T: logo_run {prog, step}
+  T->>B: {"t":"logo_run","prog":17,"step":false,"id":5}
+  alt ack
+    B-->>T: ack 5 · ev logo_started
+    loop while running
+      B-->>T: ev logo_line / logo_pose (10 Hz) / logo_say / logo_note
+      T-->>P: highlight line + round, driven path, message under its line
+    end
+    B-->>T: ev logo_ended {reason, line, msg}
+  else nack CHECK_AGAIN
+    B-->>T: nack → check now, then logo_run once more
+  else nack BUSY / NOT_OWNER / STOPPED / OTA
+    B-->>T: nack → plain sentence in the status line
+  end
+  P->>T: STOP → logo_stop + the usual stop (as Drive)
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> Editing
+  Editing --> Checking : 600 ms after the last key
+  Checking --> Ready : ok
+  Checking --> HasMistakes : not ok
+  Checking --> Checking : busy (retry 0.5 s)
+  HasMistakes --> Editing : key
+  Ready --> Editing : key
+  Ready --> Starting : RUN / STEP
+  Starting --> Running : ack
+  Starting --> Checking : nack CHECK_AGAIN (once)
+  Starting --> Ready : other nack (sentence shown)
+  Running --> Stepping : step mode waits at a line
+  Stepping --> Running : STEP pressed
+  Running --> Ended : logo_ended
+  Stepping --> Ended : logo_ended
+  Ended --> Ready : key or RUN
+  Ready --> OtherRunning : logo_pose / logo_line not from our run
+  OtherRunning --> Ready : logo_ended
+  note right of Running : editor locked; STOP always on screen
+  note right of OtherRunning : "a program is running" - RUN off, STOP works
+```
+- **Hidden page:** a run started here ends with 7046 when the page is hidden (bridge R11); when it is shown again the page reconnects and the status line says "Stopped: the page was hidden (7046)".
+- **Ended:** `finished` → "Done"; a code → its sentence under the line it ended on.
+
+### 21.7 Path
+- Logo axes: start (0, 0) facing up the screen; right turns positive; mm from the check, cm from `logo_pose`.
+- `fitView` scales the planned and driven points (with a margin) into the box, keeps 1:1, draws a 5 cm grid (coarser when zoomed out) and a scale bar.
+- Planned path solid up to the first sensor read, dashed after (`uncertain`); "path cut short" when `cut_short`. Driven path solid on top; the tank drawn as an arrow at the last pose.
+- Under the path: heading, distance ahead (from the tank's status), time used of 5:00.
+
+### 21.8 Programs and drafts
+- List from `GET /logo/programs`: saved on the tank, then the three examples. Open = load the text (or its draft).
+- **SAVE** = `PUT /logo/programs/<name>`; refusals as sentences (`NAME`, `FULL`, `TOO_BIG`, `EXAMPLE`, `RUNNING`). An example cannot be saved over: SAVE asks for a new name.
+- **Rename** = save under the new name, then delete the old one; **delete** asks to confirm.
+- **Drafts:** `localStorage` key `cq.logo.draft.<name>` (`<new>` for an unnamed program) holding `{text, saved}` (`saved` = the text last loaded / saved). Cleared after a successful SAVE; unsaved dot = text ≠ saved. Storage errors (private mode) only disable drafts.
+
+### 21.9 Budgets and tests
+- `/logo` ≤ 24 KB gzipped (word list ≈ 2.4 KB of it); no new WebSocket messages; bridge flash change ≈ page size.
+- **Node (`node --test web/test/logo.test.js`):** colours per group, own words, numbers, comments, unknown underline; `insertWord` selections (`FORWARD 50` → `50` selected, `REPEAT 4 [  ]` → cursor inside); drafts keep / restore / clear / unsaved / storage errors; `fitView` (fits, 1:1, right turn positive, dashed after uncertain, cut short); `CheckScheduler` (600 ms, stale replies dropped, busy retry); `RunBar` every transition of §21.6 incl. CHECK_AGAIN once, another device's run, 7046 after hiding.
+- **Generator:** every word has a `group`; `words.json` carries it; `logogen check` clean.
+- **Build:** `pack_web` within budget; bridge build; size check.
+- **Browser check (Playwright, stand-in tank as Plans M / O):** type → mistakes → RUN → line glows → messages and driven path → STOP sends `logo_stop` and `stop`; phone (390 × 844) and laptop (1440 × 900) screenshots against screens 15 / 16.
+- **Stand (owner present, tracks off the ground):** mistake shown and fixed, planned path; RUN / STEP / STOP from the phone; phone locked → 7046 shown on return; a second phone sees "a program is running"; save / rename / delete, example → new name, draft survives a reload. **Floor** (with N3 Task 13, after the road-wheel fix): the square's driven path against its planned path.

@@ -1406,3 +1406,13 @@ Asked during the Plan O stand checks: show the camera's state while driving and 
 - **CAMERA sheet** on a tap: picture size QVGA · VGA · SVGA · HD and frame-rate limit MAX · 15 · 10 · 5 (`camera_set`), plus a link to Settings → Tank → Camera. Brightness, contrast, low light, flip and mirror stay in Settings (set once).
 - Anyone on the Drive page may change it (as in Settings); saved on the tank, so it applies for every viewer. Locked like the other adult settings when child play comes.
 - Measured on the stand, one viewer (Plan O): QVGA 13.9 fps 0.3 Mbit/s · VGA 13.9 fps 1.0 · SVGA 13.9 fps 1.4 · HD 8.7 fps 1.6; the limits 5 / 10 give 5.0 / 10.1 fps; at HD 40 pings 0 % loss, 7 ms average, 15 ms worst.
+
+## 95. One master of the Uno link, always on (owner, 2026-10-19)
+Found on the Plan O stand check: the WiFi double press switched the network but often gave no jingle / blink. Cause: the bridge was the Uno link's master **only while a phone or page was connected** (bridge LLD R2.7 "Idle", made so the bench tool on TCP 3333 could take over). With no client the bridge stopped its heartbeats: the Uno reported *link lost*, the bridge no longer heard the button, and feedback frames were dropped as *body offline*. A WiFi switch drops every phone, so the feedback depended on timing; every page connect / leave also caused a *link lost → link restored* blink and beep and two Log rows.
+- The bench tool and port 3333 are retired (§74), so the reason for Idle is gone.
+- **Owner: the bridge is the only master and is always connected.** It starts the handshake at boot and keeps its heartbeats with or without phones. Phones are clients of the bridge only.
+- A phone leaving: if it was driving → STOP + driver released (as before); otherwise nothing happens to the link.
+- Safety unchanged: driving still needs a connected phone holding the stick; the Uno's deadman (no DRIVE for 300 ms) and link-loss stop (no heartbeat for 300 ms — ESP32 hung / restarting) stay; the IR remote still overrides.
+- **OTA (owner: yes):** the bridge still stops being master during a WiFi firmware update; the Uno sees *link lost* while standing still (harmless) and the bridge takes over again after its restart.
+- **No extra LED for "no phone connected"** (owner: no).
+- No Uno firmware change. Bridge LLD Revision 14.

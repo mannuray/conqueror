@@ -1755,3 +1755,50 @@ sequenceDiagram
 
 ### R13.6 Tests
 Host: `test_event_log` (ring wrap at 200, `since` paging, seq gaps after wrap, client name truncation), `test_ws_codec` / `test_ws_json` (tank, log, camera_set, app_set — URL validation, size / quality ranges), `test_body_link` (SelfTestRecord from EVENT SELFTEST). Page tests with a stand-in WebSocket: menu, tabs + hash, live sensors from fake `tf`/`td`/`ts`, graphs, the wizard flow, log paging. Tank: menu links, camera settings change the stream, log shows a STOP from another device and a WiFi switch, wizard on the floor.
+
+## Revision 14 — One master, always on (design-notes §95) — APPROVED (owner, 2026-10-19)
+Replaces the Idle part of **R2.7** (the bench tool and TCP 3333 are retired, §74). The ESP32 bridge is the only master of the Uno link and holds it from boot; WebSocket clients never change the link.
+
+**LinkOwner rules**
+- `begin()` (called once when the link task starts) → state `WebHandshake`, action `StartMaster` (HELLO_REQ, then HEARTBEAT every 100 ms).
+- `onWsOpen(fd)` only counts the client.
+- `onWsClose(fd)` — the driver → `dropDriver(true)` (STOP + hint none + owner changed); anyone else → nothing. The last client leaving does **not** stop the master.
+- `onSynced(false)` (Uno silent / restarted) → driver dropped, back to `WebHandshake` (the bridge re-handshakes, as before).
+- OTA unchanged: `link_task` stops the master itself (`g_link.stopMaster()`); the bridge restarts after the update and `begin()` runs again.
+- `Idle` stays only as the state before `begin()`.
+
+```mermaid
+classDiagram
+  class LinkOwner {
+    +begin() Actions
+    +onWsOpen(fd) Actions
+    +onWsClose(fd) Actions
+    +onDrive(fd, now, out, moving) Decision
+    +onSynced(synced) Actions
+    +tick(now) Actions
+    -m_state LinkState
+    -m_driver int
+    -m_ws uint8
+  }
+  class BodyLink {
+    +startMaster(now)
+    +stopMaster()
+    +synced() bool
+  }
+  LinkTask --> LinkOwner : begin() at start
+  LinkTask --> BodyLink : StartMaster / StopMaster (OTA only)
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> WebHandshake : begin() at boot (StartMaster)
+  WebHandshake --> WebReady : Uno synced
+  WebReady --> WebDriving : first drive from a phone
+  WebDriving --> WebReady : release / 5 s handback / driver's phone closed (STOP)
+  WebReady --> WebHandshake : Uno lost
+  WebDriving --> WebHandshake : Uno lost (driver dropped)
+  note right of WebReady : phones connecting or leaving never change the link
+```
+
+**Tests** (`test_link_owner`): `begin()` starts the master once; a client opening starts nothing; the last client closing keeps the master and sends no STOP when nobody drove; the driver's phone closing sends STOP and keeps the master; drive before sync → BODY_OFFLINE (unchanged). Tank check: double press with and without a phone connected → jingle + blink both times; a page connecting / leaving adds no *link lost* rows to the Log.

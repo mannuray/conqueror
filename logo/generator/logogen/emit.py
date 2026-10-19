@@ -194,3 +194,22 @@ def render_cases_h(spec: Spec) -> str:
         "};\n\n#define LOGO_CASES(X) " + " ".join(f"X({i})" for i in range(len(spec.cases))) + "\n"
     )
     return "".join(lines)
+
+
+def render_running_h(spec: Spec) -> str:
+    struct_line = (
+        "struct RunCase { const char* name; const char* src; const char* does; int end_code; int end_line; "
+        "const char* message_has; int distance_cm; unsigned long long cut_short; unsigned long long stuck; };\n\n"
+    )
+    lines = [HEADER, "#pragma once\n\n", struct_line, "static const RunCase kRunCases[] = {\n"]
+    for c in spec.run_cases:
+        lines.append(
+            f"    {{{c_string(c.name)}, {c_string(c.src)}, {c_string(c.does)}, {c.end_code}, {c.end_line}, "
+            f"{c_string(c.message_has)}, {c.distance_cm}, {c.cut_short}ULL, {c.stuck}ULL}},\n"
+        )
+    lines.append(
+        "};\n\n#define LOGO_RUN_CASES(X) "
+        + " ".join(f"X({i})" for i in range(len(spec.run_cases)))
+        + "\n"
+    )
+    return "".join(lines)

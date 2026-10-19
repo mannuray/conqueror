@@ -82,6 +82,21 @@ class Case:
 
 
 @dataclass
+class RunCase:
+    """A run test (tests/README.md "Run tests"): what the program asks for, in order, and how it ends."""
+
+    name: str
+    src: str
+    does: str  # the actions joined by " | "
+    end_code: int = 0  # 0 = finished
+    end_line: int = 0
+    message_has: str = ""
+    distance_cm: int = 0  # 0 = nothing seen
+    cut_short: int = 0  # bit n-1: the n-th motion is cut short by the obstacle brake
+    stuck: int = 0  # bit n-1: the n-th motion ends with a stuck track
+
+
+@dataclass
 class Spec:
     words: list[Word]
     presets: dict[str, list[str]]
@@ -93,6 +108,7 @@ class Spec:
         default_factory=dict[str, tuple[int, int, int]]
     )
     look_deg: dict[str, tuple[int, int]] = field(default_factory=dict[str, tuple[int, int]])
+    run_cases: list[RunCase] = field(default_factory=list[RunCase])
 
     def word(self, name: str) -> Word:
         return next(w for w in self.words if w.name == name)
@@ -179,6 +195,37 @@ def _load_cases(path: Path) -> list[Case]:
     return out
 
 
+def _bits(motions: list[Any]) -> int:
+    bits = 0
+    for n in motions:
+        if not 1 <= int(n) <= 64:
+            raise ValueError(f"world: motion {n} is not from 1 to 64")
+        bits |= 1 << (int(n) - 1)
+    return bits
+
+
+def _load_run_cases(path: Path) -> list[RunCase]:
+    out: list[RunCase] = []
+    for c in yaml.safe_load(path.read_text()):
+        if str(c.get("version", "v1")) != "v1":
+            continue
+        world: dict[str, Any] = c.get("world", {})
+        ends = c["ends"]
+        case = RunCase(
+            name=str(c["name"]),
+            src=str(c["source"]).rstrip("\n"),
+            does=" | ".join(str(d) for d in c["does"]),
+            message_has=str(c.get("message_has", "")),
+            distance_cm=int(world.get("distance", 0)),
+            cut_short=_bits(world.get("cut_short", [])),
+            stuck=_bits(world.get("stuck", [])),
+        )
+        if ends != "finished":
+            case.end_code, case.end_line = int(ends["error"]), int(ends["line"])
+        out.append(case)
+    return out
+
+
 def _check_preset_data(spec: Spec) -> None:
     """Every colour has its r g b (0-255); every LOOK preset but HOME has its angles."""
     for name in spec.presets["colour"]:
@@ -214,7 +261,11 @@ def load(root: Path) -> Spec:
         },
         look_deg={str(k): (int(v[0]), int(v[1])) for k, v in raw["look_deg"].items()},
     )
+    spec.run_cases = _load_run_cases(spec_dir / "tests" / "running.yaml")
     _check_preset_data(spec)
+    for r in spec.run_cases:
+        if r.end_code and r.end_code not in spec.errors:
+            raise ValueError(f"run case {r.name}: unknown error code {r.end_code}")
     for c in spec.cases:
         if not c.expect_ok and c.code not in spec.errors:
             raise ValueError(f"case {c.name}: unknown error code {c.code}")

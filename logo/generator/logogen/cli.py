@@ -13,6 +13,7 @@ OUTPUTS = {
     ESP / "src" / "logo" / "generated" / "words.h": emit.render_words_h,
     ESP / "web" / "generated" / "words.json": emit.render_words_json,
     ESP / "test" / "test_logo_conformance" / "cases.h": emit.render_cases_h,
+    ESP / "test" / "test_logo_running" / "cases.h": emit.render_running_h,
 }
 
 

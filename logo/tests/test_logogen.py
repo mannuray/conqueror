@@ -72,3 +72,18 @@ def test_a_colour_without_rgb_is_refused() -> None:
     del s.colour_rgb["RED"]
     with pytest.raises(ValueError, match="colour_rgb: RED"):
         model._check_preset_data(s)  # pyright: ignore[reportPrivateUsage]
+
+
+def test_run_cases_carry_their_world_and_ending() -> None:
+    runs = spec().run_cases
+    square = next(r for r in runs if r.name == "a square")
+    assert square.does.startswith("FORWARD 50 | RIGHT 90") and square.end_code == 0
+    blocked = next(r for r in runs if r.name == "an obstacle ends a program without BLOCKED?")
+    assert (blocked.cut_short, blocked.end_code, blocked.end_line) == (1, 7024, 1)
+    text = emit.render_running_h(spec())
+    assert "#define LOGO_RUN_CASES(X) X(0)" in text
+
+
+def test_world_motion_numbers_are_checked() -> None:
+    with pytest.raises(ValueError, match="motion 0"):
+        model._bits([0])  # pyright: ignore[reportPrivateUsage]

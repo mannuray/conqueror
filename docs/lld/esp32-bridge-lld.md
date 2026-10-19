@@ -1646,7 +1646,7 @@ sequenceDiagram
 ```
 Tank check: 3 boots — pings + drive page with video; a short stand drive with video on (drive, release, STOP).
 
-## Revision 13 — The tank app (Plan O; UX `docs/design/bridge-ux.md`, design-notes §80, §85, §89–§91) — APPROVED (owner, 2026-10-19)
+## Revision 13 — The tank app (Plan O; UX `docs/design/bridge-ux.md`, design-notes §80, §85, §89–§91) — APPROVED (owner, 2026-10-19) — BUILT (see R13.7)
 Builds the designed app except Logo and AI: the ☰ menu on Drive, `/settings` in four tabs (WiFi · Tank · Tune · Log) with the new cards, and the bridge pieces behind them. Facts from the code (2026-10-19) that shape it are listed in design-notes §90.
 
 ### R13.1 Pages
@@ -1699,20 +1699,26 @@ classDiagram
     bool seen
     uint8 mask
     bool locked
-    uint32 uno_ms
+    uint32 at_ms
   }
   class CameraSettings {
-    FrameSize size
+    uint8 size
     uint8 quality
+    uint8 fps_cap
+    int8 brightness
+    int8 contrast
+    bool low_light
     bool vflip
     bool hmirror
     +load() / save()
-    +apply(sensor_t*)
+    +applyTo(sensor_t*)
   }
   class AppSettings {
     char ai_url[97]
-    +load() / save()
-    +valid(url) bool
+    +appAiUrlLoad() / appAiUrlSave()
+  }
+  class WsCodec {
+    +appUrlValid(url) bool
   }
   EventLog --> LogEntry
   LinkTask --> EventLog : add()
@@ -1755,6 +1761,18 @@ sequenceDiagram
 
 ### R13.6 Tests
 Host: `test_event_log` (ring wrap at 200, `since` paging, seq gaps after wrap, client name truncation), `test_ws_codec` / `test_ws_json` (tank, log, camera_set, app_set — URL validation, size / quality ranges), `test_body_link` (SelfTestRecord from EVENT SELFTEST). Page tests with a stand-in WebSocket: menu, tabs + hash, live sensors from fake `tf`/`td`/`ts`, graphs, the wizard flow, log paging. Tank: menu links, camera settings change the stream, log shows a STOP from another device and a WiFi switch, wizard on the floor.
+
+### R13.7 As built (design-notes §93–§97, 2026-10-19)
+Differences found on the stand checks and in the firmware review; the code is authoritative where these differ from R13.1–R13.6.
+- **Big replies:** `wsSend` keeps a 384-byte queue for ordinary messages; `tank` and `log` replies (up to `kWsBigMax` = 3584 B) go through their own 2-slot queue in `net/http_server.cpp` (before this they were dropped silently). `jsonLog` always closes the reply and adds whole entries oldest first, stopping at the first that does not fit (no holes).
+- **`tank` reply** carries the full camera block: `size, quality, fps_cap, brightness, contrast, low_light, vflip, hmirror, viewers, fps, kbps` (`fps` counts the frames of all viewers; the pages divide by `viewers`).
+- **`SelfTestRecord`** is `{seen, mask (failed checks), locked, at_ms (bridge time)}`; the reply sends `age_s`.
+- **`CamSettings`** (net/camera_service) is `{size, quality, fps_cap, brightness, contrast, low_light, vflip, hmirror}`; `low_light` = night mode + 32× gain ceiling + exposure +1 (§96); `vflip` defaults on for the OV3660.
+- **AI address:** the validation `appUrlValid()` lives in `core/ws_codec` (parse time, also refuses a too-long address); `net/app_settings` only loads and saves (NVS `cq_app` "ai").
+- **Log sources:** every Uno EVENT except `button_press` and `unblocked` (too frequent to be useful).
+- **Confirmation gate:** a change from another device while one waits for the tank's button is refused `BUSY` (`ConfirmGate::busyFor`).
+- **Pages:** live camera picture in the Settings camera card (§93); camera chip + sheet on the Drive page (§94).
+- **Link:** one master, always on (R14, §95).
 
 ## Revision 14 — One master, always on (design-notes §95) — APPROVED (owner, 2026-10-19)
 Replaces the Idle part of **R2.7** (the bench tool and TCP 3333 are retired, §74). The ESP32 bridge is the only master of the Uno link and holds it from boot; WebSocket clients never change the link.
@@ -1802,3 +1820,4 @@ stateDiagram-v2
 ```
 
 **Tests** (`test_link_owner`): `begin()` starts the master once; a client opening starts nothing; the last client closing keeps the master and sends no STOP when nobody drove; the driver's phone closing sends STOP and keeps the master; drive before sync → BODY_OFFLINE (unchanged). Tank check: double press with and without a phone connected → jingle + blink both times; a page connecting / leaving adds no *link lost* rows to the Log.
+

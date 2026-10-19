@@ -456,7 +456,7 @@ Host: `balanceTracks` (+19 ‰ at 40/40 → 40/41 rounding, reverse, steering un
 Three small additions for the tank app's Tank tab (Uno flash before: 31 044 B / 96.2 %, ~1.2 KB free; budget for all three ≤ 400 B, measured after each):
 1. **Board temperature:** the IMU burst already reads the MPU6050 temperature (`ImuRaw::temp`, `imu_uno.cpp`); TELEM_SLOW `temp` (0.01 °C) = `raw × 100 / 340 + 3653` in integer maths, the last value of the 1 Hz slow frame. It is the chip's temperature (a few °C above the room).
 2. **Tilt angles:** `TiltLite` keeps the filtered accelerometer (128 per g); TELEM_FAST `pitch` / `roll` (0.01°) = `iatan2(x, isqrt(y² + z²))` and `iatan2(y, z)` with an **integer atan2** (octant reduction + a 2nd-order polynomial, error ≤ 0.5°; no floats, no `atan2f` — the Lite does not link the float maths) and the existing `isqrt16`; computed once per TELEM_FAST.
-3. **Self-test on request:** CALIBRATE with script `SELF_TEST` (9) → ACK OK and the boot self-test runs again (the same `selfTestTask`, 2 s later, EVENT SELFTEST with the result and the lock as at boot); every other CALIBRATE script stays UNAVAILABLE; refused BUSY while driving.
+3. **Self-test on request:** CALIBRATE with script `SELF_TEST` (9) → ACK OK and the boot self-test runs again (the same `selfTestTask` on its next tick — it only waits for uptime ≥ 2 s, as at boot — EVENT SELFTEST with the result and the lock as at boot); every other CALIBRATE script stays UNAVAILABLE; refused BUSY while driving.
 
 ```mermaid
 classDiagram
@@ -477,3 +477,4 @@ classDiagram
   LiteRoutes ..> SelfTest : schedule again
 ```
 Tests (host): `iatan2Cdeg` against `atan2` at 1° steps (|error| ≤ 50 cdeg), pitch/roll from synthetic accel vectors, temperature conversion, CALIBRATE SELF_TEST → OK + a new SELFTEST event, other scripts → UNAVAILABLE.
+> **As built (design-notes §97):** the CALIBRATE case is written inline in the Lite route dispatcher (no separate `handleCalibrate`), and the host test is `test_calibrate_is_handled_for_self_test` (frame use); the OK / UNAVAILABLE / BUSY replies were checked on the tank (stand check, Plan O).

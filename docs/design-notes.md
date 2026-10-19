@@ -1369,3 +1369,7 @@ A review of the v2 grammar (pasted by the owner) raised four points; all applied
 - **Partition change: yes** (256 KB LittleFS `logo`, app slots 2.875 MB, one USB flash).
 - **Editor: colouring, easy for children** (owner: "it's for the kids so it should be easy for them"): colour by kind of word (moves, turns, loops/choices, light/sound/look, numbers, your own words, comments, unknown words underlined), big text, word buttons that insert the word with its example value selected, errors under the line with a ▲ under the word (LLD §14).
 - Compile on a separate task: recommendation kept (not objected to). LLD marked approved.
+
+## 89. Build order: the tank app first, then Logo (owner, 2026-10-19)
+- Owner: "first build the tank app, then Logo, and then the Logo UI." Order: **Plan O — the tank app** (☰ menu on Drive; Settings in 4 tabs WiFi · Tank · Tune · Log with the new cards — live sensors, self-test, camera, child-play card, Tune graphs + calibration wizard, the event log; bridge work behind them) → **Plans N1–N3 — the Logo engine** (reader, runner, on the tank) → **Plan N4 — the Logo page** inside the finished app.
+- Plan N1 (`docs/superpowers/plans/2026-10-19-plan-n1-logo-reader.md`) stays written; it runs after Plan O. Next: bridge LLD Revision 13 (the tank app), then Plan O.

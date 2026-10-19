@@ -697,3 +697,11 @@ stateDiagram-v2
 - **Build:** bridge `[SUCCESS]`, partition table check, size check.
 - **Stand (tracks off the ground):** USB flash; with `tools/smoke/logo.py`: a square (tracks turn), LED / SOUND / PLAY / LOOK, STOP mid-program, a second phone taking control (7045), hiding the page (7046), `FOREVER` ended by `logo_stop`, save / load / delete, a check while a program runs.
 - **Floor (after the road-wheel fix):** a 50 cm square back to its start, "avoid walls" with an obstacle (`BLOCKED?`), a program without `BLOCKED?` meeting an obstacle (7024), driven path (`logo_pose`) against the planned path.
+
+### 20.9 As built (Plan N3, 2026-10-19; stand checks design-notes §105)
+- The ten rules of Plan N3 (owner-confirmed, design-notes §104) hold. Corrections to §20.1-§20.6:
+  - **§20.2:** the web server never waits - each `/logo/*` request is handed to the logo worker as an async job (esp_http_server `httpd_req_async_handler_begin`); the worker reads the body (bounded), checks / saves / loads, replies in chunks and completes it. No 2 s wait.
+  - **§20.5:** the program keeps the drive with `LinkOwner::keepDriving` every tick (as a primitive does): no 5 s handback during waits; a takeover (IR remote; phones cannot take a running program's drive) ends it with 7045 **without** a STOP frame; the ending's STOP goes only while it still owns the drive. LOOK degrees → Uno servo angles (900 centre, right / up the smaller angles); BEEP = SOUND BLIP; PLAY sends each TONE frame (≤ 10 notes) when the previous one has played.
+  - **§20.6:** check workspace ≈ 319 KB PSRAM (token list and node pool bigger than estimated), worker stack 16 KB (the checker keeps ≈ 6 KB on its stack); running program + Vm ≈ 36 KB. Measured: an 8 KB `FOREVER` check takes 41-43 ms on the bridge.
+- **Files:** `logo/{check_job, check_json, check_box, program_names, odometry}`, `app/{logo_controller, logo_actions}`, `core/ws_json_logo.cpp`, `net/{logo_worker, logo_http, program_store}`, `tools/smoke/logo.py`; changes in MotionController, UnoChannel, BodyLink (`sendTone`, `sendCamSet`), AckedOps, the codec, the router, UnoEventRouter (alarm sink), the link task and `main.cpp` (bridge LLD R16).
+- **On the stand:** turns end "stuck" (7044) - a spin cannot turn the body there; turns and the square are floor checks. Opening the bridge's USB serial port resets it.

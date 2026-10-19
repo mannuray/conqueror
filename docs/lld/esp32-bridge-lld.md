@@ -113,11 +113,12 @@ What changes in one paragraph: the bridge is no longer only a byte pump. It now 
 |---|---|---|---|---|
 | `nvs` | data / nvs | 0x9000 | 0x5000 (20 KB) | WiFi + small settings (no secrets beyond what Arduino WiFi stores) |
 | `otadata` | data / ota | 0xE000 | 0x2000 (8 KB) | which app slot boots |
-| `app0` | app / ota_0 | 0x10000 | 0x300000 (3 MB) | firmware slot A |
-| `app1` | app / ota_1 | 0x310000 | 0x300000 (3 MB) | firmware slot B (OTA writes the idle slot) |
-| `source` | data / spiffs (0x82) | 0x610000 | 0x1E0000 (1.875 MB) | embedded source archive (raw blob, **not** a file system) |
+| `app0` | app / ota_0 | 0x10000 | 0x2E0000 (2.875 MB) | firmware slot A |
+| `app1` | app / ota_1 | 0x2F0000 | 0x2E0000 (2.875 MB) | firmware slot B (OTA writes the idle slot) |
+| `source` | data / spiffs (0x82) | 0x5D0000 | 0x1E0000 (1.875 MB) | embedded source archive (raw blob, **not** a file system) |
+| `logo` | data / littlefs | 0x7B0000 | 0x40000 (256 KB) | saved Tank Logo programs (Plan N3, R16; Tank Logo LLD §12) |
 | `coredump` | data / coredump | 0x7F0000 | 0x10000 (64 KB) | crash dump for debugging |
-- Today's bridge app is expected at ~1.3–1.6 MB (WiFi + httpd + camera); 3 MB slots leave room for the phase-4 gateway in the same layout, so the table never has to change (changing it needs a USB flash).
+- Today's bridge app is expected at ~1.3–1.6 MB (WiFi + httpd + camera); 3 MB slots leave room for the phase-4 gateway in the same layout, so the table never has to change (changing it needs a USB flash). **Changed once (Plan N3, 2026-10-19, R16):** the app slots shrank to 2.875 MB for the 256 KB `logo` area; flashed over USB, NVS kept.
 - The source partition uses subtype `spiffs` only so that ArduinoOTA's "file system" upload (`espota -s`) can rewrite it over WiFi too (R2.5). The content is our own blob, not SPIFFS.
 - Measured on 2026-10-12: `git archive HEAD | gzip -9` = **9.5 MB**, of which `docs/design/stitch/` PNGs are 9.0 MB; **without them 0.48 MB**. So the archive **excludes the Stitch images** (R2.3 step 6) and fits with ~4× headroom.
 
@@ -146,7 +147,7 @@ flowchart LR
    - `secrets.h` is never tracked: Plan C Task 1 adds `firmware/esp32/include/secrets.h` to `.gitignore` (today `.gitignore` has no such line), so `git archive` cannot contain it even by mistake; the value check above is the second guard.
 7. **Releases**: every flashed release is tagged `bridge-vX.Y.Z` (Uno: `uno-vX.Y.Z`) and published with `gh release create` carrying `bootloader.bin`, `partitions.bin`, `firmware.bin`, `source.bin` and a `flash.sh` with the exact esptool command. `env:bridge_release` = `env:bridge` + refuse dirty tree.
 8. **Chip check before any USB flash** (`scripts/check_chip.py`, hooked as a PlatformIO pre-upload action and also runnable alone): runs `esptool.py --port <port> flash_id` and refuses to flash unless the output says **`Chip is ESP32-S3`**, **`Detected flash size: 8MB`** and the chip features list **embedded PSRAM 8MB**. Prints the MAC (expected `48:ca:43:9e:74:b4` on the owner's board; a different MAC is a warning, not an error).
-9. **USB flash (first time and recovery)**: shield switch S1 position does not matter for the ESP32's own USB-C; hold BOOT while plugging in if the port does not enumerate. `pio run -e bridge -t upload` writes bootloader + partitions + app; `pio run -e bridge -t upload_source` (custom target) writes `source.bin` at 0x610000. Note §23: the USB-C link was not detected on macOS with some cables — `/dev/ttyACM0` on Linux is confirmed (§24).
+9. **USB flash (first time and recovery)**: shield switch S1 position does not matter for the ESP32's own USB-C; hold BOOT while plugging in if the port does not enumerate. `pio run -e bridge -t upload` writes bootloader + partitions + app; `pio run -e bridge -t upload_source` (custom target) writes `source.bin` at the `source` offset read from the partition table (0x5D0000 since R16). Note §23: the USB-C link was not detected on macOS with some cables — `/dev/ttyACM0` on Linux is confirmed (§24).
 
 ### R2.4 Self-describing pages: `/info`, `/help`, `/source.tar.gz`
 All three are **read-only**: no control, no settings, no secrets. Port 80.
@@ -2000,3 +2001,10 @@ The code is authoritative where it differs from R15.1–R15.11:
 - **Size check:** the bridge has no entries in `scripts/size_allow.txt`.
 - **Tank checks pending** (owner: after the Logo work and the road-wheel / motor-power fix): stand list and floor list of R15.11, the `CQ_WDT_TEST` watchdog check.
 
+## Revision 16 — Tank Logo on the bridge (Plan N3, Tank Logo LLD §20, design-notes §102-§105) — APPROVED (owner, 2026-10-19) — BUILT, stand-checked
+- **Partitions:** the `logo` LittleFS area (256 KB at 0x7B0000), app slots 2.875 MB (table in R2.2). One USB flash done 2026-10-19 (order: partitions + app, then the source archive).
+- **LogoController** (`app/logo_controller.*`, link task): `logo_run` / `logo_step` / `logo_stop`; runs the Tank Logo RunController each tick; moves through `MotionController::startLogo` (ordinary primitives, id −2, R4.6 rules), light / sound / tune / camera through UnoChannel (`kLed`, `kSound`, `kTone`, `kCamSet`, `kCamHome`, fd `core::kLogoClient`), waiting for the Uno's ACK; events `logo_started / logo_line / logo_pose / logo_say / logo_note / logo_ended`.
+- **Who drives:** the program keeps the drive with `LinkOwner::keepDriving` each tick (no 5 s handback); a takeover (IR) or the body gone ends it; the ending's STOP frame only while it still owns the drive. A running program counts as its page's primitive (`MotionController::ownedBy`), so STOP, release, page closed, OTA, body offline, stall and the owner's own drive commands all end it. Uno `batt_critical` → 7042, `tilted` / `lifted` → 7043.
+- **HTTP:** `/logo/check`, `/logo/programs[/<name>]` are esp_http_server **async jobs** on the logo worker task (core 0, prio 2, 16 KB stack) - the web server task (and every WebSocket incl. STOP) is never held up; one job at a time (`503 busy`). Request bodies are read with a limit (2 receive timeouts) and unused bodies drained.
+- **Refusals:** bridge-only codes 3016 `CHECK_AGAIN`, 3017 `NOT_RUNNING`. `LinkStatus::logo_running` (no saving / deleting while a program runs). Log kind `logo`. `max_uri_handlers` 20, wildcard URI matching.
+- **Memory:** check workspace ≈ 319 KB PSRAM; running program + Vm ≈ 36 KB (PSRAM, internal RAM fallback).

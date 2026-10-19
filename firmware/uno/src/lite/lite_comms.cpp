@@ -155,8 +155,6 @@ void telemetrySlowDue() {
   g_lite.slow.flags2 = g_lite.slow_flags;
   g_lite.slow.free_ram = stackHeadroom();
   g_lite.slow.err_i2c = port::imu::i2cErrors();
-  // Uno Lite LLD §21: MPU6050 die temperature, °C = raw / 340 + 36.53 -> 0.01 °C
-  g_lite.slow.temp = static_cast<int16_t>(static_cast<int32_t>(g_lite.imu_temp_raw) * 100 / 340 + 3653);
   g_lite.slow.hw = lite_telemetry::hwByte(g_lite.encoders_enabled, imuUsable(), !g_lite.range.fault());
   g_lite.slow_due = true;
 }

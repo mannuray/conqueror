@@ -1,7 +1,5 @@
 #include "domain/lite/tilt_lite.h"
 
-#include "domain/lite/int_math.h"
-
 #ifdef CQ_HOST_TEST
 #define PROGMEM
 #define CQ_READ_WORD_P(p) (*(p))
@@ -21,13 +19,6 @@ uint16_t tan2Q8(uint8_t deg) {
   return CQ_READ_WORD_P(&kTan2Q8[i]);
 }
 }  // namespace
-
-int16_t TiltLite::pitchCdeg() const {  // 128 per g after / 64
-  return iatan2Cdeg(static_cast<int16_t>(m_fx / 64),
-                    static_cast<int16_t>(ihypot16(static_cast<int16_t>(m_fy / 64), static_cast<int16_t>(m_fz / 64))));
-}
-
-int16_t TiltLite::rollCdeg() const { return iatan2Cdeg(static_cast<int16_t>(m_fy / 64), static_cast<int16_t>(m_fz / 64)); }
 
 bool TiltLite::over(uint8_t deg) const {
   if (m_fz <= 0) return true;  // past 90° or upside down

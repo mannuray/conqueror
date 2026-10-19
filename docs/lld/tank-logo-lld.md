@@ -7,7 +7,7 @@ Spec: `docs/superpowers/specs/2026-10-11-05-tank-logo-design.md` (Revision 2) ·
 - **In:** levels 1–2 of `words.yaml`, plus `OUTPUT`, plus **list literals** (constants written in the program, grammar.md §1); the reader (lexer, parser, checker, compiler), the runner, the planned path (simulator) and the driven path (odometry), saved programs on the tank, the WebSocket API, the `/logo` page (laptop + phone).
 - **Not in v1:** run-time list building (`FIRST LIST MAP …` → `PROGRAM_7030`), vision words (AI programs, `PROGRAM_7020`), events (`WHEN`), running saved programs from the IR remote. v1.1 adds the list pool + garbage collector without changing the instruction format of §7 (list values already have a tag).
 - **No new firmware on the Uno and no new safety rules.** Every motion step is an ordinary bridge primitive (MOVE / TURN / arc / pivot) or Uno command (LED, SOUND, TONE, CAM_SET); the obstacle brake, deadman, link-loss stop, stall, tilt and battery rules stay exactly as they are.
-- **Implementation:** Plan N1 (reader) `docs/superpowers/plans/2026-10-19-plan-n1-logo-reader.md` — done when all v1 conformance cases pass (done 2026-10-19: 67 / 67, design-notes §88). Plan N2 (runner, host-tested) `docs/superpowers/plans/2026-10-19-plan-n2-logo-runner.md` — §19. Store, API, wiring and page: Plans N3–N4.
+- **Implementation:** Plan N1 (reader) `docs/superpowers/plans/2026-10-19-plan-n1-logo-reader.md` — done when all v1 conformance cases pass (done 2026-10-19: 67 / 67, design-notes §88). Plan N2 (runner, host-tested) `docs/superpowers/plans/2026-10-19-plan-n2-logo-runner.md` — §19. On the tank (worker, controller, HTTP + WebSocket, saved programs, odometry): Plan N3 — §20 (draft for the owner). Page: Plan N4.
 
 ## 1. Where it runs
 ```mermaid
@@ -523,3 +523,177 @@ Endings by cause (codes in `words.yaml`): `EndReason` kDone → on; kBlocked →
 - §7 / §8: the sensor word is **`TILTED?`** (the Uno's tilted / lifted alarm), not `TILT`; `Sensors` has no pitch or roll (the Uno Lite has none, design-notes §92). Values are 8 bytes (`VTag` + `int32_t`).
 - §11: the simulator turns at 90 °/s and checks a `WAIT UNTIL` every 100 ms (time only); arcs get a point every 10°.
 - §16: one compiled program ≈ 26 KB; the Vm's stacks ≈ 4 KB (256 values × 8 B, 101 frames, 128 loop records); the compiler's work stack 256 × 24 B.
+
+## 20. Revision N3 — the runner on the tank (owner, 2026-10-19, design-notes §102)
+Plan N3 puts the N2 runner on the bridge in the Plan P structure (bridge LLD R15: controllers in `app/`, pure deciders in `core/` and `logo/`, ports chosen at link time). **This section replaces §1's data path, §12's write path and §13** where they differ: program text travels over HTTP, control and events over the WebSocket (§102). Safety is unchanged: every move is an ordinary motion-service primitive (`DRIVE src AUTO`) under all Uno rules; every ending stops the tank through the existing paths.
+
+### 20.1 Parts
+| Part | File (firmware/esp32) | Runs in | Pure / host-tested | Job |
+|---|---|---|---|---|
+| `LogoWorker` | `src/net/logo_worker.h/.cpp` | own task, core 0, below the web server | no (FreeRTOS) | one check at a time: lex → parse → check → compile → plan path into the **checked** program; numbers each check |
+| `CheckBox` | `src/logo/check_box.h/.cpp` | shared (mutex in `net`) | yes | the checked program + its number + `ok`; `take(prog, out)` copies it for a run only if the number matches and it compiled OK |
+| `LogoController` | `src/app/logo_controller.h/.cpp` | link task | yes (fakes) | `logo_run` / `logo_step` / `logo_stop`; owns the **running** program, `Vm`, `RunController`, `Odometry`; carries out each `RunOut`; events |
+| `Odometry` | `src/logo/odometry.h/.cpp` | link task | yes | driven pose from `enc_l` / `enc_r` (counts per metre) and the yaw |
+| `ProgramStore` | `src/net/program_store.h/.cpp` + `src/logo/program_names.h/.cpp` | web server task | names: yes | LittleFS `logo` area: `/p/<name>.logo`; 3 built-in examples (read-only) |
+| `LogoHttp` | `src/net/logo_http.h/.cpp` | web server task | no | `POST /logo/check`, `GET/PUT/DELETE /logo/programs[/<name>]` |
+| JSON | `src/core/ws_json_logo.cpp`, `src/logo/check_json.h/.cpp` | — | yes | the check reply (written in chunks), the `logo_*` events; `ws_codec` gains `logo_run` / `logo_step` / `logo_stop` |
+| additions | `core/body_link` (`sendTone`, `sendCamSet`), `core/acked_ops` (`kTone`, `kCamSet`), `app/uno_channel` (a logo waiter), `app/motion_controller` (start by value) | link task | yes | |
+| N2 follow-ups | `logo/program.h` (`ok`), `logo/vm.h` (value stack 1024, a WAIT UNTIL deadline per wait), `logo/compiler` (static work stack) | | yes | design-notes §101 |
+| smoke tool | `tools/smoke/logo.py` | laptop | — | check, run, step, stop, save / load from the command line until the N4 page |
+
+```mermaid
+classDiagram
+  class LogoWorker {
+    +begin()
+    +check(src, len, caps, CheckReplySink) bool
+  }
+  class CheckBox {
+    +put(Program&, ok) uint32_t prog
+    +take(prog, Program& out) TakeResult
+    +current() uint32_t
+  }
+  class LogoController {
+    +onRun(fd, id, prog, step, now)
+    +onStep(fd, id)
+    +onStop(fd, id, now)
+    +tick(now)
+    +onPrimitiveEnd(core::PrimitiveEnd)
+    +onMotionEvent(core::MotionEvent)
+    +onUnoEvent(RunEvent)
+    +onAckResult(ok)
+    +running() bool
+  }
+  class Odometry {
+    +start(enc_l, enc_r, yaw_cdeg, cpm)
+    +update(enc_l, enc_r, yaw_cdeg) Pose
+  }
+  class ProgramStore {
+    +list(NameList&) uint8_t
+    +load(name, buf, cap) int
+    +save(name, src, len) StoreStatus
+    +remove(name) StoreStatus
+  }
+  class RunController
+  class Vm
+  class MotionController {
+    +startLogo(fd, Action&, now) bool
+  }
+  class UnoChannel {
+    +request(AckedOp) bool
+  }
+  LogoWorker --> CheckBox : put
+  LogoController --> CheckBox : take
+  LogoController --> RunController
+  RunController --> Vm
+  LogoController --> Odometry
+  LogoController --> MotionController : moves / turns / arcs / pivots / HOME
+  LogoController --> UnoChannel : LED / SOUND / TONE / CAM_SET (waits for the ACK)
+  LogoHttp --> LogoWorker
+  LogoHttp --> ProgramStore
+```
+
+### 20.2 Checking a program
+```mermaid
+sequenceDiagram
+  participant P as page / smoke tool
+  participant H as web server task (LogoHttp)
+  participant W as LogoWorker task
+  participant B as CheckBox
+  P->>H: POST /logo/check (text, ≤ 8 KB)
+  H->>W: job (text in the worker's PSRAM inbox, caps from HELLO)
+  Note over H: one check at a time; busy → 503
+  W->>W: lex → parse → check → compile → plan path
+  W->>B: put(program, ok) → prog 17
+  W-->>H: diagnostics, words, handles_obstacles, path, prog 17
+  H-->>P: 200 {ok, diags[], words[], handles_obstacles, path[[x,y,h,line,u]…], prog} (chunked)
+```
+- Text over 8 KB → 7010 before reading. The worker answers within 2 s or the request answers "busy" (and its result is dropped).
+- Every check gets a number, also one with errors; only a number whose program compiled OK can run.
+
+### 20.3 Running a program
+```mermaid
+sequenceDiagram
+  participant P as page
+  participant L as link task (CommandRouter → LogoController)
+  participant R as RunController
+  participant M as MotionController
+  participant U as UnoChannel → Uno
+  P->>L: WS {"t":"logo_run","prog":17,"step":false,"id":5}
+  L->>L: CheckBox.take(17) → running program (refuse: CHECK_AGAIN / BUSY / NOT_OWNER / STOPPED / OTA)
+  L->>L: claim the drive like a manual drive
+  L-->>P: ack 5 · ev logo_started {name, by}
+  loop each 2 ms tick
+    L->>R: tick(telemetry, now)
+    R-->>L: RunOut move +50 cm (line 3)
+    L->>M: startLogo(fd, move) - an ordinary MOVE
+    L-->>P: ev logo_line {line 3, round}
+    M-->>L: PrimitiveEnd done → R.onPrimitiveEnd
+    R-->>L: RunOut LED 0 255 0
+    L->>U: request LED (waits for the ACK; none in 0.6 s → 7034)
+    U-->>L: ack → R goes on
+  end
+  R-->>L: RunOut ended (finished / code)
+  L->>L: stop the tank (motion STOP or BodyLink STOP), release the driver
+  L-->>P: ev logo_ended {reason, line, msg}
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Running : logo_run (checked program, compiled OK, control taken)
+  Running --> WaitingAck : LED / BEEP / SOUND / PLAY / LOOK sent
+  WaitingAck --> Running : ACK (or a refusal, logged)
+  WaitingAck --> Idle : no ACK in 0.6 s (7034)
+  Running --> Idle : ending (RunController) - tank stopped, driver released
+  note right of Running : RunController's own states (§19.3) inside: motion, waits, step pauses
+```
+
+### 20.4 Messages
+| Client → bridge | Reply |
+|---|---|
+| `POST /logo/check` body = program text | `{"ok":bool,"prog":n,"diags":[{"code","line","col","msg","warning"}],"words":[{"name","inputs","gives"}],"handles_obstacles":bool,"path":[[x_mm,y_mm,heading,line,uncertain]…],"cut_short":bool,"sim_error":{code,line,msg}?}` |
+| `GET /logo/programs` | `{"programs":[{"name","bytes","example"}]}` |
+| `GET /logo/programs/<name>` | the text (`text/plain`) |
+| `PUT /logo/programs/<name>` body = text | `{"ok":true}` / `{"ok":false,"why":"NAME" / "FULL" / "TOO_BIG" / "EXAMPLE" / "RUNNING"}` |
+| `DELETE /logo/programs/<name>` | same |
+| WS `{"t":"logo_run","prog":n,"step"?:bool,"id":k}` | `ack` / `nack` with `CHECK_AGAIN`, `BUSY`, `NOT_OWNER`, `STOPPED`, `OTA` |
+| WS `{"t":"logo_step","id":k}` / `{"t":"logo_stop","id":k}` | `ack` / `nack NOT_RUNNING` (`logo_stop` from any client; the page's STOP also sends the usual `stop`) |
+
+| Event (all clients) | Fields |
+|---|---|
+| `logo_started` | `name` (saved name or ""), `by` (client) |
+| `logo_line` | `line`, `round` |
+| `logo_pose` | `x_cm`, `y_cm`, `heading` (10 Hz while running; start = 0, 0, 0, Logo axes) |
+| `logo_say` | `text` |
+| `logo_note` | `line`, `msg` (ARC speed moved into its band) |
+| `logo_ended` | `reason` (`finished` or the code), `line`, `msg` |
+
+### 20.5 Rules
+- **Pacing (§102):** LED / BEEP / SOUND / PLAY (TONE frames of ≤ 10 notes, one request per frame) / LOOK go through the UnoChannel request queue as kinds `kLed`, `kSound`, `kTone`, `kCamSet`, `kCamHome`; the program goes on at the ACK. No ACK within the queue's 0.6 s backstop → 7034. A refusal is logged (`LogKind`) and the program goes on. SAY: `logo_say`, then a 0.2 s pause. `BEEP` = `SOUND BLIP`.
+- **Who drives:** `logo_run` claims the drive like the page's own `drive` (LinkOwner); the program's moves never take ownership themselves (bridge R4.6). The driver's other commands (`drive`, `turn`, `move`) while a program runs end it with 7045 (`kOwnerCommand`).
+- **Endings to RunController:** `MotionController` primitive ends → `onPrimitiveEnd`; STOP / release / page closed / OTA / body offline / stall / encoder fault → `onMotionEvent` (the same events MotionController gets); Uno EVENT battery critical → `kBatteryLow`, tilted or lifted → `kTilt`.
+- **Stopping on an ending:** a primitive still running → MotionController's STOP path; none → `BodyLink` STOP (urgent slot). Then the driver is released, and `logo_ended` goes out.
+- **Capabilities (`Caps`):** `encoders` from the Uno's HELLO caps (`CapBit::ENCODERS`); `ai` false; v1.
+- **Counts per metre and roll-on** for moves and odometry: MotionController's values (NVS).
+- **Not while running:** saving / deleting a program (`RUNNING`), OTA start (the program ends first, 7034), settings that need a still tank (as for a manual drive).
+
+### 20.6 Memory and time
+| Item | Where | Size |
+|---|---|---|
+| checked + running `Program` | PSRAM (allocated once at boot) | 2 × ≈ 26 KB |
+| reader (`TokenList`, `NodePool` 4096) | PSRAM, worker | ≈ 64 KB + 33 KB |
+| path buffer (2000 points) | PSRAM, worker | ≈ 24 KB |
+| `Vm` (value stack 1024, 101 frames, 128 loops) | internal RAM, static, link task | ≈ 10 KB |
+| `Compiler` work stack | static, worker | ≈ 6 KB |
+| worker task stack | internal | 8 KB |
+| link task per tick | ≤ 500 instructions (≈ 0.2 ms) + one action | stack high-water mark checked on the tank (8 KB task) |
+| web server | `max_uri_handlers` 12 → 16 | |
+
+### 20.7 Partitions (as §12, one USB flash)
+`nvs 0x9000/0x5000 · otadata 0xE000/0x2000 · app0 0x10000/0x2E0000 · app1 0x2F0000/0x2E0000 · source 0x5D0000/0x1E0000 · logo (littlefs) 0x7B0000/0x40000 · coredump 0x7F0000/0x10000`. NVS does not move (WiFi, counts per metre and roll-on are kept). The flash happens over USB with the bridge on the Linux machine (dev-setup); the first boot formats the `logo` area.
+
+### 20.8 Tests
+- **Host:** `CheckBox` (numbers, ok, take refusals), `Odometry` (straight, turn, arc within 1 cm), check-reply JSON and events, `ws_codec` `logo_*`, `program_names`, `LogoController` with fakes (run / refusals / ACK pacing / 7034 / SAY pause / every ending stops the tank and releases / step / pose at 10 Hz), BodyLink `sendTone` / `sendCamSet` frames, the N2 follow-ups.
+- **Build:** bridge `[SUCCESS]`, partition table check, size check.
+- **Stand (tracks off the ground):** USB flash; with `tools/smoke/logo.py`: a square (tracks turn), LED / SOUND / PLAY / LOOK, STOP mid-program, a second phone taking control (7045), hiding the page (7046), `FOREVER` ended by `logo_stop`, save / load / delete, a check while a program runs.
+- **Floor (after the road-wheel fix):** a 50 cm square back to its start, "avoid walls" with an obstacle (`BLOCKED?`), a program without `BLOCKED?` meeting an obstacle (7024), driven path (`logo_pose`) against the planned path.

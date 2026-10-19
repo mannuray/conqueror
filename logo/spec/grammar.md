@@ -8,6 +8,8 @@ The ESP32 bridge is the only program that reads Tank Logo (design-notes §83): i
 ## 1. Levels
 One language; every word has a level in `words.yaml` (1 Starter, 2 Explorer, 3 Expert). The level only tells the editor what to show first — the reader accepts every word at every level. **v1 builds levels 1–2 plus `OUTPUT`** (it needs no lists, so your own words can give back values from the start, design-notes §82); the other level-3 words — lists and `MAP` `FILTER` `REDUCE` `FOREACH` — are **reserved** in v1 (using one gives `PROGRAM_7030` "FIRST arrives in a later version") and built in v1.1.
 
+**List literals are in v1.** A list written in the program (`LED [255 128 0]`, `LOOK [30 -10]`, `PLAY [C4 E4]`, `SAY [well done]`, an input to your own word) is a constant: it is stored with the compiled program, can be passed around, given to `LED` `LOOK` `PLAY` `SAY` and compared with `=` — so v1 accepts `[ ]` data lists everywhere the grammar allows them. What waits for v1.1 is **building and taking lists apart** at run time (`FIRST` `LIST` `FPUT` `MAP` …), which is what needs the memory pool and garbage collection. v1 therefore has no list pool and no garbage collector.
+
 ## 2. Tokens (lexical rules)
 The reader works on the source text as UTF-8; only ASCII is meaningful outside comments and quoted words.
 
@@ -143,12 +145,23 @@ From tightest to loosest:
 - **Your words** are commands (no `OUTPUT` in their body) or reporters (an `OUTPUT` somewhere in their body). A reporter used as a statement → `PROGRAM_7004` "You didn't say what to do with the value of SIDE". A command used where a value is needed → `PROGRAM_7005` "SQUARE doesn't give back a value". A reporter that reaches `END` without `OUTPUT` → run-time `PROGRAM_7031`.
 - **Scope:** a word's inputs (`:size`) exist only inside its own `TO … END` (and its templates). There are no global variables and no `MAKE`. `:x` that is not an input of the surrounding word → `PROGRAM_7009` "There is no :x here — did you mean :size?".
 - `OUTPUT` ends the word and gives back the value. `STOP` ends the **whole program** and stops the tank (Spec 5 §12.5).
-- **Tail calls:** a call that is the last thing a word does (also the last statement inside the last `IF`/`IFELSE` branch) uses no extra stack, so a word can repeat itself for as long as the program runs. Other nesting is limited to 100 levels (`PROGRAM_7011`).
+- **Tail calls** use no extra stack, so a word can repeat itself — or two words can call each other — for as long as the program runs. **Tail position** is defined like this:
+  1. the last statement of a word's body (just before `END`) is in tail position;
+  2. if an `IF` or `IFELSE` is in tail position, the last statement of **each** of its blocks is in tail position (for `IF` the "no" case simply returns);
+  3. `OUTPUT` followed by a single call of a word that gives back a value (`OUTPUT COUNTDOWN :n - 1`) is a tail call of that word;
+  4. **nothing inside `REPEAT`, `WHILE`, `FOREVER`, `FOREACH` or a template is ever in tail position** — after its last statement the loop goes round again.
+  A call of **any** of your words (not only the word itself) in tail position reuses the caller's frame. All other nesting is limited to 100 levels (`PROGRAM_7011`).
 
 ## 9. Tricky cases — the rules
 | Source | Read as | Why |
 |---|---|---|
-| `FD 10 -5` | `FD 10`, then `-5` is left over → `PROGRAM_7004` "You didn't say what to do with -5 (put a space after the minus to subtract: 10 - 5)" | `-5` with a space before and none after is a negative number (§2) |
+| `FD 10 -5` | `FD 10`, then `-5` is left over → `PROGRAM_7004` with the minus hint (§9.1) | `-5` with a space before and none after is a negative number (§2) |
+| `(10 -5)` | a value followed by a value inside `( )` → `PROGRAM_7028` "Something is missing between 10 and -5 — to subtract, write 10 - 5" | §9.1 |
+| `REPEAT 10 -5 [ … ]` | `PROGRAM_7023` **with** the minus hint, not only "REPEAT needs its steps in [ ]" | §9.1 |
+| `[ 10 -5 ]` (a data list) | two numbers, `10` and `-5` | inside a data list there is nothing to subtract |
+| `LED PINK` | `PROGRAM_7029` "LED knows RED GREEN BLUE YELLOW PURPLE WHITE ORANGE OFF — PINK isn't one of them" | a bare NAME at a preset place that is neither a preset nor a word that gives back a value |
+| `MAP [ FD 50 ] :xs` | `PROGRAM_7005` "FD doesn't give back a value" | a reporter template must give a value (§7) |
+| `MAP [ ? ? ] :xs` | `PROGRAM_7004` "You didn't say what to do with ?" | a reporter template holds one value |
 | `FD 10 - 5`, `FD 10-5` | `FD 5` | binary minus |
 | `FD -5` | `FD -5` → run-time "FORWARD needs a distance from 1 to 500 cm" | range |
 | `RT 90 LT 90` | two statements | input counting |
@@ -164,6 +177,9 @@ From tightest to loosest:
 | `[ FD 50 ]` as a statement | `PROGRAM_7004` "You didn't say what to do with the list [FD 50]" | a list is a value |
 | `WAIT UNTIL DISTANCE < 20` | wait for the condition (≤ 60 s) | two-word keyword |
 | `WAIT 2 UNTIL …` | `WAIT 2`, then `UNTIL` → `PROGRAM_7001` | `UNTIL` only right after `WAIT` |
+
+### 9.1 The minus hint
+Whenever a value is complete and the next token is a NEG (`-` with a space before it and none after) at a place where the reader expected something else — a closing `)`, a block, the next statement, an operator — the error the reader gives (whatever its code: 7004, 7023, 7028, 7002 …) **always** ends with the hint "to subtract, put a space after the minus: 10 - 5". In a data list the same text is simply two numbers.
 
 ## 10. How two programs are read
 ```mermaid
@@ -188,4 +204,6 @@ flowchart TD
 ```
 
 ## 11. What is checked before anything moves
+**Every refusal has exactly one code** in `words.yaml` (`errors`), with its line and column; the reader never gives a generic "syntax error". A new kind of mistake gets a new code (and a test) before the reader may refuse it.
+
 The tank answers "check" with every error at once (line, column, code, message) and moves nothing while any error remains: unknown words (with "did you mean"), wrong number or type of inputs where known, unclosed `[ ( TO`, `?` outside templates, unknown `:inputs`, reporter/command misuse (§8), level-3 words in v1, needs not met (`FORWARD` without encoders → `PROGRAM_7021`; vision words without the AI → `PROGRAM_7020`), limits (`program size`, numbers, names). Run-time checks (values only known while running: ranges, types, division by zero, arc too tight, memory) end the program with the same kind of message and the line.

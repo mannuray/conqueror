@@ -13,6 +13,8 @@ Each `*.yaml` file is a list of cases:
   reads: (FD 50) (RT 90)          # how the program is read (ok cases)
   your_words: {SQUARE: {inputs: 1, gives_value: false}}   # optional: what pass 1 found
   handles_obstacles: false        # optional: the program uses BLOCKED? (design-notes §82 h)
+  tail_calls: [COUNTDOWN]         # optional: the words whose calls in tail position reuse the frame (grammar.md §8)
+  version: v1.1                   # optional: the case applies from that version (default v1)
 ```
 
 Error cases:

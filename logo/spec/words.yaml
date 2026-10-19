@@ -445,7 +445,8 @@ words:
 # WHEN (v2 events). MAKE / RUN / FOR give a friendly "not in Tank Logo" message (design-notes §83).
 reserved: [END, UNTIL, MAKE, RUN, FOR, WHEN]
 
-errors:   # PROGRAM 7000-7999 (Spec 5 §8); {..} are filled in by the checker
+errors:   # PROGRAM 7000-7999 (Spec 5 §8); {..} are filled in by the checker. Every refusal has exactly one code (grammar.md §11);
+          # a NEG right after a complete value adds the minus hint to any of them (grammar.md §9.1).
   7001: "I don't know how to {word}. Did you mean {suggestion}?"
   7002: "{word} needs {what}, like {example}."
   7003: "The {bracket} on line {line} never closes. Add a {closer}."
@@ -473,6 +474,8 @@ errors:   # PROGRAM 7000-7999 (Spec 5 §8); {..} are filled in by the checker
   7025: "{word} needs {what} from {min} to {max} {unit}."
   7026: "OUTPUT can only be used inside TO ... END."
   7027: "{word} is not in Tank Logo. {hint}"
+  7028: "Something is missing between {a} and {b}."
+  7029: "{word} knows {choices} — {given} isn't one of them."
   7030: "{word} arrives in a later version."
   7031: "{word} finished without giving back a value."
   7040: "Stopped by you."

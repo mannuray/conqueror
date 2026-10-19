@@ -181,3 +181,57 @@
   expect: ok
   reads: (IF (SEE? "ball) [ (BEEP) ])
   note: SEE? needs the AI engine - a core program gets 7020 from the checker; this case only checks the reading
+
+- name: a data list keeps -5 as its own number
+  source: LOOK [ 10 -5 ]
+  expect: ok
+  reads: (LOOK {10 -5})
+
+- name: a list literal as an input to your own word (v1)
+  source: |
+    TO GLOW :c  LED :c  WAIT 1  END
+    GLOW [ 255 0 0 ]
+  expect: ok
+  reads: (TO GLOW (:c) [ (LED :c) (WAIT 1) ]) (GLOW {255 0 0})
+
+- name: tail position - base case and recursive case in IFELSE
+  source: |
+    TO COUNTDOWN :n
+      IFELSE :n = 0 [ BEEP ] [ FD 10 COUNTDOWN :n - 1 ]
+    END
+    COUNTDOWN 500
+  expect: ok
+  tail_calls: [COUNTDOWN]
+  note: 500 rounds must not hit the 100-level limit
+  reads: >
+    (TO COUNTDOWN (:n) [ (IFELSE (= :n 0) [ (BEEP) ] [ (FORWARD 10) (COUNTDOWN (- :n 1)) ]) ])
+    (COUNTDOWN 500)
+
+- name: tail position - two words calling each other
+  source: |
+    TO PING :n  IF :n > 0 [ RT 10 PONG :n - 1 ]  END
+    TO PONG :n  IF :n > 0 [ LT 10 PING :n - 1 ]  END
+    PING 300
+  expect: ok
+  tail_calls: [PING, PONG]
+  reads: >
+    (TO PING (:n) [ (IF (> :n 0) [ (RIGHT 10) (PONG (- :n 1)) ]) ])
+    (TO PONG (:n) [ (IF (> :n 0) [ (LEFT 10) (PING (- :n 1)) ]) ])
+    (PING 300)
+
+- name: not a tail call - the call inside a loop body
+  source: |
+    TO A :n  REPEAT 2 [ A :n - 1 ]  END
+  expect: ok
+  tail_calls: []
+  reads: (TO A (:n) [ (REPEAT 2 [ (A (- :n 1)) ]) ])
+
+- name: OUTPUT with a single call is a tail call
+  source: |
+    TO SUM :n :acc  IFELSE :n = 0 [ OUTPUT :acc ] [ OUTPUT SUM :n - 1 :acc + :n ]  END
+    FD SUM 20 0
+  expect: ok
+  tail_calls: [SUM]
+  reads: >
+    (TO SUM (:n :acc) [ (IFELSE (= :n 0) [ (OUTPUT :acc) ] [ (OUTPUT (SUM (- :n 1) (+ :acc :n))) ]) ])
+    (FORWARD (SUM 20 0))

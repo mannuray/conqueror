@@ -135,3 +135,32 @@
   source: FD 50
   tank: {encoders: false}
   expect: {error: 7021, line: 1, col: 1}
+
+- name: "minus inside brackets"
+  source: FD (10 -5)
+  expect: {error: 7028, line: 1, col: 8}
+  message_has: "10 - 5"
+
+- name: "minus before a block keeps the hint"
+  source: REPEAT 10 -5 [ BEEP ]
+  expect: {error: 7023, line: 1, col: 11}
+  message_has: "10 - 5"
+
+- name: an unknown colour
+  source: LED PINK
+  expect: {error: 7029, line: 1, col: 5}
+  message_has: "PINK isn't one of them"
+
+- name: an unknown look preset
+  source: LOOK BEHIND
+  expect: {error: 7029, line: 1, col: 6}
+
+- name: a template that does not give a value
+  source: SAY MAP [ FD 50 ] [ 1 2 ]
+  expect: {error: 7005, line: 1, col: 11}
+  version: v1.1
+
+- name: a template with two values
+  source: SAY MAP [ ? ? ] [ 1 2 ]
+  expect: {error: 7004, line: 1, col: 13}
+  version: v1.1

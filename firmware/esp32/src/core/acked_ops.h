@@ -26,6 +26,7 @@ class AckedOps {
   bool push(const AckedOp& op);
   bool front(AckedOp& out) const;
   bool empty() const { return m_n == 0; }
+  uint8_t freeSlots() const { return static_cast<uint8_t>(kCap - m_n); }
   bool busy() const { return m_sent; }
   void markSent(uint8_t seq, uint32_t now_ms) {
     m_seq = seq;

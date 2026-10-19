@@ -25,6 +25,7 @@ class SettingsController {
     bool (*queue_op)(const core::AckedOp& op);  // false: the Uno request queue is full
     uint16_t* cpm;      // counts per metre in use
     uint16_t* roll_mm;  // learned roll-on in use
+    size_t (*free_slots)();  // free Uno request slots (shared with the phones' requests, R15.5)
   };
 
   SettingsController(Replies& out, core::EventLog& log, const core::BodyLink& link)

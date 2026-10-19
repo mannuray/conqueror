@@ -213,6 +213,10 @@ void SettingsController::applyCalibReset(const core::PendingChange& ch) {
 }
 
 void SettingsController::applySetting(const core::PendingChange& ch) {
+  if (m_h.free_slots() < 3) {  // final review I1: SET + SAVE + GET go together or not at all
+    m_out.nack(ch.fd, ch.id, core::BridgeReason::kBusy);
+    return;
+  }
   core::AckedOp set;
   set.kind = core::AckedOp::kSettingSet;
   set.a = ch.setting_id;

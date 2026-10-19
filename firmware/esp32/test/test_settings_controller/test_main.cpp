@@ -24,6 +24,7 @@ bool g_active = false, g_ota = false;
 int g_driver = -1;
 int g_calib_sent = 0;
 std::vector<core::AckedOp> g_ops;
+size_t g_free = 8;  // free request slots the fake queue reports
 uint16_t g_cpm = 7514, g_roll = 27;
 
 core::WsCommand P(const char* s) { return core::parseWsCommand(s, strlen(s)); }
@@ -42,15 +43,18 @@ void setUp() {
   g_driver = -1;
   g_calib_sent = 0;
   g_ops.clear();
+  g_free = 8;
   g_cpm = 7514;
   g_roll = 27;
   sc->setHooks({[] { return g_active; }, [] { return g_ota; }, [] { return g_driver; },
                      [](int) { ++g_calib_sent; },
                      [](const core::AckedOp& op) {
+                       if (g_free == 0) return false;
+                       --g_free;
                        g_ops.push_back(op);
                        return true;
                      },
-                     &g_cpm, &g_roll});
+                     &g_cpm, &g_roll, [] { return g_free; }});
 }
 void tearDown() {}
 
@@ -102,6 +106,15 @@ void test_setting_confirmed_queues_set_save_get() {
   TEST_ASSERT_EQUAL(3, g_ops.size());
   TEST_ASSERT_EQUAL(core::AckedOp::kSettingGet, g_ops[2].kind);
   TEST_ASSERT_EQUAL(3, g_ops[2].fd);
+}
+
+void test_setting_not_applied_half_when_the_queue_is_nearly_full() {  // final review I1
+  sc->onCommand(3, 11, P("{\"t\":\"setting\",\"setting_id\":66,\"value\":19,\"id\":11}"), 1000);
+  g_free = 2;  // phones' sound / camera requests fill the shared queue
+  sc->onButtonPress(2000);
+  TEST_ASSERT_EQUAL(0, g_ops.size());  // nothing half done
+  TEST_ASSERT_TRUE(has(3, "BUSY"));
+  TEST_ASSERT_FALSE(has(3, "\"t\":\"confirmed\""));
 }
 
 void test_calib_set_only_for_the_driver_and_not_while_moving() {
@@ -164,6 +177,7 @@ int main() {
   RUN_TEST(test_setting_change_waits_the_full_window);
   RUN_TEST(test_setting_write_only_track_balance_in_range);
   RUN_TEST(test_setting_confirmed_queues_set_save_get);
+  RUN_TEST(test_setting_not_applied_half_when_the_queue_is_nearly_full);
   RUN_TEST(test_calib_set_only_for_the_driver_and_not_while_moving);
   RUN_TEST(test_calib_save_failure_is_busy);
   RUN_TEST(test_calib_read_sends_calib);

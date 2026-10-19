@@ -27,6 +27,7 @@ class UnoChannel {
   core::BodyLink& link() { return m_link; }
   const core::BodyLink& link() const { return m_link; }
   bool empty() const { return m_ops.empty(); }
+  size_t freeSlots() const { return m_ops.freeSlots(); }
 
  private:
   struct Waiter {

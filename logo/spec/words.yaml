@@ -229,12 +229,12 @@ words:
     gives: degrees turned since the program started, -180 to 180, right = positive
     help: which way the tank points now
     example: IF HEADING > 45 [ HOME ]
-  - name: TILT
+  - name: TILTED?
     level: 2
     kind: reporter
-    gives: body tilt in degrees
-    help: how much the tank leans
-    example: IF TILT > 20 [ STOP ]
+    gives: TRUE while the tank is tilted past its limit or lifted (the Uno's alarm; no angles on the Uno Lite, design-notes §92)
+    help: is the tank leaning a lot or lifted up?
+    example: IF TILTED? [ STOP ]
   - name: BATTERY
     level: 2
     kind: reporter

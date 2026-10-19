@@ -452,6 +452,7 @@ Host: `balanceTracks` (+19 ‰ at 40/40 → 40/41 rounding, reverse, steering un
 
 
 ## 21. Board temperature, tilt angles, self-test on request (owner 2026-10-19, design-notes §91, bridge LLD R13)
+> **As built (owner, 2026-10-19, design-notes §92): only item 3, the self-test on request (+100 B → 31 144 / 32 256 B).** Items 1 and 2 were built (+632 B with 16-bit-only maths) and removed: the flash is too tight for their value (tilt is already an alarm; the temperature is the chip's own).
 Three small additions for the tank app's Tank tab (Uno flash before: 31 044 B / 96.2 %, ~1.2 KB free; budget for all three ≤ 400 B, measured after each):
 1. **Board temperature:** the IMU burst already reads the MPU6050 temperature (`ImuRaw::temp`, `imu_uno.cpp`); TELEM_SLOW `temp` (0.01 °C) = `raw × 100 / 340 + 3653` in integer maths, the last value of the 1 Hz slow frame. It is the chip's temperature (a few °C above the room).
 2. **Tilt angles:** `TiltLite` keeps the filtered accelerometer (128 per g); TELEM_FAST `pitch` / `roll` (0.01°) = `iatan2(x, isqrt(y² + z²))` and `iatan2(y, z)` with an **integer atan2** (octant reduction + a 2nd-order polynomial, error ≤ 0.5°; no floats, no `atan2f` — the Lite does not link the float maths) and the existing `isqrt16`; computed once per TELEM_FAST.

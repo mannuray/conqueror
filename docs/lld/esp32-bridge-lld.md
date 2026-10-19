@@ -1975,7 +1975,7 @@ One table entry per command: `{name, WsCmdKind, field reader, completeness check
 `ws_json.cpp` (500 lines, 24 builders) becomes `ws_json_drive`, `ws_json_motion`, `ws_json_settings`, `ws_json_tank` + a small shared `ws_json_util` (fmt, escape). The protocol generator also writes `name(EventKind)`, `name(Owner)`, `name(AckStatus)` for C++ (and Python); `ws_json` uses them — no hand-copied name lists.
 
 ### R15.8 Task watchdog
-The link task and the Arduino loop task subscribe to the ESP-IDF task watchdog and feed it every tick / loop; **3 s** without a feed → restart. Camera and stream tasks are not watched. Safety does not depend on it (a stuck bridge already stops the tank through the Uno's link-loss stop); it brings the bridge back by itself.
+The link task and the Arduino loop task subscribe to the ESP-IDF task watchdog and feed it every tick / loop; **3 s** without a feed → restart. Camera and stream tasks are not subscribed; core 0's idle-task check stays on (owner, design-notes §99 - it was on before Plan P). The loop leaves the watchdog when an OTA upload starts. Safety does not depend on it (a stuck bridge already stops the tank through the Uno's link-loss stop); it brings the bridge back by itself.
 
 ### R15.9 What does not change
 Uno firmware; protocol bytes; WebSocket JSON (except R15.5's queueing); the pages; `tools/smoke`; the STOP urgent slot; LinkOwner / ConfirmGate / AckedOps rules; R14 (one master, always on).
@@ -1989,3 +1989,14 @@ Uno firmware; protocol bytes; WebSocket JSON (except R15.5's queueing); the page
 - **Drive / STOP pinned before the drive code moves:** STOP from anyone is sent and resent until ACK, answered to every waiter; STOP hold for a non-driver; 5 s handback; driver's phone closing → STOP; a primitive ends on STOP and when its owner leaves; drive before sync → BODY_OFFLINE; STOP never rate limited; motion posted before a STOP is dropped.
 - Existing 246 host tests keep passing throughout.
 - Tank (end): stand — drive, STOP, STOP from a second phone, camera stick / home, sounds, tank button confirm, WiFi double press with and without a phone, Log, camera settings; floor — 1 m move, a 90° turn.
+
+### R15.12 As built (Plan P, design-notes §99, 2026-10-19)
+The code is authoritative where it differs from R15.1–R15.11:
+- **Files:** `app/` command_router, drive_controller, motion_controller, settings_controller, tank_app_controller, telemetry_publisher, uno_channel, uno_event_router, replies; `ports/` client_out, log_out, motion_store, app_store, wifi_control, camera_control, system_control; real ports in `net/ports_esp32.cpp`; fakes in **`src/fakes/`** (compiled only in `env:native`, excluded from the firmware by `build_src_filter`); `core/json_reader`, `core/ws_codec_keys` + `ws_codec_internal.h`, `core/ws_json_{reply,drive,motion,settings,tank,util}`; `core/wifi_types.h`, `core/cam_settings.h`; generated `src/generated/cq_protocol_names.h` (event / ack-status names, bridge only).
+- **`net/link_task.cpp` 215 lines** (was 1176): objects, wiring (`wire*` functions with captureless lambdas), the 2 ms loop.
+- **R15.5 timeouts:** BodyLink's 200 ms timeout answers a request; AckedOps' 600 ms backstop stays (BodyLink resets its slot without an event on start / stop master). A confirmed setting needs 3 free request slots (SET + SAVE + GET together, final review I1).
+- **R15.6:** parsing is table-driven (one reader per key, one check per command), but `WsCommand` stays one flat struct (Plan P ruling: per-command structs would rewrite every parser test and handler for no behaviour gain).
+- **Host tests:** 324 (was 246); drive / STOP rules pinned in `test_drive_controller` (checked by mutation).
+- **Size check:** the bridge has no entries in `scripts/size_allow.txt`.
+- **Tank checks pending** (owner: after the Logo work and the road-wheel / motor-power fix): stand list and floor list of R15.11, the `CQ_WDT_TEST` watchdog check.
+

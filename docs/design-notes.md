@@ -1436,3 +1436,11 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - **Order (owner: ok):** size guard first, `ws_json` by page, generated name tables, ports, command parser by table, then controllers from low to high risk (tank app, settings, telemetry / events, motion, UnoChannel, drive), root + task watchdog last, then stand + floor checks. Drive / STOP rules are pinned by host tests before the drive code moves.
 - **Guards:** pre-commit size check (file ≤ 400 lines, function ≤ 40, complexity ≤ 10, allow-list emptied for the bridge by this plan); LLD rule "new behaviour names its controller"; whole-file numbers in every final review (coding standard §3, §3.1).
 - Design: bridge LLD Revision 15.
+
+## 99. Plan P built: bridge structure refactor (2026-10-19)
+- Done on branch `plan-p-bridge-structure` (Tasks 1–12 + 12a; bridge LLD R15.12 as built): `net/link_task.cpp` 1176 → 215 lines; eight `app/` controllers behind link-time ports; 324 host tests (was 246); the pre-commit size check passes with no bridge exceptions (it blocked three of the executor's own commits during the work).
+- Final review: 0 critical, 1 important fixed (a confirmed setting could be half applied when the phones' requests filled the shared queue - now it needs 3 free slots), minors listed in the plan ledger (STOP-waiter TIMEOUT during OTA, reply codes in rare cases, queued requests outliving their phone, docs drift fixed in R15.12).
+- **Watchdog (owner: on):** besides the link task and the loop (3 s), core 0's idle-task check stays on, as before Plan P.
+- **Tank checks (owner): after the Logo work and the road-wheel fix,** when the motor power is adjusted anyway: R15.11 stand + floor lists and the `CQ_WDT_TEST` restart check. The tank already runs the refactored bridge (`f60fdd5`): `/info` has the same 59 fields, the Uno syncs at boot, the Log works.
+- Merge order unchanged: `plan-o` first, then `plan-p-bridge-structure`.
+

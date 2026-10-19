@@ -74,9 +74,10 @@ void logStatus(uint32_t now_ms, const cq::net::LinkStatus& s) {
 
 }  // namespace
 
-// R15.8 (design-notes §98): only the link task and this loop are watched (3 s); camera / stream tasks are not.
+// R15.8 (design-notes §98, §99): the link task and this loop are watched (3 s), and core 0's idle task as before (owner:
+// keep that check - a frozen core 0 with WiFi / camera restarts the bridge); camera / stream tasks are not subscribed.
 void watchdogBegin() {
-  const esp_task_wdt_config_t wdt{3000, 0, true};  // timeout_ms, no idle-task check, panic -> restart
+  const esp_task_wdt_config_t wdt{3000, 1u << 0, true};  // timeout_ms, idle-task check on core 0, panic -> restart
   esp_task_wdt_reconfigure(&wdt);
   esp_task_wdt_add(nullptr);  // the Arduino loop task (setup runs on it)
 }

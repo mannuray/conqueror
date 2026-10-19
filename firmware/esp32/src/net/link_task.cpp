@@ -9,6 +9,8 @@
 #include "core/event_log.h"
 #include "app/replies.h"
 #include "app/settings_controller.h"
+#include "app/telemetry_publisher.h"
+#include "app/uno_event_router.h"
 #include "app/tank_app_controller.h"
 #include "net/camera_service.h"
 #include "net/stream_server.h"
@@ -53,12 +55,9 @@ core::EventLog g_log;          // Plan O (LLD R13): the Log tab
 app::Replies g_out(g_ws);      // Plan P: the controllers' replies (LLD R15.3)
 app::TankAppController g_tank(g_out, g_log, g_link);  // Plan P Task 6
 app::SettingsController g_settings(g_out, g_log, g_link);  // Plan P Task 7
-uint32_t g_last_debug_slow = 0;  // LLD R5: TELEM_SLOW count last seen by the debug stream
-uint32_t g_ev_seq = 0;
-uint32_t g_tf_seq = 0;
-uint32_t g_last_fast_count = 0;
+app::TelemetryPublisher g_tel(g_out, g_link);  // Plan P Task 8
+app::UnoEventRouter g_events(g_out, g_log, g_tel, g_link);  // Plan P Task 8
 uint32_t g_last_slow_count = 0;
-uint32_t g_last_ts_ms = 0;
 struct Waiter {
   int fd;
   int32_t id;
@@ -108,10 +107,6 @@ void broadcast(size_t len) {
   for (size_t i = 0; i < g_ws.count(); ++i) wsSend(g_ws.fdAt(i), g_json, len);
 }
 
-void broadcastTs() {
-  broadcast(core::jsonTs(g_json, sizeof(g_json), g_link.snapshot(), ownerView(), bodyOffline()));
-}
-
 void nack(int fd, int32_t id, core::BridgeReason r);
 
 // Executes LinkOwner actions in the documented order.
@@ -136,8 +131,8 @@ void apply(const core::Actions& a, uint32_t now) {
   if (a.has(core::Actions::kHintHuman)) g_link.setOwnerHint(proto::OwnerHintValue::kHuman);
   if (a.has(core::Actions::kStartMaster)) g_link.startMaster(now);
   if (a.has(core::Actions::kOwnerChanged)) {
-    broadcast(core::jsonControlChanged(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), ownerView()));
-    broadcastTs();
+    broadcast(core::jsonControlChanged(g_json, sizeof(g_json), g_tel.nextEventSeq(), tankMs(), ownerView()));
+    g_tel.sendTs();
   }
 }
 
@@ -173,7 +168,7 @@ void runMotion(const core::LinkOut& o, uint32_t now) {
     return;
   }
   if (o.stop) g_link.sendStop(now);  // STOP purges queued motion frames: no DRIVE 0/0 needed (review M11)
-  if (o.event) broadcast(core::jsonPrimitiveDone(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), o.end));
+  if (o.event) broadcast(core::jsonPrimitiveDone(g_json, sizeof(g_json), g_tel.nextEventSeq(), tankMs(), o.end));
   if (o.event && o.end.reason != core::EndReason::kDone) {  // Plan O: why a move / turn ended early
     g_log.add(core::LogKind::kPrimitive, static_cast<int32_t>(o.end.reason), static_cast<int32_t>(o.end.kind), "", tankMs(), now);
   }
@@ -421,13 +416,6 @@ bool admitted(const LinkCommand& cmd, core::WsCmdKind kind, int32_t id, uint32_t
   return false;
 }
 
-void handleHello(int fd) {
-  const core::HelloInfo hello = g_link.hello();
-  const core::WelcomeInfo w{CQ_FW_VERSION, &hello, g_sensor(), ownerView(), g_ws.name(fd)};
-  sendTo(fd, core::jsonWelcome(g_json, sizeof(g_json), w));
-  sendTo(fd, core::jsonTs(g_json, sizeof(g_json), g_link.snapshot(), ownerView(), bodyOffline()));
-}
-
 void handleDrive(int fd, const core::WsCommand& c, uint32_t now) {
   if (g_ota_active) {
     streamReject(fd, core::BridgeReason::kBusy);
@@ -507,7 +495,7 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
   }
   if (!g_ws.contains(fd) || !admitted(cmd, c.kind, id, now)) return;
   switch (c.kind) {
-    case core::WsCmdKind::kHello: handleHello(fd); break;
+    case core::WsCmdKind::kHello: g_tel.hello(fd, CQ_FW_VERSION, g_sensor()); break;
     case core::WsCmdKind::kDrive: handleDrive(fd, c, now); break;
     case core::WsCmdKind::kStop: break;  // handled above (fast path)
     case core::WsCmdKind::kCamJoy: handleCamJoy(fd, c); break;
@@ -584,120 +572,58 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
   }
 }
 
-void handleLinkEvents(uint32_t now) {
-  core::LinkEvent ev{};
-  while (g_link.popEvent(ev)) {
-    switch (ev.kind) {
-      case core::LinkEventKind::kBodyOnline: {
-        const core::HelloInfo& h = g_link.hello();
-        logf("uno: synced fw %u.%u proto %u commit %08lx", h.fw >> 8, h.fw & 0xFF, h.proto,
-             static_cast<unsigned long>(h.commit));
-        broadcast(core::jsonBody(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), true, -1));
-        g_log.add(core::LogKind::kBodyOnline, h.fw, h.proto, "", tankMs(), now);
-        apply(g_owner.onSynced(true), now);
-        break;
-      }
-      case core::LinkEventKind::kBodyOffline:
-        if (ev.code == 1) {
-          logf("uno: incompatible protocol %d (need %u) - flash Plan B firmware", ev.a,
-               proto::kProtocolVersion);
-        } else {
-          logf("uno: body offline (silent)");
-        }
-        broadcast(core::jsonBody(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), false,
-                                 ev.code == 1 ? ev.a : -1));
-        endMotion(core::MotionEvent::kBodyOffline, now);
-        apply(g_owner.onSynced(false), now);
-        g_log.add(core::LogKind::kBodyOffline, ev.code, ev.a, "", tankMs(), now);
-        break;
-      case core::LinkEventKind::kUnoEvent:
-        if (ev.code == static_cast<uint8_t>(proto::EventKind::kControlChanged)) {
-          apply(g_owner.onUnoOwner(static_cast<proto::Owner>(ev.a)), now);
-        }
-        broadcast(core::jsonUnoEvent(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), ev.code, ev.a,
-                                     ev.b));
-        if (ev.code != static_cast<uint8_t>(proto::EventKind::kButtonPress) &&
-            ev.code != static_cast<uint8_t>(proto::EventKind::kUnblocked)) {  // Plan O: not the noisy ones
-          g_log.add(core::LogKind::kUno, ev.code, ev.a, "", tankMs(), now);
-        }
-        if (ev.code == static_cast<uint8_t>(proto::EventKind::kButtonPress)) {
-          g_settings.onButtonPress(now);  // Plan M: confirm a waiting change, or the WiFi double press
-        } else if (ev.code == static_cast<uint8_t>(proto::EventKind::kStall)) {
-          endMotion(core::MotionEvent::kBodyStall, now);  // Plan K: ends a move (turn / rate unchanged)
-        } else if (ev.code == static_cast<uint8_t>(proto::EventKind::kEncoderFault)) {
-          endMotion(core::MotionEvent::kBodyEncoderFault, now);
-        }
-        break;
-      case core::LinkEventKind::kStopResult:
-        for (size_t i = 0; i < g_stop_waiter_n; ++i) {
-          const Waiter& w = g_stop_waiters[i];
-          if (!g_ws.contains(w.fd)) continue;
-          sendTo(w.fd, ev.status == 0 ? core::jsonAck(g_json, sizeof(g_json), w.id)
-                                      : core::jsonNackStatus(g_json, sizeof(g_json), w.id,
-                                                             ev.status));
-        }
-        g_stop_waiter_n = 0;
-        break;
-      case core::LinkEventKind::kAckResult:
-        if (g_ops.isCurrent(ev.seq)) {  // Plan M: a settings / feedback op answered
-          core::AckedOp op;
-          const bool have = g_ops.front(op);
-          if (have && ev.status == 0 && op.kind == core::AckedOp::kSettingGet) break;  // review I5: wait for its VALUE
-          if (have && ev.status == 0 && op.kind == core::AckedOp::kSelfTest && op.fd >= 0 && g_ws.contains(op.fd)) {
-            sendTo(op.fd, core::jsonAck(g_json, sizeof(g_json), op.id));  // Plan O: the result follows as EVENT SELFTEST
-          }
-          if (have && ev.status != 0 && op.fd >= 0 && g_ws.contains(op.fd)) {
-            sendTo(op.fd, core::jsonNackStatus(g_json, sizeof(g_json), op.id, ev.status));
-          }
-          g_ops.done();
-          break;
-        }
-        if (ev.seq == g_cam_seq && g_ws.contains(g_cam_waiter.fd)) {
-          sendTo(g_cam_waiter.fd,
-                 ev.status == 0
-                     ? core::jsonAck(g_json, sizeof(g_json), g_cam_waiter.id)
-                     : core::jsonNackStatus(g_json, sizeof(g_json), g_cam_waiter.id, ev.status));
-        }
-        g_cam_waiter = Waiter{-1, -1};
-        break;
-      case core::LinkEventKind::kSettingValue: {  // Plan M: SETTING_GET answer - completes the GET op (review I5)
-        const int32_t v = static_cast<int32_t>((static_cast<uint32_t>(static_cast<uint16_t>(ev.b)) << 16) |
-                                               static_cast<uint16_t>(ev.a));
-        core::AckedOp op;
-        if (g_ops.busy() && g_ops.front(op) && op.kind == core::AckedOp::kSettingGet && op.a == ev.code) {
-          if (op.fd >= 0 && g_ws.contains(op.fd)) sendTo(op.fd, core::jsonSetting(g_json, sizeof(g_json), ev.code, v));
-          g_ops.done();
-        }
-        break;
-      }
-      case core::LinkEventKind::kResetRequest:
-      default:
-        logf("uno: %s reset request ignored (bridge has no stored settings)",
-             ev.code == static_cast<uint8_t>(proto::FrameType::kWifiResetReq) ? "WiFi" : "admin");
-        break;
+// Interim answer routing (moves into UnoChannel in Plan P Task 10).
+void onStopResult(uint8_t status) {
+  for (size_t i = 0; i < g_stop_waiter_n; ++i) {
+    const Waiter& w = g_stop_waiters[i];
+    if (!g_ws.contains(w.fd)) continue;
+    sendTo(w.fd, status == 0 ? core::jsonAck(g_json, sizeof(g_json), w.id)
+                                : core::jsonNackStatus(g_json, sizeof(g_json), w.id,
+                                                       status));
+  }
+  g_stop_waiter_n = 0;
+}
+
+void onAckResult(uint8_t seq, uint8_t status) {
+  if (g_ops.isCurrent(seq)) {  // Plan M: a settings / feedback op answered
+    core::AckedOp op;
+    const bool have = g_ops.front(op);
+    if (have && status == 0 && op.kind == core::AckedOp::kSettingGet) return;  // review I5: wait for its VALUE
+    if (have && status == 0 && op.kind == core::AckedOp::kSelfTest && op.fd >= 0 && g_ws.contains(op.fd)) {
+      sendTo(op.fd, core::jsonAck(g_json, sizeof(g_json), op.id));  // Plan O: the result follows as EVENT SELFTEST
     }
+    if (have && status != 0 && op.fd >= 0 && g_ws.contains(op.fd)) {
+      sendTo(op.fd, core::jsonNackStatus(g_json, sizeof(g_json), op.id, status));
+    }
+    g_ops.done();
+    return;
+  }
+  if (seq == g_cam_seq && g_ws.contains(g_cam_waiter.fd)) {
+    sendTo(g_cam_waiter.fd,
+           status == 0
+               ? core::jsonAck(g_json, sizeof(g_json), g_cam_waiter.id)
+               : core::jsonNackStatus(g_json, sizeof(g_json), g_cam_waiter.id, status));
+  }
+  g_cam_waiter = Waiter{-1, -1};
+}
+
+void onSettingValue(uint8_t id, int32_t v) {
+  core::AckedOp op;
+  if (g_ops.busy() && g_ops.front(op) && op.kind == core::AckedOp::kSettingGet && op.a == id) {
+    if (op.fd >= 0 && g_ws.contains(op.fd)) sendTo(op.fd, core::jsonSetting(g_json, sizeof(g_json), id, v));
+    g_ops.done();
   }
 }
 
-// LLD R5: td (every div-th TELEM_FAST) / tds (each new TELEM_SLOW) to the clients that asked for them.
-void sendDebug(const core::TankSnapshot& s, bool fast, bool slow) {
-  for (size_t i = 0; i < g_ws.count(); ++i) {
-    const int fd = g_ws.fdAt(i);
-    const uint8_t div = g_ws.debugDiv(fd);
-    if (div == 0) continue;
-    if (fast && s.fast_count % div == 0) sendTo(fd, core::jsonTd(g_json, sizeof(g_json), g_ws.nextDebugSeq(fd), s));
-    if (slow) sendTo(fd, core::jsonTds(g_json, sizeof(g_json), s));  // g_json is shared: built per client
-  }
+void handleLinkEvents(uint32_t now) {
+  core::LinkEvent ev{};
+  while (g_link.popEvent(ev)) g_events.route(ev, now);
 }
 
 void telemetry(uint32_t now) {
-  const core::TankSnapshot& s = g_link.snapshot();
-  const bool new_slow = s.slow_count != g_last_debug_slow;
-  g_last_debug_slow = s.slow_count;
-  const bool new_fast = s.fast_count != g_last_fast_count;
-  if (new_fast || new_slow) sendDebug(s, new_fast, new_slow);
-  if (new_fast) {
-    g_last_fast_count = s.fast_count;
+  const app::TelemetryPublisher::News news = g_tel.poll();  // td / tds to the clients that asked
+  if (news.fast) {
+    const core::TankSnapshot& s = g_link.snapshot();
     int32_t roll = 0;  // §G6: learn the roll-on of the last move from the frames after its STOP
     if (g_roll.watching() &&
         g_roll.observe((s.fast.enc_l + s.fast.enc_r) / 2, s.fast.pwm_l != 0 || s.fast.pwm_r != 0, g_cpm, now, roll)) {
@@ -708,17 +634,10 @@ void telemetry(uint32_t now) {
       if (next != g_roll_mm && net::motionStoreSaveRoll(next)) g_roll_mm = next;
     }
     runMotion(g_motion.onTelemetry(telemOf(s), now), now);  // 50 Hz
-    if (s.fast_count % 5u == 0) {  // Uno 50 Hz -> page 10 Hz (R2.14 #7, spec 02 §E4)
-      const core::MotionService& svc = g_motion.service();
-      const core::PrimitiveView pv{svc.active(), svc.kind(), svc.progressPct(), svc.limited()};
-      broadcast(core::jsonTf(g_json, sizeof(g_json), ++g_tf_seq, s, pv));
-    }
+    g_tel.afterFast();  // tf at 10 Hz
   }
   runMotion(g_motion.tick(now), now);  // telemetry gap / drive_rate deadman
-  if (now - g_last_ts_ms >= 1000) {  // 1 Hz, also while the Uno is silent (body_offline)
-    g_last_ts_ms = now;
-    broadcastTs();
-  }
+  g_tel.tickTs(now);  // 1 Hz, also while the Uno is silent (body_offline)
 }
 
 void reapSilent(uint32_t now) {
@@ -788,16 +707,41 @@ void linkTask(void*) {
   }
 }
 
-}  // namespace
+void wireTelemetry() {
+  g_tel.setViews({[] { return ownerView(); },
+                  [] {
+                    const core::MotionService& svc = g_motion.service();
+                    return core::PrimitiveView{svc.active(), svc.kind(), svc.progressPct(), svc.limited()};
+                  },
+                  [] { return bodyOffline(); }});
+}
 
-void linkTaskStart(const char* (*camera_sensor)()) {
-  g_sensor = camera_sensor;
-  g_cpm = net::motionStoreLoad();  // Plan K: before the link task runs
-  g_roll_mm = net::motionStoreLoadRoll();
-  g_tank.begin();  // Plan O / Plan P: the AI address
+void wireEvents() {
+  app::UnoEventRouter::Sinks sinks{};
+  sinks.body_online = [](uint32_t now) { apply(g_owner.onSynced(true), now); };
+  sinks.body_offline = [](uint8_t, int16_t, uint32_t now) {
+    endMotion(core::MotionEvent::kBodyOffline, now);
+    apply(g_owner.onSynced(false), now);
+  };
+  sinks.uno_owner = [](uint8_t o, uint32_t now) { apply(g_owner.onUnoOwner(static_cast<proto::Owner>(o)), now); };
+  sinks.button_press = [](uint32_t now) { g_settings.onButtonPress(now); };
+  sinks.motion_event = [](uint8_t e, uint32_t now) {
+    endMotion(e == static_cast<uint8_t>(proto::EventKind::kStall) ? core::MotionEvent::kBodyStall
+                                                                    : core::MotionEvent::kBodyEncoderFault, now);
+  };
+  sinks.ack_result = onAckResult;
+  sinks.stop_result = onStopResult;
+  sinks.setting_value = onSettingValue;
+  g_events.setSinks(sinks);
+}
+
+void wireSettings() {
   g_settings.setHooks({[] { return g_motion.service().active(); }, [] { return g_ota_active; },
                        [] { return g_owner.driverFd(); }, [](int fd) { sendCalib(fd); },
                        [](const core::AckedOp& op) { return g_ops.push(op); }, &g_cpm, &g_roll_mm});
+}
+
+void wireTank() {
   g_tank.setSelfTestHooks({[] { return bodyOffline(); },
                            [] {
                              const core::TankSnapshot& s = g_link.snapshot();
@@ -811,6 +755,23 @@ void linkTaskStart(const char* (*camera_sensor)()) {
                              op.id = id;
                              return g_ops.push(op);
                            }});
+}
+
+void wireControllers() {
+  wireTelemetry();
+  wireEvents();
+  wireSettings();
+  wireTank();
+}
+
+}  // namespace
+
+void linkTaskStart(const char* (*camera_sensor)()) {
+  g_sensor = camera_sensor;
+  g_cpm = net::motionStoreLoad();  // Plan K: before the link task runs
+  g_roll_mm = net::motionStoreLoadRoll();
+  g_tank.begin();  // Plan O / Plan P: the AI address
+  wireControllers();  // Plan P: hooks between the controllers (interim until Task 12)
   g_log.add(core::LogKind::kBoot, static_cast<int32_t>(esp_reset_reason()), 0, "", 0, millis());
   g_uart.begin();
   g_queue = xQueueCreate(16, sizeof(LinkCommand));

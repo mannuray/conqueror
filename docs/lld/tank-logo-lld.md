@@ -7,7 +7,7 @@ Spec: `docs/superpowers/specs/2026-10-11-05-tank-logo-design.md` (Revision 2) ·
 - **In:** levels 1–2 of `words.yaml`, plus `OUTPUT`, plus **list literals** (constants written in the program, grammar.md §1); the reader (lexer, parser, checker, compiler), the runner, the planned path (simulator) and the driven path (odometry), saved programs on the tank, the WebSocket API, the `/logo` page (laptop + phone).
 - **Not in v1:** run-time list building (`FIRST LIST MAP …` → `PROGRAM_7030`), vision words (AI programs, `PROGRAM_7020`), events (`WHEN`), running saved programs from the IR remote. v1.1 adds the list pool + garbage collector without changing the instruction format of §7 (list values already have a tag).
 - **No new firmware on the Uno and no new safety rules.** Every motion step is an ordinary bridge primitive (MOVE / TURN / arc / pivot) or Uno command (LED, SOUND, TONE, CAM_SET); the obstacle brake, deadman, link-loss stop, stall, tilt and battery rules stay exactly as they are.
-- **Implementation:** Plan N1 (reader) `docs/superpowers/plans/2026-10-19-plan-n1-logo-reader.md` — done when all v1 conformance cases pass (done 2026-10-19: 67 / 67, design-notes §88). Runner, store, API and page: Plans N2–N4.
+- **Implementation:** Plan N1 (reader) `docs/superpowers/plans/2026-10-19-plan-n1-logo-reader.md` — done when all v1 conformance cases pass (done 2026-10-19: 67 / 67, design-notes §88). Plan N2 (runner, host-tested) `docs/superpowers/plans/2026-10-19-plan-n2-logo-runner.md` — §19. Store, API, wiring and page: Plans N3–N4.
 
 ## 1. Where it runs
 ```mermaid
@@ -362,3 +362,164 @@ Generated files are never edited by hand (CLAUDE.md hard rule).
 1. **Partition change (§12): yes** — one USB flash of the bridge for the 256 KB `logo` area.
 2. **Compile on a separate task (§1):** the recommendation stands (owner did not object).
 3. **Editor: a textarea with colouring, made easy for children** (§14) — colour by kind of word, big text, tap-to-insert with the value selected.
+
+## 19. Revision N2 — the runner as built (Plan N2, 2026-10-19)
+Plan N2 (`docs/superpowers/plans/2026-10-19-plan-n2-logo-runner.md`) built everything that runs a program and can be tested on the laptop (design-notes §100–§101). Where this section and §3 / §7–§11 differ, this section is authoritative. Wiring into the bridge (logo worker task, link task, WebSocket, saved programs, odometry) is Plan N3.
+
+### 19.1 Files (`firmware/esp32/src/logo/`, all pure, host-tested in `env:native`)
+| File | Class / function | Job |
+|---|---|---|
+| `notes.h/.cpp` | `noteHz`, `NoteReader` | note names → Hz, lengths 0.25–16 beats, ≤ 64 notes (checker and runner) |
+| `program.h/.cpp` | `Program`, `Instr`, `Value`, `Const`, `ProcEntry`; `valueText`, `sameValue`, `formatMilli` | the compiled program (≈ 26 KB: 2048 instructions × 8 B, 256 constants, 512 list items, 4 KB text) |
+| `compiler.h`, `compiler.cpp`, `compiler_expr.cpp`, `compiler_stmt.cpp` | `Compiler`, `WordRole` | checked tree → instructions; iterative (an explicit work stack, one entry per tree level, ≤ 256) |
+| `vm.h/.cpp`, `vm_ops.h/.cpp`, `vm_calc.h/.cpp` | `Vm`, `VmOps`, `Sensors`, `Effect`, `RunError` | runs instructions in slices; one handler per instruction in a table |
+| `effects.h/.cpp`, `effects_text.cpp` | `mapEffect`, `Action`, `MapState`, `actionText` | an effect → what the tank does (motion service units and signs) + the run-test notation |
+| `run_controller.h/.cpp` | `RunController`, `RunTelem`, `RunConfig`, `RunOut` | one running program: states, slices, every ending (§9) |
+| `simulator.h/.cpp` | `Simulator`, `PathBuffer`, `PathPoint`, `SimResult` | the planned path (§11) |
+
+```mermaid
+classDiagram
+  class Program {
+    Instr code[2048]
+    Const consts[256]
+    Value items[512]
+    char text[4096]
+    ProcEntry procs[64]
+    bool handles_obstacles
+    +addWord(s, len) int16_t
+    +addList(items, n) int16_t
+  }
+  class Compiler {
+    +compile(program, handles_obstacles, Program&) bool
+    -stepNode(Work&) bool
+    -role(word, arg) WordRole
+  }
+  class Vm {
+    +load(Program&, seed)
+    +setStepping(bool)
+    +run(budget, Sensors&) VmStatus
+    +effect() Effect
+    +error() RunError
+    +line() uint16_t
+    +round() int32_t
+    +sensorRead() bool
+    +fail(code, args, n)
+  }
+  class VmOps {
+    +run(Vm&, Instr&)$
+  }
+  class Sensors {
+    distance_milli
+    obstacle
+    blocked
+    heading_milli
+    tilted
+    battery_milli
+    timer_milli
+    until_over
+  }
+  class Action {
+    ActKind kind
+    int16_t dist_cm
+    int32_t delta_cdeg
+    uint16_t radius_cm
+    uint8_t speed_pct
+    uint32_t ms
+    rgb, sound_id, pan_deg, tilt_deg, notes, text
+  }
+  class RunController {
+    +start(Program&, RunConfig&, RunTelem&, now)
+    +tick(RunTelem&, now) RunOut
+    +onPrimitiveEnd(core::PrimitiveEnd) RunOut
+    +onMotionEvent(core::MotionEvent) RunOut
+    +onEvent(RunEvent) RunOut
+    +state() RunState
+    +wakeAt() uint32_t
+  }
+  class RunOut {
+    bool act
+    Action action
+    bool line
+    bool ended
+    uint16_t code
+    char msg[192]
+  }
+  class Simulator {
+    +plan(Program&, PathBuffer&, seed) SimResult
+  }
+  Compiler --> Program
+  Vm --> Program
+  Vm --> VmOps
+  Vm ..> Sensors
+  RunController --> Vm
+  RunController ..> Action : mapEffect()
+  RunController --> RunOut
+  Simulator --> Vm
+  Simulator ..> Action : mapEffect()
+```
+
+### 19.2 Instructions as built (replaces the table of §7)
+| Instruction | `a` | `n` | Meaning |
+|---|---|---|---|
+| `HALT` | | | end of the program |
+| `LINE` | | line | current line (events, step mode, errors) |
+| `PUSHN` / `PUSHB` / `PUSHC` | | number / 0-1 / constant | a value onto the stack |
+| `ARG` | input | | an input of the current word |
+| `OP` | `Op` | | `+ - * / = <> < > <= >= AND OR NOT NEG` (7012 types, 7013 `/ 0`, 7033 too big) |
+| `SENSOR` | `Sensor` | | `DISTANCE OBSTACLE? BLOCKED? HEADING TILTED? BATTERY TIMER` (+ the WAIT UNTIL limit) |
+| `CALLB` | `Builtin` | | `RANDOM REMAINDER ABS ROUND REPCOUNT` |
+| `JMP` / `JZ` / `JNZ` | condition's word | target | jumps (`IF IFELSE WHILE WAIT UNTIL`) |
+| `LOOP_INIT` / `LOOP_NEXT` | 1 = FOREVER | end | REPEAT / FOREVER with a REPCOUNT record (no `LOOP_END`: `LOOP_NEXT` pops it) |
+| `CALL` / `TCALL` | inputs | word | your words; `TCALL` reuses the frame |
+| `RET` / `RETV` | | | end of a word / `OUTPUT` (pops the word's loop records) |
+| `EFFECT` | `EffectKind` | inputs | ask the host (§10) |
+| `STOP` / `FAIL` | | code | `STOP`; `FAIL 7031` at the end of a word that should give back a value |
+
+`WAIT UNTIL test` compiles to `EFFECT(start 60 s); L: test JNZ end; EFFECT(tick); SENSOR(limit) JZ L; end:` — one tick per test, and the program goes on after 60 s.
+
+### 19.3 Running a program
+```mermaid
+sequenceDiagram
+  participant H as host (link task, N3)
+  participant R as RunController
+  participant V as Vm
+  participant E as mapEffect
+  participant M as MotionService
+  H->>R: start(program, config, telemetry, now)
+  loop each 2 ms tick
+    H->>R: tick(telemetry, now)
+    R->>V: run(500, sensors)
+    V-->>R: kEffect FORWARD 50 (line 3)
+    R->>E: mapEffect(effect, speed)
+    E-->>R: Action move +50 cm, speed 40
+    R-->>H: RunOut act move, line 3
+    H->>M: startMove(fd, +50 cm, 40 %, cpm, roll)
+  end
+  M-->>H: PrimitiveEnd done
+  H->>R: onPrimitiveEnd(done)
+  H->>R: tick … V-->>R: kHalt
+  R-->>H: RunOut ended (finished) — the host stops the tank and releases the driver
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> Running : start
+  Running --> Motion : move / turn / arc / pivot / HOME
+  Motion --> Running : done · cut short with BLOCKED?
+  Running --> Waiting : WAIT · PLAY · a WAIT UNTIL tick
+  Waiting --> Running : wakeAt reached
+  Running --> Paused : step mode, new line
+  Paused --> Running : logo_step
+  Running --> Ended : HALT · STOP · error · 300 s
+  Motion --> Ended : cut short without BLOCKED? · stuck · encoder fault · not owner · link
+  Waiting --> Ended : STOP · page gone · release · battery · tilt
+  Paused --> Ended : STOP · page gone · release
+  Ended --> [*]
+```
+Endings by cause (codes in `words.yaml`): `EndReason` kDone → on; kBlocked → on with `BLOCKED?` true, else 7024; kCancelled / kStop → 7040; kNotOwner → 7045; kStalled / kTimeout / kDiverged → 7044; kLink / kDeadman → 7034; kEncoderFault → 7021. `MotionEvent` kStop / kCancel → 7040; kRelease / kOwnerCommand → 7045; kOwnerClosed → 7046; kOta / kBodyOffline / kTxFull → 7034; kBodyStall → 7044; kBodyEncoderFault → 7021. `RunEvent` kLogoStop → 7040, kBatteryLow → 7042, kTilt → 7043. Once ended, every later end reason is ignored.
+
+### 19.4 Corrections to the earlier sections
+- §3 `CheckResult` as built: `ok`, `handles_obstacles`, `tail_callees` (bit per word). §5: the parser's nesting limit gives **7010** "too deeply nested"; **7011** is the run-time limit of 100 nested calls.
+- §7 / §8: the sensor word is **`TILTED?`** (the Uno's tilted / lifted alarm), not `TILT`; `Sensors` has no pitch or roll (the Uno Lite has none, design-notes §92). Values are 8 bytes (`VTag` + `int32_t`).
+- §11: the simulator turns at 90 °/s and checks a `WAIT UNTIL` every 100 ms (time only); arcs get a point every 10°.
+- §16: one compiled program ≈ 26 KB; the Vm's stacks ≈ 4 KB (256 values × 8 B, 101 frames, 128 loop records); the compiler's work stack 256 × 24 B.

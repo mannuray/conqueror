@@ -164,6 +164,80 @@ void test_ota_answers_everything_and_stops_master() {
   TEST_ASSERT_EQUAL(3, fakes::countTo(3, "nack"));
 }
 
+// ---- Plan N3: the running Logo program's requests (TONE / CAM_SET frames; answers through its sink) ----
+uint8_t g_logo_status = 0xAA;
+int g_logo_answers = 0;
+void logoDone(uint8_t status) {
+  g_logo_status = status;
+  ++g_logo_answers;
+}
+
+core::AckedOp logoOp(core::AckedOp::Kind k) {
+  core::AckedOp o = op(k, core::kLogoClient);
+  uno->setLogoDone(logoDone);
+  g_logo_status = 0xAA;
+  g_logo_answers = 0;
+  return o;
+}
+
+void test_logo_tone_and_cam_set_frames() {
+  core::AckedOp t = logoOp(core::AckedOp::kTone);
+  t.n_notes = 2;
+  t.hz[0] = 262;
+  t.ms[0] = 250;
+  t.hz[1] = 0;
+  t.ms[1] = 500;
+  uno->request(t);
+  uno->tick(100);
+  wire.drain(*tx);
+  const cqtest::Sent* s = wire.last(FT::kTone);
+  TEST_ASSERT_NOT_NULL(s);
+  proto::ToneMsg m{};
+  TEST_ASSERT_TRUE(proto::decode(s->payload, s->len, m));
+  TEST_ASSERT_EQUAL(2, m.n);
+  TEST_ASSERT_EQUAL(262, m.notes[0].hz);
+  TEST_ASSERT_EQUAL(500, m.notes[1].ms);
+  ackLast(FT::kTone, 0, 110);
+  core::AckedOp c = logoOp(core::AckedOp::kCamSet);
+  c.pan_dd = 600;
+  c.tilt_dd = 1000;
+  uno->request(c);
+  uno->tick(120);
+  wire.drain(*tx);
+  proto::CamSetMsg cm{};
+  TEST_ASSERT_TRUE(proto::decode(wire.last(FT::kCamSet)->payload, wire.last(FT::kCamSet)->len, cm));
+  TEST_ASSERT_EQUAL(600, cm.pan);
+  TEST_ASSERT_EQUAL(1000, cm.tilt);
+}
+
+void test_logo_answers_go_to_its_sink_never_to_a_client() {
+  uno->request(logoOp(core::AckedOp::kLed));
+  uno->tick(100);
+  ackLast(FT::kLed, 0, 110);
+  TEST_ASSERT_EQUAL(1, g_logo_answers);
+  TEST_ASSERT_EQUAL(0, g_logo_status);
+  uno->request(logoOp(core::AckedOp::kSound));
+  uno->tick(120);
+  ackLast(FT::kSound, static_cast<uint8_t>(proto::AckStatus::kBusy), 130);
+  TEST_ASSERT_EQUAL(static_cast<uint8_t>(proto::AckStatus::kBusy), g_logo_status);
+  TEST_ASSERT_EQUAL(0, fakes::world().sent.size());
+}
+
+void test_logo_no_answer_and_body_offline() {
+  uno->request(logoOp(core::AckedOp::kLed));
+  uno->tick(100);
+  for (uint32_t t = 102; t <= 800; t += 2) {
+    link->step(t);
+    pump();
+    uno->tick(t);
+  }
+  TEST_ASSERT_EQUAL(1, g_logo_answers);
+  TEST_ASSERT_EQUAL(app::UnoChannel::kLogoTimeout, g_logo_status);  // BodyLink's own 200 ms timeout, as one value
+  uno->request(logoOp(core::AckedOp::kLed));
+  uno->onBodyOffline();
+  TEST_ASSERT_EQUAL(app::UnoChannel::kLogoOffline, g_logo_status);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_requests_go_one_at_a_time_in_order);
@@ -174,5 +248,8 @@ int main() {
   RUN_TEST(test_stop_overtakes_queued_requests);
   RUN_TEST(test_body_offline_answers_and_clears_the_queue);
   RUN_TEST(test_ota_answers_everything_and_stops_master);
+  RUN_TEST(test_logo_tone_and_cam_set_frames);
+  RUN_TEST(test_logo_answers_go_to_its_sink_never_to_a_client);
+  RUN_TEST(test_logo_no_answer_and_body_offline);
   return UNITY_END();
 }

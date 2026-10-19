@@ -196,6 +196,17 @@ bool BodyLink::sendLed(uint8_t mode, uint8_t r, uint8_t g, uint8_t b, uint16_t p
   return sendAcked(proto::LedMsg{mode, r, g, b, period_ms, duration_ms}, now_ms, seq_out);
 }
 
+bool BodyLink::sendTone(const uint16_t* hz, const uint16_t* ms, uint8_t n, uint32_t now_ms, uint8_t& seq_out) {
+  proto::ToneMsg m{};
+  m.n = n > 10 ? 10 : n;
+  for (uint8_t i = 0; i < m.n; ++i) m.notes[i] = proto::ToneNotesItem{hz[i], ms[i]};
+  return sendAcked(m, now_ms, seq_out);
+}
+
+bool BodyLink::sendCamSet(int16_t pan_dd, int16_t tilt_dd, uint32_t now_ms, uint8_t& seq_out) {
+  return sendAcked(proto::CamSetMsg{pan_dd, tilt_dd, 60}, now_ms, seq_out);  // speed 60 = 120 °/s (Lite: its own)
+}
+
 bool BodyLink::sendSettingGet(uint8_t id, uint32_t now_ms, uint8_t& seq_out) {
   return sendAcked(proto::SettingGetMsg{id}, now_ms, seq_out);
 }

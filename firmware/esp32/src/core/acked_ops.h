@@ -7,14 +7,21 @@
 namespace cq {
 namespace core {
 
+constexpr int kLogoClient = -2;  // Plan N3: the running Logo program waits for this answer (UnoChannel's logo sink)
+
 struct AckedOp {
   // kSelfTest: Plan O; kCamHome / kCamLock / kAudioMode: the drive page's requests (Plan P, LLD R15.5)
-  enum Kind : uint8_t { kSound, kLed, kSettingGet, kSettingSet, kSettingsSave, kSelfTest, kCamHome, kCamLock, kAudioMode };
+  enum Kind : uint8_t { kSound, kLed, kSettingGet, kSettingSet, kSettingsSave, kSelfTest, kCamHome, kCamLock, kAudioMode,
+                        kTone, kCamSet };  // Plan N3: PLAY / LOOK of a Logo program
   Kind kind = kSound;
   uint8_t a = 0;      // sound id / setting id / led mode / camera lock on / audio mode
   int32_t value = 0;  // setting value
   uint8_t r = 0, g = 0, b = 0;
   uint16_t period_ms = 0, duration_ms = 0;
+  int16_t pan_dd = 0, tilt_dd = 0;  // kCamSet
+  uint8_t n_notes = 0;              // kTone
+  uint16_t hz[10] = {};
+  uint16_t ms[10] = {};
   int fd = -1;        // client to answer, -1 = none (feedback)
   int32_t id = -1;
 };

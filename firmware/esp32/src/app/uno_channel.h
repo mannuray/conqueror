@@ -24,6 +24,10 @@ class UnoChannel {
   void onBodyOffline();  // every queued / in-flight request with a client: BODY_OFFLINE, dropped
   void tick(uint32_t now);  // send the next request; the 600 ms backstop (BodyLink's 200 ms timeout comes as onAck)
   void stopForOta();        // R14: the link stops only for OTA; every waiter answered
+  // Plan N3: the answer to a request of the running Logo program (fd core::kLogoClient): 0 = OK, else the Uno's
+  // ack_status, or kLogoTimeout / kLogoOffline when no answer came.
+  static constexpr uint8_t kLogoTimeout = 0xFE, kLogoOffline = 0xFD;
+  void setLogoDone(void (*done)(uint8_t status)) { m_logo_done = done; }
   core::BodyLink& link() { return m_link; }
   const core::BodyLink& link() const { return m_link; }
   bool empty() const { return m_ops.empty(); }
@@ -37,8 +41,10 @@ class UnoChannel {
   static constexpr size_t kMaxStopWaiters = 2 * core::kMaxWsClients;  // review M8
 
   bool send(const core::AckedOp& op, uint32_t now, uint8_t& seq);
+  bool sendUi(const core::AckedOp& op, uint32_t now, uint8_t& seq);
   void backstop(uint32_t now);
   void answerAll(core::BridgeReason r);  // the in-flight request and every queued one, then empty
+  bool logo(const core::AckedOp& op, uint8_t status);  // true: the program's request, answered through its sink
 
   core::BodyLink& m_link;
   core::FrameTx& m_tx;
@@ -46,6 +52,7 @@ class UnoChannel {
   core::AckedOps m_ops;
   Waiter m_stop_waiters[kMaxStopWaiters] = {};
   size_t m_stop_n = 0;
+  void (*m_logo_done)(uint8_t status) = nullptr;
 };
 
 }  // namespace app

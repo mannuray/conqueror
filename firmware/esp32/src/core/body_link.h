@@ -104,6 +104,9 @@ class BodyLink {
   bool sendSettingSet(uint8_t id, int32_t value, uint32_t now_ms, uint8_t& seq_out);
   bool sendSettingsSave(uint32_t now_ms, uint8_t& seq_out);
   bool sendCalibrate(uint8_t op, uint8_t script, uint32_t now_ms, uint8_t& seq_out);  // Plan O: SELF_TEST only
+  // Plan N3 (Tank Logo): PLAY (≤ 10 notes per frame; a new TONE replaces the tune playing) and LOOK.
+  bool sendTone(const uint16_t* hz, const uint16_t* ms, uint8_t n, uint32_t now_ms, uint8_t& seq_out);
+  bool sendCamSet(int16_t pan_dd, int16_t tilt_dd, uint32_t now_ms, uint8_t& seq_out);  // servo angles, 0.1°
   bool ackPending() const { return m_cam_pending; }
   void setOwnerHint(proto::OwnerHintValue hint);  // remembered; sent now if synced, and after HELLO
 

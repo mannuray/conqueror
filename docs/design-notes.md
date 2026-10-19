@@ -1416,3 +1416,8 @@ Found on the Plan O stand check: the WiFi double press switched the network but 
 - **OTA (owner: yes):** the bridge still stops being master during a WiFi firmware update; the Uno sees *link lost* while standing still (harmless) and the bridge takes over again after its restart.
 - **No extra LED for "no phone connected"** (owner: no).
 - No Uno firmware change. Bridge LLD Revision 14.
+
+## 96. Camera low-light mode does more than raise the gain limit (owner, 2026-10-19)
+Stand check: switching *low light* showed no change. It only raised the sensor's gain ceiling (4× → 32×), which matters only in real darkness.
+- Options: A night mode + 32× gain ceiling + one step brighter exposure; B gain ceiling only (as built); C remove the switch.
+- **Owner: A.** Low light on = `set_aec2(1)` (night mode: the sensor may use longer exposures, so the frame rate drops in the dark), `set_gainceiling(32X)`, `set_ae_level(+1)`; off = `set_aec2(0)`, `4X`, `set_ae_level(0)`. Saved with the other camera settings.

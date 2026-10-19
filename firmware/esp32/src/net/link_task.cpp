@@ -11,6 +11,7 @@
 #include "app/motion_controller.h"
 #include "app/settings_controller.h"
 #include "app/telemetry_publisher.h"
+#include "app/uno_channel.h"
 #include "app/uno_event_router.h"
 #include "app/tank_app_controller.h"
 #include "net/camera_service.h"
@@ -59,18 +60,9 @@ app::SettingsController g_settings(g_out, g_log, g_link);  // Plan P Task 7
 app::TelemetryPublisher g_tel(g_out, g_link);  // Plan P Task 8
 app::UnoEventRouter g_events(g_out, g_log, g_tel, g_link);  // Plan P Task 8
 app::MotionController g_motionc(g_out, g_log, g_link, g_owner, g_tel);  // Plan P Task 9
+app::UnoChannel g_uno(g_link, g_tx, g_out);  // Plan P Task 10: every acked Uno request
 uint32_t g_last_slow_count = 0;
-struct Waiter {
-  int fd;
-  int32_t id;
-};
-constexpr size_t kMaxStopWaiters = 2 * core::kMaxWsClients;  // review M8
-Waiter g_stop_waiters[kMaxStopWaiters];
-size_t g_stop_waiter_n = 0;
-Waiter g_cam_waiter{-1, -1};
 // Plan M (bridge LLD R9): confirmations by the tank's button, the WiFi double press, acked Uno ops for the page.
-core::AckedOps g_ops;
-uint8_t g_cam_seq = 0;
 core::StopBarrier g_stop_barrier;  // STOP fast path: drop motion posted before a STOP
 
 void drainTx() {
@@ -103,22 +95,6 @@ void broadcast(size_t len) {
 }
 
 void nack(int fd, int32_t id, core::BridgeReason r);
-
-// Executes LinkOwner actions in the documented order.
-// R14: the link is stopped only for an OTA update (the bridge restarts after it). Answers whatever waited for the Uno.
-void stopLinkForOta() {
-  g_link.stopMaster();
-  g_tx.clear();  // drop queued ESP32 frames; a pending STOP (urgent slot) is kept
-  if (g_cam_waiter.fd != -1) {  // stopMaster() cancelled the CAM_HOME: answer it (review M8)
-    if (g_ws.contains(g_cam_waiter.fd)) nack(g_cam_waiter.fd, g_cam_waiter.id, core::BridgeReason::kTimeout);
-    g_cam_waiter = Waiter{-1, -1};
-  }
-  core::AckedOp op;
-  while (g_ops.front(op)) {  // design-notes §97: queued settings / feedback ops are answered, not left waiting
-    if (op.fd >= 0 && g_ws.contains(op.fd)) nack(op.fd, op.id, core::BridgeReason::kBusy);
-    g_ops.done();
-  }
-}
 
 void apply(const core::Actions& a, uint32_t now) {
   if (a.has(core::Actions::kSendStop)) g_link.sendStop(now);
@@ -164,51 +140,7 @@ bool isMotion(core::WsCmdKind k) {
   return isStream(k) || k == core::WsCmdKind::kTurn || k == core::WsCmdKind::kMove;
 }
 
-// SOUND / AUDIO_MODE / CAM_LOCK on the shared acked slot (Plan F, R3.1); false = not queued (body offline).
-bool sendAckedCommand(const core::WsCommand& c, uint32_t now, uint8_t& seq) {
-  switch (c.kind) {
-    case core::WsCmdKind::kSound: return g_link.sendSound(c.sound_id, now, seq);
-    case core::WsCmdKind::kAudioMode: return g_link.sendAudioMode(c.audio_mode, now, seq);
-    default: return g_link.sendCamLock(c.on, now, seq);
-  }
-}
-
 // ---------- Plan M (spec 02 Part I, bridge LLD R9): WiFi, settings page, confirmations ----------
-
-// Each tick: the next acked Uno request (Plan M ops; moves into UnoChannel in Plan P Task 10).
-void opsTick(uint32_t now) {
-  core::AckedOp op;
-  if (g_ops.busy() && g_ops.timedOut(now)) {  // review I1: no answer (lost frame) - never stuck
-    if (g_ops.front(op) && op.fd >= 0 && g_ws.contains(op.fd)) nack(op.fd, op.id, core::BridgeReason::kTimeout);
-    g_ops.done();
-  }
-  if (!g_ops.busy() && !g_link.ackPending() && g_cam_waiter.fd == -1 && g_ops.front(op)) {
-    uint8_t seq = 0;
-    bool sent = false;
-    switch (op.kind) {
-      case core::AckedOp::kSound: sent = g_link.sendSound(op.a, now, seq); break;
-      case core::AckedOp::kLed:
-        sent = g_link.sendLed(op.a, op.r, op.g, op.b, op.period_ms, op.duration_ms, now, seq);
-        break;
-      case core::AckedOp::kSettingGet:
-        sent = g_link.sendSettingGet(op.a, now, seq);
-        break;
-      case core::AckedOp::kSettingSet: sent = g_link.sendSettingSet(op.a, op.value, now, seq); break;
-      case core::AckedOp::kSettingsSave: sent = g_link.sendSettingsSave(now, seq); break;
-      case core::AckedOp::kSelfTest:
-        sent = g_link.sendCalibrate(static_cast<uint8_t>(proto::CalOp::kStart),
-                                    static_cast<uint8_t>(proto::CalScript::kSelfTest), now, seq);
-        break;
-    }
-    if (sent) {
-      g_ops.markSent(seq, now);
-    } else if (!g_link.synced()) {  // body offline: answer and drop it
-      if (op.fd >= 0 && g_ws.contains(op.fd)) nack(op.fd, op.id, core::BridgeReason::kBodyOffline);
-      g_ops.markSent(0, now);
-      g_ops.done();
-    }
-  }
-}
 
 // STOP fast path: may overtake its own kWsOpen - never lost.
 void handleStop(const LinkCommand& cmd, int32_t id, uint32_t now) {
@@ -221,11 +153,7 @@ void handleStop(const LinkCommand& cmd, int32_t id, uint32_t now) {
   g_motionc.end(core::MotionEvent::kStop, now);  // Plan H: a STOP from anyone ends a primitive
   if (!g_ws.contains(fd)) return;
   g_ws.admit(fd, core::WsCmdKind::kStop, now);  // never limited; counts as alive
-  if (g_stop_waiter_n < kMaxStopWaiters) {
-    g_stop_waiters[g_stop_waiter_n++] = Waiter{fd, id};
-  } else {
-    nack(fd, id, core::BridgeReason::kBusy);  // review M8: answered; the STOP was still applied
-  }
+  g_uno.waitStop(fd, id);  // answered when the Uno acks the STOP
 }
 
 // False when the command is dropped (stale behind a STOP) or rate limited (answered).
@@ -271,33 +199,30 @@ void handleCamJoy(int fd, const core::WsCommand& c) {
   }
 }
 
-void handleCamHome(int fd, int32_t id, uint32_t now) {
+void handleCamHome(int fd, int32_t id) {
   const core::Decision d = g_owner.onCamera(fd);
-  if (d != core::Decision::kSend) {
-    nack(fd, id, reasonOf(d));
-  } else if (g_cam_waiter.fd != -1 || g_link.ackPending()) {
-    nack(fd, id, core::BridgeReason::kBusy);  // review M8: one cam_home at a time, always answered
-  } else if (g_link.sendCamHome(now, g_cam_seq)) {
-    g_cam_waiter = Waiter{fd, id};
-  } else {
-    nack(fd, id, core::BridgeReason::kBodyOffline);
-  }
+  if (d != core::Decision::kSend) return nack(fd, id, app::reasonOf(d));
+  core::AckedOp op;
+  op.kind = core::AckedOp::kCamHome;
+  op.fd = fd;
+  op.id = id;
+  if (!g_uno.request(op)) nack(fd, id, core::BridgeReason::kBusy);  // R15.5: waits in the queue; BUSY only when full
 }
 
 // SOUND / AUDIO_MODE (R3.1) / CAM_LOCK (Plan F): owner or nobody (as the camera); acked by the Uno, one at a time.
-void handleAcked(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
+void handleAcked(int fd, int32_t id, const core::WsCommand& c) {
   const core::Decision d = g_owner.onCamera(fd);
-  uint8_t seq = 0;
   if (d != core::Decision::kSend || g_ota_active) {
-    nack(fd, id, g_ota_active ? core::BridgeReason::kBusy : reasonOf(d));
-  } else if (g_cam_waiter.fd != -1 || g_link.ackPending()) {  // Plan M: a settings op may hold the slot
-    nack(fd, id, core::BridgeReason::kBusy);
-  } else if (sendAckedCommand(c, now, seq)) {
-    g_cam_seq = seq;
-    g_cam_waiter = Waiter{fd, id};
-  } else {
-    nack(fd, id, core::BridgeReason::kBodyOffline);
+    return nack(fd, id, g_ota_active ? core::BridgeReason::kBusy : app::reasonOf(d));
   }
+  core::AckedOp op;
+  op.kind = c.kind == core::WsCmdKind::kSound       ? core::AckedOp::kSound
+            : c.kind == core::WsCmdKind::kAudioMode ? core::AckedOp::kAudioMode
+                                                    : core::AckedOp::kCamLock;
+  op.a = c.kind == core::WsCmdKind::kSound ? c.sound_id : (c.kind == core::WsCmdKind::kAudioMode ? c.audio_mode : c.on);
+  op.fd = fd;
+  op.id = id;
+  if (!g_uno.request(op)) nack(fd, id, core::BridgeReason::kBusy);  // R15.5: waits in the queue; BUSY only when full
 }
 
 // LLD R5: opt-in debug stream for this client only (any role: read-only data).
@@ -326,10 +251,10 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
     case core::WsCmdKind::kDrive: handleDrive(fd, c, now); break;
     case core::WsCmdKind::kStop: break;  // handled above (fast path)
     case core::WsCmdKind::kCamJoy: handleCamJoy(fd, c); break;
-    case core::WsCmdKind::kCamHome: handleCamHome(fd, id, now); break;
+    case core::WsCmdKind::kCamHome: handleCamHome(fd, id); break;
     case core::WsCmdKind::kSound:
     case core::WsCmdKind::kAudioMode:
-    case core::WsCmdKind::kCamLock: handleAcked(fd, id, c, now); break;
+    case core::WsCmdKind::kCamLock: handleAcked(fd, id, c); break;
     case core::WsCmdKind::kTurn: g_motionc.onTurn(fd, id, c, now); break;
     case core::WsCmdKind::kDriveRate: g_motionc.onDriveRate(fd, c, now); break;
     case core::WsCmdKind::kCancel: g_motionc.onCancel(fd, id, now); break;
@@ -393,52 +318,9 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
       g_log.add(core::LogKind::kOta, 0, 0, "", tankMs(), now);
       g_motionc.end(core::MotionEvent::kOta, now);  // the STOP below stops it
       g_link.sendStop(now);  // resent until the Uno's ACK
-      stopLinkForOta();  // heartbeats stop: Uno link-loss stop at standstill is harmless (design-notes §95)
+      g_uno.stopForOta();  // heartbeats stop: Uno link-loss stop at standstill is harmless (design-notes §95)
       closeAllClients();
       break;
-  }
-}
-
-// Interim answer routing (moves into UnoChannel in Plan P Task 10).
-void onStopResult(uint8_t status) {
-  for (size_t i = 0; i < g_stop_waiter_n; ++i) {
-    const Waiter& w = g_stop_waiters[i];
-    if (!g_ws.contains(w.fd)) continue;
-    sendTo(w.fd, status == 0 ? core::jsonAck(g_json, sizeof(g_json), w.id)
-                                : core::jsonNackStatus(g_json, sizeof(g_json), w.id,
-                                                       status));
-  }
-  g_stop_waiter_n = 0;
-}
-
-void onAckResult(uint8_t seq, uint8_t status) {
-  if (g_ops.isCurrent(seq)) {  // Plan M: a settings / feedback op answered
-    core::AckedOp op;
-    const bool have = g_ops.front(op);
-    if (have && status == 0 && op.kind == core::AckedOp::kSettingGet) return;  // review I5: wait for its VALUE
-    if (have && status == 0 && op.kind == core::AckedOp::kSelfTest && op.fd >= 0 && g_ws.contains(op.fd)) {
-      sendTo(op.fd, core::jsonAck(g_json, sizeof(g_json), op.id));  // Plan O: the result follows as EVENT SELFTEST
-    }
-    if (have && status != 0 && op.fd >= 0 && g_ws.contains(op.fd)) {
-      sendTo(op.fd, core::jsonNackStatus(g_json, sizeof(g_json), op.id, status));
-    }
-    g_ops.done();
-    return;
-  }
-  if (seq == g_cam_seq && g_ws.contains(g_cam_waiter.fd)) {
-    sendTo(g_cam_waiter.fd,
-           status == 0
-               ? core::jsonAck(g_json, sizeof(g_json), g_cam_waiter.id)
-               : core::jsonNackStatus(g_json, sizeof(g_json), g_cam_waiter.id, status));
-  }
-  g_cam_waiter = Waiter{-1, -1};
-}
-
-void onSettingValue(uint8_t id, int32_t v) {
-  core::AckedOp op;
-  if (g_ops.busy() && g_ops.front(op) && op.kind == core::AckedOp::kSettingGet && op.a == id) {
-    if (op.fd >= 0 && g_ws.contains(op.fd)) sendTo(op.fd, core::jsonSetting(g_json, sizeof(g_json), id, v));
-    g_ops.done();
   }
 }
 
@@ -514,7 +396,7 @@ void linkTask(void*) {
     handleLinkEvents(now);
     telemetry(now);
     g_settings.tick(now);  // Plan M: confirmations, WiFi results, restart
-    opsTick(now);
+    g_uno.tick(now);  // the next acked Uno request
     drainTx();
     if (now - last_publish >= 100) {
       last_publish = now;
@@ -536,6 +418,7 @@ void wireEvents() {
   sinks.body_offline = [](uint8_t, int16_t, uint32_t now) {
     g_motionc.end(core::MotionEvent::kBodyOffline, now);
     apply(g_owner.onSynced(false), now);
+    g_uno.onBodyOffline();  // every waiting request answered (Review Focus 2)
   };
   sinks.uno_owner = [](uint8_t o, uint32_t now) { apply(g_owner.onUnoOwner(static_cast<proto::Owner>(o)), now); };
   sinks.button_press = [](uint32_t now) { g_settings.onButtonPress(now); };
@@ -543,16 +426,16 @@ void wireEvents() {
     g_motionc.end(e == static_cast<uint8_t>(proto::EventKind::kStall) ? core::MotionEvent::kBodyStall
                                                                     : core::MotionEvent::kBodyEncoderFault, now);
   };
-  sinks.ack_result = onAckResult;
-  sinks.stop_result = onStopResult;
-  sinks.setting_value = onSettingValue;
+  sinks.ack_result = [](uint8_t seq, uint8_t status) { g_uno.onAck(seq, status); };
+  sinks.stop_result = [](uint8_t status) { g_uno.onStopResult(status); };
+  sinks.setting_value = [](uint8_t id, int32_t v) { g_uno.onSettingValue(id, v); };
   g_events.setSinks(sinks);
 }
 
 void wireSettings() {
   g_settings.setHooks({[] { return g_motionc.active(); }, [] { return g_ota_active; },
                        [] { return g_owner.driverFd(); }, [](int fd) { g_motionc.sendCalib(fd); },
-                       [](const core::AckedOp& op) { return g_ops.push(op); }, &g_motionc.cpm(), &g_motionc.rollMm()});
+                       [](const core::AckedOp& op) { return g_uno.request(op); }, &g_motionc.cpm(), &g_motionc.rollMm()});
 }
 
 void wireTank() {
@@ -567,7 +450,7 @@ void wireTank() {
                              op.kind = core::AckedOp::kSelfTest;
                              op.fd = fd;
                              op.id = id;
-                             return g_ops.push(op);
+                             return g_uno.request(op);
                            }});
 }
 

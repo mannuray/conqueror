@@ -1,5 +1,5 @@
-// One acked Uno command at a time (Plan M, bridge LLD R9.2): SOUND / LED feedback and SETTING_* for the settings page
-// share BodyLink's single acked slot with the drive page's commands. Pure C++.
+// One acked Uno command at a time (Plan M, bridge LLD R9.2, R15.5): every request that waits for the Uno's ACK -
+// feedback, settings, self-test and the drive page's camera / sound / audio - in one queue. Pure C++.
 #pragma once
 
 #include <stdint.h>
@@ -8,13 +8,14 @@ namespace cq {
 namespace core {
 
 struct AckedOp {
-  enum Kind : uint8_t { kSound, kLed, kSettingGet, kSettingSet, kSettingsSave, kSelfTest };  // kSelfTest: Plan O
+  // kSelfTest: Plan O; kCamHome / kCamLock / kAudioMode: the drive page's requests (Plan P, LLD R15.5)
+  enum Kind : uint8_t { kSound, kLed, kSettingGet, kSettingSet, kSettingsSave, kSelfTest, kCamHome, kCamLock, kAudioMode };
   Kind kind = kSound;
-  uint8_t a = 0;      // sound id / setting id / led mode
+  uint8_t a = 0;      // sound id / setting id / led mode / camera lock on / audio mode
   int32_t value = 0;  // setting value
   uint8_t r = 0, g = 0, b = 0;
   uint16_t period_ms = 0, duration_ms = 0;
-  int fd = -1;        // client to answer (settings), -1 = none
+  int fd = -1;        // client to answer, -1 = none (feedback)
   int32_t id = -1;
 };
 

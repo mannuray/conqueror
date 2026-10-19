@@ -13,12 +13,10 @@ firmware/esp32/src/net/info_service.cpp:cq::net::serveInfo  # baseline 2026-10-1
 firmware/esp32/src/net/link_task.cpp  # baseline 2026-10-19
 firmware/esp32/src/net/link_task.cpp:cq::net::applyChange  # baseline 2026-10-19
 firmware/esp32/src/net/link_task.cpp:cq::net::handleCameraSet  # baseline 2026-10-19
-firmware/esp32/src/net/link_task.cpp:cq::net::onAckResult  # interim: moves into UnoChannel in Plan P Task 10
 firmware/esp32/src/net/link_task.cpp:cq::net::handleSettingsCommand  # baseline 2026-10-19
 firmware/esp32/src/net/link_task.cpp:cq::net::handleTurn  # baseline 2026-10-19
 firmware/esp32/src/net/link_task.cpp:cq::net::handleWsText  # baseline 2026-10-19
 firmware/esp32/src/net/link_task.cpp:cq::net::runMotion  # baseline 2026-10-19
-firmware/esp32/src/net/link_task.cpp:cq::net::opsTick  # interim: moves into UnoChannel in Plan P Task 10
 firmware/esp32/src/net/link_task.cpp:cq::net::telemetry  # baseline 2026-10-19
 firmware/esp32/src/net/wifi_manager.cpp:cq::net::WifiManager::handle  # baseline 2026-10-19
 firmware/esp32/src/net/wifi_manager.cpp:cq::net::WifiManager::step  # baseline 2026-10-19

@@ -3,7 +3,9 @@
 
 #include <Arduino.h>
 #include <esp_system.h>
+#include <esp_task_wdt.h>
 
+#include "app/command_router.h"
 #include "app/drive_controller.h"
 #include "app/motion_controller.h"
 #include "app/replies.h"
@@ -49,6 +51,7 @@ app::SettingsController g_settings(g_out, g_log, g_link);
 app::TankAppController g_tank(g_out, g_log, g_link);
 app::DriveController g_drive(g_out, g_log, g_owner, g_uno, g_motion, g_settings, g_tel);
 app::UnoEventRouter g_events(g_out, g_log, g_tel, g_link);
+app::CommandRouter g_router(g_drive, g_motion, g_settings, g_tank, g_tel, g_out);
 
 void drainTx() {
   const uint8_t* p = nullptr;
@@ -60,53 +63,11 @@ void drainTx() {
   }
 }
 
-void handleWsText(const LinkCommand& cmd, uint32_t now) {
-  const int fd = cmd.fd;
-  const core::WsCommand c = core::parseWsCommand(cmd.text, cmd.len);
-  const int32_t id = c.has_id ? c.id : -1;
-  if (c.kind == core::WsCmdKind::kStop) {
-    g_drive.onStop(fd, id, cmd.post_seq, now);  // fast path: may overtake its own kWsOpen - never lost
-    return;
-  }
-  if (!g_ws.contains(fd) || !g_drive.admitted(fd, c.kind, id, cmd.post_seq, now)) return;
-  switch (c.kind) {
-    case core::WsCmdKind::kHello: g_tel.hello(fd, CQ_FW_VERSION, g_sensor()); break;
-    case core::WsCmdKind::kDrive: g_drive.onDrive(fd, c, now); break;
-    case core::WsCmdKind::kCamJoy: g_drive.onCamJoy(fd, c); break;
-    case core::WsCmdKind::kCamHome:
-    case core::WsCmdKind::kSound:
-    case core::WsCmdKind::kAudioMode:
-    case core::WsCmdKind::kCamLock: g_drive.onUnoRequest(fd, id, c); break;
-    case core::WsCmdKind::kTurn: g_motion.onTurn(fd, id, c, now); break;
-    case core::WsCmdKind::kDriveRate: g_motion.onDriveRate(fd, c, now); break;
-    case core::WsCmdKind::kCancel: g_motion.onCancel(fd, id, now); break;
-    case core::WsCmdKind::kMove: g_motion.onMove(fd, id, c, now); break;
-    case core::WsCmdKind::kCalib: g_settings.onCalib(fd, id, c, now); break;
-    case core::WsCmdKind::kWifiStatus:
-    case core::WsCmdKind::kWifiScan:
-    case core::WsCmdKind::kWifiSave:
-    case core::WsCmdKind::kWifiForget:
-    case core::WsCmdKind::kWifiMode:
-    case core::WsCmdKind::kApPassword:
-    case core::WsCmdKind::kSetting:
-    case core::WsCmdKind::kRestart: g_settings.onCommand(fd, id, c, now); break;
-    case core::WsCmdKind::kRelease: g_drive.onRelease(fd, id, now); break;
-    case core::WsCmdKind::kTank: g_tank.onTank(fd, now); break;
-    case core::WsCmdKind::kLog: g_tank.onLog(fd, c.log_since, now); break;
-    case core::WsCmdKind::kCameraSet: g_tank.onCameraSet(fd, id, c, now); break;
-    case core::WsCmdKind::kSelfTest: g_tank.onSelfTest(fd, id); break;
-    case core::WsCmdKind::kAppSet: g_tank.onAppSet(fd, id, c); break;
-    case core::WsCmdKind::kDebug: g_drive.onDebug(fd, id, c); break;
-    case core::WsCmdKind::kPing: g_out.to(fd, core::jsonPong(g_out.buf(), g_out.cap(), c.t0, now)); break;
-    default: g_out.nack(fd, id, core::BridgeReason::kInvalidCommand); break;
-  }
-}
-
 void handleCommand(const LinkCommand& cmd, uint32_t now) {
   switch (cmd.kind) {
     case LinkCommand::Kind::kWsOpen: g_drive.onClientOpen(cmd.fd, now); break;
     case LinkCommand::Kind::kWsClose: g_drive.onClientClose(cmd.fd, now); break;
-    case LinkCommand::Kind::kWsText: handleWsText(cmd, now); break;
+    case LinkCommand::Kind::kWsText: g_router.onText(cmd.fd, cmd.text, cmd.len, cmd.post_seq, now); break;
     case LinkCommand::Kind::kOtaStart:
     default: g_drive.startOta(now); break;
   }
@@ -160,8 +121,10 @@ void linkTask(void*) {
   uint32_t last_publish = 0;
   TickType_t wake = xTaskGetTickCount();
   g_drive.begin(millis());  // R14 (design-notes §95): master of the Uno link from boot, with or without phones
+  esp_task_wdt_add(nullptr);  // R15.8: a stuck link task restarts the bridge after 3 s
   for (;;) {
     const uint32_t now = millis();
+    esp_task_wdt_reset();
     step(now);
     if (now - last_publish >= 100) {
       last_publish = now;
@@ -223,6 +186,7 @@ void linkTaskStart(const char* (*camera_sensor)()) {
   g_sensor = camera_sensor;
   g_motion.begin();  // Plan K: counts per metre and roll-on, before the link task runs
   g_tank.begin();    // Plan O: the AI address
+  g_router.setHello(CQ_FW_VERSION, g_sensor);
   wireViews();
   wireEvents();
   wireSettingsAndTank();

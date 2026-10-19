@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <esp_mac.h>
 #include <esp_ota_ops.h>
+#include <esp_task_wdt.h>
 
 #include "board_config.h"
 #include "net/boot_diag.h"
@@ -73,6 +74,15 @@ void logStatus(uint32_t now_ms, const cq::net::LinkStatus& s) {
 
 }  // namespace
 
+// R15.8 (design-notes §98): only the link task and this loop are watched (3 s); camera / stream tasks are not.
+void watchdogBegin() {
+  const esp_task_wdt_config_t wdt{3000, 0, true};  // timeout_ms, no idle-task check, panic -> restart
+  esp_task_wdt_reconfigure(&wdt);
+  esp_task_wdt_add(nullptr);  // the Arduino loop task (setup runs on it)
+}
+
+void watchdogLoopOff() { esp_task_wdt_delete(nullptr); }  // OTA: the upload blocks loop() for ~30 s
+
 void setup() {
   cq::net::logBegin();
   logBanner();
@@ -86,13 +96,16 @@ void setup() {
   cq::net::sourceBegin();
   cq::net::sourceRedirectRegister();  // port 80 -> 81 (R3.11)
   cq::net::infoRegister(g_wifi);
+  watchdogBegin();
   cq::net::linkTaskStart(cq::net::cameraSensorName);
   // The camera starts in loop() once WiFi is up (design-notes §38: no simultaneous current peaks).
   g_ota.addStartHook(cq::net::cameraStop);
+  g_ota.addStartHook(watchdogLoopOff);
   g_ota.begin();
 }
 
 void loop() {
+  esp_task_wdt_reset();
   const uint32_t now = millis();
   const cq::net::LinkStatus s = cq::net::linkStatus();
   g_wifi.step(now, hasClients(s));

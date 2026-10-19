@@ -10,14 +10,6 @@ firmware/esp32/src/core/wifi_policy.h:cq::core::WifiPolicy::step  # baseline 202
 firmware/esp32/src/net/camera_service.cpp:cq::net::cameraBegin  # baseline 2026-10-19
 firmware/esp32/src/net/http_server.cpp:cq::net::wsHandler  # baseline 2026-10-19
 firmware/esp32/src/net/info_service.cpp:cq::net::serveInfo  # baseline 2026-10-19
-firmware/esp32/src/net/link_task.cpp  # baseline 2026-10-19
-firmware/esp32/src/net/link_task.cpp:cq::net::applyChange  # baseline 2026-10-19
-firmware/esp32/src/net/link_task.cpp:cq::net::handleCameraSet  # baseline 2026-10-19
-firmware/esp32/src/net/link_task.cpp:cq::net::handleSettingsCommand  # baseline 2026-10-19
-firmware/esp32/src/net/link_task.cpp:cq::net::handleTurn  # baseline 2026-10-19
-firmware/esp32/src/net/link_task.cpp:cq::net::handleWsText  # baseline 2026-10-19
-firmware/esp32/src/net/link_task.cpp:cq::net::runMotion  # baseline 2026-10-19
-firmware/esp32/src/net/link_task.cpp:cq::net::telemetry  # baseline 2026-10-19
 firmware/esp32/src/net/wifi_manager.cpp:cq::net::WifiManager::handle  # baseline 2026-10-19
 firmware/esp32/src/net/wifi_manager.cpp:cq::net::WifiManager::step  # baseline 2026-10-19
 firmware/uno/src/app/calibration_task.cpp:cq::app::onCalibrate  # baseline 2026-10-19

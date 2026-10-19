@@ -146,32 +146,41 @@ void Checker::markTails(Node* body, CheckResult& r) {
 }
 
 // Checks one node; returns the definition its children are inside, or kSkipChildren.
-int16_t Checker::visit(const Item& it, const Caps& caps, CheckResult& r) {
-  Node* n = it.n;
+int16_t Checker::visit(Node* n, int16_t def, bool in_template, const Caps& caps, CheckResult& r) {
   switch (n->kind) {  // VARIANT POINT: checked node kinds
     case NodeKind::kDef: markTails(n->last, r); return n->ref;
-    case NodeKind::kCall: visitCall(n, it.def, caps, r); return it.def;
+    case NodeKind::kCall: visitCall(n, def, caps, r); return def;
     case NodeKind::kInput:
-      if (it.def != kParamList) visitInput(n, it.def);
-      return it.def;
+      if (def != kParamList) visitInput(n, def);
+      return def;
     case NodeKind::kPlaceholder:
-      if (!it.in_template) error(7006, n->tok);
-      return it.def;
+      if (!in_template) error(7006, n->tok);
+      return def;
     case NodeKind::kList: listWarning(n); return kSkipChildren;  // data: nothing inside is looked up
-    default: return it.def;
+    default: return def;
   }
 }
 
-void Checker::pushChildren(const Item& it, int16_t def, Item* st, uint16_t& ns) const {
-  const Node* n = it.n;
-  const bool call = n->kind == NodeKind::kCall;
-  uint8_t i = 0;
-  for (Node* c = n->first; c != nullptr && ns < kMaxWalk; c = c->next, ++i) {
-    const bool tpl = it.in_template || (call && i < gen::kWords[n->ref].n_inputs &&
-                                        templateInput(gen::kWords[n->ref].inputs[i].type));
-    const int16_t cdef = (n->kind == NodeKind::kDef && c->kind == NodeKind::kParams) ? kParamList : def;
-    st[ns++] = {c, cdef, tpl};
+// Checks the next child of the top entry and steps into it. False when the tree is too deep (7010).
+bool Checker::descend(Item* st, uint16_t& ns, const Caps& caps, CheckResult& r) {
+  Item& top = st[ns - 1];
+  Node* c = top.next;
+  const uint8_t i = top.i++;
+  top.next = c->next;
+  const Node* p = top.n;
+  const bool call = p->kind == NodeKind::kCall;
+  const bool tpl = top.in_template ||
+                   (call && i < gen::kWords[p->ref].n_inputs && templateInput(gen::kWords[p->ref].inputs[i].type));
+  const int16_t def = (p->kind == NodeKind::kDef && c->kind == NodeKind::kParams) ? kParamList : top.cdef;
+  const int16_t cdef = visit(c, def, tpl, caps, r);
+  if (cdef == kSkipChildren || c->first == nullptr) return true;
+  if (ns >= kMaxWalk) {
+    const DiagArg a[] = {{"what", "too deeply nested"}};
+    error(7010, c->tok, a, 1);
+    return false;
   }
+  st[ns++] = {c, c->first, cdef, tpl, 0};
+  return true;
 }
 
 CheckResult Checker::check(Node* program, const Caps& caps) {
@@ -179,11 +188,13 @@ CheckResult Checker::check(Node* program, const Caps& caps) {
   if (program == nullptr) return r;
   Item st[kMaxWalk];
   uint16_t ns = 0;
-  st[ns++] = {program, -1, false};
+  st[ns++] = {program, program->first, visit(program, -1, false, caps, r), false, 0};
   while (ns > 0) {
-    const Item it = st[--ns];
-    const int16_t def = visit(it, caps, r);
-    if (def != kSkipChildren) pushChildren(it, def, st, ns);
+    if (st[ns - 1].next == nullptr) {
+      --ns;
+    } else if (!descend(st, ns, caps, r)) {
+      break;
+    }
   }
   r.ok = m_d.errorCount() == 0;
   return r;

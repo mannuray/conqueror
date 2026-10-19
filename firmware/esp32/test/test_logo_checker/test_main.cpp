@@ -80,6 +80,28 @@ void test_check_tail_positions() {
   TEST_ASSERT_TRUE(r.tail_callees == 1);
 }
 
+// Final review I1: a long program is checked to its last statement (no silent skip when the walk is wide).
+void test_check_long_program_checks_every_statement() {
+  static char src[2200];
+  src[0] = '\0';
+  for (int i = 0; i < 300; ++i) strcat(src, "BEEP\n");
+  strcat(src, "FD 50");
+  Caps no_enc;
+  no_enc.encoders = false;
+  TEST_ASSERT_FALSE(C(src, no_enc).ok);
+  TEST_ASSERT_EQUAL(7021, first());
+  TEST_ASSERT_EQUAL(301, g_d.first()->line);
+}
+
+// A tree deeper than the walk stack (a 300-term sum) is refused with 7010, never passed unchecked.
+void test_check_too_deep_tree_is_7010() {
+  static char src[1400];
+  strcpy(src, "FD 1");
+  for (int i = 0; i < 300; ++i) strcat(src, " + 1");
+  TEST_ASSERT_FALSE(C(src).ok);
+  TEST_ASSERT_EQUAL(7010, first());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_check_scope);
@@ -87,5 +109,7 @@ int main(int, char**) {
   RUN_TEST(test_check_ranges_and_arc);
   RUN_TEST(test_check_output_placeholder_blocked);
   RUN_TEST(test_check_tail_positions);
+  RUN_TEST(test_check_long_program_checks_every_statement);
+  RUN_TEST(test_check_too_deep_tree_is_7010);
   return UNITY_END();
 }

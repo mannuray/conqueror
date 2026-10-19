@@ -95,6 +95,24 @@ void test_lex_utf8_comment_and_quoted() {
   TEST_ASSERT_EQUAL(2, g_t.t[2].line);
 }
 
+// Final review I2: columns count characters, not bytes (LLD §4), so the page marks the right word.
+void test_lex_columns_count_characters() {
+  L("SAY \"h\xC3\xA9llo FD 600");
+  TEST_ASSERT_EQUAL(15, g_t.t[3].col);
+  L("SAY \"\xF0\x9F\x90\xA2 FD 5");
+  TEST_ASSERT_EQUAL(8, g_t.t[2].col);
+}
+
+// Final review I3: one 7016 per character (not per byte), showing the whole character.
+void test_lex_bad_utf8_char_is_one_error() {
+  L("FD 10 \xE2\x9C\x93 RT 5");
+  TEST_ASSERT_EQUAL(1, g_d.count());
+  TEST_ASSERT_EQUAL(7016, g_d.at(0).code);
+  TEST_ASSERT_EQUAL(7, g_d.at(0).col);
+  TEST_ASSERT_NOT_NULL(strstr(g_d.at(0).msg, "\xE2\x9C\x93"));
+  TEST_ASSERT_EQUAL(9, g_t.t[2].col);  // RT
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_lex_words_numbers_and_end);
@@ -106,5 +124,7 @@ int main(int, char**) {
   RUN_TEST(test_lex_huge_number_is_7015_and_clamped);
   RUN_TEST(test_lex_token_overflow);
   RUN_TEST(test_lex_utf8_comment_and_quoted);
+  RUN_TEST(test_lex_columns_count_characters);
+  RUN_TEST(test_lex_bad_utf8_char_is_one_error);
   return UNITY_END();
 }

@@ -24,7 +24,8 @@ class Lex {
  private:
   char at(uint16_t i) const { return i < m_n ? m_s[i] : '\0'; }
   void push(Tok k, uint16_t start, uint16_t len, uint16_t col, int32_t milli = 0, uint8_t ph = 0);
-  void advance(uint16_t n) { m_i = static_cast<uint16_t>(m_i + n); m_col = static_cast<uint16_t>(m_col + n); }
+  void advance(uint16_t n);  // columns count characters: UTF-8 continuation bytes add none (LLD §4)
+  uint16_t charLen(uint16_t i) const;
   void number(uint16_t start, uint16_t col);
   void tooBig(uint16_t col, uint16_t start, uint16_t len);
   bool layout(char c);  // newline, space, comment: skipped (true)
@@ -36,7 +37,7 @@ class Lex {
   bool placeholder(uint16_t s, uint16_t col);
   void minus(uint16_t s, uint16_t col);
   void symbol(char c, uint16_t s, uint16_t col);
-  void badChar(char c, uint16_t col);
+  void badChar(uint16_t col);
   void end();
 
   const char* m_s;
@@ -161,14 +162,30 @@ void Lex::minus(uint16_t s, uint16_t col) {  // NEG after a space or an opening 
   push(neg ? Tok::kNeg : Tok::kMinus, s, 1, col);
 }
 
-void Lex::badChar(char c, uint16_t col) {
+void Lex::advance(uint16_t n) {
+  for (; n > 0; --n, ++m_i) {
+    if ((static_cast<uint8_t>(at(m_i)) & 0xC0) != 0x80) ++m_col;
+  }
+}
+
+// Bytes in the UTF-8 character at i (1 for ASCII or a broken sequence).
+uint16_t Lex::charLen(uint16_t i) const {
+  const uint8_t b = static_cast<uint8_t>(at(i));
+  const uint16_t want = b >= 0xF0 ? 4 : (b >= 0xE0 ? 3 : (b >= 0xC0 ? 2 : 1));
+  uint16_t n = 1;
+  while (n < want && (static_cast<uint8_t>(at(static_cast<uint16_t>(i + n))) & 0xC0) == 0x80) ++n;
+  return n;
+}
+
+void Lex::badChar(uint16_t col) {  // one 7016 for the whole character, shown as typed
+  const uint16_t n = charLen(m_i);
   char ch[8];
-  snprintf(ch, sizeof ch, "%c", c);
+  snprintf(ch, sizeof ch, "%.*s", static_cast<int>(n), m_s + m_i);
   char line[8];
   snprintf(line, sizeof line, "%u", static_cast<unsigned>(m_line));
   const DiagArg a[] = {{"char", ch}, {"line", line}};
   m_d.add(7016, m_line, col, a, 2);
-  advance(1);
+  advance(n);
 }
 
 void Lex::symbol(char c, uint16_t s, uint16_t col) {  // brackets and operators
@@ -176,7 +193,7 @@ void Lex::symbol(char c, uint16_t s, uint16_t col) {  // brackets and operators
   static const Tok kOneTok[] = {Tok::kLBracket, Tok::kRBracket, Tok::kLParen, Tok::kRParen, Tok::kPlus,
                                 Tok::kStar,     Tok::kSlash,    Tok::kEq,     Tok::kLt,     Tok::kGt};
   const char* f = strchr(kOne, c);
-  if (c == '\0' || f == nullptr) return badChar(c, col);
+  if (c == '\0' || f == nullptr) return badChar(col);
   Tok k = kOneTok[f - kOne];
   uint16_t len = 1;
   const char next = at(m_i + 1);

@@ -32,17 +32,20 @@ class Checker {
   CheckResult check(Node* program, const Caps& caps);
 
  private:
+  // One entry per tree level (depth-bounded, never width-bounded): the node, the next child to check.
   struct Item {
     Node* n;
-    int16_t def;  // the definition we are inside, -1 at top level, kParamList in a definition's own inputs
-    bool in_template;
+    Node* next;
+    int16_t cdef;      // for the children: the definition they are inside, -1 at top level
+    bool in_template;  // the node itself is inside a template input
+    uint8_t i;         // index of `next` among the children
   };
-  static constexpr int16_t kParamList = -2;
+  static constexpr int16_t kParamList = -2;  // a definition's own inputs
   static constexpr int16_t kSkipChildren = -3;
   static constexpr uint16_t kMaxWalk = 256;
 
-  int16_t visit(const Item& it, const Caps& caps, CheckResult& r);
-  void pushChildren(const Item& it, int16_t def, Item* st, uint16_t& ns) const;
+  int16_t visit(Node* n, int16_t def, bool in_template, const Caps& caps, CheckResult& r);
+  bool descend(Item* st, uint16_t& ns, const Caps& caps, CheckResult& r);
   void visitCall(Node* n, int16_t def, const Caps& caps, CheckResult& r);
   void needsAndLevel(const gen::WordSpec& w, uint16_t tok, const Caps& caps);
   void checkRange(const Node* call, const gen::WordSpec& w, uint8_t i, const Node* c);

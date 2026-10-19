@@ -456,6 +456,8 @@ const char* unoEventName(uint8_t kind) {
                                        "envelope_changed", "encoder_fault", "imu_fault", "us_fault", "settings_saved",
                                        "settings_reset", "cal_request", "button_press", "rejected", "safety_override",
                                        "heading_fault"};
+  static_assert(sizeof(kNames) / sizeof(kNames[0]) == static_cast<size_t>(proto::EventKind::kHeadingFault) + 1,
+                "a Uno event without a name - add it here (design-notes §97 fix 4)");
   return kind < sizeof(kNames) / sizeof(kNames[0]) ? kNames[kind] : "unknown";
 }
 
@@ -479,21 +481,32 @@ size_t jsonTank(char* out, size_t cap, const TankView& v) {
 size_t jsonLog(char* out, size_t cap, const LogEntry* e, uint8_t n, uint32_t last, bool gap, uint32_t now_ms) {
   static const char* const kKinds[] = {"boot", "uno", "primitive", "stop_hold", "client_lost", "body_online",
                                        "body_offline", "wifi_mode", "restart", "ota"};
+  static_assert(sizeof(kKinds) / sizeof(kKinds[0]) == static_cast<size_t>(LogKind::kOta) + 1, "a LogKind without a name");
+  // design-notes §97 fix 2: the closing part always fits; entries go in whole, oldest first, and stop at the first that
+  // does not fit (the page asks again from the last seq it got - a hole in the middle would be skipped for good).
+  char tail[48];
+  const int tl = snprintf(tail, sizeof tail, "],\"last\":%lu%s}", static_cast<unsigned long>(last), gap ? ",\"gap\":true" : "");
   size_t len = fmt(out, cap, "{\"t\":\"log\",\"entries\":[");
-  for (uint8_t i = 0; i < n && len + 1 < cap; ++i) {
+  if (len == 0 || tl <= 0) return 0;
+  for (uint8_t i = 0; i < n; ++i) {
     const LogEntry& x = e[i];
     const uint8_t k = static_cast<uint8_t>(x.kind);
     char ev[48] = "";
     if (x.kind == LogKind::kUno) snprintf(ev, sizeof(ev), ",\"ev\":\"%s\"", unoEventName(static_cast<uint8_t>(x.a)));
     char client[32];
     jsonEscape(client, sizeof(client), x.client);
-    len += fmt(out + len, cap - len, "%s{\"seq\":%lu,\"age_s\":%lu,\"kind\":\"%s\"%s,\"a\":%ld,\"b\":%ld,\"client\":\"%s\"}",
-               i == 0 ? "" : ",", static_cast<unsigned long>(x.seq),
-               static_cast<unsigned long>((now_ms - x.t_ms) / 1000u), k < 10 ? kKinds[k] : "unknown", ev,
-               static_cast<long>(x.a), static_cast<long>(x.b), client);
+    char item[192];
+    const int il = snprintf(item, sizeof item, "%s{\"seq\":%lu,\"age_s\":%lu,\"kind\":\"%s\"%s,\"a\":%ld,\"b\":%ld,\"client\":\"%s\"}",
+                            i == 0 ? "" : ",", static_cast<unsigned long>(x.seq),
+                            static_cast<unsigned long>((now_ms - x.t_ms) / 1000u),
+                            k < sizeof(kKinds) / sizeof(kKinds[0]) ? kKinds[k] : "unknown", ev, static_cast<long>(x.a),
+                            static_cast<long>(x.b), client);
+    if (il <= 0 || static_cast<size_t>(il) >= sizeof item || len + static_cast<size_t>(il + tl) >= cap) break;
+    memcpy(out + len, item, static_cast<size_t>(il));
+    len += static_cast<size_t>(il);
   }
-  len += fmt(out + len, cap - len, "],\"last\":%lu%s}", static_cast<unsigned long>(last), gap ? ",\"gap\":true" : "");
-  return len < cap ? len : 0;
+  memcpy(out + len, tail, static_cast<size_t>(tl) + 1);
+  return len + static_cast<size_t>(tl);
 }
 
 }  // namespace core

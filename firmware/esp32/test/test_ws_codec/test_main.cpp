@@ -338,6 +338,55 @@ void test_setting_and_calib_reset() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"calib\",\"reset\":\"x\"}").kind));
 }
 
+
+// Plan O (bridge LLD R13): tank, log, selftest, camera_set, app_set.
+void test_tank_log_selftest() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kTank), K(P("{\"t\":\"tank\"}").kind));
+  const WsCommand l = P("{\"t\":\"log\",\"since\":57}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kLog), K(l.kind));
+  TEST_ASSERT_EQUAL_UINT32(57, l.log_since);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kLog), K(P("{\"t\":\"log\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSelfTest), K(P("{\"t\":\"selftest\",\"id\":3}").kind));
+}
+
+void test_camera_set_fields_and_ranges() {
+  const WsCommand c = P("{\"t\":\"camera_set\",\"size\":\"SVGA\",\"quality\":20,\"fps_cap\":10,\"brightness\":-1,"
+                        "\"low_light\":true,\"hmirror\":false,\"id\":4}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCameraSet), K(c.kind));
+  TEST_ASSERT_TRUE(c.cam.has_size);
+  TEST_ASSERT_EQUAL(2, c.cam.size);
+  TEST_ASSERT_EQUAL(20, c.cam.quality);
+  TEST_ASSERT_EQUAL(10, c.cam.fps);
+  TEST_ASSERT_EQUAL(-1, c.cam.bright);
+  TEST_ASSERT_TRUE(c.cam.has_low && c.cam.low);
+  TEST_ASSERT_TRUE(c.cam.has_hmirror && !c.cam.hmirror);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"camera_set\",\"quality\":5}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"camera_set\",\"size\":\"UXGA\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"camera_set\",\"fps_cap\":7}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"camera_set\"}").kind));
+  TEST_ASSERT_TRUE(P("{\"t\":\"camera_set\",\"reset\":true}").cam.reset);
+  TEST_ASSERT_EQUAL(0, P("{\"t\":\"calib\",\"reset\":\"counts_per_m\"}").calib_reset);  // calib keeps its string reset
+}
+
+void test_app_url_validation() {
+  const WsCommand a = P("{\"t\":\"app_set\",\"ai_url\":\"http://192.168.31.8:8000/\"}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kAppSet), K(a.kind));
+  TEST_ASSERT_EQUAL_STRING("http://192.168.31.8:8000/", a.ai_url);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kAppSet), K(P("{\"t\":\"app_set\",\"ai_url\":\"\"}").kind));  // clears it
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"app_set\",\"ai_url\":\"javascript:x\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"app_set\"}").kind));
+  TEST_ASSERT_FALSE(cq::core::appUrlValid("javascript:alert(1)"));
+  TEST_ASSERT_FALSE(cq::core::appUrlValid("http://a b"));
+  TEST_ASSERT_FALSE(cq::core::appUrlValid("http://x\"y"));
+  TEST_ASSERT_FALSE(cq::core::appUrlValid("http://x<y"));
+  char longu[220] = "http://";
+  for (int i = 7; i < 210; ++i) longu[i] = 'a';
+  longu[210] = '\0';
+  TEST_ASSERT_FALSE(cq::core::appUrlValid(longu));
+  TEST_ASSERT_TRUE(cq::core::appUrlValid("http://laptop.local:8000/ai"));
+  TEST_ASSERT_TRUE(cq::core::appUrlValid(""));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_drive);
@@ -369,5 +418,8 @@ int main() {
   RUN_TEST(test_turn_pivot_field);
   RUN_TEST(test_wifi_commands);
   RUN_TEST(test_setting_and_calib_reset);
+  RUN_TEST(test_tank_log_selftest);
+  RUN_TEST(test_camera_set_fields_and_ranges);
+  RUN_TEST(test_app_url_validation);
   return UNITY_END();
 }

@@ -10,6 +10,7 @@ const char* changeName(ChangeKind k) {
     case ChangeKind::kWifiMode: return "wifi_mode";
     case ChangeKind::kApPassword: return "ap_password";
     case ChangeKind::kCalibReset: return "calib";
+    case ChangeKind::kCalibSet: return "calib";
     case ChangeKind::kSetting: return "setting";
     case ChangeKind::kNone:
     default: return "none";

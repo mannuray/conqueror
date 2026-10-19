@@ -34,8 +34,25 @@ enum class WsCmdKind : uint8_t {
   kApPassword,  // {"t":"ap_password","password"} -> confirm
   kSetting,     // {"t":"setting","setting_id","value"?} -> setting (set: confirm)
   kRestart,     // {"t":"restart"} -> ack, restart after 0.5 s
+  kTank,        // Plan O (LLD R13): {"t":"tank"} -> tank (self-test, camera, AI address)
+  kLog,         // {"t":"log","since"?:n} -> log (at most 25 entries)
+  kCameraSet,   // {"t":"camera_set","size"?,"quality"?,"fps_cap"?,"brightness"?,"contrast"?,"low_light"?,"vflip"?,"hmirror"?,"reset"?}
+  kSelfTest,    // {"t":"selftest"} -> CALIBRATE SELF_TEST on the Uno
+  kAppSet,      // {"t":"app_set","ai_url":"http://..."|""}
   kUnsupported,  // valid JSON, "t" not in the Basic Drive slice -> nack INVALID_COMMAND
   kInvalid,      // not JSON / no "t" / bad field -> nack INVALID_COMMAND
+};
+
+// camera_set fields (Plan O): size 0 QVGA, 1 VGA, 2 SVGA, 3 HD; quality 10..40; fps 0 (max), 5, 10, 15.
+struct CamFields {
+  bool has_size = false, has_quality = false, has_fps = false, has_bright = false, has_contrast = false;
+  bool has_low = false, has_vflip = false, has_hmirror = false, reset = false;
+  uint8_t size = 1, quality = 12, fps = 0;
+  int8_t bright = 0, contrast = 0;
+  bool low = false, vflip = true, hmirror = false;
+  bool any() const {
+    return has_size || has_quality || has_fps || has_bright || has_contrast || has_low || has_vflip || has_hmirror || reset;
+  }
 };
 
 struct WsCommand {
@@ -69,11 +86,17 @@ struct WsCommand {
   int16_t move_cm = 0;        // move: ±1..500 (+ forward)
   bool has_cpm = false;       // calib: set (else read)
   uint16_t cpm = 0;           // calib: counts per metre
+  uint32_t log_since = 0;     // log (Plan O)
+  CamFields cam;              // camera_set
+  char ai_url[97] = "";       // app_set ("" clears it)
+  bool has_ai_url = false;
   char t0[24] = "";  // ping: number echoed verbatim in pong
   char client[24] = "";
 };
 
 WsCommand parseWsCommand(const char* text, size_t len);
+// app_set: "" (clear) or http:// + 1..89 printable ASCII without space, quotes, backslash or <>; at most 96 chars.
+bool appUrlValid(const char* url);
 
 }  // namespace core
 }  // namespace cq

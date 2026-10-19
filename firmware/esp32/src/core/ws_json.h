@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "core/body_link.h"
+#include "core/event_log.h"
 #include "core/motion_service.h"
 #include "core/wifi_store.h"
 #include "cq_protocol.h"
@@ -84,6 +85,23 @@ size_t jsonNackMessage(char* out, size_t cap, int32_t id, BridgeReason reason, c
 // Escapes s for a JSON string body (" \\ and control characters); never splits an escape at the
 // end of out. Returns the length written (out is always NUL-terminated when cap > 0). Review M10.
 size_t jsonEscape(char* out, size_t cap, const char* s);
+
+// Plan O (bridge LLD R13): the Tank tab's facts and the event log.
+struct TankView {
+  SelfTestRecord st;
+  uint32_t st_age_s = 0;
+  uint8_t hw = 0;  // TELEM_SLOW HwBit: 0 encoders, 1 IMU ok, 2 ultrasonic ok
+  uint8_t cam_size = 1, cam_quality = 12, cam_fps = 0;
+  int8_t cam_bright = 0, cam_contrast = 0;
+  bool cam_low = false, cam_vflip = true, cam_hmirror = false;
+  uint8_t viewers = 0;
+  uint16_t fps_x10 = 0;
+  uint16_t kbps = 0;
+  const char* ai_url = "";
+};
+const char* unoEventName(uint8_t kind);  // proto::EventKind in lower snake case, "unknown" otherwise
+size_t jsonTank(char* out, size_t cap, const TankView& v);
+size_t jsonLog(char* out, size_t cap, const LogEntry* e, uint8_t n, uint32_t last, bool gap, uint32_t now_ms);
 size_t jsonPong(char* out, size_t cap, const char* t0, uint32_t tank_ms);
 
 // Error code number behind an ack_status index (checked against kAckStatusCode in tests).

@@ -1646,14 +1646,14 @@ sequenceDiagram
 ```
 Tank check: 3 boots — pings + drive page with video; a short stand drive with video on (drive, release, STOP).
 
-## Revision 13 — The tank app (Plan O; UX `docs/design/bridge-ux.md`, design-notes §80, §85, §89, §90) — DRAFT for owner review
+## Revision 13 — The tank app (Plan O; UX `docs/design/bridge-ux.md`, design-notes §80, §85, §89–§91) — APPROVED (owner, 2026-10-19)
 Builds the designed app except Logo and AI: the ☰ menu on Drive, `/settings` in four tabs (WiFi · Tank · Tune · Log) with the new cards, and the bridge pieces behind them. Facts from the code (2026-10-19) that shape it are listed in design-notes §90.
 
 ### R13.1 Pages
 - **Drive (`basic_drive.html`):** the ⚙ SET chip becomes **☰ MENU**; a sheet with **LOGO** (greyed, "coming soon" until Plan N4), **SETTINGS**, **AI** (greyed "not set up" until an address is saved; when set, opens it in a new tab), **HELP**. STOP stays above the dimmed screen.
 - **Settings (`settings.html`, budget raised 24 → 36 KB gzipped):** four tabs; the tab is remembered in the URL hash (`/settings#tune`).
   - **WiFi** — unchanged.
-  - **Tank** — 01 Bridge, 02 Uno body (battery bar, encoders), **03 Live sensors** (distance ahead, heading, turn rate from `tf`; encoder counts and track speed from `td` at 10 Hz while the tab is open; *tilted / lifted* alarms from `ts` flags — the Lite measures no tilt angles and no temperature), **04 Self-test** (last start-up result per check: motion sensor, distance sensor, battery, settings; *locked* when a critical check failed; "a restart runs the checks again" — the Lite cannot re-run them on request), **05 Camera** (viewers n / 2, picture size QVGA / VGA / SVGA, quality, flip, mirror — saved on the bridge), **06 Child play** (read-only now: shows the current envelope from `ts`; the checklist and *turn on* come with the child-play safety design), 07 Safety (read only), 08 Track model, 09 Maintenance (+ the AI address field).
+  - **Tank** — 01 Bridge, 02 Uno body (battery bar, encoders), **03 Live sensors** (distance ahead, heading, turn rate, **pitch / roll** from `tf`; encoder counts and track speed from `td` at 10 Hz while the tab is open; **board temperature** from `ts`; *tilted / lifted* alarms — the Uno Lite adds angles and temperature, Uno Lite LLD §21), **04 Self-test** (last result per check: motion sensor, distance sensor, battery, settings; *locked* when a critical check failed; **RUN THE CHECKS AGAIN** → `selftest` command → CALIBRATE `SELF_TEST`, tank standing still), **05 Camera** (viewers n / 2, frame rate and data rate now; picture size QVGA / VGA / SVGA / HD, quality 10–40, frame-rate limit max / 15 / 10 / 5, brightness and contrast −2…+2, low-light mode, flip, mirror, reset to defaults — saved on the bridge), **06 Child play** (read-only now: shows the current envelope from `ts`; the checklist and *turn on* come with the child-play safety design), 07 Safety (read only), 08 Track model, 09 Maintenance (+ the AI address field).
   - **Tune** — **01 Live graphs** (track speed L/R in cm/s from `td` encoder deltas × counts-per-metre, heading from `tf`, balance = right/left speed ratio in ‰; last 60 s; HOLD; CSV), 02 Distance (moved from Tank: counts per metre, roll-on, resets), 03 Straight driving (moved: track-balance stepper), **04 Calibration wizard** (distance step: DRIVE 1 m + STOP → measured cm → new counts per metre shown → SAVE confirmed by the tank's button; the balance step uses the stepper; roll-on is learned).
   - **Log** — filters ALL / STOPS / WIFI / SYSTEM, newest first, CSV; polls while the tab is open.
 
@@ -1663,16 +1663,19 @@ Builds the designed app except Logo and AI: the ☰ menu on Drive, `/settings` i
 | `EventLog` | `core/event_log.h/.cpp` (pure, host-tested) | ring of **200** `LogEntry {seq, t_ms (bridge uptime), uno_ms, kind, a, b, client[12]}`; `add()`, `since(seq, out[], max)`; cleared on restart |
 | log sources | `net/link_task.cpp` | every Uno EVENT the Lite sends (incl. today's dropped ones: SELFTEST, IMU_FAULT, US_FAULT, ENVELOPE_CHANGED, SETTINGS_SAVED/RESET, REJECTED), primitive ends other than *done*, STOP hold (*stopped by another device*, with both client names), client silent / closed while driving (*link lost*), body online / offline, WiFi mode changes (posted by `WifiManager` through its result queue), restart asked, OTA start, the ESP32 boot reason (first entry) |
 | `SelfTestRecord` | `core/body_link` | keeps the last EVENT SELFTEST (mask, locked, `uno_ms`) and `hw` from TELEM_SLOW |
-| `CameraSettings` | `net/camera_service` + NVS `cq_cam` | `{size: QVGA/VGA/SVGA, quality 10–40, vflip, hmirror}`; applied at run time with the sensor's setters (on the camera's own task, through a queue); defaults = today's constants |
+| `CameraSettings` | `net/camera_service` + NVS `cq_cam` | `{size: QVGA/VGA/SVGA/HD, quality 10–40, fps_cap 0/15/10/5, brightness −2…2, contrast −2…2, low_light, vflip, hmirror}`; applied at run time with the sensor's setters (on the camera's own task, through a queue); the stream server honours `fps_cap` and counts frames / bytes for the page; defaults = today's constants |
+| self-test request | `core/body_link` `sendCalibrate(script)` | `{"t":"selftest","id"}` → CALIBRATE `SELF_TEST` (acked); BUSY while driving; the result arrives as EVENT SELFTEST → `SelfTestRecord` + log |
+| temperature in `ts` | `core/ws_json` | `"temp_c"` (1 decimal) from TELEM_SLOW `temp` |
 | `AppSettings` | NVS `cq_app` | `ai_url` (≤ 96 chars, `http://…` only) |
-| calibration save | `link_task` `handleCalib` | a `calib` **set** from any client now waits for the tank's button (`ConfirmGate`, like Plan M changes) — also for `tools/smoke/move.py` |
+| calibration save | `link_task` `handleCalib` | a `calib` **set** from any client now waits for the tank's button (`ConfirmGate`, like Plan M changes) — also for `tools/smoke/move.py` (owner: yes) |
 
 ### R13.3 WebSocket additions
 | Client → bridge | Reply |
 |---|---|
 | `{"t":"tank"}` | `{"t":"tank","selftest":{"seen":bool,"mask":n,"locked":bool,"age_s":n},"hw":{"encoders","imu","us"},"camera":{"size","quality","vflip","hmirror","viewers"},"ai_url":"…"}` |
 | `{"t":"log","since":n,"id"?}` | `{"t":"log","entries":[{"seq","age_s","kind","a","b","client"}…],"last":n}` — at most 25 per reply; the page asks again until it has them all |
-| `{"t":"camera_set","size"?,"quality"?,"vflip"?,"hmirror"?,"id"}` | `ack` / `nack INVALID_COMMAND`; then `tank` to the sender |
+| `{"t":"camera_set","size"?,"quality"?,"fps_cap"?,"brightness"?,"contrast"?,"low_light"?,"vflip"?,"hmirror"?,"reset"?,"id"}` | `ack` / `nack INVALID_COMMAND`; then `tank` to the sender (with `fps` and `kbps` measured) |
+| `{"t":"selftest","id"}` | `ack` / `nack BUSY` (driving) / `BODY_OFFLINE`; the result later in `tank.selftest` and the log |
 | `{"t":"app_set","ai_url":"…","id"}` | `ack` / `nack INVALID_COMMAND` (bad URL) |
 
 ### R13.4 Classes

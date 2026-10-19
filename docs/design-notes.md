@@ -1382,3 +1382,9 @@ From the code (research for bridge LLD R13):
 - **The bridge keeps no event history** (logs go to USB only) → new `EventLog` ring (200 entries) feeding the Log tab; several Uno events are dropped today (SELFTEST, IMU/US fault, envelope changed …) and will be logged.
 - **Child play:** the Uno Lite supports ENVELOPE (incl. the CHILD_PLAY bit) but the bridge never sends it; the Tank card stays read-only until the child-play safety design.
 - Live graphs use the existing `debug` stream (`td` 10 Hz: encoder counts) — no new telemetry.
+
+## 91. Tank app decisions (owner, 2026-10-19)
+- **Child-play card read-only** for now (the turn-on flow with its own safety design). **Calibration saves need the tank's button** (also `move.py`). **The AI address is saved on the bridge.**
+- Owner questioned §90: "do we have a temperature sensor, I think we have tilt, why can't the self-test run". Answer: the MPU6050 has a die thermometer the Uno already reads but never sends; tilt is measured but only as an alarm (the Lite has no float `atan2`); the self-test exists but the Lite dropped the CALIBRATE family to save flash. **Owner: yes — add all three to the Uno Lite** (board temperature, pitch/roll with integer maths, CALIBRATE SELF_TEST re-runs the boot self-test; ≤ 400 B of the ~1.2 KB left, one USB flash; Uno Lite LLD §21).
+- **Camera settings (owner: yes):** picture size QVGA / VGA / SVGA / HD, quality 10–40, frame-rate limit max / 15 / 10 / 5, brightness and contrast −2…+2, low-light mode, flip, mirror, reset to defaults; the page shows the frame rate and data rate next to them; the WiFi is re-checked on the tank at the larger settings.
+- LLD R13 approved.

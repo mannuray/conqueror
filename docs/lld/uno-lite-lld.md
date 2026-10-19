@@ -450,3 +450,29 @@ Host: `balanceTracks` (+19 ‰ at 40/40 → 40/41 rounding, reverse, steering un
 - Note (M7): flashing an older firmware after a save resets the Lite settings to defaults (an old build does not know the longer block) — re-set `track_balance` / `encoders_enabled` after a downgrade.
 - Saved on the tank: `track_balance` = 19 ‰, `encoders_enabled` = 1, heading gains 3500 / 1200.
 
+
+## 21. Board temperature, tilt angles, self-test on request (owner 2026-10-19, design-notes §91, bridge LLD R13)
+Three small additions for the tank app's Tank tab (Uno flash before: 31 044 B / 96.2 %, ~1.2 KB free; budget for all three ≤ 400 B, measured after each):
+1. **Board temperature:** the IMU burst already reads the MPU6050 temperature (`ImuRaw::temp`, `imu_uno.cpp`); TELEM_SLOW `temp` (0.01 °C) = `raw × 100 / 340 + 3653` in integer maths, the last value of the 1 Hz slow frame. It is the chip's temperature (a few °C above the room).
+2. **Tilt angles:** `TiltLite` keeps the filtered accelerometer (128 per g); TELEM_FAST `pitch` / `roll` (0.01°) = `iatan2(x, isqrt(y² + z²))` and `iatan2(y, z)` with an **integer atan2** (octant reduction + a 2nd-order polynomial, error ≤ 0.5°; no floats, no `atan2f` — the Lite does not link the float maths) and the existing `isqrt16`; computed once per TELEM_FAST.
+3. **Self-test on request:** CALIBRATE with script `SELF_TEST` (9) → ACK OK and the boot self-test runs again (the same `selfTestTask`, 2 s later, EVENT SELFTEST with the result and the lock as at boot); every other CALIBRATE script stays UNAVAILABLE; refused BUSY while driving.
+
+```mermaid
+classDiagram
+  class TiltLite {
+    -int16 m_fx, m_fy, m_fz
+    +update(ax, ay, az, limit, now) Change
+    +pitchCdeg() int16
+    +rollCdeg() int16
+  }
+  class IntMath {
+    +iatan2Cdeg(y, x) int16
+    +isqrt16(n) uint16
+  }
+  class LiteRoutes {
+    +handleCalibrate(script) AckStatus
+  }
+  TiltLite ..> IntMath
+  LiteRoutes ..> SelfTest : schedule again
+```
+Tests (host): `iatan2Cdeg` against `atan2` at 1° steps (|error| ≤ 50 cdeg), pitch/roll from synthetic accel vectors, temperature conversion, CALIBRATE SELF_TEST → OK + a new SELFTEST event, other scripts → UNAVAILABLE.

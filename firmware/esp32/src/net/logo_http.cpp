@@ -23,17 +23,31 @@ esp_err_t sendJson(httpd_req_t* req, const char* status, const char* json) {
 
 esp_err_t busy(httpd_req_t* req) { return sendJson(req, "503 Service Unavailable", "{\"ok\":false,\"why\":\"BUSY\"}"); }
 
-// The body into buf (cap includes the NUL); false when the client went away.
+// The body into buf (len bytes + NUL); false when the client went away or stayed silent for 2 receive timeouts
+// (final review I2: a phone that vanished mid-upload must not hold the worker - and every later /logo request).
 bool readBody(httpd_req_t* req, char* buf, size_t len) {
   size_t got = 0;
+  uint8_t timeouts = 0;
   while (got < len) {
     const int n = httpd_req_recv(req, buf + got, len - got);
-    if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+    if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts <= 2) continue;
     if (n <= 0) return false;
     got += static_cast<size_t>(n);
   }
   buf[len] = '\0';
   return true;
+}
+
+// Reads and drops a body that is not used (a refused save, a text over 8 KB): left unread, its bytes would be taken
+// as the client's next request on the same connection (final review).
+void drain(httpd_req_t* req) {
+  char tmp[256];
+  uint8_t timeouts = 0;
+  for (;;) {
+    const int n = httpd_req_recv(req, tmp, sizeof tmp);
+    if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts <= 2) continue;
+    if (n <= 0) return;
+  }
 }
 
 // "/logo/programs/<name>[?…]" → name (≤ 24 + NUL).
@@ -55,6 +69,7 @@ bool chunk(void* ctx, const char* data, size_t len) {
 
 void doCheck(httpd_req_t* req, const char* name) {
   const size_t len = req->content_len;
+  if (len >= logo::kSourceInbox) drain(req);  // too long: answered with 7010, the text is not read
   if (len < logo::kSourceInbox && !readBody(req, logoInbox(), len)) return;  // the client went away
   bool runnable = false;
   const uint32_t prog = logoCheck(len < logo::kSourceInbox ? static_cast<uint16_t>(len) : logo::kSourceInbox, name,
@@ -102,13 +117,17 @@ void storeReply(httpd_req_t* req, StoreStatus s) {
 
 bool running(httpd_req_t* req) {  // no saving / deleting while a program runs (flash writes)
   if (!linkStatus().logo_running) return false;
+  drain(req);
   sendJson(req, "409 Conflict", "{\"ok\":false,\"why\":\"RUNNING\"}");
   return true;
 }
 
 void doSave(httpd_req_t* req, const char* name) {
   if (running(req)) return;
-  if (req->content_len >= logo::kSourceInbox) return storeReply(req, StoreStatus::kTooBig);
+  if (req->content_len >= logo::kSourceInbox) {
+    drain(req);
+    return storeReply(req, StoreStatus::kTooBig);
+  }
   if (!readBody(req, logoInbox(), req->content_len)) return;
   storeReply(req, programSave(name, logoInbox(), req->content_len));
 }

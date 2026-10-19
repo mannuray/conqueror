@@ -15,6 +15,7 @@ import argparse
 import http.client
 import json
 import sys
+import threading
 import time
 import urllib.parse
 from collections.abc import Callable
@@ -94,16 +95,21 @@ def run_program(
     prog: int,
     step: bool,
     show: Callable[[str], None],
-    stepper: Callable[[], None] | None = None,
+    stepper: Callable[[], bool] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> Message | None:
     """logo_run, then the events until logo_ended (None: refused, or nothing for 330 s).
 
-    Pings once a second whatever arrives: the bridge closes a client that sends nothing for 3 s
-    (which would end the run with 7046)."""
+    Pings once a second whatever arrives, also while step mode waits for the next line (stepper is
+    polled: True once Enter was pressed): the bridge closes a client that sends nothing for 3 s
+    (ending the run with 7046)."""
     ws.send({"t": "logo_run", "prog": prog, "step": step, "id": 1})
     last_ping = last_heard = clock()
+    waiting_step = False
     while True:
+        if waiting_step and stepper is not None and stepper():
+            ws.send({"t": "logo_step", "id": 2})
+            waiting_step = False
         if clock() - last_ping >= 1.0:
             ws.send({"t": "ping", "t0": 0})
             last_ping = clock()
@@ -123,13 +129,27 @@ def run_program(
             show(text)
         if m.get("kind") == "logo_ended":
             return m
-        if step and m.get("kind") == "logo_line" and stepper is not None:
-            stepper()
-            ws.send({"t": "logo_step", "id": 2})
+        if step and m.get("kind") == "logo_line":
+            waiting_step = True
 
 
-def _wait_enter() -> None:
-    input("Enter = next line ")
+class EnterKey:
+    """Enter presses read by a background thread: the run loop never blocks and keeps pinging."""
+
+    def __init__(self) -> None:
+        self.pressed = threading.Event()
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self) -> None:
+        while True:
+            sys.stdin.readline()
+            self.pressed.set()
+
+    def poll(self) -> bool:
+        if not self.pressed.is_set():
+            return False
+        self.pressed.clear()
+        return True
 
 
 def _check(host: str, text: str, name: str = "") -> Message:
@@ -163,7 +183,9 @@ def _run(args: argparse.Namespace) -> int:
     ws = WsClient(args.host)
     try:
         prog = int(reply["prog"])
-        ended = run_program(ws, prog, args.step, print, _wait_enter)
+        if args.step:
+            print("step mode: Enter = next line")
+        ended = run_program(ws, prog, args.step, print, EnterKey().poll if args.step else None)
     except KeyboardInterrupt:
         ws.send({"t": "stop"})
         ws.send({"t": "logo_stop", "id": 3})

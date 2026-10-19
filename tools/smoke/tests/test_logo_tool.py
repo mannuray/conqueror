@@ -72,7 +72,7 @@ def test_run_until_ended_and_step() -> None:
         ]
     )
     shown: list[str] = []
-    ended = run_program(ws, 17, True, shown.append, lambda: None, clock=lambda: 0.0)
+    ended = run_program(ws, 17, True, shown.append, lambda: True, clock=lambda: 0.0)
     assert ended is not None and ended["reason"] == "finished"
     assert ws.sent[0] == {"t": "logo_run", "prog": 17, "step": True, "id": 1}
     assert ws.sent[1] == {"t": "logo_step", "id": 2}
@@ -99,3 +99,25 @@ def test_pings_once_a_second_while_events_keep_coming() -> None:
     run_program(ws, 5, False, lambda _: None, clock=clock)
     pings = [m for m in ws.sent if m.get("t") == "ping"]
     assert len(pings) >= 2  # the bridge reaps a client silent for 3 s
+
+
+def test_step_mode_keeps_pinging_while_waiting_for_enter() -> None:
+    # final review I1: the stepper is polled, never blocks: pings go on while the child reads
+    events: list[dict[str, Any] | None] = [{"t": "ev", "kind": "logo_line", "line": 1, "round": 0}]
+    events += [None] * 12  # 12 s with nothing from the bridge
+    events.append({"t": "ev", "kind": "logo_ended", "reason": "finished", "line": 1, "msg": ""})
+    ws = FakeWs(events)  # pyright: ignore[reportArgumentType]
+    t = [0.0]
+
+    def clock() -> float:
+        t[0] += 0.5
+        return t[0]
+
+    presses = [False] * 8 + [True]  # Enter after about 4 s
+
+    run_program(
+        ws, 5, True, lambda _: None, lambda: presses.pop(0) if presses else True, clock=clock
+    )
+    sent = [m.get("t") for m in ws.sent]
+    first_step = sent.index("logo_step")
+    assert sent[:first_step].count("ping") >= 3  # pinged while waiting for Enter

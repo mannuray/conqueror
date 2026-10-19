@@ -8,6 +8,7 @@
 #include "net/wifi_manager.h"
 #include "core/event_log.h"
 #include "app/replies.h"
+#include "app/motion_controller.h"
 #include "app/settings_controller.h"
 #include "app/telemetry_publisher.h"
 #include "app/uno_event_router.h"
@@ -57,6 +58,7 @@ app::TankAppController g_tank(g_out, g_log, g_link);  // Plan P Task 6
 app::SettingsController g_settings(g_out, g_log, g_link);  // Plan P Task 7
 app::TelemetryPublisher g_tel(g_out, g_link);  // Plan P Task 8
 app::UnoEventRouter g_events(g_out, g_log, g_tel, g_link);  // Plan P Task 8
+app::MotionController g_motionc(g_out, g_log, g_link, g_owner, g_tel);  // Plan P Task 9
 uint32_t g_last_slow_count = 0;
 struct Waiter {
   int fd;
@@ -68,15 +70,8 @@ size_t g_stop_waiter_n = 0;
 Waiter g_cam_waiter{-1, -1};
 // Plan M (bridge LLD R9): confirmations by the tank's button, the WiFi double press, acked Uno ops for the page.
 core::AckedOps g_ops;
-void sendCalib(int fd);
 uint8_t g_cam_seq = 0;
 core::StopBarrier g_stop_barrier;  // STOP fast path: drop motion posted before a STOP
-core::MotionLink g_motion(g_owner);  // Plan H: TURN / DRIVE_RATE run by the bridge for a body that cannot
-uint16_t g_cpm = core::motion::kCpmDefault;  // Plan K: counts per metre (NVS)
-uint16_t g_roll_mm = core::motion::kRollDefaultMm;  // spec 02 §G6: learned roll-on after a move's STOP (NVS)
-core::RollLearner g_roll;
-int32_t g_roll_last = -1;  // diagnostics in the calib reply: last reading (mm, -1 none) ...
-uint16_t g_roll_begun = 0, g_roll_read = 0;  // ... moves watched / readings taken
 
 void drainTx() {
   const uint8_t* p = nullptr;
@@ -159,41 +154,7 @@ void streamReject(int fd, core::BridgeReason r) {
   if (g_ws.reportStreamReject(fd, static_cast<uint8_t>(r))) nack(fd, -1, r);
 }
 
-// Plan H (bridge LLD R4.6): execute a MotionLink decision - DRIVE src AUTO, STOP, primitive_done.
-void runMotion(const core::LinkOut& o, uint32_t now) {
-  if (o.drive && !g_link.sendDrive(o.v, o.w, proto::Source::kAuto)) {
-    // Body gone: no frame can reach it. Queue full while synced: the STOP still goes (urgent slot, review minor 12).
-    const core::MotionEvent e = g_link.synced() ? core::MotionEvent::kTxFull : core::MotionEvent::kBodyOffline;
-    runMotion(g_motion.onEvent(e, now), now);
-    return;
-  }
-  if (o.stop) g_link.sendStop(now);  // STOP purges queued motion frames: no DRIVE 0/0 needed (review M11)
-  if (o.event) broadcast(core::jsonPrimitiveDone(g_json, sizeof(g_json), g_tel.nextEventSeq(), tankMs(), o.end));
-  if (o.event && o.end.reason != core::EndReason::kDone) {  // Plan O: why a move / turn ended early
-    g_log.add(core::LogKind::kPrimitive, static_cast<int32_t>(o.end.reason), static_cast<int32_t>(o.end.kind), "", tankMs(), now);
-  }
-  if (o.event && o.end.kind == core::PrimKind::kMove && o.end.reason == core::EndReason::kDone) {
-    const core::TankSnapshot& s = g_link.snapshot();  // §G6: watch the roll-on from here
-    g_roll.begin((s.fast.enc_l + s.fast.enc_r) / 2, now);
-    ++g_roll_begun;
-  }
-}
 
-void endMotion(core::MotionEvent e, uint32_t now) { runMotion(g_motion.onEvent(e, now), now); }
-
-bool motionOwnedBy(int fd) { return g_motion.service().active() && g_motion.service().ownerFd() == fd; }
-
-// Plan K: the TELEM_FAST fields the motion service uses.
-core::MotionTelem telemOf(const core::TankSnapshot& s) {
-  core::MotionTelem t;
-  t.yaw_cdeg = s.fast.yaw;
-  t.rate_ddps = s.fast.yaw_rate;
-  t.enc_l = s.fast.enc_l;
-  t.enc_r = s.fast.enc_r;
-  t.flags = s.fast.flags;
-  t.dist_mm = s.fast.dist_mm;
-  return t;
-}
 
 // Streaming commands (one rejection reported per stream) and every motion command (dropped behind a STOP).
 bool isStream(core::WsCmdKind k) {
@@ -211,130 +172,6 @@ bool sendAckedCommand(const core::WsCommand& c, uint32_t now, uint8_t& seq) {
     default: return g_link.sendCamLock(c.on, now, seq);
   }
 }
-
-// turn (LLD R4.2 / R4.6 / R8): spin, arc or pivot - Local on a body without TURN / MOVE; Forward / Unavailable
-// answered UNAVAILABLE for now.
-void handleTurn(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
-  if (g_ota_active) {
-    nack(fd, id, core::BridgeReason::kBusy);
-    return;
-  }
-  if (core::routeTurn(g_link.hello().caps, c.radius_cm, c.pivot) != core::Route::kLocal) {
-    nack(fd, id, core::BridgeReason::kUnavailable);  // arc / pivot need encoders; Forward: no full-firmware body yet
-    return;
-  }
-  const core::TankSnapshot& snap = g_link.snapshot();
-  if (bodyOffline() || !snap.fast_valid) {
-    nack(fd, id, core::BridgeReason::kBodyOffline);
-    return;
-  }
-  if (c.radius_cm > 0) {  // Plan L: arcs need trustworthy counts and a radius / speed the tracks can drive
-    if ((snap.fast.flags >> static_cast<unsigned>(proto::FastFlagBit::kEncoderFault)) & 1u) {
-      nack(fd, id, core::BridgeReason::kUnavailable);
-      return;
-    }
-    const core::ArcBand b = core::arcBand(c.radius_cm);
-    if (!b.possible || c.speed < b.lo || c.speed > b.hi) {
-      char why[96];
-      core::arcRefusal(why, sizeof(why), c.radius_cm);
-      sendTo(fd, core::jsonNackMessage(g_json, sizeof(g_json), id, core::BridgeReason::kInvalidCommand, why));
-      return;
-    }
-  }
-  core::Actions a;
-  const core::Decision d = g_owner.onDrive(fd, now, a);
-  apply(a, now);
-  if (d != core::Decision::kSend) {
-    nack(fd, id, reasonOf(d));
-    return;
-  }
-  endMotion(core::MotionEvent::kOwnerCommand, now);  // a new turn replaces the old primitive
-  g_roll.cancel();  // §G6: a new primitive - the last move's roll-on is no longer measurable
-  const int32_t delta = core::turnDelta(snap.fast.yaw, c.turn_has_to, c.turn_by_cdeg, c.turn_to_cdeg);
-  if (c.radius_cm > 0) {
-    g_motion.service().startArc(fd, telemOf(snap), delta, c.radius_cm, c.speed, g_cpm, id, now);
-  } else if (c.pivot) {
-    g_motion.service().startPivot(fd, snap.fast.yaw, delta, c.speed, id, now);
-  } else {
-    g_motion.service().startTurn(fd, snap.fast.yaw, delta, c.speed, id, now);
-  }
-  if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
-}
-
-// drive_rate (LLD R4.4): a stream like drive; the DRIVE frames come from the service on each TELEM_FAST.
-void handleDriveRate(int fd, const core::WsCommand& c, uint32_t now) {
-  if (g_ota_active) {
-    streamReject(fd, core::BridgeReason::kBusy);
-    return;
-  }
-  if (core::routeDriveRate(g_link.hello().caps) != core::Route::kLocal) {
-    streamReject(fd, core::BridgeReason::kUnavailable);  // Forward: no full-firmware body yet (once per stream)
-    return;
-  }
-  if (bodyOffline()) {
-    streamReject(fd, core::BridgeReason::kBodyOffline);
-    return;
-  }
-  core::Actions a;
-  const core::Decision d = g_owner.onDrive(fd, now, a);
-  apply(a, now);
-  if (d != core::Decision::kSend) {
-    streamReject(fd, reasonOf(d));
-    return;
-  }
-  const core::MotionService& svc = g_motion.service();
-  if (svc.active() && (svc.kind() != core::PrimKind::kRate || svc.ownerFd() != fd)) {
-    endMotion(core::MotionEvent::kOwnerCommand, now);
-  }
-  g_roll.cancel();  // §G6: a new primitive - the last move's roll-on is no longer measurable
-  g_motion.service().driveRate(fd, c.v, c.rate_ddps, now);
-  g_ws.streamAccepted(fd);
-}
-
-// move (Plan K, LLD R7.6): Local for an Uno with encoders and no encoder fault; Forward / Unavailable answered
-// UNAVAILABLE (no full-firmware body yet).
-void handleMove(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
-  if (g_ota_active) {
-    nack(fd, id, core::BridgeReason::kBusy);
-    return;
-  }
-  if (core::routeMove(g_link.hello().caps) != core::Route::kLocal) {
-    nack(fd, id, core::BridgeReason::kUnavailable);  // encoders off
-    return;
-  }
-  const core::TankSnapshot& snap = g_link.snapshot();
-  if (bodyOffline() || !snap.fast_valid) {
-    nack(fd, id, core::BridgeReason::kBodyOffline);
-    return;
-  }
-  if ((snap.fast.flags >> static_cast<unsigned>(proto::FastFlagBit::kEncoderFault)) & 1u) {
-    nack(fd, id, core::BridgeReason::kUnavailable);  // an encoder is switched off until the Uno restarts
-    return;
-  }
-  core::Actions a;
-  const core::Decision d = g_owner.onDrive(fd, now, a);
-  apply(a, now);
-  if (d != core::Decision::kSend) {
-    nack(fd, id, reasonOf(d));
-    return;
-  }
-  endMotion(core::MotionEvent::kOwnerCommand, now);  // a new move replaces the old primitive
-  g_roll.cancel();  // a new move: the last one's roll-on is no longer measurable
-  g_motion.service().startMove(fd, telemOf(snap), c.move_cm, c.speed, g_cpm, id, now, g_roll_mm);
-  if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
-}
-
-void sendCalib(int fd) {
-  size_t n = core::jsonCalib(g_json, sizeof(g_json) - 64, g_cpm, g_roll_mm);
-  if (n > 1) {  // + roll-on learner diagnostics (spec 02 §G6 floor check): replace the closing brace
-    const int k = snprintf(g_json + n - 1, sizeof(g_json) - n + 1, ",\"roll_last\":%ld,\"roll_watched\":%u,\"roll_read\":%u}",
-                           static_cast<long>(g_roll_last), static_cast<unsigned>(g_roll_begun),
-                           static_cast<unsigned>(g_roll_read));
-    if (k > 0) n = n - 1 + static_cast<size_t>(k);
-  }
-  sendTo(fd, n);
-}
-
 
 // ---------- Plan M (spec 02 Part I, bridge LLD R9): WiFi, settings page, confirmations ----------
 
@@ -373,16 +210,6 @@ void opsTick(uint32_t now) {
   }
 }
 
-// cancel: the owner ends its primitive (STOP while still the owner); acked also when nothing runs.
-void handleCancel(int fd, int32_t id, uint32_t now) {
-  if (g_motion.service().active() && g_motion.service().ownerFd() != fd) {
-    nack(fd, id, core::BridgeReason::kNotOwner);
-    return;
-  }
-  endMotion(core::MotionEvent::kCancel, now);
-  if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
-}
-
 // STOP fast path: may overtake its own kWsOpen - never lost.
 void handleStop(const LinkCommand& cmd, int32_t id, uint32_t now) {
   const int fd = cmd.fd;
@@ -391,7 +218,7 @@ void handleStop(const LinkCommand& cmd, int32_t id, uint32_t now) {
     g_log.add(core::LogKind::kStopHold, 0, 0, g_ws.contains(fd) ? g_ws.name(fd) : "?", tankMs(), now);
   }
   apply(g_owner.onStop(fd), now);  // urgent slot; queued DRIVE/CAM_JOY frames are purged
-  endMotion(core::MotionEvent::kStop, now);  // Plan H: a STOP from anyone ends a primitive
+  g_motionc.end(core::MotionEvent::kStop, now);  // Plan H: a STOP from anyone ends a primitive
   if (!g_ws.contains(fd)) return;
   g_ws.admit(fd, core::WsCmdKind::kStop, now);  // never limited; counts as alive
   if (g_stop_waiter_n < kMaxStopWaiters) {
@@ -424,8 +251,8 @@ void handleDrive(int fd, const core::WsCommand& c, uint32_t now) {
   core::Actions a;
   const core::Decision d = g_owner.onDrive(fd, now, a, c.v != 0 || c.w != 0);  // §72: a held stick stays stopped
   apply(a, now);
-  if (d == core::Decision::kSend && motionOwnedBy(fd)) endMotion(core::MotionEvent::kOwnerCommand, now);
-  if (d == core::Decision::kSend && (c.v != 0 || c.w != 0)) g_roll.cancel();  // §G6: driving again, no roll-on
+  if (d == core::Decision::kSend && g_motionc.ownedBy(fd)) g_motionc.end(core::MotionEvent::kOwnerCommand, now);
+  if (d == core::Decision::kSend && (c.v != 0 || c.w != 0)) g_motionc.cancelRollOn();  // §G6: driving again, no roll-on
   if (d != core::Decision::kSend) {
     streamReject(fd, reasonOf(d));
   } else if (g_link.sendDrive(c.v, c.w)) {  // 1:1 - the bridge never repeats a DRIVE
@@ -481,7 +308,7 @@ void handleDebug(int fd, int32_t id, const core::WsCommand& c) {
 
 void handleRelease(int fd, int32_t id, uint32_t now) {
   apply(g_owner.onRelease(fd), now);
-  if (motionOwnedBy(fd)) endMotion(core::MotionEvent::kRelease, now);  // review I1: release ends a primitive
+  if (g_motionc.ownedBy(fd)) g_motionc.end(core::MotionEvent::kRelease, now);  // review I1: release ends a primitive
   if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
 }
 
@@ -503,10 +330,10 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
     case core::WsCmdKind::kSound:
     case core::WsCmdKind::kAudioMode:
     case core::WsCmdKind::kCamLock: handleAcked(fd, id, c, now); break;
-    case core::WsCmdKind::kTurn: handleTurn(fd, id, c, now); break;
-    case core::WsCmdKind::kDriveRate: handleDriveRate(fd, c, now); break;
-    case core::WsCmdKind::kCancel: handleCancel(fd, id, now); break;
-    case core::WsCmdKind::kMove: handleMove(fd, id, c, now); break;
+    case core::WsCmdKind::kTurn: g_motionc.onTurn(fd, id, c, now); break;
+    case core::WsCmdKind::kDriveRate: g_motionc.onDriveRate(fd, c, now); break;
+    case core::WsCmdKind::kCancel: g_motionc.onCancel(fd, id, now); break;
+    case core::WsCmdKind::kMove: g_motionc.onMove(fd, id, c, now); break;
     case core::WsCmdKind::kCalib: g_settings.onCalib(fd, id, c, now); break;
     case core::WsCmdKind::kWifiStatus:
     case core::WsCmdKind::kWifiScan:
@@ -548,7 +375,7 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
       if (!g_ws.contains(cmd.fd)) return;  // a plain HTTP socket
       char name[12];
       snprintf(name, sizeof(name), "%s", g_ws.name(cmd.fd));
-      if (motionOwnedBy(cmd.fd)) endMotion(core::MotionEvent::kOwnerClosed, now);  // onWsClose STOPs its driver
+      if (g_motionc.ownedBy(cmd.fd)) g_motionc.end(core::MotionEvent::kOwnerClosed, now);  // onWsClose STOPs its driver
       if (cmd.fd == g_owner.driverFd()) g_log.add(core::LogKind::kClientLost, 0, 0, name, tankMs(), now);  // Plan O
       const core::Actions a = g_owner.onWsClose(cmd.fd);
       g_settings.onClientClosed(cmd.fd);  // Plan M: a waiting change of that client is dropped (review focus 4)
@@ -564,7 +391,7 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
     default:
       g_ota_active = true;  // from now on: drives nacked BUSY, new phones refused
       g_log.add(core::LogKind::kOta, 0, 0, "", tankMs(), now);
-      endMotion(core::MotionEvent::kOta, now);  // the STOP below stops it
+      g_motionc.end(core::MotionEvent::kOta, now);  // the STOP below stops it
       g_link.sendStop(now);  // resent until the Uno's ACK
       stopLinkForOta();  // heartbeats stop: Uno link-loss stop at standstill is harmless (design-notes §95)
       closeAllClients();
@@ -623,21 +450,11 @@ void handleLinkEvents(uint32_t now) {
 void telemetry(uint32_t now) {
   const app::TelemetryPublisher::News news = g_tel.poll();  // td / tds to the clients that asked
   if (news.fast) {
-    const core::TankSnapshot& s = g_link.snapshot();
-    int32_t roll = 0;  // §G6: learn the roll-on of the last move from the frames after its STOP
-    if (g_roll.watching() &&
-        g_roll.observe((s.fast.enc_l + s.fast.enc_r) / 2, s.fast.pwm_l != 0 || s.fast.pwm_r != 0, g_cpm, now, roll)) {
-      const uint16_t next = core::rollAverage(g_roll_mm, roll);
-      g_roll_last = roll;
-      ++g_roll_read;
-      logf("motion: roll-on %ld mm -> average %u mm", static_cast<long>(roll), static_cast<unsigned>(next));
-      if (next != g_roll_mm && net::motionStoreSaveRoll(next)) g_roll_mm = next;
-    }
-    runMotion(g_motion.onTelemetry(telemOf(s), now), now);  // 50 Hz
-    g_tel.afterFast();  // tf at 10 Hz
+    g_motionc.onTelemetry(now);  // roll-on + the motion service step (50 Hz)
+    g_tel.afterFast();          // tf at 10 Hz
   }
-  runMotion(g_motion.tick(now), now);  // telemetry gap / drive_rate deadman
-  g_tel.tickTs(now);  // 1 Hz, also while the Uno is silent (body_offline)
+  g_motionc.tick(now);  // telemetry gap / drive_rate deadman
+  g_tel.tickTs(now);    // 1 Hz, also while the Uno is silent (body_offline)
 }
 
 void reapSilent(uint32_t now) {
@@ -709,10 +526,7 @@ void linkTask(void*) {
 
 void wireTelemetry() {
   g_tel.setViews({[] { return ownerView(); },
-                  [] {
-                    const core::MotionService& svc = g_motion.service();
-                    return core::PrimitiveView{svc.active(), svc.kind(), svc.progressPct(), svc.limited()};
-                  },
+                  [] { return g_motionc.view(); },
                   [] { return bodyOffline(); }});
 }
 
@@ -720,13 +534,13 @@ void wireEvents() {
   app::UnoEventRouter::Sinks sinks{};
   sinks.body_online = [](uint32_t now) { apply(g_owner.onSynced(true), now); };
   sinks.body_offline = [](uint8_t, int16_t, uint32_t now) {
-    endMotion(core::MotionEvent::kBodyOffline, now);
+    g_motionc.end(core::MotionEvent::kBodyOffline, now);
     apply(g_owner.onSynced(false), now);
   };
   sinks.uno_owner = [](uint8_t o, uint32_t now) { apply(g_owner.onUnoOwner(static_cast<proto::Owner>(o)), now); };
   sinks.button_press = [](uint32_t now) { g_settings.onButtonPress(now); };
   sinks.motion_event = [](uint8_t e, uint32_t now) {
-    endMotion(e == static_cast<uint8_t>(proto::EventKind::kStall) ? core::MotionEvent::kBodyStall
+    g_motionc.end(e == static_cast<uint8_t>(proto::EventKind::kStall) ? core::MotionEvent::kBodyStall
                                                                     : core::MotionEvent::kBodyEncoderFault, now);
   };
   sinks.ack_result = onAckResult;
@@ -736,16 +550,16 @@ void wireEvents() {
 }
 
 void wireSettings() {
-  g_settings.setHooks({[] { return g_motion.service().active(); }, [] { return g_ota_active; },
-                       [] { return g_owner.driverFd(); }, [](int fd) { sendCalib(fd); },
-                       [](const core::AckedOp& op) { return g_ops.push(op); }, &g_cpm, &g_roll_mm});
+  g_settings.setHooks({[] { return g_motionc.active(); }, [] { return g_ota_active; },
+                       [] { return g_owner.driverFd(); }, [](int fd) { g_motionc.sendCalib(fd); },
+                       [](const core::AckedOp& op) { return g_ops.push(op); }, &g_motionc.cpm(), &g_motionc.rollMm()});
 }
 
 void wireTank() {
   g_tank.setSelfTestHooks({[] { return bodyOffline(); },
                            [] {
                              const core::TankSnapshot& s = g_link.snapshot();
-                             return g_motion.service().active() || g_owner.state() == core::LinkState::kWebDriving ||
+                             return g_motionc.active() || g_owner.state() == core::LinkState::kWebDriving ||
                                     (s.slow_valid && s.slow.driving != 0);  // the tank must stand still
                            },
                            [](int fd, int32_t id) {
@@ -757,7 +571,18 @@ void wireTank() {
                            }});
 }
 
+void wireMotion() {
+  g_motionc.setHooks({[](int fd, uint32_t now) {
+                        core::Actions a;
+                        const core::Decision d = g_owner.onDrive(fd, now, a);
+                        apply(a, now);
+                        return d;
+                      },
+                      [] { return g_ota_active; }});
+}
+
 void wireControllers() {
+  wireMotion();
   wireTelemetry();
   wireEvents();
   wireSettings();
@@ -768,8 +593,7 @@ void wireControllers() {
 
 void linkTaskStart(const char* (*camera_sensor)()) {
   g_sensor = camera_sensor;
-  g_cpm = net::motionStoreLoad();  // Plan K: before the link task runs
-  g_roll_mm = net::motionStoreLoadRoll();
+  g_motionc.begin();  // Plan K: counts per metre and roll-on, before the link task runs
   g_tank.begin();  // Plan O / Plan P: the AI address
   wireControllers();  // Plan P: hooks between the controllers (interim until Task 12)
   g_log.add(core::LogKind::kBoot, static_cast<int32_t>(esp_reset_reason()), 0, "", 0, millis());

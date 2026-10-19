@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "core/link_owner.h"
 #include "core/ws_clients.h"
 #include "core/ws_json.h"
 
@@ -32,6 +33,16 @@ class Replies {
   char m_json[core::kWsJsonMax];
   char m_big[core::kWsBigMax];
 };
+
+// The reply reason for an ownership decision (drive, motion, camera).
+inline core::BridgeReason reasonOf(core::Decision d) {
+  switch (d) {
+    case core::Decision::kNackBusy: return core::BridgeReason::kBusy;
+    case core::Decision::kNackBodyOffline: return core::BridgeReason::kBodyOffline;
+    case core::Decision::kNackStopped: return core::BridgeReason::kStopped;
+    default: return core::BridgeReason::kNotOwner;
+  }
+}
 
 }  // namespace app
 }  // namespace cq

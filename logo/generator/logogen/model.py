@@ -89,6 +89,10 @@ class Spec:
     errors: dict[int, str]
     limits: dict[str, int]
     cases: list[Case]
+    colour_rgb: dict[str, tuple[int, int, int]] = field(
+        default_factory=dict[str, tuple[int, int, int]]
+    )
+    look_deg: dict[str, tuple[int, int]] = field(default_factory=dict[str, tuple[int, int]])
 
     def word(self, name: str) -> Word:
         return next(w for w in self.words if w.name == name)
@@ -175,6 +179,17 @@ def _load_cases(path: Path) -> list[Case]:
     return out
 
 
+def _check_preset_data(spec: Spec) -> None:
+    """Every colour has its r g b (0-255); every LOOK preset but HOME has its angles."""
+    for name in spec.presets["colour"]:
+        rgb = spec.colour_rgb.get(name)
+        if rgb is None or not all(0 <= x <= 255 for x in rgb):
+            raise ValueError(f"colour_rgb: {name} needs [r, g, b] from 0 to 255")
+    for name in spec.presets["look"]:
+        if name != "HOME" and name not in spec.look_deg:
+            raise ValueError(f"look_deg: {name} needs [pan, tilt]")
+
+
 def load(root: Path) -> Spec:
     spec_dir = root / "logo" / "spec"
     raw = yaml.safe_load((spec_dir / "words.yaml").read_text())
@@ -194,7 +209,12 @@ def load(root: Path) -> Spec:
         errors={int(k): str(v) for k, v in raw["errors"].items()},
         limits={str(k): int(v) for k, v in raw["limits"].items()},
         cases=cases,
+        colour_rgb={
+            str(k): (int(v[0]), int(v[1]), int(v[2])) for k, v in raw["colour_rgb"].items()
+        },
+        look_deg={str(k): (int(v[0]), int(v[1])) for k, v in raw["look_deg"].items()},
     )
+    _check_preset_data(spec)
     for c in spec.cases:
         if not c.expect_ok and c.code not in spec.errors:
             raise ValueError(f"case {c.name}: unknown error code {c.code}")

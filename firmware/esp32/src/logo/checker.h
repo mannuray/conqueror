@@ -52,6 +52,8 @@ class Checker {
   void arcTooTight(const Node* call, const Node* radius);
   void visitInput(const Node* n, int16_t def);
   void listWarning(const Node* list);
+  void checkNotes(const Node* list);
+  void notesError(uint8_t err, const Node* at);
   void markTails(Node* body, CheckResult& r);
   void error(uint16_t code, uint16_t tok, const DiagArg* a = nullptr, uint8_t n = 0);
 

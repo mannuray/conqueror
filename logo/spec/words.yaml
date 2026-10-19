@@ -35,7 +35,13 @@ presets:
   # the tank's sound catalogue (protocol SoundId 1-24, spec 02 §A9, design-notes §75)
   sound: [STARTUP, READY, SELFTEST_FAIL, CHIRP_UP, CHIRP_DOWN, BLIP, TICK, JINGLE, THINKING, OUCH, ERROR, SUCCESS,
           FANFARE, SAD, SAFETY_CHIRP, ACK_BLIP, FAIL, CONFIRM, QUESTION, OK_CHIRP, GRUMBLE, SCAN, GOODBYE, HORN]
-  notes: "C4..B6 (sharps as C#4), R = rest; each note may be followed by its length in quarter beats (default 1 = 0.25 s)"
+  notes: "C4..B6 (sharps as C#4), R = rest; each note may be followed by its length in quarter beats (default 1 = 0.25 s), 0.25 to 16; at most 64 notes"
+
+# What the presets do (Plan N2, design-notes §101). LED colours as r g b (0-255); LOOK presets as degrees from the
+# centre, pan right = +, tilt up = + (HOME is the camera's own home position).
+colour_rgb: {RED: [255, 0, 0], GREEN: [0, 255, 0], BLUE: [0, 0, 255], YELLOW: [255, 200, 0], PURPLE: [160, 0, 255],
+             WHITE: [255, 255, 255], ORANGE: [255, 100, 0], "OFF": [0, 0, 0]}
+look_deg: {LEFT: [-60, 0], RIGHT: [60, 0], UP: [0, 30], DOWN: [0, -30]}
 
 words:
   # ---------------------------------------------------------------- level 1: Starter
@@ -181,7 +187,7 @@ words:
   - name: IFELSE
     level: 2
     kind: control
-    inputs: [{name: test, type: condition}, {name: yes, type: block}, {name: no, type: block}]
+    inputs: [{name: test, type: condition}, {name: "yes", type: block}, {name: "no", type: block}]  # quoted: YAML 1.1 reads bare yes / no as booleans
     help: do the first steps if the test is true, else the second
     example: IFELSE DISTANCE < 30 [ RT 90 ] [ FD 20 ]
     missing: "two [ ] blocks: one for yes, one for no"
@@ -472,13 +478,16 @@ errors:   # PROGRAM 7000-7999 (Spec 5 §8); {..} are filled in by the checker. E
   7022: "{word} {angle} {radius} is too tight — the smallest circle is 31 cm. Try PIVOT."
   7023: "{word} needs its steps in [ ], like {example}."
   7024: "Something is in the way on line {line}."
-  7025: "{word} needs {what} from {min} to {max} {unit}."
+  7025: "{word} needs {what} from {min} to {max} {unit?}."  # {x?}: may be empty
   7026: "OUTPUT can only be used inside TO ... END."
   7027: "{word} is not in Tank Logo. {hint}"
   7028: "Something is missing between {a} and {b}."
   7029: "{word} knows {choices} — {given} isn't one of them."
   7030: "{word} arrives in a later version."
   7031: "{word} finished without giving back a value."
+  7032: "{word} has two inputs called :{name} — give each its own name."
+  7033: "A number got too big on line {line} (more than 1000000)."
+  7034: "The tank's body stopped answering."
   7040: "Stopped by you."
   7041: "The time limit (5 minutes) is up."
   7042: "The battery is low."

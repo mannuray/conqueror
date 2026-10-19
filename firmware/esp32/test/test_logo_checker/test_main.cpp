@@ -102,6 +102,23 @@ void test_check_too_deep_tree_is_7010() {
   TEST_ASSERT_EQUAL(7010, first());
 }
 
+// Plan N2 Task 1: a PLAY list is checked before anything moves.
+void test_check_play_notes() {
+  TEST_ASSERT_TRUE(C("PLAY [ C4 E4 2 G4 R C#5 0.5 ]").ok);
+  C("PLAY [ C4 H4 ]");
+  TEST_ASSERT_EQUAL(7029, first());
+  TEST_ASSERT_EQUAL(11, g_d.first()->col);
+  C("PLAY [ 2 C4 ]");
+  TEST_ASSERT_EQUAL(7029, first());  // a length needs a note before it
+  C("PLAY [ C4 2 3 ]");
+  TEST_ASSERT_EQUAL(7029, first());  // two lengths in a row
+  C("PLAY [ C4 0.1 ]");
+  TEST_ASSERT_EQUAL(7025, first());
+  C("PLAY [ ]");
+  TEST_ASSERT_EQUAL(7025, first());
+  TEST_ASSERT_NOT_NULL(strstr(g_d.first()->msg, "1 to 64 notes"));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_check_scope);
@@ -111,5 +128,6 @@ int main(int, char**) {
   RUN_TEST(test_check_tail_positions);
   RUN_TEST(test_check_long_program_checks_every_statement);
   RUN_TEST(test_check_too_deep_tree_is_7010);
+  RUN_TEST(test_check_play_notes);
   return UNITY_END();
 }

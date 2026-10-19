@@ -165,3 +165,23 @@
   source: SAY MAP [ ? ? ] [ 1 2 ]
   expect: {error: 7004, line: 1, col: 13}
   version: v1.1
+
+- name: the same input name twice
+  source: TO STEP :x :x FD :x END
+  expect: {error: 7032, line: 1, col: 12}
+  message_has: "two inputs called :x"
+
+- name: a PLAY item that is not a note
+  source: PLAY [ C4 X9 ]
+  expect: {error: 7029, line: 1, col: 11}
+  message_has: "X9"
+
+- name: a PLAY length out of range
+  source: PLAY [ C4 32 ]
+  expect: {error: 7025, line: 1, col: 11}
+  message_has: "0.25 to 16 beats"
+
+- name: a range without a unit still has its message
+  source: REPEAT 20000 [ BEEP ]
+  expect: {error: 7025, line: 1, col: 8}
+  message_has: "from 0 to 10000."

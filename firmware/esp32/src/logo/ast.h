@@ -23,7 +23,7 @@ struct Node {
   Node* first = nullptr;
   Node* last = nullptr;
   Node* next = nullptr;
-  uint8_t count = 0;
+  uint16_t count = 0;  // a block can hold more than 255 statements
   void add(Node* c) {
     if (first == nullptr) first = c; else last->next = c;
     last = c;

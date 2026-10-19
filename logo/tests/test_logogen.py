@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from logogen import emit, model
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,3 +51,24 @@ def test_words_h_mentions_every_word_and_error() -> None:
     for w in s.words:
         assert f'"{w.name}"' in text
     assert "7029" in text and "kCases" not in text
+
+
+def test_ifelse_inputs_are_yes_and_no_not_booleans() -> None:
+    ins = spec().word("IFELSE").inputs
+    assert [i.name for i in ins] == ["test", "yes", "no"]
+    assert ins[1].what == "steps in [ ]"
+
+
+def test_colour_rgb_and_look_deg_follow_the_presets() -> None:
+    s = spec()
+    text = emit.render_words_h(s)
+    assert "inline constexpr Rgb kColourRgb[] = {{255, 0, 0}," in text
+    assert "{0, 0, true}" in text  # LOOK HOME
+    assert "kRunTimeS = 300" in text and "kNesting = 100" in text
+
+
+def test_a_colour_without_rgb_is_refused() -> None:
+    s = spec()
+    del s.colour_rgb["RED"]
+    with pytest.raises(ValueError, match="colour_rgb: RED"):
+        model._check_preset_data(s)  # pyright: ignore[reportPrivateUsage]

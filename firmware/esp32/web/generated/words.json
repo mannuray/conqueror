@@ -334,12 +334,12 @@
      "unit": ""
     },
     {
-     "name": "True",
+     "name": "yes",
      "type": "block",
      "unit": ""
     },
     {
-     "name": "False",
+     "name": "no",
      "type": "block",
      "unit": ""
     }

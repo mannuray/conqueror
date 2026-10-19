@@ -138,6 +138,16 @@ void test_parser_always_terminates_on_garbage() {
   TEST_PASS();
 }
 
+// Plan N2 Task 1: the same input name twice is 7032 at the second one (design-notes §100).
+void test_pass1_same_input_twice_is_7032() {
+  parseText("TO STEP :x :y :X FD :x END");
+  TEST_ASSERT_EQUAL(7032, g_d.first()->code);
+  TEST_ASSERT_EQUAL(15, g_d.first()->col);
+  TEST_ASSERT_NOT_NULL(strstr(g_d.first()->msg, "STEP has two inputs called :X"));
+  parseText("TO STEP :x :y FD :x END");
+  TEST_ASSERT_EQUAL(0, g_d.count());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_pass1_finds_definitions_before_use);
@@ -151,5 +161,6 @@ int main(int, char**) {
   RUN_TEST(test_parser_deep_nesting_is_an_error);
   RUN_TEST(test_parser_node_pool_full);
   RUN_TEST(test_parser_always_terminates_on_garbage);
+  RUN_TEST(test_pass1_same_input_twice_is_7032);
   return UNITY_END();
 }

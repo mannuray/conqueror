@@ -118,6 +118,23 @@ def render_words_h(spec: Spec) -> str:
             f"inline constexpr const char* k{cname}[] = {{{', '.join(c_string(v) for v in vals)}}};\n"
         )
         lines.append(f"inline constexpr uint8_t k{cname}Count = {len(vals)};\n")
+    lines.append("\nstruct Rgb { uint8_t r; uint8_t g; uint8_t b; };  // indexed like kColours\n")
+    rgb = [spec.colour_rgb[c] for c in spec.presets["colour"]]
+    lines.append(
+        "inline constexpr Rgb kColourRgb[] = {"
+        + ", ".join(f"{{{r}, {g}, {b}}}" for r, g, b in rgb)
+        + "};\n"
+    )
+    lines.append(
+        "struct LookDeg { int16_t pan; int16_t tilt; bool home; };  // indexed like kLooks; right / up = +\n"
+    )
+    looks = [
+        "{0, 0, true}"
+        if n == "HOME"
+        else f"{{{spec.look_deg[n][0]}, {spec.look_deg[n][1]}, false}}"
+        for n in spec.presets["look"]
+    ]
+    lines.append(f"inline constexpr LookDeg kLookDeg[] = {{{', '.join(looks)}}};\n")
     lines.append(
         f"\ninline constexpr const char* kReserved[] = {{{', '.join(c_string(r) for r in spec.reserved)}}};\n"
     )
@@ -133,6 +150,9 @@ def render_words_h(spec: Spec) -> str:
     lines.append(f"inline constexpr uint8_t kMaxProcs = {lim['words_of_your_own']};\n")
     lines.append(f"inline constexpr uint8_t kNameChars = {lim['name_chars']};\n")
     lines.append(f"inline constexpr int32_t kNumberAbsMaxMilli = {lim['number_abs_max'] * 1000};\n")
+    lines.append(f"inline constexpr uint16_t kRunTimeS = {lim['run_time_s']};\n")
+    lines.append(f"inline constexpr uint8_t kWaitS = {lim['wait_s']};\n")
+    lines.append(f"inline constexpr uint8_t kNesting = {lim['nesting']};\n")
     lines.append("\n}  // namespace gen\n}  // namespace logo\n}  // namespace cq\n")
     return "".join(lines)
 

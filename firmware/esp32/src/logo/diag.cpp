@@ -28,12 +28,16 @@ size_t appendText(const char* v, char* out, size_t o, size_t cap) {
   return o;
 }
 
-// The "{key}" at p: its value appended, p moved to the '}', drop set when the value is empty. False: no '}'.
+// The "{key}" at p: its value appended, p moved to the '}', drop set when the value is empty. "{key?}" may be
+// empty: then the space before it goes instead of the sentence ("… to 10000 {unit?}." → "… to 10000."). False: no '}'.
 bool placeholder(const char*& p, const DiagArg* args, uint8_t n, char* out, size_t& o, size_t cap, bool& drop) {
   const char* close = strchr(p, '}');
   if (close == nullptr) return false;
-  const char* v = findArg(args, n, p + 1, static_cast<size_t>(close - p - 1));
-  if (*v == '\0') drop = true;
+  size_t klen = static_cast<size_t>(close - p - 1);
+  const bool optional = klen > 0 && p[klen] == '?';
+  const char* v = findArg(args, n, p + 1, optional ? klen - 1 : klen);
+  if (*v == '\0' && optional) o = cutBack(out, o);
+  if (*v == '\0' && !optional) drop = true;
   o = appendText(v, out, o, cap);
   p = close;
   return true;

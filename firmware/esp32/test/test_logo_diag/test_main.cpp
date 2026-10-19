@@ -50,6 +50,17 @@ void test_capacity_is_respected() {
   TEST_ASSERT_EQUAL(Diagnostics::kCap, d.count());
 }
 
+// Plan N2 Task 1: {key?} may be empty without dropping its sentence (REPEAT / RANDOM have no unit).
+void test_render_optional_placeholder() {
+  char out[192];
+  const DiagArg a[] = {{"word", "REPEAT"}, {"max", "10000"}, {"unit", ""}};
+  renderMessage("{word} needs at most {max} {unit?}.", a, 3, out, sizeof out);
+  TEST_ASSERT_EQUAL_STRING("REPEAT needs at most 10000.", out);
+  const DiagArg b[] = {{"word", "FORWARD"}, {"max", "500"}, {"unit", "cm"}};
+  renderMessage("{word} needs at most {max} {unit?}.", b, 3, out, sizeof out);
+  TEST_ASSERT_EQUAL_STRING("FORWARD needs at most 500 cm.", out);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_render_fills_placeholders);
@@ -57,5 +68,6 @@ int main(int, char**) {
   RUN_TEST(test_add_renders_from_the_generated_table_and_dedupes);
   RUN_TEST(test_first_is_earliest_error_not_warning);
   RUN_TEST(test_capacity_is_respected);
+  RUN_TEST(test_render_optional_placeholder);
   return UNITY_END();
 }

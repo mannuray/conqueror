@@ -25,7 +25,7 @@ inline constexpr InputSpec kIn14[] = {{"side", InType::kSide, false, 0, 0, "", "
 inline constexpr InputSpec kIn15[] = {{"notes", InType::kNotes, false, 0, 0, "", "a notes"}};
 inline constexpr InputSpec kIn16[] = {{"words", InType::kText, false, 0, 0, "", "a words"}};
 inline constexpr InputSpec kIn18[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}, {"steps", InType::kBlock, false, 0, 0, "", "its steps in [ ]"}};
-inline constexpr InputSpec kIn19[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}, {"True", InType::kBlock, false, 0, 0, "", "a True"}, {"False", InType::kBlock, false, 0, 0, "", "a False"}};
+inline constexpr InputSpec kIn19[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}, {"yes", InType::kBlock, false, 0, 0, "", "steps in [ ]"}, {"no", InType::kBlock, false, 0, 0, "", "steps in [ ]"}};
 inline constexpr InputSpec kIn20[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}, {"steps", InType::kBlock, false, 0, 0, "", "its steps in [ ]"}};
 inline constexpr InputSpec kIn21[] = {{"steps", InType::kBlock, false, 0, 0, "", "its steps in [ ]"}};
 inline constexpr InputSpec kIn22[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}};
@@ -139,6 +139,11 @@ inline constexpr uint8_t kLooksCount = 5;
 inline constexpr const char* kSounds[] = {"STARTUP", "READY", "SELFTEST_FAIL", "CHIRP_UP", "CHIRP_DOWN", "BLIP", "TICK", "JINGLE", "THINKING", "OUCH", "ERROR", "SUCCESS", "FANFARE", "SAD", "SAFETY_CHIRP", "ACK_BLIP", "FAIL", "CONFIRM", "QUESTION", "OK_CHIRP", "GRUMBLE", "SCAN", "GOODBYE", "HORN"};
 inline constexpr uint8_t kSoundsCount = 24;
 
+struct Rgb { uint8_t r; uint8_t g; uint8_t b; };  // indexed like kColours
+inline constexpr Rgb kColourRgb[] = {{255, 0, 0}, {0, 255, 0}, {0, 0, 255}, {255, 200, 0}, {160, 0, 255}, {255, 255, 255}, {255, 100, 0}, {0, 0, 0}};
+struct LookDeg { int16_t pan; int16_t tilt; bool home; };  // indexed like kLooks; right / up = +
+inline constexpr LookDeg kLookDeg[] = {{-60, 0, false}, {60, 0, false}, {0, 30, false}, {0, -30, false}, {0, 0, true}};
+
 inline constexpr const char* kReserved[] = {"END", "UNTIL", "MAKE", "RUN", "FOR", "WHEN"};
 inline constexpr uint8_t kReservedCount = 6;
 
@@ -168,13 +173,16 @@ inline constexpr ErrorText kErrors[] = {
     {7022, "{word} {angle} {radius} is too tight \342\200\224 the smallest circle is 31 cm. Try PIVOT."},
     {7023, "{word} needs its steps in [ ], like {example}."},
     {7024, "Something is in the way on line {line}."},
-    {7025, "{word} needs {what} from {min} to {max} {unit}."},
+    {7025, "{word} needs {what} from {min} to {max} {unit?}."},
     {7026, "OUTPUT can only be used inside TO ... END."},
     {7027, "{word} is not in Tank Logo. {hint}"},
     {7028, "Something is missing between {a} and {b}."},
     {7029, "{word} knows {choices} \342\200\224 {given} isn't one of them."},
     {7030, "{word} arrives in a later version."},
     {7031, "{word} finished without giving back a value."},
+    {7032, "{word} has two inputs called :{name} \342\200\224 give each its own name."},
+    {7033, "A number got too big on line {line} (more than 1000000)."},
+    {7034, "The tank's body stopped answering."},
     {7040, "Stopped by you."},
     {7041, "The time limit (5 minutes) is up."},
     {7042, "The battery is low."},
@@ -183,12 +191,15 @@ inline constexpr ErrorText kErrors[] = {
     {7045, "Someone else took control."},
     {7046, "The page was closed or hidden."},
 };
-inline constexpr uint8_t kErrorCount = 38;
+inline constexpr uint8_t kErrorCount = 41;
 
 inline constexpr uint16_t kSourceBytes = 8192;
 inline constexpr uint8_t kMaxProcs = 64;
 inline constexpr uint8_t kNameChars = 32;
 inline constexpr int32_t kNumberAbsMaxMilli = 1000000000;
+inline constexpr uint16_t kRunTimeS = 300;
+inline constexpr uint8_t kWaitS = 60;
+inline constexpr uint8_t kNesting = 100;
 
 }  // namespace gen
 }  // namespace logo

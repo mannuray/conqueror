@@ -71,6 +71,21 @@ uint16_t Parser::scanBody(ProcInfo& p, uint16_t i) {
   return i;
 }
 
+// 7032: an input name the definition already has (TO A :x :x), at the second one.
+void Parser::sameInput(const ProcInfo& p, uint16_t at) {
+  const Token& t = tokAt(at);
+  for (uint8_t k = 0; k < p.n_inputs; ++k) {
+    const Token& o = tokAt(static_cast<uint16_t>(p.first_input_tok + k));
+    if (o.len != t.len || editDistance(m_src + o.start, o.len, m_src + t.start, t.len) != 0) continue;
+    char word[40], name[40];
+    tokenText(m_src, tokAt(p.name_tok), word, sizeof word);
+    tokenText(m_src, t, name, sizeof name);
+    const DiagArg a[] = {{"word", word}, {"name", name + 1}};  // name without its ':'
+    error(7032, at, a, 2);
+    return;
+  }
+}
+
 void Parser::addProc(const ProcInfo& p) {
   if (m_n_procs < kMaxProcs) {
     m_procs[m_n_procs++] = p;
@@ -93,6 +108,7 @@ uint16_t Parser::readDefinition(uint16_t i) {
   p.valid = nameAllowed(i);
   p.first_input_tok = ++i;
   while (tokAt(i).kind == Tok::kInput) {
+    sameInput(p, i);
     ++p.n_inputs;
     ++i;
   }

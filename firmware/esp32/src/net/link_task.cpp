@@ -6,6 +6,11 @@
 #include "core/roll_learner.h"
 #include "net/motion_store.h"
 #include "net/wifi_manager.h"
+#include "core/event_log.h"
+#include "net/app_settings.h"
+#include "net/camera_service.h"
+#include "net/stream_server.h"
+#include <esp_system.h>
 #include "net/link_task.h"
 
 #include <Arduino.h>
@@ -42,6 +47,9 @@ bool g_ota_active = false;
 
 // WS bookkeeping (link_task only)
 char g_json[core::kWsJsonMax];
+char g_big[3584];              // Plan O: tank and log replies (25 log entries do not fit g_json)
+core::EventLog g_log;          // Plan O (LLD R13): the Log tab
+char g_ai_url[97] = "";        // the AI engine's page (NVS cq_app)
 uint32_t g_last_debug_slow = 0;  // LLD R5: TELEM_SLOW count last seen by the debug stream
 uint32_t g_ev_seq = 0;
 uint32_t g_tf_seq = 0;
@@ -162,6 +170,9 @@ void runMotion(const core::LinkOut& o, uint32_t now) {
   }
   if (o.stop) g_link.sendStop(now);  // STOP purges queued motion frames: no DRIVE 0/0 needed (review M11)
   if (o.event) broadcast(core::jsonPrimitiveDone(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), o.end));
+  if (o.event && o.end.reason != core::EndReason::kDone) {  // Plan O: why a move / turn ended early
+    g_log.add(core::LogKind::kPrimitive, static_cast<int32_t>(o.end.reason), static_cast<int32_t>(o.end.kind), "", tankMs(), now);
+  }
   if (o.event && o.end.kind == core::PrimKind::kMove && o.end.reason == core::EndReason::kDone) {
     const core::TankSnapshot& s = g_link.snapshot();  // §G6: watch the roll-on from here
     g_roll.begin((s.fast.enc_l + s.fast.enc_r) / 2, now);
@@ -325,17 +336,22 @@ void handleCalib(int fd, int32_t id, const core::WsCommand& c, uint32_t now) {
     askConfirm(ch, now);
     return;
   }
-  if (c.has_cpm) {
+  if (c.has_cpm) {  // Plan O (owner, design-notes §91): a save waits for the tank's button
     if (g_owner.driverFd() != fd) {
       nack(fd, id, core::BridgeReason::kNotOwner);
       return;
     }
-    if (g_motion.service().active() || !net::motionStoreSave(c.cpm)) {
+    if (g_motion.service().active()) {
       nack(fd, id, core::BridgeReason::kBusy);
       return;
     }
-    g_cpm = c.cpm;
-    if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
+    core::PendingChange ch;
+    ch.kind = core::ChangeKind::kCalibSet;
+    ch.fd = fd;
+    ch.id = id;
+    ch.cpm = c.cpm;
+    askConfirm(ch, now);
+    return;
   }
   sendCalib(fd);
 }
@@ -456,6 +472,7 @@ void handleSettingsCommand(int fd, int32_t id, const core::WsCommand& c, uint32_
       if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
       g_restart_at = now + 500;
       logf("bridge: restart asked by %s", g_ws.name(fd));
+      g_log.add(core::LogKind::kRestart, 0, 0, g_ws.name(fd), tankMs(), now);
       return;
     default:
       return;
@@ -489,6 +506,18 @@ void applyChange(core::PendingChange& ch, uint32_t now) {
       r.kind = net::WifiRequest::kApPassword;
       snprintf(r.pass, sizeof(r.pass), "%s", ch.pass);
       break;
+    case core::ChangeKind::kCalibSet:  // Plan O: checked again now - no primitive may be running (the driver may
+                                       // have changed during the 30 s; the save itself is not motion)
+      if (g_motion.service().active() || !net::motionStoreSave(ch.cpm)) {
+        if (g_ws.contains(ch.fd)) nack(ch.fd, ch.id, core::BridgeReason::kBusy);
+        return;
+      }
+      g_cpm = ch.cpm;
+      if (g_ws.contains(ch.fd)) {
+        sendTo(ch.fd, core::jsonConfirmed(g_json, sizeof(g_json), what));
+        sendCalib(ch.fd);
+      }
+      return;
     case core::ChangeKind::kCalibReset:
       if (ch.calib_what == 0) {
         g_cpm = core::motion::kCpmDefault;
@@ -563,6 +592,12 @@ void settingsTick(uint32_t now) {
   }
   net::WifiResult res;
   while (net::wifiPoll(res)) {
+    if (res.kind == net::WifiResult::kModeChanged) {  // Plan O: 0 home, 1 own AP (forced), 2 fallback AP
+      const auto m = static_cast<core::WifiMode>(res.id);
+      g_log.add(core::LogKind::kWifiMode, m == core::WifiMode::kStation ? 0 : (m == core::WifiMode::kForcedAp ? 1 : 2), 0, "",
+                tankMs(), now);
+      continue;
+    }
     if (!g_ws.contains(res.fd)) continue;
     static const char* const kWhat[] = {"wifi_status", "wifi_scan", "wifi_save", "wifi_forget", "wifi_mode",
                                         "ap_password"};
@@ -602,6 +637,10 @@ void settingsTick(uint32_t now) {
         break;
       case core::AckedOp::kSettingSet: sent = g_link.sendSettingSet(op.a, op.value, now, seq); break;
       case core::AckedOp::kSettingsSave: sent = g_link.sendSettingsSave(now, seq); break;
+      case core::AckedOp::kSelfTest:
+        sent = g_link.sendCalibrate(static_cast<uint8_t>(proto::CalOp::kStart),
+                                    static_cast<uint8_t>(proto::CalScript::kSelfTest), now, seq);
+        break;
     }
     if (sent) {
       g_ops.markSent(seq, now);
@@ -628,6 +667,9 @@ void handleCancel(int fd, int32_t id, uint32_t now) {
 void handleStop(const LinkCommand& cmd, int32_t id, uint32_t now) {
   const int fd = cmd.fd;
   g_stop_barrier.onStop(cmd.post_seq);
+  if (g_owner.state() == core::LinkState::kWebDriving && g_owner.driverFd() != fd) {  // Plan O: §72 stop hold
+    g_log.add(core::LogKind::kStopHold, 0, 0, g_ws.contains(fd) ? g_ws.name(fd) : "?", tankMs(), now);
+  }
   apply(g_owner.onStop(fd), now);  // urgent slot; queued DRIVE/CAM_JOY frames are purged
   endMotion(core::MotionEvent::kStop, now);  // Plan H: a STOP from anyone ends a primitive
   if (!g_ws.contains(fd)) return;
@@ -730,6 +772,83 @@ void handleRelease(int fd, int32_t id, uint32_t now) {
   if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
 }
 
+// Plan O (bridge LLD R13): the Tank tab's facts. `posted`: camera settings just posted (not applied yet).
+void sendTank(int fd, const net::CamSettings* posted) {
+  core::TankView v;
+  v.st = g_link.selfTest();
+  v.st_age_s = v.st.seen ? (millis() - v.st.at_ms) / 1000u : 0;
+  v.hw = g_link.snapshot().slow_valid ? g_link.snapshot().slow.hw : 0;
+  const net::CamSettings cs = posted != nullptr ? *posted : net::cameraSettings();
+  v.cam_size = cs.size;
+  v.cam_quality = cs.quality;
+  v.cam_fps = cs.fps_cap;
+  v.cam_bright = cs.brightness;
+  v.cam_contrast = cs.contrast;
+  v.cam_low = cs.low_light;
+  v.cam_vflip = cs.vflip;
+  v.cam_hmirror = cs.hmirror;
+  v.viewers = net::streamViewers();
+  const net::CamStats st = net::cameraStats(millis());
+  v.fps_x10 = st.fps_x10;
+  v.kbps = st.kbps;
+  v.ai_url = g_ai_url;
+  const size_t n = core::jsonTank(g_big, sizeof(g_big), v);
+  if (n) wsSend(fd, g_big, n);
+}
+
+void sendLog(int fd, uint32_t since, uint32_t now) {
+  core::LogEntry e[25];
+  bool gap = false;
+  const uint8_t n = g_log.since(since, e, 25, gap);
+  const size_t len = core::jsonLog(g_big, sizeof(g_big), e, n, g_log.last(), gap, now);
+  if (len) wsSend(fd, g_big, len);
+}
+
+void handleCameraSet(int fd, int32_t id, const core::WsCommand& c) {
+  net::CamSettings s = c.cam.reset ? net::cameraDefaults() : net::cameraSettings();
+  if (c.cam.has_size) s.size = c.cam.size;
+  if (c.cam.has_quality) s.quality = c.cam.quality;
+  if (c.cam.has_fps) s.fps_cap = c.cam.fps;
+  if (c.cam.has_bright) s.brightness = c.cam.bright;
+  if (c.cam.has_contrast) s.contrast = c.cam.contrast;
+  if (c.cam.has_low) s.low_light = c.cam.low;
+  if (c.cam.has_vflip) s.vflip = c.cam.vflip;
+  if (c.cam.has_hmirror) s.hmirror = c.cam.hmirror;
+  if (!net::cameraPost(s)) {
+    nack(fd, id, core::BridgeReason::kUnavailable);  // no camera
+    return;
+  }
+  if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
+  sendTank(fd, &s);
+}
+
+void handleSelfTest(int fd, int32_t id) {
+  const core::TankSnapshot& s = g_link.snapshot();
+  if (bodyOffline()) {
+    nack(fd, id, core::BridgeReason::kBodyOffline);
+    return;
+  }
+  if (g_motion.service().active() || g_owner.state() == core::LinkState::kWebDriving ||
+      (s.slow_valid && s.slow.driving != 0)) {
+    nack(fd, id, core::BridgeReason::kBusy);  // the tank must stand still
+    return;
+  }
+  core::AckedOp op;
+  op.kind = core::AckedOp::kSelfTest;
+  op.fd = fd;
+  op.id = id;
+  if (!g_ops.push(op)) nack(fd, id, core::BridgeReason::kBusy);
+}
+
+void handleAppSet(int fd, int32_t id, const core::WsCommand& c) {
+  if (!net::appAiUrlSave(c.ai_url)) {  // short NVS write (rare, page action)
+    nack(fd, id, core::BridgeReason::kBusy);
+    return;
+  }
+  snprintf(g_ai_url, sizeof(g_ai_url), "%s", c.ai_url);
+  if (id >= 0) sendTo(fd, core::jsonAck(g_json, sizeof(g_json), id));
+}
+
 void handleWsText(const LinkCommand& cmd, uint32_t now) {
   const int fd = cmd.fd;
   const core::WsCommand c = core::parseWsCommand(cmd.text, cmd.len);
@@ -762,6 +881,11 @@ void handleWsText(const LinkCommand& cmd, uint32_t now) {
     case core::WsCmdKind::kSetting:
     case core::WsCmdKind::kRestart: handleSettingsCommand(fd, id, c, now); break;
     case core::WsCmdKind::kRelease: handleRelease(fd, id, now); break;
+    case core::WsCmdKind::kTank: sendTank(fd, nullptr); break;
+    case core::WsCmdKind::kLog: sendLog(fd, c.log_since, now); break;
+    case core::WsCmdKind::kCameraSet: handleCameraSet(fd, id, c); break;
+    case core::WsCmdKind::kSelfTest: handleSelfTest(fd, id); break;
+    case core::WsCmdKind::kAppSet: handleAppSet(fd, id, c); break;
     case core::WsCmdKind::kDebug: handleDebug(fd, id, c); break;
     case core::WsCmdKind::kPing: sendTo(fd, core::jsonPong(g_json, sizeof(g_json), c.t0, now)); break;
     case core::WsCmdKind::kUnsupported:
@@ -789,6 +913,7 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
       char name[12];
       snprintf(name, sizeof(name), "%s", g_ws.name(cmd.fd));
       if (motionOwnedBy(cmd.fd)) endMotion(core::MotionEvent::kOwnerClosed, now);  // onWsClose STOPs its driver
+      if (cmd.fd == g_owner.driverFd()) g_log.add(core::LogKind::kClientLost, 0, 0, name, tankMs(), now);  // Plan O
       const core::Actions a = g_owner.onWsClose(cmd.fd);
       g_gate.dropClient(cmd.fd);  // Plan M: a waiting change of that client is dropped (review focus 4)
       g_ws.remove(cmd.fd);
@@ -802,6 +927,7 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
     case LinkCommand::Kind::kOtaStart:
     default:
       g_ota_active = true;  // from now on: drives nacked BUSY, new phones refused
+      g_log.add(core::LogKind::kOta, 0, 0, "", tankMs(), now);
       endMotion(core::MotionEvent::kOta, now);  // the STOP below stops it
       g_link.sendStop(now);  // resent until the Uno's ACK
       g_link.stopMaster();  // heartbeats stop: Uno link-loss stop at standstill is harmless
@@ -819,6 +945,7 @@ void handleLinkEvents(uint32_t now) {
         logf("uno: synced fw %u.%u proto %u commit %08lx", h.fw >> 8, h.fw & 0xFF, h.proto,
              static_cast<unsigned long>(h.commit));
         broadcast(core::jsonBody(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), true, -1));
+        g_log.add(core::LogKind::kBodyOnline, h.fw, h.proto, "", tankMs(), now);
         apply(g_owner.onSynced(true), now);
         break;
       }
@@ -833,6 +960,7 @@ void handleLinkEvents(uint32_t now) {
                                  ev.code == 1 ? ev.a : -1));
         endMotion(core::MotionEvent::kBodyOffline, now);
         apply(g_owner.onSynced(false), now);
+        g_log.add(core::LogKind::kBodyOffline, ev.code, ev.a, "", tankMs(), now);
         break;
       case core::LinkEventKind::kUnoEvent:
         if (ev.code == static_cast<uint8_t>(proto::EventKind::kControlChanged)) {
@@ -840,6 +968,10 @@ void handleLinkEvents(uint32_t now) {
         }
         broadcast(core::jsonUnoEvent(g_json, sizeof(g_json), ++g_ev_seq, tankMs(), ev.code, ev.a,
                                      ev.b));
+        if (ev.code != static_cast<uint8_t>(proto::EventKind::kButtonPress) &&
+            ev.code != static_cast<uint8_t>(proto::EventKind::kUnblocked)) {  // Plan O: not the noisy ones
+          g_log.add(core::LogKind::kUno, ev.code, ev.a, "", tankMs(), now);
+        }
         if (ev.code == static_cast<uint8_t>(proto::EventKind::kButtonPress)) {
           onButtonPress(now);  // Plan M: confirm a waiting change, or the WiFi double press
         } else if (ev.code == static_cast<uint8_t>(proto::EventKind::kStall)) {
@@ -863,6 +995,9 @@ void handleLinkEvents(uint32_t now) {
           core::AckedOp op;
           const bool have = g_ops.front(op);
           if (have && ev.status == 0 && op.kind == core::AckedOp::kSettingGet) break;  // review I5: wait for its VALUE
+          if (have && ev.status == 0 && op.kind == core::AckedOp::kSelfTest && op.fd >= 0 && g_ws.contains(op.fd)) {
+            sendTo(op.fd, core::jsonAck(g_json, sizeof(g_json), op.id));  // Plan O: the result follows as EVENT SELFTEST
+          }
           if (have && ev.status != 0 && op.fd >= 0 && g_ws.contains(op.fd)) {
             sendTo(op.fd, core::jsonNackStatus(g_json, sizeof(g_json), op.id, ev.status));
           }
@@ -1009,6 +1144,8 @@ void linkTaskStart(const char* (*camera_sensor)()) {
   g_sensor = camera_sensor;
   g_cpm = net::motionStoreLoad();  // Plan K: before the link task runs
   g_roll_mm = net::motionStoreLoadRoll();
+  net::appAiUrlLoad(g_ai_url, sizeof(g_ai_url));  // Plan O
+  g_log.add(core::LogKind::kBoot, static_cast<int32_t>(esp_reset_reason()), 0, "", 0, millis());
   g_uart.begin();
   g_queue = xQueueCreate(16, sizeof(LinkCommand));
   xTaskCreatePinnedToCore(linkTask, "link", 8192, nullptr, 5, nullptr, 1);

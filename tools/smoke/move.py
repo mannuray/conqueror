@@ -116,9 +116,27 @@ class Session:
         # Control is handed back 5 s after a move: take it again (drive 0/0 never moves the tank).
         self.ws.send({"t": "drive", "v": 0, "w": 0})
         self.ws.send({"t": "calib", "counts_per_m": cpm, "id": mid})
-        msg = self.pump_until(lambda m: m.get("id") == mid and m.get("t") in ("ack", "nack"), 3.0)
+        # Plan O (design-notes §91): a save waits for a press of the tank's button (30 s).
+        msg = self.pump_until(
+            lambda m: (
+                (m.get("t") == "nack" and m.get("id") == mid)
+                or (m.get("t") == "confirm" and m.get("what") == "calib")
+            ),
+            3.0,
+        )
         if msg is None or msg.get("t") == "nack":
             print(f"save refused: {msg}")
+            return False
+        print("press the tank's button to save (30 s) ...")
+        msg = self.pump_until(
+            lambda m: (
+                m.get("t") in ("confirmed", "confirm_expired")
+                or (m.get("t") == "nack" and m.get("id") == mid)
+            ),
+            35.0,
+        )
+        if msg is None or msg.get("t") != "confirmed":
+            print(f"not saved: {msg.get('t') if msg else 'no answer'}")
             return False
         return True
 

@@ -8,7 +8,7 @@ namespace cq {
 namespace core {
 
 struct AckedOp {
-  enum Kind : uint8_t { kSound, kLed, kSettingGet, kSettingSet, kSettingsSave };
+  enum Kind : uint8_t { kSound, kLed, kSettingGet, kSettingSet, kSettingsSave, kSelfTest };  // kSelfTest: Plan O
   Kind kind = kSound;
   uint8_t a = 0;      // sound id / setting id / led mode
   int32_t value = 0;  // setting value

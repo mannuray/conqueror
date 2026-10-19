@@ -33,7 +33,10 @@ void applyTo(sensor_t* s, const CamSettings& c) {
   s->set_quality(s, c.quality);
   s->set_brightness(s, c.brightness);
   s->set_contrast(s, c.contrast);
+  // design-notes §96: low light = night mode (longer exposures in the dark) + 32x gain ceiling + one step brighter
+  s->set_aec2(s, c.low_light ? 1 : 0);
   s->set_gainceiling(s, c.low_light ? GAINCEILING_32X : GAINCEILING_4X);
+  s->set_ae_level(s, c.low_light ? 1 : 0);
   s->set_vflip(s, c.vflip ? 1 : 0);
   s->set_hmirror(s, c.hmirror ? 1 : 0);
 }

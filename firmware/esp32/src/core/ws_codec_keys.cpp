@@ -215,6 +215,18 @@ bool readCpm(Reader& r, WsCommand& c, Seen&) {  // calib set
   return true;
 }
 
+bool readProg(Reader& r, WsCommand& c, Seen& s) {  // logo_run (Plan N3): 1..2^32-1
+  double n = 0;
+  if (!wholeIn(r, 1, 4294967295.0, n)) return false;
+  c.prog = static_cast<uint32_t>(n);
+  s.prog = true;
+  return true;
+}
+bool readStep(Reader& r, WsCommand& c, Seen&) {
+  bool seen = false;
+  return readBool(r, c.step, seen);
+}
+
 struct KeyRow {
   const char* key;
   KeyReader read;
@@ -230,7 +242,8 @@ const KeyRow kKeys[] = {
     {"value", readValue},   {"reset", readReset},     {"since", readSince},     {"size", readSize},
     {"quality", readQuality}, {"fps_cap", readFpsCap}, {"brightness", readBrightness},
     {"contrast", readContrast}, {"low_light", readLowLight}, {"vflip", readVflip}, {"hmirror", readHmirror},
-    {"ai_url", readAiUrl},  {"setting_id", readSettingId}, {"counts_per_m", readCpm},
+    {"ai_url", readAiUrl},  {"setting_id", readSettingId}, {"counts_per_m", readCpm}, {"prog", readProg},
+    {"step", readStep},
 };
 
 }  // namespace

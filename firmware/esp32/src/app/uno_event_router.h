@@ -22,6 +22,7 @@ class UnoEventRouter {
     void (*ack_result)(uint8_t seq, uint8_t status);
     void (*stop_result)(uint8_t status);
     void (*setting_value)(uint8_t id, int32_t value);
+    void (*alarm)(uint8_t uno_event, uint32_t now) = nullptr;  // Plan N3: battery critical, tilted, lifted
   };
 
   UnoEventRouter(Replies& out, core::EventLog& log, TelemetryPublisher& tel, const core::BodyLink& link)

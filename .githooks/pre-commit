@@ -1,3 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-"$(git rev-parse --show-toplevel)/scripts/check-protocol.sh"
+top="$(git rev-parse --show-toplevel)"
+"$top/scripts/check-protocol.sh"
+python3 "$top/scripts/size_check.py"

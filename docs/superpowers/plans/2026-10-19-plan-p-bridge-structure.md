@@ -744,6 +744,15 @@ esp_task_wdt_add(nullptr);        // the Arduino loop task
 
 ---
 
+### Task 12a: Remaining bridge size offenders (added at Task 1, ledger ruling)
+The Task 1 baseline found 11 bridge functions outside `link_task` / `ws_codec` / `ws_json` over the limits: `ArcController::step` (64 NLOC, CCN 22), `BodyLink::step` (CCN 12), `BodyLink::onFrame` (67 / 21), `FrameParser::step` (60 / 18), `MotionLink::onEvent` (CCN 11), `MotionService::stepRate` (CCN 17), `MoveController::step` (42 / 12), `WifiPolicy::step` (CCN 12), `net::cameraBegin` (55), `net::wsHandler` (CCN 11), `net::serveInfo` (71), `WifiManager::handle` (76 / 28), `WifiManager::step` (63 / 23).
+
+**Files:** those sources only. **Method:** extract-function only (no logic change): each `switch` case / phase becomes a private helper in the same class or file; names say the phase (`onFrameHello`, `stepArcRamp`, …).
+- [ ] **Step 1:** for each `core/` function: run its existing host tests first (`test_arc`, `test_body_link`, `test_frame_parser`, `test_motion`, `test_move`, `test_wifi_policy`) → green; split; rerun → green.
+- [ ] **Step 2:** for each `net/` function (no host test): split; `pio run -e bridge` SUCCESS; behaviour is checked on the tank in Task 13 (WiFi connect / switch / fallback, `/info`, camera start).
+- [ ] **Step 3:** remove their lines from `scripts/size_allow.txt`; `python3 scripts/size_check.py` passes with no `firmware/esp32/` line.
+- [ ] **Step 4: Commit** `refactor(bridge): split the remaining long functions (extract-function only) - size check clean for the bridge`.
+
 ### Task 13: On the tank, docs, review
 
 **Files:** `docs/lld/esp32-bridge-lld.md` (R15 "as built": file list, line counts, any deviation), `docs/design-notes.md` (§99 results), `CLAUDE.md` (Plan P in the plan list, `app/` + `ports/` in "Where things are", the R15 rule), `docs/standards/coding-standards.md` (only if a rule changed).

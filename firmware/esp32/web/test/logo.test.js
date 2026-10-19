@@ -341,7 +341,8 @@ function fakeFetch(answers) {
   };
   return { f, calls };
 }
-const soon = (fn, ms) => setTimeout(fn, Math.min(ms, 3));
+// the 0.5 s retry made short; a long timer (the 15 s timeout) kept, and never holding Node open
+const soon = (fn, ms) => (ms >= 1000 ? setTimeout(fn, ms).unref() : setTimeout(fn, Math.min(ms, 3)));
 
 test("requests go one at a time", async () => {
   const ff = fakeFetch([{ status: 200, json: { a: 1 } }, { status: 200, text: "FD 50" }]);
@@ -383,8 +384,32 @@ test("the retry timer is called on its own, like a browser's setTimeout needs", 
   const strictLater = function (fn, ms) {
     "use strict";
     assert.equal(this, undefined, "a browser throws Illegal invocation when setTimeout gets another this");
-    setTimeout(fn, Math.min(ms, 3));
+    soon(fn, ms);
   };
   const r = await new L.RequestQueue(ff.f, strictLater, 500, 20).send("PUT", "/logo/programs/a", "FD 1");
   assert.equal(r.status, 200);
+});
+
+test("an edit after CHECK_AGAIN cancels the run (nobody pressed RUN for the new text)", () => {
+  let s = run([{ e: "checked", ok: true, prog: 4 }, { e: "run" }, { e: "nack", reason: "CHECK_AGAIN" }, { e: "edit" }]);
+  s = L.runBar(s, { e: "checked", ok: true, prog: 6 });
+  assert.equal(s.st, "ready");
+  assert.equal(s.act, null);
+});
+
+test("a stored draft counts as unsaved without being read", () => {
+  const s = memory();
+  s.setItem("cq.logo.draft.a", "{not json");
+  assert.equal(new L.Drafts(s).unsaved("a"), true);
+  assert.equal(new L.Drafts(s).unsaved("b"), false);
+});
+
+test("a request that never answers gives up after the timeout and the queue goes on", async () => {
+  let n = 0;
+  const f = () => (++n === 1 ? new Promise(() => {}) : Promise.resolve({ status: 200, headers: { get: () => "application/json" }, json: () => Promise.resolve({ ok: 1 }) }));
+  const q = new L.RequestQueue(f, soon, 500, 20, 30);
+  const first = q.send("POST", "/logo/check", "FD 1");
+  const second = q.send("GET", "/logo/programs");
+  assert.deepEqual(await first, { status: 0, data: null });
+  assert.deepEqual(await second, { status: 200, data: { ok: 1 } });
 });

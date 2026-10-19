@@ -115,7 +115,9 @@ var LogoCore = (function () {
     } catch (e) { return null; }
   };
   Drafts.prototype.clear = function (name) { try { if (this.s) this.s.removeItem(DRAFT_KEY + name); } catch (e) { this.s = null; } };
-  Drafts.prototype.unsaved = function (name) { return this.restore(name) !== null; };
+  Drafts.prototype.unsaved = function (name) {  // asked for every program in the list: no JSON read
+    try { return !!this.s && this.s.getItem(DRAFT_KEY + name) !== null; } catch (e) { return false; }
+  };
 
   // ---------- path view (§21.7): Logo axes, x right, y forward (up), right turns positive ----------
   var GRID_STEPS = [5, 10, 25, 50, 100, 250, 500];
@@ -170,8 +172,10 @@ var LogoCore = (function () {
   // ---------- one /logo request at a time (bridge: one worker job at a time, a second gets 503 busy) ----------
   // send(method, path, body) -> Promise of {status, data}: data = parsed JSON, the text, or null.
   // A 503 is tried again after retryMs, at most `tries` times; then it is given back as {status: 503}.
-  function RequestQueue(fetchFn, later, retryMs, tries) {
+  // A request with no answer after timeoutMs (default 15 s) is given back as {status: 0}: the queue never sticks.
+  function RequestQueue(fetchFn, later, retryMs, tries, timeoutMs) {
     this.f = fetchFn; this.later = later; this.retry = retryMs; this.tries = tries; this.q = []; this.busy = false;
+    this.timeout = timeoutMs || 15000;
   }
   RequestQueue.prototype.send = function (method, path, body) {
     var self = this;
@@ -183,11 +187,15 @@ var LogoCore = (function () {
     this.busy = true;
     var opts = { method: job.m };
     if (job.b !== undefined) { opts.body = job.b; opts.headers = { "Content-Type": "text/plain" }; }
-    function finish(res) { self.q.shift(); self.busy = false; job.done(res); self.next(); }
+    var over = false, ctl = typeof AbortController !== "undefined" ? new AbortController() : null, later = this.later;
+    if (ctl) opts.signal = ctl.signal;
+    function finish(res) { if (over) return; over = true; self.q.shift(); self.busy = false; job.done(res); self.next(); }
+    later(function () { if (ctl) ctl.abort(); finish({ status: 0, data: null }); }, this.timeout);
     this.f(job.p, opts).then(function (r) {
+      if (over) return null;
       if (r.status === 503 && job.left > 1) {
-        job.left--; self.busy = false;
-        var later = self.later;  // called on its own: a browser's setTimeout refuses another `this`
+        over = true;
+        job.left--; self.busy = false;  // `later` is called on its own: a browser's setTimeout refuses another `this`
         later(function () { self.next(); }, self.retry);
         return null;
       }
@@ -219,7 +227,7 @@ var LogoCore = (function () {
   function runBar(s0, ev) {
     var s = copy(s0);
     switch (ev.e) {
-      case "edit": if (!locked(s)) { s.st = "editing"; s.prog = 0; s.ok = false; s.msg = ""; } break;
+      case "edit": if (!locked(s)) { s.st = "editing"; s.prog = 0; s.ok = false; s.msg = ""; s.again = false; } break;
       case "checking": if (!locked(s)) s.st = "checking"; break;
       case "checked":
         if (locked(s) && !s.again) break;

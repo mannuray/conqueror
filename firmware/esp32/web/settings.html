@@ -10,6 +10,7 @@
 /* Plan M (spec 02 Part I, bridge LLD R9): the bridge's settings page. Look per the Stitch screens (Phosphor Cockpit):
    docs/design/stitch/12-bridge-settings-desktop-v2.png, 13-…-wifi-mobile-v1.png, 14-…-tank-mobile-v1.png. Two tabs
    (owner 2026-10-18): WiFi, and Tank = info + calibration + maintenance. No STOP here (design-notes §72).
+   Plan O (bridge LLD R13): four tabs WiFi · Tank · Tune · Log, screens 18-20; the tab is kept in the URL hash.
    Icons: Lucide (lucide-static v0.460.0, ISC licence, (c) Lucide Contributors / Cole Bemis), inlined - no network. */
 :root {
   --bg: #050805; --panel: #070f08; --edge-c: rgba(51, 255, 102, .32); --line: rgba(51, 255, 102, .14); --ui: #33ff66;
@@ -101,6 +102,32 @@ label { display: flex; justify-content: space-between; color: var(--dim); font-s
 #toast.ok { border-color: var(--ui); color: var(--ui); background: rgba(4, 12, 6, .96); }
 #toast.show { display: block; }
 footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing: .12em; padding: 6px 0 96px; }
+/* Plan O (bridge LLD R13.1): Tune and Log tabs, Tank cards 03-09. Screens 18-20. */
+.span { grid-column: 1 / -1; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; margin-top: 6px; }
+.seg button { background: none; border: 1px solid var(--edge-c); color: var(--dim); padding: 6px 2px; cursor: pointer; font-size: 11px; letter-spacing: .08em; font-weight: 700; }
+.seg button.on { background: var(--ui); border-color: var(--ui); color: #022; }
+.seg.l { display: flex; flex-wrap: wrap; } .seg.l button { padding: 5px 9px; }
+.tog { min-width: 56px; } .tog.on { background: var(--ui); color: #022; }
+.mini { display: inline-grid; grid-template-columns: 30px 34px 30px; align-items: center; text-align: center; }
+.mini .btn { padding: 4px 0; } .mini b { text-align: center; }
+input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: none; }
+#gCan { display: block; width: 100%; height: 190px; margin-top: 8px; border: 1px solid var(--line); background: #020502; }
+.gfoot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.gfoot span { flex: 1; color: var(--text); font-size: 11px; }
+.gfoot .btn { padding: 6px 9px; }
+.btn.fillr { background: var(--danger); border-color: var(--danger); color: #fff; }
+.wiz { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; margin-top: 10px; }
+.meas { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.note { border: 1px solid var(--warn); color: var(--warn); padding: 8px; font-size: 11px; margin-bottom: 8px; }
+.lr { display: grid; grid-template-columns: 50px 26px 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); align-items: start; }
+.lr .age { color: var(--dim); text-align: right; font-size: 11px; padding-top: 3px; }
+.lr .ic { width: 26px; height: 26px; border: 1px solid currentColor; display: flex; align-items: center; justify-content: center; color: var(--dim); }
+.lr b { display: block; letter-spacing: .06em; color: var(--active); font-size: 12px; }
+.lr small { color: var(--text); font-size: 11px; word-break: break-word; }
+.lr.bad .ic, .lr.bad b { color: var(--danger); } .lr.warn .ic, .lr.warn b { color: var(--warn); } .lr.ok .ic, .lr.ok b { color: var(--ui); }
+.lbar { display: flex; gap: 8px; align-items: center; }
+.lbar .seg { flex: 1; margin: 0; } .lbar .btn { padding: 6px 9px; }
 @media (min-width: 900px) {
   .wrap { flex-direction: row; }
   nav { flex-direction: column; width: 210px; margin: 14px 0 0 14px; align-self: flex-start; border: 0; padding: 0; gap: 6px; }
@@ -128,6 +155,8 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
 <nav id="tabs">
   <button data-tab="wifi" class="on" type="button"><svg viewBox="0 0 24 24"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.86a10 10 0 0 1 14 0"/><path d="M8.5 16.43a5 5 0 0 1 7 0"/></svg> WI-FI</button>
   <button data-tab="tank" type="button"><svg viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg> TANK</button>
+  <button data-tab="tune" type="button"><svg viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg> TUNE</button>
+  <button data-tab="log" type="button"><svg viewBox="0 0 24 24"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg> LOG</button>
 </nav>
 <main>
 <section id="t-wifi" class="on">
@@ -184,15 +213,86 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
     <div class="battbar"><div id="iBattBar"></div></div>
     <div class="row"><span>Encoders</span><b id="iEnc">--</b></div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/></svg>[ 03 // DISTANCE ]<span class="tag">ODOMETRY</span></h2>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>[ 03 // LIVE SENSORS ]<span class="tag">10 Hz</span></h2>
+    <div class="cols">
+      <div class="kv"><small>Distance ahead</small><b id="sDist">--</b></div>
+      <div class="kv"><small>Heading</small><b id="sHdg">--</b></div>
+      <div class="kv"><small>Turn rate</small><b id="sRate">--</b></div>
+      <div class="kv"><small>Alarms</small><b id="sAlarm">--</b></div>
+      <div class="kv"><small>Encoders L · R</small><b id="sEnc">--</b></div>
+      <div class="kv"><small>Track speed L · R</small><b id="sSpd">--</b></div>
+    </div>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>[ 04 // SELF-TEST ]<span class="tag badge" id="stBadge">--</span></h2>
+    <div class="row"><span>Last run</span><b id="stAge">--</b></div>
+    <div class="row"><span>Motion sensor (IMU)</span><b id="st0">--</b></div>
+    <div class="row"><span>Distance sensor</span><b id="st1">--</b></div>
+    <div class="row"><span>Battery</span><b id="st2">--</b></div>
+    <div class="row"><span>Settings</span><b id="st3">--</b></div>
+    <button class="btn wide" id="stRun" type="button">Run the checks again</button>
+    <div class="hint">// The tank must stand still. A failed critical check (IMU, battery) blocks driving until it passes.</div>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>[ 05 // CAMERA ]</h2>
+    <div class="row"><span>Viewers</span><b id="cViewers">--</b></div>
+    <div class="row"><span>Now</span><b id="cNow">--</b></div>
+    <label>Picture size</label>
+    <div class="seg" id="cSize"><button type="button" data-v="QVGA">QVGA</button><button type="button" data-v="VGA">VGA</button><button type="button" data-v="SVGA">SVGA</button><button type="button" data-v="HD">HD</button></div>
+    <label for="cQual">Quality <span><b id="cQualV">--</b> · lower = sharper, bigger</span></label>
+    <input id="cQual" type="range" min="10" max="40" step="1">
+    <label>Frame-rate limit</label>
+    <div class="seg" id="cFps"><button type="button" data-v="0">MAX</button><button type="button" data-v="15">15</button><button type="button" data-v="10">10</button><button type="button" data-v="5">5</button></div>
+    <div class="row" style="margin-top:8px"><span>Brightness</span><span class="mini"><button class="btn" type="button" data-k="brightness" data-d="-1">−</button><b id="cBright">--</b><button class="btn" type="button" data-k="brightness" data-d="1">+</button></span></div>
+    <div class="row"><span>Contrast</span><span class="mini"><button class="btn" type="button" data-k="contrast" data-d="-1">−</button><b id="cContrast">--</b><button class="btn" type="button" data-k="contrast" data-d="1">+</button></span></div>
+    <div class="row"><span>Low-light mode</span><button class="btn tog" type="button" id="cLow" data-k="low_light">--</button></div>
+    <div class="row"><span>Flip upside down</span><button class="btn tog" type="button" id="cFlip" data-k="vflip">--</button></div>
+    <div class="row"><span>Mirror</span><button class="btn tog" type="button" id="cMirror" data-k="hmirror">--</button></div>
+    <button class="btn warn wide" id="cReset" type="button">Reset to defaults</button>
+    <div class="hint">// Saved on the tank. Bigger pictures and higher rates load the WiFi more.</div>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/></svg>[ 06 // CHILD PLAY ]<span class="tag badge" id="cpBadge">--</span></h2>
+    <div class="row"><span>Top speed</span><b id="cpSpeed">--</b></div>
+    <div class="row"><span>Acceleration limit</span><b id="cpAccel">--</b></div>
+    <div class="row"><span>Locked obstacle brake</span><b id="cpBrake">--</b></div>
+    <div class="hint">// Read only. Turning it on comes with the child-play design.</div>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>[ 07 // SAFETY ]<span class="tag badge w"><svg viewBox="0 0 24 24" style="width:10px;height:10px"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>READ ONLY</span></h2>
+    <div class="row"><span>Obstacle stop</span><b id="kStop">--</b></div>
+    <div class="row"><span>Obstacle slow-down</span><b id="kSlow">--</b></div>
+    <div class="row"><span>Encoders enabled</span><b id="kEncOn">--</b></div>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>[ 08 // TRACK MODEL ]<span class="tag">KINEMATICS</span></h2>
+    <div class="row"><span>Track width</span><b>19 cm</b></div>
+    <div class="box" style="margin:6px 0"><small>Speed v(p)</small><div style="color:var(--ui)">15.5 + 0.18 · p cm/s</div></div>
+    <div class="row"><span>Slowest / fastest track</span><b>17.7 / 33.5 cm/s</b></div>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>[ 09 // MAINTENANCE ]</h2>
+    <button class="btn wide" id="mCsv" type="button"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>Record 10 s CSV</button>
+    <button class="btn warn wide" id="mRestart" type="button"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Restart bridge</button>
+    <button class="btn bad wide" id="mForget" type="button"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>Forget all WiFi</button>
+    <div class="hint" id="mCsvState">The recording downloads to this device.</div>
+    <label for="mAi">AI address <span>http://… · empty = none</span></label>
+    <div class="meas"><input id="mAi" maxlength="96" autocomplete="off" placeholder="http://192.168.1.20:8000/"><button class="btn" id="mAiSave" type="button">Save</button></div>
+    <div class="hint">// The menu's AI item opens this page in a new tab.</div>
+  </div>
+</section>
+<section id="t-tune">
+  <div class="card span"><h2><svg viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>[ 01 // LIVE GRAPHS ]<span class="tag">LAST 60 S</span></h2>
+    <div class="seg l" id="gMode"><button type="button" data-v="speed" class="on">TRACK SPEED</button><button type="button" data-v="heading">HEADING</button><button type="button" data-v="balance">BALANCE</button></div>
+    <canvas id="gCan"></canvas>
+    <div class="gfoot"><span id="gNow">--</span>
+      <button class="btn" id="gHold" type="button">Hold</button>
+      <button class="btn" id="gCsv" type="button"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>CSV</button></div>
+  </div>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/></svg>[ 02 // DISTANCE ]<span class="tag">ODOMETRY</span></h2>
     <div class="cols">
       <div class="box"><small>Counts / metre</small><div class="big" id="kCpm">--</div>
         <button class="btn warn wide" id="kResetCpm" type="button">Reset 7560</button></div>
       <div class="box"><small>Learned roll-on</small><div class="big"><span id="kRoll">--</span><small>mm</small></div>
         <button class="btn warn wide" id="kResetRoll" type="button">Reset 25 mm</button></div>
     </div>
+    <div class="hint">// Roll-on is learned while the tank drives.</div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>[ 04 // STRAIGHT DRIVING ]</h2>
+  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>[ 03 // STRAIGHT DRIVING ]</h2>
     <div class="row"><span>Track balance</span><span class="big"><span id="kBal">--</span><small>‰</small></span></div>
     <div class="stepper">
       <button class="btn" id="kMinus" type="button">−</button>
@@ -200,23 +300,29 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
       <button class="btn" id="kPlus" type="button">+</button>
       <button class="btn fillw save" id="kBalSave" type="button">Save</button>
     </div>
-    <div class="hint w">// Changes need a press of the tank's button</div>
+    <div class="hint w">// Changes need a press of the tank's button. The BALANCE graph shows the effect.</div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>[ 05 // SAFETY ]<span class="tag badge w"><svg viewBox="0 0 24 24" style="width:10px;height:10px"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>READ ONLY</span></h2>
-    <div class="row"><span>Obstacle stop</span><b id="kStop">--</b></div>
-    <div class="row"><span>Obstacle slow-down</span><b id="kSlow">--</b></div>
-    <div class="row"><span>Encoders enabled</span><b id="kEncOn">--</b></div>
+  <div class="card span"><h2><svg viewBox="0 0 24 24"><path d="M2 12h20"/><path d="M6 8v8"/><path d="M10 10v4"/><path d="M14 8v8"/><path d="M18 10v4"/></svg>[ 04 // CALIBRATION WIZARD · DISTANCE ]</h2>
+    <div class="note">⚠ Floor test: clear 3 m in front of the tank and have a tape measure ready. Keep STOP within reach.</div>
+    <div>Mark the floor at the front edge of the tank. It will drive <b>1 m</b> forward at 40 %, then stop. Measure how far it really went.</div>
+    <div class="wiz">
+      <button class="btn fillw" id="zDrive" type="button"><svg viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg>Drive 1 m</button>
+      <button class="btn fillr" id="zStop" type="button">Stop</button>
+    </div>
+    <div class="hint" id="zState">// Ready.</div>
+    <label for="zMeas">Measured (cm)</label>
+    <div class="meas"><input id="zMeas" type="number" min="20" max="300" step="0.5" inputmode="decimal" disabled><button class="btn fillw" id="zSave" type="button" disabled>Save</button></div>
+    <div class="hint" id="zResult">// Drive first, then type the distance.</div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>[ 06 // TRACK MODEL ]<span class="tag">KINEMATICS</span></h2>
-    <div class="row"><span>Track width</span><b>19 cm</b></div>
-    <div class="box" style="margin:6px 0"><small>Speed v(p)</small><div style="color:var(--ui)">15.5 + 0.18 · p cm/s</div></div>
-    <div class="row"><span>Slowest / fastest track</span><b>17.7 / 33.5 cm/s</b></div>
+</section>
+<section id="t-log">
+  <div class="lbar span">
+    <div class="seg l" id="lFilt"><button type="button" data-v="all" class="on">ALL</button><button type="button" data-v="stops">STOPS</button><button type="button" data-v="wifi">WIFI</button><button type="button" data-v="system">SYSTEM</button></div>
+    <button class="btn" id="lCsv" type="button"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>CSV</button>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>[ 07 // MAINTENANCE ]</h2>
-    <button class="btn wide" id="mCsv" type="button"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>Record 10 s CSV</button>
-    <button class="btn warn wide" id="mRestart" type="button"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Restart bridge</button>
-    <button class="btn bad wide" id="mForget" type="button"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>Forget all WiFi</button>
-    <div class="hint" id="mCsvState">The recording downloads to this device.</div>
+  <div class="card span"><h2><svg viewBox="0 0 24 24"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg>[ 01 // RECENT EVENTS ]<span class="tag">LIVE</span></h2>
+    <div id="lList"></div>
+    <div class="hint" style="text-align:center">// keeps the last 200 events · cleared on restart</div>
   </div>
 </section>
 </main>
@@ -248,7 +354,7 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
   }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
   var WHAT = { wifi_save: "SAVE THE NETWORK", wifi_forget: "FORGET", wifi_mode: "SWITCH WIFI",
-               ap_password: "CHANGE THE PASSWORD", calib: "RESET", setting: "SAVE THE SETTING" };
+               ap_password: "CHANGE THE PASSWORD", calib: "CHANGE THE CALIBRATION", setting: "SAVE THE SETTING" };
   function setFoot(waiting) { $("foot").textContent = "BRIDGE " + fw + " · PHYSICAL CONFIRMATION: " + (waiting ? "WAITING" : "READY"); }
   function showConfirm(what, secs) {
     confirmSecs = secs; confirmUntil = Date.now() + secs * 1000; clearInterval(confirmTimer);
@@ -264,13 +370,33 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
     if (text) toast(text, ok);
   }
 
-  // ---------- tabs ----------
+  // ---------- tabs (R13.1: the open tab lives in the URL hash) ----------
+  var TABS = ["wifi", "tank", "tune", "log"], tab = "wifi", tankTimer = 0, logTimer = 0;
+  function showTab(t) {
+    if (TABS.indexOf(t) < 0) t = "wifi";
+    tab = t;
+    Array.prototype.forEach.call($("tabs").children, function (x) { x.className = x.dataset.tab === t ? "on" : ""; });
+    TABS.forEach(function (x) { $("t-" + x).className = x === t ? "on" : ""; });
+    clearInterval(tankTimer); clearInterval(logTimer);
+    if (t === "tank") { loadInfo(); send({ t: "tank" }); tankTimer = setInterval(function () { send({ t: "tank" }); }, 2000); }
+    if (t === "tune") requestDraw();
+    if (t === "log") { logAsk(); logTimer = setInterval(logAsk, 2000); }
+    updateDebug();
+  }
   $("tabs").addEventListener("click", function (e) {
-    var b = e.target.closest("button"); if (!b) return;
-    Array.prototype.forEach.call($("tabs").children, function (x) { x.className = x === b ? "on" : ""; });
-    ["wifi", "tank"].forEach(function (t) { $("t-" + t).className = t === b.dataset.tab ? "on" : ""; });
-    if (b.dataset.tab === "tank") loadInfo();
+    var b = e.target.closest("button"); if (b) location.hash = b.dataset.tab;
   });
+  window.addEventListener("hashchange", function () { showTab(location.hash.slice(1)); });
+  function segOn(box, v) {
+    Array.prototype.forEach.call($(box).children, function (x) { x.classList.toggle("on", x.dataset.v === String(v)); });
+  }
+  function download(name, text) {
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+    a.download = name + "-" + new Date().toISOString().replace(/[:.]/g, "-") + ".csv";
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  function csvCell(x) { x = x === null || x === undefined ? "" : String(x); return /[",\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; }
 
   // ---------- WiFi ----------
   function renderWifi(m) {
@@ -364,6 +490,7 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
 
   // ---------- Tank info ----------
   function fmtUp(s) { var h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return h + " h " + m + " m"; }
+  function fmtAge(s) { s = Math.max(0, Math.round(s)); return s < 60 ? s + " s" : s < 3600 ? Math.floor(s / 60) + " min" : Math.floor(s / 3600) + " h"; }
   function loadInfo() {
     fetch("/info").then(function (r) { return r.json(); }).then(function (d) {
       fw = d.fw ? d.fw.version : "--"; setFoot($("confirm").className === "show");
@@ -379,6 +506,165 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
     $("cBatt").innerHTML = SVG_BATT + " " + v.toFixed(2) + " V";
     $("iBatt").textContent = v.toFixed(2) + " V";
     $("iBattBar").style.width = Math.max(0, Math.min(100, (v - 6.6) / 1.8 * 100)) + "%";  // 2S: 6.6 .. 8.4 V
+  }
+
+  // ---------- Live sensors + graph samples (td at 10 Hz while Tank or Tune is open) ----------
+  var you = "", owner = "none", ownerClient = "", cpm = 0, debugHz = 0, lastEnc = null, anchor = null;
+  var yawLast = null, yawUn = 0, ring = [], RING = 600, hold = false, gMode = "speed", drawAsked = false;
+  function wantHz() { return rec ? 50 : (tab === "tank" || tab === "tune" || wiz.st === "driving" || wiz.st === "sent") ? 10 : 0; }
+  function updateDebug() {
+    var h = wantHz(); if (h === debugHz) return;
+    if (send(h ? { t: "debug", on: true, hz: h } : { t: "debug", on: false })) debugHz = h;
+  }
+  function onTf(m) {
+    $("sDist").textContent = m.dist_fault ? "sensor fault" : (m.dist_cm === null || m.dist_cm === undefined ? "nothing seen" : Math.round(m.dist_cm) + " cm");
+    $("sHdg").textContent = Number(m.yaw).toFixed(1) + "°";
+    $("sRate").textContent = Number(m.yaw_rate).toFixed(1) + " °/s";
+    if (yawLast !== null) { var d = m.yaw - yawLast; d -= 360 * Math.round(d / 360); yawUn += d; } else yawUn = m.yaw;  // unwrapped
+    yawLast = m.yaw;
+  }
+  function onTd(m) {
+    if (rec) rec.rows.push(tdRow(m, (Date.now() - rec.t0) / 1000));
+    lastEnc = m.enc;
+    $("sEnc").textContent = m.enc[0] + " · " + m.enc[1];
+    if (!anchor || m.uno_ms < anchor.ms) { anchor = { ms: m.uno_ms, enc: m.enc }; return; }
+    var dt = (m.uno_ms - anchor.ms) / 1000;
+    if (dt < 0.08) return;  // one graph sample per ~0.1 s, also while the 50 Hz CSV records
+    var s = { t: Date.now(), l: null, r: null, h: yawLast === null ? null : yawUn, b: null };
+    if (cpm > 0 && dt < 1) {
+      s.l = (m.enc[0] - anchor.enc[0]) / dt * 100 / cpm;
+      s.r = (m.enc[1] - anchor.enc[1]) / dt * 100 / cpm;
+      var al = Math.abs(s.l), ar = Math.abs(s.r);
+      if (al > 2 && ar > 2) s.b = (ar - al) / ((ar + al) / 2) * 1000;  // ‰, right faster = positive
+      $("sSpd").textContent = s.l.toFixed(1) + " · " + s.r.toFixed(1) + " cm/s";
+    }
+    anchor = { ms: m.uno_ms, enc: m.enc };
+    if (!hold) { ring.push(s); if (ring.length > RING) ring.shift(); requestDraw(); }
+  }
+  function requestDraw() {
+    if (drawAsked || tab !== "tune") return;
+    drawAsked = true; requestAnimationFrame(function () { drawAsked = false; draw(); });
+  }
+  var KEYS = { speed: ["l", "r"], heading: ["h"], balance: ["b"] }, UNIT = { speed: "cm/s", heading: "°", balance: "‰" };
+  function draw() {
+    var c = $("gCan"), w = c.clientWidth, h = c.clientHeight, dpr = window.devicePixelRatio || 1;
+    if (!w) return;
+    c.width = w * dpr; c.height = h * dpr;
+    var g = c.getContext("2d"); g.scale(dpr, dpr);
+    var keys = KEYS[gMode], lo = Infinity, hi = -Infinity;
+    ring.forEach(function (s) { keys.forEach(function (k) { var v = s[k]; if (v !== null) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }); });
+    if (lo === Infinity) { lo = 0; hi = 10; }
+    if (gMode === "speed") { lo = Math.min(lo, 0); hi = Math.max(hi, 10); }
+    if (hi - lo < 2) { hi += 1; lo -= 1; }
+    var pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
+    var top = 22, bot = h - 16, y = function (v) { return bot - (v - lo) / (hi - lo) * (bot - top); };
+    g.font = "10px monospace"; g.lineWidth = 1;
+    for (var i = 0; i <= 3; i++) {
+      var v = lo + (hi - lo) * i / 3, yy = Math.round(y(v)) + 0.5;
+      g.strokeStyle = "rgba(51,255,102,.12)"; g.beginPath(); g.moveTo(0, yy); g.lineTo(w, yy); g.stroke();
+      g.fillStyle = "#1f9a40"; g.fillText(v.toFixed(Math.abs(hi - lo) < 10 ? 1 : 0), 4, yy - 2);
+    }
+    g.fillText(UNIT[gMode], 4, 10); g.fillText("−60 s", 4, h - 4); g.fillText("now", w - 24, h - 4);
+    var colors = ["#33ff66", "#ffb000"], n = ring.length;
+    keys.forEach(function (k, ki) {
+      g.strokeStyle = colors[ki]; g.lineWidth = 1.5; g.beginPath();
+      var pen = false;
+      ring.forEach(function (s, idx) {
+        var x = w - (n - 1 - idx) * w / (RING - 1);
+        if (s[k] === null) { pen = false; return; }
+        if (pen) g.lineTo(x, y(s[k])); else g.moveTo(x, y(s[k]));
+        pen = true;
+      });
+      g.stroke();
+    });
+    if (gMode === "speed") { g.fillStyle = colors[0]; g.fillText("LEFT", w - 84, 10); g.fillStyle = colors[1]; g.fillText("RIGHT", w - 48, 10); }
+    var s = ring[n - 1], f = function (v, d) { return v === null || v === undefined ? "--" : v.toFixed(d); };
+    $("gNow").textContent = !s ? "waiting for the tank …" : gMode === "speed" ? "left " + f(s.l, 1) + " · right " + f(s.r, 1) + " cm/s"
+      : gMode === "heading" ? "heading " + f(s.h, 1) + "°" : "balance " + (s.b === null ? "-- (tracks still)" : f(s.b, 0) + " ‰");
+  }
+  $("gMode").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    gMode = b.dataset.v; segOn("gMode", gMode); requestDraw();
+  });
+  $("gHold").addEventListener("click", function () {
+    hold = !hold; $("gHold").textContent = hold ? "Live" : "Hold"; $("gHold").classList.toggle("fill", hold);
+  });
+  $("gCsv").addEventListener("click", function () {
+    var t0 = ring.length ? ring[0].t : 0, rows = ["t_s,left_cm_s,right_cm_s,heading_deg,balance_permil"];
+    var f = function (v, d) { return v === null ? "" : v.toFixed(d); };
+    ring.forEach(function (s) { rows.push([((s.t - t0) / 1000).toFixed(1), f(s.l, 2), f(s.r, 2), f(s.h, 2), f(s.b, 1)].join(",")); });
+    download("tank-graph", rows.join("\n") + "\n");
+  });
+  window.addEventListener("resize", requestDraw);
+
+  // ---------- Self-test, camera, child play, AI address (the "tank" reply) ----------
+  var cam = null, stId = -1, aiId = -1;
+  function onTank(m) {
+    var st = m.selftest || {};
+    var badge = !st.seen ? ["NOT RUN", "badge"] : st.locked ? ["LOCKED", "badge w"] : st.mask ? ["FAILED", "badge w"] : ["PASS", "badge on"];
+    $("stBadge").textContent = badge[0]; $("stBadge").className = "tag " + badge[1];
+    $("stAge").textContent = st.seen ? fmtAge(st.age_s) + " ago" : "--";
+    for (var i = 0; i < 4; i++) $("st" + i).textContent = !st.seen ? "--" : (st.mask >> i) & 1 ? "✗ FAILED" : "✓";
+    cam = m.camera || null;
+    if (cam) {
+      $("cViewers").textContent = cam.viewers + " / 2";
+      $("cNow").textContent = cam.viewers ? Number(cam.fps).toFixed(1) + " fps · " + cam.kbps + " kbit/s" : "nobody watching";
+      segOn("cSize", cam.size); segOn("cFps", cam.fps_cap);
+      if (document.activeElement !== $("cQual")) $("cQual").value = cam.quality;
+      $("cQualV").textContent = cam.quality;
+      $("cBright").textContent = (cam.brightness > 0 ? "+" : "") + cam.brightness;
+      $("cContrast").textContent = (cam.contrast > 0 ? "+" : "") + cam.contrast;
+      [["cLow", cam.low_light], ["cFlip", cam.vflip], ["cMirror", cam.hmirror]].forEach(function (x) {
+        $(x[0]).textContent = x[1] ? "ON" : "OFF"; $(x[0]).classList.toggle("on", !!x[1]);
+      });
+    }
+    if (document.activeElement !== $("mAi")) $("mAi").value = m.ai_url || "";
+  }
+  $("stRun").addEventListener("click", function () {
+    stId = nextId++;
+    if (!send({ t: "selftest", id: stId })) toast("Not connected");
+  });
+  function camSet(o) {
+    o.t = "camera_set"; o.id = nextId++;
+    if (!send(o)) toast("Not connected");
+  }
+  $("cSize").addEventListener("click", function (e) { var b = e.target.closest("button"); if (b) camSet({ size: b.dataset.v }); });
+  $("cFps").addEventListener("click", function (e) { var b = e.target.closest("button"); if (b) camSet({ fps_cap: Number(b.dataset.v) }); });
+  $("cQual").addEventListener("input", function () { $("cQualV").textContent = $("cQual").value; });
+  $("cQual").addEventListener("change", function () { camSet({ quality: Number($("cQual").value) }); });
+  Array.prototype.forEach.call(document.querySelectorAll(".mini .btn"), function (b) {
+    b.addEventListener("click", function () {
+      if (!cam) return;
+      var o = {}; o[b.dataset.k] = Math.max(-2, Math.min(2, cam[b.dataset.k] + Number(b.dataset.d)));
+      if (o[b.dataset.k] !== cam[b.dataset.k]) camSet(o);
+    });
+  });
+  ["cLow", "cFlip", "cMirror"].forEach(function (id) {
+    $(id).addEventListener("click", function () { if (!cam) return; var o = {}; o[$(id).dataset.k] = !cam[$(id).dataset.k]; camSet(o); });
+  });
+  $("cReset").addEventListener("click", function () { camSet({ reset: true }); });
+  $("mAiSave").addEventListener("click", function () {
+    var u = $("mAi").value.trim();
+    if (u && !/^http:\/\/[^\s"'\\<>]+$/.test(u)) { toast("Use an http:// address, e.g. http://192.168.1.20:8000/"); return; }
+    aiId = nextId++;
+    if (!send({ t: "app_set", ai_url: u, id: aiId })) toast("Not connected");
+  });
+  function onSlow(m) {
+    var f = m.flags || [];
+    if (m.batt_v !== null && m.batt_v !== undefined) showBatt(m.batt_v);
+    var off = f.indexOf("body_offline") >= 0;
+    $("cUno").textContent = off ? "● UNO OFFLINE" : "● UNO ONLINE"; $("cUno").className = "chip" + (off ? " warn" : "");
+    $("iEnc").textContent = f.indexOf("encoder_fault") >= 0 ? "OFF - restart the tank" : "✓ OK";
+    var al = ["tilted", "lifted"].filter(function (x) { return f.indexOf(x) >= 0; });
+    $("sAlarm").textContent = al.length ? al.join(" · ").toUpperCase() : "none";
+    $("sAlarm").style.color = al.length ? "var(--warn)" : "";
+    var env = m.envelope || {}, on = f.indexOf("envelope") >= 0;
+    $("cpBadge").textContent = on ? "ON" : "OFF"; $("cpBadge").className = "tag badge" + (on ? " on" : "");
+    $("cpSpeed").textContent = (env.speed_cap === undefined ? "--" : env.speed_cap) + " %";
+    $("cpAccel").textContent = env.accel_cap ? env.accel_cap : "none";
+    $("cpBrake").textContent = env.lock_brake ? "always on" : "off";
+    owner = m.owner || "none"; ownerClient = m.owner_client || "";
+    wizUi();
   }
 
   // ---------- Calibration ----------
@@ -403,6 +689,161 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
     if (m.id === 66 && document.activeElement !== $("kBalIn")) $("kBalIn").value = m.value;
   }
 
+  // ---------- Calibration wizard: distance (R13.5) ----------
+  // Counts = mean of both tracks from the move's ack to 1 s after primitive_done (the roll after the stop is on the tape too).
+  var wiz = { st: "idle", id: -1, e0: 0, counts: 0, cpm: 0 };
+  function encMean() { return lastEnc ? (lastEnc[0] + lastEnc[1]) / 2 : null; }
+  function wizUi() {
+    var free = owner === "none" || (owner === "human" && ownerClient === you);
+    $("zDrive").disabled = !open || !free || wiz.st === "sent" || wiz.st === "driving";
+    $("zMeas").disabled = wiz.st !== "measure";
+    $("zSave").disabled = wiz.st !== "measure" || !wiz.cpm;
+    if (wiz.st === "idle" && !free) $("zState").textContent = "// Someone else is driving - wait until they let go.";
+  }
+  function wizState(st, text) { wiz.st = st; if (text) $("zState").textContent = text; wizUi(); }
+  $("zDrive").addEventListener("click", function () {
+    if (!cpm) { toast("Waiting for the tank's calibration"); return; }
+    wiz.id = nextId++; wiz.counts = 0; wiz.cpm = 0; $("zMeas").value = ""; $("zResult").textContent = "// Drive first, then type the distance.";
+    wizState("sent", "// Starting …"); updateDebug();
+    if (!send({ t: "move", dist_cm: 100, speed: 40, id: wiz.id })) wizState("idle", "// Not connected.");
+  });
+  $("zStop").addEventListener("click", function () { send({ t: "stop" }); });
+  function wizAck(id) {
+    if (id !== wiz.id || wiz.st !== "sent") return false;
+    var e = encMean();
+    if (e === null) { wizState("idle", "// No encoder data from the tank - is the Uno online?"); return true; }
+    wiz.e0 = e; wizState("driving", "// Driving 1 m …");
+    return true;
+  }
+  function wizDone(m) {
+    if (wiz.st !== "driving" || (m.id !== undefined && m.id !== wiz.id)) return;
+    if (!m.ok) { wizState("idle", "// The move ended early (" + (m.reason || "stopped") + ") - nothing measured. Try again."); return; }
+    wizState("settling", "// Stopped - reading the encoders …");
+    setTimeout(function () {
+      wiz.counts = Math.abs(encMean() - wiz.e0);
+      wizState("measure", "// Done: " + Math.round(wiz.counts) + " counts. Measure the distance and type it below.");
+      updateDebug(); $("zMeas").focus();
+    }, 1000);
+  }
+  $("zMeas").addEventListener("input", function () {
+    var cm = Number($("zMeas").value), v = Math.round(wiz.counts * 100 / cm);
+    wiz.cpm = cm >= 20 && cm <= 300 && v >= 3000 && v <= 15000 ? v : 0;
+    $("zResult").textContent = wiz.cpm ? "// " + cm + " cm → " + v + " counts per metre (now " + cpm + ") · SAVE, then press the tank's button"
+      : "// Type the measured distance in cm (the result must be 3000 … 15000 counts per metre).";
+    wizUi();
+  });
+  $("zSave").addEventListener("click", function () {
+    if (!wiz.cpm) return;
+    send({ t: "calib", counts_per_m: wiz.cpm, id: nextId++ });
+  });
+
+  // ---------- Log (R13.5: page with since, then poll every 2 s while the tab is open) ----------
+  var LOG = { items: [], next: 0, gap: false, filt: "all" };
+  var SVG_HAND = '<svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>';
+  var SVG_WARN = '<svg viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>';
+  var SVG_WIFI = '<svg viewBox="0 0 24 24"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.86a10 10 0 0 1 14 0"/><path d="M8.5 16.43a5 5 0 0 1 7 0"/></svg>';
+  var SVG_REST = '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
+  var SVG_INFO = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>';
+  var SVG_OK = '<svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>';
+  var SIDE = function (b) { return b === 0 ? "left" : "right"; };
+  var CHECKS = ["motion sensor", "distance sensor", "battery", "settings"];
+  // Uno events: [title, detail(b) or text, severity]; b = the event's first value (design-notes §91)
+  var UNO = {
+    stall: ["STALL STOP", function (b) { return SIDE(b) + " track stuck - no speed for 0.5 s"; }, "warn"],
+    blocked: ["OBSTACLE STOP", function (b) { return "something " + Math.round(b / 10) + " cm ahead"; }, "warn"],
+    deadman_stop: ["DEADMAN STOP", "no drive command arrived in time - the tank stopped", "bad"],
+    ir_override: ["IR REMOTE TOOK OVER", "a key on the IR remote overrides the phone", "warn"],
+    link_lost: ["LINK LOST", "the bridge went quiet - the tank stopped", "bad"],
+    link_restored: ["LINK BACK", "the bridge is talking to the tank again", "ok"],
+    batt_low: ["BATTERY LOW", function (b) { return (b / 1000).toFixed(2) + " V - charge soon"; }, "warn"],
+    batt_critical: ["BATTERY CRITICAL", function (b) { return (b / 1000).toFixed(2) + " V - driving blocked"; }, "bad"],
+    tilted: ["TILTED", "the tank leans too far - motors stopped", "bad"], level: ["LEVEL AGAIN", "the tank stands level", "ok"],
+    lifted: ["LIFTED", "tracks off the ground - motors stopped", "bad"], landed: ["ON THE GROUND", "tracks touch the ground again", "ok"],
+    bump: ["BUMP", "the motion sensor felt a knock", "warn"],
+    heading_fault: ["HEADING FAULT", function (b) { return "heading off by " + b + "° - stopped"; }, "bad"],
+    selftest: ["SELF-TEST", function (b) {
+      var bad = CHECKS.filter(function (x, i) { return (b >> i) & 1; });
+      return bad.length ? "failed: " + bad.join(", ") : "all checks passed";
+    }, "sys"],
+    envelope_changed: ["CHILD-PLAY LIMITS CHANGED", "the safety envelope changed", "sys"],
+    encoder_fault: ["ENCODER OFF", function (b) { return SIDE(b) + " encoder gives no counts - off until the tank restarts"; }, "warn"],
+    imu_fault: ["MOTION SENSOR FAULT", "the IMU stopped answering", "bad"], us_fault: ["DISTANCE SENSOR FAULT", "the ultrasonic sensor stopped answering", "warn"],
+    settings_saved: ["SETTING SAVED", function (b) { return "setting " + b + " saved on the tank"; }, "sys"],
+    settings_reset: ["SETTINGS RESET", "the tank's settings went back to defaults", "warn"],
+    rejected: ["COMMAND REFUSED", function (b) { return "the tank refused a command (code " + b + ")"; }, "warn"],
+    safety_override: ["OVERRIDE MODE", function (b) { return b ? "turned on" : "turned off"; }, "warn"]
+  };
+  var STOP_EVS = ["stall", "blocked", "deadman_stop", "ir_override", "link_lost", "batt_critical", "tilted", "lifted", "heading_fault"];
+  var BOOT = { 1: "power on", 2: "reset pin", 3: "software restart", 4: "crash", 5: "watchdog", 6: "watchdog", 7: "watchdog", 8: "wake from sleep", 9: "low voltage (brown-out)", 11: "USB", 12: "debugger" };
+  var PRIM = ["move", "turn", "rate turn", "move", "arc", "pivot"];
+  var WHY = ["done", "cancelled", "STOP pressed", "another device took control", "a track stalled", "took too long", "link lost", "deadman stop",
+             "turned the wrong way", "an obstacle", "an encoder fault"];
+  // -> {cat, sev, icon, title, detail}
+  function logInfo(e) {
+    var who = e.client || "a device";
+    switch (e.kind) {
+      case "uno": {
+        var u = UNO[e.ev] || [String(e.ev || "event").toUpperCase().replace(/_/g, " "), "from the tank", "sys"];
+        var stop = STOP_EVS.indexOf(e.ev) >= 0;
+        return { cat: stop ? "stops" : "system", sev: u[2], icon: stop ? (u[2] === "bad" ? SVG_HAND : SVG_WARN) : u[2] === "ok" ? SVG_OK : SVG_INFO,
+                 title: u[0], detail: typeof u[1] === "function" ? u[1](e.b) : u[1] };
+      }
+      case "primitive": return { cat: "stops", sev: "warn", icon: SVG_WARN, title: "MOVE ENDED EARLY",
+                                 detail: (PRIM[e.b] || "move") + " · " + (WHY[e.a] || "reason " + e.a) };
+      case "stop_hold": return { cat: "stops", sev: "bad", icon: SVG_HAND, title: "STOPPED BY ANOTHER DEVICE", detail: who + " pressed STOP while someone was driving" };
+      case "client_lost": return { cat: "stops", sev: "bad", icon: SVG_HAND, title: "DRIVER LOST", detail: who + " went away while driving - the tank stopped" };
+      case "wifi_mode": return { cat: "wifi", sev: "ok", icon: SVG_WIFI, title: ["WIFI: HOME NETWORK", "WIFI: OWN NETWORK", "WIFI: OWN NETWORK (FALLBACK)"][e.a] || "WIFI",
+                                 detail: ["connected to a saved network", "switched by a double press or Settings", "no saved network found"][e.a] || "" };
+      case "boot": return { cat: "system", sev: "sys", icon: SVG_REST, title: "BRIDGE STARTED", detail: "reason: " + (BOOT[e.a] || "code " + e.a) };
+      case "restart": return { cat: "system", sev: "sys", icon: SVG_REST, title: "BRIDGE RESTART", detail: "asked by " + who };
+      case "ota": return { cat: "system", sev: "warn", icon: SVG_REST, title: "FIRMWARE UPDATE", detail: "an update over WiFi started" };
+      case "body_online": return { cat: "system", sev: "ok", icon: SVG_OK, title: "UNO ONLINE", detail: "firmware " + (e.a >> 8) + "." + (e.a & 255) + " · protocol " + e.b };
+      case "body_offline": return { cat: "system", sev: "warn", icon: SVG_WARN, title: "UNO OFFLINE",
+                                    detail: e.a === 1 ? "wrong firmware (protocol " + e.b + ") - flash the Uno and the bridge together" : "the body stopped answering" };
+      default: return { cat: "system", sev: "sys", icon: SVG_INFO, title: String(e.kind).toUpperCase(), detail: "" };
+    }
+  }
+  function logAsk() { send({ t: "log", since: LOG.next }); }
+  function onLog(m) {
+    if (m.last < LOG.next) { LOG.items = []; LOG.next = 0; LOG.gap = false; logAsk(); return; }  // the bridge restarted
+    var now = Date.now();
+    (m.entries || []).forEach(function (e) { e.got = now; LOG.items.push(e); LOG.next = Math.max(LOG.next, e.seq); });
+    if (m.gap) LOG.gap = true;
+    if (LOG.items.length > 200) LOG.items.splice(0, LOG.items.length - 200);
+    renderLog();
+    if ((m.entries || []).length && LOG.next < m.last) logAsk();  // more waiting: 25 per reply
+  }
+  function renderLog() {
+    var box = $("lList"), now = Date.now(), shown = 0; box.textContent = "";
+    for (var i = LOG.items.length - 1; i >= 0; i--) {  // newest first
+      var e = LOG.items[i], x = logInfo(e);
+      if (LOG.filt !== "all" && x.cat !== LOG.filt) continue;
+      var row = el("div", "lr " + x.sev);
+      row.appendChild(el("span", "age", fmtAge(e.age_s + (now - e.got) / 1000)));
+      var ic = el("span", "ic"); ic.innerHTML = x.icon; row.appendChild(ic);
+      var t = el("div"); t.appendChild(el("b", "", x.title)); t.appendChild(el("small", "", x.detail)); row.appendChild(t);
+      box.appendChild(row); shown++;
+    }
+    if (LOG.gap) {
+      var g = el("div", "lr warn"); g.appendChild(el("span", "age", "")); var gi = el("span", "ic"); gi.innerHTML = SVG_INFO; g.appendChild(gi);
+      var gt = el("div"); gt.appendChild(el("b", "", "OLDER EVENTS DROPPED")); gt.appendChild(el("small", "", "some older events were dropped - the log keeps 200"));
+      g.appendChild(gt); box.appendChild(g);
+    }
+    if (!shown && !LOG.gap) box.appendChild(el("div", "hint", "No events yet."));
+  }
+  $("lFilt").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    LOG.filt = b.dataset.v; segOn("lFilt", LOG.filt); renderLog();
+  });
+  $("lCsv").addEventListener("click", function () {
+    var now = Date.now(), rows = ["seq,age_s,kind,event,a,b,client,title,detail"];
+    LOG.items.forEach(function (e) {
+      var x = logInfo(e);
+      rows.push([e.seq, Math.round(e.age_s + (now - e.got) / 1000), e.kind, e.ev || "", e.a, e.b, e.client, x.title, x.detail].map(csvCell).join(","));
+    });
+    download("tank-log", rows.join("\n") + "\n");
+  });
+
   // ---------- Maintenance ----------
   var restartId = -1, restarting = false;
   $("mRestart").addEventListener("click", function () {
@@ -418,19 +859,13 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
             m.yaw, m.rate, m.pitch, m.roll, n(m.dist_mm), m.dist_fault ? 1 : 0, m.closing, m.pan, m.tilt, m.flags, m.prim, m.pct].join(",");
   }
   $("mCsv").addEventListener("click", function () {
-    if (rec) return;
-    if (!send({ t: "debug", on: true, hz: 50, id: nextId++ })) { toast("Not connected"); return; }
-    rec = { t0: Date.now(), rows: [TD.join(",")] };
+    if (rec || !open) { if (!open) toast("Not connected"); return; }
+    rec = { t0: Date.now(), rows: [TD.join(",")] }; updateDebug();
     $("mCsvState").textContent = "Recording 10 s …";
     setTimeout(function () {
-      send({ t: "debug", on: false });
-      var blob = new Blob([rec.rows.join("\n") + "\n"], { type: "text/csv" });
-      var a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "tank-" + new Date().toISOString().replace(/[:.]/g, "-") + ".csv";
-      document.body.appendChild(a); a.click(); a.remove();
-      $("mCsvState").textContent = (rec.rows.length - 1) + " rows downloaded.";
-      rec = null;
+      var rows = rec.rows; rec = null; updateDebug();
+      download("tank", rows.join("\n") + "\n");
+      $("mCsvState").textContent = (rows.length - 1) + " rows downloaded.";
     }, 10000);
   });
 
@@ -438,27 +873,34 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
   function onMessage(m) {
     switch (m.t) {
       case "welcome":
+        you = m.you || "";
         $("cUno").textContent = m.tank && m.tank.fw && m.tank.fw.uno ? "● UNO ONLINE" : "● UNO OFFLINE";
         break;
-      case "ts":
-        if (m.batt_v !== null && m.batt_v !== undefined) showBatt(m.batt_v);
-        var off = (m.flags || []).indexOf("body_offline") >= 0;
-        $("cUno").textContent = off ? "● UNO OFFLINE" : "● UNO ONLINE"; $("cUno").className = "chip" + (off ? " warn" : "");
-        $("iEnc").textContent = (m.flags || []).indexOf("encoder_fault") >= 0 ? "OFF - restart the tank" : "✓ OK";
-        break;
+      case "tf": onTf(m); break;
+      case "td": onTd(m); break;
+      case "ts": onSlow(m); break;
+      case "tank": onTank(m); break;
+      case "log": onLog(m); break;
+      case "ev": if (m.kind === "primitive_done") wizDone(m); break;
       case "wifi_status": renderWifi(m); break;
       case "wifi_scan": scanDone(); renderScan(m.nets || []); break;
-      case "calib": $("kCpm").textContent = m.counts_per_m; $("kRoll").textContent = m.roll_mm; break;
+      case "calib": cpm = m.counts_per_m; $("kCpm").textContent = m.counts_per_m; $("kRoll").textContent = m.roll_mm; break;
       case "setting": onSetting(m); break;
       case "confirm": showConfirm(m.what, m.secs || 30); break;
       case "confirmed": hideConfirm("Done ✓", true); editSlot = -1; $("nSlot").textContent = "NEW"; break;
       case "confirm_expired": hideConfirm("Not confirmed - nothing changed"); break;
-      case "nack": hideConfirm(""); scanDone(); toast(m.message || m.reason || "Refused"); break;
-      case "td": if (rec) rec.rows.push(tdRow(m, (Date.now() - rec.t0) / 1000)); break;
+      case "nack":
+        if (m.id === wiz.id && (wiz.st === "sent" || wiz.st === "driving")) wizState("idle", "// Refused: " + (m.message || m.reason || "?"));
+        hideConfirm(""); scanDone(); toast(m.message || m.reason || "Refused");
+        break;
       case "ack":
+        if (wizAck(m.id)) break;
         if (m.id === restartId) {  // owner: the restart needs feedback
           restarting = true; restartId = -1; toast("Restarting the bridge …", true);
-        }
+        } else if (m.id === stId) {
+          toast("Checks running - keep the tank still", true);
+          setTimeout(function () { send({ t: "tank" }); }, 3000);
+        } else if (m.id === aiId) toast("AI address saved ✓", true);
         break;
       default: break;
     }
@@ -467,16 +909,18 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
     if (document.hidden || (ws && ws.readyState <= 1)) return;  // design-notes §77: no link while hidden
     ws = new WebSocket("ws://" + location.host + "/ws");
     ws.onopen = function () {
-      open = true; retry = 500; scanDone();
+      open = true; retry = 500; scanDone(); debugHz = 0; anchor = null;
       if (restarting) { restarting = false; toast("Bridge back online ✓", true); }
       send({ t: "hello", client: "settings", proto: 1 });
       send({ t: "wifi_status" }); send({ t: "calib" });
       [66, 11, 12, 1].forEach(function (id) { send({ t: "setting", setting_id: id }); });
-      loadInfo();
+      loadInfo(); showTab(tab); wizUi();
     };
     ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } onMessage(m); };
     ws.onclose = function () {
-      open = false; $("cWifi").textContent = "RECONNECTING"; $("cWifi").className = "chip warn";
+      open = false; debugHz = 0; $("cWifi").textContent = "RECONNECTING"; $("cWifi").className = "chip warn";
+      if (wiz.st === "sent" || wiz.st === "driving" || wiz.st === "settling") wizState("idle", "// The link dropped - try again.");
+      wizUi();
       setTimeout(connect, retry); retry = Math.min(retry * 2, 5000);
     };
     ws.onerror = function () { ws.close(); };
@@ -485,6 +929,7 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) { if (ws && ws.readyState <= 1) ws.close(); } else { retry = 500; connect(); }
   });
+  showTab(location.hash.slice(1));
   connect();
 })();
 </script>

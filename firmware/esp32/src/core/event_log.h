@@ -8,6 +8,7 @@ namespace core {
 
 enum class LogKind : uint8_t {
   kBoot, kUno, kPrimitive, kStopHold, kClientLost, kBodyOnline, kBodyOffline, kWifiMode, kRestart, kOta,
+  kLogo,  // Plan N3: a program ended (a = code, 0 finished; b = line; client = its name) or a request refused (a = -1)
 };
 
 struct LogEntry {

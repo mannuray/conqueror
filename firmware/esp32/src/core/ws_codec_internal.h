@@ -28,6 +28,7 @@ struct Seen {
   char reset[16] = "";                                      // calib reset
   bool reset_true = false;                                  // camera_set reset (Plan O)
   bool url_bad = false;                                     // app_set
+  bool prog = false;                                        // logo_run (Plan N3)
 };
 
 // One "key": value pair; false = malformed (the whole command is rejected). Unknown keys are skipped.

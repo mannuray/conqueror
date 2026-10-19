@@ -20,7 +20,7 @@ PORT="${1:?usage: ./flash.sh /dev/ttyACM0}"
 cd "$(dirname "$0")"
 esptool --chip esp32s3 --port "$PORT" flash_id | grep -Eq "Chip (is|type:) *ESP32-S3" || { echo "not an ESP32-S3 - refusing"; exit 1; }
 esptool --chip esp32s3 --port "$PORT" --baud 921600 write_flash --flash_mode dio --flash_size 8MB \
-  0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000 firmware.bin 0x610000 source.bin
+  0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000 firmware.bin 0x5D0000 source.bin
 FLASH
 chmod +x "$OUT/flash.sh"
 gh release create "$TAG" "$OUT"/* --title "$TAG" \

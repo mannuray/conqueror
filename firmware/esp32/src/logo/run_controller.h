@@ -49,7 +49,7 @@ struct RunOut {
 class RunController {
  public:
   explicit RunController(Vm& vm) : m_vm(vm) {}
-  void start(const Program& p, const RunConfig& cfg, const RunTelem& t, uint32_t now_ms);
+  bool start(const Program& p, const RunConfig& cfg, const RunTelem& t, uint32_t now_ms);  // false: not compiled OK
   RunOut tick(const RunTelem& t, uint32_t now_ms);
   RunOut onPrimitiveEnd(const core::PrimitiveEnd& e);  // the move / turn / arc / pivot it asked for ended
   RunOut onMotionEvent(core::MotionEvent e);           // STOP, release, page gone … (also between motions)
@@ -72,7 +72,6 @@ class RunController {
   RunState m_state = RunState::kIdle;
   uint32_t m_start = 0;
   uint32_t m_wake = 0;
-  uint32_t m_until = 0;
   uint16_t m_start_yaw = 0;
   uint8_t m_speed = 40;
   bool m_blocked = false;

@@ -409,6 +409,23 @@ void test_app_url_validation() {
   TEST_ASSERT_TRUE(cq::core::appUrlValid(""));
 }
 
+// Plan N3: the logo_* commands (Tank Logo LLD §20.4).
+void test_logo_commands() {
+  WsCommand c = P("{\"t\":\"logo_run\",\"prog\":17,\"step\":true,\"id\":5}");
+  TEST_ASSERT_EQUAL(cq::core::WsCmdKind::kLogoRun, c.kind);
+  TEST_ASSERT_EQUAL(17, c.prog);
+  TEST_ASSERT_TRUE(c.step);
+  TEST_ASSERT_EQUAL(5, c.id);
+  c = P("{\"t\":\"logo_run\",\"prog\":4294967295}");
+  TEST_ASSERT_EQUAL(4294967295u, c.prog);
+  TEST_ASSERT_FALSE(c.step);
+  TEST_ASSERT_EQUAL(cq::core::WsCmdKind::kInvalid, P("{\"t\":\"logo_run\"}").kind);  // no program number
+  TEST_ASSERT_EQUAL(cq::core::WsCmdKind::kInvalid, P("{\"t\":\"logo_run\",\"prog\":0}").kind);
+  TEST_ASSERT_EQUAL(cq::core::WsCmdKind::kInvalid, P("{\"t\":\"logo_run\",\"prog\":1.5}").kind);
+  TEST_ASSERT_EQUAL(cq::core::WsCmdKind::kLogoStep, P("{\"t\":\"logo_step\",\"id\":6}").kind);
+  TEST_ASSERT_EQUAL(cq::core::WsCmdKind::kLogoStop, P("{\"t\":\"logo_stop\"}").kind);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_drive);
@@ -445,5 +462,6 @@ int main() {
   RUN_TEST(test_camera_set_false_turns_a_switch_off);
   RUN_TEST(test_app_url_validation);
   RUN_TEST(test_app_url_too_long_is_refused_by_the_parser);
+  RUN_TEST(test_logo_commands);
   return UNITY_END();
 }

@@ -39,6 +39,9 @@ enum class WsCmdKind : uint8_t {
   kCameraSet,   // {"t":"camera_set","size"?,"quality"?,"fps_cap"?,"brightness"?,"contrast"?,"low_light"?,"vflip"?,"hmirror"?,"reset"?}
   kSelfTest,    // {"t":"selftest"} -> CALIBRATE SELF_TEST on the Uno
   kAppSet,      // {"t":"app_set","ai_url":"http://..."|""}
+  kLogoRun,     // Plan N3 (Tank Logo LLD §20.4): {"t":"logo_run","prog":n,"step"?:bool} -> run a checked program
+  kLogoStep,    // {"t":"logo_step"} -> the next line in step mode
+  kLogoStop,    // {"t":"logo_stop"} -> end the running program (7040)
   kUnsupported,  // valid JSON, "t" not in the Basic Drive slice -> nack INVALID_COMMAND
   kInvalid,      // not JSON / no "t" / bad field -> nack INVALID_COMMAND
 };
@@ -90,6 +93,8 @@ struct WsCommand {
   CamFields cam;              // camera_set
   char ai_url[97] = "";       // app_set ("" clears it)
   bool has_ai_url = false;
+  uint32_t prog = 0;          // logo_run: the number the check returned
+  bool step = false;          // logo_run: step mode
   char t0[24] = "";  // ping: number echoed verbatim in pong
   char client[24] = "";
 };

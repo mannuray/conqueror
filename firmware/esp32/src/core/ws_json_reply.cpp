@@ -52,7 +52,11 @@ constexpr ReasonInfo kBridgeReasons[] = {
     {3009, "COMMAND_TIMEOUT", "No acknowledgement in time"},
     {3003, "UNAVAILABLE", "Capability not available"},  // Plan H: e.g. turn with radius / move without encoders
     {3011, "STOPPED", "Stopped by another device - release the stick to drive again"},  // design-notes §72
+    {3016, "CHECK_AGAIN", "The program changed - check it again"},                       // Plan N3 (bridge only)
+    {3017, "NOT_RUNNING", "No program is running"},
 };
+static_assert(sizeof(kBridgeReasons) / sizeof(kBridgeReasons[0]) == static_cast<size_t>(BridgeReason::kNotRunning) + 1,
+              "one row per BridgeReason");
 
 const char* domain(uint16_t code) {
   switch (code / 1000) {

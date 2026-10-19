@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "app/drive_controller.h"
+#include "app/logo_controller.h"
 #include "app/motion_controller.h"
 #include "app/replies.h"
 #include "app/settings_controller.h"
@@ -17,9 +18,9 @@ namespace app {
 
 class CommandRouter {
  public:
-  CommandRouter(DriveController& d, MotionController& m, SettingsController& s, TankAppController& t,
+  CommandRouter(DriveController& d, MotionController& m, SettingsController& s, TankAppController& t, LogoController& l,
                 TelemetryPublisher& tel, Replies& out)
-      : m_drive(d), m_motion(m), m_settings(s), m_tank(t), m_tel(tel), m_out(out) {}
+      : m_drive(d), m_motion(m), m_settings(s), m_tank(t), m_logo(l), m_tel(tel), m_out(out) {}
   void setHello(const char* fw, const char* (*sensor)()) {
     m_fw = fw;
     m_sensor = sensor;
@@ -40,6 +41,7 @@ class CommandRouter {
   MotionController& m_motion;
   SettingsController& m_settings;
   TankAppController& m_tank;
+  LogoController& m_logo;
   TelemetryPublisher& m_tel;
   Replies& m_out;
   const char* m_fw = "";

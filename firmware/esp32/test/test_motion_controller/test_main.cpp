@@ -164,6 +164,92 @@ void test_calib_reply_has_counts_and_roll_diagnostics() {
   TEST_ASSERT_NOT_EQUAL(std::string::npos, j.find("\"roll_watched\":0"));
 }
 
+// ---- Plan N3: a running Logo program's motions and the events that end it ----
+int g_logo_fd = -1;
+int g_logo_ends = 0;
+cq::core::EndReason g_logo_reason = cq::core::EndReason::kDone;
+int g_logo_events = 0;
+cq::core::MotionEvent g_logo_event = cq::core::MotionEvent::kStop;
+
+void logoHooks() {
+  app::MotionController::Hooks h;
+  h.claim = [](int fd, uint32_t now) {
+    core::Actions a;
+    return owner.onDrive(fd, now, a);
+  };
+  h.ota = [] { return g_ota; };
+  h.logo_fd = [] { return g_logo_fd; };
+  h.logo_end = [](const core::PrimitiveEnd& e, uint32_t) {
+    ++g_logo_ends;
+    g_logo_reason = e.reason;
+  };
+  h.logo_event = [](core::MotionEvent e, uint32_t) {
+    ++g_logo_events;
+    g_logo_event = e;
+  };
+  mc->setHooks(h);
+  g_logo_fd = -1;
+  g_logo_ends = g_logo_events = 0;
+}
+
+logo::Action logoMove(int16_t cm) {
+  logo::Action a;
+  a.kind = logo::ActKind::kMove;
+  a.dist_cm = cm;
+  a.speed_pct = 40;
+  return a;
+}
+
+void test_logo_move_starts_without_a_reply_and_its_end_reaches_the_program() {
+  syncedWithEncoders();
+  logoHooks();
+  core::BridgeReason why = core::BridgeReason::kBusy;
+  TEST_ASSERT_TRUE(mc->startLogo(3, logoMove(50), 100, why));
+  TEST_ASSERT_TRUE(mc->active());
+  TEST_ASSERT_EQUAL(0, fakes::countTo(3, "ack"));
+  mc->end(core::MotionEvent::kCancel, 200);
+  TEST_ASSERT_EQUAL(1, g_logo_ends);
+  TEST_ASSERT_EQUAL(core::EndReason::kCancelled, g_logo_reason);
+  TEST_ASSERT_EQUAL(1, g_logo_events);
+  TEST_ASSERT_EQUAL(core::MotionEvent::kCancel, g_logo_event);
+}
+
+void test_a_page_s_own_primitive_end_does_not_reach_the_program() {
+  syncedWithEncoders();
+  logoHooks();
+  mc->onMove(3, 1, P("{\"t\":\"move\",\"dist_cm\":100,\"speed\":40,\"id\":1}"), 100);
+  mc->end(core::MotionEvent::kCancel, 200);
+  TEST_ASSERT_EQUAL(0, g_logo_ends);
+}
+
+void test_logo_motions_are_refused_like_the_page_s() {
+  logoHooks();
+  core::BridgeReason why = core::BridgeReason::kBusy;
+  TEST_ASSERT_FALSE(mc->startLogo(3, logoMove(50), 100, why));
+  TEST_ASSERT_EQUAL(core::BridgeReason::kBodyOffline, why);
+  syncedWithEncoders(1u << static_cast<unsigned>(proto::FastFlagBit::kEncoderFault));
+  TEST_ASSERT_FALSE(mc->startLogo(3, logoMove(50), 100, why));
+  TEST_ASSERT_EQUAL(core::BridgeReason::kUnavailable, why);
+  logo::Action turn;
+  turn.kind = logo::ActKind::kTurn;
+  turn.delta_cdeg = -9000;
+  turn.speed_pct = 10;  // below the slowest spin: started at 12 %
+  TEST_ASSERT_TRUE(mc->startLogo(3, turn, 100, why));  // a spin needs no encoders
+  g_ota = true;
+  TEST_ASSERT_FALSE(mc->startLogo(3, turn, 100, why));
+  TEST_ASSERT_EQUAL(core::BridgeReason::kBusy, why);
+}
+
+void test_a_running_program_counts_as_its_page_s_primitive() {
+  logoHooks();
+  TEST_ASSERT_FALSE(mc->ownedBy(3));
+  g_logo_fd = 3;
+  TEST_ASSERT_TRUE(mc->ownedBy(3));  // so release / page closed / owner command reach it (end -> logo_event)
+  TEST_ASSERT_FALSE(mc->ownedBy(4));
+  mc->end(core::MotionEvent::kOwnerClosed, 100);
+  TEST_ASSERT_EQUAL(core::MotionEvent::kOwnerClosed, g_logo_event);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_begin_loads_counts_and_roll_on);
@@ -176,5 +262,9 @@ int main() {
   RUN_TEST(test_cancelled_move_sends_stop);
   RUN_TEST(test_cancel_by_another_client_is_not_owner);
   RUN_TEST(test_calib_reply_has_counts_and_roll_diagnostics);
+  RUN_TEST(test_logo_move_starts_without_a_reply_and_its_end_reaches_the_program);
+  RUN_TEST(test_a_page_s_own_primitive_end_does_not_reach_the_program);
+  RUN_TEST(test_logo_motions_are_refused_like_the_page_s);
+  RUN_TEST(test_a_running_program_counts_as_its_page_s_primitive);
   return UNITY_END();
 }

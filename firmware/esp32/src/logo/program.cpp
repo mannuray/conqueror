@@ -74,6 +74,7 @@ void Program::clear() {
   n_code = n_consts = n_items = n_text = 0;
   n_procs = 0;
   handles_obstacles = false;
+  ok = false;
 }
 
 int16_t Program::addWord(const char* s, uint16_t len) {

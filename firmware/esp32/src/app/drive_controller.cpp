@@ -13,7 +13,9 @@ namespace {
 bool isStream(core::WsCmdKind k) {
   return k == core::WsCmdKind::kDrive || k == core::WsCmdKind::kCamJoy || k == core::WsCmdKind::kDriveRate;
 }
-bool isMotion(core::WsCmdKind k) { return isStream(k) || k == core::WsCmdKind::kTurn || k == core::WsCmdKind::kMove; }
+bool isMotion(core::WsCmdKind k) {  // posted before a STOP that was handled first: dropped (logo_run too, Plan N3)
+  return isStream(k) || k == core::WsCmdKind::kTurn || k == core::WsCmdKind::kMove || k == core::WsCmdKind::kLogoRun;
+}
 
 core::AckedOp requestOf(int fd, int32_t id, const core::WsCommand& c) {
   core::AckedOp op;

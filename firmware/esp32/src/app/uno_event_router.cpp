@@ -7,6 +7,12 @@ namespace app {
 namespace {
 using EK = proto::EventKind;
 bool is(uint8_t code, EK k) { return code == static_cast<uint8_t>(k); }
+// Plan N3: the Uno's alarms that end a running Logo program.
+bool alarm(uint8_t code) {
+  return code == static_cast<uint8_t>(proto::EventKind::kBattCritical) ||
+         code == static_cast<uint8_t>(proto::EventKind::kTilted) || code == static_cast<uint8_t>(proto::EventKind::kLifted);
+}
+
 }  // namespace
 
 void UnoEventRouter::bodyOnline(uint32_t now) {
@@ -39,6 +45,8 @@ void UnoEventRouter::unoEvent(const core::LinkEvent& ev, uint32_t now) {
     m_sinks.button_press(now);  // Plan M: confirm a waiting change, or the WiFi double press
   } else if (is(ev.code, EK::kStall) || is(ev.code, EK::kEncoderFault)) {
     m_sinks.motion_event(ev.code, now);  // Plan K: ends a move (turn / rate unchanged)
+  } else if (alarm(ev.code) && m_sinks.alarm != nullptr) {
+    m_sinks.alarm(ev.code, now);  // Plan N3: a running Logo program ends (7042 / 7043)
   }
 }
 

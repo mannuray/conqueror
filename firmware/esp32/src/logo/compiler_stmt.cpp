@@ -126,20 +126,24 @@ bool Compiler::stepWhile(Work& w) {
   return true;
 }
 
-// LINE EFFECT(start, 60 s); L: test JNZ end; EFFECT(tick); SENSOR(over); JZ L; end:
+// LINE EFFECT(start) SENSOR(timer); L: test JNZ end; EFFECT(tick); UNTIL_OVER; JZ L; end: POP
+// The start time stays on the value stack, so every WAIT UNTIL has its own 60 s (also one inside a word that a
+// WAIT UNTIL test calls).
 bool Compiler::stepWaitUntil(Work& w) {
   if (w.step == 0) {
     line(w.n);
     emit(OpCode::kEffect, static_cast<uint8_t>(EffectKind::kUntilStart), 0);
+    emit(OpCode::kSensor, static_cast<uint8_t>(Sensor::kTimer));
     w.p2 = m_out->n_code;
     w.step = 1;
     return !child(w);
   }
   w.p1 = emit(OpCode::kJnz, kCondUntil);
   emit(OpCode::kEffect, static_cast<uint8_t>(EffectKind::kTick), 0);
-  emit(OpCode::kSensor, static_cast<uint8_t>(Sensor::kUntilOver));
+  emit(OpCode::kUntilOver);
   emit(OpCode::kJz, kCondUntil, w.p2);
   patch(w.p1);
+  emit(OpCode::kPop);
   return true;
 }
 

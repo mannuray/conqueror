@@ -30,6 +30,8 @@ struct VmOps {
   static void effect(Vm& vm, const Instr& in);
   static void stop(Vm& vm, const Instr& in);
   static void fail(Vm& vm, const Instr& in);
+  static void untilOver(Vm& vm, const Instr& in);
+  static void pop(Vm& vm, const Instr& in);
 
   // helpers
   static bool popNumber(Vm& vm, const char* word, int32_t& out);

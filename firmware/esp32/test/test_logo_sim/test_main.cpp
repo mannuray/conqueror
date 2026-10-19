@@ -103,6 +103,15 @@ void test_run_time_error_ends_the_path() {
   TEST_ASSERT_EQUAL(2, g_path.n);
 }
 
+// Plan N3 Task 1: a program that did not compile completely is never planned.
+void test_a_failed_compile_is_not_planned() {
+  plan("FD 10");
+  g_prog.ok = false;
+  g_r = Simulator(g_vm).plan(g_prog, g_path);
+  TEST_ASSERT_EQUAL(7010, g_r.code);
+  TEST_ASSERT_EQUAL(0, g_path.n);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_square_corners_within_1_mm);
@@ -112,5 +121,6 @@ int main(int, char**) {
   RUN_TEST(test_limits_cut_the_path_short);
   RUN_TEST(test_simulated_time);
   RUN_TEST(test_run_time_error_ends_the_path);
+  RUN_TEST(test_a_failed_compile_is_not_planned);
   return UNITY_END();
 }

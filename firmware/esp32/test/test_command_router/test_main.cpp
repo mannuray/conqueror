@@ -24,6 +24,9 @@ app::SettingsController* settings = nullptr;
 app::TankAppController* tank = nullptr;
 app::DriveController* drive = nullptr;
 app::CommandRouter* router = nullptr;
+logo::Program g_logo_program;
+logo::Vm g_logo_vm;
+app::LogoController* logoc = nullptr;
 cqtest::Wire wire;
 uint32_t g_post = 0;
 
@@ -48,7 +51,7 @@ void setUp() {
   fakes::reset();
   ws = core::WsClients();
   logbook = core::EventLog();
-  delete router; delete drive; delete tank; delete settings; delete motion; delete uno; delete tel; delete owner;
+  delete router; delete logoc; delete drive; delete tank; delete settings; delete motion; delete uno; delete tel; delete owner;
   delete link; delete tx;
   tx = new core::FrameTx();
   link = new core::BodyLink(*tx);
@@ -59,7 +62,8 @@ void setUp() {
   settings = new app::SettingsController(out, logbook, *link);
   tank = new app::TankAppController(out, logbook, *link);
   drive = new app::DriveController(out, logbook, *owner, *uno, *motion, *settings, *tel);
-  router = new app::CommandRouter(*drive, *motion, *settings, *tank, *tel, out);
+  logoc = new app::LogoController(out, logbook, *link, *tel, g_logo_program, g_logo_vm);
+  router = new app::CommandRouter(*drive, *motion, *settings, *tank, *logoc, *tel, out);
   router->setHello("abc1234", sensor);
   motion->setHooks({[](int fd, uint32_t now) { return drive->claim(fd, now); }, [] { return drive->otaActive(); }});
   tel->setViews({[] { return drive->ownerView(); }, [] { return motion->view(); }, [] { return !link->synced(); }});
@@ -123,6 +127,14 @@ void test_ota_answers_every_waiter() {  // Review Focus 5
   TEST_ASSERT_TRUE(wire.count(FT::kStop) >= 1);
 }
 
+// Plan N3: the logo_* commands reach the LogoController (nothing runs: NOT_RUNNING).
+void test_logo_commands_are_routed() {
+  text(3, "{\"t\":\"logo_stop\",\"id\":7}", 100);
+  TEST_ASSERT_TRUE(fakes::countTo(3, "NOT_RUNNING") == 1);
+  text(3, "{\"t\":\"logo_step\",\"id\":8}", 102);
+  TEST_ASSERT_TRUE(fakes::countTo(3, "NOT_RUNNING") == 2);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_every_kind_has_a_route_except_the_invalid_ones);
@@ -132,5 +144,6 @@ int main() {
   RUN_TEST(test_stop_bypasses_admission_even_for_an_unknown_client);
   RUN_TEST(test_commands_from_an_unknown_client_are_dropped);
   RUN_TEST(test_ota_answers_every_waiter);
+  RUN_TEST(test_logo_commands_are_routed);
   return UNITY_END();
 }

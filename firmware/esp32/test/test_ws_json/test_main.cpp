@@ -528,6 +528,31 @@ void test_uno_event_names_cover_lite_events() {
   TEST_ASSERT_EQUAL_STRING("unknown", unoEventName(250));
 }
 
+// Plan N3: the logo_* events and the two new refusals (Tank Logo LLD §20.4).
+void test_logo_events() {
+  jsonLogoStarted(buf, sizeof buf, 1, 2, "square", "phone-1");
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"ev\",\"seq\":1,\"tank_ms\":2,\"kind\":\"logo_started\",\"name\":\"square\",\"by\":\"phone-1\"}", buf);
+  jsonLogoLine(buf, sizeof buf, 3, 4, 7, 2);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"kind\":\"logo_line\",\"line\":7,\"round\":2}"));
+  jsonLogoPose(buf, sizeof buf, 5, 6, 1234, -56, -90);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"kind\":\"logo_pose\",\"x_cm\":123.4,\"y_cm\":-5.6,\"heading\":-90}"));
+  jsonLogoSay(buf, sizeof buf, 7, 8, "say \"hi\"");
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"text\":\"say \\\"hi\\\"\"}"));
+  jsonLogoNote(buf, sizeof buf, 9, 10, 3, "ARC RIGHT 90 40: speed set to 43 %");
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"kind\":\"logo_note\",\"line\":3,\"msg\":\"ARC RIGHT 90 40: speed set to 43 %\"}"));
+  jsonLogoEnded(buf, sizeof buf, 11, 12, 0, 4, "");
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"kind\":\"logo_ended\",\"reason\":\"finished\",\"line\":4,\"msg\":\"\"}"));
+  jsonLogoEnded(buf, sizeof buf, 13, 14, 7024, 2, "Something is in the way on line 2.");
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"reason\":7024,\"line\":2,\"msg\":\"Something is in the way on line 2.\"}"));
+}
+
+void test_logo_refusals() {
+  jsonNack(buf, sizeof buf, 5, BridgeReason::kCheckAgain);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"code\":\"COMMAND_3016\",\"reason\":\"CHECK_AGAIN\""));
+  jsonNack(buf, sizeof buf, 6, BridgeReason::kNotRunning);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"code\":\"COMMAND_3017\",\"reason\":\"NOT_RUNNING\""));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ack_reason_table_matches_generated_codes);
@@ -561,5 +586,7 @@ int main() {
   RUN_TEST(test_json_log_that_does_not_fit_stays_valid);
   RUN_TEST(test_json_tank_info);
   RUN_TEST(test_uno_event_names_cover_lite_events);
+  RUN_TEST(test_logo_events);
+  RUN_TEST(test_logo_refusals);
   return UNITY_END();
 }

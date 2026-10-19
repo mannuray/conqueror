@@ -212,6 +212,13 @@ void test_run_time_refusal_ends_with_its_line_and_speed_applies() {
   TEST_ASSERT_EQUAL(1, g_last.end_line);
 }
 
+// Plan N3 Task 1: a program that did not compile completely never starts.
+void test_a_failed_compile_never_starts() {
+  TEST_ASSERT_TRUE(load("FD 10"));
+  g_prog.ok = false;
+  TEST_ASSERT_FALSE(g_rc.start(g_prog, RunConfig(), g_tel, g_now));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_square_finishes);
@@ -226,5 +233,6 @@ int main(int, char**) {
   RUN_TEST(test_step_mode);
   RUN_TEST(test_home_heading_distance_obstacle);
   RUN_TEST(test_run_time_refusal_ends_with_its_line_and_speed_applies);
+  RUN_TEST(test_a_failed_compile_never_starts);
   return UNITY_END();
 }

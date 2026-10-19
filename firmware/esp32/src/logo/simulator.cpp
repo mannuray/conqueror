@@ -28,13 +28,17 @@ SimResult Simulator::plan(const Program& p, PathBuffer& out, uint32_t seed) {
   m_out = &out;
   out.n = 0;
   m_pose = Pose();
-  m_ms = m_until = 0;
+  m_ms = 0;
   m_speed = 40;
   m_line = 0;
   m_full = false;
+  SimResult r;
+  if (!p.ok) {  // never plan a program that did not compile completely
+    r.code = 7010;
+    return r;
+  }
   m_vm.load(p, seed);
   point(0);
-  SimResult r;
   while (step(r)) {
   }
   r.sim_ms = m_ms;
@@ -78,7 +82,6 @@ bool Simulator::effect(SimResult& r) {
 void Simulator::apply(const Action& a) {
   if (moves(a)) return;
   if (a.kind == ActKind::kSpeed) m_speed = a.speed_pct;
-  if (a.kind == ActKind::kUntilStart) m_until = m_ms + static_cast<uint32_t>(gen::kWaitS) * 1000u;
   if (a.kind == ActKind::kWait || a.kind == ActKind::kTone) m_ms += a.ms;
   if (a.kind == ActKind::kTick) m_ms += kTickMs;
 }
@@ -145,7 +148,6 @@ Sensors Simulator::sensors() const {
   Sensors s;
   s.heading_milli = static_cast<int32_t>(lround(wrap180(m_pose.h) * 1000.0));
   s.timer_milli = static_cast<int32_t>(m_ms);
-  s.until_over = m_ms >= m_until;
   return s;
 }
 

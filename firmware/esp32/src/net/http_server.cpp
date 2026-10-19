@@ -169,7 +169,8 @@ bool httpServerStart() {
   cfg.server_port = board::kHttpPort;
   cfg.ctrl_port = 32768;
   cfg.max_open_sockets = 6;  // 4 WS + 2 page loads; lwIP budget: Task 1 Step 6
-  cfg.max_uri_handlers = 12;
+  cfg.max_uri_handlers = 20;  // Plan N3: + 5 Tank Logo handlers
+  cfg.uri_match_fn = httpd_uri_match_wildcard;  // /logo/programs/<name>
   cfg.lru_purge_enable = true;
   cfg.stack_size = 6144;
   cfg.core_id = 0;

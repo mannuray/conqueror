@@ -33,6 +33,7 @@ struct LinkStatus {
   uint32_t frames_rx = 0;
   uint32_t bad_crc = 0;
   uint32_t tx_dropped = 0;  // chunks refused by a full FrameTx - review M12
+  bool logo_running = false;  // Plan N3: a Tank Logo program runs (no saving / deleting programs)
 };
 
 void linkTaskStart(const char* (*camera_sensor)());  // sensor name for welcome, read when needed

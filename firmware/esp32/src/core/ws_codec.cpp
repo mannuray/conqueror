@@ -33,7 +33,8 @@ const KindName kKinds[] = {
     {"setting", WsCmdKind::kSetting},      {"restart", WsCmdKind::kRestart},
     {"tank", WsCmdKind::kTank},            {"log", WsCmdKind::kLog},
     {"camera_set", WsCmdKind::kCameraSet}, {"selftest", WsCmdKind::kSelfTest},
-    {"app_set", WsCmdKind::kAppSet},
+    {"app_set", WsCmdKind::kAppSet},       {"logo_run", WsCmdKind::kLogoRun},
+    {"logo_step", WsCmdKind::kLogoStep},   {"logo_stop", WsCmdKind::kLogoStop},
 };
 
 WsCmdKind kindOf(const char* t) {
@@ -105,6 +106,7 @@ bool checkCameraSet(WsCommand& c, const Seen& s) {
   return c.cam.any();
 }
 bool checkAppSet(WsCommand& c, const Seen& s) { return c.has_ai_url && !s.url_bad; }
+bool checkLogoRun(WsCommand&, const Seen& s) { return s.prog; }
 
 struct CheckRow {
   WsCmdKind kind;
@@ -120,7 +122,7 @@ const CheckRow kChecks[] = {
     {WsCmdKind::kApPassword, checkApPassword}, {WsCmdKind::kSetting, checkSetting},
     {WsCmdKind::kCalib, checkCalib},         {WsCmdKind::kDriveRate, checkDriveRate},
     {WsCmdKind::kDebug, checkOn},            {WsCmdKind::kCameraSet, checkCameraSet},
-    {WsCmdKind::kAppSet, checkAppSet},
+    {WsCmdKind::kAppSet, checkAppSet},       {WsCmdKind::kLogoRun, checkLogoRun},
 };
 
 bool complete(WsCommand& c, const codec::Seen& s) {

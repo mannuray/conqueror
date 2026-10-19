@@ -39,6 +39,13 @@ class WifiManager {
   void joinStrongest();
   void startAp(bool forced);
   void handle(WifiRequest& r, uint32_t now_ms);
+  void finishScan();
+  void doAction(core::WifiAction a);
+  void reportMode();
+  bool stored(core::StoreResult res, const WifiRequest& r);
+  void handleSave(const WifiRequest& r, uint32_t now_ms);
+  void handleForget(const WifiRequest& r, uint32_t now_ms);
+  void handleApPassword(const WifiRequest& r, uint32_t now_ms);
   void applyDeferred(uint32_t now_ms);
   void refreshSnapshot();
   bool inUse(const char* ssid) const;

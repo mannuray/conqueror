@@ -123,6 +123,33 @@ MotionOut MotionService::stepTurn(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t
   return o;
 }
 
+// Review C1 guard: full power while the gyro sees the opposite turn = the loop runs away (e.g. a body that flips w
+// when reversing) - true once that lasted kRateWrongWayMs.
+bool MotionService::rateDiverged(bool saturated, int16_t rate_ddps, uint32_t now_ms) {
+  const bool opposite = (m_rate_target > 0 && rate_ddps < -motion::kRateWrongWayDdps) ||
+                        (m_rate_target < 0 && rate_ddps > motion::kRateWrongWayDdps);
+  if (!(saturated && opposite)) {
+    m_wrong_way = false;
+    return false;
+  }
+  if (!m_wrong_way) m_wrong_since = now_ms;
+  m_wrong_way = true;
+  return now_ms - m_wrong_since >= motion::kRateWrongWayMs;
+}
+
+// Final review I1: full power while the gyro sees no turn (jammed track, or the Uno's safety gate cutting the PWM) -
+// true once that lasted kStallMs (design-notes §56).
+bool MotionService::rateStalled(bool saturated, int16_t rate_ddps, uint32_t now_ms) {
+  const int16_t r = rate_ddps < 0 ? static_cast<int16_t>(-rate_ddps) : rate_ddps;
+  if (!(saturated && r < motion::kStallRateDdps)) {
+    m_rate_stalling = false;
+    return false;
+  }
+  if (!m_rate_stalling) m_rate_stall_since = now_ms;
+  m_rate_stalling = true;
+  return now_ms - m_rate_stall_since >= motion::kStallMs;
+}
+
 MotionOut MotionService::stepRate(int16_t rate_ddps, uint32_t now_ms) {
   if (now_ms - m_rate_update_ms > motion::kRateDeadmanMs) return finish(EndReason::kDeadman);
   uint32_t dt = now_ms - m_last_telem_ms;
@@ -131,28 +158,9 @@ MotionOut MotionService::stepRate(int16_t rate_ddps, uint32_t now_ms) {
   o.send = true;
   o.v = m_rate_v;
   o.w = m_rate.step(m_rate_target, rate_ddps, static_cast<uint16_t>(dt));
-  // Review C1 guard: full power while the gyro sees the opposite turn = the loop runs away (e.g. a body that
-  // flips w when reversing) - end it instead of spinning faster and faster.
   const bool saturated = o.w >= motion::kRateSaturatedPct || o.w <= -motion::kRateSaturatedPct;
-  const bool opposite = (m_rate_target > 0 && rate_ddps < -motion::kRateWrongWayDdps) ||
-                        (m_rate_target < 0 && rate_ddps > motion::kRateWrongWayDdps);
-  if (saturated && opposite) {
-    if (!m_wrong_way) m_wrong_since = now_ms;
-    m_wrong_way = true;
-    if (now_ms - m_wrong_since >= motion::kRateWrongWayMs) return finish(EndReason::kDiverged);
-  } else {
-    m_wrong_way = false;
-  }
-  // Final review I1: full power while the gyro sees no turn (jammed track, or the Uno's safety gate cutting the
-  // PWM) - end "stalled" as TURN does, never hold a stalled track (design-notes §56).
-  const int16_t r = rate_ddps < 0 ? static_cast<int16_t>(-rate_ddps) : rate_ddps;
-  if (saturated && r < motion::kStallRateDdps) {
-    if (!m_rate_stalling) m_rate_stall_since = now_ms;
-    m_rate_stalling = true;
-    if (now_ms - m_rate_stall_since >= motion::kStallMs) return finish(EndReason::kStalled);
-  } else {
-    m_rate_stalling = false;
-  }
+  if (rateDiverged(saturated, rate_ddps, now_ms)) return finish(EndReason::kDiverged);
+  if (rateStalled(saturated, rate_ddps, now_ms)) return finish(EndReason::kStalled);
   return o;
 }
 

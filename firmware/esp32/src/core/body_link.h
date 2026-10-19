@@ -140,6 +140,13 @@ class BodyLink {
   }
   void onFrame(const FrameView& f, uint32_t now_ms);
   void onHello(const proto::HelloMsg& h);
+  void masterStep(uint32_t now_ms);
+  void stopResend(uint32_t now_ms);
+  void onAckFrame(const FrameView& f);
+  void onTelemFrame(const FrameView& f);
+  void onEventFrame(const FrameView& f, uint32_t now_ms);
+  void onSettingValueFrame(const FrameView& f);
+  void onResetRequest(const FrameView& f);
   void pushEvent(const LinkEvent& ev);
   void sendStopFrame();
 

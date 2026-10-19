@@ -1,17 +1,4 @@
 # Size exceptions (coding standard §3.1). Bridge entries are removed by Plan P; Uno entries stay until a Uno refactor.
-firmware/esp32/src/core/arc_controller.cpp:cq::core::ArcController::step  # baseline 2026-10-19
-firmware/esp32/src/core/body_link.cpp:cq::core::BodyLink::onFrame  # baseline 2026-10-19
-firmware/esp32/src/core/body_link.cpp:cq::core::BodyLink::step  # baseline 2026-10-19
-firmware/esp32/src/core/frame_parser.cpp:cq::core::FrameParser::step  # baseline 2026-10-19
-firmware/esp32/src/core/motion_link.cpp:cq::core::MotionLink::onEvent  # baseline 2026-10-19
-firmware/esp32/src/core/motion_service.cpp:cq::core::MotionService::stepRate  # baseline 2026-10-19
-firmware/esp32/src/core/move_controller.cpp:cq::core::MoveController::step  # baseline 2026-10-19
-firmware/esp32/src/core/wifi_policy.h:cq::core::WifiPolicy::step  # baseline 2026-10-19
-firmware/esp32/src/net/camera_service.cpp:cq::net::cameraBegin  # baseline 2026-10-19
-firmware/esp32/src/net/http_server.cpp:cq::net::wsHandler  # baseline 2026-10-19
-firmware/esp32/src/net/info_service.cpp:cq::net::serveInfo  # baseline 2026-10-19
-firmware/esp32/src/net/wifi_manager.cpp:cq::net::WifiManager::handle  # baseline 2026-10-19
-firmware/esp32/src/net/wifi_manager.cpp:cq::net::WifiManager::step  # baseline 2026-10-19
 firmware/uno/src/app/calibration_task.cpp:cq::app::onCalibrate  # baseline 2026-10-19
 firmware/uno/src/app/comms.cpp:cq::app::txPump  # baseline 2026-10-19
 firmware/uno/src/app/control_task.cpp  # baseline 2026-10-19

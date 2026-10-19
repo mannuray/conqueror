@@ -30,6 +30,11 @@ class ArcController {
 
  private:
   int32_t speedCmS10(int32_t counts, uint32_t now_ms);  // measured centre speed, 0.1 cm/s, never negative
+  bool arrived(const MotionTelem& t);
+  bool blockedTooLong(const MotionTelem& t, uint32_t now_ms);
+  bool stuck(const MotionTelem& t, int32_t counts, uint32_t now_ms, ArcStep& s);
+  void steer(const MotionTelem& t, int32_t v10, uint32_t now_ms, ArcStep& s);
+  void checkWrongWay(const MotionTelem& t, uint32_t now_ms, ArcStep& s);
 
   RateLoop m_rate;
   int32_t m_delta = 0;  // target, 0.01°

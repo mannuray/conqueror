@@ -56,22 +56,16 @@ const char* ownerName(core::LinkState s) {
   }
 }
 
-esp_err_t serveInfo(httpd_req_t* req) {
-  const LinkStatus s = linkStatus();
-  const SourceHeader& src = sourceHeader();
-  const bool src_ok = sourceValid();
-  uint8_t mac[6] = {};
-  esp_read_mac(mac, ESP_MAC_WIFI_STA);
-  char ip[16] = "";
-  g_wifi->ip(ip, sizeof(ip));
-  const bool station = g_wifi->mode() == core::WifiMode::kStation;
-  const unsigned rev = ESP.getChipRevision();
-
-  Out o;
+void addFw(Out& o) {
   o.add("{\"fw\":{\"name\":\"%s\",\"version\":\"%s\",\"commit\":\"%s\",\"dirty\":%s,"
         "\"built\":\"%s\",\"repo\":\"%s\"},",
         CQ_FW_NAME, CQ_FW_VERSION, CQ_GIT_COMMIT, CQ_GIT_DIRTY ? "true" : "false", CQ_BUILD_DATE,
         CQ_REPO_URL);
+}
+
+void addSource(Out& o) {
+  const SourceHeader& src = sourceHeader();
+  const bool src_ok = sourceValid();
   if (src_ok) {
     o.add("\"source\":{\"url\":\"/source.tar.gz\",\"commit\":\"%.40s\",\"matches_fw\":%s,"
           "\"bytes\":%lu},",
@@ -80,6 +74,12 @@ esp_err_t serveInfo(httpd_req_t* req) {
   } else {
     o.add("\"source\":{\"url\":null,\"commit\":null,\"matches_fw\":false,\"bytes\":0},");
   }
+}
+
+void addHw(Out& o) {
+  uint8_t mac[6] = {};
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  const unsigned rev = ESP.getChipRevision();
   o.add("\"hw\":{\"board\":\"%s\",\"chip\":\"%s rev v%u.%u\",\"flash_mb\":%lu,\"psram_mb\":%lu,"
         "\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"camera\":\"%s\","
         "\"pins\":{\"uno_rx\":%d,\"uno_tx\":%d,\"camera\":\"ESP32-S3-EYE map\"}},",
@@ -87,6 +87,12 @@ esp_err_t serveInfo(httpd_req_t* req) {
         static_cast<unsigned long>(ESP.getFlashChipSize() >> 20),
         static_cast<unsigned long>(ESP.getPsramSize() >> 20), mac[0], mac[1], mac[2], mac[3],
         mac[4], mac[5], cameraSensorName(), board::kUnoRxPin, board::kUnoTxPin);
+}
+
+void addNet(Out& o) {
+  char ip[16] = "";
+  g_wifi->ip(ip, sizeof(ip));
+  const bool station = g_wifi->mode() == core::WifiMode::kStation;
   char ssid[72];  // review M10: escaped, so a " or \\ in the SSID keeps /info valid JSON
   core::jsonEscape(ssid, sizeof(ssid), station ? WiFi.SSID().c_str() : board::kFallbackSsid);
   o.add("\"net\":{\"mode\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,"
@@ -95,6 +101,9 @@ esp_err_t serveInfo(httpd_req_t* req) {
         g_wifi->modeName(), ssid, ip,
         g_wifi->rssi(), board::kHostname, board::kHttpPort, board::kStreamPort,
         board::kOtaPort);
+}
+
+void addUno(Out& o, const LinkStatus& s) {
   if (s.hello.seen) {
     char commit[12] = "null";
     if (s.hello.commit != 0) {
@@ -110,6 +119,9 @@ esp_err_t serveInfo(httpd_req_t* req) {
           "\"reset_reason\":null},",
           static_cast<unsigned long>(board::kUnoBaud));
   }
+}
+
+void addLink(Out& o, const LinkStatus& s) {
   o.add("\"link\":{\"owner\":\"%s\",\"driver\":\"%s\",\"clients\":{\"ws\":%u,"
         "\"stream\":%u},\"frames_tx\":%lu,\"frames_rx\":%lu,\"bad_crc\":%lu,\"tx_dropped\":%lu,"
         "\"ota_allowed\":%s},",
@@ -117,13 +129,27 @@ esp_err_t serveInfo(httpd_req_t* req) {
         static_cast<unsigned long>(s.frames_tx), static_cast<unsigned long>(s.frames_rx),
         static_cast<unsigned long>(s.bad_crc), static_cast<unsigned long>(s.tx_dropped),
         s.ota_allowed ? "true" : "false");
+}
+
+void addTail(Out& o) {
   char boot[200];
   if (bootDiagJson(boot, sizeof(boot)) == 0) snprintf(boot, sizeof(boot), "null");
   o.add("\"boot\":%s,", boot);  // design-notes §38
   o.add("\"uptime_s\":%lu,\"free_heap\":%lu,\"free_psram\":%lu}",
         static_cast<unsigned long>(millis() / 1000), static_cast<unsigned long>(ESP.getFreeHeap()),
         static_cast<unsigned long>(ESP.getFreePsram()));
+}
 
+esp_err_t serveInfo(httpd_req_t* req) {
+  const LinkStatus s = linkStatus();
+  Out o;
+  addFw(o);
+  addSource(o);
+  addHw(o);
+  addNet(o);
+  addUno(o, s);
+  addLink(o, s);
+  addTail(o);
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Cache-Control", "no-store");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");

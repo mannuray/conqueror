@@ -74,6 +74,8 @@ class MotionService {
   MotionOut finish(EndReason why);
   MotionOut stepTurn(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms);
   MotionOut stepRate(int16_t rate_ddps, uint32_t now_ms);
+  bool rateDiverged(bool saturated, int16_t rate_ddps, uint32_t now_ms);
+  bool rateStalled(bool saturated, int16_t rate_ddps, uint32_t now_ms);
   MotionOut stepMove(const MotionTelem& t, uint32_t now_ms);
   MotionOut stepArc(const MotionTelem& t, uint32_t now_ms);
   MotionOut stepPivot(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms);

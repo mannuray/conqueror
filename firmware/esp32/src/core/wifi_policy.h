@@ -24,37 +24,11 @@ class WifiPolicy {
   }
   WifiAction step(uint32_t now_ms, bool sta_connected, bool has_clients) {
     switch (m_mode) {
-      case WifiMode::kConnecting:
-        if (sta_connected) {
-          m_mode = WifiMode::kStation;
-          return WifiAction::kStationUp;
-        }
-        if (now_ms - m_since_ms >= kStationTimeoutMs) {
-          m_mode = WifiMode::kFallbackAp;
-          m_since_ms = now_ms;
-          return WifiAction::kStartAp;
-        }
-        return WifiAction::kNone;
-      case WifiMode::kStation:
-        if (!sta_connected) {
-          m_mode = WifiMode::kConnecting;
-          m_since_ms = now_ms;
-          return WifiAction::kStartStation;
-        }
-        return WifiAction::kNone;
-      case WifiMode::kForcedAp:  // Plan M: stays on its AP until switched back (no station retries)
-        return WifiAction::kNone;
+      case WifiMode::kConnecting: return stepConnecting(now_ms, sta_connected);
+      case WifiMode::kStation: return stepStation(now_ms, sta_connected);
+      case WifiMode::kForcedAp: return WifiAction::kNone;  // Plan M: stays on its AP until switched back
       case WifiMode::kFallbackAp:
-      default:
-        if (sta_connected && !has_clients) {  // review M9: never drop the AP under connected phones
-          m_mode = WifiMode::kStation;
-          return WifiAction::kApOff;  // home network is back: AP off, station up
-        }
-        if (!has_clients && now_ms - m_since_ms >= kHomeRetryMs) {
-          m_since_ms = now_ms;
-          return WifiAction::kRetryStation;  // AP stays up while the station retries
-        }
-        return WifiAction::kNone;
+      default: return stepFallback(now_ms, sta_connected, has_clients);
     }
   }
   WifiAction forceAp(uint32_t now_ms) {  // Plan M: double press / confirmed wifi_mode ap - no station retries
@@ -66,6 +40,31 @@ class WifiPolicy {
   WifiMode mode() const { return m_mode; }
 
  private:
+  WifiAction stepConnecting(uint32_t now_ms, bool sta_connected) {
+    if (sta_connected) {
+      m_mode = WifiMode::kStation;
+      return WifiAction::kStationUp;
+    }
+    if (now_ms - m_since_ms < kStationTimeoutMs) return WifiAction::kNone;
+    m_mode = WifiMode::kFallbackAp;
+    m_since_ms = now_ms;
+    return WifiAction::kStartAp;
+  }
+  WifiAction stepStation(uint32_t now_ms, bool sta_connected) {
+    if (sta_connected) return WifiAction::kNone;
+    m_mode = WifiMode::kConnecting;
+    m_since_ms = now_ms;
+    return WifiAction::kStartStation;
+  }
+  WifiAction stepFallback(uint32_t now_ms, bool sta_connected, bool has_clients) {
+    if (sta_connected && !has_clients) {  // review M9: never drop the AP under connected phones
+      m_mode = WifiMode::kStation;
+      return WifiAction::kApOff;  // home network is back: AP off, station up
+    }
+    if (has_clients || now_ms - m_since_ms < kHomeRetryMs) return WifiAction::kNone;
+    m_since_ms = now_ms;
+    return WifiAction::kRetryStation;  // AP stays up while the station retries
+  }
   WifiMode m_mode = WifiMode::kConnecting;
   uint32_t m_since_ms = 0;
 };

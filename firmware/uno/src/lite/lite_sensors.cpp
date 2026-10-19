@@ -91,6 +91,9 @@ void imuTask() {
   if (gz < INT16_MIN) gz = INT16_MIN;
   g_lite.yaw.update(static_cast<int16_t>(gz), !g_lite.moving);
   tiltEvents(g_lite.tilt.update(r.ax, r.ay, r.az, kTiltLimitDeg, now));
+  g_lite.fast.pitch = g_lite.tilt.pitchCdeg();  // Uno Lite LLD §21
+  g_lite.fast.roll = g_lite.tilt.rollCdeg();
+  g_lite.imu_temp_raw = r.temp;
   g_lite.fast.yaw = static_cast<uint16_t>(g_lite.yaw.yawCdeg());
   g_lite.fast.yaw_rate = g_lite.yaw.rateDdps();
 }

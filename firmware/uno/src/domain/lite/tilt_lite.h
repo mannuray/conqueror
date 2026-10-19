@@ -13,6 +13,9 @@ class TiltLite {
   Change update(int16_t ax, int16_t ay, int16_t az, uint8_t limit_deg, uint32_t now_ms);
   bool lifted() const { return m_lifted; }
   bool tilted() const { return m_tilted; }
+  // Uno Lite LLD §21: angles of the filtered accel (0.01°), integer maths; the full firmware's attitude convention.
+  int16_t pitchCdeg() const;
+  int16_t rollCdeg() const;
 
  private:
   bool over(uint8_t deg) const;

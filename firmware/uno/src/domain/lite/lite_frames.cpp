@@ -12,8 +12,9 @@ FrameUse frameUse(uint8_t type) {
     case F::kCamJoy: case F::kCamSet: case F::kCamNudge: case F::kCamHome: case F::kCamLock:
     case F::kSettingSet: case F::kSettingGet: case F::kSettingsSave:
     case F::kSound: case F::kTone: case F::kAudioMode: case F::kLed:  // spec 02 §D4
+    case F::kCalibrate:  // Uno Lite LLD §21: only script SELF_TEST (others answered UNAVAILABLE by the route)
       return FrameUse::kHandled;
-    case F::kDriveRate: case F::kTurn: case F::kMove: case F::kCancel: case F::kCalibrate: case F::kProfile:
+    case F::kDriveRate: case F::kTurn: case F::kMove: case F::kCancel: case F::kProfile:
     case F::kSafetyOverride:
       return FrameUse::kUnavailable;
     default:

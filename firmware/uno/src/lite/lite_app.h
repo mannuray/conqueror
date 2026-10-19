@@ -69,6 +69,7 @@ struct LiteApp {
   RunawayGuardLite runaway;  // §F1.3
   MotionLatchLite latch;     // owner (§F4): stall / fault / runaway stop both tracks until released
   bool imu_ok = false;
+  int16_t imu_temp_raw = 0;  // Uno Lite LLD §21: MPU6050 die temperature (raw)
   uint8_t imu_fail_streak = 0;
   NecDecoder nec;
   IrEvent ir_event{};

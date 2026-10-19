@@ -184,6 +184,7 @@ words:
     inputs: [{name: test, type: condition}, {name: yes, type: block}, {name: no, type: block}]
     help: do the first steps if the test is true, else the second
     example: IFELSE DISTANCE < 30 [ RT 90 ] [ FD 20 ]
+    missing: "two [ ] blocks: one for yes, one for no"
   - name: WHILE
     level: 2
     kind: control

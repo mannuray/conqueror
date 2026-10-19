@@ -3,3 +3,5 @@
 set -euo pipefail
 cd "$(dirname "$0")/../protocol"
 uv run protogen check
+cd "$(git rev-parse --show-toplevel)/logo"
+uv run logogen check

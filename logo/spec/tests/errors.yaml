@@ -2,10 +2,11 @@
 # Messages come from words.yaml `errors`; `message_has` checks a piece of the friendly text.
 
 - name: unknown word with a suggestion
-  source: SQAURE 50
+  source: |
+    SQAURE 50
+    TO SQUARE :s FD :s END
   expect: {error: 7001, line: 1, col: 1}
   message_has: Did you mean SQUARE
-  note: only when SQUARE is defined; without it the suggestion is the closest built-in
 
 - name: missing input
   source: FORWARD

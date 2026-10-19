@@ -19,7 +19,7 @@ import zlib
 
 PAGE_BUDGET = 25 * 1024
 HELP_BUDGET = 16 * 1024
-SETTINGS_BUDGET = 24 * 1024  # Plan M: /settings, gzipped
+SETTINGS_BUDGET = 36 * 1024  # Plan M: /settings, gzipped; Plan O (LLD R13.1): 36 KB for four tabs
 
 
 def png_icon(size: int = 192) -> bytes:

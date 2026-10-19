@@ -35,11 +35,15 @@ def test_mean_cpm() -> None:
 
 
 class FakeWs:
-    """Stands in for bridge_echo.WsClient: records what is sent, answers acks for calib saves."""
+    """Stands in for bridge_echo.WsClient: records what is sent; a calib save is answered
+    like the bridge since Plan O - "confirm" first, then "confirmed" (the tank's button)
+    or "confirm_expired"."""
 
-    def __init__(self) -> None:
+    def __init__(self, expire: bool = False) -> None:
         self.sent: list[dict[str, Any]] = []
         self.lock = threading.Lock()
+        self.expire = expire
+        self.pending: list[dict[str, Any]] = []
 
     def send(self, obj: dict[str, Any]) -> None:
         with self.lock:
@@ -48,10 +52,14 @@ class FakeWs:
     def recv(self, timeout: float) -> dict[str, Any] | None:
         time.sleep(min(timeout, 0.05))
         with self.lock:
+            if self.pending:
+                return self.pending.pop(0)
             for m in self.sent:
                 if m.get("t") == "calib" and "counts_per_m" in m and not m.get("_answered"):
                     m["_answered"] = True
-                    return {"t": "ack", "id": m["id"]}
+                    end = "confirm_expired" if self.expire else "confirmed"
+                    self.pending.append({"t": end, "what": "calib"})
+                    return {"t": "confirm", "what": "calib", "secs": 30}
         return None
 
     def close(self) -> None:
@@ -96,3 +104,13 @@ def test_ask_passes_eof_on() -> (
 
     with pytest.raises(EOFError):
         s.ask("press Enter", closed)
+
+
+def test_save_waits_for_the_tanks_button() -> None:  # Plan O (design-notes §91)
+    s = Session(ws=FakeWs())
+    assert s.save_counts_per_m(7675)
+
+
+def test_save_not_confirmed_is_not_saved() -> None:
+    s = Session(ws=FakeWs(expire=True))
+    assert not s.save_counts_per_m(7675)

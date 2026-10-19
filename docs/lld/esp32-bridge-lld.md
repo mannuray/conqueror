@@ -1646,14 +1646,14 @@ sequenceDiagram
 ```
 Tank check: 3 boots — pings + drive page with video; a short stand drive with video on (drive, release, STOP).
 
-## Revision 13 — The tank app (Plan O; UX `docs/design/bridge-ux.md`, design-notes §80, §85, §89–§91) — APPROVED (owner, 2026-10-19)
+## Revision 13 — The tank app (Plan O; UX `docs/design/bridge-ux.md`, design-notes §80, §85, §89–§91) — APPROVED (owner, 2026-10-19) — BUILT (see R13.7)
 Builds the designed app except Logo and AI: the ☰ menu on Drive, `/settings` in four tabs (WiFi · Tank · Tune · Log) with the new cards, and the bridge pieces behind them. Facts from the code (2026-10-19) that shape it are listed in design-notes §90.
 
 ### R13.1 Pages
-- **Drive (`basic_drive.html`):** the ⚙ SET chip becomes **☰ MENU**; a sheet with **LOGO** (greyed, "coming soon" until Plan N4), **SETTINGS**, **AI** (greyed "not set up" until an address is saved; when set, opens it in a new tab), **HELP**. STOP stays above the dimmed screen.
+- **Drive (`basic_drive.html`):** the ⚙ SET chip becomes **☰ MENU**; a sheet with **LOGO** (greyed, "coming soon" until Plan N4), **SETTINGS**, **AI** (greyed "not set up" until an address is saved; when set, opens it in a new tab), **HELP**. STOP stays above the dimmed screen. **Camera chip** (design-notes §94): size · fps from `tank` (asked every 2 s while visible), amber below 8 fps; its **CAMERA** sheet sends `camera_set` (size, fps_cap) and links to Settings → Tank → Camera.
 - **Settings (`settings.html`, budget raised 24 → 36 KB gzipped):** four tabs; the tab is remembered in the URL hash (`/settings#tune`).
   - **WiFi** — unchanged.
-  - **Tank** — 01 Bridge, 02 Uno body (battery bar, encoders), **03 Live sensors** (distance ahead, heading, turn rate, **pitch / roll** from `tf`; encoder counts and track speed from `td` at 10 Hz while the tab is open; **board temperature** from `ts`; *tilted / lifted* alarms — the Uno Lite adds angles and temperature, Uno Lite LLD §21), **04 Self-test** (last result per check: motion sensor, distance sensor, battery, settings; *locked* when a critical check failed; **RUN THE CHECKS AGAIN** → `selftest` command → CALIBRATE `SELF_TEST`, tank standing still), **05 Camera** (viewers n / 2, frame rate and data rate now; picture size QVGA / VGA / SVGA / HD, quality 10–40, frame-rate limit max / 15 / 10 / 5, brightness and contrast −2…+2, low-light mode, flip, mirror, reset to defaults — saved on the bridge), **06 Child play** (read-only now: shows the current envelope from `ts`; the checklist and *turn on* come with the child-play safety design), 07 Safety (read only), 08 Track model, 09 Maintenance (+ the AI address field).
+  - **Tank** — 01 Bridge, 02 Uno body (battery bar, encoders), **03 Live sensors** (distance ahead, heading, turn rate from `tf`; encoder counts and track speed from `td` at 10 Hz while the tab is open; *tilted / lifted* alarms from `ts` — no tilt angles or temperature on the Uno Lite, design-notes §92), **04 Self-test** (last result per check: motion sensor, distance sensor, battery, settings; *locked* when a critical check failed; **RUN THE CHECKS AGAIN** → `selftest` command → CALIBRATE `SELF_TEST`, tank standing still), **05 Camera** (live picture while the Tank tab is open — design-notes §93; viewers n / 2, frame rate and data rate now; picture size QVGA / VGA / SVGA / HD, quality 10–40, frame-rate limit max / 15 / 10 / 5, brightness and contrast −2…+2, low-light mode (night mode + 32× gain ceiling + exposure +1, design-notes §96), flip, mirror, reset to defaults — saved on the bridge), **06 Child play** (read-only now: shows the current envelope from `ts`; the checklist and *turn on* come with the child-play safety design), 07 Safety (read only), 08 Track model, 09 Maintenance (+ the AI address field).
   - **Tune** — **01 Live graphs** (track speed L/R in cm/s from `td` encoder deltas × counts-per-metre, heading from `tf`, balance = right/left speed ratio in ‰; last 60 s; HOLD; CSV), 02 Distance (moved from Tank: counts per metre, roll-on, resets), 03 Straight driving (moved: track-balance stepper), **04 Calibration wizard** (distance step: DRIVE 1 m + STOP → measured cm → new counts per metre shown → SAVE confirmed by the tank's button; the balance step uses the stepper; roll-on is learned).
   - **Log** — filters ALL / STOPS / WIFI / SYSTEM, newest first, CSV; polls while the tab is open.
 
@@ -1665,7 +1665,6 @@ Builds the designed app except Logo and AI: the ☰ menu on Drive, `/settings` i
 | `SelfTestRecord` | `core/body_link` | keeps the last EVENT SELFTEST (mask, locked, `uno_ms`) and `hw` from TELEM_SLOW |
 | `CameraSettings` | `net/camera_service` + NVS `cq_cam` | `{size: QVGA/VGA/SVGA/HD, quality 10–40, fps_cap 0/15/10/5, brightness −2…2, contrast −2…2, low_light, vflip, hmirror}`; applied at run time with the sensor's setters (on the camera's own task, through a queue); the stream server honours `fps_cap` and counts frames / bytes for the page; defaults = today's constants |
 | self-test request | `core/body_link` `sendCalibrate(script)` | `{"t":"selftest","id"}` → CALIBRATE `SELF_TEST` (acked); BUSY while driving; the result arrives as EVENT SELFTEST → `SelfTestRecord` + log |
-| temperature in `ts` | `core/ws_json` | `"temp_c"` (1 decimal) from TELEM_SLOW `temp` |
 | `AppSettings` | NVS `cq_app` | `ai_url` (≤ 96 chars, `http://…` only) |
 | calibration save | `link_task` `handleCalib` | a `calib` **set** from any client now waits for the tank's button (`ConfirmGate`, like Plan M changes) — also for `tools/smoke/move.py` (owner: yes) |
 
@@ -1700,20 +1699,26 @@ classDiagram
     bool seen
     uint8 mask
     bool locked
-    uint32 uno_ms
+    uint32 at_ms
   }
   class CameraSettings {
-    FrameSize size
+    uint8 size
     uint8 quality
+    uint8 fps_cap
+    int8 brightness
+    int8 contrast
+    bool low_light
     bool vflip
     bool hmirror
     +load() / save()
-    +apply(sensor_t*)
+    +applyTo(sensor_t*)
   }
   class AppSettings {
     char ai_url[97]
-    +load() / save()
-    +valid(url) bool
+    +appAiUrlLoad() / appAiUrlSave()
+  }
+  class WsCodec {
+    +appUrlValid(url) bool
   }
   EventLog --> LogEntry
   LinkTask --> EventLog : add()
@@ -1756,3 +1761,63 @@ sequenceDiagram
 
 ### R13.6 Tests
 Host: `test_event_log` (ring wrap at 200, `since` paging, seq gaps after wrap, client name truncation), `test_ws_codec` / `test_ws_json` (tank, log, camera_set, app_set — URL validation, size / quality ranges), `test_body_link` (SelfTestRecord from EVENT SELFTEST). Page tests with a stand-in WebSocket: menu, tabs + hash, live sensors from fake `tf`/`td`/`ts`, graphs, the wizard flow, log paging. Tank: menu links, camera settings change the stream, log shows a STOP from another device and a WiFi switch, wizard on the floor.
+
+### R13.7 As built (design-notes §93–§97, 2026-10-19)
+Differences found on the stand checks and in the firmware review; the code is authoritative where these differ from R13.1–R13.6.
+- **Big replies:** `wsSend` keeps a 384-byte queue for ordinary messages; `tank` and `log` replies (up to `kWsBigMax` = 3584 B) go through their own 2-slot queue in `net/http_server.cpp` (before this they were dropped silently). `jsonLog` always closes the reply and adds whole entries oldest first, stopping at the first that does not fit (no holes).
+- **`tank` reply** carries the full camera block: `size, quality, fps_cap, brightness, contrast, low_light, vflip, hmirror, viewers, fps, kbps` (`fps` counts the frames of all viewers; the pages divide by `viewers`).
+- **`SelfTestRecord`** is `{seen, mask (failed checks), locked, at_ms (bridge time)}`; the reply sends `age_s`.
+- **`CamSettings`** (net/camera_service) is `{size, quality, fps_cap, brightness, contrast, low_light, vflip, hmirror}`; `low_light` = night mode + 32× gain ceiling + exposure +1 (§96); `vflip` defaults on for the OV3660.
+- **AI address:** the validation `appUrlValid()` lives in `core/ws_codec` (parse time, also refuses a too-long address); `net/app_settings` only loads and saves (NVS `cq_app` "ai").
+- **Log sources:** every Uno EVENT except `button_press` and `unblocked` (too frequent to be useful).
+- **Confirmation gate:** a change from another device while one waits for the tank's button is refused `BUSY` (`ConfirmGate::busyFor`).
+- **Pages:** live camera picture in the Settings camera card (§93); camera chip + sheet on the Drive page (§94).
+- **Link:** one master, always on (R14, §95).
+
+## Revision 14 — One master, always on (design-notes §95) — APPROVED (owner, 2026-10-19)
+Replaces the Idle part of **R2.7** (the bench tool and TCP 3333 are retired, §74). The ESP32 bridge is the only master of the Uno link and holds it from boot; WebSocket clients never change the link.
+
+**LinkOwner rules**
+- `begin()` (called once when the link task starts) → state `WebHandshake`, action `StartMaster` (HELLO_REQ, then HEARTBEAT every 100 ms).
+- `onWsOpen(fd)` only counts the client.
+- `onWsClose(fd)` — the driver → `dropDriver(true)` (STOP + hint none + owner changed); anyone else → nothing. The last client leaving does **not** stop the master.
+- `onSynced(false)` (Uno silent / restarted) → driver dropped, back to `WebHandshake` (the bridge re-handshakes, as before).
+- OTA unchanged: `link_task` stops the master itself (`g_link.stopMaster()`); the bridge restarts after the update and `begin()` runs again.
+- `Idle` stays only as the state before `begin()`.
+
+```mermaid
+classDiagram
+  class LinkOwner {
+    +begin() Actions
+    +onWsOpen(fd) Actions
+    +onWsClose(fd) Actions
+    +onDrive(fd, now, out, moving) Decision
+    +onSynced(synced) Actions
+    +tick(now) Actions
+    -m_state LinkState
+    -m_driver int
+    -m_ws uint8
+  }
+  class BodyLink {
+    +startMaster(now)
+    +stopMaster()
+    +synced() bool
+  }
+  LinkTask --> LinkOwner : begin() at start
+  LinkTask --> BodyLink : StartMaster / StopMaster (OTA only)
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> WebHandshake : begin() at boot (StartMaster)
+  WebHandshake --> WebReady : Uno synced
+  WebReady --> WebDriving : first drive from a phone
+  WebDriving --> WebReady : release / 5 s handback / driver's phone closed (STOP)
+  WebReady --> WebHandshake : Uno lost
+  WebDriving --> WebHandshake : Uno lost (driver dropped)
+  note right of WebReady : phones connecting or leaving never change the link
+```
+
+**Tests** (`test_link_owner`): `begin()` starts the master once; a client opening starts nothing; the last client closing keeps the master and sends no STOP when nobody drove; the driver's phone closing sends STOP and keeps the master; drive before sync → BODY_OFFLINE (unchanged). Tank check: double press with and without a phone connected → jingle + blink both times; a page connecting / leaving adds no *link lost* rows to the Log.
+

@@ -1388,3 +1388,42 @@ From the code (research for bridge LLD R13):
 - Owner questioned §90: "do we have a temperature sensor, I think we have tilt, why can't the self-test run". Answer: the MPU6050 has a die thermometer the Uno already reads but never sends; tilt is measured but only as an alarm (the Lite has no float `atan2`); the self-test exists but the Lite dropped the CALIBRATE family to save flash. **Owner: yes — add all three to the Uno Lite** (board temperature, pitch/roll with integer maths, CALIBRATE SELF_TEST re-runs the boot self-test; ≤ 400 B of the ~1.2 KB left, one USB flash; Uno Lite LLD §21).
 - **Camera settings (owner: yes):** picture size QVGA / VGA / SVGA / HD, quality 10–40, frame-rate limit max / 15 / 10 / 5, brightness and contrast −2…+2, low-light mode, flip, mirror, reset to defaults; the page shows the frame rate and data rate next to them; the WiFi is re-checked on the tank at the larger settings.
 - LLD R13 approved.
+
+## 92. Uno Lite: self-test on request only (owner, 2026-10-19)
+- Built in Plan O Task 1: board temperature, integer pitch/roll and the self-test on request cost **+632 B** even with 16-bit-only maths (angles 470, self-test 120, temperature 40) → 580 B left. Owner: "it's getting too tight — use only what is useful".
+- Usefulness: tilt angles low (safety already has the tilted/lifted alarms; flat floors read 0–2°), temperature low (the chip's own), self-test medium (re-check after a fix without a power cycle). **Owner: self-test only** → **31 144 / 32 256 B** (1 112 B free).
+- Consequences: the Tank tab's Live sensors card shows the tilted / lifted alarms, no angles or temperature; `ts.temp_c` is not added; Logo's `TILT` becomes **`TILTED?`** (true while tilted past the limit or lifted). Angles return with a bigger body board.
+
+## 93. Settings → Tank → Camera shows the live picture (owner, 2026-10-19)
+On the stand check of Plan O the owner asked to see the camera feed next to the camera settings, so a change (size, quality, brightness, flip …) is seen at once.
+- Options discussed: **A** live preview always on while the Tank tab is open; B a PREVIEW button (on demand); C a still picture after each change.
+- **Owner: A.** The settings page does the important work; seeing the effect matters more than saving one viewer place and some WiFi.
+- How: the Camera card shows the MJPEG stream (`:81/stream`) under its title while the Tank tab is open and the page is visible; it stops when the tab changes or the page is hidden. It counts as one of the 2 viewers — with the Drive page also streaming the limit is reached and the card says so. Page-only change, no bridge code.
+
+## 94. Camera chip and sheet on the Drive page (owner, 2026-10-19)
+Asked during the Plan O stand checks: show the camera's state while driving and let the driver change it there.
+- **Chip** in the bottom row next to SNAP / MAX: `▣ VGA · 14 fps`, amber below 8 fps (the WiFi is struggling). The Drive page asks `{"t":"tank"}` every 2 s while it is visible — page only, no bridge change (also keeps the bridge's fps / kbit/s window short, review M3).
+- **CAMERA sheet** on a tap: picture size QVGA · VGA · SVGA · HD and frame-rate limit MAX · 15 · 10 · 5 (`camera_set`), plus a link to Settings → Tank → Camera. Brightness, contrast, low light, flip and mirror stay in Settings (set once).
+- Anyone on the Drive page may change it (as in Settings); saved on the tank, so it applies for every viewer. Locked like the other adult settings when child play comes.
+- Measured on the stand, one viewer (Plan O): QVGA 13.9 fps 0.3 Mbit/s · VGA 13.9 fps 1.0 · SVGA 13.9 fps 1.4 · HD 8.7 fps 1.6; the limits 5 / 10 give 5.0 / 10.1 fps; at HD 40 pings 0 % loss, 7 ms average, 15 ms worst.
+
+## 95. One master of the Uno link, always on (owner, 2026-10-19)
+Found on the Plan O stand check: the WiFi double press switched the network but often gave no jingle / blink. Cause: the bridge was the Uno link's master **only while a phone or page was connected** (bridge LLD R2.7 "Idle", made so the bench tool on TCP 3333 could take over). With no client the bridge stopped its heartbeats: the Uno reported *link lost*, the bridge no longer heard the button, and feedback frames were dropped as *body offline*. A WiFi switch drops every phone, so the feedback depended on timing; every page connect / leave also caused a *link lost → link restored* blink and beep and two Log rows.
+- The bench tool and port 3333 are retired (§74), so the reason for Idle is gone.
+- **Owner: the bridge is the only master and is always connected.** It starts the handshake at boot and keeps its heartbeats with or without phones. Phones are clients of the bridge only.
+- A phone leaving: if it was driving → STOP + driver released (as before); otherwise nothing happens to the link.
+- Safety unchanged: driving still needs a connected phone holding the stick; the Uno's deadman (no DRIVE for 300 ms) and link-loss stop (no heartbeat for 300 ms — ESP32 hung / restarting) stay; the IR remote still overrides.
+- **OTA (owner: yes):** the bridge still stops being master during a WiFi firmware update; the Uno sees *link lost* while standing still (harmless) and the bridge takes over again after its restart.
+- **No extra LED for "no phone connected"** (owner: no).
+- No Uno firmware change. Bridge LLD Revision 14.
+
+## 96. Camera low-light mode does more than raise the gain limit (owner, 2026-10-19)
+Stand check: switching *low light* showed no change. It only raised the sensor's gain ceiling (4× → 32×), which matters only in real darkness.
+- Options: A night mode + 32× gain ceiling + one step brighter exposure; B gain ceiling only (as built); C remove the switch.
+- **Owner: A.** Low light on = `set_aec2(1)` (night mode: the sensor may use longer exposures, so the frame rate drops in the dark), `set_gainceiling(32X)`, `set_ae_level(+1)`; off = `set_aec2(0)`, `4X`, `set_ae_level(0)`. Saved with the other camera settings.
+
+## 97. Firmware review: small fixes now, bridge refactor before anything new (owner, 2026-10-19)
+A fresh SOLID / coding-standards review of the bridge (and the Uno Lite change) after the Plan O stand checks: `core/` fits the standard (pure, host-tested, no heap / virtual); `net/link_task.cpp` does not — 34 globals, 53 functions, 6 over ~40 lines; it is composition root, application logic and I/O glue at once (standard S and D rules), and none of its rules are host-tested. No safety or hard-rule break; nothing blocks the tank tests.
+- **Fix on `plan-o` now:** (1) errors no longer dropped silently (big replies, WiFi mode result queue, NVS saves), (2) a size guard in the log reply, (3) the dead `kStopMaster` path after R14 removed, (4) compile-time checks on the event / log name tables, (5) LLD drift corrected.
+- **Owner: refactor before any new feature or work.** One "bridge structure" plan next: split `link_task.cpp` into host-tested `core/` controllers, one owner of the shared acked slot, table-driven command parsing, `ws_json` by page, the task watchdog, generated event names. Logo N2–N4 and the AI phase wait for it.
+- **Camera low light (§96) showed no visible change on the stand** — parked until the AI phase (owner): check then whether the OV3660 driver accepts night mode / exposure level.

@@ -357,6 +357,24 @@ void test_setting_frames_and_value_event() {
   TEST_ASSERT_NOT_NULL(wire->last(FT::kLed));
 }
 
+
+// Plan O: the last self-test result is kept; CALIBRATE SELF_TEST can be sent.
+void test_self_test_record_and_calibrate() {
+  bl->startMaster(0);
+  hello(proto::kProtocolVersion, 10);
+  TEST_ASSERT_FALSE(bl->selfTest().seen);
+  uint8_t f[32];
+  const size_t n = cqtest::frame(proto::EventMsg{static_cast<uint8_t>(proto::EventKind::kSelftest), 1, 1}, 5, f);
+  unoSends(f, n, 20);
+  TEST_ASSERT_TRUE(bl->selfTest().seen);
+  TEST_ASSERT_EQUAL(1, bl->selfTest().mask);
+  TEST_ASSERT_TRUE(bl->selfTest().locked);
+  uint8_t seq = 0;
+  TEST_ASSERT_TRUE(bl->sendCalibrate(0, 9, 30, seq));
+  wire->drain(*tx);
+  TEST_ASSERT_EQUAL(1, wire->count(FT::kCalibrate));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_start_master_sends_heartbeat_and_hello_req);
@@ -380,5 +398,6 @@ int main() {
   RUN_TEST(test_sound_and_cam_lock_acked);
   RUN_TEST(test_audio_mode_acked);
   RUN_TEST(test_setting_frames_and_value_event);
+  RUN_TEST(test_self_test_record_and_calibrate);
   return UNITY_END();
 }

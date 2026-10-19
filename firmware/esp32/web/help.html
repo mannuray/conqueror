@@ -60,7 +60,7 @@ link <span id="unoSynced">?</span>, last reset <span id="unoReset">?</span></td>
 
 <h2>[ DRIVE ]</h2>
 <ul>
-<li>Phone: open <a href="/">/</a> - stick (release = stop), big STOP, max speed, camera stick. One driver at a time;
+<li>Phone: open <a href="/">/</a> - <b>☰ MENU</b> (Logo - coming soon, Settings, AI - once its address is saved, Help), stick (release = stop), big STOP, max speed, camera stick. One driver at a time;
 others see "Busy". The IR remote beats everyone.</li>
 <li><b>STOP from any device holds:</b> after a STOP from a phone that is not driving, the driving phone is refused
 ("Stopped by another device") until its driver lets go of the stick.</li>
@@ -74,10 +74,19 @@ others see "Busy". The IR remote beats everyone.</li>
 <!--CQ:PROTOCOL-->
 
 <h2>[ SETTINGS ]</h2>
-<p><a href="/settings">/settings</a> - WiFi tab (connection, switch home / own WiFi, up to 3 saved networks, scan, add / edit,
-own-WiFi password) and Tank tab (bridge and Uno info, counts per metre and roll-on, track balance, read-only safety values,
-10 s CSV recording, restart). <b>Every change waits for one press of the tank's button</b> (30 s), otherwise nothing changes.
-Passwords are never shown or logged.</p>
+<p><a href="/settings">/settings</a> - four tabs, the open one kept in the address (<code>/settings#tune</code>):</p>
+<ul>
+<li><b>WiFi</b> - connection, switch home / own WiFi, up to 3 saved networks, scan, add / edit, own-WiFi password.</li>
+<li><b>Tank</b> - bridge and Uno info, live sensors (distance, heading, turn rate, encoders, track speeds, tilted / lifted),
+self-test (last result, run again with the tank standing still), camera (size, quality, frame-rate limit, brightness,
+contrast, low light, flip, mirror - saved on the tank), child play (read only), safety (read only), track model,
+maintenance (10 s CSV, restart, forget WiFi, AI address).</li>
+<li><b>Tune</b> - live graphs of the last 60 s (track speed, heading, balance; HOLD, CSV), counts per metre and roll-on,
+track balance, and the distance wizard: on the floor, DRIVE 1 m, measure, type the cm, SAVE.</li>
+<li><b>Log</b> - the last 200 events (stops, WiFi changes, system), newest first; filters and CSV; cleared on restart.</li>
+</ul>
+<p><b>Every change waits for one press of the tank's button</b> (30 s), otherwise nothing changes - also a counts-per-metre
+save from <code>move.py</code>. Camera settings and the AI address save at once. Passwords are never shown or logged.</p>
 
 <h3>WebSocket API</h3>
 <pre>&rarr; {"t":"hello","client":"name","proto":1}             &larr; {"t":"welcome",...}
@@ -98,6 +107,12 @@ settings (changes answer {"t":"confirm"} and wait for the tank's button):
 &rarr; {"t":"wifi_status"}  {"t":"wifi_scan"}  {"t":"wifi_save","slot":1-3,"ssid","password"}  {"t":"wifi_forget","slot"?}
 &rarr; {"t":"wifi_mode","mode":"home|ap"}  {"t":"ap_password","password"}  {"t":"setting","setting_id":66,"value"?}
 &rarr; {"t":"restart"}                                   &larr; confirm / confirmed / confirm_expired
+tank app:
+&rarr; {"t":"tank"}            &larr; {"t":"tank","selftest":{"seen","mask","locked","age_s"},"hw":{...},"camera":{...},"ai_url"}
+&rarr; {"t":"log","since":0}   &larr; {"t":"log","entries":[{"seq","age_s","kind","ev"?,"a","b","client"}],"last","gap"?} (25 a reply)
+&rarr; {"t":"camera_set","size":"QVGA|VGA|SVGA|HD","quality":10-40,"fps_cap":0|5|10|15,"brightness":-2..2,
+   "contrast":-2..2,"low_light","vflip","hmirror","reset":true,"id"}      &larr; ack, then tank
+&rarr; {"t":"selftest","id"}   (tank standing still)     &rarr; {"t":"app_set","ai_url":"http://...","id"}
 &larr; tf (10 Hz) &middot; ts (1 Hz) &middot; ev &middot; nack {"code","reason","message"} &middot; pong</pre>
 
 <!--CQ:LOGO-->

@@ -35,6 +35,14 @@ struct HelloInfo {
   uint32_t commit = 0;
 };
 
+// Plan O (bridge LLD R13): the last EVENT SELFTEST (a = failed-check bitmask, b = critical lock 0 / 1).
+struct SelfTestRecord {
+  bool seen = false;
+  uint8_t mask = 0;
+  bool locked = false;
+  uint32_t at_ms = 0;  // bridge time it arrived
+};
+
 struct TankSnapshot {
   bool fast_valid = false;
   bool slow_valid = false;
@@ -95,6 +103,7 @@ class BodyLink {
   bool sendSettingGet(uint8_t id, uint32_t now_ms, uint8_t& seq_out);
   bool sendSettingSet(uint8_t id, int32_t value, uint32_t now_ms, uint8_t& seq_out);
   bool sendSettingsSave(uint32_t now_ms, uint8_t& seq_out);
+  bool sendCalibrate(uint8_t op, uint8_t script, uint32_t now_ms, uint8_t& seq_out);  // Plan O: SELF_TEST only
   bool ackPending() const { return m_cam_pending; }
   void setOwnerHint(proto::OwnerHintValue hint);  // remembered; sent now if synced, and after HELLO
 
@@ -104,6 +113,7 @@ class BodyLink {
 
   bool popEvent(LinkEvent& ev);
   const HelloInfo& hello() const { return m_hello; }
+  const SelfTestRecord& selfTest() const { return m_self_test; }
   const TankSnapshot& snapshot() const { return m_snap; }
   const ParserStats& parserStats() const { return m_parser.stats(); }
   const LinkStats& stats() const { return m_stats; }
@@ -150,6 +160,7 @@ class BodyLink {
   bool m_cam_pending = false;
   uint32_t m_cam_sent_ms = 0;
   HelloInfo m_hello;
+  SelfTestRecord m_self_test;
   TankSnapshot m_snap;
   LinkStats m_stats;
   static constexpr size_t kEventSlots = 16;

@@ -449,5 +449,65 @@ uint16_t ackReasonCode(uint8_t status) {
   return status < kAckReasonCount ? kAckReasons[status].code : 0;
 }
 
+const char* unoEventName(uint8_t kind) {
+  static const char* const kNames[] = {"unknown", "bump", "lifted", "landed", "tilted", "level", "stall", "blocked",
+                                       "unblocked", "control_changed", "ir_override", "deadman_stop", "link_lost",
+                                       "link_restored", "batt_low", "batt_critical", "primitive_done", "selftest",
+                                       "envelope_changed", "encoder_fault", "imu_fault", "us_fault", "settings_saved",
+                                       "settings_reset", "cal_request", "button_press", "rejected", "safety_override",
+                                       "heading_fault"};
+  static_assert(sizeof(kNames) / sizeof(kNames[0]) == static_cast<size_t>(proto::EventKind::kHeadingFault) + 1,
+                "a Uno event without a name - add it here (design-notes §97 fix 4)");
+  return kind < sizeof(kNames) / sizeof(kNames[0]) ? kNames[kind] : "unknown";
+}
+
+size_t jsonTank(char* out, size_t cap, const TankView& v) {
+  static const char* const kSizes[] = {"QVGA", "VGA", "SVGA", "HD"};
+  char url[200];
+  jsonEscape(url, sizeof(url), v.ai_url != nullptr ? v.ai_url : "");
+  return fmt(out, cap,
+             "{\"t\":\"tank\",\"selftest\":{\"seen\":%s,\"mask\":%u,\"locked\":%s,\"age_s\":%lu},"
+             "\"hw\":{\"encoders\":%s,\"imu\":%s,\"us\":%s},"
+             "\"camera\":{\"size\":\"%s\",\"quality\":%u,\"fps_cap\":%u,\"brightness\":%d,\"contrast\":%d,"
+             "\"low_light\":%s,\"vflip\":%s,\"hmirror\":%s,\"viewers\":%u,\"fps\":%.1f,\"kbps\":%u},"
+             "\"ai_url\":\"%s\"}",
+             v.st.seen ? "true" : "false", v.st.mask, v.st.locked ? "true" : "false",
+             static_cast<unsigned long>(v.st_age_s), (v.hw & 1u) ? "true" : "false", (v.hw & 2u) ? "true" : "false",
+             (v.hw & 4u) ? "true" : "false", kSizes[v.cam_size < 4 ? v.cam_size : 1], v.cam_quality, v.cam_fps,
+             v.cam_bright, v.cam_contrast, v.cam_low ? "true" : "false", v.cam_vflip ? "true" : "false",
+             v.cam_hmirror ? "true" : "false", v.viewers, v.fps_x10 / 10.0, v.kbps, url);
+}
+
+size_t jsonLog(char* out, size_t cap, const LogEntry* e, uint8_t n, uint32_t last, bool gap, uint32_t now_ms) {
+  static const char* const kKinds[] = {"boot", "uno", "primitive", "stop_hold", "client_lost", "body_online",
+                                       "body_offline", "wifi_mode", "restart", "ota"};
+  static_assert(sizeof(kKinds) / sizeof(kKinds[0]) == static_cast<size_t>(LogKind::kOta) + 1, "a LogKind without a name");
+  // design-notes §97 fix 2: the closing part always fits; entries go in whole, oldest first, and stop at the first that
+  // does not fit (the page asks again from the last seq it got - a hole in the middle would be skipped for good).
+  char tail[48];
+  const int tl = snprintf(tail, sizeof tail, "],\"last\":%lu%s}", static_cast<unsigned long>(last), gap ? ",\"gap\":true" : "");
+  size_t len = fmt(out, cap, "{\"t\":\"log\",\"entries\":[");
+  if (len == 0 || tl <= 0) return 0;
+  for (uint8_t i = 0; i < n; ++i) {
+    const LogEntry& x = e[i];
+    const uint8_t k = static_cast<uint8_t>(x.kind);
+    char ev[48] = "";
+    if (x.kind == LogKind::kUno) snprintf(ev, sizeof(ev), ",\"ev\":\"%s\"", unoEventName(static_cast<uint8_t>(x.a)));
+    char client[32];
+    jsonEscape(client, sizeof(client), x.client);
+    char item[192];
+    const int il = snprintf(item, sizeof item, "%s{\"seq\":%lu,\"age_s\":%lu,\"kind\":\"%s\"%s,\"a\":%ld,\"b\":%ld,\"client\":\"%s\"}",
+                            i == 0 ? "" : ",", static_cast<unsigned long>(x.seq),
+                            static_cast<unsigned long>((now_ms - x.t_ms) / 1000u),
+                            k < sizeof(kKinds) / sizeof(kKinds[0]) ? kKinds[k] : "unknown", ev, static_cast<long>(x.a),
+                            static_cast<long>(x.b), client);
+    if (il <= 0 || static_cast<size_t>(il) >= sizeof item || len + static_cast<size_t>(il + tl) >= cap) break;
+    memcpy(out + len, item, static_cast<size_t>(il));
+    len += static_cast<size_t>(il);
+  }
+  memcpy(out + len, tail, static_cast<size_t>(tl) + 1);
+  return len + static_cast<size_t>(tl);
+}
+
 }  // namespace core
 }  // namespace cq

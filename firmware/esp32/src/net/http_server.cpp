@@ -21,9 +21,15 @@ struct OutMsg {
   uint16_t len;
   char data[core::kWsJsonMax];
 };
+struct BigMsg {  // Plan O tank check: the log / tank replies are larger than an OutMsg (they were dropped)
+  int fd;
+  uint16_t len;
+  char data[core::kWsBigMax];
+};
 
 httpd_handle_t g_server = nullptr;
 QueueHandle_t g_out = nullptr;
+QueueHandle_t g_out_big = nullptr;  // 2 slots
 std::atomic<bool> g_work_pending{false};
 std::atomic<uint32_t> g_dropped{0};
 
@@ -31,37 +37,46 @@ void queueSendWork();
 
 // Review I2: the httpd task also receives every drive/stop, so a send pass is bounded and a client
 // whose send fails (sleeping phone, full socket buffer) is closed instead of blocking again.
-void sendWork(void*) {
-  g_work_pending = false;  // cleared first: a message posted while we drain queues new work
-  static OutMsg m;         // httpd task only
-  constexpr int kMaxPerPass = 16;
+struct SendPass {
   int failed[4];
   int n_failed = 0;
-  int sent = 0;
-  while (sent < kMaxPerPass && xQueueReceive(g_out, &m, 0) == pdTRUE) {
-    ++sent;
-    bool skip = false;
-    for (int i = 0; i < n_failed; ++i) skip = skip || failed[i] == m.fd;
-    if (skip) {
-      ++g_dropped;
-      continue;
+  void send(int fd, char* data, uint16_t len) {
+    for (int i = 0; i < n_failed; ++i) {
+      if (failed[i] == fd) {
+        ++g_dropped;
+        return;
+      }
     }
-    if (httpd_ws_get_fd_info(g_server, m.fd) != HTTPD_WS_CLIENT_WEBSOCKET) {
+    if (httpd_ws_get_fd_info(g_server, fd) != HTTPD_WS_CLIENT_WEBSOCKET) {
       ++g_dropped;  // review M6: closed meanwhile, or the fd now belongs to another session
-      continue;
+      return;
     }
     httpd_ws_frame_t f{};
     f.final = true;
     f.type = HTTPD_WS_TYPE_TEXT;
-    f.payload = reinterpret_cast<uint8_t*>(m.data);
-    f.len = m.len;
-    if (httpd_ws_send_frame_async(g_server, m.fd, &f) != ESP_OK) {
+    f.payload = reinterpret_cast<uint8_t*>(data);
+    f.len = len;
+    if (httpd_ws_send_frame_async(g_server, fd, &f) != ESP_OK) {
       ++g_dropped;
-      if (n_failed < 4) failed[n_failed++] = m.fd;
-      httpd_sess_trigger_close(g_server, m.fd);  // kWsClose follows: link_task drops the client
+      if (n_failed < 4) failed[n_failed++] = fd;
+      httpd_sess_trigger_close(g_server, fd);  // kWsClose follows: link_task drops the client
     }
   }
-  if (uxQueueMessagesWaiting(g_out) > 0) queueSendWork();  // rest in the next pass: receives run first
+};
+
+void sendWork(void*) {
+  g_work_pending = false;  // cleared first: a message posted while we drain queues new work
+  static OutMsg m;         // httpd task only
+  static BigMsg big;
+  constexpr int kMaxPerPass = 16;
+  SendPass pass;
+  int sent = 0;
+  while (sent < kMaxPerPass && xQueueReceive(g_out, &m, 0) == pdTRUE) {
+    ++sent;
+    pass.send(m.fd, m.data, m.len);
+  }
+  if (xQueueReceive(g_out_big, &big, 0) == pdTRUE) pass.send(big.fd, big.data, big.len);  // one big reply per pass
+  if (uxQueueMessagesWaiting(g_out) > 0 || uxQueueMessagesWaiting(g_out_big) > 0) queueSendWork();  // rest next pass
 }
 
 void queueSendWork() {
@@ -146,6 +161,7 @@ void onSockClose(httpd_handle_t, int fd) {
 
 bool httpServerStart() {
   g_out = xQueueCreate(24, sizeof(OutMsg));  // allocated once at startup
+  g_out_big = xQueueCreate(2, sizeof(BigMsg));  // Plan O: ~7 KB for the log / tank replies
   httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
   cfg.server_port = board::kHttpPort;
   cfg.ctrl_port = 32768;
@@ -174,7 +190,19 @@ bool httpServerStart() {
 httpd_handle_t httpServer() { return g_server; }
 
 bool wsSend(int fd, const char* json, size_t len) {
-  if (g_server == nullptr || len == 0 || len > core::kWsJsonMax) return false;
+  if (g_server == nullptr || len == 0 || len > core::kWsBigMax) return false;
+  if (len > core::kWsJsonMax) {  // Plan O: a log / tank reply
+    static BigMsg b;  // link_task only
+    b.fd = fd;
+    b.len = static_cast<uint16_t>(len);
+    memcpy(b.data, json, len);
+    if (xQueueSendToBack(g_out_big, &b, 0) != pdTRUE) {
+      ++g_dropped;
+      return false;
+    }
+    queueSendWork();
+    return true;
+  }
   static OutMsg m;  // link_task only
   m.fd = fd;
   m.len = static_cast<uint16_t>(len);

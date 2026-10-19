@@ -1,4 +1,5 @@
 // WsJson: frames/snapshot -> the JSON the Basic Drive page reads (bridge LLD R2.9).
+#include <stdio.h>
 #include <string.h>
 #include <unity.h>
 
@@ -465,6 +466,68 @@ void test_json_escape_replaces_invalid_utf8() {
   TEST_ASSERT_EQUAL_STRING("\xEF\xBF\xBD\xEF\xBF\xBD", out);
 }
 
+
+// Plan O (bridge LLD R13): log entries, tank info.
+void test_json_log_entries_and_gap() {
+  LogEntry e[2];
+  e[0].seq = 51; e[0].t_ms = 1000; e[0].kind = LogKind::kUno; e[0].a = 6; e[0].b = 1;
+  e[1].seq = 52; e[1].t_ms = 5000; e[1].kind = LogKind::kStopHold; strcpy(e[1].client, "phone-3");
+  char out[512];
+  jsonLog(out, sizeof out, e, 2, 52, true, 9000);
+  TEST_ASSERT_NOT_NULL(strstr(out, "\"kind\":\"uno\",\"ev\":\"stall\""));
+  TEST_ASSERT_NOT_NULL(strstr(out, "\"age_s\":8"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "\"kind\":\"stop_hold\""));
+  TEST_ASSERT_NOT_NULL(strstr(out, "\"client\":\"phone-3\""));
+  TEST_ASSERT_NOT_NULL(strstr(out, "\"last\":52"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "\"gap\":true"));
+}
+
+void test_json_log_that_does_not_fit_stays_valid() {  // design-notes §97 fix 2: fewer entries, never a broken reply
+  LogEntry e[25];
+  for (uint8_t i = 0; i < 25; ++i) {  // mixed sizes: a skipped big entry must not let a later small one in
+    e[i].seq = 100 + i; e[i].t_ms = 0; e[i].kind = i % 2 ? LogKind::kOta : LogKind::kStopHold;
+    strcpy(e[i].client, i % 2 ? "" : "phone-12345");
+  }
+  for (size_t cap = 100; cap <= 900; ++cap) {
+    char out[900];
+    const size_t n = jsonLog(out, cap, e, 25, 124, false, 1000);
+    TEST_ASSERT_TRUE_MESSAGE(n > 0 && n < cap, "the reply always fits");
+    TEST_ASSERT_EQUAL_size_t(strlen(out), n);
+    TEST_ASSERT_EQUAL_CHAR('}', out[n - 1]);
+    TEST_ASSERT_NOT_NULL(strstr(out, "],\"last\":124}"));
+    bool gap = false;  // the entries are a whole prefix: once one is missing, no later one appears
+    for (uint8_t i = 0; i < 25; ++i) {
+      char key[16];
+      snprintf(key, sizeof key, "\"seq\":%u,", 100u + i);
+      const bool in = strstr(out, key) != nullptr;
+      TEST_ASSERT_FALSE_MESSAGE(gap && in, "no hole in the middle");
+      gap = gap || !in;
+    }
+  }
+}
+
+void test_json_tank_info() {
+  TankView v{};
+  v.st.seen = true; v.st.mask = 2; v.st.locked = false; v.hw = 0x03;
+  v.cam_size = 1; v.cam_quality = 12; v.cam_vflip = true; v.viewers = 1; v.fps_x10 = 125; v.kbps = 840;
+  v.ai_url = "http://x\"y";  // escaped even if it ever got in
+  char out[512];
+  jsonTank(out, sizeof out, v);
+  TEST_ASSERT_NOT_NULL(strstr(out, "\"t\":\"tank\""));
+  TEST_ASSERT_NOT_NULL(strstr(out, "\"mask\":2"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "\"size\":\"VGA\""));
+  TEST_ASSERT_NOT_NULL(strstr(out, "\"fps\":12.5"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "\"kbps\":840"));
+  TEST_ASSERT_NOT_NULL(strstr(out, "x\\\"y"));
+}
+
+void test_uno_event_names_cover_lite_events() {
+  TEST_ASSERT_EQUAL_STRING("selftest", unoEventName(17));
+  TEST_ASSERT_EQUAL_STRING("imu_fault", unoEventName(20));
+  TEST_ASSERT_EQUAL_STRING("stall", unoEventName(6));
+  TEST_ASSERT_EQUAL_STRING("unknown", unoEventName(250));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_ack_reason_table_matches_generated_codes);
@@ -494,5 +557,9 @@ int main() {
   RUN_TEST(test_wifi_status_escapes_ssid);
   RUN_TEST(test_confirm_replies_and_setting);
   RUN_TEST(test_json_escape_replaces_invalid_utf8);
+  RUN_TEST(test_json_log_entries_and_gap);
+  RUN_TEST(test_json_log_that_does_not_fit_stays_valid);
+  RUN_TEST(test_json_tank_info);
+  RUN_TEST(test_uno_event_names_cover_lite_events);
   return UNITY_END();
 }

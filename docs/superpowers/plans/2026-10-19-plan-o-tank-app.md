@@ -376,7 +376,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `const char* unoEventName(uint8_t kind)` — every EventKind the Lite sends (incl. `selftest`, `imu_fault`, `us_fault`, `envelope_changed`, `settings_saved`, `settings_reset`, `rejected`, `heading_fault`).
   - `size_t jsonTank(char*, size_t, const TankView&)` with `struct TankView { SelfTestRecord st; uint8_t hw; uint8_t cam_size, cam_quality, cam_fps; int8_t cam_bright, cam_contrast; bool cam_low, cam_vflip, cam_hmirror; uint8_t viewers; uint16_t fps_x10; uint16_t kbps; const char* ai_url; uint32_t uptime_s; }`.
   - `size_t jsonLog(char*, size_t, const LogEntry* e, uint8_t n, uint32_t last, bool gap, uint32_t now_ms)` → `{"t":"log","entries":[{"seq","age_s","kind","ev"?,"a","b","client"}],"last","gap"?}` (`kind` names: boot, uno, primitive, stop_hold, client_lost, body_online, body_offline, wifi_mode, restart, ota; `ev` = `unoEventName(a)` for `uno`).
-  - `jsonTs` adds `"temp_c"` (1 decimal; `null` before the first slow frame).
+  - (`temp_c` dropped — no temperature on the Uno Lite, design-notes §92.)
 
 - [ ] **Step 1: Failing tests** (add to the existing suites; register with `RUN_TEST`)
 

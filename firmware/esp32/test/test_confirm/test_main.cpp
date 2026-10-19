@@ -53,6 +53,17 @@ void test_gate_new_change_replaces() {
   TEST_ASSERT_EQUAL_INT(4, out.fd);
 }
 
+void test_gate_busy_for_another_client() {  // Plan O final review I2: never swap another device's waiting change
+  ConfirmGate g;
+  TEST_ASSERT_FALSE(g.busyFor(3));
+  g.begin(change(ChangeKind::kWifiForget, 3), 0);
+  TEST_ASSERT_FALSE(g.busyFor(3));  // the same client may replace its own change
+  TEST_ASSERT_TRUE(g.busyFor(4));
+  PendingChange out;
+  TEST_ASSERT_TRUE(g.take(out));
+  TEST_ASSERT_FALSE(g.busyFor(4));
+}
+
 void test_gate_drop_client() {  // Review Focus 4
   ConfirmGate g;
   g.begin(change(ChangeKind::kWifiForget, 9), 0);
@@ -138,11 +149,26 @@ void test_acked_ops_time_out() {
   TEST_ASSERT_FALSE(q.timedOut(999999));  // nothing in flight
 }
 
+
+// Plan O: calibration saves wait for the tank's button.
+void test_confirm_calib_set_kind() {
+  TEST_ASSERT_EQUAL_STRING("calib", changeName(ChangeKind::kCalibSet));
+  ConfirmGate g;
+  PendingChange c;
+  c.kind = ChangeKind::kCalibSet;
+  c.cpm = 7295;
+  g.begin(c, 0);
+  PendingChange out;
+  TEST_ASSERT_TRUE(g.take(out));
+  TEST_ASSERT_EQUAL(7295, out.cpm);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_gate_confirm_then_empty);
   RUN_TEST(test_gate_expires_once);
   RUN_TEST(test_gate_new_change_replaces);
+  RUN_TEST(test_gate_busy_for_another_client);
   RUN_TEST(test_gate_drop_client);
   RUN_TEST(test_double_press_gap);
   RUN_TEST(test_double_press_three_presses_one_toggle);
@@ -150,5 +176,6 @@ int main() {
   RUN_TEST(test_change_names);
   RUN_TEST(test_acked_ops_one_at_a_time);
   RUN_TEST(test_acked_ops_time_out);
+  RUN_TEST(test_confirm_calib_set_kind);
   return UNITY_END();
 }

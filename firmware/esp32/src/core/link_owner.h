@@ -16,12 +16,11 @@ constexpr uint32_t kHandbackMs = 5000;  // gateway human_handback_ms
 enum class LinkState : uint8_t { kIdle, kWebHandshake, kWebReady, kWebDriving };
 enum class Decision : uint8_t { kSend, kNackNotOwner, kNackBusy, kNackBodyOffline, kNackStopped };
 
-// Things the caller must do, in this order: kStopMaster, kSendStop, kHintNone /
+// Things the caller must do, in this order: kSendStop, kHintNone /
 // kHintHuman, kStartMaster, kOwnerChanged (broadcast ev control_changed + ts).
 struct Actions {
   enum : uint8_t {
     kStartMaster = 1 << 0,
-    kStopMaster = 1 << 1,
     kSendStop = 1 << 2,  // STOP with BodyLink's own seq (resent until the Uno's ACK)
     kHintNone = 1 << 4,
     kHintHuman = 1 << 5,
@@ -35,6 +34,7 @@ class LinkOwner {
  public:
   static constexpr int kNoFd = -1;
 
+  Actions begin();  // R14 (design-notes §95): the bridge is the Uno link's only master, from boot
   Actions onWsOpen(int fd);
   Actions onWsClose(int fd);
   // moving: a drive frame with v or w != 0. After a STOP from another device the driver's moving frames are refused

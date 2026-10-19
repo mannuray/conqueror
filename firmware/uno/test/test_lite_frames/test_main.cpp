@@ -24,7 +24,7 @@ void test_frames_driving_is_handled() {
 
 void test_frames_unsupported_are_unavailable() {
   const proto::FrameType gone[] = {proto::FrameType::kTurn, proto::FrameType::kMove, proto::FrameType::kDriveRate,
-                                   proto::FrameType::kCancel, proto::FrameType::kCalibrate, proto::FrameType::kProfile,
+                                   proto::FrameType::kCancel, proto::FrameType::kProfile,
                                    proto::FrameType::kSafetyOverride};
   for (const proto::FrameType f : gone) {
     TEST_ASSERT_EQUAL(FrameUse::kUnavailable, lite_frames::frameUse(t(f)));
@@ -75,6 +75,13 @@ void test_hw_byte() {
   TEST_ASSERT_EQUAL_UINT8(0x01, lite_telemetry::hwByte(true, false, false));
 }
 
+
+// Uno Lite LLD §21: CALIBRATE is handled now (SELF_TEST re-runs the boot self-test; other scripts UNAVAILABLE).
+void test_calibrate_is_handled_for_self_test() {
+  TEST_ASSERT_EQUAL(static_cast<int>(cq::lite_frames::FrameUse::kHandled),
+                    static_cast<int>(cq::lite_frames::frameUse(static_cast<uint8_t>(cq::proto::FrameType::kCalibrate))));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_frames_driving_is_handled);
@@ -84,5 +91,6 @@ int main() {
   RUN_TEST(test_slow_flags_safety_state);
   RUN_TEST(test_slow_flags_audio_mode);
   RUN_TEST(test_hw_byte);
+  RUN_TEST(test_calibrate_is_handled_for_self_test);
   return UNITY_END();
 }

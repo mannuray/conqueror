@@ -1,8 +1,11 @@
 #include "net/camera_service.h"
 
 #include <Arduino.h>
+#include <string.h>
 
 #include <atomic>
+
+#include <Preferences.h>
 
 #include <driver/gpio.h>
 
@@ -13,6 +16,48 @@ namespace cq {
 namespace net {
 namespace {
 bool g_ok = false;
+CamSettings g_cur;                    // in force (spinlock)
+portMUX_TYPE g_cam_mux = portMUX_INITIALIZER_UNLOCKED;
+QueueHandle_t g_cam_q = nullptr;      // latest posted settings (depth 1, overwritten)
+std::atomic<uint32_t> g_frames{0};
+std::atomic<uint32_t> g_bytes{0};
+
+framesize_t frameSizeOf(uint8_t s) {
+  const framesize_t k[] = {FRAMESIZE_QVGA, FRAMESIZE_VGA, FRAMESIZE_SVGA, FRAMESIZE_HD};
+  return k[s < 4 ? s : 1];
+}
+
+void applyTo(sensor_t* s, const CamSettings& c) {
+  if (s == nullptr) return;
+  s->set_framesize(s, frameSizeOf(c.size));
+  s->set_quality(s, c.quality);
+  s->set_brightness(s, c.brightness);
+  s->set_contrast(s, c.contrast);
+  // design-notes §96: low light = night mode (longer exposures in the dark) + 32x gain ceiling + one step brighter
+  s->set_aec2(s, c.low_light ? 1 : 0);
+  s->set_gainceiling(s, c.low_light ? GAINCEILING_32X : GAINCEILING_4X);
+  s->set_ae_level(s, c.low_light ? 1 : 0);
+  s->set_vflip(s, c.vflip ? 1 : 0);
+  s->set_hmirror(s, c.hmirror ? 1 : 0);
+}
+
+bool loadSettings(CamSettings& c) {
+  Preferences p;
+  if (!p.begin("cq_cam", true)) return false;
+  const bool ok = p.getBytesLength("s") == sizeof(CamSettings) && p.getBytes("s", &c, sizeof(c)) == sizeof(c);
+  p.end();
+  return ok && c.size < 4 && c.quality >= 10 && c.quality <= 40;
+}
+
+void saveSettings(const CamSettings& c) {
+  Preferences p;
+  if (!p.begin("cq_cam", false)) {
+    logf("camera: settings not saved (NVS open failed)");
+    return;
+  }
+  if (p.putBytes("s", &c, sizeof(c)) != sizeof(c)) logf("camera: settings not saved (NVS write failed)");
+  p.end();
+}
 const char* g_name = "none";
 std::atomic<bool> g_stopped{false};
 
@@ -49,7 +94,7 @@ bool cameraBegin() {
   c.ledc_timer = LEDC_TIMER_0;
   c.ledc_channel = LEDC_CHANNEL_0;
   c.pixel_format = PIXFORMAT_JPEG;
-  c.frame_size = FRAMESIZE_VGA;
+  c.frame_size = FRAMESIZE_HD;  // Plan O: buffers sized for the largest choice; the saved size is set below
   c.jpeg_quality = 12;
   c.fb_count = 2;
   c.fb_location = CAMERA_FB_IN_PSRAM;
@@ -72,8 +117,15 @@ bool cameraBegin() {
     g_name = info != nullptr ? info->name : "unknown";
     applySensorDefaults(s);
   }
+  CamSettings cs = cameraDefaults();
+  if (!loadSettings(cs)) cs = cameraDefaults();
+  applyTo(s, cs);
+  portENTER_CRITICAL(&g_cam_mux);
+  g_cur = cs;
+  portEXIT_CRITICAL(&g_cam_mux);
+  if (g_cam_q == nullptr) g_cam_q = xQueueCreate(1, sizeof(CamSettings));
   g_ok = true;
-  logf("camera: %s, VGA JPEG q12, 2 frame buffers in PSRAM", g_name);
+  logf("camera: %s, size %u q%u (buffers for HD), 2 frame buffers in PSRAM", g_name, cs.size, cs.quality);
   return true;
 }
 
@@ -90,6 +142,53 @@ void cameraStop() { g_stopped = true; }
 bool cameraStopped() { return g_stopped; }
 
 bool cameraReady() { return g_ok && !g_stopped; }
+
+CamSettings cameraDefaults() {
+  CamSettings c;
+  c.vflip = g_name != nullptr && strcmp(g_name, "OV3660") == 0;  // the stock OV3660 is mounted upside down
+  return c;
+}
+
+bool cameraPost(const CamSettings& s) { return g_cam_q != nullptr && xQueueOverwrite(g_cam_q, &s) == pdTRUE; }
+
+void cameraApplyPending() {
+  CamSettings c;
+  if (g_cam_q == nullptr || !g_ok || g_stopped || xQueueReceive(g_cam_q, &c, 0) != pdTRUE) return;
+  applyTo(esp_camera_sensor_get(), c);
+  portENTER_CRITICAL(&g_cam_mux);
+  g_cur = c;
+  portEXIT_CRITICAL(&g_cam_mux);
+  saveSettings(c);
+  logf("camera: settings size %u q%u fps %u b%d c%d low %u", c.size, c.quality, c.fps_cap, c.brightness, c.contrast,
+       c.low_light ? 1u : 0u);
+}
+
+CamSettings cameraSettings() {
+  portENTER_CRITICAL(&g_cam_mux);
+  const CamSettings c = g_cur;
+  portEXIT_CRITICAL(&g_cam_mux);
+  return c;
+}
+
+void cameraCountFrame(uint32_t bytes) {
+  g_frames.fetch_add(1);
+  g_bytes.fetch_add(bytes);
+}
+
+CamStats cameraStats(uint32_t now_ms) {
+  static uint32_t last_ms = 0, last_frames = 0, last_bytes = 0;
+  static CamStats cached;
+  const uint32_t dt = now_ms - last_ms;
+  if (dt >= 2000) {
+    const uint32_t f = g_frames.load(), b = g_bytes.load();
+    cached.fps_x10 = static_cast<uint16_t>((f - last_frames) * 10000u / dt);
+    cached.kbps = static_cast<uint16_t>((b - last_bytes) * 8u / dt);  // bytes * 8 / ms = kbit/s
+    last_ms = now_ms;
+    last_frames = f;
+    last_bytes = b;
+  }
+  return cached;
+}
 
 }  // namespace net
 }  // namespace cq

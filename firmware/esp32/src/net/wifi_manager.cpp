@@ -314,6 +314,12 @@ void WifiManager::step(uint32_t now_ms, bool has_clients) {
     m_last_snapshot_ms = now_ms;
     refreshSnapshot();
   }
+  if (m_policy.mode() != m_reported_mode && m_policy.mode() != core::WifiMode::kConnecting && g_res != nullptr) {
+    WifiResult res;  // Plan O: home / own AP / fallback AP into the event log
+    res.kind = WifiResult::kModeChanged;
+    res.id = static_cast<int32_t>(m_policy.mode());
+    if (xQueueSendToBack(g_res, &res, 0) == pdTRUE) m_reported_mode = m_policy.mode();  // full: tried again next step
+  }
 }
 
 void WifiManager::refreshSnapshot() {

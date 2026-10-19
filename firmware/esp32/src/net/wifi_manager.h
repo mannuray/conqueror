@@ -24,7 +24,7 @@ struct WifiRequest {
 };
 
 struct WifiResult {
-  enum Kind : uint8_t { kStatus, kScan, kApplied, kFailed };
+  enum Kind : uint8_t { kStatus, kScan, kApplied, kFailed, kModeChanged };  // kModeChanged: id = core::WifiMode (Plan O log)
   Kind kind = kStatus;
   int fd = -1;
   int32_t id = -1;
@@ -82,6 +82,7 @@ class WifiManager {
   uint8_t m_defer = 0;  // 0 none, 1 force AP, 2 force home, 3 reconnect
   uint32_t m_defer_at = 0;
   uint32_t m_last_snapshot_ms = 0;
+  core::WifiMode m_reported_mode = core::WifiMode::kConnecting;  // Plan O: mode changes go to the event log
 };
 
 }  // namespace net

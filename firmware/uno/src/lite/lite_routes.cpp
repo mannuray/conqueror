@@ -174,6 +174,16 @@ proto::AckStatus handle(uint8_t type, const uint8_t* p, uint8_t len) {
     case F::kCamJoy: case F::kCamSet: case F::kCamNudge: case F::kCamHome: case F::kCamLock: return handleCamera(type, p, len);
     case F::kSettingSet: case F::kSettingGet: case F::kSettingsSave: return handleSettings(type, p, len);
     case F::kLed: case F::kSound: case F::kTone: case F::kAudioMode: return handleUi(type, p, len);
+    case F::kCalibrate: {  // Uno Lite LLD §21: SELF_TEST re-runs the boot self-test (EVENT SELFTEST); nothing else
+      proto::CalibrateMsg m{};
+      if (!dec(p, len, m)) return proto::AckStatus::kInvalidCommand;
+      if (m.op != static_cast<uint8_t>(proto::CalOp::kStart) || m.script != static_cast<uint8_t>(proto::CalScript::kSelfTest)) {
+        return proto::AckStatus::kUnavailable;
+      }
+      if (g_lite.moving) return proto::AckStatus::kBusy;
+      g_lite.self_test_pending = true;
+      return proto::AckStatus::kOk;
+    }
     default: return proto::AckStatus::kUnavailable;
   }
 }

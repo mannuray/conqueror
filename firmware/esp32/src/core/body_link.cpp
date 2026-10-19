@@ -109,6 +109,12 @@ void BodyLink::onFrame(const FrameView& f, uint32_t now_ms) {
       proto::EventMsg e{};
       if (proto::decode(f.payload, f.len, e)) {
         pushEvent({LinkEventKind::kUnoEvent, e.kind, f.seq, 0, e.a, e.b});
+        if (e.kind == static_cast<uint8_t>(proto::EventKind::kSelftest)) {  // Plan O
+          m_self_test.seen = true;
+          m_self_test.mask = static_cast<uint8_t>(e.a);
+          m_self_test.locked = e.b != 0;
+          m_self_test.at_ms = now_ms;
+        }
       }
       break;
     }
@@ -188,6 +194,10 @@ bool BodyLink::sendSettingGet(uint8_t id, uint32_t now_ms, uint8_t& seq_out) {
 
 bool BodyLink::sendSettingSet(uint8_t id, int32_t value, uint32_t now_ms, uint8_t& seq_out) {
   return sendAcked(proto::SettingSetMsg{id, value}, now_ms, seq_out);
+}
+
+bool BodyLink::sendCalibrate(uint8_t op, uint8_t script, uint32_t now_ms, uint8_t& seq_out) {
+  return sendAcked(proto::CalibrateMsg{op, script, 0, 0}, now_ms, seq_out);
 }
 
 bool BodyLink::sendSettingsSave(uint32_t now_ms, uint8_t& seq_out) {

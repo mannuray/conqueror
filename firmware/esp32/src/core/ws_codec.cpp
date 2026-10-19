@@ -15,6 +15,7 @@ namespace {
 class Reader {
  public:
   Reader(const char* s, size_t n) : m_s(s), m_end(s + n) {}
+  bool cut() const { return m_cut; }  // the last str() did not fit and was truncated
 
   void ws() {
     while (m_s < m_end && (*m_s == ' ' || *m_s == '\t' || *m_s == '\r' || *m_s == '\n')) ++m_s;
@@ -35,6 +36,7 @@ class Reader {
   bool str(char* out, size_t cap) {
     if (!eat('"')) return false;
     size_t n = 0;
+    m_cut = false;
     while (m_s < m_end && *m_s != '"') {
       char c = *m_s++;
       if (c == '\\') {
@@ -42,6 +44,7 @@ class Reader {
         c = *m_s++;
       }
       if (n + 1 < cap) out[n++] = c;
+      else m_cut = true;
     }
     if (cap) out[n] = '\0';
     return eat('"');
@@ -110,6 +113,7 @@ class Reader {
  private:
   const char* m_s;
   const char* m_end;
+  bool m_cut = false;
 };
 
 int8_t clampPct(double v) {
@@ -143,6 +147,11 @@ WsCmdKind kindOf(const char* t) {
   if (strcmp(t, "ap_password") == 0) return WsCmdKind::kApPassword;
   if (strcmp(t, "setting") == 0) return WsCmdKind::kSetting;
   if (strcmp(t, "restart") == 0) return WsCmdKind::kRestart;
+  if (strcmp(t, "tank") == 0) return WsCmdKind::kTank;
+  if (strcmp(t, "log") == 0) return WsCmdKind::kLog;
+  if (strcmp(t, "camera_set") == 0) return WsCmdKind::kCameraSet;
+  if (strcmp(t, "selftest") == 0) return WsCmdKind::kSelfTest;
+  if (strcmp(t, "app_set") == 0) return WsCmdKind::kAppSet;
   return WsCmdKind::kUnsupported;
 }
 
@@ -223,12 +232,16 @@ struct Seen {
   bool pivot = false;                  // turn (Plan L)
   bool ssid = false, password = false, setting_id = false;  // Plan M
   char reset[16] = "";                                      // calib reset
+  bool reset_true = false;                                  // camera_set reset (Plan O)
+  bool url_bad = false;                                     // app_set
 };
 
 bool readBool(Reader& r, bool& out, bool& seen) {
   if (r.word("true")) {
     out = true;
-  } else if (!r.word("false")) {
+  } else if (r.word("false")) {
+    out = false;  // tank check: the field's default may be true (vflip) - always write what was sent
+  } else {
     return false;
   }
   seen = true;
@@ -299,7 +312,52 @@ bool readField(const char* key, Reader& r, WsCommand& c, Seen& s) {
     c.has_value = true;
     return true;
   }
-  if (strcmp(key, "reset") == 0) return r.str(s.reset, sizeof(s.reset));
+  if (strcmp(key, "reset") == 0) {  // calib: a name; camera_set: true / false
+    if (r.word("true")) { s.reset_true = true; return true; }
+    if (r.word("false")) return true;
+    return r.str(s.reset, sizeof(s.reset));
+  }
+  if (strcmp(key, "since") == 0) {  // log
+    if (!r.num(num, nullptr, 0) || !isWhole(num) || num < 0 || num > 4294967295.0) return false;
+    c.log_since = static_cast<uint32_t>(num);
+    return true;
+  }
+  if (strcmp(key, "size") == 0) {  // camera_set
+    char sz[8];
+    if (!r.str(sz, sizeof(sz))) return false;
+    const char* const kSizes[] = {"QVGA", "VGA", "SVGA", "HD"};
+    for (uint8_t i = 0; i < 4; ++i) {
+      if (strcmp(sz, kSizes[i]) == 0) { c.cam.size = i; c.cam.has_size = true; return true; }
+    }
+    return false;
+  }
+  if (strcmp(key, "quality") == 0) {
+    if (!r.num(num, nullptr, 0) || !isWhole(num) || num < 10 || num > 40) return false;
+    c.cam.quality = static_cast<uint8_t>(num);
+    c.cam.has_quality = true;
+    return true;
+  }
+  if (strcmp(key, "fps_cap") == 0) {
+    if (!r.num(num, nullptr, 0) || !(num == 0 || num == 5 || num == 10 || num == 15)) return false;
+    c.cam.fps = static_cast<uint8_t>(num);
+    c.cam.has_fps = true;
+    return true;
+  }
+  if (strcmp(key, "brightness") == 0 || strcmp(key, "contrast") == 0) {
+    if (!r.num(num, nullptr, 0) || !isWhole(num) || num < -2 || num > 2) return false;
+    if (key[0] == 'b') { c.cam.bright = static_cast<int8_t>(num); c.cam.has_bright = true; }
+    else { c.cam.contrast = static_cast<int8_t>(num); c.cam.has_contrast = true; }
+    return true;
+  }
+  if (strcmp(key, "low_light") == 0) return readBool(r, c.cam.low, c.cam.has_low);
+  if (strcmp(key, "vflip") == 0) return readBool(r, c.cam.vflip, c.cam.has_vflip);
+  if (strcmp(key, "hmirror") == 0) return readBool(r, c.cam.hmirror, c.cam.has_hmirror);
+  if (strcmp(key, "ai_url") == 0) {  // app_set
+    if (!r.str(c.ai_url, sizeof(c.ai_url))) return false;
+    c.has_ai_url = true;
+    s.url_bad = r.cut() || !appUrlValid(c.ai_url);  // never store an address cut short (final review I3)
+    return true;
+  }
   if (strcmp(key, "setting_id") == 0) {  // setting: the Uno setting (the command id stays "id")
     if (!r.num(num, nullptr, 0) || !isWhole(num) || num < 0 || num > 255) return false;
     c.setting_id = static_cast<uint8_t>(num);
@@ -348,6 +406,10 @@ bool complete(WsCommand& c, const Seen& s) {
     case WsCmdKind::kRestart: return true;
     case WsCmdKind::kDriveRate: return s.v && s.mf.rate;  // review M20: like the other commands' fields
     case WsCmdKind::kDebug: return s.on;
+    case WsCmdKind::kCameraSet:
+      c.cam.reset = s.reset_true;
+      return c.cam.any();
+    case WsCmdKind::kAppSet: return c.has_ai_url && !s.url_bad;
     default: return true;
   }
 }
@@ -368,6 +430,17 @@ WsCommand parseWsCommand(const char* text, size_t len) {
   }
   if (!r.eat('}') || !r.atEnd() || s.t[0] == '\0') return bad;
   return complete(c, s) ? c : bad;
+}
+
+bool appUrlValid(const char* url) {
+  const size_t n = strlen(url);
+  if (n == 0) return true;
+  if (n > 96 || strncmp(url, "http://", 7) != 0 || n < 8) return false;
+  for (size_t i = 0; i < n; ++i) {
+    const char ch = url[i];
+    if (ch <= ' ' || ch > '~' || ch == '"' || ch == '\\' || ch == '<' || ch == '>' || ch == '\'') return false;
+  }
+  return true;
 }
 
 }  // namespace core

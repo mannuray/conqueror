@@ -6,7 +6,7 @@
 namespace cq {
 namespace core {
 
-enum class ChangeKind : uint8_t { kNone, kWifiSave, kWifiForget, kWifiMode, kApPassword, kCalibReset, kSetting };
+enum class ChangeKind : uint8_t { kNone, kWifiSave, kWifiForget, kWifiMode, kApPassword, kCalibReset, kSetting, kCalibSet };
 
 struct PendingChange {
   ChangeKind kind = ChangeKind::kNone;
@@ -19,6 +19,7 @@ struct PendingChange {
   uint8_t setting_id = 0;
   int32_t value = 0;
   uint8_t calib_what = 0;  // 0 counts_per_m, 1 roll
+  uint16_t cpm = 0;        // kCalibSet (Plan O): the counts per metre to save
 };
 
 const char* changeName(ChangeKind k);
@@ -32,6 +33,8 @@ class ConfirmGate {
     m_waiting = true;
   }
   bool waiting() const { return m_waiting; }
+  // Plan O final review I2: another client's change is waiting - a new one is refused, never swapped in
+  bool busyFor(int fd) const { return m_waiting && m_change.fd != fd; }
   const PendingChange& pending() const { return m_change; }
   bool take(PendingChange& out);
   bool expired(uint32_t now_ms, PendingChange& out);

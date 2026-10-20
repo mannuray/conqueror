@@ -16,6 +16,11 @@ OFFSET_S = 1000.0
 JPEG = b"\xff\xd8" + b"\x00" * 200 + b"\xff\xd9"
 
 
+def chunk(data: bytes) -> bytes:
+    """One HTTP chunk: <hex length>\\r\\n<data>\\r\\n."""
+    return b"%x\r\n" % len(data) + data + b"\r\n"
+
+
 def bridge_us() -> int:
     return int((time.monotonic() + OFFSET_S) * 1e6)
 
@@ -99,7 +104,11 @@ class FakeBridge:
 
     async def _stream(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         await reader.readuntil(b"\r\n\r\n")
-        writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace;boundary=cqframe\r\n\r\n")
+        # as esp_http_server: httpd_resp_send_chunk always sends HTTP chunked encoding
+        writer.write(
+            b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace;boundary=cqframe\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+        )
         seq = 0
         try:
             while True:
@@ -109,7 +118,7 @@ class FakeBridge:
                     b"\r\n--cqframe\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n"
                     b"X-Frame-Us: %d\r\nX-Frame-Seq: %d\r\n\r\n" % (len(JPEG), cap, seq)
                 )
-                writer.write(head + JPEG)
+                writer.write(chunk(head) + chunk(JPEG))  # the bridge: part header and picture, one chunk each
                 await writer.drain()
                 await asyncio.sleep(1.0 / self.fps)
         except (ConnectionError, asyncio.CancelledError):

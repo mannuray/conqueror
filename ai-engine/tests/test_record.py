@@ -31,6 +31,8 @@ async def test_record_a_session_from_the_bridge_and_replay_it(tmp_path: Path) ->
     assert link.counts_per_m == 7514
     assert out.pictures >= 15 and out.samples >= 40
     assert out.ages_ms and 50 < sorted(out.ages_ms)[len(out.ages_ms) // 2] < 250  # ~100 ms + local delay
+    jpegs = [f.jpeg for f in read_frames(tmp_path / "s1" / "frames.bin")]
+    assert jpegs and all(j.startswith(b"\xff\xd8") and j.endswith(b"\xff\xd9") for j in jpegs)  # whole pictures
     pictures, samples = counts(tmp_path / "s1")
     assert (pictures, samples) == (rec.frame_count, out.samples)
     times = [e.recv_s for e in replay(tmp_path / "s1")]

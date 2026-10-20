@@ -98,3 +98,22 @@ def test_mjpeg_part_without_a_stamp_is_skipped() -> None:
     p = MjpegParser()
     assert list(p.feed(part(b"\xff\xd8X\xff\xd9", None, 0))) == []
     assert list(p.feed(part(b"\xff\xd8Y\xff\xd9", 5, 9))) == [Part(9, 5, b"\xff\xd8Y\xff\xd9")]
+
+
+def test_dechunk_across_any_split() -> None:
+    from conqueror_ai.domain.http import Dechunker
+
+    body = b"part one" + b"\xff\xd8" * 40 + b"end"
+    wire = b"8\r\npart one\r\n" + b"%x;ext=1\r\n" % 80 + b"\xff\xd8" * 40 + b"\r\n3\r\nend\r\n0\r\n\r\n"
+    for step in (1, 2, 5, 7, len(wire)):
+        d = Dechunker()
+        out = b"".join(d.feed(wire[i : i + step]) for i in range(0, len(wire), step))
+        assert out == body
+        assert d.done
+
+
+def test_dechunk_refuses_a_bad_length_line() -> None:
+    from conqueror_ai.domain.http import Dechunker
+
+    with pytest.raises(ValueError):
+        Dechunker().feed(b"zz\r\nabc\r\n")

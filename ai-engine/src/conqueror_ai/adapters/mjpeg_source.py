@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import time
 
+from conqueror_ai.domain.http import Dechunker
 from conqueror_ai.domain.mjpeg import MjpegParser
 from conqueror_ai.domain.types import Frame
 
@@ -27,7 +28,7 @@ class MjpegSource:
             try:
                 await self._session(stop)
                 delay = 0.5
-            except (OSError, TimeoutError, ConnectionError, asyncio.IncompleteReadError) as e:
+            except (OSError, TimeoutError, ConnectionError, ValueError, asyncio.IncompleteReadError) as e:
                 print(f"camera stream: {type(e).__name__} - trying again in {delay:.1f} s")
             if not stop.is_set():
                 await asyncio.sleep(delay)
@@ -38,17 +39,23 @@ class MjpegSource:
         try:
             writer.write(f"GET /stream HTTP/1.1\r\nHost: {self.host}\r\nConnection: close\r\n\r\n".encode())
             await writer.drain()
-            status = await asyncio.wait_for(reader.readline(), 5)
+            head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), 5)
+            status = head.split(b"\r\n", 1)[0]
             if b" 200 " not in status:
                 raise ConnectionError(f"stream answered {status.decode('latin-1').strip()}")
+            # the bridge (esp_http_server) always sends chunked; a plain stream is read as it is
+            dechunk = Dechunker() if b"transfer-encoding: chunked" in head.lower() else None
             parser = MjpegParser()
             while not stop.is_set():
-                chunk = await asyncio.wait_for(reader.read(65536), 5)
-                if not chunk:
+                data = await asyncio.wait_for(reader.read(65536), 5)
+                if not data:
                     return
                 now = time.monotonic()
-                for part in parser.feed(chunk):
+                body = dechunk.feed(data) if dechunk is not None else data
+                for part in parser.feed(body):
                     self.take(Frame(part.seq, part.cap_us, now, part.jpeg))
+                if dechunk is not None and dechunk.done:
+                    return
         finally:
             writer.close()
 

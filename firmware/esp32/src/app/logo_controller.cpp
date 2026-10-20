@@ -129,7 +129,7 @@ void LogoController::pose(uint32_t now) {
   if (now - m_last_pose < kPoseMs) return;
   m_last_pose = now;
   const core::TankSnapshot& s = m_link.snapshot();
-  const logo::Pose p = m_odo.update(s.fast.enc_l, s.fast.enc_r, s.fast.yaw);
+  const logo::Pose p = m_odo.update(s.fast.enc_l, s.fast.enc_r, s.fast.yaw, s.fast.spd_cmd_l, s.fast.spd_cmd_r);
   m_out.all(core::jsonLogoPose(m_out.buf(), m_out.cap(), m_tel.nextEventSeq(), m_tel.tankMs(), p.x_mm, p.y_mm,
                                p.heading_deg));
 }

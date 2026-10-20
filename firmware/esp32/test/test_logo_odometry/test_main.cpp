@@ -15,12 +15,20 @@ void setUp() { g_o.start(1000, 2000, 500, kCpm); }
 void tearDown() {}
 
 void test_straight_ahead_and_back() {
-  Pose p = g_o.update(1000 + kCpm, 2000 + kCpm, 500);
+  Pose p = g_o.update(1000 + kCpm, 2000 + kCpm, 500, 40, 40);
   TEST_ASSERT_INT_WITHIN(1, 0, p.x_mm);
   TEST_ASSERT_INT_WITHIN(1, 1000, p.y_mm);
-  p = g_o.update(1000 + kCpm / 2, 2000 + kCpm / 2, 500);  // back 50 cm (counts go down)
+  // back 50 cm: the Uno counts rising edges only, so the counts RISE in reverse too - the motor command gives the
+  // direction (owner's floor test 2026-10-20: FD 30 BK 30 was drawn as 120 cm forward)
+  p = g_o.update(1000 + kCpm + kCpm / 2, 2000 + kCpm + kCpm / 2, 500, -40, -40);
   TEST_ASSERT_INT_WITHIN(1, 500, p.y_mm);
   TEST_ASSERT_EQUAL(0, p.heading_deg);
+}
+
+void test_rolling_on_after_reverse_keeps_going_back() {
+  g_o.update(1000 + kCpm / 10, 2000 + kCpm / 10, 500, -40, -40);   // back 10 cm
+  const Pose p = g_o.update(1000 + kCpm / 5, 2000 + kCpm / 5, 500, 0, 0);  // command 0: rolls 10 cm more back
+  TEST_ASSERT_INT_WITHIN(1, -200, p.y_mm);
 }
 
 void test_after_a_right_turn_x_grows() {
@@ -55,6 +63,7 @@ void test_yaw_wraps_through_zero() {
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_straight_ahead_and_back);
+  RUN_TEST(test_rolling_on_after_reverse_keeps_going_back);
   RUN_TEST(test_after_a_right_turn_x_grows);
   RUN_TEST(test_a_quarter_arc_ends_within_1_cm);
   RUN_TEST(test_yaw_wraps_through_zero);

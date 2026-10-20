@@ -6,6 +6,8 @@
 - /help: web/help.html with <!--CQ:PROTOCOL--> replaced by the protogen output
   src/generated/help_protocol.html and <!--CQ:LOGO--> by web/help_logo.html (Task 9);
   skipped while web/help.html does not exist.
+- /logo (Plan N4, Tank Logo LLD §21): web/logo.html with <!--CQ:LOGO_JS--> replaced by
+  web/logo.js and <!--CQ:WORDS--> by web/generated/words.json. Budget 24 KB gzipped.
 Also runnable alone: python3 scripts/pack_web.py [project_dir]
 """
 
@@ -19,6 +21,7 @@ import zlib
 
 PAGE_BUDGET = 25 * 1024
 HELP_BUDGET = 16 * 1024
+LOGO_BUDGET = 24 * 1024  # Plan N4 (Tank Logo LLD §21.9): /logo, gzipped, words included
 SETTINGS_BUDGET = 36 * 1024  # Plan M: /settings, gzipped; Plan O (LLD R13.1): 36 KB for four tabs
 
 
@@ -74,6 +77,18 @@ def assemble_help(project: pathlib.Path) -> bytes | None:
     return text.replace("<!--CQ:PROTOCOL-->", proto).replace("<!--CQ:LOGO-->", logo).encode()
 
 
+def assemble_logo(project: pathlib.Path) -> bytes:
+    web = project / "web"
+    text = (web / "logo.html").read_text(encoding="utf-8")
+    for marker in ("<!--CQ:LOGO_JS-->", "<!--CQ:WORDS-->"):
+        if marker not in text:
+            raise SystemExit(f"pack_web: {marker} missing in web/logo.html")
+    code = (web / "logo.js").read_text(encoding="utf-8")
+    words = (web / "generated" / "words.json").read_text(encoding="utf-8").strip()
+    words = words.replace("</", "<\\/")  # never closes the <script> it sits in
+    return text.replace("<!--CQ:LOGO_JS-->", code).replace("<!--CQ:WORDS-->", words).encode()
+
+
 def c_array(name: str, data: bytes) -> str:
     lines = [f"inline const uint8_t {name}[] = {{"]
     for i in range(0, len(data), 20):
@@ -101,6 +116,10 @@ def build(project: pathlib.Path) -> None:
     if len(settings) > SETTINGS_BUDGET:
         raise SystemExit(f"pack_web: /settings {len(settings)} B gzipped > {SETTINGS_BUDGET} B budget")
     assets.append(("/settings", "text/html; charset=utf-8", settings, True))
+    logo = gz(assemble_logo(project))
+    if len(logo) > LOGO_BUDGET:
+        raise SystemExit(f"pack_web: /logo {len(logo)} B gzipped > {LOGO_BUDGET} B budget")
+    assets.append(("/logo", "text/html; charset=utf-8", logo, True))
     help_page = assemble_help(project)
     if help_page is not None:
         packed = gz(help_page)
@@ -146,6 +165,6 @@ def build(project: pathlib.Path) -> None:
 
 if __name__ == "__main__":
     build(pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve())
-else:  # PlatformIO extra script
+elif "Import" in globals() or hasattr(__import__("builtins"), "Import"):  # PlatformIO script
     Import("env")  # type: ignore[name-defined]  # noqa: F821 - SCons injects Import/env
     build(pathlib.Path(env.subst("$PROJECT_DIR")))  # type: ignore[name-defined]  # noqa: F821

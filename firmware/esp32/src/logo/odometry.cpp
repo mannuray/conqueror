@@ -22,6 +22,7 @@ void Odometry::start(int32_t enc_l, int32_t enc_r, uint16_t yaw_cdeg, uint16_t c
   m_yaw0 = yaw_cdeg;
   m_cpm = counts_per_m != 0 ? counts_per_m : 7514;
   m_x = m_y = m_h = 0;
+  m_dir_l = m_dir_r = 1;
 }
 
 double Odometry::heading(uint16_t yaw_cdeg) const {
@@ -29,8 +30,10 @@ double Odometry::heading(uint16_t yaw_cdeg) const {
 }
 
 // The distance since the last update along the heading half-way between the two readings (good on arcs).
-Pose Odometry::update(int32_t enc_l, int32_t enc_r, uint16_t yaw_cdeg) {
-  const double counts = ((enc_l - m_l) + (enc_r - m_r)) / 2.0;
+Pose Odometry::update(int32_t enc_l, int32_t enc_r, uint16_t yaw_cdeg, int8_t cmd_l, int8_t cmd_r) {
+  if (cmd_l != 0) m_dir_l = cmd_l > 0 ? 1 : -1;
+  if (cmd_r != 0) m_dir_r = cmd_r > 0 ? 1 : -1;
+  const double counts = (m_dir_l * (enc_l - m_l) + m_dir_r * (enc_r - m_r)) / 2.0;
   m_l = enc_l;
   m_r = enc_r;
   const double h = heading(yaw_cdeg);

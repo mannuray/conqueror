@@ -164,6 +164,7 @@ def render_words_json(spec: Spec) -> str:
             "aliases": w.aliases,
             "kind": w.kind,
             "level": w.level,
+            "group": w.group,
             "needs": w.needs,
             "inputs": [{"name": i.name, "type": i.type, "unit": i.unit} for i in w.inputs],
             "help": w.help,

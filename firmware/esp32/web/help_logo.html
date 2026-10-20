@@ -1,25 +1,30 @@
-<!-- Tank Logo quick reference (hand-written; keep in step with docs/superpowers/specs/2026-10-11-05-tank-logo-design.md) -->
+<!-- Tank Logo quick reference (hand-written; keep in step with logo/spec/words.yaml and Tank Logo LLD §21) -->
 <section id="logo">
 <h2>[ TANK LOGO - QUICK REFERENCE ]</h2>
-<p class="note">Placeholder for this developer bridge: the program runner arrives with the phase-4
-gateway firmware (it runs on the ESP32). This bridge cannot upload or run programs yet.</p>
+<p class="note">Write, check and run programs on the <a href="/logo">Logo page</a> (☰ MENU → LOGO). The tank checks each
+program as you type and draws its path before anything moves; RUN goes straight through, STEP runs one line per
+press, STOP ends it at once.</p>
 <table>
-<tr><th>Move</th><td><code>FORWARD n</code>/<code>FD</code>, <code>BACK n</code>/<code>BK</code> (cm, needs encoders) &middot;
-<code>RIGHT a</code>/<code>RT</code>, <code>LEFT a</code>/<code>LT</code> (degrees) &middot; <code>ARC a r</code> &middot;
-<code>SPEED p</code> (10-100 %, default 40) &middot; <code>HOME</code> &middot; <code>WAIT s</code></td></tr>
-<tr><th>Look / light / sound</th><td><code>LOOK LEFT|RIGHT|UP|DOWN|HOME</code>, <code>LOOK pan tilt</code> &middot;
-<code>LED RED</code> &hellip; <code>LED r g b</code> &middot; <code>BEEP</code> &middot; <code>PLAY [ C4 E4 G4 ]</code> &middot;
-<code>SOUND HAPPY</code> &middot; <code>SAY "text</code></td></tr>
-<tr><th>Values</th><td><code>DISTANCE</code> (cm, 999 = nothing) &middot; <code>HEADING</code> &middot; <code>TILT</code> &middot;
-<code>BATTERY</code> &middot; <code>RANDOM n</code> &middot; <code>REPCOUNT</code></td></tr>
-<tr><th>Language</th><td><code>REPEAT n [ ]</code> &middot; <code>FOREVER [ ]</code> &middot; <code>WHILE c [ ]</code> &middot;
-<code>IF c [ ]</code> &middot; <code>IFELSE c [ ] [ ]</code> &middot; <code>TO name :a &hellip; END</code> &middot;
-<code>MAKE "x 5</code>, <code>:x</code> &middot; <code>STOP</code> ends the whole program &middot; <code>; comment</code></td></tr>
-<tr><th>Limits</th><td>5 min run time &middot; 10 000 steps &middot; depth 16 &middot; 32 variables &middot;
-4 KB / 1000 instructions &middot; WAIT &le; 60 s &middot; FORWARD/BACK &le; 500 cm per step</td></tr>
-<tr><th>Safety</th><td>Every step is a normal MOVE/TURN: obstacle brake, envelope, deadman, tilt and battery
-cut-offs apply. STOP from anywhere (page, bench, IR, the <code>STOP</code> word) ends the program; it never resumes.</td></tr>
+<tr><th>Move</th><td><code>FORWARD n</code>/<code>FD</code>, <code>BACK n</code>/<code>BK</code> (1-500 cm, needs the
+encoders) &middot; <code>RIGHT a</code>/<code>RT</code>, <code>LEFT a</code>/<code>LT</code> (degrees, right is +) &middot;
+<code>ARC RIGHT a r</code> (radius &ge; 31 cm) &middot; <code>PIVOT LEFT a</code> &middot; <code>SPEED p</code> (10-100 %)
+&middot; <code>HOME</code> (face the start way again) &middot; <code>WAIT s</code> (&le; 60 s)</td></tr>
+<tr><th>Look / light / sound</th><td><code>LOOK LEFT|RIGHT|UP|DOWN|HOME</code> &middot; <code>LED GREEN</code>
+(RED GREEN BLUE YELLOW PURPLE WHITE ORANGE OFF) &middot; <code>BEEP</code> &middot; <code>SOUND HORN</code> (the tank's
+24 sounds) &middot; <code>PLAY [ C4 E4 G4 2 ]</code> &middot; <code>SAY [ well done ]</code></td></tr>
+<tr><th>Sensors</th><td><code>DISTANCE</code> (cm) &middot; <code>OBSTACLE?</code> &middot; <code>BLOCKED?</code> (the last
+move was stopped by something in the way) &middot; <code>HEADING</code> &middot; <code>TILTED?</code> &middot;
+<code>BATTERY</code> &middot; <code>TIMER</code> (s) &middot; <code>RANDOM n</code> &middot; <code>REPCOUNT</code></td></tr>
+<tr><th>Language</th><td><code>REPEAT n [ ]</code> &middot; <code>FOREVER [ ]</code> &middot; <code>WHILE c [ ]</code>
+&middot; <code>WAIT UNTIL c</code> &middot; <code>IF c [ ]</code> &middot; <code>IFELSE c [ ] [ ]</code> &middot;
+<code>TO name :a &hellip; END</code> (your own words, recursion allowed) &middot; <code>OUTPUT x</code> &middot;
+<code>AND OR NOT</code> &middot; <code>STOP</code> ends the whole program &middot; <code>; comment</code></td></tr>
+<tr><th>Limits</th><td>5 min run time &middot; 8 KB of text &middot; 64 words of your own &middot; 100 calls deep
+(calls at the end of a word use no depth) &middot; WAIT &le; 60 s &middot; FORWARD/BACK &le; 500 cm per step</td></tr>
+<tr><th>Safety</th><td>Every move is a normal tank move: the obstacle brake, deadman, tilt and battery cut-offs apply.
+Something in the way ends the program unless it uses <code>BLOCKED?</code>. STOP from anywhere (this page, a phone, the
+IR remote, the <code>STOP</code> word) ends the program; hiding the Logo page ends a program started there.</td></tr>
 </table>
 <pre>REPEAT 4 [ FORWARD 50  RIGHT 90 ]   ; a square
-REPEAT 10 [ IFELSE DISTANCE &lt; 30 [ BACK 10  LEFT 90 ] [ FORWARD 20 ] ]</pre>
+FOREVER [ FORWARD 30  IF BLOCKED? [ BACK 10  RIGHT 90 ] ]</pre>
 </section>

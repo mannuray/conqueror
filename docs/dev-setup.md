@@ -41,6 +41,12 @@ If a plan says `--port /dev/tty.usbserial-XXXX`, use `--port /dev/ttyACM0` (or `
 ## 4. Bench tool
 Retired 2026-10-18 (design-notes §74); the laptop tools are `tools/smoke/` (`move.py`, `turn.py`, `td_record.py`, `straight_report.py`).
 
+## 4b. AI engine (laptop)
+- `cd ai-engine && uv sync` (Python 3.12; macOS on Apple Silicon for the CoreML models later).
+- Watch and record the tank (read only, never drives): `uv run cq-record --host 192.168.31.167 [--seconds 60] [--no-view]` — the Rerun viewer opens with the camera and the telemetry; Ctrl-C ends it with a summary. Replay: `uv run cq-replay recordings/<folder>`.
+- Recordings show the home: they stay in `ai-engine/recordings/` (git-ignored) on the laptop.
+- Tests: `uv run pytest -q && uv run pyright` (a stand-in bridge, no tank needed).
+
 ## 5. Firewall
 The laptop connects **out** to the bridge on HTTP 80 / 81 and OTA 3232; no inbound ports are needed. If a strict firewall blocks mDNS, allow UDP 5353 on the local network or connect by IP.
 

@@ -90,9 +90,15 @@ void test_unknown_command_is_invalid() {
   TEST_ASSERT_TRUE(has(3, "INVALID_COMMAND"));
 }
 
+uint64_t fakeClockUs() { return 42000000123ULL; }
+
 void test_ping_answers_pong() {
   text(3, "{\"t\":\"ping\",\"t0\":12}", 100);
   TEST_ASSERT_TRUE(has(3, "\"t\":\"pong\""));
+  TEST_ASSERT_TRUE(has(3, "\"bridge_us\":0"));  // no clock set
+  router->setClockUs(fakeClockUs);  // Plan Q1: the ESP32 timer, for the AI engine's clock offset
+  text(3, "{\"t\":\"ping\",\"t0\":13}", 101);
+  TEST_ASSERT_TRUE(has(3, "\"bridge_us\":42000000123"));
 }
 
 void test_hello_answers_welcome_with_the_sensor() {

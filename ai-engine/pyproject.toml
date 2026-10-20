@@ -1,0 +1,42 @@
+[project]
+name = "conqueror-ai"
+version = "0.1.0"
+description = "Conqueror AI engine - module 1: sensor fusion and the space map (Spec 7, AI engine LLD)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy>=1.26,<2.3",
+  "websockets>=13",
+  "rerun-sdk>=0.39,<0.40",  # its logging API changes between versions
+]
+
+[project.scripts]
+cq-record = "conqueror_ai.app.record:main"
+cq-replay = "conqueror_ai.app.replay:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/conqueror_ai"]
+
+[dependency-groups]
+dev = ["ruff>=0.7", "pyright>=1.1", "pytest>=8", "pytest-asyncio>=0.24"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+include = ["src", "tests"]
+reportMissingTypeStubs = false

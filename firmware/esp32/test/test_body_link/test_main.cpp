@@ -298,6 +298,18 @@ void test_telemetry_snapshot_and_events() {
   TEST_ASSERT_EQUAL(static_cast<int>(proto::EventKind::kDeadmanStop), ev.code);
 }
 
+// Plan Q1 (AI engine LLD §2): a TELEM_FAST frame keeps the ESP32 time it arrived at (same clock as the camera's
+// frame stamp); a TELEM_SLOW frame does not change it.
+void test_telem_fast_keeps_its_arrival_time() {
+  uint8_t f[64];
+  size_t n = cqtest::frame(proto::TelemFastMsg{}, 1, f);
+  bl->onUartBytes(f, n, 5, 123456789012ULL);
+  TEST_ASSERT_TRUE(bl->snapshot().fast_bus_us == 123456789012ULL);
+  n = cqtest::frame(proto::TelemSlowMsg{}, 2, f);
+  bl->onUartBytes(f, n, 6, 999ULL);
+  TEST_ASSERT_TRUE(bl->snapshot().fast_bus_us == 123456789012ULL);
+}
+
 // Review I1: link_task follows TELEM_SLOW.owner only when a new slow frame arrived (an IR takeover
 // from EVENT control_changed must not be undone by the 1 Hz frame's older owner on the next tick).
 void test_slow_count_counts_slow_frames() {
@@ -393,6 +405,7 @@ int main() {
   RUN_TEST(test_stop_gives_up_after_ten_sends);
   RUN_TEST(test_cam_home_ack_and_timeout);
   RUN_TEST(test_telemetry_snapshot_and_events);
+  RUN_TEST(test_telem_fast_keeps_its_arrival_time);
   RUN_TEST(test_slow_count_counts_slow_frames);
   RUN_TEST(test_wifi_reset_request_answered_unavailable);
   RUN_TEST(test_sound_and_cam_lock_acked);

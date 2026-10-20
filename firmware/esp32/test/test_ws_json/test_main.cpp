@@ -41,7 +41,7 @@ void test_tf_scaling_and_sentinels() {
   s.fast.flags = 1u << static_cast<unsigned>(proto::FastFlagBit::kCamMoving);
   jsonTf(buf, sizeof(buf), 7, s);
   TEST_ASSERT_EQUAL_STRING(
-      "{\"t\":\"tf\",\"seq\":7,\"tank_ms\":1234,\"yaw\":90.50,\"yaw_rate\":-12.5,\"pitch\":-1.25,\"roll\":3.00,"
+      "{\"t\":\"tf\",\"seq\":7,\"tank_ms\":1234,\"bus_us\":0,\"yaw\":90.50,\"yaw_rate\":-12.5,\"pitch\":-1.25,\"roll\":3.00,"
       "\"dist_cm\":42,\"pan\":-15.5,\"tilt\":20.0,\"spd_cmd\":[40,-40],\"cam_moving\":true}",
       buf);
   s.fast.dist_mm = 65535;  // clear
@@ -155,8 +155,8 @@ void test_welcome_and_pong() {
   HelloInfo none;
   jsonWelcome(buf, sizeof(buf), WelcomeInfo{"x", &none, "none", kNone, "phone-2"});
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"uno\":null"));
-  jsonPong(buf, sizeof(buf), "1728734400123.5", 99);
-  TEST_ASSERT_EQUAL_STRING("{\"t\":\"pong\",\"t0\":1728734400123.5,\"tank_ms\":99}", buf);
+  jsonPong(buf, sizeof(buf), "1728734400123.5", 99, 5000000000ULL);
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"pong\",\"t0\":1728734400123.5,\"tank_ms\":99,\"bridge_us\":5000000000}", buf);
 }
 
 void test_too_small_buffer_returns_zero() {
@@ -260,7 +260,9 @@ void test_primitive_done_and_tf_progress() {
   s.fast_valid = true;
   jsonTf(buf, sizeof(buf), 1, s);
   TEST_ASSERT_NULL(strstr(buf, "primitive"));
+  s.fast_bus_us = 7000001ULL;  // Plan Q1
   jsonTf(buf, sizeof(buf), 2, s, PrimitiveView{true, PrimKind::kTurn, 40});
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"bus_us\":7000001,"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"cam_moving\":false,\"primitive\":{\"kind\":\"turn\",\"pct\":40}}"));
 }
 
@@ -289,9 +291,10 @@ void test_td_raw_fast_values() {
   s.fast.flags = 5;
   s.fast.prim = 1;
   s.fast.prim_pct = 40;
+  s.fast_bus_us = 4294967296123ULL;  // Plan Q1: the ESP32 time it arrived (over 32 bits on purpose)
   jsonTd(buf, sizeof(buf), 3, s);
   TEST_ASSERT_EQUAL_STRING(
-      "{\"t\":\"td\",\"seq\":3,\"uno_ms\":1234,\"enc\":[100,-5],\"pwm\":[130,-130],\"cmd\":[25,-25],"
+      "{\"t\":\"td\",\"seq\":3,\"uno_ms\":1234,\"bus_us\":4294967296123,\"enc\":[100,-5],\"pwm\":[130,-130],\"cmd\":[25,-25],"
       "\"act\":[null,12],\"yaw\":90.50,\"rate\":-12.5,\"pitch\":-1.25,\"roll\":3.00,\"dist_mm\":424,"
       "\"closing\":-7,\"pan\":-15.5,\"tilt\":20.0,\"flags\":5,\"prim\":1,\"pct\":40}",
       buf);

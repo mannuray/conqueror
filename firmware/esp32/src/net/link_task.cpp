@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <esp_system.h>
+#include <esp_timer.h>
 #include <esp_task_wdt.h>
 
 #include <new>
@@ -113,7 +114,9 @@ void publishStatus() {
 void step(uint32_t now) {
   uint8_t rx[256];
   size_t n = 0;
-  while ((n = g_uart.read(rx, sizeof(rx))) != 0) g_link.onUartBytes(rx, n, now);  // snapshot, events, STOP ACKs
+  while ((n = g_uart.read(rx, sizeof(rx))) != 0) {  // snapshot, events, STOP ACKs
+    g_link.onUartBytes(rx, n, now, static_cast<uint64_t>(esp_timer_get_time()));  // Plan Q1: bus_us
+  }
   LinkCommand cmd;
   while (xQueueReceive(g_queue, &cmd, 0) == pdTRUE) handleCommand(cmd, now);
   g_drive.tick(now);  // owner from a new slow frame, the 5 s handback, silent clients
@@ -231,6 +234,7 @@ void linkTaskStart(const char* (*camera_sensor)()) {
   g_logo = new (g_logo_mem) app::LogoController(g_out, g_log, g_link, g_tel, logoRunningProgram(), logoVm());
   g_router = new (g_router_mem) app::CommandRouter(g_drive, g_motion, g_settings, g_tank, *g_logo, g_tel, g_out);
   g_router->setHello(CQ_FW_VERSION, g_sensor);
+  g_router->setClockUs([]() { return static_cast<uint64_t>(esp_timer_get_time()); });  // Plan Q1: pong
   wireLogo();
   wireViews();
   wireEvents();

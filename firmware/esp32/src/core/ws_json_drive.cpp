@@ -1,4 +1,5 @@
 #include "core/ws_json.h"
+#include "core/stream_header.h"
 #include "core/ws_json_util.h"
 #include "core/motion_router.h"
 
@@ -78,10 +79,13 @@ size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s, Primit
     snprintf(progress, sizeof(progress), ",\"primitive\":{\"kind\":\"%s\",\"pct\":%u%s}", primName(prim.kind),
              static_cast<unsigned>(prim.pct), prim.limited ? ",\"limited\":true" : "");
   }
+  char us[21];  // Plan Q1: when the frame arrived (ESP32 timer)
+  u64Str(us, sizeof(us), s.fast_bus_us);
   return fmt(out, cap,
-             "{\"t\":\"tf\",\"seq\":%lu,\"tank_ms\":%lu,\"yaw\":%.2f,\"yaw_rate\":%.1f,\"pitch\":%.2f,\"roll\":%.2f,"
+             "{\"t\":\"tf\",\"seq\":%lu,\"tank_ms\":%lu,\"bus_us\":%s,\"yaw\":%.2f,\"yaw_rate\":%.1f,"
+             "\"pitch\":%.2f,\"roll\":%.2f,"
              "\"dist_cm\":%s%s,\"pan\":%.1f,\"tilt\":%.1f,\"spd_cmd\":[%d,%d],\"cam_moving\":%s%s}",
-             static_cast<unsigned long>(seq), static_cast<unsigned long>(f.uno_ms), f.yaw / 100.0, f.yaw_rate / 10.0,
+             static_cast<unsigned long>(seq), static_cast<unsigned long>(f.uno_ms), us, f.yaw / 100.0, f.yaw_rate / 10.0,
              f.pitch / 100.0, f.roll / 100.0, dist, f.dist_mm == 65534 ? ",\"dist_fault\":true" : "", f.pan / 10.0,
              f.tilt / 10.0, f.spd_cmd_l,
              f.spd_cmd_r, cam_moving ? "true" : "false", progress);

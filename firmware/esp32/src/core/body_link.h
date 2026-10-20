@@ -47,6 +47,7 @@ struct TankSnapshot {
   bool fast_valid = false;
   bool slow_valid = false;
   uint32_t fast_count = 0;  // TELEM_FAST frames seen (50 Hz; tf is sent for every 5th)
+  uint64_t fast_bus_us = 0;  // Plan Q1: ESP32 timer (µs since boot) when the newest TELEM_FAST arrived
   uint32_t slow_count = 0;  // TELEM_SLOW frames seen (owner is applied once per new frame)
   proto::TelemFastMsg fast{};
   proto::TelemSlowMsg slow{};
@@ -87,7 +88,8 @@ class BodyLink {
   HandshakeState handshake() const { return m_hs; }
 
   void step(uint32_t now_ms);
-  void onUartBytes(const uint8_t* data, size_t len, uint32_t now_ms);
+  // now_us: the ESP32 timer when these bytes were read (Plan Q1: TELEM_FAST keeps it as fast_bus_us).
+  void onUartBytes(const uint8_t* data, size_t len, uint32_t now_ms, uint64_t now_us = 0);
 
   // Client commands (master + synced only; false = not sent).
   bool sendDrive(int8_t v, int8_t w, proto::Source src = proto::Source::kHuman);  // AUTO = motion service
@@ -161,6 +163,7 @@ class BodyLink {
   uint32_t m_last_hb_ms = 0;
   uint32_t m_last_req_ms = 0;
   uint32_t m_last_rx_ms = 0;
+  uint64_t m_rx_us = 0;  // the ESP32 timer of the bytes being parsed (Plan Q1)
   bool m_incompatible_reported = false;
   proto::OwnerHintValue m_hint = proto::OwnerHintValue::kNone;
   uint8_t m_stop_seq = 0;

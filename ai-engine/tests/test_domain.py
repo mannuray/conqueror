@@ -117,3 +117,14 @@ def test_dechunk_refuses_a_bad_length_line() -> None:
 
     with pytest.raises(ValueError):
         Dechunker().feed(b"zz\r\nabc\r\n")
+
+
+def test_mjpeg_part_with_a_nonsense_length_is_skipped_and_the_next_one_read() -> None:
+    p = MjpegParser()
+    huge = (
+        b"\r\n--cqframe\r\nContent-Type: image/jpeg\r\nContent-Length: 999999999\r\nX-Frame-Us: 1\r\n\r\nxx"
+    )
+    odd = "\r\n--cqframe\r\nContent-Length: ²\r\nX-Frame-Us: 1\r\n\r\n".encode()  # isdigit() says yes
+    good = part(b"\xff\xd8OK\xff\xd9", 7, 3)
+    got = list(p.feed(huge)) + list(p.feed(odd)) + list(p.feed(good))
+    assert got == [Part(3, 7, b"\xff\xd8OK\xff\xd9")]

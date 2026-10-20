@@ -58,6 +58,10 @@ void serveStream(httpd_req_t* req) {
     if (fb == nullptr) break;  // camera stopped (OTA) or failed
     // Plan Q1 (AI engine LLD §2): the capture time (VSYNC, ESP32 timer - the clock of the telemetry's bus_us)
     const size_t len = core::mjpegPartHeader(part, sizeof(part), kBoundary, fb->len, frameUs(fb), ++seq);
+    if (len == 0) {  // never sent as an empty chunk: that would end the HTTP stream in the middle
+      cameraRelease(fb);
+      break;
+    }
     err = httpd_resp_send_chunk(req, part, static_cast<ssize_t>(len));
     if (err == ESP_OK) {
       err = httpd_resp_send_chunk(req, reinterpret_cast<const char*>(fb->buf),

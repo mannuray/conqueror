@@ -26,9 +26,11 @@ def bridge_us() -> int:
 
 
 class FakeBridge:
-    def __init__(self, frame_age_s: float = 0.1, fps: float = 20.0) -> None:
+    def __init__(self, frame_age_s: float = 0.1, fps: float = 20.0, send_td: bool = True) -> None:
         self.frame_age_s = frame_age_s
         self.fps = fps
+        self.send_td = send_td  # False: a bridge whose telemetry went silent (the socket stays open)
+        self.connections = 0
         self.received: list[dict[str, Any]] = []
         self.ws_port = 0
         self.stream_port = 0
@@ -51,6 +53,7 @@ class FakeBridge:
                 await asyncio.wait_for(self._stream_server.wait_closed(), 1)
 
     async def _ws(self, ws: ServerConnection) -> None:
+        self.connections += 1
         sender: asyncio.Task[None] | None = None
         try:
             async for raw in ws:
@@ -59,7 +62,7 @@ class FakeBridge:
                 t = m.get("t")
                 if t == "hello":
                     await ws.send(json.dumps({"t": "welcome", "you": "ai-1"}))
-                elif t == "debug" and m.get("on") and sender is None:
+                elif t == "debug" and m.get("on") and sender is None and self.send_td:
                     sender = asyncio.create_task(self._td(ws))
                 elif t == "ping":
                     await ws.send(

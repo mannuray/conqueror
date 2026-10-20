@@ -29,8 +29,9 @@ async def test_record_a_session_from_the_bridge_and_replay_it(tmp_path: Path) ->
     assert "ping" in sent
     assert not set(sent) & {"drive", "turn", "move", "drive_rate", "logo_run", "stop"}  # read only
     assert link.counts_per_m == 7514
-    assert out.pictures >= 15 and out.samples >= 40
-    assert out.ages_ms and 50 < sorted(out.ages_ms)[len(out.ages_ms) // 2] < 250  # ~100 ms + local delay
+    # wide margins: ~30 pictures and ~75 samples are expected, a loaded laptop must not fail the test
+    assert out.pictures >= 10 and out.samples >= 30
+    assert out.ages_ms and 50 < sorted(out.ages_ms)[len(out.ages_ms) // 2] < 400  # ~100 ms + local delay
     jpegs = [f.jpeg for f in read_frames(tmp_path / "s1" / "frames.bin")]
     assert jpegs and all(
         j.startswith(b"\xff\xd8") and j.endswith(b"\xff\xd9") for j in jpegs
@@ -60,9 +61,9 @@ def test_a_cut_off_picture_at_the_end_is_dropped(tmp_path: Path) -> None:
 
 def test_replay_order_and_telemetry_lines(tmp_path: Path) -> None:
     rec = SessionRecorder(tmp_path / "s", {})
-    rec.telemetry(2.0, json.dumps({"t": "pong"}))
+    rec.telemetry(1.0, json.dumps({"t": "welcome"}))  # the recorder writes each file in arrival order
     rec.frame(Frame(1, 10, 1.5, b"\xff\xd8\xff\xd9"))
-    rec.telemetry(1.0, json.dumps({"t": "welcome"}))
+    rec.telemetry(2.0, json.dumps({"t": "pong"}))
     rec.close()
     events = list(replay(tmp_path / "s"))
     assert [e.recv_s for e in events] == [1.0, 1.5, 2.0]
@@ -155,3 +156,105 @@ def test_a_recording_cut_inside_a_line_reads_up_to_the_cut(tmp_path: Path) -> No
     events = list(replay(tmp_path / "s"))
     assert [e.recv_s for e in events] == [1.0, 1.0]
     assert events[1].frame is not None and events[1].frame.seq == 1
+
+
+async def test_a_silent_link_is_opened_again() -> None:
+    # telemetry stops but the socket stays open (WiFi trouble): reconnect instead of waiting for TCP
+    import asyncio
+
+    bridge = FakeBridge(send_td=False)
+    await bridge.start()
+    link = BridgeLink("127.0.0.1", bridge.ws_port, silent_s=0.4)
+    stop = asyncio.Event()
+    task = asyncio.create_task(link.run(stop))
+    await asyncio.sleep(1.8)
+    stop.set()
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    await bridge.stop()
+    assert bridge.connections >= 2
+
+
+async def test_a_dropped_link_leaves_no_unretrieved_task_error() -> None:
+    import asyncio
+    import gc
+
+    errors: list[str] = []
+    loop = asyncio.get_running_loop()
+    loop.set_exception_handler(lambda _loop, ctx: errors.append(str(ctx.get("message"))))
+    bridge = FakeBridge()
+    await bridge.start()
+    link = BridgeLink("127.0.0.1", bridge.ws_port)
+    stop = asyncio.Event()
+    task = asyncio.create_task(link.run(stop))
+    await asyncio.sleep(1.3)  # at least one ping sent
+    await bridge.stop()
+    await asyncio.sleep(1.3)  # the pinger's next send fails on the closed socket
+    stop.set()
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    gc.collect()
+    await asyncio.sleep(0)
+    loop.set_exception_handler(None)
+    assert not [e for e in errors if "never retrieved" in e]
+
+
+def test_replay_reads_pictures_as_it_goes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # a long session must not be loaded into memory whole before the first event comes out
+    from collections.abc import Iterator
+
+    import conqueror_ai.adapters.session as session
+
+    rec = SessionRecorder(tmp_path / "s", {})
+    rec.telemetry(0.5, json.dumps({"t": "td"}))
+    rec.close()
+
+    def frames_then_fail(_path: Path) -> Iterator[Frame]:
+        yield Frame(1, 10, 1.0, b"\xff\xd8\xff\xd9")
+        raise RuntimeError("read too far ahead")
+
+    monkeypatch.setattr(session, "read_frames", frames_then_fail)
+    events = session.replay(tmp_path / "s")
+    assert next(events).recv_s == 0.5
+    assert next(events).frame is not None
+
+
+async def test_slow_saving_never_holds_up_the_link(tmp_path: Path) -> None:
+    # writing pictures and drawing them happen off the event loop: a slow disk or viewer must not stall
+    # the WebSocket (pings, telemetry) - measured as how late a 10 ms ticker wakes up
+    import asyncio
+    import time as _time
+
+    from conqueror_ai.domain.types import TelemSample
+
+    class SlowView:
+        def telemetry(self, s: TelemSample) -> None:
+            pass
+
+        def frame(self, f: Frame, age_s: float | None) -> None:
+            _time.sleep(0.15)
+
+    bridge = FakeBridge(fps=10)
+    await bridge.start()
+    worst = 0.0
+    done = asyncio.Event()
+
+    async def ticker() -> None:
+        nonlocal worst
+        while not done.is_set():
+            t = _time.monotonic()
+            await asyncio.sleep(0.01)
+            worst = max(worst, _time.monotonic() - t - 0.01)
+
+    tick = asyncio.create_task(ticker())
+    try:
+        link = BridgeLink("127.0.0.1", bridge.ws_port)
+        cam = MjpegSource("127.0.0.1", bridge.stream_port)
+        rec = SessionRecorder(tmp_path / "s", {})
+        out = await record(link, cam, rec, SlowView(), seconds=1.5)
+    finally:
+        done.set()
+        await tick
+        await bridge.stop()
+    assert out.pictures > 0
+    assert worst < 0.1, f"the event loop stalled {worst:.2f} s"

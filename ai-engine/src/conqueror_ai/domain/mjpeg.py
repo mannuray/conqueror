@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
 BOUNDARY = b"--cqframe"
+MAX_PICTURE = 2_000_000  # bytes; an HD JPEG from the OV3660 is well under 300 KB
+_DIGITS = re.compile(r"[0-9]+")
 
 
 @dataclass(frozen=True)
@@ -34,20 +37,20 @@ class MjpegParser:
                 del self._buf[:start]
                 return
             headers = _headers(bytes(self._buf[start + len(BOUNDARY) : head_end]))
-            length = headers.get("content-length")
-            if length is None or not length.isdigit():
-                del self._buf[: head_end + 4]  # a broken header: skip it
+            length = _number(headers.get("content-length"))
+            if length is None or length > MAX_PICTURE:
+                del self._buf[: head_end + 4]  # a broken or nonsense header: look for the next part
                 continue
             body_start = head_end + 4
-            body_end = body_start + int(length)
+            body_end = body_start + length
             if len(self._buf) < body_end:
                 del self._buf[:start]
                 return
             jpeg = bytes(self._buf[body_start:body_end])
             del self._buf[:body_end]
-            us, seq = headers.get("x-frame-us"), headers.get("x-frame-seq", "0")
-            if us is not None and us.isdigit() and seq.isdigit():
-                yield Part(int(seq), int(us), jpeg)
+            us, seq = _number(headers.get("x-frame-us")), _number(headers.get("x-frame-seq", "0"))
+            if us is not None and seq is not None:
+                yield Part(seq, us, jpeg)
 
 
 def _headers(block: bytes) -> dict[str, str]:
@@ -57,3 +60,10 @@ def _headers(block: bytes) -> dict[str, str]:
         if sep:
             out[name.strip().lower()] = value.strip()
     return out
+
+
+def _number(text: str | None) -> int | None:
+    """A whole number written in ASCII digits only (str.isdigit() also accepts e.g. '²')."""
+    if text is None or not _DIGITS.fullmatch(text):
+        return None
+    return int(text)

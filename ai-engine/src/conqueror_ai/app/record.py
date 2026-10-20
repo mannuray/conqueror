@@ -63,19 +63,40 @@ class Summary:
         )
 
 
-def _drain(link: BridgeLink, cam: MjpegSource, rec: SessionRecorder, view: View, out: Summary) -> None:
-    """Saves and shows everything that arrived since the last call."""
+@dataclass
+class Batch:
+    """What arrived since the last save: taken on the event loop, saved and shown in a worker thread."""
+
+    texts: list[tuple[float, str]] = field(default_factory=list[tuple[float, str]])
+    frames: list[tuple[Frame, float | None]] = field(default_factory=list[tuple[Frame, float | None]])
+    samples: list[TelemSample] = field(default_factory=list[TelemSample])
+
+
+def _take(link: BridgeLink, cam: MjpegSource, texts: list[tuple[float, str]]) -> Batch:
+    """On the event loop: moves out everything that arrived (ages computed here, where the clock lives)."""
+    b = Batch(texts=texts[:])
+    texts.clear()
     for f in cam.raw_tap or []:
+        b.frames.append((f, link.clock.age_s(f.cap_us, f.recv_s) if link.clock.ready() else None))
+    if cam.raw_tap is not None:
+        cam.raw_tap.clear()
+    while not link.samples.empty():
+        b.samples.append(link.samples.get_nowait())
+    return b
+
+
+def _save(b: Batch, rec: SessionRecorder, view: View, out: Summary) -> None:
+    """In a worker thread: file writes and drawing never hold up the WebSocket."""
+    for t, raw in b.texts:
+        rec.telemetry(t, raw)
+    for f, age in b.frames:
         rec.frame(f)
-        age = link.clock.age_s(f.cap_us, f.recv_s) if link.clock.ready() else None
         if age is not None:
             out.ages_ms.append(age * 1000.0)
         view.frame(f, age)
         out.pictures += 1
-    if cam.raw_tap is not None:
-        cam.raw_tap.clear()
-    while not link.samples.empty():
-        view.telemetry(link.samples.get_nowait())
+    for s in b.samples:
+        view.telemetry(s)
         out.samples += 1
 
 
@@ -90,7 +111,8 @@ async def record(
     """Records until `seconds` have passed or `stop` is set (cq-record sets it on Ctrl-C)."""
     halt = asyncio.Event()
     asked = stop or asyncio.Event()
-    link.tap = rec.telemetry
+    texts: list[tuple[float, str]] = []
+    link.tap = lambda t, raw: texts.append((t, raw))
     cam.raw_tap = []
     tasks = [asyncio.create_task(link.run(halt)), asyncio.create_task(cam.run(halt))]
     out = Summary()
@@ -98,15 +120,17 @@ async def record(
     try:
         while not asked.is_set() and (seconds is None or time.monotonic() - t0 < seconds):
             await asyncio.sleep(0.05)
-            _drain(link, cam, rec, view, out)
+            await asyncio.to_thread(_save, _take(link, cam, texts), rec, view, out)
     finally:
-        _drain(link, cam, rec, view, out)  # what arrived in the last moment is kept too
         halt.set()
         with contextlib.suppress(Exception):
             await link.close()
-        for t in tasks:
-            t.cancel()
+        for task in tasks:
+            task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        # what arrived in the last moment is kept too, also off the loop
+        # (cq-record ends by `stop`, never by cancelling this task)
+        await asyncio.to_thread(_save, _take(link, cam, texts), rec, view, out)
         rec.close()
         out.seconds = time.monotonic() - t0
     return out

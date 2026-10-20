@@ -8,6 +8,7 @@ A session folder holds `telemetry.jsonl` (one line per WebSocket message: {"recv
 
 from __future__ import annotations
 
+import heapq
 import json
 import time
 from collections.abc import Iterator
@@ -81,7 +82,8 @@ def read_telemetry(path: Path) -> Iterator[tuple[float, str]]:
 
 
 def replay(folder: Path) -> Iterator[Event]:
-    """Every recorded input in the order it arrived (deterministic: same folder, same order)."""
-    texts = [Event(t, text=m) for t, m in read_telemetry(folder / "telemetry.jsonl")]
-    frames = [Event(f.recv_s, frame=f) for f in read_frames(folder / "frames.bin")]
-    yield from sorted(texts + frames, key=lambda e: (e.recv_s, e.frame is not None))
+    """Every recorded input in the order it arrived (deterministic: same folder, same order). Both files are
+    written in arrival order, so they are merged as they are read - a long session is never loaded whole."""
+    texts = (Event(t, text=m) for t, m in read_telemetry(folder / "telemetry.jsonl"))
+    frames = (Event(f.recv_s, frame=f) for f in read_frames(folder / "frames.bin"))
+    yield from heapq.merge(texts, frames, key=lambda e: (e.recv_s, e.frame is not None))

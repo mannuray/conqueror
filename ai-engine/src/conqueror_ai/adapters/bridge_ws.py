@@ -21,9 +21,10 @@ RawTap = Callable[[float, str], None]  # (laptop receive time, raw JSON text)
 
 
 class BridgeLink:
-    def __init__(self, host: str, port: int = 80, client: str = "ai-map") -> None:
+    def __init__(self, host: str, port: int = 80, client: str = "ai-map", silent_s: float = 3.0) -> None:
         self.url = f"ws://{host}:{port}/ws"
         self.client = client
+        self.silent_s = silent_s  # no telemetry for this long: open the link again (WiFi trouble)
         self.clock = BridgeClock()
         self.samples: asyncio.Queue[TelemSample] = asyncio.Queue(maxsize=500)
         self.tap: RawTap | None = None
@@ -60,14 +61,28 @@ class BridgeLink:
         await self._send(ws, {"t": "hello", "client": self.client, "proto": 1})
         await self._send(ws, {"t": "debug", "on": True, "hz": 50})
         await self._send(ws, {"t": "calib"})
-        pinger = asyncio.create_task(self._pings(ws, stop))
+        self.last_sample_s = time.monotonic()  # the watchdog counts from the connection
+        helpers = [asyncio.create_task(self._pings(ws, stop)), asyncio.create_task(self._watchdog(ws))]
         try:
             async for raw in ws:
                 if stop.is_set():
                     break
                 self._on_text(raw if isinstance(raw, str) else raw.decode("utf-8", "replace"))
         finally:
-            pinger.cancel()
+            for h in helpers:
+                h.cancel()
+            await asyncio.gather(
+                *helpers, return_exceptions=True
+            )  # their errors are collected, not left behind
+
+    async def _watchdog(self, ws: ClientConnection) -> None:
+        """Closes a link whose telemetry stopped while the socket stays open; run() then opens it again."""
+        while True:
+            await asyncio.sleep(min(0.2, self.silent_s / 2))
+            if self.last_sample_s is not None and time.monotonic() - self.last_sample_s > self.silent_s:
+                print(f"bridge link: no telemetry for {self.silent_s:.1f} s - opening it again")
+                await ws.close()
+                return
 
     async def _pings(self, ws: ClientConnection, stop: asyncio.Event) -> None:
         while not stop.is_set():  # also keeps the link alive: the bridge drops a client silent for 3 s

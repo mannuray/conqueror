@@ -4,6 +4,8 @@ Status: REVIEWED 2026-10-10 · Date: 2026-10-10 · Depends on: Spec 0, Spec 1, S
 
 > **2026-10-18 (owner, design-notes §79): no hub.** The engine connects **directly to the ESP32 bridge** (WebSocket `/ws` + MJPEG `:81/stream`) instead of through Spec 3; its own small local web page (the FastAPI app in this spec) shows AI status, the decision log and voice. Sections that say "hub" are to be revised when the AI engine design is reopened (incl. who wins when the phone and the AI both want to drive).
 
+> **2026-10-20 (owner, design-notes §107): reopened.** Smooth navigation first; the engine is split into module 1 (sensor fusion + space map — **Spec 7** `2026-10-20-07-ai-module1-map-design.md`, replaces §2.1–§2.3 here for navigation), module 2 (drive) and module 3 (plan; the language model only on top). The rest of this spec is revisited with modules 2 and 3.
+
 The AI engine is the project's **main offering**: a Python service, client of the hub, with **vision as the primary input**.
 It is fully configurable so anyone can run it on what they have.
 

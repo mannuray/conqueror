@@ -258,3 +258,29 @@ async def test_slow_saving_never_holds_up_the_link(tmp_path: Path) -> None:
         await bridge.stop()
     assert out.pictures > 0
     assert worst < 0.1, f"the event loop stalled {worst:.2f} s"
+
+
+def test_a_restarted_bridge_s_pictures_never_get_an_old_clock_age() -> None:
+    # owner's tank, 2026-10-20: after a restart the camera came back 1.5 s before the WebSocket,
+    # and the new boot's pictures were aged against the old clock (12.7 s); a capture time that
+    # jumps back means a restart
+    from conqueror_ai.app.record import Ages
+
+    link = BridgeLink("127.0.0.1")
+    link.on_message({"t": "pong", "t0": 100_000.0, "bridge_us": 500_000_000}, 100.001)  # old boot: 500 s up
+    ages = Ages()
+    assert ages.of(link, Frame(1, 500_050_000, 100.15, b"")) == pytest.approx(0.1, abs=0.01)
+    assert ages.of(link, Frame(1, 6_543_778, 112.0, b"")) is None  # new boot: back to 6.5 s -> unknown
+    assert not link.clock.ready()  # and the old clock is gone
+    link.on_message({"t": "pong", "t0": 113_000.0, "bridge_us": 7_600_000}, 113.002)  # new boot's clock
+    assert ages.of(link, Frame(2, 7_650_000, 113.15, b"")) == pytest.approx(0.1, abs=0.01)
+
+
+def test_an_impossible_age_is_unknown() -> None:
+    from conqueror_ai.app.record import Ages
+
+    link = BridgeLink("127.0.0.1")
+    link.on_message({"t": "pong", "t0": 100_000.0, "bridge_us": 500_000_000}, 100.001)
+    ages = Ages()
+    assert ages.of(link, Frame(1, 500_000_000, 108.0, b"")) is None  # 8 s old: not believable
+    assert ages.of(link, Frame(2, 501_000_000, 100.5, b"")) is None  # from the future

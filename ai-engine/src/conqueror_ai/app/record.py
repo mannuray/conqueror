@@ -72,12 +72,34 @@ class Batch:
     samples: list[TelemSample] = field(default_factory=list[TelemSample])
 
 
-def _take(link: BridgeLink, cam: MjpegSource, texts: list[tuple[float, str]]) -> Batch:
+class Ages:
+    """A picture's age on arrival, by the bridge clock - or None when it cannot be trusted.
+
+    A capture time that jumps back by more than 1 s means the bridge restarted (its clock starts at
+    zero): the old clock is dropped at once, even when the camera is back before the WebSocket
+    notices (owner's tank, 2026-10-20: 12.7 s ages)."""
+
+    MAX_S = 5.0
+
+    def __init__(self) -> None:
+        self._last_cap_us: int | None = None
+
+    def of(self, link: BridgeLink, f: Frame) -> float | None:
+        if self._last_cap_us is not None and f.cap_us < self._last_cap_us - 1_000_000:
+            link.new_session()
+        self._last_cap_us = f.cap_us
+        if not link.clock.ready():
+            return None
+        age = link.clock.age_s(f.cap_us, f.recv_s)
+        return age if 0.0 <= age <= self.MAX_S else None
+
+
+def _take(link: BridgeLink, cam: MjpegSource, texts: list[tuple[float, str]], ages: Ages) -> Batch:
     """On the event loop: moves out everything that arrived (ages computed here, where the clock lives)."""
     b = Batch(texts=texts[:])
     texts.clear()
     for f in cam.raw_tap or []:
-        b.frames.append((f, link.clock.age_s(f.cap_us, f.recv_s) if link.clock.ready() else None))
+        b.frames.append((f, ages.of(link, f)))
     if cam.raw_tap is not None:
         cam.raw_tap.clear()
     while not link.samples.empty():
@@ -112,6 +134,7 @@ async def record(
     halt = asyncio.Event()
     asked = stop or asyncio.Event()
     texts: list[tuple[float, str]] = []
+    ages = Ages()
     link.tap = lambda t, raw: texts.append((t, raw))
     cam.raw_tap = []
     tasks = [asyncio.create_task(link.run(halt)), asyncio.create_task(cam.run(halt))]
@@ -120,7 +143,7 @@ async def record(
     try:
         while not asked.is_set() and (seconds is None or time.monotonic() - t0 < seconds):
             await asyncio.sleep(0.05)
-            await asyncio.to_thread(_save, _take(link, cam, texts), rec, view, out)
+            await asyncio.to_thread(_save, _take(link, cam, texts, ages), rec, view, out)
     finally:
         halt.set()
         with contextlib.suppress(Exception):
@@ -130,7 +153,7 @@ async def record(
         await asyncio.gather(*tasks, return_exceptions=True)
         # what arrived in the last moment is kept too, also off the loop
         # (cq-record ends by `stop`, never by cancelling this task)
-        await asyncio.to_thread(_save, _take(link, cam, texts), rec, view, out)
+        await asyncio.to_thread(_save, _take(link, cam, texts, ages), rec, view, out)
         rec.close()
         out.seconds = time.monotonic() - t0
     return out

@@ -9,6 +9,8 @@ from typing import Any, cast
 import yaml
 
 KINDS = {"command", "reporter", "control", "operator", "constant"}
+# the editor's colour per word (LLD §21.3)
+GROUPS = {"move", "turn", "flow", "show", "sense", "maths"}
 TYPES = {
     "number",
     "condition",
@@ -56,6 +58,7 @@ class Word:
     name: str
     kind: str
     level: int
+    group: str = ""
     aliases: list[str] = field(default_factory=list[str])
     inputs: list[Input] = field(default_factory=list[Input])
     needs: list[str] = field(default_factory=list[str])
@@ -127,6 +130,8 @@ def _load_words(raw: list[dict[str, Any]]) -> list[Word]:
         name = str(w["name"])
         if w["kind"] not in KINDS:
             raise ValueError(f"{name}: unknown kind {w['kind']}")
+        if w.get("group") not in GROUPS:
+            raise ValueError(f"{name}: unknown group {w.get('group')}")
         inputs: list[Input] = []
         for i in w.get("inputs", []):
             if i["type"] not in TYPES:
@@ -146,6 +151,7 @@ def _load_words(raw: list[dict[str, Any]]) -> list[Word]:
                 name=name,
                 kind=str(w["kind"]),
                 level=int(w["level"]),
+                group=str(w["group"]),
                 aliases=[str(a) for a in w.get("aliases", [])],
                 inputs=inputs,
                 needs=[str(n) for n in w.get("needs", [])],

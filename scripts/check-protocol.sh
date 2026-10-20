@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Fails if protocol/defs changed without regenerating outputs.
 set -euo pipefail
-cd "$(dirname "$0")/../protocol"
+# The repo from this script's own folder: inside a hook, git rev-parse --show-toplevel gives the current folder
+# in a worktree.
+top="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$top/protocol"
 uv run protogen check
-cd "$(git rev-parse --show-toplevel)/logo"
+cd "$top/logo"
 uv run logogen check

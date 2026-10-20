@@ -1543,3 +1543,13 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - **Final review (fresh reviewer):** the camera stream is HTTP chunked and the engine did not remove it (every picture would have been broken — critical); Ctrl-C lost the summary; a stale clock after a restart; a cut-off recording could crash replay — all fixed test-first; the six minors fixed at the owner's request ("fix the minor one").
 - **On the tank:** OTA flash (the owner switched the tank off right after; it booted fine); stamps on the wire on one clock; the phone's camera unaffected; recording standing still 13.8 pictures/s, 50 telemetry/s, all whole JPEGs, picture age median **96 ms** by the engine's clock; recording while driving **8.2 pictures/s** (phone also viewing); replay OK. **Bug found and fixed:** after a bridge restart the camera came back 1.5 s before the WebSocket and pictures got 12.7 s ages — a capture time jumping back now drops the clock at once; re-run: max 336 ms.
 - Notes for the map plans: the Uno already re-learns the gyro bias at rest (§109); pictures come slower while driving; the live view's viewer holds the terminal pipe until closed.
+
+## 111. Two lasers for calibration and testing (owner, 2026-10-20)
+- **Owner bought:** a **laser pointer** (single dot) and a **laser level** (projects straight lines / a cross on the floor and walls).
+- **Planned uses:**
+  - **Laser level, straight driving:** a line along the floor as a 3 m straight reference — sideways drift visible to the millimetre (the camera can measure the offset too).
+  - **Laser level, squares and turns:** its cross as an exact 90° reference on the floor.
+  - **Laser level, camera tilt:** a horizontal line on a wall **at exactly the lens height (17.8 cm)** is the horizon in the picture — its pixel row gives the camera's tilt directly (with the lens calibration's focal length) and checks the servo → angle table. Goes into the lens-calibration plan (Spec 7 phase 2).
+  - **Pointer on the tank (taped, pointing forward), heading checker:** the dot on a wall 2-3 m away magnifies heading errors (1° ≈ 5 cm at 3 m) — 360° spins back to a mark, the turn wobble seen directly next to a 50 Hz recording, drift after a lap. Goes into the turn-wobble diagnosis.
+- **Not covered:** a structured-light obstacle sensor (cables, chair legs) needs a small **line-laser module** on the tank — a cheap later add-on if the camera alone struggles with thin obstacles (research `2026-10-20-module1-mapping.md`).
+- **Safety:** low-power lasers only (class 2, < 1 mW); never at eyes or faces; dot and lines at floor / wall height — especially with the child around.

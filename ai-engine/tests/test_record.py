@@ -32,7 +32,9 @@ async def test_record_a_session_from_the_bridge_and_replay_it(tmp_path: Path) ->
     assert out.pictures >= 15 and out.samples >= 40
     assert out.ages_ms and 50 < sorted(out.ages_ms)[len(out.ages_ms) // 2] < 250  # ~100 ms + local delay
     jpegs = [f.jpeg for f in read_frames(tmp_path / "s1" / "frames.bin")]
-    assert jpegs and all(j.startswith(b"\xff\xd8") and j.endswith(b"\xff\xd9") for j in jpegs)  # whole pictures
+    assert jpegs and all(
+        j.startswith(b"\xff\xd8") and j.endswith(b"\xff\xd9") for j in jpegs
+    )  # whole pictures
     pictures, samples = counts(tmp_path / "s1")
     assert (pictures, samples) == (rec.frame_count, out.samples)
     times = [e.recv_s for e in replay(tmp_path / "s1")]
@@ -94,3 +96,62 @@ def test_a_new_connection_starts_a_fresh_clock() -> None:
     assert link.clock.ready()
     link.new_session()
     assert not link.clock.ready()
+
+
+async def test_stopping_by_request_keeps_the_summary(tmp_path: Path) -> None:
+    # Ctrl-C sets `stop` (a signal handler in cq-record): the summary and every picture so far are kept
+    import asyncio
+
+    bridge = FakeBridge()
+    await bridge.start()
+    stop = asyncio.Event()
+    try:
+        link = BridgeLink("127.0.0.1", bridge.ws_port)
+        cam = MjpegSource("127.0.0.1", bridge.stream_port)
+        rec = SessionRecorder(tmp_path / "s", {})
+        asyncio.get_running_loop().call_later(1.0, stop.set)
+        out = await record(link, cam, rec, NoView(), seconds=None, stop=stop)
+    finally:
+        await bridge.stop()
+    assert out.pictures > 5 and out.seconds > 0.9
+    assert out.pictures == rec.frame_count  # nothing left behind in the camera's tap
+
+
+async def test_a_dropped_connection_forgets_the_clock() -> None:
+    # a bridge that restarts counts from zero: the old offset must not age the new pictures
+    import asyncio
+
+    bridge = FakeBridge()
+    await bridge.start()
+    link = BridgeLink("127.0.0.1", bridge.ws_port)
+    stop = asyncio.Event()
+    task = asyncio.create_task(link.run(stop))
+    for _ in range(40):
+        await asyncio.sleep(0.05)
+        if link.clock.ready():
+            break
+    assert link.clock.ready()
+    await bridge.stop()
+    await asyncio.sleep(0.3)
+    assert not link.clock.ready()
+    stop.set()
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
+def test_a_recording_cut_inside_a_line_reads_up_to_the_cut(tmp_path: Path) -> None:
+    rec = SessionRecorder(tmp_path / "s", {})
+    rec.telemetry(1.0, json.dumps({"t": "td"}))
+    rec.telemetry(2.0, json.dumps({"t": "pong"}))
+    rec.frame(Frame(1, 10, 1.0, b"\xff\xd8AA\xff\xd9"))
+    rec.frame(Frame(2, 20, 2.0, b"\xff\xd8BB\xff\xd9"))
+    rec.close()
+    tel = tmp_path / "s" / "telemetry.jsonl"
+    tel.write_text(tel.read_text()[:-12])  # cut inside the last telemetry line
+    frames = tmp_path / "s" / "frames.bin"
+    data = frames.read_bytes()
+    second = data.index(b'{"seq": 2')
+    frames.write_bytes(data[: second + 8])  # cut inside the second picture's header line
+    events = list(replay(tmp_path / "s"))
+    assert [e.recv_s for e in events] == [1.0, 1.0]
+    assert events[1].frame is not None and events[1].frame.seq == 1

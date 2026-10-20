@@ -1,5 +1,5 @@
-"""HTTP chunked transfer encoding, removed as bytes arrive (the bridge's esp_http_server sends every stream part
-as chunks: `<hex length>\\r\\n<data>\\r\\n`, ending with `0\\r\\n\\r\\n`). Pure."""
+"""HTTP chunked transfer encoding, removed as bytes arrive. The bridge's esp_http_server sends every
+stream part as chunks: `<hex length>\\r\\n<data>\\r\\n`, ending with `0\\r\\n\\r\\n`. Pure."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ class Dechunker:
         self.done = False
 
     def feed(self, data: bytes) -> bytes:
-        """The body bytes in `data` (and in what was kept from earlier feeds). A bad length line -> ValueError."""
+        """The body bytes in `data` (and what was kept from earlier feeds); a bad length line: ValueError."""
         self._buf += data
         out = bytearray()
         while not self.done:
@@ -33,7 +33,7 @@ class Dechunker:
             if self._crlf:
                 if len(self._buf) < 2:
                     break
-                if self._buf[:2] != b"\r\n":
+                if bytes(self._buf[:2]) != b"\r\n":
                     raise ValueError("no CRLF after a chunk")
                 del self._buf[:2]
                 self._crlf = False

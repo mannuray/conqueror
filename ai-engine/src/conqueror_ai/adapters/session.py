@@ -57,19 +57,27 @@ def read_frames(path: Path) -> Iterator[Frame]:
             line = fh.readline()
             if not line:
                 return
-            h = json.loads(line)
-            jpeg = fh.read(int(h["len"]))
-            if len(jpeg) != int(h["len"]):
+            try:
+                h = json.loads(line)
+                size = int(h["len"])
+                head = (int(h["seq"]), int(h["cap_us"]), float(h["recv_s"]))
+            except (ValueError, KeyError, TypeError):
+                return  # cut off inside the header line (a crash or power loss while recording)
+            jpeg = fh.read(size)
+            if len(jpeg) != size:
                 return  # cut off at the end (recording stopped mid-write)
-            yield Frame(int(h["seq"]), int(h["cap_us"]), float(h["recv_s"]), jpeg)
+            yield Frame(head[0], head[1], head[2], jpeg)
 
 
 def read_telemetry(path: Path) -> Iterator[tuple[float, str]]:
     with path.open(encoding="utf-8") as fh:
         for line in fh:
             if line.strip():
-                row = json.loads(line)
-                yield float(row["recv_s"]), str(row["msg"])
+                try:
+                    row = json.loads(line)
+                    yield float(row["recv_s"]), str(row["msg"])
+                except (ValueError, KeyError, TypeError):
+                    return  # cut off inside the last line
 
 
 def replay(folder: Path) -> Iterator[Event]:

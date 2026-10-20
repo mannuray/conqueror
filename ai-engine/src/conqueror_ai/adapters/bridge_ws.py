@@ -46,6 +46,7 @@ class BridgeLink:
                 print(f"bridge link closed: {type(e).__name__} - trying again in {delay:.1f} s")
             finally:
                 self._ws = None
+                self.new_session()  # the bridge may be restarting: its clock will start from zero
             if not stop.is_set():
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 5.0)

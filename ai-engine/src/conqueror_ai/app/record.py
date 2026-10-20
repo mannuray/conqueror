@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import signal
 import statistics
 import time
 from dataclasses import dataclass, field
@@ -62,31 +63,45 @@ class Summary:
         )
 
 
+def _drain(link: BridgeLink, cam: MjpegSource, rec: SessionRecorder, view: View, out: Summary) -> None:
+    """Saves and shows everything that arrived since the last call."""
+    for f in cam.raw_tap or []:
+        rec.frame(f)
+        age = link.clock.age_s(f.cap_us, f.recv_s) if link.clock.ready() else None
+        if age is not None:
+            out.ages_ms.append(age * 1000.0)
+        view.frame(f, age)
+        out.pictures += 1
+    if cam.raw_tap is not None:
+        cam.raw_tap.clear()
+    while not link.samples.empty():
+        view.telemetry(link.samples.get_nowait())
+        out.samples += 1
+
+
 async def record(
-    link: BridgeLink, cam: MjpegSource, rec: SessionRecorder, view: View, seconds: float | None
+    link: BridgeLink,
+    cam: MjpegSource,
+    rec: SessionRecorder,
+    view: View,
+    seconds: float | None,
+    stop: asyncio.Event | None = None,
 ) -> Summary:
-    stop = asyncio.Event()
+    """Records until `seconds` have passed or `stop` is set (cq-record sets it on Ctrl-C)."""
+    halt = asyncio.Event()
+    asked = stop or asyncio.Event()
     link.tap = rec.telemetry
     cam.raw_tap = []
-    tasks = [asyncio.create_task(link.run(stop)), asyncio.create_task(cam.run(stop))]
+    tasks = [asyncio.create_task(link.run(halt)), asyncio.create_task(cam.run(halt))]
     out = Summary()
     t0 = time.monotonic()
     try:
-        while seconds is None or time.monotonic() - t0 < seconds:
+        while not asked.is_set() and (seconds is None or time.monotonic() - t0 < seconds):
             await asyncio.sleep(0.05)
-            for f in cam.raw_tap:
-                rec.frame(f)
-                age = link.clock.age_s(f.cap_us, f.recv_s) if link.clock.ready() else None
-                if age is not None:
-                    out.ages_ms.append(age * 1000.0)
-                view.frame(f, age)
-                out.pictures += 1
-            cam.raw_tap.clear()
-            while not link.samples.empty():
-                view.telemetry(link.samples.get_nowait())
-                out.samples += 1
+            _drain(link, cam, rec, view, out)
     finally:
-        stop.set()
+        _drain(link, cam, rec, view, out)  # what arrived in the last moment is kept too
+        halt.set()
         with contextlib.suppress(Exception):
             await link.close()
         for t in tasks:
@@ -116,11 +131,13 @@ def main() -> None:
     link = BridgeLink(a.host, a.ws_port)
     cam = MjpegSource(a.host, a.stream_port)
     print(f"recording to {folder} - Ctrl-C ends it (read only: drive with the phone)")
-    try:
-        summary = asyncio.run(record(link, cam, rec, view, a.seconds))
-    except KeyboardInterrupt:
-        summary = Summary()
-        print("stopped")
+
+    async def until_ctrl_c() -> Summary:
+        stop = asyncio.Event()
+        asyncio.get_running_loop().add_signal_handler(signal.SIGINT, stop.set)  # Ctrl-C ends it cleanly
+        return await record(link, cam, rec, view, a.seconds, stop)
+
+    summary = asyncio.run(until_ctrl_c())
     print(summary.text())
     print(f"{rec.frame_count} pictures and {rec.telem_count} telemetry messages in {folder}")
 

@@ -1,6 +1,6 @@
 # Conqueror AI Engine — Module 1: Sensor Fusion and the Space Map (Design Spec 7)
 
-Status: DRAFT for owner review · Date: 2026-10-20 · Depends on: Spec 1 (protocol), Spec 2 (tank firmware, bridge), bridge LLD (R4 motion service, R5 debug stream, R15 structure)
+Status: APPROVED (owner, 2026-10-20) · Date: 2026-10-20 · Depends on: Spec 1 (protocol), Spec 2 (tank firmware, bridge), bridge LLD (R4 motion service, R5 debug stream, R15 structure)
 Decisions: design-notes §107. Research: `docs/research/2026-10-20-ai-landscape.md`, `docs/research/2026-10-20-module1-mapping.md`.
 
 > **Relation to Spec 4.** The AI engine is reopened (design-notes §107): the tank must **drive smoothly and navigate a room**, not "drive, stop, take a picture, think". The engine is split into three modules — **(1) sensor fusion + space map** (this spec), **(2) drive** (a local planner), **(3) plan** (path, behaviours, exploration; a language model only on top). This spec replaces Spec 4 §2.1–§2.3 (frame ingest, perception, world model) for navigation; the rest of Spec 4 is revisited with modules 2 and 3.

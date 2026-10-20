@@ -3,3 +3,4 @@ models/
 out/
 recordings/
 __pycache__/
+*.pt

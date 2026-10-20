@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 
 #include "board_config.h"
+#include "core/stream_header.h"
 #include "net/camera_service.h"
 #include "net/log.h"
 
@@ -27,6 +28,11 @@ constexpr BaseType_t kViewerCore = 0;
 std::atomic<uint8_t> g_viewers{0};
 QueueHandle_t g_jobs = nullptr;  // async request copies waiting for a free worker
 
+// The frame's capture time in µs: esp32-camera stamps it at VSYNC with esp_timer_get_time().
+uint64_t frameUs(const camera_fb_t* fb) {
+  return static_cast<uint64_t>(fb->timestamp.tv_sec) * 1000000ULL + static_cast<uint64_t>(fb->timestamp.tv_usec);
+}
+
 void releaseViewer() {
   const uint8_t left = static_cast<uint8_t>(--g_viewers);
   logf("stream: viewer left (%u)", static_cast<unsigned>(left));
@@ -38,9 +44,9 @@ void serveStream(httpd_req_t* req) {
   httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=cqframe");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-  char part[96];
+  char part[160];
   esp_err_t err = ESP_OK;
-  uint32_t last_ms = 0;
+  uint32_t last_ms = 0, seq = 0;
   while (err == ESP_OK) {
     const uint8_t cap = cameraSettings().fps_cap;  // Plan O: frame-rate limit per viewer
     if (cap > 0) {
@@ -50,10 +56,9 @@ void serveStream(httpd_req_t* req) {
     last_ms = millis();
     camera_fb_t* fb = cameraGrab();
     if (fb == nullptr) break;  // camera stopped (OTA) or failed
-    const int len = snprintf(part, sizeof(part),
-                             "\r\n--%s\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
-                             kBoundary, static_cast<unsigned>(fb->len));
-    err = httpd_resp_send_chunk(req, part, len);
+    // Plan Q1 (AI engine LLD §2): the capture time (VSYNC, ESP32 timer - the clock of the telemetry's bus_us)
+    const size_t len = core::mjpegPartHeader(part, sizeof(part), kBoundary, fb->len, frameUs(fb), ++seq);
+    err = httpd_resp_send_chunk(req, part, static_cast<ssize_t>(len));
     if (err == ESP_OK) {
       err = httpd_resp_send_chunk(req, reinterpret_cast<const char*>(fb->buf),
                                   static_cast<ssize_t>(fb->len));
@@ -121,7 +126,10 @@ esp_err_t captureHandler(httpd_req_t* req) {
   char disposition[64];
   snprintf(disposition, sizeof(disposition), "attachment; filename=\"tank-%lu.jpg\"",
            static_cast<unsigned long>(millis() / 1000UL));
+  char cap_us[21];  // Plan Q1: the capture time, as on the stream's parts
+  core::u64Str(cap_us, sizeof(cap_us), frameUs(fb));
   httpd_resp_set_type(req, "image/jpeg");
+  httpd_resp_set_hdr(req, "X-Frame-Us", cap_us);
   httpd_resp_set_hdr(req, "Content-Disposition", disposition);
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_hdr(req, "Cache-Control", "no-store");

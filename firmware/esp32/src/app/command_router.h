@@ -21,6 +21,9 @@ class CommandRouter {
   CommandRouter(DriveController& d, MotionController& m, SettingsController& s, TankAppController& t, LogoController& l,
                 TelemetryPublisher& tel, Replies& out)
       : m_drive(d), m_motion(m), m_settings(s), m_tank(t), m_logo(l), m_tel(tel), m_out(out) {}
+  // Plan Q1: the ESP32 timer (µs) for `pong` (the AI engine's clock offset); unset -> 0.
+  void setClockUs(uint64_t (*now_us)()) { m_clock_us = now_us; }
+  uint64_t clockUs() const { return m_clock_us != nullptr ? m_clock_us() : 0; }
   void setHello(const char* fw, const char* (*sensor)()) {
     m_fw = fw;
     m_sensor = sensor;
@@ -46,6 +49,7 @@ class CommandRouter {
   Replies& m_out;
   const char* m_fw = "";
   const char* (*m_sensor)() = nullptr;
+  uint64_t (*m_clock_us)() = nullptr;
 };
 
 }  // namespace app

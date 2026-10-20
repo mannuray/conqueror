@@ -75,7 +75,8 @@ void BodyLink::step(uint32_t now_ms) {
   }
 }
 
-void BodyLink::onUartBytes(const uint8_t* data, size_t len, uint32_t now_ms) {
+void BodyLink::onUartBytes(const uint8_t* data, size_t len, uint32_t now_ms, uint64_t now_us) {
+  m_rx_us = now_us;
   m_parser.feed(data, len, [this, now_ms](const FrameView& f) { onFrame(f, now_ms); });
 }
 
@@ -95,6 +96,7 @@ void BodyLink::onTelemFrame(const FrameView& f) {
   if (f.type == static_cast<uint8_t>(proto::FrameType::kTelemFast)) {
     if (!proto::decode(f.payload, f.len, m_snap.fast)) return;
     m_snap.fast_valid = true;
+    m_snap.fast_bus_us = m_rx_us;
     ++m_snap.fast_count;
     return;
   }

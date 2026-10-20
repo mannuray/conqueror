@@ -1,4 +1,6 @@
 #include "core/ws_json.h"
+
+#include "core/stream_header.h"
 #include "core/ws_json_util.h"
 
 #include <stdio.h>
@@ -107,9 +109,11 @@ size_t jsonNackMessage(char* out, size_t cap, int32_t id, BridgeReason reason, c
   return nack(out, cap, id, r);
 }
 
-size_t jsonPong(char* out, size_t cap, const char* t0, uint32_t tank_ms) {
-  return fmt(out, cap, "{\"t\":\"pong\",\"t0\":%s,\"tank_ms\":%lu}", t0,
-             static_cast<unsigned long>(tank_ms));
+size_t jsonPong(char* out, size_t cap, const char* t0, uint32_t tank_ms, uint64_t bridge_us) {
+  char us[21];
+  u64Str(us, sizeof(us), bridge_us);
+  return fmt(out, cap, "{\"t\":\"pong\",\"t0\":%s,\"tank_ms\":%lu,\"bridge_us\":%s}", t0,
+             static_cast<unsigned long>(tank_ms), us);
 }
 
 uint16_t ackReasonCode(uint8_t status) {

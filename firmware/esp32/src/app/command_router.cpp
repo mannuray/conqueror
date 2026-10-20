@@ -21,7 +21,7 @@ const CommandRouter::Route CommandRouter::kRoutes[] = {
     {K::kRelease, [](C& r, int fd, int32_t id, const W&, uint32_t now) { r.m_drive.onRelease(fd, id, now); }},
     {K::kDebug, [](C& r, int fd, int32_t id, const W& c, uint32_t) { r.m_drive.onDebug(fd, id, c); }},
     {K::kPing, [](C& r, int fd, int32_t, const W& c, uint32_t now) {
-       r.m_out.to(fd, core::jsonPong(r.m_out.buf(), r.m_out.cap(), c.t0, now));
+       r.m_out.to(fd, core::jsonPong(r.m_out.buf(), r.m_out.cap(), c.t0, now, r.clockUs()));
      }},
     {K::kTurn, [](C& r, int fd, int32_t id, const W& c, uint32_t now) { r.m_motion.onTurn(fd, id, c, now); }},
     {K::kDriveRate, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_motion.onDriveRate(fd, c, now); }},

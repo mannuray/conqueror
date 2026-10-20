@@ -104,7 +104,8 @@ struct TankView {
 const char* unoEventName(uint8_t kind);  // proto::EventKind in lower snake case, "unknown" otherwise
 size_t jsonTank(char* out, size_t cap, const TankView& v);
 size_t jsonLog(char* out, size_t cap, const LogEntry* e, uint8_t n, uint32_t last, bool gap, uint32_t now_ms);
-size_t jsonPong(char* out, size_t cap, const char* t0, uint32_t tank_ms);
+// bridge_us: the ESP32 timer now (Plan Q1: the AI engine's clock offset from the lowest-round-trip pings).
+size_t jsonPong(char* out, size_t cap, const char* t0, uint32_t tank_ms, uint64_t bridge_us);
 
 // Plan N3 (Tank Logo LLD §20.4): the logo_* events, {"t":"ev","seq","tank_ms","kind":"logo_…",…} to every client.
 size_t jsonLogoStarted(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, const char* name, const char* by);

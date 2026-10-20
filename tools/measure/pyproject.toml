@@ -1,0 +1,39 @@
+[project]
+name = "conqueror-measure"
+version = "0.1.0"
+description = "Phase 0 measurements for the AI engine module 1 (Spec 7 §9)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy>=1.26,<2.3",  # coremltools 9 turns 1-element arrays into numbers; numpy 2.3+ refuses
+  "opencv-python>=4.10",
+  "ultralytics>=8.3",
+  "coremltools>=8.0",
+  "huggingface_hub>=0.25",
+  "websockets>=13",
+  "torch>=2.7,<2.8",  # coremltools 9 is tested up to torch 2.7; newer torch breaks the YOLO CoreML export
+  "torchvision>=0.22,<0.23",
+]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = ["ruff>=0.7", "pyright>=1.1", "pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = ["models"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+exclude = ["models", ".venv"]
+reportMissingTypeStubs = false

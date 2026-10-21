@@ -2120,3 +2120,4 @@ Found by running the drafted controller against the host tank models; each one i
 - **Test model:** the realistic tank model gains the Uno's ramp (`setUnoRamp`: up 4 %, down 8 % per frame, as recorded). With a 400 °/s² glide it reproduces the floor: ~150 ms of coast; with the old 60 ms default the first turn ends 8.2° short (floor: 9.6°).
 - **New tests** in that floor model: from the default coast, the first turn takes one push and ends within 2°; once learned, the turns land centred (mean within ±0.4°; it was +0.9° without the lead).
 - **No separate plan:** a two-constant change approved directly by the owner, done test-first on branch `plan-r2`.
+- **Floor** (design-notes §114): after a reset, four 90° turns ended within 0.1-1.0° with one push each; the Logo square ended 0.9° off its start heading (it was 7.1°).

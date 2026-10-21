@@ -120,7 +120,10 @@ void TurnController::driven(TurnStep& s, int32_t error, int16_t rate_ddps, uint3
   } else {
     const int16_t target = static_cast<int16_t>(m_dir * motion::kSpinMinDdps);
     const uint32_t dt = now_ms - m_last_ms;
-    s.w = m_rate.step(target, rate_ddps, static_cast<uint16_t>(dt > 100 ? 100 : dt));
+    // kept to the asked speed like the approach, never below the smallest command that turns (R18 review)
+    const uint8_t top = m_speed > 100 ? 100 : m_speed;
+    const int8_t cap = static_cast<int8_t>(top < motion::kTurnWMin ? motion::kTurnWMin : top);
+    s.w = m_rate.step(target, rate_ddps, static_cast<uint16_t>(dt > 100 ? 100 : dt), cap);
   }
   s.stalled = stalledFor(s.w, rate_ddps, now_ms);
 }

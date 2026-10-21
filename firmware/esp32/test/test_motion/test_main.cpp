@@ -301,6 +301,48 @@ void test_rate_anti_windup_and_clamp() {
   TEST_ASSERT_TRUE(w <= 86);
 }
 
+// Final review (Important 1): the slow zone and the nudge keep to the asked speed like the approach (never below
+// kTurnWMin): a stuck tank no longer climbs to 100 % before the stall ends it; a short slow turn no longer kicks
+// at 49 %.
+void test_turn_slow_zone_keeps_to_the_asked_speed() {
+  const struct { int32_t delta; uint8_t speed; int8_t cap; } cases[] = {
+      {1500, 15, 15}, {-1500, 15, -15}, {9000, 40, 40}, {500, 5, motion::kTurnWMin}};
+  for (const auto& c : cases) {
+    TurnController tc;
+    tc.begin(0, c.delta, c.speed, 0);
+    const uint16_t at = static_cast<uint16_t>(c.delta == 9000 ? 7000 : 0);  // 9000: in the slow zone, stuck
+    TurnStep s{};
+    int8_t most = 0;
+    for (uint32_t t = 20; t <= 1400 && !s.stalled; t += 20) {
+      s = tc.step(at, 0, t);
+      if (c.cap > 0 ? s.w > most : s.w < most) most = s.w;
+    }
+    TEST_ASSERT_EQUAL_INT8(c.cap, most);  // reaches the cap, never beyond
+  }
+}
+
+void test_service_pivot_slow_zone_keeps_the_outside_track_to_the_asked_speed() {
+  MotionService svc;
+  svc.startPivot(3, 0, 1500, 40, 1, 0);  // 15°: slow from the start
+  for (uint32_t t = 20; t <= 1400; t += 20) {
+    const MotionOut o = svc.onTelemetry(0, 0, t);
+    if (!o.send) continue;
+    TEST_ASSERT_TRUE(o.v + o.w <= 40);  // outside track = 2|w| <= the asked speed (Plan L)
+  }
+}
+
+// The limit freezes the integral like the +-100 % saturation: back on target, no stored wind-up.
+void test_rate_limit_clamps_and_freezes_the_integral() {
+  RateLoop rl;
+  rl.reset();
+  int8_t w = 0;
+  for (int i = 0; i < 50; ++i) w = rl.step(650, 0, 20, 30);  // 65 °/s wanted, stuck 1 s, limit 30 %
+  TEST_ASSERT_EQUAL_INT8(30, w);
+  w = rl.step(650, 650, 20, 30);  // on target: the feed-forward alone (0.45 x 65 = 29)
+  TEST_ASSERT_EQUAL_INT8(29, w);
+  TEST_ASSERT_EQUAL_INT8(-30, rl.step(-1800, 0, 20, 30));
+}
+
 void test_rate_sign_change_resets_integral() {
   RateLoop rl;
   rl.reset();
@@ -996,6 +1038,9 @@ int main() {
   RUN_TEST(test_rate_integral_grows_on_shortfall);
   RUN_TEST(test_rate_anti_windup_and_clamp);
   RUN_TEST(test_rate_sign_change_resets_integral);
+  RUN_TEST(test_rate_limit_clamps_and_freezes_the_integral);
+  RUN_TEST(test_turn_slow_zone_keeps_to_the_asked_speed);
+  RUN_TEST(test_service_pivot_slow_zone_keeps_the_outside_track_to_the_asked_speed);
   RUN_TEST(test_rate_zero_target_clears_integral);
   RUN_TEST(test_service_turn_closed_loop);
   RUN_TEST(test_service_turn_realistic_one_smooth_stop);

@@ -91,7 +91,7 @@ void test_turn_short_turn_starts_slow() {
 void test_turn_cuts_when_the_predicted_stop_reaches_the_target() {
   TurnController tc;
   tc.begin(0, 9000, 40, 0, 60);
-  TurnStep s = tc.step(8500, 650, 20);  // 5° to go, 65 °/s x 60 ms = 3.9°: not yet
+  TurnStep s = tc.step(8500, 650, 20);  // 5° to go, 65 °/s x (60 + 10 lead) ms = 4.55°: not yet
   TEST_ASSERT_TRUE(s.w > 0);
   s = tc.step(8700, 650, 40);  // 3° to go < 3.9°: cut
   TEST_ASSERT_EQUAL_INT8(0, s.w);
@@ -150,7 +150,7 @@ void test_turn_nudge_back_after_an_overshoot() {
   TEST_ASSERT_EQUAL(static_cast<int>(TurnPhase::kNudge), static_cast<int>(tc.phase()));
   TurnStep s = tc.step(9500, 0, t += 20);
   TEST_ASSERT_TRUE(s.w < 0);  // back toward the target
-  s = tc.step(9400, -650, t += 20);  // 4° to go back at 65 °/s: no cut yet (3.9°)
+  s = tc.step(9500, -650, t += 20);  // 5° to go back at 65 °/s: no cut yet (65 x (60 + 10 lead) ms = 4.55°)
   TEST_ASSERT_TRUE(s.w < 0);
   s = tc.step(9300, -650, t += 20);  // 3° to go: cut
   TEST_ASSERT_EQUAL_INT8(0, s.w);
@@ -369,12 +369,14 @@ struct TurnOpts {
   uint16_t coast_ms = motion::kCoastDefaultMs;
   double decel = 1000.0;
   bool pivot = false;
+  bool uno_ramp = false;  // R18.7: the Uno's command ramp (floor model)
 };
 
 TurnRun runTurn(double start_yaw, bool has_to, int32_t by_cdeg, uint16_t to_cdeg, uint8_t speed = 40,
                uint32_t seed = 12345, const TurnOpts& opt = TurnOpts{}) {
   cqtest::TankModel tank(start_yaw, seed);
   if (opt.realistic) tank.setRealistic(opt.decel);
+  if (opt.uno_ramp) tank.setUnoRamp();
   MotionService svc;
   const uint16_t yaw0 = tank.reportedYawCdeg();
   const int32_t delta = turnDelta(yaw0, has_to, by_cdeg, to_cdeg);
@@ -490,6 +492,41 @@ void test_service_turn_end_carries_the_coast_reading() {
   const TurnRun r = runTurn(0, false, 9000, 0, 40, 3u, o);
   TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDone), static_cast<int>(r.end.reason));
   TEST_ASSERT_TRUE(r.end.coast_ms >= motion::kCoastMinMs && r.end.coast_ms <= motion::kCoastMaxMs);
+}
+
+// R18.7 (design-notes §113): the floor model - the Uno's ramp and a 400 °/s² glide give the ~150 ms coast recorded
+// on the floor. A fresh bridge (the default coast) gets its first turn right: one push, no nudge.
+TurnOpts floorModel(uint16_t coast) {
+  TurnOpts o;
+  o.realistic = true;
+  o.uno_ramp = true;
+  o.decel = 400.0;
+  o.coast_ms = coast;
+  return o;
+}
+
+void test_service_turn_floor_model_first_turn_needs_no_nudge() {
+  const int32_t deltas[] = {9000, -9000};
+  for (int32_t d : deltas) {
+    const TurnRun r = runTurn(0, false, d, 0, 40, 21u, floorModel(motion::kCoastDefaultMs));
+    TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDone), static_cast<int>(r.end.reason));
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, r.pushes, "the first turn needed a nudge");
+    TEST_ASSERT_TRUE_MESSAGE(fabs(r.error_deg) <= 2.0, "the first turn missed by more than 2 degrees");
+  }
+}
+
+// Once learned, the turns land centred on the target: the cut leads by half a frame, so the 20 ms between
+// readings no longer always puts the stop past it (the floor: +1.5-2.3°).
+void test_service_turn_floor_model_lands_centred() {
+  uint16_t coast = motion::kCoastDefaultMs;
+  double past = 0.0;
+  for (int i = 0; i < 16; ++i) {
+    const int32_t d = i % 2 ? -9000 : 9000;
+    const TurnRun r = runTurn(0, false, d, 0, 40, 31u + i, floorModel(coast));
+    if (r.end.coast_ms != 0) coast = coastAverage(coast, r.end.coast_ms);
+    if (i >= 8) past += (d > 0 ? 1.0 : -1.0) * r.error_deg;  // + = past the target
+  }
+  TEST_ASSERT_TRUE_MESSAGE(fabs(past / 8.0) <= 0.4, "learned turns do not land centred");
 }
 
 void test_turn_every_end_sends_zero_then_stop() {
@@ -1047,6 +1084,8 @@ int main() {
   RUN_TEST(test_service_turn_realistic_learns_the_coast);
   RUN_TEST(test_service_pivot_realistic_one_smooth_stop);
   RUN_TEST(test_service_turn_end_carries_the_coast_reading);
+  RUN_TEST(test_service_turn_floor_model_first_turn_needs_no_nudge);
+  RUN_TEST(test_service_turn_floor_model_lands_centred);
   RUN_TEST(test_turn_every_end_sends_zero_then_stop);
   RUN_TEST(test_service_owner_loss_ends);
   RUN_TEST(test_service_telemetry_gap_ends_link);

@@ -60,7 +60,8 @@ int8_t TurnController::command(int32_t error_cdeg, int16_t rate_ddps) const {
 bool TurnController::cutNow(int32_t error_cdeg, int16_t rate_ddps) const {
   const int16_t r = rate_ddps < 0 ? static_cast<int16_t>(-rate_ddps) : rate_ddps;
   if (absI(error_cdeg) <= motion::kTurnDoneCdeg && r < motion::kCoastMinRateDdps) return true;
-  const int32_t left = error_cdeg - static_cast<int32_t>(rate_ddps) * m_coast_ms / 100;  // 0.1 °/s x ms -> 0.01°
+  const int32_t ahead_ms = m_coast_ms + motion::kCutLeadMs;  // R18.7: half a frame early, centred on average
+  const int32_t left = error_cdeg - static_cast<int32_t>(rate_ddps) * ahead_ms / 100;  // 0.1 °/s x ms -> 0.01°
   return m_dir > 0 ? left <= 0 : left >= 0;
 }
 

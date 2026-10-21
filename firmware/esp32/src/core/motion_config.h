@@ -21,7 +21,9 @@ constexpr uint32_t kTimeoutBaseMs = 3000;    // timeout = |angle| / 20 °/s + 3 
 // R18 (design-notes §112): approach, slow to the slowest smooth spin, cut at the predicted stop, at most one nudge.
 constexpr int32_t kTurnSlowZoneCdeg = 2500;  // the last 25° under rate control at kSpinMinDdps
 constexpr int32_t kTurnDoneCdeg = 300;       // stopped within 3°: done; further off: one nudge, then done anyway
-constexpr uint16_t kCoastDefaultMs = 60;     // T_coast: predicted stop = pos + rate x T_coast (learned, NVS)
+constexpr uint16_t kCoastDefaultMs = 150;    // T_coast: predicted stop = pos + rate x T_coast (learned, NVS); floor
+                                             // 2026-10-21: ~150 ms (the Uno's ramp-down + the link + the glide, §113)
+constexpr uint16_t kCutLeadMs = 10;          // R18.7: cut half a 20 ms frame early - the stop centres on the target
 constexpr uint16_t kCoastMinMs = 20;         // a reading counts only within 20..400 ms ...
 constexpr uint16_t kCoastMaxMs = 400;
 constexpr int16_t kCoastMinRateDdps = 300;   // ... and with a cut rate of at least 30 °/s

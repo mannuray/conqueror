@@ -24,6 +24,13 @@ class TankModel {
     m_realistic = true;
     m_decel = decel_dps2;
   }
+  // R18.7 (design-notes §113): the Uno ramps every command - up 4 % and down 8 % per 20 ms frame (recorded 2026-10-21) -
+  // so after w = 0 the motors still drive for a few frames.
+  void setUnoRamp(int up_pct = 4, int down_pct = 8) {
+    m_ramp = true;
+    m_ramp_up = up_pct;
+    m_ramp_down = down_pct;
+  }
   int directionChanges() const { return m_flips; }  // the tank's real rate changed sign (a wobble)
   int pushes() const { return m_pushes; }            // times the command went from 0 to turning
   // Advance 20 ms with the command (v, w) (%) just sent by the bridge.
@@ -32,7 +39,7 @@ class TankModel {
     m_cmd[m_head] = w;
     const int8_t applied = m_cmd[(m_head + 1) % kDelay];  // sent 2 ticks (40 ms) ago
     if (m_realistic) {
-      stepRealistic(applied);
+      stepRealistic(m_ramp ? ramped(applied) : applied);
     } else {
       const double target = (applied > -8 && applied < 8) ? 0.0 : applied * 2.2;
       m_rate += (target - m_rate) * (0.02 / 0.15);
@@ -61,6 +68,13 @@ class TankModel {
 
  private:
   static constexpr int kDelay = 2;
+  int8_t ramped(int8_t target) {  // toward the target; a step down is |change| toward 0 (or through it)
+    const bool down = (target == 0) || (m_ramped > 0 && target < m_ramped) || (m_ramped < 0 && target > m_ramped);
+    const int step = down ? m_ramp_down : m_ramp_up;
+    if (target > m_ramped) m_ramped = static_cast<int8_t>(target - m_ramped <= step ? target : m_ramped + step);
+    else if (target < m_ramped) m_ramped = static_cast<int8_t>(m_ramped - target <= step ? target : m_ramped - step);
+    return m_ramped;
+  }
   void stepRealistic(int8_t applied) {
     const int a = applied < 0 ? -applied : applied;
     if (a < 8) {  // no drive: momentum, a fixed deceleration down to 0 (never past it)
@@ -85,6 +99,10 @@ class TankModel {
   uint32_t m_seed;
   bool m_car_flip = false;
   bool m_realistic = false;
+  bool m_ramp = false;
+  int m_ramp_up = 4;
+  int m_ramp_down = 8;
+  int8_t m_ramped = 0;
   double m_decel = 1000.0;
   int8_t m_last_w = 0;
   int m_pushes = 0;

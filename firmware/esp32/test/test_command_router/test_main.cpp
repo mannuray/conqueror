@@ -69,7 +69,7 @@ void setUp() {
   tel->setViews({[] { return drive->ownerView(); }, [] { return motion->view(); }, [] { return !link->synced(); }});
   settings->setHooks({[] { return motion->active(); }, [] { return drive->otaActive(); }, [] { return owner->driverFd(); },
                       [](int fd) { motion->sendCalib(fd); }, [](const core::AckedOp& op) { return uno->request(op); },
-                      &motion->cpm(), &motion->rollMm(), [] { return uno->freeSlots(); }});
+                      &motion->cpm(), &motion->rollMm(), [] { return uno->freeSlots(); }, &motion->coastMs()});
   g_post = 0;
   drive->begin(0);
   drive->onClientOpen(3, 0);

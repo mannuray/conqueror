@@ -50,6 +50,7 @@ class MotionController {
   void cancelRollOn() { m_roll.cancel(); }  // driving again / a new primitive
   uint16_t& cpm() { return m_cpm; }
   uint16_t& rollMm() { return m_roll_mm; }
+  uint16_t& coastMs() { return m_coast_ms; }  // R18.2
   void sendCalib(int fd);
   core::PrimitiveView view() const;
 
@@ -62,6 +63,7 @@ class MotionController {
   bool rateRefused(int fd, uint32_t now, core::BridgeReason& why);
   bool claimed(int fd, int32_t id, uint32_t now);
   void observeRoll(uint32_t now);
+  void learnFrom(const core::PrimitiveEnd& e, uint32_t now);
   bool encoderFault() const;
   bool logoRefused(const logo::Action& a, core::BridgeReason& why) const;
 
@@ -74,6 +76,7 @@ class MotionController {
   Hooks m_h{nullptr, nullptr, nullptr, nullptr, nullptr};
   uint16_t m_cpm = 0;
   uint16_t m_roll_mm = 0;
+  uint16_t m_coast_ms = core::motion::kCoastDefaultMs;
   int32_t m_roll_last = -1;  // diagnostics in the calib reply: last reading (mm, -1 none) ...
   uint16_t m_roll_begun = 0;  // ... moves watched
   uint16_t m_roll_read = 0;   // ... readings taken

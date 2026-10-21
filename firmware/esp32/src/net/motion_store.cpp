@@ -51,5 +51,26 @@ bool motionStoreSaveRoll(uint16_t mm) {
   return ok;
 }
 
+uint16_t motionStoreLoadCoast() {
+  uint16_t v = core::motion::kCoastDefaultMs;
+  Preferences p;
+  if (p.begin("cq_motion", true)) {
+    const uint16_t saved = p.getUShort("coast_ms", 0xFFFF);
+    if (saved >= core::motion::kCoastMinMs && saved <= core::motion::kCoastMaxMs) v = saved;
+    p.end();
+  }
+  logf("motion: turn coast %u ms", static_cast<unsigned>(v));
+  return v;
+}
+
+bool motionStoreSaveCoast(uint16_t ms) {
+  if (ms < core::motion::kCoastMinMs || ms > core::motion::kCoastMaxMs) return false;
+  Preferences p;
+  if (!p.begin("cq_motion", false)) return false;
+  const bool ok = p.putUShort("coast_ms", ms) == sizeof(uint16_t);
+  p.end();
+  return ok;
+}
+
 }  // namespace net
 }  // namespace cq

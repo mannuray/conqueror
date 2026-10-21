@@ -26,6 +26,7 @@ class SettingsController {
     uint16_t* cpm;      // counts per metre in use
     uint16_t* roll_mm;  // learned roll-on in use
     size_t (*free_slots)();  // free Uno request slots (shared with the phones' requests, R15.5)
+    uint16_t* coast_ms = nullptr;  // R18.2: learned turn coast in use (reset with the roll-on)
   };
 
   SettingsController(Replies& out, core::EventLog& log, const core::BodyLink& link)

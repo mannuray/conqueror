@@ -67,6 +67,13 @@ bool saveRoll(uint16_t v) {
   world().roll = v;
   return true;
 }
+uint16_t loadCoast() { return world().coast; }
+bool saveCoast(uint16_t v) {
+  if (!world().save_ok) return false;
+  world().saved_coast.push_back(v);
+  world().coast = v;
+  return true;
+}
 bool loadAiUrl(char* out, size_t cap) {
   snprintf(out, cap, "%s", world().ai_url.c_str());
   return true;

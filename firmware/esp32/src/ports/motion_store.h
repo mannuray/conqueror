@@ -1,4 +1,4 @@
-// Port: counts per metre and the learned roll-on in flash (bridge LLD R15.3, spec 02 §G6).
+// Port: counts per metre, the learned roll-on and the learned turn coast in flash (bridge LLD R15.3, spec 02 §G6).
 #pragma once
 
 #include <stdint.h>
@@ -10,6 +10,8 @@ uint16_t loadCpm();         // the saved value, or the default when missing / ou
 bool saveCpm(uint16_t v);   // false: out of range or the flash write failed
 uint16_t loadRoll();        // mm
 bool saveRoll(uint16_t v);
+uint16_t loadCoast();       // R18.2: learned turn coast (ms)
+bool saveCoast(uint16_t v);
 
 }  // namespace ports
 }  // namespace cq

@@ -207,6 +207,10 @@ void SettingsController::applyCalibReset(const core::PendingChange& ch) {
   } else {
     *m_h.roll_mm = core::motion::kRollDefaultMm;
     if (!ports::saveRoll(*m_h.roll_mm)) ports::logLine("calib: roll-on reset not saved (NVS)");
+    if (m_h.coast_ms != nullptr) {  // R18.2: the turn coast is learned the same way
+      *m_h.coast_ms = core::motion::kCoastDefaultMs;
+      if (!ports::saveCoast(*m_h.coast_ms)) ports::logLine("calib: turn coast reset not saved (NVS)");
+    }
   }
   m_out.to(ch.fd, core::jsonConfirmed(m_out.buf(), m_out.cap(), core::changeName(ch.kind)));
   m_h.send_calib(ch.fd);

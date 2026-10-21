@@ -1595,3 +1595,18 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - **Logo square:** finished; the heading at the start of each side: 0.0°, −89.4°, −179.4°, +90.3°; the program ended **0.9°** off its start heading. Before R18.7 it was 7.1° (§113).
 - **How the numbers were read:** the turn ends are `turn.py`'s gyro heading change; pushes = times the Uno's command went from 0 to turning in the recording; the square's corners are the yaw (`td` column `yaw`, relative to the first row) on the first frame of each forward side; its end is `td_record.py`'s heading change.
 - **Conclusion:** the turn ending is solved for the floor tried. The 1.5-2.3° overshoot of §113 came mostly from the 60 ms default still being learned, plus the half-frame cut delay.
+
+## 115. The pending tank checks no longer wait for the road wheel (owner, 2026-10-21)
+- **Owner:** "wheel fix will take time so let go that way, assume the wheel will not get fixed." The broken left middle road wheel (§64, §69) stays as it is. Every check that waited for it is done now, on the tank as it is.
+- **What changes:**
+  - **Straight driving:** `track_balance` 19 ‰ stays. It is the correction for the wheel's drag, not a stopgap. Re-check `move 200` for ±1 cm instead of re-measuring a repaired tank.
+  - **Arcs (Plan L):** re-test 90° L/R at R 60 and R 100 now. If they are still outside ±5 cm (§71: left 6 cm outside, right 10 cm inside, the tank sliding right), an arc correction for the sideways slide becomes a design item, with options for the owner. It is not a reason to wait.
+  - **Plan O wizard:** calibrate counts per metre on the tank as it is (it is the tank that drives).
+  - **Plan P** (R15.11 stand + floor lists, the `CQ_WDT_TEST` watchdog check) and **Plan N3** floor checks (the square back to its start, `avoid_walls`, a box stop → 7024, the IR takeover): now.
+  - **Motor power** stays a separate, open item.
+- **Order:**
+  1. Plan P stand list + the watchdog (stand).
+  2. N3 safety: the IR takeover and the box stop (floor).
+  3. `move 200` and the Plan O wizard (floor).
+  4. The arc re-test (floor).
+  5. The N3 square and `avoid_walls` (floor).

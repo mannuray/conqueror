@@ -2113,3 +2113,11 @@ Found by running the drafted controller against the host tank models; each one i
 - **Floor** (design-notes §113): after about five learning turns, every turn is **one push, no nudge, no wobble**, ending +1.5-2.3° past; a 360° ends at +2.0°; the Logo square runs with no 7044 (corners 91.5-91.7°).
 - **The model missed one thing: the Uno's command ramp-down.** The real coast is ~150 ms (the ramp ~60-80 ms + the 40 ms link + the glide), so the 60 ms default made the first turns overshoot, and their nudge overshoot back.
 - **Open** (owner to decide): a 150 ms default, and a half-frame cut lead to centre the remaining ~1.7°.
+
+### R18.7 A 150 ms default coast and a half-frame cut lead (owner: "do a and b", 2026-10-21)
+- **(a) Default coast 150 ms** (`kCoastDefaultMs`, was 60). That is the floor's real coast (design-notes §113: the Uno's ramp-down ~60-80 ms + the 40 ms link + the glide), so a fresh bridge, or a reset from Settings → Tune, no longer starts with about five long turns. A saved, learned value still wins at boot.
+- **(b) Cut half a frame early** (`kCutLeadMs` 10): `left = error − rate × (T_coast + 10 ms)`. The bridge checks the predicted stop once per 20 ms frame and cuts on the first frame where it has reached the target, so on average it cut half a frame late (0–1.3° past at 65–80 °/s). Leading by half a frame centres the stop. The coast reading still measures from the actual cut, so the learning is unchanged.
+- **Test model:** the realistic tank model gains the Uno's ramp (`setUnoRamp`: up 4 %, down 8 % per frame, as recorded). With a 400 °/s² glide it reproduces the floor: ~150 ms of coast; with the old 60 ms default the first turn ends 8.2° short (floor: 9.6°).
+- **New tests** in that floor model: from the default coast, the first turn takes one push and ends within 2°; once learned, the turns land centred (mean within ±0.4°; it was +0.9° without the lead).
+- **No separate plan:** a two-constant change approved directly by the owner, done test-first on branch `plan-r2`.
+- **Floor** (design-notes §114): after a reset, four 90° turns ended within 0.1-1.0° with one push each; the Logo square ended 0.9° off its start heading (it was 7.1°).

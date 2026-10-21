@@ -1588,3 +1588,10 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - **Open for the owner:**
   - (a) Default coast 150 ms instead of 60, so a fresh bridge or a reset does not start with five long turns.
   - (b) Cut half a frame earlier (or subtract a learned bias) to centre the ~1.7°.
+
+## 114. R18.7 on the floor - a 150 ms default coast and a half-frame cut lead (owner on the floor, 2026-10-21)
+- **Method:** the same as §113. The bridge was flashed with R18.7; then the owner reset the roll-on in Settings → Tune, confirmed with the tank's button, which put the learned coast back to its new 150 ms default and the roll-on to 25 mm. Each turn was sent with `tools/smoke/turn.py` (speed 40) and recorded at 50 Hz with `td_record.py`; the square was `REPEAT 4 [FORWARD 30 RIGHT 90]` with `tools/smoke/logo.py run`.
+- **Turns, straight after the reset:** R90 −90.3°, R90 −90.7°, L90 +90.1°, L90 +91.0°. **Every one took one push, with no nudge and no wobble**, including the very first turn. (Before R18.7 the first five turns overshot and nudged: −80.4° … +91.3°, §113.)
+- **Logo square:** finished; the heading at the start of each side: 0.0°, −89.4°, −179.4°, +90.3°; the program ended **0.9°** off its start heading. Before R18.7 it was 7.1° (§113).
+- **How the numbers were read:** the turn ends are `turn.py`'s gyro heading change; pushes = times the Uno's command went from 0 to turning in the recording; the square's corners are the yaw (`td` column `yaw`, relative to the first row) on the first frame of each forward side; its end is `td_record.py`'s heading change.
+- **Conclusion:** the turn ending is solved for the floor tried. The 1.5-2.3° overshoot of §113 came mostly from the 60 ms default still being learned, plus the half-frame cut delay.

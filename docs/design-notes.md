@@ -1610,3 +1610,7 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
   3. `move 200` and the Plan O wizard (floor).
   4. The arc re-test (floor).
   5. The N3 square and `avoid_walls` (floor).
+
+## 116. Pending tank checks on the floor (owner, 2026-10-21; the order of §115)
+- **N3 IR takeover:** skipped. The remote could not be found; it stays pending.
+- **N3 box stop - pass:** `FORWARD 100` with a box ~60 cm ahead, run with `tools/smoke/logo.py run` and recorded with `td_record.py` at 50 Hz. The program ended **7024 "Something is in the way on line 1"**. The tank drove 45.8 cm (the encoders: the mean of the left and right counts / 75.14 counts per cm) and stopped **12.9 cm from the box** (the ultrasonic `dist_mm` at the end: 128-129 mm), without touching it.

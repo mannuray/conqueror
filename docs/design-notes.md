@@ -1616,3 +1616,16 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - **N3 box stop - pass:** `FORWARD 100` with a box ~60 cm ahead, run with `tools/smoke/logo.py run` and recorded with `td_record.py` at 50 Hz. The program ended **7024 "Something is in the way on line 1"**. The tank drove 45.8 cm (the encoders: the mean of the left and right counts / 75.14 counts per cm) and stopped **12.9 cm from the box** (the ultrasonic `dist_mm` at the end: 128-129 mm), without touching it.
 - **`move 200` with the wheel as it is - pass:** `tools/smoke/move.py 200 --speed 40`. The bridge counted 198.0 cm at the stop and 200.2 cm after the roll-on, heading change 0.0° (15040 counts at `counts_per_m` 7514). **Measured by the owner with a tape, from the start mark to the front edge: 200 cm, 1 cm to the right of the line.** So `track_balance` 19 ‰ and `counts_per_m` 7514 stay as they are (§115).
 - **Plan O wizard - pass:** Settings → Tune → DRIVE 1 m on the phone; the owner measured 100 cm with a tape, the wizard showed **7514**, SAVE asked for the tank's button, and the bridge's `calib` reply afterwards: `counts_per_m` 7514 (read with `move.py`'s `Session` over WebSocket). The learned roll-on, reset in §114, now reads 22 mm (2 readings from 6 moves watched).
+- **Plan L arc re-test with the wheel as it is - pass, all four within ±5 cm** (closes the deferred arc acceptance of §71):
+  - **Method as §71:** the owner marked C, the arc centre, 51 cm out from the outer edge of the track on the arc's side (60 cm from the tank's centre; 91 cm / 100 cm for R 100). They measured C → that track's outer edge before and after each 90° arc. Each arc was sent with `tools/smoke/turn.py ±90 --radius R --speed 40`.
+  - **Results:**
+
+    | Arc | C → track edge | Heading (owner) | Gyro | Encoder estimate |
+    |---|---|---|---|---|
+    | Right R 60 | 51 → **51 cm** | ~90° | −95.8° | x 60.7 y −60.9 |
+    | Left R 60 | 51 → **54 cm** (3 out) | ~90° | +92.5° | x 62.4 y 62.4 |
+    | Right R 100 | 91 → **88 cm** (3 in) | ~90° | −92.1° | x 100.8 y −101.1 |
+    | Left R 100 | 91 → **92 cm** (1 out) | — | +90.9° | x 108.2 y 108.2 |
+
+  - **Before (§71, R 60):** left 6 cm outside, right 10 cm inside.
+  - **The encoder estimate is not a path measure:** it said 8 cm outside for the left R 100 where the tape said 1 cm. It cannot see sideways slide (§71); the tape is the judge. No arc correction is needed (§115).

@@ -1,4 +1,4 @@
-// MotionController: turn / move / drive_rate / cancel, primitive ends, counts per metre (bridge LLD R4, R7, R8, R15.4).
+// MotionController: turn / move / drive_rate / cancel, primitive ends, counts per metre, the learned turn coast (bridge LLD R4, R7, R8, R15.4, R18).
 #include <string.h>
 #include <unity.h>
 
@@ -157,6 +157,43 @@ void test_cancel_by_another_client_is_not_owner() {
   TEST_ASSERT_FALSE(mc->active());
 }
 
+// R18.2: a done turn reports its coast reading; the controller averages it in and saves it.
+namespace {
+void yawFrame(uint16_t yaw, int16_t rate, uint32_t now) {
+  proto::TelemFastMsg f{};
+  f.yaw = yaw;
+  f.yaw_rate = rate;
+  uint8_t b[64];
+  const size_t n = cqtest::frame(f, 3, b);
+  unoSends(b, n, now);
+  mc->onTelemetry(now);
+}
+}  // namespace
+
+void test_a_done_turn_saves_the_learned_coast() {
+  TEST_ASSERT_EQUAL(60, mc->coastMs());  // loaded at begin
+  syncedWithEncoders();
+  mc->onTurn(3, 1, P("{\"t\":\"turn\",\"by\":90,\"speed\":40,\"id\":1}"), 100);
+  TEST_ASSERT_TRUE(mc->active());
+  uint32_t t = 100;
+  yawFrame(8700, 650, t += 20);  // cut at 87° turning 65 °/s
+  for (int i = 0; i < 30 && mc->active(); ++i) yawFrame(8990, 0, t += 20);  // glided 2.9°, stopped
+  TEST_ASSERT_FALSE(mc->active());
+  TEST_ASSERT_TRUE(has(3, "primitive_done"));
+  TEST_ASSERT_EQUAL(1, static_cast<int>(fakes::world().saved_coast.size()));
+  TEST_ASSERT_EQUAL(56, fakes::world().saved_coast[0]);  // (3 x 60 + 44 + 2) / 4
+  TEST_ASSERT_EQUAL(56, mc->coastMs());
+}
+
+void test_a_cancelled_turn_learns_nothing() {
+  syncedWithEncoders();
+  mc->onTurn(3, 1, P("{\"t\":\"turn\",\"by\":90,\"speed\":40,\"id\":1}"), 100);
+  yawFrame(8700, 650, 120);
+  mc->end(core::MotionEvent::kCancel, 140);
+  TEST_ASSERT_EQUAL(0, static_cast<int>(fakes::world().saved_coast.size()));
+  TEST_ASSERT_EQUAL(60, mc->coastMs());
+}
+
 void test_calib_reply_has_counts_and_roll_diagnostics() {
   mc->sendCalib(3);
   const std::string j = fakes::lastTo(3);
@@ -261,6 +298,8 @@ int main() {
   RUN_TEST(test_move_ended_by_stop_is_broadcast_and_logged_without_a_second_stop);
   RUN_TEST(test_cancelled_move_sends_stop);
   RUN_TEST(test_cancel_by_another_client_is_not_owner);
+  RUN_TEST(test_a_done_turn_saves_the_learned_coast);
+  RUN_TEST(test_a_cancelled_turn_learns_nothing);
   RUN_TEST(test_calib_reply_has_counts_and_roll_diagnostics);
   RUN_TEST(test_logo_move_starts_without_a_reply_and_its_end_reaches_the_program);
   RUN_TEST(test_a_page_s_own_primitive_end_does_not_reach_the_program);

@@ -13,7 +13,8 @@ class RateLoop {
  public:
   void reset();
   void setFeedForward(float pct_per_dps) { m_ff = pct_per_dps; }  // Plan L: arcs need their own (kept by reset)
-  int8_t step(int16_t target_ddps, int16_t rate_ddps, uint16_t dt_ms);  // 0.1 °/s in, % out (+ = CCW / left)
+  // 0.1 °/s in, % out (+ = CCW / left); |w| <= limit_pct, the integral frozen while at the limit (R18 review).
+  int8_t step(int16_t target_ddps, int16_t rate_ddps, uint16_t dt_ms, int8_t limit_pct = 100);
 
  private:
   float m_integral = 0.0f;  // °/s · s

@@ -6,11 +6,12 @@ namespace cq {
 namespace core {
 
 void MotionService::startTurn(int fd, uint16_t yaw_cdeg, int32_t delta_cdeg, uint8_t speed_pct, int32_t id,
-                              uint32_t now_ms) {
+                              uint32_t now_ms, uint16_t coast_ms) {
   m_kind = PrimKind::kTurn;
   m_fd = fd;
   m_id = id;
-  m_turn.begin(yaw_cdeg, delta_cdeg, speed_pct, now_ms);
+  m_coast_reading = 0;
+  m_turn.begin(yaw_cdeg, delta_cdeg, speed_pct, now_ms, coast_ms);
   m_last_telem_ms = now_ms;
 }
 
@@ -52,7 +53,7 @@ void MotionService::startArc(int fd, const MotionTelem& t, int32_t delta_cdeg, u
 }
 
 void MotionService::startPivot(int fd, uint16_t yaw_cdeg, int32_t delta_cdeg, uint8_t speed_pct, int32_t id,
-                               uint32_t now_ms) {
+                               uint32_t now_ms, uint16_t coast_ms) {
   m_kind = PrimKind::kPivot;
   m_fd = fd;
   m_id = id;
@@ -60,7 +61,8 @@ void MotionService::startPivot(int fd, uint16_t yaw_cdeg, int32_t delta_cdeg, ui
   // outside track = 2|w| <= speed; the spin's minimum w still applies (12 % -> outside 24 %)
   uint8_t half = static_cast<uint8_t>(speed_pct / 2);
   if (half < motion::kTurnWMin) half = static_cast<uint8_t>(motion::kTurnWMin);
-  m_turn.begin(yaw_cdeg, delta_cdeg, half, now_ms);
+  m_coast_reading = 0;
+  m_turn.begin(yaw_cdeg, delta_cdeg, half, now_ms, coast_ms);
   m_last_telem_ms = now_ms;
 }
 
@@ -80,6 +82,7 @@ MotionOut MotionService::stepArc(const MotionTelem& t, uint32_t now_ms) {
 
 MotionOut MotionService::stepPivot(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms) {
   const TurnStep s = m_turn.step(yaw_cdeg, rate_ddps, now_ms);
+  if (s.coast_ms != 0) m_coast_reading = s.coast_ms;
   if (s.done) return finish(EndReason::kDone);
   if (s.stalled) return finish(EndReason::kStalled);
   if (s.timeout) return finish(EndReason::kTimeout);
@@ -104,6 +107,7 @@ MotionOut MotionService::finish(EndReason why) {
     o.end.has_moved = true;
     o.end.moved_mm = m_move.movedMm();
   }
+  if (m_kind == PrimKind::kTurn || m_kind == PrimKind::kPivot) o.end.coast_ms = m_coast_reading;
   m_kind = PrimKind::kNone;
   m_fd = -1;
   m_id = -1;
@@ -114,6 +118,7 @@ MotionOut MotionService::cancel(EndReason why) { return active() ? finish(why) :
 
 MotionOut MotionService::stepTurn(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms) {
   const TurnStep s = m_turn.step(yaw_cdeg, rate_ddps, now_ms);
+  if (s.coast_ms != 0) m_coast_reading = s.coast_ms;
   if (s.done) return finish(EndReason::kDone);
   if (s.stalled) return finish(EndReason::kStalled);
   if (s.timeout) return finish(EndReason::kTimeout);

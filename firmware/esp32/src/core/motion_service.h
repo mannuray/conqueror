@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "core/arc_controller.h"
+#include "core/motion_config.h"
 #include "core/move_controller.h"
 #include "core/rate_loop.h"
 #include "core/turn_controller.h"
@@ -35,6 +36,7 @@ struct PrimitiveEnd {
   int32_t id = -1;
   bool has_moved = false;  // Plan K: a move reports its counted distance
   int32_t moved_mm = 0;
+  uint16_t coast_ms = 0;  // R18: a turn / pivot's coast reading (ms), 0 = none
 };
 
 struct MotionOut {
@@ -47,14 +49,17 @@ struct MotionOut {
 
 class MotionService {
  public:
-  void startTurn(int fd, uint16_t yaw_cdeg, int32_t delta_cdeg, uint8_t speed_pct, int32_t id, uint32_t now_ms);
+  // coast_ms: the learned T_coast (R18).
+  void startTurn(int fd, uint16_t yaw_cdeg, int32_t delta_cdeg, uint8_t speed_pct, int32_t id, uint32_t now_ms,
+                 uint16_t coast_ms = motion::kCoastDefaultMs);
   void driveRate(int fd, int8_t v, int16_t rate_ddps, uint32_t now_ms);  // starts or updates the stream
   MotionOut cancel(EndReason why);
   void startMove(int fd, const MotionTelem& t, int16_t dist_cm, uint8_t speed_pct, uint16_t cpm, int32_t id,
                  uint32_t now_ms, uint16_t roll_mm = 0);
   void startArc(int fd, const MotionTelem& t, int32_t delta_cdeg, uint16_t radius_cm, uint8_t speed_pct, uint16_t cpm,
                 int32_t id, uint32_t now_ms);
-  void startPivot(int fd, uint16_t yaw_cdeg, int32_t delta_cdeg, uint8_t speed_pct, int32_t id, uint32_t now_ms);
+  void startPivot(int fd, uint16_t yaw_cdeg, int32_t delta_cdeg, uint8_t speed_pct, int32_t id, uint32_t now_ms,
+                  uint16_t coast_ms = motion::kCoastDefaultMs);
   MotionOut onTelemetry(const MotionTelem& t, uint32_t now_ms);
   MotionOut onTelemetry(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms) {  // turn / rate callers
     MotionTelem t;
@@ -88,6 +93,7 @@ class MotionService {
   MoveController m_move;
   ArcController m_arc;
   int8_t m_pivot_dir = 1;  // +1 left pivot (left track still), -1 right pivot
+  uint16_t m_coast_reading = 0;  // R18: kept until the turn / pivot ends
   int8_t m_rate_v = 0;
   int16_t m_rate_target = 0;
   bool m_rate_limited = false;

@@ -24,9 +24,11 @@ struct World {
   bool close_ok = true;
   uint16_t cpm = 7514;
   uint16_t roll = 27;
+  uint16_t coast = 60;
   bool save_ok = true;
   std::vector<uint16_t> saved_cpm;
   std::vector<uint16_t> saved_roll;
+  std::vector<uint16_t> saved_coast;
   std::string ai_url;
   std::vector<core::WifiRequest> wifi_posted;
   bool wifi_post_ok = true;

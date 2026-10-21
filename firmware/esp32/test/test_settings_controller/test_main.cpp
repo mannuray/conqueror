@@ -25,7 +25,7 @@ int g_driver = -1;
 int g_calib_sent = 0;
 std::vector<core::AckedOp> g_ops;
 size_t g_free = 8;  // free request slots the fake queue reports
-uint16_t g_cpm = 7514, g_roll = 27;
+uint16_t g_cpm = 7514, g_roll = 27, g_coast = 80;
 
 core::WsCommand P(const char* s) { return core::parseWsCommand(s, strlen(s)); }
 bool has(int fd, const char* needle) { return fakes::countTo(fd, needle) > 0; }
@@ -46,6 +46,7 @@ void setUp() {
   g_free = 8;
   g_cpm = 7514;
   g_roll = 27;
+  g_coast = 80;
   sc->setHooks({[] { return g_active; }, [] { return g_ota; }, [] { return g_driver; },
                      [](int) { ++g_calib_sent; },
                      [](const core::AckedOp& op) {
@@ -54,7 +55,7 @@ void setUp() {
                        g_ops.push_back(op);
                        return true;
                      },
-                     &g_cpm, &g_roll, [] { return g_free; }});
+                     &g_cpm, &g_roll, [] { return g_free; }, &g_coast});
 }
 void tearDown() {}
 
@@ -140,6 +141,17 @@ void test_calib_save_failure_is_busy() {
   TEST_ASSERT_TRUE(has(3, "BUSY"));
 }
 
+// R18.2: resetting the roll-on (confirmed on the tank) also resets the learned turn coast.
+void test_calib_reset_roll_also_resets_the_coast() {
+  sc->onCalib(3, 5, P("{\"t\":\"calib\",\"reset\":\"roll\",\"id\":5}"), 1000);
+  TEST_ASSERT_TRUE(has(3, "\"t\":\"confirm\""));
+  sc->onButtonPress(2000);
+  TEST_ASSERT_EQUAL(core::motion::kRollDefaultMm, g_roll);
+  TEST_ASSERT_EQUAL(core::motion::kCoastDefaultMs, g_coast);
+  TEST_ASSERT_EQUAL(1, static_cast<int>(fakes::world().saved_coast.size()));
+  TEST_ASSERT_EQUAL(core::motion::kCoastDefaultMs, fakes::world().saved_coast[0]);
+}
+
 void test_calib_read_sends_calib() {
   sc->onCalib(3, -1, P("{\"t\":\"calib\"}"), 1000);
   TEST_ASSERT_EQUAL(1, g_calib_sent);
@@ -181,6 +193,7 @@ int main() {
   RUN_TEST(test_calib_set_only_for_the_driver_and_not_while_moving);
   RUN_TEST(test_calib_save_failure_is_busy);
   RUN_TEST(test_calib_read_sends_calib);
+  RUN_TEST(test_calib_reset_roll_also_resets_the_coast);
   RUN_TEST(test_wifi_mode_result_is_logged);
   RUN_TEST(test_restart_is_acked_logged_and_due_after_500_ms);
   RUN_TEST(test_restart_refused_while_moving);

@@ -10,7 +10,7 @@ void RateLoop::reset() {
   m_last_target = 0;
 }
 
-int8_t RateLoop::step(int16_t target_ddps, int16_t rate_ddps, uint16_t dt_ms) {
+int8_t RateLoop::step(int16_t target_ddps, int16_t rate_ddps, uint16_t dt_ms, int8_t limit_pct) {
   // A sign change or a zero target starts afresh (review M2: no leftover w at target 0).
   if (target_ddps == 0 || (target_ddps > 0 && m_last_target < 0) || (target_ddps < 0 && m_last_target > 0)) {
     m_integral = 0.0f;
@@ -20,8 +20,9 @@ int8_t RateLoop::step(int16_t target_ddps, int16_t rate_ddps, uint16_t dt_ms) {
   const float pre = m_ff * target + motion::kRateKpPctPerDps * err;
   const float candidate = m_integral + err * (dt_ms / 1000.0f);
   float w = pre + motion::kRateKiPctPerDeg * candidate;
-  if (w > 100.0f || w < -100.0f) {
-    w = w > 0.0f ? 100.0f : -100.0f;  // saturated: keep the old integral (anti-windup)
+  const float lim = static_cast<float>(limit_pct);
+  if (w > lim || w < -lim) {
+    w = w > 0.0f ? lim : -lim;  // saturated: keep the old integral (anti-windup)
   } else {
     m_integral = candidate;
   }

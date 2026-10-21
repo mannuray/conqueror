@@ -30,6 +30,7 @@ core::MotionTelem telemOf(const core::TankSnapshot& s) {
 void MotionController::begin() {
   m_cpm = ports::loadCpm();  // Plan K
   m_roll_mm = ports::loadRoll();  // spec 02 §G6
+  m_coast_ms = ports::loadCoast();  // bridge LLD R18.2
 }
 
 bool MotionController::encoderFault() const {
@@ -61,11 +62,24 @@ void MotionController::run(const core::LinkOut& o, uint32_t now) {
   if (o.end.reason != core::EndReason::kDone) {  // Plan O: why a move / turn ended early
     m_log.add(core::LogKind::kPrimitive, static_cast<int32_t>(o.end.reason), static_cast<int32_t>(o.end.kind), "",
               m_tel.tankMs(), now);
-  } else if (o.end.kind == core::PrimKind::kMove) {
-    const core::TankSnapshot& s = m_link.snapshot();  // §G6: watch the roll-on from here
+  } else {
+    learnFrom(o.end, now);
+  }
+}
+
+// A done move: watch its roll-on (§G6). A done turn / pivot with a coast reading: average it in and save it (R18.2).
+void MotionController::learnFrom(const core::PrimitiveEnd& e, uint32_t now) {
+  if (e.kind == core::PrimKind::kMove) {
+    const core::TankSnapshot& s = m_link.snapshot();
     m_roll.begin((s.fast.enc_l + s.fast.enc_r) / 2, now);
     ++m_roll_begun;
+    return;
   }
+  if (e.coast_ms == 0) return;
+  const uint16_t next = core::coastAverage(m_coast_ms, e.coast_ms);
+  ports::logLine("motion: turn coast %u ms -> average %u ms", static_cast<unsigned>(e.coast_ms),
+                 static_cast<unsigned>(next));
+  if (next != m_coast_ms && ports::saveCoast(next)) m_coast_ms = next;
 }
 
 void MotionController::end(core::MotionEvent e, uint32_t now) {
@@ -101,8 +115,8 @@ bool MotionController::startLogo(int fd, const logo::Action& a, uint32_t now, co
     case logo::ActKind::kArc:
       svc.startArc(fd, telemOf(snap), a.delta_cdeg, a.radius_cm, a.speed_pct, m_cpm, kLogoPrimitive, now);
       return true;
-    case logo::ActKind::kPivot: svc.startPivot(fd, snap.fast.yaw, a.delta_cdeg, spin, kLogoPrimitive, now); return true;
-    default: svc.startTurn(fd, snap.fast.yaw, a.delta_cdeg, spin, kLogoPrimitive, now); return true;  // turn, HOME
+    case logo::ActKind::kPivot: svc.startPivot(fd, snap.fast.yaw, a.delta_cdeg, spin, kLogoPrimitive, now, m_coast_ms); return true;
+    default: svc.startTurn(fd, snap.fast.yaw, a.delta_cdeg, spin, kLogoPrimitive, now, m_coast_ms); return true;  // turn, HOME
   }
 }
 
@@ -154,9 +168,9 @@ void MotionController::onTurn(int fd, int32_t id, const core::WsCommand& c, uint
   if (c.radius_cm > 0) {
     svc.startArc(fd, telemOf(snap), delta, c.radius_cm, c.speed, m_cpm, id, now);
   } else if (c.pivot) {
-    svc.startPivot(fd, snap.fast.yaw, delta, c.speed, id, now);
+    svc.startPivot(fd, snap.fast.yaw, delta, c.speed, id, now, m_coast_ms);
   } else {
-    svc.startTurn(fd, snap.fast.yaw, delta, c.speed, id, now);
+    svc.startTurn(fd, snap.fast.yaw, delta, c.speed, id, now, m_coast_ms);
   }
   m_out.ack(fd, id);
 }

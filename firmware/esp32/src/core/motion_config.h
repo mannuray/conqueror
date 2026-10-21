@@ -11,17 +11,20 @@ namespace motion {
 constexpr int32_t kTurnKpPctPerDeg = 1;      // w = 1 % per degree still to go
 constexpr int8_t kTurnWMin = 12;             // % - smallest command that still turns
 constexpr int32_t kLatencyDdpsToCdeg = 8;    // e_p = e - rate * 80 ms  ->  rate_ddps * 8 / 10 (0.01°)
-// Target window by heading only (floor test 2026-10-16, LLD R4.16): inside it w = 0 whatever the gyro rate (a
-// shaking tank reads +-55 °/s on target), done once held with little net movement (rate averaged over the hold).
-constexpr int32_t kWindowInCdeg = 150;       // window: |e| <= 1.5° and the heading's own average rate over
-constexpr int16_t kWindowEnterRateDdps = 150;  // the last 200 ms < 15 °/s (not still sweeping through) ...
-constexpr uint32_t kAvgRateMs = 200;
-constexpr int32_t kWindowOutCdeg = 250;      // ... left again only beyond 2.5° (no hunting around the target)
-constexpr uint32_t kWindowHoldMs = 300;      // done: in the window for 300 ms ...
-constexpr int32_t kSettleMoveCdeg = 200;     // ... moving < 2° over it (avg < 6.7 °/s), else the hold restarts
+// Stopped (R18; the floor test 2026-10-16, LLD R4.16, taught to judge it by the heading - a shaking tank reads
+// +-55 °/s on target): the heading moved < 2° over 300 ms (avg < 6.7 °/s), else the hold restarts.
+constexpr uint32_t kWindowHoldMs = 300;
+constexpr int32_t kSettleMoveCdeg = 200;
 constexpr int16_t kStallRateDdps = 20;       // stalled: |rate| < 2 °/s while commanding >= w_min ...
 constexpr uint32_t kStallMs = 1500;          // ... for 1.5 s
 constexpr uint32_t kTimeoutBaseMs = 3000;    // timeout = |angle| / 20 °/s + 3 s
+// R18 (design-notes §112): approach, slow to the slowest smooth spin, cut at the predicted stop, at most one nudge.
+constexpr int32_t kTurnSlowZoneCdeg = 2500;  // the last 25° under rate control at kSpinMinDdps
+constexpr int32_t kTurnDoneCdeg = 300;       // stopped within 3°: done; further off: one nudge, then done anyway
+constexpr uint16_t kCoastDefaultMs = 60;     // T_coast: predicted stop = pos + rate x T_coast (learned, NVS)
+constexpr uint16_t kCoastMinMs = 20;         // a reading counts only within 20..400 ms ...
+constexpr uint16_t kCoastMaxMs = 400;
+constexpr int16_t kCoastMinRateDdps = 300;   // ... and with a cut rate of at least 30 °/s
 
 // DRIVE_RATE: w = ff * r + Kp * err + Ki * integral(err), |w| <= 100, integration stops while saturated.
 constexpr float kRateFfPctPerDps = 0.45f;  // floor data 2026-10-15: w 60 % spin ~ 110-137 °/s

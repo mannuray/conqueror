@@ -8,6 +8,13 @@ namespace {
 int32_t absI(int32_t v) { return v < 0 ? -v : v; }
 }  // namespace
 
+uint16_t coastAverage(uint16_t old_ms, uint16_t reading_ms) {
+  int32_t v = (3 * static_cast<int32_t>(old_ms) + reading_ms + 2) / 4;
+  if (v < motion::kCoastMinMs) v = motion::kCoastMinMs;
+  if (v > motion::kCoastMaxMs) v = motion::kCoastMaxMs;
+  return static_cast<uint16_t>(v);
+}
+
 int32_t wrapDeltaCdeg(int32_t d) {
   d %= 36000;
   if (d >= 18000) d -= 36000;
@@ -21,39 +28,21 @@ int32_t turnDelta(uint16_t yaw_cdeg, bool has_to, int32_t by_cdeg, uint16_t to_c
   return d == -18000 ? 18000 : d;  // exactly opposite: turn left (+180°)
 }
 
-void TurnController::begin(uint16_t start_yaw_cdeg, int32_t delta_cdeg, uint8_t speed_pct, uint32_t now_ms) {
+void TurnController::begin(uint16_t start_yaw_cdeg, int32_t delta_cdeg, uint8_t speed_pct, uint32_t now_ms,
+                           uint16_t coast_ms) {
   m_delta = delta_cdeg;
   m_pos = 0;
   m_last_yaw = start_yaw_cdeg;
   m_speed = speed_pct;
-  m_start_ms = now_ms;
+  m_start_ms = m_last_ms = now_ms;
   m_timeout_ms = static_cast<uint32_t>(absI(delta_cdeg)) / 2u + motion::kTimeoutBaseMs;  // |angle| / 20 °/s + 3 s
-  m_in_window = false;
+  m_coast_ms = coast_ms;
+  m_phase = absI(delta_cdeg) <= motion::kTurnSlowZoneCdeg ? TurnPhase::kSlow : TurnPhase::kApproach;
+  m_dir = delta_cdeg < 0 ? -1 : 1;
+  m_rate.reset();
+  m_cut_pos = 0;
+  m_cut_rate = 0;
   m_stalling = false;
-  m_hist_n = 0;
-  m_hist_head = 0;
-  remember(now_ms);
-}
-
-void TurnController::remember(uint32_t now_ms) {
-  m_hist_pos[m_hist_head] = m_pos;
-  m_hist_ms[m_hist_head] = now_ms;
-  m_hist_head = static_cast<uint8_t>((m_hist_head + 1) % kHist);
-  if (m_hist_n < kHist) ++m_hist_n;
-}
-
-int32_t TurnController::avgRateDdps(uint32_t now_ms) const {
-  // Against the newest sample at least kAvgRateMs old (else the oldest kept). 0.01° per ms * 100 = 0.1 °/s.
-  uint8_t pick = static_cast<uint8_t>((m_hist_head + kHist - m_hist_n) % kHist);  // oldest
-  for (uint8_t k = 1; k <= m_hist_n; ++k) {  // newest first
-    const uint8_t i = static_cast<uint8_t>((m_hist_head + kHist - k) % kHist);
-    if (now_ms - m_hist_ms[i] >= motion::kAvgRateMs) {
-      pick = i;
-      break;
-    }
-  }
-  const uint32_t dt = now_ms - m_hist_ms[pick];
-  return dt == 0 ? 0 : (m_pos - m_hist_pos[pick]) * 100 / static_cast<int32_t>(dt);
 }
 
 int8_t TurnController::command(int32_t error_cdeg, int16_t rate_ddps) const {
@@ -65,27 +54,42 @@ int8_t TurnController::command(int32_t error_cdeg, int16_t rate_ddps) const {
   return static_cast<int8_t>(e < 0 ? -mag : mag);
 }
 
-bool TurnController::inWindow(int32_t error_cdeg, uint32_t now_ms) {
-  // Enter: close and not sweeping through (heading-average rate); stay: heading only - the momentary gyro rate is
-  // unusable while the tank shakes on target.
-  const bool in = m_in_window ? absI(error_cdeg) <= motion::kWindowOutCdeg
-                              : absI(error_cdeg) <= motion::kWindowInCdeg &&
-                                    absI(avgRateDdps(now_ms)) < motion::kWindowEnterRateDdps;
-  if (in && !m_in_window) {
-    m_window_since = now_ms;
-    m_window_pos = m_pos;
-  }
-  m_in_window = in;
-  return in;
+// R18: w = 0 once the tank would stop on (or past) the target if the power were cut now - along the way it
+// drives (m_dir), so a nudge back after an overshoot cuts on its own crossing. Within 3° and not turning it is
+// already there: the slowest spin would glide past by more than that.
+bool TurnController::cutNow(int32_t error_cdeg, int16_t rate_ddps) const {
+  const int16_t r = rate_ddps < 0 ? static_cast<int16_t>(-rate_ddps) : rate_ddps;
+  if (absI(error_cdeg) <= motion::kTurnDoneCdeg && r < motion::kCoastMinRateDdps) return true;
+  const int32_t left = error_cdeg - static_cast<int32_t>(rate_ddps) * m_coast_ms / 100;  // 0.1 °/s x ms -> 0.01°
+  return m_dir > 0 ? left <= 0 : left >= 0;
 }
 
-// Held for kWindowHoldMs with < kSettleMoveCdeg net movement; a real drift restarts the hold instead.
-bool TurnController::settled(uint32_t now_ms) {
-  if (now_ms - m_window_since < motion::kWindowHoldMs) return false;
-  if (absI(m_pos - m_window_pos) < motion::kSettleMoveCdeg) return true;
-  m_window_since = now_ms;
-  m_window_pos = m_pos;
+void TurnController::cut(int16_t rate_ddps, uint32_t now_ms) {
+  if (m_phase != TurnPhase::kNudge) {  // the first cut is the one the coast is learned from
+    m_cut_pos = m_pos;
+    m_cut_rate = rate_ddps;
+  }
+  m_phase = m_phase == TurnPhase::kNudge ? TurnPhase::kNudgeCoast : TurnPhase::kCoast;
+  m_still_since = now_ms;
+  m_still_pos = m_pos;
+}
+
+// Stopped: held for kWindowHoldMs with < kSettleMoveCdeg net movement (the heading, not the shaking gyro rate).
+bool TurnController::stopped(uint32_t now_ms) {
+  if (now_ms - m_still_since < motion::kWindowHoldMs) return false;
+  if (absI(m_pos - m_still_pos) < motion::kSettleMoveCdeg) return true;
+  m_still_since = now_ms;
+  m_still_pos = m_pos;
   return false;
+}
+
+// T_coast (ms) seen on this turn: how far it went on after the first cut, over the rate at the cut.
+uint16_t TurnController::coastReading() const {
+  const int32_t rate = m_cut_rate < 0 ? -m_cut_rate : m_cut_rate;
+  if (rate < motion::kCoastMinRateDdps) return 0;
+  const int32_t coast = (m_delta >= 0 ? m_pos - m_cut_pos : m_cut_pos - m_pos);  // along the turn
+  const int32_t ms = coast * 100 / rate;
+  return ms >= motion::kCoastMinMs && ms <= motion::kCoastMaxMs ? static_cast<uint16_t>(ms) : 0;
 }
 
 bool TurnController::stalledFor(int8_t w, int16_t rate_ddps, uint32_t now_ms) {
@@ -102,20 +106,55 @@ bool TurnController::stalledFor(int8_t w, int16_t rate_ddps, uint32_t now_ms) {
   return now_ms - m_stall_since >= motion::kStallMs;
 }
 
+void TurnController::driven(TurnStep& s, int32_t error, int16_t rate_ddps, uint32_t now_ms) {
+  if (m_phase == TurnPhase::kApproach && absI(error) <= motion::kTurnSlowZoneCdeg) {
+    m_phase = TurnPhase::kSlow;  // the last 25°: rate control at the slowest smooth spin
+    m_rate.reset();
+  }
+  if (m_phase != TurnPhase::kApproach && cutNow(error, rate_ddps)) {
+    cut(rate_ddps, now_ms);
+    return;  // w = 0: glide onto the target
+  }
+  if (m_phase == TurnPhase::kApproach) {
+    s.w = command(error, rate_ddps);
+  } else {
+    const int16_t target = static_cast<int16_t>(m_dir * motion::kSpinMinDdps);
+    const uint32_t dt = now_ms - m_last_ms;
+    // kept to the asked speed like the approach, never below the smallest command that turns (R18 review)
+    const uint8_t top = m_speed > 100 ? 100 : m_speed;
+    const int8_t cap = static_cast<int8_t>(top < motion::kTurnWMin ? motion::kTurnWMin : top);
+    s.w = m_rate.step(target, rate_ddps, static_cast<uint16_t>(dt > 100 ? 100 : dt), cap);
+  }
+  s.stalled = stalledFor(s.w, rate_ddps, now_ms);
+}
+
+void TurnController::coasting(TurnStep& s, int32_t error, uint32_t now_ms) {
+  m_stalling = false;
+  if (!stopped(now_ms)) return;  // w = 0 while it glides
+  if (m_phase == TurnPhase::kCoast) {
+    s.coast_ms = coastReading();
+    if (absI(error) > motion::kTurnDoneCdeg) {
+      m_phase = TurnPhase::kNudge;  // stopped too far off: one nudge, never a second
+      m_dir = error < 0 ? -1 : 1;
+      m_rate.reset();
+      return;
+    }
+  }
+  s.done = true;
+}
+
 TurnStep TurnController::step(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms) {
   m_pos += wrapDeltaCdeg(static_cast<int32_t>(yaw_cdeg) - m_last_yaw);
   m_last_yaw = yaw_cdeg;
-  remember(now_ms);
   const int32_t error = m_delta - m_pos;
   TurnStep s;
   s.timeout = now_ms - m_start_ms >= m_timeout_ms;
-  if (inWindow(error, now_ms)) {
-    s.done = settled(now_ms);
-    m_stalling = false;
-    return s;  // w = 0: let the tank settle, no corrections from a shaking gyro
+  if (m_phase == TurnPhase::kCoast || m_phase == TurnPhase::kNudgeCoast) {
+    coasting(s, error, now_ms);
+  } else {
+    driven(s, error, rate_ddps, now_ms);
   }
-  s.w = command(error, rate_ddps);
-  s.stalled = stalledFor(s.w, rate_ddps, now_ms);
+  m_last_ms = now_ms;
   return s;
 }
 

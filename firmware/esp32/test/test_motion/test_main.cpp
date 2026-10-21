@@ -1,4 +1,4 @@
-// Plan H (bridge LLD R4): motion router, turn target, turn controller, rate loop, motion service.
+// Plan H (bridge LLD R4, R18): motion router, turn target, turn controller, rate loop, motion service.
 #include <math.h>
 #include <unity.h>
 
@@ -70,92 +70,172 @@ void test_turn_far_error_runs_at_speed_toward_target() {
   TEST_ASSERT_FALSE(s.done);
 }
 
-void test_turn_near_error_keeps_minimum() {
+// ---------- R18: slow zone, cut at the predicted stop, one nudge ----------
+void test_turn_slow_zone_holds_the_slowest_smooth_spin() {
   TurnController tc;
   tc.begin(0, 9000, 40, 0);
-  const TurnStep s = tc.step(8500, 0, 20);  // 5° left to go, still: 5 % < w_min -> w_min
-  TEST_ASSERT_EQUAL_INT8(motion::kTurnWMin, s.w);
+  TEST_ASSERT_EQUAL(static_cast<int>(TurnPhase::kApproach), static_cast<int>(tc.phase()));
+  const TurnStep s = tc.step(7000, motion::kSpinMinDdps, 20);  // 20° to go at 65 °/s: rate control, no cut yet
+  TEST_ASSERT_EQUAL(static_cast<int>(TurnPhase::kSlow), static_cast<int>(tc.phase()));
+  TEST_ASSERT_EQUAL_INT8(29, s.w);  // feed-forward 0.45 x 65 °/s, no error
 }
 
-void test_turn_latency_compensation_brakes_early() {
+void test_turn_short_turn_starts_slow() {
   TurnController tc;
-  tc.begin(0, 9000, 40, 0);
-  // 8° to go but turning at 120 °/s: 80 ms ahead it would be at -1.6° -> command reverses at w_min
-  const TurnStep s = tc.step(8200, 1200, 20);
-  TEST_ASSERT_EQUAL_INT8(-motion::kTurnWMin, s.w);
+  tc.begin(0, -1500, 40, 0);  // 15° right
+  TEST_ASSERT_EQUAL(static_cast<int>(TurnPhase::kSlow), static_cast<int>(tc.phase()));
+  const TurnStep s = tc.step(0, 0, 20);
+  TEST_ASSERT_TRUE(s.w < 0);  // toward the target under rate control
+}
+
+void test_turn_cuts_when_the_predicted_stop_reaches_the_target() {
+  TurnController tc;
+  tc.begin(0, 9000, 40, 0, 60);
+  TurnStep s = tc.step(8500, 650, 20);  // 5° to go, 65 °/s x 60 ms = 3.9°: not yet
+  TEST_ASSERT_TRUE(s.w > 0);
+  s = tc.step(8700, 650, 40);  // 3° to go < 3.9°: cut
+  TEST_ASSERT_EQUAL_INT8(0, s.w);
+  TEST_ASSERT_EQUAL(static_cast<int>(TurnPhase::kCoast), static_cast<int>(tc.phase()));
+  s = tc.step(8900, 300, 60);  // still gliding: w stays 0, not done
+  TEST_ASSERT_EQUAL_INT8(0, s.w);
+  TEST_ASSERT_FALSE(s.done);
 }
 
 namespace {
-// Arrive at `yaw` and stand still until the heading average sees it (the window needs < 15 °/s over 200 ms):
-// returns the time the window was entered (first w == 0).
-uint32_t settleAt(TurnController& tc, uint16_t yaw, uint32_t& t) {
-  for (int i = 0; i < 40; ++i) {
-    if (tc.step(yaw, 0, t += 20).w == 0) return t;
-  }
-  return 0;
+// After a cut at 8700 (65 °/s), glide to `stop` and hold there: returns the step that ended the hold.
+TurnStep glideTo(TurnController& tc, uint16_t stop, uint32_t& t) {
+  TurnStep s{};
+  for (int i = 0; i < 40 && !s.done && tc.phase() != TurnPhase::kNudge; ++i) s = tc.step(stop, 0, t += 20);
+  return s;
 }
 }  // namespace
 
-void test_turn_done_after_hold_in_window() {
+void test_turn_done_once_stopped_with_the_coast_reading() {
   TurnController tc;
-  tc.begin(0, 9000, 40, 0);
+  tc.begin(0, 9000, 40, 0, 60);
   uint32_t t = 0;
-  const uint32_t entered = settleAt(tc, 8960, t);  // 0.4° off, still: enters the window
-  TEST_ASSERT_TRUE(entered > 0);
-  TurnStep s{};
-  while (t + 20 < entered + motion::kWindowHoldMs) {
-    s = tc.step(8960, 0, t += 20);
-    TEST_ASSERT_EQUAL_INT8(0, s.w);
-    TEST_ASSERT_FALSE(s.done);
-  }
-  s = tc.step(8960, 0, t += 20);
-  TEST_ASSERT_TRUE(s.done);   // hold reached
+  tc.step(8700, 650, t += 20);  // cut at 87° turning 65 °/s
+  const uint32_t cut_at = t;
+  const TurnStep s = glideTo(tc, 8990, t);  // glides 2.9°, stops 0.1° short
+  TEST_ASSERT_TRUE(s.done);
+  TEST_ASSERT_TRUE(t >= cut_at + motion::kWindowHoldMs);  // done only after the stillness hold
+  TEST_ASSERT_EQUAL_UINT16(44, s.coast_ms);  // 290 cdeg x 100 / 650 ddps
 }
 
-// Floor test 2026-10-16 (marble): on target the tank shook left-right (gyro +-55 °/s, heading +-1°); the momentary
-// rate kept it out of the window and the latency term turned the jerks into +-12 % corrections until the timeout.
-// Inside the window the command is 0 whatever the rate, and the turn ends after the hold.
+void test_turn_one_nudge_when_it_stops_short() {
+  TurnController tc;
+  tc.begin(0, 9000, 40, 0, 60);
+  uint32_t t = 0;
+  tc.step(8000, 650, t += 20);
+  tc.step(8700, 650, t += 20);  // cut
+  TurnStep s = glideTo(tc, 8500, t);  // went back?? no: stopped 5° short (the heading did not reach the cut point)
+  TEST_ASSERT_FALSE(s.done);
+  TEST_ASSERT_EQUAL(static_cast<int>(TurnPhase::kNudge), static_cast<int>(tc.phase()));
+  s = tc.step(8500, 0, t += 20);
+  TEST_ASSERT_TRUE(s.w > 0);  // the nudge: toward the target
+  s = tc.step(8700, 650, t += 20);  // the nudge's own cut
+  TEST_ASSERT_EQUAL_INT8(0, s.w);
+  TEST_ASSERT_EQUAL(static_cast<int>(TurnPhase::kNudgeCoast), static_cast<int>(tc.phase()));
+  s = glideTo(tc, 8650, t);  // still 3.5° short: done anyway - never a second nudge
+  TEST_ASSERT_TRUE(s.done);
+  TEST_ASSERT_EQUAL_UINT16(0, s.coast_ms);  // learned from the first coast only
+}
+
+void test_turn_nudge_back_after_an_overshoot() {
+  TurnController tc;
+  tc.begin(0, 9000, 40, 0, 60);
+  uint32_t t = 0;
+  tc.step(8700, 650, t += 20);  // cut
+  glideTo(tc, 9500, t);         // glided 5° past
+  TEST_ASSERT_EQUAL(static_cast<int>(TurnPhase::kNudge), static_cast<int>(tc.phase()));
+  TurnStep s = tc.step(9500, 0, t += 20);
+  TEST_ASSERT_TRUE(s.w < 0);  // back toward the target
+  s = tc.step(9400, -650, t += 20);  // 4° to go back at 65 °/s: no cut yet (3.9°)
+  TEST_ASSERT_TRUE(s.w < 0);
+  s = tc.step(9300, -650, t += 20);  // 3° to go: cut
+  TEST_ASSERT_EQUAL_INT8(0, s.w);
+  TEST_ASSERT_EQUAL(static_cast<int>(TurnPhase::kNudgeCoast), static_cast<int>(tc.phase()));
+}
+
+// A turn within 3° of its target and not turning is already there: the slowest spin would glide past further than
+// that, so it ends without a push (also a "to" heading it already faces, and a turn of 0-3°).
+void test_turn_within_three_degrees_at_rest_does_not_push() {
+  const int32_t deltas[] = {0, 250, -300, 9000};
+  for (int32_t d : deltas) {
+    TurnController tc;
+    tc.begin(0, d, 40, 0);
+    uint32_t t = 0;
+    const uint16_t at = static_cast<uint16_t>(d == 9000 ? 8990 : 0);  // 9000: arrives 0.1° short, still
+    TurnStep s{};
+    for (int i = 0; i < 30 && !s.done; ++i) {
+      s = tc.step(at, 0, t += 20);
+      TEST_ASSERT_EQUAL_INT8(0, s.w);
+    }
+    TEST_ASSERT_TRUE(s.done);
+    TEST_ASSERT_FALSE(s.stalled);
+  }
+  TurnController tc;  // 4° at rest: it does push (then glides)
+  tc.begin(0, 400, 40, 0);
+  TEST_ASSERT_TRUE(tc.step(0, 0, 20).w > 0);
+}
+
+void test_turn_coast_reading_ignores_bad_cuts() {
+  {  // cut while turning slower than 30 °/s: no reading
+    TurnController tc;
+    tc.begin(0, 9000, 40, 0, 60);
+    uint32_t t = 0;
+    tc.step(8950, 200, t += 20);
+    TEST_ASSERT_EQUAL_UINT16(0, glideTo(tc, 9000, t).coast_ms);
+  }
+  {  // coasted 9° from 65 °/s = 138 ms: kept; 30° = 461 ms: above 400 ms, dropped
+    TurnController tc;
+    tc.begin(0, 9000, 40, 0, 60);
+    uint32_t t = 0;
+    tc.step(8700, 650, t += 20);
+    TEST_ASSERT_EQUAL_UINT16(0, glideTo(tc, 11700, t).coast_ms);  // also 27° past: nudge, reading dropped
+  }
+}
+
+void test_coast_average_moves_a_quarter_and_stays_in_range() {
+  TEST_ASSERT_EQUAL_UINT16(70, coastAverage(60, 100));  // (180 + 100 + 2) / 4
+  TEST_ASSERT_EQUAL_UINT16(50, coastAverage(60, 20));   // (180 + 20 + 2) / 4
+  TEST_ASSERT_EQUAL_UINT16(motion::kCoastMinMs, coastAverage(20, 20));
+  TEST_ASSERT_EQUAL_UINT16(motion::kCoastMaxMs, coastAverage(400, 400));
+}
+
+// Floor test 2026-10-16 (marble): on target the tank shook left-right (gyro +-55 °/s, heading +-1°). Coasting, the
+// command is 0 whatever the rate, and "stopped" looks at the heading, not the gyro: the turn ends after the hold.
 void test_turn_shaking_at_target_finishes_without_corrections() {
   TurnController tc;
   tc.begin(0, 9000, 40, 0);
-  TurnStep s{};
   uint32_t t = 0;
+  tc.step(8700, 650, t += 20);  // cut
+  TurnStep s{};
   bool done = false;
-  for (int i = 0; i < 60 && !done; ++i) {
+  for (int i = 0; i < 40 && !done; ++i) {
     const bool up = i % 2 == 0;
     s = tc.step(up ? 8900 : 9050, up ? 550 : -550, t += 20);  // -1° / +0.5°, jerking +-55 °/s
-    if (t > motion::kAvgRateMs + 20) TEST_ASSERT_EQUAL_INT8(0, s.w);  // once the arrival left the average
+    TEST_ASSERT_EQUAL_INT8(0, s.w);
     done = s.done;
   }
   TEST_ASSERT_TRUE(done);
-  TEST_ASSERT_TRUE(t <= motion::kAvgRateMs + motion::kWindowHoldMs + 60);  // average settles, then the hold
+  // the first hold restarts (the glide from the cut moved it 2° or more), the second one ends the turn
+  TEST_ASSERT_TRUE(t <= 20 + 2 * motion::kWindowHoldMs + 40);
 }
 
-// A real slow drift through the window (8 °/s) is not "done": it is still moving, and corrects once it leaves.
+// A real slow drift (8 °/s = 2.4° per 300 ms) is not "stopped": no end, no nudge while it moves.
 void test_turn_slow_drift_is_not_done() {
   TurnController tc;
   tc.begin(0, 9000, 40, 0);
-  TurnStep s{};
   uint32_t t = 0;
-  int32_t yaw = 8860;  // 1.4° short, drifting on at 8 °/s (16 cdeg per 20 ms)
-  while (yaw < 9260) {
-    s = tc.step(static_cast<uint16_t>(yaw), 80, t += 20);
+  tc.step(8700, 650, t += 20);  // cut
+  int32_t yaw = 8860;
+  for (int i = 0; i < 40; ++i) {
+    const TurnStep s = tc.step(static_cast<uint16_t>(yaw), 80, t += 20);
     TEST_ASSERT_FALSE(s.done);
+    TEST_ASSERT_EQUAL_INT8(0, s.w);
     yaw += 16;
   }
-  s = tc.step(static_cast<uint16_t>(yaw), 80, t += 20);  // 2.7° past: out of the window
-  TEST_ASSERT_TRUE(s.w < 0);  // corrects back
-}
-
-void test_turn_window_hysteresis() {
-  TurnController tc;
-  tc.begin(0, 9000, 40, 0);
-  uint32_t t = 0;
-  TEST_ASSERT_TRUE(settleAt(tc, 8900, t) > 0);  // 1° off: in
-  TurnStep s = tc.step(8800, 0, t += 20);  // 2° off: still settling (exit band 2.5°)
-  TEST_ASSERT_EQUAL_INT8(0, s.w);
-  s = tc.step(8700, 0, t += 20);  // 3° off: leaves the window, drives again
-  TEST_ASSERT_EQUAL_INT8(motion::kTurnWMin, s.w);
 }
 
 void test_turn_stalled_and_timeout() {
@@ -173,14 +253,23 @@ void test_turn_stalled_and_timeout() {
   TEST_ASSERT_TRUE(s.timeout);
 }
 
+void test_turn_stalled_in_the_slow_zone() {
+  TurnController tc;
+  tc.begin(0, 1500, 40, 0);  // Slow from the start; the tank never moves
+  TurnStep s{};
+  for (uint32_t t = 20; t <= 1700 && !s.stalled; t += 20) s = tc.step(0, 0, t);
+  TEST_ASSERT_TRUE(s.stalled);
+}
+
 void test_turn_tracks_multi_turn() {
   TurnController tc;
   tc.begin(35000, 36000, 40, 0);  // by 360 from 350°
   // pass through 0° twice-worth of wrap: 350 -> 170 (crossing 0) -> 349
   tc.step(100, 900, 20);    // +11° (wrapped)
   tc.step(17000, 900, 40);  // +169°
-  const TurnStep s = tc.step(34900, 900, 60);  // +359° total, 1° to go
-  TEST_ASSERT_NOT_EQUAL(0, s.w);  // still turning (latency term), not done yet
+  const TurnStep s = tc.step(34900, 900, 60);  // +359° total, 1° to go at 90 °/s: cut
+  TEST_ASSERT_EQUAL_INT8(0, s.w);
+  TEST_ASSERT_EQUAL(static_cast<int>(TurnPhase::kCoast), static_cast<int>(tc.phase()));
   TEST_ASSERT_TRUE(tc.progressPct() >= 99);
 }
 
@@ -212,6 +301,48 @@ void test_rate_anti_windup_and_clamp() {
   TEST_ASSERT_TRUE(w <= 86);
 }
 
+// Final review (Important 1): the slow zone and the nudge keep to the asked speed like the approach (never below
+// kTurnWMin): a stuck tank no longer climbs to 100 % before the stall ends it; a short slow turn no longer kicks
+// at 49 %.
+void test_turn_slow_zone_keeps_to_the_asked_speed() {
+  const struct { int32_t delta; uint8_t speed; int8_t cap; } cases[] = {
+      {1500, 15, 15}, {-1500, 15, -15}, {9000, 40, 40}, {500, 5, motion::kTurnWMin}};
+  for (const auto& c : cases) {
+    TurnController tc;
+    tc.begin(0, c.delta, c.speed, 0);
+    const uint16_t at = static_cast<uint16_t>(c.delta == 9000 ? 7000 : 0);  // 9000: in the slow zone, stuck
+    TurnStep s{};
+    int8_t most = 0;
+    for (uint32_t t = 20; t <= 1400 && !s.stalled; t += 20) {
+      s = tc.step(at, 0, t);
+      if (c.cap > 0 ? s.w > most : s.w < most) most = s.w;
+    }
+    TEST_ASSERT_EQUAL_INT8(c.cap, most);  // reaches the cap, never beyond
+  }
+}
+
+void test_service_pivot_slow_zone_keeps_the_outside_track_to_the_asked_speed() {
+  MotionService svc;
+  svc.startPivot(3, 0, 1500, 40, 1, 0);  // 15°: slow from the start
+  for (uint32_t t = 20; t <= 1400; t += 20) {
+    const MotionOut o = svc.onTelemetry(0, 0, t);
+    if (!o.send) continue;
+    TEST_ASSERT_TRUE(o.v + o.w <= 40);  // outside track = 2|w| <= the asked speed (Plan L)
+  }
+}
+
+// The limit freezes the integral like the +-100 % saturation: back on target, no stored wind-up.
+void test_rate_limit_clamps_and_freezes_the_integral() {
+  RateLoop rl;
+  rl.reset();
+  int8_t w = 0;
+  for (int i = 0; i < 50; ++i) w = rl.step(650, 0, 20, 30);  // 65 °/s wanted, stuck 1 s, limit 30 %
+  TEST_ASSERT_EQUAL_INT8(30, w);
+  w = rl.step(650, 650, 20, 30);  // on target: the feed-forward alone (0.45 x 65 = 29)
+  TEST_ASSERT_EQUAL_INT8(29, w);
+  TEST_ASSERT_EQUAL_INT8(-30, rl.step(-1800, 0, 20, 30));
+}
+
 void test_rate_sign_change_resets_integral() {
   RateLoop rl;
   rl.reset();
@@ -228,22 +359,38 @@ struct TurnRun {
   double error_deg = 0;    // turned - requested, after 1 s of settling
   int8_t last_w = 99;      // the final command the service sent
   uint32_t ms = 0;
+  int pushes = 0;          // R18: times the command went from 0 to turning (1 = no nudge, 2 = one nudge)
+  int flips = 0;           // R18: times the tank's real turn changed direction (a wobble)
+  double slow_rate = 0;    // R18: |rate| (°/s) 10° before the target
+};
+
+struct TurnOpts {
+  bool realistic = false;  // R18: the floor model (deadband lift + glide)
+  uint16_t coast_ms = motion::kCoastDefaultMs;
+  double decel = 1000.0;
+  bool pivot = false;
 };
 
 TurnRun runTurn(double start_yaw, bool has_to, int32_t by_cdeg, uint16_t to_cdeg, uint8_t speed = 40,
-               uint32_t seed = 12345) {
+               uint32_t seed = 12345, const TurnOpts& opt = TurnOpts{}) {
   cqtest::TankModel tank(start_yaw, seed);
+  if (opt.realistic) tank.setRealistic(opt.decel);
   MotionService svc;
   const uint16_t yaw0 = tank.reportedYawCdeg();
   const int32_t delta = turnDelta(yaw0, has_to, by_cdeg, to_cdeg);
-  svc.startTurn(7, yaw0, delta, speed, 42, 0);
+  if (opt.pivot) {
+    svc.startPivot(7, yaw0, delta, speed, 42, 0, opt.coast_ms);
+  } else {
+    svc.startTurn(7, yaw0, delta, speed, 42, 0, opt.coast_ms);
+  }
   TurnRun r;
   int8_t w = 0;
   for (uint32_t t = 20; t <= 30000 && !r.ended; t += 20) {
     tank.step(w);
+    if (r.slow_rate == 0 && fabs(delta / 100.0 - tank.turnedDeg()) <= 10.0) r.slow_rate = fabs(tank.rateDps());
     const MotionOut o = svc.onTelemetry(tank.reportedYawCdeg(), tank.reportedRateDdps(), t);
     if (o.send) {
-      w = o.w;
+      w = o.w;  // a pivot's w is the spin part; the model turns by it
       r.last_w = o.w;
     }
     if (o.ended) {
@@ -254,6 +401,8 @@ TurnRun runTurn(double start_yaw, bool has_to, int32_t by_cdeg, uint16_t to_cdeg
   }
   for (int i = 0; i < 50; ++i) tank.step(0);  // 1 s coasting with w = 0 (the bridge then sends STOP)
   r.error_deg = tank.turnedDeg() - delta / 100.0;
+  r.pushes = tank.pushes();
+  r.flips = tank.directionChanges();
   return r;
 }
 }  // namespace
@@ -264,15 +413,83 @@ void test_service_turn_closed_loop() {
       {123, false, 36000, 0, 40}, {0, false, 1000, 0, 40}, {0, false, 18000, 0, 40}, {0, false, -72000, 0, 40},
       {0, false, 9000, 0, 12},  {0, false, 9000, 0, 100}};
   const uint32_t seeds[] = {1u, 7u, 99u};
+  TurnOpts o;
+  o.coast_ms = 170;  // R18: this smooth model glides on its 150 ms lag (~170 ms coast, as the learning would find)
   for (const auto& c : cases) for (uint32_t seed : seeds) {
-    const TurnRun r = runTurn(c.start, c.to, c.by, c.to_c, c.speed, seed);
+    const TurnRun r = runTurn(c.start, c.to, c.by, c.to_c, c.speed, seed, o);
     TEST_ASSERT_TRUE(r.ended);
     TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDone), static_cast<int>(r.end.reason));
     TEST_ASSERT_TRUE(r.end.ok);
     TEST_ASSERT_EQUAL_INT32(42, r.end.id);
     TEST_ASSERT_EQUAL_INT8(0, r.last_w);
-    TEST_ASSERT_TRUE_MESSAGE(fabs(r.error_deg) <= 2.0, "turn error above 2 degrees");
+    TEST_ASSERT_TRUE_MESSAGE(fabs(r.error_deg) <= 3.0, "turn error above 3 degrees");
+    TEST_ASSERT_TRUE_MESSAGE(r.pushes <= 2, "more than one nudge");
   }
+}
+
+// R18 (design-notes §112): on the floor model a turn slows to ~65 °/s, glides onto the target with one cut, needs at
+// most one nudge and never wobbles - the old controller made 8-25 alternating pushes here.
+void test_service_turn_realistic_one_smooth_stop() {
+  const struct { int32_t by; uint8_t speed; } cases[] = {{9000, 40}, {-9000, 40}, {36000, 40}, {1000, 40},
+                                                         {18000, 60}, {-4500, 100}, {9000, 12}};
+  const uint32_t seeds[] = {1u, 7u, 99u};
+  for (const auto& c : cases) for (uint32_t seed : seeds) {
+    TurnOpts o;
+    o.realistic = true;
+    o.coast_ms = 70;  // the model's own coast, as learned (see the learning test)
+    const TurnRun r = runTurn(0, false, c.by, 0, c.speed, seed, o);
+    TEST_ASSERT_TRUE(r.ended);
+    TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDone), static_cast<int>(r.end.reason));
+    TEST_ASSERT_EQUAL_INT8(0, r.last_w);
+    TEST_ASSERT_TRUE_MESSAGE(fabs(r.error_deg) <= 3.0, "turn error above 3 degrees");
+    TEST_ASSERT_TRUE_MESSAGE(r.pushes <= 2, "more than one nudge");
+    TEST_ASSERT_TRUE_MESSAGE(r.flips <= 1, "the turn wobbled");
+    if (c.by >= 3000 || c.by <= -3000) TEST_ASSERT_TRUE_MESSAGE(r.slow_rate <= 80.0, "not slowed near the target");
+  }
+}
+
+// A wrong coast (the default 60 ms against a slipperier floor) still ends within one nudge; the readings pull the
+// learned value toward the floor's real coast within about ten turns, and then the turns need no nudge.
+void test_service_turn_realistic_learns_the_coast() {
+  const double decels[] = {1000.0, 500.0};
+  for (double decel : decels) {
+    uint16_t coast = motion::kCoastDefaultMs;
+    TurnRun r;
+    for (int i = 0; i < 12; ++i) {
+      TurnOpts o;
+      o.realistic = true;
+      o.coast_ms = coast;
+      o.decel = decel;
+      r = runTurn(0, false, i % 2 ? -9000 : 9000, 0, 40, 11u + i, o);
+      TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDone), static_cast<int>(r.end.reason));
+      TEST_ASSERT_TRUE(r.pushes <= 2);
+      if (r.end.coast_ms != 0) coast = coastAverage(coast, r.end.coast_ms);
+    }
+    TEST_ASSERT_TRUE_MESSAGE(fabs(r.error_deg) <= 1.5, "learned turn not within 1.5 degrees");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, r.pushes, "learned turn still needs a nudge");
+  }
+}
+
+void test_service_pivot_realistic_one_smooth_stop() {
+  for (int dir = -1; dir <= 1; dir += 2) {
+    TurnOpts o;
+    o.realistic = true;
+    o.coast_ms = 70;
+    o.pivot = true;
+    const TurnRun r = runTurn(0, false, dir * 9000, 0, 40, 5u, o);
+    TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDone), static_cast<int>(r.end.reason));
+    TEST_ASSERT_TRUE(fabs(r.error_deg) <= 3.0);
+    TEST_ASSERT_TRUE(r.pushes <= 2);
+    TEST_ASSERT_TRUE(r.flips <= 1);
+  }
+}
+
+void test_service_turn_end_carries_the_coast_reading() {
+  TurnOpts o;
+  o.realistic = true;
+  const TurnRun r = runTurn(0, false, 9000, 0, 40, 3u, o);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDone), static_cast<int>(r.end.reason));
+  TEST_ASSERT_TRUE(r.end.coast_ms >= motion::kCoastMinMs && r.end.coast_ms <= motion::kCoastMaxMs);
 }
 
 void test_turn_every_end_sends_zero_then_stop() {
@@ -784,9 +1001,10 @@ void test_service_pivot_correction_keeps_the_same_track() {
   for (int dir = -1; dir <= 1; dir += 2) {
     MotionService svc;
     svc.startPivot(3, 0, dir * 9000, 40, 1, 0);
-    // 5° past the target, still: the controller turns back
+    // 5° past the target, still: R18 coasts (w = 0) until stopped, then nudges back
     const uint16_t past = static_cast<uint16_t>(dir > 0 ? 9500 : 36000 - 9500);
-    MotionOut o = svc.onTelemetry(past, 0, 20);
+    MotionOut o;
+    for (uint32_t t = 20; t <= 1000 && !(o.send && o.w != 0); t += 20) o = svc.onTelemetry(past, 0, t);
     TEST_ASSERT_TRUE(o.send);
     TEST_ASSERT_TRUE(dir > 0 ? o.w < 0 : o.w > 0);  // turning back
     const int l = o.v - o.w, r = o.v + o.w;
@@ -802,20 +1020,33 @@ int main() {
   RUN_TEST(test_router_move_needs_encoders);
   RUN_TEST(test_turn_target_wrap);
   RUN_TEST(test_turn_far_error_runs_at_speed_toward_target);
-  RUN_TEST(test_turn_near_error_keeps_minimum);
-  RUN_TEST(test_turn_latency_compensation_brakes_early);
-  RUN_TEST(test_turn_done_after_hold_in_window);
+  RUN_TEST(test_turn_slow_zone_holds_the_slowest_smooth_spin);
+  RUN_TEST(test_turn_short_turn_starts_slow);
+  RUN_TEST(test_turn_cuts_when_the_predicted_stop_reaches_the_target);
+  RUN_TEST(test_turn_done_once_stopped_with_the_coast_reading);
+  RUN_TEST(test_turn_one_nudge_when_it_stops_short);
+  RUN_TEST(test_turn_nudge_back_after_an_overshoot);
+  RUN_TEST(test_turn_within_three_degrees_at_rest_does_not_push);
+  RUN_TEST(test_turn_coast_reading_ignores_bad_cuts);
+  RUN_TEST(test_coast_average_moves_a_quarter_and_stays_in_range);
   RUN_TEST(test_turn_shaking_at_target_finishes_without_corrections);
   RUN_TEST(test_turn_slow_drift_is_not_done);
-  RUN_TEST(test_turn_window_hysteresis);
   RUN_TEST(test_turn_stalled_and_timeout);
+  RUN_TEST(test_turn_stalled_in_the_slow_zone);
   RUN_TEST(test_turn_tracks_multi_turn);
   RUN_TEST(test_rate_feed_forward_at_zero_error);
   RUN_TEST(test_rate_integral_grows_on_shortfall);
   RUN_TEST(test_rate_anti_windup_and_clamp);
   RUN_TEST(test_rate_sign_change_resets_integral);
+  RUN_TEST(test_rate_limit_clamps_and_freezes_the_integral);
+  RUN_TEST(test_turn_slow_zone_keeps_to_the_asked_speed);
+  RUN_TEST(test_service_pivot_slow_zone_keeps_the_outside_track_to_the_asked_speed);
   RUN_TEST(test_rate_zero_target_clears_integral);
   RUN_TEST(test_service_turn_closed_loop);
+  RUN_TEST(test_service_turn_realistic_one_smooth_stop);
+  RUN_TEST(test_service_turn_realistic_learns_the_coast);
+  RUN_TEST(test_service_pivot_realistic_one_smooth_stop);
+  RUN_TEST(test_service_turn_end_carries_the_coast_reading);
   RUN_TEST(test_turn_every_end_sends_zero_then_stop);
   RUN_TEST(test_service_owner_loss_ends);
   RUN_TEST(test_service_telemetry_gap_ends_link);

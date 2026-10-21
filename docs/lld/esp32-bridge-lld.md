@@ -2102,4 +2102,14 @@ Found by running the drafted controller against the host tank models; each one i
 - **Learned only from a turn or pivot that ended done**, never from a cancelled, stalled or timed-out one, even if its first coast had already stopped.
 - **The coast reset rides on the roll-on's reset:** `SettingsController::Hooks` gets a `coast_ms` pointer (last member, `nullptr` = not wired).
 - **Two host tank models.** The existing smooth model glides on a 150 ms lag (~170 ms of coast), and its closed-loop test now passes that coast. A new realistic model (`setRealistic`, after §112) has the deadband lift (nothing below 8 %, 50 °/s from 8 %, +1.4 °/s per %) and a fixed-deceleration glide (1000 °/s², ~2° from 65 °/s plus the 40 ms command delay; that is ~65 ms of coast). In it every turn ends with one cut, at most one nudge, no wobble, within 3°. From the default 60 ms against a slipperier floor (500 °/s², ~103 ms), about ten turns learn the coast, and the turns then end within ~0.6° with no nudge.
+- **Slow and Nudge keep to the asked speed** (final review of Plan R1). Their rate-loop command is clamped like the approach's: to the asked speed, never below 12 % (`kTurnWMin`); for a pivot, that is its half speed. While clamped, the integral is frozen (`RateLoop::step(..., limit_pct)`). Without this, a stuck tank climbed to 100 % before the 1.5 s stall ended the turn, and a short slow turn kicked at 49 %. A low asked speed now turns slower than 65 °/s near the end; the cut works at any rate of 30 °/s or more.
 - **Names as built** (they replace the sketch in R18.3): `begin(start_yaw, delta, speed, now, coast_ms = 60)`; `TurnStep::coast_ms` (0 = none); `TurnPhase` with `phase()`; `core::coastAverage(old, reading)`; `PrimitiveEnd::coast_ms`; `MotionController::learnFrom(end, now)` (roll-on start for a move, coast average for a turn or pivot); ports `loadCoast` / `saveCoast`.
+
+### R18.6 As built and floor results (Plan R1, 2026-10-21)
+- **Built:**
+  - `TurnController` rewritten (phases, rate-controlled Slow / Nudge clamped to the asked speed, predicted-stop cut, `coastAverage`); `RateLoop::step(..., limit_pct)`; `PrimitiveEnd::coast_ms`;
+  - `MotionController` loads, learns (`learnFrom`) and saves `cq_motion/coast_ms`; the roll-on reset also resets it.
+  - **601 host tests**, among them a realistic tank model (`setRealistic`: deadband lift, fixed-deceleration glide).
+- **Floor** (design-notes §113): after about five learning turns, every turn is **one push, no nudge, no wobble**, ending +1.5-2.3° past; a 360° ends at +2.0°; the Logo square runs with no 7044 (corners 91.5-91.7°).
+- **The model missed one thing: the Uno's command ramp-down.** The real coast is ~150 ms (the ramp ~60-80 ms + the 40 ms link + the glide), so the 60 ms default made the first turns overshoot, and their nudge overshoot back.
+- **Open** (owner to decide): a 150 ms default, and a half-frame cut lead to centre the remaining ~1.7°.

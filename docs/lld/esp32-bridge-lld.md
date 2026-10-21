@@ -2018,16 +2018,20 @@ The code is authoritative where it differs from R15.1–R15.11:
 - **Tests:** `test_stream_header` (u64 beyond 32 bits, the part header), `test_body_link` (arrival time kept, not changed by TELEM_SLOW), `test_ws_json` (`td` / `tf` / `pong` fields), `test_command_router` (pong with and without the clock). Native 585/585.
 - **On the tank (owner, 2026-10-20):** OTA flash `d91910a`; `/capture` `X-Frame-Us` = uptime; `td` / `tf` `bus_us` and `pong` `bridge_us` on the same clock; the phone's camera (Drive, Settings) unaffected; flash 44.2 %.
 
-## Revision 18 — Turns that end in one smooth stop (design-notes §112) — DRAFT for owner review
+## Revision 18 — Turns that slow down and end in one smooth stop (design-notes §112) — APPROVED (owner, 2026-10-21)
 ### R18.0 Why
 Recorded on the floor (design-notes §112): every 90° spin approaches well (~0.9 s to ~72° at ~90 °/s), then wobbles at the end for 1.9-6.6 s with 8-25 alternating pushes, and settles 1-2.5° off. In a Logo square one wobble ran long enough to end "a track got stuck" (7044). Cause: the controller's smallest command (`kTurnWMin` 12 %) is still PWM ≈ 109 — the motor deadband — so the tracks keep ~50 % of their speed: the tank **coasts 3.5-3.8° past the target**, and every correction swings it 4-6°, more than the done window (enter ±1.5° nearly still, stay ±2.5°). The tracks and the gyro are fine (left = right, smooth readings).
 
-### R18.1 The rule: approach, coast, at most one nudge, done
-- **Approach:** as today (proportional, latency-compensated, clamped to the asked speed and `kTurnWMin`) until the **predicted stop** reaches the target: `|pos + rate × T_coast| ≥ |delta|`. Then **w = 0** — the tank glides onto the target.
-- **Coast:** w = 0 until the tank has stopped (the heading's own average rate < 6.7 °/s for 300 ms — today's settle test).
-- **One nudge, only if needed:** stopped more than **3°** off → one push at `kTurnWMin` toward the target, ended the same way (predicted stop ≥ target, using the same `T_coast`), then coast again. **Never a second nudge.**
+### R18.1 The rule: approach, slow to the slowest smooth spin, cut at the predicted stop, at most one nudge (owner: "slow smoothly as you approach", 2026-10-21)
+A full PID onto the target is not possible on this hardware: below PWM ~100 the tracks do not move at all, the lowest power that moves them still spins the tank at ~90 °/s, and the slowest *smooth* spin is ~65 °/s (`kSpinMinDdps`, Plan L) — slower is stick-slip. So the turn slows down as far as the motors allow, then lets the tank glide onto the target:
+- **Approach:** as today (proportional to the angle still to go, latency-compensated, clamped to the asked speed and `kTurnWMin`) while more than **25°** remain (`kTurnSlowZoneCdeg` 2500; a turn smaller than that starts in Slow).
+- **Slow:** the last 25° under **rate control** — the existing `RateLoop` (DRIVE_RATE's feed-forward + P + I) holds the turn rate at **65 °/s** toward the target (`kSpinMinDdps`). Arriving at a known, steady slow rate makes the coast short and repeatable.
+- **Cut:** when the **predicted stop** reaches the target — `|pos| + |rate| × T_coast ≥ |delta|` — **w = 0**; the tank glides onto the target.
+- **Coast:** w = 0 until stopped (the heading's own average rate < 6.7 °/s for 300 ms — today's settle test).
+- **One nudge, only if needed:** stopped more than **3°** off → one push toward the target under the same rate control (65 °/s) and the same predicted-stop cut, then coast again. **Never a second nudge.**
 - **Done:** stopped after the coast (or after the nudge's coast) — whatever the final error; the end message carries the heading actually reached, as today. Stall (1.5 s), timeout and every other ending stay as they are.
 - Applies to everything that uses `TurnController`: spin TURN (Logo RIGHT / LEFT, the phone's turn) and PIVOT. Arcs (`ArcController`) are not changed.
+- **Later, for truly slow precise turns:** more low-speed motor torque (the pending motor-power item), less track friction, or two-channel encoders.
 
 ### R18.2 Learning the coast (as MOVE's roll-on, spec 02 §G6)
 - `T_coast` (ms) = how long the tank keeps turning at its cut-off rate. Each turn measures it: `coast_cdeg = pos at stop − pos at cut`, `T = coast_cdeg × 100 / |rate at cut|` (0.01° and 0.1 °/s → ms); a reading counts only when the cut rate was ≥ 30 °/s and T is within 20-400 ms.
@@ -2041,7 +2045,8 @@ classDiagram
     +begin(start_yaw, delta, speed, coast_ms, now)
     +step(yaw, rate, now) TurnStep
     +progressPct() uint8_t
-    -phase: Approach | Coast | Nudge | NudgeCoast
+    -phase: Approach | Slow | Coast | Nudge | NudgeCoast
+    -rate: RateLoop (Slow and Nudge at 65 deg/s)
     -cut_pos, cut_rate
     -nudged: bool
   }
@@ -2067,20 +2072,24 @@ classDiagram
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Approach : begin
-  Approach --> Coast : predicted stop reaches the target (w = 0, remember cut)
+  [*] --> Approach : begin (> 25 deg to go)
+  [*] --> Slow : begin (<= 25 deg to go)
+  Approach --> Slow : 25 deg to go (rate control at 65 deg/s)
+  Slow --> Coast : predicted stop reaches the target (w = 0, remember cut)
   Coast --> Done : stopped and |error| <= 3 deg (coast reading out)
   Coast --> Nudge : stopped and |error| > 3 deg (coast reading out)
   Nudge --> NudgeCoast : predicted stop reaches the target (w = 0)
   NudgeCoast --> Done : stopped (whatever the error)
   Approach --> Stalled : no turn while driven for 1.5 s
+  Slow --> Stalled
   Nudge --> Stalled
   Approach --> Timeout
+  Slow --> Timeout
   Coast --> Timeout
   Nudge --> Timeout
   NudgeCoast --> Timeout
 ```
 
 ### R18.4 Tests
-- **Host, with a simulated tank:** a small model of the spin — the command → track speed with the motor deadband (below the minimum PWM nothing, at the minimum ~50 % speed), momentum (speed decays at a fixed rate when w = 0), the gyro at 50 Hz. Cases: a 90° turn ends with **no direction change after the cut** and within ±3°; a turn that stops 5° short gets **exactly one** nudge; a 360°, a 10°, a pivot; the learned `T_coast` moves toward the model's true coast over a few turns; a bad reading (slow cut, out of range) is ignored; stall and timeout still end a turn; today's done-window tests updated to the new rule.
-- **Floor (owner, the same recording as §112):** RIGHT 90 ×3, LEFT 90 ×3, a 360°, a Logo square — expected: one smooth stop per turn (no alternating pushes in the 50 Hz recording), within ±1-2° once learned, no 7044.
+- **Host, with a simulated tank:** a small model of the spin — the command → track speed with the motor deadband (below the minimum PWM nothing, at the minimum ~50 % speed), momentum (speed decays at a fixed rate when w = 0), the gyro at 50 Hz. Cases: a 90° turn **slows to ~65 °/s in the last 25°**, ends with **no direction change after the cut** and within ±3°; a 15° turn starts in Slow; a turn that stops 5° short gets **exactly one** nudge; a 360°, a 10°, a pivot; the learned `T_coast` moves toward the model's true coast over a few turns; a bad reading (slow cut, out of range) is ignored; stall and timeout still end a turn; today's done-window tests updated to the new rule.
+- **Floor (owner, the same recording as §112):** RIGHT 90 ×3, LEFT 90 ×3, a 360°, a Logo square — expected: the rate drops to ~65 °/s near the end, one smooth stop per turn (no alternating pushes in the 50 Hz recording), within ±1-2° once learned, no 7044.

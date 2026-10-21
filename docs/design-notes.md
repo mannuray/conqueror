@@ -1629,3 +1629,9 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 
   - **Before (§71, R 60):** left 6 cm outside, right 10 cm inside.
   - **The encoder estimate is not a path measure:** it said 8 cm outside for the left R 100 where the tape said 1 cm. It cannot see sideways slide (§71); the tape is the judge. No arc correction is needed (§115).
+- **N3 square back to its start (`REPEAT 4 [FORWARD 50 RIGHT 90]`):** finished.
+  - **The gyro** (`td` yaw, 50 Hz, relative to the first row) turned the four corners −90.4°, −90.5°, −89.7°, −89.9° and ended at **+0.1°**.
+  - **The owner's tape:** the front edge 3 cm ahead of its mark, the left track's edge 4 cm right of its mark, and the tank visibly **facing right**.
+  - **From the owner's photo:** the tracks against the floor's straight inlay strip are about 20 px closer at the rear than the front over a ~330 px track, so **~3–4° to the tank's right** (estimate; the photo is slightly oblique).
+  - **Finding: the gyro under-reads by about 1 %.** The tank really turns ~91° when the gyro says 90°. The turn controller stops where the gyro says, so the error is the gyro's scale, not the turn ending; the MPU6050's factory scale tolerance is about ±3 %. The R18.7 square's "0.9°" (§114) was gyro-measured, so it was probably about 4° in reality.
+  - **Next (owner: go):** measure the scale with 4 full spins (1440° by the gyro) against the strip, left and right. Then a bridge-side gyro scale setting (LLD revision first; the Uno is 96 % full).

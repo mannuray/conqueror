@@ -1561,3 +1561,30 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - **Cause:** the turn controller's ending — the smallest correction it can make is bigger than the accuracy it asks for. **Fix (owner: "do the two turns then write R18"):** bridge LLD revision R18 — stop early by the learned coast, at most one correction, done when stopped and within ±3°.
 - Pushes per turn (direction changes + 1): right 10, right 8, left 25. **R18 approved (owner, 2026-10-21) with the owner's addition: slow down smoothly as the target nears — as far as the motors allow (the slowest smooth spin, 65 °/s, under rate control) — then the learned cut** (bridge LLD): approach, cut at the predicted stop (learned `T_coast`, default 60 ms, NVS `cq_motion/coast_ms`), coast, at most one nudge, done when stopped; spin TURN and PIVOT (arcs unchanged).
 - `tools/smoke/turn.py` prints a wrong end position for spins (both encoders count up — the same blind spot as the Logo odometry, §108); its heading is right.
+
+## 113. Plan R1 smooth turns - floor results (owner on the floor, 2026-10-21)
+- **Method:** the bridge was flashed over WiFi with Plan R1 (bridge LLD R18). The learned coast started at its default, 60 ms. Each turn was sent with `tools/smoke/turn.py` (speed 40) while `td_record.py` recorded at 50 Hz. Pushes = times the Uno's command went from 0 to turning; a wobble = a change of turn direction faster than 15 °/s; the ends are `turn.py`'s gyro heading change. The square was `REPEAT 4 [FORWARD 30 RIGHT 90]`, run with `tools/smoke/logo.py run`, the same recording alongside.
+- **Turns in order** (the coast learning a quarter of the way after each done turn):
+
+  | Turn | End | Pushes |
+  |---|---|---|
+  | R90 | −80.4° | 2 |
+  | R90 | −82.9° | 2 |
+  | R90 | −85.7° | 2 |
+  | L90 | +84.4° | 2 |
+  | L90 | +91.3° | 2 |
+  | L90 | +92.3° | 1 |
+  | 360° | +362.0° | 1 |
+
+  From the sixth turn on: **one push, no nudge, no wobble.** Before R1 (§112), every turn made 8–25 pushes over 1.9–6.6 s.
+- **Logo square:** finished with **no 7044**. Each corner turned with one push and no wobble: 91.7°, 91.7°, 91.5°, 91.6°. The program ended 7.1° off its start heading (4 × ~1.7°).
+- **Why the first turns overshot (read from the recording):**
+  - The Uno ramps its command down about 4–8 % per 20 ms frame, so after the bridge's w = 0 the motors still drive for ~60–80 ms; then there is the 40 ms link delay and the glide itself.
+  - Turn 1 was cut at −86.6° turning 81 °/s and glided on to −98.4° (11.7° ≈ 144 ms of turning). Its nudge back was cut at 66 °/s and glided 10.8° (≈ 164 ms).
+  - So this floor's real coast is **~150 ms**, not the 60 ms default. The nudge, cut with the same short coast, overshot back the other way: that is why the first turns ended *short*.
+  - The learning closed the gap in about five turns, as designed.
+- **Slow zone:** the rate loop held ~80 °/s, not 65. The command needed for 65 °/s is lower than the feed-forward assumes, and the integral pulls it down only slowly. Harmless: the cut works at any rate.
+- **Left over:** a steady ~1.5–2.3° overshoot once learned. This is the cut-timing bias the final review noted (R18.5 / ledger minor 1): the cut fires only after the predicted stop has passed the target (0–1.3° at 50 Hz), and the Uno's ramp adds a little more.
+- **Open for the owner:**
+  - (a) Default coast 150 ms instead of 60, so a fresh bridge or a reset does not start with five long turns.
+  - (b) Cut half a frame earlier (or subtract a learned bias) to centre the ~1.7°.

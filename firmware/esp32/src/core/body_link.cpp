@@ -95,6 +95,8 @@ void BodyLink::onAckFrame(const FrameView& f) {
 void BodyLink::onTelemFrame(const FrameView& f) {
   if (f.type == static_cast<uint8_t>(proto::FrameType::kTelemFast)) {
     if (!proto::decode(f.payload, f.len, m_snap.fast)) return;
+    m_snap.yaw_raw = m_snap.fast.yaw;  // R19: everyone downstream reads the corrected heading
+    m_heading.apply(m_snap.yaw_raw, m_snap.fast.yaw_rate, m_snap.fast.yaw, m_snap.fast.yaw_rate);
     m_snap.fast_valid = true;
     m_snap.fast_bus_us = m_rx_us;
     ++m_snap.fast_count;
@@ -152,6 +154,7 @@ void BodyLink::onFrame(const FrameView& f, uint32_t now_ms) {
 
 void BodyLink::onHello(const proto::HelloMsg& h) {
   m_hello = HelloInfo{true, h.fw, h.proto, h.caps, h.reset_reason, h.commit};
+  m_heading.reset();  // R19: the Uno (re)started - its heading starts again; anchor on its next frame
   if (!m_master) return;  // idle (no web client): the bridge stays silent
   if (h.proto != proto::kProtocolVersion) {
     m_hs = HandshakeState::kIncompatible;

@@ -11,6 +11,7 @@
 
 #include "core/frame_parser.h"
 #include "core/frame_tx.h"
+#include "core/heading_scale.h"
 #include "cq_protocol.h"
 
 namespace cq {
@@ -49,8 +50,9 @@ struct TankSnapshot {
   uint32_t fast_count = 0;  // TELEM_FAST frames seen (50 Hz; tf is sent for every 5th)
   uint64_t fast_bus_us = 0;  // Plan Q1: ESP32 timer (µs since boot) when the newest TELEM_FAST arrived
   uint32_t slow_count = 0;  // TELEM_SLOW frames seen (owner is applied once per new frame)
-  proto::TelemFastMsg fast{};
+  proto::TelemFastMsg fast{};  // yaw / yaw_rate corrected by the gyro scale (R19)
   proto::TelemSlowMsg slow{};
+  uint16_t yaw_raw = 0;  // R19: the Uno's own heading (0.01°), for diagnostics
 };
 
 enum class LinkEventKind : uint8_t {
@@ -120,6 +122,8 @@ class BodyLink {
   const HelloInfo& hello() const { return m_hello; }
   const SelfTestRecord& selfTest() const { return m_self_test; }
   const TankSnapshot& snapshot() const { return m_snap; }
+  bool setGyroScale(uint16_t scale_e4) { return m_heading.setScale(scale_e4); }  // R19; false: out of range
+  uint16_t gyroScale() const { return m_heading.scale(); }
   const ParserStats& parserStats() const { return m_parser.stats(); }
   const LinkStats& stats() const { return m_stats; }
   uint32_t lastRxMs() const { return m_last_rx_ms; }
@@ -175,6 +179,7 @@ class BodyLink {
   HelloInfo m_hello;
   SelfTestRecord m_self_test;
   TankSnapshot m_snap;
+  HeadingScale m_heading;  // R19
   LinkStats m_stats;
   static constexpr size_t kEventSlots = 16;
   LinkEvent m_events[kEventSlots] = {};

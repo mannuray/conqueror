@@ -300,6 +300,34 @@ void test_telemetry_snapshot_and_events() {
 
 // Plan Q1 (AI engine LLD §2): a TELEM_FAST frame keeps the ESP32 time it arrived at (same clock as the camera's
 // frame stamp); a TELEM_SLOW frame does not change it.
+// R19: the snapshot carries the heading and rate corrected by the gyro scale, and the raw heading; a HELLO (the
+// Uno restarted, its heading starts again) re-anchors the corrected heading on the raw one.
+void fastYaw(uint16_t yaw, int16_t rate, uint8_t seq, uint32_t now) {
+  proto::TelemFastMsg tf{};
+  tf.yaw = yaw;
+  tf.yaw_rate = rate;
+  uint8_t f[64];
+  const size_t n = cqtest::frame(tf, seq, f);
+  unoSends(f, n, now);
+}
+
+void test_snapshot_heading_is_corrected_by_the_gyro_scale() {
+  TEST_ASSERT_EQUAL_UINT16(10000, bl->gyroScale());
+  TEST_ASSERT_TRUE(bl->setGyroScale(10230));
+  TEST_ASSERT_FALSE(bl->setGyroScale(12000));
+  TEST_ASSERT_EQUAL_UINT16(10230, bl->gyroScale());
+  fastYaw(9000, 0, 1, 5);  // the first frame anchors
+  TEST_ASSERT_EQUAL_UINT16(9000, bl->snapshot().fast.yaw);
+  fastYaw(18000, 650, 2, 25);  // +90° raw -> +92.07°
+  TEST_ASSERT_EQUAL_UINT16(18207, bl->snapshot().fast.yaw);
+  TEST_ASSERT_EQUAL_UINT16(18000, bl->snapshot().yaw_raw);
+  TEST_ASSERT_EQUAL_INT16(665, bl->snapshot().fast.yaw_rate);
+  bl->startMaster(30);
+  hello(proto::kProtocolVersion, 40, 3);  // the Uno (re)started
+  fastYaw(0, 0, 4, 60);
+  TEST_ASSERT_EQUAL_UINT16(0, bl->snapshot().fast.yaw);  // anchored again
+}
+
 void test_telem_fast_keeps_its_arrival_time() {
   uint8_t f[64];
   size_t n = cqtest::frame(proto::TelemFastMsg{}, 1, f);
@@ -406,6 +434,7 @@ int main() {
   RUN_TEST(test_cam_home_ack_and_timeout);
   RUN_TEST(test_telemetry_snapshot_and_events);
   RUN_TEST(test_telem_fast_keeps_its_arrival_time);
+  RUN_TEST(test_snapshot_heading_is_corrected_by_the_gyro_scale);
   RUN_TEST(test_slow_count_counts_slow_frames);
   RUN_TEST(test_wifi_reset_request_answered_unavailable);
   RUN_TEST(test_sound_and_cam_lock_acked);

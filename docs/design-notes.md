@@ -1706,3 +1706,13 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - **Notes:**
   - A hobby servo has no spring and no "natural" middle: unpowered, it stays where it was last driven, held only by gear friction. The Uno releases both servos 2 s after they stop (spec 02 §D5.4), so a shaft turned by hand after that is no longer at the commanded angle.
   - The Q0 tilt estimate at home (4-9° down, §109) may have included this mounting error. The laser-level horizon check of the map work will measure it again.
+
+## 121. Plan R3 - pushing but not moving, on the floor (owner, 2026-10-23)
+- **Method:** the bridge was flashed with Plan R3 (bridge LLD R21). Runs used `tools/smoke/logo.py run` / `move.py` with `td_record.py` at 50 Hz. Track speeds are encoder counts per s over 0.5 s windows; the expected turn is (right − left) ÷ 75.17 counts/cm ÷ 19 cm × 57.3; the gyro is the `td` `rate` column.
+- **Table leg beside a track, out of the sensor's view** (`FOREVER [ GO WAIT UNTIL BLOCKED? BACK 10 RIGHT 90 ]`): **pass.**
+  - The first try met obstacles in front instead (stops at 15.7 and 15.3 cm by the existing near-obstacle rule; the tracks stayed equal).
+  - The second try caught the leg with a track at ~4.3 s: the left track ran 1300-1900 counts/s, the right 175-620, the gyro −17…+5 °/s against 60-66 °/s expected.
+  - **The GO ended blocked at 6.3 s, ~2 s after contact.** The distance ahead stayed ~44 cm and there was no obstacle flag, so only R21 could end it. Then it backed off 10 cm and turned right. Before R21 (§119) it pushed for 4.7 s.
+  - It then drove 8.8 s on open floor with no false stop.
+- **`move.py 200` on open floor:** done (198.0 cm at the stop, 200.4 cm after the roll-on, heading −0.1°). Owner's tape: 2 m, ~1.5 cm right. Unchanged from §116; no false "blocked".
+- **Split surface** (the right track climbing onto a rug, `GO WAIT 3 HOLD`; the final review's risk I1): **finished, no false blocked.** 63 cm in 3 s; the tracks stayed within 2 % (≤ 1.1 °/s expected). The guard I1 suggested is not needed for this rug.

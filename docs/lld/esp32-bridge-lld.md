@@ -2261,11 +2261,11 @@ sequenceDiagram
 ### R21.1 The rule
 - **Physics:** tracks that really move at different speeds turn the tank: `expected rate = (v_right − v_left) / B` (`B` = `kTrackWidthCm` 19 cm). If the gyro does not see that turn, a track is slipping and the tank is held.
 - **Check, every window of `kSlipWindowMs` 500 ms** during a straight drive (a `GO`, or a `FORWARD` / `BACK`):
-  - `v_left`, `v_right` = the counts each track moved in the window ÷ `counts_per_m`, per second. The counts are signed by the drive's direction, as MOVE uses them.
+  - `v_left`, `v_right` = the counts each track moved in the window ÷ `counts_per_m`, per second. The counts rise in both directions (the Uno counts rising edges), so only sizes are compared, the same forward and in reverse (final review of Plan R3).
   - `expected` = (v_right − v_left) / B, in °/s.
   - `measured` = the mean gyro rate over the window.
   - **A slipping window:** `|expected| ≥ kSlipExpectedDdps` (30 °/s) **and** `|measured| < |expected| / 3`.
-- **Held:** `kSlipHoldMs` (1500 ms, three windows in a row) of slipping windows. The primitive then ends as **`kBlocked`**: `BLOCKED?` is TRUE in a program that uses it, otherwise 7024 "Something is in the way", like an obstacle in front.
+- **Held:** `kSlipHoldMs` (1500 ms, three windows in a row) of slipping windows. A window longer than 2 × 0.5 s (frames missing) is not judged: it starts again, so no single window can reach the hold (final review of Plan R3). The primitive then ends as **`kBlocked`**: `BLOCKED?` is TRUE in a program that uses it, otherwise 7024 "Something is in the way", like an obstacle in front.
 - **Not checked:** spins, pivots, arcs and DRIVE_RATE. They turn on purpose, and their own stall rules stay.
 - **Checked only with encoders.** `GO` and `FORWARD` need them; an encoder fault already ends both.
 - **On the recording of §119:** the slipping windows begin at 26.8 s, so it would have ended at ≈ 28.3 s, instead of when the leg came into view at 31.9 s. A normal straight drive keeps the tracks within ~2 % (≤ 2 °/s expected), far below 30 °/s.
@@ -2274,7 +2274,7 @@ sequenceDiagram
 ```mermaid
 classDiagram
   class SlipWatch {
-    +reset(now)
+    +reset()
     +step(enc_l, enc_r, rate_ddps, cpm, now) bool  held
     -m_win_start_ms, m_win_l, m_win_r
     -m_rate_sum, m_rate_n
@@ -2312,3 +2312,12 @@ stateDiagram-v2
   - reversing (both counts negative) works.
 - **`test_motion`:** a GO and a MOVE end `kBlocked` with a slipping track; a turn never uses it.
 - **Floor (owner):** `GO` with one track against a table leg, out of the sensor's view. Expected: within ~2 s the program backs off and turns (`FOREVER [ GO WAIT UNTIL BLOCKED? BACK 10 RIGHT 90 ]`).
+
+### R21.4 As built and floor results (Plan R3, 2026-10-23)
+- **Built:** `SlipWatch` (`core/slip_watch.{h,cpp}`), used by `MoveController` and the GO primitive (`startGo` takes the `counts_per_m`). 654 host tests.
+- **Final-review fixes:** sizes only, no direction input (the counts rise both ways); a window longer than 1 s is not judged; a turn never uses it (test).
+- **Floor (design-notes §121):**
+  - a track against a table leg out of the sensor's view → the GO ended blocked ~2 s after contact (before: 4.7 s of pushing);
+  - `move 200` unchanged (2 m, ~1.5 cm right);
+  - a track on a rug edge → no false stop.
+

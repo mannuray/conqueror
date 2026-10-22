@@ -47,6 +47,11 @@ constexpr int32_t kMoveStallCm = 1;
 constexpr uint32_t kMoveBlockedMs = 2000;      // blocked flag (obstacle brake) for 2 s -> end blocked
 constexpr uint16_t kMoveObstacleMm = 250;      // no progress with an obstacle this close ahead -> blocked (the Uno's
                                                // slow-down stops the tank without its blocked flag, floor 2026-10-17)
+// R21 (design-notes §119): pushing but not moving - the tracks' speed difference should turn the tank; if the gyro
+// does not see it for kSlipHoldMs, a track is slipping and the straight drive ends blocked.
+constexpr uint32_t kSlipWindowMs = 500;     // one check per 0.5 s of counts and gyro
+constexpr int16_t kSlipExpectedDdps = 300;  // the tracks say >= 30 deg/s ...
+constexpr uint32_t kSlipHoldMs = 1500;      // ... the gyro sees < 1/3 of it, for 1.5 s
 constexpr int32_t kMoveTimeoutCmPerS = 5;      // timeout = |cm| / 5 cm/s + 3 s
 constexpr uint32_t kMoveTimeoutBaseMs = 3000;
 // counts_per_m (Plan K, spec 02 §G4): NVS, default from the 160 cm tape run (design-notes §63).

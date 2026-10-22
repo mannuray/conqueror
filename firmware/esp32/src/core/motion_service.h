@@ -9,6 +9,7 @@
 #include "core/motion_config.h"
 #include "core/move_controller.h"
 #include "core/rate_loop.h"
+#include "core/slip_watch.h"
 #include "core/turn_controller.h"
 
 namespace cq {
@@ -56,7 +57,7 @@ class MotionService {
   MotionOut cancel(EndReason why);
   // R20: GO - drive straight on at speed_pct (w = 0, the Uno's heading hold) until held, replaced or blocked; the
   // owner refreshes it (keepGo) at least every kRateDeadmanMs. startGo while going: a new speed, refreshed.
-  void startGo(int fd, uint8_t speed_pct, int32_t id, uint32_t now_ms);
+  void startGo(int fd, uint8_t speed_pct, int32_t id, uint32_t now_ms, uint16_t cpm = motion::kCpmDefault);
   void keepGo(uint32_t now_ms) {
     if (m_kind == PrimKind::kGo) m_go_update_ms = now_ms;
   }
@@ -109,6 +110,8 @@ class MotionService {
   int32_t m_go_ref_counts = 0;
   uint16_t m_go_ref_dist = 0;
   uint32_t m_go_ref_ms = 0;
+  uint16_t m_go_cpm = motion::kCpmDefault;  // R21
+  SlipWatch m_go_slip;                      // R21: pushing but not moving
   bool goStopped(const MotionTelem& t, uint32_t now_ms);  // no progress for kMoveStallMs
   int16_t m_rate_target = 0;
   bool m_rate_limited = false;

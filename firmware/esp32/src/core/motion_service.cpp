@@ -121,14 +121,16 @@ MotionOut MotionService::finish(EndReason why) {
 
 MotionOut MotionService::cancel(EndReason why) { return active() ? finish(why) : MotionOut{}; }
 
-void MotionService::startGo(int fd, uint8_t speed_pct, int32_t id, uint32_t now_ms) {
+void MotionService::startGo(int fd, uint8_t speed_pct, int32_t id, uint32_t now_ms, uint16_t cpm) {
   if (m_kind != PrimKind::kGo || m_fd != fd) {
     m_kind = PrimKind::kGo;
     m_fd = fd;
     m_id = id;
     m_last_telem_ms = now_ms;
     m_go_ref_set = false;
+    m_go_slip.reset();
   }
+  m_go_cpm = cpm;
   m_go_v = static_cast<int8_t>(speed_pct > 100 ? 100 : speed_pct);
   m_go_update_ms = now_ms;
 }
@@ -162,6 +164,7 @@ MotionOut MotionService::stepGo(const MotionTelem& t, uint32_t now_ms) {
     return finish(EndReason::kBlocked);
   }
   if (goStopped(t, now_ms) && t.dist_mm < motion::kMoveObstacleMm) return finish(EndReason::kBlocked);
+  if (m_go_slip.step(t.enc_l, t.enc_r, t.rate_ddps, m_go_cpm, now_ms)) return finish(EndReason::kBlocked);  // R21
   MotionOut o;
   o.send = true;
   o.v = m_go_v;  // w = 0: the Uno's heading hold keeps it straight

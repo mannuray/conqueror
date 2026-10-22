@@ -33,7 +33,7 @@ const KindName kKinds[] = {
     {"setting", WsCmdKind::kSetting},      {"restart", WsCmdKind::kRestart},
     {"tank", WsCmdKind::kTank},            {"log", WsCmdKind::kLog},
     {"camera_set", WsCmdKind::kCameraSet}, {"selftest", WsCmdKind::kSelfTest},
-    {"app_set", WsCmdKind::kAppSet},       {"logo_run", WsCmdKind::kLogoRun},
+    {"app_set", WsCmdKind::kAppSet},       {"logo_run", WsCmdKind::kLogoRun}, {"cam_set", WsCmdKind::kCamSet},
     {"logo_step", WsCmdKind::kLogoStep},   {"logo_stop", WsCmdKind::kLogoStop},
 };
 
@@ -103,6 +103,17 @@ bool checkCalib(WsCommand& c, const Seen& s) {
                                                          : -1;
   return c.calib_reset >= 0;
 }
+// R22: both angles; the servo values as LOOK makes them (right / up are the smaller angles); the range is the
+// servos' (pan -90..90, tilt -20..60 - CamLite 300..1100): outside it stays a cam_set, refused with OUT_OF_RANGE.
+bool checkCamSet(WsCommand& c, const Seen& s) {
+  if (!s.pan || !s.tilt) return false;
+  c.cam_in_range = s.pan_d10 >= -900 && s.pan_d10 <= 900 && s.tilt_d10 >= -200 && s.tilt_d10 <= 600;
+  if (c.cam_in_range) {
+    c.cam_pan_dd = static_cast<int16_t>(900 - s.pan_d10);
+    c.cam_tilt_dd = static_cast<int16_t>(900 - s.tilt_d10);
+  }
+  return true;
+}
 bool checkDriveRate(WsCommand&, const Seen& s) { return s.v && s.mf.rate; }  // review M20
 bool checkCameraSet(WsCommand& c, const Seen& s) {
   c.cam.reset = s.reset_true;
@@ -126,6 +137,7 @@ const CheckRow kChecks[] = {
     {WsCmdKind::kCalib, checkCalib},         {WsCmdKind::kDriveRate, checkDriveRate},
     {WsCmdKind::kDebug, checkOn},            {WsCmdKind::kCameraSet, checkCameraSet},
     {WsCmdKind::kAppSet, checkAppSet},       {WsCmdKind::kLogoRun, checkLogoRun},
+    {WsCmdKind::kCamSet, checkCamSet},
 };
 
 bool complete(WsCommand& c, const codec::Seen& s) {

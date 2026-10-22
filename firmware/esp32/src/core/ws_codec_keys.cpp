@@ -223,6 +223,17 @@ bool readGyroScale(Reader& r, WsCommand& c, Seen&) {  // R19 calib set
   return true;
 }
 
+// cam_set (R22): degrees from the centre, kept in 0.1 deg; the range is checked with the command (OUT_OF_RANGE).
+bool readAngle(Reader& r, int32_t& d10, bool& seen) {
+  double n = 0;
+  if (!r.num(n, nullptr, 0) || n < -1000.0 || n > 1000.0) return false;
+  d10 = static_cast<int32_t>(lround(n * 10.0));
+  seen = true;
+  return true;
+}
+bool readPan(Reader& r, WsCommand&, Seen& s) { return readAngle(r, s.pan_d10, s.pan); }
+bool readTilt(Reader& r, WsCommand&, Seen& s) { return readAngle(r, s.tilt_d10, s.tilt); }
+
 bool readProg(Reader& r, WsCommand& c, Seen& s) {  // logo_run (Plan N3): 1..2^32-1
   double n = 0;
   if (!wholeIn(r, 1, 4294967295.0, n)) return false;
@@ -250,7 +261,7 @@ const KeyRow kKeys[] = {
     {"value", readValue},   {"reset", readReset},     {"since", readSince},     {"size", readSize},
     {"quality", readQuality}, {"fps_cap", readFpsCap}, {"brightness", readBrightness},
     {"contrast", readContrast}, {"low_light", readLowLight}, {"vflip", readVflip}, {"hmirror", readHmirror},
-    {"ai_url", readAiUrl},  {"setting_id", readSettingId}, {"counts_per_m", readCpm}, {"gyro_scale", readGyroScale}, {"prog", readProg},
+    {"ai_url", readAiUrl},  {"setting_id", readSettingId}, {"counts_per_m", readCpm}, {"gyro_scale", readGyroScale}, {"pan", readPan}, {"tilt", readTilt}, {"prog", readProg},
     {"step", readStep},
 };
 

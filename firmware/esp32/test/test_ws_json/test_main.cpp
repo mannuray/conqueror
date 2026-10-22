@@ -556,8 +556,18 @@ void test_logo_refusals() {
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"code\":\"COMMAND_3017\",\"reason\":\"NOT_RUNNING\""));
 }
 
+// Bridge LLD R22: the out-of-range refusal says the limits.
+void test_out_of_range_nack_says_the_limits() {
+  jsonNack(buf, sizeof(buf), 7, BridgeReason::kOutOfRange);
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"nack\",\"id\":7,\"code\":\"COMMAND_3018\",\"reason\":\"OUT_OF_RANGE\","
+      "\"message\":\"Out of range - pan -90..90, tilt -20..60 degrees\"}",
+      buf);
+}
+
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_out_of_range_nack_says_the_limits);
   RUN_TEST(test_ack_reason_table_matches_generated_codes);
   RUN_TEST(test_tf_scaling_and_sentinels);
   RUN_TEST(test_ts_flags_owner_and_battery);

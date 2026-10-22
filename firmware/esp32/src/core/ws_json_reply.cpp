@@ -56,8 +56,9 @@ constexpr ReasonInfo kBridgeReasons[] = {
     {3011, "STOPPED", "Stopped by another device - release the stick to drive again"},  // design-notes §72
     {3016, "CHECK_AGAIN", "The program changed - check it again"},                       // Plan N3 (bridge only)
     {3017, "NOT_RUNNING", "No program is running"},
+    {3018, "OUT_OF_RANGE", "Out of range - pan -90..90, tilt -20..60 degrees"},  // R22 (bridge only)
 };
-static_assert(sizeof(kBridgeReasons) / sizeof(kBridgeReasons[0]) == static_cast<size_t>(BridgeReason::kNotRunning) + 1,
+static_assert(sizeof(kBridgeReasons) / sizeof(kBridgeReasons[0]) == static_cast<size_t>(BridgeReason::kOutOfRange) + 1,
               "one row per BridgeReason");
 
 const char* domain(uint16_t code) {

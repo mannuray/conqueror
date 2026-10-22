@@ -21,7 +21,8 @@ constexpr size_t kWsBigMax = 3584;  // Plan O: tank / log replies - sent through
 // Reasons the bridge itself produces (not on the Uno's ack_status list).
 enum class BridgeReason : uint8_t { kNotOwner, kBusy, kBodyOffline, kRateLimited, kInvalidCommand, kTimeout, kUnavailable,
                                     kStopped,  // kStopped: design-notes §72 STOP hold
-                                    kCheckAgain, kNotRunning };  // Plan N3: logo_run / logo_step / logo_stop
+                                    kCheckAgain, kNotRunning,  // Plan N3: logo_run / logo_step / logo_stop
+                                    kOutOfRange };             // R22: cam_set outside the servos' range
 
 struct OwnerView {
   const char* owner;   // "none" | "human" | "ir"

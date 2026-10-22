@@ -34,6 +34,7 @@ class DriveController {
   void onDrive(int fd, const core::WsCommand& c, uint32_t now);
   void onCamJoy(int fd, const core::WsCommand& c);
   void onUnoRequest(int fd, int32_t id, const core::WsCommand& c);  // cam_home / cam_lock / sound / audio_mode
+  void onCamSet(int fd, int32_t id, const core::WsCommand& c);      // R22: the camera to exact angles
   void onRelease(int fd, int32_t id, uint32_t now);
   void onDebug(int fd, int32_t id, const core::WsCommand& c);
   void onClientOpen(int fd, uint32_t now);

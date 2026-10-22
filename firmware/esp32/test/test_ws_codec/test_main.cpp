@@ -339,6 +339,32 @@ void test_calib_gyro_scale() {
   TEST_ASSERT_EQUAL_INT8(2, P("{\"t\":\"calib\",\"reset\":\"gyro_scale\"}").calib_reset);
 }
 
+// Bridge LLD R22: cam_set - degrees from the centre (right / up = +), 0.1 deg steps -> the Uno's servo values
+// (900 - deg x 10); outside pan -90..90 / tilt -20..60 it is still a cam_set, marked out of range (its own nack).
+void test_cam_set() {
+  WsCommand c = P("{\"t\":\"cam_set\",\"pan\":15,\"tilt\":-15,\"id\":7}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCamSet), K(c.kind));
+  TEST_ASSERT_TRUE(c.cam_in_range);
+  TEST_ASSERT_EQUAL_INT16(750, c.cam_pan_dd);
+  TEST_ASSERT_EQUAL_INT16(1050, c.cam_tilt_dd);
+  c = P("{\"t\":\"cam_set\",\"pan\":-90,\"tilt\":60}");
+  TEST_ASSERT_TRUE(c.cam_in_range);
+  TEST_ASSERT_EQUAL_INT16(1800, c.cam_pan_dd);
+  TEST_ASSERT_EQUAL_INT16(300, c.cam_tilt_dd);
+  c = P("{\"t\":\"cam_set\",\"pan\":0.2,\"tilt\":-20}");
+  TEST_ASSERT_EQUAL_INT16(898, c.cam_pan_dd);  // 0.1 deg steps
+  TEST_ASSERT_EQUAL_INT16(1100, c.cam_tilt_dd);
+  const char* outside[] = {"{\"t\":\"cam_set\",\"pan\":91,\"tilt\":0}", "{\"t\":\"cam_set\",\"pan\":0,\"tilt\":61}",
+                           "{\"t\":\"cam_set\",\"pan\":0,\"tilt\":-21}", "{\"t\":\"cam_set\",\"pan\":-90.1,\"tilt\":0}"};
+  for (const char* s : outside) {
+    c = P(s);
+    TEST_ASSERT_EQUAL_MESSAGE(K(WsCmdKind::kCamSet), K(c.kind), s);
+    TEST_ASSERT_FALSE_MESSAGE(c.cam_in_range, s);
+  }
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"cam_set\",\"pan\":10}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"cam_set\",\"pan\":\"x\",\"tilt\":0}").kind));
+}
+
 void test_setting_and_calib_reset() {
   WsCommand c = P("{\"t\":\"setting\",\"setting_id\":66}");
   TEST_ASSERT_EQUAL(K(WsCmdKind::kSetting), K(c.kind));
@@ -472,6 +498,7 @@ int main() {
   RUN_TEST(test_turn_pivot_field);
   RUN_TEST(test_wifi_commands);
   RUN_TEST(test_setting_and_calib_reset);
+  RUN_TEST(test_cam_set);
   RUN_TEST(test_calib_gyro_scale);
   RUN_TEST(test_tank_log_selftest);
   RUN_TEST(test_camera_set_fields_and_ranges);

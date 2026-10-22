@@ -231,6 +231,58 @@ void test_cam_home_waits_in_the_queue() {
   TEST_ASSERT_FALSE(uno->empty());
 }
 
+// Bridge LLD R22: cam_set queues CAM_SET with the servo values and is answered after the Uno's ACK; the camera
+// rule (the driver while someone drives, anyone otherwise; never ownership); refused during OTA and out of range.
+namespace {
+const cqtest::Sent* sendQueued(uint32_t now) {
+  uno->tick(now);
+  wire.drain(*tx);
+  return wire.last(FT::kCamSet);
+}
+}  // namespace
+
+void test_cam_set_reaches_the_uno_and_is_acked() {
+  sync();
+  drive->onCamSet(3, 7, P("{\"t\":\"cam_set\",\"pan\":15,\"tilt\":-15,\"id\":7}"));
+  TEST_ASSERT_FALSE(has(3, "nack"));
+  const cqtest::Sent* s = sendQueued(30);
+  TEST_ASSERT_NOT_NULL(s);
+  proto::CamSetMsg m{};
+  TEST_ASSERT_TRUE(proto::decode(s->payload, s->len, m));
+  TEST_ASSERT_EQUAL_INT16(750, m.pan);
+  TEST_ASSERT_EQUAL_INT16(1050, m.tilt);
+  uint8_t f[16];
+  const size_t n = cqtest::frame(proto::AckMsg{s->seq, 0}, 9, f);
+  unoSends(f, n, 40);
+  pump(40);
+  TEST_ASSERT_TRUE(has(3, "\"t\":\"ack\",\"id\":7"));
+  TEST_ASSERT_EQUAL_INT(-1, owner->driverFd());  // a camera command never takes ownership
+}
+
+void test_cam_set_follows_the_camera_rule() {
+  sync();
+  driveFrom(4, 30, 30);  // phone 4 drives
+  drive->onCamSet(3, 8, P("{\"t\":\"cam_set\",\"pan\":0,\"tilt\":0,\"id\":8}"));
+  TEST_ASSERT_TRUE(has(3, "NOT_OWNER"));
+  drive->onCamSet(4, 9, P("{\"t\":\"cam_set\",\"pan\":0,\"tilt\":0,\"id\":9}"));
+  TEST_ASSERT_FALSE(has(4, "nack"));
+}
+
+void test_cam_set_out_of_range_and_during_ota() {
+  sync();
+  drive->onCamSet(3, 10, P("{\"t\":\"cam_set\",\"pan\":0,\"tilt\":-30,\"id\":10}"));
+  TEST_ASSERT_TRUE(has(3, "OUT_OF_RANGE"));
+  TEST_ASSERT_TRUE(uno->empty());
+  drive->startOta(100);
+  drive->onCamSet(3, 11, P("{\"t\":\"cam_set\",\"pan\":0,\"tilt\":0,\"id\":11}"));
+  TEST_ASSERT_TRUE(has(3, "BUSY"));
+}
+
+void test_cam_set_before_sync_is_body_offline() {
+  drive->onCamSet(3, 12, P("{\"t\":\"cam_set\",\"pan\":0,\"tilt\":0,\"id\":12}"));
+  TEST_ASSERT_TRUE(has(3, "BODY_OFFLINE"));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_drive_before_sync_is_body_offline);
@@ -247,5 +299,9 @@ int main() {
   RUN_TEST(test_ir_takeover_drops_the_driver);
   RUN_TEST(test_ota_refuses_drive_busy_and_closes_clients);
   RUN_TEST(test_cam_home_waits_in_the_queue);
+  RUN_TEST(test_cam_set_reaches_the_uno_and_is_acked);
+  RUN_TEST(test_cam_set_follows_the_camera_rule);
+  RUN_TEST(test_cam_set_out_of_range_and_during_ota);
+  RUN_TEST(test_cam_set_before_sync_is_body_offline);
   return UNITY_END();
 }

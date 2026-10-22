@@ -130,6 +130,20 @@ void DriveController::onUnoRequest(int fd, int32_t id, const core::WsCommand& c)
   if (!m_uno.request(requestOf(fd, id, c))) m_out.nack(fd, id, core::BridgeReason::kBusy);  // R15.5: BUSY only when full
 }
 
+// R22: the camera rule (as cam_home), never ownership; OUT_OF_RANGE first, so the sender learns the limits.
+void DriveController::onCamSet(int fd, int32_t id, const core::WsCommand& c) {
+  if (!c.cam_in_range) return m_out.nack(fd, id, core::BridgeReason::kOutOfRange);
+  core::BridgeReason why = core::BridgeReason::kBusy;
+  if (requestRefused(c, m_owner.onCamera(fd), why)) return m_out.nack(fd, id, why);
+  core::AckedOp op;
+  op.kind = core::AckedOp::kCamSet;
+  op.fd = fd;
+  op.id = id;
+  op.pan_dd = c.cam_pan_dd;
+  op.tilt_dd = c.cam_tilt_dd;
+  if (!m_uno.request(op)) m_out.nack(fd, id, core::BridgeReason::kBusy);
+}
+
 void DriveController::onRelease(int fd, int32_t id, uint32_t now) {
   applyOwner(m_owner.onRelease(fd), now);
   if (m_motion.ownedBy(fd)) m_motion.end(core::MotionEvent::kRelease, now);  // review I1: release ends a primitive

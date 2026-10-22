@@ -15,6 +15,7 @@ const CommandRouter::Route CommandRouter::kRoutes[] = {
     {K::kDrive, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_drive.onDrive(fd, c, now); }},
     {K::kCamJoy, [](C& r, int fd, int32_t, const W& c, uint32_t) { r.m_drive.onCamJoy(fd, c); }},
     {K::kCamHome, [](C& r, int fd, int32_t id, const W& c, uint32_t) { r.m_drive.onUnoRequest(fd, id, c); }},
+    {K::kCamSet, [](C& r, int fd, int32_t id, const W& c, uint32_t) { r.m_drive.onCamSet(fd, id, c); }},
     {K::kSound, [](C& r, int fd, int32_t id, const W& c, uint32_t) { r.m_drive.onUnoRequest(fd, id, c); }},
     {K::kAudioMode, [](C& r, int fd, int32_t id, const W& c, uint32_t) { r.m_drive.onUnoRequest(fd, id, c); }},
     {K::kCamLock, [](C& r, int fd, int32_t id, const W& c, uint32_t) { r.m_drive.onUnoRequest(fd, id, c); }},

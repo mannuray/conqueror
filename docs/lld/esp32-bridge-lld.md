@@ -2228,3 +2228,18 @@ sequenceDiagram
   - `yaw_raw` is not in `td` yet;
   - a reset asked for during a turn is refused only at the button press (as the cpm reset).
 - **Later, if wanted:** a Tune-page wizard for the scale.
+
+## Revision 20 — the GO primitive (draft, 2026-10-22; Tank Logo LLD §22, Spec 5 Revision 3)
+- **`PrimKind::kGo`** in `MotionService`: drive straight on at a speed until told otherwise.
+  - **`startGo(fd, speed, id, now)`:** each TELEM_FAST step sends v = speed, w = 0. The Uno's heading hold keeps it straight, as a MOVE does.
+  - **`keepGo(now)`:** the owner refreshes it. More than **300 ms** without one ends it as `kDeadman`, the DRIVE_RATE rule (R4.4, `kRateDeadmanMs`).
+  - **`goSpeed(speed)`:** changes the speed at once.
+  - **`hold(now)`:** ends it as `kDone`, with STOP to the Uno.
+- **Endings:**
+  - **`kBlocked` as soon as the Uno's obstacle-brake flag is set.** A MOVE waits 2 s, because its target is still ahead; a GO has no target, and the tank has already stopped.
+  - **`kStalled`** with encoders: no counts for `kMoveStallMs` while driven, with nothing close ahead (the MOVE rule). Without encoders there is no stall check, as with driving by hand.
+  - **Unchanged:** `kLink` (a telemetry gap), owner loss / STOP / cancel / IR takeover, and the Uno's own safety.
+  - **No timeout of its own:** the program's 5-minute limit bounds it.
+- **Replacing it:** any `start…` while a GO runs replaces it with no end event, so the next Logo motion takes over smoothly from driving.
+- **No new WebSocket message yet:** `{"t":"go"}` / `{"t":"hold"}` come with the AI engine's Logo runner (Tank Logo LLD §22.6).
+- **Tests:** `test_motion` (Tank Logo LLD §22.5).

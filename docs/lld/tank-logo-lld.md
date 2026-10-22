@@ -917,3 +917,135 @@ stateDiagram-v2
   - **§11 / §20 (odometry, found on the floor 2026-10-20):** the Uno counts rising encoder edges only — the counts rise in reverse too — so `logo::Odometry::update` takes each track's direction from its motor command (`spd_cmd_l` / `spd_cmd_r`, forward +; the last non-zero one while the tank rolls on). Before, BACK was drawn as FORWARD.
 - **Files:** `web/logo.html`, `web/logo.js`, `web/test/logo.test.js` (46 Node tests), `web/test/fake_tank.py` (the stand-in tank), `web/test/browser_check.js` and `web/test/browser_fix_check.js` (Playwright checks); `words.yaml` `group`; `src/logo/odometry.*` and `src/app/logo_controller.cpp` (direction).
 - **Sizes:** `/logo` 20.0 KB gzipped (budget 24 KB); bridge flash 44 %.
+
+## 22. Revision N5 — `GO` and `HOLD` (draft, 2026-10-22; Spec 5 Revision 3, design-notes §118)
+
+### 22.1 What changes
+- **Two new words** in `logo/spec/words.yaml`: `GO` and `HOLD`. Both are level 2, group `move`, kind `command`, with no inputs and no `needs`. Two new `EffectKind`s and two new `ActKind`s follow them.
+- **`GO` is the first motion that does not block.** The runner carries it out and stays `Running`, remembering `m_going`.
+- **The bridge gains one motion primitive, `PrimKind::kGo`** (bridge LLD R20). It drives v = SPEED with w = 0, letting the Uno's own heading hold keep it straight, as MOVE does. It must be refreshed every ≤ 300 ms, and it ends at once when the Uno's obstacle brake engages.
+- **`HOLD`** ends a running `GO` as done (STOP to the Uno). The program goes on.
+- **Not changed:**
+  - the Uno and the protocol;
+  - every other word and every safety ending;
+  - the `/logo` page beyond its generated word help and the dashed preview segment, which it already draws for uncertain paths.
+
+### 22.2 Rules (the runner, `RunController`)
+| Situation | Runner | Host (`LogoController` → `MotionController`) |
+|---|---|---|
+| `GO`, not going | `m_going = true`, `m_blocked = false`, state stays `Running` | `startGo(fd, SPEED)` |
+| `GO`, already going | nothing | — |
+| `SPEED p` while going | speed kept as today | `goSpeed(p)`: the drive changes at once |
+| every tick while going | — | `keepGo(now)` (≤ 300 ms, else the bridge ends it as deadman → 7034) |
+| a motion word while going (`FD BK RT LT ARC PIVOT HOME`) | `m_going = false`, state `Motion` as today | `start…` replaces the GO primitive (no end for the GO) |
+| `HOLD`, going | `m_going = false` | `hold(now)`: the GO ends as **done** (STOP to the Uno) |
+| `HOLD`, not going | nothing | — |
+| GO ended by the obstacle brake | `BLOCKED?` program: `m_blocked = true`, goes on; otherwise ends **7024** | — |
+| GO ended any other way (stalled, link, deadman, not owner …) | ends with the same code as a move (`kByEndReason`) | — |
+| the program ends while going | as today: the host stops the tank | — |
+
+- `onPrimitiveEnd` gains the background case: an end that arrives while `Running` with `m_going` belongs to the GO. A **done** end there (from `HOLD`) is expected and ignored.
+- **`BLOCKED?`** is cleared when a `GO` starts and, as today, when a move ends done, so `FOREVER [ GO WAIT UNTIL BLOCKED? BACK 10 RIGHT 90 ]` works round after round.
+
+### 22.3 Classes
+```mermaid
+classDiagram
+  class RunController {
+    -m_going: bool
+    -m_blocked: bool
+    +tick(telem, now) RunOut
+    +onPrimitiveEnd(end) RunOut
+    +going() bool
+  }
+  class Action {
+    +kind: kGo | kHold | kMove | ...
+    +speed_pct
+  }
+  class LogoController {
+    +tick(now): keepGo while going
+  }
+  class MotionController {
+    +startLogo(fd, action, now, why)
+    +keepLogoGo(now)
+    +holdLogo(now)
+  }
+  class MotionService {
+    +startGo(fd, speed, id, now)
+    +keepGo(now)
+    +goSpeed(speed)
+    +hold(now) MotionOut
+    -stepGo(telem, now) MotionOut
+  }
+  RunController --> Action : GO / HOLD
+  LogoController --> RunController
+  LogoController --> MotionController : startLogo(kGo / kHold), keepLogoGo
+  MotionController --> MotionService
+```
+
+```mermaid
+sequenceDiagram
+  participant V as Vm
+  participant R as RunController
+  participant L as LogoController
+  participant M as MotionService
+  participant U as Uno
+  V-->>R: effect GO (line 1)
+  R-->>L: act kGo, speed 40 (state stays Running, going)
+  L->>M: startGo(fd, 40)
+  M->>U: DRIVE v 40, w 0 (AUTO) every frame
+  loop every tick while going
+    L->>M: keepGo(now)
+    V-->>R: WAIT UNTIL BLOCKED? (false: wait a tick)
+  end
+  U-->>M: TELEM_FAST flag blocked (the obstacle brake stopped the tank)
+  M-->>L: PrimitiveEnd blocked
+  L->>R: onPrimitiveEnd(blocked) -> BLOCKED? true (the program uses it)
+  V-->>R: BACK 10 (a move, as today)
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> Running
+  Running --> Going : GO (host startGo)
+  Going --> Going : GO again / SPEED (goSpeed) / WAIT, IF, LED ... (keepGo each tick)
+  Going --> Running : HOLD (done) / obstacle with BLOCKED?
+  Going --> Motion : FD BK RT LT ARC PIVOT HOME (replaces the GO)
+  Going --> Ended : obstacle without BLOCKED? (7024) / stalled / deadman / link / STOP / time / page gone
+  Motion --> Running : done, as today
+```
+(`Going` is `Running` with `m_going` set, not a new `RunState`: everything that runs in `Running` also runs while going.)
+
+### 22.4 Preview (simulator) and checker
+- **Preview:** the simulator moves the turtle 1 m forward for a `GO` and marks the segment `uncertain` (the page already draws uncertain segments dashed). `HOLD` draws nothing.
+- **`WAIT UNTIL`** with the simulator's fixed sensors (`BLOCKED?` false, `DISTANCE` 999) is already uncertain today and stays as it is.
+- **The checker** needs nothing new: no inputs, and no `needs`.
+
+### 22.5 Tests
+- **Reading** (`logo/spec/tests/reading.yaml` → `test_logo_conformance`): `GO` and `HOLD` parse as commands with no inputs. `GO 40` → error 7004 (too many inputs). Both are reserved names.
+- **Running** (`logo/spec/tests/running.yaml` → `test_logo_running`):
+  - `GO WAIT 1 HOLD` → actions go, wait, hold; finished.
+  - `GO FORWARD 50` → go, then a move with no GO end in between.
+  - `GO WAIT UNTIL BLOCKED?` plus a blocked end → goes on with `BLOCKED?` true.
+  - The same without `BLOCKED?` → 7024.
+  - A deadman end → 7034.
+  - `HOLD` alone → nothing.
+  - `SPEED 60` while going → the speed action.
+- **Bridge** (`test_motion`):
+  - `startGo` sends v = speed, w = 0;
+  - the brake flag ends it blocked at once;
+  - no `keepGo` for 300 ms → deadman;
+  - `hold` → done with v = 0;
+  - a `startMove` during a GO replaces it without an end;
+  - a stall (with encoders: no counts for 1.5 s while driven and nothing close) → stalled.
+- **`test_logo_controller`:**
+  - `keepGo` every tick while going;
+  - `hold` on `HOLD`;
+  - the program's end stops a GO.
+- **Floor (owner):**
+  - `FOREVER [ GO  WAIT UNTIL BLOCKED?  BACK 10  RIGHT 90 ]` in the same room as `avoid_walls`: it drives without stopping between walls.
+  - `GO  WAIT UNTIL DISTANCE < 30  HOLD  BEEP`: it stops about 30 cm from a box.
+
+### 22.6 Not in this revision
+- **The WebSocket messages for the AI engine** (`{"t":"go","speed":n}` refreshed ≤ 300 ms, `{"t":"hold"}`). They come with the AI engine's Logo runner, using the same `MotionService` primitive.
+- **`GO UNTIL cond`** (shorthand) and **steering while going.**
+- **The `avoid_walls` example** may be rewritten with `GO` once the floor check passes (owner to decide then).

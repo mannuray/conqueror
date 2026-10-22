@@ -276,6 +276,12 @@ stateDiagram-v2
 4. **Readout:** from phase 0's measurement.
 Writes `config/calibration.yaml` with the date and the frame size.
 
+**Amended (owner, 2026-10-23, design-notes §123):**
+- **Lens:** the checkerboard is shown full-screen on the laptop; the owner measures one square and types its size.
+- **Mount:** adds a laser-level line on a wall at exactly the lens height. Its row in the picture is the horizon, so `tilt0_deg` = atan((row − cy) / fy) at the servo's centre. The floor marks then check it.
+- **Frame size:** QVGA first.
+- **Driving tilt:** a tilt study. For a few tilt values the tool reports the blind zone (the nearest floor point in view, from the tracks' front) and the farthest floor point in view, and the owner chooses.
+
 ## 9. Recording and replay
 - **Session folder** `recordings/<date-time>/`: `telemetry.jsonl` (raw `td` / `pong` lines with the laptop receive time), `frames.bin` (per frame: a JSON header line `{seq, cap_us, recv_s, len}` then the JPEG), `session.json` (calibration copy, engine config, bridge build), and a Rerun `.rrd` of the map outputs.
 - `SessionReplay` implements both sources from a folder, at recorded speed or as fast as possible; the pipeline is the same, so replays are deterministic (one worker, frames processed in order).

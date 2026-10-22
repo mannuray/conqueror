@@ -1737,3 +1737,9 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - **Motor power: parked (owner, 2026-10-23).**
   - The motors' low-speed weakness (deadband PWM ~90-110; the slowest smooth spin ~65 °/s) no longer limits the tank: turns end within ~1°, the 4-turn spins within a few degrees, the Logo square closes within 1.5 cm.
   - Revisit only if the AI drive module needs slow, precise approaches. The options then: a higher gear ratio, less track friction, start-up kick pulses on the Uno (little room left).
+
+## 123. The calibration plan (Spec 7 phase 2) - decisions (owner, 2026-10-23)
+- **Lens:** a 9 × 6 checkerboard shown full-screen on the laptop; the owner measures one square with a ruler and types it in, and holds the tank's camera toward the screen in ~20 poses. No printout needed; the screen is flat.
+- **Mount:** measured again after the servo re-mounting (§120): the lens height and its position on the tank, typed in, then checked by tape marks at 50 / 100 cm on the floor (within 2 cm). **Plus the laser level:** a horizontal line on a wall at exactly the lens height is the horizon; its pixel row gives the tilt at the servo's centre directly (§111).
+- **Picture size:** QVGA (320 × 240), the driving size (§109). VGA only if needed later.
+- **Driving tilt:** once the lens is calibrated, the tool measures the blind zone and what is in view at a few tilts. The owner decides the driving tilt from those numbers (the §109 open decision).

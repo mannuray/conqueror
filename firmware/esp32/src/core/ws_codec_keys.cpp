@@ -2,6 +2,7 @@
 #include <math.h>
 #include <string.h>
 
+#include "core/heading_scale.h"
 #include "core/motion_config.h"
 #include "core/ws_codec_internal.h"
 
@@ -214,6 +215,13 @@ bool readCpm(Reader& r, WsCommand& c, Seen&) {  // calib set
   c.cpm = static_cast<uint16_t>(n);
   return true;
 }
+bool readGyroScale(Reader& r, WsCommand& c, Seen&) {  // R19 calib set
+  double n = 0;
+  if (!wholeIn(r, kGyroScaleMin, kGyroScaleMax, n)) return false;
+  c.has_gyro_scale = true;
+  c.gyro_scale = static_cast<uint16_t>(n);
+  return true;
+}
 
 bool readProg(Reader& r, WsCommand& c, Seen& s) {  // logo_run (Plan N3): 1..2^32-1
   double n = 0;
@@ -242,7 +250,7 @@ const KeyRow kKeys[] = {
     {"value", readValue},   {"reset", readReset},     {"since", readSince},     {"size", readSize},
     {"quality", readQuality}, {"fps_cap", readFpsCap}, {"brightness", readBrightness},
     {"contrast", readContrast}, {"low_light", readLowLight}, {"vflip", readVflip}, {"hmirror", readHmirror},
-    {"ai_url", readAiUrl},  {"setting_id", readSettingId}, {"counts_per_m", readCpm}, {"prog", readProg},
+    {"ai_url", readAiUrl},  {"setting_id", readSettingId}, {"counts_per_m", readCpm}, {"gyro_scale", readGyroScale}, {"prog", readProg},
     {"step", readStep},
 };
 

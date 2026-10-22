@@ -1646,3 +1646,22 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
   - **Reading:** both directions under-read, so this is the gyro's scale: **~2.3 % on average, scale ≈ 1.023**, inside the MPU6050's ±3 % tolerance. The left / right gap (39° vs 28°) is within the photo-reading error (about ±5° each, slanted photos); a small motion offset cannot be ruled out. The square's 3-4° estimate above was rougher still.
   - **Effects:** a Logo `RIGHT 90` really turns ~92°, a square ends ~8° off, and the AI map would bend.
   - **Decision (owner: "yes write R19 for option a"):** correct it on the bridge, where the Uno's heading arrives (bridge LLD R19), not in the Uno (96 % full, USB-only updates).
+
+## 117. Plan R2 - the gyro scale on the floor (owner, 2026-10-22)
+- **Method:** the bridge was flashed with R19 over WiFi. The scale was saved with `tools/smoke/move.py --gyro-scale N`, confirmed with the tank's button, and read back from the `calib` reply. Then, as in §116: the tank was lined up with the floor's inlay strip, two `turn.py ±720 --speed 40` spins were run, and the owner took start / end photos from straight above. The angle was read against the strip and the owner judged it by eye.
+- **Scale steps** (degrees too far over 4 turns):
+
+  | gyro_scale | Left | Right | Notes |
+  |---|---|---|---|
+  | 10000 (none, §116) | ~39° | ~28° | |
+  | 10230 | ~15° | ~10–15° | both still too far: the scale was too low |
+  | 10330 | slightly too little | — | owner: "almost there, reduce by half percent" |
+  | 10280 | — | ~3–5° too far | owner: the first 720 almost perfect, the second a bit over |
+  | **10310** | — | — | **kept**: between left (wants < 10330) and right (wants > 10280) |
+
+  - At 10280 / 10330 left and right differ by about 0.1-0.3 %, a small fixed gyro error while turning that one scale cannot remove. It is below the ±1° a single turn ending varies by.
+  - The scale that fits this tank (**×1.031**) is above §116's photo estimate (×1.023): the first photos were read at changing phone angles. A higher scale makes the tank turn less, because the bridge counts the turn as bigger and stops sooner.
+- **Logo square** (`REPEAT 4 [FORWARD 50 RIGHT 90]`, 10310, recorded at 50 Hz): finished.
+  - The corrected gyro turned the corners 91.3°, 90.9°, 90.5°, 91.6° and ended 4.3° right. The ~1° per corner is the R18 turn coast re-learning after the scale change (the corrected rate reads ~3 % higher), shrinking corner by corner.
+  - **The owner: "almost straight", the end 1.5 cm to the right of the start mark.** Before R19 (§116) it ended 3 cm ahead, 4 cm right, visibly facing right.
+- **Saved on the tank:** `gyro_scale` 10310 (`cq_motion` NVS).

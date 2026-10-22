@@ -2,6 +2,7 @@
 
 #include <Preferences.h>
 
+#include "core/heading_scale.h"
 #include "core/motion_config.h"
 #include "net/log.h"
 
@@ -68,6 +69,27 @@ bool motionStoreSaveCoast(uint16_t ms) {
   Preferences p;
   if (!p.begin("cq_motion", false)) return false;
   const bool ok = p.putUShort("coast_ms", ms) == sizeof(uint16_t);
+  p.end();
+  return ok;
+}
+
+uint16_t motionStoreLoadGyroScale() {
+  uint16_t v = core::kGyroScaleDefault;
+  Preferences p;
+  if (p.begin("cq_motion", true)) {
+    const uint16_t saved = p.getUShort("gyro_scale", 0xFFFF);
+    if (saved >= core::kGyroScaleMin && saved <= core::kGyroScaleMax) v = saved;
+    p.end();
+  }
+  logf("motion: gyro scale %u", static_cast<unsigned>(v));
+  return v;
+}
+
+bool motionStoreSaveGyroScale(uint16_t scale_e4) {
+  if (scale_e4 < core::kGyroScaleMin || scale_e4 > core::kGyroScaleMax) return false;
+  Preferences p;
+  if (!p.begin("cq_motion", false)) return false;
+  const bool ok = p.putUShort("gyro_scale", scale_e4) == sizeof(uint16_t);
   p.end();
   return ok;
 }

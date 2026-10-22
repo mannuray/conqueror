@@ -2136,7 +2136,9 @@ Found by running the drafted controller against the host tank models; each one i
   - **Integers only:** the sum is kept in 1/10 000 of a 0.01° step (an `int32`; one full turn is 3.6 × 10⁸ < 2³¹), so the rounding never builds up.
   - **The rate:** `fast.yaw_rate = yaw_rate × gyro_scale / 10000`.
   - **The raw heading stays available** as `snapshot().yaw_raw`, for diagnostics.
-- **Anchoring:** the first frame after boot, and the first after the link re-syncs (the Uno restarted, so its heading starts again at 0), sets `corrected = raw` with no change. Today's jump at an Uno restart is unchanged.
+- **Anchoring:** the first frame after boot, and the first frame after a real Uno restart, set `corrected = raw` with no change. A restart is recognised by the Uno's clock (`uno_ms`) going back, since a restarted Uno's heading starts again at 0. Today's jump at an Uno restart is unchanged.
+  - A HELLO alone does not re-anchor: the Uno also sends one after a link hiccup (300 ms), in answer to HELLO_REQ, and every 500 ms until acked, with its heading running on. Re-anchoring then would throw away the correction built up so far (final review of Plan R2).
+  - The clock rule also covers a restart whose HELLO was lost.
 - **Who gains, with no change of their own:**
   - turns and pivots (R18: their learned coast just re-learns once);
   - arcs;
@@ -2187,7 +2189,7 @@ classDiagram
   SettingsController --> BodyLink : setGyroScale after a confirmed save
   MotionController --> BodyLink : reads the corrected heading
 ```
-- `HeadingScale` is pure (`core/heading_scale.{h,cpp}`) and host-tested; `BodyLink` owns one and calls `apply` in its TELEM_FAST case, and `reset` when the link syncs.
+- `HeadingScale` is pure (`core/heading_scale.{h,cpp}`) and host-tested; `BodyLink` owns one and calls `apply` in its TELEM_FAST case, and `reset` when the Uno's clock goes back (a restart).
 - The motion store port gets `loadGyroScale` / `saveGyroScale`. `link_task` loads the scale at boot and hands it to `BodyLink`; the settings controller saves a confirmed value and hands it on (a `Hooks` pointer, as R18's `coast_ms`).
 
 ```mermaid
@@ -2211,3 +2213,18 @@ sequenceDiagram
   - calib set / reset with the button, the reply's `gyro_scale`, NVS load out of range → 10000.
   - The R18 tests still pass with the scale at 10000.
 - **Floor (owner):** set 10230, then the 4-turn spins left and right against the strip with photos, as §116. Expected: each ends within ~5° of the strip, where it was 39° / 28° off. Then a Logo square. The turn coast re-learns over the first few turns, because the corrected rate is 2.3 % higher.
+
+### R19.5 As built and floor results (Plan R2, 2026-10-22)
+- **Built:**
+  - `HeadingScale` (`core/heading_scale.{h,cpp}`); `BodyLink` applies it to every TELEM_FAST and keeps `snapshot().yaw_raw`.
+  - Re-anchoring happens when the Uno's clock goes back, not on every HELLO (final review; R19.1).
+  - `calib` `gyro_scale` set / reset with the tank's button; NVS `cq_motion/gyro_scale`; `jsonCalib` shows it; `move.py --gyro-scale N`.
+  - 614 host tests.
+- **Value found on the floor: 10310 (×1.031)**, in steps 10230 → 10330 → 10280 → 10310 (design-notes §117), saved on the tank.
+- **Floor result:** the 50 cm Logo square ends "almost straight", 1.5 cm right of its start (before R19: visibly facing right, 4 cm right). Left and right differ by about 0.1-0.3 %, a small fixed gyro error while turning, below a single turn's ±1°.
+- **Deferred** (final review minors):
+  - `calib` with both keys saves only the gyro scale (consider a refusal);
+  - the `set_gyro_scale` hook's result is not checked;
+  - `yaw_raw` is not in `td` yet;
+  - a reset asked for during a turn is refused only at the button press (as the cpm reset).
+- **Later, if wanted:** a Tune-page wizard for the scale.

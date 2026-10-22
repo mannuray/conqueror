@@ -25,7 +25,7 @@ int g_driver = -1;
 int g_calib_sent = 0;
 std::vector<core::AckedOp> g_ops;
 size_t g_free = 8;  // free request slots the fake queue reports
-uint16_t g_cpm = 7514, g_roll = 27, g_coast = 80;
+uint16_t g_cpm = 7514, g_roll = 27, g_coast = 80, g_gyro = 0;
 
 core::WsCommand P(const char* s) { return core::parseWsCommand(s, strlen(s)); }
 bool has(int fd, const char* needle) { return fakes::countTo(fd, needle) > 0; }
@@ -47,6 +47,7 @@ void setUp() {
   g_cpm = 7514;
   g_roll = 27;
   g_coast = 80;
+  g_gyro = 0;
   sc->setHooks({[] { return g_active; }, [] { return g_ota; }, [] { return g_driver; },
                      [](int) { ++g_calib_sent; },
                      [](const core::AckedOp& op) {
@@ -55,7 +56,8 @@ void setUp() {
                        g_ops.push_back(op);
                        return true;
                      },
-                     &g_cpm, &g_roll, [] { return g_free; }, &g_coast});
+                     &g_cpm, &g_roll, [] { return g_free; }, &g_coast,
+                     [](uint16_t v) { g_gyro = v; return true; }});
 }
 void tearDown() {}
 
@@ -152,6 +154,27 @@ void test_calib_reset_roll_also_resets_the_coast() {
   TEST_ASSERT_EQUAL(core::motion::kCoastDefaultMs, fakes::world().saved_coast[0]);
 }
 
+// R19: the gyro scale is set like counts_per_m (driver only, not while moving, the tank's button) and saved;
+// the reset goes back to no correction; both hand the value on to the heading correction.
+void test_calib_gyro_scale_set_and_reset() {
+  sc->onCalib(3, 1, P("{\"t\":\"calib\",\"gyro_scale\":10230,\"id\":1}"), 1000);
+  TEST_ASSERT_TRUE(has(3, "NOT_OWNER"));
+  g_driver = 3;
+  sc->onCalib(3, 2, P("{\"t\":\"calib\",\"gyro_scale\":10230,\"id\":2}"), 1000);
+  TEST_ASSERT_TRUE(has(3, "\"t\":\"confirm\""));
+  TEST_ASSERT_EQUAL(0, g_gyro);  // nothing before the button
+  sc->onButtonPress(2000);
+  TEST_ASSERT_EQUAL(10230, g_gyro);
+  TEST_ASSERT_EQUAL(1, static_cast<int>(fakes::world().saved_gyro.size()));
+  TEST_ASSERT_EQUAL(10230, fakes::world().saved_gyro[0]);
+  TEST_ASSERT_EQUAL(7514, g_cpm);  // counts_per_m untouched
+  sc->onCalib(3, 3, P("{\"t\":\"calib\",\"reset\":\"gyro_scale\",\"id\":3}"), 3000);
+  sc->onButtonPress(4000);
+  TEST_ASSERT_EQUAL(10000, g_gyro);
+  TEST_ASSERT_EQUAL(10000, fakes::world().saved_gyro[1]);
+  TEST_ASSERT_EQUAL(27, g_roll);  // the roll-on untouched
+}
+
 void test_calib_read_sends_calib() {
   sc->onCalib(3, -1, P("{\"t\":\"calib\"}"), 1000);
   TEST_ASSERT_EQUAL(1, g_calib_sent);
@@ -193,6 +216,7 @@ int main() {
   RUN_TEST(test_calib_set_only_for_the_driver_and_not_while_moving);
   RUN_TEST(test_calib_save_failure_is_busy);
   RUN_TEST(test_calib_read_sends_calib);
+  RUN_TEST(test_calib_gyro_scale_set_and_reset);
   RUN_TEST(test_calib_reset_roll_also_resets_the_coast);
   RUN_TEST(test_wifi_mode_result_is_logged);
   RUN_TEST(test_restart_is_acked_logged_and_due_after_500_ms);

@@ -324,6 +324,21 @@ void test_wifi_commands() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kRestart), K(P("{\"t\":\"restart\"}").kind));
 }
 
+// R19: the gyro scale - set (9000..11000, whole numbers) and reset.
+void test_calib_gyro_scale() {
+  WsCommand c = P("{\"t\":\"calib\",\"gyro_scale\":10230,\"id\":4}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCalib), K(c.kind));
+  TEST_ASSERT_TRUE(c.has_gyro_scale);
+  TEST_ASSERT_FALSE(c.has_cpm);
+  TEST_ASSERT_EQUAL_UINT16(10230, c.gyro_scale);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCalib), K(P("{\"t\":\"calib\",\"gyro_scale\":9000}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCalib), K(P("{\"t\":\"calib\",\"gyro_scale\":11000}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"calib\",\"gyro_scale\":8999}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"calib\",\"gyro_scale\":11001}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"calib\",\"gyro_scale\":10230.5}").kind));
+  TEST_ASSERT_EQUAL_INT8(2, P("{\"t\":\"calib\",\"reset\":\"gyro_scale\"}").calib_reset);
+}
+
 void test_setting_and_calib_reset() {
   WsCommand c = P("{\"t\":\"setting\",\"setting_id\":66}");
   TEST_ASSERT_EQUAL(K(WsCmdKind::kSetting), K(c.kind));
@@ -457,6 +472,7 @@ int main() {
   RUN_TEST(test_turn_pivot_field);
   RUN_TEST(test_wifi_commands);
   RUN_TEST(test_setting_and_calib_reset);
+  RUN_TEST(test_calib_gyro_scale);
   RUN_TEST(test_tank_log_selftest);
   RUN_TEST(test_camera_set_fields_and_ranges);
   RUN_TEST(test_camera_set_false_turns_a_switch_off);

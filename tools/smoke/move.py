@@ -3,6 +3,7 @@
     uv run python move.py 100 --speed 40      # forward 100 cm
     uv run python move.py -50                 # reverse 50 cm
     uv run python move.py --calibrate         # move 100 cm, type the tape distance, average, save
+    uv run python move.py --gyro-scale 10230  # save the gyro scale (LLD R19, the tank's button)
 
 Takes control (the move command does), so release the phone page first.
 STOP from the phone or the IR remote ends a move.
@@ -111,11 +112,18 @@ class Session:
         return int(msg["counts_per_m"])
 
     def save_counts_per_m(self, cpm: int) -> bool:
+        return self.save_calib("counts_per_m", cpm)
+
+    def save_gyro_scale(self, scale_e4: int) -> bool:
+        """Bridge LLD R19: the gyro scale in parts per 10 000 (10230 = x1.023)."""
+        return self.save_calib("gyro_scale", scale_e4)
+
+    def save_calib(self, key: str, value: int) -> bool:
         self.next_id += 1
         mid = self.next_id
         # Control is handed back 5 s after a move: take it again (drive 0/0 never moves the tank).
         self.ws.send({"t": "drive", "v": 0, "w": 0})
-        self.ws.send({"t": "calib", "counts_per_m": cpm, "id": mid})
+        self.ws.send({"t": "calib", key: value, "id": mid})
         # Plan O (design-notes §91): a save waits for a press of the tank's button (30 s).
         msg = self.pump_until(
             lambda m: (
@@ -206,15 +214,23 @@ def main() -> int:
     ap.add_argument("cm", type=int, nargs="?", help="distance, + forward, - reverse (1..500)")
     ap.add_argument("--speed", type=int, default=40)
     ap.add_argument("--calibrate", action="store_true")
+    ap.add_argument(
+        "--gyro-scale", type=int, default=None, help="save the gyro scale, 9000..11000 (R19)"
+    )
     ap.add_argument("--host", default="conqueror-bridge.local")
     args = ap.parse_args()
-    if not args.calibrate and args.cm is None:
-        ap.error("give a distance in cm, or --calibrate")
+    if not args.calibrate and args.cm is None and args.gyro_scale is None:
+        ap.error("give a distance in cm, --calibrate or --gyro-scale")
     s = Session(args.host)
     try:
+        if args.gyro_scale is not None:
+            return 0 if s.save_gyro_scale(args.gyro_scale) else 1
         if args.calibrate:
             return calibrate(s, args.speed)
-        done, counts, heading = s.move(args.cm, args.speed)
+        cm = args.cm
+        if cm is None:  # checked above; kept for the type checker
+            return 2
+        done, counts, heading = s.move(int(cm), args.speed)
         report(done, counts, heading, s.counts_per_m())
         return 0 if done.get("ok") else 1
     finally:

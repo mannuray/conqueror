@@ -51,6 +51,7 @@ class MotionController {
   uint16_t& cpm() { return m_cpm; }
   uint16_t& rollMm() { return m_roll_mm; }
   uint16_t& coastMs() { return m_coast_ms; }  // R18.2
+  bool setGyroScale(uint16_t scale_e4) { return m_link.setGyroScale(scale_e4); }  // R19
   void sendCalib(int fd);
   core::PrimitiveView view() const;
 

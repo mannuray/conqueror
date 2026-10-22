@@ -94,7 +94,13 @@ void BodyLink::onAckFrame(const FrameView& f) {
 
 void BodyLink::onTelemFrame(const FrameView& f) {
   if (f.type == static_cast<uint8_t>(proto::FrameType::kTelemFast)) {
+    const uint32_t last_uno_ms = m_snap.fast.uno_ms;
     if (!proto::decode(f.payload, f.len, m_snap.fast)) return;
+    // R19: a real Uno restart (its clock went back) starts its heading again - anchor there. A HELLO alone does
+    // not: the Uno also sends one after a link hiccup, with its heading running on (final review I1).
+    if (m_snap.fast_valid && m_snap.fast.uno_ms < last_uno_ms) m_heading.reset();
+    m_snap.yaw_raw = m_snap.fast.yaw;  // R19: everyone downstream reads the corrected heading
+    m_heading.apply(m_snap.yaw_raw, m_snap.fast.yaw_rate, m_snap.fast.yaw, m_snap.fast.yaw_rate);
     m_snap.fast_valid = true;
     m_snap.fast_bus_us = m_rx_us;
     ++m_snap.fast_count;

@@ -74,6 +74,13 @@ bool saveCoast(uint16_t v) {
   world().coast = v;
   return true;
 }
+uint16_t loadGyroScale() { return world().gyro; }
+bool saveGyroScale(uint16_t v) {
+  if (!world().save_ok) return false;
+  world().saved_gyro.push_back(v);
+  world().gyro = v;
+  return true;
+}
 bool loadAiUrl(char* out, size_t cap) {
   snprintf(out, cap, "%s", world().ai_url.c_str());
   return true;

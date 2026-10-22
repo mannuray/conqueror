@@ -51,7 +51,7 @@ size_t jsonTf(char* out, size_t cap, uint32_t seq, const TankSnapshot& s, Primit
 size_t jsonPrimitiveDone(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, const PrimitiveEnd& e);
 size_t jsonTs(char* out, size_t cap, const TankSnapshot& s, OwnerView owner, bool body_offline);
 // Plan K (LLD R7.1 / R7.9): {"t":"calib","counts_per_m":n,"roll_mm":m} - reply to calib (read or after a save).
-size_t jsonCalib(char* out, size_t cap, uint16_t counts_per_m, uint16_t roll_mm);
+size_t jsonCalib(char* out, size_t cap, uint16_t counts_per_m, uint16_t roll_mm, uint16_t gyro_scale);  // + R19
 // Plan M (spec 02 §I3): WiFi status / scan, the confirmation replies, Uno settings. Never a password.
 struct WifiStatusView {
   const char* mode;  // "home" / "connecting" / "ap_fallback" / "ap"

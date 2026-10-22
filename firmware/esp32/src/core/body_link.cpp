@@ -94,7 +94,11 @@ void BodyLink::onAckFrame(const FrameView& f) {
 
 void BodyLink::onTelemFrame(const FrameView& f) {
   if (f.type == static_cast<uint8_t>(proto::FrameType::kTelemFast)) {
+    const uint32_t last_uno_ms = m_snap.fast.uno_ms;
     if (!proto::decode(f.payload, f.len, m_snap.fast)) return;
+    // R19: a real Uno restart (its clock went back) starts its heading again - anchor there. A HELLO alone does
+    // not: the Uno also sends one after a link hiccup, with its heading running on (final review I1).
+    if (m_snap.fast_valid && m_snap.fast.uno_ms < last_uno_ms) m_heading.reset();
     m_snap.yaw_raw = m_snap.fast.yaw;  // R19: everyone downstream reads the corrected heading
     m_heading.apply(m_snap.yaw_raw, m_snap.fast.yaw_rate, m_snap.fast.yaw, m_snap.fast.yaw_rate);
     m_snap.fast_valid = true;
@@ -154,7 +158,6 @@ void BodyLink::onFrame(const FrameView& f, uint32_t now_ms) {
 
 void BodyLink::onHello(const proto::HelloMsg& h) {
   m_hello = HelloInfo{true, h.fw, h.proto, h.caps, h.reset_reason, h.commit};
-  m_heading.reset();  // R19: the Uno (re)started - its heading starts again; anchor on its next frame
   if (!m_master) return;  // idle (no web client): the bridge stays silent
   if (h.proto != proto::kProtocolVersion) {
     m_hs = HandshakeState::kIncompatible;

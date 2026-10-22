@@ -2136,7 +2136,9 @@ Found by running the drafted controller against the host tank models; each one i
   - **Integers only:** the sum is kept in 1/10 000 of a 0.01° step (an `int32`; one full turn is 3.6 × 10⁸ < 2³¹), so the rounding never builds up.
   - **The rate:** `fast.yaw_rate = yaw_rate × gyro_scale / 10000`.
   - **The raw heading stays available** as `snapshot().yaw_raw`, for diagnostics.
-- **Anchoring:** the first frame after boot, and the first after the link re-syncs (the Uno restarted, so its heading starts again at 0), sets `corrected = raw` with no change. Today's jump at an Uno restart is unchanged.
+- **Anchoring:** the first frame after boot, and the first frame after a real Uno restart, set `corrected = raw` with no change. A restart is recognised by the Uno's clock (`uno_ms`) going back, since a restarted Uno's heading starts again at 0. Today's jump at an Uno restart is unchanged.
+  - A HELLO alone does not re-anchor: the Uno also sends one after a link hiccup (300 ms), in answer to HELLO_REQ, and every 500 ms until acked, with its heading running on. Re-anchoring then would throw away the correction built up so far (final review of Plan R2).
+  - The clock rule also covers a restart whose HELLO was lost.
 - **Who gains, with no change of their own:**
   - turns and pivots (R18: their learned coast just re-learns once);
   - arcs;
@@ -2187,7 +2189,7 @@ classDiagram
   SettingsController --> BodyLink : setGyroScale after a confirmed save
   MotionController --> BodyLink : reads the corrected heading
 ```
-- `HeadingScale` is pure (`core/heading_scale.{h,cpp}`) and host-tested; `BodyLink` owns one and calls `apply` in its TELEM_FAST case, and `reset` when the link syncs.
+- `HeadingScale` is pure (`core/heading_scale.{h,cpp}`) and host-tested; `BodyLink` owns one and calls `apply` in its TELEM_FAST case, and `reset` when the Uno's clock goes back (a restart).
 - The motion store port gets `loadGyroScale` / `saveGyroScale`. `link_task` loads the scale at boot and hands it to `BodyLink`; the settings controller saves a confirmed value and hands it on (a `Hooks` pointer, as R18's `coast_ms`).
 
 ```mermaid

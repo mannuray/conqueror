@@ -70,6 +70,20 @@ class FakeBridge:
                     )
                 elif t == "calib":
                     await ws.send(json.dumps({"t": "calib", "counts_per_m": 7514, "roll_mm": 27}))
+                elif t == "cam_set":  # bridge LLD R22: pan -90..90, tilt -20..60 degrees
+                    ok = -90 <= m["pan"] <= 90 and -20 <= m["tilt"] <= 60
+                    reply = (
+                        {"t": "ack", "id": m["id"]}
+                        if ok
+                        else {
+                            "t": "nack",
+                            "id": m["id"],
+                            "code": "COMMAND_3018",
+                            "reason": "OUT_OF_RANGE",
+                            "message": "Out of range - pan -90..90, tilt -20..60 degrees",
+                        }
+                    )
+                    await ws.send(json.dumps(reply))
         finally:
             if sender is not None:
                 sender.cancel()

@@ -1,4 +1,5 @@
-"""The bridge's WebSocket, read only (AI engine LLD §6): `hello`, the 50 Hz debug stream, pings for the clock.
+"""The bridge's WebSocket (AI engine LLD §6): `hello`, the 50 Hz debug stream, pings for the clock, and one
+command - `cam_set`, the camera to exact angles (bridge LLD R22).
 
 It never sends anything that moves the tank. Raw messages go to an optional tap (the recorder).
 """
@@ -20,6 +21,14 @@ from conqueror_ai.domain.types import TelemSample
 RawTap = Callable[[float, str], None]  # (laptop receive time, raw JSON text)
 
 
+class CommandRefused(Exception):
+    """The bridge answered a command with a nack: `reason` (OUT_OF_RANGE, NOT_OWNER, BUSY, ...) + message."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(f"{reason}: {message}")
+        self.reason = reason
+
+
 class BridgeLink:
     def __init__(self, host: str, port: int = 80, client: str = "ai-map", silent_s: float = 3.0) -> None:
         self.url = f"ws://{host}:{port}/ws"
@@ -31,6 +40,35 @@ class BridgeLink:
         self.counts_per_m: int | None = None
         self.last_sample_s: float | None = None
         self._ws: ClientConnection | None = None
+        self._next_id = 0
+        self._waiting: dict[int, asyncio.Future[dict[str, Any]]] = {}
+
+    @property
+    def connected(self) -> bool:
+        return self._ws is not None
+
+    async def cam_set(self, pan_deg: float, tilt_deg: float, timeout_s: float = 3.0) -> None:
+        """The camera to (pan, tilt) degrees from the centre, right / up = + (bridge LLD R22).
+
+        Returns on the ack. Raises CommandRefused on a nack (OUT_OF_RANGE: pan -90..90, tilt -20..60),
+        ConnectionError when not connected, TimeoutError without an answer. A camera angle is not motion:
+        the engine still never moves the tank."""
+        ws = self._ws
+        if ws is None:
+            raise ConnectionError("not connected to the bridge")
+        self._next_id += 1
+        mid = self._next_id
+        reply: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        self._waiting[mid] = reply
+        try:
+            await self._send(
+                ws, {"t": "cam_set", "pan": round(pan_deg, 1), "tilt": round(tilt_deg, 1), "id": mid}
+            )
+            m = await asyncio.wait_for(reply, timeout_s)
+        finally:
+            self._waiting.pop(mid, None)
+        if m.get("t") == "nack":
+            raise CommandRefused(str(m.get("reason", "")), str(m.get("message", "")))
 
     async def run(self, stop: asyncio.Event) -> None:
         """Connects (again after a drop, with back-off) until `stop` is set."""
@@ -114,6 +152,11 @@ class BridgeLink:
             t0, us = m.get("t0"), m.get("bridge_us")
             if isinstance(t0, int | float) and isinstance(us, int):
                 self.clock.add(float(t0) / 1000.0, now, us)
+        elif kind in ("ack", "nack"):
+            mid = m.get("id")
+            fut = self._waiting.get(mid) if isinstance(mid, int) else None
+            if fut is not None and not fut.done():
+                fut.set_result(m)
         elif kind == "calib":
             cpm = m.get("counts_per_m")
             if isinstance(cpm, int):

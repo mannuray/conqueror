@@ -74,6 +74,7 @@ bool RunController::start(const Program& p, const RunConfig& cfg, const RunTelem
   m_start_yaw = t.yaw_cdeg;
   m_speed = 40;
   m_blocked = false;
+  m_going = false;
   return true;
 }
 
@@ -130,7 +131,17 @@ void RunController::effect(const RunTelem& t, uint32_t now_ms, RunOut& out) {
 void RunController::carry(const Action& a, const RunTelem& t, uint32_t now_ms, RunOut& out) {
   out.action = a;
   out.act = a.kind != ActKind::kTick;
+  if (a.kind == ActKind::kGo) {  // drives on; the program goes on at once (LLD §22.2)
+    if (!m_going) m_blocked = false;
+    m_going = true;
+    return;
+  }
+  if (a.kind == ActKind::kHold) {
+    m_going = false;
+    return;
+  }
   if (isMotion(a.kind)) {
+    m_going = false;  // the motion takes over from a GO (no end comes for the GO)
     if (a.kind == ActKind::kHome) out.action.delta_cdeg = yawDelta(t.yaw_cdeg, m_start_yaw);
     m_state = RunState::kMotion;
     return;
@@ -156,7 +167,7 @@ Sensors RunController::sensors(const RunTelem& t, uint32_t now_ms) const {
 }
 
 RunOut RunController::onPrimitiveEnd(const core::PrimitiveEnd& e) {
-  if (m_state != RunState::kMotion) return RunOut();
+  if (m_state != RunState::kMotion) return goEnded(e);
   m_state = RunState::kRunning;
   if (e.reason == core::EndReason::kDone) {
     m_blocked = false;
@@ -164,6 +175,19 @@ RunOut RunController::onPrimitiveEnd(const core::PrimitiveEnd& e) {
   }
   if (e.reason == core::EndReason::kBlocked && m_p->handles_obstacles) {
     m_blocked = true;  // BLOCKED? is true until the next move ends (design-notes §82 h)
+    return RunOut();
+  }
+  return end(kByEndReason[static_cast<uint8_t>(e.reason)]);
+}
+
+// A GO's end, arriving while the program runs on (LLD §22.2): HOLD's own end (done) is expected; the obstacle
+// carries on with BLOCKED? or ends 7024, like a move; every other end ends the program as a move's would.
+RunOut RunController::goEnded(const core::PrimitiveEnd& e) {
+  if (!m_going || !active()) return RunOut();
+  m_going = false;
+  if (e.reason == core::EndReason::kDone) return RunOut();
+  if (e.reason == core::EndReason::kBlocked && m_p->handles_obstacles) {
+    m_blocked = true;
     return RunOut();
   }
   return end(kByEndReason[static_cast<uint8_t>(e.reason)]);

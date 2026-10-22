@@ -185,3 +185,13 @@
   source: REPEAT 20000 [ BEEP ]
   expect: {error: 7025, line: 1, col: 8}
   message_has: "from 0 to 10000."
+
+- name: GO takes no input (Spec 5 Revision 3)
+  source: GO 40
+  expect: {error: 7004, line: 1, col: 4}
+  message_has: "40"
+
+- name: GO on a tank without encoders (it needs them, like FORWARD)
+  source: GO
+  tank: {encoders: false}
+  expect: {error: 7021, line: 1, col: 1}

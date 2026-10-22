@@ -38,7 +38,8 @@ Where this revision and the sections below differ, **this revision wins** (Revis
   - `STOP`, the program ending, the time limit, or any safety ending (§7).
 - **`GO` again while going** changes nothing. **`SPEED` while going** applies at once.
 - **Forward only** (owner): the distance sensor looks forward; there is no `GO BACK`.
-- **Needs** the gyro only, not the encoders (like `LEFT` / `RIGHT`); the driven path still uses the encoders when they are there.
+- **Needs the encoders**, like `FORWARD` (owner, 2026-10-22, after the final review of Plan N5). Then a stuck track is always caught by the Uno's own check, and a tank without encoders gets 7021. An earlier draft said "the gyro only".
+- **In step mode** a pause on a line holds the GO (the tank stops), and STEP drives on again at the same speed (owner, 2026-10-22).
 - **Keeping it safe:** `GO` is a continuous "drive straight at SPEED" command that must be **refreshed at least every 0.3 s, or the tank stops** — the rule for driving by hand and for DRIVE_RATE (bridge LLD R4.4). The tank's runner refreshes it every tick; the AI engine's runner refreshes it about every 0.1 s over WiFi, so a hung laptop, program or WiFi stops the tank within 0.3 s. The obstacle brake, child-play limits, STOP from anywhere, battery / tilt / link-loss stops all stay.
 - **Preview:** `GO` has no length, so the planned path draws a dashed 1 m line marked uncertain ("until something"); later steps follow from there.
 

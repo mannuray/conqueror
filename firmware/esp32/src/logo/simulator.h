@@ -40,6 +40,7 @@ class Simulator {
  public:
   static constexpr uint32_t kMaxInstructions = 200000;
   static constexpr uint32_t kTickMs = 100;     // one WAIT UNTIL check
+  static constexpr int32_t kGoPreviewCm = 100;  // GO has no length: the preview draws 1 m (LLD §22.4)
   static constexpr double kTurnDegPerS = 90.0;  // spin speed of the model (time only)
 
   explicit Simulator(Vm& vm) : m_vm(vm) {}
@@ -68,6 +69,7 @@ class Simulator {
   uint8_t m_speed = 40;
   uint16_t m_line = 0;
   bool m_full = false;
+  bool m_guess = false;  // after a GO every point is uncertain
 };
 
 }  // namespace logo

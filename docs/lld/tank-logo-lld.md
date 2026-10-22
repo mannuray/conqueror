@@ -1049,3 +1049,20 @@ stateDiagram-v2
 - **The WebSocket messages for the AI engine** (`{"t":"go","speed":n}` refreshed ≤ 300 ms, `{"t":"hold"}`). They come with the AI engine's Logo runner, using the same `MotionService` primitive.
 - **`GO UNTIL cond`** (shorthand) and **steering while going.**
 - **The `avoid_walls` example** may be rewritten with `GO` once the floor check passes (owner to decide then).
+
+### 22.7 Changed by the final review (owner, 2026-10-22: "a, and do the smaller points too")
+- **Step mode (option a):** while the program is paused on a line, `LogoController::pauseGo` holds the GO (`m_paused_go`), and STEP drives on with a new `GO` at the same speed (`m_go_speed`). HOLD's own end during the pause is not passed to the runner (`m_hold_end`), so the program still counts as going.
+- **A GO stopped by the Uno's slow-down near an obstacle ends blocked** (MOVE's no-progress rule, bridge LLD R20).
+- **A new GO ignores the brake flag in its very first frame**, which may still be the last primitive's; a real obstacle ends it one frame (20 ms) later.
+- **`GO` needs the encoders** (`words.yaml` `needs: [encoders]`; at run time an encoder fault refuses it, like `FORWARD`).
+- **`HOLD` is never refused:** nothing going is nothing to do, even with the body offline or during OTA.
+- **The Tune log names a GO "go".**
+- **New tests:**
+  - a GO's deadman → 7034 (`test_logo_run`);
+  - the program's end stops a GO;
+  - losing the drive during a GO never STOPs the new driver;
+  - step mode holds and drives on;
+  - a stale flag in the first frame;
+  - HOLD never refused / GO needs encoders;
+  - GO without encoders → 7021 (`errors.yaml`).
+

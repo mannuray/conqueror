@@ -796,7 +796,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   };
   var STOP_EVS = ["stall", "blocked", "deadman_stop", "ir_override", "link_lost", "batt_critical", "tilted", "lifted", "heading_fault"];
   var BOOT = { 1: "power on", 2: "reset pin", 3: "software restart", 4: "crash", 5: "watchdog", 6: "watchdog", 7: "watchdog", 8: "wake from sleep", 9: "low voltage (brown-out)", 11: "USB", 12: "debugger" };
-  var PRIM = ["move", "turn", "rate turn", "move", "arc", "pivot"];
+  var PRIM = ["move", "turn", "rate turn", "move", "arc", "pivot", "go"];  // core::PrimKind order (+ go, bridge LLD R20)
   var WHY = ["done", "cancelled", "STOP pressed", "another device took control", "a track stalled", "took too long", "link lost", "deadman stop",
              "turned the wrong way", "an obstacle", "an encoder fault"];
   // -> {cat, sev, icon, title, detail}

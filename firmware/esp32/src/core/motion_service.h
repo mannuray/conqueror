@@ -14,7 +14,7 @@
 namespace cq {
 namespace core {
 
-enum class PrimKind : uint8_t { kNone, kTurn, kRate, kMove, kArc, kPivot };
+enum class PrimKind : uint8_t { kNone, kTurn, kRate, kMove, kArc, kPivot, kGo };  // kGo: bridge LLD R20
 enum class EndReason : uint8_t {
   kDone,
   kCancelled,
@@ -54,6 +54,13 @@ class MotionService {
                  uint16_t coast_ms = motion::kCoastDefaultMs);
   void driveRate(int fd, int8_t v, int16_t rate_ddps, uint32_t now_ms);  // starts or updates the stream
   MotionOut cancel(EndReason why);
+  // R20: GO - drive straight on at speed_pct (w = 0, the Uno's heading hold) until held, replaced or blocked; the
+  // owner refreshes it (keepGo) at least every kRateDeadmanMs. startGo while going: a new speed, refreshed.
+  void startGo(int fd, uint8_t speed_pct, int32_t id, uint32_t now_ms);
+  void keepGo(uint32_t now_ms) {
+    if (m_kind == PrimKind::kGo) m_go_update_ms = now_ms;
+  }
+  MotionOut hold();  // ends a GO as done (v = 0); nothing going: nothing
   void startMove(int fd, const MotionTelem& t, int16_t dist_cm, uint8_t speed_pct, uint16_t cpm, int32_t id,
                  uint32_t now_ms, uint16_t roll_mm = 0);
   void startArc(int fd, const MotionTelem& t, int32_t delta_cdeg, uint16_t radius_cm, uint8_t speed_pct, uint16_t cpm,
@@ -78,6 +85,7 @@ class MotionService {
  private:
   MotionOut finish(EndReason why);
   MotionOut stepTurn(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms);
+  MotionOut stepGo(const MotionTelem& t, uint32_t now_ms);
   MotionOut stepRate(int16_t rate_ddps, uint32_t now_ms);
   bool rateDiverged(bool saturated, int16_t rate_ddps, uint32_t now_ms);
   bool rateStalled(bool saturated, int16_t rate_ddps, uint32_t now_ms);
@@ -95,6 +103,13 @@ class MotionService {
   int8_t m_pivot_dir = 1;  // +1 left pivot (left track still), -1 right pivot
   uint16_t m_coast_reading = 0;  // R18: kept until the turn / pivot ends
   int8_t m_rate_v = 0;
+  int8_t m_go_v = 0;            // R20
+  uint32_t m_go_update_ms = 0;  // R20: the last startGo / keepGo
+  bool m_go_ref_set = false;    // R20 (final review C1): progress reference - counts and the distance ahead
+  int32_t m_go_ref_counts = 0;
+  uint16_t m_go_ref_dist = 0;
+  uint32_t m_go_ref_ms = 0;
+  bool goStopped(const MotionTelem& t, uint32_t now_ms);  // no progress for kMoveStallMs
   int16_t m_rate_target = 0;
   bool m_rate_limited = false;
   uint32_t m_rate_update_ms = 0;

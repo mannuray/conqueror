@@ -26,7 +26,7 @@ enum class Sensor : uint8_t { kDistance, kObstacle, kBlocked, kHeading, kTilted,
 enum class Builtin : uint8_t { kRandom, kRemainder, kAbs, kRound, kRepcount };
 enum class EffectKind : uint8_t {
   kForward, kBack, kRight, kLeft, kSpeed, kWait, kLed, kBeep, kSound, kLook, kHome,
-  kArc, kPivot, kPlay, kSay, kUntilStart, kTick,
+  kArc, kPivot, kPlay, kSay, kUntilStart, kTick, kGo, kHold,  // GO / HOLD: Spec 5 Revision 3
   kCount
 };
 const char* effectWord(EffectKind k);  // "FORWARD" … ("WAIT UNTIL" for kUntilStart / kTick)

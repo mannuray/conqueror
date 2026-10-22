@@ -20,43 +20,43 @@ inline constexpr InputSpec kIn6[] = {{"times", InType::kNumber, true, 0, 1000000
 inline constexpr InputSpec kIn7[] = {{"colour", InType::kColour, false, 0, 0, "", "a colour"}};
 inline constexpr InputSpec kIn9[] = {{"sound", InType::kSound, false, 0, 0, "", "a sound"}};
 inline constexpr InputSpec kIn10[] = {{"where", InType::kLook, false, 0, 0, "", "where to look"}};
-inline constexpr InputSpec kIn13[] = {{"side", InType::kSide, false, 0, 0, "", "a side"}, {"angle", InType::kNumber, true, 1000, 360000, "deg", "an angle"}, {"radius", InType::kNumber, true, 31000, 300000, "cm", "a radius"}};
-inline constexpr InputSpec kIn14[] = {{"side", InType::kSide, false, 0, 0, "", "a side"}, {"angle", InType::kNumber, true, 1000, 360000, "deg", "an angle"}};
-inline constexpr InputSpec kIn15[] = {{"notes", InType::kNotes, false, 0, 0, "", "a notes"}};
-inline constexpr InputSpec kIn16[] = {{"words", InType::kText, false, 0, 0, "", "a words"}};
-inline constexpr InputSpec kIn18[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}, {"steps", InType::kBlock, false, 0, 0, "", "its steps in [ ]"}};
-inline constexpr InputSpec kIn19[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}, {"yes", InType::kBlock, false, 0, 0, "", "steps in [ ]"}, {"no", InType::kBlock, false, 0, 0, "", "steps in [ ]"}};
+inline constexpr InputSpec kIn15[] = {{"side", InType::kSide, false, 0, 0, "", "a side"}, {"angle", InType::kNumber, true, 1000, 360000, "deg", "an angle"}, {"radius", InType::kNumber, true, 31000, 300000, "cm", "a radius"}};
+inline constexpr InputSpec kIn16[] = {{"side", InType::kSide, false, 0, 0, "", "a side"}, {"angle", InType::kNumber, true, 1000, 360000, "deg", "an angle"}};
+inline constexpr InputSpec kIn17[] = {{"notes", InType::kNotes, false, 0, 0, "", "a notes"}};
+inline constexpr InputSpec kIn18[] = {{"words", InType::kText, false, 0, 0, "", "a words"}};
 inline constexpr InputSpec kIn20[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}, {"steps", InType::kBlock, false, 0, 0, "", "its steps in [ ]"}};
-inline constexpr InputSpec kIn21[] = {{"steps", InType::kBlock, false, 0, 0, "", "its steps in [ ]"}};
-inline constexpr InputSpec kIn22[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}};
-inline constexpr InputSpec kIn30[] = {{"n", InType::kNumber, true, 1000, 1000000000, "", "a n"}};
-inline constexpr InputSpec kIn32[] = {{"a", InType::kNumber, false, 0, 0, "", "an a"}, {"b", InType::kNumber, false, 0, 0, "", "a b"}};
-inline constexpr InputSpec kIn33[] = {{"x", InType::kNumber, false, 0, 0, "", "a x"}};
-inline constexpr InputSpec kIn34[] = {{"x", InType::kNumber, false, 0, 0, "", "a x"}};
-inline constexpr InputSpec kIn40[] = {{"value", InType::kAny, false, 0, 0, "", "a value"}};
-inline constexpr InputSpec kIn41[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn42[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn21[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}, {"yes", InType::kBlock, false, 0, 0, "", "steps in [ ]"}, {"no", InType::kBlock, false, 0, 0, "", "steps in [ ]"}};
+inline constexpr InputSpec kIn22[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}, {"steps", InType::kBlock, false, 0, 0, "", "its steps in [ ]"}};
+inline constexpr InputSpec kIn23[] = {{"steps", InType::kBlock, false, 0, 0, "", "its steps in [ ]"}};
+inline constexpr InputSpec kIn24[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}};
+inline constexpr InputSpec kIn32[] = {{"n", InType::kNumber, true, 1000, 1000000000, "", "a n"}};
+inline constexpr InputSpec kIn34[] = {{"a", InType::kNumber, false, 0, 0, "", "an a"}, {"b", InType::kNumber, false, 0, 0, "", "a b"}};
+inline constexpr InputSpec kIn35[] = {{"x", InType::kNumber, false, 0, 0, "", "a x"}};
+inline constexpr InputSpec kIn36[] = {{"x", InType::kNumber, false, 0, 0, "", "a x"}};
+inline constexpr InputSpec kIn42[] = {{"value", InType::kAny, false, 0, 0, "", "a value"}};
 inline constexpr InputSpec kIn43[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
 inline constexpr InputSpec kIn44[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn45[] = {{"n", InType::kNumber, true, 1000, 50000000, "", "a n"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn45[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
 inline constexpr InputSpec kIn46[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn47[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn48[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn49[] = {{"a", InType::kAny, false, 0, 0, "", "an a"}, {"b", InType::kAny, false, 0, 0, "", "a b"}};
+inline constexpr InputSpec kIn47[] = {{"n", InType::kNumber, true, 1000, 50000000, "", "a n"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn48[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn49[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
 inline constexpr InputSpec kIn50[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn51[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn52[] = {{"a", InType::kAny, false, 0, 0, "", "an a"}, {"b", InType::kAny, false, 0, 0, "", "a b"}};
-inline constexpr InputSpec kIn53[] = {{"how", InType::kTemplate, false, 0, 0, "", "a template in [ ]"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn54[] = {{"test", InType::kTemplate, false, 0, 0, "", "a test"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn51[] = {{"a", InType::kAny, false, 0, 0, "", "an a"}, {"b", InType::kAny, false, 0, 0, "", "a b"}};
+inline constexpr InputSpec kIn52[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn53[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn54[] = {{"a", InType::kAny, false, 0, 0, "", "an a"}, {"b", InType::kAny, false, 0, 0, "", "a b"}};
 inline constexpr InputSpec kIn55[] = {{"how", InType::kTemplate, false, 0, 0, "", "a template in [ ]"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn56[] = {{"list", InType::kList, false, 0, 0, "", "a list"}, {"steps", InType::kTemplateBlock, false, 0, 0, "", "its steps in [ ]"}};
-inline constexpr InputSpec kIn57[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
-inline constexpr InputSpec kIn58[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
+inline constexpr InputSpec kIn56[] = {{"test", InType::kTemplate, false, 0, 0, "", "a test"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn57[] = {{"how", InType::kTemplate, false, 0, 0, "", "a template in [ ]"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn58[] = {{"list", InType::kList, false, 0, 0, "", "a list"}, {"steps", InType::kTemplateBlock, false, 0, 0, "", "its steps in [ ]"}};
 inline constexpr InputSpec kIn59[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
 inline constexpr InputSpec kIn60[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
 inline constexpr InputSpec kIn61[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
-inline constexpr InputSpec kIn62[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"seconds", InType::kNumber, true, 1000, 60000, "s", "a seconds"}};
+inline constexpr InputSpec kIn62[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
 inline constexpr InputSpec kIn63[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
+inline constexpr InputSpec kIn64[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"seconds", InType::kNumber, true, 1000, 60000, "s", "a seconds"}};
+inline constexpr InputSpec kIn65[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
 
 inline constexpr WordSpec kWords[] = {
     {"FORWARD", WordKind::kCommand, 1, kNeedEncoders, 1, kIn0, "FORWARD 50", ""},
@@ -71,17 +71,19 @@ inline constexpr WordSpec kWords[] = {
     {"SOUND", WordKind::kCommand, 1, 0, 1, kIn9, "SOUND HORN", ""},
     {"LOOK", WordKind::kCommand, 1, 0, 1, kIn10, "LOOK LEFT", ""},
     {"HOME", WordKind::kCommand, 1, 0, 0, nullptr, "HOME", ""},
+    {"GO", WordKind::kCommand, 2, kNeedEncoders, 0, nullptr, "GO  WAIT UNTIL DISTANCE < 30  HOLD", ""},
+    {"HOLD", WordKind::kCommand, 2, 0, 0, nullptr, "GO  WAIT 2  HOLD", ""},
     {"STOP", WordKind::kControl, 1, 0, 0, nullptr, "IF OBSTACLE? [ STOP ]", ""},
-    {"ARC", WordKind::kCommand, 2, kNeedEncoders, 3, kIn13, "ARC RIGHT 90 50", ""},
-    {"PIVOT", WordKind::kCommand, 2, kNeedEncoders, 2, kIn14, "PIVOT LEFT 90", ""},
-    {"PLAY", WordKind::kCommand, 2, 0, 1, kIn15, "PLAY [ C4 E4 G4 2 ]", ""},
-    {"SAY", WordKind::kCommand, 2, 0, 1, kIn16, "SAY [ well done ]", ""},
+    {"ARC", WordKind::kCommand, 2, kNeedEncoders, 3, kIn15, "ARC RIGHT 90 50", ""},
+    {"PIVOT", WordKind::kCommand, 2, kNeedEncoders, 2, kIn16, "PIVOT LEFT 90", ""},
+    {"PLAY", WordKind::kCommand, 2, 0, 1, kIn17, "PLAY [ C4 E4 G4 2 ]", ""},
+    {"SAY", WordKind::kCommand, 2, 0, 1, kIn18, "SAY [ well done ]", ""},
     {"TO", WordKind::kControl, 2, 0, 0, nullptr, "TO SQUARE :size  REPEAT 4 [ FD :size RT 90 ]  END", ""},
-    {"IF", WordKind::kControl, 2, 0, 2, kIn18, "IF OBSTACLE? [ BK 10 ]", ""},
-    {"IFELSE", WordKind::kControl, 2, 0, 3, kIn19, "IFELSE DISTANCE < 30 [ RT 90 ] [ FD 20 ]", "two [ ] blocks: one for yes, one for no"},
-    {"WHILE", WordKind::kControl, 2, 0, 2, kIn20, "WHILE NOT OBSTACLE? [ FD 10 ]", ""},
-    {"FOREVER", WordKind::kControl, 2, 0, 1, kIn21, "FOREVER [ FD 50 IF BLOCKED? [ BK 10 RT 90 ] ]", ""},
-    {"WAIT UNTIL", WordKind::kControl, 2, 0, 1, kIn22, "WAIT UNTIL DISTANCE < 20", ""},
+    {"IF", WordKind::kControl, 2, 0, 2, kIn20, "IF OBSTACLE? [ BK 10 ]", ""},
+    {"IFELSE", WordKind::kControl, 2, 0, 3, kIn21, "IFELSE DISTANCE < 30 [ RT 90 ] [ FD 20 ]", "two [ ] blocks: one for yes, one for no"},
+    {"WHILE", WordKind::kControl, 2, 0, 2, kIn22, "WHILE NOT OBSTACLE? [ FD 10 ]", ""},
+    {"FOREVER", WordKind::kControl, 2, 0, 1, kIn23, "FOREVER [ FD 50 IF BLOCKED? [ BK 10 RT 90 ] ]", ""},
+    {"WAIT UNTIL", WordKind::kControl, 2, 0, 1, kIn24, "WAIT UNTIL DISTANCE < 20", ""},
     {"DISTANCE", WordKind::kReporter, 2, 0, 0, nullptr, "IF DISTANCE < 30 [ RT 90 ]", ""},
     {"OBSTACLE?", WordKind::kReporter, 2, 0, 0, nullptr, "IF OBSTACLE? [ BK 10 ]", ""},
     {"BLOCKED?", WordKind::kReporter, 2, 0, 0, nullptr, "FD 100 IF BLOCKED? [ SAY \"oops ]", ""},
@@ -89,45 +91,45 @@ inline constexpr WordSpec kWords[] = {
     {"TILTED?", WordKind::kReporter, 2, 0, 0, nullptr, "IF TILTED? [ STOP ]", ""},
     {"BATTERY", WordKind::kReporter, 2, 0, 0, nullptr, "IF BATTERY < 20 [ SAY [ I am tired ] ]", ""},
     {"TIMER", WordKind::kReporter, 2, 0, 0, nullptr, "WHILE TIMER < 10 [ FD 10 RT 30 ]", ""},
-    {"RANDOM", WordKind::kReporter, 2, 0, 1, kIn30, "RT RANDOM 360", ""},
+    {"RANDOM", WordKind::kReporter, 2, 0, 1, kIn32, "RT RANDOM 360", ""},
     {"REPCOUNT", WordKind::kReporter, 2, 0, 0, nullptr, "REPEAT 5 [ FD REPCOUNT * 10 RT 72 ]", ""},
-    {"REMAINDER", WordKind::kReporter, 2, 0, 2, kIn32, "IF REMAINDER REPCOUNT 2 = 0 [ BEEP ]", ""},
-    {"ABS", WordKind::kReporter, 2, 0, 1, kIn33, "ABS HEADING", ""},
-    {"ROUND", WordKind::kReporter, 2, 0, 1, kIn34, "ROUND DISTANCE / 10", ""},
+    {"REMAINDER", WordKind::kReporter, 2, 0, 2, kIn34, "IF REMAINDER REPCOUNT 2 = 0 [ BEEP ]", ""},
+    {"ABS", WordKind::kReporter, 2, 0, 1, kIn35, "ABS HEADING", ""},
+    {"ROUND", WordKind::kReporter, 2, 0, 1, kIn36, "ROUND DISTANCE / 10", ""},
     {"TRUE", WordKind::kConstant, 2, 0, 0, nullptr, "", ""},
     {"FALSE", WordKind::kConstant, 2, 0, 0, nullptr, "", ""},
     {"AND", WordKind::kOperator, 2, 0, 0, nullptr, "", ""},
     {"OR", WordKind::kOperator, 2, 0, 0, nullptr, "", ""},
     {"NOT", WordKind::kOperator, 2, 0, 0, nullptr, "", ""},
-    {"OUTPUT", WordKind::kControl, 3, 0, 1, kIn40, "TO DOUBLE :x  OUTPUT :x * 2  END", ""},
-    {"FIRST", WordKind::kReporter, 3, 0, 1, kIn41, "FIRST [ 10 20 30 ]", ""},
-    {"LAST", WordKind::kReporter, 3, 0, 1, kIn42, "", ""},
-    {"BUTFIRST", WordKind::kReporter, 3, 0, 1, kIn43, "", ""},
-    {"BUTLAST", WordKind::kReporter, 3, 0, 1, kIn44, "", ""},
-    {"ITEM", WordKind::kReporter, 3, 0, 2, kIn45, "", ""},
-    {"COUNT", WordKind::kReporter, 3, 0, 1, kIn46, "", ""},
-    {"EMPTY?", WordKind::kReporter, 3, 0, 1, kIn47, "", ""},
-    {"MEMBER?", WordKind::kReporter, 3, 0, 2, kIn48, "", ""},
-    {"LIST", WordKind::kReporter, 3, 0, 2, kIn49, "LIST :x :y", ""},
-    {"FPUT", WordKind::kReporter, 3, 0, 2, kIn50, "", ""},
-    {"LPUT", WordKind::kReporter, 3, 0, 2, kIn51, "", ""},
-    {"SENTENCE", WordKind::kReporter, 3, 0, 2, kIn52, "", ""},
-    {"MAP", WordKind::kReporter, 3, 0, 2, kIn53, "MAP [ ? * 2 ] [ 1 2 3 ]", ""},
-    {"FILTER", WordKind::kReporter, 3, 0, 2, kIn54, "FILTER [ ? > 10 ] [ 5 15 25 ]", ""},
-    {"REDUCE", WordKind::kReporter, 3, 0, 2, kIn55, "REDUCE [ ?1 + ?2 ] [ 1 2 3 4 ]", ""},
-    {"FOREACH", WordKind::kControl, 3, 0, 2, kIn56, "FOREACH [ 50 100 50 ] [ FD ? RT 120 ]", ""},
-    {"WORD?", WordKind::kReporter, 3, 0, 1, kIn57, "", ""},
-    {"NUMBER?", WordKind::kReporter, 3, 0, 1, kIn58, "", ""},
-    {"LIST?", WordKind::kReporter, 3, 0, 1, kIn59, "", ""},
-    {"SEE?", WordKind::kReporter, 3, kNeedAi, 1, kIn60, "IF SEE? \"ball [ SOUND FANFARE ]", ""},
-    {"FIND", WordKind::kCommand, 3, kNeedAi, 1, kIn61, "", ""},
-    {"FOLLOW", WordKind::kCommand, 3, kNeedAi, 2, kIn62, "", ""},
-    {"HOWMANY", WordKind::kReporter, 3, kNeedAi, 1, kIn63, "", ""},
+    {"OUTPUT", WordKind::kControl, 3, 0, 1, kIn42, "TO DOUBLE :x  OUTPUT :x * 2  END", ""},
+    {"FIRST", WordKind::kReporter, 3, 0, 1, kIn43, "FIRST [ 10 20 30 ]", ""},
+    {"LAST", WordKind::kReporter, 3, 0, 1, kIn44, "", ""},
+    {"BUTFIRST", WordKind::kReporter, 3, 0, 1, kIn45, "", ""},
+    {"BUTLAST", WordKind::kReporter, 3, 0, 1, kIn46, "", ""},
+    {"ITEM", WordKind::kReporter, 3, 0, 2, kIn47, "", ""},
+    {"COUNT", WordKind::kReporter, 3, 0, 1, kIn48, "", ""},
+    {"EMPTY?", WordKind::kReporter, 3, 0, 1, kIn49, "", ""},
+    {"MEMBER?", WordKind::kReporter, 3, 0, 2, kIn50, "", ""},
+    {"LIST", WordKind::kReporter, 3, 0, 2, kIn51, "LIST :x :y", ""},
+    {"FPUT", WordKind::kReporter, 3, 0, 2, kIn52, "", ""},
+    {"LPUT", WordKind::kReporter, 3, 0, 2, kIn53, "", ""},
+    {"SENTENCE", WordKind::kReporter, 3, 0, 2, kIn54, "", ""},
+    {"MAP", WordKind::kReporter, 3, 0, 2, kIn55, "MAP [ ? * 2 ] [ 1 2 3 ]", ""},
+    {"FILTER", WordKind::kReporter, 3, 0, 2, kIn56, "FILTER [ ? > 10 ] [ 5 15 25 ]", ""},
+    {"REDUCE", WordKind::kReporter, 3, 0, 2, kIn57, "REDUCE [ ?1 + ?2 ] [ 1 2 3 4 ]", ""},
+    {"FOREACH", WordKind::kControl, 3, 0, 2, kIn58, "FOREACH [ 50 100 50 ] [ FD ? RT 120 ]", ""},
+    {"WORD?", WordKind::kReporter, 3, 0, 1, kIn59, "", ""},
+    {"NUMBER?", WordKind::kReporter, 3, 0, 1, kIn60, "", ""},
+    {"LIST?", WordKind::kReporter, 3, 0, 1, kIn61, "", ""},
+    {"SEE?", WordKind::kReporter, 3, kNeedAi, 1, kIn62, "IF SEE? \"ball [ SOUND FANFARE ]", ""},
+    {"FIND", WordKind::kCommand, 3, kNeedAi, 1, kIn63, "", ""},
+    {"FOLLOW", WordKind::kCommand, 3, kNeedAi, 2, kIn64, "", ""},
+    {"HOWMANY", WordKind::kReporter, 3, kNeedAi, 1, kIn65, "", ""},
 };
-inline constexpr uint8_t kWordCount = 64;
+inline constexpr uint8_t kWordCount = 66;
 
 struct Alias { const char* alias; uint8_t word; };
-inline constexpr Alias kAliases[] = {{"FD", 0}, {"BK", 1}, {"RT", 2}, {"LT", 3}, {"OP", 40}, {"BF", 43}, {"BL", 44}, {"SE", 52}};
+inline constexpr Alias kAliases[] = {{"FD", 0}, {"BK", 1}, {"RT", 2}, {"LT", 3}, {"OP", 42}, {"BF", 45}, {"BL", 46}, {"SE", 54}};
 inline constexpr uint8_t kAliasCount = 8;
 
 inline constexpr const char* kSides[] = {"LEFT", "RIGHT"};

@@ -38,6 +38,7 @@ class LogoController {
     void (*release)(int fd, uint32_t now) = nullptr;
     bool (*uno_request)(const core::AckedOp& op) = nullptr;  // false: the queue is full (tried again next tick)
     uint16_t (*cpm)() = nullptr;
+    void (*keep_go)(uint32_t now) = nullptr;  // LLD §22: a GO drives on while the program keeps it alive
   };
   static constexpr uint32_t kSayPauseMs = 200;  // design-notes §102
   static constexpr uint32_t kPoseMs = 100;      // logo_pose at 10 Hz
@@ -59,6 +60,9 @@ class LogoController {
   bool running() const { return m_running; }
 
  private:
+  void keepGoing(uint32_t now);
+  void pauseGo(uint32_t now);
+  void speedWhileGoing(const logo::Action& a, uint32_t now);
   // logo_controller.cpp
   bool runRefused(int fd, int32_t id, uint32_t prog, uint32_t now);
   void handle(const logo::RunOut& o, uint32_t now);
@@ -93,6 +97,9 @@ class LogoController {
   logo::Note m_tone[logo::NoteReader::kMaxNotes];
   uint8_t m_tone_n = 0, m_tone_i = 0;
   uint32_t m_tone_next = 0;
+  bool m_paused_go = false;  // step mode: a GO held while paused on a line (owner 2026-10-22)
+  bool m_hold_end = false;   // ... and its HOLD's own end, which is not the program's
+  uint8_t m_go_speed = 40;
 };
 
 }  // namespace app

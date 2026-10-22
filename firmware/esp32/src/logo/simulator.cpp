@@ -32,6 +32,7 @@ SimResult Simulator::plan(const Program& p, PathBuffer& out, uint32_t seed) {
   m_speed = 40;
   m_line = 0;
   m_full = false;
+  m_guess = false;
   SimResult r;
   if (!p.ok) {  // never plan a program that did not compile completely
     r.code = 7010;
@@ -94,6 +95,10 @@ bool Simulator::moves(const Action& a) {
     case ActKind::kHome: turn(-wrap180(m_pose.h)); return true;
     case ActKind::kArc: around(a.radius_cm * 10.0, -a.delta_cdeg / 100.0); return true;
     case ActKind::kPivot: around(core::motion::kTrackWidthCm * 5.0, -a.delta_cdeg / 100.0); return true;
+    case ActKind::kGo:  // no length: 1 m, and everything after it is a guess (LLD §22.4)
+      m_guess = true;
+      move(kGoPreviewCm);
+      return true;
     default: return false;
   }
 }
@@ -141,7 +146,7 @@ void Simulator::point(uint16_t line) {
   p.y_mm = static_cast<int32_t>(lround(m_pose.y));
   p.heading_deg = static_cast<int16_t>(lround(wrap180(m_pose.h)));
   p.line = line;
-  p.uncertain = m_vm.sensorRead();
+  p.uncertain = m_vm.sensorRead() || m_guess;
 }
 
 Sensors Simulator::sensors() const {

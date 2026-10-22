@@ -1684,3 +1684,17 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
   - A GO ends at once when the obstacle brake stops it.
   - The Uno's heading hold keeps it straight (as MOVE does).
   - The AI engine's `go` / `hold` messages wait for its Logo runner.
+
+## 119. Plan N5 - `GO` and `HOLD` on the floor (owner, 2026-10-22)
+- **Method:** the bridge was flashed with Plan N5 over WiFi. Programs were run with `tools/smoke/logo.py run` and recorded with `td_record.py` at 50 Hz. The distances are the encoders' mean count / 75.17 counts per cm; the distance ahead is the ultrasonic `dist_mm`.
+- **`GO  WAIT UNTIL DISTANCE < 30  HOLD  BEEP`**, box ~1 m ahead: **pass.** The tank drove 72.3 cm in 3.4 s in one smooth run, the power went off at 28.8 cm from the box, and it glided to a stop at 25.0 cm, beeped and finished. The owner confirmed.
+- **`FOREVER [ GO  WAIT UNTIL BLOCKED?  BACK 10  RIGHT 90 ]`**, 40 s in the `avoid_walls` room (§118): **the smooth drive works.**
+  - 5 rounds, with straight runs of 2.3 s, 4.3 s and 10.1 s without stopping, and pauses only at the walls. The 20 cm stop-start cycle of §118 is gone.
+  - Around 25 s the Uno's own slow-down (obstacle within 50 cm) briefly lowered the power, as designed.
+- **Found: stuck against a table leg the sensor could not see** (owner: "a track hit the table leg and the tank stayed straight"). From 26.8 s to 31.5 s:
+  - the heading stayed at −176.5° and the distance ahead at ~43 cm;
+  - the left encoder ran ~1750 counts/s (the track slipping) while the right one barely moved;
+  - the Uno's heading hold drove the left track at ~60 % (PWM ~195) and the right one at 0.
+  - **Nothing noticed:** the no-progress rule averages the two tracks (the slipping one looks like progress), and the Uno's stall check sees a turning track. The tank got free only when the leg came into view at 3.9 cm.
+  - `FORWARD` has the same gap. **To design** (owner: "do it"): "pushing but not moving" (no turn on the gyro, no change in the distance ahead, the tracks disagreeing) for ~1.5 s → blocked.
+- **The `/logo` page check** (the word help and the dashed preview) is still to do by the owner.

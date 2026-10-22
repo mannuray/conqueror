@@ -222,6 +222,7 @@ void wireLogo() {
   h.release = [](int fd, uint32_t now) { g_drive.onRelease(fd, -1, now); };
   h.uno_request = [](const core::AckedOp& op) { return g_uno.request(op); };
   h.cpm = [] { return g_motion.cpm(); };
+  h.keep_go = [](uint32_t now) { g_motion.keepLogoGo(now); };
   g_logo->setHooks(h);
   g_uno.setLogoDone([](uint8_t status) { g_logo->onUnoDone(status, millis()); });
 }

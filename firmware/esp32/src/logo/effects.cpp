@@ -43,6 +43,7 @@ class Mapper {
   bool pivot();
   bool play();
   bool say();
+  bool goHold();  // GO (at the current SPEED) / HOLD
   bool number(uint8_t i, int32_t& milli);
   bool preset(uint8_t i, gen::InType place, const char* const* names, uint8_t n, uint8_t& idx);
   bool numbers(uint8_t i, uint8_t want, const char* type, int32_t* out);
@@ -64,7 +65,7 @@ bool Mapper::run() {
   static constexpr Fn kMap[] = {&Mapper::move,   &Mapper::move,  &Mapper::turn,  &Mapper::turn,   &Mapper::speed,
                                 &Mapper::wait,   &Mapper::led,   &Mapper::simple, &Mapper::sound, &Mapper::look,
                                 &Mapper::simple, &Mapper::arc,   &Mapper::pivot, &Mapper::play,   &Mapper::say,
-                                &Mapper::simple, &Mapper::simple};
+                                &Mapper::simple, &Mapper::simple, &Mapper::goHold, &Mapper::goHold};
   static_assert(sizeof kMap / sizeof kMap[0] == static_cast<size_t>(EffectKind::kCount), "one per EffectKind");
   m_out = Action();
   m_out.line = m_e.line;
@@ -289,6 +290,11 @@ bool Mapper::play() {
     m_out.notes[k] = rd.notes()[k];
     m_out.ms += rd.notes()[k].ms;
   }
+  return true;
+}
+
+bool Mapper::goHold() {
+  m_out.kind = m_e.kind == EffectKind::kGo ? ActKind::kGo : ActKind::kHold;  // speed_pct: set by run()
   return true;
 }
 

@@ -1050,6 +1050,179 @@ void test_service_pivot_correction_keeps_the_same_track() {
   }
 }
 
+// ---------- GO (bridge LLD R20, Tank Logo LLD §22): drive on until told otherwise ----------
+namespace {
+MotionTelem blockedAt(int32_t counts) {
+  MotionTelem t = encAt(counts);
+  t.flags = 1u << static_cast<unsigned>(proto::FastFlagBit::kBlocked);
+  return t;
+}
+}  // namespace
+
+void test_go_drives_straight_at_its_speed_until_held() {
+  MotionService svc;
+  svc.startGo(3, 40, 7, 0);
+  TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kGo), static_cast<int>(svc.kind()));
+  MotionOut o = svc.onTelemetry(encAt(0), 20);
+  TEST_ASSERT_TRUE(o.send);
+  TEST_ASSERT_EQUAL_INT8(40, o.v);
+  TEST_ASSERT_EQUAL_INT8(0, o.w);  // the Uno's heading hold keeps it straight, as a MOVE
+  for (uint32_t t = 40; t <= 2000; t += 20) {  // drives on while kept alive
+    svc.keepGo(t);
+    o = svc.onTelemetry(encAt(static_cast<int32_t>(t)), t);
+    TEST_ASSERT_FALSE(o.ended);
+  }
+  o = svc.hold();
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_TRUE(o.end.ok);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDone), static_cast<int>(o.end.reason));
+  TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kGo), static_cast<int>(o.end.kind));
+  TEST_ASSERT_EQUAL_INT32(7, o.end.id);
+  TEST_ASSERT_EQUAL_INT8(0, o.v);
+  TEST_ASSERT_FALSE(svc.active());
+  TEST_ASSERT_FALSE(svc.hold().ended);  // nothing going: nothing to hold
+}
+
+void test_go_ends_blocked_as_soon_as_the_brake_engages() {
+  MotionService svc;
+  svc.startGo(3, 40, 7, 0);
+  svc.onTelemetry(encAt(0), 20);
+  const MotionOut o = svc.onTelemetry(blockedAt(10), 40);  // no 2 s wait: the tank already stopped
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+  TEST_ASSERT_EQUAL_INT8(0, o.v);
+}
+
+// Final review C1: near an obstacle the Uno's own slow-down stops the tank WITHOUT its blocked flag (floor
+// 2026-10-17, motion_config kMoveObstacleMm) - a GO uses MOVE's second rule: no progress (counts or the distance
+// ahead) for 1.5 s with something closer than 25 cm ahead -> blocked. Far from anything, standing still is not
+// blocked (the Uno's own stall check handles a stuck track).
+namespace {
+MotionTelem goAt(int32_t counts, uint16_t dist_mm) {
+  MotionTelem t = encAt(counts);
+  t.dist_mm = dist_mm;
+  return t;
+}
+MotionOut goFor(MotionService& svc, uint32_t from, uint32_t to, int32_t counts_per_step, int16_t dist_step,
+                uint16_t dist0) {
+  MotionOut o;
+  int32_t c = 0;
+  int32_t d = dist0;
+  for (uint32_t t = from; t <= to && !o.ended; t += 20) {
+    svc.keepGo(t);
+    o = svc.onTelemetry(goAt(c, static_cast<uint16_t>(d)), t);
+    c += counts_per_step;
+    d += dist_step;
+  }
+  return o;
+}
+}  // namespace
+
+void test_go_ends_blocked_when_the_slow_down_stops_it_near_an_obstacle() {
+  MotionService svc;
+  svc.startGo(3, 40, 7, 0);
+  MotionOut o = goFor(svc, 20, 1500, 0, 0, 160);  // stopped 16 cm from a wall, no flag: not yet (< 1.5 s)
+  TEST_ASSERT_FALSE(o.ended);
+  o = goFor(svc, 1520, 1700, 0, 0, 160);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+}
+
+void test_go_creeping_or_far_away_is_not_blocked() {
+  {  // creeping toward the wall with encoders: progress
+    MotionService svc;
+    svc.startGo(3, 40, 7, 0);
+    TEST_ASSERT_FALSE(goFor(svc, 20, 3000, 10, 0, 200).ended);
+  }
+  {  // no encoders, but the distance ahead keeps shrinking: progress
+    MotionService svc;
+    svc.startGo(3, 40, 7, 0);
+    TEST_ASSERT_FALSE(goFor(svc, 20, 3000, 0, -1, 240).ended);
+  }
+  {  // standing still far from anything: not blocked (the Uno's stall check is for a stuck track)
+    MotionService svc;
+    svc.startGo(3, 40, 7, 0);
+    TEST_ASSERT_FALSE(goFor(svc, 20, 3000, 0, 0, 800).ended);
+  }
+}
+
+// Final review M1: the first frame after startGo may still carry the last primitive's brake flag (up to 20 ms
+// old) - a new GO ignores it; a real obstacle ends it one frame later.
+void test_a_new_go_ignores_the_brake_flag_in_its_first_frame() {
+  MotionService svc;
+  svc.startGo(3, 40, 7, 0);
+  TEST_ASSERT_FALSE(svc.onTelemetry(blockedAt(0), 20).ended);
+  const MotionOut o = svc.onTelemetry(blockedAt(0), 40);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+}
+
+void test_go_stops_without_a_refresh_within_300_ms() {
+  MotionService svc;
+  svc.startGo(3, 40, 7, 0);
+  svc.keepGo(100);
+  TEST_ASSERT_FALSE(svc.onTelemetry(encAt(0), 380).ended);  // 280 ms since the refresh
+  TEST_ASSERT_FALSE(svc.tick(400).ended);                    // 300 ms: still on
+  const MotionOut o = svc.tick(401);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDeadman), static_cast<int>(o.end.reason));
+}
+
+void test_go_again_changes_the_speed_at_once() {
+  MotionService svc;
+  svc.startGo(3, 40, 7, 0);
+  svc.onTelemetry(encAt(0), 20);
+  svc.startGo(3, 60, 7, 30);  // GO / SPEED while going: the same GO, a new speed
+  const MotionOut o = svc.onTelemetry(encAt(5), 40);
+  TEST_ASSERT_EQUAL_INT8(60, o.v);
+  TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kGo), static_cast<int>(svc.kind()));
+}
+
+void test_a_move_takes_over_from_go_without_an_end() {
+  MotionService svc;
+  svc.startGo(3, 40, 7, 0);
+  svc.onTelemetry(encAt(0), 20);
+  svc.startMove(3, encAt(100), 20, 40, motion::kCpmDefault, 7, 30);
+  TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kMove), static_cast<int>(svc.kind()));
+  const MotionOut o = svc.onTelemetry(encAt(110), 40);
+  TEST_ASSERT_FALSE(o.ended);
+  TEST_ASSERT_EQUAL_INT8(40, o.v);
+}
+
+void test_link_hold_sends_stop_and_ends_done() {
+  LinkOwner owner;
+  MotionLink ml{owner};
+  owner.begin();
+  owner.onWsOpen(kFd);
+  owner.onSynced(true);
+  Actions a;
+  owner.onDrive(kFd, 0, a);
+  TEST_ASSERT_FALSE(ml.hold(10).event);  // nothing going
+  ml.service().startGo(kFd, 40, 5, 0);
+  ml.onTelemetry(encAt(0), 20);
+  const LinkOut o = ml.hold(30);
+  TEST_ASSERT_TRUE(o.event);
+  TEST_ASSERT_TRUE(o.stop);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDone), static_cast<int>(o.end.reason));
+  TEST_ASSERT_FALSE(ml.service().active());
+}
+
+void test_link_uno_stall_ends_a_go() {
+  LinkOwner owner;
+  MotionLink ml{owner};
+  owner.begin();
+  owner.onWsOpen(kFd);
+  owner.onSynced(true);
+  Actions a;
+  owner.onDrive(kFd, 0, a);
+  ml.service().startGo(kFd, 40, 5, 0);
+  ml.onTelemetry(encAt(0), 20);
+  const LinkOut o = ml.onEvent(MotionEvent::kBodyStall, 30);  // the Uno's own stuck-track check
+  TEST_ASSERT_TRUE(o.event);
+  TEST_ASSERT_TRUE(o.stop);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kStalled), static_cast<int>(o.end.reason));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_router_lite_runs_turn_and_rate_locally);
@@ -1118,5 +1291,15 @@ int main() {
   RUN_TEST(test_link_uno_stall_ends_an_arc_not_a_pivot);
   RUN_TEST(test_rate_clamp_to_minimum_spin);
   RUN_TEST(test_service_pivot_correction_keeps_the_same_track);
+  RUN_TEST(test_go_drives_straight_at_its_speed_until_held);
+  RUN_TEST(test_go_ends_blocked_as_soon_as_the_brake_engages);
+  RUN_TEST(test_go_stops_without_a_refresh_within_300_ms);
+  RUN_TEST(test_a_new_go_ignores_the_brake_flag_in_its_first_frame);
+  RUN_TEST(test_go_ends_blocked_when_the_slow_down_stops_it_near_an_obstacle);
+  RUN_TEST(test_go_creeping_or_far_away_is_not_blocked);
+  RUN_TEST(test_go_again_changes_the_speed_at_once);
+  RUN_TEST(test_a_move_takes_over_from_go_without_an_end);
+  RUN_TEST(test_link_hold_sends_stop_and_ends_done);
+  RUN_TEST(test_link_uno_stall_ends_a_go);
   return UNITY_END();
 }

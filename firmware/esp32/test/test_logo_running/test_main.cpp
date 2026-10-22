@@ -29,6 +29,7 @@ struct World {
   RunTelem tel;
   uint32_t now = 1000;
   uint8_t motion = 0;
+  bool going = false;  // a GO drives on (Tank Logo LLD §22): it counts as one motion
   char trace[2048] = "";
 };
 
@@ -52,13 +53,35 @@ RunOut finishMotion(World& w, RunController& rc, const Action& a) {
   return rc.onPrimitiveEnd(e);
 }
 
+// GO (LLD §22): the first GO of a run of GOs takes a motion number; if the world cuts it short or sticks it,
+// its end comes at once, otherwise it drives on until HOLD or the next motion takes over.
+RunOut goStarted(World& w, RunController& rc) {
+  if (w.going) return RunOut();
+  w.going = true;
+  const unsigned long long bit = 1ULL << w.motion++;
+  if ((w.c.cut_short & bit) == 0 && (w.c.stuck & bit) == 0) return RunOut();
+  PrimitiveEnd e;
+  e.reason = (w.c.cut_short & bit) != 0 ? EndReason::kBlocked : EndReason::kStalled;
+  w.going = false;
+  return rc.onPrimitiveEnd(e);
+}
+
 RunOut runToEnd(World& w, RunController& rc) {
   RunOut out;
   for (int i = 0; i < 500000 && !out.ended; ++i) {
     if (rc.state() == RunState::kWaiting && rc.wakeAt() > w.now) w.now = rc.wakeAt();
     out = rc.tick(w.tel, w.now);
     note(w, out);
-    if (rc.state() == RunState::kMotion) out = finishMotion(w, rc, out.action);
+    if (out.act && out.action.kind == ActKind::kGo) {
+      const RunOut g = goStarted(w, rc);
+      if (g.ended) out = g;
+    } else if (out.act && out.action.kind == ActKind::kHold) {
+      w.going = false;
+    }
+    if (rc.state() == RunState::kMotion) {
+      w.going = false;
+      out = finishMotion(w, rc, out.action);
+    }
     w.now += 2;
   }
   return out;

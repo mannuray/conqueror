@@ -146,6 +146,21 @@ words:
     does: TURN to the heading the program started with
     help: turn back the way you started
     example: HOME
+  - name: GO
+    level: 2
+    kind: command
+    group: move
+    does: drive straight forward at the current SPEED and go on at once (Spec 5 Revision 3); ends at the next move or turn, HOLD, something in the way, or the program's end
+    needs: [encoders]
+    help: drive on until something happens
+    example: GO  WAIT UNTIL DISTANCE < 30  HOLD
+  - name: HOLD
+    level: 2
+    kind: command
+    group: move
+    does: stop the tank and go on with the program (STOP ends the whole program)
+    help: stop the tank, keep the program going
+    example: GO  WAIT 2  HOLD
   - name: STOP
     level: 1
     kind: control

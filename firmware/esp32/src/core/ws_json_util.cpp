@@ -18,7 +18,10 @@ size_t fmt(char* out, size_t cap, const char* f, ...) {
   return (n < 0 || static_cast<size_t>(n) >= cap) ? 0 : static_cast<size_t>(n);
 }
 
-const char* primName(PrimKind k) { return k == PrimKind::kRate ? "rate" : k == PrimKind::kMove ? "move" : "turn"; }
+const char* primName(PrimKind k) {
+  if (k == PrimKind::kGo) return "go";  // R20
+  return k == PrimKind::kRate ? "rate" : k == PrimKind::kMove ? "move" : "turn";
+}
 
 }  // namespace detail
 

@@ -210,6 +210,30 @@
    "example": "HOME"
   },
   {
+   "name": "GO",
+   "aliases": [],
+   "kind": "command",
+   "level": 2,
+   "group": "move",
+   "needs": [
+    "encoders"
+   ],
+   "inputs": [],
+   "help": "drive on until something happens",
+   "example": "GO  WAIT UNTIL DISTANCE < 30  HOLD"
+  },
+  {
+   "name": "HOLD",
+   "aliases": [],
+   "kind": "command",
+   "level": 2,
+   "group": "move",
+   "needs": [],
+   "inputs": [],
+   "help": "stop the tank, keep the program going",
+   "example": "GO  WAIT 2  HOLD"
+  },
+  {
    "name": "STOP",
    "aliases": [],
    "kind": "control",

@@ -235,3 +235,8 @@
   reads: >
     (TO SUM (:n :acc) [ (IFELSE (= :n 0) [ (OUTPUT :acc) ] [ (OUTPUT (SUM (- :n 1) (+ :acc :n))) ]) ])
     (FORWARD (SUM 20 0))
+
+- name: GO and HOLD take no inputs (Spec 5 Revision 3)
+  source: GO WAIT UNTIL DISTANCE < 30 HOLD BEEP
+  expect: ok
+  reads: (GO) (WAIT-UNTIL (< (DISTANCE) 30)) (HOLD) (BEEP)

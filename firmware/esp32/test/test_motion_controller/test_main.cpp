@@ -206,6 +206,50 @@ void test_begin_loads_the_gyro_scale_and_calib_shows_it() {
   TEST_ASSERT_FALSE(mc->setGyroScale(20000));
 }
 
+// Tank Logo LLD §22 / bridge LLD R20: a Logo GO starts the GO primitive (DRIVE frames at its speed), the program
+// keeps it alive, HOLD ends it with a STOP; GO needs no encoders.
+void test_logo_go_and_hold() {
+  syncedWithEncoders();
+  core::Actions took;
+  owner.onDrive(3, 50, took);  // logo_run takes the drive first (Tank Logo LLD §20.5)
+  logo::Action go;
+  go.kind = logo::ActKind::kGo;
+  go.speed_pct = 40;
+  core::BridgeReason why = core::BridgeReason::kBusy;
+  TEST_ASSERT_TRUE(mc->startLogo(3, go, 100, why));
+  TEST_ASSERT_EQUAL(static_cast<int>(core::PrimKind::kGo), static_cast<int>(mc->view().kind));
+  mc->keepLogoGo(350);
+  mc->onTelemetry(360);  // 260 ms since the start, 10 since the keep: still going
+  TEST_ASSERT_TRUE(mc->active());
+  wire.drain(*tx);
+  wire.clear();
+  logo::Action hold;
+  hold.kind = logo::ActKind::kHold;
+  TEST_ASSERT_TRUE(mc->startLogo(3, hold, 400, why));
+  TEST_ASSERT_FALSE(mc->active());
+  wire.drain(*tx);
+  TEST_ASSERT_EQUAL(1, wire.count(FT::kStop));
+  TEST_ASSERT_TRUE(has(4, "\"prim\":\"go\",\"ok\":true,\"reason\":\"done\""));  // to every page
+}
+
+// Final review M4: HOLD is never refused (nothing going: nothing to do), even with the body offline or an OTA.
+// Final review M2 (owner): GO needs the encoders, like FORWARD - an encoder fault refuses it.
+void test_logo_hold_is_never_refused_and_go_needs_the_encoders() {
+  logo::Action hold;
+  hold.kind = logo::ActKind::kHold;
+  core::BridgeReason why = core::BridgeReason::kBusy;
+  TEST_ASSERT_TRUE(mc->startLogo(3, hold, 100, why));  // the body is not even synced
+  g_ota = true;
+  TEST_ASSERT_TRUE(mc->startLogo(3, hold, 110, why));
+  g_ota = false;
+  syncedWithEncoders(1u << static_cast<unsigned>(proto::FastFlagBit::kEncoderFault));
+  logo::Action go;
+  go.kind = logo::ActKind::kGo;
+  go.speed_pct = 40;
+  TEST_ASSERT_FALSE(mc->startLogo(3, go, 200, why));
+  TEST_ASSERT_EQUAL(static_cast<int>(core::BridgeReason::kUnavailable), static_cast<int>(why));
+}
+
 void test_calib_reply_has_counts_and_roll_diagnostics() {
   mc->sendCalib(3);
   const std::string j = fakes::lastTo(3);
@@ -313,6 +357,8 @@ int main() {
   RUN_TEST(test_a_done_turn_saves_the_learned_coast);
   RUN_TEST(test_a_cancelled_turn_learns_nothing);
   RUN_TEST(test_begin_loads_the_gyro_scale_and_calib_shows_it);
+  RUN_TEST(test_logo_go_and_hold);
+  RUN_TEST(test_logo_hold_is_never_refused_and_go_needs_the_encoders);
   RUN_TEST(test_calib_reply_has_counts_and_roll_diagnostics);
   RUN_TEST(test_logo_move_starts_without_a_reply_and_its_end_reaches_the_program);
   RUN_TEST(test_a_page_s_own_primitive_end_does_not_reach_the_program);

@@ -52,13 +52,20 @@ LinkOut MotionLink::onEvent(MotionEvent e, uint32_t now_ms) {
   if (!m_svc.active()) return LinkOut{};
   const int fd = m_svc.ownerFd();
   if (e == MotionEvent::kBodyStall || e == MotionEvent::kBodyEncoderFault) {
-    if (m_svc.kind() != PrimKind::kMove && m_svc.kind() != PrimKind::kArc) return LinkOut{};  // spin / pivot / rate: own checks
+    const PrimKind k = m_svc.kind();
+    if (k != PrimKind::kMove && k != PrimKind::kArc && k != PrimKind::kGo) return LinkOut{};  // spin / pivot / rate: own checks
     const EndReason r = e == MotionEvent::kBodyStall ? EndReason::kStalled : EndReason::kEncoderFault;
     return finished(m_svc.cancel(r), fd, now_ms);  // the Uno already stopped both tracks; STOP while owner
   }
   if (e == MotionEvent::kCancel) return finished(m_svc.cancel(reasonOf(e)), fd, now_ms);
   if (e == MotionEvent::kTxFull) return finished(m_svc.cancel(EndReason::kLink), fd, now_ms);  // review minor 12
   return eventOnly(m_svc.cancel(reasonOf(e)));  // the STOP is already on its way, or the owner's own frames follow
+}
+
+LinkOut MotionLink::hold(uint32_t now_ms) {
+  if (m_svc.kind() != PrimKind::kGo) return LinkOut{};
+  const int fd = m_svc.ownerFd();
+  return finished(m_svc.hold(), fd, now_ms);
 }
 
 }  // namespace core

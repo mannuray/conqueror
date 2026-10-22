@@ -2122,7 +2122,7 @@ Found by running the drafted controller against the host tank models; each one i
 - **No separate plan:** a two-constant change approved directly by the owner, done test-first on branch `plan-r2`.
 - **Floor** (design-notes §114): after a reset, four 90° turns ended within 0.1-1.0° with one push each; the Logo square ended 0.9° off its start heading (it was 7.1°).
 
-## Revision 19 — a gyro scale on the bridge (draft, 2026-10-22)
+## Revision 19 — a gyro scale on the bridge (approved by the owner, 2026-10-22)
 
 ### R19.0 Why
 - The Uno's gyro (MPU6050) under-reads turns by about **2.3 %** (design-notes §116: 4-turn spins against a floor strip, left ~2.7 %, right ~1.9 %). Its factory tolerance is ±3 %.

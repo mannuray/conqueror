@@ -91,3 +91,43 @@ def test_servo_angles_from_telemetry_become_degrees_from_the_centre() -> None:
 
     assert from_servo(90.0, 90.0) == (0.0, 0.0)
     assert from_servo(75.0, 105.0) == (15.0, -15.0)  # right / up are the smaller servo angles (LOOK, cam_set)
+
+
+# ---- final review I1: past the lens's fold there is no answer (not garbage)
+def strong_lens(tilt0: float = -20.0) -> Calibration:
+    c = calib(tilt0=tilt0, k1=-0.3)
+    return Calibration(
+        k=np.array([[260.0, 0.0, 160.0], [0.0, 260.0, 120.0], [0.0, 0.0, 1.0]]),
+        dist=c.dist,
+        size=c.size,
+        cam_height_m=c.cam_height_m,
+        cam_x_m=c.cam_x_m,
+        cam_y_m=c.cam_y_m,
+        track_front_m=c.track_front_m,
+        tilt0_deg=tilt0,
+    )
+
+
+def test_pixels_beyond_the_lens_fold_have_no_floor_point() -> None:
+    cam = at_start(strong_lens())
+    assert cam.pixel_to_floor(0, 239) is None  # the corner is past the fold of k1 -0.3 at fx 260
+    assert math.isinf(cam.floor_distance(0, 239))
+    assert math.isinf(float(cam.expected_floor_depth()[239, 0]))
+    p = cam.pixel_to_floor(160, 230)  # well inside: still answered
+    assert p is not None
+
+
+def test_points_far_off_the_axis_are_not_seen() -> None:
+    cam = at_start(strong_lens())
+    a = math.radians(60)  # 60 deg to the left, 0.6 m away: outside the +-31.6 deg view
+    pt = (cam.position()[0] + 0.6 * math.cos(a), 0.6 * math.sin(a))
+    assert cam.floor_to_pixel(float(pt[0]), float(pt[1])) is None
+    assert not cam.sees(float(pt[0]), float(pt[1]))
+
+
+def test_the_depth_map_is_cached_per_pan_and_tilt() -> None:
+    c = calib(tilt0=-30.0)
+    first = at_start(c, 0.0, -5.0).expected_floor_depth()
+    again = CameraModel(c).for_frame(Pose(0, 1.0, 2.0, 0.3, 0.0, 0.0), 0.0, -5.0).expected_floor_depth()
+    assert again is first  # the depth along each ray depends only on the lens, the mount, pan and tilt
+    assert at_start(c, 0.0, 0.0).expected_floor_depth() is not first

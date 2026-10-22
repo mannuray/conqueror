@@ -17,6 +17,27 @@ from conqueror_ai.domain.types import Pose
 FloatArray = NDArray[np.float64]
 NEAR_M, FAR_M = 0.25, 2.5  # the floor fit is trusted between these (LLD §5.3)
 
+# Per calibration (keyed by identity; the object is kept so its id is never reused while cached): the fold,
+# and the expected floor depth per (pan, tilt) - it does not depend on the tank's pose (LLD §5.3).
+_FOLDS: dict[int, tuple[Calibration, float, float]] = {}
+_DEPTHS: dict[tuple[int, float, float], tuple[Calibration, FloatArray]] = {}
+_MAX_DEPTHS = 16
+
+
+def _fold(cal: Calibration) -> tuple[float, float]:
+    """(r, rd): the distortion r -> r (1 + k1 r^2 + k2 r^4 + k3 r^6) stops growing at r (its fold); beyond
+    it a distorted radius has no answer (final review I1). inf, inf when it keeps growing within r 0..4."""
+    hit = _FOLDS.get(id(cal))
+    if hit is not None and hit[0] is cal:
+        return hit[1], hit[2]
+    k1, k2, _, _, k3 = (float(v) for v in cal.dist[:5])
+    r = np.linspace(0.0, 4.0, 8001)
+    f = r * (1 + k1 * r**2 + k2 * r**4 + k3 * r**6)
+    falls = np.nonzero(np.diff(f) <= 0)[0]
+    out = (float(r[falls[0]]), float(f[falls[0]])) if len(falls) else (math.inf, math.inf)
+    _FOLDS[id(cal)] = (cal, out[0], out[1])
+    return out
+
 
 def from_servo(pan_servo_deg: float, tilt_servo_deg: float) -> tuple[float, float]:
     """Telemetry's servo angles (90 = centre) -> degrees from the centre (right / up = +)."""
@@ -88,29 +109,41 @@ class CameraModel:
         yd = yn * radial + p1 * (r2 + 2 * yn * yn) + 2 * p2 * xn * yn
         return xd, yd
 
-    def undistort(self, xd: float, yd: float) -> tuple[float, float]:
-        """Inverts distort as OpenCV's undistortPoints does: divide out the radial factor, less tangential."""
+    def undistort(self, xd: float, yd: float) -> tuple[float, float] | None:
+        """Inverts distort as OpenCV's undistortPoints does (divide out the radial factor, less tangential).
+        None past the lens's fold, or when the answer does not distort back to the point (final review I1)."""
+        _, rd_fold = _fold(self.cal)
+        if math.hypot(xd, yd) >= rd_fold:
+            return None
         k1, k2, p1, p2, k3 = (float(v) for v in self.cal.dist[:5])
         xn, yn = xd, yd
         for _ in range(50):
             r2 = xn * xn + yn * yn
             radial = 1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2
+            if radial <= 0:
+                return None
             dx = 2 * p1 * xn * yn + p2 * (r2 + 2 * xn * xn)
             dy = p1 * (r2 + 2 * yn * yn) + 2 * p2 * xn * yn
             xn, yn = (xd - dx) / radial, (yd - dy) / radial
+        bx, by = self.distort(xn, yn)
+        if not (math.isfinite(xn) and math.isfinite(yn)) or math.hypot(bx - xd, by - yd) > 1e-7:
+            return None
         return xn, yn
 
-    def pixel_ray(self, u: float, v: float) -> FloatArray:
+    def pixel_ray(self, u: float, v: float) -> FloatArray | None:
+        """The pixel's ray in the room (not unit length), or None past the lens's fold."""
         k = self.cal.k
-        xn, yn = self.undistort((u - k[0, 2]) / k[0, 0], (v - k[1, 2]) / k[1, 1])
+        n = self.undistort((u - k[0, 2]) / k[0, 0], (v - k[1, 2]) / k[1, 1])
+        if n is None:
+            return None
         right, down, fwd = self.axes()
-        return xn * right + yn * down + fwd
+        return n[0] * right + n[1] * down + fwd
 
     # ---- pixel <-> floor
     def pixel_to_floor(self, u: float, v: float) -> tuple[float, float] | None:
         """The floor point (room x, y) the pixel sees, or None at or above the horizon."""
         ray = self.pixel_ray(u, v)
-        if ray[2] >= -1e-9:
+        if ray is None or ray[2] >= -1e-9:
             return None
         c = self.position()
         t = -c[2] / ray[2]
@@ -124,19 +157,36 @@ class CameraModel:
         z = float(d @ fwd)
         if z <= 1e-9:
             return None
-        xd, yd = self.distort(float(d @ right) / z, float(d @ down) / z)
+        xn, yn = float(d @ right) / z, float(d @ down) / z
+        if math.hypot(xn, yn) >= _fold(self.cal)[0]:
+            return (
+                None  # outside the lens's valid view: it would fold back into the picture (final review I1)
+            )
+        xd, yd = self.distort(xn, yn)
         k = self.cal.k
         return float(k[0, 0] * xd + k[0, 2]), float(k[1, 1] * yd + k[1, 2])
 
     def floor_distance(self, u: float, v: float) -> float:
         """Along the pixel's ray to the floor (m); inf at or above the horizon."""
         ray = self.pixel_ray(u, v)
-        if ray[2] >= -1e-9:
+        if ray is None or ray[2] >= -1e-9:
             return math.inf
         return float(-self.cal.cam_height_m / ray[2] * np.linalg.norm(ray))
 
     def expected_floor_depth(self) -> FloatArray:
-        """For every pixel, the distance along its ray to the floor (inf above the horizon) - all at once."""
+        """For every pixel, the distance along its ray to the floor (inf above the horizon or past the lens's
+        fold) - all at once, cached per (calibration, pan, tilt)."""
+        key = (id(self.cal), self.pan_deg, self.tilt_deg)
+        hit = _DEPTHS.get(key)
+        if hit is not None and hit[0] is self.cal:
+            return hit[1]
+        out = self._floor_depths()
+        if len(_DEPTHS) >= _MAX_DEPTHS:
+            _DEPTHS.pop(next(iter(_DEPTHS)))
+        _DEPTHS[key] = (self.cal, out)
+        return out
+
+    def _floor_depths(self) -> FloatArray:
         w, h = self.cal.size
         k = self.cal.k
         uu, vv = np.meshgrid(np.arange(w, dtype=np.float64), np.arange(h, dtype=np.float64))
@@ -156,8 +206,14 @@ class CameraModel:
             + (xn * right[1] + yn * down[1] + fwd[1]) ** 2
             + rz**2
         )
+        bx, by = xn.copy(), yn.copy()  # distort back: does each answer return to its pixel?
+        r2 = bx * bx + by * by
+        radial = 1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2
+        back_x = bx * radial + 2 * p1 * bx * by + p2 * (r2 + 2 * bx * bx)
+        back_y = by * radial + p1 * (r2 + 2 * by * by) + 2 * p2 * bx * by
+        good = (np.hypot(xd, yd) < _fold(self.cal)[1]) & (np.hypot(back_x - xd, back_y - yd) <= 1e-7)
         with np.errstate(divide="ignore", invalid="ignore"):
-            out = np.where(rz < -1e-9, -self.cal.cam_height_m / rz * norm, np.inf)
+            out = np.where(good & (rz < -1e-9), -self.cal.cam_height_m / rz * norm, np.inf)
         return out.astype(np.float64)
 
     def floor_mask(self) -> NDArray[np.bool_]:

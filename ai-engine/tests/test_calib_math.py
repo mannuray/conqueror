@@ -89,3 +89,40 @@ def test_the_tilt_study_shrinks_the_blind_zone_as_the_camera_looks_down() -> Non
     assert rows[0].horizon_in_view and rows[1].horizon_in_view  # walls still in view
     for r in rows:
         assert r.far_m > r.blind_m
+
+
+# ---- final review I5: a red object is not a laser line; a saturated line is still one line
+def test_a_broad_red_object_is_not_a_laser_line() -> None:
+    img = red_line_picture()
+    img[100:160, 100:220, 0] = 200  # a red cushion: wide and tall
+    assert cm.laser_row(img) is None
+    assert cm.laser_col(img) is None
+
+
+def test_two_lines_of_similar_strength_give_no_answer() -> None:
+    img = red_line_picture(row=60.0)
+    two = red_line_picture(row=170.0)
+    img = np.maximum(img, two)
+    assert cm.laser_row(img) is None
+
+
+def test_a_saturated_line_is_still_found_at_its_centre() -> None:
+    img = red_line_picture()
+    img[105:116, :, 0] = 240  # a bright line: a red halo ...
+    img[109:112, :, :] = 255  # ... around a core burnt out to white (no red excess there)
+    r = cm.laser_row(img)
+    assert r is not None and abs(r - 110.0) < 1.0
+
+
+# ---- final review I2: servo points are chosen so the line stays well inside the picture
+def test_servo_points_keep_the_line_inside_the_picture() -> None:
+    c = calib(tilt0=-6.0)
+    for t in cm.tilt_points(c):
+        row = c.k[1, 2] + c.k[1, 1] * math.tan(math.radians(c.tilt0_deg + t))
+        assert 0.1 * 240 <= row <= 0.9 * 240
+        assert -20.0 <= t <= 60.0
+    pans = cm.pan_points(c)
+    assert len(pans) == 5 and 0.0 in pans
+    for p in pans:
+        col = c.k[0, 2] - c.k[0, 0] * math.tan(math.radians(p))
+        assert 0.1 * 320 <= col <= 0.9 * 320

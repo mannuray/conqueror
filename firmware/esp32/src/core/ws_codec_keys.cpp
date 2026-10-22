@@ -226,7 +226,8 @@ bool readGyroScale(Reader& r, WsCommand& c, Seen&) {  // R19 calib set
 // cam_set (R22): degrees from the centre, kept in 0.1 deg; the range is checked with the command (OUT_OF_RANGE).
 bool readAngle(Reader& r, int32_t& d10, bool& seen) {
   double n = 0;
-  if (!r.num(n, nullptr, 0) || n < -1000.0 || n > 1000.0) return false;
+  if (!r.num(n, nullptr, 0)) return false;
+  if (n < -1000.0 || n > 1000.0) n = n < 0 ? -1000.0 : 1000.0;  // still a number: refused as OUT_OF_RANGE
   d10 = static_cast<int32_t>(lround(n * 10.0));
   seen = true;
   return true;

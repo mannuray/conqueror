@@ -76,7 +76,10 @@ async def test_the_floor_marks_are_checked_by_clicks() -> None:
     async def grab() -> NDArray[np.uint8]:
         return np.zeros((240, 320, 3), dtype=np.uint8)
 
-    errors = await tool.floor_marks(cal, grab, click, answers(""))
+    async def still(_p: float, _t: float) -> None:
+        return None
+
+    errors = await tool.floor_marks(cal, grab, click, answers(""), still)
     assert len(errors) == 2 and all(e < 0.005 for e in errors)
 
 
@@ -124,3 +127,44 @@ async def test_the_lens_step_calibrates_from_board_pictures(tmp_path: Path) -> N
 def test_the_tilt_study_table_has_one_line_per_tilt() -> None:
     text = tool.study_table(cm.tilt_study(calib(tilt0=-7.0), [0.0, -10.0, -20.0]))
     assert text.count("\n") >= 3 and "-20" in text and "blind" in text
+
+
+# ---- final review I3: tilt0 and the servo offset never count twice, whatever the order of the steps
+async def test_servos_before_mount_does_not_double_the_tilt() -> None:
+    tank = FakeTank("horizon")
+    cal = calib(tilt0=0.0)
+    cal = await tool.servo_tilt(cal, tank.grab, tank.cam_set)  # servos first: the true tilt goes into the fit
+    cal = await tool.mount_tilt(cal, tank.grab, tank.cam_set, answers(""))  # then mount
+    cam = CameraModel(cal).for_frame(Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.0, 0.0)
+    assert math.isclose(cam.real_tilt_deg(), TRUE_TILT0 + TILT_OFFSET, abs_tol=0.3)
+
+
+# ---- final review I4: pictures of another size are refused
+async def test_a_picture_of_another_size_is_refused() -> None:
+    async def vga() -> NDArray[np.uint8]:
+        return np.zeros((480, 640, 3), dtype=np.uint8)
+
+    tank = FakeTank("horizon")
+    try:
+        await tool.mount_tilt(calib(), vga, tank.cam_set, answers(""))
+    except ValueError as e:
+        assert "320 x 240" in str(e)
+    else:
+        raise AssertionError("a VGA picture was accepted")
+
+
+# ---- final review I2: a missed point is skipped, the rest still fitted
+async def test_a_missed_servo_point_is_skipped() -> None:
+    tank = FakeTank("horizon")
+    cal = calib(tilt0=TRUE_TILT0 + TILT_OFFSET)
+    real_grab = tank.grab
+    calls = {"n": 0}
+
+    async def sometimes_blank() -> NDArray[np.uint8]:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            return red_line_picture()  # no line in this one
+        return await real_grab()
+
+    cal = await tool.servo_tilt(cal, sometimes_blank, tank.cam_set)
+    assert math.isclose(cal.tilt_map[0], TILT_GAIN, abs_tol=0.02)

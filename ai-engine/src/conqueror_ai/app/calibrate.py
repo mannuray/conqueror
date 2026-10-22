@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import datetime
 import subprocess
+import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
@@ -24,7 +25,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from conqueror_ai.adapters import calibration_store, lens_opencv
-from conqueror_ai.adapters.bridge_ws import BridgeLink
+from conqueror_ai.adapters.bridge_ws import BridgeLink, CommandRefused
 from conqueror_ai.adapters.mjpeg_source import MjpegSource
 from conqueror_ai.domain import calib_math as cm
 from conqueror_ai.domain.camera import Calibration, CameraModel
@@ -39,10 +40,24 @@ Click = Callable[[NDArray[np.uint8], str], Awaitable[tuple[float, float]]]  # th
 
 QVGA = (320, 240)
 MIN_LENS_PICTURES = 10
-TILT_POINTS = [-15.0, -5.0, 5.0, 15.0, 30.0]
-PAN_POINTS = [-30.0, -15.0, 0.0, 15.0, 30.0]
+MIN_SERVO_POINTS = 3  # a missed point is skipped; at least this many make the fit (final review I2)
+CONNECT_S = 10.0
 STUDY_TILTS = [0.0, -5.0, -10.0, -15.0, -20.0]
 START = Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+
+class Refused(Exception):
+    """A step cannot go on; its message says why in plain words."""
+
+
+def qvga(img: NDArray[np.uint8]) -> NDArray[np.uint8]:
+    """The picture, if it is 320 x 240 - the size this calibration is for (final review I4)."""
+    if img.shape[:2] != (QVGA[1], QVGA[0]):
+        raise ValueError(
+            f"pictures must be 320 x 240 (QVGA), got {img.shape[1]} x {img.shape[0]} - "
+            "set the camera to QVGA in Settings, then run this step again"
+        )
+    return img
 
 
 # ---------------------------------------------------------------- the steps
@@ -66,7 +81,7 @@ async def lens(
                 break
             print(f"at least {MIN_LENS_PICTURES} pictures with the whole board, please")
             continue
-        gray = np.asarray(cv2.cvtColor(await grab(), cv2.COLOR_RGB2GRAY), dtype=np.uint8)
+        gray = np.asarray(cv2.cvtColor(qvga(await grab()), cv2.COLOR_RGB2GRAY), dtype=np.uint8)
         corners = lens_opencv.find_corners(gray)
         if corners is None:
             print("  the whole board was not found - is all of it in the picture?")
@@ -93,13 +108,15 @@ async def mount_numbers(cal: Calibration, ask: Ask) -> Calibration:
 
 
 async def mount_tilt(cal: Calibration, grab: Grab, cam_set: CamSet, ask: Ask) -> Calibration:
-    """The real tilt at the servo's centre, from the laser level's line on a wall at the lens height."""
-    await cam_set(0.0, 0.0)
+    """The real tilt at the servo's centre, from the laser level's line on a wall at the lens height.
+    Stored so that tilt0 + the servo map's offset at command 0 is the measured tilt - never counted twice
+    (final review I3)."""
     while True:
         await ask("Laser level: a horizontal line on the wall ahead at exactly the lens height. Enter: ")
-        row = cm.laser_row(await grab())
+        await cam_set(0.0, 0.0)  # again just before the picture: a released servo may have sagged
+        row = cm.laser_row(qvga(await grab()))
         if row is not None:
-            tilt0 = cm.horizon_tilt_deg(cal, row)
+            tilt0 = cm.horizon_tilt_deg(cal, row) - cal.tilt_map[1]
             print(
                 f"  horizon at row {row:.1f} -> the camera looks {abs(tilt0):.1f} deg "
                 f"{'up' if tilt0 > 0 else 'down'}"
@@ -108,10 +125,11 @@ async def mount_tilt(cal: Calibration, grab: Grab, cam_set: CamSet, ask: Ask) ->
         print("  no red line found - is it in the picture and bright enough?")
 
 
-async def floor_marks(cal: Calibration, grab: Grab, click: Click, ask: Ask) -> list[float]:
+async def floor_marks(cal: Calibration, grab: Grab, click: Click, ask: Ask, cam_set: CamSet) -> list[float]:
     """Tape marks 50 and 100 cm ahead of the tracks' front: the model's error for each (m)."""
     await ask("Tape marks on the floor 50 and 100 cm straight ahead of the tracks' front. Enter: ")
-    img = await grab()
+    await cam_set(0.0, 0.0)
+    img = qvga(await grab())
     cam = CameraModel(cal).for_frame(START, 0.0, 0.0)
     errors: list[float] = []
     for d in (0.50, 1.00):
@@ -123,16 +141,26 @@ async def floor_marks(cal: Calibration, grab: Grab, click: Click, ask: Ask) -> l
 
 
 async def servo_tilt(cal: Calibration, grab: Grab, cam_set: CamSet) -> Calibration:
-    """Commanded tilt -> real tilt change, from the horizon line at each tilt (laser at lens height)."""
+    """Commanded tilt -> real tilt, from the horizon line at points chosen to keep it inside the picture.
+    The fit's offset becomes tilt0 (the real tilt at command 0), so tilt0 and the map never count it twice
+    (final review I3)."""
+    done: list[float] = []
     real: list[float] = []
-    for t in TILT_POINTS:
+    for t in cm.tilt_points(cal):
         await cam_set(0.0, t)
-        row = cm.laser_row(await grab())
+        row = cm.laser_row(qvga(await grab()))
         if row is None:
-            raise RuntimeError(f"no horizon line at tilt {t:+.0f} - keep the laser line at lens height")
-        real.append(cm.horizon_tilt_deg(cal, row) - cal.tilt0_deg)
+            print(f"  no horizon line at tilt {t:+.1f} - skipped")
+            continue
+        done.append(t)
+        real.append(cm.horizon_tilt_deg(cal, row))
     await cam_set(0.0, 0.0)
-    return replace(cal, tilt_map=cm.fit_linear(TILT_POINTS, real))
+    if len(done) < MIN_SERVO_POINTS:
+        raise Refused(
+            "too few tilts saw the horizon line - keep the laser line at the lens height and try again"
+        )
+    gain, offset = cm.fit_linear(done, real)
+    return replace(cal, tilt0_deg=offset, tilt_map=(gain, 0.0))
 
 
 async def servo_pan(cal: Calibration, grab: Grab, cam_set: CamSet, ask: Ask) -> Calibration:
@@ -140,23 +168,29 @@ async def servo_pan(cal: Calibration, grab: Grab, cam_set: CamSet, ask: Ask) -> 
     g, o = cal.tilt_map
     level = max(-20.0, min(60.0, (-cal.tilt0_deg - o) / g))
     await ask("Laser level: a vertical line straight ahead of the tank, on the wall. Enter: ")
+    done: list[float] = []
     real: list[float] = []
-    for p in PAN_POINTS:
+    for p in cm.pan_points(cal):
         await cam_set(p, level)
-        col = cm.laser_col(await grab())
+        col = cm.laser_col(qvga(await grab()))
         if col is None:
-            raise RuntimeError(f"no vertical line at pan {p:+.0f} - is it straight ahead and bright enough?")
+            print(f"  no vertical line at pan {p:+.1f} - skipped")
+            continue
+        done.append(p)
         real.append(cm.pan_from_col_deg(cal, col))
     await cam_set(0.0, 0.0)
-    return replace(cal, pan_map=cm.fit_linear(PAN_POINTS, real))
+    if len(done) < MIN_SERVO_POINTS:
+        raise Refused("too few pans saw the vertical line - is it straight ahead and bright enough?")
+    return replace(cal, pan_map=cm.fit_linear(done, real))
 
 
 def study_table(rows: list[cm.TiltRow]) -> str:
-    lines = ["tilt   blind (from the tracks)   farthest floor   walls in view"]
+    lines = ["tilt   blind ahead   blind at the edge   farthest floor   walls in view"]
     for r in rows:
         far = "-" if r.far_m == float("inf") else f"{r.far_m * 100:.0f} cm"
+        edge = "-" if r.blind_edge_m == float("inf") else f"{r.blind_edge_m * 100:.1f} cm"
         lines.append(
-            f"{r.tilt_deg:+5.0f}  {r.blind_m * 100:9.1f} cm {far:>23}   "
+            f"{r.tilt_deg:+5.0f} {r.blind_m * 100:9.1f} cm {edge:>15} {far:>17}   "
             f"{'yes' if r.horizon_in_view else 'no'}"
         )
     return "\n".join(lines) + "\n"
@@ -179,7 +213,19 @@ def _defaults() -> Calibration:
 
 
 async def _ask(prompt: str) -> str:
-    return await asyncio.to_thread(input, prompt)
+    """input() in a daemon thread: Ctrl-C ends the tool without waiting for Enter."""
+    loop = asyncio.get_running_loop()
+    fut: asyncio.Future[str] = loop.create_future()
+
+    def read() -> None:
+        try:
+            line = input(prompt)
+        except EOFError:
+            line = "q"
+        loop.call_soon_threadsafe(lambda: fut.done() or fut.set_result(line))
+
+    threading.Thread(target=read, daemon=True).start()
+    return await fut
 
 
 def _show(path: Path) -> None:
@@ -200,6 +246,8 @@ async def _click(img: NDArray[np.uint8], what: str) -> tuple[float, float]:
     cv2.setMouseCallback(name, on_mouse)
     while not got:
         cv2.waitKey(30)
+        if cv2.getWindowProperty(name, cv2.WND_PROP_VISIBLE) < 1:
+            raise Refused("the picture window was closed before a click")
         await asyncio.sleep(0)
     cv2.destroyWindow(name)
     cv2.waitKey(1)
@@ -219,8 +267,12 @@ async def _run(step: str, host: str, out: Path) -> None:
         return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB).astype(np.uint8)
 
     async def cam_set(pan: float, tilt: float) -> None:
-        while not link.connected:
+        for _ in range(int(CONNECT_S / 0.1)):
+            if link.connected:
+                break
             await asyncio.sleep(0.1)
+        else:
+            raise Refused(f"no connection to the tank at {host} after {CONNECT_S:.0f} s - is it on?")
         await link.cam_set(pan, tilt)
         await asyncio.sleep(1.0)  # the servos move at 120 deg/s; then a new picture
 
@@ -233,8 +285,14 @@ async def _run(step: str, host: str, out: Path) -> None:
         elif step == "mount":
             cal = await mount_numbers(cal, _ask)
             cal = await mount_tilt(cal, grab, cam_set, _ask)
-            errors = await floor_marks(cal, grab, _click, _ask)
-            print("mount: " + ("pass" if all(e <= 0.02 for e in errors) else "a mark is more than 2 cm off"))
+            errors = await floor_marks(cal, grab, _click, _ask, cam_set)
+            if all(e <= 0.02 for e in errors):
+                print("mount: pass")
+            else:
+                print("mount: a mark is more than 2 cm off - check the measured height and positions")
+                if (await _ask("Save anyway? (y/N): ")).strip().lower() != "y":
+                    print("not saved")
+                    return
         elif step == "servos":
             cal = await servo_tilt(cal, grab, cam_set)
             cal = await servo_pan(cal, grab, cam_set, _ask)
@@ -262,4 +320,12 @@ def main() -> None:
     ap.add_argument("--host", default="192.168.31.167")
     ap.add_argument("--out", type=Path, default=Path("config/calibration.yaml"))
     a = ap.parse_args()
-    asyncio.run(_run(a.step, a.host, a.out))
+    try:
+        asyncio.run(_run(a.step, a.host, a.out))
+    except (Refused, ValueError, ConnectionError, TimeoutError) as e:
+        raise SystemExit(f"cq-calibrate {a.step}: {e}") from None
+    except CommandRefused as e:
+        hint = " - release the phone's drive stick first" if e.reason == "NOT_OWNER" else ""
+        raise SystemExit(f"cq-calibrate {a.step}: the tank refused the camera move ({e}){hint}") from None
+    except KeyboardInterrupt:
+        raise SystemExit(f"cq-calibrate {a.step}: stopped") from None

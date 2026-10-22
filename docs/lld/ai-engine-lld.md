@@ -282,6 +282,22 @@ Writes `config/calibration.yaml` with the date and the frame size.
 - **Frame size:** QVGA first.
 - **Driving tilt:** a tilt study. For a few tilt values the tool reports the blind zone (the nearest floor point in view, from the tracks' front) and the farthest floor point in view, and the owner chooses.
 
+**Settled by the final review of Plan Q2 (2026-10-23):**
+- **The lens's fold:** past it, a pixel has no floor point and a floor point no pixel. With strong barrel distortion, the formula stops growing near the picture's corners. `pixel_to_floor` → None, depth → ∞, `sees` → False, so no map cell is faded from outside the real view.
+- **The depth map is cached** per (calibration, pan, tilt).
+- **The laser finder** answers only for one narrow peak: at most 20 px wide at a quarter of its height, and no second peak half as strong. The profile is smoothed first, so a burnt-out line with a red halo still counts. Otherwise None, never a wrong row.
+- **Servo points are chosen from the current tilt0 and lens** so the line stays within 10-90 % of the picture. A missed point is skipped; at least 3 make the fit.
+- **tilt0 is never counted twice:** the tilt fit's offset becomes `tilt0` (`tilt_map` offset 0), and the mount step stores `measured − tilt_map offset`.
+- **Every picture must be 320 × 240**, else a plain refusal (set the camera to QVGA).
+- **The camera is set to the centre again just before each picture**, because released servos may sag.
+- **The tilt study** also reports the blind zone at the picture's bottom corner.
+- **Plain messages and no hangs:**
+  - no connection within 10 s;
+  - a refused camera move (NOT_OWNER: release the phone's stick);
+  - the picture window closed;
+  - Ctrl-C at a prompt.
+- **A failed floor-mark check asks before saving.**
+
 ## 9. Recording and replay
 - **Session folder** `recordings/<date-time>/`: `telemetry.jsonl` (raw `td` / `pong` lines with the laptop receive time), `frames.bin` (per frame: a JSON header line `{seq, cap_us, recv_s, len}` then the JPEG), `session.json` (calibration copy, engine config, bridge build), and a Rerun `.rrd` of the map outputs.
 - `SessionReplay` implements both sources from a folder, at recorded speed or as fast as possible; the pipeline is the same, so replays are deterministic (one worker, frames processed in order).

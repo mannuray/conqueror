@@ -361,6 +361,9 @@ void test_cam_set() {
     TEST_ASSERT_EQUAL_MESSAGE(K(WsCmdKind::kCamSet), K(c.kind), s);
     TEST_ASSERT_FALSE_MESSAGE(c.cam_in_range, s);
   }
+  c = P("{\"t\":\"cam_set\",\"pan\":5000,\"tilt\":0}");  // final review: any number outside is OUT_OF_RANGE
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCamSet), K(c.kind));
+  TEST_ASSERT_FALSE(c.cam_in_range);
   TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"cam_set\",\"pan\":10}").kind));
   TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"cam_set\",\"pan\":\"x\",\"tilt\":0}").kind));
 }

@@ -14,6 +14,7 @@ dependencies = [
 [project.scripts]
 cq-record = "conqueror_ai.app.record:main"
 cq-replay = "conqueror_ai.app.replay:main"
+cq-calibrate = "conqueror_ai.app.calibrate:main"
 
 [build-system]
 requires = ["hatchling"]

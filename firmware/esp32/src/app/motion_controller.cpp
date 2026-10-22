@@ -105,11 +105,13 @@ bool MotionController::logoRefused(const logo::Action& a, core::BridgeReason& wh
 
 bool MotionController::startLogo(int fd, const logo::Action& a, uint32_t now, core::BridgeReason& why) {
   if (logoRefused(a, why)) return false;
-  m_roll.cancel();  // §G6: a new primitive
+  if (a.kind != logo::ActKind::kHold) m_roll.cancel();  // §G6: a new primitive
   const core::TankSnapshot& snap = m_link.snapshot();
   core::MotionService& svc = m_motion.service();
   const uint8_t spin = a.speed_pct < core::motion::kTurnWMin ? core::motion::kTurnWMin : a.speed_pct;
-  switch (a.kind) {  // VARIANT POINT: Logo motions (Tank Logo LLD §10)
+  switch (a.kind) {  // VARIANT POINT: Logo motions (Tank Logo LLD §10, §22)
+    case logo::ActKind::kGo: svc.startGo(fd, a.speed_pct, kLogoPrimitive, now); return true;
+    case logo::ActKind::kHold: run(m_motion.hold(now), now); return true;  // a GO ends as done, with a STOP
     case logo::ActKind::kMove:
       svc.startMove(fd, telemOf(snap), a.dist_cm, a.speed_pct, m_cpm, kLogoPrimitive, now, m_roll_mm);
       return true;

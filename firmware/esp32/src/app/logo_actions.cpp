@@ -42,9 +42,10 @@ core::AckedOp lookOp(const logo::Action& a) {
   return o;
 }
 
-bool isMotion(logo::ActKind k) {
+bool isMotion(logo::ActKind k) {  // + GO / HOLD (LLD §22): the motion layer carries them out too
   return k == logo::ActKind::kMove || k == logo::ActKind::kTurn || k == logo::ActKind::kArc ||
-         k == logo::ActKind::kPivot || k == logo::ActKind::kHome;
+         k == logo::ActKind::kPivot || k == logo::ActKind::kHome || k == logo::ActKind::kGo ||
+         k == logo::ActKind::kHold;
 }
 
 }  // namespace
@@ -60,8 +61,16 @@ void LogoController::carry(const logo::Action& a, uint32_t now) {
       m_out.all(core::jsonLogoSay(m_out.buf(), m_out.cap(), m_tel.nextEventSeq(), m_tel.tankMs(), a.text));
       m_hold_until = now + kSayPauseMs;
       return;
-    default: return;  // SPEED, WAIT, WAIT UNTIL: the RunController's own
+    default: return speedWhileGoing(a, now);  // SPEED, WAIT, WAIT UNTIL: the RunController's own
   }
+}
+
+// LLD §22: SPEED while a GO drives on - GO again at the new speed (the bridge changes it at once).
+void LogoController::speedWhileGoing(const logo::Action& a, uint32_t now) {
+  if (a.kind != logo::ActKind::kSpeed || !m_rc.going()) return;
+  logo::Action go = a;
+  go.kind = logo::ActKind::kGo;
+  motion(go, now);
 }
 
 // A move / turn / arc / pivot / HOME as the program's primitive; refused → the program ends (7021 / 7034).

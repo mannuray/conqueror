@@ -38,6 +38,7 @@ bool g_queue_ok = true;
 std::vector<logo::Action> g_motions;
 std::vector<core::AckedOp> g_ops;
 int g_stops = 0, g_releases = 0;
+int g_go_keeps = 0;  // Tank Logo LLD §22: keep_go calls
 uint32_t g_now = 1000;
 
 void unoSends(const uint8_t* f, size_t n, uint32_t now) { link->onUartBytes(f, n, now); }
@@ -83,6 +84,7 @@ void hooks() {
     return g_queue_ok;
   };
   h.cpm = [] { return static_cast<uint16_t>(7514); };
+  h.keep_go = [](uint32_t) { ++g_go_keeps; };
   lc->setHooks(h);
 }
 
@@ -130,6 +132,7 @@ void setUp() {
   g_motions.clear();
   g_ops.clear();
   g_stops = g_releases = 0;
+  g_go_keeps = 0;
 }
 void tearDown() {}
 
@@ -342,6 +345,39 @@ void test_pose_ten_times_a_second() {
   TEST_ASSERT_TRUE(sent(4, "\"x_cm\":0.0,\"y_cm\":0.0,\"heading\":0"));
 }
 
+// Tank Logo LLD §22: GO goes to the motion layer and the program runs on; every tick keeps the GO alive; HOLD is
+// sent and ends the keeping; SPEED while going sends GO again at the new speed.
+void test_go_is_kept_alive_every_tick_until_hold() {
+  run("GO WAIT 1 HOLD BEEP");
+  ticks(1);
+  TEST_ASSERT_EQUAL(1, g_motions.size());
+  TEST_ASSERT_EQUAL(logo::ActKind::kGo, g_motions[0].kind);
+  TEST_ASSERT_EQUAL(40, g_motions[0].speed_pct);
+  ticks(100);  // the program waits; the GO drives on
+  TEST_ASSERT_TRUE(g_go_keeps >= 99);
+  TEST_ASSERT_EQUAL(1, g_motions.size());
+  ticks(500);  // the WAIT is over: HOLD
+  TEST_ASSERT_EQUAL(2, g_motions.size());
+  TEST_ASSERT_EQUAL(logo::ActKind::kHold, g_motions[1].kind);
+  const int kept = g_go_keeps;
+  ticks(10);
+  TEST_ASSERT_EQUAL(kept, g_go_keeps);  // held: nothing more to keep alive
+}
+
+void test_speed_while_going_sends_go_again() {
+  run("GO SPEED 60 WAIT 1");
+  ticks(3);
+  TEST_ASSERT_EQUAL(2, g_motions.size());
+  TEST_ASSERT_EQUAL(logo::ActKind::kGo, g_motions[1].kind);
+  TEST_ASSERT_EQUAL(60, g_motions[1].speed_pct);
+}
+
+void test_speed_without_go_sends_nothing() {
+  run("SPEED 60 WAIT 1");
+  ticks(3);
+  TEST_ASSERT_EQUAL(0, g_motions.size());
+}
+
 void test_arc_speed_note() {
   run("SPEED 100 ARC RIGHT 90 40");
   ticks(1);
@@ -372,5 +408,8 @@ int main() {
   RUN_TEST(test_step_mode);
   RUN_TEST(test_pose_ten_times_a_second);
   RUN_TEST(test_arc_speed_note);
+  RUN_TEST(test_go_is_kept_alive_every_tick_until_hold);
+  RUN_TEST(test_speed_while_going_sends_go_again);
+  RUN_TEST(test_speed_without_go_sends_nothing);
   return UNITY_END();
 }

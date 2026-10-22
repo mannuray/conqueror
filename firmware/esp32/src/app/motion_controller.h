@@ -46,6 +46,7 @@ class MotionController {
   // why (kUnavailable: no encoders or an encoder fault; kBodyOffline; kBusy: OTA) when it cannot start.
   bool startLogo(int fd, const logo::Action& a, uint32_t now, core::BridgeReason& why);
   bool ownedBy(int fd) const;
+  void keepLogoGo(uint32_t now) { m_motion.service().keepGo(now); }  // Tank Logo LLD §22: each tick while going
   bool active() const { return m_motion.service().active(); }
   void cancelRollOn() { m_roll.cancel(); }  // driving again / a new primitive
   uint16_t& cpm() { return m_cpm; }

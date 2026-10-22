@@ -76,10 +76,16 @@ void LogoController::tick(uint32_t now) {
                                                                           : core::MotionEvent::kRelease), now);
   }
   pose(now);
+  keepGoing(now);
   if (!pendingSent() || m_wait_ack) return;  // the program goes on at the Uno's ACK (§102)
   if (m_tone_i < m_tone_n && static_cast<int32_t>(now - m_tone_next) >= 0) return toneChunk(now);
   if (static_cast<int32_t>(now - m_hold_until) < 0) return;  // SAY's pause
   handle(m_rc.tick(telem(), now), now);
+}
+
+// LLD §22: a GO drives on only while the program keeps it alive (the bridge stops it after 300 ms without).
+void LogoController::keepGoing(uint32_t now) {
+  if (m_rc.going() && m_h.keep_go != nullptr) m_h.keep_go(now);
 }
 
 void LogoController::onPrimitiveEnd(const core::PrimitiveEnd& e, uint32_t now) {

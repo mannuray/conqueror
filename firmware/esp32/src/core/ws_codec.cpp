@@ -97,7 +97,10 @@ bool checkApPassword(WsCommand&, const Seen& s) { return s.password; }
 bool checkSetting(WsCommand&, const Seen& s) { return s.setting_id; }
 bool checkCalib(WsCommand& c, const Seen& s) {
   if (s.reset[0] == '\0') return true;
-  c.calib_reset = strcmp(s.reset, "counts_per_m") == 0 ? 0 : (strcmp(s.reset, "roll") == 0 ? 1 : -1);
+  c.calib_reset = strcmp(s.reset, "counts_per_m") == 0 ? 0
+                  : strcmp(s.reset, "roll") == 0         ? 1
+                  : strcmp(s.reset, "gyro_scale") == 0   ? 2
+                                                         : -1;
   return c.calib_reset >= 0;
 }
 bool checkDriveRate(WsCommand&, const Seen& s) { return s.v && s.mf.rate; }  // review M20

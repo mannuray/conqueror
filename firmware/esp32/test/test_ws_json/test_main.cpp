@@ -394,8 +394,8 @@ void test_tf_move_progress_and_calib_reply() {
   s.fast_valid = true;
   jsonTf(buf, sizeof(buf), 1, s, PrimitiveView{true, PrimKind::kMove, 42});
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"primitive\":{\"kind\":\"move\",\"pct\":42}"));
-  jsonCalib(buf, sizeof(buf), 7480, 25);
-  TEST_ASSERT_EQUAL_STRING("{\"t\":\"calib\",\"counts_per_m\":7480,\"roll_mm\":25}", buf);
+  jsonCalib(buf, sizeof(buf), 7480, 25, 10230);
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"calib\",\"counts_per_m\":7480,\"roll_mm\":25,\"gyro_scale\":10230}", buf);
 }
 
 void test_tf_primitive_limited() {

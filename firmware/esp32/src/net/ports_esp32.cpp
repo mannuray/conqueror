@@ -37,6 +37,8 @@ uint16_t loadRoll() { return net::motionStoreLoadRoll(); }
 bool saveRoll(uint16_t v) { return net::motionStoreSaveRoll(v); }
 uint16_t loadCoast() { return net::motionStoreLoadCoast(); }
 bool saveCoast(uint16_t v) { return net::motionStoreSaveCoast(v); }
+uint16_t loadGyroScale() { return net::motionStoreLoadGyroScale(); }
+bool saveGyroScale(uint16_t v) { return net::motionStoreSaveGyroScale(v); }
 
 bool loadAiUrl(char* out, size_t cap) { return net::appAiUrlLoad(out, cap); }
 bool saveAiUrl(const char* url) { return net::appAiUrlSave(url); }

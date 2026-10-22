@@ -27,6 +27,7 @@ class SettingsController {
     uint16_t* roll_mm;  // learned roll-on in use
     size_t (*free_slots)();  // free Uno request slots (shared with the phones' requests, R15.5)
     uint16_t* coast_ms = nullptr;  // R18.2: learned turn coast in use (reset with the roll-on)
+    bool (*set_gyro_scale)(uint16_t) = nullptr;  // R19: hand a saved gyro scale to the heading correction
   };
 
   SettingsController(Replies& out, core::EventLog& log, const core::BodyLink& link)
@@ -51,6 +52,7 @@ class SettingsController {
   void applyWifi(core::PendingChange& ch);
   void applyCalibSet(const core::PendingChange& ch);
   void applyCalibReset(const core::PendingChange& ch);
+  void applyGyroScale(const core::PendingChange& ch, uint16_t scale_e4);
   void applySetting(const core::PendingChange& ch);
   void onWifiResult(const core::WifiResult& res, uint32_t now);
 

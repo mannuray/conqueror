@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "board_config.h"
+#include "core/heading_scale.h"
 #include "core/motion_config.h"
 #include "core/wifi_policy.h"
 #include "ports/log_out.h"
@@ -172,11 +173,13 @@ void SettingsController::onCalib(int fd, int32_t id, const core::WsCommand& c, u
     ch.calib_what = static_cast<uint8_t>(c.calib_reset);
     return askConfirm(ch, now);
   }
-  if (!c.has_cpm) return m_h.send_calib(fd);
+  if (!c.has_cpm && !c.has_gyro_scale) return m_h.send_calib(fd);
   if (m_h.driver_fd() != fd) return m_out.nack(fd, id, core::BridgeReason::kNotOwner);  // Plan O (§91)
   if (m_h.motion_active()) return m_out.nack(fd, id, core::BridgeReason::kBusy);
   ch.kind = core::ChangeKind::kCalibSet;
+  ch.calib_what = c.has_gyro_scale ? 2 : 0;  // R19: one value per message, the gyro scale first
   ch.cpm = c.cpm;
+  ch.gyro = c.gyro_scale;
   askConfirm(ch, now);
 }
 
@@ -191,6 +194,7 @@ void SettingsController::applyWifi(core::PendingChange& ch) {
 
 // Plan O: checked again now - no primitive may be running (the save itself is not motion).
 void SettingsController::applyCalibSet(const core::PendingChange& ch) {
+  if (ch.calib_what == 2) return applyGyroScale(ch, ch.gyro);
   if (m_h.motion_active() || !ports::saveCpm(ch.cpm)) {
     m_out.nack(ch.fd, ch.id, core::BridgeReason::kBusy);
     return;
@@ -200,7 +204,19 @@ void SettingsController::applyCalibSet(const core::PendingChange& ch) {
   m_h.send_calib(ch.fd);
 }
 
+// R19: save the gyro scale and hand it to the heading correction (set, or reset to no correction).
+void SettingsController::applyGyroScale(const core::PendingChange& ch, uint16_t scale_e4) {
+  if (m_h.motion_active() || !ports::saveGyroScale(scale_e4)) {
+    m_out.nack(ch.fd, ch.id, core::BridgeReason::kBusy);
+    return;
+  }
+  if (m_h.set_gyro_scale != nullptr) m_h.set_gyro_scale(scale_e4);
+  m_out.to(ch.fd, core::jsonConfirmed(m_out.buf(), m_out.cap(), core::changeName(ch.kind)));
+  m_h.send_calib(ch.fd);
+}
+
 void SettingsController::applyCalibReset(const core::PendingChange& ch) {
+  if (ch.calib_what == 2) return applyGyroScale(ch, core::kGyroScaleDefault);
   if (ch.calib_what == 0) {
     *m_h.cpm = core::motion::kCpmDefault;
     if (!ports::saveCpm(*m_h.cpm)) ports::logLine("calib: counts_per_m reset not saved (NVS)");

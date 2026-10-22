@@ -194,6 +194,18 @@ void test_a_cancelled_turn_learns_nothing() {
   TEST_ASSERT_EQUAL(60, mc->coastMs());
 }
 
+// R19: the saved gyro scale reaches the heading correction at begin, and the calib reply shows it.
+void test_begin_loads_the_gyro_scale_and_calib_shows_it() {
+  fakes::world().gyro = 10230;
+  mc->begin();
+  TEST_ASSERT_EQUAL(10230, link->gyroScale());
+  mc->sendCalib(3);
+  TEST_ASSERT_TRUE(has(3, "\"gyro_scale\":10230"));
+  TEST_ASSERT_TRUE(mc->setGyroScale(10100));
+  TEST_ASSERT_EQUAL(10100, link->gyroScale());
+  TEST_ASSERT_FALSE(mc->setGyroScale(20000));
+}
+
 void test_calib_reply_has_counts_and_roll_diagnostics() {
   mc->sendCalib(3);
   const std::string j = fakes::lastTo(3);
@@ -300,6 +312,7 @@ int main() {
   RUN_TEST(test_cancel_by_another_client_is_not_owner);
   RUN_TEST(test_a_done_turn_saves_the_learned_coast);
   RUN_TEST(test_a_cancelled_turn_learns_nothing);
+  RUN_TEST(test_begin_loads_the_gyro_scale_and_calib_shows_it);
   RUN_TEST(test_calib_reply_has_counts_and_roll_diagnostics);
   RUN_TEST(test_logo_move_starts_without_a_reply_and_its_end_reaches_the_program);
   RUN_TEST(test_a_page_s_own_primitive_end_does_not_reach_the_program);

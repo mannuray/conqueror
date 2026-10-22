@@ -12,6 +12,8 @@ uint16_t motionStoreLoadRoll();         // spec 02 §G6: learned roll-on (mm), d
 bool motionStoreSaveRoll(uint16_t mm);
 uint16_t motionStoreLoadCoast();        // bridge LLD R18.2: learned turn coast (ms), default 150, 20..400
 bool motionStoreSaveCoast(uint16_t ms);
+uint16_t motionStoreLoadGyroScale();    // bridge LLD R19: gyro scale (1e-4), default 10000, 9000..11000
+bool motionStoreSaveGyroScale(uint16_t scale_e4);
 
 }  // namespace net
 }  // namespace cq

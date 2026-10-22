@@ -85,10 +85,12 @@ struct WsCommand {
   uint8_t setting_id = 0;  // setting
   bool has_value = false;
   int32_t value = 0;
-  int8_t calib_reset = -1;  // calib: 0 counts_per_m, 1 roll
+  int8_t calib_reset = -1;  // calib: 0 counts_per_m, 1 roll, 2 gyro_scale (R19)
   int16_t move_cm = 0;        // move: ±1..500 (+ forward)
   bool has_cpm = false;       // calib: set (else read)
   uint16_t cpm = 0;           // calib: counts per metre
+  bool has_gyro_scale = false;  // R19 calib: set the gyro scale
+  uint16_t gyro_scale = 0;      // R19: parts per 10 000 (10230 = x1.0230)
   uint32_t log_since = 0;     // log (Plan O)
   CamFields cam;              // camera_set
   char ai_url[97] = "";       // app_set ("" clears it)

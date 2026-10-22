@@ -200,7 +200,8 @@ void wireSettingsAndTank() {
   g_settings.setHooks({[] { return g_motion.active(); }, [] { return g_drive.otaActive(); },
                        [] { return g_owner.driverFd(); }, [](int fd) { g_motion.sendCalib(fd); },
                        [](const core::AckedOp& op) { return g_uno.request(op); }, &g_motion.cpm(), &g_motion.rollMm(),
-                       [] { return g_uno.freeSlots(); }, &g_motion.coastMs()});
+                       [] { return g_uno.freeSlots(); }, &g_motion.coastMs(),
+                       [](uint16_t v) { return g_motion.setGyroScale(v); }});
   g_tank.setSelfTestHooks({[] { return !g_link.synced(); }, [] { return !standingStill(); }, queueSelfTest});
 }
 

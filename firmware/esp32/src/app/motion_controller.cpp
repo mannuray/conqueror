@@ -31,6 +31,7 @@ void MotionController::begin() {
   m_cpm = ports::loadCpm();  // Plan K
   m_roll_mm = ports::loadRoll();  // spec 02 §G6
   m_coast_ms = ports::loadCoast();  // bridge LLD R18.2
+  m_link.setGyroScale(ports::loadGyroScale());  // R19: corrects the heading from the next frame
 }
 
 bool MotionController::encoderFault() const {
@@ -272,7 +273,7 @@ void MotionController::tick(uint32_t now) { run(m_motion.tick(now), now); }
 
 void MotionController::sendCalib(int fd) {
   char* b = m_out.buf();
-  size_t n = core::jsonCalib(b, m_out.cap() - 64, m_cpm, m_roll_mm);
+  size_t n = core::jsonCalib(b, m_out.cap() - 64, m_cpm, m_roll_mm, m_link.gyroScale());
   if (n > 1) {  // + roll-on learner diagnostics (spec 02 §G6 floor check): replace the closing brace
     const int k = snprintf(b + n - 1, m_out.cap() - n + 1, ",\"roll_last\":%ld,\"roll_watched\":%u,\"roll_read\":%u}",
                            static_cast<long>(m_roll_last), static_cast<unsigned>(m_roll_begun),

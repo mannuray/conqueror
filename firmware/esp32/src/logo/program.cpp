@@ -9,7 +9,7 @@ namespace {
 
 constexpr const char* kEffectWords[] = {"FORWARD", "BACK",  "RIGHT", "LEFT", "SPEED", "WAIT",       "LED",       "BEEP",
                                         "SOUND",   "LOOK",  "HOME",  "ARC",  "PIVOT", "PLAY",       "SAY",
-                                        "WAIT UNTIL", "WAIT UNTIL"};
+                                        "WAIT UNTIL", "WAIT UNTIL", "GO", "HOLD"};
 static_assert(sizeof kEffectWords / sizeof kEffectWords[0] == static_cast<size_t>(EffectKind::kCount), "one per kind");
 
 constexpr uint8_t kMaxDepth = 64;

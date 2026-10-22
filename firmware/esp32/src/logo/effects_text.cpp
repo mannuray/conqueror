@@ -51,11 +51,13 @@ void led(const Action& a, char* out, size_t cap) { snprintf(out, cap, "LED %u %u
 void sound(const Action& a, char* out, size_t cap) { snprintf(out, cap, "SOUND %s", gen::kSounds[a.sound_id - 1]); }
 void look(const Action& a, char* out, size_t cap) { snprintf(out, cap, "LOOK %d %d", a.pan_deg, a.tilt_deg); }
 void say(const Action& a, char* out, size_t cap) { snprintf(out, cap, "SAY %s", a.text); }
+void go(const Action&, char* out, size_t cap) { plain("GO", out, cap); }
+void hold(const Action&, char* out, size_t cap) { plain("HOLD", out, cap); }
 
 using TextFn = void (*)(const Action&, char*, size_t);
 constexpr TextFn kText[] = {none, motion, motion, motion, motion, home,     speed, wait,       led,
-                            beep, sound,  tone,   look,   lookHome, say,    untilStart, none};
-static_assert(sizeof kText / sizeof kText[0] == static_cast<size_t>(ActKind::kTick) + 1, "one per ActKind");
+                            beep, sound,  tone,   look,   lookHome, say,    untilStart, none,  go, hold};
+static_assert(sizeof kText / sizeof kText[0] == static_cast<size_t>(ActKind::kHold) + 1, "one per ActKind");
 
 }  // namespace
 

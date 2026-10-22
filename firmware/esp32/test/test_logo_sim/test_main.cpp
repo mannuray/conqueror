@@ -79,6 +79,19 @@ void test_uncertain_after_a_sensor_read() {
   TEST_ASSERT_EQUAL(2, g_path.pts[2].line);
 }
 
+// Tank Logo LLD §22.4: GO has no length - the preview draws 1 m straight ahead and every point from there on is
+// uncertain (dashed); HOLD draws nothing.
+void test_go_draws_one_uncertain_metre() {
+  plan("FD 10\nGO\nHOLD RT 90 FD 20");
+  TEST_ASSERT_EQUAL(5, g_path.n);  // start, FD 10, GO, RT 90, FD 20
+  TEST_ASSERT_FALSE(g_path.pts[1].uncertain);
+  TEST_ASSERT_EQUAL_INT32(0, g_path.pts[2].x_mm);
+  TEST_ASSERT_EQUAL_INT32(1100, g_path.pts[2].y_mm);  // 10 cm + 1 m ahead
+  TEST_ASSERT_TRUE(g_path.pts[2].uncertain);
+  TEST_ASSERT_EQUAL(2, g_path.pts[2].line);
+  TEST_ASSERT_TRUE(g_path.pts[4].uncertain);  // still a guess after HOLD
+}
+
 void test_limits_cut_the_path_short() {
   plan("FOREVER [ ]");
   TEST_ASSERT_TRUE(g_r.cut_short);
@@ -118,6 +131,7 @@ int main(int, char**) {
   RUN_TEST(test_arc_and_pivot);
   RUN_TEST(test_home_turns_back_to_the_start_heading);
   RUN_TEST(test_uncertain_after_a_sensor_read);
+  RUN_TEST(test_go_draws_one_uncertain_metre);
   RUN_TEST(test_limits_cut_the_path_short);
   RUN_TEST(test_simulated_time);
   RUN_TEST(test_run_time_error_ends_the_path);

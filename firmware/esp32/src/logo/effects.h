@@ -15,7 +15,7 @@ namespace logo {
 
 enum class ActKind : uint8_t {
   kNone, kMove, kTurn, kArc, kPivot, kHome, kSpeed, kWait, kLed, kBeep, kSound, kTone, kLook, kLookHome, kSay,
-  kUntilStart, kTick
+  kUntilStart, kTick, kGo, kHold  // kGo: drive on at speed_pct; kHold: stop it (Tank Logo LLD §22)
 };
 
 struct Action {

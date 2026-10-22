@@ -22,6 +22,7 @@ constexpr WordUse kUses[] = {
     fx("LED", EffectKind::kLed), fx("BEEP", EffectKind::kBeep), fx("SOUND", EffectKind::kSound),
     fx("LOOK", EffectKind::kLook), fx("HOME", EffectKind::kHome), fx("ARC", EffectKind::kArc),
     fx("PIVOT", EffectKind::kPivot), fx("PLAY", EffectKind::kPlay), fx("SAY", EffectKind::kSay),
+    fx("GO", EffectKind::kGo), fx("HOLD", EffectKind::kHold),
     {"REPEAT", WordRole::kRepeat, 0}, {"FOREVER", WordRole::kForever, 0}, {"IF", WordRole::kIf, 0},
     {"IFELSE", WordRole::kIfElse, 0}, {"WHILE", WordRole::kWhile, 0}, {"WAIT UNTIL", WordRole::kWaitUntil, 0},
     {"STOP", WordRole::kStop, 0}, {"OUTPUT", WordRole::kOutput, 0},

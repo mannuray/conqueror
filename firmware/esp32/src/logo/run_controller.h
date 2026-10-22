@@ -55,6 +55,7 @@ class RunController {
   RunOut onMotionEvent(core::MotionEvent e);           // STOP, release, page gone … (also between motions)
   RunOut onEvent(RunEvent e);
   RunState state() const { return m_state; }
+  bool going() const { return m_going; }  // a GO drives on in the background (LLD §22): keep it alive each tick
   uint32_t wakeAt() const { return m_wake; }  // kWaiting: when WAIT / PLAY / a WAIT UNTIL tick is over
 
  private:
@@ -62,6 +63,7 @@ class RunController {
   void effect(const RunTelem& t, uint32_t now_ms, RunOut& out);
   void carry(const Action& a, const RunTelem& t, uint32_t now_ms, RunOut& out);
   Sensors sensors(const RunTelem& t, uint32_t now_ms) const;
+  RunOut goEnded(const core::PrimitiveEnd& e);
   RunOut end(uint16_t code);
   RunOut endWith(uint16_t code, uint16_t line, const char* msg);
   bool active() const { return m_state != RunState::kIdle && m_state != RunState::kEnded; }
@@ -75,6 +77,7 @@ class RunController {
   uint16_t m_start_yaw = 0;
   uint8_t m_speed = 40;
   bool m_blocked = false;
+  bool m_going = false;  // GO (LLD §22)
   EffectKind m_last = EffectKind::kBeep;  // the last effect (its word for 7021)
 };
 

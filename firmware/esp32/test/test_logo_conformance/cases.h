@@ -39,6 +39,7 @@ static const LogoCase kCases[] = {
     {"tail position - two words calling each other", "TO PING :n  IF :n > 0 [ RT 10 PONG :n - 1 ]  END\nTO PONG :n  IF :n > 0 [ LT 10 PING :n - 1 ]  END\nPING 300", true, "(TO PING (:n) [(IF (> :n 0) [(RIGHT 10) (PONG (- :n 1))])]) (TO PONG (:n) [(IF (> :n 0) [(LEFT 10) (PING (- :n 1))])]) (PING 300)", 0, 0, 0, "", true, true, -1, "", "PING,PONG"},
     {"not a tail call - the call inside a loop body", "TO A :n  REPEAT 2 [ A :n - 1 ]  END", true, "(TO A (:n) [(REPEAT 2 [(A (- :n 1))])])", 0, 0, 0, "", true, true, -1, "", ""},
     {"OUTPUT with a single call is a tail call", "TO SUM :n :acc  IFELSE :n = 0 [ OUTPUT :acc ] [ OUTPUT SUM :n - 1 :acc + :n ]  END\nFD SUM 20 0", true, "(TO SUM (:n :acc) [(IFELSE (= :n 0) [(OUTPUT :acc)] [(OUTPUT (SUM (- :n 1) (+ :acc :n)))])]) (FORWARD (SUM 20 0))", 0, 0, 0, "", true, true, -1, "", "SUM"},
+    {"GO and HOLD take no inputs (Spec 5 Revision 3)", "GO WAIT UNTIL DISTANCE < 30 HOLD BEEP", true, "(GO) (WAIT-UNTIL (< (DISTANCE) 30)) (HOLD) (BEEP)", 0, 0, 0, "", true, true, -1, "", "-"},
     {"unknown word with a suggestion", "SQAURE 50\nTO SQUARE :s FD :s END", false, "", 7001, 1, 1, "Did you mean SQUARE", true, true, -1, "", "-"},
     {"missing input", "FORWARD", false, "", 7002, 1, 1, "FORWARD 50", true, true, -1, "", "-"},
     {"unclosed bracket", "REPEAT 4 [ FD 50\nRT 90", false, "", 7003, 1, 10, "never closes", true, true, -1, "", "-"},
@@ -75,6 +76,7 @@ static const LogoCase kCases[] = {
     {"a PLAY item that is not a note", "PLAY [ C4 X9 ]", false, "", 7029, 1, 11, "X9", true, true, -1, "", "-"},
     {"a PLAY length out of range", "PLAY [ C4 32 ]", false, "", 7025, 1, 11, "0.25 to 16 beats", true, true, -1, "", "-"},
     {"a range without a unit still has its message", "REPEAT 20000 [ BEEP ]", false, "", 7025, 1, 8, "from 0 to 10000.", true, true, -1, "", "-"},
+    {"GO takes no input (Spec 5 Revision 3)", "GO 40", false, "", 7004, 1, 4, "40", true, true, -1, "", "-"},
 };
 
-#define LOGO_CASES(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23) X(24) X(25) X(26) X(27) X(28) X(29) X(30) X(31) X(32) X(33) X(34) X(35) X(36) X(37) X(38) X(39) X(40) X(41) X(42) X(43) X(44) X(45) X(46) X(47) X(48) X(49) X(50) X(51) X(52) X(53) X(54) X(55) X(56) X(57) X(58) X(59) X(60) X(61) X(62) X(63) X(64) X(65) X(66) X(67) X(68) X(69) X(70)
+#define LOGO_CASES(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23) X(24) X(25) X(26) X(27) X(28) X(29) X(30) X(31) X(32) X(33) X(34) X(35) X(36) X(37) X(38) X(39) X(40) X(41) X(42) X(43) X(44) X(45) X(46) X(47) X(48) X(49) X(50) X(51) X(52) X(53) X(54) X(55) X(56) X(57) X(58) X(59) X(60) X(61) X(62) X(63) X(64) X(65) X(66) X(67) X(68) X(69) X(70) X(71) X(72)

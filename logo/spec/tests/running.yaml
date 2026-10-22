@@ -169,3 +169,53 @@
   source: FOREVER [ WAIT 60 ]
   does: [WAIT 60, WAIT 60, WAIT 60, WAIT 60, WAIT 60]
   ends: {error: 7041, line: 1}
+
+# ---- GO and HOLD (Spec 5 Revision 3, Tank Logo LLD §22): GO drives on and the program goes on at once. In the
+# world a GO counts as a motion: cut_short / stuck end it at once, otherwise it drives until HOLD or another motion.
+- name: GO, then HOLD
+  source: GO WAIT 1 HOLD
+  does: [GO, WAIT 1, HOLD]
+  ends: finished
+
+- name: a move takes over from GO
+  source: GO FD 50
+  does: [GO, FORWARD 50]
+  ends: finished
+
+- name: GO until blocked, with BLOCKED?
+  source: |
+    GO WAIT UNTIL BLOCKED?
+    BK 10 RT 90
+  world: {cut_short: [1]}
+  does: [GO, WAIT-UNTIL, BACK 10, RIGHT 90]
+  ends: finished
+
+- name: GO blocked without BLOCKED? ends the program
+  source: |
+    GO
+    WAIT 5
+  world: {cut_short: [1]}
+  does: [GO]
+  ends: {error: 7024, line: 1}
+
+- name: GO with a stuck track ends the program
+  source: GO WAIT 2
+  world: {stuck: [1]}
+  does: [GO]
+  ends: {error: 7044, line: 1}
+
+- name: SPEED while going, and GO again
+  source: GO SPEED 60 GO HOLD
+  does: [GO, SPEED 60, GO, HOLD]
+  ends: finished
+
+- name: HOLD with nothing going
+  source: HOLD BEEP
+  does: [HOLD, BEEP]
+  ends: finished
+
+- name: the motion after a GO counts as the next motion
+  source: GO FD 20 FD 30
+  world: {cut_short: [3]}
+  does: [GO, FORWARD 20, FORWARD 30]
+  ends: {error: 7024, line: 1}

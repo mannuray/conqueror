@@ -1743,3 +1743,15 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - **Mount:** measured again after the servo re-mounting (§120): the lens height and its position on the tank, typed in, then checked by tape marks at 50 / 100 cm on the floor (within 2 cm). **Plus the laser level:** a horizontal line on a wall at exactly the lens height is the horizon; its pixel row gives the tilt at the servo's centre directly (§111).
 - **Picture size:** QVGA (320 × 240), the driving size (§109). VGA only if needed later.
 - **Driving tilt:** once the lens is calibrated, the tool measures the blind zone and what is in view at a few tilts. The owner decides the driving tilt from those numbers (the §109 open decision).
+
+## 124. A camera-angle command on the bridge (owner, 2026-10-23)
+- **Need:** the calibration tool (servo step, tilt study) and later module 2 must set exact camera angles. Pages could only move the camera with the stick or send it home; exact angles existed only inside the bridge for Logo's `LOOK`.
+- **Options:**
+  - (a) the tool runs tiny `LOOK` programs (no firmware change);
+  - (b) a real bridge command.
+- **Owner: "b is the correct solution — discuss before any implementation."**
+- **Agreed (owner: "yes all three as recommended"):**
+  1. degrees from the centre, right / up = +, like `LOOK`;
+  2. the camera stick's permission rule (only the driver while someone drives, anyone when nobody does; never takes ownership);
+  3. **a tilt outside −20…+60° is refused at the bridge** ("so one knows the limit"), as is a pan outside ±90°, with the limits in the message.
+- **Written as bridge LLD R22 (draft).** The calibration plan (Spec 7 phase 2, §123) builds on it.

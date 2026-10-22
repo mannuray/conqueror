@@ -2321,3 +2321,80 @@ stateDiagram-v2
   - `move 200` unchanged (2 m, ~1.5 cm right);
   - a track on a rug edge → no false stop.
 
+## Revision 22 — `cam_set`: the camera to exact angles (draft, 2026-10-23; design-notes §124)
+
+### R22.0 Why
+- **Today, from a page:** the phone and the AI engine can move the camera only with the stick (`cam_joy`) or send it home (`cam_home`). Exact angles exist only inside the bridge, for Logo's `LOOK` (Tank Logo LLD §10).
+- **Who needs them:**
+  - the calibration tool (AI engine LLD §8: the servo step, the tilt study);
+  - later, module 2's driving tilt;
+  - any page that wants "look 20° down".
+- **The owner chose a real command over running Logo programs** (design-notes §124).
+
+### R22.1 The message
+- **Request:** `{"t":"cam_set","pan":p,"tilt":t,"id":n}`, in **degrees from the centre, right / up = +**, 0.1° steps. The convention is Logo's `LOOK`: `0, 0` is straight ahead and level, the servos' 90° / 90°.
+- **Range** (owner: refuse, so the sender knows the limit):
+  - **pan −90…+90°**;
+  - **tilt −20…+60°**, the servo range the Uno allows (`CamLite` 300…1100 = +60° up … −20° down);
+  - anything outside → `nack` **3018 `OUT_OF_RANGE`** "Out of range - pan -90..90, tilt -20..60 degrees" (a bridge-only code, like 3016 / 3017);
+  - a missing input, or one that is not a number → 3006 `INVALID_COMMAND`.
+- **Who may send it:** the rule of `cam_joy` / `cam_home` (`LinkOwner::onCamera`).
+  - While someone drives, only the driver; when nobody drives, any client. It never takes ownership.
+  - `BODY_OFFLINE` before the Uno is synced; `BUSY` during OTA or when the Uno request queue is full.
+- **What happens:**
+  - The bridge converts each angle to the Uno's servo value with `LOOK`'s rule: `dd = 900 − deg × 10` (right / up are the smaller angles).
+  - It queues the existing `AckedOp::kCamSet`, which becomes the `CAM_SET` frame.
+  - It answers **`ack`** after the Uno's ACK (`nack` `COMMAND_TIMEOUT` / `BODY_OFFLINE` as for other Uno requests).
+  - The servos move at 120 °/s and stay there: no return home, the stick overrides it, HOME returns. They are released after 2 s still, as now.
+- **Seen in telemetry:** `tf` / `td` `pan` / `tilt` already carry the angle reached. No protocol, Uno or generated-file change.
+
+### R22.2 Classes
+```mermaid
+classDiagram
+  class WsCommand {
+    +kind: kCamSet
+    +cam_pan_dd: int16
+    +cam_tilt_dd: int16
+  }
+  class DriveController {
+    +onCamSet(fd, id, cmd)
+  }
+  class LinkOwner {
+    +onCamera(fd) Decision
+  }
+  class UnoChannel {
+    +request(AckedOp kCamSet)
+  }
+  class BridgeLink_py {
+    +cam_set(pan_deg, tilt_deg) awaits ack
+  }
+  DriveController --> LinkOwner : the camera rule
+  DriveController --> UnoChannel : AckedOp kCamSet (pan_dd, tilt_dd)
+  BridgeLink_py ..> DriveController : {"t":"cam_set"} over /ws
+```
+
+```mermaid
+sequenceDiagram
+  participant C as client (tool / AI / page)
+  participant B as bridge (DriveController)
+  participant U as Uno
+  C->>B: {"t":"cam_set","pan":0,"tilt":-15,"id":7}
+  alt out of range / not allowed
+    B-->>C: nack OUT_OF_RANGE / NOT_OWNER / BUSY
+  else ok
+    B->>U: CAM_SET pan 900 tilt 1050
+    U-->>B: ACK
+    B-->>C: ack 7
+    U-->>B: TELEM_FAST pan / tilt as the servos move
+  end
+```
+
+### R22.3 Tests
+- **`test_ws_codec`:** `cam_set` with both inputs → kCamSet with servo values (pan +15 → 750, tilt −15 → 1050); a missing input → invalid; pan 91 / tilt 61 / tilt −21 → out of range (refused with its own reason); decimals keep 0.1°.
+- **`test_drive_controller`:**
+  - queued as `kCamSet` with the right values; ack after the Uno's ACK;
+  - refused `NOT_OWNER` while another client drives; allowed with nobody driving;
+  - `BUSY` during OTA; `BODY_OFFLINE` before sync.
+- **`test_ws_json`:** the 3018 `OUT_OF_RANGE` nack text.
+- **AI engine (`test_domain` / a fake bridge):** `BridgeLink.cam_set` sends the message and returns on the ack; a nack raises with its reason.
+- **On the stand (owner):** set (0, 0), (30, 0), (0, −15) and (0, 50) from the laptop → the camera moves and stays; `tf` shows the angles; (0, −30) → `OUT_OF_RANGE`.

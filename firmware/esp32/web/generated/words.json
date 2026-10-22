@@ -215,7 +215,9 @@
    "kind": "command",
    "level": 2,
    "group": "move",
-   "needs": [],
+   "needs": [
+    "encoders"
+   ],
    "inputs": [],
    "help": "drive on until something happens",
    "example": "GO  WAIT UNTIL DISTANCE < 30  HOLD"

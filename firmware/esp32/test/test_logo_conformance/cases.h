@@ -77,6 +77,7 @@ static const LogoCase kCases[] = {
     {"a PLAY length out of range", "PLAY [ C4 32 ]", false, "", 7025, 1, 11, "0.25 to 16 beats", true, true, -1, "", "-"},
     {"a range without a unit still has its message", "REPEAT 20000 [ BEEP ]", false, "", 7025, 1, 8, "from 0 to 10000.", true, true, -1, "", "-"},
     {"GO takes no input (Spec 5 Revision 3)", "GO 40", false, "", 7004, 1, 4, "40", true, true, -1, "", "-"},
+    {"GO on a tank without encoders (it needs them, like FORWARD)", "GO", false, "", 7021, 1, 1, "", false, true, -1, "", "-"},
 };
 
-#define LOGO_CASES(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23) X(24) X(25) X(26) X(27) X(28) X(29) X(30) X(31) X(32) X(33) X(34) X(35) X(36) X(37) X(38) X(39) X(40) X(41) X(42) X(43) X(44) X(45) X(46) X(47) X(48) X(49) X(50) X(51) X(52) X(53) X(54) X(55) X(56) X(57) X(58) X(59) X(60) X(61) X(62) X(63) X(64) X(65) X(66) X(67) X(68) X(69) X(70) X(71) X(72)
+#define LOGO_CASES(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23) X(24) X(25) X(26) X(27) X(28) X(29) X(30) X(31) X(32) X(33) X(34) X(35) X(36) X(37) X(38) X(39) X(40) X(41) X(42) X(43) X(44) X(45) X(46) X(47) X(48) X(49) X(50) X(51) X(52) X(53) X(54) X(55) X(56) X(57) X(58) X(59) X(60) X(61) X(62) X(63) X(64) X(65) X(66) X(67) X(68) X(69) X(70) X(71) X(72) X(73)

@@ -83,12 +83,38 @@ void LogoController::tick(uint32_t now) {
   handle(m_rc.tick(telem(), now), now);
 }
 
-// LLD §22: a GO drives on only while the program keeps it alive (the bridge stops it after 300 ms without).
+// LLD §22: a GO drives on only while the program keeps it alive (the bridge stops it after 300 ms without). In
+// step mode a pause on a line holds it - the tank stops - and STEP drives on again (owner 2026-10-22, option a).
 void LogoController::keepGoing(uint32_t now) {
-  if (m_rc.going() && m_h.keep_go != nullptr) m_h.keep_go(now);
+  if (!m_rc.going()) {
+    m_paused_go = false;
+    return;
+  }
+  if (m_rc.state() == logo::RunState::kPaused) return pauseGo(now);
+  if (m_paused_go) {
+    m_paused_go = false;
+    logo::Action go;
+    go.kind = logo::ActKind::kGo;
+    go.speed_pct = m_go_speed;
+    return motion(go, now);
+  }
+  if (m_h.keep_go != nullptr) m_h.keep_go(now);
+}
+
+void LogoController::pauseGo(uint32_t now) {
+  if (m_paused_go) return;
+  m_paused_go = true;
+  m_hold_end = true;  // HOLD's own end comes back at once: not the program's GO ending
+  logo::Action hold;
+  hold.kind = logo::ActKind::kHold;
+  motion(hold, now);
 }
 
 void LogoController::onPrimitiveEnd(const core::PrimitiveEnd& e, uint32_t now) {
+  if (m_hold_end && e.kind == core::PrimKind::kGo && e.reason == core::EndReason::kDone) {
+    m_hold_end = false;  // the step pause's own HOLD
+    return;
+  }
   if (m_running) handle(m_rc.onPrimitiveEnd(e), now);
 }
 

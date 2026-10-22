@@ -76,6 +76,7 @@ void LogoController::speedWhileGoing(const logo::Action& a, uint32_t now) {
 // A move / turn / arc / pivot / HOME as the program's primitive; refused → the program ends (7021 / 7034).
 void LogoController::motion(const logo::Action& a, uint32_t now) {
   note(a);
+  if (a.kind == logo::ActKind::kGo) m_go_speed = a.speed_pct;  // for STEP to drive on at the same speed
   core::BridgeReason why = core::BridgeReason::kBodyOffline;
   if (m_h.start_motion(m_fd, a, now, why)) return;
   handle(m_rc.onMotionEvent(why == core::BridgeReason::kUnavailable ? core::MotionEvent::kBodyEncoderFault

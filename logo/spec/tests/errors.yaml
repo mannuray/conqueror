@@ -190,3 +190,8 @@
   source: GO 40
   expect: {error: 7004, line: 1, col: 4}
   message_has: "40"
+
+- name: GO on a tank without encoders (it needs them, like FORWARD)
+  source: GO
+  tank: {encoders: false}
+  expect: {error: 7021, line: 1, col: 1}

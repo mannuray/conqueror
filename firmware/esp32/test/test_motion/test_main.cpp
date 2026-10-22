@@ -1146,6 +1146,17 @@ void test_go_creeping_or_far_away_is_not_blocked() {
   }
 }
 
+// Final review M1: the first frame after startGo may still carry the last primitive's brake flag (up to 20 ms
+// old) - a new GO ignores it; a real obstacle ends it one frame later.
+void test_a_new_go_ignores_the_brake_flag_in_its_first_frame() {
+  MotionService svc;
+  svc.startGo(3, 40, 7, 0);
+  TEST_ASSERT_FALSE(svc.onTelemetry(blockedAt(0), 20).ended);
+  const MotionOut o = svc.onTelemetry(blockedAt(0), 40);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+}
+
 void test_go_stops_without_a_refresh_within_300_ms() {
   MotionService svc;
   svc.startGo(3, 40, 7, 0);
@@ -1283,6 +1294,7 @@ int main() {
   RUN_TEST(test_go_drives_straight_at_its_speed_until_held);
   RUN_TEST(test_go_ends_blocked_as_soon_as_the_brake_engages);
   RUN_TEST(test_go_stops_without_a_refresh_within_300_ms);
+  RUN_TEST(test_a_new_go_ignores_the_brake_flag_in_its_first_frame);
   RUN_TEST(test_go_ends_blocked_when_the_slow_down_stops_it_near_an_obstacle);
   RUN_TEST(test_go_creeping_or_far_away_is_not_blocked);
   RUN_TEST(test_go_again_changes_the_speed_at_once);

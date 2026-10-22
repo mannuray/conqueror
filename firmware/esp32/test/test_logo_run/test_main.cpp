@@ -213,6 +213,19 @@ void test_run_time_refusal_ends_with_its_line_and_speed_applies() {
 }
 
 // Plan N3 Task 1: a program that did not compile completely never starts.
+// Tank Logo LLD §22: a GO that is no longer kept alive (the bridge's 300 ms deadman) ends the program 7034.
+void test_go_deadman_ends_7034() {
+  TEST_ASSERT_TRUE(load("GO\nWAIT 5"));
+  RunOut o = g_rc.tick(g_tel, g_now += 2);
+  TEST_ASSERT_EQUAL(ActKind::kGo, o.action.kind);
+  TEST_ASSERT_TRUE(g_rc.going());
+  PrimitiveEnd e;
+  e.reason = EndReason::kDeadman;
+  o = g_rc.onPrimitiveEnd(e);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(7034, o.code);
+}
+
 void test_a_failed_compile_never_starts() {
   TEST_ASSERT_TRUE(load("FD 10"));
   g_prog.ok = false;
@@ -234,5 +247,6 @@ int main(int, char**) {
   RUN_TEST(test_home_heading_distance_obstacle);
   RUN_TEST(test_run_time_refusal_ends_with_its_line_and_speed_applies);
   RUN_TEST(test_a_failed_compile_never_starts);
+  RUN_TEST(test_go_deadman_ends_7034);
   return UNITY_END();
 }

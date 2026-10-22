@@ -71,7 +71,7 @@ inline constexpr WordSpec kWords[] = {
     {"SOUND", WordKind::kCommand, 1, 0, 1, kIn9, "SOUND HORN", ""},
     {"LOOK", WordKind::kCommand, 1, 0, 1, kIn10, "LOOK LEFT", ""},
     {"HOME", WordKind::kCommand, 1, 0, 0, nullptr, "HOME", ""},
-    {"GO", WordKind::kCommand, 2, 0, 0, nullptr, "GO  WAIT UNTIL DISTANCE < 30  HOLD", ""},
+    {"GO", WordKind::kCommand, 2, kNeedEncoders, 0, nullptr, "GO  WAIT UNTIL DISTANCE < 30  HOLD", ""},
     {"HOLD", WordKind::kCommand, 2, 0, 0, nullptr, "GO  WAIT 2  HOLD", ""},
     {"STOP", WordKind::kControl, 1, 0, 0, nullptr, "IF OBSTACLE? [ STOP ]", ""},
     {"ARC", WordKind::kCommand, 2, kNeedEncoders, 3, kIn15, "ARC RIGHT 90 50", ""},

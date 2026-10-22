@@ -378,6 +378,54 @@ void test_speed_without_go_sends_nothing() {
   TEST_ASSERT_EQUAL(0, g_motions.size());
 }
 
+// Owner 2026-10-22 (final review I1, option a): in step mode a pause on a line holds the GO (the tank stops);
+// STEP drives on again at the same speed. HOLD's own end during the pause does not end the GO for the program.
+void test_step_mode_holds_a_go_and_step_drives_on() {
+  run("SPEED 30\nGO\nWAIT UNTIL DISTANCE < 30\nHOLD", true);
+  ticks(1);   // paused on line 1
+  lc->onStep(3, 6);
+  ticks(2);   // SPEED 30, paused on line 2
+  lc->onStep(3, 7);
+  ticks(3);   // GO; paused on line 3; the next tick holds the GO
+  TEST_ASSERT_EQUAL(2, g_motions.size());
+  TEST_ASSERT_EQUAL(logo::ActKind::kGo, g_motions[0].kind);
+  TEST_ASSERT_EQUAL(logo::ActKind::kHold, g_motions[1].kind);  // the pause stops the tank
+  core::PrimitiveEnd held;
+  held.kind = core::PrimKind::kGo;
+  held.ok = true;
+  lc->onPrimitiveEnd(held, g_now);  // HOLD's own end comes back
+  const int kept = g_go_keeps;
+  ticks(20);
+  TEST_ASSERT_EQUAL(kept, g_go_keeps);  // nothing to keep alive while paused
+  TEST_ASSERT_TRUE(lc->running());
+  lc->onStep(3, 8);
+  ticks(1);
+  TEST_ASSERT_EQUAL(3, g_motions.size());
+  TEST_ASSERT_EQUAL(logo::ActKind::kGo, g_motions[2].kind);  // drives on again
+  TEST_ASSERT_EQUAL(30, g_motions[2].speed_pct);
+  ticks(1);
+  TEST_ASSERT_TRUE(g_go_keeps > kept);  // kept alive again from the next tick
+}
+
+void test_the_program_s_end_stops_a_go() {
+  run("GO");
+  ticks(3);
+  TEST_ASSERT_FALSE(lc->running());
+  TEST_ASSERT_TRUE(sent(4, "\"kind\":\"logo_ended\",\"reason\":\"finished\""));
+  TEST_ASSERT_EQUAL(1, g_stops);
+  TEST_ASSERT_TRUE(g_stop_owned);
+}
+
+void test_losing_the_drive_during_a_go_never_stops_the_new_driver() {
+  run("GO WAIT 5");
+  ticks(3);
+  g_keep = core::Decision::kNackNotOwner;  // another phone took over
+  ticks(1);
+  TEST_ASSERT_FALSE(lc->running());
+  TEST_ASSERT_EQUAL(1, g_stops);
+  TEST_ASSERT_FALSE(g_stop_owned);  // no STOP for the new driver
+}
+
 void test_arc_speed_note() {
   run("SPEED 100 ARC RIGHT 90 40");
   ticks(1);
@@ -411,5 +459,8 @@ int main() {
   RUN_TEST(test_go_is_kept_alive_every_tick_until_hold);
   RUN_TEST(test_speed_while_going_sends_go_again);
   RUN_TEST(test_speed_without_go_sends_nothing);
+  RUN_TEST(test_step_mode_holds_a_go_and_step_drives_on);
+  RUN_TEST(test_the_program_s_end_stops_a_go);
+  RUN_TEST(test_losing_the_drive_during_a_go_never_stops_the_new_driver);
   return UNITY_END();
 }

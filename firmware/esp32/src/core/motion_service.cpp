@@ -157,7 +157,8 @@ bool MotionService::goStopped(const MotionTelem& t, uint32_t now_ms) {
 // the tank without its flag, floor 2026-10-17; final review C1).
 MotionOut MotionService::stepGo(const MotionTelem& t, uint32_t now_ms) {
   if (now_ms - m_go_update_ms > motion::kRateDeadmanMs) return finish(EndReason::kDeadman);
-  if (((t.flags >> static_cast<unsigned>(proto::FastFlagBit::kBlocked)) & 1u) != 0) {
+  const bool first = !m_go_ref_set;  // its flag may still be the last primitive's (final review M1)
+  if (!first && ((t.flags >> static_cast<unsigned>(proto::FastFlagBit::kBlocked)) & 1u) != 0) {
     return finish(EndReason::kBlocked);
   }
   if (goStopped(t, now_ms) && t.dist_mm < motion::kMoveObstacleMm) return finish(EndReason::kBlocked);

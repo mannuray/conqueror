@@ -61,6 +61,7 @@ class LogoController {
 
  private:
   void keepGoing(uint32_t now);
+  void pauseGo(uint32_t now);
   void speedWhileGoing(const logo::Action& a, uint32_t now);
   // logo_controller.cpp
   bool runRefused(int fd, int32_t id, uint32_t prog, uint32_t now);
@@ -96,6 +97,9 @@ class LogoController {
   logo::Note m_tone[logo::NoteReader::kMaxNotes];
   uint8_t m_tone_n = 0, m_tone_i = 0;
   uint32_t m_tone_next = 0;
+  bool m_paused_go = false;  // step mode: a GO held while paused on a line (owner 2026-10-22)
+  bool m_hold_end = false;   // ... and its HOLD's own end, which is not the program's
+  uint8_t m_go_speed = 40;
 };
 
 }  // namespace app

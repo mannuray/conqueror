@@ -151,6 +151,7 @@ words:
     kind: command
     group: move
     does: drive straight forward at the current SPEED and go on at once (Spec 5 Revision 3); ends at the next move or turn, HOLD, something in the way, or the program's end
+    needs: [encoders]
     help: drive on until something happens
     example: GO  WAIT UNTIL DISTANCE < 30  HOLD
   - name: HOLD

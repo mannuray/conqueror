@@ -1755,3 +1755,4 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
   2. the camera stick's permission rule (only the driver while someone drives, anyone when nobody does; never takes ownership);
   3. **a tilt outside −20…+60° is refused at the bridge** ("so one knows the limit"), as is a pan outside ±90°, with the limits in the message.
 - **Written as bridge LLD R22 (draft).** The calibration plan (Spec 7 phase 2, §123) builds on it.
+- **R22 approved (owner: "yes, fold it into the calibration plan", 2026-10-23):** `cam_set` becomes the first task of the calibration plan (Plan Q2).

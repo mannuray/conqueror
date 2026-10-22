@@ -2321,7 +2321,7 @@ stateDiagram-v2
   - `move 200` unchanged (2 m, ~1.5 cm right);
   - a track on a rug edge → no false stop.
 
-## Revision 22 — `cam_set`: the camera to exact angles (draft, 2026-10-23; design-notes §124)
+## Revision 22 — `cam_set`: the camera to exact angles (approved by the owner 2026-10-23; design-notes §124)
 
 ### R22.0 Why
 - **Today, from a page:** the phone and the AI engine can move the camera only with the stick (`cam_joy`) or send it home (`cam_home`). Exact angles exist only inside the bridge, for Logo's `LOOK` (Tank Logo LLD §10).

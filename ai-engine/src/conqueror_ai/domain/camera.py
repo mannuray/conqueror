@@ -1,0 +1,176 @@
+"""The camera model (AI engine LLD §5.3): pixel <-> floor point through the lens (pinhole + distortion),
+the mount on the tank and the pan / tilt servos. Pure numpy: no OpenCV, no I/O.
+
+Frames: the room (x forward at the start, y left, z up); the camera looks along its forward axis, image x to
+right and image y down (OpenCV). Angles from the centre: pan + = right, tilt + = up (cam_set, Logo's LOOK)."""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field, replace
+
+import numpy as np
+from numpy.typing import NDArray
+
+from conqueror_ai.domain.types import Pose
+
+FloatArray = NDArray[np.float64]
+NEAR_M, FAR_M = 0.25, 2.5  # the floor fit is trusted between these (LLD §5.3)
+
+
+def from_servo(pan_servo_deg: float, tilt_servo_deg: float) -> tuple[float, float]:
+    """Telemetry's servo angles (90 = centre) -> degrees from the centre (right / up = +)."""
+    return 90.0 - pan_servo_deg, 90.0 - tilt_servo_deg
+
+
+@dataclass(frozen=True)
+class Calibration:
+    """What the calibration tool measured (LLD §8); stored in config/calibration.yaml."""
+
+    k: FloatArray  # 3 x 3: fx, fy, cx, cy
+    dist: FloatArray  # k1 k2 p1 p2 k3 (OpenCV)
+    size: tuple[int, int]  # width, height in pixels (QVGA 320 x 240)
+    cam_height_m: float  # the lens above the floor
+    cam_x_m: float  # the lens ahead of the tank's centre
+    cam_y_m: float  # the lens left of the tank's centre
+    track_front_m: (
+        float  # the tracks' front ahead of the tank's centre (the blind zone is measured from here)
+    )
+    tilt0_deg: float  # the camera's real tilt with the servo at its centre (+ = up)
+    pan_map: tuple[float, float] = (1.0, 0.0)  # real pan = gain x commanded + offset
+    tilt_map: tuple[float, float] = (1.0, 0.0)  # real tilt change = gain x commanded + offset
+    readout_us: int = 0
+    date: str = ""
+
+
+@dataclass(frozen=True)
+class CameraModel:
+    """One camera pose: the tank pose and the commanded pan / tilt (for_frame), over a Calibration."""
+
+    cal: Calibration
+    pose: Pose = field(default_factory=lambda: Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0))
+    pan_deg: float = 0.0
+    tilt_deg: float = 0.0
+
+    def for_frame(self, pose: Pose, pan_deg: float, tilt_deg: float) -> CameraModel:
+        return replace(self, pose=pose, pan_deg=pan_deg, tilt_deg=tilt_deg)
+
+    # ---- the camera in the room
+    def real_pan_deg(self) -> float:
+        g, o = self.cal.pan_map
+        return g * self.pan_deg + o
+
+    def real_tilt_deg(self) -> float:
+        g, o = self.cal.tilt_map
+        return self.cal.tilt0_deg + g * self.tilt_deg + o
+
+    def position(self) -> FloatArray:
+        c, s = math.cos(self.pose.th_rad), math.sin(self.pose.th_rad)
+        x = self.pose.x_m + c * self.cal.cam_x_m - s * self.cal.cam_y_m
+        y = self.pose.y_m + s * self.cal.cam_x_m + c * self.cal.cam_y_m
+        return np.array([x, y, self.cal.cam_height_m])
+
+    def axes(self) -> tuple[FloatArray, FloatArray, FloatArray]:
+        """The camera's right, down and forward directions in the room."""
+        yaw = self.pose.th_rad - math.radians(self.real_pan_deg())  # pan right turns clockwise
+        pitch = math.radians(self.real_tilt_deg())
+        fwd = np.array([math.cos(pitch) * math.cos(yaw), math.cos(pitch) * math.sin(yaw), math.sin(pitch)])
+        right = np.array([math.sin(yaw), -math.cos(yaw), 0.0])
+        down = np.cross(fwd, right)
+        return right, down, fwd
+
+    # ---- the lens
+    def distort(self, xn: float, yn: float) -> tuple[float, float]:
+        k1, k2, p1, p2, k3 = (float(v) for v in self.cal.dist[:5])
+        r2 = xn * xn + yn * yn
+        radial = 1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2
+        xd = xn * radial + 2 * p1 * xn * yn + p2 * (r2 + 2 * xn * xn)
+        yd = yn * radial + p1 * (r2 + 2 * yn * yn) + 2 * p2 * xn * yn
+        return xd, yd
+
+    def undistort(self, xd: float, yd: float) -> tuple[float, float]:
+        """Inverts distort as OpenCV's undistortPoints does: divide out the radial factor, less tangential."""
+        k1, k2, p1, p2, k3 = (float(v) for v in self.cal.dist[:5])
+        xn, yn = xd, yd
+        for _ in range(50):
+            r2 = xn * xn + yn * yn
+            radial = 1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2
+            dx = 2 * p1 * xn * yn + p2 * (r2 + 2 * xn * xn)
+            dy = p1 * (r2 + 2 * yn * yn) + 2 * p2 * xn * yn
+            xn, yn = (xd - dx) / radial, (yd - dy) / radial
+        return xn, yn
+
+    def pixel_ray(self, u: float, v: float) -> FloatArray:
+        k = self.cal.k
+        xn, yn = self.undistort((u - k[0, 2]) / k[0, 0], (v - k[1, 2]) / k[1, 1])
+        right, down, fwd = self.axes()
+        return xn * right + yn * down + fwd
+
+    # ---- pixel <-> floor
+    def pixel_to_floor(self, u: float, v: float) -> tuple[float, float] | None:
+        """The floor point (room x, y) the pixel sees, or None at or above the horizon."""
+        ray = self.pixel_ray(u, v)
+        if ray[2] >= -1e-9:
+            return None
+        c = self.position()
+        t = -c[2] / ray[2]
+        p = c + t * ray
+        return float(p[0]), float(p[1])
+
+    def floor_to_pixel(self, x: float, y: float) -> tuple[float, float] | None:
+        """Where the floor point (room x, y) is in the picture, or None behind the camera."""
+        d = np.array([x, y, 0.0]) - self.position()
+        right, down, fwd = self.axes()
+        z = float(d @ fwd)
+        if z <= 1e-9:
+            return None
+        xd, yd = self.distort(float(d @ right) / z, float(d @ down) / z)
+        k = self.cal.k
+        return float(k[0, 0] * xd + k[0, 2]), float(k[1, 1] * yd + k[1, 2])
+
+    def floor_distance(self, u: float, v: float) -> float:
+        """Along the pixel's ray to the floor (m); inf at or above the horizon."""
+        ray = self.pixel_ray(u, v)
+        if ray[2] >= -1e-9:
+            return math.inf
+        return float(-self.cal.cam_height_m / ray[2] * np.linalg.norm(ray))
+
+    def expected_floor_depth(self) -> FloatArray:
+        """For every pixel, the distance along its ray to the floor (inf above the horizon) - all at once."""
+        w, h = self.cal.size
+        k = self.cal.k
+        uu, vv = np.meshgrid(np.arange(w, dtype=np.float64), np.arange(h, dtype=np.float64))
+        xd, yd = (uu - k[0, 2]) / k[0, 0], (vv - k[1, 2]) / k[1, 1]
+        k1, k2, p1, p2, k3 = (float(v) for v in self.cal.dist[:5])
+        xn, yn = xd.copy(), yd.copy()
+        for _ in range(50):  # the same iteration as undistort, on whole arrays
+            r2 = xn * xn + yn * yn
+            radial = 1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2
+            dx = 2 * p1 * xn * yn + p2 * (r2 + 2 * xn * xn)
+            dy = p1 * (r2 + 2 * yn * yn) + 2 * p2 * xn * yn
+            xn, yn = (xd - dx) / radial, (yd - dy) / radial
+        right, down, fwd = self.axes()
+        rz = xn * right[2] + yn * down[2] + fwd[2]
+        norm = np.sqrt(
+            (xn * right[0] + yn * down[0] + fwd[0]) ** 2
+            + (xn * right[1] + yn * down[1] + fwd[1]) ** 2
+            + rz**2
+        )
+        with np.errstate(divide="ignore", invalid="ignore"):
+            out = np.where(rz < -1e-9, -self.cal.cam_height_m / rz * norm, np.inf)
+        return out.astype(np.float64)
+
+    def floor_mask(self) -> NDArray[np.bool_]:
+        d = self.expected_floor_depth()
+        return (d >= NEAR_M) & (d <= FAR_M)
+
+    def sees(self, x: float, y: float) -> bool:
+        """The floor point is inside the picture and within FAR_M of the camera."""
+        q = self.floor_to_pixel(x, y)
+        if q is None:
+            return False
+        w, h = self.cal.size
+        if not (0 <= q[0] < w and 0 <= q[1] < h):
+            return False
+        c = self.position()
+        return math.dist((x, y, 0.0), (float(c[0]), float(c[1]), float(c[2]))) <= FAR_M

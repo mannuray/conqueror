@@ -31,3 +31,16 @@ class Frame:
     cap_us: int
     recv_s: float  # laptop monotonic time when the whole picture had arrived
     jpeg: bytes
+
+
+@dataclass(frozen=True)
+class Pose:
+    """The tank in the room (LLD §3): start = 0, 0, 0; x forward at the start, y left, th counter-clockwise
+    (ROS REP 103, as the bridge's arcs)."""
+
+    t_us: int
+    x_m: float
+    y_m: float
+    th_rad: float
+    v_mps: float
+    w_rps: float

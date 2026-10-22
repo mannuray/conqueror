@@ -1,6 +1,6 @@
 # Tank Logo — Language Design (Spec 5)
 
-Status: **APPROVED** (owner, 2026-10-11; decisions in §12) · Date: 2026-10-11 · Decision record: `docs/design-notes.md` §20 · Roadmap: `docs/implementation-roadmap.md` "Tank Logo"
+Status: **APPROVED** (owner, 2026-10-11; decisions in §12; Revision 3 approved 2026-10-22) · Date: 2026-10-11 · Decision record: `docs/design-notes.md` §20 · Roadmap: `docs/implementation-roadmap.md` "Tank Logo"
 
 > **2026-10-18 (owner, design-notes §79):** no hub — the IDE becomes a page **on the ESP32 bridge**; the core runner stays on the ESP32 as designed, the AI runner in the AI engine.
 
@@ -18,6 +18,43 @@ What changed:
 5. **Obstacles (§7 changed):** a move cut short by the obstacle brake ends the program **unless the program uses `BLOCKED?`**, in which case it carries on. Stall, tilt, low battery, STOP, another device taking control and the page going away still end it.
 6. **Where it runs (§5, §11 changed):** the **ESP32 reads, checks and compiles** the program (C++, host-tested against `logo/spec/tests/`) and draws nothing — it answers the editor with errors and the planned path; the page and the AI engine send program text. No TypeScript or Python copy of the parser. The IR of §5.1 becomes internal to the ESP32 (fixed in the LLD).
 7. **Programs are saved on the tank** and a running program stops when its page goes away (§12 items 7–8).
+
+## Revision 3 (2026-10-22, owner — design-notes §118) — `GO` and `HOLD`
+Where this revision and the sections below differ, **this revision wins** (Revision 2 still wins over the original sections).
+
+**Why:** every motion word waits until its move is done (§5.1), so a program can only drive in steps. On the floor `avoid_walls` (`FOREVER [ FORWARD 20  IF BLOCKED? [ … ] ]`) stopped and started every 20 cm (design-notes §118). "Drive until …" — until something is close, until the camera sees a ball or a person — needs a motion that keeps going while the program watches.
+
+**New words (level 2 Explorer, group move, kind command, no inputs):**
+
+| Word | What the tank does |
+|---|---|
+| `GO` | drives **straight forward** at the current `SPEED`, holding its heading with the gyro, and the program **goes on at once** to the next word |
+| `HOLD` | stops the tank; the program goes on (`STOP` still ends the whole program). With nothing moving, it does nothing. |
+
+- **`GO` ends when:**
+  - the next motion word starts: `FORWARD`, `BACK`, `RIGHT`, `LEFT`, `ARC`, `PIVOT`, `HOME` take over straight from driving;
+  - `HOLD` runs;
+  - something is in the way (the obstacle brake), exactly like `FORWARD`: with `BLOCKED?` in the program it carries on and `BLOCKED?` is TRUE, otherwise the program ends with 7024;
+  - `STOP`, the program ending, the time limit, or any safety ending (§7).
+- **`GO` again while going** changes nothing. **`SPEED` while going** applies at once.
+- **Forward only** (owner): the distance sensor looks forward; there is no `GO BACK`.
+- **Needs** the gyro only, not the encoders (like `LEFT` / `RIGHT`); the driven path still uses the encoders when they are there.
+- **Keeping it safe:** `GO` is a continuous "drive straight at SPEED" command that must be **refreshed at least every 0.3 s, or the tank stops** — the rule for driving by hand and for DRIVE_RATE (bridge LLD R4.4). The tank's runner refreshes it every tick; the AI engine's runner refreshes it about every 0.1 s over WiFi, so a hung laptop, program or WiFi stops the tank within 0.3 s. The obstacle brake, child-play limits, STOP from anywhere, battery / tilt / link-loss stops all stay.
+- **Preview:** `GO` has no length, so the planned path draws a dashed 1 m line marked uncertain ("until something"); later steps follow from there.
+
+**"Drive until" — the pattern, today and with the AI:**
+```logo
+GO  WAIT UNTIL DISTANCE < 30  HOLD  BEEP              ; on the tank
+FOREVER [ GO  WAIT UNTIL BLOCKED?  BACK 10  RIGHT 90 ] ; avoid walls without stopping every 20 cm
+GO  WAIT UNTIL SEE? "ball  HOLD  SOUND FANFARE        ; AI program (the AI engine runs it)
+GO  WAIT UNTIL SEE? "person  HOLD  SAY [ hello ]      ; AI program
+```
+New AI words stay **questions** (`SEE? "thing`, `HOWMANY "thing`, …) that combine with `GO … WAIT UNTIL … HOLD`; no motion word per thing. A shorter `GO UNTIL cond` may be added later as a shorthand for `GO WAIT UNTIL cond HOLD` (not in this revision).
+
+**Changes to the sections below:**
+- **§5.1:** "motion instructions block until done" has one exception: `GO` returns at once (its drive is kept alive by the runner). `HOLD` returns once the tank is told to stop.
+- **§6:** an AI program's `GO` is run by the AI engine the same way, refreshing the drive.
+- **Out of date since Revision 2:** §3.4 `MAKE` / variables (removed — functional core); §7 "an obstacle always ends the program" (it carries on when the program uses `BLOCKED?`); §3.5 lists `WAIT UNTIL` as a vision word (it is a core level-2 word); §3.5 `COUNT` (renamed `HOWMANY`).
 
 ## 1. Goal
 A small Logo-like language so that **children, the owner and the AI** can program the tank. Programs are written in a built-in code editor (IDE) in the web app, or generated by the AI engine from speech. Turtle commands map directly onto the tank's existing motion primitives, so the language adds **no new firmware on the Uno** and **no new safety rules** — every step is an ordinary command that passes the Uno safety supervisor.

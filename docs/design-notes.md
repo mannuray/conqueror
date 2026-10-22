@@ -1666,3 +1666,17 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
   - **The owner: "almost straight", the end 1.5 cm to the right of the start mark.** Before R19 (§116) it ended 3 cm ahead, 4 cm right, visibly facing right.
 - **Saved on the tank:** `gyro_scale` 10310 (`cq_motion` NVS).
 - **Owner (2026-10-22): skip the N3 IR takeover check** (no remote at hand). Still to do from §115: `avoid_walls` with a box (floor), Plan P's R15.11 stand list and the `CQ_WDT_TEST` watchdog check.
+
+## 118. `GO` and `HOLD` - driving on until something happens (owner, 2026-10-22)
+- **Seen on the floor:** `avoid_walls` drove around without bumping and turned away from every wall (the closest the sensor read was 3.2 cm; two obstacle turns in 40 s). But "power delivery was not smooth and it seemed in a cycle" (owner). Each `FORWARD 20` is a separate move: it speeds up, drives 20 cm, stops, then the program checks `BLOCKED?`. Tank Logo v1 has no word that keeps driving.
+- **Options discussed:**
+  - (a) a longer step in the example;
+  - (b) a continuous-drive word;
+  - (c) leave smooth driving to the AI drive module.
+- **Owner: (b)** — "a go word is a good addition for the tank".
+- **Decisions:**
+  - `GO` drives straight forward only (no `GO BACK`: the sensor looks forward).
+  - A new **`HOLD`** stops the tank while the program goes on; `STOP` still ends everything. The owner chose the name HOLD over HALT.
+- **Owner's direction for the AI words:** "drive forward till you find a ball or see people". `GO … WAIT UNTIL SEE? "ball … HOLD` covers this without a motion word per thing; AI words stay questions (`SEE?`, `HOWMANY`).
+- **Safety:** `GO` is refreshed at least every 0.3 s by whoever runs the program (the tank's runner, or the AI engine over WiFi), else the tank stops. That is the manual-driving rule; no new rule.
+- **Written as Spec 5 Revision 3** (owner: "yes", 2026-10-22). Next: the Tank Logo LLD revision, then the plan.

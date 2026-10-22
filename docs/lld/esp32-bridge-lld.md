@@ -2248,7 +2248,7 @@ sequenceDiagram
 - **No new WebSocket message yet:** `{"t":"go"}` / `{"t":"hold"}` come with the AI engine's Logo runner (Tank Logo LLD §22.6).
 - **Tests:** `test_motion` (Tank Logo LLD §22.5).
 
-## Revision 21 — pushing but not moving (draft, 2026-10-22; design-notes §119)
+## Revision 21 — pushing but not moving (approved by the owner 2026-10-22; design-notes §119)
 
 ### R21.0 Why
 - **On the floor (§119)** a `GO` pressed one track against a table leg the sensor could not see. For 4.7 s the left track slipped at ~23 cm/s, the right crawled at ~4 cm/s, the gyro read 0 °/s and the distance ahead stayed at ~43 cm.

@@ -1699,3 +1699,10 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
   - `FORWARD` has the same gap. **To design** (owner: "do it"): "pushing but not moving" (no turn on the gyro, no change in the distance ahead, the tracks disagreeing) for ~1.5 s → blocked.
 - **The `/logo` page check** (the word help and the dashed preview) is still to do by the owner.
 - **Owner: "yes" (2026-10-22)** — the stuck-against-the-side fix is written as bridge LLD R21 (draft): "pushing but not moving". The tracks' speed difference should turn the tank; if the gyro does not see it for 1.5 s, the drive ends blocked.
+
+## 120. Camera servos re-mounted at 90° (owner, 2026-10-23)
+- **Found by the owner:** the pan and tilt servo horns had been mounted wrong. The angles in firmware were right: home = 90° for both (`CamLite::kHome` 900, a 1.47 ms pulse).
+- **Re-mounted** with both servos driven to 90° first; the Uno's telemetry read `pan 90.0, tilt 90.0`.
+- **Notes:**
+  - A hobby servo has no spring and no "natural" middle: unpowered, it stays where it was last driven, held only by gear friction. The Uno releases both servos 2 s after they stop (spec 02 §D5.4), so a shaft turned by hand after that is no longer at the commanded angle.
+  - The Q0 tilt estimate at home (4-9° down, §109) may have included this mounting error. The laser-level horizon check of the map work will measure it again.

@@ -1999,7 +1999,7 @@ The code is authoritative where it differs from R15.1–R15.11:
 - **R15.6:** parsing is table-driven (one reader per key, one check per command), but `WsCommand` stays one flat struct (Plan P ruling: per-command structs would rewrite every parser test and handler for no behaviour gain).
 - **Host tests:** 324 (was 246); drive / STOP rules pinned in `test_drive_controller` (checked by mutation).
 - **Size check:** the bridge has no entries in `scripts/size_allow.txt`.
-- **Tank checks pending** (owner: after the Logo work and the road-wheel / motor-power fix): stand list and floor list of R15.11, the `CQ_WDT_TEST` watchdog check.
+- **Tank checks done 2026-10-23** (design-notes §122): the stand list of R15.11 passes, the floor list is covered by later runs, and the `CQ_WDT_TEST` watchdog check restarts the bridge with reason `task_wdt`.
 
 ## Revision 16 — Tank Logo on the bridge (Plan N3, Tank Logo LLD §20, design-notes §102-§105) — APPROVED (owner, 2026-10-19) — BUILT, stand-checked
 - **Partitions:** the `logo` LittleFS area (256 KB at 0x7B0000), app slots 2.875 MB (table in R2.2). One USB flash done 2026-10-19 (order: partitions + app, then the source archive).

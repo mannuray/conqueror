@@ -1716,3 +1716,21 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
   - It then drove 8.8 s on open floor with no false stop.
 - **`move.py 200` on open floor:** done (198.0 cm at the stop, 200.4 cm after the roll-on, heading −0.1°). Owner's tape: 2 m, ~1.5 cm right. Unchanged from §116; no false "blocked".
 - **Split surface** (the right track climbing onto a rug, `GO WAIT 3 HOLD`; the final review's risk I1): **finished, no false blocked.** 63 cm in 3 s; the tracks stayed within 2 % (≤ 1.1 °/s expected). The guard I1 suggested is not needed for this rug.
+
+## 122. Plan P's tank checks, done (owner, 2026-10-23)
+- **Watchdog (`CQ_WDT_TEST`), nothing moves:** pass.
+  - A test build (`PLATFORMIO_BUILD_FLAGS="-DCQ_WDT_TEST"`, OTA) blocks the loop for 4 s once, 60 s after boot.
+  - `/info` before: boot count 273, reason `software`. The bridge went silent at ~60 s and came back as **boot 274, reason `task_wdt`**.
+  - The normal build was flashed back (boot 275, `software`). There was no restart afterwards: still boot 275 at 441 s and at the 10-minute check (below).
+- **Stand list (bridge LLD R15.11; the owner on the phone, tracks off the ground):** all **pass**.
+  1. drive stick;
+  2. STOP;
+  3. STOP from a second device (held until the stick is released, with its Log row);
+  4. camera stick, HOME, LOCK;
+  5. a sound while a camera HOME waits (both answered, no BUSY);
+  6. a tank-button confirmation of a setting;
+  7. the WiFi double press with and without a phone (jingle and blink);
+  8. the Settings tabs (live sensors, self-test, camera, Log paging).
+- **Floor list (a 1 m move, a 90° turn):** covered many times since, e.g. `move 200` at ±1.5 cm (§121) and the turns of §114 / §117.
+- **`/logo` page for `GO` / `HOLD`** (Plan N5 Task 4 Step 4): pass. Both are in the word help, and the preview of `GO WAIT 1 HOLD RIGHT 90` draws a dashed 1 m line.
+- **Plan P's tank checks are complete.** Still open from the old list: the N3 IR takeover (no remote at hand, §117).

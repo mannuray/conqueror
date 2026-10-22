@@ -1036,7 +1036,7 @@ stateDiagram-v2
   - no `keepGo` for 300 ms → deadman;
   - `hold` → done with v = 0;
   - a `startMove` during a GO replaces it without an end;
-  - a stall (with encoders: no counts for 1.5 s while driven and nothing close) → stalled.
+  - the Uno's stall event ends a GO as stalled (bridge LLD R20).
 - **`test_logo_controller`:**
   - `keepGo` every tick while going;
   - `hold` on `HOLD`;

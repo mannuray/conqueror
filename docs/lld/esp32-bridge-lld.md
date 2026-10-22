@@ -2237,7 +2237,8 @@ sequenceDiagram
   - **`hold(now)`:** ends it as `kDone`, with STOP to the Uno.
 - **Endings:**
   - **`kBlocked` as soon as the Uno's obstacle-brake flag is set.** A MOVE waits 2 s, because its target is still ahead; a GO has no target, and the tank has already stopped.
-  - **`kStalled`** with encoders: no counts for `kMoveStallMs` while driven, with nothing close ahead (the MOVE rule). Without encoders there is no stall check, as with driving by hand.
+  - **`kStalled`** from the Uno's own stuck-track check (its EVENT stall, Plan I: speed below 30 % of the command), the event that already ends a MOVE or an arc (`MotionLink::onEvent`). That needs the encoders; without them there is no stall check, as with driving by hand.
+    - Settled while drafting Plan N5: this replaces a separate bridge-side count check. It is the same protection with less code.
   - **Unchanged:** `kLink` (a telemetry gap), owner loss / STOP / cancel / IR takeover, and the Uno's own safety.
   - **No timeout of its own:** the program's 5-minute limit bounds it.
 - **Replacing it:** any `start…` while a GO runs replaces it with no end event, so the next Logo motion takes over smoothly from driving.

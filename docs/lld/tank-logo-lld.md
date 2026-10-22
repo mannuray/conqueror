@@ -1021,7 +1021,7 @@ stateDiagram-v2
 - **The checker** needs nothing new: no inputs, and no `needs`.
 
 ### 22.5 Tests
-- **Reading** (`logo/spec/tests/reading.yaml` → `test_logo_conformance`): `GO` and `HOLD` parse as commands with no inputs. `GO 40` → error 7004 (too many inputs). Both are reserved names.
+- **Reading** (`logo/spec/tests/reading.yaml` → `test_logo_conformance`): `GO` and `HOLD` parse as commands with no inputs. `GO 40` → error 7004 ("You didn't say what to do with 40"). Both are reserved names.
 - **Running** (`logo/spec/tests/running.yaml` → `test_logo_running`):
   - `GO WAIT 1 HOLD` → actions go, wait, hold; finished.
   - `GO FORWARD 50` → go, then a move with no GO end in between.

@@ -1734,3 +1734,6 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - **Floor list (a 1 m move, a 90° turn):** covered many times since, e.g. `move 200` at ±1.5 cm (§121) and the turns of §114 / §117.
 - **`/logo` page for `GO` / `HOLD`** (Plan N5 Task 4 Step 4): pass. Both are in the word help, and the preview of `GO WAIT 1 HOLD RIGHT 90` draws a dashed 1 m line.
 - **Plan P's tank checks are complete.** Still open from the old list: the N3 IR takeover (no remote at hand, §117).
+- **Motor power: parked (owner, 2026-10-23).**
+  - The motors' low-speed weakness (deadband PWM ~90-110; the slowest smooth spin ~65 °/s) no longer limits the tank: turns end within ~1°, the 4-turn spins within a few degrees, the Logo square closes within 1.5 cm.
+  - Revisit only if the AI drive module needs slow, precise approaches. The options then: a higher gear ratio, less track friction, start-up kick pulses on the Uno (little room left).

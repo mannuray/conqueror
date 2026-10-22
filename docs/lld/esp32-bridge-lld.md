@@ -2121,3 +2121,93 @@ Found by running the drafted controller against the host tank models; each one i
 - **New tests** in that floor model: from the default coast, the first turn takes one push and ends within 2°; once learned, the turns land centred (mean within ±0.4°; it was +0.9° without the lead).
 - **No separate plan:** a two-constant change approved directly by the owner, done test-first on branch `plan-r2`.
 - **Floor** (design-notes §114): after a reset, four 90° turns ended within 0.1-1.0° with one push each; the Logo square ended 0.9° off its start heading (it was 7.1°).
+
+## Revision 19 — a gyro scale on the bridge (draft, 2026-10-22)
+
+### R19.0 Why
+- The Uno's gyro (MPU6050) under-reads turns by about **2.3 %** (design-notes §116: 4-turn spins against a floor strip, left ~2.7 %, right ~1.9 %). Its factory tolerance is ±3 %.
+- Every turn stops where the gyro says, so the tank really turns ~92° for 90°. A square ends ~8° off, arcs and Logo paths bend, and the AI map would bend the same way.
+- R18 made the turns end exactly where the gyro says; R19 makes the gyro say the truth.
+
+### R19.1 The rule: one scale, applied where the heading arrives
+- **One number, `gyro_scale`,** in parts per 10 000 (`10230` = ×1.0230), range **9000-11000**, default **10000** (no correction).
+- **`BodyLink`** (`core/`), where every TELEM_FAST is unpacked (`body_link.cpp`, the `kTelemFast` case), corrects the heading before anyone reads it:
+  - **The heading:** each frame's change `d = wrap(yaw_raw − last_raw)` (−180..180°) is added scaled, `corrected += d × gyro_scale / 10000`, and `snapshot().fast.yaw` holds the corrected heading, wrapped to 0..359.99°.
+  - **Integers only:** the sum is kept in 1/10 000 of a 0.01° step (an `int32`; one full turn is 3.6 × 10⁸ < 2³¹), so the rounding never builds up.
+  - **The rate:** `fast.yaw_rate = yaw_rate × gyro_scale / 10000`.
+  - **The raw heading stays available** as `snapshot().yaw_raw`, for diagnostics.
+- **Anchoring:** the first frame after boot, and the first after the link re-syncs (the Uno restarted, so its heading starts again at 0), sets `corrected = raw` with no change. Today's jump at an Uno restart is unchanged.
+- **Who gains, with no change of their own:**
+  - turns and pivots (R18: their learned coast just re-learns once);
+  - arcs;
+  - `turn to` headings;
+  - Logo odometry and the drawn path;
+  - the phone's heading;
+  - `td` / `tf`, recordings and the AI engine.
+- **Not affected:** the Uno's own straight-driving heading hold (it works on its own gyro, holding the rate at 0, where the scale does not matter); the Uno's heading-fault limit (30°, its own check).
+
+### R19.2 Setting it
+- **NVS:** `cq_motion` key `gyro_scale` (`uint16`), loaded at boot, out of range → 10000. Saved like `counts_per_m`.
+- **WebSocket:**
+  - **Set:** `{"t":"calib","gyro_scale":10230,"id":n}` → the tank's button confirms (as counts_per_m, Plan O), driver only, not while a primitive runs.
+  - **Reset:** `{"t":"calib","reset":"gyro_scale"}` → 10000, button-confirmed.
+  - **Read:** the `calib` reply gains `"gyro_scale":n`.
+- **First value:** 10230, from §116, set with `tools/smoke/move.py --gyro-scale 10230`; then measured again (R19.5).
+- **Not in R19:** a Tune-page wizard ("spin 4 turns, say how far it ended off"). Later, if the owner wants it.
+
+### R19.3 Classes
+```mermaid
+classDiagram
+  class HeadingScale {
+    +setScale(scale_e4: uint16)
+    +scale() uint16
+    +reset()  anchor on the next frame
+    +apply(yaw_raw: uint16, rate_raw: int16, yaw: uint16&, rate: int16&)
+    -m_sum_e4: int32  (corrected heading, 1e-4 of 0.01 deg)
+    -m_last_raw: uint16
+    -m_anchored: bool
+  }
+  class BodyLink {
+    +snapshot() TankSnapshot
+    +setGyroScale(scale_e4)
+    -m_heading: HeadingScale
+  }
+  class TankSnapshot {
+    +fast: TelemFastMsg  (yaw, yaw_rate corrected)
+    +yaw_raw: uint16
+  }
+  class MotionController {
+    +gyroScale() uint16&
+  }
+  class SettingsController {
+    +onCalib(gyro_scale set / reset, button confirm)
+  }
+  BodyLink --> HeadingScale
+  BodyLink --> TankSnapshot
+  SettingsController --> BodyLink : setGyroScale after a confirmed save
+  MotionController --> BodyLink : reads the corrected heading
+```
+- `HeadingScale` is pure (`core/heading_scale.{h,cpp}`) and host-tested; `BodyLink` owns one and calls `apply` in its TELEM_FAST case, and `reset` when the link syncs.
+- The motion store port gets `loadGyroScale` / `saveGyroScale`. `link_task` loads the scale at boot and hands it to `BodyLink`; the settings controller saves a confirmed value and hands it on (a `Hooks` pointer, as R18's `coast_ms`).
+
+```mermaid
+sequenceDiagram
+  participant Uno
+  participant BL as BodyLink
+  participant HS as HeadingScale
+  participant M as Turns / arcs / Logo / phone
+  Uno->>BL: TELEM_FAST (yaw_raw, rate_raw)
+  BL->>HS: apply(yaw_raw, rate_raw)
+  HS-->>BL: yaw, rate (scaled)
+  BL->>BL: snapshot.fast.yaw = yaw, .yaw_rate = rate, .yaw_raw = yaw_raw
+  M->>BL: snapshot()
+  Note over M: unchanged code, now the true heading
+```
+
+### R19.4 Tests
+- **Host:**
+  - `HeadingScale`: 10000 passes the heading through unchanged; 10230 turns 4 × 360° of raw frames (in 3° steps, both directions) into 1473.1°, wrapped right; no build-up of rounding over 100 000 frames; the anchor after `reset`; a jump of more than 180° between frames is taken the short way, like `wrapDeltaCdeg`; the rate is scaled.
+  - `BodyLink`: the snapshot carries the corrected yaw and the raw one.
+  - calib set / reset with the button, the reply's `gyro_scale`, NVS load out of range → 10000.
+  - The R18 tests still pass with the scale at 10000.
+- **Floor (owner):** set 10230, then the 4-turn spins left and right against the strip with photos, as §116. Expected: each ends within ~5° of the strip, where it was 39° / 28° off. Then a Logo square. The turn coast re-learns over the first few turns, because the corrected rate is 2.3 % higher.

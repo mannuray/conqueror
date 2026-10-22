@@ -1635,3 +1635,14 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
   - **From the owner's photo:** the tracks against the floor's straight inlay strip are about 20 px closer at the rear than the front over a ~330 px track, so **~3–4° to the tank's right** (estimate; the photo is slightly oblique).
   - **Finding: the gyro under-reads by about 1 %.** The tank really turns ~91° when the gyro says 90°. The turn controller stops where the gyro says, so the error is the gyro's scale, not the turn ending; the MPU6050's factory scale tolerance is about ±3 %. The R18.7 square's "0.9°" (§114) was gyro-measured, so it was probably about 4° in reality.
   - **Next (owner: go):** measure the scale with 4 full spins (1440° by the gyro) against the strip, left and right. Then a bridge-side gyro scale setting (LLD revision first; the Uno is 96 % full).
+- **Gyro scale measured with 4-turn spins (the owner's photos, straight down, the tank lined up with the floor's inlay strip):**
+  - **Method:**
+    - The owner lined the tank's right track along the strip, its rear against the crossing strip, and took a start photo.
+    - Two 720° spins were sent with `tools/smoke/turn.py ±720 --speed 40`; 720° is the protocol's limit per turn, and a 1440° turn is refused unanswered.
+    - The owner took an end photo; the tank's angle to the same strip was read from the photo.
+    - The phone was held at a different angle for the end photos, so the angle was always read against the strip, never the picture's edges.
+  - **Left:** the gyro summed 719.9° + 720.2° = 1440.1°. The end photo: the strip at ~33° from the picture's vertical, the tracks ~6-7° the other way, so **~39° further left**: really ~1479°, **the gyro ~2.7 % short**. The owner's eye said ~45°.
+  - **Right:** the gyro summed 719.7° + 719.4° = 1439.1°. The end photo: the strip at ~34° below the horizontal, the tank ~6° below, so **~28° further right**: really ~1467°, **~1.9 % short**.
+  - **Reading:** both directions under-read, so this is the gyro's scale: **~2.3 % on average, scale ≈ 1.023**, inside the MPU6050's ±3 % tolerance. The left / right gap (39° vs 28°) is within the photo-reading error (about ±5° each, slanted photos); a small motion offset cannot be ruled out. The square's 3-4° estimate above was rougher still.
+  - **Effects:** a Logo `RIGHT 90` really turns ~92°, a square ends ~8° off, and the AI map would bend.
+  - **Decision (owner: "yes write R19 for option a"):** correct it on the bridge, where the Uno's heading arrives (bridge LLD R19), not in the Uno (96 % full, USB-only updates).

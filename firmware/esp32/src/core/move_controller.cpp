@@ -26,6 +26,7 @@ void MoveController::begin(int32_t enc_l, int32_t enc_r, int16_t dist_cm, uint8_
   m_ref_ms = now_ms;
   m_deadline = now_ms + static_cast<uint32_t>(cm) * 1000u / motion::kMoveTimeoutCmPerS + motion::kMoveTimeoutBaseMs;
   m_blocked = false;
+  m_slip.reset();
 }
 
 // The obstacle brake has held the move for kMoveBlockedMs.
@@ -71,8 +72,8 @@ MoveStep MoveController::step(const MotionTelem& t, uint32_t now_ms) {
     s.done = true;
     return s;
   }
-  if (blockedTooLong(t, now_ms)) {
-    s.blocked = true;
+  if (blockedTooLong(t, now_ms) || m_slip.step(t.enc_l, t.enc_r, t.rate_ddps, m_cpm, m_dir, now_ms)) {
+    s.blocked = true;  // the obstacle brake, or a slipping track the gyro does not see (R21)
     return s;
   }
   if (stuck(t, now_ms, s)) return s;

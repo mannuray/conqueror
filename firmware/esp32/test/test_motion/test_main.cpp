@@ -1223,6 +1223,42 @@ void test_link_uno_stall_ends_a_go() {
   TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kStalled), static_cast<int>(o.end.reason));
 }
 
+// Bridge LLD R21: a straight drive with a slipping track (the gyro sees no turn) ends blocked after ~1.5 s - for a
+// MOVE and a GO. Design-notes §119: left 1750 counts/s, right 330, the gyro 0.
+namespace {
+MotionTelem slipAt(int32_t l, int32_t r) {
+  MotionTelem t;
+  t.enc_l = l;
+  t.enc_r = r;
+  return t;  // rate 0, nothing seen ahead
+}
+}  // namespace
+
+void test_a_move_with_a_slipping_track_ends_blocked() {
+  MotionService svc;
+  svc.startMove(3, slipAt(0, 0), 300, 40, 7517, 7, 0);
+  MotionOut o;
+  uint32_t t = 0;
+  for (int32_t l = 0, r = 0; t <= 3000 && !o.ended; l += 35, r += 7) o = svc.onTelemetry(slipAt(l, r), t += 20);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+  TEST_ASSERT_TRUE(t >= 1500 && t <= 2200);
+}
+
+void test_a_go_with_a_slipping_track_ends_blocked() {
+  MotionService svc;
+  svc.startGo(3, 40, 7, 0, 7517);
+  MotionOut o;
+  uint32_t t = 0;
+  for (int32_t l = 0, r = 0; t <= 3000 && !o.ended; l += 35, r += 7) {
+    svc.keepGo(t);
+    o = svc.onTelemetry(slipAt(l, r), t += 20);
+  }
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+  TEST_ASSERT_TRUE(t >= 1500 && t <= 2200);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_router_lite_runs_turn_and_rate_locally);
@@ -1301,5 +1337,7 @@ int main() {
   RUN_TEST(test_a_move_takes_over_from_go_without_an_end);
   RUN_TEST(test_link_hold_sends_stop_and_ends_done);
   RUN_TEST(test_link_uno_stall_ends_a_go);
+  RUN_TEST(test_a_move_with_a_slipping_track_ends_blocked);
+  RUN_TEST(test_a_go_with_a_slipping_track_ends_blocked);
   return UNITY_END();
 }

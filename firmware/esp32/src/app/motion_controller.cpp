@@ -115,7 +115,7 @@ bool MotionController::startLogo(int fd, const logo::Action& a, uint32_t now, co
   core::MotionService& svc = m_motion.service();
   const uint8_t spin = a.speed_pct < core::motion::kTurnWMin ? core::motion::kTurnWMin : a.speed_pct;
   switch (a.kind) {  // VARIANT POINT: Logo motions (Tank Logo LLD §10, §22)
-    case logo::ActKind::kGo: svc.startGo(fd, a.speed_pct, kLogoPrimitive, now); return true;
+    case logo::ActKind::kGo: svc.startGo(fd, a.speed_pct, kLogoPrimitive, now, m_cpm); return true;
     case logo::ActKind::kMove:
       svc.startMove(fd, telemOf(snap), a.dist_cm, a.speed_pct, m_cpm, kLogoPrimitive, now, m_roll_mm);
       return true;

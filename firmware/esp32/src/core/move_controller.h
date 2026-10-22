@@ -5,6 +5,8 @@
 
 #include <stdint.h>
 
+#include "core/slip_watch.h"
+
 namespace cq {
 namespace core {
 
@@ -50,6 +52,7 @@ class MoveController {
   int8_t m_dir = 1;
   uint8_t m_speed = 40;
   uint16_t m_cpm = 7560;
+  SlipWatch m_slip;  // R21: pushing but not moving
   uint32_t m_ref_ms = 0;
   uint32_t m_deadline = 0;
   bool m_blocked = false;

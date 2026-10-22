@@ -18,7 +18,7 @@ void SlipWatch::startWindow(int32_t enc_l, int32_t enc_r, uint32_t now_ms) {
   m_rate_n = 0;
 }
 
-bool SlipWatch::step(int32_t enc_l, int32_t enc_r, int16_t rate_ddps, uint16_t cpm, int8_t dir, uint32_t now_ms) {
+bool SlipWatch::step(int32_t enc_l, int32_t enc_r, int16_t rate_ddps, uint16_t cpm, uint32_t now_ms) {
   if (!m_started || cpm == 0) {
     startWindow(enc_l, enc_r, now_ms);
     return false;
@@ -27,8 +27,13 @@ bool SlipWatch::step(int32_t enc_l, int32_t enc_r, int16_t rate_ddps, uint16_t c
   ++m_rate_n;
   const uint32_t dt = now_ms - m_win_ms;
   if (dt < motion::kSlipWindowMs) return false;
-  // The turn the tracks say (0.1 deg/s, + = left): signed track speeds in cm/s over the track width.
-  const float s = static_cast<float>(dir) * 100.0f * 1000.0f / static_cast<float>(cpm) / static_cast<float>(dt);
+  if (dt > 2 * motion::kSlipWindowMs) {  // frames were missing: start again, never judge one long window
+    m_slipping = false;
+    startWindow(enc_l, enc_r, now_ms);
+    return false;
+  }
+  // The turn the tracks say (0.1 deg/s): the track speed difference in cm/s over the track width.
+  const float s = 100.0f * 1000.0f / static_cast<float>(cpm) / static_cast<float>(dt);
   const float diff_cm_s = static_cast<float>((enc_r - m_r0) - (enc_l - m_l0)) * s;
   const float expected = diff_cm_s / static_cast<float>(motion::kTrackWidthCm) * kDegPerRad * 10.0f;
   const float measured = static_cast<float>(m_rate_sum) / static_cast<float>(m_rate_n);

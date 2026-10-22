@@ -2261,11 +2261,11 @@ sequenceDiagram
 ### R21.1 The rule
 - **Physics:** tracks that really move at different speeds turn the tank: `expected rate = (v_right − v_left) / B` (`B` = `kTrackWidthCm` 19 cm). If the gyro does not see that turn, a track is slipping and the tank is held.
 - **Check, every window of `kSlipWindowMs` 500 ms** during a straight drive (a `GO`, or a `FORWARD` / `BACK`):
-  - `v_left`, `v_right` = the counts each track moved in the window ÷ `counts_per_m`, per second. The counts are signed by the drive's direction, as MOVE uses them.
+  - `v_left`, `v_right` = the counts each track moved in the window ÷ `counts_per_m`, per second. The counts rise in both directions (the Uno counts rising edges), so only sizes are compared, the same forward and in reverse (final review of Plan R3).
   - `expected` = (v_right − v_left) / B, in °/s.
   - `measured` = the mean gyro rate over the window.
   - **A slipping window:** `|expected| ≥ kSlipExpectedDdps` (30 °/s) **and** `|measured| < |expected| / 3`.
-- **Held:** `kSlipHoldMs` (1500 ms, three windows in a row) of slipping windows. The primitive then ends as **`kBlocked`**: `BLOCKED?` is TRUE in a program that uses it, otherwise 7024 "Something is in the way", like an obstacle in front.
+- **Held:** `kSlipHoldMs` (1500 ms, three windows in a row) of slipping windows. A window longer than 2 × 0.5 s (frames missing) is not judged: it starts again, so no single window can reach the hold (final review of Plan R3). The primitive then ends as **`kBlocked`**: `BLOCKED?` is TRUE in a program that uses it, otherwise 7024 "Something is in the way", like an obstacle in front.
 - **Not checked:** spins, pivots, arcs and DRIVE_RATE. They turn on purpose, and their own stall rules stay.
 - **Checked only with encoders.** `GO` and `FORWARD` need them; an encoder fault already ends both.
 - **On the recording of §119:** the slipping windows begin at 26.8 s, so it would have ended at ≈ 28.3 s, instead of when the leg came into view at 31.9 s. A normal straight drive keeps the tracks within ~2 % (≤ 2 °/s expected), far below 30 °/s.
@@ -2274,7 +2274,7 @@ sequenceDiagram
 ```mermaid
 classDiagram
   class SlipWatch {
-    +reset(now)
+    +reset()
     +step(enc_l, enc_r, rate_ddps, cpm, now) bool  held
     -m_win_start_ms, m_win_l, m_win_r
     -m_rate_sum, m_rate_n

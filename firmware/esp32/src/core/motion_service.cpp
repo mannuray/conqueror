@@ -164,7 +164,7 @@ MotionOut MotionService::stepGo(const MotionTelem& t, uint32_t now_ms) {
     return finish(EndReason::kBlocked);
   }
   if (goStopped(t, now_ms) && t.dist_mm < motion::kMoveObstacleMm) return finish(EndReason::kBlocked);
-  if (m_go_slip.step(t.enc_l, t.enc_r, t.rate_ddps, m_go_cpm, 1, now_ms)) return finish(EndReason::kBlocked);  // R21
+  if (m_go_slip.step(t.enc_l, t.enc_r, t.rate_ddps, m_go_cpm, now_ms)) return finish(EndReason::kBlocked);  // R21
   MotionOut o;
   o.send = true;
   o.v = m_go_v;  // w = 0: the Uno's heading hold keeps it straight

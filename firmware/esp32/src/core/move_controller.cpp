@@ -72,7 +72,7 @@ MoveStep MoveController::step(const MotionTelem& t, uint32_t now_ms) {
     s.done = true;
     return s;
   }
-  if (blockedTooLong(t, now_ms) || m_slip.step(t.enc_l, t.enc_r, t.rate_ddps, m_cpm, m_dir, now_ms)) {
+  if (blockedTooLong(t, now_ms) || m_slip.step(t.enc_l, t.enc_r, t.rate_ddps, m_cpm, now_ms)) {
     s.blocked = true;  // the obstacle brake, or a slipping track the gyro does not see (R21)
     return s;
   }

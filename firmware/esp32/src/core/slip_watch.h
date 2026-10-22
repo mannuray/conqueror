@@ -14,9 +14,9 @@ class SlipWatch {
     m_started = false;
     m_slipping = false;
   }
-  // Each TELEM_FAST: the raw counts (they rise in both directions), the gyro, counts per metre, the drive's
-  // direction (+1 forward, -1 reverse). True once held.
-  bool step(int32_t enc_l, int32_t enc_r, int16_t rate_ddps, uint16_t cpm, int8_t dir, uint32_t now_ms);
+  // Each TELEM_FAST: the raw counts, the gyro, counts per metre. True once held. The counts rise in both directions
+  // (the Uno counts rising edges), so only sizes are compared - the same for forward and reverse.
+  bool step(int32_t enc_l, int32_t enc_r, int16_t rate_ddps, uint16_t cpm, uint32_t now_ms);
 
  private:
   void startWindow(int32_t enc_l, int32_t enc_r, uint32_t now_ms);

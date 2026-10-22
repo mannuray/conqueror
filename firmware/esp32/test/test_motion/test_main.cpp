@@ -1259,6 +1259,22 @@ void test_a_go_with_a_slipping_track_ends_blocked() {
   TEST_ASSERT_TRUE(t >= 1500 && t <= 2200);
 }
 
+// R21.3 (final review M3): turns turn on purpose - a spin whose counts disagree while the gyro shows little turn is
+// never ended as "held" (only its own stall / timeout rules apply).
+void test_a_turn_never_uses_the_slip_watch() {
+  MotionService svc;
+  svc.startTurn(3, 0, 9000, 40, 7, 0);
+  MotionOut o;
+  uint32_t t = 0;
+  for (int32_t l = 0, r = 0; t <= 2500 && !o.ended; l += 35, r += 7) {
+    MotionTelem m = slipAt(l, r);
+    m.yaw_cdeg = static_cast<uint16_t>(t);  // turning slowly (0.5 deg/s), not stalled
+    m.rate_ddps = 300;
+    o = svc.onTelemetry(m, t += 20);
+  }
+  TEST_ASSERT_TRUE(!o.ended || o.end.reason != EndReason::kBlocked);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_router_lite_runs_turn_and_rate_locally);
@@ -1339,5 +1355,6 @@ int main() {
   RUN_TEST(test_link_uno_stall_ends_a_go);
   RUN_TEST(test_a_move_with_a_slipping_track_ends_blocked);
   RUN_TEST(test_a_go_with_a_slipping_track_ends_blocked);
+  RUN_TEST(test_a_turn_never_uses_the_slip_watch);
   return UNITY_END();
 }

@@ -2312,3 +2312,12 @@ stateDiagram-v2
   - reversing (both counts negative) works.
 - **`test_motion`:** a GO and a MOVE end `kBlocked` with a slipping track; a turn never uses it.
 - **Floor (owner):** `GO` with one track against a table leg, out of the sensor's view. Expected: within ~2 s the program backs off and turns (`FOREVER [ GO WAIT UNTIL BLOCKED? BACK 10 RIGHT 90 ]`).
+
+### R21.4 As built and floor results (Plan R3, 2026-10-23)
+- **Built:** `SlipWatch` (`core/slip_watch.{h,cpp}`), used by `MoveController` and the GO primitive (`startGo` takes the `counts_per_m`). 654 host tests.
+- **Final-review fixes:** sizes only, no direction input (the counts rise both ways); a window longer than 1 s is not judged; a turn never uses it (test).
+- **Floor (design-notes §121):**
+  - a track against a table leg out of the sensor's view → the GO ended blocked ~2 s after contact (before: 4.7 s of pushing);
+  - `move 200` unchanged (2 m, ~1.5 cm right);
+  - a track on a rug edge → no false stop.
+

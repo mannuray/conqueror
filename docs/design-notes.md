@@ -1665,3 +1665,4 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
   - The corrected gyro turned the corners 91.3°, 90.9°, 90.5°, 91.6° and ended 4.3° right. The ~1° per corner is the R18 turn coast re-learning after the scale change (the corrected rate reads ~3 % higher), shrinking corner by corner.
   - **The owner: "almost straight", the end 1.5 cm to the right of the start mark.** Before R19 (§116) it ended 3 cm ahead, 4 cm right, visibly facing right.
 - **Saved on the tank:** `gyro_scale` 10310 (`cq_motion` NVS).
+- **Owner (2026-10-22): skip the N3 IR takeover check** (no remote at hand). Still to do from §115: `avoid_walls` with a box (floor), Plan P's R15.11 stand list and the `CQ_WDT_TEST` watchdog check.

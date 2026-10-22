@@ -2236,7 +2236,10 @@ sequenceDiagram
   - **`goSpeed(speed)`:** changes the speed at once.
   - **`hold(now)`:** ends it as `kDone`, with STOP to the Uno.
 - **Endings:**
-  - **`kBlocked` as soon as the Uno's obstacle-brake flag is set.** A MOVE waits 2 s, because its target is still ahead; a GO has no target, and the tank has already stopped.
+  - **`kBlocked` when something is in the way, as for a MOVE:**
+    - at once when the Uno's obstacle-brake flag is set (a MOVE waits 2 s for the flag, because its target is still ahead; a GO has none);
+    - **or after 1.5 s without progress with an obstacle closer than 25 cm ahead** (`kMoveStallMs`, `kMoveObstacleMm`). Near an obstacle the Uno's own slow-down (50 → 15 cm) stops the tank before the flag ever comes on (floor 2026-10-17), which is why a MOVE has this rule too.
+    - Progress = the counts move 1 cm, or the distance ahead shrinks 1 cm, so the rule also works without encoders. Added by the final review of Plan N5: without it, `GO WAIT UNTIL BLOCKED?` would wait in front of the wall until the 5-minute limit.
   - **`kStalled`** from the Uno's own stuck-track check (its EVENT stall, Plan I: speed below 30 % of the command), the event that already ends a MOVE or an arc (`MotionLink::onEvent`). That needs the encoders; without them there is no stall check, as with driving by hand.
     - Settled while drafting Plan N5: this replaces a separate bridge-side count check. It is the same protection with less code.
   - **Unchanged:** `kLink` (a telemetry gap), owner loss / STOP / cancel / IR takeover, and the Uno's own safety.

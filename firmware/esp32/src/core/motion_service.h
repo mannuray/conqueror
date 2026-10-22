@@ -105,6 +105,11 @@ class MotionService {
   int8_t m_rate_v = 0;
   int8_t m_go_v = 0;            // R20
   uint32_t m_go_update_ms = 0;  // R20: the last startGo / keepGo
+  bool m_go_ref_set = false;    // R20 (final review C1): progress reference - counts and the distance ahead
+  int32_t m_go_ref_counts = 0;
+  uint16_t m_go_ref_dist = 0;
+  uint32_t m_go_ref_ms = 0;
+  bool goStopped(const MotionTelem& t, uint32_t now_ms);  // no progress for kMoveStallMs
   int16_t m_rate_target = 0;
   bool m_rate_limited = false;
   uint32_t m_rate_update_ms = 0;

@@ -1093,6 +1093,59 @@ void test_go_ends_blocked_as_soon_as_the_brake_engages() {
   TEST_ASSERT_EQUAL_INT8(0, o.v);
 }
 
+// Final review C1: near an obstacle the Uno's own slow-down stops the tank WITHOUT its blocked flag (floor
+// 2026-10-17, motion_config kMoveObstacleMm) - a GO uses MOVE's second rule: no progress (counts or the distance
+// ahead) for 1.5 s with something closer than 25 cm ahead -> blocked. Far from anything, standing still is not
+// blocked (the Uno's own stall check handles a stuck track).
+namespace {
+MotionTelem goAt(int32_t counts, uint16_t dist_mm) {
+  MotionTelem t = encAt(counts);
+  t.dist_mm = dist_mm;
+  return t;
+}
+MotionOut goFor(MotionService& svc, uint32_t from, uint32_t to, int32_t counts_per_step, int16_t dist_step,
+                uint16_t dist0) {
+  MotionOut o;
+  int32_t c = 0;
+  int32_t d = dist0;
+  for (uint32_t t = from; t <= to && !o.ended; t += 20) {
+    svc.keepGo(t);
+    o = svc.onTelemetry(goAt(c, static_cast<uint16_t>(d)), t);
+    c += counts_per_step;
+    d += dist_step;
+  }
+  return o;
+}
+}  // namespace
+
+void test_go_ends_blocked_when_the_slow_down_stops_it_near_an_obstacle() {
+  MotionService svc;
+  svc.startGo(3, 40, 7, 0);
+  MotionOut o = goFor(svc, 20, 1500, 0, 0, 160);  // stopped 16 cm from a wall, no flag: not yet (< 1.5 s)
+  TEST_ASSERT_FALSE(o.ended);
+  o = goFor(svc, 1520, 1700, 0, 0, 160);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+}
+
+void test_go_creeping_or_far_away_is_not_blocked() {
+  {  // creeping toward the wall with encoders: progress
+    MotionService svc;
+    svc.startGo(3, 40, 7, 0);
+    TEST_ASSERT_FALSE(goFor(svc, 20, 3000, 10, 0, 200).ended);
+  }
+  {  // no encoders, but the distance ahead keeps shrinking: progress
+    MotionService svc;
+    svc.startGo(3, 40, 7, 0);
+    TEST_ASSERT_FALSE(goFor(svc, 20, 3000, 0, -1, 240).ended);
+  }
+  {  // standing still far from anything: not blocked (the Uno's stall check is for a stuck track)
+    MotionService svc;
+    svc.startGo(3, 40, 7, 0);
+    TEST_ASSERT_FALSE(goFor(svc, 20, 3000, 0, 0, 800).ended);
+  }
+}
+
 void test_go_stops_without_a_refresh_within_300_ms() {
   MotionService svc;
   svc.startGo(3, 40, 7, 0);
@@ -1230,6 +1283,8 @@ int main() {
   RUN_TEST(test_go_drives_straight_at_its_speed_until_held);
   RUN_TEST(test_go_ends_blocked_as_soon_as_the_brake_engages);
   RUN_TEST(test_go_stops_without_a_refresh_within_300_ms);
+  RUN_TEST(test_go_ends_blocked_when_the_slow_down_stops_it_near_an_obstacle);
+  RUN_TEST(test_go_creeping_or_far_away_is_not_blocked);
   RUN_TEST(test_go_again_changes_the_speed_at_once);
   RUN_TEST(test_a_move_takes_over_from_go_without_an_end);
   RUN_TEST(test_link_hold_sends_stop_and_ends_done);

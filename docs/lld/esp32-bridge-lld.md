@@ -2247,3 +2247,68 @@ sequenceDiagram
 - **Replacing it:** any `start…` while a GO runs replaces it with no end event, so the next Logo motion takes over smoothly from driving.
 - **No new WebSocket message yet:** `{"t":"go"}` / `{"t":"hold"}` come with the AI engine's Logo runner (Tank Logo LLD §22.6).
 - **Tests:** `test_motion` (Tank Logo LLD §22.5).
+
+## Revision 21 — pushing but not moving (draft, 2026-10-22; design-notes §119)
+
+### R21.0 Why
+- **On the floor (§119)** a `GO` pressed one track against a table leg the sensor could not see. For 4.7 s the left track slipped at ~23 cm/s, the right crawled at ~4 cm/s, the gyro read 0 °/s and the distance ahead stayed at ~43 cm.
+- **Nothing noticed:**
+  - The bridge's no-progress rule averages the tracks, and the slipping one looks like progress.
+  - The Uno's stall check sees a turning track.
+  - The obstacle rules need the sensor to see the obstacle.
+- **`FORWARD` has the same gap.** Out of the sensor's view, the tank would push until the move's timeout (FORWARD) or the 5-minute program limit (GO).
+
+### R21.1 The rule
+- **Physics:** tracks that really move at different speeds turn the tank: `expected rate = (v_right − v_left) / B` (`B` = `kTrackWidthCm` 19 cm). If the gyro does not see that turn, a track is slipping and the tank is held.
+- **Check, every window of `kSlipWindowMs` 500 ms** during a straight drive (a `GO`, or a `FORWARD` / `BACK`):
+  - `v_left`, `v_right` = the counts each track moved in the window ÷ `counts_per_m`, per second. The counts are signed by the drive's direction, as MOVE uses them.
+  - `expected` = (v_right − v_left) / B, in °/s.
+  - `measured` = the mean gyro rate over the window.
+  - **A slipping window:** `|expected| ≥ kSlipExpectedDdps` (30 °/s) **and** `|measured| < |expected| / 3`.
+- **Held:** `kSlipHoldMs` (1500 ms, three windows in a row) of slipping windows. The primitive then ends as **`kBlocked`**: `BLOCKED?` is TRUE in a program that uses it, otherwise 7024 "Something is in the way", like an obstacle in front.
+- **Not checked:** spins, pivots, arcs and DRIVE_RATE. They turn on purpose, and their own stall rules stay.
+- **Checked only with encoders.** `GO` and `FORWARD` need them; an encoder fault already ends both.
+- **On the recording of §119:** the slipping windows begin at 26.8 s, so it would have ended at ≈ 28.3 s, instead of when the leg came into view at 31.9 s. A normal straight drive keeps the tracks within ~2 % (≤ 2 °/s expected), far below 30 °/s.
+
+### R21.2 Classes
+```mermaid
+classDiagram
+  class SlipWatch {
+    +reset(now)
+    +step(enc_l, enc_r, rate_ddps, cpm, now) bool  held
+    -m_win_start_ms, m_win_l, m_win_r
+    -m_rate_sum, m_rate_n
+    -m_slip_since, m_slipping
+  }
+  class MoveController {
+    -m_slip: SlipWatch
+    +step(telem, now) MoveStep  (blocked when held)
+  }
+  class MotionService {
+    -m_go_slip: SlipWatch
+    -stepGo(telem, now)  (kBlocked when held)
+  }
+  MoveController --> SlipWatch
+  MotionService --> SlipWatch
+```
+- `SlipWatch` (`core/slip_watch.{h,cpp}`) is pure and host-tested. Its constants (`kSlipWindowMs`, `kSlipExpectedDdps`, `kSlipHoldMs`) go in `motion_config.h`.
+- `MotionService` gives a GO the `counts_per_m` in use: `startGo` gains a `cpm` input, as `startMove` already has.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Watching : reset (a straight drive starts)
+  Watching --> Slipping : a window with |expected| >= 30 deg/s and |gyro| < expected / 3
+  Slipping --> Watching : a window without
+  Slipping --> Held : 1.5 s of slipping windows
+  Held --> [*] : the drive ends kBlocked
+```
+
+### R21.3 Tests
+- **Host (`test_slip_watch`):**
+  - the §119 numbers (left 1750 counts/s, right 330, gyro 0) → held after 1.5 s, not before;
+  - the same track speeds with the gyro turning at the expected rate → never held;
+  - equal tracks → never held;
+  - a slip shorter than 1.5 s → not held;
+  - reversing (both counts negative) works.
+- **`test_motion`:** a GO and a MOVE end `kBlocked` with a slipping track; a turn never uses it.
+- **Floor (owner):** `GO` with one track against a table leg, out of the sensor's view. Expected: within ~2 s the program backs off and turns (`FOREVER [ GO WAIT UNTIL BLOCKED? BACK 10 RIGHT 90 ]`).

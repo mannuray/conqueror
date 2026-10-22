@@ -1698,3 +1698,4 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
   - **Nothing noticed:** the no-progress rule averages the two tracks (the slipping one looks like progress), and the Uno's stall check sees a turning track. The tank got free only when the leg came into view at 3.9 cm.
   - `FORWARD` has the same gap. **To design** (owner: "do it"): "pushing but not moving" (no turn on the gyro, no change in the distance ahead, the tracks disagreeing) for ~1.5 s → blocked.
 - **The `/logo` page check** (the word help and the dashed preview) is still to do by the owner.
+- **Owner: "yes" (2026-10-22)** — the stuck-against-the-side fix is written as bridge LLD R21 (draft): "pushing but not moving". The tracks' speed difference should turn the tank; if the gyro does not see it for 1.5 s, the drive ends blocked.

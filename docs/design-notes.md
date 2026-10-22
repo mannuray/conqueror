@@ -1680,3 +1680,7 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
 - **Owner's direction for the AI words:** "drive forward till you find a ball or see people". `GO … WAIT UNTIL SEE? "ball … HOLD` covers this without a motion word per thing; AI words stay questions (`SEE?`, `HOWMANY`).
 - **Safety:** `GO` is refreshed at least every 0.3 s by whoever runs the program (the tank's runner, or the AI engine over WiFi), else the tank stops. That is the manual-driving rule; no new rule.
 - **Written as Spec 5 Revision 3** (owner: "yes", 2026-10-22). Next: the Tank Logo LLD revision, then the plan.
+- **LLD approved (owner: "yes", 2026-10-22):** Tank Logo LLD §22 and bridge LLD R20.
+  - A GO ends at once when the obstacle brake stops it.
+  - The Uno's heading hold keeps it straight (as MOVE does).
+  - The AI engine's `go` / `hold` messages wait for its Logo runner.

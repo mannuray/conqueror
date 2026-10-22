@@ -918,7 +918,7 @@ stateDiagram-v2
 - **Files:** `web/logo.html`, `web/logo.js`, `web/test/logo.test.js` (46 Node tests), `web/test/fake_tank.py` (the stand-in tank), `web/test/browser_check.js` and `web/test/browser_fix_check.js` (Playwright checks); `words.yaml` `group`; `src/logo/odometry.*` and `src/app/logo_controller.cpp` (direction).
 - **Sizes:** `/logo` 20.0 KB gzipped (budget 24 KB); bridge flash 44 %.
 
-## 22. Revision N5 — `GO` and `HOLD` (draft, 2026-10-22; Spec 5 Revision 3, design-notes §118)
+## 22. Revision N5 — `GO` and `HOLD` (approved by the owner 2026-10-22; Spec 5 Revision 3, design-notes §118)
 
 ### 22.1 What changes
 - **Two new words** in `logo/spec/words.yaml`: `GO` and `HOLD`. Both are level 2, group `move`, kind `command`, with no inputs and no `needs`. Two new `EffectKind`s and two new `ActKind`s follow them.

@@ -2229,7 +2229,7 @@ sequenceDiagram
   - a reset asked for during a turn is refused only at the button press (as the cpm reset).
 - **Later, if wanted:** a Tune-page wizard for the scale.
 
-## Revision 20 — the GO primitive (draft, 2026-10-22; Tank Logo LLD §22, Spec 5 Revision 3)
+## Revision 20 — the GO primitive (approved by the owner 2026-10-22; Tank Logo LLD §22, Spec 5 Revision 3)
 - **`PrimKind::kGo`** in `MotionService`: drive straight on at a speed until told otherwise.
   - **`startGo(fd, speed, id, now)`:** each TELEM_FAST step sends v = speed, w = 0. The Uno's heading hold keeps it straight, as a MOVE does.
   - **`keepGo(now)`:** the owner refreshes it. More than **300 ms** without one ends it as `kDeadman`, the DRIVE_RATE rule (R4.4, `kRateDeadmanMs`).

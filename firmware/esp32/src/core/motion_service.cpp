@@ -1,6 +1,7 @@
 #include "core/motion_service.h"
 
 #include "core/motion_config.h"
+#include "cq_protocol.h"
 
 namespace cq {
 namespace core {
@@ -116,6 +117,31 @@ MotionOut MotionService::finish(EndReason why) {
 
 MotionOut MotionService::cancel(EndReason why) { return active() ? finish(why) : MotionOut{}; }
 
+void MotionService::startGo(int fd, uint8_t speed_pct, int32_t id, uint32_t now_ms) {
+  if (m_kind != PrimKind::kGo || m_fd != fd) {
+    m_kind = PrimKind::kGo;
+    m_fd = fd;
+    m_id = id;
+    m_last_telem_ms = now_ms;
+  }
+  m_go_v = static_cast<int8_t>(speed_pct > 100 ? 100 : speed_pct);
+  m_go_update_ms = now_ms;
+}
+
+MotionOut MotionService::hold() { return m_kind == PrimKind::kGo ? finish(EndReason::kDone) : MotionOut{}; }
+
+// R20: no target - ends at once when the Uno's obstacle brake engages (the tank has already stopped).
+MotionOut MotionService::stepGo(const MotionTelem& t, uint32_t now_ms) {
+  if (now_ms - m_go_update_ms > motion::kRateDeadmanMs) return finish(EndReason::kDeadman);
+  if (((t.flags >> static_cast<unsigned>(proto::FastFlagBit::kBlocked)) & 1u) != 0) {
+    return finish(EndReason::kBlocked);
+  }
+  MotionOut o;
+  o.send = true;
+  o.v = m_go_v;  // w = 0: the Uno's heading hold keeps it straight
+  return o;
+}
+
 MotionOut MotionService::stepTurn(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms) {
   const TurnStep s = m_turn.step(yaw_cdeg, rate_ddps, now_ms);
   if (s.coast_ms != 0) m_coast_reading = s.coast_ms;
@@ -189,6 +215,7 @@ MotionOut MotionService::onTelemetry(const MotionTelem& t, uint32_t now_ms) {
     case PrimKind::kMove: o = stepMove(t, now_ms); break;
     case PrimKind::kArc: o = stepArc(t, now_ms); break;
     case PrimKind::kPivot: o = stepPivot(t.yaw_cdeg, t.rate_ddps, now_ms); break;
+    case PrimKind::kGo: o = stepGo(t, now_ms); break;
     default: o = stepRate(t.rate_ddps, now_ms); break;
   }
   m_last_telem_ms = now_ms;
@@ -201,6 +228,7 @@ MotionOut MotionService::tick(uint32_t now_ms) {
   if (m_kind == PrimKind::kRate && now_ms - m_rate_update_ms > motion::kRateDeadmanMs) {
     return finish(EndReason::kDeadman);
   }
+  if (m_kind == PrimKind::kGo && now_ms - m_go_update_ms > motion::kRateDeadmanMs) return finish(EndReason::kDeadman);
   return MotionOut{};
 }
 

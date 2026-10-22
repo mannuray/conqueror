@@ -50,6 +50,7 @@ class MotionLink {
   }
   LinkOut tick(uint32_t now_ms);
   LinkOut onEvent(MotionEvent e, uint32_t now_ms);
+  LinkOut hold(uint32_t now_ms);  // R20: a GO ends as done, STOP while its client still owns the body
 
  private:
   LinkOut finished(const MotionOut& o, int fd, uint32_t now_ms);

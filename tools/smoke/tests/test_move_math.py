@@ -55,7 +55,8 @@ class FakeWs:
             if self.pending:
                 return self.pending.pop(0)
             for m in self.sent:
-                if m.get("t") == "calib" and "counts_per_m" in m and not m.get("_answered"):
+                saving = "counts_per_m" in m or "gyro_scale" in m
+                if m.get("t") == "calib" and saving and not m.get("_answered"):
                     m["_answered"] = True
                     end = "confirm_expired" if self.expire else "confirmed"
                     self.pending.append({"t": end, "what": "calib"})
@@ -114,3 +115,16 @@ def test_save_waits_for_the_tanks_button() -> None:  # Plan O (design-notes §91
 def test_save_not_confirmed_is_not_saved() -> None:
     s = Session(ws=FakeWs(expire=True))
     assert not s.save_counts_per_m(7675)
+
+
+def test_gyro_scale_save_sends_its_key_and_waits_for_the_button() -> None:  # bridge LLD R19
+    ws = FakeWs()
+    s = Session(ws=ws)
+    assert s.save_gyro_scale(10230)
+    calib = [m for m in ws.sent if m.get("t") == "calib"]
+    assert calib[-1]["gyro_scale"] == 10230
+    assert "counts_per_m" not in calib[-1]
+
+
+def test_gyro_scale_not_confirmed_is_not_saved() -> None:
+    assert not Session(ws=FakeWs(expire=True)).save_gyro_scale(10230)

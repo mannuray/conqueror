@@ -114,6 +114,7 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
 .tog { min-width: 56px; } .tog.on { background: var(--ui); color: #022; }
 .mini { display: inline-grid; grid-template-columns: 30px 34px 30px; align-items: center; text-align: center; }
 .mini .btn { padding: 4px 0; } .mini b { text-align: center; }
+.trim { display: inline-flex; gap: 4px; } .trim .btn { min-width: 34px; padding: 4px 6px; }
 input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: none; }
 #gCan { display: block; width: 100%; height: 190px; margin-top: 8px; border: 1px solid var(--line); background: #020502; }
 .gfoot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
@@ -237,6 +238,9 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   </div>
   <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>[ 05 // CAMERA ]</h2>
     <div class="prev"><img id="cPrev" alt=""><span id="cPrevMsg">[ NO VIDEO ]</span></div>
+    <div class="row"><span>Camera centre</span><b id="trimV">--</b></div>
+    <div class="row"><span class="trim"><button class="btn" type="button" id="trimL" aria-label="Look further left">◀</button><button class="btn" type="button" id="trimR" aria-label="Look further right">▶</button><button class="btn" type="button" id="trimU" aria-label="Look further up">▲</button><button class="btn" type="button" id="trimD" aria-label="Look further down">▼</button></span><span class="trim"><button class="btn" type="button" id="trimUndo">Undo</button><button class="btn" type="button" id="trimSave">Save</button></span></div>
+    <div class="hint">// Line the picture up with something straight ahead, then Save (press the tank's button).</div>
     <div class="row"><span>Viewers</span><b id="cViewers">--</b></div>
     <div class="row"><span>Now</span><b id="cNow">--</b></div>
     <label>Picture size</label>
@@ -702,8 +706,54 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     if (isNaN(v) || v < -100 || v > 100) { toast("Track balance: -100 … 100"); return; }
     send({ t: "setting", setting_id: 66, value: v, id: nextId++ });
   });
+  // ---------- Camera centre (bridge LLD R23): a step is tried live (no button), Save asks for the tank's button ----------
+  // The trims are in servo terms (0.1°): looking further right or up is a smaller servo angle on this tank.
+  var trim = { saved: { 27: 0, 28: 0 }, cur: { 27: 0, 28: 0 }, homed: false, tries: {}, saveId: -1 };
+  function trimText(v) { return (v > 0 ? "+" : "") + (v / 10).toFixed(1) + "°"; }
+  function trimUi() { $("trimV").textContent = "pan " + trimText(trim.cur[27]) + " · tilt " + trimText(trim.cur[28]); }
+  function trimTry(id, v, prev) {  // a refused try puts the shown trim back (the Uno did not change)
+    trim.tries[nextId] = { sid: id, prev: prev };
+    send({ t: "setting", setting_id: id, value: v, try: true, id: nextId++ });
+  }
+  function trimStep(id, d) {
+    var v = Math.max(-300, Math.min(300, trim.cur[id] + d));
+    if (v === trim.cur[id]) return;
+    if (!trim.homed) { send({ t: "cam_home", id: nextId++ }); trim.homed = true; }  // trim with the camera at its centre
+    var prev = trim.cur[id];
+    trim.cur[id] = v; trimUi(); trimTry(id, v, prev);
+  }
+  $("trimL").addEventListener("click", function () { trimStep(27, 5); });
+  $("trimR").addEventListener("click", function () { trimStep(27, -5); });
+  $("trimU").addEventListener("click", function () { trimStep(28, -5); });
+  $("trimD").addEventListener("click", function () { trimStep(28, 5); });
+  $("trimUndo").addEventListener("click", function () {
+    [27, 28].forEach(function (id) {
+      if (trim.cur[id] === trim.saved[id]) return;
+      var prev = trim.cur[id];
+      trim.cur[id] = trim.saved[id]; trimTry(id, trim.cur[id], prev);
+    });
+    trimUi();
+  });
+  $("trimSave").addEventListener("click", function () {  // the Uno saves its whole block: one Save keeps both trims
+    var id = trim.cur[27] !== trim.saved[27] ? 27 : (trim.cur[28] !== trim.saved[28] ? 28 : 0);
+    if (!id) { toast("Camera centre already saved", true); return; }
+    trim.saveId = nextId;
+    send({ t: "setting", setting_id: id, value: trim.cur[id], id: nextId++ });
+  });
+  function trimSaved(what) {  // the Uno saved its whole block: both trims
+    if (what !== "setting" || trim.saveId < 0) return;
+    trim.saveId = -1; trim.saved[27] = trim.cur[27]; trim.saved[28] = trim.cur[28];
+  }
+  function trimReply(m) {  // ack / nack of a try or of the Save
+    var t = trim.tries[m.id];
+    if (t) { delete trim.tries[m.id]; if (m.t === "nack") { trim.cur[t.sid] = t.prev; trimUi(); } }
+    if (m.t === "nack" && m.id === trim.saveId) trim.saveId = -1;
+  }
+  function onTrim(m) { trim.saved[m.id] = m.value; trim.cur[m.id] = m.value; trimUi(); }
+
   var SETTING_EL = { 66: ["kBal", ""], 11: ["kStop", " cm"], 12: ["kSlow", " cm"], 1: ["kEncOn", ""] };
   function onSetting(m) {
+    if (m.id === 27 || m.id === 28) return onTrim(m);
     var e = SETTING_EL[m.id]; if (!e) return;
     $(e[0]).textContent = m.id === 1 ? (m.value ? "✓ YES" : "NO") : m.value + e[1];
     if (m.id === 66 && document.activeElement !== $("kBalIn")) $("kBalIn").value = m.value;
@@ -911,13 +961,15 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
       case "calib": cpm = m.counts_per_m; $("kCpm").textContent = m.counts_per_m; $("kRoll").textContent = m.roll_mm; break;
       case "setting": onSetting(m); break;
       case "confirm": showConfirm(m.what, m.secs || 30); break;
-      case "confirmed": hideConfirm("Done ✓", true); editSlot = -1; $("nSlot").textContent = "NEW"; break;
-      case "confirm_expired": hideConfirm("Not confirmed - nothing changed"); break;
+      case "confirmed": trimSaved(m.what); hideConfirm("Done ✓", true); editSlot = -1; $("nSlot").textContent = "NEW"; break;
+      case "confirm_expired": trim.saveId = -1; hideConfirm("Not confirmed - nothing changed"); break;
       case "nack":
+        trimReply(m);
         if (m.id === wiz.id && (wiz.st === "sent" || wiz.st === "driving")) wizState("idle", "// Refused: " + (m.message || m.reason || "?"));
         hideConfirm(""); scanDone(); toast(m.message || m.reason || "Refused");
         break;
       case "ack":
+        trimReply(m);
         if (wizAck(m.id)) break;
         if (m.id === restartId) {  // owner: the restart needs feedback
           restarting = true; restartId = -1; toast("Restarting the bridge …", true);
@@ -938,7 +990,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
       if (restarting) { restarting = false; toast("Bridge back online ✓", true); }
       send({ t: "hello", client: "settings", proto: 1 });
       send({ t: "wifi_status" }); send({ t: "calib" });
-      [66, 11, 12, 1].forEach(function (id) { send({ t: "setting", setting_id: id }); });
+      [66, 11, 12, 1, 27, 28].forEach(function (id) { send({ t: "setting", setting_id: id }); });
       loadInfo(); showTab(tab); wizUi();
     };
     ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } onMessage(m); };

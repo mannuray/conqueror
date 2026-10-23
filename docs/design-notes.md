@@ -1975,3 +1975,12 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - each start and stop rocks it through the plastic gears' play (±0.4° on pan, §130).
   - **Later, if wanted (hardware, not the shield):** MG90S metal-gear servos (the same size and plugs), a pan base with a bearing, or balancing the camera over the pan shaft.
 - **Still open:** the bridge dropped the recorder's second WebSocket 9–12 times per 30–40 s while the phone or the sweeps were busy (§136).
+
+## 138. A better pan / tilt mechanism (owner, 2026-10-24) - open
+- **Owner: "we need better pan and tilt mechanism."** The SG90 kit's pan servo carries the whole tall head on its own plastic-geared shaft (§137), and software smoothing has gone as far as it can.
+- **To discuss and design later** (hardware; the shield and its servo ports stay as they are, §30):
+  - an MG90S for pan only, keeping the SG90 for tilt (metal gears, a ball-bearing shaft; +4–5 g near the pan axis);
+  - a pan base with its own bearing, so the servo shaft only turns the head;
+  - a lower, balanced head with the camera's weight over the pan axis;
+  - or a ready-made bearing pan / tilt kit for 9 g servos.
+- After any change: re-check the camera centre (§129) and the servo gains (`cq-calibrate servos`, §131).

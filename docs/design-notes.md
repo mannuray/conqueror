@@ -1929,3 +1929,13 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   5. **Shown and printed:** the live view (the picture with boxes; a top-down plan with the path and the things) and `cq-objects <recording>`.
   6. **Checked:** host tests with a fake detector; on the floor, a ball at 50 cm, 1 m and 2 m (≤ 5 cm to 1 m, ≤ 15 cm at 2 m), and the ball remembered after 12 s away.
 - **Written as AI engine LLD §15** (draft).
+
+## 135. Arduino UNO R4 Minima reviewed - not used (owner, 2026-10-23)
+- **Why it came up:** the Uno Lite is at 97 % flash (31 376 / 32 256 B, 880 B free) and its settings buffer is full (31 / 32 B). The R4 Minima has the same shape, 256 KB flash, 32 KB RAM, a 48 MHz Cortex-M4 and USB separate from D0 / D1 (no S1 flipping), so it could run the full firmware.
+- **Owner's condition:** every pin the shield uses must do the same job, because the shield's mapping can't change (no rework, §30). Otherwise stay as is.
+- **The research** (Arduino's MINIMA pin file `variants/MINIMA/pinmux.inc` + `variant.cpp`, the RA4M1 datasheet, Arduino's docs and forum):
+  - ✓ D1 → ESP32 (`Serial1` on SCI2), D5 / D6 hardware PWM, D3 / D7 / D8 / D13 digital, D12 its own interrupt (IRQ3), A2 its own interrupt (IRQ7), D10 / D11 servos (Servo library), A3 analog, A4 / A5 I2C (IIC1).
+  - ❌ **D0 ← ESP32 TX:** an RA4M1 input needs ≥ 0.8 × VCC = **4.0 V** for a "high" on a 5 V board; the ESP32 sends 3.3 V. The ATmega328P needs only 0.6 × VCC = 3.0 V, which is why the Uno works. A forum report says the shield has no level shifting on that line. The fix (a level shifter) is shield rework, which is not allowed. Running out of spec on the safety link is not acceptable.
+  - ⚠ D9 (IR) has no interrupt (timer sampling, as the Mega build does); A1 shares IRQ6 with D0 (a forum user saw D15 count by itself; timer sampling); the WS2812 library failed Arduino's own R4 hardware test; GPIO is limited to **8 mA per pin** (Uno 20 mA), a risk if the shield drives the buzzer straight from A0.
+  - ⚠ Power: VIN 6–24 V vs the 2S battery's 6.0–8.4 V; the 5 V regulator's current is not published.
+- **Decision (owner, on the research): stay with the Uno R3 as is.** The bigger board remains the planned Mega 2560 full firmware on our own base board (§30, §43).

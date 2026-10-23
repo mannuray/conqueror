@@ -36,8 +36,8 @@ class PoseSummary:
 
 
 def _counts_per_m(folder: Path) -> int | None:
-    """The recording's first `calib` reply. It is one number for the whole session, so it counts from the start
-    even if the reply came after the first samples (Plan U review M1)."""
+    """The recording's first `calib` reply. It is one number for the whole session, so it counts from the
+    start even if the reply came after the first samples (Plan U review M1)."""
     for e in replay(folder):
         if e.text is not None:
             m = json.loads(e.text)

@@ -220,6 +220,7 @@ Each ping: laptop send `t0`, receive `t1`, the pong's `bridge_us`. Keep the 8 sa
 - **Fade** (`fade(in_view, dt)`): cells the camera sees now move toward 0 by `0.5·dt`; cells out of view keep their value for 10 s, then fade at `0.1·dt` (the blind zone keeps its memory).
 
 ### 5.8 ObjectTracker
+> **Revised by §15 (owner, 2026-10-23, design-notes §134):** objects are matched in room positions; there is no image tracker (ByteTrack) unless replays show identity swaps.
 - `ImageTracker` (ByteTrack) gives frame-to-frame IDs.
 - Each detection's **floor contact** = the bottom-centre of the box → `pixel_to_floor` → room point (things not on the floor are rejected by class: only `person`, `sports ball`, `chair`, `cat`, `dog`, `backpack`, `bottle`, `cup`, `teddy bear`, … — a list in the config).
 - One constant-velocity Kalman filter per object (`x, y, vx, vy`); matching: same image track ID first, else nearest of the same class within a 3σ gate.
@@ -523,3 +524,148 @@ sequenceDiagram
   - `cq-pose` takes the recording's `calib` reply for the whole session, even when it came after the first samples.
 - **Known limit (one-channel encoders):** pushing the tank by hand after a stop counts in the last motor direction.
 - **Floor check (§14.5): pending, owner, 2026-10-24.**
+
+## 15. Phase 4: the detector and the object tracker (owner, 2026-10-23, design-notes §134 — draft)
+
+### 15.0 What it does
+For each picture the engine finds things (a person, a ball, a chair, a cat, …) and works out where each one stands in the room. It keeps a list of them: what, where, how sure, last seen.
+- Things stay on the list when the camera looks away (Spec 7 §7: a ball for ≥ 10 s).
+- They drop off after `forget_s` (20 s) unseen, or when the camera looks at their spot for 1 s and they're not there.
+- The drive module and later Logo words read the list. Phase 4 only shows it (live view) and prints it (replay).
+- It never drives.
+
+### 15.1 The detector (`Detector` port, `YoloCoreml` adapter)
+- **The model:** `ai-engine/models/yolo26n-320.mlpackage` (git-ignored, about 5 MB, AGPL). It's made once by `tools/measure/export_yolo.py`, whose environment has Ultralytics + torch 2.7, writing into `ai-engine/models/`. The engine needs only **coremltools + Pillow** at run time.
+  - With no model file, a plain refusal: "no detector model - run tools/measure/export_yolo.py".
+- **In:** the decoded QVGA picture (320 × 240 RGB), **letterboxed** to 320 × 320: 40 rows of grey (114) above and below, as Ultralytics does. Passed as a PIL image to the model's `image` input, with compute units ALL (Neural Engine).
+- **Out:** `[1, 300, 6]` = x1, y1, x2, y2, score, class, in the 320 × 320 input's pixels (end-to-end, no NMS needed).
+  - Kept: score ≥ `CONF` (0.35).
+  - Boxes moved back to the picture (y − 40), clamped to 320 × 240.
+  - The class index → name from the model's `names` metadata.
+- **`Detection(cls, score, box)`** (LLD §3; `track_id` unused).
+- **Tests** use a `FakeDetector` (boxes given by the test). The adapter has one test that runs only when the model file exists (skipped otherwise), on a synthetic picture: it returns a list and the boxes lie inside the picture.
+
+### 15.2 Which pictures are used (`FrameGate`, `CameraAngles`)
+- **Capture time** t = `X-Frame-Us` + `readout_us` / 2 (0 until measured; Calibration).
+- **The pose at t** from `PoseHistory.at(t)`. If it's None (no pose yet, or older than 2 s), the picture is skipped.
+- **`CameraAngles`:** the last 2 s of (`bus_us`, `pan`, `tilt`, `flags`) from `td`. `at(t)` gives the nearest sample within 40 ms, else None (skipped).
+- **Skipped while:**
+  - the tank turns faster than `GATE_DPS` (45°/s, `|pose.w|`), because of blur;
+  - the camera itself moves (FastFlagBit **CAM_MOVING**, bit 5).
+- **The camera model for the picture:** `CameraModel(cal).for_frame(pose, *from_servo(pan, tilt))`.
+- Every skip is counted with its reason (shown in the replay summary).
+
+### 15.3 Where a thing is (`ObjectLocator`, the floor trick)
+- **Only floor classes** (`FLOOR_CLASSES`): person, cat, dog, sports ball, teddy bear, chair, couch, backpack, suitcase, potted plant.
+  - Things that sit on tables (cup, bottle, laptop, …) would get a wrong position and are ignored.
+- **Contact pixel** = the box's bottom middle (u = (x1 + x2) / 2, v = y2) → `pixel_to_floor(u, v)` → the room point (x, y).
+- **The box touches the picture's bottom edge** (y2 ≥ 238): the thing is cut off, too near or partly in the blind zone. It's listed as **near** with its direction only (the room bearing of the box's centre ray, from `pixel_ray`), not tracked.
+- **Not on the floor in view** (the contact pixel above the horizon, `pixel_to_floor` → None) or **farther than `MAX_RANGE_M`** (4 m): ignored.
+- **Measurement noise** σ(d) = 0.02 m + 0.03 m × d² (d = the distance from the camera), matching Spec 7 §7: ≈ 5 cm at 1 m, ≈ 14 cm at 2 m.
+
+### 15.4 The list (`ObjectTracker`)
+- One constant-velocity Kalman filter per thing: state (x, y, vx, vy); process noise from an acceleration σ of 1 m/s².
+- **Each used picture:**
+  1. Predict every thing to t.
+  2. **Match** each located detection to a thing of the same class, by the smallest Mahalanobis distance d² ≤ 9.21 (the 99 % gate for 2 numbers). Greedy, smallest first; each thing and each detection is used once.
+  3. Matched → update, state **Seen**, `last_seen_us` = t.
+  4. An unmatched detection → a new thing (a new `oid`), Seen.
+  5. An unmatched thing whose spot the camera sees now (`cam.sees(x, y)`): it should have been seen. After **1 s** of that it's dropped (the look check). Otherwise it's **Remembered**.
+- **Remembered:** its velocity fades with a 1 s time constant, because the thing has probably stopped and we don't follow it out of view. Its uncertainty grows. It's dropped after `FORGET_S` (20 s) unseen.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Seen : a new detection
+  Seen --> Seen : matched
+  Seen --> Remembered : not matched, its spot out of view
+  Remembered --> Seen : matched again (the same oid)
+  Seen --> [*] : its spot in view 1 s and not seen
+  Remembered --> [*] : its spot in view 1 s and not seen
+  Remembered --> [*] : unseen for 20 s
+```
+
+- **`ObjectEstimate(oid, cls, x_m, y_m, vx, vy, cov, last_seen_us, state)`** (LLD §3).
+- **Near** things (§15.3) are a separate list: (cls, bearing, t).
+
+### 15.5 Classes
+```mermaid
+classDiagram
+  class Detector { <<Protocol>> +detect(rgb) list~Detection~ }
+  class YoloCoreml {
+    +__init__(model_path)
+    +detect(rgb) list~Detection~
+    -letterbox(rgb) Image
+  }
+  class FakeDetector { +detect(rgb) list~Detection~ }
+  class CameraAngles {
+    +push(s: TelemSample)
+    +at(t_us) (pan, tilt, flags) | None
+  }
+  class FrameGate {
+    +capture_us(frame, cal) int
+    +camera_for(t_us) CameraModel | Skip
+  }
+  class ObjectLocator {
+    +locate(dets, cam) (located, near)
+  }
+  class Located { +cls, x, y, sigma, box }
+  class ObjectTracker {
+    +update(located, cam, t_us)
+    +objects() list~ObjectEstimate~
+  }
+  class ObjectPipeline {
+    +on_telem(s)
+    +on_frame(frame, dets) FrameResult
+    +objects() list~ObjectEstimate~
+    +near() list
+    +skips() dict
+  }
+  Detector <|.. YoloCoreml
+  Detector <|.. FakeDetector
+  ObjectPipeline --> PoseFilter
+  ObjectPipeline --> PoseHistory
+  ObjectPipeline --> CameraAngles
+  ObjectPipeline --> FrameGate
+  ObjectPipeline --> ObjectLocator
+  ObjectPipeline --> ObjectTracker
+  FrameGate --> CameraModel
+```
+- **Files:** `domain/objects.py` (CameraAngles, FrameGate, ObjectLocator, ObjectTracker, ObjectPipeline, all pure), `adapters/yolo_coreml.py`, `app/objects.py` (`cq-objects`).
+- **`ObjectPipeline` is pure:** the detector is called outside it, in the worker thread, and its result is handed in.
+
+### 15.6 Running it (`cq-objects`)
+```mermaid
+sequenceDiagram
+  participant BL as BridgeLink / Replay
+  participant FS as MjpegSource / Replay
+  participant W as Detector worker (1 thread)
+  participant P as ObjectPipeline (event loop)
+  participant V as RerunView
+  BL->>P: on_telem (50 Hz): pose, history, camera angles
+  FS->>W: the newest picture (busy: the older one is dropped)
+  W->>W: decode + YOLO (~5 ms on the Neural Engine)
+  W-->>P: on_frame(frame, detections)
+  P->>P: gate → camera model → locate → track
+  P->>V: picture + boxes, the plan: path, tank, things (Seen solid, Remembered faded)
+```
+- **`cq-objects --live`:** connects to the tank and shows the live view.
+- **`cq-objects <recording>`:** replays a session. In replay every picture is used, in order (no dropping), so the result is the same each time. It prints each thing found (oid, class, first and last seen, last position) and the skips.
+- **Latest picture wins (live):** while the worker is busy, only the newest picture waits; nothing queues (LLD §6).
+
+### 15.7 Tests
+- **`test_objects.py`** (no model, no tank):
+  - the floor trick against the camera model (a box whose contact pixel is the projection of a known floor point → that point);
+  - a cut box → near, with the right bearing;
+  - above the horizon / beyond 4 m → ignored; a cup → ignored;
+  - σ(d);
+  - gate skips: no pose, the turn rate, CAM_MOVING, no camera angles;
+  - tracking: one ball seen in 10 pictures → one thing, near its true spot; two balls → two things; a person walking → one thing with its velocity;
+  - leaving the view → Remembered, back → Seen with the same oid; Remembered 20 s → dropped; its spot in view 1 s with no detection → dropped;
+  - pipeline replay is deterministic (twice the same).
+- **`test_yolo_coreml.py`:** letterbox and box mapping (pure parts). The model run is skipped without the file.
+- **`test_objects_app.py`:** `cq-objects <recording>` on a synthetic session with a fake detector prints the expected thing.
+
+### 15.8 On the floor (owner present; the phone drives slowly or the tank stands; the engine only watches)
+- **Distance:** a ball on tape marks at 50 cm, 1 m and 2 m ahead of the lens, the tank standing still. Targets (Spec 7 §7): within 5 cm up to 1 m, within 15 cm at 2 m.
+- **Memory:** the ball at 1 m. Turn the camera (or the tank) away for 12 s, then back. The ball must stay listed (Remembered) and come back as the same thing.
+- **A person** walking across the view: one thing, which follows.

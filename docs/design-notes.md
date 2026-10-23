@@ -1916,3 +1916,16 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
 - **Floor check postponed to 2026-10-24** (owner: "we will test tomorrow"):
   - the Logo 50 cm square and `FORWARD 200 RIGHT 180 FORWARD 200`, recorded with `cq-record` and replayed with `cq-pose`, against the tape;
   - targets: square ≤ 6 cm, out-and-back ≤ 12 cm, heading ≤ 3° per 360°.
+
+## 134. Phase 4 design: things in the room (owner, 2026-10-23)
+- **What:** for each picture the AI finds things (person, ball, chair, cat, …) and works out where each one stands in the room. It keeps a list that the camera can look away from (a ball stays ≥ 10 s). Later the drive module and Logo words ("drive until you see a ball") read it.
+- **Owner: "yes all as recommended":**
+  1. **Detector:** YOLO26n at QVGA on the Neural Engine (CoreML, ~4 ms, §109). The model is exported once by a setup script and kept out of git. At run time only Apple's CoreML runtime and our own pre- and post-processing are used (the model needs no extra filtering step).
+  2. **Where a thing is:** the bottom middle of its box is where it touches the floor (the floor trick).
+     - Only for things that stand on the floor; table things (cup, bottle) are left out.
+     - A box cut by the picture's bottom edge gets a direction but no distance.
+  3. **Tracking:** matched in room positions (the same class, near the prediction). No image tracker unless recordings show swaps.
+  4. **Pictures skipped:** turning faster than 45°/s, the camera moving, or no pose at the capture time. Pan and tilt come from the telemetry at the capture time.
+  5. **Shown and printed:** the live view (the picture with boxes; a top-down plan with the path and the things) and `cq-objects <recording>`.
+  6. **Checked:** host tests with a fake detector; on the floor, a ball at 50 cm, 1 m and 2 m (≤ 5 cm to 1 m, ≤ 15 cm at 2 m), and the ball remembered after 12 s away.
+- **Written as AI engine LLD §15** (draft).

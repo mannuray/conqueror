@@ -35,9 +35,25 @@ class PoseSummary:
     drift_deg: float
 
 
+def _counts_per_m(folder: Path) -> int | None:
+    """The recording's first `calib` reply. It is one number for the whole session, so it counts from the start
+    even if the reply came after the first samples (Plan U review M1)."""
+    for e in replay(folder):
+        if e.text is not None:
+            m = json.loads(e.text)
+            if m.get("t") == "calib" and isinstance(m.get("counts_per_m"), int):
+                return int(m["counts_per_m"])
+    return None
+
+
 def summarize(folder: Path) -> PoseSummary:
     f = PoseFilter()
-    cpm: int | None = None
+    cpm = _counts_per_m(folder)
+    if cpm is None:
+        raise NoCalibration(
+            f"no calib reply in {folder} - record with cq-record, which asks the bridge for it"
+        )
+    f.set_counts_per_m(cpm)
     start: Pose | None = None
     prev: Pose | None = None
     samples = 0
@@ -45,12 +61,7 @@ def summarize(folder: Path) -> PoseSummary:
     for e in replay(folder):
         if e.text is None:
             continue
-        m = json.loads(e.text)
-        if m.get("t") == "calib" and isinstance(m.get("counts_per_m"), int):
-            cpm = int(m["counts_per_m"])
-            f.set_counts_per_m(cpm)
-            continue
-        s = parse_td(m)
+        s = parse_td(json.loads(e.text))
         if s is None:
             continue
         p = f.update(s)
@@ -62,10 +73,6 @@ def summarize(folder: Path) -> PoseSummary:
             turned += abs((p.th_rad - prev.th_rad + math.pi) % (2 * math.pi) - math.pi)
         farthest = max(farthest, math.hypot(p.x_m - start.x_m, p.y_m - start.y_m))
         prev = p
-    if cpm is None:
-        raise NoCalibration(
-            f"no calib reply in {folder} - record with cq-record, which asks the bridge for it"
-        )
     if start is None or prev is None:
         raise ValueError(f"no telemetry in {folder}")
     dm, dd = f.drift()

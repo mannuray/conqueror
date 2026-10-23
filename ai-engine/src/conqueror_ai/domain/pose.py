@@ -7,7 +7,9 @@
   track's direction is the sign of its PWM output - the output of the sample before, because a sample's count
   change happened during the 20 ms before it - and the last non-zero sign while it coasts; a stalled track
   adds nothing.
-- A restart (the Uno's clock or the bridge's going back) or a gap over 0.5 s re-anchors: no step, no jump."""
+- A restart (the Uno's clock or the bridge's going back) re-anchors: no step, no jump. A gap over 0.5 s adds
+  no distance (unknown) but keeps the turn made in it: the heading is absolute within one Uno run (review I2).
+- Pose.th_rad is always within -pi..pi; the turning so far is in the drift."""
 
 from __future__ import annotations
 
@@ -41,7 +43,8 @@ class PoseFilter:
         self._pose: Pose | None = None
 
     def set_counts_per_m(self, n: int) -> None:
-        self._cpm = n
+        if n > 0:  # a broken reply must not divide by 0
+            self._cpm = n
 
     def pose(self) -> Pose | None:
         return self._pose
@@ -53,10 +56,13 @@ class PoseFilter:
     def update(self, s: TelemSample) -> Pose:
         last, self._last = self._last, s
         d = 0.0
-        if last is not None and not self._restarted(last, s):
+        if last is not None:
             gap_s = (s.bus_us - last.bus_us) / 1e6
-            if gap_s > GAP_S:
-                self._drift_m += GAP_SPEED_MPS * gap_s
+            if self._restarted(last, s):
+                self._steps.clear()  # the old stamps are from another clock (Plan U review I1)
+            elif gap_s > GAP_S:
+                self._gap(last, s, gap_s)
+                self._steps.clear()
             else:
                 d = self._step(last, s)
         for i, pwm in enumerate(
@@ -70,12 +76,23 @@ class PoseFilter:
         span_us = s.bus_us - self._steps[0][0]
         moved = sum(x for _, x in list(self._steps)[1:])  # the oldest one's step lies before the window
         v = moved / (span_us / 1e6) if span_us > 0 else 0.0
-        self._pose = Pose(s.bus_us, self._x, self._y, math.radians(self._th_deg), v, math.radians(s.rate_dps))
+        th = math.radians(_wrap180(self._th_deg))
+        self._pose = Pose(s.bus_us, self._x, self._y, th, v, math.radians(s.rate_dps))
         return self._pose
 
     @staticmethod
     def _restarted(last: TelemSample, s: TelemSample) -> bool:
         return s.uno_ms < last.uno_ms or s.bus_us < last.bus_us
+
+    def _gap(self, last: TelemSample, s: TelemSample, gap_s: float) -> None:
+        """No distance across a gap (unknown), but the turn made in it is kept. If the tank could have turned
+        more than half a turn in it, the wrap may hide a whole turn: the heading is then unsure by 360."""
+        dth = _wrap180(s.yaw_deg - last.yaw_deg)
+        self._th_deg += dth
+        self._drift_deg += abs(dth) / 360.0 * DRIFT_DEG_PER_TURN
+        if max(abs(last.rate_dps), abs(s.rate_dps)) * gap_s > 180.0:
+            self._drift_deg += 360.0
+        self._drift_m += GAP_SPEED_MPS * gap_s
 
     def _step(self, last: TelemSample, s: TelemSample) -> float:
         dth = _wrap180(s.yaw_deg - last.yaw_deg)
@@ -100,6 +117,8 @@ class PoseHistory:
         self._poses: deque[Pose] = deque()
 
     def push(self, p: Pose) -> None:
+        if self._poses and p.t_us < self._poses[-1].t_us:
+            self._poses.clear()  # the bridge restarted: its clock went back (Plan U review I1)
         self._poses.append(p)
         while p.t_us - self._poses[0].t_us > HISTORY_US:
             self._poses.popleft()

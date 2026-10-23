@@ -73,3 +73,18 @@ def test_the_summary_reads_plainly(tmp_path: Path) -> None:
     out_and_back(tmp_path / "s")
     text = pose_replay.report(pose_replay.summarize(tmp_path / "s"))
     assert "end" in text and "farthest" in text and "turned" in text and "cm" in text
+
+
+def test_a_calib_reply_after_the_samples_still_counts(tmp_path: Path) -> None:  # M1
+    out_and_back(tmp_path / "s", with_calib=False)
+    with (tmp_path / "s" / "telemetry.jsonl").open("a", encoding="utf-8") as fh:
+        calib = json.dumps({"t": "calib", "counts_per_m": 7514, "roll_mm": 27, "gyro_scale": 10310})
+        fh.write(json.dumps({"recv_s": 99.0, "msg": calib}) + "\n")
+    s = pose_replay.summarize(tmp_path / "s")
+    assert math.isclose(s.farthest_m, 1.0, abs_tol=0.002)
+
+
+def test_the_report_shows_the_heading_between_minus_and_plus_180(tmp_path: Path) -> None:  # M2
+    out_and_back(tmp_path / "s")
+    text = pose_replay.report(pose_replay.summarize(tmp_path / "s"))
+    assert "heading +180.0 deg" in text or "heading -180.0 deg" in text

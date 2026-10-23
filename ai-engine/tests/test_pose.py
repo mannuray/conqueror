@@ -200,3 +200,57 @@ def test_the_counts_go_with_the_output_they_happened_under() -> None:
         td(20, (75, 75), (120, -120), 0.0)
     )  # the output just changed to a pivot; the 75 were forward
     assert math.isclose(p.x_m, 75 / CPM, abs_tol=1e-12)
+
+
+# ---- Plan U final review
+def test_after_a_bridge_restart_the_speed_and_history_work_again() -> None:  # I1
+    f, h = new(), PoseHistory()
+    for i in range(51):  # an hour into the bridge's uptime
+        h.push(f.update(td(3_600_000 + 20 * i, (75 * i, 75 * i), (120, 120), 0.0, uno_ms=10_000 + 20 * i)))
+    for i in range(51):  # the bridge restarted: its clock starts again (the Uno's runs on)
+        h.push(
+            f.update(
+                td(1_000 + 20 * i, (3825 + 75 * i, 3825 + 75 * i), (120, 120), 0.0, uno_ms=12_000 + 20 * i)
+            )
+        )
+    p = f.pose()
+    assert p is not None and math.isclose(p.v_mps, 75 / CPM / 0.02, rel_tol=1e-6)
+    assert h.at((1_000 + 20 * 50) * 1000) is not None and h.at((1_000 + 20 * 25) * 1000) is not None  # µs
+
+
+def test_a_gap_keeps_the_turn_made_during_it() -> None:  # I2: the heading is absolute within one Uno run
+    f = new()
+    drive(f, 10, (0, 0), (0, 0))
+    d0 = f.drift()[1]
+    p = f.update(td(800, (0, 0), (120, -120), 90.0))  # 0.6 s silent, turned 90 deg meanwhile
+    assert math.isclose(math.degrees(p.th_rad), 90.0, abs_tol=1e-6)
+    assert f.drift()[1] > d0
+
+
+def test_a_long_fast_gap_marks_the_heading_unsure() -> None:  # I2: the wrap could hide a whole turn
+    f = new()
+    f.update(td(0, (0, 0), (120, -120), 0.0))
+    q = f.update(replace(td(3000, (0, 0), (120, -120), 90.0), rate_dps=200.0))  # 3 s at 200 deg/s
+    assert q is not None and f.drift()[1] >= 360.0
+
+
+def test_the_heading_is_kept_between_minus_and_plus_pi() -> None:  # M2: one convention for every Pose
+    p = drive(new(), 360, (0, 0), (120, -120), dyaw=2.0)  # two whole turns
+    assert -math.pi <= p.th_rad < math.pi and abs(p.th_rad) < 1e-6
+
+
+def test_a_bad_counts_per_m_is_ignored() -> None:  # M3
+    f = PoseFilter()
+    f.set_counts_per_m(0)
+    p = drive(f, 10, (75, 75), (120, 120))
+    assert p.x_m == 0.0
+
+
+def test_a_pivot_back_to_forward_counts_the_change_right() -> None:  # M5
+    f = new()
+    f.update(td(0, (0, 0), (-120, -120), 0.0))
+    f.update(td(20, (75, 75), (0, 0), 0.0))  # coasting backwards
+    p = f.update(td(40, (150, 150), (120, 120), 0.0))  # the output turned forward; these 75 were still back
+    assert math.isclose(p.x_m, -150 / CPM, abs_tol=1e-12)
+    q = f.update(td(60, (225, 225), (120, 120), 0.0))
+    assert math.isclose(q.x_m, -75 / CPM, abs_tol=1e-12)

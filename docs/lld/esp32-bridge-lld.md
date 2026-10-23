@@ -2407,7 +2407,7 @@ sequenceDiagram
   - the 35-view lens sweep (pan 5 ± 12°, tilt ± 9°);
   - the camera held its angle between pictures.
 
-## R23. Camera centre on the Settings page (owner 2026-10-23, design-notes §128, Uno Lite LLD §22 — draft)
+## R23. Camera centre on the Settings page (owner 2026-10-23, design-notes §128, Uno Lite LLD §22 — approved 2026-10-23)
 ### R23.0 Why
 The trim lives on the Uno (Uno Lite LLD §22). The owner sets it by eye, watching the picture, so the Camera card needs a way to step it and save it. Today a page may change only `track_balance` (id 66), and every change waits for the tank's button.
 

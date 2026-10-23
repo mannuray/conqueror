@@ -1835,4 +1835,4 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - a **step is a "try"**: it changes the Uno's RAM only and needs no button, because it only moves the camera and a restart forgets it;
   - **Save** is button-confirmed like `track_balance`, and the Uno then saves its whole block, tilt trim included.
 - **Uno flash:** budget ≤ 200 B (31 144 B / 96.6 % before).
-- **Written as:** Uno Lite LLD §22 and bridge LLD R23 (drafts).
+- **Written as:** Uno Lite LLD §22 and bridge LLD R23 — **approved (owner: "seems good", 2026-10-23).** Next: the plan (Plan S).

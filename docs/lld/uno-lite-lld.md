@@ -479,7 +479,7 @@ classDiagram
 Tests (host): `iatan2Cdeg` against `atan2` at 1° steps (|error| ≤ 50 cdeg), pitch/roll from synthetic accel vectors, temperature conversion, CALIBRATE SELF_TEST → OK + a new SELFTEST event, other scripts → UNAVAILABLE.
 > **As built (design-notes §97):** the CALIBRATE case is written inline in the Lite route dispatcher (no separate `handleCalibrate`), and the host test is `test_calibrate_is_handled_for_self_test` (frame use); the OK / UNAVAILABLE / BUSY replies were checked on the tank (stand check, Plan O).
 
-## 22. Camera centre: pan and tilt trim (owner 2026-10-23, design-notes §125 b and §128, bridge LLD R23 — draft)
+## 22. Camera centre: pan and tilt trim (owner 2026-10-23, design-notes §125 b and §128, bridge LLD R23 — approved 2026-10-23)
 - **Why:** at servo 90° the pan looks 5° left of dead ahead (§125). The servo's spline teeth step ~14°, so the horn cannot fix it. The Uno itself sends the camera home on HOME, on the IR remote's HOME key and 500 ms after the stick is let go, so the trim has to live on the Uno.
 - **Settings:** the existing ids **27 `pan_trim`** and **28 `tilt_trim`**:
   - i16, 0.1° steps, −300…300 (±30°), default 0, in **servo terms** (added to the servo angle, as in the Mega firmware's `CameraHead`);

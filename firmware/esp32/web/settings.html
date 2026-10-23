@@ -252,6 +252,11 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     <div class="row" style="margin-top:8px"><span>Brightness</span><span class="mini"><button class="btn" type="button" data-k="brightness" data-d="-1">−</button><b id="cBright">--</b><button class="btn" type="button" data-k="brightness" data-d="1">+</button></span></div>
     <div class="row"><span>Contrast</span><span class="mini"><button class="btn" type="button" data-k="contrast" data-d="-1">−</button><b id="cContrast">--</b><button class="btn" type="button" data-k="contrast" data-d="1">+</button></span></div>
     <div class="row"><span>Low-light mode</span><button class="btn tog" type="button" id="cLow" data-k="low_light">--</button></div>
+    <div class="hint">// More gain for dim rooms; keeps the frame rate.</div>
+    <div class="row"><span>Night (slow)</span><button class="btn tog" type="button" id="cNight" data-k="night">--</button></div>
+    <div class="hint">// Longer exposures, fewer pictures - for looking, not for driving.</div>
+    <label>White balance</label>
+    <div class="seg" id="cWb"><button type="button" data-v="auto">AUTO</button><button type="button" data-v="sunny">SUN</button><button type="button" data-v="cloudy">CLOUD</button><button type="button" data-v="office">OFFICE</button><button type="button" data-v="home">HOME</button></div>
     <div class="row"><span>Flip upside down</span><button class="btn tog" type="button" id="cFlip" data-k="vflip">--</button></div>
     <div class="row"><span>Mirror</span><button class="btn tog" type="button" id="cMirror" data-k="hmirror">--</button></div>
     <button class="btn warn wide" id="cReset" type="button">Reset to defaults</button>
@@ -618,12 +623,12 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     if (cam) {
       $("cViewers").textContent = cam.viewers + " / 2";
       $("cNow").textContent = cam.viewers ? (cam.fps / cam.viewers).toFixed(1) + " fps" + (cam.viewers > 1 ? " each" : "") + " · " + cam.kbps + " kbit/s" : "nobody watching";  // frames are counted for all viewers
-      segOn("cSize", cam.size); segOn("cFps", cam.fps_cap);
+      segOn("cSize", cam.size); segOn("cFps", cam.fps_cap); segOn("cWb", cam.wb || "auto");
       if (document.activeElement !== $("cQual")) $("cQual").value = cam.quality;
       $("cQualV").textContent = cam.quality;
       $("cBright").textContent = (cam.brightness > 0 ? "+" : "") + cam.brightness;
       $("cContrast").textContent = (cam.contrast > 0 ? "+" : "") + cam.contrast;
-      [["cLow", cam.low_light], ["cFlip", cam.vflip], ["cMirror", cam.hmirror]].forEach(function (x) {
+      [["cLow", cam.low_light], ["cNight", cam.night], ["cFlip", cam.vflip], ["cMirror", cam.hmirror]].forEach(function (x) {
         $(x[0]).textContent = x[1] ? "ON" : "OFF"; $(x[0]).classList.toggle("on", !!x[1]);
       });
     }
@@ -663,7 +668,8 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
       if (o[b.dataset.k] !== cam[b.dataset.k]) camSet(o);
     });
   });
-  ["cLow", "cFlip", "cMirror"].forEach(function (id) {
+  $("cWb").addEventListener("click", function (e) { var b = e.target.closest("button"); if (b) camSet({ wb: b.dataset.v }); });
+  ["cLow", "cNight", "cFlip", "cMirror"].forEach(function (id) {
     $(id).addEventListener("click", function () { if (!cam) return; var o = {}; o[$(id).dataset.k] = !cam[$(id).dataset.k]; camSet(o); });
   });
   $("cReset").addEventListener("click", function () { camSet({ reset: true }); });

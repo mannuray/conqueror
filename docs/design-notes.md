@@ -1836,3 +1836,17 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - **Save** is button-confirmed like `track_balance`, and the Uno then saves its whole block, tilt trim included.
 - **Uno flash:** budget ≤ 200 B (31 144 B / 96.6 % before).
 - **Written as:** Uno Lite LLD §22 and bridge LLD R23 — **approved (owner: "seems good", 2026-10-23).** Next: the plan (Plan S).
+
+## 129. Camera centre on the tank (Plan S, 2026-10-23)
+- **What was done:** the Uno Lite now keeps a saved camera centre (`pan_trim` / `tilt_trim`, Uno Lite LLD §22), and the Settings page's Camera card sets it by eye (bridge LLD R23). This closes §125 (b).
+- **How it was set:**
+  - The bridge was flashed over WiFi. The Uno was flashed over USB from the Linux machine (avrdude, `/dev/ttyUSB0`). The first try failed with "not in sync" while S1 was in the run position; the second wrote and verified 31 376 B.
+  - The owner stepped ▶ on the phone until the picture looked dead ahead: **pan −5.0°**, the same as the `cam_set` +5° found in §125. Tilt stayed 0. Saved with the tank's button.
+- **How it was checked:**
+  - after a power cycle the Uno reads back −50 / 0 (saved in EEPROM);
+  - the owner saw no jump at power-on;
+  - dead ahead at rest, after HOME, after the stick is let go, and after `cam_set 30 0` → `cam_set 0 0` from the laptop.
+  - Telemetry reports 90° for dead ahead, the logical angle.
+- **Skipped on the tank (owner: "skip it"):** a try refused while another client drives. Holding the drive stick can move the tracks; the bridge host test covers it.
+- **The AI calibration:** `pan_map` back to (1, 0), because the trim now carries the 5° (AI engine LLD §13). `tilt_map` (1, 0) and `tilt0_deg` −0.15 are unchanged (no tilt trim).
+- **Final review:** no Critical. One Important (on the page, quick refused steps) and six Minor findings, all fixed test-first (bridge LLD R23.5, Uno Lite LLD §22.1). The Uno costs +232 B (budget 200 B; 880 B free).

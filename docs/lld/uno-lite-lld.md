@@ -549,3 +549,12 @@ sequenceDiagram
   - a block saved before this change loads with trims 0; a block with the trims round-trips;
   - `CamLite`: `servoPan()` = `outPan()` + trim, clamped at 0 and 1800; `outPan()` unchanged by the trim; `home()` → servo 900 + trim; `setTrim` wakes a released camera.
 - **Budget:** ≤ 200 B of flash, measured in the plan (before: 31 144 B / 96.6 %).
+
+### 22.1 As built (Plan S, 2026-10-23; design-notes §129)
+- **As designed, plus the final review's fixes:**
+  - **No jump at power-on:** `setup()` runs `settingsLoad()` first, then one `cameraTask()`, then attaches the servos. AVR `Servo` keeps a pulse written before `attach()`, and its default range, 544…2400 µs, is the same as ours. So the very first pulse already carries the saved trim.
+  - **An unchanged trim does not wake the servos:** `setTrim` returns early when both values are the same. `applySettings()` runs after every SETTING_SET, so before this fix a track-balance change re-attached a released camera for 2 s.
+- **Flash:** 31 376 B / 32 256 B (+232 B over 31 144 B; the ruling accepts the 32 B beyond the 200 B budget for the two fixes). 880 B free. RAM 1540 B.
+- **The EEPROM block is now 31 B, in the 32 B write buffer (`EepromWriter::kMaxBytes`).** The next Lite setting needs the buffer raised, which costs RAM, or another field shrunk.
+- **Tests:** Uno native 298/298, including `test_settings_camera_trims`, `test_settings_block_before_the_trims_still_loads`, `test_cam_trim_moves_only_the_servo`, `test_cam_trim_wakes_servos` and `test_cam_same_trim_does_not_wake_servos`.
+- **On the tank:** pan_trim −50 (−5.0°), tilt_trim 0. They are kept across a power cycle, with no jump at power-on.

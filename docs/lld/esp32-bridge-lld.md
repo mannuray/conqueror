@@ -2469,3 +2469,17 @@ classDiagram
   - read 27 → `kSettingGet`.
 - **Page (`node --test` / Playwright as for the other pages):** ▶ sends a try with the trim minus 5; Save sends the plain setting.
 - **On the tank:** step the pan until the picture is dead ahead, Save with the button, restart the tank. HOME, the stick's return and `cam_set 0 0` all look dead ahead, and telemetry pan reads 90.
+
+### R23.5 As built (Plan S, 2026-10-23; design-notes §129)
+- **Bridge as designed (R23.1, R23.3).** One difference: `onTry` checks the camera rule through the `driver_fd()` hook, not `LinkOwner::onCamera`. They are the same because the driver is set only while a web client drives. With the Uno offline, a try times out (`COMMAND_TIMEOUT`) instead of `BODY_OFFLINE`.
+- **The page's camera trims (final review fixes):**
+  - The page keeps **`uno`**: the value the Uno last confirmed, from a read or an acked try.
+  - Once every reply for a trim is in, the readout shows `uno`. A refused step, or two quick refused steps, never leaves a value the Uno does not have.
+  - **Any confirmed setting save** (a trim, or track balance) marks both trims saved from `uno`, because the Uno saves its whole block.
+  - A refused or expired Save marks nothing.
+  - **A new WebSocket link** forgets pending replies and sends `cam_home` again before the next step.
+- **Tests:**
+  - bridge native 664/664 (`test_camera_trim_*` four, `test_ws_codec` `try_only`);
+  - `web/test/camera_centre_check.js` (Playwright): steps, Save, Undo, the ±30° stop, refusals, quick refusals, a track-balance save, a reconnect, phone width.
+- `/settings` is 21 957 B gzipped (budget 36 KB).
+- **On the tank:** the owner stepped the pan on the phone to −5.0° and saved it with the button. After a power cycle the camera looks dead ahead at rest, after HOME, after the stick's return and after `cam_set 0 0`.

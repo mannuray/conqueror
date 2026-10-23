@@ -345,7 +345,7 @@ Writes `config/calibration.yaml` with the date and the frame size.
 - **The saved calibration (`ai-engine/config/calibration.yaml`, QVGA 320 × 240):**
   - lens fx 182.55, fy 181.84, cx 157.42, cy 118.26 (about 82° across), distortion (−0.0914, −0.0315, 0.0011, −0.0015, 0.2511);
   - mount: lens 17.8 cm high, 8.5 cm ahead of the centre, on the centre line, tracks' front 13 cm; `tilt0_deg` −0.15;
-  - servos: `pan_map` (1, −5) by eye, `tilt_map` (1, 0) — **the laser servo step is still to do** (no laser level yet);
+  - servos: `pan_map` (1, −5) by eye, `tilt_map` (1, 0) — **the laser servo step is still to do** (no laser level yet). **Since Plan S (design-notes §129) `pan_map` is (1, 0):** the Uno's saved camera centre carries the 5°, and telemetry reports the true centre as 90°;
   - `readout_us` 0.
   - How each number was measured: design-notes §127.
 - **Driving tilt:** 15° down (design-notes §126).

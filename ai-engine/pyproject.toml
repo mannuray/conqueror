@@ -9,6 +9,8 @@ dependencies = [
   "rerun-sdk>=0.39,<0.40",  # its logging API changes between versions
   "opencv-python>=4.10,<4.12",
   "pyyaml>=6,<7",
+  "coremltools>=8,<10",  # the detector at run time (AI engine LLD §15.1); the export lives in tools/measure
+  "pillow>=10",
 ]
 
 [project.scripts]

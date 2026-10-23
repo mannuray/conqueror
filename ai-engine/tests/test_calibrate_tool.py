@@ -27,14 +27,22 @@ PAN_GAIN = 1.03
 class FakeTank:
     """Answers cam_set by remembering the angles; makes the picture the camera would see."""
 
-    def __init__(self, scene: str) -> None:
+    def __init__(self, scene: str, line_off: float = 0.0, slack: float = 0.0) -> None:
         self.scene = scene  # "horizon" (laser line at lens height) or "vertical" (line straight ahead)
+        self.line_off = line_off  # deg: the line is a bit off lens height / straight ahead (§130)
+        self.slack = slack  # deg: the servo lands this much higher arriving from above (pan: from the right)
         self.pan = 0.0
         self.tilt = 0.0
+        self.tilt_from = 0.0  # +1 arrived from above, -1 from below
+        self.pan_from = 0.0
         self.sets: list[tuple[float, float]] = []
         self.cal = calib(tilt0=TRUE_TILT0)
 
     async def cam_set(self, pan: float, tilt: float) -> None:
+        if tilt != self.tilt:
+            self.tilt_from = 1.0 if tilt < self.tilt else -1.0
+        if pan != self.pan:
+            self.pan_from = 1.0 if pan < self.pan else -1.0
         self.pan, self.tilt = pan, tilt
         self.sets.append((pan, tilt))
 
@@ -42,8 +50,9 @@ class FakeTank:
         k = self.cal.k
         if self.scene == "horizon":
             real = TRUE_TILT0 + TILT_GAIN * self.tilt + TILT_OFFSET
+            real += self.line_off + self.slack * self.tilt_from
             return red_line_picture(row=float(k[1, 2] + k[1, 1] * math.tan(math.radians(real))))
-        real_pan = PAN_GAIN * self.pan
+        real_pan = PAN_GAIN * self.pan + self.line_off + self.slack * self.pan_from
         return red_line_picture(col=float(k[0, 2] - k[0, 0] * math.tan(math.radians(real_pan))))
 
 
@@ -86,7 +95,7 @@ async def test_the_floor_marks_are_checked_by_clicks() -> None:
 async def test_the_servo_step_fits_the_real_servo() -> None:
     tank = FakeTank("horizon")
     cal = calib(tilt0=TRUE_TILT0 + TILT_OFFSET)  # the mount step's result
-    cal = await tool.servo_tilt(cal, tank.grab, tank.cam_set)
+    cal = await tool.servo_tilt(cal, tank.grab, tank.cam_set, answers(""))
     gain, offset = cal.tilt_map
     assert math.isclose(gain, TILT_GAIN, abs_tol=0.02) and math.isclose(offset, 0.0, abs_tol=0.3)
     assert tank.sets[-1] == (0.0, 0.0)  # back to the centre
@@ -133,7 +142,7 @@ def test_the_tilt_study_table_has_one_line_per_tilt() -> None:
 async def test_servos_before_mount_does_not_double_the_tilt() -> None:
     tank = FakeTank("horizon")
     cal = calib(tilt0=0.0)
-    cal = await tool.servo_tilt(cal, tank.grab, tank.cam_set)  # servos first: the true tilt goes into the fit
+    cal = await tool.servo_tilt(cal, tank.grab, tank.cam_set, answers(""))  # servos first: gains only
     cal = await tool.mount_tilt(cal, tank.grab, tank.cam_set, answers(""))  # then mount
     cam = CameraModel(cal).for_frame(Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.0, 0.0)
     assert math.isclose(cam.real_tilt_deg(), TRUE_TILT0 + TILT_OFFSET, abs_tol=0.3)
@@ -166,5 +175,42 @@ async def test_a_missed_servo_point_is_skipped() -> None:
             return red_line_picture()  # no line in this one
         return await real_grab()
 
-    cal = await tool.servo_tilt(cal, sometimes_blank, tank.cam_set)
+    cal = await tool.servo_tilt(cal, sometimes_blank, tank.cam_set, answers(""))
     assert math.isclose(cal.tilt_map[0], TILT_GAIN, abs_tol=0.02)
+
+
+# ---- design-notes §130: gains only - the line may be a few cm off lens height and not straight ahead
+async def test_the_servo_step_keeps_the_saved_tilt_and_centre() -> None:
+    tank = FakeTank("horizon", line_off=-1.2)  # the line ~2 cm below lens height at 1 m
+    cal = calib(tilt0=-0.15)
+    cal = await tool.servo_tilt(cal, tank.grab, tank.cam_set, answers(""))
+    assert cal.tilt0_deg == -0.15  # kept (the tape marks' tilt)
+    assert math.isclose(cal.tilt_map[0], TILT_GAIN, abs_tol=0.02) and cal.tilt_map[1] == 0.0
+    tank.scene, tank.line_off = "vertical", -21.0  # the vertical line well to the right
+    cal = await tool.servo_pan(cal, tank.grab, tank.cam_set, answers(""))
+    assert math.isclose(cal.pan_map[0], PAN_GAIN, abs_tol=0.02)
+    assert cal.pan_map[1] == 0.0  # the Uno's camera centre is kept
+    assert tank.sets[-1] == (0.0, 0.0)
+
+
+async def test_the_servo_step_sweeps_both_ways_and_reports_the_slack(capsys: object) -> None:
+    tank = FakeTank("horizon", slack=0.8)
+    cal = await tool.servo_tilt(calib(tilt0=0.0), tank.grab, tank.cam_set, answers(""))
+    assert math.isclose(cal.tilt_map[0], TILT_GAIN, abs_tol=0.02)  # the slack averages out
+    tilts = [t for _, t in tank.sets]
+    assert tilts.index(min(tilts)) < len(tilts) - 2  # down, then back up
+    assert tilts.index(max(tilts)) < len(tilts) - 2
+    out = capsys.readouterr().out  # type: ignore[attr-defined]
+    assert "slack" in out and "0.8" in out
+
+
+async def test_the_servo_step_asks_for_the_horizontal_line_first() -> None:
+    tank = FakeTank("horizon")
+    asked: list[str] = []
+
+    async def ask(prompt: str) -> str:
+        asked.append(prompt)
+        return ""
+
+    await tool.servo_tilt(calib(tilt0=0.0), tank.grab, tank.cam_set, ask)
+    assert len(asked) == 1 and "roughly at the lens height" in asked[0] and tank.sets[1:] != []

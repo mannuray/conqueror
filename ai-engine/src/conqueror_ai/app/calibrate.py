@@ -2,7 +2,8 @@
 
   lens    the checkerboard on the laptop screen, ~20 pictures -> focal length, centre, distortion
   mount   the measured mount, the laser level's horizon line -> the real tilt, then two tape marks to check
-  servos  commanded -> real tilt (the horizon line) and pan (the level's vertical line, camera level)
+  servos  commanded -> real tilt and pan gains: a laser cross line of any colour, roughly at the lens height
+          (design-notes §130); tilt0 and the pan centre are kept
   study   the blind zone and the view at a few tilts, for the owner's driving-tilt decision
 
 Each step saves config/calibration.yaml. The tool's only command to the tank is cam_set (bridge LLD R22): it
@@ -140,48 +141,80 @@ async def floor_marks(cal: Calibration, grab: Grab, click: Click, ask: Ask, cam_
     return errors
 
 
-async def servo_tilt(cal: Calibration, grab: Grab, cam_set: CamSet) -> Calibration:
-    """Commanded tilt -> real tilt, from the horizon line at points chosen to keep it inside the picture.
-    The fit's offset becomes tilt0 (the real tilt at command 0), so tilt0 and the map never count it twice
-    (final review I3)."""
-    done: list[float] = []
-    real: list[float] = []
-    for t in cm.tilt_points(cal):
+async def _sweep(
+    points: list[float], pre: float, measure: Callable[[float], Awaitable[float | None]], what: str
+) -> tuple[float, float]:
+    """Both ways across `points`: down from `pre` (every point reached from above / the right), then back up.
+    Each way gets its own straight-line fit, so the servo's slack cancels out of the gain (design-notes §130).
+    Returns (gain, slack): the mean gain, and half the gap between the two ways' offsets (deg)."""
+    fits: list[tuple[float, float]] = []
+    down = sorted(points, reverse=True)
+    up = sorted(points)[1:]  # the lowest is already reached on the way down
+    for i, way in enumerate((down, up)):
+        if i == 0:
+            await measure(pre)  # only to reach the first point from above (its answer is not used)
+        done: list[float] = []
+        real: list[float] = []
+        for x in way:
+            r = await measure(x)
+            if r is None:
+                print(f"  no line at {what} {x:+.1f} - skipped")
+                continue
+            done.append(x)
+            real.append(r)
+        if len(done) < MIN_SERVO_POINTS:
+            raise Refused(f"too few {what}s saw the line - is it in the picture and bright enough?")
+        fits.append(cm.fit_linear(done, real))
+    (g_down, o_down), (g_up, o_up) = fits
+    return (g_down + g_up) / 2.0, (o_down - o_up) / 2.0
+
+
+async def servo_tilt(cal: Calibration, grab: Grab, cam_set: CamSet, ask: Ask) -> Calibration:
+    """Commanded tilt -> real tilt: the gain only (design-notes §130). The line may be a few cm off the lens
+    height, because only the change between pictures counts; the saved tilt0 (from the mount step or the tape
+    marks) is kept, and the map's offset stays 0, so they never count twice (final review I3)."""
+    await ask(
+        "Laser level: the horizontal line on the wall ahead, roughly at the lens height (+-5 cm). Enter: "
+    )
+    await cam_set(0.0, 0.0)
+    row0 = cm.laser_row(qvga(await grab()))
+    if row0 is None:
+        raise Refused("no horizontal line at the centre - is it in the picture and bright enough?")
+    points = cm.tilt_points(cal, cm.horizon_tilt_deg(cal, row0))
+
+    async def measure(t: float) -> float | None:
         await cam_set(0.0, t)
         row = cm.laser_row(qvga(await grab()))
-        if row is None:
-            print(f"  no horizon line at tilt {t:+.1f} - skipped")
-            continue
-        done.append(t)
-        real.append(cm.horizon_tilt_deg(cal, row))
+        return None if row is None else cm.horizon_tilt_deg(cal, row)
+
+    gain, slack = await _sweep(points, min(max(points) + 2.0, 60.0), measure, "tilt")
     await cam_set(0.0, 0.0)
-    if len(done) < MIN_SERVO_POINTS:
-        raise Refused(
-            "too few tilts saw the horizon line - keep the laser line at the lens height and try again"
-        )
-    gain, offset = cm.fit_linear(done, real)
-    return replace(cal, tilt0_deg=offset, tilt_map=(gain, 0.0))
+    print(f"  tilt: {gain:.3f} real deg per commanded deg; slack +-{abs(slack):.1f} deg")
+    return replace(cal, tilt_map=(gain, 0.0))
 
 
 async def servo_pan(cal: Calibration, grab: Grab, cam_set: CamSet, ask: Ask) -> Calibration:
-    """Commanded pan -> real pan, from the laser level's vertical line straight ahead, the camera level."""
+    """Commanded pan -> real pan: the gain only (design-notes §130), from the laser level's vertical line
+    anywhere in the picture, the camera level. The pan centre stays the Uno's saved camera centre
+    (offset 0)."""
     g, o = cal.tilt_map
     level = max(-20.0, min(60.0, (-cal.tilt0_deg - o) / g))
-    await ask("Laser level: a vertical line straight ahead of the tank, on the wall. Enter: ")
-    done: list[float] = []
-    real: list[float] = []
-    for p in cm.pan_points(cal):
+    await ask("Laser level: the vertical line on the wall ahead, roughly straight ahead. Enter: ")
+    await cam_set(0.0, level)
+    col0 = cm.laser_col(qvga(await grab()))
+    if col0 is None:
+        raise Refused("no vertical line at the centre - is it in the picture and bright enough?")
+    points = cm.pan_points(cal, cm.pan_from_col_deg(cal, col0))
+
+    async def measure(p: float) -> float | None:
         await cam_set(p, level)
         col = cm.laser_col(qvga(await grab()))
-        if col is None:
-            print(f"  no vertical line at pan {p:+.1f} - skipped")
-            continue
-        done.append(p)
-        real.append(cm.pan_from_col_deg(cal, col))
+        return None if col is None else cm.pan_from_col_deg(cal, col)
+
+    gain, slack = await _sweep(points, min(max(points) + 2.0, 90.0), measure, "pan")
     await cam_set(0.0, 0.0)
-    if len(done) < MIN_SERVO_POINTS:
-        raise Refused("too few pans saw the vertical line - is it straight ahead and bright enough?")
-    return replace(cal, pan_map=cm.fit_linear(done, real))
+    print(f"  pan: {gain:.3f} real deg per commanded deg; slack +-{abs(slack):.1f} deg")
+    return replace(cal, pan_map=(gain, 0.0))
 
 
 def study_table(rows: list[cm.TiltRow]) -> str:
@@ -294,12 +327,9 @@ async def _run(step: str, host: str, out: Path) -> None:
                     print("not saved")
                     return
         elif step == "servos":
-            cal = await servo_tilt(cal, grab, cam_set)
+            cal = await servo_tilt(cal, grab, cam_set, _ask)
             cal = await servo_pan(cal, grab, cam_set, _ask)
-            print(
-                f"servos: tilt {cal.tilt_map[0]:.3f} x + {cal.tilt_map[1]:+.2f}, "
-                f"pan {cal.pan_map[0]:.3f} x + {cal.pan_map[1]:+.2f}"
-            )
+            print(f"servos: tilt {cal.tilt_map[0]:.3f} x, pan {cal.pan_map[0]:.3f} x (tilt0, centre kept)")
         elif step == "study":
             print(study_table(cm.tilt_study(cal, STUDY_TILTS)))
             return

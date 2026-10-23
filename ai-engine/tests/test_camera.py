@@ -131,3 +131,33 @@ def test_the_depth_map_is_cached_per_pan_and_tilt() -> None:
     again = CameraModel(c).for_frame(Pose(0, 1.0, 2.0, 0.3, 0.0, 0.0), 0.0, -5.0).expected_floor_depth()
     assert again is first  # the depth along each ray depends only on the lens, the mount, pan and tilt
     assert at_start(c, 0.0, 0.0).expected_floor_depth() is not first
+
+
+# ---- tank session 2026-10-23: the real lens (k3 0.25) left the corners unanswered - a fixed-point
+# iteration did not settle there although the lens has no fold
+def real_lens() -> Calibration:
+    c = calib(tilt0=-0.15)
+    return Calibration(
+        k=np.array([[182.55, 0.0, 157.42], [0.0, 181.84, 118.26], [0.0, 0.0, 1.0]]),
+        dist=np.array([-0.0914, -0.0315, 0.0011, -0.0015, 0.2511]),
+        size=c.size,
+        cam_height_m=0.178,
+        cam_x_m=0.085,
+        cam_y_m=0.0,
+        track_front_m=0.13,
+        tilt0_deg=-0.15,
+    )
+
+
+def test_the_real_lens_answers_every_corner() -> None:
+    cal = real_lens()
+    cam = CameraModel(cal)
+    k = cal.k
+    for u, v in [(0, 0), (319, 0), (0, 239), (319, 239)]:
+        xd, yd = (u - k[0, 2]) / k[0, 0], (v - k[1, 2]) / k[1, 1]
+        n = cam.undistort(xd, yd)
+        assert n is not None, (u, v)
+        bx, by = cam.distort(*n)
+        assert math.isclose(bx, xd, abs_tol=1e-7) and math.isclose(by, yd, abs_tol=1e-7)
+    depth = CameraModel(cal).for_frame(Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.0, -20.0).expected_floor_depth()
+    assert math.isfinite(float(depth[239, 0])) and math.isfinite(float(depth[239, 319]))

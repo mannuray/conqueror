@@ -110,21 +110,40 @@ class CameraModel:
         return xd, yd
 
     def undistort(self, xd: float, yd: float) -> tuple[float, float] | None:
-        """Inverts distort as OpenCV's undistortPoints does (divide out the radial factor, less tangential).
-        None past the lens's fold, or when the answer does not distort back to the point (final review I1)."""
+        """Inverts distort: Newton on the radius (the lens's radial curve), then a 2-D Newton step for the
+        small tangential part. The tank session (2026-10-23) found a fixed-point iteration did not settle at
+        the real lens's corners. None past the lens's fold, or when the answer does not distort back (final
+        review I1)."""
         _, rd_fold = _fold(self.cal)
-        if math.hypot(xd, yd) >= rd_fold:
+        rd = math.hypot(xd, yd)
+        if rd >= rd_fold:
             return None
-        k1, k2, p1, p2, k3 = (float(v) for v in self.cal.dist[:5])
-        xn, yn = xd, yd
-        for _ in range(50):
-            r2 = xn * xn + yn * yn
-            radial = 1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2
-            if radial <= 0:
+        if rd == 0.0:
+            return 0.0, 0.0
+        k1, k2, _, _, k3 = (float(v) for v in self.cal.dist[:5])
+        r = rd
+        for _ in range(30):
+            r2 = r * r
+            f = r * (1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2) - rd
+            fp = 1 + 3 * k1 * r2 + 5 * k2 * r2 * r2 + 7 * k3 * r2 * r2 * r2
+            if fp <= 0:
                 return None
-            dx = 2 * p1 * xn * yn + p2 * (r2 + 2 * xn * xn)
-            dy = p1 * (r2 + 2 * yn * yn) + 2 * p2 * xn * yn
-            xn, yn = (xd - dx) / radial, (yd - dy) / radial
+            r -= f / fp
+        xn, yn = xd * r / rd, yd * r / rd
+        for _ in range(10):  # the tangential part: Newton with a numerical Jacobian
+            bx, by = self.distort(xn, yn)
+            ex, ey = bx - xd, by - yd
+            if math.hypot(ex, ey) < 1e-13:
+                break
+            h = 1e-7
+            ax, ay = self.distort(xn + h, yn)
+            cx, cy = self.distort(xn, yn + h)
+            j11, j12, j21, j22 = (ax - bx) / h, (cx - bx) / h, (ay - by) / h, (cy - by) / h
+            det = j11 * j22 - j12 * j21
+            if det == 0:
+                return None
+            xn -= (j22 * ex - j12 * ey) / det
+            yn -= (-j21 * ex + j11 * ey) / det
         bx, by = self.distort(xn, yn)
         if not (math.isfinite(xn) and math.isfinite(yn)) or math.hypot(bx - xd, by - yd) > 1e-7:
             return None
@@ -192,13 +211,36 @@ class CameraModel:
         uu, vv = np.meshgrid(np.arange(w, dtype=np.float64), np.arange(h, dtype=np.float64))
         xd, yd = (uu - k[0, 2]) / k[0, 0], (vv - k[1, 2]) / k[1, 1]
         k1, k2, p1, p2, k3 = (float(v) for v in self.cal.dist[:5])
-        xn, yn = xd.copy(), yd.copy()
-        for _ in range(50):  # the same iteration as undistort, on whole arrays
-            r2 = xn * xn + yn * yn
-            radial = 1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2
-            dx = 2 * p1 * xn * yn + p2 * (r2 + 2 * xn * xn)
-            dy = p1 * (r2 + 2 * yn * yn) + 2 * p2 * xn * yn
-            xn, yn = (xd - dx) / radial, (yd - dy) / radial
+        rd = np.hypot(xd, yd)
+        r = rd.copy()
+        for _ in range(30):  # the same method as undistort, on whole arrays: Newton on the radius ...
+            r2 = r * r
+            f = r * (1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2) - rd
+            fp = 1 + 3 * k1 * r2 + 5 * k2 * r2 * r2 + 7 * k3 * r2 * r2 * r2
+            with np.errstate(divide="ignore", invalid="ignore"):
+                r = np.where(fp > 0, r - f / fp, np.nan)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            s = np.where(rd > 0, r / rd, 1.0)
+        xn, yn = xd * s, yd * s
+
+        def dist2(x: FloatArray, y: FloatArray) -> tuple[FloatArray, FloatArray]:
+            q2 = x * x + y * y
+            rad = 1 + k1 * q2 + k2 * q2 * q2 + k3 * q2 * q2 * q2
+            return x * rad + 2 * p1 * x * y + p2 * (q2 + 2 * x * x), y * rad + p1 * (
+                q2 + 2 * y * y
+            ) + 2 * p2 * x * y
+
+        for _ in range(10):  # ... then the tangential part, a 2-D Newton step per pixel
+            bx, by = dist2(xn, yn)
+            ex, ey = bx - xd, by - yd
+            h = 1e-7
+            ax, ay = dist2(xn + h, yn)
+            cx, cy = dist2(xn, yn + h)
+            j11, j12, j21, j22 = (ax - bx) / h, (cx - bx) / h, (ay - by) / h, (cy - by) / h
+            det = j11 * j22 - j12 * j21
+            with np.errstate(divide="ignore", invalid="ignore"):
+                xn = xn - (j22 * ex - j12 * ey) / det
+                yn = yn - (-j21 * ex + j11 * ey) / det
         right, down, fwd = self.axes()
         rz = xn * right[2] + yn * down[2] + fwd[2]
         norm = np.sqrt(
@@ -206,12 +248,9 @@ class CameraModel:
             + (xn * right[1] + yn * down[1] + fwd[1]) ** 2
             + rz**2
         )
-        bx, by = xn.copy(), yn.copy()  # distort back: does each answer return to its pixel?
-        r2 = bx * bx + by * by
-        radial = 1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2
-        back_x = bx * radial + 2 * p1 * bx * by + p2 * (r2 + 2 * bx * bx)
-        back_y = by * radial + p1 * (r2 + 2 * by * by) + 2 * p2 * bx * by
-        good = (np.hypot(xd, yd) < _fold(self.cal)[1]) & (np.hypot(back_x - xd, back_y - yd) <= 1e-7)
+        back_x, back_y = dist2(xn, yn)  # distort back: does each answer return to its pixel?
+        with np.errstate(invalid="ignore"):
+            good = (rd < _fold(self.cal)[1]) & (np.hypot(back_x - xd, back_y - yd) <= 1e-7)
         with np.errstate(divide="ignore", invalid="ignore"):
             out = np.where(good & (rz < -1e-9), -self.cal.cam_height_m / rz * norm, np.inf)
         return out.astype(np.float64)

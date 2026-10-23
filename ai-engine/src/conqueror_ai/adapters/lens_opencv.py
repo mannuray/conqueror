@@ -23,7 +23,9 @@ def checkerboard_png(path: Path, square_px: int = 120) -> None:
             if (r + c) % 2 == 0:
                 y, x = (r + 1) * square_px, (c + 1) * square_px
                 img[y : y + square_px, x : x + square_px] = 0
-    cv2.imwrite(str(path), img)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(path), img):  # OpenCV fails silently: say so
+        raise OSError(f"could not write {path}")
 
 
 def board_points(square_m: float) -> NDArray[np.float64]:

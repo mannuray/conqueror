@@ -61,3 +61,9 @@ def test_calibration_recovers_a_known_lens() -> None:
     assert rms < 0.1
     assert math.isclose(k2[0, 0], 260.0, rel_tol=0.01) and math.isclose(k2[1, 2], 121.0, abs_tol=2.0)
     assert math.isclose(dist2[0], -0.15, abs_tol=0.03)
+
+
+def test_the_checkerboard_is_written_into_a_folder_that_does_not_exist_yet(tmp_path: Path) -> None:
+    png = tmp_path / "config" / "checkerboard.png"  # tank session 2026-10-23: config/ did not exist yet
+    lens_opencv.checkerboard_png(png)
+    assert png.exists()

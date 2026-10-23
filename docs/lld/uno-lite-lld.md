@@ -567,7 +567,7 @@ sequenceDiagram
 - **How (each 20 ms tick, per axis, integers in deci-degrees):**
   1. `want` = (target − out) / `kFollowDiv` (4), rounded away from zero so it never stalls short: each tick covers a quarter of the remaining gap. This fills the gaps between stick updates and eases into the stop.
   2. `want` is limited to ±`kStepDd` (24 dd = 2.4° per tick = 120°/s), as now.
-  3. **Speeding up is limited:** the speed `v` may grow by at most `kAccelDd` (3 dd per tick, i.e. 750°/s², 0 → 120°/s in 0.16 s) when `want` is faster than `v` in the same direction. Slowing down and reversing follow `want` at once, so it never overshoots.
+  3. **Speeding up is limited:** the speed `v` may grow by at most `kAccelDd` (3 dd per tick, i.e. 750°/s², 0 → 120°/s in 0.16 s) over the speed already going toward the target. **A turn back starts again from 0** with the same ramp (found while drafting: smoother than following at once). Slowing down follows `want` at once. It never overshoots, because a step is at most a quarter of the gap.
   4. `out` += `v`. Within 2 dd of the target, `out` = target and `v` = 0.
 - **Unchanged:**
   - `pan()` / `tilt()` (targets), `outPan()` / `outTilt()` (telemetry), and the trims (§22, added at the servo write);

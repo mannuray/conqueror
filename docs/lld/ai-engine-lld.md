@@ -418,7 +418,7 @@ A second bias estimate in the engine, on the same gyro, would fight the Uno's. S
    - `yaw` is counter-clockwise positive (protocol spec 01: TELEM_FAST `yaw` "CCW positive"; `turn by` + = left), the same sense as θ, so θ = unwrapped yaw − the start's yaw. It's checked on the floor too, turning left → θ grows.
 2. **Distance per track:**
    - Δcount = the count's change since the last sample. Counts only go up (one channel per encoder).
-   - Its sign comes from that track's **PWM output** (`td.pwm`): + forward, − back.
+   - Its sign comes from that track's **PWM output** (`td.pwm`): + forward, − back. It's the **previous sample's** output, because a sample's count change happened during the 20 ms before it (found while drafting the plan: with the new sample's sign, every change of direction lost a step).
    - With the PWM at 0 while the track still coasts, the **last non-zero sign** is kept.
 3. **Stall:** if `STALL_L` or `STALL_R` (FastFlagBit 3 / 4) is set, that track adds nothing; spinning tracks don't move the tank.
 4. **Step:**

@@ -15,6 +15,7 @@ dependencies = [
 cq-record = "conqueror_ai.app.record:main"
 cq-replay = "conqueror_ai.app.replay:main"
 cq-calibrate = "conqueror_ai.app.calibrate:main"
+cq-pose = "conqueror_ai.app.pose_replay:main"
 
 [build-system]
 requires = ["hatchling"]

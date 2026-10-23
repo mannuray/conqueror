@@ -1756,3 +1756,36 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
   3. **a tilt outside −20…+60° is refused at the bridge** ("so one knows the limit"), as is a pan outside ±90°, with the limits in the message.
 - **Written as bridge LLD R22 (draft).** The calibration plan (Spec 7 phase 2, §123) builds on it.
 - **R22 approved (owner: "yes, fold it into the calibration plan", 2026-10-23):** `cam_set` becomes the first task of the calibration plan (Plan Q2).
+
+## 125. The camera's pan is 5° off centre (owner, 2026-10-23)
+- **Found during the calibration session:** at `cam_set` pan 0 (servo 90°) the camera did not look dead ahead. The owner steered it with `cam_set` +2°, +4°, +5° and judged **+5° (servo 85°) dead ahead.**
+- **Why not re-seat the horn:** the servo's splines step about 14° per tooth, so 5° cannot be fixed by moving the horn.
+- **Owner: "do d now then we will do b":**
+  - **now (d):** the AI calibration carries it. The servo step fits `pan_map` from the laser level's vertical line straight ahead, so the offset is in `pan_map`'s offset. No firmware change. The phone driver's view at HOME stays 5° off until (b).
+  - **next (b):** a pan trim on the Uno (a saved "camera centre" setting), so HOME, the stick, `LOOK` and `cam_set` all treat the true centre as 0. Design first; the Uno's flash is at 96 %.
+
+## 126. The driving tilt: 15° down (owner, 2026-10-23)
+- **The §109 open decision.** After the lens and mount calibration (§125, Plan Q2), the tilt study (`cq-calibrate study`, with the saved `config/calibration.yaml`) gave, for each tilt from the centre:
+
+  | Tilt | Blind ahead | Blind at the picture's edge | Floor reaches | Walls in view |
+  |---|---|---|---|---|
+  | 0° | 21.5 cm | 23.0 cm | the horizon | yes |
+  | −5° | 17.2 cm | 18.1 cm | the horizon | yes |
+  | −10° | 13.7 cm | 14.3 cm | the horizon | yes |
+  | −15° | 10.8 cm | 11.2 cm | the horizon | yes |
+  | −20° | 8.3 cm | 8.5 cm | the horizon | yes |
+  | −25° | 6.0 cm | 6.2 cm | the horizon | yes |
+  | −30° | 4.0 cm | 4.1 cm | the horizon | yes |
+
+- **How it was worked out:**
+  - "Blind" is the nearest floor point in view, measured from the tracks' front (13 cm ahead of the tank's centre). It comes from the calibrated camera (fx 182.5, distortion, height 17.8 cm, lens 8.5 cm ahead, mount tilt −0.15°), with no servo map yet (`tilt_map` 1, 0).
+  - "Floor reaches the horizon" means the top of the picture is still above level, so the floor runs to the far walls.
+  - The height the camera sees at 2 m (rough, from the vertical half-view of about 33°): 0° ~1.5 m, −10° ~1.0 m, −15° ~0.8 m, −20° ~0.6 m, −30° ~0.3 m.
+- **Options discussed:**
+  - −10° keeps people in view;
+  - −15° gives more floor;
+  - −20° and below gain only a few centimetres. The ultrasonic covers that close range, and the top of the view falls to a few degrees above level.
+- **Owner: "chose what will be best for navigation" → −15°.**
+  - The map is built from the floor, and −15° gives the most floor pixels near and mid-range while the horizon stays in view, so far obstacles are still seen.
+  - Anything low enough to block the ~20 cm tall tank is in view at any of these tilts.
+- **Not fixed for ever.** Module 2 can look up with `cam_set` when a task needs it, e.g. a later "see people" word.

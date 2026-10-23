@@ -46,3 +46,28 @@ class Pose:
     th_rad: float
     v_mps: float
     w_rps: float
+
+
+@dataclass(frozen=True)
+class Detection:
+    """One box from the detector (LLD §15.1), in the picture's pixels."""
+
+    cls: str
+    score: float
+    box: tuple[float, float, float, float]  # x1, y1, x2, y2
+
+
+@dataclass(frozen=True)
+class ObjectEstimate:
+    """One thing on the list (LLD §15.4), in the room frame."""
+
+    oid: int
+    cls: str
+    x_m: float
+    y_m: float
+    vx: float
+    vy: float
+    sigma_m: float  # the position's standard deviation (the larger axis)
+    first_seen_us: int
+    last_seen_us: int
+    state: str  # "seen" or "remembered"

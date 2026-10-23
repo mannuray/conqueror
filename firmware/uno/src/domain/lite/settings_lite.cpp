@@ -8,6 +8,10 @@ namespace cq {
 namespace {
 using Id = proto::SettingId;
 bool inRange(int32_t v, int32_t lo, int32_t hi) { return v >= lo && v <= hi; }
+// The block sizes saved so far: before plan J, before the camera trims, now. Older blocks end early.
+bool knownSize(uint8_t n) {
+  return n == sizeof(LiteSettings) || n == offsetof(LiteSettings, track_balance) || n == offsetof(LiteSettings, pan_trim);
+}
 }  // namespace
 
 void SettingsLite::defaults() {
@@ -25,13 +29,14 @@ void SettingsLite::defaults() {
   m_s.reverse_steer = 0;
   m_s.encoders_enabled = 0;
   m_s.track_balance = 0;
+  m_s.pan_trim = 0;
+  m_s.tilt_trim = 0;
 }
 
 bool SettingsLite::load(uint8_t (*read)(uint16_t)) {
   defaults();
   const uint8_t stored = read(kAddr + 2);
-  constexpr uint8_t kPrevSize = static_cast<uint8_t>(offsetof(LiteSettings, track_balance));  // before plan J
-  if (read(kAddr) != kMagic0 || read(kAddr + 1) != kMagic1 || (stored != sizeof(LiteSettings) && stored != kPrevSize)) {
+  if (read(kAddr) != kMagic0 || read(kAddr + 1) != kMagic1 || !knownSize(stored)) {
     return false;
   }
   uint8_t buf[sizeof(LiteSettings) + 1];
@@ -79,6 +84,8 @@ bool SettingsLite::get(uint8_t id, int32_t& v) const {
     case Id::kReverseSteer: v = m_s.reverse_steer; return true;
     case Id::kEncodersEnabled: v = m_s.encoders_enabled; return true;
     case Id::kTrackBalance: v = m_s.track_balance; return true;
+    case Id::kPanTrim: v = m_s.pan_trim; return true;
+    case Id::kTiltTrim: v = m_s.tilt_trim; return true;
     default: return false;
   }
 }
@@ -109,6 +116,8 @@ proto::AckStatus SettingsLite::set(uint8_t id, int32_t v) {
     case Id::kReverseSteer: if (!inRange(v, 0, 1)) return kRange; m_s.reverse_steer = static_cast<uint8_t>(v); return kOk;
     case Id::kEncodersEnabled: if (!inRange(v, 0, 1)) return kRange; m_s.encoders_enabled = static_cast<uint8_t>(v); return kOk;
     case Id::kTrackBalance: if (!inRange(v, -100, 100)) return kRange; m_s.track_balance = static_cast<int16_t>(v); return kOk;
+    case Id::kPanTrim: if (!inRange(v, -300, 300)) return kRange; m_s.pan_trim = static_cast<int16_t>(v); return kOk;
+    case Id::kTiltTrim: if (!inRange(v, -300, 300)) return kRange; m_s.tilt_trim = static_cast<int16_t>(v); return kOk;
     default: return proto::AckStatus::kUnavailable;
   }
 }

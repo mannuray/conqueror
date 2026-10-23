@@ -118,6 +118,48 @@ void test_settings_previous_block_still_loads() {
   TEST_ASSERT_EQUAL_INT16(0, r.values().track_balance);
 }
 
+// Uno Lite LLD §22: the camera centre trims (ids 27 / 28), ±30.0° in 0.1° steps, default 0.
+void test_settings_camera_trims() {
+  SettingsLite s;
+  s.defaults();
+  int32_t v = 1;
+  TEST_ASSERT_TRUE(s.get(id(proto::SettingId::kPanTrim), v));
+  TEST_ASSERT_EQUAL_INT32(0, v);
+  TEST_ASSERT_EQUAL(proto::AckStatus::kOk, s.set(id(proto::SettingId::kPanTrim), -50));
+  TEST_ASSERT_EQUAL(proto::AckStatus::kOk, s.set(id(proto::SettingId::kTiltTrim), 300));
+  TEST_ASSERT_TRUE(s.get(id(proto::SettingId::kPanTrim), v));
+  TEST_ASSERT_EQUAL_INT32(-50, v);
+  TEST_ASSERT_EQUAL_INT16(300, s.values().tilt_trim);
+  TEST_ASSERT_EQUAL(proto::AckStatus::kSettingOutOfRange, s.set(id(proto::SettingId::kPanTrim), -301));
+  TEST_ASSERT_EQUAL(proto::AckStatus::kSettingOutOfRange, s.set(id(proto::SettingId::kTiltTrim), 301));
+  uint8_t n = s.encode(g_mem);
+  TEST_ASSERT_EQUAL_UINT8(SettingsLite::kBlockSize, n);
+  SettingsLite r;
+  TEST_ASSERT_TRUE(r.load(rd));
+  TEST_ASSERT_EQUAL_INT16(-50, r.values().pan_trim);
+  TEST_ASSERT_EQUAL_INT16(300, r.values().tilt_trim);
+}
+
+// A block saved before the trims (plan J's size) still loads; the trims take their default 0.
+void test_settings_block_before_the_trims_still_loads() {
+  SettingsLite s;
+  s.defaults();
+  s.set(id(proto::SettingId::kTrackBalance), 19);
+  const uint8_t old_size = static_cast<uint8_t>(offsetof(LiteSettings, pan_trim));
+  uint8_t full[SettingsLite::kBlockSize];
+  s.encode(full);
+  g_mem[0] = SettingsLite::kMagic0;
+  g_mem[1] = SettingsLite::kMagic1;
+  g_mem[2] = old_size;
+  memcpy(g_mem + 3, full + 3, old_size);
+  g_mem[3 + old_size] = proto::crc8(g_mem + 2, static_cast<uint8_t>(old_size + 1));
+  SettingsLite r;
+  TEST_ASSERT_TRUE(r.load(rd));
+  TEST_ASSERT_EQUAL_INT16(19, r.values().track_balance);
+  TEST_ASSERT_EQUAL_INT16(0, r.values().pan_trim);
+  TEST_ASSERT_EQUAL_INT16(0, r.values().tilt_trim);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_settings_defaults);
@@ -128,5 +170,7 @@ int main() {
   RUN_TEST(test_settings_out_of_range_block_gives_defaults);
   RUN_TEST(test_settings_track_balance_range);
   RUN_TEST(test_settings_previous_block_still_loads);
+  RUN_TEST(test_settings_camera_trims);
+  RUN_TEST(test_settings_block_before_the_trims_still_loads);
   return UNITY_END();
 }

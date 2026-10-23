@@ -37,13 +37,27 @@ class CamLite {
   void step();
   int16_t outPan() const { return m_out_pan; }
   int16_t outTilt() const { return m_out_tilt; }
+  // The camera centre (Uno Lite LLD §22): added only at the servo, so pan()/outPan() (and telemetry) stay logical.
+  void setTrim(int16_t pan_dd, int16_t tilt_dd) {
+    m_pan_trim = pan_dd;
+    m_tilt_trim = tilt_dd;
+    m_active = true;  // wakes released servos: the camera moves to the new centre at once
+  }
+  int16_t servoPan() const { return servoOf(m_out_pan, m_pan_trim); }
+  int16_t servoTilt() const { return servoOf(m_out_tilt, m_tilt_trim); }
   static uint16_t toUs(int16_t dd) { return static_cast<uint16_t>(544 + static_cast<int32_t>(dd) * 1856 / 1800); }
 
  private:
+  static int16_t servoOf(int16_t out, int16_t trim) {
+    const int16_t v = static_cast<int16_t>(out + trim);
+    return v < 0 ? 0 : (v > 1800 ? 1800 : v);
+  }
   int16_t m_pan = kHome;
   int16_t m_tilt = kHome;
   int16_t m_out_pan = kHome;
   int16_t m_out_tilt = kHome;
+  int16_t m_pan_trim = 0;
+  int16_t m_tilt_trim = 0;
   int8_t m_jog_pan = 0;
   int8_t m_jog_tilt = 0;
   bool m_locked = false;

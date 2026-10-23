@@ -85,8 +85,8 @@ void cameraTask() {
     g_servos_attached = want;
   }
   if (!want) return;
-  port::servos::writeUs(Axis::kPan, CamLite::toUs(g_lite.cam.outPan()));
-  port::servos::writeUs(Axis::kTilt, CamLite::toUs(g_lite.cam.outTilt()));
+  port::servos::writeUs(Axis::kPan, CamLite::toUs(g_lite.cam.servoPan()));
+  port::servos::writeUs(Axis::kTilt, CamLite::toUs(g_lite.cam.servoTilt()));
 }
 
 }  // namespace lite

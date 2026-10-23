@@ -204,6 +204,7 @@ void applySettings() {
   g_lite.encoders_enabled = s.encoders_enabled != 0;
   g_lite.gyro_zero.seed(s.gyro_bias_z);
   g_lite.heading.configure(headingGainsFromMilli(s.heading_kp_milli, s.rate_kp_milli));
+  g_lite.cam.setTrim(s.pan_trim, s.tilt_trim);
 }
 
 }  // namespace lite

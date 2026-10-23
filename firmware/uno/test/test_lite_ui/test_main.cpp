@@ -131,6 +131,37 @@ void test_cam_small_jog_wakes_servos() {
   TEST_ASSERT_TRUE(c.wantAttached());
 }
 
+// Uno Lite LLD §22: the trim is added only at the servo; the logical angles (telemetry) stay as they are.
+void test_cam_trim_moves_only_the_servo() {
+  CamLite c;
+  c.setTrim(-50, 20);
+  for (int i = 0; i < 10; ++i) c.step();
+  TEST_ASSERT_EQUAL_INT16(900, c.outPan());
+  TEST_ASSERT_EQUAL_INT16(900, c.outTilt());
+  TEST_ASSERT_EQUAL_INT16(850, c.servoPan());
+  TEST_ASSERT_EQUAL_INT16(920, c.servoTilt());
+  c.set(30, 1100);
+  for (int i = 0; i < 60; ++i) c.step();
+  TEST_ASSERT_EQUAL_INT16(30, c.outPan());
+  TEST_ASSERT_EQUAL_INT16(0, c.servoPan());  // the servo's own 0..180° stop
+  TEST_ASSERT_EQUAL_INT16(1120, c.servoTilt());
+  c.setTrim(50, 0);
+  c.set(1800, 900);
+  for (int i = 0; i < 100; ++i) c.step();  // 1770 dd at 24 per step
+  TEST_ASSERT_EQUAL_INT16(1800, c.servoPan());
+}
+
+// A new trim wakes released servos, so the camera moves to the new centre at once.
+void test_cam_trim_wakes_servos() {
+  CamLite c;
+  c.tick(0);
+  c.tick(2000);
+  TEST_ASSERT_FALSE(c.wantAttached());
+  c.setTrim(-50, 0);
+  c.tick(2020);
+  TEST_ASSERT_TRUE(c.wantAttached());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_cam_limits_and_us);
@@ -143,5 +174,7 @@ int main() {
   RUN_TEST(test_cam_joy_timeout_returns_home);
   RUN_TEST(test_cam_idle_detach_after_2s);
   RUN_TEST(test_cam_small_jog_wakes_servos);
+  RUN_TEST(test_cam_trim_moves_only_the_servo);
+  RUN_TEST(test_cam_trim_wakes_servos);
   return UNITY_END();
 }

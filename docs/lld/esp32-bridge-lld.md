@@ -2412,13 +2412,13 @@ sequenceDiagram
 The trim lives on the Uno (Uno Lite LLD §22). The owner sets it by eye, watching the picture, so the Camera card needs a way to step it and save it. Today a page may change only `track_balance` (id 66), and every change waits for the tank's button.
 
 ### R23.1 The message
-- **Read:** `{"t":"setting","id":27}` / `{"t":"setting","id":28}` → `SETTING_GET` → the value (ids 27 and 28 join the readable list).
-- **Try (new):** `{"t":"setting","id":27,"value":v,"try":true,"id_":n}`, written in the WebSocket's usual form with `id` = the setting id and the request id as for other `setting` messages.
+- **Read:** `{"t":"setting","setting_id":27}` / `{"t":"setting","setting_id":28}` → `SETTING_GET` → the value (ids 27 and 28 join the readable list).
+- **Try (new):** `{"t":"setting","setting_id":27,"value":v,"try":true,"id":n}`.
   - Only ids 27 and 28, with v −300…300 → `SETTING_SET` alone (RAM, not saved) → `ack` after the Uno's ACK. The camera moves to the new centre at once.
   - **No button:** a try only moves the camera, and a restart forgets it.
   - **Who:** the camera rule (`LinkOwner::onCamera`: only the driver while someone drives, anyone when nobody drives).
   - Another id, or v out of range → 3006 `INVALID_COMMAND`.
-- **Save:** `{"t":"setting","id":27,"value":v}` with no `try`. Ids 27 and 28 join `track_balance` as page-writable:
+- **Save:** `{"t":"setting","setting_id":27,"value":v,"id":n}` with no `try`. Ids 27 and 28 join `track_balance` as page-writable:
   - the tank's button confirms, as now;
   - then `SETTING_SET` + `SETTINGS_SAVE`.
   - The Uno saves its whole block, so a tried tilt trim is saved with the pan one. The page sends Save once for pan, and once for tilt only if tilt changed.

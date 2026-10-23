@@ -401,7 +401,7 @@ sequenceDiagram
 - **Driving tilt:** 15° down (design-notes §126).
 - **Picture size:** the tool needs QVGA (`{"t":"camera_set","size":"QVGA"}`, upper case). Set the camera back to the usual VGA after a session.
 
-## 14. PoseFilter, revision 2 (owner, 2026-10-23, design-notes §132 — draft; replaces §5.2)
+## 14. PoseFilter, revision 2 (owner, 2026-10-23, design-notes §132 — approved 2026-10-23; replaces §5.2)
 
 ### 14.0 Why it changed
 §5.2 was written before three things existed:

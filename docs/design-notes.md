@@ -1952,3 +1952,26 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - (c) **the Uno smooths at its 50 Hz servo loop:** a target follow (a quarter of the gap per tick) plus a speed cap and an acceleration limit. That's the standard method, as RC "servo speed" settings and our full firmware's `servo_speed` / `servo_accel` do.
 - **Owner: "let's do uno"** → Uno Lite LLD §23 (draft).
 - **Also found (open):** while the phone was using the stick and its video, **the recorder's WebSocket was dropped 9 times in 30 s** (none with the phone idle). The AI engine is such a second client, so the cause (the bridge closing a slow client? WiFi load from the video) must be looked at before phase 4's live tests.
+
+## 137. Smooth camera motion, as built (Plan W, 2026-10-24)
+- **First stand check (one stage, Uno Lite LLD §23):**
+  - The 30 s stick recording (`servo_record.py`, `td.pan` at 50 Hz): **pauses inside the motion 145 → 14**, median step 1.8° → 0.5°. The stop-and-go was gone.
+  - Owner: "it is good but i see jitter on pan" → "the whole setup shakes while panning".
+- **How it was traced:**
+  - The commanded pan never reversed tick to tick and was exactly constant whenever the stick was still, so the Uno wasn't asking for a wobble.
+  - Sweeps from the laptop (`pan_sweep.py`: ±60° at 120 / 60 / 30°/s, targets sent 20 times a second) → the owner saw **the most shaking at 60°/s**.
+  - The 60°/s recording showed the speed **pulsing every 5 ticks** (0.9 / 1.2 / 1.2 / 1.5 / 1.2° per tick): the target updates (every 50 ms; the phone's stick is similar) passed through the one-stage follow as a 10 Hz push. The owner said the mount screws are tight.
+- **Options simulated** (pulsing / coasting on a full-speed reversal / time to 90 % of a 30° move):
+  - one stage: 1.9 / 0° / 320 ms;
+  - two follow stages ¼ + ¼: 0 / 13° / 340 ms;
+  - **a 5-tick average + follow: 0 / 9.6° / 320 ms**;
+  - ½ + ¼: 0.9 / 5.8° / 320 ms.
+  - The physics: any smoothing that hides the steps delays the camera, so a quick reversal coasts. The root is the stick's 15–25 updates a second in 0.9° steps.
+- **Owner: "add a second stage" → the 5-tick average** (budget 300 B approved): 31 602 B, +226 B.
+- **Second stand check:** the 60°/s cruise is a steady +1.2° per tick (spread **0.19° → 0.07°**). Owner: **"it's as good as it could get, i think it's due to the weight."**
+- **Why the rest is mechanical** (from the owner's photo of the head, the common SG90 pan/tilt kit):
+  - the pan servo turns the whole head (itself, the cradle, the tilt servo, the camera) on its own output shaft, with no bearing;
+  - the shaft is near one end of the servo, so the rotating mass (~45–60 g, estimated) sits ~1–2 cm off the axis, on a ~5–6 cm tall lever;
+  - each start and stop rocks it through the plastic gears' play (±0.4° on pan, §130).
+  - **Later, if wanted (hardware, not the shield):** MG90S metal-gear servos (the same size and plugs), a pan base with a bearing, or balancing the camera over the pan shaft.
+- **Still open:** the bridge dropped the recorder's second WebSocket 9–12 times per 30–40 s while the phone or the sweeps were busy (§136).

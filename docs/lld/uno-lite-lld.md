@@ -606,3 +606,12 @@ sequenceDiagram
   - a 1 dd move lands; the release after 2 s still works; the trims are unaffected;
   - the IR jog keeps its 60°/s target rate.
 - **On the stand:** the same recording as §23's "why" (`servo_record.py`). Expected: no stop-and-go pattern in slow moves, ramped starts in fast ones, and the owner's feel against the RC transmitter.
+
+### 23.1 As built (Plan W, 2026-10-24; design-notes §137)
+- **Two stages** (the stand check found that one stage still let a 10 Hz pulse through):
+  1. **the target averaged over the last 5 ticks** (100 ms, `kAvgTicks` 5; a 5-entry history per axis);
+  2. **`follow()`** as designed: a quarter of the gap, ≤ 24 dd, +3 dd per tick at most, landing within 2 dd.
+- **The trade-off (owner-approved):** the average gives the motion some momentum. On a quick turn-back from full speed it goes on up to ~10° before reversing (5–6° from 60°/s). It's never past the new target, and it lands exactly. A 30° move still reaches 90 % in ~0.32 s.
+- **`follow` and `average` are `noinline`** (one copy for both axes: −88 B).
+- **Flash 31 602 B** (+226 B; the budget raised to 300 B by the owner), RAM 1564 B. Uno native 303/303.
+- **Results:** §137.

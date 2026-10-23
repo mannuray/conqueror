@@ -525,7 +525,7 @@ sequenceDiagram
 - **Known limit (one-channel encoders):** pushing the tank by hand after a stop counts in the last motor direction.
 - **Floor check (§14.5): pending, owner, 2026-10-24.**
 
-## 15. Phase 4: the detector and the object tracker (owner, 2026-10-23, design-notes §134 — draft)
+## 15. Phase 4: the detector and the object tracker (owner, 2026-10-23, design-notes §134 — approved 2026-10-23)
 
 ### 15.0 What it does
 For each picture the engine finds things (a person, a ball, a chair, a cat, …) and works out where each one stands in the room. It keeps a list of them: what, where, how sure, last seen.

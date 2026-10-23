@@ -3,8 +3,9 @@
 
 namespace cq {
 
-// Camera pan/tilt in deci-degrees. pan()/tilt() are the targets; step() moves the servo output toward them at
-// most kStepDd per 20 ms tick (120 °/s, smooth motion = LLD §8 extra 1).
+// Camera pan/tilt in deci-degrees. pan()/tilt() are the targets; step() moves the servo output toward them each
+// 20 ms tick: a quarter of the gap, at most kStepDd (120 °/s), speeding up by at most kAccelDd per tick, landing
+// exactly (Uno Lite LLD §23: smooth like an RC servo, whatever feeds the target).
 // Pan 0..1800 (x > 0 = right = lower angle), tilt 300..1100 (y > 0 = up = lower angle: this tank looks down at
 // larger angles, design-notes §45), home 900/900. Joystick release → home after 500 ms
 // unless locked.
@@ -14,6 +15,9 @@ class CamLite {
   static constexpr int16_t kPanMin = 0, kPanMax = 1800, kTiltMin = 300, kTiltMax = 1100;
   static constexpr uint16_t kReturnMs = 500;
   static constexpr int16_t kStepDd = 24;
+  static constexpr int16_t kFollowDiv = 4;  // each tick covers this fraction of the gap (1/4)
+  static constexpr int16_t kAccelDd = 3;    // the speed grows by at most this per tick (0 -> 120 °/s in 0.16 s)
+  static constexpr int16_t kSnapDd = 2;     // this close: land on the target
   static constexpr uint16_t kJoyTimeoutMs = 500;   // stick held without refresh = phone lost (full CameraHead)
   static constexpr uint16_t kDetachAfterMs = 2000;  // servos released after 2 s still (spec 02 §D5.4)
   static constexpr int16_t kJogDd = 12;  // per 20 ms tick = 60 °/s (full firmware: 1.2° per tick)
@@ -57,6 +61,8 @@ class CamLite {
   int16_t m_tilt = kHome;
   int16_t m_out_pan = kHome;
   int16_t m_out_tilt = kHome;
+  int16_t m_v_pan = 0;  // dd per tick
+  int16_t m_v_tilt = 0;
   int16_t m_pan_trim = 0;
   int16_t m_tilt_trim = 0;
   int8_t m_jog_pan = 0;

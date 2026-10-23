@@ -2398,3 +2398,11 @@ sequenceDiagram
 - **`test_ws_json`:** the 3018 `OUT_OF_RANGE` nack text.
 - **AI engine (`test_domain` / a fake bridge):** `BridgeLink.cam_set` sends the message and returns on the ack; a nack raises with its reason.
 - **On the stand (owner):** set (0, 0), (30, 0), (0, −15) and (0, 50) from the laptop → the camera moves and stays; `tf` shows the angles; (0, −30) → `OUT_OF_RANGE`.
+
+### R22.4 As built (Plan Q2 Task 1, 2026-10-23)
+- **As designed (R22.1-R22.3).** One addition from the final review: an input beyond ±1000° is clamped before the conversion (no overflow) and still refused as `OUT_OF_RANGE`.
+- Bridge suite 660/660.
+- **On the tank:** the calibration session used `cam_set` throughout:
+  - the pan trim at +2, +4 and +5° (design-notes §125);
+  - the 35-view lens sweep (pan 5 ± 12°, tilt ± 9°);
+  - the camera held its angle between pictures.

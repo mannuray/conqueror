@@ -1789,3 +1789,37 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
   - The map is built from the floor, and −15° gives the most floor pixels near and mid-range while the horizon stays in view, so far obstacles are still seen.
   - Anything low enough to block the ~20 cm tall tank is in view at any of these tilts.
 - **Not fixed for ever.** Module 2 can look up with `cam_set` when a task needs it, e.g. a later "see people" word.
+
+## 127. Camera calibration results (Plan Q2 tank session, 2026-10-23)
+**What calibration means here:** the AI turns a pixel into a point on the floor. To do that it needs:
+- the lens (how wide it sees and how it bends straight lines);
+- where the camera sits on the tank;
+- which way the servos point it.
+
+All the numbers below are for QVGA (320 × 240), the picture size the map uses.
+
+- **Lens:**
+  - **How:** a 9 × 6 checkerboard filled the laptop screen. The owner measured one square: 20 mm. The laptop stayed still in front of the tank, and the tool swept the camera with `cam_set` (pan 5 ± 12°, tilt ± 9°), so every view came at a different angle. Corners were found in **35 of 35 views**. OpenCV `calibrateCamera` gave the fit.
+  - **Fit error:** 0.170 px rms (accept < 0.5).
+  - **Result:** fx 182.5, fy 181.8 px, so the camera sees **about 82° across**. That is wider than the 66° assumed in §109.
+  - **Check:** OpenCV `solvePnP` put the screen 42.9 cm from the lens; the owner's tape said 42.5 cm.
+- **Mount (owner's tape):**
+  - lens 17.8 cm above the floor;
+  - lens 8.5 cm ahead of the tank's centre, on the centre line;
+  - tracks' front 13 cm ahead of the centre, so the tracks reach 4.5 cm past the lens.
+- **Mount tilt (`tilt0_deg` −0.15°):**
+  - **Planned:** a laser line on the wall at lens height. There is no laser level yet.
+  - **Instead:** tape marks on the floor straight ahead at 50 cm and 100 cm. The owner clicked them on a VGA picture shown large (VGA halved matches QVGA, correlation 0.995). The tilt was fitted to those two marks.
+  - **Result:** the marks come out at 48.9 cm and 98.8 cm. Sideways they were 8-10 cm off; the owner said the clicks were not on the marks' centres, so that was accepted as click error.
+  - **The tilt is about 0°:** the re-mounted servo at 90° holds the camera level.
+- **Pan:** −5° offset in `pan_map`, judged by eye at `cam_set` +5° (§125).
+- **Tilt map:** 1:1 with no offset, assumed. **Still to do:** the servo step with the laser level (`pan_map` / `tilt_map` from the line) when the laser turns up.
+- **Fixes found on the tank:**
+  - the checkerboard picture was not written when its folder was missing;
+  - the corners of the picture had no floor point (the undistortion did not settle) → Newton's method.
+  - Both were test-first (AI engine LLD §13).
+- **Tilt study and the driving tilt:** §126 (15° down).
+- **Session notes:**
+  - the tool refuses a VGA picture. `camera_set` needs `"QVGA"` in upper case; a lower-case value is refused as `INVALID_COMMAND`.
+  - The camera was set back to VGA afterwards.
+  - The pictures were deleted after the numbers were taken (they show the home).

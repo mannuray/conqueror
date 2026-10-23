@@ -2,3 +2,4 @@
 recordings/
 __pycache__/
 *.rrd
+config/checkerboard.png

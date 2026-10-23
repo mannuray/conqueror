@@ -1756,3 +1756,10 @@ Follows §97. Branch `plan-p-bridge-structure`, started from `plan-o` (owner) an
   3. **a tilt outside −20…+60° is refused at the bridge** ("so one knows the limit"), as is a pan outside ±90°, with the limits in the message.
 - **Written as bridge LLD R22 (draft).** The calibration plan (Spec 7 phase 2, §123) builds on it.
 - **R22 approved (owner: "yes, fold it into the calibration plan", 2026-10-23):** `cam_set` becomes the first task of the calibration plan (Plan Q2).
+
+## 125. The camera's pan is 5° off centre (owner, 2026-10-23)
+- **Found during the calibration session:** at `cam_set` pan 0 (servo 90°) the camera did not look dead ahead. The owner steered it with `cam_set` +2°, +4°, +5° and judged **+5° (servo 85°) dead ahead.**
+- **Why not re-seat the horn:** the servo's splines step about 14° per tooth, so 5° cannot be fixed by moving the horn.
+- **Owner: "do d now then we will do b":**
+  - **now (d):** the AI calibration carries it. The servo step fits `pan_map` from the laser level's vertical line straight ahead, so the offset is in `pan_map`'s offset. No firmware change. The phone driver's view at HOME stays 5° off until (b).
+  - **next (b):** a pan trim on the Uno (a saved "camera centre" setting), so HOME, the stick, `LOOK` and `cam_set` all treat the true centre as 0. Design first; the Uno's flash is at 96 %.

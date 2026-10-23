@@ -2554,3 +2554,13 @@ classDiagram
   - dark room and daylight, QVGA: median picture brightness and YOLO's person score before (§139: 44 / 255) and after, with low light off and on;
   - the frame rate with low light on (must stay ≥ 10 / s);
   - the owner picks the white balance by eye.
+
+### R24.3 As built (Plan X, 2026-10-24; design-notes §141)
+- **As designed, with the final review's changes:**
+  - **normal gain ceiling 248** (15.5×, the OV3660's own default 0x3A19 = 0xF8) instead of 128; low light 512 (32×);
+  - the raw ceiling is written straight to **0x3A18 / 0x3A19 with `set_reg`** (no out-of-range `gainceiling_t`);
+  - a saved block whose on / off bytes aren't 0 / 1 is refused;
+  - the redundant `set_awb_gain` was dropped. Auto = the sensor's AWB; the presets set fixed colour gains.
+- **The tank's source archive leaves out `docs/superpowers/plans/**`** (`.gitattributes`). At 2 036 920 B it no longer fit the 1 966 080 B partition, so main couldn't build the bridge. Now ~1.22 MB. The plans are history (with their diffs), kept in git; the code, specs, LLDs and design notes stay in the archive.
+- **Tests:** bridge native 673/673 (`test_cam_tuning` 7); the page check (`web/test/camera_tuning_check.js`) passes. Flash 44.5 %, `/settings` 22.2 KB gzipped.
+- **On the tank:** §141.

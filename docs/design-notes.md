@@ -2009,3 +2009,28 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   4. **The camera-clock test** (10 / 16 / 20 MHz: pictures per second and WiFi loss) is a measurement session in daylight; the result becomes a firmware constant.
   5. **The saved camera settings are carried over** into the new format (not reset).
 - **Written as bridge LLD R24** (draft).
+
+## 141. Camera improvement on the tank (Plan X, 2026-10-24, night)
+- **How it was measured:**
+  - a session script (`cam_bright.py`) set QVGA and took 20 pictures with low light off, then 20 with it on (3 s settle each);
+  - it reports the median grey-level brightness (0–255) and the pictures per second from the capture stamps;
+  - the same room light before and after the flash.
+
+  | | Before (old firmware) | After (Plan X) |
+  |---|---|---|
+  | low light off | 87 / 255, 13.9 / s | **201 / 255, 13.9 / s** |
+  | low light on | 87 / 255, 12.6 / s | **207 / 255, 13.9 / s** |
+
+  - Before, low light changed nothing: the gain ceiling was near zero in both modes (the §96 bug).
+  - After, the picture is more than twice as bright in the same light, and low light no longer costs frame rate.
+  - **Night** on (the owner tried it from the card): 4.6 pictures / s, longer exposures, as designed (for looking, not driving).
+- **The saved settings were carried over** across the flash: QVGA, quality 12, brightness +1, contrast +2, vflip; plus white balance auto and night off. The owner's +1 / +2 were set while the picture was too dark; they may want 0 now.
+- **YOLO with the owner as the subject** (2 m; standing, then sitting with a laptop): no person found.
+  - Not the light: the picture was 170–178 / 255 and sharp.
+  - **Standing:** at the driving tilt the top of the view reaches only ~1 m high at 2 m (knees to waist), and legs alone aren't a "person" to YOLO from that low angle.
+  - **Sitting:** ~55 × 55 px at QVGA, partly behind the laptop; YOLO26n-320's best guess was "suitcase" at 0.16.
+  - **For phase 4 / module 2:** people need **a look up** (a tilt-up scan when a task needs them), or more pixels (Spec 7 §10's open QVGA / VGA question: VGA would make a person at 2 m about 110 px tall, at ~7 pictures / s, with a VGA calibration). To try in Plan V's floor check (Task 4).
+- **Still to do:**
+  - the white balance by eye **in daylight** (owner), a choice on the Camera card with no code;
+  - the camera-clock test (§140 item 4).
+- The camera was set back to VGA; the pictures and recordings were deleted.

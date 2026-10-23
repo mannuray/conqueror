@@ -571,7 +571,7 @@ sequenceDiagram
   4. `out` += `v`. Within 2 dd of the target, `out` = target and `v` = 0.
 - **Unchanged:**
   - `pan()` / `tilt()` (targets), `outPan()` / `outTilt()` (telemetry), and the trims (§22, added at the servo write);
-  - the 2 s release: "moving" is `out ≠ target` or `v ≠ 0`. A released camera starts from `v` = 0.
+  - the 2 s release: "moving" is `out ≠ target` (the output reaches the target only through the snap, which sets `v` = 0, so no separate speed check is needed). A released camera starts from `v` = 0.
 - **The trade-off:** the camera follows about 0.1 s behind a stick move (soft, not twitchy). `kFollowDiv` and `kAccelDd` are constants, tuned on the stand with the owner; no new setting (flash).
 - **Budget:** ≤ 120 B (31 376 B before; 880 B free), measured in the plan.
 
@@ -581,7 +581,7 @@ classDiagram
     -int16 m_out_pan, m_out_tilt
     -int16 m_v_pan, m_v_tilt (new)
     +step()   follow + speed cap + acceleration limit
-    -axisStep(out, v, target) (new, static)
+    follow(out, v, target) (new, a file-local function)
     +kFollowDiv = 4
     +kStepDd = 24
     +kAccelDd = 3

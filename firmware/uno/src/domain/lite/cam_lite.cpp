@@ -66,6 +66,8 @@ void CamLite::tick(uint32_t now_ms) {
     m_return_pending = false;
     home();
   }
+  // follow() reaches the target only through its snap, which also sets the speed to 0 - so "out == target"
+  // already means "still"; the speed needs no check of its own (Plan W review M1).
   const bool moving = m_active || m_out_pan != m_pan || m_out_tilt != m_tilt;
   m_active = false;
   if (moving) {

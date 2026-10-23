@@ -53,6 +53,23 @@ void test_cam_big_move_eases_in_and_lands() {
   TEST_ASSERT_EQUAL_INT16(900, c.outTilt());
 }
 
+// An IR jog key held (+12 dd on the target per tick, 60 °/s): the output moves every tick and lands when let go
+// (Plan W review M3).
+void test_cam_held_jog_output_keeps_up() {
+  CamLite c;
+  c.jog(-1, 0);  // pan left = a larger angle
+  int16_t last = c.outPan();
+  for (int i = 0; i < 30; ++i) {
+    c.applyJog();
+    c.step();
+    TEST_ASSERT_TRUE(c.outPan() > last);
+    last = c.outPan();
+  }
+  c.jog(0, 0);
+  for (int i = 0; i < 20; ++i) c.step();
+  TEST_ASSERT_EQUAL_INT16(c.pan(), c.outPan());
+}
+
 // The phone's stick: +9 dd (1 %) every 3 ticks. The output must move every tick - no stop-and-go.
 void test_cam_staircase_target_moves_every_tick() {
   CamLite c;
@@ -71,16 +88,17 @@ void test_cam_reversal_does_not_overshoot() {
   CamLite c;
   c.set(1800, 900);
   for (int i = 0; i < 20; ++i) c.step();  // at full speed
-  const int16_t back = static_cast<int16_t>(c.outPan() - 100);
+  const int16_t start = c.outPan();
+  const int16_t back = static_cast<int16_t>(start - 100);
   c.set(back, 900);
-  int16_t peak = c.outPan();
+  int16_t peak = start;
   for (int i = 0; i < 80; ++i) {
     c.step();
     TEST_ASSERT_TRUE(c.outPan() >= back);
     if (c.outPan() > peak) peak = c.outPan();
   }
   TEST_ASSERT_EQUAL_INT16(back, c.outPan());
-  TEST_ASSERT_TRUE(peak - back <= 100 + CamLite::kStepDd);  // at most one more tick forward before turning
+  TEST_ASSERT_EQUAL_INT16(start, peak);  // it turns back at once: not one more tick forward (review M2)
 }
 
 void test_cam_small_moves_land_exactly() {
@@ -195,7 +213,7 @@ void test_cam_trim_moves_only_the_servo() {
   TEST_ASSERT_EQUAL_INT16(1120, c.servoTilt());
   c.setTrim(50, 0);
   c.set(1800, 900);
-  for (int i = 0; i < 100; ++i) c.step();  // 1770 dd at 24 per step
+  for (int i = 0; i < 100; ++i) c.step();  // 1770 dd: eases in and out, ~88 ticks
   TEST_ASSERT_EQUAL_INT16(1800, c.servoPan());
 }
 
@@ -228,6 +246,7 @@ int main() {
   RUN_TEST(test_cam_joy_release_returns_home_unless_locked);
   RUN_TEST(test_cam_big_move_eases_in_and_lands);
   RUN_TEST(test_cam_staircase_target_moves_every_tick);
+  RUN_TEST(test_cam_held_jog_output_keeps_up);
   RUN_TEST(test_cam_reversal_does_not_overshoot);
   RUN_TEST(test_cam_small_moves_land_exactly);
   RUN_TEST(test_cam_nudge_large_saturates);

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 
 import cv2
@@ -214,3 +215,83 @@ async def test_the_servo_step_asks_for_the_horizontal_line_first() -> None:
 
     await tool.servo_tilt(calib(tilt0=0.0), tank.grab, tank.cam_set, ask)
     assert len(asked) == 1 and "roughly at the lens height" in asked[0] and tank.sets[1:] != []
+
+
+# ---- Plan T final review
+async def test_a_refused_servo_step_puts_the_camera_back_at_the_centre() -> None:  # M1
+    tank = FakeTank("horizon")
+    calls = {"n": 0}
+    real_grab = tank.grab
+
+    async def line_then_nothing() -> NDArray[np.uint8]:
+        calls["n"] += 1
+        return await real_grab() if calls["n"] == 1 else red_line_picture()
+
+    try:
+        await tool.servo_tilt(calib(tilt0=0.0), line_then_nothing, tank.cam_set, answers(""))
+    except tool.Refused:
+        pass
+    else:
+        raise AssertionError("no line in the sweep was accepted")
+    assert tank.sets[-1] == (0.0, 0.0)
+
+
+async def test_a_picture_with_the_line_far_off_the_others_is_refused() -> None:  # I3 in the sweep
+    tank = FakeTank("horizon")
+    real_grab = tank.grab
+    calls = {"n": 0}
+
+    async def one_wrong() -> NDArray[np.uint8]:
+        calls["n"] += 1
+        if calls["n"] == 4:  # a point in the down sweep: something else taken for the line, 4 deg off
+            k = tank.cal.k
+            real = TRUE_TILT0 + TILT_GAIN * tank.tilt + TILT_OFFSET + 4.0
+            return red_line_picture(row=float(k[1, 2] + k[1, 1] * math.tan(math.radians(real))))
+        return await real_grab()
+
+    try:
+        await tool.servo_tilt(calib(tilt0=0.0), one_wrong, tank.cam_set, answers(""))
+    except tool.Refused as e:
+        assert "off" in str(e)
+    else:
+        raise AssertionError("a wrong line was fitted")
+    assert tank.sets[-1] == (0.0, 0.0)
+
+
+async def test_the_slack_is_printed_with_its_direction(capsys: object) -> None:  # M2
+    tank = FakeTank("horizon", slack=0.8)
+    await tool.servo_tilt(calib(tilt0=0.0), tank.grab, tank.cam_set, answers(""))
+    out = capsys.readouterr().out  # type: ignore[attr-defined]
+    assert "0.8 deg higher arriving from above" in out
+
+
+async def test_both_sweeps_use_every_point_when_there_is_room() -> None:  # M4
+    tank = FakeTank("horizon", line_off=-5.0)  # the line higher up: room for the dip above the -20 limit
+    cal = calib(tilt0=0.0)
+    await tool.servo_tilt(cal, tank.grab, tank.cam_set, answers(""))
+    pts = cm.tilt_points(cal, TRUE_TILT0 + TILT_OFFSET - 5.0)
+    tilts = [t for _, t in tank.sets]
+    assert min(tilts) < min(pts)  # a dip below the lowest, so the way up reaches it from below
+    assert tilts.count(min(pts)) == 2  # the lowest point measured both ways
+
+
+async def test_a_sweep_at_the_servo_limit_drops_the_point_it_cannot_reach_from_above() -> None:  # M3
+    seen: list[float] = []
+
+    async def measure(x: float) -> float | None:
+        seen.append(x)
+        return 0.9 * x
+
+    gain, _ = await tool._sweep([20.0, 30.0, 40.0, 50.0, 60.0], (-20.0, 60.0), measure, "tilt")  # pyright: ignore[reportPrivateUsage]
+    assert seen[0] == 50.0  # no room above 60: the down sweep starts at the next point, reached from above
+    assert math.isclose(gain, 0.9, abs_tol=1e-6)
+
+
+async def test_the_servo_step_keeps_an_existing_map_offset() -> None:  # M5: gains only, nothing else moves
+    tank = FakeTank("horizon")
+    cal = replace(calib(tilt0=-1.0), tilt_map=(1.0, 0.5), pan_map=(1.0, -2.0))
+    cal = await tool.servo_tilt(cal, tank.grab, tank.cam_set, answers(""))
+    assert cal.tilt0_deg == -1.0 and cal.tilt_map[1] == 0.5
+    tank.scene = "vertical"
+    cal = await tool.servo_pan(cal, tank.grab, tank.cam_set, answers(""))
+    assert cal.pan_map[1] == -2.0

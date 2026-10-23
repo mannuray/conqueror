@@ -184,3 +184,42 @@ def test_servo_points_follow_the_line() -> None:
         col = c.k[0, 2] - c.k[0, 0] * math.tan(math.radians(line_pan + p))
         assert 0.1 * 320 <= col <= 0.9 * 320
         assert -90.0 <= p <= 90.0
+
+
+# ---- Plan T final review
+def wall_and_floor(
+    line_row: float | None, floor_from: int, floor_level: int, width_px: int = 1, excess: int = 140
+):
+    """A dim wall (52) with a white-ish laser line, and the floor below `floor_from` at `floor_level`."""
+    img = np.full((240, 320, 3), 52, dtype=np.uint8)
+    rng = np.random.default_rng(3)
+    img[floor_from:, :, :] = floor_level
+    img = np.clip(img + rng.normal(0, 4, img.shape), 0, 255).astype(np.uint8)
+    if line_row is not None:
+        r0 = round(line_row)
+        img[r0 : r0 + width_px, :, :] = np.clip(52 + excess, 0, 255)
+    return img
+
+
+def test_a_floor_filling_most_of_the_picture_does_not_hide_the_line() -> None:  # I1
+    for level in (40, 64, 77):
+        r = cm.laser_row(wall_and_floor(40.0, floor_from=96, floor_level=level))
+        assert r is not None and abs(r - 40.0) < 0.8, level
+
+
+def test_a_thin_dim_burnt_out_line_is_found() -> None:  # I2: one pixel, +60 over the wall
+    r = cm.laser_row(wall_and_floor(120.0, floor_from=240, floor_level=52, excess=60))
+    assert r is not None and abs(r - 120.0) < 0.8
+
+
+def test_a_laser_and_a_white_strip_elsewhere_give_no_answer() -> None:  # I3: never a wrong row
+    img = red_line_picture(row=60.0)
+    img[168:176, :, :] = 255  # a shelf edge or a skirting board, 8 px
+    assert cm.laser_row(img) is None
+
+
+def test_a_broad_white_object_is_not_a_laser_line() -> None:  # M8
+    img = red_line_picture()
+    img[100:160, 100:220, :] = 230  # a lamp shade or a window
+    assert cm.laser_row(img) is None
+    assert cm.laser_col(img) is None

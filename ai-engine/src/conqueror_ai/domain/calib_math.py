@@ -23,6 +23,12 @@ MIN_LINE_SCORE = 20.0  # mean excess (red, green or brightness) on the line's ro
 MAX_LINE_WIDTH_PX = 20  # wider at a quarter of its height: a red object, not a laser line (final review I5;
 #                         a burnt-out line with its halo is ~15 px at QVGA)
 SECOND_PEAK_RATIO = 0.5  # another peak this strong elsewhere: ambiguous, no answer
+BASELINE_PX = (
+    2 * MAX_LINE_WIDTH_PX + 1
+)  # the local background: anything wider (the floor, a wall) is not a line
+AGREE_PX = (
+    3.0  # two measures that find lines further apart than this: ambiguous, no answer (Plan T review I3)
+)
 SERVO_POINTS = 5
 INSIDE = 0.1  # servo points keep the line within 10..90 % of the picture (final review I2)
 
@@ -44,20 +50,50 @@ def _brightness(rgb: NDArray[np.uint8]) -> NDArray[np.float64]:
     return rgb.astype(np.float64).mean(axis=2)
 
 
-_MEASURES = (_redness, _greenness, _brightness)
+# Each measure with its smoothing: the colours are smoothed over 5 px, so a burnt-out line (colour only at its
+# fringes) is still one peak; brightness is not, so a 1-px burnt-out core keeps its height (Plan T review I2).
+_MEASURES = ((_redness, 5), (_greenness, 5), (_brightness, 1))
 
 
-def _best_line(profiles: list[NDArray[np.float64]]) -> float | None:
-    """The line in whichever measure shows it strongest; each measure must pass _peak's rules on its own."""
-    found = [r for r in (_scored_peak(p) for p in profiles) if r is not None]
-    return max(found, key=lambda r: r[1])[0] if found else None
+def _best_line(rgb: NDArray[np.uint8], axis: int) -> float | None:
+    """The line in whichever measure shows it strongest; each measure must pass the peak rules on its own,
+    and measures that find lines in different places give no answer - never a wrong row (Plan T review I3).
+    axis 1: a row (mean over the middle half of the columns); axis 0: a column (the middle half of the
+    rows)."""
+    h, w = rgb.shape[:2]
+    found: list[tuple[float, float]] = []
+    for measure, smooth in _MEASURES:
+        m = measure(rgb)
+        profile = (
+            m[:, w // 4 : 3 * w // 4].mean(axis=1) if axis == 1 else m[h // 4 : 3 * h // 4, :].mean(axis=0)
+        )
+        r = _scored_peak(profile, smooth)
+        if r is not None:
+            found.append(r)
+    if not found:
+        return None
+    centres = [c for c, _ in found]
+    if max(centres) - min(centres) > AGREE_PX:
+        return None
+    return max(found, key=lambda r: r[1])[0]
 
 
-def _scored_peak(profile: NDArray[np.float64]) -> tuple[float, float] | None:
-    """The sub-pixel centre of the one narrow peak and its height, or None: nothing stands out, the peak is
-    wide (a red object), or a second peak nearly as strong is elsewhere. Smoothed first, so a burnt-out line
-    (red only at its fringes) is still one peak."""
-    p = np.convolve(profile, np.ones(5) / 5.0, mode="same") - float(np.median(profile))
+def _opening(p: NDArray[np.float64], width: int) -> NDArray[np.float64]:
+    """Grey opening (a sliding min, then a sliding max): the profile with every peak narrower than `width`
+    cut away - the local background under a line, following steps such as the floor's edge (review I1)."""
+    half = width // 2
+    lo = np.lib.stride_tricks.sliding_window_view(np.pad(p, half, mode="edge"), width).min(axis=1)
+    return np.lib.stride_tricks.sliding_window_view(np.pad(lo, half, mode="edge"), width).max(axis=1)
+
+
+def _scored_peak(profile: NDArray[np.float64], smooth: int = 5) -> tuple[float, float] | None:
+    """The sub-pixel centre of the one narrow peak and its height above the local background, or None: nothing
+    stands out, the peak is wide (a red object), or a second peak nearly as strong is elsewhere."""
+    s = np.asarray(
+        np.convolve(profile, np.ones(smooth) / smooth, mode="same") if smooth > 1 else profile,
+        dtype=np.float64,
+    )
+    p = s - _opening(s, BASELINE_PX)
     i = int(np.argmax(p))
     top = float(p[i])
     if top < MIN_LINE_SCORE:
@@ -80,14 +116,12 @@ def _scored_peak(profile: NDArray[np.float64]) -> tuple[float, float] | None:
 
 def laser_row(rgb: NDArray[np.uint8]) -> float | None:
     """The row of a horizontal laser line of any colour (mean over the middle half of the columns)."""
-    w = rgb.shape[1]
-    return _best_line([m(rgb)[:, w // 4 : 3 * w // 4].mean(axis=1) for m in _MEASURES])
+    return _best_line(rgb, axis=1)
 
 
 def laser_col(rgb: NDArray[np.uint8]) -> float | None:
     """The column of a vertical laser line of any colour (mean over the middle half of the rows)."""
-    h = rgb.shape[0]
-    return _best_line([m(rgb)[h // 4 : 3 * h // 4, :].mean(axis=0) for m in _MEASURES])
+    return _best_line(rgb, axis=0)
 
 
 def _normalised(cal: Calibration, u: float, v: float) -> tuple[float, float]:

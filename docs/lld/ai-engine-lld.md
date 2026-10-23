@@ -507,3 +507,19 @@ sequenceDiagram
 - Record a Logo 50 cm square and a 2 m out-and-back with `cq-record`, then replay them through the filter.
 - Compare the pose's end to the tape: the square's end against its start; the out-and-back's far point at 2.00 m.
 - Targets (Spec 7 §7): ≤ 3 % of the distance; ≤ 3° per 360° turned.
+
+### 14.6 As built (Plan U, 2026-10-23; design-notes §133)
+- **Files:**
+  - `domain/pose.py` (`PoseFilter`, `PoseHistory`);
+  - `TelemSample.pwm_l` / `pwm_r` read by `parse_td`;
+  - `app/pose_replay.py` → **`cq-pose <recording>`**, which prints the end position and heading, the end's distance from the start, the farthest point, the distance driven, the degrees turned, and how far off it could be;
+  - tests `test_pose.py` (22), `test_pose_replay.py` (5). AI engine 110 tests.
+- **As designed, plus what drafting and the final review changed:**
+  - **The encoder sign is the previous sample's PWM** (a sample's counts happened in the 20 ms before it). With the new sample's sign, every change of direction lost a step.
+  - **A gap over 0.5 s keeps the turn made in it.** The heading is absolute within one Uno run, so θ takes the wrapped yaw change; only the distance is unknown (drift += 0.3 m/s × gap). If |rate| × gap > 180°, the wrap could hide a whole turn, so `drift_deg` += 360. This **replaces §14.1.7's "re-anchor" for gaps**; restarts still re-anchor.
+  - **A bridge restart** (`bus_us` back) clears the speed window and `PoseHistory`, because their old stamps were from another clock.
+  - **`Pose.th_rad` is always within −π…π;** the total turning lives in the drift and in `cq-pose`'s "turned".
+  - `counts_per_m` ≤ 0 is ignored.
+  - `cq-pose` takes the recording's `calib` reply for the whole session, even when it came after the first samples.
+- **Known limit (one-channel encoders):** pushing the tank by hand after a stop counts in the last motor direction.
+- **Floor check (§14.5): pending, owner, 2026-10-24.**

@@ -1901,3 +1901,18 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   5. **Restarts:** an Uno or bridge restart, or a gap over 0.5 s, re-anchors the counts and the heading. The pose keeps x, y and θ and doesn't jump.
   6. **Check:** host tests, then the 50 cm Logo square and a 2 m out-and-back, recorded and replayed, against the tape. Targets: ≤ 3 % of the distance, ≤ 3° per 360°.
 - **Written as AI engine LLD §14** (draft; replaces §5.2).
+
+## 133. The pose filter is built (Plan U, 2026-10-23)
+- **What:** AI engine LLD §14 as built.
+  - The laptop knows where the tank is, which way it faces and how fast it moves, 50 times a second, from the tank's corrected heading and the encoders.
+  - **`cq-pose <recording>`** replays a recording and says where the tank ended, for the floor check.
+  - It only watches and never drives.
+- **Found while drafting:** a sample's encoder counts happened under the *previous* sample's motor output. With the new one's, every change of direction (a square's corner) lost a step.
+- **Final review:** no Critical. Two Important, both fixed test-first:
+  - a bridge restart broke the speed and the 2 s history;
+  - a WiFi pause over 0.5 s threw away the turn made in it.
+  - **Ruling:** the heading is kept across such a pause, because the tank's heading is absolute; only the distance is unknown. This changes LLD §14's "re-anchor" wording for gaps.
+  - Five Minors also fixed or noted. AI engine 110 tests.
+- **Floor check postponed to 2026-10-24** (owner: "we will test tomorrow"):
+  - the Logo 50 cm square and `FORWARD 200 RIGHT 180 FORWARD 200`, recorded with `cq-record` and replayed with `cq-pose`, against the tape;
+  - targets: square ≤ 6 cm, out-and-back ≤ 12 cm, heading ≤ 3° per 360°.

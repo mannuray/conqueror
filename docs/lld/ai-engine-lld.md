@@ -415,7 +415,7 @@ A second bias estimate in the engine, on the same gyro, would fight the Uno's. S
 1. **Heading:**
    - `td.yaw` (0…360°, corrected) is unwrapped: each step adds the shortest signed difference to the last value.
    - The room's θ = 0 is the first sample's heading. θ is counter-clockwise (+ = left), the room frame of §3.
-   - The sign of `yaw` against θ is fixed by a host test and checked on the tank, turning left.
+   - `yaw` is counter-clockwise positive (protocol spec 01: TELEM_FAST `yaw` "CCW positive"; `turn by` + = left), the same sense as θ, so θ = unwrapped yaw − the start's yaw. It's checked on the floor too, turning left → θ grows.
 2. **Distance per track:**
    - Δcount = the count's change since the last sample. Counts only go up (one channel per encoder).
    - Its sign comes from that track's **PWM output** (`td.pwm`): + forward, − back.

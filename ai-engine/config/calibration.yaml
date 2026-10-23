@@ -27,9 +27,9 @@ mount:
   tilt0_deg: -0.15
 servos:
   pan_map:
-  - 1.0
+  - 0.94
   - 0.0
   tilt_map:
-  - 1.0
+  - 0.91
   - 0.0
 readout_us: 0

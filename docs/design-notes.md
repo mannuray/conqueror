@@ -1850,3 +1850,30 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
 - **Skipped on the tank (owner: "skip it"):** a try refused while another client drives. Holding the drive stick can move the tracks; the bridge host test covers it.
 - **The AI calibration:** `pan_map` back to (1, 0), because the trim now carries the 5° (AI engine LLD §13). `tilt_map` (1, 0) and `tilt0_deg` −0.15 are unchanged (no tilt trim).
 - **Final review:** no Critical. One Important (on the page, quick refused steps) and six Minor findings, all fixed test-first (bridge LLD R23.5, Uno Lite LLD §22.1). The Uno costs +232 B (budget 200 B; 880 B free).
+
+## 130. Servo gains from a laser cross line (owner, 2026-10-23)
+- **Why:** the map needs the camera's real angle for each commanded angle. Cheap servos often turn 5–10 % more or less than asked. Until now `tilt_map` / `pan_map` were assumed 1:1.
+- **Why not the planned laser step (AI engine LLD §8):** it needs the horizontal line at exactly the lens height. The owner has no stand for that ("too complicated"). **Settled:** a line a few cm off is fine, because a gain only uses the *change* between pictures. The line's height and direction shift only the offset, which is taken from elsewhere: tilt0 −0.15° from the tape marks (§127), the pan centre by eye (§129).
+- **Setup:** the owner's laser level (a **green** cross line) on a wall in front of the tank, the horizontal line roughly at lens height, the vertical line ~22° right of straight ahead (the laser stood off to one side).
+  - The green line is so bright it burns out to near-white (1–2 px), so the tool's red finder saw nothing. A session script found the lines by **brightness** instead: line ~128 against the wall's ~55.
+- **How it was measured** (session script `laser_sweep.py`, QVGA, `cam_set`, 1.5 s settle, the 3rd picture):
+  - tilt 8 commands, +15…−20° at pan 0: the horizontal line's row → angle (`horizon_tilt_deg`);
+  - pan 11 commands, −10…+40° at tilt 0: the vertical line's column → angle (`pan_from_col_deg`);
+  - a straight-line fit for each;
+  - run twice, sweeping in both directions.
+
+  | | sweep down / right | sweep up / left | result |
+  |---|---|---|---|
+  | tilt gain (real ° per commanded °) | 0.919 | 0.903 | **0.91** |
+  | tilt offset | +1.07° | −0.57° | slack **±0.8°** |
+  | pan gain | 0.940 | 0.945 | **0.94** |
+  | pan offset (only where the laser stood) | −21.08° | −21.83° | slack **±0.4°** |
+
+  - Largest leftover error per fit: 0.7–1.2°, mostly the slack.
+- **Saved** in `ai-engine/config/calibration.yaml`: `tilt_map` (0.91, 0), `pan_map` (0.94, 0); `tilt0_deg` −0.15 unchanged.
+- **What it changes:** a commanded −15° (the driving tilt, §126) is really −13.8°, so the blind zone ahead is 11.5 cm (was 10.8 cm with 1:1). At 0°: 21.6 cm.
+- **Open for module 2 (drive) — the servo slack:** the tilt lands ~0.8° higher when it arrives from above than from below (pan ~0.4°). No gain fixes that.
+  - Possible fixes: always reach the driving tilt from the same side (e.g. a small overshoot down, then back up), or use the measured direction.
+  - At −15° tilt, 0.8° is ~8 % of the distance to a floor point 1 m away.
+- **Next (small plan):** make `cq-calibrate servos` do this itself: find a line of any colour (brightness), keep the saved tilt0 and centre (gains only), sweep both ways, and prompt "the line roughly at lens height, ±5 cm". The session scripts stay local (scratchpad).
+- The picture taken to find the lines was deleted after the numbers were written down. The camera was set back to VGA.

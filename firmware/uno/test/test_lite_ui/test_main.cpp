@@ -53,6 +53,26 @@ void test_cam_big_move_eases_in_and_lands() {
   TEST_ASSERT_EQUAL_INT16(900, c.outTilt());
 }
 
+// The stand (design-notes §137): a target stepped every 2-3 ticks (3 deg every 50 ms = 60 deg/s, like the phone's
+// stick or the laptop) made the speed pulse 0.9 / 1.2 / 1.5 deg per tick and shook the mount. With the second
+// smoothing stage the speed is even.
+void test_cam_stepped_target_gives_an_even_speed() {
+  CamLite c;
+  int16_t target = 900, last = 900, lo = 32767, hi = -32768;
+  for (int i = 0; i < 70; ++i) {
+    if (i % 5 == 0 || i % 5 == 2) target = static_cast<int16_t>(target + 30);  // every 2, then 3 ticks
+    c.set(target, 900);
+    c.step();
+    const int16_t d = static_cast<int16_t>(c.outPan() - last);
+    if (i >= 30) {
+      lo = d < lo ? d : lo;
+      hi = d > hi ? d : hi;
+    }
+    last = c.outPan();
+  }
+  TEST_ASSERT_TRUE(hi - lo <= 1);  // was 9..15 dd with one stage
+}
+
 // An IR jog key held (+12 dd on the target per tick, 60 °/s): the output moves every tick and lands when let go
 // (Plan W review M3).
 void test_cam_held_jog_output_keeps_up() {
@@ -98,13 +118,15 @@ void test_cam_reversal_does_not_overshoot() {
     if (c.outPan() > peak) peak = c.outPan();
   }
   TEST_ASSERT_EQUAL_INT16(back, c.outPan());
-  TEST_ASSERT_EQUAL_INT16(start, peak);  // it turns back at once: not one more tick forward (review M2)
+  // The averaged first stage carries some momentum (owner-approved trade-off, design-notes §137): it may go on a
+  // little before turning back - at most 12 deg from full speed - but never past the new target, and lands.
+  TEST_ASSERT_TRUE(peak - start <= 120);
 }
 
 void test_cam_small_moves_land_exactly() {
   CamLite c;
   c.set(901, 900);
-  c.step();
+  for (int i = 0; i < CamLite::kAvgTicks; ++i) c.step();  // through the 100 ms average
   TEST_ASSERT_EQUAL_INT16(901, c.outPan());
   c.set(891, 900);
   for (int i = 0; i < 20; ++i) {
@@ -247,6 +269,7 @@ int main() {
   RUN_TEST(test_cam_big_move_eases_in_and_lands);
   RUN_TEST(test_cam_staircase_target_moves_every_tick);
   RUN_TEST(test_cam_held_jog_output_keeps_up);
+  RUN_TEST(test_cam_stepped_target_gives_an_even_speed);
   RUN_TEST(test_cam_reversal_does_not_overshoot);
   RUN_TEST(test_cam_small_moves_land_exactly);
   RUN_TEST(test_cam_nudge_large_saturates);

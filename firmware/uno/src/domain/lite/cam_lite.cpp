@@ -4,10 +4,20 @@ namespace cq {
 
 namespace {
 int16_t clampI(int16_t v, int16_t lo, int16_t hi) { return v < lo ? lo : (v > hi ? hi : v); }
+// The first stage: the target averaged over the last 5 ticks (100 ms), so a target that arrives in steps (the
+// phone's stick, a laptop at 20 Hz) becomes an even ramp before follow() chases it - one stage let the steps
+// through as a 10 Hz pulse in the speed that shook the mount (design-notes §137). 5 x 1800 fits in int16.
+__attribute__((noinline)) int16_t average(int16_t* hist, uint8_t i, int16_t target) {
+  hist[i] = target;
+  int16_t sum = 0;
+  for (uint8_t k = 0; k < CamLite::kAvgTicks; ++k) sum = static_cast<int16_t>(sum + hist[k]);
+  return static_cast<int16_t>((sum + CamLite::kAvgTicks / 2) / CamLite::kAvgTicks);
+}
+
 // One axis, one tick (Uno Lite LLD §23), worked on the size of the gap: a quarter of it (rounded up, so it never
 // stalls), at most kStepDd, at most kAccelDd faster than the speed already going that way (a turn back starts
 // from 0); never past the target, because the step is at most a quarter of the gap; within kSnapDd it lands.
-void follow(int16_t& out, int16_t& v, int16_t target) {
+__attribute__((noinline)) void follow(int16_t& out, int16_t& v, int16_t target) {
   const int16_t gap = static_cast<int16_t>(target - out);
   const bool back = gap < 0;
   const int16_t mag = back ? static_cast<int16_t>(-gap) : gap;
@@ -54,8 +64,9 @@ void CamLite::joy(int8_t x, int8_t y, bool active, uint32_t now_ms) {
 }
 
 void CamLite::step() {
-  follow(m_out_pan, m_v_pan, m_pan);
-  follow(m_out_tilt, m_v_tilt, m_tilt);
+  follow(m_out_pan, m_v_pan, average(m_hist_pan, m_hist_i, m_pan));
+  follow(m_out_tilt, m_v_tilt, average(m_hist_tilt, m_hist_i, m_tilt));
+  m_hist_i = static_cast<uint8_t>(m_hist_i + 1 == kAvgTicks ? 0 : m_hist_i + 1);
 }
 
 void CamLite::tick(uint32_t now_ms) {

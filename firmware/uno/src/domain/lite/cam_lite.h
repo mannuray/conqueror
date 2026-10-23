@@ -18,6 +18,7 @@ class CamLite {
   static constexpr int16_t kFollowDiv = 4;  // each tick covers this fraction of the gap (1/4)
   static constexpr int16_t kAccelDd = 3;    // the speed grows by at most this per tick (0 -> 120 °/s in 0.16 s)
   static constexpr int16_t kSnapDd = 2;     // this close: land on the target
+  static constexpr uint8_t kAvgTicks = 5;   // the target averaged over 100 ms: two stick updates evened out
   static constexpr uint16_t kJoyTimeoutMs = 500;   // stick held without refresh = phone lost (full CameraHead)
   static constexpr uint16_t kDetachAfterMs = 2000;  // servos released after 2 s still (spec 02 §D5.4)
   static constexpr int16_t kJogDd = 12;  // per 20 ms tick = 60 °/s (full firmware: 1.2° per tick)
@@ -61,6 +62,10 @@ class CamLite {
   int16_t m_tilt = kHome;
   int16_t m_out_pan = kHome;
   int16_t m_out_tilt = kHome;
+  // The first stage (Uno Lite LLD §23, design-notes §137): the target averaged over the last kAvgTicks ticks.
+  int16_t m_hist_pan[5] = {kHome, kHome, kHome, kHome, kHome};
+  int16_t m_hist_tilt[5] = {kHome, kHome, kHome, kHome, kHome};
+  uint8_t m_hist_i = 0;
   int16_t m_v_pan = 0;  // dd per tick
   int16_t m_v_tilt = 0;
   int16_t m_pan_trim = 0;

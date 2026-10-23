@@ -2484,7 +2484,7 @@ classDiagram
 - `/settings` is 21 957 B gzipped (budget 36 KB).
 - **On the tank:** the owner stepped the pan on the phone to −5.0° and saved it with the button. After a power cycle the camera looks dead ahead at rest, after HOME, after the stick's return and after `cam_set 0 0`.
 
-## R24. Camera: the gain limit fix, low light for driving, white balance (owner 2026-10-24, design-notes §140 — draft)
+## R24. Camera: the gain limit fix, low light for driving, white balance (owner 2026-10-24, design-notes §140 — approved 2026-10-24)
 
 ### R24.0 Why
 - **The night test (design-notes §139):** with the room lights on, the QVGA picture's median brightness was 44 / 255, too dark for YOLO.

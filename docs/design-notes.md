@@ -1984,3 +1984,18 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - a lower, balanced head with the camera's weight over the pan axis;
   - or a ready-made bearing pan / tilt kit for 9 g servos.
 - After any change: re-check the camera centre (§129) and the servo gains (`cq-calibrate servos`, §131).
+
+## 139. Camera improvement (parked, owner 2026-10-24) and what the phase 4 night test showed
+- **Parked earlier (camera discussion, 2026-10-23):**
+  - a **white-balance** setting on the Settings page's Camera card (the picture has a colour cast; §109 noted magenta in daylight, green under the room lights);
+  - a **camera-clock test** (XCLK 16 or 20 MHz instead of 10 MHz, with a WiFi ping check, §57 / §76) for more pictures per second.
+- **Added by the night test (Plan V Task 4):** exposure and low-light settings for dim rooms.
+  - With the room lights on, the QVGA picture's median brightness was **44 / 255**.
+  - YOLO's "person" score had a median of 0.0–0.08, with only 9 of 140 pictures at or above 0.35.
+  - A plush (Pikachu) was seen as "fire hydrant" (0.77–0.92) up close and not at all at 2 m.
+- **Also found that night:**
+  - **The mount tilt was 2.7° off:** −0.15° (clicked tape marks) → **+2.55°**, fitted from the plush's box bottom at 50 cm and 1 m with the camera arriving at −15° from above (49.6 / 99.9 cm; the height fitted free came out 18.1 cm against the measured 17.8). Saved on the Plan V branch.
+  - With it, a person's feet were placed at 99.5 cm from the lens against the 100 cm mark.
+  - **The tilt servo's slack near 0° is larger** than the laser's ±0.8°: commanded 0 → −5 moved only 1.4° when arriving from below. The drive module must reach the driving tilt from above (§130); a better mechanism is §138.
+  - **The camera doesn't sag** when its servos are released: < 0.3° over 6 s (phase correlation).
+- **Order (owner): the camera improvement first** (design, then a plan), then Plan V's floor check again, in daylight.

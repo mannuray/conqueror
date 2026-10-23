@@ -204,6 +204,58 @@ void test_restart_refused_while_moving() {
   TEST_ASSERT_TRUE(has(3, "BUSY"));
 }
 
+// R23: the camera centre. A try is SETTING_SET alone (no button), acked after the Uno's ACK; the camera rule.
+void test_camera_trim_try_sets_without_the_button() {
+  sc->onCommand(3, 20, P("{\"t\":\"setting\",\"setting_id\":27,\"value\":-50,\"try\":true,\"id\":20}"), 1000);
+  TEST_ASSERT_EQUAL(1, g_ops.size());
+  TEST_ASSERT_EQUAL(core::AckedOp::kSettingSet, g_ops[0].kind);
+  TEST_ASSERT_EQUAL_UINT8(27, g_ops[0].a);
+  TEST_ASSERT_EQUAL_INT32(-50, g_ops[0].value);
+  TEST_ASSERT_EQUAL(3, g_ops[0].fd);
+  TEST_ASSERT_EQUAL(20, g_ops[0].id);
+  TEST_ASSERT_FALSE(has(3, "\"t\":\"confirm\""));
+  sc->onCommand(3, 21, P("{\"t\":\"setting\",\"setting_id\":28,\"value\":300,\"try\":true,\"id\":21}"), 1000);
+  TEST_ASSERT_EQUAL(2, g_ops.size());
+}
+
+void test_camera_trim_try_only_for_the_trims_in_range() {
+  sc->onCommand(3, 22, P("{\"t\":\"setting\",\"setting_id\":66,\"value\":5,\"try\":true,\"id\":22}"), 1000);
+  sc->onCommand(3, 23, P("{\"t\":\"setting\",\"setting_id\":27,\"value\":301,\"try\":true,\"id\":23}"), 1000);
+  sc->onCommand(3, 24, P("{\"t\":\"setting\",\"setting_id\":28,\"value\":-301,\"try\":true,\"id\":24}"), 1000);
+  TEST_ASSERT_EQUAL(3, fakes::countTo(3, "INVALID_COMMAND"));
+  TEST_ASSERT_EQUAL(0, g_ops.size());
+}
+
+void test_camera_trim_try_follows_the_camera_rule() {
+  g_driver = 4;  // another client drives: only the driver may move the camera
+  sc->onCommand(3, 25, P("{\"t\":\"setting\",\"setting_id\":27,\"value\":-50,\"try\":true,\"id\":25}"), 1000);
+  TEST_ASSERT_TRUE(has(3, "NOT_OWNER"));
+  sc->onCommand(4, 26, P("{\"t\":\"setting\",\"setting_id\":27,\"value\":-50,\"try\":true,\"id\":26}"), 1000);
+  TEST_ASSERT_EQUAL(1, g_ops.size());
+  g_ota = true;
+  sc->onCommand(4, 27, P("{\"t\":\"setting\",\"setting_id\":27,\"value\":-45,\"try\":true,\"id\":27}"), 1000);
+  TEST_ASSERT_TRUE(has(4, "BUSY"));
+  g_ota = false;
+  g_free = 0;
+  sc->onCommand(4, 28, P("{\"t\":\"setting\",\"setting_id\":27,\"value\":-45,\"try\":true,\"id\":28}"), 1000);
+  TEST_ASSERT_EQUAL(2, fakes::countTo(4, "BUSY"));
+}
+
+void test_camera_trim_save_waits_for_the_button_and_reads() {
+  sc->onCommand(3, 29, P("{\"t\":\"setting\",\"setting_id\":27,\"id\":29}"), 1000);
+  TEST_ASSERT_EQUAL(1, g_ops.size());
+  TEST_ASSERT_EQUAL(core::AckedOp::kSettingGet, g_ops[0].kind);
+  sc->onCommand(3, 30, P("{\"t\":\"setting\",\"setting_id\":27,\"value\":-50,\"id\":30}"), 1000);
+  TEST_ASSERT_TRUE(has(3, "\"t\":\"confirm\""));
+  TEST_ASSERT_EQUAL(1, g_ops.size());
+  sc->onButtonPress(2000);
+  TEST_ASSERT_EQUAL(4, g_ops.size());
+  TEST_ASSERT_EQUAL(core::AckedOp::kSettingSet, g_ops[1].kind);
+  TEST_ASSERT_EQUAL(core::AckedOp::kSettingsSave, g_ops[2].kind);
+  sc->onCommand(3, 31, P("{\"t\":\"setting\",\"setting_id\":28,\"value\":-301,\"id\":31}"), 1000);
+  TEST_ASSERT_TRUE(has(3, "INVALID_COMMAND"));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_change_waits_for_the_button_then_posts_wifi_with_feedback);
@@ -221,5 +273,9 @@ int main() {
   RUN_TEST(test_wifi_mode_result_is_logged);
   RUN_TEST(test_restart_is_acked_logged_and_due_after_500_ms);
   RUN_TEST(test_restart_refused_while_moving);
+  RUN_TEST(test_camera_trim_try_sets_without_the_button);
+  RUN_TEST(test_camera_trim_try_only_for_the_trims_in_range);
+  RUN_TEST(test_camera_trim_try_follows_the_camera_rule);
+  RUN_TEST(test_camera_trim_save_waits_for_the_button_and_reads);
   return UNITY_END();
 }

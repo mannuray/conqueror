@@ -377,6 +377,8 @@ void test_setting_and_calib_reset() {
   TEST_ASSERT_TRUE(c.has_value);
   TEST_ASSERT_EQUAL_INT32(-12, c.value);
   TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"setting\"}").kind));
+  TEST_ASSERT_FALSE(c.try_only);  // R23: a try changes the Uno's RAM only
+  TEST_ASSERT_TRUE(P("{\"t\":\"setting\",\"setting_id\":27,\"value\":-50,\"try\":true}").try_only);
   TEST_ASSERT_EQUAL_INT8(0, P("{\"t\":\"calib\",\"reset\":\"counts_per_m\"}").calib_reset);
   TEST_ASSERT_EQUAL_INT8(1, P("{\"t\":\"calib\",\"reset\":\"roll\"}").calib_reset);
   TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"calib\",\"reset\":\"x\"}").kind));

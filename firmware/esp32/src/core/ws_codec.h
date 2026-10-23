@@ -86,6 +86,7 @@ struct WsCommand {
   uint8_t setting_id = 0;  // setting
   bool has_value = false;
   int32_t value = 0;
+  bool try_only = false;  // setting (R23): SETTING_SET alone, not saved - the camera trims only
   int8_t calib_reset = -1;  // calib: 0 counts_per_m, 1 roll, 2 gyro_scale (R19)
   int16_t move_cm = 0;        // move: ±1..500 (+ forward)
   bool has_cpm = false;       // calib: set (else read)

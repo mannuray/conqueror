@@ -139,6 +139,10 @@ bool readValue(Reader& r, WsCommand& c, Seen&) {  // setting
   c.has_value = true;
   return true;
 }
+bool readTry(Reader& r, WsCommand& c, Seen&) {  // setting (R23)
+  bool seen = false;
+  return readBool(r, c.try_only, seen);
+}
 bool readReset(Reader& r, WsCommand&, Seen& s) {  // calib: a name; camera_set: true / false
   if (r.word("true")) {
     s.reset_true = true;
@@ -263,7 +267,7 @@ const KeyRow kKeys[] = {
     {"quality", readQuality}, {"fps_cap", readFpsCap}, {"brightness", readBrightness},
     {"contrast", readContrast}, {"low_light", readLowLight}, {"vflip", readVflip}, {"hmirror", readHmirror},
     {"ai_url", readAiUrl},  {"setting_id", readSettingId}, {"counts_per_m", readCpm}, {"gyro_scale", readGyroScale}, {"pan", readPan}, {"tilt", readTilt}, {"prog", readProg},
-    {"step", readStep},
+    {"step", readStep},     {"try", readTry},
 };
 
 }  // namespace

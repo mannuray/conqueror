@@ -16,8 +16,14 @@ namespace cq {
 namespace app {
 namespace {
 
-bool settingReadable(uint8_t id) { return id == 1 || id == 11 || id == 12 || id == 66; }
-constexpr uint8_t kTrackBalanceId = 66;  // v1: the only setting a page may change (spec 02 §F5)
+bool settingReadable(uint8_t id) { return id == 1 || id == 11 || id == 12 || id == 66 || id == 27 || id == 28; }
+constexpr uint8_t kTrackBalanceId = 66;  // spec 02 §F5
+bool isCameraTrim(uint8_t id) { return id == 27 || id == 28; }  // pan_trim / tilt_trim (R23)
+// The settings a page may change (with the tank's button), each in its range.
+bool settingWritable(uint8_t id, int32_t v) {
+  if (id == kTrackBalanceId) return v >= -100 && v <= 100;
+  return isCameraTrim(id) && v >= -300 && v <= 300;
+}
 
 // The WiFi request a confirmed change becomes (wifi_save / wifi_forget / wifi_mode / ap_password).
 bool wifiRequestOf(const core::PendingChange& ch, core::WifiRequest& r) {
@@ -129,7 +135,8 @@ void SettingsController::onSetting(int fd, int32_t id, const core::WsCommand& c,
     if (!m_h.queue_op(op)) m_out.nack(fd, id, core::BridgeReason::kBusy);
     return;
   }
-  if (c.setting_id != kTrackBalanceId || c.value < -100 || c.value > 100) {
+  if (c.try_only) return onTry(fd, id, c);
+  if (!settingWritable(c.setting_id, c.value)) {
     m_out.nack(fd, id, core::BridgeReason::kInvalidCommand);
     return;
   }
@@ -140,6 +147,31 @@ void SettingsController::onSetting(int fd, int32_t id, const core::WsCommand& c,
   ch.setting_id = c.setting_id;
   ch.value = c.value;
   askConfirm(ch, now);
+}
+
+// R23: a camera trim tried live - SETTING_SET alone (the Uno's RAM, a restart forgets it), no button; the camera
+// stick's rule: only the driver while someone drives. Acked after the Uno's ACK.
+void SettingsController::onTry(int fd, int32_t id, const core::WsCommand& c) {
+  if (!isCameraTrim(c.setting_id) || !settingWritable(c.setting_id, c.value)) {
+    m_out.nack(fd, id, core::BridgeReason::kInvalidCommand);
+    return;
+  }
+  if (m_h.ota()) {
+    m_out.nack(fd, id, core::BridgeReason::kBusy);
+    return;
+  }
+  const int driver = m_h.driver_fd();
+  if (driver >= 0 && driver != fd) {
+    m_out.nack(fd, id, core::BridgeReason::kNotOwner);
+    return;
+  }
+  core::AckedOp op;
+  op.kind = core::AckedOp::kSettingSet;
+  op.a = c.setting_id;
+  op.value = c.value;
+  op.fd = fd;
+  op.id = id;
+  if (!m_h.queue_op(op)) m_out.nack(fd, id, core::BridgeReason::kBusy);
 }
 
 void SettingsController::onRestart(int fd, int32_t id, uint32_t now) {

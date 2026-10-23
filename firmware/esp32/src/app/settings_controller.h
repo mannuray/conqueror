@@ -46,6 +46,7 @@ class SettingsController {
   bool wifiIsAp();
   void pushFeedback(bool to_ap);
   void onSetting(int fd, int32_t id, const core::WsCommand& c, uint32_t now);
+  void onTry(int fd, int32_t id, const core::WsCommand& c);  // R23: a camera trim, RAM only
   void onRestart(int fd, int32_t id, uint32_t now);
   void onScan(int fd, int32_t id);
   void applyChange(core::PendingChange& ch);

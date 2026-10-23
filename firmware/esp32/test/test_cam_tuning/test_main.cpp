@@ -9,10 +9,10 @@ using namespace cq::core;
 void setUp() {}
 void tearDown() {}
 
-void test_normal_light_gains_up_to_8x_without_night_mode() {
+void test_normal_light_gains_like_the_sensor_default_without_night_mode() {
   CamSettings s;
   const CamTuning t = sensorTuning(s);
-  TEST_ASSERT_EQUAL_UINT16(128, t.gain_ceiling_raw);  // OV3660 raw gain: 16 = 1x
+  TEST_ASSERT_EQUAL_UINT16(248, t.gain_ceiling_raw);  // OV3660 raw gain (16 = 1x): its own default 0x00F8 = 15.5x
   TEST_ASSERT_EQUAL_INT8(0, t.ae_level);
   TEST_ASSERT_FALSE(t.night);
   TEST_ASSERT_EQUAL_UINT8(0, t.wb_mode);
@@ -31,7 +31,7 @@ void test_night_is_its_own_switch() {
   CamSettings s;
   s.night = true;
   TEST_ASSERT_TRUE(sensorTuning(s).night);
-  TEST_ASSERT_EQUAL_UINT16(128, sensorTuning(s).gain_ceiling_raw);
+  TEST_ASSERT_EQUAL_UINT16(248, sensorTuning(s).gain_ceiling_raw);
 }
 
 void test_white_balance_names_and_modes() {
@@ -89,13 +89,25 @@ void test_a_new_block_round_trips_and_other_sizes_are_refused() {
   TEST_ASSERT_FALSE(camFromBlock(buf, sizeof(buf), c));
 }
 
+void test_an_on_off_byte_that_is_not_0_or_1_is_refused() {  // Plan X review M1: no invalid bool from flash
+  uint8_t old[8] = {1, 12, 0, 0, 0, 2, 1, 0};  // low_light byte 2
+  CamSettings c;
+  TEST_ASSERT_FALSE(camFromBlock(old, sizeof(old), c));
+  CamSettings a;
+  uint8_t buf[sizeof(CamSettings)];
+  memcpy(buf, &a, sizeof(a));
+  buf[sizeof(CamSettings) - 1] = 5;  // night byte 5
+  TEST_ASSERT_FALSE(camFromBlock(buf, sizeof(buf), c));
+}
+
 int main() {
   UNITY_BEGIN();
-  RUN_TEST(test_normal_light_gains_up_to_8x_without_night_mode);
+  RUN_TEST(test_normal_light_gains_like_the_sensor_default_without_night_mode);
   RUN_TEST(test_low_light_gains_up_to_32x_one_step_brighter_and_keeps_the_frame_rate);
   RUN_TEST(test_night_is_its_own_switch);
   RUN_TEST(test_white_balance_names_and_modes);
   RUN_TEST(test_the_old_8_byte_settings_are_carried_over);
   RUN_TEST(test_a_new_block_round_trips_and_other_sizes_are_refused);
+  RUN_TEST(test_an_on_off_byte_that_is_not_0_or_1_is_refused);
   return UNITY_END();
 }

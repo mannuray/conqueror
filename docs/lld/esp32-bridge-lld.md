@@ -2494,10 +2494,10 @@ classDiagram
 
 ### R24.1 What changes
 - **`core/cam_tuning.h` (pure, new):** `sensorTuning(const CamSettings&) → CamTuning { gain_ceiling_raw, ae_level, night, wb_mode }`. The one place that maps settings to OV3660 values, host-tested:
-  - **gain ceiling (raw OV3660 units):** normal **128 (8×)**, low light **512 (32×)**;
+  - **gain ceiling (raw OV3660 units):** normal **248 (15.5×, the sensor's own default 0x3A19 = 0xF8; the final review found it, the first draft said 128)**, low light **512 (32×)**;
   - **ae_level:** low light +1, else 0;
   - **night** (`set_aec2`): only when the new `night` setting is on, independent of low light;
-  - **wb_mode:** 0 auto, 1 sunny, 2 cloudy, 3 office, 4 home (the OV3660's presets). AWB stays on (`set_whitebal(1)`, `set_awb_gain(1)`).
+  - **wb_mode:** 0 auto, 1 sunny, 2 cloudy, 3 office, 4 home (the OV3660's presets). Auto = the sensor's own white balance; the presets set fixed colour gains (0x3406 = 1).
 - **`applyTo`** uses `sensorTuning`. `set_gainceiling(s, static_cast<gainceiling_t>(t.gain_ceiling_raw))` makes the raw value explicit, with a comment pointing at the driver.
 - **`CamSettings`** gains `uint8_t wb = 0` and `bool night = false` at its end.
 - **Saved settings carried over (owner):** NVS `cq_cam` / `s` holding the old 8-byte block (size, quality, fps_cap, brightness, contrast, low_light, vflip, hmirror) is read into the first 8 bytes. The new fields take their defaults, and the settings are saved again in the new size. Anything else → defaults, as now.

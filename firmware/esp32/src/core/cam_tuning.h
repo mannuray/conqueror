@@ -12,13 +12,13 @@ namespace core {
 // What applyTo() writes to the OV3660. Its gain ceiling is a RAW 10-bit gain (16 = 1x, 0x3FF ~ 64x; esp32-camera
 // sensors/ov3660.c writes it to 0x3A18 / 0x3A19) - not the library's GAINCEILING_* names (the §96 bug).
 struct CamTuning {
-  uint16_t gain_ceiling_raw = 128;
+  uint16_t gain_ceiling_raw = 248;
   int8_t ae_level = 0;
   bool night = false;
   uint8_t wb_mode = 0;
 };
 
-constexpr uint16_t kGainCeilingNormal = 128;  // 8x
+constexpr uint16_t kGainCeilingNormal = 248;  // 15.5x: the OV3660's own default (0x3A19 = 0xF8; Plan X review)
 constexpr uint16_t kGainCeilingLowLight = 512;  // 32x
 constexpr uint8_t kWbModes = 5;
 

@@ -85,9 +85,13 @@ void test_camera_set_white_balance_and_night_are_merged_and_reported() {  // R24
 
 void test_camera_set_reset_uses_the_defaults() {
   fakes::world().cam.quality = 30;
+  fakes::world().cam.wb = 3;  // R24: reset also clears white balance and night (review M3)
+  fakes::world().cam.night = true;
   fakes::world().cam_defaults.quality = 12;
   tank.onCameraSet(3, 6, P("{\"t\":\"camera_set\",\"reset\":true,\"id\":6}"), 1000);
   TEST_ASSERT_EQUAL(12, fakes::world().cam_posted[0].quality);
+  TEST_ASSERT_EQUAL(0, fakes::world().cam_posted[0].wb);
+  TEST_ASSERT_FALSE(fakes::world().cam_posted[0].night);
 }
 
 void test_camera_set_without_camera_is_unavailable() {

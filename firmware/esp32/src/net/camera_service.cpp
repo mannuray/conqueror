@@ -34,15 +34,16 @@ void applyTo(sensor_t* s, const CamSettings& c) {
   s->set_quality(s, c.quality);
   s->set_brightness(s, c.brightness);
   s->set_contrast(s, c.contrast);
-  // R24: the OV3660 takes a RAW gain ceiling (16 = 1x), not the GAINCEILING_* names (§96 sent 1 / 4: almost no
-  // gain); low light = 32x + one step brighter, keeping the frame rate; night mode is its own switch.
+  // R24: the OV3660's gain ceiling is a RAW 10-bit gain in 0x3A18 / 0x3A19 (16 = 1x) - §96 passed the GAINCEILING_*
+  // names (1 / 4: almost no gain). Written as registers, so no out-of-range enum value (Plan X review M2).
+  // Low light = 32x + one step brighter, keeping the frame rate; night mode is its own switch.
   const core::CamTuning t = core::sensorTuning(c);
-  s->set_gainceiling(s, static_cast<gainceiling_t>(t.gain_ceiling_raw));
+  s->set_reg(s, 0x3A18, 0x03, t.gain_ceiling_raw >> 8);
+  s->set_reg(s, 0x3A19, 0xFF, t.gain_ceiling_raw & 0xFF);
   s->set_ae_level(s, t.ae_level);
   s->set_aec2(s, t.night ? 1 : 0);
   s->set_whitebal(s, 1);
-  s->set_awb_gain(s, 1);
-  s->set_wb_mode(s, t.wb_mode);
+  s->set_wb_mode(s, t.wb_mode);  // auto: the sensor's AWB; the presets set fixed colour gains
   s->set_vflip(s, c.vflip ? 1 : 0);
   s->set_hmirror(s, c.hmirror ? 1 : 0);
 }

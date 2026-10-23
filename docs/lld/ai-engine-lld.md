@@ -184,6 +184,7 @@ classDiagram
 Each ping: laptop send `t0`, receive `t1`, the pong's `bridge_us`. Keep the 8 samples with the smallest round trip `t1 − t0` from the last 60 s; offset = median of `bridge_us/1e6 − (t0 + t1)/2`. `to_local(bus_us)` = `bus_us/1e6 − offset`. Used for ages and latency only — pairing frames with poses uses bridge time directly.
 
 ### 5.2 PoseFilter (50 Hz, one `TelemSample` each)
+> **Superseded by §14 (owner, 2026-10-23, design-notes §132):** the heading comes from the tank's corrected heading, not from our own bias estimate. The text below is the first design.
 - State `x, y, θ, b` (gyro bias, °/s) and covariance `P`.
 - **Predict:** `dt` from `bus_us`; distance `d = (Δenc_l + Δenc_r) / 2 / counts_per_m` (sign from `cmd` per side, since the encoders have one channel; `counts_per_m` from the bridge's `calib` reply); `θ += (rate − b)·dt`; `x += d·cos θ_mid`, `y += d·sin θ_mid`. Process noise grows with `|d|` and with `|rate|` (slip in turns).
 - **Heading check (weak):** the encoder difference gives a turn estimate; used only when both tracks move the same way and slowly (no pivot), with a large variance — tracks slip.
@@ -399,3 +400,110 @@ sequenceDiagram
   - How each number was measured: design-notes §127.
 - **Driving tilt:** 15° down (design-notes §126).
 - **Picture size:** the tool needs QVGA (`{"t":"camera_set","size":"QVGA"}`, upper case). Set the camera back to the usual VGA after a session.
+
+## 14. PoseFilter, revision 2 (owner, 2026-10-23, design-notes §132 — draft; replaces §5.2)
+
+### 14.0 Why it changed
+§5.2 was written before three things existed:
+- **the Uno re-learns the gyro bias** whenever the tank stands still (GyroZeroLite, Plan Q0);
+- **the bridge applies the gyro scale** ×1.031 (`gyro_scale` 10310, bridge LLD R19) to the heading in `tf` / `td`;
+- **`counts_per_m` 7514** is calibrated and saved on the bridge (Plan K, the O wizard).
+
+A second bias estimate in the engine, on the same gyro, would fight the Uno's. So the filter takes the corrected heading as it comes and adds the distance from the encoders.
+
+### 14.1 What it does (50 Hz, one `TelemSample` each)
+1. **Heading:**
+   - `td.yaw` (0…360°, corrected) is unwrapped: each step adds the shortest signed difference to the last value.
+   - The room's θ = 0 is the first sample's heading. θ is counter-clockwise (+ = left), the room frame of §3.
+   - The sign of `yaw` against θ is fixed by a host test and checked on the tank, turning left.
+2. **Distance per track:**
+   - Δcount = the count's change since the last sample. Counts only go up (one channel per encoder).
+   - Its sign comes from that track's **PWM output** (`td.pwm`): + forward, − back.
+   - With the PWM at 0 while the track still coasts, the **last non-zero sign** is kept.
+3. **Stall:** if `STALL_L` or `STALL_R` (FastFlagBit 3 / 4) is set, that track adds nothing; spinning tracks don't move the tank.
+4. **Step:**
+   - d = (Δl + Δr) / 2 / `counts_per_m`;
+   - θ_mid = the mean of the previous and the new θ;
+   - x += d·cos θ_mid, y += d·sin θ_mid.
+   - A pivot gives d ≈ 0.
+5. **Speed:**
+   - v = d / dt, smoothed over the last 0.2 s;
+   - ω from `td.rate` (°/s → rad/s, + = left).
+6. **Uncertainty** (`drift_m`, `drift_deg`): grows by 3 % of |d| and by 1° per 360° turned. It's reported, not fused, until a second position source exists (wall markers, later).
+7. **Restarts:**
+   - **The Uno's clock goes back** (`uno_ms` smaller than before): its counts and its heading started again. Keep x, y, θ, and re-anchor the count baselines and the heading offset to the new sample. The pose does not jump.
+   - **The bridge or the link restarts** (`bus_us` goes back, or the first sample after a reconnect): the same re-anchor, without a step.
+   - **A gap over 0.5 s:** no step across it, and `drift_m` grows by that gap's worst case (0.3 m/s × gap).
+8. **`counts_per_m`** comes from the bridge's `calib` reply (`{"t":"calib"}` → `"counts_per_m"`), asked for on connect. Until it arrives there's no distance (the pose holds x, y).
+
+### 14.2 Classes
+```mermaid
+classDiagram
+  class TelemSample {
+    +bus_us, uno_ms
+    +enc_l, enc_r
+    +pwm_l, pwm_r (new)
+    +yaw_deg, rate_dps, flags
+  }
+  class PoseFilter {
+    +set_counts_per_m(n)
+    +update(s: TelemSample) Pose | None
+    +pose() Pose | None
+    +drift() (m, deg)
+    -th_unwrapped, yaw_offset
+    -last: TelemSample
+    -sign_l, sign_r (last non-zero PWM sign)
+    -x, y, v_window
+  }
+  class PoseHistory {
+    +push(p: Pose)
+    +at(t_us) Pose | None
+  }
+  class Pose {
+    +t_us, x_m, y_m, th_rad, v_mps, w_rps
+  }
+  PoseFilter ..> TelemSample
+  PoseFilter --> Pose
+  PoseHistory o-- Pose
+```
+- `PoseHistory`: a ring of the last 2 s (100 poses). `at(t_us)` interpolates linearly, θ on the circle; outside the window → `None` (as §5.2).
+- **Parser:** `parse_td` also reads `pwm` into `pwm_l` / `pwm_r`. The recordings from Plan Q1 already carry `pwm`.
+
+### 14.3 One sample
+```mermaid
+sequenceDiagram
+  participant B as BridgeLink / Replay
+  participant F as PoseFilter
+  participant H as PoseHistory
+  B->>F: update(td sample)
+  alt first sample, or uno_ms / bus_us went back
+    F->>F: re-anchor counts and heading offset (no step)
+  else gap > 0.5 s
+    F->>F: re-anchor; drift += 0.3 m/s x gap
+  else normal
+    F->>F: θ = unwrap(yaw) - offset
+    F->>F: Δl, Δr with the PWM sign (last sign while coasting; 0 if stalled)
+    F->>F: x, y += d at θ_mid; v, ω; drift grows
+  end
+  F->>H: push(pose)
+```
+
+### 14.4 Tests (`tests/test_pose.py`)
+- straight 1 m (7514 counts on each track, PWM +) → x 1.000, y 0;
+- backwards (PWM −) → x −1;
+- a 90° left turn while driving → θ +90°, the path bends left;
+- pivot (PWM + / −, equal counts) → d 0;
+- coasting (PWM 0 after +, counts still rising) → the distance is still forward;
+- a stalled track adds nothing;
+- heading across 359° → 1°: θ +2°, no jump;
+- Uno restart (`uno_ms` back, counts and yaw from 0) → x, y, θ unchanged, then continues;
+- a 1 s gap → no step, drift grows;
+- no `counts_per_m` yet → x, y held;
+- drift: 5 m driven → 0.15 m;
+- `PoseHistory`: interpolation, θ across ±180°, outside the window → None;
+- the parser reads `pwm`.
+
+### 14.5 On the floor (owner present, the phone or Logo drives; the engine only records)
+- Record a Logo 50 cm square and a 2 m out-and-back with `cq-record`, then replay them through the filter.
+- Compare the pose's end to the tape: the square's end against its start; the out-and-back's far point at 2.00 m.
+- Targets (Spec 7 §7): ≤ 3 % of the distance; ≤ 3° per 360° turned.

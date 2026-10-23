@@ -1890,3 +1890,14 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - a bright strip could be taken for the line.
   - These and the eight Minors were fixed test-first (LLD §8 "As built"). AI engine 83/83 tests.
 - **Not run on the tank:** the owner skipped it, because the calibration is already done (§130: tilt 0.91, pan 0.94, saved). If the servos are changed or re-mounted, run `cq-calibrate servos` with the laser.
+
+## 132. The pose filter: the tank's heading plus the encoders (owner, 2026-10-23)
+- **Map phase 3 (Spec 7 §9).** The filter answers about 50 times a second where the tank is, which way it faces and how fast it moves. It only watches; it never drives.
+- **Owner: "yes all as recommended":**
+  1. **Heading:** the tank's corrected heading from `td`. The Uno already re-learns the gyro bias at rest, and the bridge already applies the gyro scale (×1.031), so a second bias estimate would fight them. The engine unwraps it and starts the room at 0°.
+  2. **Distance:** the mean of the two encoders ÷ `counts_per_m` (7514, read from the bridge at connect). The direction comes from each track's PWM output; while coasting, the last direction is kept. A pivot gives about zero.
+  3. **A stalled track adds no distance.** Pushing without a stall flag can still over-count; that's accepted until the camera map gives a second opinion.
+  4. **Uncertainty:** a simple "how far off could we be" number: 3 % of the distance and 1° per 360°. A full Kalman filter comes with a second position source (wall markers, later).
+  5. **Restarts:** an Uno or bridge restart, or a gap over 0.5 s, re-anchors the counts and the heading. The pose keeps x, y and θ and doesn't jump.
+  6. **Check:** host tests, then the 50 cm Logo square and a 2 m out-and-back, recorded and replayed, against the tape. Targets: ≤ 3 % of the distance, ≤ 3° per 360°.
+- **Written as AI engine LLD §14** (draft; replaces §5.2).

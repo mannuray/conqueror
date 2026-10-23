@@ -559,7 +559,7 @@ sequenceDiagram
 - **Tests:** Uno native 298/298, including `test_settings_camera_trims`, `test_settings_block_before_the_trims_still_loads`, `test_cam_trim_moves_only_the_servo`, `test_cam_trim_wakes_servos` and `test_cam_same_trim_does_not_wake_servos`.
 - **On the tank:** pan_trim −50 (−5.0°), tilt_trim 0. They are kept across a power cycle, with no jump at power-on.
 
-## 23. Smooth camera motion (owner 2026-10-23, design-notes §136 — draft)
+## 23. Smooth camera motion (owner 2026-10-23, design-notes §136 — approved 2026-10-23)
 - **Why:** on the stand, the camera's motion didn't feel as smooth as from an RC transmitter. The servo output recorded at 50 Hz (`td.pan`, 30 s of stick moves) showed:
   - **slow moves are stop-and-go:** one step, then 1–4 ticks still, 151 pauses inside the motion. The phone's stick reaches the Uno only ~15–25 times a second, in whole percents (0.9°), and `CamLite::step` reaches each new target within one tick, then waits;
   - **fast moves run at exactly the 2.4°-per-tick cap** (120°/s) with hard starts and stops (155 of 389 moving steps).

@@ -1877,3 +1877,16 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - At −15° tilt, 0.8° is ~8 % of the distance to a floor point 1 m away.
 - **Next (small plan):** make `cq-calibrate servos` do this itself: find a line of any colour (brightness), keep the saved tilt0 and centre (gains only), sweep both ways, and prompt "the line roughly at lens height, ±5 cm". The session scripts stay local (scratchpad).
 - The picture taken to find the lines was deleted after the numbers were written down. The camera was set back to VGA.
+
+## 131. `cq-calibrate servos` does the §130 measurement itself (Plan T, 2026-10-23)
+- **What:** the tool's servo step now works the way the session script did (AI engine LLD §8 amendment):
+  - a laser cross line of **any colour**, burnt-out white included;
+  - placed **roughly** at lens height (±5 cm) and roughly straight ahead;
+  - **both ways**, **gains only**: tilt0 and the camera centre are kept;
+  - the slack printed with its direction.
+- **Final review:** no Critical. Three Important, all in the line finder:
+  - the floor hid the line at low tilts;
+  - a 1-px burnt-out line barely passed;
+  - a bright strip could be taken for the line.
+  - These and the eight Minors were fixed test-first (LLD §8 "As built"). AI engine 83/83 tests.
+- **Not run on the tank:** the owner skipped it, because the calibration is already done (§130: tilt 0.91, pan 0.94, saved). If the servos are changed or re-mounted, run `cq-calibrate servos` with the laser.

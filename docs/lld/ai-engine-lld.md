@@ -298,7 +298,7 @@ Writes `config/calibration.yaml` with the date and the frame size.
   - Ctrl-C at a prompt.
 - **A failed floor-mark check asks before saving.**
 
-**Amended (owner, 2026-10-23, design-notes §130) — the servo step without an exact laser height (draft):**
+**Amended (owner, 2026-10-23, design-notes §130) — the servo step without an exact laser height (approved: owner chose native; built as Plan T, see "As built" below):**
 - **Why:** the owner has no stand to put the laser line exactly at lens height. A gain only uses the change between pictures, so a line a few cm off lens height (or not straight ahead) gives the right gain. Only the offset would be wrong, and the offset comes from elsewhere: tilt0 from the mount step or the tape marks, the pan centre from the Uno's camera centre (Uno Lite LLD §22).
 - **A line of any colour** (`laser_row` / `laser_col`):
   - three measures: redness R − max(G, B), greenness G − max(R, B), and brightness (mean of R, G, B), for a line burnt out to near-white like the owner's green laser;
@@ -333,6 +333,19 @@ sequenceDiagram
   T->>O: tilt gain, slack ±x°
   Note over T,O: the same for pan with the vertical line, camera level
 ```
+
+**As built (Plan T, 2026-10-23; design-notes §131), with the final review's fixes:**
+- **The finder's background is local:** a grey opening 41 px wide (`BASELINE_PX`), not one median for the whole profile. The floor filling most of the picture at low tilts, a wall, or any step is background; only peaks narrower than 41 px stand out. The width rule (≤ 20 px) and the second-peak rule still apply.
+- **Brightness is not smoothed;** the colours are, over 5 px. A 1-px burnt-out core keeps its full height.
+- **Never a wrong line:**
+  - measures that find lines more than 3 px apart give no answer (`AGREE_PX`);
+  - in the sweep, a picture more than 1.5° off its way's straight line ends the step with a plain refusal (`MAX_FIT_ERROR_DEG`): "something else bright or red in the picture?".
+- **Both ways use every point:** a move to just above the top before the way down, and a dip to just below the lowest before the way up. At a servo limit with no room, the point next to it is left out of that way.
+- **Slack:** measured at the middle of the points and printed with its direction ("lands 0.8 deg higher arriving from above").
+- **Gains only:** the maps keep their existing offsets (0 in today's file), and tilt0 is kept. The camera returns to the centre afterwards, also on a refusal.
+- **Accepted:** averaging over the middle half of the picture lets the lens's leftover distortion move the gain by about 0.5 % (tilt) / 0.2 % (pan), against a 6–9 % effect.
+- **Not run on the tank** (owner: the calibration is done, §130). The tool's maths matches the session script that measured 0.91 / 0.94.
+- **Tests:** AI engine 83/83.
 
 ## 9. Recording and replay
 - **Session folder** `recordings/<date-time>/`: `telemetry.jsonl` (raw `td` / `pong` lines with the laptop receive time), `frames.bin` (per frame: a JSON header line `{seq, cap_us, recv_s, len}` then the JPEG), `session.json` (calibration copy, engine config, bridge build), and a Rerun `.rrd` of the map outputs.

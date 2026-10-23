@@ -2483,3 +2483,74 @@ classDiagram
   - `web/test/camera_centre_check.js` (Playwright): steps, Save, Undo, the ±30° stop, refusals, quick refusals, a track-balance save, a reconnect, phone width.
 - `/settings` is 21 957 B gzipped (budget 36 KB).
 - **On the tank:** the owner stepped the pan on the phone to −5.0° and saved it with the button. After a power cycle the camera looks dead ahead at rest, after HOME, after the stick's return and after `cam_set 0 0`.
+
+## R24. Camera: the gain limit fix, low light for driving, white balance (owner 2026-10-24, design-notes §140 — draft)
+
+### R24.0 Why
+- **The night test (design-notes §139):** with the room lights on, the QVGA picture's median brightness was 44 / 255, too dark for YOLO.
+- **The cause is a bug from §96.** `applyTo` passes the library's `GAINCEILING_4X` / `GAINCEILING_32X` (enum values 1 / 4) to `set_gainceiling`. The **OV3660 driver writes that number straight into its gain-limit registers** 0x3A18 / 0x3A19, a raw 10-bit gain where 16 = 1× and the maximum 0x3FF ≈ 64× (esp32-camera `sensors/ov3660.c`). So the auto gain was capped at about the lowest possible value in both modes.
+- **Low light also turns on night mode** (`set_aec2`, register 0x3A00 bit 2), which lengthens exposures by lowering the frame rate. That's wrong for the map (≥ 10 pictures a second) and for blur while driving.
+- **No white-balance control:** the picture has a colour cast (§109 magenta in daylight; green under the room lights).
+
+### R24.1 What changes
+- **`core/cam_tuning.h` (pure, new):** `sensorTuning(const CamSettings&) → CamTuning { gain_ceiling_raw, ae_level, night, wb_mode }`. The one place that maps settings to OV3660 values, host-tested:
+  - **gain ceiling (raw OV3660 units):** normal **128 (8×)**, low light **512 (32×)**;
+  - **ae_level:** low light +1, else 0;
+  - **night** (`set_aec2`): only when the new `night` setting is on, independent of low light;
+  - **wb_mode:** 0 auto, 1 sunny, 2 cloudy, 3 office, 4 home (the OV3660's presets). AWB stays on (`set_whitebal(1)`, `set_awb_gain(1)`).
+- **`applyTo`** uses `sensorTuning`. `set_gainceiling(s, static_cast<gainceiling_t>(t.gain_ceiling_raw))` makes the raw value explicit, with a comment pointing at the driver.
+- **`CamSettings`** gains `uint8_t wb = 0` and `bool night = false` at its end.
+- **Saved settings carried over (owner):** NVS `cq_cam` / `s` holding the old 8-byte block (size, quality, fps_cap, brightness, contrast, low_light, vflip, hmirror) is read into the first 8 bytes. The new fields take their defaults, and the settings are saved again in the new size. Anything else → defaults, as now.
+- **WebSocket:**
+  - `camera_set` takes `"wb":"auto"|"sunny"|"cloudy"|"office"|"home"` and `"night":true|false`. An unknown wb name → `INVALID_COMMAND`, the same rule as `size` (upper / lower case as given: the names are lower case).
+  - The `tank` reply's `camera` object gains `"wb":"…"` and `"night":…`.
+- **The Camera card** (`/settings`):
+  - a **White balance** segmented row (Auto / Sunny / Cloudy / Office / Home);
+  - a **Night (slow)** toggle with the hint "longer exposures, fewer pictures - for looking, not for driving";
+  - the existing **Low-light** toggle's hint becomes "more gain for dim rooms; keeps the frame rate".
+  - Reset to defaults resets these too.
+
+```mermaid
+classDiagram
+  class CamSettings {
+    +size, quality, fps_cap
+    +brightness, contrast
+    +low_light, vflip, hmirror
+    +wb (new) 0..4
+    +night (new)
+  }
+  class CamTuning {
+    +gain_ceiling_raw
+    +ae_level
+    +night
+    +wb_mode
+  }
+  class cam_tuning {
+    +sensorTuning(CamSettings) CamTuning
+    +wbName(uint8) const char*
+    +wbOf(name, out) bool
+  }
+  class camera_service {
+    -applyTo(sensor, CamSettings)
+    -loadSettings(CamSettings&) bool   carries the 8-byte block over
+  }
+  class TankAppController { +merge(CamFields) CamSettings }
+  camera_service ..> cam_tuning
+  TankAppController ..> CamSettings
+  cam_tuning ..> CamTuning
+```
+
+### R24.2 Tests
+- **`test_cam_tuning`:**
+  - normal → 128, ae 0, night off;
+  - low light → 512, ae +1, night still off;
+  - night on → night;
+  - each wb name ↔ mode; an unknown name refused.
+- **`test_ws_codec`:** `camera_set` with `wb` / `night`; a bad wb → invalid.
+- **`test_tank_app_controller`:** merge of wb / night; reset → auto / off; the `tank` reply carries them.
+- **`test_cam_settings_load`** (the carry-over, pure: a function on a byte buffer): an 8-byte old block → the old values + wb auto, night off; a new block round-trips; another size → defaults.
+- **Page (Playwright):** the white-balance row sends `wb`; the night toggle sends `night`; both show the tank's values.
+- **On the tank** (the brightness numbers are written down):
+  - dark room and daylight, QVGA: median picture brightness and YOLO's person score before (§139: 44 / 255) and after, with low light off and on;
+  - the frame rate with low light on (must stay ≥ 10 / s);
+  - the owner picks the white balance by eye.

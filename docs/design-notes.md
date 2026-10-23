@@ -1999,3 +1999,13 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - **The tilt servo's slack near 0° is larger** than the laser's ±0.8°: commanded 0 → −5 moved only 1.4° when arriving from below. The drive module must reach the driving tilt from above (§130); a better mechanism is §138.
   - **The camera doesn't sag** when its servos are released: < 0.3° over 6 s (phase correlation).
 - **Order (owner): the camera improvement first** (design, then a plan), then Plan V's floor check again, in daylight.
+
+## 140. Camera improvement: the design (owner, 2026-10-24)
+- **Found while designing:** the bridge's gain limit has been wrong since §96. The OV3660 driver takes a **raw** gain (16 = 1×, up to ≈ 64×), but we sent the library's names, 1 for "4×" and 4 for "32×". So the auto gain could barely raise the picture in a dim room, which explains §139's 44 / 255.
+- **Owner: "yes all as recommended, carry over old settings":**
+  1. **The gain limit fixed:** normal 8× (raw 128), low light 32× (raw 512).
+  2. **Low light for driving:** the higher gain plus one step brighter, **without** the sensor's night mode. Night mode (longer exposures, fewer pictures) becomes its own "Night (slow)" switch for looking around, not for driving.
+  3. **White balance:** Auto / Sunny / Cloudy / Office / Home (the OV3660's presets) on the Camera card, saved on the tank.
+  4. **The camera-clock test** (10 / 16 / 20 MHz: pictures per second and WiFi loss) is a measurement session in daylight; the result becomes a firmware constant.
+  5. **The saved camera settings are carried over** into the new format (not reset).
+- **Written as bridge LLD R24** (draft).

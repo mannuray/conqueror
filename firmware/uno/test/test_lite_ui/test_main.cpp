@@ -162,6 +162,18 @@ void test_cam_trim_wakes_servos() {
   TEST_ASSERT_TRUE(c.wantAttached());
 }
 
+// Final review M3: applySettings() runs after every SETTING_SET; an unchanged trim must not wake released servos.
+void test_cam_same_trim_does_not_wake_servos() {
+  CamLite c;
+  c.setTrim(-50, 0);
+  c.tick(0);
+  c.tick(2000);
+  TEST_ASSERT_FALSE(c.wantAttached());
+  c.setTrim(-50, 0);
+  c.tick(2020);
+  TEST_ASSERT_FALSE(c.wantAttached());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_cam_limits_and_us);
@@ -176,5 +188,6 @@ int main() {
   RUN_TEST(test_cam_small_jog_wakes_servos);
   RUN_TEST(test_cam_trim_moves_only_the_servo);
   RUN_TEST(test_cam_trim_wakes_servos);
+  RUN_TEST(test_cam_same_trim_does_not_wake_servos);
   return UNITY_END();
 }

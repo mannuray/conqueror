@@ -39,6 +39,7 @@ class CamLite {
   int16_t outTilt() const { return m_out_tilt; }
   // The camera centre (Uno Lite LLD §22): added only at the servo, so pan()/outPan() (and telemetry) stay logical.
   void setTrim(int16_t pan_dd, int16_t tilt_dd) {
+    if (pan_dd == m_pan_trim && tilt_dd == m_tilt_trim) return;  // applySettings() runs after every SETTING_SET
     m_pan_trim = pan_dd;
     m_tilt_trim = tilt_dd;
     m_active = true;  // wakes released servos: the camera moves to the new centre at once

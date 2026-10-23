@@ -59,6 +59,33 @@ async (page) => {
   await q(() => window.__sent.length = 0);
   await page.click("#trimSave");  // still unsaved: Save sends again
   out.resave = (await sent("setting")).map((m) => [m.setting_id, m.value]);                          // [[27,300]]
+  const rs = (await sent("setting")).slice(-1)[0];
+  await q((id) => window.__fakeEmit({ t: "nack", id: id, reason: "BUSY" }), rs.id); await page.waitForTimeout(50);
+  // Final review I1: two quick steps, both refused -> back to what the Uno has (not the page's own earlier step).
+  const trimNow = () => q(() => document.getElementById("trimV").textContent);
+  const lastTries = async (n) => (await sent("setting")).filter((m) => m.try).slice(-n);
+  await q(() => { window.__sent.length = 0; });
+  await page.click("#trimR"); await page.click("#trimR");  // 300 -> 295 -> 290, no reply yet
+  let [a, b] = await lastTries(2);
+  await q((ids) => ids.forEach((id) => window.__fakeEmit({ t: "nack", id: id, reason: "BUSY" })), [a.id, b.id]);
+  await page.waitForTimeout(60);
+  out.twoRefused = await trimNow();                                                                  // pan +30.0° (the Uno's)
+  await page.click("#trimR"); await page.click("#trimR");  // one refused, the next accepted
+  [a, b] = await lastTries(2);
+  await q((x) => { window.__fakeEmit({ t: "nack", id: x[0], reason: "BUSY" }); window.__fakeEmit({ t: "ack", id: x[1] }); }, [a.id, b.id]);
+  await page.waitForTimeout(60);
+  out.mixed = await trimNow();                                                                       // pan +29.0° (B reached the Uno)
+  // Final review M1: saving track balance saves the Uno's whole block - the tried trims are saved too.
+  await q(() => window.__fakeEmit({ t: "confirmed", what: "setting" })); await page.waitForTimeout(50);
+  await q(() => { window.__sent.length = 0; });
+  await page.click("#trimUndo"); await page.waitForTimeout(50);
+  out.undoAfterOtherSave = (await sent("setting")).length;                                           // 0 (nothing unsaved)
+  // Final review M4: a new link (bridge or Uno restarted) forgets the pending replies and homes the camera again.
+  await q(() => { window.__noAck = false; window.__ws.close(); });
+  await page.waitForTimeout(1500);
+  await q(() => { window.__sent.length = 0; });
+  await page.click("#trimR"); await page.waitForTimeout(50);
+  out.rehome = (await sent("cam_home")).length;                                                      // 1
   out.wide = await q(() => document.documentElement.scrollWidth <= 390);                             // true
   return out;
 }

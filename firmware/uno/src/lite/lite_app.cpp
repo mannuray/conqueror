@@ -63,9 +63,10 @@ void setup() {
   port::led::begin();
   port::tone::begin();
   port::servos::begin();
+  settingsLoad();  // first: the saved camera centre is in the very first pulse (no jump at power-on)
+  cameraTask();    // writes that pulse; Servo keeps it until attach
   port::servos::attach(Axis::kPan);
   port::servos::attach(Axis::kTilt);
-  settingsLoad();
   g_lite.imu_ok = port::imu::begin();
   port::ultrasonic::trigger();
   port::battery_adc::start();

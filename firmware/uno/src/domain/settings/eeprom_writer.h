@@ -15,7 +15,7 @@ struct EepromIo {
 class EepromWriter {
  public:
 #if defined(PROFILE_LITE)
-  static constexpr uint8_t kMaxBytes = 32;  // Uno Lite: one 26-byte settings block (uno-lite LLD §12)
+  static constexpr uint8_t kMaxBytes = 32;  // Uno Lite: one settings block, 31 B since the camera trims (uno-lite LLD §12, §22)
 #else
   static constexpr uint8_t kMaxBytes = 80;
 #endif

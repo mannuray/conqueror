@@ -2,7 +2,9 @@
 
 - The laser level's horizontal line on a wall at exactly the lens height is the horizon: its row gives the
   camera's real tilt. Its vertical line straight ahead gives the real pan (measured with the camera level).
-- The servo map: commanded angle -> real angle, a straight-line fit.
+- A line of any colour: red, green, or burnt out to near-white (design-notes §130).
+- The servo map: commanded angle -> real angle, a straight-line fit. For the gains only, the line need not be
+  exactly at lens height or straight ahead: only the change between pictures counts (§130).
 - The floor-mark check, and the tilt study (blind zone and view for a few tilts)."""
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from numpy.typing import NDArray
 from conqueror_ai.domain.camera import Calibration, CameraModel
 from conqueror_ai.domain.types import Pose
 
-MIN_LINE_SCORE = 20.0  # mean red excess on the line's row / column; below it there is no line
+MIN_LINE_SCORE = 20.0  # mean excess (red, green or brightness) on the line's row / column; below it: no line
 MAX_LINE_WIDTH_PX = 20  # wider at a quarter of its height: a red object, not a laser line (final review I5;
 #                         a burnt-out line with its halo is ~15 px at QVGA)
 SECOND_PEAK_RATIO = 0.5  # another peak this strong elsewhere: ambiguous, no answer
@@ -31,10 +33,30 @@ def _redness(rgb: NDArray[np.uint8]) -> NDArray[np.float64]:
     return np.clip(f[:, :, 0] - np.maximum(f[:, :, 1], f[:, :, 2]), 0.0, None)
 
 
-def _peak(profile: NDArray[np.float64]) -> float | None:
-    """The sub-pixel centre of the one narrow peak, or None: nothing stands out, the peak is wide (a red
-    object), or a second peak nearly as strong is elsewhere. Smoothed first, so a burnt-out line (red
-    only at its fringes) is still one peak."""
+def _greenness(rgb: NDArray[np.uint8]) -> NDArray[np.float64]:
+    """How much green stands out: G - max(R, B), never below 0."""
+    f = rgb.astype(np.float64)
+    return np.clip(f[:, :, 1] - np.maximum(f[:, :, 0], f[:, :, 2]), 0.0, None)
+
+
+def _brightness(rgb: NDArray[np.uint8]) -> NDArray[np.float64]:
+    """The mean of the three colours: a line burnt out to near-white (§130: the owner's green laser)."""
+    return rgb.astype(np.float64).mean(axis=2)
+
+
+_MEASURES = (_redness, _greenness, _brightness)
+
+
+def _best_line(profiles: list[NDArray[np.float64]]) -> float | None:
+    """The line in whichever measure shows it strongest; each measure must pass _peak's rules on its own."""
+    found = [r for r in (_scored_peak(p) for p in profiles) if r is not None]
+    return max(found, key=lambda r: r[1])[0] if found else None
+
+
+def _scored_peak(profile: NDArray[np.float64]) -> tuple[float, float] | None:
+    """The sub-pixel centre of the one narrow peak and its height, or None: nothing stands out, the peak is
+    wide (a red object), or a second peak nearly as strong is elsewhere. Smoothed first, so a burnt-out line
+    (red only at its fringes) is still one peak."""
     p = np.convolve(profile, np.ones(5) / 5.0, mode="same") - float(np.median(profile))
     i = int(np.argmax(p))
     top = float(p[i])
@@ -53,19 +75,19 @@ def _peak(profile: NDArray[np.float64]) -> float | None:
         return None
     a, b = max(0, lo - 2), min(len(p), hi + 3)
     w = np.clip(p[a:b], 0.0, None)
-    return float((np.arange(a, b) * w).sum() / w.sum())
+    return float((np.arange(a, b) * w).sum() / w.sum()), top
 
 
 def laser_row(rgb: NDArray[np.uint8]) -> float | None:
-    """The row of a horizontal red laser line (mean over the middle half of the columns)."""
+    """The row of a horizontal laser line of any colour (mean over the middle half of the columns)."""
     w = rgb.shape[1]
-    return _peak(_redness(rgb)[:, w // 4 : 3 * w // 4].mean(axis=1))
+    return _best_line([m(rgb)[:, w // 4 : 3 * w // 4].mean(axis=1) for m in _MEASURES])
 
 
 def laser_col(rgb: NDArray[np.uint8]) -> float | None:
-    """The column of a vertical red laser line (mean over the middle half of the rows)."""
+    """The column of a vertical laser line of any colour (mean over the middle half of the rows)."""
     h = rgb.shape[0]
-    return _peak(_redness(rgb)[h // 4 : 3 * h // 4, :].mean(axis=0))
+    return _best_line([m(rgb)[h // 4 : 3 * h // 4, :].mean(axis=0) for m in _MEASURES])
 
 
 def _normalised(cal: Calibration, u: float, v: float) -> tuple[float, float]:
@@ -75,25 +97,31 @@ def _normalised(cal: Calibration, u: float, v: float) -> tuple[float, float]:
     return n
 
 
-def tilt_points(cal: Calibration) -> list[float]:
-    """Commanded tilts for the servo step that keep the horizon line within 10..90 % of the picture's height
-    (assuming about 1 deg per commanded deg) and inside the servo's -20..60 (final review I2)."""
+def tilt_points(cal: Calibration, line_deg: float | None = None) -> list[float]:
+    """Commanded tilts for the servo step that keep the horizontal line within 10..90 % of the picture's
+    height (assuming about 1 deg per commanded deg) and inside the servo's -20..60 (final review I2).
+    `line_deg`: where the line looks at command 0 (`horizon_tilt_deg` of its row, §130); None: a line at
+    lens height (tilt0)."""
     h = cal.size[1]
     fy, cy = float(cal.k[1, 1]), float(cal.k[1, 2])
-    lo = math.degrees(math.atan((INSIDE * h - cy) / fy)) - cal.tilt0_deg
-    hi = math.degrees(math.atan(((1 - INSIDE) * h - cy) / fy)) - cal.tilt0_deg
+    b = cal.tilt0_deg if line_deg is None else line_deg
+    lo = math.degrees(math.atan((INSIDE * h - cy) / fy)) - b
+    hi = math.degrees(math.atan(((1 - INSIDE) * h - cy) / fy)) - b
     lo, hi = max(lo, -20.0), min(hi, 60.0)
     return [round(float(t), 1) for t in np.linspace(lo, hi, SERVO_POINTS)]
 
 
-def pan_points(cal: Calibration) -> list[float]:
-    """Commanded pans (symmetric, with 0) keeping the vertical line within 10..90 % of the picture's width."""
+def pan_points(cal: Calibration, line_deg: float = 0.0) -> list[float]:
+    """Commanded pans keeping the vertical line within 10..90 % of the picture's width and inside -90..90.
+    `line_deg`: where the line looks at command 0 (`pan_from_col_deg` of its column, §130); 0 = straight
+    ahead, and then the points are symmetric with 0 among them."""
     w = cal.size[0]
     fx, cx = float(cal.k[0, 0]), float(cal.k[0, 2])
     right = math.degrees(math.atan((cx - INSIDE * w) / fx))
     left = math.degrees(math.atan(((1 - INSIDE) * w - cx) / fx))
-    m = min(right, left, 90.0)
-    return [round(float(p), 1) for p in np.linspace(-m, m, SERVO_POINTS)]
+    m = min(right, left)
+    lo, hi = max(-m - line_deg, -90.0), min(m - line_deg, 90.0)
+    return [round(float(p), 1) for p in np.linspace(lo, hi, SERVO_POINTS)]
 
 
 def horizon_tilt_deg(cal: Calibration, row: float) -> float:

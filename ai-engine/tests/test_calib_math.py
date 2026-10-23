@@ -126,3 +126,61 @@ def test_servo_points_keep_the_line_inside_the_picture() -> None:
     for p in pans:
         col = c.k[0, 2] - c.k[0, 0] * math.tan(math.radians(p))
         assert 0.1 * 320 <= col <= 0.9 * 320
+
+
+# ---- design-notes §130: a laser of any colour - the owner's is green and burns out to near-white
+def green_burnt_picture(row: float | None = None, col: float | None = None) -> NDArray[np.uint8]:
+    """A dim grey wall with a thin green laser line whose 2-pixel core is burnt out to near-white."""
+    img = np.full((240, 320, 3), 52, dtype=np.uint8)
+    rng = np.random.default_rng(2)
+    img = np.clip(img + rng.normal(0, 4, img.shape), 0, 255).astype(np.uint8)
+    for at, axis in ((row, 0), (col, 1)):
+        if at is None:
+            continue
+        n = img.shape[axis]
+        for i in range(n):
+            d = abs(i - at)
+            px = (175, 215, 190) if d <= 0.5 else ((30, 70, 45) if d <= 1.5 else None)
+            if px is None:
+                continue
+            if axis == 0:
+                img[i, :, :] = px
+            else:
+                img[:, i, :] = px
+    return img
+
+
+def test_a_green_burnt_out_line_is_found() -> None:
+    r = cm.laser_row(green_burnt_picture(row=120.4))
+    assert r is not None and abs(r - 120.4) < 0.8
+    c = cm.laser_col(green_burnt_picture(col=231.0))
+    assert c is not None and abs(c - 231.0) < 0.8
+
+
+def test_a_green_cross_gives_both_lines() -> None:
+    img = green_burnt_picture(row=90.0, col=60.0)
+    r, c = cm.laser_row(img), cm.laser_col(img)
+    assert r is not None and abs(r - 90.0) < 0.8
+    assert c is not None and abs(c - 60.0) < 0.8
+
+
+def test_a_plain_grey_wall_has_no_line() -> None:
+    assert cm.laser_row(green_burnt_picture()) is None
+    assert cm.laser_col(green_burnt_picture()) is None
+
+
+# ---- design-notes §130: servo points follow the line (it need not be at lens height or straight ahead)
+def test_servo_points_follow_the_line() -> None:
+    c = calib(tilt0=0.0)
+    line_tilt = 4.0  # the line looks 4 deg below the centre at command 0 (a few cm off lens height)
+    for t in cm.tilt_points(c, line_tilt):
+        row = c.k[1, 2] + c.k[1, 1] * math.tan(math.radians(line_tilt + t))
+        assert 0.1 * 240 <= row <= 0.9 * 240
+        assert -20.0 <= t <= 60.0
+    line_pan = -21.0  # the vertical line 21 deg to the right at command 0
+    pans = cm.pan_points(c, line_pan)
+    assert len(pans) == 5
+    for p in pans:
+        col = c.k[0, 2] - c.k[0, 0] * math.tan(math.radians(line_pan + p))
+        assert 0.1 * 320 <= col <= 0.9 * 320
+        assert -90.0 <= p <= 90.0

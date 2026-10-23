@@ -1823,3 +1823,16 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - the tool refuses a VGA picture. `camera_set` needs `"QVGA"` in upper case; a lower-case value is refused as `INVALID_COMMAND`.
   - The camera was set back to VGA afterwards.
   - The pictures were deleted after the numbers were taken (they show the home).
+
+## 128. Camera centre on the Uno: the design (owner, 2026-10-23)
+- **The §125 (b) follow-up.** The owner approved the design ("yes"):
+  1. **The trim lives on the Uno.** The Uno sends the camera home by itself (HOME, the IR HOME key, the stick let go), so a bridge-only trim would miss those. It uses the protocol's existing `pan_trim` / `tilt_trim` settings (ids 27 and 28). The Mega firmware already uses them; the Uno Lite gains them. No protocol change.
+  2. **Pan and tilt both.** Tilt measures about 0 today; the laser may say otherwise.
+  3. **The tank reports the corrected angle.** Telemetry 90° = truly straight ahead, so the AI calibration's `pan_map` goes back to (1, 0) once the trim is saved.
+  4. **Set by eye on the Settings page,** Camera card: ◀ ▶ ▲ ▼ in 0.5° steps over the live picture, then Save.
+  5. **Limits:** ±30°, the setting's range. The servo's 0–180° stop takes up to the trim off one end.
+- **Detail settled while writing the LLDs:**
+  - a **step is a "try"**: it changes the Uno's RAM only and needs no button, because it only moves the camera and a restart forgets it;
+  - **Save** is button-confirmed like `track_balance`, and the Uno then saves its whole block, tilt trim included.
+- **Uno flash:** budget ≤ 200 B (31 144 B / 96.6 % before).
+- **Written as:** Uno Lite LLD §22 and bridge LLD R23 (drafts).

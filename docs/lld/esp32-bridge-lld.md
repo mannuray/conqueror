@@ -2406,3 +2406,66 @@ sequenceDiagram
   - the pan trim at +2, +4 and +5° (design-notes §125);
   - the 35-view lens sweep (pan 5 ± 12°, tilt ± 9°);
   - the camera held its angle between pictures.
+
+## R23. Camera centre on the Settings page (owner 2026-10-23, design-notes §128, Uno Lite LLD §22 — draft)
+### R23.0 Why
+The trim lives on the Uno (Uno Lite LLD §22). The owner sets it by eye, watching the picture, so the Camera card needs a way to step it and save it. Today a page may change only `track_balance` (id 66), and every change waits for the tank's button.
+
+### R23.1 The message
+- **Read:** `{"t":"setting","id":27}` / `{"t":"setting","id":28}` → `SETTING_GET` → the value (ids 27 and 28 join the readable list).
+- **Try (new):** `{"t":"setting","id":27,"value":v,"try":true,"id_":n}`, written in the WebSocket's usual form with `id` = the setting id and the request id as for other `setting` messages.
+  - Only ids 27 and 28, with v −300…300 → `SETTING_SET` alone (RAM, not saved) → `ack` after the Uno's ACK. The camera moves to the new centre at once.
+  - **No button:** a try only moves the camera, and a restart forgets it.
+  - **Who:** the camera rule (`LinkOwner::onCamera`: only the driver while someone drives, anyone when nobody drives).
+  - Another id, or v out of range → 3006 `INVALID_COMMAND`.
+- **Save:** `{"t":"setting","id":27,"value":v}` with no `try`. Ids 27 and 28 join `track_balance` as page-writable:
+  - the tank's button confirms, as now;
+  - then `SETTING_SET` + `SETTINGS_SAVE`.
+  - The Uno saves its whole block, so a tried tilt trim is saved with the pan one. The page sends Save once for pan, and once for tilt only if tilt changed.
+
+### R23.2 The Camera card
+- A new row under the live picture: **Camera centre**
+  - ◀ ▶ (pan) and ▲ ▼ (tilt), 0.5° per press;
+  - the two trims shown (e.g. "pan −5.0° · tilt 0.0°");
+  - **Save** (asks for the tank's button, like the other saved changes);
+  - **Undo** (goes back to the saved values with a try).
+- **Directions in picture terms:** ▶ makes the picture look further right, so `pan_trim` goes down by 5 (right = a smaller servo angle). ▲ makes it look further up, so `tilt_trim` goes down by 5 (up = a smaller tilt angle on this tank, design-notes §45).
+- **Before the first step** the page sends `cam_home`, so the camera sits at its centre while being trimmed.
+- Hint line: "// Line the picture up with something straight ahead, then Save (press the tank's button)."
+
+### R23.3 Classes
+```mermaid
+classDiagram
+  class WsCodec {
+    +decode("setting") WsCommand   + try flag
+  }
+  class WsCommand {
+    +uint8 setting_id
+    +int32 value
+    +bool has_value
+    +bool try_only (new)
+  }
+  class SettingsController {
+    +onSetting(fd, id, cmd, now)
+    -settingReadable(id) bool   + 27, 28
+    -settingWritable(id, v) bool   66 ±100; 27 / 28 ±300
+    -onTry(fd, id, cmd)   camera rule, SETTING_SET only
+  }
+  class LinkOwner {
+    +onCamera(fd) bool
+  }
+  SettingsController ..> WsCommand
+  SettingsController ..> LinkOwner : try only
+  WsCodec --> WsCommand
+```
+
+### R23.4 Tests
+- **`test_ws_codec`:** `setting` with `try: true` → `try_only`; without it → false.
+- **`test_settings_controller`** (or the drive controller suite where `setting` lives):
+  - try 27 = −50 → `kSettingSet` queued and no confirm asked; acked after the Uno's ACK;
+  - try 66 → INVALID_COMMAND; try 27 = 301 → INVALID_COMMAND;
+  - try while another client drives → NOT_OWNER;
+  - save 27 = −50 → a confirm is asked, then SET + SAVE;
+  - read 27 → `kSettingGet`.
+- **Page (`node --test` / Playwright as for the other pages):** ▶ sends a try with the trim minus 5; Save sends the plain setting.
+- **On the tank:** step the pan until the picture is dead ahead, Save with the button, restart the tank. HOME, the stick's return and `cam_set 0 0` all look dead ahead, and telemetry pan reads 90.

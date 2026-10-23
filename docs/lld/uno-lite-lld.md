@@ -478,3 +478,74 @@ classDiagram
 ```
 Tests (host): `iatan2Cdeg` against `atan2` at 1° steps (|error| ≤ 50 cdeg), pitch/roll from synthetic accel vectors, temperature conversion, CALIBRATE SELF_TEST → OK + a new SELFTEST event, other scripts → UNAVAILABLE.
 > **As built (design-notes §97):** the CALIBRATE case is written inline in the Lite route dispatcher (no separate `handleCalibrate`), and the host test is `test_calibrate_is_handled_for_self_test` (frame use); the OK / UNAVAILABLE / BUSY replies were checked on the tank (stand check, Plan O).
+
+## 22. Camera centre: pan and tilt trim (owner 2026-10-23, design-notes §125 b and §128, bridge LLD R23 — draft)
+- **Why:** at servo 90° the pan looks 5° left of dead ahead (§125). The servo's spline teeth step ~14°, so the horn cannot fix it. The Uno itself sends the camera home on HOME, on the IR remote's HOME key and 500 ms after the stick is let go, so the trim has to live on the Uno.
+- **Settings:** the existing ids **27 `pan_trim`** and **28 `tilt_trim`**:
+  - i16, 0.1° steps, −300…300 (±30°), default 0, in **servo terms** (added to the servo angle, as in the Mega firmware's `CameraHead`);
+  - for this tank: pan_trim −50 (servo 85° = dead ahead);
+  - SETTING_SET / GET / SETTINGS_SAVE as for every Lite setting.
+- **EEPROM:** `LiteSettings` gains `pan_trim`, `tilt_trim` at its end. `load()` accepts three block sizes: before plan J, before this change, now. Fields missing from an older block keep their defaults (0), as for `track_balance`.
+- **Applying it:**
+  - `CamLite` keeps its targets and smooth output in **logical** terms (900 = the true centre). `home()`, `joy()`, `set()`, `nudge()` and the jog keys are unchanged.
+  - Only the servo write adds the trim: `servoPan() = clamp(outPan() + pan_trim, 0, 1800)`, the same for tilt.
+  - **Telemetry `pan` / `tilt` stay logical** (`outPan()` / `outTilt()`): 90° means "looks straight ahead".
+  - The logical limits (pan 0…1800, tilt 300…1100) are unchanged. Near an end, the servo's own 0…180° clamp takes off up to the trim.
+  - `applySettings()` calls `cam.setTrim(pan, tilt)`. A change of trim **wakes the servos** (like a command), so the camera moves to the new centre at once, even after it was released.
+- **Unchanged:** the bridge's `LOOK` / `cam_set` rule (`dd = 900 − deg × 10`), the protocol (version 3), and the generated files.
+- **After it is saved on the tank:** the AI calibration's `pan_map` goes back to (1, 0), because telemetry then reports the true centre as 90°.
+
+```mermaid
+classDiagram
+  class LiteSettings {
+    ...
+    +int16 track_balance
+    +int16 pan_trim   ×0.1° (new)
+    +int16 tilt_trim  ×0.1° (new)
+  }
+  class SettingsLite {
+    +load(read) bool   three block sizes
+    +get(id, v) bool   + 27, 28
+    +set(id, v) AckStatus   −300..300
+  }
+  class CamLite {
+    -int16 m_pan_trim, m_tilt_trim
+    +setTrim(pan_dd, tilt_dd)   wakes the servos
+    +outPan() int16   logical (telemetry)
+    +outTilt() int16
+    +servoPan() int16   outPan + trim, 0..1800
+    +servoTilt() int16
+  }
+  class LiteRoutes {
+    +applySettings()   + cam.setTrim
+  }
+  class CameraTask {
+    writeUs(toUs(servoPan())), writeUs(toUs(servoTilt()))
+  }
+  SettingsLite --> LiteSettings
+  LiteRoutes ..> SettingsLite
+  LiteRoutes ..> CamLite : setTrim
+  CameraTask ..> CamLite
+```
+
+```mermaid
+sequenceDiagram
+  participant P as Settings page
+  participant B as Bridge
+  participant U as Uno Lite
+  P->>B: setting 27 = -50, try
+  B->>U: SETTING_SET 27 -50
+  U->>U: applySettings → cam.setTrim (servos wake, camera moves)
+  U-->>B: ACK OK
+  B-->>P: ack
+  Note over P,U: the owner watches the picture, steps again
+  P->>B: setting 27 = -50 (Save)
+  B->>B: wait for the tank's button
+  B->>U: SETTING_SET 27 -50, SETTINGS_SAVE
+  U-->>B: ACK OK, ACK OK (EEPROM: the whole block, tilt trim too)
+```
+- **Tests (host):**
+  - `SettingsLite`: get / set 27 and 28, range ±300 → OUT_OF_RANGE beyond, defaults 0;
+  - a block saved before this change loads with trims 0; a block with the trims round-trips;
+  - `CamLite`: `servoPan()` = `outPan()` + trim, clamped at 0 and 1800; `outPan()` unchanged by the trim; `home()` → servo 900 + trim; `setTrim` wakes a released camera.
+- **Budget:** ≤ 200 B of flash, measured in the plan (before: 31 144 B / 96.6 %).

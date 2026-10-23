@@ -32,6 +32,7 @@ def parse_td(m: dict[str, Any]) -> TelemSample | None:
     try:
         enc_l, enc_r = _pair(m, "enc")
         cmd_l, cmd_r = _pair(m, "cmd")
+        pwm_l, pwm_r = _pair(m, "pwm")
         dist = m.get("dist_mm")
         return TelemSample(
             bus_us=int(_num(m, "bus_us")),
@@ -46,6 +47,8 @@ def parse_td(m: dict[str, Any]) -> TelemSample | None:
             cmd_l=cmd_l,
             cmd_r=cmd_r,
             flags=int(_num(m, "flags")),
+            pwm_l=pwm_l,
+            pwm_r=pwm_r,
         )
     except (KeyError, ValueError):
         return None

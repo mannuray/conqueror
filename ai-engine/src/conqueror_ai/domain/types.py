@@ -21,6 +21,8 @@ class TelemSample:
     cmd_l: int
     cmd_r: int
     flags: int
+    pwm_l: int = 0  # the motor output, -255..255: its sign is the track's direction (LLD §14)
+    pwm_r: int = 0
 
 
 @dataclass(frozen=True)

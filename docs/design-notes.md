@@ -1939,3 +1939,16 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - ⚠ D9 (IR) has no interrupt (timer sampling, as the Mega build does); A1 shares IRQ6 with D0 (a forum user saw D15 count by itself; timer sampling); the WS2812 library failed Arduino's own R4 hardware test; GPIO is limited to **8 mA per pin** (Uno 20 mA), a risk if the shield drives the buzzer straight from A0.
   - ⚠ Power: VIN 6–24 V vs the 2S battery's 6.0–8.4 V; the 5 V regulator's current is not published.
 - **Decision (owner, on the research): stay with the Uno R3 as is.** The bigger board remains the planned Mega 2560 full firmware on our own base board (§30, §43).
+
+## 136. The camera's motion is not smooth: measured, and the fix goes on the Uno (owner, 2026-10-23)
+- **Owner:** "it's not jitter, just the movement doesn't feel smooth like what we got from an RC transmitter."
+- **Measured on the stand:**
+  - `servo_record.py` (session script) recorded `td.pan` / `tilt` at 50 Hz for 30 s while the owner moved the phone's camera stick slowly, then quickly: 1350 of 1500 samples.
+  - **Slow moves are stop-and-go** (`M..M..M.M.M.....M`): 151 pauses of 1–4 ticks inside the motion. Steps come in 0.9° multiples, the stick's whole percents, arriving ~15–25 times a second.
+  - **Fast moves are capped at 2.4° per tick** with hard starts and stops: 155 of the 389 moving steps.
+- **Options discussed:**
+  - (a) the phone sends faster and finer (a protocol change; WiFi bunching remains);
+  - (b) the bridge smooths and re-sends at 50 Hz (more serial traffic, bridge code; the IR remote and HOME don't benefit);
+  - (c) **the Uno smooths at its 50 Hz servo loop:** a target follow (a quarter of the gap per tick) plus a speed cap and an acceleration limit. That's the standard method, as RC "servo speed" settings and our full firmware's `servo_speed` / `servo_accel` do.
+- **Owner: "let's do uno"** → Uno Lite LLD §23 (draft).
+- **Also found (open):** while the phone was using the stick and its video, **the recorder's WebSocket was dropped 9 times in 30 s** (none with the phone idle). The AI engine is such a second client, so the cause (the bridge closing a slow client? WiFi load from the video) must be looked at before phase 4's live tests.

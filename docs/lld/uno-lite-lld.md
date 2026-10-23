@@ -558,3 +558,51 @@ sequenceDiagram
 - **The EEPROM block is now 31 B, in the 32 B write buffer (`EepromWriter::kMaxBytes`).** The next Lite setting needs the buffer raised, which costs RAM, or another field shrunk.
 - **Tests:** Uno native 298/298, including `test_settings_camera_trims`, `test_settings_block_before_the_trims_still_loads`, `test_cam_trim_moves_only_the_servo`, `test_cam_trim_wakes_servos` and `test_cam_same_trim_does_not_wake_servos`.
 - **On the tank:** pan_trim −50 (−5.0°), tilt_trim 0. They are kept across a power cycle, with no jump at power-on.
+
+## 23. Smooth camera motion (owner 2026-10-23, design-notes §136 — draft)
+- **Why:** on the stand, the camera's motion didn't feel as smooth as from an RC transmitter. The servo output recorded at 50 Hz (`td.pan`, 30 s of stick moves) showed:
+  - **slow moves are stop-and-go:** one step, then 1–4 ticks still, 151 pauses inside the motion. The phone's stick reaches the Uno only ~15–25 times a second, in whole percents (0.9°), and `CamLite::step` reaches each new target within one tick, then waits;
+  - **fast moves run at exactly the 2.4°-per-tick cap** (120°/s) with hard starts and stops (155 of 389 moving steps).
+- **Where:** in `CamLite::step()` on the Uno, the last stage before the servo. It runs at the servo's 50 Hz frame and covers every source: stick, IR jog, HOME, the joystick's return, `CAM_SET` (Logo `LOOK`, the AI's `cam_set`).
+- **How (each 20 ms tick, per axis, integers in deci-degrees):**
+  1. `want` = (target − out) / `kFollowDiv` (4), rounded away from zero so it never stalls short: each tick covers a quarter of the remaining gap. This fills the gaps between stick updates and eases into the stop.
+  2. `want` is limited to ±`kStepDd` (24 dd = 2.4° per tick = 120°/s), as now.
+  3. **Speeding up is limited:** the speed `v` may grow by at most `kAccelDd` (3 dd per tick, i.e. 750°/s², 0 → 120°/s in 0.16 s) when `want` is faster than `v` in the same direction. Slowing down and reversing follow `want` at once, so it never overshoots.
+  4. `out` += `v`. Within 2 dd of the target, `out` = target and `v` = 0.
+- **Unchanged:**
+  - `pan()` / `tilt()` (targets), `outPan()` / `outTilt()` (telemetry), and the trims (§22, added at the servo write);
+  - the 2 s release: "moving" is `out ≠ target` or `v ≠ 0`. A released camera starts from `v` = 0.
+- **The trade-off:** the camera follows about 0.1 s behind a stick move (soft, not twitchy). `kFollowDiv` and `kAccelDd` are constants, tuned on the stand with the owner; no new setting (flash).
+- **Budget:** ≤ 120 B (31 376 B before; 880 B free), measured in the plan.
+
+```mermaid
+classDiagram
+  class CamLite {
+    -int16 m_out_pan, m_out_tilt
+    -int16 m_v_pan, m_v_tilt (new)
+    +step()   follow + speed cap + acceleration limit
+    -axisStep(out, v, target) (new, static)
+    +kFollowDiv = 4
+    +kStepDd = 24
+    +kAccelDd = 3
+  }
+```
+
+```mermaid
+sequenceDiagram
+  participant S as cameraTask (20 ms)
+  participant C as CamLite
+  participant V as Servo
+  S->>C: tick, applyJog
+  S->>C: step()
+  C->>C: per axis: want = gap / 4 (rounded out), cap ±24, v grows ≤ 3 per tick, out += v
+  S->>V: writeUs(toUs(servoPan / servoTilt))
+```
+
+- **Tests (host):**
+  - a big move: monotonic, never past the target, every step ≤ 24, the first steps 3, 6, 9 … (ease-in), lands exactly on the target;
+  - **a staircase target** (+9 dd every 3 ticks, like the phone's stick) → **the output moves every tick**, with no stalls inside the motion;
+  - a reversal mid-move → no overshoot past the new target;
+  - a 1 dd move lands; the release after 2 s still works; the trims are unaffected;
+  - the IR jog keeps its 60°/s target rate.
+- **On the stand:** the same recording as §23's "why" (`servo_record.py`). Expected: no stop-and-go pattern in slow moves, ramped starts in fast ones, and the owner's feel against the RC transmitter.

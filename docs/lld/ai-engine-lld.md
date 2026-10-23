@@ -298,6 +298,42 @@ Writes `config/calibration.yaml` with the date and the frame size.
   - Ctrl-C at a prompt.
 - **A failed floor-mark check asks before saving.**
 
+**Amended (owner, 2026-10-23, design-notes §130) — the servo step without an exact laser height (draft):**
+- **Why:** the owner has no stand to put the laser line exactly at lens height. A gain only uses the change between pictures, so a line a few cm off lens height (or not straight ahead) gives the right gain. Only the offset would be wrong, and the offset comes from elsewhere: tilt0 from the mount step or the tape marks, the pan centre from the Uno's camera centre (Uno Lite LLD §22).
+- **A line of any colour** (`laser_row` / `laser_col`):
+  - three measures: redness R − max(G, B), greenness G − max(R, B), and brightness (mean of R, G, B), for a line burnt out to near-white like the owner's green laser;
+  - each measure must pass the same rules on its own: at least `MIN_LINE_SCORE`, at most 20 px wide at a quarter height, no second peak half as strong;
+  - the strongest one that passes wins.
+- **Servo points follow the line:**
+  - `tilt_points(cal, line_deg)` / `pan_points(cal, line_deg)` take where the line looks at command 0 (from a first picture at the centre), so it stays within 10–90 % of the picture.
+  - Without `line_deg`: as before (a line at lens height / straight ahead).
+- **Both ways, gains only** (`servo_tilt`, `servo_pan`):
+  - a prompt first: "the horizontal line … roughly at the lens height (±5 cm)" / "the vertical line … roughly straight ahead";
+  - a sweep down from just above the top point (every point reached from above or the right), then back up;
+  - a straight-line fit per direction. **gain** = the mean of the two; **slack** = half the gap between their offsets, printed.
+  - Saved: `tilt_map` = (gain, 0) with **tilt0 kept**; `pan_map` = (gain, 0) (the Uno's centre).
+  - Fewer than 3 points in either direction → a plain refusal. So is no line in the first picture.
+
+```mermaid
+sequenceDiagram
+  participant O as Owner
+  participant T as cq-calibrate servos
+  participant B as Bridge (cam_set)
+  participant C as Camera
+  T->>O: horizontal line roughly at lens height? (Enter)
+  T->>B: cam_set 0, 0
+  C-->>T: picture → line row → where the line looks (line_deg)
+  Note over T: tilt_points(cal, line_deg)
+  T->>B: cam_set top + 2° (to come from above)
+  loop down, then back up
+    T->>B: cam_set 0, t
+    C-->>T: picture → laser_row → real tilt
+  end
+  Note over T: fit each way: gain = mean, slack = half the offset gap
+  T->>O: tilt gain, slack ±x°
+  Note over T,O: the same for pan with the vertical line, camera level
+```
+
 ## 9. Recording and replay
 - **Session folder** `recordings/<date-time>/`: `telemetry.jsonl` (raw `td` / `pong` lines with the laptop receive time), `frames.bin` (per frame: a JSON header line `{seq, cap_us, recv_s, len}` then the JPEG), `session.json` (calibration copy, engine config, bridge build), and a Rerun `.rrd` of the map outputs.
 - `SessionReplay` implements both sources from a folder, at recorded speed or as fast as possible; the pipeline is the same, so replays are deterministic (one worker, frames processed in order).

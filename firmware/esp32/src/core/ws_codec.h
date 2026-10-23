@@ -51,11 +51,16 @@ enum class WsCmdKind : uint8_t {
 struct CamFields {
   bool has_size = false, has_quality = false, has_fps = false, has_bright = false, has_contrast = false;
   bool has_low = false, has_vflip = false, has_hmirror = false, reset = false;
+  bool has_wb = false, has_night = false;  // R24
+  uint8_t wb = 0;
+  bool night = false;
   uint8_t size = 1, quality = 12, fps = 0;
   int8_t bright = 0, contrast = 0;
   bool low = false, vflip = true, hmirror = false;
-  bool any() const {
-    return has_size || has_quality || has_fps || has_bright || has_contrast || has_low || has_vflip || has_hmirror || reset;
+  bool any() const { return anyPicture() || anyLook() || reset; }
+  bool anyPicture() const { return has_size || has_quality || has_fps; }
+  bool anyLook() const {
+    return has_bright || has_contrast || has_low || has_vflip || has_hmirror || has_wb || has_night;
   }
 };
 

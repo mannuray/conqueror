@@ -404,6 +404,13 @@ void test_camera_set_false_turns_a_switch_off() {  // tank check: "flip upside d
   TEST_ASSERT_TRUE(d.cam.has_low && !d.cam.low && d.cam.has_hmirror && !d.cam.hmirror);
 }
 
+void test_camera_set_white_balance_and_night() {  // R24
+  const WsCommand c = P("{\"t\":\"camera_set\",\"wb\":\"home\",\"night\":true,\"id\":4}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kCameraSet), K(c.kind));
+  TEST_ASSERT_TRUE(c.cam.has_wb && c.cam.wb == 4 && c.cam.has_night && c.cam.night);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"camera_set\",\"wb\":\"disco\"}").kind));
+}
+
 void test_camera_set_fields_and_ranges() {
   const WsCommand c = P("{\"t\":\"camera_set\",\"size\":\"SVGA\",\"quality\":20,\"fps_cap\":10,\"brightness\":-1,"
                         "\"low_light\":true,\"hmirror\":false,\"id\":4}");
@@ -507,6 +514,7 @@ int main() {
   RUN_TEST(test_calib_gyro_scale);
   RUN_TEST(test_tank_log_selftest);
   RUN_TEST(test_camera_set_fields_and_ranges);
+  RUN_TEST(test_camera_set_white_balance_and_night);
   RUN_TEST(test_camera_set_false_turns_a_switch_off);
   RUN_TEST(test_app_url_validation);
   RUN_TEST(test_app_url_too_long_is_refused_by_the_parser);

@@ -23,6 +23,8 @@ void TankAppController::sendTank(int fd, uint32_t now, const core::CamSettings& 
   v.cam_low = cs.low_light;
   v.cam_vflip = cs.vflip;
   v.cam_hmirror = cs.hmirror;
+  v.cam_wb = cs.wb;
+  v.cam_night = cs.night;
   v.viewers = ports::cameraViewers();
   const core::CamStats st = ports::cameraStats(now);
   v.fps_x10 = st.fps_x10;
@@ -40,16 +42,28 @@ void TankAppController::onLog(int fd, uint32_t since, uint32_t now) {
   m_out.bigTo(fd, core::jsonLog(m_out.big(), m_out.bigCap(), e, n, m_log.last(), gap, now));
 }
 
-core::CamSettings TankAppController::merge(const core::CamFields& f) const {
-  core::CamSettings s = f.reset ? ports::cameraDefaults() : ports::cameraSettings();
+namespace {
+// Two halves of TankAppController::merge (complexity <= 10 each): what is sent and how the picture looks.
+void mergePicture(core::CamSettings& s, const core::CamFields& f) {
   if (f.has_size) s.size = f.size;
   if (f.has_quality) s.quality = f.quality;
   if (f.has_fps) s.fps_cap = f.fps;
+  if (f.has_vflip) s.vflip = f.vflip;
+  if (f.has_hmirror) s.hmirror = f.hmirror;
+}
+void mergeLook(core::CamSettings& s, const core::CamFields& f) {
   if (f.has_bright) s.brightness = f.bright;
   if (f.has_contrast) s.contrast = f.contrast;
   if (f.has_low) s.low_light = f.low;
-  if (f.has_vflip) s.vflip = f.vflip;
-  if (f.has_hmirror) s.hmirror = f.hmirror;
+  if (f.has_wb) s.wb = f.wb;  // R24
+  if (f.has_night) s.night = f.night;
+}
+}  // namespace
+
+core::CamSettings TankAppController::merge(const core::CamFields& f) const {
+  core::CamSettings s = f.reset ? ports::cameraDefaults() : ports::cameraSettings();
+  mergePicture(s, f);
+  mergeLook(s, f);
   return s;
 }
 

@@ -73,6 +73,16 @@ void test_camera_set_merges_only_sent_fields_then_acks_and_sends_tank() {
   TEST_ASSERT_NOT_EQUAL(std::string::npos, fakes::lastTo(3).find("\"vflip\":false"));  // the posted settings
 }
 
+void test_camera_set_white_balance_and_night_are_merged_and_reported() {  // R24
+  tank.onCameraSet(3, 9, P("{\"t\":\"camera_set\",\"wb\":\"office\",\"night\":true,\"id\":9}"), 1000);
+  TEST_ASSERT_EQUAL(1, fakes::world().cam_posted.size());
+  TEST_ASSERT_EQUAL(3, fakes::world().cam_posted[0].wb);
+  TEST_ASSERT_TRUE(fakes::world().cam_posted[0].night);
+  const std::string j = fakes::lastTo(3);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, j.find("\"wb\":\"office\""));
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, j.find("\"night\":true"));
+}
+
 void test_camera_set_reset_uses_the_defaults() {
   fakes::world().cam.quality = 30;
   fakes::world().cam_defaults.quality = 12;
@@ -126,6 +136,7 @@ int main() {
   RUN_TEST(test_log_pages_twenty_five_at_a_time);
   RUN_TEST(test_camera_set_merges_only_sent_fields_then_acks_and_sends_tank);
   RUN_TEST(test_camera_set_reset_uses_the_defaults);
+  RUN_TEST(test_camera_set_white_balance_and_night_are_merged_and_reported);
   RUN_TEST(test_camera_set_without_camera_is_unavailable);
   RUN_TEST(test_app_set_saves_and_acks);
   RUN_TEST(test_app_set_save_failure_is_busy);

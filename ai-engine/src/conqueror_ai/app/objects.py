@@ -131,9 +131,20 @@ async def run_live(host: str, cal: Calibration, det: Detector) -> None:
             p.on_telem(s)
 
     tasks.append(asyncio.create_task(telemetry()))
+
+    def died(t: asyncio.Task[None]) -> None:  # a helper that stops with an error ends the run, plainly
+        if not t.cancelled() and t.exception() is not None:
+            print(f"stopped: {t.get_name()} failed - {t.exception()!r}")
+            stop.set()
+
+    for t in tasks:
+        t.add_done_callback(died)
     try:
-        while True:
-            f = await cam.next_frame()
+        while not stop.is_set():
+            try:
+                f = await asyncio.wait_for(cam.next_frame(), 1.0)
+            except TimeoutError:
+                continue
             rgb = decode(f)
             if rgb is None:
                 continue

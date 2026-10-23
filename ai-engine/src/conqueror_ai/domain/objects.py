@@ -38,7 +38,9 @@ FLOOR_CLASSES = frozenset(
         "potted plant",
     }
 )
-CUT_ROWS = 2  # a box this near the picture's bottom edge is cut off: a direction only
+CUT_ROWS = (
+    6  # a box this near the picture's bottom edge is cut off: a direction only (YOLO stops a few rows short)
+)
 MAX_RANGE_M = 4.0
 GATE_D2 = 9.21  # chi-square, 2 numbers, 99 %
 ACCEL_SIGMA = 1.0  # m/s^2: how fast a thing may change its speed
@@ -46,6 +48,17 @@ FORGET_S = 20.0
 LOOK_S = 1.0
 REMEMBER_TAU_S = 1.0  # a remembered thing's speed fades: it has probably stopped
 NEW_SPEED_SIGMA = 0.5  # m/s: a new thing's speed is unknown
+# Plan V final review:
+MAX_REMEMBERED_SIGMA_M = (
+    0.5  # a remembered thing's position never gets vaguer than this (it would swallow others)
+)
+REMEMBERED_WALK_MPS = 0.05  # how far a remembered thing may have been moved, per second, while out of view
+CONFIRM_HITS = 3  # a new thing is listed once seen this often ...
+CONFIRM_S = 0.5  # ... within this long; a new thing missed once is dropped (one false detection is no thing)
+LOOK_MISSES = 3  # the look check: at least this many pictures without it, as well as LOOK_S
+CAM_RATE_DPS = (
+    20.0  # the camera turning faster than this: the picture is skipped (the Uno Lite sends no flag)
+)
 
 FloatArray = NDArray[np.float64]
 
@@ -81,6 +94,14 @@ class CameraAngles:
             return None
         return best[1], best[2], best[3]
 
+    def rate_dps(self, t_us: int) -> float:
+        """How fast the camera turns around t (the faster of pan and tilt, from the samples within 40 ms)."""
+        near = [e for e in self._s if abs(e[0] - t_us) <= ANGLES_US]
+        if len(near) < 2 or near[-1][0] == near[0][0]:
+            return 0.0
+        dt = (near[-1][0] - near[0][0]) / 1e6
+        return max(abs(near[-1][1] - near[0][1]), abs(near[-1][2] - near[0][2])) / dt
+
 
 class FrameGate:
     def __init__(self, cal: Calibration, history: PoseHistory, angles: CameraAngles) -> None:
@@ -101,7 +122,7 @@ class FrameGate:
         a = self._angles.at(t)
         if a is None:
             return "no camera angles"
-        if a[2] & CAM_MOVING:
+        if a[2] & CAM_MOVING or self._angles.rate_dps(t) > CAM_RATE_DPS:
             return "camera moving"
         if abs(math.degrees(pose.w_rps)) > GATE_DPS:
             return "turning"
@@ -166,24 +187,44 @@ class _Thing:
     last_us: int
     state: str = "seen"
     in_view_since: int | None = None
+    misses_in_view: int = 0
+    hits: int = 1
+    confirmed: bool = False
 
     def predict(self, t_us: int) -> None:
         dt = (t_us - self.t_us) / 1e6
         if dt <= 0:
             return
-        if self.state == "remembered":
-            self.x[2:] *= math.exp(-dt / REMEMBER_TAU_S)
         f = np.eye(4)
-        f[0, 2] = f[1, 3] = dt
-        g = np.array([[dt * dt / 2, 0.0], [0.0, dt * dt / 2], [dt, 0.0], [0.0, dt]])
+        if self.state == "remembered":  # the speed fades (it has probably stopped), in x and P alike
+            e = math.exp(-dt / REMEMBER_TAU_S)
+            f[2, 2] = f[3, 3] = e
+            f[0, 2] = f[1, 3] = REMEMBER_TAU_S * (1.0 - e)
+            q = np.diag([REMEMBERED_WALK_MPS**2 * dt, REMEMBERED_WALK_MPS**2 * dt, 0.0, 0.0])
+        else:
+            f[0, 2] = f[1, 3] = dt
+            g = np.array([[dt * dt / 2, 0.0], [0.0, dt * dt / 2], [dt, 0.0], [0.0, dt]])
+            q = g @ g.T * ACCEL_SIGMA**2
         self.x = f @ self.x
-        self.p = f @ self.p @ f.T + g @ g.T * ACCEL_SIGMA**2
+        self.p = f @ self.p @ f.T + q
+        if self.state == "remembered":
+            self._cap_position(MAX_REMEMBERED_SIGMA_M)
         self.t_us = t_us
 
-    def d2(self, z: Located) -> float:
+    def _cap_position(self, sigma_max: float) -> None:
+        lam = float(np.linalg.eigvalsh(self.p[:2, :2]).max())
+        if lam > sigma_max**2:
+            k = math.sqrt(sigma_max**2 / lam)
+            self.p[:2, :] *= k
+            self.p[:, :2] *= k
+
+    def cost(self, z: Located) -> tuple[float, float]:
+        """(d2, d2 + ln det S): the gate uses d2; the ranking also weighs how vague the thing is, so a vague
+        remembered thing does not take a detection that fits a sharp one better (Plan V final review I1)."""
         s = _H @ self.p @ _H.T + np.eye(2) * z.sigma**2
         y = np.array([z.x, z.y]) - _H @ self.x
-        return float(y @ np.linalg.solve(s, y))
+        d2 = float(y @ np.linalg.solve(s, y))
+        return d2, d2 + math.log(float(np.linalg.det(s)))
 
     def update(self, z: Located) -> None:
         s = _H @ self.p @ _H.T + np.eye(2) * z.sigma**2
@@ -215,24 +256,31 @@ class ObjectTracker:
     def update(self, located: list[Located], cam: CameraModel, t_us: int) -> None:
         for th in self._things:
             th.predict(t_us)
-        pairs = sorted(
-            (th.d2(z), i, j)
-            for i, th in enumerate(self._things)
-            for j, z in enumerate(located)
-            if th.cls == z.cls
-        )
+        pairs: list[tuple[float, int, int]] = []
+        for i, th in enumerate(self._things):
+            for j, z in enumerate(located):
+                if th.cls == z.cls:
+                    d2, rank = th.cost(z)
+                    if d2 <= GATE_D2:
+                        pairs.append((rank, i, j))
+        pairs.sort()
         used_t: set[int] = set()
         used_z: set[int] = set()
-        for d2, i, j in pairs:
-            if d2 > GATE_D2 or i in used_t or j in used_z:
+        for _, i, j in pairs:
+            if i in used_t or j in used_z:
                 continue
             used_t.add(i)
             used_z.add(j)
             th = self._things[i]
             th.update(located[j])
-            th.state, th.last_us, th.in_view_since = "seen", t_us, None
+            th.state, th.last_us, th.in_view_since, th.misses_in_view = "seen", t_us, None, 0
+            th.hits += 1
+            if th.hits >= CONFIRM_HITS:
+                th.confirmed = True
         keep: list[_Thing] = []
         for i, th in enumerate(self._things):
+            if not th.confirmed and (i not in used_t or (t_us - th.first_us) / 1e6 > CONFIRM_S):
+                continue  # a new thing missed once, or not confirmed in time: one false detection is no thing
             if i not in used_t and not self._still_there(th, cam, t_us):
                 continue
             keep.append(th)
@@ -248,15 +296,17 @@ class ObjectTracker:
         """An unmatched thing: kept unless forgotten, or its spot has been in view for 1 s without it."""
         if (t_us - th.last_us) / 1e6 >= FORGET_S:
             return False
-        if cam.sees(float(th.x[0]), float(th.x[1])):
+        if cam.sees(float(th.x[0]), float(th.x[1]), MAX_RANGE_M):  # the whole tracked range (review I3)
             if th.in_view_since is None:
                 th.in_view_since = t_us
-            return (t_us - th.in_view_since) / 1e6 < LOOK_S
-        th.state, th.in_view_since = "remembered", None
+            th.misses_in_view += 1
+            return th.misses_in_view < LOOK_MISSES or (t_us - th.in_view_since) / 1e6 < LOOK_S
+        th.state, th.in_view_since, th.misses_in_view = "remembered", None, 0
         return True
 
     def objects(self) -> list[ObjectEstimate]:
-        return [th.estimate() for th in self._things]
+        """The confirmed things (new ones are listed once seen CONFIRM_HITS times)."""
+        return [th.estimate() for th in self._things if th.confirmed]
 
 
 class ObjectPipeline:
@@ -273,6 +323,7 @@ class ObjectPipeline:
         self._near: list[Near] = []
         self._skips: Counter[str] = Counter()
         self.last_camera: CameraModel | None = None
+        self._last_cap_us: int | None = None
 
     def on_calib(self, counts_per_m: int) -> None:
         self._pose.set_counts_per_m(counts_per_m)
@@ -283,6 +334,11 @@ class ObjectPipeline:
 
     def on_frame(self, f: Frame, size: tuple[int, int], dets: list[Detection]) -> CameraModel | str:
         """Use one picture (its decoded size, its detections): its camera, or why it was skipped."""
+        if self._last_cap_us is not None and f.cap_us < self._last_cap_us:
+            self.tracker = (
+                ObjectTracker()
+            )  # the bridge restarted: the old list's times are from another clock
+        self._last_cap_us = f.cap_us
         if size != self.cal.size:
             self._skips["picture size"] += 1
             return "picture size"

@@ -259,8 +259,8 @@ class CameraModel:
         d = self.expected_floor_depth()
         return (d >= NEAR_M) & (d <= FAR_M)
 
-    def sees(self, x: float, y: float) -> bool:
-        """The floor point is inside the picture and within FAR_M of the camera."""
+    def sees(self, x: float, y: float, max_m: float = FAR_M) -> bool:
+        """The floor point is inside the picture and within max_m (default FAR_M) of the camera."""
         q = self.floor_to_pixel(x, y)
         if q is None:
             return False
@@ -268,4 +268,4 @@ class CameraModel:
         if not (0 <= q[0] < w and 0 <= q[1] < h):
             return False
         c = self.position()
-        return math.dist((x, y, 0.0), (float(c[0]), float(c[1]), float(c[2]))) <= FAR_M
+        return math.dist((x, y, 0.0), (float(c[0]), float(c[1]), float(c[2]))) <= max_m

@@ -2277,3 +2277,38 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
     1. finish Plan Y with the camera level (where the tilt is right), noting the session-to-session tilt as a known limit;
     2. a spike measuring how well Depth Anything V2 *small* (Apache-2.0; the owner allowed the download) finds the tilt from the floor at 0°, −15° and −30° with the ball at a taped 1 m;
     3. the estimator goes into the next design, with the depth layer (map phase 5).
+
+## 154. What spots things: YOLO-World and a colour ball finder, built and floor-checked (Plan Y, 2026-10-24)
+- **Built** (AI engine LLD §16.7):
+  - YOLO-World asked by name: 10 words in `config/vocabulary.yaml`, 6.7 ms a picture on the M1;
+  - a colour ball finder for the child's balls, measured once with `cq-calibrate ball <name>`;
+  - both under one detector plug, `detect(picture, camera)`; the camera at VGA.
+  - 194 tests; matches Ultralytics on COCO 139.
+- **The final review** (0 Critical, 4 Important, 9 Minor) was all fixed test-first:
+  - a box is only its best word;
+  - one ball stays one thing across pictures;
+  - `cq-calibrate ball` sets the camera level first;
+  - red hues wrap;
+  - plain config errors;
+  - one camera for a picture's horizon and its place in the map;
+  - and smaller items.
+- **Floor checks:**
+  - **VGA lens:** the doubled QVGA lens holds; the tape decided against a fresh screen-board fit that was 5 % off.
+  - **tilt0** refit after the mount fix: **+3.3°** (was +2.55°). The ball read +3 cm at 1 m, +10 cm at 1.5 m, +2 cm at 2 m.
+  - **The colour finder** reaches ~1.5 m; beyond that YOLO-World's "toy" covers the ball.
+  - **The first memory test failed:**
+    - a remembered ball grew vague too fast, so a green reflection 1.5 m away took it;
+    - the steel bin's reflections looked like balls.
+  - **Owner-approved fixes:**
+    - a thing unseen for 0.5 s is remembered from its last sighting;
+    - a colour ball must be bright enough and the right size for its distance (236 / 243 sightings kept, 48 / 48 reflections dropped).
+    - The redo passed: the ball kept its number through a 12 s look-away.
+  - **Chair and person** listed with the camera level (the person ~2.3 m by tape).
+  - **The live view** showed chair, person, ball and bottle; Ctrl-C ends cleanly.
+  - Other balls weren't calibrated (deferred).
+- **Known limits:**
+  - **the camera's real tilt drifts between sessions:** after a battery change distances read ~1.3–1.4 × long. The general fix is the camera angle estimator (§153 follow-up);
+  - **the chair at the driving tilt** scores 0.23 (its top is cut);
+  - **the cabinet flips between bed and sofa.**
+- **On the way, the principles were agreed (§153):** play tolerances, and no more per-case rules.
+

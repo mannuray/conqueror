@@ -83,17 +83,34 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 .sheet.on { display: flex; } .sheet .card { width: min(360px, 92vw); } .sheet input { width: 100%; background: var(--bg); border: 1px solid var(--edge-c); padding: 10px; margin: 8px 0; color: var(--active); }
 .sheet .row { display: flex; gap: 8px; justify-content: flex-end; } .sheet p { margin: 4px 0; } .sheet .why { color: var(--warn); min-height: 1.4em; }
 .hide { display: none !important; }
+/* Revision N6 (Tank Logo LLD §23): parts only the laptop layout shows */
+#ptabs { display: none; }
+#ptabs button.on { background: rgba(51, 255, 102, .12); color: var(--active); border-color: var(--ui); }
 @media (max-width: 899px) { body:not(.tpath) #cPath { display: none; } body.tpath #cEdit, body.tpath #cMsg { display: none; } }
-@media (min-width: 900px) {
-  body { padding-bottom: 0; }
+@media (min-width: 900px) {  /* §23: an editor that fills the window; only the panes scroll */
+  body { padding-bottom: 0; height: 100vh; height: 100dvh; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+  header { position: static; }
   header .inner { display: flex; align-items: center; gap: 16px; } .top { flex: 1; } .top h1 { text-align: left; }
   .chips { display: flex; margin-top: 0; }
-  main { grid-template-columns: 220px minmax(0, 1.2fr) minmax(0, 1fr); align-items: start; }
-  #cProg { grid-row: span 3; } #plist { display: block; } .progbar select, #tabs { display: none; }
-  .progbar { flex-wrap: wrap; } .progbar span { display: inline; } .progbar button { flex: 1; }
-  #cEdit { grid-column: 2; } #cMsg { grid-column: 2; } #cPath { grid-column: 3; grid-row: 1 / span 3; }
-  #mini { display: none; } #bar { position: static; grid-column: 2; border: 1px solid var(--edge-c); padding: 8px; }
-  .ed { height: 52vh; }
+  main { min-height: 0; grid-template-columns: 220px minmax(0, 1fr) minmax(320px, 34%); grid-template-rows: minmax(0, 1fr) 12em auto;
+    grid-template-areas: "prog edit run" "prog msg run" "bar bar bar"; }
+  #cProg, #cEdit, #cMsg, #cPath { display: flex; flex-direction: column; min-height: 0; }
+  #cProg { grid-area: prog; } #plist { display: block; flex: 1; min-height: 0; overflow: auto; }
+  .progbar { order: 2; flex-wrap: wrap; margin-top: 8px; } .progbar span { display: inline; } .progbar button { flex: 1; }
+  .progbar select, #tabs { display: none; }
+  #cEdit { grid-area: edit; } #cEdit h2 { order: -2; }
+  #pad { order: -1; flex: none; flex-wrap: nowrap; overflow-x: auto; margin: 0 0 8px; }
+  #pad button { flex: none; white-space: nowrap; }
+  .ed { flex: 1; height: auto; min-height: 0; }
+  #cMsg { grid-area: msg; } #cMsg > h2 { display: none; } #ptabs { display: flex; gap: 6px; margin-bottom: 6px; flex: none; }
+  #pslot, .msgs { flex: 1; min-height: 0; overflow: auto; } #pslot #diags { margin-top: 0; }
+  #cMsg.t-problems .msgs, #cMsg.t-messages #pslot { display: none; }
+  #log { max-height: none; } #mini { display: none; }
+  #cPath { grid-area: run; }
+  .pathw { flex: 1; height: auto; min-height: 120px; }
+  #bar { grid-area: bar; position: static; border: 1px solid var(--edge-c); padding: 6px 8px; }
+  #bar .help { flex: 1; min-width: 0; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  [data-kbd]::after { content: " " attr(data-kbd); font-size: 10px; opacity: .75; font-weight: 400; }
 }
 </style>
 </head>
@@ -135,6 +152,8 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 </section>
 <section class="card" id="cMsg">
   <h2>[ MESSAGES ]</h2>
+  <div id="ptabs"><button type="button" id="tProb" data-t="problems">PROBLEMS</button><button type="button" id="tMsg" data-t="messages">MESSAGES</button></div>
+  <div id="pslot"></div>
   <div class="msgs"><div id="log"></div><canvas id="mini" title="Open the path"></canvas></div>
 </section>
 <section class="card" id="cPath">
@@ -177,6 +196,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   var ws = null, open = false, linked = false, retry = 500, nextId = 1, runId = 0, stepId = 0;
   var cur = { name: "", example: false, saved: "" }, progs = [], own = {}, diags = [], planned = [], cutShort = false;
   var driven = [], pose = null, startedAt = 0, logLines = [], loading = 0, want = 0;  // a program being opened
+  var wideQ = window.matchMedia("(min-width: 900px)"), wide = false, panel = { tab: "messages", picked: false };  // §23
   var NEW = "<new>", START_TEXT = "; my program\nFORWARD 50\nRIGHT 90\n";
 
   function storage() { try { return window.localStorage; } catch (e) { return null; } }
@@ -290,10 +310,12 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
       planned = L.plannedRuns(m.path); cutShort = !!m.cut_short;
       bar = L.runBar(bar, { e: "checked", ok: !!m.ok, prog: m.prog || 0 });
       showDiags(); render(); draw(); act(); showBar();
+      panelEv({ e: "problems", n: diags.length, running: L.locked(bar) });
     });
   }
   setInterval(checkTick, 100);
   function showDiags() {
+    showPanel();
     var box = $("diags"), lines = src.value.split("\n"); box.textContent = "";
     diags.slice(0, 5).forEach(function (d) {
       var row = el("div", "diag" + (d.warning ? " warn" : "")), text = lines[d.line - 1] || "";
@@ -337,7 +359,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     else if (s.st === "mistakes") { t = "● " + n + (n === 1 ? " MISTAKE" : " MISTAKES") + " - see under the program"; cls = "s-bad"; }
     else if (s.st === "ready") t = s.msg ? "● " + s.msg : "● READY";
     else if (s.st === "starting") t = "● STARTING …";
-    else if (s.st === "running") { t = "● RUNNING · line " + (s.line || "-") + " · " + clock(Date.now() - startedAt); cls = "s-warn"; }
+    else if (s.st === "running") { t = "● RUNNING · line " + (s.line || "-") + (s.round > 0 ? " · round " + s.round : "") + " · " + clock(Date.now() - startedAt); cls = "s-warn"; }
     else if (s.st === "stepping") { t = "● STEP · line " + s.line + " - press STEP for the next line"; cls = "s-warn"; }
     else if (s.st === "ended") { t = L.endText(s.end); cls = s.end && s.end.reason === "finished" ? "" : "s-bad"; }
     if (!open && !L.locked(s)) { t = "● NOT CONNECTED"; cls = "s-warn"; }
@@ -349,6 +371,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     $("state").className = "badge" + ($("state").textContent ? "" : " hide");
     $("sTime").textContent = (L.locked(s) ? clock(Date.now() - startedAt) : "0:00") + " / 5:00";
     $("psave").disabled = $("pdel").disabled = $("pren").disabled = L.locked(s);
+    $("help").classList.toggle("hide", wide && L.locked(s));  // the status bar shows the running line instead
     if (!L.locked(s) && s.st !== "running") startedAt = s.st === "ended" ? startedAt : 0;
   }
   setInterval(function () { if (L.locked(bar)) showBar(); }, 1000);
@@ -362,7 +385,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   function onEvent(m) {
     var mine = bar.mine || bar.st === "starting";
     switch (m.kind) {
-      case "logo_started": onBar({ e: "started" }); break;
+      case "logo_started": onBar({ e: "started" }); if (mine) panelEv({ e: "started" }); break;
       case "logo_line":
         onBar({ e: "line", line: m.line, round: m.round });
         if (mine) { log("line " + m.line + ": " + (src.value.split("\n")[m.line - 1] || "").trim(), ""); soon(); }
@@ -443,6 +466,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     $("pnote").textContent = cutShort ? "path cut short (a limit was reached)" : "";
   }
   window.addEventListener("resize", draw);
+  if (window.ResizeObserver) new ResizeObserver(function () { draw(); }).observe($("path").parentNode);
   $("mini").addEventListener("click", function () { tab("path"); });
   function tab(t) {
     document.body.classList.toggle("tpath", t === "path");
@@ -615,6 +639,40 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     if (document.hidden) { flushDraft(); onBar({ e: "hidden" }); if (ws && ws.readyState <= 1) ws.close(); } else { retry = 500; connect(); lockEditor(); }
   });
 
+  // ---------- revision N6: the laptop layout (§23) ----------
+  // Layout: two elements change place at 900 px (the word row and the panes move by CSS alone).
+  function applyLayout() {
+    wide = wideQ.matches;
+    if (wide) { $("pslot").appendChild($("diags")); $("bar").insertBefore($("help"), $("step")); }
+    else { $("cEdit").insertBefore($("diags"), $("pad")); $("cEdit").appendChild($("help")); }
+    showBar(); draw();
+  }
+  if (wideQ.addEventListener) wideQ.addEventListener("change", applyLayout); else wideQ.addListener(applyLayout);
+
+  // BottomPanel: PROBLEMS | MESSAGES under the editor
+  function panelEv(ev) { panel = L.panelTab(panel, ev); showPanel(); }
+  function showPanel() {
+    $("tProb").textContent = "PROBLEMS" + (diags.length ? " " + diags.length : "");
+    $("tProb").classList.toggle("on", panel.tab === "problems"); $("tMsg").classList.toggle("on", panel.tab !== "problems");
+    $("cMsg").classList.toggle("t-problems", panel.tab === "problems"); $("cMsg").classList.toggle("t-messages", panel.tab !== "problems");
+  }
+  $("ptabs").addEventListener("click", function (e) { var t = e.target.dataset && e.target.dataset.t; if (t) panelEv({ e: "pick", tab: t }); });
+
+  // Shortcuts: each is its button; Esc is STOP from anywhere, even in a dialog (which it also closes)
+  function sheetOpen() { return $("nameS").classList.contains("on") || $("delS").classList.contains("on"); }
+  window.addEventListener("keydown", function (e) {
+    var a = L.shortcut(e.key, e.ctrlKey, e.metaKey, e.altKey, e.shiftKey, e.repeat);
+    if (!a) return;
+    e.preventDefault();
+    if (a === "stop") { onBar({ e: "stop" }); $("nameS").classList.remove("on"); $("delS").classList.remove("on"); return; }
+    if (sheetOpen()) return;
+    var b = $(a === "save" ? "psave" : a);
+    if (!b.disabled) b.click();
+  }, true);  // capture: before the editor's own keys
+  var mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
+  $("run").dataset.kbd = mac ? "\u2318\u21B5" : "Ctrl\u21B5"; $("step").dataset.kbd = "F10"; $("stop").dataset.kbd = "Esc";
+  $("psave").title = "Save on the tank (" + (mac ? "\u2318S" : "Ctrl+S") + ")";
+
   showPad();
   var last = recall("cq.logo.last") || NEW, first = drafts.restore(NEW);
   setText(first ? first.text : START_TEXT);  // shown at once; a saved last program replaces it once its text arrives
@@ -622,6 +680,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   connect();
   loadList().then(function () { if (last !== NEW) { loading = 0; openProg(last); } else showProgs(); });
   tab("prog");
+  applyLayout(); showPanel();
 })();
 </script>
 </body>

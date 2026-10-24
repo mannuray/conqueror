@@ -84,8 +84,14 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 .sheet .row { display: flex; gap: 8px; justify-content: flex-end; } .sheet p { margin: 4px 0; } .sheet .why { color: var(--warn); min-height: 1.4em; }
 .hide { display: none !important; }
 /* Revision N6 (Tank Logo LLD §23): parts only the laptop layout shows */
-#ptabs { display: none; }
+#ptabs, .cam, #camShow { display: none; }
 #ptabs button.on { background: rgba(51, 255, 102, .12); color: var(--active); border-color: var(--ui); }
+.cam { position: relative; aspect-ratio: 4 / 3; background: #000; border: 1px solid var(--line); margin-bottom: 8px; flex: none; }
+.cam img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }  /* the box, not the picture, sets the size */
+#camNote { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px; color: var(--dim); }
+#camDist { position: absolute; left: 8px; bottom: 6px; color: var(--ui); background: rgba(0, 0, 0, .65); padding: 1px 6px; }
+#camHide { position: absolute; right: 6px; top: 6px; padding: 3px 8px; background: rgba(0, 0, 0, .65); }
+#camShow { padding: 0 6px; font-size: 11px; }
 @media (max-width: 899px) { body:not(.tpath) #cPath { display: none; } body.tpath #cEdit, body.tpath #cMsg { display: none; } }
 @media (min-width: 900px) {  /* §23: an editor that fills the window; only the panes scroll */
   body { padding-bottom: 0; height: 100vh; height: 100dvh; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); }
@@ -106,7 +112,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   #pslot, .msgs { flex: 1; min-height: 0; overflow: auto; } #pslot #diags { margin-top: 0; }
   #cMsg.t-problems .msgs, #cMsg.t-messages #pslot { display: none; }
   #log { max-height: none; } #mini { display: none; }
-  #cPath { grid-area: run; }
+  #cPath { grid-area: run; } .cam { display: block; } body.camoff .cam { display: none; } body.camoff #camShow { display: inline-block; }
   .pathw { flex: 1; height: auto; min-height: 120px; }
   #bar { grid-area: bar; position: static; border: 1px solid var(--edge-c); padding: 6px 8px; }
   #bar .help { flex: 1; min-width: 0; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -157,7 +163,8 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   <div class="msgs"><div id="log"></div><canvas id="mini" title="Open the path"></canvas></div>
 </section>
 <section class="card" id="cPath">
-  <h2>[ 02 // PATH ]<span id="pgrid" class="badge">5 cm GRID</span></h2>
+  <h2>[ 02 // PATH ]<span><button id="camShow" type="button">SHOW CAMERA</button> <span id="pgrid" class="badge">5 cm GRID</span></span></h2>
+  <div class="cam" id="cam"><img id="camImg" alt=""><span id="camNote">NO CAMERA</span><b id="camDist">&#9656; -- cm</b><button id="camHide" type="button">HIDE</button></div>
   <div class="pathw"><canvas id="path"></canvas><span id="pnote"></span></div>
   <div class="stats">
     <div><small>HEADING</small><b id="sHead">--</b></div>
@@ -197,6 +204,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   var cur = { name: "", example: false, saved: "" }, progs = [], own = {}, diags = [], planned = [], cutShort = false;
   var driven = [], pose = null, startedAt = 0, logLines = [], loading = 0, want = 0;  // a program being opened
   var wideQ = window.matchMedia("(min-width: 900px)"), wide = false, panel = { tab: "messages", picked: false };  // §23
+  var camOff = recall("logo.cam") === "off", camOn = false, camTimer = 0;
   var NEW = "<new>", START_TEXT = "; my program\nFORWARD 50\nRIGHT 90\n";
 
   function storage() { try { return window.localStorage; } catch (e) { return null; } }
@@ -466,7 +474,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     $("pnote").textContent = cutShort ? "path cut short (a limit was reached)" : "";
   }
   window.addEventListener("resize", draw);
-  if (window.ResizeObserver) new ResizeObserver(function () { draw(); }).observe($("path").parentNode);
+  if (window.ResizeObserver) new ResizeObserver(function () { draw(); }).observe($("path").parentNode);  // HIDE / SHOW camera
   $("mini").addEventListener("click", function () { tab("path"); });
   function tab(t) {
     document.body.classList.toggle("tpath", t === "path");
@@ -607,7 +615,10 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
         var off = (m.flags || []).indexOf("body_offline") >= 0;
         $("cUno").textContent = off ? "● UNO OFFLINE" : "● UNO ONLINE"; $("cUno").className = "chip" + (off ? " warn" : "");
         break;
-      case "tf": $("sDist").textContent = m.dist_cm === null || m.dist_cm === undefined ? "--" : m.dist_cm + " cm"; break;
+      case "tf":
+        $("sDist").textContent = m.dist_cm === null || m.dist_cm === undefined ? "--" : m.dist_cm + " cm";
+        $("camDist").textContent = "\u25B8 " + $("sDist").textContent;
+        break;
       case "wifi_status": $("cWifi").textContent = m.mode === "home" ? "HOME " + bars(m.rssi) : "OWN WIFI"; $("cWifi").className = "chip"; break;
       case "ev": if (m.kind && m.kind.indexOf("logo_") === 0) onEvent(m); break;
       case "ack": if (m.id === runId) { onBar({ e: "ack" }); lockEditor(); } break;
@@ -637,6 +648,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) { flushDraft(); onBar({ e: "hidden" }); if (ws && ws.readyState <= 1) ws.close(); } else { retry = 500; connect(); lockEditor(); }
+    camUpdate();
   });
 
   // ---------- revision N6: the laptop layout (§23) ----------
@@ -645,7 +657,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     wide = wideQ.matches;
     if (wide) { $("pslot").appendChild($("diags")); $("bar").insertBefore($("help"), $("step")); }
     else { $("cEdit").insertBefore($("diags"), $("pad")); $("cEdit").appendChild($("help")); }
-    showBar(); draw();
+    camUpdate(); showBar(); draw();
   }
   if (wideQ.addEventListener) wideQ.addEventListener("change", applyLayout); else wideQ.addListener(applyLayout);
 
@@ -672,6 +684,32 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   var mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
   $("run").dataset.kbd = mac ? "\u2318\u21B5" : "Ctrl\u21B5"; $("step").dataset.kbd = "F10"; $("stop").dataset.kbd = "Esc";
   $("psave").title = "Save on the tank (" + (mac ? "\u2318S" : "Ctrl+S") + ")";
+
+  // CameraPane: the stream only while it can be seen (port 81, 2 viewers at most - the page cannot tell a
+  // refusal from no camera, so one note for both)
+  function camUpdate() {
+    document.body.classList.toggle("camoff", camOff);
+    var want = L.cameraWanted(wide, camOff, document.hidden);
+    if (want && !camOn) camStart(); else if (!want && camOn) camStop();
+  }
+  function camNote(t) { $("camNote").textContent = t; $("camNote").classList.toggle("hide", !t); }
+  function camStop() {
+    camOn = false; clearTimeout(camTimer); camTimer = 0;
+    var i = $("camImg"); i.onerror = null; i.removeAttribute("src"); camNote("NO CAMERA");  // closes the MJPEG connection
+  }
+  function camStart() {
+    camOn = true; clearTimeout(camTimer); camTimer = 0;
+    var i = $("camImg");
+    camNote("");  // MJPEG streams do not reliably fire onload (as on the Drive page)
+    i.onerror = function () {
+      i.onerror = null; i.removeAttribute("src");
+      camNote("NO CAMERA (2 viewers at most) - trying again");
+      camTimer = setTimeout(function () { if (camOn) camStart(); }, 3000);
+    };
+    i.src = "http://" + location.hostname + ":81/stream?t=" + Date.now();
+  }
+  $("camHide").addEventListener("click", function () { camOff = true; remember("logo.cam", "off"); camUpdate(); });
+  $("camShow").addEventListener("click", function () { camOff = false; remember("logo.cam", ""); camUpdate(); });
 
   showPad();
   var last = recall("cq.logo.last") || NEW, first = drafts.restore(NEW);

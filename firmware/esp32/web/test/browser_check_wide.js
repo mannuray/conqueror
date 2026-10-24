@@ -16,6 +16,9 @@ async (page) => {
     window.WebSocket = FakeWS;
     window.__fakeEmit = (o) => window.__ws.emit(o);
   });
+  const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+  let streams = 0;  // a stand-in camera on :81: one small picture per request
+  await page.route(/:81\/stream/, (r) => { streams++; r.fulfill({ status: 200, contentType: "image/png", body: PNG }); });
   const q = (f, a) => page.evaluate(f, a), st = () => q(() => document.getElementById("status").textContent);
   const sent = (t) => q((t) => window.__sent.filter((m) => m.t === t).length, t);
   // the page does not scroll, and STOP / RUN / STEP are inside the window
@@ -62,9 +65,21 @@ async (page) => {
   out.save = await q(() => document.getElementById("nameS").classList.contains("on"));     // true
   await page.keyboard.press("Escape"); await page.waitForTimeout(50);
   out.escSheet = [await q(() => document.getElementById("nameS").classList.contains("on")), await sent("stop")];  // false, 2
-  // narrow again: the phone layout, the problems and the help back under the editor
+  // the camera: wanted on the laptop; HIDE drops the stream and the path grows; SHOW brings it back
+  const pathH = () => q(() => document.getElementById("path").getBoundingClientRect().height);
+  out.cam = [await q(() => /:81\/stream/.test(document.getElementById("camImg").src)), await pathH(), streams > 0];  // true, h, true
+  await page.click("#camHide"); await page.waitForTimeout(300);
+  out.camHidden = [await q(() => document.getElementById("camImg").hasAttribute("src")), await pathH(),     // false, larger
+    await q(() => localStorage.getItem("logo.cam"))];                                                       // off
+  const before = streams;
+  await page.click("#camShow"); await page.waitForTimeout(300);
+  out.camBack = [await q(() => /:81\/stream/.test(document.getElementById("camImg").src)), streams > before];  // true, true
+  await q(() => window.__fakeEmit({ t: "tf", dist_cm: 64 })); await page.waitForTimeout(50);
+  out.sonar = await q(() => document.getElementById("camDist").textContent);                                // ▸ 64 cm
+  // narrow again: the phone layout, no camera stream, the problems back under the editor
   await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
-  out.phone = [await q(() => document.getElementById("diags").parentNode.id),               // cEdit
+  out.phone = [await q(() => document.getElementById("camImg").hasAttribute("src")),        // false
+    await q(() => document.getElementById("diags").parentNode.id),                          // cEdit
     await q(() => document.getElementById("help").parentNode.id),                           // cEdit
     await q(() => document.scrollingElement.scrollHeight > innerHeight)];                   // true: the phone page scrolls
   return out;

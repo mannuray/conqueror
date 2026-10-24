@@ -2340,3 +2340,23 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - the sonar's one true distance ahead (fixes the offset per scene);
   - floor motion against the wheels while driving;
   - the metric model.
+
+## 156. Module 2: drive while thinking; thin slices, chase the ball first (owner, 2026-10-25)
+- **Order (owner): thin slices, one behaviour at a time, starting with "chase the ball"** (not bottom-up). The slices:
+  1. chase the ball;
+  2. explore without bumping (depth, the camera angle estimator, the grid);
+  3. follow a person;
+  4. go to a named thing.
+- **The end goal (owner):** "most robots I see move jerkily: drive, stop, drive, stop. If there is a toy or an obstacle in front, the tank should, while driving, keep in motion, scan the path and manoeuvre in one smooth move."
+- **Agreed (owner: "yes, go as recommended, write the spec"):** a **drive-while-thinking loop** in the AI engine, about 10 times a second:
+  1. its pose and the target from the map (lag covered by the pose history);
+  2. a fan of curves within what the tank can do (speed ~18–33 cm/s, tightest smooth curve ~31–38 cm, slowest smooth spin ~65 °/s);
+  3. each curve scored on progress, clearance and smoothness;
+  4. one `drive_rate` (speed + turn rate) per tick, with gentle ramps.
+  - It slows when tight and stops only when every curve is blocked. The camera pans into the turn.
+  - The Uno brake stays the last net, and the planner keeps a margin so it rarely fires.
+  - The smoothness lives in the planner, not in the child's program.
+- **Spec 8 written** (`docs/superpowers/specs/2026-10-25-08-drive-while-thinking-design.md`, draft for review). It covers the module-2 architecture and slice 1. For the owner's review:
+  - **new Logo words:** `SEE?`, `FIND`, `GOTO` (not `GO TO`, because `TO` starts a procedure), `DISTANCE`;
+  - **a change to spec 5 §6:** every program runs on the ESP32's runner, and the AI engine is a skill server (eyes and careful driver) with a drive lease. This resolves the clash between §6 (an AI-engine runner) and Revision 2 (the only parser on the ESP32);
+  - **the ball's distance from its size** (independent of the tilt drift) as well as the floor trick.

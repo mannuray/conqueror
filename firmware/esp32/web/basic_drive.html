@@ -182,38 +182,38 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   <span class="chip glass"><small>CTRL:</small><b id="ownerChip">-</b></span>
 </div>
 <div class="ov hdg glass"><canvas id="hdgTape"></canvas><b id="hdgVal">-</b></div>
-<button id="stop" class="ov" type="button"><svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>STOP</button>
-<div class="ov rchips"><button id="menuBtn" class="chip glass" type="button" aria-label="menu">☰ MENU</button><button id="audioChip" class="chip glass" type="button" aria-label="mute or unmute the tank"><svg viewBox="0 0 24 24" id="audioOn"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/></svg><svg viewBox="0 0 24 24" id="audioOff" class="hidden"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></svg><b id="audioTxt"></b></button><button id="ctlChip" class="chip glass" type="button" aria-label="switch drive controls"><svg viewBox="0 0 24 24" id="icStick"><path d="M21 17a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2Z"/><path d="M6 15v-2"/><path d="M12 15V9"/><circle cx="12" cy="6" r="3"/></svg><svg viewBox="0 0 24 24" id="icRc" class="hidden"><line x1="6" x2="10" y1="11" y2="11"/><line x1="8" x2="8" y1="9" y2="13"/><line x1="15" x2="15.01" y1="12" y2="12"/><line x1="18" x2="18.01" y1="10" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/></svg><b id="ctlTxt">STICK</b></button></div>
+<button id="stop" class="ov" type="button"><!--icon:hand-->STOP</button>
+<div class="ov rchips"><button id="menuBtn" class="chip glass" type="button" aria-label="menu">☰ MENU</button><button id="audioChip" class="chip glass" type="button" aria-label="mute or unmute the tank"><!--icon:volume-2 id="audioOn"--><!--icon:volume-x id="audioOff" class="hidden"--><b id="audioTxt"></b></button><button id="ctlChip" class="chip glass" type="button" aria-label="switch drive controls"><!--icon:joystick id="icStick"--><!--icon:gamepad-2 id="icRc" class="hidden"--><b id="ctlTxt">STICK</b></button></div>
 <div class="ov dist"><b id="distTxt" class="gval">-</b><div class="distbar"><div id="distMask"></div></div></div>
 <div class="ov batt"><b id="battTxt" class="gval">-</b><div id="battBar" class="battbar"><div id="battMask"></div></div></div>
 <div id="banner" class="ov banner"></div>
 <div id="encNote" class="ov encnote"></div>
 
 <div class="ov left">
-  <div class="stick"><span class="ttl" id="driveTtl">⇅ DRIVE // TANK</span><button id="tiltBtn" class="btn glass tiltcard hidden" type="button" aria-label="tilt steering on or off"><svg viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg></button>
+  <div class="stick"><span class="ttl" id="driveTtl">⇅ DRIVE // TANK</span><button id="tiltBtn" class="btn glass tiltcard hidden" type="button" aria-label="tilt steering on or off"><!--icon:smartphone--></button>
     <div id="drivePad" class="pad off"><span class="lbl n">FWD</span><span class="lbl s">REV</span><span class="lbl w">L</span><span class="lbl e">R</span>
-      <div class="knob"><svg viewBox="0 0 24 24"><polygon points="12 2 19 21 12 17 5 21 12 2"/></svg></div></div>
+      <div class="knob"><!--icon:navigation-2--></div></div>
     <div id="thrPad" class="slider v off"><span class="lbl n">FWD</span><span class="lbl s">REV</span>
-      <div class="knob"><svg viewBox="0 0 24 24"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg></div></div></div>
+      <div class="knob"><!--icon:chevrons-up-down--></div></div></div>
 </div>
 <div class="ov right">
   <div class="col">
-    <button id="camLock" class="btn glass" type="button"><svg viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><span class="lab">LOCK</span></button>
-    <button id="camHome" class="btn glass" type="button"><svg viewBox="0 0 24 24"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/></svg><span class="lab">HOME</span></button>
+    <button id="camLock" class="btn glass" type="button"><!--icon:lock--><span class="lab">LOCK</span></button>
+    <button id="camHome" class="btn glass" type="button"><!--icon:locate-fixed--><span class="lab">HOME</span></button>
   </div>
   <div class="stick"><span class="ttl">▣ GIMBAL // <span id="camWho">CAM</span><i id="camAng"></i></span>
     <div id="camPad" class="pad off"><span class="lbl n">UP</span><span class="lbl s">DOWN</span><span class="lbl w">PAN L</span><span class="lbl e">PAN R</span><div id="camDot" class="ghost"></div>
-      <div class="knob"><svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="1"/><path d="M18.944 12.33a1 1 0 0 0 0-.66 7.5 7.5 0 0 0-13.888 0 1 1 0 0 0 0 .66 7.5 7.5 0 0 0 13.888 0"/></svg></div></div>
+      <div class="knob"><!--icon:scan-eye--></div></div>
     <div id="steerPad" class="slider h off"><span class="lbl w">L</span><span class="lbl e">R</span>
-      <div class="knob"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1"/></svg></div></div></div>
+      <div class="knob"><!--icon:circle-dot--></div></div></div>
 </div>
 
 <div class="ov mid">
   <div class="pills">
-    <a id="snap" class="btn glass pill" download><svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg><span class="lab">SNAP</span></a>
-    <button id="soundsBtn" class="btn glass pill hidden" type="button"><svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span class="lab">SOUNDS</span></button>
-    <button id="moreBtn" class="btn glass pill" type="button"><svg viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>MAX <b id="maxTxt">60%</b></button>
-    <button id="camBtn" class="btn glass pill" type="button" aria-label="camera picture size and frame rate"><svg viewBox="0 0 24 24"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg><b id="camTxt">--</b></button>
+    <a id="snap" class="btn glass pill" download><!--icon:camera--><span class="lab">SNAP</span></a>
+    <button id="soundsBtn" class="btn glass pill hidden" type="button"><!--icon:music--><span class="lab">SOUNDS</span></button>
+    <button id="moreBtn" class="btn glass pill" type="button"><!--icon:gauge-->MAX <b id="maxTxt">60%</b></button>
+    <button id="camBtn" class="btn glass pill" type="button" aria-label="camera picture size and frame rate"><!--icon:video--><b id="camTxt">--</b></button>
   </div>
   <div id="vitals" class="vitals glass">-</div>
 </div>
@@ -230,10 +230,10 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 </div>
 <div id="dim" class="ov"></div>
 <div id="menuSheet" class="ov sheet glass"><p class="title">[ MENU ]</p>
-  <a class="mi" id="miLogo" href="/logo"><svg viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg><span><b>LOGO</b><small>write and run programs</small></span><i>›</i></a>
-  <a class="mi" id="miSettings" href="/settings"><svg viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg><span><b>SETTINGS</b><small>WiFi · tank · tune · log</small></span><i>›</i></a>
-  <a class="mi off" id="miAi" target="_blank" rel="noopener" aria-disabled="true"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.8L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.2z"/></svg><span><b>AI</b><small id="miAiTxt">set its address in Settings</small></span><i class="bdg" id="miAiBdg">NOT SET UP</i></a>
-  <a class="mi" id="miHelp" href="/help"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span><b>HELP</b><small>how-to and facts</small></span><i>›</i></a>
+  <a class="mi" id="miLogo" href="/logo"><!--icon:code--><span><b>LOGO</b><small>write and run programs</small></span><i>›</i></a>
+  <a class="mi" id="miSettings" href="/settings"><!--icon:settings--><span><b>SETTINGS</b><small>WiFi · tank · tune · log</small></span><i>›</i></a>
+  <a class="mi off" id="miAi" target="_blank" rel="noopener" aria-disabled="true"><!--icon:sparkles--><span><b>AI</b><small id="miAiTxt">set its address in Settings</small></span><i class="bdg" id="miAiBdg">NOT SET UP</i></a>
+  <a class="mi" id="miHelp" href="/help"><!--icon:circle-help--><span><b>HELP</b><small>how-to and facts</small></span><i>›</i></a>
 </div>
 <div id="toast"></div>
 <div id="rotate">[ ROTATE THE PHONE ]<br>landscape only</div>
@@ -580,9 +580,10 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   }
 
   // ---------- WiFi signal (from /info every 10 s) ----------
-  var WIFI_ICON = {"full": "<path d=\"M12 20h.01\"/><path d=\"M2 8.82a15 15 0 0 1 20 0\"/><path d=\"M5 12.859a10 10 0 0 1 14 0\"/><path d=\"M8.5 16.429a5 5 0 0 1 7 0\"/>", "high": "<path d=\"M12 20h.01\"/><path d=\"M5 12.859a10 10 0 0 1 14 0\"/><path d=\"M8.5 16.429a5 5 0 0 1 7 0\"/>", "low": "<path d=\"M12 20h.01\"/><path d=\"M8.5 16.429a5 5 0 0 1 7 0\"/>", "zero": "<path d=\"M12 20h.01\"/>", "off": "<path d=\"M12 20h.01\"/><path d=\"M8.5 16.429a5 5 0 0 1 7 0\"/><path d=\"M5 12.859a10 10 0 0 1 5.17-2.69\"/><path d=\"M19 12.859a10 10 0 0 0-2.007-1.523\"/><path d=\"M2 8.82a15 15 0 0 1 4.177-2.643\"/><path d=\"M22 8.82a15 15 0 0 0-11.288-3.764\"/><path d=\"m2 2 20 20\"/>"};  // Lucide (R3.8)
+  /*CQ:ICONS wifi wifi-high wifi-low wifi-zero wifi-off*/  // the shared Lucide icons (bridge LLD R25)
+  var WIFI_ICON = { full: "wifi", high: "wifi-high", low: "wifi-low", zero: "wifi-zero", off: "wifi-off" };
   function showWifi(k, cls) {
-    $("wifiChip").innerHTML = '<svg viewBox="0 0 24 24">' + WIFI_ICON[k] + "</svg>";
+    $("wifiChip").innerHTML = icon(WIFI_ICON[k]);
     $("wifiChip").className = "chip glass " + cls;
   }
   var wifiBusy = false;

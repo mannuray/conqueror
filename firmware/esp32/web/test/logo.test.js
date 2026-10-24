@@ -463,3 +463,37 @@ test("the camera streams only when wide, not hidden and the page is visible", ()
   assert.equal(L.cameraWanted(true, true, false), false);
   assert.equal(L.cameraWanted(true, false, true), false);
 });
+
+// ---------- revision N7: the shared Lucide icons (bridge LLD R25, Tank Logo LLD §23.9) ----------
+test("the WiFi icon follows the signal as on the Drive page", () => {
+  assert.equal(L.wifiIcon(-50), "wifi");
+  assert.equal(L.wifiIcon(-60), "wifi-high");
+  assert.equal(L.wifiIcon(-70), "wifi-low");
+  assert.equal(L.wifiIcon(-80), "wifi-zero");
+  assert.equal(L.wifiIcon(null), "wifi-zero");  // Drive: no reading is "no signal", not "WiFi off"
+});
+
+test("the battery icon follows the charge, and USB is a plug", () => {
+  assert.equal(L.batteryIcon(8.2), "battery-full");
+  assert.equal(L.batteryIcon(7.87), "battery-full");   // Drive's curve: 70 % is 7.87 V
+  assert.equal(L.batteryIcon(7.86), "battery-medium");
+  assert.equal(L.batteryIcon(7.6), "battery-medium");
+  assert.equal(L.batteryIcon(7.1), "battery-low");
+  assert.equal(L.batteryIcon(6.8), "battery-warning");
+  assert.equal(L.batteryIcon(5.0), "plug");
+});
+
+test("the battery is averaged over 10 readings and starts again between USB and the pack (as Drive)", () => {
+  const m = new L.BattMean(10);
+  for (let i = 0; i < 10; i++) m.push(8.0);
+  assert.equal(m.push(6.9).toFixed(2), "7.89");   // one sagging reading does not change the icon
+  assert.equal(m.push(5.0), 5.0);                 // USB: a fresh average
+  assert.equal(m.push(8.0), 8.0);                 // back on the pack: fresh again
+});
+
+test("the battery warning comes from the tank's flags, as on Drive", () => {
+  assert.equal(L.battWarn(["batt_low"]), true);
+  assert.equal(L.battWarn(["batt_critical"]), true);
+  assert.equal(L.battWarn([]), false);
+  assert.equal(L.battWarn(undefined), false);
+});

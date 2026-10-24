@@ -2669,7 +2669,7 @@ sequenceDiagram
 - **Screenshots before and after:** Drive (tank idle) and Settings (each tab) on the fake tank, compared pixel for pixel. The few hand-trimmed icons that change are listed and looked at.
 - **Logo:**
   - the N6 laptop and N4 phone checks still pass;
-  - a new check line: the WiFi chip's icon changes with `wifi_status` RSSI (−50 → `wifi`, −80 → `wifi-low`);
+  - a new check line: the WiFi chip's icon changes with `wifi_status` RSSI (−50 → `wifi`, −80 → `wifi-zero`, Drive's rule; corrected in R25.5);
   - the battery icon follows `ts.batt_v` (8.2 V → full, 7.0 V → low; USB → `plug`).
 - **Size:** each page is within its budget; the change in gzipped bytes is recorded.
 - **On the tank:** all three pages, with a look at each icon. The top-bar battery / WiFi readouts and the sonar update (design-notes §149 open item).
@@ -2677,3 +2677,54 @@ sequenceDiagram
 ### R25.4 Not in this revision
 - An icon font or SVG sprite file served separately (one more request per page, and no gain at this size).
 - The 192 px home-screen icon (`png_icon`) stays as it is.
+
+### R25.5 As built (Plan N7, 2026-10-24; design-notes §150)
+- **Files:**
+  - `scripts/cq_icons.py` (the expander; renamed from `icons.py` by the final review);
+  - `scripts/test_icons.py` (21 tests);
+  - `web/icons.json` (63 Lucide 0.460.0 icons, ~11.7 KB);
+  - `tools/icons/add_icon.py`;
+  - `pack_web.py` `assemble_page` (every page);
+  - `web/test/icons_check.js`.
+  - `fake_tank.py` serves `/`, `/settings` and `/logo` packed, and the Settings camera checks use it.
+- **Sizes (gzipped):**
+
+  | Page | Before | After |
+  |---|---|---|
+  | `/` | 20 016 B | 20 217 B |
+  | `/settings` | 22 164 B | 22 921 B |
+  | `/logo` | 22 990 B | 24 885 B (budget 26 KB) |
+
+  Bridge flash 44.6 %.
+- **Checks:**
+  - Node 56/56;
+  - the browser checks pass: icons, both Settings camera checks, Logo laptop and phone;
+  - before/after screenshots of Drive (3 views) and Settings (4 tabs) are pixel-identical except three icons: AI → `sparkles`, Save & connect → `send`, distance wizard → `ruler`.
+- **Rulings while drafting (the plan):**
+  1. Settings also gets Drive's Lucide WiFi-strength and battery icons; its CSS bars and hand-drawn battery are gone.
+  2. The three hand-drawn icons became the nearest Lucide ones.
+  3. Logo's DELETE uses `trash` (as Settings), not `trash-2`.
+  4. `pack_web.py` finds the expander without `__file__` (SCons).
+  5. The camera checks load the packed page.
+  6. Each browser check runs in a fresh browser.
+  7. Logo's six markers were committed with Task 4.
+- **The final review** (no Critical) changed:
+  - **The build now refuses what it can't read:**
+    - a marker or `CQ:ICONS` table in any other spelling (`<!-- icon:x -->`, `<!--Icon:x-->`, `/* CQ:ICONS …*/`) or with `<` / `>` in an attribute;
+    - `icon()` used without a table;
+    - a literal `icon("x")` whose name isn't in the page's table.
+  - **`icon()`** logs an unknown name (`console.error`).
+  - **The duplicate-name test** can now fail (`object_pairs_hook`).
+  - **`add_icon.py`:**
+    - refuses a bare `--from` or no names;
+    - writes the `source` field from its `VERSION`;
+    - prints "replaced" for an icon it overwrites.
+  - **Logo and Settings follow Drive's rules exactly:**
+    - no WiFi reading = `wifi-zero`;
+    - battery full from 7.87 V (70 % on Drive's curve);
+    - the battery icon uses a 10-reading average that starts again between USB and the pack;
+    - the warning colour comes from the tank's `batt_low` / `batt_critical` flags.
+  - **Logo's WiFi chip** starts as `wifi-zero`, not `wifi-off`.
+- **Owner's change while fixing:** Settings' Uno chip has the `cpu` icon too, and its battery chip starts with its icon (the same "● text" icons the owner raised).
+- **On the tank (owner, 2026-10-24):** "all good". Drive, Settings and Logo all show the Lucide icons, with live battery / WiFi / Uno values.
+

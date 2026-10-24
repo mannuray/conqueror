@@ -25,7 +25,7 @@ from urllib.parse import urlsplit
 
 PROJECT = pathlib.Path(__file__).resolve().parents[2]
 _PACK = runpy.run_path(str(PROJECT / "scripts" / "pack_web.py"), run_name="pack_web")
-assemble_logo = cast(Callable[[pathlib.Path], bytes], _PACK["assemble_logo"])
+assemble_page = cast(Callable[[pathlib.Path, str], bytes], _PACK["assemble_page"])  # icons in (bridge LLD R25)
 gz = cast(Callable[[bytes], bytes], _PACK["gz"])
 
 PROGRAMS: dict[str, str] = {"square": "REPEAT 4 [ FD 50 RT 90 ]\n"}
@@ -123,8 +123,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = self.where()
-        if path == "/logo":
-            return self.reply(200, gz(assemble_logo(PROJECT)), "text/html; charset=utf-8", True)
+        if path in ("/", "/settings", "/logo"):  # the packed pages, as the bridge serves them
+            return self.reply(200, gz(assemble_page(PROJECT, path)), "text/html; charset=utf-8", True)
         if path == "/fake/stats":  # for the browser check: how many requests were refused busy
             return self.json({"busy": state["busy"]})
         if path == "/logo/programs":

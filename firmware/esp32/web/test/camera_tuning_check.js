@@ -1,5 +1,5 @@
 // Bridge LLD R24 browser check (Playwright run_code): the Camera card's white balance and night switch.
-// Serve firmware/esp32/web on :8766 (python3 -m http.server 8766) and open /settings.html.
+// Run the stand-in tank (python3 firmware/esp32/web/test/fake_tank.py 8765) and open /settings (packed, icons in).
 async (page) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => {
@@ -22,7 +22,7 @@ async (page) => {
   });
   const q = (f, a) => page.evaluate(f, a);
   const out = {};
-  await page.goto("http://127.0.0.1:8766/settings.html?v=" + Date.now()); await page.waitForTimeout(500);
+  await page.goto("http://127.0.0.1:8765/settings?v=" + Date.now()); await page.waitForTimeout(500);
   await page.click('#tabs button[data-tab="tank"]'); await page.waitForTimeout(300);
   out.wbShown = await q(() => [...document.querySelectorAll("#cWb button.on")].map((b) => b.dataset.v));   // ["auto"]
   out.nightShown = await q(() => document.getElementById("cNight").textContent);                        // OFF

@@ -299,11 +299,32 @@ var LogoCore = (function () {
   // The camera streams only while it can be seen.
   function cameraWanted(wide, hiddenByUser, pageHidden) { return wide && !hiddenByUser && !pageHidden; }
 
+  // ---------- revision N7: the shared Lucide icons (bridge LLD R25) ----------
+  // The Drive page's rules (basic_drive.html pollWifi / showSlow): WiFi by RSSI, no reading = no signal; a 2S battery
+  // by its charge curve on a 10-reading average (>= 70 % = 7.87 V, 35 % = 7.4 V, 10 % = 7.0 V); under 5.5 V it is USB;
+  // the warning colour comes from the tank's own batt_low / batt_critical flags.
+  function wifiIcon(rssi) {
+    if (rssi === null || rssi === undefined) return "wifi-zero";
+    return rssi > -55 ? "wifi" : rssi > -65 ? "wifi-high" : rssi > -75 ? "wifi-low" : "wifi-zero";
+  }
+  function batteryIcon(v) {
+    return v < 5.5 ? "plug" : v >= 7.87 ? "battery-full" : v >= 7.4 ? "battery-medium" : v >= 7.0 ? "battery-low" : "battery-warning";
+  }
+  function BattMean(n) { this.n = n; this.vals = []; this.usb = null; }
+  BattMean.prototype.push = function (v) {
+    var usb = v < 5.5;
+    if (usb !== this.usb) { this.vals = []; this.usb = usb; }  // USB <-> pack: start the average again
+    this.vals.push(v); if (this.vals.length > this.n) this.vals.shift();
+    return this.vals.reduce(function (a, b) { return a + b; }, 0) / this.vals.length;
+  };
+  function battWarn(flags) { return !!flags && (flags.indexOf("batt_low") >= 0 || flags.indexOf("batt_critical") >= 0); }
+
   return {
     wordIndex: wordIndex, ownWords: ownWords, colour: colour, insertWord: insertWord, Drafts: Drafts,
     fitView: fitView, toScreen: toScreen, plannedRuns: plannedRuns, CheckScheduler: CheckScheduler, RequestQueue: RequestQueue,
     runBarStart: runBarStart, runBar: runBar, canRun: canRun, locked: locked, endText: endText, NACK_TEXT: NACK_TEXT,
-    shortcut: shortcut, panelTab: panelTab, cameraWanted: cameraWanted
+    shortcut: shortcut, panelTab: panelTab, cameraWanted: cameraWanted, wifiIcon: wifiIcon, batteryIcon: batteryIcon,
+    BattMean: BattMean, battWarn: battWarn
   };
 })();
 if (typeof module !== "undefined") module.exports = LogoCore;

@@ -90,6 +90,41 @@ def test_no_coloured_blob_gives_no_sample() -> None:
     assert bl.most_coloured_blob(floor_picture(), horizon=120) is None
 
 
+def test_a_red_ball_whose_hue_wraps_gets_a_wrapped_range() -> None:
+    """Red sits at both ends of OpenCV's hue (0 and 179): its range wraps, h_lo > h_hi (final review I4)."""
+    hues = np.array([176, 177, 178, 179, 0, 1, 2, 3, 4] * 20, np.uint8)
+    pix = np.stack([hues, np.full_like(hues, 160), np.full_like(hues, 170)], axis=1)
+    c = bl.colour_from_samples("red", pix, 6.0)
+    assert c.h_lo > c.h_hi and 165 <= c.h_lo <= 176 and 4 <= c.h_hi <= 15
+    red = disc(disc(floor_picture(), (100, 170), 12, (178, 160, 170)), (220, 170), 12, (2, 160, 170))
+    assert len(bl.find_balls(red, [c], horizon=120)) == 1  # both halves of red are red (the larger disc)
+    green = disc(floor_picture(), (170, 160), 12, (64, 160, 170))
+    assert bl.find_balls(green, [c], horizon=120) == []  # and green is not red
+
+
+def test_a_spread_of_many_hues_is_not_one_colour() -> None:
+    hues = np.arange(0, 180, dtype=np.uint8)
+    pix = np.stack([hues, np.full_like(hues, 160), np.full_like(hues, 170)], axis=1)
+    with pytest.raises(ValueError, match="not one colour"):
+        bl.colour_from_samples("rainbow", pix, 6.0)
+
+
+def test_a_ball_colour_out_of_range_is_refused() -> None:
+    with pytest.raises(ValueError, match="hue"):
+        bl.BallColour("x", 0, 200, 60, 200)
+    with pytest.raises(ValueError, match="saturation"):
+        bl.BallColour("x", 40, 90, 300, 200)
+    with pytest.raises(ValueError, match="r_min_px"):
+        bl.BallColour("x", 40, 90, 60, 200, 0.0)
+
+
+def test_the_calibration_sample_is_the_round_blob_nearest_the_middle() -> None:
+    """The ball is put in the middle: a larger coloured round thing at the side is not learned (review m7)."""
+    pic = disc(disc(floor_picture(), (40, 200), 25, (120, 160, 170)), (160, 180), 12, (64, 160, 170))
+    pix = bl.most_coloured_blob(pic, horizon=120)
+    assert pix is not None and abs(float(np.median(pix[:, 0])) - 64) <= 3
+
+
 # ---- the horizon row
 def test_the_horizon_is_the_middle_row_with_the_camera_level() -> None:
     assert bl.horizon_row(at_start(calib())) == 120
@@ -99,6 +134,13 @@ def test_tilting_down_moves_the_horizon_up_and_far_down_takes_it_off() -> None:
     row = bl.horizon_row(at_start(calib(), tilt=-15.0))
     assert row is not None and row < 120
     assert bl.horizon_row(at_start(calib(), tilt=-60.0)) is None
+
+
+def test_tilted_up_past_the_floor_nothing_in_view_is_floor() -> None:
+    """Looking up (at a person), the horizon falls below the picture: no row is floor (final review m1)."""
+    assert bl.horizon_row(at_start(calib(), tilt=40.0)) == 240
+    pic = disc(floor_picture(), (170, 200), 12, (64, 90, 170))
+    assert bl.find_balls(pic, [GREEN], horizon=240) == []
 
 
 # ---- the words

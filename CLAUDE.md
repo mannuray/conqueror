@@ -3,6 +3,7 @@
 Hobby robot platform: ELEGOO Conqueror tank rebuilt as **Uno body + ESP32 gateway (all web pages) + Python AI engine**, with vision as the main input. Single tank, no separate hub (design-notes §79; spec 03 parked). Repo: `github.com/mannuray/conqueror`.
 
 ## How we work (owner's rules — follow them)
+- **What the platform is for (spec 0 §1.1, design-notes §153):** a fun learning tool for real robotics (children and hobbyists). Fun first, real robotics inside; aim for accuracy but accept loose (play) tolerances; general approaches before per-case rules; safety never traded; Tank Logo is the child's door and its words should carry over to other robot types; everything visible and replayable.
 - **Design before code.** Order: specs → UX → LLD per component → implementation plan → code. Never start code for a component whose plan is not approved.
 - **Document every agreed decision in the repo in the same turn**, then commit and push. Raw history: `docs/design-notes.md` (superseded by the specs where they differ).
 - **LLDs must include classes and Mermaid diagrams** (class diagrams always; sequence/state diagrams where behaviour matters).

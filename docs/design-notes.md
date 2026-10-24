@@ -2210,3 +2210,50 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - Plan V's tracker stays as it is;
   - obstacles still come from the floor plane + depth + sonar (later).
   - Design: AI engine LLD §16.
+
+## 153. What the platform is for: a fun way to learn real robotics (owner, 2026-10-24)
+- **The trigger:** Plan Y's floor checks kept turning up new cases, each with a new hand-made rule (roundness, colour range, brightness, size, how fast a remembered thing gets vague).
+- **The owner:**
+  - the surroundings are chaotic, and rules will break down faster than we can build them;
+  - we don't need precise measurement: strive for maximum accuracy, but accept loose tolerances. The tank isn't roving on Mars or doing anything mission-critical; it is to play around with;
+  - it is a fun learning tool for robotics, where we keep the fun and push toward real robotics as far as hobby-grade sensors allow;
+  - Tank Logo can grow, and the same language might later drive a robot arm;
+  - this philosophy guides future phases.
+- **Agreed: seven principles,** written into spec 0 §1.1:
+  1. fun first, real robotics inside;
+  2. aim for accuracy, accept roughness;
+  3. general before special;
+  4. safety is never traded;
+  5. the language is the child's door;
+  6. the robot type can change, the words stay;
+  7. everything can be seen and replayed.
+- **Play behaviours that make good lessons (owner: good cases to teach children robotics, more to add):**
+  - chase or nudge the ball;
+  - follow a person;
+  - explore without bumping;
+  - go to a named thing.
+- **Does such a framework exist? Searched 2026-10-24:**
+  - **Kid block coding with camera AI exists:**
+    - PictoBlox with its Object Detection extension (about 90 objects, location and size; Quarky compatible);
+    - HuskyLens / HuskyLens 2 in Mind+ (Scratch 3.0 based; a block that checks for a tracked object and gives its centre, width and height);
+    - the Hiwonder DaDablock (ESP32, offline AI vision, Scratch and Python).
+    - These react to the current picture. No remembered map, no "go to" a thing out of view.
+  - **OpenBot (Intel Labs, MIT licence):** a phone on a ~$50 body, with person following (a detector plus visual servoing to keep the person centred) and autonomous navigation. It has a drag-and-drop "Playground"; whether that has a follow block wasn't confirmed. Aimed at students and researchers.
+  - **ROS2 kits with depth cameras and mapping:** Hiwonder MentorPi (RTAB-VSLAM 3D mapping and navigation); Yahboom Raspbot (OpenCV / MediaPipe tracking); Luxonis rae (stereo depth, open). Aimed at teens and adults.
+  - **Cozmo / Vector:** vision and an app for children, but closed. Now only community software (the wire-pod server, Python and Go SDKs) with vision and mapping through the SDK. No kid blocks found.
+  - **Conclusion:** the pieces exist apart. We did not find them together: an open framework on cheap hardware, a child's simple language that uses a remembered map of named things, always-on safety, and words that carry over to another robot type. That is the aim. It is stated as a gap we did not find filled, not as a proven first.
+  - **Sources:**
+    - PictoBlox: thestempedia.com/product/pictoblox;
+    - HuskyLens 2 + Mind+: wiki.dfrobot.com (sen0638 object tracking);
+    - OpenBot: arxiv.org/pdf/2008.10631 and github.com/ob-f/OpenBot (open-code README);
+    - MentorPi: openelab.io/products/mentorpi-m1-car;
+    - DaDablock: openelab.io/a/s/products/hiwonder-dadablock-ai-vision-kit;
+    - wire-pod Vector SDK: pypi.org/project/wirepod-vector-sdk;
+    - rae: malwaretips.com/threads/robotics-access-for-everyone-rae.118582.
+- **What changes now:**
+  - **Plan Y:** finish with play tolerances (±15 cm at 1 m, ±30 cm at 2 m) and add no more rules: the memory, chair / person and live-view checks remain. Plan Y's as-built note moves to §154.
+  - **The next design** is play behaviours as lessons: the four cases above, the perception words in Tank Logo they need, and general layers underneath:
+    - "something is there" from sonar plus a depth model;
+    - names matched loosely (similar words as one kind, ~30–40 cm as the same thing);
+    - a fuzzy map (about ±20 cm / ±10°).
+  - **Later:** a slow smart look now and then, from a vision-language model.

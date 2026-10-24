@@ -2250,6 +2250,11 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
     - DaDablock: openelab.io/a/s/products/hiwonder-dadablock-ai-vision-kit;
     - wire-pod Vector SDK: pypi.org/project/wirepod-vector-sdk;
     - rae: malwaretips.com/threads/robotics-access-for-everyone-rae.118582.
+- **A cheap tank with a borrowed brain (owner: "pieces exist but are expensive - one uses a phone - nothing cheap running on the Uno and ESP32"; and "a laptop or home computer is standard now, so it's ok"):**
+  - the smart robots put the brain on board (phone, Pi 5, Jetson); the cheap modules (HuskyLens on an Arduino, the ESP32 DaDablock) only see the current picture;
+  - ours keeps the tank cheap (Uno + ESP32): it drives, runs Logo and stays safe with no computer;
+  - the heavy thinking borrows a home laptop or PC;
+  - **the aim:** a cheap tank that does real perception and mapping by borrowing a home computer, with a child's language on top (spec 0 §1.1).
 - **What changes now:**
   - **Plan Y:** finish with play tolerances (±15 cm at 1 m, ±30 cm at 2 m) and add no more rules: the memory, chair / person and live-view checks remain. Plan Y's as-built note moves to §154.
   - **The next design** is play behaviours as lessons: the four cases above, the perception words in Tank Logo they need, and general layers underneath:

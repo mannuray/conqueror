@@ -62,6 +62,20 @@ These principles guide every later phase:
   always on, and words that carry over to another robot type. That combination is this project's aim. It is a
   gap we did not find filled, not a proven first.
 
+**A cheap tank with a borrowed brain (owner, 2026-10-24).**
+- **Where the cost goes elsewhere:**
+  - the smart robots above put the brain on board: a phone, a Raspberry Pi 5, a Jetson;
+  - the cheap camera modules (HuskyLens on an Arduino, the ESP32 DaDablock) only answer "what is in the picture
+    now": no map, no memory of things out of view, no idea where the robot is.
+- **Ours splits the work:**
+  - **the tank stays cheap** (the ELEGOO kit: Uno + ESP32 camera board). On its own it drives, runs Tank Logo,
+    serves its pages and keeps every safety rule, with no computer at all.
+  - **the heavy thinking runs on a home laptop or PC**: vision, the map, the pose filter, later the smart look. A
+    home computer is standard now, so it costs nothing extra.
+- With a computer, the tank also sees and remembers.
+- The aim, stated precisely: **a cheap tank that does real perception and mapping by borrowing a home computer,
+  with a child's language on top.**
+
 ## 2. Architecture
 
 ```

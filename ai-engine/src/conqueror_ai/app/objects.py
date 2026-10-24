@@ -1,5 +1,8 @@
-"""`cq-objects`: the things in the room (AI engine LLD §15.6) - phase 4 of the map. It only watches; it never
-drives.
+"""`cq-objects`: the things in the room (AI engine LLD §15.6, §16) - phase 4 of the map. It only watches; it
+never
+drives. What spots things: YOLO-World asked for the words in config/vocabulary.yaml, and the colour ball
+finder for
+the balls in config/balls.yaml (§16); the camera at VGA.
 
     uv run cq-objects recordings/20261024-101500      # replay: every picture, in order; prints what was found
     uv run cq-objects --live                          # the tank: the live view (picture + boxes, the plan)
@@ -22,14 +25,19 @@ from numpy.typing import NDArray
 
 from conqueror_ai.adapters import calibration_store
 from conqueror_ai.adapters.session import replay
-from conqueror_ai.domain.camera import Calibration
+from conqueror_ai.domain.balls import BallColour, find_balls
+from conqueror_ai.domain.camera import Calibration, CameraModel
+from conqueror_ai.domain.detectors import MultiDetector
 from conqueror_ai.domain.objects import Detector, ObjectPipeline
 from conqueror_ai.domain.telemetry import parse_td
 from conqueror_ai.domain.types import Frame, ObjectEstimate
 
 ENGINE = Path(__file__).resolve().parents[3]
 CALIBRATION = ENGINE / "config" / "calibration.yaml"
-MODEL = ENGINE / "models" / "yolo26n-320.mlpackage"
+MODEL = ENGINE / "models" / "yoloworld-s-640.mlpackage"
+VOCABULARY = ENGINE / "config" / "vocabulary.yaml"
+BALLS = ENGINE / "config" / "balls.yaml"
+VGA = (640, 480)
 DEFAULT_HOST = "192.168.31.167"
 
 
@@ -68,9 +76,15 @@ def _note(res: ReplayResult, objs: list[ObjectEstimate]) -> None:
         res.things[o.oid] = Thing(o.cls, o.first_seen_us, o.last_seen_us, o.x_m, o.y_m, o.sigma_m)
 
 
-def run_replay(folder: Path, cal: Calibration, det: Detector) -> ReplayResult:
+def camera_of(cam: CameraModel | str) -> CameraModel | None:
+    """The picture's camera for the detectors; None (all of it, no size check)
+    for a picture the gate skips - its boxes are only shown, never placed."""
+    return None if isinstance(cam, str) else cam
+
+
+def run_replay(folder: Path, cal: Calibration, det: Detector, floor_classes: frozenset[str]) -> ReplayResult:
     """Every recorded picture, in order, through the detector and the list (the same answer every time)."""
-    p = ObjectPipeline(cal)
+    p = ObjectPipeline(cal, floor_classes)
     res = ReplayResult()
     for e in replay(folder):
         if e.text is not None:
@@ -87,7 +101,9 @@ def run_replay(folder: Path, cal: Calibration, det: Detector) -> ReplayResult:
             rgb = decode(e.frame)
             if rgb is None:
                 continue
-            cam = p.on_frame(e.frame, (rgb.shape[1], rgb.shape[0]), det.detect(rgb))
+            cam = p.camera_at(e.frame.cap_us)
+            dets = det.detect(rgb, camera_of(cam))
+            cam = p.on_frame(e.frame, (rgb.shape[1], rgb.shape[0]), dets, cam)
             if not isinstance(cam, str):
                 res.used += 1
                 _note(res, p.objects())
@@ -109,7 +125,7 @@ def report(res: ReplayResult) -> str:
     return "\n".join(lines)
 
 
-async def run_live(host: str, cal: Calibration, det: Detector) -> None:
+async def run_live(host: str, cal: Calibration, det: Detector, floor_classes: frozenset[str]) -> None:
     """The tank: telemetry and the newest picture; the detector in a worker thread (latest picture wins)."""
     from conqueror_ai.adapters.bridge_ws import BridgeLink
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
@@ -117,7 +133,7 @@ async def run_live(host: str, cal: Calibration, det: Detector) -> None:
 
     link, cam = BridgeLink(host), MjpegSource(host)
     view = RerunView(spawn=True)
-    p = ObjectPipeline(cal)
+    p = ObjectPipeline(cal, floor_classes)
     stop = asyncio.Event()
     tasks = [asyncio.create_task(link.run(stop)), asyncio.create_task(cam.run(stop))]
 
@@ -148,10 +164,10 @@ async def run_live(host: str, cal: Calibration, det: Detector) -> None:
             rgb = decode(f)
             if rgb is None:
                 continue
-            dets = await asyncio.to_thread(
-                det.detect, rgb
-            )  # meanwhile newer pictures replace the waiting one
-            used = p.on_frame(f, (rgb.shape[1], rgb.shape[0]), dets)
+            cam_f = p.camera_at(f.cap_us)
+            # meanwhile newer pictures replace the waiting one
+            dets = await asyncio.to_thread(det.detect, rgb, camera_of(cam_f))
+            used = p.on_frame(f, (rgb.shape[1], rgb.shape[0]), dets, cam_f)
             view.frame(f, None)
             view.detections(f, dets)
             view.plan(f.cap_us, p.pose(), p.objects(), used if isinstance(used, str) else None)
@@ -164,6 +180,18 @@ async def run_live(host: str, cal: Calibration, det: Detector) -> None:
             await asyncio.gather(*tasks, return_exceptions=True)
 
 
+def detectors(model: Path, vocab_path: Path, balls_path: Path) -> tuple[Detector, frozenset[str]]:
+    """YOLO-World and the colour ball finder as one detector, and the classes the floor trick places (§16)."""
+    from conqueror_ai.adapters.detector_config import load_balls, load_vocabulary
+    from conqueror_ai.adapters.yolo_world import YoloWorld
+
+    vocab = load_vocabulary(vocab_path)
+    world = YoloWorld(model, vocab)
+    balls: list[BallColour] = load_balls(balls_path)
+    multi = MultiDetector([world.detect, lambda rgb, cam: find_balls(rgb, balls, cam)])
+    return multi, vocab.floor_classes | frozenset(f"ball:{b.name}" for b in balls)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("folder", type=Path, nargs="?")
@@ -171,21 +199,21 @@ def main() -> None:
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--calibration", type=Path, default=CALIBRATION)
     ap.add_argument("--model", type=Path, default=MODEL)
+    ap.add_argument("--vocabulary", type=Path, default=VOCABULARY)
+    ap.add_argument("--balls", type=Path, default=BALLS)
     a = ap.parse_args()
     if a.live == (a.folder is not None):
         raise SystemExit("give a recording folder, or --live")
-    from conqueror_ai.adapters.yolo_coreml import YoloCoreml
-
     try:
-        cal = calibration_store.load(a.calibration, (320, 240))
-        det = YoloCoreml(a.model)
-    except (FileNotFoundError, ValueError) as err:
+        cal = calibration_store.load(a.calibration, VGA)
+        det, floor = detectors(a.model, a.vocabulary, a.balls)
+    except (FileNotFoundError, ValueError, KeyError) as err:
         raise SystemExit(str(err)) from None
     if a.live:
         with contextlib.suppress(KeyboardInterrupt):
-            asyncio.run(run_live(a.host, cal, det))
+            asyncio.run(run_live(a.host, cal, det, floor))
     else:
-        print(report(run_replay(a.folder, cal, det)))
+        print(report(run_replay(a.folder, cal, det, floor)))
 
 
 if __name__ == "__main__":

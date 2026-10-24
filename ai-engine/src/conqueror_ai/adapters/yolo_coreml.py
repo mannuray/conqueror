@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+from conqueror_ai.domain.camera import CameraModel
 from conqueror_ai.domain.types import Detection
 
 CONF = 0.35
@@ -76,7 +77,7 @@ class YoloCoreml:
         self._output = str(spec.description.output[0].name)
         self._conf = conf
 
-    def detect(self, rgb: NDArray[np.uint8]) -> list[Detection]:
+    def detect(self, rgb: NDArray[np.uint8], cam: CameraModel | None = None) -> list[Detection]:
         from PIL import Image
 
         img, pad = letterbox(rgb, self._size)

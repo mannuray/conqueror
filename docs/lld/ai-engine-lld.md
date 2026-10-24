@@ -848,3 +848,115 @@ sequenceDiagram
 - Obstacles from the floor plane + depth + sonar (map phase 5).
 - Training a detector on the tank's own pictures, unless YOLO-World proves too weak.
 - More than one ball of the same colour being told apart; the tracker separates them by place.
+
+### 16.7 As built (Plan Y, 2026-10-24; design-notes §154)
+```mermaid
+classDiagram
+  class Detector {
+    <<Protocol, §15.1>>
+    +detect(rgb, cam: CameraModel?) list~Detection~
+  }
+  class YoloWorld {
+    +__init__(path, vocab)
+    +detect(rgb, cam) list~Detection~
+  }
+  class MultiDetector {
+    +__init__(detect_fns)
+    +detect(rgb, cam) list~Detection~
+  }
+  class Vocabulary {
+    +words tuple~Word~
+    +names list~str~
+    +floor_classes frozenset~str~
+    +min_score(word) float
+    +check_model(names)
+    +from_dict(d) Vocabulary
+  }
+  class Word { +word +floor +min_score }
+  class BallColour {
+    +name +h_lo +h_hi +s_min +v_max +r_min_px
+    +size_cm? +v_mean_min
+  }
+  class balls {
+    <<module>>
+    +horizon_row(cam) int?
+    +find_balls(rgb, balls, cam?) list~Detection~
+    +colour_from_samples(name, hsv_pixels, r_min_px) BallColour
+    +most_coloured_blob(rgb, cam?) pixels?
+    +size_and_brightness(rgb, ball, cam) (cm, v)?
+  }
+  class detector_config {
+    <<adapter>>
+    +load_vocabulary(path) Vocabulary
+    +load_balls(path) list~BallColour~
+    +save_ball(path, ball)
+  }
+  class ObjectPipeline {
+    +camera_at(cap_us) CameraModel | str
+    +on_frame(frame, size, dets, cam?) CameraModel | str
+  }
+  Detector <|.. YoloWorld
+  Detector <|.. MultiDetector
+  MultiDetector o-- YoloWorld
+  MultiDetector ..> balls : find_balls
+  YoloWorld --> Vocabulary
+  Vocabulary o-- Word
+  balls ..> BallColour
+  detector_config ..> Vocabulary
+  detector_config ..> BallColour
+  ObjectPipeline ..> Detector : camera_at, then detect, then on_frame
+```
+- **Files:**
+  - `domain/vocabulary.py`, `domain/balls.py` (a module of functions, not a `ColourBallFinder` class), `domain/detectors.py`;
+  - `adapters/yolo_world.py`, `adapters/detector_config.py`;
+  - `config/vocabulary.yaml` (10 words, door `floor: false`), `config/balls.yaml`;
+  - `tools/measure/export_world.py` (bakes the words into `ai-engine/models/yoloworld-s-640.mlpackage`, git-ignored, ~24 MB, GPL-3.0);
+  - changed: `domain/objects.py`, `adapters/calibration_store.py` (VGA from the QVGA file), `app/objects.py`, `app/calibrate.py`.
+  - AI engine 194 tests (1 skipped: the old YOLO26n model file is absent); ruff, format and pyright clean.
+- **The plug is `detect(rgb, cam)`**, where `cam` is the picture's `CameraModel` (or None for a picture the gate skips). This supersedes the plan's `detect(rgb, horizon_row)`.
+  - The app asks `ObjectPipeline.camera_at` first. It gets the camera or the skip reason, and hands that same camera to `on_frame`, so the horizon and the map use one camera (review m8).
+  - Skipped pictures are still searched without a horizon, so the live view shows their boxes, but they are never placed.
+- **YOLO-World:**
+  - each candidate is only its best word, kept if that word's own threshold is met (review I1: one cabinet was "bed" and "sofa" at once);
+  - overlap removal per word at IoU 0.7, as Ultralytics;
+  - a box wholly in the letterbox bar is dropped;
+  - the output is taken by name;
+  - a model without a word list, or made for other words, is refused.
+  - Matches Ultralytics on COCO 139 (person 0.83, chairs 0.76 / 0.58 / 0.54 / 0.34, boxes within 1 px). Ours also lists table 0.26, a half-precision effect at the 0.25 line. 6.7 ms a picture.
+- **The colour finder:**
+  - HSV of a 5 × 5 blur; the mask is the ball's range (a red range wraps through hue 0, `h_lo > h_hi`), below the horizon, opened 3 × 3;
+  - round blobs: convex-hull roundness ≥ 0.66 and r ≥ `r_min_px`;
+  - **bright enough and the right size for the distance** (Task 5, the steel bin):
+    - the blob's mean value must be ≥ `v_mean_min`;
+    - its size, `2 r × floor distance / fx`, must be within 0.6–1.5 × `size_cm`;
+    - on the floor recording this keeps 236 of 243 sightings of the ball and drops all 48 reflections on a steel bin;
+    - a ball resting on a chair seat is (rightly) not a floor ball;
+  - then the largest of those wins.
+  - `horizon_row`: None when the horizon is above the picture (all floor); the picture height when it is below it (camera tilted up: no floor).
+- **`cq-calibrate ball <name>`:**
+  - sets the camera level and centred first (review I3);
+  - VGA only;
+  - takes the coloured round blob nearest the middle in 15 pictures;
+  - hue p5–p95 on the hue circle, widened by 5; a spread over 60 is refused as "not one colour";
+  - then size (median) and brightness (0.8 × the median mean value).
+  - No picture or a broken one is a plain refusal.
+- **One ball is one thing** (review I2), in the tracker:
+  - a word box (say "toy") at a listed ball's place updates that ball when nothing of its own class takes it (the finder missed it: at the picture's edge, half hidden);
+  - when the finder sees a listed ball, a word thing at its place not seen in that picture is dropped.
+- **Remembered from the last sighting** (Task 5 memory test):
+  - a thing not seen for 0.5 s (`REMEMBER_AFTER_S`) is rewound to its last sighting and predicted with the remembered rule (5 cm/s walk), not the walking-person rule;
+  - before this, a ball unseen for 1.3 s had grown to the 0.5 m cap, and its gate took a reflection 1.5 m away.
+- **Config errors** name the file and the row: a missing field, bad YAML, `floor: "false"` as text, values out of range.
+- **On the floor (Task 5; play tolerances agreed during the checks, design-notes §153):**
+  - **VGA lens:** the doubled QVGA lens fits a screen checkerboard to 0.20 px median (max 0.93). A fresh VGA fit (fx 383.8) fits just as well, so the tape decides: the doubled lens wins (the ball at 2 m, before the tilt refit, from the lens: fresh 166 cm, doubled 175).
+  - **tilt0** refit after the mount fix: +2.55° → **+3.3°**, from the ball at 1 m and 2 m (−1 / +2 cm).
+  - **The ball:** 1 m → +3 cm; 1.5 m → +10 cm (finder 84 % of pictures); 2 m → +2 cm (finder 35 of 177; YOLO-World "toy" covers it).
+  - **Memory:** the ball kept its number through a 12 s look-away (after both fixes); the cabinet too.
+  - **Chair and person** listed (person at ~2.3 m by tape).
+  - **The live view** showed chair, person, ball and bottle; Ctrl-C ends it cleanly.
+- **Known limits:**
+  - **The camera's real tilt drifts between sessions.** After a battery change, distances read ~1.3–1.4 × long, level and tilted; after panning away and back, ~1° (SG90 slack). Owner: a general fix, a camera angle estimator from the picture (design-notes §153), not hand refits.
+  - **The colour finder reaches ~1.5 m.**
+  - **At the driving tilt (15° down) the chair's top is cut** and YOLO-World scores it 0.23 (< 0.25); level it scores ~0.85.
+  - **The cabinet flips between "bed" and "sofa"**, so it can show twice or come back as a new thing.
+  - **Not built:** the camera-setting warning (ruling 6); other balls not yet calibrated.

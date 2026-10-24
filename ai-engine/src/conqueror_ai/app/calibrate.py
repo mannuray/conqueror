@@ -5,8 +5,10 @@
   servos  commanded -> real tilt and pan gains: a laser cross line of any colour, roughly at the lens height
           (design-notes §130); tilt0 and the pan centre are kept
   study   the blind zone and the view at a few tilts, for the owner's driving-tilt decision
+  ball    a ball ~1 m ahead in the middle of the view -> its colour range in config/balls.yaml (LLD §16)
 
-Each step saves config/calibration.yaml. The tool's only command to the tank is cam_set (bridge LLD R22): it
+Each step saves config/calibration.yaml (ball: config/balls.yaml). The tool's only command to the tank is
+cam_set (bridge LLD R22): it
 never drives. The steps take their inputs as functions, so tests drive them with a synthetic tank."""
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import Protocol, cast
 
 import cv2
 import numpy as np
@@ -27,10 +30,14 @@ from numpy.typing import NDArray
 
 from conqueror_ai.adapters import calibration_store, lens_opencv
 from conqueror_ai.adapters.bridge_ws import BridgeLink, CommandRefused
+from conqueror_ai.adapters.detector_config import save_ball
 from conqueror_ai.adapters.mjpeg_source import MjpegSource
+from conqueror_ai.domain import balls as bl
 from conqueror_ai.domain import calib_math as cm
 from conqueror_ai.domain.camera import Calibration, CameraModel
-from conqueror_ai.domain.types import Pose
+from conqueror_ai.domain.types import Frame, Pose
+
+BALLS = Path(__file__).resolve().parents[3] / "config" / "balls.yaml"
 
 Grab = Callable[[], Awaitable[NDArray[np.uint8]]]  # the newest picture, RGB
 Ask = Callable[[str], Awaitable[str]]  # a question to the owner, the typed answer
@@ -40,6 +47,7 @@ CamSet = Callable[
 Click = Callable[[NDArray[np.uint8], str], Awaitable[tuple[float, float]]]  # the owner clicks a point
 
 QVGA = (320, 240)
+VGA = (640, 480)  # the ball step: the camera as cq-objects uses it
 MIN_LENS_PICTURES = 10
 MIN_SERVO_POINTS = 3  # a missed point is skipped; at least this many make the fit (final review I2)
 CONNECT_S = 10.0
@@ -320,17 +328,74 @@ async def _click(img: NDArray[np.uint8], what: str) -> tuple[float, float]:
     return got[0]
 
 
-async def _run(step: str, host: str, out: Path) -> None:
+class Frames(Protocol):
+    async def next_frame(self) -> Frame: ...
+
+
+async def grab_picture(cam: Frames, timeout_s: float = CONNECT_S) -> NDArray[np.uint8]:
+    """A picture taken after the last move (the second new one), as RGB; a plain refusal when none comes or
+    it is broken (final review m7)."""
+    try:
+        f = await asyncio.wait_for(cam.next_frame(), timeout_s)
+        f = await asyncio.wait_for(cam.next_frame(), timeout_s)
+    except TimeoutError:
+        raise Refused(f"no picture from the tank in {timeout_s:.0f} s - is it on?") from None
+    bgr = cast(
+        "NDArray[np.uint8] | None", cv2.imdecode(np.frombuffer(f.jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+    )
+    if bgr is None:
+        raise Refused("a broken picture from the camera - try again")
+    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB).astype(np.uint8)
+
+
+async def ball_colour(
+    name: str,
+    grab: Callable[[], Awaitable[NDArray[np.uint8]]],
+    cam_set: CamSet,
+    cam: CameraModel,
+    n: int = 15,
+) -> bl.BallColour:
+    """The ball's colour (LLD §16.1 item 5): the camera level and centred (cam: that camera), then the
+    coloured round blob nearest the middle below the horizon in n pictures (the ball is put ~1 m ahead in
+    the middle of the view), its middle pixels pooled -> the range; then its size and brightness as the tank
+    measures them (the medians; the brightness limit is V_MEAN_SHARE of it) - Plan Y Task 5."""
+    await cam_set(0.0, 0.0)
+    pics: list[NDArray[np.uint8]] = []
+    pix: list[NDArray[np.uint8]] = []
+    for _ in range(n):
+        rgb = await grab()
+        if rgb.shape[:2] != (cam.cal.size[1], cam.cal.size[0]):
+            raise Refused(
+                f"pictures must be {cam.cal.size[0]} x {cam.cal.size[1]}, got {rgb.shape[1]} x {rgb.shape[0]}"
+                " - set the camera to VGA in Settings"
+            )
+        pics.append(rgb)
+        p = bl.most_coloured_blob(rgb, cam)
+        if p is not None:
+            pix.append(p)
+    if len(pix) < max(1, n // 2):
+        raise Refused(
+            f"no coloured ball found in {n - len(pix)} of {n} pictures - put it ~1 m ahead, in the middle"
+        )
+    c = bl.colour_from_samples(name, np.concatenate(pix), r_min_px=6.0)
+    got = [m for m in (bl.size_and_brightness(rgb, c, cam) for rgb in pics) if m is not None]
+    if len(got) < max(1, n // 2):
+        raise Refused(
+            f"the {name} ball's size was found in only {len(got)} of {n} pictures - is it on the floor?"
+        )
+    size = float(np.median([g[0] for g in got]))
+    v_mean = float(np.median([g[1] for g in got]))
+    return replace(c, size_cm=round(size, 1), v_mean_min=int(v_mean * bl.V_MEAN_SHARE))
+
+
+async def _run(step: str, host: str, out: Path, ball: str = "") -> None:
     link = BridgeLink(host)
     cam = MjpegSource(host)
     stop = asyncio.Event()
     tasks = [asyncio.create_task(link.run(stop)), asyncio.create_task(cam.run(stop))]
 
     async def grab() -> NDArray[np.uint8]:
-        f = await cam.next_frame()
-        f = await cam.next_frame()  # a picture taken after the last move
-        bgr = cv2.imdecode(np.frombuffer(f.jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
-        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB).astype(np.uint8)
+        return await grab_picture(cam)
 
     async def cam_set(pan: float, tilt: float) -> None:
         for _ in range(int(CONNECT_S / 0.1)):
@@ -343,6 +408,15 @@ async def _run(step: str, host: str, out: Path) -> None:
         await asyncio.sleep(1.0)  # the servos move at 120 deg/s; then a new picture
 
     try:
+        if step == "ball":
+            level = CameraModel(calibration_store.load(out, VGA)).for_frame(START, 0.0, 0.0)
+            c = await ball_colour(ball, grab, cam_set, level)
+            save_ball(BALLS, c)
+            print(
+                f"ball {c.name}: hue {c.h_lo}-{c.h_hi}, saturation >= {c.s_min}, value <= {c.v_max},"
+                f" size {c.size_cm} cm, brightness >= {c.v_mean_min} - saved {BALLS}"
+            )
+            return
         cal = calibration_store.load(out, QVGA) if out.exists() else _defaults()
         if step == "lens":
             k, dist, rms, n = await lens(grab, _ask, out.parent, _show)
@@ -379,12 +453,15 @@ async def _run(step: str, host: str, out: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Calibrate the tank's camera (AI engine LLD §8)")
-    ap.add_argument("step", choices=["lens", "mount", "servos", "study"])
+    ap.add_argument("step", choices=["lens", "mount", "servos", "study", "ball"])
+    ap.add_argument("name", nargs="?", default="", help="ball: the ball's name, e.g. green")
     ap.add_argument("--host", default="192.168.31.167")
     ap.add_argument("--out", type=Path, default=Path("config/calibration.yaml"))
     a = ap.parse_args()
     try:
-        asyncio.run(_run(a.step, a.host, a.out))
+        if a.step == "ball" and not a.name:
+            raise Refused("name the ball: cq-calibrate ball green")
+        asyncio.run(_run(a.step, a.host, a.out, a.name))
     except (Refused, ValueError, ConnectionError, TimeoutError) as e:
         raise SystemExit(f"cq-calibrate {a.step}: {e}") from None
     except CommandRefused as e:

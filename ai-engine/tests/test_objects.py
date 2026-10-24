@@ -303,3 +303,81 @@ def test_a_clock_going_back_starts_the_list_again() -> None:  # M6: a bridge res
         )
     p.on_frame(frame(250_000), (320, 240), [])
     assert p.objects() == []
+
+
+# ---- one ball is one thing across pictures (Plan Y final review I2)
+def frames_of(
+    tr: ob.ObjectTracker, cam: CameraModel, things: list[tuple[str, float, float]], n: int, t0_us: int
+) -> int:
+    loc = ob.ObjectLocator(frozenset({"toy", "chair", "ball:green"}))
+    t = t0_us
+    for i in range(n):
+        t = t0_us + i * 100_000
+        located, _ = loc.locate([box_on_floor(cam, x, y, cls=c) for c, x, y in things], cam, t)
+        tr.update(located, cam, t)
+    return t
+
+
+def test_a_word_thing_where_the_colour_ball_is_seen_is_that_ball() -> None:
+    """Far away the finder misses the ball and YOLO-World lists a "toy"; closer, the finder sees it and the
+    toy's boxes are dropped (MultiDetector): the toy is the ball, not a ghost beside it."""
+    tr, cam = ob.ObjectTracker(), cam_at()
+    t = frames_of(tr, cam, [("toy", 2.5, 0.0)], 5, 0)
+    assert [o.cls for o in tr.objects()] == ["toy"]
+    frames_of(tr, cam, [("ball:green", 2.5, 0.0)], 5, t + 100_000)
+    assert [o.cls for o in tr.objects()] == ["ball:green"]
+
+
+def test_a_word_box_on_a_ball_the_finder_misses_keeps_the_ball() -> None:
+    """The ball rolls half out of the picture's edge: the finder misses it, YOLO-World says "toy" - still the
+    one ball."""
+    tr, cam = ob.ObjectTracker(), cam_at()
+    t = frames_of(tr, cam, [("ball:green", 1.0, 0.0)], 5, 0)
+    oid = tr.objects()[0].oid
+    frames_of(tr, cam, [("toy", 1.0, 0.0)], 8, t + 100_000)
+    objs = tr.objects()
+    assert [(o.cls, o.oid, o.state) for o in objs] == [("ball:green", oid, "seen")]
+
+
+def test_a_chair_seen_beside_the_ball_stays_its_own_thing() -> None:
+    tr, cam = ob.ObjectTracker(), cam_at()
+    frames_of(tr, cam, [("ball:green", 1.0, 0.0), ("chair", 1.05, 0.1)], 10, 0)
+    assert sorted(o.cls for o in tr.objects()) == ["ball:green", "chair"]
+
+
+def test_a_word_thing_elsewhere_is_not_taken_by_the_ball() -> None:
+    tr, cam = ob.ObjectTracker(), cam_at()
+    t = frames_of(tr, cam, [("toy", 2.0, 0.5)], 5, 0)
+    frames_of(tr, cam, [("ball:green", 1.0, 0.0)], 3, t + 100_000)  # the toy missed 3 times (< 1 s): kept
+    assert sorted(o.cls for o in tr.objects()) == ["ball:green", "toy"]
+
+
+# ---- the picture's one camera: the horizon and the map use the same (Plan Y final review m8)
+def test_the_camera_for_a_picture_or_why_it_is_skipped() -> None:
+    p = ob.ObjectPipeline(CAL)
+    assert p.camera_at(1_000_000) == "no pose"
+
+
+def test_the_camera_handed_to_a_picture_is_the_one_used() -> None:
+    p = ob.ObjectPipeline(CAL)  # no telemetry: on its own the gate would say "no pose"
+    cam = cam_at()
+    assert p.on_frame(frame(1_000_000), (320, 240), [box_on_floor(cam, 1.0, 0.1)], cam) is cam
+    assert p.last_camera is cam and p.skips() == {}
+    assert p.on_frame(frame(1_100_000), (320, 240), [], "turning") == "turning"
+    assert p.skips() == {"turning": 1}
+
+
+# ---- the floor memory test (Plan Y Task 5): a remembered thing gets vague slowly
+def test_a_ball_out_of_view_is_not_taken_by_a_green_thing_far_from_it() -> None:
+    """On the tank: the ball seen, the camera turned away (no picture used for 1.3 s), then a green reflection
+    1.3 m from the ball. The ball was 'seen' through the gap, so its place grew by the walking-person model
+    (0.5 m in 1 s), hit the 0.5 m cap, and its gate took the reflection. Out of view it is remembered from its
+    last sighting: it may have been moved 5 cm a second, not 1.5 m."""
+    tr = ob.ObjectTracker()
+    t = track_frames(tr, cam_at(), [(1.0, 0.0)], 10)
+    oid = tr.objects()[0].oid
+    track_frames(tr, cam_at(th_deg=90.0), [(0.0, 0.8)], 5, t0_us=t + 1_300_000)
+    objs = {o.oid: o for o in tr.objects()}
+    assert oid in objs and math.hypot(objs[oid].x_m - 1.0, objs[oid].y_m) < 0.05
+    assert objs[oid].sigma_m < 0.25  # its 99 % gate (~3 sigma) stays well short of the 1.3 m reflection
+    assert any(o.oid != oid and math.hypot(o.x_m, o.y_m - 0.8) < 0.05 for o in objs.values())

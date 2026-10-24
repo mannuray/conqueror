@@ -53,6 +53,9 @@ MAX_REMEMBERED_SIGMA_M = (
     0.5  # a remembered thing's position never gets vaguer than this (it would swallow others)
 )
 REMEMBERED_WALK_MPS = 0.05  # how far a remembered thing may have been moved, per second, while out of view
+REMEMBER_AFTER_S = (
+    0.5  # not seen this long (out of view, or no picture used): remembered from its last sighting
+)
 CONFIRM_HITS = 3  # a new thing is listed once seen this often ...
 CONFIRM_S = 0.5  # ... within this long; a new thing missed once is dropped (one false detection is no thing)
 LOOK_MISSES = 3  # the look check: at least this many pictures without it, as well as LOOK_S
@@ -64,9 +67,11 @@ FloatArray = NDArray[np.float64]
 
 
 class Detector(Protocol):
-    """The detector port (LLD §15.1): YoloCoreml on the tank's pictures, a fake in tests."""
+    """The detector port (LLD §15.1, §16): YOLO-World and the colour ball finder on the tank's pictures, a
+    fake in tests. cam: the picture's camera (the ball finder looks below its horizon and checks a ball's
+    size for its distance), None for a picture the gate skips (its boxes are only shown)."""
 
-    def detect(self, rgb: NDArray[np.uint8]) -> list[Detection]: ...
+    def detect(self, rgb: NDArray[np.uint8], cam: CameraModel | None) -> list[Detection]: ...
 
 
 def sigma_at(d: float) -> float:
@@ -148,13 +153,16 @@ class Near:
 
 
 class ObjectLocator:
+    def __init__(self, floor_classes: frozenset[str] = FLOOR_CLASSES) -> None:
+        self.floor_classes = floor_classes  # LLD §16: the vocabulary's floor words and the colour balls
+
     def locate(self, dets: list[Detection], cam: CameraModel, t_us: int) -> tuple[list[Located], list[Near]]:
         located: list[Located] = []
         near: list[Near] = []
         h = cam.cal.size[1]
         c = cam.position()
         for d in dets:
-            if d.cls not in FLOOR_CLASSES:
+            if d.cls not in self.floor_classes:
                 continue
             x1, y1, x2, y2 = d.box
             u = (x1 + x2) / 2.0
@@ -190,8 +198,25 @@ class _Thing:
     misses_in_view: int = 0
     hits: int = 1
     confirmed: bool = False
+    x_seen: FloatArray | None = None  # x and p at the last sighting
+    p_seen: FloatArray | None = None
 
     def predict(self, t_us: int) -> None:
+        if (
+            self.state == "seen"
+            and (t_us - self.last_us) / 1e6 > REMEMBER_AFTER_S
+            and self.x_seen is not None
+        ):
+            # not seen for a while (Plan Y Task 5 memory test): from the last sighting it has probably
+            # stopped and may have been moved a little - not the walking-person growth of 0.5 m a second,
+            # which let a reflection 1.5 m away take the ball
+            assert self.p_seen is not None
+            self.x, self.p, self.t_us, self.state = (
+                self.x_seen.copy(),
+                self.p_seen.copy(),
+                self.last_us,
+                "remembered",
+            )
         dt = (t_us - self.t_us) / 1e6
         if dt <= 0:
             return
@@ -231,6 +256,7 @@ class _Thing:
         k = self.p @ _H.T @ np.linalg.inv(s)
         self.x = self.x + k @ (np.array([z.x, z.y]) - _H @ self.x)
         self.p = (np.eye(4) - k @ _H) @ self.p
+        self.x_seen, self.p_seen = self.x.copy(), self.p.copy()
 
     def estimate(self) -> ObjectEstimate:
         sigma = math.sqrt(float(np.linalg.eigvalsh(self.p[:2, :2]).max()))
@@ -248,8 +274,22 @@ class _Thing:
         )
 
 
+BALL_PREFIX = "ball:"  # the colour finder's things (§16)
+OTHER_WORD_RANK = 1e9  # a word box on a ball is tried after every pair of the same class
+
+
+def _is_ball(cls: str) -> bool:
+    return cls.startswith(BALL_PREFIX)
+
+
 @dataclass
 class ObjectTracker:
+    """One thing per thing. A colour ball is one thing whatever YOLO-World calls it (Plan Y final review I2):
+    a word box (say "toy") at a listed ball's place updates that ball when nothing of its own class takes it
+    (the finder missed the ball: at the picture's edge, half hidden); and when the finder sees a listed ball,
+    a word thing at its place not seen in that picture is the ball (its boxes were dropped as the ball's)
+    and goes."""
+
     _things: list[_Thing] = field(default_factory=lambda: list[_Thing]())
     _next: int = 1
 
@@ -259,18 +299,22 @@ class ObjectTracker:
         pairs: list[tuple[float, int, int]] = []
         for i, th in enumerate(self._things):
             for j, z in enumerate(located):
-                if th.cls == z.cls:
+                same = th.cls == z.cls
+                if same or (th.confirmed and _is_ball(th.cls) and not _is_ball(z.cls)):
                     d2, rank = th.cost(z)
                     if d2 <= GATE_D2:
-                        pairs.append((rank, i, j))
+                        pairs.append((rank if same else rank + OTHER_WORD_RANK, i, j))
         pairs.sort()
         used_t: set[int] = set()
         used_z: set[int] = set()
+        balls_seen: list[Located] = []  # the finder's balls matched to listed balls in this picture
         for _, i, j in pairs:
             if i in used_t or j in used_z:
                 continue
             used_t.add(i)
             used_z.add(j)
+            if self._things[i].confirmed and _is_ball(located[j].cls):
+                balls_seen.append(located[j])
             th = self._things[i]
             th.update(located[j])
             th.state, th.last_us, th.in_view_since, th.misses_in_view = "seen", t_us, None, 0
@@ -279,6 +323,8 @@ class ObjectTracker:
                 th.confirmed = True
         keep: list[_Thing] = []
         for i, th in enumerate(self._things):
+            if i not in used_t and not _is_ball(th.cls) and any(th.cost(z)[0] <= GATE_D2 for z in balls_seen):
+                continue  # a word thing where the finder sees a ball: it was that ball
             if not th.confirmed and (i not in used_t or (t_us - th.first_us) / 1e6 > CONFIRM_S):
                 continue  # a new thing missed once, or not confirmed in time: one false detection is no thing
             if i not in used_t and not self._still_there(th, cam, t_us):
@@ -287,7 +333,10 @@ class ObjectTracker:
         for j, z in enumerate(located):
             if j not in used_z:
                 p = np.diag([z.sigma**2, z.sigma**2, NEW_SPEED_SIGMA**2, NEW_SPEED_SIGMA**2])
-                keep.append(_Thing(self._next, z.cls, np.array([z.x, z.y, 0.0, 0.0]), p, t_us, t_us, t_us))
+                x = np.array([z.x, z.y, 0.0, 0.0])
+                keep.append(
+                    _Thing(self._next, z.cls, x, p, t_us, t_us, t_us, x_seen=x.copy(), p_seen=p.copy())
+                )
                 self._next += 1
         self._things = keep
 
@@ -312,13 +361,13 @@ class ObjectTracker:
 class ObjectPipeline:
     """Telemetry and pictures in arrival order -> the list. The detector is run outside and handed in."""
 
-    def __init__(self, cal: Calibration) -> None:
+    def __init__(self, cal: Calibration, floor_classes: frozenset[str] = FLOOR_CLASSES) -> None:
         self.cal = cal
         self._pose = PoseFilter()
         self._history = PoseHistory()
         self._angles = CameraAngles()
         self.gate = FrameGate(cal, self._history, self._angles)
-        self._locator = ObjectLocator()
+        self._locator = ObjectLocator(floor_classes)
         self.tracker = ObjectTracker()
         self._near: list[Near] = []
         self._skips: Counter[str] = Counter()
@@ -332,8 +381,16 @@ class ObjectPipeline:
         self._history.push(self._pose.update(s))
         self._angles.push(s)
 
-    def on_frame(self, f: Frame, size: tuple[int, int], dets: list[Detection]) -> CameraModel | str:
-        """Use one picture (its decoded size, its detections): its camera, or why it was skipped."""
+    def camera_at(self, cap_us: int) -> CameraModel | str:
+        """The camera for a picture before detecting (for its horizon), or why the gate skips it. Hand it to
+        on_frame, so the horizon and the map use the one camera (Plan Y final review m8)."""
+        return self.gate.camera_for(cap_us)
+
+    def on_frame(
+        self, f: Frame, size: tuple[int, int], dets: list[Detection], cam: CameraModel | str | None = None
+    ) -> CameraModel | str:
+        """Use one picture (its decoded size, its detections, the camera from camera_at if taken): its camera,
+        or why it was skipped."""
         if self._last_cap_us is not None and f.cap_us < self._last_cap_us:
             self.tracker = (
                 ObjectTracker()
@@ -342,7 +399,8 @@ class ObjectPipeline:
         if size != self.cal.size:
             self._skips["picture size"] += 1
             return "picture size"
-        cam = self.gate.camera_for(f.cap_us)
+        if cam is None:
+            cam = self.gate.camera_for(f.cap_us)
         if isinstance(cam, str):
             self._skips[cam] += 1
             return cam

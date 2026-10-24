@@ -701,3 +701,150 @@ sequenceDiagram
   - **The adapter is right:** on standard pictures (Ultralytics bus / zidane, COCO 139 / 39769) it finds a chair 0.75, a TV 0.89, cats 0.79, a bus and people 0.81–0.94, even shrunk to 320 × 240. The pictures are the problem: things are small and pale, and seen from floor level.
 - **Owner (2026-10-24): "go with what we have"** — YOLO26n (COCO) stays. Floor-level naming is a later design (design-notes §151): a detector trained on the tank's own pictures, or YOLO-World; obstacles from the floor plane + depth + sonar.
 - **Not checked on the tank:** the memory test (a thing kept while the camera looks away; host tests only), a person walking across, and `--live` (review M5).
+
+## 16. What spots things: YOLO-World and a colour ball finder (owner, 2026-10-24, design-notes §152 — approved 2026-10-24: "write")
+
+### 16.0 Why
+- From 18 cm, YOLO26n (COCO) is too unsure to list things (§15.9, design-notes §151–§152):
+  - the chair scores 0.09;
+  - the ball at most 0.37 even with twice the pixels;
+  - a 120 px bottle stays under 0.25.
+- **YOLO-World**, asked by name, found the same chair in 20 of 20 pictures (0.82), and "green ball" on the ball in 8 of 20 (≤ 0.36).
+- **A plain colour finder** found the ball in 187 of 194 pictures, steady to ±1.6 px, and placed it 97 cm from the lens (owner ~1 m), in 1.1 ms.
+- **This section replaces the detector under §15. The rest of §15 doesn't change:** the gate, the floor trick, the tracker and `cq-objects`.
+
+### 16.1 What changes
+1. **`YoloWorld`** (adapter, the `Detector` port of §15.1) replaces `YoloCoreml`.
+   - **The model:** `ai-engine/models/yoloworld-s-640.mlpackage` (git-ignored, GPL-3.0).
+     - It's made by `tools/measure/export_world.py`, which loads `yolov8s-worldv2.pt`, calls `set_classes(<the words>)`, and exports CoreML at 640.
+     - The words are baked into the model (YOLO-World's "offline vocabulary"), so each picture runs only the detector.
+     - A model made for other words is refused: its baked-in names must equal the vocabulary file's, in order.
+   - **In:** the VGA picture, letterboxed to 640 × 640 the same way as §15.1.
+   - **Out:** `Detection(cls, score, box)` for each box at or above its word's own threshold.
+2. **`config/vocabulary.yaml`**, the words: a list of `{word, floor, min_score}`.
+   - `floor: true` marks things that stand on the floor, which replaces the hard-coded `FLOOR_CLASSES`.
+   - `min_score` is 0.25 unless set.
+   - **Starting list:** person, chair, table, bed, sofa, door, bottle, shoe, box, toy. All `floor: true`, except door (`false`: it's in the wall).
+   - **Changing the words:** edit the file, then run `export_world.py`, about a minute. `cq-objects` refuses a model whose words differ ("re-export: the words changed").
+3. **`ColourBallFinder`** (adapter, also a `Detector`) finds round blobs of known colours below the horizon.
+   - **Each ball** in `config/balls.yaml`: `{name, h: [lo, hi], s_min, v_max, r_min_px}`. For example, green: `h [45, 90]`, `s_min 65`, `v_max 200`, `r_min_px 6` (design-notes §152).
+   - **Per picture:**
+     - blur 5 × 5;
+     - an HSV mask per ball, with rows above the horizon cleared (the horizon row comes from the camera model of that picture);
+     - open 3 × 3;
+     - the largest contour with roundness `area / (π r²)` ≥ 0.55 and `r ≥ r_min_px`.
+   - **Out:** `Detection("ball:<name>", score = min(1, roundness × 1.4), box = the enclosing circle's square)`. The floor trick uses the box's bottom, as for any thing.
+   - **No ball** gives no detection, and never a guess.
+4. **`MultiDetector`** (domain) runs the two detectors on the same picture and joins their lists. That one list goes to the tracker, so a ball can come from either.
+   - A YOLO-World "ball" box that overlaps a colour ball's box (IoU ≥ 0.5) is dropped, so one ball is one thing. The colour finder wins, because it's steadier.
+5. **`cq-calibrate ball <name>`:** you put the ball about 1 m ahead in the middle of the view. It records 3 s, takes the most saturated round blob below the horizon, and writes its range to `balls.yaml`:
+   - hue p5–p95 widened by 5;
+   - `s_min` = p10 − 10;
+   - `v_max` = p90 + 15.
+6. **VGA:**
+   - `calibration_store.load(path, (640, 480))` scales the QVGA file: the lens matrix `k` (fx, fy, cx, cy) × 2, distortion unchanged. This assumes the same field of view at both sizes, so the file says `size: [320, 240]` and VGA is derived.
+   - **One check on the tank:** a checkerboard picture at VGA, whose corners must land within 1 px of the scaled model.
+   - The gate's picture-size skip (§15.2) expects 640 × 480.
+7. **Camera setting B** (brightness −1, contrast +2, low light on, white balance "sunny") is the setting the colour ranges were measured at. `cq-objects` prints a warning when the tank's camera block differs.
+
+### 16.2 Classes
+```mermaid
+classDiagram
+  class Detector {
+    <<Protocol, §15.1>>
+    +detect(rgb) list~Detection~
+  }
+  class YoloWorld {
+    +__init__(model_path, vocab)
+    +detect(rgb) list~Detection~
+    -letterbox(rgb) array
+  }
+  class ColourBallFinder {
+    +__init__(balls, horizon_row)
+    +detect(rgb) list~Detection~
+    -blob(hsv, ball) Detection?
+  }
+  class MultiDetector {
+    +__init__(detectors)
+    +detect(rgb) list~Detection~
+    -dedupe(dets) list~Detection~
+  }
+  class Vocabulary {
+    +words list~Word~
+    +floor_classes frozenset~str~
+    +min_score(word) float
+    +load(path) Vocabulary
+  }
+  class Word { +word +floor +min_score }
+  class BallColour { +name +h_lo +h_hi +s_min +v_max +r_min_px }
+  class BallCalibrator {
+    +sample(frames, horizon_row) BallColour
+  }
+  Detector <|.. YoloWorld
+  Detector <|.. ColourBallFinder
+  Detector <|.. MultiDetector
+  MultiDetector o-- Detector
+  YoloWorld --> Vocabulary
+  Vocabulary o-- Word
+  ColourBallFinder o-- BallColour
+  BallCalibrator ..> BallColour
+  ObjectLocator ..> Vocabulary : floor_classes
+```
+- **Pure (domain, host-tested):** `MultiDetector`, `Vocabulary`, `BallColour`, and the blob step of `ColourBallFinder` (OpenCV on arrays; no files, no clock).
+- **Adapters:** `YoloWorld` (CoreML), the YAML loaders, `BallCalibrator`'s recording.
+- **`horizon_row`** is a function of the picture's camera angles. `ObjectPipeline` hands the finder the row from that picture's `CameraModel`, so the finder never looks at the ceiling. When the horizon is off the picture (camera tilted far down), the whole picture is searched.
+
+### 16.3 One picture
+```mermaid
+sequenceDiagram
+  participant P as ObjectPipeline (§15)
+  participant G as FrameGate
+  participant M as MultiDetector
+  participant W as YoloWorld
+  participant C as ColourBallFinder
+  participant L as ObjectLocator
+  participant T as ObjectTracker
+  P->>G: camera_for(cap_us)
+  G-->>P: CameraModel (or a skip reason)
+  P->>M: detect(rgb), horizon row from the camera model
+  M->>W: detect(rgb)
+  W-->>M: person 0.6, chair 0.8, ball 0.3 ...
+  M->>C: detect(rgb)
+  C-->>M: ball:green 0.86
+  M->>M: drop W's "ball" overlapping ball:green (IoU >= 0.5)
+  M-->>P: one list
+  P->>L: locate(list, camera) (floor words only)
+  P->>T: update(located, camera, t)
+```
+
+### 16.4 Budget
+- YOLO-World-S at 640 on the Neural Engine: target ≤ 30 ms; measured in the plan's first task.
+  - If it's over, export at 480, then re-measure the chair and the ball.
+- The colour finder: ~1 ms at VGA.
+- **Together ≤ 40 ms a picture**, so ≥ 25 pictures a second with the camera's ~24.
+
+### 16.5 Tests
+- **`tests/test_detectors.py`:**
+  - the colour finder on drawn pictures:
+    - a green disc on a pale floor is found, with its box;
+    - a green disc above the horizon is ignored;
+    - a green square (not round) is ignored;
+    - a pale green-tinted floor with no ball gives nothing;
+    - two balls of different colours give one each;
+  - the `MultiDetector` join and the IoU drop;
+  - `Vocabulary`: floor classes, default and own thresholds, a duplicate word refused, and the model-words-differ refusal;
+  - the scaled VGA calibration: k × 2, `pixel_to_floor` at (2u, 2v) VGA equals (u, v) QVGA.
+- **`tests/test_ball_calibrator.py`:** drawn frames with a known HSV → the written range holds the sample with the stated margins.
+- **Replay:** a VGA recording through `cq-objects` with a fake YOLO-World and the real colour finder → one `ball:green` thing.
+- **On the floor** (owner; nothing moves except the camera in step 3):
+  1. the VGA checkerboard check (§16.1 item 6);
+  2. the ball at 1 m and 2 m: one `ball:green`, its distance within 5 / 15 cm of the tape;
+  3. the memory test (§15.8): the camera looks away for 12 s and back, and the ball keeps its `#oid`;
+  4. the chair and a person listed;
+  5. `cq-objects --live` shows the boxes and the plan;
+  6. the time per picture.
+
+### 16.6 Not in this section
+- Obstacles from the floor plane + depth + sonar (map phase 5).
+- Training a detector on the tank's own pictures, unless YOLO-World proves too weak.
+- More than one ball of the same colour being told apart; the tracker separates them by place.

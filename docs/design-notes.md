@@ -2042,3 +2042,21 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - never sending: **4 drops in 15 s**, 703 `td` samples;
   - pinging every 1 s: **0 drops**, 749 samples.
 - **Decision:** no firmware change. The AI engine is not affected. Session scripts use `BridgeLink` (or ping every 1 s).
+
+## 143. The camera clock: 20 MHz (owner, 2026-10-24; §140 item 4)
+- **Why it was 10 MHz:** in 2026-10-16 (§57, LLD R4.14) the camera at 20 MHz made the WiFi lose half its packets. Later (§76) the cause turned out to be the clock pin's **drive strength**; the weakest drive (`kCamXclkDrive` 0) gave 0 % loss, but the clock stayed at 10 MHz.
+- **How it was measured** (`clk_measure.py`, the tank standing):
+  - the camera streaming for 20 s or 60 s;
+  - the capture rate from the stream's `X-Frame-Us` stamps and the arrival rate;
+  - meanwhile the Mac pinged the bridge 5 times a second (loss and round trip);
+  - each clock built and flashed over WiFi (only `kCamXclkHz` changed).
+
+  | Clock | QVGA pictures / s | Ping loss | Round trip avg / max |
+  |---|---|---|---|
+  | 10 MHz | 13.8 | 0 % | 7.3 / 18 ms |
+  | 16 MHz | 17.7 | 0 % | 7.2 / 43 ms |
+  | **20 MHz** | **27.5** (60 s: 27.3) | **0 %** (0 / 300) | 7.0 / 24 ms (60 s: 7.4 / 59) |
+  | **20 MHz, VGA, 60 s** | **23.6** (§109: 6.9 at 10 MHz) | **0 %** (0 / 300) | 7.4 / 56 ms |
+
+- **Owner: "yes" → `kCamXclkHz` = 20 MHz** (`include/board_config.h`); the drive stays at 0.
+- **For phase 4:** VGA at ~24 pictures / s makes the VGA detector trial (§141: people are too small at QVGA) practical.

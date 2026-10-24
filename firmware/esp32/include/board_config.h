@@ -51,8 +51,10 @@ constexpr int kCamPclk = 13;
 // Owner 2026-10-18: camera back on - its clock pin at the weakest drive no longer disturbs the WiFi (LLD R12).
 // false = never started: /stream and /capture answer 503, the page shows no video.
 constexpr bool kCameraEnabled = true;
-// 10 MHz, not 20: with the camera at 20 MHz the WiFi lost half its packets (LLD R4.14, 2026-10-16).
-constexpr uint32_t kCamXclkHz = 10000000UL;
+// 20 MHz (design-notes §143, 2026-10-24): with the weakest XCLK drive (below) the WiFi stays clean - 0 of 600 pings
+// lost while streaming - and the camera captures 27 QVGA / 24 VGA pictures a second (14 / 7 at 10 MHz). At 20 MHz with
+// the default drive the WiFi had lost half its packets (LLD R4.14, 2026-10-16); the drive was the cause (§76).
+constexpr uint32_t kCamXclkHz = 20000000UL;
 // Gentle XCLK edges: at the driver's default drive 2 the clock reaches the antenna (83-100 % ping loss); drive 0 = 0 %
 // (LLD R12, design-notes §76).
 constexpr int kCamXclkDrive = 0;  // GPIO_DRIVE_CAP_0 (weakest of 0..3)

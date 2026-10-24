@@ -273,10 +273,37 @@ var LogoCore = (function () {
     return end.reason === "finished" ? "Done" : "Ended (" + end.reason + ")" + (end.line ? " on line " + end.line : "") + ": " + end.msg;
   }
 
+  // ---------- revision N6: the laptop layout (§23) ----------
+  // A key -> "stop" | "run" | "step" | "save" | null. Esc always stops, even held down; the others never repeat
+  // (a held Ctrl+Enter must not start a program twice). Alt is left to the browser.
+  function shortcut(key, ctrl, meta, alt, shift, repeat) {
+    if (key === "Escape") return "stop";
+    if (alt || repeat) return null;
+    var cmd = ctrl || meta;
+    if (key === "Enter" && cmd) return "run";
+    if (key === "F10") return "step";
+    if ((key === "s" || key === "S") && cmd) return "save";
+    return null;
+  }
+
+  // The bottom panel's tab: a start shows MESSAGES; problems show PROBLEMS when idle and the owner has not picked
+  // a tab since the last start. Returns a new state.
+  function panelTab(s0, ev) {
+    var s = { tab: s0.tab, picked: s0.picked };
+    if (ev.e === "pick") { s.tab = ev.tab; s.picked = true; }
+    else if (ev.e === "started") { s.tab = "messages"; s.picked = false; }
+    else if (ev.e === "problems" && ev.n > 0 && !ev.running && !s.picked) s.tab = "problems";
+    return s;
+  }
+
+  // The camera streams only while it can be seen.
+  function cameraWanted(wide, hiddenByUser, pageHidden) { return wide && !hiddenByUser && !pageHidden; }
+
   return {
     wordIndex: wordIndex, ownWords: ownWords, colour: colour, insertWord: insertWord, Drafts: Drafts,
     fitView: fitView, toScreen: toScreen, plannedRuns: plannedRuns, CheckScheduler: CheckScheduler, RequestQueue: RequestQueue,
-    runBarStart: runBarStart, runBar: runBar, canRun: canRun, locked: locked, endText: endText, NACK_TEXT: NACK_TEXT
+    runBarStart: runBarStart, runBar: runBar, canRun: canRun, locked: locked, endText: endText, NACK_TEXT: NACK_TEXT,
+    shortcut: shortcut, panelTab: panelTab, cameraWanted: cameraWanted
   };
 })();
 if (typeof module !== "undefined") module.exports = LogoCore;

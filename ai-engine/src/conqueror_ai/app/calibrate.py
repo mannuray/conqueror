@@ -22,6 +22,7 @@ import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import Protocol, cast
 
 import cv2
 import numpy as np
@@ -34,7 +35,7 @@ from conqueror_ai.adapters.mjpeg_source import MjpegSource
 from conqueror_ai.domain import balls as bl
 from conqueror_ai.domain import calib_math as cm
 from conqueror_ai.domain.camera import Calibration, CameraModel
-from conqueror_ai.domain.types import Pose
+from conqueror_ai.domain.types import Frame, Pose
 
 BALLS = Path(__file__).resolve().parents[3] / "config" / "balls.yaml"
 
@@ -326,12 +327,33 @@ async def _click(img: NDArray[np.uint8], what: str) -> tuple[float, float]:
     return got[0]
 
 
+class Frames(Protocol):
+    async def next_frame(self) -> Frame: ...
+
+
+async def grab_picture(cam: Frames, timeout_s: float = CONNECT_S) -> NDArray[np.uint8]:
+    """A picture taken after the last move (the second new one), as RGB; a plain refusal when none comes or
+    it is broken (final review m7)."""
+    try:
+        f = await asyncio.wait_for(cam.next_frame(), timeout_s)
+        f = await asyncio.wait_for(cam.next_frame(), timeout_s)
+    except TimeoutError:
+        raise Refused(f"no picture from the tank in {timeout_s:.0f} s - is it on?") from None
+    bgr = cast(
+        "NDArray[np.uint8] | None", cv2.imdecode(np.frombuffer(f.jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+    )
+    if bgr is None:
+        raise Refused("a broken picture from the camera - try again")
+    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB).astype(np.uint8)
+
+
 async def ball_colour(
-    name: str, grab: Callable[[], Awaitable[NDArray[np.uint8]]], n: int = 15
+    name: str, grab: Callable[[], Awaitable[NDArray[np.uint8]]], cam_set: CamSet, n: int = 15
 ) -> bl.BallColour:
-    """The ball's colour (LLD §16.1 item 5): the most coloured round blob in the lower half of n pictures
-    (the ball
-    is put ~1 m ahead in the middle of the view), its middle pixels pooled -> the range."""
+    """The ball's colour (LLD §16.1 item 5): the camera level and centred (so the floor is the lower half),
+    then the coloured round blob nearest the middle in the lower half of n pictures (the ball is put ~1 m
+    ahead in the middle of the view), its middle pixels pooled -> the range."""
+    await cam_set(0.0, 0.0)
     pix: list[NDArray[np.uint8]] = []
     for _ in range(n):
         rgb = await grab()
@@ -352,10 +374,7 @@ async def _run(step: str, host: str, out: Path, ball: str = "") -> None:
     tasks = [asyncio.create_task(link.run(stop)), asyncio.create_task(cam.run(stop))]
 
     async def grab() -> NDArray[np.uint8]:
-        f = await cam.next_frame()
-        f = await cam.next_frame()  # a picture taken after the last move
-        bgr = cv2.imdecode(np.frombuffer(f.jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
-        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB).astype(np.uint8)
+        return await grab_picture(cam)
 
     async def cam_set(pan: float, tilt: float) -> None:
         for _ in range(int(CONNECT_S / 0.1)):
@@ -369,7 +388,7 @@ async def _run(step: str, host: str, out: Path, ball: str = "") -> None:
 
     try:
         if step == "ball":
-            c = await ball_colour(ball, grab)
+            c = await ball_colour(ball, grab, cam_set)
             save_ball(BALLS, c)
             print(
                 f"ball {c.name}: hue {c.h_lo}-{c.h_hi}, saturation >= {c.s_min}, value <= {c.v_max}"

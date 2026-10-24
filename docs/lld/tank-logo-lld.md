@@ -1066,3 +1066,253 @@ stateDiagram-v2
   - HOLD never refused / GO needs encoders;
   - GO without encoders → 7021 (`errors.yaml`).
 
+
+## 23. Revision N6 — the `/logo` page as an editor on the laptop (approved by the owner 2026-10-24, design-notes §147)
+On a laptop or tablet the page fills the window like a code editor. **The page itself never scrolls**; only the program list, the editor and the bottom panel scroll inside themselves. The run pane gets the **camera**. **The phone layout (narrower than 900 px) does not change**: it scrolls as today (§21), since Logo is meant for the laptop. How programs are checked, run and saved does not change, and the bridge does not change: only `logo.html`, `logo.js` and their tests do.
+
+### 23.1 Decisions (owner, 2026-10-24: "yes all as recommended")
+1. **Three columns with fixed sizes:**
+   - programs 220 px;
+   - the editor takes the rest;
+   - the run pane is about a third of the width (camera above, path below).
+2. **A bottom panel under the editor** with two tabs, **PROBLEMS** (with a count) and **MESSAGES**.
+   - Clicking a problem jumps to its line (as today).
+   - When a program starts, MESSAGES opens by itself.
+3. **A status bar along the bottom:**
+   - while a program runs: the running line and round;
+   - otherwise: the word help while typing;
+   - RUN and STEP on the right.
+   - **STOP stays in the top bar**, red, always on screen.
+4. **The camera pane** above the path:
+   - 4:3, with the sonar distance on the picture;
+   - a **HIDE** button gives its space to the path, remembered in this browser;
+   - it streams **only while it is shown**.
+5. **Keyboard shortcuts**, from anywhere on the page, the editor included:
+   - **Esc = STOP**;
+   - **Ctrl/⌘ + Enter = RUN**;
+   - **F10 = STEP**;
+   - **Ctrl/⌘ + S = save on the tank**.
+   - Each is shown as a hint on its button.
+6. **Fixed sizes, no draggable dividers** in this revision (they can come later if missed).
+7. **Under 900 px** (phones, a tablet held upright): the §21 layout, unchanged. The shortcuts work there too, for a tablet with a keyboard.
+
+### 23.2 The layout (900 px wide or more)
+```
+┌ ‹DRIVE  [ TANK LOGO ]   7.6V  WIFI  UNO              ☰   STOP Esc ┐ header
+├────────────┬───────────────────────────────┬─────────────────────┤
+│ PROGRAMS   │ FD RT LT REPEAT GO LOOK …  →  │ CAMERA        HIDE  │
+│ ▸ saved    │ ┌───────────────────────────┐ │ 4:3 picture         │
+│ ▸ examples │ │ 1  REPEAT 4 [             │ │ ▸ 64 cm  (sonar)    │
+│ (scrolls)  │ │ 2    FORWARD 50           │ ├─────────────────────┤
+│            │ │ 3    RIGHT 90 ]           │ │ PATH                │
+│            │ │  editor: fills, scrolls   │ │ (fills)             │
+│ NEW SAVE   │ └───────────────────────────┘ │ HEADING DIST TIME   │
+│ RENAME DEL │ PROBLEMS 1 │ MESSAGES         │                     │
+│            │ (about 9 lines, scrolls)      │                     │
+├────────────┴───────────────────────────────┴─────────────────────┤
+│ ● RUNNING line 2, round 3 · FORWARD n: drive n cm  STEP F10  ▶ RUN ⌘↵ │ status bar
+└──────────────────────────────────────────────────────────────────┘
+```
+- **The page box:**
+  - `body` is `height: 100dvh; overflow: hidden` and a grid of three rows: header (auto), work area (`1fr`, `min-height: 0`), status bar (auto).
+  - **The work area's columns:** `220px minmax(0, 1fr) minmax(320px, 34%)`.
+  - **Each column is a flex column**; the part that grows has `flex: 1; min-height: 0`:
+    - programs: the list grows and scrolls, the buttons sit at its bottom;
+    - centre: the word row (one line, scrolls sideways), the editor (grows) and the bottom panel (fixed, `12em`);
+    - run pane: the camera (`aspect-ratio: 4 / 3`, gone when hidden), the path (grows) and the three stats.
+- **The phone's PROGRAM / PATH tabs and the mini path** stay hidden on the laptop (as today).
+- **Nothing in the window scrolls the page.** The check is `document.scrollingElement.scrollHeight ≤ innerHeight` at 1280 × 800 and 1024 × 700, with a 300-line program and 200 messages.
+- **One page, two arrangements:** the same elements are used in both. *(As built, §23.8: only `#diags` and `#help` move; the word row moves by CSS `order`, and the messages and status stay where they are.)* The design said `Layout` moves five of them when the width crosses 900 px:
+  - the word row (`#pad`);
+  - the help line (`#help`);
+  - the problems (`#diags`);
+  - the messages (`#log`);
+  - the run bar's status (`#status`).
+  - Under 900 px they go back to where §21 puts them, so the phone page is the same as before.
+
+### 23.3 Classes
+```mermaid
+classDiagram
+  class LogoPage {
+    +start()
+    -onRun(step)
+    -onStop()
+    -onSave()
+  }
+  class Layout {
+    +wide bool
+    +apply(wide)
+    -move(node, slot)
+  }
+  class BottomPanel {
+    +tab
+    +problems int
+    +show(tab)
+    +onEvent(e)
+  }
+  class CameraPane {
+    +hidden bool
+    +update()
+    -start()
+    -stop()
+    +sonar(cm)
+  }
+  class StatusBar {
+    +running(line, round)
+    +ended(text)
+    +help(text)
+  }
+  class Shortcuts {
+    +onKey(e)
+  }
+  class shortcut {
+    <<pure, logo.js>>
+    +shortcut(key, ctrl, meta, alt, shift, repeat) Action
+  }
+  class panelTab {
+    <<pure, logo.js>>
+    +panelTab(state, event) PanelState
+  }
+  class cameraWanted {
+    <<pure, logo.js>>
+    +cameraWanted(wide, hiddenByUser, pageHidden) bool
+  }
+  LogoPage --> Layout
+  LogoPage --> BottomPanel
+  LogoPage --> CameraPane
+  LogoPage --> StatusBar
+  LogoPage --> Shortcuts
+  Shortcuts ..> shortcut
+  BottomPanel ..> panelTab
+  CameraPane ..> cameraWanted
+  Layout ..> CameraPane : width change → update()
+```
+- **Pure, in `logo.js` and tested by Node:**
+  - **`shortcut(key, ctrl, meta, alt, shift, repeat)`** → `"stop" | "run" | "step" | "save" | null`:
+    - `Escape` → `stop`, even when repeated;
+    - `Enter` with Ctrl or ⌘ → `run`;
+    - `F10` → `step`;
+    - `s` / `S` with Ctrl or ⌘ → `save`;
+    - with Alt held → `null`;
+    - `run` / `step` / `save` while the key is held down (repeat) → `null`, so a held key can't start a program twice.
+  - **`panelTab(state, event)`** → `{tab, picked}`:
+    - `{e: "pick", tab}` (a click) sets the tab and `picked`;
+    - `{e: "started"}` (`logo_started`) → MESSAGES and clears `picked`;
+    - `{e: "problems", n}`: when `n > 0`, no program is running and the user hasn't picked a tab since the last start → PROBLEMS;
+    - nothing else changes the tab.
+  - **`cameraWanted(wide, hiddenByUser, pageHidden)`** → stream only when the layout is wide, the pane is not hidden, and the page is visible.
+- **DOM only, in `logo.html`:**
+  - **`Layout`:** a `matchMedia("(min-width: 900px)")` listener; `apply` moves the five elements into the slots of §23.2 and calls `CameraPane.update()` and `draw()`.
+  - **`BottomPanel`:** the two tab buttons and their counts; it reads `panelTab`.
+  - **`CameraPane`:** the stream (below).
+  - **`StatusBar`:** today's `#status` text; when no program runs, the help line sits next to it.
+  - **`Shortcuts`:** one `keydown` listener on `window`, in the capture phase, so it runs before the editor's own Tab handling.
+    - Each action is **the same as pressing its button**: a disabled button means no action. STOP is never disabled.
+    - It calls `preventDefault()` for each action, so the browser's own "save page" and F10 menu don't open.
+    - Esc in an open SAVE AS / DELETE dialog also closes the dialog.
+
+### 23.4 Running, seen on the page
+```mermaid
+sequenceDiagram
+  participant U as owner
+  participant K as Shortcuts / RUN button
+  participant P as LogoPage
+  participant B as bridge (/ws)
+  participant V as BottomPanel · StatusBar · Editor · PathView
+  U->>K: Ctrl/⌘ + Enter
+  K->>P: onRun(false)  (same checks as the RUN button)
+  P->>B: logo_run {text}
+  B-->>P: ev logo_started
+  P->>V: panelTab(started) → MESSAGES · status "RUNNING"
+  loop each line
+    B-->>P: ev logo_line {line, round} · logo_pose
+    P->>V: highlight the line · status "line n, round r" · path grows
+  end
+  U->>K: Esc
+  K->>P: onStop()
+  P->>B: stop
+  B-->>P: ev logo_ended {reason 7040}
+  P->>V: status "STOPPED BY YOU" · the message in MESSAGES
+```
+
+### 23.5 The camera pane
+```mermaid
+stateDiagram-v2
+  [*] --> Off
+  Off --> Connecting: cameraWanted() becomes true
+  Connecting --> Showing: picture arrives (img load / first frame)
+  Connecting --> Retry: error (no stream / "max 2 viewers")
+  Showing --> Retry: stream breaks
+  Retry --> Connecting: after 3 s, if still wanted
+  Connecting --> Off: no longer wanted
+  Showing --> Off: no longer wanted
+  Retry --> Off: no longer wanted
+```
+- **The stream:** `http://<tank>:81/stream?t=<now>` into an `<img>`, the same way as the Drive page (bridge LLD R3). Clearing `src` closes the connection. The pane is "wanted" when **HIDE** is not pressed, the window is 900 px or wider, and the page is visible (`visibilitychange`).
+- **While it isn't showing:** the pane reads "NO CAMERA" or, after a refusal, "CAMERA BUSY (2 VIEWERS)", and tries again every 3 s while still wanted.
+- **The sonar:** the latest `tf.dist_cm` (already read for the DISTANCE AHEAD stat), drawn on the picture's lower left; `--` when there is none.
+- **HIDE / SHOW:** kept in `localStorage` `logo.cam` (`"off"` / absent). The path redraws to its new size (a `ResizeObserver` on the path box, which also covers window resizes).
+
+### 23.6 Files, budget and tests
+| File | Change |
+|---|---|
+| `web/logo.html` | the wide layout's CSS; the camera pane, bottom panel tabs and status bar markup; `Layout`, `BottomPanel`, `CameraPane`, `StatusBar`, `Shortcuts` |
+| `web/logo.js` | `shortcut`, `panelTab`, `cameraWanted` (exported for Node) |
+| `web/test/logo.test.js` | the three pure functions (below) |
+| `web/test/browser_check_wide.js` | a Playwright check on the fake tank, 1280 × 800 and 1024 × 700 (below) |
+- **Budget:** `/logo` is 20.1 KB gzipped today, against a 24 KB limit. This revision adds about 2–3 KB and stays under it; `pack_web.py` checks.
+- **Node tests (`node --test`):**
+  - `shortcut`: each of the four actions; Esc with repeat; Alt + Enter → null; a held Ctrl+Enter (repeat) → null; plain Enter → null; Ctrl+S and ⌘+S.
+  - `panelTab`: a start opens MESSAGES; problems open PROBLEMS when idle and not picked; a pick sticks until the next start; problems while running don't switch.
+  - `cameraWanted`: each of the three inputs alone turns it off.
+- **Browser check (fake tank, injected WebSocket as in §21.9; Playwright `run_code`):**
+  - at both sizes: the page doesn't scroll, with a 300-line program and 200 messages; the editor scrolls inside; STOP, RUN and STEP are inside the window;
+  - Esc in the editor sends `stop`; Ctrl+Enter sends `logo_run`; F10 sends a step run; Ctrl+S saves;
+  - `logo_started` opens MESSAGES; HIDE removes the camera `src` and the path grows;
+  - at 390 px the page is as before: the N4 check `browser_check.js` still passes.
+- **Tank check (owner, laptop, tank on the floor):** the 50 cm square run with Ctrl/⌘ + Enter while watching the camera and the path; Esc stops a `FORWARD 200` part-way; a second viewer (the phone's Drive page) still gets the camera.
+
+### 23.7 Not in this revision
+- Draggable dividers and resizable panes.
+- Changing the phone layout.
+- Camera controls (pan / tilt) on the Logo page: `LOOK` in a program does that.
+
+### 23.8 As built (Plan N6, 2026-10-24; design-notes §149)
+- **Files:**
+  - `web/logo.js`: `shortcut`, `panelTab`, `cameraWanted`;
+  - `web/logo.html`: the laptop CSS (grid areas), `applyLayout`, the bottom panel, the shortcuts and the camera pane;
+  - `web/test/logo.test.js`: 52 Node tests;
+  - `web/test/browser_check_wide.js`: the laptop check, at 1280 × 800, 1024 × 700, 1366 × 657 and 1280 × 600.
+- **Size:** `/logo` is **22 990 B** gzipped (was 20 634 B; 24 KB budget). Bridge flash 44.6 %.
+- **Rulings while drafting (the plan):**
+  1. Only `#diags` and `#help` move between the layouts.
+  2. `panelTab`'s problems event carries `running`.
+  3. One camera note for "refused" and "no camera": a cross-port `<img>` gets no reason.
+  4. The running status shows the round, on the phone too.
+  5. The camera box sets its own size, and the word buttons don't wrap.
+- **The final review** (no Critical) changed:
+  - **the camera shrinks in short windows** (`flex: 0 1 auto; max-height: 50%`), so at 1366 × 657 and 1280 × 600 the path and stats stay above the status bar;
+  - **held keys:** every shortcut key is `preventDefault`ed, held ones too (no browser "save page" or F10 menu), but only Esc acts on a repeat;
+  - **Esc's rate:** a held Esc sends at most 4 stops a second; the first press always sends at once;
+  - **input-method keys** (`isComposing`, keyCode 229) are left to the IME, except Esc;
+  - **after a dropped WebSocket** the camera stream starts again: a broken MJPEG stream keeps its last picture and fires no error.
+- **Owner at the tank check:** the ☰ menu button moved to the far right of the laptop top bar (`.top { display: contents }`, `order`).
+- **Tank check (2026-10-24, laptop, floor):**
+  - the camera and sonar showed above the path;
+  - the 50 cm square ran with ⌘ + Enter;
+  - Esc stopped a `FORWARD 200` part-way.
+- **Known, by design:** Esc is STOP for the whole tank, so it also stops a phone driver (STOP holds until they release the stick, design-notes §72).
+- **Next (design-notes §148, Plan N7):** the page's text icons (WiFi bars, `● UNO`, `▶ RUN`) become Lucide icons from one shared icon file.
+
+
+### 23.9 Icons (owner 2026-10-24, design-notes §148; bridge LLD R25, Plan N7)
+The page's text icons become Lucide icons from the shared `web/icons.json` (bridge LLD R25.1 item 7):
+- **WiFi:** Drive's five icons.
+- **Battery:** by charge, with the volts; `plug` on USB.
+- **Uno:** `cpu`.
+- **Run controls:** RUN `play`, STEP `step-forward`, STOP `octagon-x`.
+- **Camera:** HIDE `eye-off`, SHOW CAMERA `camera`; the sonar is `radar` + cm.
+- **Navigation:** ‹ DRIVE `chevron-left`, ☰ `menu`.
+- **Programs:** NEW / SAVE / RENAME / DELETE are `plus` / `save` / `pencil` / `trash-2`.
+- The status line's ● dots stay text.
+- **Budget:** 26 KB gzipped.

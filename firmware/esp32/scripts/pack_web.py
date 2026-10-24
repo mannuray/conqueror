@@ -7,7 +7,9 @@
   src/generated/help_protocol.html and <!--CQ:LOGO--> by web/help_logo.html (Task 9);
   skipped while web/help.html does not exist.
 - /logo (Plan N4, Tank Logo LLD §21): web/logo.html with <!--CQ:LOGO_JS--> replaced by
-  web/logo.js and <!--CQ:WORDS--> by web/generated/words.json. Budget 24 KB gzipped.
+  web/logo.js and <!--CQ:WORDS--> by web/generated/words.json. Budget 26 KB gzipped (bridge LLD R25).
+- Every page: its icons from web/icons.json (scripts/icons.py, bridge LLD R25) - <!--icon:NAME--> markers and one
+  /*CQ:ICONS ...*/ table; an unknown icon fails the build.
 Also runnable alone: python3 scripts/pack_web.py [project_dir]
 """
 
@@ -19,9 +21,16 @@ import struct
 import sys
 import zlib
 
+# PlatformIO runs this file through SCons, which removes __file__ before running it. SCons puts this folder first on
+# sys.path anyway, and PlatformIO keeps the project as the working directory (SConscriptChdir(False)), so
+# cwd/scripts is the same folder.
+_HERE = pathlib.Path(__file__).resolve().parent if "__file__" in globals() else pathlib.Path.cwd() / "scripts"
+sys.path.insert(0, str(_HERE))
+import cq_icons as icons
+
 PAGE_BUDGET = 25 * 1024
 HELP_BUDGET = 16 * 1024
-LOGO_BUDGET = 24 * 1024  # Plan N4 (Tank Logo LLD §21.9): /logo, gzipped, words included
+LOGO_BUDGET = 26 * 1024  # Plan N4 (Tank Logo LLD §21.9): /logo, gzipped, words included; R25: 26 KB with icons
 SETTINGS_BUDGET = 36 * 1024  # Plan M: /settings, gzipped; Plan O (LLD R13.1): 36 KB for four tabs
 
 
@@ -89,6 +98,21 @@ def assemble_logo(project: pathlib.Path) -> bytes:
     return text.replace("<!--CQ:LOGO_JS-->", code).replace("<!--CQ:WORDS-->", words).encode()
 
 
+def assemble_page(project: pathlib.Path, uri: str) -> bytes:
+    """A page as served (before gzip), its icons put in (bridge LLD R25). /help may be missing: b""."""
+    web = project / "web"
+    if uri == "/":
+        raw = (web / "basic_drive.html").read_bytes()
+    elif uri == "/settings":
+        raw = (web / "settings.html").read_bytes()
+    elif uri == "/logo":
+        raw = assemble_logo(project)
+    else:
+        raw = assemble_help(project) or b""
+    table = icons.load(web / "icons.json")
+    return icons.expand(raw.decode("utf-8"), table, uri).encode("utf-8")
+
+
 def c_array(name: str, data: bytes) -> str:
     lines = [f"inline const uint8_t {name}[] = {{"]
     for i in range(0, len(data), 20):
@@ -101,7 +125,7 @@ def build(project: pathlib.Path) -> None:
     web = project / "web"
     # (url, content type, data, gzipped)
     assets: list[tuple[str, str, bytes, bool]] = [
-        ("/", "text/html; charset=utf-8", gz((web / "basic_drive.html").read_bytes()), True),
+        ("/", "text/html; charset=utf-8", gz(assemble_page(project, "/")), True),
         (
             "/manifest.webmanifest",
             "application/manifest+json",
@@ -112,15 +136,15 @@ def build(project: pathlib.Path) -> None:
     ]
     if len(assets[0][2]) > PAGE_BUDGET:
         raise SystemExit(f"pack_web: page {len(assets[0][2])} B gzipped > {PAGE_BUDGET} B budget")
-    settings = gz((web / "settings.html").read_bytes())  # Plan M (spec 02 Part I)
+    settings = gz(assemble_page(project, "/settings"))  # Plan M (spec 02 Part I)
     if len(settings) > SETTINGS_BUDGET:
         raise SystemExit(f"pack_web: /settings {len(settings)} B gzipped > {SETTINGS_BUDGET} B budget")
     assets.append(("/settings", "text/html; charset=utf-8", settings, True))
-    logo = gz(assemble_logo(project))
+    logo = gz(assemble_page(project, "/logo"))
     if len(logo) > LOGO_BUDGET:
         raise SystemExit(f"pack_web: /logo {len(logo)} B gzipped > {LOGO_BUDGET} B budget")
     assets.append(("/logo", "text/html; charset=utf-8", logo, True))
-    help_page = assemble_help(project)
+    help_page = assemble_page(project, "/help") if (web / "help.html").exists() else None
     if help_page is not None:
         packed = gz(help_page)
         if len(packed) > HELP_BUDGET:

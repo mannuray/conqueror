@@ -2483,3 +2483,248 @@ classDiagram
   - `web/test/camera_centre_check.js` (Playwright): steps, Save, Undo, the ±30° stop, refusals, quick refusals, a track-balance save, a reconnect, phone width.
 - `/settings` is 21 957 B gzipped (budget 36 KB).
 - **On the tank:** the owner stepped the pan on the phone to −5.0° and saved it with the button. After a power cycle the camera looks dead ahead at rest, after HOME, after the stick's return and after `cam_set 0 0`.
+
+## R24. Camera: the gain limit fix, low light for driving, white balance (owner 2026-10-24, design-notes §140 — approved 2026-10-24)
+
+### R24.0 Why
+- **The night test (design-notes §139):** with the room lights on, the QVGA picture's median brightness was 44 / 255, too dark for YOLO.
+- **The cause is a bug from §96.** `applyTo` passes the library's `GAINCEILING_4X` / `GAINCEILING_32X` (enum values 1 / 4) to `set_gainceiling`. The **OV3660 driver writes that number straight into its gain-limit registers** 0x3A18 / 0x3A19, a raw 10-bit gain where 16 = 1× and the maximum 0x3FF ≈ 64× (esp32-camera `sensors/ov3660.c`). So the auto gain was capped at about the lowest possible value in both modes.
+- **Low light also turns on night mode** (`set_aec2`, register 0x3A00 bit 2), which lengthens exposures by lowering the frame rate. That's wrong for the map (≥ 10 pictures a second) and for blur while driving.
+- **No white-balance control:** the picture has a colour cast (§109 magenta in daylight; green under the room lights).
+
+### R24.1 What changes
+- **`core/cam_tuning.h` (pure, new):** `sensorTuning(const CamSettings&) → CamTuning { gain_ceiling_raw, ae_level, night, wb_mode }`. The one place that maps settings to OV3660 values, host-tested:
+  - **gain ceiling (raw OV3660 units):** normal **248 (15.5×, the sensor's own default 0x3A19 = 0xF8; the final review found it, the first draft said 128)**, low light **512 (32×)**;
+  - **ae_level:** low light +1, else 0;
+  - **night** (`set_aec2`): only when the new `night` setting is on, independent of low light;
+  - **wb_mode:** 0 auto, 1 sunny, 2 cloudy, 3 office, 4 home (the OV3660's presets). Auto = the sensor's own white balance; the presets set fixed colour gains (0x3406 = 1).
+- **`applyTo`** uses `sensorTuning`. `set_gainceiling(s, static_cast<gainceiling_t>(t.gain_ceiling_raw))` makes the raw value explicit, with a comment pointing at the driver.
+- **`CamSettings`** gains `uint8_t wb = 0` and `bool night = false` at its end.
+- **Saved settings carried over (owner):** NVS `cq_cam` / `s` holding the old 8-byte block (size, quality, fps_cap, brightness, contrast, low_light, vflip, hmirror) is read into the first 8 bytes. The new fields take their defaults, and the settings are saved again in the new size. Anything else → defaults, as now.
+- **WebSocket:**
+  - `camera_set` takes `"wb":"auto"|"sunny"|"cloudy"|"office"|"home"` and `"night":true|false`. An unknown wb name → `INVALID_COMMAND`, the same rule as `size` (upper / lower case as given: the names are lower case).
+  - The `tank` reply's `camera` object gains `"wb":"…"` and `"night":…`.
+- **The Camera card** (`/settings`):
+  - a **White balance** segmented row (Auto / Sunny / Cloudy / Office / Home);
+  - a **Night (slow)** toggle with the hint "longer exposures, fewer pictures - for looking, not for driving";
+  - the existing **Low-light** toggle's hint becomes "more gain for dim rooms; keeps the frame rate".
+  - Reset to defaults resets these too.
+
+```mermaid
+classDiagram
+  class CamSettings {
+    +size, quality, fps_cap
+    +brightness, contrast
+    +low_light, vflip, hmirror
+    +wb (new) 0..4
+    +night (new)
+  }
+  class CamTuning {
+    +gain_ceiling_raw
+    +ae_level
+    +night
+    +wb_mode
+  }
+  class cam_tuning {
+    +sensorTuning(CamSettings) CamTuning
+    +wbName(uint8) const char*
+    +wbOf(name, out) bool
+  }
+  class camera_service {
+    -applyTo(sensor, CamSettings)
+    -loadSettings(CamSettings&) bool   carries the 8-byte block over
+  }
+  class TankAppController { +merge(CamFields) CamSettings }
+  camera_service ..> cam_tuning
+  TankAppController ..> CamSettings
+  cam_tuning ..> CamTuning
+```
+
+### R24.2 Tests
+- **`test_cam_tuning`:**
+  - normal → 128, ae 0, night off;
+  - low light → 512, ae +1, night still off;
+  - night on → night;
+  - each wb name ↔ mode; an unknown name refused.
+- **`test_ws_codec`:** `camera_set` with `wb` / `night`; a bad wb → invalid.
+- **`test_tank_app_controller`:** merge of wb / night; reset → auto / off; the `tank` reply carries them.
+- **`test_cam_settings_load`** (the carry-over, pure: a function on a byte buffer): an 8-byte old block → the old values + wb auto, night off; a new block round-trips; another size → defaults.
+- **Page (Playwright):** the white-balance row sends `wb`; the night toggle sends `night`; both show the tank's values.
+- **On the tank** (the brightness numbers are written down):
+  - dark room and daylight, QVGA: median picture brightness and YOLO's person score before (§139: 44 / 255) and after, with low light off and on;
+  - the frame rate with low light on (must stay ≥ 10 / s);
+  - the owner picks the white balance by eye.
+
+### R24.3 As built (Plan X, 2026-10-24; design-notes §141)
+- **As designed, with the final review's changes:**
+  - **normal gain ceiling 248** (15.5×, the OV3660's own default 0x3A19 = 0xF8) instead of 128; low light 512 (32×);
+  - the raw ceiling is written straight to **0x3A18 / 0x3A19 with `set_reg`** (no out-of-range `gainceiling_t`);
+  - a saved block whose on / off bytes aren't 0 / 1 is refused;
+  - the redundant `set_awb_gain` was dropped. Auto = the sensor's AWB; the presets set fixed colour gains.
+- **The tank's source archive leaves out `docs/superpowers/plans/**`** (`.gitattributes`). At 2 036 920 B it no longer fit the 1 966 080 B partition, so main couldn't build the bridge. Now ~1.22 MB. The plans are history (with their diffs), kept in git; the code, specs, LLDs and design notes stay in the archive.
+- **Tests:** bridge native 673/673 (`test_cam_tuning` 7); the page check (`web/test/camera_tuning_check.js`) passes. Flash 44.5 %, `/settings` 22.2 KB gzipped.
+- **On the tank:** §141.
+
+## R25. One shared icon file for the tank's pages (owner 2026-10-24, design-notes §148 — approved 2026-10-24)
+
+### R25.0 Why
+- **Drive and Settings** use Lucide icons (lucide-static 0.460.0, ISC). Each page has its own hand-pasted copy: 21 on Drive, 45 on Settings, about 55 different icons. A few were hand-trimmed and no longer match Lucide exactly.
+- **The Logo page** uses text characters instead:
+  - the WiFi as `HOME ▂▄▆█`;
+  - the battery as plain volts;
+  - `● UNO ONLINE`;
+  - `▶ RUN`.
+- **The owner wants standard icons everywhere, from one place.**
+
+### R25.1 What changes
+1. **`firmware/esp32/web/icons.json`, the one icon file.**
+   - Format: `{"source": "lucide-static 0.460.0", "licence": "ISC, (c) Lucide Contributors", "icons": {"<name>": "<svg body>", …}}`.
+   - Names are Lucide's own (`wifi-high`, `trash-2`, `step-forward` …). The body is everything inside the `<svg>` of `lucide-static/icons/<name>.svg`, copied unchanged.
+   - It holds only the icons the pages use.
+2. **`tools/icons/add_icon.py <name>…`** fetches `https://unpkg.com/lucide-static@0.460.0/icons/<name>.svg`, takes its body, and adds it to `icons.json` sorted by name. The version is pinned in the script. Only a developer runs it; the build never touches the network.
+3. **Fixed icons in a page:** `<!--icon:NAME-->`, or with attributes, `<!--icon:NAME id="icStick" class="hidden"-->`.
+   - `pack_web.py` replaces it with `<svg viewBox="0 0 24 24"` + the attributes + `>` + the body + `</svg>`. That's the same tag the pages use today, so their CSS (`svg { … }`, `#stop svg`) still applies.
+4. **Changing icons:** a page's script contains `/*CQ:ICONS wifi wifi-high wifi-low wifi-zero wifi-off*/` (an explicit list, since names like `"wifi-" + level` are built at run time).
+   - `pack_web.py` replaces it with `var ICONS = {…only those…}; function icon(n) { return '<svg viewBox="0 0 24 24">' + ICONS[n] + "</svg>"; }`.
+   - At most one per page.
+5. **An unknown name fails the build:** `pack_web: /logo uses icon "wifi-hi", which is not in web/icons.json`. So does a marker without a name, or a second `CQ:ICONS`.
+6. **Drive and Settings:** every inline `<svg viewBox="0 0 24 24">…</svg>` becomes a marker, and Drive's `WIFI_ICON` table becomes `CQ:ICONS`.
+   - A hand-trimmed copy becomes the real Lucide icon. That can change a few pixels; the page check compares screenshots and lists them.
+7. **Logo** (Tank Logo LLD §23.9):
+   - **top bar:**
+     - WiFi = Drive's five WiFi icons, by the same signal rule;
+     - battery = `battery-full` / `-medium` / `-low` / `-warning` with the volts (Drive's charge curve: ≥ 70 % / ≥ 35 % / ≥ 10 % / below), or `plug` on USB;
+     - Uno = `cpu` with ONLINE / OFFLINE;
+   - **buttons:** RUN `play`, STEP `step-forward`, STOP `octagon-x`, HIDE `eye-off`, SHOW CAMERA `camera`, ‹ DRIVE `chevron-left`, ☰ `menu`, NEW `plus`, SAVE `save`, RENAME `pencil`, DELETE `trash-2`;
+   - **the sonar** on the picture: `radar` + cm;
+   - **budget:** `/logo` 26 KB gzipped (was 24).
+8. **The status line's ● dots stay text:** they are status lights in the sentence, not icons.
+
+### R25.2 Classes
+```mermaid
+classDiagram
+  class IconSet {
+    +source str
+    +icons dict~str,str~
+    +load(path) IconSet
+    +body(name) str
+  }
+  class IconExpander {
+    <<pure, scripts/icons.py>>
+    +expand_markers(text, icons, page) str
+    +expand_table(text, icons, page) str
+    +used(text) set~str~
+  }
+  class PackWeb {
+    <<scripts/pack_web.py>>
+    +assemble_page(name) bytes
+    +build(project)
+  }
+  class AddIcon {
+    <<tools/icons/add_icon.py>>
+    +fetch(name) str
+    +add(names)
+  }
+  class IconError {
+    <<SystemExit>>
+    +page
+    +name
+  }
+  PackWeb --> IconExpander : every page
+  IconExpander --> IconSet
+  IconExpander ..> IconError : unknown name
+  AddIcon --> IconSet : writes icons.json
+```
+
+```mermaid
+sequenceDiagram
+  participant D as developer
+  participant A as add_icon.py
+  participant J as web/icons.json
+  participant P as pack_web.py (build)
+  participant X as icons.expand_*
+  D->>A: add_icon.py radar plug
+  A->>A: GET unpkg lucide-static@0.460.0/icons/radar.svg
+  A->>J: add the bodies, sorted
+  D->>P: pio run (pre-script)
+  P->>X: expand_markers(page, icons) · expand_table(page, icons)
+  alt every name known
+    X-->>P: the page with inline <svg>
+    P->>P: gzip, budget check, web_assets.h
+  else an unknown name
+    X-->>P: SystemExit "uses icon … not in web/icons.json"
+  end
+```
+
+### R25.3 Tests
+- **`firmware/esp32/scripts/test_icons.py`** (stdlib `unittest`, run with `python3 -m unittest`):
+  - a marker becomes the `<svg>` with its body;
+  - attributes are kept in order;
+  - an unknown name fails, naming the page;
+  - a bare `<!--icon:-->` fails;
+  - `CQ:ICONS` becomes a table holding only the listed icons, plus `icon()`;
+  - a second `CQ:ICONS` fails;
+  - `icons.json` itself: every body parses as SVG elements and no name is duplicated;
+  - every page packs: no marker left and no unknown name.
+- **Screenshots before and after:** Drive (tank idle) and Settings (each tab) on the fake tank, compared pixel for pixel. The few hand-trimmed icons that change are listed and looked at.
+- **Logo:**
+  - the N6 laptop and N4 phone checks still pass;
+  - a new check line: the WiFi chip's icon changes with `wifi_status` RSSI (−50 → `wifi`, −80 → `wifi-zero`, Drive's rule; corrected in R25.5);
+  - the battery icon follows `ts.batt_v` (8.2 V → full, 7.0 V → low; USB → `plug`).
+- **Size:** each page is within its budget; the change in gzipped bytes is recorded.
+- **On the tank:** all three pages, with a look at each icon. The top-bar battery / WiFi readouts and the sonar update (design-notes §149 open item).
+
+### R25.4 Not in this revision
+- An icon font or SVG sprite file served separately (one more request per page, and no gain at this size).
+- The 192 px home-screen icon (`png_icon`) stays as it is.
+
+### R25.5 As built (Plan N7, 2026-10-24; design-notes §150)
+- **Files:**
+  - `scripts/cq_icons.py` (the expander; renamed from `icons.py` by the final review);
+  - `scripts/test_icons.py` (21 tests);
+  - `web/icons.json` (63 Lucide 0.460.0 icons, ~11.7 KB);
+  - `tools/icons/add_icon.py`;
+  - `pack_web.py` `assemble_page` (every page);
+  - `web/test/icons_check.js`.
+  - `fake_tank.py` serves `/`, `/settings` and `/logo` packed, and the Settings camera checks use it.
+- **Sizes (gzipped):**
+
+  | Page | Before | After |
+  |---|---|---|
+  | `/` | 20 016 B | 20 217 B |
+  | `/settings` | 22 164 B | 22 921 B |
+  | `/logo` | 22 990 B | 24 885 B (budget 26 KB) |
+
+  Bridge flash 44.6 %.
+- **Checks:**
+  - Node 56/56;
+  - the browser checks pass: icons, both Settings camera checks, Logo laptop and phone;
+  - before/after screenshots of Drive (3 views) and Settings (4 tabs) are pixel-identical except three icons: AI → `sparkles`, Save & connect → `send`, distance wizard → `ruler`.
+- **Rulings while drafting (the plan):**
+  1. Settings also gets Drive's Lucide WiFi-strength and battery icons; its CSS bars and hand-drawn battery are gone.
+  2. The three hand-drawn icons became the nearest Lucide ones.
+  3. Logo's DELETE uses `trash` (as Settings), not `trash-2`.
+  4. `pack_web.py` finds the expander without `__file__` (SCons).
+  5. The camera checks load the packed page.
+  6. Each browser check runs in a fresh browser.
+  7. Logo's six markers were committed with Task 4.
+- **The final review** (no Critical) changed:
+  - **The build now refuses what it can't read:**
+    - a marker or `CQ:ICONS` table in any other spelling (`<!-- icon:x -->`, `<!--Icon:x-->`, `/* CQ:ICONS …*/`) or with `<` / `>` in an attribute;
+    - `icon()` used without a table;
+    - a literal `icon("x")` whose name isn't in the page's table.
+  - **`icon()`** logs an unknown name (`console.error`).
+  - **The duplicate-name test** can now fail (`object_pairs_hook`).
+  - **`add_icon.py`:**
+    - refuses a bare `--from` or no names;
+    - writes the `source` field from its `VERSION`;
+    - prints "replaced" for an icon it overwrites.
+  - **Logo and Settings follow Drive's rules exactly:**
+    - no WiFi reading = `wifi-zero`;
+    - battery full from 7.87 V (70 % on Drive's curve);
+    - the battery icon uses a 10-reading average that starts again between USB and the pack;
+    - the warning colour comes from the tank's `batt_low` / `batt_critical` flags.
+  - **Logo's WiFi chip** starts as `wifi-zero`, not `wifi-off`.
+- **Owner's change while fixing:** Settings' Uno chip has the `cpu` icon too, and its battery chip starts with its icon (the same "● text" icons the owner raised).
+- **On the tank (owner, 2026-10-24):** "all good". Drive, Settings and Logo all show the Lucide icons, with live battery / WiFi / Uno values.
+

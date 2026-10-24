@@ -523,7 +523,12 @@ sequenceDiagram
   - `counts_per_m` ≤ 0 is ignored.
   - `cq-pose` takes the recording's `calib` reply for the whole session, even when it came after the first samples.
 - **Known limit (one-channel encoders):** pushing the tank by hand after a stop counts in the last motor direction.
-- **Floor check (§14.5): pending, owner, 2026-10-24.**
+- **Floor check (§14.5): passed 2026-10-24** (design-notes §144). Each run was recorded with `cq-record`, replayed with `cq-pose` and compared with the owner's tape and eye:
+
+  | Run | `cq-pose` end | Tape end | Pose vs tape | Target |
+  |---|---|---|---|---|
+  | Logo 50 cm square (2.0 m driven) | 2.0 cm right, +0.6° | 6 cm right, about −2° | 4 cm, ~2.6° | 6 cm (3 %), 3° |
+  | `FORWARD 200 RIGHT 180 FORWARD 200` (4.0 m) | 0.5 cm left, 179.9° | 5 cm left, about 178° | 4.5 cm, ~2° | 12 cm (3 %), 3° |
 
 ## 15. Phase 4: the detector and the object tracker (owner, 2026-10-23, design-notes §134 — approved 2026-10-23)
 

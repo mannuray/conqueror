@@ -413,3 +413,87 @@ test("a request that never answers gives up after the timeout and the queue goes
   assert.deepEqual(await first, { status: 0, data: null });
   assert.deepEqual(await second, { status: 200, data: { ok: 1 } });
 });
+
+// ---------- revision N6: the laptop layout (Tank Logo LLD §23) ----------
+test("the four shortcuts: Esc, Ctrl/Cmd + Enter, F10, Ctrl/Cmd + S", () => {
+  assert.equal(L.shortcut("Escape", false, false, false, false, false), "stop");
+  assert.equal(L.shortcut("Enter", true, false, false, false, false), "run");
+  assert.equal(L.shortcut("Enter", false, true, false, false, false), "run");
+  assert.equal(L.shortcut("F10", false, false, false, false, false), "step");
+  assert.equal(L.shortcut("s", true, false, false, false, false), "save");
+  assert.equal(L.shortcut("S", false, true, false, true, false), "save");
+});
+
+test("a held key only ever stops; plain keys and Alt do nothing", () => {
+  assert.equal(L.shortcut("Escape", false, false, false, false, true), "stop");
+  assert.equal(L.shortcut("Enter", true, false, false, false, true), null);
+  assert.equal(L.shortcut("F10", false, false, false, false, true), null);
+  assert.equal(L.shortcut("s", true, false, false, false, true), null);
+  assert.equal(L.shortcut("Enter", false, false, false, false, false), null);
+  assert.equal(L.shortcut("s", false, false, false, false, false), null);
+  assert.equal(L.shortcut("Enter", true, false, true, false, false), null);
+  assert.equal(L.shortcut("F9", false, false, false, false, false), null);
+});
+
+test("a program start opens MESSAGES and forgets a picked tab", () => {
+  const s = L.panelTab({ tab: "problems", picked: true }, { e: "started" });
+  assert.deepEqual(s, { tab: "messages", picked: false });
+});
+
+test("problems open PROBLEMS only when idle and the tab was not picked", () => {
+  const idle = { tab: "messages", picked: false };
+  assert.equal(L.panelTab(idle, { e: "problems", n: 2, running: false }).tab, "problems");
+  assert.equal(L.panelTab(idle, { e: "problems", n: 0, running: false }).tab, "messages");
+  assert.equal(L.panelTab(idle, { e: "problems", n: 2, running: true }).tab, "messages");
+  const picked = L.panelTab(idle, { e: "pick", tab: "messages" });
+  assert.deepEqual(picked, { tab: "messages", picked: true });
+  assert.equal(L.panelTab(picked, { e: "problems", n: 3, running: false }).tab, "messages");
+});
+
+test("the panel ignores other events and does not change the state it was given", () => {
+  const s = { tab: "problems", picked: false };
+  assert.deepEqual(L.panelTab(s, { e: "line" }), s);
+  L.panelTab(s, { e: "started" });
+  assert.deepEqual(s, { tab: "problems", picked: false });
+});
+
+test("the camera streams only when wide, not hidden and the page is visible", () => {
+  assert.equal(L.cameraWanted(true, false, false), true);
+  assert.equal(L.cameraWanted(false, false, false), false);
+  assert.equal(L.cameraWanted(true, true, false), false);
+  assert.equal(L.cameraWanted(true, false, true), false);
+});
+
+// ---------- revision N7: the shared Lucide icons (bridge LLD R25, Tank Logo LLD §23.9) ----------
+test("the WiFi icon follows the signal as on the Drive page", () => {
+  assert.equal(L.wifiIcon(-50), "wifi");
+  assert.equal(L.wifiIcon(-60), "wifi-high");
+  assert.equal(L.wifiIcon(-70), "wifi-low");
+  assert.equal(L.wifiIcon(-80), "wifi-zero");
+  assert.equal(L.wifiIcon(null), "wifi-zero");  // Drive: no reading is "no signal", not "WiFi off"
+});
+
+test("the battery icon follows the charge, and USB is a plug", () => {
+  assert.equal(L.batteryIcon(8.2), "battery-full");
+  assert.equal(L.batteryIcon(7.87), "battery-full");   // Drive's curve: 70 % is 7.87 V
+  assert.equal(L.batteryIcon(7.86), "battery-medium");
+  assert.equal(L.batteryIcon(7.6), "battery-medium");
+  assert.equal(L.batteryIcon(7.1), "battery-low");
+  assert.equal(L.batteryIcon(6.8), "battery-warning");
+  assert.equal(L.batteryIcon(5.0), "plug");
+});
+
+test("the battery is averaged over 10 readings and starts again between USB and the pack (as Drive)", () => {
+  const m = new L.BattMean(10);
+  for (let i = 0; i < 10; i++) m.push(8.0);
+  assert.equal(m.push(6.9).toFixed(2), "7.89");   // one sagging reading does not change the icon
+  assert.equal(m.push(5.0), 5.0);                 // USB: a fresh average
+  assert.equal(m.push(8.0), 8.0);                 // back on the pack: fresh again
+});
+
+test("the battery warning comes from the tank's flags, as on Drive", () => {
+  assert.equal(L.battWarn(["batt_low"]), true);
+  assert.equal(L.battWarn(["batt_critical"]), true);
+  assert.equal(L.battWarn([]), false);
+  assert.equal(L.battWarn(undefined), false);
+});

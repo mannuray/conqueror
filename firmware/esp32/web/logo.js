@@ -273,10 +273,58 @@ var LogoCore = (function () {
     return end.reason === "finished" ? "Done" : "Ended (" + end.reason + ")" + (end.line ? " on line " + end.line : "") + ": " + end.msg;
   }
 
+  // ---------- revision N6: the laptop layout (§23) ----------
+  // A key -> "stop" | "run" | "step" | "save" | null. Esc always stops, even held down; the others never repeat
+  // (a held Ctrl+Enter must not start a program twice). Alt is left to the browser.
+  function shortcut(key, ctrl, meta, alt, shift, repeat) {
+    if (key === "Escape") return "stop";
+    if (alt || repeat) return null;
+    var cmd = ctrl || meta;
+    if (key === "Enter" && cmd) return "run";
+    if (key === "F10") return "step";
+    if ((key === "s" || key === "S") && cmd) return "save";
+    return null;
+  }
+
+  // The bottom panel's tab: a start shows MESSAGES; problems show PROBLEMS when idle and the owner has not picked
+  // a tab since the last start. Returns a new state.
+  function panelTab(s0, ev) {
+    var s = { tab: s0.tab, picked: s0.picked };
+    if (ev.e === "pick") { s.tab = ev.tab; s.picked = true; }
+    else if (ev.e === "started") { s.tab = "messages"; s.picked = false; }
+    else if (ev.e === "problems" && ev.n > 0 && !ev.running && !s.picked) s.tab = "problems";
+    return s;
+  }
+
+  // The camera streams only while it can be seen.
+  function cameraWanted(wide, hiddenByUser, pageHidden) { return wide && !hiddenByUser && !pageHidden; }
+
+  // ---------- revision N7: the shared Lucide icons (bridge LLD R25) ----------
+  // The Drive page's rules (basic_drive.html pollWifi / showSlow): WiFi by RSSI, no reading = no signal; a 2S battery
+  // by its charge curve on a 10-reading average (>= 70 % = 7.87 V, 35 % = 7.4 V, 10 % = 7.0 V); under 5.5 V it is USB;
+  // the warning colour comes from the tank's own batt_low / batt_critical flags.
+  function wifiIcon(rssi) {
+    if (rssi === null || rssi === undefined) return "wifi-zero";
+    return rssi > -55 ? "wifi" : rssi > -65 ? "wifi-high" : rssi > -75 ? "wifi-low" : "wifi-zero";
+  }
+  function batteryIcon(v) {
+    return v < 5.5 ? "plug" : v >= 7.87 ? "battery-full" : v >= 7.4 ? "battery-medium" : v >= 7.0 ? "battery-low" : "battery-warning";
+  }
+  function BattMean(n) { this.n = n; this.vals = []; this.usb = null; }
+  BattMean.prototype.push = function (v) {
+    var usb = v < 5.5;
+    if (usb !== this.usb) { this.vals = []; this.usb = usb; }  // USB <-> pack: start the average again
+    this.vals.push(v); if (this.vals.length > this.n) this.vals.shift();
+    return this.vals.reduce(function (a, b) { return a + b; }, 0) / this.vals.length;
+  };
+  function battWarn(flags) { return !!flags && (flags.indexOf("batt_low") >= 0 || flags.indexOf("batt_critical") >= 0); }
+
   return {
     wordIndex: wordIndex, ownWords: ownWords, colour: colour, insertWord: insertWord, Drafts: Drafts,
     fitView: fitView, toScreen: toScreen, plannedRuns: plannedRuns, CheckScheduler: CheckScheduler, RequestQueue: RequestQueue,
-    runBarStart: runBarStart, runBar: runBar, canRun: canRun, locked: locked, endText: endText, NACK_TEXT: NACK_TEXT
+    runBarStart: runBarStart, runBar: runBar, canRun: canRun, locked: locked, endText: endText, NACK_TEXT: NACK_TEXT,
+    shortcut: shortcut, panelTab: panelTab, cameraWanted: cameraWanted, wifiIcon: wifiIcon, batteryIcon: batteryIcon,
+    BattMean: BattMean, battWarn: battWarn
   };
 })();
 if (typeof module !== "undefined") module.exports = LogoCore;

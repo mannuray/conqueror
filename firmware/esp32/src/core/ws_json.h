@@ -97,6 +97,8 @@ struct TankView {
   uint8_t cam_size = 1, cam_quality = 12, cam_fps = 0;
   int8_t cam_bright = 0, cam_contrast = 0;
   bool cam_low = false, cam_vflip = true, cam_hmirror = false;
+  uint8_t cam_wb = 0;  // R24
+  bool cam_night = false;
   uint8_t viewers = 0;
   uint16_t fps_x10 = 0;
   uint16_t kbps = 0;

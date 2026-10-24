@@ -83,32 +83,56 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 .sheet.on { display: flex; } .sheet .card { width: min(360px, 92vw); } .sheet input { width: 100%; background: var(--bg); border: 1px solid var(--edge-c); padding: 10px; margin: 8px 0; color: var(--active); }
 .sheet .row { display: flex; gap: 8px; justify-content: flex-end; } .sheet p { margin: 4px 0; } .sheet .why { color: var(--warn); min-height: 1.4em; }
 .hide { display: none !important; }
+/* Revision N6 (Tank Logo LLD §23): parts only the laptop layout shows */
+#ptabs, .cam, #camShow { display: none; }
+#ptabs button.on { background: rgba(51, 255, 102, .12); color: var(--active); border-color: var(--ui); }
+.cam { position: relative; aspect-ratio: 4 / 3; background: #000; border: 1px solid var(--line); margin-bottom: 8px;
+  flex: 0 1 auto; min-height: 0; max-height: 50%; }  /* shrinks in a short window so the path and stats still fit */
+.cam img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }  /* the box, not the picture, sets the size */
+#camNote { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px; color: var(--dim); }
+#camDist { position: absolute; left: 8px; bottom: 6px; color: var(--ui); background: rgba(0, 0, 0, .65); padding: 1px 6px; }
+#camHide { position: absolute; right: 6px; top: 6px; padding: 3px 8px; background: rgba(0, 0, 0, .65); }
+#camShow { padding: 0 6px; font-size: 11px; }
 @media (max-width: 899px) { body:not(.tpath) #cPath { display: none; } body.tpath #cEdit, body.tpath #cMsg { display: none; } }
-@media (min-width: 900px) {
-  body { padding-bottom: 0; }
-  header .inner { display: flex; align-items: center; gap: 16px; } .top { flex: 1; } .top h1 { text-align: left; }
-  .chips { display: flex; margin-top: 0; }
-  main { grid-template-columns: 220px minmax(0, 1.2fr) minmax(0, 1fr); align-items: start; }
-  #cProg { grid-row: span 3; } #plist { display: block; } .progbar select, #tabs { display: none; }
-  .progbar { flex-wrap: wrap; } .progbar span { display: inline; } .progbar button { flex: 1; }
-  #cEdit { grid-column: 2; } #cMsg { grid-column: 2; } #cPath { grid-column: 3; grid-row: 1 / span 3; }
-  #mini { display: none; } #bar { position: static; grid-column: 2; border: 1px solid var(--edge-c); padding: 8px; }
-  .ed { height: 52vh; }
+@media (min-width: 900px) {  /* §23: an editor that fills the window; only the panes scroll */
+  body { padding-bottom: 0; height: 100vh; height: 100dvh; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+  header { position: static; }
+  header .inner { display: flex; align-items: center; gap: 16px; } .top { display: contents; } .top h1 { flex: 1; text-align: left; }
+  .chips { display: flex; margin-top: 0; order: 2; } #mbtn { order: 3; }  /* the menu button at the far right (owner) */
+  main { min-height: 0; grid-template-columns: 220px minmax(0, 1fr) minmax(320px, 34%); grid-template-rows: minmax(0, 1fr) 12em auto;
+    grid-template-areas: "prog edit run" "prog msg run" "bar bar bar"; }
+  #cProg, #cEdit, #cMsg, #cPath { display: flex; flex-direction: column; min-height: 0; }
+  #cProg { grid-area: prog; } #plist { display: block; flex: 1; min-height: 0; overflow: auto; }
+  .progbar { order: 2; flex-wrap: wrap; margin-top: 8px; } .progbar span { display: inline; } .progbar button { flex: 1; }
+  .progbar select, #tabs { display: none; }
+  #cEdit { grid-area: edit; } #cEdit h2 { order: -2; }
+  #pad { order: -1; flex: none; flex-wrap: nowrap; overflow-x: auto; margin: 0 0 8px; }
+  #pad button { flex: none; white-space: nowrap; }
+  .ed { flex: 1; height: auto; min-height: 0; }
+  #cMsg { grid-area: msg; } #cMsg > h2 { display: none; } #ptabs { display: flex; gap: 6px; margin-bottom: 6px; flex: none; }
+  #pslot, .msgs { flex: 1; min-height: 0; overflow: auto; } #pslot #diags { margin-top: 0; }
+  #cMsg.t-problems .msgs, #cMsg.t-messages #pslot { display: none; }
+  #log { max-height: none; } #mini { display: none; }
+  #cPath { grid-area: run; } .cam { display: block; } body.camoff .cam { display: none; } body.camoff #camShow { display: inline-block; }
+  .pathw { flex: 1; height: auto; min-height: 120px; }
+  #bar { grid-area: bar; position: static; border: 1px solid var(--edge-c); padding: 6px 8px; }
+  #bar .help { flex: 1; min-width: 0; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  [data-kbd]::after { content: " " attr(data-kbd); font-size: 10px; opacity: .75; font-weight: 400; }
 }
 </style>
 </head>
 <body>
 <header><div class="inner">
   <div class="top">
-    <a href="/"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>DRIVE</a>
+    <a href="/"><!--icon:chevron-left-->DRIVE</a>
     <h1>[ TANK LOGO ]</h1>
-    <button id="mbtn" type="button" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-    <button id="stop" type="button">STOP</button>
+    <button id="mbtn" type="button" aria-label="Menu"><!--icon:menu--></button>
+    <button id="stop" type="button"><!--icon:octagon-x--> STOP</button>
   </div>
   <div class="chips">
-    <span class="chip" id="cBatt">-- V</span>
-    <span class="chip" id="cWifi">WIFI --</span>
-    <span class="chip" id="cUno">● UNO --</span>
+    <span class="chip" id="cBatt"><!--icon:battery--> -- V</span>
+    <span class="chip" id="cWifi"><!--icon:wifi-zero--> --</span>
+    <span class="chip" id="cUno"><!--icon:cpu--> UNO --</span>
   </div>
 </div></header>
 <nav id="menu"><a href="/">DRIVE</a><a href="/settings">SETTINGS</a><a href="/help">HELP</a></nav>
@@ -117,10 +141,10 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   <h2>[ PROGRAMS ]</h2>
   <div class="progbar">
     <select id="psel" aria-label="Program"></select>
-    <button id="pnew" type="button" title="New program"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span> NEW</span></button>
-    <button id="psave" type="button" title="Save on the tank"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg><span> SAVE</span></button>
-    <button id="pren" type="button" title="Rename"><svg viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/></svg><span> RENAME</span></button>
-    <button id="pdel" type="button" title="Delete" style="color:var(--danger)"><svg viewBox="0 0 24 24"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg><span> DELETE</span></button>
+    <button id="pnew" type="button" title="New program"><!--icon:plus--><span> NEW</span></button>
+    <button id="psave" type="button" title="Save on the tank"><!--icon:save--><span> SAVE</span></button>
+    <button id="pren" type="button" title="Rename"><!--icon:pencil--><span> RENAME</span></button>
+    <button id="pdel" type="button" title="Delete" style="color:var(--danger)"><!--icon:trash--><span> DELETE</span></button>
   </div>
   <ul id="plist"></ul>
 </section>
@@ -135,10 +159,13 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 </section>
 <section class="card" id="cMsg">
   <h2>[ MESSAGES ]</h2>
+  <div id="ptabs"><button type="button" id="tProb" data-t="problems">PROBLEMS</button><button type="button" id="tMsg" data-t="messages">MESSAGES</button></div>
+  <div id="pslot"></div>
   <div class="msgs"><div id="log"></div><canvas id="mini" title="Open the path"></canvas></div>
 </section>
 <section class="card" id="cPath">
-  <h2>[ 02 // PATH ]<span id="pgrid" class="badge">5 cm GRID</span></h2>
+  <h2>[ 02 // PATH ]<span><button id="camShow" type="button"><!--icon:camera--> SHOW CAMERA</button> <span id="pgrid" class="badge">5 cm GRID</span></span></h2>
+  <div class="cam" id="cam"><img id="camImg" alt=""><span id="camNote">NO CAMERA</span><b id="camDist"><!--icon:radar--> <span id="camDistT">-- cm</span></b><button id="camHide" type="button"><!--icon:eye-off--> HIDE</button></div>
   <div class="pathw"><canvas id="path"></canvas><span id="pnote"></span></div>
   <div class="stats">
     <div><small>HEADING</small><b id="sHead">--</b></div>
@@ -148,8 +175,8 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 </section>
 <div id="bar">
   <span id="status">● CONNECTING</span>
-  <button id="step" type="button">STEP</button>
-  <button id="run" type="button">▶ RUN</button>
+  <button id="step" type="button"><!--icon:step-forward--> STEP</button>
+  <button id="run" type="button"><!--icon:play--> <span id="runT">RUN</span></button>
 </div>
 </main>
 <div class="sheet" id="nameS"><div class="card">
@@ -177,6 +204,9 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   var ws = null, open = false, linked = false, retry = 500, nextId = 1, runId = 0, stepId = 0;
   var cur = { name: "", example: false, saved: "" }, progs = [], own = {}, diags = [], planned = [], cutShort = false;
   var driven = [], pose = null, startedAt = 0, logLines = [], loading = 0, want = 0;  // a program being opened
+  var wideQ = window.matchMedia("(min-width: 900px)"), wide = false, panel = { tab: "messages", picked: false };  // §23
+  var camOff = recall("logo.cam") === "off", camOn = false, camTimer = 0;
+  var battMean = new L.BattMean(10);  // R25: as Drive
   var NEW = "<new>", START_TEXT = "; my program\nFORWARD 50\nRIGHT 90\n";
 
   function storage() { try { return window.localStorage; } catch (e) { return null; } }
@@ -290,10 +320,12 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
       planned = L.plannedRuns(m.path); cutShort = !!m.cut_short;
       bar = L.runBar(bar, { e: "checked", ok: !!m.ok, prog: m.prog || 0 });
       showDiags(); render(); draw(); act(); showBar();
+      panelEv({ e: "problems", n: diags.length, running: L.locked(bar) });
     });
   }
   setInterval(checkTick, 100);
   function showDiags() {
+    showPanel();
     var box = $("diags"), lines = src.value.split("\n"); box.textContent = "";
     diags.slice(0, 5).forEach(function (d) {
       var row = el("div", "diag" + (d.warning ? " warn" : "")), text = lines[d.line - 1] || "";
@@ -337,18 +369,19 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     else if (s.st === "mistakes") { t = "● " + n + (n === 1 ? " MISTAKE" : " MISTAKES") + " - see under the program"; cls = "s-bad"; }
     else if (s.st === "ready") t = s.msg ? "● " + s.msg : "● READY";
     else if (s.st === "starting") t = "● STARTING …";
-    else if (s.st === "running") { t = "● RUNNING · line " + (s.line || "-") + " · " + clock(Date.now() - startedAt); cls = "s-warn"; }
+    else if (s.st === "running") { t = "● RUNNING · line " + (s.line || "-") + (s.round > 0 ? " · round " + s.round : "") + " · " + clock(Date.now() - startedAt); cls = "s-warn"; }
     else if (s.st === "stepping") { t = "● STEP · line " + s.line + " - press STEP for the next line"; cls = "s-warn"; }
     else if (s.st === "ended") { t = L.endText(s.end); cls = s.end && s.end.reason === "finished" ? "" : "s-bad"; }
     if (!open && !L.locked(s)) { t = "● NOT CONNECTED"; cls = "s-warn"; }
     st.textContent = t; st.className = cls;
     $("run").disabled = !(L.canRun(s) || s.st === "stepping") || !open;
-    $("run").textContent = s.st === "stepping" ? "▶ NEXT" : "▶ RUN";
+    $("runT").textContent = s.st === "stepping" ? "NEXT" : "RUN";
     $("step").disabled = !(L.canRun(s) || s.st === "stepping") || !open;
     $("state").textContent = L.locked(s) ? "RUNNING" : s.st === "ended" ? "ENDED" : "";
     $("state").className = "badge" + ($("state").textContent ? "" : " hide");
     $("sTime").textContent = (L.locked(s) ? clock(Date.now() - startedAt) : "0:00") + " / 5:00";
     $("psave").disabled = $("pdel").disabled = $("pren").disabled = L.locked(s);
+    $("help").classList.toggle("hide", wide && L.locked(s));  // the status bar shows the running line instead
     if (!L.locked(s) && s.st !== "running") startedAt = s.st === "ended" ? startedAt : 0;
   }
   setInterval(function () { if (L.locked(bar)) showBar(); }, 1000);
@@ -362,7 +395,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   function onEvent(m) {
     var mine = bar.mine || bar.st === "starting";
     switch (m.kind) {
-      case "logo_started": onBar({ e: "started" }); break;
+      case "logo_started": onBar({ e: "started" }); if (mine) panelEv({ e: "started" }); break;
       case "logo_line":
         onBar({ e: "line", line: m.line, round: m.round });
         if (mine) { log("line " + m.line + ": " + (src.value.split("\n")[m.line - 1] || "").trim(), ""); soon(); }
@@ -443,6 +476,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     $("pnote").textContent = cutShort ? "path cut short (a limit was reached)" : "";
   }
   window.addEventListener("resize", draw);
+  if (window.ResizeObserver) new ResizeObserver(function () { draw(); }).observe($("path").parentNode);  // HIDE / SHOW camera
   $("mini").addEventListener("click", function () { tab("path"); });
   function tab(t) {
     document.body.classList.toggle("tpath", t === "path");
@@ -574,17 +608,26 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   $("mbtn").addEventListener("click", function () { $("menu").classList.toggle("on"); });
 
   // ---------- tank link (bridge R11: no link while the page is hidden) ----------
-  function bars(rssi) { return rssi >= -55 ? "▂▄▆█" : rssi >= -65 ? "▂▄▆" : rssi >= -75 ? "▂▄" : "▂"; }
+  /*CQ:ICONS wifi wifi-high wifi-low wifi-zero wifi-off battery-full battery-medium battery-low battery-warning plug cpu*/  // R25
+  function chip(id, name, text, warn) { $(id).innerHTML = icon(name) + " " + esc(text); $(id).className = "chip" + (warn ? " warn" : ""); }
   function onMessage(m) {
     switch (m.t) {
-      case "welcome": $("cUno").textContent = m.tank && m.tank.fw && m.tank.fw.uno ? "● UNO ONLINE" : "● UNO OFFLINE"; break;
+      case "welcome": chip("cUno", "cpu", m.tank && m.tank.fw && m.tank.fw.uno ? "UNO ONLINE" : "UNO OFFLINE", false); break;
       case "ts":
-        if (m.batt_v !== null && m.batt_v !== undefined) $("cBatt").textContent = m.batt_v < 5.5 ? "USB" : m.batt_v.toFixed(2) + " V";
+        if (m.batt_v !== null && m.batt_v !== undefined) {  // Drive's rules: a 10-reading average, the warning from the flags
+          var bv = battMean.push(m.batt_v);
+          chip("cBatt", L.batteryIcon(bv), bv < 5.5 ? "USB" : bv.toFixed(2) + " V", bv >= 5.5 && L.battWarn(m.flags));
+        }
         var off = (m.flags || []).indexOf("body_offline") >= 0;
-        $("cUno").textContent = off ? "● UNO OFFLINE" : "● UNO ONLINE"; $("cUno").className = "chip" + (off ? " warn" : "");
+        chip("cUno", "cpu", off ? "UNO OFFLINE" : "UNO ONLINE", off);
         break;
-      case "tf": $("sDist").textContent = m.dist_cm === null || m.dist_cm === undefined ? "--" : m.dist_cm + " cm"; break;
-      case "wifi_status": $("cWifi").textContent = m.mode === "home" ? "HOME " + bars(m.rssi) : "OWN WIFI"; $("cWifi").className = "chip"; break;
+      case "tf":
+        $("sDist").textContent = m.dist_cm === null || m.dist_cm === undefined ? "--" : m.dist_cm + " cm";
+        $("camDistT").textContent = $("sDist").textContent;
+        break;
+      case "wifi_status":
+        chip("cWifi", m.mode === "home" ? L.wifiIcon(m.rssi) : "wifi", m.mode === "home" ? "HOME" : "OWN WIFI", m.mode === "home" && m.rssi <= -65);
+        break;
       case "ev": if (m.kind && m.kind.indexOf("logo_") === 0) onEvent(m); break;
       case "ack": if (m.id === runId) { onBar({ e: "ack" }); lockEditor(); } break;
       case "nack":
@@ -599,12 +642,13 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     ws = new WebSocket("ws://" + location.host + "/ws");
     ws.onopen = function () {
       open = true; retry = 500; send({ t: "hello", client: "logo", proto: 1 }); send({ t: "wifi_status" });
-      if (linked) loadList();  // a new link may be a restarted bridge; the first list comes from the start below
+      if (linked) loadList();
+      if (linked && camOn) { camStop(); camUpdate(); }  // a broken MJPEG stream keeps its last picture: start it again  // a new link may be a restarted bridge; the first list comes from the start below
       linked = true; showBar();
     };
     ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } onMessage(m); };
     ws.onclose = function () {
-      open = false; $("cWifi").textContent = "RECONNECTING"; $("cWifi").className = "chip warn";
+      open = false; chip("cWifi", "wifi-off", "RECONNECTING", true);
       onBar({ e: "closed" }); lockEditor();
       setTimeout(connect, retry); retry = Math.min(retry * 2, 5000);
     };
@@ -613,7 +657,73 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) { flushDraft(); onBar({ e: "hidden" }); if (ws && ws.readyState <= 1) ws.close(); } else { retry = 500; connect(); lockEditor(); }
+    camUpdate();
   });
+
+  // ---------- revision N6: the laptop layout (§23) ----------
+  // Layout: two elements change place at 900 px (the word row and the panes move by CSS alone).
+  function applyLayout() {
+    wide = wideQ.matches;
+    if (wide) { $("pslot").appendChild($("diags")); $("bar").insertBefore($("help"), $("step")); }
+    else { $("cEdit").insertBefore($("diags"), $("pad")); $("cEdit").appendChild($("help")); }
+    camUpdate(); showBar(); draw();
+  }
+  if (wideQ.addEventListener) wideQ.addEventListener("change", applyLayout); else wideQ.addListener(applyLayout);
+
+  // BottomPanel: PROBLEMS | MESSAGES under the editor
+  function panelEv(ev) { panel = L.panelTab(panel, ev); showPanel(); }
+  function showPanel() {
+    $("tProb").textContent = "PROBLEMS" + (diags.length ? " " + diags.length : "");
+    $("tProb").classList.toggle("on", panel.tab === "problems"); $("tMsg").classList.toggle("on", panel.tab !== "problems");
+    $("cMsg").classList.toggle("t-problems", panel.tab === "problems"); $("cMsg").classList.toggle("t-messages", panel.tab !== "problems");
+  }
+  $("ptabs").addEventListener("click", function (e) { var t = e.target.dataset && e.target.dataset.t; if (t) panelEv({ e: "pick", tab: t }); });
+
+  // Shortcuts: each is its button; Esc is STOP from anywhere, even in a dialog (which it also closes)
+  function sheetOpen() { return $("nameS").classList.contains("on") || $("delS").classList.contains("on"); }
+  var lastEsc = 0;
+  window.addEventListener("keydown", function (e) {
+    var a = L.shortcut(e.key, e.ctrlKey, e.metaKey, e.altKey, e.shiftKey, false);
+    if (!a) return;
+    if (a !== "stop" && (e.isComposing || e.keyCode === 229)) return;  // an input method's key, not ours
+    e.preventDefault();  // held keys too: never the browser's "save page" or F10 menu
+    if (a === "stop") {  // the first press always stops; a held Esc repeats it at most 4 times a second
+      if (!e.repeat || Date.now() - lastEsc >= 250) { lastEsc = Date.now(); onBar({ e: "stop" }); }
+      $("nameS").classList.remove("on"); $("delS").classList.remove("on"); return;
+    }
+    if (e.repeat || sheetOpen()) return;  // a held key never acts twice
+    var b = $(a === "save" ? "psave" : a);
+    if (!b.disabled) b.click();
+  }, true);  // capture: before the editor's own keys
+  var mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
+  $("run").dataset.kbd = mac ? "\u2318\u21B5" : "Ctrl\u21B5"; $("step").dataset.kbd = "F10"; $("stop").dataset.kbd = "Esc";
+  $("psave").title = "Save on the tank (" + (mac ? "\u2318S" : "Ctrl+S") + ")";
+
+  // CameraPane: the stream only while it can be seen (port 81, 2 viewers at most - the page cannot tell a
+  // refusal from no camera, so one note for both)
+  function camUpdate() {
+    document.body.classList.toggle("camoff", camOff);
+    var want = L.cameraWanted(wide, camOff, document.hidden);
+    if (want && !camOn) camStart(); else if (!want && camOn) camStop();
+  }
+  function camNote(t) { $("camNote").textContent = t; $("camNote").classList.toggle("hide", !t); }
+  function camStop() {
+    camOn = false; clearTimeout(camTimer); camTimer = 0;
+    var i = $("camImg"); i.onerror = null; i.removeAttribute("src"); camNote("NO CAMERA");  // closes the MJPEG connection
+  }
+  function camStart() {
+    camOn = true; clearTimeout(camTimer); camTimer = 0;
+    var i = $("camImg");
+    camNote("");  // MJPEG streams do not reliably fire onload (as on the Drive page)
+    i.onerror = function () {
+      i.onerror = null; i.removeAttribute("src");
+      camNote("NO CAMERA (2 viewers at most) - trying again");
+      camTimer = setTimeout(function () { if (camOn) camStart(); }, 3000);
+    };
+    i.src = "http://" + location.hostname + ":81/stream?t=" + Date.now();
+  }
+  $("camHide").addEventListener("click", function () { camOff = true; remember("logo.cam", "off"); camUpdate(); });
+  $("camShow").addEventListener("click", function () { camOff = false; remember("logo.cam", ""); camUpdate(); });
 
   showPad();
   var last = recall("cq.logo.last") || NEW, first = drafts.restore(NEW);
@@ -622,6 +732,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   connect();
   loadList().then(function () { if (last !== NEW) { loading = 0; openProg(last); } else showProgs(); });
   tab("prog");
+  applyLayout(); showPanel();
 })();
 </script>
 </body>

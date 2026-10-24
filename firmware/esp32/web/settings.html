@@ -69,10 +69,6 @@ label { display: flex; justify-content: space-between; color: var(--dim); font-s
 .badge { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--dim); color: var(--dim); font-size: 9px; letter-spacing: .1em; padding: 1px 5px; text-transform: uppercase; }
 .badge.on { border-color: var(--ui); color: var(--ui); background: rgba(51, 255, 102, .1); }
 .badge.w { border-color: var(--warn); color: var(--warn); }
-.bars { display: inline-flex; align-items: flex-end; gap: 1px; height: 11px; vertical-align: -1px; }
-.bars i { width: 3px; background: rgba(51, 255, 102, .2); }
-.bars i.on { background: var(--ui); }
-.bars i:nth-child(1) { height: 3px; } .bars i:nth-child(2) { height: 5px; } .bars i:nth-child(3) { height: 8px; } .bars i:nth-child(4) { height: 11px; }
 .net { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); padding: 8px; margin-bottom: 6px; }
 .net .n { flex: 1; min-width: 0; }
 .net .n b { display: block; color: var(--active); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -146,41 +142,41 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
 <body>
 <header><div class="inner">
   <div class="top">
-    <a href="/"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>DRIVE</a>
+    <a href="/"><!--icon:chevron-left-->DRIVE</a>
     <h1>TANK SETTINGS</h1>
   </div>
   <div class="chips">
-    <span class="chip" id="cBatt">-- V</span>
+    <span class="chip" id="cBatt"><!--icon:battery--> -- V</span>
     <span class="chip" id="cWifi">WIFI --</span>
-    <span class="chip" id="cUno">● UNO --</span>
+    <span class="chip" id="cUno"><!--icon:cpu--> UNO --</span>
   </div>
 </div></header>
 <div class="wrap">
 <nav id="tabs">
-  <button data-tab="wifi" class="on" type="button"><svg viewBox="0 0 24 24"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.86a10 10 0 0 1 14 0"/><path d="M8.5 16.43a5 5 0 0 1 7 0"/></svg> WI-FI</button>
-  <button data-tab="tank" type="button"><svg viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg> TANK</button>
-  <button data-tab="tune" type="button"><svg viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg> TUNE</button>
-  <button data-tab="log" type="button"><svg viewBox="0 0 24 24"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg> LOG</button>
+  <button data-tab="wifi" class="on" type="button"><!--icon:wifi--> WI-FI</button>
+  <button data-tab="tank" type="button"><!--icon:bot--> TANK</button>
+  <button data-tab="tune" type="button"><!--icon:activity--> TUNE</button>
+  <button data-tab="log" type="button"><!--icon:scroll-text--> LOG</button>
 </nav>
 <main>
 <section id="t-wifi" class="on">
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9"/><path d="M7.8 4.7a6.14 6.14 0 0 0-.8 7.5"/><circle cx="12" cy="9" r="2"/><path d="M16.2 4.8c2 2 2.26 5.11.8 7.47"/><path d="M19.1 1.9a9.96 9.96 0 0 1 0 14.1"/><path d="M9.5 18h5"/><path d="m8 22 4-11 4 11"/></svg>[ 01 // CONNECTION ]</h2>
+  <div class="card"><h2><!--icon:radio-tower-->[ 01 // CONNECTION ]</h2>
     <div class="row"><span>Mode</span><b id="wMode">--</b></div>
     <div class="row"><span>Network</span><b id="wSsid">--</b></div>
     <div class="row"><span>Signal</span><b id="wRssi">--</b></div>
     <div class="row"><span>IP address</span><b id="wIp">--</b></div>
     <div class="row"><span>Hostname</span><b id="wHost">--</b></div>
-    <button class="btn warn wide" id="wSwitch" type="button"><svg viewBox="0 0 24 24"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg><span>Switch</span></button>
+    <button class="btn warn wide" id="wSwitch" type="button"><!--icon:arrow-left-right--><span>Switch</span></button>
     <div class="hint" style="text-align:center">// or double-press the tank's button</div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>[ 02 // SAVED NETWORKS ]<span class="tag badge" id="wSlots">-/3 SLOTS</span></h2>
+  <div class="card"><h2><!--icon:bookmark-->[ 02 // SAVED NETWORKS ]<span class="tag badge" id="wSlots">-/3 SLOTS</span></h2>
     <div id="wSaved"></div>
     <div class="btnrow">
-      <button class="btn fill" id="wAdd" type="button"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg>Add</button>
-      <button class="btn" id="wScan" type="button"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg><span>Scan</span></button>
+      <button class="btn fill" id="wAdd" type="button"><!--icon:plus-->Add</button>
+      <button class="btn" id="wScan" type="button"><!--icon:refresh-cw--><span>Scan</span></button>
     </div>
   </div>
-  <div class="card" id="addCard"><h2><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>[ 03 // ADD NETWORK ]<span class="tag" id="nSlot">NEW</span></h2>
+  <div class="card" id="addCard"><h2><!--icon:circle-plus-->[ 03 // ADD NETWORK ]<span class="tag" id="nSlot">NEW</span></h2>
     <label>Found networks <span>2.4 GHz only</span></label>
     <div id="nFound"></div>
     <div class="hint" id="nFoundHint" style="margin-top:0">Press Scan, then tap a network - or type its name.</div>
@@ -188,9 +184,9 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     <input id="nSsid" maxlength="32" autocomplete="off" placeholder="network name">
     <label for="nPass">Password <span>8-63 · empty = open</span></label>
     <input id="nPass" type="password" maxlength="63" autocomplete="new-password">
-    <button class="btn fillw wide" id="nSave" type="button"><svg viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>Save &amp; connect</button>
+    <button class="btn fillw wide" id="nSave" type="button"><!--icon:send-->Save &amp; connect</button>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6.01 18H6"/><path d="M10.01 18H10"/><path d="M15 10v4"/><path d="M17.84 7.17a4 4 0 0 0-5.66 0"/><path d="M20.66 4.34a8 8 0 0 0-11.31 0"/></svg>[ 04 // OWN WIFI ]<span class="tag badge w" id="aState">STANDBY</span></h2>
+  <div class="card"><h2><!--icon:router-->[ 04 // OWN WIFI ]<span class="tag badge w" id="aState">STANDBY</span></h2>
     <div class="row"><span>Name</span><b id="aSsid">conqueror-bridge</b></div>
     <div class="row"><span>Address</span><b>192.168.4.1</b></div>
     <label for="aPass">New password <span>8-63</span></label>
@@ -200,7 +196,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   </div>
 </section>
 <section id="t-tank">
-  <div class="card"><h2><svg viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>[ 01 // BRIDGE ]<span class="tag">ESP32-S3</span></h2>
+  <div class="card"><h2><!--icon:cpu-->[ 01 // BRIDGE ]<span class="tag">ESP32-S3</span></h2>
     <div class="cols">
       <div class="kv"><small>Firmware</small><b id="iFw">--</b></div>
       <div class="kv"><small>Uptime</small><b id="iUp">--</b></div>
@@ -208,7 +204,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
       <div class="kv"><small>Last restart</small><b id="iBoot">--</b></div>
     </div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>[ 02 // UNO BODY ]<span class="tag">250 kBd</span></h2>
+  <div class="card"><h2><!--icon:bot-->[ 02 // UNO BODY ]<span class="tag">250 kBd</span></h2>
     <div class="cols">
       <div class="kv"><small>Firmware</small><b id="iUno">--</b></div>
       <div class="kv"><small>Last restart</small><b id="iUnoReset">--</b></div>
@@ -217,7 +213,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     <div class="battbar"><div id="iBattBar"></div></div>
     <div class="row"><span>Encoders</span><b id="iEnc">--</b></div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>[ 03 // LIVE SENSORS ]<span class="tag">10 Hz</span></h2>
+  <div class="card"><h2><!--icon:activity-->[ 03 // LIVE SENSORS ]<span class="tag">10 Hz</span></h2>
     <div class="cols">
       <div class="kv"><small>Distance ahead</small><b id="sDist">--</b></div>
       <div class="kv"><small>Heading</small><b id="sHdg">--</b></div>
@@ -227,7 +223,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
       <div class="kv"><small>Track speed L · R</small><b id="sSpd">--</b></div>
     </div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>[ 04 // SELF-TEST ]<span class="tag badge" id="stBadge">--</span></h2>
+  <div class="card"><h2><!--icon:check-->[ 04 // SELF-TEST ]<span class="tag badge" id="stBadge">--</span></h2>
     <div class="row"><span>Last run</span><b id="stAge">--</b></div>
     <div class="row"><span>Motion sensor (IMU)</span><b id="st0">--</b></div>
     <div class="row"><span>Distance sensor</span><b id="st1">--</b></div>
@@ -236,7 +232,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     <button class="btn wide" id="stRun" type="button">Run the checks again</button>
     <div class="hint">// The tank must stand still. A failed critical check (IMU, battery) blocks driving until it passes.</div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>[ 05 // CAMERA ]</h2>
+  <div class="card"><h2><!--icon:camera-->[ 05 // CAMERA ]</h2>
     <div class="prev"><img id="cPrev" alt=""><span id="cPrevMsg">[ NO VIDEO ]</span></div>
     <div class="row"><span>Camera centre</span><b id="trimV">--</b></div>
     <div class="row"><span class="trim"><button class="btn" type="button" id="trimL" aria-label="Look further left">◀</button><button class="btn" type="button" id="trimR" aria-label="Look further right">▶</button><button class="btn" type="button" id="trimU" aria-label="Look further up">▲</button><button class="btn" type="button" id="trimD" aria-label="Look further down">▼</button></span><span class="trim"><button class="btn" type="button" id="trimUndo">Undo</button><button class="btn" type="button" id="trimSave">Save</button></span></div>
@@ -252,31 +248,36 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     <div class="row" style="margin-top:8px"><span>Brightness</span><span class="mini"><button class="btn" type="button" data-k="brightness" data-d="-1">−</button><b id="cBright">--</b><button class="btn" type="button" data-k="brightness" data-d="1">+</button></span></div>
     <div class="row"><span>Contrast</span><span class="mini"><button class="btn" type="button" data-k="contrast" data-d="-1">−</button><b id="cContrast">--</b><button class="btn" type="button" data-k="contrast" data-d="1">+</button></span></div>
     <div class="row"><span>Low-light mode</span><button class="btn tog" type="button" id="cLow" data-k="low_light">--</button></div>
+    <div class="hint">// More gain for dim rooms; keeps the frame rate.</div>
+    <div class="row"><span>Night (slow)</span><button class="btn tog" type="button" id="cNight" data-k="night">--</button></div>
+    <div class="hint">// Longer exposures, fewer pictures - for looking, not for driving.</div>
+    <label>White balance</label>
+    <div class="seg" id="cWb"><button type="button" data-v="auto">AUTO</button><button type="button" data-v="sunny">SUN</button><button type="button" data-v="cloudy">CLOUD</button><button type="button" data-v="office">OFFICE</button><button type="button" data-v="home">HOME</button></div>
     <div class="row"><span>Flip upside down</span><button class="btn tog" type="button" id="cFlip" data-k="vflip">--</button></div>
     <div class="row"><span>Mirror</span><button class="btn tog" type="button" id="cMirror" data-k="hmirror">--</button></div>
     <button class="btn warn wide" id="cReset" type="button">Reset to defaults</button>
     <div class="hint">// Saved on the tank. Bigger pictures and higher rates load the WiFi more.</div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/></svg>[ 06 // CHILD PLAY ]<span class="tag badge" id="cpBadge">--</span></h2>
+  <div class="card"><h2><!--icon:smile-->[ 06 // CHILD PLAY ]<span class="tag badge" id="cpBadge">--</span></h2>
     <div class="row"><span>Top speed</span><b id="cpSpeed">--</b></div>
     <div class="row"><span>Acceleration limit</span><b id="cpAccel">--</b></div>
     <div class="row"><span>Locked obstacle brake</span><b id="cpBrake">--</b></div>
     <div class="hint">// Read only. Turning it on comes with the child-play design.</div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>[ 07 // SAFETY ]<span class="tag badge w"><svg viewBox="0 0 24 24" style="width:10px;height:10px"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>READ ONLY</span></h2>
+  <div class="card"><h2><!--icon:shield-->[ 07 // SAFETY ]<span class="tag badge w"><!--icon:lock style="width:10px;height:10px"-->READ ONLY</span></h2>
     <div class="row"><span>Obstacle stop</span><b id="kStop">--</b></div>
     <div class="row"><span>Obstacle slow-down</span><b id="kSlow">--</b></div>
     <div class="row"><span>Encoders enabled</span><b id="kEncOn">--</b></div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>[ 08 // TRACK MODEL ]<span class="tag">KINEMATICS</span></h2>
+  <div class="card"><h2><!--icon:gauge-->[ 08 // TRACK MODEL ]<span class="tag">KINEMATICS</span></h2>
     <div class="row"><span>Track width</span><b>19 cm</b></div>
     <div class="box" style="margin:6px 0"><small>Speed v(p)</small><div style="color:var(--ui)">15.5 + 0.18 · p cm/s</div></div>
     <div class="row"><span>Slowest / fastest track</span><b>17.7 / 33.5 cm/s</b></div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>[ 09 // MAINTENANCE ]</h2>
-    <button class="btn wide" id="mCsv" type="button"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>Record 10 s CSV</button>
-    <button class="btn warn wide" id="mRestart" type="button"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Restart bridge</button>
-    <button class="btn bad wide" id="mForget" type="button"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>Forget all WiFi</button>
+  <div class="card"><h2><!--icon:wrench-->[ 09 // MAINTENANCE ]</h2>
+    <button class="btn wide" id="mCsv" type="button"><!--icon:download-->Record 10 s CSV</button>
+    <button class="btn warn wide" id="mRestart" type="button"><!--icon:rotate-ccw-->Restart bridge</button>
+    <button class="btn bad wide" id="mForget" type="button"><!--icon:trash-->Forget all WiFi</button>
     <div class="hint" id="mCsvState">The recording downloads to this device.</div>
     <label for="mAi">AI address <span>http://… · empty = none</span></label>
     <div class="meas"><input id="mAi" maxlength="96" autocomplete="off" placeholder="http://192.168.1.20:8000/"><button class="btn" id="mAiSave" type="button">Save</button></div>
@@ -284,14 +285,14 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   </div>
 </section>
 <section id="t-tune">
-  <div class="card span"><h2><svg viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>[ 01 // LIVE GRAPHS ]<span class="tag">LAST 60 S</span></h2>
+  <div class="card span"><h2><!--icon:activity-->[ 01 // LIVE GRAPHS ]<span class="tag">LAST 60 S</span></h2>
     <div class="seg l" id="gMode"><button type="button" data-v="speed" class="on">TRACK SPEED</button><button type="button" data-v="heading">HEADING</button><button type="button" data-v="balance">BALANCE</button></div>
     <canvas id="gCan"></canvas>
     <div class="gfoot"><span id="gNow">--</span>
       <button class="btn" id="gHold" type="button">Hold</button>
-      <button class="btn" id="gCsv" type="button"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>CSV</button></div>
+      <button class="btn" id="gCsv" type="button"><!--icon:download-->CSV</button></div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/></svg>[ 02 // DISTANCE ]<span class="tag">ODOMETRY</span></h2>
+  <div class="card"><h2><!--icon:ruler-->[ 02 // DISTANCE ]<span class="tag">ODOMETRY</span></h2>
     <div class="cols">
       <div class="box"><small>Counts / metre</small><div class="big" id="kCpm">--</div>
         <button class="btn warn wide" id="kResetCpm" type="button">Reset 7560</button></div>
@@ -300,7 +301,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     </div>
     <div class="hint">// Roll-on is learned while the tank drives.</div>
   </div>
-  <div class="card"><h2><svg viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>[ 03 // STRAIGHT DRIVING ]</h2>
+  <div class="card"><h2><!--icon:arrow-up-->[ 03 // STRAIGHT DRIVING ]</h2>
     <div class="row"><span>Track balance</span><span class="big"><span id="kBal">--</span><small>‰</small></span></div>
     <div class="stepper">
       <button class="btn" id="kMinus" type="button">−</button>
@@ -310,11 +311,11 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     </div>
     <div class="hint w">// Changes need a press of the tank's button. The BALANCE graph shows the effect.</div>
   </div>
-  <div class="card span"><h2><svg viewBox="0 0 24 24"><path d="M2 12h20"/><path d="M6 8v8"/><path d="M10 10v4"/><path d="M14 8v8"/><path d="M18 10v4"/></svg>[ 04 // CALIBRATION WIZARD · DISTANCE ]</h2>
+  <div class="card span"><h2><!--icon:ruler-->[ 04 // CALIBRATION WIZARD · DISTANCE ]</h2>
     <div class="note">⚠ Floor test: clear 3 m in front of the tank and have a tape measure ready. Keep STOP within reach.</div>
     <div>Mark the floor at the front edge of the tank. It will drive <b>1 m</b> forward at 40 %, then stop. Measure how far it really went.</div>
     <div class="wiz">
-      <button class="btn fillw" id="zDrive" type="button"><svg viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg>Drive 1 m</button>
+      <button class="btn fillw" id="zDrive" type="button"><!--icon:play-->Drive 1 m</button>
       <button class="btn fillr" id="zStop" type="button">Stop</button>
     </div>
     <div class="hint" id="zState">// Ready.</div>
@@ -326,9 +327,9 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
 <section id="t-log">
   <div class="lbar span">
     <div class="seg l" id="lFilt"><button type="button" data-v="all" class="on">ALL</button><button type="button" data-v="stops">STOPS</button><button type="button" data-v="wifi">WIFI</button><button type="button" data-v="system">SYSTEM</button></div>
-    <button class="btn" id="lCsv" type="button"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>CSV</button>
+    <button class="btn" id="lCsv" type="button"><!--icon:download-->CSV</button>
   </div>
-  <div class="card span"><h2><svg viewBox="0 0 24 24"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg>[ 01 // RECENT EVENTS ]<span class="tag">LIVE</span></h2>
+  <div class="card span"><h2><!--icon:scroll-text-->[ 01 // RECENT EVENTS ]<span class="tag">LIVE</span></h2>
     <div id="lList"></div>
     <div class="hint" style="text-align:center">// keeps the last 200 events · cleared on restart</div>
   </div>
@@ -336,17 +337,17 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
 </main>
 </div>
 <footer id="foot">BRIDGE -- · PHYSICAL CONFIRMATION: READY</footer>
-<div id="confirm"><div class="h"><svg viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><b id="cText">PRESS THE TANK'S BUTTON</b><span id="cSecs">30 s</span></div>
+<div id="confirm"><div class="h"><!--icon:triangle-alert--><b id="cText">PRESS THE TANK'S BUTTON</b><span id="cSecs">30 s</span></div>
   <div class="pb"><div id="cBar"></div></div></div>
 <div id="toast"></div>
 <script>
 (function () {
   "use strict";
+  /*CQ:ICONS lock pencil trash hand triangle-alert wifi wifi-high wifi-low wifi-zero rotate-ccw info check battery-full battery-medium battery-low battery-warning plug cpu*/  // the shared Lucide icons (bridge LLD R25)
   var $ = function (id) { return document.getElementById(id); };
-  var SVG_BATT = '<svg viewBox="0 0 24 24"><rect width="10" height="16" x="7" y="5" rx="2"/><path d="M10 2h4"/></svg>';
-  var SVG_LOCK = '<svg viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
-  var SVG_EDIT = '<svg viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/></svg>';
-  var SVG_DEL = '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+  var SVG_LOCK = icon("lock");
+  var SVG_EDIT = icon("pencil");
+  var SVG_DEL = icon("trash");
   var ws = null, open = false, nextId = 1, retry = 500, wifi = null, editSlot = -1, fw = "--", scan = {};
   var confirmUntil = 0, confirmSecs = 30, confirmTimer = 0, toastTimer = 0, rec = null;
 
@@ -355,10 +356,18 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     $("toast").textContent = t; $("toast").className = "show" + (ok ? " ok" : "");
     clearTimeout(toastTimer); toastTimer = setTimeout(function () { $("toast").className = ""; }, 4000);
   }
-  function bars(rssi) {  // markup only from numbers - never from an SSID
-    var n = rssi >= -55 ? 4 : rssi >= -65 ? 3 : rssi >= -75 ? 2 : rssi >= -85 ? 1 : 0, h = '<span class="bars">';
-    for (var i = 0; i < 4; i++) h += '<i class="' + (i < n ? "on" : "") + '"></i>';
-    return h + "</span>";
+  function bars(rssi) {  // the WiFi strength as Drive shows it (bridge LLD R25): markup only from numbers
+    return icon(rssi > -55 ? "wifi" : rssi > -65 ? "wifi-high" : rssi > -75 ? "wifi-low" : "wifi-zero");
+  }
+  function battIcon(v) {  // 2S Li-ion, Drive's charge curve: >= 70 % (7.87 V) / 35 % / 10 % (bridge LLD R25)
+    return icon(v < 5.5 ? "plug" : v >= 7.87 ? "battery-full" : v >= 7.4 ? "battery-medium" : v >= 7.0 ? "battery-low" : "battery-warning");
+  }
+  var battVals = [], battUsb = null;
+  function battAvg(v) {  // Drive's 10-reading average, started again between USB and the pack
+    var usb = v < 5.5;
+    if (usb !== battUsb) { battVals = []; battUsb = usb; }
+    battVals.push(v); if (battVals.length > 10) battVals.shift();
+    return battVals.reduce(function (a, b) { return a + b; }, 0) / battVals.length;
   }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
   var WHAT = { wifi_save: "SAVE THE NETWORK", wifi_forget: "FORGET", wifi_mode: "SWITCH WIFI",
@@ -511,8 +520,9 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
       $("iUnoReset").textContent = d.uno && d.uno.reset_reason ? d.uno.reset_reason : "--";
     }).catch(function () {});
   }
-  function showBatt(v) {
-    $("cBatt").innerHTML = SVG_BATT + " " + v.toFixed(2) + " V";
+  function showBatt(v, flags) {  // the chip as Drive: averaged, the warning from the tank's flags
+    var a = battAvg(v), warn = a >= 5.5 && (flags.indexOf("batt_low") >= 0 || flags.indexOf("batt_critical") >= 0);
+    $("cBatt").innerHTML = battIcon(a) + " " + (a < 5.5 ? "USB" : a.toFixed(2) + " V"); $("cBatt").className = "chip" + (warn ? " warn" : "");
     $("iBatt").textContent = v.toFixed(2) + " V";
     $("iBattBar").style.width = Math.max(0, Math.min(100, (v - 6.6) / 1.8 * 100)) + "%";  // 2S: 6.6 .. 8.4 V
   }
@@ -618,12 +628,12 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     if (cam) {
       $("cViewers").textContent = cam.viewers + " / 2";
       $("cNow").textContent = cam.viewers ? (cam.fps / cam.viewers).toFixed(1) + " fps" + (cam.viewers > 1 ? " each" : "") + " · " + cam.kbps + " kbit/s" : "nobody watching";  // frames are counted for all viewers
-      segOn("cSize", cam.size); segOn("cFps", cam.fps_cap);
+      segOn("cSize", cam.size); segOn("cFps", cam.fps_cap); segOn("cWb", cam.wb || "auto");
       if (document.activeElement !== $("cQual")) $("cQual").value = cam.quality;
       $("cQualV").textContent = cam.quality;
       $("cBright").textContent = (cam.brightness > 0 ? "+" : "") + cam.brightness;
       $("cContrast").textContent = (cam.contrast > 0 ? "+" : "") + cam.contrast;
-      [["cLow", cam.low_light], ["cFlip", cam.vflip], ["cMirror", cam.hmirror]].forEach(function (x) {
+      [["cLow", cam.low_light], ["cNight", cam.night], ["cFlip", cam.vflip], ["cMirror", cam.hmirror]].forEach(function (x) {
         $(x[0]).textContent = x[1] ? "ON" : "OFF"; $(x[0]).classList.toggle("on", !!x[1]);
       });
     }
@@ -663,7 +673,8 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
       if (o[b.dataset.k] !== cam[b.dataset.k]) camSet(o);
     });
   });
-  ["cLow", "cFlip", "cMirror"].forEach(function (id) {
+  $("cWb").addEventListener("click", function (e) { var b = e.target.closest("button"); if (b) camSet({ wb: b.dataset.v }); });
+  ["cLow", "cNight", "cFlip", "cMirror"].forEach(function (id) {
     $(id).addEventListener("click", function () { if (!cam) return; var o = {}; o[$(id).dataset.k] = !cam[$(id).dataset.k]; camSet(o); });
   });
   $("cReset").addEventListener("click", function () { camSet({ reset: true }); });
@@ -675,9 +686,9 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   });
   function onSlow(m) {
     var f = m.flags || [];
-    if (m.batt_v !== null && m.batt_v !== undefined) showBatt(m.batt_v);
+    if (m.batt_v !== null && m.batt_v !== undefined) showBatt(m.batt_v, f);
     var off = f.indexOf("body_offline") >= 0;
-    $("cUno").textContent = off ? "● UNO OFFLINE" : "● UNO ONLINE"; $("cUno").className = "chip" + (off ? " warn" : "");
+    $("cUno").innerHTML = icon("cpu") + (off ? " UNO OFFLINE" : " UNO ONLINE"); $("cUno").className = "chip" + (off ? " warn" : "");
     $("iEnc").textContent = f.indexOf("encoder_fault") >= 0 ? "OFF - restart the tank" : "✓ OK";
     var al = ["tilted", "lifted"].filter(function (x) { return f.indexOf(x) >= 0; });
     $("sAlarm").textContent = al.length ? al.join(" · ").toUpperCase() : "none";
@@ -814,12 +825,12 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
 
   // ---------- Log (R13.5: page with since, then poll every 2 s while the tab is open) ----------
   var LOG = { items: [], next: 0, gap: false, filt: "all" };
-  var SVG_HAND = '<svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>';
-  var SVG_WARN = '<svg viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>';
-  var SVG_WIFI = '<svg viewBox="0 0 24 24"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.86a10 10 0 0 1 14 0"/><path d="M8.5 16.43a5 5 0 0 1 7 0"/></svg>';
-  var SVG_REST = '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
-  var SVG_INFO = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>';
-  var SVG_OK = '<svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>';
+  var SVG_HAND = icon("hand");
+  var SVG_WARN = icon("triangle-alert");
+  var SVG_WIFI = icon("wifi");
+  var SVG_REST = icon("rotate-ccw");
+  var SVG_INFO = icon("info");
+  var SVG_OK = icon("check");
   var SIDE = function (b) { return b === 0 ? "left" : "right"; };
   var CHECKS = ["motion sensor", "distance sensor", "battery", "settings"];
   // Uno events: [title, detail(b) or text, severity]; b = the event's first value (design-notes §91)
@@ -952,7 +963,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     switch (m.t) {
       case "welcome":
         you = m.you || "";
-        $("cUno").textContent = m.tank && m.tank.fw && m.tank.fw.uno ? "● UNO ONLINE" : "● UNO OFFLINE";
+        $("cUno").innerHTML = icon("cpu") + (m.tank && m.tank.fw && m.tank.fw.uno ? " UNO ONLINE" : " UNO OFFLINE");
         break;
       case "tf": onTf(m); break;
       case "td": onTd(m); break;

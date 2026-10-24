@@ -17,7 +17,10 @@ struct CamSettings {
   bool low_light = false;
   bool vflip = true;
   bool hmirror = false;
+  uint8_t wb = 0;      // R24: white balance 0 auto, 1 sunny, 2 cloudy, 3 office, 4 home
+  bool night = false;  // R24: the sensor's night mode (longer exposures, fewer pictures) - for looking, not driving
 };
+constexpr unsigned kCamSettingsV1Bytes = 8;  // the block saved before R24: up to hmirror
 struct CamStats {
   uint16_t fps_x10 = 0;
   uint16_t kbps = 0;

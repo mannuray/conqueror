@@ -4,6 +4,7 @@
 
 #include "core/heading_scale.h"
 #include "core/motion_config.h"
+#include "core/cam_tuning.h"
 #include "core/ws_codec_internal.h"
 
 namespace cq {
@@ -199,6 +200,13 @@ bool readContrast(Reader& r, WsCommand& c, Seen&) {
 bool readLowLight(Reader& r, WsCommand& c, Seen&) { return readBool(r, c.cam.low, c.cam.has_low); }
 bool readVflip(Reader& r, WsCommand& c, Seen&) { return readBool(r, c.cam.vflip, c.cam.has_vflip); }
 bool readHmirror(Reader& r, WsCommand& c, Seen&) { return readBool(r, c.cam.hmirror, c.cam.has_hmirror); }
+bool readNight(Reader& r, WsCommand& c, Seen&) { return readBool(r, c.cam.night, c.cam.has_night); }  // R24
+bool readWb(Reader& r, WsCommand& c, Seen&) {  // R24: camera_set white balance, by name
+  char name[8];
+  if (!r.str(name, sizeof(name)) || !wbOf(name, c.cam.wb)) return false;
+  c.cam.has_wb = true;
+  return true;
+}
 bool readAiUrl(Reader& r, WsCommand& c, Seen& s) {  // app_set
   if (!r.str(c.ai_url, sizeof(c.ai_url))) return false;
   c.has_ai_url = true;
@@ -267,7 +275,7 @@ const KeyRow kKeys[] = {
     {"quality", readQuality}, {"fps_cap", readFpsCap}, {"brightness", readBrightness},
     {"contrast", readContrast}, {"low_light", readLowLight}, {"vflip", readVflip}, {"hmirror", readHmirror},
     {"ai_url", readAiUrl},  {"setting_id", readSettingId}, {"counts_per_m", readCpm}, {"gyro_scale", readGyroScale}, {"pan", readPan}, {"tilt", readTilt}, {"prog", readProg},
-    {"step", readStep},     {"try", readTry},
+    {"step", readStep},     {"try", readTry},         {"wb", readWb},           {"night", readNight},
 };
 
 }  // namespace

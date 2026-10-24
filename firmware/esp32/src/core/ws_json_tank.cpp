@@ -1,4 +1,5 @@
 #include "core/ws_json.h"
+#include "core/cam_tuning.h"
 #include "core/ws_json_util.h"
 #include "generated/cq_protocol_names.h"
 
@@ -19,11 +20,13 @@ size_t jsonTank(char* out, size_t cap, const TankView& v) {
              "{\"t\":\"tank\",\"selftest\":{\"seen\":%s,\"mask\":%u,\"locked\":%s,\"age_s\":%lu},"
              "\"hw\":{\"encoders\":%s,\"imu\":%s,\"us\":%s},"
              "\"camera\":{\"size\":\"%s\",\"quality\":%u,\"fps_cap\":%u,\"brightness\":%d,\"contrast\":%d,"
-             "\"low_light\":%s,\"vflip\":%s,\"hmirror\":%s,\"viewers\":%u,\"fps\":%.1f,\"kbps\":%u},"
+             "\"low_light\":%s,\"vflip\":%s,\"hmirror\":%s,\"wb\":\"%s\",\"night\":%s,\"viewers\":%u,\"fps\":%.1f,"
+             "\"kbps\":%u},"
              "\"ai_url\":\"%s\"}",
              tf(v.st.seen), v.st.mask, tf(v.st.locked), static_cast<unsigned long>(v.st_age_s), tf(v.hw & 1u),
              tf(v.hw & 2u), tf(v.hw & 4u), kSizes[v.cam_size < 4 ? v.cam_size : 1], v.cam_quality, v.cam_fps,
-             v.cam_bright, v.cam_contrast, tf(v.cam_low), tf(v.cam_vflip), tf(v.cam_hmirror), v.viewers,
+             v.cam_bright, v.cam_contrast, tf(v.cam_low), tf(v.cam_vflip), tf(v.cam_hmirror), wbName(v.cam_wb),
+             tf(v.cam_night), v.viewers,
              v.fps_x10 / 10.0, v.kbps, url);
 }
 

@@ -10,6 +10,7 @@
 #include <driver/gpio.h>
 
 #include "board_config.h"
+#include "core/cam_tuning.h"
 #include "net/log.h"
 
 namespace cq {
@@ -33,20 +34,18 @@ void applyTo(sensor_t* s, const CamSettings& c) {
   s->set_quality(s, c.quality);
   s->set_brightness(s, c.brightness);
   s->set_contrast(s, c.contrast);
-  // design-notes §96: low light = night mode (longer exposures in the dark) + 32x gain ceiling + one step brighter
-  s->set_aec2(s, c.low_light ? 1 : 0);
-  s->set_gainceiling(s, c.low_light ? GAINCEILING_32X : GAINCEILING_4X);
-  s->set_ae_level(s, c.low_light ? 1 : 0);
+  // R24: the OV3660's gain ceiling is a RAW 10-bit gain in 0x3A18 / 0x3A19 (16 = 1x) - §96 passed the GAINCEILING_*
+  // names (1 / 4: almost no gain). Written as registers, so no out-of-range enum value (Plan X review M2).
+  // Low light = 32x + one step brighter, keeping the frame rate; night mode is its own switch.
+  const core::CamTuning t = core::sensorTuning(c);
+  s->set_reg(s, 0x3A18, 0x03, t.gain_ceiling_raw >> 8);
+  s->set_reg(s, 0x3A19, 0xFF, t.gain_ceiling_raw & 0xFF);
+  s->set_ae_level(s, t.ae_level);
+  s->set_aec2(s, t.night ? 1 : 0);
+  s->set_whitebal(s, 1);
+  s->set_wb_mode(s, t.wb_mode);  // auto: the sensor's AWB; the presets set fixed colour gains
   s->set_vflip(s, c.vflip ? 1 : 0);
   s->set_hmirror(s, c.hmirror ? 1 : 0);
-}
-
-bool loadSettings(CamSettings& c) {
-  Preferences p;
-  if (!p.begin("cq_cam", true)) return false;
-  const bool ok = p.getBytesLength("s") == sizeof(CamSettings) && p.getBytes("s", &c, sizeof(c)) == sizeof(c);
-  p.end();
-  return ok && c.size < 4 && c.quality >= 10 && c.quality <= 40;
 }
 
 void saveSettings(const CamSettings& c) {
@@ -58,6 +57,20 @@ void saveSettings(const CamSettings& c) {
   if (p.putBytes("s", &c, sizeof(c)) != sizeof(c)) logf("camera: settings not saved (NVS write failed)");
   p.end();
 }
+
+// The saved block in either format (R24: the 8-byte one from before is carried over, then saved anew).
+bool loadSettings(CamSettings& c) {
+  Preferences p;
+  if (!p.begin("cq_cam", true)) return false;
+  uint8_t buf[sizeof(CamSettings)];
+  const size_t len = p.getBytesLength("s");
+  const bool read = len <= sizeof(buf) && p.getBytes("s", buf, len) == len;
+  p.end();
+  if (!read || !core::camFromBlock(buf, len, c)) return false;
+  if (len != sizeof(CamSettings)) saveSettings(c);
+  return true;
+}
+
 const char* g_name = "none";
 std::atomic<bool> g_stopped{false};
 
@@ -169,8 +182,8 @@ void cameraApplyPending() {
   g_cur = c;
   portEXIT_CRITICAL(&g_cam_mux);
   saveSettings(c);
-  logf("camera: settings size %u q%u fps %u b%d c%d low %u", c.size, c.quality, c.fps_cap, c.brightness, c.contrast,
-       c.low_light ? 1u : 0u);
+  logf("camera: settings size %u q%u fps %u b%d c%d low %u wb %s night %u", c.size, c.quality, c.fps_cap, c.brightness,
+       c.contrast, c.low_light ? 1u : 0u, core::wbName(c.wb), c.night ? 1u : 0u);
 }
 
 CamSettings cameraSettings() {

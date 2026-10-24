@@ -1984,3 +1984,168 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - a lower, balanced head with the camera's weight over the pan axis;
   - or a ready-made bearing pan / tilt kit for 9 g servos.
 - After any change: re-check the camera centre (§129) and the servo gains (`cq-calibrate servos`, §131).
+
+## 139. Camera improvement (parked, owner 2026-10-24) and what the phase 4 night test showed
+- **Parked earlier (camera discussion, 2026-10-23):**
+  - a **white-balance** setting on the Settings page's Camera card (the picture has a colour cast; §109 noted magenta in daylight, green under the room lights);
+  - a **camera-clock test** (XCLK 16 or 20 MHz instead of 10 MHz, with a WiFi ping check, §57 / §76) for more pictures per second.
+- **Added by the night test (Plan V Task 4):** exposure and low-light settings for dim rooms.
+  - With the room lights on, the QVGA picture's median brightness was **44 / 255**.
+  - YOLO's "person" score had a median of 0.0–0.08, with only 9 of 140 pictures at or above 0.35.
+  - A plush (Pikachu) was seen as "fire hydrant" (0.77–0.92) up close and not at all at 2 m.
+- **Also found that night:**
+  - **The mount tilt was 2.7° off:** −0.15° (clicked tape marks) → **+2.55°**, fitted from the plush's box bottom at 50 cm and 1 m with the camera arriving at −15° from above (49.6 / 99.9 cm; the height fitted free came out 18.1 cm against the measured 17.8). Saved on the Plan V branch.
+  - With it, a person's feet were placed at 99.5 cm from the lens against the 100 cm mark.
+  - **The tilt servo's slack near 0° is larger** than the laser's ±0.8°: commanded 0 → −5 moved only 1.4° when arriving from below. The drive module must reach the driving tilt from above (§130); a better mechanism is §138.
+  - **The camera doesn't sag** when its servos are released: < 0.3° over 6 s (phase correlation).
+- **Order (owner): the camera improvement first** (design, then a plan), then Plan V's floor check again, in daylight.
+
+## 140. Camera improvement: the design (owner, 2026-10-24)
+- **Found while designing:** the bridge's gain limit has been wrong since §96. The OV3660 driver takes a **raw** gain (16 = 1×, up to ≈ 64×), but we sent the library's names, 1 for "4×" and 4 for "32×". So the auto gain could barely raise the picture in a dim room, which explains §139's 44 / 255.
+- **Owner: "yes all as recommended, carry over old settings":**
+  1. **The gain limit fixed:** normal 8× (raw 128), low light 32× (raw 512).
+  2. **Low light for driving:** the higher gain plus one step brighter, **without** the sensor's night mode. Night mode (longer exposures, fewer pictures) becomes its own "Night (slow)" switch for looking around, not for driving.
+  3. **White balance:** Auto / Sunny / Cloudy / Office / Home (the OV3660's presets) on the Camera card, saved on the tank.
+  4. **The camera-clock test** (10 / 16 / 20 MHz: pictures per second and WiFi loss) is a measurement session in daylight; the result becomes a firmware constant.
+  5. **The saved camera settings are carried over** into the new format (not reset).
+- **Written as bridge LLD R24** (draft).
+
+## 141. Camera improvement on the tank (Plan X, 2026-10-24, night)
+- **How it was measured:**
+  - a session script (`cam_bright.py`) set QVGA and took 20 pictures with low light off, then 20 with it on (3 s settle each);
+  - it reports the median grey-level brightness (0–255) and the pictures per second from the capture stamps;
+  - the same room light before and after the flash.
+
+  | | Before (old firmware) | After (Plan X) |
+  |---|---|---|
+  | low light off | 87 / 255, 13.9 / s | **201 / 255, 13.9 / s** |
+  | low light on | 87 / 255, 12.6 / s | **207 / 255, 13.9 / s** |
+
+  - Before, low light changed nothing: the gain ceiling was near zero in both modes (the §96 bug).
+  - After, the picture is more than twice as bright in the same light, and low light no longer costs frame rate.
+  - **Night** on (the owner tried it from the card): 4.6 pictures / s, longer exposures, as designed (for looking, not driving).
+- **The saved settings were carried over** across the flash: QVGA, quality 12, brightness +1, contrast +2, vflip; plus white balance auto and night off. The owner's +1 / +2 were set while the picture was too dark; they may want 0 now.
+- **YOLO with the owner as the subject** (2 m; standing, then sitting with a laptop): no person found.
+  - Not the light: the picture was 170–178 / 255 and sharp.
+  - **Standing:** at the driving tilt the top of the view reaches only ~1 m high at 2 m (knees to waist), and legs alone aren't a "person" to YOLO from that low angle.
+  - **Sitting:** ~55 × 55 px at QVGA, partly behind the laptop; YOLO26n-320's best guess was "suitcase" at 0.16.
+  - **For phase 4 / module 2:** people need **a look up** (a tilt-up scan when a task needs them), or more pixels (Spec 7 §10's open QVGA / VGA question: VGA would make a person at 2 m about 110 px tall, at ~7 pictures / s, with a VGA calibration). To try in Plan V's floor check (Task 4).
+- **Still to do:**
+  - the white balance by eye **in daylight** (owner), a choice on the Camera card with no code;
+  - the camera-clock test (§140 item 4).
+- The camera was set back to VGA; the pictures and recordings were deleted.
+
+## 142. The "dropped second WebSocket" (§136) was our scripts, not the bridge (2026-10-24)
+- **Symptom (§136, §137, §141):** the session recorders' WebSocket closed 9–12 times per 30–40 s.
+- **Cause:** the bridge closes any client silent for 3 s (`WsClients::silent`, `kWsSilentMs`; a deliberate rule, bridge LLD: a silent driver means a lost phone). The pages and the AI engine's `BridgeLink` ping every 1 s. The session scripts (`servo_record.py`, `cam_bright.py`) only listened, so they were closed every ~3.3 s. The phone's activity played no part: the earlier "idle phone: 0 drops" was a 2–3 s probe, shorter than the 3 s rule.
+- **Measured** (`ping_test.py`, a listening client with `debug` 50 Hz):
+  - never sending: **4 drops in 15 s**, 703 `td` samples;
+  - pinging every 1 s: **0 drops**, 749 samples.
+- **Decision:** no firmware change. The AI engine is not affected. Session scripts use `BridgeLink` (or ping every 1 s).
+
+## 143. The camera clock: 20 MHz (owner, 2026-10-24; §140 item 4)
+- **Why it was 10 MHz:** in 2026-10-16 (§57, LLD R4.14) the camera at 20 MHz made the WiFi lose half its packets. Later (§76) the cause turned out to be the clock pin's **drive strength**; the weakest drive (`kCamXclkDrive` 0) gave 0 % loss, but the clock stayed at 10 MHz.
+- **How it was measured** (`clk_measure.py`, the tank standing):
+  - the camera streaming for 20 s or 60 s;
+  - the capture rate from the stream's `X-Frame-Us` stamps and the arrival rate;
+  - meanwhile the Mac pinged the bridge 5 times a second (loss and round trip);
+  - each clock built and flashed over WiFi (only `kCamXclkHz` changed).
+
+  | Clock | QVGA pictures / s | Ping loss | Round trip avg / max |
+  |---|---|---|---|
+  | 10 MHz | 13.8 | 0 % | 7.3 / 18 ms |
+  | 16 MHz | 17.7 | 0 % | 7.2 / 43 ms |
+  | **20 MHz** | **27.5** (60 s: 27.3) | **0 %** (0 / 300) | 7.0 / 24 ms (60 s: 7.4 / 59) |
+  | **20 MHz, VGA, 60 s** | **23.6** (§109: 6.9 at 10 MHz) | **0 %** (0 / 300) | 7.4 / 56 ms |
+
+- **Owner: "yes" → `kCamXclkHz` = 20 MHz** (`include/board_config.h`); the drive stays at 0.
+- **For phase 4:** VGA at ~24 pictures / s makes the VGA detector trial (§141: people are too small at QVGA) practical.
+
+## 144. The pose filter on the floor (Plan U Task 3, 2026-10-24, daylight)
+- **How:** the owner ran a Logo program from `/logo` while `cq-record` recorded the session. `cq-pose` replayed it, and the owner measured the tank's end against the tape start mark (cm with a tape, the heading by eye).
+- **Results** (AI engine LLD §14.6; targets from Spec 7 §7: 3 % of the distance, 3° per 360°):
+
+  | Run | `cq-pose` end | Tape end | Pose vs tape | Target |
+  |---|---|---|---|---|
+  | `REPEAT 4 [ FORWARD 50 RIGHT 90 ]` (202 cm driven, 2299 samples) | 2.0 cm right, +0.6° (2.1 cm from the start; "could be off" 6.1 cm / 1.1°) | 6 cm right, about −2° | 4 cm, ~2.6° | 6 cm, 3° |
+  | `FORWARD 200 RIGHT 180 FORWARD 200` (401 cm, 3819 samples; farthest 200.5 cm) | 0.5 cm left, 179.9° ("could be off" 12.0 cm / 0.6°) | 5 cm left, about 178° | 4.5 cm, ~2° | 12 cm, 3° |
+
+- **Passed.** The heading gap is within the eye's reading error.
+- **Two runs did not count:**
+  - the first recording (60 s) ended before the square's last turn: RUN came 44.6 s in;
+  - one run was stopped from the phone after 23.8 cm (7040 "Stopped by you").
+  - From now on the recording is started long (180 s) and stopped once the tank stops.
+- An unrecorded square ended 4 cm right, about −3°.
+- The Logo moves each reported 47.9-48.0 cm (50 cm) and 197.8-198.0 cm (200 cm) at the cut; the coast makes up the rest (§69).
+- The recordings were deleted.
+
+## 145. The board machine is now the Raspberry Pi `yantra` (owner, 2026-10-24)
+- **Owner:** "from now on we will use mannu@yantra.lan to connect to uno and esp32" — the Pi (Debian 12, arm64), replacing the Linux laptop at 192.168.31.8. The laptop's sleep was turned back on (the four sleep targets unmasked; it suspends with the lid shut again).
+- **Set up without sudo:**
+  - `uv`, PlatformIO 6.2 and esptool 5.6 in `~/.local/bin`;
+  - avrdude 8.1 at `~/.platformio/packages/tool-avrdude/avrdude`;
+  - firmware files go in `~/cq/fw`.
+  - A plain SSH command does not have `~/.local/bin` on its PATH, so call the tools by full path.
+- **Boards** (`/dev/serial/by-id/`):
+  - the Uno: CH340, `/dev/ttyUSB0`, signature `1E 95 0F` (ATmega328P);
+  - the ESP32-S3: native USB, `/dev/ttyACM0`, ESP32-S3 rev v0.2, 8 MB flash, 8 MB PSRAM.
+- **The Uno flash needs shield switch S1 off** (the ESP32 disconnected). With S1 on, avrdude never syncs: the ESP32's bytes are on the line. Turn S1 back on afterwards.
+
+## 146. The camera module can tilt in its snap-fit (owner, 2026-10-24)
+- **Owner:** the camera snaps into its holder, so it can tilt between runs. This may explain the angle errors between runs, such as the tilt0 fitted at −0.15° (§127) and again at +2.55° (Plan V branch, from a plush at 50 / 100 cm).
+- **Decision:** the owner drills a hole and fixes the camera so it cannot move, before Plan V's floor check.
+- **After the fix, re-check before trusting the camera's angles:**
+  1. the camera centre (pan trim, Settings page, §129);
+  2. `tilt0` from a thing on the floor at a known distance (as on the Plan V branch);
+  3. `cq-calibrate servos` only if the servo horns were moved (§131).
+  - The lens numbers (K, distortion, §127) stay, unless the lens itself was turned in its thread (focus).
+
+## 147. The Logo page as an editor on the laptop (owner, 2026-10-24)
+- **Owner:** the Logo page should behave like a real code editor (an IDE), with no page scroll, and it has no camera. The phone may scroll, and Logo is not for the phone, so the laptop layout is designed on its own.
+- **Owner: "yes all as recommended"** (Tank Logo LLD §23, revision N6):
+  - **900 px or wider:** the page fills the window and never scrolls. Three fixed columns: programs · the editor with a PROBLEMS / MESSAGES panel under it · the camera above the path.
+  - A **status bar** at the bottom: the running line or the word help, with STEP and RUN. **STOP** stays in the top bar.
+  - The **camera** has the sonar distance on the picture and a HIDE button, and streams only while shown.
+  - **Shortcuts:** Esc = STOP, Ctrl/⌘ + Enter = RUN, F10 = STEP, Ctrl/⌘ + S = save.
+  - **Fixed pane sizes** (no dividers for now). Under 900 px, the phone layout is unchanged.
+  - Only `logo.html` / `logo.js` change; the bridge and the Logo engine don't.
+- An earlier idea, one page for the whole app (Drive · Logo · Settings), was **not** taken: the owner meant only Logo.
+
+## 148. One shared icon file for the tank's pages (owner, 2026-10-24; Plan N7, after N6)
+- **Owner:** the Logo page uses its own made-up icons (the WiFi as `▂▄▆█` text, the battery as plain volts, `● UNO`, `▶ RUN`) instead of standard ones. The Drive and Settings pages already use **Lucide** (lucide-static 0.460.0, ISC), pasted into each page by hand.
+- **Owner: "3", then "yes all as recommended":**
+  - **one icon file**, `firmware/esp32/web/icons.json`: every Lucide icon the app uses, one version, the licence noted once;
+  - **fixed icons:** a page writes `<!--icon:name-->`, and `pack_web.py` puts the icon in when packing (still no JavaScript and no network needed);
+  - **changing icons** (WiFi strength, battery): `pack_web.py` adds a small table with only the icons that page uses, read by `icon(name)`;
+  - **an unknown icon name stops the build**, with a test for that;
+  - **each page carries only its own icons**;
+  - **Drive and Settings:** their hand-pasted icons become markers and look the same;
+  - **Logo:** gets Drive's WiFi / battery / board icons, play / step-forward / octagon on RUN / STEP / STOP, camera / eye-off for HIDE, and a sonar icon;
+  - **the `/logo` budget becomes 26 KB gzipped.**
+- **Order:** Plan N6 is finished first (floor check, docs, merge). Then Plan N7: bridge LLD R25 "shared icons", a tested draft, the plan, the build, and a look at all three pages on the tank.
+
+## 149. The Logo page as an editor on the laptop: built and tank-checked (Plan N6, 2026-10-24)
+- **What:** Tank Logo LLD §23, as built in §23.8. On a laptop the `/logo` page fills the window and never scrolls:
+  - programs · the editor with a PROBLEMS / MESSAGES panel · the camera with the sonar above the path;
+  - a status bar;
+  - Esc = STOP, ⌘/Ctrl + Enter = RUN, F10 = STEP, ⌘/Ctrl + S = save.
+  - The phone layout is unchanged.
+- **Checks:** Node 52/52. The laptop check passes at four window sizes; the phone check (N4) is unchanged. `/logo` 22 990 B gzipped.
+- **The final review fixed:** the run pane overflowing short windows; held keys reaching the browser; Esc repeating 30 times a second; IME keys; the camera after a dropped link.
+- **The owner moved ☰ to the far right.**
+- **On the tank (owner):** "square good, esc stopped".
+- **Open:** the top-bar battery / WiFi chips and the sonar read `--` in a quick test browser. To check with the icon work (Plan N7, §148).
+
+## 150. One shared icon file: built and checked on the tank (Plan N7, 2026-10-24)
+- **What:** bridge LLD R25, as built in R25.5.
+  - Every icon on Drive, Settings and Logo comes from `firmware/esp32/web/icons.json` (63 Lucide 0.460.0 icons). They are put into each page when the firmware is packed: `<!--icon:NAME-->` markers, and one `/*CQ:ICONS …*/` table per page for icons that change.
+  - **To add an icon:** `python3 tools/icons/add_icon.py NAME`.
+  - **An unreadable marker, or an `icon()` name a page doesn't list, fails the build.**
+- **Looks:**
+  - Drive and Settings are pixel-identical apart from three icons (sparkles, send, ruler).
+  - Settings' signal bars and Logo's text icons (`▂▄▆█`, `● UNO`, `▶ RUN`) became Lucide WiFi / battery / chip / play / step / octagon icons.
+  - The WiFi and battery rules are Drive's on every page: a 10-reading battery average, and the warning from the tank's flags.
+- **Final review:** no Critical; 1 Important and 8 Minor, all fixed test-first.
+- **Sizes:** `/logo` 24.9 of 26 KB.
+- **On the tank (owner):** "all good". This also closes §149's open item: the battery / WiFi readouts and the sonar show real values.
+

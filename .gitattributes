@@ -4,3 +4,5 @@ docs/design/stitch/** export-ignore
 *.png export-ignore
 # Third-party datasheets (PDF, available online) stay in git but not in the tank's source archive (design-notes §103).
 docs/hardware/datasheets/** export-ignore
+# The implementation plans are history (with their full diffs): in git, not in the tank's source archive.
+docs/superpowers/plans/** export-ignore

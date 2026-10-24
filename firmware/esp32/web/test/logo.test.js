@@ -463,3 +463,20 @@ test("the camera streams only when wide, not hidden and the page is visible", ()
   assert.equal(L.cameraWanted(true, true, false), false);
   assert.equal(L.cameraWanted(true, false, true), false);
 });
+
+// ---------- revision N7: the shared Lucide icons (bridge LLD R25, Tank Logo LLD §23.9) ----------
+test("the WiFi icon follows the signal as on the Drive page", () => {
+  assert.equal(L.wifiIcon(-50), "wifi");
+  assert.equal(L.wifiIcon(-60), "wifi-high");
+  assert.equal(L.wifiIcon(-70), "wifi-low");
+  assert.equal(L.wifiIcon(-80), "wifi-zero");
+  assert.equal(L.wifiIcon(null), "wifi-off");
+});
+
+test("the battery icon follows the charge, and USB is a plug", () => {
+  assert.equal(L.batteryIcon(8.2), "battery-full");
+  assert.equal(L.batteryIcon(7.6), "battery-medium");
+  assert.equal(L.batteryIcon(7.1), "battery-low");
+  assert.equal(L.batteryIcon(6.8), "battery-warning");
+  assert.equal(L.batteryIcon(5.0), "plug");
+});

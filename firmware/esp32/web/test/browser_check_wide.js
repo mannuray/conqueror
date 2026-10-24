@@ -78,7 +78,8 @@ async (page) => {
   await page.click("#camShow"); await page.waitForTimeout(300);
   out.camBack = [await q(() => /:81\/stream/.test(document.getElementById("camImg").src)), streams > before];  // true, true
   await q(() => window.__fakeEmit({ t: "tf", dist_cm: 64 })); await page.waitForTimeout(50);
-  out.sonar = await q(() => document.getElementById("camDist").textContent);                                // ▸ 64 cm
+  out.sonar = [await q(() => document.getElementById("camDistT").textContent),                           // 64 cm
+    await q(() => !!document.querySelector("#camDist svg"))];                                               // true (radar)
   // final review: held keys are swallowed (no browser "save page" / F10 menu) but never act twice
   const key = (k, o) => q(([k, o]) => !window.dispatchEvent(new KeyboardEvent("keydown", Object.assign({ key: k, cancelable: true }, o))), [k, o]);
   const runs = await sent("logo_run");
@@ -106,6 +107,16 @@ async (page) => {
       return b("#cPath .stats").bottom <= b("#cPath").bottom + 0.5 && b("#cPath").bottom <= b("#bar").top + 0.5 &&
         document.scrollingElement.scrollHeight <= innerHeight; });                                           // true
   }
+  // N7: the top-bar icons are the shared Lucide ones (bridge LLD R25): their parts tell them apart
+  const parts = (id) => q((id) => { const g = document.querySelector("#" + id + " svg"); return g ? g.children.length : 0; }, id);
+  const emit = async (o) => { await q((o) => window.__fakeEmit(o), o); await page.waitForTimeout(60); };
+  await emit({ t: "wifi_status", mode: "home", rssi: -50 }); const wFull = await parts("cWifi");
+  await emit({ t: "wifi_status", mode: "home", rssi: -80 });
+  out.wifiIcon = [wFull, await parts("cWifi"), await q(() => document.getElementById("cWifi").textContent.trim())];  // 4, 1, HOME
+  await emit({ t: "ts", batt_v: 8.2, flags: [] }); const bFull = await parts("cBatt");
+  await emit({ t: "ts", batt_v: 7.0, flags: [] }); const bLow = await parts("cBatt");
+  await emit({ t: "ts", batt_v: 5.0, flags: [] });
+  out.battIcon = [bFull, bLow, await q(() => document.getElementById("cBatt").textContent.trim()), await parts("cUno")];  // 5, 3, USB, >0
   // narrow again: the phone layout, no camera stream, the problems back under the editor
   await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
   out.phone = [await q(() => document.getElementById("camImg").hasAttribute("src")),        // false

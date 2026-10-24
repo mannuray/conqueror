@@ -299,11 +299,21 @@ var LogoCore = (function () {
   // The camera streams only while it can be seen.
   function cameraWanted(wide, hiddenByUser, pageHidden) { return wide && !hiddenByUser && !pageHidden; }
 
+  // ---------- revision N7: the shared Lucide icons (bridge LLD R25) ----------
+  // The Drive page's rules: WiFi by RSSI; a 2S battery by its charge curve (>= 70 % / 35 % / 10 %); under 5.5 V it is USB.
+  function wifiIcon(rssi) {
+    if (rssi === null || rssi === undefined) return "wifi-off";
+    return rssi > -55 ? "wifi" : rssi > -65 ? "wifi-high" : rssi > -75 ? "wifi-low" : "wifi-zero";
+  }
+  function batteryIcon(v) {
+    return v < 5.5 ? "plug" : v >= 7.85 ? "battery-full" : v >= 7.4 ? "battery-medium" : v >= 7.0 ? "battery-low" : "battery-warning";
+  }
+
   return {
     wordIndex: wordIndex, ownWords: ownWords, colour: colour, insertWord: insertWord, Drafts: Drafts,
     fitView: fitView, toScreen: toScreen, plannedRuns: plannedRuns, CheckScheduler: CheckScheduler, RequestQueue: RequestQueue,
     runBarStart: runBarStart, runBar: runBar, canRun: canRun, locked: locked, endText: endText, NACK_TEXT: NACK_TEXT,
-    shortcut: shortcut, panelTab: panelTab, cameraWanted: cameraWanted
+    shortcut: shortcut, panelTab: panelTab, cameraWanted: cameraWanted, wifiIcon: wifiIcon, batteryIcon: batteryIcon
   };
 })();
 if (typeof module !== "undefined") module.exports = LogoCore;

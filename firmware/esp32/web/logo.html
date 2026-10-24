@@ -127,12 +127,12 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     <a href="/"><!--icon:chevron-left-->DRIVE</a>
     <h1>[ TANK LOGO ]</h1>
     <button id="mbtn" type="button" aria-label="Menu"><!--icon:menu--></button>
-    <button id="stop" type="button">STOP</button>
+    <button id="stop" type="button"><!--icon:octagon-x--> STOP</button>
   </div>
   <div class="chips">
-    <span class="chip" id="cBatt">-- V</span>
-    <span class="chip" id="cWifi">WIFI --</span>
-    <span class="chip" id="cUno">● UNO --</span>
+    <span class="chip" id="cBatt"><!--icon:battery--> -- V</span>
+    <span class="chip" id="cWifi"><!--icon:wifi-off--> --</span>
+    <span class="chip" id="cUno"><!--icon:cpu--> UNO --</span>
   </div>
 </div></header>
 <nav id="menu"><a href="/">DRIVE</a><a href="/settings">SETTINGS</a><a href="/help">HELP</a></nav>
@@ -164,8 +164,8 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   <div class="msgs"><div id="log"></div><canvas id="mini" title="Open the path"></canvas></div>
 </section>
 <section class="card" id="cPath">
-  <h2>[ 02 // PATH ]<span><button id="camShow" type="button">SHOW CAMERA</button> <span id="pgrid" class="badge">5 cm GRID</span></span></h2>
-  <div class="cam" id="cam"><img id="camImg" alt=""><span id="camNote">NO CAMERA</span><b id="camDist">&#9656; -- cm</b><button id="camHide" type="button">HIDE</button></div>
+  <h2>[ 02 // PATH ]<span><button id="camShow" type="button"><!--icon:camera--> SHOW CAMERA</button> <span id="pgrid" class="badge">5 cm GRID</span></span></h2>
+  <div class="cam" id="cam"><img id="camImg" alt=""><span id="camNote">NO CAMERA</span><b id="camDist"><!--icon:radar--> <span id="camDistT">-- cm</span></b><button id="camHide" type="button"><!--icon:eye-off--> HIDE</button></div>
   <div class="pathw"><canvas id="path"></canvas><span id="pnote"></span></div>
   <div class="stats">
     <div><small>HEADING</small><b id="sHead">--</b></div>
@@ -175,8 +175,8 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 </section>
 <div id="bar">
   <span id="status">● CONNECTING</span>
-  <button id="step" type="button">STEP</button>
-  <button id="run" type="button">▶ RUN</button>
+  <button id="step" type="button"><!--icon:step-forward--> STEP</button>
+  <button id="run" type="button"><!--icon:play--> <span id="runT">RUN</span></button>
 </div>
 </main>
 <div class="sheet" id="nameS"><div class="card">
@@ -374,7 +374,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     if (!open && !L.locked(s)) { t = "● NOT CONNECTED"; cls = "s-warn"; }
     st.textContent = t; st.className = cls;
     $("run").disabled = !(L.canRun(s) || s.st === "stepping") || !open;
-    $("run").textContent = s.st === "stepping" ? "▶ NEXT" : "▶ RUN";
+    $("runT").textContent = s.st === "stepping" ? "NEXT" : "RUN";
     $("step").disabled = !(L.canRun(s) || s.st === "stepping") || !open;
     $("state").textContent = L.locked(s) ? "RUNNING" : s.st === "ended" ? "ENDED" : "";
     $("state").className = "badge" + ($("state").textContent ? "" : " hide");
@@ -607,20 +607,23 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   $("mbtn").addEventListener("click", function () { $("menu").classList.toggle("on"); });
 
   // ---------- tank link (bridge R11: no link while the page is hidden) ----------
-  function bars(rssi) { return rssi >= -55 ? "▂▄▆█" : rssi >= -65 ? "▂▄▆" : rssi >= -75 ? "▂▄" : "▂"; }
+  /*CQ:ICONS wifi wifi-high wifi-low wifi-zero wifi-off battery-full battery-medium battery-low battery-warning plug cpu*/  // R25
+  function chip(id, name, text, warn) { $(id).innerHTML = icon(name) + " " + esc(text); $(id).className = "chip" + (warn ? " warn" : ""); }
   function onMessage(m) {
     switch (m.t) {
-      case "welcome": $("cUno").textContent = m.tank && m.tank.fw && m.tank.fw.uno ? "● UNO ONLINE" : "● UNO OFFLINE"; break;
+      case "welcome": chip("cUno", "cpu", m.tank && m.tank.fw && m.tank.fw.uno ? "UNO ONLINE" : "UNO OFFLINE", false); break;
       case "ts":
-        if (m.batt_v !== null && m.batt_v !== undefined) $("cBatt").textContent = m.batt_v < 5.5 ? "USB" : m.batt_v.toFixed(2) + " V";
+        if (m.batt_v !== null && m.batt_v !== undefined) chip("cBatt", L.batteryIcon(m.batt_v), m.batt_v < 5.5 ? "USB" : m.batt_v.toFixed(2) + " V", m.batt_v >= 5.5 && m.batt_v < 7.0);
         var off = (m.flags || []).indexOf("body_offline") >= 0;
-        $("cUno").textContent = off ? "● UNO OFFLINE" : "● UNO ONLINE"; $("cUno").className = "chip" + (off ? " warn" : "");
+        chip("cUno", "cpu", off ? "UNO OFFLINE" : "UNO ONLINE", off);
         break;
       case "tf":
         $("sDist").textContent = m.dist_cm === null || m.dist_cm === undefined ? "--" : m.dist_cm + " cm";
-        $("camDist").textContent = "\u25B8 " + $("sDist").textContent;
+        $("camDistT").textContent = $("sDist").textContent;
         break;
-      case "wifi_status": $("cWifi").textContent = m.mode === "home" ? "HOME " + bars(m.rssi) : "OWN WIFI"; $("cWifi").className = "chip"; break;
+      case "wifi_status":
+        chip("cWifi", m.mode === "home" ? L.wifiIcon(m.rssi) : "wifi", m.mode === "home" ? "HOME" : "OWN WIFI", m.mode === "home" && m.rssi <= -65);
+        break;
       case "ev": if (m.kind && m.kind.indexOf("logo_") === 0) onEvent(m); break;
       case "ack": if (m.id === runId) { onBar({ e: "ack" }); lockEditor(); } break;
       case "nack":
@@ -641,7 +644,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     };
     ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } onMessage(m); };
     ws.onclose = function () {
-      open = false; $("cWifi").textContent = "RECONNECTING"; $("cWifi").className = "chip warn";
+      open = false; chip("cWifi", "wifi-off", "RECONNECTING", true);
       onBar({ e: "closed" }); lockEditor();
       setTimeout(connect, retry); retry = Math.min(retry * 2, 5000);
     };

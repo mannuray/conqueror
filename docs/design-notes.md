@@ -2123,3 +2123,16 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - **Logo:** gets Drive's WiFi / battery / board icons, play / step-forward / octagon on RUN / STEP / STOP, camera / eye-off for HIDE, and a sonar icon;
   - **the `/logo` budget becomes 26 KB gzipped.**
 - **Order:** Plan N6 is finished first (floor check, docs, merge). Then Plan N7: bridge LLD R25 "shared icons", a tested draft, the plan, the build, and a look at all three pages on the tank.
+
+## 149. The Logo page as an editor on the laptop: built and tank-checked (Plan N6, 2026-10-24)
+- **What:** Tank Logo LLD §23, as built in §23.8. On a laptop the `/logo` page fills the window and never scrolls:
+  - programs · the editor with a PROBLEMS / MESSAGES panel · the camera with the sonar above the path;
+  - a status bar;
+  - Esc = STOP, ⌘/Ctrl + Enter = RUN, F10 = STEP, ⌘/Ctrl + S = save.
+  - The phone layout is unchanged.
+- **Checks:** Node 52/52. The laptop check passes at four window sizes; the phone check (N4) is unchanged. `/logo` 22 990 B gzipped.
+- **The final review fixed:** the run pane overflowing short windows; held keys reaching the browser; Esc repeating 30 times a second; IME keys; the camera after a dropped link.
+- **The owner moved ☰ to the far right.**
+- **On the tank (owner):** "square good, esc stopped".
+- **Open:** the top-bar battery / WiFi chips and the sonar read `--` in a quick test browser. To check with the icon work (Plan N7, §148).
+

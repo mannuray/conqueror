@@ -1,5 +1,5 @@
 // Bridge LLD R23 browser check (Playwright run_code): the Settings page's "Camera centre" row.
-// Serve firmware/esp32/web on :8766 (python3 -m http.server 8766) and open /settings.html.
+// Run the stand-in tank (python3 firmware/esp32/web/test/fake_tank.py 8765) and open /settings (packed, icons in).
 async (page) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => {  // a stand-in WebSocket: records what the page sends, answers the setting reads
@@ -20,7 +20,7 @@ async (page) => {
   const q = (f, a) => page.evaluate(f, a);
   const sent = (t) => q((t) => window.__sent.filter((m) => m.t === t), t);
   const out = {};
-  await page.goto("http://127.0.0.1:8766/settings.html?v=" + Date.now()); await page.waitForTimeout(800);
+  await page.goto("http://127.0.0.1:8765/settings?v=" + Date.now()); await page.waitForTimeout(800);
   out.reads = (await sent("setting")).map((m) => m.setting_id).filter((id) => id === 27 || id === 28);  // [27, 28]
   out.shown = await q(() => document.getElementById("trimV").textContent);                              // pan -5.0° · tilt 0.0°
   await page.click('#tabs button[data-tab="tank"]'); await page.waitForTimeout(100);  // the Camera card is on TANK

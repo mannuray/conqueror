@@ -350,3 +350,18 @@ def test_a_word_thing_elsewhere_is_not_taken_by_the_ball() -> None:
     t = frames_of(tr, cam, [("toy", 2.0, 0.5)], 5, 0)
     frames_of(tr, cam, [("ball:green", 1.0, 0.0)], 3, t + 100_000)  # the toy missed 3 times (< 1 s): kept
     assert sorted(o.cls for o in tr.objects()) == ["ball:green", "toy"]
+
+
+# ---- the picture's one camera: the horizon and the map use the same (Plan Y final review m8)
+def test_the_camera_for_a_picture_or_why_it_is_skipped() -> None:
+    p = ob.ObjectPipeline(CAL)
+    assert p.camera_at(1_000_000) == "no pose"
+
+
+def test_the_camera_handed_to_a_picture_is_the_one_used() -> None:
+    p = ob.ObjectPipeline(CAL)  # no telemetry: on its own the gate would say "no pose"
+    cam = cam_at()
+    assert p.on_frame(frame(1_000_000), (320, 240), [box_on_floor(cam, 1.0, 0.1)], cam) is cam
+    assert p.last_camera is cam and p.skips() == {}
+    assert p.on_frame(frame(1_100_000), (320, 240), [], "turning") == "turning"
+    assert p.skips() == {"turning": 1}

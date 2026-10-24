@@ -26,9 +26,9 @@ from numpy.typing import NDArray
 from conqueror_ai.adapters import calibration_store
 from conqueror_ai.adapters.session import replay
 from conqueror_ai.domain.balls import BallColour, find_balls, horizon_row
-from conqueror_ai.domain.camera import Calibration
+from conqueror_ai.domain.camera import Calibration, CameraModel
 from conqueror_ai.domain.detectors import MultiDetector
-from conqueror_ai.domain.objects import FLOOR_CLASSES, Detector, ObjectPipeline
+from conqueror_ai.domain.objects import Detector, ObjectPipeline
 from conqueror_ai.domain.telemetry import parse_td
 from conqueror_ai.domain.types import Frame, ObjectEstimate
 
@@ -76,15 +76,13 @@ def _note(res: ReplayResult, objs: list[ObjectEstimate]) -> None:
         res.things[o.oid] = Thing(o.cls, o.first_seen_us, o.last_seen_us, o.x_m, o.y_m, o.sigma_m)
 
 
-def horizon_of(p: ObjectPipeline, f: Frame) -> int | None:
-    """The picture's horizon row from its camera (the ball finder looks below it); None if unknown."""
-    cam = p.camera_at(f.cap_us)
-    return None if cam is None else horizon_row(cam)
+def horizon_of(cam: CameraModel | str) -> int | None:
+    """The picture's horizon row from its camera (the ball finder looks below it); None (search all of it)
+    for a picture the gate skips - its boxes are only shown, never placed."""
+    return None if isinstance(cam, str) else horizon_row(cam)
 
 
-def run_replay(
-    folder: Path, cal: Calibration, det: Detector, floor_classes: frozenset[str] = FLOOR_CLASSES
-) -> ReplayResult:
+def run_replay(folder: Path, cal: Calibration, det: Detector, floor_classes: frozenset[str]) -> ReplayResult:
     """Every recorded picture, in order, through the detector and the list (the same answer every time)."""
     p = ObjectPipeline(cal, floor_classes)
     res = ReplayResult()
@@ -103,7 +101,9 @@ def run_replay(
             rgb = decode(e.frame)
             if rgb is None:
                 continue
-            cam = p.on_frame(e.frame, (rgb.shape[1], rgb.shape[0]), det.detect(rgb, horizon_of(p, e.frame)))
+            cam = p.camera_at(e.frame.cap_us)
+            dets = det.detect(rgb, horizon_of(cam))
+            cam = p.on_frame(e.frame, (rgb.shape[1], rgb.shape[0]), dets, cam)
             if not isinstance(cam, str):
                 res.used += 1
                 _note(res, p.objects())
@@ -125,9 +125,7 @@ def report(res: ReplayResult) -> str:
     return "\n".join(lines)
 
 
-async def run_live(
-    host: str, cal: Calibration, det: Detector, floor_classes: frozenset[str] = FLOOR_CLASSES
-) -> None:
+async def run_live(host: str, cal: Calibration, det: Detector, floor_classes: frozenset[str]) -> None:
     """The tank: telemetry and the newest picture; the detector in a worker thread (latest picture wins)."""
     from conqueror_ai.adapters.bridge_ws import BridgeLink
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
@@ -166,10 +164,10 @@ async def run_live(
             rgb = decode(f)
             if rgb is None:
                 continue
-            dets = await asyncio.to_thread(
-                det.detect, rgb, horizon_of(p, f)
-            )  # meanwhile newer pictures replace the waiting one
-            used = p.on_frame(f, (rgb.shape[1], rgb.shape[0]), dets)
+            cam_f = p.camera_at(f.cap_us)
+            # meanwhile newer pictures replace the waiting one
+            dets = await asyncio.to_thread(det.detect, rgb, horizon_of(cam_f))
+            used = p.on_frame(f, (rgb.shape[1], rgb.shape[0]), dets, cam_f)
             view.frame(f, None)
             view.detections(f, dets)
             view.plan(f.cap_us, p.pose(), p.objects(), used if isinstance(used, str) else None)

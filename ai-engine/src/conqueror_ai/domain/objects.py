@@ -358,13 +358,16 @@ class ObjectPipeline:
         self._history.push(self._pose.update(s))
         self._angles.push(s)
 
-    def camera_at(self, cap_us: int) -> CameraModel | None:
-        """The camera for a picture before detecting (for its horizon); None when the gate would skip it."""
-        cam = self.gate.camera_for(cap_us)
-        return None if isinstance(cam, str) else cam
+    def camera_at(self, cap_us: int) -> CameraModel | str:
+        """The camera for a picture before detecting (for its horizon), or why the gate skips it. Hand it to
+        on_frame, so the horizon and the map use the one camera (Plan Y final review m8)."""
+        return self.gate.camera_for(cap_us)
 
-    def on_frame(self, f: Frame, size: tuple[int, int], dets: list[Detection]) -> CameraModel | str:
-        """Use one picture (its decoded size, its detections): its camera, or why it was skipped."""
+    def on_frame(
+        self, f: Frame, size: tuple[int, int], dets: list[Detection], cam: CameraModel | str | None = None
+    ) -> CameraModel | str:
+        """Use one picture (its decoded size, its detections, the camera from camera_at if taken): its camera,
+        or why it was skipped."""
         if self._last_cap_us is not None and f.cap_us < self._last_cap_us:
             self.tracker = (
                 ObjectTracker()
@@ -373,7 +376,8 @@ class ObjectPipeline:
         if size != self.cal.size:
             self._skips["picture size"] += 1
             return "picture size"
-        cam = self.gate.camera_for(f.cap_us)
+        if cam is None:
+            cam = self.gate.camera_for(f.cap_us)
         if isinstance(cam, str):
             self._skips[cam] += 1
             return cam

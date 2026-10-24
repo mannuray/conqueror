@@ -86,10 +86,13 @@ def test_the_model_refuses_other_words_and_runs_with_its_own() -> None:
         yw.YoloWorld(MODEL, VOCAB)
     from conqueror_ai.adapters.detector_config import load_vocabulary
 
-    det = yw.YoloWorld(
-        MODEL, load_vocabulary(Path(__file__).resolve().parents[1] / "config" / "vocabulary.yaml")
-    )
-    out = det.detect(np.full((480, 640, 3), 128, dtype=np.uint8), 240)
+    vocab = load_vocabulary(Path(__file__).resolve().parents[1] / "config" / "vocabulary.yaml")
+    det = yw.YoloWorld(MODEL, vocab)
+    rng = np.random.default_rng(1)
+    pic = rng.integers(0, 256, (480, 640, 3), dtype=np.uint8)  # noise: whatever it finds must be well formed
+    out = det.detect(pic, 240)
+    assert isinstance(out, list)
     for d in out:
         x1, y1, x2, y2 = d.box
-        assert 0 <= x1 <= x2 <= 640 and 0 <= y1 <= y2 <= 480
+        assert d.cls in vocab.names and d.score >= vocab.min_score(d.cls)
+        assert 0 <= x1 < x2 <= 640 and 0 <= y1 < y2 <= 480

@@ -2090,3 +2090,12 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - the Uno: CH340, `/dev/ttyUSB0`, signature `1E 95 0F` (ATmega328P);
   - the ESP32-S3: native USB, `/dev/ttyACM0`, ESP32-S3 rev v0.2, 8 MB flash, 8 MB PSRAM.
 - **The Uno flash needs shield switch S1 off** (the ESP32 disconnected). With S1 on, avrdude never syncs: the ESP32's bytes are on the line. Turn S1 back on afterwards.
+
+## 146. The camera module can tilt in its snap-fit (owner, 2026-10-24)
+- **Owner:** the camera snaps into its holder, so it can tilt between runs. This may explain the angle errors between runs, such as the tilt0 fitted at −0.15° (§127) and again at +2.55° (Plan V branch, from a plush at 50 / 100 cm).
+- **Decision:** the owner drills a hole and fixes the camera so it cannot move, before Plan V's floor check.
+- **After the fix, re-check before trusting the camera's angles:**
+  1. the camera centre (pan trim, Settings page, §129);
+  2. `tilt0` from a thing on the floor at a known distance (as on the Plan V branch);
+  3. `cq-calibrate servos` only if the servo horns were moved (§131).
+  - The lens numbers (K, distortion, §127) stay, unless the lens itself was turned in its thread (focus).

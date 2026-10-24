@@ -2312,3 +2312,31 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - **the cabinet flips between bed and sofa.**
 - **On the way, the principles were agreed (§153):** play tolerances, and no more per-case rules.
 
+
+## 155. Depth spike: the floor in a depth picture gives the camera's real tilt (2026-10-24)
+- **Question (§153 follow-up):** can Depth Anything V2 Small find the camera's real tilt from the floor? The model is Apple's CoreML F16 build, already downloaded for Q0 (§109), so nothing new was installed.
+- **Method** (throwaway script, outside the repo):
+  - **Depth:** the model's output is relative inverse depth. Over flat floor it falls in a straight line down the picture. Its zero row is the horizon, which gives the tilt. The line is fitted per picture to the rows between the tank and the ball, columns 220–420.
+  - **Truth:** the ball's centre is taped 1 m from the lens. The ray through the ball outline's bottom pixel meets the floor at a known distance (99.4 cm), which gives the true tilt.
+  - **Recordings:** 4 s at commanded tilts 0°, −15° and −20° (the servo stops at −20°), in two scenes. Only the camera moved. Recordings deleted.
+- **Results** (pitch down, degrees):
+
+  | Scene, command | Truth | Calibration + servo | Depth | Truth − depth |
+  |---|---|---|---|---|
+  | 1, level | −0.8 | −3.3 | −5.6 | 4.8 |
+  | 1, −15° | 11.7 | 10.4 | 7.5 | 4.2 |
+  | 1, −20° | 15.9 | 14.9 | 11.5 | 4.4 |
+  | 2 (other wall, bright light), level | −1.7 | −3.3 | −5.7 | 3.9 |
+  | 2, −15° | 11.4 | 10.4 | 7.8 | 3.6 |
+  | 2, −20° | 16.0 | 14.9 | 12.5 | 3.5 |
+
+  - **The depth floor is steady:** 0.1–0.2° from picture to picture, and the line fits to 0.2–0.4 %.
+  - **It follows tilt changes** within 2.5 %.
+  - **Offset 4.1° ± 0.45° over both scenes** (the model's unknown shift). With one fixed correction the tilt is good to about ±0.7°: about ±7 cm at 1 m and ±25 cm at 2 m, inside the play tolerances.
+  - **Calibration + servo** is 1–2.5° off today (3° after this morning's battery change). The servo really moves 0.835° per commanded degree, not 0.91.
+- **Side finding:** in scene 2's bright light the colour finder missed the ball. The lit side reached value 219, over the green ball's `v_max` 200, so only 30 % of the ball was in range. This is the kind of per-case rule that breaks (§153). The finder stays a helper; re-running `cq-calibrate ball` in bright light would widen its range.
+- **Owner: adopted (2026-10-24, "yes").** The camera angle estimator's main clue is the depth-floor tilt with a fixed ~4.1° correction, starting from calibration + servo. It is designed together with the depth layer ("something is there") and the play behaviours as the next design.
+- **To tighten it later:**
+  - the sonar's one true distance ahead (fixes the offset per scene);
+  - floor motion against the wheels while driving;
+  - the metric model.

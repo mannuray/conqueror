@@ -13,6 +13,7 @@ from numpy.typing import NDArray
 
 from conqueror_ai.adapters.session import SessionRecorder
 from conqueror_ai.app import objects as app
+from conqueror_ai.domain.camera import CameraModel
 from conqueror_ai.domain.objects import FLOOR_CLASSES
 from conqueror_ai.domain.types import Detection, Frame
 from tests.test_objects import CAL, box_on_floor, cam_at
@@ -27,7 +28,7 @@ class BallDetector:
         self.box = box_on_floor(cam_at(), 1.0, 0.1)
         self.calls = 0
 
-    def detect(self, rgb: NDArray[np.uint8], horizon_row: int | None) -> list[Detection]:
+    def detect(self, rgb: NDArray[np.uint8], cam: CameraModel | None) -> list[Detection]:
         assert rgb.shape == (240, 320, 3)
         self.calls += 1
         return [self.box]
@@ -107,7 +108,6 @@ def test_a_vga_recording_lists_the_colour_ball_once_with_a_word_box_on_it(tmp_pa
 
     from conqueror_ai.adapters import calibration_store
     from conqueror_ai.domain.balls import BallColour, find_balls, horizon_row
-    from conqueror_ai.domain.camera import CameraModel
     from conqueror_ai.domain.detectors import MultiDetector
     from conqueror_ai.domain.types import Pose
     from tests.test_camera import calib
@@ -136,11 +136,11 @@ def test_a_vga_recording_lists_the_colour_ball_once_with_a_word_box_on_it(tmp_pa
     green_ball = BallColour("green", 45, 90, 65, 200, 6.0)
     horizons: list[int | None] = []
 
-    def balls(rgb: NDArray[np.uint8], h: int | None) -> list[Detection]:
-        horizons.append(h)
-        return find_balls(rgb, [green_ball], h)
+    def balls(rgb: NDArray[np.uint8], c: CameraModel | None) -> list[Detection]:
+        horizons.append(None if c is None else horizon_row(c))
+        return find_balls(rgb, [green_ball], c)
 
-    det = MultiDetector([lambda rgb, h: [toy, chair], balls])
+    det = MultiDetector([lambda rgb, c: [toy, chair], balls])
     res = app.run_replay(tmp_path / "s", cal, det, frozenset({"toy", "chair", "ball:green"}))
     assert horizons and set(horizons) == {horizon_row(cam)} and horizon_row(cam) is not None  # review m3
     names = sorted(t.cls for t in res.things.values())

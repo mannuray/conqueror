@@ -8,12 +8,13 @@ from collections.abc import Callable, Sequence
 import numpy as np
 from numpy.typing import NDArray
 
+from conqueror_ai.domain.camera import CameraModel
 from conqueror_ai.domain.types import Detection
 
 SAME_BALL_IOU = 0.5
 
 Box = tuple[float, float, float, float]
-DetectFn = Callable[[NDArray[np.uint8], "int | None"], list[Detection]]
+DetectFn = Callable[[NDArray[np.uint8], "CameraModel | None"], list[Detection]]
 
 
 def iou(a: Box, b: Box) -> float:
@@ -32,10 +33,10 @@ class MultiDetector:
     def __init__(self, detectors: Sequence[DetectFn]) -> None:
         self._detectors = list(detectors)
 
-    def detect(self, rgb: NDArray[np.uint8], horizon_row: int | None) -> list[Detection]:
+    def detect(self, rgb: NDArray[np.uint8], cam: CameraModel | None) -> list[Detection]:
         out: list[Detection] = []
         for d in self._detectors:
-            out.extend(d(rgb, horizon_row))
+            out.extend(d(rgb, cam))
         colour = [d for d in out if d.cls.startswith("ball:")]
         return [
             d

@@ -12,6 +12,7 @@ import pytest
 from numpy.typing import NDArray
 
 from conqueror_ai.domain import balls as bl
+from conqueror_ai.domain.camera import CameraModel
 from conqueror_ai.domain.detectors import MultiDetector, iou
 from conqueror_ai.domain.types import Detection
 from conqueror_ai.domain.vocabulary import Vocabulary
@@ -19,6 +20,7 @@ from tests.test_camera import at_start, calib
 
 GREEN = bl.BallColour("green", 45, 90, 65, 200, 6.0)  # design-notes §152
 RED = bl.BallColour("red", 0, 8, 90, 230, 6.0)
+LEVEL = at_start(calib())  # the camera level: the horizon is the middle row (120)
 
 
 def floor_picture(w: int = 320, h: int = 240) -> NDArray[np.uint8]:
@@ -41,7 +43,7 @@ def disc(
 # ---- the colour ball finder
 def test_a_green_ball_on_the_pale_floor_is_found_with_its_box() -> None:
     pic = disc(floor_picture(), (170, 160), 12, (64, 90, 170))
-    dets = bl.find_balls(pic, [GREEN], horizon=120)
+    dets = bl.find_balls(pic, [GREEN], LEVEL)
     assert len(dets) == 1 and dets[0].cls == "ball:green" and dets[0].score > 0.9
     x1, y1, x2, y2 = dets[0].box
     assert abs((x1 + x2) / 2 - 170) <= 1 and abs((y1 + y2) / 2 - 160) <= 1 and abs((x2 - x1) - 24) <= 2
@@ -49,45 +51,45 @@ def test_a_green_ball_on_the_pale_floor_is_found_with_its_box() -> None:
 
 def test_a_ball_above_the_horizon_is_ignored() -> None:
     pic = disc(floor_picture(), (170, 60), 12, (64, 90, 170))
-    assert bl.find_balls(pic, [GREEN], horizon=120) == []
-    assert len(bl.find_balls(pic, [GREEN], horizon=None)) == 1  # no horizon (tilted far down): all of it
+    assert bl.find_balls(pic, [GREEN], LEVEL) == []
+    assert len(bl.find_balls(pic, [GREEN], None)) == 1  # no camera: all of it
 
 
 def test_a_green_square_is_not_a_ball() -> None:
     pic = floor_picture()
     colour = cv2.cvtColor(np.array([[(64, 90, 170)]], np.uint8), cv2.COLOR_HSV2RGB)[0, 0]
     cv2.rectangle(pic, (150, 140), (190, 200), tuple(int(c) for c in colour), -1)  # 40 x 60: roundness ~0.5
-    assert bl.find_balls(pic, [GREEN], horizon=120) == []
+    assert bl.find_balls(pic, [GREEN], LEVEL) == []
 
 
 def test_the_tinted_floor_alone_gives_nothing() -> None:
-    assert bl.find_balls(floor_picture(), [GREEN], horizon=120) == []
+    assert bl.find_balls(floor_picture(), [GREEN], LEVEL) == []
 
 
 def test_two_balls_of_two_colours_give_one_each() -> None:
     pic = disc(disc(floor_picture(), (100, 170), 10, (64, 90, 170)), (220, 170), 10, (3, 200, 200))
-    found = sorted(d.cls for d in bl.find_balls(pic, [GREEN, RED], horizon=120))
+    found = sorted(d.cls for d in bl.find_balls(pic, [GREEN, RED], LEVEL))
     assert found == ["ball:green", "ball:red"]
 
 
 def test_a_tiny_speck_is_not_a_ball() -> None:
     pic = disc(floor_picture(), (170, 160), 3, (64, 90, 170))
-    assert bl.find_balls(pic, [GREEN], horizon=120) == []
+    assert bl.find_balls(pic, [GREEN], LEVEL) == []
 
 
 # ---- the ball's colour from a calibration picture
 def test_the_colour_range_holds_the_sample_with_its_margins() -> None:
     pic = disc(floor_picture(), (160, 170), 20, (64, 90, 170))
-    pix = bl.most_coloured_blob(pic, horizon=120)
+    pix = bl.most_coloured_blob(pic, LEVEL)
     assert pix is not None
     c = bl.colour_from_samples("green", pix, 6.0)
     assert c.h_lo <= 59 and c.h_hi >= 69 and c.s_min <= 80 and c.v_max >= 185
-    assert len(bl.find_balls(pic, [c], horizon=120)) == 1  # the range finds the ball it came from
-    assert bl.find_balls(floor_picture(), [c], horizon=120) == []  # and not the floor
+    assert len(bl.find_balls(pic, [c], LEVEL)) == 1  # the range finds the ball it came from
+    assert bl.find_balls(floor_picture(), [c], LEVEL) == []  # and not the floor
 
 
 def test_no_coloured_blob_gives_no_sample() -> None:
-    assert bl.most_coloured_blob(floor_picture(), horizon=120) is None
+    assert bl.most_coloured_blob(floor_picture(), LEVEL) is None
 
 
 def test_a_red_ball_whose_hue_wraps_gets_a_wrapped_range() -> None:
@@ -97,9 +99,9 @@ def test_a_red_ball_whose_hue_wraps_gets_a_wrapped_range() -> None:
     c = bl.colour_from_samples("red", pix, 6.0)
     assert c.h_lo > c.h_hi and 165 <= c.h_lo <= 176 and 4 <= c.h_hi <= 15
     red = disc(disc(floor_picture(), (100, 170), 12, (178, 160, 170)), (220, 170), 12, (2, 160, 170))
-    assert len(bl.find_balls(red, [c], horizon=120)) == 1  # both halves of red are red (the larger disc)
+    assert len(bl.find_balls(red, [c], LEVEL)) == 1  # both halves of red are red (the larger disc)
     green = disc(floor_picture(), (170, 160), 12, (64, 160, 170))
-    assert bl.find_balls(green, [c], horizon=120) == []  # and green is not red
+    assert bl.find_balls(green, [c], LEVEL) == []  # and green is not red
 
 
 def test_a_spread_of_many_hues_is_not_one_colour() -> None:
@@ -121,7 +123,7 @@ def test_a_ball_colour_out_of_range_is_refused() -> None:
 def test_the_calibration_sample_is_the_round_blob_nearest_the_middle() -> None:
     """The ball is put in the middle: a larger coloured round thing at the side is not learned (review m7)."""
     pic = disc(disc(floor_picture(), (40, 200), 25, (120, 160, 170)), (160, 180), 12, (64, 160, 170))
-    pix = bl.most_coloured_blob(pic, horizon=120)
+    pix = bl.most_coloured_blob(pic, LEVEL)
     assert pix is not None and abs(float(np.median(pix[:, 0])) - 64) <= 3
 
 
@@ -140,7 +142,7 @@ def test_tilted_up_past_the_floor_nothing_in_view_is_floor() -> None:
     """Looking up (at a person), the horizon falls below the picture: no row is floor (final review m1)."""
     assert bl.horizon_row(at_start(calib(), tilt=40.0)) == 240
     pic = disc(floor_picture(), (170, 200), 12, (64, 90, 170))
-    assert bl.find_balls(pic, [GREEN], horizon=240) == []
+    assert bl.find_balls(pic, [GREEN], at_start(calib(), tilt=40.0)) == []
 
 
 # ---- the words
@@ -179,19 +181,58 @@ def test_any_word_box_on_a_colour_ball_is_that_ball_and_others_are_kept() -> Non
     chair = Detection(
         "chair", 0.8, (60.0, 40.0, 130.0, 160.0)
     )  # overlaps the ball a little (IoU < 0.5): kept
-    m = MultiDetector([lambda rgb, h: [word_ball, toy, far_ball, chair], lambda rgb, h: [colour]])
-    out = m.detect(np.zeros((240, 320, 3), np.uint8), 120)
+    m = MultiDetector([lambda rgb, cam: [word_ball, toy, far_ball, chair], lambda rgb, cam: [colour]])
+    out = m.detect(np.zeros((240, 320, 3), np.uint8), LEVEL)
     assert out == [far_ball, chair, colour]
 
 
-def test_each_detector_gets_the_horizon() -> None:
-    seen: list[int | None] = []
-    m = MultiDetector([lambda rgb, h: seen.append(h) or [], lambda rgb, h: seen.append(h) or []])
-    m.detect(np.zeros((4, 4, 3), np.uint8), 77)
-    assert seen == [77, 77]
+def test_each_detector_gets_the_camera() -> None:
+    seen: list[CameraModel | None] = []
+    m = MultiDetector([lambda rgb, cam: seen.append(cam) or [], lambda rgb, cam: seen.append(cam) or []])
+    m.detect(np.zeros((4, 4, 3), np.uint8), LEVEL)
+    assert seen == [LEVEL, LEVEL]
 
 
 def test_iou() -> None:
     assert iou((0.0, 0.0, 10.0, 10.0), (0.0, 0.0, 10.0, 10.0)) == 1.0
     assert iou((0.0, 0.0, 10.0, 10.0), (20.0, 20.0, 30.0, 30.0)) == 0.0
     assert abs(iou((0.0, 0.0, 10.0, 10.0), (5.0, 0.0, 15.0, 10.0)) - 1 / 3) < 1e-9
+
+
+# ---- a ball is bright enough and the right size for its distance (Plan Y Task 5: reflections on a steel bin)
+SIZED = bl.BallColour("green", 45, 90, 65, 200, 6.0, size_cm=12.0, v_mean_min=130)
+
+
+def ball_at(cam: CameraModel, x: float, r_px: int, hsv: tuple[int, int, int]) -> NDArray[np.uint8]:
+    """A disc whose bottom touches the floor point (x, 0)."""
+    q = cam.floor_to_pixel(x, 0.0)
+    assert q is not None
+    u, v = round(q[0]), round(q[1])
+    return disc(floor_picture(), (u, v - r_px), r_px, hsv)
+
+
+def test_a_ball_the_right_size_for_its_distance_is_found_and_others_are_not() -> None:
+    cam = at_start(calib(), tilt=-15.0)  # fx 200: a 12 cm ball 1 m away is ~12 px across its radius
+    assert len(bl.find_balls(ball_at(cam, 1.0, 12, (64, 90, 170)), [SIZED], cam)) == 1
+    assert bl.find_balls(ball_at(cam, 1.0, 7, (64, 90, 170)), [SIZED], cam) == []  # ~7 cm: a reflection
+    assert bl.find_balls(ball_at(cam, 1.0, 22, (64, 90, 170)), [SIZED], cam) == []  # ~22 cm: something else
+
+
+def test_a_dark_blob_of_the_ball_colour_is_not_the_ball() -> None:
+    cam = at_start(calib(), tilt=-15.0)
+    dark = ball_at(cam, 1.0, 12, (64, 90, 100))  # value 100: a greenish reflection in the shade
+    assert bl.find_balls(dark, [SIZED], cam) == []
+    assert len(bl.find_balls(dark, [GREEN], cam)) == 1  # a ball without a brightness limit takes it
+
+
+def test_without_a_camera_there_is_no_size_check() -> None:
+    cam = at_start(calib(), tilt=-15.0)
+    assert len(bl.find_balls(ball_at(cam, 1.0, 22, (64, 90, 170)), [SIZED], None)) == 1
+
+
+def test_the_size_and_brightness_of_a_ball_from_a_calibration_picture() -> None:
+    cam = at_start(calib(), tilt=-15.0)
+    got = bl.size_and_brightness(ball_at(cam, 1.0, 12, (64, 90, 170)), GREEN, cam)
+    assert got is not None
+    size_cm, v_mean = got
+    assert 10.0 <= size_cm <= 13.5 and 160 <= v_mean <= 180  # drawn 12 cm; the blur trims the edge a little

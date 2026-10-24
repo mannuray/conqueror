@@ -25,7 +25,7 @@ from numpy.typing import NDArray
 
 from conqueror_ai.adapters import calibration_store
 from conqueror_ai.adapters.session import replay
-from conqueror_ai.domain.balls import BallColour, find_balls, horizon_row
+from conqueror_ai.domain.balls import BallColour, find_balls
 from conqueror_ai.domain.camera import Calibration, CameraModel
 from conqueror_ai.domain.detectors import MultiDetector
 from conqueror_ai.domain.objects import Detector, ObjectPipeline
@@ -76,10 +76,10 @@ def _note(res: ReplayResult, objs: list[ObjectEstimate]) -> None:
         res.things[o.oid] = Thing(o.cls, o.first_seen_us, o.last_seen_us, o.x_m, o.y_m, o.sigma_m)
 
 
-def horizon_of(cam: CameraModel | str) -> int | None:
-    """The picture's horizon row from its camera (the ball finder looks below it); None (search all of it)
+def camera_of(cam: CameraModel | str) -> CameraModel | None:
+    """The picture's camera for the detectors; None (all of it, no size check)
     for a picture the gate skips - its boxes are only shown, never placed."""
-    return None if isinstance(cam, str) else horizon_row(cam)
+    return None if isinstance(cam, str) else cam
 
 
 def run_replay(folder: Path, cal: Calibration, det: Detector, floor_classes: frozenset[str]) -> ReplayResult:
@@ -102,7 +102,7 @@ def run_replay(folder: Path, cal: Calibration, det: Detector, floor_classes: fro
             if rgb is None:
                 continue
             cam = p.camera_at(e.frame.cap_us)
-            dets = det.detect(rgb, horizon_of(cam))
+            dets = det.detect(rgb, camera_of(cam))
             cam = p.on_frame(e.frame, (rgb.shape[1], rgb.shape[0]), dets, cam)
             if not isinstance(cam, str):
                 res.used += 1
@@ -166,7 +166,7 @@ async def run_live(host: str, cal: Calibration, det: Detector, floor_classes: fr
                 continue
             cam_f = p.camera_at(f.cap_us)
             # meanwhile newer pictures replace the waiting one
-            dets = await asyncio.to_thread(det.detect, rgb, horizon_of(cam_f))
+            dets = await asyncio.to_thread(det.detect, rgb, camera_of(cam_f))
             used = p.on_frame(f, (rgb.shape[1], rgb.shape[0]), dets, cam_f)
             view.frame(f, None)
             view.detections(f, dets)
@@ -188,7 +188,7 @@ def detectors(model: Path, vocab_path: Path, balls_path: Path) -> tuple[Detector
     vocab = load_vocabulary(vocab_path)
     world = YoloWorld(model, vocab)
     balls: list[BallColour] = load_balls(balls_path)
-    multi = MultiDetector([world.detect, lambda rgb, h: find_balls(rgb, balls, h)])
+    multi = MultiDetector([world.detect, lambda rgb, cam: find_balls(rgb, balls, cam)])
     return multi, vocab.floor_classes | frozenset(f"ball:{b.name}" for b in balls)
 
 

@@ -47,6 +47,7 @@ CamSet = Callable[
 Click = Callable[[NDArray[np.uint8], str], Awaitable[tuple[float, float]]]  # the owner clicks a point
 
 QVGA = (320, 240)
+VGA = (640, 480)  # the ball step: the camera as cq-objects uses it
 MIN_LENS_PICTURES = 10
 MIN_SERVO_POINTS = 3  # a missed point is skipped; at least this many make the fit (final review I2)
 CONNECT_S = 10.0
@@ -348,23 +349,43 @@ async def grab_picture(cam: Frames, timeout_s: float = CONNECT_S) -> NDArray[np.
 
 
 async def ball_colour(
-    name: str, grab: Callable[[], Awaitable[NDArray[np.uint8]]], cam_set: CamSet, n: int = 15
+    name: str,
+    grab: Callable[[], Awaitable[NDArray[np.uint8]]],
+    cam_set: CamSet,
+    cam: CameraModel,
+    n: int = 15,
 ) -> bl.BallColour:
-    """The ball's colour (LLD §16.1 item 5): the camera level and centred (so the floor is the lower half),
-    then the coloured round blob nearest the middle in the lower half of n pictures (the ball is put ~1 m
-    ahead in the middle of the view), its middle pixels pooled -> the range."""
+    """The ball's colour (LLD §16.1 item 5): the camera level and centred (cam: that camera), then the
+    coloured round blob nearest the middle below the horizon in n pictures (the ball is put ~1 m ahead in
+    the middle of the view), its middle pixels pooled -> the range; then its size and brightness as the tank
+    measures them (the medians; the brightness limit is V_MEAN_SHARE of it) - Plan Y Task 5."""
     await cam_set(0.0, 0.0)
+    pics: list[NDArray[np.uint8]] = []
     pix: list[NDArray[np.uint8]] = []
     for _ in range(n):
         rgb = await grab()
-        p = bl.most_coloured_blob(rgb, horizon=rgb.shape[0] // 2)
+        if rgb.shape[:2] != (cam.cal.size[1], cam.cal.size[0]):
+            raise Refused(
+                f"pictures must be {cam.cal.size[0]} x {cam.cal.size[1]}, got {rgb.shape[1]} x {rgb.shape[0]}"
+                " - set the camera to VGA in Settings"
+            )
+        pics.append(rgb)
+        p = bl.most_coloured_blob(rgb, cam)
         if p is not None:
             pix.append(p)
     if len(pix) < max(1, n // 2):
         raise Refused(
             f"no coloured ball found in {n - len(pix)} of {n} pictures - put it ~1 m ahead, in the middle"
         )
-    return bl.colour_from_samples(name, np.concatenate(pix), r_min_px=6.0)
+    c = bl.colour_from_samples(name, np.concatenate(pix), r_min_px=6.0)
+    got = [m for m in (bl.size_and_brightness(rgb, c, cam) for rgb in pics) if m is not None]
+    if len(got) < max(1, n // 2):
+        raise Refused(
+            f"the {name} ball's size was found in only {len(got)} of {n} pictures - is it on the floor?"
+        )
+    size = float(np.median([g[0] for g in got]))
+    v_mean = float(np.median([g[1] for g in got]))
+    return replace(c, size_cm=round(size, 1), v_mean_min=int(v_mean * bl.V_MEAN_SHARE))
 
 
 async def _run(step: str, host: str, out: Path, ball: str = "") -> None:
@@ -388,11 +409,12 @@ async def _run(step: str, host: str, out: Path, ball: str = "") -> None:
 
     try:
         if step == "ball":
-            c = await ball_colour(ball, grab, cam_set)
+            level = CameraModel(calibration_store.load(out, VGA)).for_frame(START, 0.0, 0.0)
+            c = await ball_colour(ball, grab, cam_set, level)
             save_ball(BALLS, c)
             print(
-                f"ball {c.name}: hue {c.h_lo}-{c.h_hi}, saturation >= {c.s_min}, value <= {c.v_max}"
-                f" - saved {BALLS}"
+                f"ball {c.name}: hue {c.h_lo}-{c.h_hi}, saturation >= {c.s_min}, value <= {c.v_max},"
+                f" size {c.size_cm} cm, brightness >= {c.v_mean_min} - saved {BALLS}"
             )
             return
         cal = calibration_store.load(out, QVGA) if out.exists() else _defaults()

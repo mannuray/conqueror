@@ -1,8 +1,9 @@
 """The colour ball finder (AI engine LLD §16.1 items 3 and 5): round blobs of known colours on the floor.
 
-Plain OpenCV on arrays, no files: the largest round blob of each ball's colour below the horizon. Measured
-on the
-tank (design-notes §152): the green ball in 187 of 194 pictures, steady to +-1.6 px, 1.1 ms at VGA."""
+Plain OpenCV on arrays, no files: the largest round blob of each ball's colour below the horizon that is
+bright enough and the right size for its distance. Measured on the tank (design-notes §152): the green ball
+in 187 of 194 pictures, steady to +-1.6 px, 1.1 ms at VGA; the size and brightness checks (Plan Y Task 5)
+keep 236 of 243 sightings and drop all 48 reflections on a steel bin."""
 
 from __future__ import annotations
 
@@ -22,6 +23,10 @@ MIN_ROUND = 0.66  # convex hull area / (pi r^2) of the enclosing circle. The tan
 SCORE_K = 1.3  # score = min(1, roundness x this): the ball ~0.95
 HORIZON_AHEAD_M = 1000.0  # a floor point this far ahead lies on the horizon
 MAX_HUE_SPREAD = 60  # a calibrated ball wider than this (of 180) is not one colour
+SIZE_RANGE = (0.6, 1.5)  # a blob's size from its floor distance, as a share of the ball's calibrated size
+V_MEAN_SHARE = (
+    0.8  # calibration: the brightness limit is this share of the ball's mean value (bin 90-117, ball 162)
+)
 
 
 @dataclass(frozen=True)
@@ -32,6 +37,8 @@ class BallColour:
     s_min: int
     v_max: int
     r_min_px: float = 6.0
+    size_cm: float | None = None  # as the tank measures it (2 r x floor distance / fx); None: no size check
+    v_mean_min: int = 0  # the blob's mean value (brightness) must be at least this
 
     def __post_init__(self) -> None:
         """h_lo > h_hi is a range that wraps through 0 (red)."""
@@ -43,6 +50,10 @@ class BallColour:
             raise ValueError(f"ball {self.name}: value {self.v_max} is outside 0-255")
         if not self.r_min_px > 0:
             raise ValueError(f"ball {self.name}: r_min_px {self.r_min_px} must be above 0")
+        if self.size_cm is not None and not self.size_cm > 0:
+            raise ValueError(f"ball {self.name}: size_cm {self.size_cm} must be above 0")
+        if not 0 <= self.v_mean_min <= 255:
+            raise ValueError(f"ball {self.name}: v_mean_min {self.v_mean_min} is outside 0-255")
 
 
 def horizon_row(cam: CameraModel) -> int | None:
@@ -109,27 +120,71 @@ def _round_blobs(mask: NDArray[np.uint8], r_min: float) -> list[tuple[Blob, floa
     return out
 
 
-def _blob(mask: NDArray[np.uint8], r_min: float) -> Blob | None:
-    """The largest round blob."""
-    blobs = _round_blobs(mask, r_min)
-    return max(blobs, key=lambda b: b[1])[0] if blobs else None
+@dataclass(frozen=True)
+class _Seen:
+    x: float
+    y: float
+    r: float
+    roundness: float
+    area: float
+    v_mean: float  # the mean value (brightness) of its pixels of the ball's colour
+    size_cm: float | None  # 2 r x floor distance / fx; inf off the floor; None without a camera
 
 
-def find_balls(rgb: NDArray[np.uint8], balls: list[BallColour], horizon: int | None) -> list[Detection]:
-    """One detection per ball colour found (the largest round blob of it), never a guess."""
+def _seen(hsv: U8, mask: U8, blob: Blob, area: float, cam: CameraModel | None) -> _Seen:
+    x, y, r, roundness = blob
+    circle = np.zeros(mask.shape, np.uint8)
+    cv2.circle(circle, (round(x), round(y)), max(1, round(r)), (255,), -1)
+    v = hsv[(mask > 0) & (circle > 0)][:, 2]
+    size: float | None = None
+    if cam is not None:
+        d = cam.floor_distance(x, y + r)  # along the ray to where its bottom meets the floor
+        size = 2.0 * r * d / float(cam.cal.k[0, 0]) * 100.0 if math.isfinite(d) else math.inf
+    return _Seen(x, y, r, roundness, area, float(v.mean()) if len(v) else 0.0, size)
+
+
+def _is_ball(s: _Seen, b: BallColour) -> bool:
+    if s.v_mean < b.v_mean_min:
+        return False
+    if b.size_cm is None or s.size_cm is None:
+        return True
+    return SIZE_RANGE[0] * b.size_cm <= s.size_cm <= SIZE_RANGE[1] * b.size_cm
+
+
+def find_balls(rgb: NDArray[np.uint8], balls: list[BallColour], cam: CameraModel | None) -> list[Detection]:
+    """One detection per ball colour found (the largest round blob of it that is bright enough and the right
+    size for its distance), never a guess. Without the picture's camera: all of the picture, no size check."""
     if not balls:
         return []
     hsv = _hsv(rgb)
     h, w = rgb.shape[:2]
+    horizon = horizon_row(cam) if cam is not None else None
     out: list[Detection] = []
     for b in balls:
-        blob = _blob(_mask(hsv, b, horizon), b.r_min_px)
-        if blob is None:
+        m = _mask(hsv, b, horizon)
+        seen = [_seen(hsv, m, blob, area, cam) for blob, area in _round_blobs(m, b.r_min_px)]
+        ok = [s for s in seen if _is_ball(s, b)]
+        if not ok:
             continue
-        x, y, r, roundness = blob
-        box = (max(0.0, x - r), max(0.0, y - r), min(float(w), x + r), min(float(h), y + r))
-        out.append(Detection(f"ball:{b.name}", min(1.0, roundness * SCORE_K), box))
+        s = max(ok, key=lambda s: s.area)
+        box = (max(0.0, s.x - s.r), max(0.0, s.y - s.r), min(float(w), s.x + s.r), min(float(h), s.y + s.r))
+        out.append(Detection(f"ball:{b.name}", min(1.0, s.roundness * SCORE_K), box))
     return out
+
+
+def size_and_brightness(
+    rgb: NDArray[np.uint8], b: BallColour, cam: CameraModel
+) -> tuple[float, float] | None:
+    """For calibration: the size (cm, as the tank measures it) and mean value of the round blob of the ball's
+    colour nearest the middle column, or None."""
+    hsv = _hsv(rgb)
+    m = _mask(hsv, b, horizon_row(cam))
+    seen = [_seen(hsv, m, blob, area, cam) for blob, area in _round_blobs(m, b.r_min_px)]
+    if not seen:
+        return None
+    mid = rgb.shape[1] / 2
+    s = min(seen, key=lambda s: abs(s.x - mid))
+    return (s.size_cm, s.v_mean) if s.size_cm is not None and math.isfinite(s.size_cm) else None
 
 
 def colour_from_samples(name: str, hsv_pixels: NDArray[np.uint8], r_min_px: float) -> BallColour:
@@ -160,11 +215,11 @@ def colour_from_samples(name: str, hsv_pixels: NDArray[np.uint8], r_min_px: floa
     return BallColour(name, h_lo, h_hi, max(0, int(s10) - 10), min(255, math.ceil(v90) + 15), r_min_px)
 
 
-def most_coloured_blob(rgb: NDArray[np.uint8], horizon: int | None) -> NDArray[np.uint8] | None:
+def most_coloured_blob(rgb: NDArray[np.uint8], cam: CameraModel | None) -> NDArray[np.uint8] | None:
     """For calibration: the HSV pixels of the coloured round blob below the horizon nearest the middle column
     (the ball is laid out in the middle), or None. Saturation >= 60 on a blurred picture."""
     hsv = _hsv(rgb)
-    m = _in_range(hsv, [((0, 60, 0), (179, 255, 255))], horizon)
+    m = _in_range(hsv, [((0, 60, 0), (179, 255, 255))], horizon_row(cam) if cam is not None else None)
     blobs = _round_blobs(m, 6.0)
     if not blobs:
         return None

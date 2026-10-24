@@ -36,6 +36,7 @@ def load_vocabulary(path: Path) -> Vocabulary:
 def _ball(r: dict[str, Any]) -> BallColour:
     try:
         h: list[Any] = list(r["h"])
+        size = r.get("size_cm")
         return BallColour(
             str(r["name"]),
             int(h[0]),
@@ -43,6 +44,8 @@ def _ball(r: dict[str, Any]) -> BallColour:
             int(r["s_min"]),
             int(r["v_max"]),
             float(r.get("r_min_px", 6.0)),
+            None if size is None else float(size),
+            int(r.get("v_mean_min", 0)),
         )
     except KeyError as e:
         raise ValueError(f"it has no {e.args[0]}") from None
@@ -80,6 +83,8 @@ def save_ball(path: Path, ball: BallColour) -> None:
                 "s_min": r["s_min"],
                 "v_max": r["v_max"],
                 "r_min_px": r["r_min_px"],
+                "size_cm": r["size_cm"],
+                "v_mean_min": r["v_mean_min"],
             }
         )
     head = (

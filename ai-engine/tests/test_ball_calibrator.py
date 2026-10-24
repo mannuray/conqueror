@@ -4,6 +4,7 @@ config/balls.yaml beside the others. Drawn pictures and a fake camera."""
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 
 import cv2
@@ -13,8 +14,14 @@ import pytest
 from conqueror_ai.adapters.detector_config import load_balls, load_vocabulary, save_ball
 from conqueror_ai.app import calibrate
 from conqueror_ai.domain import balls as bl
-from conqueror_ai.domain.types import Frame
+from conqueror_ai.domain.camera import CameraModel
+from conqueror_ai.domain.types import Frame, Pose
+from tests.test_camera import calib
 from tests.test_detectors import disc, floor_picture
+
+VGA_LEVEL = CameraModel(
+    replace(calib(), k=np.array([[400.0, 0.0, 320.0], [0.0, 400.0, 240.0], [0.0, 0.0, 1.0]]), size=(640, 480))
+).for_frame(Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.0, 0.0)  # level: the horizon is row 240
 
 
 async def no_move(pan: float, tilt: float) -> None:
@@ -33,7 +40,7 @@ async def test_the_camera_is_set_level_and_centred_before_the_pictures() -> None
         log.append("picture")
         return disc(floor_picture(640, 480), (330, 360), 24, (64, 90, 170))
 
-    await calibrate.ball_colour("green", grab, cam_set, n=3)
+    await calibrate.ball_colour("green", grab, cam_set, VGA_LEVEL, n=3)
     assert log == [(0.0, 0.0), "picture", "picture", "picture"]
 
 
@@ -73,10 +80,20 @@ async def test_the_ball_colour_comes_from_the_pictures_and_finds_that_ball() -> 
     async def grab():  # type: ignore[no-untyped-def]
         return next(it)
 
-    c = await calibrate.ball_colour("green", grab, no_move, n=15)
+    c = await calibrate.ball_colour("green", grab, no_move, VGA_LEVEL, n=15)
     assert c.name == "green" and c.h_lo <= 59 and c.h_hi >= 69
-    assert len(bl.find_balls(pics[0], [c], horizon=240)) == 1
-    assert bl.find_balls(floor_picture(640, 480), [c], horizon=240) == []
+    # its size as the tank measures it (r 24 px, bottom row 384: ~0.52 m at fx 400 -> ~6 cm) and brightness
+    assert c.size_cm is not None and 5.0 <= c.size_cm <= 7.5 and 125 <= c.v_mean_min <= 145
+    assert len(bl.find_balls(pics[0], [c], VGA_LEVEL)) == 1
+    assert bl.find_balls(floor_picture(640, 480), [c], VGA_LEVEL) == []
+
+
+async def test_pictures_of_another_size_are_refused() -> None:
+    async def grab():  # type: ignore[no-untyped-def]
+        return floor_picture(320, 240)
+
+    with pytest.raises(calibrate.Refused, match="640 x 480"):
+        await calibrate.ball_colour("green", grab, no_move, VGA_LEVEL, n=3)
 
 
 async def test_no_ball_in_view_is_a_plain_refusal() -> None:
@@ -84,7 +101,7 @@ async def test_no_ball_in_view_is_a_plain_refusal() -> None:
         return floor_picture(640, 480)
 
     with pytest.raises(calibrate.Refused, match="no coloured ball"):
-        await calibrate.ball_colour("green", grab, no_move, n=5)
+        await calibrate.ball_colour("green", grab, no_move, VGA_LEVEL, n=5)
 
 
 def test_saving_a_ball_keeps_the_others_and_replaces_its_own(tmp_path: Path) -> None:
@@ -123,3 +140,13 @@ def test_a_word_row_with_floor_as_text_or_no_word_is_refused(tmp_path: Path) -> 
     vocab.write_text("words:\n  - {floor: true}\n")
     with pytest.raises(ValueError, match=r"vocabulary.yaml.*word"):
         load_vocabulary(vocab)
+
+
+def test_a_ball_keeps_its_size_and_brightness_and_an_old_file_has_neither(tmp_path: Path) -> None:
+    path = tmp_path / "balls.yaml"
+    save_ball(path, bl.BallColour("green", 45, 90, 65, 200, 6.0, size_cm=13.8, v_mean_min=130))
+    got = load_balls(path)[0]
+    assert got.size_cm == 13.8 and got.v_mean_min == 130
+    path.write_text("balls:\n  - {name: red, h: [0, 8], s_min: 90, v_max: 230}\n")
+    old = load_balls(path)[0]
+    assert old.size_cm is None and old.v_mean_min == 0

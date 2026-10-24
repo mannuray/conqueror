@@ -68,11 +68,10 @@ FloatArray = NDArray[np.float64]
 
 class Detector(Protocol):
     """The detector port (LLD §15.1, §16): YOLO-World and the colour ball finder on the tank's pictures, a
-    fake in
-    tests. horizon_row: the picture's horizon (the ball finder looks only below it), None when off the
-    picture."""
+    fake in tests. cam: the picture's camera (the ball finder looks below its horizon and checks a ball's
+    size for its distance), None for a picture the gate skips (its boxes are only shown)."""
 
-    def detect(self, rgb: NDArray[np.uint8], horizon_row: int | None) -> list[Detection]: ...
+    def detect(self, rgb: NDArray[np.uint8], cam: CameraModel | None) -> list[Detection]: ...
 
 
 def sigma_at(d: float) -> float:

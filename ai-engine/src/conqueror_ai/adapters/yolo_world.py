@@ -18,6 +18,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from conqueror_ai.adapters.yolo_coreml import letterbox
+from conqueror_ai.domain.camera import CameraModel
 from conqueror_ai.domain.types import Detection
 from conqueror_ai.domain.vocabulary import Vocabulary
 
@@ -83,7 +84,7 @@ def to_detections(
 
 
 class YoloWorld:
-    """The `Detector` port (§15.1, §16): YOLO-World on CoreML; the horizon is not needed."""
+    """The `Detector` port (§15.1, §16): YOLO-World on CoreML; the picture's camera is not needed."""
 
     def __init__(self, path: Path, vocab: Vocabulary) -> None:
         if not path.exists():
@@ -104,7 +105,7 @@ class YoloWorld:
         self._input = spec.description.input[0].name
         self._output = spec.description.output[0].name  # by name: a later export may add outputs
 
-    def detect(self, rgb: NDArray[np.uint8], horizon_row: int | None) -> list[Detection]:
+    def detect(self, rgb: NDArray[np.uint8], cam: CameraModel | None) -> list[Detection]:
         from PIL import Image
 
         img, pad = letterbox(rgb, self._size)

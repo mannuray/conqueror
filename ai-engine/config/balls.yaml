@@ -1,4 +1,6 @@
 # Colour balls for the ball finder (AI engine LLD §16.1 item 3); written by cq-calibrate ball <name>.
-# green: the owner's ball, measured at camera setting B on 2026-10-24 (design-notes §152).
+# green: the owner's 12 cm ball, colour measured at camera setting B on 2026-10-24 (design-notes §152); size
+# (as the tank measures it) and brightness from the floor memory test (Plan Y Task 5: size p50 13.8 cm, mean
+# value 162 x 0.8).
 balls:
-- {name: green, h: [45, 90], s_min: 65, v_max: 200, r_min_px: 6.0}
+- {name: green, h: [45, 90], s_min: 65, v_max: 200, r_min_px: 6.0, size_cm: 13.8, v_mean_min: 130}

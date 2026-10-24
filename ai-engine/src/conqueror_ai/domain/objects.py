@@ -254,8 +254,22 @@ class _Thing:
         )
 
 
+BALL_PREFIX = "ball:"  # the colour finder's things (§16)
+OTHER_WORD_RANK = 1e9  # a word box on a ball is tried after every pair of the same class
+
+
+def _is_ball(cls: str) -> bool:
+    return cls.startswith(BALL_PREFIX)
+
+
 @dataclass
 class ObjectTracker:
+    """One thing per thing. A colour ball is one thing whatever YOLO-World calls it (Plan Y final review I2):
+    a word box (say "toy") at a listed ball's place updates that ball when nothing of its own class takes it
+    (the finder missed the ball: at the picture's edge, half hidden); and when the finder sees a listed ball,
+    a word thing at its place not seen in that picture is the ball (its boxes were dropped as the ball's)
+    and goes."""
+
     _things: list[_Thing] = field(default_factory=lambda: list[_Thing]())
     _next: int = 1
 
@@ -265,18 +279,22 @@ class ObjectTracker:
         pairs: list[tuple[float, int, int]] = []
         for i, th in enumerate(self._things):
             for j, z in enumerate(located):
-                if th.cls == z.cls:
+                same = th.cls == z.cls
+                if same or (th.confirmed and _is_ball(th.cls) and not _is_ball(z.cls)):
                     d2, rank = th.cost(z)
                     if d2 <= GATE_D2:
-                        pairs.append((rank, i, j))
+                        pairs.append((rank if same else rank + OTHER_WORD_RANK, i, j))
         pairs.sort()
         used_t: set[int] = set()
         used_z: set[int] = set()
+        balls_seen: list[Located] = []  # the finder's balls matched to listed balls in this picture
         for _, i, j in pairs:
             if i in used_t or j in used_z:
                 continue
             used_t.add(i)
             used_z.add(j)
+            if self._things[i].confirmed and _is_ball(located[j].cls):
+                balls_seen.append(located[j])
             th = self._things[i]
             th.update(located[j])
             th.state, th.last_us, th.in_view_since, th.misses_in_view = "seen", t_us, None, 0
@@ -285,6 +303,8 @@ class ObjectTracker:
                 th.confirmed = True
         keep: list[_Thing] = []
         for i, th in enumerate(self._things):
+            if i not in used_t and not _is_ball(th.cls) and any(th.cost(z)[0] <= GATE_D2 for z in balls_seen):
+                continue  # a word thing where the finder sees a ball: it was that ball
             if not th.confirmed and (i not in used_t or (t_us - th.first_us) / 1e6 > CONFIRM_S):
                 continue  # a new thing missed once, or not confirmed in time: one false detection is no thing
             if i not in used_t and not self._still_there(th, cam, t_us):

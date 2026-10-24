@@ -303,3 +303,50 @@ def test_a_clock_going_back_starts_the_list_again() -> None:  # M6: a bridge res
         )
     p.on_frame(frame(250_000), (320, 240), [])
     assert p.objects() == []
+
+
+# ---- one ball is one thing across pictures (Plan Y final review I2)
+def frames_of(
+    tr: ob.ObjectTracker, cam: CameraModel, things: list[tuple[str, float, float]], n: int, t0_us: int
+) -> int:
+    loc = ob.ObjectLocator(frozenset({"toy", "chair", "ball:green"}))
+    t = t0_us
+    for i in range(n):
+        t = t0_us + i * 100_000
+        located, _ = loc.locate([box_on_floor(cam, x, y, cls=c) for c, x, y in things], cam, t)
+        tr.update(located, cam, t)
+    return t
+
+
+def test_a_word_thing_where_the_colour_ball_is_seen_is_that_ball() -> None:
+    """Far away the finder misses the ball and YOLO-World lists a "toy"; closer, the finder sees it and the
+    toy's boxes are dropped (MultiDetector): the toy is the ball, not a ghost beside it."""
+    tr, cam = ob.ObjectTracker(), cam_at()
+    t = frames_of(tr, cam, [("toy", 2.5, 0.0)], 5, 0)
+    assert [o.cls for o in tr.objects()] == ["toy"]
+    frames_of(tr, cam, [("ball:green", 2.5, 0.0)], 5, t + 100_000)
+    assert [o.cls for o in tr.objects()] == ["ball:green"]
+
+
+def test_a_word_box_on_a_ball_the_finder_misses_keeps_the_ball() -> None:
+    """The ball rolls half out of the picture's edge: the finder misses it, YOLO-World says "toy" - still the
+    one ball."""
+    tr, cam = ob.ObjectTracker(), cam_at()
+    t = frames_of(tr, cam, [("ball:green", 1.0, 0.0)], 5, 0)
+    oid = tr.objects()[0].oid
+    frames_of(tr, cam, [("toy", 1.0, 0.0)], 8, t + 100_000)
+    objs = tr.objects()
+    assert [(o.cls, o.oid, o.state) for o in objs] == [("ball:green", oid, "seen")]
+
+
+def test_a_chair_seen_beside_the_ball_stays_its_own_thing() -> None:
+    tr, cam = ob.ObjectTracker(), cam_at()
+    frames_of(tr, cam, [("ball:green", 1.0, 0.0), ("chair", 1.05, 0.1)], 10, 0)
+    assert sorted(o.cls for o in tr.objects()) == ["ball:green", "chair"]
+
+
+def test_a_word_thing_elsewhere_is_not_taken_by_the_ball() -> None:
+    tr, cam = ob.ObjectTracker(), cam_at()
+    t = frames_of(tr, cam, [("toy", 2.0, 0.5)], 5, 0)
+    frames_of(tr, cam, [("ball:green", 1.0, 0.0)], 3, t + 100_000)  # the toy missed 3 times (< 1 s): kept
+    assert sorted(o.cls for o in tr.objects()) == ["ball:green", "toy"]

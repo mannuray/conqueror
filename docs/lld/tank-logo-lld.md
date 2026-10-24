@@ -1304,3 +1304,15 @@ stateDiagram-v2
 - **Known, by design:** Esc is STOP for the whole tank, so it also stops a phone driver (STOP holds until they release the stick, design-notes §72).
 - **Next (design-notes §148, Plan N7):** the page's text icons (WiFi bars, `● UNO`, `▶ RUN`) become Lucide icons from one shared icon file.
 
+
+### 23.9 Icons (owner 2026-10-24, design-notes §148; bridge LLD R25, Plan N7)
+The page's text icons become Lucide icons from the shared `web/icons.json` (bridge LLD R25.1 item 7):
+- **WiFi:** Drive's five icons.
+- **Battery:** by charge, with the volts; `plug` on USB.
+- **Uno:** `cpu`.
+- **Run controls:** RUN `play`, STEP `step-forward`, STOP `octagon-x`.
+- **Camera:** HIDE `eye-off`, SHOW CAMERA `camera`; the sonar is `radar` + cm.
+- **Navigation:** ‹ DRIVE `chevron-left`, ☰ `menu`.
+- **Programs:** NEW / SAVE / RENAME / DELETE are `plus` / `save` / `pencil` / `trash-2`.
+- The status line's ● dots stay text.
+- **Budget:** 26 KB gzipped.

@@ -17,7 +17,7 @@ import urllib.request
 VERSION = "0.460.0"
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "firmware" / "esp32" / "scripts"))
-import icons
+import cq_icons as icons
 
 FILE = ROOT / "firmware" / "esp32" / "web" / "icons.json"
 
@@ -34,22 +34,36 @@ def fetch(name: str, local: pathlib.Path | None) -> str:
         return r.read().decode("utf-8")
 
 
-def main(argv: list[str]) -> None:
+def main(argv: list[str], file: pathlib.Path = FILE) -> None:
     local = None
     if argv[:1] == ["--from"]:
+        if len(argv) < 2:
+            raise SystemExit(
+                "add_icon: --from needs a folder (an unpacked lucide-static package)"
+            )
         local, argv = pathlib.Path(argv[1]), argv[2:]
-    data = {
-        "source": f"lucide-static {VERSION}",
-        "licence": "ISC, (c) Lucide Contributors (portions (c) Cole Bemis, Feather, MIT)",
-        "icons": {},
-    }
-    if FILE.exists():
-        data = json.loads(FILE.read_text(encoding="utf-8"))
+    if not argv:
+        raise SystemExit("add_icon: name the icons to add, e.g. add_icon.py radar plug")
+    licence = "ISC, (c) Lucide Contributors (portions (c) Cole Bemis, Feather, MIT)"
+    data = (
+        json.loads(file.read_text(encoding="utf-8"))
+        if file.exists()
+        else {"licence": licence, "icons": {}}
+    )
+    data["source"] = (
+        f"lucide-static {VERSION}"  # every write says which Lucide the bodies come from
+    )
     for name in argv:
+        if name in data["icons"]:
+            print(f"add_icon: replaced {name}")
         data["icons"][name] = icons.lucide_body(fetch(name, local))
-    data["icons"] = dict(sorted(data["icons"].items()))
-    FILE.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
-    print(f"add_icon: {len(argv)} added, {len(data['icons'])} in {FILE.name}")
+    data = {
+        "source": data["source"],
+        "licence": data.get("licence", licence),
+        "icons": dict(sorted(data["icons"].items())),
+    }
+    file.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
+    print(f"add_icon: {len(argv)} added, {len(data['icons'])} in {file.name}")
 
 
 if __name__ == "__main__":

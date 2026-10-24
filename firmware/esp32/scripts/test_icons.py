@@ -9,7 +9,7 @@ import runpy
 import unittest
 import xml.etree.ElementTree as ET
 
-import icons
+import cq_icons as icons
 
 PROJECT = pathlib.Path(__file__).resolve().parents[1]
 ICONS = {
@@ -46,6 +46,47 @@ class Markers(unittest.TestCase):
         self.assertEqual(icons.expand_markers(text, ICONS, "/x"), text)
 
 
+class Leftovers(unittest.TestCase):
+    """Final review I1: what the expander can't read must stop the build, never ship as an empty button."""
+
+    def fails(self, text: str) -> str:
+        with self.assertRaises(SystemExit) as e:
+            icons.expand(text, ICONS, "/p")
+        return str(e.exception)
+
+    def test_a_marker_it_cannot_read_fails(self) -> None:
+        for bad in (
+            "<!-- icon:lock -->",
+            "<!--Icon:save-->",
+            '<!--icon:save title="a>b"-->',
+            '<!--icon:save style="x-->y"-->',
+        ):
+            self.assertIn("/p", self.fails(bad), bad)
+
+    def test_a_table_it_cannot_read_fails(self) -> None:
+        self.assertIn("/p", self.fails("/* CQ:ICONS wifi*/"))
+        self.assertIn("/p", self.fails("/*cq:icons wifi*/"))
+
+    def test_icon_used_without_a_table_fails(self) -> None:
+        self.assertIn("no /*CQ:ICONS", self.fails('x = icon("wifi");'))
+
+    def test_a_literal_name_missing_from_the_table_fails(self) -> None:
+        self.assertIn(
+            '"menu"',
+            self.fails('/*CQ:ICONS wifi*/ a = icon("wifi"); b = icon("menu");'),
+        )
+
+    def test_listed_literal_and_computed_names_pass(self) -> None:
+        out = icons.expand(
+            '/*CQ:ICONS wifi menu*/ a = icon("wifi"); b = icon(NAMES[k]);', ICONS, "/p"
+        )
+        self.assertIn("var ICONS", out)
+
+    def test_icon_complains_about_an_unknown_name_at_run_time(self) -> None:
+        out = icons.expand("/*CQ:ICONS wifi*/", ICONS, "/p")
+        self.assertIn("console.error", out)
+
+
 class Table(unittest.TestCase):
     def test_the_table_holds_only_the_listed_icons_and_icon(self) -> None:
         out = icons.expand_table(
@@ -80,9 +121,67 @@ class Lucide(unittest.TestCase):
         self.assertEqual(icons.lucide_body(svg), '<path d="M12 20h.01"/><rect x="1"/>')
 
 
+class AddIcon(unittest.TestCase):
+    """tools/icons/add_icon.py (final review M3)."""
+
+    def setUp(self) -> None:
+        import contextlib
+        import io
+        import tempfile
+
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        (self.tmp / "icons").mkdir()
+        (self.tmp / "icons" / "dot.svg").write_text(
+            '<svg\n  viewBox="0 0 24 24"\n>\n  <circle r="1" />\n</svg>\n'
+        )
+        self.file = self.tmp / "icons.json"
+        self.tool = runpy.run_path(
+            str(PROJECT.parents[1] / "tools" / "icons" / "add_icon.py"),
+            run_name="add_icon",
+        )
+        self.out = io.StringIO()
+        self.quiet = contextlib.redirect_stdout(self.out)
+
+    def run_tool(self, *argv: str) -> None:
+        with self.quiet:
+            self.tool["main"](list(argv), self.file)
+
+    def test_from_without_a_folder_is_refused(self) -> None:
+        with self.assertRaises(SystemExit):
+            self.run_tool("--from")
+
+    def test_no_names_is_refused(self) -> None:
+        with self.assertRaises(SystemExit):
+            self.run_tool("--from", str(self.tmp))
+
+    def test_the_file_says_the_version_and_a_replaced_icon_is_reported(self) -> None:
+        self.file.write_text(
+            json.dumps(
+                {
+                    "source": "lucide-static 0.1.0",
+                    "licence": "x",
+                    "icons": {"dot": "old"},
+                }
+            )
+        )
+        self.run_tool("--from", str(self.tmp), "dot")
+        data = json.loads(self.file.read_text())
+        self.assertEqual(data["source"], "lucide-static " + self.tool["VERSION"])
+        self.assertEqual(data["icons"]["dot"], '<circle r="1"/>')
+        self.assertIn("replaced dot", self.out.getvalue())
+
+
 class TheFile(unittest.TestCase):
     def test_icons_json_is_lucide_and_every_body_is_svg(self) -> None:
-        data = json.loads((PROJECT / "web" / "icons.json").read_text(encoding="utf-8"))
+        def unique(pairs: list[tuple[str, object]]) -> dict[str, object]:
+            keys = [k for k, _ in pairs]
+            self.assertEqual(len(keys), len(set(keys)), "a name twice in icons.json")
+            return dict(pairs)
+
+        data = json.loads(
+            (PROJECT / "web" / "icons.json").read_text(encoding="utf-8"),
+            object_pairs_hook=unique,
+        )
         self.assertEqual(data["source"], "lucide-static 0.460.0")
         self.assertEqual(list(data["icons"]), sorted(data["icons"]))
         for name, body in data["icons"].items():

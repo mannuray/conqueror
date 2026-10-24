@@ -21,10 +21,12 @@ import struct
 import sys
 import zlib
 
-# PlatformIO runs this file through SCons, which may not set __file__; its working directory is the project.
+# PlatformIO runs this file through SCons, which removes __file__ before running it. SCons puts this folder first on
+# sys.path anyway, and PlatformIO keeps the project as the working directory (SConscriptChdir(False)), so
+# cwd/scripts is the same folder.
 _HERE = pathlib.Path(__file__).resolve().parent if "__file__" in globals() else pathlib.Path.cwd() / "scripts"
 sys.path.insert(0, str(_HERE))
-import icons
+import cq_icons as icons
 
 PAGE_BUDGET = 25 * 1024
 HELP_BUDGET = 16 * 1024

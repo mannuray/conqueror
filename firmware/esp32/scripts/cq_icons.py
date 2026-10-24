@@ -11,8 +11,14 @@ import json
 import pathlib
 import re
 
-MARKER = re.compile(r"<!--icon:([^\s>]*?)((?:\s[^>]*?)?)-->")
+# attributes are name="value" pairs without < > in the value; anything else is left over and fails (below)
+MARKER = re.compile(r'<!--icon:([a-z0-9-]*)((?:\s+[a-zA-Z][\w-]*="[^"<>]*")*)\s*-->')
 TABLE = re.compile(r"/\*CQ:ICONS([^*]*)\*/")
+# what a person might have meant as a marker or a table, in any spelling; left after expanding, it fails the build
+LEFT_MARKER = re.compile(r"<!--\s*icon\s*:", re.IGNORECASE)
+LEFT_TABLE = re.compile(r"/\*\s*CQ\s*:\s*ICONS", re.IGNORECASE)
+CALL = re.compile(r"(?<![\w.$])icon\(")
+LITERAL = re.compile(r'(?<![\w.$])icon\("([^"]*)"\)')
 SVG_OPEN = '<svg viewBox="0 0 24 24"'
 
 
@@ -50,13 +56,43 @@ def expand_table(text: str, icons: dict[str, str], page: str) -> str:
         "var ICONS = "
         + json.dumps(table, separators=(",", ":")).replace("</", "<\\/")
         + "; "
-        "function icon(n) { return '" + SVG_OPEN + '>\' + ICONS[n] + "</svg>"; }'
+        'function icon(n) { if (!(n in ICONS)) console.error("icon: " + n + " is not in this page\'s icon table"); '
+        "return '" + SVG_OPEN + '>\' + ICONS[n] + "</svg>"; }'
     )
     return TABLE.sub(lambda _m: code, text)
 
 
+def check_calls(text: str, page: str) -> None:
+    """Every literal icon("x") must be in the page's table, and icon() needs a table (before expanding)."""
+    found = TABLE.findall(text)
+    listed = set(found[0].split()) if found else set()
+    if CALL.search(text) and not found:
+        raise SystemExit(f"pack_web: {page} calls icon() but has no /*CQ:ICONS*/ table")
+    for name in LITERAL.findall(text):
+        if name not in listed:
+            raise SystemExit(
+                f'pack_web: {page} calls icon("{name}"), which is not in its /*CQ:ICONS*/ table'
+            )
+
+
+def check_leftovers(text: str, page: str) -> None:
+    """After expanding: a marker or table written any other way is a mistake, not text."""
+    for pattern, what in (
+        (LEFT_MARKER, "an icon marker"),
+        (LEFT_TABLE, "a CQ:ICONS table"),
+    ):
+        m = pattern.search(text)
+        if m:
+            raise SystemExit(
+                f"pack_web: {page} has {what} that cannot be read: {text[m.start() : m.start() + 60]!r}"
+            )
+
+
 def expand(text: str, icons: dict[str, str], page: str) -> str:
-    return expand_markers(expand_table(text, icons, page), icons, page)
+    check_calls(text, page)
+    out = expand_markers(expand_table(text, icons, page), icons, page)
+    check_leftovers(out, page)
+    return out
 
 
 def lucide_body(svg: str) -> str:

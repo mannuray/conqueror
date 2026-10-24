@@ -113,10 +113,11 @@ async (page) => {
   await emit({ t: "wifi_status", mode: "home", rssi: -50 }); const wFull = await parts("cWifi");
   await emit({ t: "wifi_status", mode: "home", rssi: -80 });
   out.wifiIcon = [wFull, await parts("cWifi"), await q(() => document.getElementById("cWifi").textContent.trim())];  // 4, 1, HOME
+  // averaged like Drive's (10 readings, started again between USB and the pack), the warning from the flags
   await emit({ t: "ts", batt_v: 8.2, flags: [] }); const bFull = await parts("cBatt");
-  await emit({ t: "ts", batt_v: 7.0, flags: [] }); const bLow = await parts("cBatt");
-  await emit({ t: "ts", batt_v: 5.0, flags: [] });
-  out.battIcon = [bFull, bLow, await q(() => document.getElementById("cBatt").textContent.trim()), await parts("cUno")];  // 5, 3, USB, >0
+  await emit({ t: "ts", batt_v: 5.0, flags: [] }); const usb = await q(() => document.getElementById("cBatt").textContent.trim());
+  await emit({ t: "ts", batt_v: 7.0, flags: ["batt_low"] });
+  out.battIcon = [bFull, usb, await parts("cBatt"), await q(() => document.getElementById("cBatt").className), await parts("cUno")];  // 5, USB, 3, chip warn, 10
   // narrow again: the phone layout, no camera stream, the problems back under the editor
   await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
   out.phone = [await q(() => document.getElementById("camImg").hasAttribute("src")),        // false

@@ -1,6 +1,6 @@
 // Bridge LLD R25 browser check (Playwright run_code): the shared Lucide icons on Settings and Drive.
 // Run the stand-in tank (python3 firmware/esp32/web/test/fake_tank.py 8765); it serves the packed pages (icons in).
-// An icon is told apart by its parts: wifi 4, wifi-zero 1, battery-full 5, battery-low 3, plug 4.
+// An icon is told apart by its parts: wifi 4, wifi-zero 1, battery-full 5, battery-low 3, plug 4, cpu 10.
 async (page) => {
   await page.addInitScript(() => {
     class FakeWS {
@@ -22,10 +22,12 @@ async (page) => {
   await emit({ t: "wifi_status", mode: "home", rssi: -50 }); const w1 = await parts("#cWifi");
   await emit({ t: "wifi_status", mode: "home", rssi: -80 });
   out.settingsWifi = [w1, await parts("#cWifi"), await q(() => document.getElementById("cWifi").textContent.trim())];  // 4, 1, HOME
+  // the battery is averaged like Drive's (10 readings, started again between USB and the pack): USB in between
   await emit({ t: "ts", batt_v: 8.2, flags: [] }); const b1 = await parts("#cBatt");
-  await emit({ t: "ts", batt_v: 7.0, flags: [] }); const b2 = await parts("#cBatt");
-  await emit({ t: "ts", batt_v: 5.0, flags: [] });
-  out.settingsBatt = [b1, b2, await parts("#cBatt")];                                                               // 5, 3, 4
+  await emit({ t: "ts", batt_v: 5.0, flags: [] }); const b2 = await parts("#cBatt");
+  await emit({ t: "ts", batt_v: 7.0, flags: ["batt_low"] });
+  out.settingsBatt = [b1, b2, await parts("#cBatt"), await q(() => document.getElementById("cBatt").className)];      // 5, 4, 3, chip warn
+  out.settingsUno = await parts("#cUno");                                                                         // 10 (cpu)
   out.noBars = await q(() => document.querySelectorAll(".bars").length);                                           // 0
   await page.setViewportSize({ width: 844, height: 390 });
   await page.goto("http://127.0.0.1:8765/"); await page.waitForTimeout(800);

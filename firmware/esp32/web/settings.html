@@ -146,9 +146,9 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     <h1>TANK SETTINGS</h1>
   </div>
   <div class="chips">
-    <span class="chip" id="cBatt">-- V</span>
+    <span class="chip" id="cBatt"><!--icon:battery--> -- V</span>
     <span class="chip" id="cWifi">WIFI --</span>
-    <span class="chip" id="cUno">● UNO --</span>
+    <span class="chip" id="cUno"><!--icon:cpu--> UNO --</span>
   </div>
 </div></header>
 <div class="wrap">
@@ -343,7 +343,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
 <script>
 (function () {
   "use strict";
-  /*CQ:ICONS lock pencil trash hand triangle-alert wifi wifi-high wifi-low wifi-zero rotate-ccw info check battery-full battery-medium battery-low battery-warning plug*/  // the shared Lucide icons (bridge LLD R25)
+  /*CQ:ICONS lock pencil trash hand triangle-alert wifi wifi-high wifi-low wifi-zero rotate-ccw info check battery-full battery-medium battery-low battery-warning plug cpu*/  // the shared Lucide icons (bridge LLD R25)
   var $ = function (id) { return document.getElementById(id); };
   var SVG_LOCK = icon("lock");
   var SVG_EDIT = icon("pencil");
@@ -359,8 +359,15 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   function bars(rssi) {  // the WiFi strength as Drive shows it (bridge LLD R25): markup only from numbers
     return icon(rssi > -55 ? "wifi" : rssi > -65 ? "wifi-high" : rssi > -75 ? "wifi-low" : "wifi-zero");
   }
-  function battIcon(v) {  // 2S Li-ion, Drive's charge curve: >= 70 % / 35 % / 10 % (bridge LLD R25)
-    return icon(v < 5.5 ? "plug" : v >= 7.85 ? "battery-full" : v >= 7.4 ? "battery-medium" : v >= 7.0 ? "battery-low" : "battery-warning");
+  function battIcon(v) {  // 2S Li-ion, Drive's charge curve: >= 70 % (7.87 V) / 35 % / 10 % (bridge LLD R25)
+    return icon(v < 5.5 ? "plug" : v >= 7.87 ? "battery-full" : v >= 7.4 ? "battery-medium" : v >= 7.0 ? "battery-low" : "battery-warning");
+  }
+  var battVals = [], battUsb = null;
+  function battAvg(v) {  // Drive's 10-reading average, started again between USB and the pack
+    var usb = v < 5.5;
+    if (usb !== battUsb) { battVals = []; battUsb = usb; }
+    battVals.push(v); if (battVals.length > 10) battVals.shift();
+    return battVals.reduce(function (a, b) { return a + b; }, 0) / battVals.length;
   }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
   var WHAT = { wifi_save: "SAVE THE NETWORK", wifi_forget: "FORGET", wifi_mode: "SWITCH WIFI",
@@ -513,8 +520,9 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
       $("iUnoReset").textContent = d.uno && d.uno.reset_reason ? d.uno.reset_reason : "--";
     }).catch(function () {});
   }
-  function showBatt(v) {
-    $("cBatt").innerHTML = battIcon(v) + " " + v.toFixed(2) + " V";
+  function showBatt(v, flags) {  // the chip as Drive: averaged, the warning from the tank's flags
+    var a = battAvg(v), warn = a >= 5.5 && (flags.indexOf("batt_low") >= 0 || flags.indexOf("batt_critical") >= 0);
+    $("cBatt").innerHTML = battIcon(a) + " " + (a < 5.5 ? "USB" : a.toFixed(2) + " V"); $("cBatt").className = "chip" + (warn ? " warn" : "");
     $("iBatt").textContent = v.toFixed(2) + " V";
     $("iBattBar").style.width = Math.max(0, Math.min(100, (v - 6.6) / 1.8 * 100)) + "%";  // 2S: 6.6 .. 8.4 V
   }
@@ -678,9 +686,9 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   });
   function onSlow(m) {
     var f = m.flags || [];
-    if (m.batt_v !== null && m.batt_v !== undefined) showBatt(m.batt_v);
+    if (m.batt_v !== null && m.batt_v !== undefined) showBatt(m.batt_v, f);
     var off = f.indexOf("body_offline") >= 0;
-    $("cUno").textContent = off ? "● UNO OFFLINE" : "● UNO ONLINE"; $("cUno").className = "chip" + (off ? " warn" : "");
+    $("cUno").innerHTML = icon("cpu") + (off ? " UNO OFFLINE" : " UNO ONLINE"); $("cUno").className = "chip" + (off ? " warn" : "");
     $("iEnc").textContent = f.indexOf("encoder_fault") >= 0 ? "OFF - restart the tank" : "✓ OK";
     var al = ["tilted", "lifted"].filter(function (x) { return f.indexOf(x) >= 0; });
     $("sAlarm").textContent = al.length ? al.join(" · ").toUpperCase() : "none";
@@ -955,7 +963,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     switch (m.t) {
       case "welcome":
         you = m.you || "";
-        $("cUno").textContent = m.tank && m.tank.fw && m.tank.fw.uno ? "● UNO ONLINE" : "● UNO OFFLINE";
+        $("cUno").innerHTML = icon("cpu") + (m.tank && m.tank.fw && m.tank.fw.uno ? " UNO ONLINE" : " UNO OFFLINE");
         break;
       case "tf": onTf(m); break;
       case "td": onTd(m); break;

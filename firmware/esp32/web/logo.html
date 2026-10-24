@@ -131,7 +131,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   </div>
   <div class="chips">
     <span class="chip" id="cBatt"><!--icon:battery--> -- V</span>
-    <span class="chip" id="cWifi"><!--icon:wifi-off--> --</span>
+    <span class="chip" id="cWifi"><!--icon:wifi-zero--> --</span>
     <span class="chip" id="cUno"><!--icon:cpu--> UNO --</span>
   </div>
 </div></header>
@@ -206,6 +206,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   var driven = [], pose = null, startedAt = 0, logLines = [], loading = 0, want = 0;  // a program being opened
   var wideQ = window.matchMedia("(min-width: 900px)"), wide = false, panel = { tab: "messages", picked: false };  // §23
   var camOff = recall("logo.cam") === "off", camOn = false, camTimer = 0;
+  var battMean = new L.BattMean(10);  // R25: as Drive
   var NEW = "<new>", START_TEXT = "; my program\nFORWARD 50\nRIGHT 90\n";
 
   function storage() { try { return window.localStorage; } catch (e) { return null; } }
@@ -613,7 +614,10 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     switch (m.t) {
       case "welcome": chip("cUno", "cpu", m.tank && m.tank.fw && m.tank.fw.uno ? "UNO ONLINE" : "UNO OFFLINE", false); break;
       case "ts":
-        if (m.batt_v !== null && m.batt_v !== undefined) chip("cBatt", L.batteryIcon(m.batt_v), m.batt_v < 5.5 ? "USB" : m.batt_v.toFixed(2) + " V", m.batt_v >= 5.5 && m.batt_v < 7.0);
+        if (m.batt_v !== null && m.batt_v !== undefined) {  // Drive's rules: a 10-reading average, the warning from the flags
+          var bv = battMean.push(m.batt_v);
+          chip("cBatt", L.batteryIcon(bv), bv < 5.5 ? "USB" : bv.toFixed(2) + " V", bv >= 5.5 && L.battWarn(m.flags));
+        }
         var off = (m.flags || []).indexOf("body_offline") >= 0;
         chip("cUno", "cpu", off ? "UNO OFFLINE" : "UNO ONLINE", off);
         break;

@@ -1,0 +1,14 @@
+# The words YOLO-World looks for (AI engine LLD §16.1 item 2). floor: true = it stands on the floor (the floor
+# trick places it). min_score: its own threshold (0.25 unless set). After a change re-export the model:
+#   cd tools/measure && uv run python export_world.py
+words:
+  - {word: person, floor: true}
+  - {word: chair, floor: true}
+  - {word: table, floor: true}
+  - {word: bed, floor: true}
+  - {word: sofa, floor: true}
+  - {word: door, floor: false}
+  - {word: bottle, floor: true}
+  - {word: shoe, floor: true}
+  - {word: box, floor: true}
+  - {word: toy, floor: true}

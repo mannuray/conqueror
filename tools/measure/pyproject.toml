@@ -12,6 +12,7 @@ dependencies = [
   "websockets>=13",
   "torch>=2.7,<2.8",  # coremltools 9 is tested up to torch 2.7; newer torch breaks the YOLO CoreML export
   "torchvision>=0.22,<0.23",
+  "clip @ git+https://github.com/ultralytics/CLIP.git",  # YOLO-World's words, only for export_world.py (LLD §16)
 ]
 
 [tool.uv]

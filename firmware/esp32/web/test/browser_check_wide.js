@@ -39,6 +39,9 @@ async (page) => {
     out["fits" + w] = [await fits(),                                                         // true
       await q(() => { const s = document.getElementById("src"); return s.scrollHeight > s.clientHeight; })];  // true: the editor scrolls itself
   }
+  // the menu button is the right-most thing in the top bar (owner, tank check)
+  out.menuRight = await q(() => { const r = (id) => document.getElementById(id).getBoundingClientRect().right;
+    return r("mbtn") > r("cUno") && r("mbtn") > r("stop") && r("mbtn") <= innerWidth; });                  // true
   // 1024 x 700 from here: a mistake shows PROBLEMS by itself, under the editor
   await page.locator("#src").fill("FORWAD 50\n"); await page.waitForTimeout(1200);
   out.problems = [await q(() => document.getElementById("cMsg").className),                 // card t-problems

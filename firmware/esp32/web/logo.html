@@ -97,8 +97,8 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 @media (min-width: 900px) {  /* §23: an editor that fills the window; only the panes scroll */
   body { padding-bottom: 0; height: 100vh; height: 100dvh; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); }
   header { position: static; }
-  header .inner { display: flex; align-items: center; gap: 16px; } .top { flex: 1; } .top h1 { text-align: left; }
-  .chips { display: flex; margin-top: 0; }
+  header .inner { display: flex; align-items: center; gap: 16px; } .top { display: contents; } .top h1 { flex: 1; text-align: left; }
+  .chips { display: flex; margin-top: 0; order: 2; } #mbtn { order: 3; }  /* the menu button at the far right (owner) */
   main { min-height: 0; grid-template-columns: 220px minmax(0, 1fr) minmax(320px, 34%); grid-template-rows: minmax(0, 1fr) 12em auto;
     grid-template-areas: "prog edit run" "prog msg run" "bar bar bar"; }
   #cProg, #cEdit, #cMsg, #cPath { display: flex; flex-direction: column; min-height: 0; }

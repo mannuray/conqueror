@@ -2171,3 +2171,42 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
     - or YOLO-World asked in words;
     - or a colour-and-shape ball finder.
 
+
+## 152. Spotting things from 18 cm: camera settings, five options, and YOLO-World (2026-10-24, daylight)
+- **Setup:** the tank still, the camera level (servo 90 / 90) at VGA. A green patterned ball about 1 m from the lens (~44 px wide), a plastic bottle beside it (~40 × 120 px), an office chair ~2.8 m away. Recorded 8 s at each of three camera settings with `cq-record`, then compared offline on the Mac. Every 4th picture went to the detectors, every picture to the colour finder. Pictures looked at, then deleted.
+- **Camera settings** (all VGA, low light on, white balance "sunny"):
+  - A = brightness 0 / contrast +1 (as it was), median brightness 188;
+  - **B = −1 / +2**, median 190;
+  - C = −2 / +2, median 165.
+  - B is the steadiest for the colour finder. **Owner: set the camera to B** (saved on the tank).
+- **YOLO26n (COCO), best score over a recording; the list needs 0.35:**
+
+  | Option | Ball | Bottle |
+  |---|---|---|
+  | 320 model | ≤ 0.09 | 0 |
+  | 640 model | ≤ 0.33 | ≤ 0.11 |
+  | zoom into the floor strip (320 × 240 cut) | ≤ 0.32 | ≤ 0.23 |
+  | contrast fixed in software (CLAHE on L) | ≤ 0.30 | ≤ 0.12 |
+  | zoom + contrast | 0.37 in 1 of 49 | ≤ 0.22 |
+
+  More pixels help (0.09 → 0.33), but it stays unsure.
+- **A colour-and-shape finder** (OpenCV, no AI):
+  - **how it works:** the largest round blob below the horizon in H 45–90, S ≥ 65, V ≤ 200. The ball sampled at H 54–74, S 72–108, V 130–185; the floor is the same hue (the "sunny" tint) but S ~30, V 230–255.
+  - **found the ball in 187 of 194 pictures at B**, centre steady to ±1.6 px, 1.1 ms a picture.
+  - **placed it 97 cm from the lens** from the ball's bottom edge (the owner set ~1 m). The QVGA calibration was used at half the VGA pixels, assuming the same field of view.
+- **YOLO-World** (yolov8s-worldv2, GPL-3.0; the owner allowed the one-time install of Ultralytics' CLIP and the model download), asked for "ball", "green ball", "bottle", "chair", "person" on 20 pictures from B:
+
+  | Asked for | Found (score ≥ 0.25) | Best |
+  |---|---|---|
+  | chair | 20 / 20 | 0.82 (YOLO26n: 0.09) |
+  | green ball | 8 / 20 | 0.36, on the ball |
+  | ball | — | 0.18 |
+  | bottle | — | 0.11 |
+
+  82 ms a picture with PyTorch on the M1 (CoreML not tried yet).
+- **Proposal (owner "yes" to a design):**
+  - YOLO-World replaces YOLO26n under the same `Detector` port;
+  - a colour ball finder runs beside it for the child's balls;
+  - Plan V's tracker stays as it is;
+  - obstacles still come from the floor plane + depth + sonar (later).
+  - Design: AI engine LLD §16.

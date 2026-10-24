@@ -2099,3 +2099,14 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   2. `tilt0` from a thing on the floor at a known distance (as on the Plan V branch);
   3. `cq-calibrate servos` only if the servo horns were moved (§131).
   - The lens numbers (K, distortion, §127) stay, unless the lens itself was turned in its thread (focus).
+
+## 147. The Logo page as an editor on the laptop (owner, 2026-10-24)
+- **Owner:** the Logo page should behave like a real code editor (an IDE), with no page scroll, and it has no camera. The phone may scroll, and Logo is not for the phone, so the laptop layout is designed on its own.
+- **Owner: "yes all as recommended"** (Tank Logo LLD §23, revision N6):
+  - **900 px or wider:** the page fills the window and never scrolls. Three fixed columns: programs · the editor with a PROBLEMS / MESSAGES panel under it · the camera above the path.
+  - A **status bar** at the bottom: the running line or the word help, with STEP and RUN. **STOP** stays in the top bar.
+  - The **camera** has the sonar distance on the picture and a HIDE button, and streams only while shown.
+  - **Shortcuts:** Esc = STOP, Ctrl/⌘ + Enter = RUN, F10 = STEP, Ctrl/⌘ + S = save.
+  - **Fixed pane sizes** (no dividers for now). Under 900 px, the phone layout is unchanged.
+  - Only `logo.html` / `logo.js` change; the bridge and the Logo engine don't.
+- An earlier idea, one page for the whole app (Drive · Logo · Settings), was **not** taken: the owner meant only Logo.

@@ -124,9 +124,9 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 <body>
 <header><div class="inner">
   <div class="top">
-    <a href="/"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>DRIVE</a>
+    <a href="/"><!--icon:chevron-left-->DRIVE</a>
     <h1>[ TANK LOGO ]</h1>
-    <button id="mbtn" type="button" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <button id="mbtn" type="button" aria-label="Menu"><!--icon:menu--></button>
     <button id="stop" type="button">STOP</button>
   </div>
   <div class="chips">
@@ -141,10 +141,10 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   <h2>[ PROGRAMS ]</h2>
   <div class="progbar">
     <select id="psel" aria-label="Program"></select>
-    <button id="pnew" type="button" title="New program"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span> NEW</span></button>
-    <button id="psave" type="button" title="Save on the tank"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg><span> SAVE</span></button>
-    <button id="pren" type="button" title="Rename"><svg viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/></svg><span> RENAME</span></button>
-    <button id="pdel" type="button" title="Delete" style="color:var(--danger)"><svg viewBox="0 0 24 24"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg><span> DELETE</span></button>
+    <button id="pnew" type="button" title="New program"><!--icon:plus--><span> NEW</span></button>
+    <button id="psave" type="button" title="Save on the tank"><!--icon:save--><span> SAVE</span></button>
+    <button id="pren" type="button" title="Rename"><!--icon:pencil--><span> RENAME</span></button>
+    <button id="pdel" type="button" title="Delete" style="color:var(--danger)"><!--icon:trash--><span> DELETE</span></button>
   </div>
   <ul id="plist"></ul>
 </section>

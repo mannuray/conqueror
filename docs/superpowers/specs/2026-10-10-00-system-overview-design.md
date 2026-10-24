@@ -23,6 +23,59 @@ into a hobby robot platform that exploits current AI, with **vision as the main 
 
 Non-goals: cloud/internet remote access, multi-site deployment, multi-user accounts, SaaS, the mobile app (future, separate project).
 
+## 1.1 What it is for: a fun way to learn real robotics (owner, 2026-10-24, design-notes §153)
+
+The platform is a **fun learning tool for robotics, for children and hobbyists**. It keeps the fun and pushes as far
+toward real robotics as hobby-grade sensors allow. It is not a mission-critical robot: it only has to play well.
+These principles guide every later phase:
+
+1. **Fun first, real robotics inside.** Every feature teaches a real idea (odometry, sensor fusion, maps,
+   perception, planning), but the child meets it as play.
+2. **Aim for accuracy, accept roughness.** Measure as well as the sensors allow, then work with loose tolerances
+   ("about 1 m, a bit right"). The robot says how sure it is. Floor checks use play tolerances, not lab ones.
+3. **General before special.** A home with a child is chaotic: hand-made rules for each case break faster than
+   they can be written. Prefer approaches that cope with a messy room (depth, learning from data, a smart look now
+   and then) over per-case rules. A rule is a last resort.
+4. **Safety is never traded** (§3 below). A child is around. The safety layer stays on the body board and is
+   never relaxed for a feature.
+5. **The language is the child's door.** Tank Logo grows with the robot, from `FORWARD 50` to words that use
+   perception (`LOOK FOR BALL`, `GO TO CHAIR`, `FOLLOW ME`). Lessons climb from moving, to sensing, to deciding.
+   Play behaviours that make good lessons: chase or nudge the ball, follow a person, explore without bumping, go
+   to a named thing - more to come.
+6. **The robot type can change, the words stay.** Common words (look, find, go to, wait, repeat) plus words
+   particular to each robot, so another robot (an arm: `REACH`, `GRAB`) can later use the same language.
+7. **Everything can be seen and replayed.** The child and the adult see what the robot sees and thinks (the live
+   view, recordings), so mistakes become lessons.
+
+**What exists already (searched 2026-10-24; design-notes §153).**
+- **Kid-level tools with camera AI do exist:**
+  - block coding with object-detection or tracking blocks: PictoBlox with Quarky, the HuskyLens camera with
+    Mind+ (Scratch-based), the Hiwonder DaDablock (ESP32);
+  - they react to what is in the current picture (an object, where, how big).
+- **Open, cheap robots with real perception exist for older students:**
+  - OpenBot (a phone on a ~$50 body, person following, MIT licence, with a drag-and-drop Playground);
+  - ROS2 kits with depth cameras and mapping, such as Hiwonder MentorPi (teens and adults).
+- **Cozmo / Vector** recognised faces and objects and had a kid-friendly app. It was closed; today only a
+  community server and SDKs remain.
+- **What we did not find:** one open framework on cheap hardware where a child's simple language uses a
+  remembered map of named things ("go to the ball" after it has left the view), with a safety layer that is
+  always on, and words that carry over to another robot type. That combination is this project's aim. It is a
+  gap we did not find filled, not a proven first.
+
+**A cheap tank with a borrowed brain (owner, 2026-10-24).**
+- **Where the cost goes elsewhere:**
+  - the smart robots above put the brain on board: a phone, a Raspberry Pi 5, a Jetson;
+  - the cheap camera modules (HuskyLens on an Arduino, the ESP32 DaDablock) only answer "what is in the picture
+    now": no map, no memory of things out of view, no idea where the robot is.
+- **Ours splits the work:**
+  - **the tank stays cheap** (the ELEGOO kit: Uno + ESP32 camera board). On its own it drives, runs Tank Logo,
+    serves its pages and keeps every safety rule, with no computer at all.
+  - **the heavy thinking runs on a home laptop or PC**: vision, the map, the pose filter, later the smart look. A
+    home computer is standard now, so it costs nothing extra.
+- With a computer, the tank also sees and remembers.
+- The aim, stated precisely: **a cheap tank that does real perception and mapping by borrowing a home computer,
+  with a child's language on top.**
+
 ## 2. Architecture
 
 ```

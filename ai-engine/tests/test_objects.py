@@ -365,3 +365,19 @@ def test_the_camera_handed_to_a_picture_is_the_one_used() -> None:
     assert p.last_camera is cam and p.skips() == {}
     assert p.on_frame(frame(1_100_000), (320, 240), [], "turning") == "turning"
     assert p.skips() == {"turning": 1}
+
+
+# ---- the floor memory test (Plan Y Task 5): a remembered thing gets vague slowly
+def test_a_ball_out_of_view_is_not_taken_by_a_green_thing_far_from_it() -> None:
+    """On the tank: the ball seen, the camera turned away (no picture used for 1.3 s), then a green reflection
+    1.3 m from the ball. The ball was 'seen' through the gap, so its place grew by the walking-person model
+    (0.5 m in 1 s), hit the 0.5 m cap, and its gate took the reflection. Out of view it is remembered from its
+    last sighting: it may have been moved 5 cm a second, not 1.5 m."""
+    tr = ob.ObjectTracker()
+    t = track_frames(tr, cam_at(), [(1.0, 0.0)], 10)
+    oid = tr.objects()[0].oid
+    track_frames(tr, cam_at(th_deg=90.0), [(0.0, 0.8)], 5, t0_us=t + 1_300_000)
+    objs = {o.oid: o for o in tr.objects()}
+    assert oid in objs and math.hypot(objs[oid].x_m - 1.0, objs[oid].y_m) < 0.05
+    assert objs[oid].sigma_m < 0.25  # its 99 % gate (~3 sigma) stays well short of the 1.3 m reflection
+    assert any(o.oid != oid and math.hypot(o.x_m, o.y_m - 0.8) < 0.05 for o in objs.values())

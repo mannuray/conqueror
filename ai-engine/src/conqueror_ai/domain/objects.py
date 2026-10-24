@@ -53,6 +53,9 @@ MAX_REMEMBERED_SIGMA_M = (
     0.5  # a remembered thing's position never gets vaguer than this (it would swallow others)
 )
 REMEMBERED_WALK_MPS = 0.05  # how far a remembered thing may have been moved, per second, while out of view
+REMEMBER_AFTER_S = (
+    0.5  # not seen this long (out of view, or no picture used): remembered from its last sighting
+)
 CONFIRM_HITS = 3  # a new thing is listed once seen this often ...
 CONFIRM_S = 0.5  # ... within this long; a new thing missed once is dropped (one false detection is no thing)
 LOOK_MISSES = 3  # the look check: at least this many pictures without it, as well as LOOK_S
@@ -196,8 +199,25 @@ class _Thing:
     misses_in_view: int = 0
     hits: int = 1
     confirmed: bool = False
+    x_seen: FloatArray | None = None  # x and p at the last sighting
+    p_seen: FloatArray | None = None
 
     def predict(self, t_us: int) -> None:
+        if (
+            self.state == "seen"
+            and (t_us - self.last_us) / 1e6 > REMEMBER_AFTER_S
+            and self.x_seen is not None
+        ):
+            # not seen for a while (Plan Y Task 5 memory test): from the last sighting it has probably
+            # stopped and may have been moved a little - not the walking-person growth of 0.5 m a second,
+            # which let a reflection 1.5 m away take the ball
+            assert self.p_seen is not None
+            self.x, self.p, self.t_us, self.state = (
+                self.x_seen.copy(),
+                self.p_seen.copy(),
+                self.last_us,
+                "remembered",
+            )
         dt = (t_us - self.t_us) / 1e6
         if dt <= 0:
             return
@@ -237,6 +257,7 @@ class _Thing:
         k = self.p @ _H.T @ np.linalg.inv(s)
         self.x = self.x + k @ (np.array([z.x, z.y]) - _H @ self.x)
         self.p = (np.eye(4) - k @ _H) @ self.p
+        self.x_seen, self.p_seen = self.x.copy(), self.p.copy()
 
     def estimate(self) -> ObjectEstimate:
         sigma = math.sqrt(float(np.linalg.eigvalsh(self.p[:2, :2]).max()))
@@ -313,7 +334,10 @@ class ObjectTracker:
         for j, z in enumerate(located):
             if j not in used_z:
                 p = np.diag([z.sigma**2, z.sigma**2, NEW_SPEED_SIGMA**2, NEW_SPEED_SIGMA**2])
-                keep.append(_Thing(self._next, z.cls, np.array([z.x, z.y, 0.0, 0.0]), p, t_us, t_us, t_us))
+                x = np.array([z.x, z.y, 0.0, 0.0])
+                keep.append(
+                    _Thing(self._next, z.cls, x, p, t_us, t_us, t_us, x_seen=x.copy(), p_seen=p.copy())
+                )
                 self._next += 1
         self._things = keep
 

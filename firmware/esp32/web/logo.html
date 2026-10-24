@@ -86,7 +86,8 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 /* Revision N6 (Tank Logo LLD §23): parts only the laptop layout shows */
 #ptabs, .cam, #camShow { display: none; }
 #ptabs button.on { background: rgba(51, 255, 102, .12); color: var(--active); border-color: var(--ui); }
-.cam { position: relative; aspect-ratio: 4 / 3; background: #000; border: 1px solid var(--line); margin-bottom: 8px; flex: none; }
+.cam { position: relative; aspect-ratio: 4 / 3; background: #000; border: 1px solid var(--line); margin-bottom: 8px;
+  flex: 0 1 auto; min-height: 0; max-height: 50%; }  /* shrinks in a short window so the path and stats still fit */
 .cam img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }  /* the box, not the picture, sets the size */
 #camNote { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px; color: var(--dim); }
 #camDist { position: absolute; left: 8px; bottom: 6px; color: var(--ui); background: rgba(0, 0, 0, .65); padding: 1px 6px; }
@@ -634,7 +635,8 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     ws = new WebSocket("ws://" + location.host + "/ws");
     ws.onopen = function () {
       open = true; retry = 500; send({ t: "hello", client: "logo", proto: 1 }); send({ t: "wifi_status" });
-      if (linked) loadList();  // a new link may be a restarted bridge; the first list comes from the start below
+      if (linked) loadList();
+      if (linked && camOn) { camStop(); camUpdate(); }  // a broken MJPEG stream keeps its last picture: start it again  // a new link may be a restarted bridge; the first list comes from the start below
       linked = true; showBar();
     };
     ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } onMessage(m); };
@@ -672,12 +674,17 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 
   // Shortcuts: each is its button; Esc is STOP from anywhere, even in a dialog (which it also closes)
   function sheetOpen() { return $("nameS").classList.contains("on") || $("delS").classList.contains("on"); }
+  var lastEsc = 0;
   window.addEventListener("keydown", function (e) {
-    var a = L.shortcut(e.key, e.ctrlKey, e.metaKey, e.altKey, e.shiftKey, e.repeat);
+    var a = L.shortcut(e.key, e.ctrlKey, e.metaKey, e.altKey, e.shiftKey, false);
     if (!a) return;
-    e.preventDefault();
-    if (a === "stop") { onBar({ e: "stop" }); $("nameS").classList.remove("on"); $("delS").classList.remove("on"); return; }
-    if (sheetOpen()) return;
+    if (a !== "stop" && (e.isComposing || e.keyCode === 229)) return;  // an input method's key, not ours
+    e.preventDefault();  // held keys too: never the browser's "save page" or F10 menu
+    if (a === "stop") {  // the first press always stops; a held Esc repeats it at most 4 times a second
+      if (!e.repeat || Date.now() - lastEsc >= 250) { lastEsc = Date.now(); onBar({ e: "stop" }); }
+      $("nameS").classList.remove("on"); $("delS").classList.remove("on"); return;
+    }
+    if (e.repeat || sheetOpen()) return;  // a held key never acts twice
     var b = $(a === "save" ? "psave" : a);
     if (!b.disabled) b.click();
   }, true);  // capture: before the editor's own keys

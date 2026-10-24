@@ -76,6 +76,33 @@ async (page) => {
   out.camBack = [await q(() => /:81\/stream/.test(document.getElementById("camImg").src)), streams > before];  // true, true
   await q(() => window.__fakeEmit({ t: "tf", dist_cm: 64 })); await page.waitForTimeout(50);
   out.sonar = await q(() => document.getElementById("camDist").textContent);                                // ▸ 64 cm
+  // final review: held keys are swallowed (no browser "save page" / F10 menu) but never act twice
+  const key = (k, o) => q(([k, o]) => !window.dispatchEvent(new KeyboardEvent("keydown", Object.assign({ key: k, cancelable: true }, o))), [k, o]);
+  const runs = await sent("logo_run");
+  out.held = [await key("s", { ctrlKey: true, repeat: true }), await key("F10", { repeat: true }),             // true, true (prevented)
+    await key("Enter", { ctrlKey: true, repeat: true }), (await sent("logo_run")) === runs];                 // true, true (no second run)
+  out.ime = [await key("Enter", { ctrlKey: true, isComposing: true }), (await sent("logo_run")) === runs];    // false, true (left to the IME)
+  // Esc in the DELETE dialog closes it and stops
+  const stops = await sent("stop");
+  await page.click("#pdel"); await page.waitForTimeout(50); await page.keyboard.press("Escape"); await page.waitForTimeout(50);
+  out.escDelete = [await q(() => document.getElementById("delS").classList.contains("on")), (await sent("stop")) > stops];  // false, true
+  // a dropped link restarts the camera stream (a broken MJPEG stream keeps its last picture and fires no error)
+  const s0 = streams;
+  await q(() => window.__ws.close()); await page.waitForTimeout(900);
+  out.camRelink = streams > s0;                                                                              // true
+  // a hidden page drops the stream; visible again brings it back
+  await q(() => { Object.defineProperty(document, "hidden", { configurable: true, get: () => true }); document.dispatchEvent(new Event("visibilitychange")); });
+  const hiddenSrc = await q(() => document.getElementById("camImg").hasAttribute("src"));
+  await q(() => { Object.defineProperty(document, "hidden", { configurable: true, get: () => false }); document.dispatchEvent(new Event("visibilitychange")); });
+  await page.waitForTimeout(300);
+  out.camPageHidden = [hiddenSrc, await q(() => document.getElementById("camImg").hasAttribute("src"))];    // false, true
+  // short laptop windows: the run pane (camera, path, stats) stays inside its card, above the status bar
+  for (const [w, h] of [[1366, 657], [1280, 600]]) {
+    await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300);
+    out["short" + w] = await q(() => { const b = (sel) => document.querySelector(sel).getBoundingClientRect();
+      return b("#cPath .stats").bottom <= b("#cPath").bottom + 0.5 && b("#cPath").bottom <= b("#bar").top + 0.5 &&
+        document.scrollingElement.scrollHeight <= innerHeight; });                                           // true
+  }
   // narrow again: the phone layout, no camera stream, the problems back under the editor
   await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
   out.phone = [await q(() => document.getElementById("camImg").hasAttribute("src")),        // false

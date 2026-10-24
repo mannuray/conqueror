@@ -76,7 +76,7 @@ class YoloCoreml:
         self._output = str(spec.description.output[0].name)
         self._conf = conf
 
-    def detect(self, rgb: NDArray[np.uint8]) -> list[Detection]:
+    def detect(self, rgb: NDArray[np.uint8], horizon_row: int | None = None) -> list[Detection]:
         from PIL import Image
 
         img, pad = letterbox(rgb, self._size)

@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 import yaml
+from numpy.typing import NDArray
 
 from conqueror_ai.domain.camera import Calibration
 
@@ -31,17 +32,32 @@ def save(cal: Calibration, path: Path) -> None:
     path.write_text(yaml.safe_dump(doc, sort_keys=False))
 
 
+def _scaled_k(k: NDArray[np.float64], scale: float) -> NDArray[np.float64]:
+    """fx, fy, cx, cy times the scale (pixel centres: cx' = (cx + 0.5) x s - 0.5)."""
+    if scale == 1.0:
+        return k
+    out = k.copy()
+    out[0, 0] *= scale
+    out[1, 1] *= scale
+    out[0, 2] = (k[0, 2] + 0.5) * scale - 0.5
+    out[1, 2] = (k[1, 2] + 0.5) * scale - 0.5
+    return out
+
+
 def load(path: Path, size: tuple[int, int]) -> Calibration:
     """The calibration for pictures of `size`; ValueError when the file is for another size."""
     d: dict[str, Any] = yaml.safe_load(path.read_text())
     got = (int(d["size"][0]), int(d["size"][1]))
+    scale = 1.0
     if got != size:
-        raise ValueError(f"{path} is for {got[0]} x {got[1]} pictures, not {size[0]} x {size[1]}")
+        if size != (got[0] * 2, got[1] * 2):
+            raise ValueError(f"{path} is for {got[0]} x {got[1]} pictures, not {size[0]} x {size[1]}")
+        scale = 2.0  # VGA from the QVGA file: the same field of view, twice the pixels (LLD §16.1 item 6)
     m, s = d["mount"], d["servos"]
     return Calibration(
-        k=np.asarray(d["lens"]["k"], dtype=np.float64),
+        k=_scaled_k(np.asarray(d["lens"]["k"], dtype=np.float64), scale),
         dist=np.asarray(d["lens"]["dist"], dtype=np.float64),
-        size=got,
+        size=size,
         cam_height_m=float(m["cam_height_m"]),
         cam_x_m=float(m["cam_x_m"]),
         cam_y_m=float(m["cam_y_m"]),

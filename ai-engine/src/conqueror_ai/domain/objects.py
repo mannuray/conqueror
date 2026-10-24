@@ -64,9 +64,12 @@ FloatArray = NDArray[np.float64]
 
 
 class Detector(Protocol):
-    """The detector port (LLD §15.1): YoloCoreml on the tank's pictures, a fake in tests."""
+    """The detector port (LLD §15.1, §16): YOLO-World and the colour ball finder on the tank's pictures, a
+    fake in
+    tests. horizon_row: the picture's horizon (the ball finder looks only below it), None when off the
+    picture."""
 
-    def detect(self, rgb: NDArray[np.uint8]) -> list[Detection]: ...
+    def detect(self, rgb: NDArray[np.uint8], horizon_row: int | None) -> list[Detection]: ...
 
 
 def sigma_at(d: float) -> float:
@@ -148,13 +151,16 @@ class Near:
 
 
 class ObjectLocator:
+    def __init__(self, floor_classes: frozenset[str] = FLOOR_CLASSES) -> None:
+        self.floor_classes = floor_classes  # LLD §16: the vocabulary's floor words and the colour balls
+
     def locate(self, dets: list[Detection], cam: CameraModel, t_us: int) -> tuple[list[Located], list[Near]]:
         located: list[Located] = []
         near: list[Near] = []
         h = cam.cal.size[1]
         c = cam.position()
         for d in dets:
-            if d.cls not in FLOOR_CLASSES:
+            if d.cls not in self.floor_classes:
                 continue
             x1, y1, x2, y2 = d.box
             u = (x1 + x2) / 2.0
@@ -312,13 +318,13 @@ class ObjectTracker:
 class ObjectPipeline:
     """Telemetry and pictures in arrival order -> the list. The detector is run outside and handed in."""
 
-    def __init__(self, cal: Calibration) -> None:
+    def __init__(self, cal: Calibration, floor_classes: frozenset[str] = FLOOR_CLASSES) -> None:
         self.cal = cal
         self._pose = PoseFilter()
         self._history = PoseHistory()
         self._angles = CameraAngles()
         self.gate = FrameGate(cal, self._history, self._angles)
-        self._locator = ObjectLocator()
+        self._locator = ObjectLocator(floor_classes)
         self.tracker = ObjectTracker()
         self._near: list[Near] = []
         self._skips: Counter[str] = Counter()
@@ -331,6 +337,11 @@ class ObjectPipeline:
     def on_telem(self, s: TelemSample) -> None:
         self._history.push(self._pose.update(s))
         self._angles.push(s)
+
+    def camera_at(self, cap_us: int) -> CameraModel | None:
+        """The camera for a picture before detecting (for its horizon); None when the gate would skip it."""
+        cam = self.gate.camera_for(cap_us)
+        return None if isinstance(cam, str) else cam
 
     def on_frame(self, f: Frame, size: tuple[int, int], dets: list[Detection]) -> CameraModel | str:
         """Use one picture (its decoded size, its detections): its camera, or why it was skipped."""

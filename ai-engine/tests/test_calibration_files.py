@@ -28,7 +28,28 @@ def test_a_file_for_another_picture_size_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "calibration.yaml"
     calibration_store.save(calib(), path)
     with pytest.raises(ValueError, match="320 x 240"):
-        calibration_store.load(path, size=(640, 480))
+        calibration_store.load(path, size=(800, 600))
+
+
+def test_vga_is_the_qvga_file_at_twice_the_pixels(tmp_path: Path) -> None:
+    """LLD §16.1 item 6: the same field of view, so a floor point lands on twice the pixel."""
+    import math
+
+    from conqueror_ai.domain.camera import CameraModel
+    from conqueror_ai.domain.types import Pose
+
+    path = tmp_path / "calibration.yaml"
+    calibration_store.save(calib(), path)
+    q, v = calibration_store.load(path, (320, 240)), calibration_store.load(path, (640, 480))
+    assert v.size == (640, 480) and v.k[0, 0] == 2 * q.k[0, 0] and v.k[1, 1] == 2 * q.k[1, 1]
+    pose = Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    cq, cv = CameraModel(q).for_frame(pose, 0.0, -15.0), CameraModel(v).for_frame(pose, 0.0, -15.0)
+    for x, y in ((1.0, 0.0), (0.6, 0.2), (2.0, -0.4)):
+        a, b = cq.floor_to_pixel(x, y), cv.floor_to_pixel(x, y)
+        assert a is not None and b is not None
+        assert math.isclose((a[0] + 0.5) * 2 - 0.5, b[0], abs_tol=1e-6) and math.isclose(
+            (a[1] + 0.5) * 2 - 0.5, b[1], abs_tol=1e-6
+        )
 
 
 def test_the_checkerboard_picture_and_its_corners_are_found_in_perspective(tmp_path: Path) -> None:

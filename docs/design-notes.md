@@ -2136,3 +2136,16 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
 - **On the tank (owner):** "square good, esc stopped".
 - **Open:** the top-bar battery / WiFi chips and the sonar read `--` in a quick test browser. To check with the icon work (Plan N7, §148).
 
+## 150. One shared icon file: built and checked on the tank (Plan N7, 2026-10-24)
+- **What:** bridge LLD R25, as built in R25.5.
+  - Every icon on Drive, Settings and Logo comes from `firmware/esp32/web/icons.json` (63 Lucide 0.460.0 icons). They are put into each page when the firmware is packed: `<!--icon:NAME-->` markers, and one `/*CQ:ICONS …*/` table per page for icons that change.
+  - **To add an icon:** `python3 tools/icons/add_icon.py NAME`.
+  - **An unreadable marker, or an `icon()` name a page doesn't list, fails the build.**
+- **Looks:**
+  - Drive and Settings are pixel-identical apart from three icons (sparkles, send, ruler).
+  - Settings' signal bars and Logo's text icons (`▂▄▆█`, `● UNO`, `▶ RUN`) became Lucide WiFi / battery / chip / play / step / octagon icons.
+  - The WiFi and battery rules are Drive's on every page: a 10-reading battery average, and the warning from the tank's flags.
+- **Final review:** no Critical; 1 Important and 8 Minor, all fixed test-first.
+- **Sizes:** `/logo` 24.9 of 26 KB.
+- **On the tank (owner):** "all good". This also closes §149's open item: the battery / WiFi readouts and the sonar show real values.
+

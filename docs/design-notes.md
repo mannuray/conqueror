@@ -2034,3 +2034,11 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - the white balance by eye **in daylight** (owner), a choice on the Camera card with no code;
   - the camera-clock test (§140 item 4).
 - The camera was set back to VGA; the pictures and recordings were deleted.
+
+## 142. The "dropped second WebSocket" (§136) was our scripts, not the bridge (2026-10-24)
+- **Symptom (§136, §137, §141):** the session recorders' WebSocket closed 9–12 times per 30–40 s.
+- **Cause:** the bridge closes any client silent for 3 s (`WsClients::silent`, `kWsSilentMs`; a deliberate rule, bridge LLD: a silent driver means a lost phone). The pages and the AI engine's `BridgeLink` ping every 1 s. The session scripts (`servo_record.py`, `cam_bright.py`) only listened, so they were closed every ~3.3 s. The phone's activity played no part: the earlier "idle phone: 0 drops" was a 2–3 s probe, shorter than the 3 s rule.
+- **Measured** (`ping_test.py`, a listening client with `debug` 50 Hz):
+  - never sending: **4 drops in 15 s**, 703 `td` samples;
+  - pinging every 1 s: **0 drops**, 749 samples.
+- **Decision:** no firmware change. The AI engine is not affected. Session scripts use `BridgeLink` (or ping every 1 s).

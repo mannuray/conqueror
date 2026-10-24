@@ -1122,7 +1122,7 @@ On a laptop or tablet the page fills the window like a code editor. **The page i
     - run pane: the camera (`aspect-ratio: 4 / 3`, gone when hidden), the path (grows) and the three stats.
 - **The phone's PROGRAM / PATH tabs and the mini path** stay hidden on the laptop (as today).
 - **Nothing in the window scrolls the page.** The check is `document.scrollingElement.scrollHeight ≤ innerHeight` at 1280 × 800 and 1024 × 700, with a 300-line program and 200 messages.
-- **One page, two arrangements:** the same elements are used in both. `Layout` moves five of them when the width crosses 900 px:
+- **One page, two arrangements:** the same elements are used in both. *(As built, §23.8: only `#diags` and `#help` move; the word row moves by CSS `order`, and the messages and status stay where they are.)* The design said `Layout` moves five of them when the width crosses 900 px:
   - the word row (`#pad`);
   - the help line (`#help`);
   - the problems (`#diags`);
@@ -1276,3 +1276,31 @@ stateDiagram-v2
 - Draggable dividers and resizable panes.
 - Changing the phone layout.
 - Camera controls (pan / tilt) on the Logo page: `LOOK` in a program does that.
+
+### 23.8 As built (Plan N6, 2026-10-24; design-notes §149)
+- **Files:**
+  - `web/logo.js`: `shortcut`, `panelTab`, `cameraWanted`;
+  - `web/logo.html`: the laptop CSS (grid areas), `applyLayout`, the bottom panel, the shortcuts and the camera pane;
+  - `web/test/logo.test.js`: 52 Node tests;
+  - `web/test/browser_check_wide.js`: the laptop check, at 1280 × 800, 1024 × 700, 1366 × 657 and 1280 × 600.
+- **Size:** `/logo` is **22 990 B** gzipped (was 20 634 B; 24 KB budget). Bridge flash 44.6 %.
+- **Rulings while drafting (the plan):**
+  1. Only `#diags` and `#help` move between the layouts.
+  2. `panelTab`'s problems event carries `running`.
+  3. One camera note for "refused" and "no camera": a cross-port `<img>` gets no reason.
+  4. The running status shows the round, on the phone too.
+  5. The camera box sets its own size, and the word buttons don't wrap.
+- **The final review** (no Critical) changed:
+  - **the camera shrinks in short windows** (`flex: 0 1 auto; max-height: 50%`), so at 1366 × 657 and 1280 × 600 the path and stats stay above the status bar;
+  - **held keys:** every shortcut key is `preventDefault`ed, held ones too (no browser "save page" or F10 menu), but only Esc acts on a repeat;
+  - **Esc's rate:** a held Esc sends at most 4 stops a second; the first press always sends at once;
+  - **input-method keys** (`isComposing`, keyCode 229) are left to the IME, except Esc;
+  - **after a dropped WebSocket** the camera stream starts again: a broken MJPEG stream keeps its last picture and fires no error.
+- **Owner at the tank check:** the ☰ menu button moved to the far right of the laptop top bar (`.top { display: contents }`, `order`).
+- **Tank check (2026-10-24, laptop, floor):**
+  - the camera and sonar showed above the path;
+  - the 50 cm square ran with ⌘ + Enter;
+  - Esc stopped a `FORWARD 200` part-way.
+- **Known, by design:** Esc is STOP for the whole tank, so it also stops a phone driver (STOP holds until they release the stick, design-notes §72).
+- **Next (design-notes §148, Plan N7):** the page's text icons (WiFi bars, `● UNO`, `▶ RUN`) become Lucide icons from one shared icon file.
+

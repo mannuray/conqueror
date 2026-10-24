@@ -186,10 +186,11 @@ stateDiagram-v2
 | `SEE? "ball` | question | true if a ball is listed now and was seen in the last 0.5 s |
 | `FIND "ball` | action | look around (§4.2 looking); ends facing it, or the program gets "not found" |
 | `GOTO "ball` | action | drive to it in one smooth move (§4.2 approaching); ends at it, or "lost" |
-| `DISTANCE "ball` | value | the ball's distance from the lens in cm (−1 if not listed) |
+| `HOWFAR "ball` | value | the ball's distance from the lens in cm (−1 if not listed) |
 
 - **`GOTO`, not `GO TO`:** `TO` already starts a procedure in Logo, and `GO` already means "drive until" (Revision 3).
-- These are **level 2 (Explorer)** words. They're "AI words": a program using them needs the AI engine running.
+- **`HOWFAR`, not `DISTANCE "ball`:** `DISTANCE` is already the sonar's word (no input). `HOWFAR` pairs with `HOWMANY`.
+- These are **level 2 (Explorer)** words. `SEE?` and `FIND` move down from level 3, where `words.yaml` had them. They're "AI words": a program using them needs the AI engine running.
 - **A program a child might write:**
   ```
   FIND "ball
@@ -207,7 +208,7 @@ stateDiagram-v2
 Spec 5 §6 says AI programs run in an AI-engine runner. Revision 2 then put the only parser and compiler on the ESP32 ("no Python copy of the parser"). Those two don't fit together. **This spec resolves it:**
 - **Every program, core or AI, runs on the ESP32's runner.** There is one parser, one runner, one STOP path, and the `/logo` page shows the run the same way.
 - **The AI engine is the robot's eyes and its careful driver.** It registers with the bridge as the **skill server**:
-  - a question word (`SEE?`, `DISTANCE`) asks the engine and waits briefly (≤ 0.3 s; no answer means "false" / −1);
+  - a question word (`SEE?`, `HOWFAR`) asks the engine and waits briefly (≤ 0.3 s; no answer means "false" / −1);
   - an action word (`FIND`, `GOTO`) hands the engine the skill. The program waits; the engine drives with `drive_rate`; the engine reports `done` or `failed` with a reason.
 - **While a skill runs, the runner gives the engine a drive lease.**
   - The bridge accepts the engine's `drive_rate` only during the lease, as part of the program's run.

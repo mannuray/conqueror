@@ -2360,3 +2360,10 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - **new Logo words:** `SEE?`, `FIND`, `GOTO` (not `GO TO`, because `TO` starts a procedure), `DISTANCE`;
   - **a change to spec 5 §6:** every program runs on the ESP32's runner, and the AI engine is a skill server (eyes and careful driver) with a drive lease. This resolves the clash between §6 (an AI-engine runner) and Revision 2 (the only parser on the ESP32);
   - **the ball's distance from its size** (independent of the tilt drift) as well as the floor trick.
+- **LLD written (owner: "write impl"; the LLD comes first by the project's order):** AI engine LLD §17, bridge LLD R26, Tank Logo LLD §24, all drafts for review. Findings from the code that changed spec 8:
+  - **`DISTANCE` is already the sonar's word**, so the AI word is **`HOWFAR "ball`**;
+  - **`SEE?` / `FIND` already existed at level 3** (not in v1) and move to level 2;
+  - **a laptop-answered question can't use the instant sensor op:** it becomes an asking effect with a 300 ms wait (no answer = FALSE / −1);
+  - **today a second client's `drive_rate` is refused (or ends the program):** the drive lease is a new path, the bridge's `SkillHub` plus a `kSkill` motion primitive with the same endings and deadman as `GO`;
+  - **the AI engine's `BridgeLink` stays motion-free:** driving goes through a separate `DriveLink`;
+  - **new errors 7050–7053:** not found, lost sight, the AI helper stopped answering, only "ball for now.

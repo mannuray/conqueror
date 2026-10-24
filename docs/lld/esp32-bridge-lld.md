@@ -2728,3 +2728,126 @@ sequenceDiagram
 - **Owner's change while fixing:** Settings' Uno chip has the `cpu` icon too, and its battery chip starts with its icon (the same "● text" icons the owner raised).
 - **On the tank (owner, 2026-10-24):** "all good". Drive, Settings and Logo all show the Lucide icons, with live battery / WiFi / Uno values.
 
+
+## R26. The skill server and the drive lease (owner, 2026-10-25, spec 8 §4.4, design-notes §156 — draft for review)
+
+### R26.1 What changes
+- **The AI engine can register as the skill server.**
+  - A client whose hello says `"client": "ai-skills"` becomes the bridge's one skill server (`SkillHub`). A second one gets `nack BUSY`.
+  - While it's connected, Tank Logo's `Caps::ai` is true, so the checker stops giving 7020.
+  - Its close (or the 3 s silent-client rule) ends any skill with "the AI helper stopped answering" (7052).
+- **A drive lease lets the skill server drive while a Logo program runs a skill word.**
+  - Today a `drive_rate` from a second client gets NOT_OWNER, or, from the owner's own fd, ends the program as 7045.
+  - The lease is a new, separate path: the program's owner stays the phone that pressed RUN, and the skill server's `skill_drive` frames feed a new motion primitive, `PrimKind::kSkill`.
+  - **Nothing changes on the Uno.** Frames still go out as `DRIVE` (source kAuto) through the safety supervisor. The obstacle brake, stall, battery, tilt, link loss and the child-play limits end a skill exactly as they end a `GO`.
+- **The lease is only valid while all of these hold:**
+  - the program is running a skill word;
+  - the skill server is the one it was given to;
+  - `skill_drive` arrives at least every 300 ms (`kRateDeadmanMs`, the same deadman as `drive_rate`).
+- **The lease ends at once on:**
+  - STOP from any device;
+  - the page going away or the program ending;
+  - the owner touching the stick;
+  - the deadman;
+  - the skill server closing or going silent.
+  - The bridge then stops the tank and sends `skill_end {id, why}`.
+- **While a lease is held, the skill server may move the camera** (`cam_set`). `onCamera` treats the lease holder like the driver.
+
+### R26.2 Messages (`/ws`, JSON)
+| Direction | Message | Meaning |
+|---|---|---|
+| engine → bridge | `{"t":"hello","client":"ai-skills","proto":1}` | register as the skill server |
+| bridge → engine | `{"t":"skill_ask","id":n,"q":"see?"\|"howfar","thing":"ball"}` | a question word; answer within 300 ms |
+| engine → bridge | `{"t":"skill_answer","id":n,"value":true\|false\|cm}` | the answer (`howfar`: cm, −1 if not listed) |
+| bridge → engine | `{"t":"skill_start","id":n,"skill":"find"\|"goto","thing":"ball"}` | a skill word; the lease is granted with it |
+| engine → bridge | `{"t":"skill_drive","id":n,"v":%,"rate":°/s}` | streamed ≤ 20 Hz, ≥ every 300 ms; only during the lease |
+| engine → bridge | `{"t":"skill_done","id":n}` / `{"t":"skill_failed","id":n,"reason":"not_found"…}` | the skill's end; the program goes on, or ends with its code |
+| bridge → engine | `{"t":"skill_end","id":n,"why":"stop"\|"deadman"\|"page"\|"owner"\|"ended"}` | the lease ended from the tank's side; the engine stops at once |
+
+- A `skill_drive` with a wrong `id`, or with no lease, gets `nack NOT_OWNER`, once per stream (as `streamReject`).
+- Rate limits are the same as `drive_rate` (`WsClients::admit`).
+
+### R26.3 Classes
+```mermaid
+classDiagram
+  class SkillHub {
+    <<core, pure>>
+    +onHello(fd, client) Decision
+    +onClose(fd)
+    +server() fd?
+    +ask(id, q, thing) Json
+    +start(id, skill, thing) Json
+    +onAnswer(fd, id, value) Answer?
+    +onEnd(fd, id, done|failed, reason) SkillEnd?
+    +leaseOk(fd, id, now) bool
+    +touch(now)
+    +tick(now) SkillEnd?
+    -m_server_fd
+    -m_lease: id, granted_ms, last_drive_ms
+  }
+  class LinkOwner {
+    +onCamera(fd) Decision
+    +leaseHolder(fd)
+  }
+  class MotionService {
+    +startSkill(id, now)
+    +skillDrive(v, rate, now)
+    +endSkill(why)
+    -stepSkill(telem, now) MotionOut
+  }
+  class MotionController {
+    +onSkillDrive(fd, id, v, rate, now)
+  }
+  class LogoController {
+    +onSkillAsk / onSkillStart (from RunController acts)
+    +onSkillAnswer / onSkillEnd (to RunController)
+  }
+  SkillHub <.. LogoController
+  SkillHub <.. MotionController : leaseOk
+  MotionController --> MotionService
+  LinkOwner <.. SkillHub : lease holder may cam_set
+```
+- **`SkillHub` (pure, host-tested):** the registration, the one lease, and its deadman.
+- **`PrimKind::kSkill` in `MotionService`:** like `kGo`, but with a turn rate. It has the same ending rules (brake → blocked, stall, link, deadman 300 ms), and `w` is held by the bridge's gyro loop, as in `drive_rate` (R4.4).
+
+### R26.4 One skill run
+```mermaid
+sequenceDiagram
+  participant P as Phone (/logo, owner)
+  participant R as RunController
+  participant L as LogoController
+  participant H as SkillHub
+  participant E as AI engine (skill server)
+  participant M as MotionService
+  participant U as Uno
+  P->>L: logo_run "GOTO "ball"
+  R-->>L: act skill goto "ball (state Skill)
+  L->>H: start(id 7, goto, ball) - lease to E
+  H->>E: skill_start id 7
+  M->>M: startSkill(7)
+  loop every ~100 ms
+    E->>M: skill_drive id 7 v 50 rate 12 (leaseOk)
+    M->>U: DRIVE v, w (kAuto), gyro-held
+  end
+  E->>H: skill_done id 7
+  H-->>L: SkillEnd done
+  L->>M: endSkill(done) - STOP to the Uno
+  L->>R: onSkillEnd(done) - the program goes on
+```
+
+### R26.5 Tests (host, C++)
+- **`test_skill_hub`:**
+  - one server only (a second gets BUSY);
+  - ask / answer matching by id;
+  - an answer after 300 ms is too late (the runner already took false / −1);
+  - `leaseOk` only for the holder with the right id;
+  - the 300 ms lease deadman;
+  - a close ends the lease with 7052.
+- **`test_motion`:**
+  - `kSkill` sends v and w;
+  - the brake ends it as blocked;
+  - no `skill_drive` for 300 ms → deadman;
+  - STOP ends it;
+  - a phone stick during a skill ends the lease and the program (7045).
+- **`test_link_owner`:** the lease holder's `cam_set` is allowed during the lease and refused after it.
+- **`test_ws_codec`:** the new messages parse, and bad fields are refused.

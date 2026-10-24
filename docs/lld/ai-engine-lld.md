@@ -960,3 +960,187 @@ classDiagram
   - **At the driving tilt (15° down) the chair's top is cut** and YOLO-World scores it 0.23 (< 0.25); level it scores ~0.85.
   - **The cabinet flips between "bed" and "sofa"**, so it can show twice or come back as a new thing.
   - **Not built:** the camera-setting warning (ruling 6); other balls not yet calibrated.
+
+## 17. Module 2: drive while thinking, slice 1 "chase the ball" (owner, 2026-10-25, spec 8, design-notes §156 — draft for review)
+
+### 17.0 Scope
+- **Built here:** the drive-while-thinking loop (spec 8 §3) and the chase-the-ball skill (spec 8 §4), on the laptop. Two ways to run it:
+  - **`cq-drive goto ball`:** standalone, for testing. It drives like the phone does, as the owner, through plain `drive_rate`.
+  - **`cq-drive serve`:** the skill server for Tank Logo's `SEE?`, `HOWFAR`, `FIND` and `GOTO`, driving under the runner's drive lease (bridge LLD R26).
+- **The existing `BridgeLink` stays motion-free** (§6: "never sends anything that moves the tank"). Everything that moves the tank goes through one new, separate adapter, `DriveLink`.
+
+### 17.1 Files
+| File | What |
+|---|---|
+| `domain/drive/limits.py` | `Limits`: the tank's measured envelope (spec 8 §2) and the slice-1 caps |
+| `domain/drive/curves.py` | `Command`, `Curve`, `ramp()`, `roll_out()` (where a curve takes the tank) |
+| `domain/drive/planner.py` | `Planner`: the fan of curves, scored |
+| `domain/drive/goal.py` | `Goal`: which thing is the target and where it is now; `KINDS` (the kind "ball") |
+| `domain/drive/chase.py` | `ChaseSkill`: the state machine of spec 8 §4.2 (looking / approaching / arrived / lost) |
+| `domain/drive/sim.py` | `SimTank`: a simulated tank following commands, for tests |
+| `adapters/drive_link.py` | `DriveLink`: `drive_rate` (standalone) or `skill_drive` (lease), `cam_set`, the skill messages; cm/s → % |
+| `app/drive.py` | `cq-drive goto ball` and `cq-drive serve` |
+| `config/drive.yaml` | the limits and score weights (plain values, loaded into `Limits`) |
+
+### 17.2 Classes
+```mermaid
+classDiagram
+  class Limits {
+    +v_min_cms 18.0
+    +v_cruise_cms 25.0
+    +v_cap_cms 25.0
+    +track_m 0.19
+    +inner_min_cms 17.7
+    +spin_dps 65.0
+    +dv_cms_per_s 10.0
+    +dw_dps_per_s 60.0
+    +stop_range_m 0.40
+    +slow_from_m 0.80
+    +clear_m 0.30
+    +r_min_m(v_cms) float
+  }
+  class Command { +v_cms +w_dps }
+  class Curve { +v_cms +w_dps }
+  class Planner {
+    +choose(pose, now_cmd, target, sonar_m) Curve
+    -fan(now_cmd) list~Curve~
+    -score(curve, pose, target, sonar_m) float
+  }
+  class TargetFix { +oid +x_m +y_m +range_m +bearing_deg +seen_age_s }
+  class Goal {
+    +kind
+    +update(objects, ball_dets, cam, pose, now) TargetFix?
+    -lock_oid
+  }
+  class ChaseSkill {
+    +state
+    +tick(fix, pose, sonar_m, now) SkillOut
+    +cancel()
+  }
+  class SkillOut { +cmd: Command +cam: (pan, tilt)? +result: done|failed(reason)? }
+  class SimTank { +step(cmd, dt) Pose }
+  class DriveLink {
+    +drive(cmd)
+    +cam(pan, tilt)
+    +report(result)
+    +on_skill(start, cancel, ask)
+  }
+  Planner ..> Limits
+  Planner ..> Curve
+  ChaseSkill --> Goal
+  ChaseSkill --> Planner
+  ChaseSkill ..> SkillOut
+  Goal ..> TargetFix
+  DriveLink ..> Command
+```
+- **Pure, host-tested without a tank:** everything in `domain/drive/`. `SimTank` lets whole chases run in tests.
+
+### 17.3 The loop (one tick, ~10 Hz)
+```mermaid
+sequenceDiagram
+  participant M as ObjectPipeline + PoseFilter (Plans U, V, Y)
+  participant G as Goal
+  participant C as ChaseSkill
+  participant P as Planner
+  participant L as DriveLink
+  participant B as Bridge
+  M-->>C: a picture used (or 0.2 s with none): pose now, objects, the ball's box, sonar
+  C->>G: update(objects, ball box, camera, pose)
+  G-->>C: TargetFix (or none)
+  C->>P: choose(pose, current command, target, sonar)
+  P-->>C: Curve
+  C-->>L: Command (ramped), camera pan toward the target
+  L->>B: skill_drive v%, w (or drive_rate) - refreshed every <= 0.2 s
+  B-->>M: telemetry 50 Hz, pictures
+```
+- **Ticks:** the loop ticks on each picture the pipeline uses, and at least every 0.2 s. The command is resent every 0.2 s even without a new tick, so the bridge's 0.3 s deadman only fires when the engine itself stalls.
+- **The pose "now":** the newest pose from the filter (≤ 20 ms old). The target's room position is already lag-corrected by the pipeline (each picture is placed with the pose at its capture time, Plan V).
+
+### 17.4 The planner
+- **The fan, built from the current command:**
+  - speeds `{v_cruise, v_min, 0}`, capped by `v_cap` and by distance: from `slow_from` the top speed falls linearly to `v_min` at `stop_range + 0.10`;
+  - for each speed, turn rates from the radii `{∞, 1.5, 0.8, 0.5, r_min(v)}` m on each side: `w = v / r`;
+  - plus a spin `(0, ±spin_dps)`, offered only when the target is more than 70° off;
+  - `r_min(v) = max(0.31, (track/2) · v / (v − inner_min))` m (design-notes §71: the inner track can't go slower than ~17.7 cm/s, and no arc under ~31 cm is smooth). A speed whose `r_min` comes out over 1.5 m (near `v_min`) offers only straight on.
+- **`roll_out`:** a constant-(v, w) arc for 1.5 s in 0.1 s steps, starting from the ramp-limited command, so the predicted path is the one the tank will really drive.
+- **Score** (higher is better; weights in `config/drive.yaml`):
+  - **progress:** `(d0 − d_end) / 0.3 m − |bearing_end| / 90°`;
+  - **clearance:** if the sonar shows something (not the target, §17.5) at `s` m straight ahead, any roll-out point within 15° of straight ahead that comes nearer than `s − clear_m` scores −10. In slice 1 the sonar is the only clearance; slice 2 swaps it for the local grid;
+  - **smoothness:** `−(|Δv| / 10 cm/s + |Δw| / 30 °/s)` against the current command;
+  - **stop** scores 0 progress. It wins only when every moving curve is cleared out, or when the target is reached.
+- **The ramp** (`ramp(now_cmd, curve, dt)`): v changes by at most `dv · dt`, w by at most `dw · dt`. Spec 8 §3 step 5: whatever is chosen, the tank never jerks.
+
+### 17.5 The goal
+- **The kind "ball":** classes starting `ball:`, plus `ball` and `toy` (YOLO-World words).
+- **Choosing the target:** the nearest confirmed thing of the kind; then **locked** to its `oid` while it's listed (no hopping between balls). If it's dropped from the list, the nearest again.
+- **Range, the better of two:**
+  - **from size**, when the colour finder saw that ball in this picture: `range = size_cm · fx / (2 r) / 100` along the box centre's ray. This is tilt-free. It's used when `r ≥ 8 px`.
+  - **otherwise** the tracker's room position.
+  - Spec 8 §4.1; the camera tilt drift (design-notes §153) doesn't affect the size range.
+- **Bearing:** from the room position and the pose now.
+- **The sonar and the target:** an echo within ±15 cm of the target's range, with the target within ±12° of straight ahead, *is* the target, not an obstacle.
+
+### 17.6 The chase skill
+```mermaid
+stateDiagram-v2
+  [*] --> looking : no target
+  [*] --> approaching : target
+  state looking {
+    [*] --> sweep : camera pan -90, -45, 0, 45, 90 at tilt -15 (0.8 s each)
+    sweep --> spin : not found
+    spin --> [*] : one turn at spin_dps, camera ahead
+  }
+  looking --> approaching : target confirmed
+  looking --> lost : not found (reason not_found)
+  approaching --> arrived : range <= stop_range + 0.05 and |bearing| <= 10 deg, then the ramp brings v, w to 0
+  approaching --> looking : target not seen for 3 s and its spot in view
+  approaching --> lost : sonar < clear_m and not the target (reason blocked)
+  approaching --> lost : map stale (no picture 0.5 s / telemetry 0.2 s) or no pose (reason stale)
+  arrived --> [*] : done
+  lost --> [*] : failed(reason)
+```
+- **While approaching, the camera pans toward the target's bearing** (clamped to ±60°, at the driving tilt). It's sent only when the bearing moves more than 8° from the last pan sent, so the pan moves in small steps, not constantly (spec 8 §9).
+- **`cancel()`** gives command 0/0 at once. It's used for STOP, a lease end, or Ctrl-C.
+- **Slice-1 refusals** (spec 8 §5): no driving with a stale map or without a pose; speed capped at 25 cm/s.
+
+### 17.7 `DriveLink` and speed
+- **cm/s → `v` %:** from the measured table (design-notes §69–§71): 0 → 0; 17.7 → 15 %; 22 → 40 %; 33.5 → 100 %, linear in between. **The plan measures it again on the floor** (spec 8 §9) and writes `config/drive.yaml`.
+- **Turn rate:** sent as `rate` in °/s, + = left (bridge R4).
+- **Standalone (`goto`):** `drive_rate` as the owner. A NOT_OWNER or STOPPED nack ends the run with a plain message.
+- **Lease (`serve`):** `skill_drive` with the skill id (bridge R26). A `skill_end` from the bridge cancels at once.
+
+### 17.8 `cq-drive`
+- **`cq-drive goto ball [--host]`:**
+  - prints the states and the result;
+  - Ctrl-C stops the tank (0/0, then `release`);
+  - records the session like `cq-record`, for replay.
+- **`cq-drive serve [--host]`:**
+  - connects with hello `client: "ai-skills"` and stays connected;
+  - answers `skill_ask` (`see?` / `howfar` for a thing);
+  - runs `skill_start` (`find` / `goto`);
+  - reports `skill_done` or `skill_failed {reason}`.
+- **Reasons:** `not_found`, `lost`, `blocked`, `stale`, `unknown_thing`, `cancelled`.
+
+### 17.9 Tests
+- **Limits:**
+  - `r_min` at 20 / 25 / 33 cm/s matches design-notes §71 (≈ 0.83 / 0.33 / 0.20 → clamped to the 0.31 m smooth floor);
+  - the fan never offers a curve under `r_min`, nor a speed under `v_min` except stop.
+- **Ramp:** steps never exceed `dv · dt` / `dw · dt`.
+- **Planner (drawn scenes):**
+  - a target straight ahead → straight at cruise;
+  - 40° left → a left arc;
+  - behind → a spin;
+  - close → slow;
+  - at `stop_range` → stop;
+  - a sonar echo ahead that isn't the target → a curve away, or stop.
+- **Goal:**
+  - the lock holds when a second ball appears farther away;
+  - the size range wins when the ball's radius is ≥ 8 px;
+  - the sonar echo at the target's range is the target.
+- **ChaseSkill:** every transition of §17.6, with fake fixes and clocks.
+- **Simulated chases (`SimTank`):**
+  - the ball at 1.5 m ahead, 45° left, 90° right and behind → arrives at 40 ± 15 cm, facing it within 10°;
+  - the commanded speed never reaches 0 between start and arrival, except for the behind case's spin, which keeps turning;
+  - |Δw| per tick ≤ `dw · dt`;
+  - a ball moved mid-way → arrives at the new place without a stop.
+- **`DriveLink`:** the % table; the refresh every 0.2 s; a nack ends the run (fake socket).

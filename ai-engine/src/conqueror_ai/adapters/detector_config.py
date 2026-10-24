@@ -1,11 +1,11 @@
 """The detector's config files (AI engine LLD §16.1): config/vocabulary.yaml (the words) and config/balls.yaml
-(the colour balls). Plain YAML; the values are checked by the domain types."""
+(the colour balls). Plain YAML; a bad file or value is a ValueError naming the file and the row."""
 
 from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -13,29 +13,57 @@ from conqueror_ai.domain.balls import BallColour
 from conqueror_ai.domain.vocabulary import Vocabulary
 
 
+def _read(path: Path) -> dict[str, Any]:
+    try:
+        d: Any = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as e:
+        raise ValueError(f"{path}: not valid YAML - {e}") from None
+    if d is None:
+        return {}
+    if not isinstance(d, dict):
+        raise ValueError(f"{path}: expected a mapping at the top")
+    return cast("dict[str, Any]", d)
+
+
 def load_vocabulary(path: Path) -> Vocabulary:
-    d: dict[str, Any] = yaml.safe_load(path.read_text()) or {}
-    return Vocabulary.from_dict(d)
+    d = _read(path)
+    try:
+        return Vocabulary.from_dict(d)
+    except ValueError as e:
+        raise ValueError(f"{path}: {e}") from None
+
+
+def _ball(r: dict[str, Any]) -> BallColour:
+    try:
+        h: list[Any] = list(r["h"])
+        return BallColour(
+            str(r["name"]),
+            int(h[0]),
+            int(h[1]),
+            int(r["s_min"]),
+            int(r["v_max"]),
+            float(r.get("r_min_px", 6.0)),
+        )
+    except KeyError as e:
+        raise ValueError(f"it has no {e.args[0]}") from None
+    except (TypeError, IndexError) as e:
+        raise ValueError(f"a value has the wrong form ({e})") from None
 
 
 def load_balls(path: Path) -> list[BallColour]:
     if not path.exists():
         return []
-    d: dict[str, Any] = yaml.safe_load(path.read_text()) or {}
+    rows: list[Any] = list(_read(path).get("balls") or [])
     out: list[BallColour] = []
-    rows: list[dict[str, Any]] = list(d.get("balls") or [])
-    for r in rows:
-        h: list[Any] = list(r["h"])
-        out.append(
-            BallColour(
-                str(r["name"]),
-                int(h[0]),
-                int(h[1]),
-                int(r["s_min"]),
-                int(r["v_max"]),
-                float(r.get("r_min_px", 6.0)),
-            )
-        )
+    for i, r in enumerate(rows, 1):
+        row = cast("dict[str, Any]", r) if isinstance(r, dict) else None
+        name = str(row.get("name", f"number {i}")) if row is not None else f"number {i}"
+        try:
+            if row is None:
+                raise ValueError("it is not a mapping")
+            out.append(_ball(row))
+        except ValueError as e:
+            raise ValueError(f"{path}: ball {name}: {e}") from None
     return out
 
 

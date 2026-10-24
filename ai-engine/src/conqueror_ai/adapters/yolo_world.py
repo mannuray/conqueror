@@ -93,6 +93,10 @@ class YoloWorld:
         self._model: Any = ct.models.MLModel(str(path), compute_units=ct.ComputeUnit.ALL)
         spec: Any = self._model.get_spec()
         meta = dict(spec.description.metadata.userDefined)
+        if "names" not in meta or "imgsz" not in meta:
+            raise ValueError(
+                f"{path} is not a YOLO-World export (no word list) - run tools/measure/export_world.py"
+            )
         names: dict[int, str] = ast.literal_eval(meta["names"])
         vocab.check_model([names[i] for i in sorted(names)])
         self._vocab = vocab

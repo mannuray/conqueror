@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 import pytest
 
-from conqueror_ai.adapters.detector_config import load_balls, save_ball
+from conqueror_ai.adapters.detector_config import load_balls, load_vocabulary, save_ball
 from conqueror_ai.app import calibrate
 from conqueror_ai.domain import balls as bl
 from conqueror_ai.domain.types import Frame
@@ -94,3 +94,32 @@ def test_saving_a_ball_keeps_the_others_and_replaces_its_own(tmp_path: Path) -> 
     save_ball(path, bl.BallColour("green", 50, 80, 70, 190, 6.0))
     got = {b.name: b for b in load_balls(path)}
     assert set(got) == {"green", "red"} and got["green"].h_lo == 50 and got["red"].s_min == 90
+
+
+# ---- the config files give plain errors (final review m2)
+def test_a_ball_row_without_a_field_names_the_file_and_the_field(tmp_path: Path) -> None:
+    path = tmp_path / "balls.yaml"
+    path.write_text("balls:\n  - {name: green, h: [45, 90], v_max: 200}\n")
+    with pytest.raises(ValueError, match=r"balls.yaml.*green.*s_min"):
+        load_balls(path)
+
+
+def test_a_broken_yaml_file_is_a_plain_error(tmp_path: Path) -> None:
+    path = tmp_path / "balls.yaml"
+    path.write_text("balls: [ {name: green\n")
+    with pytest.raises(ValueError, match=r"balls.yaml.*not valid YAML"):
+        load_balls(path)
+    vocab = tmp_path / "vocabulary.yaml"
+    vocab.write_text("words: [ {word: chair\n")
+    with pytest.raises(ValueError, match=r"vocabulary.yaml.*not valid YAML"):
+        load_vocabulary(vocab)
+
+
+def test_a_word_row_with_floor_as_text_or_no_word_is_refused(tmp_path: Path) -> None:
+    vocab = tmp_path / "vocabulary.yaml"
+    vocab.write_text('words:\n  - {word: door, floor: "false"}\n')
+    with pytest.raises(ValueError, match=r"vocabulary.yaml.*door.*floor"):
+        load_vocabulary(vocab)
+    vocab.write_text("words:\n  - {floor: true}\n")
+    with pytest.raises(ValueError, match=r"vocabulary.yaml.*word"):
+        load_vocabulary(vocab)

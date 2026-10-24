@@ -15,6 +15,19 @@ class Word:
     min_score: float = DEFAULT_MIN_SCORE
 
 
+def _word(r: dict[str, Any], i: int) -> Word:
+    if "word" not in r:
+        raise ValueError(f"word row {i} has no word")
+    word = str(r["word"])
+    floor = r.get("floor", True)
+    if not isinstance(floor, bool):
+        raise ValueError(f"{word}: floor must be true or false, not {floor!r}")
+    try:
+        return Word(word, floor, float(r.get("min_score", DEFAULT_MIN_SCORE)))
+    except (TypeError, ValueError):
+        raise ValueError(f"{word}: min_score must be a number, not {r.get('min_score')!r}") from None
+
+
 @dataclass(frozen=True)
 class Vocabulary:
     words: tuple[Word, ...]
@@ -26,10 +39,7 @@ class Vocabulary:
         rows: list[dict[str, Any]] = list(d.get("words") or [])
         if not rows:
             raise ValueError("the vocabulary has no words")
-        words = tuple(
-            Word(str(r["word"]), bool(r.get("floor", True)), float(r.get("min_score", DEFAULT_MIN_SCORE)))
-            for r in rows
-        )
+        words = tuple(_word(r, i) for i, r in enumerate(rows, 1))
         names = [w.word for w in words]
         dup = sorted({n for n in names if names.count(n) > 1})
         if dup:

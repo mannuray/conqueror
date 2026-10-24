@@ -2060,3 +2060,33 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
 
 - **Owner: "yes" → `kCamXclkHz` = 20 MHz** (`include/board_config.h`); the drive stays at 0.
 - **For phase 4:** VGA at ~24 pictures / s makes the VGA detector trial (§141: people are too small at QVGA) practical.
+
+## 144. The pose filter on the floor (Plan U Task 3, 2026-10-24, daylight)
+- **How:** the owner ran a Logo program from `/logo` while `cq-record` recorded the session. `cq-pose` replayed it, and the owner measured the tank's end against the tape start mark (cm with a tape, the heading by eye).
+- **Results** (AI engine LLD §14.6; targets from Spec 7 §7: 3 % of the distance, 3° per 360°):
+
+  | Run | `cq-pose` end | Tape end | Pose vs tape | Target |
+  |---|---|---|---|---|
+  | `REPEAT 4 [ FORWARD 50 RIGHT 90 ]` (202 cm driven, 2299 samples) | 2.0 cm right, +0.6° (2.1 cm from the start; "could be off" 6.1 cm / 1.1°) | 6 cm right, about −2° | 4 cm, ~2.6° | 6 cm, 3° |
+  | `FORWARD 200 RIGHT 180 FORWARD 200` (401 cm, 3819 samples; farthest 200.5 cm) | 0.5 cm left, 179.9° ("could be off" 12.0 cm / 0.6°) | 5 cm left, about 178° | 4.5 cm, ~2° | 12 cm, 3° |
+
+- **Passed.** The heading gap is within the eye's reading error.
+- **Two runs did not count:**
+  - the first recording (60 s) ended before the square's last turn: RUN came 44.6 s in;
+  - one run was stopped from the phone after 23.8 cm (7040 "Stopped by you").
+  - From now on the recording is started long (180 s) and stopped once the tank stops.
+- An unrecorded square ended 4 cm right, about −3°.
+- The Logo moves each reported 47.9-48.0 cm (50 cm) and 197.8-198.0 cm (200 cm) at the cut; the coast makes up the rest (§69).
+- The recordings were deleted.
+
+## 145. The board machine is now the Raspberry Pi `yantra` (owner, 2026-10-24)
+- **Owner:** "from now on we will use mannu@yantra.lan to connect to uno and esp32" — the Pi (Debian 12, arm64), replacing the Linux laptop at 192.168.31.8. The laptop's sleep was turned back on (the four sleep targets unmasked; it suspends with the lid shut again).
+- **Set up without sudo:**
+  - `uv`, PlatformIO 6.2 and esptool 5.6 in `~/.local/bin`;
+  - avrdude 8.1 at `~/.platformio/packages/tool-avrdude/avrdude`;
+  - firmware files go in `~/cq/fw`.
+  - A plain SSH command does not have `~/.local/bin` on its PATH, so call the tools by full path.
+- **Boards** (`/dev/serial/by-id/`):
+  - the Uno: CH340, `/dev/ttyUSB0`, signature `1E 95 0F` (ATmega328P);
+  - the ESP32-S3: native USB, `/dev/ttyACM0`, ESP32-S3 rev v0.2, 8 MB flash, 8 MB PSRAM.
+- **The Uno flash needs shield switch S1 off** (the ESP32 disconnected). With S1 on, avrdude never syncs: the ESP32's bytes are on the line. Turn S1 back on afterwards.

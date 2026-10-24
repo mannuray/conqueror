@@ -2110,3 +2110,16 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - **Fixed pane sizes** (no dividers for now). Under 900 px, the phone layout is unchanged.
   - Only `logo.html` / `logo.js` change; the bridge and the Logo engine don't.
 - An earlier idea, one page for the whole app (Drive · Logo · Settings), was **not** taken: the owner meant only Logo.
+
+## 148. One shared icon file for the tank's pages (owner, 2026-10-24; Plan N7, after N6)
+- **Owner:** the Logo page uses its own made-up icons (the WiFi as `▂▄▆█` text, the battery as plain volts, `● UNO`, `▶ RUN`) instead of standard ones. The Drive and Settings pages already use **Lucide** (lucide-static 0.460.0, ISC), pasted into each page by hand.
+- **Owner: "3", then "yes all as recommended":**
+  - **one icon file**, `firmware/esp32/web/icons.json`: every Lucide icon the app uses, one version, the licence noted once;
+  - **fixed icons:** a page writes `<!--icon:name-->`, and `pack_web.py` puts the icon in when packing (still no JavaScript and no network needed);
+  - **changing icons** (WiFi strength, battery): `pack_web.py` adds a small table with only the icons that page uses, read by `icon(name)`;
+  - **an unknown icon name stops the build**, with a test for that;
+  - **each page carries only its own icons**;
+  - **Drive and Settings:** their hand-pasted icons become markers and look the same;
+  - **Logo:** gets Drive's WiFi / battery / board icons, play / step-forward / octagon on RUN / STEP / STOP, camera / eye-off for HIDE, and a sonar icon;
+  - **the `/logo` budget becomes 26 KB gzipped.**
+- **Order:** Plan N6 is finished first (floor check, docs, merge). Then Plan N7: bridge LLD R25 "shared icons", a tested draft, the plan, the build, and a look at all three pages on the tank.

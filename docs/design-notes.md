@@ -2262,3 +2262,18 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
     - names matched loosely (similar words as one kind, ~30–40 cm as the same thing);
     - a fuzzy map (about ±20 cm / ±10°).
   - **Later:** a slow smart look now and then, from a vision-language model.
+- **Follow-up the same day: the camera's real tilt changes between sessions (Plan Y floor memory test).**
+  - **What happened:**
+    - after a battery change, the ball at 1 m (by its size in the picture: 22 px radius) was placed at ~148 cm with the camera tilted 15° down;
+    - the picture fits ~14° down, but the model assumed ~10.4° (tilt0 +3.3° + 0.91 × −15°);
+    - before the battery change, the same tilt gave ~103 cm;
+    - after panning away and back the head also lands ~1° differently (SG90 kit slack, §137).
+  - **Owner: a general fix, not re-measuring by hand.** A camera angle estimator keeps a running best guess of the real tilt, and how sure it is, from what the camera sees:
+    - mainly the floor plane from a depth model;
+    - floor motion against the wheels while driving;
+    - things of known size when in view;
+    - the servo command and calibration stay the starting guess.
+  - **Order (owner: as recommended):**
+    1. finish Plan Y with the camera level (where the tilt is right), noting the session-to-session tilt as a known limit;
+    2. a spike measuring how well Depth Anything V2 *small* (Apache-2.0; the owner allowed the download) finds the tilt from the floor at 0°, −15° and −30° with the ball at a taped 1 m;
+    3. the estimator goes into the next design, with the depth layer (map phase 5).

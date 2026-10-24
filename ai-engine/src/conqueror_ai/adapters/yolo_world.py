@@ -50,22 +50,25 @@ def to_detections(
     size: tuple[int, int],
     vocab: Vocabulary,
 ) -> list[Detection]:
-    """The model's raw output (4 + words, candidates) -> detections in the picture's pixels."""
+    """The model's raw output (4 + words, candidates) -> detections in the picture's pixels. Each candidate is
+    only its best word (as Ultralytics: one label a box), kept if that word's own threshold is met."""
     top, left, scale = pad
     w, h = size
     a = raw.reshape(raw.shape[-2], raw.shape[-1])
     cx, cy, bw, bh = a[0], a[1], a[2], a[3]
     scores = a[4:]
+    best = scores.argmax(axis=0)
+    best_score = scores.max(axis=0)
     out: list[Detection] = []
     for k, word in enumerate(vocab.names):
-        sel = scores[k] >= vocab.min_score(word)
+        sel = (best == k) & (best_score >= vocab.min_score(word))
         if not sel.any():
             continue
         boxes = np.stack(
             [cx[sel] - bw[sel] / 2, cy[sel] - bh[sel] / 2, cx[sel] + bw[sel] / 2, cy[sel] + bh[sel] / 2],
             axis=1,
         )
-        sc = scores[k][sel].astype(np.float64)
+        sc = best_score[sel].astype(np.float64)
         for i in _nms(boxes.astype(np.float64), sc):
             x1, y1, x2, y2 = boxes[i]
             box = (
@@ -74,7 +77,8 @@ def to_detections(
                 min(max((x2 - left) / scale, 0.0), float(w)),
                 min(max((y2 - top) / scale, 0.0), float(h)),
             )
-            out.append(Detection(word, float(sc[i]), box))
+            if box[2] > box[0] and box[3] > box[1]:  # a box wholly in the grey bar is nothing
+                out.append(Detection(word, float(sc[i]), box))
     return out
 
 
@@ -94,11 +98,12 @@ class YoloWorld:
         self._vocab = vocab
         self._size = int(ast.literal_eval(meta["imgsz"])[0])
         self._input = spec.description.input[0].name
+        self._output = spec.description.output[0].name  # by name: a later export may add outputs
 
     def detect(self, rgb: NDArray[np.uint8], horizon_row: int | None) -> list[Detection]:
         from PIL import Image
 
         img, pad = letterbox(rgb, self._size)
         out: dict[str, Any] = self._model.predict({self._input: Image.fromarray(img)})
-        raw = np.asarray(next(iter(out.values())), dtype=np.float64)
+        raw = np.asarray(out[self._output], dtype=np.float64)
         return to_detections(raw, pad, (rgb.shape[1], rgb.shape[0]), self._vocab)

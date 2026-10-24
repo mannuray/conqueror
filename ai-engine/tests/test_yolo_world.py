@@ -48,6 +48,28 @@ def test_overlapping_boxes_of_one_word_become_one_and_other_words_stay() -> None
     ]
 
 
+def test_a_box_is_only_its_best_word() -> None:
+    """As Ultralytics (one label a box): a cabinet scoring bed 0.40 and sofa 0.31 is one bed, not a bed and a
+    sofa (final review I1); a best word under its own threshold is dropped, not replaced by the next word."""
+    v = Vocabulary.from_dict({"words": [{"word": "person"}, {"word": "chair", "min_score": 0.5}]})
+    dets = yw.to_detections(
+        raw(
+            (200.0, 200.0, 100.0, 100.0, 0.40, 0.31),  # person best: one person (chair is under 0.5 anyway)
+            (400.0, 200.0, 100.0, 100.0, 0.30, 0.60),  # chair best: one chair, the person 0.30 is not listed
+            (500.0, 400.0, 100.0, 100.0, 0.30, 0.45),  # chair best but under its 0.5: nothing
+        ),
+        (0, 0, 1.0),
+        (640, 640),
+        v,
+    )
+    assert sorted((d.cls, round(d.score, 2)) for d in dets) == [("chair", 0.6), ("person", 0.4)]
+
+
+def test_a_box_wholly_in_the_grey_bar_is_dropped() -> None:
+    dets = yw.to_detections(raw((100.0, 40.0, 20.0, 20.0, 0.9, 0.0)), (80, 0, 1.0), (640, 480), VOCAB)
+    assert dets == []
+
+
 def test_boxes_are_clamped_to_the_picture() -> None:
     dets = yw.to_detections(raw((10.0, 90.0, 60.0, 40.0, 0.9, 0.0)), (80, 0, 1.0), (640, 480), VOCAB)
     assert dets[0].box == (0.0, 0.0, 40.0, 30.0)

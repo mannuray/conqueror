@@ -674,3 +674,30 @@ sequenceDiagram
 - **Distance:** a ball on tape marks at 50 cm, 1 m and 2 m ahead of the lens, the tank standing still. Targets (Spec 7 §7): within 5 cm up to 1 m, within 15 cm at 2 m.
 - **Memory:** the ball at 1 m. Turn the camera (or the tank) away for 12 s, then back. The ball must stay listed (Remembered) and come back as the same thing.
 - **A person** walking across the view: one thing, which follows.
+
+### 15.9 As built (Plan V, 2026-10-23..24; design-notes §151)
+- **Files:**
+  - `domain/objects.py`: `CameraAngles`, `FrameGate`, `ObjectLocator`, `ObjectTracker`, `ObjectPipeline`;
+  - `adapters/yolo_coreml.py`: `YoloCoreml`, `CONF` 0.35, letterbox to 320;
+  - `app/objects.py`: `cq-objects`, replay and `--live`;
+  - `tools/measure/export_yolo.py`: the model is git-ignored in `ai-engine/models/`.
+  - AI engine 142 tests; ruff, format and pyright clean.
+- **Changed by the final review** (no Critical):
+  - **remembered things:** their uncertainty fades in through F, with a 5 cm/s position walk, σ capped at 0.5 m, and ranking by d² + ln det S;
+  - **the camera-moving skip:** also on the Uno Lite (`rate_dps` > 20°/s);
+  - **confirmation:** 3 hits within 0.5 s; one missed new thing is dropped;
+  - **the look check:** reaches `MAX_RANGE_M` (4 m);
+  - **`CUT_ROWS`:** 6;
+  - **a clock going back** starts the list again.
+- **Class-diagram details (review M8):** `ObjectEstimate` carries `sigma_m` (the larger axis of the position's standard deviation) and `first_seen_us` beside `last_seen_us`. "From the start" in `cq-objects`' report is the room origin, the tank's centre at the start of the recording (M9).
+- **The mount tilt `tilt0` +2.55°** was fitted at the driving tilt, arriving from above, from a floor object at 50 cm and 1 m: it read 49.6 / 99.9 cm. Before that it was −0.15°.
+- **On the floor (Task 4), the code works but the detector is weak from 18 cm:**
+  - **The floor trick:** a person at 1 m was placed 99.5 cm from the lens.
+  - **Detection scores:**
+    - the owner's plush is "fire hydrant" 0.77–0.92 near;
+    - a person at 1 m scores median 0.0–0.08 in a dark room;
+    - an office chair at ~2.8 m scores 0.09;
+    - a green patterned ball at 1–3 m isn't found, even doubled in size.
+  - **The adapter is right:** on standard pictures (Ultralytics bus / zidane, COCO 139 / 39769) it finds a chair 0.75, a TV 0.89, cats 0.79, a bus and people 0.81–0.94, even shrunk to 320 × 240. The pictures are the problem: things are small and pale, and seen from floor level.
+- **Owner (2026-10-24): "go with what we have"** — YOLO26n (COCO) stays. Floor-level naming is a later design (design-notes §151): a detector trained on the tank's own pictures, or YOLO-World; obstacles from the floor plane + depth + sonar.
+- **Not checked on the tank:** the memory test (a thing kept while the camera looks away; host tests only), a person walking across, and `--live` (review M5).

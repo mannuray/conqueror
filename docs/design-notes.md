@@ -2149,3 +2149,25 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
 - **Sizes:** `/logo` 24.9 of 26 KB.
 - **On the tank (owner):** "all good". This also closes §149's open item: the battery / WiFi readouts and the sonar show real values.
 
+## 151. Things in the room from 18 cm: the detector is weak, we keep it for now (Plan V, 2026-10-24)
+- **What we measured on the floor** (recorded with `cq-record`, replayed through the detector; pictures looked at, then deleted):
+  - **A green patterned ball**, ~25 px wide at ~1 m and ~10 px at ~3 m: never "sports ball". With the ball area doubled in size the guesses were "suitcase" (0.61–0.68) and "potted plant", not on the ball.
+  - **An office chair** at ~2.8 m (the floor trick; one pixel ≈ 0.5 m at that range with the camera level): "chair" 0.09 at best, in 9 of 56 pictures (the list needs 0.35). Other weak guesses: the cabinet as "bench" 0.13, the dark window as "tv" 0.11.
+  - **Earlier:** the plush as "fire hydrant", and a person in a dark room scoring 0.0–0.08.
+  - **The pictures** are pale and flat (median brightness 186 / 255), and the camera looks level from 18 cm.
+- **Checked against pictures from the net:** the same adapter and model on the Ultralytics test pictures (bus, zidane) and COCO val 139 / 39769 finds a chair 0.75, a TV 0.89, cats 0.79 and people 0.84–0.94, at full size and at 320 × 240. The code is right; our view is the problem.
+- **Owner:** from 18 cm "you will find nothing of the sort of chair … but legs". At the driving tilt the camera sees up to only ~65 cm high at 1.5 m.
+- **Research** (owner: "search net … or we are cranks"): not cranks. This is the robot-vacuum problem.
+  - **iRobot (j7) and Ecovacs** train their own detectors on their own floor-level pictures. Ecovacs names lack of data as one of its main problems.
+  - **Public floor-level data is scarce:** ODSR-IHS (6 000 sweeping-robot pictures, 14 kinds), TiROD (a 24 cm rover).
+  - **Obstacles:** the field uses geometry. Floor segmentation works better with a low camera; Depth Anything V2 runs ~20 / s with the best accuracy of the models compared; both are combined with the floor plane and sonar.
+  - **Open-vocabulary detectors** (YOLO-World) are fast enough for robots (GPL-3.0).
+  - **YOLOv5 is not the answer** (owner asked): the paper that used it trained it on its own 300 floor-level pictures. A COCO-only v5 / v8 / 26 sees from human height alike.
+- **Owner: "leave it, go with what we have."** YOLO26n (COCO) stays. Plan V is finished with today's results.
+- **For a later design:**
+  - **obstacles first:** the floor plane + depth + sonar, which is map phase 5;
+  - **names only for people and balls:**
+    - a detector trained on the tank's own labelled pictures (perhaps starting from ODSR-IHS);
+    - or YOLO-World asked in words;
+    - or a colour-and-shape ball finder.
+

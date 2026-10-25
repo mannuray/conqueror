@@ -1,0 +1,7 @@
+# Module 2's driving limits (AI engine LLD §17, spec 8 §2). Measured values; the speed table maps cm/s to the
+# bridge's drive_rate %, re-measured on the floor (spec 8 §9). Anything left out keeps the built-in default.
+speed_table: [[0.0, 0], [17.7, 15], [22.0, 40], [33.5, 100]]   # design-notes §69-§71
+limits:
+  v_cruise_cms: 25.0
+  v_cap_cms: 25.0          # slice 1's cap (spec 8 §5)
+  stop_range_m: 0.40       # lens to the ball's centre at arrival

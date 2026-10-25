@@ -5,7 +5,9 @@ Its own WebSocket ("ai-drive"):
   the bridge's 0.3 s deadman fires only when the engine stalls;
 - `cam_set` (as the driver it may move the camera);
 - `release_control` at the end.
-A nack (NOT_OWNER, STOPPED - someone pressed STOP -, BUSY ...) is kept in `refused`; the app ends the run."""
+A refused drive_rate (a nack without an id: STOPPED - someone pressed STOP -, NOT_OWNER, INVALID_COMMAND
+...) is kept in `refused`, and the app ends the run; a refused camera move ends it only when the tank isn't
+ours."""
 
 from __future__ import annotations
 
@@ -23,6 +25,8 @@ from conqueror_ai.domain.drive.curves import STOP, Command
 # again in the floor checks and kept in config/drive.yaml
 SPEED_TABLE: tuple[tuple[float, float], ...] = ((0.0, 0.0), (17.7, 15.0), (22.0, 40.0), (33.5, 100.0))
 REFRESH_S = 0.2
+FRESH_FOR_S = 0.5  # the refresh repeats a command only this long: a stuck engine is left to the deadman
+CAM_ENDS = ("NOT_OWNER", "STOPPED")  # a refused camera move ends the run only for these (not BUSY)
 
 
 def to_percent(v_cms: float, table: tuple[tuple[float, float], ...] = SPEED_TABLE) -> int:
@@ -36,7 +40,7 @@ def to_percent(v_cms: float, table: tuple[tuple[float, float], ...] = SPEED_TABL
 
 
 def drive_msg(cmd: Command, table: tuple[tuple[float, float], ...] = SPEED_TABLE) -> dict[str, Any]:
-    return {"t": "drive_rate", "v": to_percent(cmd.v_cms, table), "rate": round(cmd.w_dps, 1)}
+    return {"t": "drive_rate", "v": to_percent(cmd.v_cms, table), "yaw_rate": round(cmd.w_dps, 1)}
 
 
 class DriveLink:
@@ -50,6 +54,8 @@ class DriveLink:
         self._ws: ClientConnection | None = None
         self._next_id = 0
         self._sent_s = 0.0
+        self._set_s = 0.0  # when the engine last gave a command
+        self._drove = False  # a drive command was sent: the end must stop and hand control back
 
     @property
     def connected(self) -> bool:
@@ -78,19 +84,23 @@ class DriveLink:
             return
         msg = cast("dict[str, Any]", m)
         if msg.get("t") == "nack":
+            # no id: a stream message refused - the drive_rate (any reason, INVALID_COMMAND too); with an
+            # id: a camera move, which ends the run only when the tank is no longer ours
             reason = str(msg.get("reason") or "refused")
-            if reason in ("NOT_OWNER", "STOPPED", "BUSY", "BODY_OFFLINE", "UNAVAILABLE", "RATE_LIMITED"):
+            if msg.get("id") is None or reason in CAM_ENDS:
                 self.refused = self.refused or reason
 
     async def _keep(self, ws: ClientConnection, stop: asyncio.Event) -> None:
-        """Pings (the bridge drops a client silent for 3 s) and the drive refresh (the 0.3 s deadman)."""
+        """Pings (the bridge drops a client silent for 3 s) and the drive refresh (the 0.3 s deadman). The
+        refresh stops FRESH_FOR_S after the engine's last command, so a stuck engine stops the tank."""
         last_ping = 0.0
         while not stop.is_set():
             now = time.monotonic()
             if now - last_ping >= 1.0:
                 await ws.send(json.dumps({"t": "ping", "t0": round(now * 1000, 3)}))
                 last_ping = now
-            if self.cmd != STOP and now - self._sent_s >= REFRESH_S:
+            fresh = now - self._set_s <= FRESH_FOR_S
+            if self.cmd != STOP and fresh and now - self._sent_s >= REFRESH_S:
                 await self._send_drive(ws)
             await asyncio.sleep(0.05)
 
@@ -105,7 +115,9 @@ class DriveLink:
             raise ConnectionError("not connected to the bridge")
         moving_before = self.cmd != STOP
         self.cmd = cmd
+        self._set_s = time.monotonic()
         if cmd != STOP or moving_before:
+            self._drove = True
             await self._send_drive(ws)
 
     async def cam(self, pan_deg: float, tilt_deg: float) -> None:
@@ -121,10 +133,11 @@ class DriveLink:
         )
 
     async def finish(self) -> None:
-        """Stop, then hand control back."""
+        """Stop, then hand control back - only if it drove: a stop from a run that never drove would hold a
+        phone driver's tank until they let go of the stick (bridge R9.6)."""
         ws = self._ws
-        if ws is None:
-            return
         self.cmd = STOP
+        if ws is None or not self._drove:
+            return
         await ws.send(json.dumps({"t": "stop"}))
         await ws.send(json.dumps({"t": "release_control"}))

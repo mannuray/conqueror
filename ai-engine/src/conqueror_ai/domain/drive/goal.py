@@ -23,6 +23,14 @@ def is_ball(cls: str) -> bool:
     return cls.startswith("ball:") or cls in BALL_WORDS
 
 
+def kind_of(thing: str) -> Callable[[str], bool]:
+    """The target kind for a word: "ball" is every ball (any colour, YOLO-World's ball / toy); any other
+    word is that thing (spec 8 §4.1: GOTO takes a thing's name)."""
+    if thing == "ball":
+        return is_ball
+    return lambda cls: cls == thing
+
+
 @dataclass(frozen=True)
 class TargetFix:
     oid: int

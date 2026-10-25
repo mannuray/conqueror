@@ -1,7 +1,11 @@
-"""`cq-drive`: module 2, drive while thinking (AI engine LLD §17, spec 8). Slice 1: chase the ball.
+"""`cq-drive`: module 2, drive while thinking (AI engine LLD §17, spec 8). Slice 1: go to the ball or a thing.
 
     uv run cq-drive goto ball                 # find the ball and drive to it in one smooth move; Ctrl-C stops
+    uv run cq-drive goto bottle               # any word in config/vocabulary.yaml that stands on the floor
     uv run cq-drive goto ball --record recordings/chase-1
+
+A ball's distance comes from its size in the picture; any other thing's from where it meets the floor (the
+map's floor point, which depends on the camera's tilt).
 
 It drives like the phone does (it takes control with its first command); STOP from any device ends it.
 The Uno's safety rules all stay: the obstacle brake, deadman, link loss, stall, battery and the child-play
@@ -18,7 +22,7 @@ import time
 from pathlib import Path
 
 from conqueror_ai.adapters import calibration_store
-from conqueror_ai.adapters.detector_config import load_balls
+from conqueror_ai.adapters.detector_config import load_balls, load_vocabulary
 from conqueror_ai.adapters.drive_config import load_drive
 from conqueror_ai.adapters.drive_link import DriveLink
 from conqueror_ai.adapters.session import SessionRecorder
@@ -35,17 +39,25 @@ from conqueror_ai.app.objects import (
 )
 from conqueror_ai.domain.camera import CameraModel
 from conqueror_ai.domain.drive.chase import DRIVE_TILT, ChaseSkill
-from conqueror_ai.domain.drive.goal import Goal, size_positions
+from conqueror_ai.domain.drive.goal import Goal, kind_of, size_positions
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.objects import ObjectPipeline
 from conqueror_ai.domain.types import TelemSample
+from conqueror_ai.domain.vocabulary import Vocabulary
 
 DRIVE = Path(__file__).resolve().parents[3] / "config" / "drive.yaml"
 TICK_S = 0.2  # tick at least this often, with or without a new picture
 STALE_PICTURE_S = 0.5  # spec 7 §4: no driving on a stale map
 STALE_TELEM_S = 0.2
 FIRST_PICTURE_S = 5.0  # the camera stream may take this long to start
+NEVER_GOTO = ("person",)
 SKIPS_THAT_COUNT = ("turning", "camera moving")  # the map skips these pictures, but the camera is alive
+
+
+def goal_words(vocabulary: Vocabulary) -> list[str]:
+    """What cq-drive can go to: "ball" and every word that stands on the floor (it has a place on the map) -
+    never a person: a child is around (following a person is a later lesson with its own rules)."""
+    return ["ball", *(w.word for w in vocabulary.words if w.floor and w.word not in NEVER_GOTO)]
 
 
 def map_state(now: float, t0: float, last_picture: float, last_telem: float) -> str | None:
@@ -74,8 +86,8 @@ def task_failure(tasks: list[asyncio.Task[None]]) -> str | None:
     return None
 
 
-async def goto_ball(host: str, rec: SessionRecorder | None) -> str:
-    """Chase the ball; returns the result ("done" or why not)."""
+async def goto(host: str, thing: str, rec: SessionRecorder | None) -> str:
+    """Chase the thing ("ball" or a vocabulary word); returns the result ("done" or why not)."""
     from conqueror_ai.adapters.bridge_ws import BridgeLink
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
 
@@ -85,7 +97,7 @@ async def goto_ball(host: str, rec: SessionRecorder | None) -> str:
     lim, table = load_drive(DRIVE)
     link, cam, drive = BridgeLink(host), MjpegSource(host), DriveLink(host, table=table)
     p = ObjectPipeline(cal, floor)
-    skill, goal = ChaseSkill(Planner(lim)), Goal()
+    skill, goal = ChaseSkill(Planner(lim)), Goal(kind_of(thing))
     stop = asyncio.Event()
     last: dict[str, float] = {"telem": 0.0, "picture": 0.0}
     sonar: list[float | None] = [None]
@@ -175,10 +187,16 @@ async def goto_ball(host: str, rec: SessionRecorder | None) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["goto"])
-    ap.add_argument("thing", choices=["ball"])
+    ap.add_argument("thing", help="ball, or a word in config/vocabulary.yaml that stands on the floor")
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--record", type=Path)
     a = ap.parse_args()
+    try:
+        words = goal_words(load_vocabulary(VOCABULARY))
+    except (FileNotFoundError, ValueError) as err:
+        raise SystemExit(str(err)) from None
+    if a.thing not in words:
+        raise SystemExit(f"cq-drive can go to: {', '.join(words)}")
     rec = None
     if a.record is not None:
         rec = SessionRecorder(
@@ -190,7 +208,7 @@ def main() -> None:
             },
         )
     try:
-        print(f"result: {asyncio.run(goto_ball(a.host, rec))}")
+        print(f"result: {asyncio.run(goto(a.host, a.thing, rec))}")
     except KeyboardInterrupt:
         print("\nstopped (Ctrl-C): the tank was told to stop")
     except (FileNotFoundError, ValueError) as err:

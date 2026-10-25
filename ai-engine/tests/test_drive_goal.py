@@ -10,6 +10,7 @@ from conqueror_ai.domain.drive.goal import (
     TargetFix,
     echo_is_target,
     is_ball,
+    kind_of,
     size_position,
     size_positions,
 )
@@ -73,3 +74,11 @@ def test_two_balls_of_one_colour_give_no_size_position() -> None:
     assert set(size_positions([one, red], sizes, cam)) == {"ball:green", "ball:red"}
     # which green ball is the target isn't known here: the map's position is used instead (no jumping)
     assert set(size_positions([one, other, red], sizes, cam)) == {"ball:red"}
+
+
+def test_the_target_is_any_thing_by_its_word_and_ball_is_every_ball() -> None:
+    bottle = kind_of("bottle")
+    assert bottle("bottle") and not bottle("ball:green") and not bottle("chair")
+    assert kind_of("ball")("toy") and kind_of("ball")("ball:green")
+    fix = Goal(bottle).update([obj(1, "ball:green", 0.5, 0.0), obj(2, "bottle", 1.5, 0.0)], (0, 0), 0)
+    assert fix is not None and fix.oid == 2  # the nearer ball isn't a bottle

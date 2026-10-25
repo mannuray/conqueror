@@ -84,7 +84,12 @@ class Planner:
         if obstacle_m is not None and want.v_cms > 0:
             ox = at[0] + obstacle_m * math.cos(at[2])
             oy = at[1] + obstacle_m * math.sin(at[2])
-            if any(math.hypot(px - ox, py - oy) < lim.clear_m for px, py, _ in path):
+            # keep clear_m between the tank's front (where the sonar is) and the echo, as the chase does
+            fx = lim.sonar_x_m
+            if any(
+                math.hypot(px + fx * math.cos(th) - ox, py + fx * math.sin(th) - oy) < lim.clear_m
+                for px, py, th in path
+            ):
                 s += w.blocked
         return s
 

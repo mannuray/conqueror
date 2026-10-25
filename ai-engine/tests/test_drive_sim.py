@@ -13,8 +13,10 @@ from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
 from conqueror_ai.domain.drive.sim import SimTank
+from conqueror_ai.domain.objects import GATE_DPS
 
 HALF_VIEW_DEG = 41.0  # the camera sees ~82 deg across
+SEES_UP_TO_M = 4.0  # the ball is found up to about this far
 
 
 @dataclass
@@ -34,6 +36,7 @@ def chase(
     skill = ChaseSkill(Planner(lim))
     tank = SimTank(th=math.radians(th_deg))
     pan = 0.0
+    turning = False
     last_seen: float | None = None
     run = Run()
     t = 0.0
@@ -42,12 +45,16 @@ def chase(
             if abs(t - at_t) < 1e-6:
                 ball = where
         b = bearing_deg(tank.at, ball)
-        if abs(b - (-pan)) <= HALF_VIEW_DEG:
+        near = math.hypot(ball[0] - tank.at[0], ball[1] - tank.at[1]) <= SEES_UP_TO_M
+        if (
+            abs(b - (-pan)) <= HALF_VIEW_DEG and near and not turning
+        ):  # the map drops pictures taken turning fast
             last_seen = t
         fix = None if last_seen is None else TargetFix(1, ball[0], ball[1], t - last_seen)
         out = skill.tick(t, tank.at, fix, None, True)
         if out.cam is not None:
             pan = out.cam[0]
+        turning = abs(out.cmd.w_dps) > GATE_DPS
         run.outs.append(out)
         run.path.append(tank.step(out.cmd, lim.dt_s))
         if out.result is not None:
@@ -58,14 +65,15 @@ def chase(
 
 
 def moving_stops(outs: list[SkillOut]) -> int:
-    """How often the tank stood still (v = 0, not spinning) between its first move and the end."""
+    """How often the tank stood still (v = 0, not spinning) between its first drive forward and the end. (The
+    search before may stop: after half a turn on the spot the tank stands to sweep the camera.)"""
     started = False
     stops = 0
     for o in outs[:-1]:
         moving = o.cmd.v_cms > 0 or o.cmd.w_dps != 0
-        if moving:
+        if o.cmd.v_cms > 0:
             started = True
-        elif started and o.result is None:
+        elif started and not moving and o.result is None:
             stops += 1
     return stops
 
@@ -99,8 +107,8 @@ def test_a_ball_rolled_away_mid_way_is_reached_where_it_went_without_a_stop() ->
 
 
 def test_no_ball_anywhere_ends_not_found() -> None:
-    run = chase((50.0, 50.0), seconds=30.0)  # far away: never in view in this world either
-    assert run.result in ("not_found", "done") or run.result is None
+    run = chase((50.0, 50.0), seconds=30.0)  # too far away to be seen
+    assert run.result == "not_found"
 
 
 @pytest.mark.parametrize("ball", [(1.2, 1.2), (-1.5, 0.0), (0.0, -1.5)])
@@ -113,3 +121,5 @@ def test_commands_stay_inside_what_the_tank_can_do(ball: tuple[float, float]) ->
         assert v <= lim.v_cap_cms + 1e-9
         if v == 0 and w != 0:
             assert abs(w) == pytest.approx(lim.spin_dps)
+        if v > 0:  # the inner track never below its slowest speed: no arc tighter than r_min
+            assert v - abs(math.radians(w)) * lim.track_m / 2 * 100.0 >= lim.inner_min_cms - 1e-6

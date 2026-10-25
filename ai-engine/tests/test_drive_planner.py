@@ -56,3 +56,12 @@ def test_an_echo_ahead_that_is_not_the_target_is_kept_clear_of() -> None:
 def test_bearing_is_plus_left() -> None:
     assert bearing_deg((0.0, 0.0, 0.0), (0.0, 1.0)) == pytest.approx(90.0)
     assert bearing_deg((0.0, 0.0, math.pi), (1.0, 0.0)) == pytest.approx(-180.0)
+
+
+def test_keep_clear_is_measured_from_the_tanks_front_like_the_sonar() -> None:
+    p = Planner(LIM)
+    turn = Command(
+        25.0, 40.0
+    )  # a curve to the left whose front passes 29 cm from the echo (its centre 31 cm)
+    free = p.score((0.0, 0.0, 0.0), turn, turn, (0.0, 2.0), None)
+    assert p.score((0.0, 0.0, 0.0), turn, turn, (0.0, 2.0), 0.57) == pytest.approx(free + p.w.blocked)

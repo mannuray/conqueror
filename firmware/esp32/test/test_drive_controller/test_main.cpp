@@ -82,7 +82,7 @@ void setUp() {
   motion = new app::MotionController(out, logbook, *link, *owner, *tel);
   settings = new app::SettingsController(out, logbook, *link);
   drive = new app::DriveController(out, logbook, *owner, *uno, *motion, *settings, *tel);
-  motion->setHooks({[](int fd, uint32_t now) { return drive->claim(fd, now); }, [] { return drive->otaActive(); }});
+  motion->setHooks({[](int fd, uint32_t now, bool moving) { return drive->claim(fd, now, moving); }, [] { return drive->otaActive(); }});
   tel->setViews({[] { return drive->ownerView(); }, [] { return motion->view(); }, [] { return !link->synced(); }});
   motion->begin();
   wire.clear();

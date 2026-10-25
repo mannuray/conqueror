@@ -65,10 +65,10 @@ void setUp() {
   mc = new app::MotionController(out, logbook, *link, owner, *tel);
   g_claim = core::Decision::kSend;
   g_ota = false;
-  mc->setHooks({[](int fd, uint32_t now) {
+  mc->setHooks({[](int fd, uint32_t now, bool moving) {
                   if (g_claim != core::Decision::kSend) return g_claim;
                   core::Actions a;
-                  return owner.onDrive(fd, now, a);  // the real ownership rules
+                  return owner.onDrive(fd, now, a, moving);  // the real ownership rules
                 },
                 [] { return g_ota; }});
   mc->begin();
@@ -259,6 +259,24 @@ void test_calib_reply_has_counts_and_roll_diagnostics() {
 
 // ---- Plan N3: a running Logo program's motions and the events that end it ----
 int g_logo_fd = -1;
+// design-notes §72 / §157: a STOP from another device holds a drive_rate stream as it holds the stick, until
+// the driver lets go (a 0/0 frame); before, each drive_rate cleared the hold and the tank drove on.
+void test_a_stop_from_another_device_holds_a_drive_rate_stream() {
+  syncedWithEncoders();
+  const char* go = "{\"t\":\"drive_rate\",\"v\":40,\"yaw_rate\":0}";
+  mc->onDriveRate(3, P(go), 100);
+  TEST_ASSERT_TRUE(mc->active());
+  owner.onStop(4);  // the phone's STOP
+  mc->end(core::MotionEvent::kStop, 110);
+  fakes::reset();
+  mc->onDriveRate(3, P(go), 200);
+  TEST_ASSERT_TRUE(has(3, "STOPPED"));
+  TEST_ASSERT_FALSE(mc->active());
+  mc->onDriveRate(3, P("{\"t\":\"drive_rate\",\"v\":0,\"yaw_rate\":0}"), 300);  // let go
+  mc->onDriveRate(3, P(go), 400);
+  TEST_ASSERT_TRUE(mc->active());
+}
+
 int g_logo_ends = 0;
 cq::core::EndReason g_logo_reason = cq::core::EndReason::kDone;
 int g_logo_events = 0;
@@ -266,9 +284,9 @@ cq::core::MotionEvent g_logo_event = cq::core::MotionEvent::kStop;
 
 void logoHooks() {
   app::MotionController::Hooks h;
-  h.claim = [](int fd, uint32_t now) {
+  h.claim = [](int fd, uint32_t now, bool moving) {
     core::Actions a;
-    return owner.onDrive(fd, now, a);
+    return owner.onDrive(fd, now, a, moving);
   };
   h.ota = [] { return g_ota; };
   h.logo_fd = [] { return g_logo_fd; };
@@ -357,6 +375,7 @@ int main() {
   RUN_TEST(test_a_done_turn_saves_the_learned_coast);
   RUN_TEST(test_a_cancelled_turn_learns_nothing);
   RUN_TEST(test_begin_loads_the_gyro_scale_and_calib_shows_it);
+  RUN_TEST(test_a_stop_from_another_device_holds_a_drive_rate_stream);
   RUN_TEST(test_logo_go_and_hold);
   RUN_TEST(test_logo_hold_is_never_refused_and_go_needs_the_encoders);
   RUN_TEST(test_calib_reply_has_counts_and_roll_diagnostics);

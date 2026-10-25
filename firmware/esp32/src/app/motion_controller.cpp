@@ -128,7 +128,7 @@ bool MotionController::startLogo(int fd, const logo::Action& a, uint32_t now, co
 }
 
 bool MotionController::claimed(int fd, int32_t id, uint32_t now) {
-  const core::Decision d = m_h.claim(fd, now);
+  const core::Decision d = m_h.claim(fd, now, false);
   if (d != core::Decision::kSend) m_out.nack(fd, id, reasonOf(d));
   return d == core::Decision::kSend;
 }
@@ -183,7 +183,7 @@ void MotionController::onTurn(int fd, int32_t id, const core::WsCommand& c, uint
 }
 
 // Why a drive_rate stream may not run now (true + why), or false when it may (ownership then claimed).
-bool MotionController::rateRefused(int fd, uint32_t now, core::BridgeReason& why) {
+bool MotionController::rateRefused(int fd, uint32_t now, bool moving, core::BridgeReason& why) {
   if (m_h.ota()) {
     why = core::BridgeReason::kBusy;
   } else if (core::routeDriveRate(m_link.hello().caps) != core::Route::kLocal) {
@@ -191,7 +191,7 @@ bool MotionController::rateRefused(int fd, uint32_t now, core::BridgeReason& why
   } else if (!m_link.synced()) {
     why = core::BridgeReason::kBodyOffline;
   } else {
-    const core::Decision d = m_h.claim(fd, now);
+    const core::Decision d = m_h.claim(fd, now, moving);
     if (d == core::Decision::kSend) return false;
     why = reasonOf(d);
   }
@@ -201,7 +201,8 @@ bool MotionController::rateRefused(int fd, uint32_t now, core::BridgeReason& why
 // drive_rate (LLD R4.4): a stream like drive; the DRIVE frames come from the service on each TELEM_FAST.
 void MotionController::onDriveRate(int fd, const core::WsCommand& c, uint32_t now) {
   core::BridgeReason why = core::BridgeReason::kBusy;
-  if (rateRefused(fd, now, why)) return m_out.streamReject(fd, why);  // reported once per stream
+  const bool moving = c.v != 0 || c.rate_ddps != 0;  // §72: a STOP from another device holds it until 0/0
+  if (rateRefused(fd, now, moving, why)) return m_out.streamReject(fd, why);  // reported once per stream
   const core::MotionService& svc = m_motion.service();
   if (svc.active() && (svc.kind() != core::PrimKind::kRate || svc.ownerFd() != fd)) {
     end(core::MotionEvent::kOwnerCommand, now);

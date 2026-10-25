@@ -23,7 +23,7 @@ class DriveController {
                   SettingsController& settings, TelemetryPublisher& tel)
       : m_out(out), m_log(log), m_owner(owner), m_uno(uno), m_motion(motion), m_settings(settings), m_tel(tel) {}
   void begin(uint32_t now);  // R14: master of the Uno link from boot
-  core::Decision claim(int fd, uint32_t now);  // take / keep ownership for a motion command
+  core::Decision claim(int fd, uint32_t now, bool moving = false);  // take / keep ownership for a motion command
   void applyOwner(const core::Actions& a, uint32_t now);
   core::OwnerView ownerView() const;
   const core::LinkOwner& owner() const { return m_owner; }

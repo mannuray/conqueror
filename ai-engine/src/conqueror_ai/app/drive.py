@@ -128,6 +128,7 @@ async def goto(host: str, thing: str, rec: SessionRecorder | None) -> str:
     t0 = time.monotonic()
     result = ""
     by_size: dict[str, tuple[float, float]] = {}
+    cam_still = True  # the newest picture wasn't skipped for the camera moving (the sweep looks only then)
     try:
         while not result:
             if drive.refused is not None:
@@ -146,6 +147,7 @@ async def goto(host: str, thing: str, rec: SessionRecorder | None) -> str:
                     dets = await asyncio.to_thread(det.detect, rgb, camera_of(cam_f))
                     # the map stays on the event loop: the telemetry task updates it too
                     used = p.on_frame(f, (rgb.shape[1], rgb.shape[0]), dets, cam_f)
+                    cam_still = used != "camera moving"
                     if picture_counts(used):
                         last["picture"] = time.monotonic()
                     by_size = {} if isinstance(used, str) else size_positions(dets, sizes, used)
@@ -156,7 +158,7 @@ async def goto(host: str, thing: str, rec: SessionRecorder | None) -> str:
             pose = p.pose()
             at = None if pose is None else (pose.x_m, pose.y_m, pose.th_rad)
             fix = None if pose is None else goal.update(p.objects(), (pose.x_m, pose.y_m), pose.t_us, by_size)
-            out = skill.tick(now - t0, at, fix, sonar[0], state is None)
+            out = skill.tick(now - t0, at, fix, sonar[0], state is None, cam_still)
             await drive.drive(out.cmd)
             if out.cam is not None:
                 await drive.cam(*out.cam)

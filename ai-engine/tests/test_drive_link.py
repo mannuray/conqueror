@@ -14,7 +14,7 @@ from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
 from conqueror_ai.adapters.drive_config import load_drive
-from conqueror_ai.adapters.drive_link import FRESH_FOR_S, DriveLink, drive_msg, to_percent
+from conqueror_ai.adapters.drive_link import FRESH_FOR_S, MIN_GAP_S, DriveLink, drive_msg, to_percent
 from conqueror_ai.domain.drive.curves import Command
 
 ENGINE = Path(__file__).resolve().parents[1]
@@ -160,3 +160,18 @@ async def test_a_refusal_ends_the_run_but_a_busy_camera_does_not(
     await asyncio.sleep(0.15)
     await unlink(stop, task, server)
     assert link.refused == refused
+
+
+async def test_fast_ticks_stay_under_the_bridges_limit_and_the_newest_command_is_sent() -> None:
+    bridge = Bridge()
+    link, stop, task, server = await linked(bridge)
+    t0 = time.monotonic()
+    for i in range(40):  # the loop may tick ~25 times a second (once per picture, and on time-outs)
+        await link.drive(Command(25.0, float(i)))
+        await asyncio.sleep(0.025)
+    await asyncio.sleep(0.15)
+    await unlink(stop, task, server)
+    sent = [(t - t0, m) for t, m in bridge.got if m["t"] == "drive_rate"]
+    per_s = len(sent) / (sent[-1][0] - sent[0][0] + 1e-9)
+    assert per_s <= 1 / MIN_GAP_S + 1  # the bridge refuses over 25 a second (RATE_LIMITED, ws_clients.h)
+    assert sent[-1][1]["yaw_rate"] == 39.0  # the newest command still goes out

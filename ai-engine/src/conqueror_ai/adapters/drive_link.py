@@ -25,6 +25,7 @@ from conqueror_ai.domain.drive.curves import STOP, Command
 # again in the floor checks and kept in config/drive.yaml
 SPEED_TABLE: tuple[tuple[float, float], ...] = ((0.0, 0.0), (17.7, 15.0), (22.0, 40.0), (33.5, 100.0))
 REFRESH_S = 0.2
+MIN_GAP_S = 0.08  # at most ~12 drive_rate a second: the bridge refuses over 25 (ws_clients.h)
 FRESH_FOR_S = 0.5  # the refresh repeats a command only this long: a stuck engine is left to the deadman
 CAM_ENDS = ("NOT_OWNER", "STOPPED")  # a refused camera move ends the run only for these (not BUSY)
 
@@ -56,6 +57,7 @@ class DriveLink:
         self._sent_s = 0.0
         self._set_s = 0.0  # when the engine last gave a command
         self._drove = False  # a drive command was sent: the end must stop and hand control back
+        self._pending = False  # a newer command waits for MIN_GAP_S since the last send
 
     @property
     def connected(self) -> bool:
@@ -100,16 +102,19 @@ class DriveLink:
                 await ws.send(json.dumps({"t": "ping", "t0": round(now * 1000, 3)}))
                 last_ping = now
             fresh = now - self._set_s <= FRESH_FOR_S
-            if self.cmd != STOP and fresh and now - self._sent_s >= REFRESH_S:
+            due = now - self._sent_s >= (MIN_GAP_S if self._pending else REFRESH_S)
+            if self.cmd != STOP and fresh and due:
                 await self._send_drive(ws)
             await asyncio.sleep(0.05)
 
     async def _send_drive(self, ws: ClientConnection) -> None:
         await ws.send(json.dumps(drive_msg(self.cmd, self.table)))
         self._sent_s = time.monotonic()
+        self._pending = False
 
     async def drive(self, cmd: Command) -> None:
-        """The new command, sent at once; then refreshed every 0.2 s until it changes."""
+        """The new command: sent at once if MIN_GAP_S has passed since the last send (a stop always at once),
+        else as soon as it has; then refreshed every 0.2 s while the engine keeps giving commands."""
         ws = self._ws
         if ws is None:
             raise ConnectionError("not connected to the bridge")
@@ -118,7 +123,10 @@ class DriveLink:
         self._set_s = time.monotonic()
         if cmd != STOP or moving_before:
             self._drove = True
-            await self._send_drive(ws)
+            if cmd == STOP or self._set_s - self._sent_s >= MIN_GAP_S:
+                await self._send_drive(ws)
+            else:
+                self._pending = True
 
     async def cam(self, pan_deg: float, tilt_deg: float) -> None:
         """The camera (pan + = right, tilt + = up). Not waited for: a refused one is only noted."""

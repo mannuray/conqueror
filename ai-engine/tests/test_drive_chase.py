@@ -24,18 +24,29 @@ def test_no_target_sweeps_the_camera_turns_half_round_sweeps_again_then_not_foun
     s = skill()
     outs = [s.tick(i * 0.1, (0.0, 0.0, 0.0), None, None, True) for i in range(40)]
     pans = [o.cam[0] for o in outs if o.cam is not None]
-    assert pans[:5] == [-90.0, -45.0, 0.0, 45.0, 90.0] and all(o.cmd == STOP for o in outs[:39])
+    assert pans[:5] == [0.0, -45.0, 45.0, -90.0, 90.0] and all(o.cmd == STOP for o in outs[:39])
     outs = [s.tick(4.0 + i * 0.1, (0.0, 0.0, 0.0), None, None, True) for i in range(80)]
-    assert outs[5].cmd.w_dps == LIM.spin_dps
+    assert outs[6].cmd.w_dps == LIM.spin_dps  # 5 positions x (0.1 s to see it still + 0.8 s look) = 4.5 s
     # half a turn (180 / 65 = 2.8 s): the map can't use pictures while spinning (faster than 45 deg/s),
     # so the tank stops and sweeps the camera again over what was behind it
     spun = [i for i, o in enumerate(outs) if o.cmd.w_dps != 0]
     assert 27 <= len(spun) <= 29 and outs[spun[-1] + 1].cmd == STOP
     pans = [o.cam[0] for o in outs[spun[-1] + 1 :] if o.cam is not None]
-    assert pans[:5] == [-90.0, -45.0, 0.0, 45.0, 90.0]
+    assert pans[:5] == [0.0, -45.0, 45.0, -90.0, 90.0]
     ends = [i for i, o in enumerate(outs) if o.result is not None]
     assert [outs[i].result for i in ends] == ["not_found"]  # once, after the second sweep
-    assert 67 <= ends[0] <= 70
+    assert 76 <= ends[0] <= 80
+
+
+def test_the_sweep_looks_ahead_first_and_counts_its_look_from_when_the_camera_is_still() -> None:
+    s = skill()
+    outs = [s.tick(i * 0.1, (0.0, 0.0, 0.0), None, None, True, cam_still=i >= 5) for i in range(14)]
+    assert outs[0].cam == (0.0, ch.DRIVE_TILT)  # straight ahead first: a thing in front is found at once
+    # moving 0.5 s, then 0.8 s of still pictures before the next position
+    assert [o.cam for o in outs[1:13]] == [None] * 12 and outs[13].cam == (-45.0, ch.DRIVE_TILT)
+    s = skill()
+    outs = [s.tick(i * 0.1, (0.0, 0.0, 0.0), None, None, True, cam_still=False) for i in range(26)]
+    assert outs[25].cam == (-45.0, ch.DRIVE_TILT)  # a camera that never settles: on after 2.5 s
 
 
 def test_the_ramp_follows_the_real_time_between_ticks() -> None:

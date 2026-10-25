@@ -43,6 +43,18 @@ def test_the_ramp_turns_gently_and_spins_are_full_or_none() -> None:
     assert ramp(Command(0.0, 65.0), STOP, 0.1, LIM) == STOP
 
 
+def test_the_ramp_never_asks_for_an_arc_tighter_than_the_tank_can_drive() -> None:
+    def w_max(v: float) -> float:
+        return math.degrees(v / 100.0 / LIM.r_min_m(v))
+
+    c = ramp(Command(18.0, 0.0), Command(18.0, 40.0), 0.1, LIM)
+    assert c.v_cms == 18.0 and abs(c.w_dps) <= w_max(18.0) + 1e-9  # at 18 cm/s barely a curve at all
+    c = ramp(Command(25.0, 40.0), Command(18.0, 40.0), 0.1, LIM)  # slowing in a curve: the curve opens
+    assert c.v_cms == pytest.approx(24.0) and abs(c.w_dps) <= w_max(24.0) + 1e-9
+    c = ramp(Command(0.0, 65.0), Command(18.0, -40.0), 0.1, LIM)  # out of a spin into a drive
+    assert abs(c.w_dps) <= w_max(18.0) + 1e-9
+
+
 def test_a_roll_out_follows_the_ramp() -> None:
     path = roll_out((0.0, 0.0, 0.0), STOP, Command(25.0, 0.0), LIM)
     assert len(path) == 15 and path[-1][0] == pytest.approx(0.347, abs=0.005) and path[-1][1] == 0.0

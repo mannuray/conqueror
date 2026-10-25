@@ -27,7 +27,8 @@ def ramp(now: Command, want: Command, dt: float, lim: Limits) -> Command:
     """One tick toward the wanted command, never faster than the ramps.
 
     The tracks can't run between 0 and v_min, so starting and stopping cross that band in one step; a spin in
-    place can't be slower than spin_dps, so a spin starts and ends in one step too."""
+    place can't be slower than spin_dps, so a spin starts and ends in one step too. While driving, the turn
+    rate stays within the tightest smooth arc at the speed (r_min), so slowing in a curve opens the curve."""
     if want.v_cms <= 0:
         v = 0.0 if now.v_cms - lim.dv_cms_per_s * dt < lim.v_min_cms else now.v_cms - lim.dv_cms_per_s * dt
     elif now.v_cms < lim.v_min_cms:
@@ -46,6 +47,9 @@ def ramp(now: Command, want: Command, dt: float, lim: Limits) -> Command:
         w = _toward(0.0, want.w_dps, lim.dw_dps_per_s * dt)
     else:
         w = _toward(now.w_dps, want.w_dps, lim.dw_dps_per_s * dt)
+    if v > 0:  # never an arc tighter than the tank can drive at this speed (its inner track's lowest speed)
+        w_max = math.degrees(v / 100.0 / lim.r_min_m(v))
+        w = max(-w_max, min(w_max, w))
     return Command(v, w)
 
 

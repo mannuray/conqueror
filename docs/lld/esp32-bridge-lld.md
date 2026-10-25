@@ -2760,7 +2760,7 @@ sequenceDiagram
 | bridge → engine | `{"t":"skill_ask","id":n,"q":"see?"\|"howfar","thing":"ball"}` | a question word; answer within 300 ms |
 | engine → bridge | `{"t":"skill_answer","id":n,"value":true\|false\|cm}` | the answer (`howfar`: cm, −1 if not listed) |
 | bridge → engine | `{"t":"skill_start","id":n,"skill":"find"\|"goto","thing":"ball"}` | a skill word; the lease is granted with it |
-| engine → bridge | `{"t":"skill_drive","id":n,"v":%,"rate":°/s}` | streamed ≤ 20 Hz, ≥ every 300 ms; only during the lease |
+| engine → bridge | `{"t":"skill_drive","id":n,"v":%,"yaw_rate":°/s}` | streamed ≤ 20 Hz, ≥ every 300 ms; only during the lease |
 | engine → bridge | `{"t":"skill_done","id":n}` / `{"t":"skill_failed","id":n,"reason":"not_found"…}` | the skill's end; the program goes on, or ends with its code |
 | bridge → engine | `{"t":"skill_end","id":n,"why":"stop"\|"deadman"\|"page"\|"owner"\|"ended"}` | the lease ended from the tank's side; the engine stops at once |
 

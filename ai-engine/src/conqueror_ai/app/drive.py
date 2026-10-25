@@ -33,8 +33,9 @@ from conqueror_ai.app.objects import (
     decode,
     detectors,
 )
+from conqueror_ai.domain.camera import CameraModel
 from conqueror_ai.domain.drive.chase import DRIVE_TILT, ChaseSkill
-from conqueror_ai.domain.drive.goal import Goal, size_position
+from conqueror_ai.domain.drive.goal import Goal, size_positions
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.objects import ObjectPipeline
 from conqueror_ai.domain.types import TelemSample
@@ -43,6 +44,34 @@ DRIVE = Path(__file__).resolve().parents[3] / "config" / "drive.yaml"
 TICK_S = 0.2  # tick at least this often, with or without a new picture
 STALE_PICTURE_S = 0.5  # spec 7 §4: no driving on a stale map
 STALE_TELEM_S = 0.2
+FIRST_PICTURE_S = 5.0  # the camera stream may take this long to start
+SKIPS_THAT_COUNT = ("turning", "camera moving")  # the map skips these pictures, but the camera is alive
+
+
+def map_state(now: float, t0: float, last_picture: float, last_telem: float) -> str | None:
+    """None when pictures and telemetry are fresh (spec 7 §4); "waiting" before the first picture; else why
+    not. Times in seconds (time.monotonic); 0 = never."""
+    if last_picture == 0.0:
+        return "waiting" if now - t0 < FIRST_PICTURE_S else "no pictures from the camera"
+    if now - last_picture > STALE_PICTURE_S:
+        return f"no new picture for {now - last_picture:.1f} s"
+    if now - last_telem > STALE_TELEM_S:
+        return f"no telemetry for {now - last_telem:.1f} s"
+    return None
+
+
+def picture_counts(used: CameraModel | str) -> bool:
+    """A picture shows the camera is alive when the map used it, or skipped it only for the tank's or the
+    camera's own motion (a spin, a camera sweep)."""
+    return not isinstance(used, str) or used in SKIPS_THAT_COUNT
+
+
+def task_failure(tasks: list[asyncio.Task[None]]) -> str | None:
+    """The first worker (bridge link, camera, drive link, telemetry) that crashed, as "Kind: message"."""
+    for t in tasks:
+        if t.done() and not t.cancelled() and (e := t.exception()) is not None:
+            return f"{type(e).__name__}: {e}"
+    return None
 
 
 async def goto_ball(host: str, rec: SessionRecorder | None) -> str:
@@ -92,41 +121,47 @@ async def goto_ball(host: str, rec: SessionRecorder | None) -> str:
             if drive.refused is not None:
                 result = f"refused by the tank ({drive.refused})"
                 break
+            if (failed := task_failure(tasks)) is not None:
+                result = f"failed - {failed}"
+                break
             with contextlib.suppress(TimeoutError):
                 f = await asyncio.wait_for(cam.next_frame(), TICK_S)
-                rgb = decode(f)
+                rgb = await asyncio.to_thread(decode, f)
                 if rgb is not None:
                     if rec is not None:
                         rec.frame(f)
                     cam_f = p.camera_at(f.cap_us)
                     dets = await asyncio.to_thread(det.detect, rgb, camera_of(cam_f))
+                    # the map stays on the event loop: the telemetry task updates it too
                     used = p.on_frame(f, (rgb.shape[1], rgb.shape[0]), dets, cam_f)
-                    last["picture"] = time.monotonic()
-                    by_size = {}
-                    if not isinstance(used, str):
-                        for d in dets:
-                            size = sizes.get(d.cls)
-                            pos = None if size is None else size_position(d, size, used)
-                            if pos is not None:
-                                by_size[d.cls] = pos
+                    if picture_counts(used):
+                        last["picture"] = time.monotonic()
+                    by_size = {} if isinstance(used, str) else size_positions(dets, sizes, used)
             now = time.monotonic()
+            state = map_state(now, t0, last["picture"], last["telem"])
+            if state == "waiting":
+                continue
             pose = p.pose()
             at = None if pose is None else (pose.x_m, pose.y_m, pose.th_rad)
             fix = None if pose is None else goal.update(p.objects(), (pose.x_m, pose.y_m), pose.t_us, by_size)
-            fresh = now - last["picture"] <= STALE_PICTURE_S and now - last["telem"] <= STALE_TELEM_S
-            out = skill.tick(now - t0, at, fix, sonar[0], fresh)
+            out = skill.tick(now - t0, at, fix, sonar[0], state is None)
             await drive.drive(out.cmd)
             if out.cam is not None:
                 await drive.cam(*out.cam)
             if out.result is not None:
                 result = out.result
+                if result == "stale":
+                    result = f"stale - {state or 'no pose'}"
             print(
                 f"\r{skill.state:12s} v {out.cmd.v_cms:4.1f} cm/s  w {out.cmd.w_dps:6.1f} deg/s ",
                 end="",
                 flush=True,
             )
     finally:
-        await drive.finish()
+        try:
+            await drive.finish()
+        except Exception as e:  # the clean-up goes on: the bridge stops the tank when the link drops
+            print(f"\nthe stop message failed ({e}): the tank stops by the deadman")
         stop.set()
         await link.close()
         for t in tasks:

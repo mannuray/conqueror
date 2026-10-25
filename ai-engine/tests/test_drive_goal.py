@@ -5,7 +5,14 @@ from __future__ import annotations
 import pytest
 
 from conqueror_ai.domain.camera import CameraModel
-from conqueror_ai.domain.drive.goal import Goal, TargetFix, echo_is_target, is_ball, size_position
+from conqueror_ai.domain.drive.goal import (
+    Goal,
+    TargetFix,
+    echo_is_target,
+    is_ball,
+    size_position,
+    size_positions,
+)
 from conqueror_ai.domain.types import Detection, ObjectEstimate, Pose
 from tests.test_camera import calib
 
@@ -55,3 +62,14 @@ def test_an_echo_at_the_targets_range_straight_ahead_is_the_target() -> None:
     assert echo_is_target(0.62, 0.55, 3.0)
     assert not echo_is_target(0.30, 0.55, 3.0)  # nearer: something else
     assert not echo_is_target(0.55, 0.55, 30.0)  # the target is off to the side
+
+
+def test_two_balls_of_one_colour_give_no_size_position() -> None:
+    cam = CameraModel(calib()).for_frame(Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.0, 0.0)
+    one = Detection("ball:green", 0.9, (148.0, 108.0, 172.0, 132.0))
+    other = Detection("ball:green", 0.8, (40.0, 108.0, 64.0, 132.0))
+    red = Detection("ball:red", 0.8, (240.0, 108.0, 264.0, 132.0))
+    sizes = {"ball:green": 12.0, "ball:red": 12.0}
+    assert set(size_positions([one, red], sizes, cam)) == {"ball:green", "ball:red"}
+    # which green ball is the target isn't known here: the map's position is used instead (no jumping)
+    assert set(size_positions([one, other, red], sizes, cam)) == {"ball:red"}

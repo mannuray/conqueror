@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
@@ -43,6 +44,23 @@ def size_position(det: Detection, size_cm: float, cam: CameraModel) -> tuple[flo
     rng = size_cm / 100.0 * float(cam.cal.k[0, 0]) / (2 * r)
     p = cam.position() + ray / float(np.linalg.norm(ray)) * rng
     return float(p[0]), float(p[1])
+
+
+def size_positions(
+    dets: Sequence[Detection], sizes: dict[str, float], cam: CameraModel
+) -> dict[str, tuple[float, float]]:
+    """Room positions from the sizes of the balls in one picture, by class. A class seen twice is left out:
+    which of the two is the target isn't known here, so the map's position is used (no jumping between)."""
+    seen = Counter(d.cls for d in dets)
+    out: dict[str, tuple[float, float]] = {}
+    for d in dets:
+        size = sizes.get(d.cls)
+        if size is None or seen[d.cls] > 1:
+            continue
+        pos = size_position(d, size, cam)
+        if pos is not None:
+            out[d.cls] = pos
+    return out
 
 
 class Goal:

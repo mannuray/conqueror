@@ -2377,3 +2377,14 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
 - **Why slowing doesn't help here:** the inner track can't run slower than ~17.7 cm/s, so a slower tank curves *wider*, not tighter (`r_min`, LLD §17.4). Turning on the spot is the only tight turn.
 - **Decision:** a target more than **35°** off gets only a spin in place (`SPIN_FROM_DEG` 70 → 35, and the spin is the only choice, not just offered). The tank turns to face the ball, then drives in.
 - **Simulator** (same setup, `near-40-right` case in `test_drive_sim.py`): before, it ended 0.29 m from the ball; after, 0.44 m, done in 2.3 s. The other cases are unchanged (ahead 4.8 s, 90° right 9.4 s, behind 11.8 s), except 45° left, which takes 6.9 s instead of 6.5 s because it now turns first.
+
+### 157.2 A short WiFi gap pauses the chase; the spin ends 15° early (owner, 2026-10-27)
+- **Floor chase 6** (the same setup as chase 5, after §157.1):
+  - It drove straight ~5 cm while the camera turned to the ball, then turned on the spot to the right: **55°** for a ball ~40° off (stopping at 8° left; the pose lags and the tank coasts on after the stop).
+  - It then curved left smoothly (1.7 s, no stops) and was facing the ball when it ended.
+  - **It ended `stale - no telemetry for 0.2 s`** about a second before arriving: the sonar read 33 cm to the ball's surface (~41 cm lens to centre, the stop range). Telemetry over WiFi often arrives up to 0.12 s apart (three gaps of 0.116-0.123 s in this run), so 0.2 s is crossed now and then.
+- **Decisions:**
+  - **A stale map pauses, it doesn't end the run.** The tank gets a STOP at once (not a ramp: it can't see), and drives on, ramping from standing, when pictures and telemetry are fresh again. Only 2 s of it ends the run (`STALE_GIVE_UP_S`, reason `stale`). The 0.2 s / 0.5 s staleness limits and the bridge's deadman are unchanged: it still never drives on a stale map.
+  - **The spin ends with 15° left** (`SPIN_UNTIL_DEG` 8 → 15); the drive's arc aims the rest.
+- **Simulator:** ahead 4.8 s, 45° left 6.7 s, 90° right 9.4 s, behind 11.8 s, the chase-5 setup 2.1 s; all end 0.43-0.45 m from the ball.
+

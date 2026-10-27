@@ -65,9 +65,22 @@ def test_near_the_ball_but_off_to_the_side_it_turns_on_the_spot_to_face_it() -> 
     assert out.cmd == Command(0.0, LIM.spin_dps) and out.result is None
 
 
-def test_a_stale_map_or_no_pose_ends_it_at_once() -> None:
-    assert skill().tick(0.0, (0.0, 0.0, 0.0), None, None, False).result == "stale"
-    assert skill().tick(0.0, None, None, None, True).result == "stale"
+def test_a_stale_map_or_no_pose_stops_the_tank_at_once_and_ends_it_after_two_seconds() -> None:
+    """Floor chase 6: a 0.2 s WiFi gap ended a run 1 s before arriving. Now the tank stops at once (STOP, not
+    a ramp: it can't see) and drives on when telemetry is back; only STALE_GIVE_UP_S of it ends the run."""
+    s = skill()
+    fix = TargetFix(1, 1.6, 0.0, 0.0)
+    for i in range(10):
+        s.tick(i * 0.1, (0.0, 0.0, 0.0), fix, None, True)
+    assert s.cmd.v_cms > 0
+    held = s.tick(1.0, (0.0, 0.0, 0.0), fix, None, False)
+    assert held.cmd == STOP and held.result is None
+    assert s.tick(1.3, None, fix, None, True) == held  # no pose is the same
+    back = s.tick(1.4, (0.0, 0.0, 0.0), fix, None, True)
+    assert back.cmd.v_cms > 0 and back.result is None  # telemetry back: drives on
+    s.tick(2.0, (0.0, 0.0, 0.0), fix, None, False)
+    assert s.tick(3.9, (0.0, 0.0, 0.0), fix, None, False).result is None
+    assert s.tick(4.0, (0.0, 0.0, 0.0), fix, None, False).result == "stale"
 
 
 def test_something_close_ahead_that_isnt_the_ball_ends_it_blocked() -> None:

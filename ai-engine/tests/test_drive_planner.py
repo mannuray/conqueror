@@ -53,6 +53,15 @@ def test_a_target_well_to_one_side_is_turned_to_on_the_spot_first() -> None:
     assert P.choose((0.0, 0.0, 0.0), Command(25.0, 0.0), (1.5, -0.6)).v_cms > 0  # 22 deg off: an arc
 
 
+def test_a_spin_ends_15_deg_early_the_tank_coasts_on() -> None:
+    """Floor chase 6: spinning until 8 deg off turned 55 deg for a ball 40 deg off (the pose lags and the tank
+    coasts after the stop). The spin ends with 15 deg left; the drive's arc aims the rest."""
+    spinning = Command(0.0, -LIM.spin_dps)
+    for deg, spins in [(-16.0, True), (-14.0, False)]:
+        ball = (math.cos(math.radians(deg)), math.sin(math.radians(deg)))
+        assert (P.choose((0.0, 0.0, 0.0), spinning, ball) == spinning) is spins
+
+
 def test_an_echo_ahead_that_is_not_the_target_is_kept_clear_of() -> None:
     """Slow down rather than stop (spec 8 §3): the chosen curve keeps clear_m from the echo."""
     c = P.choose((0.0, 0.0, 0.0), Command(25.0, 0.0), (2.0, 0.0), obstacle_m=0.6)

@@ -13,7 +13,10 @@ RADII_M = (1.5, 0.8, 0.5)  # plus straight on and the tightest smooth arc
 # More than this far off, the tank turns on the spot first. (Floor chase 5: the tightest arcs the inner track
 # allows are 30-50 cm, so a target 40 deg off at 80 cm was swept past by a curve; design-notes §157.)
 SPIN_FROM_DEG = 35.0
-SPIN_UNTIL_DEG = 8.0  # once spinning, keep spinning until the target is this near straight ahead
+# Once spinning, keep spinning until the target is this near straight ahead. The tank coasts on after the stop
+# and the pose lags: floor chase 6 turned 55 deg for a ball 40 deg off with 8 (design-notes §157.2); the
+# drive's arc aims the rest.
+SPIN_UNTIL_DEG = 15.0
 
 
 @dataclass(frozen=True)

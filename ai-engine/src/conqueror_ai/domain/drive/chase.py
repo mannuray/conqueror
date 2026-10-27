@@ -19,6 +19,7 @@ PAN_LIMIT_DEG = 60.0
 PAN_STEP_DEG = 8.0  # the camera follows the target in steps this big, not constantly
 SEARCH_TURN_DEG = 180.0  # after the first sweep: half a turn on the spot, then sweep what was behind
 MAX_TICK_S = 0.3  # a longer gap between ticks counts as this (no jump in the ramps after a stall)
+STALE_GIVE_UP_S = 2.0  # a stale map stops the tank at once; this long ends the run (design-notes §157.2)
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class ChaseSkill:
         self._pos_t0 = 0.0  # when the camera was sent there
         self._look_t0: float | None = None  # since when its pictures are still
         self._cam_still = True
+        self._stale_t0: float | None = None  # since when the map is stale
 
     def _out(
         self, want: Command, cam: tuple[float, float] | None = None, result: str | None = None
@@ -76,8 +78,14 @@ class ChaseSkill:
             self._dt = min(max(now_s - self._last_s, 0.0), MAX_TICK_S)
         self._last_s = now_s
         self._cam_still = cam_still
-        if not map_ok or at is None:
-            return self._end("stale")
+        if not map_ok or at is None:  # it can't see: stop at once (no ramp), drive on when the map is fresh
+            if self._stale_t0 is None:
+                self._stale_t0 = now_s
+            if now_s - self._stale_t0 >= STALE_GIVE_UP_S - 1e-9:
+                return self._end("stale")
+            self.cmd = STOP
+            return SkillOut(STOP)
+        self._stale_t0 = None
         if self.state == "start":
             self.state, self._t0 = ("approaching", now_s) if fix is not None else ("sweep", now_s)
             self._pan, self._i = None, 0

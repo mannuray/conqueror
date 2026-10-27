@@ -10,7 +10,9 @@ from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, roll_out
 from conqueror_ai.domain.drive.limits import Limits
 
 RADII_M = (1.5, 0.8, 0.5)  # plus straight on and the tightest smooth arc
-SPIN_FROM_DEG = 70.0  # a spin in place is offered only when the target is this far off
+# More than this far off, the tank turns on the spot first. (Floor chase 5: the tightest arcs the inner track
+# allows are 30-50 cm, so a target 40 deg off at 80 cm was swept past by a curve; design-notes §157.)
+SPIN_FROM_DEG = 35.0
 SPIN_UNTIL_DEG = 8.0  # once spinning, keep spinning until the target is this near straight ahead
 
 
@@ -54,10 +56,8 @@ class Planner:
                 if math.isfinite(r_min) and r >= r_min:
                     w = math.degrees(v / 100.0 / r)
                     out += [Command(v, w), Command(v, -w)]
-        if self.inside_turn(at, target):
-            return [STOP, spin]  # no curve can reach it: turn on the spot toward it first
-        if abs(b) > SPIN_FROM_DEG:
-            out.append(spin)
+        if abs(b) > SPIN_FROM_DEG or self.inside_turn(at, target):
+            return [STOP, spin]  # well off to one side, or no curve reaches it: turn on the spot first
         return list(dict.fromkeys(out))
 
     def inside_turn(self, at: XYTh, target: tuple[float, float]) -> bool:

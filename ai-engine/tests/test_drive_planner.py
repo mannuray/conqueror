@@ -44,6 +44,15 @@ def test_a_target_inside_the_tightest_circle_is_turned_to_on_the_spot() -> None:
     assert P.choose((0.0, 0.0, 0.0), Command(25.0, 0.0), (0.1, 0.3)).v_cms == 0
 
 
+def test_a_target_well_to_one_side_is_turned_to_on_the_spot_first() -> None:
+    """Floor chase 5 (the ball 60 cm ahead, 50 cm right of the lens): a 50 cm curve at cruise swept 59 cm past
+    it. More than 35 deg off, the tank turns on the spot first, from standing or while driving."""
+    ball = (0.085 + 0.60, -0.50)
+    assert P.choose((0.0, 0.0, 0.0), STOP, ball) == Command(0.0, -LIM.spin_dps)
+    assert P.choose((0.0, 0.0, 0.0), Command(25.0, 0.0), ball) == Command(0.0, -LIM.spin_dps)
+    assert P.choose((0.0, 0.0, 0.0), Command(25.0, 0.0), (1.5, -0.6)).v_cms > 0  # 22 deg off: an arc
+
+
 def test_an_echo_ahead_that_is_not_the_target_is_kept_clear_of() -> None:
     """Slow down rather than stop (spec 8 §3): the chosen curve keeps clear_m from the echo."""
     c = P.choose((0.0, 0.0, 0.0), Command(25.0, 0.0), (2.0, 0.0), obstacle_m=0.6)

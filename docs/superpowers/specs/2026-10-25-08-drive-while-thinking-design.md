@@ -78,7 +78,7 @@ flowchart LR
 2. **Imagine a fan of curves** about 1.5 s ahead, from the current command:
    - straight, plus gentle, medium and tightest arcs to each side (radius ≥ the tightest smooth curve for that speed);
    - each at cruise, slow and stop speed;
-   - a smooth spin in place only when the target is far behind (> 70° off), the one case where turning on the spot is the smooth thing to do.
+   - a smooth spin in place when the target is well off to one side (> 35° off): the tank turns on the spot first, then drives in. (The first draft said > 70°; on the floor the tightest arcs, 30-50 cm, swept past a ball 40° off at 80 cm, design-notes §157.)
 3. **Score each curve:**
    - **progress:** how much nearer the target it ends, and how well it ends facing it;
    - **clearance:** distance to anything known in the way. In slice 1 that's the sonar's echo, unless the echo is the target itself. From slice 2 it's the local grid;

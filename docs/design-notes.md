@@ -2367,3 +2367,13 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - **today a second client's `drive_rate` is refused (or ends the program):** the drive lease is a new path, the bridge's `SkillHub` plus a `kSkill` motion primitive with the same endings and deadman as `GO`;
   - **the AI engine's `BridgeLink` stays motion-free:** driving goes through a separate `DriveLink`;
   - **new errors 7050–7053:** not found, lost sight, the AI helper stopped answering, only "ball for now.
+
+## 157. Plan Z1 floor checks: chase the ball (2026-10-27)
+
+### 157.1 Turn on the spot first when the ball is well off to one side (owner, 2026-10-27)
+- **Floor chase 5:** the green ball 60 cm ahead and 50 cm right of the lens (78 cm, ~40° right).
+  - It found the ball on the first look ahead; the camera followed it right; the drive was smooth (2.5 s, no stops).
+  - **But it swept past:** the planner chose a 50 cm curve at 25 cm/s (28.6 °/s). By the encoders and gyro it drove 59 cm and turned 47° right, ending ~25 cm from the ball with the ball ~20° right of the nose. That is inside the camera's blind zone, so it lost the ball, and the sonar (28-30 cm) ended it `blocked`.
+- **Why slowing doesn't help here:** the inner track can't run slower than ~17.7 cm/s, so a slower tank curves *wider*, not tighter (`r_min`, LLD §17.4). Turning on the spot is the only tight turn.
+- **Decision:** a target more than **35°** off gets only a spin in place (`SPIN_FROM_DEG` 70 → 35, and the spin is the only choice, not just offered). The tank turns to face the ball, then drives in.
+- **Simulator** (same setup, `near-40-right` case in `test_drive_sim.py`): before, it ended 0.29 m from the ball; after, 0.44 m, done in 2.3 s. The other cases are unchanged (ahead 4.8 s, 90° right 9.4 s, behind 11.8 s), except 45° left, which takes 6.9 s instead of 6.5 s because it now turns first.

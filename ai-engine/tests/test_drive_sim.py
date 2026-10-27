@@ -81,8 +81,8 @@ def moving_stops(outs: list[SkillOut]) -> int:
 
 @pytest.mark.parametrize(
     ("ball", "th_deg"),
-    [((1.6, 0.0), 0.0), ((1.2, 1.2), 0.0), ((0.0, -1.5), 0.0), ((-1.5, 0.0), 0.0)],
-    ids=["ahead", "45-left", "90-right", "behind"],
+    [((1.6, 0.0), 0.0), ((1.2, 1.2), 0.0), ((0.0, -1.5), 0.0), ((-1.5, 0.0), 0.0), ((0.685, -0.5), 0.0)],
+    ids=["ahead", "45-left", "90-right", "behind", "near-40-right"],  # near-40-right: floor chase 5
 )
 @pytest.mark.parametrize("dt", [0.1, 0.2], ids=["10Hz", "5Hz"])  # the real loop ticks once per picture
 def test_a_chase_reaches_the_ball_in_one_smooth_move(

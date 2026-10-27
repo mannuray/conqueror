@@ -1060,7 +1060,7 @@ sequenceDiagram
 - **The fan, built from the current command:**
   - speeds `{v_cruise, v_min, 0}`, capped by `v_cap` and by distance: from `slow_from` the top speed falls linearly to `v_min` at `stop_range + 0.10`;
   - for each speed, turn rates from the radii `{∞, 1.5, 0.8, 0.5, r_min(v)}` m on each side: `w = v / r`;
-  - plus a spin `(0, ±spin_dps)`, offered only when the target is more than 70° off;
+  - a target more than 35° off (or inside the tightest circle) gets only a spin `(0, ±spin_dps)`: the tank turns on the spot first, from standing or by slowing out of a drive (floor chase 5, design-notes §157: a 50 cm curve at cruise swept past a ball 40° off at 80 cm). It was "offered beyond 70°" before;
   - `r_min(v) = max(0.31, (track/2) · v / (v − inner_min))` m (design-notes §71: the inner track can't go slower than ~17.7 cm/s, and no arc under ~31 cm is smooth). A speed whose `r_min` comes out over 1.5 m (near `v_min`) offers only straight on.
 - **`roll_out`:** a constant-(v, w) arc for 1.5 s in 0.1 s steps, starting from the ramp-limited command, so the predicted path is the one the tank will really drive.
 - **Score** (higher is better; weights in `config/drive.yaml`):

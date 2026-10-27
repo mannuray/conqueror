@@ -2415,3 +2415,8 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - **standing with every curve blocked for 3 s ends the run `blocked`** (`BLOCKED_GIVE_UP_S`): slice 2 needs it too, when there is no way round;
   - **closing a link the bridge already dropped is quiet**, so Ctrl-C prints its line.
 
+
+### 157.6 Floor chase 12 (the box again), the phone STOP and Ctrl-C (2026-10-27)
+- **Box again** (same setup as §157.5): drove ~35 cm straight, then curved ~13° left looking for a way past, slowing to ~20 cm/s; the sonar fell from 31 cm to under `clear_m` and it ended **`blocked` at 2.7 s** (the 30 cm rule, not the 3 s wait). It never touched the box. The program ended on its own.
+- **Phone STOP mid-chase** (the owner pressed it): the run ended `refused by the tank (STOPPED)` after ~2 s at 25 cm/s.
+- **Ctrl-C mid-chase** (SIGINT 2 s after the tracks started, watched by a second telemetry client): the **tracks stopped 0.20 s** after it; the program printed "stopped (Ctrl-C): the tank was told to stop" and exited 0 (§157.5's fix).

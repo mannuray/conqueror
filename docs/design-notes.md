@@ -2394,3 +2394,14 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
 - **The spin overshot:** right to ~69°, then back left to ~22°, then a smooth arc right at up to 25 cm/s. It's likely the first fix of the ball's position, taken while the camera was still turning toward it with the ball at the edge of the picture; to be checked against the recording.
 - **WiFi gaps up to 0.32 s** (13 over 0.1 s) didn't end the run (§157.2).
 - **Next (owner, 2026-10-27):** finish Plan Z1's floor checks; then slice 2 (explore without bumping) before nudging the ball. Nudging needs its own safety design: the Uno's obstacle brake stops 15 cm from anything and is locked on in child play.
+
+### 157.4 Floor chases 8-10: 90° right, behind, a rolling ball - all done (2026-10-27)
+| Chase | Setup | Result | What it did | End (sonar → lens to ball centre*) |
+|---|---|---|---|---|
+| 8 | ball 1.2 m right, level with the lens | done | looked ~4.5 s (found at the 90° right look); spun right ~101° in one turn; 48 cm nearly straight at up to 23 cm/s; a short spin left at the end to face it | 291 mm → ~37 cm |
+| 9 | ball 1.5 m straight behind | done | looked ~5 s; the half turn spun **~210°, not 180°** (it's timed at 65 °/s, the tank spins a bit faster); looked again ~3.5 s, found at a 45° look; one smooth 103 cm curve at up to 25 cm/s; ~16 s in all | 415 mm → ~49 cm |
+| 10 | ball 2 m ahead; it started rolling (erratically) after the tank set off | done | followed it 3.4 m over 14 s, curving right, then left, then right; one 0.15 s stop at a WiFi gap (the §157.2 pause, then on); owner: "it was cool, very cool ... the tank was still able to follow" | 495 mm → ~58 cm (just outside 40 ± 15) |
+
+\* sonar + 4.5 cm (the sonar ahead of the lens) + ~3.5 cm (the ball's radius).
+
+- **Noted, not fixed:** the search half turn is timed, so it overshoots (~210°); a gyro-measured half turn would be exact. It found the ball anyway.

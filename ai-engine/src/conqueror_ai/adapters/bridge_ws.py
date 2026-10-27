@@ -13,6 +13,7 @@ from collections.abc import Callable
 from typing import Any
 
 from websockets.asyncio.client import ClientConnection, connect
+from websockets.exceptions import ConnectionClosed
 
 from conqueror_ai.domain.clock import BridgeClock
 from conqueror_ai.domain.telemetry import parse_td
@@ -170,5 +171,7 @@ class BridgeLink:
         if ws is not None:
             try:
                 await self._send(ws, {"t": "debug", "on": False})
+            except ConnectionClosed:
+                pass  # the bridge already dropped it: nothing to switch off
             finally:
                 await ws.close()

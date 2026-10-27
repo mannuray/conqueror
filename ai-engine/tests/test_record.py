@@ -284,3 +284,24 @@ def test_an_impossible_age_is_unknown() -> None:
     ages = Ages()
     assert ages.of(link, Frame(1, 500_000_000, 108.0, b"")) is None  # 8 s old: not believable
     assert ages.of(link, Frame(2, 501_000_000, 100.5, b"")) is None  # from the future
+
+
+async def test_closing_a_link_the_bridge_already_dropped_is_quiet() -> None:
+    """Floor chase 11: the bridge had reset the connection; Ctrl-C then crashed in close() sending "debug off"
+    instead of printing the result."""
+    from websockets.exceptions import ConnectionClosedError
+
+    class Gone:
+        closed = False
+
+        async def send(self, _msg: str) -> None:
+            raise ConnectionClosedError(None, None)
+
+        async def close(self) -> None:
+            self.closed = True
+
+    link = BridgeLink("127.0.0.1", 1)
+    ws = Gone()
+    link._ws = ws  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage]
+    await link.close()
+    assert ws.closed

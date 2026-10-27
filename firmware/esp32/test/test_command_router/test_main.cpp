@@ -65,7 +65,7 @@ void setUp() {
   logoc = new app::LogoController(out, logbook, *link, *tel, g_logo_program, g_logo_vm);
   router = new app::CommandRouter(*drive, *motion, *settings, *tank, *logoc, *tel, out);
   router->setHello("abc1234", sensor);
-  motion->setHooks({[](int fd, uint32_t now) { return drive->claim(fd, now); }, [] { return drive->otaActive(); }});
+  motion->setHooks({[](int fd, uint32_t now, bool moving) { return drive->claim(fd, now, moving); }, [] { return drive->otaActive(); }});
   tel->setViews({[] { return drive->ownerView(); }, [] { return motion->view(); }, [] { return !link->synced(); }});
   settings->setHooks({[] { return motion->active(); }, [] { return drive->otaActive(); }, [] { return owner->driverFd(); },
                       [](int fd) { motion->sendCalib(fd); }, [](const core::AckedOp& op) { return uno->request(op); },

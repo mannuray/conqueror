@@ -1009,7 +1009,7 @@ def test_speed_to_percent_follows_the_measured_table() -> None:
 
 
 def test_a_drive_message_is_drive_rate_with_the_turn_rate_plus_left() -> None:
-    assert drive_msg(Command(25.0, -12.34)) == {"t": "drive_rate", "v": 56, "rate": -12.3}
+    assert drive_msg(Command(25.0, -12.34)) == {"t": "drive_rate", "v": 56, "yaw_rate": -12.3}
 
 
 def test_the_drive_config_file_loads_and_checks(tmp_path: Path) -> None:
@@ -1071,7 +1071,7 @@ def to_percent(v_cms: float, table: tuple[tuple[float, float], ...] = SPEED_TABL
 
 
 def drive_msg(cmd: Command, table: tuple[tuple[float, float], ...] = SPEED_TABLE) -> dict[str, Any]:
-    return {"t": "drive_rate", "v": to_percent(cmd.v_cms, table), "rate": round(cmd.w_dps, 1)}
+    return {"t": "drive_rate", "v": to_percent(cmd.v_cms, table), "yaw_rate": round(cmd.w_dps, 1)}
 
 
 class DriveLink:

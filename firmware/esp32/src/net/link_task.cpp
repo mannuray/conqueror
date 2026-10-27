@@ -151,7 +151,7 @@ void linkTask(void*) {
 void wireViews() {
   g_tel.setViews({[] { return g_drive.ownerView(); }, [] { return g_motion.view(); }, [] { return !g_link.synced(); }});
   app::MotionController::Hooks m;
-  m.claim = [](int fd, uint32_t now) { return g_drive.claim(fd, now); };
+  m.claim = [](int fd, uint32_t now, bool moving) { return g_drive.claim(fd, now, moving); };
   m.ota = [] { return g_drive.otaActive(); };
   m.logo_fd = [] { return g_logo->fd(); };  // Plan N3: a running program is its page's primitive
   m.logo_end = [](const core::PrimitiveEnd& e, uint32_t now) { g_logo->onPrimitiveEnd(e, now); };

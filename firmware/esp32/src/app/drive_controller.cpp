@@ -51,9 +51,9 @@ void DriveController::applyOwner(const core::Actions& a, uint32_t now) {
   m_tel.sendTs();
 }
 
-core::Decision DriveController::claim(int fd, uint32_t now) {
+core::Decision DriveController::claim(int fd, uint32_t now, bool moving) {
   core::Actions a;
-  const core::Decision d = m_owner.onDrive(fd, now, a);
+  const core::Decision d = m_owner.onDrive(fd, now, a, moving);
   applyOwner(a, now);
   return d;
 }

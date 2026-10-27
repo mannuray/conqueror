@@ -21,7 +21,9 @@ class MotionController {
  public:
   static constexpr int32_t kLogoPrimitive = -2;  // Plan N3: the id of a running Logo program's primitives
   struct Hooks {  // until DriveController owns these (Plan P Task 11)
-    core::Decision (*claim)(int fd, uint32_t now);  // take / keep ownership (applies the owner's actions)
+    // take / keep ownership (applies the owner's actions); moving: a stream frame that moves (drive_rate) - held
+    // after another device's STOP like the stick (design-notes §72, §157); false for a deliberate new primitive
+    core::Decision (*claim)(int fd, uint32_t now, bool moving);
     bool (*ota)();
     // Plan N3 (Tank Logo LLD §20.5): the running program's fd (-1 none), the end of its primitive, and every event
     // that ends a drive (STOP, release, page closed, OTA, body offline, stall, the owner's own command).
@@ -62,7 +64,7 @@ class MotionController {
   bool arcAllowed(int fd, int32_t id, const core::WsCommand& c);
   bool moveAllowed(int fd, int32_t id, uint32_t now);
   bool moveRefused(core::BridgeReason& why) const;
-  bool rateRefused(int fd, uint32_t now, core::BridgeReason& why);
+  bool rateRefused(int fd, uint32_t now, bool moving, core::BridgeReason& why);
   bool claimed(int fd, int32_t id, uint32_t now);
   void observeRoll(uint32_t now);
   void learnFrom(const core::PrimitiveEnd& e, uint32_t now);

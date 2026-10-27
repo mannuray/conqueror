@@ -1,0 +1,84 @@
+"""The goal: which ball, and where it is (AI engine LLD §17.5)."""
+
+from __future__ import annotations
+
+import pytest
+
+from conqueror_ai.domain.camera import CameraModel
+from conqueror_ai.domain.drive.goal import (
+    Goal,
+    TargetFix,
+    echo_is_target,
+    is_ball,
+    kind_of,
+    size_position,
+    size_positions,
+)
+from conqueror_ai.domain.types import Detection, ObjectEstimate, Pose
+from tests.test_camera import calib
+
+
+# ---- the goal
+def obj(oid: int, cls: str, x: float, y: float, seen_us: int = 0) -> ObjectEstimate:
+    return ObjectEstimate(oid, cls, x, y, 0.0, 0.0, 0.05, 0, seen_us, "seen")
+
+
+def test_the_kind_ball() -> None:
+    assert is_ball("ball:green") and is_ball("toy") and is_ball("ball")
+    assert not is_ball("chair") and not is_ball("person")
+
+
+def test_the_goal_takes_the_nearest_ball_and_keeps_it() -> None:
+    g = Goal()
+    fix = g.update(
+        [obj(1, "chair", 0.5, 0.0), obj(2, "ball:green", 1.5, 0.0), obj(3, "toy", 2.5, 0.0)], (0, 0), 0
+    )
+    assert fix is not None and fix.oid == 2
+    fix = g.update([obj(2, "ball:green", 1.5, 0.0), obj(4, "ball:red", 0.8, 0.0)], (0, 0), 0)
+    assert fix is not None and fix.oid == 2  # locked: a nearer ball appearing doesn't steal it
+    fix = g.update([obj(4, "ball:red", 0.8, 0.0)], (0, 0), 0)
+    assert fix is not None and fix.oid == 4  # gone: the nearest again
+
+
+def test_the_goal_uses_the_size_position_and_says_how_old_the_sighting_is() -> None:
+    g = Goal()
+    fix = g.update(
+        [obj(2, "ball:green", 1.5, 0.0, seen_us=1_000_000)], (0, 0), 3_000_000, {"ball:green": (1.1, 0.1)}
+    )
+    assert fix == TargetFix(2, 1.1, 0.1, 2.0)
+
+
+def test_a_balls_size_gives_its_range_whatever_the_tilt() -> None:
+    cam = CameraModel(calib()).for_frame(Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.0, 0.0)
+    r = 200.0 * 0.06 / 1.0  # a 12 cm ball 1 m away at fx 200: radius 12 px
+    det = Detection("ball:green", 0.9, (160.0 - r, 120.0 - r, 160.0 + r, 120.0 + r))
+    p = size_position(det, 12.0, cam)
+    assert p is not None and p[0] == pytest.approx(cam.position()[0] + 1.0, abs=0.01)
+    assert (
+        size_position(Detection("ball:green", 0.9, (150.0, 110.0, 160.0, 120.0)), 12.0, cam) is None
+    )  # too small
+
+
+def test_an_echo_at_the_targets_range_straight_ahead_is_the_target() -> None:
+    assert echo_is_target(0.62, 0.55, 3.0)
+    assert not echo_is_target(0.30, 0.55, 3.0)  # nearer: something else
+    assert not echo_is_target(0.55, 0.55, 30.0)  # the target is off to the side
+
+
+def test_two_balls_of_one_colour_give_no_size_position() -> None:
+    cam = CameraModel(calib()).for_frame(Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.0, 0.0)
+    one = Detection("ball:green", 0.9, (148.0, 108.0, 172.0, 132.0))
+    other = Detection("ball:green", 0.8, (40.0, 108.0, 64.0, 132.0))
+    red = Detection("ball:red", 0.8, (240.0, 108.0, 264.0, 132.0))
+    sizes = {"ball:green": 12.0, "ball:red": 12.0}
+    assert set(size_positions([one, red], sizes, cam)) == {"ball:green", "ball:red"}
+    # which green ball is the target isn't known here: the map's position is used instead (no jumping)
+    assert set(size_positions([one, other, red], sizes, cam)) == {"ball:red"}
+
+
+def test_the_target_is_any_thing_by_its_word_and_ball_is_every_ball() -> None:
+    bottle = kind_of("bottle")
+    assert bottle("bottle") and not bottle("ball:green") and not bottle("chair")
+    assert kind_of("ball")("toy") and kind_of("ball")("ball:green")
+    fix = Goal(bottle).update([obj(1, "ball:green", 0.5, 0.0), obj(2, "bottle", 1.5, 0.0)], (0, 0), 0)
+    assert fix is not None and fix.oid == 2  # the nearer ball isn't a bottle

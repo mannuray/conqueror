@@ -78,7 +78,7 @@ flowchart LR
 2. **Imagine a fan of curves** about 1.5 s ahead, from the current command:
    - straight, plus gentle, medium and tightest arcs to each side (radius ≥ the tightest smooth curve for that speed);
    - each at cruise, slow and stop speed;
-   - a smooth spin in place only when the target is far behind (> 70° off), the one case where turning on the spot is the smooth thing to do.
+   - a smooth spin in place when the target is well off to one side (> 35° off): the tank turns on the spot first, then drives in. (The first draft said > 70°; on the floor the tightest arcs, 30-50 cm, swept past a ball 40° off at 80 cm, design-notes §157.)
 3. **Score each curve:**
    - **progress:** how much nearer the target it ends, and how well it ends facing it;
    - **clearance:** distance to anything known in the way. In slice 1 that's the sonar's echo, unless the echo is the target itself. From slice 2 it's the local grid;
@@ -163,7 +163,7 @@ stateDiagram-v2
   approaching --> approaching : ball moves, the target is updated every tick
   approaching --> arrived : ball centre 40 cm (+-15) from the lens, tank stopped and facing it
   approaching --> looking : ball not seen for 3 s and not where memory says
-  approaching --> lost : STOP, page gone, map stale, sonar blocked by something that is not the ball
+  approaching --> lost : STOP, page gone, map stale for 2 s, sonar blocked by something that is not the ball
   arrived --> [*]
   lost --> [*]
 ```
@@ -176,7 +176,7 @@ stateDiagram-v2
   - Speed: cruise ~25 cm/s; from ~80 cm, slowing to ~18 cm/s; then a gentle stop at ~40 cm from the lens. That's about 15 cm before the camera's blind strip, so the ball is still in view when the tank stops.
   - A ball that rolls (a child kicks it) is followed: the target is updated every tick, and the curve bends toward where it is now.
 - **arrived:** stopped, facing the ball within ~10°.
-- **lost:** the tank stops, and the skill reports why: not found, lost from view, blocked, stopped, or the map went stale (no picture for 0.5 s or no telemetry for 0.2 s, spec 7 §4).
+- **lost:** the tank stops, and the skill reports why: not found, lost from view, blocked, stopped, or the map stayed stale for 2 s. A stale map (no picture for 0.5 s or no telemetry for 0.2 s, spec 7 §4) stops the tank at once; it drives on when the map is fresh again (a short WiFi gap ended floor chase 6 a second before it arrived, design-notes §157.2).
 - **Nudging the ball** (driving into it gently) comes later, once the brake behaviour near a ball is understood; slice 1 stops before it.
 
 ### 4.3 The words a child writes (Tank Logo, spec 5 §3.5, extended)
@@ -239,7 +239,7 @@ Spec 5 §6 says AI programs run in an AI-engine runner. Revision 2 then put the 
 4. **Finds it:**
    - a ball behind the tank is found (the camera sweep, then the slow spin) and reached;
    - with no ball in the room, the result is "not found" within ~15 s.
-5. **Stays safe:** STOP from the phone during a `GOTO` stops it at once, and the program ends. A box placed in the path: the tank slows and stops before it (sonar), or the Uno brake fires. The tank never touches the box. Avoiding it smoothly is slice 2.
+5. **Stays safe:** STOP from the phone during a `GOTO` stops it at once, and the program ends. A box placed in the path: the tank slows and stops before it (sonar), or the Uno brake fires, and ends `blocked` after standing 3 s. The tank never touches the box. Avoiding it smoothly is slice 2.
 6. **The child's program** (`FIND "ball  GOTO "ball  SOUND FANFARE`) runs from the `/logo` page.
 
 ## 7. Testing

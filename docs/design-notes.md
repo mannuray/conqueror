@@ -2367,3 +2367,71 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - **today a second client's `drive_rate` is refused (or ends the program):** the drive lease is a new path, the bridge's `SkillHub` plus a `kSkill` motion primitive with the same endings and deadman as `GO`;
   - **the AI engine's `BridgeLink` stays motion-free:** driving goes through a separate `DriveLink`;
   - **new errors 7050–7053:** not found, lost sight, the AI helper stopped answering, only "ball for now.
+
+## 157. Plan Z1 floor checks: chase the ball (2026-10-27)
+Plan Z1 (spec 8 slice 1, AI engine LLD §17.10 "As built") on the floor with the owner, the green ball, STOP in hand. Summary: every chase reached the ball (§157.1-§157.4); the box, the phone STOP and Ctrl-C passed (§157.5-§157.6); the speed table holds (§157.7). The fixes found on the floor: turn on the spot beyond 35°, end the spin 15° early, a stale map pauses, standing blocked 3 s ends the run, a quiet link close. Before this, the final review's fixes and the bridge STOP fix (ledger; LLD §17.10).
+
+
+### 157.1 Turn on the spot first when the ball is well off to one side (owner, 2026-10-27)
+- **Floor chase 5:** the green ball 60 cm ahead and 50 cm right of the lens (78 cm, ~40° right).
+  - It found the ball on the first look ahead; the camera followed it right; the drive was smooth (2.5 s, no stops).
+  - **But it swept past:** the planner chose a 50 cm curve at 25 cm/s (28.6 °/s). By the encoders and gyro it drove 59 cm and turned 47° right, ending ~25 cm from the ball with the ball ~20° right of the nose. That is inside the camera's blind zone, so it lost the ball, and the sonar (28-30 cm) ended it `blocked`.
+- **Why slowing doesn't help here:** the inner track can't run slower than ~17.7 cm/s, so a slower tank curves *wider*, not tighter (`r_min`, LLD §17.4). Turning on the spot is the only tight turn.
+- **Decision:** a target more than **35°** off gets only a spin in place (`SPIN_FROM_DEG` 70 → 35, and the spin is the only choice, not just offered). The tank turns to face the ball, then drives in.
+- **Simulator** (same setup, `near-40-right` case in `test_drive_sim.py`): before, it ended 0.29 m from the ball; after, 0.44 m, done in 2.3 s. The other cases are unchanged (ahead 4.8 s, 90° right 9.4 s, behind 11.8 s), except 45° left, which takes 6.9 s instead of 6.5 s because it now turns first.
+
+### 157.2 A short WiFi gap pauses the chase; the spin ends 15° early (owner, 2026-10-27)
+- **Floor chase 6** (the same setup as chase 5, after §157.1):
+  - It drove straight ~5 cm while the camera turned to the ball, then turned on the spot to the right: **55°** for a ball ~40° off (stopping at 8° left; the pose lags and the tank coasts on after the stop).
+  - It then curved left smoothly (1.7 s, no stops) and was facing the ball when it ended.
+  - **It ended `stale - no telemetry for 0.2 s`** about a second before arriving: the sonar read 33 cm to the ball's surface (~41 cm lens to centre, the stop range). Telemetry over WiFi often arrives up to 0.12 s apart (three gaps of 0.116-0.123 s in this run), so 0.2 s is crossed now and then.
+- **Decisions:**
+  - **A stale map pauses, it doesn't end the run.** The tank gets a STOP at once (not a ramp: it can't see), and drives on, ramping from standing, when pictures and telemetry are fresh again. Only 2 s of it ends the run (`STALE_GIVE_UP_S`, reason `stale`). The 0.2 s / 0.5 s staleness limits and the bridge's deadman are unchanged: it still never drives on a stale map.
+  - **The spin ends with 15° left** (`SPIN_UNTIL_DEG` 8 → 15); the drive's arc aims the rest.
+- **Simulator:** ahead 4.8 s, 45° left 6.7 s, 90° right 9.4 s, behind 11.8 s, the chase-5 setup 2.1 s; all end 0.43-0.45 m from the ball.
+
+
+### 157.3 Floor chase 7: ball 40° right at 78 cm - done (2026-10-27)
+- **Result `done` in 3.3 s;** the owner: "it looked good". The sonar read 336 mm at the end (~41 cm lens to the ball's centre; target 40 ± 15). It ended facing 43° right of its start, where the ball was.
+- **The spin overshot:** right to ~69°, then back left to ~22°, then a smooth arc right at up to 25 cm/s. It's likely the first fix of the ball's position, taken while the camera was still turning toward it with the ball at the edge of the picture; to be checked against the recording.
+- **WiFi gaps up to 0.32 s** (13 over 0.1 s) didn't end the run (§157.2).
+- **Next (owner, 2026-10-27):** finish Plan Z1's floor checks; then slice 2 (explore without bumping) before nudging the ball. Nudging needs its own safety design: the Uno's obstacle brake stops 15 cm from anything and is locked on in child play.
+
+### 157.4 Floor chases 8-10: 90° right, behind, a rolling ball - all done (2026-10-27)
+| Chase | Setup | Result | What it did | End (sonar → lens to ball centre*) |
+|---|---|---|---|---|
+| 8 | ball 1.2 m right, level with the lens | done | looked ~4.5 s (found at the 90° right look); spun right ~101° in one turn; 48 cm nearly straight at up to 23 cm/s; a short spin left at the end to face it | 291 mm → ~37 cm |
+| 9 | ball 1.5 m straight behind | done | looked ~5 s; the half turn spun **~210°, not 180°** (it's timed at 65 °/s, the tank spins a bit faster); looked again ~3.5 s, found at a 45° look; one smooth 103 cm curve at up to 25 cm/s; ~16 s in all | 415 mm → ~49 cm |
+| 10 | ball 2 m ahead; it started rolling (erratically) after the tank set off | done | followed it 3.4 m over 14 s, curving right, then left, then right; one 0.15 s stop at a WiFi gap (the §157.2 pause, then on); owner: "it was cool, very cool ... the tank was still able to follow" | 495 mm → ~58 cm (just outside 40 ± 15) |
+
+\* sonar + 4.5 cm (the sonar ahead of the lens) + ~3.5 cm (the ball's radius).
+
+- **Noted, not fixed:** the search half turn is timed, so it overshoots (~210°); a gyro-measured half turn would be exact. It found the ball anyway.
+
+### 157.5 Floor chase 11: a box in the path; blocked ends after 3 s; Ctrl-C exits cleanly (owner, 2026-10-27)
+- **Setup:** the ball 2 m ahead, a low box (~10 cm, wider than the tank) about 1 m ahead (sonar 797 mm at the start).
+- **Safety passed:** it drove 41 cm (2 s, up to 21 cm/s), slowed, and stopped **~38 cm before the box** (sonar 382 mm); it never touched it.
+- **But it stood there ~4 minutes:** every curve was blocked, so the planner chose STOP each tick; the `blocked` ending fired only under `clear_m` (30 cm), which the stopped tank never reached. Stopped by hand (SIGINT).
+- **And Ctrl-C crashed on the way out:** the bridge had reset the camera-side link meanwhile; `BridgeLink.close()` raised sending "debug off" instead of printing the result.
+- **Owner's discussion (the practical cases):** someone stepping in the way, a box between the tank and the ball, the ball against a wall or under a chair, a chair leg, an obstacle hiding the ball. Going around blind risks clipping a chair leg; going around properly needs the obstacle map. **Decision:** leave going around (and waiting for the way to clear, and telling the cases apart) to **slice 2**; now only:
+  - **standing with every curve blocked for 3 s ends the run `blocked`** (`BLOCKED_GIVE_UP_S`): slice 2 needs it too, when there is no way round;
+  - **closing a link the bridge already dropped is quiet**, so Ctrl-C prints its line.
+
+
+### 157.6 Floor chase 12 (the box again), the phone STOP and Ctrl-C (2026-10-27)
+- **Box again** (same setup as §157.5): drove ~35 cm straight, then curved ~13° left looking for a way past, slowing to ~20 cm/s; the sonar fell from 31 cm to under `clear_m` and it ended **`blocked` at 2.7 s** (the 30 cm rule, not the 3 s wait). It never touched the box. The program ended on its own.
+- **Phone STOP mid-chase** (the owner pressed it): the run ended `refused by the tank (STOPPED)` after ~2 s at 25 cm/s.
+- **Ctrl-C mid-chase** (SIGINT 2 s after the tracks started, watched by a second telemetry client): the **tracks stopped 0.20 s** after it; the program printed "stopped (Ctrl-C): the tank was told to stop" and exited 0 (§157.5's fix).
+
+### 157.7 The speed table on the floor (2026-10-27)
+Straight on, 1.5 s at each speed without stopping (`drive_rate` through `config/drive.yaml`'s table); speed = the encoders' distance (7514 counts/m) over the last 0.8 s of each step:
+
+| Asked | `drive_rate` | Measured |
+|---|---|---|
+| 18 cm/s | 17 % | 16.5 cm/s |
+| 22 cm/s | 40 % | 22.1 cm/s |
+| 25 cm/s | 56 % | 26.5 cm/s |
+
+Within ±1.5 cm/s (≤ 8 %): **the table stays** (loose tolerances, spec 0 §1.1; the loop re-plans from the measured pose every tick).
+
+**Plan Z1's floor checks are done** (§157.1-§157.7): ball ahead-right, 90° right, behind, rolled away, a box in the path, the phone STOP, Ctrl-C, the speed table. No stutter (no tick gaps over 0.5 s; the only stops were the §157.2 WiFi pauses). Not run on the floor: "no ball anywhere" (the same search as chase 9's first sweep and half turn; the simulator covers the `not_found` end).

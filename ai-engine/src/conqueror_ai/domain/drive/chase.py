@@ -19,6 +19,7 @@ PAN_LIMIT_DEG = 60.0
 PAN_STEP_DEG = 8.0  # the camera follows the target in steps this big, not constantly
 SEARCH_TURN_DEG = 180.0  # after the first sweep: half a turn on the spot, then sweep what was behind
 MAX_TICK_S = 0.3  # a longer gap between ticks counts as this (no jump in the ramps after a stall)
+BLOCKED_GIVE_UP_S = 3.0  # standing with every curve blocked this long ends the run (going around is slice 2)
 STALE_GIVE_UP_S = 2.0  # a stale map stops the tank at once; this long ends the run (design-notes §157.2)
 
 
@@ -45,6 +46,7 @@ class ChaseSkill:
         self._look_t0: float | None = None  # since when its pictures are still
         self._cam_still = True
         self._stale_t0: float | None = None  # since when the map is stale
+        self._blocked_t0: float | None = None  # since when every curve is blocked
 
     def _out(
         self, want: Command, cam: tuple[float, float] | None = None, result: str | None = None
@@ -151,6 +153,13 @@ class ChaseSkill:
             # close enough but off to the side: driving on would pass it, so turn on the spot to face it
             return self._out(Command(0.0, math.copysign(lim.spin_dps, b)))
         want = self.planner.choose(at, self.cmd, target, obstacle)
+        if want == STOP:  # every curve blocked (design-notes §157.5)
+            if self._blocked_t0 is None:
+                self._blocked_t0 = now_s
+            if now_s - self._blocked_t0 >= BLOCKED_GIVE_UP_S - 1e-9:
+                return self._end("blocked")
+        else:
+            self._blocked_t0 = None
         pan = max(-PAN_LIMIT_DEG, min(PAN_LIMIT_DEG, -b))
         cam = None
         if self._pan is None or abs(pan - self._pan) > PAN_STEP_DEG:

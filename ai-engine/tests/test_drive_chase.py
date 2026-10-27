@@ -111,3 +111,14 @@ def test_the_camera_follows_the_target_in_steps() -> None:
     assert (
         s.tick(0.1, (0.0, 0.0, 0.0), TargetFix(1, 1.5, 0.52, 0.0), None, True).cam is None
     )  # < 8 deg: no move
+
+
+def test_standing_blocked_for_3_s_ends_it_blocked() -> None:
+    """Floor chase 11: a box 38 cm ahead (beyond clear_m) blocked every curve; the tank stood for 4 minutes.
+    Going around is slice 2; until then (and when there's no way round) it ends after BLOCKED_GIVE_UP_S."""
+    s = skill()
+    fix = TargetFix(1, 2.0, 0.0, 0.0)
+    outs = [s.tick(i * 0.1, (0.0, 0.0, 0.0), fix, 0.35, True) for i in range(40)]
+    ends = [i for i, o in enumerate(outs) if o.result is not None]
+    assert all(o.cmd == STOP for o in outs) and [outs[i].result for i in ends] == ["blocked"]
+    assert 30 <= ends[0] <= 31

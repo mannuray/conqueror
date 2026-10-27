@@ -239,7 +239,7 @@ Spec 5 §6 says AI programs run in an AI-engine runner. Revision 2 then put the 
 4. **Finds it:**
    - a ball behind the tank is found (the camera sweep, then the slow spin) and reached;
    - with no ball in the room, the result is "not found" within ~15 s.
-5. **Stays safe:** STOP from the phone during a `GOTO` stops it at once, and the program ends. A box placed in the path: the tank slows and stops before it (sonar), or the Uno brake fires. The tank never touches the box. Avoiding it smoothly is slice 2.
+5. **Stays safe:** STOP from the phone during a `GOTO` stops it at once, and the program ends. A box placed in the path: the tank slows and stops before it (sonar), or the Uno brake fires, and ends `blocked` after standing 3 s. The tank never touches the box. Avoiding it smoothly is slice 2.
 6. **The child's program** (`FIND "ball  GOTO "ball  SOUND FANFARE`) runs from the `/logo` page.
 
 ## 7. Testing

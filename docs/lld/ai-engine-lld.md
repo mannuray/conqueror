@@ -1095,6 +1095,7 @@ stateDiagram-v2
   approaching --> arrived : range <= stop_range + 0.05 and |bearing| <= 10 deg, then the ramp brings v, w to 0
   approaching --> looking : target not seen for 3 s and its spot in view
   approaching --> lost : sonar < clear_m and not the target (reason blocked)
+  approaching --> lost : every curve blocked for 3 s, standing (reason blocked; going around is slice 2, design-notes §157.5)
   approaching --> held : map stale (no picture 0.5 s / telemetry 0.2 s) or no pose: STOP at once (no ramp)
   held --> approaching : map fresh again (the ramp starts from standing)
   held --> lost : stale for 2 s (reason stale; design-notes §157.2)

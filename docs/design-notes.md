@@ -2405,3 +2405,13 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
 \* sonar + 4.5 cm (the sonar ahead of the lens) + ~3.5 cm (the ball's radius).
 
 - **Noted, not fixed:** the search half turn is timed, so it overshoots (~210°); a gyro-measured half turn would be exact. It found the ball anyway.
+
+### 157.5 Floor chase 11: a box in the path; blocked ends after 3 s; Ctrl-C exits cleanly (owner, 2026-10-27)
+- **Setup:** the ball 2 m ahead, a low box (~10 cm, wider than the tank) about 1 m ahead (sonar 797 mm at the start).
+- **Safety passed:** it drove 41 cm (2 s, up to 21 cm/s), slowed, and stopped **~38 cm before the box** (sonar 382 mm); it never touched it.
+- **But it stood there ~4 minutes:** every curve was blocked, so the planner chose STOP each tick; the `blocked` ending fired only under `clear_m` (30 cm), which the stopped tank never reached. Stopped by hand (SIGINT).
+- **And Ctrl-C crashed on the way out:** the bridge had reset the camera-side link meanwhile; `BridgeLink.close()` raised sending "debug off" instead of printing the result.
+- **Owner's discussion (the practical cases):** someone stepping in the way, a box between the tank and the ball, the ball against a wall or under a chair, a chair leg, an obstacle hiding the ball. Going around blind risks clipping a chair leg; going around properly needs the obstacle map. **Decision:** leave going around (and waiting for the way to clear, and telling the cases apart) to **slice 2**; now only:
+  - **standing with every curve blocked for 3 s ends the run `blocked`** (`BLOCKED_GIVE_UP_S`): slice 2 needs it too, when there is no way round;
+  - **closing a link the bridge already dropped is quiet**, so Ctrl-C prints its line.
+

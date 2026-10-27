@@ -2435,3 +2435,10 @@ Straight on, 1.5 s at each speed without stopping (`drive_rate` through `config/
 Within ±1.5 cm/s (≤ 8 %): **the table stays** (loose tolerances, spec 0 §1.1; the loop re-plans from the measured pose every tick).
 
 **Plan Z1's floor checks are done** (§157.1-§157.7): ball ahead-right, 90° right, behind, rolled away, a box in the path, the phone STOP, Ctrl-C, the speed table. No stutter (no tick gaps over 0.5 s; the only stops were the §157.2 WiFi pauses). Not run on the floor: "no ball anywhere" (the same search as chase 9's first sweep and half turn; the simulator covers the `not_found` end).
+
+## 158. The camera servo's speed: slow on purpose, decide in slice 2 (owner, 2026-10-27)
+- **Owner:** "the servo is slow - is that its natural speed or are we running it slow?"
+- **We run it slow:** the SG90-type servos manage ~600 °/s (0.1 s per 60°); Plan W (Uno Lite LLD §23, design-notes §137) caps the camera at 120 °/s, with a 0.16 s soft start, a quarter-of-the-gap soft stop and a 100 ms target average, for an RC-transmitter feel on the phone's stick. Measured in the chases: ~0.5 s per 45°, ~0.8 s per 90°.
+- **Cost to the chase:** ~1.5-2.5 s of a ~11 s full search; most of the search is the 0.8 s of still pictures per look.
+- **Options:** leave it; a fast mode (~300 °/s) only for moves the laptop asks for (the sweep, Logo `LOOK`), the stick unchanged (the Uno has 654 B of flash left; the servo wobbles after a fast stop); faster for everything (undoes Plan W).
+- **Decision:** leave it for now; decide in slice 2, after measuring on the stand how long the camera wobbles after a ~300 °/s move.

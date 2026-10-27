@@ -13,8 +13,10 @@ from conqueror_ai.domain.depth import (
     DepthSettings,
     HeightPoints,
     Heights,
+    MapConfig,
     Marks,
     Ranges,
+    Seeing,
 )
 from conqueror_ai.domain.types import Pose
 from tests.test_camera import calib
@@ -110,6 +112,10 @@ def test_a_wrong_way_fit_gives_none() -> None:
     cam = servo_cam()
     inv = inverse_depth(cam)
     assert DepthScaler().fit(cam, np.where(inv > 0, 10.0 - inv, 0.0)) is None  # nearer reads smaller: a <= 0
+
+
+def test_a_flat_depth_picture_gives_none() -> None:
+    assert DepthScaler().fit(servo_cam(), np.full((240, 320), 0.8)) is None  # a wall: nothing to fit on
 
 
 def test_ranges_where_the_fit_goes_negative_are_inf_not_negative() -> None:
@@ -219,3 +225,28 @@ def test_the_owners_clear_height_is_used() -> None:
     owners = HeightPoints(Heights(clear_m=0.25), Ranges())
     assert kind_of(owners.classify(cam, rng), cam, 160, 8, rng) == "high"
     assert kind_of(HP.classify(cam, rng), cam, 160, 8, rng) == "above"
+
+
+# ---- Seeing: one picture end to end
+def test_a_synthetic_scene_comes_out_right() -> None:
+    true = servo_cam(1.5)
+    box = [(u, v, 0.05) for u in range(148, 176, 4) for v in range(172, 196, 4)]
+    rng = scene(true, box)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        z = rng / true.ray_norms()
+        inv = np.where(np.isfinite(z) & (z > 0), 1.7 / z + 0.05, 0.0)
+    seen = Seeing(MapConfig(depth=NO_OFFSET)).see(servo_cam(), inv, 1_000_000)
+    assert seen.fix.trusted and seen.fix.tilt_fix_deg == pytest.approx(1.5, abs=0.3)
+    assert seen.cam.tilt_fix_deg == seen.fix.tilt_fix_deg and seen.marks is not None
+    truth = HP.classify(true, rng).low_xy
+    assert seen.marks.low_xy.shape[0] >= 0.8 * truth.shape[0] > 0
+    for x, y in seen.marks.low_xy:
+        assert np.min(np.hypot(truth[:, 0] - x, truth[:, 1] - y)) < 0.05
+
+
+def test_a_wall_close_up_gives_no_marks_and_keeps_the_fix() -> None:
+    s = Seeing(MapConfig(depth=NO_OFFSET))
+    s.see(servo_cam(), inverse_depth(servo_cam(1.0)), 1_000_000)
+    seen = s.see(servo_cam(), np.full((240, 320), 0.8), 1_100_000)
+    assert seen.marks is None and seen.scaled is None
+    assert seen.fix.tilt_fix_deg == pytest.approx(1.0, abs=0.3)

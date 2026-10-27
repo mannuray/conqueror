@@ -12,6 +12,7 @@ from conqueror_ai.domain.camera import CameraModel, FloatArray
 
 MIN_ROWS = 20  # a picture's floor line needs this many rows ...
 MIN_R2 = 0.98  # ... and to be this straight
+MIN_SCALE_R2 = 0.9  # the floor's depth must fit its expected depth this well (a wall close up doesn't)
 
 
 @dataclass(frozen=True)
@@ -55,7 +56,9 @@ class AngleFix:
 
 
 def _fit(x: FloatArray, y: FloatArray) -> tuple[float, float, float]:
-    """Least squares y = p x + q, and R^2."""
+    """Least squares y = p x + q, and R^2 (0 when x doesn't vary: nothing to fit)."""
+    if float(np.ptp(x)) <= 1e-9 * max(1.0, float(np.abs(x).max())):
+        return 0.0, float(y.mean()), 0.0
     p, q = (float(v) for v in np.polyfit(x, y, 1))
     res = y - (p * x + q)
     tot = float(np.sum((y - y.mean()) ** 2))
@@ -154,8 +157,8 @@ class DepthScaler:
         keep = np.abs(res) <= 3 * max(float(res.std()), 1e-12)
         if int(keep.sum()) < self.min_pixels:
             return None
-        a, c, _ = _fit(x[keep], y[keep])
-        if a <= 0:
+        a, c, r2 = _fit(x[keep], y[keep])
+        if a <= 0 or r2 < MIN_SCALE_R2:
             return None
         with np.errstate(divide="ignore", invalid="ignore"):
             den = a * inv + c
@@ -198,3 +201,29 @@ class HeightPoints:
             above = far & (z > hs.clear_m)
         xy = pts[..., :2]
         return Marks(xy[floor], xy[low], xy[high], xy[above])
+
+
+# ---- one picture, end to end (AI engine LLD §18.3)
+@dataclass(frozen=True)
+class Seen:
+    fix: AngleFix
+    cam: CameraModel  # the picture's camera with the fix
+    scaled: ScaledDepth | None  # None: no floor to scale on (a wall close up)
+    marks: Marks | None
+
+
+class Seeing:
+    """A depth picture to the tilt fix, metres and heights."""
+
+    def __init__(self, cfg: MapConfig) -> None:
+        self.cfg = cfg
+        self.angle = CameraAngle(cfg.depth)
+        self.scaler = DepthScaler()
+        self.heights = HeightPoints(cfg.heights, cfg.ranges)
+
+    def see(self, cam: CameraModel, inv: FloatArray, t_us: int) -> Seen:
+        fix = self.angle.update(cam, inv, t_us)
+        fixed = replace(cam, tilt_fix_deg=fix.tilt_fix_deg)
+        scaled = self.scaler.fit(fixed, inv)
+        marks = None if scaled is None else self.heights.classify(fixed, scaled.range_m)
+        return Seen(fix, fixed, scaled, marks)

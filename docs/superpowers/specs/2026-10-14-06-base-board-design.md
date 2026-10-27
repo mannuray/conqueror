@@ -63,7 +63,7 @@ Roles (unchanged from the current architecture):
 | Buttons | RESET, MODE (short press; 5 s WiFi reset; 15 s admin reset), BOOT (recovery only, recessed). No extra user buttons |
 | Sensing | Input voltage · USB-VBUS present (digital pin, Rev 1) · **servo rail current** (one shunt + amplifier, Rev 1) · **servo position feedback** (6, on the servo headers' pin 4, Rev 1) |
 | Head link | 4-wire harness connector (§6) |
-| USB | USB-C, programming only (RP2350 native USB) |
+| USB | USB-C, programming (RP2350 native USB); **in the arm role also the data link to the laptop** (USB CDC serial; Rev 1, §12.1) |
 | Power | **2S Li-ion pack** (own protection and USB-C charging; JST-XH 2-pin) **or a 7-12 V DC adapter** (barrel jack, owner 2026-10-14; the jack's switch contact disconnects the battery when plugged). Input range 6-12 V; reverse-polarity protection; TVS; fuse; main switch; 5 V logic, 5 V/6 V servo and 3.3 V rails (§5). No charger on the board |
 
 ### 3.0 One board, three robots
@@ -81,7 +81,7 @@ Stationary robots (an arm on a desk) can run from a 7-12 V adapter; tracked/whee
 1. **5 V-safe connectors.** Users never think about voltage: every connector carries 5 V power; every input tolerates 5 V; every output works with 5 V parts. The only buffered output is the WS2812 data line (74AHCT1G125-class; WS2812 needs ~3.5 V high).
 2. **Robot connectors are JST-XH 2.54 mm** (servos on standard 3-pin 2.54 mm male headers). Compact, latching, cheap, easy to crimp, sold everywhere.
 3. **Enclosure rule.** Anything the user reaches or must see sits on a board edge, facing out: buttons are right-angle side-press switches. Proposed **service edge**: USB-C, main switch, RESET, MODE (one cut-out in an enclosure). IR receiver and RGB LED at edges or on connectors; status LEDs along an edge or side-view.
-4. **USB never drives motors.** If USB VBUS is present while the board runs from the battery, the firmware blocks the motors (no driving off with a cable attached).
+4. **USB never drives motors.** If USB VBUS is present while the board runs from the battery, the firmware blocks the motors (no driving off with a cable attached). The rule is about motors only: servos move with USB attached, and in the arm role USB is the normal link (Rev 1, §12.1).
 
 ## 4. Draft pin plan (RP2354B)
 
@@ -187,7 +187,7 @@ Reuse the current body firmware's design: protocol, domain logic (safety, contro
 - **Board layer for RP2350** (Arduino-Pico core): hardware PWM for motors/servos/buzzer, **PIO** for encoders, WS2812, IR and RC input, hardware I2C (no software I2C), ADC for the input voltage, the servo current and the 6 servo feedback pins; VBUS as a digital input (Rev 1).
 - **FPU:** the IMU/PID float maths that cost ~2.4 ms per pass on the Mega become cheap.
 - **Settings** in flash (EEPROM emulation with wear levelling) instead of AVR EEPROM.
-- New behaviour: motors blocked while USB VBUS is present; GPIO 8-11 set up as motor C/D or servo 3-6 from the MOTOR/SERVO switch at boot (live change → outputs off until reboot); RC input mapped like the IR remote (an input source under the arbitrator).
+- New behaviour: motors (not servos) blocked while USB VBUS is present; in the arm role the body link runs over USB CDC serial, and a STOP freezes the arm (servo rail stays on, each servo holds its last pulse — Rev 1, §12.1); GPIO 8-11 set up as motor C/D or servo 3-6 from the MOTOR/SERVO switch at boot (live change → outputs off until reboot); RC input mapped like the IR remote (an input source under the arbitrator).
 - HELLO reports the board type and fitted options (encoders, compass, 4-channel).
 
 Tank Logo, the phone page, the bench tool and the AI engine work unchanged through the head.
@@ -240,4 +240,11 @@ Rules and reasons:
 6. **The pot reading moves with the servo rail voltage**: calibrated per servo at the rail's voltage; on BATT the firmware scales by ADC0.
 
 Considered and not taken: a TLA2528 8-channel ADC (~US$1) for the pots — keeps the expansion analog inputs free in arm mode and allows an arm on a tank; not needed while a board plays one role at a time (revisit if a mobile arm becomes a target).
+
+### 12.1 The board as the arm platform's best tier (owner, 2026-10-27)
+The arm platform is a separate project (`../arm-robot/docs/design-notes.md`): general-purpose software for cheap hobby servo arms; this board is its best tier, above the Uno R4 (recommended) and Uno R3 / Nano (minimum). What that asks of the board:
+1. **USB is the arm's link to the laptop** (USB CDC serial): the arm sits on a desk by the laptop. Rule 3.1.4 (USB never drives motors) stays for motors; servos move with USB attached. The arm's protocol does not care how its bytes travel, so wireless later goes over the head link (an ESP32 as co-processor) or a Bluetooth serial module on the expansion UART1.
+2. **STOP freezes the arm**: cutting servo power would drop it onto the table, a thing or a hand. The servo rail stays on and every servo holds its last pulse. A joint still straining after the freeze (servo current, feedback) and whether to go limp are for the arm's protocol design.
+3. **A bulk capacitor on the servo rail** (1000-2200 µF near the servo headers): MG996R starts and stalls pull ~2.5 A each; the arm's reference builds use the same (LLD to size it).
+4. A stationary arm runs from the 7-12 V adapter (§3.0); with 3x MG996R the servo buck's ~5 A is the limit — see O8.
 

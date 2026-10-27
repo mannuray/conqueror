@@ -123,3 +123,41 @@ class CameraAngle:
         trusted = abs(med) <= self.settings.trust_deg
         self._fix = AngleFix(med if trusted else 0.0, trusted, est, len(self._diffs))
         return self._fix
+
+
+# ---- depth in metres (spec 7's DepthScaler)
+@dataclass(frozen=True)
+class ScaledDepth:
+    range_m: FloatArray  # per pixel, metres along its ray; inf where unknown
+    a: float  # 1 / axis depth = a * inv + c
+    c: float
+    n: int  # floor pixels in the fit
+
+
+class DepthScaler:
+    """Fits the depth picture's unknown scale and shift on the floor, picture by picture: on floor pixels
+    1 / axis depth (known from the camera) = a * inv + c (one 3-sigma trim)."""
+
+    def __init__(self, min_pixels: int = 500) -> None:
+        self.min_pixels = min_pixels
+
+    def fit(self, cam: CameraModel, inv: FloatArray) -> ScaledDepth | None:
+        norms = cam.ray_norms()
+        good = np.isfinite(inv) & (inv > 0)
+        use = cam.floor_mask() & good & np.isfinite(norms)
+        if int(use.sum()) < self.min_pixels:
+            return None
+        x = inv[use]
+        y = norms[use] / cam.expected_floor_depth()[use]  # 1 / axis depth
+        a, c, _ = _fit(x, y)
+        res = y - (a * x + c)
+        keep = np.abs(res) <= 3 * max(float(res.std()), 1e-12)
+        if int(keep.sum()) < self.min_pixels:
+            return None
+        a, c, _ = _fit(x[keep], y[keep])
+        if a <= 0:
+            return None
+        with np.errstate(divide="ignore", invalid="ignore"):
+            den = a * inv + c
+            rng = np.where(good & (den > 0) & np.isfinite(norms), norms / den, np.inf)
+        return ScaledDepth(rng.astype(np.float64), a, c, int(keep.sum()))

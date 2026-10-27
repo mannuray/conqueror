@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from conqueror_ai.domain.camera import CameraModel, FloatArray
-from conqueror_ai.domain.depth import AngleFix, CameraAngle, DepthSettings
+from conqueror_ai.domain.depth import AngleFix, CameraAngle, DepthScaler, DepthSettings
 from conqueror_ai.domain.types import Pose
 from tests.test_camera import calib
 
@@ -76,3 +76,51 @@ def test_bad_values_are_ignored() -> None:
         inv.flat[idx] = bad
     f = CameraAngle(NO_OFFSET).update(servo_cam(), inv, 1_000_000)
     assert f.tilt_fix_deg == pytest.approx(2.0, abs=0.3)
+
+
+# ---- DepthScaler
+def test_the_floor_scale_is_recovered() -> None:
+    cam = servo_cam()
+    sd = DepthScaler().fit(cam, inverse_depth(cam))
+    assert sd is not None
+    floor = cam.floor_mask()
+    assert np.allclose(sd.range_m[floor], cam.expected_floor_depth()[floor], rtol=0.01)
+    assert sd.a == pytest.approx(1 / 1.7, rel=0.01) and sd.c == pytest.approx(-0.05 / 1.7, abs=1e-3)
+
+
+def test_too_little_floor_gives_none() -> None:
+    cam = servo_cam()
+    inv = inverse_depth(cam)
+    keep = np.argwhere(cam.floor_mask())[:400]
+    thin = np.zeros_like(inv)
+    thin[keep[:, 0], keep[:, 1]] = inv[keep[:, 0], keep[:, 1]]
+    assert DepthScaler().fit(cam, thin) is None
+
+
+def test_a_wrong_way_fit_gives_none() -> None:
+    cam = servo_cam()
+    inv = inverse_depth(cam)
+    assert DepthScaler().fit(cam, np.where(inv > 0, 10.0 - inv, 0.0)) is None  # nearer reads smaller: a <= 0
+
+
+def test_ranges_where_the_fit_goes_negative_are_inf_not_negative() -> None:
+    cam = servo_cam()
+    inv = inverse_depth(cam)
+    inv[:5, :] = 0.001  # far above the floor's values: 1 / (a inv + c) would be negative
+    sd = DepthScaler().fit(cam, inv)
+    assert sd is not None and np.all(np.isinf(sd.range_m[:5, :]) | (sd.range_m[:5, :] > 0))
+    assert not np.any(sd.range_m < 0)
+
+
+def test_bad_inverse_depth_values_are_left_out() -> None:
+    cam = servo_cam()
+    inv = inverse_depth(cam)
+    floor = np.argwhere(cam.floor_mask())
+    for i, bad in enumerate((np.nan, np.inf, -1.0, 0.0)):
+        r, c = floor[100 + i]
+        inv[r, c] = bad
+    sd = DepthScaler().fit(cam, inv)
+    assert sd is not None and sd.a == pytest.approx(1 / 1.7, rel=0.01)
+    for i in range(4):
+        r, c = floor[100 + i]
+        assert np.isinf(sd.range_m[r, c])

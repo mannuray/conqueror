@@ -2388,3 +2388,9 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - **The spin ends with 15° left** (`SPIN_UNTIL_DEG` 8 → 15); the drive's arc aims the rest.
 - **Simulator:** ahead 4.8 s, 45° left 6.7 s, 90° right 9.4 s, behind 11.8 s, the chase-5 setup 2.1 s; all end 0.43-0.45 m from the ball.
 
+
+### 157.3 Floor chase 7: ball 40° right at 78 cm - done (2026-10-27)
+- **Result `done` in 3.3 s;** the owner: "it looked good". The sonar read 336 mm at the end (~41 cm lens to the ball's centre; target 40 ± 15). It ended facing 43° right of its start, where the ball was.
+- **The spin overshot:** right to ~69°, then back left to ~22°, then a smooth arc right at up to 25 cm/s. It's likely the first fix of the ball's position, taken while the camera was still turning toward it with the ball at the edge of the picture; to be checked against the recording.
+- **WiFi gaps up to 0.32 s** (13 over 0.1 s) didn't end the run (§157.2).
+- **Next (owner, 2026-10-27):** finish Plan Z1's floor checks; then slice 2 (explore without bumping) before nudging the ball. Nudging needs its own safety design: the Uno's obstacle brake stops 15 cm from anything and is locked on in child play.

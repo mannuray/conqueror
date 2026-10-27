@@ -2420,3 +2420,16 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
 - **Box again** (same setup as §157.5): drove ~35 cm straight, then curved ~13° left looking for a way past, slowing to ~20 cm/s; the sonar fell from 31 cm to under `clear_m` and it ended **`blocked` at 2.7 s** (the 30 cm rule, not the 3 s wait). It never touched the box. The program ended on its own.
 - **Phone STOP mid-chase** (the owner pressed it): the run ended `refused by the tank (STOPPED)` after ~2 s at 25 cm/s.
 - **Ctrl-C mid-chase** (SIGINT 2 s after the tracks started, watched by a second telemetry client): the **tracks stopped 0.20 s** after it; the program printed "stopped (Ctrl-C): the tank was told to stop" and exited 0 (§157.5's fix).
+
+### 157.7 The speed table on the floor (2026-10-27)
+Straight on, 1.5 s at each speed without stopping (`drive_rate` through `config/drive.yaml`'s table); speed = the encoders' distance (7514 counts/m) over the last 0.8 s of each step:
+
+| Asked | `drive_rate` | Measured |
+|---|---|---|
+| 18 cm/s | 17 % | 16.5 cm/s |
+| 22 cm/s | 40 % | 22.1 cm/s |
+| 25 cm/s | 56 % | 26.5 cm/s |
+
+Within ±1.5 cm/s (≤ 8 %): **the table stays** (loose tolerances, spec 0 §1.1; the loop re-plans from the measured pose every tick).
+
+**Plan Z1's floor checks are done** (§157.1-§157.7): ball ahead-right, 90° right, behind, rolled away, a box in the path, the phone STOP, Ctrl-C, the speed table. No stutter (no tick gaps over 0.5 s; the only stops were the §157.2 WiFi pauses). Not run on the floor: "no ball anywhere" (the same search as chase 9's first sweep and half turn; the simulator covers the `not_found` end).

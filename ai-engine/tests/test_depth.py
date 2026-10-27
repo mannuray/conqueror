@@ -52,6 +52,7 @@ def test_a_fix_over_3_deg_is_not_trusted() -> None:
 
 def test_the_median_of_the_last_second_rules() -> None:
     a = CameraAngle(NO_OFFSET)
+    f = a.fix()
     for i, fix in enumerate([2.0, 2.0, 10.0, 2.0, 2.0]):
         f = a.update(servo_cam(), inverse_depth(servo_cam(fix)), 1_000_000 + i * 100_000)
     assert f.tilt_fix_deg == pytest.approx(2.0, abs=0.3) and f.n == 5

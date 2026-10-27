@@ -1217,3 +1217,231 @@ classDiagram
 - **Floor results** (design-notes §157): ball 40° right at 78 cm, 90° right, behind, rolled away (followed it 3.4 m), all `done`, ending 37-58 cm from the ball (sonar); a box in the path ends `blocked` without touching it; the phone STOP ends the run (`STOPPED`); Ctrl-C stops the tracks in 0.20 s and exits cleanly; the speed table is within ±1.5 cm/s.
 - **Known, not fixed:** the half turn is timed (spun ~210°); the first fix of a ball seen at the picture's edge while the camera turns can be off (chase 7 spun to 69° for a ball at 40°); going around obstacles is slice 2.
 
+
+## 18. Module 2 slice 2: explore without bumping (owner, 2026-10-27, spec 9, design-notes §159 — draft for review)
+
+### 18.0 Scope and plans
+- **Spec 9**, in three plans built and floor-checked in order:
+  - **Z3 (seeing):** `DepthCoreml`, `CameraAngle`, `DepthScaler`, `HeightPoints`, the camera's tilt fix in `CameraModel`, the live view's depth;
+  - **Z4 (the room map):** `SonarModel`, `RoomMap`, `MapSnapshot`, `cq-map`;
+  - **Z5 (driving on the map):** `ClearanceMap`, `RoutePlanner`, the fan on the map, the goals, `RoamSkill`, the chase with routes, `cq-drive wander | explore | find`.
+- **Nothing new to install:** the depth model is Apple's CoreML build already downloaded for Q0 (`tools/measure/models/da2s/DepthAnythingV2SmallF16.mlpackage`, copied to the git-ignored `ai-engine/models/`); distance transforms come from OpenCV (already a dependency); no scipy.
+- **Frames as now** (§13): room x forward, y left, z up, origin where the tank started.
+
+### 18.1 Files
+| File | What | Plan |
+|---|---|---|
+| `adapters/depth_coreml.py` | `DepthCoreml`: the model, 518 × 392 in and out, resized back to the picture | Z3 |
+| `domain/depth.py` | `CameraAngle`, `DepthScaler`, `HeightPoints`, `Marks` | Z3 |
+| `domain/camera.py` | `CameraModel.tilt_fix_deg` (new field, 0 by default) | Z3 |
+| `domain/objects.py` | `FrameGate` applies the current tilt fix to every picture's camera | Z3 |
+| `domain/sonar_model.py` | `SonarModel` | Z4 |
+| `domain/room_map.py` | `RoomMap`, `MapSnapshot` | Z4 |
+| `app/map.py` | `cq-map [--host] [--record] [--replay]`: watch the map fill while the phone drives | Z4 |
+| `domain/drive/clearance.py` | `ClearanceMap` (distance to the nearest obstacle, per cell) | Z5 |
+| `domain/drive/route.py` | `RoutePlanner`, `aim_point` | Z5 |
+| `domain/drive/goals.py` | `WanderGoal`, `ExploreGoal`, `FindGoal` | Z5 |
+| `domain/drive/roam.py` | `RoamSkill` (wander / explore / find), shares the chase's stale / blocked rules | Z5 |
+| `domain/drive/planner.py`, `chase.py` | the fan checks the clearance map; the chase aims along a route | Z5 |
+| `domain/drive/sim.py` | `SimRoom` (boxes, an overhang) for simulated drives | Z5 |
+| `app/drive.py` | `cq-drive wander [seconds] | explore | find <thing> | goto <thing>` | Z5 |
+| `config/map.yaml` | heights, ranges, log-odds steps, costs (§18.9) | Z3-Z5 |
+
+### 18.2 Classes
+```mermaid
+classDiagram
+  class DepthCoreml {
+    +infer(rgb) FloatArray  relative inverse depth, picture size
+  }
+  class CameraAngle {
+    +update(cam, inv_depth, t_us) AngleFix
+    +fix() AngleFix
+  }
+  class AngleFix {
+    +tilt_fix_deg: float
+    +trusted: bool
+    +depth_tilt_deg: float
+  }
+  class DepthScaler {
+    +fit(cam, inv_depth) ScaledDepth | None
+  }
+  class ScaledDepth {
+    +range_m: FloatArray
+    +a: float
+    +c: float
+    +floor_rows: int
+  }
+  class HeightPoints {
+    +classify(cam, range_m) Marks
+  }
+  class Marks {
+    +floor_xy: FloatArray
+    +low_xy: FloatArray
+    +high_xy: FloatArray
+    +above_xy: FloatArray
+  }
+  class SonarModel {
+    +update(room, pose, dist_m)
+  }
+  class RoomMap {
+    +cell_m: float
+    +update_picture(marks, t_us)
+    +hit(xy, kind)
+    +miss(xy, low_only)
+    +blocked() BoolArray
+    +seen() BoolArray
+    +snapshot(pose, stale) MapSnapshot
+  }
+  class MapSnapshot {
+    +t_us: int
+    +pose: Pose
+    +blocked: BoolArray
+    +high: BoolArray
+    +seen: BoolArray
+    +stale: bool
+    +depth_ok: bool
+    +angle_trusted: bool
+  }
+  class ClearanceMap {
+    +dist_m(x, y) float
+    +free(x, y) bool
+  }
+  class RoutePlanner {
+    +route(snap, clear, start, goal) list~XY~ | None
+  }
+  class RoamSkill {
+    +tick(now_s, snap, fix, sonar_m, map_ok, cam_still) SkillOut
+    +cancel() SkillOut
+  }
+  CameraAngle --> AngleFix
+  DepthScaler --> ScaledDepth
+  HeightPoints --> Marks
+  RoomMap --> MapSnapshot
+  SonarModel --> RoomMap
+  ClearanceMap ..> MapSnapshot
+  RoutePlanner ..> ClearanceMap
+  RoamSkill --> RoutePlanner
+  RoamSkill --> Planner
+```
+
+### 18.3 One picture (Z3 + Z4)
+```mermaid
+sequenceDiagram
+  participant A as app loop
+  participant G as FrameGate
+  participant D as DepthCoreml
+  participant C as CameraAngle
+  participant S as DepthScaler
+  participant H as HeightPoints
+  participant M as RoomMap
+  A->>G: camera_for(cap_us)
+  G-->>A: CameraModel with the current tilt fix (or a skip reason)
+  par in threads
+    A->>D: infer(rgb)
+    A->>A: detect(rgb)
+  end
+  D-->>A: inv_depth
+  A->>C: update(cam, inv_depth, t_us)
+  C-->>A: AngleFix (applied from the next picture; this one is re-made with it)
+  A->>S: fit(cam fixed, inv_depth)
+  S-->>A: ScaledDepth (or None: no floor in view)
+  A->>H: classify(cam fixed, range_m)
+  H-->>A: Marks
+  A->>M: update_picture(Marks, t_us)
+  Note over A,M: telemetry (50 Hz) also calls SonarModel.update(room, pose, dist_m)
+```
+
+### 18.4 Seeing (Z3)
+- **`DepthCoreml(path)`:** `ct.models.MLModel(path, compute_units=ALL)` like the detectors; the picture is resized to 518 × 392 (the model's size; 4:3 within 1 %), the output resized back to the picture's size (`cv2.INTER_LINEAR`). It runs in a thread beside the detector (§17.3's loop); measured in the plan: depth + YOLO-World at VGA together must keep ≥ 5 pictures/s used (the driving loop's rate); if not, depth every second picture (`depth.every_n`).
+- **`CameraAngle`** (design-notes §155):
+  - **floor rows:** the bottom band of the picture between `NEAR_M` and `FAR_M` by the current camera, columns in the middle half; per row the median inverse depth;
+  - a straight line `inv = p·row + q` is fitted (least squares, rows with a residual over 3σ dropped once); its zero row `row0 = −q/p` is the horizon;
+  - the depth tilt: `atan((cy − row0) / fy)` (pinhole, undistorted), **plus `DEPTH_TILT_OFFSET_DEG` = 4.1°** (§155);
+  - a picture's estimate counts only when the line fits (R² ≥ 0.98, ≥ 20 rows, `p` < 0); the fix is the **median over the last 1 s** of `depth_tilt − real_tilt_deg(servo)`;
+  - **trusted** when |fix| ≤ **3°**; otherwise `tilt_fix_deg = 0` and `trusted = False` (spec 9 §5: the servo is used and the drive slows to 18 cm/s);
+  - no good picture for 2 s: the fix stays, `trusted` stays as it was.
+- **`CameraModel.tilt_fix_deg`:** added in `real_tilt_deg()`; `FrameGate` builds every picture's camera with the current fix, so the object tracker's floor trick (the ball) uses it too.
+- **`DepthScaler.fit(cam, inv)`** (spec 7): on `cam.floor_mask()` pixels, `1 / expected_floor_depth = a·inv + c` by least squares (one 3σ trim); fails (None) with fewer than 500 floor pixels or `a ≤ 0`. `range_m = 1 / (a·inv + c)`, `inf` where `a·inv + c ≤ 0`.
+- **`HeightPoints.classify(cam, range_m)`:** every 4th pixel in both directions (160 × 120 at VGA); point = lens + ray (unit) × range;
+  - `z < FLOOR_M` (0.02): **floor**, out to `FREE_MAX_M` (3.0 m);
+  - `FLOOR_M ≤ z < LOW_TOP_M` (0.10): **low** obstacle, out to `MARK_MAX_M` (2.0 m);
+  - `LOW_TOP_M ≤ z ≤ CLEAR_M` (0.20, the owner's 20 cm): **high** obstacle, out to 2.0 m;
+  - `z > CLEAR_M`: **above** (seen; passable under), out to 3.0 m;
+  - points under the floor (z < −0.05) are dropped (bad depth).
+  - **Low / high by height:** the sonar's beam is low on the front, so it can only vouch for what's under `LOW_TOP_M`; a box 15 cm tall gives low and high points, and the sonar never clears its high part.
+
+### 18.5 The room map (Z4)
+- **`RoomMap(size_m=8.0, cell_m=0.05)`:** 160 × 160 cells, the start at the centre, heading 0 along +x. Arrays: `low`, `high` (log-odds, float32), `seen` (bool).
+- **`update_picture(marks)`:**
+  - floor points: a **miss** on both `low` and `high` in their cell, `seen` = true;
+  - low / high points: a **hit** on that layer, `seen` = true;
+  - above points: `seen` = true only (a miss on `high`: the space up to 20 cm under them is open only if floor points say so).
+  - **Fading only in view** follows from this: a cell is lowered only by a floor point seen in it now; cells out of view, in the blind zone or behind an obstacle get nothing.
+- **Log-odds** (config): hit +0.85, miss −0.4, clamped to ±4; **blocked** when `low > 0.7` or `high > 0.7`.
+- **`SonarModel.update(room, pose, dist_m)`** (each telemetry sample, at most 10 Hz used):
+  - the sonar point = pose + `sonar_x_m` ahead; beam half-angle 12° (Q0);
+  - an echo `d` < 4.0 m: a **low hit** on the arc at `d` (±12°, cells along the arc), and a **low miss** in the narrow cone (±4°) from 0.10 m to `d − 0.10`;
+  - **never touches `high`**; no echo or `d ≥ 4.0` does nothing (spec 9 §5).
+- **Edges:** cells outside the 8 × 8 m count as blocked (a soft fence).
+- **`snapshot(pose, stale)`** → `MapSnapshot`: copies of `blocked`, `high` (for the view), `seen`, plus the pose, the stale flag (spec 7 §4), `depth_ok` (a depth picture in the last 1 s) and `angle_trusted`.
+- **`cq-map`:** the map pipeline only (no driving); live view of the map as an image (blocked low red, blocked high orange, seen grey, unseen black) with the tank's pose; `--record` / `--replay` like `cq-record`.
+
+### 18.6 Routes and the fan (Z5)
+- **`ClearanceMap(snap)`:** `cv2.distanceTransform` on the free cells (unseen counts as free here) at 5 cm → metres to the nearest blocked cell; computed once per snapshot (~1 ms).
+- **`RoutePlanner.route(snap, clear, start, goal)`:** A* on a **10 cm grid** (each cell = the worst of its 2 × 2), 8-connected:
+  - **not allowed:** clearance < `ROBOT_R_M` (0.15: half the tank's width + a margin);
+  - **cost** per step: length × (1 + `NEAR_W` · max(0, 0.35 − clearance) / 0.20 + `UNSEEN_W` if unseen) with `NEAR_W` 3, `UNSEEN_W` 1;
+  - the start cell is always allowed (the tank may be near a wall), and so is the goal's cell for the chase (the ball sits on the floor);
+  - none → `None`. Budget: ≤ 20 ms in Python on 80 × 80 (measured in the plan; if over, the route is kept and re-planned every second tick).
+- **`aim_point(route, at, ahead_m=0.5)`:** the point 0.5 m along the route from the nearest route point; the last point when the route is shorter.
+- **The fan on the map:** `Planner.choose(at, now, target, obstacle_m, clear)`: every rolled-out pose whose clearance (from `clear`) is under `ROBOT_R_M − 0.03` scores `blocked` (−10). The sonar's `obstacle_m` check and the 30 cm hard stop stay as in slice 1.
+
+### 18.7 Goals and the skill (Z5)
+- **`WanderGoal(seconds | None, rng)`:** a destination 1.5–2.0 m away among cells with clearance ≥ 0.30 and seen-free, scored by `cos(bearing) + 0.5·openness + noise(0.3)`; a new one when within 0.4 m, every 6 s, or when no route; done when `seconds` have passed.
+- **`ExploreGoal`:** frontier cells = seen-free cells next to unseen ones (10 cm grid), grouped (8-connected); groups under 30 cm (3 cells) dropped; the destination is the group point with the cheapest route; none reachable → done. Refuses to start without depth (`depth_ok` false).
+- **`FindGoal(thing, inner)`:** `inner` is wander or explore; each tick the slice-1 `Goal` (§17.5) is asked for `thing`; a fix → hand over to the chase.
+- **`RoamSkill`:**
+```mermaid
+stateDiagram-v2
+  [*] --> look : start (camera ahead, map filling)
+  look --> drive : a destination with a route
+  look --> done : explore, nothing reachable
+  drive --> drive : new destination / route every tick
+  drive --> look : no route (a turn on the spot, 360 deg in 90 deg steps, camera ahead)
+  look --> drive : a route after the look
+  look --> other : wander, still no route: a new destination
+  other --> drive
+  drive --> chase : find - the thing confirmed (the chase from slice 1, aiming along routes)
+  drive --> done : wander time up
+  drive --> held : stale map (STOP at once)
+  held --> drive : fresh
+  held --> failed : stale 2 s
+  drive --> failed : sonar < 30 cm, not the target (blocked); STOP; Ctrl-C
+  chase --> done : arrived
+  done --> [*]
+  failed --> [*]
+```
+- **Speeds:** the slice-1 cap (25 cm/s); **18 cm/s** while `angle_trusted` is false or `depth_ok` is false (spec 9 §5).
+- **The chase with routes:** when a map is given, `ChaseSkill` aims at `aim_point(route to the ball)` instead of the ball; arrival, the arrival turn and the sonar's echo-is-target test still use the ball itself. No route → the slice-1 rule (`blocked` after 3 s standing).
+
+### 18.8 Safety (spec 9 §5)
+- Unchanged: the Uno brake, the deadman, STOP, Ctrl-C, Plan R3, the 25 cm/s cap.
+- **The sonar has the last word:** an echo under `clear_m` (0.30) that isn't the target ends the run `blocked`, whatever the map says (slice 1's rule, kept in `RoamSkill`).
+- **No invented free space:** no echo clears nothing; the sonar never lowers `high`; unseen is never "known free" (routes may cross it only at extra cost, and only the camera turns it into seen).
+- **Depth down:** marks from the sonar only, 18 cm/s, explore refuses, a printed reason.
+
+### 18.9 `config/map.yaml` (defaults)
+```yaml
+heights: {floor_m: 0.02, low_top_m: 0.10, clear_m: 0.20}   # owner: 20 cm (design-notes §159)
+ranges: {mark_max_m: 2.0, free_max_m: 3.0, sonar_max_m: 4.0}
+depth: {every_n: 1, tilt_offset_deg: 4.1, trust_deg: 3.0}
+map: {size_m: 8.0, cell_m: 0.05, hit: 0.85, miss: -0.4, clamp: 4.0, blocked: 0.7}
+route: {cell_m: 0.10, robot_r_m: 0.15, near_w: 3.0, unseen_w: 1.0, aim_m: 0.5}
+```
+`clear_m` and `robot_r_m` may only be made larger (the "more careful only" rule, §17.10).
+
+### 18.10 Tests
+- **Z3:** a made-up depth picture from `expected_floor_depth()` with a known tilt (and a −4.1° model shift) → `CameraAngle` within 0.2°; a fix over 3° → untrusted; `DepthScaler` recovers `a`, `c`; `HeightPoints` on a scene with a 10 cm box (low + high) and a board at 18 cm (high) and one at 30 cm (above); the ball's floor position moves with the tilt fix.
+- **Z4:** an echo marks the arc low and clears the cone's low only; no echo changes nothing; a high mark survives a sonar sweep; a floor point lowers a mark, a cell out of view keeps it; the edge counts as blocked; a replayed recording rebuilds the same map.
+- **Z5:** routes on drawn maps (around a box, out of a U, none); the clearance; the fan never picks a curve into the clearance; wander keeps moving for 60 s in `SimRoom`; explore ends with ≥ 80 % of the reachable floor seen; find hands over to the chase; simulated drives never come closer than 15 cm (centre to obstacle edge minus half-width); depth down → 18 cm/s and explore refuses.
+- **Floor (spec 9 §6):** the angle within 1°; no obstacle ≥ 10 cm wrongly free within 1 m incl. a board at ~18 cm; wander 2 min without a touch; explore ≥ 80 %; the chase around a box; find the ball out of sight.

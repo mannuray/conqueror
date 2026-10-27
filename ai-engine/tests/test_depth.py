@@ -6,7 +6,16 @@ import numpy as np
 import pytest
 
 from conqueror_ai.domain.camera import CameraModel, FloatArray
-from conqueror_ai.domain.depth import AngleFix, CameraAngle, DepthScaler, DepthSettings
+from conqueror_ai.domain.depth import (
+    AngleFix,
+    CameraAngle,
+    DepthScaler,
+    DepthSettings,
+    HeightPoints,
+    Heights,
+    Marks,
+    Ranges,
+)
 from conqueror_ai.domain.types import Pose
 from tests.test_camera import calib
 
@@ -124,3 +133,89 @@ def test_bad_inverse_depth_values_are_left_out() -> None:
     for i in range(4):
         r, c = floor[100 + i]
         assert np.isinf(sd.range_m[r, c])
+
+
+# ---- HeightPoints
+def range_for_height(cam: CameraModel, u: int, v: int, z: float) -> float:
+    """The range along pixel (u, v)'s ray where it reaches height z (inf if it never does)."""
+    ray = cam.pixel_ray(u, v)
+    assert ray is not None
+    unit = ray / np.linalg.norm(ray)
+    t = (z - cam.position()[2]) / unit[2] if unit[2] != 0 else -1.0
+    return t if t > 0 else float("inf")
+
+
+def scene(cam: CameraModel, patches: list[tuple[int, int, float]]) -> FloatArray:
+    """The bare floor's ranges, with the given pixels (u, v) set to reach height z."""
+    rng = cam.expected_floor_depth().copy()
+    for u, v, z in patches:
+        rng[v, u] = range_for_height(cam, u, v, z)
+    return rng
+
+
+def kind_of(marks: Marks, cam: CameraModel, u: int, v: int, rng: FloatArray) -> str | None:
+    """Which class of marks holds the point pixel (u, v) makes."""
+    ray = cam.pixel_ray(u, v)
+    assert ray is not None
+    p = cam.position() + ray / np.linalg.norm(ray) * rng[v, u]
+    for name in ("floor", "low", "high", "above"):
+        xy: FloatArray = getattr(marks, f"{name}_xy")
+        if xy.size and np.min(np.hypot(xy[:, 0] - p[0], xy[:, 1] - p[1])) < 1e-6:
+            return name
+    return None
+
+
+HP = HeightPoints(Heights(), Ranges())
+
+
+def test_floor_pixels_are_floor() -> None:
+    cam = servo_cam()
+    rng = scene(cam, [])
+    m = HP.classify(cam, rng)
+    assert m.floor_xy.shape[0] > 100 and m.low_xy.size == m.high_xy.size == m.above_xy.size == 0
+    assert kind_of(m, cam, 160, 200, rng) == "floor"
+
+
+def test_a_box_gives_low_and_high_points() -> None:
+    cam = servo_cam()
+    rng = scene(cam, [(160, 180, 0.05), (164, 180, 0.15)])
+    m = HP.classify(cam, rng)
+    assert kind_of(m, cam, 160, 180, rng) == "low" and kind_of(m, cam, 164, 180, rng) == "high"
+
+
+def test_an_18_cm_board_is_high_and_a_30_cm_one_is_above() -> None:
+    cam = servo_cam()
+    # both are above the lens (17.8 cm): pixels looking a little up see them
+    rng = scene(cam, [(160, 60, 0.18), (160, 8, 0.30)])
+    m = HP.classify(cam, rng)
+    assert kind_of(m, cam, 160, 60, rng) == "high" and kind_of(m, cam, 160, 8, rng) == "above"
+
+
+def test_obstacles_beyond_2_m_are_not_marked_floor_to_3_m() -> None:
+    cam = servo_cam()
+    # a point 3 cm up on a floor ray at ~2.8 m sits at ~2.3 m: beyond the 2 m for obstacles
+    far = [(u, v) for v in range(0, 240, 4) for u in (160,) if 2.6 < cam.floor_distance(u, v) < 2.9]
+    assert far
+    u, v = far[0]
+    rng = scene(cam, [])
+    assert kind_of(HP.classify(cam, rng), cam, u, v, rng) == "floor"
+    rng = scene(cam, [(u, v, 0.03)])
+    assert kind_of(HP.classify(cam, rng), cam, u, v, rng) is None
+
+
+def test_points_under_the_floor_and_bad_ranges_are_dropped() -> None:
+    cam = servo_cam()
+    rng = scene(cam, [(160, 200, -0.10)])
+    rng[204, 160], rng[208, 160] = np.inf, np.nan
+    m = HP.classify(cam, rng)
+    assert kind_of(m, cam, 160, 200, rng) is None
+    total = sum(getattr(m, f"{k}_xy").shape[0] for k in ("floor", "low", "high", "above"))
+    assert total == HP.classify(cam, scene(cam, [])).floor_xy.shape[0] - 3
+
+
+def test_the_owners_clear_height_is_used() -> None:
+    cam = servo_cam()
+    rng = scene(cam, [(160, 8, 0.22)])  # above the lens: a pixel looking up
+    owners = HeightPoints(Heights(clear_m=0.25), Ranges())
+    assert kind_of(owners.classify(cam, rng), cam, 160, 8, rng) == "high"
+    assert kind_of(HP.classify(cam, rng), cam, 160, 8, rng) == "above"

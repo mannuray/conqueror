@@ -270,6 +270,16 @@ class CameraModel:
             out = np.where(good & (rz < -1e-9), -self.cal.cam_height_m / rz * norm, np.inf)
         return out.astype(np.float64)
 
+    def unit_rays(self, stride: int = 1) -> FloatArray:
+        """Every stride-th pixel's unit ray in the room, (h / stride, w / stride, 3); nan past the fold. Not
+        cached: it turns with the tank's heading."""
+        xn, yn, good = _undistorted(self.cal)
+        xn, yn, good = xn[::stride, ::stride], yn[::stride, ::stride], good[::stride, ::stride]
+        right, down, fwd = self.axes()
+        rays = xn[..., None] * right + yn[..., None] * down + fwd
+        rays /= np.linalg.norm(rays, axis=-1, keepdims=True)
+        return np.where(good[..., None], rays, np.nan)
+
     def ray_norms(self) -> FloatArray:
         """Per pixel, the length of its ray (x_n, y_n, 1): range = depth along the camera's axis x this. A
         depth model gives (inverse) depth along the axis; the floor's expected depth is a range (LLD §18.4).

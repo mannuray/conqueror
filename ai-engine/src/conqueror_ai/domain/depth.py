@@ -161,3 +161,40 @@ class DepthScaler:
             den = a * inv + c
             rng = np.where(good & (den > 0) & np.isfinite(norms), norms / den, np.inf)
         return ScaledDepth(rng.astype(np.float64), a, c, int(keep.sum()))
+
+
+# ---- every point's height (spec 9 §3.4)
+@dataclass(frozen=True)
+class Marks:
+    """Room points (x, y in metres), by height: floor, low / high obstacles, and above (passable under)."""
+
+    floor_xy: FloatArray
+    low_xy: FloatArray
+    high_xy: FloatArray
+    above_xy: FloatArray
+
+
+class HeightPoints:
+    def __init__(self, heights: Heights, ranges: Ranges, stride: int = 4) -> None:
+        self.heights = heights
+        self.ranges = ranges
+        self.stride = stride
+
+    def classify(self, cam: CameraModel, range_m: FloatArray) -> Marks:
+        """Every stride-th pixel becomes a point (the lens + its unit ray x its range) with a height."""
+        hs, rs = self.heights, self.ranges
+        rays = cam.unit_rays(self.stride)
+        rng = range_m[:: self.stride, :: self.stride]
+        lens = cam.position()
+        with np.errstate(invalid="ignore"):
+            pts = lens + rays * rng[..., None]
+            z = pts[..., 2]
+            dist = np.hypot(pts[..., 0] - lens[0], pts[..., 1] - lens[1])
+            ok = np.isfinite(z) & np.isfinite(dist) & (rng > 0) & (z >= hs.below_m)
+            near, far = ok & (dist <= rs.mark_max_m), ok & (dist <= rs.free_max_m)
+            floor = far & (z < hs.floor_m)
+            low = near & (z >= hs.floor_m) & (z < hs.low_top_m)
+            high = near & (z >= hs.low_top_m) & (z <= hs.clear_m)
+            above = far & (z > hs.clear_m)
+        xy = pts[..., :2]
+        return Marks(xy[floor], xy[low], xy[high], xy[above])

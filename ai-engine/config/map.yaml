@@ -1,0 +1,13 @@
+# Seeing and the room map (AI engine LLD §18.9, spec 9). Anything left out keeps the built-in default.
+heights:
+  floor_m: 0.02      # under this: floor
+  low_top_m: 0.10    # up to this: a low obstacle (the sonar's beam vouches for it)
+  clear_m: 0.20      # up to this: a high obstacle; above: passable under (owner, design-notes §159; only larger)
+  below_m: -0.05     # a point this far under the floor is bad depth
+ranges:
+  mark_max_m: 2.0    # obstacles are trusted this far
+  free_max_m: 3.0    # floor and "above" this far
+depth:
+  every_n: 1         # depth on every n-th picture used
+  tilt_offset_deg: 4.1   # the depth reads this much less down than the truth (design-notes §155)
+  trust_deg: 3.0     # a bigger fix isn't trusted (spec 9 §5)

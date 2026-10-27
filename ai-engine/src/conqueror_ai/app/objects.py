@@ -37,6 +37,7 @@ CALIBRATION = ENGINE / "config" / "calibration.yaml"
 MODEL = ENGINE / "models" / "yoloworld-s-640.mlpackage"
 VOCABULARY = ENGINE / "config" / "vocabulary.yaml"
 BALLS = ENGINE / "config" / "balls.yaml"
+MAP_CONFIG = ENGINE / "config" / "map.yaml"
 VGA = (640, 480)
 DEFAULT_HOST = "192.168.31.167"
 

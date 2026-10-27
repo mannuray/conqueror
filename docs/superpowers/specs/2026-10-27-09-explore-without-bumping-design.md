@@ -1,6 +1,6 @@
 # Explore without bumping: module 2, slice 2 (Design Spec 9)
 
-Status: **DRAFT for owner review** · Date: 2026-10-27 · Decision record: `docs/design-notes.md` §159 · Builds on spec 7 (the map, phases 5–6) and spec 8 (the drive-while-thinking loop) · Guided by spec 0 §1.1 (what the platform is for)
+Status: **APPROVED by the owner 2026-10-27** · Date: 2026-10-27 · Decision record: `docs/design-notes.md` §159 · Builds on spec 7 (the map, phases 5–6) and spec 8 (the drive-while-thinking loop) · Guided by spec 0 §1.1 (what the platform is for)
 
 ## 1. Goal
 

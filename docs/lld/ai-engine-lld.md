@@ -1218,7 +1218,7 @@ classDiagram
 - **Known, not fixed:** the half turn is timed (spun ~210°); the first fix of a ball seen at the picture's edge while the camera turns can be off (chase 7 spun to 69° for a ball at 40°); going around obstacles is slice 2.
 
 
-## 18. Module 2 slice 2: explore without bumping (owner, 2026-10-27, spec 9, design-notes §159 — draft for review)
+## 18. Module 2 slice 2: explore without bumping (owner, 2026-10-27, spec 9, design-notes §159 — approved 2026-10-27: "implement")
 
 ### 18.0 Scope and plans
 - **Spec 9**, in three plans built and floor-checked in order:

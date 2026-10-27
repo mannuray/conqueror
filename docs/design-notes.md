@@ -2453,3 +2453,9 @@ Within ±1.5 cm/s (≤ 8 %): **the table stays** (loose tolerances, spec 0 §1.1
 ## 160. The base board as the arm platform's best tier: USB link, STOP freezes (owner, 2026-10-27)
 - The arm project's own record starts in `../arm-robot/docs/design-notes.md` (no git yet): purpose, servos Basic / Feedback, the owner's arm, arms as description files, research, boards (Uno R4 recommended, this board best), USB first, STOP freezes, electronics reference builds.
 - **Spec 06 §12.1:** in the arm role USB is the data link to the laptop (USB CDC serial) — rule 3.1.4 stays for motors only, servos move with USB attached; **STOP freezes the arm** (the servo rail stays on, every servo holds its last pulse; the straining / go-limp details belong to the arm's protocol); a 1000-2200 µF bulk capacitor on the servo rail.
+
+## 159. Slice 2 (explore without bumping): what "explore" means (owner, 2026-10-27)
+- **Design started** (brainstorming; architectural, so: questions → approaches → design → spec 9 → plans). Most parts were already designed in spec 7 (depth → "nearer than the floor", the sonar model, a 3 × 3 m log-odds grid, 5 cm cells, fading only in view) and §155 (the camera angle from the depth floor).
+- **Proposed split:** A. depth + the camera angle estimator; B. the obstacle grid; C. the drive on the grid.
+- **Owner's answer:** first **wander and turn away** (drives about, avoids what it meets, until stopped), then **visit everything** (goes where it hasn't seen yet, until the area is covered, then stops). **"Wander toward something"** (roam until a ball or a named thing is spotted) should come **for free** from those two plus the chase, not as its own build.
+- **So:** the explore behaviours are goals for the same drive loop; "find X" is explore + the detector's sighting, handing over to the chase.

@@ -2466,3 +2466,4 @@ Within ±1.5 cm/s (≤ 8 %): **the table stays** (loose tolerances, spec 0 §1.1
   - **the sonar may clear only low marks**, never a high one;
   - the backstop stays: pushing but not moving (Plan R3) ends a drive in ~2 s, and STOP.
   - To check when building: the tank's highest point (camera holder) must sit well under 20 cm; if not, the limit rises.
+- **How wandering ends (owner, 2026-10-27: option 3):** after a time if one is given (e.g. `WANDER 60`), otherwise when stopped (STOP, Ctrl-C, the program ending). Boxed in (a corner): it turns on the spot and carries on. "Visit everything" ends when nothing unseen is left.

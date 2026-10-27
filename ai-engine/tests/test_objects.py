@@ -381,3 +381,13 @@ def test_a_ball_out_of_view_is_not_taken_by_a_green_thing_far_from_it() -> None:
     assert oid in objs and math.hypot(objs[oid].x_m - 1.0, objs[oid].y_m) < 0.05
     assert objs[oid].sigma_m < 0.25  # its 99 % gate (~3 sigma) stays well short of the 1.3 m reflection
     assert any(o.oid != oid and math.hypot(o.x_m, o.y_m - 0.8) < 0.05 for o in objs.values())
+
+
+def test_every_picture_gets_the_pipelines_tilt_fix() -> None:
+    p = ob.ObjectPipeline(CAL)
+    for i in range(10):
+        t = 1_000_000 + i * 20_000
+        p.on_telem(TelemSample(t, i * 20, 0, 0, 0.0, 0.0, None, 90.0, 90.0, 0, 0, 0, 0, 0))
+    p.set_tilt_fix(1.5)
+    cam = p.camera_at(1_100_000)
+    assert isinstance(cam, CameraModel) and cam.tilt_fix_deg == 1.5

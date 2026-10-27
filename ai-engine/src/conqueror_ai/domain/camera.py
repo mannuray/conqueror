@@ -20,7 +20,7 @@ NEAR_M, FAR_M = 0.25, 2.5  # the floor fit is trusted between these (LLD §5.3)
 # Per calibration (keyed by identity; the object is kept so its id is never reused while cached): the fold,
 # and the expected floor depth per (pan, tilt) - it does not depend on the tank's pose (LLD §5.3).
 _FOLDS: dict[int, tuple[Calibration, float, float]] = {}
-_DEPTHS: dict[tuple[int, float, float], tuple[Calibration, FloatArray]] = {}
+_DEPTHS: dict[tuple[int, float, float, float], tuple[Calibration, FloatArray]] = {}
 _MAX_DEPTHS = 16
 
 
@@ -72,6 +72,7 @@ class CameraModel:
     pose: Pose = field(default_factory=lambda: Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0))
     pan_deg: float = 0.0
     tilt_deg: float = 0.0
+    tilt_fix_deg: float = 0.0  # the depth floor's correction to the servo's tilt (AI engine LLD §18.4)
 
     def for_frame(self, pose: Pose, pan_deg: float, tilt_deg: float) -> CameraModel:
         return replace(self, pose=pose, pan_deg=pan_deg, tilt_deg=tilt_deg)
@@ -83,7 +84,7 @@ class CameraModel:
 
     def real_tilt_deg(self) -> float:
         g, o = self.cal.tilt_map
-        return self.cal.tilt0_deg + g * self.tilt_deg + o
+        return self.cal.tilt0_deg + g * self.tilt_deg + o + self.tilt_fix_deg
 
     def position(self) -> FloatArray:
         c, s = math.cos(self.pose.th_rad), math.sin(self.pose.th_rad)
@@ -195,7 +196,7 @@ class CameraModel:
     def expected_floor_depth(self) -> FloatArray:
         """For every pixel, the distance along its ray to the floor (inf above the horizon or past the lens's
         fold) - all at once, cached per (calibration, pan, tilt)."""
-        key = (id(self.cal), self.pan_deg, self.tilt_deg)
+        key = (id(self.cal), self.pan_deg, self.tilt_deg, self.tilt_fix_deg)
         hit = _DEPTHS.get(key)
         if hit is not None and hit[0] is self.cal:
             return hit[1]

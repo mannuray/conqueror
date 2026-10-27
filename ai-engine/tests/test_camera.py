@@ -161,3 +161,26 @@ def test_the_real_lens_answers_every_corner() -> None:
         assert math.isclose(bx, xd, abs_tol=1e-7) and math.isclose(by, yd, abs_tol=1e-7)
     depth = CameraModel(cal).for_frame(Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.0, -20.0).expected_floor_depth()
     assert math.isfinite(float(depth[239, 0])) and math.isfinite(float(depth[239, 319]))
+
+
+# ---- the tilt fix from the depth floor (AI engine LLD §18.4)
+def test_the_tilt_fix_adds_to_the_real_tilt() -> None:
+    c = calib(tilt0=1.0)
+    base = CameraModel(c, tilt_deg=-15.0).real_tilt_deg()
+    assert math.isclose(CameraModel(c, tilt_deg=-15.0, tilt_fix_deg=2.0).real_tilt_deg(), base + 2.0)
+
+
+def test_the_floor_depth_cache_tells_tilt_fixes_apart() -> None:
+    c = calib()
+    a = CameraModel(c, tilt_deg=-15.0).expected_floor_depth()
+    b = CameraModel(c, tilt_deg=-15.0, tilt_fix_deg=2.0).expected_floor_depth()
+    both = np.isfinite(a) & np.isfinite(b)
+    assert both.any() and not np.allclose(a[both], b[both])
+
+
+def test_the_floor_trick_moves_with_the_tilt_fix() -> None:
+    c = calib()
+    pose = Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    plain = CameraModel(c).for_frame(pose, 0.0, -15.0).pixel_to_floor(160.0, 200.0)
+    down = CameraModel(c, tilt_fix_deg=-1.0).for_frame(pose, 0.0, -15.0).pixel_to_floor(160.0, 200.0)
+    assert plain is not None and down is not None and down[0] < plain[0]  # pointing further down: nearer

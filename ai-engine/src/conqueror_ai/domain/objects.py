@@ -113,6 +113,7 @@ class FrameGate:
         self.cal = cal
         self._history = history
         self._angles = angles
+        self.tilt_fix_deg = 0.0  # the camera angle estimator's correction, applied to every picture
 
     def capture_us(self, cap_us: int) -> int:
         """The middle of the picture's readout (LLD §5.4)."""
@@ -131,7 +132,7 @@ class FrameGate:
             return "camera moving"
         if abs(math.degrees(pose.w_rps)) > GATE_DPS:
             return "turning"
-        return CameraModel(self.cal).for_frame(pose, *from_servo(a[0], a[1]))
+        return CameraModel(self.cal, tilt_fix_deg=self.tilt_fix_deg).for_frame(pose, *from_servo(a[0], a[1]))
 
 
 @dataclass(frozen=True)
@@ -380,6 +381,10 @@ class ObjectPipeline:
     def on_telem(self, s: TelemSample) -> None:
         self._history.push(self._pose.update(s))
         self._angles.push(s)
+
+    def set_tilt_fix(self, deg: float) -> None:
+        """The camera angle estimator's correction (AI engine LLD §18.4), for every picture from now on."""
+        self.gate.tilt_fix_deg = deg
 
     def camera_at(self, cap_us: int) -> CameraModel | str:
         """The camera for a picture before detecting (for its horizon), or why the gate skips it. Hand it to

@@ -22,6 +22,7 @@ NEAR_M, FAR_M = 0.25, 2.5  # the floor fit is trusted between these (LLD §5.3)
 _FOLDS: dict[int, tuple[Calibration, float, float]] = {}
 _DEPTHS: dict[tuple[int, float, float, float], tuple[Calibration, FloatArray]] = {}
 _MAX_DEPTHS = 16
+_GRIDS: dict[int, tuple[Calibration, FloatArray, FloatArray, NDArray[np.bool_]]] = {}
 
 
 def _fold(cal: Calibration) -> tuple[float, float]:
@@ -42,6 +43,56 @@ def _fold(cal: Calibration) -> tuple[float, float]:
 def from_servo(pan_servo_deg: float, tilt_servo_deg: float) -> tuple[float, float]:
     """Telemetry's servo angles (90 = centre) -> degrees from the centre (right / up = +)."""
     return 90.0 - pan_servo_deg, 90.0 - tilt_servo_deg
+
+
+def _undistorted(cal: Calibration) -> tuple[FloatArray, FloatArray, NDArray[np.bool_]]:
+    """Every pixel's normalised (undistorted) coordinates, and where they are good (inside the fold, and
+    distorting back to the pixel) - per calibration, cached (it doesn't depend on pan, tilt or pose)."""
+    hit = _GRIDS.get(id(cal))
+    if hit is not None and hit[0] is cal:
+        return hit[1], hit[2], hit[3]
+    w, h = cal.size
+    k = cal.k
+    uu, vv = np.meshgrid(np.arange(w, dtype=np.float64), np.arange(h, dtype=np.float64))
+    xd, yd = (uu - k[0, 2]) / k[0, 0], (vv - k[1, 2]) / k[1, 1]
+    k1, k2, p1, p2, k3 = (float(v) for v in cal.dist[:5])
+    rd = np.hypot(xd, yd)
+    r = rd.copy()
+    for _ in range(30):  # the same method as undistort, on whole arrays: Newton on the radius ...
+        r2 = r * r
+        f = r * (1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2) - rd
+        fp = 1 + 3 * k1 * r2 + 5 * k2 * r2 * r2 + 7 * k3 * r2 * r2 * r2
+        with np.errstate(divide="ignore", invalid="ignore"):
+            r = np.where(fp > 0, r - f / fp, np.nan)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        s = np.where(rd > 0, r / rd, 1.0)
+    xn, yn = xd * s, yd * s
+
+    def dist2(x: FloatArray, y: FloatArray) -> tuple[FloatArray, FloatArray]:
+        q2 = x * x + y * y
+        rad = 1 + k1 * q2 + k2 * q2 * q2 + k3 * q2 * q2 * q2
+        return x * rad + 2 * p1 * x * y + p2 * (q2 + 2 * x * x), y * rad + p1 * (
+            q2 + 2 * y * y
+        ) + 2 * p2 * x * y
+
+    for _ in range(10):  # ... then the tangential part, a 2-D Newton step per pixel
+        bx, by = dist2(xn, yn)
+        ex, ey = bx - xd, by - yd
+        h = 1e-7
+        ax, ay = dist2(xn + h, yn)
+        cx, cy = dist2(xn, yn + h)
+        j11, j12, j21, j22 = (ax - bx) / h, (cx - bx) / h, (ay - by) / h, (cy - by) / h
+        det = j11 * j22 - j12 * j21
+        with np.errstate(divide="ignore", invalid="ignore"):
+            xn = xn - (j22 * ex - j12 * ey) / det
+            yn = yn - (-j21 * ex + j11 * ey) / det
+    back_x, back_y = dist2(xn, yn)  # distort back: does each answer return to its pixel?
+    with np.errstate(invalid="ignore"):
+        good = (rd < _fold(cal)[1]) & (np.hypot(back_x - xd, back_y - yd) <= 1e-7)
+    if len(_GRIDS) >= _MAX_DEPTHS:
+        _GRIDS.pop(next(iter(_GRIDS)))
+    _GRIDS[id(cal)] = (cal, xn, yn, good)
+    return xn, yn, good
 
 
 @dataclass(frozen=True)
@@ -207,41 +258,7 @@ class CameraModel:
         return out
 
     def _floor_depths(self) -> FloatArray:
-        w, h = self.cal.size
-        k = self.cal.k
-        uu, vv = np.meshgrid(np.arange(w, dtype=np.float64), np.arange(h, dtype=np.float64))
-        xd, yd = (uu - k[0, 2]) / k[0, 0], (vv - k[1, 2]) / k[1, 1]
-        k1, k2, p1, p2, k3 = (float(v) for v in self.cal.dist[:5])
-        rd = np.hypot(xd, yd)
-        r = rd.copy()
-        for _ in range(30):  # the same method as undistort, on whole arrays: Newton on the radius ...
-            r2 = r * r
-            f = r * (1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2) - rd
-            fp = 1 + 3 * k1 * r2 + 5 * k2 * r2 * r2 + 7 * k3 * r2 * r2 * r2
-            with np.errstate(divide="ignore", invalid="ignore"):
-                r = np.where(fp > 0, r - f / fp, np.nan)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            s = np.where(rd > 0, r / rd, 1.0)
-        xn, yn = xd * s, yd * s
-
-        def dist2(x: FloatArray, y: FloatArray) -> tuple[FloatArray, FloatArray]:
-            q2 = x * x + y * y
-            rad = 1 + k1 * q2 + k2 * q2 * q2 + k3 * q2 * q2 * q2
-            return x * rad + 2 * p1 * x * y + p2 * (q2 + 2 * x * x), y * rad + p1 * (
-                q2 + 2 * y * y
-            ) + 2 * p2 * x * y
-
-        for _ in range(10):  # ... then the tangential part, a 2-D Newton step per pixel
-            bx, by = dist2(xn, yn)
-            ex, ey = bx - xd, by - yd
-            h = 1e-7
-            ax, ay = dist2(xn + h, yn)
-            cx, cy = dist2(xn, yn + h)
-            j11, j12, j21, j22 = (ax - bx) / h, (cx - bx) / h, (ay - by) / h, (cy - by) / h
-            det = j11 * j22 - j12 * j21
-            with np.errstate(divide="ignore", invalid="ignore"):
-                xn = xn - (j22 * ex - j12 * ey) / det
-                yn = yn - (-j21 * ex + j11 * ey) / det
+        xn, yn, good = _undistorted(self.cal)
         right, down, fwd = self.axes()
         rz = xn * right[2] + yn * down[2] + fwd[2]
         norm = np.sqrt(
@@ -249,12 +266,16 @@ class CameraModel:
             + (xn * right[1] + yn * down[1] + fwd[1]) ** 2
             + rz**2
         )
-        back_x, back_y = dist2(xn, yn)  # distort back: does each answer return to its pixel?
-        with np.errstate(invalid="ignore"):
-            good = (rd < _fold(self.cal)[1]) & (np.hypot(back_x - xd, back_y - yd) <= 1e-7)
         with np.errstate(divide="ignore", invalid="ignore"):
             out = np.where(good & (rz < -1e-9), -self.cal.cam_height_m / rz * norm, np.inf)
         return out.astype(np.float64)
+
+    def ray_norms(self) -> FloatArray:
+        """Per pixel, the length of its ray (x_n, y_n, 1): range = depth along the camera's axis x this. A
+        depth model gives (inverse) depth along the axis; the floor's expected depth is a range (LLD §18.4).
+        nan past the lens's fold."""
+        xn, yn, good = _undistorted(self.cal)
+        return np.where(good, np.sqrt(xn * xn + yn * yn + 1.0), np.nan)
 
     def floor_mask(self) -> NDArray[np.bool_]:
         d = self.expected_floor_depth()

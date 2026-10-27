@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import math
+from collections import deque
+from dataclasses import dataclass, field, replace
+
+import numpy as np
+
+from conqueror_ai.domain.camera import CameraModel, FloatArray
+
+MIN_ROWS = 20  # a picture's floor line needs this many rows ...
+MIN_R2 = 0.98  # ... and to be this straight
 
 
 @dataclass(frozen=True)
@@ -34,3 +43,83 @@ class MapConfig:
     heights: Heights = field(default_factory=Heights)
     ranges: Ranges = field(default_factory=Ranges)
     depth: DepthSettings = field(default_factory=DepthSettings)
+
+
+# ---- the camera's real tilt (design-notes §155)
+@dataclass(frozen=True)
+class AngleFix:
+    tilt_fix_deg: float  # add to the servo's tilt (0 when not trusted)
+    trusted: bool
+    depth_tilt_deg: float | None  # the newest picture's tilt from depth (+ up), None: no estimate
+    n: int  # estimates in the window
+
+
+def _fit(x: FloatArray, y: FloatArray) -> tuple[float, float, float]:
+    """Least squares y = p x + q, and R^2."""
+    p, q = (float(v) for v in np.polyfit(x, y, 1))
+    res = y - (p * x + q)
+    tot = float(np.sum((y - y.mean()) ** 2))
+    return p, q, 1.0 - float(np.sum(res**2)) / tot if tot > 0 else 0.0
+
+
+def depth_tilt_deg(cam: CameraModel, inv: FloatArray, offset_deg: float) -> float | None:
+    """The camera's pitch (+ up) from the floor in a depth picture (relative inverse depth along the camera's
+    axis), or None. Over a flat floor the inverse depth is a straight line in the undistorted image height
+    y_n; it reaches 0 at the horizon, whose y_n is tan(pitch). The depth reads offset_deg less down."""
+    k = cam.cal.k
+    fx, fy, cx, cy = float(k[0, 0]), float(k[1, 1]), float(k[0, 2]), float(k[1, 2])
+    w = inv.shape[1]
+    col = min(w - 1, max(0, round(cx)))
+    c0, c1 = w // 4, 3 * w // 4
+    ys: list[float] = []
+    vals: list[float] = []
+    for r in np.nonzero(cam.floor_mask()[:, col])[0]:
+        seg = inv[r, c0:c1]
+        seg = seg[np.isfinite(seg) & (seg > 0)]
+        if seg.size < (c1 - c0) // 2:
+            continue
+        un = cam.undistort((col - cx) / fx, (float(r) - cy) / fy)
+        if un is None:
+            continue
+        ys.append(un[1])
+        vals.append(float(np.median(seg)))
+    if len(ys) < MIN_ROWS:
+        return None
+    x, y = np.array(ys), np.array(vals)
+    p, q, _ = _fit(x, y)
+    res = y - (p * x + q)
+    keep = np.abs(res) <= 3 * max(float(res.std()), 1e-12)
+    if keep.sum() < MIN_ROWS:
+        return None
+    p, q, r2 = _fit(x[keep], y[keep])
+    if p <= 0 or r2 < MIN_R2:  # inverse depth must grow toward the bottom of the picture
+        return None
+    return math.degrees(math.atan(-q / p)) - offset_deg
+
+
+class CameraAngle:
+    """The servo's tilt corrected by the depth floor: the median over the last window_s of (depth tilt -
+    servo tilt), trusted within trust_deg (spec 9 §5; otherwise 0 and the drive slows)."""
+
+    def __init__(self, settings: DepthSettings, window_s: float = 1.0) -> None:
+        self.settings = settings
+        self.window_us = round(window_s * 1e6)
+        self._diffs: deque[tuple[int, float]] = deque()
+        self._fix = AngleFix(0.0, True, None, 0)
+
+    def fix(self) -> AngleFix:
+        return self._fix
+
+    def update(self, cam: CameraModel, inv: FloatArray, t_us: int) -> AngleFix:
+        servo = replace(cam, tilt_fix_deg=0.0)
+        est = depth_tilt_deg(servo, inv, self.settings.tilt_offset_deg)
+        if est is not None:
+            self._diffs.append((t_us, est - servo.real_tilt_deg()))
+        while self._diffs and self._diffs[0][0] < t_us - self.window_us:
+            self._diffs.popleft()
+        if est is None or not self._diffs:
+            return self._fix  # no estimate in this picture: the last fix stays
+        med = float(np.median([d for _, d in self._diffs]))
+        trusted = abs(med) <= self.settings.trust_deg
+        self._fix = AngleFix(med if trusted else 0.0, trusted, est, len(self._diffs))
+        return self._fix

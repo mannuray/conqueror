@@ -2369,6 +2369,8 @@ All the numbers below are for QVGA (320 × 240), the picture size the map uses.
   - **new errors 7050–7053:** not found, lost sight, the AI helper stopped answering, only "ball for now.
 
 ## 157. Plan Z1 floor checks: chase the ball (2026-10-27)
+Plan Z1 (spec 8 slice 1, AI engine LLD §17.10 "As built") on the floor with the owner, the green ball, STOP in hand. Summary: every chase reached the ball (§157.1-§157.4); the box, the phone STOP and Ctrl-C passed (§157.5-§157.6); the speed table holds (§157.7). The fixes found on the floor: turn on the spot beyond 35°, end the spin 15° early, a stale map pauses, standing blocked 3 s ends the run, a quiet link close. Before this, the final review's fixes and the bridge STOP fix (ledger; LLD §17.10).
+
 
 ### 157.1 Turn on the spot first when the ball is well off to one side (owner, 2026-10-27)
 - **Floor chase 5:** the green ball 60 cm ahead and 50 cm right of the lens (78 cm, ~40° right).

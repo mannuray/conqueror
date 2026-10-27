@@ -1086,12 +1086,13 @@ stateDiagram-v2
   [*] --> looking : no target
   [*] --> approaching : target
   state looking {
-    [*] --> sweep : camera pan -90, -45, 0, 45, 90 at tilt -15 (0.8 s each)
-    sweep --> spin : not found
-    spin --> [*] : one turn at spin_dps, camera ahead
+    [*] --> sweep : camera pan 0, -45, 45, -90, 90 at tilt -15 (0.8 s of still pictures each, 2.5 s at most)
+    sweep --> spin : not found, first time
+    spin --> sweep2 : half a turn (180 deg timed at spin_dps), camera ahead
+    sweep2 --> [*] : not found
   }
   looking --> approaching : target confirmed
-  looking --> lost : not found (reason not_found)
+  looking --> lost : not found after the second sweep (reason not_found, ~11 s)
   approaching --> arrived : range <= stop_range + 0.05 and |bearing| <= 10 deg, then the ramp brings v, w to 0
   approaching --> looking : target not seen for 3 s and its spot in view
   approaching --> lost : sonar < clear_m and not the target (reason blocked)
@@ -1147,3 +1148,72 @@ stateDiagram-v2
   - |Δw| per tick ≤ `dw · dt`;
   - a ball moved mid-way → arrives at the new place without a stop.
 - **`DriveLink`:** the % table; the refresh every 0.2 s; a nack ends the run (fake socket).
+
+### 17.10 As built (Plan Z1, 2026-10-27; design-notes §157)
+- **Files** (all in `ai-engine/`):
+  - `domain/drive/limits.py` (`Limits`), `curves.py` (`Command`, `ramp`, `roll_out`), `planner.py` (`Planner`, `bearing_deg`), `goal.py` (`Goal`, `TargetFix`, `size_positions`, `kind_of`, `echo_is_target`), `chase.py` (`ChaseSkill`, `SkillOut`), `sim.py` (`SimTank`);
+  - `adapters/drive_link.py` (`DriveLink`, `to_percent`, `drive_msg`), `adapters/drive_config.py` (`load_drive`);
+  - `app/drive.py` (`cq-drive goto <thing> [--host] [--record]`), `config/drive.yaml`;
+  - tests `test_drive_{limits,planner,goal,chase,sim,link,app}.py`; the AI engine suite is 266 tests.
+  - **Not built here:** `cq-drive serve` and the drive lease (Plan Z2, with the Tank Logo words).
+- **The bridge changed too** (inside Plan Z1, owner: yes): `drive_rate` didn't pass "moving" to the §72 STOP hold, so the phone's STOP didn't end a `drive_rate` run. `MotionController::Hooks::claim(fd, now, moving)`; host tests 674.
+
+```mermaid
+classDiagram
+  class ChaseSkill {
+    +state: str
+    +cmd: Command
+    +tick(now_s, at, fix, sonar_m, map_ok, cam_still) SkillOut
+    +cancel() SkillOut
+    -_sweep(now_s) SkillOut
+    -_spin(now_s) SkillOut
+    -_approach(now_s, at, fix, sonar_m) SkillOut
+    -_stale_t0: float
+    -_blocked_t0: float
+  }
+  class Planner {
+    +lim: Limits
+    +fan(at, target, now) list~Command~
+    +inside_turn(at, target) bool
+    +score(at, now, want, target, obstacle_m) float
+    +choose(at, now, target, obstacle_m) Command
+  }
+  class DriveLink {
+    +refused: str
+    +drive(cmd) None
+    +cam(pan, tilt) None
+    +finish() None
+    -_keep(ws, stop) None
+  }
+  class Goal {
+    +update(objects, at, t_us, by_size) TargetFix
+  }
+  class Limits {
+    +r_min_m(v) float
+    +top_speed(d_lens_m) float
+  }
+  ChaseSkill --> Planner
+  ChaseSkill ..> Goal : TargetFix
+  Planner --> Limits
+  DriveLink ..> ChaseSkill : sends its Command
+```
+
+- **What changed from the draft above, and why:**
+
+| Draft | As built | Why |
+|---|---|---|
+| turn rate key `rate` | `yaw_rate`; any nack without an `id` ends the run | the bridge reads no other key and refused every drive, unnoticed (final review C1) |
+| resend every 0.2 s | resend only 0.5 s after the last command (`FRESH_FOR_S`), commands spaced ≥ 0.08 s (`MIN_GAP_S`), STOP at once | a stalled engine is left to the bridge's deadman; floor chase 1 hit the bridge's 25/s limit (39/s) |
+| `ramp` on a fixed 0.1 s | the real time between ticks (≤ 0.3 s), and `w` clamped to `r_min(v)` | the loop ticks once per picture (~5-10 Hz) |
+| search: sweep, one blind turn | sweep 0, −45, 45, −90, 90 (0.8 s of still pictures each), half a turn, sweep again, `not_found` | the map drops pictures while the camera moves or the tank turns > 45 °/s |
+| spin offered beyond 70° | **only** a spin beyond 35°, until 15° left (`SPIN_FROM_DEG`, `SPIN_UNTIL_DEG`) | chase 5 swept past a ball 40° off (a slower tank curves *wider*); chase 6 overshot 15° (§157.1-§157.2) |
+| arrival only when facing it | close but > 10° off: turn on the spot to face it | driving on would pass it |
+| keep-clear from the tank's centre | from its front (the sonar) | the echo is measured there |
+| a stale map ends the run | STOP at once, drive on when fresh, end after 2 s (`STALE_GIVE_UP_S`) | WiFi gaps of 0.12-0.32 s; chase 6 ended a second before arriving (§157.2) |
+| — | standing with every curve blocked for 3 s ends `blocked` (`BLOCKED_GIVE_UP_S`) | chase 11 stood 4 minutes before a box (§157.5); going around is slice 2 |
+| `goto ball` | `goto <thing>`: "ball" or any floor word, never `person` | no ball to hand; YOLO-World named a bottle "person" 31 times in chase 2 |
+| `config/drive.yaml` any values | limits may only be made more careful (`AT_MOST` / `AT_LEAST`) | safety never traded |
+
+- **Floor results** (design-notes §157): ball 40° right at 78 cm, 90° right, behind, rolled away (followed it 3.4 m), all `done`, ending 37-58 cm from the ball (sonar); a box in the path ends `blocked` without touching it; the phone STOP ends the run (`STOPPED`); Ctrl-C stops the tracks in 0.20 s and exits cleanly; the speed table is within ±1.5 cm/s.
+- **Known, not fixed:** the half turn is timed (spun ~210°); the first fix of a ball seen at the picture's edge while the camera turns can be off (chase 7 spun to 69° for a ball at 40°); going around obstacles is slice 2.
+

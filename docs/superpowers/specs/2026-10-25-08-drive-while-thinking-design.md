@@ -253,7 +253,7 @@ Spec 5 §6 says AI programs run in an AI-engine runner. Revision 2 then put the 
 - **Replay:** recorded floor runs feed the loop offline, to tune scores without the tank.
 
 ## 8. What later slices add (each its own spec)
-- **Slice 2, explore without bumping:**
+- **Slice 2, explore without bumping** (now spec 9, `2026-10-27-09-explore-without-bumping-design.md`):
   - the depth layer: "something is there", from Depth Anything V2 Small;
   - the camera angle estimator (design-notes §155);
   - the local grid (spec 7 phases 5–6);

@@ -62,22 +62,28 @@ class RerunView:
         rr.log("plan/skipped", rr.TextLog(skipped or "used"))
 
     # ---- seeing (AI engine LLD §18)
-    def depth(self, f: Frame, range_m: FloatArray) -> None:
-        """The depth picture in metres along each ray (0 = unknown)."""
+    def depth(self, f: Frame, depth_m: FloatArray | None) -> None:
+        """The depth picture in metres along the camera's axis (0 = unknown); None clears it (no floor)."""
         rr.set_time("bridge", duration=f.cap_us / 1e6)
+        if depth_m is None:
+            rr.log("camera/depth", rr.Clear(recursive=False))
+            return
+        range_m = depth_m
         rr.log(
             "camera/depth",
             rr.DepthImage(np.where(np.isfinite(range_m), range_m, 0.0).astype(np.float32), meter=1.0),
         )
 
-    def marks(self, t_us: int, marks: Marks) -> None:
-        """Every point by height, from above: floor grey, low red, high orange, above light blue."""
+    def marks(self, t_us: int, marks: Marks | None) -> None:
+        """Every point by height, from above: floor grey, low red, high orange, above light blue; None (no
+        floor to scale on) empties them, so old points don't stay."""
         rr.set_time("bridge", duration=t_us / 1e6)
+        none = np.zeros((0, 2))
         for name, xy, colour in (
-            ("floor", marks.floor_xy, [150, 150, 150]),
-            ("low", marks.low_xy, [230, 40, 40]),
-            ("high", marks.high_xy, [255, 150, 0]),
-            ("above", marks.above_xy, [140, 200, 255]),
+            ("floor", none if marks is None else marks.floor_xy, [150, 150, 150]),
+            ("low", none if marks is None else marks.low_xy, [230, 40, 40]),
+            ("high", none if marks is None else marks.high_xy, [255, 150, 0]),
+            ("above", none if marks is None else marks.above_xy, [140, 200, 255]),
         ):
             rr.log(f"plan/{name}", rr.Points2D(xy, radii=0.02, colors=[colour]))
 

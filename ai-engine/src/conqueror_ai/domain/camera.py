@@ -7,6 +7,7 @@ right and image y down (OpenCV). Angles from the centre: pan + = right, tilt + =
 from __future__ import annotations
 
 import math
+import threading
 from dataclasses import dataclass, field, replace
 
 import numpy as np
@@ -22,6 +23,7 @@ NEAR_M, FAR_M = 0.25, 2.5  # the floor fit is trusted between these (LLD §5.3)
 _FOLDS: dict[int, tuple[Calibration, float, float]] = {}
 _DEPTHS: dict[tuple[int, float, float, float], tuple[Calibration, FloatArray]] = {}
 _MAX_DEPTHS = 16
+_CACHE_LOCK = threading.Lock()
 _GRIDS: dict[int, tuple[Calibration, FloatArray, FloatArray, NDArray[np.bool_]]] = {}
 
 
@@ -45,7 +47,7 @@ def from_servo(pan_servo_deg: float, tilt_servo_deg: float) -> tuple[float, floa
     return 90.0 - pan_servo_deg, 90.0 - tilt_servo_deg
 
 
-def _undistorted(cal: Calibration) -> tuple[FloatArray, FloatArray, NDArray[np.bool_]]:
+def undistorted_grid(cal: Calibration) -> tuple[FloatArray, FloatArray, NDArray[np.bool_]]:
     """Every pixel's normalised (undistorted) coordinates, and where they are good (inside the fold, and
     distorting back to the pixel) - per calibration, cached (it doesn't depend on pan, tilt or pose)."""
     hit = _GRIDS.get(id(cal))
@@ -89,9 +91,10 @@ def _undistorted(cal: Calibration) -> tuple[FloatArray, FloatArray, NDArray[np.b
     back_x, back_y = dist2(xn, yn)  # distort back: does each answer return to its pixel?
     with np.errstate(invalid="ignore"):
         good = (rd < _fold(cal)[1]) & (np.hypot(back_x - xd, back_y - yd) <= 1e-7)
-    if len(_GRIDS) >= _MAX_DEPTHS:
-        _GRIDS.pop(next(iter(_GRIDS)))
-    _GRIDS[id(cal)] = (cal, xn, yn, good)
+    with _CACHE_LOCK:
+        if len(_GRIDS) >= _MAX_DEPTHS:
+            _GRIDS.pop(next(iter(_GRIDS)))
+        _GRIDS[id(cal)] = (cal, xn, yn, good)
     return xn, yn, good
 
 
@@ -246,19 +249,20 @@ class CameraModel:
 
     def expected_floor_depth(self) -> FloatArray:
         """For every pixel, the distance along its ray to the floor (inf above the horizon or past the lens's
-        fold) - all at once, cached per (calibration, pan, tilt)."""
+        fold) - all at once, cached per (calibration, pan, tilt, tilt fix)."""
         key = (id(self.cal), self.pan_deg, self.tilt_deg, self.tilt_fix_deg)
         hit = _DEPTHS.get(key)
         if hit is not None and hit[0] is self.cal:
             return hit[1]
         out = self._floor_depths()
-        if len(_DEPTHS) >= _MAX_DEPTHS:
-            _DEPTHS.pop(next(iter(_DEPTHS)))
-        _DEPTHS[key] = (self.cal, out)
+        with _CACHE_LOCK:  # the seeing runs in a worker thread (AI engine LLD §18.3)
+            if len(_DEPTHS) >= _MAX_DEPTHS:
+                _DEPTHS.pop(next(iter(_DEPTHS)))
+            _DEPTHS[key] = (self.cal, out)
         return out
 
     def _floor_depths(self) -> FloatArray:
-        xn, yn, good = _undistorted(self.cal)
+        xn, yn, good = undistorted_grid(self.cal)
         right, down, fwd = self.axes()
         rz = xn * right[2] + yn * down[2] + fwd[2]
         norm = np.sqrt(
@@ -273,7 +277,7 @@ class CameraModel:
     def unit_rays(self, stride: int = 1) -> FloatArray:
         """Every stride-th pixel's unit ray in the room, (h / stride, w / stride, 3); nan past the fold. Not
         cached: it turns with the tank's heading."""
-        xn, yn, good = _undistorted(self.cal)
+        xn, yn, good = undistorted_grid(self.cal)
         xn, yn, good = xn[::stride, ::stride], yn[::stride, ::stride], good[::stride, ::stride]
         right, down, fwd = self.axes()
         rays = xn[..., None] * right + yn[..., None] * down + fwd
@@ -284,7 +288,7 @@ class CameraModel:
         """Per pixel, the length of its ray (x_n, y_n, 1): range = depth along the camera's axis x this. A
         depth model gives (inverse) depth along the axis; the floor's expected depth is a range (LLD §18.4).
         nan past the lens's fold."""
-        xn, yn, good = _undistorted(self.cal)
+        xn, yn, good = undistorted_grid(self.cal)
         return np.where(good, np.sqrt(xn * xn + yn * yn + 1.0), np.nan)
 
     def floor_mask(self) -> NDArray[np.bool_]:

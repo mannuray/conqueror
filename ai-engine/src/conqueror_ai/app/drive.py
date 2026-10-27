@@ -38,9 +38,10 @@ from conqueror_ai.app.objects import (
     VOCABULARY,
     camera_of,
     decode,
+    depth_due,
     detectors,
     load_depth,
-    see,
+    see_off_loop,
 )
 from conqueror_ai.domain.camera import CameraModel
 from conqueror_ai.domain.depth import Seeing
@@ -105,7 +106,8 @@ async def goto(host: str, thing: str, rec: SessionRecorder | None, use_depth: bo
     p = ObjectPipeline(cal, floor)
     # the depth model gives the camera's real tilt, so the ball's distance is right (AI engine LLD §18.4)
     depth = load_depth(DEPTH_MODEL) if use_depth else None
-    seeing = Seeing(load_map_config(MAP_CONFIG))
+    cfg = load_map_config(MAP_CONFIG)
+    seeing, every, used_n = Seeing(cfg), cfg.depth.every_n, 0
     skill, goal = ChaseSkill(Planner(lim)), Goal(kind_of(thing))
     stop = asyncio.Event()
     last: dict[str, float] = {"telem": 0.0, "picture": 0.0}
@@ -153,7 +155,8 @@ async def goto(host: str, thing: str, rec: SessionRecorder | None, use_depth: bo
                     if rec is not None:
                         rec.frame(f)
                     cam_f = p.camera_at(f.cap_us)
-                    if depth is not None:
+                    want = depth is not None and not isinstance(cam_f, str) and depth_due(used_n + 1, every)
+                    if want and depth is not None:
                         dets, inv = await asyncio.gather(
                             asyncio.to_thread(det.detect, rgb, camera_of(cam_f)),
                             asyncio.to_thread(depth, rgb),
@@ -162,12 +165,14 @@ async def goto(host: str, thing: str, rec: SessionRecorder | None, use_depth: bo
                         dets, inv = await asyncio.to_thread(det.detect, rgb, camera_of(cam_f)), None
                     # the map stays on the event loop: the telemetry task updates it too
                     used = p.on_frame(f, (rgb.shape[1], rgb.shape[0]), dets, cam_f)
-                    if inv is not None and not isinstance(used, str):
-                        see(seeing, p, used, inv, f.cap_us)  # the tilt fix, for the pictures from now on
                     cam_still = used != "camera moving"
                     if picture_counts(used):
                         last["picture"] = time.monotonic()
                     by_size = {} if isinstance(used, str) else size_positions(dets, sizes, used)
+                    if not isinstance(used, str):
+                        used_n += 1
+                        if inv is not None:  # the tilt fix, off the loop, for the pictures from now on
+                            await see_off_loop(seeing, p, used, inv, f.cap_us, full=False)
             now = time.monotonic()
             state = map_state(now, t0, last["picture"], last["telem"])
             if state == "waiting":

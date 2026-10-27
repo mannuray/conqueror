@@ -8,10 +8,12 @@ from dataclasses import dataclass, field, replace
 
 import numpy as np
 
-from conqueror_ai.domain.camera import CameraModel, FloatArray
+from conqueror_ai.domain.camera import CameraModel, FloatArray, undistorted_grid
 
 MIN_ROWS = 20  # a picture's floor line needs this many rows ...
 MIN_R2 = 0.98  # ... and to be this straight
+MIN_ESTIMATES = 3  # a fix needs this many pictures' estimates in the window (one noisy picture isn't enough)
+FIX_STEP_DEG = 0.05  # the fix comes in steps (so the floor-depth cache for a fixed camera can hit)
 MIN_SCALE_R2 = 0.9  # the floor's depth must fit its expected depth this well (a wall close up doesn't)
 
 
@@ -70,26 +72,19 @@ def depth_tilt_deg(cam: CameraModel, inv: FloatArray, offset_deg: float) -> floa
     """The camera's pitch (+ up) from the floor in a depth picture (relative inverse depth along the camera's
     axis), or None. Over a flat floor the inverse depth is a straight line in the undistorted image height
     y_n; it reaches 0 at the horizon, whose y_n is tan(pitch). The depth reads offset_deg less down."""
-    k = cam.cal.k
-    fx, fy, cx, cy = float(k[0, 0]), float(k[1, 1]), float(k[0, 2]), float(k[1, 2])
     w = inv.shape[1]
-    col = min(w - 1, max(0, round(cx)))
+    col = min(w - 1, max(0, round(float(cam.cal.k[0, 2]))))
     c0, c1 = w // 4, 3 * w // 4
-    ys: list[float] = []
-    vals: list[float] = []
-    for r in np.nonzero(cam.floor_mask()[:, col])[0]:
-        seg = inv[r, c0:c1]
-        seg = seg[np.isfinite(seg) & (seg > 0)]
-        if seg.size < (c1 - c0) // 2:
-            continue
-        un = cam.undistort((col - cx) / fx, (float(r) - cy) / fy)
-        if un is None:
-            continue
-        ys.append(un[1])
-        vals.append(float(np.median(seg)))
-    if len(ys) < MIN_ROWS:
+    _, yn, good = undistorted_grid(cam.cal)
+    rows = np.nonzero(cam.floor_mask()[:, col] & good[:, col])[0]
+    seg = inv[rows, c0:c1]
+    ok = np.isfinite(seg) & (seg > 0)
+    enough = ok.sum(axis=1) >= (c1 - c0) // 2
+    if int(enough.sum()) < MIN_ROWS:
         return None
-    x, y = np.array(ys), np.array(vals)
+    with np.errstate(invalid="ignore"):
+        meds = np.nanmedian(np.where(ok, seg, np.nan)[enough], axis=1)
+    x, y = yn[rows[enough], col], meds
     p, q, _ = _fit(x, y)
     res = y - (p * x + q)
     keep = np.abs(res) <= 3 * max(float(res.std()), 1e-12)
@@ -123,9 +118,12 @@ class CameraAngle:
             self._diffs.popleft()
         if est is None or not self._diffs:
             return replace(self._fix, fresh=False)  # no estimate in this picture: the last fix stays
+        if len(self._diffs) < MIN_ESTIMATES:
+            return replace(self._fix, depth_tilt_deg=est, n=len(self._diffs), fresh=True)
         med = float(np.median([d for _, d in self._diffs]))
         trusted = abs(med) <= self.settings.trust_deg
-        self._fix = AngleFix(med if trusted else 0.0, trusted, est, len(self._diffs), fresh=True)
+        fix = round(med / FIX_STEP_DEG) * FIX_STEP_DEG if trusted else 0.0
+        self._fix = AngleFix(fix, trusted, est, len(self._diffs), fresh=True)
         return self._fix
 
 
@@ -142,13 +140,17 @@ class DepthScaler:
     """Fits the depth picture's unknown scale and shift on the floor, picture by picture: on floor pixels
     1 / axis depth (known from the camera) = a * inv + c (one 3-sigma trim)."""
 
-    def __init__(self, min_pixels: int = 500) -> None:
+    def __init__(self, min_pixels: int = 500, stride: int = 3) -> None:
         self.min_pixels = min_pixels
+        self.stride = stride  # fit on every stride-th floor pixel each way: as good, ~10x less work
 
     def fit(self, cam: CameraModel, inv: FloatArray) -> ScaledDepth | None:
         norms = cam.ray_norms()
         good = np.isfinite(inv) & (inv > 0)
         use = cam.floor_mask() & good & np.isfinite(norms)
+        thin = np.zeros_like(use)
+        thin[:: self.stride, :: self.stride] = True
+        use &= thin
         if int(use.sum()) < self.min_pixels:
             return None
         x = inv[use]
@@ -221,6 +223,11 @@ class Seeing:
         self.angle = CameraAngle(cfg.depth)
         self.scaler = DepthScaler()
         self.heights = HeightPoints(cfg.heights, cfg.ranges)
+
+    def angle_only(self, cam: CameraModel, inv: FloatArray, t_us: int) -> Seen:
+        """Only the tilt fix (cq-drive in Z3: no map yet)."""
+        fix = self.angle.update(cam, inv, t_us)
+        return Seen(fix, replace(cam, tilt_fix_deg=fix.tilt_fix_deg), None, None)
 
     def see(self, cam: CameraModel, inv: FloatArray, t_us: int) -> Seen:
         fix = self.angle.update(cam, inv, t_us)

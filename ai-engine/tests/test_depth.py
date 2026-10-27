@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pytest
 
@@ -41,8 +43,12 @@ def inverse_depth(cam: CameraModel, scale: float = 1.7, shift: float = 0.05) -> 
 
 
 def angle_after(true_fix: float, settings: DepthSettings = NO_OFFSET) -> AngleFix:
+    """Three pictures (a fix needs MIN_ESTIMATES) of the same floor."""
     a = CameraAngle(settings)
-    return a.update(servo_cam(), inverse_depth(servo_cam(true_fix)), 1_000_000)
+    f = a.fix()
+    for i in range(3):
+        f = a.update(servo_cam(), inverse_depth(servo_cam(true_fix)), 1_000_000 + i * 100_000)
+    return f
 
 
 # ---- CameraAngle
@@ -67,13 +73,16 @@ def test_the_median_of_the_last_second_rules() -> None:
     for i, fix in enumerate([2.0, 2.0, 10.0, 2.0, 2.0]):
         f = a.update(servo_cam(), inverse_depth(servo_cam(fix)), 1_000_000 + i * 100_000)
     assert f.tilt_fix_deg == pytest.approx(2.0, abs=0.3) and f.n == 5
-    f = a.update(servo_cam(), inverse_depth(servo_cam(-1.0)), 2_600_000)  # the others are over 1 s old
-    assert f.tilt_fix_deg == pytest.approx(-1.0, abs=0.3) and f.n == 1
+    for i in range(3):  # the others are over 1 s old
+        f = a.update(servo_cam(), inverse_depth(servo_cam(-1.0)), 2_600_000 + i * 100_000)
+    assert f.tilt_fix_deg == pytest.approx(-1.0, abs=0.3) and f.n == 3
 
 
 def test_no_floor_in_view_keeps_the_last_fix() -> None:
     a = CameraAngle(NO_OFFSET)
-    before = a.update(servo_cam(), inverse_depth(servo_cam(1.0)), 1_000_000)
+    before = a.fix()
+    for i in range(3):
+        before = a.update(servo_cam(), inverse_depth(servo_cam(1.0)), 1_000_000 + i * 100_000)
     wall = np.full((240, 320), 0.8)
     after = a.update(servo_cam(), wall, 1_100_000)
     assert before.fresh and not after.fresh
@@ -86,7 +95,10 @@ def test_bad_values_are_ignored() -> None:
     for bad in (np.nan, np.inf, -1.0):
         idx = rng.integers(0, inv.size, 400)
         inv.flat[idx] = bad
-    f = CameraAngle(NO_OFFSET).update(servo_cam(), inv, 1_000_000)
+    a = CameraAngle(NO_OFFSET)
+    f = a.fix()
+    for i in range(3):
+        f = a.update(servo_cam(), inv, 1_000_000 + i * 100_000)
     assert f.tilt_fix_deg == pytest.approx(2.0, abs=0.3)
 
 
@@ -236,7 +248,10 @@ def test_a_synthetic_scene_comes_out_right() -> None:
     with np.errstate(divide="ignore", invalid="ignore"):
         z = rng / true.ray_norms()
         inv = np.where(np.isfinite(z) & (z > 0), 1.7 / z + 0.05, 0.0)
-    seen = Seeing(MapConfig(depth=NO_OFFSET)).see(servo_cam(), inv, 1_000_000)
+    s = Seeing(MapConfig(depth=NO_OFFSET))
+    seen = s.see(servo_cam(), inv, 1_000_000)
+    for i in range(1, 3):
+        seen = s.see(servo_cam(), inv, 1_000_000 + i * 100_000)
     assert seen.fix.trusted and seen.fix.tilt_fix_deg == pytest.approx(1.5, abs=0.3)
     assert seen.cam.tilt_fix_deg == seen.fix.tilt_fix_deg and seen.marks is not None
     truth = HP.classify(true, rng).low_xy
@@ -247,7 +262,40 @@ def test_a_synthetic_scene_comes_out_right() -> None:
 
 def test_a_wall_close_up_gives_no_marks_and_keeps_the_fix() -> None:
     s = Seeing(MapConfig(depth=NO_OFFSET))
-    s.see(servo_cam(), inverse_depth(servo_cam(1.0)), 1_000_000)
-    seen = s.see(servo_cam(), np.full((240, 320), 0.8), 1_100_000)
+    for i in range(3):
+        s.see(servo_cam(), inverse_depth(servo_cam(1.0)), 1_000_000 + i * 100_000)
+    seen = s.see(servo_cam(), np.full((240, 320), 0.8), 1_400_000)
     assert seen.marks is None and seen.scaled is None
     assert seen.fix.tilt_fix_deg == pytest.approx(1.0, abs=0.3)
+
+
+# ---- final review fixes
+def test_one_picture_is_not_enough_for_a_fix() -> None:  # M1
+    f = CameraAngle(NO_OFFSET).update(servo_cam(), inverse_depth(servo_cam(2.0)), 1_000_000)
+    assert f.fresh and f.tilt_fix_deg == 0.0 and f.n == 1
+
+
+def test_the_fix_comes_in_steps_of_0_05_deg() -> None:  # M5: the floor-depth cache can hit
+    f = angle_after(1.37)
+    assert abs(f.tilt_fix_deg / 0.05 - round(f.tilt_fix_deg / 0.05)) < 1e-9
+
+
+def vga_cam() -> CameraModel:
+    """The tank's real lens and mount, at VGA (as cq-drive runs)."""
+    from conqueror_ai.adapters import calibration_store
+    from conqueror_ai.app.objects import CALIBRATION, VGA
+
+    return CameraModel(calibration_store.load(CALIBRATION, VGA)).for_frame(POSE, 0.0, -15.0)
+
+
+def test_seeing_a_vga_picture_is_quick() -> None:  # C1: it runs every picture, beside the driving loop
+    cam = vga_cam()
+    inv = inverse_depth(cam)
+    s = Seeing(MapConfig(depth=NO_OFFSET))
+    s.see(cam, inv, 1_000_000)  # the caches warm
+    times: list[float] = []
+    for i in range(5):  # the fastest of five: a busy laptop doesn't fail it
+        t = time.perf_counter()
+        s.see(cam, inv, 1_100_000 + i * 100_000)
+        times.append(time.perf_counter() - t)
+    assert min(times) < 0.06

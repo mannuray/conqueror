@@ -29,6 +29,6 @@ class DepthCoreml:
         img = Image.fromarray(rgb).resize(SIZE, Image.Resampling.BILINEAR)
         out: Any = self.model.predict({"image": img})["depth"]
         inv = np.asarray(out, dtype=np.float32)
-        if inv.ndim == 3:  # a PIL image or a (1, h, w) array, depending on the CoreML version
+        if inv.ndim == 3:  # the model gives a 2-D float image; a (1, h, w) array is taken too, to be safe
             inv = inv[0]
         return cv2.resize(inv, (w, h), interpolation=cv2.INTER_LINEAR).astype(np.float32)

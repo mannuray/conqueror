@@ -33,3 +33,20 @@ def test_a_missing_section_keeps_its_defaults(tmp_path: Path) -> None:
     f = tmp_path / "map.yaml"
     f.write_text("depth: {every_n: 2}\n")
     assert load_map_config(f) == MapConfig(Heights(), Ranges(), DepthSettings(every_n=2))
+
+
+@pytest.mark.parametrize(
+    ("text", "word"),
+    [
+        ("depth: {every_n: 0}\n", "every_n"),
+        ("depth: {every_n: 1.5}\n", "every_n"),
+        ("heights: {floor_m: 0.05}\n", "floor_m"),
+        ("heights: {low_top_m: 0.30}\n", "low_top_m"),
+        ("depth: {trust_deg: 30}\n", "trust_deg"),
+    ],
+)
+def test_settings_that_would_see_less_are_refused(tmp_path: Path, text: str, word: str) -> None:  # I2
+    f = tmp_path / "map.yaml"
+    f.write_text(text)
+    with pytest.raises(ValueError, match=word):
+        load_map_config(f)

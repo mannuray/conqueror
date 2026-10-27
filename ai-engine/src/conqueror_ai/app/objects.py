@@ -95,13 +95,31 @@ def load_depth(path: Path) -> DepthFn | None:
         return None
     from conqueror_ai.adapters.depth_coreml import DepthCoreml
 
-    model = DepthCoreml(path)
+    try:
+        model = DepthCoreml(path)
+    except Exception as e:  # a broken file or a CoreML error: say it, and go on without depth
+        print(f"the depth model at {path} didn't load ({e}) - running without depth")
+        return None
     return lambda rgb: model.infer(rgb).astype(np.float64)
+
+
+def depth_due(used: int, every_n: int) -> bool:
+    """Depth on every n-th picture used (config depth.every_n), the same rule in every loop."""
+    return used % every_n == 0
 
 
 def see(seeing: Seeing, p: ObjectPipeline, cam: CameraModel, inv: FloatArray, t_us: int) -> Seen:
     """One depth picture: the tilt fix goes to every picture from now on (the ball's distance too)."""
     seen = seeing.see(cam, inv, t_us)
+    p.set_tilt_fix(seen.fix.tilt_fix_deg)
+    return seen
+
+
+async def see_off_loop(
+    seeing: Seeing, p: ObjectPipeline, cam: CameraModel, inv: FloatArray, t_us: int, full: bool = True
+) -> Seen:
+    """see() in a worker thread, so telemetry keeps flowing (final review C1); the fix is set back here."""
+    seen = await asyncio.to_thread(seeing.see if full else seeing.angle_only, cam, inv, t_us)
     p.set_tilt_fix(seen.fix.tilt_fix_deg)
     return seen
 
@@ -161,7 +179,7 @@ def run_replay(
             if not isinstance(cam, str):
                 res.used += 1
                 _note(res, p.objects())
-                if depth is not None and res.used % every == 0:
+                if depth is not None and depth_due(res.used, every):
                     _note_angle(res, see(seeing, p, cam, depth(rgb), e.frame.cap_us))
     res.skips = p.skips()
     res.seconds = time.monotonic() - t0
@@ -211,6 +229,7 @@ async def run_live(
     view = RerunView(spawn=True)
     p = ObjectPipeline(cal, floor_classes)
     seeing = Seeing(cfg or MapConfig())
+    every, used_n = (cfg or MapConfig()).depth.every_n, 0
     stop = asyncio.Event()
     tasks = [asyncio.create_task(link.run(stop)), asyncio.create_task(cam.run(stop))]
 
@@ -243,7 +262,8 @@ async def run_live(
                 continue
             cam_f = p.camera_at(f.cap_us)
             # meanwhile newer pictures replace the waiting one; the depth model runs beside the detector
-            if depth is not None:
+            want_depth = depth is not None and not isinstance(cam_f, str) and depth_due(used_n + 1, every)
+            if want_depth and depth is not None:
                 dets, inv = await asyncio.gather(
                     asyncio.to_thread(det.detect, rgb, camera_of(cam_f)), asyncio.to_thread(depth, rgb)
                 )
@@ -252,13 +272,13 @@ async def run_live(
             used = p.on_frame(f, (rgb.shape[1], rgb.shape[0]), dets, cam_f)
             view.frame(f, None)
             view.detections(f, dets)
-            if inv is not None and not isinstance(used, str):
-                seen = see(seeing, p, used, inv, f.cap_us)
-                if seen.scaled is not None:
-                    view.depth(f, seen.scaled.range_m)
-                if seen.marks is not None:
+            if not isinstance(used, str):
+                used_n += 1
+                if inv is not None:
+                    seen = await see_off_loop(seeing, p, used, inv, f.cap_us)
+                    view.depth(f, None if seen.scaled is None else seen.scaled.range_m / seen.cam.ray_norms())
                     view.marks(f.cap_us, seen.marks)
-                view.angle(f.cap_us, seen.fix)
+                    view.angle(f.cap_us, seen.fix)
             view.plan(f.cap_us, p.pose(), p.objects(), used if isinstance(used, str) else None)
     finally:
         stop.set()

@@ -10,8 +10,10 @@ import yaml
 
 from conqueror_ai.domain.depth import DepthSettings, Heights, MapConfig, Ranges
 
-# the owner's 20 cm (design-notes §159): the file may make it more careful, never less
+# the owner's 20 cm (design-notes §159), and what would make the tank see less: the file may make them more
+# careful, never less (final review I2)
 AT_LEAST = ("clear_m",)
+AT_MOST = ("floor_m", "trust_deg")
 
 
 def _section(path: Path, d: dict[str, Any], name: str, cls: type[Any]) -> Any:
@@ -24,7 +26,15 @@ def _section(path: Path, d: dict[str, Any], name: str, cls: type[Any]) -> Any:
     if unknown:
         raise ValueError(f"{path}: unknown {name} {', '.join(unknown)}")
     types = {f.name: f.type for f in fields(cls)}
-    return cls(**{k: int(v) if types[k] == "int" else float(v) for k, v in given.items()})
+    out: dict[str, Any] = {}
+    for k, v in given.items():
+        if types[k] == "int":
+            if not float(v).is_integer() or int(v) < 1:
+                raise ValueError(f"{path}: {name}.{k} must be a whole number, 1 or more")
+            out[k] = int(v)
+        else:
+            out[k] = float(v)
+    return cls(**out)
 
 
 def load_map_config(path: Path) -> MapConfig:
@@ -47,7 +57,12 @@ def load_map_config(path: Path) -> MapConfig:
         _section(path, d, "ranges", Ranges),
         _section(path, d, "depth", DepthSettings),
     )
-    careless = [k for k in AT_LEAST if getattr(cfg.heights, k) < getattr(Heights(), k)]
+    h, dp = cfg.heights, cfg.depth
+    careless = [k for k in AT_LEAST if getattr(h, k) < getattr(Heights(), k)]
+    careless += [k for k in AT_MOST if k in ("floor_m",) and getattr(h, k) > getattr(Heights(), k)]
+    careless += [k for k in AT_MOST if k in ("trust_deg",) and getattr(dp, k) > getattr(DepthSettings(), k)]
+    if h.low_top_m > h.clear_m:
+        careless.append("low_top_m (above clear_m)")
     if careless:
         raise ValueError(f"{path}: the heights may only be made more careful - {', '.join(careless)}")
     return cfg

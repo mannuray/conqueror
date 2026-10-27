@@ -188,3 +188,43 @@ def test_a_picture_of_another_size_still_skips(tmp_path: Path) -> None:
     vga = replace(CAL, size=(640, 480))
     res = app.run_replay(tmp_path / "s", vga, BallDetector(), FLOOR_CLASSES, depth=depth)
     assert res.skips.get("picture size") == 19 and depth.calls == 0
+
+
+def test_a_broken_depth_model_runs_without_depth(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    bad = tmp_path / "broken.mlpackage"  # M3
+    bad.mkdir()
+    (bad / "Manifest.json").write_text("not a model")
+    assert app.load_depth(bad) is None
+    assert "running without depth" in capsys.readouterr().out
+
+
+def test_depth_runs_on_every_nth_picture() -> None:  # I1: the same rule live, in cq-drive and in replay
+    assert [app.depth_due(n, 2) for n in range(1, 6)] == [False, True, False, True, False]
+    assert all(app.depth_due(n, 1) for n in range(1, 4))
+
+
+async def test_seeing_runs_off_the_loop() -> None:  # C1: telemetry keeps flowing while a picture is seen
+    import asyncio
+
+    from conqueror_ai.domain.depth import AngleFix, Seen
+
+    class SlowSeeing:
+        def see(self, cam: CameraModel, inv: NDArray[np.float64], t_us: int) -> Seen:
+            import time as t
+
+            t.sleep(0.3)
+            return Seen(AngleFix(1.0, True, -14.0, 3, True), cam, None, None)
+
+    ticks = 0
+
+    async def telemetry() -> None:
+        nonlocal ticks
+        while True:
+            await asyncio.sleep(0.02)
+            ticks += 1
+
+    task = asyncio.create_task(telemetry())
+    p = app.ObjectPipeline(CAL, FLOOR_CLASSES)
+    seen = await app.see_off_loop(SlowSeeing(), p, cam_at(), np.zeros((240, 320)), 1_000_000)  # type: ignore[arg-type]
+    task.cancel()
+    assert ticks >= 10 and seen.fix.tilt_fix_deg == 1.0 and p.gate.tilt_fix_deg == 1.0

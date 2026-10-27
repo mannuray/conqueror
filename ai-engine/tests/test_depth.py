@@ -76,7 +76,8 @@ def test_no_floor_in_view_keeps_the_last_fix() -> None:
     before = a.update(servo_cam(), inverse_depth(servo_cam(1.0)), 1_000_000)
     wall = np.full((240, 320), 0.8)
     after = a.update(servo_cam(), wall, 1_100_000)
-    assert after == before
+    assert before.fresh and not after.fresh
+    assert (after.tilt_fix_deg, after.trusted) == (before.tilt_fix_deg, before.trusted)
 
 
 def test_bad_values_are_ignored() -> None:

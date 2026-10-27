@@ -6,6 +6,9 @@ the balls in config/balls.yaml (§16); the camera at VGA.
 
     uv run cq-objects recordings/20261024-101500      # replay: every picture, in order; prints what was found
     uv run cq-objects --live                          # the tank: the live view (picture + boxes, the plan)
+
+With the depth model (models/DepthAnythingV2SmallF16.mlpackage, AI engine LLD §18) it also finds the camera's
+real tilt, and shows the depth picture and every point's height; --no-depth leaves it out.
 """
 
 from __future__ import annotations
@@ -15,6 +18,8 @@ import asyncio
 import contextlib
 import json
 import math
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
@@ -24,9 +29,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 from conqueror_ai.adapters import calibration_store
+from conqueror_ai.adapters.map_config import load_map_config
 from conqueror_ai.adapters.session import replay
 from conqueror_ai.domain.balls import BallColour, find_balls
-from conqueror_ai.domain.camera import Calibration, CameraModel
+from conqueror_ai.domain.camera import Calibration, CameraModel, FloatArray
+from conqueror_ai.domain.depth import MapConfig, Seeing, Seen
 from conqueror_ai.domain.detectors import MultiDetector
 from conqueror_ai.domain.objects import Detector, ObjectPipeline
 from conqueror_ai.domain.telemetry import parse_td
@@ -38,6 +45,7 @@ MODEL = ENGINE / "models" / "yoloworld-s-640.mlpackage"
 VOCABULARY = ENGINE / "config" / "vocabulary.yaml"
 BALLS = ENGINE / "config" / "balls.yaml"
 MAP_CONFIG = ENGINE / "config" / "map.yaml"
+DEPTH_MODEL = ENGINE / "models" / "DepthAnythingV2SmallF16.mlpackage"
 VGA = (640, 480)
 DEFAULT_HOST = "192.168.31.167"
 
@@ -70,6 +78,40 @@ class ReplayResult:
     used: int = 0
     skips: dict[str, int] = field(default_factory=lambda: dict[str, int]())
     start_us: int | None = None
+    depth: bool = False
+    angle_fixes: list[float] = field(default_factory=lambda: list[float]())  # trusted fixes, per estimate
+    estimates: int = 0  # pictures that gave a tilt from depth
+    trusted: int = 0
+    seconds: float = 0.0  # laptop time spent on the pictures
+
+
+DepthFn = Callable[[NDArray[np.uint8]], FloatArray]
+
+
+def load_depth(path: Path) -> DepthFn | None:
+    """The depth model, or None (said plainly) when its file is missing: everything runs without depth."""
+    if not path.exists():
+        print(f"no depth model at {path} - running without depth (copy it from tools/measure/models/da2s)")
+        return None
+    from conqueror_ai.adapters.depth_coreml import DepthCoreml
+
+    model = DepthCoreml(path)
+    return lambda rgb: model.infer(rgb).astype(np.float64)
+
+
+def see(seeing: Seeing, p: ObjectPipeline, cam: CameraModel, inv: FloatArray, t_us: int) -> Seen:
+    """One depth picture: the tilt fix goes to every picture from now on (the ball's distance too)."""
+    seen = seeing.see(cam, inv, t_us)
+    p.set_tilt_fix(seen.fix.tilt_fix_deg)
+    return seen
+
+
+def _note_angle(res: ReplayResult, seen: Seen) -> None:
+    if seen.fix.fresh:
+        res.estimates += 1
+        if seen.fix.trusted:
+            res.trusted += 1
+            res.angle_fixes.append(seen.fix.tilt_fix_deg)
 
 
 def _note(res: ReplayResult, objs: list[ObjectEstimate]) -> None:
@@ -83,10 +125,21 @@ def camera_of(cam: CameraModel | str) -> CameraModel | None:
     return None if isinstance(cam, str) else cam
 
 
-def run_replay(folder: Path, cal: Calibration, det: Detector, floor_classes: frozenset[str]) -> ReplayResult:
-    """Every recorded picture, in order, through the detector and the list (the same answer every time)."""
+def run_replay(
+    folder: Path,
+    cal: Calibration,
+    det: Detector,
+    floor_classes: frozenset[str],
+    depth: DepthFn | None = None,
+    cfg: MapConfig | None = None,
+) -> ReplayResult:
+    """Every recorded picture, in order, through the detector and the list (the same answer every time); with
+    depth, each used picture also through Seeing (the tilt fix)."""
     p = ObjectPipeline(cal, floor_classes)
-    res = ReplayResult()
+    res = ReplayResult(depth=depth is not None)
+    seeing = Seeing(cfg or MapConfig())
+    every = (cfg or MapConfig()).depth.every_n
+    t0 = time.monotonic()
     for e in replay(folder):
         if e.text is not None:
             m = json.loads(e.text)
@@ -108,13 +161,28 @@ def run_replay(folder: Path, cal: Calibration, det: Detector, floor_classes: fro
             if not isinstance(cam, str):
                 res.used += 1
                 _note(res, p.objects())
+                if depth is not None and res.used % every == 0:
+                    _note_angle(res, see(seeing, p, cam, depth(rgb), e.frame.cap_us))
     res.skips = p.skips()
+    res.seconds = time.monotonic() - t0
     return res
 
 
 def report(res: ReplayResult) -> str:
     t0 = res.start_us or 0
     lines = [f"{res.used} pictures used" + (f"; skipped: {res.skips}" if res.skips else "")]
+    if res.depth:
+        if res.angle_fixes:
+            med = float(np.median(res.angle_fixes))
+            lines.append(f"camera angle: fix {med:+.1f} deg, trusted {res.trusted}/{res.estimates} estimates")
+        else:
+            lines.append(
+                f"camera angle: no estimate ({res.estimates} untrusted)"
+                if res.estimates
+                else "camera angle: no estimate"
+            )
+        if res.seconds > 0:
+            lines.append(f"laptop: {res.used / res.seconds:.1f} pictures/s with depth")
     if not res.things:
         lines.append("nothing found")
     for oid, th in sorted(res.things.items()):
@@ -126,7 +194,14 @@ def report(res: ReplayResult) -> str:
     return "\n".join(lines)
 
 
-async def run_live(host: str, cal: Calibration, det: Detector, floor_classes: frozenset[str]) -> None:
+async def run_live(
+    host: str,
+    cal: Calibration,
+    det: Detector,
+    floor_classes: frozenset[str],
+    depth: DepthFn | None = None,
+    cfg: MapConfig | None = None,
+) -> None:
     """The tank: telemetry and the newest picture; the detector in a worker thread (latest picture wins)."""
     from conqueror_ai.adapters.bridge_ws import BridgeLink
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
@@ -135,6 +210,7 @@ async def run_live(host: str, cal: Calibration, det: Detector, floor_classes: fr
     link, cam = BridgeLink(host), MjpegSource(host)
     view = RerunView(spawn=True)
     p = ObjectPipeline(cal, floor_classes)
+    seeing = Seeing(cfg or MapConfig())
     stop = asyncio.Event()
     tasks = [asyncio.create_task(link.run(stop)), asyncio.create_task(cam.run(stop))]
 
@@ -166,11 +242,23 @@ async def run_live(host: str, cal: Calibration, det: Detector, floor_classes: fr
             if rgb is None:
                 continue
             cam_f = p.camera_at(f.cap_us)
-            # meanwhile newer pictures replace the waiting one
-            dets = await asyncio.to_thread(det.detect, rgb, camera_of(cam_f))
+            # meanwhile newer pictures replace the waiting one; the depth model runs beside the detector
+            if depth is not None:
+                dets, inv = await asyncio.gather(
+                    asyncio.to_thread(det.detect, rgb, camera_of(cam_f)), asyncio.to_thread(depth, rgb)
+                )
+            else:
+                dets, inv = await asyncio.to_thread(det.detect, rgb, camera_of(cam_f)), None
             used = p.on_frame(f, (rgb.shape[1], rgb.shape[0]), dets, cam_f)
             view.frame(f, None)
             view.detections(f, dets)
+            if inv is not None and not isinstance(used, str):
+                seen = see(seeing, p, used, inv, f.cap_us)
+                if seen.scaled is not None:
+                    view.depth(f, seen.scaled.range_m)
+                if seen.marks is not None:
+                    view.marks(f.cap_us, seen.marks)
+                view.angle(f.cap_us, seen.fix)
             view.plan(f.cap_us, p.pose(), p.objects(), used if isinstance(used, str) else None)
     finally:
         stop.set()
@@ -202,19 +290,23 @@ def main() -> None:
     ap.add_argument("--model", type=Path, default=MODEL)
     ap.add_argument("--vocabulary", type=Path, default=VOCABULARY)
     ap.add_argument("--balls", type=Path, default=BALLS)
+    ap.add_argument("--depth-model", type=Path, default=DEPTH_MODEL)
+    ap.add_argument("--no-depth", action="store_true", help="leave the depth model out")
     a = ap.parse_args()
     if a.live == (a.folder is not None):
         raise SystemExit("give a recording folder, or --live")
     try:
         cal = calibration_store.load(a.calibration, VGA)
         det, floor = detectors(a.model, a.vocabulary, a.balls)
+        cfg = load_map_config(MAP_CONFIG)
     except (FileNotFoundError, ValueError, KeyError) as err:
         raise SystemExit(str(err)) from None
+    depth = None if a.no_depth else load_depth(a.depth_model)
     if a.live:
         with contextlib.suppress(KeyboardInterrupt):
-            asyncio.run(run_live(a.host, cal, det, floor))
+            asyncio.run(run_live(a.host, cal, det, floor, depth, cfg))
     else:
-        print(report(run_replay(a.folder, cal, det, floor)))
+        print(report(run_replay(a.folder, cal, det, floor, depth, cfg)))
 
 
 if __name__ == "__main__":

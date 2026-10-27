@@ -53,6 +53,7 @@ class AngleFix:
     trusted: bool
     depth_tilt_deg: float | None  # the newest picture's tilt from depth (+ up), None: no estimate
     n: int  # estimates in the window
+    fresh: bool = False  # this picture gave an estimate
 
 
 def _fit(x: FloatArray, y: FloatArray) -> tuple[float, float, float]:
@@ -121,10 +122,10 @@ class CameraAngle:
         while self._diffs and self._diffs[0][0] < t_us - self.window_us:
             self._diffs.popleft()
         if est is None or not self._diffs:
-            return self._fix  # no estimate in this picture: the last fix stays
+            return replace(self._fix, fresh=False)  # no estimate in this picture: the last fix stays
         med = float(np.median([d for _, d in self._diffs]))
         trusted = abs(med) <= self.settings.trust_deg
-        self._fix = AngleFix(med if trusted else 0.0, trusted, est, len(self._diffs))
+        self._fix = AngleFix(med if trusted else 0.0, trusted, est, len(self._diffs), fresh=True)
         return self._fix
 
 

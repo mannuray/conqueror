@@ -25,19 +25,25 @@ from conqueror_ai.adapters import calibration_store
 from conqueror_ai.adapters.detector_config import load_balls, load_vocabulary
 from conqueror_ai.adapters.drive_config import load_drive
 from conqueror_ai.adapters.drive_link import DriveLink
+from conqueror_ai.adapters.map_config import load_map_config
 from conqueror_ai.adapters.session import SessionRecorder
 from conqueror_ai.app.objects import (
     BALLS,
     CALIBRATION,
     DEFAULT_HOST,
+    DEPTH_MODEL,
+    MAP_CONFIG,
     MODEL,
     VGA,
     VOCABULARY,
     camera_of,
     decode,
     detectors,
+    load_depth,
+    see,
 )
 from conqueror_ai.domain.camera import CameraModel
+from conqueror_ai.domain.depth import Seeing
 from conqueror_ai.domain.drive.chase import DRIVE_TILT, ChaseSkill
 from conqueror_ai.domain.drive.goal import Goal, kind_of, size_positions
 from conqueror_ai.domain.drive.planner import Planner
@@ -86,7 +92,7 @@ def task_failure(tasks: list[asyncio.Task[None]]) -> str | None:
     return None
 
 
-async def goto(host: str, thing: str, rec: SessionRecorder | None) -> str:
+async def goto(host: str, thing: str, rec: SessionRecorder | None, use_depth: bool = True) -> str:
     """Chase the thing ("ball" or a vocabulary word); returns the result ("done" or why not)."""
     from conqueror_ai.adapters.bridge_ws import BridgeLink
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
@@ -97,6 +103,9 @@ async def goto(host: str, thing: str, rec: SessionRecorder | None) -> str:
     lim, table = load_drive(DRIVE)
     link, cam, drive = BridgeLink(host), MjpegSource(host), DriveLink(host, table=table)
     p = ObjectPipeline(cal, floor)
+    # the depth model gives the camera's real tilt, so the ball's distance is right (AI engine LLD §18.4)
+    depth = load_depth(DEPTH_MODEL) if use_depth else None
+    seeing = Seeing(load_map_config(MAP_CONFIG))
     skill, goal = ChaseSkill(Planner(lim)), Goal(kind_of(thing))
     stop = asyncio.Event()
     last: dict[str, float] = {"telem": 0.0, "picture": 0.0}
@@ -144,9 +153,17 @@ async def goto(host: str, thing: str, rec: SessionRecorder | None) -> str:
                     if rec is not None:
                         rec.frame(f)
                     cam_f = p.camera_at(f.cap_us)
-                    dets = await asyncio.to_thread(det.detect, rgb, camera_of(cam_f))
+                    if depth is not None:
+                        dets, inv = await asyncio.gather(
+                            asyncio.to_thread(det.detect, rgb, camera_of(cam_f)),
+                            asyncio.to_thread(depth, rgb),
+                        )
+                    else:
+                        dets, inv = await asyncio.to_thread(det.detect, rgb, camera_of(cam_f)), None
                     # the map stays on the event loop: the telemetry task updates it too
                     used = p.on_frame(f, (rgb.shape[1], rgb.shape[0]), dets, cam_f)
+                    if inv is not None and not isinstance(used, str):
+                        see(seeing, p, used, inv, f.cap_us)  # the tilt fix, for the pictures from now on
                     cam_still = used != "camera moving"
                     if picture_counts(used):
                         last["picture"] = time.monotonic()
@@ -192,6 +209,9 @@ def main() -> None:
     ap.add_argument("thing", help="ball, or a word in config/vocabulary.yaml that stands on the floor")
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--record", type=Path)
+    ap.add_argument(
+        "--no-depth", action="store_true", help="leave the depth model out (the servo's tilt only)"
+    )
     a = ap.parse_args()
     try:
         words = goal_words(load_vocabulary(VOCABULARY))
@@ -210,7 +230,7 @@ def main() -> None:
             },
         )
     try:
-        print(f"result: {asyncio.run(goto(a.host, a.thing, rec))}")
+        print(f"result: {asyncio.run(goto(a.host, a.thing, rec, not a.no_depth))}")
     except KeyboardInterrupt:
         print("\nstopped (Ctrl-C): the tank was told to stop")
     except (FileNotFoundError, ValueError) as err:

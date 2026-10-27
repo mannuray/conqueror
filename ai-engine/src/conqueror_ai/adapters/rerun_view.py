@@ -5,8 +5,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import rerun as rr
 
+from conqueror_ai.domain.camera import FloatArray
+from conqueror_ai.domain.depth import AngleFix, Marks
 from conqueror_ai.domain.types import Detection, Frame, ObjectEstimate, Pose, TelemSample
 
 
@@ -57,3 +60,29 @@ class RerunView:
             ),
         )
         rr.log("plan/skipped", rr.TextLog(skipped or "used"))
+
+    # ---- seeing (AI engine LLD §18)
+    def depth(self, f: Frame, range_m: FloatArray) -> None:
+        """The depth picture in metres along each ray (0 = unknown)."""
+        rr.set_time("bridge", duration=f.cap_us / 1e6)
+        rr.log(
+            "camera/depth",
+            rr.DepthImage(np.where(np.isfinite(range_m), range_m, 0.0).astype(np.float32), meter=1.0),
+        )
+
+    def marks(self, t_us: int, marks: Marks) -> None:
+        """Every point by height, from above: floor grey, low red, high orange, above light blue."""
+        rr.set_time("bridge", duration=t_us / 1e6)
+        for name, xy, colour in (
+            ("floor", marks.floor_xy, [150, 150, 150]),
+            ("low", marks.low_xy, [230, 40, 40]),
+            ("high", marks.high_xy, [255, 150, 0]),
+            ("above", marks.above_xy, [140, 200, 255]),
+        ):
+            rr.log(f"plan/{name}", rr.Points2D(xy, radii=0.02, colors=[colour]))
+
+    def angle(self, t_us: int, fix: AngleFix) -> None:
+        """The tilt fix (degrees) and whether it is trusted."""
+        rr.set_time("bridge", duration=t_us / 1e6)
+        rr.log("camera/tilt_fix_deg", rr.Scalars(fix.tilt_fix_deg))
+        rr.log("camera/tilt_trusted", rr.Scalars(1.0 if fix.trusted else 0.0))

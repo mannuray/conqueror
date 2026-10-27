@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 from numpy.typing import NDArray
 
 from conqueror_ai.adapters.session import SessionRecorder
@@ -147,3 +149,42 @@ def test_a_vga_recording_lists_the_colour_ball_once_with_a_word_box_on_it(tmp_pa
     assert names == ["ball:green", "chair"]
     ball = next(t for t in res.things.values() if t.cls == "ball:green")
     assert math.isclose(ball.x_m, 1.0, abs_tol=0.05) and math.isclose(ball.y_m, 0.1, abs_tol=0.05)
+
+
+# ---- depth (AI engine LLD §18.3)
+class FlatDepth:
+    """A depth model that sees a wall: the same inverse depth everywhere."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self, rgb: NDArray[np.uint8]) -> NDArray[np.float64]:
+        self.calls += 1
+        return np.full(rgb.shape[:2], 0.8, dtype=np.float64)
+
+
+def test_replay_without_depth_reports_no_angle(tmp_path: Path) -> None:
+    session(tmp_path / "s")
+    out = app.report(app.run_replay(tmp_path / "s", CAL, BallDetector(), FLOOR_CLASSES))
+    assert "camera angle" not in out
+
+
+def test_replay_with_a_fake_depth_reports_the_angle_and_rate(tmp_path: Path) -> None:
+    session(tmp_path / "s")
+    depth = FlatDepth()
+    res = app.run_replay(tmp_path / "s", CAL, BallDetector(), FLOOR_CLASSES, depth=depth)
+    out = app.report(res)
+    assert depth.calls == 19 and "camera angle: no estimate" in out and "pictures/s" in out
+
+
+def test_a_missing_depth_model_runs_without_depth(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert app.load_depth(tmp_path / "none.mlpackage") is None
+    assert "running without depth" in capsys.readouterr().out
+
+
+def test_a_picture_of_another_size_still_skips(tmp_path: Path) -> None:
+    session(tmp_path / "s")  # QVGA pictures
+    depth = FlatDepth()
+    vga = replace(CAL, size=(640, 480))
+    res = app.run_replay(tmp_path / "s", vga, BallDetector(), FLOOR_CLASSES, depth=depth)
+    assert res.skips.get("picture size") == 19 and depth.calls == 0

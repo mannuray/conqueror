@@ -2460,3 +2460,9 @@ Within ±1.5 cm/s (≤ 8 %): **the table stays** (loose tolerances, spec 0 §1.1
 - **Owner's answer:** first **wander and turn away** (drives about, avoids what it meets, until stopped), then **visit everything** (goes where it hasn't seen yet, until the area is covered, then stops). **"Wander toward something"** (roam until a ball or a named thing is spotted) should come **for free** from those two plus the chase, not as its own build.
 - **So:** the explore behaviours are goals for the same drive loop; "find X" is explore + the detector's sighting, handing over to the chase.
 - **Where it may go (owner, 2026-10-27):** **the whole room, as far as it can see** (option 2); no fence for now. A fence (a circle around the start, or one drawn on the phone) is decided later. Known gap: the tank can't see drops (stairs, a step edge); floor runs stay with the owner present and STOP in hand.
+- **Overhangs (owner, 2026-10-27: "a bed - the camera will get stuck there"):** the sonar is low and looks under a bed; the camera (lens 17.8 cm up) is the tank's highest part; close up the edge leaves the view at the driving tilt; and a plain grid would let the sonar's echo from the wall behind erase the bed edge. **Decision (general, no "bed rule"):**
+  - **marks carry a height:** any point the depth picture places between **2 cm and 20 cm above the floor** is an obstacle, standing or hanging (owner: "keep 20 cm safe"); things higher than 20 cm can be driven under;
+  - the grid remembers them out of view (spec 7);
+  - **the sonar may clear only low marks**, never a high one;
+  - the backstop stays: pushing but not moving (Plan R3) ends a drive in ~2 s, and STOP.
+  - To check when building: the tank's highest point (camera holder) must sit well under 20 cm; if not, the limit rises.

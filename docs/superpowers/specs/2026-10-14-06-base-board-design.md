@@ -1,6 +1,6 @@
 # Spec 06 — Base board (RP2354B) + camera head
 
-Status: **draft for review** (2026-10-14). Requirements agreed with the owner in `docs/design-notes.md` §40 / §40.1; this spec turns them into a hardware design. Next steps after approval: LLD (schematic-level: exact parts, final pin map, layout rules), then a plan.
+Status: **draft for review** (2026-10-14). Requirements agreed with the owner in `docs/design-notes.md` §40 / §40.1; this spec turns them into a hardware design. **Revision 1 (2026-10-27, design-notes §159): arm-ready analog** — servo position feedback on every servo header, servo current sense, VBUS on a digital pin, motor current sense dropped (§12). Next steps after approval: LLD (schematic-level: exact parts, final pin map, layout rules), then a plan.
 
 **Scope:** a new product, separate from the current tank. The current development — Mega 2560 + ELEGOO SmartCar Shield + ESP32-S3 bridge (Plans B/C/D) — continues unchanged. The base board later reuses that firmware's design (protocol, domain logic) with a new driver layer.
 
@@ -51,17 +51,17 @@ Roles (unchanged from the current architecture):
 | MCU | **RP2354B** (owner, 2026-10-14): RP2350B (QFN-80, **48 GPIO**, 8 ADC) with **2 MB flash inside**, A4 stepping (erratum E9 fixed), 12 MHz crystal. Only US$0.10 more than the A package; LCSC C39843328 in stock (2026-10-14). Fallback: RP2350B + external QSPI flash |
 | Motors | **4 channels on every board** (2x TB6612-class, ≥ 1.2 A continuous / 3 A peak per channel, VM up to 12 V). Motors A/B always; motors C/D or servos 3-6 chosen by the **MOTOR C/D ⇄ SERVO 3-6 switch** (owner, 2026-10-14) |
 | Encoders | **4 connectors** (one per motor), quadrature A/B, 5 V supply |
-| Servos | **2 dedicated** (pan/tilt) **+ 4 shared** with motors C/D (SERVO position) = **6 servos**; more than 6 via a PCA9685 module on Qwiic. Servo power from a **dedicated servo buck** with jumpers **5 V / 6 V / BATT** (BATT = HV servos on a 2S pack only). Servos only on the base (owner, 2026-10-14: servo pins on the head dropped) |
+| Servos | **2 dedicated** (pan/tilt) **+ 4 shared** with motors C/D (SERVO position) = **6 servos**; more than 6 via a PCA9685 module on Qwiic. Servo power from a **dedicated servo buck** with jumpers **5 V / 6 V / BATT** (BATT = HV servos on a 2S pack only). Servos only on the base (owner, 2026-10-14: servo pins on the head dropped). Servos run on the RP2354B's **own hardware PWM** (~0.3 µs steps ≈ 0.03°), not an on-board PCA9685 (~4.9 µs ≈ 0.45°; owner, 2026-10-27). **Servo headers are 4-pin: signal, V+, GND, feedback** (Rev 1, §12) — a normal 3-pin plug fits pins 1-3; a servo's pot wire (the feedback mod) goes on pin 4 |
 | Distance | HC-SR04 connector (5 V, trig, echo) |
 | IR | IR receiver at the front edge + a connector for an off-board receiver |
 | RC input | 1 connector: 5 V, GND, 2 signal pins — hobby 2.4 GHz receivers (PPM, SBUS) or a toy 27 MHz decoder's on/off outputs |
 | IMU | Socket for a **GY-521** breakout (MPU6050 class, 8 pins: VCC GND SCL SDA XDA XCL AD0 INT) |
 | Compass (optional) | Socket for a **GY-271** breakout (QMC5883L/HMC5883L, 5 pins: VCC GND SCL SDA DRDY) at the board edge, far from the motor connectors |
 | I2C expansion | 1 **Qwiic** (JST-SH 4-pin) port — ToF, newer IMUs, a remote compass |
-| Expansion header | 2.54 mm header with 5 V, 3.3 V, GND, **6 GPIO** (5 V-tolerant; UART1/I2C1/SPI capable) and **4 analog inputs** (3.3 V max, marked) for users' own add-ons |
+| Expansion header | 2.54 mm header with 5 V, 3.3 V, GND, **6 GPIO** (5 V-tolerant; UART1/I2C1/SPI capable) and **4 analog inputs** (0-9.9 V through a 1/3 divider, 5 V-safe — Rev 1) for users' own add-ons. The 4 analog inputs are the **same ADC pins as the feedback pins of servo headers 3-6**: use one or the other (§12) |
 | Outputs | Passive buzzer · 1 WS2812 RGB LED (buffered data) · GPIO status LEDs |
 | Buttons | RESET, MODE (short press; 5 s WiFi reset; 15 s admin reset), BOOT (recovery only, recessed). No extra user buttons |
-| Sensing | Battery voltage · USB-VBUS present |
+| Sensing | Input voltage · USB-VBUS present (digital pin, Rev 1) · **servo rail current** (one shunt + amplifier, Rev 1) · **servo position feedback** (6, on the servo headers' pin 4, Rev 1) |
 | Head link | 4-wire harness connector (§6) |
 | USB | USB-C, programming only (RP2350 native USB) |
 | Power | **2S Li-ion pack** (own protection and USB-C charging; JST-XH 2-pin) **or a 7-12 V DC adapter** (barrel jack, owner 2026-10-14; the jack's switch contact disconnects the battery when plugged). Input range 6-12 V; reverse-polarity protection; TVS; fuse; main switch; 5 V logic, 5 V/6 V servo and 3.3 V rails (§5). No charger on the board |
@@ -71,7 +71,9 @@ Roles (unchanged from the current architecture):
 |---|---|---|---|
 | Car / tank | SERVO | 2 (A/B) | up to 6 (pan/tilt + 4) |
 | Mecanum / 4-motor tank | MOTOR | 4, each with an encoder | 2 |
-| Arm (or arm on a tank) | SERVO | 0-2 | 6 (+ PCA9685 on Qwiic for more) |
+| Arm | SERVO | 0 | 6, each with optional position feedback (+ PCA9685 on Qwiic for more, no feedback) |
+
+**One role at a time (owner, 2026-10-27, Rev 1):** a board is a tank/car controller *or* an arm controller, not both. An arm on a tank (motors and 6 feedback servos together) is not a v1 target; with the expansion analog inputs in use as pot inputs, an arm has no free analog add-ons (no joystick).
 
 Stationary robots (an arm on a desk) can run from a 7-12 V adapter; tracked/wheeled robots use the 2S pack (TT motors run too fast and hot at 12 V).
 
@@ -110,14 +112,14 @@ Draft for the LLD — the LLD finalises it against the datasheet (PWM slices, PI
 | 32 / 33 | Expansion (UART1 TX / RX capable) | 5 V-tolerant in, 1 kΩ series | expansion header |
 | 34 / 35 | Expansion (I2C1 / SPI capable) | 5 V-tolerant in, 1 kΩ series | expansion header |
 | 36 | GY-521 INT | from the socket (optional use) | GPIO |
-| 37 | GY-271 DRDY | from the socket (optional use) | GPIO |
+| 37 | **USB VBUS present** (Rev 1; was GY-271 DRDY — the compass is polled, DRDY not connected) | divider 100 kΩ / 150 kΩ (5 V → 3.0 V) | GPIO |
 | 38 / 39 | Expansion GPIO | 5 V-tolerant in, 1 kΩ series | expansion header |
 | 40 (ADC0) | Input voltage (battery/adapter) | divider 100 kΩ / 22 kΩ + 100 nF (12 V → 2.16 V) | ADC |
-| 41 (ADC1) | USB VBUS sense | divider 100 kΩ / 100 kΩ | ADC |
-| 42-45 (ADC2-5) | Expansion analog inputs | **3.3 V max** (marked on the silkscreen), 1 kΩ series | expansion header |
-| 46 / 47 (ADC6/7) | Reserved: motor current sense (future) | test pads | ADC |
+| 41 (ADC1) | **Servo rail current** (Rev 1; was VBUS) | low-side shunt in the servo rail's return + current-sense amplifier (INA180-class), scaled to ~8 A full scale | ADC |
+| 42-45 (ADC2-5) | Expansion analog inputs **and** servo 3-6 feedback (header pin 4) | **0-9.9 V**: 1/3 divider (20 kΩ / 10 kΩ) + 100 nF, 5 V-safe (Rev 1) | expansion header + servo headers 3-6 |
+| 46 / 47 (ADC6/7) | **Servo 1 / 2 feedback** (header pin 4; Rev 1 — was reserved for motor current sense) | 0-9.9 V: 1/3 divider + 100 nF | servo headers 1-2 |
 
-Budget: 48 GPIO — 36 used by the board, **6 GPIO + 4 ADC on the expansion header**, 2 ADC reserved for future motor current sensing. All 4 motors have encoders. PIO: 9 of 12 state machines (4 encoders, WS2812, echo, IR, 2 RC).
+Budget: 48 GPIO — 36 used by the board, **6 GPIO + 4 ADC on the expansion header** (the 4 ADC shared with servo 3-6 feedback). All 8 ADC used: input voltage, servo current, 6 servo feedback. All 4 motors have encoders. PIO: 9 of 12 state machines (4 encoders, WS2812, echo, IR, 2 RC).
 
 ## 5. Power tree
 
@@ -145,7 +147,8 @@ flowchart TB
   OR --> LDO[3.3 V LDO]
   LDO --> V33((3.3 V: RP2350, logic))
   V33 --> QW[Qwiic port 3.3 V]
-  USB --> VDIV[Divider → ADC1]
+  USB --> VDIV[Divider → GPIO37]
+  V5S --> SHUNT[Servo current shunt + amp → ADC1]
 ```
 
 - **No charging on the board** (owner, 2026-10-14). The pack charges itself over USB-C; the main switch should be off while charging.
@@ -181,7 +184,7 @@ Head firmware = the current ESP32 bridge (Plan C) with board pin profiles per ca
 ## 8. Base firmware (what the port needs)
 
 Reuse the current body firmware's design: protocol, domain logic (safety, control, estimation, IR, settings), and tests. New:
-- **Board layer for RP2350** (Arduino-Pico core): hardware PWM for motors/servos/buzzer, **PIO** for encoders, WS2812, IR and RC input, hardware I2C (no software I2C), ADC for battery and VBUS.
+- **Board layer for RP2350** (Arduino-Pico core): hardware PWM for motors/servos/buzzer, **PIO** for encoders, WS2812, IR and RC input, hardware I2C (no software I2C), ADC for the input voltage, the servo current and the 6 servo feedback pins; VBUS as a digital input (Rev 1).
 - **FPU:** the IMU/PID float maths that cost ~2.4 ms per pass on the Mega become cheap.
 - **Settings** in flash (EEPROM emulation with wear levelling) instead of AVR EEPROM.
 - New behaviour: motors blocked while USB VBUS is present; GPIO 8-11 set up as motor C/D or servo 3-6 from the MOTOR/SERVO switch at boot (live change → outputs off until reboot); RC input mapped like the IR remote (an input source under the arbitrator).
@@ -204,6 +207,7 @@ To be written when we get there (owner, 2026-10-14). It will cover bring-up orde
 | O5 | Head connection: adapter lead to the chosen camera board | Depends on the chosen camera board |
 | O6 | Certification: CE (RED), FCC, UKCA, RoHS; EN 71 / BIS toys if sold for children; Li-ion rules if packs ship | Research task; launch as a 14+ electronics board without cells defers the toy/battery rules (to confirm) |
 | O7 | Track/chassis supplier (Conqueror/Devastator style) | design-notes §40 sourcing plan |
+| O8 | Arm power (Rev 1, proposed, not decided): a firmware-controlled servo rail switch (STOP, soft start); start without a jump (read the feedback, command that pose, then switch the rail on; without feedback, a slow move from a remembered parked pose); a 6-8 A servo buck for arms (3x MG996R stall ~7.5 A) | Owner to decide; LLD |
 
 ## 11. Risks
 
@@ -212,3 +216,28 @@ To be written when we get there (owner, 2026-10-14). It will cover bring-up orde
 - **Compass accuracy** near motors — the socket is a convenience; reliable heading needs a remote (Qwiic) compass.
 - **Cost:** the electronics target (~INR 1,000-1,500 / US$12-18 BOM) has to hold at small volumes; market research suggests a retail of INR 1,999-2,499 for the board (`docs/research/2026-10-14-base-board-market-india.md`).
 - **Camera board** availability (off-the-shelf) must be checked per batch.
+
+## 12. Revision 1 — arm-ready analog (owner, 2026-10-27, design-notes §159)
+
+Why: the board is also an arm controller (§3.0), and cheap hobby servos (MG996R, SG90) report nothing. Reading each servo's own pot (a wire soldered to the pot's wiper, the "feedback mod") gives real joint angles: stall and blocked-joint checks, the sag under gravity, teach by hand, a start without a jump. The board should take that wire with no extra parts.
+
+What changed:
+
+| ADC | Before | Rev 1 |
+|---|---|---|
+| ADC0 | Input voltage | unchanged (in the servo jumper's **BATT** position the servo rail *is* the input, so this is also the rail voltage; on the 5 V / 6 V buck the rail is steady) |
+| ADC1 | USB VBUS sense | **Servo rail current** (one shunt + amplifier): the only "something is straining" signal for servos without the feedback mod |
+| ADC2-5 | Expansion analog, 3.3 V max | Expansion analog **and** servo 3-6 feedback (header pin 4), 0-9.9 V through a 1/3 divider |
+| ADC6-7 | Reserved: motor current sense (future) | **Servo 1-2 feedback** (header pin 4), 0-9.9 V |
+| — | VBUS on ADC1 | VBUS on **GPIO37** as a digital input (yes/no is all it needs); the GY-271 DRDY it replaces is not needed (the compass is polled) |
+
+Rules and reasons:
+1. **Native PWM, no on-board PCA9685** (owner): the RP2354B's PWM steps are ~15x finer, cost nothing and cannot hang an I2C bus; 6 outputs cover a 6-servo arm; more servos via a PCA9685 on Qwiic (no feedback on those).
+2. **4-pin servo headers** (signal, V+, GND, feedback): a standard servo plug uses pins 1-3; the feedback wire plugs into pin 4. No ADS1115, no loose wires.
+3. **One divider for every analog input (1/3, 0-9.9 V)**: the pot swings up to the servo rail (6 V on the buck, up to 8.4 V on BATT), above the ADC's 3.3 V; the same divider makes the expansion analog inputs 5 V-safe too, removing the one exception to rule 3.1.1. Cost: a 3.3 V sensor on the expansion header uses a third of the ADC range (~1 360 counts, still fine); input impedance ~30 kΩ.
+4. **One role at a time, no switches** (owner: keep v1 simple): ADC2-5 reach both the expansion header and servo headers 3-6; plug into one or the other. An arm on a tank, and analog add-ons (a joystick) on an arm, are not v1 targets.
+5. **Motor current sense dropped**: the tank already finds a stall from its encoders (Uno Lite LLD §19, Plan I); it was a future nice-to-have.
+6. **The pot reading moves with the servo rail voltage**: calibrated per servo at the rail's voltage; on BATT the firmware scales by ADC0.
+
+Considered and not taken: a TLA2528 8-channel ADC (~US$1) for the pots — keeps the expansion analog inputs free in arm mode and allows an arm on a tank; not needed while a board plays one role at a time (revisit if a mobile arm becomes a target).
+

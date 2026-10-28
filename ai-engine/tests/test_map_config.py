@@ -8,7 +8,7 @@ import pytest
 
 from conqueror_ai.adapters.map_config import load_map_config
 from conqueror_ai.app.objects import MAP_CONFIG
-from conqueror_ai.domain.depth import DepthSettings, Heights, MapConfig, Ranges
+from conqueror_ai.domain.depth import DepthSettings, Heights, MapConfig, MapSettings, Ranges
 
 
 def test_the_defaults_match_the_file() -> None:
@@ -50,3 +50,40 @@ def test_settings_that_would_see_less_are_refused(tmp_path: Path, text: str, wor
     f.write_text(text)
     with pytest.raises(ValueError, match=word):
         load_map_config(f)
+
+
+# ---- the room map's settings (Plan Z4)
+def test_map_section_defaults(tmp_path: Path) -> None:
+    cfg = load_map_config(tmp_path / "missing.yaml")
+    assert cfg.map == MapSettings()
+    assert cfg.ranges.sonar_max_m == 4.0
+
+
+def test_map_section_read(tmp_path: Path) -> None:
+    f = tmp_path / "map.yaml"
+    f.write_text("map: {hit: 0.9}\n")
+    m = load_map_config(f).map
+    assert m.hit == 0.9
+    assert m == MapSettings(hit=0.9)
+
+
+@pytest.mark.parametrize(
+    ("text", "word"), [("blocked: 0.5", "blocked"), ("hit: 0.5", "hit"), ("miss: -0.6", "miss")]
+)
+def test_map_less_careful_refused(tmp_path: Path, text: str, word: str) -> None:
+    f = tmp_path / "map.yaml"
+    f.write_text(f"map: {{{text}}}\n")
+    with pytest.raises(ValueError, match=word):
+        load_map_config(f)
+
+
+@pytest.mark.parametrize("text", ["size_m: 8.0, cell_m: 0.03", "cell_m: 0", "size_m: -1"])
+def test_map_size_must_hold_whole_cells(tmp_path: Path, text: str) -> None:
+    f = tmp_path / "map.yaml"
+    f.write_text(f"map: {{{text}}}\n")
+    with pytest.raises(ValueError):
+        load_map_config(f)
+
+
+def test_repo_map_yaml_loads() -> None:
+    assert load_map_config(MAP_CONFIG).map == MapSettings()

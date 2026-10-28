@@ -1,4 +1,4 @@
-"""config/map.yaml (AI engine LLD §18.9): heights, ranges and the depth settings."""
+"""config/map.yaml (AI engine LLD §18.9): heights, ranges, the depth settings and the room map."""
 
 from __future__ import annotations
 
@@ -8,12 +8,14 @@ from typing import Any, cast
 
 import yaml
 
-from conqueror_ai.domain.depth import DepthSettings, Heights, MapConfig, Ranges
+from conqueror_ai.domain.depth import DepthSettings, Heights, MapConfig, MapSettings, Ranges
 
 # the owner's 20 cm (design-notes §159), and what would make the tank see less: the file may make them more
 # careful, never less (final review I2)
 AT_LEAST = ("clear_m",)
 AT_MOST = ("floor_m", "trust_deg")
+# the room map: a mark must not be easier to clear or harder to make than the design's (Plan Z4)
+MAP_AT_LEAST = ("blocked", "hit", "miss")
 
 
 def _section(path: Path, d: dict[str, Any], name: str, cls: type[Any]) -> Any:
@@ -49,13 +51,14 @@ def load_map_config(path: Path) -> MapConfig:
     if not isinstance(d, dict):
         raise ValueError(f"{path}: expected a mapping at the top")
     d = cast("dict[str, Any]", d)
-    unknown = sorted(set(d) - {"heights", "ranges", "depth"})
+    unknown = sorted(set(d) - {"heights", "ranges", "depth", "map"})
     if unknown:
         raise ValueError(f"{path}: unknown sections {', '.join(unknown)}")
     cfg = MapConfig(
         _section(path, d, "heights", Heights),
         _section(path, d, "ranges", Ranges),
         _section(path, d, "depth", DepthSettings),
+        _section(path, d, "map", MapSettings),
     )
     h, dp = cfg.heights, cfg.depth
     careless = [k for k in AT_LEAST if getattr(h, k) < getattr(Heights(), k)]
@@ -63,6 +66,10 @@ def load_map_config(path: Path) -> MapConfig:
     careless += [k for k in AT_MOST if k in ("trust_deg",) and getattr(dp, k) > getattr(DepthSettings(), k)]
     if h.low_top_m > h.clear_m:
         careless.append("low_top_m (above clear_m)")
+    careless += [k for k in MAP_AT_LEAST if getattr(cfg.map, k) < getattr(MapSettings(), k)]
     if careless:
-        raise ValueError(f"{path}: the heights may only be made more careful - {', '.join(careless)}")
+        raise ValueError(f"{path}: these may only be made more careful - {', '.join(careless)}")
+    m = cfg.map
+    if m.size_m <= 0 or m.cell_m <= 0 or abs(m.size_m / m.cell_m - round(m.size_m / m.cell_m)) > 1e-9:
+        raise ValueError(f"{path}: map.size_m must be a whole number of map.cell_m, both above 0")
     return cfg

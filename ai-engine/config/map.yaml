@@ -7,7 +7,15 @@ heights:
 ranges:
   mark_max_m: 2.0    # obstacles are trusted this far
   free_max_m: 3.0    # floor and "above" this far
+  sonar_max_m: 4.0   # an echo this far or more marks nothing
 depth:
   every_n: 1         # depth on every n-th picture used
   tilt_offset_deg: 3.0   # the depth reads this much less down than the truth (taped ball, design-notes §161)
   trust_deg: 3.0     # a bigger fix isn't trusted (spec 9 §5)
+map:                 # the room map (LLD §18.5); hit, miss and blocked may only be made more careful
+  size_m: 8.0        # 8 x 8 m, fixed where the tank started
+  cell_m: 0.05       # 5 cm cells (160 x 160)
+  hit: 0.85          # log-odds step for a mark seen in a cell
+  miss: -0.4         # log-odds step for floor seen in a cell
+  clamp: 4.0         # log-odds stay within +-4
+  blocked: 0.7       # a layer above this is an obstacle

@@ -32,6 +32,7 @@ class Heights:
 class Ranges:
     mark_max_m: float = 2.0  # obstacles (low / high) are trusted this far
     free_max_m: float = 3.0  # floor and "above" this far
+    sonar_max_m: float = 4.0  # an echo this far or more marks nothing (spec 9 §5)
 
 
 @dataclass(frozen=True)
@@ -42,10 +43,23 @@ class DepthSettings:
 
 
 @dataclass(frozen=True)
+class MapSettings:
+    """The room map (AI engine LLD §18.5): 8 x 8 m of 5 cm cells, log-odds steps and the blocked level."""
+
+    size_m: float = 8.0
+    cell_m: float = 0.05
+    hit: float = 0.85  # a mark seen in a cell
+    miss: float = -0.4  # floor seen in a cell
+    clamp: float = 4.0  # log-odds stay within +-clamp
+    blocked: float = 0.7  # a layer above this is an obstacle
+
+
+@dataclass(frozen=True)
 class MapConfig:
     heights: Heights = field(default_factory=Heights)
     ranges: Ranges = field(default_factory=Ranges)
     depth: DepthSettings = field(default_factory=DepthSettings)
+    map: MapSettings = field(default_factory=MapSettings)
 
 
 # ---- the camera's real tilt (design-notes §155)

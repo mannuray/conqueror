@@ -2474,6 +2474,7 @@ Within ±1.5 cm/s (≤ 8 %): **the table stays** (loose tolerances, spec 0 §1.1
 - **LLD written (AI engine LLD §18, draft for review):** Z3 seeing (`DepthCoreml` 518 × 392, `CameraAngle` from the depth floor's horizon + 4.1°, median over 1 s, trusted within 3°; `DepthScaler`; `HeightPoints` floor < 2 cm, low 2-10 cm, high 10-20 cm, above > 20 cm), Z4 (`RoomMap` 160 × 160 log-odds low / high + seen; `SonarModel` touches only low; `cq-map`), Z5 (`ClearanceMap` by OpenCV distance transform, A* on a 10 cm grid, robot radius 15 cm, aim 0.5 m along the route; wander / explore / find goals; `RoamSkill`). Low / high is split by height at 10 cm, where the sonar's beam stops vouching. No new installs.
 - **LLD §18 approved (owner, 2026-10-27: "implement").** Next: Plan Z3 (seeing), branch `plan-z3`.
 - **Plan Z3 approved (owner, 2026-10-27: "yes"),** run natively on branch `plan-z3`.
+- **Plan Z4 written and approved (owner, 2026-10-28: "yes"),** run natively on branch `plan-z4` (`docs/superpowers/plans/2026-10-28-plan-z4-room-map.md`). Two choices beyond LLD §18.5: a cell moves **one step per picture** however many points fall in it, and **a hit beats a miss** in the same cell in the same picture (the map never invents free space).
 
 ## 161. Plan Z3 floor checks: depth, the camera's real angle, heights (2026-10-27/28)
 

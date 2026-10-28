@@ -26,9 +26,20 @@ def bridge_us() -> int:
 
 
 class FakeBridge:
-    def __init__(self, frame_age_s: float = 0.1, fps: float = 20.0, send_td: bool = True) -> None:
+    def __init__(
+        self,
+        frame_age_s: float = 0.1,
+        fps: float = 20.0,
+        send_td: bool = True,
+        jpeg: bytes = JPEG,
+        frames_for_s: float | None = None,
+        pan_tilt: tuple[float, float] = (0.0, 0.0),
+    ) -> None:
         self.frame_age_s = frame_age_s
         self.fps = fps
+        self.jpeg = jpeg  # the picture it streams (a real JPEG for tests that decode it)
+        self.frames_for_s = frames_for_s  # stop streaming pictures after this long (telemetry carries on)
+        self.pan_tilt = pan_tilt  # the servos' angles in td (90, 90 = straight ahead)
         self.send_td = send_td  # False: a bridge whose telemetry went silent (the socket stays open)
         self.connections = 0
         self.received: list[dict[str, Any]] = []
@@ -109,8 +120,8 @@ class FakeBridge:
                         "roll": 0.0,
                         "dist_mm": 500,
                         "closing": 0,
-                        "pan": 0.0,
-                        "tilt": 0.0,
+                        "pan": self.pan_tilt[0],
+                        "tilt": self.pan_tilt[1],
                         "flags": 0,
                         "prim": 0,
                         "pct": 0,
@@ -127,15 +138,21 @@ class FakeBridge:
             b"Transfer-Encoding: chunked\r\n\r\n"
         )
         seq = 0
+        t0 = time.monotonic()
         try:
             while True:
+                if self.frames_for_s is not None and time.monotonic() - t0 > self.frames_for_s:
+                    await asyncio.sleep(0.05)  # the stream stays open, but no more pictures
+                    continue
                 seq += 1
                 cap = bridge_us() - int(self.frame_age_s * 1e6)  # taken frame_age_s ago
                 head = (
                     b"\r\n--cqframe\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n"
-                    b"X-Frame-Us: %d\r\nX-Frame-Seq: %d\r\n\r\n" % (len(JPEG), cap, seq)
+                    b"X-Frame-Us: %d\r\nX-Frame-Seq: %d\r\n\r\n" % (len(self.jpeg), cap, seq)
                 )
-                writer.write(chunk(head) + chunk(JPEG))  # the bridge: part header and picture, one chunk each
+                writer.write(
+                    chunk(head) + chunk(self.jpeg)
+                )  # the bridge: part header and picture, one chunk each
                 await writer.drain()
                 await asyncio.sleep(1.0 / self.fps)
         except (ConnectionError, asyncio.CancelledError):

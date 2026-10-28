@@ -11,18 +11,23 @@ Without the depth model (--no-depth, or no file) only the sensor's echoes mark t
 from __future__ import annotations
 
 import argparse
+import asyncio
 import contextlib
+import datetime
 import json
+import signal
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
 
 from conqueror_ai.adapters import calibration_store
 from conqueror_ai.adapters.map_config import load_map_config
-from conqueror_ai.adapters.session import replay
+from conqueror_ai.adapters.session import SessionRecorder, replay
+from conqueror_ai.app.drive import map_state
 from conqueror_ai.app.objects import (
     CALIBRATION,
     DEFAULT_HOST,
@@ -34,6 +39,7 @@ from conqueror_ai.app.objects import (
     depth_due,
     load_depth,
     see,
+    see_off_loop,
 )
 from conqueror_ai.domain.camera import Calibration, CameraModel
 from conqueror_ai.domain.depth import MapConfig, Seeing, Seen
@@ -42,6 +48,13 @@ from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.sonar_model import SonarModel
 from conqueror_ai.domain.telemetry import parse_td
 from conqueror_ai.domain.types import Frame, TelemSample
+
+if TYPE_CHECKING:
+    from conqueror_ai.adapters.bridge_ws import BridgeLink
+    from conqueror_ai.adapters.mjpeg_source import MjpegSource
+    from conqueror_ai.adapters.rerun_view import RerunView
+
+STATUS_S = 1.0  # a status line this often
 
 
 class MapRun:
@@ -148,6 +161,82 @@ def report(run: MapRun) -> str:
     )
 
 
+def status(run: MapRun, per_s: float, stale: str | None) -> str:
+    room, b = run.room, run.cfg.map.blocked
+    low = int(((room.low > b) & ~(room.high > b)).sum())
+    line = (
+        f"map: {per_s:.0f}/s, seen {float(room.seen.sum()) * room.cell_m**2:.1f} m², "
+        f"blocked low {low} high {int((room.high > b).sum())}"
+    )
+    return line if stale is None else f"{line} - stale: {stale}"
+
+
+async def run_live(
+    link: BridgeLink,
+    cam: MjpegSource,
+    run: MapRun,
+    rec: SessionRecorder | None,
+    view: RerunView | None,
+    seconds: float | None = None,
+    stop: asyncio.Event | None = None,
+) -> MapRun:
+    """The tank: telemetry feeds the pose and the sensor; each new picture (the newest wins) goes through the
+    depth model and Seeing in worker threads and onto the map. Ends after `seconds` or when `stop` is set."""
+    asked = stop or asyncio.Event()
+    halt = asyncio.Event()
+    if rec is not None:
+        link.tap = rec.telemetry
+    last = {"telem": 0.0, "picture": 0.0}
+
+    async def telemetry() -> None:
+        calib_given = False
+        while not halt.is_set():
+            s = await link.samples.get()
+            if not calib_given and link.counts_per_m is not None:
+                run.on_calib(link.counts_per_m)
+                calib_given = True
+            run.on_telem(s)
+            last["telem"] = time.monotonic()
+
+    tasks = [asyncio.create_task(t) for t in (link.run(halt), cam.run(halt), telemetry())]
+    t0 = next_status = time.monotonic()
+    updates = 0
+    try:
+        while not asked.is_set() and (seconds is None or time.monotonic() - t0 < seconds):
+            now = time.monotonic()
+            stale = map_state(now, t0, last["picture"], last["telem"])
+            if now >= next_status:
+                print(status(run, updates / STATUS_S, stale), flush=True)
+                updates, next_status = 0, now + STATUS_S
+            try:
+                f = await asyncio.wait_for(cam.next_frame(), 0.2)
+            except TimeoutError:
+                continue
+            last["picture"] = time.monotonic()
+            if rec is not None:
+                rec.frame(f)
+            rgb = decode(f)
+            if rgb is None:
+                continue
+            used = run.gate(f, rgb)
+            if used is not None and run.depth is not None and run.depth_due():
+                inv = await asyncio.to_thread(run.depth, rgb)
+                run.apply(await see_off_loop(run.seeing, run.p, used, inv, f.cap_us), f.cap_us)
+            snap = run.snapshot(f.cap_us, stale is not None)
+            updates += 1
+            if view is not None:
+                view.frame(f, None)
+                view.room_map(f.cap_us, snap)
+    finally:
+        halt.set()
+        with contextlib.suppress(Exception):
+            await link.close()
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    return run
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("folder", type=Path, nargs="?")
@@ -161,14 +250,15 @@ def main() -> None:
     a = ap.parse_args()
     if a.live == (a.folder is not None):
         raise SystemExit("give a recording folder, or --live")
-    if a.live:
-        raise SystemExit("--live comes in Task 5")
     try:
         cal = calibration_store.load(a.calibration, VGA)
         cfg = load_map_config(MAP_CONFIG)
     except (FileNotFoundError, ValueError, KeyError) as err:
         raise SystemExit(str(err)) from None
     depth = None if a.no_depth else load_depth(a.depth_model)
+    if a.live:
+        live(a, cal, cfg, depth)
+        return
     show: Show | None = None
     if not a.no_view:
         from conqueror_ai.adapters.rerun_view import RerunView
@@ -186,6 +276,34 @@ def main() -> None:
         run = run_replay(a.folder, cal, cfg, depth, show)
         print(report(run))
         print(f"laptop: {time.monotonic() - t:.1f} s")
+
+
+def live(a: argparse.Namespace, cal: Calibration, cfg: MapConfig, depth: DepthFn | None) -> None:
+    from conqueror_ai.adapters.bridge_ws import BridgeLink
+    from conqueror_ai.adapters.mjpeg_source import MjpegSource
+    from conqueror_ai.adapters.rerun_view import RerunView
+
+    rec = None
+    if a.record is not None:
+        when = datetime.datetime.now().isoformat(timespec="seconds")
+        rec = SessionRecorder(a.record, {"host": a.host, "what": "cq-map --live", "date": when})
+    view = None if a.no_view else RerunView(spawn=True)
+    run = MapRun(cal, cfg, depth)
+    print("watching the map - drive with the phone; Ctrl-C ends it (cq-map never drives)")
+
+    async def until_ctrl_c() -> MapRun:
+        stop = asyncio.Event()
+        asyncio.get_running_loop().add_signal_handler(signal.SIGINT, stop.set)
+        return await run_live(BridgeLink(a.host), MjpegSource(a.host), run, rec, view, stop=stop)
+
+    try:
+        print(report(asyncio.run(until_ctrl_c())))
+    finally:
+        if rec is not None:
+            rec.close()
+            print(
+                f"recorded {rec.frame_count} pictures and {rec.telem_count} telemetry messages in {a.record}"
+            )
 
 
 if __name__ == "__main__":

@@ -6,13 +6,17 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 from numpy.typing import NDArray
 
+from conqueror_ai.adapters.bridge_ws import BridgeLink
+from conqueror_ai.adapters.mjpeg_source import MjpegSource
 from conqueror_ai.adapters.session import SessionRecorder
 from conqueror_ai.app import map as app
 from conqueror_ai.domain.camera import FloatArray
 from conqueror_ai.domain.depth import DepthSettings, MapConfig
 from conqueror_ai.domain.types import Frame
+from tests.fake_bridge import FakeBridge
 from tests.test_depth import inverse_depth
 from tests.test_objects import CAL, cam_at
 from tests.test_objects_app import GREY_JPEG
@@ -102,3 +106,46 @@ def test_no_echo_values_ignored(tmp_path: Path) -> None:
     assert app.run_replay(tmp_path / "s", CAL, CFG, None).echoes == 0
     session(tmp_path / "t", dist_mm=None)
     assert app.run_replay(tmp_path / "t", CAL, CFG, None).echoes == 0
+
+
+# ---- live (Task 5): the fake bridge, the camera straight ahead (servos at 90), real pictures
+async def live(
+    tmp_path: Path, seconds: float, rec: SessionRecorder | None = None, frames_for_s: float | None = None
+) -> tuple[app.MapRun, FakeBridge]:
+    bridge = FakeBridge(jpeg=GREY_JPEG, pan_tilt=(90.0, 90.0), frames_for_s=frames_for_s)
+    await bridge.start()
+    try:
+        link = BridgeLink("127.0.0.1", bridge.ws_port)
+        cam = MjpegSource("127.0.0.1", bridge.stream_port)
+        run = app.MapRun(CAL, CFG, FloorDepth())
+        await app.run_live(link, cam, run, rec, None, seconds=seconds)
+    finally:
+        await bridge.stop()
+    return run, bridge
+
+
+async def test_live_fills_the_map(tmp_path: Path) -> None:
+    run, _ = await live(tmp_path, 1.5)
+    assert run.used > 0 and run.marked > 0
+    assert run.room.seen.any()
+
+
+async def test_live_records(tmp_path: Path) -> None:
+    rec = SessionRecorder(tmp_path / "s", {"what": "test"})
+    run, _ = await live(tmp_path, 1.5, rec)
+    rec.close()
+    again = app.run_replay(tmp_path / "s", CAL, CFG, FloorDepth())
+    assert abs(again.used - run.used) <= 1
+    assert again.room.seen.sum() >= 0.9 * run.room.seen.sum() > 0
+
+
+async def test_live_never_drives(tmp_path: Path) -> None:
+    _, bridge = await live(tmp_path, 1.0)
+    sent = {m["t"] for m in bridge.received}
+    assert not sent & {"drive", "turn", "move", "drive_rate", "logo_run", "stop", "cam_set"}
+
+
+async def test_live_stale_reported(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    await live(tmp_path, 2.2, frames_for_s=0.3)
+    out = capsys.readouterr().out
+    assert "stale" in out and "no new picture" in out

@@ -1434,7 +1434,7 @@ stateDiagram-v2
 ```yaml
 heights: {floor_m: 0.02, low_top_m: 0.10, clear_m: 0.20}   # owner: 20 cm (design-notes §159)
 ranges: {mark_max_m: 2.0, free_max_m: 3.0, sonar_max_m: 4.0}
-depth: {every_n: 1, tilt_offset_deg: 4.1, trust_deg: 3.0}
+depth: {every_n: 1, tilt_offset_deg: 3.0, trust_deg: 3.0}   # 4.1 in the design; 3.0 measured (§18.11)
 map: {size_m: 8.0, cell_m: 0.05, hit: 0.85, miss: -0.4, clamp: 4.0, blocked: 0.7}
 route: {cell_m: 0.10, robot_r_m: 0.15, near_w: 3.0, unseen_w: 1.0, aim_m: 0.5}
 ```
@@ -1445,3 +1445,69 @@ route: {cell_m: 0.10, robot_r_m: 0.15, near_w: 3.0, unseen_w: 1.0, aim_m: 0.5}
 - **Z4:** an echo marks the arc low and clears the cone's low only; no echo changes nothing; a high mark survives a sonar sweep; a floor point lowers a mark, a cell out of view keeps it; the edge counts as blocked; a replayed recording rebuilds the same map.
 - **Z5:** routes on drawn maps (around a box, out of a U, none); the clearance; the fan never picks a curve into the clearance; wander keeps moving for 60 s in `SimRoom`; explore ends with ≥ 80 % of the reachable floor seen; find hands over to the chase; simulated drives never come closer than 15 cm (centre to obstacle edge minus half-width); depth down → 18 cm/s and explore refuses.
 - **Floor (spec 9 §6):** the angle within 1°; no obstacle ≥ 10 cm wrongly free within 1 m incl. a board at ~18 cm; wander 2 min without a touch; explore ≥ 80 %; the chase around a box; find the ball out of sight.
+
+### 18.11 As built (Plan Z3, 2026-10-28; design-notes §161)
+- **Files** (all in `ai-engine/`):
+  - `domain/depth.py` (`Heights`, `Ranges`, `DepthSettings`, `MapConfig`, `depth_tilt_deg`, `AngleFix`, `CameraAngle`, `DepthScaler`, `ScaledDepth`, `HeightPoints`, `Marks`, `Seeing`, `Seen`);
+  - `domain/camera.py`: `CameraModel.tilt_fix_deg`, `undistorted_grid(cal)` (cached per calibration, under a lock), `ray_norms()`, `unit_rays(stride)`; `domain/objects.py`: `FrameGate.tilt_fix_deg`, `ObjectPipeline.set_tilt_fix`;
+  - `adapters/depth_coreml.py` (`DepthCoreml`), `adapters/map_config.py` (`load_map_config`), `adapters/rerun_view.py` (`depth`, `marks`, `angle`);
+  - `app/objects.py` (`cq-objects` with depth: `load_depth`, `depth_due`, `see_off_loop`; `--depth-model`, `--no-depth`), `app/drive.py` (`cq-drive` keeps the camera angle up to date; `--no-depth`); `config/map.yaml`;
+  - the model `models/DepthAnythingV2SmallF16.mlpackage` (git-ignored; copied from `tools/measure/models/da2s/`);
+  - tests `test_depth.py`, `test_map_config.py`, `test_depth_coreml.py` (skipped without the model), additions to `test_camera.py`, `test_objects.py`, `test_objects_app.py`; the AI engine suite is 310 tests.
+- **Changes from §18.4, with the reason:**
+  - **The model gives depth along the camera's axis**, not along each pixel's ray: `DepthScaler` fits `1 / axis depth` and `range = ray_norm / (a·inv + c)` (`ray_norms()`).
+  - **The floor line is fitted in the undistorted image height `y_n`**, not the pixel row (the lens bends rows); the horizon is `y_n0 = −q/p`, the tilt `atan(y_n0) − offset`, and inverse depth grows toward the bottom of the picture, so the check is `p > 0`.
+  - **The correction is 3.0°, not 4.1°**, measured against a taped ball in five recordings (design-notes §161.2), and **tilt0 0.7°, not 3.3°** (owner): the camera sits 0.7-4.0° lower than the servo says and changes between power-ons, so the 3° trust window is centred on where it really sits.
+  - **A fix needs 3 estimates** in the window (`MIN_ESTIMATES`) and comes in 0.05° steps (`FIX_STEP_DEG`), so one odd picture cannot move it and the depth cache is not rebuilt for noise.
+  - **`DepthScaler`** uses every 3rd floor pixel (speed) and refuses a fit with R² < 0.9 or with no spread in the floor's depth (a wall filling the picture gave nonsense marks).
+  - **Seeing runs off the event loop** (`see_off_loop`, `asyncio.to_thread`; ~25 ms a picture on the M1), so telemetry and the drive keep ticking; `cq-drive` works out only the angle for now (no map until Z4).
+  - **`config/map.yaml` is checked:** unknown keys refused; `clear_m` only larger, `floor_m` and `trust_deg` only smaller; `low_top_m` ≤ `clear_m`; `every_n` a whole number ≥ 1.
+  - **A missing or damaged model file:** a plain message and the run carries on without depth.
+- **Measured on the floor** (design-notes §161): 18.8 pictures / s with depth (`every_n` stays 1); the depth tilt within 0.62° of the truth in five recordings; the 1 m ball at 93 / 101 cm and the 2 m ball at 223 cm; the bed's lower edge (15 cm up) marked high and a 10 cm box low, neither shown as floor within 1 m; depth puts things ~10 cm near (the safe side).
+- **Known limit found:** the ball finder's roundness (0.55-0.66 against 0.66, the ball's blue spots) missed the ball in two recordings at the right tilt: a follow-up after Plan Z3.
+
+```mermaid
+classDiagram
+  class Seeing {
+    +angle: CameraAngle
+    +scaler: DepthScaler
+    +heights: HeightPoints
+    +see(cam, inv, t_us) Seen
+    +angle_only(cam, inv, t_us) AngleFix
+  }
+  class CameraAngle {
+    +update(cam, inv, t_us) AngleFix
+    +fix() AngleFix
+  }
+  class DepthScaler {
+    +fit(cam, inv) ScaledDepth
+  }
+  class HeightPoints {
+    +classify(cam, range_m) Marks
+  }
+  class AngleFix {
+    +tilt_fix_deg: float
+    +trusted: bool
+    +depth_tilt_deg: float
+    +n: int
+  }
+  class Seen {
+    +fix: AngleFix
+    +cam: CameraModel
+    +scaled: ScaledDepth
+    +marks: Marks
+  }
+  class DepthCoreml {
+    +infer(rgb) inv
+  }
+  class ObjectPipeline {
+    +set_tilt_fix(deg)
+  }
+  Seeing --> CameraAngle
+  Seeing --> DepthScaler
+  Seeing --> HeightPoints
+  Seeing ..> Seen
+  CameraAngle ..> AngleFix
+  DepthCoreml ..> Seeing : inverse depth
+  Seen ..> ObjectPipeline : tilt fix (see_off_loop)
+```

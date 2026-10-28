@@ -24,7 +24,7 @@ mount:
   cam_x_m: 0.085
   cam_y_m: 0.0
   track_front_m: 0.13
-  tilt0_deg: 3.3
+  tilt0_deg: 0.7
 servos:
   pan_map:
   - 0.94

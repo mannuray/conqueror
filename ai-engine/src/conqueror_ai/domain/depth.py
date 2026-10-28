@@ -37,7 +37,7 @@ class Ranges:
 @dataclass(frozen=True)
 class DepthSettings:
     every_n: int = 1  # depth on every n-th picture used
-    tilt_offset_deg: float = 4.1  # the depth reads this much less down than the truth (design-notes §155)
+    tilt_offset_deg: float = 3.0  # the depth reads this much less down than the truth (design-notes §160)
     trust_deg: float = 3.0  # a fix bigger than this isn't trusted (spec 9 §5)
 
 

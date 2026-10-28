@@ -10,6 +10,7 @@ import rerun as rr
 
 from conqueror_ai.domain.camera import FloatArray
 from conqueror_ai.domain.depth import AngleFix, Marks
+from conqueror_ai.domain.room_map import MapSnapshot, map_image
 from conqueror_ai.domain.types import Detection, Frame, ObjectEstimate, Pose, TelemSample
 
 
@@ -92,3 +93,10 @@ class RerunView:
         rr.set_time("bridge", duration=t_us / 1e6)
         rr.log("camera/tilt_fix_deg", rr.Scalars(fix.tilt_fix_deg))
         rr.log("camera/tilt_trusted", rr.Scalars(1.0 if fix.trusted else 0.0))
+
+    def room_map(self, t_us: int, snap: MapSnapshot) -> None:
+        """The room map as a picture (AI engine LLD §18.5): red low, orange high, grey seen, black unseen, the
+        tank white; and whether it is stale."""
+        rr.set_time("bridge", duration=t_us / 1e6)
+        rr.log("map/image", rr.Image(map_image(snap)))
+        rr.log("map/stale", rr.Scalars(1.0 if snap.stale else 0.0))

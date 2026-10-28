@@ -46,7 +46,7 @@ class SonarModel:
         room.hit(arc, "low")
         far = dist_m - 0.10
         if far > self.near_m:
-            radii = np.arange(self.near_m, far + 1e-9, step)
+            radii = np.arange(self.near_m, far + 1e-9, step, dtype=np.float64)
             cone = room.cells(self._fan(sx, sy, pose.th_rad, radii, self.cone_rad, step))
             room.miss(np.setdiff1d(cone, arc, assume_unique=True), "low")
         return True

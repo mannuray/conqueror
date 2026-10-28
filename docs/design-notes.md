@@ -2474,3 +2474,44 @@ Within ±1.5 cm/s (≤ 8 %): **the table stays** (loose tolerances, spec 0 §1.1
 - **LLD written (AI engine LLD §18, draft for review):** Z3 seeing (`DepthCoreml` 518 × 392, `CameraAngle` from the depth floor's horizon + 4.1°, median over 1 s, trusted within 3°; `DepthScaler`; `HeightPoints` floor < 2 cm, low 2-10 cm, high 10-20 cm, above > 20 cm), Z4 (`RoomMap` 160 × 160 log-odds low / high + seen; `SonarModel` touches only low; `cq-map`), Z5 (`ClearanceMap` by OpenCV distance transform, A* on a 10 cm grid, robot radius 15 cm, aim 0.5 m along the route; wander / explore / find goals; `RoamSkill`). Low / high is split by height at 10 cm, where the sonar's beam stops vouching. No new installs.
 - **LLD §18 approved (owner, 2026-10-27: "implement").** Next: Plan Z3 (seeing), branch `plan-z3`.
 - **Plan Z3 approved (owner, 2026-10-27: "yes"),** run natively on branch `plan-z3`.
+
+## 161. Plan Z3 floor checks: depth, the camera's real angle, heights (2026-10-27/28)
+
+Plan Z3 Task 8, the owner present, the tank standing still (only the camera tilted, to the driving −15°). Recordings with `cq-record`, numbers from `cq-objects` replays and scratch scripts over the same recordings; all recordings deleted afterwards (they show the home). (§160 and a second §159 are the base-board notes, so these are §161.)
+
+### 161.1 Rate: depth on every picture
+- 20 s standing at −15°: 421 pictures (21.0 / s from the tank).
+- Replay with depth: **18.8 pictures / s** on the M1 (`cq-objects`' own "laptop" line: pictures used / replay time); without depth 419 pictures in 6.8 s wall including start-up (> 60 / s).
+- **Pass** (≥ 5 / s, LLD §18.4): `depth.every_n` stays 1.
+
+### 161.2 The camera's real angle: the correction is 3.0°, the servo's level point 0.7°
+- **Set-up:** the green ball taped straight ahead of the lens at 1.0 and 2.0 m; place A (hall, toward a door) and place B (another floor patch and direction); 10 s each; five recordings (place A 1 m was recorded twice because the tank was switched off and on between the first 1 m and the 2 m).
+- **The truth:** in pictures 20, 40 … 240 of each recording, the ball's round green blob; its bottom (centre + enclosing radius) put on the floor with `pixel_to_floor`, as the object pipeline does; the tilt that puts it at the tape distance from the lens (x − 8.5 cm), found by bisection; the median of the 12.
+- **The depth:** `depth_tilt_deg` with no correction on the same pictures (median); the correction that fits = depth − truth.
+
+| Recording | Servo + tilt0 3.3 | True tilt | Depth (no correction) | Correction that fits |
+|---|---|---|---|---|
+| A 1 m (first power-on) | −10.35° | −11.08° | −8.70° | 2.38° |
+| A 2 m (second power-on) | −10.35° | −12.67° | −9.86° | 2.81° |
+| A 1 m (second power-on) | −10.35° | −12.93° | −9.83° | 3.10° |
+| B 1 m | −10.35° | −14.31° | −11.26° | 3.06° |
+| B 2 m | −10.35° | −13.89° | −10.42° | 3.47° |
+
+- **The correction: 3.0°** (mean 2.96°), not §155's 4.1° (the spike found the floor line another way; ruling M2 of Plan Z3 said to measure it again with this code). With 3.0° the depth tilt is within **−0.62, −0.19, +0.10, +0.05, −0.47°** of the truth: **pass** (spec 9 §6.1, within 1°).
+- **The camera sits 0.7-4.0° lower than the servo reports**, and it changes between power-ons (A: −11.1° then −12.7° for the same command). On the servo alone the 1 m ball read 108-166 cm and the 2 m ball 3.6-6.5 m (the ball finder's size check then refused it). The depth follows the change.
+- **tilt0 3.3° → 0.7° (owner, 2026-10-28: yes):** 3.3 + the median true fix (−2.58°). With 3.3° two of five fixes were past the 3° trust limit and dropped; with 0.7° the true fixes are +1.85…−1.38°, all inside. The trust limit stays 3° (owner: a calibration that is off is not a reason to loosen a safety check).
+- **Replays with both** (`cq-objects`, ball x − 8 cm from the lens): A 1 m **93 cm** and **101 cm**, B 2 m **223 cm** (pass: 10 cm at 1 m, 25 cm at 2 m); the fix trusted on every picture of all five recordings. The old values (4.1°, 3.3°) gave 85 cm and 135 cm and dropped the fix in four of five.
+- **The ball finder missed the ball in two recordings even at the right tilt** (A 2 m, B 1 m): the size is right (13.3-14.0 cm), but the roundness was 0.55 and 0.66 against `MIN_ROUND` 0.66 (the ball's blue spots leave holes in the green mask). A Plan Y limit, not depth: **a small follow-up after Plan Z3** (fill the holes before measuring roundness).
+
+### 161.3 Heights: the bed edge and a box
+- **Method:** `Seeing` over 20 pictures of a 10 s recording; points within 60 cm either side of straight ahead, counted by class in 10 cm bands of distance from the lens.
+- **The bed** (the owner: front 1.0 m from the lens, the panel's underside **15 cm** up): floor only to 0.80 m; **0.80-1.00 m: ~11 000 points high (10-20 cm)** (the panel's lower edge), ~94 000 above 20 cm (the panel), floor seen through the gap under it; low and high marks behind it (under the bed). Earlier at 1.4 m: the same pattern at 1.10-1.40 m.
+- **A box** (~10 cm, by its size in the picture) at ~70 cm, left of centre, with the bed behind: **60-80 cm: ~2 900 points low, ~120 high**.
+- **Pass** (spec 9 §6.2 for this plan): neither the box nor the bed edge shows as floor within 1 m.
+- **The depth puts things ~10 cm near:** the bed at 0.85-0.95 m for 1.0 m and 1.20-1.35 m for 1.4 m - on the safe side and inside spec 9's 15 cm. No chair was tried (the bed covers "above 20 cm").
+
+### 161.4 The safe band (owner, 2026-10-28)
+- **The "high" band stays 2-20 cm** (`heights.clear_m` 0.20): anything up to 20 cm above the floor is an obstacle; the tank's height was not measured against it (owner: keep 20 cm).
+
+### 161.5 Found on the way
+- **A switch on the tank toggled wrong** (owner) made `cam_set` answer `COMMAND_TIMEOUT` while telemetry still flowed; once it was set right the camera moved. A restart also puts the camera back to level, so a check at the driving tilt sets it again after every power-on.

@@ -18,7 +18,7 @@
 - **The map's edge counts as blocked** (a soft fence); points and echoes outside the map are ignored.
 - **Stale** (spec 7 §4, as `cq-drive`): no picture for 0.5 s or no telemetry for 0.2 s. `depth_ok`: a depth picture in the last 1 s.
 - `cq-map` **never sends anything that moves the tank** (only `BridgeLink`, which never drives, and the camera stream).
-- `config/map.yaml` new values may only be made more careful: `blocked` and `hit` not lower, `miss` not more negative than the defaults (the "more careful only" rule, LLD §17.10 / §18.9).
+- `config/map.yaml` new values may only be made more careful: `hit` and `clamp` not lower, `miss` not more negative, `blocked` not higher (and above 0), `sonar_max_m` not higher than the defaults (the "more careful only" rule, LLD §17.10 / §18.9; corrected after the final review: the plan first had `blocked` the wrong way round).
 - Recordings show the home: kept in the git-ignored `ai-engine/recordings/`, deleted after the numbers are written down.
 - Python: type hints everywhere, ruff + pyright strict clean, no blocking the event loop; commits Conventional, ending `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; run checks with `set -o pipefail`.
 

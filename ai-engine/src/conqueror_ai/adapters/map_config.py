@@ -14,8 +14,10 @@ from conqueror_ai.domain.depth import DepthSettings, Heights, MapConfig, MapSett
 # careful, never less (final review I2)
 AT_LEAST = ("clear_m",)
 AT_MOST = ("floor_m", "trust_deg")
-# the room map: a mark must not be easier to clear or harder to make than the design's (Plan Z4)
-MAP_AT_LEAST = ("blocked", "hit", "miss")
+# the room map: a mark must not be easier to clear or harder to make than the design's (Plan Z4, final review
+# I1-I2): a bigger hit, a smaller (less negative) miss, a bigger clamp, a lower blocked level, a shorter sonar
+MAP_AT_LEAST = ("hit", "miss", "clamp")
+MAP_AT_MOST = ("blocked",)
 
 
 def _section(path: Path, d: dict[str, Any], name: str, cls: type[Any]) -> Any:
@@ -67,6 +69,11 @@ def load_map_config(path: Path) -> MapConfig:
     if h.low_top_m > h.clear_m:
         careless.append("low_top_m (above clear_m)")
     careless += [k for k in MAP_AT_LEAST if getattr(cfg.map, k) < getattr(MapSettings(), k)]
+    careless += [k for k in MAP_AT_MOST if getattr(cfg.map, k) > getattr(MapSettings(), k)]
+    if cfg.map.blocked <= 0:
+        careless.append("blocked (0 or less: every unseen cell would be blocked)")
+    if cfg.ranges.sonar_max_m > Ranges().sonar_max_m:
+        careless.append("sonar_max_m")
     if careless:
         raise ValueError(f"{path}: these may only be made more careful - {', '.join(careless)}")
     m = cfg.map

@@ -173,3 +173,10 @@ def test_update_picture_is_quick() -> None:
         room.update_picture(m, i)
         best = min(best, time.perf_counter() - t)
     assert best < 0.01
+
+
+@pytest.mark.parametrize(("x", "y"), [(-4.2, 0.0), (0.0, -4.2), (4.3, 4.3), (-9.0, -9.0)])
+def test_map_image_with_the_tank_off_the_map(x: float, y: float) -> None:  # final review I3
+    room = RoomMap()
+    img = map_image(room.snapshot(0, Pose(0, x, y, 0.0, 0.0, 0.0), False, True))
+    assert int((img == 255).all(axis=2).sum()) == 0  # no tank marker, no white flood

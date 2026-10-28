@@ -67,9 +67,7 @@ def test_map_section_read(tmp_path: Path) -> None:
     assert m == MapSettings(hit=0.9)
 
 
-@pytest.mark.parametrize(
-    ("text", "word"), [("blocked: 0.5", "blocked"), ("hit: 0.5", "hit"), ("miss: -0.6", "miss")]
-)
+@pytest.mark.parametrize(("text", "word"), [("hit: 0.5", "hit"), ("miss: -0.6", "miss")])
 def test_map_less_careful_refused(tmp_path: Path, text: str, word: str) -> None:
     f = tmp_path / "map.yaml"
     f.write_text(f"map: {{{text}}}\n")
@@ -87,3 +85,30 @@ def test_map_size_must_hold_whole_cells(tmp_path: Path, text: str) -> None:
 
 def test_repo_map_yaml_loads() -> None:
     assert load_map_config(MAP_CONFIG).map == MapSettings()
+
+
+# ---- final review I1, I2: "more careful only" the right way round
+@pytest.mark.parametrize(
+    ("text", "word"),
+    [
+        ("map: {blocked: 3.9}", "blocked"),
+        ("map: {blocked: 0}", "blocked"),
+        ("map: {clamp: 0.5}", "clamp"),
+        ("map: {clamp: 3.0}", "clamp"),
+        ("ranges: {sonar_max_m: 6.0}", "sonar_max_m"),
+    ],
+)
+def test_settings_that_would_make_the_map_less_careful_are_refused(
+    tmp_path: Path, text: str, word: str
+) -> None:
+    f = tmp_path / "map.yaml"
+    f.write_text(text + "\n")
+    with pytest.raises(ValueError, match=word):
+        load_map_config(f)
+
+
+@pytest.mark.parametrize("text", ["map: {blocked: 0.5}", "map: {clamp: 5.0}", "ranges: {sonar_max_m: 3.0}"])
+def test_more_careful_map_settings_are_kept(tmp_path: Path, text: str) -> None:
+    f = tmp_path / "map.yaml"
+    f.write_text(text + "\n")
+    load_map_config(f)

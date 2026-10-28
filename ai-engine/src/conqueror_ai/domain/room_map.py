@@ -135,5 +135,6 @@ def map_image(snap: MapSnapshot) -> NDArray[np.uint8]:
     if snap.pose is not None:
         ix = int(np.floor(snap.pose.x_m / snap.cell_m + n / 2))
         iy = int(np.floor(snap.pose.y_m / snap.cell_m + n / 2))
-        img[max(0, ix - 1) : ix + 2, max(0, iy - 1) : iy + 2] = TANK
+        if 0 <= ix < n and 0 <= iy < n:  # off the map: no marker (a negative slice end would wrap round)
+            img[max(0, ix - 1) : ix + 2, max(0, iy - 1) : iy + 2] = TANK
     return np.ascontiguousarray(img[::-1, ::-1])  # row n-1-ix, column n-1-iy

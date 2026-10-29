@@ -2516,3 +2516,26 @@ Plan Z3 Task 8, the owner present, the tank standing still (only the camera tilt
 
 ### 161.5 Found on the way
 - **A switch on the tank toggled wrong** (owner) made `cam_set` answer `COMMAND_TIMEOUT` while telemetry still flowed; once it was set right the camera moved. A restart also puts the camera back to level, so a check at the driving tilt sets it again after every power-on.
+
+## 162. Plan Z4 floor checks: the room map (2026-10-28/29)
+
+Plan Z4 Task 6, the owner present and driving with the phone; `cq-map --live --record` only watched (it never drives; the camera tilted to −15° first). Numbers from `cq-map`'s once-a-second status lines and its report, and from scratch scripts replaying the same recordings (the map printed in 10 cm squares around the start at chosen pictures); recordings deleted afterwards (they show the home).
+
+### 162.1 Rate
+- **10-22 map updates a second** (status lines: mostly 12-17 / s in the first run, 19-21 / s standing in the second, every picture through depth): **pass** (spec 9 §3.8: 10 or more). Not stale after the first second.
+
+### 162.2 A drive with a box and the bed (recording A)
+- About 90 s standing at the start, then a short drive (the path from the pose: x 0 to 1.1 m, y 0 to −1.9 m, ending at (0.40, −0.46) turned +57°); 2 205 pictures (all with depth and height marks), 1 587 echoes used; 20.9 m² seen, 531 low and 1 332 high cells blocked.
+- **The box** (~10 cm, ~65 cm ahead, left of centre): marked low at x 0.6-0.8 m, y +0.1-0.3 m while standing (a few high cells on its top, within the depth's noise at the 10 cm boundary); **still marked at the end**, after the tank had moved and turned (the sensor's last echo, 56 cm, is the box): **pass** (memory).
+- **The bed edge**: a high band ~1 m ahead while standing; at the end the band lay 10-20 cm farther (x 1.0-1.3), never shown as floor (see 162.3 for why it moves).
+- **The same answer twice:** two replays of recording A gave the same report (2 165 pictures used, 1 587 echoes, 20.9 m², 536 low, 1 333 high; 198 s on the laptop). (The live run used 40 more pictures: the newest picture wins while depth runs.)
+
+### 162.3 The bed edge and the distance sensor (recording B)
+- The tank ~1 m in front of the bed, facing it (panel underside 15 cm up, §161), ~90 s standing, then 39 cm forward and standing.
+- While standing the bed band was first at x 1.0-1.1 m and **settled at 1.2-1.3 m after ~30 s** (the depth picture's scale fit moving; §161 found depth ~10 cm near at this range); the nearer marks were cleared by floor seen there. After the drive it stayed at 1.2-1.3 m and **was never cleared**.
+- **The truth:** the sensor read 1.11 m at the start and 0.71 m at the end, both putting what it hears at 1.23 m from the start; **the owner's tape: tank front to the panel 70 cm**, so the panel is at 0.39 + 0.13 + 0.70 = **1.22 m**. The map is right: **pass** (spec 9 §6.2 for this plan: the overhang is never shown free; the sensor never clears a high mark).
+- A small high patch appeared ~45 cm ahead on the left while standing (the owner's foot or hand) and stayed (out of view after the drive): memory works both ways.
+
+### 162.4 Not checked on the floor
+- **Stale:** covering the camera doesn't make the map stale (dark pictures still arrive); the flag is checked by `test_live_stale_reported` and the same rule (`map_state`) was floor-checked in Plan Z1 (§157.2).
+- **A two-minute loop of the room:** the drives were short; Plan Z5's wander covers the room.

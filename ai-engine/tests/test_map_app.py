@@ -90,7 +90,7 @@ def test_replay_without_depth(tmp_path: Path) -> None:  # Review Focus 4
     out = app.report(run)
     assert run.depth_pictures == 0 and "with depth 0" in out
     assert run.room.seen.sum() * run.room.cell_m**2 <= 0.06  # only the cells under the tank (22 x 23 cm)
-    assert "seen 0.1 m²" in out
+    assert "seen 0.0 m²" in out  # 6 cells: those the body shrunk by 2 cm covers whole
     assert run.echoes > 0 and (run.room.low > 0).any()
 
 

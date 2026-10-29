@@ -20,7 +20,7 @@ from conqueror_ai.domain.room_map import RoomMap
 from conqueror_ai.domain.sonar_model import SonarModel
 from conqueror_ai.domain.types import Pose
 
-NEAREST_M = 0.12  # the tank's centre never nearer than this to anything (ROBOT_R_M - 0.03)
+NEAREST_M = 0.12  # the tank's centre never nearer than this to anything (half-width 11.5 cm + a little)
 BODY_M = 0.005  # and its body (front, back and sides, turning included) never touches anything (review C1)
 LIM = Limits()
 ROOM = [

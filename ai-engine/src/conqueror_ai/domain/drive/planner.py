@@ -118,7 +118,22 @@ class Planner:
         cost: CostMap | None = None,
         far_m: float | None = None,
     ) -> float:
+        """The move's score; a forbidden move (the echo kept clear of, the body's rule) gets w.blocked."""
+        s, forbidden = self._score(at, now, want, target, obstacle_m, cost, far_m)
+        return s + (self.w.blocked if forbidden else 0.0)
+
+    def _score(
+        self,
+        at: XYTh,
+        now: Command,
+        want: Command,
+        target: tuple[float, float],
+        obstacle_m: float | None,
+        cost: CostMap | None,
+        far_m: float | None,
+    ) -> tuple[float, bool]:
         lim, w = self.lim, self.w
+        forbidden = False
         path = roll_out(at, now, want, lim)
         end = path[-1]
         if far_m is None:
@@ -141,15 +156,15 @@ class Planner:
                 math.hypot(px + fx * math.cos(th) - ox, py + fx * math.sin(th) - oy) < lim.clear_m
                 for px, py, th in path
             ):
-                s += w.blocked
+                forbidden = True
         if cost is not None:
             if want.v_cms == 0 and want.w_dps != 0:  # a turn on the spot, checked its own way
                 path = path if moves else self.foot.spin_poses(at, want.w_dps > 0)
             if (moves or want.w_dps != 0) and not self.foot.allowed(cost, at, path):
-                s += w.blocked
+                forbidden = True
             else:
                 s -= cost.settings.cost_w * self.foot.mean_cost(cost, at, path)
-        return s
+        return s, forbidden
 
     def choose(
         self,
@@ -167,10 +182,11 @@ class Planner:
         if far_m is not None and far_m < self.lim.slow_from_m:
             far_m = None
         moving = [c for c in self.fan(at, target, now, far_m, cost) if c != STOP]
-        scored = [(self.score(at, now, c, target, obstacle_m, cost, far_m), c) for c in moving]
-        best_score, best = max(scored, key=lambda sc: sc[0])
-        if best_score <= self.w.blocked / 2:
-            return STOP  # stop only when every curve is blocked
+        scored = [(self._score(at, now, c, target, obstacle_m, cost, far_m), c) for c in moving]
+        allowed = [(sc[0], c) for sc, c in scored if not sc[1]]
+        if not allowed:
+            return STOP  # stop only when every move is forbidden (review M8: not merely dear)
+        best = max(allowed, key=lambda sc: sc[0])[1]
         if cost is not None and best.v_cms > 0:
             cap = self.speed_cap(cost, at, best)
             if best.v_cms > cap:

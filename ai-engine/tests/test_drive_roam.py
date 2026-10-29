@@ -188,3 +188,19 @@ def test_boxed_in_with_nothing_known_behind_it_never_backs() -> None:
     outs = moving(skill(), pocket(behind_known=False), 40.0)
     assert all(o.cmd.v_cms >= 0 for o in outs)
     assert [o.result for o in outs if o.result] == ["blocked"]
+
+
+def test_explore_picks_again_when_its_target_closes() -> None:
+    """Explore keeps its target 3 s; the camera then marked a wall beside it and closed it - the run went
+    into the ways out instead of picking again (Plan Z6 final review fix pass, the run-3 layout)."""
+    s = skill("explore")
+    snap = open_snap(seen=False)  # unseen: frontier everywhere at the edge of what's seen
+    room = RoomMap()
+    room.seen[:] = False
+    room.seen.reshape(-1)[room.cells(np.array(area(-0.6, -0.6, 0.6, 0.6)))] = True
+    room.update_picture(Marks(*(np.zeros((0, 2)),) * 4), 0)
+    snap = room.snapshot(0, POSE, False, True)
+    run(s, snap, START_STAND_S + 0.2)
+    s.explore._dest, s.explore._picked_s = (3.95, 3.95), 0.9  # pyright: ignore[reportPrivateUsage]  # closed: the map's edge
+    out = s.tick(1.4, AT, snap, None, None, True)
+    assert s.state == "drive" and s.dest != (3.95, 3.95) and out.result is None

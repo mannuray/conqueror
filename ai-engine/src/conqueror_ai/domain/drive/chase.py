@@ -23,7 +23,9 @@ PAN_LIMIT_DEG = 60.0
 PAN_STEP_DEG = 8.0  # the camera follows the target in steps this big, not constantly
 SEARCH_TURN_DEG = 180.0  # after the first sweep: half a turn on the spot, then sweep what was behind
 MAX_TICK_S = 0.3  # a longer gap between ticks counts as this (no jump in the ramps after a stall)
-BLOCKED_GIVE_UP_S = 3.0  # standing with every curve blocked this long ends the run (going around is slice 2)
+BLOCKED_GIVE_UP_S = 3.0  # without the map: standing with every curve blocked this long ends the run
+MOVED_M = 0.05  # on the map: moving this far ...
+TURNED_DEG = 15.0  # ... or turning this far is progress; none for stuck_s starts the ways out (Plan Z6)
 STALE_GIVE_UP_S = 2.0  # a stale map stops the tank at once; this long ends the run (design-notes §157.2)
 TARGET_R_M = 0.12  # on the room map, the target's own marks (the ball is 12 cm) don't count as an obstacle
 SLOW_CMS = 18.0  # spec 9 §5: unsure of the camera angle, or no depth
@@ -58,6 +60,9 @@ class ChaseSkill:
         self._blocked_t0: float | None = None  # since when every curve is blocked
         self.recovery = Recovery(planner.lim, planner.foot, DRIVE_TILT)  # on the map (Plan Z6)
         self._recovering = False
+        self._progress: tuple[XYTh, float] | None = None  # where and when it last got somewhere (on the map)
+        self._spin_turned = 0.0  # the search turn, measured from the pose
+        self._spin_th: float | None = None
 
     def _out(
         self, want: Command, cam: tuple[float, float] | None = None, result: str | None = None
@@ -109,7 +114,7 @@ class ChaseSkill:
         if self.state == "sweep":
             return self._sweep(now_s)
         if self.state == "spin":
-            return self._spin(now_s)
+            return self._spin(now_s, at, snap)
         return self._approach(now_s, at, fix, sonar_m, snap)
 
     def _sweep(self, now_s: float) -> SkillOut:
@@ -134,11 +139,22 @@ class ChaseSkill:
             return self._sweep(now_s)
         return self._out(STOP)
 
-    def _spin(self, now_s: float) -> SkillOut:
-        """Half a turn on the spot. The map can't use pictures taken while spinning (faster than its 45 deg/s
-        gate), so the tank then stands and sweeps the camera over what was behind it."""
-        if (now_s - self._t0) * self.lim.spin_dps >= SEARCH_TURN_DEG:
+    def _spin(self, now_s: float, at: XYTh, snap: MapSnapshot | None) -> SkillOut:
+        """Half a turn on the spot, measured from the pose. The map can't use pictures taken while spinning
+        (faster than its 45 deg/s gate), so the tank then stands and sweeps the camera over what was behind
+        it. On the map the turn is checked like every move (review C1): refused, the search sweeps from
+        here."""
+        if self._spin_th is not None:
+            self._spin_turned += abs((math.degrees(at[2] - self._spin_th) + 180.0) % 360.0 - 180.0)
+        self._spin_th = at[2]
+        rest = SEARCH_TURN_DEG - self._spin_turned
+        refused = snap is not None and not self.planner.can_spin(
+            at, CostMap(snap, self.settings), True, max(rest, 1.0)
+        )
+        if rest <= 1e-9 or refused:
             self.state, self._t0, self._pan, self._i = "sweep", now_s, None, 0
+            self._spin_turned, self._spin_th = 0.0, None
+            self.cmd = STOP
             return self._sweep(now_s)
         return self._out(Command(0.0, self.lim.spin_dps))
 
@@ -148,6 +164,8 @@ class ChaseSkill:
         lim = self.lim
         if fix is None or fix.seen_age_s > LOST_AFTER_S:
             self.state, self._t0, self._pan, self._i = "sweep", now_s, None, 0
+            self._recovering, self._blocked_t0, self._progress = False, None, None  # review I2
+            self.cmd = STOP
             return self._sweep(now_s)
         target = (fix.x_m, fix.y_m)
         b = bearing_deg(at, target)
@@ -189,20 +207,20 @@ class ChaseSkill:
                 if route is None
                 else planner.choose(at, self.cmd, aim_point(route, (at[0], at[1])), obstacle, fan, d_lens)
             )
+        give_up = BLOCKED_GIVE_UP_S if fan is None else self.settings.stuck_s
         if want == STOP:  # every curve blocked (design-notes §157.5), or no route
             if self._blocked_t0 is None:
                 self._blocked_t0 = now_s
-            if now_s - self._blocked_t0 >= BLOCKED_GIVE_UP_S - 1e-9:
-                if fan is None:
-                    return self._end("blocked")  # slice 1, no map
-                self._blocked_t0, self._recovering = None, True
-                self.recovery.start(now_s, at)
-                self.cmd = STOP
-                return SkillOut(STOP)
         else:
             self._blocked_t0 = None
-            if fan is not None:
-                self.recovery.progress(at)
+        blocked = self._blocked_t0 is not None and now_s - self._blocked_t0 >= give_up - 1e-9
+        if fan is None and blocked:
+            return self._end("blocked")  # slice 1, no map
+        if fan is not None and (blocked or not self._made_progress(now_s, at)):  # stuck on the map (§18.13.4)
+            self._blocked_t0, self._progress, self._recovering = None, None, True
+            self.recovery.start(now_s, at)
+            self.cmd = STOP
+            return SkillOut(STOP)
         pan = max(-PAN_LIMIT_DEG, min(PAN_LIMIT_DEG, -b))
         cam = None
         if self._pan is None or abs(pan - self._pan) > PAN_STEP_DEG:
@@ -214,6 +232,19 @@ class ChaseSkill:
             self.cmd = STOP
             return SkillOut(STOP, cam)
         return self._out(want, cam)
+
+    def _made_progress(self, now_s: float, at: XYTh) -> bool:
+        """False once the tank has neither moved MOVED_M nor turned TURNED_DEG for stuck_s (on the map)."""
+        if self._progress is None:
+            self._progress = (at, now_s)
+            return True
+        p, t = self._progress
+        turned = abs((math.degrees(at[2] - p[2]) + 180.0) % 360.0 - 180.0)
+        if math.dist(p[:2], at[:2]) >= MOVED_M or turned >= TURNED_DEG:
+            self._progress = (at, now_s)
+            self.recovery.progress(at)
+            return True
+        return now_s - t < self.settings.stuck_s - 1e-9
 
     def _recover(self, now_s: float, at: XYTh, cost: CostMap) -> SkillOut:
         out = self.recovery.tick(now_s, at, cost, self._dt)

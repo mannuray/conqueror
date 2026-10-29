@@ -20,9 +20,11 @@ from conqueror_ai.domain.drive.chase import (
     DRIVE_TILT,
     LOST_AFTER_S,
     MAX_TICK_S,
+    MOVED_M,
     PAN_LIMIT_DEG,
     PAN_STEP_DEG,
     STALE_GIVE_UP_S,
+    TURNED_DEG,
     ChaseSkill,
     SkillOut,
 )
@@ -37,8 +39,7 @@ from conqueror_ai.domain.room_map import MapSnapshot
 
 SLOW_CMS = 18.0  # spec 9 §5: unsure of the camera angle, or no depth
 START_STAND_S = 1.0  # at the start: stand with the camera ahead so the map takes still pictures
-PROGRESS_M = 0.05  # moving this far ...
-PROGRESS_DEG = 15.0  # ... or turning this far counts as progress (no progress for stuck_s: stuck)
+
 
 Mode = Literal["wander", "explore"]
 
@@ -181,7 +182,9 @@ class RoamSkill:
 
     def _plan(self, now_s: float, at: XYTh, cost: CostMap) -> list[XY] | None:
         """A destination and a route to it, or None."""
-        for _ in range(3):  # wander: an unreachable spot is dropped and another picked
+        for _ in range(
+            3
+        ):  # an unreachable spot (the map changed since it was picked) is dropped, another picked
             dest = self._destination(now_s, at, cost)
             if dest is None:
                 return None
@@ -189,9 +192,10 @@ class RoamSkill:
             if route is not None:
                 self.dest = dest
                 return route
-            if self.mode != "wander":
-                return None
-            self.wander.drop()
+            if self.mode == "wander":
+                self.wander.drop()
+            else:
+                self.explore.drop()
         return None
 
     # ---- stuck: the standard ways out
@@ -216,13 +220,13 @@ class RoamSkill:
 
     # ---- driving
     def _made_progress(self, now_s: float, at: XYTh) -> bool:
-        """False once the tank has neither moved PROGRESS_M nor turned PROGRESS_DEG for stuck_s."""
+        """False once the tank has neither moved MOVED_M nor turned TURNED_DEG for stuck_s."""
         if self._progress is None:
             self._progress = (at, now_s)
             return True
         p, t = self._progress
         turned = abs((math.degrees(at[2] - p[2]) + 180.0) % 360.0 - 180.0)
-        if math.dist(p[:2], at[:2]) >= PROGRESS_M or turned >= PROGRESS_DEG:
+        if math.dist(p[:2], at[:2]) >= MOVED_M or turned >= TURNED_DEG:
             self._progress = (at, now_s)
             self.recovery.progress(at)
             return True

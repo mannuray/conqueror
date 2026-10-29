@@ -25,13 +25,17 @@ class Footprint:
         xs = np.linspace(-r, f, max(2, math.ceil((f + r) / OUTLINE_STEP_M) + 1))[1:-1]
         edges = [np.stack([np.full_like(ys, f), ys], 1), np.stack([np.full_like(ys, -r), ys], 1)]
         sides = [np.stack([xs, np.full_like(xs, w)], 1), np.stack([xs, np.full_like(xs, -w)], 1)]
-        self.outline: FloatArray = np.concatenate(edges + sides).astype(
-            np.float64
-        )  # tank frame: x ahead, y left
+        # the outline (tank frame: x ahead, y left) reads the cost; the whole body keeps the keep-out (review
+        # I1: a point already in an obstacle's cell can't get nearer, so with the outline alone a thing under
+        # the edge could end up inside the body)
+        self.outline: FloatArray = np.concatenate(edges + sides).astype(np.float64)
+        gx, gy = np.meshgrid(np.linspace(-r, f, len(xs) + 2), ys)
+        self.body: FloatArray = np.stack([gx.ravel(), gy.ravel()], axis=1).astype(np.float64)
 
-    def world(self, p: XYTh) -> FloatArray:
+    def world(self, p: XYTh, pts: FloatArray | None = None) -> FloatArray:
+        """These points of the tank (the outline by default) in the room at pose p."""
         c, s = math.cos(p[2]), math.sin(p[2])
-        o = self.outline
+        o = self.outline if pts is None else pts
         return np.stack([p[0] + o[:, 0] * c - o[:, 1] * s, p[1] + o[:, 0] * s + o[:, 1] * c], axis=1)
 
     @staticmethod
@@ -54,10 +58,12 @@ class Footprint:
         return out
 
     def allowed(self, cost: CostMap, at: XYTh, poses: list[XYTh]) -> bool:
-        """Each outline point, along the whole move: never nearer than keep_out_m to a known obstacle, or
+        """Each point of the body, along the whole move: never nearer than keep_out_m to a known obstacle, or
         than it is now when it already is (the points move with the body, so each is its own)."""
-        floor = np.minimum(cost.settings.keep_out_m, cost.dist_many(self.world(at))) - 1e-9
-        return all(bool((cost.dist_many(self.world(p)) >= floor).all()) for p in self.dense(at, poses))
+        floor = np.minimum(cost.settings.keep_out_m, cost.dist_many(self.world(at, self.body))) - 1e-9
+        return all(
+            bool((cost.dist_many(self.world(p, self.body)) >= floor).all()) for p in self.dense(at, poses)
+        )
 
     def highest_cost(self, cost: CostMap, at: XYTh, poses: list[XYTh], ahead_m: float | None = None) -> float:
         """The dearest cell the outline meets along the move (only within ahead_m of `at` when given)."""

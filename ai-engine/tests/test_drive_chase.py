@@ -25,7 +25,12 @@ def test_no_target_sweeps_the_camera_turns_half_round_sweeps_again_then_not_foun
     outs = [s.tick(i * 0.1, (0.0, 0.0, 0.0), None, None, True) for i in range(40)]
     pans = [o.cam[0] for o in outs if o.cam is not None]
     assert pans[:5] == [0.0, -45.0, 45.0, -90.0, 90.0] and all(o.cmd == STOP for o in outs[:39])
-    outs = [s.tick(4.0 + i * 0.1, (0.0, 0.0, 0.0), None, None, True) for i in range(80)]
+    from conqueror_ai.domain.drive.sim import SimTank
+
+    tank, outs = SimTank(), list[ch.SkillOut]()  # the half turn is measured from the pose (review M4)
+    for i in range(80):
+        outs.append(s.tick(4.0 + i * 0.1, tank.at, None, None, True))
+        tank.step(outs[-1].cmd, 0.1)
     assert outs[6].cmd.w_dps == LIM.spin_dps  # 5 positions x (0.1 s to see it still + 0.8 s look) = 4.5 s
     # half a turn (180 / 65 = 2.8 s): the map can't use pictures while spinning (faster than 45 deg/s),
     # so the tank stops and sweeps the camera again over what was behind it
@@ -123,3 +128,65 @@ def test_standing_blocked_for_3_s_ends_it_blocked() -> None:
     ends = [i for i, o in enumerate(outs) if o.result is not None]
     assert all(o.cmd == STOP for o in outs) and [outs[i].result for i in ends] == ["blocked"]
     assert 30 <= ends[0] <= 31
+
+
+# ---- Plan Z6 final review: the chase on the cost map
+def wall_beside_left() -> object:
+    import numpy as np
+
+    from conqueror_ai.domain.room_map import RoomMap
+
+    room = RoomMap()
+    room.seen[:] = True
+    pts = [(float(x), float(y)) for x in np.arange(-1.0, 1.0, 0.025) for y in np.arange(0.175, 0.3, 0.025)]
+    c = room.cells(np.array(pts))
+    room.hit(c, "low")
+    room.hit(c, "low")
+    return room.snapshot(0, None, False, True)
+
+
+def test_the_search_turn_is_checked_against_the_map() -> None:  # review C1
+    """No ball in view: sweep, then half a turn on the spot - checked like every move (LLD §18.13.2). A wall
+    6 cm beside the left side: the turn is refused (it brushed the wall to 1.5 mm)."""
+    from conqueror_ai.domain.drive.sim import Box, SimRoom, SimTank
+
+    snap = wall_beside_left()
+    sim, tank, s, gap = SimRoom([Box(-1.0, 0.175, 1.0, 0.30, 0.0, 0.4)], walls_m=2.5), SimTank(), skill(), 9.0
+    for k in range(150):
+        o = s.tick(k * 0.1, tank.at, None, None, True, True, snap)  # type: ignore[arg-type]
+        tank.step(o.cmd, 0.1)
+        gap = min(gap, sim.body_gap(tank.at, LIM))
+        if o.result:
+            break
+    assert gap >= 0.005
+
+
+def test_recovery_ends_when_the_chase_goes_back_to_searching() -> None:  # review I2
+    s = skill()
+    snap = wall_beside_left()
+    s.state, s._recovering = "approaching", True  # pyright: ignore[reportPrivateUsage]
+    s.recovery.start(0.0, (0.0, 0.0, 0.0))
+    for k in range(60):
+        s.tick(k * 0.1, (0.0, 0.0, 0.0), TargetFix(1, 1.5, 0.0, k * 0.1), None, True, True, snap)  # type: ignore[arg-type]
+        if s.state != "approaching":
+            break
+    assert s.state == "sweep" and not s._recovering  # pyright: ignore[reportPrivateUsage]
+
+
+def test_on_the_map_no_progress_is_stuck_too() -> None:  # review I2: LLD §18.13.4
+    """Moving but getting nowhere (the fan offers curves, the tank doesn't move) for stuck_s starts the ways
+    out on the map, as roam does - not only 'every curve blocked'."""
+    import numpy as np
+
+    from conqueror_ai.domain.room_map import RoomMap
+
+    room = RoomMap()
+    room.seen[:] = True
+    snap = room.snapshot(0, None, False, True)
+    s, k = skill(), 0
+    for k in range(50):  # the pose never changes though the commands drive
+        s.tick(k * 0.1, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 0.0), None, True, True, snap)
+        if s._recovering:  # pyright: ignore[reportPrivateUsage]
+            break
+    assert s._recovering and 2.9 <= k * 0.1 <= 3.6  # pyright: ignore[reportPrivateUsage]
+    del np

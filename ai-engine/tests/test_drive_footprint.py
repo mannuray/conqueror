@@ -90,3 +90,14 @@ def test_highest_cost_ahead_only() -> None:
     wall = cost_with(area(0.60, -1.5, 0.65, 1.5))
     path = [(0.05 * k, 0.0, 0.0) for k in range(1, 11)]  # 50 cm toward a wall 60 cm ahead
     assert F.highest_cost(wall, AT, path, ahead_m=0.1) < F.highest_cost(wall, AT, path)
+
+
+def test_a_thing_under_the_front_edge_never_ends_up_inside_the_body() -> None:  # review I1
+    """A point already in an obstacle's cell can't get 'nearer' - so the whole body is checked, not only its
+    outline: a one-cell leg under the front edge, driving on 5, 10 or 15 cm is refused."""
+    at = (0.02, 0.0, 0.0)
+    leg = cost_with([(0.155, 0.0)])
+    assert leg.dist_many(F.world(at)).min() == 0.0  # the front edge is in the leg's cell
+    for d in (0.05, 0.10, 0.15):
+        assert not F.allowed(leg, at, [(0.02 + d, 0.0, 0.0)])
+    assert F.allowed(leg, at, F.back_poses(at, 0.1))  # away from it

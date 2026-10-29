@@ -222,3 +222,13 @@ def test_cost_steers_away_from_things() -> None:
     free = P.choose(at, now, target, cost=map_with([]), far_m=math.inf)
     walled = P.choose(at, now, target, cost=map_with(area(0.0, 0.25, 2.0, 0.40)), far_m=math.inf)
     assert free.w_dps > 0 and walled.w_dps < free.w_dps and walled.v_cms < free.v_cms
+
+
+def test_stop_only_when_every_move_is_forbidden() -> None:  # review M8
+    """The way on behind, no turn on the spot allowed (walls 15 cm each side): forward curves are allowed but
+    dear and away from the aim - the fan still offers one (driving out), it doesn't stop."""
+    corridor = map_with(area(-1.0, 0.15, 2.0, 0.3) + area(-1.0, -0.3, 2.0, -0.15))
+    assert not P.can_spin((0.0, 0.0, 0.0), corridor, True) and not P.can_spin(
+        (0.0, 0.0, 0.0), corridor, False
+    )
+    assert P.choose((0.0, 0.0, 0.0), STOP, (-1.5, 0.0), cost=corridor, far_m=math.inf).v_cms > 0

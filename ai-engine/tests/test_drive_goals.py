@@ -125,3 +125,16 @@ def test_explore_does_not_pick_a_reached_frontier_again() -> None:
     assert d is not None
     d2 = g.destination(0.5, (d[0], d[1], 0.0), clear, RoutePlanner())  # arrived
     assert d2 is None or math.dist(d2, d) > 0.25
+
+
+def test_explore_picks_quickly_by_searching_outward() -> None:  # review M1 (Plan Z6)
+    """The cheapest frontier is the first one an outward search reaches: no whole-map search every 3 s
+    (it took ~12 ms here and pushed ticks to ~30 ms)."""
+    import time
+
+    c = clear_of(seen=area(-3.9, -3.9, 3.9, 1.0))  # unseen beyond y = 1 m
+    g, rp = ExploreGoal(), RoutePlanner()
+    t = time.perf_counter()
+    d = g.destination(0.0, START, c, rp)
+    assert d is not None and abs(d[1] - 1.0) < 0.15
+    assert (time.perf_counter() - t) * 1000 < 5.0

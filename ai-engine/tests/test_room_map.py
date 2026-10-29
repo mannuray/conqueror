@@ -207,7 +207,7 @@ def test_the_floor_under_the_body_is_seen_and_free() -> None:
     assert room.is_blocked(0.0, 0.0)
     assert stand(room, 0.0, 0.0, 0.0, 3) == 3
     assert not room.is_blocked(0.0, 0.0) and room.seen[at(room, 0.0, 0.0)]
-    assert room.seen[at(room, 0.08, 0.07)]  # inside the body shrunk by 2 cm
+    assert room.seen[at(room, 0.08, 0.03)]  # a cell the body shrunk by 2 cm covers whole
     assert not room.seen[at(room, 0.0, 0.14)]  # beside it: not
 
 
@@ -226,3 +226,20 @@ def test_marks_just_outside_the_body_survive() -> None:  # Review Focus 2: pose 
         room.hit(c, "low")
     stand(room, 0.0, 0.0, 0.0, 600)  # a minute beside it
     assert room.is_blocked(0.0, 0.145)
+
+
+@pytest.mark.parametrize("side", [1.0, -1.0])
+@pytest.mark.parametrize("drift", [0.0, 0.01, 0.02])
+def test_marks_3_cm_off_either_side_survive_drift(side: float, drift: float) -> None:  # review I3
+    """Either side, the pose off by up to 2 cm toward the mark, at 10 cell alignments: a mark 3 cm outside
+    the body is never erased (only cells the shrunk body fully covers are cleared)."""
+    for k in range(10):
+        room = RoomMap()
+        x0, y0 = 0.005 * k, 0.005 * k
+        mark = (x0, y0 + side * (0.115 + 0.03))
+        c = room.cells(np.array([mark]))
+        for _ in range(4):
+            room.hit(c, "low")
+        for j in range(100):
+            room.body_over(Pose(0, x0, y0 + side * drift, 0.0, 0.0, 0.0), *BODY, j * 100_000)
+        assert room.is_blocked(*mark), (k, drift, side)

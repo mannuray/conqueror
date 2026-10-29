@@ -20,7 +20,7 @@ REACHED_M = 0.4  # a destination this near counts as reached
 
 WANDER_RADII_M = (1.5, 1.75, 2.0)
 WANDER_STEP_DEG = 10
-WANDER_OPEN_M = 0.30  # a destination needs this much clearance, on seen floor
+WANDER_OPEN_M = 0.30  # a destination this far from any known obstacle, on seen floor
 WANDER_NEW_S = 6.0
 WANDER_NOISE = 0.3  # the score's random part (a standard deviation)
 
@@ -74,6 +74,10 @@ class ExploreGoal:
         self._picked_s = 0.0
         self._visited: set[tuple[int, int]] = set()
 
+    def drop(self) -> None:
+        """The current target has no route (the map changed since it was picked): pick again next time."""
+        self._dest = None
+
     @staticmethod
     def _key(p: XY) -> tuple[int, int]:
         return math.floor(p[0] / VISITED_M), math.floor(p[1] / VISITED_M)
@@ -86,18 +90,20 @@ class ExploreGoal:
             d = None
         if d is not None and now_s - self._picked_s < EXPLORE_NEW_S:
             return d
-        costs = planner.costs(cost, (at[0], at[1]))
         frontier = self._frontier(cost, planner.half_w)
-        cand = frontier & np.isfinite(costs)
-        best: tuple[float, XY] | None = None
-        for i, j in zip(*np.nonzero(cand), strict=True):
-            p = planner.grid_centre(int(i), int(j))
-            if self._key(p) in self._visited or math.dist(p, at[:2]) <= REACHED_M:
-                if math.dist(p, at[:2]) <= REACHED_M:
-                    self._visited.add(self._key(p))
-                continue
-            if best is None or costs[i, j] < best[0]:
-                best = (float(costs[i, j]), p)
+
+        def accept(i: int, j: int) -> bool:  # an unvisited frontier cell; reached ones are remembered
+            if not frontier[i, j]:
+                return False
+            p = planner.grid_centre(i, j)
+            if math.dist(p, at[:2]) <= REACHED_M:
+                self._visited.add(self._key(p))
+                return False
+            return self._key(p) not in self._visited
+
+        # the cheapest frontier is the first an outward search reaches (review M1: no whole-map search)
+        ij = planner.nearest(cost, (at[0], at[1]), accept)
+        best = None if ij is None else (0.0, planner.grid_centre(*ij))
         self._dest, self._picked_s = (None if best is None else best[1]), now_s
         self.done = best is None
         return self._dest

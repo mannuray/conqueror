@@ -9,6 +9,7 @@ from __future__ import annotations
 import heapq
 import itertools
 import math
+from collections.abc import Callable
 
 import numpy as np
 
@@ -150,6 +151,37 @@ class RoutePlanner:
         if end != ti:  # ended within reach: its cell, then the goal itself (to steer at)
             mid.append(grid.centre(*divmod(end, g)))
         return [start, *mid, goal]
+
+    def nearest(self, cost: CostMap, start: XY, accept: Callable[[int, int], bool]) -> tuple[int, int] | None:
+        """The cheapest-to-reach 10 cm grid cell that `accept` takes (Dijkstra, stopping at the first one -
+        no whole-map search), or None when none is reachable."""
+        grid = self._grid_for(cost)
+        g, step = grid.g, grid.cell_m
+        s = grid.of(*start)
+        if s is None:
+            return None
+        factor = grid.factors_from(s)
+        si = s[0] * g + s[1]
+        best = {si: 0.0}
+        heap = [(0.0, si)]
+        while heap:
+            so_far, cur = heapq.heappop(heap)
+            if so_far > best.get(cur, math.inf):
+                continue
+            ci, cj = divmod(cur, g)
+            if accept(ci, cj):
+                return ci, cj
+            for di, dj, ln in STEPS:
+                ni, nj = ci + di, cj + dj
+                if 0 <= ni < g and 0 <= nj < g:
+                    nxt = ni * g + nj
+                    f = factor[nxt]
+                    if f != math.inf:
+                        c = so_far + ln * step * f
+                        if c < best.get(nxt, math.inf):
+                            best[nxt] = c
+                            heapq.heappush(heap, (c, nxt))
+        return None
 
     def costs(self, cost: CostMap, start: XY) -> FloatArray:
         """The route cost from start to every 10 cm grid cell (Dijkstra), inf where unreachable."""

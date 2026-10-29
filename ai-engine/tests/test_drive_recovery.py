@@ -127,3 +127,59 @@ def test_progress_resets_the_sequence() -> None:
     rec.progress((0.35, 0.0, 0.0))
     rec.start(2.0, (0.35, 0.0, 0.0))
     assert rec.step == "look"
+
+
+# ---- final review minors (Plan Z6)
+def test_backing_counts_from_where_it_starts_backing() -> None:  # review M2
+    """Stuck again 25 cm from where the sequence began: it still backs its 20 cm."""
+    rec = Recovery(LIM, Footprint(LIM), TILT)
+    cost = cost_with([])
+    rec.start(0.0, (0.0, 0.0, 0.0))
+    rec.start(1.0, (0.25, 0.0, 0.0))
+    rec.start(2.0, (0.25, 0.0, 0.0))
+    assert rec.step == "back"
+    tank, x = SimTank(0.25, 0.0, 0.0), list[float]()
+    for k in range(40):
+        o = rec.tick(2.0 + k * DT, tank.at, cost, DT)
+        if o is None:
+            break
+        tank.step(o[0], DT)
+        x.append(tank.at[0])
+    assert 0.03 <= min(x) <= 0.07
+
+
+def test_backs_as_far_as_the_known_floor_goes() -> None:  # review M3
+    """Known floor only 10 cm behind: it backs about that far instead of refusing."""
+    unknown = area(-0.6, -0.4, -0.10 - 0.09, 0.4)  # beyond 10 cm behind the rear edge
+    rec = Recovery(LIM, Footprint(LIM), TILT)
+    cost = cost_with(pocket(), unseen=unknown)
+    for k in range(3):
+        rec.start(float(k), (0.0, 0.0, 0.0))
+    assert rec.step == "back"
+    outs, tank = run(rec, cost, 5.0, 2.0)
+    assert outs and -0.12 <= tank.at[0] <= -0.04
+
+
+def test_the_turn_is_measured_from_the_pose() -> None:  # review M4
+    """A tank turning slower than told (the ramp, a slipping track) still turns its 90 degrees."""
+    box = cost_with(area(-0.30, 0.175, -0.20, 0.30))
+    rec = Recovery(LIM, Footprint(LIM), TILT)
+    rec.start(0.0, (0.0, 0.0, 0.0))
+    rec.start(1.0, (0.0, 0.0, 0.0))
+    tank = SimTank()
+    for k in range(80):
+        o = rec.tick(1.0 + k * DT, tank.at, box, DT)
+        if o is None:
+            break
+        tank.step(Command(o[0].v_cms, o[0].w_dps / 2), DT)  # half the rate
+    assert -100.0 <= np.degrees(tank.at[2]) <= -85.0
+
+
+def test_a_turn_that_doesnt_turn_ends() -> None:
+    """Measured from the pose, a turn whose tank doesn't turn (a slipping track) would never end: it gives up
+    after TURN_S (about twice what 90 degrees takes)."""
+    rec = Recovery(LIM, Footprint(LIM), TILT)
+    rec.start(0.0, (0.0, 0.0, 0.0))
+    rec.start(1.0, (0.0, 0.0, 0.0))
+    ends = [k for k in range(60) if rec.tick(1.0 + k * DT, (0.0, 0.0, 0.0), cost_with([]), DT) is None]
+    assert ends and 2.5 <= ends[0] * DT <= 3.5

@@ -136,3 +136,23 @@ def test_without_a_map_as_before() -> None:
     at, cruise = (0.0, 0.0, 0.0), Command(25.0, 0.0)
     for target in [(2.0, 0.0), (1.5, 1.2), (1.5, -1.2), (0.6, 0.0)]:
         assert P.choose(at, cruise, target) == P.choose(at, cruise, target, clear=None)
+
+
+def test_speed_comes_from_the_destination_not_the_aim_point() -> None:
+    """On a route the fan steers at a point 0.5 m ahead; slowing is for the end of the way (Plan Z5)."""
+    at, cruise = (0.0, 0.0, 0.0), Command(25.0, 0.0)
+    assert P.choose(at, cruise, (0.5, 0.0)).v_cms < 25.0  # as before: a near target slows it
+    assert P.choose(at, cruise, (0.5, 0.0), far_m=2.0) == Command(25.0, 0.0)
+    assert P.choose(at, cruise, (0.5, 0.0), far_m=0.45) == P.choose(at, cruise, (0.5, 0.0))  # near the end
+
+
+def test_at_the_slowest_speed_a_target_nearly_ahead_is_driven_to_straight() -> None:
+    """At 18 cm/s the tank can't curve at all, so every target slightly off-centre lay 'inside the tightest
+    turn': it turned on the spot, overshot, turned back - for ever (Plan Z5 simulated explore). Within
+    SPIN_UNTIL_DEG it drives straight; further off it still turns first."""
+    slow = Planner(Limits(v_cap_cms=18.0))
+    for deg in (4.0, -9.0, 14.0):
+        t = (0.5 * math.cos(math.radians(deg)), 0.5 * math.sin(math.radians(deg)))
+        assert slow.choose((0.0, 0.0, 0.0), STOP, t).v_cms > 0
+    t = (0.5 * math.cos(math.radians(25.0)), 0.5 * math.sin(math.radians(25.0)))
+    assert slow.choose((0.0, 0.0, 0.0), STOP, t).v_cms == 0

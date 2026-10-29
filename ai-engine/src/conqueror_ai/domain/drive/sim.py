@@ -144,7 +144,8 @@ class SimRoom:
     def _reachable(self, room: RoomMap) -> NDArray[np.bool_]:
         c = (np.arange(room.n) + 0.5) * room.cell_m - room.half_m
         xs, ys = np.meshgrid(c, c, indexing="ij")
-        ok = np.ones((room.n, room.n), np.bool_)
+        inside = self.walls_m - REACH_M
+        ok = (np.abs(xs) <= inside) & (np.abs(ys) <= inside)  # inside the walls
         for b in self._all():
             if b.z0 < TANK_TOP_M:
                 gx = np.maximum(np.maximum(b.x0 - xs, 0.0), xs - b.x1)
@@ -152,7 +153,12 @@ class SimRoom:
                 ok &= np.hypot(gx, gy) >= REACH_M
         return ok
 
-    def seen_share(self, room: RoomMap) -> float:
-        """The share of the floor the tank's centre could reach that the map has seen."""
-        ok = self._reachable(room)
-        return float((room.seen & ok).sum()) / max(1, int(ok.sum()))
+    def seen_share(self, room: RoomMap, grid_m: float = 0.10) -> float:
+        """The share of the floor the tank's centre could reach that the map has seen, on the routes' 10 cm
+        grid (a 10 cm cell is seen when any of its 5 cm cells is: the simulated camera's rays and points leave
+        gaps between 5 cm cells that real pixels don't)."""
+        k = max(1, round(grid_m / room.cell_m))
+        g = room.n // k
+        ok = self._reachable(room)[: g * k, : g * k].reshape(g, k, g, k).all(axis=(1, 3))
+        seen = room.seen[: g * k, : g * k].reshape(g, k, g, k).any(axis=(1, 3))
+        return float((seen & ok).sum()) / max(1, int(ok.sum()))

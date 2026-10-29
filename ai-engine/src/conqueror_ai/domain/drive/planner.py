@@ -46,13 +46,17 @@ class Planner:
     def lens_distance(self, at: XYTh, target: tuple[float, float]) -> float:
         return math.hypot(target[0] - at[0], target[1] - at[1]) - self.lim.cam_x_m
 
-    def fan(self, at: XYTh, target: tuple[float, float], now: Command = STOP) -> list[Command]:
+    def fan(
+        self, at: XYTh, target: tuple[float, float], now: Command = STOP, far_m: float | None = None
+    ) -> list[Command]:
+        """far_m: how far the way's end still is (lens distance) when the target is only an aim point on a
+        route (Plan Z5): the speed follows the end, the steering the aim point."""
         lim = self.lim
         b = bearing_deg(at, target)
         spin = Command(0.0, math.copysign(lim.spin_dps, b))
         if now.v_cms == 0 and abs(now.w_dps) >= lim.spin_dps and abs(b) > SPIN_UNTIL_DEG:
             return [spin]  # finish the turn on the spot: no spin-drive-spin stutter
-        top = lim.top_speed(self.lens_distance(at, target))
+        top = lim.top_speed(self.lens_distance(at, target) if far_m is None else far_m)
         out: list[Command] = [STOP]
         cruise = min(lim.v_cruise_cms, lim.v_cap_cms)
         # cruise's arcs are always offered: near v_min the tank can't curve at all (its inner track can't go
@@ -64,8 +68,11 @@ class Planner:
                 if math.isfinite(r_min) and r >= r_min:
                     w = math.degrees(v / 100.0 / r)
                     out += [Command(v, w), Command(v, -w)]
-        if abs(b) > SPIN_FROM_DEG or self.inside_turn(at, target):
-            return [STOP, spin]  # well off to one side, or no curve reaches it: turn on the spot first
+        if abs(b) > SPIN_FROM_DEG or (self.inside_turn(at, target) and abs(b) > SPIN_UNTIL_DEG):
+            # well off to one side, or no curve reaches it: turn on the spot first. Nearly ahead, straight on
+            # passes close enough - at the slowest speed no curve reaches anything off-centre, and turning to
+            # it exactly overshot back and forth for ever (Plan Z5)
+            return [STOP, spin]
         return list(dict.fromkeys(out))
 
     def inside_turn(self, at: XYTh, target: tuple[float, float]) -> bool:
@@ -86,13 +93,19 @@ class Planner:
         target: tuple[float, float],
         obstacle_m: float | None,
         clear: ClearanceMap | None = None,
+        far_m: float | None = None,
     ) -> float:
         lim, w = self.lim, self.w
         path = roll_out(at, now, want, lim)
         end = path[-1]
-        d0 = max(self.lens_distance(at, target), lim.stop_range_m)
-        d1 = max(self.lens_distance(end, target), lim.stop_range_m)
-        s = w.progress * (d0 - d1) / 0.3 - w.heading * abs(bearing_deg(end, target)) / 90.0
+        if far_m is None:
+            d0 = max(self.lens_distance(at, target), lim.stop_range_m)
+            d1 = max(self.lens_distance(end, target), lim.stop_range_m)
+            gain = d0 - d1
+        else:  # an aim point on a route: the way goes on past it, so progress is distance made toward it
+            a = math.atan2(target[1] - at[1], target[0] - at[0])
+            gain = (end[0] - at[0]) * math.cos(a) + (end[1] - at[1]) * math.sin(a)
+        s = w.progress * gain / 0.3 - w.heading * abs(bearing_deg(end, target)) / 90.0
         if now.v_cms > 0:  # steering changes while driving cost (speed changes are the ramp's job)
             s -= w.smooth * abs(want.w_dps - now.w_dps) / 30.0
         if obstacle_m is not None and want.v_cms > 0:
@@ -118,10 +131,14 @@ class Planner:
         target: tuple[float, float],
         obstacle_m: float | None = None,
         clear: ClearanceMap | None = None,
+        far_m: float | None = None,
     ) -> Command:
         """The best curve to the target; obstacle_m: an echo straight ahead (from the tank's centre) that is
-        not the target; clear: the room map's clearance (Plan Z5), None for slice 1's sonar-only check."""
-        moving = [c for c in self.fan(at, target, now) if c != STOP]
-        scored = [(self.score(at, now, c, target, obstacle_m, clear), c) for c in moving]
+        not the target; clear: the room map's clearance (Plan Z5), None for slice 1's sonar-only check; far_m:
+        see fan(); within slow_from_m of the end it is slice 1's approach again (the aim is the end)."""
+        if far_m is not None and far_m < self.lim.slow_from_m:
+            far_m = None
+        moving = [c for c in self.fan(at, target, now, far_m) if c != STOP]
+        scored = [(self.score(at, now, c, target, obstacle_m, clear, far_m), c) for c in moving]
         best_score, best = max(scored, key=lambda sc: sc[0])
         return STOP if best_score <= self.w.blocked / 2 else best  # stop only when every curve is blocked

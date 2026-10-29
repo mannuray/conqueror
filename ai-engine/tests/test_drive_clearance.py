@@ -47,9 +47,10 @@ def test_ignore_disk() -> None:
 
 
 def test_unseen_counts_free() -> None:
+    a = ClearanceMap(snap_with([], seen=True))
+    b = ClearanceMap(snap_with([], seen=False))
+    assert np.array_equal(a.dist, b.dist)  # open unseen space is free
     a = ClearanceMap(snap_with([(1.0, 0.0)], seen=True))
-    b = ClearanceMap(snap_with([(1.0, 0.0)], seen=False))
-    assert np.array_equal(a.dist, b.dist)
     assert a.seen_at(0.5, 0.0) and not b.seen_at(0.5, 0.0)
 
 
@@ -59,3 +60,20 @@ def test_cells_and_centres_agree() -> None:
     assert ij is not None
     x, y = c.centre(*ij)
     assert abs(x - 1.02) <= 0.025 and abs(y + 0.51) <= 0.025
+
+
+def test_unseen_next_to_an_obstacle_counts_as_obstacle() -> None:
+    """A box's far side is unseen: the obstacle may go on there, so unseen cells within GROW_UNSEEN_M of a
+    marked one count as blocked; unseen open space far from anything stays free (Plan Z5 sim finding)."""
+    room = RoomMap()
+    face = room.cells(np.array([(1.0, float(y)) for y in np.arange(-0.2, 0.21, 0.025)], dtype=np.float64))
+    room.hit(face, "low")
+    room.hit(face, "low")
+    room.seen[:] = True
+    pts = [(float(x), float(y)) for x in np.arange(1.05, 1.6, 0.025) for y in np.arange(-0.4, 0.41, 0.025)]
+    behind = room.cells(np.array(pts, dtype=np.float64))
+    room.seen.reshape(-1)[behind] = False
+    c = ClearanceMap(room.snapshot(0, None, False, True))
+    assert c.dist_m(1.2, 0.0) == 0.0  # unseen, 20 cm behind the face: part of the obstacle
+    assert c.dist_m(1.5, 0.35) > 0.0  # unseen but beyond 30 cm of anything marked
+    assert c.dist_m(0.6, 0.0) == pytest.approx(0.4, abs=0.06)  # in front, unchanged

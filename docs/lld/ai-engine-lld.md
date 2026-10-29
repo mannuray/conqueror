@@ -1585,24 +1585,31 @@ Per 5 cm cell, from one `MapSnapshot`:
 
 | Cell | Cost | Moves |
 |---|---|---|
-| **lethal:** `blocked` (low or high above the log-odds level) or outside the map | 1 (∞ for moves) | the body may never overlap it |
-| **near:** free, within `NEAR_M` (0.40 m) of a lethal cell | `NEAR_COST` × (`NEAR_M` − d) / (`NEAR_M` − `body_half_w_m`), capped at `NEAR_COST` (0.8) | allowed, dearer the closer |
+| **lethal:** `blocked` (low or high above the log-odds level) or outside the map | 1 | the body keeps `KEEP_OUT_M` from it (§18.13.2) |
+| **near:** free, near a lethal cell | the near cost below, at most `NEAR_COST` (0.8) | allowed, dearer the closer |
 | **unknown:** never seen and never driven over | + `UNKNOWN_COST` (0.3) | allowed forward and turning; **never backward** (§18.13.4) |
 | **free:** seen or driven over, far from anything | 0 | allowed |
 
-- `d` = distance to the nearest lethal cell (`cv2.distanceTransform`, once per snapshot, as today).
+- `d` = distance from a point to the centre of the nearest lethal cell (`cv2.distanceTransform`, once per snapshot, as today).
+- **The near cost has two readers** (one meaning each):
+  - **the fan, at the body's outline points:** `NEAR_COST` × (`NEAR_OUT_M` − d) / (`NEAR_OUT_M` − `KEEP_OUT_M`), clipped to 0..`NEAR_COST`, with `NEAR_OUT_M` 0.20 - zero 20 cm from the outline, full at the keep-out;
+  - **routes, at the tank's centre:** `NEAR_COST` × (`NEAR_C_M` − d) / (`NEAR_C_M` − `body_half_w_m`), clipped the same, with `NEAR_C_M` 0.40.
+- **A cell's cost** = min(0.95, near + unknown); lethal is 1.
 - **Nothing is grown into unknown space.** A box's hidden back is unknown: dearer, slower, never forbidden until seen. The trade-off is the owner's (§166): something never seen can be touched, slowly and never head-on (the sonar, `clear_m` 10 cm, and the Uno's 15 cm brake look forward).
-- **The body is a sensor too:** every telemetry pose, the cells under the tank's footprint (shrunk 2 cm all round for pose drift) get a floor observation in `RoomMap` (a miss on low and high, `seen` true) - the floor the tank stands or drove on is free. `RoomMap.body_over(pose, footprint)`; this is why a tank can never stand inside its own marks.
+- **The body is a sensor too:** the cells under the tank's footprint (shrunk 2 cm all round for pose drift) get a floor observation in `RoomMap` - a miss on low and high, `seen` true - at most 10 times a second and one step per cell per update, like the sonar (Z4's evidence rule): the floor the tank stands or drove on is free. `RoomMap.body_over(pose, footprint)`.
 
 #### 18.13.2 One body check (`Footprint`)
 - The outline of `Limits`' rectangle (front 13, rear 9, half-width 11.5 cm, design-notes §163), a point every 2.5 cm, posed along a move at most 5° / 2.5 cm apart (as §164 built).
-- **A move is forbidden only if an outline point lands in a lethal cell.** No margins as rules: nearness is cost. A tank close to something can always move away (the cost falls), so no escape exception is needed.
+- **The one rule: no point of the body's outline comes nearer than `KEEP_OUT_M` (7.5 cm, about one cell, to the obstacle cell's centre) to a known obstacle; a point already nearer may not come any nearer.** Each outline point is checked against its own start (the points move with the body, so "this point" is well defined).
+  - Why 7.5 cm: the map's cells are 5 cm, so a free cell next to an obstacle cell can be 0-5 cm from the real surface. Checking only "inside an obstacle cell" would have allowed run 2's left turn by the bed (the rear corner swings to 14.6 cm, the panel's cell started at 15 cm).
+  - Why per point: a body-wide rule ("the nearest point never nearer", or a sum) let one part move in while another moved out; per point, run 2's left and right turns and driving on are refused, as they should be.
+  - Everything else about nearness is cost, so a tank near something moves away by choice, with no escape exception.
 - The same check for every move: curves, a turn on the spot (only the way it turns), backing up, and the chase's last turn.
 
 #### 18.13.3 Choosing a move (`Planner`, the fan)
 - The fan as today (slice 1's curves, turns on the spot beyond 35°, the ramps), each rolled out 1.5 s.
-- **Score** = progress toward the aim point − heading still off − steering change (slice 1, §17.4) − `COST_W` (4) × the **highest** cost the outline meets along the move; forbidden moves are left out.
-- **Speed from cost:** the top speed is scaled by (1 − the highest cost within 0.5 m ahead), never under `v_min` (18 cm/s) - near things or unknown floor it slows; the 18 cm/s for an untrusted angle or no depth stays (spec 9 §5).
+- **Score** = progress toward the aim point − heading still off − steering change (slice 1, §17.4) − `COST_W` (4) × the **highest** cost the outline points meet along the move; forbidden moves are left out.
+- **Speed from cost:** `c` = the highest cost the outline points meet over the first 0.5 m of the chosen move's roll-out; the top speed = `v_top` − (`v_top` − `v_min`) × `c` - 25 cm/s on open seen floor, toward 18 cm/s near things or on unknown floor, never a crawl below `v_min`. The 18 cm/s for an untrusted angle or no depth stays (spec 9 §5).
 - **Routes (`RoutePlanner`)** use the same costs: A* on the 10 cm grid (each cell the dearest of its 2 × 2), step cost = length × (1 + `ROUTE_COST_W` (6) × cell cost); a cell is closed only when its centre is nearer than `body_half_w_m` to a lethal cell (the body would overlap going straight); the start cell is always open. Room to turn round comes from the near cost, not from a rule; doorways stay open.
 - **Goals** as §18.7: wander picks free, seen spots 1.5-2 m away; explore picks the cheapest reachable frontier (seen free cells next to unknown, groups ≥ 30 cm); find hands over to the chase.
 
@@ -1707,21 +1714,26 @@ sequenceDiagram
 ```
 
 #### 18.13.7 Removed
-`GROW_UNSEEN_M` and the grown map; `MAP_CLEAR_M` / `FRONT_CLEAR_M` / `BODY_CLEAR_M` / `SIDE_MARGIN_M` as hard margins; the escape exception (`ESCAPE_M`); the "no deeper in" sums and the two-map check; `TIGHT_W` / `turn_room_m`; the look's camera pans as a special case, `STUCK_LOOKS`, `LOOK_ROUNDS`; the reverse's track and "not twice" rules. Kept: the sonar's stop (`clear_m`), the stale rule, 18 cm/s when unsure, the ramps, the measured body, reverse only at `v_min`.
+`GROW_UNSEEN_M` and the grown map; `MAP_CLEAR_M` / `FRONT_CLEAR_M` / `BODY_CLEAR_M` / `SIDE_MARGIN_M` (one `KEEP_OUT_M` instead); the escape exception (`ESCAPE_M`); the "no deeper in" sums and the two-map check; `TIGHT_W` / `turn_room_m`; the look's camera pans as a special case, `STUCK_LOOKS`, `LOOK_ROUNDS`; the reverse's track and "not twice" rules. Kept: the sonar's stop (`clear_m`), the stale rule, 18 cm/s when unsure, the ramps, the measured body, reverse only at `v_min`.
 
 #### 18.13.8 Config (`config/map.yaml`, `cost:`)
 ```yaml
-cost: {near_m: 0.40, near_cost: 0.8, unknown_cost: 0.3, cost_w: 4.0, route_cost_w: 6.0, stuck_s: 3.0, back_m: 0.20}
+cost: {keep_out_m: 0.075, near_out_m: 0.20, near_c_m: 0.40, near_cost: 0.8, unknown_cost: 0.3, cost_w: 4.0, route_cost_w: 6.0, stuck_s: 3.0, back_m: 0.20}
 ```
-More careful only (§17.10): `near_m`, `near_cost`, `unknown_cost` may only be raised; `back_m` only lowered.
+More careful only (§17.10): `keep_out_m`, `near_out_m`, `near_c_m`, `near_cost`, `unknown_cost` may only be raised; `back_m` only lowered.
 
 #### 18.13.9 Tests
 - **Costs:** lethal / near / unknown / free values on drawn maps; the body over cells clears them (and not beyond its shrunk footprint).
 - **Footprint:** a move into a lethal cell is forbidden, next to it allowed but dear; a turn on the spot checked only its own way.
 - **The three floor runs as drawn maps:** run 2 (bed panel right, leg ahead-right, the way on behind-left), run 3 (one small mark ahead-left, unknown round the tank) and the wall beside the tank: none ends `blocked` while a way exists; no outline point ever enters a lethal cell.
 - **Recovery:** the order look → turn → back → `blocked`; backing only over known-free cells; progress resets it.
-- **Simulated rooms** (`SimRoom`): all of today's (wander, explore ≥ 80 %, doorways 46 / 60 / 80 cm, the ball by the sofa, the box on the route) plus the three floor-run layouts; the body never inside a box; touches of never-seen things counted and reported (not failed - the accepted trade-off), head-on touches failed.
+- **Simulated rooms** (`SimRoom`): all of today's (wander, explore ≥ 80 %, doorways 46 / 60 / 80 cm, the ball by the sofa, the box on the route) plus the three floor-run layouts, with **today's bar unchanged: the body never nearer than 5 mm to any box**. If a case fails only on a box the tank never saw, it is reported to the owner, not passed by lowering the bar.
 - **Floor (spec 9 §6):** wander 2 min, explore, goto ball round a box, find the ball - as Plan Z5 Task 9.
 
-#### 18.13.10 Plan
-A new plan, **Z6 - the cost map**, on branch `plan-z6` from `plan-z5`: replaces the rules above, keeps the rest of Z5. Z5's own floor checks are folded into Z6's; both merge to `main` together after Z6's floor checks.
+#### 18.13.10 Checked on the floor-run recordings (scratch script, the rules above, 2026-10-30)
+- **Run 1 (wander, 2 min):** the speed from cost along the path it drove: median 25 cm/s, the lowest tenth 23.8, never 18 - smooth driving stays.
+- **Run 3 (stuck 12 s, blind zone):** both turns on the spot allowed (outline cost 0.70: unknown floor round it); straight on refused (the small mark ahead) - it would turn and go on.
+- **Run 2 (beside the bed):** every move refused, backing up included - the map has the leg's cell overlapping the tank's side (the 5 cm cells), so no point may move. With the keep-out the tank wouldn't have driven in there (the bed was seen ~4 s before it did); if it happens anyway it ends `blocked`, the safe answer.
+
+#### 18.13.11 Plan
+Proposed (owner to decide): a new plan, **Z6 - the cost map**, on branch `plan-z6` from `plan-z5`: replaces the rules above, keeps the rest of Z5; Z5's floor checks folded into Z6's; both merge to `main` together after Z6's floor checks.

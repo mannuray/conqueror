@@ -1,7 +1,8 @@
 """The distance sensor on the room map (AI engine LLD §18.5, spec 9 §5): an echo marks "something low at this
-distance" on the beam's arc and clears low marks in the narrow cone before it. It never touches the high
-layer (the beam is low on the tank's front: it can't vouch for a bed edge), never marks seen (only the camera
-does), and no echo - or one at the sensor's limit - changes nothing. Pure: no I/O."""
+distance" on the beam's arc - one hit shared by the arc's cells, since it came from one place on it (Plan Z6:
+full hits on every cell drew arcs across doorways) - and clears low marks in the narrow cone before it. It
+never touches the high layer (the beam is low on the tank's front: it can't vouch for a bed edge), never marks
+seen (only the camera does), and no echo - or one at the sensor's limit - changes nothing. Pure: no I/O."""
 
 from __future__ import annotations
 
@@ -43,7 +44,8 @@ class SonarModel:
         sy = pose.y_m + self.sonar_x_m * math.sin(pose.th_rad)
         step = room.cell_m / 4  # points closer than a cell, so no cell on the arc is skipped
         arc = room.cells(self._fan(sx, sy, pose.th_rad, np.array([dist_m]), self.half_rad, step))
-        room.hit(arc, "low")
+        if len(arc):  # the echo came from one place on the arc: its evidence is shared (Plan Z6)
+            room.hit(arc, "low", 1.0 / len(arc))
         far = dist_m - 0.10
         if far > self.near_m:
             radii = np.arange(self.near_m, far + 1e-9, step, dtype=np.float64)

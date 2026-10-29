@@ -64,6 +64,7 @@ from conqueror_ai.app.objects import (
 from conqueror_ai.domain.camera import Calibration, CameraModel
 from conqueror_ai.domain.depth import MapConfig
 from conqueror_ai.domain.drive.chase import DRIVE_TILT, ChaseSkill, SkillOut
+from conqueror_ai.domain.drive.costmap import CostSettings
 from conqueror_ai.domain.drive.goal import Goal, TargetFix, is_ball, kind_of, size_positions
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
@@ -144,13 +145,13 @@ def refusal(m: Mission, has_depth: bool) -> str | None:
     return None
 
 
-def make_skill(m: Mission, lim: Limits) -> ChaseSkill | RoamSkill:
+def make_skill(m: Mission, lim: Limits, cost: CostSettings | None = None) -> ChaseSkill | RoamSkill:
     planner = Planner(lim)
     if m.action == "goto":
-        return ChaseSkill(planner)
+        return ChaseSkill(planner, cost)
     if m.action == "find":
-        return RoamSkill(planner, "wander", find=True)
-    return RoamSkill(planner, m.action, seconds=m.seconds)
+        return RoamSkill(planner, "wander", find=True, cost=cost)
+    return RoamSkill(planner, m.action, seconds=m.seconds, cost=cost)
 
 
 @dataclass
@@ -170,8 +171,8 @@ class Kit:
 async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m: Mission, kit: Kit) -> str:
     """One run on the tank; returns the result ("done" or why not). The links are handed in (tests aim them at
     a fake bridge)."""
-    run = MapRun(kit.cal, kit.cfg, kit.depth, p=ObjectPipeline(kit.cal, kit.floor))
-    skill = make_skill(m, kit.lim)
+    run = MapRun(kit.cal, kit.cfg, kit.depth, p=ObjectPipeline(kit.cal, kit.floor), lim=kit.lim)
+    skill = make_skill(m, kit.lim, kit.cfg.cost)
     goal = Goal(kind_of(m.thing)) if m.thing is not None else Goal(is_ball)
     stop = asyncio.Event()
     last: dict[str, float] = {"telem": 0.0, "picture": 0.0}

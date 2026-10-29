@@ -1,4 +1,4 @@
-"""RoamSkill, one tick at a time (AI engine LLD §18.7, Plan Z5)."""
+"""RoamSkill, one tick at a time (AI engine LLD §18.7, §18.13, Plans Z5-Z6)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from conqueror_ai.domain.drive.curves import STOP, Command
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
-from conqueror_ai.domain.drive.roam import LOOK_STAND_S, Mode, RoamSkill
+from conqueror_ai.domain.drive.roam import START_STAND_S, Mode, RoamSkill
 from conqueror_ai.domain.drive.sim import SimTank
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.types import Pose
@@ -41,40 +41,10 @@ def run(
     return [s.tick(i * dt, AT, snap, None, sonar, True) for i in range(round(seconds / dt))]
 
 
-def test_starts_with_a_look_then_drives() -> None:
-    s = skill()
-    outs = run(s, open_snap(), LOOK_STAND_S + 1.5)
-    assert outs[0].cmd == STOP and outs[0].cam is not None  # the camera ahead first
-    assert all(o.cmd == STOP for o in outs[: round(LOOK_STAND_S / 0.1)])  # stands to look
-    assert s.state == "drive" and any(o.cmd.v_cms > 0 or o.cmd.w_dps != 0 for o in outs)
-
-
-def test_no_route_looks_round_in_90_deg_steps() -> None:
-    s = skill()
-    outs = run(s, open_snap(seen=False), 8.0)  # nothing seen: nowhere to wander to
-    spins = [o for o in outs if o.cmd.v_cms == 0 and o.cmd.w_dps != 0]
-    assert spins and all(o.cmd.w_dps > 0 for o in spins)
-    assert s.state == "look"
-    turned = sum(abs(o.cmd.w_dps) * 0.1 for o in outs)
-    assert 150.0 < turned < 400.0  # turning in steps, standing between them
-
-
-def test_wander_gives_up_blocked_after_two_full_looks() -> None:
-    s = skill()
-    outs = run(s, open_snap(seen=False), 40.0)
-    assert [o.result for o in outs if o.result] == ["blocked"]
-
-
-def test_explore_done_when_nothing_left() -> None:
-    s = skill("explore")
-    outs = run(s, open_snap(), 40.0)  # everything seen: nothing to explore
-    assert [o.result for o in outs if o.result] == ["done"]
-
-
 def test_echo_under_10_cm_ends_blocked() -> None:
     s = skill()
     snap = open_snap()
-    run(s, snap, LOOK_STAND_S + 0.5)
+    run(s, snap, START_STAND_S + 0.5)
     assert s.tick(10.0, AT, snap, None, 0.12, True).result is None
     assert s.tick(10.1, AT, snap, None, 0.09, True).result == "blocked"
 
@@ -82,7 +52,7 @@ def test_echo_under_10_cm_ends_blocked() -> None:
 def test_stale_stops_at_once_and_ends_after_2_s() -> None:
     s = skill()
     snap = open_snap()
-    run(s, snap, LOOK_STAND_S + 1.5)
+    run(s, snap, START_STAND_S + 1.5)
     assert s.tick(20.0, AT, snap, None, None, False).cmd == STOP
     assert s.tick(21.0, AT, snap, None, None, False).result is None
     assert s.tick(22.0, AT, None, None, None, True).result == "stale"
@@ -118,7 +88,7 @@ def test_wander_ends_after_its_seconds() -> None:
 def test_find_hands_over_to_the_chase() -> None:
     s = skill(find=True)
     snap = open_snap()
-    run(s, snap, LOOK_STAND_S + 1.0)
+    run(s, snap, START_STAND_S + 1.0)
     out = s.tick(5.0, AT, snap, TargetFix(1, 2.0, 0.0, 0.0), None, True)
     assert s.state == "chase" and out.result is None
 
@@ -126,7 +96,7 @@ def test_find_hands_over_to_the_chase() -> None:
 def test_cancel_stops() -> None:
     s = skill()
     snap = open_snap()
-    run(s, snap, LOOK_STAND_S + 1.5)
+    run(s, snap, START_STAND_S + 1.5)
     out = s.cancel()
     assert out.cmd == STOP and out.result == "cancelled"
     assert s.tick(30.0, AT, snap, None, None, True).cmd == STOP
@@ -158,75 +128,63 @@ def test_a_blocked_way_stops_at_once_not_by_the_ramp() -> None:
     assert out.cmd == STOP
 
 
-def test_driving_blocked_and_looking_in_the_same_place_ends_it() -> None:
-    """Review minor 8: a route the fan keeps refusing (drive, blocked 3 s, look, same route) never ended."""
+# ---- stuck: the standard ways out (LLD §18.13.4, Plan Z6)
+def test_starts_standing_with_the_camera_ahead_then_drives() -> None:
+    s = skill()
+    outs = run(s, open_snap(), START_STAND_S + 1.5)
+    assert outs[0].cmd == STOP and outs[0].cam == (0.0, -15.0)
+    assert all(o.cmd == STOP for o in outs[: round(START_STAND_S / 0.1)])
+    assert s.state == "drive" and any(o.cmd.v_cms > 0 or o.cmd.w_dps != 0 for o in outs)
+
+
+def test_nowhere_to_go_runs_the_ways_out_then_blocked() -> None:
+    """Nothing seen: no destination - look round with the camera, turn, (nothing known behind) blocked."""
+    s = skill()
+    outs = run(s, open_snap(seen=False), 60.0)
+    pans = [o.cam[0] for o in outs if o.cam is not None]
+    assert [p for p in pans if p != 0.0][:4] == [-90.0, -45.0, 45.0, 90.0]
+    assert any(o.cmd.v_cms == 0 and o.cmd.w_dps != 0 for o in outs)  # a turn on the spot
+    assert all(o.cmd.v_cms >= 0 for o in outs)  # never backs onto unknown floor
+    assert [o.result for o in outs if o.result] == ["blocked"]
+
+
+def test_no_progress_is_stuck() -> None:
+    """The fan refusing everything for stuck_s (3 s) starts the ways out; standing still, they end blocked."""
     s = skill()
     s.planner.choose = lambda *a, **k: STOP  # type: ignore[method-assign]
-    outs = run(s, open_snap(), 120.0)
-    results = [o.result for o in outs if o.result]
-    assert results == ["blocked"]
+    outs = run(s, open_snap(), 60.0)
+    assert [o.result for o in outs if o.result] == ["blocked"]
+    first = next(i for i, o in enumerate(outs) if o.cam is not None and o.cam[0] == -90.0)
+    assert 3.5 <= first * 0.1 <= 4.5  # 1 s start + 3 s stuck
 
 
-def test_the_look_turns_the_way_that_is_free() -> None:
-    """Too near something on the left to turn left: the look turns right (design-notes §164)."""
-    room = RoomMap()
-    room.seen[:] = False
-    wall = [(float(x), float(y)) for x in np.arange(-0.6, 0.61, 0.025) for y in np.arange(0.225, 0.35, 0.025)]
-    c = room.cells(np.array(wall, dtype=np.float64))
-    room.hit(c, "low")
-    room.hit(c, "low")
-    room.seen.reshape(-1)[c] = True
-    room.update_picture(Marks(*(np.zeros((0, 2)),) * 4), 0)
-    outs = run(skill(), room.snapshot(0, POSE, False, True), 4.0)
-    spins = [o for o in outs if o.cmd.v_cms == 0 and o.cmd.w_dps != 0]
-    assert spins and all(o.cmd.w_dps < 0 for o in spins)
+def area(x0: float, y0: float, x1: float, y1: float) -> list[tuple[float, float]]:
+    return [
+        (float(x), float(y)) for x in np.arange(x0, x1 + 1e-9, 0.025) for y in np.arange(y0, y1 + 1e-9, 0.025)
+    ]
 
 
-# ---- a short slow reverse out of a pocket (design-notes §165)
-def pocket() -> MapSnapshot:
-    """Floor run 2's kind of spot: things 17.5 cm each side (cell centres) and 30 cm ahead, all seen: no turn
-    on the spot either way, no curve ahead."""
+def pocket(behind_known: bool) -> MapSnapshot:
+    """Floor run 2's kind of spot: things 17.5 cm each side and 25 cm ahead (cell centres)."""
     room = RoomMap()
     room.seen[:] = True
-    pts = [(float(x), float(y)) for x in np.arange(-0.3, 0.5, 0.025) for y in np.arange(0.175, 0.3, 0.025)]
-    pts += [(x, -y) for x, y in pts]
-    pts += [(float(x), float(y)) for x in np.arange(0.30, 0.5, 0.025) for y in np.arange(-0.3, 0.3, 0.025)]
-    c = room.cells(np.array(pts, dtype=np.float64))
+    if not behind_known:
+        room.seen.reshape(-1)[room.cells(np.array(area(-0.6, -0.15, -0.1, 0.15)))] = False
+    side = area(-0.6, 0.175, 0.5, 0.3)
+    c = room.cells(np.array(side + [(x, -y) for x, y in side] + area(0.25, -0.3, 0.5, 0.3)))
     room.hit(c, "low")
     room.hit(c, "low")
     room.update_picture(Marks(*(np.zeros((0, 2)),) * 4), 0)
     return room.snapshot(0, POSE, False, True)
 
 
-def boxed(track: bool, seconds: float) -> tuple[list[SkillOut], list[float]]:
-    """The skill in the pocket, the tank following its commands; track: it drove in along y = 0."""
-    s, tank, snap = skill(), SimTank(), pocket()
-    if track:
-        s.track.extend((float(x), 0.0) for x in np.arange(-0.8, 0.001, 0.025))
-    outs, xs = list[SkillOut](), list[float]()
-    for i in range(round(seconds / 0.1)):
-        outs.append(s.tick(i * 0.1, tank.at, snap, None, None, True))
-        tank.step(outs[-1].cmd, 0.1)
-        xs.append(tank.at[0])
-        if outs[-1].result:
-            break
-    return outs, xs
-
-
-def test_boxed_in_it_backs_out_slowly_along_its_own_track() -> None:
-    outs, xs = boxed(track=True, seconds=20.0)
+def test_boxed_in_it_backs_out_over_known_floor() -> None:
+    outs = moving(skill(), pocket(behind_known=True), 30.0)
     back = [o.cmd for o in outs if o.cmd.v_cms < 0]
-    assert back and all(c == Command(-18.0, 0.0) for c in back)  # the slowest speed, straight
-    assert -0.22 <= min(xs) <= -0.10  # about 20 cm, never more
+    assert back and all(c == Command(-18.0, 0.0) for c in back)
 
 
-def test_no_track_behind_no_reverse() -> None:
-    outs, _ = boxed(track=False, seconds=40.0)
+def test_boxed_in_with_nothing_known_behind_it_never_backs() -> None:
+    outs = moving(skill(), pocket(behind_known=False), 40.0)
     assert all(o.cmd.v_cms >= 0 for o in outs)
-
-
-def test_backing_out_twice_in_the_same_place_ends_it() -> None:
-    outs, _ = boxed(track=True, seconds=60.0)
     assert [o.result for o in outs if o.result] == ["blocked"]
-    starts = [i for i in range(1, len(outs)) if outs[i].cmd.v_cms < 0 <= outs[i - 1].cmd.v_cms]
-    assert len(starts) == 1

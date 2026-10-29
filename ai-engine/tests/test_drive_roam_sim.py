@@ -71,6 +71,7 @@ def roam(
         pose = Pose(t_us, at[0], at[1], at[2], 0.0, 0.0)
         echo = sim.sonar(at)
         sonar_model.update(out.room, pose, echo, t_us)
+        out.room.body_over(pose, LIM.body_front_m, LIM.body_rear_m, LIM.body_half_w_m, t_us)  # Plan Z6
         snap = out.room.snapshot(t_us, pose, False, True)
         fix = None
         if ball is not None:
@@ -143,6 +144,7 @@ def chase_on_map(
         if not turning:
             out.room.update_picture(sim.marks(at), t_us)
         pose = Pose(t_us, at[0], at[1], at[2], 0.0, 0.0)
+        out.room.body_over(pose, LIM.body_front_m, LIM.body_rear_m, LIM.body_half_w_m, t_us)  # Plan Z6
         snap = out.room.snapshot(t_us, pose, False, True) if use_map else None
         echo = sim.sonar(at)
         o = skill.tick(t, at, TargetFix(1, ball[0], ball[1], 0.0), echo, True, snap=snap)
@@ -192,7 +194,9 @@ def test_a_ball_by_a_sofa_is_reached(off: float) -> None:
 @pytest.mark.parametrize(
     "door",
     [
-        pytest.param(0.46, marks=pytest.mark.xfail(strict=True, reason="Z6 Task 7: recovery")),
+        # 46 cm: 100 % seen, but going back it can't line up from an angle (Plan Z6) - the owner decides
+        pytest.param(0.46, marks=pytest.mark.xfail(strict=True, reason="owner decision (Plan Z6)")),
+        0.50,
         0.60,
     ],
 )
@@ -203,3 +207,26 @@ def test_explore_goes_through_a_doorway(door: float) -> None:
     r = roam("explore", 900.0, boxes=walls, dt=0.2)
     assert r.result == "done" and SimRoom(walls, walls_m=2.5).seen_share(r.room) >= 0.8
     assert r.body >= BODY_M
+
+
+# ---- the floor runs' layouts (Plan Z6, design-notes §164-§165.2)
+@pytest.mark.parametrize(
+    "small",
+    [
+        Box(0.37, 0.12, 0.47, 0.17, 0.0, 0.06),  # run 3: 40 cm ahead-left
+        Box(0.33, -0.05, 0.43, 0.05, 0.0, 0.06),  # 35 cm ahead
+        Box(0.40, -0.20, 0.50, -0.12, 0.0, 0.06),  # 45 cm ahead-right
+    ],
+)
+def test_run_3_layout_a_small_box_near_the_start(small: Box) -> None:
+    """Floor run 3 stood 12 s: a small mark near the tank, unseen floor round it. Explore goes on."""
+    r = roam("explore", 300.0, boxes=[small], dt=0.2)
+    assert r.result == "done" and SimRoom([small], walls_m=2.5).seen_share(r.room) >= 0.8
+    assert r.body >= BODY_M and not r.front_hit
+
+
+def test_run_2_layout_beside_a_bed() -> None:
+    """Floor run 2: a bed's panel (15 cm up) along the right, its leg ahead-right, the way on behind."""
+    bed = [Box(-1.5, -1.2, 0.30, -0.25, 0.15, 0.5), Box(0.20, -0.32, 0.30, -0.22, 0.0, 0.15)]
+    r = roam("explore", 300.0, boxes=bed, dt=0.2, start=(0.0, 0.0, 0.0))
+    assert r.result == "done" and r.body >= BODY_M and not r.front_hit

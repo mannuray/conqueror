@@ -98,3 +98,30 @@ def test_does_not_mark_seen() -> None:
     room = RoomMap()
     SonarModel().update(room, START, 1.0, 0)
     assert not room.seen.any()  # only the camera turns unseen into seen (spec 9 §5)
+
+
+# ---- an echo came from one place on its arc (Plan Z6: the standard sonar model)
+def test_one_echo_is_spread_over_its_arc() -> None:
+    """Each arc cell gets the hit divided by the arc's cells: one echo doesn't mark a whole arc."""
+    room = RoomMap()
+    SonarModel().update(room, START, 1.0, 0)
+    marked = room.low[room.low > 0]
+    assert len(marked) > 5 and marked.max() < room.settings.hit / 3
+
+
+def test_a_wall_facing_the_sensor_is_marked_echo_by_echo() -> None:
+    room, s = RoomMap(), SonarModel()
+    for k in range(20):  # 2 s facing a wall at 1 m
+        s.update(room, START, 1.0, k * 100_000)
+    assert room.is_blocked(1.13, 0.0)
+
+
+def test_floor_the_camera_sees_outvotes_an_arc_across_a_doorway() -> None:
+    """Simulated explore: echoes off a door's jamb drew arcs across the doorway and closed it (Plan Z6). Where
+    the camera sees floor (a miss a picture, ~10 a second), the spread arc never builds up."""
+    room, s = RoomMap(), SonarModel()
+    gap = room.cells(np.array([ahead(1.0, float(deg)) for deg in np.arange(-11.0, 6.0, 1.0)]))
+    for k in range(20):
+        s.update(room, START, 1.0, k * 100_000)
+        room.miss(gap, "low")
+    assert not room.is_blocked(*ahead(1.0, 0.0))

@@ -80,8 +80,9 @@ class RoomMap:
         c = self.settings.clamp
         a[cells] = np.clip(a[cells] + step, -c, c)
 
-    def hit(self, cells: NDArray[np.intp], layer: Layer) -> None:
-        self._step(cells, layer, self.settings.hit)
+    def hit(self, cells: NDArray[np.intp], layer: Layer, weight: float = 1.0) -> None:
+        """A mark seen in these cells; weight < 1 for evidence shared between cells (a sonar's arc)."""
+        self._step(cells, layer, self.settings.hit * weight)
 
     def miss(self, cells: NDArray[np.intp], layer: Layer) -> None:
         self._step(cells, layer, self.settings.miss)

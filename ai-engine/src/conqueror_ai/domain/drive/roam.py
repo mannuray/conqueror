@@ -1,11 +1,10 @@
-"""Roam the room on the map (AI engine LLD §18.7, spec 9 §4): wander, explore (visit everything) and find.
+"""Roam the room on the map (AI engine LLD §18.7, §18.13, spec 9 §4): wander, explore (visit everything) and
+find.
 
-Each tick: the snapshot's clearance, the goal's destination, a route around obstacles, and slice 1's fan
-aiming 0.5 m along it. No destination or no route: a look (stand, then turn on the spot 90 deg at a time and
-stand again, so the map takes still pictures). Find hands over to the chase once the thing is seen.
-
-Boxed in (no curve ahead for 3 s, or a look round with no way on, and no turn on the spot either way), the
-tank backs straight up at v_min, at most BACK_M, only along its own recent track (design-notes §165).
+Each tick: one cost map from the snapshot, the goal's destination, a route on the costs, and slice 1's fan
+aiming 0.5 m along it, scored and slowed by cost (Plan Z6). Stuck - no allowed move or no progress for
+stuck_s, or no route - the standard ways out run (`Recovery`: look, turn, back over known floor, blocked).
+Find hands over to the chase once the thing is seen.
 
 Safety (spec 9 §5): a stale map stops the tank at once (2 s ends the run); an echo nearer than clear_m that
 isn't the target ends the run; 18 cm/s while the camera angle isn't trusted or there is no depth."""
@@ -14,12 +13,10 @@ from __future__ import annotations
 
 import math
 import random
-from collections import deque
 from dataclasses import replace
 from typing import Literal
 
 from conqueror_ai.domain.drive.chase import (
-    BLOCKED_GIVE_UP_S,
     DRIVE_TILT,
     LOST_AFTER_S,
     MAX_TICK_S,
@@ -29,29 +26,19 @@ from conqueror_ai.domain.drive.chase import (
     ChaseSkill,
     SkillOut,
 )
-from conqueror_ai.domain.drive.costmap import CostMap
+from conqueror_ai.domain.drive.costmap import CostMap, CostSettings
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.goals import ExploreGoal, WanderGoal
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
+from conqueror_ai.domain.drive.recovery import Recovery
 from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point
 from conqueror_ai.domain.room_map import MapSnapshot
 
 SLOW_CMS = 18.0  # spec 9 §5: unsure of the camera angle, or no depth
-LOOK_STAND_S = 1.0  # stand this long so the map takes still pictures
-LOOK_STEP_DEG = 90.0
-LOOK_ROUNDS = 2  # full looks round without anywhere to go: wander ends blocked, explore done
-LOOK_PANS = (-45.0, 45.0, -90.0, 90.0)  # too near things to turn on the spot: look round with the camera
-STUCK_M = 0.2  # a look that starts within this of the last one made no progress ...
-STUCK_LOOKS = 3  # ... this many in a row end the run (review minor 8: drive-blocked-look cycles)
-# backing out of a pocket (design-notes §165): nothing sees behind the tank, so only this far, this slowly
-# (v_min), only where it just drove, and not twice in one place
-BACK_M = 0.20
-BACK_S = 2.5
-TRACK_M = 0.05  # every pose of the reverse this near the tank's own track ...
-TRACK_STEP_M = 0.025
-TRACK_KEEP = 40  # ... its last ~1 m driven forward
-BACK_AGAIN_M = 0.5  # a reverse starting this near an earlier one ends the run blocked
+START_STAND_S = 1.0  # at the start: stand with the camera ahead so the map takes still pictures
+PROGRESS_M = 0.05  # moving this far ...
+PROGRESS_DEG = 15.0  # ... or turning this far counts as progress (no progress for stuck_s: stuck)
 
 Mode = Literal["wander", "explore"]
 
@@ -64,17 +51,20 @@ class RoamSkill:
         seconds: float | None = None,
         find: bool = False,
         rng: random.Random | None = None,
+        cost: CostSettings | None = None,
     ) -> None:
         self.planner = planner
         self.slow = Planner(replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, SLOW_CMS)), planner.w)
         self.lim = planner.lim
+        self.settings = cost or CostSettings()
         self.mode = mode
         self.find = find
         self.routes = RoutePlanner(self.lim)
         self.wander = WanderGoal(seconds, rng or random.Random())
         self.seconds = seconds
         self.explore = ExploreGoal()
-        self.chase = ChaseSkill(planner)
+        self.chase = ChaseSkill(planner, cost)
+        self.recovery = Recovery(self.lim, planner.foot, DRIVE_TILT)
         self.state = "start"
         self.cmd = STOP
         self.route: list[XY] | None = None
@@ -84,23 +74,9 @@ class RoamSkill:
         self._dt = planner.lim.dt_s
         self._pan: float | None = None
         self._stale_t0: float | None = None
-        self._blocked_t0: float | None = None
-        self._look_t0 = 0.0
-        self._turned = 0.0  # degrees turned in this look
-        self._looks = 0  # full looks with nowhere to go
-        self._spinning = False
-        self._look_w = 0.0  # the look's turn: + left, - right (the way that is clear)
-        self._step_to = 0.0  # this spin ends when _turned reaches it
-        self._pan_look = False  # this look step pans the camera instead of turning the tank
-        self._last_look_at: XY | None = None
-        self._stuck = 0
-        self.track: deque[XY] = deque(maxlen=TRACK_KEEP)  # where it drove forward lately
-        self._back_from: XY = (0.0, 0.0)
-        self._back_t0 = 0.0
-        self._backs: list[XY] = []
-        # per snapshot: routes and goals see open unseen space as open; the fan also counts unseen space next
-        # to seen marks as the thing (review I3: growing it for routes closed doorways)
-        self._clear: tuple[MapSnapshot, CostMap] | None = None
+        self._start_t0: float | None = None
+        self._progress: tuple[XYTh, float] | None = None  # where and when it last made progress
+        self._cost: tuple[MapSnapshot, CostMap] | None = None
 
     # ---- out
     def _out(self, want: Command, cam: tuple[float, float] | None = None) -> SkillOut:
@@ -121,11 +97,11 @@ class RoamSkill:
     def cancel(self) -> SkillOut:
         return self._end("cancelled")
 
-    def _clearances(self, snap: MapSnapshot) -> tuple[CostMap, CostMap]:
-        """(routes and goals, the fan) - once per snapshot (kept by identity, review minor 5)."""
-        if self._clear is None or self._clear[0] is not snap:
-            self._clear = (snap, CostMap(snap))
-        return self._clear[1], self._clear[1]
+    def _costmap(self, snap: MapSnapshot) -> CostMap:
+        """One cost map per snapshot (kept by identity, review minor 5)."""
+        if self._cost is None or self._cost[0] is not snap:
+            self._cost = (snap, CostMap(snap, self.settings))
+        return self._cost[1]
 
     # ---- the tick
     def tick(
@@ -161,18 +137,18 @@ class RoamSkill:
             return self._end("done")
         if sonar_m is not None and sonar_m < self.lim.clear_m:
             return self._end("blocked")
-        planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
-        clear, fan = self._clearances(snap)
-        if self.cmd.v_cms > 0 and (not self.track or math.dist(self.track[-1], at[:2]) >= TRACK_STEP_M):
-            self.track.append((at[0], at[1]))
-        if self.state == "back":
-            return self._back(now_s, at, fan, planner)
+        cost = self._costmap(snap)
         if self.state == "start":
-            self.state = "look"
-            return self._start_look(now_s, at)
-        if self.state == "look":
-            return self._look(now_s, at, clear, fan, planner, sonar_m)
-        return self._drive(now_s, at, clear, fan, planner, sonar_m)
+            if self._start_t0 is None:
+                self._start_t0, self._pan = now_s, 0.0
+                return self._halt((0.0, DRIVE_TILT))
+            if now_s - self._start_t0 < START_STAND_S - 1e-9:
+                return self._halt()
+            self.state = "drive"
+        if self.state == "recover":
+            return self._recover(now_s, at, cost)
+        planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
+        return self._drive(now_s, at, cost, planner, sonar_m)
 
     def _chase(
         self,
@@ -190,27 +166,26 @@ class RoamSkill:
         out = self.chase.tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap)
         self.cmd = out.cmd
         if out.result in ("not_found", "lost"):  # it got away: roam on, a fresh chase for the next sighting
-            self.chase = ChaseSkill(self.planner)
-            self.state = "look"
-            self.cmd = STOP
-            return self._start_look(now_s, at)
+            self.chase = ChaseSkill(self.planner, self.settings)
+            self.state, self._progress = "drive", None
+            return self._halt((0.0, DRIVE_TILT))
         if out.result is not None:
             return self._end(out.result)
         return out
 
     # ---- where to
-    def _destination(self, now_s: float, at: XYTh, clear: CostMap) -> XY | None:
+    def _destination(self, now_s: float, at: XYTh, cost: CostMap) -> XY | None:
         if self.mode == "wander":
-            return self.wander.destination(now_s, at, clear)
-        return self.explore.destination(now_s, at, clear, self.routes)
+            return self.wander.destination(now_s, at, cost)
+        return self.explore.destination(now_s, at, cost, self.routes)
 
-    def _plan(self, now_s: float, at: XYTh, clear: CostMap) -> list[XY] | None:
+    def _plan(self, now_s: float, at: XYTh, cost: CostMap) -> list[XY] | None:
         """A destination and a route to it, or None."""
         for _ in range(3):  # wander: an unreachable spot is dropped and another picked
-            dest = self._destination(now_s, at, clear)
+            dest = self._destination(now_s, at, cost)
             if dest is None:
                 return None
-            route = self.routes.route(clear, (at[0], at[1]), dest)
+            route = self.routes.route(cost, (at[0], at[1]), dest)
             if route is not None:
                 self.dest = dest
                 return route
@@ -219,103 +194,55 @@ class RoamSkill:
             self.wander.drop()
         return None
 
-    # ---- looking round
-    def _start_look(self, now_s: float, at: XYTh) -> SkillOut:
-        """Stand with the camera ahead, then look round (LLD §18.7). Stops at once; counts looks that start
-        where the last one did (no progress)."""
-        self._look_t0, self._turned, self._spinning, self._pan_look = now_s, 0.0, False, False
-        if self._last_look_at is not None and math.dist(self._last_look_at, at[:2]) < STUCK_M:
-            self._stuck += 1
-        else:
-            self._stuck = 0
-        self._last_look_at = (at[0], at[1])
-        self._pan = 0.0
-        self.cmd = STOP
-        return SkillOut(STOP, (0.0, DRIVE_TILT))
-
-    def _look(
-        self,
-        now_s: float,
-        at: XYTh,
-        clear: CostMap,
-        fan: CostMap,
-        planner: Planner,
-        sonar_m: float | None,
-    ) -> SkillOut:
-        if self._stuck >= STUCK_LOOKS:
-            return self._end("blocked")
-        if self._spinning:
-            self._turned += abs(self.cmd.w_dps) * self._dt  # what the tank was told last tick
-            left = self._look_w > 0
-            if self._turned >= self._step_to - 1e-9 or not planner.can_spin(
-                at, fan, left, self._step_to - self._turned
-            ):
-                self._spinning, self._look_t0 = False, now_s  # one step done (or too near): stand and look
-                return self._halt()
-            return self._out(Command(0.0, self._look_w))
-        if now_s - self._look_t0 < LOOK_STAND_S - 1e-9:
-            return self._halt()
-        route = self._plan(now_s, at, clear)
-        if route is not None:
-            self.route, self.state, self._looks, self._blocked_t0 = route, "drive", 0, None
-            out = self._drive(now_s, at, clear, fan, planner, sonar_m)
-            return (
-                out if out.cam is not None else SkillOut(out.cmd, (self._pan or 0.0, DRIVE_TILT), out.result)
-            )
-        if self.mode == "explore" and self.explore.done and self._turned >= 360.0 - 1e-9:
-            return self._end("done")
-        if self._turned >= 360.0 - 1e-9:
-            back = self._start_back(now_s, at, fan, planner)
-            if back is not None:
-                return back
-            self._looks += 1
-            if self._looks >= LOOK_ROUNDS:
-                return self._end("done" if self.mode == "explore" else "blocked")
-            self._turned = 0.0
+    # ---- stuck: the standard ways out
+    def _stuck(self, now_s: float, at: XYTh) -> SkillOut:
+        self.recovery.start(now_s, at)
+        self.state, self._progress = "recover", None
+        if self.mode == "wander":
             self.wander.drop()
-        self._step_to = self._turned + LOOK_STEP_DEG
-        for left in (True, False):  # left as before; right when only that way is clear (design-notes §164)
-            if planner.can_spin(at, fan, left):
-                self._spinning, self._look_w = True, self.lim.spin_dps * (1.0 if left else -1.0)
-                return self._out(Command(0.0, self._look_w))
-        # too near something to turn on the spot (review C1): a quarter of the look with the camera instead
-        k = round(self._turned / LOOK_STEP_DEG) % len(LOOK_PANS)
-        self._turned, self._look_t0, self._pan = self._step_to, now_s, LOOK_PANS[k]
-        return self._halt((LOOK_PANS[k], DRIVE_TILT))
+        return self._halt()
+
+    def _recover(self, now_s: float, at: XYTh, cost: CostMap) -> SkillOut:
+        out = self.recovery.tick(now_s, at, cost, self._dt)
+        if self.recovery.step == "blocked":
+            return self._end("blocked")
+        if out is None:  # a step finished: try driving again
+            self.state, self._pan = "drive", 0.0
+            return self._halt((0.0, DRIVE_TILT))
+        cmd, cam = out
+        if cam is not None:
+            self._pan = cam[0]
+        return self._halt(cam) if cmd == STOP else self._out(cmd, cam)
 
     # ---- driving
+    def _made_progress(self, now_s: float, at: XYTh) -> bool:
+        """False once the tank has neither moved PROGRESS_M nor turned PROGRESS_DEG for stuck_s."""
+        if self._progress is None:
+            self._progress = (at, now_s)
+            return True
+        p, t = self._progress
+        turned = abs((math.degrees(at[2] - p[2]) + 180.0) % 360.0 - 180.0)
+        if math.dist(p[:2], at[:2]) >= PROGRESS_M or turned >= PROGRESS_DEG:
+            self._progress = (at, now_s)
+            self.recovery.progress(at)
+            return True
+        return now_s - t < self.settings.stuck_s - 1e-9
+
     def _drive(
-        self,
-        now_s: float,
-        at: XYTh,
-        clear: CostMap,
-        fan: CostMap,
-        planner: Planner,
-        sonar_m: float | None,
+        self, now_s: float, at: XYTh, cost: CostMap, planner: Planner, sonar_m: float | None
     ) -> SkillOut:
-        route = self._plan(now_s, at, clear)
+        route = self._plan(now_s, at, cost)
         if route is None:
-            self.state, self.route = "look", None
-            return self._start_look(now_s, at)
+            if self.mode == "explore" and self.explore.done:
+                return self._end("done")
+            return self._stuck(now_s, at)
         self.route = route
         aim = aim_point(route, (at[0], at[1]))
         obstacle = None if sonar_m is None else sonar_m + self.lim.sonar_x_m
-        # a wander or explore destination is a waypoint, not a stop: cruise (the map and sonar keep it clear)
-        want = planner.choose(at, self.cmd, aim, obstacle, fan, far_m=math.inf)
-        if want == STOP:
-            if self._blocked_t0 is None:
-                self._blocked_t0 = now_s
-            if now_s - self._blocked_t0 >= BLOCKED_GIVE_UP_S - 1e-9:  # stuck: back out, or look round
-                self._blocked_t0 = None
-                back = self._start_back(now_s, at, fan, planner)
-                if back is not None:
-                    return back
-                self.state = "look"
-                if self.mode == "wander":
-                    self.wander.drop()
-                return self._start_look(now_s, at)
-        else:
-            self._blocked_t0 = None
+        # a wander or explore destination is a waypoint, not a stop: cruise (the costs slow it near things)
+        want = planner.choose(at, self.cmd, aim, obstacle, cost, far_m=math.inf)
+        if not self._made_progress(now_s, at):
+            return self._stuck(now_s, at)
         b = bearing_deg(at, aim)
         pan = max(-PAN_LIMIT_DEG, min(PAN_LIMIT_DEG, -b))
         cam = None
@@ -323,32 +250,3 @@ class RoamSkill:
             self._pan = pan
             cam = (pan, DRIVE_TILT)
         return self._halt(cam) if want == STOP else self._out(want, cam)
-
-    # ---- backing out of a pocket (design-notes §165)
-    def _start_back(self, now_s: float, at: XYTh, fan: CostMap, planner: Planner) -> SkillOut | None:
-        """Back up if boxed in (no turn on the spot either way) and the way back is the tank's own track and
-        clear; None: not boxed in, or no way back. A second reverse near the first ends the run."""
-        if planner.can_spin(at, fan, True) or planner.can_spin(at, fan, False):
-            return None
-        if not self._back_ok(at, BACK_M, fan, planner):
-            return None
-        if any(math.dist(b, at[:2]) < BACK_AGAIN_M for b in self._backs):
-            return self._end("blocked")
-        self._backs.append((at[0], at[1]))
-        self.state, self._back_from, self._back_t0, self._pan = "back", (at[0], at[1]), now_s, 0.0
-        return self._out(Command(-self.lim.v_min_cms, 0.0), (0.0, DRIVE_TILT))
-
-    def _back(self, now_s: float, at: XYTh, fan: CostMap, planner: Planner) -> SkillOut:
-        rest = BACK_M - math.dist(self._back_from, at[:2])
-        if rest <= 0.0 or now_s - self._back_t0 >= BACK_S - 1e-9 or not self._back_ok(at, rest, fan, planner):
-            self.state = "look"
-            return self._start_look(now_s, at)  # stops at once
-        return self._out(Command(-self.lim.v_min_cms, 0.0))
-
-    def _back_ok(self, at: XYTh, length: float, fan: CostMap, planner: Planner) -> bool:
-        """Straight back this far: every pose on the tank's own track, the body's outline clear."""
-        n = max(1, math.ceil(length / TRACK_STEP_M))
-        c, s = math.cos(at[2]), math.sin(at[2])
-        poses = [(at[0] - length * k / n * c, at[1] - length * k / n * s, at[2]) for k in range(1, n + 1)]
-        on_track = all(any(math.dist(p[:2], q) <= TRACK_M for q in self.track) for p in poses)
-        return on_track and planner.foot.allowed(fan, at, poses)

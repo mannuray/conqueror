@@ -98,7 +98,8 @@ class SimRoom:
             dx, dy = math.cos(a), math.sin(a)
             stop = far_m
             hits = sorted(
-                (t, b) for b in self._all() if (t := b.ray(cx, cy, dx, dy)) is not None and t <= far_m
+                ((t, b) for b in self._all() if (t := b.ray(cx, cy, dx, dy)) is not None and t <= far_m),
+                key=lambda tb: tb[0],  # boxes at the same distance: either first (a Box has no order)
             )
             for t, b in hits:
                 p = (cx + t * dx, cy + t * dy)

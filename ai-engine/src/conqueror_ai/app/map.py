@@ -27,7 +27,6 @@ from numpy.typing import NDArray
 from conqueror_ai.adapters import calibration_store
 from conqueror_ai.adapters.map_config import load_map_config
 from conqueror_ai.adapters.session import SessionRecorder, replay
-from conqueror_ai.app.drive import map_state
 from conqueror_ai.app.objects import (
     CALIBRATION,
     DEFAULT_HOST,
@@ -47,7 +46,7 @@ from conqueror_ai.domain.objects import ObjectPipeline
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.sonar_model import SonarModel
 from conqueror_ai.domain.telemetry import parse_td
-from conqueror_ai.domain.types import Frame, TelemSample
+from conqueror_ai.domain.types import Detection, Frame, TelemSample
 
 if TYPE_CHECKING:
     from conqueror_ai.adapters.bridge_ws import BridgeLink
@@ -55,15 +54,33 @@ if TYPE_CHECKING:
     from conqueror_ai.adapters.rerun_view import RerunView
 
 STATUS_S = 1.0  # a status line this often
+STALE_PICTURE_S = 0.5  # spec 7 §4: no driving on a stale map
+STALE_TELEM_S = 0.2
+FIRST_PICTURE_S = 5.0  # the camera stream may take this long to start
+
+
+def map_state(now: float, t0: float, last_picture: float, last_telem: float) -> str | None:
+    """None when pictures and telemetry are fresh (spec 7 §4); "waiting" before the first picture; else why
+    not. Times in seconds (time.monotonic); 0 = never."""
+    if last_picture == 0.0:
+        return "waiting" if now - t0 < FIRST_PICTURE_S else "no pictures from the camera"
+    if now - last_picture > STALE_PICTURE_S:
+        return f"no new picture for {now - last_picture:.1f} s"
+    if now - last_telem > STALE_TELEM_S:
+        return f"no telemetry for {now - last_telem:.1f} s"
+    return None
 
 
 class MapRun:
     """Telemetry and pictures in arrival order -> the room map (the depth model handed in)."""
 
-    def __init__(self, cal: Calibration, cfg: MapConfig, depth: DepthFn | None) -> None:
+    def __init__(
+        self, cal: Calibration, cfg: MapConfig, depth: DepthFn | None, p: ObjectPipeline | None = None
+    ) -> None:
+        """p: cq-drive's pipeline with its detectors (Plan Z5); none: the pose and pictures' cameras only."""
         self.cfg = cfg
         self.depth = depth
-        self.p = ObjectPipeline(cal, frozenset())  # the pose and each picture's camera; nothing is detected
+        self.p = p or ObjectPipeline(cal, frozenset())
         self.room = RoomMap(cfg.map)
         self.sonar = SonarModel(max_m=cfg.ranges.sonar_max_m)
         self.seeing = Seeing(cfg)
@@ -93,16 +110,26 @@ class MapRun:
         if s is not None:
             self.on_telem(s)
 
-    def gate(self, f: Frame, rgb: NDArray[np.uint8]) -> CameraModel | None:
-        """The picture's camera when the map uses it (not turning, the camera still), else None."""
-        cam = self.p.on_frame(f, (rgb.shape[1], rgb.shape[0]), [], self.p.camera_at(f.cap_us))
-        if isinstance(cam, str):
-            return None
-        self.used += 1
-        return cam
+    def gate(
+        self,
+        f: Frame,
+        rgb: NDArray[np.uint8],
+        dets: list[Detection] | None = None,
+        cam: CameraModel | str | None = None,
+    ) -> CameraModel | str:
+        """The picture (with its detections, and its camera if taken before detecting) into the pipeline: its
+        camera when the map uses it, else why it was skipped ("turning", "camera moving", ...)."""
+        used = self.p.on_frame(f, (rgb.shape[1], rgb.shape[0]), dets or [], cam or self.p.camera_at(f.cap_us))
+        if not isinstance(used, str):
+            self.used += 1
+        return used
 
     def depth_due(self) -> bool:
         return self.depth is not None and depth_due(self.used, self.cfg.depth.every_n)
+
+    def depth_due_next(self) -> bool:
+        """Depth for the next picture if the map uses it (asked before detecting, as cq-drive does)."""
+        return self.depth is not None and depth_due(self.used + 1, self.cfg.depth.every_n)
 
     def apply(self, seen: Seen, t_us: int) -> None:
         """A seen picture onto the map."""
@@ -115,7 +142,7 @@ class MapRun:
     def on_picture(self, f: Frame, rgb: NDArray[np.uint8]) -> Seen | None:
         """One picture, all here (the replay)."""
         cam = self.gate(f, rgb)
-        if cam is None or self.depth is None or not self.depth_due():
+        if isinstance(cam, str) or self.depth is None or not self.depth_due():
             return None
         seen = see(self.seeing, self.p, cam, self.depth(rgb), f.cap_us)
         self.apply(seen, f.cap_us)
@@ -219,7 +246,7 @@ async def run_live(
             if rgb is None:
                 continue
             used = run.gate(f, rgb)
-            if used is not None and run.depth is not None and run.depth_due():
+            if not isinstance(used, str) and run.depth is not None and run.depth_due():
                 inv = await asyncio.to_thread(run.depth, rgb)
                 run.apply(await see_off_loop(run.seeing, run.p, used, inv, f.cap_us), f.cap_us)
             snap = run.snapshot(f.cap_us, stale is not None)

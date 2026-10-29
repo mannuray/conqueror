@@ -22,6 +22,7 @@ SPIN_UNTIL_DEG = 15.0
 # On the room map a curve may not take the tank's centre this near an obstacle (AI engine LLD §18.6) - unless
 # it is that near already and the curve doesn't bring it nearer (so a tank by a wall can move away).
 MAP_CLEAR_M = ROBOT_R_M - 0.03
+FRONT_CLEAR_M = 0.05  # and the tank's front (the sonar, 13 cm ahead of the centre) keeps this much (Plan Z5)
 
 
 @dataclass(frozen=True)
@@ -108,7 +109,8 @@ class Planner:
         s = w.progress * gain / 0.3 - w.heading * abs(bearing_deg(end, target)) / 90.0
         if now.v_cms > 0:  # steering changes while driving cost (speed changes are the ramp's job)
             s -= w.smooth * abs(want.w_dps - now.w_dps) / 30.0
-        if obstacle_m is not None and want.v_cms > 0:
+        moves = want.v_cms > 0 or now.v_cms > 0  # a turn on the spot from driving coasts on first
+        if obstacle_m is not None and moves:
             ox = at[0] + obstacle_m * math.cos(at[2])
             oy = at[1] + obstacle_m * math.sin(at[2])
             # keep clear_m between the tank's front (where the sonar is) and the echo, as the chase does
@@ -118,9 +120,15 @@ class Planner:
                 for px, py, th in path
             ):
                 s += w.blocked
-        if clear is not None and want.v_cms > 0:
+        if clear is not None and moves:
+            fx = lim.sonar_x_m
+
+            def front(px: float, py: float, th: float) -> float:
+                return clear.dist_m(px + fx * math.cos(th), py + fx * math.sin(th))
+
             limit = min(MAP_CLEAR_M, clear.dist_m(at[0], at[1]) - 0.01)
-            if any(clear.dist_m(px, py) < limit for px, py, _ in path):
+            front_limit = min(FRONT_CLEAR_M, front(*at) - 0.01)
+            if any(clear.dist_m(px, py) < limit or front(px, py, th) < front_limit for px, py, th in path):
                 s += w.blocked
         return s
 

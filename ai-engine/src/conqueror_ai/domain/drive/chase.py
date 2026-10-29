@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from conqueror_ai.domain.drive.clearance import ClearanceMap
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.goal import TargetFix, echo_is_target
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
+from conqueror_ai.domain.drive.route import RoutePlanner, aim_point
+from conqueror_ai.domain.room_map import MapSnapshot
 
 SWEEP_PANS = (0.0, -45.0, 45.0, -90.0, 90.0)  # pan + = right (cam_set); straight ahead first
 SWEEP_LOOK_S = 0.8  # still pictures at each position (the map skips pictures while the camera moves)
@@ -21,6 +24,8 @@ SEARCH_TURN_DEG = 180.0  # after the first sweep: half a turn on the spot, then 
 MAX_TICK_S = 0.3  # a longer gap between ticks counts as this (no jump in the ramps after a stall)
 BLOCKED_GIVE_UP_S = 3.0  # standing with every curve blocked this long ends the run (going around is slice 2)
 STALE_GIVE_UP_S = 2.0  # a stale map stops the tank at once; this long ends the run (design-notes §157.2)
+TARGET_R_M = 0.12  # on the room map, the target's own marks (the ball is 12 cm) don't count as an obstacle
+SLOW_CMS = 18.0  # spec 9 §5: unsure of the camera angle, or no depth
 
 
 @dataclass(frozen=True)
@@ -33,6 +38,8 @@ class SkillOut:
 class ChaseSkill:
     def __init__(self, planner: Planner) -> None:
         self.planner = planner
+        self.slow = Planner(replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, SLOW_CMS)), planner.w)
+        self.routes = RoutePlanner()
         self.lim = planner.lim
         self.state = "start"
         self.cmd = STOP
@@ -70,10 +77,12 @@ class ChaseSkill:
         sonar_m: float | None,
         map_ok: bool,
         cam_still: bool = True,
+        snap: MapSnapshot | None = None,
     ) -> SkillOut:
         """One tick: at = the tank's pose now (x, y, th), fix = the target, sonar_m = the echo's distance from
         the sonar at the tank's front (None: no echo), map_ok = pictures and telemetry fresh (spec 7 §4),
-        cam_still = the newest picture wasn't skipped for the camera moving."""
+        cam_still = the newest picture wasn't skipped for the camera moving, snap = the room map (Plan Z5:
+        the approach goes round obstacles; None: slice 1's sonar-only approach)."""
         if self.state in ("arrived", "lost"):
             return SkillOut(STOP)
         if self._last_s is not None:
@@ -97,7 +106,7 @@ class ChaseSkill:
             return self._sweep(now_s)
         if self.state == "spin":
             return self._spin(now_s)
-        return self._approach(now_s, at, fix, sonar_m)
+        return self._approach(now_s, at, fix, sonar_m, snap)
 
     def _sweep(self, now_s: float) -> SkillOut:
         """The camera to each pan in turn; at each, SWEEP_LOOK_S of still pictures (SWEEP_MAX_S at most)."""
@@ -129,7 +138,9 @@ class ChaseSkill:
             return self._sweep(now_s)
         return self._out(Command(0.0, self.lim.spin_dps))
 
-    def _approach(self, now_s: float, at: XYTh, fix: TargetFix | None, sonar_m: float | None) -> SkillOut:
+    def _approach(
+        self, now_s: float, at: XYTh, fix: TargetFix | None, sonar_m: float | None, snap: MapSnapshot | None
+    ) -> SkillOut:
         lim = self.lim
         if fix is None or fix.seen_age_s > LOST_AFTER_S:
             self.state, self._t0, self._pan, self._i = "sweep", now_s, None, 0
@@ -152,8 +163,18 @@ class ChaseSkill:
                 return SkillOut(self.cmd)
             # close enough but off to the side: driving on would pass it, so turn on the spot to face it
             return self._out(Command(0.0, math.copysign(lim.spin_dps, b)))
-        want = self.planner.choose(at, self.cmd, target, obstacle)
-        if want == STOP:  # every curve blocked (design-notes §157.5)
+        if snap is None:
+            want = self.planner.choose(at, self.cmd, target, obstacle)
+        else:  # round obstacles on the room map: steer along the route, slow down for the ball itself
+            planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
+            clear = ClearanceMap(snap, ignore=(target[0], target[1], TARGET_R_M))
+            route = self.routes.route(clear, (at[0], at[1]), target, goal_ok=True)
+            want = (
+                STOP
+                if route is None
+                else planner.choose(at, self.cmd, aim_point(route, (at[0], at[1])), obstacle, clear, d_lens)
+            )
+        if want == STOP:  # every curve blocked (design-notes §157.5), or no route
             if self._blocked_t0 is None:
                 self._blocked_t0 = now_s
             if now_s - self._blocked_t0 >= BLOCKED_GIVE_UP_S - 1e-9:
@@ -165,4 +186,9 @@ class ChaseSkill:
         if self._pan is None or abs(pan - self._pan) > PAN_STEP_DEG:
             self._pan = pan
             cam = (pan, DRIVE_TILT)
+        if (
+            want == STOP
+        ):  # blocked: stop at once, not by the speed ramp (Plan Z5: the ramp coasted into things)
+            self.cmd = STOP
+            return SkillOut(STOP, cam)
         return self._out(want, cam)

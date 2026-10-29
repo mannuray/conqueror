@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 
 import numpy as np
@@ -129,3 +130,29 @@ def test_cancel_stops() -> None:
     out = s.cancel()
     assert out.cmd == STOP and out.result == "cancelled"
     assert s.tick(30.0, AT, snap, None, None, True).cmd == STOP
+
+
+def test_a_blocked_way_stops_at_once_not_by_the_ramp() -> None:
+    """Simulated wander, seed 3: every curve blocked by a bed edge ahead, the skill went to look - and the
+    speed ramp (10 cm/s per s) coasted it 2 s on into the edge. A blocked way stops at once (Plan Z5)."""
+    s = skill()
+    tank = SimTank()
+    snap = open_snap()
+    for i in range(40):  # get going
+        out = s.tick(i * 0.1, tank.at, snap, None, None, True)
+        tank.step(out.cmd, 0.1)
+    assert s.cmd.v_cms > 18.0
+    room = RoomMap()
+    room.seen[:] = True
+    x, y, th = tank.at
+    ahead = [
+        (x + d * math.cos(th) - k * math.sin(th), y + d * math.sin(th) + k * math.cos(th))
+        for d in (0.25, 0.3)
+        for k in np.arange(-1.5, 1.51, 0.025)
+    ]
+    c = room.cells(np.array(ahead, dtype=np.float64))
+    room.hit(c, "high")
+    room.update_picture(Marks(*(np.zeros((0, 2)),) * 4), 4_000_000)
+    wall = room.snapshot(4_000_000, POSE, False, True)
+    out = s.tick(4.0, tank.at, wall, None, None, True)
+    assert out.cmd == STOP

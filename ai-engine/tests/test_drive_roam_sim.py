@@ -7,6 +7,9 @@ import math
 import random
 from dataclasses import dataclass, field
 
+import pytest
+
+from conqueror_ai.domain.drive.chase import ChaseSkill
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
@@ -92,8 +95,9 @@ def roam(
     return out
 
 
-def test_wander_60_s_keeps_moving_never_close() -> None:
-    r = roam("wander", 70.0, seconds=60.0)
+@pytest.mark.parametrize("seed", [7, 3, 11])  # seed 3 coasted into a bed edge before the blocked-stop fix
+def test_wander_60_s_keeps_moving_never_close(seed: int) -> None:
+    r = roam("wander", 70.0, seconds=60.0, seed=seed)
     assert r.result == "done"
     assert r.nearest >= NEAREST_M and not r.front_hit
     assert r.path_m > 3.0
@@ -115,5 +119,43 @@ def test_a_box_appears_on_the_route() -> None:  # Review Focus 4
 
 def test_find_ball_out_of_sight() -> None:
     r = roam("wander", 90.0, find=True, ball=(-1.6, 0.2))  # behind the tank at the start
+    assert r.result == "done" and "chase" in r.states
+    assert r.nearest >= NEAREST_M and not r.front_hit
+
+
+def chase_on_map(ball: tuple[float, float], boxes: list[Box], limit_s: float = 60.0, dt: float = 0.1) -> Roam:
+    """Slice 1's chase with the room map (Plan Z5 Task 7): the ball always known (seen over a low box)."""
+    sim = SimRoom(boxes, walls_m=2.5)
+    out = Roam()
+    skill = ChaseSkill(Planner(Limits()))
+    tank, turning, t = SimTank(), False, 0.0
+    while t < limit_s:
+        at, t_us = tank.at, round(t * 1e6)
+        if not turning:
+            out.room.update_picture(sim.marks(at), t_us)
+        pose = Pose(t_us, at[0], at[1], at[2], 0.0, 0.0)
+        snap = out.room.snapshot(t_us, pose, False, True)
+        echo = sim.sonar(at)
+        o = skill.tick(t, at, TargetFix(1, ball[0], ball[1], 0.0), echo, True, snap=snap)
+        turning = abs(o.cmd.w_dps) > GATE_DPS
+        tank.step(o.cmd, dt)
+        out.nearest = min(out.nearest, sim.gap_m(tank.at))
+        out.front_hit = out.front_hit or sim.front_inside(tank.at)
+        if o.result is not None:
+            out.result = o.result
+            break
+        t = round(t + dt, 6)
+    return out
+
+
+def test_chase_goes_around_a_box() -> None:
+    box = Box(0.8, -0.25, 1.1, 0.25, 0.0, 0.08)  # low: the camera sees the ball over it; the sonar hears it
+    r = chase_on_map((2.0, 0.0), [box])
+    assert r.result == "done"
+    assert r.nearest >= NEAREST_M and not r.front_hit
+
+
+def test_find_ball_behind_a_box() -> None:
+    r = roam("wander", 120.0, find=True, ball=(1.9, 0.0), boxes=[Box(0.9, -0.3, 1.3, 0.3, 0.0, 0.30)])
     assert r.result == "done" and "chase" in r.states
     assert r.nearest >= NEAREST_M and not r.front_hit

@@ -66,10 +66,10 @@ def test_unseen_next_to_an_obstacle_counts_as_obstacle() -> None:
     """A box's far side is unseen: the obstacle may go on there, so unseen cells within GROW_UNSEEN_M of a
     marked one count as blocked; unseen open space far from anything stays free (Plan Z5 sim finding)."""
     room = RoomMap()
-    face = room.cells(np.array([(1.0, float(y)) for y in np.arange(-0.2, 0.21, 0.025)], dtype=np.float64))
+    face = room.cells(np.array([(0.98, float(y)) for y in np.arange(-0.2, 0.21, 0.025)], dtype=np.float64))
     room.hit(face, "low")
     room.hit(face, "low")
-    room.seen[:] = True
+    room.seen[:] = True  # the face seen (inside its 5 cm cell, clear of the unseen area behind)
     pts = [(float(x), float(y)) for x in np.arange(1.05, 1.6, 0.025) for y in np.arange(-0.4, 0.41, 0.025)]
     behind = room.cells(np.array(pts, dtype=np.float64))
     room.seen.reshape(-1)[behind] = False
@@ -77,3 +77,15 @@ def test_unseen_next_to_an_obstacle_counts_as_obstacle() -> None:
     assert c.dist_m(1.2, 0.0) == 0.0  # unseen, 20 cm behind the face: part of the obstacle
     assert c.dist_m(1.5, 0.35) > 0.0  # unseen but beyond 30 cm of anything marked
     assert c.dist_m(0.6, 0.0) == pytest.approx(0.4, abs=0.06)  # in front, unchanged
+
+
+def test_sonar_only_marks_dont_grow_into_unseen_space() -> None:
+    """A sonar arc marks unseen cells low (it never marks seen): growing those 30 cm walled off the simulated
+    ball (Plan Z5). Only marks the camera has seen grow."""
+    room = RoomMap()
+    arc = room.cells(np.array([(1.0, float(y)) for y in np.arange(-0.2, 0.21, 0.025)], dtype=np.float64))
+    room.hit(arc, "low")
+    room.hit(arc, "low")  # unseen: as the sonar leaves it
+    c = ClearanceMap(room.snapshot(0, None, False, True))
+    assert c.dist_m(1.0, 0.0) == 0.0
+    assert c.dist_m(1.2, 0.0) == pytest.approx(0.2, abs=0.06)  # not grown

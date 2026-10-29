@@ -1,7 +1,7 @@
 """Clearance on the room map (AI engine LLD §18.6): metres from each 5 cm cell to the nearest blocked cell or
 the map's edge (a wall), worked out once per snapshot. Unseen open space counts as free here: the camera sees
 it before the tank gets there (spec 9 §4.2); routes pay extra for it instead. But unseen cells within
-GROW_UNSEEN_M of a marked one count as that obstacle: a box's far side is unseen, and in the simulated room
+GROW_UNSEEN_M of a seen mark count as that obstacle: a box's far side is unseen, and in the simulated room
 the tank cut round such a corner inside the camera's blind zone (the map never invents free space)."""
 
 from __future__ import annotations
@@ -31,9 +31,10 @@ class ClearanceMap:
             x, y, r = ignore
             c = (np.arange(self.n) + 0.5) * self.cell_m - self.half_m
             blocked &= np.hypot(c[:, None] - x, c[None, :] - y) > r
-        if blocked.any():
+        seen_marks = blocked & snap.seen  # the camera's marks; a sonar arc (never seen) doesn't grow
+        if seen_marks.any():
             to_mark = cast(
-                "NDArray[np.float32]", cv2.distanceTransform((~blocked).astype(np.uint8), cv2.DIST_L2, 5)
+                "NDArray[np.float32]", cv2.distanceTransform((~seen_marks).astype(np.uint8), cv2.DIST_L2, 5)
             )
             blocked |= ~snap.seen & (to_mark * self.cell_m <= GROW_UNSEEN_M)
         free = np.zeros((self.n + 2, self.n + 2), np.uint8)  # a blocked border: the edge is a wall

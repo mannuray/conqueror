@@ -115,9 +115,10 @@ def area(x0: float, y0: float, x1: float, y1: float) -> list[tuple[float, float]
 def test_the_fan_keeps_off_marked_obstacles() -> None:
     clear = map_with(area(0.40, -0.15, 0.60, 0.15))  # inside the 1.5 s look-ahead (37 cm at cruise)
     c = P.choose((0.0, 0.0, 0.0), Command(25.0, 0.0), (2.0, 0.0), clear=clear)
-    assert c != STOP and c != Command(25.0, 0.0)
+    assert c != Command(25.0, 0.0)  # never straight on into it; STOP when no swerve keeps the front clear
     path = roll_out((0.0, 0.0, 0.0), Command(25.0, 0.0), c, LIM)
     assert min(clear.dist_m(x, y) for x, y, _ in path) >= 0.12
+    assert min(clear.dist_m(x + 0.13 * math.cos(t), y + 0.13 * math.sin(t)) for x, y, t in path) >= 0.05
 
 
 def test_already_close_may_move_away() -> None:  # Review Focus 1
@@ -156,3 +157,22 @@ def test_at_the_slowest_speed_a_target_nearly_ahead_is_driven_to_straight() -> N
         assert slow.choose((0.0, 0.0, 0.0), STOP, t).v_cms > 0
     t = (0.5 * math.cos(math.radians(25.0)), 0.5 * math.sin(math.radians(25.0)))
     assert slow.choose((0.0, 0.0, 0.0), STOP, t).v_cms == 0
+
+
+def test_a_spin_from_driving_coasts_and_is_checked_too() -> None:
+    """From 25 cm/s a turn on the spot first coasts ~17 cm while the speed ramps down: that coast must be
+    checked against the map and the echo like any curve (Plan Z5: it was not; it coasted into a wall)."""
+    clear = map_with(area(0.25, -1.5, 0.30, 1.5))  # a wall 25 cm ahead
+    spin = Command(0.0, LIM.spin_dps)
+    free = P.score((0.0, 0.0, 0.0), STOP, spin, (-1.0, 0.0), None, clear)
+    coasting = P.score((0.0, 0.0, 0.0), Command(25.0, 0.0), spin, (-1.0, 0.0), None, clear)
+    assert coasting <= free + P.w.blocked + 1e-9
+
+
+def test_the_tanks_front_is_kept_clear_not_only_its_centre() -> None:
+    """The front is 13 cm ahead of the centre: straight at a wall the centre can stay 12 cm off while the
+    front is in it. The front keeps FRONT_CLEAR_M (Plan Z5)."""
+    clear = map_with(area(0.40, -1.5, 0.45, 1.5))  # a wall 40 cm ahead
+    straight = Command(25.0, 0.0)  # in 1.5 s: 37 cm, the front to 50 cm
+    free = P.score((0.0, 0.0, 0.0), straight, straight, (2.0, 0.0), None, map_with([]))
+    assert P.score((0.0, 0.0, 0.0), straight, straight, (2.0, 0.0), None, clear) <= free + P.w.blocked + 1e-9

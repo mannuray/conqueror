@@ -82,6 +82,12 @@ class RoamSkill:
         self.cmd = ramp(self.cmd, want, self._dt, self.lim)
         return SkillOut(self.cmd, cam)
 
+    def _halt(self, cam: tuple[float, float] | None = None) -> SkillOut:
+        """Stop at once, not by the speed ramp: the way ahead is blocked (simulated wander: the ramp coasted
+        the tank 2 s on into a bed edge)."""
+        self.cmd = STOP
+        return SkillOut(STOP, cam)
+
     def _end(self, result: str) -> SkillOut:
         self.state = "done" if result == "done" else "failed"
         self.cmd = STOP
@@ -151,7 +157,7 @@ class RoamSkill:
         cam_still: bool,
     ) -> SkillOut:
         self.state = "chase"
-        out = self.chase.tick(now_s, at, fix, sonar_m, map_ok, cam_still)
+        out = self.chase.tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap)
         self.cmd = out.cmd
         if out.result in ("not_found", "lost"):  # it got away: roam on, a fresh chase for the next sighting
             self.chase = ChaseSkill(self.planner)
@@ -221,7 +227,7 @@ class RoamSkill:
         if route is None:
             self.state, self.route = "look", None
             self._start_look(now_s)
-            return self._out(STOP)
+            return self._halt()
         self.route = route
         aim = aim_point(route, (at[0], at[1]))
         obstacle = None if sonar_m is None else sonar_m + self.lim.sonar_x_m
@@ -235,7 +241,7 @@ class RoamSkill:
                 if self.mode == "wander":
                     self.wander.drop()
                 self._start_look(now_s)
-                return self._out(STOP)
+                return self._halt()
         else:
             self._blocked_t0 = None
         b = bearing_deg(at, aim)
@@ -244,4 +250,4 @@ class RoamSkill:
         if self._pan is None or abs(pan - self._pan) > PAN_STEP_DEG:
             self._pan = pan
             cam = (pan, DRIVE_TILT)
-        return self._out(want, cam)
+        return self._halt(cam) if want == STOP else self._out(want, cam)

@@ -20,7 +20,9 @@ class Limits:
     dw_dps_per_s: float = 60.0  # the turn-rate ramp
     stop_range_m: float = 0.40  # from the lens to the ball's centre at arrival
     slow_from_m: float = 0.80  # the speed falls to v_min from here
-    clear_m: float = 0.30  # keep the tank's front (the sonar) this far from an echo that isn't the target
+    # keep the tank's front (the sonar) this far from an echo that isn't the target; nearer ends the run
+    # (owner: 10 cm, design-notes §159; slice 1 had 30 cm). The Uno's 15 cm brake stays underneath.
+    clear_m: float = 0.10
     cam_x_m: float = 0.085  # the lens ahead of the tank's centre
     sonar_x_m: float = 0.13  # the sonar ahead of the tank's centre
     horizon_s: float = 1.5  # how far ahead a curve is rolled out

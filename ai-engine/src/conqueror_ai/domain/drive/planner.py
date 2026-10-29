@@ -6,8 +6,10 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from conqueror_ai.domain.drive.clearance import ClearanceMap
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, roll_out
 from conqueror_ai.domain.drive.limits import Limits
+from conqueror_ai.domain.drive.route import ROBOT_R_M
 
 RADII_M = (1.5, 0.8, 0.5)  # plus straight on and the tightest smooth arc
 # More than this far off, the tank turns on the spot first. (Floor chase 5: the tightest arcs the inner track
@@ -17,6 +19,9 @@ SPIN_FROM_DEG = 35.0
 # and the pose lags: floor chase 6 turned 55 deg for a ball 40 deg off with 8 (design-notes §157.2); the
 # drive's arc aims the rest.
 SPIN_UNTIL_DEG = 15.0
+# On the room map a curve may not take the tank's centre this near an obstacle (AI engine LLD §18.6) - unless
+# it is that near already and the curve doesn't bring it nearer (so a tank by a wall can move away).
+MAP_CLEAR_M = ROBOT_R_M - 0.03
 
 
 @dataclass(frozen=True)
@@ -74,7 +79,13 @@ class Planner:
         return math.hypot(target[0] - cx, target[1] - cy) < r
 
     def score(
-        self, at: XYTh, now: Command, want: Command, target: tuple[float, float], obstacle_m: float | None
+        self,
+        at: XYTh,
+        now: Command,
+        want: Command,
+        target: tuple[float, float],
+        obstacle_m: float | None,
+        clear: ClearanceMap | None = None,
     ) -> float:
         lim, w = self.lim, self.w
         path = roll_out(at, now, want, lim)
@@ -94,14 +105,23 @@ class Planner:
                 for px, py, th in path
             ):
                 s += w.blocked
+        if clear is not None and want.v_cms > 0:
+            limit = min(MAP_CLEAR_M, clear.dist_m(at[0], at[1]) - 0.01)
+            if any(clear.dist_m(px, py) < limit for px, py, _ in path):
+                s += w.blocked
         return s
 
     def choose(
-        self, at: XYTh, now: Command, target: tuple[float, float], obstacle_m: float | None = None
+        self,
+        at: XYTh,
+        now: Command,
+        target: tuple[float, float],
+        obstacle_m: float | None = None,
+        clear: ClearanceMap | None = None,
     ) -> Command:
         """The best curve to the target; obstacle_m: an echo straight ahead (from the tank's centre) that is
-        not the target."""
+        not the target; clear: the room map's clearance (Plan Z5), None for slice 1's sonar-only check."""
         moving = [c for c in self.fan(at, target, now) if c != STOP]
-        scored = [(self.score(at, now, c, target, obstacle_m), c) for c in moving]
+        scored = [(self.score(at, now, c, target, obstacle_m, clear), c) for c in moving]
         best_score, best = max(scored, key=lambda sc: sc[0])
         return STOP if best_score <= self.w.blocked / 2 else best  # stop only when every curve is blocked

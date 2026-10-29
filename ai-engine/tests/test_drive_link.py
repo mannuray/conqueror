@@ -54,7 +54,7 @@ def test_the_drive_config_file_loads_and_checks(tmp_path: Path) -> None:
         "inner_min_cms: 15",
         "spin_dps: 40",
         "r_floor_m: 0.2",
-        "clear_m: 0.1",
+        "clear_m: 0.05",
         "stop_range_m: 0.2",
         "dv_cms_per_s: 30",
         "dw_dps_per_s: 200",

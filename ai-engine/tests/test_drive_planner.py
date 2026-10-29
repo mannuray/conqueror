@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 
+from conqueror_ai.domain.drive.clearance import ClearanceMap
 from conqueror_ai.domain.drive.curves import STOP, Command, roll_out
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
+from conqueror_ai.domain.room_map import RoomMap
 
 LIM = Limits()
 
@@ -78,8 +81,58 @@ def test_bearing_is_plus_left() -> None:
 
 def test_keep_clear_is_measured_from_the_tanks_front_like_the_sonar() -> None:
     p = Planner(LIM)
-    turn = Command(
-        25.0, 40.0
-    )  # a curve to the left whose front passes 29 cm from the echo (its centre 31 cm)
+    turn = Command(25.0, 40.0)  # a curve to the left
+    path = roll_out((0.0, 0.0, 0.0), turn, turn, LIM)
+    fx = LIM.sonar_x_m
+
+    def gap(ox: float, at_front: bool) -> float:  # the nearest pass of the front (or the centre) by an echo
+        off = fx if at_front else 0.0
+        return min(math.hypot(x + off * math.cos(t) - ox, y + off * math.sin(t)) for x, y, t in path)
+
+    # an echo the front passes within clear_m while the centre stays beyond it
+    ox = next(o / 100 for o in range(15, 80) if gap(o / 100, True) < LIM.clear_m <= gap(o / 100, False))
     free = p.score((0.0, 0.0, 0.0), turn, turn, (0.0, 2.0), None)
-    assert p.score((0.0, 0.0, 0.0), turn, turn, (0.0, 2.0), 0.57) == pytest.approx(free + p.w.blocked)
+    assert p.score((0.0, 0.0, 0.0), turn, turn, (0.0, 2.0), ox) == pytest.approx(free + p.w.blocked)
+
+
+# ---- the fan on the room map (Plan Z5)
+def map_with(blocked: list[tuple[float, float]]) -> ClearanceMap:
+    room = RoomMap()
+    if blocked:
+        c = room.cells(np.array(blocked, dtype=np.float64))
+        room.hit(c, "low")
+        room.hit(c, "low")
+    room.seen[:] = True
+    return ClearanceMap(room.snapshot(0, None, False, True))
+
+
+def area(x0: float, y0: float, x1: float, y1: float) -> list[tuple[float, float]]:
+    return [
+        (float(x), float(y)) for x in np.arange(x0, x1 + 1e-9, 0.025) for y in np.arange(y0, y1 + 1e-9, 0.025)
+    ]
+
+
+def test_the_fan_keeps_off_marked_obstacles() -> None:
+    clear = map_with(area(0.40, -0.15, 0.60, 0.15))  # inside the 1.5 s look-ahead (37 cm at cruise)
+    c = P.choose((0.0, 0.0, 0.0), Command(25.0, 0.0), (2.0, 0.0), clear=clear)
+    assert c != STOP and c != Command(25.0, 0.0)
+    path = roll_out((0.0, 0.0, 0.0), Command(25.0, 0.0), c, LIM)
+    assert min(clear.dist_m(x, y) for x, y, _ in path) >= 0.12
+
+
+def test_already_close_may_move_away() -> None:  # Review Focus 1
+    clear = map_with(area(-0.4, 0.08, 0.6, 0.3))  # a wall 8 cm to the left
+    assert clear.dist_m(0.0, 0.0) < 0.12
+    assert P.choose((0.0, 0.0, 0.0), STOP, (2.0, -0.3), clear=clear) != STOP
+
+
+def test_all_ways_blocked_stops() -> None:
+    ring = area(-0.4, 0.15, 0.4, 0.4) + area(-0.4, -0.4, 0.4, -0.15) + area(0.15, -0.4, 0.4, 0.4)
+    ring += area(-0.4, -0.4, -0.15, 0.4)
+    assert P.choose((0.0, 0.0, 0.0), Command(25.0, 0.0), (2.0, 0.0), clear=map_with(ring)) == STOP
+
+
+def test_without_a_map_as_before() -> None:
+    at, cruise = (0.0, 0.0, 0.0), Command(25.0, 0.0)
+    for target in [(2.0, 0.0), (1.5, 1.2), (1.5, -1.2), (0.6, 0.0)]:
+        assert P.choose(at, cruise, target) == P.choose(at, cruise, target, clear=None)

@@ -119,3 +119,20 @@ def test_a_positive_miss_is_refused(tmp_path: Path) -> None:  # Z4 review minor 
     f.write_text("map: {miss: 0.2}\n")
     with pytest.raises(ValueError, match="miss"):
         load_map_config(f)
+
+
+@pytest.mark.parametrize(
+    "text", ["cost: {keep_out_m: 0.05}\n", "cost: {back_m: 0.3}\n", "cost: {unknown_cost: 0.1}\n"]
+)
+def test_cost_may_only_be_more_careful(tmp_path: Path, text: str) -> None:  # Plan Z6
+    f = tmp_path / "map.yaml"
+    f.write_text(text)
+    with pytest.raises(ValueError, match="more careful"):
+        load_map_config(f)
+
+
+def test_cost_settings_load(tmp_path: Path) -> None:
+    f = tmp_path / "map.yaml"
+    f.write_text("cost: {keep_out_m: 0.10, back_m: 0.15}\n")
+    c = load_map_config(f).cost
+    assert (c.keep_out_m, c.back_m, c.near_cost) == (0.10, 0.15, 0.8)

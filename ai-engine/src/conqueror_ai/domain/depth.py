@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 
 from conqueror_ai.domain.camera import CameraModel, FloatArray, undistorted_grid
+from conqueror_ai.domain.drive.cost_settings import CostSettings
 
 MIN_ROWS = 20  # a picture's floor line needs this many rows ...
 MIN_R2 = 0.98  # ... and to be this straight
@@ -60,6 +61,7 @@ class MapConfig:
     ranges: Ranges = field(default_factory=Ranges)
     depth: DepthSettings = field(default_factory=DepthSettings)
     map: MapSettings = field(default_factory=MapSettings)
+    cost: CostSettings = field(default_factory=CostSettings)  # driving on the map (LLD §18.13, Plan Z6)
 
 
 # ---- the camera's real tilt (design-notes §155)

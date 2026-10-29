@@ -9,6 +9,7 @@ from typing import Any, cast
 import yaml
 
 from conqueror_ai.domain.depth import DepthSettings, Heights, MapConfig, MapSettings, Ranges
+from conqueror_ai.domain.drive.cost_settings import CostSettings
 
 # the owner's 20 cm (design-notes §159), and what would make the tank see less: the file may make them more
 # careful, never less (final review I2)
@@ -18,6 +19,8 @@ AT_MOST = ("floor_m", "trust_deg")
 # I1-I2): a bigger hit, a smaller (less negative) miss, a bigger clamp, a lower blocked level, a shorter sonar
 MAP_AT_LEAST = ("hit", "miss", "clamp")
 MAP_AT_MOST = ("blocked",)
+COST_AT_LEAST = ("keep_out_m", "near_out_m", "near_c_m", "near_cost", "unknown_cost")  # Plan Z6
+COST_AT_MOST = ("back_m",)
 
 
 def _section(path: Path, d: dict[str, Any], name: str, cls: type[Any]) -> Any:
@@ -53,7 +56,7 @@ def load_map_config(path: Path) -> MapConfig:
     if not isinstance(d, dict):
         raise ValueError(f"{path}: expected a mapping at the top")
     d = cast("dict[str, Any]", d)
-    unknown = sorted(set(d) - {"heights", "ranges", "depth", "map"})
+    unknown = sorted(set(d) - {"heights", "ranges", "depth", "map", "cost"})
     if unknown:
         raise ValueError(f"{path}: unknown sections {', '.join(unknown)}")
     cfg = MapConfig(
@@ -61,6 +64,7 @@ def load_map_config(path: Path) -> MapConfig:
         _section(path, d, "ranges", Ranges),
         _section(path, d, "depth", DepthSettings),
         _section(path, d, "map", MapSettings),
+        _section(path, d, "cost", CostSettings),
     )
     h, dp = cfg.heights, cfg.depth
     careless = [k for k in AT_LEAST if getattr(h, k) < getattr(Heights(), k)]
@@ -76,6 +80,8 @@ def load_map_config(path: Path) -> MapConfig:
         careless.append("blocked (0 or less: every unseen cell would be blocked)")
     if cfg.ranges.sonar_max_m > Ranges().sonar_max_m:
         careless.append("sonar_max_m")
+    careless += [k for k in COST_AT_LEAST if getattr(cfg.cost, k) < getattr(CostSettings(), k)]
+    careless += [k for k in COST_AT_MOST if getattr(cfg.cost, k) > getattr(CostSettings(), k)]
     if careless:
         raise ValueError(f"{path}: these may only be made more careful - {', '.join(careless)}")
     m = cfg.map

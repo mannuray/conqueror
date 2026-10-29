@@ -2475,6 +2475,7 @@ Within ±1.5 cm/s (≤ 8 %): **the table stays** (loose tolerances, spec 0 §1.1
 - **LLD §18 approved (owner, 2026-10-27: "implement").** Next: Plan Z3 (seeing), branch `plan-z3`.
 - **Plan Z3 approved (owner, 2026-10-27: "yes"),** run natively on branch `plan-z3`.
 - **Plan Z4 written and approved (owner, 2026-10-28: "yes"),** run natively on branch `plan-z4` (`docs/superpowers/plans/2026-10-28-plan-z4-room-map.md`). Two choices beyond LLD §18.5: a cell moves **one step per picture** however many points fall in it, and **a hit beats a miss** in the same cell in the same picture (the map never invents free space).
+- **Plan Z5 written and approved (owner, 2026-10-29),** run natively on branch `plan-z5` (`docs/superpowers/plans/2026-10-29-plan-z5-drive-on-the-map.md`). **The sonar's "last word" distance is 10 cm, not 30 cm** (owner: 30 cm is too much; `Limits.clear_m` 0.30 → 0.10, for the chase too): an echo under 10 cm from the tank's front that isn't the target ends the run. The Uno's own 15 cm brake is unchanged and will usually stop the tank first; its firings are logged as near misses on the floor.
 
 ## 161. Plan Z3 floor checks: depth, the camera's real angle, heights (2026-10-27/28)
 

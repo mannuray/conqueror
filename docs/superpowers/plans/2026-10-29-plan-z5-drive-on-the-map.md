@@ -12,7 +12,7 @@
 
 ## Global Constraints
 - **Unchanged from slice 1:** the 25 cm/s cap; turning on the spot beyond 35°; the stale map stops the tank at once and ends the run after 2 s; STOP from the phone; Ctrl-C; the Uno's 15 cm brake and the bridge's deadman underneath.
-- **The sonar has the last word:** an echo under `clear_m` (0.30 m from the tank's front) that isn't the target ends the run `blocked`, whatever the map says (LLD §18.8).
+- **The sonar has the last word:** an echo under `clear_m` that isn't the target ends the run `blocked`, whatever the map says (LLD §18.8). **`clear_m` is 0.10 m from the tank's front** (owner, 2026-10-29: 30 cm ended runs too early; it was 0.30 in slice 1); the Uno's own 15 cm brake is unchanged and usually acts first. Task 3 changes `Limits.clear_m` and `config/drive.yaml` to 0.10.
 - **The map never invents free space:** unseen cells may be routed through only at extra cost; the fan's clearance treats unseen as free only because the camera sees them before the tank arrives (spec 9 §4.2).
 - **Slower when unsure:** **18 cm/s** while the camera angle isn't trusted or there was no depth picture in the last second (spec 9 §5.3-5.4).
 - **Depth fails:** marks from the sonar only, 18 cm/s, **`explore` refuses to start** with a clear message.
@@ -73,7 +73,7 @@
 
 - [ ] **Step 1: Failing tests:** `test_the_fan_keeps_off_marked_obstacles` (a box marked 0.6 m straight ahead, target 2 m beyond it → the chosen curve is not straight on); `test_already_close_may_move_away` (Review Focus 1: the tank 0.08 m from a wall on its left, target ahead → `choose` is not STOP); `test_all_ways_blocked_stops` (boxed in on every side within 0.2 m, target ahead → STOP); `test_without_a_map_as_before` (same choice as slice 1 for a few targets).
 - [ ] **Step 2:** `uv run pytest tests/test_drive_planner.py -q` → the new tests FAIL.
-- [ ] **Step 3:** Implement as above.
+- [ ] **Step 3:** Implement as above; `Limits.clear_m` 0.30 → 0.10 and `config/drive.yaml` to match (the drive config's "more careful only" check follows the new default); slice 1's tests that used 0.30 updated to the new value.
 - [ ] **Step 4:** → PASS; full suite clean.
 - [ ] **Step 5:** Commit `feat(ai): the fan of curves checks the room map (Plan Z5)`.
 
@@ -111,7 +111,7 @@
 - Consumes: Tasks 1-5, `ChaseSkill`, `SkillOut`, `Limits`, `ramp`, `Goal`/`TargetFix` (slice 1), `MapSnapshot`.
 - Produces: `RoamSkill(planner: Planner, mode: Literal["wander", "explore"], seconds: float | None = None, find: bool = False, rng: random.Random | None = None)` with `state: str` (`look`, `drive`, `held`, `chase`, `done`, `failed`), `tick(now_s, at: XYTh | None, snap: MapSnapshot | None, fix: TargetFix | None, sonar_m: float | None, map_ok: bool, cam_still: bool = True) -> SkillOut` and `cancel() -> SkillOut`; results `done`, `blocked`, `stale`, `cancelled`, and for find, the chase's results. The state diagram is LLD §18.7's. Speed cap 18 cm/s (a `Limits` with `v_cap_cms=18`) while `snap.angle_trusted` or `snap.depth_ok` is false. The camera: straight ahead at the driving tilt (−15°), panned toward the aim point in 8° steps within ±60° (as the chase).
 
-- [ ] **Step 1: Failing unit tests:** `test_starts_with_a_look_then_drives`; `test_no_route_looks_round_in_90_deg_steps`; `test_wander_new_destination_after_a_look_without_route`; `test_explore_done_when_goal_says_so`; `test_echo_under_30_cm_ends_blocked`; `test_stale_stops_at_once_and_ends_after_2_s`; `test_slow_when_angle_untrusted_or_no_depth` (max v 18 cm/s); `test_find_hands_over_to_the_chase` (a fix arrives → state `chase`, the next commands come from the chase); `test_cancel_stops`.
+- [ ] **Step 1: Failing unit tests:** `test_starts_with_a_look_then_drives`; `test_no_route_looks_round_in_90_deg_steps`; `test_wander_new_destination_after_a_look_without_route`; `test_explore_done_when_goal_says_so`; `test_echo_under_10_cm_ends_blocked` (an echo at 0.12 m does not end it, at 0.09 m does); `test_stale_stops_at_once_and_ends_after_2_s`; `test_slow_when_angle_untrusted_or_no_depth` (max v 18 cm/s); `test_find_hands_over_to_the_chase` (a fix arrives → state `chase`, the next commands come from the chase); `test_cancel_stops`.
 - [ ] **Step 2: Failing simulated runs** (`SimRoom` with three boxes and an overhang; the loop as `test_drive_sim.chase` does: `marks(at)` into a `RoomMap` every 0.1 s when not turning faster than 45°/s, `sonar(at)`, `SimTank.step`): `test_wander_60_s_keeps_moving_never_close` (60 s: the centre never within 0.12 m of a box or wall, the front never inside one, the result `done` at 60 s, and the tank covered > 3 m of path); `test_explore_covers_80_percent` (`seen_share` ≥ 0.8 at `done`, never closer than 0.12 m); `test_a_box_appears_on_the_route` (Review Focus 4: a box added mid-run in front → it goes around, never closer than 0.12 m); `test_find_ball_out_of_sight` (a ball behind a box, not in view at the start → found, chased, `done`).
 - [ ] **Step 3:** → FAIL (module missing). **Step 4:** implement. **Step 5:** → PASS; suite clean.
 - [ ] **Step 6:** Commit `feat(ai): RoamSkill - wander, explore and find on the room map (Plan Z5)`.

@@ -21,6 +21,11 @@ from conqueror_ai.domain.drive.limits import Limits
 ENGINE = Path(__file__).resolve().parents[1]
 
 
+def test_backing_up_sends_a_negative_speed() -> None:  # design-notes §165 (the bridge takes -100..100)
+    assert to_percent(-17.7) == -15
+    assert drive_msg(Command(-18.0, 0.0))["v"] == -to_percent(18.0)
+
+
 def test_speed_to_percent_follows_the_measured_table() -> None:
     assert to_percent(0.0) == 0
     assert to_percent(17.7) == 15  # the lowest smooth speed

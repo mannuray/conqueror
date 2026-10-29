@@ -11,7 +11,8 @@ import numpy as np
 import pytest
 
 from conqueror_ai.domain.drive.clearance import ClearanceMap
-from conqueror_ai.domain.drive.route import ROBOT_R_M, RoutePlanner, aim_point
+from conqueror_ai.domain.drive.limits import Limits
+from conqueror_ai.domain.drive.route import ROBOT_R_M, RoutePlanner, aim_point, turn_room_m
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 
 
@@ -143,3 +144,28 @@ def test_a_goal_against_furniture_is_reached_within_reach() -> None:
     assert r is not None and r[-1] == (1.5, 0.0)
     assert math.dist(r[-2], (1.5, 0.0)) <= 0.485 + 0.08
     assert all(clear.dist_m(x, y) >= ROBOT_R_M for x, y in r[1:-1])
+
+
+# ---- routes keep room to turn round (design-notes §165)
+def corridor(half_gap: float) -> MapSnapshot:
+    """A wall across the room at x 0.5-2.0 m with one corridor through it, its walls half_gap from the
+    middle (cell centres)."""
+    return snap(box(0.5, half_gap, 2.0, 3.9) + box(0.5, -3.9, 2.0, -half_gap))
+
+
+def test_the_turn_room_is_the_bodys_turning_circle_and_2_cm() -> None:
+    assert turn_room_m(Limits()) == pytest.approx(math.hypot(0.13, 0.115) + 0.02)
+    assert turn_room_m(Limits(body_half_w_m=0.15)) > turn_room_m(Limits())
+
+
+def test_routes_keep_room_to_turn_round_where_they_can() -> None:
+    """Floor run 2 drove 15 cm beside the bed into a spot it could only back out of. A route prefers room to
+    turn round (cells nearer than that cost TIGHT_W times more) but still takes a narrow gap when it is the
+    only way: a hard limit closed 46-60 cm doorways (the 5 cm cells, design-notes §165)."""
+    turn = RoutePlanner(turn_room_m(Limits()))
+    narrow = ClearanceMap(corridor(0.225), grow=False)  # a ~40 cm gap, the only way
+    assert turn.route(narrow, (0.0, 0.0), (2.5, 0.0)) is not None
+    both = snap(box(0.5, -3.9, 2.0, -0.225) + box(0.5, 0.225, 2.0, 0.475) + box(0.5, 1.125, 2.0, 3.9))
+    two = ClearanceMap(both, grow=False)  # the ~40 cm gap straight ahead, a ~60 cm one 80 cm to the left
+    via = turn.route(two, (0.0, 0.0), (2.5, 0.0))
+    assert via is not None and max(y for _, y in via) > 0.5  # room to turn: through the wide one

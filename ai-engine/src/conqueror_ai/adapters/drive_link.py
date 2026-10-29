@@ -31,8 +31,11 @@ CAM_ENDS = ("NOT_OWNER", "STOPPED")  # a refused camera move ends the run only f
 
 
 def to_percent(v_cms: float, table: tuple[tuple[float, float], ...] = SPEED_TABLE) -> int:
-    """The drive_rate speed for a speed in cm/s, linear between the table's points, 0..100."""
-    if v_cms <= 0:
+    """The drive_rate speed for a speed in cm/s, linear between the table's points, -100..100 (backward the
+    same table, design-notes §165)."""
+    if v_cms < 0:
+        return -to_percent(-v_cms, table)
+    if v_cms == 0:
         return 0
     for (v0, p0), (v1, p1) in itertools.pairwise(table):
         if v_cms <= v1:

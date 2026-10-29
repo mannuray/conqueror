@@ -1,5 +1,6 @@
 """Routes on the room map (AI engine LLD §18.6, spec 9 §4.2): A* on a 10 cm grid (each cell the worst of its
-2 x 2 map cells), 8-connected, around everything closer than the tank's half-width + a margin. Cells near
+2 x 2 map cells), 8-connected, around everything closer than the tank's half-width + a margin. Cells nearer
+than robot_r_m (cq-drive: room to turn round) cost TIGHT_W times more (design-notes §165). Cells near
 obstacles and unseen cells cost more; the start cell is always allowed (the tank may stand near a wall)."""
 
 from __future__ import annotations
@@ -12,10 +13,15 @@ import numpy as np
 
 from conqueror_ai.domain.camera import FloatArray
 from conqueror_ai.domain.drive.clearance import ClearanceMap
+from conqueror_ai.domain.drive.limits import Limits
 
 XY = tuple[float, float]
 
 ROBOT_R_M = 0.15  # half the tank's width + a margin: the route keeps its centre this far from obstacles
+TURN_MARGIN_M = 0.02  # cq-drive's routes: the body's turning circle + this (design-notes §165) ...
+# ... preferred, not required: cells nearer cost this many times more. A hard limit closed 46-60 cm doorways
+# (the 5 cm cells round a doorway's edges out, and the 10 cm grid takes the worst of each 2 x 2)
+TIGHT_W = 4.0
 NEAR_W = 3.0  # extra cost close to obstacles (inside NEAR_FROM_M), up to this much per metre ...
 NEAR_FROM_M = 0.35
 NEAR_SPAN_M = 0.20
@@ -38,7 +44,7 @@ STEPS = (
 class _Grid:
     """The 10 cm grid of one clearance map: per cell the cost factor per metre, inf where not allowed."""
 
-    def __init__(self, clear: ClearanceMap) -> None:
+    def __init__(self, clear: ClearanceMap, robot_r_m: float) -> None:
         k = max(1, round(GRID_M / clear.cell_m))
         self.k, self.g = k, clear.n // k
         self.cell_m = clear.cell_m * k
@@ -50,7 +56,8 @@ class _Grid:
         self.near: FloatArray = (
             1.0 + NEAR_W * np.clip(NEAR_FROM_M - d, 0.0, None) / NEAR_SPAN_M + UNSEEN_W * ~seen
         )
-        self.factor: FloatArray = np.where(d >= ROBOT_R_M, self.near, np.inf)
+        tight = np.where(d >= robot_r_m, 1.0, TIGHT_W)
+        self.factor: FloatArray = np.where(d >= ROBOT_R_M, self.near * tight, np.inf)
 
     def factors_from(self, s: tuple[int, int]) -> list[float]:
         """The cost factors for a search from cell s: the start allowed, and near it (ESCAPE_M) every cell no
@@ -77,14 +84,23 @@ class _Grid:
         return ((i + 0.5) * self.cell_m - self.half_m, (j + 0.5) * self.cell_m - self.half_m)
 
 
+def turn_room_m(lim: Limits) -> float:
+    """How far a route would rather keep the tank's centre from things, so it can turn round anywhere on
+    it: the body's turning circle + TURN_MARGIN_M (floor run 2 drove 15 cm beside the bed into a spot it
+    could only back out of, design-notes §165)."""
+    return lim.sweep_r_m + TURN_MARGIN_M
+
+
 class RoutePlanner:
-    def __init__(self) -> None:
+    def __init__(self, robot_r_m: float = ROBOT_R_M) -> None:
+        """robot_r_m: the clearance a route prefers (nearer, down to ROBOT_R_M, costs TIGHT_W times more)."""
+        self.robot_r_m = robot_r_m
         self._grid: _Grid | None = None
         self._clear: ClearanceMap | None = None
 
     def _grid_for(self, clear: ClearanceMap) -> _Grid:
         if self._clear is not clear or self._grid is None:  # one grid per snapshot's clearance
-            self._grid, self._clear = _Grid(clear), clear
+            self._grid, self._clear = _Grid(clear, self.robot_r_m), clear
         return self._grid
 
     def grid_of(self, x: float, y: float) -> tuple[int, int]:

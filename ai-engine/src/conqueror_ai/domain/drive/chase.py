@@ -9,7 +9,7 @@ from conqueror_ai.domain.drive.clearance import ClearanceMap
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.goal import TargetFix, echo_is_target
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
-from conqueror_ai.domain.drive.route import RoutePlanner, aim_point
+from conqueror_ai.domain.drive.route import RoutePlanner, aim_point, turn_room_m
 from conqueror_ai.domain.room_map import MapSnapshot
 
 SWEEP_PANS = (0.0, -45.0, 45.0, -90.0, 90.0)  # pan + = right (cam_set); straight ahead first
@@ -39,8 +39,8 @@ class ChaseSkill:
     def __init__(self, planner: Planner) -> None:
         self.planner = planner
         self.slow = Planner(replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, SLOW_CMS)), planner.w)
-        self.routes = RoutePlanner()
         self.lim = planner.lim
+        self.routes = RoutePlanner(turn_room_m(self.lim))
         self.state = "start"
         self.cmd = STOP
         self._t0 = 0.0

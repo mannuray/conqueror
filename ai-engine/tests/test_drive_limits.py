@@ -66,3 +66,17 @@ def test_the_ramp_never_asks_for_an_arc_tighter_than_the_tank_can_drive() -> Non
 def test_a_roll_out_follows_the_ramp() -> None:
     path = roll_out((0.0, 0.0, 0.0), STOP, Command(25.0, 0.0), LIM)
     assert len(path) == 15 and path[-1][0] == pytest.approx(0.347, abs=0.005) and path[-1][1] == 0.0
+
+
+# ---- backing up (design-notes §165)
+def test_backing_up_is_the_slowest_speed_straight_and_stops_at_once() -> None:
+    back = ramp(STOP, Command(-25.0, 10.0), 0.1, LIM)
+    assert back == Command(-LIM.v_min_cms, 0.0)  # the dead band crossed in one step, never faster, straight
+    assert ramp(back, Command(-18.0, 0.0), 0.1, LIM) == back
+    assert ramp(back, STOP, 0.1, LIM) == STOP
+    assert ramp(back, Command(25.0, 0.0), 0.1, LIM) == STOP  # stop before driving forward again
+
+
+def test_driving_forward_slows_to_a_stop_before_backing() -> None:
+    c = ramp(Command(25.0, 0.0), Command(-18.0, 0.0), 0.1, LIM)
+    assert c.v_cms == pytest.approx(24.0)

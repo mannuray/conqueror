@@ -9,7 +9,7 @@ import numpy as np
 
 from conqueror_ai.domain.depth import Marks
 from conqueror_ai.domain.drive.chase import SkillOut
-from conqueror_ai.domain.drive.curves import STOP
+from conqueror_ai.domain.drive.curves import STOP, Command
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
@@ -180,3 +180,53 @@ def test_the_look_turns_the_way_that_is_free() -> None:
     outs = run(skill(), room.snapshot(0, POSE, False, True), 4.0)
     spins = [o for o in outs if o.cmd.v_cms == 0 and o.cmd.w_dps != 0]
     assert spins and all(o.cmd.w_dps < 0 for o in spins)
+
+
+# ---- a short slow reverse out of a pocket (design-notes §165)
+def pocket() -> MapSnapshot:
+    """Floor run 2's kind of spot: things 17.5 cm each side (cell centres) and 30 cm ahead, all seen: no turn
+    on the spot either way, no curve ahead."""
+    room = RoomMap()
+    room.seen[:] = True
+    pts = [(float(x), float(y)) for x in np.arange(-0.3, 0.5, 0.025) for y in np.arange(0.175, 0.3, 0.025)]
+    pts += [(x, -y) for x, y in pts]
+    pts += [(float(x), float(y)) for x in np.arange(0.30, 0.5, 0.025) for y in np.arange(-0.3, 0.3, 0.025)]
+    c = room.cells(np.array(pts, dtype=np.float64))
+    room.hit(c, "low")
+    room.hit(c, "low")
+    room.update_picture(Marks(*(np.zeros((0, 2)),) * 4), 0)
+    return room.snapshot(0, POSE, False, True)
+
+
+def boxed(track: bool, seconds: float) -> tuple[list[SkillOut], list[float]]:
+    """The skill in the pocket, the tank following its commands; track: it drove in along y = 0."""
+    s, tank, snap = skill(), SimTank(), pocket()
+    if track:
+        s.track.extend((float(x), 0.0) for x in np.arange(-0.8, 0.001, 0.025))
+    outs, xs = list[SkillOut](), list[float]()
+    for i in range(round(seconds / 0.1)):
+        outs.append(s.tick(i * 0.1, tank.at, snap, None, None, True))
+        tank.step(outs[-1].cmd, 0.1)
+        xs.append(tank.at[0])
+        if outs[-1].result:
+            break
+    return outs, xs
+
+
+def test_boxed_in_it_backs_out_slowly_along_its_own_track() -> None:
+    outs, xs = boxed(track=True, seconds=20.0)
+    back = [o.cmd for o in outs if o.cmd.v_cms < 0]
+    assert back and all(c == Command(-18.0, 0.0) for c in back)  # the slowest speed, straight
+    assert -0.22 <= min(xs) <= -0.10  # about 20 cm, never more
+
+
+def test_no_track_behind_no_reverse() -> None:
+    outs, _ = boxed(track=False, seconds=40.0)
+    assert all(o.cmd.v_cms >= 0 for o in outs)
+
+
+def test_backing_out_twice_in_the_same_place_ends_it() -> None:
+    outs, _ = boxed(track=True, seconds=60.0)
+    assert [o.result for o in outs if o.result] == ["blocked"]
+    starts = [i for i in range(1, len(outs)) if outs[i].cmd.v_cms < 0 <= outs[i - 1].cmd.v_cms]
+    assert len(starts) == 1

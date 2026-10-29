@@ -4,6 +4,9 @@ Each tick: the snapshot's clearance, the goal's destination, a route around obst
 aiming 0.5 m along it. No destination or no route: a look (stand, then turn on the spot 90 deg at a time and
 stand again, so the map takes still pictures). Find hands over to the chase once the thing is seen.
 
+Boxed in (no curve ahead for 3 s, or a look round with no way on, and no turn on the spot either way), the
+tank backs straight up at v_min, at most BACK_M, only along its own recent track (design-notes §165).
+
 Safety (spec 9 §5): a stale map stops the tank at once (2 s ends the run); an echo nearer than clear_m that
 isn't the target ends the run; 18 cm/s while the camera angle isn't trusted or there is no depth."""
 
@@ -11,6 +14,7 @@ from __future__ import annotations
 
 import math
 import random
+from collections import deque
 from dataclasses import replace
 from typing import Literal
 
@@ -30,7 +34,7 @@ from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.goals import ExploreGoal, WanderGoal
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
-from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point
+from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point, turn_room_m
 from conqueror_ai.domain.room_map import MapSnapshot
 
 SLOW_CMS = 18.0  # spec 9 §5: unsure of the camera angle, or no depth
@@ -40,6 +44,14 @@ LOOK_ROUNDS = 2  # full looks round without anywhere to go: wander ends blocked,
 LOOK_PANS = (-45.0, 45.0, -90.0, 90.0)  # too near things to turn on the spot: look round with the camera
 STUCK_M = 0.2  # a look that starts within this of the last one made no progress ...
 STUCK_LOOKS = 3  # ... this many in a row end the run (review minor 8: drive-blocked-look cycles)
+# backing out of a pocket (design-notes §165): nothing sees behind the tank, so only this far, this slowly
+# (v_min), only where it just drove, and not twice in one place
+BACK_M = 0.20
+BACK_S = 2.5
+TRACK_M = 0.05  # every pose of the reverse this near the tank's own track ...
+TRACK_STEP_M = 0.025
+TRACK_KEEP = 40  # ... its last ~1 m driven forward
+BACK_AGAIN_M = 0.5  # a reverse starting this near an earlier one ends the run blocked
 
 Mode = Literal["wander", "explore"]
 
@@ -58,7 +70,7 @@ class RoamSkill:
         self.lim = planner.lim
         self.mode = mode
         self.find = find
-        self.routes = RoutePlanner()
+        self.routes = RoutePlanner(turn_room_m(self.lim))
         self.wander = WanderGoal(seconds, rng or random.Random())
         self.seconds = seconds
         self.explore = ExploreGoal()
@@ -82,6 +94,10 @@ class RoamSkill:
         self._pan_look = False  # this look step pans the camera instead of turning the tank
         self._last_look_at: XY | None = None
         self._stuck = 0
+        self.track: deque[XY] = deque(maxlen=TRACK_KEEP)  # where it drove forward lately
+        self._back_from: XY = (0.0, 0.0)
+        self._back_t0 = 0.0
+        self._backs: list[XY] = []
         # per snapshot: routes and goals see open unseen space as open; the fan also counts unseen space next
         # to seen marks as the thing (review I3: growing it for routes closed doorways)
         self._clear: tuple[MapSnapshot, ClearanceMap, ClearanceMap] | None = None
@@ -147,6 +163,10 @@ class RoamSkill:
             return self._end("blocked")
         planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
         clear, fan = self._clearances(snap)
+        if self.cmd.v_cms > 0 and (not self.track or math.dist(self.track[-1], at[:2]) >= TRACK_STEP_M):
+            self.track.append((at[0], at[1]))
+        if self.state == "back":
+            return self._back(now_s, at, fan, planner)
         if self.state == "start":
             self.state = "look"
             return self._start_look(now_s, at)
@@ -245,6 +265,9 @@ class RoamSkill:
         if self.mode == "explore" and self.explore.done and self._turned >= 360.0 - 1e-9:
             return self._end("done")
         if self._turned >= 360.0 - 1e-9:
+            back = self._start_back(now_s, at, fan, planner)
+            if back is not None:
+                return back
             self._looks += 1
             if self._looks >= LOOK_ROUNDS:
                 return self._end("done" if self.mode == "explore" else "blocked")
@@ -282,8 +305,12 @@ class RoamSkill:
         if want == STOP:
             if self._blocked_t0 is None:
                 self._blocked_t0 = now_s
-            if now_s - self._blocked_t0 >= BLOCKED_GIVE_UP_S - 1e-9:  # stuck: look round for another way
-                self.state, self._blocked_t0 = "look", None
+            if now_s - self._blocked_t0 >= BLOCKED_GIVE_UP_S - 1e-9:  # stuck: back out, or look round
+                self._blocked_t0 = None
+                back = self._start_back(now_s, at, fan, planner)
+                if back is not None:
+                    return back
+                self.state = "look"
                 if self.mode == "wander":
                     self.wander.drop()
                 return self._start_look(now_s, at)
@@ -296,3 +323,32 @@ class RoamSkill:
             self._pan = pan
             cam = (pan, DRIVE_TILT)
         return self._halt(cam) if want == STOP else self._out(want, cam)
+
+    # ---- backing out of a pocket (design-notes §165)
+    def _start_back(self, now_s: float, at: XYTh, fan: ClearanceMap, planner: Planner) -> SkillOut | None:
+        """Back up if boxed in (no turn on the spot either way) and the way back is the tank's own track and
+        clear; None: not boxed in, or no way back. A second reverse near the first ends the run."""
+        if planner.can_spin(at, fan, True) or planner.can_spin(at, fan, False):
+            return None
+        if not self._back_ok(at, BACK_M, fan, planner):
+            return None
+        if any(math.dist(b, at[:2]) < BACK_AGAIN_M for b in self._backs):
+            return self._end("blocked")
+        self._backs.append((at[0], at[1]))
+        self.state, self._back_from, self._back_t0, self._pan = "back", (at[0], at[1]), now_s, 0.0
+        return self._out(Command(-self.lim.v_min_cms, 0.0), (0.0, DRIVE_TILT))
+
+    def _back(self, now_s: float, at: XYTh, fan: ClearanceMap, planner: Planner) -> SkillOut:
+        rest = BACK_M - math.dist(self._back_from, at[:2])
+        if rest <= 0.0 or now_s - self._back_t0 >= BACK_S - 1e-9 or not self._back_ok(at, rest, fan, planner):
+            self.state = "look"
+            return self._start_look(now_s, at)  # stops at once
+        return self._out(Command(-self.lim.v_min_cms, 0.0))
+
+    def _back_ok(self, at: XYTh, length: float, fan: ClearanceMap, planner: Planner) -> bool:
+        """Straight back this far: every pose on the tank's own track, the body's outline clear."""
+        n = max(1, math.ceil(length / TRACK_STEP_M))
+        c, s = math.cos(at[2]), math.sin(at[2])
+        poses = [(at[0] - length * k / n * c, at[1] - length * k / n * s, at[2]) for k in range(1, n + 1)]
+        on_track = all(any(math.dist(p[:2], q) <= TRACK_M for q in self.track) for p in poses)
+        return on_track and planner.body_ok(at, poses, fan)

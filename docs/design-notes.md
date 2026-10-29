@@ -2553,3 +2553,8 @@ Plan Z5's final review (C1) found turns on the spot unchecked against the body; 
 
 - The sides were **wider than the placeholder** (11.4 vs 11 cm): the fan's 12 cm map check on the tank's centre leaves 0.5 cm at each side. A turn on the spot now needs 19.4 cm clear round the centre (the front corner, hypot(13, 11.5) = 17.4 cm, + 2 cm), was 19.8.
 - `drive.yaml` may still only make the body bigger. A body wider than 11.5 cm now widens the fan's map check to its half-width + 0.5 cm (`SIDE_MARGIN_M`), so the sides stay clear (`test_a_wider_body_keeps_its_sides_clear`). Routes keep `ROBOT_R_M` 15 cm (a constant): with a much wider body the fan refuses what a route allows and the run ends `blocked`, never a touch.
+
+### 163.1 Two behaviours beyond AI engine LLD §18.7, approved (owner, 2026-10-29)
+Added in Plan Z5's final-review fix pass (review C1); the owner approved both before the floor runs:
+- **Too near to turn, the look turns the camera:** a look whose turn on the spot isn't safe pans the camera through −45°, 45°, −90°, 90° instead (`LOOK_PANS`).
+- **Too near to turn, drive out first:** a turn on the spot is refused there, and the fan offers its forward curves; the tank drives out to where it can turn. It never reverses (no rear sensor).

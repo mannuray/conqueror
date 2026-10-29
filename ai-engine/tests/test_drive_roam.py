@@ -171,7 +171,7 @@ def test_the_look_turns_the_way_that_is_free() -> None:
     """Too near something on the left to turn left: the look turns right (design-notes §164)."""
     room = RoomMap()
     room.seen[:] = False
-    wall = [(float(x), float(y)) for x in np.arange(-0.6, 0.61, 0.025) for y in np.arange(0.175, 0.3, 0.025)]
+    wall = [(float(x), float(y)) for x in np.arange(-0.6, 0.61, 0.025) for y in np.arange(0.225, 0.35, 0.025)]
     c = room.cells(np.array(wall, dtype=np.float64))
     room.hit(c, "low")
     room.hit(c, "low")

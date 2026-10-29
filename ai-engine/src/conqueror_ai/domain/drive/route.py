@@ -1,7 +1,8 @@
-"""Routes on the room map (AI engine LLD §18.6, spec 9 §4.2): A* on a 10 cm grid (each cell the worst of its
-2 x 2 map cells), 8-connected, around everything closer than the tank's half-width + a margin. Cells nearer
-than robot_r_m (cq-drive: room to turn round) cost TIGHT_W times more (design-notes §165). Cells near
-obstacles and unseen cells cost more; the start cell is always allowed (the tank may stand near a wall)."""
+"""Routes on the cost map (AI engine LLD §18.13.3, Plan Z6): A* on a 10 cm grid (each cell the worst of its
+2 x 2 map cells: the nearest obstacle, the dearest cost), 8-connected. A cell is closed only where the tank's
+centre is nearer than its half-width to a known obstacle (the body would overlap it going straight); every
+step costs its length x (1 + route_cost_w x the cell's centre cost), so a route keeps room to turn round, and
+off unknown floor, where it can - no rules (design-notes §166). The start cell is always open."""
 
 from __future__ import annotations
 
@@ -12,22 +13,12 @@ import math
 import numpy as np
 
 from conqueror_ai.domain.camera import FloatArray
-from conqueror_ai.domain.drive.clearance import ClearanceMap
+from conqueror_ai.domain.drive.costmap import CostMap
 from conqueror_ai.domain.drive.limits import Limits
 
 XY = tuple[float, float]
 
-ROBOT_R_M = 0.15  # half the tank's width + a margin: the route keeps its centre this far from obstacles
-TURN_MARGIN_M = 0.02  # cq-drive's routes: the body's turning circle + this (design-notes §165) ...
-# ... preferred, not required: cells nearer cost this many times more. A hard limit closed 46-60 cm doorways
-# (the 5 cm cells round a doorway's edges out, and the 10 cm grid takes the worst of each 2 x 2)
-TIGHT_W = 4.0
-NEAR_W = 3.0  # extra cost close to obstacles (inside NEAR_FROM_M), up to this much per metre ...
-NEAR_FROM_M = 0.35
-NEAR_SPAN_M = 0.20
-UNSEEN_W = 1.0  # ... and this much more through unseen cells
 GRID_M = 0.10
-ESCAPE_M = 0.30  # near the start, cells no closer to an obstacle than the start are allowed (the way out)
 SQRT2 = math.sqrt(2.0)
 STEPS = (
     (1, 0, 1.0),
@@ -42,38 +33,23 @@ STEPS = (
 
 
 class _Grid:
-    """The 10 cm grid of one clearance map: per cell the cost factor per metre, inf where not allowed."""
+    """The 10 cm grid of one cost map: per cell the step factor per metre, inf where closed."""
 
-    def __init__(self, clear: ClearanceMap, robot_r_m: float) -> None:
-        k = max(1, round(GRID_M / clear.cell_m))
-        self.k, self.g = k, clear.n // k
-        self.cell_m = clear.cell_m * k
-        self.half_m = clear.half_m
+    def __init__(self, cost: CostMap, half_w: float) -> None:
+        k = max(1, round(GRID_M / cost.cell_m))
+        self.k, self.g = k, cost.n // k
+        self.cell_m = cost.cell_m * k
+        self.half_m = cost.half_m
         g = self.g
-        d = clear.dist[: g * k, : g * k].reshape(g, k, g, k).min(axis=(1, 3))
-        seen = clear.seen[: g * k, : g * k].reshape(g, k, g, k).any(axis=(1, 3))
-        self.d: FloatArray = d
-        self.near: FloatArray = (
-            1.0 + NEAR_W * np.clip(NEAR_FROM_M - d, 0.0, None) / NEAR_SPAN_M + UNSEEN_W * ~seen
-        )
-        tight = np.where(d >= robot_r_m, 1.0, TIGHT_W)
-        self.factor: FloatArray = np.where(d >= ROBOT_R_M, self.near * tight, np.inf)
+        d = cost.dist[: g * k, : g * k].reshape(g, k, g, k).min(axis=(1, 3))
+        cc = cost.centre_cost(half_w)[: g * k, : g * k].reshape(g, k, g, k).max(axis=(1, 3))
+        self.factor: FloatArray = np.where(d >= half_w, 1.0 + cost.settings.route_cost_w * cc, np.inf)
 
     def factors_from(self, s: tuple[int, int]) -> list[float]:
-        """The cost factors for a search from cell s: the start allowed, and near it (ESCAPE_M) every cell no
-        closer to an obstacle than the start, so a tank standing close to a wall can always move away."""
+        """The step factors for a search from cell s: the start cell always open (the tank is there)."""
         f = self.factor.copy()
-        r = math.ceil(ESCAPE_M / self.cell_m)
-        i0, i1, j0, j1 = (
-            max(0, s[0] - r),
-            min(self.g, s[0] + r + 1),
-            max(0, s[1] - r),
-            min(self.g, s[1] + r + 1),
-        )
-        box = (slice(i0, i1), slice(j0, j1))
-        away = (self.d[box] >= self.d[s] - 1e-9) & (self.d[box] > 0)
-        f[box] = np.where(away & np.isinf(f[box]), self.near[box], f[box])
-        f[s] = min(float(f[s]), float(self.near[s]))
+        if math.isinf(f[s]):
+            f[s] = 1.0
         return f.ravel().tolist()
 
     def of(self, x: float, y: float) -> tuple[int, int] | None:
@@ -84,23 +60,16 @@ class _Grid:
         return ((i + 0.5) * self.cell_m - self.half_m, (j + 0.5) * self.cell_m - self.half_m)
 
 
-def turn_room_m(lim: Limits) -> float:
-    """How far a route would rather keep the tank's centre from things, so it can turn round anywhere on
-    it: the body's turning circle + TURN_MARGIN_M (floor run 2 drove 15 cm beside the bed into a spot it
-    could only back out of, design-notes §165)."""
-    return lim.sweep_r_m + TURN_MARGIN_M
-
-
 class RoutePlanner:
-    def __init__(self, robot_r_m: float = ROBOT_R_M) -> None:
-        """robot_r_m: the clearance a route prefers (nearer, down to ROBOT_R_M, costs TIGHT_W times more)."""
-        self.robot_r_m = robot_r_m
+    def __init__(self, lim: Limits | None = None) -> None:
+        """lim: the tank's body (its half-width closes cells)."""
+        self.half_w = (lim or Limits()).body_half_w_m
         self._grid: _Grid | None = None
-        self._clear: ClearanceMap | None = None
+        self._cost: CostMap | None = None
 
-    def _grid_for(self, clear: ClearanceMap) -> _Grid:
-        if self._clear is not clear or self._grid is None:  # one grid per snapshot's clearance
-            self._grid, self._clear = _Grid(clear, self.robot_r_m), clear
+    def _grid_for(self, cost: CostMap) -> _Grid:
+        if self._cost is not cost or self._grid is None:  # one grid per snapshot's cost map
+            self._grid, self._cost = _Grid(cost, self.half_w), cost
         return self._grid
 
     def grid_of(self, x: float, y: float) -> tuple[int, int]:
@@ -118,13 +87,13 @@ class RoutePlanner:
         return self._grid.centre(i, j)
 
     def route(
-        self, clear: ClearanceMap, start: XY, goal: XY, goal_ok: bool = False, near_m: float = 0.0
+        self, cost: CostMap, start: XY, goal: XY, goal_ok: bool = False, near_m: float = 0.0
     ) -> list[XY] | None:
         """Room points from start to goal (both exact at the ends), or None: no way, or an end off the map.
-        goal_ok: the goal's own cell is allowed whatever its clearance (the chase's ball). near_m: the way may
+        goal_ok: the goal's own cell is allowed whatever its cost (the chase's ball). near_m: the way may
         end at any allowed cell this near the goal (the chase stops that far off anyway; review I2: a ball
         against a sofa has no open cell beside it)."""
-        grid = self._grid_for(clear)
+        grid = self._grid_for(cost)
         s, t = grid.of(*start), grid.of(*goal)
         if s is None or t is None:
             return None
@@ -151,11 +120,11 @@ class RoutePlanner:
         heap = [(h(*s), 0.0, si)]
         end: int | None = None
         while heap:
-            _, cost, cur = heapq.heappop(heap)
+            _, so_far, cur = heapq.heappop(heap)
             if arrived(*divmod(cur, g)):
                 end = cur
                 break
-            if cost > best.get(cur, math.inf):
+            if so_far > best.get(cur, math.inf):
                 continue
             ci, cj = divmod(cur, g)
             for di, dj, ln in STEPS:
@@ -166,7 +135,7 @@ class RoutePlanner:
                 f = factor[nxt]
                 if f == math.inf:
                     continue
-                c = cost + ln * step * f
+                c = so_far + ln * step * f
                 if c < best.get(nxt, math.inf):
                     best[nxt] = c
                     came[nxt] = cur
@@ -182,9 +151,9 @@ class RoutePlanner:
             mid.append(grid.centre(*divmod(end, g)))
         return [start, *mid, goal]
 
-    def costs(self, clear: ClearanceMap, start: XY) -> FloatArray:
+    def costs(self, cost: CostMap, start: XY) -> FloatArray:
         """The route cost from start to every 10 cm grid cell (Dijkstra), inf where unreachable."""
-        grid = self._grid_for(clear)
+        grid = self._grid_for(cost)
         g, step = grid.g, grid.cell_m
         out = np.full((g, g), np.inf)
         s = grid.of(*start)
@@ -195,8 +164,8 @@ class RoutePlanner:
         best = {si: 0.0}
         heap = [(0.0, si)]
         while heap:
-            cost, cur = heapq.heappop(heap)
-            if cost > best.get(cur, math.inf):
+            so_far, cur = heapq.heappop(heap)
+            if so_far > best.get(cur, math.inf):
                 continue
             ci, cj = divmod(cur, g)
             for di, dj, ln in STEPS:
@@ -205,7 +174,7 @@ class RoutePlanner:
                     nxt = ni * g + nj
                     f = factor[nxt]
                     if f != math.inf:
-                        c = cost + ln * step * f
+                        c = so_far + ln * step * f
                         if c < best.get(nxt, math.inf):
                             best[nxt] = c
                             heapq.heappush(heap, (c, nxt))

@@ -11,10 +11,10 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from conqueror_ai.domain.drive.clearance import ClearanceMap
+from conqueror_ai.domain.drive.costmap import CostMap
 from conqueror_ai.domain.drive.curves import XYTh
 from conqueror_ai.domain.drive.planner import bearing_deg
-from conqueror_ai.domain.drive.route import GRID_M, ROBOT_R_M, XY, RoutePlanner
+from conqueror_ai.domain.drive.route import GRID_M, XY, RoutePlanner
 
 REACHED_M = 0.4  # a destination this near counts as reached
 
@@ -45,7 +45,7 @@ class WanderGoal:
     def done(self, now_s: float) -> bool:
         return self.seconds is not None and self._t0 is not None and now_s - self._t0 >= self.seconds - 1e-9
 
-    def destination(self, now_s: float, at: XYTh, clear: ClearanceMap) -> XY | None:
+    def destination(self, now_s: float, at: XYTh, cost: CostMap) -> XY | None:
         if self._t0 is None:
             self._t0 = now_s
         d = self._dest
@@ -56,8 +56,8 @@ class WanderGoal:
             for k in range(0, 360, WANDER_STEP_DEG):
                 a = at[2] + math.radians(k)
                 p = (at[0] + r * math.cos(a), at[1] + r * math.sin(a))
-                room = clear.dist_m(*p)
-                if room < WANDER_OPEN_M or not clear.seen_at(*p):
+                room = cost.dist_m(*p)
+                if room < WANDER_OPEN_M or not cost.seen_at(*p):
                     continue
                 score = math.cos(math.radians(bearing_deg(at, p))) + 0.5 * min(room, 1.0)
                 score += self.rng.gauss(0.0, WANDER_NOISE)
@@ -78,7 +78,7 @@ class ExploreGoal:
     def _key(p: XY) -> tuple[int, int]:
         return math.floor(p[0] / VISITED_M), math.floor(p[1] / VISITED_M)
 
-    def destination(self, now_s: float, at: XYTh, clear: ClearanceMap, planner: RoutePlanner) -> XY | None:
+    def destination(self, now_s: float, at: XYTh, cost: CostMap, planner: RoutePlanner) -> XY | None:
         """The cheapest reachable frontier; None (and done) when none is left."""
         d = self._dest
         if d is not None and math.dist(d, at[:2]) <= REACHED_M:
@@ -86,8 +86,8 @@ class ExploreGoal:
             d = None
         if d is not None and now_s - self._picked_s < EXPLORE_NEW_S:
             return d
-        costs = planner.costs(clear, (at[0], at[1]))
-        frontier = self._frontier(clear)
+        costs = planner.costs(cost, (at[0], at[1]))
+        frontier = self._frontier(cost, planner.half_w)
         cand = frontier & np.isfinite(costs)
         best: tuple[float, XY] | None = None
         for i, j in zip(*np.nonzero(cand), strict=True):
@@ -103,16 +103,16 @@ class ExploreGoal:
         return self._dest
 
     @staticmethod
-    def _frontier(clear: ClearanceMap) -> NDArray[np.bool_]:
+    def _frontier(cost: CostMap, half_w: float) -> NDArray[np.bool_]:
         """Seen, open 10 cm cells next to unseen space (bits under 30 x 30 cm ignored); stretches of frontier
         under 30 cm dropped."""
-        k = max(1, round(GRID_M / clear.cell_m))
-        g = clear.n // k
-        seen = cast("NDArray[np.bool_]", clear.seen[: g * k, : g * k].reshape(g, k, g, k).any(axis=(1, 3)))
-        dist = cast("NDArray[np.float64]", clear.dist[: g * k, : g * k].reshape(g, k, g, k).min(axis=(1, 3)))
+        k = max(1, round(GRID_M / cost.cell_m))
+        g = cost.n // k
+        seen = cast("NDArray[np.bool_]", cost.seen[: g * k, : g * k].reshape(g, k, g, k).any(axis=(1, 3)))
+        dist = cast("NDArray[np.float64]", cost.dist[: g * k, : g * k].reshape(g, k, g, k).min(axis=(1, 3)))
         unseen_big = _big_parts(~seen, UNSEEN_MIN_CELLS).astype(np.uint8)
         near_unseen = cast("NDArray[np.uint8]", cv2.dilate(unseen_big, np.ones((3, 3), np.uint8))) > 0
-        return _big_parts(seen & (dist >= ROBOT_R_M) & near_unseen, FRONTIER_MIN_CELLS)
+        return _big_parts(seen & (dist >= half_w) & near_unseen, FRONTIER_MIN_CELLS)
 
 
 def _big_parts(mask: NDArray[np.bool_], min_cells: int) -> NDArray[np.bool_]:

@@ -29,12 +29,12 @@ from conqueror_ai.domain.drive.chase import (
     ChaseSkill,
     SkillOut,
 )
-from conqueror_ai.domain.drive.clearance import ClearanceMap
+from conqueror_ai.domain.drive.costmap import CostMap
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.goals import ExploreGoal, WanderGoal
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
-from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point, turn_room_m
+from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point
 from conqueror_ai.domain.room_map import MapSnapshot
 
 SLOW_CMS = 18.0  # spec 9 §5: unsure of the camera angle, or no depth
@@ -70,7 +70,7 @@ class RoamSkill:
         self.lim = planner.lim
         self.mode = mode
         self.find = find
-        self.routes = RoutePlanner(turn_room_m(self.lim))
+        self.routes = RoutePlanner(self.lim)
         self.wander = WanderGoal(seconds, rng or random.Random())
         self.seconds = seconds
         self.explore = ExploreGoal()
@@ -100,7 +100,7 @@ class RoamSkill:
         self._backs: list[XY] = []
         # per snapshot: routes and goals see open unseen space as open; the fan also counts unseen space next
         # to seen marks as the thing (review I3: growing it for routes closed doorways)
-        self._clear: tuple[MapSnapshot, ClearanceMap, ClearanceMap] | None = None
+        self._clear: tuple[MapSnapshot, CostMap] | None = None
 
     # ---- out
     def _out(self, want: Command, cam: tuple[float, float] | None = None) -> SkillOut:
@@ -121,11 +121,11 @@ class RoamSkill:
     def cancel(self) -> SkillOut:
         return self._end("cancelled")
 
-    def _clearances(self, snap: MapSnapshot) -> tuple[ClearanceMap, ClearanceMap]:
+    def _clearances(self, snap: MapSnapshot) -> tuple[CostMap, CostMap]:
         """(routes and goals, the fan) - once per snapshot (kept by identity, review minor 5)."""
         if self._clear is None or self._clear[0] is not snap:
-            self._clear = (snap, ClearanceMap(snap, grow=False), ClearanceMap(snap))
-        return self._clear[1], self._clear[2]
+            self._clear = (snap, CostMap(snap))
+        return self._clear[1], self._clear[1]
 
     # ---- the tick
     def tick(
@@ -199,12 +199,12 @@ class RoamSkill:
         return out
 
     # ---- where to
-    def _destination(self, now_s: float, at: XYTh, clear: ClearanceMap) -> XY | None:
+    def _destination(self, now_s: float, at: XYTh, clear: CostMap) -> XY | None:
         if self.mode == "wander":
             return self.wander.destination(now_s, at, clear)
         return self.explore.destination(now_s, at, clear, self.routes)
 
-    def _plan(self, now_s: float, at: XYTh, clear: ClearanceMap) -> list[XY] | None:
+    def _plan(self, now_s: float, at: XYTh, clear: CostMap) -> list[XY] | None:
         """A destination and a route to it, or None."""
         for _ in range(3):  # wander: an unreachable spot is dropped and another picked
             dest = self._destination(now_s, at, clear)
@@ -237,8 +237,8 @@ class RoamSkill:
         self,
         now_s: float,
         at: XYTh,
-        clear: ClearanceMap,
-        fan: ClearanceMap,
+        clear: CostMap,
+        fan: CostMap,
         planner: Planner,
         sonar_m: float | None,
     ) -> SkillOut:
@@ -288,8 +288,8 @@ class RoamSkill:
         self,
         now_s: float,
         at: XYTh,
-        clear: ClearanceMap,
-        fan: ClearanceMap,
+        clear: CostMap,
+        fan: CostMap,
         planner: Planner,
         sonar_m: float | None,
     ) -> SkillOut:
@@ -325,7 +325,7 @@ class RoamSkill:
         return self._halt(cam) if want == STOP else self._out(want, cam)
 
     # ---- backing out of a pocket (design-notes §165)
-    def _start_back(self, now_s: float, at: XYTh, fan: ClearanceMap, planner: Planner) -> SkillOut | None:
+    def _start_back(self, now_s: float, at: XYTh, fan: CostMap, planner: Planner) -> SkillOut | None:
         """Back up if boxed in (no turn on the spot either way) and the way back is the tank's own track and
         clear; None: not boxed in, or no way back. A second reverse near the first ends the run."""
         if planner.can_spin(at, fan, True) or planner.can_spin(at, fan, False):
@@ -338,17 +338,17 @@ class RoamSkill:
         self.state, self._back_from, self._back_t0, self._pan = "back", (at[0], at[1]), now_s, 0.0
         return self._out(Command(-self.lim.v_min_cms, 0.0), (0.0, DRIVE_TILT))
 
-    def _back(self, now_s: float, at: XYTh, fan: ClearanceMap, planner: Planner) -> SkillOut:
+    def _back(self, now_s: float, at: XYTh, fan: CostMap, planner: Planner) -> SkillOut:
         rest = BACK_M - math.dist(self._back_from, at[:2])
         if rest <= 0.0 or now_s - self._back_t0 >= BACK_S - 1e-9 or not self._back_ok(at, rest, fan, planner):
             self.state = "look"
             return self._start_look(now_s, at)  # stops at once
         return self._out(Command(-self.lim.v_min_cms, 0.0))
 
-    def _back_ok(self, at: XYTh, length: float, fan: ClearanceMap, planner: Planner) -> bool:
+    def _back_ok(self, at: XYTh, length: float, fan: CostMap, planner: Planner) -> bool:
         """Straight back this far: every pose on the tank's own track, the body's outline clear."""
         n = max(1, math.ceil(length / TRACK_STEP_M))
         c, s = math.cos(at[2]), math.sin(at[2])
         poses = [(at[0] - length * k / n * c, at[1] - length * k / n * s, at[2]) for k in range(1, n + 1)]
         on_track = all(any(math.dist(p[:2], q) <= TRACK_M for q in self.track) for p in poses)
-        return on_track and planner.body_ok(at, poses, fan)
+        return on_track and planner.foot.allowed(fan, at, poses)

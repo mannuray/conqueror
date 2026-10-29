@@ -7,7 +7,7 @@ import random
 
 import numpy as np
 
-from conqueror_ai.domain.drive.clearance import ClearanceMap
+from conqueror_ai.domain.drive.costmap import CostMap
 from conqueror_ai.domain.drive.goals import ExploreGoal, WanderGoal
 from conqueror_ai.domain.drive.planner import bearing_deg
 from conqueror_ai.domain.drive.route import RoutePlanner
@@ -27,7 +27,7 @@ def clear_of(
     blocked: list[tuple[float, float]] | None = None,
     all_seen: bool = False,
     unseen: list[tuple[float, float]] | None = None,
-) -> ClearanceMap:
+) -> CostMap:
     room = RoomMap()
     if all_seen:
         room.seen[:] = True
@@ -40,7 +40,7 @@ def clear_of(
         room.hit(c, "low")
         room.hit(c, "low")
         room.seen.reshape(-1)[c] = True
-    return ClearanceMap(room.snapshot(0, None, False, True))
+    return CostMap(room.snapshot(0, None, False, True))
 
 
 def test_wander_picks_open_floor_ahead() -> None:

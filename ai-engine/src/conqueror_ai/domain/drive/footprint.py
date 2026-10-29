@@ -68,6 +68,12 @@ class Footprint:
             best = max(best, float(cost.outline_cost(self.world(p)).max()))
         return best
 
+    def mean_cost(self, cost: CostMap, at: XYTh, poses: list[XYTh]) -> float:
+        """The mean over the move of the dearest cell the outline meets at each pose (the fan's score: the
+        highest alone is met at the start for every move beside a wall, so it can't tell moving away)."""
+        dense = self.dense(at, poses)
+        return sum(float(cost.outline_cost(self.world(p)).max()) for p in dense) / max(1, len(dense))
+
     @staticmethod
     def spin_poses(at: XYTh, left: bool, deg: float = 90.0) -> list[XYTh]:
         """A turn on the spot, SWEEP_STEP_DEG at a time, the way it turns."""

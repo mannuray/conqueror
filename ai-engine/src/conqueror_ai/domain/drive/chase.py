@@ -5,11 +5,11 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 
-from conqueror_ai.domain.drive.clearance import ClearanceMap
+from conqueror_ai.domain.drive.costmap import CostMap
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.goal import TargetFix, echo_is_target
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
-from conqueror_ai.domain.drive.route import RoutePlanner, aim_point, turn_room_m
+from conqueror_ai.domain.drive.route import RoutePlanner, aim_point
 from conqueror_ai.domain.room_map import MapSnapshot
 
 SWEEP_PANS = (0.0, -45.0, 45.0, -90.0, 90.0)  # pan + = right (cam_set); straight ahead first
@@ -40,7 +40,7 @@ class ChaseSkill:
         self.planner = planner
         self.slow = Planner(replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, SLOW_CMS)), planner.w)
         self.lim = planner.lim
-        self.routes = RoutePlanner(turn_room_m(self.lim))
+        self.routes = RoutePlanner(self.lim)
         self.state = "start"
         self.cmd = STOP
         self._t0 = 0.0
@@ -155,7 +155,7 @@ class ChaseSkill:
                 if sonar_m < lim.clear_m:
                     return self._end("blocked")
                 obstacle = ahead
-        fan = None if snap is None else ClearanceMap(snap, ignore=(target[0], target[1], TARGET_R_M))
+        fan = None if snap is None else CostMap(snap, ignore=(target[0], target[1], TARGET_R_M))
         if d_lens <= lim.stop_range_m + 0.05:
             if abs(b) <= ARRIVE_BEARING_DEG:
                 self.cmd = ramp(self.cmd, STOP, self._dt, lim)
@@ -173,7 +173,7 @@ class ChaseSkill:
             want = self.planner.choose(at, self.cmd, target, obstacle)
         else:  # round obstacles on the room map: steer along the route, slow down for the ball itself
             planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
-            clear = ClearanceMap(snap, ignore=(target[0], target[1], TARGET_R_M), grow=False)
+            clear = fan or CostMap(snap, ignore=(target[0], target[1], TARGET_R_M))
             reach = lim.stop_range_m + lim.cam_x_m  # the chase stops this far from the ball's centre anyway
             route = self.routes.route(clear, (at[0], at[1]), target, goal_ok=True, near_m=reach)
             want = (

@@ -1574,7 +1574,7 @@ classDiagram
   RoomMap ..> MapSnapshot
 ```
 
-### 18.13 Revision 2: driving on a cost map (owner, 2026-10-30, design-notes §166 — draft for review)
+### 18.13 Revision 2: driving on a cost map (owner, 2026-10-30, design-notes §166 — approved 2026-10-30, Plan Z6)
 
 **Why.** Plan Z5's floor runs 1-3 each found a case the driving rules got wrong, and each fix was another rule (unseen space grown 30 cm round marks, the escape exception, "no part deeper in" sums on two maps, a 4× weight for narrow places, the reverse's track rules); each broke another case (design-notes §164-§165.2). Spec 0 §1.1 principle 3: general before special. This revision replaces those rules with the standard model real robots use (ROS 2 Nav2: a cost map, a footprint check, a local planner scoring moves by cost, and recovery behaviours). It replaces §18.6, §18.7's "look" and the §164-§165 additions; §18.3-§18.5 (seeing, the room map) stay.
 
@@ -1736,4 +1736,4 @@ More careful only (§17.10): `keep_out_m`, `near_out_m`, `near_c_m`, `near_cost`
 - **Run 2 (beside the bed):** every move refused, backing up included - the map has the leg's cell overlapping the tank's side (the 5 cm cells), so no point may move. With the keep-out the tank wouldn't have driven in there (the bed was seen ~4 s before it did); if it happens anyway it ends `blocked`, the safe answer.
 
 #### 18.13.11 Plan
-Proposed (owner to decide): a new plan, **Z6 - the cost map**, on branch `plan-z6` from `plan-z5`: replaces the rules above, keeps the rest of Z5; Z5's floor checks folded into Z6's; both merge to `main` together after Z6's floor checks.
+Owner (2026-10-30): a new plan, **Z6 - the cost map**, on branch `plan-z6` from `plan-z5`: replaces the rules above, keeps the rest of Z5; Z5's floor checks folded into Z6's; both merge to `main` together after Z6's floor checks.

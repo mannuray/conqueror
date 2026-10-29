@@ -1438,7 +1438,7 @@ depth: {every_n: 1, tilt_offset_deg: 3.0, trust_deg: 3.0}   # 4.1 in the design;
 map: {size_m: 8.0, cell_m: 0.05, hit: 0.85, miss: -0.4, clamp: 4.0, blocked: 0.7}
 route: {cell_m: 0.10, robot_r_m: 0.15, near_w: 3.0, unseen_w: 1.0, aim_m: 0.5}
 ```
-`clear_m` and `robot_r_m` may only be made larger (the "more careful only" rule, §17.10).
+`clear_m` and `robot_r_m` may only be made larger (the "more careful only" rule, §17.10); for the map (Plan Z4, §18.12): `hit` and `clamp` only larger, `miss` only less negative, `blocked` only smaller (above 0), `sonar_max_m` only smaller.
 
 ### 18.10 Tests
 - **Z3:** a made-up depth picture from `expected_floor_depth()` with a known tilt (and a −4.1° model shift) → `CameraAngle` within 0.2°; a fix over 3° → untrusted; `DepthScaler` recovers `a`, `c`; `HeightPoints` on a scene with a 10 cm box (low + high) and a board at 18 cm (high) and one at 30 cm (above); the ball's floor position moves with the tilt fix.
@@ -1510,4 +1510,66 @@ classDiagram
   CameraAngle ..> AngleFix
   DepthCoreml ..> Seeing : inverse depth
   Seen ..> ObjectPipeline : tilt fix (see_off_loop)
+```
+
+### 18.12 As built (Plan Z4, 2026-10-29; design-notes §162)
+- **Files** (all in `ai-engine/`):
+  - `domain/room_map.py` (`RoomMap`, `MapSnapshot`, `map_image`), `domain/sonar_model.py` (`SonarModel`);
+  - `domain/depth.py`: `MapSettings` and `Ranges.sonar_max_m`; `adapters/map_config.py` reads the `map:` section; `config/map.yaml`;
+  - `app/map.py` (`cq-map <recording> | --live [--record DIR] [--no-depth] [--no-view]`: `MapRun`, `run_replay`, `run_live`, `report`, `status`); `adapters/rerun_view.py` `room_map`;
+  - tests `test_room_map.py`, `test_sonar_model.py`, `test_map_app.py`, additions to `test_map_config.py`; `tests/fake_bridge.py` streams a real picture, stops pictures after a time, and reports the servos; the AI engine suite is 362 tests.
+- **Changes from §18.5, with the reason:**
+  - **One step per cell per picture**, however many points fall in it (a near cell gets thousands), and **a hit beats a miss** in the same cell in the same picture (a box's foot): one picture can't saturate the map, and the map never invents free space (owner-approved with the plan).
+  - **The sensor never marks seen** (spec 9 §5: only the camera turns unseen into seen), and an echo under 20 cm marks only its arc (no cone).
+  - **`MapSnapshot.cell_m`** (the picture needs it to place the tank); the tank's marker is left out when it is off the map.
+  - **"More careful only" the right way round** (final review): the plan had `blocked` "not lower"; a higher level makes fewer obstacles, so it may only go down; `clamp` only up, `sonar_max_m` only down.
+  - **`MapRun`** holds the pipeline (pose from `ObjectPipeline` with no detector, `Seeing`, `RoomMap`, `SonarModel`); the live loop runs the depth model and `Seeing` in worker threads and `update_picture` (< 10 ms) and the sensor on the event loop, so the map has one writer.
+- **Measured on the floor** (design-notes §162): 10-22 map updates a second; a 10 cm box marked low and remembered after the tank moved and turned; the bed's 15 cm edge marked high, settled where the owner's tape put it (1.22 m) and never cleared by the sensor; replays give the same map.
+- **Left for Plan Z5** (final review minors): work out stale when the snapshot is taken (and on picture timeouts); report a crashed link or camera task; refuse a positive `miss`.
+
+```mermaid
+classDiagram
+  class MapRun {
+    +p: ObjectPipeline
+    +room: RoomMap
+    +sonar: SonarModel
+    +seeing: Seeing
+    +on_telem(s)
+    +on_text(text)
+    +gate(frame, rgb) CameraModel
+    +apply(seen, t_us)
+    +snapshot(t_us, stale) MapSnapshot
+  }
+  class RoomMap {
+    +n: int
+    +low: float32[n,n]
+    +high: float32[n,n]
+    +seen: bool[n,n]
+    +cells(xy) intp[]
+    +hit(cells, layer)
+    +miss(cells, layer)
+    +update_picture(marks, t_us)
+    +blocked() bool[n,n]
+    +is_blocked(x, y) bool
+    +snapshot(t_us, pose, stale, angle_trusted) MapSnapshot
+  }
+  class SonarModel {
+    +update(room, pose, dist_m, t_us) bool
+  }
+  class MapSnapshot {
+    +t_us: int
+    +pose: Pose
+    +cell_m: float
+    +blocked: bool[n,n]
+    +high: bool[n,n]
+    +seen: bool[n,n]
+    +stale: bool
+    +depth_ok: bool
+    +angle_trusted: bool
+  }
+  MapRun --> RoomMap
+  MapRun --> SonarModel
+  MapRun --> Seeing
+  SonarModel ..> RoomMap : low only
+  RoomMap ..> MapSnapshot
 ```

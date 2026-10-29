@@ -185,7 +185,7 @@ def test_v_min_above_the_slow_speed_is_refused(tmp_path: Path) -> None:  # revie
         load_drive(f)
 
 
-@pytest.mark.parametrize("limit", ["body_front_m: 0.10", "body_rear_m: 0.10", "body_half_w_m: 0.08"])
+@pytest.mark.parametrize("limit", ["body_front_m: 0.10", "body_rear_m: 0.08", "body_half_w_m: 0.08"])
 def test_the_body_may_only_be_made_bigger(tmp_path: Path, limit: str) -> None:
     f = tmp_path / "drive.yaml"
     f.write_text(f"limits: {{{limit}}}\n")

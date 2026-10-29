@@ -27,10 +27,11 @@ class Limits:
     sonar_x_m: float = 0.13  # the sonar ahead of the tank's centre
     horizon_s: float = 1.5  # how far ahead a curve is rolled out
     # the body round the pose's point (the tracks included); a turn on the spot sweeps its farthest corner
-    # (review C1). Cautious placeholders until the owner measures the tank (Plan Z5 floor checks).
-    body_front_m: float = 0.14
-    body_rear_m: float = 0.14
-    body_half_w_m: float = 0.11
+    # (review C1). The owner's tape from the turning centre: front 5 in, rear 3.5 in, width 9 in, each rounded
+    # up to the half centimetre (design-notes §163).
+    body_front_m: float = 0.13
+    body_rear_m: float = 0.09
+    body_half_w_m: float = 0.115
     dt_s: float = 0.1  # one tick
 
     def r_min_m(self, v_cms: float) -> float:

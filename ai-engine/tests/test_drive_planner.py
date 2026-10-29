@@ -195,3 +195,15 @@ def test_too_near_to_turn_it_drives_out_first() -> None:
     beside = map_with(area(-0.6, 0.15, 0.6, 0.3))  # a wall 15 cm to the left
     c = P.choose((0.0, 0.0, 0.0), STOP, (-1.5, 0.3), clear=beside)
     assert c.v_cms > 0
+
+
+def test_a_wider_body_keeps_its_sides_clear() -> None:
+    """drive.yaml may make the body wider than the centre's 12 cm map check: then the sides set the check
+    (design-notes §163). A shelf ahead-left, 15 cm from the line straight ahead (cell centres)."""
+    shelf = map_with(area(0.30, 0.175, 1.5, 0.4))
+    at, straight = (0.0, 0.0, 0.0), Command(25.0, 0.0)
+    for p, blocked in ((P, 0.0), (Planner(Limits(body_half_w_m=0.16)), 1.0)):
+        free = p.score(at, straight, straight, (2.0, 0.0), None, map_with([]))
+        assert p.score(at, straight, straight, (2.0, 0.0), None, shelf) == pytest.approx(
+            free + blocked * p.w.blocked
+        )

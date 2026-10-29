@@ -2540,3 +2540,16 @@ Plan Z4 Task 6, the owner present and driving with the phone; `cq-map --live --r
 ### 162.4 Not checked on the floor
 - **Stale:** covering the camera doesn't make the map stale (dark pictures still arrive); the flag is checked by `test_live_stale_reported` and the same rule (`map_state`) was floor-checked in Plan Z1 (§157.2).
 - **A two-minute loop of the room:** the drives were short; Plan Z5's wander covers the room.
+
+## 163. The tank's body, measured (owner, 2026-10-29)
+
+Plan Z5's final review (C1) found turns on the spot unchecked against the body; the fix used cautious placeholders (front 14, rear 14, half-width 11 cm). The owner measured the tank with a tape, from the turning centre (halfway between the tracks, the pose's point), tracks included:
+
+| | Owner (inches) | cm | `Limits` (rounded up to 0.5 cm) | Placeholder |
+|---|---|---|---|---|
+| Front (frontmost point) | 5 | 12.7 | `body_front_m` 0.13 | 0.14 |
+| Rear (rearmost point) | 3.5 | 8.9 | `body_rear_m` 0.09 | 0.14 |
+| Width (outer track edges) | 9 | 22.9 → half 11.4 | `body_half_w_m` 0.115 | 0.11 |
+
+- The sides were **wider than the placeholder** (11.4 vs 11 cm): the fan's 12 cm map check on the tank's centre leaves 0.5 cm at each side. A turn on the spot now needs 19.4 cm clear round the centre (the front corner, hypot(13, 11.5) = 17.4 cm, + 2 cm), was 19.8.
+- `drive.yaml` may still only make the body bigger. A body wider than 11.5 cm now widens the fan's map check to its half-width + 0.5 cm (`SIDE_MARGIN_M`), so the sides stay clear (`test_a_wider_body_keeps_its_sides_clear`). Routes keep `ROBOT_R_M` 15 cm (a constant): with a much wider body the fan refuses what a route allows and the run ends `blocked`, never a touch.

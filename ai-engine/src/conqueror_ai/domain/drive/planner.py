@@ -23,6 +23,7 @@ SPIN_UNTIL_DEG = 15.0
 # it is that near already and the curve doesn't bring it nearer (so a tank by a wall can move away).
 MAP_CLEAR_M = ROBOT_R_M - 0.03
 FRONT_CLEAR_M = 0.05  # and the tank's front (the sonar, 13 cm ahead of the centre) keeps this much (Plan Z5)
+SIDE_MARGIN_M = 0.005  # a wider body (drive.yaml) widens MAP_CLEAR_M to its half-width + this (§163)
 SPIN_MARGIN_M = 0.02  # a turn on the spot needs the body's swept circle + this clear (review C1)
 
 
@@ -138,7 +139,8 @@ class Planner:
             def front(px: float, py: float, th: float) -> float:
                 return clear.dist_m(px + fx * math.cos(th), py + fx * math.sin(th))
 
-            limit = min(MAP_CLEAR_M, clear.dist_m(at[0], at[1]) - 0.01)
+            side = max(MAP_CLEAR_M, lim.body_half_w_m + SIDE_MARGIN_M)
+            limit = min(side, clear.dist_m(at[0], at[1]) - 0.01)
             front_limit = min(FRONT_CLEAR_M, front(*at) - 0.01)
             if any(clear.dist_m(px, py) < limit or front(px, py, th) < front_limit for px, py, th in path):
                 s += w.blocked

@@ -27,6 +27,14 @@ def test_the_top_speed_falls_near_the_stop() -> None:
     assert 18.0 < LIM.top_speed(0.65) < 25.0
 
 
+def test_the_body_is_the_measured_tank() -> None:
+    """The owner's tape from the turning centre (design-notes §163): front 5 in, rear 3.5 in, width 9 in;
+    each rounded up to the half centimetre."""
+    assert (LIM.body_front_m, LIM.body_rear_m, LIM.body_half_w_m) == (0.13, 0.09, 0.115)
+    assert LIM.body_front_m >= 5 * 0.0254 and LIM.body_rear_m >= 3.5 * 0.0254
+    assert LIM.body_half_w_m >= 9 / 2 * 0.0254
+
+
 # ---- the ramp
 def test_the_ramp_crosses_the_dead_band_at_once_and_then_climbs_gently() -> None:
     c = ramp(STOP, Command(25.0, 0.0), 0.1, LIM)

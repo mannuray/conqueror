@@ -12,6 +12,7 @@ from numpy.typing import NDArray
 from conqueror_ai.domain.camera import FloatArray
 from conqueror_ai.domain.depth import Marks
 from conqueror_ai.domain.drive.curves import Command, XYTh
+from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.room_map import RoomMap
 
 
@@ -80,11 +81,14 @@ class SimRoom:
     def _all(self) -> list[Box]:
         return self.boxes + self.walls
 
-    def marks(self, at: XYTh, half_deg: float = 41.0, near_m: float = 0.30, far_m: float = 2.0) -> Marks:
+    def marks(
+        self, at: XYTh, half_deg: float = 41.0, near_m: float = 0.30, far_m: float = 2.0, pan_deg: float = 0.0
+    ) -> Marks:
         """Rays every 1 deg across the view, points every 5 cm: floor up to the first standing box, its face
         as low / high / above points by its height; an overhang's face is high / above, the floor goes on."""
         x, y, th = at
         cx, cy = x + CAM_X_M * math.cos(th), y + CAM_X_M * math.sin(th)
+        th = th - math.radians(pan_deg)  # the camera panned (cam_set: + = right)
         floor: list[tuple[float, float]] = []
         low: list[tuple[float, float]] = []
         high: list[tuple[float, float]] = []
@@ -135,6 +139,22 @@ class SimRoom:
     def gap_m(self, at: XYTh) -> float:
         """The tank's centre to the nearest box or wall (overhangs too: they would hit the camera)."""
         return min(b.gap(at[0], at[1]) for b in self._all() if b.z0 < TANK_TOP_M)
+
+    def body_gap(self, at: XYTh, lim: Limits) -> float:
+        """The tank's body rectangle (lim's footprint) to the nearest box or wall; 0 when it overlaps. Sampled
+        round its outline every ~1 cm (review C1: the centre alone missed the corners)."""
+        x, y, th = at
+        c, s = math.cos(th), math.sin(th)
+        f, r, w = lim.body_front_m, lim.body_rear_m, lim.body_half_w_m
+        pts: list[tuple[float, float]] = []
+        for k in range(29):
+            u = -r + (f + r) * k / 28
+            pts += [(u, -w), (u, w)]
+        for k in range(23):
+            v = -w + 2 * w * k / 22
+            pts += [(f, v), (-r, v)]
+        boxes = [b for b in self._all() if b.z0 < TANK_TOP_M]
+        return min(b.gap(x + u * c - v * s, y + u * s + v * c) for u, v in pts for b in boxes)
 
     def front_inside(self, at: XYTh) -> bool:
         x, y, th = at

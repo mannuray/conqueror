@@ -175,3 +175,18 @@ def test_seen_share() -> None:
     assert sim.seen_share(room) == 0.0
     room.seen[:] = True
     assert sim.seen_share(room) == pytest.approx(1.0)
+
+
+def test_body_gap_is_the_rectangle() -> None:
+    lim = Limits()
+    room = SimRoom([Box(1.0, -0.5, 1.2, 0.5)], walls_m=3.0)
+    assert room.body_gap((0.5, 0.0, 0.0), lim) == pytest.approx(0.5 - lim.body_front_m, abs=1e-6)
+    assert room.body_gap((0.5, 0.0, math.pi), lim) == pytest.approx(0.5 - lim.body_rear_m, abs=1e-6)
+    assert room.body_gap((0.5, 0.0, math.pi / 2), lim) == pytest.approx(0.5 - lim.body_half_w_m, abs=1e-6)
+    assert room.body_gap((0.9, 0.0, 0.0), lim) == 0.0
+
+
+def test_simroom_marks_follow_the_camera_pan() -> None:
+    m = SimRoom([Box(-0.2, -1.2, 0.2, -1.0, 0.0, 0.08)]).marks((0.0, 0.0, 0.0), pan_deg=90.0)  # looking right
+    assert len(m.low_xy) > 0 and np.all(m.low_xy[:, 1] < -0.9)
+    assert len(SimRoom([Box(-0.2, -1.2, 0.2, -1.0, 0.0, 0.08)]).marks((0.0, 0.0, 0.0)).low_xy) == 0

@@ -112,3 +112,10 @@ def test_more_careful_map_settings_are_kept(tmp_path: Path, text: str) -> None:
     f = tmp_path / "map.yaml"
     f.write_text(text + "\n")
     load_map_config(f)
+
+
+def test_a_positive_miss_is_refused(tmp_path: Path) -> None:  # Z4 review minor (deferred, now fixed)
+    f = tmp_path / "map.yaml"
+    f.write_text("map: {miss: 0.2}\n")
+    with pytest.raises(ValueError, match="miss"):
+        load_map_config(f)

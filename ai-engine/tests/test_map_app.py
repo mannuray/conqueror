@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -149,3 +150,16 @@ async def test_live_stale_reported(tmp_path: Path, capsys: pytest.CaptureFixture
     await live(tmp_path, 2.2, frames_for_s=0.3)
     out = capsys.readouterr().out
     assert "stale" in out and "no new picture" in out
+
+
+async def test_live_ends_when_a_link_crashes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Z4 review minor (deferred, now fixed): an unreachable tank said 'stale' for ever, never the error."""
+    link = BridgeLink("127.0.0.1", 1)  # nothing listens: its task keeps retrying - the camera's fails
+    cam = MjpegSource("127.0.0.1", 1)
+
+    async def broken(stop: asyncio.Event) -> None:
+        raise OSError("stream closed")
+
+    cam.run = broken  # type: ignore[method-assign]
+    await app.run_live(link, cam, app.MapRun(CAL, CFG, None), None, None, seconds=5.0)
+    assert "failed" in capsys.readouterr().out

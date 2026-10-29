@@ -133,10 +133,11 @@ def test_all_ways_blocked_stops() -> None:
     assert P.choose((0.0, 0.0, 0.0), Command(25.0, 0.0), (2.0, 0.0), clear=map_with(ring)) == STOP
 
 
-def test_without_a_map_as_before() -> None:
-    at, cruise = (0.0, 0.0, 0.0), Command(25.0, 0.0)
-    for target in [(2.0, 0.0), (1.5, 1.2), (1.5, -1.2), (0.6, 0.0)]:
-        assert P.choose(at, cruise, target) == P.choose(at, cruise, target, clear=None)
+def test_an_empty_map_changes_nothing() -> None:  # review minor 6: the old test compared a call with itself
+    at, cruise, empty = (0.0, 0.0, 0.0), Command(25.0, 0.0), map_with([])
+    for target in [(2.0, 0.0), (1.5, 1.2), (1.5, -1.2), (0.6, 0.0), (-1.5, 0.3)]:
+        for now in (cruise, STOP):
+            assert P.choose(at, now, target) == P.choose(at, now, target, clear=empty)
 
 
 def test_speed_comes_from_the_destination_not_the_aim_point() -> None:
@@ -176,3 +177,21 @@ def test_the_tanks_front_is_kept_clear_not_only_its_centre() -> None:
     straight = Command(25.0, 0.0)  # in 1.5 s: 37 cm, the front to 50 cm
     free = P.score((0.0, 0.0, 0.0), straight, straight, (2.0, 0.0), None, map_with([]))
     assert P.score((0.0, 0.0, 0.0), straight, straight, (2.0, 0.0), None, clear) <= free + P.w.blocked + 1e-9
+
+
+def test_a_turn_on_the_spot_too_near_something_is_refused() -> None:
+    """Review C1: turning on the spot sweeps the body's half-diagonal; too near a wall it is refused."""
+    beside = map_with(area(-0.6, 0.15, 0.6, 0.3))  # a wall 15 cm to the left of the centre
+    assert not P.can_spin((0.0, 0.0, 0.0), beside)
+    c = P.choose((0.0, 0.0, 0.0), STOP, (-1.5, 0.3), clear=beside)
+    assert not (c.v_cms == 0 and c.w_dps != 0)  # never a turn on the spot there
+    assert P.can_spin((0.0, 0.0, 0.0), map_with([]))
+    assert P.choose((0.0, 0.0, 0.0), STOP, (-1.5, 0.3), clear=map_with([])).w_dps != 0
+
+
+def test_too_near_to_turn_it_drives_out_first() -> None:
+    """Review C1 + the simulated doorway: the target behind, no turn on the spot allowed (a wall beside) -
+    the fan offers its forward curves, so the tank drives out to where it can turn."""
+    beside = map_with(area(-0.6, 0.15, 0.6, 0.3))  # a wall 15 cm to the left
+    c = P.choose((0.0, 0.0, 0.0), STOP, (-1.5, 0.3), clear=beside)
+    assert c.v_cms > 0

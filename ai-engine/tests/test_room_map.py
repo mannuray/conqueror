@@ -180,3 +180,11 @@ def test_map_image_with_the_tank_off_the_map(x: float, y: float) -> None:  # fin
     room = RoomMap()
     img = map_image(room.snapshot(0, Pose(0, x, y, 0.0, 0.0, 0.0), False, True))
     assert int((img == 255).all(axis=2).sum()) == 0  # no tank marker, no white flood
+
+
+def test_a_broken_pose_does_not_raise() -> None:  # Z4 review minor (deferred, now fixed)
+    room = RoomMap()
+    nan = float("nan")
+    assert room.is_blocked(nan, 0.0)
+    img = map_image(room.snapshot(0, Pose(0, nan, nan, 0.0, 0.0, 0.0), False, True))
+    assert int((img == 255).all(axis=2).sum()) == 0

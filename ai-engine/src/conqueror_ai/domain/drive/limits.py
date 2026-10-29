@@ -26,6 +26,11 @@ class Limits:
     cam_x_m: float = 0.085  # the lens ahead of the tank's centre
     sonar_x_m: float = 0.13  # the sonar ahead of the tank's centre
     horizon_s: float = 1.5  # how far ahead a curve is rolled out
+    # the body round the pose's point (the tracks included); a turn on the spot sweeps its farthest corner
+    # (review C1). Cautious placeholders until the owner measures the tank (Plan Z5 floor checks).
+    body_front_m: float = 0.14
+    body_rear_m: float = 0.14
+    body_half_w_m: float = 0.11
     dt_s: float = 0.1  # one tick
 
     def r_min_m(self, v_cms: float) -> float:
@@ -44,3 +49,8 @@ class Limits:
             return self.v_min_cms
         f = (d_lens_m - near) / (self.slow_from_m - near)
         return self.v_min_cms + f * (cruise - self.v_min_cms)
+
+    @property
+    def sweep_r_m(self) -> float:
+        """The farthest corner of the body from the pose's point: what a turn on the spot sweeps."""
+        return math.hypot(max(self.body_front_m, self.body_rear_m), self.body_half_w_m)

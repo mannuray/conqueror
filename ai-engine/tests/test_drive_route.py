@@ -131,3 +131,15 @@ def test_route_is_quick() -> None:
         p.route(c, a, b)
         slowest = max(slowest, time.perf_counter() - t)
     assert slowest < 0.02
+
+
+def test_a_goal_against_furniture_is_reached_within_reach() -> None:
+    """Review I2: a ball 6 cm from a sofa - every cell next to it is too near the sofa. With near_m the route
+    ends at the first open cell within reach of the ball."""
+    clear = ClearanceMap(snap(box(1.56, -0.8, 2.0, 0.8)), ignore=(1.5, 0.0, 0.12))
+    p = RoutePlanner()
+    assert p.route(clear, (0.0, 0.0), (1.5, 0.0), goal_ok=True) is None
+    r = p.route(clear, (0.0, 0.0), (1.5, 0.0), goal_ok=True, near_m=0.485)
+    assert r is not None and r[-1] == (1.5, 0.0)
+    assert math.dist(r[-2], (1.5, 0.0)) <= 0.485 + 0.08
+    assert all(clear.dist_m(x, y) >= ROBOT_R_M for x, y in r[1:-1])

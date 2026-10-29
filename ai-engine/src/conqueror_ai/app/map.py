@@ -54,6 +54,16 @@ if TYPE_CHECKING:
     from conqueror_ai.adapters.rerun_view import RerunView
 
 STATUS_S = 1.0  # a status line this often
+
+
+def task_failure(tasks: list[asyncio.Task[None]]) -> str | None:
+    """The first worker (bridge link, camera, drive link, telemetry) that crashed, as "Kind: message"."""
+    for t in tasks:
+        if t.done() and not t.cancelled() and (e := t.exception()) is not None:
+            return f"{type(e).__name__}: {e}"
+    return None
+
+
 STALE_PICTURE_S = 0.5  # spec 7 §4: no driving on a stale map
 STALE_TELEM_S = 0.2
 FIRST_PICTURE_S = 5.0  # the camera stream may take this long to start
@@ -230,6 +240,9 @@ async def run_live(
     updates = 0
     try:
         while not asked.is_set() and (seconds is None or time.monotonic() - t0 < seconds):
+            if (failed := task_failure(tasks)) is not None:  # say the real error, not "stale" for ever
+                print(f"stopped: failed - {failed}", flush=True)
+                break
             now = time.monotonic()
             stale = map_state(now, t0, last["picture"], last["telem"])
             if now >= next_status:

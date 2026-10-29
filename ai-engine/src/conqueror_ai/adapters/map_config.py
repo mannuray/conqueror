@@ -69,6 +69,8 @@ def load_map_config(path: Path) -> MapConfig:
     if h.low_top_m > h.clear_m:
         careless.append("low_top_m (above clear_m)")
     careless += [k for k in MAP_AT_LEAST if getattr(cfg.map, k) < getattr(MapSettings(), k)]
+    if cfg.map.miss > 0:
+        careless.append("miss (above 0: floor would raise marks)")
     careless += [k for k in MAP_AT_MOST if getattr(cfg.map, k) > getattr(MapSettings(), k)]
     if cfg.map.blocked <= 0:
         careless.append("blocked (0 or less: every unseen cell would be blocked)")

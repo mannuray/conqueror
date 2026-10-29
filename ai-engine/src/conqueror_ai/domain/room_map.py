@@ -10,6 +10,7 @@ Pure: no I/O."""
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Literal
 
@@ -99,6 +100,8 @@ class RoomMap:
 
     def is_blocked(self, x: float, y: float) -> bool:
         """True for a blocked cell, and everywhere outside the map (its edge is a soft fence)."""
+        if not (math.isfinite(x) and math.isfinite(y)):
+            return True  # a broken position: nothing is known free there
         ix, iy = (
             int(np.floor((x + self.half_m) / self.cell_m)),
             int(np.floor((y + self.half_m) / self.cell_m)),
@@ -132,7 +135,7 @@ def map_image(snap: MapSnapshot) -> NDArray[np.uint8]:
     img[snap.seen] = SEEN
     img[snap.blocked & ~snap.high] = LOW
     img[snap.high] = HIGH
-    if snap.pose is not None:
+    if snap.pose is not None and math.isfinite(snap.pose.x_m) and math.isfinite(snap.pose.y_m):
         ix = int(np.floor(snap.pose.x_m / snap.cell_m + n / 2))
         iy = int(np.floor(snap.pose.y_m / snap.cell_m + n / 2))
         if 0 <= ix < n and 0 <= iy < n:  # off the map: no marker (a negative slice end would wrap round)

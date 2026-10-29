@@ -156,3 +156,12 @@ def test_a_blocked_way_stops_at_once_not_by_the_ramp() -> None:
     wall = room.snapshot(4_000_000, POSE, False, True)
     out = s.tick(4.0, tank.at, wall, None, None, True)
     assert out.cmd == STOP
+
+
+def test_driving_blocked_and_looking_in_the_same_place_ends_it() -> None:
+    """Review minor 8: a route the fan keeps refusing (drive, blocked 3 s, look, same route) never ended."""
+    s = skill()
+    s.planner.choose = lambda *a, **k: STOP  # type: ignore[method-assign]
+    outs = run(s, open_snap(), 120.0)
+    results = [o.result for o in outs if o.result]
+    assert results == ["blocked"]

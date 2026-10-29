@@ -37,7 +37,14 @@ from conqueror_ai.adapters.session import SessionRecorder
 if TYPE_CHECKING:
     from conqueror_ai.adapters.bridge_ws import BridgeLink
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
-from conqueror_ai.app.map import FIRST_PICTURE_S, STALE_PICTURE_S, STALE_TELEM_S, MapRun, map_state
+from conqueror_ai.app.map import (
+    FIRST_PICTURE_S,
+    STALE_PICTURE_S,
+    STALE_TELEM_S,
+    MapRun,
+    map_state,
+    task_failure,
+)
 from conqueror_ai.app.objects import (
     BALLS,
     CALIBRATION,
@@ -89,14 +96,6 @@ def picture_counts(used: CameraModel | str) -> bool:
     """A picture shows the camera is alive when the map used it, or skipped it only for the tank's or the
     camera's own motion (a spin, a camera sweep)."""
     return not isinstance(used, str) or used in SKIPS_THAT_COUNT
-
-
-def task_failure(tasks: list[asyncio.Task[None]]) -> str | None:
-    """The first worker (bridge link, camera, drive link, telemetry) that crashed, as "Kind: message"."""
-    for t in tasks:
-        if t.done() and not t.cancelled() and (e := t.exception()) is not None:
-            return f"{type(e).__name__}: {e}"
-    return None
 
 
 Action = Literal["goto", "find", "wander", "explore"]

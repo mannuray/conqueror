@@ -21,6 +21,8 @@ from conqueror_ai.domain.sonar_model import SonarModel
 from conqueror_ai.domain.types import Pose
 
 NEAREST_M = 0.12  # the tank's centre never nearer than this to anything (ROBOT_R_M - 0.03)
+BODY_M = 0.005  # and its body (front, back and sides, turning included) never touches anything (review C1)
+LIM = Limits()
 ROOM = [
     Box(1.0, -0.6, 1.4, -0.2, 0.0, 0.08),  # a low box
     Box(-1.2, 0.8, -0.7, 1.3, 0.0, 0.40),  # a tall box
@@ -33,6 +35,7 @@ ROOM = [
 class Roam:
     result: str | None = None
     nearest: float = math.inf
+    body: float = math.inf  # the tank's body rectangle (Limits' footprint) to the nearest thing, every tick
     front_hit: bool = False
     path_m: float = 0.0
     states: list[str] = field(default_factory=lambda: list[str]())
@@ -49,13 +52,14 @@ def roam(
     add: tuple[float, Box] | None = None,
     dt: float = 0.1,
     seed: int = 7,
+    start: tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> Roam:
     sim = SimRoom(list(ROOM if boxes is None else boxes), walls_m=2.5)
     out = Roam()
     sonar_model = SonarModel()
-    tank = SimTank()
+    tank = SimTank(*start)
     skill = RoamSkill(Planner(Limits()), mode, seconds=seconds, find=find, rng=random.Random(seed))
-    turning, last_seen = False, None
+    turning, last_seen, pan = False, None, 0.0
     t = 0.0
     while t < limit_s:
         if add is not None and t >= add[0] and add[1] not in sim.boxes:
@@ -63,7 +67,7 @@ def roam(
         at = tank.at
         t_us = round(t * 1e6)
         if not turning:  # the map skips pictures taken turning faster than 45 deg/s
-            out.room.update_picture(sim.marks(at), t_us)
+            out.room.update_picture(sim.marks(at, pan_deg=pan), t_us)
         pose = Pose(t_us, at[0], at[1], at[2], 0.0, 0.0)
         echo = sim.sonar(at)
         sonar_model.update(out.room, pose, echo, t_us)
@@ -81,11 +85,14 @@ def roam(
                 last_seen = t
             fix = None if last_seen is None else TargetFix(1, ball[0], ball[1], t - last_seen)
         o = skill.tick(t, at, snap, fix, echo, True)
+        if o.cam is not None:
+            pan = o.cam[0]  # the camera turns where it's told (the real one looks where the tank is going)
         turning = abs(o.cmd.w_dps) > GATE_DPS
         before = tank.at
         tank.step(o.cmd, dt)
         out.path_m += math.dist(before[:2], tank.at[:2])
         out.nearest = min(out.nearest, sim.gap_m(tank.at))
+        out.body = min(out.body, sim.body_gap(tank.at, LIM))
         out.front_hit = out.front_hit or sim.front_inside(tank.at)
         out.states.append(skill.state)
         if o.result is not None:
@@ -99,7 +106,7 @@ def roam(
 def test_wander_60_s_keeps_moving_never_close(seed: int) -> None:
     r = roam("wander", 70.0, seconds=60.0, seed=seed)
     assert r.result == "done"
-    assert r.nearest >= NEAREST_M and not r.front_hit
+    assert r.nearest >= NEAREST_M and not r.front_hit and r.body >= BODY_M
     assert r.path_m > 3.0
 
 
@@ -108,22 +115,24 @@ def test_explore_covers_80_percent() -> None:
     sim = SimRoom(list(ROOM), walls_m=2.5)
     assert r.result == "done"
     assert sim.seen_share(r.room) >= 0.8
-    assert r.nearest >= NEAREST_M and not r.front_hit
+    assert r.nearest >= NEAREST_M and not r.front_hit and r.body >= BODY_M
 
 
 def test_a_box_appears_on_the_route() -> None:  # Review Focus 4
     r = roam("wander", 40.0, seconds=30.0, add=(3.0, Box(0.9, -0.15, 1.1, 0.15, 0.0, 0.10)))
     assert r.result == "done"
-    assert r.nearest >= NEAREST_M and not r.front_hit
+    assert r.nearest >= NEAREST_M and not r.front_hit and r.body >= BODY_M
 
 
 def test_find_ball_out_of_sight() -> None:
     r = roam("wander", 90.0, find=True, ball=(-1.6, 0.2))  # behind the tank at the start
     assert r.result == "done" and "chase" in r.states
-    assert r.nearest >= NEAREST_M and not r.front_hit
+    assert r.nearest >= NEAREST_M and not r.front_hit and r.body >= BODY_M
 
 
-def chase_on_map(ball: tuple[float, float], boxes: list[Box], limit_s: float = 60.0, dt: float = 0.1) -> Roam:
+def chase_on_map(
+    ball: tuple[float, float], boxes: list[Box], limit_s: float = 60.0, dt: float = 0.1, use_map: bool = True
+) -> Roam:
     """Slice 1's chase with the room map (Plan Z5 Task 7): the ball always known (seen over a low box)."""
     sim = SimRoom(boxes, walls_m=2.5)
     out = Roam()
@@ -134,12 +143,13 @@ def chase_on_map(ball: tuple[float, float], boxes: list[Box], limit_s: float = 6
         if not turning:
             out.room.update_picture(sim.marks(at), t_us)
         pose = Pose(t_us, at[0], at[1], at[2], 0.0, 0.0)
-        snap = out.room.snapshot(t_us, pose, False, True)
+        snap = out.room.snapshot(t_us, pose, False, True) if use_map else None
         echo = sim.sonar(at)
         o = skill.tick(t, at, TargetFix(1, ball[0], ball[1], 0.0), echo, True, snap=snap)
         turning = abs(o.cmd.w_dps) > GATE_DPS
         tank.step(o.cmd, dt)
         out.nearest = min(out.nearest, sim.gap_m(tank.at))
+        out.body = min(out.body, sim.body_gap(tank.at, LIM))
         out.front_hit = out.front_hit or sim.front_inside(tank.at)
         if o.result is not None:
             out.result = o.result
@@ -152,10 +162,38 @@ def test_chase_goes_around_a_box() -> None:
     box = Box(0.8, -0.25, 1.1, 0.25, 0.0, 0.08)  # low: the camera sees the ball over it; the sonar hears it
     r = chase_on_map((2.0, 0.0), [box])
     assert r.result == "done"
-    assert r.nearest >= NEAREST_M and not r.front_hit
+    assert r.nearest >= NEAREST_M and not r.front_hit and r.body >= BODY_M
 
 
 def test_find_ball_behind_a_box() -> None:
     r = roam("wander", 120.0, find=True, ball=(1.9, 0.0), boxes=[Box(0.9, -0.3, 1.3, 0.3, 0.0, 0.30)])
     assert r.result == "done" and "chase" in r.states
-    assert r.nearest >= NEAREST_M and not r.front_hit
+    assert r.nearest >= NEAREST_M and not r.front_hit and r.body >= BODY_M
+
+
+# ---- final review (Plan Z5): the body, turning on the spot, a ball by a sofa, doorways
+@pytest.mark.parametrize("gap", [0.15, 0.18])  # centre this far from a wall, facing along it
+@pytest.mark.parametrize("th", [math.pi / 2, -math.pi / 2])
+def test_no_turn_on_the_spot_scrapes_a_wall(gap: float, th: float) -> None:
+    """Review C1: the corners sweep the half-diagonal (~16-18 cm) when turning on the spot; the map kept the
+    centre only 12-15 cm off, and spins were never checked against it."""
+    r = roam("wander", 25.0, boxes=[], seconds=20.0, start=(2.5 - gap, 0.0, th))
+    assert r.body >= BODY_M and not r.front_hit
+
+
+@pytest.mark.parametrize("off", [0.06, 0.15])
+def test_a_ball_by_a_sofa_is_reached(off: float) -> None:
+    """Review I2: a ball 6 cm from a sofa's side ended blocked on the map (slice 1 reached it)."""
+    sofa = Box(1.5 + off, -0.8, 2.0, 0.8, 0.0, 0.4)
+    r = chase_on_map((1.5, 0.0), [sofa])
+    assert r.result == "done" and r.body >= BODY_M
+
+
+@pytest.mark.parametrize("door", [0.46, 0.60])
+def test_explore_goes_through_a_doorway(door: float) -> None:
+    """Review I3: unseen space grown round seen marks closed doorways, and explore said done at 74 %."""
+    lo, hi = 0.8 - door / 2, 0.8 + door / 2
+    walls = [Box(1.0, -2.5, 1.1, lo, 0.0, 0.6), Box(1.0, hi, 1.1, 2.5, 0.0, 0.6)]
+    r = roam("explore", 900.0, boxes=walls, dt=0.2)
+    assert r.result == "done" and SimRoom(walls, walls_m=2.5).seen_share(r.room) >= 0.8
+    assert r.body >= BODY_M

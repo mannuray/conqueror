@@ -155,24 +155,31 @@ class ChaseSkill:
                 if sonar_m < lim.clear_m:
                     return self._end("blocked")
                 obstacle = ahead
+        fan = None if snap is None else ClearanceMap(snap, ignore=(target[0], target[1], TARGET_R_M))
         if d_lens <= lim.stop_range_m + 0.05:
             if abs(b) <= ARRIVE_BEARING_DEG:
                 self.cmd = ramp(self.cmd, STOP, self._dt, lim)
                 if self.cmd == STOP:
                     return self._end("done")
                 return SkillOut(self.cmd)
+            if not self.planner.can_spin(
+                at, fan
+            ):  # close enough; turning to face it would scrape (review C1)
+                self.cmd = STOP
+                return self._end("done")
             # close enough but off to the side: driving on would pass it, so turn on the spot to face it
             return self._out(Command(0.0, math.copysign(lim.spin_dps, b)))
         if snap is None:
             want = self.planner.choose(at, self.cmd, target, obstacle)
         else:  # round obstacles on the room map: steer along the route, slow down for the ball itself
             planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
-            clear = ClearanceMap(snap, ignore=(target[0], target[1], TARGET_R_M))
-            route = self.routes.route(clear, (at[0], at[1]), target, goal_ok=True)
+            clear = ClearanceMap(snap, ignore=(target[0], target[1], TARGET_R_M), grow=False)
+            reach = lim.stop_range_m + lim.cam_x_m  # the chase stops this far from the ball's centre anyway
+            route = self.routes.route(clear, (at[0], at[1]), target, goal_ok=True, near_m=reach)
             want = (
                 STOP
                 if route is None
-                else planner.choose(at, self.cmd, aim_point(route, (at[0], at[1])), obstacle, clear, d_lens)
+                else planner.choose(at, self.cmd, aim_point(route, (at[0], at[1])), obstacle, fan, d_lens)
             )
         if want == STOP:  # every curve blocked (design-notes §157.5), or no route
             if self._blocked_t0 is None:

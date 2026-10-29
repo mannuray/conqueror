@@ -23,6 +23,7 @@ SPIN_UNTIL_DEG = 15.0
 # it is that near already and the curve doesn't bring it nearer (so a tank by a wall can move away).
 MAP_CLEAR_M = ROBOT_R_M - 0.03
 FRONT_CLEAR_M = 0.05  # and the tank's front (the sonar, 13 cm ahead of the centre) keeps this much (Plan Z5)
+SPIN_MARGIN_M = 0.02  # a turn on the spot needs the body's swept circle + this clear (review C1)
 
 
 @dataclass(frozen=True)
@@ -44,18 +45,28 @@ class Planner:
         self.lim = lim
         self.w = weights or Weights()
 
+    def can_spin(self, at: XYTh, clear: ClearanceMap | None) -> bool:
+        """Whether turning on the spot here keeps the body's corners clear on the room map (no map: yes)."""
+        return clear is None or clear.dist_m(at[0], at[1]) >= self.lim.sweep_r_m + SPIN_MARGIN_M
+
     def lens_distance(self, at: XYTh, target: tuple[float, float]) -> float:
         return math.hypot(target[0] - at[0], target[1] - at[1]) - self.lim.cam_x_m
 
     def fan(
-        self, at: XYTh, target: tuple[float, float], now: Command = STOP, far_m: float | None = None
+        self,
+        at: XYTh,
+        target: tuple[float, float],
+        now: Command = STOP,
+        far_m: float | None = None,
+        clear: ClearanceMap | None = None,
     ) -> list[Command]:
         """far_m: how far the way's end still is (lens distance) when the target is only an aim point on a
         route (Plan Z5): the speed follows the end, the steering the aim point."""
         lim = self.lim
         b = bearing_deg(at, target)
         spin = Command(0.0, math.copysign(lim.spin_dps, b))
-        if now.v_cms == 0 and abs(now.w_dps) >= lim.spin_dps and abs(b) > SPIN_UNTIL_DEG:
+        spin_ok = self.can_spin(at, clear)
+        if now.v_cms == 0 and abs(now.w_dps) >= lim.spin_dps and abs(b) > SPIN_UNTIL_DEG and spin_ok:
             return [spin]  # finish the turn on the spot: no spin-drive-spin stutter
         top = lim.top_speed(self.lens_distance(at, target) if far_m is None else far_m)
         out: list[Command] = [STOP]
@@ -69,11 +80,12 @@ class Planner:
                 if math.isfinite(r_min) and r >= r_min:
                     w = math.degrees(v / 100.0 / r)
                     out += [Command(v, w), Command(v, -w)]
-        if abs(b) > SPIN_FROM_DEG or (self.inside_turn(at, target) and abs(b) > SPIN_UNTIL_DEG):
+        if spin_ok and (abs(b) > SPIN_FROM_DEG or (self.inside_turn(at, target) and abs(b) > SPIN_UNTIL_DEG)):
             # well off to one side, or no curve reaches it: turn on the spot first. Nearly ahead, straight on
             # passes close enough - at the slowest speed no curve reaches anything off-centre, and turning to
             # it exactly overshot back and forth for ever (Plan Z5)
             return [STOP, spin]
+        # too near something to turn on the spot (review C1): the forward curves, to drive out first
         return list(dict.fromkeys(out))
 
     def inside_turn(self, at: XYTh, target: tuple[float, float]) -> bool:
@@ -130,6 +142,8 @@ class Planner:
             front_limit = min(FRONT_CLEAR_M, front(*at) - 0.01)
             if any(clear.dist_m(px, py) < limit or front(px, py, th) < front_limit for px, py, th in path):
                 s += w.blocked
+        if clear is not None and want.v_cms == 0 and want.w_dps != 0 and not self.can_spin(at, clear):
+            s += w.blocked  # a turn on the spot would sweep a corner into something
         return s
 
     def choose(
@@ -146,7 +160,7 @@ class Planner:
         see fan(); within slow_from_m of the end it is slice 1's approach again (the aim is the end)."""
         if far_m is not None and far_m < self.lim.slow_from_m:
             far_m = None
-        moving = [c for c in self.fan(at, target, now, far_m) if c != STOP]
+        moving = [c for c in self.fan(at, target, now, far_m, clear) if c != STOP]
         scored = [(self.score(at, now, c, target, obstacle_m, clear, far_m), c) for c in moving]
         best_score, best = max(scored, key=lambda sc: sc[0])
         return STOP if best_score <= self.w.blocked / 2 else best  # stop only when every curve is blocked

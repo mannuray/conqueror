@@ -20,9 +20,12 @@ GROW_UNSEEN_M = 0.30  # an obstacle may go on this far into unseen space
 
 
 class ClearanceMap:
-    def __init__(self, snap: MapSnapshot, ignore: tuple[float, float, float] | None = None) -> None:
+    def __init__(
+        self, snap: MapSnapshot, ignore: tuple[float, float, float] | None = None, grow: bool = True
+    ) -> None:
         """ignore = (x, y, r): blocked cells within r of (x, y) count as free (the chase's target sits in its
-        own marks)."""
+        own marks). grow: unseen space next to seen marks counts as the thing - for the fan; routes and goals
+        leave it out (review I3: it closed doorways)."""
         self.n = snap.blocked.shape[0]
         self.cell_m = snap.cell_m
         self.half_m = self.n * self.cell_m / 2
@@ -32,7 +35,7 @@ class ClearanceMap:
             c = (np.arange(self.n) + 0.5) * self.cell_m - self.half_m
             blocked &= np.hypot(c[:, None] - x, c[None, :] - y) > r
         seen_marks = blocked & snap.seen  # the camera's marks; a sonar arc (never seen) doesn't grow
-        if seen_marks.any():
+        if grow and seen_marks.any():
             to_mark = cast(
                 "NDArray[np.float32]", cv2.distanceTransform((~seen_marks).astype(np.uint8), cv2.DIST_L2, 5)
             )

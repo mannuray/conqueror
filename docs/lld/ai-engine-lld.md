@@ -1573,3 +1573,155 @@ classDiagram
   SonarModel ..> RoomMap : low only
   RoomMap ..> MapSnapshot
 ```
+
+### 18.13 Revision 2: driving on a cost map (owner, 2026-10-30, design-notes §166 — draft for review)
+
+**Why.** Plan Z5's floor runs 1-3 each found a case the driving rules got wrong, and each fix was another rule (unseen space grown 30 cm round marks, the escape exception, "no part deeper in" sums on two maps, a 4× weight for narrow places, the reverse's track rules); each broke another case (design-notes §164-§165.2). Spec 0 §1.1 principle 3: general before special. This revision replaces those rules with the standard model real robots use (ROS 2 Nav2: a cost map, a footprint check, a local planner scoring moves by cost, and recovery behaviours). It replaces §18.6, §18.7's "look" and the §164-§165 additions; §18.3-§18.5 (seeing, the room map) stay.
+
+**One idea for a child:** every 5 cm square of the floor has a price. Things the tank has seen are walls it can't drive into; near them the price rises; floor it has never seen costs something, so it goes there slowly and head-first, where its eyes are. It picks the cheapest good move, and when every move is too dear it tries the standard ways out, then says `blocked`.
+
+#### 18.13.1 The costs (`CostMap`, replaces `ClearanceMap`)
+Per 5 cm cell, from one `MapSnapshot`:
+
+| Cell | Cost | Moves |
+|---|---|---|
+| **lethal:** `blocked` (low or high above the log-odds level) or outside the map | 1 (∞ for moves) | the body may never overlap it |
+| **near:** free, within `NEAR_M` (0.40 m) of a lethal cell | `NEAR_COST` × (`NEAR_M` − d) / (`NEAR_M` − `body_half_w_m`), capped at `NEAR_COST` (0.8) | allowed, dearer the closer |
+| **unknown:** never seen and never driven over | + `UNKNOWN_COST` (0.3) | allowed forward and turning; **never backward** (§18.13.4) |
+| **free:** seen or driven over, far from anything | 0 | allowed |
+
+- `d` = distance to the nearest lethal cell (`cv2.distanceTransform`, once per snapshot, as today).
+- **Nothing is grown into unknown space.** A box's hidden back is unknown: dearer, slower, never forbidden until seen. The trade-off is the owner's (§166): something never seen can be touched, slowly and never head-on (the sonar, `clear_m` 10 cm, and the Uno's 15 cm brake look forward).
+- **The body is a sensor too:** every telemetry pose, the cells under the tank's footprint (shrunk 2 cm all round for pose drift) get a floor observation in `RoomMap` (a miss on low and high, `seen` true) - the floor the tank stands or drove on is free. `RoomMap.body_over(pose, footprint)`; this is why a tank can never stand inside its own marks.
+
+#### 18.13.2 One body check (`Footprint`)
+- The outline of `Limits`' rectangle (front 13, rear 9, half-width 11.5 cm, design-notes §163), a point every 2.5 cm, posed along a move at most 5° / 2.5 cm apart (as §164 built).
+- **A move is forbidden only if an outline point lands in a lethal cell.** No margins as rules: nearness is cost. A tank close to something can always move away (the cost falls), so no escape exception is needed.
+- The same check for every move: curves, a turn on the spot (only the way it turns), backing up, and the chase's last turn.
+
+#### 18.13.3 Choosing a move (`Planner`, the fan)
+- The fan as today (slice 1's curves, turns on the spot beyond 35°, the ramps), each rolled out 1.5 s.
+- **Score** = progress toward the aim point − heading still off − steering change (slice 1, §17.4) − `COST_W` (4) × the **highest** cost the outline meets along the move; forbidden moves are left out.
+- **Speed from cost:** the top speed is scaled by (1 − the highest cost within 0.5 m ahead), never under `v_min` (18 cm/s) - near things or unknown floor it slows; the 18 cm/s for an untrusted angle or no depth stays (spec 9 §5).
+- **Routes (`RoutePlanner`)** use the same costs: A* on the 10 cm grid (each cell the dearest of its 2 × 2), step cost = length × (1 + `ROUTE_COST_W` (6) × cell cost); a cell is closed only when its centre is nearer than `body_half_w_m` to a lethal cell (the body would overlap going straight); the start cell is always open. Room to turn round comes from the near cost, not from a rule; doorways stay open.
+- **Goals** as §18.7: wander picks free, seen spots 1.5-2 m away; explore picks the cheapest reachable frontier (seen free cells next to unknown, groups ≥ 30 cm); find hands over to the chase.
+
+#### 18.13.4 When nothing is possible: recovery (standard, in order)
+Triggered when no move is allowed or no move makes progress for `STUCK_S` (3 s), or there is no route:
+1. **look** - stand, pan the camera to −90°, −45°, 45°, 90° (1 s each) and back: the map learns the floor beside the tank; then plan again.
+2. **turn** - turn on the spot (90°, the way the footprint check allows, cheaper way first), then plan again.
+3. **back up** - straight back at `v_min`, at most 20 cm, **only over known-free cells** (seen or driven over): nothing senses behind the tank, so it never backs onto floor it doesn't know. Re-checked every tick.
+4. **give up** - `blocked`.
+- A recovery that ends in a move that makes progress (the tank 0.3 m from where recovery began) resets the sequence; recovery starting again within 0.3 m of the last one continues the sequence where it left off. One rule set for wander, explore, find and the chase's routes.
+
+```mermaid
+stateDiagram-v2
+  [*] --> start_look : camera ahead 1 s
+  start_look --> drive
+  drive --> drive : cheapest allowed move along the route
+  drive --> look : stuck (no allowed move / no progress 3 s / no route)
+  look --> drive : a move found
+  look --> turn : still stuck
+  turn --> drive : a move found
+  turn --> back : still stuck (or no turn allowed)
+  back --> drive : a move found
+  back --> blocked : still stuck (or no known-free floor behind)
+  drive --> chase : find - the thing confirmed
+  drive --> done : wander time up / explore nothing left
+  drive --> held : stale map (STOP at once)
+  held --> drive : fresh
+  held --> failed : stale 2 s
+  drive --> failed : sonar echo < clear_m not the target; STOP; Ctrl-C
+  chase --> done : arrived
+```
+
+#### 18.13.5 Classes
+```mermaid
+classDiagram
+  class RoomMap {
+    +update_picture(marks, t_us)
+    +body_over(pose, footprint)
+    +snapshot(t_us, pose, stale, trusted) MapSnapshot
+  }
+  class CostMap {
+    +cost: float[n,n]
+    +lethal: bool[n,n]
+    +known_free: bool[n,n]
+    +dist_m(x, y) float
+    +cost_at(xy) FloatArray
+  }
+  class Footprint {
+    +outline: FloatArray
+    +sweep(at, poses) FloatArray  outline points along a move
+    +allowed(cost, at, poses) bool
+    +highest_cost(cost, at, poses) float
+  }
+  class Planner {
+    +choose(at, now, aim, obstacle_m, cost, far_m) Command
+  }
+  class RoutePlanner {
+    +route(cost, start, goal) list~XY~
+    +costs(cost, start) FloatArray
+  }
+  class Recovery {
+    +step(now_s, at, cost) SkillOut | None
+    +reset(at)
+  }
+  class RoamSkill {
+    +tick(now_s, at, snap, fix, sonar_m, map_ok) SkillOut
+  }
+  class ChaseSkill
+  RoomMap ..> CostMap : snapshot
+  Planner --> Footprint
+  Recovery --> Footprint
+  RoamSkill --> Planner
+  RoamSkill --> RoutePlanner
+  RoamSkill --> Recovery
+  ChaseSkill --> Planner
+  ChaseSkill --> RoutePlanner
+  Planner ..> CostMap
+  RoutePlanner ..> CostMap
+```
+
+#### 18.13.6 One tick
+```mermaid
+sequenceDiagram
+  participant L as drive loop
+  participant M as RoomMap
+  participant C as CostMap
+  participant S as RoamSkill
+  participant R as RoutePlanner
+  participant P as Planner
+  participant F as Footprint
+  L->>M: body_over(pose) (each telemetry)
+  L->>M: snapshot()
+  L->>S: tick(at, snap, sonar, ...)
+  S->>C: CostMap(snap) (once per snapshot)
+  S->>R: route(cost, at, goal)
+  R-->>S: route (or none: recovery)
+  S->>P: choose(at, now, aim, echo, cost)
+  P->>F: allowed / highest_cost per move
+  F-->>P: scores
+  P-->>S: best move (or STOP: recovery)
+  S-->>L: Command (+ camera)
+```
+
+#### 18.13.7 Removed
+`GROW_UNSEEN_M` and the grown map; `MAP_CLEAR_M` / `FRONT_CLEAR_M` / `BODY_CLEAR_M` / `SIDE_MARGIN_M` as hard margins; the escape exception (`ESCAPE_M`); the "no deeper in" sums and the two-map check; `TIGHT_W` / `turn_room_m`; the look's camera pans as a special case, `STUCK_LOOKS`, `LOOK_ROUNDS`; the reverse's track and "not twice" rules. Kept: the sonar's stop (`clear_m`), the stale rule, 18 cm/s when unsure, the ramps, the measured body, reverse only at `v_min`.
+
+#### 18.13.8 Config (`config/map.yaml`, `cost:`)
+```yaml
+cost: {near_m: 0.40, near_cost: 0.8, unknown_cost: 0.3, cost_w: 4.0, route_cost_w: 6.0, stuck_s: 3.0, back_m: 0.20}
+```
+More careful only (§17.10): `near_m`, `near_cost`, `unknown_cost` may only be raised; `back_m` only lowered.
+
+#### 18.13.9 Tests
+- **Costs:** lethal / near / unknown / free values on drawn maps; the body over cells clears them (and not beyond its shrunk footprint).
+- **Footprint:** a move into a lethal cell is forbidden, next to it allowed but dear; a turn on the spot checked only its own way.
+- **The three floor runs as drawn maps:** run 2 (bed panel right, leg ahead-right, the way on behind-left), run 3 (one small mark ahead-left, unknown round the tank) and the wall beside the tank: none ends `blocked` while a way exists; no outline point ever enters a lethal cell.
+- **Recovery:** the order look → turn → back → `blocked`; backing only over known-free cells; progress resets it.
+- **Simulated rooms** (`SimRoom`): all of today's (wander, explore ≥ 80 %, doorways 46 / 60 / 80 cm, the ball by the sofa, the box on the route) plus the three floor-run layouts; the body never inside a box; touches of never-seen things counted and reported (not failed - the accepted trade-off), head-on touches failed.
+- **Floor (spec 9 §6):** wander 2 min, explore, goto ball round a box, find the ball - as Plan Z5 Task 9.
+
+#### 18.13.10 Plan
+A new plan, **Z6 - the cost map**, on branch `plan-z6` from `plan-z5`: replaces the rules above, keeps the rest of Z5. Z5's own floor checks are folded into Z6's; both merge to `main` together after Z6's floor checks.

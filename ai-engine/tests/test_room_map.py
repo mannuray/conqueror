@@ -188,3 +188,41 @@ def test_a_broken_pose_does_not_raise() -> None:  # Z4 review minor (deferred, n
     assert room.is_blocked(nan, 0.0)
     img = map_image(room.snapshot(0, Pose(0, nan, nan, 0.0, 0.0, 0.0), False, True))
     assert int((img == 255).all(axis=2).sum()) == 0
+
+
+# ---- the body as a floor sensor (AI engine LLD §18.13.1, Plan Z6)
+BODY = (0.13, 0.09, 0.115)  # front, rear, half-width (Limits)
+
+
+def stand(room: RoomMap, x: float, y: float, th: float, times: int, t0_us: int = 0) -> int:
+    """body_over every 100 ms, standing still; how many applied."""
+    return sum(room.body_over(Pose(0, x, y, th, 0.0, 0.0), *BODY, t0_us + k * 100_000) for k in range(times))
+
+
+def test_the_floor_under_the_body_is_seen_and_free() -> None:
+    room = RoomMap()
+    c = room.cells(np.array([(0.0, 0.0)]))
+    room.hit(c, "low")
+    room.hit(c, "low")
+    assert room.is_blocked(0.0, 0.0)
+    assert stand(room, 0.0, 0.0, 0.0, 3) == 3
+    assert not room.is_blocked(0.0, 0.0) and room.seen[at(room, 0.0, 0.0)]
+    assert room.seen[at(room, 0.08, 0.07)]  # inside the body shrunk by 2 cm
+    assert not room.seen[at(room, 0.0, 0.14)]  # beside it: not
+
+
+def test_body_over_at_most_10_hz() -> None:
+    room = RoomMap()
+    pose = Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    assert room.body_over(pose, *BODY, 0)
+    assert not room.body_over(pose, *BODY, 50_000)
+    assert room.body_over(pose, *BODY, 100_000)
+
+
+def test_marks_just_outside_the_body_survive() -> None:  # Review Focus 2: pose drift
+    room = RoomMap()
+    c = room.cells(np.array([(0.0, 0.115 + 0.03)]))
+    for _ in range(4):
+        room.hit(c, "low")
+    stand(room, 0.0, 0.0, 0.0, 600)  # a minute beside it
+    assert room.is_blocked(0.0, 0.145)

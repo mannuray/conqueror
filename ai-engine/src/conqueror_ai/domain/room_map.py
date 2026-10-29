@@ -24,6 +24,10 @@ from conqueror_ai.domain.types import Pose
 Layer = Literal["low", "high"]
 BoolArray = NDArray[np.bool_]
 DEPTH_OK_US = 1_000_000  # depth_ok: a depth picture this recently
+# the body is a floor sensor (AI engine LLD §18.13.1, Plan Z6): the floor under the tank is free
+BODY_SHRINK_M = 0.02  # the footprint shrunk this much all round (pose drift)
+BODY_EVERY_US = 100_000  # at most 10 a second, one step per cell (like the sonar)
+BODY_STEP_M = 0.025
 
 UNSEEN = (0, 0, 0)
 SEEN = (110, 110, 110)
@@ -57,6 +61,7 @@ class RoomMap:
         self.high = np.zeros((self.n, self.n), np.float32)
         self.seen = np.zeros((self.n, self.n), np.bool_)
         self._last_picture_us: int | None = None
+        self._last_body_us: int | None = None
 
     def cells(self, xy: FloatArray) -> NDArray[np.intp]:
         """The unique flat cell indices (ix * n + iy) of room points; points outside the map are dropped."""
@@ -93,6 +98,24 @@ class RoomMap:
         for c in (low, high, floor, above):
             seen[c] = True
         self._last_picture_us = t_us
+
+    def body_over(self, pose: Pose, front_m: float, rear_m: float, half_w_m: float, t_us: int) -> bool:
+        """The floor under the tank's footprint (shrunk BODY_SHRINK_M) is seen and free: one miss on both
+        layers per cell. At most once per BODY_EVERY_US; whether it applied."""
+        if self._last_body_us is not None and 0 <= t_us - self._last_body_us < BODY_EVERY_US:
+            return False
+        self._last_body_us = t_us
+        f, r, w = front_m - BODY_SHRINK_M, rear_m - BODY_SHRINK_M, half_w_m - BODY_SHRINK_M
+        gx, gy = np.meshgrid(np.arange(-r, f + 1e-9, BODY_STEP_M), np.arange(-w, w + 1e-9, BODY_STEP_M))
+        c, s = math.cos(pose.th_rad), math.sin(pose.th_rad)
+        xy = np.stack(
+            [pose.x_m + gx.ravel() * c - gy.ravel() * s, pose.y_m + gx.ravel() * s + gy.ravel() * c], axis=1
+        )
+        cells = self.cells(xy)
+        self.miss(cells, "low")
+        self.miss(cells, "high")
+        self.seen.reshape(-1)[cells] = True
+        return True
 
     def blocked(self) -> BoolArray:
         b = self.settings.blocked

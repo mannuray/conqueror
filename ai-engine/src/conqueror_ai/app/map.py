@@ -42,6 +42,7 @@ from conqueror_ai.app.objects import (
 )
 from conqueror_ai.domain.camera import Calibration, CameraModel
 from conqueror_ai.domain.depth import MapConfig, Seeing, Seen
+from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.objects import ObjectPipeline
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.sonar_model import SonarModel
@@ -85,10 +86,17 @@ class MapRun:
     """Telemetry and pictures in arrival order -> the room map (the depth model handed in)."""
 
     def __init__(
-        self, cal: Calibration, cfg: MapConfig, depth: DepthFn | None, p: ObjectPipeline | None = None
+        self,
+        cal: Calibration,
+        cfg: MapConfig,
+        depth: DepthFn | None,
+        p: ObjectPipeline | None = None,
+        lim: Limits | None = None,
     ) -> None:
-        """p: cq-drive's pipeline with its detectors (Plan Z5); none: the pose and pictures' cameras only."""
+        """p: cq-drive's pipeline with its detectors (Plan Z5); none: the pose and pictures' cameras only.
+        lim: the tank's body for the floor under it (Plan Z6); the default body when none."""
         self.cfg = cfg
+        self.lim = lim or Limits()
         self.depth = depth
         self.p = p or ObjectPipeline(cal, frozenset())
         self.room = RoomMap(cfg.map)
@@ -109,6 +117,9 @@ class MapRun:
         dist = None if s.dist_mm is None or s.dist_mm <= 0 else s.dist_mm / 1000.0
         if pose is not None and self.sonar.update(self.room, pose, dist, s.bus_us):
             self.echoes += 1
+        if pose is not None:  # the floor under the tank is free (Plan Z6)
+            lim = self.lim
+            self.room.body_over(pose, lim.body_front_m, lim.body_rear_m, lim.body_half_w_m, s.bus_us)
 
     def on_text(self, text: str) -> None:
         """One recorded message: the tank's calibration or a telemetry sample."""

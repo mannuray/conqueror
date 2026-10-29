@@ -89,7 +89,8 @@ def test_replay_without_depth(tmp_path: Path) -> None:  # Review Focus 4
     run = app.run_replay(tmp_path / "s", CAL, CFG, None)
     out = app.report(run)
     assert run.depth_pictures == 0 and "with depth 0" in out
-    assert not run.room.seen.any() and "seen 0.0 m²" in out
+    assert run.room.seen.sum() * run.room.cell_m**2 <= 0.06  # only the cells under the tank (22 x 23 cm)
+    assert "seen 0.1 m²" in out
     assert run.echoes > 0 and (run.room.low > 0).any()
 
 
@@ -163,3 +164,9 @@ async def test_live_ends_when_a_link_crashes(tmp_path: Path, capsys: pytest.Capt
     cam.run = broken  # type: ignore[method-assign]
     await app.run_live(link, cam, app.MapRun(CAL, CFG, None), None, None, seconds=5.0)
     assert "failed" in capsys.readouterr().out
+
+
+def test_map_run_clears_under_the_tank(tmp_path: Path) -> None:  # Plan Z6: the body is a floor sensor
+    session(tmp_path / "s", dist_mm=800)
+    run = app.run_replay(tmp_path / "s", CAL, CFG, None)  # no depth: only the body and the sonar
+    assert run.room.seen[run.room.n // 2, run.room.n // 2]

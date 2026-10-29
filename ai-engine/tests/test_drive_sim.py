@@ -6,14 +6,16 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
 import pytest
 
 from conqueror_ai.domain.drive.chase import ChaseSkill, SkillOut
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
-from conqueror_ai.domain.drive.sim import SimTank
+from conqueror_ai.domain.drive.sim import Box, SimRoom, SimTank
 from conqueror_ai.domain.objects import GATE_DPS
+from conqueror_ai.domain.room_map import RoomMap
 
 HALF_VIEW_DEG = 41.0  # the camera sees ~82 deg across
 SEES_UP_TO_M = 4.0  # the ball is found up to about this far
@@ -127,3 +129,49 @@ def test_commands_stay_inside_what_the_tank_can_do(ball: tuple[float, float]) ->
             assert abs(w) == pytest.approx(lim.spin_dps)
         if v > 0:  # the inner track never below its slowest speed: no arc tighter than r_min
             assert v - abs(math.radians(w)) * lim.track_m / 2 * 100.0 >= lim.inner_min_cms - 1e-6
+
+
+# ---- SimRoom: a room for simulated drives on the map (Plan Z5)
+def test_simroom_sees_a_box_low() -> None:
+    room = SimRoom([Box(1.0, -0.2, 1.2, 0.2, 0.0, 0.08)])
+    m = room.marks((0.0, 0.0, 0.0))
+    assert len(m.low_xy) > 0 and np.all(np.abs(m.low_xy[:, 0] - 1.0) < 0.06)
+    assert len(m.high_xy) == 0
+    ahead = m.floor_xy[np.abs(m.floor_xy[:, 1]) < 0.1]
+    assert len(ahead) > 0 and ahead[:, 0].max() < 1.0  # floor before it, nothing behind it
+
+
+def test_simroom_tall_box_is_low_and_high() -> None:
+    m = SimRoom([Box(1.0, -0.2, 1.2, 0.2, 0.0, 0.5)]).marks((0.0, 0.0, 0.0))
+    assert len(m.low_xy) > 0 and len(m.high_xy) > 0 and len(m.above_xy) > 0
+
+
+def test_simroom_overhang_is_high_with_floor_under() -> None:
+    m = SimRoom([Box(1.0, -0.3, 1.3, 0.3, 0.15, 0.20)]).marks((0.0, 0.0, 0.0))
+    assert len(m.high_xy) > 0 and len(m.low_xy) == 0
+    under = m.floor_xy[
+        (m.floor_xy[:, 0] > 1.05) & (m.floor_xy[:, 0] < 1.25) & (np.abs(m.floor_xy[:, 1]) < 0.2)
+    ]
+    assert len(under) > 0
+
+
+def test_simroom_sonar() -> None:
+    assert SimRoom([Box(1.0, -0.2, 1.2, 0.2)]).sonar((0.0, 0.0, 0.0)) == pytest.approx(0.87, abs=0.01)
+    under = SimRoom([Box(1.0, -0.3, 1.3, 0.3, 0.15, 0.20)], walls_m=3.0)  # the beam passes under
+    assert under.sonar((0.0, 0.0, 0.0)) == pytest.approx(2.87, abs=0.01)
+    assert SimRoom([], walls_m=6.0).sonar((0.0, 0.0, 0.0)) is None  # beyond 4 m
+
+
+def test_gap_and_front() -> None:
+    room = SimRoom([Box(1.0, -0.2, 1.2, 0.2)], walls_m=3.0)
+    assert room.gap_m((0.5, 0.0, 0.0)) == pytest.approx(0.5, abs=1e-6)
+    assert room.gap_m((2.8, 0.0, 0.0)) == pytest.approx(0.2, abs=1e-6)  # the wall
+    assert room.front_inside((0.9, 0.0, 0.0)) and not room.front_inside((0.8, 0.0, 0.0))
+
+
+def test_seen_share() -> None:
+    sim = SimRoom([], walls_m=1.0)
+    room = RoomMap()
+    assert sim.seen_share(room) == 0.0
+    room.seen[:] = True
+    assert sim.seen_share(room) == pytest.approx(1.0)

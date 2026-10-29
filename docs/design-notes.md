@@ -2602,3 +2602,10 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
 - AI engine LLD §18.13 approved ("1 ok"): costs per cell (lethal / near / unknown / free), the body as a floor sensor, one per-point keep-out of 7.5 cm, speed from cost, routes on the same costs, recovery look → turn → back over known-free floor → `blocked`. The simulator's bar stays: the body never nearer than 5 mm to any box.
 - Checked first on the floor-run recordings with a scratch script (LLD §18.13.10): run 1's path at a median 25 cm/s; run 3's spot free to turn; run 2's spot refused everywhere (it wouldn't have been entered).
 - **Plan Z6 - the cost map** ("2 yes a new plan"): branch `plan-z6` from `plan-z5`; Z5's floor checks folded into Z6's; both merge to `main` together after Z6's floor checks.
+
+## 167. The distance sensor's echo shared along its arc (owner: option B, 2026-10-30)
+- **Found in Plan Z6 (simulated explore):** Z4's sensor model gave every cell on an echo's ±12° arc a full hit, so an echo off a door's jamb drew an arc across the opening and closed the doorway (the sensor's marks switched off: 46 and 60 cm doorways fully explored).
+- **The trade-off, as the Z6 final review measured it:**
+  - **A (Z4, full hits):** a thing only the sensor hears is remembered; doorways close.
+  - **B (the standard model, one hit shared by the arc's cells):** doorways stay open; a wall facing the sensor is marked after ~1-2 s of echoes; but a thing only the sensor hears (glass, a thin leg depth reads as floor) is **never remembered where the camera sees floor round it** (each arc cell gets 0.85 / ~8 per echo against the camera's -0.4 per picture). Straight ahead it is still caught by the live echo, the 10 cm sonar stop and the Uno's 15 cm brake; a turn's corner could brush it.
+- **Owner: B** ("ok b is it"). Watch for it on the floor runs. `SonarModel.update` → `RoomMap.hit(arc, "low", 1 / len(arc))`.

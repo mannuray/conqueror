@@ -165,3 +165,18 @@ def test_driving_blocked_and_looking_in_the_same_place_ends_it() -> None:
     outs = run(s, open_snap(), 120.0)
     results = [o.result for o in outs if o.result]
     assert results == ["blocked"]
+
+
+def test_the_look_turns_the_way_that_is_free() -> None:
+    """Too near something on the left to turn left: the look turns right (design-notes §164)."""
+    room = RoomMap()
+    room.seen[:] = False
+    wall = [(float(x), float(y)) for x in np.arange(-0.6, 0.61, 0.025) for y in np.arange(0.175, 0.3, 0.025)]
+    c = room.cells(np.array(wall, dtype=np.float64))
+    room.hit(c, "low")
+    room.hit(c, "low")
+    room.seen.reshape(-1)[c] = True
+    room.update_picture(Marks(*(np.zeros((0, 2)),) * 4), 0)
+    outs = run(skill(), room.snapshot(0, POSE, False, True), 4.0)
+    spins = [o for o in outs if o.cmd.v_cms == 0 and o.cmd.w_dps != 0]
+    assert spins and all(o.cmd.w_dps < 0 for o in spins)

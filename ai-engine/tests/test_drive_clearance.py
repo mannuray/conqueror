@@ -89,3 +89,10 @@ def test_sonar_only_marks_dont_grow_into_unseen_space() -> None:
     c = ClearanceMap(room.snapshot(0, None, False, True))
     assert c.dist_m(1.0, 0.0) == 0.0
     assert c.dist_m(1.2, 0.0) == pytest.approx(0.2, abs=0.06)  # not grown
+
+
+def test_many_points_at_once_match_one_at_a_time() -> None:
+    """The body's outline is checked at many points per move (design-notes §164): one call for all of them."""
+    c = ClearanceMap(snap_with([(1.0, 0.0), (-0.5, 0.7)]))
+    pts = np.array([(0.0, 0.0), (1.02, 0.01), (0.6, -0.3), (4.5, 0.0), (0.0, -9.0), (-3.99, 3.99)])
+    assert c.dist_many(pts).tolist() == [c.dist_m(float(x), float(y)) for x, y in pts]

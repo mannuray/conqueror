@@ -77,6 +77,7 @@ class RoamSkill:
         self._turned = 0.0  # degrees turned in this look
         self._looks = 0  # full looks with nowhere to go
         self._spinning = False
+        self._look_w = 0.0  # the look's turn: + left, - right (the way that is clear)
         self._step_to = 0.0  # this spin ends when _turned reaches it
         self._pan_look = False  # this look step pans the camera instead of turning the tank
         self._last_look_at: XY | None = None
@@ -225,10 +226,13 @@ class RoamSkill:
             return self._end("blocked")
         if self._spinning:
             self._turned += abs(self.cmd.w_dps) * self._dt  # what the tank was told last tick
-            if self._turned >= self._step_to - 1e-9 or not planner.can_spin(at, fan):
+            left = self._look_w > 0
+            if self._turned >= self._step_to - 1e-9 or not planner.can_spin(
+                at, fan, left, self._step_to - self._turned
+            ):
                 self._spinning, self._look_t0 = False, now_s  # one step done (or too near): stand and look
                 return self._halt()
-            return self._out(Command(0.0, self.lim.spin_dps))
+            return self._out(Command(0.0, self._look_w))
         if now_s - self._look_t0 < LOOK_STAND_S - 1e-9:
             return self._halt()
         route = self._plan(now_s, at, clear)
@@ -247,9 +251,10 @@ class RoamSkill:
             self._turned = 0.0
             self.wander.drop()
         self._step_to = self._turned + LOOK_STEP_DEG
-        if planner.can_spin(at, fan):
-            self._spinning = True
-            return self._out(Command(0.0, self.lim.spin_dps))
+        for left in (True, False):  # left as before; right when only that way is clear (design-notes §164)
+            if planner.can_spin(at, fan, left):
+                self._spinning, self._look_w = True, self.lim.spin_dps * (1.0 if left else -1.0)
+                return self._out(Command(0.0, self._look_w))
         # too near something to turn on the spot (review C1): a quarter of the look with the camera instead
         k = round(self._turned / LOOK_STEP_DEG) % len(LOOK_PANS)
         self._turned, self._look_t0, self._pan = self._step_to, now_s, LOOK_PANS[k]

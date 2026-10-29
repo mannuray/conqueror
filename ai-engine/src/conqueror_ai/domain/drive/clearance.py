@@ -34,16 +34,16 @@ class ClearanceMap:
             x, y, r = ignore
             c = (np.arange(self.n) + 0.5) * self.cell_m - self.half_m
             blocked &= np.hypot(c[:, None] - x, c[None, :] - y) > r
+        # the marks alone, never grown: a body standing in grown unseen space reads 0 everywhere on the grown
+        # map, so its moves are checked against these too (design-notes §164)
+        self.marks_dist: FloatArray = _dist(blocked) * self.cell_m
         seen_marks = blocked & snap.seen  # the camera's marks; a sonar arc (never seen) doesn't grow
         if grow and seen_marks.any():
             to_mark = cast(
                 "NDArray[np.float32]", cv2.distanceTransform((~seen_marks).astype(np.uint8), cv2.DIST_L2, 5)
             )
             blocked |= ~snap.seen & (to_mark * self.cell_m <= GROW_UNSEEN_M)
-        free = np.zeros((self.n + 2, self.n + 2), np.uint8)  # a blocked border: the edge is a wall
-        free[1:-1, 1:-1] = ~blocked
-        d = cast("NDArray[np.float32]", cv2.distanceTransform(free, cv2.DIST_L2, cv2.DIST_MASK_PRECISE))
-        self.dist: FloatArray = d[1:-1, 1:-1].astype(np.float64) * self.cell_m
+        self.dist: FloatArray = _dist(blocked) * self.cell_m
         self.seen = snap.seen
 
     def cell_of(self, x: float, y: float) -> tuple[int, int] | None:
@@ -58,6 +58,25 @@ class ClearanceMap:
         ij = self.cell_of(x, y)
         return 0.0 if ij is None else float(self.dist[ij])
 
+    def dist_many(self, xy: FloatArray, marks_only: bool = False) -> FloatArray:
+        """dist_m for an (..., 2) array of points at once (the body's outline, design-notes §164); marks_only:
+        to the marks themselves (no unseen space grown)."""
+        dist = self.marks_dist if marks_only else self.dist
+        ij = np.floor((xy + self.half_m) / self.cell_m).astype(np.int64)
+        inside = ((ij >= 0) & (ij < self.n)).all(axis=-1)
+        out = np.zeros(xy.shape[:-1])
+        out[inside] = dist[ij[inside][:, 0], ij[inside][:, 1]]
+        return out
+
     def seen_at(self, x: float, y: float) -> bool:
         ij = self.cell_of(x, y)
         return ij is not None and bool(self.seen[ij])
+
+
+def _dist(blocked: NDArray[np.bool_]) -> FloatArray:
+    """Cells to the nearest blocked cell, with a blocked border (the map's edge is a wall)."""
+    n = blocked.shape[0]
+    free = np.zeros((n + 2, n + 2), np.uint8)
+    free[1:-1, 1:-1] = ~blocked
+    d = cast("NDArray[np.float32]", cv2.distanceTransform(free, cv2.DIST_L2, cv2.DIST_MASK_PRECISE))
+    return d[1:-1, 1:-1].astype(np.float64)

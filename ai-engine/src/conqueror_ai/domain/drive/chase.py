@@ -163,8 +163,8 @@ class ChaseSkill:
                     return self._end("done")
                 return SkillOut(self.cmd)
             if not self.planner.can_spin(
-                at, fan
-            ):  # close enough; turning to face it would scrape (review C1)
+                at, fan, b > 0, abs(b)
+            ):  # turning to face it would scrape (review C1)
                 self.cmd = STOP
                 return self._end("done")
             # close enough but off to the side: driving on would pass it, so turn on the spot to face it

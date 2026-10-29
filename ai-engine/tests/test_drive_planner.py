@@ -207,3 +207,51 @@ def test_a_wider_body_keeps_its_sides_clear() -> None:
         assert p.score(at, straight, straight, (2.0, 0.0), None, shelf) == pytest.approx(
             free + blocked * p.w.blocked
         )
+
+
+# ---- the body checked along every move (design-notes §164)
+def bed_corner() -> ClearanceMap:
+    """Floor run 2: the bed's side panel 15 cm to the right of the centre, its leg ahead-right (cell
+    centres)."""
+    return map_with(area(-0.6, -0.40, 0.10, -0.175) + area(0.075, -0.40, 0.30, -0.15))
+
+
+def test_beside_the_bed_it_turns_away_not_into_it() -> None:
+    """A turn is checked for the way it turns, not the full turning circle: turning right swings the front
+    corner into the leg; turning left swings the rear corner (14.6 cm out) right, but the panel is 17.5 cm off
+    here (cell centres). On floor run 2 it was ~15 cm: refused, rightly (design-notes §164)."""
+    bed = bed_corner()
+    assert P.can_spin((0.0, 0.0, 0.0), bed, left=True)
+    assert not P.can_spin((0.0, 0.0, 0.0), bed, left=False)
+    c = P.choose((0.0, 0.0, 0.0), STOP, (-0.24, 0.38), clear=bed, far_m=math.inf)  # the way on behind-left
+    assert c.v_cms == 0 and c.w_dps > 0
+
+
+def test_driving_on_past_the_bed_leg_is_refused() -> None:
+    """...and the right side would pass the leg closer than it is now: forward stays refused there."""
+    bed = bed_corner()
+    straight = Command(25.0, 0.0)
+    free = P.score((0.0, 0.0, 0.0), STOP, straight, (2.0, 0.0), None, map_with([]))
+    blocked = P.score((0.0, 0.0, 0.0), STOP, straight, (2.0, 0.0), None, bed)
+    assert blocked <= free + P.w.blocked + 1e-9
+
+
+def test_the_rear_is_checked_when_turning() -> None:
+    """A box just behind the right rear corner: turning right swings that corner into it, left away."""
+    box = map_with(area(-0.30, -0.25, -0.125, -0.15))
+    assert P.can_spin((0.0, 0.0, 0.0), box, left=True)
+    assert not P.can_spin((0.0, 0.0, 0.0), box, left=False)
+
+
+def test_standing_in_grown_unseen_space_still_checks_the_marks() -> None:
+    """The fan's map counts unseen floor near a seen mark as the mark: a tank standing in it read 0
+    everywhere, so any turn passed - even into the thing. The marks themselves are checked too (§164)."""
+    room = RoomMap()
+    wall = room.cells(np.array(area(-0.6, 0.175, 0.6, 0.3), dtype=np.float64))
+    room.hit(wall, "low")
+    room.hit(wall, "low")
+    room.seen.reshape(-1)[wall] = True  # the floor round the tank unseen (the camera's blind zone)
+    grown = ClearanceMap(room.snapshot(0, None, False, True))
+    assert grown.dist_m(0.0, 0.0) == 0.0
+    assert not P.can_spin((0.0, 0.0, 0.0), grown, left=True)
+    assert P.can_spin((0.0, 0.0, 0.0), grown, left=False)

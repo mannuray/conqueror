@@ -194,8 +194,9 @@ def test_a_ball_by_a_sofa_is_reached(off: float) -> None:
 @pytest.mark.parametrize(
     "door",
     [
-        # 46 cm: 100 % seen, but going back it can't line up from an angle (Plan Z6) - the owner decides
-        pytest.param(0.46, marks=pytest.mark.xfail(strict=True, reason="owner decision (Plan Z6)")),
+        # 46 cm: 100 % seen, but going back it can't line up from an angle - owner: 50 cm for now, narrower
+        # gaps are later work (design-notes §168)
+        pytest.param(0.46, marks=pytest.mark.xfail(strict=True, reason="narrower than 50 cm: later")),
         0.50,
         0.60,
     ],

@@ -2609,3 +2609,7 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
   - **A (Z4, full hits):** a thing only the sensor hears is remembered; doorways close.
   - **B (the standard model, one hit shared by the arc's cells):** doorways stay open; a wall facing the sensor is marked after ~1-2 s of echoes; but a thing only the sensor hears (glass, a thin leg depth reads as floor) is **never remembered where the camera sees floor round it** (each arc cell gets 0.85 / ~8 per echo against the camera's -0.4 per picture). Straight ahead it is still caught by the live echo, the 10 cm sonar stop and the Uno's 15 cm brake; a turn's corner could brush it.
 - **Owner: B** ("ok b is it"). Watch for it on the floor runs. `SonarModel.update` → `RoomMap.hit(arc, "low", 1 / len(arc))`.
+
+## 168. The narrowest gap: 50 cm for now (owner, 2026-10-30)
+- Plan Z6's simulated explore through a gap in a wall: 50, 60 and 80 cm - through and back, `done`, 100 % seen; **46 cm** - the far room 100 % seen, but coming back it can't line up from an angle (23 cm body, 7.5 cm keep-out each side, the map's 5 cm cells) and ends `blocked`.
+- **Owner: "let it be 50 cm, then we will work on the narrower gap."** The 46 cm case stays in the tests as a strict expected failure (it fails the suite the day it passes, so the mark gets removed). Later work: lining up for a narrow gap (backing off and turning to face it).

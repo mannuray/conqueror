@@ -249,7 +249,10 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
                 else goal.update(run.p.objects(), (pose.x_m, pose.y_m), pose.t_us, by_size)
             )
             snap = None if pose is None else run.snapshot(pose.t_us, state is not None)  # stale: now
-            out = _tick(skill, m, now - t0, at, snap, fix, sonar[0], state is None, cam_still)
+            # planning off the event loop (6-21 ms: the fan, routes; Z6 review 11) - the snapshot is a copy
+            out = await asyncio.to_thread(
+                _tick, skill, m, now - t0, at, snap, fix, sonar[0], state is None, cam_still
+            )
             await drive.drive(out.cmd)
             if out.cam is not None:
                 await drive.cam(*out.cam)

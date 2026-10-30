@@ -5,6 +5,7 @@ heights:
   clear_m: 0.20      # up to this: a high obstacle; above: passable under (owner, design-notes §159, §161; only larger)
   below_m: -0.05     # a point this far under the floor is bad depth
 ranges:
+  mark_min_m: 0.35   # obstacles are trusted from here (design-notes §171: nearer, the picture's bottom edge; only smaller)
   mark_max_m: 1.5    # obstacles are trusted this far (design-notes §169: beyond, ~13 % too near)
   free_max_m: 3.0    # floor and "above" this far
   sonar_max_m: 4.0   # an echo this far or more marks nothing (only smaller)

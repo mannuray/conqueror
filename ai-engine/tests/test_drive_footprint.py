@@ -74,9 +74,16 @@ def test_run_3_unknown_round_the_tank() -> None:
 
 
 def test_a_turn_is_checked_its_own_way() -> None:
-    box = cost_with(area(-0.30, -0.30, -0.20, -0.175))  # off the right rear corner, diagonally
+    """Off the right rear corner, diagonally: turning right ends the front-right corner exactly 7.5 cm from
+    the box's nearest cell centre (measured exactly; from cell centres it read nearer, design-notes §171) -
+    allowed.
+    Nearer by one cell (the box from x -0.15) it is refused, turning left still allowed."""
+    box = cost_with(area(-0.30, -0.30, -0.20, -0.175))
     assert F.allowed(box, AT, F.spin_poses(AT, left=True))
-    assert not F.allowed(box, AT, F.spin_poses(AT, left=False))
+    assert F.allowed(box, AT, F.spin_poses(AT, left=False))
+    nearer = cost_with(area(-0.25, -0.30, -0.15, -0.175))
+    assert F.allowed(nearer, AT, F.spin_poses(AT, left=True))
+    assert not F.allowed(nearer, AT, F.spin_poses(AT, left=False))
 
 
 def test_already_near_may_move_away_not_nearer() -> None:  # Review Focus 1
@@ -101,3 +108,27 @@ def test_a_thing_under_the_front_edge_never_ends_up_inside_the_body() -> None:  
     for d in (0.05, 0.10, 0.15):
         assert not F.allowed(leg, at, [(0.02 + d, 0.0, 0.0)])
     assert F.allowed(leg, at, F.back_poses(at, 0.1))  # away from it
+
+
+def test_one_mark_beside_the_body_never_freezes_it() -> None:
+    """Floor run 3 (design-notes §171): one false mark 5 cm off the right side, 5 cm behind the centre. The
+    map rounds distances to 5.0 / 7.1 / 11.2 cm, so sliding past it at the same gap read as 'nearer' for some
+    point and every move was refused. Now no point may come nearer than the body's closest gap is now,
+    measured exactly.
+    Turning stays refused both ways: the front corner (17.4 cm out) sweeps through it (17.2 cm out) one way,
+    the rear corner passes 2.6 cm off it the other."""
+    mark = cost_with([(-0.05, -(LIM.body_half_w_m + 0.05))])
+    assert mark.dist_many(F.world(AT, F.body)).min() < mark.settings.keep_out_m  # already inside the keep-out
+    assert F.allowed(mark, AT, [(0.025 * k, 0.0, 0.0) for k in range(1, 5)])  # driving on, past it
+    assert F.allowed(mark, AT, F.back_poses(AT, 0.05))  # backing off
+    assert not F.allowed(mark, AT, F.spin_poses(AT, left=True))
+    assert not F.allowed(mark, AT, F.spin_poses(AT, left=False))
+
+
+def test_beside_a_mark_still_never_nearer_than_now() -> None:
+    """The same mark: sideways into it stays refused; and a turn beside a wall 3.5 cm off the left side, whose
+    rear corner would pass 4 mm from it - 5 cm cells read both gaps as 5 cm, 1 cm ones don't."""
+    mark = cost_with([(-0.05, -(LIM.body_half_w_m + 0.05))])
+    assert not F.allowed(mark, AT, [(0.0, -0.025 * k, 0.0) for k in range(1, 4)])
+    wall = cost_with(area(-0.6, 0.15, 0.6, 0.3))
+    assert not F.allowed(wall, AT, F.spin_poses(AT, left=False))

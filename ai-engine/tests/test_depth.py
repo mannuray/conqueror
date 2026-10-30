@@ -185,6 +185,7 @@ def kind_of(marks: Marks, cam: CameraModel, u: int, v: int, rng: FloatArray) -> 
 
 
 HP = HeightPoints(Heights(), Ranges())
+HP_ANY = HeightPoints(Heights(), Ranges(mark_min_m=0.0))  # heights alone, however near (§171: from 35 cm)
 
 
 def test_floor_pixels_are_floor() -> None:
@@ -197,16 +198,17 @@ def test_floor_pixels_are_floor() -> None:
 
 def test_a_box_gives_low_and_high_points() -> None:
     cam = servo_cam()
-    rng = scene(cam, [(160, 180, 0.05), (164, 180, 0.15)])
+    rng = scene(cam, [(160, 120, 0.05), (164, 80, 0.15)])  # 48 and 44 cm from the lens (from 35 cm, §171)
     m = HP.classify(cam, rng)
-    assert kind_of(m, cam, 160, 180, rng) == "low" and kind_of(m, cam, 164, 180, rng) == "high"
+    assert kind_of(m, cam, 160, 120, rng) == "low" and kind_of(m, cam, 164, 80, rng) == "high"
 
 
 def test_an_18_cm_board_is_high_and_a_30_cm_one_is_above() -> None:
     cam = servo_cam()
-    # both are above the lens (17.8 cm): pixels looking a little up see them
+    # both are above the lens (17.8 cm): pixels looking a little up see them (the 18 cm one only 6.5 cm off -
+    # no sampled pixel puts it past 35 cm, so heights alone)
     rng = scene(cam, [(160, 60, 0.18), (160, 8, 0.30)])
-    m = HP.classify(cam, rng)
+    m = HP_ANY.classify(cam, rng)
     assert kind_of(m, cam, 160, 60, rng) == "high" and kind_of(m, cam, 160, 8, rng) == "above"
 
 
@@ -236,6 +238,23 @@ def test_obstacles_are_marked_only_to_1_5_m() -> None:  # design-notes §169 A: 
     assert kind_of(HP.classify(cam, bare), cam, *far[0], bare) == "floor"  # its floor still seen
 
 
+def test_obstacles_are_marked_only_from_35_cm() -> None:  # design-notes §171 B: the picture's bottom edge
+    """Floor run 3: the floor's dark stripe read as raised at the picture's bottom edge, ~25 cm from the
+    camera, and froze the tank. Nearer than 35 cm nothing is marked an obstacle; the floor there is still
+    seen."""
+    cam = servo_cam()
+    # a point 3 cm up on a floor ray at D sits at D x (1 - 3 / 17.8): ~0.28 m for D ~0.33, ~0.50 m for D ~0.6
+    near = [(160, v) for v in range(0, 240, 4) if 0.30 < cam.floor_distance(160, v) < 0.36]
+    mid = [(160, v) for v in range(0, 240, 4) if 0.55 < cam.floor_distance(160, v) < 0.65]
+    assert near and mid
+    rng = scene(cam, [(*near[0], 0.03), (*mid[0], 0.03)])
+    m = HP.classify(cam, rng)
+    assert kind_of(m, cam, *near[0], rng) is None
+    assert kind_of(m, cam, *mid[0], rng) == "low"
+    bare = scene(cam, [])
+    assert kind_of(HP.classify(cam, bare), cam, *near[0], bare) == "floor"
+
+
 def test_points_under_the_floor_and_bad_ranges_are_dropped() -> None:
     cam = servo_cam()
     rng = scene(cam, [(160, 200, -0.10)])
@@ -248,16 +267,16 @@ def test_points_under_the_floor_and_bad_ranges_are_dropped() -> None:
 
 def test_the_owners_clear_height_is_used() -> None:
     cam = servo_cam()
-    rng = scene(cam, [(160, 8, 0.22)])  # above the lens: a pixel looking up
+    rng = scene(cam, [(160, 44, 0.22)])  # above the lens: a pixel looking up, 40 cm off
     owners = HeightPoints(Heights(clear_m=0.25), Ranges())
-    assert kind_of(owners.classify(cam, rng), cam, 160, 8, rng) == "high"
-    assert kind_of(HP.classify(cam, rng), cam, 160, 8, rng) == "above"
+    assert kind_of(owners.classify(cam, rng), cam, 160, 44, rng) == "high"
+    assert kind_of(HP.classify(cam, rng), cam, 160, 44, rng) == "above"
 
 
 # ---- Seeing: one picture end to end
 def test_a_synthetic_scene_comes_out_right() -> None:
     true = servo_cam(1.5)
-    box = [(u, v, 0.05) for u in range(148, 176, 4) for v in range(172, 196, 4)]
+    box = [(u, v, 0.05) for u in range(148, 176, 4) for v in range(120, 140, 4)]  # 37-53 cm off (§171)
     rng = scene(true, box)
     with np.errstate(divide="ignore", invalid="ignore"):
         z = rng / true.ray_norms()

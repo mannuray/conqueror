@@ -1781,3 +1781,38 @@ classDiagram
 
 #### 18.13.13 Backing off a mark on the tank's own corner (owner, 2026-10-30, design-notes §170)
 `Recovery._back_ok`: the outline's cells along the reverse must be known-free **or under the body at the start of backing** (its outline and whole-body grid cells at `at`); `Footprint.allowed` still applies, so no point gets nearer to a mark than it is. Floor run 2 ended `blocked` with a mark on the front-right corner and clear floor behind; now it backs off. Tests: `test_backs_off_a_mark_touching_its_front_corner` (was blocked), `test_never_backs_over_a_mark_behind` (guard). Replaces §18.13.10's run-2 outcome when the floor behind is known clear.
+
+#### 18.13.14 The body as a whole, exact gaps; obstacles from 35 cm (owner, 2026-10-31, design-notes §171)
+Floor run 3 froze beside one false mark: each body point kept its own distance, read from 5 cm cell centres, so any slide past a mark read as "nearer". As built:
+
+```mermaid
+classDiagram
+    class CostMap {
+        +dist: FloatArray
+        +gap_many(xy) FloatArray
+        +marks_within(x0, y0, x1, y1) FloatArray
+        -_pad: BoolArray
+        -_ring: IntArray
+    }
+    class Footprint {
+        +front_m, rear_m, half_w_m, lim_reach
+        +allowed(cost, at, poses) bool
+        -_inside(p, xy) BoolArray
+    }
+    class Ranges {
+        +mark_min_m = 0.35
+        +mark_max_m = 1.5
+        +free_max_m = 3.0
+    }
+    Footprint --> CostMap : gap_many, marks_within
+    HeightPoints --> Ranges : obstacles only between mark_min_m and mark_max_m
+```
+
+- `CostMap.gap_many(xy)`: `dist_many`, except points within `GAP_CELLS - 1` (3) cells of a mark get the exact distance to the nearest lethal cell centre in the 9 × 9 cells round them (the map's edge counts as lethal).
+- `CostMap.marks_within(box)`: lethal cell centres in a box (the edge included).
+- `Footprint.allowed(cost, at, poses)`: with `d` = the body's smallest exact gap at `at`:
+  1. every point at every dense pose keeps `gap >= min(keep_out_m, d - GAP_TOL_M)` (`GAP_TOL_M` 5 mm);
+  2. no mark centre comes inside the body's rectangle at any pose unless it was inside at `at` (review I1);
+  3. if `d < SLIDE_MIN_M` (3 cm) the move's last pose must have a gap `>= d + GAP_TOL_M` (owner).
+- `HeightPoints.classify`: low / high only for points `mark_min_m <= distance <= mark_max_m` from the lens; floor and above as before. `load_map_config` refuses a larger `mark_min_m`.
+- Tests: `test_one_mark_beside_the_body_never_freezes_it` (was refused), `test_beside_a_mark_still_never_nearer_than_now`, `test_obstacles_are_marked_only_from_35_cm`, the config direction; changed with measurements: `test_a_turn_is_checked_its_own_way`, the corridor in `test_stop_only_when_every_move_is_forbidden`, four depth tests; the 46 cm doorway now passes; `test_no_turn_on_the_spot_scrapes_a_wall[π/2, 0.15]` a strict known failure (the next design: turning beside an unseen wall).

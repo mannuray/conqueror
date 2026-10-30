@@ -31,6 +31,7 @@ class Heights:
 
 @dataclass(frozen=True)
 class Ranges:
+    mark_min_m: float = 0.35  # obstacles trusted from here: nearer is the picture's bottom edge (§171)
     mark_max_m: float = 1.5  # obstacles (low / high) trusted this far (design-notes §169)
     free_max_m: float = 3.0  # floor and "above" this far
     sonar_max_m: float = 4.0  # an echo this far or more marks nothing (spec 9 §5)
@@ -213,7 +214,8 @@ class HeightPoints:
             z = pts[..., 2]
             dist = np.hypot(pts[..., 0] - lens[0], pts[..., 1] - lens[1])
             ok = np.isfinite(z) & np.isfinite(dist) & (rng > 0) & (z >= hs.below_m)
-            near, far = ok & (dist <= rs.mark_max_m), ok & (dist <= rs.free_max_m)
+            near = ok & (dist >= rs.mark_min_m) & (dist <= rs.mark_max_m)
+            far = ok & (dist <= rs.free_max_m)
             floor = far & (z < hs.floor_m)
             low = near & (z >= hs.floor_m) & (z < hs.low_top_m)
             high = near & (z >= hs.low_top_m) & (z <= hs.clear_m)

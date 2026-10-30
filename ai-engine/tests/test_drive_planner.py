@@ -227,7 +227,8 @@ def test_cost_steers_away_from_things() -> None:
 def test_stop_only_when_every_move_is_forbidden() -> None:  # review M8
     """The way on behind, no turn on the spot allowed (walls 15 cm each side): forward curves are allowed but
     dear and away from the aim - the fan still offers one (driving out), it doesn't stop."""
-    corridor = map_with(area(-1.0, 0.15, 2.0, 0.3) + area(-1.0, -0.3, 2.0, -0.15))
+    # the right wall from -0.175: from -0.15 its cells overlapped the track (design-notes §171)
+    corridor = map_with(area(-1.0, 0.15, 2.0, 0.3) + area(-1.0, -0.3, 2.0, -0.175))
     assert not P.can_spin((0.0, 0.0, 0.0), corridor, True) and not P.can_spin(
         (0.0, 0.0, 0.0), corridor, False
     )

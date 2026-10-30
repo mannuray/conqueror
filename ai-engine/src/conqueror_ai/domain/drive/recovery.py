@@ -115,10 +115,17 @@ class Recovery:
         return (Command(-self.lim.v_min_cms, 0.0), None)
 
     def _back_ok(self, at: XYTh, length_m: float, cost: CostMap) -> bool:
-        """Straight back over known-free floor only (nothing senses behind the tank), the body's rule kept."""
+        """Straight back over known-free floor only (nothing senses behind the tank), the body's rule kept.
+        Cells the body covers now count as known: a mark drawn on its corner after it got there (the camera's
+        blind zone) mustn't stop it backing off (floor run 2, design-notes §170)."""
+        under = {
+            cost.cell_of(float(x), float(y))
+            for pts in (self.foot.outline, self.foot.body)
+            for x, y in self.foot.world(at, pts)
+        }
         poses = self.foot.back_poses(at, length_m)
         for p in poses:
             ij = [cost.cell_of(float(x), float(y)) for x, y in self.foot.world(p)]
-            if any(c is None or not cost.known_free[c] for c in ij):
+            if any(c is None or (not cost.known_free[c] and c not in under) for c in ij):
                 return False
         return self.foot.allowed(cost, at, poses)

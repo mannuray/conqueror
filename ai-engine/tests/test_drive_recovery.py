@@ -119,6 +119,30 @@ def test_backs_over_known_free_floor_20_cm_at_v_min() -> None:
     assert -0.22 <= tank.at[0] <= -0.18
 
 
+def test_backs_off_a_mark_touching_its_front_corner() -> None:  # floor run 2, design-notes §170
+    """A mark drawn on the front-right corner after the tank got there (the camera's blind zone), clear floor
+    behind: it backs off it - the cell under the body is where the tank already is, not unknown floor."""
+    rec = Recovery(LIM, Footprint(LIM), TILT)
+    corner = (LIM.body_front_m + 0.01, -LIM.body_half_w_m)  # in the same 5 cm cell as the outline's corner
+    cost = cost_with([corner])
+    assert cost.lethal[cost.cell_of(LIM.body_front_m - 0.001, -LIM.body_half_w_m + 0.001)]
+    for k in range(3):
+        rec.start(float(k), (0.0, 0.0, 0.0))
+    assert rec.step == "back"
+    outs, tank = run(rec, cost, 5.0, 2.0)
+    assert outs and all(c == Command(-LIM.v_min_cms, 0.0) for c, _ in outs)
+    assert -0.22 <= tank.at[0] <= -0.18
+
+
+def test_never_backs_over_a_mark_behind() -> None:
+    rec = Recovery(LIM, Footprint(LIM), TILT)
+    cost = cost_with([(-LIM.body_rear_m - 0.06, 0.0)])  # 6 cm behind the tail
+    for k in range(3):
+        rec.start(float(k), (0.0, 0.0, 0.0))
+    _, tank = run(rec, cost, 5.0, 2.0)
+    assert tank.at[0] >= -0.06  # stops short: the body's keep-out kept
+
+
 def test_progress_resets_the_sequence() -> None:
     rec = Recovery(LIM, Footprint(LIM), TILT)
     rec.start(0.0, (0.0, 0.0, 0.0))

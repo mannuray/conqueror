@@ -1778,3 +1778,6 @@ classDiagram
 **Measured (2026-10-30):**
 - **A on floor run 1's recording:** obstacle area 6.5 → **2.1 m²**; usable wander spots at the end 22 → **42** of 108; the speckled ring round the start mostly gone.
 - **B in simulated rooms** (the simulated camera sees exactly, 2 m all round): 5 × 5 m with a bed, 120 s - 0.5 m cells visited 40-44 (old 40-48), the drive's ~25 m allows only ~50; 7 × 7 m with a bed and two boxes, 240 s - 73-93, mean 85 (old 79-84, mean 82). **No real difference in simulation**: the perfect camera already shows the old wander the way round. The test that counts is the floor.
+
+#### 18.13.13 Backing off a mark on the tank's own corner (owner, 2026-10-30, design-notes §170)
+`Recovery._back_ok`: the outline's cells along the reverse must be known-free **or under the body at the start of backing** (its outline and whole-body grid cells at `at`); `Footprint.allowed` still applies, so no point gets nearer to a mark than it is. Floor run 2 ended `blocked` with a mark on the front-right corner and clear floor behind; now it backs off. Tests: `test_backs_off_a_mark_touching_its_front_corner` (was blocked), `test_never_backs_over_a_mark_behind` (guard). Replaces §18.13.10's run-2 outcome when the floor behind is known clear.

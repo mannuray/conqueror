@@ -2624,3 +2624,9 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
   - **B:** wander aims only at reachable spots and prefers places it hasn't been near (0.5 m) for 60 s (LLD §18.13.12).
 - **Changed while building B:** unseen floor as a destination was dropped - in the simulator it picked a spot behind a wall it hadn't looked at yet and touched the wall turning towards it. Seen floor + "go somewhere new" drifts to the edge of what it has seen and on, like explore, without that risk.
 - **Measured:** A on run 1's recording - obstacle area 6.5 → 2.1 m², usable wander spots 22 → 42 of 108. B in the simulator - about the same ground covered as before (its perfect camera already shows the old wander the way round); the floor run decides.
+
+## 170. Backing off a mark on the tank's own corner (owner: "yes", 2026-10-30)
+- **Floor run 2 (wander 2 min, after §169):** it roamed a 2.9 × 3.2 m area in new directions (13.9 m, 27.7 m² seen, vs a 2 × 3 m strip before), then ended `blocked` at 82 s.
+- **Why:** an obstacle mark appeared 5-15 cm ahead-right, on the front-right corner of the tank's outline, after the tank got there (the camera can't see within 25 cm; the sonar said 43 cm ahead, so the mark is probably a little misplaced). Turning either way was rightly refused (the corner would sweep through it). **Backing was refused wrongly:** the "back only over floor known to be clear" check also tested the cells the body already covered, including the marked corner.
+- **Fix:** when backing, a cell is fine if it is known clear **or the body covers it now** - the tank is standing there. The body rule still holds (no point nearer a mark than it is now), so a mark behind still stops it. On the run's recording: backing 5, 10 and 20 cm now allowed at the stopping point.
+- This also covers LLD §18.13.10's run-2 case ("ends blocked, the safe answer"): with clear floor behind, it backs out now.

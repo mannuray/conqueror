@@ -125,8 +125,11 @@ def test_a_box_appears_on_the_route() -> None:  # Review Focus 4
     assert r.nearest >= NEAREST_M and not r.front_hit and r.body >= BODY_M
 
 
-def test_find_ball_out_of_sight() -> None:
-    r = roam("wander", 90.0, find=True, ball=(-1.6, 0.2))  # behind the tank at the start
+@pytest.mark.parametrize("seed", [1, 2, 3, 4, 7])
+def test_find_ball_out_of_sight(seed: int) -> None:
+    """Behind the tank at the start. Wander is random: five paths, each finds it within 120 s (owner,
+    design-notes §172: one path at 90 s was luck - over 10 paths the median sight was 26 s, seed 7 118 s)."""
+    r = roam("wander", 120.0, find=True, ball=(-1.6, 0.2), seed=seed)
     assert r.result == "done" and "chase" in r.states
     assert r.nearest >= NEAREST_M and not r.front_hit and r.body >= BODY_M
 
@@ -177,8 +180,9 @@ def test_find_ball_behind_a_box() -> None:
 @pytest.mark.parametrize(
     ("gap", "th"),  # centre this far from a wall, facing along it
     [
-        # the wall beside it unseen (the camera looks along it): the turn ends 4.6 mm off it (5 mm wanted; the
-        # old rule 7.2 mm). How a turn treats unseen floor its corners sweep is the next design (§171)
+        # the wall beside it unseen (the camera looks along it): the body rule made exact (§171-§172) allows a
+        # curve the 5 cm rounding refused, so the turn after it ends 4.6 mm off the wall (5 mm wanted; before,
+        # 7.2 mm). How a turn treats unseen floor its corners sweep is the next design
         pytest.param(
             0.15, math.pi / 2, marks=pytest.mark.xfail(strict=True, reason="unseen wall: next design")
         ),

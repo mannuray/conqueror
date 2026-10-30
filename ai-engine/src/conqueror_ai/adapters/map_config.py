@@ -80,8 +80,8 @@ def load_map_config(path: Path) -> MapConfig:
         careless.append("blocked (0 or less: every unseen cell would be blocked)")
     if cfg.ranges.sonar_max_m > Ranges().sonar_max_m:
         careless.append("sonar_max_m")
-    if cfg.ranges.mark_min_m > Ranges().mark_min_m:
-        careless.append("mark_min_m")
+    if cfg.ranges.mark_max_m < Ranges().mark_max_m:  # fewer obstacles marked (0: none from the camera)
+        careless.append("mark_max_m")
     careless += [k for k in COST_AT_LEAST if getattr(cfg.cost, k) < getattr(CostSettings(), k)]
     careless += [k for k in COST_AT_MOST if getattr(cfg.cost, k) > getattr(CostSettings(), k)]
     if careless:

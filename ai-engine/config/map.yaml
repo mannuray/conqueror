@@ -5,8 +5,7 @@ heights:
   clear_m: 0.20      # up to this: a high obstacle; above: passable under (owner, design-notes §159, §161; only larger)
   below_m: -0.05     # a point this far under the floor is bad depth
 ranges:
-  mark_min_m: 0.35   # obstacles are trusted from here (design-notes §171: nearer, the picture's bottom edge; only smaller)
-  mark_max_m: 1.5    # obstacles are trusted this far (design-notes §169: beyond, ~13 % too near)
+  mark_max_m: 1.5    # obstacles are trusted this far (design-notes §169: beyond, ~13 % too near; only larger)
   free_max_m: 3.0    # floor and "above" this far
   sonar_max_m: 4.0   # an echo this far or more marks nothing (only smaller)
 depth:
@@ -26,7 +25,7 @@ cost:                # driving on the map (LLD §18.13, Plan Z6); only more care
   near_c_m: 0.40     # routes: near cost from the tank's centre, zero this far out
   near_cost: 0.8     # the most a near cell costs (an obstacle is 1)
   unknown_cost: 0.3  # added for floor never seen
-  cost_w: 4.0        # the fan's score per unit of the highest cost a move meets
+  cost_w: 4.0        # the fan's score per unit of the move's mean highest cost (LLD §18.13.3)
   route_cost_w: 6.0  # a route step costs its length x (1 + this x the cell's cost)
   stuck_s: 3.0       # no allowed move or no progress this long: the ways out
   back_m: 0.20       # the ways out back up at most this far, over known floor only

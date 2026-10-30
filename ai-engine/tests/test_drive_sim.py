@@ -141,6 +141,16 @@ def test_simroom_sees_a_box_low() -> None:
     assert len(ahead) > 0 and ahead[:, 0].max() < 1.0  # floor before it, nothing behind it
 
 
+def test_simroom_marks_obstacles_only_as_far_as_the_camera_is_trusted() -> None:  # Z6 review 7
+    """As the real depth (design-notes §169): obstacles to 1.5 m from the lens; farther the box isn't marked,
+    but it still hides the floor behind it."""
+    lens = 0.085  # CAM_X_M
+    far = SimRoom([Box(lens + 1.7, -0.2, lens + 1.8, 0.2, 0.0, 0.08)]).marks((0.0, 0.0, 0.0))
+    assert len(far.low_xy) == 0
+    ahead = far.floor_xy[np.abs(far.floor_xy[:, 1]) < 0.1]
+    assert len(ahead) > 0 and ahead[:, 0].max() < lens + 1.7
+
+
 def test_simroom_tall_box_is_low_and_high() -> None:
     m = SimRoom([Box(1.0, -0.2, 1.2, 0.2, 0.0, 0.5)]).marks((0.0, 0.0, 0.0))
     assert len(m.low_xy) > 0 and len(m.high_xy) > 0 and len(m.above_xy) > 0

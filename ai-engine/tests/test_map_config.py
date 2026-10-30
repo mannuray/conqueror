@@ -96,7 +96,7 @@ def test_repo_map_yaml_loads() -> None:
         ("map: {clamp: 0.5}", "clamp"),
         ("map: {clamp: 3.0}", "clamp"),
         ("ranges: {sonar_max_m: 6.0}", "sonar_max_m"),
-        ("ranges: {mark_min_m: 0.5}", "mark_min_m"),
+        ("ranges: {mark_max_m: 0.3}", "mark_max_m"),  # fewer camera obstacles (Z6 review 7)
     ],
 )
 def test_settings_that_would_make_the_map_less_careful_are_refused(
@@ -110,7 +110,7 @@ def test_settings_that_would_make_the_map_less_careful_are_refused(
 
 @pytest.mark.parametrize(
     "text",
-    ["map: {blocked: 0.5}", "map: {clamp: 5.0}", "ranges: {sonar_max_m: 3.0}", "ranges: {mark_min_m: 0.3}"],
+    ["map: {blocked: 0.5}", "map: {clamp: 5.0}", "ranges: {sonar_max_m: 3.0}", "ranges: {mark_max_m: 2.0}"],
 )
 def test_more_careful_map_settings_are_kept(tmp_path: Path, text: str) -> None:
     f = tmp_path / "map.yaml"

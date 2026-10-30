@@ -10,7 +10,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from conqueror_ai.domain.camera import FloatArray
-from conqueror_ai.domain.depth import Marks
+from conqueror_ai.domain.depth import Marks, Ranges
 from conqueror_ai.domain.drive.curves import Command, XYTh
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.room_map import RoomMap
@@ -82,10 +82,18 @@ class SimRoom:
         return self.boxes + self.walls
 
     def marks(
-        self, at: XYTh, half_deg: float = 41.0, near_m: float = 0.30, far_m: float = 2.0, pan_deg: float = 0.0
+        self,
+        at: XYTh,
+        half_deg: float = 41.0,
+        near_m: float = 0.30,
+        far_m: float = 2.0,
+        pan_deg: float = 0.0,
+        ranges: Ranges | None = None,
     ) -> Marks:
         """Rays every 1 deg across the view, points every 5 cm: floor up to the first standing box, its face
-        as low / high / above points by its height; an overhang's face is high / above, the floor goes on."""
+        as low / high / above points by its height; an overhang's face is high / above, the floor goes on.
+        Faces are marked only as far as the real depth trusts them (Ranges.mark_max_m, Z6 review 7)."""
+        rs = ranges or Ranges()
         x, y, th = at
         cx, cy = x + CAM_X_M * math.cos(th), y + CAM_X_M * math.sin(th)
         th = th - math.radians(pan_deg)  # the camera panned (cam_set: + = right)
@@ -103,15 +111,17 @@ class SimRoom:
             )
             for t, b in hits:
                 p = (cx + t * dx, cy + t * dy)
+                trusted = t <= rs.mark_max_m
                 if b.z0 < 0.02:  # standing: its face, then nothing behind it
-                    low.append(p)
-                    if b.z1 > 0.10:
-                        high.append(p)
+                    if trusted:
+                        low.append(p)
+                        if b.z1 > 0.10:
+                            high.append(p)
                     if b.z1 > 0.20:
                         above.append(p)
                     stop = t
                     break
-                if b.z0 <= 0.20:  # an overhang's front edge; the floor under it stays in view
+                if b.z0 <= 0.20 and trusted:  # an overhang's front edge; the floor under it stays in view
                     high.append(p)
                 if b.z1 > 0.20:
                     above.append(p)

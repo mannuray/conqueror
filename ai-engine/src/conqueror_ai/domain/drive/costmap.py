@@ -18,7 +18,6 @@ from conqueror_ai.domain.room_map import BoolArray, MapSnapshot
 __all__ = ["MAX_COST", "CostMap", "CostSettings"]
 
 MAX_COST = 0.95  # a free cell never costs more than this; lethal is 1
-GAP_CELLS = 4  # the body's gaps are exact within this many cells of a mark (design-notes §171)
 
 
 class CostMap:
@@ -45,10 +44,7 @@ class CostMap:
         free[1:-1, 1:-1] = ~lethal
         d = cast("NDArray[np.float32]", cv2.distanceTransform(free, cv2.DIST_L2, cv2.DIST_MASK_PRECISE))
         self.dist: FloatArray = d[1:-1, 1:-1].astype(np.float64) * self.cell_m
-        # the body rule's exact gaps look this far round a point; the map's edge is lethal there too
-        self._pad: BoolArray = np.pad(lethal, GAP_CELLS + 1, constant_values=True)
-        k = np.arange(-GAP_CELLS, GAP_CELLS + 1)
-        self._ring = np.stack(np.meshgrid(k, k, indexing="ij"), -1).reshape(-1, 2)
+        self._pad: BoolArray = np.pad(lethal, 1, constant_values=True)  # the map's edge is lethal too
 
     def cell_of(self, x: float, y: float) -> tuple[int, int] | None:
         ix, iy = math.floor((x + self.half_m) / self.cell_m), math.floor((y + self.half_m) / self.cell_m)
@@ -77,32 +73,12 @@ class CostMap:
         i, j, inside = self._cells(xy)
         return np.where(inside, self.dist[i, j], 0.0)
 
-    def gap_many(self, xy: FloatArray) -> FloatArray:
-        """dist_many, but exact from the points themselves (not their cells' centres) to the nearest known
-        obstacle's cell centre wherever that is near: the body rule's gaps. From cell centres the map rounds
-        to 5.0 / 7.1 / 11.2 cm, so sliding past a mark read as nearer for some point, and 0.4 cm or 3.5 cm off
-        a wall both read 5 cm (design-notes §171)."""
-        pts = xy.reshape(-1, 2)
-        d = self.dist_many(pts).copy()
-        _, _, inside = self._cells(pts)
-        near = inside & (d < (GAP_CELLS - 1) * self.cell_m)  # further: >= 15 cm, past any keep-out
-        if near.any():
-            p = pts[near]
-            ij = np.floor((p + self.half_m) / self.cell_m).astype(np.int64)[:, None, :] + self._ring[None]
-            centre = (ij + 0.5) * self.cell_m - self.half_m
-            hit = self._pad[ij[..., 0] + GAP_CELLS + 1, ij[..., 1] + GAP_CELLS + 1]
-            gap = np.where(hit, np.hypot(*(p[:, None, :] - centre).transpose(2, 0, 1)), np.inf)
-            d[near] = gap.min(axis=1)
-        return d.reshape(xy.shape[:-1])
-
     def marks_within(self, x0: float, y0: float, x1: float, y1: float) -> FloatArray:
         """The centres of known obstacles' cells (and the map's edge) in this box, (M, 2)."""
         lo = np.floor((np.array([x0, y0]) + self.half_m) / self.cell_m).astype(np.int64)
         hi = np.floor((np.array([x1, y1]) + self.half_m) / self.cell_m).astype(np.int64)
         lo, hi = np.maximum(lo, -1), np.minimum(hi, self.n)
-        sub = self._pad[
-            lo[0] + GAP_CELLS + 1 : hi[0] + GAP_CELLS + 2, lo[1] + GAP_CELLS + 1 : hi[1] + GAP_CELLS + 2
-        ]
+        sub = self._pad[lo[0] + 1 : hi[0] + 2, lo[1] + 1 : hi[1] + 2]
         ij = np.argwhere(sub) + lo
         return cast("FloatArray", (ij + 0.5) * self.cell_m - self.half_m)
 

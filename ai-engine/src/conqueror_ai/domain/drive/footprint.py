@@ -1,13 +1,14 @@
-"""One body rule (AI engine LLD §18.13.2, Plan Z6): the outline of the tank's rectangle (Limits, design-notes
-§163), rolled out along a move. No outline point may come nearer than the keep-out to a known obstacle, and a
-point already nearer may not come any nearer; everything else about nearness is cost (§18.13.1)."""
+"""One body rule (AI engine LLD §18.13.14, Plan Z6): the tank's rectangle (Limits, design-notes §163),
+rolled out along a move, never comes nearer to a known obstacle than the keep-out - or, already nearer, than
+it is now. Gaps are exact, from the rectangle to the obstacles' cell centres (§171); everything else about
+nearness is cost (§18.13.1)."""
 
 from __future__ import annotations
 
 import math
+from typing import cast
 
 import numpy as np
-from numpy.typing import NDArray
 
 from conqueror_ai.domain.camera import FloatArray
 from conqueror_ai.domain.drive.costmap import CostMap
@@ -17,7 +18,6 @@ from conqueror_ai.domain.drive.limits import Limits
 OUTLINE_STEP_M = 0.025  # outline points this far apart (the map's cells are 5 cm)
 SWEEP_STEP_DEG = 5.0  # a move is checked at poses at most this far turned ...
 SWEEP_STEP_M = 0.025  # ... and this far moved apart
-GAP_TOL_M = 0.005  # already inside the keep-out: nearer than now by less than this doesn't count (§171)
 SLIDE_MIN_M = 0.03  # nearer than this already: only a move that ends further off (owner, design-notes §171)
 
 
@@ -25,14 +25,13 @@ class Footprint:
     def __init__(self, lim: Limits) -> None:
         f, r, w = lim.body_front_m, lim.body_rear_m, lim.body_half_w_m
         self.front_m, self.rear_m, self.half_w_m = f, r, w
-        self.lim_reach = math.hypot(max(f, r), w)
+        self.lim_reach = lim.sweep_r_m
         ys = np.linspace(-w, w, max(2, math.ceil(2 * w / OUTLINE_STEP_M) + 1))
         xs = np.linspace(-r, f, max(2, math.ceil((f + r) / OUTLINE_STEP_M) + 1))[1:-1]
         edges = [np.stack([np.full_like(ys, f), ys], 1), np.stack([np.full_like(ys, -r), ys], 1)]
         sides = [np.stack([xs, np.full_like(xs, w)], 1), np.stack([xs, np.full_like(xs, -w)], 1)]
-        # the outline (tank frame: x ahead, y left) reads the cost; the whole body keeps the keep-out (review
-        # I1: a point already in an obstacle's cell can't get nearer, so with the outline alone a thing under
-        # the edge could end up inside the body)
+        # the outline (tank frame: x ahead, y left) reads the cost; the whole body's points find the cells it
+        # covers (backing off a mark under it, recovery)
         self.outline: FloatArray = np.concatenate(edges + sides).astype(np.float64)
         gx, gy = np.meshgrid(np.linspace(-r, f, len(xs) + 2), ys)
         self.body: FloatArray = np.stack([gx.ravel(), gy.ravel()], axis=1).astype(np.float64)
@@ -63,36 +62,36 @@ class Footprint:
         return out
 
     def allowed(self, cost: CostMap, at: XYTh, poses: list[XYTh]) -> bool:
-        """Along the whole move: no point of the body nearer than keep_out_m to a known obstacle, or - when
-        the body already is - than its closest point is now (GAP_TOL_M aside); and no obstacle comes inside
-        the body's outline (review I1: a leg under the front edge). Nearer than SLIDE_MIN_M already, the move
-        must end further off (no sliding along a thing that overlaps the track). The body's gap, measured
-        exactly, not each point's own from cell centres: that read sliding past one mark as nearer for some
-        point and froze every move (floor run 3, design-notes §171)."""
-        d = float(cost.gap_many(self.world(at, self.body)).min())
-        floor = min(cost.settings.keep_out_m, d - GAP_TOL_M) - 1e-9
+        """Along the whole move the body's gap never drops below min(keep_out_m, the gap now); nearer than
+        SLIDE_MIN_M already, the move must also end further off (no sliding along a thing that overlaps the
+        track, owner). A mark inside the outline is a gap below 0, deeper is nearer (review I1: a leg under
+        the front edge can't end up inside the body)."""
         dense = self.dense(at, poses)
         if not dense:
             return True
-        reach = self.lim_reach
+        keep = cost.settings.keep_out_m
+        out = self.lim_reach + keep  # marks further from every pose than this can't matter
         xs = [p[0] for p in (at, *dense)]
         ys = [p[1] for p in (at, *dense)]
-        marks = cost.marks_within(min(xs) - reach, min(ys) - reach, max(xs) + reach, max(ys) + reach)
-        was_in = self._inside(at, marks)
-        if d < SLIDE_MIN_M and float(cost.gap_many(self.world(dense[-1], self.body)).min()) < d + GAP_TOL_M:
+        marks = cost.marks_within(min(xs) - out, min(ys) - out, max(xs) + out, max(ys) + out)
+        g = self.gaps([at, *dense], marks)
+        if bool((g[1:] < min(keep, float(g[0])) - 1e-9).any()):
             return False
-        return all(
-            bool((cost.gap_many(self.world(p, self.body)) >= floor).all())
-            and not bool((self._inside(p, marks) & ~was_in).any())
-            for p in dense
-        )
+        return not (g[0] < SLIDE_MIN_M and g[-1] <= g[0] + 1e-9)
 
-    def _inside(self, p: XYTh, xy: FloatArray) -> NDArray[np.bool_]:
-        """Which of these room points lie inside the body's outline at pose p."""
-        c, s = math.cos(p[2]), math.sin(p[2])
-        dx, dy = xy[:, 0] - p[0], xy[:, 1] - p[1]
-        bx, by = dx * c + dy * s, -dx * s + dy * c
-        return (bx > -self.rear_m) & (bx < self.front_m) & (np.abs(by) < self.half_w_m)
+    def gaps(self, poses: list[XYTh], marks: FloatArray) -> FloatArray:
+        """The body's gap at each pose: the distance from its rectangle to the nearest of these points, or,
+        for a point inside it, minus that point's depth (deeper is nearer); inf with no points (§171)."""
+        if marks.shape[0] == 0:
+            return np.full(len(poses), np.inf)
+        p = np.asarray(poses, dtype=np.float64)
+        c, s = np.cos(p[:, 2])[:, None], np.sin(p[:, 2])[:, None]
+        dx, dy = marks[None, :, 0] - p[:, 0, None], marks[None, :, 1] - p[:, 1, None]
+        bx, by = dx * c + dy * s, np.abs(-dx * s + dy * c)
+        f, r, w = self.front_m, self.rear_m, self.half_w_m
+        outside = np.hypot(np.maximum(np.maximum(-r - bx, bx - f), 0.0), np.maximum(by - w, 0.0))
+        depth = np.minimum(np.minimum(bx + r, f - bx), w - by)
+        return cast("FloatArray", np.where(depth > 0.0, -depth, outside).min(axis=1))
 
     def highest_cost(self, cost: CostMap, at: XYTh, poses: list[XYTh], ahead_m: float | None = None) -> float:
         """The dearest cell the outline meets along the move (only within ahead_m of `at` when given)."""

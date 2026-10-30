@@ -7,7 +7,7 @@ import math
 
 import numpy as np
 
-from conqueror_ai.domain.drive.costmap import CostMap
+from conqueror_ai.domain.drive.costmap import CostMap, CostSettings
 from conqueror_ai.domain.drive.curves import STOP, Command, roll_out
 from conqueror_ai.domain.drive.footprint import Footprint
 from conqueror_ai.domain.drive.limits import Limits
@@ -74,16 +74,12 @@ def test_run_3_unknown_round_the_tank() -> None:
 
 
 def test_a_turn_is_checked_its_own_way() -> None:
-    """Off the right rear corner, diagonally: turning right ends the front-right corner exactly 7.5 cm from
-    the box's nearest cell centre (measured exactly; from cell centres it read nearer, design-notes §171) -
-    allowed.
-    Nearer by one cell (the box from x -0.15) it is refused, turning left still allowed."""
-    box = cost_with(area(-0.30, -0.30, -0.20, -0.175))
+    """A box behind-right (cell centres 11 cm off the body): turning left keeps 9.1 cm, turning right swings
+    the front-right corner to 6.4 cm - inside the 7.5 cm keep-out (exact gaps; Z6 review 12: clear
+    margins)."""
+    box = cost_with(area(-0.175, -0.275, -0.075, -0.225))  # marks mid-cell: centres x -0.175..-0.075
     assert F.allowed(box, AT, F.spin_poses(AT, left=True))
-    assert F.allowed(box, AT, F.spin_poses(AT, left=False))
-    nearer = cost_with(area(-0.25, -0.30, -0.15, -0.175))
-    assert F.allowed(nearer, AT, F.spin_poses(AT, left=True))
-    assert not F.allowed(nearer, AT, F.spin_poses(AT, left=False))
+    assert not F.allowed(box, AT, F.spin_poses(AT, left=False))
 
 
 def test_already_near_may_move_away_not_nearer() -> None:  # Review Focus 1
@@ -113,12 +109,12 @@ def test_a_thing_under_the_front_edge_never_ends_up_inside_the_body() -> None:  
 def test_one_mark_beside_the_body_never_freezes_it() -> None:
     """Floor run 3 (design-notes §171): one false mark 5 cm off the right side, 5 cm behind the centre. The
     map rounds distances to 5.0 / 7.1 / 11.2 cm, so sliding past it at the same gap read as 'nearer' for some
-    point and every move was refused. Now no point may come nearer than the body's closest gap is now,
-    measured exactly.
+    point and every move was refused. Now the body may not come nearer than its gap now, measured exactly.
     Turning stays refused both ways: the front corner (17.4 cm out) sweeps through it (17.2 cm out) one way,
     the rear corner passes 2.6 cm off it the other."""
     mark = cost_with([(-0.05, -(LIM.body_half_w_m + 0.05))])
-    assert mark.dist_many(F.world(AT, F.body)).min() < mark.settings.keep_out_m  # already inside the keep-out
+    marks = mark.marks_within(-1.0, -1.0, 1.0, 1.0)
+    assert F.gaps([AT], marks)[0] < mark.settings.keep_out_m  # already inside the keep-out
     assert F.allowed(mark, AT, [(0.025 * k, 0.0, 0.0) for k in range(1, 5)])  # driving on, past it
     assert F.allowed(mark, AT, F.back_poses(AT, 0.05))  # backing off
     assert not F.allowed(mark, AT, F.spin_poses(AT, left=True))
@@ -132,3 +128,23 @@ def test_beside_a_mark_still_never_nearer_than_now() -> None:
     assert not F.allowed(mark, AT, [(0.0, -0.025 * k, 0.0) for k in range(1, 4)])
     wall = cost_with(area(-0.6, 0.15, 0.6, 0.3))
     assert not F.allowed(wall, AT, F.spin_poses(AT, left=False))
+
+
+def test_no_creeping_nearer_a_little_at_a_time() -> None:  # Z6 review 1
+    """A wall 6 cm off the left side (its cells' centres): 4 mm nearer is nearer - with a 5 mm allowance
+    measured from each new 'now', ten such steps took the gap from 6.9 to 2.9 cm."""
+    wall = cost_with(area(-1.0, 0.175, 1.5, 0.3))
+    assert not F.allowed(wall, AT, [(0.0, 0.004, 0.0)])
+    assert F.allowed(wall, AT, [(0.025 * k, 0.0, 0.0) for k in range(1, 9)])  # along it: the same gap
+
+
+def test_a_raised_keep_out_is_kept_exactly() -> None:  # Z6 review 3
+    """The keep-out may be raised (more careful): a mark 16 cm off the right side, 2 cm sideways toward it
+    ends 14 cm off - inside a 15 cm keep-out, refused (the exact gaps reached only 15 cm out)."""
+    room = RoomMap()
+    room.seen[:] = True
+    c = room.cells(np.array([(0.0, -(LIM.body_half_w_m + 0.18))], dtype=np.float64))
+    room.hit(c, "low")
+    room.hit(c, "low")
+    cost = CostMap(room.snapshot(0, None, False, True), CostSettings(keep_out_m=0.15))
+    assert not F.allowed(cost, AT, [(0.0, -0.005 * k, 0.0) for k in range(1, 5)])

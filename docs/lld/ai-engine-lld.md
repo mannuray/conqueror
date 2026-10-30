@@ -210,7 +210,7 @@ Each ping: laptop send `t0`, receive `t1`, the pong's `bridge_us`. Keep the 8 sa
 
 ### 5.6 SonarModel
 - Beam: half-angle 12° (to confirm in phase 0); inner free cone half-angle 4°.
-- Valid echo `d`: cells on the arc at `d ± 3 cm` within the beam → **occupied** (weight `+0.85`); cells in the inner cone with range `< d − 5 cm` → free (weight `−0.2`, low).
+- Valid echo `d`: cells on the arc at `d ± 3 cm` within the beam → **occupied**, one hit (`+0.85`) shared by the arc's cells (design-notes §167; was a full hit each); cells in the inner cone with range `< d − 5 cm` → free (weight `−0.2`, low).
 - `None` (no echo, fault) or ≥ 4 m → **no update at all**.
 
 ### 5.7 LocalGrid
@@ -1380,7 +1380,7 @@ sequenceDiagram
 - **Log-odds** (config): hit +0.85, miss −0.4, clamped to ±4; **blocked** when `low > 0.7` or `high > 0.7`.
 - **`SonarModel.update(room, pose, dist_m)`** (each telemetry sample, at most 10 Hz used):
   - the sonar point = pose + `sonar_x_m` ahead; beam half-angle 12° (Q0);
-  - an echo `d` < 4.0 m: a **low hit** on the arc at `d` (±12°, cells along the arc), and a **low miss** in the narrow cone (±4°) from 0.10 m to `d − 0.10`;
+  - an echo `d` < 4.0 m: a **low hit** on the arc at `d` (±12°, cells along the arc), **shared: each cell 1 / (cells on the arc)** (design-notes §167), and a **low miss** in the narrow cone (±4°) from 0.10 m to `d − 0.10`;
   - **never touches `high`**; no echo or `d ≥ 4.0` does nothing (spec 9 §5).
 - **Edges:** cells outside the 8 × 8 m count as blocked (a soft fence).
 - **`snapshot(pose, stale)`** → `MapSnapshot`: copies of `blocked`, `high` (for the view), `seen`, plus the pose, the stale flag (spec 7 §4), `depth_ok` (a depth picture in the last 1 s) and `angle_trusted`.
@@ -1599,6 +1599,8 @@ Per 5 cm cell, from one `MapSnapshot`:
 - **The body is a sensor too:** the cells under the tank's footprint (shrunk 2 cm all round for pose drift) get a floor observation in `RoomMap` - a miss on low and high, `seen` true - at most 10 times a second and one step per cell per update, like the sonar (Z4's evidence rule): the floor the tank stands or drove on is free. `RoomMap.body_over(pose, footprint)`.
 
 #### 18.13.2 One body check (`Footprint`)
+> **Superseded by §18.13.14 (2026-10-31, design-notes §171-§172):** the body as a whole, exact gaps from its rectangle; the per-point rule below froze beside one mark (5 cm rounding). The objection to a body-wide rule below is answered there.
+
 - The outline of `Limits`' rectangle (front 13, rear 9, half-width 11.5 cm, design-notes §163), a point every 2.5 cm, posed along a move at most 5° / 2.5 cm apart (as §164 built).
 - **The one rule: no point of the body's outline comes nearer than `KEEP_OUT_M` (7.5 cm, about one cell, to the obstacle cell's centre) to a known obstacle; a point already nearer may not come any nearer.** Each outline point is checked against its own start (the points move with the body, so "this point" is well defined).
   - Why 7.5 cm: the map's cells are 5 cm, so a free cell next to an obstacle cell can be 0-5 cm from the real surface. Checking only "inside an obstacle cell" would have allowed run 2's left turn by the bed (the rear corner swings to 14.6 cm, the panel's cell started at 15 cm).
@@ -1608,7 +1610,7 @@ Per 5 cm cell, from one `MapSnapshot`:
 
 #### 18.13.3 Choosing a move (`Planner`, the fan)
 - The fan as today (slice 1's curves, turns on the spot beyond 35°, the ramps), each rolled out 1.5 s.
-- **Score** = progress toward the aim point − heading still off − steering change (slice 1, §17.4) − `COST_W` (4) × the **highest** cost the outline points meet along the move; forbidden moves are left out.
+- **Score** = progress toward the aim point − heading still off − steering change (slice 1, §17.4) − `COST_W` (4) × the **mean over the move of the highest cost the outline meets at each pose** (as built: the highest alone is met at the start of every move beside a wall, so it couldn't tell moving away); forbidden moves are left out.
 - **Speed from cost:** `c` = the highest cost the outline points meet over the first 0.5 m of the chosen move's roll-out; the top speed = `v_top` − (`v_top` − `v_min`) × `c` - 25 cm/s on open seen floor, toward 18 cm/s near things or on unknown floor, never a crawl below `v_min`. The 18 cm/s for an untrusted angle or no depth stays (spec 9 §5).
 - **Routes (`RoutePlanner`)** use the same costs: A* on the 10 cm grid (each cell the dearest of its 2 × 2), step cost = length × (1 + `ROUTE_COST_W` (6) × cell cost); a cell is closed only when its centre is nearer than `body_half_w_m` to a lethal cell (the body would overlap going straight); the start cell is always open. Room to turn round comes from the near cost, not from a rule; doorways stay open.
 - **Goals** as §18.7: wander picks free, seen spots 1.5-2 m away; explore picks the cheapest reachable frontier (seen free cells next to unknown, groups ≥ 30 cm); find hands over to the chase.
@@ -1642,52 +1644,95 @@ stateDiagram-v2
   chase --> done : arrived
 ```
 
-#### 18.13.5 Classes
+#### 18.13.5 Classes (as built, Z6 review 2026-10-31)
 ```mermaid
 classDiagram
   class RoomMap {
     +update_picture(marks, t_us)
-    +body_over(pose, footprint)
-    +snapshot(t_us, pose, stale, trusted) MapSnapshot
+    +body_over(pose, front_m, rear_m, half_w_m, t_us) bool
+    +snapshot(t_us, pose, stale, angle_trusted) MapSnapshot
+  }
+  class CostSettings {
+    +keep_out_m, near_out_m, near_c_m, near_cost, unknown_cost
+    +cost_w, route_cost_w, stuck_s, back_m
   }
   class CostMap {
-    +cost: float[n,n]
-    +lethal: bool[n,n]
-    +known_free: bool[n,n]
-    +dist_m(x, y) float
-    +cost_at(xy) FloatArray
+    +lethal, seen, known_free: bool[n,n]
+    +dist: float[n,n]
+    +cell_of(x, y) / centre(ix, iy)
+    +dist_m(x, y) / dist_many(xy) / seen_at(x, y)
+    +marks_within(x0, y0, x1, y1) FloatArray
+    +outline_cost(xy) FloatArray
+    +centre_cost(half_w) FloatArray
   }
   class Footprint {
-    +outline: FloatArray
-    +sweep(at, poses) FloatArray  outline points along a move
+    +outline, body: FloatArray
+    +world(p, pts) FloatArray
+    +dense(at, poses) list~XYTh~
     +allowed(cost, at, poses) bool
-    +highest_cost(cost, at, poses) float
+    +gaps(poses, marks) FloatArray
+    +highest_cost(cost, at, poses, ahead_m) float
+    +mean_cost(cost, at, poses) float
+    +spin_poses(at, left, deg)$ / back_poses(at, length_m)$
   }
   class Planner {
+    +fan(at, target, now, far_m, cost) list~Command~
     +choose(at, now, aim, obstacle_m, cost, far_m) Command
+    +can_spin(at, cost, left, deg) bool
+    +speed_cap(cost, at, cmd) float
   }
   class RoutePlanner {
     +route(cost, start, goal) list~XY~
     +costs(cost, start) FloatArray
+    +grid_of(x, y) / nearest(...)
   }
   class Recovery {
-    +step(now_s, at, cost) SkillOut | None
-    +reset(at)
+    +step: look | turn | back | blocked
+    +start(now_s, at)
+    +progress(at)
+    +tick(now_s, at, cost) Out | None
   }
+  class ProgressWatch {
+    +reset()
+    +ok(now_s, at) bool
+  }
+  class TurnMeter {
+    +deg: float
+    +reset()
+    +update(th_rad) float
+  }
+  class WanderGoal {
+    +destination(now_s, at, cost, planner) XY | None
+    +drop()
+  }
+  class ExploreGoal
   class RoamSkill {
-    +tick(now_s, at, snap, fix, sonar_m, map_ok) SkillOut
+    +tick(now_s, at, snap, fix, sonar_m, map_ok, cam_still) SkillOut
   }
-  class ChaseSkill
+  class ChaseSkill {
+    +tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap) SkillOut
+  }
   RoomMap ..> CostMap : snapshot
+  CostMap --> CostSettings
   Planner --> Footprint
   Recovery --> Footprint
+  Recovery --> TurnMeter
+  ProgressWatch --> Recovery : progress
   RoamSkill --> Planner
   RoamSkill --> RoutePlanner
   RoamSkill --> Recovery
+  RoamSkill --> ProgressWatch
+  RoamSkill --> WanderGoal
+  RoamSkill --> ExploreGoal
+  RoamSkill --> ChaseSkill : find
   ChaseSkill --> Planner
   ChaseSkill --> RoutePlanner
+  ChaseSkill --> Recovery
+  ChaseSkill --> ProgressWatch
+  ChaseSkill --> TurnMeter : the search turn
   Planner ..> CostMap
   RoutePlanner ..> CostMap
+  Footprint ..> CostMap : gaps to marks_within
 ```
 
 #### 18.13.6 One tick
@@ -1702,12 +1747,12 @@ sequenceDiagram
   participant F as Footprint
   L->>M: body_over(pose) (each telemetry)
   L->>M: snapshot()
-  L->>S: tick(at, snap, sonar, ...)
+  L->>S: tick(at, snap, sonar, ...) (asyncio.to_thread: off the event loop)
   S->>C: CostMap(snap) (once per snapshot)
   S->>R: route(cost, at, goal)
   R-->>S: route (or none: recovery)
   S->>P: choose(at, now, aim, echo, cost)
-  P->>F: allowed / highest_cost per move
+  P->>F: allowed / mean_cost per move
   F-->>P: scores
   P-->>S: best move (or STOP: recovery)
   S-->>L: Command (+ camera)
@@ -1782,37 +1827,36 @@ classDiagram
 #### 18.13.13 Backing off a mark on the tank's own corner (owner, 2026-10-30, design-notes §170)
 `Recovery._back_ok`: the outline's cells along the reverse must be known-free **or under the body at the start of backing** (its outline and whole-body grid cells at `at`); `Footprint.allowed` still applies, so no point gets nearer to a mark than it is. Floor run 2 ended `blocked` with a mark on the front-right corner and clear floor behind; now it backs off. Tests: `test_backs_off_a_mark_touching_its_front_corner` (was blocked), `test_never_backs_over_a_mark_behind` (guard). Replaces §18.13.10's run-2 outcome when the floor behind is known clear.
 
-#### 18.13.14 The body as a whole, exact gaps; obstacles from 35 cm (owner, 2026-10-31, design-notes §171)
-Floor run 3 froze beside one false mark: each body point kept its own distance, read from 5 cm cell centres, so any slide past a mark read as "nearer". As built:
+#### 18.13.14 The body as a whole, exact gaps (owner, 2026-10-31, design-notes §171, §172 - as built after the Z6 review)
+Floor run 3 froze beside one false mark: each body point kept its own distance, read from 5 cm cell centres, so any slide past a mark read as "nearer". A first fix (body points measured exactly, a 5 mm allowance, an outline check) worked but was three rules and let the body creep 5 mm a decision (Z6 review 1-2); as built now it is one rule:
 
 ```mermaid
 classDiagram
     class CostMap {
-        +dist: FloatArray
-        +gap_many(xy) FloatArray
         +marks_within(x0, y0, x1, y1) FloatArray
-        -_pad: BoolArray
-        -_ring: IntArray
+        -_pad: BoolArray  the lethal cells, the map's edge lethal
     }
     class Footprint {
         +front_m, rear_m, half_w_m, lim_reach
         +allowed(cost, at, poses) bool
-        -_inside(p, xy) BoolArray
+        +gaps(poses, marks) FloatArray
     }
-    class Ranges {
-        +mark_min_m = 0.35
-        +mark_max_m = 1.5
-        +free_max_m = 3.0
-    }
-    Footprint --> CostMap : gap_many, marks_within
-    HeightPoints --> Ranges : obstacles only between mark_min_m and mark_max_m
+    Footprint --> CostMap : marks_within (reach + keep_out round the move)
 ```
 
-- `CostMap.gap_many(xy)`: `dist_many`, except points within `GAP_CELLS - 1` (3) cells of a mark get the exact distance to the nearest lethal cell centre in the 9 × 9 cells round them (the map's edge counts as lethal).
-- `CostMap.marks_within(box)`: lethal cell centres in a box (the edge included).
-- `Footprint.allowed(cost, at, poses)`: with `d` = the body's smallest exact gap at `at`:
-  1. every point at every dense pose keeps `gap >= min(keep_out_m, d - GAP_TOL_M)` (`GAP_TOL_M` 5 mm);
-  2. no mark centre comes inside the body's rectangle at any pose unless it was inside at `at` (review I1);
-  3. if `d < SLIDE_MIN_M` (3 cm) the move's last pose must have a gap `>= d + GAP_TOL_M` (owner).
-- `HeightPoints.classify`: low / high only for points `mark_min_m <= distance <= mark_max_m` from the lens; floor and above as before. `load_map_config` refuses a larger `mark_min_m`.
-- Tests: `test_one_mark_beside_the_body_never_freezes_it` (was refused), `test_beside_a_mark_still_never_nearer_than_now`, `test_obstacles_are_marked_only_from_35_cm`, the config direction; changed with measurements: `test_a_turn_is_checked_its_own_way`, the corridor in `test_stop_only_when_every_move_is_forbidden`, four depth tests; the 46 cm doorway now passes; `test_no_turn_on_the_spot_scrapes_a_wall[π/2, 0.15]` a strict known failure (the next design: turning beside an unseen wall).
+- `Footprint.gaps(poses, marks)`: per pose, the exact distance from the body's rectangle to the nearest mark (an obstacle cell's centre, or the map's edge); a mark inside the rectangle reads minus its depth (deeper is nearer).
+- `Footprint.allowed(cost, at, poses)`: with `g0` = the gap at `at` and the marks within `sweep_r_m + keep_out_m` of the move:
+  1. at every dense pose the gap stays `>= min(keep_out_m, g0)` - never into the keep-out from outside, never nearer than now from inside it; a mark entering the outline is a gap below 0, so review I1 (a leg under the front edge) is the same rule;
+  2. if `g0 < SLIDE_MIN_M` (3 cm, owner) the last pose's gap must be larger than `g0` - no sliding along a thing whose cell overlaps the track.
+- **The §18.13.2 objection** (a body-wide rule "let one part move in while another moved out"): from outside the keep-out nothing may enter it, as before; inside it, another part may come only as near as the nearest part already is - the body is never nearer anything than now. Run 2's turns by the bed stay refused (`test_run_2_beside_the_bed`).
+- Exact, so no allowance: sliding along a wall or past a mark reads the same gap; a turn whose corner would pass 4 mm from a wall reads 0.4 cm, not 5. The look-out distance follows `keep_out_m` (raised keep-outs kept exactly).
+- **B (obstacles only from 35 cm) was built and dropped** (owner, §172): with the simulator seeing like the real camera, a box's side seen only from closer than 35 cm stayed off the map and the body passed 3.6 mm from it; A alone unfreezes run 3.
+- Tests: `test_one_mark_beside_the_body_never_freezes_it`, `test_beside_a_mark_still_never_nearer_than_now`, `test_no_creeping_nearer_a_little_at_a_time`, `test_a_raised_keep_out_is_kept_exactly`, `test_a_turn_is_checked_its_own_way` (clear margins: 9.1 / 6.4 cm), `test_no_sliding_along_a_wall_over_the_track`; the 46 cm doorway passes; `test_no_turn_on_the_spot_scrapes_a_wall[π/2, 0.15]` a strict known failure (the next design).
+
+#### 18.13.15 Z6 review fixes (2026-10-31, design-notes §172)
+- `Recovery._back_ok`: only **lethal** cells the body covers at the start count as passable (run 2's corner mark); unseen floor behind the tail does not.
+- `ProgressWatch` (one "stuck" check for roam and chase) and `TurnMeter` (a turn measured from the pose, for recovery's turn and the chase's search turn) in `recovery.py`; `MOVED_M`, `TURNED_DEG` moved there.
+- `WanderGoal(rng, lim)`: a destination needs `sweep_r_m + keep_out_m` (~25 cm) of room - a spot it can stand and turn on - in place of a separate 30 cm; `ROOM_W` 0.5 named; `NOVEL_W` 2's reason stated (to the side beats visited ahead by more than the noise; behind ties with ahead); `done()` removed (the skill keeps the time).
+- `Recovery.tick` lost its unused `dt_s`; `PLAN_TRIES` 3, `BODY_GRID` 9 named.
+- `SimRoom.marks(ranges=)`: obstacles only to `Ranges.mark_max_m` (1.5 m), as the real depth; `load_map_config` refuses a smaller `mark_max_m` (fewer camera obstacles).
+- `cq-drive`: the skill's tick runs in `asyncio.to_thread` (6-21 ms of planning off the event loop; the snapshot is a copy).

@@ -2621,4 +2621,6 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
   - The map shrank the room: 6.5 m² of obstacle marks; at the end 86 of 108 wander candidates were within 30 cm of a mark. Each picture's own marks against the sonar's echo at the same moment (283 pictures, ±12° cone, 5th percentile of marks): ratio 1.07 at 0.8-1.2 m, 0.97 at 1.2-1.6 m, **0.87 at 1.6-2.2 m**; about 2/3 of the final marks were made from 1.5-2 m away. (The sonar can miss soft or slanted things, so this is strong evidence, not proof.)
 - **Owner: both** - "wander is all about exploring and testing".
   - **A:** obstacles trusted to 1.5 m (`mark_max_m` 2.0 → 1.5); floor still to 3 m.
-  - **B:** wander may aim at unseen floor, only at reachable spots, and prefers 0.5 m cells it hasn't been in for 60 s (LLD §18.13.12).
+  - **B:** wander aims only at reachable spots and prefers places it hasn't been near (0.5 m) for 60 s (LLD §18.13.12).
+- **Changed while building B:** unseen floor as a destination was dropped - in the simulator it picked a spot behind a wall it hadn't looked at yet and touched the wall turning towards it. Seen floor + "go somewhere new" drifts to the edge of what it has seen and on, like explore, without that risk.
+- **Measured:** A on run 1's recording - obstacle area 6.5 → 2.1 m², usable wander spots 22 → 42 of 108. B in the simulator - about the same ground covered as before (its perfect camera already shows the old wander the way round); the floor run decides.

@@ -31,7 +31,7 @@ class Heights:
 
 @dataclass(frozen=True)
 class Ranges:
-    mark_max_m: float = 2.0  # obstacles (low / high) are trusted this far
+    mark_max_m: float = 1.5  # obstacles (low / high) trusted this far (design-notes §169)
     free_max_m: float = 3.0  # floor and "above" this far
     sonar_max_m: float = 4.0  # an echo this far or more marks nothing (spec 9 §5)
 

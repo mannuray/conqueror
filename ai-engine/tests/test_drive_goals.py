@@ -43,11 +43,14 @@ def clear_of(
     return CostMap(room.snapshot(0, None, False, True))
 
 
+RP = RoutePlanner()
+
+
 def test_wander_picks_open_floor_ahead() -> None:
     clear = clear_of(all_seen=True)
     bearings: list[float] = []
     for seed in range(50):
-        d = WanderGoal(None, random.Random(seed)).destination(0.0, START, clear)
+        d = WanderGoal(None, random.Random(seed)).destination(0.0, START, clear, RP)
         assert d is not None
         assert 1.5 - 1e-9 <= math.hypot(*d) <= 2.0 + 1e-9
         assert clear.dist_m(*d) >= 0.30
@@ -56,34 +59,70 @@ def test_wander_picks_open_floor_ahead() -> None:
 
 
 def test_wander_needs_seen_open_floor() -> None:
-    assert WanderGoal(None, random.Random(1)).destination(0.0, START, clear_of()) is None  # nothing seen
+    """Not unseen floor (LLD §18.13.12): a spot behind a wall the camera hasn't looked at yet would be
+    picked, and the turn towards it scraped that wall (simulated, 15 cm from a wall, facing along it)."""
+    assert WanderGoal(None, random.Random(1)).destination(0.0, START, clear_of(), RP) is None  # nothing seen
+
+
+def test_wander_skips_spots_it_cannot_reach() -> None:
+    # walled in, 2.2 m across: every candidate (1.5-2 m away) is outside
+    ring = [p for p in area(-1.2, -1.2, 1.2, 1.2) if max(abs(p[0]), abs(p[1])) >= 1.1]
+    walled = clear_of(all_seen=True, blocked=ring)
+    assert WanderGoal(None, random.Random(1)).destination(0.0, START, walled, RP) is None
+
+
+def test_wander_turns_to_places_not_visited() -> None:
+    clear = clear_of(all_seen=True)
+    for seed in range(30):
+        g = WanderGoal(None, random.Random(seed))
+        driven = [(k * 0.25, 0.0, 0.0) for k in range(9)]  # it drove 2 m straight ahead, then came back
+        for k, at in enumerate(driven):
+            g.destination(k * 0.5, at, clear, RP)
+        g.drop()
+        d = g.destination(5.0, START, clear, RP)
+        assert d is not None
+        assert min(math.dist(d, at[:2]) for at in driven) > 0.5  # not back along the strip it has just driven
+
+
+def test_wander_comes_back_to_forgotten_places() -> None:
+    clear = clear_of(all_seen=True)
+    bearings: list[float] = []
+    for seed in range(30):
+        g = WanderGoal(None, random.Random(seed))
+        for k in range(9):
+            g.destination(k * 0.5, (k * 0.25, 0.0, 0.0), clear, RP)
+        g.drop()
+        d = g.destination(200.0, START, clear, RP)  # long ago: forgotten, ahead again
+        assert d is not None
+        bearings.append(abs(bearing_deg(START, d)))
+    assert float(np.mean(bearings)) < 60.0
 
 
 def test_wander_new_when_near_or_old_or_dropped() -> None:
     clear = clear_of(all_seen=True)
     g = WanderGoal(None, random.Random(2))
-    d1 = g.destination(0.0, START, clear)
+    d1 = g.destination(0.0, START, clear, RP)
     assert d1 is not None
-    assert g.destination(1.0, START, clear) == d1  # kept
+    assert g.destination(1.0, START, clear, RP) == d1  # kept
     near = (d1[0] - 0.3, d1[1], 0.0)
-    assert g.destination(1.1, near, clear) != d1  # reached: a new one
-    d2 = g.destination(1.2, START, clear)
-    assert g.destination(7.3, START, clear) != d2  # 6 s old
-    d3 = g.destination(7.4, START, clear)
+    assert g.destination(1.1, near, clear, RP) != d1  # reached: a new one
+    d2 = g.destination(1.2, START, clear, RP)
+    assert g.destination(7.3, START, clear, RP) != d2  # 6 s old
+    d3 = g.destination(7.4, START, clear, RP)
     g.drop()
-    assert g.destination(7.5, START, clear) != d3
+    assert g.destination(7.5, START, clear, RP) != d3
 
 
 def test_wander_done_after_seconds() -> None:
     clear = clear_of(all_seen=True)
     g = WanderGoal(60.0, random.Random(3))
-    g.destination(10.0, START, clear)
+    g.destination(10.0, START, clear, RP)
     assert not g.done(69.9) and g.done(70.0)
 
 
 def test_wander_without_seconds_never_done() -> None:
     g = WanderGoal(None, random.Random(4))
-    g.destination(0.0, START, clear_of(all_seen=True))
+    g.destination(0.0, START, clear_of(all_seen=True), RP)
     assert not g.done(1e6)
 
 

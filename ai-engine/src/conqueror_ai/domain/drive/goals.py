@@ -1,5 +1,7 @@
-"""Where to go (AI engine LLD §18.7, spec 9 §4.1): wander picks open floor a little ahead, now and then a new
-spot; explore picks the cheapest edge between seen floor and unseen space until none is left."""
+"""Where to go (AI engine LLD §18.7, §18.13.12, spec 9 §4.1): wander picks seen, open, reachable floor a
+little ahead, preferring places it hasn't been lately (so it drifts to the edge of what it has seen, and on),
+now and then a new spot; explore picks the cheapest edge between seen floor and unseen space until none is
+left."""
 
 from __future__ import annotations
 
@@ -23,6 +25,10 @@ WANDER_STEP_DEG = 10
 WANDER_OPEN_M = 0.30  # a destination this far from any known obstacle, on seen floor
 WANDER_NEW_S = 6.0
 WANDER_NOISE = 0.3  # the score's random part (a standard deviation)
+VISIT_CELL_M = 0.25  # where the tank has been, remembered in cells this big ...
+VISIT_NEAR_M = 0.5  # ... a spot this near a visit counts as visited ...
+VISIT_FORGET_S = 60.0  # ... and forgotten over this long
+NOVEL_W = 2.0  # an unvisited spot behind (-1 + 2) beats a visited one ahead (+1)
 
 EXPLORE_NEW_S = 3.0
 UNSEEN_MIN_CELLS = 9  # unseen bits smaller than 30 x 30 cm are ignored (spec 9 §4.1)
@@ -37,6 +43,7 @@ class WanderGoal:
         self._t0: float | None = None
         self._dest: XY | None = None
         self._picked_s = 0.0
+        self._visits: dict[tuple[int, int], float] = {}  # visit cell -> when the tank was last in it
 
     def drop(self) -> None:
         """The current destination has no route: pick another next time."""
@@ -45,26 +52,48 @@ class WanderGoal:
     def done(self, now_s: float) -> bool:
         return self.seconds is not None and self._t0 is not None and now_s - self._t0 >= self.seconds - 1e-9
 
-    def destination(self, now_s: float, at: XYTh, cost: CostMap) -> XY | None:
+    def destination(self, now_s: float, at: XYTh, cost: CostMap, planner: RoutePlanner) -> XY | None:
         if self._t0 is None:
             self._t0 = now_s
+        self._visits[self._visit_key(at[:2])] = now_s
         d = self._dest
         if d is not None and math.dist(d, at[:2]) > REACHED_M and now_s - self._picked_s < WANDER_NEW_S:
             return d
+        reach = planner.costs(cost, (at[0], at[1]))  # spots behind a wall are skipped, not tried and dropped
         best: tuple[float, XY] | None = None
         for r in WANDER_RADII_M:
             for k in range(0, 360, WANDER_STEP_DEG):
                 a = at[2] + math.radians(k)
                 p = (at[0] + r * math.cos(a), at[1] + r * math.sin(a))
                 room = cost.dist_m(*p)
-                if room < WANDER_OPEN_M or not cost.seen_at(*p):
+                if room < WANDER_OPEN_M or not cost.seen_at(*p) or reach[planner.grid_of(*p)] == math.inf:
                     continue
                 score = math.cos(math.radians(bearing_deg(at, p))) + 0.5 * min(room, 1.0)
-                score += self.rng.gauss(0.0, WANDER_NOISE)
+                score += NOVEL_W * self._novelty(p, now_s) + self.rng.gauss(0.0, WANDER_NOISE)
                 if best is None or score > best[0]:
                     best = (score, p)
         self._dest, self._picked_s = (None if best is None else best[1]), now_s
         return self._dest
+
+    @staticmethod
+    def _visit_key(p: XY) -> tuple[int, int]:
+        return math.floor(p[0] / VISIT_CELL_M), math.floor(p[1] / VISIT_CELL_M)
+
+    def _novelty(self, p: XY, now_s: float) -> float:
+        """1 where the tank has never been near; after a visit, rising back to 1 over VISIT_FORGET_S."""
+        i0, j0 = self._visit_key(p)
+        n = math.ceil(VISIT_NEAR_M / VISIT_CELL_M)
+        last = max(
+            (
+                t
+                for i in range(i0 - n, i0 + n + 1)
+                for j in range(j0 - n, j0 + n + 1)
+                if (t := self._visits.get((i, j))) is not None
+                and math.dist(p, ((i + 0.5) * VISIT_CELL_M, (j + 0.5) * VISIT_CELL_M)) <= VISIT_NEAR_M
+            ),
+            default=None,
+        )
+        return 1.0 if last is None else min(1.0, (now_s - last) / VISIT_FORGET_S)
 
 
 class ExploreGoal:

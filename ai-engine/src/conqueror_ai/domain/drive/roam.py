@@ -177,7 +177,7 @@ class RoamSkill:
     # ---- where to
     def _destination(self, now_s: float, at: XYTh, cost: CostMap) -> XY | None:
         if self.mode == "wander":
-            return self.wander.destination(now_s, at, cost)
+            return self.wander.destination(now_s, at, cost, self.routes)
         return self.explore.destination(now_s, at, cost, self.routes)
 
     def _plan(self, now_s: float, at: XYTh, cost: CostMap) -> list[XY] | None:

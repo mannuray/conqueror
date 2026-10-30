@@ -222,6 +222,20 @@ def test_obstacles_beyond_2_m_are_not_marked_floor_to_3_m() -> None:
     assert kind_of(HP.classify(cam, rng), cam, u, v, rng) is None
 
 
+def test_obstacles_are_marked_only_to_1_5_m() -> None:  # design-notes §169 A: farther, ~13 % too near
+    cam = servo_cam()
+    # a point 3 cm up on a floor ray at D sits at D x (1 - 3 / 17.8): ~1.05 m for D ~1.26, ~1.78 m for D ~2.14
+    near = [(160, v) for v in range(0, 240, 4) if 1.2 < cam.floor_distance(160, v) < 1.3]
+    far = [(160, v) for v in range(0, 240, 4) if 2.0 < cam.floor_distance(160, v) < 2.3]
+    assert near and far
+    rng = scene(cam, [(*near[0], 0.03), (*far[0], 0.03)])
+    m = HP.classify(cam, rng)
+    assert kind_of(m, cam, *near[0], rng) == "low"
+    assert kind_of(m, cam, *far[0], rng) is None
+    bare = scene(cam, [])
+    assert kind_of(HP.classify(cam, bare), cam, *far[0], bare) == "floor"  # its floor still seen
+
+
 def test_points_under_the_floor_and_bad_ranges_are_dropped() -> None:
     cam = servo_cam()
     rng = scene(cam, [(160, 200, -0.10)])

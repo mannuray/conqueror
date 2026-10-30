@@ -2613,3 +2613,12 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
 ## 168. The narrowest gap: 50 cm for now (owner, 2026-10-30)
 - Plan Z6's simulated explore through a gap in a wall: 50, 60 and 80 cm - through and back, `done`, 100 % seen; **46 cm** - the far room 100 % seen, but coming back it can't line up from an angle (23 cm body, 7.5 cm keep-out each side, the map's 5 cm cells) and ends `blocked`.
 - **Owner: "let it be 50 cm, then we will work on the narrower gap."** The 46 cm case stays in the tests as a strict expected failure (it fails the suite the day it passes, so the mark gets removed). Later work: lining up for a narrow gap (backing off and turning to face it).
+
+## 169. Wander explores; obstacles marked only to 1.5 m (owner: "do both a and b", 2026-10-30)
+- **Z6 floor run 1 (wander, stopped by the owner after 70 s; replayed through the real code):** 12.5 m driven, one 5 s look round, but only in a 2 × 3 m strip beside the bed - it turned back at the strip's ends with the bed 0.6-1.0 m ahead on the sonar, never went round the bed.
+- **Why (measured):**
+  - Wander aimed only at floor it had already seen (LLD §18.7) - the far side of the bed was never a candidate.
+  - The map shrank the room: 6.5 m² of obstacle marks; at the end 86 of 108 wander candidates were within 30 cm of a mark. Each picture's own marks against the sonar's echo at the same moment (283 pictures, ±12° cone, 5th percentile of marks): ratio 1.07 at 0.8-1.2 m, 0.97 at 1.2-1.6 m, **0.87 at 1.6-2.2 m**; about 2/3 of the final marks were made from 1.5-2 m away. (The sonar can miss soft or slanted things, so this is strong evidence, not proof.)
+- **Owner: both** - "wander is all about exploring and testing".
+  - **A:** obstacles trusted to 1.5 m (`mark_max_m` 2.0 → 1.5); floor still to 3 m.
+  - **B:** wander may aim at unseen floor, only at reachable spots, and prefers 0.5 m cells it hasn't been in for 60 s (LLD §18.13.12).

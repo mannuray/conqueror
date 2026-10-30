@@ -1737,3 +1737,40 @@ More careful only (§17.10): `keep_out_m`, `near_out_m`, `near_c_m`, `near_cost`
 
 #### 18.13.11 Plan
 Owner (2026-10-30): a new plan, **Z6 - the cost map**, on branch `plan-z6` from `plan-z5`: replaces the rules above, keeps the rest of Z5; Z5's floor checks folded into Z6's; both merge to `main` together after Z6's floor checks.
+
+#### 18.13.12 Wander that explores; obstacles marked to 1.5 m (owner, 2026-10-30, design-notes §169 - approved: "do both a and b")
+**Found on Z6 floor run 1 (wander, 70 s, replayed through the code):** the tank drove 12.5 m but stayed in a 2 × 3 m strip beside the bed, turning back at its ends. Two causes:
+1. **Wander only aimed at seen floor** (§18.7), so the far side of the bed - never seen - was never a destination; at the bed's edge every candidate lay behind or beside it.
+2. **The map shrank the room:** 6.5 m² marked as obstacles; 86 of 108 wander candidates at the end were within 30 cm of a mark. One picture's own marks against the sonar's echo at the same moment (283 pictures): distance ratio 1.07 at 0.8-1.2 m, **0.97 at 1.2-1.6 m, 0.87 at 1.6-2.2 m** (about 25 cm too near at 2 m), and ~2/3 of the final marks were made from 1.5-2 m away, speckled.
+
+**A - obstacles trusted to 1.5 m** (`ranges.mark_max_m` 2.0 → **1.5**, in `config/map.yaml` and the `Ranges` default). Floor and "above" stay at 3.0 m, so far floor is still seen (and far unseen floor still becomes known). Safety: anything is marked once it is within 1.5 m - 6 s ahead at 25 cm/s - and the sonar's echo, its 10 cm stop and the Uno's brake are unchanged. The simulated camera (`SimRoom.marks`, exact) is unchanged.
+
+**B - wander explores** (`WanderGoal`): the same candidates (1.5 / 1.75 / 2.0 m every 10°), but
+- **unseen floor allowed** - a candidate needs only clearance ≥ 0.30 m from known obstacles (unseen floor already costs more on the route, §18.13.1);
+- **reachable only** - the route cost to the candidate's 10 cm grid cell (`RoutePlanner.costs`, one Dijkstra per pick) is finite; spots behind a wall are skipped rather than tried and dropped;
+- **prefers places it hasn't been lately** - the goal remembers when the tank was last in each 0.5 m cell (`VISIT_CELL_M`); novelty = 1 for a cell never visited, else min(1, age / `VISIT_FORGET_S` 60 s);
+- score = `cos(bearing) + 0.5·min(clearance, 1) + NOVEL_W·novelty + noise(0.3)`, **`NOVEL_W` 2.0** - enough for an unvisited spot behind (−1 + 2) to beat a visited one ahead (+1), so it turns round to new places, and among new places it still prefers ahead (smooth driving).
+
+Wander stays different from explore: explore goes to the cheapest frontier until none is left and ends `done`; wander drifts towards new places for its seconds, never ends early, and goes back to old places once they're forgotten (60 s).
+
+```mermaid
+classDiagram
+  class WanderGoal {
+    +seconds: float | None
+    +rng: Random
+    -_visits: dict[(int,int), float]
+    +destination(now_s, at, cost: CostMap, planner: RoutePlanner) XY | None
+    +drop()
+    +done(now_s) bool
+    -_novelty(p, now_s) float
+  }
+  class RoutePlanner {
+    +costs(cost, start) FloatArray
+    +grid_of(x, y) (int, int)
+  }
+  WanderGoal ..> RoutePlanner : reachable spots
+  WanderGoal ..> CostMap : clearance
+  RoamSkill --> WanderGoal
+```
+
+**Tests:** wander picks unseen open floor (nothing seen → a spot, not `None`); skips spots it can't reach (walled in → `None`); after driving ahead it turns to a place not visited; the simulated room (§18.10): wander for 120 s sees more of the room than before (measured both ways), the body bar unchanged (never within 5 mm of a box).

@@ -22,8 +22,57 @@ BACK_S = 2.5  # backing up never longer than this
 PROGRESS_M = 0.3  # stuck again this near the last start: the next step; further: start over
 BACK_STEP_M = 0.025  # backing as far as known floor allows, in these steps ...
 BACK_MIN_M = 0.05  # ... at least this far, or not at all
+MOVED_M = 0.05  # on the map: moving this far ...
+TURNED_DEG = 15.0  # ... or turning this far is progress; none for stuck_s starts the ways out (Plan Z6)
 
 Out = tuple[Command, tuple[float, float] | None]
+
+
+def turned_deg(a_rad: float, b_rad: float) -> float:
+    """The turn between two headings, 0..180 deg."""
+    return abs((math.degrees(b_rad - a_rad) + 180.0) % 360.0 - 180.0)
+
+
+class TurnMeter:
+    """How far a turn has gone, measured from the pose (review M4): a tank turning slower than told (the
+    ramp, a slipping track) still turns its whole angle."""
+
+    def __init__(self) -> None:
+        self.deg = 0.0
+        self._th: float | None = None
+
+    def reset(self) -> None:
+        self.deg, self._th = 0.0, None
+
+    def update(self, th_rad: float) -> float:
+        if self._th is not None:
+            self.deg += turned_deg(self._th, th_rad)
+        self._th = th_rad
+        return self.deg
+
+
+class ProgressWatch:
+    """Stuck: the tank has neither moved MOVED_M nor turned TURNED_DEG for stuck_s (every skill on the map,
+    §18.13.4); progress also tells the recovery, which starts over once far enough from where it began."""
+
+    def __init__(self, recovery: Recovery, stuck_s: float) -> None:
+        self.recovery = recovery
+        self.stuck_s = stuck_s
+        self._last: tuple[XYTh, float] | None = None  # where and when it last made progress
+
+    def reset(self) -> None:
+        self._last = None
+
+    def ok(self, now_s: float, at: XYTh) -> bool:
+        if self._last is None:
+            self._last = (at, now_s)
+            return True
+        p, t = self._last
+        if math.dist(p[:2], at[:2]) >= MOVED_M or turned_deg(p[2], at[2]) >= TURNED_DEG:
+            self._last = (at, now_s)
+            self.recovery.progress(at)
+            return True
+        return now_s - t < self.stuck_s - 1e-9
 
 
 class Recovery:
@@ -36,8 +85,7 @@ class Recovery:
         self._t0 = 0.0
         self._pans: list[float] = []
         self._turn_w = 0.0  # + left, - right; 0: not chosen yet
-        self._turned = 0.0  # measured from the pose (review M4)
-        self._th: float | None = None
+        self._turned = TurnMeter()
         self._backing: tuple[XYTh, float] | None = None  # where backing began and how far it may go (M2, M3)
 
     def start(self, now_s: float, at: XYTh) -> None:
@@ -46,15 +94,15 @@ class Recovery:
             self.step = STEPS[min(STEPS.index(self.step) + 1, len(STEPS) - 1)]
         else:
             self.step, self._from = "look", at
-        self._t0, self._pans, self._turn_w, self._turned = now_s, list(LOOK_PANS), 0.0, 0.0
-        self._th, self._backing = None, None
+        self._t0, self._pans, self._turn_w, self._backing = now_s, list(LOOK_PANS), 0.0, None
+        self._turned.reset()
 
     def progress(self, at: XYTh) -> None:
         """The tank moved on: far enough from where the sequence began, it starts over next time."""
         if self._from is not None and math.dist(self._from[:2], at[:2]) >= PROGRESS_M:
             self._from, self.step = None, "look"
 
-    def tick(self, now_s: float, at: XYTh, cost: CostMap, dt_s: float) -> Out | None:
+    def tick(self, now_s: float, at: XYTh, cost: CostMap) -> Out | None:
         """This step's command and camera (pan, tilt) or None; None: the step has finished (try driving)."""
         if self.step == "look":
             return self._look(now_s)
@@ -88,10 +136,7 @@ class Recovery:
                 return None
             self._turn_w = self.lim.spin_dps * (1.0 if min(ways)[1] else -1.0)
             self._t0 = now_s
-        elif self._th is not None:
-            self._turned += abs((math.degrees(at[2] - self._th) + 180.0) % 360.0 - 180.0)
-        self._th = at[2]
-        rest = TURN_DEG - self._turned
+        rest = TURN_DEG - self._turned.update(at[2])
         if rest <= 1e-9 or now_s - self._t0 >= TURN_S - 1e-9:
             return None
         if not self.foot.allowed(cost, at, self.foot.spin_poses(at, self._turn_w > 0, rest)):
@@ -115,17 +160,19 @@ class Recovery:
         return (Command(-self.lim.v_min_cms, 0.0), None)
 
     def _back_ok(self, at: XYTh, length_m: float, cost: CostMap) -> bool:
-        """Straight back over known-free floor only (nothing senses behind the tank), the body's rule kept.
-        Cells the body covers now count as known: a mark drawn on its corner after it got there (the camera's
-        blind zone) mustn't stop it backing off (floor run 2, design-notes §170)."""
-        under = {
-            cost.cell_of(float(x), float(y))
+        """Straight back over known-free floor only (nothing senses behind the tank), the body's rule kept. A
+        mark the body already covers doesn't count: drawn on its corner after it got there (the camera's blind
+        zone), it mustn't stop it backing off (floor run 2, design-notes §170); floor never seen still does
+        (Z6 review 6)."""
+        covered = {
+            c
             for pts in (self.foot.outline, self.foot.body)
             for x, y in self.foot.world(at, pts)
+            if (c := cost.cell_of(float(x), float(y))) is not None and cost.lethal[c]
         }
         poses = self.foot.back_poses(at, length_m)
         for p in poses:
             ij = [cost.cell_of(float(x), float(y)) for x, y in self.foot.world(p)]
-            if any(c is None or (not cost.known_free[c] and c not in under) for c in ij):
+            if any(c is None or (not cost.known_free[c] and c not in covered) for c in ij):
                 return False
         return self.foot.allowed(cost, at, poses)

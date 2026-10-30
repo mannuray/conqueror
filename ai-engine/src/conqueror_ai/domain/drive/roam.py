@@ -20,11 +20,9 @@ from conqueror_ai.domain.drive.chase import (
     DRIVE_TILT,
     LOST_AFTER_S,
     MAX_TICK_S,
-    MOVED_M,
     PAN_LIMIT_DEG,
     PAN_STEP_DEG,
     STALE_GIVE_UP_S,
-    TURNED_DEG,
     ChaseSkill,
     SkillOut,
 )
@@ -33,11 +31,12 @@ from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.goals import ExploreGoal, WanderGoal
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
-from conqueror_ai.domain.drive.recovery import Recovery
+from conqueror_ai.domain.drive.recovery import ProgressWatch, Recovery
 from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point
 from conqueror_ai.domain.room_map import MapSnapshot
 
 SLOW_CMS = 18.0  # spec 9 §5: unsure of the camera angle, or no depth
+PLAN_TRIES = 3  # destinations tried in one tick before it counts as stuck
 START_STAND_S = 1.0  # at the start: stand with the camera ahead so the map takes still pictures
 
 
@@ -61,7 +60,7 @@ class RoamSkill:
         self.mode = mode
         self.find = find
         self.routes = RoutePlanner(self.lim)
-        self.wander = WanderGoal(seconds, rng or random.Random())
+        self.wander = WanderGoal(rng or random.Random(), self.lim)
         self.seconds = seconds
         self.explore = ExploreGoal()
         self.chase = ChaseSkill(planner, cost)
@@ -76,7 +75,7 @@ class RoamSkill:
         self._pan: float | None = None
         self._stale_t0: float | None = None
         self._start_t0: float | None = None
-        self._progress: tuple[XYTh, float] | None = None  # where and when it last made progress
+        self._progress = ProgressWatch(self.recovery, self.settings.stuck_s)
         self._cost: tuple[MapSnapshot, CostMap] | None = None
 
     # ---- out
@@ -168,7 +167,8 @@ class RoamSkill:
         self.cmd = out.cmd
         if out.result in ("not_found", "lost"):  # it got away: roam on, a fresh chase for the next sighting
             self.chase = ChaseSkill(self.planner, self.settings)
-            self.state, self._progress = "drive", None
+            self.state = "drive"
+            self._progress.reset()
             return self._halt((0.0, DRIVE_TILT))
         if out.result is not None:
             return self._end(out.result)
@@ -182,9 +182,7 @@ class RoamSkill:
 
     def _plan(self, now_s: float, at: XYTh, cost: CostMap) -> list[XY] | None:
         """A destination and a route to it, or None."""
-        for _ in range(
-            3
-        ):  # an unreachable spot (the map changed since it was picked) is dropped, another picked
+        for _ in range(PLAN_TRIES):  # an unreachable spot (the map changed since it was picked) is dropped
             dest = self._destination(now_s, at, cost)
             if dest is None:
                 return None
@@ -201,13 +199,14 @@ class RoamSkill:
     # ---- stuck: the standard ways out
     def _stuck(self, now_s: float, at: XYTh) -> SkillOut:
         self.recovery.start(now_s, at)
-        self.state, self._progress = "recover", None
+        self.state = "recover"
+        self._progress.reset()
         if self.mode == "wander":
             self.wander.drop()
         return self._halt()
 
     def _recover(self, now_s: float, at: XYTh, cost: CostMap) -> SkillOut:
-        out = self.recovery.tick(now_s, at, cost, self._dt)
+        out = self.recovery.tick(now_s, at, cost)
         if self.recovery.step == "blocked":
             return self._end("blocked")
         if out is None:  # a step finished: try driving again
@@ -219,19 +218,6 @@ class RoamSkill:
         return self._halt(cam) if cmd == STOP else self._out(cmd, cam)
 
     # ---- driving
-    def _made_progress(self, now_s: float, at: XYTh) -> bool:
-        """False once the tank has neither moved MOVED_M nor turned TURNED_DEG for stuck_s."""
-        if self._progress is None:
-            self._progress = (at, now_s)
-            return True
-        p, t = self._progress
-        turned = abs((math.degrees(at[2] - p[2]) + 180.0) % 360.0 - 180.0)
-        if math.dist(p[:2], at[:2]) >= MOVED_M or turned >= TURNED_DEG:
-            self._progress = (at, now_s)
-            self.recovery.progress(at)
-            return True
-        return now_s - t < self.settings.stuck_s - 1e-9
-
     def _drive(
         self, now_s: float, at: XYTh, cost: CostMap, planner: Planner, sonar_m: float | None
     ) -> SkillOut:
@@ -245,7 +231,7 @@ class RoamSkill:
         obstacle = None if sonar_m is None else sonar_m + self.lim.sonar_x_m
         # a wander or explore destination is a waypoint, not a stop: cruise (the costs slow it near things)
         want = planner.choose(at, self.cmd, aim, obstacle, cost, far_m=math.inf)
-        if not self._made_progress(now_s, at):
+        if not self._progress.ok(now_s, at):
             return self._stuck(now_s, at)
         b = bearing_deg(at, aim)
         pan = max(-PAN_LIMIT_DEG, min(PAN_LIMIT_DEG, -b))

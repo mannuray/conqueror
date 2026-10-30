@@ -48,7 +48,7 @@ def run(
     """Ticks of one step until it finishes (None) or the time is up; the tank follows the commands."""
     tank, outs = SimTank(), list[tuple[Command, object]]()
     for k in range(round(seconds / DT)):
-        o = rec.tick(t0 + k * DT, tank.at, cost, DT)
+        o = rec.tick(t0 + k * DT, tank.at, cost)
         if o is None:
             break
         outs.append(o)
@@ -143,6 +143,15 @@ def test_never_backs_over_a_mark_behind() -> None:
     assert tank.at[0] >= -0.06  # stops short: the body's keep-out kept
 
 
+def test_never_backs_onto_unseen_floor_just_behind_the_tail() -> None:  # Z6 review 6
+    """The tail 1 mm into a cell (x -0.0501): the cell behind it, never seen, is not "under the body" - only
+    marks the body already covers are (floor run 2's corner, design-notes §170)."""
+    at = (LIM.body_rear_m - 0.0501, 0.0, 0.0)
+    rec = Recovery(LIM, Footprint(LIM), TILT)
+    cost = cost_with([], unseen=area(-0.0975, -0.15, -0.0525, 0.15))  # the cells x -0.10..-0.05
+    assert not rec._back_ok(at, 0.05, cost)  # pyright: ignore[reportPrivateUsage]
+
+
 def test_progress_resets_the_sequence() -> None:
     rec = Recovery(LIM, Footprint(LIM), TILT)
     rec.start(0.0, (0.0, 0.0, 0.0))
@@ -164,7 +173,7 @@ def test_backing_counts_from_where_it_starts_backing() -> None:  # review M2
     assert rec.step == "back"
     tank, x = SimTank(0.25, 0.0, 0.0), list[float]()
     for k in range(40):
-        o = rec.tick(2.0 + k * DT, tank.at, cost, DT)
+        o = rec.tick(2.0 + k * DT, tank.at, cost)
         if o is None:
             break
         tank.step(o[0], DT)
@@ -192,7 +201,7 @@ def test_the_turn_is_measured_from_the_pose() -> None:  # review M4
     rec.start(1.0, (0.0, 0.0, 0.0))
     tank = SimTank()
     for k in range(80):
-        o = rec.tick(1.0 + k * DT, tank.at, box, DT)
+        o = rec.tick(1.0 + k * DT, tank.at, box)
         if o is None:
             break
         tank.step(Command(o[0].v_cms, o[0].w_dps / 2), DT)  # half the rate
@@ -205,5 +214,5 @@ def test_a_turn_that_doesnt_turn_ends() -> None:
     rec = Recovery(LIM, Footprint(LIM), TILT)
     rec.start(0.0, (0.0, 0.0, 0.0))
     rec.start(1.0, (0.0, 0.0, 0.0))
-    ends = [k for k in range(60) if rec.tick(1.0 + k * DT, (0.0, 0.0, 0.0), cost_with([]), DT) is None]
+    ends = [k for k in range(60) if rec.tick(1.0 + k * DT, (0.0, 0.0, 0.0), cost_with([])) is None]
     assert ends and 2.5 <= ends[0] * DT <= 3.5

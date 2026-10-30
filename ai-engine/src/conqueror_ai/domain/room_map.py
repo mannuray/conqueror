@@ -26,6 +26,7 @@ BoolArray = NDArray[np.bool_]
 DEPTH_OK_US = 1_000_000  # depth_ok: a depth picture this recently
 # the body is a floor sensor (AI engine LLD §18.13.1, Plan Z6): the floor under the tank is free
 BODY_SHRINK_M = 0.02  # the footprint shrunk this much all round (pose drift)
+BODY_GRID = 9  # the shrunk footprint sampled 9 x 9 (~2.5 cm apart) for the cells it covers
 BODY_EVERY_US = 100_000  # at most 10 a second, one step per cell (like the sonar)
 
 UNSEEN = (0, 0, 0)
@@ -108,7 +109,7 @@ class RoomMap:
         self._last_body_us = t_us
         f, r, w = front_m - BODY_SHRINK_M, rear_m - BODY_SHRINK_M, half_w_m - BODY_SHRINK_M
         c, s = math.cos(pose.th_rad), math.sin(pose.th_rad)
-        gx, gy = np.meshgrid(np.linspace(-r, f, 9), np.linspace(-w, w, 9))
+        gx, gy = np.meshgrid(np.linspace(-r, f, BODY_GRID), np.linspace(-w, w, BODY_GRID))
         xy = np.stack(
             [pose.x_m + gx.ravel() * c - gy.ravel() * s, pose.y_m + gx.ravel() * s + gy.ravel() * c], 1
         )

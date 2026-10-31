@@ -22,6 +22,7 @@ ARRIVE_BEARING_DEG = 10.0
 PAN_LIMIT_DEG = 60.0
 PAN_STEP_DEG = 8.0  # the camera follows the target in steps this big, not constantly
 SEARCH_TURN_DEG = 180.0  # after the first sweep: half a turn on the spot, then sweep what was behind
+SEARCH_AIM_DEG = 170.0  # curving round instead (the turn refused): aim 1 m off this far left, at most
 MAX_TICK_S = 0.3  # a longer gap between ticks counts as this (no jump in the ramps after a stall)
 BLOCKED_GIVE_UP_S = 3.0  # without the map: standing with every curve blocked this long ends the run
 STALE_GIVE_UP_S = 2.0  # a stale map stops the tank at once; this long ends the run (design-notes §157.2)
@@ -138,20 +139,26 @@ class ChaseSkill:
         return self._out(STOP)
 
     def _spin(self, now_s: float, at: XYTh, snap: MapSnapshot | None) -> SkillOut:
-        """Half a turn on the spot, measured from the pose. The map can't use pictures taken while spinning
-        (faster than its 45 deg/s gate), so the tank then stands and sweeps the camera over what was behind
-        it. On the map the turn is checked like every move (review C1): refused, the search sweeps from
-        here."""
+        """Half a turn, measured from the pose. The map can't use pictures taken while spinning (faster than
+        its 45 deg/s gate), so the tank then stands and sweeps the camera over what was behind it. On the map
+        the turn on the spot is checked like every move (review C1); over floor never seen it curves round on
+        the forward curves instead (§176); with none allowed, it turns on the spot anyway if only unseen floor
+        stood in the way (the last resort), else the search sweeps from here."""
         rest = SEARCH_TURN_DEG - self._spin_turned.update(at[2])
-        refused = snap is not None and not self.planner.can_spin(
-            at, CostMap(snap, self.settings, area=self.area), True, max(rest, 1.0)
-        )
-        if rest <= 1e-9 or refused:
+        cost = None if snap is None else CostMap(snap, self.settings, area=self.area)
+        want = Command(0.0, self.lim.spin_dps)
+        if rest > 1e-9 and cost is not None and not self.planner.can_spin(at, cost, True, max(rest, 1.0)):
+            # refused (near something, or over floor never seen - §176): curve round on the forward curves
+            a = at[2] + math.radians(min(rest, SEARCH_AIM_DEG))
+            want = self.planner.choose(at, self.cmd, (at[0] + math.cos(a), at[1] + math.sin(a)), None, cost)
+            if want == STOP and self.planner.can_spin(at, cost, True, max(rest, 1.0), seen=False):
+                want = Command(0.0, self.lim.spin_dps)  # no curve allowed: the last resort, as the ways out
+        if rest <= 1e-9 or want == STOP:
             self.state, self._t0, self._pan, self._i = "sweep", now_s, None, 0
             self._spin_turned.reset()
             self.cmd = STOP
             return self._sweep(now_s)
-        return self._out(Command(0.0, self.lim.spin_dps))
+        return self._out(want)
 
     def _approach(
         self, now_s: float, at: XYTh, fix: TargetFix | None, sonar_m: float | None, snap: MapSnapshot | None
@@ -189,8 +196,8 @@ class ChaseSkill:
                     return self._end("done")
                 return SkillOut(self.cmd)
             if not self.planner.can_spin(
-                at, fan, b > 0, abs(b)
-            ):  # turning to face it would scrape (review C1)
+                at, fan, b > 0, abs(b), seen=False
+            ):  # turning to face it would scrape (review C1); the alternative is stopping, so not seen=True
                 self.cmd = STOP
                 return self._end("done")
             # close enough but off to the side: driving on would pass it, so turn on the spot to face it

@@ -148,3 +148,26 @@ def test_a_raised_keep_out_is_kept_exactly() -> None:  # Z6 review 3
     room.hit(c, "low")
     cost = CostMap(room.snapshot(0, None, False, True), CostSettings(keep_out_m=0.15))
     assert not F.allowed(cost, AT, [(0.0, -0.005 * k, 0.0) for k in range(1, 5)])
+
+
+def test_a_turn_on_the_spot_sweeps_only_floor_it_has_seen() -> None:
+    """Nothing senses beside or behind the tank: its corners turn only over floor the map has seen, as
+    backing does - unless nothing else is allowed (owner: option b as a last resort, design-notes §176).
+    Floor under the body now, or far off, doesn't count."""
+    seen = cost_with([])
+    assert F.turn_ok(seen, AT, left=True) and F.turn_ok(seen, AT, left=False)
+    # a strip 15-20 cm off the right side: turning right the front-right corner sweeps 17.4 cm out, turning
+    # left the rear-right only 14.6 cm
+    beside = cost_with([], unseen=area(-0.10, -0.20, 0.10, -0.15))
+    assert not F.turn_ok(beside, AT, left=False) and F.turn_ok(beside, AT, left=True)
+    under = cost_with([], unseen=area(-0.05, -0.05, 0.05, 0.05))  # beneath the tank
+    assert F.turn_ok(under, AT, left=True) and F.turn_ok(under, AT, left=False)
+    far = cost_with([], unseen=area(0.35, -0.5, 0.6, 0.5))  # past the corners' reach
+    assert F.turn_ok(far, AT, left=True)
+    assert F.turn_ok(beside, AT, left=False, seen=False)  # the last resort: the body's rule alone (§176)
+
+
+def test_a_turn_beside_a_wall_still_keeps_the_body_rule() -> None:
+    box = cost_with(area(-0.175, -0.275, -0.075, -0.225))  # test_a_turn_is_checked_its_own_way's box
+    assert F.turn_ok(box, AT, left=True) and not F.turn_ok(box, AT, left=False)
+    assert not F.turn_ok(box, AT, left=False, seen=False)  # the last resort never relaxes the body's rule

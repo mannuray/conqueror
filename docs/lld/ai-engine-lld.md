@@ -1890,3 +1890,25 @@ classDiagram
     ChaseSkill --> CostMap : area
     RoamSkill --> WanderGoal
 ```
+
+#### 18.13.17 Turns on the spot over seen floor, unseen only as a last resort (owner, 2026-10-31, design-notes §176)
+- `Footprint.turn_ok(cost, at, left, deg=90, seen=True)`: the body's rule (`allowed` over `spin_poses`) and, with `seen`, every cell the outline sweeps that the body doesn't cover now is seen on the map (outside the map: refused). `seen=False` is the body's rule alone.
+- `Planner.can_spin(..., seen=True)` and the fan's / `_score`'s turn on the spot use `seen=True`: over unseen floor the fan offers only its forward curves.
+- `Recovery._turn` uses `seen=False` (the last resort: nothing else was allowed - §166, unseen costs but is never forbidden).
+- `ChaseSkill._spin` (the search turn): refused with `seen=True`, `planner.choose` toward a point 1 m off at heading + min(rest, `SEARCH_AIM_DEG` 170°) - curving round, the `TurnMeter` counting it; no curve allowed: the turn on the spot with `seen=False`; neither: sweep from here. Turning to face the ball at the end: `seen=False`.
+
+```mermaid
+sequenceDiagram
+    participant Fan as Planner.fan / _score
+    participant Rec as Recovery._turn
+    participant Foot as Footprint.turn_ok
+    Fan->>Foot: turn_ok(seen=True)
+    alt sweep over seen floor
+        Foot-->>Fan: allowed: offer the turn on the spot
+    else unseen floor in the sweep
+        Foot-->>Fan: refused: forward curves only
+    end
+    Note over Fan,Rec: every move refused for stuck_s: the ways out
+    Rec->>Foot: turn_ok(seen=False)
+    Foot-->>Rec: the body's rule alone (last resort)
+```

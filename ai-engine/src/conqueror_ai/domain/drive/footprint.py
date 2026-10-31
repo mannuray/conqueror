@@ -79,6 +79,25 @@ class Footprint:
             return False
         return not (g[0] < SLIDE_MIN_M and g[-1] <= g[0] + 1e-9)
 
+    def turn_ok(self, cost: CostMap, at: XYTh, left: bool, deg: float = 90.0, seen: bool = True) -> bool:
+        """A turn on the spot: the body's rule, and (seen) its outline sweeps only floor the map has seen -
+        nothing senses beside or behind the tank, so a wall there may be unmarked. Floor under the body now
+        doesn't count. seen=False is the last resort (the ways out, nothing else allowed): unseen floor costs,
+        it is never forbidden (§166; owner: option b as a last resort, design-notes §176)."""
+        poses = self.spin_poses(at, left, deg)
+        if not self.allowed(cost, at, poses):
+            return False
+        if not seen:
+            return True
+        under = (self.world(at, o) for o in (self.outline, self.body))
+        now = {cost.cell_of(float(x), float(y)) for xy in under for x, y in xy}
+        for p in self.dense(at, poses):
+            for x, y in self.world(p):
+                c = cost.cell_of(float(x), float(y))
+                if c is None or (c not in now and not cost.seen[c]):
+                    return False
+        return True
+
     def gaps(self, poses: list[XYTh], marks: FloatArray) -> FloatArray:
         """The body's gap at each pose: the distance from its rectangle to the nearest of these points, or,
         for a point inside it, minus that point's depth (deeper is nearer); inf with no points (§171)."""

@@ -195,12 +195,9 @@ def test_find_ball_behind_a_box() -> None:
 @pytest.mark.parametrize(
     ("gap", "th"),  # centre this far from a wall, facing along it
     [
-        # the wall beside it unseen (the camera looks along it): the body rule made exact (§171-§172) allows a
-        # curve the 5 cm rounding refused, so the turn after it ends 4.6 mm off the wall (5 mm wanted; before,
-        # 7.2 mm). How a turn treats unseen floor its corners sweep is the next design
-        pytest.param(
-            0.15, math.pi / 2, marks=pytest.mark.xfail(strict=True, reason="unseen wall: next design")
-        ),
+        # the wall beside it unseen (the camera looks along it): a turn there came 4.6 mm off it until turns
+        # swept only seen floor (owner: option b, design-notes §176)
+        (0.15, math.pi / 2),
         (0.15, -math.pi / 2),
         (0.18, math.pi / 2),
         (0.18, -math.pi / 2),
@@ -278,3 +275,30 @@ def test_explore_in_a_play_area_is_done_inside_it() -> None:
 def test_find_a_ball_outside_the_play_area_ends_blocked() -> None:
     r = roam("wander", 120.0, find=True, ball=(-1.6, 0.2), seed=1, area_m=1.0)
     assert r.result == "blocked" and r.out_m <= 1.0
+
+
+def test_goto_a_ball_behind_at_the_start_curves_round() -> None:
+    """The chase's search turn at the start sweeps floor never seen: refused (§176), it curves round instead,
+    finds the ball behind and reaches it (slice 1's floor check "behind", design-notes §157)."""
+    sim, ball = SimRoom([], walls_m=2.5), (-1.5, 0.0)
+    room, skill, tank, turning, t = RoomMap(), ChaseSkill(Planner(Limits())), SimTank(), False, 0.0
+    last_seen: float | None = None
+    body, result = math.inf, None
+    while t < 60.0:
+        at, t_us = tank.at, round(t * 1e6)
+        if not turning:
+            room.update_picture(sim.marks(at), t_us)
+        pose = Pose(t_us, at[0], at[1], at[2], 0.0, 0.0)
+        room.body_over(pose, LIM.body_front_m, LIM.body_rear_m, LIM.body_half_w_m, t_us)
+        if abs(bearing_deg(at, ball)) <= 41.0 and not turning:
+            last_seen = t
+        fix = None if last_seen is None else TargetFix(1, ball[0], ball[1], t - last_seen)
+        o = skill.tick(t, at, fix, sim.sonar(at), True, snap=room.snapshot(t_us, pose, False, True))
+        turning = abs(o.cmd.w_dps) > GATE_DPS
+        tank.step(o.cmd, 0.1)
+        body = min(body, sim.body_gap(tank.at, LIM))
+        if o.result is not None:
+            result = o.result
+            break
+        t = round(t + 0.1, 6)
+    assert result == "done" and body >= BODY_M

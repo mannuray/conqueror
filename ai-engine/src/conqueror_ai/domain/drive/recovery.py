@@ -129,7 +129,7 @@ class Recovery:
             ways = [
                 (self.foot.highest_cost(cost, at, self.foot.spin_poses(at, left)), left)
                 for left in (True, False)
-                if self.foot.allowed(cost, at, self.foot.spin_poses(at, left))
+                if self.foot.turn_ok(cost, at, left, seen=False)  # the last resort (§176)
             ]
             if not ways:
                 self.step = "back"
@@ -139,7 +139,7 @@ class Recovery:
         rest = TURN_DEG - self._turned.update(at[2])
         if rest <= 1e-9 or now_s - self._t0 >= TURN_S - 1e-9:
             return None
-        if not self.foot.allowed(cost, at, self.foot.spin_poses(at, self._turn_w > 0, rest)):
+        if not self.foot.turn_ok(cost, at, self._turn_w > 0, rest, seen=False):
             return None
         return (Command(0.0, self._turn_w), None)
 

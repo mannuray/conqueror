@@ -45,11 +45,16 @@ class Planner:
         self.foot = Footprint(lim)
 
     def can_spin(
-        self, at: XYTh, cost: CostMap | None, left: bool = True, deg: float = SPIN_CHECK_DEG
+        self,
+        at: XYTh,
+        cost: CostMap | None,
+        left: bool = True,
+        deg: float = SPIN_CHECK_DEG,
+        seen: bool = True,
     ) -> bool:
-        """Whether turning on the spot this way (deg round) keeps the body's rule on the room map (no map:
-        yes)."""
-        return cost is None or self.foot.allowed(cost, at, self.foot.spin_poses(at, left, deg))
+        """Whether turning on the spot this way (deg round) keeps the body's rule on the room map, over seen
+        floor unless seen=False (Footprint.turn_ok; no map: yes)."""
+        return cost is None or self.foot.turn_ok(cost, at, left, deg, seen)
 
     def speed_cap(self, cost: CostMap, at: XYTh, cmd: Command) -> float:
         """The top speed for this move: v_top on open seen floor, toward v_min as the highest cost the body
@@ -158,9 +163,12 @@ class Planner:
             ):
                 forbidden = True
         if cost is not None:
-            if want.v_cms == 0 and want.w_dps != 0:  # a turn on the spot, checked its own way
-                path = path if moves else self.foot.spin_poses(at, want.w_dps > 0)
-            if (moves or want.w_dps != 0) and not self.foot.allowed(cost, at, path):
+            spin = want.v_cms == 0 and want.w_dps != 0 and not moves  # a turn on the spot: its own way
+            if spin:
+                path = self.foot.spin_poses(at, want.w_dps > 0)
+            if (spin and not self.can_spin(at, cost, want.w_dps > 0, 90.0)) or (
+                (moves or want.w_dps != 0) and not self.foot.allowed(cost, at, path)
+            ):
                 forbidden = True
             else:
                 s -= cost.settings.cost_w * self.foot.mean_cost(cost, at, path)

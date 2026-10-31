@@ -39,6 +39,7 @@ class Roam:
     front_hit: bool = False
     path_m: float = 0.0
     states: list[str] = field(default_factory=lambda: list[str]())
+    out_m: float = 0.0  # the body's furthest corner from the start (the play area, design-notes §174)
     room: RoomMap = field(default_factory=RoomMap)
 
 
@@ -53,12 +54,15 @@ def roam(
     dt: float = 0.1,
     seed: int = 7,
     start: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    area_m: float | None = None,
 ) -> Roam:
     sim = SimRoom(list(ROOM if boxes is None else boxes), walls_m=2.5)
     out = Roam()
     sonar_model = SonarModel()
     tank = SimTank(*start)
-    skill = RoamSkill(Planner(Limits()), mode, seconds=seconds, find=find, rng=random.Random(seed))
+    skill = RoamSkill(
+        Planner(Limits()), mode, seconds=seconds, find=find, rng=random.Random(seed), area_m=area_m
+    )
     turning, last_seen, pan = False, None, 0.0
     t = 0.0
     while t < limit_s:
@@ -95,12 +99,23 @@ def roam(
         out.nearest = min(out.nearest, sim.gap_m(tank.at))
         out.body = min(out.body, sim.body_gap(tank.at, LIM))
         out.front_hit = out.front_hit or sim.front_inside(tank.at)
+        out.out_m = max(out.out_m, corners_from(tank.at, start))
         out.states.append(skill.state)
         if o.result is not None:
             out.result = o.result
             break
         t = round(t + dt, 6)
     return out
+
+
+def corners_from(at: tuple[float, float, float], start: tuple[float, float, float]) -> float:
+    """The body's furthest corner from the start (a circle holds the rectangle when it holds its corners)."""
+    c, s = math.cos(at[2]), math.sin(at[2])
+    return max(
+        math.dist((at[0] + u * c - v * s, at[1] + u * s + v * c), start[:2])
+        for u in (LIM.body_front_m, -LIM.body_rear_m)
+        for v in (LIM.body_half_w_m, -LIM.body_half_w_m)
+    )
 
 
 @pytest.mark.parametrize("seed", [7, 3, 11])  # seed 3 coasted into a bed edge before the blocked-stop fix
@@ -244,3 +259,22 @@ def test_run_2_layout_beside_a_bed() -> None:
     bed = [Box(-1.5, -1.2, 0.30, -0.25, 0.15, 0.5), Box(0.20, -0.32, 0.30, -0.22, 0.0, 0.15)]
     r = roam("explore", 300.0, boxes=bed, dt=0.2, start=(0.0, 0.0, 0.0))
     assert r.result == "done" and r.body >= BODY_M and not r.front_hit
+
+
+# ---- the play area (owner: only when asked, design-notes §174)
+@pytest.mark.parametrize("seed", [7, 3])
+def test_wander_in_a_play_area_never_leaves_it(seed: int) -> None:
+    r = roam("wander", 70.0, seconds=60.0, seed=seed, area_m=1.0)
+    assert r.result == "done" and r.path_m > 2.0
+    assert r.out_m <= 1.0 and r.body >= BODY_M and not r.front_hit
+
+
+def test_explore_in_a_play_area_is_done_inside_it() -> None:
+    r = roam("explore", 300.0, dt=0.2, area_m=1.0)
+    assert r.result == "done" and r.out_m <= 1.0
+    assert SimRoom(list(ROOM), walls_m=2.5).seen_share(r.room) < 0.8  # the far side of the room left alone
+
+
+def test_find_a_ball_outside_the_play_area_ends_blocked() -> None:
+    r = roam("wander", 120.0, find=True, ball=(-1.6, 0.2), seed=1, area_m=1.0)
+    assert r.result == "blocked" and r.out_m <= 1.0

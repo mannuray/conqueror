@@ -1860,3 +1860,33 @@ classDiagram
 - `Recovery.tick` lost its unused `dt_s`; `PLAN_TRIES` 3, `BODY_GRID` 9 named.
 - `SimRoom.marks(ranges=)`: obstacles only to `Ranges.mark_max_m` (1.5 m), as the real depth; `load_map_config` refuses a smaller `mark_max_m` (fewer camera obstacles).
 - `cq-drive`: the skill's tick runs in `asyncio.to_thread` (6-21 ms of planning off the event loop; the snapshot is a copy).
+
+#### 18.13.16 The play area, only when asked (owner, 2026-10-31, design-notes §174)
+- **Command:** `cq-drive wander|explore|find ... --area M`. Without it nothing changes: the tank goes wherever it can reach, other rooms too (owner). `goto` takes no area; M must be more than 0.
+- **One rule, in the cost map:** `CostMap(snap, s, ignore=None, area=(x, y, r))` - every cell whose centre is further than r from (x, y) is lethal, a wall like any other. Destinations, routes, the fan, the body's gap and the ways out all respect it with no change of their own. `RoamSkill(..., area_m=)` fixes (x, y) at the pose of its first tick with a fresh map and hands the same circle to its chase (`ChaseSkill.area`).
+- **Wander:** spots are looked for 1.5-2 m away as before; only when none of those is open, seen and reachable, 0.5-1.25 m away (`WANDER_NEAR_RADII_M`) - a small play area or a small room. Wander without an area behaves as before.
+- **The chase:** a target whose cell is lethal even with its own marks set aside (outside the area, inside a wall, under a high edge) can't be reached: the chase ends `blocked` at once (before: seen, stuck, lost, seen again - forever).
+- **Not safety:** STOP, the deadman, the sonar stop and the body's keep-out are unchanged.
+
+```mermaid
+classDiagram
+    class CostMap {
+        +lethal: BoolArray
+        +__init__(snap, s, ignore, area)
+    }
+    class RoamSkill {
+        +area_m: float | None
+        -_area: tuple | None
+    }
+    class ChaseSkill {
+        +area: tuple | None
+    }
+    class WanderGoal {
+        +destination(now_s, at, cost, planner) XY | None
+        -_best(now_s, at, cost, planner, reach, radii)
+    }
+    RoamSkill --> CostMap : area=_area
+    RoamSkill --> ChaseSkill : area
+    ChaseSkill --> CostMap : area
+    RoamSkill --> WanderGoal
+```

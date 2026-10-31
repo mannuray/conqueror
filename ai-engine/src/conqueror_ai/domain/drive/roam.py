@@ -52,7 +52,9 @@ class RoamSkill:
         find: bool = False,
         rng: random.Random | None = None,
         cost: CostSettings | None = None,
+        area_m: float | None = None,
     ) -> None:
+        """area_m: stay within this many metres of where the run starts (None: anywhere it can reach)."""
         self.planner = planner
         self.slow = Planner(replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, SLOW_CMS)), planner.w)
         self.lim = planner.lim
@@ -77,6 +79,8 @@ class RoamSkill:
         self._start_t0: float | None = None
         self._progress = ProgressWatch(self.recovery, self.settings.stuck_s)
         self._cost: tuple[MapSnapshot, CostMap] | None = None
+        self.area_m = area_m
+        self._area: tuple[float, float, float] | None = None  # (x, y, r) once the start is known
 
     # ---- out
     def _out(self, want: Command, cam: tuple[float, float] | None = None) -> SkillOut:
@@ -100,7 +104,7 @@ class RoamSkill:
     def _costmap(self, snap: MapSnapshot) -> CostMap:
         """One cost map per snapshot (kept by identity, review minor 5)."""
         if self._cost is None or self._cost[0] is not snap:
-            self._cost = (snap, CostMap(snap, self.settings))
+            self._cost = (snap, CostMap(snap, self.settings, area=self._area))
         return self._cost[1]
 
     # ---- the tick
@@ -131,6 +135,9 @@ class RoamSkill:
             self.cmd = STOP
             return SkillOut(STOP)
         self._stale_t0 = None
+        if self.area_m is not None and self._area is None:  # the play area: round where the run starts
+            self._area = (at[0], at[1], self.area_m)
+            self.chase.area = self._area
         if self.find and (self.state == "chase" or (fix is not None and fix.seen_age_s < LOST_AFTER_S)):
             return self._chase(now_s, at, snap, fix, sonar_m, map_ok, cam_still)
         if self.mode == "wander" and self.seconds is not None and now_s - self._t0 >= self.seconds - 1e-9:
@@ -167,6 +174,7 @@ class RoamSkill:
         self.cmd = out.cmd
         if out.result in ("not_found", "lost"):  # it got away: roam on, a fresh chase for the next sighting
             self.chase = ChaseSkill(self.planner, self.settings)
+            self.chase.area = self._area
             self.state = "drive"
             self._progress.reset()
             return self._halt((0.0, DRIVE_TILT))

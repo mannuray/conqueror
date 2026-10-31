@@ -65,10 +65,17 @@ def test_wander_needs_seen_open_floor() -> None:
 
 
 def test_wander_skips_spots_it_cannot_reach() -> None:
-    # walled in, 2.2 m across: every candidate (1.5-2 m away) is outside
+    # walled in, 2.2 m across: every far spot (1.5-2 m away) is behind the walls, so it picks a nearer one
+    # inside them (design-notes §174), never one behind
     ring = [p for p in area(-1.2, -1.2, 1.2, 1.2) if max(abs(p[0]), abs(p[1])) >= 1.1]
     walled = clear_of(all_seen=True, blocked=ring)
-    assert WanderGoal(random.Random(1)).destination(0.0, START, walled, RP) is None
+    for seed in range(10):
+        d = WanderGoal(random.Random(seed)).destination(0.0, START, walled, RP)
+        assert d is not None and max(abs(d[0]), abs(d[1])) < 1.1
+    # 0.9 m across: no spot inside has room to turn on, and none behind the walls counts
+    tight = [p for p in area(-0.6, -0.6, 0.6, 0.6) if max(abs(p[0]), abs(p[1])) >= 0.45]
+    boxed = clear_of(all_seen=True, blocked=tight)
+    assert WanderGoal(random.Random(1)).destination(0.0, START, boxed, RP) is None
 
 
 def test_wander_turns_to_places_not_visited() -> None:

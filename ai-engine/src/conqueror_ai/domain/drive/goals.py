@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from conqueror_ai.domain.camera import FloatArray
 from conqueror_ai.domain.drive.costmap import CostMap
 from conqueror_ai.domain.drive.curves import XYTh
 from conqueror_ai.domain.drive.limits import Limits
@@ -22,6 +23,7 @@ from conqueror_ai.domain.drive.route import GRID_M, XY, RoutePlanner
 REACHED_M = 0.4  # a destination this near counts as reached
 
 WANDER_RADII_M = (1.5, 1.75, 2.0)
+WANDER_NEAR_RADII_M = (0.5, 0.75, 1.0, 1.25)  # only when nothing that far is open (a play area, §174)
 WANDER_STEP_DEG = 10
 WANDER_NEW_S = 6.0
 WANDER_NOISE = 0.3  # the score's random part (a standard deviation)
@@ -57,9 +59,26 @@ class WanderGoal:
         if d is not None and math.dist(d, at[:2]) > REACHED_M and now_s - self._picked_s < WANDER_NEW_S:
             return d
         reach = planner.costs(cost, (at[0], at[1]))  # spots behind a wall are skipped, not tried and dropped
+        best: tuple[float, XY] | None = None
+        for radii in (WANDER_RADII_M, WANDER_NEAR_RADII_M):
+            if best is None:
+                best = self._best(now_s, at, cost, planner, reach, radii)
+        self._dest, self._picked_s = (None if best is None else best[1]), now_s
+        return self._dest
+
+    def _best(
+        self,
+        now_s: float,
+        at: XYTh,
+        cost: CostMap,
+        planner: RoutePlanner,
+        reach: FloatArray,
+        radii: tuple[float, ...],
+    ) -> tuple[float, XY] | None:
+        """The best-scoring open, seen, reachable spot on these circles round the tank, or None."""
         open_m = self._sweep_r_m + cost.settings.keep_out_m  # a spot it can stand and turn on (~25 cm)
         best: tuple[float, XY] | None = None
-        for r in WANDER_RADII_M:
+        for r in radii:
             for k in range(0, 360, WANDER_STEP_DEG):
                 a = at[2] + math.radians(k)
                 p = (at[0] + r * math.cos(a), at[1] + r * math.sin(a))
@@ -70,8 +89,7 @@ class WanderGoal:
                 score += NOVEL_W * self._novelty(p, now_s) + self.rng.gauss(0.0, WANDER_NOISE)
                 if best is None or score > best[0]:
                     best = (score, p)
-        self._dest, self._picked_s = (None if best is None else best[1]), now_s
-        return self._dest
+        return best
 
     @staticmethod
     def _visit_key(p: XY) -> tuple[int, int]:

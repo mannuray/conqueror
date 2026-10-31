@@ -23,7 +23,7 @@ import asyncio
 import contextlib
 import datetime
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -108,14 +108,21 @@ class Mission:
     action: Action
     thing: str | None  # goto / find
     seconds: float | None  # wander: how long (None: until stopped)
+    area_m: float | None = None  # wander / explore / find: stay this near the start (None: anywhere, §174)
 
 
-def parse_mission(args: list[str], words: list[str]) -> Mission:
-    """`goto <thing>`, `find <thing>`, `wander [seconds]`, `explore`; anything else is a plain SystemExit."""
+def parse_mission(args: list[str], words: list[str], area_m: float | None = None) -> Mission:
+    """`goto <thing>`, `find <thing>`, `wander [seconds]`, `explore`, each but goto with an optional play
+    area (`--area` metres); anything else is a plain SystemExit."""
     if not args or args[0] not in ACTIONS:
         raise SystemExit(f"cq-drive does: {', '.join(ACTIONS)}")
     action = args[0]
-    rest = args[1:]
+    if area_m is not None and (action == "goto" or not area_m > 0):
+        raise SystemExit("cq-drive --area: metres more than 0, for wander, explore or find")
+    return replace(_parse(action, args[1:], words), area_m=area_m)
+
+
+def _parse(action: Action, rest: list[str], words: list[str]) -> Mission:
     if action in ("goto", "find"):
         if len(rest) != 1 or rest[0] not in words:
             raise SystemExit(f"cq-drive {action} needs one of: {', '.join(words)}")
@@ -150,8 +157,8 @@ def make_skill(m: Mission, lim: Limits, cost: CostSettings | None = None) -> Cha
     if m.action == "goto":
         return ChaseSkill(planner, cost)
     if m.action == "find":
-        return RoamSkill(planner, "wander", find=True, cost=cost)
-    return RoamSkill(planner, m.action, seconds=m.seconds, cost=cost)
+        return RoamSkill(planner, "wander", find=True, cost=cost, area_m=m.area_m)
+    return RoamSkill(planner, m.action, seconds=m.seconds, cost=cost, area_m=m.area_m)
 
 
 @dataclass
@@ -323,6 +330,9 @@ def main() -> None:
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--record", type=Path)
     ap.add_argument(
+        "--area", type=float, metavar="M", help="wander / explore / find: stay within M metres of the start"
+    )
+    ap.add_argument(
         "--no-depth", action="store_true", help="leave the depth model out (the servo's tilt only)"
     )
     a = ap.parse_args()
@@ -330,7 +340,7 @@ def main() -> None:
         words = goal_words(load_vocabulary(VOCABULARY))
     except (FileNotFoundError, ValueError) as err:
         raise SystemExit(str(err)) from None
-    m = parse_mission(a.what, words)
+    m = parse_mission(a.what, words, a.area)
     if m.action == "explore" and a.no_depth:
         raise SystemExit(refusal(m, False))
     rec = None

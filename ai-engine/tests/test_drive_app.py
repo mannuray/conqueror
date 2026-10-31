@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +16,7 @@ from conqueror_ai.app.drive import (
     Mission,
     drive_session,
     goal_words,
+    make_skill,
     map_state,
     parse_mission,
     picture_counts,
@@ -23,6 +25,8 @@ from conqueror_ai.app.drive import (
 )
 from conqueror_ai.app.objects import decode
 from conqueror_ai.domain.camera import CameraModel
+from conqueror_ai.domain.drive.limits import Limits
+from conqueror_ai.domain.drive.roam import RoamSkill
 from conqueror_ai.domain.types import Detection, Pose
 from conqueror_ai.domain.vocabulary import Vocabulary
 from tests.test_camera import calib
@@ -82,6 +86,23 @@ def test_cli_words() -> None:
     for bad in (["find", "person"], ["goto"], ["wander", "soon"], ["explore", "ball"], ["dance"]):
         with pytest.raises(SystemExit):
             parse_mission(bad, words)
+
+
+def test_cli_play_area() -> None:
+    """--area (owner: only when asked, design-notes §174): wander, explore and find; not goto, not <= 0."""
+    words = ["ball"]
+    assert parse_mission(["wander", "60"], words, area_m=2.0) == Mission("wander", None, 60.0, 2.0)
+    assert parse_mission(["explore"], words, area_m=1.5).area_m == 1.5
+    assert parse_mission(["find", "ball"], words, area_m=1.0).area_m == 1.0
+    bad_ones = ((["goto", "ball"], 2.0), (["wander"], 0.0), (["explore"], -1.0), (["wander"], math.nan))
+    for bad, area in bad_ones:
+        with pytest.raises(SystemExit):
+            parse_mission(bad, words, area_m=area)
+    lim = Limits()
+    roam = make_skill(parse_mission(["find", "ball"], words, area_m=1.0), lim)
+    assert isinstance(roam, RoamSkill) and roam.area_m == 1.0 and roam.find
+    roam = make_skill(parse_mission(["wander", "30"], words), lim)
+    assert isinstance(roam, RoamSkill) and roam.area_m is None
 
 
 def test_explore_refuses_without_depth() -> None:

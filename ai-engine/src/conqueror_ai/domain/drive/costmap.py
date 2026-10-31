@@ -26,8 +26,11 @@ class CostMap:
         snap: MapSnapshot,
         s: CostSettings | None = None,
         ignore: tuple[float, float, float] | None = None,
+        area: tuple[float, float, float] | None = None,
     ) -> None:
-        """ignore = (x, y, r): marks within r of (x, y) count as free (the chase's ball sits in its own)."""
+        """ignore = (x, y, r): marks within r of (x, y) count as free (the chase's ball sits in its own);
+        area = (x, y, r): the play area - cells further than r from (x, y) are lethal, a wall like any other
+        (owner: only when asked, design-notes §174)."""
         self.settings = s or CostSettings()
         self.n = snap.blocked.shape[0]
         self.cell_m = snap.cell_m
@@ -37,6 +40,10 @@ class CostMap:
             x, y, r = ignore
             c = (np.arange(self.n) + 0.5) * self.cell_m - self.half_m
             lethal &= np.hypot(c[:, None] - x, c[None, :] - y) > r
+        if area is not None:
+            x, y, r = area
+            c = (np.arange(self.n) + 0.5) * self.cell_m - self.half_m
+            lethal |= np.hypot(c[:, None] - x, c[None, :] - y) > r
         self.lethal: BoolArray = lethal
         self.seen: BoolArray = snap.seen
         self.known_free: BoolArray = snap.seen & ~lethal

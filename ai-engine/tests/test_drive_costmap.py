@@ -77,6 +77,15 @@ def test_ignore_disk() -> None:
     assert CostMap(snap_with(ball), ignore=(1.0, 0.0, 0.12)).dist_m(1.0, 0.0) > 2.9
 
 
+def test_play_area_outside_is_a_wall() -> None:
+    """--area (design-notes §174): outside the circle round the start is lethal, like a wall."""
+    c = CostMap(snap_with([]), area=(0.5, 0.0, 1.0))
+    assert not c.lethal[c.cell_of(1.4, 0.0)] and c.lethal[c.cell_of(1.6, 0.0)]
+    assert c.lethal[c.cell_of(-0.6, 0.0)] and not c.known_free[c.cell_of(0.5, 1.1)]
+    assert c.dist_m(0.5, 0.0) == pytest.approx(1.0, abs=0.06)
+    assert CostMap(snap_with([])).lethal.sum() == 0
+
+
 def test_nothing_grows_into_unknown() -> None:
     """A seen mark beside unseen floor: the unseen floor behind it is dear, never lethal (§18.13.1)."""
     room = RoomMap()

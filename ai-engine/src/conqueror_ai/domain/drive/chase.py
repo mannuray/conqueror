@@ -60,6 +60,7 @@ class ChaseSkill:
         self._recovering = False
         self._progress = ProgressWatch(self.recovery, self.settings.stuck_s)  # on the map
         self._spin_turned = TurnMeter()  # the search turn
+        self.area: tuple[float, float, float] | None = None  # the play area on the map (x, y, r), roam's find
 
     def _out(
         self, want: Command, cam: tuple[float, float] | None = None, result: str | None = None
@@ -143,7 +144,7 @@ class ChaseSkill:
         here."""
         rest = SEARCH_TURN_DEG - self._spin_turned.update(at[2])
         refused = snap is not None and not self.planner.can_spin(
-            at, CostMap(snap, self.settings), True, max(rest, 1.0)
+            at, CostMap(snap, self.settings, area=self.area), True, max(rest, 1.0)
         )
         if rest <= 1e-9 or refused:
             self.state, self._t0, self._pan, self._i = "sweep", now_s, None, 0
@@ -173,8 +174,12 @@ class ChaseSkill:
                     return self._end("blocked")
                 obstacle = ahead
         fan = (
-            None if snap is None else CostMap(snap, self.settings, ignore=(target[0], target[1], TARGET_R_M))
+            None
+            if snap is None
+            else CostMap(snap, self.settings, ignore=(target[0], target[1], TARGET_R_M), area=self.area)
         )
+        if fan is not None and (ij := fan.cell_of(*target)) is not None and fan.lethal[ij]:
+            return self._end("blocked")  # where it may not go even with its own marks set aside (§174)
         if fan is not None and self._recovering:  # stuck on the map: the standard ways out (Plan Z6)
             return self._recover(now_s, at, fan)
         if d_lens <= lim.stop_range_m + 0.05:
@@ -194,7 +199,9 @@ class ChaseSkill:
             want = self.planner.choose(at, self.cmd, target, obstacle)
         else:  # round obstacles on the room map: steer along the route, slow down for the ball itself
             planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
-            clear = fan or CostMap(snap, self.settings, ignore=(target[0], target[1], TARGET_R_M))
+            clear = fan or CostMap(
+                snap, self.settings, ignore=(target[0], target[1], TARGET_R_M), area=self.area
+            )
             reach = lim.stop_range_m + lim.cam_x_m  # the chase stops this far from the ball's centre anyway
             route = self.routes.route(clear, (at[0], at[1]), target, goal_ok=True, near_m=reach)
             want = (

@@ -18,7 +18,7 @@ class Limits:
     spin_dps: float = 65.0  # the slowest smooth spin in place
     dv_cms_per_s: float = 10.0  # the speed ramp
     dw_dps_per_s: float = 60.0  # the turn-rate ramp
-    stop_range_m: float = 0.40  # from the lens to the ball's centre at arrival
+    stop_range_m: float = 0.28  # lens to the thing's centre at arrival: the front ~15-20 cm off (owner, §185)
     slow_from_m: float = 0.80  # the speed falls to v_min from here
     # keep the tank's front (the sonar) this far from an echo that isn't the target; nearer ends the run
     # (owner: 10 cm, design-notes §159; slice 1 had 30 cm). The Uno's 15 cm brake stays underneath.

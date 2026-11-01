@@ -1985,3 +1985,6 @@ sequenceDiagram
         T-->>Skill: turn on the spot toward the better side, or STOP
     end
 ```
+
+#### 18.13.20 Stop distance 0.28 m (owner, 2026-11-01, design-notes §185)
+- `Limits.stop_range_m` 0.40 → **0.28** (`config/drive.yaml` the same): the chase arrives within `stop_range_m + 0.05` of the lens; the route's `near_m` and the speed's slow-down follow it. Still an "at least" limit for the settings file.

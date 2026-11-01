@@ -190,3 +190,20 @@ def test_on_the_map_no_progress_is_stuck_too() -> None:  # review I2: LLD §18.1
             break
     assert s._recovering and 2.9 <= k * 0.1 <= 3.6  # pyright: ignore[reportPrivateUsage]
     del np
+
+
+def test_it_drives_on_to_a_hands_width_from_the_thing() -> None:
+    """Owner (design-notes §185): the stop distance was much - 0.40 m lens to the thing's centre left the
+    front ~30 cm short. Now 0.28 m: with the thing 38 cm from the lens it still approaches; at 30 cm it
+    arrives."""
+    s = skill()
+    d = 0.38 + LIM.cam_x_m  # from the tank's centre
+    out = s.tick(0.0, (0.0, 0.0, 0.0), TargetFix(1, d, 0.0, 0.0), None, True)
+    assert out.result is None and out.cmd.v_cms > 0
+    s = skill()
+    d = 0.30 + LIM.cam_x_m
+    for i in range(30):
+        out = s.tick(i * 0.1, (0.0, 0.0, 0.0), TargetFix(1, d, 0.0, 0.0), None, True)
+        if out.result is not None:
+            break
+    assert out.result == "done"

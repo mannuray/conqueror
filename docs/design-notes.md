@@ -2728,3 +2728,7 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
 
 ## 182. Floor run: the toy car at its first spot, after §181 (2026-11-01)
 - **Run:** `cq-drive find toy --record recordings/z6-f4`, the car back where f3 missed it (on the marble beside the rug), the tank where it started; owner present. **Ended `done` on its own** (console ticks, ~13 a second): ~1051 searching (~80 s), 12 checking (~1 s), 39 chasing (~3 s), done.
+
+## 183. Floor runs: goto toy (2026-11-01)
+- **g1** (`cq-drive goto toy --record recordings/z6-g1`): `not_found` - sweep, half a turn, sweep; "toy" never 0.15 or more in 474 pictures; the start view (looked at, deleted) showed open floor and no box or car ahead. `goto` doesn't search the room by design (Plan Z1): it looks round from where it stands; owner asked why it didn't explore - offered as a design (fall back to search when not seen).
+- **g2** (the same, again): **`done`** - sweep (216 ticks), half a turn (116), sweep (129): seen (0.25+ in 49 of 591 pictures), approached (128 ticks, ~10 s), arrived.

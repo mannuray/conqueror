@@ -22,8 +22,9 @@ def test_the_tightest_smooth_arc_by_speed() -> None:
 
 
 def test_the_top_speed_falls_near_the_stop() -> None:
+    """Cruise from slow_from_m out, the slowest speed from 10 cm before the stop (0.28 + 0.10 since §185)."""
     assert LIM.top_speed(1.5) == 25.0
-    assert LIM.top_speed(0.5) == 18.0
+    assert LIM.top_speed(LIM.stop_range_m + 0.10) == 18.0 and LIM.top_speed(0.30) == 18.0
     assert 18.0 < LIM.top_speed(0.65) < 25.0
 
 

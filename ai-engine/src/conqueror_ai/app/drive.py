@@ -22,7 +22,9 @@ import argparse
 import asyncio
 import contextlib
 import datetime
+import math
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -69,7 +71,7 @@ from conqueror_ai.domain.drive.goal import Goal, TargetFix, is_ball, kind_of, si
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import RoamSkill
-from conqueror_ai.domain.objects import Detector, ObjectPipeline
+from conqueror_ai.domain.objects import Detector, Located, ObjectPipeline
 from conqueror_ai.domain.room_map import MapSnapshot
 from conqueror_ai.domain.types import TelemSample
 from conqueror_ai.domain.vocabulary import Vocabulary
@@ -140,6 +142,14 @@ def _parse(action: Action, rest: list[str], words: list[str]) -> Mission:
     if seconds is not None and seconds <= 0:
         raise SystemExit("cq-drive wander: the seconds must be more than 0")
     return Mission(action, None, seconds)
+
+
+def nearest_maybe(
+    maybes: Sequence[Located], kind: Callable[[str], bool], at: tuple[float, float]
+) -> tuple[float, float] | None:
+    """The nearest unsure sighting of the thing sought, for find to look at again (design-notes §179)."""
+    ms = [(m.x, m.y) for m in maybes if kind(m.cls)]
+    return min(ms, key=lambda p: math.dist(p, at), default=None)
 
 
 def refusal(m: Mission, has_depth: bool) -> str | None:
@@ -255,10 +265,11 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
                 if pose is None
                 else goal.update(run.p.objects(), (pose.x_m, pose.y_m), pose.t_us, by_size)
             )
+            maybe = None if pose is None else nearest_maybe(run.p.maybes(), goal.kind, (pose.x_m, pose.y_m))
             snap = None if pose is None else run.snapshot(pose.t_us, state is not None)  # stale: now
             # planning off the event loop (6-21 ms: the fan, routes; Z6 review 11) - the snapshot is a copy
             out = await asyncio.to_thread(
-                _tick, skill, m, now - t0, at, snap, fix, sonar[0], state is None, cam_still
+                _tick, skill, m, now - t0, at, snap, fix, sonar[0], state is None, cam_still, maybe
             )
             await drive.drive(out.cmd)
             if out.cam is not None:
@@ -295,10 +306,14 @@ def _tick(
     sonar_m: float | None,
     map_ok: bool,
     cam_still: bool,
+    maybe: tuple[float, float] | None = None,
 ) -> SkillOut:
     if isinstance(skill, ChaseSkill):
         return skill.tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap)
-    return skill.tick(now_s, at, snap, fix if m.action == "find" else None, sonar_m, map_ok, cam_still)
+    find = m.action == "find"
+    return skill.tick(
+        now_s, at, snap, fix if find else None, sonar_m, map_ok, cam_still, maybe if find else None
+    )
 
 
 async def _close(link: BridgeLink, tasks: list[asyncio.Task[None]]) -> None:

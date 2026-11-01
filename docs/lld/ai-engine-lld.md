@@ -1912,3 +1912,55 @@ sequenceDiagram
     Rec->>Foot: turn_ok(seen=False)
     Foot-->>Rec: the body's rule alone (last resort)
 ```
+
+#### 18.13.18 Find: look again at a maybe (owner, 2026-11-01, design-notes §179)
+- `Detection.sure` (default True). `to_detections(..., maybe_score=None)` / `YoloWorld(model, vocab, maybe_score)`: candidates from min(`maybe_score`, the word's threshold) up are kept, `sure` = at or over the word's threshold. `detectors()` passes `MAYBE_SCORE` 0.15 (`domain/objects.py`).
+- `ObjectPipeline.on_frame` locates sure detections for the tracker (unchanged) and unsure ones into `maybes()` - the newest used picture's only (cleared every picture).
+- `app/drive.py`: `nearest_maybe(maybes, goal.kind, at)`; `_tick` hands it to `RoamSkill.tick(..., maybe=)` in find only.
+- `RoamSkill`: state `"check"` from `"drive"` when `_worth_checking` (≤ `CHECK_MAX_M` 3 m, cell not lethal - the area included - and not within `CHECKED_R_M` 0.5 m of a spot checked in `CHECKED_FORGET_S` 60 s). `_checking`: phase look - the camera to the spot (pan ±60°), halted, until `cam_still` pictures for `CHECK_LOOK_S` 1.5 s; phase closer - the route to within `CHECK_CLOSE_M` 1.0 m, the planner as in `_drive`, stuck or no route ends the check; then look once more. `CHECK_MAX_S` 15 s for the whole check. A confirmed fix takes over at any time (the existing find → chase branch runs first). `_end_check` remembers the spot.
+
+```mermaid
+classDiagram
+    class Detection {
+        +cls: str
+        +score: float
+        +box
+        +sure: bool
+    }
+    class ObjectPipeline {
+        +on_frame(f, size, dets, cam)
+        +objects() list~ObjectEstimate~
+        +maybes() list~Located~
+    }
+    class RoamSkill {
+        +tick(now_s, at, snap, fix, sonar_m, map_ok, cam_still, maybe)
+        -_worth_checking(now_s, at, spot, cost) bool
+        -_checking(now_s, at, cost, planner, sonar_m, cam_still) SkillOut
+        -_end_check(now_s) SkillOut
+        -_check: _Check
+        -_checked: list
+    }
+    class _Check {
+        +spot: XY
+        +t0: float
+        +phase: look | closer
+        +closer: bool
+        +aimed: bool
+        +still_t0: float
+    }
+    ObjectPipeline --> Detection : sure to the tracker, unsure to maybes
+    RoamSkill --> _Check
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> drive
+    drive --> check: maybe worth checking (find)
+    check --> chase: tracker confirms (3 sightings)
+    state check {
+        [*] --> look
+        look --> closer: still 1.5 s, not confirmed, > 1 m
+        closer --> look: within 1 m
+    }
+    check --> drive: not confirmed / 15 s / stuck - spot remembered
+```

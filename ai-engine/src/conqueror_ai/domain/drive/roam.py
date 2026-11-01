@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 import random
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from conqueror_ai.domain.drive.chase import (
@@ -36,11 +36,30 @@ from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point
 from conqueror_ai.domain.room_map import MapSnapshot
 
 SLOW_CMS = 18.0  # spec 9 §5: unsure of the camera angle, or no depth
+# find: look again at a maybe (owner, design-notes §179)
+CHECK_MAX_M = 3.0  # a maybe further than this is left alone
+CHECK_LOOK_S = 1.5  # standing, the camera on the spot, still pictures this long
+CHECK_CLOSE_M = 1.0  # not confirmed from further: drive this near and look once more
+CHECK_MAX_S = 15.0  # a whole check never longer
+CHECKED_R_M = 0.5  # a checked spot: no maybe this near it is checked again ...
+CHECKED_FORGET_S = 60.0  # ... for this long
 PLAN_TRIES = 3  # destinations tried in one tick before it counts as stuck
 START_STAND_S = 1.0  # at the start: stand with the camera ahead so the map takes still pictures
 
 
 Mode = Literal["wander", "explore"]
+
+
+@dataclass
+class _Check:
+    """One maybe being checked: look still, go closer, look again (§179)."""
+
+    spot: XY
+    t0: float
+    phase: Literal["look", "closer"] = "look"
+    closer: bool = False  # it has been driven closer already
+    aimed: bool = False  # the camera was sent to the spot
+    still_t0: float | None = None  # since when the pictures are still
 
 
 class RoamSkill:
@@ -81,6 +100,8 @@ class RoamSkill:
         self._cost: tuple[MapSnapshot, CostMap] | None = None
         self.area_m = area_m
         self._area: tuple[float, float, float] | None = None  # (x, y, r) once the start is known
+        self._check: _Check | None = None
+        self._checked: list[tuple[XY, float]] = []  # spots looked at again, and when
 
     # ---- out
     def _out(self, want: Command, cam: tuple[float, float] | None = None) -> SkillOut:
@@ -117,9 +138,11 @@ class RoamSkill:
         sonar_m: float | None,
         map_ok: bool,
         cam_still: bool = True,
+        maybe: XY | None = None,
     ) -> SkillOut:
         """One tick: at = the pose (x, y, th), snap = the room map, fix = the thing to find (find only),
-        sonar_m = the echo from the tank's front (None: none), map_ok = pictures and telemetry fresh."""
+        sonar_m = the echo from the tank's front (None: none), map_ok = pictures and telemetry fresh, maybe =
+        an unsure sighting of the thing on the floor (find only: looked at again, §179)."""
         if self.state in ("done", "failed"):
             return SkillOut(STOP)
         if self._last_s is not None:
@@ -152,9 +175,19 @@ class RoamSkill:
             if now_s - self._start_t0 < START_STAND_S - 1e-9:
                 return self._halt()
             self.state = "drive"
+        planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
+        if (
+            self.find
+            and self.state == "drive"
+            and maybe is not None
+            and self._worth_checking(now_s, at, maybe, cost)
+        ):
+            self._check, self.state = _Check(maybe, now_s), "check"
+            self._progress.reset()
+        if self.state == "check":
+            return self._checking(now_s, at, cost, planner, sonar_m, cam_still)
         if self.state == "recover":
             return self._recover(now_s, at, cost)
-        planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
         return self._drive(now_s, at, cost, planner, sonar_m)
 
     def _chase(
@@ -224,6 +257,63 @@ class RoamSkill:
         if cam is not None:
             self._pan = cam[0]
         return self._halt(cam) if cmd == STOP else self._out(cmd, cam)
+
+    # ---- look again at a maybe (find, §179)
+    def _worth_checking(self, now_s: float, at: XYTh, spot: XY, cost: CostMap) -> bool:
+        """Near enough, somewhere it may go, and not looked at lately."""
+        ij = cost.cell_of(*spot)
+        if ij is None or cost.lethal[ij] or math.dist(at[:2], spot) > CHECK_MAX_M:
+            return False
+        return not any(
+            math.dist(p, spot) <= CHECKED_R_M and now_s - t < CHECKED_FORGET_S for p, t in self._checked
+        )
+
+    def _end_check(self, now_s: float) -> SkillOut:
+        """Not confirmed: remember the spot, search on."""
+        if self._check is not None:
+            self._checked.append((self._check.spot, now_s))
+        self._check, self.state, self._pan = None, "drive", 0.0
+        self._progress.reset()
+        return self._halt((0.0, DRIVE_TILT))
+
+    def _checking(
+        self, now_s: float, at: XYTh, cost: CostMap, planner: Planner, sonar_m: float | None, cam_still: bool
+    ) -> SkillOut:
+        """Stand with the camera on the spot until the pictures have been still CHECK_LOOK_S; not confirmed
+        (the chase takes over when it is) and further than CHECK_CLOSE_M: drive that near, look once more."""
+        c = self._check
+        if c is None or now_s - c.t0 >= CHECK_MAX_S - 1e-9:
+            return self._end_check(now_s)
+        d = math.dist(at[:2], c.spot)
+        b = bearing_deg(at, c.spot)
+        pan = max(-PAN_LIMIT_DEG, min(PAN_LIMIT_DEG, -b))
+        if c.phase == "look":
+            cam = None
+            if not c.aimed:
+                c.aimed, c.still_t0, self._pan = True, None, pan
+                cam = (pan, DRIVE_TILT)
+            elif not cam_still:
+                c.still_t0 = None
+            elif c.still_t0 is None:
+                c.still_t0 = now_s
+            if c.still_t0 is not None and now_s - c.still_t0 >= CHECK_LOOK_S - 1e-9:
+                if c.closer or d <= CHECK_CLOSE_M + 0.05:
+                    return self._end_check(now_s)
+                c.phase = "closer"
+            return self._halt(cam)
+        if d <= CHECK_CLOSE_M:
+            c.phase, c.closer, c.aimed = "look", True, False
+            return self._halt()
+        route = self.routes.route(cost, (at[0], at[1]), c.spot, goal_ok=True, near_m=CHECK_CLOSE_M)
+        if route is None or not self._progress.ok(now_s, at):
+            return self._end_check(now_s)
+        obstacle = None if sonar_m is None else sonar_m + self.lim.sonar_x_m
+        want = planner.choose(at, self.cmd, aim_point(route, (at[0], at[1])), obstacle, cost, far_m=math.inf)
+        cam = None
+        if self._pan is None or abs(pan - self._pan) > PAN_STEP_DEG:
+            self._pan = pan
+            cam = (pan, DRIVE_TILT)
+        return self._halt(cam) if want == STOP else self._out(want, cam)
 
     # ---- driving
     def _drive(

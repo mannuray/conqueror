@@ -75,6 +75,22 @@ def test_boxes_are_clamped_to_the_picture() -> None:
     assert dets[0].box == (0.0, 0.0, 40.0, 30.0)
 
 
+def test_a_maybe_under_the_threshold_is_kept_but_unsure() -> None:
+    """Look again at a maybe (design-notes §179): with maybe_score a box from it up to the word's own
+    threshold is kept, marked unsure; without, nothing under the threshold."""
+    out = raw(
+        (100.0, 200.0, 40.0, 100.0, 0.30, 0.0),  # sure
+        (400.0, 200.0, 40.0, 100.0, 0.18, 0.0),  # a maybe
+        (550.0, 200.0, 40.0, 100.0, 0.10, 0.0),  # under the maybe bar
+    )
+    dets = yw.to_detections(out, (80, 0, 1.0), (640, 480), VOCAB, maybe_score=0.15)
+    assert [(d.cls, round(d.score, 2), d.sure) for d in dets] == [
+        ("person", 0.3, True),
+        ("person", 0.18, False),
+    ]
+    assert [round(d.score, 2) for d in yw.to_detections(out, (80, 0, 1.0), (640, 480), VOCAB)] == [0.3]
+
+
 def test_no_model_file_is_a_plain_refusal(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="export_world"):
         yw.YoloWorld(tmp_path / "missing.mlpackage", VOCAB)

@@ -4,6 +4,7 @@ detections are made by projecting known floor points through the camera model.""
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 from conqueror_ai.domain import objects as ob
 from conqueror_ai.domain.camera import CameraModel
@@ -205,6 +206,28 @@ def test_the_pipeline_lists_the_ball_and_replays_the_same() -> None:
     first = run_pipeline()
     assert len(first) == 1 and first[0][1] == "sports ball" and math.isclose(first[0][2], 1.0, abs_tol=0.01)
     assert run_pipeline() == first
+
+
+def test_an_unsure_sighting_is_a_maybe_never_a_thing() -> None:
+    """Look again at a maybe (design-notes §179): unsure detections are placed on the floor like the rest and
+    handed out as maybes of the newest picture; the tracker never lists them."""
+    p = ob.ObjectPipeline(CAL)
+    p.on_calib(7514)
+    cam = cam_at()
+    for i in range(60):
+        p.on_telem(TelemSample(i * 20_000, i * 20, 0, 0, 0.0, 0.0, None, 90.0, 90.0, 0, 0, 0, 0, 0))
+        if i % 5 == 4:
+            d = box_on_floor(cam, 1.0, 0.1)
+            p.on_frame(frame(i * 20_000 - 10_000), (320, 240), [replace(d, score=0.18, sure=False)])
+    assert p.objects() == []
+    (m,) = p.maybes()
+    assert (
+        m.cls == "sports ball"
+        and math.isclose(m.x, 1.0, abs_tol=0.01)
+        and math.isclose(m.y, 0.1, abs_tol=0.01)
+    )
+    p.on_frame(frame(1_250_000), (320, 240), [])
+    assert p.maybes() == []  # only the newest picture's
 
 
 def test_the_pipeline_counts_its_skips() -> None:

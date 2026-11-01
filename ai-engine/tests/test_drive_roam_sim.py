@@ -3,6 +3,7 @@ camera and the sonar would give, the skill drives, and the tank never comes near
 
 from __future__ import annotations
 
+import itertools
 import math
 import random
 from dataclasses import dataclass, field
@@ -20,6 +21,7 @@ from conqueror_ai.domain.room_map import RoomMap
 from conqueror_ai.domain.sonar_model import SonarModel
 from conqueror_ai.domain.types import Pose
 
+DIM_SURE_M = 1.1  # a dim thing is recognised for sure only this near, standing still (§179)
 NEAREST_M = 0.12  # the tank's centre never nearer than this to anything (half-width 11.5 cm + a little)
 BODY_M = 0.005  # and its body (front, back and sides, turning included) never touches anything (review C1)
 LIM = Limits()
@@ -55,7 +57,12 @@ def roam(
     seed: int = 7,
     start: tuple[float, float, float] = (0.0, 0.0, 0.0),
     area_m: float | None = None,
+    dim: bool = False,
+    false_maybe: tuple[float, tuple[float, float]] | None = None,
 ) -> Roam:
+    """dim: the thing is recognised for sure only within DIM_SURE_M and standing still, from further only as a
+    maybe (the toy car on the rug, design-notes §179); false_maybe = (from t, spot): a maybe of nothing there,
+    every picture from t on."""
     sim = SimRoom(list(ROOM if boxes is None else boxes), walls_m=2.5)
     out = Roam()
     sonar_model = SonarModel()
@@ -64,6 +71,7 @@ def roam(
         Planner(Limits()), mode, seconds=seconds, find=find, rng=random.Random(seed), area_m=area_m
     )
     turning, last_seen, pan = False, None, 0.0
+    still = True
     t = 0.0
     while t < limit_s:
         if add is not None and t >= add[0] and add[1] not in sim.boxes:
@@ -77,19 +85,25 @@ def roam(
         sonar_model.update(out.room, pose, echo, t_us)
         out.room.body_over(pose, LIM.body_front_m, LIM.body_rear_m, LIM.body_half_w_m, t_us)  # Plan Z6
         snap = out.room.snapshot(t_us, pose, False, True)
-        fix = None
+        fix, maybe = None, None
         if ball is not None:
             d = math.dist(ball, at[:2])
-            in_view = abs(bearing_deg(at, ball)) <= 41.0 and d <= 4.0 and not turning
+            in_view = abs(bearing_deg(at, ball) + pan) <= 41.0 and d <= 4.0 and not turning  # pan + = right
             if in_view and not any(
                 b.z0 < 0.02
                 and (h := b.ray(at[0], at[1], (ball[0] - at[0]) / d, (ball[1] - at[1]) / d)) is not None
                 and h < d
                 for b in sim.boxes
             ):
-                last_seen = t
+                if not dim or (d <= DIM_SURE_M and still):
+                    last_seen = t
+                else:
+                    maybe = ball
             fix = None if last_seen is None else TargetFix(1, ball[0], ball[1], t - last_seen)
-        o = skill.tick(t, at, snap, fix, echo, True)
+        if false_maybe is not None and t >= false_maybe[0]:
+            maybe = false_maybe[1]
+        o = skill.tick(t, at, snap, fix, echo, True, maybe=maybe)
+        still = o.cmd.v_cms == 0 and o.cmd.w_dps == 0
         if o.cam is not None:
             pan = o.cam[0]  # the camera turns where it's told (the real one looks where the tank is going)
         turning = abs(o.cmd.w_dps) > GATE_DPS
@@ -302,3 +316,19 @@ def test_goto_a_ball_behind_at_the_start_curves_round() -> None:
             break
         t = round(t + 0.1, 6)
     assert result == "done" and body >= BODY_M
+
+
+# ---- look again at a maybe (owner: "yes", design-notes §179)
+def test_find_a_dim_thing_by_looking_again() -> None:
+    """Recognised for sure only from 1.1 m standing still: a maybe stops the tank, it looks, goes closer,
+    looks again, and the chase reaches it."""
+    r = roam("wander", 120.0, find=True, ball=(-1.6, 0.2), seed=1, dim=True)
+    assert r.result == "done" and "check" in r.states and "chase" in r.states
+    assert r.nearest >= NEAREST_M and not r.front_hit and r.body >= BODY_M
+
+
+def test_a_false_maybe_is_checked_once() -> None:
+    r = roam("wander", 70.0, seconds=60.0, find=True, seed=7, false_maybe=(5.0, (1.5, 0.0)))
+    starts = sum(1 for a, b in itertools.pairwise(r.states) if b == "check" and a != "check")
+    assert r.result == "done" and starts == 1
+    assert r.states.count("check") * 0.1 <= 15.0  # the whole check, looks and the drive closer

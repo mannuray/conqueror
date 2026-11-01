@@ -18,6 +18,7 @@ from conqueror_ai.app.drive import (
     goal_words,
     make_skill,
     map_state,
+    nearest_maybe,
     parse_mission,
     picture_counts,
     refusal,
@@ -27,6 +28,7 @@ from conqueror_ai.app.objects import decode
 from conqueror_ai.domain.camera import CameraModel
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.roam import RoamSkill
+from conqueror_ai.domain.objects import Located
 from conqueror_ai.domain.types import Detection, Pose
 from conqueror_ai.domain.vocabulary import Vocabulary
 from tests.test_camera import calib
@@ -103,6 +105,18 @@ def test_cli_play_area() -> None:
     assert isinstance(roam, RoamSkill) and roam.area_m == 1.0 and roam.find
     roam = make_skill(parse_mission(["wander", "30"], words), lim)
     assert isinstance(roam, RoamSkill) and roam.area_m is None
+
+
+def test_the_nearest_maybe_of_the_thing_sought() -> None:
+    """Look again (design-notes §179): only maybes of the word sought, the nearest one."""
+    box = (0.0, 0.0, 1.0, 1.0)
+    ms = [
+        Located("toy", 2.0, 0.0, 0.1, box),
+        Located("box", 0.5, 0.0, 0.1, box),
+        Located("toy", 1.0, 1.0, 0.1, box),
+    ]
+    assert nearest_maybe(ms, lambda c: c == "toy", (0.0, 0.0)) == (1.0, 1.0)
+    assert nearest_maybe(ms, lambda c: c == "shoe", (0.0, 0.0)) is None
 
 
 def test_explore_refuses_without_depth() -> None:

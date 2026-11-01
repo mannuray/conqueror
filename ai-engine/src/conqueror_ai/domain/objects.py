@@ -56,6 +56,7 @@ REMEMBERED_WALK_MPS = 0.05  # how far a remembered thing may have been moved, pe
 REMEMBER_AFTER_S = (
     0.5  # not seen this long (out of view, or no picture used): remembered from its last sighting
 )
+MAYBE_SCORE = 0.15  # a detection from this score up to its word's threshold is a maybe (design-notes §179)
 CONFIRM_HITS = 3  # a new thing is listed once seen this often ...
 CONFIRM_S = 0.5  # ... within this long; a new thing missed once is dropped (one false detection is no thing)
 LOOK_MISSES = 3  # the look check: at least this many pictures without it, as well as LOOK_S
@@ -371,6 +372,7 @@ class ObjectPipeline:
         self._locator = ObjectLocator(floor_classes)
         self.tracker = ObjectTracker()
         self._near: list[Near] = []
+        self._maybes: list[Located] = []
         self._skips: Counter[str] = Counter()
         self.last_camera: CameraModel | None = None
         self._last_cap_us: int | None = None
@@ -396,6 +398,7 @@ class ObjectPipeline:
     ) -> CameraModel | str:
         """Use one picture (its decoded size, its detections, the camera from camera_at if taken): its camera,
         or why it was skipped."""
+        self._maybes = []
         if self._last_cap_us is not None and f.cap_us < self._last_cap_us:
             self.tracker = (
                 ObjectTracker()
@@ -410,13 +413,18 @@ class ObjectPipeline:
             self._skips[cam] += 1
             return cam
         t = self.gate.capture_us(f.cap_us)
-        located, self._near = self._locator.locate(dets, cam, t)
+        located, self._near = self._locator.locate([d for d in dets if d.sure], cam, t)
+        self._maybes = self._locator.locate([d for d in dets if not d.sure], cam, t)[0]
         self.tracker.update(located, cam, t)
         self.last_camera = cam
         return cam
 
     def objects(self) -> list[ObjectEstimate]:
         return self.tracker.objects()
+
+    def maybes(self) -> list[Located]:
+        """The newest used picture's unsure sightings on the floor (never listed; find looks again, §179)."""
+        return list(self._maybes)
 
     def near(self) -> list[Near]:
         return list(self._near)

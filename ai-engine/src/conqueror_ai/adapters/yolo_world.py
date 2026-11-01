@@ -50,9 +50,11 @@ def to_detections(
     pad: tuple[int, int, float],
     size: tuple[int, int],
     vocab: Vocabulary,
+    maybe_score: float | None = None,
 ) -> list[Detection]:
     """The model's raw output (4 + words, candidates) -> detections in the picture's pixels. Each candidate is
-    only its best word (as Ultralytics: one label a box), kept if that word's own threshold is met."""
+    only its best word (as Ultralytics: one label a box), kept if that word's own threshold is met - or, with
+    maybe_score, from that score up, marked unsure (a maybe, design-notes §179)."""
     top, left, scale = pad
     w, h = size
     a = raw.reshape(raw.shape[-2], raw.shape[-1])
@@ -62,7 +64,8 @@ def to_detections(
     best_score = scores.max(axis=0)
     out: list[Detection] = []
     for k, word in enumerate(vocab.names):
-        sel = (best == k) & (best_score >= vocab.min_score(word))
+        bar = vocab.min_score(word) if maybe_score is None else min(maybe_score, vocab.min_score(word))
+        sel = (best == k) & (best_score >= bar)
         if not sel.any():
             continue
         boxes = np.stack(
@@ -79,14 +82,14 @@ def to_detections(
                 min(max((y2 - top) / scale, 0.0), float(h)),
             )
             if box[2] > box[0] and box[3] > box[1]:  # a box wholly in the grey bar is nothing
-                out.append(Detection(word, float(sc[i]), box))
+                out.append(Detection(word, float(sc[i]), box, bool(sc[i] >= vocab.min_score(word))))
     return out
 
 
 class YoloWorld:
     """The `Detector` port (§15.1, §16): YOLO-World on CoreML; the picture's camera is not needed."""
 
-    def __init__(self, path: Path, vocab: Vocabulary) -> None:
+    def __init__(self, path: Path, vocab: Vocabulary, maybe_score: float | None = None) -> None:
         if not path.exists():
             raise FileNotFoundError(f"no detector model at {path} - run tools/measure/export_world.py")
         import coremltools as ct
@@ -101,6 +104,7 @@ class YoloWorld:
         names: dict[int, str] = ast.literal_eval(meta["names"])
         vocab.check_model([names[i] for i in sorted(names)])
         self._vocab = vocab
+        self._maybe = maybe_score
         self._size = int(ast.literal_eval(meta["imgsz"])[0])
         self._input = spec.description.input[0].name
         self._output = spec.description.output[0].name  # by name: a later export may add outputs
@@ -111,4 +115,4 @@ class YoloWorld:
         img, pad = letterbox(rgb, self._size)
         out: dict[str, Any] = self._model.predict({self._input: Image.fromarray(img)})
         raw = np.asarray(out[self._output], dtype=np.float64)
-        return to_detections(raw, pad, (rgb.shape[1], rgb.shape[0]), self._vocab)
+        return to_detections(raw, pad, (rgb.shape[1], rgb.shape[0]), self._vocab, self._maybe)

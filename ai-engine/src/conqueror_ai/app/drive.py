@@ -4,7 +4,7 @@
     uv run cq-drive goto bottle               # any word in config/vocabulary.yaml that stands on the floor
     uv run cq-drive wander 120                # drive about for 2 minutes (no number: until stopped)
     uv run cq-drive explore                   # visit everything, then stop (needs the depth model)
-    uv run cq-drive find ball                 # wander until the ball is seen, then go to it
+    uv run cq-drive find ball --area 2        # the same as goto (§187): look round, search, go to it
     uv run cq-drive wander --record recordings/wander-1
 
 A ball's distance comes from its size in the picture; any other thing's from where it meets the floor (the
@@ -110,17 +110,17 @@ class Mission:
     action: Action
     thing: str | None  # goto / find
     seconds: float | None  # wander: how long (None: until stopped)
-    area_m: float | None = None  # wander / explore / find: stay this near the start (None: anywhere, §174)
+    area_m: float | None = None  # stay this near the start (None: anywhere, §174)
 
 
 def parse_mission(args: list[str], words: list[str], area_m: float | None = None) -> Mission:
-    """`goto <thing>`, `find <thing>`, `wander [seconds]`, `explore`, each but goto with an optional play
-    area (`--area` metres); anything else is a plain SystemExit."""
+    """`goto <thing>`, `find <thing>`, `wander [seconds]`, `explore`, each with an optional play area
+    (`--area` metres); anything else is a plain SystemExit."""
     if not args or args[0] not in ACTIONS:
         raise SystemExit(f"cq-drive does: {', '.join(ACTIONS)}")
     action = args[0]
-    if area_m is not None and (action == "goto" or not area_m > 0):
-        raise SystemExit("cq-drive --area: metres more than 0, for wander, explore or find")
+    if area_m is not None and not area_m > 0:
+        raise SystemExit("cq-drive --area: metres more than 0")
     return replace(_parse(action, args[1:], words), area_m=area_m)
 
 
@@ -164,9 +164,7 @@ def refusal(m: Mission, has_depth: bool) -> str | None:
 
 def make_skill(m: Mission, lim: Limits, cost: CostSettings | None = None) -> ChaseSkill | RoamSkill:
     planner = Planner(lim)
-    if m.action == "goto":
-        return ChaseSkill(planner, cost)
-    if m.action == "find":
+    if m.action in ("goto", "find"):  # one behaviour (design-notes §187): look round, search, go to it
         return RoamSkill(planner, "wander", find=True, cost=cost, area_m=m.area_m)
     return RoamSkill(planner, m.action, seconds=m.seconds, cost=cost, area_m=m.area_m)
 
@@ -310,7 +308,7 @@ def _tick(
 ) -> SkillOut:
     if isinstance(skill, ChaseSkill):
         return skill.tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap)
-    find = m.action == "find"
+    find = m.action in ("goto", "find")
     return skill.tick(
         now_s, at, snap, fix if find else None, sonar_m, map_ok, cam_still, maybe if find else None
     )
@@ -344,9 +342,7 @@ def main() -> None:
     ap.add_argument("what", nargs="+", help="goto <thing> | find <thing> | wander [seconds] | explore")
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--record", type=Path)
-    ap.add_argument(
-        "--area", type=float, metavar="M", help="wander / explore / find: stay within M metres of the start"
-    )
+    ap.add_argument("--area", type=float, metavar="M", help="stay within M metres of the start")
     ap.add_argument(
         "--no-depth", action="store_true", help="leave the depth model out (the servo's tilt only)"
     )

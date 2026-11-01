@@ -161,7 +161,9 @@ class RoamSkill:
         if self.area_m is not None and self._area is None:  # the play area: round where the run starts
             self._area = (at[0], at[1], self.area_m)
             self.chase.area = self._area
-        if self.find and (self.state == "chase" or (fix is not None and fix.seen_age_s < LOST_AFTER_S)):
+        # find (= goto, §187): first the chase's look round from where it stands, then search; seen: go to it
+        seen = fix is not None and fix.seen_age_s < LOST_AFTER_S
+        if self.find and (self.state in ("start", "chase") or seen):
             return self._chase(now_s, at, snap, fix, sonar_m, map_ok, cam_still)
         if self.mode == "wander" and self.seconds is not None and now_s - self._t0 >= self.seconds - 1e-9:
             return self._end("done")

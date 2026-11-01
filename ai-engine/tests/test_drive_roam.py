@@ -93,6 +93,23 @@ def test_find_hands_over_to_the_chase() -> None:
     assert s.state == "chase" and out.result is None
 
 
+def test_find_looks_round_from_where_it_stands_first() -> None:
+    """goto = find (design-notes §187): first the chase's look round from here (the camera ahead, then each
+    side); nothing seen, it then searches the room."""
+    s = skill(find=True)
+    snap = open_snap()
+    out = s.tick(0.0, AT, snap, None, None, True)
+    assert s.state == "chase" and s.chase.state == "sweep" and out.cam is not None and out.cmd == STOP
+    tank, turned = SimTank(), 0.0
+    for k in range(1, 400):  # the tank follows: the half turn is measured from the pose
+        o = s.tick(k * 0.1, tank.at, snap, None, None, True)
+        tank.step(o.cmd, 0.1)
+        turned = max(turned, abs(math.degrees(tank.at[2])))
+        if s.state != "chase":
+            break
+    assert s.state == "drive" and turned >= 170.0
+
+
 def test_cancel_stops() -> None:
     s = skill()
     snap = open_snap()

@@ -91,18 +91,22 @@ def test_cli_words() -> None:
 
 
 def test_cli_play_area() -> None:
-    """--area (owner: only when asked, design-notes §174): wander, explore and find; not goto, not <= 0."""
+    """--area (owner: only when asked, design-notes §174): wander, explore, find and goto (goto = find since
+    §187); not <= 0."""
     words = ["ball"]
     assert parse_mission(["wander", "60"], words, area_m=2.0) == Mission("wander", None, 60.0, 2.0)
     assert parse_mission(["explore"], words, area_m=1.5).area_m == 1.5
     assert parse_mission(["find", "ball"], words, area_m=1.0).area_m == 1.0
-    bad_ones = ((["goto", "ball"], 2.0), (["wander"], 0.0), (["explore"], -1.0), (["wander"], math.nan))
+    assert parse_mission(["goto", "ball"], words, area_m=2.0).area_m == 2.0
+    bad_ones = ((["goto", "ball"], 0.0), (["wander"], 0.0), (["explore"], -1.0), (["wander"], math.nan))
     for bad, area in bad_ones:
         with pytest.raises(SystemExit):
             parse_mission(bad, words, area_m=area)
     lim = Limits()
     roam = make_skill(parse_mission(["find", "ball"], words, area_m=1.0), lim)
     assert isinstance(roam, RoamSkill) and roam.area_m == 1.0 and roam.find
+    roam = make_skill(parse_mission(["goto", "ball"], words), lim)  # one behaviour with find (§187)
+    assert isinstance(roam, RoamSkill) and roam.find and roam.mode == "wander"
     roam = make_skill(parse_mission(["wander", "30"], words), lim)
     assert isinstance(roam, RoamSkill) and roam.area_m is None
 

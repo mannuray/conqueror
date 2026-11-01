@@ -162,15 +162,37 @@ def test_the_search_turn_is_checked_against_the_map() -> None:  # review C1
 
 
 def test_recovery_ends_when_the_chase_goes_back_to_searching() -> None:  # review I2
+    """15 s, not 6: since §187 the look round's time away from the thing doesn't count toward lost."""
     s = skill()
     snap = wall_beside_left()
     s.state, s._recovering = "approaching", True  # pyright: ignore[reportPrivateUsage]
     s.recovery.start(0.0, (0.0, 0.0, 0.0))
-    for k in range(60):
+    for k in range(150):
         s.tick(k * 0.1, (0.0, 0.0, 0.0), TargetFix(1, 1.5, 0.0, k * 0.1), None, True, True, snap)  # type: ignore[arg-type]
         if s.state != "approaching":
             break
     assert s.state == "sweep" and not s._recovering  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_thing_is_lost_only_after_the_camera_looked_at_its_spot() -> None:
+    """Design-notes §187 (floor run g3): the ways out looked round (the camera off the car) for ~5 s and the
+    chase counted the car lost after 3 s unseen, starting its whole search again. Time the camera points
+    elsewhere doesn't count: the ways out run their look; then, the camera back on the spot and the thing
+    still not seen, 3 s of looking at it is lost."""
+    s = skill()
+    snap = wall_beside_left()
+    s.state, s._recovering = "approaching", True  # pyright: ignore[reportPrivateUsage]
+    s.recovery.start(0.0, (0.0, 0.0, 0.0))
+    states: list[tuple[float, str, bool]] = []
+    for k in range(150):
+        s.tick(k * 0.1, (0.0, 0.0, 0.0), TargetFix(1, 1.5, 0.0, k * 0.1), None, True, True, snap)  # type: ignore[arg-type]
+        states.append((k * 0.1, s.state, s._recovering))  # pyright: ignore[reportPrivateUsage]
+        if s.state != "approaching":
+            break
+    look_ends = next(t for t, _, r in states if not r)
+    assert look_ends >= 4.0  # the whole look round, the car not lost meanwhile
+    # it looked at the spot ~2 s of the look (standing first, then ahead again): ~1 s more of looking there
+    assert states[-1][1] == "sweep" and look_ends < states[-1][0] <= look_ends + 3.2
 
 
 def test_on_the_map_no_progress_is_stuck_too() -> None:  # review I2: LLD §18.13.4

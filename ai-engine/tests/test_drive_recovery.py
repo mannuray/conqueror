@@ -97,6 +97,17 @@ def test_turn_the_allowed_way() -> None:
     assert -100.0 <= np.degrees(tank.at[2]) <= -85.0
 
 
+def test_the_turn_goes_toward_the_thing_chased_when_both_ways_are_allowed() -> None:
+    """Design-notes §187: on open floor either way is allowed (as cheap); chasing a thing on the left the 90
+    deg turn goes left, keeping it nearer the camera - without one it goes the default way (right)."""
+    for toward, left in (((0.0, 1.0), True), (None, False), ((0.5, -1.0), False)):
+        rec = Recovery(LIM, Footprint(LIM), TILT)
+        rec.start(0.0, (0.0, 0.0, 0.0))
+        rec.start(1.0, (0.0, 0.0, 0.0))
+        o = rec.tick(1.0, (0.0, 0.0, 0.0), cost_with([]), toward)
+        assert o is not None and (o[0].w_dps > 0) == left
+
+
 def test_never_backs_over_unknown_floor() -> None:  # Review Focus 3
     rec = Recovery(LIM, Footprint(LIM), TILT)
     cost = cost_with(pocket(), unseen=area(-0.6, -0.15, -0.1, 0.15))

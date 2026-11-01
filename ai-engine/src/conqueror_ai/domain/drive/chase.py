@@ -17,7 +17,8 @@ SWEEP_PANS = (0.0, -45.0, 45.0, -90.0, 90.0)  # pan + = right (cam_set); straigh
 SWEEP_LOOK_S = 0.8  # still pictures at each position (the map skips pictures while the camera moves)
 SWEEP_MAX_S = 2.5  # at most this long at one position (a camera that never settles)
 DRIVE_TILT = -15.0
-LOST_AFTER_S = 3.0
+LOST_AFTER_S = 3.0  # unseen this long while the camera looks at the thing's spot: lost (design-notes §187)
+VIEW_DEG = 30.0  # the thing's spot within this of where the camera points counts as looked at (lens +-41)
 ARRIVE_BEARING_DEG = 10.0
 PAN_LIMIT_DEG = 60.0
 PAN_STEP_DEG = 8.0  # the camera follows the target in steps this big, not constantly
@@ -62,6 +63,9 @@ class ChaseSkill:
         self._progress = ProgressWatch(self.recovery, self.settings.stuck_s)  # on the map
         self._spin_turned = TurnMeter()  # the search turn
         self.area: tuple[float, float, float] | None = None  # the play area on the map (x, y, r), roam's find
+        self._cam_pan: float | None = None  # where the camera was last sent (None: not by this skill)
+        self._seen_at: float | None = None  # when the target was last seen
+        self._away_s = 0.0  # since then, time the camera didn't look at its spot (§187)
 
     def _out(
         self, want: Command, cam: tuple[float, float] | None = None, result: str | None = None
@@ -111,10 +115,31 @@ class ChaseSkill:
         if self.state in ("sweep", "spin") and fix is not None and fix.seen_age_s < LOST_AFTER_S:
             self.state = "approaching"  # found: straight into the approach, no standing still in between
         if self.state == "sweep":
-            return self._sweep(now_s)
-        if self.state == "spin":
-            return self._spin(now_s, at, snap)
-        return self._approach(now_s, at, fix, sonar_m, snap)
+            out = self._sweep(now_s)
+        elif self.state == "spin":
+            out = self._spin(now_s, at, snap)
+        else:
+            self._watch(now_s, at, fix)
+            out = self._approach(now_s, at, fix, sonar_m, snap)
+        if out.cam is not None:
+            self._cam_pan = out.cam[0]
+        return out
+
+    def _watch(self, now_s: float, at: XYTh, fix: TargetFix | None) -> None:
+        """Time since the target was last seen that the camera spent looking elsewhere (or moving): it
+        doesn't count toward lost - not seeing a thing it isn't looking at says nothing (§187)."""
+        if fix is None:
+            return
+        seen_at = now_s - fix.seen_age_s
+        if self._seen_at is None or seen_at > self._seen_at + 1e-6:
+            self._seen_at, self._away_s = seen_at, 0.0
+            return
+        b = bearing_deg(at, (fix.x_m, fix.y_m))
+        if not self._cam_still or (self._cam_pan is not None and abs(b + self._cam_pan) > VIEW_DEG):
+            self._away_s += self._dt
+
+    def _lost(self, fix: TargetFix) -> bool:
+        return fix.seen_age_s - self._away_s > LOST_AFTER_S
 
     def _sweep(self, now_s: float) -> SkillOut:
         """The camera to each pan in turn; at each, SWEEP_LOOK_S of still pictures (SWEEP_MAX_S at most)."""
@@ -164,7 +189,7 @@ class ChaseSkill:
         self, now_s: float, at: XYTh, fix: TargetFix | None, sonar_m: float | None, snap: MapSnapshot | None
     ) -> SkillOut:
         lim = self.lim
-        if fix is None or fix.seen_age_s > LOST_AFTER_S:
+        if fix is None or self._lost(fix):
             self.state, self._t0, self._pan, self._i = "sweep", now_s, None, 0
             self._recovering, self._blocked_t0 = False, None  # review I2
             self._progress.reset()
@@ -188,7 +213,7 @@ class ChaseSkill:
         if fan is not None and (ij := fan.cell_of(*target)) is not None and fan.lethal[ij]:
             return self._end("blocked")  # where it may not go even with its own marks set aside (§174)
         if fan is not None and self._recovering:  # stuck on the map: the standard ways out (Plan Z6)
-            return self._recover(now_s, at, fan)
+            return self._recover(now_s, at, fan, target)
         if d_lens <= lim.stop_range_m + 0.05:
             if abs(b) <= ARRIVE_BEARING_DEG:
                 self.cmd = ramp(self.cmd, STOP, self._dt, lim)
@@ -243,8 +268,8 @@ class ChaseSkill:
             return SkillOut(STOP, cam)
         return self._out(want, cam)
 
-    def _recover(self, now_s: float, at: XYTh, cost: CostMap) -> SkillOut:
-        out = self.recovery.tick(now_s, at, cost)
+    def _recover(self, now_s: float, at: XYTh, cost: CostMap, toward: tuple[float, float]) -> SkillOut:
+        out = self.recovery.tick(now_s, at, cost, toward)
         if self.recovery.step == "blocked":
             return self._end("blocked")
         if out is None:  # a step finished: approach again

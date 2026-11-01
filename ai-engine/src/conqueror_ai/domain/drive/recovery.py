@@ -102,12 +102,15 @@ class Recovery:
         if self._from is not None and math.dist(self._from[:2], at[:2]) >= PROGRESS_M:
             self._from, self.step = None, "look"
 
-    def tick(self, now_s: float, at: XYTh, cost: CostMap) -> Out | None:
-        """This step's command and camera (pan, tilt) or None; None: the step has finished (try driving)."""
+    def tick(
+        self, now_s: float, at: XYTh, cost: CostMap, toward: tuple[float, float] | None = None
+    ) -> Out | None:
+        """This step's command and camera (pan, tilt) or None; None: the step has finished (try driving).
+        toward: the thing chased, if any - the turn goes its way when both ways are allowed (§187)."""
         if self.step == "look":
             return self._look(now_s)
         if self.step == "turn":
-            out = self._turn(now_s, at, cost)
+            out = self._turn(now_s, at, cost, toward)
             if out is not None or self.step == "turn":
                 return out
             self._t0 = now_s  # no turn allowed: straight on to backing up
@@ -123,9 +126,9 @@ class Recovery:
         self._t0 = now_s
         return (STOP, (self._pans.pop(0), self.tilt))
 
-    def _turn(self, now_s: float, at: XYTh, cost: CostMap) -> Out | None:
+    def _turn(self, now_s: float, at: XYTh, cost: CostMap, toward: tuple[float, float] | None) -> Out | None:
         """Measured from the pose: a tank turning slower than told still turns its 90 deg (review M4)."""
-        if self._turn_w == 0.0:  # the allowed way, the cheaper first
+        if self._turn_w == 0.0:  # the allowed way: toward the thing chased, else the cheaper first
             ways = [
                 (self.foot.highest_cost(cost, at, self.foot.spin_poses(at, left)), left)
                 for left in (True, False)
@@ -134,7 +137,11 @@ class Recovery:
             if not ways:
                 self.step = "back"
                 return None
-            self._turn_w = self.lim.spin_dps * (1.0 if min(ways)[1] else -1.0)
+            left = min(ways)[1]
+            if toward is not None and len(ways) == 2:
+                b = math.atan2(toward[1] - at[1], toward[0] - at[0]) - at[2]
+                left = math.sin(b) > 0.0
+            self._turn_w = self.lim.spin_dps * (1.0 if left else -1.0)
             self._t0 = now_s
         rest = TURN_DEG - self._turned.update(at[2])
         if rest <= 1e-9 or now_s - self._t0 >= TURN_S - 1e-9:

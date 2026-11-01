@@ -240,3 +240,22 @@ def test_no_sliding_along_a_wall_over_the_track() -> None:  # owner, design-note
     corridor = map_with(area(-1.0, 0.15, 2.0, 0.3) + area(-1.0, -0.3, 2.0, -0.15))
     assert P.choose((0.0, 0.0, 0.0), STOP, (-1.5, 0.0), cost=corridor, far_m=math.inf) == STOP
     assert P.choose((0.0, 0.0, 0.0), STOP, (2.0, 0.0), cost=corridor, far_m=math.inf) == STOP
+
+
+def test_a_thing_at_the_front_corner_is_turned_away_from_a_little_first() -> None:
+    """Floor run g3 (design-notes §184): a flask just ahead of the front-left corner (body 12.5 cm off it),
+    the floor beside the tank never seen, the route's aim 19 deg right. Every forward curve dips under the
+    keep-out; a turn on the spot over unseen floor is only the last resort (§176) - it is one here: a small
+    turn right (after which it can drive), not standing still for the ways out."""
+    room = RoomMap()
+    room.seen[:] = True
+    room.seen.reshape(-1)[room.cells(np.array(area(-0.35, -0.35, 0.2, 0.35), dtype=np.float64))] = False
+    c = room.cells(np.array(area(0.24, 0.12, 0.31, 0.22), dtype=np.float64))
+    room.hit(c, "low")
+    room.hit(c, "low")
+    room.seen.reshape(-1)[c] = True
+    cost = CostMap(room.snapshot(0, None, False, True))
+    at, aim = (0.0, 0.0, 0.0), (0.42, -0.14)
+    moves = [m for m in P.fan(at, aim, STOP, None, cost) if m != STOP]
+    assert not any(P.foot.allowed(cost, at, roll_out(at, STOP, m, LIM)) for m in moves)
+    assert P.choose(at, STOP, aim, cost=cost) == Command(0.0, -LIM.spin_dps)

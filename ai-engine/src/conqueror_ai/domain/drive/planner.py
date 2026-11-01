@@ -21,6 +21,7 @@ SPIN_FROM_DEG = 35.0
 # drive's arc aims the rest.
 SPIN_UNTIL_DEG = 15.0
 SPIN_CHECK_DEG = 90.0  # a turn on the spot is checked this far round (the look's step)
+TURN_OUT_DEG = 30.0  # no move allowed: turn on the spot this far, if driving is allowed after it (§184)
 SPEED_AHEAD_M = 0.5  # speed from the highest cost the body meets this far along its move (LLD §18.13.3)
 
 
@@ -102,6 +103,34 @@ class Planner:
             return [STOP, spin]
         # too near something to turn on the spot (review C1): the forward curves, to drive out first
         return list(dict.fromkeys(out))
+
+    def _turn_out(
+        self,
+        at: XYTh,
+        target: tuple[float, float],
+        obstacle_m: float | None,
+        cost: CostMap,
+        far_m: float | None,
+    ) -> Command:
+        """... and no small turn helps: a turn on the spot by TURN_OUT_DEG (the body's rule; unseen floor
+        allowed - it is the last resort, §176) to the side whose best forward move after it scores best; STOP
+        when after neither side a forward move is allowed (then the ways out). Floor run g3: a thing at the
+        front corner, every curve dipping under the keep-out (design-notes §184)."""
+        best: tuple[float, bool] | None = None
+        for left in (True, False):
+            if not self.can_spin(at, cost, left, TURN_OUT_DEG, seen=False):
+                continue
+            th = at[2] + math.radians(TURN_OUT_DEG if left else -TURN_OUT_DEG)
+            a2 = (at[0], at[1], th)
+            for c in self.fan(a2, target, STOP, far_m, cost):
+                if c.v_cms <= 0:  # driving on after it, not another turn
+                    continue
+                sc, forbidden = self._score(a2, STOP, c, target, obstacle_m, cost, far_m)
+                if not forbidden and (best is None or sc > best[0]):
+                    best = (sc, left)
+        if best is None:
+            return STOP
+        return Command(0.0, self.lim.spin_dps if best[1] else -self.lim.spin_dps)
 
     def inside_turn(self, at: XYTh, target: tuple[float, float]) -> bool:
         """The target lies inside the tightest circle the tank can drive toward it (at cruise speed): every
@@ -192,8 +221,8 @@ class Planner:
         moving = [c for c in self.fan(at, target, now, far_m, cost) if c != STOP]
         scored = [(self._score(at, now, c, target, obstacle_m, cost, far_m), c) for c in moving]
         allowed = [(sc[0], c) for sc, c in scored if not sc[1]]
-        if not allowed:
-            return STOP  # stop only when every move is forbidden (review M8: not merely dear)
+        if not allowed:  # stop only when every move is forbidden (review M8: not merely dear) ...
+            return STOP if cost is None else self._turn_out(at, target, obstacle_m, cost, far_m)
         best = max(allowed, key=lambda sc: sc[0])[1]
         if cost is not None and best.v_cms > 0:
             cap = self.speed_cap(cost, at, best)

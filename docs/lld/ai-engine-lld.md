@@ -1964,3 +1964,24 @@ stateDiagram-v2
     }
     check --> drive: not confirmed / 15 s / stuck - spot remembered
 ```
+
+#### 18.13.19 The planner's last resort: a small turn on the spot (owner, 2026-11-01, design-notes §184)
+- `Planner.choose`: no allowed move and a map → `_turn_out(at, target, obstacle_m, cost, far_m)`: for each side, `can_spin(at, cost, left, TURN_OUT_DEG 30, seen=False)`; from the pose turned that far, the best-scoring allowed forward move of `fan`; the side with the better one gives `Command(0, ±spin_dps)`; neither → STOP. Next tick the fan's "finish the turn" or its forward curves take over.
+
+```mermaid
+sequenceDiagram
+    participant Skill as Chase / Roam
+    participant P as Planner.choose
+    participant T as Planner._turn_out
+    participant F as Footprint.turn_ok
+    Skill->>P: choose(at, now, aim, obstacle, cost)
+    P->>P: score the fan (forward curves)
+    alt some move allowed
+        P-->>Skill: best move
+    else every move forbidden
+        P->>T: _turn_out(...)
+        T->>F: turn_ok(30 deg, seen=False) each side
+        T->>P: from the turned pose: best allowed forward move
+        T-->>Skill: turn on the spot toward the better side, or STOP
+    end
+```

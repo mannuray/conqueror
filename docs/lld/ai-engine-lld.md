@@ -1988,3 +1988,37 @@ sequenceDiagram
 
 #### 18.13.20 Stop distance 0.28 m (owner, 2026-11-01, design-notes §185)
 - `Limits.stop_range_m` 0.40 → **0.28** (`config/drive.yaml` the same): the chase arrives within `stop_range_m + 0.05` of the lens; the route's `near_m` and the speed's slow-down follow it. Still an "at least" limit for the settings file.
+
+#### 18.13.21 Naming and searching (owner, 2026-11-02, design-notes §187)
+- **Wordings.** `Word.also: tuple[str, ...]` (`vocabulary.yaml`: `also: [toy car]`). `Vocabulary.prompts` - what the model is asked, each word then its wordings, in the model's column order; `Vocabulary.name_of` - the word each column reports as; `check_model` compares the model's baked-in names with `prompts`. A wording used twice (as a word or another word's wording) is refused. `tools/measure/export_world.py` bakes in every wording.
+- **`to_detections`:** a word's score is the max over its columns; then as before (the best word per candidate, its threshold or the maybe bar, NMS per word); last `_one_name`: the same greedy NMS (IoU ≥ `NMS_IOU` 0.7) over all the detections regardless of word - the stronger box keeps its name, the weaker is dropped.
+- **Lost only when looked at (`ChaseSkill`).** `_cam_pan` (where this skill last sent the camera), `_seen_at` (when the target was last seen), `_away_s` (since then, time the camera was moving or pointed more than `VIEW_DEG` 30° from the target's bearing). `_watch` runs each approach tick; `_lost(fix)`: `fix.seen_age_s − _away_s > LOST_AFTER_S` (3 s). With the camera on the target all along this is the old rule.
+- **The ways out's turn toward the target:** `Recovery.tick(now_s, at, cost, toward=None)`; when both turn directions are allowed and `toward` is given, the turn goes to the target's side (else the cheaper, as before). The chase passes its target; roam passes none.
+- **goto = find.** `make_skill`: both make `RoamSkill("wander", find=True, area_m=...)`; `--area` allowed for both. `RoamSkill.tick` in find hands over to the chase from `"start"` too, so a run begins with the chase's look round (sweep, half a turn, sweep); `not_found` returns to wandering (as §179), a sighting starts a fresh chase. `ChaseSkill` stays the approach and look-round part inside it.
+
+```mermaid
+classDiagram
+    class Word { word: str; floor: bool; min_score: float; also: tuple~str~ }
+    class Vocabulary { words; names; prompts; name_of; check_model(model_names) }
+    class ChaseSkill { _cam_pan; _seen_at; _away_s; _watch(now_s, at, fix); _lost(fix) bool }
+    class Recovery { tick(now_s, at, cost, toward) }
+    class RoamSkill { find: bool; chase: ChaseSkill }
+    Vocabulary *-- Word
+    RoamSkill *-- ChaseSkill
+    ChaseSkill *-- Recovery
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> LookRound: goto / find
+    LookRound --> Approach: seen
+    LookRound --> Search: not_found (sweep, half turn, sweep)
+    Search --> Check: a maybe (§179)
+    Check --> Search: not confirmed
+    Check --> Approach: confirmed
+    Search --> Approach: seen
+    Approach --> WaysOut: stuck
+    WaysOut --> Approach: a step done (camera back on the thing)
+    Approach --> Search: lost (3 s looking at its spot unseen)
+    Approach --> [*]: done / blocked
+```

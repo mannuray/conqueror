@@ -1,6 +1,7 @@
 """Make the AI engine's detector model (AI engine LLD §16.1 item 1): YOLO-World (yolov8s-worldv2, GPL-3.0)
-with the words of ai-engine/config/vocabulary.yaml baked in, exported to CoreML at 640 (raw output, no NMS,
-half precision), copied to ai-engine/models/yoloworld-s-640.mlpackage. Run again after changing the words.
+with the words of ai-engine/config/vocabulary.yaml
+(and their extra wordings, design-notes §187) baked in, exported to CoreML at 640 (raw output, no NMS, half
+precision), copied to ai-engine/models/yoloworld-s-640.mlpackage. Run again after changing the words.
 It needs this environment's Ultralytics and Ultralytics' CLIP (for the words, only here); the engine itself
 needs only the CoreML runtime. Measured 5.9 ms a picture on the M1's Neural Engine (Plan Y draft).
 
@@ -26,7 +27,8 @@ def main() -> None:
     ap.add_argument("--imgsz", type=int, default=640)
     ap.add_argument("--vocabulary", type=Path, default=ENGINE / "config" / "vocabulary.yaml")
     a = ap.parse_args()
-    words = [str(w["word"]) for w in yaml.safe_load(a.vocabulary.read_text())["words"]]
+    rows = yaml.safe_load(a.vocabulary.read_text())["words"]
+    words = [str(p) for w in rows for p in (w["word"], *(w.get("also") or []))]  # each word, its wordings
     local = HERE / "models" / a.weights  # reused when already downloaded
     model = YOLOWorld(str(local) if local.exists() else a.weights)
     model.set_classes(words)

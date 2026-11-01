@@ -5,8 +5,8 @@ The model is made by tools/measure/export_world.py into ai-engine/models/ (git-i
 Its output
 is raw: (1, 4 + words, candidates) - centre x, centre y, width, height in the 640 square, then one score per
 word.
-Here: each word's own threshold, the overlap removal (per word), the letterbox undone. Measured 5.9 ms at
-640."""
+Here: a word's score is its best wording (design-notes §187), each word's own threshold, the overlap removal
+(per word, then one name a thing), the letterbox undone. Measured 5.9 ms at 640."""
 
 from __future__ import annotations
 
@@ -25,6 +25,15 @@ from conqueror_ai.domain.vocabulary import Vocabulary
 NMS_IOU = 0.7  # as Ultralytics: overlapping chairs stay apart (checked against it, Plan Y)
 
 
+def _iou(p: NDArray[np.float64], q: NDArray[np.float64]) -> float:
+    ix = max(0.0, min(p[2], q[2]) - max(p[0], q[0]))
+    iy = max(0.0, min(p[3], q[3]) - max(p[1], q[1]))
+    inter = ix * iy
+    a = (p[2] - p[0]) * (p[3] - p[1])
+    b = (q[2] - q[0]) * (q[3] - q[1])
+    return float(inter / (a + b - inter + 1e-9))
+
+
 def _nms(boxes: NDArray[np.float64], scores: NDArray[np.float64]) -> list[int]:
     """Greedy non-maximum suppression: the indices kept, best first."""
     order = list(np.argsort(-scores))
@@ -32,16 +41,7 @@ def _nms(boxes: NDArray[np.float64], scores: NDArray[np.float64]) -> list[int]:
     while order:
         i = int(order.pop(0))
         keep.append(i)
-        rest: list[int] = []
-        for j in order:
-            ix = max(0.0, min(boxes[i, 2], boxes[j, 2]) - max(boxes[i, 0], boxes[j, 0]))
-            iy = max(0.0, min(boxes[i, 3], boxes[j, 3]) - max(boxes[i, 1], boxes[j, 1]))
-            inter = ix * iy
-            a = (boxes[i, 2] - boxes[i, 0]) * (boxes[i, 3] - boxes[i, 1])
-            b = (boxes[j, 2] - boxes[j, 0]) * (boxes[j, 3] - boxes[j, 1])
-            if inter / (a + b - inter + 1e-9) < NMS_IOU:
-                rest.append(int(j))
-        order = rest
+        order = [int(j) for j in order if _iou(boxes[i], boxes[j]) < NMS_IOU]
     return keep
 
 
@@ -52,14 +52,17 @@ def to_detections(
     vocab: Vocabulary,
     maybe_score: float | None = None,
 ) -> list[Detection]:
-    """The model's raw output (4 + words, candidates) -> detections in the picture's pixels. Each candidate is
-    only its best word (as Ultralytics: one label a box), kept if that word's own threshold is met - or, with
-    maybe_score, from that score up, marked unsure (a maybe, design-notes §179)."""
+    """The model's raw output (4 + wordings, candidates) -> detections in the picture's pixels. A word scores
+    its best wording (design-notes §187). Each candidate is only its best word (as Ultralytics: one label a
+    box), kept if that word's own threshold is met - or, with maybe_score, from that score up, marked unsure
+    (a maybe, design-notes §179). Last, one thing, one name: of boxes of different words over nearly the same
+    place (IoU >= NMS_IOU) only the stronger stays (§187)."""
     top, left, scale = pad
     w, h = size
     a = raw.reshape(raw.shape[-2], raw.shape[-1])
     cx, cy, bw, bh = a[0], a[1], a[2], a[3]
-    scores = a[4:]
+    cols = a[4:]
+    scores = np.stack([cols[[c == word for c in vocab.name_of]].max(axis=0) for word in vocab.names])
     best = scores.argmax(axis=0)
     best_score = scores.max(axis=0)
     out: list[Detection] = []
@@ -83,7 +86,15 @@ def to_detections(
             )
             if box[2] > box[0] and box[3] > box[1]:  # a box wholly in the grey bar is nothing
                 out.append(Detection(word, float(sc[i]), box, bool(sc[i] >= vocab.min_score(word))))
-    return out
+    return _one_name(out)
+
+
+def _one_name(dets: list[Detection]) -> list[Detection]:
+    """One thing, one name (design-notes §187): a box over nearly the same place as a stronger one of another
+    word is dropped; the rest keep their order."""
+    boxes = np.array([d.box for d in dets], dtype=np.float64).reshape(-1, 4)
+    keep = set(_nms(boxes, np.array([d.score for d in dets], dtype=np.float64)))
+    return [d for i, d in enumerate(dets) if i in keep]
 
 
 class YoloWorld:

@@ -2022,3 +2022,4 @@ stateDiagram-v2
     Approach --> Search: lost (3 s looking at its spot unseen)
     Approach --> [*]: done / blocked
 ```
+- **Results changed:** a cq-drive `goto` / `find` no longer ends `not_found` - a fruitless look round goes back to searching, and the search has no end of its own: it runs until done, blocked, stale or STOP (`--area` keeps it near). The ChaseSkill still ends `not_found` inside it (§17.6 above, unchanged), and the Tank Logo words (Tank Logo LLD §24, 7050) and the bridge's `skill_failed` (bridge LLD R26) still list it - when Plan Z2 wires the Logo words to this skill, the search needs an end (open question, design-notes §187).

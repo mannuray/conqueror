@@ -1915,7 +1915,7 @@ sequenceDiagram
 
 #### 18.13.18 Find: look again at a maybe (owner, 2026-11-01, design-notes §179)
 - `Detection.sure` (default True). `to_detections(..., maybe_score=None)` / `YoloWorld(model, vocab, maybe_score)`: candidates from min(`maybe_score`, the word's threshold) up are kept, `sure` = at or over the word's threshold. `detectors()` passes `MAYBE_SCORE` 0.15 (`domain/objects.py`).
-- `ObjectPipeline.on_frame` locates sure detections for the tracker (unchanged) and unsure ones into `maybes()` - the newest used picture's only (cleared every picture).
+- `ObjectPipeline.on_frame` locates sure detections for the tracker (unchanged); `maybes()` is every sighting of the newest used picture, sure and unsure (cleared every picture) - a single sure sighting the tracker hasn't listed is a maybe too (design-notes §181).
 - `app/drive.py`: `nearest_maybe(maybes, goal.kind, at)`; `_tick` hands it to `RoamSkill.tick(..., maybe=)` in find only.
 - `RoamSkill`: state `"check"` from `"drive"` when `_worth_checking` (≤ `CHECK_MAX_M` 3 m, cell not lethal - the area included - and not within `CHECKED_R_M` 0.5 m of a spot checked in `CHECKED_FORGET_S` 60 s). `_checking`: phase look - the camera to the spot (pan ±60°), halted, until `cam_still` pictures for `CHECK_LOOK_S` 1.5 s; phase closer - the route to within `CHECK_CLOSE_M` 1.0 m, the planner as in `_drive`, stuck or no route ends the check; then look once more. `CHECK_MAX_S` 15 s for the whole check. A confirmed fix takes over at any time (the existing find → chase branch runs first). `_end_check` remembers the spot.
 

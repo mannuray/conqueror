@@ -230,6 +230,18 @@ def test_an_unsure_sighting_is_a_maybe_never_a_thing() -> None:
     assert p.maybes() == []  # only the newest picture's
 
 
+def test_one_sure_sighting_is_a_maybe_too() -> None:
+    """Floor run f3 (design-notes §181): the car seen once at 0.64 - not listed (3 sightings needed) and no
+    maybe either, so find drove on. Every sighting of the newest picture is a maybe; the list is unchanged."""
+    p = ob.ObjectPipeline(CAL)
+    p.on_calib(7514)
+    cam = cam_at()
+    for i in range(10):
+        p.on_telem(TelemSample(i * 20_000, i * 20, 0, 0, 0.0, 0.0, None, 90.0, 90.0, 0, 0, 0, 0, 0))
+    p.on_frame(frame(170_000), (320, 240), [box_on_floor(cam, 1.0, 0.1)])
+    assert p.objects() == [] and len(p.maybes()) == 1
+
+
 def test_the_pipeline_counts_its_skips() -> None:
     p = ob.ObjectPipeline(CAL)
     p.on_frame(frame(1_000_000), (320, 240), [])

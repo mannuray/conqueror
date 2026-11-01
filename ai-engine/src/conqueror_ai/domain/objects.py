@@ -414,7 +414,7 @@ class ObjectPipeline:
             return cam
         t = self.gate.capture_us(f.cap_us)
         located, self._near = self._locator.locate([d for d in dets if d.sure], cam, t)
-        self._maybes = self._locator.locate([d for d in dets if not d.sure], cam, t)[0]
+        self._maybes = located + self._locator.locate([d for d in dets if not d.sure], cam, t)[0]
         self.tracker.update(located, cam, t)
         self.last_camera = cam
         return cam
@@ -423,7 +423,8 @@ class ObjectPipeline:
         return self.tracker.objects()
 
     def maybes(self) -> list[Located]:
-        """The newest used picture's unsure sightings on the floor (never listed; find looks again, §179)."""
+        """The newest used picture's sightings on the floor, sure and unsure: find looks again at one that
+        isn't listed yet (§179; a single sure one too, §181). Unsure ones are never listed."""
         return list(self._maybes)
 
     def near(self) -> list[Near]:

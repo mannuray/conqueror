@@ -2720,3 +2720,8 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
 
 ## 180. Floor run: find the toy car by looking again (2026-11-01)
 - **Run:** `cq-drive find toy --record recordings/z6-f3`, no area, the toy car on the far side of the bed on the rug, the tank where f2 started; owner present. **Ended `done` on its own** (console ticks, ~13 a second): ~950 searching (~70 s), **17 checking a maybe** (~1.5 s, the look still - confirmed without driving closer), 96 chasing (~7 s), then done in front of the car. f2, the same layout before §179: not found in 3 min.
+
+## 181. A single sure sighting is a maybe too (2026-11-01)
+- **Owner, after §180:** it missed the car where it was first put; found it only after the owner moved it.
+- **The recording (z6-f3, YOLO-World on every picture):** at 32.4 s the car, first spot, ~1 m ahead-left on the marble by the rug, scored **0.64** - one picture (the next 0.11, the one before 0.09). One sure sighting: dropped by the tracker (3 in 0.5 s needed) and **not a maybe**, because §179 as built made maybes only of scores under the threshold - the approved design said "a single sighting, or a weak one"; only the weak half was built. After the move, 0.13-0.19 at 52-54 s started a check, the still look confirmed it (0.4-0.88 from 54.7 s), the chase reached it.
+- **Fix:** `ObjectPipeline.maybes()` hands out every sighting of the newest picture, sure and unsure; find checks one only while the thing isn't listed (the chase runs first once it is). No more checks than measured in §179 (its counts at 0.15 already held the sightings over 0.25). Test: one sure sighting is not listed but is a maybe.

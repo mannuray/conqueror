@@ -60,6 +60,9 @@ class RoomMap:
         self.low = np.zeros((self.n, self.n), np.float32)
         self.high = np.zeros((self.n, self.n), np.float32)
         self.seen = np.zeros((self.n, self.n), np.bool_)
+        # seen on an earlier run from the home spot (Plan Z8): shown only - no cost map, goal or the recovery
+        # reads it (free floor is never loaded, design-notes §191)
+        self.seen_before = np.zeros((self.n, self.n), np.bool_)
         self._last_picture_us: int | None = None
         self._last_body_us: int | None = None
 

@@ -43,7 +43,10 @@ SLOW_CMS = 18.0  # spec 9 §5: unsure of the camera angle, or no depth
 # find: look again at a candidate (owner, design-notes §179, §189)
 CHECK_LOOK_S = 1.5  # standing, the camera on the spot, still pictures this long
 CHECK_CLOSE_M = CLOSE_M  # not confirmed from further: drive this near and look once more
-CHECK_MAX_S = 15.0  # a whole check never longer
+CHECK_MAX_S = 15.0  # a check never longer than this ...
+CHECK_S_PER_M = 10.0  # ... plus this per metre it has to drive closer (review I3: 15 s covered the drive too)
+CHECK_NEAR_TOL_M = 0.05  # within CHECK_CLOSE_M and this counts as near (the way ends at about 1 m)
+CHECK_TRIES = 3  # checks that could not get near: then ruled out (a remembered thing is not marked gone)
 CANDIDATE_RETRY_S = 1.0  # pending candidates with no way to them: tried again after this long
 PLAN_TRIES = 3  # destinations tried in one tick before it counts as stuck
 START_STAND_S = 1.0  # at the start: stand with the camera ahead so the map takes still pictures
@@ -58,6 +61,7 @@ class _Check:
 
     cand: Candidate
     t0: float
+    cap_s: float = CHECK_MAX_S  # the check's time
     phase: Literal["look", "closer"] = "look"
     closer: bool = False  # it has been driven closer already
     aimed: bool = False  # the camera was sent to the spot
@@ -155,12 +159,14 @@ class RoamSkill:
         map_ok: bool,
         cam_still: bool = True,
         maybes: Sequence[XY] = (),
+        used: bool = True,
     ) -> SkillOut:
         """One tick: at = the pose (x, y, th), snap = the room map, fix = the thing to find (find only),
         sonar_m = the echo from the tank's front (None: none), map_ok = pictures and telemetry fresh, maybes =
         the newest picture's sightings of the thing on the floor, sure or not (find only: candidates,
-        §189). In a search a still picture marks the camera's near view as searched (§188)."""
-        if self.mode == "search" and map_ok and at is not None and cam_still and self._look_pan is not None:
+        §189). used = a picture arrived this tick and was used (detected, placed): in a search only such a
+        picture marks the camera's near view as searched (§188; review I2)."""
+        if self.mode == "search" and map_ok and at is not None and used and self._look_pan is not None:
             self.search.look(at, self._look_pan, self.lim.cam_x_m)
         if self.find:
             for spot in maybes:
@@ -226,7 +232,8 @@ class RoamSkill:
             if c is None:
                 self._retry_s = now_s + CANDIDATE_RETRY_S
             else:
-                self._check, self.state = _Check(c, now_s), "check"
+                far = max(0.0, math.dist(at[:2], c.spot) - CHECK_CLOSE_M)
+                self._check, self.state = _Check(c, now_s, CHECK_MAX_S + CHECK_S_PER_M * far), "check"
                 self._progress.reset()
         if self.state == "check":
             return self._checking(now_s, at, snap, planner, sonar_m, cam_still)
@@ -307,13 +314,21 @@ class RoamSkill:
         return self._halt(cam) if cmd == STOP else self._out(cmd, cam)
 
     # ---- look again at a candidate (find, §179, §189)
-    def _end_check(self, now_s: float) -> SkillOut:
-        """Not confirmed: ruled out for the run (a remembered thing: gone), search on."""
+    def _end_check(self, now_s: float, near: bool) -> SkillOut:
+        """Not confirmed. Looked at from near: ruled out for the run (a remembered thing: gone). Couldn't get
+        near (no way, no progress, out of time): pending, tried again later; after CHECK_TRIES ruled out, a
+        remembered thing not marked gone (review I3). Search on."""
         if self._check is not None:
             c = self._check.cand
-            self.candidates.rule_out(c)
-            if c.remembered is not None and self.memory is not None:
-                self.memory.mark_gone(c.remembered)
+            if near:
+                self.candidates.rule_out(c)
+                if c.remembered is not None and self.memory is not None:
+                    self.memory.mark_gone(c.remembered)
+            else:
+                c.tries += 1
+                if c.tries >= CHECK_TRIES:
+                    self.candidates.rule_out(c)
+                self._retry_s = now_s + CANDIDATE_RETRY_S
         self._check, self.state, self._pan = None, "drive", 0.0
         self._progress.reset()
         return self._halt((0.0, DRIVE_TILT))
@@ -330,8 +345,8 @@ class RoamSkill:
         """Stand with the camera on the spot until the pictures have been still CHECK_LOOK_S; not confirmed
         (the chase takes over when it is) and further than CHECK_CLOSE_M: drive that near, look once more."""
         c = self._check
-        if c is None or now_s - c.t0 >= CHECK_MAX_S - 1e-9:
-            return self._end_check(now_s)
+        if c is None or now_s - c.t0 >= c.cap_s - 1e-9:
+            return self._end_check(now_s, near=False)
         d = math.dist(at[:2], c.spot)
         b = bearing_deg(at, c.spot)
         pan = max(-PAN_LIMIT_DEG, min(PAN_LIMIT_DEG, -b))
@@ -345,18 +360,18 @@ class RoamSkill:
             elif c.still_t0 is None:
                 c.still_t0 = now_s
             if c.still_t0 is not None and now_s - c.still_t0 >= CHECK_LOOK_S - 1e-9:
-                if c.closer or d <= CHECK_CLOSE_M + 0.05:
-                    return self._end_check(now_s)
+                if c.closer or d <= CHECK_CLOSE_M + CHECK_NEAR_TOL_M:
+                    return self._end_check(now_s, near=True)
                 c.phase = "closer"
             return self._halt(cam)
-        if d <= CHECK_CLOSE_M:
+        if d <= CHECK_CLOSE_M + CHECK_NEAR_TOL_M:
             c.phase, c.closer, c.aimed = "look", True, False
             return self._halt()
         # the way: its own marks set aside, inside the play area (§189); the fan still keeps off every mark
         route = self.candidates.route(c.cand, at, snap, self.routes, self._area, self.settings)
         cost = self._costmap(snap)
         if route is None or not self._progress.ok(now_s, at):
-            return self._end_check(now_s)
+            return self._end_check(now_s, near=False)
         obstacle = None if sonar_m is None else sonar_m + self.lim.sonar_x_m
         want = planner.choose(at, self.cmd, aim_point(route, (at[0], at[1])), obstacle, cost, far_m=math.inf)
         cam = None

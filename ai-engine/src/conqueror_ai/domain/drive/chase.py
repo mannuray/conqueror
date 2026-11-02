@@ -115,7 +115,7 @@ class ChaseSkill:
         if self.state in ("sweep", "spin") and fix is not None and fix.seen_age_s < LOST_AFTER_S:
             self.state = "approaching"  # found: straight into the approach, no standing still in between
         if self.state in ("sweep", "spin") and sonar_m is not None and sonar_m < self.lim.clear_m:
-            return self._end("blocked")  # nothing sought in view: any echo this near is in the way (review I1)
+            return self._end("blocked")  # nothing sought in view: an echo this near is in the way (I1)
         if self.state == "sweep":
             out = self._sweep(now_s)
         elif self.state == "spin":
@@ -165,7 +165,9 @@ class ChaseSkill:
             return self._sweep(now_s)
         return self._out(STOP)
 
-    def _spin(self, now_s: float, at: XYTh, snap: MapSnapshot | None, sonar_m: float | None = None) -> SkillOut:
+    def _spin(
+        self, now_s: float, at: XYTh, snap: MapSnapshot | None, sonar_m: float | None = None
+    ) -> SkillOut:
         """Half a turn, measured from the pose. The map can't use pictures taken while spinning (faster than
         its 45 deg/s gate), so the tank then stands and sweeps the camera over what was behind it. On the map
         the turn on the spot is checked like every move (review C1); over floor never seen it curves round on

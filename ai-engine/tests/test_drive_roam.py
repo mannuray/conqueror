@@ -32,6 +32,17 @@ def open_snap(trusted: bool = True, depth: bool = True, seen: bool = True) -> Ma
     return room.snapshot(0 if depth else 5_000_000, POSE, False, trusted)
 
 
+def room_with_marks(marks: list[tuple[float, float]]) -> MapSnapshot:
+    room = RoomMap()
+    room.seen[:] = True
+    z = np.zeros((0, 2))
+    room.update_picture(Marks(z, z, z, z), 0)
+    c = room.cells(np.array(marks, dtype=np.float64))
+    room.hit(c, "high")
+    room.hit(c, "high")
+    return room.snapshot(0, POSE, False, True)
+
+
 def skill(mode: Mode = "wander", seconds: float | None = None, find: bool = False) -> RoamSkill:
     return RoamSkill(Planner(Limits()), mode, seconds=seconds, find=find, rng=random.Random(1))
 
@@ -310,3 +321,50 @@ def test_a_remembered_spot_is_checked_first_and_marked_gone_when_not_there() -> 
     assert s.state == "check"  # no look round first: it knows where to look
     ticks(s, tank, 0.1, 300)
     assert mem.of_kind(lambda c: c == "toy") == [] and s.state != "check"
+
+
+def test_the_search_marks_only_from_a_picture_used_this_tick() -> None:
+    """Z6 second review I2: a picture skipped for turning (or no picture this tick) used to mark the camera's
+    view as looked at, so find could end not_found without having looked."""
+    s = finder()
+    s.tick(0.0, AT, open_snap(), None, None, True, used=False)  # the camera sent ahead
+    s.tick(0.1, AT, open_snap(), None, None, True, used=False)
+    assert not s.search.looked((0.6, 0.0))
+    s.tick(0.2, AT, open_snap(), None, None, True, used=True)
+    assert s.search.looked((0.6, 0.0))
+
+
+def test_a_far_candidate_is_ruled_out_only_after_a_look_from_near() -> None:
+    """Z6 second review I3: the check's 15 s covered the drive too, and going closer aimed at exactly 1 m, so
+    a candidate 3 m off timed out at ~1.00 m and was ruled out without a near look."""
+    s, tank = RoamSkill(Planner(Limits()), "search", find=True, rng=random.Random(1)), SimTank()
+    t = until_searching(s, tank)
+    spot = (tank.at[0] + 3.0 * math.cos(tank.at[2]), tank.at[1] + 3.0 * math.sin(tank.at[2]))
+    ticks(s, tank, t, 1, maybes=[spot])
+    assert s.state == "check"
+    nearest = 9.0
+    for k in range(1, 900):
+        s.tick(t + k * 0.1, tank.at, open_snap(), None, None, True)
+        tank.step(s.cmd, 0.1)
+        nearest = min(nearest, math.dist(tank.at[:2], spot))
+        if s.state != "check":
+            break
+    assert s.candidates.pending() == [] and nearest <= 1.05
+
+
+def test_a_check_that_cannot_get_there_leaves_it_pending_and_not_gone() -> None:
+    """Z6 second review I3: no way to it (the map closed it) is not a look from near: the remembered thing is
+    not marked gone; tried again later, ruled out (not gone) after a few failed tries."""
+    mem = ThingMemory()
+    mem.update([ObjectEstimate(1, "toy", 1.8, 0.0, 0.0, 0.0, 0.1, 0, 0, "seen")])  # inside the 2 m area
+    s, tank = finder(mem), SimTank()
+    ticks(s, tank, 0.0, 1)
+    assert s.state == "check"
+    ring = [(1.8 + 1.3 * math.cos(a), 1.3 * math.sin(a)) for a in np.arange(0.0, 2 * math.pi, 0.02)]
+    walled = room_with_marks(ring)  # a wall round the spot, 1.3 m out: no way to within 1 m
+    for k in range(1, 400):  # the map now walls the spot off
+        tank.step(s.tick(0.1 * k, tank.at, walled, None, None, True).cmd, 0.1)
+        if s.state != "check":
+            break
+    assert s.state != "check"
+    assert len(s.candidates.pending()) == 1 and mem.of_kind(lambda c: c == "toy") != []

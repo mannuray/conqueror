@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from conqueror_ai.domain.drive.chase import ChaseSkill
+from conqueror_ai.domain.drive.curves import XYTh
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
@@ -43,6 +44,8 @@ class Roam:
     states: list[str] = field(default_factory=lambda: list[str]())
     out_m: float = 0.0  # the body's furthest corner from the start (the play area, design-notes §174)
     room: RoomMap = field(default_factory=RoomMap)
+    positions: list[XYTh] = field(default_factory=lambda: list[XYTh]())
+    skill: RoamSkill | None = None
 
 
 def roam(
@@ -115,6 +118,8 @@ def roam(
         out.front_hit = out.front_hit or sim.front_inside(tank.at)
         out.out_m = max(out.out_m, corners_from(tank.at, start))
         out.states.append(skill.state)
+        out.positions.append(tank.at)
+        out.skill = skill
         if o.result is not None:
             out.result = o.result
             break
@@ -332,3 +337,21 @@ def test_a_false_maybe_is_checked_once() -> None:
     starts = sum(1 for a, b in itertools.pairwise(r.states) if b == "check" and a != "check")
     assert r.result == "done" and starts == 1
     assert r.states.count("check") * 0.1 <= 15.0  # the whole check, looks and the drive closer
+
+
+def test_a_check_is_ruled_out_only_after_a_look_from_near() -> None:
+    """Z6 second review I3 (its probe): a maybe at (2.2, 0) near the wall, the tank starting at (-2, 0). The
+    check's 15 s covered the drive and going closer aimed at exactly 1 m: it timed out at 1.00 m, still
+    'closer', and ruled the spot out without a near look. Now it is ruled out only after a look from within
+    ~1 m (or after failed tries, never marking a remembered thing gone)."""
+    spot = (2.2, 0.0)
+    r = roam("search", 90.0, boxes=[], find=True, false_maybe=(0.0, spot), start=(-2.0, 0.0, 0.0))
+    assert r.skill is not None and "check" in r.states
+    ends = [i for i, (a, b) in enumerate(itertools.pairwise(r.states)) if a == "check" and b != "check"]
+    assert ends, "the check never ended"
+    sk = r.skill
+    if sk.candidates.pending():  # not ruled out (a failed try): fine, nothing was claimed
+        return
+    last = r.positions[ends[0] - 14 : ends[0] + 1]  # the 1.5 s before the check ended: stood, near, looking
+    assert max(math.dist(p[:2], last[-1][:2]) for p in last) <= 0.01
+    assert math.dist(last[-1][:2], spot) <= 1.05 + 1e-9

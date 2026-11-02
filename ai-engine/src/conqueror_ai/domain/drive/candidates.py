@@ -27,6 +27,7 @@ class Candidate:
     y_m: float
     state: Literal["pending", "ruled_out"] = "pending"
     remembered: Remembered | None = None  # from the memory of things: not there -> marked gone
+    tries: int = 0  # checks that could not get near it (no way, no progress, out of time)
 
     @property
     def spot(self) -> XY:

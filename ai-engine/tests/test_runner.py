@@ -130,3 +130,18 @@ async def test_a_status_and_a_log_line_each_tick() -> None:
     log, status = Log(), list[str]()
     await runner(FakeDriver(), FakePerception(), log, status).run(Scripted(n=5))
     assert len(log.lines) == 5 and len(status) == 5
+
+
+class BrokenDriver(FakeDriver):
+    async def drive(self, cmd: Command) -> None:
+        await super().drive(cmd)
+        if len(self.cmds) > 3:
+            raise ConnectionError("not connected to the bridge")
+
+
+async def test_a_driver_error_ends_failed_not_a_traceback() -> None:
+    """Plan Z7 final review minor 2: the link dropping while the runner waited for a picture raised out of
+    drive() past failure(); cq-drive showed a traceback. Now it ends FAILED (and still finishes)."""
+    d = BrokenDriver()
+    result, detail = await runner(d, FakePerception()).run(Scripted())
+    assert result == Result.FAILED and "not connected" in detail and d.finished

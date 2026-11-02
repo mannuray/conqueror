@@ -454,3 +454,28 @@ def test_roam_is_a_skill() -> None:
 
     s = RoamSkill(Planner(Limits()), "wander", rng=random.Random(1))
     assert isinstance(s, Skill) and set(s.debug()) >= {"state", "dest", "pending", "check_phase"}
+
+
+def test_a_reachable_candidate_behind_three_unreachable_ones_is_checked_before_not_found() -> None:
+    """Plan Z7 final review I1: candidates ranked by straight line, routes for the nearest 3 - three maybes
+    walled in beat a reachable one further off; with the search done, find ended not_found at once. Before
+    not_found every pending candidate gets a route."""
+    room = RoomMap()
+    room.seen[:] = True
+    z = np.zeros((0, 2))
+    room.update_picture(Marks(z, z, z, z), 0)
+    wall = [(x, y) for x in np.arange(1.3, 3.96, 0.05) for y in (-1.7, 1.7)]
+    wall += [(x, y) for y in np.arange(-1.7, 1.71, 0.05) for x in (1.3, 3.95)]
+    c = room.cells(np.array(wall))
+    room.hit(c, "high")
+    room.hit(c, "high")
+    snap = room.snapshot(0, POSE, False, True)
+    s = RoamSkill(Planner(Limits()), "find", rng=random.Random(1), kind=lambda w: w == "ball")
+    s.goal.destination = lambda *a: None  # type: ignore[method-assign]  # the search has looked everywhere
+    s.goal.done = True
+    s.state = "drive"
+    for spot in ((2.9, 0.0), (2.9, 0.6), (2.9, -0.6), (-3.2, 0.0)):
+        s.candidates.add(spot)
+    out = rt(s, 0.0, AT, snap, None, None, True)
+    assert out.result is None and s.state == "check" and s._check is not None  # pyright: ignore[reportPrivateUsage]
+    assert s._check.spot == (-3.2, 0.0)  # pyright: ignore[reportPrivateUsage]

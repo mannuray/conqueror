@@ -99,14 +99,15 @@ class Perception:
 
     async def next_picture(self, timeout_s: float) -> CameraModel | str | None:
         """One new picture through the detector, the depth model (when due), the gate and seeing: its camera
-        when the map used it, the reason when skipped, None when no picture came within `timeout_s`."""
+        when the map used it, the reason when skipped, None when no picture came within `timeout_s` (or it
+        didn't decode - no picture, not the last one again: Z7 final review minor 4)."""
         try:
             f = await asyncio.wait_for(self.cam.next_frame(), timeout_s)
         except TimeoutError:
             return None
         rgb = await asyncio.to_thread(decode, f)
         if rgb is None:
-            return "undecodable"
+            return None
         if self.rec is not None:
             self.rec.frame(f)
         run = self.world.map_run

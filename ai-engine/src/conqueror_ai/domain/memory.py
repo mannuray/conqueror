@@ -25,8 +25,9 @@ class Remembered:
 
 
 class ThingMemory:
-    def __init__(self) -> None:
-        self._things: list[Remembered] = []
+    def __init__(self, things: Sequence[Remembered] = ()) -> None:
+        """things: remembered before (a replay restores the run's start, Plan Z8 a saved memory)."""
+        self._things: list[Remembered] = list(things)
 
     def update(self, objects: Sequence[ObjectEstimate], wall_s: float, run_id: str) -> None:
         """The tracker's list now: things seen in the newest pictures update their remembered spot, stamped
@@ -47,6 +48,10 @@ class ThingMemory:
     def of_kind(self, kind: Callable[[str], bool]) -> list[Remembered]:
         """Remembered things of the kind not marked gone, the most recently seen first."""
         return sorted((r for r in self._things if kind(r.word) and not r.gone), key=lambda r: -r.seen_wall_s)
+
+    def things(self) -> list[Remembered]:
+        """Every remembered thing, gone ones too (for the log and, Plan Z8, saving)."""
+        return list(self._things)
 
     def mark_gone(self, r: Remembered) -> None:
         r.gone = True

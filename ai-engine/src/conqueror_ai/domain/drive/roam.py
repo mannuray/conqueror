@@ -244,9 +244,7 @@ class RoamSkill:
             if c is None:
                 self._retry_s = now_s + CANDIDATE_RETRY_S
             else:
-                far = max(0.0, math.dist(at[:2], c.spot) - CHECK_CLOSE_M)
-                self._check, self.state = _Check(c, now_s, CHECK_MAX_S + CHECK_S_PER_M * far), "check"
-                self._progress.reset()
+                self._start_check(now_s, at, c)
         if self.state == "check":
             return self._checking(now_s, at, snap, planner, sonar_m, cam_still)
         if self.state == "recover":
@@ -320,6 +318,11 @@ class RoamSkill:
         return self._halt(cam) if cmd == STOP else self._out(cmd, cam)
 
     # ---- look again at a candidate (find, §179, §189)
+    def _start_check(self, now_s: float, at: XYTh, c: Candidate) -> None:
+        far = max(0.0, math.dist(at[:2], c.spot) - CHECK_CLOSE_M)  # 10 s more per metre to drive (§190 I3)
+        self._check, self.state = _Check(c, now_s, CHECK_MAX_S + CHECK_S_PER_M * far), "check"
+        self._progress.reset()
+
     def _end_check(self, now_s: float, near: bool) -> SkillOut:
         """Not confirmed. Looked at from near: ruled out for the run (a remembered thing: gone). Couldn't get
         near (no way, no progress, out of time): pending, tried again later; after CHECK_TRIES ruled out, a
@@ -397,6 +400,11 @@ class RoamSkill:
             if self.find and self.goal.done:  # every spot looked at, never seen (§188)
                 if self.candidates.pending() and not self._tried_now:
                     return self._halt()  # a candidate waits for its retry: not_found only after (review M3)
+                if self._costs is not None and self.candidates.pending():  # every one routed once (Z7 I1)
+                    c = self.candidates.next(at, self._costs, self.routes, limit=None)
+                    if c is not None:
+                        self._start_check(now_s, at, c)
+                        return self._halt()
                 return self._end("not_found")
             return self._stuck(now_s, at)
         self.route = route

@@ -69,11 +69,14 @@ class Candidates:
         cost = costs.ignoring(c.x_m, c.y_m, TARGET_R_M)
         return routes.route(cost, (at[0], at[1]), c.spot, goal_ok=True, near_m=SURE_REACH_M)
 
-    def next(self, at: XYTh, costs: CostMaps, routes: RoutePlanner) -> Candidate | None:
+    def next(
+        self, at: XYTh, costs: CostMaps, routes: RoutePlanner, limit: int | None = ROUTE_TRIES
+    ) -> Candidate | None:
         """Of the ROUTE_TRIES pending candidates nearest in a straight line, the one with the shortest way to
-        within SURE_REACH_M of it, or None (the rest wait for a later try: a route takes 6-21 ms, F6)."""
+        within SURE_REACH_M of it, or None (the rest wait for a later try: a route takes 6-21 ms, F6).
+        limit None: every pending one (once, before a find gives up - Z7 final review I1)."""
         best: tuple[float, Candidate] | None = None
-        nearest = sorted(self.pending(), key=lambda c: math.dist(c.spot, at[:2]))[:ROUTE_TRIES]
+        nearest = sorted(self.pending(), key=lambda c: math.dist(c.spot, at[:2]))[:limit]
         for c in nearest:
             way = self.route(c, at, costs, routes)
             if way is None:

@@ -151,7 +151,10 @@ def read_decisions(path: Path) -> tuple[dict[str, Any], list[LoggedTick]]:
         head = cast("dict[str, Any]", json.loads(f.readline()))
         ticks: list[LoggedTick] = []
         for raw in f:
-            d = json.loads(raw)
+            try:
+                d = json.loads(raw)
+            except json.JSONDecodeError:  # half a line: the run was cut off mid-write (Z7 minor 7)
+                break
             ticks.append(
                 LoggedTick(float(d["now_s"]), _input_in(d["inp"]), _out_in(d["out"]), str(d["state"]))
             )
@@ -167,9 +170,10 @@ class ReplayReport:
 
 
 def replay(path: Path, make: Callable[[dict[str, Any], int], Skill]) -> ReplayReport:
-    """The logged inputs into a fresh skill (made from the logged mission and seed)."""
+    """The logged inputs into a fresh skill, made from the log's first line (mission, limits, cost settings)
+    and its seed."""
     head, ticks = read_decisions(path)
-    skill = make(cast("dict[str, Any]", head["mission"]), int(head["seed"]))
+    skill = make(head, int(head["seed"]))
     states: list[tuple[float, str]] = []
     for i, t in enumerate(ticks):
         if not states or states[-1][1] != t.state:

@@ -97,3 +97,29 @@ async def test_one_picture_goes_through_once() -> None:
         stop.set()
         await p.close()
         await bridge.stop()
+
+
+async def test_an_undecodable_picture_is_no_picture() -> None:
+    """Plan Z7 final review minor 4: a picture that doesn't decode returned "undecodable" and the tools
+    redrew the previous frame as a new one; now it is no picture (None), as a timeout."""
+    from tests.fake_bridge import JPEG
+
+    bridge = FakeBridge(jpeg=JPEG, pan_tilt=(90.0, 90.0))  # not a real JPEG
+    await bridge.start()
+    stop = asyncio.Event()
+    p = Perception(
+        BridgeLink("127.0.0.1", bridge.ws_port),
+        MjpegSource("127.0.0.1", bridge.stream_port),
+        world(),
+        None,
+        None,
+        None,
+    )
+    try:
+        p.start(stop)
+        got = [await p.next_picture(0.5) for _ in range(3)]
+        assert got == [None, None, None] and p.world.last_frame is None
+    finally:
+        stop.set()
+        await p.close()
+        await bridge.stop()

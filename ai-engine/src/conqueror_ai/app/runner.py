@@ -68,9 +68,12 @@ class SkillRunner:
                 inp = self.world.input(now - t0, time.time(), state is None)
                 # planning off the event loop (6-21 ms: fan, routes; Z6 review 11) - the snapshot is a copy
                 out = await asyncio.to_thread(skill.tick, now - t0, inp)
-                await self.driver.drive(out.cmd)
-                if out.cam is not None:
-                    await self.driver.cam(*out.cam)
+                try:
+                    await self.driver.drive(out.cmd)
+                    if out.cam is not None:
+                        await self.driver.cam(*out.cam)
+                except Exception as e:  # the link went down between checks (Z7 final review minor 2)
+                    return Result.FAILED, f"{type(e).__name__}: {e}"
                 if self.log is not None:
                     self.log.tick(now - t0, inp, out, skill.state, skill.debug())
                 if self.on_status is not None:

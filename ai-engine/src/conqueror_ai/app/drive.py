@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from conqueror_ai.adapters import calibration_store
-from conqueror_ai.adapters.decisions import DecisionLog, read_decisions, replay
+from conqueror_ai.adapters.decisions import DecisionLog, replay
 from conqueror_ai.adapters.detector_config import load_balls, load_vocabulary
 from conqueror_ai.adapters.drive_config import load_drive
 from conqueror_ai.adapters.drive_link import DriveLink
@@ -68,7 +68,7 @@ from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import RoamSkill
 from conqueror_ai.domain.drive.skill import Result, Skill
-from conqueror_ai.domain.memory import ThingMemory
+from conqueror_ai.domain.memory import Remembered, ThingMemory
 from conqueror_ai.domain.objects import Detector
 from conqueror_ai.domain.vocabulary import Vocabulary
 
@@ -159,16 +159,24 @@ def make_skill(
     return RoamSkill(planner, m.action, seconds=m.seconds, rng=rng, cost=cost, area_m=m.area_m)
 
 
+def start_memory(memory: ThingMemory) -> list[dict[str, Any]]:
+    """The memory at a run's start, for the log's first line: a find checks these spots first, so a replay
+    must start from them (Z7 final review minor 3)."""
+    return [asdict(r) for r in memory.things()]
+
+
 def replay_text(folder: Path) -> str:
     """`cq-drive --replay DIR`: the run's logged inputs through a fresh skill; the state timeline and whether
     every decision came out the same (LLD §19.6)."""
     path = folder / "decisions.jsonl"
+    if not path.exists():
+        return f"no decisions.jsonl in {folder} (a run records one with --record; did it connect?)"
 
-    def make(mission: dict[str, Any], seed: int) -> Skill:
-        head, _ = read_decisions(path)
+    def make(head: dict[str, Any], seed: int) -> Skill:
         lim = Limits(**head.get("limits", {}))
         cost = CostSettings(**head["cost"]) if "cost" in head else None
-        return make_skill(Mission(**mission), lim, cost, ThingMemory(), seed)
+        memory = ThingMemory([Remembered(**r) for r in head.get("remembered", [])])
+        return make_skill(Mission(**head["mission"]), lim, cost, memory, seed)
 
     r = replay(path, make)
     lines = [f"{t:7.1f} s  {state}" for t, state in r.states]
@@ -230,7 +238,7 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
     if kit.rec is not None:  # every decision beside the recording (LLD §19.6)
         mission = {"action": m.action, "thing": m.thing, "seconds": m.seconds, "area_m": m.area_m}
         log = DecisionLog(kit.rec.folder / "decisions.jsonl", mission, seed)
-        log.head(limits=asdict(kit.lim), cost=asdict(kit.cfg.cost))
+        log.head(limits=asdict(kit.lim), cost=asdict(kit.cfg.cost), remembered=start_memory(world.memory))
     runner = SkillRunner(world, p, drive, log, status)
     try:
         result, detail = await runner.run(skill)
@@ -240,8 +248,8 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
         if log is not None:
             log.close()
         print()
-    if runner.finish_error is not None:
-        print(f"the stop message failed ({runner.finish_error}): the tank stops by the deadman")
+        if runner.finish_error is not None:  # said even when the run itself raised (Z7 minor 5)
+            print(f"the stop message failed ({runner.finish_error}): the tank stops by the deadman")
     return said(result, detail)
 
 

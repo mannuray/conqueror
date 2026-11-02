@@ -442,3 +442,25 @@ def test_every_picture_gets_the_pipelines_tilt_fix() -> None:
     p.set_tilt_fix(1.5)
     cam = p.camera_at(1_100_000)
     assert isinstance(cam, CameraModel) and cam.tilt_fix_deg == 1.5
+
+
+def test_a_thing_whose_floor_point_flickers_is_listed_once() -> None:
+    """Z6 second review I5: with new things kept 0.5 s (run c1), a listed toy whose floor point flipped picture
+    by picture between it and a spot 25-35 cm further (outside its gate) built a second thing there - two
+    candidates and two memories for one toy. No new thing starts within SAME_THING_M of a listed one of the
+    same word."""
+    for off in (0.25, 0.35):
+        tr, cam, t = ob.ObjectTracker(), cam_at(), 0
+        for _ in range(5):
+            tr.update([ob.Located("toy", 1.0, 0.0, ob.sigma_at(1.0), (0, 0, 1, 1))], cam, t)
+            t += 55_000
+        for k in range(36):
+            x = 1.0 if k % 2 == 0 else 1.0 + off
+            tr.update([ob.Located("toy", x, 0.0, ob.sigma_at(x), (0, 0, 1, 1))], cam, t)
+            t += 55_000
+        assert len(tr.objects()) == 1, off
+    tr, t = ob.ObjectTracker(), 0  # two toys a metre apart stay two
+    for _ in range(5):
+        tr.update([ob.Located("toy", x, 0.0, ob.sigma_at(x), (0, 0, 1, 1)) for x in (1.0, 2.0)], cam, t)
+        t += 55_000
+    assert len(tr.objects()) == 2

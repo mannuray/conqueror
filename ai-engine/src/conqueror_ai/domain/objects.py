@@ -57,6 +57,8 @@ REMEMBER_AFTER_S = (
     0.5  # not seen this long (out of view, or no picture used): remembered from its last sighting
 )
 MAYBE_SCORE = 0.15  # a detection from this score up to its word's threshold is a maybe (design-notes §179)
+SAME_THING_M = 0.5  # a new thing never starts this near a listed one of the same word (review I5: its floor
+# point flickering outside the gate built a second thing there; the memory merges by the same distance)
 CONFIRM_HITS = 3  # a new thing is listed once seen this often ...
 CONFIRM_S = 0.5  # ... within this long, whatever the pictures between show (design-notes §189, run c1)
 LOOK_MISSES = 3  # the look check: at least this many pictures without it, as well as LOOK_S
@@ -334,8 +336,13 @@ class ObjectTracker:
             if i not in used_t and not self._still_there(th, cam, t_us):
                 continue
             keep.append(th)
+        listed = [th for th in keep if th.confirmed]
         for j, z in enumerate(located):
-            if j not in used_z:
+            near_listed = any(
+                th.cls == z.cls and math.hypot(float(th.x[0]) - z.x, float(th.x[1]) - z.y) <= SAME_THING_M
+                for th in listed
+            )
+            if j not in used_z and not near_listed:
                 p = np.diag([z.sigma**2, z.sigma**2, NEW_SPEED_SIGMA**2, NEW_SPEED_SIGMA**2])
                 x = np.array([z.x, z.y, 0.0, 0.0])
                 keep.append(

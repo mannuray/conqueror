@@ -965,7 +965,7 @@ classDiagram
 
 ### 17.0 Scope
 - **Built here:** the drive-while-thinking loop (spec 8 §3) and the chase-the-ball skill (spec 8 §4), on the laptop. Two ways to run it:
-  - **`cq-drive goto ball`:** standalone, for testing. It drives like the phone does, as the owner, through plain `drive_rate`.
+  - **`cq-drive find ball`** (was `goto`, §18.13.22): standalone, for testing. It drives like the phone does, as the owner, through plain `drive_rate`.
   - **`cq-drive serve`:** the skill server for Tank Logo's `SEE?`, `HOWFAR`, `FIND` and `GOTO`, driving under the runner's drive lease (bridge LLD R26).
 - **The existing `BridgeLink` stays motion-free** (§6: "never sends anything that moves the tank"). Everything that moves the tank goes through one new, separate adapter, `DriveLink`.
 
@@ -979,7 +979,7 @@ classDiagram
 | `domain/drive/chase.py` | `ChaseSkill`: the state machine of spec 8 §4.2 (looking / approaching / arrived / lost) |
 | `domain/drive/sim.py` | `SimTank`: a simulated tank following commands, for tests |
 | `adapters/drive_link.py` | `DriveLink`: `drive_rate` (standalone) or `skill_drive` (lease), `cam_set`, the skill messages; cm/s → % |
-| `app/drive.py` | `cq-drive goto ball` and `cq-drive serve` |
+| `app/drive.py` | `cq-drive find ball` (was `goto`, §18.13.22) and `cq-drive serve` |
 | `config/drive.yaml` | the limits and score weights (plain values, loaded into `Limits`) |
 
 ### 17.2 Classes
@@ -1110,18 +1110,18 @@ stateDiagram-v2
 ### 17.7 `DriveLink` and speed
 - **cm/s → `v` %:** from the measured table (design-notes §69–§71): 0 → 0; 17.7 → 15 %; 22 → 40 %; 33.5 → 100 %, linear in between. **The plan measures it again on the floor** (spec 8 §9) and writes `config/drive.yaml`.
 - **Turn rate:** sent as `yaw_rate` in °/s, + = left (bridge R4; the bridge reads no other key - final review C1).
-- **Standalone (`goto`):** `drive_rate` as the owner. A NOT_OWNER or STOPPED nack ends the run with a plain message.
+- **Standalone (`find`, was `goto`):** `drive_rate` as the owner. A NOT_OWNER or STOPPED nack ends the run with a plain message.
 - **Lease (`serve`):** `skill_drive` with the skill id (bridge R26). A `skill_end` from the bridge cancels at once.
 
 ### 17.8 `cq-drive`
-- **`cq-drive goto ball [--host]`:**
+- **`cq-drive find ball [--host]`** (was `goto`):
   - prints the states and the result;
   - Ctrl-C stops the tank (0/0, then `release`);
   - records the session like `cq-record`, for replay.
 - **`cq-drive serve [--host]`:**
   - connects with hello `client: "ai-skills"` and stays connected;
   - answers `skill_ask` (`see?` / `howfar` for a thing);
-  - runs `skill_start` (`find` / `goto`);
+  - runs `skill_start` (`find`; `goto` removed, §18.13.22);
   - reports `skill_done` or `skill_failed {reason}`.
 - **Reasons:** `not_found`, `lost`, `blocked`, `stale`, `unknown_thing`, `cancelled`.
 
@@ -1153,7 +1153,7 @@ stateDiagram-v2
 - **Files** (all in `ai-engine/`):
   - `domain/drive/limits.py` (`Limits`), `curves.py` (`Command`, `ramp`, `roll_out`), `planner.py` (`Planner`, `bearing_deg`), `goal.py` (`Goal`, `TargetFix`, `size_positions`, `kind_of`, `echo_is_target`), `chase.py` (`ChaseSkill`, `SkillOut`), `sim.py` (`SimTank`);
   - `adapters/drive_link.py` (`DriveLink`, `to_percent`, `drive_msg`), `adapters/drive_config.py` (`load_drive`);
-  - `app/drive.py` (`cq-drive goto <thing> [--host] [--record]`), `config/drive.yaml`;
+  - `app/drive.py` (`cq-drive find <thing> [--host] [--record]`, was `goto`), `config/drive.yaml`;
   - tests `test_drive_{limits,planner,goal,chase,sim,link,app}.py`; the AI engine suite is 266 tests.
   - **Not built here:** `cq-drive serve` and the drive lease (Plan Z2, with the Tank Logo words).
 - **The bridge changed too** (inside Plan Z1, owner: yes): `drive_rate` didn't pass "moving" to the §72 STOP hold, so the phone's STOP didn't end a `drive_rate` run. `MotionController::Hooks::claim(fd, now, moving)`; host tests 674.
@@ -1244,7 +1244,7 @@ classDiagram
 | `domain/drive/roam.py` | `RoamSkill` (wander / explore / find), shares the chase's stale / blocked rules | Z5 |
 | `domain/drive/planner.py`, `chase.py` | the fan checks the clearance map; the chase aims along a route | Z5 |
 | `domain/drive/sim.py` | `SimRoom` (boxes, an overhang) for simulated drives | Z5 |
-| `app/drive.py` | `cq-drive wander [seconds] | explore | find <thing> | goto <thing>` | Z5 |
+| `app/drive.py` | `cq-drive wander [seconds] | explore | find <thing>` (`goto` removed, §18.13.22) | Z5 |
 | `config/map.yaml` | heights, ranges, log-odds steps, costs (§18.9) | Z3-Z5 |
 
 ### 18.2 Classes
@@ -1862,7 +1862,7 @@ classDiagram
 - `cq-drive`: the skill's tick runs in `asyncio.to_thread` (6-21 ms of planning off the event loop; the snapshot is a copy).
 
 #### 18.13.16 The play area, only when asked (owner, 2026-10-31, design-notes §174)
-- **Command:** `cq-drive wander|explore|find ... --area M`. Without it nothing changes: the tank goes wherever it can reach, other rooms too (owner). `goto` takes no area; M must be more than 0.
+- **Command:** `cq-drive wander|explore|find ... --area M`. Without it nothing changes: the tank goes wherever it can reach, other rooms too (owner). M must be more than 0 (`goto` took no area; removed, §18.13.22).
 - **One rule, in the cost map:** `CostMap(snap, s, ignore=None, area=(x, y, r))` - every cell whose centre is further than r from (x, y) is lethal, a wall like any other. Destinations, routes, the fan, the body's gap and the ways out all respect it with no change of their own. `RoamSkill(..., area_m=)` fixes (x, y) at the pose of its first tick with a fresh map and hands the same circle to its chase (`ChaseSkill.area`).
 - **Wander:** spots are looked for 1.5-2 m away as before; only when none of those is open, seen and reachable, 0.5-1.25 m away (`WANDER_NEAR_RADII_M`) - a small play area or a small room. Wander without an area behaves as before.
 - **The chase:** a target whose cell is lethal even with its own marks set aside (outside the area, inside a wall, under a high edge) can't be reached: the chase ends `blocked` at once (before: seen, stuck, lost, seen again - forever).

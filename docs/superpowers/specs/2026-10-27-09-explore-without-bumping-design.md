@@ -96,7 +96,7 @@ sequenceDiagram
 4. **The camera** pans toward the route's direction at the driving tilt (−15°).
 5. **No route:** turn on the spot to look around; still none → wander picks another destination, visit everything ends `done`, the chase ends `blocked`.
 6. **Unchanged from slice 1:** the 25 cm/s cap; turning on the spot beyond 35°; the stale-map pause; STOP and Ctrl-C.
-7. **How it's run:** `cq-drive wander [seconds]`, `cq-drive explore`, `cq-drive find <thing>`, and `cq-drive goto <thing>` now with routes. The Tank Logo words (`WANDER`, `EXPLORE`, …) join Plan Z2's words later.
+7. **How it's run:** `cq-drive wander [seconds]`, `cq-drive explore`, and `cq-drive find <thing>` now with routes (`goto` removed, design-notes §188: find looks round, searches, goes to it). The Tank Logo words (`WANDER`, `EXPLORE`, …) join Plan Z2's words later.
 
 ## 5. Safety
 

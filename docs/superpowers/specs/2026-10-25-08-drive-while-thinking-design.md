@@ -215,7 +215,7 @@ Spec 5 §6 says AI programs run in an AI-engine runner. Revision 2 then put the 
   - STOP from any device, the page going away, the program ending, or the lease's 0.3 s refresh lapsing all end the lease and stop the tank.
   - The engine never drives otherwise.
 - **No AI engine connected:** the word fails with the plain message of spec 5 §6 ("This program needs the AI helper to see things…").
-- **For testing without Logo**, the engine also runs a skill from the command line: `cq-drive goto ball`. It takes control the way the phone does, and STOP from any device ends it.
+- **For testing without Logo**, the engine also runs a skill from the command line: `cq-drive find ball` (was `goto ball`; one word since design-notes §188). It takes control the way the phone does, and STOP from any device ends it.
 
 ## 5. Safety (unchanged rules, new checks)
 - **Nothing on the Uno changes.** The obstacle brake, deadman, link-loss stop, stall, tilt, battery and child-play limits all still apply. Every `drive_rate` passes the Uno's safety supervisor like any other command.

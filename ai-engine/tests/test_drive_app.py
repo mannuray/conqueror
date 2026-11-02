@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import math
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+from conqueror_ai.adapters.home_store import HomeStore
 from conqueror_ai.app.drive import (
     FIRST_PICTURE_S,
     Kit,
@@ -21,6 +23,7 @@ from conqueror_ai.app.drive import (
     maybes_of,
     parse_mission,
     refusal,
+    start_home,
 )
 from conqueror_ai.app.objects import decode
 from conqueror_ai.app.perception import picture_counts, task_failure
@@ -188,3 +191,89 @@ async def test_drive_run_never_moves_without_a_fresh_map() -> None:
 class NoDetector:
     def detect(self, rgb: NDArray[np.uint8], cam: CameraModel | None) -> list[Detection]:
         return []
+
+
+# ---- the home spot (Plan Z8, LLD §20.1)
+def stored_home(root: Path) -> HomeStore:
+    from conqueror_ai.domain.home import Home
+    from conqueror_ai.domain.memory import Remembered, ThingMemory
+    from conqueror_ai.domain.room_map import RoomMap
+
+    room = RoomMap()
+    room.low.reshape(-1)[room.cells(np.array([(1.0, 0.0)]))] = 4.0
+    store = HomeStore(root)
+    store.save("h", Home.from_run(room, ThingMemory([Remembered("ball", 1.2, 0.4, 100.0, "r0")]), None, "r0"))
+    return store
+
+
+async def home_run(store: HomeStore, cancel_after_s: float | None = None, rec: object = None) -> str:
+    from conqueror_ai.adapters.bridge_ws import BridgeLink
+    from conqueror_ai.adapters.drive_link import DriveLink
+    from conqueror_ai.adapters.mjpeg_source import MjpegSource
+    from conqueror_ai.domain.depth import MapConfig
+    from conqueror_ai.domain.drive.limits import Limits
+    from tests.fake_bridge import FakeBridge
+    from tests.test_objects import CAL
+    from tests.test_objects_app import GREY_JPEG
+
+    bridge = FakeBridge(jpeg=GREY_JPEG, pan_tilt=(90.0, 90.0), frames_for_s=0.0)  # telemetry, no pictures
+    await bridge.start()
+    try:
+        link = BridgeLink("127.0.0.1", bridge.ws_port)
+        cam = MjpegSource("127.0.0.1", bridge.stream_port)
+        drive = DriveLink("127.0.0.1", bridge.ws_port)
+        kit = Kit(CAL, MapConfig(), NoDetector(), frozenset(), {}, Limits(), None, rec, home=(store, "h"))  # type: ignore[arg-type]
+        task = asyncio.create_task(drive_session(link, cam, drive, Mission("wander", None, None), kit))
+        if cancel_after_s is not None:
+            await asyncio.sleep(cancel_after_s)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+            return "cancelled"
+        return await task
+    finally:
+        await bridge.stop()
+
+
+async def test_a_home_run_starts_from_the_home_and_saves_it(tmp_path: Path) -> None:
+    store = stored_home(tmp_path)
+    await home_run(store)
+    home = store.load("h")
+    assert home is not None and len(home.runs) == 2 and home.runs[0] == "r0"
+    assert [t.word for t in home.things] == ["ball"]  # the remembered ball came in and went out again
+    (c,) = home.low.reshape(-1).nonzero()[0][:1]
+    assert home.low.reshape(-1)[c] > 0.7  # the loaded obstacle (1.1, not seen again) kept for the next run
+
+
+async def test_a_cancelled_run_still_saves(tmp_path: Path) -> None:
+    """Plan Z8 Review Focus 4: Ctrl-C (the task cancelled) still saves the home."""
+    store = stored_home(tmp_path)
+    assert await home_run(store, cancel_after_s=1.5) == "cancelled"
+    home = store.load("h")
+    assert home is not None and len(home.runs) == 2
+
+
+async def test_a_failed_save_is_said_and_the_result_kept(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Broken(HomeStore):
+        def save(self, name: str, home: object) -> None:  # type: ignore[override]
+            raise OSError("disk full")
+
+    store = stored_home(tmp_path)
+    broken = Broken(store.root)
+    result = await home_run(broken)
+    assert "no pictures" in result
+    assert "not saved" in capsys.readouterr().out
+
+
+def test_start_home_says_what_it_loaded(tmp_path: Path) -> None:
+    from conqueror_ai.domain.depth import MapSettings
+
+    room, memory, earlier, said = start_home(stored_home(tmp_path), "h", MapSettings())
+    assert room is not None and memory is not None and earlier is not None
+    assert "1 run" in said and "2 obstacle cells" not in said and "1 thing" in said and "home mark" in said
+    snap_blocked = room.low > 0.7
+    assert snap_blocked.sum() == 1
+    _, _, none, said = start_home(HomeStore(tmp_path), "fresh", MapSettings())
+    assert none is None and "new" in said

@@ -174,3 +174,15 @@ def test_a_find_with_a_remembered_spot_replays_identically(tmp_path: Path) -> No
         tank.step(out.cmd, 0.1)
     log.close()
     assert "identical" in replay_text(tmp_path)
+
+
+async def test_a_home_run_replays_identically(tmp_path: Path) -> None:
+    """Plan Z8: a recorded --home run (a loaded obstacle, a remembered spot) replays decision by decision."""
+    from conqueror_ai.adapters.session import SessionRecorder
+    from conqueror_ai.app.drive import replay_text
+    from tests.test_drive_app import home_run, stored_home
+
+    rec = SessionRecorder(tmp_path / "rec", {"what": "test"})
+    await home_run(stored_home(tmp_path / "homes"), rec=rec)
+    rec.close()
+    assert "identical" in replay_text(tmp_path / "rec")

@@ -31,6 +31,7 @@ from conqueror_ai.adapters.decisions import DecisionLog, replay
 from conqueror_ai.adapters.detector_config import load_balls, load_vocabulary
 from conqueror_ai.adapters.drive_config import load_drive
 from conqueror_ai.adapters.drive_link import DriveLink
+from conqueror_ai.adapters.home_store import HomeStore
 from conqueror_ai.adapters.map_config import load_map_config
 from conqueror_ai.adapters.session import SessionRecorder
 
@@ -60,7 +61,7 @@ from conqueror_ai.app.perception import (
 from conqueror_ai.app.runner import SkillRunner
 from conqueror_ai.app.world import World, maybes_of
 from conqueror_ai.domain.camera import Calibration
-from conqueror_ai.domain.depth import MapConfig
+from conqueror_ai.domain.depth import MapConfig, MapSettings
 from conqueror_ai.domain.drive.costmap import CostSettings
 from conqueror_ai.domain.drive.curves import Command
 from conqueror_ai.domain.drive.goal import is_ball, kind_of
@@ -68,8 +69,10 @@ from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import RoamSkill
 from conqueror_ai.domain.drive.skill import Result, Skill
+from conqueror_ai.domain.home import Home
 from conqueror_ai.domain.memory import Remembered, ThingMemory
 from conqueror_ai.domain.objects import Detector
+from conqueror_ai.domain.room_map import RoomMap
 from conqueror_ai.domain.vocabulary import Vocabulary
 
 __all__ = [
@@ -81,6 +84,7 @@ __all__ = [
 ]  # the stale rule lives in app.map
 
 DRIVE = Path(__file__).resolve().parents[3] / "config" / "drive.yaml"
+HOMES = Path(__file__).resolve().parents[3] / "homes"  # git-ignored: each home's map and things (Plan Z8)
 NEVER_GOTO = ("person",)
 
 
@@ -199,6 +203,7 @@ class Kit:
     lim: Limits
     depth: DepthFn | None
     rec: SessionRecorder | None = None
+    home: tuple[HomeStore, str] | None = None  # --home: the store and the home's name (Plan Z8)
 
 
 async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m: Mission, kit: Kit) -> str:
@@ -206,9 +211,33 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
     a fake bridge)."""
     run_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")  # the run things were seen in (LLD §19.7)
     kind = None if m.action != "find" else (is_ball if m.thing is None else kind_of(m.thing))
+    room, memory, earlier = None, None, None
+    if kit.home is not None:  # the home spot: what earlier runs learned (Plan Z8, LLD §20)
+        room, memory, earlier, message = start_home(kit.home[0], kit.home[1], kit.cfg.map)
+        print(message)
     world = World(
-        kit.cal, kit.cfg, kit.depth, kit.floor, kit.sizes, kit.lim, kind, area_m=m.area_m, run_id=run_id
+        kit.cal,
+        kit.cfg,
+        kit.depth,
+        kit.floor,
+        kit.sizes,
+        kit.lim,
+        kind,
+        room=room,
+        memory=memory,
+        area_m=m.area_m,
+        run_id=run_id,
     )
+    try:
+        return await _session(link, cam, drive, m, kit, world)
+    finally:  # whatever the result, Ctrl-C too: the home keeps what this run learned
+        if kit.home is not None:
+            print(end_home(kit.home[0], kit.home[1], earlier, world.map_run.room, world.memory, run_id))
+
+
+async def _session(
+    link: BridgeLink, cam: MjpegSource, drive: DriveLink, m: Mission, kit: Kit, world: World
+) -> str:
     seed = random.randrange(1 << 31)  # wander's choices: logged, so a replay makes the same ones
     skill = make_skill(m, kit.lim, kit.cfg.cost, world.memory, seed)
     stop = asyncio.Event()
@@ -253,6 +282,39 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
     return said(result, detail)
 
 
+def start_home(
+    store: HomeStore, name: str, settings: MapSettings
+) -> tuple[RoomMap | None, ThingMemory | None, Home | None, str]:
+    """The home's starting map and memory (LLD §20.2), the home itself, and what to say."""
+    home = store.load(name, size_m=settings.size_m, cell_m=settings.cell_m)
+    if home is None:
+        return None, None, None, f"home '{name}': new - it is saved at the end of this run"
+    room = home.room_for_run(settings)
+    cells = int(((room.low > settings.blocked) | (room.high > settings.blocked)).sum())
+    runs, things = len(home.runs), len(home.things)
+    return (
+        room,
+        home.memory(),
+        home,
+        (
+            f"home '{name}': {runs} run{'s' * (runs != 1)}, {cells} obstacle cell{'s' * (cells != 1)}, "
+            f"{things} thing{'s' * (things != 1)} - "
+            "put the tank on the home mark, facing the way it faced last time"
+        ),
+    )
+
+
+def end_home(
+    store: HomeStore, name: str, earlier: Home | None, room: RoomMap, memory: ThingMemory, run_id: str
+) -> str:
+    """Save what this run leaves for the next; a failed save is said, never raised (the result stays)."""
+    try:
+        store.save(name, Home.from_run(room, memory, earlier, run_id))
+    except OSError as e:
+        return f"home '{name}' not saved ({e})"
+    return f"home '{name}' saved"
+
+
 def said(result: Result, detail: str) -> str:
     """The CLI's words for a run's end (as before Plan Z7)."""
     if result == Result.REFUSED:
@@ -264,7 +326,9 @@ def said(result: Result, detail: str) -> str:
     return str(result)
 
 
-async def run_drive(host: str, m: Mission, rec: SessionRecorder | None, use_depth: bool = True) -> str:
+async def run_drive(
+    host: str, m: Mission, rec: SessionRecorder | None, use_depth: bool = True, home: str | None = None
+) -> str:
     from conqueror_ai.adapters.bridge_ws import BridgeLink
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
 
@@ -275,7 +339,8 @@ async def run_drive(host: str, m: Mission, rec: SessionRecorder | None, use_dept
     depth = load_depth(DEPTH_MODEL) if use_depth else None
     if (why := refusal(m, depth is not None)) is not None:
         return f"refused - {why}"
-    kit = Kit(cal, load_map_config(MAP_CONFIG), det, floor, sizes, lim, depth, rec)
+    store = None if home is None else (HomeStore(HOMES), home)
+    kit = Kit(cal, load_map_config(MAP_CONFIG), det, floor, sizes, lim, depth, rec, store)
     return await drive_session(BridgeLink(host), MjpegSource(host), DriveLink(host, table=table), m, kit)
 
 
@@ -288,6 +353,13 @@ def main() -> None:
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--record", type=Path)
     ap.add_argument("--area", type=float, metavar="M", help="stay within M metres of the start")
+    ap.add_argument(
+        "--home",
+        nargs="?",
+        const="home",
+        metavar="NAME",
+        help="start from the home mark: load and save its map",
+    )
     ap.add_argument(
         "--no-depth", action="store_true", help="leave the depth model out (the servo's tilt only)"
     )
@@ -315,10 +387,10 @@ def main() -> None:
             },
         )
     try:
-        print(f"result: {asyncio.run(run_drive(a.host, m, rec, not a.no_depth))}")
+        print(f"result: {asyncio.run(run_drive(a.host, m, rec, not a.no_depth, a.home))}")
     except KeyboardInterrupt:
         print("\nstopped (Ctrl-C): the tank was told to stop")
-    except (FileNotFoundError, ValueError) as err:
+    except (FileNotFoundError, ValueError) as err:  # a HomeError too: said plainly
         raise SystemExit(str(err)) from None
     finally:
         if rec is not None:

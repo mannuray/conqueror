@@ -170,3 +170,17 @@ def test_map_run_clears_under_the_tank(tmp_path: Path) -> None:  # Plan Z6: the 
     session(tmp_path / "s", dist_mm=800)
     run = app.run_replay(tmp_path / "s", CAL, CFG, None)  # no depth: only the body and the sonar
     assert run.room.seen[run.room.n // 2, run.room.n // 2]
+
+
+def test_cq_map_live_shows_a_home(tmp_path: Path) -> None:
+    """Plan Z8 (LLD §20.1): cq-map --live --home NAME starts from the home's map, so the owner sees what the
+    tank believes before driving; it only loads (cq-map never saves a home)."""
+    from conqueror_ai.app.map import home_run_map
+    from tests.test_drive_app import stored_home
+
+    store = stored_home(tmp_path)
+    run = home_run_map(store, "h", CAL, CFG, None)
+    snap = run.snapshot(0, False)
+    (c,) = run.room.cells(np.array([(1.0, 0.0)]))
+    assert snap.blocked.reshape(-1)[c] and not snap.seen.any()
+    assert home_run_map(store, "nowhere", CAL, CFG, None).room.low.max() == 0.0

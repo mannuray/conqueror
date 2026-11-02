@@ -209,3 +209,18 @@ def test_search_done_when_everything_reachable_was_looked_at() -> None:
     assert g.destination(1.0, START, room, RoutePlanner()) is None
     assert g.done
     assert not g.looked((0.85, 0.85))  # 1.2 m off: never counted from here
+
+
+def test_search_goes_to_the_edge_of_unseen_floor_too() -> None:
+    """Floor run c2 (design-notes §189): the car's corner behind furniture was never seen, and the search only
+    went to seen floor - it ended not_found with the corner unseen. Unseen floor's edge is a destination too,
+    until it has been reached."""
+    clear = clear_of(seen=area(-0.6, -0.6, 0.6, 0.6))  # seen round the tank, unseen beyond
+    g = SearchGoal()
+    for pan in range(-180, 180, 30):  # every seen cell looked at
+        g.look(START, float(pan), 0.0)
+    d = g.destination(0.0, START, clear, RoutePlanner())
+    assert d is not None and not g.done  # the edge of the unseen
+    assert max(abs(d[0]), abs(d[1])) >= 0.4
+    d2 = g.destination(1.0, (d[0], d[1], 0.0), clear, RoutePlanner())  # arrived: that edge is done
+    assert d2 is None or math.dist(d2, d) > 0.25

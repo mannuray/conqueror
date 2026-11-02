@@ -183,14 +183,17 @@ def _big_parts(mask: NDArray[np.bool_], min_cells: int) -> NDArray[np.bool_]:
 
 
 class SearchGoal:
-    """Find's search (design-notes §188): the nearest reachable seen floor not yet looked at from within
-    LOOK_M; None (and done) when every reachable spot has been."""
+    """Find's search (design-notes §188-§189): the nearest reachable seen floor not yet looked at from within
+    LOOK_M, or edge of unseen floor not yet reached (explore's frontier: floor hidden behind things gets
+    seen, floor run c2); None (and done) when neither is left."""
 
     def __init__(self) -> None:
         self.done = False
         self._dest: XY | None = None
         self._picked_s = 0.0
         self._looked: set[tuple[int, int]] = set()
+        self._edges_reached: set[tuple[int, int]] = set()  # frontier spots the tank has been to
+        self._dest_edge = False  # the destination is an edge of the unseen
 
     def drop(self) -> None:
         """The current target has no route: pick again next time."""
@@ -224,19 +227,33 @@ class SearchGoal:
         d = self._dest
         if d is not None and math.dist(d, at[:2]) <= REACHED_M:  # there: its spot counts (the tank is on it)
             self._looked.add(self._key(d))
-        if d is not None and not self.looked(d) and now_s - self._picked_s < EXPLORE_NEW_S:
+            self._edges_reached.add(self._key(d))
+            d = None
+        if d is not None and now_s - self._picked_s < EXPLORE_NEW_S and self._still_wanted(d):
             return d
+        frontier = ExploreGoal._frontier(cost, planner.half_w)  # pyright: ignore[reportPrivateUsage]
 
-        def accept(i: int, j: int) -> bool:  # seen open floor not looked at; at the tank it counts as looked
+        def accept(i: int, j: int) -> bool:  # seen floor not looked at, or an unreached edge of the unseen
             p = planner.grid_centre(i, j)
-            if not cost.seen_at(*p) or self.looked(p):
+            if not cost.seen_at(*p):
                 return False
-            if math.dist(p, at[:2]) <= REACHED_M:
-                self._looked.add(self._key(p))
+            k = self._key(p)
+            edge = bool(frontier[i, j]) and k not in self._edges_reached
+            if k in self._looked and not edge:
+                return False
+            if math.dist(p, at[:2]) <= REACHED_M:  # at the tank: looked at, and reached
+                self._looked.add(k)
+                self._edges_reached.add(k)
                 return False
             return True
 
         ij = planner.nearest(cost, (at[0], at[1]), accept)
         self._dest, self._picked_s = (None if ij is None else planner.grid_centre(*ij)), now_s
+        self._dest_edge = ij is not None and bool(frontier[ij])
         self.done = ij is None
         return self._dest
+
+    def _still_wanted(self, d: XY) -> bool:
+        """An edge until reached; other floor until looked at."""
+        k = self._key(d)
+        return k not in self._edges_reached if self._dest_edge else k not in self._looked

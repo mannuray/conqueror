@@ -150,8 +150,12 @@ class RoamSkill:
             "state": self.state,
             "dest": self.dest,
             "route_len": None if self.route is None else len(self.route),
+            "route": self.route,
             "pending": [p.spot for p in self.candidates.pending()],
+            "ruled_out": self.candidates.ruled_out(),
+            "check": None if c is None else c.spot,
             "check_phase": None if c is None else c.phase,
+            "looked": self.search.looked_cells() if self.find else [],
         }
 
     def cancel(self) -> SkillOut:

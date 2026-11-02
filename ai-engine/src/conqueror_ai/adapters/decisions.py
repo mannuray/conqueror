@@ -10,7 +10,7 @@ import json
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import IO, Any, cast
+from typing import IO, Any, Protocol, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -169,7 +169,15 @@ class ReplayReport:
     replayed: SkillOut | None = None
 
 
-def replay(path: Path, make: Callable[[dict[str, Any], int], Skill]) -> ReplayReport:
+class _View(Protocol):
+    def tick(
+        self, now_s: float, inp: SkillInput, out: SkillOut, state: str, debug: dict[str, object]
+    ) -> None: ...
+
+
+def replay(
+    path: Path, make: Callable[[dict[str, Any], int], Skill], view: _View | None = None
+) -> ReplayReport:
     """The logged inputs into a fresh skill, made from the log's first line (mission, limits, cost settings)
     and its seed."""
     head, ticks = read_decisions(path)
@@ -179,6 +187,8 @@ def replay(path: Path, make: Callable[[dict[str, Any], int], Skill]) -> ReplayRe
         if not states or states[-1][1] != t.state:
             states.append((t.now_s, t.state))
         out = skill.tick(t.now_s, t.inp)
+        if view is not None:  # --replay --view: drawn as it goes
+            view.tick(t.now_s, t.inp, out, skill.state, skill.debug())
         if out != t.out:
             return ReplayReport(i, states, t.out, out)
     return ReplayReport(None, states)

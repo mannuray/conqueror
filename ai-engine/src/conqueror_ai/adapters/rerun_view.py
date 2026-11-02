@@ -10,7 +10,8 @@ import rerun as rr
 
 from conqueror_ai.domain.camera import FloatArray
 from conqueror_ai.domain.depth import AngleFix, Marks
-from conqueror_ai.domain.room_map import MapSnapshot, map_image
+from conqueror_ai.domain.drive.skill import SkillInput, SkillOut
+from conqueror_ai.domain.room_map import MapSnapshot, map_image, skill_image
 from conqueror_ai.domain.types import Detection, Frame, ObjectEstimate, Pose, TelemSample
 
 
@@ -100,3 +101,23 @@ class RerunView:
         rr.set_time("bridge", duration=t_us / 1e6)
         rr.log("map/image", rr.Image(map_image(snap)))
         rr.log("map/stale", rr.Scalars(1.0 if snap.stale else 0.0))
+
+    def skill(self, t_us: int, snap: MapSnapshot, debug: dict[str, object]) -> None:
+        """What the skill thinks, over the map (Plan Z8, LLD §20.7): route, candidates, looked-at floor."""
+        rr.set_time("bridge", duration=t_us / 1e6)
+        rr.log("map/skill", rr.Image(skill_image(snap, debug)))
+        rr.log("skill/state", rr.TextLog(str(debug.get("state", ""))))
+
+
+class SkillView:
+    """The runner's view (cq-drive --view, --replay --view): each tick the map and the skill's notes."""
+
+    def __init__(self, view: RerunView) -> None:
+        self.view = view
+
+    def tick(
+        self, now_s: float, inp: SkillInput, out: SkillOut, state: str, debug: dict[str, object]
+    ) -> None:
+        if inp.snap is not None:
+            self.view.room_map(inp.snap.t_us, inp.snap)
+            self.view.skill(inp.snap.t_us, inp.snap, debug)

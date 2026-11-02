@@ -10,9 +10,11 @@ Pure: no I/O."""
 
 from __future__ import annotations
 
+import itertools
 import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -34,6 +36,14 @@ SEEN = (110, 110, 110)
 LOW = (220, 40, 40)
 HIGH = (255, 150, 0)
 TANK = (255, 255, 255)
+# a skill's notes over the map (Plan Z8, LLD §20.7)
+LOOKED = (60, 200, 90)  # blended faintly over the floor the search has looked at
+ROUTE = (40, 120, 255)
+DEST = (0, 200, 255)
+PENDING = (255, 220, 0)  # a candidate still to check
+RULED_OUT = (60, 60, 60)  # a candidate looked at and ruled out
+CHECK = (255, 0, 255)  # the candidate being checked now
+LOOKED_HALF_M = 0.15  # the search's looked-at cells are 30 cm
 
 
 @dataclass(frozen=True)
@@ -181,3 +191,50 @@ def map_image(snap: MapSnapshot) -> NDArray[np.uint8]:
         if 0 <= ix < n and 0 <= iy < n:  # off the map: no marker (a negative slice end would wrap round)
             img[max(0, ix - 1) : ix + 2, max(0, iy - 1) : iy + 2] = TANK
     return np.ascontiguousarray(img[::-1, ::-1])  # row n-1-ix, column n-1-iy
+
+
+def _points(v: object) -> list[tuple[float, float]]:
+    """Room points from a skill's debug value (one (x, y), or a list of them); anything else: none."""
+    if isinstance(v, tuple) and len(cast("tuple[object, ...]", v)) == 2:
+        items: list[object] = [v]
+    elif isinstance(v, list):
+        items = list(cast("list[object]", v))
+    else:
+        return []
+    out: list[tuple[float, float]] = []
+    for p in items:
+        if isinstance(p, (tuple, list)):
+            q = cast("Sequence[object]", p)
+            if len(q) == 2 and isinstance(q[0], (int, float)) and isinstance(q[1], (int, float)):
+                out.append((float(q[0]), float(q[1])))
+    return out
+
+
+def skill_image(snap: MapSnapshot, debug: Mapping[str, object]) -> NDArray[np.uint8]:
+    """The map picture with what the skill thinks (Plan Z8, LLD §20.7): the looked-at floor faintly green, the
+    route a blue line, the destination, pending candidates yellow, ruled-out dark grey, the check magenta.
+    Points off the map, or notes of another shape, are left out."""
+    img = map_image(snap).copy()
+    n, cell = snap.seen.shape[0], snap.cell_m
+
+    def pix(x: float, y: float) -> tuple[int, int] | None:
+        ix, iy = math.floor(x / cell + n / 2), math.floor(y / cell + n / 2)
+        return (n - 1 - ix, n - 1 - iy) if 0 <= ix < n and 0 <= iy < n else None
+
+    k = round(LOOKED_HALF_M / cell)
+    for x, y in _points(debug.get("looked")):
+        if (c := pix(x, y)) is not None:
+            r0, c0 = max(0, c[0] - k), max(0, c[1] - k)
+            block = img[r0 : c[0] + k, c0 : c[1] + k].astype(np.float32)
+            img[r0 : c[0] + k, c0 : c[1] + k] = (0.75 * block + 0.25 * np.array(LOOKED)).astype(np.uint8)
+    route = _points(debug.get("route"))
+    for (x0, y0), (x1, y1) in itertools.pairwise(route):
+        steps = max(1, math.ceil(math.dist((x0, y0), (x1, y1)) / (cell / 2)))
+        for i in range(steps + 1):
+            if (c := pix(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps)) is not None:
+                img[c] = ROUTE
+    for key, colour in (("dest", DEST), ("ruled_out", RULED_OUT), ("pending", PENDING), ("check", CHECK)):
+        for x, y in _points(debug.get(key)):
+            if (c := pix(x, y)) is not None:
+                img[max(0, c[0] - 1) : c[0] + 2, max(0, c[1] - 1) : c[1] + 2] = colour
+    return img

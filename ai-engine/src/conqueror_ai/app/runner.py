@@ -22,6 +22,14 @@ class TickLog(Protocol):
     ) -> None: ...
 
 
+class TickView(Protocol):
+    """Draws a tick (the viewer, Plan Z8): called after the command is sent, never before it."""
+
+    def tick(
+        self, now_s: float, inp: SkillInput, out: SkillOut, state: str, debug: dict[str, object]
+    ) -> None: ...
+
+
 class Pictures(Protocol):
     t0: float
 
@@ -45,10 +53,13 @@ class SkillRunner:
         log: TickLog | None = None,
         on_status: Callable[[str, Command], None] | None = None,
         tick_s: float = TICK_S,
+        view: TickView | None = None,
     ) -> None:
         self.world, self.perception, self.driver = world, perception, driver
         self.log, self.on_status, self.tick_s = log, on_status, tick_s
         self.finish_error: Exception | None = None  # the stop message failed (the deadman stops the tank)
+        self.view = view
+        self.view_errors = 0  # a broken viewer never ends a run (counted, said by the CLI)
 
     async def run(self, skill: Skill) -> tuple[Result, str]:
         """Until the skill ends, the tank refuses, or a link fails: the result and its detail (the refusal,
@@ -76,6 +87,11 @@ class SkillRunner:
                     return Result.FAILED, f"{type(e).__name__}: {e}"
                 if self.log is not None:
                     self.log.tick(now - t0, inp, out, skill.state, skill.debug())
+                if self.view is not None:
+                    try:
+                        self.view.tick(now - t0, inp, out, skill.state, skill.debug())
+                    except Exception:
+                        self.view_errors += 1
                 if self.on_status is not None:
                     self.on_status(skill.state, out.cmd)
                 if out.result is not None:

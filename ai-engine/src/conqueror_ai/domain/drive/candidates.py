@@ -57,6 +57,9 @@ class Candidates:
     def pending(self) -> list[Candidate]:
         return [c for c in self._all if c.state == "pending"]
 
+    def ruled_out(self) -> list[XY]:
+        return [c.spot for c in self._all if c.state == "ruled_out"]
+
     def rule_out(self, c: Candidate) -> None:
         c.state = "ruled_out"
 

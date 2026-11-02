@@ -215,6 +215,10 @@ class SearchGoal:
     def _key(p: XY) -> tuple[int, int]:
         return math.floor(p[0] / LOOKED_M), math.floor(p[1] / LOOKED_M)
 
+    def looked_cells(self) -> list[XY]:
+        """The centres of the looked-at cells (for the viewer)."""
+        return [((i + 0.5) * LOOKED_M, (j + 0.5) * LOOKED_M) for i, j in sorted(self._looked)]
+
     def looked(self, p: XY) -> bool:
         return self._key(p) in self._looked
 

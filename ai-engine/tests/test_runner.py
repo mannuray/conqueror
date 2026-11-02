@@ -145,3 +145,47 @@ async def test_a_driver_error_ends_failed_not_a_traceback() -> None:
     d = BrokenDriver()
     result, detail = await runner(d, FakePerception()).run(Scripted())
     assert result == Result.FAILED and "not connected" in detail and d.finished
+
+
+class OrderDriver(FakeDriver):
+    def __init__(self, order: list[str]) -> None:
+        super().__init__()
+        self.order = order
+
+    async def drive(self, cmd: Command) -> None:
+        self.order.append("drive")
+        await super().drive(cmd)
+
+
+class FakeView:
+    def __init__(self, order: list[str], fail: bool = False) -> None:
+        self.order, self.fail = order, fail
+
+    def tick(
+        self, now_s: float, inp: SkillInput, out: SkillOut, state: str, debug: dict[str, object]
+    ) -> None:
+        self.order.append("view")
+        if self.fail:
+            raise RuntimeError("viewer closed")
+
+
+async def test_the_view_is_called_after_the_command_is_sent() -> None:
+    """Plan Z8 Review Focus 5: drawing never comes before the command; a broken viewer never ends a run."""
+    order: list[str] = []
+    r = SkillRunner(
+        FakeWorld(), FakePerception(), OrderDriver(order), None, None, tick_s=0.01, view=FakeView(order)
+    )
+    await r.run(Scripted(n=4))
+    assert order[:6] == ["drive", "view", "drive", "view", "drive", "view"]
+    order.clear()
+    r = SkillRunner(
+        FakeWorld(),
+        FakePerception(),
+        OrderDriver(order),
+        None,
+        None,
+        tick_s=0.01,
+        view=FakeView(order, fail=True),
+    )
+    result, _ = await r.run(Scripted(n=4, result=Result.DONE))
+    assert result == Result.DONE

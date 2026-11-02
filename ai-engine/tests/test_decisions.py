@@ -186,3 +186,17 @@ async def test_a_home_run_replays_identically(tmp_path: Path) -> None:
     await home_run(stored_home(tmp_path / "homes"), rec=rec)
     rec.close()
     assert "identical" in replay_text(tmp_path / "rec")
+
+
+def test_replay_view_draws_every_logged_tick(tmp_path: Path) -> None:
+    logged_run(tmp_path / "decisions.jsonl", ticks=30)
+    drawn: list[float] = []
+
+    class View:
+        def tick(
+            self, now_s: float, inp: SkillInput, out: SkillOut, state: str, debug: dict[str, object]
+        ) -> None:
+            drawn.append(now_s)
+
+    assert replay(tmp_path / "decisions.jsonl", make, view=View()).first_diff is None
+    assert len(drawn) == 30

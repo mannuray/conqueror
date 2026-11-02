@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Sequence
+from typing import cast
 
 import numpy as np
 
@@ -479,3 +480,15 @@ def test_a_reachable_candidate_behind_three_unreachable_ones_is_checked_before_n
     out = rt(s, 0.0, AT, snap, None, None, True)
     assert out.result is None and s.state == "check" and s._check is not None  # pyright: ignore[reportPrivateUsage]
     assert s._check.spot == (-3.2, 0.0)  # pyright: ignore[reportPrivateUsage]
+
+
+def test_debug_carries_the_route_the_candidates_and_the_looked_floor() -> None:
+    """Plan Z8 (LLD §20.7): what the viewer draws."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    ticks(s, tank, t, 1, maybes=[(1.2, 0.6)])
+    d = s.debug()
+    assert d["check"] == (1.2, 0.6) and d["pending"] == [(1.2, 0.6)] and d["ruled_out"] == []
+    looked = d["looked"]
+    assert isinstance(looked, list) and len(cast("list[object]", looked)) > 0  # the look round's views
+    assert "route" in d

@@ -6,6 +6,7 @@ import numpy as np
 
 from conqueror_ai.domain.depth import Marks
 from conqueror_ai.domain.drive.candidates import Candidates
+from conqueror_ai.domain.drive.costmaps import CostMaps
 from conqueror_ai.domain.drive.route import RoutePlanner
 from conqueror_ai.domain.memory import Remembered
 from conqueror_ai.domain.reach import SAME_SPOT_M as MERGE_M
@@ -48,7 +49,7 @@ def test_next_is_the_cheapest_to_reach() -> None:
     c = Candidates()
     c.add((2.0, 0.0))
     c.add((-1.0, 0.0))
-    k = c.next(AT, room(), RoutePlanner(), None)
+    k = c.next(AT, CostMaps(room(), None, None), RoutePlanner())
     assert k is not None and (k.x_m, k.y_m) == (-1.0, 0.0)
 
 
@@ -58,8 +59,8 @@ def test_a_candidates_own_marks_do_not_count_but_outside_the_area_never() -> Non
     c = Candidates()
     c.add((1.5, 0.0))
     snap = room([(1.5 + dx, dy) for dx in (-0.05, 0.0, 0.05) for dy in (-0.05, 0.0, 0.05)])
-    assert c.next(AT, snap, RoutePlanner(), None) is not None
-    assert c.next(AT, snap, RoutePlanner(), (0.0, 0.0, 1.0)) is None
+    assert c.next(AT, CostMaps(snap, None, None), RoutePlanner()) is not None
+    assert c.next(AT, CostMaps(snap, None, (0.0, 0.0, 1.0)), RoutePlanner()) is None
 
 
 def test_remembered_spots_are_candidates_that_know_where_they_came_from() -> None:
@@ -68,3 +69,24 @@ def test_remembered_spots_are_candidates_that_know_where_they_came_from() -> Non
     c.seed([r])
     (k,) = c.pending()
     assert k.remembered is r and (k.x_m, k.y_m) == (1.0, 1.0)
+
+
+def test_twenty_pending_spots_cost_at_most_three_routes_a_try() -> None:
+    """Review F6 / Plan Z7 Review Focus 2: one route search per pending candidate per try (6-21 ms each) -
+    with 20 remembered spots a tick would take ~0.4 s, past the drive's 0.5 s freshness. Nearest first, at
+    most ROUTE_TRIES routes."""
+    from conqueror_ai.domain.drive.candidates import ROUTE_TRIES
+
+    class Counting(RoutePlanner):
+        calls = 0
+
+        def route(self, *a: object, **k: object) -> list[tuple[float, float]] | None:  # type: ignore[override]
+            Counting.calls += 1
+            return super().route(*a, **k)  # type: ignore[arg-type]
+
+    c = Candidates()
+    for i in range(20):
+        c.add((0.6 * (i + 1), 0.0) if i % 2 else (0.0, 0.6 * (i + 1)))
+    k = c.next(AT, CostMaps(room(), None, None), Counting())
+    assert ROUTE_TRIES == 3 and Counting.calls <= 3
+    assert k is not None and (k.x_m, k.y_m) == (0.0, 0.6)

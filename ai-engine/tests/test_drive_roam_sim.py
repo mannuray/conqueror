@@ -355,3 +355,10 @@ def test_a_check_is_ruled_out_only_after_a_look_from_near() -> None:
     last = r.positions[ends[0] - 14 : ends[0] + 1]  # the 1.5 s before the check ended: stood, near, looking
     assert max(math.dist(p[:2], last[-1][:2]) for p in last) <= 0.01
     assert math.dist(last[-1][:2], spot) <= 1.05 + 1e-9
+
+
+def test_a_chase_inside_find_never_leaves_the_area() -> None:
+    """Plan Z7 Review Focus 1 (review F6): the play area reached the chase by an attribute set by hand; now
+    through the cost maps every skill is handed. A ball outside a 1 m area: find never drives out to it."""
+    r = roam("search", 60.0, find=True, ball=(2.0, 0.0), area_m=1.0)
+    assert r.out_m <= 1.0 + 0.05 and r.result != "done"

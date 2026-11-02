@@ -29,6 +29,7 @@ from conqueror_ai.domain.drive.chase import (
     SkillOut,
 )
 from conqueror_ai.domain.drive.costmap import CostMap, CostSettings
+from conqueror_ai.domain.drive.costmaps import CostMaps
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.goals import ExploreGoal, SearchGoal, WanderGoal
@@ -114,7 +115,7 @@ class RoamSkill:
         self._stale_t0: float | None = None
         self._start_t0: float | None = None
         self._progress = ProgressWatch(self.recovery, self.settings.stuck_s)
-        self._cost: tuple[MapSnapshot, CostMap] | None = None
+        self._costs: CostMaps | None = None  # this snapshot's cost maps, the play area in them
         self.area_m = area_m
         self._area: tuple[float, float, float] | None = None  # (x, y, r) once the start is known
         self._check: _Check | None = None
@@ -144,11 +145,14 @@ class RoamSkill:
     def cancel(self) -> SkillOut:
         return self._end("cancelled")
 
+    def _costs_for(self, snap: MapSnapshot) -> CostMaps:
+        """One set of cost maps per snapshot (kept by identity), the play area in them (LLD §19.3)."""
+        if self._costs is None or self._costs.snap is not snap:
+            self._costs = CostMaps(snap, self.settings, self._area)
+        return self._costs
+
     def _costmap(self, snap: MapSnapshot) -> CostMap:
-        """One cost map per snapshot (kept by identity, review minor 5)."""
-        if self._cost is None or self._cost[0] is not snap:
-            self._cost = (snap, CostMap(snap, self.settings, area=self._area))
-        return self._cost[1]
+        return self._costs_for(snap).base()
 
     # ---- the tick
     def tick(
@@ -172,7 +176,6 @@ class RoamSkill:
             self.search.look(at, self._look_pan, self.lim.cam_x_m)
         if self.area_m is not None and self._area is None and at is not None:  # play area: round the start
             self._area = (at[0], at[1], self.area_m)
-            self.chase.area = self._area
         self._tried_now = False
         if self.find:
             for spot in maybes:  # outside the play area: never a candidate (review M4)
@@ -232,7 +235,7 @@ class RoamSkill:
             self.state = "drive"
         planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
         if self.find and self.state == "drive" and self.candidates.pending() and now_s >= self._retry_s:
-            c = self.candidates.next(at, snap, self.routes, self._area, self.settings)
+            c = self.candidates.next(at, self._costs_for(snap), self.routes)
             self._tried_now = True
             if c is None:
                 self._retry_s = now_s + CANDIDATE_RETRY_S
@@ -259,14 +262,13 @@ class RoamSkill:
         if self.state != "chase":
             self.state = "chase"
             self.chase.cmd = self.cmd  # it is moving: the chase's plans start from that (review minor 4)
-        out = self.chase.tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap)
+        out = self.chase.tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap, self._costs_for(snap))
         self.cmd = out.cmd
         if out.result in ("not_found", "lost"):  # it got away: roam on, a fresh chase for the next sighting
             if self._check is not None:  # the candidate it came from was chased and lost: done with (M1)
                 self.candidates.rule_out(self._check.cand)
                 self._check = None
             self.chase = ChaseSkill(self.planner, self.settings)
-            self.chase.area = self._area
             self.state = "drive"
             self._progress.reset()
             return self._halt((0.0, self.lim.drive_tilt_deg))
@@ -376,7 +378,7 @@ class RoamSkill:
             c.phase, c.closer, c.aimed = "look", True, False
             return self._halt()
         # the way: its own marks set aside, inside the play area (§189); the fan still keeps off every mark
-        route = self.candidates.route(c.cand, at, snap, self.routes, self._area, self.settings)
+        route = self.candidates.route(c.cand, at, self._costs_for(snap), self.routes)
         cost = self._costmap(snap)
         if route is None or not self._progress.ok(now_s, at):
             return self._end_check(now_s, near=False)

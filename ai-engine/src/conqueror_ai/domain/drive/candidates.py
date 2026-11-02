@@ -11,12 +11,13 @@ from dataclasses import dataclass
 from typing import Literal
 
 from conqueror_ai.domain.drive.chase import TARGET_R_M
-from conqueror_ai.domain.drive.costmap import CostMap, CostSettings
+from conqueror_ai.domain.drive.costmaps import CostMaps
 from conqueror_ai.domain.drive.curves import XYTh
 from conqueror_ai.domain.drive.route import XY, RoutePlanner
 from conqueror_ai.domain.memory import Remembered
 from conqueror_ai.domain.reach import SAME_SPOT_M, SURE_REACH_M
-from conqueror_ai.domain.room_map import MapSnapshot
+
+ROUTE_TRIES = 3  # pending candidates routed per try, nearest first (review F6)
 
 
 @dataclass
@@ -59,34 +60,22 @@ class Candidates:
     def rule_out(self, c: Candidate) -> None:
         c.state = "ruled_out"
 
-    def route(
-        self,
-        c: Candidate,
-        at: XYTh,
-        snap: MapSnapshot,
-        routes: RoutePlanner,
-        area: tuple[float, float, float] | None,
-        settings: CostSettings | None = None,
-    ) -> list[XY] | None:
+    def route(self, c: Candidate, at: XYTh, costs: CostMaps, routes: RoutePlanner) -> list[XY] | None:
         """A way to within SURE_REACH_M of it, its own marks within TARGET_R_M set aside (the chase's rule);
         None outside the play area or with no way."""
+        area = costs.area
         if area is not None and math.dist(c.spot, area[:2]) > area[2]:
             return None
-        cost = CostMap(snap, settings, ignore=(c.x_m, c.y_m, TARGET_R_M), area=area)
+        cost = costs.ignoring(c.x_m, c.y_m, TARGET_R_M)
         return routes.route(cost, (at[0], at[1]), c.spot, goal_ok=True, near_m=SURE_REACH_M)
 
-    def next(
-        self,
-        at: XYTh,
-        snap: MapSnapshot,
-        routes: RoutePlanner,
-        area: tuple[float, float, float] | None,
-        settings: CostSettings | None = None,
-    ) -> Candidate | None:
-        """The pending candidate with the shortest way to within SURE_REACH_M of it, or None."""
+    def next(self, at: XYTh, costs: CostMaps, routes: RoutePlanner) -> Candidate | None:
+        """Of the ROUTE_TRIES pending candidates nearest in a straight line, the one with the shortest way to
+        within SURE_REACH_M of it, or None (the rest wait for a later try: a route takes 6-21 ms, F6)."""
         best: tuple[float, Candidate] | None = None
-        for c in self.pending():
-            way = self.route(c, at, snap, routes, area, settings)
+        nearest = sorted(self.pending(), key=lambda c: math.dist(c.spot, at[:2]))[:ROUTE_TRIES]
+        for c in nearest:
+            way = self.route(c, at, costs, routes)
             if way is None:
                 continue
             n = sum(math.dist(a, b) for a, b in itertools.pairwise(way))

@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass, replace
 
 from conqueror_ai.domain.drive.costmap import CostMap, CostSettings
+from conqueror_ai.domain.drive.costmaps import CostMaps
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.goal import TargetFix, echo_is_target
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
@@ -64,7 +65,8 @@ class ChaseSkill:
         self._recovering = False
         self._progress = ProgressWatch(self.recovery, self.settings.stuck_s)  # on the map
         self._spin_turned = TurnMeter()  # the search turn
-        self.area: tuple[float, float, float] | None = None  # the play area on the map (x, y, r), roam's find
+        self._costs: CostMaps | None = None  # this tick's cost maps (the play area is in them)
+        self._own: tuple[MapSnapshot, CostMaps] | None = None  # built here when not handed in
         self._cam_pan: float | None = None  # where the camera was last sent (None: not by this skill)
         self._seen_at: float | None = None  # when the target was last seen
         self._away_s = 0.0  # since then, time the camera didn't look at its spot (§187)
@@ -83,6 +85,14 @@ class ChaseSkill:
     def cancel(self) -> SkillOut:
         return self._end("cancelled")
 
+    def _costs_for(self, snap: MapSnapshot) -> CostMaps:
+        """This tick's cost maps: those handed in (roam's, with its play area), else one set per snapshot."""
+        if self._costs is not None and self._costs.snap is snap:
+            return self._costs
+        if self._own is None or self._own[0] is not snap:
+            self._own = (snap, CostMaps(snap, self.settings, None))
+        return self._own[1]
+
     def tick(
         self,
         now_s: float,
@@ -92,6 +102,7 @@ class ChaseSkill:
         map_ok: bool,
         cam_still: bool = True,
         snap: MapSnapshot | None = None,
+        costs: CostMaps | None = None,
     ) -> SkillOut:
         """One tick: at = the tank's pose now (x, y, th), fix = the target, sonar_m = the echo's distance from
         the sonar at the tank's front (None: no echo), map_ok = pictures and telemetry fresh (spec 7 §4),
@@ -103,6 +114,7 @@ class ChaseSkill:
             self._dt = min(max(now_s - self._last_s, 0.0), MAX_TICK_S)
         self._last_s = now_s
         self._cam_still = cam_still
+        self._costs = costs if costs is not None or snap is None else self._costs_for(snap)
         if not map_ok or at is None:  # it can't see: stop at once (no ramp), drive on when the map is fresh
             if self._stale_t0 is None:
                 self._stale_t0 = now_s
@@ -176,7 +188,7 @@ class ChaseSkill:
         the forward curves instead (§176); with none allowed, it turns on the spot anyway if only unseen floor
         stood in the way (the last resort), else the search sweeps from here."""
         rest = SEARCH_TURN_DEG - self._spin_turned.update(at[2])
-        cost = None if snap is None else CostMap(snap, self.settings, area=self.area)
+        cost = None if self._costs is None else self._costs.base()
         want = Command(0.0, self.lim.spin_dps)
         if rest > 1e-9 and cost is not None and not self.planner.can_spin(at, cost, True, max(rest, 1.0)):
             # refused (near something, or over floor never seen - §176): curve round on the forward curves
@@ -212,11 +224,7 @@ class ChaseSkill:
                 if sonar_m < lim.clear_m:
                     return self._end("blocked")
                 obstacle = ahead
-        fan = (
-            None
-            if snap is None
-            else CostMap(snap, self.settings, ignore=(target[0], target[1], TARGET_R_M), area=self.area)
-        )
+        fan = None if snap is None else self._costs_for(snap).ignoring(target[0], target[1], TARGET_R_M)
         if fan is not None and (ij := fan.cell_of(*target)) is not None and fan.lethal[ij]:
             return self._end("blocked")  # where it may not go even with its own marks set aside (§174)
         if fan is not None and self._recovering:  # stuck on the map: the standard ways out (Plan Z6)
@@ -238,9 +246,7 @@ class ChaseSkill:
             want = self.planner.choose(at, self.cmd, target, obstacle)
         else:  # round obstacles on the room map: steer along the route, slow down for the ball itself
             planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
-            clear = fan or CostMap(
-                snap, self.settings, ignore=(target[0], target[1], TARGET_R_M), area=self.area
-            )
+            clear = fan or self._costs_for(snap).ignoring(target[0], target[1], TARGET_R_M)
             reach = lim.stop_range_m + lim.cam_x_m  # the chase stops this far from the ball's centre anyway
             route = self.routes.route(clear, (at[0], at[1]), target, goal_ok=True, near_m=reach)
             want = (

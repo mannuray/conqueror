@@ -2222,7 +2222,7 @@ class Skill(Protocol):
 - `Mission.action` is `find | wander | explore`; `make_skill` returns a `Skill`.
 
 ### 19.5 World and Perception (F1, F2)
-- **`World`** (`app/world.py`, pure: no I/O, no clock): owns `MapRun` (pose, map, objects, seeing), the `Goal`, the `ThingMemory` and the play area. `World(cal, cfg, depth, floor, sizes, lim, kind, room=None, memory=None, area_m=None)` - room and memory may be handed in (Plan Z8 loads them). `on_calib`, `on_telem(s)` (pose, the sonar onto the map, the newest echo), `on_picture(f, rgb, dets, cam, inv) -> CameraModel | str` (the gate, `by_size`, seeing; returns used or the skip reason), `input(now_s, map_ok) -> SkillInput` (pose, snapshot, `CostMaps`, goal fix, memory update, maybes of the kind, the flags; `used` is true once after a used picture).
+- **`World`** (`app/world.py`, pure: no I/O, no clock): owns `MapRun` (pose, map, objects, seeing), the `Goal`, the `ThingMemory` and the play area. `World(cal, cfg, depth, floor, sizes, lim, kind, room=None, memory=None, area_m=None)` - room and memory may be handed in (Plan Z8 loads them). `on_calib`, `on_telem(s)` (pose, the sonar onto the map, the newest echo), `on_picture(f, rgb, dets, cam, inv) -> CameraModel | str` (the gate, `by_size`, seeing; returns used or the skip reason), `input(now_s, wall_s, map_ok) -> SkillInput` (pose, snapshot, `CostMaps`, goal fix, memory update with wall time and run id, maybes of the kind, the flags; `used` is true once after a used picture). Inputs are assembled in one place, `make_input(...)` (`domain/drive/skill.py`), which the sims use too.
 - **`Perception`** (`app/perception.py`, async): the links' tasks, the telemetry task, the frame loop (decode, detect and depth off the event loop, the gate on it), staleness (`map_state`), task failures, recording. `Perception(link, cam, world, det, depth, rec)`; `async run(stop)`; `next_picture(timeout) -> bool` (one picture processed); `state(now) -> str | None` (stale reason). `cq-map` and `cq-objects` use it with `World` and no skill; `cq-drive` adds a runner.
 - **`SkillRunner`** (`app/runner.py`): `run(skill, world, perception, driver, log, on_status) -> (Result, detail)`: each picture or `TICK_S` 0.2 s - `inp = world.input(now, map_ok)`, `out = skill.tick` off the loop, `driver.drive(out.cmd)`, `driver.cam(*out.cam)`, `log.tick(now, inp, out, skill.state, skill.debug())`, `on_status(...)`; refusals and failures end it as `REFUSED` / `FAILED`.
 - **`Driver`** port (`domain/ports.py` or `adapters/driver.py`): `connected`, `refused`, `run(stop)`, `drive(cmd)`, `cam(pan, tilt)`, `finish()` - `DriveLink` implements it; Plan Z2 adds a `LeaseDriver`.
@@ -2246,7 +2246,7 @@ class Skill(Protocol):
 classDiagram
     direction LR
     class Perception { <<app, async>> +run(stop); +next_picture(timeout) bool; +state(now) str? }
-    class World { <<app, pure>> +on_calib(n); +on_telem(s); +on_picture(f, rgb, dets, cam, inv); +input(now_s, map_ok) SkillInput; map_run; goal; memory; area }
+    class World { <<app, pure>> +on_calib(n); +on_telem(s); +on_picture(f, rgb, dets, cam, inv); +input(now_s, wall_s, map_ok) SkillInput; map_run; goal; memory; area }
     class SkillInput { <<frozen>> at; snap; costs; fix; sonar_m; map_ok; cam_still; used; maybes }
     class CostMaps { +base() CostMap; +ignoring(x, y, r) CostMap }
     class Skill { <<protocol>> +state; +tick(now_s, inp) SkillOut; +cancel() SkillOut; +debug() dict }
@@ -2281,7 +2281,7 @@ sequenceDiagram
     P->>W: on_telem(s) (each sample)
     P->>W: on_picture(f, rgb, dets, cam, inv) (each picture, detect and depth off the loop)
     R->>P: next_picture(TICK_S)
-    R->>W: input(now_s, map_ok)
+    R->>W: input(now_s, wall_s, map_ok)
     W-->>R: SkillInput
     R->>S: tick(now_s, inp) (off the loop)
     S-->>R: SkillOut
@@ -2296,5 +2296,5 @@ sequenceDiagram
 - `Candidates.next`: 20 pending spots cost at most 3 routes a try.
 - `SkillRunner` with a fake driver and a scripted world: refusals → `REFUSED`, task failure → `FAILED`, results passed through, a log line per tick.
 - `DecisionLog` → replay: a sim run logged, replayed, identical outputs; a changed skill shows the first differing tick.
-- The sim harness drives through `World` + `SkillRunner` (the real glue), not its own loop.
+- The sim harness builds its inputs with the same `make_input` as `World` (the sims mark the map directly, not from pictures, so they don't go through `World.on_picture`).
 - The tools: `cq-map --live`, `cq-objects --live` and `cq-drive` keep their outputs (fake-bridge tests as today).

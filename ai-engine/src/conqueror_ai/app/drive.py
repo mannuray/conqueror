@@ -152,8 +152,8 @@ def nearest_maybe(
 
 
 def refusal(m: Mission, has_depth: bool) -> str | None:
-    """Why the mission can't start, or None (spec 9 §5.4: without depth only the sensor marks the map; find
-    searches by explore, design-notes §188)."""
+    """Why the mission can't start, or None (spec 9 §5.4: without depth only the sensor marks the map - explore
+    has nothing to go to, and find's search only seen floor, so it would end at once, design-notes §188)."""
     if m.action in ("explore", "find") and not has_depth:
         return (
             f"{m.action} needs the depth model (models/DepthAnythingV2SmallF16.mlpackage): "

@@ -2420,10 +2420,16 @@ sequenceDiagram
     C->>S: save(name, ...)
 ```
 
-### 20.7 Tests (to write first)
+### 20.7 Seeing what the engine thinks (owner, design-notes §194)
+- `RoamSkill.debug()` grows `route` (its points), `ruled_out` (spots), `check` (the spot being checked) and `looked` (the search's looked-at 30 cm cells, as cell centres); `ChaseSkill.debug()` `target`.
+- `RerunView.skill(t_us, at, debug)`: the route as a line, the destination and the check spot as points, pending candidates yellow, ruled-out grey, looked-at floor a faint green layer, the state as text - on the same map view as `room_map` / `plan`.
+- `cq-drive ... --view`: the live view (camera, map, pose, things, the skill's notes) while driving. `cq-drive --replay DIR --view`: the same drawn from `decisions.jsonl` (the logged snapshot each tick), at its own pace.
+
+### 20.8 Tests (to write first)
 - A saved obstacle comes back as an obstacle at 1.1 (A: 0.9 on the next load), never higher; two misses clear it; below-blocked evidence and free floor never come back.
 - `seen_before` loaded; `seen` empty at the start; explore's frontier and the recovery's known-free floor the same as on a fresh map.
 - Memory pruning (gone, 5 runs, 5 per word); a find with a remembered spot checks it first (existing test, now through a load).
 - Another version / cell size / map size refused; a missing home starts fresh.
 - Ctrl-C mid-run still saves; a replay of a home run is identical.
-- Floor (owner): explore a room with `--home`; a second run starts with the furniture marked (the live view) and goes round it; a find after a run that saw the ball goes to it first.
+- `RoamSkill.debug()` carries the route, ruled-out spots and the looked-at cells; `RerunView.skill` draws them (a fake recording stream); `--replay DIR --view` draws every logged tick.
+- Floor (owner): explore a room with `--home` (>= 80 % covered, then stops: spec 9 §6.4); a second run starts with the furniture marked (`--view`) and goes round it; a find after a run that saw the ball goes to it first; spec 9 §6.2 the overhang (~18 cm board across two boxes) never driven under; §6.5 the chase with a box between ends `done` round it.

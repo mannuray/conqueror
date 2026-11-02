@@ -164,8 +164,8 @@ def refusal(m: Mission, has_depth: bool) -> str | None:
 
 def make_skill(m: Mission, lim: Limits, cost: CostSettings | None = None) -> ChaseSkill | RoamSkill:
     planner = Planner(lim)
-    if m.action == "find":  # look round, search by explore, go to it; all visited: not_found (§187-§188)
-        return RoamSkill(planner, "explore", find=True, cost=cost, area_m=m.area_m)
+    if m.action == "find":  # look round, search, go to it; every spot looked at from near: not_found (§188)
+        return RoamSkill(planner, "search", find=True, cost=cost, area_m=m.area_m)
     return RoamSkill(planner, m.action, seconds=m.seconds, cost=cost, area_m=m.area_m)
 
 

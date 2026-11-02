@@ -1,7 +1,8 @@
 """Where to go (AI engine LLD §18.7, §18.13.12, spec 9 §4.1): wander picks seen, open, reachable floor a
 little ahead, preferring places it hasn't been lately (so it drifts to the edge of what it has seen, and on),
 now and then a new spot; explore picks the cheapest edge between seen floor and unseen space until none is
-left."""
+left; find's search picks the nearest reachable floor the camera hasn't looked at from near (design-notes
+§188)."""
 
 from __future__ import annotations
 
@@ -39,6 +40,12 @@ EXPLORE_NEW_S = 3.0
 UNSEEN_MIN_CELLS = 9  # unseen bits smaller than 30 x 30 cm are ignored (spec 9 §4.1)
 FRONTIER_MIN_CELLS = 3  # a stretch of frontier shorter than 30 cm is ignored
 VISITED_M = 0.30  # reached frontiers are remembered in cells this big
+# find's search (owner: option A, design-notes §188): a spot is searched once the camera looked at it from
+# this near - z6 runs g4 / g5 / f1 / f3: a toy in view named in 58-68 % of pictures under 1 m, 16 % at
+# 1-1.5 m, under 3 % beyond
+LOOK_M = 1.0
+LOOK_HALF_DEG = 35.0  # within this of the camera's axis (the lens sees ~41 deg each side)
+LOOKED_M = 0.30  # looked-at floor remembered in cells this big
 
 
 class WanderGoal:
@@ -173,3 +180,63 @@ def _big_parts(mask: NDArray[np.bool_], min_cells: int) -> NDArray[np.bool_]:
     keep = np.zeros(n, np.bool_)
     keep[1:] = stats[1:, cv2.CC_STAT_AREA] >= min_cells
     return keep[labels]
+
+
+class SearchGoal:
+    """Find's search (design-notes §188): the nearest reachable seen floor not yet looked at from within
+    LOOK_M; None (and done) when every reachable spot has been."""
+
+    def __init__(self) -> None:
+        self.done = False
+        self._dest: XY | None = None
+        self._picked_s = 0.0
+        self._looked: set[tuple[int, int]] = set()
+
+    def drop(self) -> None:
+        """The current target has no route: pick again next time."""
+        self._dest = None
+
+    @staticmethod
+    def _key(p: XY) -> tuple[int, int]:
+        return math.floor(p[0] / LOOKED_M), math.floor(p[1] / LOOKED_M)
+
+    def looked(self, p: XY) -> bool:
+        return self._key(p) in self._looked
+
+    def look(self, at: XYTh, pan_deg: float, cam_x_m: float) -> None:
+        """One still picture: the camera at the lens (cam_x_m ahead of the tank's centre), its axis pan_deg
+        from the tank's heading (pan = -bearing); its near view is searched."""
+        cx, cy = at[0] + cam_x_m * math.cos(at[2]), at[1] + cam_x_m * math.sin(at[2])
+        axis = at[2] - math.radians(pan_deg)
+        half = math.radians(LOOK_HALF_DEG)
+        n = math.ceil(LOOK_M / LOOKED_M) + 1
+        i0, j0 = self._key((cx, cy))
+        for i in range(i0 - n, i0 + n + 1):
+            for j in range(j0 - n, j0 + n + 1):
+                x, y = (i + 0.5) * LOOKED_M, (j + 0.5) * LOOKED_M
+                if math.dist((x, y), (cx, cy)) > LOOK_M:
+                    continue
+                off = (math.atan2(y - cy, x - cx) - axis + math.pi) % (2 * math.pi) - math.pi
+                if abs(off) <= half:
+                    self._looked.add((i, j))
+
+    def destination(self, now_s: float, at: XYTh, cost: CostMap, planner: RoutePlanner) -> XY | None:
+        d = self._dest
+        if d is not None and math.dist(d, at[:2]) <= REACHED_M:  # there: its spot counts (the tank is on it)
+            self._looked.add(self._key(d))
+        if d is not None and not self.looked(d) and now_s - self._picked_s < EXPLORE_NEW_S:
+            return d
+
+        def accept(i: int, j: int) -> bool:  # seen open floor not looked at; at the tank it counts as looked
+            p = planner.grid_centre(i, j)
+            if not cost.seen_at(*p) or self.looked(p):
+                return False
+            if math.dist(p, at[:2]) <= REACHED_M:
+                self._looked.add(self._key(p))
+                return False
+            return True
+
+        ij = planner.nearest(cost, (at[0], at[1]), accept)
+        self._dest, self._picked_s = (None if ij is None else planner.grid_centre(*ij)), now_s
+        self.done = ij is None
+        return self._dest

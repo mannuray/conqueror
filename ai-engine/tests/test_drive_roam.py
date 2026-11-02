@@ -96,7 +96,7 @@ def test_find_hands_over_to_the_chase() -> None:
 def test_find_looks_round_from_where_it_stands_first() -> None:
     """Find (design-notes §187): first the chase's look round from here (the camera ahead, then each side);
     nothing seen, it then searches the room."""
-    s = skill("explore", find=True)
+    s = skill("search", find=True)
     snap = open_snap()
     out = s.tick(0.0, AT, snap, None, None, True)
     assert s.state == "chase" and s.chase.state == "sweep" and out.cam is not None and out.cmd == STOP
@@ -110,22 +110,27 @@ def test_find_looks_round_from_where_it_stands_first() -> None:
     assert s.state == "drive" and turned >= 170.0
 
 
-def test_a_search_with_nothing_left_to_visit_ends_not_found() -> None:
-    """A search ends (owner, design-notes §188): find explores; every reachable place visited and the thing
-    never reached, it ends not_found - here a room all seen already: nothing left after the look round."""
-    s = skill("explore", find=True)
+def test_a_search_ends_not_found_once_every_spot_was_looked_at_from_near() -> None:
+    """A search ends (owner, design-notes §188, option A): a spot is searched once the camera looked at it
+    from within LOOK_M; every reachable spot searched and the thing never seen, find ends not_found. Floor run
+    n1: a room all seen from the start ended after ~2 s of driving - now it drives round to look."""
+    s = RoamSkill(Planner(Limits()), "search", find=True, rng=random.Random(1), area_m=1.5)
     snap = open_snap()
-    tank, results = SimTank(), list[str]()
-    for k in range(600):
+    tank, results, path = SimTank(), list[str](), 0.0
+    for k in range(6000):
         o = s.tick(k * 0.1, tank.at, snap, None, None, True)
+        before = tank.at
         tank.step(o.cmd, 0.1)
+        path += math.dist(before[:2], tank.at[:2])
         if o.result:
             results.append(o.result)
             break
     assert results == ["not_found"]
+    assert path > 1.0  # it went to look, not just turned round
+    assert all(s.search.looked((x, y)) for x, y in ((1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)))
 
 
-def test_explore_without_find_still_ends_done() -> None:
+def test_explore_ends_done() -> None:
     s = skill("explore")
     outs = run(s, open_snap(), START_STAND_S + 1.0)
     assert [o.result for o in outs if o.result] == ["done"]

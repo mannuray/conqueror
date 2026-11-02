@@ -2026,20 +2026,28 @@ stateDiagram-v2
 
 #### 18.13.22 One word, find; a search that ends (owner, 2026-11-02, design-notes §188)
 - **`goto` dropped.** `Action` = `find | wander | explore`; `goto` is an unknown word like any other ("cq-drive does: find, wander, explore"; owner: remove it altogether). The §17 / §18 text above that says `goto` is history; the Logo word will be `FIND` (Plan Z2).
-- **Find searches by explore.** `make_skill`: `find` makes `RoamSkill("explore", find=True, area_m=...)`. `RoamSkill._drive`: no route and `explore.done` ends `not_found` when `find`, `done` otherwise (plain explore unchanged). A chase that loses the thing returns to the same explore, so places already visited stay visited.
+- **Find searches what it hasn't looked at from near (owner: option A).** `make_skill`: `find` makes `RoamSkill("search", find=True, area_m=...)`. `SearchGoal` (`goals.py`): `look(at, pan_deg, cam_x_m)` marks the 30 cm cells (`LOOKED_M`) within `LOOK_M` 1.0 m of the lens and `LOOK_HALF_DEG` 35° of the camera's axis (measured: a toy in view is named in 58-68 % of pictures under 1 m, 16 % at 1-1.5 m); `destination` - the nearest reachable seen floor not looked at (`RoutePlanner.nearest`), kept `EXPLORE_NEW_S` unless looked at meanwhile; a reached spot and cells at the tank count as looked; None and `done` when none is left. `RoamSkill.tick` wraps `_tick`: in a search each still picture (`cam_still`) marks the view at `_look_pan`, the pan of the last camera command any part sent (start, roam, check, recovery, chase). `_drive`: no route and `search.done` ends `not_found`; explore still ends `done`. A chase that loses the thing returns to the same search. Not cut by obstacles (a thing hidden behind another counts as looked at - loose).
 - **`refusal`:** `find` without the depth model is refused like `explore` ("find needs the depth model …").
-- This replaces 18.13.21's "Results changed": a find ends `done` (reached), `not_found` (everything visited, never reached), `blocked`, `stale` or `cancelled`.
+- This replaces 18.13.21's "Results changed": a find ends `done` (reached), `not_found` (every reachable spot looked at from near, never seen), `blocked`, `stale` or `cancelled`.
+
+```mermaid
+classDiagram
+    class SearchGoal { done: bool; look(at, pan_deg, cam_x_m); looked(p) bool; destination(now_s, at, cost, planner) XY; drop() }
+    class RoamSkill { mode: wander|explore|search; find: bool; search: SearchGoal; _look_pan; tick(); _tick() }
+    RoamSkill *-- SearchGoal
+    RoamSkill *-- ChaseSkill
+```
 
 ```mermaid
 stateDiagram-v2
     [*] --> LookRound: find
     LookRound --> Approach: seen
-    LookRound --> Explore: not seen
-    Explore --> Check: a maybe (§179)
-    Check --> Explore: not confirmed
+    LookRound --> Search: not seen
+    Search --> Check: a maybe (§179)
+    Check --> Search: not confirmed
     Check --> Approach: confirmed
-    Explore --> Approach: seen
-    Approach --> Explore: lost
-    Explore --> [*]: everything visited - not_found
+    Search --> Approach: seen
+    Approach --> Search: lost
+    Search --> [*]: every reachable spot looked at from within 1 m - not_found
     Approach --> [*]: done / blocked
 ```

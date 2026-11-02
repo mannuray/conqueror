@@ -8,7 +8,7 @@ import random
 import numpy as np
 
 from conqueror_ai.domain.drive.costmap import CostMap
-from conqueror_ai.domain.drive.goals import ExploreGoal, WanderGoal
+from conqueror_ai.domain.drive.goals import LOOK_M, ExploreGoal, SearchGoal, WanderGoal
 from conqueror_ai.domain.drive.planner import bearing_deg
 from conqueror_ai.domain.drive.route import RoutePlanner
 from conqueror_ai.domain.room_map import RoomMap
@@ -171,3 +171,41 @@ def test_explore_picks_quickly_by_searching_outward() -> None:  # review M1 (Pla
     d = g.destination(0.0, START, c, rp)
     assert d is not None and abs(d[1] - 1.0) < 0.15
     assert (time.perf_counter() - t) * 1000 < 5.0
+
+
+# ---- find's search: a spot is searched once the camera has looked at it from near (design-notes §188)
+CAM_X = 0.085
+
+
+def test_search_marks_what_the_camera_looked_at_from_near() -> None:
+    g = SearchGoal()
+    g.look(START, 0.0, CAM_X)  # the camera straight ahead
+    assert g.looked((0.6, 0.0))
+    assert not g.looked((CAM_X + LOOK_M + 0.3, 0.0))  # too far for the detector
+    assert not g.looked((-0.6, 0.0))  # behind
+    assert not g.looked((0.4, 0.6))  # outside the view
+    g.look(START, -90.0, CAM_X)  # pan -90: the camera looks left (+y), as pan = -bearing
+    assert g.looked((0.1, 0.6))
+
+
+def test_search_goes_to_the_nearest_spot_not_looked_at() -> None:
+    clear = clear_of(all_seen=True)
+    g = SearchGoal()
+    g.look(START, 0.0, CAM_X)
+    d = g.destination(0.0, START, clear, RoutePlanner())
+    assert d is not None and not g.looked(d) and math.dist(d, START[:2]) <= 1.0
+
+
+def test_search_done_when_everything_reachable_was_looked_at() -> None:
+    """A room 1.2 m across: turned round on the spot, all of it is within LOOK_M (a 1.8 m room's corners are
+    not - they stay to be searched)."""
+    walls = area(-0.7, -0.7, 0.7, -0.6) + area(-0.7, 0.6, 0.7, 0.7) + area(-0.7, -0.7, -0.6, 0.7)
+    walls += area(0.6, -0.7, 0.7, 0.7)
+    room = clear_of(seen=area(-0.6, -0.6, 0.6, 0.6), blocked=walls)
+    g = SearchGoal()
+    assert g.destination(0.0, START, room, RoutePlanner()) is not None and not g.done
+    for pan in range(-180, 180, 30):
+        g.look(START, float(pan), 0.0)
+    assert g.destination(1.0, START, room, RoutePlanner()) is None
+    assert g.done
+    assert not g.looked((0.85, 0.85))  # 1.2 m off: never counted from here

@@ -4,8 +4,8 @@ find.
 Each tick: one cost map from the snapshot, the goal's destination, a route on the costs, and slice 1's fan
 aiming 0.5 m along it, scored and slowed by cost (Plan Z6). Stuck - no allowed move or no progress for
 stuck_s, or no route - the standard ways out run (`Recovery`: look, turn, back over known floor, blocked).
-Find hands over to the chase once the thing is seen; a find that has visited everything without reaching it
-ends not_found (design-notes §188).
+Find hands over to the chase once the thing is seen; it searches ("search": the nearest floor the camera
+hasn't looked at from near) and ends not_found when every reachable spot has been (design-notes §188).
 
 Safety (spec 9 §5): a stale map stops the tank at once (2 s ends the run); an echo nearer than clear_m that
 isn't the target ends the run; 18 cm/s while the camera angle isn't trusted or there is no depth."""
@@ -30,7 +30,7 @@ from conqueror_ai.domain.drive.chase import (
 from conqueror_ai.domain.drive.costmap import CostMap, CostSettings
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.goal import TargetFix
-from conqueror_ai.domain.drive.goals import ExploreGoal, WanderGoal
+from conqueror_ai.domain.drive.goals import ExploreGoal, SearchGoal, WanderGoal
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
 from conqueror_ai.domain.drive.recovery import ProgressWatch, Recovery
 from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point
@@ -48,7 +48,7 @@ PLAN_TRIES = 3  # destinations tried in one tick before it counts as stuck
 START_STAND_S = 1.0  # at the start: stand with the camera ahead so the map takes still pictures
 
 
-Mode = Literal["wander", "explore"]
+Mode = Literal["wander", "explore", "search"]
 
 
 @dataclass
@@ -85,6 +85,8 @@ class RoamSkill:
         self.wander = WanderGoal(rng or random.Random(), self.lim)
         self.seconds = seconds
         self.explore = ExploreGoal()
+        self.search = SearchGoal()
+        self._look_pan: float | None = None  # where the camera was last sent (find's search marks its view)
         self.chase = ChaseSkill(planner, cost)
         self.recovery = Recovery(self.lim, planner.foot, DRIVE_TILT)
         self.state = "start"
@@ -143,7 +145,26 @@ class RoamSkill:
     ) -> SkillOut:
         """One tick: at = the pose (x, y, th), snap = the room map, fix = the thing to find (find only),
         sonar_m = the echo from the tank's front (None: none), map_ok = pictures and telemetry fresh, maybe =
-        an unsure sighting of the thing on the floor (find only: looked at again, §179)."""
+        an unsure sighting of the thing on the floor (find only: looked at again, §179). In a search a still
+        picture marks the camera's near view as searched (§188)."""
+        if self.mode == "search" and map_ok and at is not None and cam_still and self._look_pan is not None:
+            self.search.look(at, self._look_pan, self.lim.cam_x_m)
+        out = self._tick(now_s, at, snap, fix, sonar_m, map_ok, cam_still, maybe)
+        if out.cam is not None:
+            self._look_pan = out.cam[0]
+        return out
+
+    def _tick(
+        self,
+        now_s: float,
+        at: XYTh | None,
+        snap: MapSnapshot | None,
+        fix: TargetFix | None,
+        sonar_m: float | None,
+        map_ok: bool,
+        cam_still: bool = True,
+        maybe: XY | None = None,
+    ) -> SkillOut:
         if self.state in ("done", "failed"):
             return SkillOut(STOP)
         if self._last_s is not None:
@@ -222,6 +243,8 @@ class RoamSkill:
     def _destination(self, now_s: float, at: XYTh, cost: CostMap) -> XY | None:
         if self.mode == "wander":
             return self.wander.destination(now_s, at, cost, self.routes)
+        if self.mode == "search":
+            return self.search.destination(now_s, at, cost, self.routes)
         return self.explore.destination(now_s, at, cost, self.routes)
 
     def _plan(self, now_s: float, at: XYTh, cost: CostMap) -> list[XY] | None:
@@ -236,6 +259,8 @@ class RoamSkill:
                 return route
             if self.mode == "wander":
                 self.wander.drop()
+            elif self.mode == "search":
+                self.search.drop()
             else:
                 self.explore.drop()
         return None
@@ -324,8 +349,10 @@ class RoamSkill:
     ) -> SkillOut:
         route = self._plan(now_s, at, cost)
         if route is None:
-            if self.mode == "explore" and self.explore.done:  # all visited; find never reached it (§188)
-                return self._end("not_found" if self.find else "done")
+            if self.mode == "explore" and self.explore.done:
+                return self._end("done")
+            if self.mode == "search" and self.search.done:  # every spot looked at, never seen (§188)
+                return self._end("not_found")
             return self._stuck(now_s, at)
         self.route = route
         aim = aim_point(route, (at[0], at[1]))

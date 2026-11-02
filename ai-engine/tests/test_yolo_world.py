@@ -140,3 +140,22 @@ def test_the_model_refuses_other_words_and_runs_with_its_own() -> None:
         x1, y1, x2, y2 = d.box
         assert d.cls in vocab.names and d.score >= vocab.min_score(d.cls)
         assert 0 <= x1 < x2 <= 640 and 0 <= y1 < y2 <= 480
+
+
+def test_a_sure_name_beats_an_unsure_one_over_it() -> None:
+    """Z6 second review I4: one-name NMS ran over sure and unsure boxes together, so an unsure "toy" (0.33,
+    its bar 0.40) over a sure "chair" (0.30, its bar 0.25) removed the chair whenever maybes were asked for -
+    find chair missed it. Sure boxes first; an unsure box over a kept sure one is dropped."""
+    v = Vocabulary.from_dict(
+        {"words": [{"word": "chair", "min_score": 0.25}, {"word": "toy", "min_score": 0.40}]}
+    )
+    out = raw((320.0, 320.0, 100.0, 100.0, 0.30, 0.0), (322.0, 320.0, 100.0, 100.0, 0.0, 0.33))
+    for maybe in (None, 0.15):
+        dets = yw.to_detections(out, (0, 0, 1.0), (640, 640), v, maybe)
+        assert [(d.cls, d.sure) for d in dets] == [("chair", True)]
+
+
+def test_boxes_are_plain_floats() -> None:  # Z6 second review M5: np.float64 showed in prints and recordings
+    v = Vocabulary.from_dict({"words": [{"word": "box"}]})
+    (d,) = yw.to_detections(raw((300.0, 300.0, 80.0, 60.0, 0.9)), (0, 0, 1.0), (640, 640), v)
+    assert all(type(x) is float for x in d.box)

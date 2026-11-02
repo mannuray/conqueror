@@ -78,11 +78,11 @@ def to_detections(
         sc = best_score[sel].astype(np.float64)
         for i in _nms(boxes.astype(np.float64), sc):
             x1, y1, x2, y2 = boxes[i]
-            box = (
-                min(max((x1 - left) / scale, 0.0), float(w)),
-                min(max((y1 - top) / scale, 0.0), float(h)),
-                min(max((x2 - left) / scale, 0.0), float(w)),
-                min(max((y2 - top) / scale, 0.0), float(h)),
+            box = (  # plain floats (review M5: np.float64 showed in prints and recordings)
+                float(min(max((x1 - left) / scale, 0.0), float(w))),
+                float(min(max((y1 - top) / scale, 0.0), float(h))),
+                float(min(max((x2 - left) / scale, 0.0), float(w))),
+                float(min(max((y2 - top) / scale, 0.0), float(h))),
             )
             if box[2] > box[0] and box[3] > box[1]:  # a box wholly in the grey bar is nothing
                 out.append(Detection(word, float(sc[i]), box, bool(sc[i] >= vocab.min_score(word))))
@@ -91,9 +91,16 @@ def to_detections(
 
 def _one_name(dets: list[Detection]) -> list[Detection]:
     """One thing, one name (design-notes §187): a box over nearly the same place as a stronger one of another
-    word is dropped; the rest keep their order."""
-    boxes = np.array([d.box for d in dets], dtype=np.float64).reshape(-1, 4)
-    keep = set(_nms(boxes, np.array([d.score for d in dets], dtype=np.float64)))
+    word is dropped; the rest keep their order. Sure boxes first: an unsure box over a kept sure one is
+    dropped, whatever its score (review I4: an unsure "toy" removed a sure "chair")."""
+    keep: set[int] = set()
+    for sure in (True, False):
+        idx = [i for i, d in enumerate(dets) if d.sure == sure]
+        idx = [
+            i for i in idx if all(_iou(np.array(dets[i].box), np.array(dets[k].box)) < NMS_IOU for k in keep)
+        ]
+        boxes = np.array([dets[i].box for i in idx], dtype=np.float64).reshape(-1, 4)
+        keep |= {idx[j] for j in _nms(boxes, np.array([dets[i].score for i in idx], dtype=np.float64))}
     return [d for i, d in enumerate(dets) if i in keep]
 
 

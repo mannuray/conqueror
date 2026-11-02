@@ -2353,3 +2353,77 @@ classDiagram
 ```
 
 **Floor checks:** Task 9, design-notes §192 (to come).
+
+## 20. The home spot: the map and the remembered things last between runs (owner, 2026-11-02, design-notes §189 step 2, §191 decision 1 — draft for review, Plan Z8)
+
+**Goal:** a run started from the home spot (a tape mark on the floor, the tank facing the same way each time) begins with what earlier runs learned - where the obstacles were and where things were seen - so `find ball` goes straight to where a ball was last seen, and explore / wander don't drive into furniture they mapped before. Loose: wheel slip and the owner's placing put the frames a few cm apart; everything loaded is a hint the run checks, never a fact it drives on.
+
+### 20.1 How it is used
+- `cq-drive find ball --home` (or `--home kitchen`: a named home; default `home`). At the start it says *"Put the tank on the home mark, facing the way it faced last time."*, loads `ai-engine/homes/<name>/` if it exists (else starts fresh and says so), and at the end - whatever the result, Ctrl-C too - saves there. Without `--home` nothing changes.
+- `cq-map --live --home NAME` shows the loaded map before driving (the owner sees what the tank believes).
+- `ai-engine/homes/` is git-ignored (it shows the home); deleting a folder forgets that home.
+
+### 20.2 What is saved and how it comes back (§191 decision 1: safety)
+| Layer | Saved | Loaded as |
+|---|---|---|
+| obstacle marks (`low`, `high` log-odds above the blocked level 0.7) | the value | **weakened**: `min(value, blocked + |miss|)` = 1.1, then the fade (§20.3) - still an obstacle, cleared by two looks at free floor (two misses of 0.4) |
+| below-blocked evidence, free floor (misses) | no | never: each run sees floor again before it drives or backs over it |
+| `seen` | yes | a separate **`seen_before`** layer: no cost map, goal or the recovery's "known free" reads it (explore / search behave as on a fresh map); shown in the live view only |
+| remembered things | `ThingMemory.things()` | as they were, pruned (§20.4); find checks them first (§18.13.23) |
+
+### 20.3 Obstacles never seen again fade (owner to choose)
+- **A (recommended):** each load lowers a loaded obstacle by 0.2: 1.1 → 0.9 (still an obstacle) → 0.7 (not). An obstacle not seen again for two runs is gone; seen again, it is fresh. A moved chair stops blocking after two runs even where the tank never looks.
+- **B:** no fade: a loaded obstacle stays until looked at as free floor. Safer for things the tank rarely sees, but a moved piece of furniture blocks a way for ever until the tank happens to look there.
+
+### 20.4 The memory between runs
+- Pruned at save: gone things dropped; things not seen in the last 5 runs dropped; at most 5 per word (the most recent). Each thing keeps its `seen_wall_s` and `run_id` (Plan Z7).
+- A remembered spot is checked like a candidate (go within 1 m, look 1.5 s); not there: gone (§18.13.23).
+
+### 20.5 The file and the frame
+- `homes/<name>/map.npz` (`low`, `high`, `seen`, as saved), `homes/<name>/home.json`: `{"version": 1, "frame": {"kind": "home", "pose_offset": [0, 0, 0], "cell_m": 0.05, "size_m": 8.0}, "runs": [run ids], "things": [...]}`. The frame block is where later localization fills in an offset; today it is the identity (each run's pose starts at the home mark).
+- A file of another version, cell size or map size is refused with a plain message (start fresh or delete the folder).
+
+### 20.6 Classes
+- `HomeStore` (`adapters/home_store.py`): `load(name) -> Home | None`, `save(name, room: RoomMap, memory: ThingMemory, run_id)`.
+- `Home` (`domain/home.py`, pure): `room_for_run(settings) -> RoomMap` (weakened, faded obstacles; `seen_before`), `memory() -> ThingMemory`; `Home.from_run(room, memory, earlier, run_id)` (pruned; the run list).
+- `RoomMap.seen_before` (new, read by nothing that drives); `World(..., room=home.room_for_run(...), memory=home.memory())` (Plan Z7's injection points).
+- The decisions log's first line already keeps the memory at the start (Plan Z7), so `--replay` of a home run is exact; it also keeps the loaded obstacles (the first snapshot holds them).
+
+```mermaid
+classDiagram
+    class HomeStore { <<adapter>> +load(name) Home?; +save(name, room, memory, run_id) }
+    class Home { <<pure>> version; frame; runs; +room_for_run(settings) RoomMap; +memory() ThingMemory; +from_run(room, memory, earlier, run_id) Home }
+    class RoomMap { low; high; seen; seen_before }
+    class ThingMemory
+    class World
+    HomeStore ..> Home
+    Home ..> RoomMap
+    Home ..> ThingMemory
+    World --> RoomMap
+    World --> ThingMemory
+```
+
+```mermaid
+sequenceDiagram
+    participant C as cq-drive --home
+    participant S as HomeStore
+    participant H as Home
+    participant W as World
+    participant R as SkillRunner
+    C->>S: load(name)
+    S-->>C: Home (or none: fresh)
+    C->>H: room_for_run(settings), memory()
+    C->>W: World(..., room, memory)
+    C->>R: run(skill)
+    R-->>C: result (or Ctrl-C)
+    C->>H: from_run(room, memory, earlier, run_id)
+    C->>S: save(name, ...)
+```
+
+### 20.7 Tests (to write first)
+- A saved obstacle comes back as an obstacle at 1.1 (A: 0.9 on the next load), never higher; two misses clear it; below-blocked evidence and free floor never come back.
+- `seen_before` loaded; `seen` empty at the start; explore's frontier and the recovery's known-free floor the same as on a fresh map.
+- Memory pruning (gone, 5 runs, 5 per word); a find with a remembered spot checks it first (existing test, now through a load).
+- Another version / cell size / map size refused; a missing home starts fresh.
+- Ctrl-C mid-run still saves; a replay of a home run is identical.
+- Floor (owner): explore a room with `--home`; a second run starts with the furniture marked (the live view) and goes round it; a find after a run that saw the ball goes to it first.

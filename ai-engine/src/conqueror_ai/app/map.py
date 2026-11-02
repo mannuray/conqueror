@@ -32,9 +32,9 @@ from conqueror_ai.app.objects import (
     DepthFn,
     decode,
     load_depth,
-    see_off_loop,
 )
-from conqueror_ai.app.world import MapRun
+from conqueror_ai.app.perception import Perception
+from conqueror_ai.app.world import MapRun, World
 from conqueror_ai.domain.camera import Calibration
 from conqueror_ai.domain.depth import MapConfig
 from conqueror_ai.domain.types import Frame
@@ -45,31 +45,6 @@ if TYPE_CHECKING:
     from conqueror_ai.adapters.rerun_view import RerunView
 
 STATUS_S = 1.0  # a status line this often
-
-
-def task_failure(tasks: list[asyncio.Task[None]]) -> str | None:
-    """The first worker (bridge link, camera, drive link, telemetry) that crashed, as "Kind: message"."""
-    for t in tasks:
-        if t.done() and not t.cancelled() and (e := t.exception()) is not None:
-            return f"{type(e).__name__}: {e}"
-    return None
-
-
-STALE_PICTURE_S = 0.5  # spec 7 §4: no driving on a stale map
-STALE_TELEM_S = 0.2
-FIRST_PICTURE_S = 5.0  # the camera stream may take this long to start
-
-
-def map_state(now: float, t0: float, last_picture: float, last_telem: float) -> str | None:
-    """None when pictures and telemetry are fresh (spec 7 §4); "waiting" before the first picture; else why
-    not. Times in seconds (time.monotonic); 0 = never."""
-    if last_picture == 0.0:
-        return "waiting" if now - t0 < FIRST_PICTURE_S else "no pictures from the camera"
-    if now - last_picture > STALE_PICTURE_S:
-        return f"no new picture for {now - last_picture:.1f} s"
-    if now - last_telem > STALE_TELEM_S:
-        return f"no telemetry for {now - last_telem:.1f} s"
-    return None
 
 
 Show = Callable[[MapRun, Frame], None]
@@ -127,51 +102,30 @@ async def run_live(
     seconds: float | None = None,
     stop: asyncio.Event | None = None,
 ) -> MapRun:
-    """The tank: telemetry feeds the pose and the sensor; each new picture (the newest wins) goes through the
-    depth model and Seeing in worker threads and onto the map. Ends after `seconds` or when `stop` is set."""
+    """The tank through Perception (LLD §19.5): telemetry feeds the pose and the sensor; each new picture (the
+    newest wins) through the depth model and Seeing in worker threads and onto the map. Ends after `seconds`
+    or when `stop` is set."""
     asked = stop or asyncio.Event()
     halt = asyncio.Event()
-    if rec is not None:
-        link.tap = rec.telemetry
-    last = {"telem": 0.0, "picture": 0.0}
-
-    async def telemetry() -> None:
-        calib_given = False
-        while not halt.is_set():
-            s = await link.samples.get()
-            if not calib_given and link.counts_per_m is not None:
-                run.on_calib(link.counts_per_m)
-                calib_given = True
-            run.on_telem(s)
-            last["telem"] = time.monotonic()
-
-    tasks = [asyncio.create_task(t) for t in (link.run(halt), cam.run(halt), telemetry())]
+    p = Perception(link, cam, World.around(run), None, run.depth, rec)
+    p.start(halt)
     t0 = next_status = time.monotonic()
     updates = 0
     try:
         while not asked.is_set() and (seconds is None or time.monotonic() - t0 < seconds):
-            if (failed := task_failure(tasks)) is not None:  # say the real error, not "stale" for ever
+            if (failed := p.failure()) is not None:  # say the real error, not "stale" for ever
                 print(f"stopped: failed - {failed}", flush=True)
                 break
             now = time.monotonic()
-            stale = map_state(now, t0, last["picture"], last["telem"])
+            stale = p.state(now)
             if now >= next_status:
                 print(status(run, updates / STATUS_S, stale), flush=True)
                 updates, next_status = 0, now + STATUS_S
-            try:
-                f = await asyncio.wait_for(cam.next_frame(), 0.2)
-            except TimeoutError:
+            if await p.next_picture(0.2) is None:
                 continue
-            last["picture"] = time.monotonic()
-            if rec is not None:
-                rec.frame(f)
-            rgb = decode(f)
-            if rgb is None:
+            f = p.world.last_frame
+            if f is None:
                 continue
-            used = run.gate(f, rgb)
-            if not isinstance(used, str) and run.depth is not None and run.depth_due():
-                inv = await asyncio.to_thread(run.depth, rgb)
-                run.apply(await see_off_loop(run.seeing, run.p, used, inv, f.cap_us), f.cap_us)
             snap = run.snapshot(f.cap_us, stale is not None)
             updates += 1
             if view is not None:
@@ -179,11 +133,7 @@ async def run_live(
                 view.room_map(f.cap_us, snap)
     finally:
         halt.set()
-        with contextlib.suppress(Exception):
-            await link.close()
-        for t in tasks:
-            t.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await p.close()
     return run
 
 

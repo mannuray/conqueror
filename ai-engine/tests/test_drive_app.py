@@ -20,11 +20,10 @@ from conqueror_ai.app.drive import (
     map_state,
     maybes_of,
     parse_mission,
-    picture_counts,
     refusal,
-    task_failure,
 )
 from conqueror_ai.app.objects import decode
+from conqueror_ai.app.perception import picture_counts, task_failure
 from conqueror_ai.domain.camera import CameraModel
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.roam import RoamSkill

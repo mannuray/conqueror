@@ -220,73 +220,41 @@ async def run_live(
     depth: DepthFn | None = None,
     cfg: MapConfig | None = None,
 ) -> None:
-    """The tank: telemetry and the newest picture; the detector in a worker thread (latest picture wins)."""
+    """The tank through Perception (LLD §19.5): telemetry and the newest picture; the detector and the depth
+    model in worker threads (latest picture wins); boxes, depth, marks, the angle and the plan to the view."""
     from conqueror_ai.adapters.bridge_ws import BridgeLink
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
     from conqueror_ai.adapters.rerun_view import RerunView
+    from conqueror_ai.app.perception import Perception
+    from conqueror_ai.app.world import World
+    from conqueror_ai.domain.drive.limits import Limits
 
-    link, cam = BridgeLink(host), MjpegSource(host)
     view = RerunView(spawn=True)
-    p = ObjectPipeline(cal, floor_classes)
-    seeing = Seeing(cfg or MapConfig())
-    every, used_n = (cfg or MapConfig()).depth.every_n, 0
+    world = World(cal, cfg or MapConfig(), depth, floor_classes, {}, Limits(), None)
+    p = Perception(BridgeLink(host), MjpegSource(host), world, det, depth, None)
     stop = asyncio.Event()
-    tasks = [asyncio.create_task(link.run(stop)), asyncio.create_task(cam.run(stop))]
-
-    async def telemetry() -> None:
-        calib_given = False
-        while not stop.is_set():
-            s = await link.samples.get()
-            if not calib_given and link.counts_per_m is not None:
-                p.on_calib(link.counts_per_m)
-                calib_given = True
-            p.on_telem(s)
-
-    tasks.append(asyncio.create_task(telemetry()))
-
-    def died(t: asyncio.Task[None]) -> None:  # a helper that stops with an error ends the run, plainly
-        if not t.cancelled() and t.exception() is not None:
-            print(f"stopped: {t.get_name()} failed - {t.exception()!r}")
-            stop.set()
-
-    for t in tasks:
-        t.add_done_callback(died)
+    p.start(stop)
     try:
         while not stop.is_set():
-            try:
-                f = await asyncio.wait_for(cam.next_frame(), 1.0)
-            except TimeoutError:
+            if (failed := p.failure()) is not None:  # a helper that stops with an error ends the run, plainly
+                print(f"stopped: failed - {failed}")
+                break
+            used = await p.next_picture(1.0)
+            f = world.last_frame
+            if used is None or f is None:
                 continue
-            rgb = decode(f)
-            if rgb is None:
-                continue
-            cam_f = p.camera_at(f.cap_us)
-            # meanwhile newer pictures replace the waiting one; the depth model runs beside the detector
-            want_depth = depth is not None and not isinstance(cam_f, str) and depth_due(used_n + 1, every)
-            if want_depth and depth is not None:
-                dets, inv = await asyncio.gather(
-                    asyncio.to_thread(det.detect, rgb, camera_of(cam_f)), asyncio.to_thread(depth, rgb)
-                )
-            else:
-                dets, inv = await asyncio.to_thread(det.detect, rgb, camera_of(cam_f)), None
-            used = p.on_frame(f, (rgb.shape[1], rgb.shape[0]), dets, cam_f)
             view.frame(f, None)
-            view.detections(f, dets)
-            if not isinstance(used, str):
-                used_n += 1
-                if inv is not None:
-                    seen = await see_off_loop(seeing, p, used, inv, f.cap_us)
-                    view.depth(f, None if seen.scaled is None else seen.scaled.range_m / seen.cam.ray_norms())
-                    view.marks(f.cap_us, seen.marks)
-                    view.angle(f.cap_us, seen.fix)
-            view.plan(f.cap_us, p.pose(), p.objects(), used if isinstance(used, str) else None)
+            view.detections(f, p.last_dets)
+            seen = p.last_seen
+            if seen is not None:
+                view.depth(f, None if seen.scaled is None else seen.scaled.range_m / seen.cam.ray_norms())
+                view.marks(f.cap_us, seen.marks)
+                view.angle(f.cap_us, seen.fix)
+            pl = world.map_run.p
+            view.plan(f.cap_us, pl.pose(), pl.objects(), used if isinstance(used, str) else None)
     finally:
         stop.set()
-        await link.close()
-        for t in tasks:
-            t.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await asyncio.gather(*tasks, return_exceptions=True)
+        await p.close()
 
 
 def detectors(model: Path, vocab_path: Path, balls_path: Path) -> tuple[Detector, frozenset[str]]:

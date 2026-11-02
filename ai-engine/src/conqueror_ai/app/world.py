@@ -150,9 +150,17 @@ class World:
         self.area_m, self.run_id = area_m, run_id
         self.area: tuple[float, float, float] | None = None
         self.sonar_m: float | None = None
+        self.last_frame: Frame | None = None
         self._by_size: dict[str, tuple[float, float]] = {}
         self._cam_still = True
         self._used = False  # a picture was used since the last input
+
+    @classmethod
+    def around(cls, run: MapRun) -> World:
+        """A World with no goal round a MapRun made elsewhere (cq-map's live view hands one in)."""
+        w = cls(run.p.cal, run.cfg, run.depth, frozenset(), {}, run.lim, None)
+        w.map_run = run
+        return w
 
     # ---- in
     def on_calib(self, counts_per_m: int) -> None:
@@ -185,6 +193,7 @@ class World:
         used it, else why it was skipped. Seeing here when `inv` is given, or with `with_depth` when depth is
         due (a replay); live, Perception sees off the event loop (`see`, then `apply`)."""
         used = self.map_run.gate(f, rgb, dets, cam)
+        self.last_frame = f
         self._cam_still = used != "camera moving"
         if isinstance(used, str):
             self._by_size = {}

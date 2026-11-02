@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import contextlib
 import datetime
 import time
 from dataclasses import dataclass, replace
@@ -36,13 +35,6 @@ from conqueror_ai.adapters.session import SessionRecorder
 if TYPE_CHECKING:
     from conqueror_ai.adapters.bridge_ws import BridgeLink
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
-from conqueror_ai.app.map import (
-    FIRST_PICTURE_S,
-    STALE_PICTURE_S,
-    STALE_TELEM_S,
-    map_state,
-    task_failure,
-)
 from conqueror_ai.app.objects import (
     BALLS,
     CALIBRATION,
@@ -53,13 +45,18 @@ from conqueror_ai.app.objects import (
     VGA,
     VOCABULARY,
     DepthFn,
-    camera_of,
-    decode,
     detectors,
     load_depth,
 )
+from conqueror_ai.app.perception import (
+    FIRST_PICTURE_S,
+    STALE_PICTURE_S,
+    STALE_TELEM_S,
+    Perception,
+    map_state,
+)
 from conqueror_ai.app.world import World, maybes_of
-from conqueror_ai.domain.camera import Calibration, CameraModel
+from conqueror_ai.domain.camera import Calibration
 from conqueror_ai.domain.depth import MapConfig
 from conqueror_ai.domain.drive.costmap import CostSettings
 from conqueror_ai.domain.drive.goal import is_ball, kind_of
@@ -68,7 +65,6 @@ from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import RoamSkill
 from conqueror_ai.domain.memory import ThingMemory
 from conqueror_ai.domain.objects import Detector
-from conqueror_ai.domain.types import TelemSample
 from conqueror_ai.domain.vocabulary import Vocabulary
 
 __all__ = [
@@ -82,19 +78,12 @@ __all__ = [
 DRIVE = Path(__file__).resolve().parents[3] / "config" / "drive.yaml"
 TICK_S = 0.2  # tick at least this often, with or without a new picture
 NEVER_GOTO = ("person",)
-SKIPS_THAT_COUNT = ("turning", "camera moving")  # the map skips these pictures, but the camera is alive
 
 
 def goal_words(vocabulary: Vocabulary) -> list[str]:
     """What cq-drive can go to: "ball" and every word that stands on the floor (it has a place on the map) -
     never a person: a child is around (following a person is a later lesson with its own rules)."""
     return ["ball", *(w.word for w in vocabulary.words if w.floor and w.word not in NEVER_GOTO)]
-
-
-def picture_counts(used: CameraModel | str) -> bool:
-    """A picture shows the camera is alive when the map used it, or skipped it only for the tank's or the
-    camera's own motion (a spin, a camera sweep)."""
-    return not isinstance(used, str) or used in SKIPS_THAT_COUNT
 
 
 Action = Literal["find", "wander", "explore"]
@@ -183,69 +172,32 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
     world = World(
         kit.cal, kit.cfg, kit.depth, kit.floor, kit.sizes, kit.lim, kind, area_m=m.area_m, run_id=run_id
     )
-    run = world.map_run
     skill = make_skill(m, kit.lim, kit.cfg.cost, world.memory)
     stop = asyncio.Event()
-    last: dict[str, float] = {"telem": 0.0, "picture": 0.0}
-    rec = kit.rec
-    if rec is not None:
-        link.tap = rec.telemetry
-    tasks = [asyncio.create_task(t) for t in (link.run(stop), cam.run(stop), drive.run(stop))]
-
-    async def telemetry() -> None:
-        calib_given = False
-        while not stop.is_set():
-            s: TelemSample = await link.samples.get()
-            if not calib_given and link.counts_per_m is not None:
-                world.on_calib(link.counts_per_m)
-                calib_given = True
-            world.on_telem(s)  # the pose, and the sensor onto the map
-            last["telem"] = time.monotonic()
-
-    tasks.append(asyncio.create_task(telemetry()))
+    p = Perception(link, cam, world, kit.det, kit.depth, kit.rec)
+    p.start(stop, drive.run(stop))
     for _ in range(100):  # both links up before the first move
-        if link.connected and drive.connected and last["telem"] > 0:
+        if link.connected and drive.connected and p.last_telem_s > 0:
             break
         await asyncio.sleep(0.1)
     else:
         stop.set()
-        await _close(link, tasks)
+        await p.close()
         return "no connection to the tank - is it on?"
     await drive.cam(0.0, kit.lim.drive_tilt_deg)
-    t0 = time.monotonic()
+    t0 = p.t0 = time.monotonic()
     result = ""
     try:
         while not result:
             if drive.refused is not None:
                 result = f"refused by the tank ({drive.refused})"
                 break
-            if (failed := task_failure(tasks)) is not None:
+            if (failed := p.failure()) is not None:
                 result = f"failed - {failed}"
                 break
-            with contextlib.suppress(TimeoutError):
-                f = await asyncio.wait_for(cam.next_frame(), TICK_S)
-                rgb = await asyncio.to_thread(decode, f)
-                if rgb is not None:
-                    if rec is not None:
-                        rec.frame(f)
-                    cam_f = run.p.camera_at(f.cap_us)
-                    want = kit.depth is not None and not isinstance(cam_f, str) and run.depth_due_next()
-                    if want and kit.depth is not None:
-                        dets, inv = await asyncio.gather(
-                            asyncio.to_thread(kit.det.detect, rgb, camera_of(cam_f)),
-                            asyncio.to_thread(kit.depth, rgb),
-                        )
-                    else:
-                        dets, inv = await asyncio.to_thread(kit.det.detect, rgb, camera_of(cam_f)), None
-                    used = world.on_picture(
-                        f, rgb, dets, cam_f
-                    )  # the map and the pose stay on the event loop
-                    if picture_counts(used):
-                        last["picture"] = time.monotonic()
-                    if not isinstance(used, str) and inv is not None:  # seeing off the loop, the map on it
-                        world.apply(await asyncio.to_thread(world.see, used, inv, f.cap_us), f.cap_us)
+            await p.next_picture(TICK_S)
             now = time.monotonic()
-            state = map_state(now, t0, last["picture"], last["telem"])
+            state = p.state(now)
             if state == "waiting":
                 continue
             inp = world.input(now - t0, time.time(), state is None)
@@ -258,7 +210,8 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
                 result = str(out.result)
                 if result == "stale":
                     result = f"stale - {state or 'no pose'}"
-            seen_m2 = float(run.room.seen.sum()) * run.room.cell_m**2
+            room = world.map_run.room
+            seen_m2 = float(room.seen.sum()) * room.cell_m**2
             print(
                 f"\r{skill.state:12s} v {out.cmd.v_cms:4.1f} cm/s  w {out.cmd.w_dps:6.1f} deg/s  "
                 f"seen {seen_m2:5.1f} m2 ",
@@ -271,17 +224,9 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
         except Exception as e:  # the clean-up goes on: the bridge stops the tank when the link drops
             print(f"\nthe stop message failed ({e}): the tank stops by the deadman")
         stop.set()
-        await _close(link, tasks)
+        await p.close()
         print()
     return result
-
-
-async def _close(link: BridgeLink, tasks: list[asyncio.Task[None]]) -> None:
-    await link.close()
-    for t in tasks:
-        t.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def run_drive(host: str, m: Mission, rec: SessionRecorder | None, use_depth: bool = True) -> str:

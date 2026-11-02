@@ -17,6 +17,7 @@ from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
 from conqueror_ai.domain.drive.roam import Mode, RoamSkill
 from conqueror_ai.domain.drive.sim import Box, SimRoom, SimTank
+from conqueror_ai.domain.drive.skill import make_input
 from conqueror_ai.domain.objects import GATE_DPS
 from conqueror_ai.domain.room_map import RoomMap
 from conqueror_ai.domain.sonar_model import SonarModel
@@ -168,9 +169,7 @@ def test_find_ball_out_of_sight(seed: int) -> None:
     assert r.nearest >= NEAREST_M and not r.front_hit and r.body >= BODY_M
 
 
-def chase_on_map(
-    ball: tuple[float, float], boxes: list[Box], limit_s: float = 60.0, dt: float = 0.1, use_map: bool = True
-) -> Roam:
+def chase_on_map(ball: tuple[float, float], boxes: list[Box], limit_s: float = 60.0, dt: float = 0.1) -> Roam:
     """Slice 1's chase with the room map (Plan Z5 Task 7): the ball always known (seen over a low box)."""
     sim = SimRoom(boxes, walls_m=2.5)
     out = Roam()
@@ -182,9 +181,10 @@ def chase_on_map(
             out.room.update_picture(sim.marks(at), t_us)
         pose = Pose(t_us, at[0], at[1], at[2], 0.0, 0.0)
         out.room.body_over(pose, LIM.body_front_m, LIM.body_rear_m, LIM.body_half_w_m, t_us)  # Plan Z6
-        snap = out.room.snapshot(t_us, pose, False, True) if use_map else None
+        snap = out.room.snapshot(t_us, pose, False, True)
         echo = sim.sonar(at)
-        o = skill.tick(t, at, TargetFix(1, ball[0], ball[1], 0.0), echo, True, snap=snap)
+        fix = TargetFix(1, ball[0], ball[1], 0.0)
+        o = skill.tick(t, make_input(at=at, snap=snap, map_ok=True, fix=fix, sonar_m=echo))
         turning = abs(o.cmd.w_dps) > GATE_DPS
         tank.step(o.cmd, dt)
         out.nearest = min(out.nearest, sim.gap_m(tank.at))
@@ -312,7 +312,8 @@ def test_goto_a_ball_behind_at_the_start_curves_round() -> None:
         if abs(bearing_deg(at, ball)) <= 41.0 and not turning:
             last_seen = t
         fix = None if last_seen is None else TargetFix(1, ball[0], ball[1], t - last_seen)
-        o = skill.tick(t, at, fix, sim.sonar(at), True, snap=room.snapshot(t_us, pose, False, True))
+        snap = room.snapshot(t_us, pose, False, True)
+        o = skill.tick(t, make_input(at=at, snap=snap, map_ok=True, fix=fix, sonar_m=sim.sonar(at)))
         turning = abs(o.cmd.w_dps) > GATE_DPS
         tank.step(o.cmd, 0.1)
         body = min(body, sim.body_gap(tank.at, LIM))

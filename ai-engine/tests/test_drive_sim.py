@@ -9,16 +9,55 @@ from dataclasses import dataclass, field
 import numpy as np
 import pytest
 
-from conqueror_ai.domain.drive.chase import ChaseSkill, SkillOut
+from conqueror_ai.domain.depth import Marks
+from conqueror_ai.domain.drive.chase import ChaseSkill
+from conqueror_ai.domain.drive.curves import XYTh
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
 from conqueror_ai.domain.drive.sim import Box, SimRoom, SimTank
+from conqueror_ai.domain.drive.skill import Skill, SkillOut, make_input
 from conqueror_ai.domain.objects import GATE_DPS
-from conqueror_ai.domain.room_map import RoomMap
+from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 
 HALF_VIEW_DEG = 41.0  # the camera sees ~82 deg across
 SEES_UP_TO_M = 4.0  # the ball is found up to about this far
+
+
+def open_snap() -> MapSnapshot:
+    """An empty room, all seen: the map every skill drives on (no map-free path, design-notes §191)."""
+    room = RoomMap()
+    room.seen[:] = True
+    z = np.zeros((0, 2))
+    room.update_picture(Marks(z, z, z, z), 0)
+    return room.snapshot(0, None, False, True)
+
+
+OPEN = open_snap()
+
+
+def tk(
+    s: Skill,
+    now: float,
+    at: XYTh | None,
+    fix: TargetFix | None,
+    sonar: float | None,
+    map_ok: bool,
+    cam_still: bool = True,
+    snap: MapSnapshot | None = None,
+) -> SkillOut:
+    """The old call shape onto SkillInput (LLD §19.4): an open map unless one is given."""
+    return s.tick(
+        now,
+        make_input(
+            at=at,
+            snap=OPEN if snap is None else snap,
+            map_ok=map_ok,
+            fix=fix,
+            sonar_m=sonar,
+            cam_still=cam_still,
+        ),
+    )
 
 
 @dataclass
@@ -54,7 +93,7 @@ def chase(
         ):  # the map drops pictures taken turning fast
             last_seen = t
         fix = None if last_seen is None else TargetFix(1, ball[0], ball[1], t - last_seen)
-        out = skill.tick(t, tank.at, fix, None, True)
+        out = tk(skill, t, tank.at, fix, None, True)
         if out.cam is not None:
             pan = out.cam[0]
         turning = abs(out.cmd.w_dps) > GATE_DPS

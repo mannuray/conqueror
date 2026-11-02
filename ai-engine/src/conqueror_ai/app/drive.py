@@ -63,12 +63,12 @@ from conqueror_ai.app.objects import (
 )
 from conqueror_ai.domain.camera import Calibration, CameraModel
 from conqueror_ai.domain.depth import MapConfig
-from conqueror_ai.domain.drive.chase import ChaseSkill, SkillOut
 from conqueror_ai.domain.drive.costmap import CostSettings
 from conqueror_ai.domain.drive.goal import Goal, TargetFix, is_ball, kind_of, size_positions
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import RoamSkill
+from conqueror_ai.domain.drive.skill import SkillOut
 from conqueror_ai.domain.memory import ThingMemory
 from conqueror_ai.domain.objects import Detector, Located, ObjectPipeline
 from conqueror_ai.domain.room_map import MapSnapshot
@@ -161,7 +161,7 @@ def refusal(m: Mission, has_depth: bool) -> str | None:
 
 def make_skill(
     m: Mission, lim: Limits, cost: CostSettings | None = None, memory: ThingMemory | None = None
-) -> ChaseSkill | RoamSkill:
+) -> RoamSkill:
     planner = Planner(lim)
     if m.action == "find":  # remembered spots, the look round, candidates, then the search (§189)
         kind = is_ball if m.thing is None else kind_of(m.thing)
@@ -300,7 +300,7 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
 
 
 def _tick(
-    skill: ChaseSkill | RoamSkill,
+    skill: RoamSkill,
     m: Mission,
     now_s: float,
     at: tuple[float, float, float] | None,
@@ -312,8 +312,6 @@ def _tick(
     maybes: Sequence[tuple[float, float]] = (),
     used: bool = True,
 ) -> SkillOut:
-    if isinstance(skill, ChaseSkill):
-        return skill.tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap)
     find = m.action == "find"
     return skill.tick(
         now_s, at, snap, fix if find else None, sonar_m, map_ok, cam_still, maybes if find else (), used

@@ -8,13 +8,13 @@ import random
 import numpy as np
 
 from conqueror_ai.domain.depth import Marks
-from conqueror_ai.domain.drive.chase import SkillOut
 from conqueror_ai.domain.drive.curves import STOP, Command
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import CANDIDATE_RETRY_S, START_STAND_S, Mode, RoamSkill
 from conqueror_ai.domain.drive.sim import SimTank
+from conqueror_ai.domain.drive.skill import SkillOut
 from conqueror_ai.domain.memory import ThingMemory
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.types import ObjectEstimate, Pose

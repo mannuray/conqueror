@@ -4,15 +4,55 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 
+from conqueror_ai.domain.depth import Marks
 from conqueror_ai.domain.drive import chase as ch
-from conqueror_ai.domain.drive.curves import STOP, Command
+from conqueror_ai.domain.drive.curves import STOP, Command, XYTh
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
+from conqueror_ai.domain.drive.skill import Skill, SkillOut, make_input
+from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 
 LIM = Limits()
+
+
+def open_snap() -> MapSnapshot:
+    """An empty room, all seen: the map every skill drives on (no map-free path, design-notes §191)."""
+    room = RoomMap()
+    room.seen[:] = True
+    z = np.zeros((0, 2))
+    room.update_picture(Marks(z, z, z, z), 0)
+    return room.snapshot(0, None, False, True)
+
+
+OPEN = open_snap()
+
+
+def tk(
+    s: Skill,
+    now: float,
+    at: XYTh | None,
+    fix: TargetFix | None,
+    sonar: float | None,
+    map_ok: bool,
+    cam_still: bool = True,
+    snap: MapSnapshot | None = None,
+) -> SkillOut:
+    """The old call shape onto SkillInput (LLD §19.4): an open map unless one is given."""
+    return s.tick(
+        now,
+        make_input(
+            at=at,
+            snap=OPEN if snap is None else snap,
+            map_ok=map_ok,
+            fix=fix,
+            sonar_m=sonar,
+            cam_still=cam_still,
+        ),
+    )
 
 
 # ---- the chase skill
@@ -22,14 +62,14 @@ def skill() -> ch.ChaseSkill:
 
 def test_no_target_sweeps_the_camera_turns_half_round_sweeps_again_then_not_found() -> None:
     s = skill()
-    outs = [s.tick(i * 0.1, (0.0, 0.0, 0.0), None, None, True) for i in range(40)]
+    outs = [tk(s, i * 0.1, (0.0, 0.0, 0.0), None, None, True) for i in range(40)]
     pans = [o.cam[0] for o in outs if o.cam is not None]
     assert pans[:5] == [0.0, -45.0, 45.0, -90.0, 90.0] and all(o.cmd == STOP for o in outs[:39])
     from conqueror_ai.domain.drive.sim import SimTank
 
-    tank, outs = SimTank(), list[ch.SkillOut]()  # the half turn is measured from the pose (review M4)
+    tank, outs = SimTank(), list[SkillOut]()  # the half turn is measured from the pose (review M4)
     for i in range(80):
-        outs.append(s.tick(4.0 + i * 0.1, tank.at, None, None, True))
+        outs.append(tk(s, 4.0 + i * 0.1, tank.at, None, None, True))
         tank.step(outs[-1].cmd, 0.1)
     assert outs[6].cmd.w_dps == LIM.spin_dps  # 5 positions x (0.1 s to see it still + 0.8 s look) = 4.5 s
     # half a turn (180 / 65 = 2.8 s): the map can't use pictures while spinning (faster than 45 deg/s),
@@ -45,28 +85,28 @@ def test_no_target_sweeps_the_camera_turns_half_round_sweeps_again_then_not_foun
 
 def test_the_sweep_looks_ahead_first_and_counts_its_look_from_when_the_camera_is_still() -> None:
     s = skill()
-    outs = [s.tick(i * 0.1, (0.0, 0.0, 0.0), None, None, True, cam_still=i >= 5) for i in range(14)]
+    outs = [tk(s, i * 0.1, (0.0, 0.0, 0.0), None, None, True, cam_still=i >= 5) for i in range(14)]
     assert outs[0].cam == (0.0, LIM.drive_tilt_deg)  # straight ahead first: a thing in front is found at once
     # moving 0.5 s, then 0.8 s of still pictures before the next position
     assert [o.cam for o in outs[1:13]] == [None] * 12 and outs[13].cam == (-45.0, LIM.drive_tilt_deg)
     s = skill()
-    outs = [s.tick(i * 0.1, (0.0, 0.0, 0.0), None, None, True, cam_still=False) for i in range(26)]
+    outs = [tk(s, i * 0.1, (0.0, 0.0, 0.0), None, None, True, cam_still=False) for i in range(26)]
     assert outs[25].cam == (-45.0, LIM.drive_tilt_deg)  # a camera that never settles: on after 2.5 s
 
 
 def test_the_ramp_follows_the_real_time_between_ticks() -> None:
     s = skill()
     fix = TargetFix(1, 3.0, 0.0, 0.0)
-    assert s.tick(0.0, (0.0, 0.0, 0.0), fix, None, True).cmd.v_cms == LIM.v_min_cms
+    assert tk(s, 0.0, (0.0, 0.0, 0.0), fix, None, True).cmd.v_cms == LIM.v_min_cms
     # the real loop ticks once per picture (~0.2 s at VGA), not every 0.1 s
-    assert s.tick(0.2, (0.0, 0.0, 0.0), fix, None, True).cmd.v_cms == pytest.approx(LIM.v_min_cms + 2.0)
+    assert tk(s, 0.2, (0.0, 0.0, 0.0), fix, None, True).cmd.v_cms == pytest.approx(LIM.v_min_cms + 2.0)
 
 
 def test_near_the_ball_but_off_to_the_side_it_turns_on_the_spot_to_face_it() -> None:
     s = skill()
     b = math.radians(20.0)
     d = LIM.stop_range_m + LIM.cam_x_m + 0.02  # in arrival range from the lens, 20 deg to the left
-    out = s.tick(0.0, (0.0, 0.0, 0.0), TargetFix(1, d * math.cos(b), d * math.sin(b), 0.0), None, True)
+    out = tk(s, 0.0, (0.0, 0.0, 0.0), TargetFix(1, d * math.cos(b), d * math.sin(b), 0.0), None, True)
     assert out.cmd == Command(0.0, LIM.spin_dps) and out.result is None
 
 
@@ -76,58 +116,47 @@ def test_a_stale_map_or_no_pose_stops_the_tank_at_once_and_ends_it_after_two_sec
     s = skill()
     fix = TargetFix(1, 1.6, 0.0, 0.0)
     for i in range(10):
-        s.tick(i * 0.1, (0.0, 0.0, 0.0), fix, None, True)
+        tk(s, i * 0.1, (0.0, 0.0, 0.0), fix, None, True)
     assert s.cmd.v_cms > 0
-    held = s.tick(1.0, (0.0, 0.0, 0.0), fix, None, False)
+    held = tk(s, 1.0, (0.0, 0.0, 0.0), fix, None, False)
     assert held.cmd == STOP and held.result is None
-    assert s.tick(1.3, None, fix, None, True) == held  # no pose is the same
-    back = s.tick(1.4, (0.0, 0.0, 0.0), fix, None, True)
+    assert tk(s, 1.3, None, fix, None, True) == held  # no pose is the same
+    back = tk(s, 1.4, (0.0, 0.0, 0.0), fix, None, True)
     assert back.cmd.v_cms > 0 and back.result is None  # telemetry back: drives on
-    s.tick(2.0, (0.0, 0.0, 0.0), fix, None, False)
-    assert s.tick(3.9, (0.0, 0.0, 0.0), fix, None, False).result is None
-    assert s.tick(4.0, (0.0, 0.0, 0.0), fix, None, False).result == "stale"
+    tk(s, 2.0, (0.0, 0.0, 0.0), fix, None, False)
+    assert tk(s, 3.9, (0.0, 0.0, 0.0), fix, None, False).result is None
+    assert tk(s, 4.0, (0.0, 0.0, 0.0), fix, None, False).result == "stale"
 
 
 def test_something_close_ahead_that_isnt_the_ball_ends_it_blocked() -> None:
     s = skill()
     fix = TargetFix(1, 2.0, 0.0, 0.0)
-    assert s.tick(0.0, (0.0, 0.0, 0.0), fix, 0.12, True).result is None  # owner: 10 cm (design-notes §159)
-    assert s.tick(0.1, (0.0, 0.0, 0.0), fix, 0.09, True).result == "blocked"
+    assert tk(s, 0.0, (0.0, 0.0, 0.0), fix, 0.12, True).result is None  # owner: 10 cm (design-notes §159)
+    assert tk(s, 0.1, (0.0, 0.0, 0.0), fix, 0.09, True).result == "blocked"
 
 
 def test_a_target_unseen_for_3_s_starts_looking_again() -> None:
     s = skill()
-    s.tick(0.0, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 0.0), None, True)
-    out = s.tick(0.1, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 3.5), None, True)
+    tk(s, 0.0, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 0.0), None, True)
+    out = tk(s, 0.1, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 3.5), None, True)
     assert s.state == "sweep" and out.cam == (0.0, LIM.drive_tilt_deg)
 
 
 def test_cancel_stops_at_once() -> None:
     s = skill()
-    s.tick(0.0, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 0.0), None, True)
+    tk(s, 0.0, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 0.0), None, True)
     out = s.cancel()
     assert out.cmd == STOP and out.result == "cancelled"
-    assert s.tick(0.1, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 0.0), None, True).cmd == STOP
+    assert tk(s, 0.1, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 0.0), None, True).cmd == STOP
 
 
 def test_the_camera_follows_the_target_in_steps() -> None:
     s = skill()
-    out = s.tick(0.0, (0.0, 0.0, 0.0), TargetFix(1, 1.5, 0.5, 0.0), None, True)
+    out = tk(s, 0.0, (0.0, 0.0, 0.0), TargetFix(1, 1.5, 0.5, 0.0), None, True)
     assert out.cam is not None and out.cam[0] == pytest.approx(-bearing_deg((0.0, 0.0, 0.0), (1.5, 0.5)))
     assert (
-        s.tick(0.1, (0.0, 0.0, 0.0), TargetFix(1, 1.5, 0.52, 0.0), None, True).cam is None
+        tk(s, 0.1, (0.0, 0.0, 0.0), TargetFix(1, 1.5, 0.52, 0.0), None, True).cam is None
     )  # < 8 deg: no move
-
-
-def test_standing_blocked_for_3_s_ends_it_blocked() -> None:
-    """Floor chase 11: a box just beyond clear_m blocked every curve; the tank stood for 4 minutes.
-    Going around is slice 2; until then (and when there's no way round) it ends after BLOCKED_GIVE_UP_S."""
-    s = skill()
-    fix = TargetFix(1, 2.0, 0.0, 0.0)
-    outs = [s.tick(i * 0.1, (0.0, 0.0, 0.0), fix, 0.15, True) for i in range(40)]
-    ends = [i for i, o in enumerate(outs) if o.result is not None]
-    assert all(o.cmd == STOP for o in outs) and [outs[i].result for i in ends] == ["blocked"]
-    assert 30 <= ends[0] <= 31
 
 
 # ---- Plan Z6 final review: the chase on the cost map
@@ -153,7 +182,7 @@ def test_the_search_turn_is_checked_against_the_map() -> None:  # review C1
     snap = wall_beside_left()
     sim, tank, s, gap = SimRoom([Box(-1.0, 0.175, 1.0, 0.30, 0.0, 0.4)], walls_m=2.5), SimTank(), skill(), 9.0
     for k in range(150):
-        o = s.tick(k * 0.1, tank.at, None, None, True, True, snap)  # type: ignore[arg-type]
+        o = tk(s, k * 0.1, tank.at, None, None, True, True, snap)  # type: ignore[arg-type]
         tank.step(o.cmd, 0.1)
         gap = min(gap, sim.body_gap(tank.at, LIM))
         if o.result:
@@ -168,7 +197,7 @@ def test_recovery_ends_when_the_chase_goes_back_to_searching() -> None:  # revie
     s.state, s._recovering = "approaching", True  # pyright: ignore[reportPrivateUsage]
     s.recovery.start(0.0, (0.0, 0.0, 0.0))
     for k in range(150):
-        s.tick(k * 0.1, (0.0, 0.0, 0.0), TargetFix(1, 1.5, 0.0, k * 0.1), None, True, True, snap)  # type: ignore[arg-type]
+        tk(s, k * 0.1, (0.0, 0.0, 0.0), TargetFix(1, 1.5, 0.0, k * 0.1), None, True, True, snap)  # type: ignore[arg-type]
         if s.state != "approaching":
             break
     assert s.state == "sweep" and not s._recovering  # pyright: ignore[reportPrivateUsage]
@@ -185,7 +214,7 @@ def test_a_thing_is_lost_only_after_the_camera_looked_at_its_spot() -> None:
     s.recovery.start(0.0, (0.0, 0.0, 0.0))
     states: list[tuple[float, str, bool]] = []
     for k in range(150):
-        s.tick(k * 0.1, (0.0, 0.0, 0.0), TargetFix(1, 1.5, 0.0, k * 0.1), None, True, True, snap)  # type: ignore[arg-type]
+        tk(s, k * 0.1, (0.0, 0.0, 0.0), TargetFix(1, 1.5, 0.0, k * 0.1), None, True, True, snap)  # type: ignore[arg-type]
         states.append((k * 0.1, s.state, s._recovering))  # pyright: ignore[reportPrivateUsage]
         if s.state != "approaching":
             break
@@ -207,7 +236,7 @@ def test_on_the_map_no_progress_is_stuck_too() -> None:  # review I2: LLD §18.1
     snap = room.snapshot(0, None, False, True)
     s, k = skill(), 0
     for k in range(50):  # the pose never changes though the commands drive
-        s.tick(k * 0.1, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 0.0), None, True, True, snap)
+        tk(s, k * 0.1, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 0.0), None, True, True, snap)
         if s._recovering:  # pyright: ignore[reportPrivateUsage]
             break
     assert s._recovering and 2.9 <= k * 0.1 <= 3.6  # pyright: ignore[reportPrivateUsage]
@@ -220,12 +249,12 @@ def test_it_drives_on_to_a_hands_width_from_the_thing() -> None:
     arrives."""
     s = skill()
     d = 0.38 + LIM.cam_x_m  # from the tank's centre
-    out = s.tick(0.0, (0.0, 0.0, 0.0), TargetFix(1, d, 0.0, 0.0), None, True)
+    out = tk(s, 0.0, (0.0, 0.0, 0.0), TargetFix(1, d, 0.0, 0.0), None, True)
     assert out.result is None and out.cmd.v_cms > 0
     s = skill()
     d = 0.30 + LIM.cam_x_m
     for i in range(30):
-        out = s.tick(i * 0.1, (0.0, 0.0, 0.0), TargetFix(1, d, 0.0, 0.0), None, True)
+        out = tk(s, i * 0.1, (0.0, 0.0, 0.0), TargetFix(1, d, 0.0, 0.0), None, True)
         if out.result is not None:
             break
     assert out.result == "done"
@@ -244,7 +273,7 @@ def test_an_echo_under_the_stop_distance_ends_the_look_round_blocked() -> None:
         t_us = round(k * 0.1 * 1e6)
         pose = Pose(t_us, *tank.at, 0.0, 0.0)
         echo = 0.05 if k >= 5 else None
-        o = s.tick(k * 0.1, tank.at, None, echo, True, snap=room.snapshot(t_us, pose, False, True))
+        o = tk(s, k * 0.1, tank.at, None, echo, True, snap=room.snapshot(t_us, pose, False, True))
         assert o.cmd.v_cms <= 0.0
         tank.step(o.cmd, 0.1)
         if o.result:

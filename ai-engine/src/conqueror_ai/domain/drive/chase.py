@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import replace
 
 from conqueror_ai.domain.drive.costmap import CostMap, CostSettings
 from conqueror_ai.domain.drive.costmaps import CostMaps
@@ -12,6 +12,7 @@ from conqueror_ai.domain.drive.goal import TargetFix, echo_is_target
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
 from conqueror_ai.domain.drive.recovery import ProgressWatch, Recovery, TurnMeter
 from conqueror_ai.domain.drive.route import RoutePlanner, aim_point
+from conqueror_ai.domain.drive.skill import Result, SkillInput, SkillOut
 from conqueror_ai.domain.room_map import MapSnapshot
 
 SWEEP_PANS = (0.0, -45.0, 45.0, -90.0, 90.0)  # pan + = right (cam_set); straight ahead first
@@ -25,16 +26,8 @@ PAN_STEP_DEG = 8.0  # the camera follows the target in steps this big, not const
 SEARCH_TURN_DEG = 180.0  # after the first sweep: half a turn on the spot, then sweep what was behind
 SEARCH_AIM_DEG = 170.0  # curving round instead (the turn refused): aim 1 m off this far left, at most
 MAX_TICK_S = 0.3  # a longer gap between ticks counts as this (no jump in the ramps after a stall)
-BLOCKED_GIVE_UP_S = 3.0  # without the map: standing with every curve blocked this long ends the run
 STALE_GIVE_UP_S = 2.0  # a stale map stops the tank at once; this long ends the run (design-notes §157.2)
 TARGET_R_M = 0.12  # on the room map, the target's own marks (the ball is 12 cm) don't count as an obstacle
-
-
-@dataclass(frozen=True)
-class SkillOut:
-    cmd: Command
-    cam: tuple[float, float] | None = None  # (pan, tilt) to send, or None
-    result: str | None = None  # "done", or a failure reason: not_found, lost, blocked, stale, cancelled
 
 
 class ChaseSkill:
@@ -72,18 +65,21 @@ class ChaseSkill:
         self._away_s = 0.0  # since then, time the camera didn't look at its spot (§187)
 
     def _out(
-        self, want: Command, cam: tuple[float, float] | None = None, result: str | None = None
+        self, want: Command, cam: tuple[float, float] | None = None, result: Result | None = None
     ) -> SkillOut:
         self.cmd = ramp(self.cmd, want, self._dt, self.lim)
         return SkillOut(self.cmd, cam, result)
 
-    def _end(self, result: str) -> SkillOut:
+    def _end(self, result: Result) -> SkillOut:
         self.state = "arrived" if result == "done" else "lost"
         self.cmd = STOP
         return SkillOut(STOP, None, result)
 
     def cancel(self) -> SkillOut:
-        return self._end("cancelled")
+        return self._end(Result.CANCELLED)
+
+    def debug(self) -> dict[str, object]:
+        return {"state": self.state, "recovering": self._recovering}
 
     def _costs_for(self, snap: MapSnapshot) -> CostMaps:
         """This tick's cost maps: those handed in (roam's, with its play area), else one set per snapshot."""
@@ -93,33 +89,23 @@ class ChaseSkill:
             self._own = (snap, CostMaps(snap, self.settings, None))
         return self._own[1]
 
-    def tick(
-        self,
-        now_s: float,
-        at: XYTh | None,
-        fix: TargetFix | None,
-        sonar_m: float | None,
-        map_ok: bool,
-        cam_still: bool = True,
-        snap: MapSnapshot | None = None,
-        costs: CostMaps | None = None,
-    ) -> SkillOut:
-        """One tick: at = the tank's pose now (x, y, th), fix = the target, sonar_m = the echo's distance from
-        the sonar at the tank's front (None: no echo), map_ok = pictures and telemetry fresh (spec 7 §4),
-        cam_still = the newest picture wasn't skipped for the camera moving, snap = the room map (Plan Z5:
-        the approach goes round obstacles; None: slice 1's sonar-only approach)."""
+    def tick(self, now_s: float, inp: SkillInput) -> SkillOut:
+        """One tick (LLD §19.4): the pose, the target (`inp.fix`), the echo, the flags and the room map with
+        its cost maps (the play area in them). Every skill drives on the map: with none it stops, as when
+        stale (no GOTO, design-notes §191)."""
+        at, fix, sonar_m, snap = inp.at, inp.fix, inp.sonar_m, inp.snap
         if self.state in ("arrived", "lost"):
             return SkillOut(STOP)
         if self._last_s is not None:
             self._dt = min(max(now_s - self._last_s, 0.0), MAX_TICK_S)
         self._last_s = now_s
-        self._cam_still = cam_still
-        self._costs = costs if costs is not None or snap is None else self._costs_for(snap)
-        if not map_ok or at is None:  # it can't see: stop at once (no ramp), drive on when the map is fresh
+        self._cam_still = inp.cam_still
+        self._costs = inp.costs
+        if not inp.map_ok or at is None or snap is None:  # it can't see: stop at once, on when fresh
             if self._stale_t0 is None:
                 self._stale_t0 = now_s
             if now_s - self._stale_t0 >= STALE_GIVE_UP_S - 1e-9:
-                return self._end("stale")
+                return self._end(Result.STALE)
             self.cmd = STOP
             return SkillOut(STOP)
         self._stale_t0 = None
@@ -129,7 +115,7 @@ class ChaseSkill:
         if self.state in ("sweep", "spin") and fix is not None and fix.seen_age_s < LOST_AFTER_S:
             self.state = "approaching"  # found: straight into the approach, no standing still in between
         if self.state in ("sweep", "spin") and sonar_m is not None and sonar_m < self.lim.clear_m:
-            return self._end("blocked")  # nothing sought in view: an echo this near is in the way (I1)
+            return self._end(Result.BLOCKED)  # nothing sought in view: an echo this near is in the way (I1)
         if self.state == "sweep":
             out = self._sweep(now_s)
         elif self.state == "spin":
@@ -161,7 +147,7 @@ class ChaseSkill:
         """The camera to each pan in turn; at each, SWEEP_LOOK_S of still pictures (SWEEP_MAX_S at most)."""
         if self._i >= len(SWEEP_PANS):
             if self._swept >= 1:
-                return self._end("not_found")
+                return self._end(Result.NOT_FOUND)
             self._swept += 1
             self.state, self._t0, self._pan = "spin", now_s, 0.0
             return self._out(STOP, (0.0, self.lim.drive_tilt_deg))
@@ -179,18 +165,16 @@ class ChaseSkill:
             return self._sweep(now_s)
         return self._out(STOP)
 
-    def _spin(
-        self, now_s: float, at: XYTh, snap: MapSnapshot | None, sonar_m: float | None = None
-    ) -> SkillOut:
+    def _spin(self, now_s: float, at: XYTh, snap: MapSnapshot, sonar_m: float | None = None) -> SkillOut:
         """Half a turn, measured from the pose. The map can't use pictures taken while spinning (faster than
         its 45 deg/s gate), so the tank then stands and sweeps the camera over what was behind it. On the map
         the turn on the spot is checked like every move (review C1); over floor never seen it curves round on
         the forward curves instead (§176); with none allowed, it turns on the spot anyway if only unseen floor
         stood in the way (the last resort), else the search sweeps from here."""
         rest = SEARCH_TURN_DEG - self._spin_turned.update(at[2])
-        cost = None if self._costs is None else self._costs.base()
+        cost = self._costs_for(snap).base()
         want = Command(0.0, self.lim.spin_dps)
-        if rest > 1e-9 and cost is not None and not self.planner.can_spin(at, cost, True, max(rest, 1.0)):
+        if rest > 1e-9 and not self.planner.can_spin(at, cost, True, max(rest, 1.0)):
             # refused (near something, or over floor never seen - §176): curve round on the forward curves
             a = at[2] + math.radians(min(rest, SEARCH_AIM_DEG))
             ahead = None if sonar_m is None else sonar_m + self.lim.sonar_x_m  # the curve heeds the echo too
@@ -205,7 +189,7 @@ class ChaseSkill:
         return self._out(want)
 
     def _approach(
-        self, now_s: float, at: XYTh, fix: TargetFix | None, sonar_m: float | None, snap: MapSnapshot | None
+        self, now_s: float, at: XYTh, fix: TargetFix | None, sonar_m: float | None, snap: MapSnapshot
     ) -> SkillOut:
         lim = self.lim
         if fix is None or self._lost(fix):
@@ -222,48 +206,43 @@ class ChaseSkill:
             ahead = sonar_m + lim.sonar_x_m
             if not echo_is_target(ahead - lim.cam_x_m, d_lens, b):
                 if sonar_m < lim.clear_m:
-                    return self._end("blocked")
+                    return self._end(Result.BLOCKED)
                 obstacle = ahead
-        fan = None if snap is None else self._costs_for(snap).ignoring(target[0], target[1], TARGET_R_M)
-        if fan is not None and (ij := fan.cell_of(*target)) is not None and fan.lethal[ij]:
-            return self._end("blocked")  # where it may not go even with its own marks set aside (§174)
-        if fan is not None and self._recovering:  # stuck on the map: the standard ways out (Plan Z6)
+        fan = self._costs_for(snap).ignoring(target[0], target[1], TARGET_R_M)
+        if (ij := fan.cell_of(*target)) is not None and fan.lethal[ij]:
+            return self._end(Result.BLOCKED)  # where it may not go even with its own marks set aside (§174)
+        if self._recovering:  # stuck on the map: the standard ways out (Plan Z6)
             return self._recover(now_s, at, fan, target)
         if d_lens <= lim.stop_range_m + 0.05:
             if abs(b) <= ARRIVE_BEARING_DEG:
                 self.cmd = ramp(self.cmd, STOP, self._dt, lim)
                 if self.cmd == STOP:
-                    return self._end("done")
+                    return self._end(Result.DONE)
                 return SkillOut(self.cmd)
             if not self.planner.can_spin(
                 at, fan, b > 0, abs(b), seen=False
             ):  # turning to face it would scrape (review C1); the alternative is stopping, so not seen=True
                 self.cmd = STOP
-                return self._end("done")
+                return self._end(Result.DONE)
             # close enough but off to the side: driving on would pass it, so turn on the spot to face it
             return self._out(Command(0.0, math.copysign(lim.spin_dps, b)))
-        if snap is None:
-            want = self.planner.choose(at, self.cmd, target, obstacle)
-        else:  # round obstacles on the room map: steer along the route, slow down for the ball itself
-            planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
-            clear = fan or self._costs_for(snap).ignoring(target[0], target[1], TARGET_R_M)
-            reach = lim.stop_range_m + lim.cam_x_m  # the chase stops this far from the ball's centre anyway
-            route = self.routes.route(clear, (at[0], at[1]), target, goal_ok=True, near_m=reach)
-            want = (
-                STOP
-                if route is None
-                else planner.choose(at, self.cmd, aim_point(route, (at[0], at[1])), obstacle, fan, d_lens)
-            )
-        give_up = BLOCKED_GIVE_UP_S if fan is None else self.settings.stuck_s
+        # round obstacles on the room map: steer along the route, slow down for the thing itself
+        planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
+        reach = lim.stop_range_m + lim.cam_x_m  # the chase stops this far from the thing's centre anyway
+        route = self.routes.route(fan, (at[0], at[1]), target, goal_ok=True, near_m=reach)
+        want = (
+            STOP
+            if route is None
+            else planner.choose(at, self.cmd, aim_point(route, (at[0], at[1])), obstacle, fan, d_lens)
+        )
+        give_up = self.settings.stuck_s
         if want == STOP:  # every curve blocked (design-notes §157.5), or no route
             if self._blocked_t0 is None:
                 self._blocked_t0 = now_s
         else:
             self._blocked_t0 = None
         blocked = self._blocked_t0 is not None and now_s - self._blocked_t0 >= give_up - 1e-9
-        if fan is None and blocked:
-            return self._end("blocked")  # slice 1, no map
-        if fan is not None and (blocked or not self._progress.ok(now_s, at)):  # stuck on the map (§18.13.4)
+        if blocked or not self._progress.ok(now_s, at):  # stuck on the map (§18.13.4)
             self._blocked_t0, self._recovering = None, True
             self._progress.reset()
             self.recovery.start(now_s, at)
@@ -284,7 +263,7 @@ class ChaseSkill:
     def _recover(self, now_s: float, at: XYTh, cost: CostMap, toward: tuple[float, float]) -> SkillOut:
         out = self.recovery.tick(now_s, at, cost, toward)
         if self.recovery.step == "blocked":
-            return self._end("blocked")
+            return self._end(Result.BLOCKED)
         if out is None:  # a step finished: approach again
             self._recovering, self._pan = False, None
             self.cmd = STOP

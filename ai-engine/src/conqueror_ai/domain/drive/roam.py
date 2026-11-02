@@ -26,7 +26,6 @@ from conqueror_ai.domain.drive.chase import (
     PAN_STEP_DEG,
     STALE_GIVE_UP_S,
     ChaseSkill,
-    SkillOut,
 )
 from conqueror_ai.domain.drive.costmap import CostMap, CostSettings
 from conqueror_ai.domain.drive.costmaps import CostMaps
@@ -36,6 +35,7 @@ from conqueror_ai.domain.drive.goals import ExploreGoal, SearchGoal, WanderGoal
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
 from conqueror_ai.domain.drive.recovery import ProgressWatch, Recovery
 from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point
+from conqueror_ai.domain.drive.skill import Result, SkillInput, SkillOut
 from conqueror_ai.domain.memory import ThingMemory
 from conqueror_ai.domain.reach import SURE_REACH_M
 from conqueror_ai.domain.room_map import MapSnapshot
@@ -140,7 +140,7 @@ class RoamSkill:
     def _end(self, result: str) -> SkillOut:
         self.state = "done" if result == "done" else "failed"
         self.cmd = STOP
-        return SkillOut(STOP, None, result)
+        return SkillOut(STOP, None, Result(result))
 
     def cancel(self) -> SkillOut:
         return self._end("cancelled")
@@ -262,7 +262,8 @@ class RoamSkill:
         if self.state != "chase":
             self.state = "chase"
             self.chase.cmd = self.cmd  # it is moving: the chase's plans start from that (review minor 4)
-        out = self.chase.tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap, self._costs_for(snap))
+        inp = SkillInput(at, snap, self._costs_for(snap), fix, sonar_m, map_ok, cam_still, True)
+        out = self.chase.tick(now_s, inp)
         self.cmd = out.cmd
         if out.result in ("not_found", "lost"):  # it got away: roam on, a fresh chase for the next sighting
             if self._check is not None:  # the candidate it came from was chased and lost: done with (M1)

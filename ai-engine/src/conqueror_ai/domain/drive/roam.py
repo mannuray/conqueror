@@ -122,6 +122,7 @@ class RoamSkill:
         self.kind = kind
         self._seeded = False
         self._retry_s = -math.inf  # no pending candidate reachable: not tried again before this
+        self._tried_now = False  # the pending candidates were tried this tick
 
     # ---- out
     def _out(self, want: Command, cam: tuple[float, float] | None = None) -> SkillOut:
@@ -168,9 +169,14 @@ class RoamSkill:
         picture marks the camera's near view as searched (§188; review I2)."""
         if self.mode == "search" and map_ok and at is not None and used and self._look_pan is not None:
             self.search.look(at, self._look_pan, self.lim.cam_x_m)
+        if self.area_m is not None and self._area is None and at is not None:  # play area: round the start
+            self._area = (at[0], at[1], self.area_m)
+            self.chase.area = self._area
+        self._tried_now = False
         if self.find:
-            for spot in maybes:
-                self.candidates.add(spot)
+            for spot in maybes:  # outside the play area: never a candidate (review M4)
+                if self._area is None or math.dist(spot, self._area[:2]) <= self._area[2]:
+                    self.candidates.add(spot)
             if not self._seeded:  # remembered spots first: no look round when it knows where to look
                 self._seeded = True
                 if self.memory is not None and self.kind is not None:
@@ -207,9 +213,6 @@ class RoamSkill:
             self.cmd = STOP
             return SkillOut(STOP)
         self._stale_t0 = None
-        if self.area_m is not None and self._area is None:  # the play area: round where the run starts
-            self._area = (at[0], at[1], self.area_m)
-            self.chase.area = self._area
         # find (§187): first the chase's look round from where it stands, then search; seen: go to it
         seen = fix is not None and fix.seen_age_s < LOST_AFTER_S
         if self.find and (self.state in ("start", "chase") or seen):
@@ -229,6 +232,7 @@ class RoamSkill:
         planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
         if self.find and self.state == "drive" and self.candidates.pending() and now_s >= self._retry_s:
             c = self.candidates.next(at, snap, self.routes, self._area, self.settings)
+            self._tried_now = True
             if c is None:
                 self._retry_s = now_s + CANDIDATE_RETRY_S
             else:
@@ -257,6 +261,9 @@ class RoamSkill:
         out = self.chase.tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap)
         self.cmd = out.cmd
         if out.result in ("not_found", "lost"):  # it got away: roam on, a fresh chase for the next sighting
+            if self._check is not None:  # the candidate it came from was chased and lost: done with (M1)
+                self.candidates.rule_out(self._check.cand)
+                self._check = None
             self.chase = ChaseSkill(self.planner, self.settings)
             self.chase.area = self._area
             self.state = "drive"
@@ -389,6 +396,8 @@ class RoamSkill:
             if self.mode == "explore" and self.explore.done:
                 return self._end("done")
             if self.mode == "search" and self.search.done:  # every spot looked at, never seen (§188)
+                if self.candidates.pending() and not self._tried_now:
+                    return self._halt()  # a candidate waits for its retry: not_found only after (review M3)
                 return self._end("not_found")
             return self._stuck(now_s, at)
         self.route = route

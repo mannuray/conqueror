@@ -13,7 +13,7 @@ from conqueror_ai.domain.drive.curves import STOP, Command
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
-from conqueror_ai.domain.drive.roam import START_STAND_S, Mode, RoamSkill
+from conqueror_ai.domain.drive.roam import CANDIDATE_RETRY_S, START_STAND_S, Mode, RoamSkill
 from conqueror_ai.domain.drive.sim import SimTank
 from conqueror_ai.domain.memory import ThingMemory
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
@@ -368,3 +368,42 @@ def test_a_check_that_cannot_get_there_leaves_it_pending_and_not_gone() -> None:
             break
     assert s.state != "check"
     assert len(s.candidates.pending()) == 1 and mem.of_kind(lambda c: c == "toy") != []
+
+
+def test_a_candidate_whose_chase_gives_up_is_ruled_out() -> None:
+    """Z6 second review M1: checked, seen, chased, then the chase gave up (not found again) - the candidate
+    stayed pending and could be checked and chased for ever."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    ticks(s, tank, t, 1, maybes=[(1.2, 0.6)])
+    assert s.state == "check"
+    fix = TargetFix(1, 1.2, 0.6, 0.0)
+    for k in range(1, 4):  # seen for sure: the chase
+        tank.step(s.tick(t + 0.1 * k, tank.at, open_snap(), fix, None, True).cmd, 0.1)
+    assert s.state == "chase"
+    for k in range(4, 900):  # then never again: the chase's look round, then it gives up
+        tank.step(s.tick(t + 0.1 * k, tank.at, open_snap(), None, None, True).cmd, 0.1)
+        if s.state != "chase":
+            break
+    assert s.state != "chase" and s.candidates.pending() == []
+
+
+def test_not_found_waits_for_a_pending_candidates_retry() -> None:
+    """Z6 second review M3: with the search finished inside the 1 s retry window, find ended not_found while a
+    candidate was still pending; it now waits for the retry."""
+    s = RoamSkill(Planner(Limits()), "search", find=True, rng=random.Random(1), area_m=0.8)
+    s.tick(0.0, AT, open_snap(), None, None, True)
+    s.state = "drive"
+    for pan in range(-180, 180, 20):
+        s.search.look(AT, float(pan), 0.0)  # everything in the small area looked at
+    s.candidates.add((0.4, 0.3))
+    s._retry_s = 10.0 + CANDIDATE_RETRY_S  # pyright: ignore[reportPrivateUsage]  # a try just failed
+    assert s.tick(10.0, AT, open_snap(), None, None, True).result is None
+    s.tick(10.0 + CANDIDATE_RETRY_S + 0.1, AT, open_snap(), None, None, True)
+    assert s.state == "check"
+
+
+def test_sightings_outside_the_play_area_are_not_candidates() -> None:  # Z6 second review M4
+    s = RoamSkill(Planner(Limits()), "search", find=True, rng=random.Random(1), area_m=1.0)
+    s.tick(0.0, AT, open_snap(), None, None, True, maybes=[(2.0, 0.0), (0.5, 0.0)])
+    assert [c.spot for c in s.candidates.pending()] == [(0.5, 0.0)]

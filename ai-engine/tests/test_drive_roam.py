@@ -94,9 +94,9 @@ def test_find_hands_over_to_the_chase() -> None:
 
 
 def test_find_looks_round_from_where_it_stands_first() -> None:
-    """goto = find (design-notes §187): first the chase's look round from here (the camera ahead, then each
-    side); nothing seen, it then searches the room."""
-    s = skill(find=True)
+    """Find (design-notes §187): first the chase's look round from here (the camera ahead, then each side);
+    nothing seen, it then searches the room."""
+    s = skill("explore", find=True)
     snap = open_snap()
     out = s.tick(0.0, AT, snap, None, None, True)
     assert s.state == "chase" and s.chase.state == "sweep" and out.cam is not None and out.cmd == STOP
@@ -108,6 +108,27 @@ def test_find_looks_round_from_where_it_stands_first() -> None:
         if s.state != "chase":
             break
     assert s.state == "drive" and turned >= 170.0
+
+
+def test_a_search_with_nothing_left_to_visit_ends_not_found() -> None:
+    """A search ends (owner, design-notes §188): find explores; every reachable place visited and the thing
+    never reached, it ends not_found - here a room all seen already: nothing left after the look round."""
+    s = skill("explore", find=True)
+    snap = open_snap()
+    tank, results = SimTank(), list[str]()
+    for k in range(600):
+        o = s.tick(k * 0.1, tank.at, snap, None, None, True)
+        tank.step(o.cmd, 0.1)
+        if o.result:
+            results.append(o.result)
+            break
+    assert results == ["not_found"]
+
+
+def test_explore_without_find_still_ends_done() -> None:
+    s = skill("explore")
+    outs = run(s, open_snap(), START_STAND_S + 1.0)
+    assert [o.result for o in outs if o.result] == ["done"]
 
 
 def test_cancel_stops() -> None:

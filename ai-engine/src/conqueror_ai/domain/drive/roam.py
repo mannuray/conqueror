@@ -4,7 +4,8 @@ find.
 Each tick: one cost map from the snapshot, the goal's destination, a route on the costs, and slice 1's fan
 aiming 0.5 m along it, scored and slowed by cost (Plan Z6). Stuck - no allowed move or no progress for
 stuck_s, or no route - the standard ways out run (`Recovery`: look, turn, back over known floor, blocked).
-Find hands over to the chase once the thing is seen.
+Find hands over to the chase once the thing is seen; a find that has visited everything without reaching it
+ends not_found (design-notes §188).
 
 Safety (spec 9 §5): a stale map stops the tank at once (2 s ends the run); an echo nearer than clear_m that
 isn't the target ends the run; 18 cm/s while the camera angle isn't trusted or there is no depth."""
@@ -161,7 +162,7 @@ class RoamSkill:
         if self.area_m is not None and self._area is None:  # the play area: round where the run starts
             self._area = (at[0], at[1], self.area_m)
             self.chase.area = self._area
-        # find (= goto, §187): first the chase's look round from where it stands, then search; seen: go to it
+        # find (§187): first the chase's look round from where it stands, then search; seen: go to it
         seen = fix is not None and fix.seen_age_s < LOST_AFTER_S
         if self.find and (self.state in ("start", "chase") or seen):
             return self._chase(now_s, at, snap, fix, sonar_m, map_ok, cam_still)
@@ -323,8 +324,8 @@ class RoamSkill:
     ) -> SkillOut:
         route = self._plan(now_s, at, cost)
         if route is None:
-            if self.mode == "explore" and self.explore.done:
-                return self._end("done")
+            if self.mode == "explore" and self.explore.done:  # all visited; find never reached it (§188)
+                return self._end("not_found" if self.find else "done")
             return self._stuck(now_s, at)
         self.route = route
         aim = aim_point(route, (at[0], at[1]))

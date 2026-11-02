@@ -84,29 +84,32 @@ def test_cli_words() -> None:
     assert parse_mission(["wander"], words) == Mission("wander", None, None)
     assert parse_mission(["explore"], words) == Mission("explore", None, None)
     assert parse_mission(["find", "ball"], words) == Mission("find", "ball", None)
-    assert parse_mission(["goto", "bottle"], words) == Mission("goto", "bottle", None)
-    for bad in (["find", "person"], ["goto"], ["wander", "soon"], ["explore", "ball"], ["dance"]):
+    for bad in (["find", "person"], ["find"], ["wander", "soon"], ["explore", "ball"], ["dance"]):
         with pytest.raises(SystemExit):
             parse_mission(bad, words)
 
 
+def test_goto_is_gone_and_says_to_use_find() -> None:
+    """One word (owner, design-notes §188): goto was the same as find since §187."""
+    with pytest.raises(SystemExit, match="cq-drive find"):
+        parse_mission(["goto", "ball"], ["ball"])
+
+
 def test_cli_play_area() -> None:
-    """--area (owner: only when asked, design-notes §174): wander, explore, find and goto (goto = find since
-    §187); not <= 0."""
+    """--area (owner: only when asked, design-notes §174): wander, explore and find; not <= 0."""
     words = ["ball"]
     assert parse_mission(["wander", "60"], words, area_m=2.0) == Mission("wander", None, 60.0, 2.0)
     assert parse_mission(["explore"], words, area_m=1.5).area_m == 1.5
     assert parse_mission(["find", "ball"], words, area_m=1.0).area_m == 1.0
-    assert parse_mission(["goto", "ball"], words, area_m=2.0).area_m == 2.0
-    bad_ones = ((["goto", "ball"], 0.0), (["wander"], 0.0), (["explore"], -1.0), (["wander"], math.nan))
+    bad_ones = ((["find", "ball"], 0.0), (["wander"], 0.0), (["explore"], -1.0), (["wander"], math.nan))
     for bad, area in bad_ones:
         with pytest.raises(SystemExit):
             parse_mission(bad, words, area_m=area)
     lim = Limits()
     roam = make_skill(parse_mission(["find", "ball"], words, area_m=1.0), lim)
     assert isinstance(roam, RoamSkill) and roam.area_m == 1.0 and roam.find
-    roam = make_skill(parse_mission(["goto", "ball"], words), lim)  # one behaviour with find (§187)
-    assert isinstance(roam, RoamSkill) and roam.find and roam.mode == "wander"
+    roam = make_skill(parse_mission(["find", "ball"], words), lim)  # a search that ends (§188)
+    assert isinstance(roam, RoamSkill) and roam.find and roam.mode == "explore"
     roam = make_skill(parse_mission(["wander", "30"], words), lim)
     assert isinstance(roam, RoamSkill) and roam.area_m is None
 
@@ -128,6 +131,13 @@ def test_explore_refuses_without_depth() -> None:
     assert reason is not None and "explore needs the depth model" in reason
     assert refusal(Mission("explore", None, None), has_depth=True) is None
     assert refusal(Mission("wander", None, None), has_depth=False) is None  # the sonar only, 18 cm/s
+
+
+def test_find_refuses_without_depth() -> None:
+    """Find searches by explore (design-notes §188), so it needs the depth model too."""
+    reason = refusal(Mission("find", "ball", None), has_depth=False)
+    assert reason is not None and "find needs the depth model" in reason
+    assert refusal(Mission("find", "ball", None), has_depth=True) is None
 
 
 def test_mapgate_passes_detections(tmp_path: Path) -> None:

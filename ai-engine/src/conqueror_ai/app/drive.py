@@ -1,10 +1,9 @@
 """`cq-drive`: module 2, drive while thinking (AI engine LLD §17-§18, specs 8-9), on the room map.
 
-    uv run cq-drive goto ball                 # find the ball and drive to it, round obstacles; Ctrl-C stops
-    uv run cq-drive goto bottle               # any word in config/vocabulary.yaml that stands on the floor
+    uv run cq-drive find ball                 # look round, search the room, drive to it; Ctrl-C stops
+    uv run cq-drive find bottle --area 2      # any word in config/vocabulary.yaml that stands on the floor
     uv run cq-drive wander 120                # drive about for 2 minutes (no number: until stopped)
     uv run cq-drive explore                   # visit everything, then stop (needs the depth model)
-    uv run cq-drive find ball --area 2        # the same as goto (§187): look round, search, go to it
     uv run cq-drive wander --record recordings/wander-1
 
 A ball's distance comes from its size in the picture; any other thing's from where it meets the floor (the
@@ -101,21 +100,23 @@ def picture_counts(used: CameraModel | str) -> bool:
     return not isinstance(used, str) or used in SKIPS_THAT_COUNT
 
 
-Action = Literal["goto", "find", "wander", "explore"]
-ACTIONS: tuple[Action, ...] = ("goto", "find", "wander", "explore")
+Action = Literal["find", "wander", "explore"]
+ACTIONS: tuple[Action, ...] = ("find", "wander", "explore")
 
 
 @dataclass(frozen=True)
 class Mission:
     action: Action
-    thing: str | None  # goto / find
+    thing: str | None  # find
     seconds: float | None  # wander: how long (None: until stopped)
     area_m: float | None = None  # stay this near the start (None: anywhere, §174)
 
 
 def parse_mission(args: list[str], words: list[str], area_m: float | None = None) -> Mission:
-    """`goto <thing>`, `find <thing>`, `wander [seconds]`, `explore`, each with an optional play area
-    (`--area` metres); anything else is a plain SystemExit."""
+    """`find <thing>`, `wander [seconds]`, `explore`, each with an optional play area (`--area` metres);
+    anything else is a plain SystemExit."""
+    if args and args[0] == "goto":  # one word since design-notes §188
+        raise SystemExit("cq-drive goto is now find: cq-drive find <thing>")
     if not args or args[0] not in ACTIONS:
         raise SystemExit(f"cq-drive does: {', '.join(ACTIONS)}")
     action = args[0]
@@ -125,7 +126,7 @@ def parse_mission(args: list[str], words: list[str], area_m: float | None = None
 
 
 def _parse(action: Action, rest: list[str], words: list[str]) -> Mission:
-    if action in ("goto", "find"):
+    if action == "find":
         if len(rest) != 1 or rest[0] not in words:
             raise SystemExit(f"cq-drive {action} needs one of: {', '.join(words)}")
         return Mission(action, rest[0], None)
@@ -153,10 +154,11 @@ def nearest_maybe(
 
 
 def refusal(m: Mission, has_depth: bool) -> str | None:
-    """Why the mission can't start, or None (spec 9 §5.4: without depth only the sensor marks the map)."""
-    if m.action == "explore" and not has_depth:
+    """Why the mission can't start, or None (spec 9 §5.4: without depth only the sensor marks the map; find
+    searches by explore, design-notes §188)."""
+    if m.action in ("explore", "find") and not has_depth:
         return (
-            "explore needs the depth model (models/DepthAnythingV2SmallF16.mlpackage): "
+            f"{m.action} needs the depth model (models/DepthAnythingV2SmallF16.mlpackage): "
             "without it the map has only the distance sensor"
         )
     return None
@@ -164,8 +166,8 @@ def refusal(m: Mission, has_depth: bool) -> str | None:
 
 def make_skill(m: Mission, lim: Limits, cost: CostSettings | None = None) -> ChaseSkill | RoamSkill:
     planner = Planner(lim)
-    if m.action in ("goto", "find"):  # one behaviour (design-notes §187): look round, search, go to it
-        return RoamSkill(planner, "wander", find=True, cost=cost, area_m=m.area_m)
+    if m.action == "find":  # look round, search by explore, go to it; all visited: not_found (§187-§188)
+        return RoamSkill(planner, "explore", find=True, cost=cost, area_m=m.area_m)
     return RoamSkill(planner, m.action, seconds=m.seconds, cost=cost, area_m=m.area_m)
 
 
@@ -308,7 +310,7 @@ def _tick(
 ) -> SkillOut:
     if isinstance(skill, ChaseSkill):
         return skill.tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap)
-    find = m.action in ("goto", "find")
+    find = m.action == "find"
     return skill.tick(
         now_s, at, snap, fix if find else None, sonar_m, map_ok, cam_still, maybe if find else None
     )
@@ -339,7 +341,7 @@ async def run_drive(host: str, m: Mission, rec: SessionRecorder | None, use_dept
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", nargs="+", help="goto <thing> | find <thing> | wander [seconds] | explore")
+    ap.add_argument("what", nargs="+", help="find <thing> | wander [seconds] | explore")
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--record", type=Path)
     ap.add_argument("--area", type=float, metavar="M", help="stay within M metres of the start")

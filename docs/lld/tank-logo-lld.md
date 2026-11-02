@@ -1319,6 +1319,8 @@ The page's text icons become Lucide icons from the shared `web/icons.json` (brid
 
 ## 24. Revision N8 — the first AI words: `SEE?`, `HOWFAR`, `FIND`, `GOTO` (owner, 2026-10-25, spec 8 §4.3–§4.4, design-notes §156 — draft for review)
 
+> **Note (owner, 2026-11-02, design-notes §191):** no `GOTO` word - `FIND` looks round, searches and drives to the thing, so GOTO adds nothing. This section is revised in Plan Z2; until then read every `GOTO` below as dropped.
+
 ### 24.1 What changes
 - **Every program, AI or not, runs on the ESP32's runner** (spec 8 §4.4, replacing spec 5 §6's AI-engine runner). The AI engine answers and drives as the skill server (bridge LLD R26).
 - **`logo/spec/words.yaml`:**

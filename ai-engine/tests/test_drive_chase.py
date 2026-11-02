@@ -46,12 +46,12 @@ def test_no_target_sweeps_the_camera_turns_half_round_sweeps_again_then_not_foun
 def test_the_sweep_looks_ahead_first_and_counts_its_look_from_when_the_camera_is_still() -> None:
     s = skill()
     outs = [s.tick(i * 0.1, (0.0, 0.0, 0.0), None, None, True, cam_still=i >= 5) for i in range(14)]
-    assert outs[0].cam == (0.0, ch.DRIVE_TILT)  # straight ahead first: a thing in front is found at once
+    assert outs[0].cam == (0.0, LIM.drive_tilt_deg)  # straight ahead first: a thing in front is found at once
     # moving 0.5 s, then 0.8 s of still pictures before the next position
-    assert [o.cam for o in outs[1:13]] == [None] * 12 and outs[13].cam == (-45.0, ch.DRIVE_TILT)
+    assert [o.cam for o in outs[1:13]] == [None] * 12 and outs[13].cam == (-45.0, LIM.drive_tilt_deg)
     s = skill()
     outs = [s.tick(i * 0.1, (0.0, 0.0, 0.0), None, None, True, cam_still=False) for i in range(26)]
-    assert outs[25].cam == (-45.0, ch.DRIVE_TILT)  # a camera that never settles: on after 2.5 s
+    assert outs[25].cam == (-45.0, LIM.drive_tilt_deg)  # a camera that never settles: on after 2.5 s
 
 
 def test_the_ramp_follows_the_real_time_between_ticks() -> None:
@@ -99,7 +99,7 @@ def test_a_target_unseen_for_3_s_starts_looking_again() -> None:
     s = skill()
     s.tick(0.0, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 0.0), None, True)
     out = s.tick(0.1, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 3.5), None, True)
-    assert s.state == "sweep" and out.cam == (0.0, ch.DRIVE_TILT)
+    assert s.state == "sweep" and out.cam == (0.0, LIM.drive_tilt_deg)
 
 
 def test_cancel_stops_at_once() -> None:

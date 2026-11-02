@@ -447,7 +447,7 @@ def test_every_picture_gets_the_pipelines_tilt_fix() -> None:
 def test_a_thing_whose_floor_point_flickers_is_listed_once() -> None:
     """Z6 second review I5: new things kept 0.5 s (run c1): a listed toy whose floor point flipped picture
     by picture between it and a spot 25-35 cm further (outside its gate) built a second thing there - two
-    candidates and two memories for one toy. No new thing starts within SAME_THING_M of a listed one of the
+    candidates and two memories for one toy. No new thing starts within SAME_SPOT_M of a listed one of the
     same word."""
     for off in (0.25, 0.35):
         tr, cam, t = ob.ObjectTracker(), cam_at(), 0

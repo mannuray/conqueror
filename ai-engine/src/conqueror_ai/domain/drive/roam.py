@@ -18,9 +18,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal
 
-from conqueror_ai.domain.drive.candidates import CLOSE_M, Candidate, Candidates
+from conqueror_ai.domain.drive.candidates import Candidate, Candidates
 from conqueror_ai.domain.drive.chase import (
-    DRIVE_TILT,
     LOST_AFTER_S,
     MAX_TICK_S,
     PAN_LIMIT_DEG,
@@ -37,12 +36,12 @@ from conqueror_ai.domain.drive.planner import Planner, bearing_deg
 from conqueror_ai.domain.drive.recovery import ProgressWatch, Recovery
 from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point
 from conqueror_ai.domain.memory import ThingMemory
+from conqueror_ai.domain.reach import SURE_REACH_M
 from conqueror_ai.domain.room_map import MapSnapshot
 
-SLOW_CMS = 18.0  # spec 9 §5: unsure of the camera angle, or no depth
 # find: look again at a candidate (owner, design-notes §179, §189)
 CHECK_LOOK_S = 1.5  # standing, the camera on the spot, still pictures this long
-CHECK_CLOSE_M = CLOSE_M  # not confirmed from further: drive this near and look once more
+CHECK_CLOSE_M = SURE_REACH_M  # not confirmed from further: drive this near and look once more
 CHECK_MAX_S = 15.0  # a check never longer than this ...
 CHECK_S_PER_M = 10.0  # ... plus this per metre it has to drive closer (review I3: 15 s covered the drive too)
 CHECK_NEAR_TOL_M = 0.05  # within CHECK_CLOSE_M and this counts as near (the way ends at about 1 m)
@@ -89,7 +88,9 @@ class RoamSkill:
         memory = the things confirmed so far (its spots of `kind` are checked first; one not there is marked
         gone), kind = the thing sought (§189)."""
         self.planner = planner
-        self.slow = Planner(replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, SLOW_CMS)), planner.w)
+        self.slow = Planner(
+            replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, planner.lim.slow_cms)), planner.w
+        )
         self.lim = planner.lim
         self.settings = cost or CostSettings()
         self.mode = mode
@@ -101,7 +102,7 @@ class RoamSkill:
         self.search = SearchGoal()
         self._look_pan: float | None = None  # where the camera was last sent (find's search marks its view)
         self.chase = ChaseSkill(planner, cost)
-        self.recovery = Recovery(self.lim, planner.foot, DRIVE_TILT)
+        self.recovery = Recovery(self.lim, planner.foot, self.lim.drive_tilt_deg)
         self.state = "start"
         self.cmd = STOP
         self.route: list[XY] | None = None
@@ -225,7 +226,7 @@ class RoamSkill:
         if self.state == "start":
             if self._start_t0 is None:
                 self._start_t0, self._pan = now_s, 0.0
-                return self._halt((0.0, DRIVE_TILT))
+                return self._halt((0.0, self.lim.drive_tilt_deg))
             if now_s - self._start_t0 < START_STAND_S - 1e-9:
                 return self._halt()
             self.state = "drive"
@@ -268,7 +269,7 @@ class RoamSkill:
             self.chase.area = self._area
             self.state = "drive"
             self._progress.reset()
-            return self._halt((0.0, DRIVE_TILT))
+            return self._halt((0.0, self.lim.drive_tilt_deg))
         if out.result is not None:
             return self._end(out.result)
         return out
@@ -314,7 +315,7 @@ class RoamSkill:
             return self._end("blocked")
         if out is None:  # a step finished: try driving again
             self.state, self._pan = "drive", 0.0
-            return self._halt((0.0, DRIVE_TILT))
+            return self._halt((0.0, self.lim.drive_tilt_deg))
         cmd, cam = out
         if cam is not None:
             self._pan = cam[0]
@@ -338,7 +339,7 @@ class RoamSkill:
                 self._retry_s = now_s + CANDIDATE_RETRY_S
         self._check, self.state, self._pan = None, "drive", 0.0
         self._progress.reset()
-        return self._halt((0.0, DRIVE_TILT))
+        return self._halt((0.0, self.lim.drive_tilt_deg))
 
     def _checking(
         self,
@@ -361,7 +362,7 @@ class RoamSkill:
             cam = None
             if not c.aimed:
                 c.aimed, c.still_t0, self._pan = True, None, pan
-                cam = (pan, DRIVE_TILT)
+                cam = (pan, self.lim.drive_tilt_deg)
             elif not cam_still:
                 c.still_t0 = None
             elif c.still_t0 is None:
@@ -384,7 +385,7 @@ class RoamSkill:
         cam = None
         if self._pan is None or abs(pan - self._pan) > PAN_STEP_DEG:
             self._pan = pan
-            cam = (pan, DRIVE_TILT)
+            cam = (pan, self.lim.drive_tilt_deg)
         return self._halt(cam) if want == STOP else self._out(want, cam)
 
     # ---- driving
@@ -412,5 +413,5 @@ class RoamSkill:
         cam = None
         if self._pan is None or abs(pan - self._pan) > PAN_STEP_DEG:
             self._pan = pan
-            cam = (pan, DRIVE_TILT)
+            cam = (pan, self.lim.drive_tilt_deg)
         return self._halt(cam) if want == STOP else self._out(want, cam)

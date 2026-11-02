@@ -16,7 +16,6 @@ from conqueror_ai.domain.room_map import MapSnapshot
 SWEEP_PANS = (0.0, -45.0, 45.0, -90.0, 90.0)  # pan + = right (cam_set); straight ahead first
 SWEEP_LOOK_S = 0.8  # still pictures at each position (the map skips pictures while the camera moves)
 SWEEP_MAX_S = 2.5  # at most this long at one position (a camera that never settles)
-DRIVE_TILT = -15.0
 LOST_AFTER_S = 3.0  # unseen this long while the camera looks at the thing's spot: lost (design-notes §187)
 VIEW_DEG = 30.0  # the thing's spot within this of where the camera points counts as looked at (lens +-41)
 ARRIVE_BEARING_DEG = 10.0
@@ -28,7 +27,6 @@ MAX_TICK_S = 0.3  # a longer gap between ticks counts as this (no jump in the ra
 BLOCKED_GIVE_UP_S = 3.0  # without the map: standing with every curve blocked this long ends the run
 STALE_GIVE_UP_S = 2.0  # a stale map stops the tank at once; this long ends the run (design-notes §157.2)
 TARGET_R_M = 0.12  # on the room map, the target's own marks (the ball is 12 cm) don't count as an obstacle
-SLOW_CMS = 18.0  # spec 9 §5: unsure of the camera angle, or no depth
 
 
 @dataclass(frozen=True)
@@ -42,7 +40,9 @@ class ChaseSkill:
     def __init__(self, planner: Planner, cost: CostSettings | None = None) -> None:
         self.planner = planner
         self.settings = cost or CostSettings()
-        self.slow = Planner(replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, SLOW_CMS)), planner.w)
+        self.slow = Planner(
+            replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, planner.lim.slow_cms)), planner.w
+        )
         self.lim = planner.lim
         self.routes = RoutePlanner(self.lim)
         self.state = "start"
@@ -58,7 +58,9 @@ class ChaseSkill:
         self._cam_still = True
         self._stale_t0: float | None = None  # since when the map is stale
         self._blocked_t0: float | None = None  # since when every curve is blocked
-        self.recovery = Recovery(planner.lim, planner.foot, DRIVE_TILT)  # on the map (Plan Z6)
+        self.recovery = Recovery(
+            planner.lim, planner.foot, planner.lim.drive_tilt_deg
+        )  # on the map (Plan Z6)
         self._recovering = False
         self._progress = ProgressWatch(self.recovery, self.settings.stuck_s)  # on the map
         self._spin_turned = TurnMeter()  # the search turn
@@ -150,11 +152,11 @@ class ChaseSkill:
                 return self._end("not_found")
             self._swept += 1
             self.state, self._t0, self._pan = "spin", now_s, 0.0
-            return self._out(STOP, (0.0, DRIVE_TILT))
+            return self._out(STOP, (0.0, self.lim.drive_tilt_deg))
         pan = SWEEP_PANS[self._i]
         if self._pan != pan:
             self._pan, self._pos_t0, self._look_t0 = pan, now_s, None
-            return self._out(STOP, (pan, DRIVE_TILT))
+            return self._out(STOP, (pan, self.lim.drive_tilt_deg))
         if not self._cam_still:
             self._look_t0 = None
         elif self._look_t0 is None:
@@ -265,7 +267,7 @@ class ChaseSkill:
         cam = None
         if self._pan is None or abs(pan - self._pan) > PAN_STEP_DEG:
             self._pan = pan
-            cam = (pan, DRIVE_TILT)
+            cam = (pan, self.lim.drive_tilt_deg)
         if (
             want == STOP
         ):  # blocked: stop at once, not by the speed ramp (Plan Z5: the ramp coasted into things)

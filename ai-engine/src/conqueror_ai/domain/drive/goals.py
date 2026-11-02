@@ -20,6 +20,7 @@ from conqueror_ai.domain.drive.curves import XYTh
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import bearing_deg
 from conqueror_ai.domain.drive.route import GRID_M, XY, RoutePlanner
+from conqueror_ai.domain.reach import SURE_REACH_M
 
 REACHED_M = 0.4  # a destination this near counts as reached
 
@@ -43,7 +44,6 @@ VISITED_M = 0.30  # reached frontiers are remembered in cells this big
 # find's search (owner: option A, design-notes §188): a spot is searched once the camera looked at it from
 # this near - z6 runs g4 / g5 / f1 / f3: a toy in view named in 58-68 % of pictures under 1 m, 16 % at
 # 1-1.5 m, under 3 % beyond
-LOOK_M = 1.0
 LOOK_HALF_DEG = 35.0  # within this of the camera's axis (the lens sees ~41 deg each side)
 LOOKED_M = 0.30  # looked-at floor remembered in cells this big
 
@@ -184,7 +184,7 @@ def _big_parts(mask: NDArray[np.bool_], min_cells: int) -> NDArray[np.bool_]:
 
 class SearchGoal:
     """Find's search (design-notes §188-§189): the nearest reachable seen floor not yet looked at from within
-    LOOK_M, or edge of unseen floor not yet reached (explore's frontier: floor hidden behind things gets
+    SURE_REACH_M, or edge of unseen floor not yet reached (explore's frontier: floor hidden behind things gets
     seen, floor run c2); None (and done) when neither is left."""
 
     def __init__(self) -> None:
@@ -212,12 +212,12 @@ class SearchGoal:
         cx, cy = at[0] + cam_x_m * math.cos(at[2]), at[1] + cam_x_m * math.sin(at[2])
         axis = at[2] - math.radians(pan_deg)
         half = math.radians(LOOK_HALF_DEG)
-        n = math.ceil(LOOK_M / LOOKED_M) + 1
+        n = math.ceil(SURE_REACH_M / LOOKED_M) + 1
         i0, j0 = self._key((cx, cy))
         for i in range(i0 - n, i0 + n + 1):
             for j in range(j0 - n, j0 + n + 1):
                 x, y = (i + 0.5) * LOOKED_M, (j + 0.5) * LOOKED_M
-                if math.dist((x, y), (cx, cy)) > LOOK_M:
+                if math.dist((x, y), (cx, cy)) > SURE_REACH_M:
                     continue
                 off = (math.atan2(y - cy, x - cx) - axis + math.pi) % (2 * math.pi) - math.pi
                 if abs(off) <= half:

@@ -25,7 +25,6 @@ AT_LEAST = (
     "body_rear_m",
     "body_half_w_m",
 )
-SLOW_CMS = 18.0  # spec 9 §5's slow speed: the tank must be able to go this slow (review minor 9)
 
 
 def load_drive(path: Path) -> tuple[Limits, tuple[tuple[float, float], ...]]:
@@ -46,7 +45,7 @@ def load_drive(path: Path) -> tuple[Limits, tuple[tuple[float, float], ...]]:
     if unknown:
         raise ValueError(f"{path}: unknown limits {', '.join(unknown)}")
     lim = replace(Limits(), **{k: float(v) for k, v in given.items()})
-    if lim.v_min_cms > SLOW_CMS:
+    if lim.v_min_cms > Limits().slow_cms:  # spec 9 §5: the tank must be able to go this slow
         raise ValueError(
             f"{path}: v_min_cms {lim.v_min_cms} is above spec 9's slow speed of 18 cm/s, which the drive "
             "needs when it is unsure of the camera angle or has no depth"

@@ -5,9 +5,10 @@ from __future__ import annotations
 import numpy as np
 
 from conqueror_ai.domain.depth import Marks
-from conqueror_ai.domain.drive.candidates import MERGE_M, Candidates
+from conqueror_ai.domain.drive.candidates import Candidates
 from conqueror_ai.domain.drive.route import RoutePlanner
 from conqueror_ai.domain.memory import Remembered
+from conqueror_ai.domain.reach import SAME_SPOT_M as MERGE_M
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.types import Pose
 

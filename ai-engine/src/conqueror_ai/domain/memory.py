@@ -8,9 +8,9 @@ import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from conqueror_ai.domain.reach import SAME_SPOT_M
 from conqueror_ai.domain.types import ObjectEstimate
 
-MERGE_M = 0.5  # the same word this near a remembered thing is that thing (moved, or the floor point's error)
 NEVER = frozenset({"person"})  # never remembered as a thing to go to (find never targets a person)
 
 
@@ -34,7 +34,9 @@ class ThingMemory:
                 continue
             t = o.last_seen_us / 1e6
             p = (o.x_m, o.y_m)
-            same = [r for r in self._things if r.word == o.cls and math.dist((r.x_m, r.y_m), p) <= MERGE_M]
+            same = [
+                r for r in self._things if r.word == o.cls and math.dist((r.x_m, r.y_m), p) <= SAME_SPOT_M
+            ]
             if same:
                 r = min(same, key=lambda r: math.dist((r.x_m, r.y_m), (o.x_m, o.y_m)))
                 r.x_m, r.y_m, r.last_seen_s, r.gone = o.x_m, o.y_m, t, False

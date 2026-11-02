@@ -18,6 +18,7 @@ from numpy.typing import NDArray
 
 from conqueror_ai.domain.camera import Calibration, CameraModel, from_servo
 from conqueror_ai.domain.pose import PoseFilter, PoseHistory
+from conqueror_ai.domain.reach import SAME_SPOT_M
 from conqueror_ai.domain.types import Detection, Frame, ObjectEstimate, Pose, TelemSample
 
 GATE_DPS = 45.0  # turning faster blurs the picture
@@ -57,8 +58,6 @@ REMEMBER_AFTER_S = (
     0.5  # not seen this long (out of view, or no picture used): remembered from its last sighting
 )
 MAYBE_SCORE = 0.15  # a detection from this score up to its word's threshold is a maybe (design-notes §179)
-SAME_THING_M = 0.5  # a new thing never starts this near a listed one of the same word (review I5: its floor
-# point flickering outside the gate built a second thing there; the memory merges by the same distance)
 CONFIRM_HITS = 3  # a new thing is listed once seen this often ...
 CONFIRM_S = 0.5  # ... within this long, whatever the pictures between show (design-notes §189, run c1)
 LOOK_MISSES = 3  # the look check: at least this many pictures without it, as well as LOOK_S
@@ -339,7 +338,7 @@ class ObjectTracker:
         listed = [th for th in keep if th.confirmed]
         for j, z in enumerate(located):
             near_listed = any(
-                th.cls == z.cls and math.hypot(float(th.x[0]) - z.x, float(th.x[1]) - z.y) <= SAME_THING_M
+                th.cls == z.cls and math.hypot(float(th.x[0]) - z.x, float(th.x[1]) - z.y) <= SAME_SPOT_M
                 for th in listed
             )
             if j not in used_z and not near_listed:

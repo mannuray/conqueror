@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from conqueror_ai.domain.memory import MERGE_M, ThingMemory
+from conqueror_ai.domain.memory import ThingMemory
+from conqueror_ai.domain.reach import SAME_SPOT_M as MERGE_M
 from conqueror_ai.domain.types import ObjectEstimate
 
 

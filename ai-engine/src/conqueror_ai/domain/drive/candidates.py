@@ -15,10 +15,8 @@ from conqueror_ai.domain.drive.costmap import CostMap, CostSettings
 from conqueror_ai.domain.drive.curves import XYTh
 from conqueror_ai.domain.drive.route import XY, RoutePlanner
 from conqueror_ai.domain.memory import Remembered
+from conqueror_ai.domain.reach import SAME_SPOT_M, SURE_REACH_M
 from conqueror_ai.domain.room_map import MapSnapshot
-
-MERGE_M = 0.5  # sightings this near are one candidate (the floor point is loose far off)
-CLOSE_M = 1.0  # a candidate is looked at from this near (the detector's reach, §188)
 
 
 @dataclass
@@ -39,7 +37,7 @@ class Candidates:
         self._all: list[Candidate] = []
 
     def _near(self, spot: XY) -> Candidate | None:
-        near = [c for c in self._all if math.dist(c.spot, spot) <= MERGE_M]
+        near = [c for c in self._all if math.dist(c.spot, spot) <= SAME_SPOT_M]
         return min(near, key=lambda c: math.dist(c.spot, spot), default=None)
 
     def add(self, spot: XY) -> None:
@@ -70,12 +68,12 @@ class Candidates:
         area: tuple[float, float, float] | None,
         settings: CostSettings | None = None,
     ) -> list[XY] | None:
-        """A way to within CLOSE_M of it, its own marks within TARGET_R_M set aside (the chase's rule); None
-        outside the play area or with no way."""
+        """A way to within SURE_REACH_M of it, its own marks within TARGET_R_M set aside (the chase's rule);
+        None outside the play area or with no way."""
         if area is not None and math.dist(c.spot, area[:2]) > area[2]:
             return None
         cost = CostMap(snap, settings, ignore=(c.x_m, c.y_m, TARGET_R_M), area=area)
-        return routes.route(cost, (at[0], at[1]), c.spot, goal_ok=True, near_m=CLOSE_M)
+        return routes.route(cost, (at[0], at[1]), c.spot, goal_ok=True, near_m=SURE_REACH_M)
 
     def next(
         self,
@@ -85,7 +83,7 @@ class Candidates:
         area: tuple[float, float, float] | None,
         settings: CostSettings | None = None,
     ) -> Candidate | None:
-        """The pending candidate with the shortest way to within CLOSE_M of it, or None."""
+        """The pending candidate with the shortest way to within SURE_REACH_M of it, or None."""
         best: tuple[float, Candidate] | None = None
         for c in self.pending():
             way = self.route(c, at, snap, routes, area, settings)

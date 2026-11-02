@@ -63,7 +63,7 @@ from conqueror_ai.app.objects import (
 )
 from conqueror_ai.domain.camera import Calibration, CameraModel
 from conqueror_ai.domain.depth import MapConfig
-from conqueror_ai.domain.drive.chase import DRIVE_TILT, ChaseSkill, SkillOut
+from conqueror_ai.domain.drive.chase import ChaseSkill, SkillOut
 from conqueror_ai.domain.drive.costmap import CostSettings
 from conqueror_ai.domain.drive.goal import Goal, TargetFix, is_ball, kind_of, size_positions
 from conqueror_ai.domain.drive.limits import Limits
@@ -218,7 +218,7 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
         stop.set()
         await _close(link, tasks)
         return "no connection to the tank - is it on?"
-    await drive.cam(0.0, DRIVE_TILT)
+    await drive.cam(0.0, kit.lim.drive_tilt_deg)
     t0 = time.monotonic()
     result = ""
     by_size: dict[str, tuple[float, float]] = {}

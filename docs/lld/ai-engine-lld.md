@@ -2384,14 +2384,14 @@ classDiagram
 - A file of another version, cell size or map size is refused with a plain message (start fresh or delete the folder).
 
 ### 20.6 Classes
-- `HomeStore` (`adapters/home_store.py`): `load(name) -> Home | None`, `save(name, room: RoomMap, memory: ThingMemory, run_id)`.
+- `HomeStore` (`adapters/home_store.py`): `load(name) -> Home | None`, `save(name, home: Home)` (atomic); the app makes the `Home` with `Home.from_run(room, memory, earlier, run_id)`.
 - `Home` (`domain/home.py`, pure): `room_for_run(settings) -> RoomMap` (weakened, faded obstacles; `seen_before`), `memory() -> ThingMemory`; `Home.from_run(room, memory, earlier, run_id)` (pruned; the run list).
 - `RoomMap.seen_before` (new, read by nothing that drives); `World(..., room=home.room_for_run(...), memory=home.memory())` (Plan Z7's injection points).
 - The decisions log's first line already keeps the memory at the start (Plan Z7), so `--replay` of a home run is exact; it also keeps the loaded obstacles (the first snapshot holds them).
 
 ```mermaid
 classDiagram
-    class HomeStore { <<adapter>> +load(name) Home?; +save(name, room, memory, run_id) }
+    class HomeStore { <<adapter>> +load(name) Home?; +save(name, home) }
     class Home { <<pure>> version; frame; runs; +room_for_run(settings) RoomMap; +memory() ThingMemory; +from_run(room, memory, earlier, run_id) Home }
     class RoomMap { low; high; seen; seen_before }
     class ThingMemory
@@ -2417,7 +2417,7 @@ sequenceDiagram
     C->>R: run(skill)
     R-->>C: result (or Ctrl-C)
     C->>H: from_run(room, memory, earlier, run_id)
-    C->>S: save(name, ...)
+    C->>S: save(name, home)
 ```
 
 ### 20.7 Seeing what the engine thinks (owner, design-notes §194)

@@ -2354,7 +2354,7 @@ classDiagram
 
 **Floor checks:** Task 9, design-notes §192 (to come).
 
-## 20. The home spot: the map and the remembered things last between runs (owner, 2026-11-02, design-notes §189 step 2, §191 decision 1 — draft for review, Plan Z8)
+## 20. The home spot: the map and the remembered things last between runs (owner, 2026-11-02, design-notes §189 step 2, §191 decision 1, §193 — approved with fade A, Plan Z8)
 
 **Goal:** a run started from the home spot (a tape mark on the floor, the tank facing the same way each time) begins with what earlier runs learned - where the obstacles were and where things were seen - so `find ball` goes straight to where a ball was last seen, and explore / wander don't drive into furniture they mapped before. Loose: wheel slip and the owner's placing put the frames a few cm apart; everything loaded is a hint the run checks, never a fact it drives on.
 
@@ -2371,7 +2371,7 @@ classDiagram
 | `seen` | yes | a separate **`seen_before`** layer: no cost map, goal or the recovery's "known free" reads it (explore / search behave as on a fresh map); shown in the live view only |
 | remembered things | `ThingMemory.things()` | as they were, pruned (§20.4); find checks them first (§18.13.23) |
 
-### 20.3 Obstacles never seen again fade (owner to choose)
+### 20.3 Obstacles never seen again fade (owner: A)
 - **A (recommended):** each load lowers a loaded obstacle by 0.2: 1.1 → 0.9 (still an obstacle) → 0.7 (not). An obstacle not seen again for two runs is gone; seen again, it is fresh. A moved chair stops blocking after two runs even where the tank never looks.
 - **B:** no fade: a loaded obstacle stays until looked at as free floor. Safer for things the tank rarely sees, but a moved piece of furniture blocks a way for ever until the tank happens to look there.
 

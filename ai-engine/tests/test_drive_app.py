@@ -109,7 +109,7 @@ def test_cli_play_area() -> None:
     roam = make_skill(parse_mission(["find", "ball"], words, area_m=1.0), lim)
     assert isinstance(roam, RoamSkill) and roam.area_m == 1.0 and roam.find
     roam = make_skill(parse_mission(["find", "ball"], words), lim)  # a search that ends (§188)
-    assert isinstance(roam, RoamSkill) and roam.find and roam.mode == "search"
+    assert isinstance(roam, RoamSkill) and roam.find and roam.mode == "find"
     roam = make_skill(parse_mission(["wander", "30"], words), lim)
     assert isinstance(roam, RoamSkill) and roam.area_m is None
 

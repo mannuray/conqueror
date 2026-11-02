@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 import random
-from typing import cast
+from typing import Protocol, cast, runtime_checkable
 
 import cv2
 import numpy as np
@@ -48,8 +48,20 @@ LOOK_HALF_DEG = 35.0  # within this of the camera's axis (the lens sees ~41 deg 
 LOOKED_M = 0.30  # looked-at floor remembered in cells this big
 
 
+@runtime_checkable
+class DestinationGoal(Protocol):
+    """Where to drive next (LLD §19.4): wander, explore and find's search alike, chosen once per skill."""
+
+    done: bool  # nothing left to go to (wander: never)
+
+    def destination(self, now_s: float, at: XYTh, cost: CostMap, planner: RoutePlanner) -> XY | None: ...
+
+    def drop(self) -> None: ...
+
+
 class WanderGoal:
     def __init__(self, rng: random.Random, lim: Limits | None = None) -> None:
+        self.done = False  # wander never runs out
         self.rng = rng
         self._sweep_r_m = (lim or Limits()).sweep_r_m
         self._dest: XY | None = None

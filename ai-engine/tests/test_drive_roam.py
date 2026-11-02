@@ -4,17 +4,18 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Sequence
 
 import numpy as np
 
 from conqueror_ai.domain.depth import Marks
-from conqueror_ai.domain.drive.curves import STOP, Command
+from conqueror_ai.domain.drive.curves import STOP, Command, XYTh
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import CANDIDATE_RETRY_S, START_STAND_S, Mode, RoamSkill
 from conqueror_ai.domain.drive.sim import SimTank
-from conqueror_ai.domain.drive.skill import SkillOut
+from conqueror_ai.domain.drive.skill import SkillOut, make_input
 from conqueror_ai.domain.memory import ThingMemory
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.types import ObjectEstimate, Pose
@@ -32,6 +33,25 @@ def open_snap(trusted: bool = True, depth: bool = True, seen: bool = True) -> Ma
     return room.snapshot(0 if depth else 5_000_000, POSE, False, trusted)
 
 
+def rt(
+    s: RoamSkill,
+    now: float,
+    at: XYTh | None,
+    snap: MapSnapshot | None,
+    fix: TargetFix | None,
+    sonar: float | None,
+    map_ok: bool,
+    cam_still: bool = True,
+    maybes: Sequence[tuple[float, float]] = (),
+    used: bool = True,
+) -> SkillOut:
+    """The old call shape onto SkillInput (LLD §19.4)."""
+    inp = make_input(
+        at=at, snap=snap, map_ok=map_ok, fix=fix, sonar_m=sonar, cam_still=cam_still, used=used, maybes=maybes
+    )
+    return s.tick(now, inp)
+
+
 def room_with_marks(marks: list[tuple[float, float]]) -> MapSnapshot:
     room = RoomMap()
     room.seen[:] = True
@@ -44,30 +64,30 @@ def room_with_marks(marks: list[tuple[float, float]]) -> MapSnapshot:
 
 
 def skill(mode: Mode = "wander", seconds: float | None = None, find: bool = False) -> RoamSkill:
-    return RoamSkill(Planner(Limits()), mode, seconds=seconds, find=find, rng=random.Random(1))
+    return RoamSkill(Planner(Limits()), "find" if find else mode, seconds=seconds, rng=random.Random(1))
 
 
 def run(
     s: RoamSkill, snap: MapSnapshot, seconds: float, sonar: float | None = None, dt: float = 0.1
 ) -> list[SkillOut]:
-    return [s.tick(i * dt, AT, snap, None, sonar, True) for i in range(round(seconds / dt))]
+    return [rt(s, i * dt, AT, snap, None, sonar, True) for i in range(round(seconds / dt))]
 
 
 def test_echo_under_10_cm_ends_blocked() -> None:
     s = skill()
     snap = open_snap()
     run(s, snap, START_STAND_S + 0.5)
-    assert s.tick(10.0, AT, snap, None, 0.12, True).result is None
-    assert s.tick(10.1, AT, snap, None, 0.09, True).result == "blocked"
+    assert rt(s, 10.0, AT, snap, None, 0.12, True).result is None
+    assert rt(s, 10.1, AT, snap, None, 0.09, True).result == "blocked"
 
 
 def test_stale_stops_at_once_and_ends_after_2_s() -> None:
     s = skill()
     snap = open_snap()
     run(s, snap, START_STAND_S + 1.5)
-    assert s.tick(20.0, AT, snap, None, None, False).cmd == STOP
-    assert s.tick(21.0, AT, snap, None, None, False).result is None
-    assert s.tick(22.0, AT, None, None, None, True).result == "stale"
+    assert rt(s, 20.0, AT, snap, None, None, False).cmd == STOP
+    assert rt(s, 21.0, AT, snap, None, None, False).result is None
+    assert rt(s, 22.0, AT, None, None, None, True).result == "stale"
 
 
 def moving(s: RoamSkill, snap: MapSnapshot, seconds: float, dt: float = 0.1) -> list[SkillOut]:
@@ -75,7 +95,7 @@ def moving(s: RoamSkill, snap: MapSnapshot, seconds: float, dt: float = 0.1) -> 
     spot to face the aim point, then drives straight - a fixed pose would turn for ever)."""
     tank, outs = SimTank(), list[SkillOut]()
     for i in range(round(seconds / dt)):
-        outs.append(s.tick(i * dt, tank.at, snap, None, None, True))
+        outs.append(rt(s, i * dt, tank.at, snap, None, None, True))
         tank.step(outs[-1].cmd, dt)
     return outs
 
@@ -101,20 +121,20 @@ def test_find_hands_over_to_the_chase() -> None:
     s = skill(find=True)
     snap = open_snap()
     run(s, snap, START_STAND_S + 1.0)
-    out = s.tick(5.0, AT, snap, TargetFix(1, 2.0, 0.0, 0.0), None, True)
+    out = rt(s, 5.0, AT, snap, TargetFix(1, 2.0, 0.0, 0.0), None, True)
     assert s.state == "chase" and out.result is None
 
 
 def test_find_looks_round_from_where_it_stands_first() -> None:
     """Find (design-notes §187): first the chase's look round from here (the camera ahead, then each side);
     nothing seen, it then searches the room."""
-    s = skill("search", find=True)
+    s = skill("find")
     snap = open_snap()
-    out = s.tick(0.0, AT, snap, None, None, True)
+    out = rt(s, 0.0, AT, snap, None, None, True)
     assert s.state == "chase" and s.chase.state == "sweep" and out.cam is not None and out.cmd == STOP
     tank, turned = SimTank(), 0.0
     for k in range(1, 400):  # the tank follows: the half turn is measured from the pose
-        o = s.tick(k * 0.1, tank.at, snap, None, None, True)
+        o = rt(s, k * 0.1, tank.at, snap, None, None, True)
         tank.step(o.cmd, 0.1)
         turned = max(turned, abs(math.degrees(tank.at[2])))
         if s.state != "chase":
@@ -126,11 +146,11 @@ def test_a_search_ends_not_found_once_every_spot_was_looked_at_from_near() -> No
     """A search ends (owner, design-notes §188, option A): a spot is searched once the camera looked at it
     from within LOOK_M; every reachable spot searched and the thing never seen, find ends not_found. Floor run
     n1: a room all seen from the start ended after ~2 s of driving - now it drives round to look."""
-    s = RoamSkill(Planner(Limits()), "search", find=True, rng=random.Random(1), area_m=1.5)
+    s = RoamSkill(Planner(Limits()), "find", rng=random.Random(1), area_m=1.5)
     snap = open_snap()
     tank, results, path = SimTank(), list[str](), 0.0
     for k in range(6000):
-        o = s.tick(k * 0.1, tank.at, snap, None, None, True)
+        o = rt(s, k * 0.1, tank.at, snap, None, None, True)
         before = tank.at
         tank.step(o.cmd, 0.1)
         path += math.dist(before[:2], tank.at[:2])
@@ -154,7 +174,7 @@ def test_cancel_stops() -> None:
     run(s, snap, START_STAND_S + 1.5)
     out = s.cancel()
     assert out.cmd == STOP and out.result == "cancelled"
-    assert s.tick(30.0, AT, snap, None, None, True).cmd == STOP
+    assert rt(s, 30.0, AT, snap, None, None, True).cmd == STOP
 
 
 def test_a_blocked_way_stops_at_once_not_by_the_ramp() -> None:
@@ -164,7 +184,7 @@ def test_a_blocked_way_stops_at_once_not_by_the_ramp() -> None:
     tank = SimTank()
     snap = open_snap()
     for i in range(40):  # get going
-        out = s.tick(i * 0.1, tank.at, snap, None, None, True)
+        out = rt(s, i * 0.1, tank.at, snap, None, None, True)
         tank.step(out.cmd, 0.1)
     assert s.cmd.v_cms > 18.0
     room = RoomMap()
@@ -179,7 +199,7 @@ def test_a_blocked_way_stops_at_once_not_by_the_ramp() -> None:
     room.hit(c, "high")
     room.update_picture(Marks(*(np.zeros((0, 2)),) * 4), 4_000_000)
     wall = room.snapshot(4_000_000, POSE, False, True)
-    out = s.tick(4.0, tank.at, wall, None, None, True)
+    out = rt(s, 4.0, tank.at, wall, None, None, True)
     assert out.cmd == STOP
 
 
@@ -257,7 +277,7 @@ def test_explore_picks_again_when_its_target_closes() -> None:
     snap = room.snapshot(0, POSE, False, True)
     run(s, snap, START_STAND_S + 0.2)
     s.explore._dest, s.explore._picked_s = (3.95, 3.95), 0.9  # pyright: ignore[reportPrivateUsage]  # closed: the map's edge
-    out = s.tick(1.4, AT, snap, None, None, True)
+    out = rt(s, 1.4, AT, snap, None, None, True)
     assert s.state == "drive" and s.dest != (3.95, 3.95) and out.result is None
 
 
@@ -265,8 +285,7 @@ def test_explore_picks_again_when_its_target_closes() -> None:
 def finder(memory: ThingMemory | None = None) -> RoamSkill:
     return RoamSkill(
         Planner(Limits()),
-        "search",
-        find=True,
+        "find",
         rng=random.Random(1),
         area_m=2.0,
         memory=memory,
@@ -279,7 +298,7 @@ def ticks(
 ) -> list[SkillOut]:
     outs: list[SkillOut] = []
     for k in range(n):
-        o = s.tick(t0 + k * 0.1, tank.at, open_snap(), None, None, True, maybes=maybes or [])
+        o = rt(s, t0 + k * 0.1, tank.at, open_snap(), None, None, True, maybes=maybes or [])
         tank.step(o.cmd, 0.1)
         outs.append(o)
         if o.result:
@@ -289,7 +308,7 @@ def ticks(
 
 def until_searching(s: RoamSkill, tank: SimTank) -> float:
     for k in range(600):  # the tank follows (the look round's half turn is measured from the pose)
-        tank.step(s.tick(k * 0.1, tank.at, open_snap(), None, None, True).cmd, 0.1)
+        tank.step(rt(s, k * 0.1, tank.at, open_snap(), None, None, True).cmd, 0.1)
         if s.state == "drive":
             return k * 0.1 + 0.1
     raise AssertionError("never got to searching")
@@ -315,7 +334,7 @@ def test_a_candidate_not_confirmed_is_ruled_out_and_the_search_goes_on() -> None
 
 def test_a_remembered_spot_is_checked_first_and_marked_gone_when_not_there() -> None:
     mem = ThingMemory()
-    mem.update([ObjectEstimate(1, "toy", 1.2, 0.4, 0.0, 0.0, 0.1, 0, 0, "seen")])
+    mem.update([ObjectEstimate(1, "toy", 1.2, 0.4, 0.0, 0.0, 0.1, 0, 0, "seen")], 0.0, "r")
     s, tank = finder(mem), SimTank()
     ticks(s, tank, 0.0, 1)
     assert s.state == "check"  # no look round first: it knows where to look
@@ -327,24 +346,24 @@ def test_the_search_marks_only_from_a_picture_used_this_tick() -> None:
     """Z6 second review I2: a picture skipped for turning (or no picture this tick) used to mark the camera's
     view as looked at, so find could end not_found without having looked."""
     s = finder()
-    s.tick(0.0, AT, open_snap(), None, None, True, used=False)  # the camera sent ahead
-    s.tick(0.1, AT, open_snap(), None, None, True, used=False)
+    rt(s, 0.0, AT, open_snap(), None, None, True, used=False)  # the camera sent ahead
+    rt(s, 0.1, AT, open_snap(), None, None, True, used=False)
     assert not s.search.looked((0.6, 0.0))
-    s.tick(0.2, AT, open_snap(), None, None, True, used=True)
+    rt(s, 0.2, AT, open_snap(), None, None, True, used=True)
     assert s.search.looked((0.6, 0.0))
 
 
 def test_a_far_candidate_is_ruled_out_only_after_a_look_from_near() -> None:
     """Z6 second review I3: the check's 15 s covered the drive too, and going closer aimed at exactly 1 m, so
     a candidate 3 m off timed out at ~1.00 m and was ruled out without a near look."""
-    s, tank = RoamSkill(Planner(Limits()), "search", find=True, rng=random.Random(1)), SimTank()
+    s, tank = RoamSkill(Planner(Limits()), "find", rng=random.Random(1)), SimTank()
     t = until_searching(s, tank)
     spot = (tank.at[0] + 3.0 * math.cos(tank.at[2]), tank.at[1] + 3.0 * math.sin(tank.at[2]))
     ticks(s, tank, t, 1, maybes=[spot])
     assert s.state == "check"
     nearest = 9.0
     for k in range(1, 900):
-        s.tick(t + k * 0.1, tank.at, open_snap(), None, None, True)
+        rt(s, t + k * 0.1, tank.at, open_snap(), None, None, True)
         tank.step(s.cmd, 0.1)
         nearest = min(nearest, math.dist(tank.at[:2], spot))
         if s.state != "check":
@@ -356,14 +375,16 @@ def test_a_check_that_cannot_get_there_leaves_it_pending_and_not_gone() -> None:
     """Z6 second review I3: no way to it (the map closed it) is not a look from near: the remembered thing is
     not marked gone; tried again later, ruled out (not gone) after a few failed tries."""
     mem = ThingMemory()
-    mem.update([ObjectEstimate(1, "toy", 1.8, 0.0, 0.0, 0.0, 0.1, 0, 0, "seen")])  # inside the 2 m area
+    mem.update(
+        [ObjectEstimate(1, "toy", 1.8, 0.0, 0.0, 0.0, 0.1, 0, 0, "seen")], 0.0, "r"
+    )  # inside the 2 m area
     s, tank = finder(mem), SimTank()
     ticks(s, tank, 0.0, 1)
     assert s.state == "check"
     ring = [(1.8 + 1.3 * math.cos(a), 1.3 * math.sin(a)) for a in np.arange(0.0, 2 * math.pi, 0.02)]
     walled = room_with_marks(ring)  # a wall round the spot, 1.3 m out: no way to within 1 m
     for k in range(1, 400):  # the map now walls the spot off
-        tank.step(s.tick(0.1 * k, tank.at, walled, None, None, True).cmd, 0.1)
+        tank.step(rt(s, 0.1 * k, tank.at, walled, None, None, True).cmd, 0.1)
         if s.state != "check":
             break
     assert s.state != "check"
@@ -379,10 +400,10 @@ def test_a_candidate_whose_chase_gives_up_is_ruled_out() -> None:
     assert s.state == "check"
     fix = TargetFix(1, 1.2, 0.6, 0.0)
     for k in range(1, 4):  # seen for sure: the chase
-        tank.step(s.tick(t + 0.1 * k, tank.at, open_snap(), fix, None, True).cmd, 0.1)
+        tank.step(rt(s, t + 0.1 * k, tank.at, open_snap(), fix, None, True).cmd, 0.1)
     assert s.state == "chase"
     for k in range(4, 900):  # then never again: the chase's look round, then it gives up
-        tank.step(s.tick(t + 0.1 * k, tank.at, open_snap(), None, None, True).cmd, 0.1)
+        tank.step(rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True).cmd, 0.1)
         if s.state != "chase":
             break
     assert s.state != "chase" and s.candidates.pending() == []
@@ -391,19 +412,45 @@ def test_a_candidate_whose_chase_gives_up_is_ruled_out() -> None:
 def test_not_found_waits_for_a_pending_candidates_retry() -> None:
     """Z6 second review M3: with the search finished inside the 1 s retry window, find ended not_found while a
     candidate was still pending; it now waits for the retry."""
-    s = RoamSkill(Planner(Limits()), "search", find=True, rng=random.Random(1), area_m=0.8)
-    s.tick(0.0, AT, open_snap(), None, None, True)
+    s = RoamSkill(Planner(Limits()), "find", rng=random.Random(1), area_m=0.8)
+    rt(s, 0.0, AT, open_snap(), None, None, True)
     s.state = "drive"
     for pan in range(-180, 180, 20):
         s.search.look(AT, float(pan), 0.0)  # everything in the small area looked at
     s.candidates.add((0.4, 0.3))
     s._retry_s = 10.0 + CANDIDATE_RETRY_S  # pyright: ignore[reportPrivateUsage]  # a try just failed
-    assert s.tick(10.0, AT, open_snap(), None, None, True).result is None
-    s.tick(10.0 + CANDIDATE_RETRY_S + 0.1, AT, open_snap(), None, None, True)
+    assert rt(s, 10.0, AT, open_snap(), None, None, True).result is None
+    rt(s, 10.0 + CANDIDATE_RETRY_S + 0.1, AT, open_snap(), None, None, True)
     assert s.state == "check"
 
 
 def test_sightings_outside_the_play_area_are_not_candidates() -> None:  # Z6 second review M4
-    s = RoamSkill(Planner(Limits()), "search", find=True, rng=random.Random(1), area_m=1.0)
-    s.tick(0.0, AT, open_snap(), None, None, True, maybes=[(2.0, 0.0), (0.5, 0.0)])
+    s = RoamSkill(Planner(Limits()), "find", rng=random.Random(1), area_m=1.0)
+    rt(s, 0.0, AT, open_snap(), None, None, True, maybes=[(2.0, 0.0), (0.5, 0.0)])
     assert [c.spot for c in s.candidates.pending()] == [(0.5, 0.0)]
+
+
+# ---- the Skill interface (Plan Z7, LLD §19.4, §19.7)
+def test_find_is_a_mode_not_a_flag() -> None:
+    import inspect
+
+    from conqueror_ai.domain.drive.skill import make_input
+
+    assert "find" not in inspect.signature(RoamSkill).parameters
+    s = RoamSkill(Planner(Limits()), "find", rng=random.Random(1))
+    out = s.tick(0.0, make_input(at=AT, snap=open_snap(), map_ok=True))
+    assert s.state == "chase" and out.cam is not None  # find starts with the look round
+
+
+def test_the_goals_are_one_interface() -> None:
+    from conqueror_ai.domain.drive.goals import DestinationGoal, ExploreGoal, SearchGoal, WanderGoal
+
+    for g in (WanderGoal(random.Random(1)), ExploreGoal(), SearchGoal()):
+        assert isinstance(g, DestinationGoal) and g.done is False
+
+
+def test_roam_is_a_skill() -> None:
+    from conqueror_ai.domain.drive.skill import Skill
+
+    s = RoamSkill(Planner(Limits()), "wander", rng=random.Random(1))
+    assert isinstance(s, Skill) and set(s.debug()) >= {"state", "dest", "pending", "check_phase"}

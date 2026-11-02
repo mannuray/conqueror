@@ -72,7 +72,7 @@ def roam(
     sonar_model = SonarModel()
     tank = SimTank(*start)
     skill = RoamSkill(
-        Planner(Limits()), mode, seconds=seconds, find=find, rng=random.Random(seed), area_m=area_m
+        Planner(Limits()), "find" if find else mode, seconds=seconds, rng=random.Random(seed), area_m=area_m
     )
     turning, last_seen, pan = False, None, 0.0
     still = True
@@ -106,7 +106,8 @@ def roam(
             fix = None if last_seen is None else TargetFix(1, ball[0], ball[1], t - last_seen)
         if false_maybe is not None and t >= false_maybe[0]:
             maybe = false_maybe[1]
-        o = skill.tick(t, at, snap, fix, echo, True, maybes=[] if maybe is None else [maybe])
+        maybes = [] if maybe is None else [maybe]
+        o = skill.tick(t, make_input(at=at, snap=snap, map_ok=True, fix=fix, sonar_m=echo, maybes=maybes))
         still = o.cmd.v_cms == 0 and o.cmd.w_dps == 0
         if o.cam is not None:
             pan = o.cam[0]  # the camera turns where it's told (the real one looks where the tank is going)
@@ -334,9 +335,11 @@ def test_find_a_dim_thing_by_looking_again() -> None:
 
 
 def test_a_false_maybe_is_checked_once() -> None:
-    r = roam("wander", 70.0, seconds=60.0, find=True, seed=7, false_maybe=(5.0, (1.5, 0.0)))
+    """A maybe of nothing there, every picture from 5 s on: checked once, ruled out, the search goes on - it
+    never ends the run done (find is a mode since Plan Z7; wander's 60 s no longer ends a find)."""
+    r = roam("find", 70.0, seed=7, false_maybe=(5.0, (1.5, 0.0)))
     starts = sum(1 for a, b in itertools.pairwise(r.states) if b == "check" and a != "check")
-    assert r.result == "done" and starts == 1
+    assert r.result != "done" and starts == 1
     assert r.states.count("check") * 0.1 <= 15.0  # the whole check, looks and the drive closer
 
 
@@ -346,7 +349,7 @@ def test_a_check_is_ruled_out_only_after_a_look_from_near() -> None:
     'closer', and ruled the spot out without a near look. Now it is ruled out only after a look from within
     ~1 m (or after failed tries, never marking a remembered thing gone)."""
     spot = (2.2, 0.0)
-    r = roam("search", 90.0, boxes=[], find=True, false_maybe=(0.0, spot), start=(-2.0, 0.0, 0.0))
+    r = roam("find", 90.0, boxes=[], false_maybe=(0.0, spot), start=(-2.0, 0.0, 0.0))
     assert r.skill is not None and "check" in r.states
     ends = [i for i, (a, b) in enumerate(itertools.pairwise(r.states)) if a == "check" and b != "check"]
     assert ends, "the check never ended"
@@ -361,5 +364,5 @@ def test_a_check_is_ruled_out_only_after_a_look_from_near() -> None:
 def test_a_chase_inside_find_never_leaves_the_area() -> None:
     """Plan Z7 Review Focus 1 (review F6): the play area reached the chase by an attribute set by hand; now
     through the cost maps every skill is handed. A ball outside a 1 m area: find never drives out to it."""
-    r = roam("search", 60.0, find=True, ball=(2.0, 0.0), area_m=1.0)
+    r = roam("find", 60.0, ball=(2.0, 0.0), area_m=1.0)
     assert r.out_m <= 1.0 + 0.05 and r.result != "done"

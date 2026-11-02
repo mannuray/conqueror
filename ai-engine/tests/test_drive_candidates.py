@@ -65,7 +65,7 @@ def test_a_candidates_own_marks_do_not_count_but_outside_the_area_never() -> Non
 
 def test_remembered_spots_are_candidates_that_know_where_they_came_from() -> None:
     c = Candidates()
-    r = Remembered("toy", 1.0, 1.0, 3.0)
+    r = Remembered("toy", 1.0, 1.0, 3.0, "r")
     c.seed([r])
     (k,) = c.pending()
     assert k.remembered is r and (k.x_m, k.y_m) == (1.0, 1.0)

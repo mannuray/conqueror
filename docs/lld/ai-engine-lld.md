@@ -2166,3 +2166,135 @@ stateDiagram-v2
 
 **Known limits (accepted):** the view is not cut by obstacles (a thing behind another counts as looked at); a thing boxed in out of the detector's ~1 m reach is not found (§189, run c3); the 46 cm doorway (owner: 50 cm for now, §168); memory lasts one run (a home spot next, §189 step 2).
 
+
+## 19. Revision 3: the engine's structure (owner, 2026-11-02, design-notes §191, review `docs/reviews/2026-11-02-ai-engine-architecture-review.md` — draft for review, Plan Z7)
+
+**Goal:** the glue around the skills gets the same shape as the domain: one perception loop for every tool, one pure `World` that turns telemetry and pictures into a `SkillInput`, one `Skill` interface with fixed result kinds, a `Driver` port, and every run's decisions logged and replayable. No behaviour change on the floor except where named (§19.8). The home spot (Plan Z8) and the skill server (Plan Z2) then build on it.
+
+### 19.1 What changes and what stays
+| Stays | Changes |
+|---|---|
+| `PoseFilter`, `RoomMap`, `CostMap`, `Footprint`, `Planner`, `RoutePlanner`, `Recovery`, the goals, `ObjectTracker`, the detectors, `Seeing` | `MapRun` moves from `app/map.py` to `app/world.py`, wrapped by `World` |
+| the skills' driving logic (RoamSkill, ChaseSkill) | their inputs (`SkillInput`), outputs (`SkillOut.result` a `Result`), cost maps (`CostMaps` from the input), no `find` flag, the chase's no-map path deleted |
+| `DriveLink`, `BridgeLink`, `MjpegSource`, `SessionRecorder` | `DriveLink` behind a `Driver` port; a `DecisionLog` beside the recorder |
+| `cq-map`, `cq-objects`, `cq-drive` commands and options | their loops: one `Perception` runner; `cq-drive --replay DIR` new |
+
+### 19.2 Shared names (F5)
+- `Limits.slow_cms` 18.0 (spec 9 §5's slow speed) - the one definition; `roam.SLOW_CMS`, `chase.SLOW_CMS` and `drive_config.SLOW_CMS` read it.
+- `Limits.drive_tilt_deg` -15.0 (§125's driving tilt) replaces `chase.DRIVE_TILT`.
+- `domain/reach.py`: `SAME_SPOT_M` 0.5 (one thing's floor points scatter this much: the memory's merge, the candidates' merge, the tracker's no-second-thing) and `SURE_REACH_M` 1.0 (the detector names a toy for sure from this near, §188: the search's `LOOK_M`, the candidates' `CLOSE_M`). Other radii (`REACHED_M`, `TARGET_R_M`, `VISIT_*`) are different ideas and stay.
+
+### 19.3 Cost maps per snapshot (F6)
+- `CostMaps(snap, settings, area)` (`domain/drive/costmaps.py`): `base() -> CostMap` and `ignoring(x, y, r) -> CostMap`, each built once per snapshot and cached (key: the rounded point). The play area lives here, so no skill can forget it; `ChaseSkill.area` and roam's two hand-overs go.
+- `Candidates.next`: pending candidates sorted by straight-line distance, A* only for the nearest `ROUTE_TRIES` 3; the rest wait for the next try.
+
+### 19.4 The skill interface (F3)
+```python
+@dataclass(frozen=True)
+class SkillInput:
+    at: XYTh | None
+    snap: MapSnapshot | None
+    costs: CostMaps | None          # None with no snapshot
+    fix: TargetFix | None           # the thing sought (find only)
+    sonar_m: float | None
+    map_ok: bool                    # pictures and telemetry fresh
+    cam_still: bool                 # the newest picture wasn't skipped for the camera moving
+    used: bool                      # a picture arrived this tick and was used
+    maybes: tuple[XY, ...] = ()     # this picture's sightings of the thing sought (find only)
+
+class Result(StrEnum): DONE, NOT_FOUND, LOST, BLOCKED, STALE, CANCELLED, REFUSED, FAILED
+
+@dataclass(frozen=True)
+class SkillOut:
+    cmd: Command
+    cam: tuple[float, float] | None = None
+    result: Result | None = None
+    detail: str = ""                # e.g. what failed, for the CLI and later skill_failed
+
+class Skill(Protocol):
+    state: str
+    def tick(self, now_s: float, inp: SkillInput) -> SkillOut: ...
+    def cancel(self) -> SkillOut: ...
+    def debug(self) -> dict[str, object]: ...   # destination, route length, candidates, check phase - for the log
+```
+- `RoamSkill(planner, mode: "wander" | "explore" | "find", ...)` - the `find` flag goes; `mode == "find"` means search + candidates + chase. Its three mode branches become one `DestinationGoal` protocol (`destination(now_s, at, cost, routes)`, `drop()`, `done`) chosen once in `__init__` (Wander / Explore / Search goals already have these).
+- `ChaseSkill.tick(now_s, inp)`; its no-map path (`snap is None`, `BLOCKED_GIVE_UP_S`, `fan is None` branches) is deleted - every skill drives on the map (no GOTO, §191). Both skills keep their logic otherwise.
+- `Mission.action` is `find | wander | explore`; `make_skill` returns a `Skill`.
+
+### 19.5 World and Perception (F1, F2)
+- **`World`** (`app/world.py`, pure: no I/O, no clock): owns `MapRun` (pose, map, objects, seeing), the `Goal`, the `ThingMemory` and the play area. `World(cal, cfg, depth, floor, sizes, lim, kind, room=None, memory=None, area_m=None)` - room and memory may be handed in (Plan Z8 loads them). `on_calib`, `on_telem(s)` (pose, the sonar onto the map, the newest echo), `on_picture(f, rgb, dets, cam, inv) -> CameraModel | str` (the gate, `by_size`, seeing; returns used or the skip reason), `input(now_s, map_ok) -> SkillInput` (pose, snapshot, `CostMaps`, goal fix, memory update, maybes of the kind, the flags; `used` is true once after a used picture).
+- **`Perception`** (`app/perception.py`, async): the links' tasks, the telemetry task, the frame loop (decode, detect and depth off the event loop, the gate on it), staleness (`map_state`), task failures, recording. `Perception(link, cam, world, det, depth, rec)`; `async run(stop)`; `next_picture(timeout) -> bool` (one picture processed); `state(now) -> str | None` (stale reason). `cq-map` and `cq-objects` use it with `World` and no skill; `cq-drive` adds a runner.
+- **`SkillRunner`** (`app/runner.py`): `run(skill, world, perception, driver, log, on_status) -> (Result, detail)`: each picture or `TICK_S` 0.2 s - `inp = world.input(now, map_ok)`, `out = skill.tick` off the loop, `driver.drive(out.cmd)`, `driver.cam(*out.cam)`, `log.tick(now, inp, out, skill.state, skill.debug())`, `on_status(...)`; refusals and failures end it as `REFUSED` / `FAILED`.
+- **`Driver`** port (`domain/ports.py` or `adapters/driver.py`): `connected`, `refused`, `run(stop)`, `drive(cmd)`, `cam(pan, tilt)`, `finish()` - `DriveLink` implements it; Plan Z2 adds a `LeaseDriver`.
+- **Status:** `on_status(state, cmd, seen_m2)`; the CLI prints it (the line it prints today).
+
+### 19.6 The decisions log and replay (F8)
+- `DecisionLog` (`adapters/decisions.py`): `decisions.jsonl` in the session folder, one line a tick: `now_s`, the `SkillInput` (pose, fix, sonar, flags, maybes; the snapshot's layers `np.packbits` + base64, its pose and flags; the play area), `SkillOut`, `state`, `debug()`. ~7 KB a tick, ~11 MB for a 90 s run (local, like the recordings).
+- `cq-drive --replay DIR`: rebuilds each tick's `SkillInput` from the log (snapshot unpacked, `CostMaps` rebuilt), feeds a fresh skill made from the logged mission (the same rng seed), and prints where the outputs differ (none expected) and the state timeline. It is how a floor run is analysed from now on (not by hand, as in §189).
+- `Mission` and the seed are logged in the first line.
+
+### 19.7 Memory ready for runs to come (F7.2)
+- `Remembered` gains `seen_wall_s` (wall clock) and `run_id`; `ThingMemory.update(objects, wall_s, run_id)`; `of_kind` orders by wall time. Saving, loading, the seen-before layer and pruning are Plan Z8's.
+
+### 19.8 Behaviour changes (all small, named)
+- The chase's no-map path is gone (unused since Z5).
+- Candidates beyond the nearest three wait a try (§19.3).
+- Everything else: the same commands for the same inputs - checked by replaying the floor recordings' first ticks through old and new skills where possible, and by the sims.
+
+### 19.9 Classes
+```mermaid
+classDiagram
+    direction LR
+    class Perception { <<app, async>> +run(stop); +next_picture(timeout) bool; +state(now) str? }
+    class World { <<app, pure>> +on_calib(n); +on_telem(s); +on_picture(f, rgb, dets, cam, inv); +input(now_s, map_ok) SkillInput; map_run; goal; memory; area }
+    class SkillInput { <<frozen>> at; snap; costs; fix; sonar_m; map_ok; cam_still; used; maybes }
+    class CostMaps { +base() CostMap; +ignoring(x, y, r) CostMap }
+    class Skill { <<protocol>> +state; +tick(now_s, inp) SkillOut; +cancel() SkillOut; +debug() dict }
+    class SkillOut { cmd; cam; result: Result?; detail }
+    class SkillRunner { <<app>> +run(skill, world, perception, driver, log, on_status) }
+    class Driver { <<port>> +drive(cmd); +cam(pan, tilt); +finish(); refused; connected }
+    class DriveLink { <<adapter>> }
+    class DecisionLog { <<adapter>> +tick(now_s, inp, out, state, debug) }
+    class RoamSkill { mode: wander|explore|find; goal: DestinationGoal }
+    class ChaseSkill
+    Perception --> World
+    World --> SkillInput
+    SkillInput --> CostMaps
+    SkillRunner --> Skill
+    SkillRunner --> World
+    SkillRunner --> Driver
+    SkillRunner --> DecisionLog
+    Driver <|.. DriveLink
+    Skill <|.. RoamSkill
+    Skill <|.. ChaseSkill
+    RoamSkill *-- ChaseSkill
+```
+
+```mermaid
+sequenceDiagram
+    participant P as Perception
+    participant W as World
+    participant R as SkillRunner
+    participant S as Skill
+    participant D as Driver
+    participant L as DecisionLog
+    P->>W: on_telem(s) (each sample)
+    P->>W: on_picture(f, rgb, dets, cam, inv) (each picture, detect and depth off the loop)
+    R->>P: next_picture(TICK_S)
+    R->>W: input(now_s, map_ok)
+    W-->>R: SkillInput
+    R->>S: tick(now_s, inp) (off the loop)
+    S-->>R: SkillOut
+    R->>D: drive(cmd), cam(pan, tilt)
+    R->>L: tick(now_s, inp, out, state, debug)
+```
+
+### 19.10 Tests
+- Every existing test keeps passing (skills' tests move to `SkillInput`; their checks unchanged).
+- `World`: a recording's first seconds through `World` give the same snapshots and object lists as `MapRun` did; `input()`'s `used` is true once per used picture; a handed-in room and memory are the ones used.
+- `CostMaps`: one build per snapshot and key; the area always applied (a chase made anywhere can't leave it).
+- `Candidates.next`: 20 pending spots cost at most 3 routes a try.
+- `SkillRunner` with a fake driver and a scripted world: refusals → `REFUSED`, task failure → `FAILED`, results passed through, a log line per tick.
+- `DecisionLog` → replay: a sim run logged, replayed, identical outputs; a changed skill shows the first differing tick.
+- The sim harness drives through `World` + `SkillRunner` (the real glue), not its own loop.
+- The tools: `cq-map --live`, `cq-objects --live` and `cq-drive` keep their outputs (fake-bridge tests as today).

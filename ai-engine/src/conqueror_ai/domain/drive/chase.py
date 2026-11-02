@@ -59,10 +59,8 @@ class ChaseSkill:
         self._progress = ProgressWatch(self.recovery, self.settings.stuck_s)  # on the map
         self._spin_turned = TurnMeter()  # the search turn
         self._costs: CostMaps | None = None  # this tick's cost maps (the play area is in them)
-        self._own: tuple[MapSnapshot, CostMaps] | None = None
-        self._target: tuple[float, float] | None = (
-            None  # the thing approached last (the viewer)  # built here when not handed in
-        )
+        self._own: tuple[MapSnapshot, CostMaps] | None = None  # built here when not handed in
+        self._target: tuple[float, float] | None = None  # the thing approached last (the viewer)
         self._cam_pan: float | None = None  # where the camera was last sent (None: not by this skill)
         self._seen_at: float | None = None  # when the target was last seen
         self._away_s = 0.0  # since then, time the camera didn't look at its spot (§187)

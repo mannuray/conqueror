@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import rerun as rr
+from numpy.typing import NDArray
 
 from conqueror_ai.domain.camera import FloatArray
 from conqueror_ai.domain.depth import AngleFix, Marks
@@ -95,11 +96,11 @@ class RerunView:
         rr.log("camera/tilt_fix_deg", rr.Scalars(fix.tilt_fix_deg))
         rr.log("camera/tilt_trusted", rr.Scalars(1.0 if fix.trusted else 0.0))
 
-    def room_map(self, t_us: int, snap: MapSnapshot) -> None:
+    def room_map(self, t_us: int, snap: MapSnapshot, seen_before: NDArray[np.bool_] | None = None) -> None:
         """The room map as a picture (AI engine LLD §18.5): red low, orange high, grey seen, black unseen, the
-        tank white; and whether it is stale."""
+        tank white, floor an earlier home run saw dim blue-grey (Plan Z8); and whether it is stale."""
         rr.set_time("bridge", duration=t_us / 1e6)
-        rr.log("map/image", rr.Image(map_image(snap)))
+        rr.log("map/image", rr.Image(map_image(snap, seen_before)))
         rr.log("map/stale", rr.Scalars(1.0 if snap.stale else 0.0))
 
     def skill(self, t_us: int, snap: MapSnapshot, debug: dict[str, object]) -> None:

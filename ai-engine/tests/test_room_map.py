@@ -277,3 +277,19 @@ def test_the_overlay_paints_each_note() -> None:
     rm.skill_image(
         snap, {"pending": [(10.0, 10.0)], "route": None, "dest": "nonsense"}
     )  # off the map: ignored
+
+
+def test_seen_before_and_the_chase_target_are_shown() -> None:
+    """Plan Z8 final review I3 / minor 5: what earlier runs saw is drawn (a dim blue-grey, never the seen
+    grey), and the chase's target too."""
+    from conqueror_ai.domain import room_map as rm
+
+    room = RoomMap()
+    room.seen_before[:, :] = True
+    snap = room.snapshot(0, None, False, True)
+    img = rm.map_image(snap, room.seen_before)
+    assert tuple(img[5, 5]) == rm.SEEN_BEFORE
+    img = rm.skill_image(snap, {"target": (0.5, 0.0)}, room.seen_before)
+    n = room.n
+    r, c = n - 1 - int(np.floor(0.5 / room.cell_m + n / 2)), n - 1 - int(np.floor(0.0 / room.cell_m + n / 2))
+    assert tuple(img[r, c]) == rm.TARGET

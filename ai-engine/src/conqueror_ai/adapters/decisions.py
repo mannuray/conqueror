@@ -130,7 +130,8 @@ class DecisionLog:
         self, now_s: float, inp: SkillInput, out: SkillOut, state: str, debug: dict[str, object]
     ) -> None:
         self._first()
-        line = {"now_s": now_s, "inp": _input_out(inp), "out": _out_out(out), "state": state, "debug": debug}
+        notes = {k: v for k, v in debug.items() if k != "looked"}  # big; the viewer gets it live (Z8 minor 3)
+        line = {"now_s": now_s, "inp": _input_out(inp), "out": _out_out(out), "state": state, "debug": notes}
         self._f.write(json.dumps(line, default=str) + "\n")
 
     def close(self) -> None:

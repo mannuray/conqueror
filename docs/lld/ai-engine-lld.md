@@ -2368,7 +2368,7 @@ classDiagram
 |---|---|---|
 | obstacle marks (`low`, `high` log-odds above the blocked level 0.7) | the value | **weakened**: `min(value, blocked + |miss|)` = 1.1, then the fade (§20.3) - still an obstacle, cleared by two looks at free floor (two misses of 0.4) |
 | below-blocked evidence, free floor (misses) | no | never: each run sees floor again before it drives or backs over it |
-| `seen` | yes | a separate **`seen_before`** layer: no cost map, goal or the recovery's "known free" reads it (explore / search behave as on a fresh map); shown in the live view only |
+| `seen` | yes | a separate **`seen_before`** layer: no cost map, goal or the recovery's "known free" reads it (explore / search behave as on a fresh map; `MapSnapshot` doesn't carry it); shown dim blue-grey in `cq-map --live --home` (the owner's look before driving) |
 | remembered things | `ThingMemory.things()` | as they were, pruned (§20.4); find checks them first (§18.13.23) |
 
 ### 20.3 Obstacles never seen again fade (owner: A)

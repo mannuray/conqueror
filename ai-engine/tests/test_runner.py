@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from conqueror_ai.app.runner import SkillRunner
 from conqueror_ai.domain.drive.curves import STOP, Command
@@ -189,3 +190,29 @@ async def test_the_view_is_called_after_the_command_is_sent() -> None:
     )
     result, _ = await r.run(Scripted(n=4, result=Result.DONE))
     assert result == Result.DONE
+
+
+async def test_debug_is_asked_once_a_tick_and_the_log_leaves_the_looked_cells_out(tmp_path: Path) -> None:
+    """Plan Z8 final review minor 3: debug() ran twice a tick, and the looked-at cells (up to ~700) went
+    into every log line (~170 MB for 10 minutes); the viewer gets them live, a replay recomputes them."""
+    import json
+
+    from conqueror_ai.adapters.decisions import DecisionLog
+
+    class Counting(Scripted):
+        asked = 0
+
+        def debug(self) -> dict[str, object]:
+            Counting.asked += 1
+            return {"state": self.state, "looked": [(0.15, 0.15)] * 500}
+
+    order: list[str] = []
+    log = DecisionLog(tmp_path / "d.jsonl", {"action": "wander"}, 1)
+    r = SkillRunner(
+        FakeWorld(), FakePerception(), OrderDriver(order), log, None, tick_s=0.01, view=FakeView(order)
+    )
+    await r.run(Counting(n=4))
+    log.close()
+    assert Counting.asked == 4
+    lines = (tmp_path / "d.jsonl").read_text().splitlines()[1:]
+    assert lines and all("looked" not in json.loads(x)["debug"] for x in lines)

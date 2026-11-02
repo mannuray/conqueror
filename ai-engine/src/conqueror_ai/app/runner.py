@@ -85,11 +85,12 @@ class SkillRunner:
                         await self.driver.cam(*out.cam)
                 except Exception as e:  # the link went down between checks (Z7 final review minor 2)
                     return Result.FAILED, f"{type(e).__name__}: {e}"
+                notes = skill.debug() if self.log is not None or self.view is not None else {}  # once a tick
                 if self.log is not None:
-                    self.log.tick(now - t0, inp, out, skill.state, skill.debug())
+                    self.log.tick(now - t0, inp, out, skill.state, notes)
                 if self.view is not None:
                     try:
-                        self.view.tick(now - t0, inp, out, skill.state, skill.debug())
+                        self.view.tick(now - t0, inp, out, skill.state, notes)
                     except Exception:
                         self.view_errors += 1
                 if self.on_status is not None:

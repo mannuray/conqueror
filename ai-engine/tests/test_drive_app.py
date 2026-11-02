@@ -206,7 +206,9 @@ def stored_home(root: Path) -> HomeStore:
     return store
 
 
-async def home_run(store: HomeStore, cancel_after_s: float | None = None, rec: object = None) -> str:
+async def home_run(
+    store: HomeStore, cancel_after_s: float | None = None, rec: object = None, send_td: bool = True
+) -> str:
     from conqueror_ai.adapters.bridge_ws import BridgeLink
     from conqueror_ai.adapters.drive_link import DriveLink
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
@@ -216,7 +218,7 @@ async def home_run(store: HomeStore, cancel_after_s: float | None = None, rec: o
     from tests.test_objects import CAL
     from tests.test_objects_app import GREY_JPEG
 
-    bridge = FakeBridge(jpeg=GREY_JPEG, pan_tilt=(90.0, 90.0), frames_for_s=0.0)  # telemetry, no pictures
+    bridge = FakeBridge(jpeg=GREY_JPEG, pan_tilt=(90.0, 90.0), frames_for_s=0.0, send_td=send_td)
     await bridge.start()
     try:
         link = BridgeLink("127.0.0.1", bridge.ws_port)
@@ -277,3 +279,30 @@ def test_start_home_says_what_it_loaded(tmp_path: Path) -> None:
     assert snap_blocked.sum() == 1
     _, _, none, said = start_home(HomeStore(tmp_path), "fresh", MapSettings())
     assert none is None and "new" in said
+
+
+async def test_a_run_that_never_connects_leaves_the_home_alone(tmp_path: Path) -> None:
+    """Plan Z8 final review I1: with the tank off every attempt saved - each a fade step and a run id, so a
+    few retries erased the home's obstacles and memory. Only a run that connected saves."""
+    store = stored_home(tmp_path)
+    assert "no connection" in await home_run(store, send_td=False)
+    home = store.load("h")
+    assert home is not None and home.runs == ("r0",)
+
+
+def test_cq_map_with_a_damaged_home_says_so(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plan Z8 final review I2: cq-map --live --home with a damaged home showed a traceback."""
+    import sys
+
+    from conqueror_ai.app import drive as app_drive
+    from conqueror_ai.app import map as app_map
+
+    (tmp_path / "h").mkdir()
+    (tmp_path / "h" / "home.npz").write_bytes(b"not a home")
+    monkeypatch.setattr(app_drive, "HOMES", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["cq-map", "--live", "--home", "h", "--no-depth", "--no-view"])
+    with pytest.raises(SystemExit, match="damaged"):
+        app_map.main()
+    monkeypatch.setattr(sys, "argv", ["cq-map", "rec", "--home", "h"])
+    with pytest.raises(SystemExit):  # --home only with --live (minor 6)
+        app_map.main()

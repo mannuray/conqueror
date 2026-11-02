@@ -52,7 +52,10 @@ class HomeStore:
         path = self._file(name)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.name + ".tmp")
-        tmp.write_bytes(buf.getvalue())
+        with tmp.open("wb") as f:
+            f.write(buf.getvalue())
+            f.flush()
+            os.fsync(f.fileno())  # on the disk before the rename (minor 2: else empty after a power cut)
         os.replace(tmp, path)  # one step: the old home or the new one
 
     def load(self, name: str, size_m: float | None = None, cell_m: float | None = None) -> Home | None:
@@ -64,20 +67,24 @@ class HomeStore:
         fix = f"start fresh or delete {path.parent}"
         try:
             with np.load(path) as z:
-                about: dict[str, Any] = json.loads(bytes(z["about"]).decode())
+                about = json.loads(bytes(z["about"]).decode())
                 low, high, seen = z["low"], z["high"], z["seen"]
-        except (OSError, ValueError, KeyError, zipfile.BadZipFile, EOFError) as e:
+            if not isinstance(about, dict):
+                raise TypeError("the description is not a mapping")
+            d: dict[str, Any] = about  # pyright: ignore[reportUnknownVariableType]
+            version, frame = d.get("version"), d["frame"]
+            things = tuple(Remembered(**t) for t in d["things"])
+            runs = tuple(str(r) for r in d["runs"])
+            home_cell, home_size = float(frame["cell_m"]), float(frame["size_m"])
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, zipfile.BadZipFile, EOFError) as e:
             raise HomeError(f"home '{name}': damaged ({type(e).__name__}) - {fix}") from None
-        if about.get("version") != HOME_VERSION:
-            raise HomeError(
-                f"home '{name}': version {about.get('version')}, this engine reads {HOME_VERSION} - {fix}"
-            )
-        frame = about["frame"]
-        if size_m is not None and frame["size_m"] != size_m:
-            raise HomeError(f"home '{name}': another map size ({frame['size_m']} m) - {fix}")
-        if cell_m is not None and frame["cell_m"] != cell_m:
-            raise HomeError(f"home '{name}': another cell size ({frame['cell_m']} m) - {fix}")
-        things = tuple(Remembered(**t) for t in about["things"])
-        return Home(
-            low, high, seen, float(frame["cell_m"]), float(frame["size_m"]), tuple(about["runs"]), things
-        )
+        if version != HOME_VERSION:
+            raise HomeError(f"home '{name}': version {version}, this engine reads {HOME_VERSION} - {fix}")
+        if size_m is not None and home_size != size_m:
+            raise HomeError(f"home '{name}': another map size ({home_size} m) - {fix}")
+        if cell_m is not None and home_cell != cell_m:
+            raise HomeError(f"home '{name}': another cell size ({home_cell} m) - {fix}")
+        n = round(home_size / home_cell)
+        if not (low.shape == high.shape == seen.shape == (n, n)):
+            raise HomeError(f"home '{name}': damaged (its map is not {n} x {n}) - {fix}")
+        return Home(low, high, seen, home_cell, home_size, runs, things)

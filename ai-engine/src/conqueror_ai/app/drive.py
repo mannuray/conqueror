@@ -229,15 +229,22 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
         area_m=m.area_m,
         run_id=run_id,
     )
+    connected = [False]  # the tank answered: only then has the run learned anything (Z8 review I1)
     try:
-        return await _session(link, cam, drive, m, kit, world)
+        return await _session(link, cam, drive, m, kit, world, connected)
     finally:  # whatever the result, Ctrl-C too: the home keeps what this run learned
-        if kit.home is not None:
+        if kit.home is not None and connected[0]:
             print(end_home(kit.home[0], kit.home[1], earlier, world.map_run.room, world.memory, run_id))
 
 
 async def _session(
-    link: BridgeLink, cam: MjpegSource, drive: DriveLink, m: Mission, kit: Kit, world: World
+    link: BridgeLink,
+    cam: MjpegSource,
+    drive: DriveLink,
+    m: Mission,
+    kit: Kit,
+    world: World,
+    connected: list[bool],
 ) -> str:
     seed = random.randrange(1 << 31)  # wander's choices: logged, so a replay makes the same ones
     skill = make_skill(m, kit.lim, kit.cfg.cost, world.memory, seed)
@@ -252,6 +259,7 @@ async def _session(
         stop.set()
         await p.close()
         return "no connection to the tank - is it on?"
+    connected[0] = True
     await drive.cam(0.0, kit.lim.drive_tilt_deg)
     p.t0 = time.monotonic()
     room = world.map_run.room
@@ -381,7 +389,7 @@ def main() -> None:
     )
     a = ap.parse_args()
     if a.replay is not None:
-        print(replay_text(a.replay, live_view() if a.view else None))
+        print(replay_text(a.replay, live_view() if a.view else None))  # a viewer that won't start: said
         return
     if not a.what:
         ap.error("say what to do: find <thing> | wander [seconds] | explore")
@@ -403,7 +411,12 @@ def main() -> None:
             },
         )
     try:
-        view = live_view() if a.view else None
+        view = None
+        if a.view:
+            try:
+                view = live_view()
+            except Exception as e:  # a viewer that won't start never stops the run (Z8 review minor 7)
+                print(f"the viewer did not start ({e}); driving without it")
         print(f"result: {asyncio.run(run_drive(a.host, m, rec, not a.no_depth, a.home, view))}")
     except KeyboardInterrupt:
         print("\nstopped (Ctrl-C): the tank was told to stop")

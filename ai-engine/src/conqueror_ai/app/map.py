@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from conqueror_ai.adapters import calibration_store
-from conqueror_ai.adapters.home_store import HomeStore
+from conqueror_ai.adapters.home_store import HomeError, HomeStore
 from conqueror_ai.adapters.map_config import load_map_config
 from conqueror_ai.adapters.session import SessionRecorder, replay
 from conqueror_ai.app.objects import (
@@ -131,7 +131,7 @@ async def run_live(
             updates += 1
             if view is not None:
                 view.frame(f, None)
-                view.room_map(f.cap_us, snap)
+                view.room_map(f.cap_us, snap, run.room.seen_before)
     finally:
         halt.set()
         await p.close()
@@ -148,8 +148,16 @@ def main() -> None:
     ap.add_argument("--depth-model", type=Path, default=DEPTH_MODEL)
     ap.add_argument("--no-depth", action="store_true", help="leave the depth model out (echoes only)")
     ap.add_argument("--no-view", action="store_true", help="no live view (the numbers only)")
-    ap.add_argument("--home", metavar="NAME", help="with --live: start from this home's map (Plan Z8)")
+    ap.add_argument(
+        "--home",
+        nargs="?",
+        const="home",
+        metavar="NAME",
+        help="with --live: start from this home's map (Plan Z8)",
+    )
     a = ap.parse_args()
+    if a.home is not None and not a.live:
+        raise SystemExit("--home goes with --live (cq-map shows a home's map before driving)")
     if a.live == (a.folder is not None):
         raise SystemExit("give a recording folder, or --live")
     try:
@@ -159,7 +167,10 @@ def main() -> None:
         raise SystemExit(str(err)) from None
     depth = None if a.no_depth else load_depth(a.depth_model)
     if a.live:
-        live(a, cal, cfg, depth)
+        try:
+            live(a, cal, cfg, depth)
+        except HomeError as err:  # a damaged or mismatched home: said plainly (Z8 review I2)
+            raise SystemExit(str(err)) from None
         return
     show: Show | None = None
     if not a.no_view:

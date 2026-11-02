@@ -37,6 +37,8 @@ LOW = (220, 40, 40)
 HIGH = (255, 150, 0)
 TANK = (255, 255, 255)
 # a skill's notes over the map (Plan Z8, LLD §20.7)
+SEEN_BEFORE = (45, 50, 75)  # floor an earlier home run saw, not this one (shown only, never driven on)
+TARGET = (255, 80, 80)  # the thing the chase approaches
 LOOKED = (60, 200, 90)  # blended faintly over the floor the search has looked at
 ROUTE = (40, 120, 255)
 DEST = (0, 200, 255)
@@ -177,11 +179,13 @@ class RoomMap:
         )
 
 
-def map_image(snap: MapSnapshot) -> NDArray[np.uint8]:
-    """The map as a picture: up = +x (ahead at the start), right = -y; unseen black, seen grey, low red, high
-    orange, the tank's cell and its neighbours white."""
+def map_image(snap: MapSnapshot, seen_before: NDArray[np.bool_] | None = None) -> NDArray[np.uint8]:
+    """The map as a picture: up = +x (ahead at the start), right = -y; unseen black, floor only an earlier
+    home run saw dim blue-grey (Plan Z8), seen grey, low red, high orange, the tank white."""
     n = snap.seen.shape[0]
     img = np.zeros((n, n, 3), np.uint8)  # [ix, iy] first, turned for the picture at the end
+    if seen_before is not None:
+        img[seen_before & ~snap.seen] = SEEN_BEFORE
     img[snap.seen] = SEEN
     img[snap.blocked & ~snap.high] = LOW
     img[snap.high] = HIGH
@@ -210,11 +214,13 @@ def _points(v: object) -> list[tuple[float, float]]:
     return out
 
 
-def skill_image(snap: MapSnapshot, debug: Mapping[str, object]) -> NDArray[np.uint8]:
+def skill_image(
+    snap: MapSnapshot, debug: Mapping[str, object], seen_before: NDArray[np.bool_] | None = None
+) -> NDArray[np.uint8]:
     """The map picture with what the skill thinks (Plan Z8, LLD §20.7): the looked-at floor faintly green, the
     route a blue line, the destination, pending candidates yellow, ruled-out dark grey, the check magenta.
     Points off the map, or notes of another shape, are left out."""
-    img = map_image(snap).copy()
+    img = map_image(snap, seen_before).copy()
     n, cell = snap.seen.shape[0], snap.cell_m
 
     def pix(x: float, y: float) -> tuple[int, int] | None:
@@ -222,18 +228,25 @@ def skill_image(snap: MapSnapshot, debug: Mapping[str, object]) -> NDArray[np.ui
         return (n - 1 - ix, n - 1 - iy) if 0 <= ix < n and 0 <= iy < n else None
 
     k = round(LOOKED_HALF_M / cell)
+    mask = np.zeros(img.shape[:2], np.bool_)  # one blend for all the looked-at cells (review minor 4)
     for x, y in _points(debug.get("looked")):
         if (c := pix(x, y)) is not None:
-            r0, c0 = max(0, c[0] - k), max(0, c[1] - k)
-            block = img[r0 : c[0] + k, c0 : c[1] + k].astype(np.float32)
-            img[r0 : c[0] + k, c0 : c[1] + k] = (0.75 * block + 0.25 * np.array(LOOKED)).astype(np.uint8)
+            mask[max(0, c[0] - k) : c[0] + k, max(0, c[1] - k) : c[1] + k] = True
+    img[mask] = (0.75 * img[mask].astype(np.float32) + 0.25 * np.array(LOOKED, np.float32)).astype(np.uint8)
     route = _points(debug.get("route"))
     for (x0, y0), (x1, y1) in itertools.pairwise(route):
         steps = max(1, math.ceil(math.dist((x0, y0), (x1, y1)) / (cell / 2)))
         for i in range(steps + 1):
             if (c := pix(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps)) is not None:
                 img[c] = ROUTE
-    for key, colour in (("dest", DEST), ("ruled_out", RULED_OUT), ("pending", PENDING), ("check", CHECK)):
+    notes = (
+        ("dest", DEST),
+        ("ruled_out", RULED_OUT),
+        ("pending", PENDING),
+        ("check", CHECK),
+        ("target", TARGET),
+    )
+    for key, colour in notes:
         for x, y in _points(debug.get(key)):
             if (c := pix(x, y)) is not None:
                 img[max(0, c[0] - 1) : c[0] + 2, max(0, c[1] - 1) : c[1] + 2] = colour

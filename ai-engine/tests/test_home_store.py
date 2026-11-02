@@ -62,3 +62,34 @@ def test_homes_are_git_ignored() -> None:
     here = Path(__file__).resolve().parents[1]
     r = subprocess.run(["git", "check-ignore", "-q", str(here / "homes" / "x")], cwd=here, check=False)
     assert r.returncode == 0
+
+
+def test_a_malformed_home_is_refused_plainly(tmp_path: Path) -> None:
+    """Plan Z8 final review minor 1: a home of the right zip shape but wrong content (a missing key, an
+    unknown field, wrong arrays) is a HomeError too, never another exception."""
+    import io
+    import json
+
+    store = HomeStore(tmp_path)
+    good = a_home()
+    bad_abouts: list[object] = [
+        {"version": 1, "runs": [], "things": []},  # no frame
+        {
+            "version": 1,
+            "frame": {"cell_m": 0.05, "size_m": 8.0},
+            "runs": [],
+            "things": [{"word": "x", "odd": 1}],
+        },
+        [1, 2, 3],
+    ]
+    for about in bad_abouts:
+        buf = io.BytesIO()
+        raw = np.frombuffer(json.dumps(about).encode(), np.uint8)
+        np.savez_compressed(buf, low=good.low, high=good.high, seen=good.seen, about=raw)
+        (tmp_path / "h").mkdir(exist_ok=True)
+        (tmp_path / "h" / "home.npz").write_bytes(buf.getvalue())
+        with pytest.raises(HomeError):
+            store.load("h")
+    store.save("h", Home(good.low[:10, :10], good.high, good.seen, 0.05, 8.0, good.runs, ()))  # wrong shape
+    with pytest.raises(HomeError):
+        store.load("h")

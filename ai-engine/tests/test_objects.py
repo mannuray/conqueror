@@ -445,7 +445,7 @@ def test_every_picture_gets_the_pipelines_tilt_fix() -> None:
 
 
 def test_a_thing_whose_floor_point_flickers_is_listed_once() -> None:
-    """Z6 second review I5: with new things kept 0.5 s (run c1), a listed toy whose floor point flipped picture
+    """Z6 second review I5: new things kept 0.5 s (run c1): a listed toy whose floor point flipped picture
     by picture between it and a spot 25-35 cm further (outside its gate) built a second thing there - two
     candidates and two memories for one toy. No new thing starts within SAME_THING_M of a listed one of the
     same word."""

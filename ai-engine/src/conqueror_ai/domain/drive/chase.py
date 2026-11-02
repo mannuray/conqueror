@@ -114,10 +114,12 @@ class ChaseSkill:
             self._pan, self._i = None, 0
         if self.state in ("sweep", "spin") and fix is not None and fix.seen_age_s < LOST_AFTER_S:
             self.state = "approaching"  # found: straight into the approach, no standing still in between
+        if self.state in ("sweep", "spin") and sonar_m is not None and sonar_m < self.lim.clear_m:
+            return self._end("blocked")  # nothing sought in view: any echo this near is in the way (review I1)
         if self.state == "sweep":
             out = self._sweep(now_s)
         elif self.state == "spin":
-            out = self._spin(now_s, at, snap)
+            out = self._spin(now_s, at, snap, sonar_m)
         else:
             self._watch(now_s, at, fix)
             out = self._approach(now_s, at, fix, sonar_m, snap)
@@ -163,7 +165,7 @@ class ChaseSkill:
             return self._sweep(now_s)
         return self._out(STOP)
 
-    def _spin(self, now_s: float, at: XYTh, snap: MapSnapshot | None) -> SkillOut:
+    def _spin(self, now_s: float, at: XYTh, snap: MapSnapshot | None, sonar_m: float | None = None) -> SkillOut:
         """Half a turn, measured from the pose. The map can't use pictures taken while spinning (faster than
         its 45 deg/s gate), so the tank then stands and sweeps the camera over what was behind it. On the map
         the turn on the spot is checked like every move (review C1); over floor never seen it curves round on
@@ -175,7 +177,8 @@ class ChaseSkill:
         if rest > 1e-9 and cost is not None and not self.planner.can_spin(at, cost, True, max(rest, 1.0)):
             # refused (near something, or over floor never seen - §176): curve round on the forward curves
             a = at[2] + math.radians(min(rest, SEARCH_AIM_DEG))
-            want = self.planner.choose(at, self.cmd, (at[0] + math.cos(a), at[1] + math.sin(a)), None, cost)
+            ahead = None if sonar_m is None else sonar_m + self.lim.sonar_x_m  # the curve heeds the echo too
+            want = self.planner.choose(at, self.cmd, (at[0] + math.cos(a), at[1] + math.sin(a)), ahead, cost)
             if want == STOP and self.planner.can_spin(at, cost, True, max(rest, 1.0), seen=False):
                 want = Command(0.0, self.lim.spin_dps)  # no curve allowed: the last resort, as the ways out
         if rest <= 1e-9 or want == STOP:

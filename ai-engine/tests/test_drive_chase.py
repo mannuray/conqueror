@@ -229,3 +229,25 @@ def test_it_drives_on_to_a_hands_width_from_the_thing() -> None:
         if out.result is not None:
             break
     assert out.result == "done"
+
+
+def test_an_echo_under_the_stop_distance_ends_the_look_round_blocked() -> None:
+    """Z6 second review I1: find starts in the chase's look round, before roam's echo rule; the sweep and the
+    half turn (which may curve forward over unseen floor, §176) never read the sonar. An echo nearer than
+    clear_m in the look round ends the run blocked at once, as everywhere else."""
+    from conqueror_ai.domain.drive.sim import SimTank
+    from conqueror_ai.domain.room_map import RoomMap
+    from conqueror_ai.domain.types import Pose
+
+    s, tank, room = skill(), SimTank(), RoomMap()
+    for k in range(200):
+        t_us = round(k * 0.1 * 1e6)
+        pose = Pose(t_us, *tank.at, 0.0, 0.0)
+        echo = 0.05 if k >= 5 else None
+        o = s.tick(k * 0.1, tank.at, None, echo, True, snap=room.snapshot(t_us, pose, False, True))
+        assert o.cmd.v_cms <= 0.0
+        tank.step(o.cmd, 0.1)
+        if o.result:
+            assert o.result == "blocked" and k == 5
+            return
+    raise AssertionError("never ended")

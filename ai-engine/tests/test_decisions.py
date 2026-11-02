@@ -1,0 +1,91 @@
+"""The decisions log and replay (AI engine LLD §19.6, review F8; Plan Z7 Review Focus 4)."""
+
+from __future__ import annotations
+
+import random
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from conqueror_ai.adapters.decisions import DecisionLog, pack, read_decisions, replay, unpack
+from conqueror_ai.domain.drive.limits import Limits
+from conqueror_ai.domain.drive.planner import Planner
+from conqueror_ai.domain.drive.roam import RoamSkill
+from conqueror_ai.domain.drive.sim import SimRoom, SimTank
+from conqueror_ai.domain.drive.skill import Skill, SkillInput, SkillOut, make_input
+from conqueror_ai.domain.room_map import RoomMap
+from conqueror_ai.domain.types import Pose
+
+MISSION: dict[str, Any] = {"action": "wander", "thing": None, "seconds": None, "area_m": 1.5}
+
+
+def make(head: dict[str, Any], seed: int) -> Skill:
+    return RoamSkill(Planner(Limits()), "wander", rng=random.Random(seed), area_m=1.5)
+
+
+def logged_run(path: Path, seed: int = 3, ticks: int = 80) -> None:
+    """A short simulated wander, every tick logged as cq-drive logs it."""
+    sim, room, tank = SimRoom([], walls_m=2.0), RoomMap(), SimTank()
+    skill, log = make(MISSION, seed), DecisionLog(path, MISSION, seed)
+    for k in range(ticks):
+        at, t_us = tank.at, k * 100_000
+        room.update_picture(sim.marks(at), t_us)
+        pose = Pose(t_us, at[0], at[1], at[2], 0.0, 0.0)
+        snap = room.snapshot(t_us, pose, False, True)
+        inp = make_input(at=at, snap=snap, map_ok=True, area=(0.0, 0.0, 1.5), sonar_m=sim.sonar(at))
+        out = skill.tick(k * 0.1, inp)
+        log.tick(k * 0.1, inp, out, skill.state, skill.debug())
+        tank.step(out.cmd, 0.1)
+    log.close()
+
+
+def test_a_snapshot_round_trips() -> None:
+    a = np.random.default_rng(1).random((160, 160)) > 0.7
+    assert np.array_equal(unpack(pack(a)), a)
+
+
+def test_a_logged_sim_run_replays_identically(tmp_path: Path) -> None:
+    logged_run(tmp_path / "decisions.jsonl")
+    head, ticks = read_decisions(tmp_path / "decisions.jsonl")
+    assert head["mission"] == MISSION and head["seed"] == 3 and len(ticks) == 80
+    report = replay(tmp_path / "decisions.jsonl", make)
+    assert report.first_diff is None and report.states[0][1] == "start"
+
+
+class Changed:
+    """The same skill, its commands changed from tick 5 on."""
+
+    def __init__(self, inner: Skill) -> None:
+        self.inner, self.n = inner, 0
+
+    @property
+    def state(self) -> str:
+        return self.inner.state
+
+    def tick(self, now_s: float, inp: SkillInput) -> SkillOut:
+        out, self.n = self.inner.tick(now_s, inp), self.n + 1
+        return (
+            out if self.n <= 5 else SkillOut(out.cmd.__class__(out.cmd.v_cms + 1.0, out.cmd.w_dps), out.cam)
+        )
+
+    def cancel(self) -> SkillOut:
+        return self.inner.cancel()
+
+    def debug(self) -> dict[str, object]:
+        return self.inner.debug()
+
+
+def test_a_changed_skill_shows_the_first_differing_tick(tmp_path: Path) -> None:
+    logged_run(tmp_path / "decisions.jsonl")
+    report = replay(tmp_path / "decisions.jsonl", lambda head, seed: Changed(make(head, seed)))
+    assert report.first_diff == 5
+
+
+def test_cq_drive_replay_reports_identical(tmp_path: Path) -> None:
+    """`cq-drive --replay DIR`: the skill rebuilt from the logged mission, limits, cost settings and seed."""
+    from conqueror_ai.app.drive import replay_text
+
+    logged_run(tmp_path / "decisions.jsonl")
+    text = replay_text(tmp_path)
+    assert "identical" in text and "start" in text

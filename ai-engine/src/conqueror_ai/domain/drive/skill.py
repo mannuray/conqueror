@@ -52,7 +52,8 @@ class SkillOut:
 
 @runtime_checkable
 class Skill(Protocol):
-    state: str
+    @property
+    def state(self) -> str: ...  # where the skill is (for the status line and the log)
 
     def tick(self, now_s: float, inp: SkillInput) -> SkillOut: ...
 

@@ -20,12 +20,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime
+import random
 import time
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from conqueror_ai.adapters import calibration_store
+from conqueror_ai.adapters.decisions import DecisionLog, read_decisions, replay
 from conqueror_ai.adapters.detector_config import load_balls, load_vocabulary
 from conqueror_ai.adapters.drive_config import load_drive
 from conqueror_ai.adapters.drive_link import DriveLink
@@ -65,7 +67,7 @@ from conqueror_ai.domain.drive.goal import is_ball, kind_of
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import RoamSkill
-from conqueror_ai.domain.drive.skill import Result
+from conqueror_ai.domain.drive.skill import Result, Skill
 from conqueror_ai.domain.memory import ThingMemory
 from conqueror_ai.domain.objects import Detector
 from conqueror_ai.domain.vocabulary import Vocabulary
@@ -143,13 +145,38 @@ def refusal(m: Mission, has_depth: bool) -> str | None:
 
 
 def make_skill(
-    m: Mission, lim: Limits, cost: CostSettings | None = None, memory: ThingMemory | None = None
+    m: Mission,
+    lim: Limits,
+    cost: CostSettings | None = None,
+    memory: ThingMemory | None = None,
+    seed: int = 0,
 ) -> RoamSkill:
-    planner = Planner(lim)
+    """seed: wander's random choices (logged, so a replay makes the same ones, LLD §19.6)."""
+    planner, rng = Planner(lim), random.Random(seed)
     if m.action == "find":  # remembered spots, the look round, candidates, then the search (§189)
         kind = is_ball if m.thing is None else kind_of(m.thing)
-        return RoamSkill(planner, "find", cost=cost, area_m=m.area_m, memory=memory, kind=kind)
-    return RoamSkill(planner, m.action, seconds=m.seconds, cost=cost, area_m=m.area_m)
+        return RoamSkill(planner, "find", rng=rng, cost=cost, area_m=m.area_m, memory=memory, kind=kind)
+    return RoamSkill(planner, m.action, seconds=m.seconds, rng=rng, cost=cost, area_m=m.area_m)
+
+
+def replay_text(folder: Path) -> str:
+    """`cq-drive --replay DIR`: the run's logged inputs through a fresh skill; the state timeline and whether
+    every decision came out the same (LLD §19.6)."""
+    path = folder / "decisions.jsonl"
+
+    def make(mission: dict[str, Any], seed: int) -> Skill:
+        head, _ = read_decisions(path)
+        lim = Limits(**head.get("limits", {}))
+        cost = CostSettings(**head["cost"]) if "cost" in head else None
+        return make_skill(Mission(**mission), lim, cost, ThingMemory(), seed)
+
+    r = replay(path, make)
+    lines = [f"{t:7.1f} s  {state}" for t, state in r.states]
+    if r.first_diff is None:
+        lines.append("replay: identical - every decision the same")
+    else:
+        lines.append(f"replay: tick {r.first_diff} differs - logged {r.logged}, replayed {r.replayed}")
+    return "\n".join(lines)
 
 
 @dataclass
@@ -174,7 +201,8 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
     world = World(
         kit.cal, kit.cfg, kit.depth, kit.floor, kit.sizes, kit.lim, kind, area_m=m.area_m, run_id=run_id
     )
-    skill = make_skill(m, kit.lim, kit.cfg.cost, world.memory)
+    seed = random.randrange(1 << 31)  # wander's choices: logged, so a replay makes the same ones
+    skill = make_skill(m, kit.lim, kit.cfg.cost, world.memory, seed)
     stop = asyncio.Event()
     p = Perception(link, cam, world, kit.det, kit.depth, kit.rec)
     p.start(stop, drive.run(stop))
@@ -198,12 +226,19 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
             flush=True,
         )
 
-    runner = SkillRunner(world, p, drive, None, status)
+    log = None
+    if kit.rec is not None:  # every decision beside the recording (LLD §19.6)
+        mission = {"action": m.action, "thing": m.thing, "seconds": m.seconds, "area_m": m.area_m}
+        log = DecisionLog(kit.rec.folder / "decisions.jsonl", mission, seed)
+        log.head(limits=asdict(kit.lim), cost=asdict(kit.cfg.cost))
+    runner = SkillRunner(world, p, drive, log, status)
     try:
         result, detail = await runner.run(skill)
     finally:
         stop.set()
         await p.close()
+        if log is not None:
+            log.close()
         print()
     if runner.finish_error is not None:
         print(f"the stop message failed ({runner.finish_error}): the tank stops by the deadman")
@@ -238,7 +273,10 @@ async def run_drive(host: str, m: Mission, rec: SessionRecorder | None, use_dept
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", nargs="+", help="find <thing> | wander [seconds] | explore")
+    ap.add_argument("what", nargs="*", help="find <thing> | wander [seconds] | explore")
+    ap.add_argument(
+        "--replay", type=Path, metavar="DIR", help="re-run a recorded run's decisions (LLD §19.6)"
+    )
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--record", type=Path)
     ap.add_argument("--area", type=float, metavar="M", help="stay within M metres of the start")
@@ -246,6 +284,11 @@ def main() -> None:
         "--no-depth", action="store_true", help="leave the depth model out (the servo's tilt only)"
     )
     a = ap.parse_args()
+    if a.replay is not None:
+        print(replay_text(a.replay))
+        return
+    if not a.what:
+        ap.error("say what to do: find <thing> | wander [seconds] | explore")
     try:
         words = goal_words(load_vocabulary(VOCABULARY))
     except (FileNotFoundError, ValueError) as err:

@@ -55,14 +55,17 @@ from conqueror_ai.app.perception import (
     Perception,
     map_state,
 )
+from conqueror_ai.app.runner import SkillRunner
 from conqueror_ai.app.world import World, maybes_of
 from conqueror_ai.domain.camera import Calibration
 from conqueror_ai.domain.depth import MapConfig
 from conqueror_ai.domain.drive.costmap import CostSettings
+from conqueror_ai.domain.drive.curves import Command
 from conqueror_ai.domain.drive.goal import is_ball, kind_of
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import RoamSkill
+from conqueror_ai.domain.drive.skill import Result
 from conqueror_ai.domain.memory import ThingMemory
 from conqueror_ai.domain.objects import Detector
 from conqueror_ai.domain.vocabulary import Vocabulary
@@ -76,7 +79,6 @@ __all__ = [
 ]  # the stale rule lives in app.map
 
 DRIVE = Path(__file__).resolve().parents[3] / "config" / "drive.yaml"
-TICK_S = 0.2  # tick at least this often, with or without a new picture
 NEVER_GOTO = ("person",)
 
 
@@ -185,48 +187,38 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
         await p.close()
         return "no connection to the tank - is it on?"
     await drive.cam(0.0, kit.lim.drive_tilt_deg)
-    t0 = p.t0 = time.monotonic()
-    result = ""
+    p.t0 = time.monotonic()
+    room = world.map_run.room
+
+    def status(state: str, cmd: Command) -> None:
+        seen_m2 = float(room.seen.sum()) * room.cell_m**2
+        print(
+            f"\r{state:12s} v {cmd.v_cms:4.1f} cm/s  w {cmd.w_dps:6.1f} deg/s  seen {seen_m2:5.1f} m2 ",
+            end="",
+            flush=True,
+        )
+
+    runner = SkillRunner(world, p, drive, None, status)
     try:
-        while not result:
-            if drive.refused is not None:
-                result = f"refused by the tank ({drive.refused})"
-                break
-            if (failed := p.failure()) is not None:
-                result = f"failed - {failed}"
-                break
-            await p.next_picture(TICK_S)
-            now = time.monotonic()
-            state = p.state(now)
-            if state == "waiting":
-                continue
-            inp = world.input(now - t0, time.time(), state is None)
-            # planning off the event loop (6-21 ms: the fan, routes; Z6 review 11) - the snapshot is a copy
-            out = await asyncio.to_thread(skill.tick, now - t0, inp)
-            await drive.drive(out.cmd)
-            if out.cam is not None:
-                await drive.cam(*out.cam)
-            if out.result is not None:
-                result = str(out.result)
-                if result == "stale":
-                    result = f"stale - {state or 'no pose'}"
-            room = world.map_run.room
-            seen_m2 = float(room.seen.sum()) * room.cell_m**2
-            print(
-                f"\r{skill.state:12s} v {out.cmd.v_cms:4.1f} cm/s  w {out.cmd.w_dps:6.1f} deg/s  "
-                f"seen {seen_m2:5.1f} m2 ",
-                end="",
-                flush=True,
-            )
+        result, detail = await runner.run(skill)
     finally:
-        try:
-            await drive.finish()
-        except Exception as e:  # the clean-up goes on: the bridge stops the tank when the link drops
-            print(f"\nthe stop message failed ({e}): the tank stops by the deadman")
         stop.set()
         await p.close()
         print()
-    return result
+    if runner.finish_error is not None:
+        print(f"the stop message failed ({runner.finish_error}): the tank stops by the deadman")
+    return said(result, detail)
+
+
+def said(result: Result, detail: str) -> str:
+    """The CLI's words for a run's end (as before Plan Z7)."""
+    if result == Result.REFUSED:
+        return f"refused by the tank ({detail})"
+    if result == Result.FAILED:
+        return f"failed - {detail}"
+    if result == Result.STALE:
+        return f"stale - {detail}"
+    return str(result)
 
 
 async def run_drive(host: str, m: Mission, rec: SessionRecorder | None, use_depth: bool = True) -> str:

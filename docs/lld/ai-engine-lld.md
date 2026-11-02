@@ -2090,3 +2090,77 @@ stateDiagram-v2
 - **The list's confirm rule (amends §15, floor run c1):** `ObjectTracker.update` keeps a new (unconfirmed) thing until `CONFIRM_S` 0.5 s after its first sighting whether or not later pictures match it, and lists it at `CONFIRM_HITS` 3; before, a new thing missing from one picture was dropped, so a thing scoring about its word's bar (sure, missed, sure, ...) was never listed.
 - **Tests (to write first):** candidates merge within 0.5 m and keep the best score; a sighting by a ruled-out one is ignored; `next` skips one outside the area and takes one whose only marks are its own (within 12 cm); a find with a candidate checks it before unlooked floor; a not-confirmed check rules it out and the search goes on; `not_found` waits for pending candidates; memory keeps a thing beyond the tracker's 20 s, merges by word within 0.5 m, never keeps `person`; a find with a remembered spot goes there first, and a gone one is marked.
 
+### 18.14 As built (Plan Z6, 2026-10-30 - 2026-11-02; design-notes §166-§189)
+§18.13 is the design; its subsections .12-.23 record each change the floor runs brought, with the owner's decision. This section is the map of what stands at the end of the plan.
+
+**Replaced:** §18.6-§18.7's per-case rules (the clearance map's fixed margins, the "wall ahead" / "pocket" special cases, §164-§165's turn-room and reverse rules) - by one cost map (`CostMap`), one body rule (`Footprint`), the fan scored and slowed by cost, routes on costs, and the standard ways out (`Recovery`). `clearance.py` is gone. `goto` is gone (§18.13.22): `find` looks round, searches and goes to the thing.
+
+**Files (ai-engine/src/conqueror_ai):**
+
+| File | What |
+|---|---|
+| `domain/drive/cost_settings.py`, `costmap.py` | `CostSettings` (`config/map.yaml` `cost:`), `CostMap` (lethal = marks and the play area's outside, costs near marks, unseen costs a little; `ignore` sets a thing's own marks aside) |
+| `domain/drive/footprint.py` | `Footprint`: the body as a whole against the keep-out, the outline's cost along a move, spin / back poses |
+| `domain/drive/planner.py` | the fan on the cost map; the last resort a small turn on the spot (§18.13.19) |
+| `domain/drive/route.py` | `RoutePlanner`: A* on costs, `nearest` (outward search) |
+| `domain/drive/recovery.py` | `Recovery`: look, turn (toward the target when both ways are allowed), back over known floor, blocked; `ProgressWatch` |
+| `domain/drive/goals.py` | `WanderGoal`, `ExploreGoal`, `SearchGoal` (looked at from within 1 m, plus unseen floor's edges) |
+| `domain/drive/candidates.py` | `Candidates`: find's sightings and remembered spots, checked from near |
+| `domain/drive/chase.py` | `ChaseSkill`: the look round, the approach, lost only when looked at, the ways out |
+| `domain/drive/roam.py` | `RoamSkill`: wander / explore / search, find's chase and checks |
+| `domain/memory.py` | `ThingMemory`: what the run confirmed, any word but a person |
+| `domain/room_map.py`, `sonar_model.py` | the body as a floor sensor (`body_over`); the sonar's echo shared along its arc |
+| `domain/objects.py` | maybes (unsure sightings) handed out; a new thing listed after 3 sightings within 0.5 s, misses between or not |
+| `domain/vocabulary.py`, `adapters/yolo_world.py` | wordings (`also`), one thing one name |
+| `app/drive.py` | `cq-drive find <thing> | wander [s] | explore [--area M] [--record DIR]` |
+
+```mermaid
+classDiagram
+    class RoamSkill { mode: wander|explore|search; find: bool; tick(now_s, at, snap, fix, sonar_m, map_ok, cam_still, maybes) SkillOut }
+    class ChaseSkill { tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap) SkillOut }
+    class Planner { choose(at, cmd, aim, obstacle, cost) Command; foot: Footprint }
+    class RoutePlanner { route(cost, start, goal, goal_ok, near_m); nearest(cost, start, accept) }
+    class Recovery { start(now_s, at); tick(now_s, at, cost, toward) }
+    class WanderGoal
+    class ExploreGoal
+    class SearchGoal { look(at, pan_deg, cam_x_m); destination(...) }
+    class Candidates { add(spot); seed(remembered); next(...); route(...); rule_out(c) }
+    class ThingMemory { update(objects); of_kind(kind); mark_gone(r) }
+    class CostMap
+    RoamSkill *-- ChaseSkill
+    RoamSkill *-- Recovery
+    RoamSkill *-- WanderGoal
+    RoamSkill *-- ExploreGoal
+    RoamSkill *-- SearchGoal
+    RoamSkill *-- Candidates
+    RoamSkill --> ThingMemory
+    RoamSkill --> Planner
+    RoamSkill --> RoutePlanner
+    ChaseSkill *-- Recovery
+    Planner ..> CostMap
+    RoutePlanner ..> CostMap
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> start
+    start --> drive: wander / explore (stand 1 s, camera ahead)
+    start --> chase: find (the look round), nothing remembered
+    start --> check: find, a remembered spot
+    drive --> check: find, a pending candidate with a way to it
+    check --> chase: seen for sure
+    check --> drive: not sure from 1 m (ruled out; remembered: gone)
+    drive --> chase: find, seen for sure
+    chase --> drive: lost / not found in the look round
+    drive --> recover: stuck (no allowed move, no progress, no route)
+    recover --> drive: a step done
+    recover --> [*]: blocked
+    drive --> [*]: wander's seconds (done) / explore all seen (done) / search all looked at (not_found)
+    chase --> [*]: done / blocked
+    drive --> [*]: stale 2 s / echo under 10 cm (blocked)
+```
+
+**Deviations from §18.13, each with its reason:** obstacles marked only to 1.5 m and wander drifting to unvisited places (§18.13.12, floor run 1); backing off a mark on the tank's own corner (§18.13.13); the body as a whole with exact gaps (§18.13.14, run 3); the review fixes (§18.13.15); `--area` (§18.13.16); turns on the spot over seen floor (§18.13.17); look again at a maybe, then candidates (§18.13.18, §18.13.23); the small turn as the planner's last resort (§18.13.19); stop 0.28 m from the lens (§18.13.20); wordings, one name, lost only when looked at, the turn toward the target (§18.13.21); one word `find` and a search that ends (§18.13.22); the tracker's confirm rule (§18.13.23). Fan scoring by the mean of the outline's cost over the move (ledger, Task 4).
+
+**Known limits (accepted):** the view is not cut by obstacles (a thing behind another counts as looked at); a thing boxed in out of the detector's ~1 m reach is not found (§189, run c3); the 46 cm doorway (owner: 50 cm for now, §168); memory lasts one run (a home spot next, §189 step 2).
+

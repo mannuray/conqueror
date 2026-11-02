@@ -2051,3 +2051,41 @@ stateDiagram-v2
     Search --> [*]: every reachable spot looked at from within 1 m - not_found
     Approach --> [*]: done / blocked
 ```
+
+#### 18.13.23 Candidates and a memory of things (owner, 2026-11-02, design-notes §189) - design, to approve
+- **`ThingMemory`** (`domain/memory.py`, new): `Remembered(word, x_m, y_m, last_seen_s, gone)`. `update(objects, now_s)` - each sure object the tracker lists (floor words, never `person`) updates the remembered thing of that word within `MERGE_M` 0.5 m (spot, last seen, `gone` cleared) or adds one; nothing is dropped by time. `of_kind(kind) -> list[Remembered]` - present ones, most recent first; `mark_gone(r)`. Owned by the drive session (one per process: `cq-drive serve` will keep it across skills; step 2 saves it).
+- **`Candidates`** (`domain/drive/candidates.py`, new): `Candidate(x_m, y_m, score, state: pending|ruled_out, remembered: Remembered | None)`. `add(spot, score)` - within `MERGE_M` of a candidate: its spot becomes the newest, best score kept; within `MERGE_M` of a ruled-out one: ignored; else a new pending one. `seed(remembered)` - pending candidates from memory. `next(at, cost, routes, area) -> Candidate | None` - the pending one with the cheapest route to within `CHECK_CLOSE_M`, its own marks within `TARGET_R_M` set aside (the chase's rule); outside the play area: never. `rule_out(c)`.
+- **`RoamSkill` in find:** `tick(..., maybes: list[XY scored])` replaces the single `maybe`; each tick `candidates.add` for each. At the start, `candidates.seed(memory.of_kind(kind))`: with any, the first state is `check` (no look round first); otherwise the look round as now. In `drive` (search): a pending candidate → `check` it (§179's `_Check`, `CHECK_MAX_M` dropped); none → `SearchGoal`. `_end_check` (not confirmed) → `candidates.rule_out`, and `memory.mark_gone` when it came from memory. `not_found` when `SearchGoal.done` and no candidate is pending.
+- **App:** `drive_session` keeps one `ThingMemory`, updates it from `run.p.objects()` each tick, hands it to `make_skill`; `nearest_maybe` gives way to all maybes of the kind (`goal.kind`), sure or not.
+
+```mermaid
+classDiagram
+    class Remembered { word: str; x_m; y_m; last_seen_s; gone: bool }
+    class ThingMemory { update(objects, now_s); of_kind(kind) list~Remembered~; mark_gone(r) }
+    class Candidate { x_m; y_m; score; state: pending|ruled_out; remembered: Remembered? }
+    class Candidates { add(spot, score); seed(remembered); next(at, cost, routes, area) Candidate?; rule_out(c) }
+    class RoamSkill { candidates: Candidates; search: SearchGoal; memory: ThingMemory }
+    ThingMemory *-- Remembered
+    Candidates *-- Candidate
+    Candidate --> Remembered
+    RoamSkill *-- Candidates
+    RoamSkill *-- SearchGoal
+    RoamSkill --> ThingMemory
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> Check: find, remembered spots of the word
+    [*] --> LookRound: find, none remembered
+    LookRound --> Approach: seen for sure
+    LookRound --> Search: not seen
+    Search --> Check: a pending candidate (a sighting >= 0.15, or remembered)
+    Check --> Approach: sure from near
+    Check --> Search: not sure from 1 m - ruled out (remembered: gone)
+    Search --> Approach: seen for sure
+    Approach --> Search: lost
+    Search --> [*]: no pending candidate, no unlooked floor - not_found
+    Approach --> [*]: done / blocked
+```
+- **Tests (to write first):** candidates merge within 0.5 m and keep the best score; a sighting by a ruled-out one is ignored; `next` skips one outside the area and takes one whose only marks are its own (within 12 cm); a find with a candidate checks it before unlooked floor; a not-confirmed check rules it out and the search goes on; `not_found` waits for pending candidates; memory keeps a thing beyond the tracker's 20 s, merges by word within 0.5 m, never keeps `person`; a find with a remembered spot goes there first, and a gone one is marked.
+

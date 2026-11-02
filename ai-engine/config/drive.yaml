@@ -4,4 +4,4 @@ speed_table: [[0.0, 0], [17.7, 15], [22.0, 40], [33.5, 100]]   # design-notes §
 limits:
   v_cruise_cms: 25.0
   v_cap_cms: 25.0          # slice 1's cap (spec 8 §5)
-  stop_range_m: 0.40       # lens to the ball's centre at arrival
+  stop_range_m: 0.28       # lens to the thing's centre at arrival; front ~15-20 cm off (owner, design-notes §185)

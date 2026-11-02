@@ -25,7 +25,12 @@ def test_no_target_sweeps_the_camera_turns_half_round_sweeps_again_then_not_foun
     outs = [s.tick(i * 0.1, (0.0, 0.0, 0.0), None, None, True) for i in range(40)]
     pans = [o.cam[0] for o in outs if o.cam is not None]
     assert pans[:5] == [0.0, -45.0, 45.0, -90.0, 90.0] and all(o.cmd == STOP for o in outs[:39])
-    outs = [s.tick(4.0 + i * 0.1, (0.0, 0.0, 0.0), None, None, True) for i in range(80)]
+    from conqueror_ai.domain.drive.sim import SimTank
+
+    tank, outs = SimTank(), list[ch.SkillOut]()  # the half turn is measured from the pose (review M4)
+    for i in range(80):
+        outs.append(s.tick(4.0 + i * 0.1, tank.at, None, None, True))
+        tank.step(outs[-1].cmd, 0.1)
     assert outs[6].cmd.w_dps == LIM.spin_dps  # 5 positions x (0.1 s to see it still + 0.8 s look) = 4.5 s
     # half a turn (180 / 65 = 2.8 s): the map can't use pictures while spinning (faster than 45 deg/s),
     # so the tank stops and sweeps the camera again over what was behind it
@@ -86,7 +91,8 @@ def test_a_stale_map_or_no_pose_stops_the_tank_at_once_and_ends_it_after_two_sec
 def test_something_close_ahead_that_isnt_the_ball_ends_it_blocked() -> None:
     s = skill()
     fix = TargetFix(1, 2.0, 0.0, 0.0)
-    assert s.tick(0.0, (0.0, 0.0, 0.0), fix, 0.20, True).result == "blocked"
+    assert s.tick(0.0, (0.0, 0.0, 0.0), fix, 0.12, True).result is None  # owner: 10 cm (design-notes §159)
+    assert s.tick(0.1, (0.0, 0.0, 0.0), fix, 0.09, True).result == "blocked"
 
 
 def test_a_target_unseen_for_3_s_starts_looking_again() -> None:
@@ -114,11 +120,134 @@ def test_the_camera_follows_the_target_in_steps() -> None:
 
 
 def test_standing_blocked_for_3_s_ends_it_blocked() -> None:
-    """Floor chase 11: a box 38 cm ahead (beyond clear_m) blocked every curve; the tank stood for 4 minutes.
+    """Floor chase 11: a box just beyond clear_m blocked every curve; the tank stood for 4 minutes.
     Going around is slice 2; until then (and when there's no way round) it ends after BLOCKED_GIVE_UP_S."""
     s = skill()
     fix = TargetFix(1, 2.0, 0.0, 0.0)
-    outs = [s.tick(i * 0.1, (0.0, 0.0, 0.0), fix, 0.35, True) for i in range(40)]
+    outs = [s.tick(i * 0.1, (0.0, 0.0, 0.0), fix, 0.15, True) for i in range(40)]
     ends = [i for i, o in enumerate(outs) if o.result is not None]
     assert all(o.cmd == STOP for o in outs) and [outs[i].result for i in ends] == ["blocked"]
     assert 30 <= ends[0] <= 31
+
+
+# ---- Plan Z6 final review: the chase on the cost map
+def wall_beside_left() -> object:
+    import numpy as np
+
+    from conqueror_ai.domain.room_map import RoomMap
+
+    room = RoomMap()
+    room.seen[:] = True
+    pts = [(float(x), float(y)) for x in np.arange(-1.0, 1.0, 0.025) for y in np.arange(0.175, 0.3, 0.025)]
+    c = room.cells(np.array(pts))
+    room.hit(c, "low")
+    room.hit(c, "low")
+    return room.snapshot(0, None, False, True)
+
+
+def test_the_search_turn_is_checked_against_the_map() -> None:  # review C1
+    """No ball in view: sweep, then half a turn on the spot - checked like every move (LLD §18.13.2). A wall
+    6 cm beside the left side: the turn is refused (it brushed the wall to 1.5 mm)."""
+    from conqueror_ai.domain.drive.sim import Box, SimRoom, SimTank
+
+    snap = wall_beside_left()
+    sim, tank, s, gap = SimRoom([Box(-1.0, 0.175, 1.0, 0.30, 0.0, 0.4)], walls_m=2.5), SimTank(), skill(), 9.0
+    for k in range(150):
+        o = s.tick(k * 0.1, tank.at, None, None, True, True, snap)  # type: ignore[arg-type]
+        tank.step(o.cmd, 0.1)
+        gap = min(gap, sim.body_gap(tank.at, LIM))
+        if o.result:
+            break
+    assert gap >= 0.005
+
+
+def test_recovery_ends_when_the_chase_goes_back_to_searching() -> None:  # review I2
+    """15 s, not 6: since §187 the look round's time away from the thing doesn't count toward lost."""
+    s = skill()
+    snap = wall_beside_left()
+    s.state, s._recovering = "approaching", True  # pyright: ignore[reportPrivateUsage]
+    s.recovery.start(0.0, (0.0, 0.0, 0.0))
+    for k in range(150):
+        s.tick(k * 0.1, (0.0, 0.0, 0.0), TargetFix(1, 1.5, 0.0, k * 0.1), None, True, True, snap)  # type: ignore[arg-type]
+        if s.state != "approaching":
+            break
+    assert s.state == "sweep" and not s._recovering  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_thing_is_lost_only_after_the_camera_looked_at_its_spot() -> None:
+    """Design-notes §187 (floor run g3): the ways out looked round (the camera off the car) for ~5 s and the
+    chase counted the car lost after 3 s unseen, starting its whole search again. Time the camera points
+    elsewhere doesn't count: the ways out run their look; then, the camera back on the spot and the thing
+    still not seen, 3 s of looking at it is lost."""
+    s = skill()
+    snap = wall_beside_left()
+    s.state, s._recovering = "approaching", True  # pyright: ignore[reportPrivateUsage]
+    s.recovery.start(0.0, (0.0, 0.0, 0.0))
+    states: list[tuple[float, str, bool]] = []
+    for k in range(150):
+        s.tick(k * 0.1, (0.0, 0.0, 0.0), TargetFix(1, 1.5, 0.0, k * 0.1), None, True, True, snap)  # type: ignore[arg-type]
+        states.append((k * 0.1, s.state, s._recovering))  # pyright: ignore[reportPrivateUsage]
+        if s.state != "approaching":
+            break
+    look_ends = next(t for t, _, r in states if not r)
+    assert look_ends >= 4.0  # the whole look round, the car not lost meanwhile
+    # it looked at the spot ~2 s of the look (standing first, then ahead again): ~1 s more of looking there
+    assert states[-1][1] == "sweep" and look_ends < states[-1][0] <= look_ends + 3.2
+
+
+def test_on_the_map_no_progress_is_stuck_too() -> None:  # review I2: LLD §18.13.4
+    """Moving but getting nowhere (the fan offers curves, the tank doesn't move) for stuck_s starts the ways
+    out on the map, as roam does - not only 'every curve blocked'."""
+    import numpy as np
+
+    from conqueror_ai.domain.room_map import RoomMap
+
+    room = RoomMap()
+    room.seen[:] = True
+    snap = room.snapshot(0, None, False, True)
+    s, k = skill(), 0
+    for k in range(50):  # the pose never changes though the commands drive
+        s.tick(k * 0.1, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 0.0), None, True, True, snap)
+        if s._recovering:  # pyright: ignore[reportPrivateUsage]
+            break
+    assert s._recovering and 2.9 <= k * 0.1 <= 3.6  # pyright: ignore[reportPrivateUsage]
+    del np
+
+
+def test_it_drives_on_to_a_hands_width_from_the_thing() -> None:
+    """Owner (design-notes §185): the stop distance was much - 0.40 m lens to the thing's centre left the
+    front ~30 cm short. Now 0.28 m: with the thing 38 cm from the lens it still approaches; at 30 cm it
+    arrives."""
+    s = skill()
+    d = 0.38 + LIM.cam_x_m  # from the tank's centre
+    out = s.tick(0.0, (0.0, 0.0, 0.0), TargetFix(1, d, 0.0, 0.0), None, True)
+    assert out.result is None and out.cmd.v_cms > 0
+    s = skill()
+    d = 0.30 + LIM.cam_x_m
+    for i in range(30):
+        out = s.tick(i * 0.1, (0.0, 0.0, 0.0), TargetFix(1, d, 0.0, 0.0), None, True)
+        if out.result is not None:
+            break
+    assert out.result == "done"
+
+
+def test_an_echo_under_the_stop_distance_ends_the_look_round_blocked() -> None:
+    """Z6 second review I1: find starts in the chase's look round, before roam's echo rule; the sweep and the
+    half turn (which may curve forward over unseen floor, §176) never read the sonar. An echo nearer than
+    clear_m in the look round ends the run blocked at once, as everywhere else."""
+    from conqueror_ai.domain.drive.sim import SimTank
+    from conqueror_ai.domain.room_map import RoomMap
+    from conqueror_ai.domain.types import Pose
+
+    s, tank, room = skill(), SimTank(), RoomMap()
+    for k in range(200):
+        t_us = round(k * 0.1 * 1e6)
+        pose = Pose(t_us, *tank.at, 0.0, 0.0)
+        echo = 0.05 if k >= 5 else None
+        o = s.tick(k * 0.1, tank.at, None, echo, True, snap=room.snapshot(t_us, pose, False, True))
+        assert o.cmd.v_cms <= 0.0
+        tank.step(o.cmd, 0.1)
+        if o.result:
+            assert o.result == "blocked" and k == 5
+            return
+    raise AssertionError("never ended")

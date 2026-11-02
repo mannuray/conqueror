@@ -210,7 +210,7 @@ Each ping: laptop send `t0`, receive `t1`, the pong's `bridge_us`. Keep the 8 sa
 
 ### 5.6 SonarModel
 - Beam: half-angle 12° (to confirm in phase 0); inner free cone half-angle 4°.
-- Valid echo `d`: cells on the arc at `d ± 3 cm` within the beam → **occupied** (weight `+0.85`); cells in the inner cone with range `< d − 5 cm` → free (weight `−0.2`, low).
+- Valid echo `d`: cells on the arc at `d ± 3 cm` within the beam → **occupied**, one hit (`+0.85`) shared by the arc's cells (design-notes §167; was a full hit each); cells in the inner cone with range `< d − 5 cm` → free (weight `−0.2`, low).
 - `None` (no echo, fault) or ≥ 4 m → **no update at all**.
 
 ### 5.7 LocalGrid
@@ -965,7 +965,7 @@ classDiagram
 
 ### 17.0 Scope
 - **Built here:** the drive-while-thinking loop (spec 8 §3) and the chase-the-ball skill (spec 8 §4), on the laptop. Two ways to run it:
-  - **`cq-drive goto ball`:** standalone, for testing. It drives like the phone does, as the owner, through plain `drive_rate`.
+  - **`cq-drive find ball`** (was `goto`, §18.13.22): standalone, for testing. It drives like the phone does, as the owner, through plain `drive_rate`.
   - **`cq-drive serve`:** the skill server for Tank Logo's `SEE?`, `HOWFAR`, `FIND` and `GOTO`, driving under the runner's drive lease (bridge LLD R26).
 - **The existing `BridgeLink` stays motion-free** (§6: "never sends anything that moves the tank"). Everything that moves the tank goes through one new, separate adapter, `DriveLink`.
 
@@ -979,7 +979,7 @@ classDiagram
 | `domain/drive/chase.py` | `ChaseSkill`: the state machine of spec 8 §4.2 (looking / approaching / arrived / lost) |
 | `domain/drive/sim.py` | `SimTank`: a simulated tank following commands, for tests |
 | `adapters/drive_link.py` | `DriveLink`: `drive_rate` (standalone) or `skill_drive` (lease), `cam_set`, the skill messages; cm/s → % |
-| `app/drive.py` | `cq-drive goto ball` and `cq-drive serve` |
+| `app/drive.py` | `cq-drive find ball` (was `goto`, §18.13.22) and `cq-drive serve` |
 | `config/drive.yaml` | the limits and score weights (plain values, loaded into `Limits`) |
 
 ### 17.2 Classes
@@ -1110,18 +1110,18 @@ stateDiagram-v2
 ### 17.7 `DriveLink` and speed
 - **cm/s → `v` %:** from the measured table (design-notes §69–§71): 0 → 0; 17.7 → 15 %; 22 → 40 %; 33.5 → 100 %, linear in between. **The plan measures it again on the floor** (spec 8 §9) and writes `config/drive.yaml`.
 - **Turn rate:** sent as `yaw_rate` in °/s, + = left (bridge R4; the bridge reads no other key - final review C1).
-- **Standalone (`goto`):** `drive_rate` as the owner. A NOT_OWNER or STOPPED nack ends the run with a plain message.
+- **Standalone (`find`, was `goto`):** `drive_rate` as the owner. A NOT_OWNER or STOPPED nack ends the run with a plain message.
 - **Lease (`serve`):** `skill_drive` with the skill id (bridge R26). A `skill_end` from the bridge cancels at once.
 
 ### 17.8 `cq-drive`
-- **`cq-drive goto ball [--host]`:**
+- **`cq-drive find ball [--host]`** (was `goto`):
   - prints the states and the result;
   - Ctrl-C stops the tank (0/0, then `release`);
   - records the session like `cq-record`, for replay.
 - **`cq-drive serve [--host]`:**
   - connects with hello `client: "ai-skills"` and stays connected;
   - answers `skill_ask` (`see?` / `howfar` for a thing);
-  - runs `skill_start` (`find` / `goto`);
+  - runs `skill_start` (`find`; `goto` removed, §18.13.22);
   - reports `skill_done` or `skill_failed {reason}`.
 - **Reasons:** `not_found`, `lost`, `blocked`, `stale`, `unknown_thing`, `cancelled`.
 
@@ -1153,7 +1153,7 @@ stateDiagram-v2
 - **Files** (all in `ai-engine/`):
   - `domain/drive/limits.py` (`Limits`), `curves.py` (`Command`, `ramp`, `roll_out`), `planner.py` (`Planner`, `bearing_deg`), `goal.py` (`Goal`, `TargetFix`, `size_positions`, `kind_of`, `echo_is_target`), `chase.py` (`ChaseSkill`, `SkillOut`), `sim.py` (`SimTank`);
   - `adapters/drive_link.py` (`DriveLink`, `to_percent`, `drive_msg`), `adapters/drive_config.py` (`load_drive`);
-  - `app/drive.py` (`cq-drive goto <thing> [--host] [--record]`), `config/drive.yaml`;
+  - `app/drive.py` (`cq-drive find <thing> [--host] [--record]`, was `goto`), `config/drive.yaml`;
   - tests `test_drive_{limits,planner,goal,chase,sim,link,app}.py`; the AI engine suite is 266 tests.
   - **Not built here:** `cq-drive serve` and the drive lease (Plan Z2, with the Tank Logo words).
 - **The bridge changed too** (inside Plan Z1, owner: yes): `drive_rate` didn't pass "moving" to the §72 STOP hold, so the phone's STOP didn't end a `drive_rate` run. `MotionController::Hooks::claim(fd, now, moving)`; host tests 674.
@@ -1244,7 +1244,7 @@ classDiagram
 | `domain/drive/roam.py` | `RoamSkill` (wander / explore / find), shares the chase's stale / blocked rules | Z5 |
 | `domain/drive/planner.py`, `chase.py` | the fan checks the clearance map; the chase aims along a route | Z5 |
 | `domain/drive/sim.py` | `SimRoom` (boxes, an overhang) for simulated drives | Z5 |
-| `app/drive.py` | `cq-drive wander [seconds] | explore | find <thing> | goto <thing>` | Z5 |
+| `app/drive.py` | `cq-drive wander [seconds] | explore | find <thing>` (`goto` removed, §18.13.22) | Z5 |
 | `config/map.yaml` | heights, ranges, log-odds steps, costs (§18.9) | Z3-Z5 |
 
 ### 18.2 Classes
@@ -1380,7 +1380,7 @@ sequenceDiagram
 - **Log-odds** (config): hit +0.85, miss −0.4, clamped to ±4; **blocked** when `low > 0.7` or `high > 0.7`.
 - **`SonarModel.update(room, pose, dist_m)`** (each telemetry sample, at most 10 Hz used):
   - the sonar point = pose + `sonar_x_m` ahead; beam half-angle 12° (Q0);
-  - an echo `d` < 4.0 m: a **low hit** on the arc at `d` (±12°, cells along the arc), and a **low miss** in the narrow cone (±4°) from 0.10 m to `d − 0.10`;
+  - an echo `d` < 4.0 m: a **low hit** on the arc at `d` (±12°, cells along the arc), **shared: each cell 1 / (cells on the arc)** (design-notes §167), and a **low miss** in the narrow cone (±4°) from 0.10 m to `d − 0.10`;
   - **never touches `high`**; no echo or `d ≥ 4.0` does nothing (spec 9 §5).
 - **Edges:** cells outside the 8 × 8 m count as blocked (a soft fence).
 - **`snapshot(pose, stale)`** → `MapSnapshot`: copies of `blocked`, `high` (for the view), `seen`, plus the pose, the stale flag (spec 7 §4), `depth_ok` (a depth picture in the last 1 s) and `angle_trusted`.
@@ -1573,3 +1573,596 @@ classDiagram
   SonarModel ..> RoomMap : low only
   RoomMap ..> MapSnapshot
 ```
+
+### 18.13 Revision 2: driving on a cost map (owner, 2026-10-30, design-notes §166 — approved 2026-10-30, Plan Z6)
+
+**Why.** Plan Z5's floor runs 1-3 each found a case the driving rules got wrong, and each fix was another rule (unseen space grown 30 cm round marks, the escape exception, "no part deeper in" sums on two maps, a 4× weight for narrow places, the reverse's track rules); each broke another case (design-notes §164-§165.2). Spec 0 §1.1 principle 3: general before special. This revision replaces those rules with the standard model real robots use (ROS 2 Nav2: a cost map, a footprint check, a local planner scoring moves by cost, and recovery behaviours). It replaces §18.6, §18.7's "look" and the §164-§165 additions; §18.3-§18.5 (seeing, the room map) stay.
+
+**One idea for a child:** every 5 cm square of the floor has a price. Things the tank has seen are walls it can't drive into; near them the price rises; floor it has never seen costs something, so it goes there slowly and head-first, where its eyes are. It picks the cheapest good move, and when every move is too dear it tries the standard ways out, then says `blocked`.
+
+#### 18.13.1 The costs (`CostMap`, replaces `ClearanceMap`)
+Per 5 cm cell, from one `MapSnapshot`:
+
+| Cell | Cost | Moves |
+|---|---|---|
+| **lethal:** `blocked` (low or high above the log-odds level) or outside the map | 1 | the body keeps `KEEP_OUT_M` from it (§18.13.2) |
+| **near:** free, near a lethal cell | the near cost below, at most `NEAR_COST` (0.8) | allowed, dearer the closer |
+| **unknown:** never seen and never driven over | + `UNKNOWN_COST` (0.3) | allowed forward and turning; **never backward** (§18.13.4) |
+| **free:** seen or driven over, far from anything | 0 | allowed |
+
+- `d` = distance from a point to the centre of the nearest lethal cell (`cv2.distanceTransform`, once per snapshot, as today).
+- **The near cost has two readers** (one meaning each):
+  - **the fan, at the body's outline points:** `NEAR_COST` × (`NEAR_OUT_M` − d) / (`NEAR_OUT_M` − `KEEP_OUT_M`), clipped to 0..`NEAR_COST`, with `NEAR_OUT_M` 0.20 - zero 20 cm from the outline, full at the keep-out;
+  - **routes, at the tank's centre:** `NEAR_COST` × (`NEAR_C_M` − d) / (`NEAR_C_M` − `body_half_w_m`), clipped the same, with `NEAR_C_M` 0.40.
+- **A cell's cost** = min(0.95, near + unknown); lethal is 1.
+- **Nothing is grown into unknown space.** A box's hidden back is unknown: dearer, slower, never forbidden until seen. The trade-off is the owner's (§166): something never seen can be touched, slowly and never head-on (the sonar, `clear_m` 10 cm, and the Uno's 15 cm brake look forward).
+- **The body is a sensor too:** the cells under the tank's footprint (shrunk 2 cm all round for pose drift) get a floor observation in `RoomMap` - a miss on low and high, `seen` true - at most 10 times a second and one step per cell per update, like the sonar (Z4's evidence rule): the floor the tank stands or drove on is free. `RoomMap.body_over(pose, footprint)`.
+
+#### 18.13.2 One body check (`Footprint`)
+> **Superseded by §18.13.14 (2026-10-31, design-notes §171-§172):** the body as a whole, exact gaps from its rectangle; the per-point rule below froze beside one mark (5 cm rounding). The objection to a body-wide rule below is answered there.
+
+- The outline of `Limits`' rectangle (front 13, rear 9, half-width 11.5 cm, design-notes §163), a point every 2.5 cm, posed along a move at most 5° / 2.5 cm apart (as §164 built).
+- **The one rule: no point of the body's outline comes nearer than `KEEP_OUT_M` (7.5 cm, about one cell, to the obstacle cell's centre) to a known obstacle; a point already nearer may not come any nearer.** Each outline point is checked against its own start (the points move with the body, so "this point" is well defined).
+  - Why 7.5 cm: the map's cells are 5 cm, so a free cell next to an obstacle cell can be 0-5 cm from the real surface. Checking only "inside an obstacle cell" would have allowed run 2's left turn by the bed (the rear corner swings to 14.6 cm, the panel's cell started at 15 cm).
+  - Why per point: a body-wide rule ("the nearest point never nearer", or a sum) let one part move in while another moved out; per point, run 2's left and right turns and driving on are refused, as they should be.
+  - Everything else about nearness is cost, so a tank near something moves away by choice, with no escape exception.
+- The same check for every move: curves, a turn on the spot (only the way it turns), backing up, and the chase's last turn.
+
+#### 18.13.3 Choosing a move (`Planner`, the fan)
+- The fan as today (slice 1's curves, turns on the spot beyond 35°, the ramps), each rolled out 1.5 s.
+- **Score** = progress toward the aim point − heading still off − steering change (slice 1, §17.4) − `COST_W` (4) × the **mean over the move of the highest cost the outline meets at each pose** (as built: the highest alone is met at the start of every move beside a wall, so it couldn't tell moving away); forbidden moves are left out.
+- **Speed from cost:** `c` = the highest cost the outline points meet over the first 0.5 m of the chosen move's roll-out; the top speed = `v_top` − (`v_top` − `v_min`) × `c` - 25 cm/s on open seen floor, toward 18 cm/s near things or on unknown floor, never a crawl below `v_min`. The 18 cm/s for an untrusted angle or no depth stays (spec 9 §5).
+- **Routes (`RoutePlanner`)** use the same costs: A* on the 10 cm grid (each cell the dearest of its 2 × 2), step cost = length × (1 + `ROUTE_COST_W` (6) × cell cost); a cell is closed only when its centre is nearer than `body_half_w_m` to a lethal cell (the body would overlap going straight); the start cell is always open. Room to turn round comes from the near cost, not from a rule; doorways stay open.
+- **Goals** as §18.7: wander picks free, seen spots 1.5-2 m away; explore picks the cheapest reachable frontier (seen free cells next to unknown, groups ≥ 30 cm); find hands over to the chase.
+
+#### 18.13.4 When nothing is possible: recovery (standard, in order)
+Triggered when no move is allowed or no move makes progress for `STUCK_S` (3 s), or there is no route:
+1. **look** - stand, pan the camera to −90°, −45°, 45°, 90° (1 s each) and back: the map learns the floor beside the tank; then plan again.
+2. **turn** - turn on the spot (90°, the way the footprint check allows, cheaper way first), then plan again.
+3. **back up** - straight back at `v_min`, at most 20 cm, **only over known-free cells** (seen or driven over): nothing senses behind the tank, so it never backs onto floor it doesn't know. Re-checked every tick.
+4. **give up** - `blocked`.
+- A recovery that ends in a move that makes progress (the tank 0.3 m from where recovery began) resets the sequence; recovery starting again within 0.3 m of the last one continues the sequence where it left off. One rule set for wander, explore, find and the chase's routes.
+
+```mermaid
+stateDiagram-v2
+  [*] --> start_look : camera ahead 1 s
+  start_look --> drive
+  drive --> drive : cheapest allowed move along the route
+  drive --> look : stuck (no allowed move / no progress 3 s / no route)
+  look --> drive : a move found
+  look --> turn : still stuck
+  turn --> drive : a move found
+  turn --> back : still stuck (or no turn allowed)
+  back --> drive : a move found
+  back --> blocked : still stuck (or no known-free floor behind)
+  drive --> chase : find - the thing confirmed
+  drive --> done : wander time up / explore nothing left
+  drive --> held : stale map (STOP at once)
+  held --> drive : fresh
+  held --> failed : stale 2 s
+  drive --> failed : sonar echo < clear_m not the target; STOP; Ctrl-C
+  chase --> done : arrived
+```
+
+#### 18.13.5 Classes (as built, Z6 review 2026-10-31)
+```mermaid
+classDiagram
+  class RoomMap {
+    +update_picture(marks, t_us)
+    +body_over(pose, front_m, rear_m, half_w_m, t_us) bool
+    +snapshot(t_us, pose, stale, angle_trusted) MapSnapshot
+  }
+  class CostSettings {
+    +keep_out_m, near_out_m, near_c_m, near_cost, unknown_cost
+    +cost_w, route_cost_w, stuck_s, back_m
+  }
+  class CostMap {
+    +lethal, seen, known_free: bool[n,n]
+    +dist: float[n,n]
+    +cell_of(x, y) / centre(ix, iy)
+    +dist_m(x, y) / dist_many(xy) / seen_at(x, y)
+    +marks_within(x0, y0, x1, y1) FloatArray
+    +outline_cost(xy) FloatArray
+    +centre_cost(half_w) FloatArray
+  }
+  class Footprint {
+    +outline, body: FloatArray
+    +world(p, pts) FloatArray
+    +dense(at, poses) list~XYTh~
+    +allowed(cost, at, poses) bool
+    +gaps(poses, marks) FloatArray
+    +highest_cost(cost, at, poses, ahead_m) float
+    +mean_cost(cost, at, poses) float
+    +spin_poses(at, left, deg)$ / back_poses(at, length_m)$
+  }
+  class Planner {
+    +fan(at, target, now, far_m, cost) list~Command~
+    +choose(at, now, aim, obstacle_m, cost, far_m) Command
+    +can_spin(at, cost, left, deg) bool
+    +speed_cap(cost, at, cmd) float
+  }
+  class RoutePlanner {
+    +route(cost, start, goal) list~XY~
+    +costs(cost, start) FloatArray
+    +grid_of(x, y) / nearest(...)
+  }
+  class Recovery {
+    +step: look | turn | back | blocked
+    +start(now_s, at)
+    +progress(at)
+    +tick(now_s, at, cost) Out | None
+  }
+  class ProgressWatch {
+    +reset()
+    +ok(now_s, at) bool
+  }
+  class TurnMeter {
+    +deg: float
+    +reset()
+    +update(th_rad) float
+  }
+  class WanderGoal {
+    +destination(now_s, at, cost, planner) XY | None
+    +drop()
+  }
+  class ExploreGoal
+  class RoamSkill {
+    +tick(now_s, at, snap, fix, sonar_m, map_ok, cam_still) SkillOut
+  }
+  class ChaseSkill {
+    +tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap) SkillOut
+  }
+  RoomMap ..> CostMap : snapshot
+  CostMap --> CostSettings
+  Planner --> Footprint
+  Recovery --> Footprint
+  Recovery --> TurnMeter
+  ProgressWatch --> Recovery : progress
+  RoamSkill --> Planner
+  RoamSkill --> RoutePlanner
+  RoamSkill --> Recovery
+  RoamSkill --> ProgressWatch
+  RoamSkill --> WanderGoal
+  RoamSkill --> ExploreGoal
+  RoamSkill --> ChaseSkill : find
+  ChaseSkill --> Planner
+  ChaseSkill --> RoutePlanner
+  ChaseSkill --> Recovery
+  ChaseSkill --> ProgressWatch
+  ChaseSkill --> TurnMeter : the search turn
+  Planner ..> CostMap
+  RoutePlanner ..> CostMap
+  Footprint ..> CostMap : gaps to marks_within
+```
+
+#### 18.13.6 One tick
+```mermaid
+sequenceDiagram
+  participant L as drive loop
+  participant M as RoomMap
+  participant C as CostMap
+  participant S as RoamSkill
+  participant R as RoutePlanner
+  participant P as Planner
+  participant F as Footprint
+  L->>M: body_over(pose) (each telemetry)
+  L->>M: snapshot()
+  L->>S: tick(at, snap, sonar, ...) (asyncio.to_thread: off the event loop)
+  S->>C: CostMap(snap) (once per snapshot)
+  S->>R: route(cost, at, goal)
+  R-->>S: route (or none: recovery)
+  S->>P: choose(at, now, aim, echo, cost)
+  P->>F: allowed / mean_cost per move
+  F-->>P: scores
+  P-->>S: best move (or STOP: recovery)
+  S-->>L: Command (+ camera)
+```
+
+#### 18.13.7 Removed
+`GROW_UNSEEN_M` and the grown map; `MAP_CLEAR_M` / `FRONT_CLEAR_M` / `BODY_CLEAR_M` / `SIDE_MARGIN_M` (one `KEEP_OUT_M` instead); the escape exception (`ESCAPE_M`); the "no deeper in" sums and the two-map check; `TIGHT_W` / `turn_room_m`; the look's camera pans as a special case, `STUCK_LOOKS`, `LOOK_ROUNDS`; the reverse's track and "not twice" rules. Kept: the sonar's stop (`clear_m`), the stale rule, 18 cm/s when unsure, the ramps, the measured body, reverse only at `v_min`.
+
+#### 18.13.8 Config (`config/map.yaml`, `cost:`)
+```yaml
+cost: {keep_out_m: 0.075, near_out_m: 0.20, near_c_m: 0.40, near_cost: 0.8, unknown_cost: 0.3, cost_w: 4.0, route_cost_w: 6.0, stuck_s: 3.0, back_m: 0.20}
+```
+More careful only (§17.10): `keep_out_m`, `near_out_m`, `near_c_m`, `near_cost`, `unknown_cost` may only be raised; `back_m` only lowered.
+
+#### 18.13.9 Tests
+- **Costs:** lethal / near / unknown / free values on drawn maps; the body over cells clears them (and not beyond its shrunk footprint).
+- **Footprint:** a move into a lethal cell is forbidden, next to it allowed but dear; a turn on the spot checked only its own way.
+- **The three floor runs as drawn maps:** run 2 (bed panel right, leg ahead-right, the way on behind-left), run 3 (one small mark ahead-left, unknown round the tank) and the wall beside the tank: none ends `blocked` while a way exists; no outline point ever enters a lethal cell.
+- **Recovery:** the order look → turn → back → `blocked`; backing only over known-free cells; progress resets it.
+- **Simulated rooms** (`SimRoom`): all of today's (wander, explore ≥ 80 %, doorways 46 / 60 / 80 cm, the ball by the sofa, the box on the route) plus the three floor-run layouts, with **today's bar unchanged: the body never nearer than 5 mm to any box**. If a case fails only on a box the tank never saw, it is reported to the owner, not passed by lowering the bar.
+- **Floor (spec 9 §6):** wander 2 min, explore, goto ball round a box, find the ball - as Plan Z5 Task 9.
+
+#### 18.13.10 Checked on the floor-run recordings (scratch script, the rules above, 2026-10-30)
+- **Run 1 (wander, 2 min):** the speed from cost along the path it drove: median 25 cm/s, the lowest tenth 23.8, never 18 - smooth driving stays.
+- **Run 3 (stuck 12 s, blind zone):** both turns on the spot allowed (outline cost 0.70: unknown floor round it); straight on refused (the small mark ahead) - it would turn and go on.
+- **Run 2 (beside the bed):** every move refused, backing up included - the map has the leg's cell overlapping the tank's side (the 5 cm cells), so no point may move. With the keep-out the tank wouldn't have driven in there (the bed was seen ~4 s before it did); if it happens anyway it ends `blocked`, the safe answer.
+
+#### 18.13.11 Plan
+Owner (2026-10-30): a new plan, **Z6 - the cost map**, on branch `plan-z6` from `plan-z5`: replaces the rules above, keeps the rest of Z5; Z5's floor checks folded into Z6's; both merge to `main` together after Z6's floor checks.
+
+#### 18.13.12 Wander that explores; obstacles marked to 1.5 m (owner, 2026-10-30, design-notes §169 - approved: "do both a and b")
+**Found on Z6 floor run 1 (wander, 70 s, replayed through the code):** the tank drove 12.5 m but stayed in a 2 × 3 m strip beside the bed, turning back at its ends. Two causes:
+1. **Wander only aimed at seen floor** (§18.7), so the far side of the bed - never seen - was never a destination; at the bed's edge every candidate lay behind or beside it.
+2. **The map shrank the room:** 6.5 m² marked as obstacles; 86 of 108 wander candidates at the end were within 30 cm of a mark. One picture's own marks against the sonar's echo at the same moment (283 pictures): distance ratio 1.07 at 0.8-1.2 m, **0.97 at 1.2-1.6 m, 0.87 at 1.6-2.2 m** (about 25 cm too near at 2 m), and ~2/3 of the final marks were made from 1.5-2 m away, speckled.
+
+**A - obstacles trusted to 1.5 m** (`ranges.mark_max_m` 2.0 → **1.5**, in `config/map.yaml` and the `Ranges` default). Floor and "above" stay at 3.0 m, so far floor is still seen (and far unseen floor still becomes known). Safety: anything is marked once it is within 1.5 m - 6 s ahead at 25 cm/s - and the sonar's echo, its 10 cm stop and the Uno's brake are unchanged. The simulated camera (`SimRoom.marks`, exact) is unchanged.
+
+**B - wander explores** (`WanderGoal`): the same candidates (1.5 / 1.75 / 2.0 m every 10°), but
+- **seen floor only, as before** - *changed while building:* with unseen floor allowed, the simulated tank 15 cm from a wall, facing along it, picked a spot **behind the wall** (the wall was beside it, out of the camera's view, so not yet on the map), turned towards it and touched the wall within 0.2 s (`test_no_turn_on_the_spot_scrapes_a_wall`). Seen floor plus the preference below does the same job the safe way, as explore does: the edge of what it has seen is new, driving there shows the next bit, and so on;
+- **reachable only** - the route cost to the candidate's 10 cm grid cell (`RoutePlanner.costs`, one Dijkstra per pick) is finite; spots behind a wall are skipped rather than tried and dropped;
+- **prefers places it hasn't been lately** - the goal remembers when the tank was last in each 25 cm cell (`VISIT_CELL_M`); a spot's novelty comes from the latest visit within 0.5 m of it (`VISIT_NEAR_M`): 1 if none, else min(1, age / `VISIT_FORGET_S` 60 s);
+- score = `cos(bearing) + 0.5·min(clearance, 1) + NOVEL_W·novelty + noise(0.3)`, **`NOVEL_W` 2.0** - enough for an unvisited spot behind (−1 + 2) to beat a visited one ahead (+1), so it turns round to new places, and among new places it still prefers ahead (smooth driving).
+
+Wander stays different from explore: explore goes to the cheapest frontier until none is left and ends `done`; wander drifts towards new places for its seconds, never ends early, and goes back to old places once they're forgotten (60 s).
+
+```mermaid
+classDiagram
+  class WanderGoal {
+    +seconds: float | None
+    +rng: Random
+    -_visits: dict[(int,int), float]  25 cm cells
+    +destination(now_s, at, cost: CostMap, planner: RoutePlanner) XY | None
+    +drop()
+    +done(now_s) bool
+    -_novelty(p, now_s) float
+  }
+  class RoutePlanner {
+    +costs(cost, start) FloatArray
+    +grid_of(x, y) (int, int)
+  }
+  WanderGoal ..> RoutePlanner : reachable spots
+  WanderGoal ..> CostMap : clearance
+  RoamSkill --> WanderGoal
+```
+
+**Tests:** wander needs seen open floor (nothing seen → `None`); skips spots it can't reach (walled in → `None`); after driving 2 m ahead and back it picks a spot > 0.5 m from that strip (old code: 0.35 m); a forgotten strip (200 s) is ahead again; obstacles 3 cm up at ~1.8 m are not marked but their floor is, at ~1.05 m they are; the wall-scrape case above. Suite 507 passed, 1 expected failure (§168).
+
+**Measured (2026-10-30):**
+- **A on floor run 1's recording:** obstacle area 6.5 → **2.1 m²**; usable wander spots at the end 22 → **42** of 108; the speckled ring round the start mostly gone.
+- **B in simulated rooms** (the simulated camera sees exactly, 2 m all round): 5 × 5 m with a bed, 120 s - 0.5 m cells visited 40-44 (old 40-48), the drive's ~25 m allows only ~50; 7 × 7 m with a bed and two boxes, 240 s - 73-93, mean 85 (old 79-84, mean 82). **No real difference in simulation**: the perfect camera already shows the old wander the way round. The test that counts is the floor.
+
+#### 18.13.13 Backing off a mark on the tank's own corner (owner, 2026-10-30, design-notes §170)
+`Recovery._back_ok`: the outline's cells along the reverse must be known-free **or under the body at the start of backing** (its outline and whole-body grid cells at `at`); `Footprint.allowed` still applies, so no point gets nearer to a mark than it is. Floor run 2 ended `blocked` with a mark on the front-right corner and clear floor behind; now it backs off. Tests: `test_backs_off_a_mark_touching_its_front_corner` (was blocked), `test_never_backs_over_a_mark_behind` (guard). Replaces §18.13.10's run-2 outcome when the floor behind is known clear.
+
+#### 18.13.14 The body as a whole, exact gaps (owner, 2026-10-31, design-notes §171, §172 - as built after the Z6 review)
+Floor run 3 froze beside one false mark: each body point kept its own distance, read from 5 cm cell centres, so any slide past a mark read as "nearer". A first fix (body points measured exactly, a 5 mm allowance, an outline check) worked but was three rules and let the body creep 5 mm a decision (Z6 review 1-2); as built now it is one rule:
+
+```mermaid
+classDiagram
+    class CostMap {
+        +marks_within(x0, y0, x1, y1) FloatArray
+        -_pad: BoolArray  the lethal cells, the map's edge lethal
+    }
+    class Footprint {
+        +front_m, rear_m, half_w_m, lim_reach
+        +allowed(cost, at, poses) bool
+        +gaps(poses, marks) FloatArray
+    }
+    Footprint --> CostMap : marks_within (reach + keep_out round the move)
+```
+
+- `Footprint.gaps(poses, marks)`: per pose, the exact distance from the body's rectangle to the nearest mark (an obstacle cell's centre, or the map's edge); a mark inside the rectangle reads minus its depth (deeper is nearer).
+- `Footprint.allowed(cost, at, poses)`: with `g0` = the gap at `at` and the marks within `sweep_r_m + keep_out_m` of the move:
+  1. at every dense pose the gap stays `>= min(keep_out_m, g0)` - never into the keep-out from outside, never nearer than now from inside it; a mark entering the outline is a gap below 0, so review I1 (a leg under the front edge) is the same rule;
+  2. if `g0 < SLIDE_MIN_M` (3 cm, owner) the last pose's gap must be larger than `g0` - no sliding along a thing whose cell overlaps the track.
+- **The §18.13.2 objection** (a body-wide rule "let one part move in while another moved out"): from outside the keep-out nothing may enter it, as before; inside it, another part may come only as near as the nearest part already is - the body is never nearer anything than now. Run 2's turns by the bed stay refused (`test_run_2_beside_the_bed`).
+- Exact, so no allowance: sliding along a wall or past a mark reads the same gap; a turn whose corner would pass 4 mm from a wall reads 0.4 cm, not 5. The look-out distance follows `keep_out_m` (raised keep-outs kept exactly).
+- **B (obstacles only from 35 cm) was built and dropped** (owner, §172): with the simulator seeing like the real camera, a box's side seen only from closer than 35 cm stayed off the map and the body passed 3.6 mm from it; A alone unfreezes run 3.
+- Tests: `test_one_mark_beside_the_body_never_freezes_it`, `test_beside_a_mark_still_never_nearer_than_now`, `test_no_creeping_nearer_a_little_at_a_time`, `test_a_raised_keep_out_is_kept_exactly`, `test_a_turn_is_checked_its_own_way` (clear margins: 9.1 / 6.4 cm), `test_no_sliding_along_a_wall_over_the_track`; the 46 cm doorway passes; `test_no_turn_on_the_spot_scrapes_a_wall[π/2, 0.15]` a strict known failure (the next design).
+
+#### 18.13.15 Z6 review fixes (2026-10-31, design-notes §172)
+- `Recovery._back_ok`: only **lethal** cells the body covers at the start count as passable (run 2's corner mark); unseen floor behind the tail does not.
+- `ProgressWatch` (one "stuck" check for roam and chase) and `TurnMeter` (a turn measured from the pose, for recovery's turn and the chase's search turn) in `recovery.py`; `MOVED_M`, `TURNED_DEG` moved there.
+- `WanderGoal(rng, lim)`: a destination needs `sweep_r_m + keep_out_m` (~25 cm) of room - a spot it can stand and turn on - in place of a separate 30 cm; `ROOM_W` 0.5 named; `NOVEL_W` 2's reason stated (to the side beats visited ahead by more than the noise; behind ties with ahead); `done()` removed (the skill keeps the time).
+- `Recovery.tick` lost its unused `dt_s`; `PLAN_TRIES` 3, `BODY_GRID` 9 named.
+- `SimRoom.marks(ranges=)`: obstacles only to `Ranges.mark_max_m` (1.5 m), as the real depth; `load_map_config` refuses a smaller `mark_max_m` (fewer camera obstacles).
+- `cq-drive`: the skill's tick runs in `asyncio.to_thread` (6-21 ms of planning off the event loop; the snapshot is a copy).
+
+#### 18.13.16 The play area, only when asked (owner, 2026-10-31, design-notes §174)
+- **Command:** `cq-drive wander|explore|find ... --area M`. Without it nothing changes: the tank goes wherever it can reach, other rooms too (owner). M must be more than 0 (`goto` took no area; removed, §18.13.22).
+- **One rule, in the cost map:** `CostMap(snap, s, ignore=None, area=(x, y, r))` - every cell whose centre is further than r from (x, y) is lethal, a wall like any other. Destinations, routes, the fan, the body's gap and the ways out all respect it with no change of their own. `RoamSkill(..., area_m=)` fixes (x, y) at the pose of its first tick with a fresh map and hands the same circle to its chase (`ChaseSkill.area`).
+- **Wander:** spots are looked for 1.5-2 m away as before; only when none of those is open, seen and reachable, 0.5-1.25 m away (`WANDER_NEAR_RADII_M`) - a small play area or a small room. Wander without an area behaves as before.
+- **The chase:** a target whose cell is lethal even with its own marks set aside (outside the area, inside a wall, under a high edge) can't be reached: the chase ends `blocked` at once (before: seen, stuck, lost, seen again - forever).
+- **Not safety:** STOP, the deadman, the sonar stop and the body's keep-out are unchanged.
+
+```mermaid
+classDiagram
+    class CostMap {
+        +lethal: BoolArray
+        +__init__(snap, s, ignore, area)
+    }
+    class RoamSkill {
+        +area_m: float | None
+        -_area: tuple | None
+    }
+    class ChaseSkill {
+        +area: tuple | None
+    }
+    class WanderGoal {
+        +destination(now_s, at, cost, planner) XY | None
+        -_best(now_s, at, cost, planner, reach, radii)
+    }
+    RoamSkill --> CostMap : area=_area
+    RoamSkill --> ChaseSkill : area
+    ChaseSkill --> CostMap : area
+    RoamSkill --> WanderGoal
+```
+
+#### 18.13.17 Turns on the spot over seen floor, unseen only as a last resort (owner, 2026-10-31, design-notes §176)
+- `Footprint.turn_ok(cost, at, left, deg=90, seen=True)`: the body's rule (`allowed` over `spin_poses`) and, with `seen`, every cell the outline sweeps that the body doesn't cover now is seen on the map (outside the map: refused). `seen=False` is the body's rule alone.
+- `Planner.can_spin(..., seen=True)` and the fan's / `_score`'s turn on the spot use `seen=True`: over unseen floor the fan offers only its forward curves.
+- `Recovery._turn` uses `seen=False` (the last resort: nothing else was allowed - §166, unseen costs but is never forbidden).
+- `ChaseSkill._spin` (the search turn): refused with `seen=True`, `planner.choose` toward a point 1 m off at heading + min(rest, `SEARCH_AIM_DEG` 170°) - curving round, the `TurnMeter` counting it; no curve allowed: the turn on the spot with `seen=False`; neither: sweep from here. Turning to face the ball at the end: `seen=False`.
+
+```mermaid
+sequenceDiagram
+    participant Fan as Planner.fan / _score
+    participant Rec as Recovery._turn
+    participant Foot as Footprint.turn_ok
+    Fan->>Foot: turn_ok(seen=True)
+    alt sweep over seen floor
+        Foot-->>Fan: allowed: offer the turn on the spot
+    else unseen floor in the sweep
+        Foot-->>Fan: refused: forward curves only
+    end
+    Note over Fan,Rec: every move refused for stuck_s: the ways out
+    Rec->>Foot: turn_ok(seen=False)
+    Foot-->>Rec: the body's rule alone (last resort)
+```
+
+#### 18.13.18 Find: look again at a maybe (owner, 2026-11-01, design-notes §179)
+- `Detection.sure` (default True). `to_detections(..., maybe_score=None)` / `YoloWorld(model, vocab, maybe_score)`: candidates from min(`maybe_score`, the word's threshold) up are kept, `sure` = at or over the word's threshold. `detectors()` passes `MAYBE_SCORE` 0.15 (`domain/objects.py`).
+- `ObjectPipeline.on_frame` locates sure detections for the tracker (unchanged); `maybes()` is every sighting of the newest used picture, sure and unsure (cleared every picture) - a single sure sighting the tracker hasn't listed is a maybe too (design-notes §181).
+- `app/drive.py`: `nearest_maybe(maybes, goal.kind, at)`; `_tick` hands it to `RoamSkill.tick(..., maybe=)` in find only.
+- `RoamSkill`: state `"check"` from `"drive"` when `_worth_checking` (≤ `CHECK_MAX_M` 3 m, cell not lethal - the area included - and not within `CHECKED_R_M` 0.5 m of a spot checked in `CHECKED_FORGET_S` 60 s). `_checking`: phase look - the camera to the spot (pan ±60°), halted, until `cam_still` pictures for `CHECK_LOOK_S` 1.5 s; phase closer - the route to within `CHECK_CLOSE_M` 1.0 m, the planner as in `_drive`, stuck or no route ends the check; then look once more. `CHECK_MAX_S` 15 s for the whole check. A confirmed fix takes over at any time (the existing find → chase branch runs first). `_end_check` remembers the spot.
+
+```mermaid
+classDiagram
+    class Detection {
+        +cls: str
+        +score: float
+        +box
+        +sure: bool
+    }
+    class ObjectPipeline {
+        +on_frame(f, size, dets, cam)
+        +objects() list~ObjectEstimate~
+        +maybes() list~Located~
+    }
+    class RoamSkill {
+        +tick(now_s, at, snap, fix, sonar_m, map_ok, cam_still, maybe)
+        -_worth_checking(now_s, at, spot, cost) bool
+        -_checking(now_s, at, cost, planner, sonar_m, cam_still) SkillOut
+        -_end_check(now_s) SkillOut
+        -_check: _Check
+        -_checked: list
+    }
+    class _Check {
+        +spot: XY
+        +t0: float
+        +phase: look | closer
+        +closer: bool
+        +aimed: bool
+        +still_t0: float
+    }
+    ObjectPipeline --> Detection : sure to the tracker, unsure to maybes
+    RoamSkill --> _Check
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> drive
+    drive --> check: maybe worth checking (find)
+    check --> chase: tracker confirms (3 sightings)
+    state check {
+        [*] --> look
+        look --> closer: still 1.5 s, not confirmed, > 1 m
+        closer --> look: within 1 m
+    }
+    check --> drive: not confirmed / 15 s / stuck - spot remembered
+```
+
+#### 18.13.19 The planner's last resort: a small turn on the spot (owner, 2026-11-01, design-notes §184)
+- `Planner.choose`: no allowed move and a map → `_turn_out(at, target, obstacle_m, cost, far_m)`: for each side, `can_spin(at, cost, left, TURN_OUT_DEG 30, seen=False)`; from the pose turned that far, the best-scoring allowed forward move of `fan`; the side with the better one gives `Command(0, ±spin_dps)`; neither → STOP. Next tick the fan's "finish the turn" or its forward curves take over.
+
+```mermaid
+sequenceDiagram
+    participant Skill as Chase / Roam
+    participant P as Planner.choose
+    participant T as Planner._turn_out
+    participant F as Footprint.turn_ok
+    Skill->>P: choose(at, now, aim, obstacle, cost)
+    P->>P: score the fan (forward curves)
+    alt some move allowed
+        P-->>Skill: best move
+    else every move forbidden
+        P->>T: _turn_out(...)
+        T->>F: turn_ok(30 deg, seen=False) each side
+        T->>P: from the turned pose: best allowed forward move
+        T-->>Skill: turn on the spot toward the better side, or STOP
+    end
+```
+
+#### 18.13.20 Stop distance 0.28 m (owner, 2026-11-01, design-notes §185)
+- `Limits.stop_range_m` 0.40 → **0.28** (`config/drive.yaml` the same): the chase arrives within `stop_range_m + 0.05` of the lens; the route's `near_m` and the speed's slow-down follow it. Still an "at least" limit for the settings file.
+
+#### 18.13.21 Naming and searching (owner, 2026-11-02, design-notes §187)
+- **Wordings.** `Word.also: tuple[str, ...]` (`vocabulary.yaml`: `also: [toy car]`). `Vocabulary.prompts` - what the model is asked, each word then its wordings, in the model's column order; `Vocabulary.name_of` - the word each column reports as; `check_model` compares the model's baked-in names with `prompts`. A wording used twice (as a word or another word's wording) is refused. `tools/measure/export_world.py` bakes in every wording.
+- **`to_detections`:** a word's score is the max over its columns; then as before (the best word per candidate, its threshold or the maybe bar, NMS per word); last `_one_name`: the same greedy NMS (IoU ≥ `NMS_IOU` 0.7) over all the detections regardless of word - the stronger box keeps its name, the weaker is dropped.
+- **Lost only when looked at (`ChaseSkill`).** `_cam_pan` (where this skill last sent the camera), `_seen_at` (when the target was last seen), `_away_s` (since then, time the camera was moving or pointed more than `VIEW_DEG` 30° from the target's bearing). `_watch` runs each approach tick; `_lost(fix)`: `fix.seen_age_s − _away_s > LOST_AFTER_S` (3 s). With the camera on the target all along this is the old rule.
+- **The ways out's turn toward the target:** `Recovery.tick(now_s, at, cost, toward=None)`; when both turn directions are allowed and `toward` is given, the turn goes to the target's side (else the cheaper, as before). The chase passes its target; roam passes none.
+- **goto = find.** `make_skill`: both make `RoamSkill("wander", find=True, area_m=...)`; `--area` allowed for both. `RoamSkill.tick` in find hands over to the chase from `"start"` too, so a run begins with the chase's look round (sweep, half a turn, sweep); `not_found` returns to wandering (as §179), a sighting starts a fresh chase. `ChaseSkill` stays the approach and look-round part inside it.
+
+```mermaid
+classDiagram
+    class Word { word: str; floor: bool; min_score: float; also: tuple~str~ }
+    class Vocabulary { words; names; prompts; name_of; check_model(model_names) }
+    class ChaseSkill { _cam_pan; _seen_at; _away_s; _watch(now_s, at, fix); _lost(fix) bool }
+    class Recovery { tick(now_s, at, cost, toward) }
+    class RoamSkill { find: bool; chase: ChaseSkill }
+    Vocabulary *-- Word
+    RoamSkill *-- ChaseSkill
+    ChaseSkill *-- Recovery
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> LookRound: goto / find
+    LookRound --> Approach: seen
+    LookRound --> Search: not_found (sweep, half turn, sweep)
+    Search --> Check: a maybe (§179)
+    Check --> Search: not confirmed
+    Check --> Approach: confirmed
+    Search --> Approach: seen
+    Approach --> WaysOut: stuck
+    WaysOut --> Approach: a step done (camera back on the thing)
+    Approach --> Search: lost (3 s looking at its spot unseen)
+    Approach --> [*]: done / blocked
+```
+- **Results changed:** a cq-drive `goto` / `find` no longer ends `not_found` - a fruitless look round goes back to searching, and the search has no end of its own: it runs until done, blocked, stale or STOP (`--area` keeps it near). The ChaseSkill still ends `not_found` inside it (§17.6 above, unchanged), and the Tank Logo words (Tank Logo LLD §24, 7050) and the bridge's `skill_failed` (bridge LLD R26) still list it - when Plan Z2 wires the Logo words to this skill, the search needs an end (open question, design-notes §187).
+
+#### 18.13.22 One word, find; a search that ends (owner, 2026-11-02, design-notes §188)
+- **`goto` dropped.** `Action` = `find | wander | explore`; `goto` is an unknown word like any other ("cq-drive does: find, wander, explore"; owner: remove it altogether). The §17 / §18 text above that says `goto` is history; the Logo word will be `FIND` (Plan Z2).
+- **Find searches what it hasn't looked at from near (owner: option A).** `make_skill`: `find` makes `RoamSkill("search", find=True, area_m=...)`. `SearchGoal` (`goals.py`): `look(at, pan_deg, cam_x_m)` marks the 30 cm cells (`LOOKED_M`) within `LOOK_M` 1.0 m of the lens and `LOOK_HALF_DEG` 35° of the camera's axis (measured: a toy in view is named in 58-68 % of pictures under 1 m, 16 % at 1-1.5 m); `destination` - the nearest reachable seen floor not looked at, **or edge of unseen floor (`ExploreGoal._frontier`) not yet reached** (amended §189, floor run c2: a corner behind furniture was never seen) (`RoutePlanner.nearest`), kept `EXPLORE_NEW_S` while still wanted (an edge until reached, other floor until looked at); a reached spot and cells at the tank count as looked; None and `done` when none is left. `RoamSkill.tick` wraps `_tick`: in a search each still picture (`cam_still`) marks the view at `_look_pan`, the pan of the last camera command any part sent (start, roam, check, recovery, chase). `_drive`: no route and `search.done` ends `not_found`; explore still ends `done`. A chase that loses the thing returns to the same search. Loose: the view is not cut by obstacles (a thing hidden behind another counts as looked at); `RoutePlanner.nearest` offers only cells the tank can stand on, so floor within about half its width of a wall, the area's edge or a mark is searched only if the camera sweeps it on the way.
+- **`refusal`:** `find` without the depth model is refused like `explore` ("find needs the depth model …"): without depth only the sonar's arc is seen, and the search picks only seen floor.
+- This replaces 18.13.21's "Results changed": a find ends `done` (reached), `not_found` (every reachable spot looked at from near, never seen), `blocked`, `stale` or `cancelled`.
+
+```mermaid
+classDiagram
+    class SearchGoal { done: bool; look(at, pan_deg, cam_x_m); looked(p) bool; destination(now_s, at, cost, planner) XY; drop() }
+    class RoamSkill { mode: wander|explore|search; find: bool; search: SearchGoal; _look_pan; tick(); _tick() }
+    RoamSkill *-- SearchGoal
+    RoamSkill *-- ChaseSkill
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> LookRound: find
+    LookRound --> Approach: seen
+    LookRound --> Search: not seen
+    Search --> Check: a maybe (§179)
+    Check --> Search: not confirmed
+    Check --> Approach: confirmed
+    Search --> Approach: seen
+    Approach --> Search: lost
+    Search --> [*]: every reachable spot looked at from within 1 m - not_found
+    Approach --> [*]: done / blocked
+```
+
+#### 18.13.23 Candidates and a memory of things (owner, 2026-11-02, design-notes §189) - approved, built
+- **`ThingMemory`** (`domain/memory.py`, new): `Remembered(word, x_m, y_m, last_seen_s, gone)`. `update(objects, now_s)` - each sure object the tracker lists (floor words, never `person`) updates the remembered thing of that word within `MERGE_M` 0.5 m (spot, last seen, `gone` cleared) or adds one; nothing is dropped by time. `of_kind(kind) -> list[Remembered]` - present ones, most recent first; `mark_gone(r)`. Owned by the drive session (one per process: `cq-drive serve` will keep it across skills; step 2 saves it).
+- **`Candidates`** (`domain/drive/candidates.py`, new): `Candidate(x_m, y_m, state: pending|ruled_out, remembered: Remembered | None)` (as built: no score - nothing decides by it). `add(spot)` - within `MERGE_M` of a candidate: its spot becomes the newest; within `MERGE_M` of a ruled-out one: ignored; else a new pending one. `seed(remembered)` - pending candidates from memory. `route(c, at, snap, routes, area, settings)` - a way to within `CLOSE_M` 1.0 m, on a cost map with the marks within `TARGET_R_M` 12 cm of the spot set aside (the chase's rule - this clears the spot's own cell, so a thing against furniture is taken too); outside the play area: None. `next(at, snap, routes, area, settings) -> Candidate | None` - the pending one with the shortest such way. `rule_out(c)`.
+- **`RoamSkill` in find:** `tick(..., maybes: Sequence[XY])` replaces the single `maybe`; each tick `candidates.add` for each. At the start, `candidates.seed(memory.of_kind(kind))`: with any, the first state is `check` (no look round first); otherwise the look round as now. In `drive` (search): a pending candidate with a way to it → `check` it (§179's `_Check`, now holding its `Candidate`; `CHECK_MAX_M` and the 60 s re-check rule dropped; going closer follows `Candidates.route`, the fan still keeps off every mark); none reachable → tried again after `CANDIDATE_RETRY_S` 1 s; meanwhile `SearchGoal`. `_end_check` (not confirmed) → `candidates.rule_out`, and `memory.mark_gone` when it came from memory. `not_found` when `SearchGoal.done` and no candidate is pending.
+- **App:** `drive_session` keeps one `ThingMemory`, updates it from `run.p.objects()` each tick, hands it to `make_skill(m, lim, cost, memory)`; `nearest_maybe` gave way to `maybes_of(maybes, kind)` - all of the kind, sure or not.
+
+```mermaid
+classDiagram
+    class Remembered { word: str; x_m; y_m; last_seen_s; gone: bool }
+    class ThingMemory { update(objects, now_s); of_kind(kind) list~Remembered~; mark_gone(r) }
+    class Candidate { x_m; y_m; state: pending|ruled_out; remembered: Remembered? }
+    class Candidates { add(spot); seed(remembered); pending(); route(c, at, snap, routes, area); next(at, snap, routes, area) Candidate?; rule_out(c) }
+    class RoamSkill { candidates: Candidates; search: SearchGoal; memory: ThingMemory }
+    ThingMemory *-- Remembered
+    Candidates *-- Candidate
+    Candidate --> Remembered
+    RoamSkill *-- Candidates
+    RoamSkill *-- SearchGoal
+    RoamSkill --> ThingMemory
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> Check: find, remembered spots of the word
+    [*] --> LookRound: find, none remembered
+    LookRound --> Approach: seen for sure
+    LookRound --> Search: not seen
+    Search --> Check: a pending candidate (a sighting >= 0.15, or remembered)
+    Check --> Approach: sure from near
+    Check --> Search: not sure from 1 m - ruled out (remembered: gone)
+    Search --> Approach: seen for sure
+    Approach --> Search: lost
+    Search --> [*]: no pending candidate, no unlooked floor - not_found
+    Approach --> [*]: done / blocked
+```
+- **The list's confirm rule (amends §15, floor run c1):** `ObjectTracker.update` keeps a new (unconfirmed) thing until `CONFIRM_S` 0.5 s after its first sighting whether or not later pictures match it, and lists it at `CONFIRM_HITS` 3; before, a new thing missing from one picture was dropped, so a thing scoring about its word's bar (sure, missed, sure, ...) was never listed.
+- **Tests (to write first):** candidates merge within 0.5 m and keep the best score; a sighting by a ruled-out one is ignored; `next` skips one outside the area and takes one whose only marks are its own (within 12 cm); a find with a candidate checks it before unlooked floor; a not-confirmed check rules it out and the search goes on; `not_found` waits for pending candidates; memory keeps a thing beyond the tracker's 20 s, merges by word within 0.5 m, never keeps `person`; a find with a remembered spot goes there first, and a gone one is marked.
+
+### 18.14 As built (Plan Z6, 2026-10-30 - 2026-11-02; design-notes §166-§189)
+§18.13 is the design; its subsections .12-.23 record each change the floor runs brought, with the owner's decision. This section is the map of what stands at the end of the plan.
+
+**Replaced:** §18.6-§18.7's per-case rules (the clearance map's fixed margins, the "wall ahead" / "pocket" special cases, §164-§165's turn-room and reverse rules) - by one cost map (`CostMap`), one body rule (`Footprint`), the fan scored and slowed by cost, routes on costs, and the standard ways out (`Recovery`). `clearance.py` is gone. `goto` is gone (§18.13.22): `find` looks round, searches and goes to the thing.
+
+**Files (ai-engine/src/conqueror_ai):**
+
+| File | What |
+|---|---|
+| `domain/drive/cost_settings.py`, `costmap.py` | `CostSettings` (`config/map.yaml` `cost:`), `CostMap` (lethal = marks and the play area's outside, costs near marks, unseen costs a little; `ignore` sets a thing's own marks aside) |
+| `domain/drive/footprint.py` | `Footprint`: the body as a whole against the keep-out, the outline's cost along a move, spin / back poses |
+| `domain/drive/planner.py` | the fan on the cost map; the last resort a small turn on the spot (§18.13.19) |
+| `domain/drive/route.py` | `RoutePlanner`: A* on costs, `nearest` (outward search) |
+| `domain/drive/recovery.py` | `Recovery`: look, turn (toward the target when both ways are allowed), back over known floor, blocked; `ProgressWatch` |
+| `domain/drive/goals.py` | `WanderGoal`, `ExploreGoal`, `SearchGoal` (looked at from within 1 m, plus unseen floor's edges) |
+| `domain/drive/candidates.py` | `Candidates`: find's sightings and remembered spots, checked from near |
+| `domain/drive/chase.py` | `ChaseSkill`: the look round, the approach, lost only when looked at, the ways out |
+| `domain/drive/roam.py` | `RoamSkill`: wander / explore / search, find's chase and checks |
+| `domain/memory.py` | `ThingMemory`: what the run confirmed, any word but a person |
+| `domain/room_map.py`, `sonar_model.py` | the body as a floor sensor (`body_over`); the sonar's echo shared along its arc |
+| `domain/objects.py` | maybes (unsure sightings) handed out; a new thing listed after 3 sightings within 0.5 s, misses between or not |
+| `domain/vocabulary.py`, `adapters/yolo_world.py` | wordings (`also`), one thing one name |
+| `app/drive.py` | `cq-drive find <thing> | wander [s] | explore [--area M] [--record DIR]` |
+
+```mermaid
+classDiagram
+    class RoamSkill { mode: wander|explore|search; find: bool; tick(now_s, at, snap, fix, sonar_m, map_ok, cam_still, maybes) SkillOut }
+    class ChaseSkill { tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap) SkillOut }
+    class Planner { choose(at, cmd, aim, obstacle, cost) Command; foot: Footprint }
+    class RoutePlanner { route(cost, start, goal, goal_ok, near_m); nearest(cost, start, accept) }
+    class Recovery { start(now_s, at); tick(now_s, at, cost, toward) }
+    class WanderGoal
+    class ExploreGoal
+    class SearchGoal { look(at, pan_deg, cam_x_m); destination(...) }
+    class Candidates { add(spot); seed(remembered); next(...); route(...); rule_out(c) }
+    class ThingMemory { update(objects); of_kind(kind); mark_gone(r) }
+    class CostMap
+    RoamSkill *-- ChaseSkill
+    RoamSkill *-- Recovery
+    RoamSkill *-- WanderGoal
+    RoamSkill *-- ExploreGoal
+    RoamSkill *-- SearchGoal
+    RoamSkill *-- Candidates
+    RoamSkill --> ThingMemory
+    RoamSkill --> Planner
+    RoamSkill --> RoutePlanner
+    ChaseSkill *-- Recovery
+    Planner ..> CostMap
+    RoutePlanner ..> CostMap
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> start
+    start --> drive: wander / explore (stand 1 s, camera ahead)
+    start --> chase: find (the look round), nothing remembered
+    start --> check: find, a remembered spot
+    drive --> check: find, a pending candidate with a way to it
+    check --> chase: seen for sure
+    check --> drive: not sure from 1 m (ruled out; remembered: gone)
+    drive --> chase: find, seen for sure
+    chase --> drive: lost / not found in the look round
+    drive --> recover: stuck (no allowed move, no progress, no route)
+    recover --> drive: a step done
+    recover --> [*]: blocked
+    drive --> [*]: wander's seconds (done) / explore all seen (done) / search all looked at (not_found)
+    chase --> [*]: done / blocked
+    drive --> [*]: stale 2 s / echo under 10 cm (blocked)
+```
+
+**Deviations from §18.13, each with its reason:** obstacles marked only to 1.5 m and wander drifting to unvisited places (§18.13.12, floor run 1); backing off a mark on the tank's own corner (§18.13.13); the body as a whole with exact gaps (§18.13.14, run 3); the review fixes (§18.13.15); `--area` (§18.13.16); turns on the spot over seen floor (§18.13.17); look again at a maybe, then candidates (§18.13.18, §18.13.23); the small turn as the planner's last resort (§18.13.19); stop 0.28 m from the lens (§18.13.20); wordings, one name, lost only when looked at, the turn toward the target (§18.13.21); one word `find` and a search that ends (§18.13.22); the tracker's confirm rule (§18.13.23). Fan scoring by the mean of the outline's cost over the move (ledger, Task 4).
+
+**Second final review fixes (design-notes §190):** the look round ends `blocked` on an echo under `clear_m` and its curve heeds the echo (`ChaseSkill.tick`, `_spin(..., sonar_m)`); `RoamSkill.tick(..., used)` - only a picture used this tick marks the search's view; `_Check.cap_s` = `CHECK_MAX_S` + `CHECK_S_PER_M` 10 s per metre to drive, near = within `CHECK_CLOSE_M` + `CHECK_NEAR_TOL_M` 0.05, `_end_check(now_s, near)` - only a near look rules out (and marks gone), else `Candidate.tries` (ruled out at `CHECK_TRIES` 3, never gone); a chase that loses the thing rules its candidate out; `not_found` waits for a pending candidate's retry; candidates only inside the play area; `_one_name` keeps sure boxes first; `ObjectTracker` starts no new thing within `SAME_THING_M` 0.5 m of a listed one of the same word.
+
+**Known limits (accepted):** the view is not cut by obstacles (a thing behind another counts as looked at); a thing boxed in out of the detector's ~1 m reach is not found (§189, run c3); the 46 cm doorway (owner: 50 cm for now, §168); memory lasts one run (a home spot next, §189 step 2).
+

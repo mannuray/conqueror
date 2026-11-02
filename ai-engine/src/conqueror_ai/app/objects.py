@@ -35,7 +35,7 @@ from conqueror_ai.domain.balls import BallColour, find_balls
 from conqueror_ai.domain.camera import Calibration, CameraModel, FloatArray
 from conqueror_ai.domain.depth import MapConfig, Seeing, Seen
 from conqueror_ai.domain.detectors import MultiDetector
-from conqueror_ai.domain.objects import Detector, ObjectPipeline
+from conqueror_ai.domain.objects import MAYBE_SCORE, Detector, ObjectPipeline
 from conqueror_ai.domain.telemetry import parse_td
 from conqueror_ai.domain.types import Frame, ObjectEstimate
 
@@ -295,7 +295,7 @@ def detectors(model: Path, vocab_path: Path, balls_path: Path) -> tuple[Detector
     from conqueror_ai.adapters.yolo_world import YoloWorld
 
     vocab = load_vocabulary(vocab_path)
-    world = YoloWorld(model, vocab)
+    world = YoloWorld(model, vocab, MAYBE_SCORE)
     balls: list[BallColour] = load_balls(balls_path)
     multi = MultiDetector([world.detect, lambda rgb, cam: find_balls(rgb, balls, cam)])
     return multi, vocab.floor_classes | frozenset(f"ball:{b.name}" for b in balls)

@@ -96,6 +96,7 @@ def test_repo_map_yaml_loads() -> None:
         ("map: {clamp: 0.5}", "clamp"),
         ("map: {clamp: 3.0}", "clamp"),
         ("ranges: {sonar_max_m: 6.0}", "sonar_max_m"),
+        ("ranges: {mark_max_m: 0.3}", "mark_max_m"),  # fewer camera obstacles (Z6 review 7)
     ],
 )
 def test_settings_that_would_make_the_map_less_careful_are_refused(
@@ -107,8 +108,35 @@ def test_settings_that_would_make_the_map_less_careful_are_refused(
         load_map_config(f)
 
 
-@pytest.mark.parametrize("text", ["map: {blocked: 0.5}", "map: {clamp: 5.0}", "ranges: {sonar_max_m: 3.0}"])
+@pytest.mark.parametrize(
+    "text",
+    ["map: {blocked: 0.5}", "map: {clamp: 5.0}", "ranges: {sonar_max_m: 3.0}", "ranges: {mark_max_m: 2.0}"],
+)
 def test_more_careful_map_settings_are_kept(tmp_path: Path, text: str) -> None:
     f = tmp_path / "map.yaml"
     f.write_text(text + "\n")
     load_map_config(f)
+
+
+def test_a_positive_miss_is_refused(tmp_path: Path) -> None:  # Z4 review minor (deferred, now fixed)
+    f = tmp_path / "map.yaml"
+    f.write_text("map: {miss: 0.2}\n")
+    with pytest.raises(ValueError, match="miss"):
+        load_map_config(f)
+
+
+@pytest.mark.parametrize(
+    "text", ["cost: {keep_out_m: 0.05}\n", "cost: {back_m: 0.3}\n", "cost: {unknown_cost: 0.1}\n"]
+)
+def test_cost_may_only_be_more_careful(tmp_path: Path, text: str) -> None:  # Plan Z6
+    f = tmp_path / "map.yaml"
+    f.write_text(text)
+    with pytest.raises(ValueError, match="more careful"):
+        load_map_config(f)
+
+
+def test_cost_settings_load(tmp_path: Path) -> None:
+    f = tmp_path / "map.yaml"
+    f.write_text("cost: {keep_out_m: 0.10, back_m: 0.15}\n")
+    c = load_map_config(f).cost
+    assert (c.keep_out_m, c.back_m, c.near_cost) == (0.10, 0.15, 0.8)

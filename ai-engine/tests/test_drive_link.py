@@ -16,8 +16,14 @@ from websockets.exceptions import ConnectionClosed
 from conqueror_ai.adapters.drive_config import load_drive
 from conqueror_ai.adapters.drive_link import FRESH_FOR_S, MIN_GAP_S, DriveLink, drive_msg, to_percent
 from conqueror_ai.domain.drive.curves import Command
+from conqueror_ai.domain.drive.limits import Limits
 
 ENGINE = Path(__file__).resolve().parents[1]
+
+
+def test_backing_up_sends_a_negative_speed() -> None:  # design-notes §165 (the bridge takes -100..100)
+    assert to_percent(-17.7) == -15
+    assert drive_msg(Command(-18.0, 0.0))["v"] == -to_percent(18.0)
 
 
 def test_speed_to_percent_follows_the_measured_table() -> None:
@@ -54,7 +60,7 @@ def test_the_drive_config_file_loads_and_checks(tmp_path: Path) -> None:
         "inner_min_cms: 15",
         "spin_dps: 40",
         "r_floor_m: 0.2",
-        "clear_m: 0.1",
+        "clear_m: 0.05",
         "stop_range_m: 0.2",
         "dv_cms_per_s: 30",
         "dw_dps_per_s: 200",
@@ -175,3 +181,20 @@ async def test_fast_ticks_stay_under_the_bridges_limit_and_the_newest_command_is
     per_s = len(sent) / (sent[-1][0] - sent[0][0] + 1e-9)
     assert per_s <= 1 / MIN_GAP_S + 1  # the bridge refuses over 25 a second (RATE_LIMITED, ws_clients.h)
     assert sent[-1][1]["yaw_rate"] == 39.0  # the newest command still goes out
+
+
+def test_v_min_above_the_slow_speed_is_refused(tmp_path: Path) -> None:  # review minor 9
+    f = tmp_path / "drive.yaml"
+    f.write_text("limits: {v_min_cms: 20}\n")
+    with pytest.raises(ValueError, match="18"):
+        load_drive(f)
+
+
+@pytest.mark.parametrize("limit", ["body_front_m: 0.10", "body_rear_m: 0.08", "body_half_w_m: 0.08"])
+def test_the_body_may_only_be_made_bigger(tmp_path: Path, limit: str) -> None:
+    f = tmp_path / "drive.yaml"
+    f.write_text(f"limits: {{{limit}}}\n")
+    with pytest.raises(ValueError, match="more careful"):
+        load_drive(f)
+    f.write_text("limits: {body_front_m: 0.16, body_half_w_m: 0.12}\n")
+    assert load_drive(f)[0].sweep_r_m > Limits().sweep_r_m

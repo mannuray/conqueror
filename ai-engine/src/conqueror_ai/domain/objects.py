@@ -56,8 +56,11 @@ REMEMBERED_WALK_MPS = 0.05  # how far a remembered thing may have been moved, pe
 REMEMBER_AFTER_S = (
     0.5  # not seen this long (out of view, or no picture used): remembered from its last sighting
 )
+MAYBE_SCORE = 0.15  # a detection from this score up to its word's threshold is a maybe (design-notes §179)
+SAME_THING_M = 0.5  # a new thing never starts this near a listed one of the same word (review I5: its floor
+# point flickering outside the gate built a second thing there; the memory merges by the same distance)
 CONFIRM_HITS = 3  # a new thing is listed once seen this often ...
-CONFIRM_S = 0.5  # ... within this long; a new thing missed once is dropped (one false detection is no thing)
+CONFIRM_S = 0.5  # ... within this long, whatever the pictures between show (design-notes §189, run c1)
 LOOK_MISSES = 3  # the look check: at least this many pictures without it, as well as LOOK_S
 CAM_RATE_DPS = (
     20.0  # the camera turning faster than this: the picture is skipped (the Uno Lite sends no flag)
@@ -326,13 +329,20 @@ class ObjectTracker:
         for i, th in enumerate(self._things):
             if i not in used_t and not _is_ball(th.cls) and any(th.cost(z)[0] <= GATE_D2 for z in balls_seen):
                 continue  # a word thing where the finder sees a ball: it was that ball
-            if not th.confirmed and (i not in used_t or (t_us - th.first_us) / 1e6 > CONFIRM_S):
-                continue  # a new thing missed once, or not confirmed in time: one false detection is no thing
+            if not th.confirmed:  # new: listed after CONFIRM_HITS within CONFIRM_S, misses between or not
+                if (t_us - th.first_us) / 1e6 <= CONFIRM_S:  # (a thing flickering about its bar, run c1)
+                    keep.append(th)
+                continue  # not confirmed in time: one false detection is no thing
             if i not in used_t and not self._still_there(th, cam, t_us):
                 continue
             keep.append(th)
+        listed = [th for th in keep if th.confirmed]
         for j, z in enumerate(located):
-            if j not in used_z:
+            near_listed = any(
+                th.cls == z.cls and math.hypot(float(th.x[0]) - z.x, float(th.x[1]) - z.y) <= SAME_THING_M
+                for th in listed
+            )
+            if j not in used_z and not near_listed:
                 p = np.diag([z.sigma**2, z.sigma**2, NEW_SPEED_SIGMA**2, NEW_SPEED_SIGMA**2])
                 x = np.array([z.x, z.y, 0.0, 0.0])
                 keep.append(
@@ -371,6 +381,7 @@ class ObjectPipeline:
         self._locator = ObjectLocator(floor_classes)
         self.tracker = ObjectTracker()
         self._near: list[Near] = []
+        self._maybes: list[Located] = []
         self._skips: Counter[str] = Counter()
         self.last_camera: CameraModel | None = None
         self._last_cap_us: int | None = None
@@ -396,6 +407,7 @@ class ObjectPipeline:
     ) -> CameraModel | str:
         """Use one picture (its decoded size, its detections, the camera from camera_at if taken): its camera,
         or why it was skipped."""
+        self._maybes = []
         if self._last_cap_us is not None and f.cap_us < self._last_cap_us:
             self.tracker = (
                 ObjectTracker()
@@ -410,13 +422,19 @@ class ObjectPipeline:
             self._skips[cam] += 1
             return cam
         t = self.gate.capture_us(f.cap_us)
-        located, self._near = self._locator.locate(dets, cam, t)
+        located, self._near = self._locator.locate([d for d in dets if d.sure], cam, t)
+        self._maybes = located + self._locator.locate([d for d in dets if not d.sure], cam, t)[0]
         self.tracker.update(located, cam, t)
         self.last_camera = cam
         return cam
 
     def objects(self) -> list[ObjectEstimate]:
         return self.tracker.objects()
+
+    def maybes(self) -> list[Located]:
+        """The newest used picture's sightings on the floor, sure and unsure: find looks again at one that
+        isn't listed yet (§179; a single sure one too, §181). Unsure ones are never listed."""
+        return list(self._maybes)
 
     def near(self) -> list[Near]:
         return list(self._near)

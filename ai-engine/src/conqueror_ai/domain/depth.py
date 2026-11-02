@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 
 from conqueror_ai.domain.camera import CameraModel, FloatArray, undistorted_grid
+from conqueror_ai.domain.drive.cost_settings import CostSettings
 
 MIN_ROWS = 20  # a picture's floor line needs this many rows ...
 MIN_R2 = 0.98  # ... and to be this straight
@@ -30,7 +31,7 @@ class Heights:
 
 @dataclass(frozen=True)
 class Ranges:
-    mark_max_m: float = 2.0  # obstacles (low / high) are trusted this far
+    mark_max_m: float = 1.5  # obstacles (low / high) trusted this far (design-notes §169)
     free_max_m: float = 3.0  # floor and "above" this far
     sonar_max_m: float = 4.0  # an echo this far or more marks nothing (spec 9 §5)
 
@@ -60,6 +61,7 @@ class MapConfig:
     ranges: Ranges = field(default_factory=Ranges)
     depth: DepthSettings = field(default_factory=DepthSettings)
     map: MapSettings = field(default_factory=MapSettings)
+    cost: CostSettings = field(default_factory=CostSettings)  # driving on the map (LLD §18.13, Plan Z6)
 
 
 # ---- the camera's real tilt (design-notes §155)
@@ -211,7 +213,8 @@ class HeightPoints:
             z = pts[..., 2]
             dist = np.hypot(pts[..., 0] - lens[0], pts[..., 1] - lens[1])
             ok = np.isfinite(z) & np.isfinite(dist) & (rng > 0) & (z >= hs.below_m)
-            near, far = ok & (dist <= rs.mark_max_m), ok & (dist <= rs.free_max_m)
+            near = ok & (dist <= rs.mark_max_m)
+            far = ok & (dist <= rs.free_max_m)
             floor = far & (z < hs.floor_m)
             low = near & (z >= hs.floor_m) & (z < hs.low_top_m)
             high = near & (z >= hs.low_top_m) & (z <= hs.clear_m)

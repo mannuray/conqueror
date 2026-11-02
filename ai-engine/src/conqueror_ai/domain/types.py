@@ -55,6 +55,7 @@ class Detection:
     cls: str
     score: float
     box: tuple[float, float, float, float]  # x1, y1, x2, y2
+    sure: bool = True  # False: under its word's threshold, a maybe for find to look at again (§179)
 
 
 @dataclass(frozen=True)

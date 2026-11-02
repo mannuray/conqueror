@@ -28,7 +28,13 @@ def ramp(now: Command, want: Command, dt: float, lim: Limits) -> Command:
 
     The tracks can't run between 0 and v_min, so starting and stopping cross that band in one step; a spin in
     place can't be slower than spin_dps, so a spin starts and ends in one step too. While driving, the turn
-    rate stays within the tightest smooth arc at the speed (r_min), so slowing in a curve opens the curve."""
+    rate stays within the tightest smooth arc at the speed (r_min), so slowing in a curve opens the curve.
+    Backing up (want.v < 0, design-notes §165) is only ever straight at v_min, from standing; it stops at
+    once."""
+    if now.v_cms < 0:  # backing: on, or stop at once (never faster, never a turn)
+        return Command(-lim.v_min_cms, 0.0) if want.v_cms < 0 else STOP
+    if want.v_cms < 0 and now == STOP:
+        return Command(-lim.v_min_cms, 0.0)
     if want.v_cms <= 0:
         v = 0.0 if now.v_cms - lim.dv_cms_per_s * dt < lim.v_min_cms else now.v_cms - lim.dv_cms_per_s * dt
     elif now.v_cms < lim.v_min_cms:

@@ -17,8 +17,9 @@ MODEL = Path(__file__).resolve().parents[1] / "models" / "yoloworld-s-640.mlpack
 VOCAB = Vocabulary.from_dict({"words": [{"word": "person"}, {"word": "chair", "min_score": 0.5}]})
 
 
-def raw(*cands: tuple[float, float, float, float, float, float]) -> NDArray[np.float64]:
-    """Candidates as (cx, cy, w, h, person score, chair score) -> the model's (1, 6, n) output."""
+def raw(*cands: tuple[float, ...]) -> NDArray[np.float64]:
+    """Candidates as (cx, cy, w, h, person score, chair score) -> the model's (1, 6, n) output (one score a
+    wording)."""
     return np.array(cands, dtype=np.float64).T[None]
 
 
@@ -33,19 +34,46 @@ def test_each_word_keeps_its_own_threshold_and_the_letterbox_is_undone() -> None
     assert dets[0].box == (80.0, 70.0, 120.0, 170.0)  # y moved back by the 80-row grey bar
 
 
-def test_overlapping_boxes_of_one_word_become_one_and_other_words_stay() -> None:
+def test_overlapping_boxes_become_one_thing_with_one_name() -> None:
+    """Per word as Ultralytics; then one thing, one name (design-notes §187, changed from "other words stay"):
+    a box of another word over nearly the same place is dropped for the stronger; one partly over stays."""
     out = raw(
         (200.0, 200.0, 100.0, 100.0, 0.9, 0.0),
         (205.0, 200.0, 100.0, 100.0, 0.8, 0.0),  # the same person (IoU ~0.9): dropped
-        (205.0, 200.0, 100.0, 100.0, 0.0, 0.6),  # a chair there: another word, kept
+        (205.0, 200.0, 100.0, 100.0, 0.0, 0.6),  # a chair there (IoU ~0.9): the weaker name, dropped
+        (250.0, 200.0, 100.0, 100.0, 0.0, 0.6),  # a chair half over it (IoU 0.33): kept
         (500.0, 200.0, 100.0, 100.0, 0.7, 0.0),  # another person
     )
     dets = yw.to_detections(out, (0, 0, 1.0), (640, 640), VOCAB)
-    assert sorted((d.cls, round(d.score, 1)) for d in dets) == [
-        ("chair", 0.6),
-        ("person", 0.7),
-        ("person", 0.9),
+    assert sorted((d.cls, round(d.score, 1), d.box[0]) for d in dets) == [
+        ("chair", 0.6, 200.0),
+        ("person", 0.7, 450.0),
+        ("person", 0.9, 150.0),
     ]
+
+
+def test_a_parcel_called_box_and_toy_is_only_a_box() -> None:
+    """§184's setup check: a brown parcel scored "box" 0.37 and "toy" 0.29 on nearly the same box - goto toy
+    would have driven to it. The stronger name only, a maybe too (it would start a look-again)."""
+    v = Vocabulary.from_dict({"words": [{"word": "box"}, {"word": "toy"}]})
+    out = raw((300.0, 300.0, 80.0, 60.0, 0.37, 0.0), (302.0, 301.0, 78.0, 60.0, 0.0, 0.29))
+    for maybe in (None, 0.15):
+        dets = yw.to_detections(out, (0, 0, 1.0), (640, 640), v, maybe)
+        assert [(d.cls, round(d.score, 2)) for d in dets] == [("box", 0.37)]
+    weak = raw((300.0, 300.0, 80.0, 60.0, 0.20, 0.0), (302.0, 301.0, 78.0, 60.0, 0.0, 0.29))
+    assert [d.cls for d in yw.to_detections(weak, (0, 0, 1.0), (640, 640), v, 0.15)] == ["toy"]
+
+
+def test_a_wording_scores_for_its_name() -> None:
+    """Wordings (design-notes §187): the model's columns are the wordings (toy, toy car); a box scoring "toy
+    car" 0.9 is a toy at 0.9, its best wording."""
+    v = Vocabulary.from_dict({"words": [{"word": "chair"}, {"word": "toy", "also": ["toy car"]}]})
+    out = raw(
+        (100.0, 100.0, 40.0, 30.0, 0.0, 0.49, 0.90),  # chair, toy, toy car
+        (400.0, 100.0, 60.0, 60.0, 0.50, 0.10, 0.30),  # a chair: its name scores 0.5, toy's best 0.30
+    )
+    dets = yw.to_detections(out, (0, 0, 1.0), (640, 640), v)
+    assert sorted((d.cls, round(d.score, 2)) for d in dets) == [("chair", 0.5), ("toy", 0.9)]
 
 
 def test_a_box_is_only_its_best_word() -> None:
@@ -75,6 +103,22 @@ def test_boxes_are_clamped_to_the_picture() -> None:
     assert dets[0].box == (0.0, 0.0, 40.0, 30.0)
 
 
+def test_a_maybe_under_the_threshold_is_kept_but_unsure() -> None:
+    """Look again at a maybe (design-notes §179): with maybe_score a box from it up to the word's own
+    threshold is kept, marked unsure; without, nothing under the threshold."""
+    out = raw(
+        (100.0, 200.0, 40.0, 100.0, 0.30, 0.0),  # sure
+        (400.0, 200.0, 40.0, 100.0, 0.18, 0.0),  # a maybe
+        (550.0, 200.0, 40.0, 100.0, 0.10, 0.0),  # under the maybe bar
+    )
+    dets = yw.to_detections(out, (80, 0, 1.0), (640, 480), VOCAB, maybe_score=0.15)
+    assert [(d.cls, round(d.score, 2), d.sure) for d in dets] == [
+        ("person", 0.3, True),
+        ("person", 0.18, False),
+    ]
+    assert [round(d.score, 2) for d in yw.to_detections(out, (80, 0, 1.0), (640, 480), VOCAB)] == [0.3]
+
+
 def test_no_model_file_is_a_plain_refusal(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="export_world"):
         yw.YoloWorld(tmp_path / "missing.mlpackage", VOCAB)
@@ -96,3 +140,22 @@ def test_the_model_refuses_other_words_and_runs_with_its_own() -> None:
         x1, y1, x2, y2 = d.box
         assert d.cls in vocab.names and d.score >= vocab.min_score(d.cls)
         assert 0 <= x1 < x2 <= 640 and 0 <= y1 < y2 <= 480
+
+
+def test_a_sure_name_beats_an_unsure_one_over_it() -> None:
+    """Z6 second review I4: one-name NMS ran over sure and unsure boxes together, so an unsure "toy" (0.33,
+    its bar 0.40) over a sure "chair" (0.30, its bar 0.25) removed the chair whenever maybes were asked for -
+    find chair missed it. Sure boxes first; an unsure box over a kept sure one is dropped."""
+    v = Vocabulary.from_dict(
+        {"words": [{"word": "chair", "min_score": 0.25}, {"word": "toy", "min_score": 0.40}]}
+    )
+    out = raw((320.0, 320.0, 100.0, 100.0, 0.30, 0.0), (322.0, 320.0, 100.0, 100.0, 0.0, 0.33))
+    for maybe in (None, 0.15):
+        dets = yw.to_detections(out, (0, 0, 1.0), (640, 640), v, maybe)
+        assert [(d.cls, d.sure) for d in dets] == [("chair", True)]
+
+
+def test_boxes_are_plain_floats() -> None:  # Z6 second review M5: np.float64 showed in prints and recordings
+    v = Vocabulary.from_dict({"words": [{"word": "box"}]})
+    (d,) = yw.to_detections(raw((300.0, 300.0, 80.0, 60.0, 0.9)), (0, 0, 1.0), (640, 640), v)
+    assert all(type(x) is float for x in d.box)

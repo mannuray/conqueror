@@ -169,6 +169,22 @@ def test_a_model_made_for_other_words_is_refused() -> None:
         v.check_model(["person", "chair"])
 
 
+def test_a_name_may_have_extra_wordings_asked_of_the_model() -> None:
+    """Wordings (design-notes §187): "toy car" scored a toy car far higher than "toy" (f1: 0.95 vs 0.49). The
+    model is asked every wording, each name's own followed by its extras; a wording twice is refused."""
+    v = Vocabulary.from_dict({"words": [{"word": "chair"}, {"word": "toy", "also": ["toy car"]}]})
+    assert v.names == ["chair", "toy"]
+    assert v.prompts == ["chair", "toy", "toy car"]
+    assert v.name_of == ["chair", "toy", "toy"]
+    v.check_model(["chair", "toy", "toy car"])
+    with pytest.raises(ValueError, match="re-export"):
+        v.check_model(["chair", "toy"])
+    with pytest.raises(ValueError, match="toy car more than once"):
+        Vocabulary.from_dict({"words": [{"word": "toy car"}, {"word": "toy", "also": ["toy car"]}]})
+    with pytest.raises(ValueError, match="also must be a list"):
+        Vocabulary.from_dict({"words": [{"word": "toy", "also": "toy car"}]})
+
+
 # ---- the joined detectors
 def test_any_word_box_on_a_colour_ball_is_that_ball_and_others_are_kept() -> None:
     """On the tank YOLO-World named the green ball "toy" (Plan Y draft): whatever its word, a box on a

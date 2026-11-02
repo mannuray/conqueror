@@ -10,6 +10,7 @@ Pure: no I/O."""
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Literal
 
@@ -23,6 +24,10 @@ from conqueror_ai.domain.types import Pose
 Layer = Literal["low", "high"]
 BoolArray = NDArray[np.bool_]
 DEPTH_OK_US = 1_000_000  # depth_ok: a depth picture this recently
+# the body is a floor sensor (AI engine LLD §18.13.1, Plan Z6): the floor under the tank is free
+BODY_SHRINK_M = 0.02  # the footprint shrunk this much all round (pose drift)
+BODY_GRID = 9  # the shrunk footprint sampled 9 x 9 (~2.5 cm apart) for the cells it covers
+BODY_EVERY_US = 100_000  # at most 10 a second, one step per cell (like the sonar)
 
 UNSEEN = (0, 0, 0)
 SEEN = (110, 110, 110)
@@ -56,6 +61,7 @@ class RoomMap:
         self.high = np.zeros((self.n, self.n), np.float32)
         self.seen = np.zeros((self.n, self.n), np.bool_)
         self._last_picture_us: int | None = None
+        self._last_body_us: int | None = None
 
     def cells(self, xy: FloatArray) -> NDArray[np.intp]:
         """The unique flat cell indices (ix * n + iy) of room points; points outside the map are dropped."""
@@ -74,8 +80,9 @@ class RoomMap:
         c = self.settings.clamp
         a[cells] = np.clip(a[cells] + step, -c, c)
 
-    def hit(self, cells: NDArray[np.intp], layer: Layer) -> None:
-        self._step(cells, layer, self.settings.hit)
+    def hit(self, cells: NDArray[np.intp], layer: Layer, weight: float = 1.0) -> None:
+        """A mark seen in these cells; weight < 1 for evidence shared between cells (a sonar's arc)."""
+        self._step(cells, layer, self.settings.hit * weight)
 
     def miss(self, cells: NDArray[np.intp], layer: Layer) -> None:
         self._step(cells, layer, self.settings.miss)
@@ -93,12 +100,45 @@ class RoomMap:
             seen[c] = True
         self._last_picture_us = t_us
 
+    def body_over(self, pose: Pose, front_m: float, rear_m: float, half_w_m: float, t_us: int) -> bool:
+        """The floor under the tank's footprint (shrunk BODY_SHRINK_M) is seen and free: one miss on both
+        layers per cell - only cells the shrunk footprint covers whole, so a mark just outside the body
+        survives a little pose drift (review I3). At most once per BODY_EVERY_US; whether it applied."""
+        if self._last_body_us is not None and 0 <= t_us - self._last_body_us < BODY_EVERY_US:
+            return False
+        self._last_body_us = t_us
+        f, r, w = front_m - BODY_SHRINK_M, rear_m - BODY_SHRINK_M, half_w_m - BODY_SHRINK_M
+        c, s = math.cos(pose.th_rad), math.sin(pose.th_rad)
+        gx, gy = np.meshgrid(np.linspace(-r, f, BODY_GRID), np.linspace(-w, w, BODY_GRID))
+        xy = np.stack(
+            [pose.x_m + gx.ravel() * c - gy.ravel() * s, pose.y_m + gx.ravel() * s + gy.ravel() * c], 1
+        )
+        cand = self.cells(xy)
+        ix, iy = cand // self.n, cand % self.n
+        corners = (
+            [(ix + a) * self.cell_m - self.half_m for a in (0, 1)],
+            [(iy + b) * self.cell_m - self.half_m for b in (0, 1)],
+        )
+        whole = np.ones(len(cand), np.bool_)
+        for cx in corners[0]:
+            for cy in corners[1]:
+                dx, dy = cx - pose.x_m, cy - pose.y_m
+                u, v = dx * c + dy * s, -dx * s + dy * c  # the corner in the tank's frame
+                whole &= (u >= -r) & (u <= f) & (np.abs(v) <= w)
+        cells = cand[whole]
+        self.miss(cells, "low")
+        self.miss(cells, "high")
+        self.seen.reshape(-1)[cells] = True
+        return True
+
     def blocked(self) -> BoolArray:
         b = self.settings.blocked
         return (self.low > b) | (self.high > b)
 
     def is_blocked(self, x: float, y: float) -> bool:
         """True for a blocked cell, and everywhere outside the map (its edge is a soft fence)."""
+        if not (math.isfinite(x) and math.isfinite(y)):
+            return True  # a broken position: nothing is known free there
         ix, iy = (
             int(np.floor((x + self.half_m) / self.cell_m)),
             int(np.floor((y + self.half_m) / self.cell_m)),
@@ -132,7 +172,7 @@ def map_image(snap: MapSnapshot) -> NDArray[np.uint8]:
     img[snap.seen] = SEEN
     img[snap.blocked & ~snap.high] = LOW
     img[snap.high] = HIGH
-    if snap.pose is not None:
+    if snap.pose is not None and math.isfinite(snap.pose.x_m) and math.isfinite(snap.pose.y_m):
         ix = int(np.floor(snap.pose.x_m / snap.cell_m + n / 2))
         iy = int(np.floor(snap.pose.y_m / snap.cell_m + n / 2))
         if 0 <= ix < n and 0 <= iy < n:  # off the map: no marker (a negative slice end would wrap round)

@@ -4,6 +4,7 @@ detections are made by projecting known floor points through the camera model.""
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 from conqueror_ai.domain import objects as ob
 from conqueror_ai.domain.camera import CameraModel
@@ -207,6 +208,40 @@ def test_the_pipeline_lists_the_ball_and_replays_the_same() -> None:
     assert run_pipeline() == first
 
 
+def test_an_unsure_sighting_is_a_maybe_never_a_thing() -> None:
+    """Look again at a maybe (design-notes §179): unsure detections are placed on the floor like the rest and
+    handed out as maybes of the newest picture; the tracker never lists them."""
+    p = ob.ObjectPipeline(CAL)
+    p.on_calib(7514)
+    cam = cam_at()
+    for i in range(60):
+        p.on_telem(TelemSample(i * 20_000, i * 20, 0, 0, 0.0, 0.0, None, 90.0, 90.0, 0, 0, 0, 0, 0))
+        if i % 5 == 4:
+            d = box_on_floor(cam, 1.0, 0.1)
+            p.on_frame(frame(i * 20_000 - 10_000), (320, 240), [replace(d, score=0.18, sure=False)])
+    assert p.objects() == []
+    (m,) = p.maybes()
+    assert (
+        m.cls == "sports ball"
+        and math.isclose(m.x, 1.0, abs_tol=0.01)
+        and math.isclose(m.y, 0.1, abs_tol=0.01)
+    )
+    p.on_frame(frame(1_250_000), (320, 240), [])
+    assert p.maybes() == []  # only the newest picture's
+
+
+def test_one_sure_sighting_is_a_maybe_too() -> None:
+    """Floor run f3 (design-notes §181): the car seen once at 0.64 - not listed (3 sightings needed) and no
+    maybe either, so find drove on. Every sighting of the newest picture is a maybe; the list is unchanged."""
+    p = ob.ObjectPipeline(CAL)
+    p.on_calib(7514)
+    cam = cam_at()
+    for i in range(10):
+        p.on_telem(TelemSample(i * 20_000, i * 20, 0, 0, 0.0, 0.0, None, 90.0, 90.0, 0, 0, 0, 0, 0))
+    p.on_frame(frame(170_000), (320, 240), [box_on_floor(cam, 1.0, 0.1)])
+    assert p.objects() == [] and len(p.maybes()) == 1
+
+
 def test_the_pipeline_counts_its_skips() -> None:
     p = ob.ObjectPipeline(CAL)
     p.on_frame(frame(1_000_000), (320, 240), [])
@@ -241,14 +276,30 @@ def test_a_seen_thing_keeps_its_detections_from_a_remembered_neighbour() -> None
     assert math.hypot(b.x_m - 1.0, b.y_m - 1.5) < 0.1  # B stayed where it was
 
 
-def test_one_false_detection_is_not_listed() -> None:  # I3: confirmed after 3 hits
+def test_one_false_detection_is_not_listed() -> None:  # I3: confirmed after 3 hits within CONFIRM_S
+    """A new thing is listed once seen 3 times within 0.5 s; pictures between that miss it no longer drop it
+    (floor run c1, design-notes §189) - but one stray detection never gets there."""
     tr = ob.ObjectTracker()
     track_frames(tr, cam_at(), [(1.0, 0.0)], 1)
     assert tr.objects() == []
-    track_frames(tr, cam_at(), [], 1, t0_us=100_000)  # missed once while new: gone
-    track_frames(tr, cam_at(), [(1.0, 0.0)], 2, t0_us=200_000)
-    assert tr.objects() == []
-    track_frames(tr, cam_at(), [(1.0, 0.0)], 1, t0_us=400_000)
+    track_frames(tr, cam_at(), [], 6, t0_us=100_000)  # nothing more: not confirmed in time, gone
+    track_frames(tr, cam_at(), [(1.0, 0.0)], 2, t0_us=700_000)
+    assert tr.objects() == []  # a fresh start: 2 hits so far
+    track_frames(tr, cam_at(), [(1.0, 0.0)], 1, t0_us=900_000)
+    assert len(tr.objects()) == 1
+
+
+def test_a_thing_flickering_about_its_bar_is_listed() -> None:
+    """Floor run c1 (design-notes §189): the car stood 1 m off in dim light, sure in some pictures and not in
+    the ones between - it was dropped at every miss and never listed, so find never chased it. The real
+    sequence, 96.85-97.86 s: sure at 97.43, 97.57, 97.72, 97.82 s, missed between."""
+    tr, cam = ob.ObjectTracker(), cam_at()
+    loc = ob.ObjectLocator()
+    seq = [(97.43, True), (97.54, False), (97.57, True), (97.65, False), (97.72, True), (97.75, False)]
+    for t_s, sure in seq:
+        t = round((t_s - 97.0) * 1e6)
+        located, _ = loc.locate([box_on_floor(cam, 1.0, 0.0)] if sure else [], cam, t)
+        tr.update(located, cam, t)
     assert len(tr.objects()) == 1
 
 
@@ -391,3 +442,25 @@ def test_every_picture_gets_the_pipelines_tilt_fix() -> None:
     p.set_tilt_fix(1.5)
     cam = p.camera_at(1_100_000)
     assert isinstance(cam, CameraModel) and cam.tilt_fix_deg == 1.5
+
+
+def test_a_thing_whose_floor_point_flickers_is_listed_once() -> None:
+    """Z6 second review I5: new things kept 0.5 s (run c1): a listed toy whose floor point flipped picture
+    by picture between it and a spot 25-35 cm further (outside its gate) built a second thing there - two
+    candidates and two memories for one toy. No new thing starts within SAME_THING_M of a listed one of the
+    same word."""
+    for off in (0.25, 0.35):
+        tr, cam, t = ob.ObjectTracker(), cam_at(), 0
+        for _ in range(5):
+            tr.update([ob.Located("toy", 1.0, 0.0, ob.sigma_at(1.0), (0, 0, 1, 1))], cam, t)
+            t += 55_000
+        for k in range(36):
+            x = 1.0 if k % 2 == 0 else 1.0 + off
+            tr.update([ob.Located("toy", x, 0.0, ob.sigma_at(x), (0, 0, 1, 1))], cam, t)
+            t += 55_000
+        assert len(tr.objects()) == 1, off
+    tr, t = ob.ObjectTracker(), 0  # two toys a metre apart stay two
+    for _ in range(5):
+        tr.update([ob.Located("toy", x, 0.0, ob.sigma_at(x), (0, 0, 1, 1)) for x in (1.0, 2.0)], cam, t)
+        t += 55_000
+    assert len(tr.objects()) == 2

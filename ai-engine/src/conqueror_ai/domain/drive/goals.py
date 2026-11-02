@@ -1,0 +1,259 @@
+"""Where to go (AI engine LLD §18.7, §18.13.12, spec 9 §4.1): wander picks seen, open, reachable floor a
+little ahead, preferring places it hasn't been lately (so it drifts to the edge of what it has seen, and on),
+now and then a new spot; explore picks the cheapest edge between seen floor and unseen space until none is
+left; find's search picks the nearest reachable floor the camera hasn't looked at from near (design-notes
+§188)."""
+
+from __future__ import annotations
+
+import math
+import random
+from typing import cast
+
+import cv2
+import numpy as np
+from numpy.typing import NDArray
+
+from conqueror_ai.domain.camera import FloatArray
+from conqueror_ai.domain.drive.costmap import CostMap
+from conqueror_ai.domain.drive.curves import XYTh
+from conqueror_ai.domain.drive.limits import Limits
+from conqueror_ai.domain.drive.planner import bearing_deg
+from conqueror_ai.domain.drive.route import GRID_M, XY, RoutePlanner
+
+REACHED_M = 0.4  # a destination this near counts as reached
+
+WANDER_RADII_M = (1.5, 1.75, 2.0)
+WANDER_NEAR_RADII_M = (0.5, 0.75, 1.0, 1.25)  # only when nothing that far is open (a play area, §174)
+WANDER_STEP_DEG = 10
+WANDER_NEW_S = 6.0
+WANDER_NOISE = 0.3  # the score's random part (a standard deviation)
+VISIT_CELL_M = 0.25  # where the tank has been, remembered in cells this big ...
+VISIT_NEAR_M = 0.5  # ... a spot this near a visit counts as visited ...
+VISIT_FORGET_S = 60.0  # ... and forgotten over this long
+ROOM_W = 0.5  # open room round a spot (up to 1 m) is worth half of it lying straight ahead
+# never-visited counts this much: one to the side (0 + 2) beats a visited one ahead (1 + 0) by more than the
+# noise's 2 sigma (0.6); behind (-1 + 2) ties with ahead, so the noise decides between those (Z6 review 8)
+NOVEL_W = 2.0
+
+EXPLORE_NEW_S = 3.0
+UNSEEN_MIN_CELLS = 9  # unseen bits smaller than 30 x 30 cm are ignored (spec 9 §4.1)
+FRONTIER_MIN_CELLS = 3  # a stretch of frontier shorter than 30 cm is ignored
+VISITED_M = 0.30  # reached frontiers are remembered in cells this big
+# find's search (owner: option A, design-notes §188): a spot is searched once the camera looked at it from
+# this near - z6 runs g4 / g5 / f1 / f3: a toy in view named in 58-68 % of pictures under 1 m, 16 % at
+# 1-1.5 m, under 3 % beyond
+LOOK_M = 1.0
+LOOK_HALF_DEG = 35.0  # within this of the camera's axis (the lens sees ~41 deg each side)
+LOOKED_M = 0.30  # looked-at floor remembered in cells this big
+
+
+class WanderGoal:
+    def __init__(self, rng: random.Random, lim: Limits | None = None) -> None:
+        self.rng = rng
+        self._sweep_r_m = (lim or Limits()).sweep_r_m
+        self._dest: XY | None = None
+        self._picked_s = 0.0
+        self._visits: dict[tuple[int, int], float] = {}  # visit cell -> when the tank was last in it
+
+    def drop(self) -> None:
+        """The current destination has no route: pick another next time."""
+        self._dest = None
+
+    def destination(self, now_s: float, at: XYTh, cost: CostMap, planner: RoutePlanner) -> XY | None:
+        self._visits[self._visit_key(at[:2])] = now_s
+        d = self._dest
+        if d is not None and math.dist(d, at[:2]) > REACHED_M and now_s - self._picked_s < WANDER_NEW_S:
+            return d
+        reach = planner.costs(cost, (at[0], at[1]))  # spots behind a wall are skipped, not tried and dropped
+        best: tuple[float, XY] | None = None
+        for radii in (WANDER_RADII_M, WANDER_NEAR_RADII_M):
+            if best is None:
+                best = self._best(now_s, at, cost, planner, reach, radii)
+        self._dest, self._picked_s = (None if best is None else best[1]), now_s
+        return self._dest
+
+    def _best(
+        self,
+        now_s: float,
+        at: XYTh,
+        cost: CostMap,
+        planner: RoutePlanner,
+        reach: FloatArray,
+        radii: tuple[float, ...],
+    ) -> tuple[float, XY] | None:
+        """The best-scoring open, seen, reachable spot on these circles round the tank, or None."""
+        open_m = self._sweep_r_m + cost.settings.keep_out_m  # a spot it can stand and turn on (~25 cm)
+        best: tuple[float, XY] | None = None
+        for r in radii:
+            for k in range(0, 360, WANDER_STEP_DEG):
+                a = at[2] + math.radians(k)
+                p = (at[0] + r * math.cos(a), at[1] + r * math.sin(a))
+                room = cost.dist_m(*p)
+                if room < open_m or not cost.seen_at(*p) or reach[planner.grid_of(*p)] == math.inf:
+                    continue
+                score = math.cos(math.radians(bearing_deg(at, p))) + ROOM_W * min(room, 1.0)
+                score += NOVEL_W * self._novelty(p, now_s) + self.rng.gauss(0.0, WANDER_NOISE)
+                if best is None or score > best[0]:
+                    best = (score, p)
+        return best
+
+    @staticmethod
+    def _visit_key(p: XY) -> tuple[int, int]:
+        return math.floor(p[0] / VISIT_CELL_M), math.floor(p[1] / VISIT_CELL_M)
+
+    def _novelty(self, p: XY, now_s: float) -> float:
+        """1 where the tank has never been near; after a visit, rising back to 1 over VISIT_FORGET_S."""
+        i0, j0 = self._visit_key(p)
+        n = math.ceil(VISIT_NEAR_M / VISIT_CELL_M)
+        last = max(
+            (
+                t
+                for i in range(i0 - n, i0 + n + 1)
+                for j in range(j0 - n, j0 + n + 1)
+                if (t := self._visits.get((i, j))) is not None
+                and math.dist(p, ((i + 0.5) * VISIT_CELL_M, (j + 0.5) * VISIT_CELL_M)) <= VISIT_NEAR_M
+            ),
+            default=None,
+        )
+        return 1.0 if last is None else min(1.0, (now_s - last) / VISIT_FORGET_S)
+
+
+class ExploreGoal:
+    def __init__(self) -> None:
+        self.done = False
+        self._dest: XY | None = None
+        self._picked_s = 0.0
+        self._visited: set[tuple[int, int]] = set()
+
+    def drop(self) -> None:
+        """The current target has no route (the map changed since it was picked): pick again next time."""
+        self._dest = None
+
+    @staticmethod
+    def _key(p: XY) -> tuple[int, int]:
+        return math.floor(p[0] / VISITED_M), math.floor(p[1] / VISITED_M)
+
+    def destination(self, now_s: float, at: XYTh, cost: CostMap, planner: RoutePlanner) -> XY | None:
+        """The cheapest reachable frontier; None (and done) when none is left."""
+        d = self._dest
+        if d is not None and math.dist(d, at[:2]) <= REACHED_M:
+            self._visited.add(self._key(d))
+            d = None
+        if d is not None and now_s - self._picked_s < EXPLORE_NEW_S:
+            return d
+        frontier = self._frontier(cost, planner.half_w)
+
+        def accept(i: int, j: int) -> bool:  # an unvisited frontier cell; reached ones are remembered
+            if not frontier[i, j]:
+                return False
+            p = planner.grid_centre(i, j)
+            if math.dist(p, at[:2]) <= REACHED_M:
+                self._visited.add(self._key(p))
+                return False
+            return self._key(p) not in self._visited
+
+        # the cheapest frontier is the first an outward search reaches (review M1: no whole-map search)
+        ij = planner.nearest(cost, (at[0], at[1]), accept)
+        best = None if ij is None else (0.0, planner.grid_centre(*ij))
+        self._dest, self._picked_s = (None if best is None else best[1]), now_s
+        self.done = best is None
+        return self._dest
+
+    @staticmethod
+    def _frontier(cost: CostMap, half_w: float) -> NDArray[np.bool_]:
+        """Seen, open 10 cm cells next to unseen space (bits under 30 x 30 cm ignored); stretches of frontier
+        under 30 cm dropped."""
+        k = max(1, round(GRID_M / cost.cell_m))
+        g = cost.n // k
+        seen = cast("NDArray[np.bool_]", cost.seen[: g * k, : g * k].reshape(g, k, g, k).any(axis=(1, 3)))
+        dist = cast("NDArray[np.float64]", cost.dist[: g * k, : g * k].reshape(g, k, g, k).min(axis=(1, 3)))
+        unseen_big = _big_parts(~seen, UNSEEN_MIN_CELLS).astype(np.uint8)
+        near_unseen = cast("NDArray[np.uint8]", cv2.dilate(unseen_big, np.ones((3, 3), np.uint8))) > 0
+        return _big_parts(seen & (dist >= half_w) & near_unseen, FRONTIER_MIN_CELLS)
+
+
+def _big_parts(mask: NDArray[np.bool_], min_cells: int) -> NDArray[np.bool_]:
+    """The 8-connected parts of a mask with at least min_cells cells."""
+    out = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+    n, labels, stats = cast("tuple[int, NDArray[np.int32], NDArray[np.int32]]", out[:3])
+    keep = np.zeros(n, np.bool_)
+    keep[1:] = stats[1:, cv2.CC_STAT_AREA] >= min_cells
+    return keep[labels]
+
+
+class SearchGoal:
+    """Find's search (design-notes §188-§189): the nearest reachable seen floor not yet looked at from within
+    LOOK_M, or edge of unseen floor not yet reached (explore's frontier: floor hidden behind things gets
+    seen, floor run c2); None (and done) when neither is left."""
+
+    def __init__(self) -> None:
+        self.done = False
+        self._dest: XY | None = None
+        self._picked_s = 0.0
+        self._looked: set[tuple[int, int]] = set()
+        self._edges_reached: set[tuple[int, int]] = set()  # frontier spots the tank has been to
+        self._dest_edge = False  # the destination is an edge of the unseen
+
+    def drop(self) -> None:
+        """The current target has no route: pick again next time."""
+        self._dest = None
+
+    @staticmethod
+    def _key(p: XY) -> tuple[int, int]:
+        return math.floor(p[0] / LOOKED_M), math.floor(p[1] / LOOKED_M)
+
+    def looked(self, p: XY) -> bool:
+        return self._key(p) in self._looked
+
+    def look(self, at: XYTh, pan_deg: float, cam_x_m: float) -> None:
+        """One still picture: the camera at the lens (cam_x_m ahead of the tank's centre), its axis pan_deg
+        from the tank's heading (pan = -bearing); its near view is searched."""
+        cx, cy = at[0] + cam_x_m * math.cos(at[2]), at[1] + cam_x_m * math.sin(at[2])
+        axis = at[2] - math.radians(pan_deg)
+        half = math.radians(LOOK_HALF_DEG)
+        n = math.ceil(LOOK_M / LOOKED_M) + 1
+        i0, j0 = self._key((cx, cy))
+        for i in range(i0 - n, i0 + n + 1):
+            for j in range(j0 - n, j0 + n + 1):
+                x, y = (i + 0.5) * LOOKED_M, (j + 0.5) * LOOKED_M
+                if math.dist((x, y), (cx, cy)) > LOOK_M:
+                    continue
+                off = (math.atan2(y - cy, x - cx) - axis + math.pi) % (2 * math.pi) - math.pi
+                if abs(off) <= half:
+                    self._looked.add((i, j))
+
+    def destination(self, now_s: float, at: XYTh, cost: CostMap, planner: RoutePlanner) -> XY | None:
+        d = self._dest
+        if d is not None and math.dist(d, at[:2]) <= REACHED_M:  # there: its spot counts (the tank is on it)
+            self._looked.add(self._key(d))
+            self._edges_reached.add(self._key(d))
+            d = None
+        if d is not None and now_s - self._picked_s < EXPLORE_NEW_S and self._still_wanted(d):
+            return d
+        frontier = ExploreGoal._frontier(cost, planner.half_w)  # pyright: ignore[reportPrivateUsage]
+
+        def accept(i: int, j: int) -> bool:  # seen floor not looked at, or an unreached edge of the unseen
+            p = planner.grid_centre(i, j)
+            if not cost.seen_at(*p):
+                return False
+            k = self._key(p)
+            edge = bool(frontier[i, j]) and k not in self._edges_reached
+            if k in self._looked and not edge:
+                return False
+            if math.dist(p, at[:2]) <= REACHED_M:  # at the tank: looked at, and reached
+                self._looked.add(k)
+                self._edges_reached.add(k)
+                return False
+            return True
+
+        ij = planner.nearest(cost, (at[0], at[1]), accept)
+        self._dest, self._picked_s = (None if ij is None else planner.grid_centre(*ij)), now_s
+        self._dest_edge = ij is not None and bool(frontier[ij])
+        self.done = ij is None
+        return self._dest
+
+    def _still_wanted(self, d: XY) -> bool:
+        """An edge until reached; other floor until looked at."""
+        k = self._key(d)
+        return k not in self._edges_reached if self._dest_edge else k not in self._looked

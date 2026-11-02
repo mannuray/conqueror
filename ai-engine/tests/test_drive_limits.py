@@ -22,9 +22,18 @@ def test_the_tightest_smooth_arc_by_speed() -> None:
 
 
 def test_the_top_speed_falls_near_the_stop() -> None:
+    """Cruise from slow_from_m out, the slowest speed from 10 cm before the stop (0.28 + 0.10 since §185)."""
     assert LIM.top_speed(1.5) == 25.0
-    assert LIM.top_speed(0.5) == 18.0
+    assert LIM.top_speed(LIM.stop_range_m + 0.10) == 18.0 and LIM.top_speed(0.30) == 18.0
     assert 18.0 < LIM.top_speed(0.65) < 25.0
+
+
+def test_the_body_is_the_measured_tank() -> None:
+    """The owner's tape from the turning centre (design-notes §163): front 5 in, rear 3.5 in, width 9 in;
+    each rounded up to the half centimetre."""
+    assert (LIM.body_front_m, LIM.body_rear_m, LIM.body_half_w_m) == (0.13, 0.09, 0.115)
+    assert LIM.body_front_m >= 5 * 0.0254 and LIM.body_rear_m >= 3.5 * 0.0254
+    assert LIM.body_half_w_m >= 9 / 2 * 0.0254
 
 
 # ---- the ramp
@@ -58,3 +67,17 @@ def test_the_ramp_never_asks_for_an_arc_tighter_than_the_tank_can_drive() -> Non
 def test_a_roll_out_follows_the_ramp() -> None:
     path = roll_out((0.0, 0.0, 0.0), STOP, Command(25.0, 0.0), LIM)
     assert len(path) == 15 and path[-1][0] == pytest.approx(0.347, abs=0.005) and path[-1][1] == 0.0
+
+
+# ---- backing up (design-notes §165)
+def test_backing_up_is_the_slowest_speed_straight_and_stops_at_once() -> None:
+    back = ramp(STOP, Command(-25.0, 10.0), 0.1, LIM)
+    assert back == Command(-LIM.v_min_cms, 0.0)  # the dead band crossed in one step, never faster, straight
+    assert ramp(back, Command(-18.0, 0.0), 0.1, LIM) == back
+    assert ramp(back, STOP, 0.1, LIM) == STOP
+    assert ramp(back, Command(25.0, 0.0), 0.1, LIM) == STOP  # stop before driving forward again
+
+
+def test_driving_forward_slows_to_a_stop_before_backing() -> None:
+    c = ramp(Command(25.0, 0.0), Command(-18.0, 0.0), 0.1, LIM)
+    assert c.v_cms == pytest.approx(24.0)

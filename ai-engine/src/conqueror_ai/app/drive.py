@@ -223,8 +223,10 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
     result = ""
     by_size: dict[str, tuple[float, float]] = {}
     cam_still = True  # the newest picture wasn't skipped for the camera moving (the sweep looks only then)
+    used_now = False  # a picture arrived this tick and was used (find's search marks its view only then)
     try:
         while not result:
+            used_now = False
             if drive.refused is not None:
                 result = f"refused by the tank ({drive.refused})"
                 break
@@ -248,6 +250,7 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
                         dets, inv = await asyncio.to_thread(kit.det.detect, rgb, camera_of(cam_f)), None
                     used = run.gate(f, rgb, dets, cam_f)  # the map and the pose stay on the event loop
                     cam_still = used != "camera moving"
+                    used_now = not isinstance(used, str)
                     if picture_counts(used):
                         last["picture"] = time.monotonic()
                     by_size = {} if isinstance(used, str) else size_positions(dets, kit.sizes, used)
@@ -269,7 +272,7 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
             snap = None if pose is None else run.snapshot(pose.t_us, state is not None)  # stale: now
             # planning off the event loop (6-21 ms: the fan, routes; Z6 review 11) - the snapshot is a copy
             out = await asyncio.to_thread(
-                _tick, skill, m, now - t0, at, snap, fix, sonar[0], state is None, cam_still, maybes
+                _tick, skill, m, now - t0, at, snap, fix, sonar[0], state is None, cam_still, maybes, used_now
             )
             await drive.drive(out.cmd)
             if out.cam is not None:
@@ -307,12 +310,13 @@ def _tick(
     map_ok: bool,
     cam_still: bool,
     maybes: Sequence[tuple[float, float]] = (),
+    used: bool = True,
 ) -> SkillOut:
     if isinstance(skill, ChaseSkill):
         return skill.tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap)
     find = m.action == "find"
     return skill.tick(
-        now_s, at, snap, fix if find else None, sonar_m, map_ok, cam_still, maybes if find else ()
+        now_s, at, snap, fix if find else None, sonar_m, map_ok, cam_still, maybes if find else (), used
     )
 
 

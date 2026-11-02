@@ -115,8 +115,6 @@ class Mission:
 def parse_mission(args: list[str], words: list[str], area_m: float | None = None) -> Mission:
     """`find <thing>`, `wander [seconds]`, `explore`, each with an optional play area (`--area` metres);
     anything else is a plain SystemExit."""
-    if args and args[0] == "goto":  # one word since design-notes §188
-        raise SystemExit("cq-drive goto is now find: cq-drive find <thing>")
     if not args or args[0] not in ACTIONS:
         raise SystemExit(f"cq-drive does: {', '.join(ACTIONS)}")
     action = args[0]

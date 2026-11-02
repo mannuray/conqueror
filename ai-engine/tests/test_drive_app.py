@@ -89,9 +89,9 @@ def test_cli_words() -> None:
             parse_mission(bad, words)
 
 
-def test_goto_is_gone_and_says_to_use_find() -> None:
-    """One word (owner, design-notes §188): goto was the same as find since §187."""
-    with pytest.raises(SystemExit, match="cq-drive find"):
+def test_goto_is_gone() -> None:
+    """One word (owner, design-notes §188): goto is an unknown word like any other."""
+    with pytest.raises(SystemExit, match="cq-drive does: find, wander, explore"):
         parse_mission(["goto", "ball"], ["ball"])
 
 

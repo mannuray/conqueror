@@ -2025,7 +2025,7 @@ stateDiagram-v2
 - **Results changed:** a cq-drive `goto` / `find` no longer ends `not_found` - a fruitless look round goes back to searching, and the search has no end of its own: it runs until done, blocked, stale or STOP (`--area` keeps it near). The ChaseSkill still ends `not_found` inside it (§17.6 above, unchanged), and the Tank Logo words (Tank Logo LLD §24, 7050) and the bridge's `skill_failed` (bridge LLD R26) still list it - when Plan Z2 wires the Logo words to this skill, the search needs an end (open question, design-notes §187).
 
 #### 18.13.22 One word, find; a search that ends (owner, 2026-11-02, design-notes §188)
-- **`goto` dropped.** `Action` = `find | wander | explore`; `parse_mission(["goto", …])` raises SystemExit "cq-drive goto is now find: cq-drive find <thing>". The §17 / §18 text above that says `goto` is history; the Logo word will be `FIND` (Plan Z2).
+- **`goto` dropped.** `Action` = `find | wander | explore`; `goto` is an unknown word like any other ("cq-drive does: find, wander, explore"; owner: remove it altogether). The §17 / §18 text above that says `goto` is history; the Logo word will be `FIND` (Plan Z2).
 - **Find searches by explore.** `make_skill`: `find` makes `RoamSkill("explore", find=True, area_m=...)`. `RoamSkill._drive`: no route and `explore.done` ends `not_found` when `find`, `done` otherwise (plain explore unchanged). A chase that loses the thing returns to the same explore, so places already visited stay visited.
 - **`refusal`:** `find` without the depth model is refused like `explore` ("find needs the depth model …").
 - This replaces 18.13.21's "Results changed": a find ends `done` (reached), `not_found` (everything visited, never reached), `blocked`, `stale` or `cancelled`.

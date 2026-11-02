@@ -22,7 +22,6 @@ import asyncio
 import contextlib
 import datetime
 import time
-from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -41,7 +40,6 @@ from conqueror_ai.app.map import (
     FIRST_PICTURE_S,
     STALE_PICTURE_S,
     STALE_TELEM_S,
-    MapRun,
     map_state,
     task_failure,
 )
@@ -59,19 +57,17 @@ from conqueror_ai.app.objects import (
     decode,
     detectors,
     load_depth,
-    see_off_loop,
 )
+from conqueror_ai.app.world import World, maybes_of
 from conqueror_ai.domain.camera import Calibration, CameraModel
 from conqueror_ai.domain.depth import MapConfig
 from conqueror_ai.domain.drive.costmap import CostSettings
-from conqueror_ai.domain.drive.goal import Goal, TargetFix, is_ball, kind_of, size_positions
+from conqueror_ai.domain.drive.goal import is_ball, kind_of
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import RoamSkill
-from conqueror_ai.domain.drive.skill import SkillOut, make_input
 from conqueror_ai.domain.memory import ThingMemory
-from conqueror_ai.domain.objects import Detector, Located, ObjectPipeline
-from conqueror_ai.domain.room_map import MapSnapshot
+from conqueror_ai.domain.objects import Detector
 from conqueror_ai.domain.types import TelemSample
 from conqueror_ai.domain.vocabulary import Vocabulary
 
@@ -80,6 +76,7 @@ __all__ = [
     "STALE_PICTURE_S",
     "STALE_TELEM_S",
     "map_state",
+    "maybes_of",
 ]  # the stale rule lives in app.map
 
 DRIVE = Path(__file__).resolve().parents[3] / "config" / "drive.yaml"
@@ -143,11 +140,6 @@ def _parse(action: Action, rest: list[str], words: list[str]) -> Mission:
     return Mission(action, None, seconds)
 
 
-def maybes_of(maybes: Sequence[Located], kind: Callable[[str], bool]) -> list[tuple[float, float]]:
-    """The newest picture's sightings of the thing sought, sure or not: find's candidates (§179, §189)."""
-    return [(m.x, m.y) for m in maybes if kind(m.cls)]
-
-
 def refusal(m: Mission, has_depth: bool) -> str | None:
     """Why the mission can't start, or None (spec 9 §5.4: without depth only the sensor marks the map -
     explore has nothing to go to, and find's search only seen floor, so it would end at once, §188)."""
@@ -186,14 +178,15 @@ class Kit:
 async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m: Mission, kit: Kit) -> str:
     """One run on the tank; returns the result ("done" or why not). The links are handed in (tests aim them at
     a fake bridge)."""
-    run = MapRun(kit.cal, kit.cfg, kit.depth, p=ObjectPipeline(kit.cal, kit.floor), lim=kit.lim)
     run_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")  # the run things were seen in (LLD §19.7)
-    memory = ThingMemory()  # what it confirms, for the run (a home spot keeps it between runs: next, §189)
-    skill = make_skill(m, kit.lim, kit.cfg.cost, memory)
-    goal = Goal(kind_of(m.thing)) if m.thing is not None else Goal(is_ball)
+    kind = None if m.action != "find" else (is_ball if m.thing is None else kind_of(m.thing))
+    world = World(
+        kit.cal, kit.cfg, kit.depth, kit.floor, kit.sizes, kit.lim, kind, area_m=m.area_m, run_id=run_id
+    )
+    run = world.map_run
+    skill = make_skill(m, kit.lim, kit.cfg.cost, world.memory)
     stop = asyncio.Event()
     last: dict[str, float] = {"telem": 0.0, "picture": 0.0}
-    sonar: list[float | None] = [None]
     rec = kit.rec
     if rec is not None:
         link.tap = rec.telemetry
@@ -204,11 +197,10 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
         while not stop.is_set():
             s: TelemSample = await link.samples.get()
             if not calib_given and link.counts_per_m is not None:
-                run.on_calib(link.counts_per_m)
+                world.on_calib(link.counts_per_m)
                 calib_given = True
-            run.on_telem(s)  # the pose, and the sensor onto the map
+            world.on_telem(s)  # the pose, and the sensor onto the map
             last["telem"] = time.monotonic()
-            sonar[0] = None if s.dist_mm is None or s.dist_mm <= 0 else s.dist_mm / 1000.0
 
     tasks.append(asyncio.create_task(telemetry()))
     for _ in range(100):  # both links up before the first move
@@ -222,12 +214,8 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
     await drive.cam(0.0, kit.lim.drive_tilt_deg)
     t0 = time.monotonic()
     result = ""
-    by_size: dict[str, tuple[float, float]] = {}
-    cam_still = True  # the newest picture wasn't skipped for the camera moving (the sweep looks only then)
-    used_now = False  # a picture arrived this tick and was used (find's search marks its view only then)
     try:
         while not result:
-            used_now = False
             if drive.refused is not None:
                 result = f"refused by the tank ({drive.refused})"
                 break
@@ -249,37 +237,25 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
                         )
                     else:
                         dets, inv = await asyncio.to_thread(kit.det.detect, rgb, camera_of(cam_f)), None
-                    used = run.gate(f, rgb, dets, cam_f)  # the map and the pose stay on the event loop
-                    cam_still = used != "camera moving"
-                    used_now = not isinstance(used, str)
+                    used = world.on_picture(
+                        f, rgb, dets, cam_f
+                    )  # the map and the pose stay on the event loop
                     if picture_counts(used):
                         last["picture"] = time.monotonic()
-                    by_size = {} if isinstance(used, str) else size_positions(dets, kit.sizes, used)
                     if not isinstance(used, str) and inv is not None:  # seeing off the loop, the map on it
-                        run.apply(await see_off_loop(run.seeing, run.p, used, inv, f.cap_us), f.cap_us)
+                        world.apply(await asyncio.to_thread(world.see, used, inv, f.cap_us), f.cap_us)
             now = time.monotonic()
             state = map_state(now, t0, last["picture"], last["telem"])
             if state == "waiting":
                 continue
-            pose = run.p.pose()
-            at = None if pose is None else (pose.x_m, pose.y_m, pose.th_rad)
-            fix = (
-                None
-                if pose is None
-                else goal.update(run.p.objects(), (pose.x_m, pose.y_m), pose.t_us, by_size)
-            )
-            memory.update(run.p.objects(), time.time(), run_id)
-            maybes = maybes_of(run.p.maybes(), goal.kind)
-            snap = None if pose is None else run.snapshot(pose.t_us, state is not None)  # stale: now
+            inp = world.input(now - t0, time.time(), state is None)
             # planning off the event loop (6-21 ms: the fan, routes; Z6 review 11) - the snapshot is a copy
-            out = await asyncio.to_thread(
-                _tick, skill, m, now - t0, at, snap, fix, sonar[0], state is None, cam_still, maybes, used_now
-            )
+            out = await asyncio.to_thread(skill.tick, now - t0, inp)
             await drive.drive(out.cmd)
             if out.cam is not None:
                 await drive.cam(*out.cam)
             if out.result is not None:
-                result = out.result
+                result = str(out.result)
                 if result == "stale":
                     result = f"stale - {state or 'no pose'}"
             seen_m2 = float(run.room.seen.sum()) * run.room.cell_m**2
@@ -298,33 +274,6 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
         await _close(link, tasks)
         print()
     return result
-
-
-def _tick(
-    skill: RoamSkill,
-    m: Mission,
-    now_s: float,
-    at: tuple[float, float, float] | None,
-    snap: MapSnapshot | None,
-    fix: TargetFix | None,
-    sonar_m: float | None,
-    map_ok: bool,
-    cam_still: bool,
-    maybes: Sequence[tuple[float, float]] = (),
-    used: bool = True,
-) -> SkillOut:
-    find = m.action == "find"
-    inp = make_input(
-        at=at,
-        snap=snap,
-        map_ok=map_ok,
-        fix=fix if find else None,
-        sonar_m=sonar_m,
-        cam_still=cam_still,
-        used=used,
-        maybes=maybes if find else (),
-    )
-    return skill.tick(now_s, inp)
 
 
 async def _close(link: BridgeLink, tasks: list[asyncio.Task[None]]) -> None:

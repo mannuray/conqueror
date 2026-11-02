@@ -102,7 +102,7 @@ def roam(
             fix = None if last_seen is None else TargetFix(1, ball[0], ball[1], t - last_seen)
         if false_maybe is not None and t >= false_maybe[0]:
             maybe = false_maybe[1]
-        o = skill.tick(t, at, snap, fix, echo, True, maybe=maybe)
+        o = skill.tick(t, at, snap, fix, echo, True, maybes=[] if maybe is None else [maybe])
         still = o.cmd.v_cms == 0 and o.cmd.w_dps == 0
         if o.cam is not None:
             pan = o.cam[0]  # the camera turns where it's told (the real one looks where the tank is going)

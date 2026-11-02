@@ -15,8 +15,9 @@ from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import START_STAND_S, Mode, RoamSkill
 from conqueror_ai.domain.drive.sim import SimTank
+from conqueror_ai.domain.memory import ThingMemory
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
-from conqueror_ai.domain.types import Pose
+from conqueror_ai.domain.types import ObjectEstimate, Pose
 
 AT = (0.0, 0.0, 0.0)
 POSE = Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -247,3 +248,65 @@ def test_explore_picks_again_when_its_target_closes() -> None:
     s.explore._dest, s.explore._picked_s = (3.95, 3.95), 0.9  # pyright: ignore[reportPrivateUsage]  # closed: the map's edge
     out = s.tick(1.4, AT, snap, None, None, True)
     assert s.state == "drive" and s.dest != (3.95, 3.95) and out.result is None
+
+
+# ---- candidates and the memory of things (owner, design-notes §189)
+def finder(memory: ThingMemory | None = None) -> RoamSkill:
+    return RoamSkill(
+        Planner(Limits()),
+        "search",
+        find=True,
+        rng=random.Random(1),
+        area_m=2.0,
+        memory=memory,
+        kind=lambda c: c == "toy",
+    )
+
+
+def ticks(
+    s: RoamSkill, tank: SimTank, t0: float, n: int, maybes: list[tuple[float, float]] | None = None
+) -> list[SkillOut]:
+    outs: list[SkillOut] = []
+    for k in range(n):
+        o = s.tick(t0 + k * 0.1, tank.at, open_snap(), None, None, True, maybes=maybes or [])
+        tank.step(o.cmd, 0.1)
+        outs.append(o)
+        if o.result:
+            break
+    return outs
+
+
+def until_searching(s: RoamSkill, tank: SimTank) -> float:
+    for k in range(600):  # the tank follows (the look round's half turn is measured from the pose)
+        tank.step(s.tick(k * 0.1, tank.at, open_snap(), None, None, True).cmd, 0.1)
+        if s.state == "drive":
+            return k * 0.1 + 0.1
+    raise AssertionError("never got to searching")
+
+
+def test_a_candidate_is_checked_before_unlooked_floor() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    ticks(s, tank, t, 1, maybes=[(1.2, 0.6)])
+    assert s.state == "check" and s._check is not None and s._check.spot == (1.2, 0.6)  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_candidate_not_confirmed_is_ruled_out_and_the_search_goes_on() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    ticks(s, tank, t, 1, maybes=[(1.2, 0.6)])
+    outs = ticks(s, tank, t + 0.1, 300)
+    assert s.state != "check" and s.candidates.pending() == []
+    assert not any(o.result for o in outs[:-1])
+    ticks(s, tank, t + 40.0, 1, maybes=[(1.25, 0.6)])  # seen weakly there again: ignored
+    assert s.state != "check"
+
+
+def test_a_remembered_spot_is_checked_first_and_marked_gone_when_not_there() -> None:
+    mem = ThingMemory()
+    mem.update([ObjectEstimate(1, "toy", 1.2, 0.4, 0.0, 0.0, 0.1, 0, 0, "seen")])
+    s, tank = finder(mem), SimTank()
+    ticks(s, tank, 0.0, 1)
+    assert s.state == "check"  # no look round first: it knows where to look
+    ticks(s, tank, 0.1, 300)
+    assert mem.of_kind(lambda c: c == "toy") == [] and s.state != "check"

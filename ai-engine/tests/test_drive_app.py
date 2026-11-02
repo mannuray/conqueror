@@ -18,7 +18,7 @@ from conqueror_ai.app.drive import (
     goal_words,
     make_skill,
     map_state,
-    nearest_maybe,
+    maybes_of,
     parse_mission,
     picture_counts,
     refusal,
@@ -114,16 +114,16 @@ def test_cli_play_area() -> None:
     assert isinstance(roam, RoamSkill) and roam.area_m is None
 
 
-def test_the_nearest_maybe_of_the_thing_sought() -> None:
-    """Look again (design-notes §179): only maybes of the word sought, the nearest one."""
+def test_the_sightings_of_the_thing_sought() -> None:
+    """Find's candidates (design-notes §189): every sighting of the word sought, sure or not."""
     box = (0.0, 0.0, 1.0, 1.0)
     ms = [
         Located("toy", 2.0, 0.0, 0.1, box),
         Located("box", 0.5, 0.0, 0.1, box),
         Located("toy", 1.0, 1.0, 0.1, box),
     ]
-    assert nearest_maybe(ms, lambda c: c == "toy", (0.0, 0.0)) == (1.0, 1.0)
-    assert nearest_maybe(ms, lambda c: c == "shoe", (0.0, 0.0)) is None
+    assert maybes_of(ms, lambda c: c == "toy") == [(2.0, 0.0), (1.0, 1.0)]
+    assert maybes_of(ms, lambda c: c == "shoe") == []
 
 
 def test_explore_refuses_without_depth() -> None:

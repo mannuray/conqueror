@@ -2052,18 +2052,18 @@ stateDiagram-v2
     Approach --> [*]: done / blocked
 ```
 
-#### 18.13.23 Candidates and a memory of things (owner, 2026-11-02, design-notes §189) - design, to approve
+#### 18.13.23 Candidates and a memory of things (owner, 2026-11-02, design-notes §189) - approved, built
 - **`ThingMemory`** (`domain/memory.py`, new): `Remembered(word, x_m, y_m, last_seen_s, gone)`. `update(objects, now_s)` - each sure object the tracker lists (floor words, never `person`) updates the remembered thing of that word within `MERGE_M` 0.5 m (spot, last seen, `gone` cleared) or adds one; nothing is dropped by time. `of_kind(kind) -> list[Remembered]` - present ones, most recent first; `mark_gone(r)`. Owned by the drive session (one per process: `cq-drive serve` will keep it across skills; step 2 saves it).
-- **`Candidates`** (`domain/drive/candidates.py`, new): `Candidate(x_m, y_m, score, state: pending|ruled_out, remembered: Remembered | None)`. `add(spot, score)` - within `MERGE_M` of a candidate: its spot becomes the newest, best score kept; within `MERGE_M` of a ruled-out one: ignored; else a new pending one. `seed(remembered)` - pending candidates from memory. `next(at, cost, routes, area) -> Candidate | None` - the pending one with the cheapest route to within `CHECK_CLOSE_M`, its own marks within `TARGET_R_M` set aside (the chase's rule); outside the play area: never. `rule_out(c)`.
-- **`RoamSkill` in find:** `tick(..., maybes: list[XY scored])` replaces the single `maybe`; each tick `candidates.add` for each. At the start, `candidates.seed(memory.of_kind(kind))`: with any, the first state is `check` (no look round first); otherwise the look round as now. In `drive` (search): a pending candidate → `check` it (§179's `_Check`, `CHECK_MAX_M` dropped); none → `SearchGoal`. `_end_check` (not confirmed) → `candidates.rule_out`, and `memory.mark_gone` when it came from memory. `not_found` when `SearchGoal.done` and no candidate is pending.
-- **App:** `drive_session` keeps one `ThingMemory`, updates it from `run.p.objects()` each tick, hands it to `make_skill`; `nearest_maybe` gives way to all maybes of the kind (`goal.kind`), sure or not.
+- **`Candidates`** (`domain/drive/candidates.py`, new): `Candidate(x_m, y_m, state: pending|ruled_out, remembered: Remembered | None)` (as built: no score - nothing decides by it). `add(spot)` - within `MERGE_M` of a candidate: its spot becomes the newest; within `MERGE_M` of a ruled-out one: ignored; else a new pending one. `seed(remembered)` - pending candidates from memory. `route(c, at, snap, routes, area, settings)` - a way to within `CLOSE_M` 1.0 m, on a cost map with the marks within `TARGET_R_M` 12 cm of the spot set aside (the chase's rule - this clears the spot's own cell, so a thing against furniture is taken too); outside the play area: None. `next(at, snap, routes, area, settings) -> Candidate | None` - the pending one with the shortest such way. `rule_out(c)`.
+- **`RoamSkill` in find:** `tick(..., maybes: Sequence[XY])` replaces the single `maybe`; each tick `candidates.add` for each. At the start, `candidates.seed(memory.of_kind(kind))`: with any, the first state is `check` (no look round first); otherwise the look round as now. In `drive` (search): a pending candidate with a way to it → `check` it (§179's `_Check`, now holding its `Candidate`; `CHECK_MAX_M` and the 60 s re-check rule dropped; going closer follows `Candidates.route`, the fan still keeps off every mark); none reachable → tried again after `CANDIDATE_RETRY_S` 1 s; meanwhile `SearchGoal`. `_end_check` (not confirmed) → `candidates.rule_out`, and `memory.mark_gone` when it came from memory. `not_found` when `SearchGoal.done` and no candidate is pending.
+- **App:** `drive_session` keeps one `ThingMemory`, updates it from `run.p.objects()` each tick, hands it to `make_skill(m, lim, cost, memory)`; `nearest_maybe` gave way to `maybes_of(maybes, kind)` - all of the kind, sure or not.
 
 ```mermaid
 classDiagram
     class Remembered { word: str; x_m; y_m; last_seen_s; gone: bool }
     class ThingMemory { update(objects, now_s); of_kind(kind) list~Remembered~; mark_gone(r) }
-    class Candidate { x_m; y_m; score; state: pending|ruled_out; remembered: Remembered? }
-    class Candidates { add(spot, score); seed(remembered); next(at, cost, routes, area) Candidate?; rule_out(c) }
+    class Candidate { x_m; y_m; state: pending|ruled_out; remembered: Remembered? }
+    class Candidates { add(spot); seed(remembered); pending(); route(c, at, snap, routes, area); next(at, snap, routes, area) Candidate?; rule_out(c) }
     class RoamSkill { candidates: Candidates; search: SearchGoal; memory: ThingMemory }
     ThingMemory *-- Remembered
     Candidates *-- Candidate

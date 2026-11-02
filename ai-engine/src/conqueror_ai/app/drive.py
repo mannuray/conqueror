@@ -21,7 +21,6 @@ import argparse
 import asyncio
 import contextlib
 import datetime
-import math
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
@@ -70,6 +69,7 @@ from conqueror_ai.domain.drive.goal import Goal, TargetFix, is_ball, kind_of, si
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import RoamSkill
+from conqueror_ai.domain.memory import ThingMemory
 from conqueror_ai.domain.objects import Detector, Located, ObjectPipeline
 from conqueror_ai.domain.room_map import MapSnapshot
 from conqueror_ai.domain.types import TelemSample
@@ -143,12 +143,9 @@ def _parse(action: Action, rest: list[str], words: list[str]) -> Mission:
     return Mission(action, None, seconds)
 
 
-def nearest_maybe(
-    maybes: Sequence[Located], kind: Callable[[str], bool], at: tuple[float, float]
-) -> tuple[float, float] | None:
-    """The nearest unsure sighting of the thing sought, for find to look at again (design-notes §179)."""
-    ms = [(m.x, m.y) for m in maybes if kind(m.cls)]
-    return min(ms, key=lambda p: math.dist(p, at), default=None)
+def maybes_of(maybes: Sequence[Located], kind: Callable[[str], bool]) -> list[tuple[float, float]]:
+    """The newest picture's sightings of the thing sought, sure or not: find's candidates (§179, §189)."""
+    return [(m.x, m.y) for m in maybes if kind(m.cls)]
 
 
 def refusal(m: Mission, has_depth: bool) -> str | None:
@@ -162,10 +159,13 @@ def refusal(m: Mission, has_depth: bool) -> str | None:
     return None
 
 
-def make_skill(m: Mission, lim: Limits, cost: CostSettings | None = None) -> ChaseSkill | RoamSkill:
+def make_skill(
+    m: Mission, lim: Limits, cost: CostSettings | None = None, memory: ThingMemory | None = None
+) -> ChaseSkill | RoamSkill:
     planner = Planner(lim)
-    if m.action == "find":  # look round, search, go to it; every spot looked at from near: not_found (§188)
-        return RoamSkill(planner, "search", find=True, cost=cost, area_m=m.area_m)
+    if m.action == "find":  # remembered spots, the look round, candidates, then the search (§189)
+        kind = is_ball if m.thing is None else kind_of(m.thing)
+        return RoamSkill(planner, "search", find=True, cost=cost, area_m=m.area_m, memory=memory, kind=kind)
     return RoamSkill(planner, m.action, seconds=m.seconds, cost=cost, area_m=m.area_m)
 
 
@@ -187,7 +187,8 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
     """One run on the tank; returns the result ("done" or why not). The links are handed in (tests aim them at
     a fake bridge)."""
     run = MapRun(kit.cal, kit.cfg, kit.depth, p=ObjectPipeline(kit.cal, kit.floor), lim=kit.lim)
-    skill = make_skill(m, kit.lim, kit.cfg.cost)
+    memory = ThingMemory()  # what it confirms, for the run (a home spot keeps it between runs: next, §189)
+    skill = make_skill(m, kit.lim, kit.cfg.cost, memory)
     goal = Goal(kind_of(m.thing)) if m.thing is not None else Goal(is_ball)
     stop = asyncio.Event()
     last: dict[str, float] = {"telem": 0.0, "picture": 0.0}
@@ -263,11 +264,12 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
                 if pose is None
                 else goal.update(run.p.objects(), (pose.x_m, pose.y_m), pose.t_us, by_size)
             )
-            maybe = None if pose is None else nearest_maybe(run.p.maybes(), goal.kind, (pose.x_m, pose.y_m))
+            memory.update(run.p.objects())
+            maybes = maybes_of(run.p.maybes(), goal.kind)
             snap = None if pose is None else run.snapshot(pose.t_us, state is not None)  # stale: now
             # planning off the event loop (6-21 ms: the fan, routes; Z6 review 11) - the snapshot is a copy
             out = await asyncio.to_thread(
-                _tick, skill, m, now - t0, at, snap, fix, sonar[0], state is None, cam_still, maybe
+                _tick, skill, m, now - t0, at, snap, fix, sonar[0], state is None, cam_still, maybes
             )
             await drive.drive(out.cmd)
             if out.cam is not None:
@@ -304,13 +306,13 @@ def _tick(
     sonar_m: float | None,
     map_ok: bool,
     cam_still: bool,
-    maybe: tuple[float, float] | None = None,
+    maybes: Sequence[tuple[float, float]] = (),
 ) -> SkillOut:
     if isinstance(skill, ChaseSkill):
         return skill.tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap)
     find = m.action == "find"
     return skill.tick(
-        now_s, at, snap, fix if find else None, sonar_m, map_ok, cam_still, maybe if find else None
+        now_s, at, snap, fix if find else None, sonar_m, map_ok, cam_still, maybes if find else ()
     )
 
 

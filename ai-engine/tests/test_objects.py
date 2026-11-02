@@ -276,14 +276,30 @@ def test_a_seen_thing_keeps_its_detections_from_a_remembered_neighbour() -> None
     assert math.hypot(b.x_m - 1.0, b.y_m - 1.5) < 0.1  # B stayed where it was
 
 
-def test_one_false_detection_is_not_listed() -> None:  # I3: confirmed after 3 hits
+def test_one_false_detection_is_not_listed() -> None:  # I3: confirmed after 3 hits within CONFIRM_S
+    """A new thing is listed once seen 3 times within 0.5 s; pictures between that miss it no longer drop it
+    (floor run c1, design-notes §189) - but one stray detection never gets there."""
     tr = ob.ObjectTracker()
     track_frames(tr, cam_at(), [(1.0, 0.0)], 1)
     assert tr.objects() == []
-    track_frames(tr, cam_at(), [], 1, t0_us=100_000)  # missed once while new: gone
-    track_frames(tr, cam_at(), [(1.0, 0.0)], 2, t0_us=200_000)
-    assert tr.objects() == []
-    track_frames(tr, cam_at(), [(1.0, 0.0)], 1, t0_us=400_000)
+    track_frames(tr, cam_at(), [], 6, t0_us=100_000)  # nothing more: not confirmed in time, gone
+    track_frames(tr, cam_at(), [(1.0, 0.0)], 2, t0_us=700_000)
+    assert tr.objects() == []  # a fresh start: 2 hits so far
+    track_frames(tr, cam_at(), [(1.0, 0.0)], 1, t0_us=900_000)
+    assert len(tr.objects()) == 1
+
+
+def test_a_thing_flickering_about_its_bar_is_listed() -> None:
+    """Floor run c1 (design-notes §189): the car stood 1 m off in dim light, sure in some pictures and not in
+    the ones between - it was dropped at every miss and never listed, so find never chased it. The real
+    sequence, 96.85-97.86 s: sure at 97.43, 97.57, 97.72, 97.82 s, missed between."""
+    tr, cam = ob.ObjectTracker(), cam_at()
+    loc = ob.ObjectLocator()
+    seq = [(97.43, True), (97.54, False), (97.57, True), (97.65, False), (97.72, True), (97.75, False)]
+    for t_s, sure in seq:
+        t = round((t_s - 97.0) * 1e6)
+        located, _ = loc.locate([box_on_floor(cam, 1.0, 0.0)] if sure else [], cam, t)
+        tr.update(located, cam, t)
     assert len(tr.objects()) == 1
 
 

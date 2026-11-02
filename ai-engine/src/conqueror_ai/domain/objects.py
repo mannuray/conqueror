@@ -58,7 +58,7 @@ REMEMBER_AFTER_S = (
 )
 MAYBE_SCORE = 0.15  # a detection from this score up to its word's threshold is a maybe (design-notes §179)
 CONFIRM_HITS = 3  # a new thing is listed once seen this often ...
-CONFIRM_S = 0.5  # ... within this long; a new thing missed once is dropped (one false detection is no thing)
+CONFIRM_S = 0.5  # ... within this long, whatever the pictures between show (design-notes §189, run c1)
 LOOK_MISSES = 3  # the look check: at least this many pictures without it, as well as LOOK_S
 CAM_RATE_DPS = (
     20.0  # the camera turning faster than this: the picture is skipped (the Uno Lite sends no flag)
@@ -327,8 +327,10 @@ class ObjectTracker:
         for i, th in enumerate(self._things):
             if i not in used_t and not _is_ball(th.cls) and any(th.cost(z)[0] <= GATE_D2 for z in balls_seen):
                 continue  # a word thing where the finder sees a ball: it was that ball
-            if not th.confirmed and (i not in used_t or (t_us - th.first_us) / 1e6 > CONFIRM_S):
-                continue  # a new thing missed once, or not confirmed in time: one false detection is no thing
+            if not th.confirmed:  # new: listed after CONFIRM_HITS within CONFIRM_S, misses between or not
+                if (t_us - th.first_us) / 1e6 <= CONFIRM_S:  # (a thing flickering about its bar, run c1)
+                    keep.append(th)
+                continue  # not confirmed in time: one false detection is no thing
             if i not in used_t and not self._still_there(th, cam, t_us):
                 continue
             keep.append(th)

@@ -2087,5 +2087,6 @@ stateDiagram-v2
     Search --> [*]: no pending candidate, no unlooked floor - not_found
     Approach --> [*]: done / blocked
 ```
+- **The list's confirm rule (amends §15, floor run c1):** `ObjectTracker.update` keeps a new (unconfirmed) thing until `CONFIRM_S` 0.5 s after its first sighting whether or not later pictures match it, and lists it at `CONFIRM_HITS` 3; before, a new thing missing from one picture was dropped, so a thing scoring about its word's bar (sure, missed, sure, ...) was never listed.
 - **Tests (to write first):** candidates merge within 0.5 m and keep the best score; a sighting by a ruled-out one is ignored; `next` skips one outside the area and takes one whose only marks are its own (within 12 cm); a find with a candidate checks it before unlooked floor; a not-confirmed check rules it out and the search goes on; `not_found` waits for pending candidates; memory keeps a thing beyond the tracker's 20 s, merges by word within 0.5 m, never keeps `person`; a find with a remembered spot goes there first, and a gone one is marked.
 

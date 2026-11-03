@@ -115,6 +115,13 @@ void test_ai_words_in_the_preview() {
   TEST_ASSERT_EQUAL(0, g_r.code);
 }
 
+// After SETXY the heading is unknown: what follows is a guess too.
+void test_setxy_then_forward_is_uncertain() {
+  plan("SETXY 20 30  FD 5");
+  TEST_ASSERT_TRUE(g_path.pts[1].uncertain);
+  TEST_ASSERT_TRUE(last().uncertain);
+}
+
 void test_area_draws_its_circle() {
   plan("AREA 2  FD 30  AREA 3  AREA 0  FD 10");
   TEST_ASSERT_EQUAL(2, g_r.n_areas);
@@ -167,6 +174,7 @@ int main(int, char**) {
   RUN_TEST(test_uncertain_after_a_sensor_read);
   RUN_TEST(test_go_draws_one_uncertain_metre);
   RUN_TEST(test_ai_words_in_the_preview);
+  RUN_TEST(test_setxy_then_forward_is_uncertain);
   RUN_TEST(test_area_draws_its_circle);
   RUN_TEST(test_limits_cut_the_path_short);
   RUN_TEST(test_simulated_time);

@@ -118,6 +118,8 @@ bool RunController::due(uint32_t now_ms) {
 
 // The value the kResume after the question pushes: SEE? a boolean, HOWFAR a number of cm.
 void RunController::answer(int32_t value) {
+  constexpr int32_t kMaxCm = 1000000;  // far beyond any room; keeps value * 1000 in range
+  value = value > kMaxCm ? kMaxCm : (value < -kMaxCm ? -kMaxCm : value);
   m_vm.resume(m_ask_q == AskQ::kSee ? Value{VTag::kBool, value != 0 ? 1 : 0} : Value{VTag::kNum, value * 1000});
   m_state = RunState::kRunning;
 }

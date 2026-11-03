@@ -1358,6 +1358,7 @@ The page's text icons become Lucide icons from the shared `web/icons.json` (brid
   - **`OpCode::kResume`** carries the value back (`kAsk` is the first effect with a result).
   - In a `WAIT UNTIL SEE? "ball` the question is asked each tick (~10 Hz), as a sensor is read.
 - **`AREA n`** is a setting, like `SPEED`: the runner keeps `m_area_m` and the odometry pose where it ran (`m_area_at`). No message is sent.
+  - The radius is kept in whole metres, rounded to the nearest, but a radius above 0 never rounds down to none: `AREA 0.4` is 1 m. Only `AREA 0` clears it.
 - **Action words (`FIND`, `WANDER`, `EXPLORE`, `SETXY`)** are one effect **`EffectKind::kSkill`** (skill, args).
   - The runner enters **`RunState::kSkill`**, which behaves like `kMotion`: the program waits, STOP and the time limit apply.
   - `LogoController` asks `SkillHub` for the lease and sends `skill_start`. **Places are sent relative to the tank now**, from the bridge's odometry (§20), so the engine needs no frame of the run:

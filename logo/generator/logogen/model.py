@@ -100,12 +100,10 @@ class RunCase:
     distance_cm: int = 0  # 0 = nothing seen
     cut_short: int = 0  # bit n-1: the n-th motion is cut short by the obstacle brake
     stuck: int = 0  # bit n-1: the n-th motion ends with a stuck track
-    answers: str = (
-        ""  # the laptop's answers to SEE? / HOWFAR in order: "1 0 N 120" (N = no answer in time)
-    )
-    skill_ends: str = (
-        ""  # how each FIND / WANDER / EXPLORE / SETXY ends in order: "done not_found stop"
-    )
+    # the laptop's answers to SEE? / HOWFAR in order: "1 0 N 120" (N = no answer in time)
+    answers: str = ""
+    # how each FIND / WANDER / EXPLORE / SETXY ends in order: "done not_found stop"
+    skill_ends: str = ""
 
 
 @dataclass

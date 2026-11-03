@@ -105,12 +105,13 @@ void Simulator::ai(const Action& a, SimResult& r) {
   }
 }
 
-// A straight line to the point (x right, y ahead of the start): drawn dashed, the heading as it was.
+// A straight line to the point (x right, y ahead of the start): drawn dashed.
 void Simulator::setxy(const Action& a) {
   const double dx = a.x_cm * 10.0 - m_pose.x, dy = a.y_cm * 10.0 - m_pose.y;
   m_pose.x = a.x_cm * 10.0;
   m_pose.y = a.y_cm * 10.0;
   m_ms += static_cast<uint32_t>(sqrt(dx * dx + dy * dy) / 10.0 / cmPerS() * 1000.0);
+  m_guess = true;  // the heading is unknown after it: what follows is a guess too
   point(m_line, true);
 }
 

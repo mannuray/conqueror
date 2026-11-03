@@ -214,8 +214,6 @@ void test_run_time_refusal_ends_with_its_line_and_speed_applies() {
   TEST_ASSERT_EQUAL(1, g_last.end_line);
 }
 
-// Plan N3 Task 1: a program that did not compile completely never starts.
-// Tank Logo LLD §22: a GO that is no longer kept alive (the bridge's 300 ms deadman) ends the program 7034.
 // Ticks until the runner is waiting for the laptop (a question or a skill), or ended.
 void until(RunState s) {
   for (int i = 0; i < 1000 && g_rc.state() != s && g_rc.state() != RunState::kEnded; ++i) {
@@ -289,6 +287,24 @@ void test_late_answer_and_old_end_dropped() {
   TEST_ASSERT_EQUAL(0, g_last.code);
 }
 
+// A huge HOWFAR answer is clamped (no overflow when it is scaled to 1/1000); an empty thing is not a thing.
+void test_huge_answer_clamped_and_empty_thing_refused() {
+  TEST_ASSERT_TRUE(load("SAY HOWFAR \"ball"));
+  until(RunState::kAsking);
+  g_rc.onAskAnswer(2147483647, g_now);
+  drive();
+  TEST_ASSERT_EQUAL_STRING("HOWFAR ball | SAY 1000000", g_trace);
+  TEST_ASSERT_TRUE(load("SAY HOWFAR \"ball"));
+  until(RunState::kAsking);
+  g_rc.onAskAnswer(-2147483647, g_now);
+  drive();
+  TEST_ASSERT_EQUAL_STRING("HOWFAR ball | SAY -1000000", g_trace);
+  TEST_ASSERT_TRUE(load("FIND \"\n"));
+  drive();
+  TEST_ASSERT_EQUAL(7012, g_last.code);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_last.msg, "needs a thing"), g_last.msg);
+}
+
 void test_skill_ends_map_to_their_codes() {
   const SkillEnd ends[] = {SkillEnd::kNotFound, SkillEnd::kLost,         SkillEnd::kOutsideArea,
                            SkillEnd::kNoWay,    SkillEnd::kBlocked,      SkillEnd::kUnknownThing,
@@ -319,6 +335,8 @@ void test_skill_replaces_go_and_tank_side_ends_apply() {
   TEST_ASSERT_EQUAL(7041, g_rc.tick(g_tel, g_now).code);
 }
 
+// Plan N3 Task 1: a program that did not compile completely never starts.
+// Tank Logo LLD §22: a GO that is no longer kept alive (the bridge's 300 ms deadman) ends the program 7034.
 void test_go_deadman_ends_7034() {
   TEST_ASSERT_TRUE(load("GO\nWAIT 5"));
   RunOut o = g_rc.tick(g_tel, g_now += 2);
@@ -356,6 +374,7 @@ int main(int, char**) {
   RUN_TEST(test_ask_waits_300_ms_then_false);
   RUN_TEST(test_answer_in_time_and_stop_while_asking);
   RUN_TEST(test_late_answer_and_old_end_dropped);
+  RUN_TEST(test_huge_answer_clamped_and_empty_thing_refused);
   RUN_TEST(test_skill_ends_map_to_their_codes);
   RUN_TEST(test_skill_replaces_go_and_tank_side_ends_apply);
   return UNITY_END();

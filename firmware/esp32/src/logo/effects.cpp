@@ -309,7 +309,11 @@ bool Mapper::thing(uint8_t i) {
   if (m_e.args[i].tag != VTag::kWord) return typeError(i, "a thing");
   uint16_t len = 0;
   const char* s = m_p.wordText(static_cast<uint16_t>(m_e.args[i].n), len);
-  if (len == 0 || len >= sizeof m_out.thing) {
+  if (len == 0) {  // an empty word is not a thing (an empty {value} would drop the whole message)
+    const DiagArg a[] = {{"word", gen::kWords[m_word].name}, {"type", "a thing"}, {"value", "an empty word"}};
+    return fail(7012, a, 3);
+  }
+  if (len >= sizeof m_out.thing) {
     char given[40];
     snprintf(given, sizeof given, "%.*s", static_cast<int>(len < 36 ? len : 36), s);
     const DiagArg a[] = {{"thing", given}};

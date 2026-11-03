@@ -146,6 +146,8 @@ def test_ai_words_are_level_2() -> None:
         assert (w.level, w.kind) == (2, kind), name
         assert [i.type for i in w.inputs] == types, name
         assert sorted(w.needs) == needs, name
+        assert w.help, name
+        assert name in w.example.split(), name  # the example uses the word itself
     ranges = {
         n: [(i.min_milli, i.max_milli) for i in s.word(n).inputs]
         for n in ("WANDER", "SETXY", "AREA")

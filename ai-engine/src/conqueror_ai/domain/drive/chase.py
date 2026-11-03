@@ -60,6 +60,7 @@ class ChaseSkill:
         self._spin_turned = TurnMeter()  # the search turn
         self._costs: CostMaps | None = None  # this tick's cost maps (the play area is in them)
         self._own: tuple[MapSnapshot, CostMaps] | None = None  # built here when not handed in
+        self._target: tuple[float, float] | None = None  # the thing approached last (the viewer)
         self._cam_pan: float | None = None  # where the camera was last sent (None: not by this skill)
         self._seen_at: float | None = None  # when the target was last seen
         self._away_s = 0.0  # since then, time the camera didn't look at its spot (§187)
@@ -79,7 +80,7 @@ class ChaseSkill:
         return self._end(Result.CANCELLED)
 
     def debug(self) -> dict[str, object]:
-        return {"state": self.state, "recovering": self._recovering}
+        return {"state": self.state, "recovering": self._recovering, "target": self._target}
 
     def _costs_for(self, snap: MapSnapshot) -> CostMaps:
         """This tick's cost maps: those handed in (roam's, with its play area), else one set per snapshot."""
@@ -199,6 +200,7 @@ class ChaseSkill:
             self.cmd = STOP
             return self._sweep(now_s)
         target = (fix.x_m, fix.y_m)
+        self._target = target
         b = bearing_deg(at, target)
         d_lens = self.planner.lens_distance(at, target)
         obstacle: float | None = None

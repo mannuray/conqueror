@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from conqueror_ai.adapters import calibration_store
+from conqueror_ai.adapters.home_store import HomeError, HomeStore
 from conqueror_ai.adapters.map_config import load_map_config
 from conqueror_ai.adapters.session import SessionRecorder, replay
 from conqueror_ai.app.objects import (
@@ -130,7 +131,7 @@ async def run_live(
             updates += 1
             if view is not None:
                 view.frame(f, None)
-                view.room_map(f.cap_us, snap)
+                view.room_map(f.cap_us, snap, run.room.seen_before)
     finally:
         halt.set()
         await p.close()
@@ -147,7 +148,16 @@ def main() -> None:
     ap.add_argument("--depth-model", type=Path, default=DEPTH_MODEL)
     ap.add_argument("--no-depth", action="store_true", help="leave the depth model out (echoes only)")
     ap.add_argument("--no-view", action="store_true", help="no live view (the numbers only)")
+    ap.add_argument(
+        "--home",
+        nargs="?",
+        const="home",
+        metavar="NAME",
+        help="with --live: start from this home's map (Plan Z8)",
+    )
     a = ap.parse_args()
+    if a.home is not None and not a.live:
+        raise SystemExit("--home goes with --live (cq-map shows a home's map before driving)")
     if a.live == (a.folder is not None):
         raise SystemExit("give a recording folder, or --live")
     try:
@@ -157,7 +167,10 @@ def main() -> None:
         raise SystemExit(str(err)) from None
     depth = None if a.no_depth else load_depth(a.depth_model)
     if a.live:
-        live(a, cal, cfg, depth)
+        try:
+            live(a, cal, cfg, depth)
+        except HomeError as err:  # a damaged or mismatched home: said plainly (Z8 review I2)
+            raise SystemExit(str(err)) from None
         return
     show: Show | None = None
     if not a.no_view:
@@ -178,6 +191,14 @@ def main() -> None:
         print(f"laptop: {time.monotonic() - t:.1f} s")
 
 
+def home_run_map(
+    store: HomeStore, name: str, cal: Calibration, cfg: MapConfig, depth: DepthFn | None
+) -> MapRun:
+    """cq-map --live --home NAME: a MapRun from the home's map (Plan Z8) - only loaded, never saved."""
+    home = store.load(name, size_m=cfg.map.size_m, cell_m=cfg.map.cell_m)
+    return MapRun(cal, cfg, depth, room=None if home is None else home.room_for_run(cfg.map))
+
+
 def live(a: argparse.Namespace, cal: Calibration, cfg: MapConfig, depth: DepthFn | None) -> None:
     from conqueror_ai.adapters.bridge_ws import BridgeLink
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
@@ -188,7 +209,12 @@ def live(a: argparse.Namespace, cal: Calibration, cfg: MapConfig, depth: DepthFn
         when = datetime.datetime.now().isoformat(timespec="seconds")
         rec = SessionRecorder(a.record, {"host": a.host, "what": "cq-map --live", "date": when})
     view = None if a.no_view else RerunView(spawn=True)
-    run = MapRun(cal, cfg, depth)
+    if a.home is not None:
+        from conqueror_ai.app.drive import HOMES
+
+        run = home_run_map(HomeStore(HOMES), a.home, cal, cfg, depth)
+    else:
+        run = MapRun(cal, cfg, depth)
     print("watching the map - drive with the phone; Ctrl-C ends it (cq-map never drives)")
 
     async def until_ctrl_c() -> MapRun:

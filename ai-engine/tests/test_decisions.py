@@ -174,3 +174,29 @@ def test_a_find_with_a_remembered_spot_replays_identically(tmp_path: Path) -> No
         tank.step(out.cmd, 0.1)
     log.close()
     assert "identical" in replay_text(tmp_path)
+
+
+async def test_a_home_run_replays_identically(tmp_path: Path) -> None:
+    """Plan Z8: a recorded --home run (a loaded obstacle, a remembered spot) replays decision by decision."""
+    from conqueror_ai.adapters.session import SessionRecorder
+    from conqueror_ai.app.drive import replay_text
+    from tests.test_drive_app import home_run, stored_home
+
+    rec = SessionRecorder(tmp_path / "rec", {"what": "test"})
+    await home_run(stored_home(tmp_path / "homes"), rec=rec)
+    rec.close()
+    assert "identical" in replay_text(tmp_path / "rec")
+
+
+def test_replay_view_draws_every_logged_tick(tmp_path: Path) -> None:
+    logged_run(tmp_path / "decisions.jsonl", ticks=30)
+    drawn: list[float] = []
+
+    class View:
+        def tick(
+            self, now_s: float, inp: SkillInput, out: SkillOut, state: str, debug: dict[str, object]
+        ) -> None:
+            drawn.append(now_s)
+
+    assert replay(tmp_path / "decisions.jsonl", make, view=View()).first_diff is None
+    assert len(drawn) == 30

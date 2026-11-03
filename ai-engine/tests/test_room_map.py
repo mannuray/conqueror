@@ -243,3 +243,53 @@ def test_marks_3_cm_off_either_side_survive_drift(side: float, drift: float) -> 
         for j in range(100):
             room.body_over(Pose(0, x0, y0 + side * drift, 0.0, 0.0, 0.0), *BODY, j * 100_000)
         assert room.is_blocked(*mark), (k, drift, side)
+
+
+# ---- seeing what the engine thinks (Plan Z8, LLD §20.7)
+def test_the_overlay_paints_each_note() -> None:
+    from conqueror_ai.domain import room_map as rm
+
+    room = RoomMap()
+    room.seen[:] = True
+    snap = room.snapshot(0, None, False, True)
+    n = room.n
+
+    def px(x: float, y: float) -> tuple[int, int]:
+        return n - 1 - int(np.floor(x / room.cell_m + n / 2)), n - 1 - int(np.floor(y / room.cell_m + n / 2))
+
+    notes = {
+        "route": [(0.0, -1.0), (0.0, -0.5)],
+        "dest": (0.0, -0.5),
+        "pending": [(0.5, 0.5)],
+        "ruled_out": [(-0.5, 0.0)],
+        "check": (0.0, 0.8),
+        "looked": [(1.05, 1.05)],
+        "state": "drive",
+    }
+    img = rm.skill_image(snap, notes)
+    assert tuple(img[px(0.5, 0.5)]) == rm.PENDING
+    assert tuple(img[px(-0.5, 0.0)]) == rm.RULED_OUT
+    assert tuple(img[px(0.0, 0.8)]) == rm.CHECK
+    assert tuple(img[px(0.0, -0.5)]) == rm.DEST
+    assert tuple(img[px(0.0, -0.75)]) == rm.ROUTE
+    looked = img[px(1.05, 1.05)]
+    assert looked[1] > rm.SEEN[1] and tuple(looked) != tuple(rm.SEEN)  # a faint green over the seen grey
+    rm.skill_image(
+        snap, {"pending": [(10.0, 10.0)], "route": None, "dest": "nonsense"}
+    )  # off the map: ignored
+
+
+def test_seen_before_and_the_chase_target_are_shown() -> None:
+    """Plan Z8 final review I3 / minor 5: what earlier runs saw is drawn (a dim blue-grey, never the seen
+    grey), and the chase's target too."""
+    from conqueror_ai.domain import room_map as rm
+
+    room = RoomMap()
+    room.seen_before[:, :] = True
+    snap = room.snapshot(0, None, False, True)
+    img = rm.map_image(snap, room.seen_before)
+    assert tuple(img[5, 5]) == rm.SEEN_BEFORE
+    img = rm.skill_image(snap, {"target": (0.5, 0.0)}, room.seen_before)
+    n = room.n
+    r, c = n - 1 - int(np.floor(0.5 / room.cell_m + n / 2)), n - 1 - int(np.floor(0.0 / room.cell_m + n / 2))
+    assert tuple(img[r, c]) == rm.TARGET

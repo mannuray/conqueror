@@ -47,6 +47,7 @@ CHECK_MAX_S = 15.0  # a check never longer than this ...
 CHECK_S_PER_M = 10.0  # ... plus this per metre it has to drive closer (review I3: 15 s covered the drive too)
 CHECK_NEAR_TOL_M = 0.05  # within CHECK_CLOSE_M and this counts as near (the way ends at about 1 m)
 CHECK_TRIES = 3  # checks that could not get near: then ruled out (a remembered thing is not marked gone)
+EDGE_IN_M = 0.3  # a thing seen outside the play area: its edge candidate this far inside the edge (§196)
 CANDIDATE_RETRY_S = 1.0  # pending candidates with no way to them: tried again after this long
 PLAN_TRIES = 3  # destinations tried in one tick before it counts as stuck
 START_STAND_S = 1.0  # at the start: stand with the camera ahead so the map takes still pictures
@@ -127,6 +128,7 @@ class RoamSkill:
         self._seeded = False
         self._retry_s = -math.inf  # no pending candidate reachable: not tried again before this
         self._tried_now = False  # the pending candidates were tried this tick
+        self._outside_m: float | None = None  # the thing was seen this far from the start, outside the area
 
     # ---- out
     def _out(self, want: Command, cam: tuple[float, float] | None = None) -> SkillOut:
@@ -139,10 +141,24 @@ class RoamSkill:
         self.cmd = STOP
         return SkillOut(STOP, cam)
 
-    def _end(self, result: str) -> SkillOut:
+    def _end(self, result: str, detail: str = "") -> SkillOut:
         self.state = "done" if result == "done" else "failed"
         self.cmd = STOP
-        return SkillOut(STOP, None, Result(result))
+        return SkillOut(STOP, None, Result(result), detail)
+
+    def _inside(self, fix: TargetFix | None) -> TargetFix | None:
+        """The fix, or None when the thing is outside the play area: then a candidate goes at the area's edge
+        nearest it (EDGE_IN_M inside), to look again from there, and not_found will say so (owner, §196)."""
+        a = self._area
+        if fix is None or a is None:
+            return fix
+        d = math.dist((fix.x_m, fix.y_m), a[:2])
+        if d <= a[2]:
+            return fix
+        self._outside_m = d
+        k = (a[2] - EDGE_IN_M) / d
+        self.candidates.add((a[0] + (fix.x_m - a[0]) * k, a[1] + (fix.y_m - a[1]) * k))
+        return None
 
     def debug(self) -> dict[str, object]:
         c = self._check
@@ -150,8 +166,12 @@ class RoamSkill:
             "state": self.state,
             "dest": self.dest,
             "route_len": None if self.route is None else len(self.route),
+            "route": self.route,
             "pending": [p.spot for p in self.candidates.pending()],
+            "ruled_out": self.candidates.ruled_out(),
+            "check": None if c is None else c.spot,
             "check_phase": None if c is None else c.phase,
+            "looked": self.search.looked_cells() if self.find else [],
         }
 
     def cancel(self) -> SkillOut:
@@ -222,6 +242,7 @@ class RoamSkill:
             return SkillOut(STOP)
         self._stale_t0 = None
         # find (§187): first the chase's look round from where it stands, then search; seen: go to it
+        fix = self._inside(fix)  # seen outside the play area: never chased, its edge checked (§196)
         seen = fix is not None and fix.seen_age_s < LOST_AFTER_S
         if self.find and (self.state in ("start", "chase") or seen):
             return self._chase(now_s, at, snap, fix, sonar_m, map_ok, cam_still)
@@ -405,7 +426,9 @@ class RoamSkill:
                     if c is not None:
                         self._start_check(now_s, at, c)
                         return self._halt()
-                return self._end("not_found")
+                outside = self._outside_m
+                why = "" if outside is None else f"seen outside the play area, {outside:.1f} m from the start"
+                return self._end("not_found", why)
             return self._stuck(now_s, at)
         self.route = route
         aim = aim_point(route, (at[0], at[1]))

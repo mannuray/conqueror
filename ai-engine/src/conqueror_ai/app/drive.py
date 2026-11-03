@@ -31,6 +31,7 @@ from conqueror_ai.adapters.decisions import DecisionLog, replay
 from conqueror_ai.adapters.detector_config import load_balls, load_vocabulary
 from conqueror_ai.adapters.drive_config import load_drive
 from conqueror_ai.adapters.drive_link import DriveLink
+from conqueror_ai.adapters.home_store import HomeStore
 from conqueror_ai.adapters.map_config import load_map_config
 from conqueror_ai.adapters.session import SessionRecorder
 
@@ -57,10 +58,10 @@ from conqueror_ai.app.perception import (
     Perception,
     map_state,
 )
-from conqueror_ai.app.runner import SkillRunner
+from conqueror_ai.app.runner import SkillRunner, TickView
 from conqueror_ai.app.world import World, maybes_of
 from conqueror_ai.domain.camera import Calibration
-from conqueror_ai.domain.depth import MapConfig
+from conqueror_ai.domain.depth import MapConfig, MapSettings
 from conqueror_ai.domain.drive.costmap import CostSettings
 from conqueror_ai.domain.drive.curves import Command
 from conqueror_ai.domain.drive.goal import is_ball, kind_of
@@ -68,8 +69,10 @@ from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import RoamSkill
 from conqueror_ai.domain.drive.skill import Result, Skill
+from conqueror_ai.domain.home import Home
 from conqueror_ai.domain.memory import Remembered, ThingMemory
 from conqueror_ai.domain.objects import Detector
+from conqueror_ai.domain.room_map import RoomMap
 from conqueror_ai.domain.vocabulary import Vocabulary
 
 __all__ = [
@@ -81,6 +84,7 @@ __all__ = [
 ]  # the stale rule lives in app.map
 
 DRIVE = Path(__file__).resolve().parents[3] / "config" / "drive.yaml"
+HOMES = Path(__file__).resolve().parents[3] / "homes"  # git-ignored: each home's map and things (Plan Z8)
 NEVER_GOTO = ("person",)
 
 
@@ -165,7 +169,7 @@ def start_memory(memory: ThingMemory) -> list[dict[str, Any]]:
     return [asdict(r) for r in memory.things()]
 
 
-def replay_text(folder: Path) -> str:
+def replay_text(folder: Path, view: TickView | None = None) -> str:
     """`cq-drive --replay DIR`: the run's logged inputs through a fresh skill; the state timeline and whether
     every decision came out the same (LLD §19.6)."""
     path = folder / "decisions.jsonl"
@@ -178,7 +182,7 @@ def replay_text(folder: Path) -> str:
         memory = ThingMemory([Remembered(**r) for r in head.get("remembered", [])])
         return make_skill(Mission(**head["mission"]), lim, cost, memory, seed)
 
-    r = replay(path, make)
+    r = replay(path, make, view)
     lines = [f"{t:7.1f} s  {state}" for t, state in r.states]
     if r.first_diff is None:
         lines.append("replay: identical - every decision the same")
@@ -199,6 +203,8 @@ class Kit:
     lim: Limits
     depth: DepthFn | None
     rec: SessionRecorder | None = None
+    home: tuple[HomeStore, str] | None = None  # --home: the store and the home's name (Plan Z8)
+    view: TickView | None = None  # --view: what the engine thinks, drawn each tick (Plan Z8)
 
 
 async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m: Mission, kit: Kit) -> str:
@@ -206,9 +212,40 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
     a fake bridge)."""
     run_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")  # the run things were seen in (LLD §19.7)
     kind = None if m.action != "find" else (is_ball if m.thing is None else kind_of(m.thing))
+    room, memory, earlier = None, None, None
+    if kit.home is not None:  # the home spot: what earlier runs learned (Plan Z8, LLD §20)
+        room, memory, earlier, message = start_home(kit.home[0], kit.home[1], kit.cfg.map)
+        print(message)
     world = World(
-        kit.cal, kit.cfg, kit.depth, kit.floor, kit.sizes, kit.lim, kind, area_m=m.area_m, run_id=run_id
+        kit.cal,
+        kit.cfg,
+        kit.depth,
+        kit.floor,
+        kit.sizes,
+        kit.lim,
+        kind,
+        room=room,
+        memory=memory,
+        area_m=m.area_m,
+        run_id=run_id,
     )
+    connected = [False]  # the tank answered: only then has the run learned anything (Z8 review I1)
+    try:
+        return await _session(link, cam, drive, m, kit, world, connected)
+    finally:  # whatever the result, Ctrl-C too: the home keeps what this run learned
+        if kit.home is not None and connected[0]:
+            print(end_home(kit.home[0], kit.home[1], earlier, world.map_run.room, world.memory, run_id))
+
+
+async def _session(
+    link: BridgeLink,
+    cam: MjpegSource,
+    drive: DriveLink,
+    m: Mission,
+    kit: Kit,
+    world: World,
+    connected: list[bool],
+) -> str:
     seed = random.randrange(1 << 31)  # wander's choices: logged, so a replay makes the same ones
     skill = make_skill(m, kit.lim, kit.cfg.cost, world.memory, seed)
     stop = asyncio.Event()
@@ -222,6 +259,7 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
         stop.set()
         await p.close()
         return "no connection to the tank - is it on?"
+    connected[0] = True
     await drive.cam(0.0, kit.lim.drive_tilt_deg)
     p.t0 = time.monotonic()
     room = world.map_run.room
@@ -239,7 +277,7 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
         mission = {"action": m.action, "thing": m.thing, "seconds": m.seconds, "area_m": m.area_m}
         log = DecisionLog(kit.rec.folder / "decisions.jsonl", mission, seed)
         log.head(limits=asdict(kit.lim), cost=asdict(kit.cfg.cost), remembered=start_memory(world.memory))
-    runner = SkillRunner(world, p, drive, log, status)
+    runner = SkillRunner(world, p, drive, log, status, view=kit.view)
     try:
         result, detail = await runner.run(skill)
     finally:
@@ -250,7 +288,49 @@ async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m:
         print()
         if runner.finish_error is not None:  # said even when the run itself raised (Z7 minor 5)
             print(f"the stop message failed ({runner.finish_error}): the tank stops by the deadman")
+        if runner.view_errors:
+            print(f"the viewer failed on {runner.view_errors} ticks (the run went on)")
     return said(result, detail)
+
+
+def start_home(
+    store: HomeStore, name: str, settings: MapSettings
+) -> tuple[RoomMap | None, ThingMemory | None, Home | None, str]:
+    """The home's starting map and memory (LLD §20.2), the home itself, and what to say."""
+    home = store.load(name, size_m=settings.size_m, cell_m=settings.cell_m)
+    if home is None:
+        return None, None, None, f"home '{name}': new - it is saved at the end of this run"
+    room = home.room_for_run(settings)
+    cells = int(((room.low > settings.blocked) | (room.high > settings.blocked)).sum())
+    runs, things = len(home.runs), len(home.things)
+    return (
+        room,
+        home.memory(),
+        home,
+        (
+            f"home '{name}': {runs} run{'s' * (runs != 1)}, {cells} obstacle cell{'s' * (cells != 1)}, "
+            f"{things} thing{'s' * (things != 1)} - "
+            "put the tank on the home mark, facing the way it faced last time"
+        ),
+    )
+
+
+def end_home(
+    store: HomeStore, name: str, earlier: Home | None, room: RoomMap, memory: ThingMemory, run_id: str
+) -> str:
+    """Save what this run leaves for the next; a failed save is said, never raised (the result stays)."""
+    try:
+        store.save(name, Home.from_run(room, memory, earlier, run_id))
+    except OSError as e:
+        return f"home '{name}' not saved ({e})"
+    return f"home '{name}' saved"
+
+
+def live_view() -> TickView:
+    """The Rerun viewer for --view (spawned on first use)."""
+    from conqueror_ai.adapters.rerun_view import RerunView, SkillView
+
+    return SkillView(RerunView(spawn=True))
 
 
 def said(result: Result, detail: str) -> str:
@@ -261,10 +341,17 @@ def said(result: Result, detail: str) -> str:
         return f"failed - {detail}"
     if result == Result.STALE:
         return f"stale - {detail}"
-    return str(result)
+    return str(result) if not detail else f"{result} - {detail}"  # e.g. not_found - seen outside the area
 
 
-async def run_drive(host: str, m: Mission, rec: SessionRecorder | None, use_depth: bool = True) -> str:
+async def run_drive(
+    host: str,
+    m: Mission,
+    rec: SessionRecorder | None,
+    use_depth: bool = True,
+    home: str | None = None,
+    view: TickView | None = None,
+) -> str:
     from conqueror_ai.adapters.bridge_ws import BridgeLink
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
 
@@ -275,7 +362,8 @@ async def run_drive(host: str, m: Mission, rec: SessionRecorder | None, use_dept
     depth = load_depth(DEPTH_MODEL) if use_depth else None
     if (why := refusal(m, depth is not None)) is not None:
         return f"refused - {why}"
-    kit = Kit(cal, load_map_config(MAP_CONFIG), det, floor, sizes, lim, depth, rec)
+    store = None if home is None else (HomeStore(HOMES), home)
+    kit = Kit(cal, load_map_config(MAP_CONFIG), det, floor, sizes, lim, depth, rec, store, view)
     return await drive_session(BridgeLink(host), MjpegSource(host), DriveLink(host, table=table), m, kit)
 
 
@@ -285,15 +373,23 @@ def main() -> None:
     ap.add_argument(
         "--replay", type=Path, metavar="DIR", help="re-run a recorded run's decisions (LLD §19.6)"
     )
+    ap.add_argument("--view", action="store_true", help="show what the engine thinks in the Rerun viewer")
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--record", type=Path)
     ap.add_argument("--area", type=float, metavar="M", help="stay within M metres of the start")
+    ap.add_argument(
+        "--home",
+        nargs="?",
+        const="home",
+        metavar="NAME",
+        help="start from the home mark: load and save its map",
+    )
     ap.add_argument(
         "--no-depth", action="store_true", help="leave the depth model out (the servo's tilt only)"
     )
     a = ap.parse_args()
     if a.replay is not None:
-        print(replay_text(a.replay))
+        print(replay_text(a.replay, live_view() if a.view else None))  # a viewer that won't start: said
         return
     if not a.what:
         ap.error("say what to do: find <thing> | wander [seconds] | explore")
@@ -315,10 +411,16 @@ def main() -> None:
             },
         )
     try:
-        print(f"result: {asyncio.run(run_drive(a.host, m, rec, not a.no_depth))}")
+        view = None
+        if a.view:
+            try:
+                view = live_view()
+            except Exception as e:  # a viewer that won't start never stops the run (Z8 review minor 7)
+                print(f"the viewer did not start ({e}); driving without it")
+        print(f"result: {asyncio.run(run_drive(a.host, m, rec, not a.no_depth, a.home, view))}")
     except KeyboardInterrupt:
         print("\nstopped (Ctrl-C): the tank was told to stop")
-    except (FileNotFoundError, ValueError) as err:
+    except (FileNotFoundError, ValueError) as err:  # a HomeError too: said plainly
         raise SystemExit(str(err)) from None
     finally:
         if rec is not None:

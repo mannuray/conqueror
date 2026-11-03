@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Sequence
+from typing import cast
 
 import numpy as np
 
@@ -479,3 +480,47 @@ def test_a_reachable_candidate_behind_three_unreachable_ones_is_checked_before_n
     out = rt(s, 0.0, AT, snap, None, None, True)
     assert out.result is None and s.state == "check" and s._check is not None  # pyright: ignore[reportPrivateUsage]
     assert s._check.spot == (-3.2, 0.0)  # pyright: ignore[reportPrivateUsage]
+
+
+def test_debug_carries_the_route_the_candidates_and_the_looked_floor() -> None:
+    """Plan Z8 (LLD §20.7): what the viewer draws."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    ticks(s, tank, t, 1, maybes=[(1.2, 0.6)])
+    d = s.debug()
+    assert d["check"] == (1.2, 0.6) and d["pending"] == [(1.2, 0.6)] and d["ruled_out"] == []
+    looked = d["looked"]
+    assert isinstance(looked, list) and len(cast("list[object]", looked)) > 0  # the look round's views
+    assert "route" in d
+
+
+# ---- a thing seen outside the play area (owner, Plan Z8 floor run z8-f1, design-notes §196)
+def outside_area_finder() -> RoamSkill:
+    return RoamSkill(Planner(Limits()), "find", rng=random.Random(1), area_m=2.0, kind=lambda w: w == "toy")
+
+
+def test_a_thing_seen_outside_the_area_is_not_chased_its_edge_is_checked() -> None:
+    """Floor run z8-f1: the car 3.1 m off with a 3 m area - the chase ended blocked. Owner: don't chase it; go
+    to the area's edge nearest where it was seen, look again, search on."""
+    s, tank = outside_area_finder(), SimTank()
+    t = until_searching(s, tank)
+    fix = TargetFix(1, 3.0, 0.0, 0.0)  # 3 m off, the area 2 m
+    out = s.tick(t, make_input(at=tank.at, snap=open_snap(), map_ok=True, fix=fix, area=None))
+    assert s.state != "chase" and out.result is None
+    (c,) = s.candidates.pending()
+    assert (
+        math.dist(c.spot, (0.0, 0.0)) < 2.0 and c.spot[0] > 1.5 and abs(c.spot[1]) < 0.05
+    )  # the edge toward it
+
+
+def test_not_found_says_it_was_seen_outside_the_area() -> None:
+    s, tank = outside_area_finder(), SimTank()
+    t = until_searching(s, tank)
+    rt(s, t, tank.at, open_snap(), TargetFix(1, 3.0, 0.0, 0.0), None, True)
+    s.goal.destination = lambda *a: None  # type: ignore[method-assign]  # the search has looked everywhere
+    s.goal.done = True
+    for c in s.candidates.pending():
+        s.candidates.rule_out(c)
+    s.state = "drive"
+    out = rt(s, t + 1.0, tank.at, open_snap(), None, None, True)
+    assert out.result == "not_found" and "seen outside the play area" in out.detail

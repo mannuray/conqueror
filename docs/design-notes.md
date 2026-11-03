@@ -2887,4 +2887,9 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
     - **Tabs:** a segmented bar under the header, like Settings (not a bottom bar).
     - **Map colours:** walls and low marks green, high marks amber, route and maybes dashed amber, things pink, the play area cyan, the tank and home mark white. The depth picture is green, brighter when near.
     - **Added in the mock-up:** the camera angle on Inside, and a footer line `AI HELPER · LAPTOP · LEASE OK`.
-  - Next: the spec revision (spec 8 §4.3-§4.4) and the LLDs (Tank Logo §24, bridge R26, the engine's `cq-drive serve`).
+- **More decisions (owner, 2026-11-03):**
+  - **Tap-to-go = `SETXY x y`** (classic Logo's go-to-a-point; cm right / ahead of where the program started; a route round things with wander's safety; 7055 "I can't find a way there."). It is not a GOTO for things.
+  - **The page's data goes through the bridge:** the engine sends status (~10 Hz) and map / depth pictures (~1 / s) to the bridge, which passes them to `/ai` viewers. The phone talks only to the tank.
+  - **Two plans:** Z2a the words + the skill server + lease + `cq-drive serve` (floor-checked from `/logo`); Z2b the `/ai` page.
+  - Settled with them (no question needed): the play-area chips prefix `AREA n` to the one-line program; Go on a remembered thing runs `FIND`; Forget and the home choice are page -> engine requests while no program runs; achievements are kept per home by the engine; 7053 becomes "I don't know what a {thing} is."
+  - Written into spec 8 Revision 2 (§4.3-§4.5). Next: the LLDs (Tank Logo §24, bridge R26, the engine's `cq-drive serve`).

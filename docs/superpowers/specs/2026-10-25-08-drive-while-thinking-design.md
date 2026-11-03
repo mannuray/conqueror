@@ -179,43 +179,64 @@ stateDiagram-v2
 - **lost:** the tank stops, and the skill reports why: not found, lost from view, blocked, stopped, or the map stayed stale for 2 s. A stale map (no picture for 0.5 s or no telemetry for 0.2 s, spec 7 §4) stops the tank at once; it drives on when the map is fresh again (a short WiFi gap ended floor chase 6 a second before it arrived, design-notes §157.2).
 - **Nudging the ball** (driving into it gently) comes later, once the brake behaviour near a ball is understood; slice 1 stops before it.
 
-### 4.3 The words a child writes (Tank Logo, spec 5 §3.5, extended)
+### 4.3 The words a child writes (Tank Logo, spec 5 §3.5, extended) — Revision 2 (Plan Z2, owner 2026-11-03, design-notes §191, §197)
+> Revision 1 (2026-10-25) had `GOTO "ball` and accepted only `"ball`. Since then `FIND` looks round, searches and drives to the thing (design-notes §188), slice 2 added wander and explore with a room map, and the owner dropped GOTO (§191). This revision replaces the table.
 
 | Word | Kind | Meaning |
 |---|---|---|
-| `SEE? "ball` | question | true if a ball is listed now and was seen in the last 0.5 s |
-| `FIND "ball` | action | look around (§4.2 looking); ends facing it, or the program gets "not found" |
-| `GOTO "ball` | action | drive to it in one smooth move (§4.2 approaching); ends at it, or "lost" |
-| `HOWFAR "ball` | value | the ball's distance from the lens in cm (−1 if not listed) |
+| `FIND "thing` | action | look round, search the room, check each maybe, drive to the thing and stop ~30 cm from its middle (as `cq-drive find`); goes straight to a remembered spot first (§20 home). Ends at it, or the program gets an error |
+| `WANDER n` | action | drive about for n seconds (1-600), keeping clear of things |
+| `EXPLORE` | action | look at all the floor it can reach, then stop |
+| `SETXY x y` | action | drive to the point x cm right, y cm ahead of where the program started (classic Logo's "go to this point"), by a route round things, with wander's safety. The `/ai` page's tap-to-go runs it |
+| `AREA n` | setting | the FIND / WANDER / EXPLORE / SETXY after it stay within n m (1-10) of where the tank stood when `AREA` ran; `AREA 0` = anywhere (the default; "circle only when asked", design-notes §174) |
+| `SEE? "thing` | question | TRUE if the thing is listed now and was seen in the last 0.5 s |
+| `HOWFAR "thing` | value | the thing's distance from the lens in cm (−1 if not seen) |
 
-- **`GOTO`, not `GO TO`:** `TO` already starts a procedure in Logo, and `GO` already means "drive until" (Revision 3).
-- **`HOWFAR`, not `DISTANCE "ball`:** `DISTANCE` is already the sonar's word (no input). `HOWFAR` pairs with `HOWMANY`.
-- These are **level 2 (Explorer)** words. `SEE?` and `FIND` move down from level 3, where `words.yaml` had them. They're "AI words": a program using them needs the AI engine running.
-- **A program a child might write:**
+- **Level 2 (Explorer), `needs: [ai]`** (the moving ones also `needs: [encoders]`). `SEE?` and `FIND` move down from level 3.
+- **No `GOTO`** (owner, §191): FIND already goes to the thing. `SETXY` goes to a *point*, not a thing.
+- **`HOWFAR`, not `DISTANCE "thing`:** `DISTANCE` is the sonar's word. **`SETXY`, not `GO TO`:** `TO` starts a procedure, `GO` drives until.
+- **Things and loose names:** any floor thing the engine's vocabulary knows, **never a person**. Each word has everyday names ("car", "racing car", "toy car" → toy); the checker accepts any of them. An unknown name is an error.
+- **Errors (new, `words.yaml`):**
+  - 7050 "I couldn't find the {thing}.";
+  - 7051 "I lost sight of the {thing}.";
+  - 7052 "The AI helper stopped answering.";
+  - 7053 "I don't know what a {thing} is." (replaces "only knows \"ball");
+  - 7054 "I saw the {thing}, but it's outside the play area." (design-notes §196);
+  - 7055 "I can't find a way there." (SETXY);
+  - blocked → 7024, and STOP / page / owner / deadman end a skill as they end any move.
+- **Programs a child might write:**
   ```
+  AREA 2
   FIND "ball
-  GOTO "ball
   SOUND FANFARE
   ```
-  Or, with the existing `GO`:
   ```
-  GO  WAIT UNTIL SEE? "ball  HOLD
-  GOTO "ball
+  GO  WAIT UNTIL SEE? "toy  HOLD
+  FIND "toy
+  SETXY 0 0
   ```
-- **What isn't in slice 1:** `FOLLOW` (slice 3) and `HOWMANY` (later). Words for things other than balls come with slices 3–4; slice 1's words accept only `"ball`.
+- **Later:** `FOLLOW` (people games, spec 10), `HOWMANY`.
 
-### 4.4 Where the program runs (a change to spec 5 §6, for owner review)
-Spec 5 §6 says AI programs run in an AI-engine runner. Revision 2 then put the only parser and compiler on the ESP32 ("no Python copy of the parser"). Those two don't fit together. **This spec resolves it:**
-- **Every program, core or AI, runs on the ESP32's runner.** There is one parser, one runner, one STOP path, and the `/logo` page shows the run the same way.
-- **The AI engine is the robot's eyes and its careful driver.** It registers with the bridge as the **skill server**:
-  - a question word (`SEE?`, `HOWFAR`) asks the engine and waits briefly (≤ 0.3 s; no answer means "false" / −1);
-  - an action word (`FIND`, `GOTO`) hands the engine the skill. The program waits; the engine drives with `drive_rate`; the engine reports `done` or `failed` with a reason.
-- **While a skill runs, the runner gives the engine a drive lease.**
-  - The bridge accepts the engine's `drive_rate` only during the lease, as part of the program's run.
-  - STOP from any device, the page going away, the program ending, or the lease's 0.3 s refresh lapsing all end the lease and stop the tank.
-  - The engine never drives otherwise.
-- **No AI engine connected:** the word fails with the plain message of spec 5 §6 ("This program needs the AI helper to see things…").
-- **For testing without Logo**, the engine also runs a skill from the command line: `cq-drive find ball` (was `goto ball`; one word since design-notes §188). It takes control the way the phone does, and STOP from any device ends it.
+### 4.4 Where the program runs (replaces spec 5 §6's AI-engine runner)
+- **Every program, core or AI, runs on the ESP32's runner.** One parser, one runner, one STOP path; `/logo` and `/ai` show the run the same way.
+- **The AI engine is the robot's eyes and its careful driver: the skill server.** `cq-drive serve [--home NAME]` is one long-running session on the laptop:
+  - it registers with the bridge (`hello ai-skills`); perception and the map run all the time, between words too;
+  - a question word (`SEE?`, `HOWFAR`) asks it and waits ≤ 0.3 s (no answer = FALSE / −1);
+  - an action word hands it the skill; the program waits; the engine drives through Z7's `SkillRunner` with a lease driver and reports done or failed with a reason;
+  - the map, the memory of things and the home carry over from word to word and are saved after each action word.
+- **The drive lease:** while a skill word runs, the bridge accepts the engine's drive frames as part of the program's run, and nothing else. STOP from any device, the page going away, the program ending, the owner touching the stick, or 0.3 s without a frame end the lease and stop the tank. The engine never drives otherwise.
+- **No AI helper connected:** the checker reports 7020 ("This program needs the AI helper…") before the run.
+- **For testing without Logo**, `cq-drive find / wander / explore` still run a skill from the command line (taking control the way the phone does).
+- **Built in two plans (owner, 2026-11-03):** **Z2a** the words, the bridge's skill server and lease, `cq-drive serve` — floor-checked from `/logo`; **Z2b** the `/ai` page (§4.5).
+
+### 4.5 The `/ai` page (on the bridge, Plan Z2b; design-notes §197, mock-up `docs/design/ai-page-mockup.dc.html`)
+- **What it is:** a page on the tank for playing with the AI words without writing a program. **Its buttons run one-line Logo programs** through the normal Logo run (Find + "toy" with a 2 m area → `AREA 2  FIND "toy`), so the lease, STOP, ownership and errors are Logo's own, and the page shows "I ran: …" with a link to `/logo`.
+- **Look:** the bridge's own (Settings / Logo pages); the drive page's STOP on every tab; a status strip (battery, AI helper, child play, heading, distance, speed).
+- **Three tabs:**
+  - **Play (a child):** a face with a mood; the camera; Find / Wander / Explore with a thing picker; "what I'm thinking" in a child's words, spoken by the phone's voice; Why? (the last decision explained); take a picture (saved to the phone only).
+  - **Room:** the map — tap to go there (`SETXY`), the path, the route, the maybes; the home (choose / none / new) and the "on the home mark" check; the play area (off / 1-4 m); what I remember (Go = `FIND`, Forget); achievements (kept per home by the engine).
+  - **Inside (an engineer / an older child):** health lights; the camera with overlays; the depth picture; what it sees now with scores; all telemetry with 30 s graphs; the decisions timeline with event marks.
+- **The data path (owner: through the bridge):** the engine sends small status messages (state, sentence, why, health, seen-now, the pose, ~10 Hz) and a map picture and a depth picture (~1 / s each, a few KB) to the bridge, which passes them on to `/ai` viewers only. The phone only ever talks to the tank. Choosing a home and Forget are page → engine requests, only while no program runs.
 
 ## 5. Safety (unchanged rules, new checks)
 - **Nothing on the Uno changes.** The obstacle brake, deadman, link-loss stop, stall, tilt, battery and child-play limits all still apply. Every `drive_rate` passes the Uno's safety supervisor like any other command.

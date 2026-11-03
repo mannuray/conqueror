@@ -1,0 +1,253 @@
+"""The engine's WebSocket as the bridge's skill server (AI engine LLD §21.5, bridge LLD R26.2).
+
+`hello ai-skills` (no things), then the things in `skill_things` parts; the bridge sends `skill_ask`,
+`skill_start` and `skill_end`, the engine answers with `skill_answer`, `skill_drive`, `skill_done` and
+`skill_failed`. Pings keep the link alive (the bridge drops a client silent for 3 s, design-notes §142).
+The link never decides to drive: `LeaseDriver` does, and only while a `skill_start` lease is held."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import json
+import time
+from collections.abc import AsyncIterator, Sequence
+from dataclasses import dataclass
+from typing import Any
+
+from websockets.asyncio.client import ClientConnection, connect
+from websockets.exceptions import ConnectionClosed
+
+from conqueror_ai.adapters.drive_link import drive_msg
+from conqueror_ai.domain.drive.curves import Command
+
+FRAME_MAX = 190  # the bridge's WS path holds 200-byte messages (R26.2)
+PARTS_MAX = 48
+THING_MAX_BYTES = 24  # skill_failed's thing, as the bridge bounds it
+PING_S = 1.0
+HELLO_WAIT_S = 3.0
+
+
+class SkillBusy(Exception):
+    """The bridge already has a skill server (`nack BUSY`)."""
+
+
+@dataclass(frozen=True)
+class Ask:
+    id: int
+    q: str  # "see?" or "howfar"
+    thing: str
+
+
+@dataclass(frozen=True)
+class Start:
+    id: int
+    skill: str  # find, wander, explore, setxy
+    thing: str | None
+    seconds: float | None
+    to: tuple[float, float] | None  # setxy: (fwd_cm, left_cm), relative to the tank now
+    area: tuple[float, float, float] | None  # (r_m, fwd_cm, left_cm): the centre relative to the tank now
+
+
+@dataclass(frozen=True)
+class End:
+    id: int
+    why: str  # stop, deadman, page, owner, ended
+
+
+@dataclass(frozen=True)
+class Lost:
+    """The link closed: the bridge ends the program with 7052 by its own rule."""
+
+
+SkillEvent = Ask | Start | End | Lost
+
+
+def _frame(part: int, of: int, entries: list[dict[str, object]]) -> str:
+    return json.dumps({"t": "skill_things", "part": part, "of": of, "things": entries}, separators=(",", ":"))
+
+
+def things_parts(things: Sequence[dict[str, object]]) -> list[str]:
+    """The list as `skill_things` frames, each at most FRAME_MAX bytes. A word that doesn't fit whole is
+    split by its names (it appears again in a later part, which adds names)."""
+    worst = (PARTS_MAX, PARTS_MAX)  # measure with two-digit part / of
+    groups: list[list[dict[str, object]]] = [[]]
+
+    def fits(entries: list[dict[str, object]]) -> bool:
+        return len(_frame(*worst, entries).encode()) <= FRAME_MAX
+
+    for t in things:
+        word = str(t["word"])
+        names = [str(n) for n in t.get("names", [])]  # type: ignore[attr-defined]
+        whole: dict[str, object] = {"word": word, "names": names}
+        if fits([whole]):
+            if not fits([*groups[-1], whole]):
+                groups.append([])
+            groups[-1].append(whole)
+            continue
+        chunk: list[str] = []
+        for n in names:
+            if not fits([{"word": word, "names": [*chunk, n]}]):
+                if not chunk:
+                    raise ValueError(f"the word '{word}' and its name '{n}' do not fit one frame")
+                groups.append([{"word": word, "names": chunk}])
+                chunk = []
+            chunk.append(n)
+        groups.append([{"word": word, "names": chunk}])
+    if len(groups) > PARTS_MAX:
+        raise ValueError(f"the things need {len(groups)} parts; the tank takes at most {PARTS_MAX}")
+    return [_frame(i + 1, len(groups), g) for i, g in enumerate(groups)]
+
+
+def _num(m: dict[str, Any], key: str) -> float | None:
+    v = m.get(key)
+    return float(v) if isinstance(v, int | float) and not isinstance(v, bool) else None
+
+
+def parse_event(m: dict[str, Any]) -> SkillEvent | None:
+    """One bridge message as an event, or None for any other (and for a malformed one)."""
+    kind, mid = m.get("t"), m.get("id")
+    if not isinstance(mid, int) or isinstance(mid, bool):
+        return None
+    if kind == "skill_ask":
+        q, thing = m.get("q"), m.get("thing")
+        return Ask(mid, q, thing) if isinstance(q, str) and isinstance(thing, str) else None
+    if kind == "skill_end":
+        why = m.get("why")
+        return End(mid, why) if isinstance(why, str) else None
+    if kind == "skill_start":
+        skill = m.get("skill")
+        if not isinstance(skill, str):
+            return None
+        thing = m.get("thing")
+        to: tuple[float, float] | None = None
+        raw_to, raw_area = m.get("to"), m.get("area")
+        if isinstance(raw_to, dict):
+            f, lf = _num(raw_to, "fwd_cm"), _num(raw_to, "left_cm")  # pyright: ignore[reportUnknownArgumentType]
+            to = (f, lf) if f is not None and lf is not None else None
+        area: tuple[float, float, float] | None = None
+        if isinstance(raw_area, dict):
+            r, f, lf = (_num(raw_area, k) for k in ("r_m", "fwd_cm", "left_cm"))  # pyright: ignore[reportUnknownArgumentType]
+            area = (r, f, lf) if r is not None and f is not None and lf is not None else None
+        return Start(mid, skill, thing if isinstance(thing, str) else None, _num(m, "s"), to, area)
+    return None
+
+
+class SkillLink:
+    def __init__(self, url: str, things: Sequence[dict[str, object]]) -> None:
+        self.url = url
+        self.things = things
+        self.last_nack: str | None = None  # the reason of the bridge's latest nack (TOO_BIG, BAD_FIELD...)
+        self._ws: ClientConnection | None = None
+        self._queue: asyncio.Queue[SkillEvent] = asyncio.Queue()
+        self._tasks: list[asyncio.Task[None]] = []
+        self._next_id = 0
+
+    @property
+    def connected(self) -> bool:
+        return self._ws is not None
+
+    async def connect(self) -> None:
+        """Opens the link, registers as the skill server and sends the things. SkillBusy on `nack BUSY`."""
+        parts = things_parts(self.things)  # a list that cannot be sent is refused before connecting
+        ws = await connect(self.url, ping_interval=None, open_timeout=5)
+        try:
+            await ws.send(json.dumps({"t": "hello", "client": "ai-skills", "proto": 1}))
+            async with asyncio.timeout(HELLO_WAIT_S):
+                while True:
+                    raw = await ws.recv()
+                    m = _load(raw)
+                    if m is None:
+                        continue
+                    if m.get("t") == "nack":
+                        if m.get("reason") == "BUSY":
+                            raise SkillBusy(str(m.get("message", "a skill server is already connected")))
+                        raise ConnectionError(f"the bridge refused the hello: {m.get('reason')}")
+                    if m.get("t") == "welcome":
+                        break
+            for p in parts:
+                await ws.send(p)
+        except BaseException:
+            await ws.close()
+            raise
+        self._ws = ws
+        self._tasks = [asyncio.create_task(self._read(ws)), asyncio.create_task(self._pings(ws))]
+
+    async def events(self) -> AsyncIterator[SkillEvent]:
+        """The bridge's questions, starts and ends, in order; ends after Lost."""
+        while True:
+            ev = await self._queue.get()
+            yield ev
+            if isinstance(ev, Lost):
+                return
+
+    async def close(self) -> None:
+        ws, self._ws = self._ws, None
+        for t in self._tasks:
+            t.cancel()
+        await asyncio.gather(*self._tasks, return_exceptions=True)
+        self._tasks = []
+        if ws is not None:
+            await ws.close()
+
+    async def answer(self, id: int, value: bool | int) -> None:
+        await self._send({"t": "skill_answer", "id": id, "value": value})
+
+    async def done(self, id: int) -> None:
+        await self._send({"t": "skill_done", "id": id})
+
+    async def failed(self, id: int, reason: str, thing: str) -> None:
+        thing = thing.encode()[:THING_MAX_BYTES].decode("utf-8", "ignore")
+        await self._send({"t": "skill_failed", "id": id, "reason": reason, "thing": thing})
+
+    async def drive(self, id: int, cmd: Command) -> None:
+        m = drive_msg(cmd)
+        await self._send({"t": "skill_drive", "id": id, "v": m["v"], "yaw_rate": m["yaw_rate"]})
+
+    async def cam(self, pan_deg: float, tilt_deg: float) -> None:
+        """The camera, allowed to the lease holder (bridge LLD R26.1). Not waited for."""
+        self._next_id += 1
+        await self._send(
+            {"t": "cam_set", "pan": round(pan_deg, 1), "tilt": round(tilt_deg, 1), "id": self._next_id}
+        )
+
+    async def _send(self, msg: dict[str, Any]) -> None:
+        ws = self._ws
+        if ws is None:
+            raise ConnectionError("not connected to the bridge")
+        await ws.send(json.dumps(msg, separators=(",", ":")))
+
+    async def _read(self, ws: ClientConnection) -> None:
+        try:
+            async for raw in ws:
+                m = _load(raw)
+                if m is None:
+                    continue
+                if m.get("t") == "ping":
+                    await ws.send(json.dumps({"t": "pong", "t0": m.get("t0")}))
+                elif m.get("t") == "nack":
+                    self.last_nack = str(m.get("reason") or "refused")
+                elif (ev := parse_event(m)) is not None:
+                    self._queue.put_nowait(ev)
+        except ConnectionClosed:
+            pass
+        finally:
+            self._ws = None
+            self._queue.put_nowait(Lost())
+            for t in self._tasks:
+                if t is not asyncio.current_task():
+                    t.cancel()
+
+    async def _pings(self, ws: ClientConnection) -> None:
+        with contextlib.suppress(ConnectionClosed):
+            while True:
+                await ws.send(json.dumps({"t": "ping", "t0": round(time.monotonic() * 1000, 3)}))
+                await asyncio.sleep(PING_S)
+
+
+def _load(raw: str | bytes) -> dict[str, Any] | None:
+    try:
+        m: Any = json.loads(raw if isinstance(raw, str) else raw.decode("utf-8", "replace"))
+    except ValueError:
+        return None
+    return m if isinstance(m, dict) else None  # pyright: ignore[reportUnknownVariableType]

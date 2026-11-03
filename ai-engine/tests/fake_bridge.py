@@ -42,6 +42,9 @@ class FakeBridge:
         self.pan_tilt = pan_tilt  # the servos' angles in td (90, 90 = straight ahead)
         self.send_td = send_td  # False: a bridge whose telemetry went silent (the socket stays open)
         self.connections = 0
+        self.skill_ws: ServerConnection | None = (
+            None  # the one skill server (bridge LLD R26): a 2nd gets BUSY
+        )
         self.received: list[dict[str, Any]] = []
         self.ws_port = 0
         self.stream_port = 0
@@ -71,7 +74,19 @@ class FakeBridge:
                 m = json.loads(raw)
                 self.received.append(m)
                 t = m.get("t")
-                if t == "hello":
+                if t == "hello" and m.get("client") == "ai-skills":
+                    if self.skill_ws is not None:
+                        busy = {
+                            "t": "nack",
+                            "code": "COMMAND_3005",
+                            "reason": "BUSY",
+                            "message": "Busy, try again",
+                        }
+                        await ws.send(json.dumps(busy))
+                    else:
+                        self.skill_ws = ws
+                        await ws.send(json.dumps({"t": "welcome", "you": "ai-1"}))
+                elif t == "hello":
                     await ws.send(json.dumps({"t": "welcome", "you": "ai-1"}))
                 elif t == "debug" and m.get("on") and sender is None and self.send_td:
                     sender = asyncio.create_task(self._td(ws))
@@ -96,8 +111,15 @@ class FakeBridge:
                     )
                     await ws.send(json.dumps(reply))
         finally:
+            if self.skill_ws is ws:
+                self.skill_ws = None
             if sender is not None:
                 sender.cancel()
+
+    async def to_skill_server(self, msg: dict[str, Any]) -> None:
+        """A bridge message to the skill server (skill_ask, skill_start, skill_end...)."""
+        assert self.skill_ws is not None
+        await self.skill_ws.send(json.dumps(msg))
 
     async def _td(self, ws: ServerConnection) -> None:
         seq = 0

@@ -116,3 +116,65 @@ def test_words_json_carries_the_group() -> None:
 def test_a_word_without_a_group_is_refused() -> None:
     with pytest.raises(ValueError, match="FD2: unknown group"):
         model._load_words([{"name": "FD2", "kind": "command", "level": 1}])  # pyright: ignore[reportPrivateUsage]
+
+
+AI_WORDS: dict[str, tuple[str, list[str], list[str]]] = {
+    "FIND": ("command", ["thing"], ["ai", "encoders"]),
+    "WANDER": ("command", ["number"], ["ai", "encoders"]),
+    "EXPLORE": ("command", [], ["ai", "encoders"]),
+    "SETXY": ("command", ["number", "number"], ["ai", "encoders"]),
+    "AREA": ("command", ["number"], ["ai"]),
+    "SEE?": ("reporter", ["thing"], ["ai"]),
+    "HOWFAR": ("reporter", ["thing"], ["ai"]),
+}
+
+
+def test_ai_words_are_level_2() -> None:
+    s = spec()
+    for name, (kind, types, needs) in AI_WORDS.items():
+        w = s.word(name)
+        assert (w.level, w.kind) == (2, kind), name
+        assert [i.type for i in w.inputs] == types, name
+        assert sorted(w.needs) == needs, name
+    ranges = {
+        n: [(i.min_milli, i.max_milli) for i in s.word(n).inputs]
+        for n in ("WANDER", "SETXY", "AREA")
+    }
+    assert ranges == {
+        "WANDER": [(1000, 600000)],
+        "SETXY": [(-1000000, 1000000)] * 2,
+        "AREA": [(0, 10000)],
+    }
+    assert all(s.word(n).group == "move" for n in ("FIND", "WANDER", "EXPLORE", "SETXY", "AREA"))
+    assert all(s.word(n).group == "sense" for n in ("SEE?", "HOWFAR"))
+    assert s.word("FOLLOW").level == 3 and s.word("HOWMANY").level == 3
+    assert s.word("DISTANCE").level == 2
+
+
+def test_new_errors_verbatim() -> None:
+    e = spec().errors
+    assert e[7020] == "{word} needs the AI helper (it runs on the laptop)."
+    assert e[7050] == "I couldn't find the {thing}."
+    assert e[7051] == "I lost sight of the {thing}."
+    assert e[7052] == "The AI helper stopped answering."
+    assert e[7053] == "I don't know what a {thing} is."
+    assert e[7054] == "I saw the {thing}, but it's outside the play area."
+    assert e[7055] == "I can't find a way there."
+
+
+def test_thing_input_type_is_emitted() -> None:
+    text = emit.render_words_h(spec())
+    assert "kThing" in text.split("enum class WordKind")[0]
+    assert "InType::kThing" in text
+
+
+def test_tank_things_key() -> None:
+    s = spec()
+    case = next(c for c in s.cases if c.things)
+    assert case.ai is True
+    assert case.things == "toy=car|racing car;ball=ball;"
+    text = emit.render_cases_h(s)
+    assert '"toy=car|racing car;ball=ball;"' in text
+    assert "const char* things" in text and "bool ai" in text
+    plain = next(c for c in s.cases if c.name == "missing input")
+    assert plain.ai is False and plain.things == ""

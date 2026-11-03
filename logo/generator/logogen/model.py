@@ -21,6 +21,7 @@ TYPES = {
     "sound",
     "notes",
     "text",
+    "thing",
     "list",
     "block",
     "template",
@@ -82,6 +83,8 @@ class Case:
     handles_obstacles: int = -1
     your_words: str = ""
     tail_calls: str = "-"  # "-" = not checked; "" = no tail calls expected
+    ai: bool = False  # the tank has the AI helper (skill server)
+    things: str = ""  # its things: "word=name|name;..." (empty = none)
 
 
 @dataclass
@@ -171,6 +174,12 @@ def _your_words(d: dict[str, Any] | None) -> str:
     )
 
 
+def _things(d: dict[str, Any] | None) -> str:
+    if not d:
+        return ""
+    return "".join(f"{k}={'|'.join(str(n) for n in v)};" for k, v in d.items())
+
+
 def _load_cases(path: Path) -> list[Case]:
     from logogen.emit import normalize_reads  # local import: emit imports model
 
@@ -185,6 +194,8 @@ def _load_cases(path: Path) -> list[Case]:
             src=str(c["source"]).rstrip("\n"),
             expect_ok=exp == "ok",
             encoders=bool(tank.get("encoders", True)),
+            ai=bool(tank.get("ai", False)),
+            things=_things(tank.get("things")),
             check=bool(c.get("check", True)),
             handles_obstacles=int(c["handles_obstacles"]) if "handles_obstacles" in c else -1,
             your_words=_your_words(c.get("your_words")),

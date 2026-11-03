@@ -1062,10 +1062,108 @@
    "example": ""
   },
   {
+   "name": "FIND",
+   "aliases": [],
+   "kind": "command",
+   "level": 2,
+   "group": "move",
+   "needs": [
+    "ai",
+    "encoders"
+   ],
+   "inputs": [
+    {
+     "name": "thing",
+     "type": "thing",
+     "unit": ""
+    }
+   ],
+   "help": "drive up to a thing the tank can see",
+   "example": "FIND \"ball"
+  },
+  {
+   "name": "WANDER",
+   "aliases": [],
+   "kind": "command",
+   "level": 2,
+   "group": "move",
+   "needs": [
+    "ai",
+    "encoders"
+   ],
+   "inputs": [
+    {
+     "name": "seconds",
+     "type": "number",
+     "unit": "s"
+    }
+   ],
+   "help": "drive about, keeping clear of things",
+   "example": "WANDER 30"
+  },
+  {
+   "name": "EXPLORE",
+   "aliases": [],
+   "kind": "command",
+   "level": 2,
+   "group": "move",
+   "needs": [
+    "ai",
+    "encoders"
+   ],
+   "inputs": [],
+   "help": "look at all the floor it can reach",
+   "example": "EXPLORE"
+  },
+  {
+   "name": "SETXY",
+   "aliases": [],
+   "kind": "command",
+   "level": 2,
+   "group": "move",
+   "needs": [
+    "ai",
+    "encoders"
+   ],
+   "inputs": [
+    {
+     "name": "x",
+     "type": "number",
+     "unit": "cm"
+    },
+    {
+     "name": "y",
+     "type": "number",
+     "unit": "cm"
+    }
+   ],
+   "help": "drive to a place, x right and y ahead of the start",
+   "example": "SETXY 100 50"
+  },
+  {
+   "name": "AREA",
+   "aliases": [],
+   "kind": "command",
+   "level": 2,
+   "group": "move",
+   "needs": [
+    "ai"
+   ],
+   "inputs": [
+    {
+     "name": "metres",
+     "type": "number",
+     "unit": "m"
+    }
+   ],
+   "help": "keep the next AI words within this many metres",
+   "example": "AREA 3"
+  },
+  {
    "name": "SEE?",
    "aliases": [],
    "kind": "reporter",
-   "level": 3,
+   "level": 2,
    "group": "sense",
    "needs": [
     "ai"
@@ -1073,31 +1171,31 @@
    "inputs": [
     {
      "name": "thing",
-     "type": "any",
+     "type": "thing",
      "unit": ""
     }
    ],
-   "help": "",
+   "help": "is the thing in sight",
    "example": "IF SEE? \"ball [ SOUND FANFARE ]"
   },
   {
-   "name": "FIND",
+   "name": "HOWFAR",
    "aliases": [],
-   "kind": "command",
-   "level": 3,
-   "group": "move",
+   "kind": "reporter",
+   "level": 2,
+   "group": "sense",
    "needs": [
     "ai"
    ],
    "inputs": [
     {
      "name": "thing",
-     "type": "any",
+     "type": "thing",
      "unit": ""
     }
    ],
-   "help": "",
-   "example": ""
+   "help": "how far away a thing is",
+   "example": "IF HOWFAR \"ball < 50 [ BEEP ]"
   },
   {
    "name": "FOLLOW",

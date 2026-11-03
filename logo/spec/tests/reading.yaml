@@ -240,3 +240,47 @@
   source: GO WAIT UNTIL DISTANCE < 30 HOLD BEEP
   expect: ok
   reads: (GO) (WAIT-UNTIL (< (DISTANCE) 30)) (HOLD) (BEEP)
+
+# ---- the AI words (Tank Logo LLD §24.1); the tank has the AI helper and its things
+- name: FIND with a quoted thing
+  source: FIND "toy
+  expect: ok
+  reads: (FIND "toy)
+  tank: {ai: true, things: {toy: [car, racing car], ball: [ball]}}
+
+- name: FIND with an input of your own word
+  source: |
+    TO FETCH :what  FIND :what  END
+    FETCH "toy
+  expect: ok
+  reads: (TO FETCH (:what) [ (FIND :what) ]) (FETCH "toy)
+  tank: {ai: true, things: {toy: [car, racing car], ball: [ball]}}
+
+- name: WANDER with seconds, EXPLORE with nothing
+  source: WANDER 30 EXPLORE
+  expect: ok
+  reads: (WANDER 30) (EXPLORE)
+  tank: {ai: true}
+
+- name: SETXY with two places
+  source: SETXY 100 -50
+  expect: ok
+  reads: (SETXY 100 -50)
+  tank: {ai: true}
+
+- name: AREA with metres
+  source: AREA 3
+  expect: ok
+  reads: (AREA 3)
+  tank: {ai: true}
+
+- name: SEE? and HOWFAR as values
+  source: IF SEE? "ball [ SAY HOWFAR "ball ]
+  expect: ok
+  reads: (IF (SEE? "ball) [ (SAY (HOWFAR "ball)) ])
+  tank: {ai: true, things: {toy: [car, racing car], ball: [ball]}}
+
+- name: DISTANCE still takes no input
+  source: IF DISTANCE < 30 [ RT 90 ]
+  expect: ok
+  reads: (IF (< (DISTANCE) 30) [ (RIGHT 90) ])

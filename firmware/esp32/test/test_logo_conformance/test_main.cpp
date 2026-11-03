@@ -74,6 +74,7 @@ void runCase(const LogoCase& c) {
   if (c.check) {
     Caps caps;
     caps.encoders = c.encoders;
+    caps.ai = c.ai;
     Checker k(p, c.src, g_t, g_d);
     r = k.check(prog, caps);
   }

@@ -4,7 +4,7 @@
 namespace cq {
 namespace logo {
 namespace gen {
-enum class InType : uint8_t { kNumber, kCondition, kAny, kSide, kColour, kLook, kSound, kNotes, kText, kList, kBlock, kTemplate, kTemplateBlock };
+enum class InType : uint8_t { kNumber, kCondition, kAny, kSide, kColour, kLook, kSound, kNotes, kText, kThing, kList, kBlock, kTemplate, kTemplateBlock };
 enum class WordKind : uint8_t { kCommand, kReporter, kControl, kOperator, kConstant };
 enum : uint8_t { kNeedEncoders = 1, kNeedAi = 2 };
 struct InputSpec { const char* name; InType type; bool has_range; int32_t min_milli; int32_t max_milli; const char* unit; const char* what; };
@@ -53,10 +53,14 @@ inline constexpr InputSpec kIn58[] = {{"list", InType::kList, false, 0, 0, "", "
 inline constexpr InputSpec kIn59[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
 inline constexpr InputSpec kIn60[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
 inline constexpr InputSpec kIn61[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
-inline constexpr InputSpec kIn62[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
-inline constexpr InputSpec kIn63[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
-inline constexpr InputSpec kIn64[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"seconds", InType::kNumber, true, 1000, 60000, "s", "a seconds"}};
-inline constexpr InputSpec kIn65[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
+inline constexpr InputSpec kIn62[] = {{"thing", InType::kThing, false, 0, 0, "", "a thing"}};
+inline constexpr InputSpec kIn63[] = {{"seconds", InType::kNumber, true, 1000, 600000, "s", "a seconds"}};
+inline constexpr InputSpec kIn65[] = {{"x", InType::kNumber, true, -1000000, 1000000, "cm", "a x"}, {"y", InType::kNumber, true, -1000000, 1000000, "cm", "a y"}};
+inline constexpr InputSpec kIn66[] = {{"metres", InType::kNumber, true, 0, 10000, "m", "a metres"}};
+inline constexpr InputSpec kIn67[] = {{"thing", InType::kThing, false, 0, 0, "", "a thing"}};
+inline constexpr InputSpec kIn68[] = {{"thing", InType::kThing, false, 0, 0, "", "a thing"}};
+inline constexpr InputSpec kIn69[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"seconds", InType::kNumber, true, 1000, 60000, "s", "a seconds"}};
+inline constexpr InputSpec kIn70[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
 
 inline constexpr WordSpec kWords[] = {
     {"FORWARD", WordKind::kCommand, 1, kNeedEncoders, 1, kIn0, "FORWARD 50", ""},
@@ -121,12 +125,17 @@ inline constexpr WordSpec kWords[] = {
     {"WORD?", WordKind::kReporter, 3, 0, 1, kIn59, "", ""},
     {"NUMBER?", WordKind::kReporter, 3, 0, 1, kIn60, "", ""},
     {"LIST?", WordKind::kReporter, 3, 0, 1, kIn61, "", ""},
-    {"SEE?", WordKind::kReporter, 3, kNeedAi, 1, kIn62, "IF SEE? \"ball [ SOUND FANFARE ]", ""},
-    {"FIND", WordKind::kCommand, 3, kNeedAi, 1, kIn63, "", ""},
-    {"FOLLOW", WordKind::kCommand, 3, kNeedAi, 2, kIn64, "", ""},
-    {"HOWMANY", WordKind::kReporter, 3, kNeedAi, 1, kIn65, "", ""},
+    {"FIND", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 1, kIn62, "FIND \"ball", ""},
+    {"WANDER", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 1, kIn63, "WANDER 30", ""},
+    {"EXPLORE", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 0, nullptr, "EXPLORE", ""},
+    {"SETXY", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 2, kIn65, "SETXY 100 50", ""},
+    {"AREA", WordKind::kCommand, 2, kNeedAi, 1, kIn66, "AREA 3", ""},
+    {"SEE?", WordKind::kReporter, 2, kNeedAi, 1, kIn67, "IF SEE? \"ball [ SOUND FANFARE ]", ""},
+    {"HOWFAR", WordKind::kReporter, 2, kNeedAi, 1, kIn68, "IF HOWFAR \"ball < 50 [ BEEP ]", ""},
+    {"FOLLOW", WordKind::kCommand, 3, kNeedAi, 2, kIn69, "", ""},
+    {"HOWMANY", WordKind::kReporter, 3, kNeedAi, 1, kIn70, "", ""},
 };
-inline constexpr uint8_t kWordCount = 66;
+inline constexpr uint8_t kWordCount = 71;
 
 struct Alias { const char* alias; uint8_t word; };
 inline constexpr Alias kAliases[] = {{"FD", 0}, {"BK", 1}, {"RT", 2}, {"LT", 3}, {"OP", 42}, {"BF", 45}, {"BL", 46}, {"SE", 54}};
@@ -170,7 +179,7 @@ inline constexpr ErrorText kErrors[] = {
     {7017, "TO can only be used at the start of a line, not inside [ ] or another TO."},
     {7018, "Use AND to test two things: :x > 1 AND :x < 5."},
     {7019, "Hint: inside [ ] values are not looked up \342\200\224 use LIST :a :b."},
-    {7020, "{word} needs the AI engine."},
+    {7020, "{word} needs the AI helper (it runs on the laptop)."},
     {7021, "This tank can't measure distance yet ({word} needs encoders)."},
     {7022, "{word} {angle} {radius} is too tight \342\200\224 the smallest circle is 31 cm. Try PIVOT."},
     {7023, "{word} needs its steps in [ ], like {example}."},
@@ -192,8 +201,14 @@ inline constexpr ErrorText kErrors[] = {
     {7044, "A track got stuck."},
     {7045, "Someone else took control."},
     {7046, "The page was closed or hidden."},
+    {7050, "I couldn't find the {thing}."},
+    {7051, "I lost sight of the {thing}."},
+    {7052, "The AI helper stopped answering."},
+    {7053, "I don't know what a {thing} is."},
+    {7054, "I saw the {thing}, but it's outside the play area."},
+    {7055, "I can't find a way there."},
 };
-inline constexpr uint8_t kErrorCount = 41;
+inline constexpr uint8_t kErrorCount = 47;
 
 inline constexpr uint16_t kSourceBytes = 8192;
 inline constexpr uint8_t kMaxProcs = 64;

@@ -195,3 +195,35 @@
   source: GO
   tank: {encoders: false}
   expect: {error: 7021, line: 1, col: 1}
+
+# ---- the AI words (Tank Logo LLD §24.1)
+- name: FIND without a thing
+  source: FIND
+  tank: {ai: true}
+  expect: {error: 7002, line: 1, col: 1}
+
+- name: SETXY with one place
+  source: SETXY 10
+  tank: {ai: true}
+  expect: {error: 7002, line: 1, col: 1}
+
+- name: WANDER 0 is too short
+  source: WANDER 0
+  tank: {ai: true}
+  expect: {error: 7025, line: 1, col: 8}
+
+- name: AREA over 10 metres
+  source: AREA 11
+  tank: {ai: true}
+  expect: {error: 7025, line: 1, col: 6}
+
+- name: an AI word without the AI helper
+  source: EXPLORE
+  expect: {error: 7020, line: 1, col: 1}
+  message_has: "AI helper"
+
+- name: a thing the engine does not know (checked once Task 2 lands)
+  source: FIND "dragon
+  tank: {ai: true, things: {toy: [car, racing car]}}
+  expect: {error: 7053, line: 1, col: 6}
+  message_has: "dragon"

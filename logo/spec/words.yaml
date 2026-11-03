@@ -498,21 +498,68 @@ words:
     gives: TRUE for a list
 
   # ---------------------------------------------------------------- AI programs only (run by the AI engine, Spec 5 §6)
-  - name: SEE?
-    level: 3
-    kind: reporter
-    group: sense
-    inputs: [{name: thing, type: any}]
-    needs: [ai]
-    gives: TRUE when the camera sees the thing now
-    example: IF SEE? "ball [ SOUND FANFARE ]
   - name: FIND
-    level: 3
+    level: 2
     kind: command
     group: move
-    inputs: [{name: thing, type: any}]
+    inputs: [{name: thing, type: thing}]
+    needs: [ai, encoders]
+    does: looks round, searches, checks each maybe and stops about 30 cm from the thing; ends "I couldn't find the thing" (7050)
+    help: drive up to a thing the tank can see
+    example: FIND "ball
+  - name: WANDER
+    level: 2
+    kind: command
+    group: move
+    inputs: [{name: seconds, type: number, unit: s, range: [1, 600]}]
+    needs: [ai, encoders]
+    does: drives about for that long, keeping clear of things
+    help: drive about, keeping clear of things
+    example: WANDER 30
+  - name: EXPLORE
+    level: 2
+    kind: command
+    group: move
+    needs: [ai, encoders]
+    does: looks at all the floor it can reach, then stops
+    help: look at all the floor it can reach
+    example: EXPLORE
+  - name: SETXY
+    level: 2
+    kind: command
+    group: move
+    inputs: [{name: x, type: number, unit: cm, range: [-1000, 1000]}, {name: y, type: number, unit: cm, range: [-1000, 1000]}]
+    needs: [ai, encoders]
+    does: drives to the point x cm right and y cm ahead of where the program started, round things
+    help: drive to a place, x right and y ahead of the start
+    example: SETXY 100 50
+  - name: AREA
+    level: 2
+    kind: command
+    group: move
+    inputs: [{name: metres, type: number, unit: m, range: [0, 10]}]
     needs: [ai]
-    does: turns around looking for the thing; stops facing it, or ends with "not found"
+    does: a setting like SPEED - the next FIND, WANDER, EXPLORE and SETXY stay within that many metres of here; 0 = anywhere
+    help: keep the next AI words within this many metres
+    example: AREA 3
+  - name: SEE?
+    level: 2
+    kind: reporter
+    group: sense
+    inputs: [{name: thing, type: thing}]
+    needs: [ai]
+    gives: TRUE when the thing was seen in the last half second
+    help: is the thing in sight
+    example: IF SEE? "ball [ SOUND FANFARE ]
+  - name: HOWFAR
+    level: 2
+    kind: reporter
+    group: sense
+    inputs: [{name: thing, type: thing}]
+    needs: [ai]
+    gives: the thing's distance from the camera in cm; -1 when it is not seen
+    help: how far away a thing is
+    example: IF HOWFAR "ball < 50 [ BEEP ]
   - name: FOLLOW
     level: 3
     kind: command
@@ -553,7 +600,7 @@ errors:   # PROGRAM 7000-7999 (Spec 5 §8); {..} are filled in by the checker. E
   7017: "TO can only be used at the start of a line, not inside [ ] or another TO."
   7018: "Use AND to test two things: :x > 1 AND :x < 5."
   7019: "Hint: inside [ ] values are not looked up — use LIST :a :b."
-  7020: "{word} needs the AI engine."
+  7020: "{word} needs the AI helper (it runs on the laptop)."
   7021: "This tank can't measure distance yet ({word} needs encoders)."
   7022: "{word} {angle} {radius} is too tight — the smallest circle is 31 cm. Try PIVOT."
   7023: "{word} needs its steps in [ ], like {example}."
@@ -575,3 +622,9 @@ errors:   # PROGRAM 7000-7999 (Spec 5 §8); {..} are filled in by the checker. E
   7044: "A track got stuck."
   7045: "Someone else took control."
   7046: "The page was closed or hidden."
+  7050: "I couldn't find the {thing}."
+  7051: "I lost sight of the {thing}."
+  7052: "The AI helper stopped answering."
+  7053: "I don't know what a {thing} is."
+  7054: "I saw the {thing}, but it's outside the play area."
+  7055: "I can't find a way there."

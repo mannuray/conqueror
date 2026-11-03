@@ -99,6 +99,7 @@ class MotionService {
   MotionOut stepRate(int16_t rate_ddps, uint32_t now_ms);
   MotionOut stepSkill(const MotionTelem& t, uint32_t now_ms);
   bool skillBlocked(const MotionTelem& t, uint32_t now_ms);
+  void skillStill(const MotionTelem& t, uint32_t now_ms);
   void setRateTarget(int8_t v, int16_t rate_ddps, uint32_t now_ms);
   bool rateDiverged(bool saturated, int16_t rate_ddps, uint32_t now_ms);
   bool rateStalled(bool saturated, int16_t rate_ddps, uint32_t now_ms);
@@ -132,6 +133,9 @@ class MotionService {
   uint32_t m_wrong_since = 0;  // ... since
   bool m_rate_stalling = false;  // final review I1: saturated while the tank does not turn ...
   uint32_t m_rate_stall_since = 0;  // ... since
+  bool m_skill_rebase = false;  // R26.1: a v == 0 stretch passed - the next drive frame re-takes the progress reference
+  uint32_t m_skill_clock = 0;   // the slip watch's clock: drive time only
+  int32_t m_skill_off_l = 0, m_skill_off_r = 0, m_skill_fed_l = 0, m_skill_fed_r = 0;  // counts the slip watch has not seen
   bool m_skill_still = false;  // R26.1: the frames since m_skill_still_since all had v == 0
   uint32_t m_skill_still_since = 0;
   bool m_skill_first = false;  // R26.1: no frame since startSkill yet (its brake flag may be the last primitive's)

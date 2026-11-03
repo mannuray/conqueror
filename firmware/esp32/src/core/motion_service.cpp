@@ -148,6 +148,9 @@ void MotionService::startSkill(int fd, int32_t id, uint32_t now_ms, uint16_t cpm
   m_rate_stalling = false;
   m_skill_first = true;
   m_skill_still = false;
+  m_skill_rebase = false;
+  m_skill_clock = 0;
+  m_skill_off_l = m_skill_off_r = m_skill_fed_l = m_skill_fed_r = 0;
   m_go_ref_set = false;
   m_go_slip.reset();
   m_go_cpm = cpm;
@@ -204,27 +207,42 @@ MotionOut MotionService::stepGo(const MotionTelem& t, uint32_t now_ms) {
   return o;
 }
 
-// R26.1: the GO's second and third rules (no progress near an obstacle; a slipping track). Only the frames that drive
-// (v != 0) count: a spin in place makes no progress by design. A v == 0 frame keeps the reference but the wait is
-// not counted (its time is added back), so an engine alternating "turn" / "creep" against a wall still trips them;
-// only a rest or spin lasting kMoveStallMs forgets the reference (the next drive starts from rest).
+// R26.1: a v == 0 frame (standing or spinning): nothing of it counts as waiting or slipping. The no-progress
+// reference stays (its time is added back; the next drive frame re-takes its counts and distance, which a real spin
+// changes), the slip watch's clock and counts stand still, and only a rest or spin lasting kMoveStallMs forgets both.
+void MotionService::skillStill(const MotionTelem& t, uint32_t now_ms) {
+  if (!m_skill_still) {
+    m_skill_still = true;
+    m_skill_still_since = now_ms;
+  }
+  m_skill_off_l = t.enc_l - m_skill_fed_l;  // the slip watch sees the counts of the driving frames only
+  m_skill_off_r = t.enc_r - m_skill_fed_r;
+  if (now_ms - m_skill_still_since >= motion::kMoveStallMs) {
+    m_go_ref_set = false;
+    m_go_slip.reset();
+  } else if (m_go_ref_set) {
+    m_go_ref_ms += now_ms - m_last_telem_ms;
+    m_skill_rebase = true;
+  }
+}
+
+// The GO's second and third rules (no progress near an obstacle; a slipping track), over the frames that drive.
 bool MotionService::skillBlocked(const MotionTelem& t, uint32_t now_ms) {
   if (m_rate_v == 0) {
-    if (!m_skill_still) {
-      m_skill_still = true;
-      m_skill_still_since = now_ms;
-    }
-    if (now_ms - m_skill_still_since >= motion::kMoveStallMs) {
-      m_go_ref_set = false;
-      m_go_slip.reset();
-    } else if (m_go_ref_set) {
-      m_go_ref_ms += now_ms - m_last_telem_ms;  // this frame's time does not count as waiting
-    }
+    skillStill(t, now_ms);
     return false;
   }
   m_skill_still = false;
+  if (m_skill_rebase) {
+    m_go_ref_counts = (t.enc_l + t.enc_r) / 2;
+    m_go_ref_dist = t.dist_mm;
+    m_skill_rebase = false;
+  }
   if (goStopped(t, now_ms) && t.dist_mm < motion::kMoveObstacleMm) return true;
-  return m_go_slip.step(t.enc_l, t.enc_r, t.rate_ddps, m_go_cpm, now_ms);  // R21
+  m_skill_clock += now_ms - m_last_telem_ms;  // drive time only
+  m_skill_fed_l = t.enc_l - m_skill_off_l;
+  m_skill_fed_r = t.enc_r - m_skill_off_r;
+  return m_go_slip.step(m_skill_fed_l, m_skill_fed_r, t.rate_ddps, m_go_cpm, m_skill_clock);  // R21
 }
 
 // R26.1: a GO's ends (lease deadman, the Uno's brake flag, blocked, slip) with the drive_rate loop's (diverged, stalled).

@@ -1424,9 +1424,9 @@ void test_skill_spinning_in_place_near_a_wall_is_not_blocked_and_the_wait_does_n
   TEST_ASSERT_FALSE(skillFor(svc, 4020, 4200, 40, 0.0f, 0, 160).ended);
 }
 
-// Review I1: an engine loop alternating "turn on the spot" / "creep forward" against a wall must still end blocked -
-// only the frames that drive count, and a single v = 0 frame does not reset the wait.
-void test_skill_alternating_spin_and_creep_against_a_wall_is_blocked() {
+// Review I1: an engine loop alternating "stand" (v = 0, nothing moves) / "creep forward" against a wall must still end
+// blocked - only the frames that drive count, and a single v = 0 frame does not reset the wait.
+void test_skill_alternating_standing_and_creep_against_a_wall_is_blocked() {
   MotionService svc;
   svc.startSkill(3, 7, 0);
   MotionOut o;
@@ -1437,6 +1437,60 @@ void test_skill_alternating_spin_and_creep_against_a_wall_is_blocked() {
   }
   TEST_ASSERT_TRUE(o.ended);
   TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+}
+
+// Review round 2: the v == 0 half is a REAL spin - the gyro turns, both tracks' counts rise (the Uno counts edges in
+// both directions) and the sonar sees a different distance. The creep half is stuck 16 cm from the wall.
+void test_skill_alternating_a_real_spin_and_a_creep_against_a_wall_is_blocked() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  MotionOut o;
+  int32_t c = 0;
+  uint32_t t = 20;
+  for (; t <= 8000 && !o.ended; t += 20) {
+    const bool drive = (t / 200) % 2 == 0;
+    svc.skillDrive(drive ? 40 : 0, drive ? 0.0f : 90.0f, t);
+    MotionTelem m = goAt(c, drive ? 160 : 240);  // the spin sees further than the wall ahead
+    if (!drive) {
+      c += 16;  // ~2 cm of track per 200 ms at the slowest spin, both tracks
+      m.enc_l = m.enc_r = c;
+      m.rate_ddps = 900;
+    }
+    o = svc.onTelemetry(m, t);
+  }
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+  TEST_ASSERT_LESS_THAN(5000, t);  // about 1.5 s of driving, not "never"
+}
+
+// Review round 2: slip time counts only over the frames that drive - 0.4 s of a slipping drive and 1.0 s of spin,
+// repeated, ends blocked within a bounded time (the spin neither restarts nor dilutes the slip window).
+void test_skill_slip_time_counts_only_while_driving() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  MotionOut o;
+  int32_t l = 0, r = 0;
+  uint32_t t = 20;
+  for (; t <= 30000 && !o.ended; t += 20) {
+    const bool drive = (t % 1400) < 400;
+    svc.skillDrive(drive ? 40 : 0, drive ? 0.0f : 90.0f, t);
+    MotionTelem m = slipAt(l, r);
+    m.dist_mm = 800;
+    if (drive) {
+      l += 35;  // left 1750 counts/s, right 330, the gyro 0 (design-notes §119)
+      r += 7;
+    } else {
+      l += 16;
+      r += 16;
+      m.rate_ddps = 900;
+    }
+    m.enc_l = l;
+    m.enc_r = r;
+    o = svc.onTelemetry(m, t);
+  }
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+  TEST_ASSERT_LESS_THAN(20000, t);
 }
 
 void test_skill_with_a_slipping_track_is_blocked() {
@@ -1622,7 +1676,9 @@ int main() {
   RUN_TEST(test_end_skill_ends_it_with_the_reason);
   RUN_TEST(test_skill_stuck_near_an_obstacle_is_blocked_like_a_go);
   RUN_TEST(test_skill_spinning_in_place_near_a_wall_is_not_blocked_and_the_wait_does_not_carry_over);
-  RUN_TEST(test_skill_alternating_spin_and_creep_against_a_wall_is_blocked);
+  RUN_TEST(test_skill_alternating_standing_and_creep_against_a_wall_is_blocked);
+  RUN_TEST(test_skill_alternating_a_real_spin_and_a_creep_against_a_wall_is_blocked);
+  RUN_TEST(test_skill_slip_time_counts_only_while_driving);
   RUN_TEST(test_skill_with_a_slipping_track_is_blocked);
   RUN_TEST(test_skill_ends_without_telemetry_as_link);
   RUN_TEST(test_stop_ends_skill);

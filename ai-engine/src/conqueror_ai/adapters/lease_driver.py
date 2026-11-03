@@ -31,6 +31,7 @@ class LeaseDriver:
         self._refused: str | None = None
         self._set_s = time.monotonic()  # the lease start counts as a command: the first v 0 is repeated
         self._sent_s = 0.0
+        self._sent = STOP  # the last frame sent: a stop goes sooner only after a moving one
         self._pending = False  # a newer command waits for MIN_GAP_S since the last frame
         self._finished = False
 
@@ -48,12 +49,13 @@ class LeaseDriver:
 
     async def run(self, stop: asyncio.Event) -> None:
         """The lease's keep-alive: the first frame at once, then the newest command while it is fresh."""
-        await self._send(STOP)
+        if not self._sent_s:  # unless a drive() already sent the first frame
+            await self._send(STOP)
         while not stop.is_set() and self._refused is None and not self._finished:
             await asyncio.sleep(0.02)
             now = time.monotonic()
             gap = now - self._sent_s
-            if self._pending and gap >= (STOP_GAP_S if self.cmd == STOP else MIN_GAP_S):
+            if self._pending and gap >= self._gap_for(self.cmd):
                 await self._send(self.cmd)
             elif gap >= KEEP_S:
                 # a moving command is repeated only while fresh; after that (a picture gap) STOP frames go
@@ -65,11 +67,9 @@ class LeaseDriver:
     async def drive(self, cmd: Command) -> None:
         if self._refused is not None or self._finished:
             return
-        moving_before = self.cmd != STOP
         self.cmd = cmd
         self._set_s = time.monotonic()
-        gap = self._set_s - self._sent_s
-        if gap >= MIN_GAP_S or (cmd == STOP and moving_before and gap >= STOP_GAP_S):
+        if self._set_s - self._sent_s >= self._gap_for(cmd):
             await self._send(cmd)  # a stop after motion at once, within the bridge's stream limit
         else:
             self._pending = True  # run() sends it as soon as the gap has passed
@@ -90,16 +90,19 @@ class LeaseDriver:
         if self._refused is None:
             await self._send(STOP, force=True)
 
+    def _gap_for(self, cmd: Command) -> float:
+        """The gap a frame waits since the last one: shorter for a stop after a moving frame."""
+        return STOP_GAP_S if cmd == STOP and self._sent != STOP else MIN_GAP_S
+
     async def _send(self, cmd: Command, force: bool = False) -> None:
         if self._refused is not None or (self._finished and not force):
             return
+        # stamped before the await: a drive() during the send waits its gap instead of sending a second frame
+        self._sent_s, self._sent, self._pending = time.monotonic(), cmd, False
         try:
             await self.link.drive(self.id, cmd)
         except ConnectionError:
             self._refused = self._refused or "lost"
-            return
-        self._sent_s = time.monotonic()
-        self._pending = False
 
 
 def wire_reason(r: Result, ended: bool = False) -> str | None:

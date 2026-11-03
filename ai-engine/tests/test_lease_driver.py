@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -327,6 +328,33 @@ async def test_stops_after_motion_keep_the_bridges_stream_limit(bridge: FakeBrid
         busiest = max(sum(1 for t in sent if s <= t < s + 1.0) for s in sent)
         assert busiest <= STREAM_PER_S, busiest
         assert drives(bridge)[-1]["v"] == 0  # the last stop still went out
+    finally:
+        stop.set()
+        await task
+        await link.close()
+
+
+async def test_only_a_stop_after_motion_skips_the_minimum_gap(bridge: FakeBridge) -> None:
+    """Task 9 minor: a stop goes sooner only after a moving frame; a stop after a stop keeps MIN_GAP_S."""
+    link = await connected(bridge)
+    stop = asyncio.Event()
+    d = LeaseDriver(link, 3)
+    sent: list[float] = []
+    real = link.drive
+
+    async def timed(id: int, cmd: Command) -> None:
+        sent.append(time.monotonic())
+        await real(id, cmd)
+
+    link.drive = timed  # type: ignore[method-assign]
+    task = asyncio.create_task(d.run(stop))
+    try:
+        t_end = time.monotonic() + 0.6
+        while time.monotonic() < t_end:
+            await d.drive(STOP)
+            await asyncio.sleep(0.005)
+        gaps = [b - a for a, b in itertools.pairwise(sent)]
+        assert min(gaps) >= MIN_GAP_S - 0.005, min(gaps)
     finally:
         stop.set()
         await task

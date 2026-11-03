@@ -456,3 +456,42 @@ async def test_a_broken_skill_answers_stale(bridge: FakeBridge) -> None:
         assert s.app.state == "idle"
     finally:
         await s.close()
+
+
+def test_a_refused_things_list_is_a_plain_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from conqueror_ai.adapters.skill_link import ThingsRefused
+
+    class Refused:
+        async def run(self, stop: asyncio.Event) -> None:
+            raise ThingsRefused("TOO_BIG: Too many things or names, or one is too long")
+
+    def build(*a: object) -> tuple[Refused, None]:
+        return Refused(), None
+
+    monkeypatch.setattr(serve, "_build", build)
+    with pytest.raises(SystemExit, match="TOO_BIG: Too many things"):
+        serve.main([])
+
+
+async def test_find_and_explore_need_the_depth_model(
+    bridge: FakeBridge, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """As cq-drive's refusal: without depth only the sensor marks the map - find and explore would end at
+    once. Refused before any frame; wander and setxy still go."""
+    from conqueror_ai.domain.drive.limits import Limits
+    from tests.test_world import CAL, CFG
+
+    w = World(CAL, CFG, None, frozenset(), {}, Limits(), None)
+    monkeypatch.setattr(w.map_run.p, "pose", lambda: FACING_X)
+    maker = Maker()
+    s = await serving(bridge, maker, w)
+    try:
+        await bridge.to_skill_server({"t": "skill_start", "id": 1, "skill": "find", "thing": "toy"})
+        await bridge.to_skill_server({"t": "skill_start", "id": 2, "skill": "explore"})
+        await until(lambda: len(msgs(bridge, "skill_failed")) == 2)
+        assert [(m["id"], m["reason"]) for m in msgs(bridge, "skill_failed")] == [(1, "stale"), (2, "stale")]
+        assert msgs(bridge, "skill_drive") == [] and maker.calls == []
+        await bridge.to_skill_server({"t": "skill_start", "id": 3, "skill": "wander", "s": 5})
+        await until(lambda: len(msgs(bridge, "skill_done")) == 1)
+    finally:
+        await s.close()

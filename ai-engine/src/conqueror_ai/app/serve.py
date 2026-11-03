@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Protocol
 from conqueror_ai.adapters.decisions import DecisionLog
 from conqueror_ai.adapters.home_store import HomeStore
 from conqueror_ai.adapters.lease_driver import LeaseDriver, wire_reason
-from conqueror_ai.adapters.skill_link import Ask, End, SkillBusy, SkillLink, Start
+from conqueror_ai.adapters.skill_link import Ask, End, SkillBusy, SkillLink, Start, ThingsRefused
 from conqueror_ai.app.questions import Questions
 from conqueror_ai.app.runner import TICK_S, SkillRunner, TickView
 from conqueror_ai.app.world import World
@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
 RECONNECT_S = 2.0  # the skill link is tried again this often after it was lost
 SKILLS = ("find", "wander", "explore", "setxy")
+NEEDS_DEPTH = ("find", "explore")  # without depth find would end at once, explore has nowhere to go
 
 
 @dataclass(frozen=True)
@@ -253,6 +254,12 @@ class ServeApp:
         if isinstance(call, str):  # before any frame: the lease's first v 0 would be one
             await self._send(self.link.failed(ev.id, call, ev.thing or ""))
             return
+        if call.skill in NEEDS_DEPTH and self.world.map_run.depth is None:  # as cq-drive's refusal (§188)
+            print(
+                f"word {ev.id} {call.skill} refused: it needs the depth model (the map has only the sensor)"
+            )
+            await self._send(self.link.failed(ev.id, "stale", ev.thing or ""))
+            return
         driver = LeaseDriver(self.link, ev.id)
         keep = asyncio.Event()
         w = _Word(ev.id, driver, keep, asyncio.create_task(driver.run(keep)))  # the first frame at once
@@ -409,7 +416,9 @@ def main(argv: list[str]) -> None:
         print("\nstopped (Ctrl-C)")
     except SkillBusy as e:
         raise SystemExit(f"another skill server is connected to the tank ({e})") from None
-    except (FileNotFoundError, ValueError) as err:  # ThingsRefused, a HomeError, a bad config: said plainly
+    except ThingsRefused as e:
+        raise SystemExit(f"the tank refused the things list ({e})") from None
+    except (FileNotFoundError, ValueError) as err:  # a HomeError, a bad config: said plainly
         raise SystemExit(str(err)) from None
     finally:
         if rec is not None:

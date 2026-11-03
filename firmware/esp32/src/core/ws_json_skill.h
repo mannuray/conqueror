@@ -6,15 +6,13 @@
 
 #include "logo/effects.h"
 #include "logo/program.h"
+#include "logo/relative.h"
 
 namespace cq {
 namespace core {
 
-// A place relative to the tank now (cm; forward +, left +). The run-frame -> tank-frame conversion is the caller's.
-struct FwdLeft {
-  int16_t fwd_cm = 0;
-  int16_t left_cm = 0;
-};
+// A place relative to the tank now (cm; forward +, left +): one type with logo::relative()'s result.
+using FwdLeft = logo::FwdLeft;
 
 // Why the lease ended from the tank's side (skill_end "why").
 enum class LeaseEnd : uint8_t { kStop, kDeadman, kPage, kOwner, kEnded };

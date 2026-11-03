@@ -1378,6 +1378,8 @@ The page's text icons become Lucide icons from the shared `web/icons.json` (brid
     | stale / server gone | 7052 |
     | STOP 7040, page 7046, owner 7045, deadman 7034, stall 7044… | via `kByEndReason`, as a move |
 
+  - **As built (Plan Z2a Task 6):** a skill's deadman (no `skill_drive` for 300 ms) ends the program **7052**, not 7034: a WiFi drop is only seen by the deadman (Review Focus 3). The tank-side ends are mapped by `LogoController` (bridge LLD R26.4 as built), since the runner's `onPrimitiveEnd` is for `kMotion`.
+
 - **While going** (`GO` running), an action word replaces the GO, as a motion word does (§22.2).
 - **The simulator (preview):**
   - `SETXY` draws a dashed (uncertain) straight line to the point;

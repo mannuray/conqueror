@@ -43,10 +43,11 @@ void LogoController::onRun(int fd, int32_t id, uint32_t prog, bool step, uint32_
   logo::RunConfig cfg;
   cfg.step = step;
   cfg.seed = now | 1u;
-  if (!m_rc.start(m_prog, cfg, telem(), now)) return m_out.nack(fd, id, core::BridgeReason::kCheckAgain);
   const core::TankSnapshot& s = m_link.snapshot();
-  m_odo.start(s.fast.enc_l, s.fast.enc_r, s.fast.yaw, m_h.cpm());
+  m_odo.start(s.fast.enc_l, s.fast.enc_r, s.fast.yaw, m_h.cpm());  // first: the run's telemetry carries its pose
+  if (!m_rc.start(m_prog, cfg, telem(), now)) return m_out.nack(fd, id, core::BridgeReason::kCheckAgain);
   m_running = true;
+  m_skill_id = -1;
   m_fd = fd;
   m_wait_ack = m_has_pending = false;
   m_hold_until = m_last_pose = now;
@@ -64,16 +65,18 @@ void LogoController::onStep(int fd, int32_t id) {
 
 void LogoController::onStop(int fd, int32_t id, uint32_t now) {  // from any page (LLD §20.4)
   if (!m_running) return m_out.nack(fd, id, core::BridgeReason::kNotRunning);
+  endLease(true, core::LeaseEnd::kStop, core::EndReason::kStop, now);
   handle(m_rc.onEvent(logo::RunEvent::kLogoStop), now);
   m_out.ack(fd, id);
 }
 
 void LogoController::tick(uint32_t now) {
+  tickHub(now);  // the lease's deadman, a lapsed question, a server gone without a close - also with no program
   if (!m_running) return;
   const core::Decision d = m_h.keep(m_fd, now);  // keeps the drive while it runs (no 5 s handback)
   if (d != core::Decision::kSend) {             // another phone or the IR remote took over, or the body went
-    return handle(m_rc.onMotionEvent(d == core::Decision::kNackBodyOffline ? core::MotionEvent::kBodyOffline
-                                                                          : core::MotionEvent::kRelease), now);
+    return onMotionEvent(d == core::Decision::kNackBodyOffline ? core::MotionEvent::kBodyOffline
+                                                              : core::MotionEvent::kRelease, now);
   }
   pose(now);
   keepGoing(now);
@@ -111,15 +114,12 @@ void LogoController::pauseGo(uint32_t now) {
 }
 
 void LogoController::onPrimitiveEnd(const core::PrimitiveEnd& e, uint32_t now) {
+  if (e.kind == core::PrimKind::kSkill) return skillPrimitiveEnded(e, now);  // Plan Z2a: not the runner's kind
   if (m_hold_end && e.kind == core::PrimKind::kGo && e.reason == core::EndReason::kDone) {
     m_hold_end = false;  // the step pause's own HOLD
     return;
   }
   if (m_running) handle(m_rc.onPrimitiveEnd(e), now);
-}
-
-void LogoController::onMotionEvent(core::MotionEvent e, uint32_t now) {
-  if (m_running) handle(m_rc.onMotionEvent(e), now);
 }
 
 void LogoController::onUnoAlarm(logo::RunEvent e, uint32_t now) {
@@ -147,6 +147,7 @@ void LogoController::handle(const logo::RunOut& o, uint32_t now) {
 void LogoController::finish(const logo::RunOut& o, uint32_t now) {
   if (!m_running) return;
   m_running = false;
+  endLease(true, core::LeaseEnd::kEnded, core::EndReason::kCancelled, now);  // the rest of the ways a lease ends
   m_h.stop_tank(m_h.keep(m_fd, now) == core::Decision::kSend, now);  // never STOP a new driver
   m_h.release(m_fd, now);
   m_out.all(core::jsonLogoEnded(m_out.buf(), m_out.cap(), m_tel.nextEventSeq(), m_tel.tankMs(), o.code, o.end_line,
@@ -157,11 +158,12 @@ void LogoController::finish(const logo::RunOut& o, uint32_t now) {
   m_tone_n = m_tone_i = 0;
 }
 
+// The driven path, every tick (AREA's anchor and SETXY's place read it); logo_pose to the pages at 10 Hz.
 void LogoController::pose(uint32_t now) {
-  if (now - m_last_pose < kPoseMs) return;
-  m_last_pose = now;
   const core::TankSnapshot& s = m_link.snapshot();
   const logo::Pose p = m_odo.update(s.fast.enc_l, s.fast.enc_r, s.fast.yaw, s.fast.spd_cmd_l, s.fast.spd_cmd_r);
+  if (now - m_last_pose < kPoseMs) return;
+  m_last_pose = now;
   m_out.all(core::jsonLogoPose(m_out.buf(), m_out.cap(), m_tel.nextEventSeq(), m_tel.tankMs(), p.x_mm, p.y_mm,
                                p.heading_deg));
 }
@@ -173,6 +175,7 @@ logo::RunTelem LogoController::telem() const {
   t.distance_mm = s.fast.dist_mm >= 65534 ? 0 : s.fast.dist_mm;  // 65535 no echo, 65534 sensor fault
   t.tilted = flag(s.fast.flags, proto::FastFlagBit::kTilted) || flag(s.fast.flags, proto::FastFlagBit::kLifted);
   t.battery_pct = s.slow_valid ? batteryPct(s.slow.batt_mv) : 100;
+  t.pose = m_odo.pose();
   return t;
 }
 

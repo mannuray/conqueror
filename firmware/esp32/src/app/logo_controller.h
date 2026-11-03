@@ -1,7 +1,9 @@
 // A Tank Logo program running on the tank (Plan N3, Tank Logo LLD §20.3, §20.5): logo_run / logo_step / logo_stop,
 // the RunController's slices each tick, its actions carried out (moves through MotionController, light / sound /
 // tune / camera through UnoChannel, waiting for the Uno's ACK; SAY to the pages), the driven pose, and every ending
-// - which stops the tank and gives the drive back. Link task only. Hooks are captureless functions (no virtual).
+// - which stops the tank and gives the drive back. Plan Z2a (bridge LLD R26.4, Tank Logo LLD §24.2): the AI words -
+// questions and skills through the SkillHub, places relative to the tank, and every end of the drive lease.
+// Link task only. Hooks are captureless functions (no virtual).
 #pragma once
 
 #include <stddef.h>
@@ -15,6 +17,8 @@
 #include "core/event_log.h"
 #include "core/link_owner.h"
 #include "core/motion_link.h"
+#include "core/skill_hub.h"
+#include "core/ws_json_skill.h"
 #include "logo/odometry.h"
 #include "logo/program.h"
 #include "logo/run_controller.h"
@@ -39,6 +43,12 @@ class LogoController {
     bool (*uno_request)(const core::AckedOp& op) = nullptr;  // false: the queue is full (tried again next tick)
     uint16_t (*cpm)() = nullptr;
     void (*keep_go)(uint32_t now) = nullptr;  // LLD §22: a GO drives on while the program keeps it alive
+    // Plan Z2a (bridge LLD R26.4): a skill word's drive primitive under lease `id` (MotionController::startSkill)
+    // and the camera for the lease's holder (LinkOwner::setLeaseHolder). False with why as start_motion.
+    bool (*start_skill)(int fd, int32_t id, uint32_t now, core::BridgeReason& why) = nullptr;
+    // Every end of the lease: the skill's drive ends (a STOP while the program owns the body; kDone when the
+    // server finished it) and the holder loses the camera (LinkOwner::clearLeaseHolder).
+    void (*end_skill)(core::EndReason why, uint32_t now) = nullptr;
   };
   static constexpr uint32_t kSayPauseMs = 200;  // design-notes §102
   static constexpr uint32_t kPoseMs = 100;      // logo_pose at 10 Hz
@@ -56,6 +66,14 @@ class LogoController {
   void onMotionEvent(core::MotionEvent e, uint32_t now);
   void onUnoAlarm(logo::RunEvent e, uint32_t now);  // battery critical, tilted / lifted
   void onUnoDone(uint8_t status, uint32_t now);      // the answer to the program's request (UnoChannel)
+  // Plan Z2a: the link task's SkillHub (its questions, the lease, its deadman - tick() runs hub->tick each loop).
+  void setSkillHub(core::SkillHub* hub) { m_hub = hub; }
+  // The server's skill_answer / skill_done / skill_failed: anything the hub says is not the current question or
+  // lease (an old id, another fd, too late) is dropped - it never answers or ends the next word.
+  void onSkillAnswer(int fd, int32_t id, int32_t value, uint32_t now);
+  void onSkillEnd(int fd, int32_t id, logo::SkillEnd e, uint32_t now);
+  // A WebSocket closed (before DriveController's close): the skill server's close ends a running skill 7052.
+  void onClientClose(int fd, uint32_t now);
   int fd() const { return m_running ? m_fd : -1; }
   bool running() const { return m_running; }
 
@@ -69,6 +87,14 @@ class LogoController {
   void finish(const logo::RunOut& o, uint32_t now);
   void pose(uint32_t now);
   logo::RunTelem telem() const;
+  // logo_skills.cpp (Plan Z2a)
+  void carryAi(const logo::Action& a, uint32_t now);
+  void ask(const logo::Action& a, uint32_t now);
+  void startSkill(const logo::Action& a, uint32_t now);
+  void refused(core::BridgeReason why, uint32_t now);
+  void endLease(bool tell, core::LeaseEnd why, core::EndReason motion, uint32_t now);
+  void skillPrimitiveEnded(const core::PrimitiveEnd& e, uint32_t now);
+  void tickHub(uint32_t now);
   // logo_actions.cpp
   void carry(const logo::Action& a, uint32_t now);
   void motion(const logo::Action& a, uint32_t now);
@@ -100,6 +126,8 @@ class LogoController {
   bool m_paused_go = false;  // step mode: a GO held while paused on a line (owner 2026-10-22)
   bool m_hold_end = false;   // ... and its HOLD's own end, which is not the program's
   uint8_t m_go_speed = 40;
+  core::SkillHub* m_hub = nullptr;
+  int32_t m_skill_id = -1;  // the live lease (-1: none); cleared before anything that can call back in
 };
 
 }  // namespace app

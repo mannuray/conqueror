@@ -40,6 +40,10 @@ void test_drive_rate_limit_25_per_second() {
   int rate_ok = 0;
   for (int i = 0; i < 40; ++i) rate_ok += c.admit(10, WsCmdKind::kDriveRate, 2000 + i) ? 1 : 0;
   TEST_ASSERT_EQUAL(25, rate_ok);
+  // Plan Z2a (bridge LLD R26.2): skill_drive is rate-limited as drive_rate
+  int skill_ok = 0;
+  for (int i = 0; i < 40; ++i) skill_ok += c.admit(10, WsCmdKind::kSkillDrive, 3000 + i) ? 1 : 0;
+  TEST_ASSERT_EQUAL(25, skill_ok);
 }
 
 void test_total_limit() {

@@ -5,6 +5,7 @@
 #include "../support/frames.h"
 #include "../support/wire.h"
 #include "app/command_router.h"
+#include "core/skill_hub.h"
 #include "fakes/fake_ports.h"
 
 using namespace cq;
@@ -27,6 +28,7 @@ app::CommandRouter* router = nullptr;
 logo::Program g_logo_program;
 logo::Vm g_logo_vm;
 app::LogoController* logoc = nullptr;
+core::SkillHub hub;
 cqtest::Wire wire;
 uint32_t g_post = 0;
 
@@ -65,7 +67,13 @@ void setUp() {
   logoc = new app::LogoController(out, logbook, *link, *tel, g_logo_program, g_logo_vm);
   router = new app::CommandRouter(*drive, *motion, *settings, *tank, *logoc, *tel, out);
   router->setHello("abc1234", sensor);
-  motion->setHooks({[](int fd, uint32_t now, bool moving) { return drive->claim(fd, now, moving); }, [] { return drive->otaActive(); }});
+  hub = core::SkillHub();
+  router->setSkillHub(&hub);
+  logoc->setSkillHub(&hub);
+  app::MotionController::Hooks mh{[](int fd, uint32_t now, bool moving) { return drive->claim(fd, now, moving); },
+                                  [] { return drive->otaActive(); }};
+  mh.lease_ok = [](int fd, int32_t id, uint32_t now) { return hub.leaseOk(fd, id, now); };
+  motion->setHooks(mh);
   tel->setViews({[] { return drive->ownerView(); }, [] { return motion->view(); }, [] { return !link->synced(); }});
   settings->setHooks({[] { return motion->active(); }, [] { return drive->otaActive(); }, [] { return owner->driverFd(); },
                       [](int fd) { motion->sendCalib(fd); }, [](const core::AckedOp& op) { return uno->request(op); },
@@ -81,9 +89,6 @@ void test_every_kind_has_a_route_except_the_invalid_ones() {
     const auto kind = static_cast<core::WsCmdKind>(k);
     const bool invalid = kind == core::WsCmdKind::kUnsupported || kind == core::WsCmdKind::kInvalid;
     const bool stop = kind == core::WsCmdKind::kStop;  // the fast path, before the table
-    // Plan Z2a Task 4 added the skill messages to the codec; Task 5 routes them (and removes this line).
-    const bool skill_not_yet = kind >= core::WsCmdKind::kSkillThings && kind <= core::WsCmdKind::kSkillFailed;
-    if (skill_not_yet) continue;
     TEST_ASSERT_EQUAL_MESSAGE(!invalid && !stop, app::CommandRouter::routes(kind), "a command kind without a route");
   }
 }
@@ -149,6 +154,73 @@ void test_logo_commands_are_routed() {
   TEST_ASSERT_TRUE(fakes::countTo(3, "NOT_RUNNING") == 2);
 }
 
+// ---- Plan Z2a Task 6: the skill server's messages (bridge LLD R26.2) ----
+void hello(int fd) { text(fd, "{\"t\":\"hello\",\"client\":\"ai-skills\",\"proto\":1}", 100); }
+
+void test_hello_ai_skills_registers_the_one_server() {
+  drive->onClientOpen(4, 0);
+  hello(3);
+  TEST_ASSERT_EQUAL(3, hub.server());
+  TEST_ASSERT_TRUE(has(3, "\"t\":\"welcome\""));
+  hello(4);
+  TEST_ASSERT_TRUE(has(4, "BUSY"));
+  TEST_ASSERT_FALSE(has(4, "\"t\":\"welcome\""));
+  TEST_ASSERT_EQUAL(3, hub.server());
+  text(4, "{\"t\":\"hello\",\"client\":\"phone\",\"proto\":1}", 101);  // a page's hello is not a server's
+  TEST_ASSERT_TRUE(has(4, "\"t\":\"welcome\""));
+}
+
+void test_skill_things_reach_the_hub() {
+  hello(3);
+  text(3, "{\"t\":\"skill_things\",\"id\":2,\"part\":1,\"of\":1,\"things\":[{\"word\":\"toy\",\"names\":[\"car\"]}]}", 102);
+  TEST_ASSERT_TRUE(has(3, "\"t\":\"ack\",\"id\":2"));
+  TEST_ASSERT_TRUE(hub.commitPending());
+  const core::LockPort free_lock{[](void*, uint32_t) { return true; }, [](void*) {}, nullptr};
+  TEST_ASSERT_TRUE(hub.tryCommit(free_lock));
+  TEST_ASSERT_EQUAL_STRING("toy", hub.things().resolve("car"));
+}
+
+void test_skill_things_refusals() {
+  drive->onClientOpen(4, 0);
+  hello(3);
+  text(3, "{\"t\":\"skill_things\",\"id\":3,\"part\":2,\"of\":2,\"things\":[{\"word\":\"toy\"}]}", 102);
+  TEST_ASSERT_EQUAL(1, fakes::countTo(3, "BAD_FIELD"));  // out of order
+  text(3, "{\"t\":\"skill_things\",\"id\":4,\"part\":1,\"of\":1,\"things\":[{\"word\":7}]}", 103);
+  TEST_ASSERT_EQUAL(2, fakes::countTo(3, "BAD_FIELD"));  // not a list of words
+  text(3, "{\"t\":\"skill_things\",\"id\":5,\"part\":1,\"of\":1,\"things\":[{\"word\":\"abcdefghijklmnopqrstuvwxyz\"}]}", 104);
+  TEST_ASSERT_TRUE(has(3, "TOO_BIG"));  // a word over 24 bytes
+  text(4, "{\"t\":\"skill_things\",\"id\":6,\"part\":1,\"of\":1,\"things\":[{\"word\":\"toy\"}]}", 105);
+  TEST_ASSERT_TRUE(has(4, "NOT_OWNER"));  // not the server
+  TEST_ASSERT_FALSE(hub.commitPending());
+}
+
+void test_skill_drive_without_a_lease_is_not_owner() {
+  hello(3);
+  text(3, "{\"t\":\"skill_drive\",\"id\":1,\"v\":40,\"yaw_rate\":10}", 102);
+  TEST_ASSERT_TRUE(has(3, "NOT_OWNER"));
+}
+
+// A skill_drive posted before a STOP that was handled first is dropped, as a drive_rate (the STOP barrier).
+void test_skill_drive_behind_a_stop_is_dropped() {
+  hello(3);
+  const char* stop = "{\"t\":\"stop\",\"id\":9}";
+  router->onText(3, stop, strlen(stop), 20, 102);
+  fakes::reset();
+  const char* drive_frame = "{\"t\":\"skill_drive\",\"id\":1,\"v\":40,\"yaw_rate\":10}";
+  router->onText(3, drive_frame, strlen(drive_frame), 19, 103);
+  TEST_ASSERT_FALSE(has(3, "NOT_OWNER"));  // never reached the motion controller
+}
+
+// No program runs: the answer / ends are routed and dropped (no INVALID_COMMAND, nothing sent).
+void test_skill_answer_and_ends_are_routed() {
+  hello(3);
+  fakes::reset();
+  text(3, "{\"t\":\"skill_answer\",\"id\":1,\"value\":true}", 102);
+  text(3, "{\"t\":\"skill_done\",\"id\":1}", 103);
+  text(3, "{\"t\":\"skill_failed\",\"id\":1,\"reason\":\"lost\"}", 104);
+  TEST_ASSERT_EQUAL(0, fakes::world().sent.size());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_every_kind_has_a_route_except_the_invalid_ones);
@@ -160,5 +232,11 @@ int main() {
   RUN_TEST(test_commands_from_an_unknown_client_are_dropped);
   RUN_TEST(test_ota_answers_every_waiter);
   RUN_TEST(test_logo_commands_are_routed);
+  RUN_TEST(test_hello_ai_skills_registers_the_one_server);
+  RUN_TEST(test_skill_things_reach_the_hub);
+  RUN_TEST(test_skill_things_refusals);
+  RUN_TEST(test_skill_drive_without_a_lease_is_not_owner);
+  RUN_TEST(test_skill_answer_and_ends_are_routed);
+  RUN_TEST(test_skill_drive_behind_a_stop_is_dropped);
   return UNITY_END();
 }

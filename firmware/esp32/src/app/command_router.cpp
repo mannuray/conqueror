@@ -1,5 +1,7 @@
 #include "app/command_router.h"
 
+#include <string.h>
+
 namespace cq {
 namespace app {
 
@@ -11,7 +13,7 @@ using W = core::WsCommand;
 
 // VARIANT POINT (LLD R15.4): one row per command kind.
 const CommandRouter::Route CommandRouter::kRoutes[] = {
-    {K::kHello, [](C& r, int fd, int32_t, const W&, uint32_t) { r.m_tel.hello(fd, r.m_fw, r.m_sensor ? r.m_sensor() : "none"); }},
+    {K::kHello, [](C& r, int fd, int32_t, const W& c, uint32_t) { r.onHello(fd, c); }},
     {K::kDrive, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_drive.onDrive(fd, c, now); }},
     {K::kCamJoy, [](C& r, int fd, int32_t, const W& c, uint32_t) { r.m_drive.onCamJoy(fd, c); }},
     {K::kCamHome, [](C& r, int fd, int32_t id, const W& c, uint32_t) { r.m_drive.onUnoRequest(fd, id, c); }},
@@ -46,7 +48,40 @@ const CommandRouter::Route CommandRouter::kRoutes[] = {
     {K::kBadField, [](C& r, int fd, int32_t id, const W&, uint32_t) { r.m_out.nack(fd, id, core::BridgeReason::kBadField); }},
     {K::kLogoStep, [](C& r, int fd, int32_t id, const W&, uint32_t) { r.m_logo.onStep(fd, id); }},
     {K::kLogoStop, [](C& r, int fd, int32_t id, const W&, uint32_t now) { r.m_logo.onStop(fd, id, now); }},
+    // Plan Z2a (bridge LLD R26.2): the skill server
+    {K::kSkillThings, [](C& r, int fd, int32_t id, const W& c, uint32_t) { r.onThings(fd, id, c); }},
+    {K::kSkillAnswer, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_logo.onSkillAnswer(fd, c.id, c.value, now); }},
+    {K::kSkillDrive, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_motion.onSkillDrive(fd, c.id, c.v, c.rate_ddps, now); }},
+    {K::kSkillDone, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_logo.onSkillEnd(fd, c.id, logo::SkillEnd::kDone, now); }},
+    {K::kSkillFailed, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_logo.onSkillEnd(fd, c.id, c.skill_end, now); }},
 };
+
+// hello: "ai-skills" registers the one skill server (another fd's gets BUSY, no welcome); everyone gets a welcome.
+void CommandRouter::onHello(int fd, const core::WsCommand& c) {
+  if (m_hub != nullptr && strcmp(c.client, "ai-skills") == 0 &&
+      m_hub->onHello(fd) == core::SkillHub::Decision::kBusy) {
+    return m_out.nack(fd, c.has_id ? c.id : -1, core::BridgeReason::kBusy);
+  }
+  m_tel.hello(fd, m_fw, m_sensor ? m_sensor() : "none");
+}
+
+// skill_things: one part of the list, parsed from a copy of the message (the views point into it while it is staged:
+// ThingNames::add copies the text). Bad -> BAD_FIELD, over a bound -> TOO_BIG, not the server -> NOT_OWNER.
+void CommandRouter::onThings(int fd, int32_t id, const core::WsCommand& c) {
+  if (m_hub == nullptr || m_len >= sizeof m_copy) return m_out.nack(fd, id, core::BridgeReason::kTooBig);
+  memcpy(m_copy, m_text, m_len);
+  m_copy[m_len] = '\0';
+  const core::ThingParse p = core::parseThingList(m_copy, m_len, m_things);
+  if (p != core::ThingParse::kOk) {
+    return m_out.nack(fd, id, p == core::ThingParse::kTooBig ? core::BridgeReason::kTooBig : core::BridgeReason::kBadField);
+  }
+  switch (m_hub->onThingsPart(fd, c.part, c.of, m_things)) {
+    case core::SkillHub::Decision::kOk: case core::SkillHub::Decision::kReady: return m_out.ack(fd, id);
+    case core::SkillHub::Decision::kTooBig: return m_out.nack(fd, id, core::BridgeReason::kTooBig);
+    case core::SkillHub::Decision::kNotServer: return m_out.nack(fd, id, core::BridgeReason::kNotOwner);
+    default: return m_out.nack(fd, id, core::BridgeReason::kBadField);
+  }
+}
 
 CommandRouter::Handler CommandRouter::find(core::WsCmdKind kind) {
   for (const Route& route : kRoutes) {
@@ -70,6 +105,8 @@ void CommandRouter::onText(int fd, const char* text, size_t len, uint32_t post_s
     m_out.nack(fd, id, core::BridgeReason::kInvalidCommand);
     return;
   }
+  m_text = text;
+  m_len = len;
   run(*this, fd, id, c, now);
 }
 

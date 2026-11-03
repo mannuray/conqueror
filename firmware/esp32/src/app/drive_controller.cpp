@@ -11,7 +11,8 @@ namespace {
 
 // Streaming commands (one rejection reported per stream) and every motion command (dropped behind a STOP).
 bool isStream(core::WsCmdKind k) {
-  return k == core::WsCmdKind::kDrive || k == core::WsCmdKind::kCamJoy || k == core::WsCmdKind::kDriveRate;
+  return k == core::WsCmdKind::kDrive || k == core::WsCmdKind::kCamJoy || k == core::WsCmdKind::kDriveRate ||
+         k == core::WsCmdKind::kSkillDrive;  // Plan Z2a (R26.2): limited and dropped behind a STOP as drive_rate
 }
 bool isMotion(core::WsCmdKind k) {  // posted before a STOP that was handled first: dropped (logo_run too, Plan N3)
   return isStream(k) || k == core::WsCmdKind::kTurn || k == core::WsCmdKind::kMove || k == core::WsCmdKind::kLogoRun;

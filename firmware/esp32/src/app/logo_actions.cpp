@@ -61,7 +61,7 @@ void LogoController::carry(const logo::Action& a, uint32_t now) {
       m_out.all(core::jsonLogoSay(m_out.buf(), m_out.cap(), m_tel.nextEventSeq(), m_tel.tankMs(), a.text));
       m_hold_until = now + kSayPauseMs;
       return;
-    default: return speedWhileGoing(a, now);  // SPEED, WAIT, WAIT UNTIL: the RunController's own
+    default: return carryAi(a, now);  // SEE? / HOWFAR / the skills; SPEED, WAIT, WAIT UNTIL: the RunController's own
   }
 }
 
@@ -78,7 +78,10 @@ void LogoController::motion(const logo::Action& a, uint32_t now) {
   note(a);
   if (a.kind == logo::ActKind::kGo) m_go_speed = a.speed_pct;  // for STEP to drive on at the same speed
   core::BridgeReason why = core::BridgeReason::kBodyOffline;
-  if (m_h.start_motion(m_fd, a, now, why)) return;
+  if (!m_h.start_motion(m_fd, a, now, why)) refused(why, now);
+}
+
+void LogoController::refused(core::BridgeReason why, uint32_t now) {  // a drive that could not start: 7021 / 7034
   handle(m_rc.onMotionEvent(why == core::BridgeReason::kUnavailable ? core::MotionEvent::kBodyEncoderFault
                                                                     : core::MotionEvent::kBodyOffline), now);
 }

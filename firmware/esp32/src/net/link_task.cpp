@@ -23,6 +23,7 @@
 #include "core/event_log.h"
 #include "core/frame_tx.h"
 #include "core/link_owner.h"
+#include "core/skill_hub.h"
 #include "core/ws_clients.h"
 #include "core/ws_codec.h"
 #include "core/ws_json.h"
@@ -56,6 +57,7 @@ app::SettingsController g_settings(g_out, g_log, g_link);
 app::TankAppController g_tank(g_out, g_log, g_link);
 app::DriveController g_drive(g_out, g_log, g_owner, g_uno, g_motion, g_settings, g_tel);
 app::UnoEventRouter g_events(g_out, g_log, g_tel, g_link);
+core::SkillHub g_skills;  // Plan Z2a (bridge LLD R26.1): the skill server, its things, the one drive lease
 // Plan N3: built in linkTaskStart - the running program and its Vm live in the logo worker's memory (PSRAM).
 alignas(app::LogoController) unsigned char g_logo_mem[sizeof(app::LogoController)];
 alignas(app::CommandRouter) unsigned char g_router_mem[sizeof(app::CommandRouter)];
@@ -75,7 +77,10 @@ void drainTx() {
 void handleCommand(const LinkCommand& cmd, uint32_t now) {
   switch (cmd.kind) {
     case LinkCommand::Kind::kWsOpen: g_drive.onClientOpen(cmd.fd, now); break;
-    case LinkCommand::Kind::kWsClose: g_drive.onClientClose(cmd.fd, now); break;
+    case LinkCommand::Kind::kWsClose:
+      g_logo->onClientClose(cmd.fd, now);  // Plan Z2a: the skill server's close ends a running skill (7052) first
+      g_drive.onClientClose(cmd.fd, now);
+      break;
     case LinkCommand::Kind::kWsText: g_router->onText(cmd.fd, cmd.text, cmd.len, cmd.post_seq, now); break;
     case LinkCommand::Kind::kOtaStart:
     default: g_drive.startOta(now); break;
@@ -124,7 +129,8 @@ void step(uint32_t now) {
   core::LinkEvent ev{};
   while (g_link.popEvent(ev)) g_events.route(ev, now);
   telemetry(now);
-  g_logo->tick(now);     // Plan N3: a running Tank Logo program's slice
+  g_logo->tick(now);     // Plan N3: a running Tank Logo program's slice; Z2a: the lease deadman (SkillHub::tick)
+  if (g_skills.commitPending()) g_skills.tryCommit(logoThingsLock());  // a finished things list (2 ms lock at most)
   g_settings.tick(now);  // confirmations, WiFi results, restart
   g_uno.tick(now);       // the next acked Uno request
   drainTx();
@@ -156,6 +162,7 @@ void wireViews() {
   m.logo_fd = [] { return g_logo->fd(); };  // Plan N3: a running program is its page's primitive
   m.logo_end = [](const core::PrimitiveEnd& e, uint32_t now) { g_logo->onPrimitiveEnd(e, now); };
   m.logo_event = [](core::MotionEvent e, uint32_t now) { g_logo->onMotionEvent(e, now); };
+  m.lease_ok = [](int fd, int32_t id, uint32_t now) { return g_skills.leaseOk(fd, id, now); };  // Plan Z2a
   g_motion.setHooks(m);
 }
 
@@ -223,7 +230,18 @@ void wireLogo() {
   h.uno_request = [](const core::AckedOp& op) { return g_uno.request(op); };
   h.cpm = [] { return g_motion.cpm(); };
   h.keep_go = [](uint32_t now) { g_motion.keepLogoGo(now); };
+  // Plan Z2a (bridge LLD R26.4): the skill's drive under the lease; the holder may move the camera until it ends.
+  h.start_skill = [](int fd, int32_t id, uint32_t now, core::BridgeReason& why) {
+    if (!g_motion.startSkill(fd, id, now, why)) return false;
+    g_owner.setLeaseHolder(g_skills.server());
+    return true;
+  };
+  h.end_skill = [](core::EndReason why, uint32_t now) {
+    g_owner.clearLeaseHolder();
+    g_motion.endSkill(why, now);  // a STOP while the program's phone owns the body; nothing if it already ended
+  };
   g_logo->setHooks(h);
+  g_logo->setSkillHub(&g_skills);
   g_uno.setLogoDone([](uint8_t status) { g_logo->onUnoDone(status, millis()); });
 }
 
@@ -236,6 +254,8 @@ void linkTaskStart(const char* (*camera_sensor)()) {
   g_logo = new (g_logo_mem) app::LogoController(g_out, g_log, g_link, g_tel, logoRunningProgram(), logoVm());
   g_router = new (g_router_mem) app::CommandRouter(g_drive, g_motion, g_settings, g_tank, *g_logo, g_tel, g_out);
   g_router->setHello(CQ_FW_VERSION, g_sensor);
+  g_router->setSkillHub(&g_skills);
+  logoBindSkillHub(&g_skills);  // the worker's checks copy its things (before the link task runs)
   g_router->setClockUs([]() { return static_cast<uint64_t>(esp_timer_get_time()); });  // Plan Q1: pong
   wireLogo();
   wireViews();

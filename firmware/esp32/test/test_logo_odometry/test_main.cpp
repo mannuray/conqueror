@@ -3,6 +3,7 @@
 #include <unity.h>
 
 #include "logo/odometry.h"
+#include "logo/relative.h"
 
 using namespace cq::logo;
 
@@ -60,6 +61,37 @@ void test_yaw_wraps_through_zero() {
   TEST_ASSERT_EQUAL(2, p.heading_deg);
 }
 
+// Plan Z2a Task 6 (Review Focus 4): a run-frame point seen from the tank now - forward / left, cm. Odometry's
+// heading is right = + (the ledger's ruling), so "turned right 90°" is heading +90.
+void test_relative_signs() {
+  Pose p;
+  p.y_mm = 500;  // FORWARD 50: the start is 50 cm behind
+  FwdLeft r = relative(p, 0, 0);
+  TEST_ASSERT_EQUAL(-50, r.fwd_cm);
+  TEST_ASSERT_EQUAL(0, r.left_cm);
+  p = Pose();
+  p.heading_deg = 90;  // turned right on the spot
+  r = relative(p, 0, 300);  // a point that was ahead of the start is now on the tank's left
+  TEST_ASSERT_EQUAL(0, r.fwd_cm);
+  TEST_ASSERT_EQUAL(30, r.left_cm);
+  r = relative(p, 300, 0);  // a point to the start's right is now ahead
+  TEST_ASSERT_EQUAL(30, r.fwd_cm);
+  TEST_ASSERT_EQUAL(0, r.left_cm);
+  p.heading_deg = -90;  // turned left: the start's right is now behind
+  r = relative(p, 300, 0);
+  TEST_ASSERT_EQUAL(-30, r.fwd_cm);
+  TEST_ASSERT_EQUAL(0, r.left_cm);
+}
+
+void test_relative_rounds_and_clamps() {
+  Pose p;
+  FwdLeft r = relative(p, -14, 26);  // 2.6 cm ahead, 1.4 cm left
+  TEST_ASSERT_EQUAL(3, r.fwd_cm);
+  TEST_ASSERT_EQUAL(1, r.left_cm);
+  r = relative(p, 0, 400000000);  // never wraps
+  TEST_ASSERT_EQUAL(32767, r.fwd_cm);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_straight_ahead_and_back);
@@ -67,5 +99,7 @@ int main(int, char**) {
   RUN_TEST(test_after_a_right_turn_x_grows);
   RUN_TEST(test_a_quarter_arc_ends_within_1_cm);
   RUN_TEST(test_yaw_wraps_through_zero);
+  RUN_TEST(test_relative_signs);
+  RUN_TEST(test_relative_rounds_and_clamps);
   return UNITY_END();
 }

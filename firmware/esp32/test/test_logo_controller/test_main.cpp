@@ -1,5 +1,8 @@
 // Plan N3: LogoController with fake hooks - run and its refusals, waiting for the Uno's ACK, SAY's pause, PLAY in
 // chunks, LOOK angles, every ending stops the tank and gives the drive back, a takeover, step mode, the pose.
+// Plan Z2a Task 6: the AI words through a real SkillHub - questions, skills, places relative to the tank, every lease
+// end (skill_end + its why), stale answers / ends dropped, the server's close.
+#include <stdlib.h>
 #include <string.h>
 #include <unity.h>
 
@@ -8,6 +11,7 @@
 #include "../support/frames.h"
 #include "../support/wire.h"
 #include "app/logo_controller.h"
+#include "core/skill_hub.h"
 #include "fakes/fake_ports.h"
 #include "logo/check_job.h"
 
@@ -40,6 +44,14 @@ std::vector<core::AckedOp> g_ops;
 int g_stops = 0, g_releases = 0;
 int g_go_keeps = 0;  // Tank Logo LLD §22: keep_go calls
 uint32_t g_now = 1000;
+// Plan Z2a: the skill server is fd 7; the hooks' record of the skill's drive primitive.
+constexpr int kServer = 7;
+core::SkillHub g_hub;
+bool g_skill_ok = true;
+core::BridgeReason g_skill_why = core::BridgeReason::kBodyOffline;
+int g_skill_starts = 0, g_skill_ends = 0, g_skill_fd = -1;
+int32_t g_skill_id = -1;
+core::EndReason g_skill_end_why = core::EndReason::kDone;
 
 void unoSends(const uint8_t* f, size_t n, uint32_t now) { link->onUartBytes(f, n, now); }
 
@@ -85,7 +97,24 @@ void hooks() {
   };
   h.cpm = [] { return static_cast<uint16_t>(7514); };
   h.keep_go = [](uint32_t) { ++g_go_keeps; };
+  h.start_skill = [](int fd, int32_t id, uint32_t, core::BridgeReason& why) {
+    ++g_skill_starts;
+    g_skill_fd = fd;
+    g_skill_id = id;
+    why = g_skill_why;
+    return g_skill_ok;
+  };
+  h.end_skill = [](core::EndReason why, uint32_t now) {  // as the motion layer: the skill's end comes back at once
+    ++g_skill_ends;
+    g_skill_end_why = why;
+    core::PrimitiveEnd e;
+    e.kind = core::PrimKind::kSkill;
+    e.reason = why;
+    e.id = g_skill_id;
+    lc->onPrimitiveEnd(e, now);
+  };
   lc->setHooks(h);
+  lc->setSkillHub(&g_hub);
 }
 
 // Checks the program into the box and runs it as phone 3.
@@ -104,6 +133,46 @@ void done() {  // the motion the program waits for has ended normally
   lc->onPrimitiveEnd(e, g_now);
 }
 bool sent(int fd, const char* needle) { return fakes::countTo(fd, needle) > 0; }
+
+// Plan Z2a: an AI program (the checker's ai caps, no list: literal things are not checked here).
+void runAi(const char* src) {
+  logo::Caps caps;
+  caps.ai = true;
+  TEST_ASSERT_TRUE_MESSAGE(logo::checkProgram(src, static_cast<uint16_t>(strlen(src)), caps, g_space), src);
+  g_checked = g_space.program;
+  lc->onRun(3, 5, 1, false, g_now);
+}
+// A TELEM_FAST from the Uno: the counts, the yaw (0.01°, + = left) and the tracks' commands.
+void fast(int32_t enc, uint16_t yaw, int8_t cmd) {
+  proto::TelemFastMsg t{};
+  t.dist_mm = 65535;
+  t.yaw = yaw;
+  t.enc_l = t.enc_r = enc;
+  t.spd_cmd_l = t.spd_cmd_r = cmd;
+  uint8_t f[64];
+  const size_t n = cqtest::frame(t, 3, f);
+  unoSends(f, n, g_now);
+}
+int32_t lastId(int fd) {  // the "id" of the last skill_* message to fd (the pages' broadcasts reach it too)
+  std::string m;
+  for (const fakes::Sent& x : fakes::world().sent) {
+    if (x.fd == fd && x.json.find("\"t\":\"skill_") != std::string::npos) m = x.json;
+  }
+  const size_t at = m.find("\"id\":");
+  return at == std::string::npos ? -1 : static_cast<int32_t>(atol(m.c_str() + at + 5));
+}
+core::PrimitiveEnd skillEnd(core::EndReason why) {  // the motion layer ended the running skill
+  core::PrimitiveEnd e;
+  e.kind = core::PrimKind::kSkill;
+  e.reason = why;
+  e.id = g_skill_id;
+  return e;
+}
+void startedSkill() {  // a skill_start went to the server and the lease is its
+  TEST_ASSERT_TRUE(sent(kServer, "\"t\":\"skill_start\""));
+  TEST_ASSERT_EQUAL(lastId(kServer), g_hub.leaseId());
+  TEST_ASSERT_EQUAL(g_skill_id, g_hub.leaseId());
+}
 }  // namespace
 
 void setUp() {
@@ -133,6 +202,14 @@ void setUp() {
   g_ops.clear();
   g_stops = g_releases = 0;
   g_go_keeps = 0;
+  ws.add(kServer, 0);
+  g_hub = core::SkillHub();
+  g_hub.onHello(kServer);
+  g_skill_ok = true;
+  g_skill_why = core::BridgeReason::kBodyOffline;
+  g_skill_starts = g_skill_ends = 0;
+  g_skill_fd = -1;
+  g_skill_id = -1;
 }
 void tearDown() {}
 
@@ -436,6 +513,299 @@ void test_arc_speed_note() {
   TEST_ASSERT_TRUE(sent(4, "for this radius"));
 }
 
+// ---- Plan Z2a Task 6: the AI words (bridge LLD R26.4, Tank Logo LLD §24.2) ----
+
+// Review Focus 4: FORWARD 50 then SETXY 0 0 goes back, not on.
+void test_forward_then_setxy_back() {
+  runAi("FORWARD 50  SETXY 0 0");
+  ticks(1);
+  fast(3757, 0, 40);  // 50 cm at 7514 counts per metre
+  done();
+  ticks(1);
+  startedSkill();
+  TEST_ASSERT_EQUAL(3, g_skill_fd);  // the program's phone holds the body
+  TEST_ASSERT_TRUE(sent(kServer, "\"skill\":\"setxy\",\"to\":{\"fwd_cm\":-50,\"left_cm\":0}"));
+}
+
+// Review Focus 4: after RIGHT 90 the start is on the tank's right (the tank's yaw is + = left).
+void test_right_turn_then_setxy_is_on_the_right() {
+  runAi("FORWARD 50  RIGHT 90  SETXY 0 0");
+  ticks(1);
+  fast(3757, 0, 40);
+  done();
+  ticks(1);
+  fast(3757, 36000 - 9000, 0);  // turned right 90° on the spot
+  done();
+  ticks(1);
+  TEST_ASSERT_TRUE(sent(kServer, "\"to\":{\"fwd_cm\":0,\"left_cm\":-50}"));
+}
+
+void test_area_anchor_sent_relative() {
+  runAi("AREA 2  FORWARD 50  FIND \"ball");
+  ticks(2);  // AREA, then FORWARD
+  fast(3757, 0, 40);
+  done();
+  ticks(1);
+  startedSkill();
+  TEST_ASSERT_TRUE(sent(kServer, "\"skill\":\"find\",\"thing\":\"ball\",\"area\":{\"r_m\":2,\"fwd_cm\":-50,\"left_cm\":0}"));
+}
+
+void test_ask_answer_pushes_true() {
+  runAi("IF SEE? \"ball [ BEEP ]");
+  ticks(1);
+  TEST_ASSERT_TRUE(sent(kServer, "\"t\":\"skill_ask\""));
+  TEST_ASSERT_TRUE(sent(kServer, "\"q\":\"see?\",\"thing\":\"ball\""));
+  lc->onSkillAnswer(kServer, lastId(kServer), 1, g_now + 10);
+  ticks(1);
+  TEST_ASSERT_EQUAL(1, g_ops.size());  // BEEP
+}
+
+void test_ask_timeout_pushes_false() {
+  runAi("IF SEE? \"ball [ BEEP ]");
+  ticks(1);
+  const int32_t id = lastId(kServer);
+  ticks(160);  // 320 ms: no answer is FALSE
+  TEST_ASSERT_EQUAL(0, g_ops.size());
+  TEST_ASSERT_FALSE(lc->running());
+  lc->onSkillAnswer(kServer, id, 1, g_now);  // too late: dropped
+  TEST_ASSERT_EQUAL(0, g_ops.size());
+}
+
+// Review Focus 2: an answer to question N while N+1 waits is dropped; N+1's own answer is used.
+void test_answer_to_an_old_question_is_dropped() {
+  runAi("IF SEE? \"ball [ BEEP ]  IF SEE? \"ball [ BEEP ]");
+  ticks(1);
+  const int32_t first = lastId(kServer);
+  ticks(160);  // the first one lapses (FALSE); the second is asked
+  const int32_t second = lastId(kServer);
+  TEST_ASSERT_TRUE(second > first);
+  lc->onSkillAnswer(kServer, first, 1, g_now);
+  ticks(1);
+  TEST_ASSERT_EQUAL(0, g_ops.size());
+  lc->onSkillAnswer(4, second, 1, g_now);  // not the server: dropped
+  ticks(1);
+  TEST_ASSERT_EQUAL(0, g_ops.size());
+  lc->onSkillAnswer(kServer, second, 1, g_now);
+  ticks(1);
+  TEST_ASSERT_EQUAL(1, g_ops.size());
+}
+
+void test_skill_done_goes_on_without_skill_end() {
+  runAi("FIND \"ball  BEEP");
+  ticks(1);
+  startedSkill();
+  lc->onSkillEnd(kServer, g_skill_id, logo::SkillEnd::kDone, g_now);
+  TEST_ASSERT_EQUAL(1, g_skill_ends);
+  TEST_ASSERT_EQUAL(core::EndReason::kDone, g_skill_end_why);
+  TEST_ASSERT_EQUAL(-1, g_hub.leaseId());
+  ticks(1);
+  TEST_ASSERT_EQUAL(1, g_ops.size());  // BEEP: the program went on
+  TEST_ASSERT_FALSE(sent(kServer, "skill_end"));  // the server ended it itself
+}
+
+void test_skill_failed_ends_the_program() {
+  runAi("FIND \"ball  BEEP");
+  ticks(1);
+  lc->onSkillEnd(kServer, g_skill_id, logo::SkillEnd::kNotFound, g_now);
+  TEST_ASSERT_FALSE(lc->running());
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7050"));
+  TEST_ASSERT_EQUAL(1, g_skill_ends);
+  TEST_ASSERT_FALSE(sent(kServer, "skill_end"));
+}
+
+// Review Focus 2: a second end for skill N while skill N+1 runs never ends N+1; an end from another fd neither.
+void test_a_second_end_for_an_old_skill_is_dropped() {
+  runAi("FIND \"ball  FIND \"ball");
+  ticks(1);
+  const int32_t first = g_skill_id;
+  lc->onSkillEnd(kServer, first, logo::SkillEnd::kDone, g_now);
+  ticks(1);
+  const int32_t second = g_skill_id;
+  TEST_ASSERT_TRUE(second > first);
+  TEST_ASSERT_EQUAL(second, g_hub.leaseId());
+  lc->onSkillEnd(kServer, first, logo::SkillEnd::kNotFound, g_now);
+  lc->onSkillEnd(4, second, logo::SkillEnd::kNotFound, g_now);
+  TEST_ASSERT_TRUE(lc->running());
+  TEST_ASSERT_EQUAL(second, g_hub.leaseId());
+  lc->onSkillEnd(kServer, second, logo::SkillEnd::kDone, g_now);
+  ticks(1);
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":\"finished\""));
+}
+
+// STOP from a page: the motion layer ends the skill (kStop) first, then the MotionEvent follows.
+void test_stop_ends_lease_and_sends_skill_end_stop() {
+  runAi("WANDER 10");
+  ticks(1);
+  const int32_t id = g_skill_id;
+  lc->onPrimitiveEnd(skillEnd(core::EndReason::kStop), g_now);
+  lc->onMotionEvent(core::MotionEvent::kStop, g_now);
+  TEST_ASSERT_EQUAL(1, fakes::countTo(kServer, "\"t\":\"skill_end\""));
+  TEST_ASSERT_TRUE(sent(kServer, "\"why\":\"stop\""));
+  TEST_ASSERT_EQUAL(id, lastId(kServer));
+  TEST_ASSERT_EQUAL(-1, g_hub.leaseId());
+  TEST_ASSERT_FALSE(g_hub.leaseOk(kServer, id, g_now));
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7040"));
+  TEST_ASSERT_EQUAL(1, g_stops);
+}
+
+void test_logo_stop_sends_skill_end_stop() {
+  runAi("WANDER 10");
+  ticks(1);
+  lc->onStop(4, 9, g_now);
+  TEST_ASSERT_TRUE(sent(kServer, "\"why\":\"stop\""));
+  TEST_ASSERT_EQUAL(1, g_skill_ends);
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7040"));
+}
+
+void test_page_hidden_sends_skill_end_page() {
+  runAi("WANDER 10");
+  ticks(1);
+  lc->onPrimitiveEnd(skillEnd(core::EndReason::kCancelled), g_now);
+  TEST_ASSERT_TRUE(lc->running());  // waits for the MotionEvent behind it
+  lc->onMotionEvent(core::MotionEvent::kOwnerClosed, g_now);
+  TEST_ASSERT_TRUE(sent(kServer, "\"why\":\"page\""));
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7046"));
+}
+
+void test_owner_stick_sends_skill_end_owner() {
+  runAi("WANDER 10");
+  ticks(1);
+  lc->onPrimitiveEnd(skillEnd(core::EndReason::kCancelled), g_now);
+  lc->onMotionEvent(core::MotionEvent::kOwnerCommand, g_now);
+  TEST_ASSERT_TRUE(sent(kServer, "\"why\":\"owner\""));
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7045"));
+}
+
+void test_another_driver_taking_over_is_owner() {
+  runAi("WANDER 10");
+  ticks(1);
+  g_keep = core::Decision::kNackNotOwner;
+  ticks(1);
+  TEST_ASSERT_TRUE(sent(kServer, "\"why\":\"owner\""));
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7045"));
+}
+
+// Review Focus 3: the engine killed (its socket closes) mid-skill: 7052, no skill_end, no lease for a reconnect.
+void test_server_close_mid_skill_is_7052() {
+  runAi("WANDER 10");
+  ticks(1);
+  const int32_t id = g_skill_id;
+  lc->onClientClose(kServer, g_now);
+  TEST_ASSERT_FALSE(lc->running());
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7052"));
+  TEST_ASSERT_EQUAL(1, g_skill_ends);
+  TEST_ASSERT_FALSE(sent(kServer, "skill_end"));
+  TEST_ASSERT_EQUAL(-1, g_hub.server());
+  g_hub.onHello(kServer);  // it comes back on the same fd
+  TEST_ASSERT_FALSE(g_hub.leaseOk(kServer, id, g_now));
+}
+
+// A silent server reaped without a kWsClose (DriveController's ghost path): seen on the next tick.
+void test_a_server_gone_without_a_close_is_seen_on_tick() {
+  runAi("WANDER 10");
+  ticks(1);
+  ws.remove(kServer);
+  ticks(1);
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7052"));
+  TEST_ASSERT_EQUAL(-1, g_hub.server());
+}
+
+// Review Focus 3: the WiFi drops - no skill_drive for 300 ms: the lease's deadman ends it 7052 with skill_end deadman.
+void test_lease_deadman_is_7052() {
+  runAi("WANDER 10");
+  ticks(1);
+  ticks(149);  // 298 ms
+  TEST_ASSERT_TRUE(lc->running());
+  ticks(3);
+  TEST_ASSERT_FALSE(lc->running());
+  TEST_ASSERT_TRUE(sent(kServer, "\"why\":\"deadman\""));
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7052"));
+  TEST_ASSERT_EQUAL(1, g_skill_ends);
+}
+
+// The motion layer's own deadman fires in the same loop: one end, one skill_end.
+void test_motion_deadman_then_hub_deadman_end_once() {
+  runAi("WANDER 10");
+  ticks(1);
+  g_now += 302;
+  lc->onPrimitiveEnd(skillEnd(core::EndReason::kDeadman), g_now);
+  ticks(1);
+  TEST_ASSERT_EQUAL(1, fakes::countTo(kServer, "\"why\":\"deadman\""));
+  TEST_ASSERT_EQUAL(1, fakes::countTo(4, "logo_ended"));
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7052"));
+}
+
+void test_brake_ends_the_skill_blocked() {
+  runAi("WANDER 10");
+  ticks(1);
+  lc->onPrimitiveEnd(skillEnd(core::EndReason::kBlocked), g_now);
+  TEST_ASSERT_TRUE(sent(kServer, "\"why\":\"ended\""));
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7024"));
+}
+
+void test_a_stall_ends_the_skill_7044() {
+  runAi("WANDER 10");
+  ticks(1);
+  lc->onPrimitiveEnd(skillEnd(core::EndReason::kStalled), g_now);
+  TEST_ASSERT_TRUE(sent(kServer, "\"why\":\"ended\""));
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7044"));
+}
+
+void test_an_old_skill_s_primitive_end_is_dropped() {
+  runAi("WANDER 10");
+  ticks(1);
+  core::PrimitiveEnd e = skillEnd(core::EndReason::kBlocked);
+  e.id = g_skill_id - 1;
+  lc->onPrimitiveEnd(e, g_now);
+  TEST_ASSERT_TRUE(lc->running());
+}
+
+void test_battery_during_a_skill_sends_skill_end_ended() {
+  runAi("WANDER 10");
+  ticks(1);
+  lc->onUnoAlarm(logo::RunEvent::kBatteryLow, g_now);
+  TEST_ASSERT_TRUE(sent(kServer, "\"why\":\"ended\""));
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7042"));
+  TEST_ASSERT_EQUAL(1, g_skill_ends);
+  TEST_ASSERT_EQUAL(-1, g_hub.leaseId());
+}
+
+// bridge LLD R26.1 / Task 5 carry: startSkill replaces a primitive without its end - a GO is held first.
+void test_a_go_is_held_before_the_skill_starts() {
+  runAi("GO  FIND \"ball");
+  ticks(2);
+  TEST_ASSERT_TRUE(g_motions.size() >= 2);
+  TEST_ASSERT_EQUAL(logo::ActKind::kGo, g_motions[0].kind);
+  TEST_ASSERT_EQUAL(logo::ActKind::kHold, g_motions.back().kind);
+  TEST_ASSERT_EQUAL(1, g_skill_starts);
+}
+
+void test_no_server_is_7052() {
+  g_hub.onClose(kServer);
+  runAi("FIND \"ball");
+  ticks(1);
+  TEST_ASSERT_EQUAL(0, g_skill_starts);
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7052"));
+}
+
+void test_a_refused_skill_drive_is_7021_and_no_lease() {
+  g_skill_ok = false;
+  g_skill_why = core::BridgeReason::kUnavailable;
+  runAi("FIND \"ball");
+  ticks(1);
+  TEST_ASSERT_TRUE(sent(4, "\"reason\":7021"));
+  TEST_ASSERT_EQUAL(-1, g_hub.leaseId());
+  TEST_ASSERT_FALSE(sent(kServer, "skill_start"));
+}
+
+void test_skill_messages_without_a_program_are_dropped() {
+  lc->onSkillAnswer(kServer, 1, 1, g_now);
+  lc->onSkillEnd(kServer, 1, logo::SkillEnd::kDone, g_now);
+  lc->onClientClose(kServer, g_now);
+  TEST_ASSERT_EQUAL(0, g_skill_ends);
+  TEST_ASSERT_EQUAL(-1, g_hub.server());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_run_starts_and_carries_out_moves);
@@ -462,5 +832,31 @@ int main() {
   RUN_TEST(test_step_mode_holds_a_go_and_step_drives_on);
   RUN_TEST(test_the_program_s_end_stops_a_go);
   RUN_TEST(test_losing_the_drive_during_a_go_never_stops_the_new_driver);
+  RUN_TEST(test_forward_then_setxy_back);
+  RUN_TEST(test_right_turn_then_setxy_is_on_the_right);
+  RUN_TEST(test_area_anchor_sent_relative);
+  RUN_TEST(test_ask_answer_pushes_true);
+  RUN_TEST(test_ask_timeout_pushes_false);
+  RUN_TEST(test_answer_to_an_old_question_is_dropped);
+  RUN_TEST(test_skill_done_goes_on_without_skill_end);
+  RUN_TEST(test_skill_failed_ends_the_program);
+  RUN_TEST(test_a_second_end_for_an_old_skill_is_dropped);
+  RUN_TEST(test_stop_ends_lease_and_sends_skill_end_stop);
+  RUN_TEST(test_logo_stop_sends_skill_end_stop);
+  RUN_TEST(test_page_hidden_sends_skill_end_page);
+  RUN_TEST(test_owner_stick_sends_skill_end_owner);
+  RUN_TEST(test_another_driver_taking_over_is_owner);
+  RUN_TEST(test_server_close_mid_skill_is_7052);
+  RUN_TEST(test_a_server_gone_without_a_close_is_seen_on_tick);
+  RUN_TEST(test_lease_deadman_is_7052);
+  RUN_TEST(test_motion_deadman_then_hub_deadman_end_once);
+  RUN_TEST(test_brake_ends_the_skill_blocked);
+  RUN_TEST(test_a_stall_ends_the_skill_7044);
+  RUN_TEST(test_an_old_skill_s_primitive_end_is_dropped);
+  RUN_TEST(test_battery_during_a_skill_sends_skill_end_ended);
+  RUN_TEST(test_a_go_is_held_before_the_skill_starts);
+  RUN_TEST(test_no_server_is_7052);
+  RUN_TEST(test_a_refused_skill_drive_is_7021_and_no_lease);
+  RUN_TEST(test_skill_messages_without_a_program_are_dropped);
   return UNITY_END();
 }

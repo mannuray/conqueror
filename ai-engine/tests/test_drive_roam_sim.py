@@ -63,6 +63,8 @@ def roam(
     area_m: float | None = None,
     dim: bool = False,
     false_maybe: tuple[float, tuple[float, float]] | None = None,
+    point: tuple[float, float] | None = None,
+    centre: tuple[float, float] | None = None,
 ) -> Roam:
     """dim: the thing is recognised for sure only within DIM_SURE_M and standing still, from further only as a
     maybe (the toy car on the rug, design-notes §179); false_maybe = (from t, spot): a maybe of nothing there,
@@ -72,7 +74,13 @@ def roam(
     sonar_model = SonarModel()
     tank = SimTank(*start)
     skill = RoamSkill(
-        Planner(Limits()), "find" if find else mode, seconds=seconds, rng=random.Random(seed), area_m=area_m
+        Planner(Limits()),
+        "find" if find else mode,
+        seconds=seconds,
+        rng=random.Random(seed),
+        area_m=area_m,
+        point=point,
+        centre=centre,
     )
     turning, last_seen, pan = False, None, 0.0
     still = True
@@ -292,12 +300,12 @@ def test_explore_in_a_play_area_is_done_inside_it() -> None:
     assert SimRoom(list(ROOM), walls_m=2.5).seen_share(r.room) < 0.8  # the far side of the room left alone
 
 
-def test_find_a_ball_outside_the_play_area_is_never_driven_to() -> None:
+def test_find_outside_area_is_outside_area() -> None:
     """§174 kept the tank inside the play area; a ball seen outside it ended the run blocked. Owner (floor run
-    z8-f1, design-notes §196): not chased - its edge is checked, the search goes on, and it ends not_found
-    (saying it was seen outside). Never out of the area either way."""
+    z8-f1, design-notes §196): not chased - its edge is checked, the search goes on, and it ends outside_area
+    (Plan Z2a: its own result, once not_found - seen outside). Never out of the area either way."""
     r = roam("wander", 240.0, find=True, ball=(-1.6, 0.2), seed=1, area_m=1.0)
-    assert r.result == "not_found" and r.out_m <= 1.0
+    assert r.result == "outside_area" and r.out_m <= 1.0
 
 
 def test_goto_a_ball_behind_at_the_start_curves_round() -> None:
@@ -369,3 +377,28 @@ def test_a_chase_inside_find_never_leaves_the_area() -> None:
     through the cost maps every skill is handed. A ball outside a 1 m area: find never drives out to it."""
     r = roam("find", 60.0, ball=(2.0, 0.0), area_m=1.0)
     assert r.out_m <= 1.0 + 0.05 and r.result != "done"
+
+
+# ---- SETXY: the point mode, and the area's centre (Plan Z2a, AI engine LLD §21.2)
+def test_point_reached_free() -> None:
+    r = roam("point", 60.0, boxes=[], point=(1.2, 0.5))
+    assert r.result == "done"
+    assert math.dist(r.positions[-1][:2], (1.2, 0.5)) <= 0.15 + 1e-9
+    assert r.body >= BODY_M and not r.front_hit
+
+
+def test_point_walled_off_is_no_way() -> None:
+    """A point inside a tall box (the map marks it, so no route reaches it): after NO_ROUTE_S it ends no_way,
+    never driving into the box."""
+    r = roam("point", 90.0, boxes=[Box(1.3, -0.4, 1.9, 0.4, 0.0, 0.4)], point=(1.6, 0.0))
+    assert r.result == "no_way"
+    assert r.body >= BODY_M and not r.front_hit
+
+
+def test_centre_moves_the_area() -> None:
+    """The play area is a circle round the given centre, not round the start: the tank wanders on that side
+    and never leaves the circle."""
+    centre = (0.8, 0.0)
+    r = roam("wander", 120.0, boxes=[], area_m=1.0, centre=centre, seed=3)
+    assert max(corners_from(p, (*centre, 0.0)) for p in r.positions) <= 1.0 + 1e-9
+    assert max(corners_from(p, (0.0, 0.0, 0.0)) for p in r.positions) > 1.0  # beyond a start-centred area

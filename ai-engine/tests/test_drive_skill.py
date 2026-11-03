@@ -34,6 +34,9 @@ def test_results_are_their_old_strings() -> None:
         "cancelled",
         "refused",
         "failed",
+        "outside_area",
+        "no_way",
+        "unknown_thing",
     ]
     assert Result.NOT_FOUND == "not_found"
 

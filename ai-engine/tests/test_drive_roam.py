@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from typing import cast
 
 import numpy as np
+import pytest
 
 from conqueror_ai.domain.depth import Marks
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh
@@ -513,7 +514,7 @@ def test_a_thing_seen_outside_the_area_is_not_chased_its_edge_is_checked() -> No
     )  # the edge toward it
 
 
-def test_not_found_says_it_was_seen_outside_the_area() -> None:
+def test_outside_area_says_it_was_seen_outside_the_area() -> None:
     s, tank = outside_area_finder(), SimTank()
     t = until_searching(s, tank)
     rt(s, t, tank.at, open_snap(), TargetFix(1, 3.0, 0.0, 0.0), None, True)
@@ -523,4 +524,9 @@ def test_not_found_says_it_was_seen_outside_the_area() -> None:
         s.candidates.rule_out(c)
     s.state = "drive"
     out = rt(s, t + 1.0, tank.at, open_snap(), None, None, True)
-    assert out.result == "not_found" and "seen outside the play area" in out.detail
+    assert out.result == "outside_area" and "seen outside the play area" in out.detail
+
+
+def test_point_mode_needs_a_point() -> None:
+    with pytest.raises(ValueError, match="needs a point"):
+        RoamSkill(Planner(Limits()), "point")

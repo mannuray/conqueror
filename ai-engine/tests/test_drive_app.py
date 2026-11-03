@@ -23,6 +23,7 @@ from conqueror_ai.app.drive import (
     maybes_of,
     parse_mission,
     refusal,
+    said,
     start_home,
 )
 from conqueror_ai.app.objects import decode
@@ -30,6 +31,7 @@ from conqueror_ai.app.perception import picture_counts, task_failure
 from conqueror_ai.domain.camera import CameraModel
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.roam import RoamSkill
+from conqueror_ai.domain.drive.skill import Result
 from conqueror_ai.domain.objects import Located
 from conqueror_ai.domain.types import Detection, Pose
 from conqueror_ai.domain.vocabulary import Vocabulary
@@ -306,3 +308,11 @@ def test_cq_map_with_a_damaged_home_says_so(tmp_path: Path, monkeypatch: pytest.
     monkeypatch.setattr(sys, "argv", ["cq-map", "rec", "--home", "h"])
     with pytest.raises(SystemExit):  # --home only with --live (minor 6)
         app_map.main()
+
+
+def test_the_cli_says_the_new_results() -> None:
+    assert (
+        said(Result.OUTSIDE_AREA, "seen 1.4 m from the start") == "outside_area - seen 1.4 m from the start"
+    )
+    assert said(Result.NO_WAY, "") == "no_way"
+    assert said(Result.UNKNOWN_THING, "") == "unknown_thing"

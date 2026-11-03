@@ -27,6 +27,9 @@ class Result(StrEnum):
     CANCELLED = "cancelled"
     REFUSED = "refused"
     FAILED = "failed"
+    OUTSIDE_AREA = "outside_area"  # find: the thing was seen, but outside the play area (§196)
+    NO_WAY = "no_way"  # setxy: no route to the point (§21.2)
+    UNKNOWN_THING = "unknown_thing"  # the word names nothing the engine knows (Plan Z2a)
 
 
 @dataclass(frozen=True)

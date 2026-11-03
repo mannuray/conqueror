@@ -31,7 +31,7 @@ from conqueror_ai.domain.drive.costmap import CostMap, CostSettings
 from conqueror_ai.domain.drive.costmaps import CostMaps
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.goal import TargetFix
-from conqueror_ai.domain.drive.goals import DestinationGoal, ExploreGoal, SearchGoal, WanderGoal
+from conqueror_ai.domain.drive.goals import DestinationGoal, ExploreGoal, PointGoal, SearchGoal, WanderGoal
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
 from conqueror_ai.domain.drive.recovery import ProgressWatch, Recovery
 from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point
@@ -51,9 +51,12 @@ EDGE_IN_M = 0.3  # a thing seen outside the play area: its edge candidate this f
 CANDIDATE_RETRY_S = 1.0  # pending candidates with no way to them: tried again after this long
 PLAN_TRIES = 3  # destinations tried in one tick before it counts as stuck
 START_STAND_S = 1.0  # at the start: stand with the camera ahead so the map takes still pictures
+POINT_DONE_M = 0.15  # setxy: the tank's centre this near the point is there (play tolerance, spec 0 §1.1)
+NO_ROUTE_S = 5.0  # setxy: no route to the point for this long ends no_way
+POINT_SLOW_M = 0.5  # setxy: the last stretch at the slow speed, so it stops where it was sent
 
 
-Mode = Literal["wander", "explore", "find"]  # find: the look round, candidates, the search, the chase
+Mode = Literal["wander", "explore", "find", "point"]  # find: the look round, candidates, search, chase
 
 
 @dataclass
@@ -84,10 +87,16 @@ class RoamSkill:
         area_m: float | None = None,
         memory: ThingMemory | None = None,
         kind: Callable[[str], bool] | None = None,
+        point: tuple[float, float] | None = None,
+        centre: tuple[float, float] | None = None,
     ) -> None:
         """area_m: stay within this many metres of where the run starts (None: anywhere it can reach). Find:
         memory = the things confirmed so far (its spots of `kind` are checked first; one not there is marked
-        gone), kind = the thing sought (§189)."""
+        gone), kind = the thing sought (§189). point: setxy's map point (mode "point": a route to it on the
+        cost map, done within POINT_DONE_M, no route for NO_ROUTE_S ends no_way). centre: the play area's
+        centre (None: round the run's first pose); only with area_m (§21.2)."""
+        if mode == "point" and point is None:
+            raise ValueError("mode 'point' needs a point")
         self.planner = planner
         self.slow = Planner(
             replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, planner.lim.slow_cms)), planner.w
@@ -101,9 +110,15 @@ class RoamSkill:
         self.seconds = seconds
         self.explore = ExploreGoal()
         self.search = SearchGoal()
-        self.goal: DestinationGoal = {"wander": self.wander, "explore": self.explore, "find": self.search}[
-            mode
-        ]
+        self.point = point
+        goals: dict[str, DestinationGoal] = {
+            "wander": self.wander,
+            "explore": self.explore,
+            "find": self.search,
+        }
+        if point is not None:
+            goals["point"] = PointGoal(point)
+        self.goal = goals[mode]
         self._look_pan: float | None = None  # where the camera was last sent (find's search marks its view)
         self.chase = ChaseSkill(planner, cost)
         self.recovery = Recovery(self.lim, planner.foot, self.lim.drive_tilt_deg)
@@ -120,7 +135,10 @@ class RoamSkill:
         self._progress = ProgressWatch(self.recovery, self.settings.stuck_s)
         self._costs: CostMaps | None = None  # this snapshot's cost maps, the play area in them
         self.area_m = area_m
-        self._area: tuple[float, float, float] | None = None  # (x, y, r) once the start is known
+        self._area: tuple[float, float, float] | None = (  # (x, y, r); round the start once it is known
+            None if centre is None or area_m is None else (centre[0], centre[1], area_m)
+        )
+        self._no_route_t0: float | None = None  # point: since when there is no route
         self._check: _Check | None = None
         self.candidates = Candidates()
         self.memory = memory
@@ -141,7 +159,7 @@ class RoamSkill:
         self.cmd = STOP
         return SkillOut(STOP, cam)
 
-    def _end(self, result: str, detail: str = "") -> SkillOut:
+    def _end(self, result: str | Result, detail: str = "") -> SkillOut:
         self.state = "done" if result == "done" else "failed"
         self.cmd = STOP
         return SkillOut(STOP, None, Result(result), detail)
@@ -246,6 +264,8 @@ class RoamSkill:
         seen = fix is not None and fix.seen_age_s < LOST_AFTER_S
         if self.find and (self.state in ("start", "chase") or seen):
             return self._chase(now_s, at, snap, fix, sonar_m, map_ok, cam_still)
+        if self.point is not None and math.dist(at[:2], self.point) <= POINT_DONE_M:
+            return self._end("done")
         if self.mode == "wander" and self.seconds is not None and now_s - self._t0 >= self.seconds - 1e-9:
             return self._end("done")
         if sonar_m is not None and sonar_m < self.lim.clear_m:
@@ -259,6 +279,8 @@ class RoamSkill:
                 return self._halt()
             self.state = "drive"
         planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
+        if self.point is not None and math.dist(at[:2], self.point) < POINT_SLOW_M:
+            planner = self.slow
         if self.find and self.state == "drive" and self.candidates.pending() and now_s >= self._retry_s:
             c = self.candidates.next(at, self._costs_for(snap), self.routes)
             self._tried_now = True
@@ -415,6 +437,17 @@ class RoamSkill:
         self, now_s: float, at: XYTh, cost: CostMap, planner: Planner, sonar_m: float | None
     ) -> SkillOut:
         route = self._plan(now_s, at, cost)
+        if (
+            self.point is not None
+        ):  # setxy: no way for NO_ROUTE_S ends it (the tank stands and waits meanwhile)
+            if route is not None:
+                self._no_route_t0 = None
+            else:
+                if self._no_route_t0 is None:
+                    self._no_route_t0 = now_s
+                if now_s - self._no_route_t0 >= NO_ROUTE_S - 1e-9:
+                    return self._end(Result.NO_WAY, "no route to the point")
+                return self._halt()
         if route is None:
             if self.mode == "explore" and self.goal.done:
                 return self._end("done")
@@ -428,7 +461,7 @@ class RoamSkill:
                         return self._halt()
                 outside = self._outside_m
                 why = "" if outside is None else f"seen outside the play area, {outside:.1f} m from the start"
-                return self._end("not_found", why)
+                return self._end("outside_area" if outside is not None else "not_found", why)
             return self._stuck(now_s, at)
         self.route = route
         aim = aim_point(route, (at[0], at[1]))

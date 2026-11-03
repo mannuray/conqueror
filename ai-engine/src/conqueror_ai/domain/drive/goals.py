@@ -59,6 +59,21 @@ class DestinationGoal(Protocol):
     def drop(self) -> None: ...
 
 
+class PointGoal:
+    """SETXY (LLD §21.2): the one destination is the point itself. No route to it is the skill's matter (it
+    ends no_way after NO_ROUTE_S), so there is nothing to drop."""
+
+    def __init__(self, point: XY) -> None:
+        self.done = False
+        self.point = point
+
+    def drop(self) -> None:
+        pass
+
+    def destination(self, now_s: float, at: XYTh, cost: CostMap, planner: RoutePlanner) -> XY | None:
+        return self.point
+
+
 class WanderGoal:
     def __init__(self, rng: random.Random, lim: Limits | None = None) -> None:
         self.done = False  # wander never runs out

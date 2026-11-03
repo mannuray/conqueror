@@ -2792,6 +2792,8 @@ classDiagram
   class ThingNames {
     <<fixed arrays>>
     +set(list) bool
+    +add(word, names) bool
+    +copyFrom(other)
     +resolve(name) word?
   }
   class LinkOwner {

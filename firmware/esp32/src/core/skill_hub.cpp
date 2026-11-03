@@ -5,6 +5,7 @@ namespace core {
 
 SkillHub::Decision SkillHub::onHello(int fd) {
   if (m_server >= 0 && m_server != fd) return Decision::kBusy;
+  if (m_server != fd && m_sets[m_live].size() > 0) m_clear = true;  // a new server never sees another's list, even before the next tryCommit
   m_server = fd;
   return Decision::kOk;
 }
@@ -116,9 +117,10 @@ int32_t SkillHub::tick(uint32_t now) {
 }
 
 bool copyForCheck(const SkillHub& hub, logo::ThingNames& dst, const LockPort& lock) {
-  lock.take(lock.ctx, LockPort::kForever);
+  dst.clear();
+  if (!lock.take(lock.ctx, LockPort::kForever)) return false;  // not taken: nothing copied, nothing given back
   const bool ai = hub.server() >= 0;
-  if (ai) dst.copyFrom(hub.things());
+  if (ai && !hub.clearPending()) dst.copyFrom(hub.things());  // clearPending: the old server's list is on its way out
   lock.give(lock.ctx);
   return ai;
 }

@@ -38,6 +38,7 @@ class SkillHub {
   // One `skill_things` frame (part of `of`, 1-based). Only the link task touches the staging: no lock needed here.
   Decision onThingsPart(int fd, uint8_t part, uint8_t of, const ThingList& t);
   bool commitPending() const { return m_commit || m_clear; }
+  bool clearPending() const { return m_clear; }  // the live list is the last server's, to be emptied by tryCommit
   // Makes a finished staging (or the emptiness after a close) the live list: takes the lock for at most
   // kCommitWaitMs and only for the swap. False: nothing to do, or the lock was busy - call again next loop.
   bool tryCommit(const LockPort& lock);

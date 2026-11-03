@@ -393,7 +393,7 @@ void test_reconnect_does_not_get_old_lease() {
   TEST_ASSERT_FALSE(h.endFor(kA, id));
   const int32_t next = h.newId();
   TEST_ASSERT_NOT_EQUAL(id, next);
-  // ... and a different socket after a close that was never delivered cannot take the lease either
+  // ... and a different socket after a close cannot take the lease either
   SkillHub g = hubWithServer(kA);
   const int32_t gid = g.newId();
   g.start(gid, 1000);
@@ -414,6 +414,37 @@ void test_close_drops_the_staging_and_a_new_server_starts_empty() {
   TEST_ASSERT_EQUAL(0, h.things().size());  // the old server's things are not the new one's
   put(h, kB, makeList(1));
   TEST_ASSERT_EQUAL(1, h.things().size());
+}
+
+// Task 4 re-review 1: a lock that is not taken is not given back, and nothing is copied
+void test_copy_for_check_with_a_refused_take_copies_nothing() {
+  SkillHub h = hubWithServer();
+  FakeLock lock;
+  lock.allow = false;
+  LockPort port = lock.port();
+  ThingNames dst;
+  const char* names[] = {"x"};
+  TEST_ASSERT_TRUE(dst.add("stale", names, 1));
+  TEST_ASSERT_FALSE(copyForCheck(h, dst, port));
+  TEST_ASSERT_EQUAL(0, dst.size());
+  TEST_ASSERT_EQUAL(0, lock.gives);
+}
+
+// Task 4 re-review 2: after a close and before the next commit, another server's hello must not expose the old list
+void test_new_server_hello_hides_the_old_servers_list() {
+  SkillHub h = hubWithServer(kA);  // w0, w1 live
+  h.onClose(kA);
+  TEST_ASSERT_EQUAL(D(Dec::kOk), D(h.onHello(kB)));  // no tryCommit yet
+  FakeLock lock;
+  LockPort port = lock.port();
+  ThingNames dst;
+  TEST_ASSERT_TRUE(copyForCheck(h, dst, port));  // B is the server (ai) ...
+  TEST_ASSERT_EQUAL(0, dst.size());              // ... with no things yet, never A's
+  TEST_ASSERT_TRUE(h.tryCommit(port));
+  TEST_ASSERT_EQUAL(0, h.things().size());
+  put(h, kB, makeList(1));  // its own list is used once committed
+  TEST_ASSERT_TRUE(copyForCheck(h, dst, port));
+  TEST_ASSERT_EQUAL(1, dst.size());
 }
 
 void test_ids_never_repeat_and_stay_positive() {
@@ -449,6 +480,8 @@ int main() {
   RUN_TEST(test_reconnect_does_not_get_old_lease);
   RUN_TEST(test_close_drops_the_staging_and_a_new_server_starts_empty);
   RUN_TEST(test_copy_for_check_copies_inside_the_lock);
+  RUN_TEST(test_copy_for_check_with_a_refused_take_copies_nothing);
+  RUN_TEST(test_new_server_hello_hides_the_old_servers_list);
   RUN_TEST(test_ids_never_repeat_and_stay_positive);
   return UNITY_END();
 }

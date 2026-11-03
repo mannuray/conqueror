@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from conqueror_ai.adapters.detector_config import load_ball_names, load_vocabulary, save_ball
+from conqueror_ai.domain.balls import BallColour
 from conqueror_ai.domain.names import Names
 from conqueror_ai.domain.vocabulary import Vocabulary
 
@@ -51,8 +53,6 @@ def test_bounds_refused() -> None:
 
 
 def test_config_files_load_and_keep_ball_names(tmp_path: Path) -> None:
-    from conqueror_ai.adapters.detector_config import load_ball_names, load_vocabulary, save_ball
-    from conqueror_ai.domain.balls import BallColour
 
     cfg = Path(__file__).parent.parent / "config"
     n = Names(load_vocabulary(cfg / "vocabulary.yaml"), load_ball_names(cfg / "balls.yaml"))
@@ -61,3 +61,26 @@ def test_config_files_load_and_keep_ball_names(tmp_path: Path) -> None:
     f.write_text("names: [football]\nballs: []\n")
     save_ball(f, BallColour("red", 0, 10, 80, 255))
     assert load_ball_names(f) == ["football"]
+
+
+def test_exact_limits_accepted_and_one_over_refused() -> None:
+    n = Names(Vocabulary.from_dict({"words": [{"word": f"w{i}"} for i in range(47)]}), [])
+    assert len(n.wire()) == 48
+    with pytest.raises(ValueError, match="48"):
+        Names(Vocabulary.from_dict({"words": [{"word": f"w{i}"} for i in range(48)]}), [])
+    eight = [f"n{i}" for i in range(8)]
+    Names(vocab([{"word": "cup", "names": eight}]), [])
+    with pytest.raises(ValueError, match="8 names"):
+        Names(vocab([{"word": "cup", "names": [*eight, "n8"]}]), [])
+    assert Names(vocab([{"word": "cup", "names": ["x" * 24]}]), []).resolve("x" * 24) == "cup"
+    with pytest.raises(ValueError, match="24"):
+        Names(vocab([{"word": "cup", "names": ["é" * 13]}]), [])  # 26 bytes
+    with pytest.raises(ValueError, match="24"):
+        Names(vocab([{"word": "y" * 25}]), [])  # the word itself
+
+
+def test_a_blank_name_is_an_error() -> None:
+    with pytest.raises(ValueError, match="blank"):
+        Names(vocab([{"word": "cup", "names": ["  "]}]), [])
+    with pytest.raises(ValueError, match="blank"):
+        Names(vocab(), [""])

@@ -228,3 +228,23 @@ async def test_seeing_runs_off_the_loop() -> None:  # C1: telemetry keeps flowin
     seen = await app.see_off_loop(SlowSeeing(), p, cam_at(), np.zeros((240, 320)), 1_000_000)  # type: ignore[arg-type]
     task.cancel()
     assert ticks >= 10 and seen.fix.tilt_fix_deg == 1.0 and p.gate.tilt_fix_deg == 1.0
+
+
+class PersonWithToy:
+    """A person 1 m ahead with a ball-sized thing inside its box, in every picture."""
+
+    def __init__(self) -> None:
+        self.toy = box_on_floor(cam_at(), 1.0, 0.1, "toy")
+        x1, y1, x2, y2 = self.toy.box
+        self.person = Detection("person", 0.9, (x1 - 20.0, y1 - 40.0, x2 + 20.0, y2))
+
+    def detect(self, rgb: NDArray[np.uint8], cam: CameraModel | None) -> list[Detection]:
+        return [self.person, self.toy]
+
+
+def test_replay_never_lists_a_toy_over_a_person(tmp_path: Path) -> None:
+    """Review I1: the guard is in ObjectPipeline.on_frame, so a recording cannot skip it."""
+    session(tmp_path / "s")
+    res = app.run_replay(tmp_path / "s", CAL, PersonWithToy(), frozenset({"toy", "person"}))
+    assert "toy" not in {t.cls for t in res.things.values()}
+    assert "person" in {t.cls for t in res.things.values()}

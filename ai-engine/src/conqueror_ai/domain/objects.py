@@ -17,6 +17,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from conqueror_ai.domain.camera import Calibration, CameraModel, from_servo
+from conqueror_ai.domain.person_guard import clear
 from conqueror_ai.domain.pose import PoseFilter, PoseHistory
 from conqueror_ai.domain.reach import SAME_SPOT_M
 from conqueror_ai.domain.types import Detection, Frame, ObjectEstimate, Pose, TelemSample
@@ -407,6 +408,7 @@ class ObjectPipeline:
         """Use one picture (its decoded size, its detections, the camera from camera_at if taken): its camera,
         or why it was skipped."""
         self._maybes = []
+        dets = clear(dets)  # never a box over a person, whoever calls (LLD §21.4, review I1)
         if self._last_cap_us is not None and f.cap_us < self._last_cap_us:
             self.tracker = (
                 ObjectTracker()

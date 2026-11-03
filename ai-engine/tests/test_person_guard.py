@@ -23,3 +23,11 @@ def test_person_kept() -> None:
     other = Detection("person", 0.7, (110.0, 10.0, 190.0, 190.0))
     assert clear([PERSON, other]) == [PERSON, other]
     assert clear([]) == []
+
+
+def test_overlap_of_exactly_the_limit_is_dropped() -> None:
+    person = Detection("person", 0.9, (0.0, 0.0, 100.0, 100.0))
+    box = Detection("box", 0.9, (70.0, 0.0, 170.0, 100.0))  # 30 of its 100 px wide: exactly 0.3 of its area
+    assert clear([person, box]) == [person]
+    just_under = Detection("box", 0.9, (71.0, 0.0, 171.0, 100.0))
+    assert clear([person, just_under]) == [person, just_under]

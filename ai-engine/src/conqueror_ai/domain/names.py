@@ -32,10 +32,12 @@ class Names:
         if len(rows) > MAX_WORDS:
             raise ValueError(f"there are {len(rows)} words; the tank takes at most {MAX_WORDS}")
         for word, names in rows.items():
-            names = [n for n in dict.fromkeys(names) if n and n != word]
+            if not word or "" in names:
+                raise ValueError(f"{word or 'a word'} has a blank name")
+            names = [n for n in dict.fromkeys(names) if n != word]
             if len(names) > MAX_NAMES:
                 raise ValueError(f"{word} has {len(names)} names; at most {MAX_NAMES} names a word")
-            for n in names:
+            for n in (word, *names):
                 if len(n.encode()) > MAX_NAME_BYTES:
                     raise ValueError(f"the name '{n}' is longer than {MAX_NAME_BYTES} bytes")
             self._rows.append((word, names))

@@ -1317,63 +1317,81 @@ The page's text icons become Lucide icons from the shared `web/icons.json` (brid
 - The status line's ● dots stay text.
 - **Budget:** 26 KB gzipped.
 
-## 24. Revision N8 — the first AI words: `SEE?`, `HOWFAR`, `FIND`, `GOTO` (owner, 2026-10-25, spec 8 §4.3–§4.4, design-notes §156 — draft for review)
+## 24. Revision N8 — the AI words (owner 2026-10-25, revised for Plan Z2a 2026-11-03; spec 8 Revision 2 §4.3–§4.4, design-notes §191, §197 — draft for review)
 
-> **Note (owner, 2026-11-02, design-notes §191):** no `GOTO` word - `FIND` looks round, searches and drives to the thing, so GOTO adds nothing. This section is revised in Plan Z2; until then read every `GOTO` below as dropped.
+> Revision 1 of this section (2026-10-25) had `GOTO "ball` and a `"ball`-only checker. Replaced: no GOTO (§191); FIND / WANDER / EXPLORE / SETXY / AREA; loose names from the skill server; 7053 reworded, 7054 / 7055 new.
 
 ### 24.1 What changes
-- **Every program, AI or not, runs on the ESP32's runner** (spec 8 §4.4, replacing spec 5 §6's AI-engine runner). The AI engine answers and drives as the skill server (bridge LLD R26).
-- **`logo/spec/words.yaml`:**
+- **Every program, AI or not, runs on the ESP32's runner** (spec 8 §4.4). The AI engine answers and drives as the skill server (bridge LLD R26).
+- **`logo/spec/words.yaml`** (level 2; `group: move` for the action words):
 
-  | Word | Was | Now |
-  |---|---|---|
-  | `SEE? "thing` | level 3 | **level 2**, reporter, `needs: [ai]` |
-  | `FIND "thing` | level 3 | **level 2**, command, `needs: [ai, encoders]` |
-  | `GOTO "thing` | — | **new**, level 2, command, group move, `needs: [ai, encoders]`. Does: "drives to the thing in one smooth move and stops in front of it" |
-  | `HOWFAR "thing` | — | **new**, level 2, reporter, `needs: [ai]`. Gives: "how far the thing is from the camera, in cm (−1 if it isn't seen)" |
-  | `FOLLOW`, `HOWMANY` | level 3 | unchanged (later slices) |
+  | Word | Kind | Inputs | needs | Does / gives |
+  |---|---|---|---|---|
+  | `FIND` | command | thing | ai, encoders | looks round, searches, checks each maybe and stops ~30 cm from the thing |
+  | `WANDER` | command | seconds 1–600 | ai, encoders | drives about for that long, keeping clear of things |
+  | `EXPLORE` | command | — | ai, encoders | looks at all the floor it can reach, then stops |
+  | `SETXY` | command | x cm, y cm (−1000..1000) | ai, encoders | drives to the point x right, y ahead of where the program started, round things |
+  | `AREA` | command (`group: move`, a setting like `SPEED`) | metres 0–10 | ai | the next FIND / WANDER / EXPLORE / SETXY stay within that many m of here; 0 = anywhere |
+  | `SEE?` | reporter | thing | ai | TRUE when the thing was seen in the last 0.5 s |
+  | `HOWFAR` | reporter | thing | ai | the thing's distance from the camera in cm, −1 if not seen |
 
-  - **`HOWFAR`, not `DISTANCE "thing`:** `DISTANCE` is already the sonar's word (no input). `HOWFAR` pairs with `HOWMANY`.
-  - **`GOTO`, not `GO TO`:** `TO` starts a procedure.
-  - All four are reserved names.
-- **New errors (`words.yaml` errors):**
-  - 7050 "I couldn't find the {thing}.";
-  - 7051 "I lost sight of the {thing}.";
-  - 7052 "The AI helper stopped answering.";
-  - 7053 "{word} only knows \"ball for now.". The checker reports this for a literal other than `"ball`; at run time the engine's `unknown_thing` reports it.
-- **`Caps::ai`** is set while a skill server is connected (`logo_worker caps()`, from `SkillHub::server()`). The checker already reports 7020 when it's missing.
+  - `SEE?` and `FIND` move down from level 3; `FOLLOW`, `HOWMANY` stay level 3 (later). All are reserved names.
+  - A new input type **`thing`**: a quoted word (`"toy`) or anything giving a word at run time.
+- **Errors (`words.yaml`):**
+  - 7020 reworded: "{word} needs the AI helper (it runs on the laptop)."
+  - 7050 "I couldn't find the {thing}."
+  - 7051 "I lost sight of the {thing}."
+  - 7052 "The AI helper stopped answering."
+  - 7053 "I don't know what a {thing} is."
+  - 7054 "I saw the {thing}, but it's outside the play area."
+  - 7055 "I can't find a way there."
+- **Loose names come from the skill server, not from `words.yaml`.** The engine's vocabulary can grow (teach it a word, Z2b), so a generated table would go stale.
+  - The server's hello carries `things: [{word, names[]}]`, and `skill_things` replaces the list. Bounds: ≤ 48 words, ≤ 8 names each, ≤ 24 bytes per name, lower case.
+  - `SkillHub` keeps the list. **`Caps`** gains `const ThingNames* things` (null = no server).
+  - **The checker** resolves a literal thing: a known word or name → fine (the run sends the word itself); an unknown one → 7053 with the literal; no server → 7020 as today. A thing computed at run time is checked by the engine (`unknown_thing` → 7053).
 
 ### 24.2 Compiling and running
-- **Questions (`SEE?`, `HOWFAR`) can't be `kSensor`.** Their answer comes from the laptop and may take up to 300 ms. So they compile to a new effect, **`EffectKind::kAsk`** (thing, question), with a result:
+- **Questions (`SEE?`, `HOWFAR`) can't be `kSensor`:** their answer comes from the laptop and may take up to 300 ms. They compile to a new effect **`EffectKind::kAsk`** (thing, question) with a result:
   1. `VmOps::effect` yields `VmStatus::kEffect`;
   2. the runner enters **`RunState::kAsking`**, and `LogoController` sends `skill_ask`;
-  3. `onAskAnswer(value)`, or a 300 ms timeout, pushes the value (timeout: FALSE / −1), and the VM goes on.
-  - A new `OpCode::kResume` slot carries the value back (the VM already resumes effects; `kAsk` is the first with a result).
-- **Actions (`FIND`, `GOTO`)** are effects **`kSkill`** (skill, thing).
+  3. `onAskAnswer(value)`, or 300 ms (FALSE / −1), pushes the value; the VM goes on.
+  - **`OpCode::kResume`** carries the value back (`kAsk` is the first effect with a result).
+  - In a `WAIT UNTIL SEE? "ball` the question is asked each tick (~10 Hz), as a sensor is read.
+- **`AREA n`** is a setting, like `SPEED`: the runner keeps `m_area_m` and the odometry pose where it ran (`m_area_at`). No message is sent.
+- **Action words (`FIND`, `WANDER`, `EXPLORE`, `SETXY`)** are one effect **`EffectKind::kSkill`** (skill, args).
   - The runner enters **`RunState::kSkill`**, which behaves like `kMotion`: the program waits, STOP and the time limit apply.
-  - `LogoController` asks `SkillHub` for the lease and sends `skill_start`.
+  - `LogoController` asks `SkillHub` for the lease and sends `skill_start`. **Places are sent relative to the tank now**, from the bridge's odometry (§20), so the engine needs no frame of the run:
+    - `SETXY x y` → `to: {fwd_cm, left_cm}` = the run-frame point minus the odometry pose, turned into the tank's heading;
+    - an active `AREA` → `area: {r_m, fwd_cm, left_cm}`, its anchor turned the same way.
   - `onSkillEnd`:
-    - **done** → the program goes on;
-    - **failed not_found** → 7050;
-    - **lost** → 7051;
-    - **blocked** → 7024, or `m_blocked` for a `BLOCKED?` program, as a move;
-    - **stale / server gone** → 7052;
-    - **unknown_thing** → 7053;
-    - the tank-side ends (STOP 7040, page 7046, owner 7045, deadman 7034, stall 7044…) via `kByEndReason`, as a move.
-- **While going** (`GO` running), `FIND` / `GOTO` replace the GO, as a motion word does (§22.2).
+
+    | End | Program |
+    |---|---|
+    | done | goes on |
+    | not_found | 7050 |
+    | lost | 7051 |
+    | outside_area | 7054 |
+    | no_way | 7055 |
+    | blocked | 7024, or `m_blocked` for a `BLOCKED?` program, as a move |
+    | unknown_thing | 7053 |
+    | stale / server gone | 7052 |
+    | STOP 7040, page 7046, owner 7045, deadman 7034, stall 7044… | via `kByEndReason`, as a move |
+
+- **While going** (`GO` running), an action word replaces the GO, as a motion word does (§22.2).
 - **The simulator (preview):**
-  - `GOTO` draws a dashed (uncertain) 1 m segment;
-  - `FIND` draws nothing;
-  - `SEE?` is FALSE and `HOWFAR` is −1, so a preview never assumes a ball.
+  - `SETXY` draws a dashed (uncertain) straight line to the point;
+  - `FIND` / `WANDER` / `EXPLORE` end at an unknown place, so the rest of the preview path is dashed from where it was;
+  - `SEE?` is FALSE and `HOWFAR` is −1, so a preview never assumes a thing;
+  - `AREA` draws its circle.
 
 ```mermaid
 stateDiagram-v2
   [*] --> Running
   Running --> Asking : SEE? / HOWFAR (skill_ask)
   Asking --> Running : answer, or 300 ms (FALSE / -1)
-  Running --> Skill : FIND / GOTO (lease + skill_start)
+  Running --> Skill : FIND / WANDER / EXPLORE / SETXY (lease + skill_start)
   Skill --> Running : skill_done
-  Skill --> Ended : skill_failed (7050 / 7051 / 7052 / 7053 / 7024) / STOP / page / owner / deadman / time
+  Skill --> Ended : skill_failed (7050-7055 / 7024) / STOP / page / owner / deadman / time
   Running --> Ended : as today
 ```
 
@@ -1384,35 +1402,46 @@ classDiagram
     +onAskAnswer(value) RunOut
     +onSkillEnd(end) RunOut
     -m_ask_deadline
+    -m_area_m
+    -m_area_at: Pose
   }
-  class RunState { <<enum>> Running Motion Waiting Asking Skill Ended }
-  class Action { +kind: kAsk | kSkill | ... +thing +question|skill }
+  class RunState { <<enum>> Idle Running Motion Waiting Asking Skill Paused Ended }
+  class EffectKind { <<enum>> ... kGo kHold kAsk kSkill }
+  class SkillCall { +skill: find|wander|explore|setxy +thing +seconds +to_fwd_cm +to_left_cm +area }
+  class ThingNames { +resolve(name) word? +words() }
+  class Caps { +encoders +ai +version +things: ThingNames* }
+  class Checker { +check(src, caps) CheckResult }
   class LogoController {
     +tick(now)
     -ask(thing, q)
-    -startSkill(skill, thing)
+    -startSkill(SkillCall)
+    -relative(run_point, pose) fwd_left
   }
   RunController --> RunState
-  RunController ..> Action
+  RunController ..> EffectKind
+  RunController ..> SkillCall
+  Checker --> Caps
+  Caps --> ThingNames
   LogoController --> RunController
   LogoController ..> SkillHub : bridge LLD R26
+  SkillHub --> ThingNames
 ```
 
 ### 24.3 Tests
 - **Reading / errors** (`logo/spec/tests/`, `version: v1`):
-  - the four words parse with one input;
-  - `GOTO` with no input → 7002;
-  - `GOTO "chair` → 7053;
-  - a run with no skill server → 7020;
+  - each word parses with its inputs; `FIND` with no input → 7002; `WANDER 0` → 7025; `SETXY 10` → 7002;
+  - with a test `things` list (`toy: [car, racing car]`): `FIND "car` fine, `FIND "dragon` → 7053;
+  - with no skill server → 7020;
   - `DISTANCE` keeps its old meaning.
-  - `model.py` / `emit.py` gain a `tank: {ai: true}` key for conformance cases.
+  - `model.py` / `emit.py` gain a `tank: {ai: true, things: {...}}` key for conformance cases.
 - **Running** (`running.yaml`; the fake `World` gains answers and skill ends):
-  - `IF SEE? "ball [ BEEP ]` with true → beep;
-  - with no answer in 300 ms → no beep;
-  - `GOTO "ball  BEEP` with done → beep, finished;
-  - with not_found → 7050;
+  - `IF SEE? "ball [ BEEP ]` with true → beep; with no answer in 300 ms → no beep;
+  - `FIND "ball  BEEP` with done → beep, finished; with not_found → 7050; with outside_area → 7054;
   - with blocked and `BLOCKED?` → goes on;
   - STOP during a skill → 7040, and the lease ends;
-  - `GO  WAIT UNTIL SEE? "ball  HOLD  GOTO "ball` → go, asks each tick, hold, skill.
+  - `GO  WAIT UNTIL SEE? "ball  HOLD  FIND "ball` → go, asks each tick, hold, skill;
+  - `FORWARD 50  SETXY 0 0` → `to` = 50 cm behind (fwd −50, left 0);
+  - `AREA 2  RIGHT 90  FORWARD 30  WANDER 10` → area r 2 m, anchor 30 cm behind;
+  - `AREA 0` clears it.
 - **The generated files are regenerated** (`logogen write`), never edited.
-- **Floor (owner):** spec 8 §6 item 6, `FIND "ball  GOTO "ball  SOUND FANFARE` from `/logo`.
+- **Floor (owner, Plan Z2a):** from `/logo`, `AREA 2  FIND "ball  SOUND FANFARE`, `WANDER 30`, `SETXY 0 0` back to the start, and STOP during each.

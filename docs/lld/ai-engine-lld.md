@@ -2448,3 +2448,134 @@ sequenceDiagram
 
 **Floor checks:** design-notes §195 - all pass (explore, the remembered map, wander, find from memory in 22 s instead of 40 s, round a box, the bed's overhang).
 
+
+## 21. The skill server: `cq-drive serve` (Plan Z2a; spec 8 Revision 2 §4.3-§4.4, Tank Logo LLD §24, bridge LLD R26, design-notes §197 — draft for review)
+
+### 21.1 What it is
+- **One long-running session on the laptop** that the tank's Logo runner uses as its eyes and careful driver: `uv run cq-drive serve [--home NAME] [--record DIR]`.
+- **Between words** perception and the map run all the time (one `Perception` loop, §19), so a question is answered from a fresh `World` and a skill starts from the map built so far.
+- **Each action word** (`skill_start`) runs one skill through Z7's `SkillRunner` with a **`LeaseDriver`** (the `Driver` port, §19) instead of `DriveLink`. When it ends, the result goes back as `skill_done` / `skill_failed`, and with `--home` the home is saved (as at the end of a `cq-drive` run, §20).
+- **It never drives outside a lease.** `cq-drive find / wander / explore` stay for testing without Logo.
+- Ctrl-C ends it: a running skill is cancelled (`skill_failed stale` is not sent; the bridge's close rule ends the program with 7052), the home is saved, the link closes.
+
+### 21.2 The words and the skills
+| `skill_start` | Skill | Notes |
+|---|---|---|
+| `find` + thing | `RoamSkill(mode="find", kind=…, memory=…)` | as `cq-drive find` (§18.13-§20): looks round, candidates, search, memory first |
+| `wander` + s | `RoamSkill(mode="wander", seconds=s)` | |
+| `explore` | `RoamSkill(mode="explore")` | |
+| `setxy` + to | **`RoamSkill(mode="point", point=…)`** (new mode) | a route to the point on the cost map with wander's safety; done within 0.15 m of it; no route for 5 s → `no_way` |
+| any + area | `area_m` and an **area centre** | the centre is given relative to the tank, not "where the run starts" |
+
+- **Places relative to the tank → map frame:** `to_map(pose, fwd_cm, left_cm) = pose.xy + R(pose.heading) · (fwd, left) / 100`, with the pose at the moment `skill_start` arrives. The bridge's odometry and the engine's pose differ by a few cm over a program (play tolerance, spec 0 §1.1).
+- **`RoamSkill` gains `centre: tuple[float, float] | None`**: the play area is a circle round it (today: round the run's first pose). `None` keeps today's behaviour for the CLI.
+- **`Result` gains** `OUTSIDE_AREA` (find ended not_found with "seen outside the play area", §196 - now its own result), `NO_WAY` (setxy) and `UNKNOWN_THING`. `REFUSED` / `FAILED` / `CANCELLED` / `STALE` map to `stale` (7052) on the wire; `CANCELLED` by `skill_end` sends nothing (the tank already ended it).
+
+### 21.3 Questions
+- `SEE? thing` → TRUE when the tracker lists the word and it was seen within 0.5 s.
+- `HOWFAR thing` → the nearest such thing's distance from the lens in cm (rounded), −1 if none.
+- Answered on the event loop from the latest `World` snapshot, in well under 300 ms (no model run per question).
+
+### 21.4 Loose names and never a person
+- **`config/vocabulary.yaml` gains `names:`** per word (`{word: toy, floor: true, also: [toy car], names: [car, racing car, toy car]}`); `also` stays the model's wordings, `names` are what a child may write. `ball` (the colour finder) gets names too (`balls.yaml`).
+- **`Names`** (domain, pure): `resolve(name) -> word | None` over word + names, lower case, spaces squeezed; `wire() -> [{word, names}]` for the hello, within the bridge's bounds (≤ 48 words, ≤ 8 names, ≤ 24 bytes; a longer list is refused at start with a plain error).
+- **`person` is never offered** (not in `wire()`), and an asked `person` (or a name of it) is `unknown_thing`.
+- **The person guard (design-notes §197):** the detector always asks for `person`. **`PersonGuard.clear(detections) -> detections`** drops any non-person box whose overlap with a person box is ≥ 0.3 of its own area, before the tracker. So a person is never chased, checked as a candidate or remembered, whatever word was asked.
+
+### 21.5 Classes
+```mermaid
+classDiagram
+  class ServeApp {
+    +main(argv)
+    -on_ask(id, q, thing)
+    -on_start(id, SkillCall)
+    -on_end(id, why)
+    -run_skill(id, SkillCall) async
+  }
+  class SkillLink {
+    <<adapter: bridge /ws>>
+    +connect(things)
+    +answer(id, value)
+    +done(id) / failed(id, reason, thing)
+    +drive(id, v, yaw_rate)
+    +events() AsyncIterator~SkillEvent~
+  }
+  class LeaseDriver {
+    <<Driver port>>
+    +connected
+    +refused
+    +run(stop)
+    +drive(cmd)
+    +cam(pan, tilt)
+    +finish()
+    -m_id
+    -m_ended_why
+  }
+  class SkillCall { +skill +thing +seconds +to_fwd_cm +to_left_cm +area }
+  class Names { +resolve(name) +wire() }
+  class PersonGuard { +clear(detections) }
+  class Questions { +see(world, word, now) bool +howfar(world, word, now) int }
+  class SkillRunner
+  class World
+  class Perception
+  class RoamSkill { +mode: find|wander|explore|point +centre +point }
+  class Result { <<StrEnum>> ... OUTSIDE_AREA NO_WAY UNKNOWN_THING }
+  ServeApp --> SkillLink
+  ServeApp --> Perception
+  ServeApp --> World
+  ServeApp --> Questions
+  ServeApp --> Names
+  ServeApp ..> SkillRunner : one per action word
+  SkillRunner --> LeaseDriver
+  SkillRunner ..> RoamSkill
+  LeaseDriver --> SkillLink
+  Perception --> PersonGuard
+  RoamSkill ..> Result
+```
+- **`LeaseDriver`:** `drive()` sends `skill_drive` with its id (the same `drive_msg` speed table as `DriveLink`); `refused` becomes the `skill_end` reason when the bridge ends the lease, so `SkillRunner` returns at once and nothing more is sent; `finish()` sends one `v 0` and leaves the stop to the bridge (`endSkill`).
+- **`SkillLink`:** the `/ws` client with `hello ai-skills`; it answers the bridge's pings (the 3 s silent-client rule, §142), and hands `skill_ask` / `skill_start` / `skill_end` to `ServeApp` as events. The camera and telemetry still come from the existing `Perception` sources.
+
+### 21.6 One word, and its states
+```mermaid
+sequenceDiagram
+  participant B as Bridge (SkillHub)
+  participant S as ServeApp
+  participant W as World / Perception
+  participant R as SkillRunner + LeaseDriver
+  B->>S: skill_ask id 3 see? toy
+  S->>W: Questions.see(toy)
+  S-->>B: skill_answer id 3 false
+  B->>S: skill_start id 4 find toy area {2, 0, 0}
+  S->>S: centre = to_map(pose, 0, 0)
+  S->>R: run(RoamSkill find toy, centre, 2 m)
+  loop each tick
+    R->>B: skill_drive id 4 v w
+  end
+  R-->>S: Result.DONE
+  S-->>B: skill_done id 4
+  S->>S: home saved (--home)
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> Connecting
+  Connecting --> Idle : hello accepted (things sent)
+  Connecting --> [*] : nack BUSY (another server: plain error)
+  Idle --> Idle : skill_ask / answer
+  Idle --> Driving : skill_start (lease)
+  Driving --> Idle : skill_done / skill_failed sent
+  Driving --> Idle : skill_end from the bridge (stop at once, nothing sent)
+  Idle --> Connecting : link lost (retry every 2 s)
+  Driving --> Connecting : link lost (the bridge's deadman stops the tank)
+```
+
+### 21.7 Tests (to write first)
+- **`Names`:** resolve by word and by name, case and spaces; `person` never in `wire()` and unresolvable; bounds refused.
+- **`PersonGuard`:** a toy box inside a person box dropped; a toy beside one kept; the person itself kept (the tracker still sees people for later).
+- **`to_map`:** heading 0 / 90° / −90°, the area centre and the setxy point.
+- **`RoamSkill` point mode:** reaches a free point and ends DONE within 0.15 m; a walled-off point ends NO_WAY after 5 s; the area centre given moves the circle.
+- **`Questions`:** see within 0.5 s / not after; howfar nearest, −1.
+- **`LeaseDriver` + a fake `SkillLink`:** drive frames carry the id; `skill_end` → `refused`, and the runner stops without another frame; `finish` sends v 0 once.
+- **`ServeApp` with fakes** (no tank): ask → answer; start find → frames → done; unknown thing → `failed unknown_thing` with no frames; a second start during a skill refused; link lost mid-skill → no more frames, reconnect, idle.
+- **The result mapping** to wire reasons, one test per `Result`.
+- **Floor (owner, Plan Z2a):** with the tank and `/logo` (Tank Logo LLD §24.3).

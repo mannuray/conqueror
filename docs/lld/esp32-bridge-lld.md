@@ -2729,61 +2729,68 @@ sequenceDiagram
 - **On the tank (owner, 2026-10-24):** "all good". Drive, Settings and Logo all show the Lucide icons, with live battery / WiFi / Uno values.
 
 
-## R26. The skill server and the drive lease (owner, 2026-10-25, spec 8 §4.4, design-notes §156 — draft for review)
+## R26. The skill server and the drive lease (owner 2026-10-25, revised for Plan Z2a 2026-11-03; spec 8 Revision 2 §4.4, design-notes §191, §197 — draft for review)
+
+> Revision 1 (2026-10-25) had `find` / `goto` for `"ball` only. Replaced: the skills `find` / `wander` / `explore` / `setxy`, places relative to the tank, the play area, the server's list of things and names, the new failure reasons. The `/ai` page's data relay is Plan Z2b (R27, later).
 
 ### R26.1 What changes
 - **The AI engine can register as the skill server.**
   - A client whose hello says `"client": "ai-skills"` becomes the bridge's one skill server (`SkillHub`). A second one gets `nack BUSY`.
-  - While it's connected, Tank Logo's `Caps::ai` is true, so the checker stops giving 7020.
-  - Its close (or the 3 s silent-client rule) ends any skill with "the AI helper stopped answering" (7052).
-- **A drive lease lets the skill server drive while a Logo program runs a skill word.**
+  - Its hello carries the things it knows and their everyday names (`things`); `skill_things` replaces the list later (teach it a word, Z2b). `SkillHub` keeps it within fixed bounds (≤ 48 words, ≤ 8 names each, ≤ 24 bytes each; more → `nack TOO_BIG`, the old list kept), for the checker (Tank Logo LLD §24.1).
+  - While it's connected, Tank Logo's `Caps::ai` is true and `Caps::things` points at the list.
+  - Its close (or the 3 s silent-client rule, §142) ends any skill with "the AI helper stopped answering" (7052).
+- **A drive lease lets the skill server drive while a Logo program runs an action word.**
   - Today a `drive_rate` from a second client gets NOT_OWNER, or, from the owner's own fd, ends the program as 7045.
-  - The lease is a new, separate path: the program's owner stays the phone that pressed RUN, and the skill server's `skill_drive` frames feed a new motion primitive, `PrimKind::kSkill`.
+  - The lease is a new, separate path: the program's owner stays the phone that pressed RUN, and the server's `skill_drive` frames feed a new motion primitive, `PrimKind::kSkill`.
   - **Nothing changes on the Uno.** Frames still go out as `DRIVE` (source kAuto) through the safety supervisor. The obstacle brake, stall, battery, tilt, link loss and the child-play limits end a skill exactly as they end a `GO`.
 - **The lease is only valid while all of these hold:**
-  - the program is running a skill word;
-  - the skill server is the one it was given to;
+  - the program is running an action word;
+  - the server is the one it was given to, with that skill's `id`;
   - `skill_drive` arrives at least every 300 ms (`kRateDeadmanMs`, the same deadman as `drive_rate`).
-- **The lease ends at once on:**
-  - STOP from any device;
-  - the page going away or the program ending;
-  - the owner touching the stick;
-  - the deadman;
-  - the skill server closing or going silent.
-  - The bridge then stops the tank and sends `skill_end {id, why}`.
-- **While a lease is held, the skill server may move the camera** (`cam_set`). `onCamera` treats the lease holder like the driver.
+- **The lease ends at once on:** STOP from any device; the page going away or the program ending; the owner touching the stick; the deadman; the server closing or going silent. The bridge then stops the tank and sends `skill_end {id, why}`.
+- **While a lease is held, the server may move the camera** (`cam_set`): `onCamera` treats the lease holder like the driver.
+- **Questions need no lease:** `skill_ask` / `skill_answer` work whenever a server is connected; an answer after the runner's 300 ms is dropped.
 
 ### R26.2 Messages (`/ws`, JSON)
 | Direction | Message | Meaning |
 |---|---|---|
-| engine → bridge | `{"t":"hello","client":"ai-skills","proto":1}` | register as the skill server |
-| bridge → engine | `{"t":"skill_ask","id":n,"q":"see?"\|"howfar","thing":"ball"}` | a question word; answer within 300 ms |
-| engine → bridge | `{"t":"skill_answer","id":n,"value":true\|false\|cm}` | the answer (`howfar`: cm, −1 if not listed) |
-| bridge → engine | `{"t":"skill_start","id":n,"skill":"find"\|"goto","thing":"ball"}` | a skill word; the lease is granted with it |
+| engine → bridge | `{"t":"hello","client":"ai-skills","proto":1,"things":[{"word":"toy","names":["car","racing car"]},…]}` | register as the skill server |
+| engine → bridge | `{"t":"skill_things","things":[…]}` | the list changed (Z2b) |
+| bridge → engine | `{"t":"skill_ask","id":n,"q":"see?"\|"howfar","thing":"toy"}` | a question word; answer within 300 ms |
+| engine → bridge | `{"t":"skill_answer","id":n,"value":true\|false\|cm}` | `howfar`: cm, −1 if not seen |
+| bridge → engine | `{"t":"skill_start","id":n,"skill":"find"\|"wander"\|"explore"\|"setxy", …}` | an action word; the lease is granted with it |
+| | `find`: `"thing":"toy"`; `wander`: `"s":30`; `setxy`: `"to":{"fwd_cm":-50,"left_cm":0}`; any: `"area":{"r_m":2,"fwd_cm":-30,"left_cm":0}` | places relative to the tank now, from the bridge's odometry |
 | engine → bridge | `{"t":"skill_drive","id":n,"v":%,"yaw_rate":°/s}` | streamed ≤ 20 Hz, ≥ every 300 ms; only during the lease |
-| engine → bridge | `{"t":"skill_done","id":n}` / `{"t":"skill_failed","id":n,"reason":"not_found"…}` | the skill's end; the program goes on, or ends with its code |
+| engine → bridge | `{"t":"skill_done","id":n}` / `{"t":"skill_failed","id":n,"reason":r,"thing":"toy"}` | r: `not_found`, `lost`, `outside_area`, `no_way`, `blocked`, `unknown_thing`, `stale` |
 | bridge → engine | `{"t":"skill_end","id":n,"why":"stop"\|"deadman"\|"page"\|"owner"\|"ended"}` | the lease ended from the tank's side; the engine stops at once |
 
 - A `skill_drive` with a wrong `id`, or with no lease, gets `nack NOT_OWNER`, once per stream (as `streamReject`).
-- Rate limits are the same as `drive_rate` (`WsClients::admit`).
+- Rate limits as `drive_rate` (`WsClients::admit`). Unknown fields are ignored, bad ones refused (`nack BAD_FIELD`).
 
 ### R26.3 Classes
 ```mermaid
 classDiagram
   class SkillHub {
     <<core, pure>>
-    +onHello(fd, client) Decision
-    +onClose(fd)
+    +onHello(fd, client, things) Decision
+    +onThings(fd, things) Decision
+    +onClose(fd) SkillEnd?
     +server() fd?
+    +things() ThingNames*
     +ask(id, q, thing) Json
-    +start(id, skill, thing) Json
+    +start(SkillCall, id, now) Json
     +onAnswer(fd, id, value) Answer?
     +onEnd(fd, id, done|failed, reason) SkillEnd?
     +leaseOk(fd, id, now) bool
-    +touch(now)
     +tick(now) SkillEnd?
     -m_server_fd
+    -m_things: ThingNames
     -m_lease: id, granted_ms, last_drive_ms
+  }
+  class ThingNames {
+    <<fixed arrays>>
+    +set(list) bool
+    +resolve(name) word?
   }
   class LinkOwner {
     +onCamera(fd) Decision
@@ -2799,16 +2806,18 @@ classDiagram
     +onSkillDrive(fd, id, v, rate, now)
   }
   class LogoController {
-    +onSkillAsk / onSkillStart (from RunController acts)
-    +onSkillAnswer / onSkillEnd (to RunController)
+    +onAct(ask | skill) from RunController
+    +onSkillAnswer / onSkillEnd to RunController
   }
+  SkillHub --> ThingNames
   SkillHub <.. LogoController
   SkillHub <.. MotionController : leaseOk
   MotionController --> MotionService
   LinkOwner <.. SkillHub : lease holder may cam_set
 ```
-- **`SkillHub` (pure, host-tested):** the registration, the one lease, and its deadman.
-- **`PrimKind::kSkill` in `MotionService`:** like `kGo`, but with a turn rate. It has the same ending rules (brake → blocked, stall, link, deadman 300 ms), and `w` is held by the bridge's gyro loop, as in `drive_rate` (R4.4).
+- **`SkillHub` (pure, host-tested):** the registration, the things list, the one lease and its deadman.
+- **`ThingNames`:** fixed arrays (no heap after start), lower-cased; `resolve` maps a word or any of its names to the word.
+- **`PrimKind::kSkill` in `MotionService`:** like `kGo`, but with a turn rate. Same ending rules (brake → blocked, stall, link, deadman 300 ms); `w` is held by the bridge's gyro loop, as in `drive_rate` (R4.4).
 
 ### R26.4 One skill run
 ```mermaid
@@ -2820,9 +2829,10 @@ sequenceDiagram
   participant E as AI engine (skill server)
   participant M as MotionService
   participant U as Uno
-  P->>L: logo_run "GOTO "ball"
-  R-->>L: act skill goto "ball (state Skill)
-  L->>H: start(id 7, goto, ball) - lease to E
+  P->>L: logo_run "AREA 2  FIND "car"
+  Note over L: checker: "car" -> toy (H.things)
+  R-->>L: act skill find toy, area 2 m here (state Skill)
+  L->>H: start(find toy, area {2, 0, 0}, id 7) - lease to E
   H->>E: skill_start id 7
   M->>M: startSkill(7)
   loop every ~100 ms
@@ -2838,16 +2848,13 @@ sequenceDiagram
 ### R26.5 Tests (host, C++)
 - **`test_skill_hub`:**
   - one server only (a second gets BUSY);
-  - ask / answer matching by id;
-  - an answer after 300 ms is too late (the runner already took false / −1);
+  - the things list: set, replaced, too big refused with the old one kept, `resolve` by word and by name;
+  - ask / answer matching by id; a late answer dropped;
+  - `start` builds each skill's message (thing / s / to / area);
   - `leaseOk` only for the holder with the right id;
   - the 300 ms lease deadman;
   - a close ends the lease with 7052.
-- **`test_motion`:**
-  - `kSkill` sends v and w;
-  - the brake ends it as blocked;
-  - no `skill_drive` for 300 ms → deadman;
-  - STOP ends it;
-  - a phone stick during a skill ends the lease and the program (7045).
+- **`test_motion`:** `kSkill` sends v and w; the brake ends it as blocked; no `skill_drive` for 300 ms → deadman; STOP ends it; a phone stick during a skill ends the lease and the program (7045).
 - **`test_link_owner`:** the lease holder's `cam_set` is allowed during the lease and refused after it.
-- **`test_ws_codec`:** the new messages parse, and bad fields are refused.
+- **`test_ws_codec`:** the new messages parse; bad fields are refused.
+- **`test_logo_controller`:** places relative to the tank (a run point 50 cm behind after `FORWARD 50` → `fwd_cm −50`; after `RIGHT 90` → `left_cm`).

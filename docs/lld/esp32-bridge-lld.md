@@ -2859,215 +2859,87 @@ sequenceDiagram
 - **`test_ws_codec`:** the new messages parse; bad fields are refused.
 - **`test_logo_controller`:** places relative to the tank (a run point 50 cm behind after `FORWARD 50` → `fwd_cm −50`; after `RIGHT 90` → `left_cm`).
 
-## R27. The `/ai` page and what the engine sends it (owner 2026-11-03; spec 8 Revision 2 §4.5, design-notes §197-§198, AI engine LLD §22 — draft for review)
+## R27. The `/ai` page: on the tank, the AI feed from the engine (owner 2026-11-04; spec 8 Revision 2 §4.5, design-notes §197-§199, AI engine LLD §22 — draft for review)
 
-> Plan Z2b. Pieces marked **[Z2b-1]** come first (the frame, the Play tab, teach a word); **[Z2b-2]** adds the Room and Inside tabs on the same data path.
+> Plan Z2b. **[Z2b-1]** first (the page's frame, the Play tab, teach a word); **[Z2b-2]** the Room and Inside tabs. The first draft of this section (2026-11-03: an AI inbox on port 82, slots and a relay through the bridge) is replaced (design-notes §199).
 
 ### R27.1 What changes
-- **A third httpd, the AI inbox, on port 82 [Z2b-1].**
-  - Its own task, **one socket** (`max_open_sockets = 1`); with its listen and ctrl sockets the lwIP budget is 16 of 16 (R2: port 80 6 + 2, port 81 2 + 2, OTA 1).
-  - Only the registered skill server's IP address is answered (`SkillHub::server()` → the peer address of its `/ws` socket); anything else gets 403. No other auth (R26: home network, development only).
-  - A slow upload holds only this task. **Port 80, where STOP is read, never reads an engine body** - the reason this server exists (design-notes §198).
-  - Receive timeout 1 s; a body over its limit → 413 and the socket closed.
-  - **`lru_purge_enable = true`:** when the laptop sleeps or its WiFi drops, the bridge still holds the engine's half-open keep-alive socket; the engine's next connection evicts it instead of finding no room.
-- **Routes on port 82:**
+- **The tank serves the page** (`GET /ai`, `web/ai.html`, gzipped like the others). The ☰ menu of the drive page, Settings and `/logo` gains **AI**.
+- **The page talks to two places:**
+  - **the tank** - its own `/ws` (hello `"client": "ai-page"`): STOP, the buttons' one-line programs with `logo_run` (so the page is the program's owner, and STOP, the lease, 7045 and the errors are Logo's own, R26), telemetry for the status strip. **Everything that moves or stops the tank stays on this path.**
+  - **the AI engine** - one WebSocket the engine serves on the laptop (`ws://<laptop>:8770/feed`, AI engine LLD §22): the camera with its boxes and depth, the sentences, Why?, the things list, teach a word; [Z2b-2] the map, the home, memory, achievements, health, the timeline. Nothing on it can drive the tank.
+- **The bridge tells the page where the engine is:**
+  - the engine's hello gains `"page": {"port": 8770, "proto": 1}`; the bridge takes the engine's address from its `/ws` socket (`getpeername`) - no IP is ever typed;
+  - to each `ai-page` client, on its hello and whenever it changes: `{"t":"ai_at","url":"ws://192.168.1.23:8770/feed","proto":1}`; `{"t":"ai_at","url":null}` when the skill server closes;
+  - the bridge never connects to the engine's port itself.
+- **Learning [Z2b-1]:** the engine sends `{"t":"skill_learning","on":true|false}` on its `/ws` around a teach. `SkillHub::learning()` becomes `Caps::ai_learning`: the checker gives **7056** for any AI word while it is on (Tank Logo LLD §24.4); a `skill_start` that races it is answered `skill_failed reason:"learning"` → 7056. The server's close clears it.
+- **Nothing else on the tank changes:** no new port, no stream viewer taken (the camera comes from the engine), the `/ws` and lwIP budgets as today (the page is one `/ws` client of four).
 
-| Route | Body | What the bridge does |
-|---|---|---|
-| `POST /status` | JSON ≤ 360 B, ~10 Hz | relayed as `{"t":"ai_status",…}` to every `/ai` page |
-| `POST /boxes` | JSON ≤ 360 B, ≤ 10 Hz | relayed as `{"t":"ai_boxes",…}` to every `/ai` page |
-| `PUT /slot/<name>` | ≤ 5120 B, the slot's type | kept as the newest `<name>`; its number goes up |
-
-- **Slots** (fixed names, fixed types):
-
-| Slot | Type | Rate | Plan |
-|---|---|---|---|
-| `depth` | image/jpeg 160 × 120 | ~2 / s | Z2b-1 |
-| `snap` | image/jpeg 160 × 120 (the fallback camera) | ~1 / s | Z2b-1 |
-| `why` | JSON (the last decision explained) | on change | Z2b-1 |
-| `things` | JSON (the words and their everyday names, for the picker) | on change | Z2b-1 |
-| `map` | image/png 160 × 160 + its frame in `map_meta` | ~1 / s | Z2b-2 |
-| `map_meta` | JSON (cm per pixel, the tank's pixel and heading) | with `map` | Z2b-2 |
-| `memory` / `homes` / `achieve` / `health` / `timeline` | JSON | on change / 1 s | Z2b-2 |
-
-  - **Each slot is at most 5120 B,** under lwIP's 5744-byte TCP send buffer, so serving one on port 80 is copied into the socket at once and never waits on a slow phone. The engine keeps under it (AI engine LLD §22.3); a bigger upload is refused with 413.
-  - Two buffers per slot in PSRAM (≈ 11 × 2 × 5 KB = 110 KB): the upload fills the spare; a commit under the slot lock swaps it in, so a reader never sees half a picture.
-- **On port 80 [Z2b-1]:**
-  - `GET /ai` - the page (`web/ai.html`, gzipped like the others; the ☰ menu on the drive page, Settings and `/logo` gains AI).
-  - `GET /ai/slot/<name>?have=N` - the slot (its number in `X-Slot-Seq`), or 304 when it is still N; 404 before the first upload. `Cache-Control: no-store`.
-- **On `/ws`:**
-  - the page's hello says `"client": "ai-page"`; the bridge marks that client as an `/ai` viewer (it also gets telemetry, like the drive page);
-  - **the relay** sends `ai_status` / `ai_boxes` to viewers at most 10 a second each, newest wins (a message that finds the out queue full is dropped, never queued behind);
-  - status carries every slot's number (`"slots":{"depth":41,"why":7,…}`), so a page fetches a slot only when it changed;
-  - **page requests [Z2b-1 teach; Z2b-2 the rest]:** `{"t":"ai_req","id":n,"req":"teach","word":"cup","names":["mug"]}` (Z2b-2: `"home"` + `"name"` / `"none"` / `"new"`, `"forget"` + `"thing"` + `"spot"`, `"on_mark"`). The bridge forwards it to the skill server with its own id, and the answer `{"t":"ai_rep","id":n,"ok":bool,"msg":"…"}` goes back to that page only. Refused at once with `ai_rep ok:false`: no skill server (`msg` = 7020's text), a program running (`BUSY`), another request open. A request open longer than its limit (teach 240 s, others 5 s) ends with `ok:false`.
-- **Learning [Z2b-1]:** the engine sends `{"t":"skill_learning","on":true|false}` around a teach. `SkillHub::learning()` becomes `Caps::ai_learning`: the checker gives **7056** for any AI word while it is on (Tank Logo LLD §24.4), and a `skill_start` that races it is answered `skill_failed reason:"learning"` → 7056. The server's close clears it.
-- **The page runs programs as `/logo` does:** a button sends `logo_run` with a one-line program (`AREA 2  FIND "toy`) on its own `/ws`, so it is the program's owner; STOP, the lease, 7045 and the errors are Logo's own (R26). Nothing new drives the tank.
-
-### R27.2 Messages
+### R27.2 Messages (`/ws`)
 | Direction | Message | Meaning |
 |---|---|---|
-| engine → :82 | `POST /status` `{"seq":n,"state":"searching","mood":"curious","say":"I'm looking for the toy.","word":"toy","id":7,"pose":{"x":1.2,"y":-0.4,"h":87},"health":"ok","learning":false,"slots":{…}}` | ~10 Hz |
-| engine → :82 | `POST /boxes` `{"seq":n,"t_ms":…,"b":[["toy",0.91,x,y,w,h],…]}` | boxes in 0..1000 of the picture; ≤ 8 |
-| engine → :82 | `PUT /slot/depth` … | a slot |
-| bridge → page | `{"t":"ai_status",…}` / `{"t":"ai_boxes",…}` | the engine's body with `t` added, unchanged otherwise |
-| page → bridge | `{"t":"ai_req","id":n,"req":"teach",…}` | a request for the engine |
-| bridge → engine | `{"t":"ai_req","id":m,…}` | the same, the bridge's id |
-| engine → bridge | `{"t":"ai_rep","id":m,"ok":true,"msg":"I know cup now."}` | |
-| bridge → page | `{"t":"ai_rep","id":n,"ok":…,"msg":…}` | to the page that asked |
+| engine → bridge | `hello` … `"page":{"port":8770,"proto":1}` | the engine serves the AI feed there |
+| page → bridge | `{"t":"hello","client":"ai-page"}` | an `/ai` page |
+| bridge → page | `{"t":"ai_at","url":"ws://…:8770/feed"\|null,"proto":1}` | where the AI feed is (null: no AI helper) |
 | engine → bridge | `{"t":"skill_learning","on":true}` | around a teach |
-| bridge → page | `{"t":"ai_gone"}` | the skill server closed: the page greys the AI parts |
-| bridge → engine | `{"t":"ai_viewers","n":1}` | on change: the engine sends status, boxes and slots only while n > 0 |
+| page → bridge | `logo_run`, `stop`, … | as `/logo` and the drive page |
 
 ### R27.3 Classes
 ```mermaid
 classDiagram
-  class AiInbox {
-    <<net: httpd port 82, own task>>
-    +start()
-    -onStatus(req)
-    -onBoxes(req)
-    -onSlot(req, name)
-    -allowed(req) bool : peer == skill server
+  class SkillHub {
+    +onHello(fd, client, things, page) Decision
+    +pageUrl() str?
+    +learning() bool
+    +onLearning(fd, on)
+    -m_server_ip
+    -m_page_port, m_page_proto
+    -m_learning
   }
-  class SlotStore {
-    <<core, pure, PSRAM buffers>>
-    +begin(name, len, type) Slot*?
-    +commit(slot) seq
-    +read(name, have, out) ReadResult
-    +seqs(out) : name -> seq
-    -m_slot[kSlots] : 2 buffers, seq, len, type
-  }
-  class AiRelay {
+  class AiPages {
     <<core, pure>>
     +onHello(fd, client)
     +onClose(fd)
-    +viewers() fds
-    +relay(kind, body, now) Out[]
-    -m_last_ms[fd][kind]
+    +announce(url, proto) Out[] : ai_at to each page
   }
-  class AiRequests {
-    <<core, pure>>
-    +fromPage(fd, id, req, server?, program_running, now) Forward | Refuse
-    +fromEngine(id, ok, msg) Reply?
-    +tick(now) Reply?
-    +onServerClose() Reply?
-    -m_open : page fd, page id, bridge id, deadline
-  }
-  class SkillHub {
-    +learning() bool
-    +onLearning(fd, on)
-  }
-  class WebRoutes {
-    +GET /ai
-    +GET /ai/slot/name
-  }
-  AiInbox --> SlotStore : commit
-  AiInbox --> AiRelay : status / boxes
-  AiInbox ..> SkillHub : server address
-  WebRoutes --> SlotStore : read
-  AiRelay ..> WsClients : viewers are /ws clients
-  AiRequests ..> SkillHub : server fd
-  AiRequests ..> LogoController : program running?
+  class Checker { +Caps.ai_learning -> 7056 }
+  class WebRoutes { +GET /ai }
+  AiPages ..> SkillHub : url on change
+  Checker ..> SkillHub : learning
 ```
-- **`SlotStore`, `AiRelay`, `AiRequests`** are pure C++ with host tests; `AiInbox` and the routes are thin (they parse the request, call the core, answer).
-- **`SlotStore`:** fixed table of `kSlots` names with their type and limit; `begin` returns the spare buffer or null (unknown name, too big); `commit` swaps under a short lock (the same bounded take as the things list, R26: 2 ms) and bumps `seq`; `read` copies out under the lock (≤ 5 KB, so the lock is held only for a memcpy) or reports "unchanged" / "none yet".
-- **`AiRelay`:** which `/ws` clients are viewers (their count goes to the engine as `ai_viewers` when it changes), a per-viewer 100 ms gap per kind (newest wins: a status arriving inside the gap replaces the held one, sent when the gap ends), and the message text (`{"t":"ai_status",` + the body after its `{`). It never parses the body beyond checking it is one JSON object ≤ 360 B.
-  - **Safety replies first:** the out queue (`g_out`, 24 slots) also carries STOP acks, `skill_end` and nacks. The relay enqueues only while **≥ 8 slots are free**; otherwise the message waits (newest wins) for the next tick. A busy `/ai` page can never crowd out a safety reply.
-- **Which task owns what:**
-  - `AiInbox` runs on port 82's task. It puts each status / boxes body into a **one-slot newest-wins mailbox per kind** (≤ 360 B, under a short lock; `LinkCommand::text` is only 200 B, so a body cannot use the existing `linkPost`) and returns 204.
-  - `link_task` owns `AiRelay` and `AiRequests`: hello / close change the viewer list there, `ai_req` / `ai_rep` arrive there, and its tick (2 ms) drains the mailboxes, applies the gap and the headroom rule, and checks the request limits.
-  - `SlotStore` is shared by port 82's task (the writer) and port 80's task (the reader), each under the slot lock; neither holds it longer than a 5 KB memcpy.
-- **`AiRequests`:** at most one open request; forwards with a bridge id; matches the answer; limits; a server close answers the open request `ok:false`.
+- **`SkillHub`** keeps the engine's address and page port from its hello (a port outside 1024-65535 or a missing `page` → no URL, the page shows "AI helper without a page"); `learning` is set only by the server's fd and cleared on its close.
+- **`AiPages`** (pure, host-tested): which `/ws` clients are `/ai` pages, and the `ai_at` text for them, sent on hello and on each change of the URL. It lives in `link_task` with the other `/ws` handling.
 
-### R27.4 Sequences
-**Status in, relayed:**
-```mermaid
-sequenceDiagram
-  participant E as AI engine
-  participant I as AiInbox (:82)
-  participant R as AiRelay
-  participant Q as out queue (:80 httpd)
-  participant P as /ai page
-  E->>I: POST /status {seq 812, state searching, slots{depth 41}}
-  I->>R: relay(status, body, now)
-  R-->>Q: ai_status to each viewer (≤ 10 Hz, newest wins)
-  I-->>E: 204
-  Q->>P: {"t":"ai_status", …}
-  Note over P: depth 41 is new: fetch it
-```
-**A picture in, fetched:**
-```mermaid
-sequenceDiagram
-  participant E as AI engine
-  participant I as AiInbox (:82)
-  participant S as SlotStore
-  participant H as :80 httpd
-  participant P as /ai page
-  E->>I: PUT /slot/depth (4.1 KB jpeg)
-  I->>S: begin(depth, 4100) - the spare buffer
-  I->>I: read the body (1 s timeout, this task only)
-  I->>S: commit - swap, seq 41
-  I-->>E: 204
-  P->>H: GET /ai/slot/depth?have=40
-  H->>S: read(depth, 40)
-  S-->>H: 4.1 KB, seq 41
-  H-->>P: 200 image/jpeg, X-Slot-Seq 41
-```
-**A page request (teach):**
-```mermaid
-sequenceDiagram
-  participant P as /ai page
-  participant B as Bridge (/ws, AiRequests)
-  participant E as AI engine
-  participant L as LogoController
-  P->>B: ai_req id 3 teach "cup" names [mug]
-  B->>L: program running?
-  L-->>B: no
-  B->>E: ai_req id 51 teach "cup"
-  E->>B: skill_learning on
-  Note over B: Caps::ai_learning: AI words -> 7056
-  E->>E: export (~1 min, its own process)
-  E->>B: skill_things (parts) - cup added
-  E->>B: skill_learning off
-  E->>B: ai_rep id 51 ok "I know cup now."
-  B->>P: ai_rep id 3 ok
-```
-
-### R27.5 The page (`web/ai.html`)
+### R27.4 The page (`web/ai.html`)
 - **Look and frame:** the mock-up `docs/design/ai-page-mockup.dc.html` (Phosphor Cockpit tokens, corner-bracket cards, the drive page's STOP top right on every tab, six status chips, a segmented tab bar). Icons from `web/icons.json` (R25).
-- **One page, plain JS modules in one file** (as `logo.html`):
-  - `Link` - the `/ws` with `hello ai-page`, pings, telemetry, `ai_status` / `ai_boxes` / `ai_rep` / `ai_gone`;
-  - `Slots` - fetches a slot when status shows a new number, one fetch at a time, at most 2 a second;
-  - `Run` - `logo_run` of a one-line program, the result and "I ran: …" with a link to `/logo`;
-  - `Camera` [Z2b-1] - **one stream, two views**: one `<img crossOrigin="anonymous">` from `:81/stream` (the stream already sends `Access-Control-Allow-Origin: *`, so the canvases stay untainted and a picture can be saved) drawn into two canvases each frame; **view 1** the picture + the boxes (`ai_boxes`, names and, on Inside, scores); **view 2** the picture under a layer from a picker - **depth** (the `depth` slot, scaled, 60 % over the picture) in Z2b-1, more layers later (each layer a slot). The stream refused → both views draw the `snap` slot instead, with a "camera busy - small picture" note;
-  - `Play` [Z2b-1] - the face (mood from status), Find / Wander / Explore, the thing picker (the `things` slot) and a typing box (known → runs; unknown → "I don't know what a … is" with **teach it** for an adult: word, everyday names, confirm), what I'm thinking (`say`, spoken by `speechSynthesis` when the sentence changes, a mute toggle), Why? (the `why` slot), take a picture (the current frame saved on the phone only);
-  - `Room`, `Inside` [Z2b-2] - spec 8 §4.5.
-- **Drawing a live MJPEG `<img>` into a canvas is not certain on every phone browser** (iOS Safari is the one in doubt). It is **the first stand check of Plan Z2b-1**. The fallback: `fetch()` the stream, split the JPEG parts in JS and draw each with `createImageBitmap` (the CORS header covers it too).
-- **The page's modules:**
+- **Modules, plain JS in one file** (as `logo.html`):
 ```mermaid
 classDiagram
-  class Link {
-    +connect() : hello ai-page, pings
+  class Tank {
+    +connect() : /ws, hello ai-page, pings
+    +stop()
     +send(msg) bool
-    +on(t, fn)
+    +on(t, fn) : telemetry, ai_at, logo results
   }
-  class Slots {
-    +want(name, fn)
-    -onStatus(slots) : fetch what changed, one at a time, ≤ 2 / s
+  class Feed {
+    +open(url) : the engine's /feed, retry every 2 s
+    +on(t, fn) : status, why, things, rep, frames
+    +send(msg) : teach, ...
+    -proto check : "please update" on a mismatch
   }
   class Run {
-    +run(line) : logo_run on Link
+    +run(line) : logo_run on Tank
     +onResult(fn) : done / error words, I ran
   }
   class Camera {
     +views : objects, layer
     +layer(name) : depth, later more
-    -state : streaming | snapshot
+    -state
   }
   class Play {
     +face(mood)
     +find(thing, area) / wander(s) / explore()
-    +teach(word, names) : ai_req
+    +teach(word, names)
     +say(text) : speechSynthesis
     +why()
     +picture() : save the frame on the phone
@@ -3075,29 +2947,31 @@ classDiagram
   class Header { +stop() +chips(telemetry, status) +tabs() }
   Play --> Run
   Play --> Camera
-  Play --> Slots : why, things
-  Camera --> Slots : depth, snap
-  Camera ..> Link : ai_boxes
-  Header --> Link : stop, telemetry, ai_status
-  Run --> Link
+  Play --> Feed : why, things, teach
+  Camera --> Feed : frames
+  Camera ..> Tank : fallback stream
+  Header --> Tank : stop, telemetry
+  Header --> Feed : status
+  Run --> Tank
+  Tank ..> Feed : ai_at gives the url
 ```
+- **`Camera` - one feed, two views [Z2b-1]:** each frame from the engine carries the camera picture, its boxes and its depth together (AI engine LLD §22.2). The page decodes the picture once (`createImageBitmap`) and draws it twice: **view 1** the picture with the boxes and names; **view 2** the same picture under a layer from a picker - **depth** (60 % over the picture) in Z2b-1, more layers later. The two views always show the same moment. The frames are data, not a cross-origin image, so a picture can be saved.
 - **The camera's states:**
 ```mermaid
 stateDiagram-v2
-  [*] --> Connecting
-  Connecting --> Streaming : first frame
-  Connecting --> Snapshot : refused / no frame in 3 s
-  Streaming --> Snapshot : no new frame for 3 s
-  Snapshot --> Connecting : retry every 10 s
+  [*] --> NoAI
+  NoAI --> Engine : ai_at url, feed open
+  Engine --> NoAI : feed closed / ai_at null
+  NoAI --> TankStream : the tank's own :81 stream (view 1 only, no boxes)
+  TankStream --> Engine : feed open
 ```
-  - The 3 s no-frame timer matters: with two viewers already open port 81 does not accept a third socket at all, so the `<img>` may wait a long time before `onerror`.
-  - **The laptop's `/logo` camera pane takes the second viewer too:** with `/logo` open on the laptop, the phone's `/ai` shows the snapshot views.
-- **Socket budget:** the page is one `/ws` client of the four (engine, drive page, `/logo`, `/ai`) and one stream viewer of the two (the engine holds the other). Opening `/ai` on a second phone while one already streams gets the snapshot views.
+  - Without the AI helper the page still loads: STOP, the status strip from telemetry, the tank's own camera (if a viewer slot is free) and "AI helper not running - start `cq-drive serve`".
+- **`Play` [Z2b-1]:** the face (mood from status), Find / Wander / Explore, the thing picker (the things list) and a typing box (known → runs; unknown → "I don't know what a … is" with **teach it** for an adult: word, everyday names, confirm; refused while a program runs on this page), what I'm thinking (`say`, spoken once per new sentence, a mute toggle), Why?, take a picture (saved on the phone only).
+- **`Room`, `Inside` [Z2b-2]:** spec 8 §4.5, on the same feed.
 
-### R27.6 Tests (host, C++)
-- **`test_slot_store`:** an unknown name and a too-big length refused; begin → commit bumps the number; a read during an upload gets the old picture whole; `have` = current → unchanged; none before the first commit; the lock take bounded.
-- **`test_ai_relay`:** nothing is enqueued with fewer than 8 free out-queue slots (held, newest wins, sent later); only `ai-page` clients get it; ≤ 10 Hz per viewer per kind with the newest kept; a closed viewer forgotten; a body that is not one object or over 360 B refused; the message text exact.
-- **`test_ai_requests`:** forwarded with a new id and answered to the right page; refused with no server / a program running / one already open; the 5 s and 240 s limits; a server close answers the open one.
-- **`test_skill_hub`:** `skill_learning` on / off from the server only; cleared on close; `skill_start` while learning answered `learning`.
-- **`test_ws_codec`:** `ai_req`, `ai_rep`, `skill_learning` parse; bad fields refused.
-- **On the stand (Plan Z2b-1):** first, the two camera views live on the owner's phone (else the `fetch` fallback); the engine's port 82 connection cut without a close (laptop WiFi off) and the next connection accepted; free sockets and heap with the engine, the drive page and `/ai` open; STOP from the phone during a 5 KB upload loop (the ack time stays as today, ~20 ms); port 82 refuses another address; a WiFi stall on the laptop (pull its WiFi) never delays a STOP.
+### R27.5 Tests
+- **Host (C++):**
+  - `test_skill_hub`: the hello's `page` kept with the peer address; a bad or missing port → no URL; `skill_learning` only from the server, cleared on close; `skill_start` while learning answered `learning`;
+  - `test_ai_pages`: `ai_at` on an `ai-page` hello and on each change, none to other clients, `null` on the server's close; the text exact;
+  - `test_ws_codec`: `skill_learning`, the hello's `page` parse; bad fields refused.
+- **On the stand (Plan Z2b-1):** the page from the tank on the owner's phone opens the engine's feed (macOS asks once to allow incoming connections); both views move together; STOP from the page while the feed runs (ack as today, ~20 ms); the laptop's WiFi off → the page keeps STOP and telemetry, the feed reconnects after.

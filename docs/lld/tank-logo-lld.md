@@ -1446,7 +1446,7 @@ classDiagram
 - **The generated files are regenerated** (`logogen write`), never edited.
 - **Floor (owner, Plan Z2a):** from `/logo`, `AREA 2  FIND "ball  SOUND FANFARE`, `WANDER 30`, `SETXY 0 0` back to the start, and STOP during each.
 
-### 24.4 Plan Z2b additions (design-notes §198, bridge LLD R27 — draft for review)
+### 24.4 Plan Z2b additions (design-notes §198-§199, bridge LLD R27 — draft for review)
 - **A new error, 7056** (`words.yaml` errors): "I'm learning a new word - try again in a minute."
   - **Checker:** `Caps` gains `ai_learning` (from `SkillHub::learning()`); while it is true, every word with `needs: [ai]` gives 7056 at its call, instead of 7053 / 7020 (`needs` checked first: no skill server is still 7020).
   - **Runner:** a `skill_failed reason:"learning"` (a teach that started between the check and the word) ends the program with 7056, as the other reasons map (§24.2).

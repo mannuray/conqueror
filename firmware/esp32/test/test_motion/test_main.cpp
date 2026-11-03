@@ -1547,7 +1547,7 @@ struct MotorModel {
 // The finding: a tiny-v spin (v 1, 90 deg/s) alternating with a stalled v 40 creep 16 cm from a wall (the spin sees
 // 24 cm). `alt_dir`: every other spin turns the other way. Returns the time it ended blocked, 1 for another end, 0 if
 // it never ended in 15 s.
-uint32_t spinCreepBlockedAt(uint32_t half_ms, float alpha, int delay, bool alt_dir = false) {
+uint32_t spinCreepBlockedAt(uint32_t spin_ms, uint32_t creep_ms, float alpha, int delay, bool alt_dir) {
   MotionService svc;
   svc.startSkill(3, 7, 0);
   MotorModel mm;
@@ -1555,14 +1555,18 @@ uint32_t spinCreepBlockedAt(uint32_t half_ms, float alpha, int delay, bool alt_d
   mm.delay = delay;
   mm.wall = true;
   for (uint32_t t = 20; t <= 15000; t += 20) {
-    const bool creep = (t / half_ms) % 2 == 0;
-    const float spin = alt_dir && (t / half_ms / 2) % 2 != 0 ? -90.0f : 90.0f;
+    const uint32_t cycle = spin_ms + creep_ms;
+    const bool creep = (t % cycle) < creep_ms;
+    const float spin = alt_dir && (t / cycle) % 2 != 0 ? -90.0f : 90.0f;
     svc.skillDrive(creep ? 40 : 1, creep ? 0.0f : spin, t);
     const MotionOut o = svc.onTelemetry(mm.telem(creep ? 160 : 240), t);
     if (o.ended) return o.end.reason == EndReason::kBlocked ? t : 1;
     mm.sent(o);
   }
   return 0;
+}
+uint32_t spinCreepBlockedAt(uint32_t half_ms, float alpha, int delay, bool alt_dir = false) {
+  return spinCreepBlockedAt(half_ms, half_ms, alpha, delay, alt_dir);
 }
 
 // A real creep 16 cm from a wall, pulsed on / off; true if not ended in 10 s.
@@ -1621,6 +1625,27 @@ void test_skill_causal_pure_spin_near_a_wall_is_not_blocked() {
     TEST_ASSERT_FALSE(o.ended);
     mm.sent(o);
   }
+}
+
+// Review round 5: unequal halves - a short spin (60 / 100 ms) and a longer stalled creep (140-380 ms), with a slow
+// motor (alpha 0.2 / 0.3) and one or two extra frames of delay: the spin's reversed motion outlasts a 100 ms coast
+// mask (kCoastMs is 200). Every case ends blocked in the first 1.5 s pushing window. Alpha < 0.2 is outside what this
+// pins.
+void test_skill_causal_short_spin_long_stalled_creep_is_blocked() {
+  const uint32_t spins[] = {60, 100}, creeps[] = {140, 260, 380};
+  struct Motor {
+    float alpha;
+    int delay;
+  };
+  const Motor motors[] = {{0.2f, 1}, {0.2f, 2}, {0.3f, 2}};
+  for (uint32_t sp : spins)
+    for (uint32_t cr : creeps)
+      for (const Motor& m : motors)
+        for (int alt = 0; alt < 2; ++alt) {
+          const uint32_t at = spinCreepBlockedAt(sp, cr, m.alpha, m.delay, alt != 0);
+          TEST_ASSERT_GREATER_THAN_UINT32(1, at);  // ended blocked (0: never, 1: another end)
+          TEST_ASSERT_LESS_OR_EQUAL_UINT32(1560, at);
+        }
 }
 
 // Minor b: the 25 cm gate is the nearest the sonar saw over the pushing window, not the one frame it ended on.
@@ -1881,6 +1906,7 @@ int main() {
   RUN_TEST(test_skill_tiny_v_spin_alternating_with_a_stuck_creep_is_blocked);
   RUN_TEST(test_skill_a_pulsed_real_creep_is_not_blocked);
   RUN_TEST(test_skill_causal_tiny_v_spin_and_stalled_creep_is_blocked_in_the_first_window);
+  RUN_TEST(test_skill_causal_short_spin_long_stalled_creep_is_blocked);
   RUN_TEST(test_skill_causal_pulsed_real_creep_is_not_blocked);
   RUN_TEST(test_skill_causal_pure_spin_near_a_wall_is_not_blocked);
   RUN_TEST(test_skill_spin_frames_seeing_further_do_not_hide_the_wall);

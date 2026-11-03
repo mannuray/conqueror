@@ -6,7 +6,7 @@ namespace cq {
 namespace core {
 namespace {
 constexpr int32_t kProgressCounts = motion::kCpmDefault / 100;  // 1 cm (as the GO's, R20)
-constexpr uint32_t kCoastMs = 100;  // a track's counts are not used this long after its direction flips
+constexpr uint32_t kCoastMs = 200;  // a track's counts are not used this long after its direction flips (round 5)
 }  // namespace
 
 void SkillPushWatch::reset() {

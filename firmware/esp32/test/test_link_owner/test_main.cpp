@@ -81,6 +81,39 @@ void test_other_phone_gets_not_owner() {
   TEST_ASSERT_EQUAL(D(Decision::kSend), D(o.onCamera(kA)));
 }
 
+// Plan Z2a Task 5 (bridge LLD R26.1): the skill server may move the camera only while it holds the lease
+void test_lease_holder_cam_set_only_during_lease() {
+  drivingA();
+  o.onWsOpen(kB);  // the skill server's socket
+  TEST_ASSERT_EQUAL(D(Decision::kNackNotOwner), D(o.onCamera(kB)));  // no lease: like any other client
+  o.setLeaseHolder(kB);
+  TEST_ASSERT_EQUAL(D(Decision::kSend), D(o.onCamera(kB)));
+  TEST_ASSERT_EQUAL(D(Decision::kSend), D(o.onCamera(kA)));  // the driver still may
+  Actions a;
+  TEST_ASSERT_EQUAL(D(Decision::kNackNotOwner), D(o.onDrive(kB, 120, a)));  // the camera only - never the tracks
+  TEST_ASSERT_EQUAL(kA, o.driverFd());
+  o.clearLeaseHolder();
+  TEST_ASSERT_EQUAL(D(Decision::kNackNotOwner), D(o.onCamera(kB)));
+}
+
+void test_lease_holder_closing_loses_the_camera_and_a_third_phone_never_gets_it() {
+  drivingA();
+  o.onWsOpen(kB);
+  o.setLeaseHolder(kB);
+  o.onWsOpen(13);
+  TEST_ASSERT_EQUAL(D(Decision::kNackNotOwner), D(o.onCamera(13)));
+  o.onWsClose(kB);
+  o.onWsOpen(kB);  // the socket number is reused by another client
+  TEST_ASSERT_EQUAL(D(Decision::kNackNotOwner), D(o.onCamera(kB)));
+}
+
+void test_lease_holder_camera_still_needs_a_body() {
+  o.begin();  // handshake: the Uno is not there
+  o.onWsOpen(kB);
+  o.setLeaseHolder(kB);
+  TEST_ASSERT_EQUAL(D(Decision::kNackBodyOffline), D(o.onCamera(kB)));
+}
+
 void test_handback_after_5s_without_drive() {
   drivingA(100);
   TEST_ASSERT_EQUAL(0, o.tick(5099).bits);
@@ -215,6 +248,9 @@ int main() {
   RUN_TEST(test_drive_before_sync_is_body_offline);
   RUN_TEST(test_first_drive_takes_ownership);
   RUN_TEST(test_other_phone_gets_not_owner);
+  RUN_TEST(test_lease_holder_cam_set_only_during_lease);
+  RUN_TEST(test_lease_holder_closing_loses_the_camera_and_a_third_phone_never_gets_it);
+  RUN_TEST(test_lease_holder_camera_still_needs_a_body);
   RUN_TEST(test_handback_after_5s_without_drive);
   RUN_TEST(test_release_control);
   RUN_TEST(test_keep_driving_never_takes_ownership);

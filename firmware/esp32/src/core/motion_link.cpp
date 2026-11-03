@@ -42,6 +42,11 @@ LinkOut MotionLink::tick(uint32_t now_ms) {
 }
 
 namespace {
+// A primitive the Uno's stall / encoder events end (the others have their own checks): move, arc, GO, skill.
+bool countedPrimitive(PrimKind k) {
+  return k == PrimKind::kMove || k == PrimKind::kArc || k == PrimKind::kGo || k == PrimKind::kSkill;
+}
+
 EndReason reasonOf(MotionEvent e) {
   if (e == MotionEvent::kStop) return EndReason::kStop;
   return e == MotionEvent::kBodyOffline ? EndReason::kLink : EndReason::kCancelled;
@@ -53,13 +58,19 @@ LinkOut MotionLink::onEvent(MotionEvent e, uint32_t now_ms) {
   const int fd = m_svc.ownerFd();
   if (e == MotionEvent::kBodyStall || e == MotionEvent::kBodyEncoderFault) {
     const PrimKind k = m_svc.kind();
-    if (k != PrimKind::kMove && k != PrimKind::kArc && k != PrimKind::kGo) return LinkOut{};  // spin / pivot / rate: own checks
+    if (!countedPrimitive(k)) return LinkOut{};  // spin / pivot / rate: own checks
     const EndReason r = e == MotionEvent::kBodyStall ? EndReason::kStalled : EndReason::kEncoderFault;
     return finished(m_svc.cancel(r), fd, now_ms);  // the Uno already stopped both tracks; STOP while owner
   }
   if (e == MotionEvent::kCancel) return finished(m_svc.cancel(reasonOf(e)), fd, now_ms);
   if (e == MotionEvent::kTxFull) return finished(m_svc.cancel(EndReason::kLink), fd, now_ms);  // review minor 12
   return eventOnly(m_svc.cancel(reasonOf(e)));  // the STOP is already on its way, or the owner's own frames follow
+}
+
+LinkOut MotionLink::endSkill(EndReason why, uint32_t now_ms) {
+  if (m_svc.kind() != PrimKind::kSkill) return LinkOut{};
+  const int fd = m_svc.ownerFd();
+  return finished(m_svc.endSkill(why), fd, now_ms);  // STOP while its program's phone still owns the body
 }
 
 LinkOut MotionLink::hold(uint32_t now_ms) {

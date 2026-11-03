@@ -20,6 +20,7 @@ size_t fmt(char* out, size_t cap, const char* f, ...) {
 
 const char* primName(PrimKind k) {
   if (k == PrimKind::kGo) return "go";  // R20
+  if (k == PrimKind::kSkill) return "skill";  // R26.1
   return k == PrimKind::kRate ? "rate" : k == PrimKind::kMove ? "move" : "turn";
 }
 

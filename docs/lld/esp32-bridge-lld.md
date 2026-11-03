@@ -2822,6 +2822,10 @@ classDiagram
 - **`SkillHub` (pure, host-tested):** the registration, the things list, the one lease and its deadman.
 - **`ThingNames`:** fixed arrays (no heap after start), lower-cased; `resolve` maps a word or any of its names to the word.
 - **`PrimKind::kSkill` in `MotionService`:** like `kGo`, but with a turn rate. Same ending rules (brake → blocked, stall, link, deadman 300 ms); `w` is held by the bridge's gyro loop, as in `drive_rate` (R4.4).
+  - **As built (Plan Z2a Task 5):** `startSkill(fd, id, now, cpm)` takes the Logo program's phone as `fd` (it holds the body; `MotionLink::keepDriving` checks it) and the lease `id` (the end carries it); `skillDrive(v, yaw_rate_dps, now)` does nothing while no skill runs (a late frame never starts one); `endSkill(why)` ends a running skill only. The spin below 65 °/s is clamped as in `drive_rate`. The Uno's stall / encoder-fault events end it as they end a `GO` (`MotionLink::onEvent`).
+  - The GO's progress rule (no progress with an obstacle within 25 cm) and the slip watch (R21) count only while `v != 0`: a spin in place makes none by design, and standing or spinning resets them so the wait never carries into the next drive. The Uno's brake flag ends it at once whatever `v` is (the first frame's flag is ignored, as a GO).
+  - `MotionController::onSkillDrive(fd, id, v, rate_ddps, now)` needs `Hooks::lease_ok` (`SkillHub::leaseOk`) **and** a running skill with that id, else `nack NOT_OWNER` once per stream. `startSkill` is refused like a counted Logo motion (OTA busy, body offline, no encoders / encoder fault: UNAVAILABLE). A skill's end reaches the program through `logo_end` (kind `kSkill`, `id` = the lease); `primitive_done` names it `"prim":"skill"`. The owner's stick (`drive_rate` on the program's fd) ends it as `kOwnerCommand`, which `logo_event` turns into 7045.
+  - `LinkOwner::setLeaseHolder(fd)` / `clearLeaseHolder()`: `onCamera` lets the holder move the camera; it never lets it drive, and its close clears it.
 
 ### R26.4 One skill run
 ```mermaid

@@ -31,6 +31,7 @@ Actions LinkOwner::onWsOpen(int /*fd*/) {  // R14: phones are clients of the bri
 
 Actions LinkOwner::onWsClose(int fd) {
   if (m_ws > 0) --m_ws;
+  if (fd == m_lease_holder) m_lease_holder = kNoFd;
   if (fd == m_driver) return dropDriver(true);  // explicit STOP, belt and braces; the master stays (R14)
   return Actions();
 }
@@ -66,7 +67,8 @@ Decision LinkOwner::onCamera(int fd) const {
   if (m_state == LinkState::kIdle || m_state == LinkState::kWebHandshake) {
     return Decision::kNackBodyOffline;
   }
-  if (m_state == LinkState::kWebDriving && fd != m_driver) return Decision::kNackNotOwner;
+  const bool holder = m_lease_holder != kNoFd && fd == m_lease_holder;
+  if (m_state == LinkState::kWebDriving && fd != m_driver && !holder) return Decision::kNackNotOwner;
   return Decision::kSend;
 }
 

@@ -15,7 +15,7 @@
 namespace cq {
 namespace core {
 
-enum class PrimKind : uint8_t { kNone, kTurn, kRate, kMove, kArc, kPivot, kGo };  // kGo: bridge LLD R20
+enum class PrimKind : uint8_t { kNone, kTurn, kRate, kMove, kArc, kPivot, kGo, kSkill };  // kGo: bridge LLD R20; kSkill: R26.1
 enum class EndReason : uint8_t {
   kDone,
   kCancelled,
@@ -61,6 +61,15 @@ class MotionService {
   void keepGo(uint32_t now_ms) {
     if (m_kind == PrimKind::kGo) m_go_update_ms = now_ms;
   }
+  // R26.1: the skill server drives under the lease (its owner_fd is the Logo program's phone, which holds the body).
+  // Like a GO - brake / Uno stall / slip / link end it as blocked, stalled, link - but with a turn rate held by the
+  // gyro loop (as drive_rate, R4.4). The server's skill_drive (skillDrive) refreshes it at least every
+  // kRateDeadmanMs, else it ends kDeadman. `id` is the lease's id (the end carries it). skillDrive does nothing while
+  // no skill runs: a late frame never starts one. endSkill ends a running skill only (never another primitive).
+  void startSkill(int fd, int32_t id, uint32_t now_ms, uint16_t cpm = motion::kCpmDefault);
+  void skillDrive(int8_t v_pct, float yaw_rate_dps, uint32_t now_ms);
+  MotionOut endSkill(EndReason why);
+  int32_t skillId() const { return m_kind == PrimKind::kSkill ? m_id : -1; }
   MotionOut hold();  // ends a GO as done (v = 0); nothing going: nothing
   void startMove(int fd, const MotionTelem& t, int16_t dist_cm, uint8_t speed_pct, uint16_t cpm, int32_t id,
                  uint32_t now_ms, uint16_t roll_mm = 0);
@@ -88,6 +97,9 @@ class MotionService {
   MotionOut stepTurn(uint16_t yaw_cdeg, int16_t rate_ddps, uint32_t now_ms);
   MotionOut stepGo(const MotionTelem& t, uint32_t now_ms);
   MotionOut stepRate(int16_t rate_ddps, uint32_t now_ms);
+  MotionOut stepSkill(const MotionTelem& t, uint32_t now_ms);
+  bool skillBlocked(const MotionTelem& t, uint32_t now_ms);
+  void setRateTarget(int8_t v, int16_t rate_ddps, uint32_t now_ms);
   bool rateDiverged(bool saturated, int16_t rate_ddps, uint32_t now_ms);
   bool rateStalled(bool saturated, int16_t rate_ddps, uint32_t now_ms);
   MotionOut stepMove(const MotionTelem& t, uint32_t now_ms);
@@ -120,6 +132,7 @@ class MotionService {
   uint32_t m_wrong_since = 0;  // ... since
   bool m_rate_stalling = false;  // final review I1: saturated while the tank does not turn ...
   uint32_t m_rate_stall_since = 0;  // ... since
+  bool m_skill_first = false;  // R26.1: no frame since startSkill yet (its brake flag may be the last primitive's)
   uint32_t m_last_telem_ms = 0;
 };
 

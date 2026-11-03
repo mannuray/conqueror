@@ -50,6 +50,7 @@ class MotionLink {
   }
   LinkOut tick(uint32_t now_ms);
   LinkOut onEvent(MotionEvent e, uint32_t now_ms);
+  LinkOut endSkill(EndReason why, uint32_t now_ms);  // R26.1: the server's skill_done / skill_failed: end it, STOP while owner
   LinkOut hold(uint32_t now_ms);  // R20: a GO ends as done, STOP while its client still owns the body
 
  private:

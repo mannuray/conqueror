@@ -1275,6 +1275,253 @@ void test_a_turn_never_uses_the_slip_watch() {
   TEST_ASSERT_TRUE(!o.ended || o.end.reason != EndReason::kBlocked);
 }
 
+// ---------- Plan Z2a Task 5 (bridge LLD R26.1): PrimKind::kSkill - the skill server drives under the lease ----------
+// Like a GO (the same ends: brake, stall, slip, link, 300 ms deadman, STOP) with a turn rate held by the gyro loop.
+namespace {
+MotionOut skillFor(MotionService& svc, uint32_t from, uint32_t to, int8_t v, float dps, int32_t counts_per_step,
+                   uint16_t dist_mm) {
+  MotionOut o;
+  int32_t c = 0;
+  for (uint32_t t = from; t <= to && !o.ended; t += 20) {
+    svc.skillDrive(v, dps, t);
+    o = svc.onTelemetry(goAt(c, dist_mm), t);
+    c += counts_per_step;
+  }
+  return o;
+}
+}  // namespace
+
+void test_skill_sends_v_and_w() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kSkill), static_cast<int>(svc.kind()));
+  TEST_ASSERT_TRUE(svc.active());
+  svc.skillDrive(40, 0.0f, 10);
+  MotionOut o = svc.onTelemetry(encAt(0), 20);
+  TEST_ASSERT_TRUE(o.send);
+  TEST_ASSERT_FALSE(o.ended);
+  TEST_ASSERT_EQUAL_INT8(40, o.v);
+  TEST_ASSERT_EQUAL_INT8(0, o.w);
+  svc.skillDrive(30, 40.0f, 30);  // turn left at 40 deg/s while the gyro reads 0: w > 0
+  o = svc.onTelemetry(encAt(5), 40);
+  TEST_ASSERT_EQUAL_INT8(30, o.v);
+  TEST_ASSERT_GREATER_THAN_INT8(0, o.w);
+  svc.skillDrive(-25, -40.0f, 50);  // reverse, turn right: w < 0
+  o = svc.onTelemetry(encAt(10), 60);
+  TEST_ASSERT_EQUAL_INT8(-25, o.v);
+  TEST_ASSERT_LESS_THAN_INT8(0, o.w);
+  TEST_ASSERT_EQUAL(7, svc.skillId());
+}
+
+void test_skill_spin_below_the_slowest_smooth_spin_is_clamped() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  svc.skillDrive(0, 20.0f, 10);  // as drive_rate: a spin slower than 65 deg/s cannot run smoothly
+  svc.onTelemetry(encAt(0), 20);
+  TEST_ASSERT_EQUAL(motion::kSpinMinDdps, svc.rateTargetDdps());
+}
+
+void test_skill_brake_is_blocked() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  svc.skillDrive(40, 0.0f, 0);
+  svc.onTelemetry(encAt(0), 20);
+  svc.skillDrive(40, 0.0f, 30);
+  const MotionOut o = svc.onTelemetry(blockedAt(10), 40);  // the Uno's obstacle brake: at once, no 2 s wait
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_TRUE(o.send);
+  TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kSkill), static_cast<int>(o.end.kind));
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+  TEST_ASSERT_EQUAL(7, o.end.id);  // the lease's id
+  TEST_ASSERT_EQUAL_INT8(0, o.v);
+  TEST_ASSERT_EQUAL_INT8(0, o.w);
+  TEST_ASSERT_FALSE(svc.active());
+}
+
+// The first frame may still carry the last primitive's brake flag: ignored once, a real block ends it a frame later.
+void test_skill_first_frame_brake_flag_is_ignored_but_not_the_next() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  svc.skillDrive(40, 0.0f, 0);
+  TEST_ASSERT_FALSE(svc.onTelemetry(blockedAt(0), 20).ended);
+  svc.skillDrive(40, 0.0f, 30);
+  TEST_ASSERT_TRUE(svc.onTelemetry(blockedAt(0), 40).ended);
+}
+
+void test_skill_deadman_300ms() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  svc.skillDrive(40, 0.0f, 100);
+  TEST_ASSERT_FALSE(svc.onTelemetry(encAt(0), 380).ended);  // 280 ms since the last skill_drive
+  TEST_ASSERT_FALSE(svc.tick(400).ended);                    // 300 ms: still on
+  const MotionOut o = svc.tick(401);                         // no skill_drive for 301 ms: the engine is gone
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_TRUE(o.send);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDeadman), static_cast<int>(o.end.reason));
+  TEST_ASSERT_EQUAL_INT8(0, o.v);
+  TEST_ASSERT_EQUAL_INT8(0, o.w);
+  TEST_ASSERT_FALSE(svc.active());
+  // the telemetry path ends it too, and an unstarted stream (no skillDrive at all) ends after 300 ms from the start
+  MotionService s2;
+  s2.startSkill(3, 8, 1000);
+  TEST_ASSERT_FALSE(s2.onTelemetry(encAt(0), 1300).ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDeadman), static_cast<int>(s2.onTelemetry(encAt(0), 1301).end.reason));
+}
+
+void test_skill_frames_keep_it_alive() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  TEST_ASSERT_FALSE(skillFor(svc, 20, 3000, 30, 0.0f, 10, 800).ended);  // refreshed every 20 ms
+}
+
+void test_skill_drive_without_a_skill_does_not_start_one() {
+  MotionService svc;
+  svc.skillDrive(40, 0.0f, 0);
+  TEST_ASSERT_FALSE(svc.active());
+  svc.startGo(3, 40, 7, 0);
+  svc.skillDrive(10, 0.0f, 10);  // a GO is not a skill
+  TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kGo), static_cast<int>(svc.kind()));
+  TEST_ASSERT_EQUAL_INT8(40, svc.onTelemetry(encAt(0), 20).v);
+}
+
+void test_end_skill_ends_it_with_the_reason() {
+  MotionService svc;
+  svc.endSkill(EndReason::kCancelled);  // nothing going: nothing
+  svc.startSkill(3, 7, 0);
+  const MotionOut o = svc.endSkill(EndReason::kDone);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_TRUE(o.end.ok);
+  TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kSkill), static_cast<int>(o.end.kind));
+  TEST_ASSERT_FALSE(svc.active());
+  svc.startGo(3, 40, 7, 0);
+  TEST_ASSERT_FALSE(svc.endSkill(EndReason::kDone).ended);  // never ends another primitive
+  TEST_ASSERT_TRUE(svc.active());
+}
+
+void test_skill_stuck_near_an_obstacle_is_blocked_like_a_go() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  MotionOut o = skillFor(svc, 20, 1500, 40, 0.0f, 0, 160);  // pushing, 16 cm from a wall, no flag: not yet
+  TEST_ASSERT_FALSE(o.ended);
+  o = skillFor(svc, 1520, 1700, 40, 0.0f, 0, 160);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+}
+
+// A spin in place close to a wall makes no progress by design: only a drive (v != 0) can be "stuck".
+void test_skill_spinning_in_place_near_a_wall_is_not_blocked_and_the_wait_does_not_carry_over() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  MotionOut o;
+  for (uint32_t t = 20; t <= 4000; t += 20) {  // the gyro sees the spin
+    svc.skillDrive(0, 90.0f, t);
+    MotionTelem m = goAt(0, 160);
+    m.rate_ddps = 900;
+    o = svc.onTelemetry(m, t);
+    TEST_ASSERT_FALSE(o.ended);
+  }
+  // then drives on from rest: the 4 s of spinning does not count as "no progress"
+  TEST_ASSERT_FALSE(skillFor(svc, 4020, 4200, 40, 0.0f, 0, 160).ended);
+}
+
+void test_skill_with_a_slipping_track_is_blocked() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  MotionOut o;
+  int32_t l = 0, r = 0;
+  for (uint32_t t = 20; t <= 3000 && !o.ended; t += 20) {  // left 1750 counts/s, right 330, the gyro 0 (design-notes §119)
+    svc.skillDrive(40, 0.0f, t);
+    o = svc.onTelemetry(slipAt(l += 35, r += 7), t);
+  }
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+}
+
+void test_skill_ends_without_telemetry_as_link() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  svc.skillDrive(40, 0.0f, 0);
+  svc.onTelemetry(encAt(0), 20);
+  svc.skillDrive(40, 0.0f, 150);
+  const MotionOut o = svc.tick(221);  // no TELEM_FAST for > 200 ms
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kLink), static_cast<int>(o.end.reason));
+}
+
+namespace {
+struct SkillRig {
+  LinkOwner owner;
+  MotionLink ml{owner};
+  SkillRig() {
+    owner.begin();
+    owner.onWsOpen(kFd);
+    owner.onSynced(true);
+    Actions a;
+    owner.onDrive(kFd, 0, a);  // the program's phone drives (owns the body)
+    ml.service().startSkill(kFd, 5, 0);
+    ml.service().skillDrive(40, 0.0f, 0);
+    ml.onTelemetry(encAt(0), 20);
+  }
+};
+}  // namespace
+
+void test_stop_ends_skill() {
+  SkillRig r;
+  const LinkOut o = r.ml.onEvent(MotionEvent::kStop, 30);  // the STOP fast path already sent STOP
+  TEST_ASSERT_TRUE(o.event);
+  TEST_ASSERT_FALSE(o.stop);
+  TEST_ASSERT_FALSE(o.drive);
+  TEST_ASSERT_EQUAL(static_cast<int>(PrimKind::kSkill), static_cast<int>(o.end.kind));
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kStop), static_cast<int>(o.end.reason));
+  TEST_ASSERT_FALSE(r.ml.service().active());
+  r.ml.service().skillDrive(40, 0.0f, 40);  // a late frame from the engine moves nothing
+  TEST_ASSERT_FALSE(r.ml.onTelemetry(encAt(1), 60).drive);
+}
+
+void test_link_skill_drive_goes_out_as_a_drive_and_the_deadman_stops_with_a_stop() {
+  SkillRig r;
+  r.ml.service().skillDrive(40, 0.0f, 30);
+  const LinkOut d = r.ml.onTelemetry(encAt(3), 40);
+  TEST_ASSERT_TRUE(d.drive);
+  TEST_ASSERT_EQUAL_INT8(40, d.v);
+  r.ml.onTelemetry(encAt(4), 320);  // still 290 ms since the last skill_drive
+  const LinkOut o = r.ml.tick(331);  // 301 ms since the last skill_drive
+  TEST_ASSERT_TRUE(o.event);
+  TEST_ASSERT_TRUE(o.stop);  // the owner still holds the body: STOP
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kDeadman), static_cast<int>(o.end.reason));
+}
+
+void test_link_the_unos_stall_ends_a_skill() {
+  SkillRig r;
+  const LinkOut o = r.ml.onEvent(MotionEvent::kBodyStall, 30);
+  TEST_ASSERT_TRUE(o.event);
+  TEST_ASSERT_TRUE(o.stop);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kStalled), static_cast<int>(o.end.reason));
+}
+
+void test_link_another_driver_taking_over_ends_a_skill() {
+  SkillRig r;
+  r.owner.onWsOpen(kFd + 1);
+  r.owner.onWsClose(kFd);  // the program's phone is gone: no frames for a skill nobody owns
+  r.ml.service().skillDrive(40, 0.0f, 30);
+  const LinkOut o = r.ml.onTelemetry(encAt(3), 40);
+  TEST_ASSERT_FALSE(o.drive);
+  TEST_ASSERT_TRUE(o.event);
+  TEST_ASSERT_FALSE(r.ml.service().active());
+}
+
+void test_link_the_unos_encoder_fault_and_a_dropped_frame_end_a_skill() {
+  SkillRig r;
+  const LinkOut o = r.ml.onEvent(MotionEvent::kBodyEncoderFault, 30);
+  TEST_ASSERT_TRUE(o.event);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kEncoderFault), static_cast<int>(o.end.reason));
+  SkillRig r2;
+  const LinkOut t = r2.ml.onEvent(MotionEvent::kTxFull, 30);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kLink), static_cast<int>(t.end.reason));
+  TEST_ASSERT_TRUE(t.stop);
+}
+
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_router_lite_runs_turn_and_rate_locally);
@@ -1350,6 +1597,23 @@ int main() {
   RUN_TEST(test_go_ends_blocked_when_the_slow_down_stops_it_near_an_obstacle);
   RUN_TEST(test_go_creeping_or_far_away_is_not_blocked);
   RUN_TEST(test_go_again_changes_the_speed_at_once);
+  RUN_TEST(test_skill_sends_v_and_w);
+  RUN_TEST(test_skill_spin_below_the_slowest_smooth_spin_is_clamped);
+  RUN_TEST(test_skill_brake_is_blocked);
+  RUN_TEST(test_skill_first_frame_brake_flag_is_ignored_but_not_the_next);
+  RUN_TEST(test_skill_deadman_300ms);
+  RUN_TEST(test_skill_frames_keep_it_alive);
+  RUN_TEST(test_skill_drive_without_a_skill_does_not_start_one);
+  RUN_TEST(test_end_skill_ends_it_with_the_reason);
+  RUN_TEST(test_skill_stuck_near_an_obstacle_is_blocked_like_a_go);
+  RUN_TEST(test_skill_spinning_in_place_near_a_wall_is_not_blocked_and_the_wait_does_not_carry_over);
+  RUN_TEST(test_skill_with_a_slipping_track_is_blocked);
+  RUN_TEST(test_skill_ends_without_telemetry_as_link);
+  RUN_TEST(test_stop_ends_skill);
+  RUN_TEST(test_link_skill_drive_goes_out_as_a_drive_and_the_deadman_stops_with_a_stop);
+  RUN_TEST(test_link_the_unos_stall_ends_a_skill);
+  RUN_TEST(test_link_another_driver_taking_over_ends_a_skill);
+  RUN_TEST(test_link_the_unos_encoder_fault_and_a_dropped_frame_end_a_skill);
   RUN_TEST(test_a_move_takes_over_from_go_without_an_end);
   RUN_TEST(test_link_hold_sends_stop_and_ends_done);
   RUN_TEST(test_link_uno_stall_ends_a_go);

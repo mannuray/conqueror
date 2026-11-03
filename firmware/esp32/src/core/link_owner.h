@@ -40,7 +40,11 @@ class LinkOwner {
   // moving: a drive frame with v or w != 0. After a STOP from another device the driver's moving frames are refused
   // (kNackStopped) until it releases its stick (a 0/0 frame), its own STOP, or a new primitive (moving = false).
   Decision onDrive(int fd, uint32_t now_ms, Actions& out, bool moving = false);
-  Decision onCamera(int fd) const;  // cam_joy / cam_home: no ownership taken
+  Decision onCamera(int fd) const;  // cam_joy / cam_home: no ownership taken; the skill lease's holder may too (R26.1)
+  // R26.1: the skill server holding the drive lease may move the camera (not drive). The caller sets it with the lease
+  // and clears it when the lease ends; the holder's close clears it too.
+  void setLeaseHolder(int fd) { m_lease_holder = fd; }
+  void clearLeaseHolder() { m_lease_holder = kNoFd; }
   // Plan H review I1: a running primitive keeps its owner alive (handback timer) but never takes ownership -
   // Send only while `fd` is the web driver; otherwise the primitive ends.
   Decision keepDriving(int fd, uint32_t now_ms);
@@ -68,6 +72,7 @@ class LinkOwner {
 
   LinkState m_state = LinkState::kIdle;
   int m_driver = kNoFd;
+  int m_lease_holder = kNoFd;  // R26.1
   bool m_stop_hold = false;  // design-notes §72: a STOP from another device holds until the stick is released
   uint8_t m_ws = 0;
   bool m_synced = false;

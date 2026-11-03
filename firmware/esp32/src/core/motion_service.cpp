@@ -30,7 +30,11 @@ void MotionService::driveRate(int fd, int8_t v, int16_t rate_ddps, uint32_t now_
     m_rate_stalling = false;
     m_last_telem_ms = now_ms;
   }
-  // Plan L (spec 02 §H6): a spin slower than 65 °/s cannot run smoothly - clamp it and say so.
+  setRateTarget(v, rate_ddps, now_ms);
+}
+
+// Plan L (spec 02 §H6): a spin slower than 65 °/s cannot run smoothly - clamp it and say so (drive_rate and skills).
+void MotionService::setRateTarget(int8_t v, int16_t rate_ddps, uint32_t now_ms) {
   const int16_t mag = rate_ddps < 0 ? static_cast<int16_t>(-rate_ddps) : rate_ddps;
   m_rate_limited = v == 0 && mag > 0 && mag < motion::kSpinMinDdps;
   if (m_rate_limited) rate_ddps = rate_ddps < 0 ? static_cast<int16_t>(-motion::kSpinMinDdps) : motion::kSpinMinDdps;
@@ -135,6 +139,34 @@ void MotionService::startGo(int fd, uint8_t speed_pct, int32_t id, uint32_t now_
   m_go_update_ms = now_ms;
 }
 
+void MotionService::startSkill(int fd, int32_t id, uint32_t now_ms, uint16_t cpm) {
+  m_kind = PrimKind::kSkill;
+  m_fd = fd;
+  m_id = id;
+  m_rate.reset();
+  m_wrong_way = false;
+  m_rate_stalling = false;
+  m_skill_first = true;
+  m_go_ref_set = false;
+  m_go_slip.reset();
+  m_go_cpm = cpm;
+  m_rate_v = 0;
+  m_rate_target = 0;
+  m_rate_limited = false;
+  m_rate_update_ms = now_ms;  // the lease's first skill_drive is due within kRateDeadmanMs of the start
+  m_last_telem_ms = now_ms;
+}
+
+void MotionService::skillDrive(int8_t v_pct, float yaw_rate_dps, uint32_t now_ms) {
+  if (m_kind != PrimKind::kSkill) return;
+  const int8_t v = v_pct > 100 ? 100 : (v_pct < -100 ? -100 : v_pct);
+  const float ddps = yaw_rate_dps * 10.0f;
+  const int16_t r = ddps > 1800.0f ? 1800 : (ddps < -1800.0f ? -1800 : static_cast<int16_t>(ddps));
+  setRateTarget(v, r, now_ms);
+}
+
+MotionOut MotionService::endSkill(EndReason why) { return m_kind == PrimKind::kSkill ? finish(why) : MotionOut{}; }
+
 MotionOut MotionService::hold() { return m_kind == PrimKind::kGo ? finish(EndReason::kDone) : MotionOut{}; }
 
 // R20: no progress - neither the counts (1 cm) nor the distance ahead (1 cm) - for kMoveStallMs.
@@ -168,6 +200,38 @@ MotionOut MotionService::stepGo(const MotionTelem& t, uint32_t now_ms) {
   MotionOut o;
   o.send = true;
   o.v = m_go_v;  // w = 0: the Uno's heading hold keeps it straight
+  return o;
+}
+
+// R26.1: the GO's second and third rules (no progress near an obstacle; a slipping track). They count only while the
+// skill drives (v != 0): a spin in place makes no progress by design; standing or spinning resets their reference so
+// the wait does not carry over into the next drive.
+bool MotionService::skillBlocked(const MotionTelem& t, uint32_t now_ms) {
+  if (m_rate_v == 0) {
+    m_go_ref_set = false;
+    m_go_slip.reset();
+    return false;
+  }
+  if (goStopped(t, now_ms) && t.dist_mm < motion::kMoveObstacleMm) return true;
+  return m_go_slip.step(t.enc_l, t.enc_r, t.rate_ddps, m_go_cpm, now_ms);  // R21
+}
+
+// R26.1: a GO's ends (lease deadman, the Uno's brake flag, blocked, slip) with the drive_rate loop's (diverged, stalled).
+MotionOut MotionService::stepSkill(const MotionTelem& t, uint32_t now_ms) {
+  if (now_ms - m_rate_update_ms > motion::kRateDeadmanMs) return finish(EndReason::kDeadman);
+  const bool first = m_skill_first;  // the first frame's flag may be the last primitive's (as a GO)
+  m_skill_first = false;
+  const bool brake = ((t.flags >> static_cast<unsigned>(proto::FastFlagBit::kBlocked)) & 1u) != 0;
+  if ((!first && brake) || skillBlocked(t, now_ms)) return finish(EndReason::kBlocked);
+  uint32_t dt = now_ms - m_last_telem_ms;
+  if (dt == 0 || dt > 100) dt = 20;
+  MotionOut o;
+  o.send = true;
+  o.v = m_rate_v;
+  o.w = m_rate.step(m_rate_target, t.rate_ddps, static_cast<uint16_t>(dt));
+  const bool saturated = o.w >= motion::kRateSaturatedPct || o.w <= -motion::kRateSaturatedPct;
+  if (rateDiverged(saturated, t.rate_ddps, now_ms)) return finish(EndReason::kDiverged);
+  if (rateStalled(saturated, t.rate_ddps, now_ms)) return finish(EndReason::kStalled);
   return o;
 }
 
@@ -245,6 +309,7 @@ MotionOut MotionService::onTelemetry(const MotionTelem& t, uint32_t now_ms) {
     case PrimKind::kArc: o = stepArc(t, now_ms); break;
     case PrimKind::kPivot: o = stepPivot(t.yaw_cdeg, t.rate_ddps, now_ms); break;
     case PrimKind::kGo: o = stepGo(t, now_ms); break;
+    case PrimKind::kSkill: o = stepSkill(t, now_ms); break;
     default: o = stepRate(t.rate_ddps, now_ms); break;
   }
   m_last_telem_ms = now_ms;
@@ -254,7 +319,7 @@ MotionOut MotionService::onTelemetry(const MotionTelem& t, uint32_t now_ms) {
 MotionOut MotionService::tick(uint32_t now_ms) {
   if (!active()) return MotionOut{};
   if (now_ms - m_last_telem_ms > motion::kTelemGapMs) return finish(EndReason::kLink);
-  if (m_kind == PrimKind::kRate && now_ms - m_rate_update_ms > motion::kRateDeadmanMs) {
+  if ((m_kind == PrimKind::kRate || m_kind == PrimKind::kSkill) && now_ms - m_rate_update_ms > motion::kRateDeadmanMs) {
     return finish(EndReason::kDeadman);
   }
   if (m_kind == PrimKind::kGo && now_ms - m_go_update_ms > motion::kRateDeadmanMs) return finish(EndReason::kDeadman);

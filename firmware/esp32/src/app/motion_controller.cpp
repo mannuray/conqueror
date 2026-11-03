@@ -59,7 +59,8 @@ void MotionController::run(const core::LinkOut& o, uint32_t now) {
   if (o.stop) m_link.sendStop(now);  // STOP purges queued motion frames: no DRIVE 0/0 needed (review M11)
   if (!o.event) return;
   m_out.all(core::jsonPrimitiveDone(m_out.buf(), m_out.cap(), m_tel.nextEventSeq(), m_tel.tankMs(), o.end));
-  if (o.end.id == kLogoPrimitive && m_h.logo_end != nullptr) m_h.logo_end(o.end, now);
+  const bool program_prim = o.end.id == kLogoPrimitive || o.end.kind == core::PrimKind::kSkill;  // R26.1
+  if (program_prim && m_h.logo_end != nullptr) m_h.logo_end(o.end, now);
   if (o.end.reason != core::EndReason::kDone) {  // Plan O: why a move / turn ended early
     m_log.add(core::LogKind::kPrimitive, static_cast<int32_t>(o.end.reason), static_cast<int32_t>(o.end.kind), "",
               m_tel.tankMs(), now);
@@ -88,10 +89,8 @@ void MotionController::end(core::MotionEvent e, uint32_t now) {
   if (m_h.logo_event != nullptr) m_h.logo_event(e, now);  // Plan N3: also between the program's motions
 }
 
-// Why a Logo motion cannot start now (true + why), or false.
-bool MotionController::logoRefused(const logo::Action& a, core::BridgeReason& why) const {
-  const bool counted = a.kind == logo::ActKind::kMove || a.kind == logo::ActKind::kArc || a.kind == logo::ActKind::kPivot ||
-                       a.kind == logo::ActKind::kGo;  // GO needs the encoders, like FORWARD (final review M2)
+// Why a Logo motion cannot start now (true + why), or false. counted: needs the encoders (a drive that is counted).
+bool MotionController::bodyRefused(bool counted, core::BridgeReason& why) const {
   if (m_h.ota()) {
     why = core::BridgeReason::kBusy;
   } else if (!m_link.synced() || !m_link.snapshot().fast_valid) {
@@ -102,6 +101,32 @@ bool MotionController::logoRefused(const logo::Action& a, core::BridgeReason& wh
     return false;
   }
   return true;
+}
+
+bool MotionController::logoRefused(const logo::Action& a, core::BridgeReason& why) const {
+  const bool counted = a.kind == logo::ActKind::kMove || a.kind == logo::ActKind::kArc || a.kind == logo::ActKind::kPivot ||
+                       a.kind == logo::ActKind::kGo;  // GO needs the encoders, like FORWARD (final review M2)
+  return bodyRefused(counted, why);
+}
+
+// R26.1: a skill drives like a GO - the encoders must be there (the brake / slip / stall checks use them).
+bool MotionController::startSkill(int fd, int32_t id, uint32_t now, core::BridgeReason& why) {
+  if (bodyRefused(true, why)) return false;
+  m_roll.cancel();  // §G6: a new primitive
+  m_motion.service().startSkill(fd, id, now, m_cpm);
+  return true;
+}
+
+void MotionController::endSkill(core::EndReason why, uint32_t now) { run(m_motion.endSkill(why, now), now); }
+
+// R26.1: refused unless leaseOk and that skill is the one running; otherwise it feeds the service (DRIVE src AUTO on the
+// next TELEM_FAST, through the Uno's safety supervisor like every primitive).
+void MotionController::onSkillDrive(int fd, int32_t id, int8_t v, int16_t rate_ddps, uint32_t now) {
+  const core::MotionService& svc = m_motion.service();
+  const bool lease = m_h.lease_ok != nullptr && m_h.lease_ok(fd, id, now);
+  if (!lease || svc.skillId() != id) return m_out.streamReject(fd, core::BridgeReason::kNotOwner);  // once per stream
+  m_motion.service().skillDrive(v, static_cast<float>(rate_ddps) / 10.0f, now);
+  m_out.clients().streamAccepted(fd);
 }
 
 bool MotionController::startLogo(int fd, const logo::Action& a, uint32_t now, core::BridgeReason& why) {

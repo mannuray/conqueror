@@ -30,6 +30,9 @@ class MotionController {
     int (*logo_fd)() = nullptr;
     void (*logo_end)(const core::PrimitiveEnd& e, uint32_t now) = nullptr;
     void (*logo_event)(core::MotionEvent e, uint32_t now) = nullptr;
+    // Plan Z2a (bridge LLD R26.1): SkillHub::leaseOk - the skill server holds the live lease with this id (and it
+    // refreshes the lease's deadman). Without this hook no skill_drive is accepted.
+    bool (*lease_ok)(int fd, int32_t id, uint32_t now) = nullptr;
   };
 
   MotionController(Replies& out, core::EventLog& log, core::BodyLink& link, core::LinkOwner& owner,
@@ -40,6 +43,9 @@ class MotionController {
   void onTurn(int fd, int32_t id, const core::WsCommand& c, uint32_t now);
   void onDriveRate(int fd, const core::WsCommand& c, uint32_t now);
   void onMove(int fd, int32_t id, const core::WsCommand& c, uint32_t now);
+  // R26.1: a skill_drive from the skill server (fd) for lease `id`. Refused (nack NOT_OWNER, once per stream) unless the
+  // lease is that server's with that id AND a skill is running: a late frame never starts or revives one.
+  void onSkillDrive(int fd, int32_t id, int8_t v, int16_t rate_ddps, uint32_t now);
   void onCancel(int fd, int32_t id, uint32_t now);
   void onTelemetry(uint32_t now);  // a new TELEM_FAST: roll-on observation + the service step (50 Hz)
   void tick(uint32_t now);         // telemetry gap / drive_rate deadman
@@ -47,6 +53,11 @@ class MotionController {
   // Plan N3: a Logo program's move / turn / arc / pivot / HOME (ownership is the program's; no reply). False with
   // why (kUnavailable: no encoders or an encoder fault; kBodyOffline; kBusy: OTA) when it cannot start.
   bool startLogo(int fd, const logo::Action& a, uint32_t now, core::BridgeReason& why);
+  // R26.1: a running Logo program's skill word starts its drive primitive (fd = the program's phone, id = the lease).
+  // False with why as startLogo for a counted motion (needs the encoders). endSkill: the server's skill_done /
+  // skill_failed - ends a running skill with a STOP (nothing else is ended).
+  bool startSkill(int fd, int32_t id, uint32_t now, core::BridgeReason& why);
+  void endSkill(core::EndReason why, uint32_t now);
   bool ownedBy(int fd) const;
   void keepLogoGo(uint32_t now) { m_motion.service().keepGo(now); }  // Tank Logo LLD §22: each tick while going
   bool active() const { return m_motion.service().active(); }
@@ -70,6 +81,7 @@ class MotionController {
   void learnFrom(const core::PrimitiveEnd& e, uint32_t now);
   bool encoderFault() const;
   bool logoRefused(const logo::Action& a, core::BridgeReason& why) const;
+  bool bodyRefused(bool counted, core::BridgeReason& why) const;
 
   Replies& m_out;
   core::EventLog& m_log;

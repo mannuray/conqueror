@@ -280,6 +280,8 @@ void test_a_stop_from_another_device_holds_a_drive_rate_stream() {
 int g_logo_ends = 0;
 cq::core::EndReason g_logo_reason = cq::core::EndReason::kDone;
 int g_logo_events = 0;
+bool g_lease_ok = true;     // Plan Z2a: what SkillHub::leaseOk says
+int32_t g_lease_id = 5;     // ... and the lease's id
 cq::core::MotionEvent g_logo_event = cq::core::MotionEvent::kStop;
 
 void logoHooks() {
@@ -290,6 +292,7 @@ void logoHooks() {
   };
   h.ota = [] { return g_ota; };
   h.logo_fd = [] { return g_logo_fd; };
+  h.lease_ok = [](int, int32_t id, uint32_t) { return g_lease_ok && id == g_lease_id; };
   h.logo_end = [](const core::PrimitiveEnd& e, uint32_t) {
     ++g_logo_ends;
     g_logo_reason = e.reason;
@@ -301,6 +304,7 @@ void logoHooks() {
   mc->setHooks(h);
   g_logo_fd = -1;
   g_logo_ends = g_logo_events = 0;
+  g_lease_ok = true;
 }
 
 logo::Action logoMove(int16_t cm) {
@@ -361,6 +365,137 @@ void test_a_running_program_counts_as_its_page_s_primitive() {
   TEST_ASSERT_EQUAL(core::MotionEvent::kOwnerClosed, g_logo_event);
 }
 
+// ---- Plan Z2a Task 5 (bridge LLD R26.1): the skill server drives under the lease ----
+namespace {
+constexpr int kProgram = 3;  // the phone that pressed RUN - it holds the body
+constexpr int kServer = 4;   // the AI engine's socket
+
+void skillRunning() {
+  syncedWithEncoders();
+  logoHooks();
+  g_logo_fd = kProgram;
+  core::Actions a;
+  owner.onDrive(kProgram, 50, a);  // the program's phone drives (the Logo controller claims for it)
+  core::BridgeReason why = core::BridgeReason::kBusy;
+  TEST_ASSERT_TRUE(mc->startSkill(kProgram, g_lease_id, 100, why));
+  fakes::reset();
+  wire.clear();
+}
+}  // namespace
+
+void test_skill_drive_without_lease_nacked_once() {
+  skillRunning();
+  g_lease_ok = false;  // the lease ran out / is not this server's
+  mc->onSkillDrive(kServer, 5, 40, 0, 110);
+  mc->onSkillDrive(kServer, 5, 40, 0, 130);
+  mc->onSkillDrive(kServer, 5, 40, 0, 150);
+  TEST_ASSERT_EQUAL(1, fakes::countTo(kServer, "NOT_OWNER"));  // once per stream
+  TEST_ASSERT_TRUE(mc->active());  // started, but nothing drives it: its deadman ends it
+  mc->tick(401);
+  TEST_ASSERT_FALSE(mc->active());
+}
+
+void test_skill_drive_under_the_lease_drives_and_a_stale_id_is_refused() {
+  skillRunning();
+  mc->onSkillDrive(kServer, 5, 40, 0, 110);
+  TEST_ASSERT_EQUAL(0, fakes::countTo(kServer, "NOT_OWNER"));
+  mc->onTelemetry(120);
+  wire.drain(*tx);
+  TEST_ASSERT_EQUAL(1, wire.count(FT::kDrive));  // DRIVE (source auto) through the safety supervisor
+  TEST_ASSERT_TRUE(mc->active());
+  mc->onSkillDrive(kServer, 4, 40, 0, 130);  // an old lease's id
+  TEST_ASSERT_EQUAL(1, fakes::countTo(kServer, "NOT_OWNER"));
+}
+
+// A STOP / deadman that ended the skill: the server's late frames get one NOT_OWNER and drive nothing.
+void test_a_late_skill_drive_after_the_skill_ended_drives_nothing() {
+  skillRunning();
+  mc->onSkillDrive(kServer, 5, 40, 0, 110);
+  mc->end(core::MotionEvent::kStop, 120);
+  TEST_ASSERT_FALSE(mc->active());
+  mc->onSkillDrive(kServer, 5, 40, 0, 130);  // the lease still looks fine to the hub for a moment
+  TEST_ASSERT_FALSE(mc->active());
+  TEST_ASSERT_EQUAL(1, fakes::countTo(kServer, "NOT_OWNER"));
+  wire.drain(*tx);
+  mc->onTelemetry(140);
+  wire.drain(*tx);
+  TEST_ASSERT_EQUAL(0, wire.count(FT::kDrive));
+}
+
+void test_phone_stick_during_skill_ends_lease() {
+  skillRunning();
+  mc->onSkillDrive(kServer, 5, 40, 0, 110);
+  mc->onDriveRate(kProgram, P("{\"t\":\"drive_rate\",\"v\":30,\"yaw_rate\":0}"), 120);  // the owner touches the stick
+  TEST_ASSERT_EQUAL(1, g_logo_events);  // the program ends (7045) ...
+  TEST_ASSERT_EQUAL(core::MotionEvent::kOwnerCommand, g_logo_event);
+  TEST_ASSERT_EQUAL(1, g_logo_ends);  // ... and its skill's end reaches it
+  TEST_ASSERT_EQUAL(static_cast<int>(core::PrimKind::kRate), static_cast<int>(mc->view().kind));  // the stick drives now
+  mc->onSkillDrive(kServer, 5, 40, 0, 130);  // the server's frames no longer drive
+  TEST_ASSERT_EQUAL(static_cast<int>(core::PrimKind::kRate), static_cast<int>(mc->view().kind));
+  TEST_ASSERT_EQUAL(1, fakes::countTo(kServer, "NOT_OWNER"));
+}
+
+void test_a_skill_end_reaches_the_program_with_its_lease_id() {
+  skillRunning();
+  mc->onSkillDrive(kServer, 5, 40, 0, 110);
+  mc->onTelemetry(120);
+  proto::TelemFastMsg t{};
+  t.flags = 1u << static_cast<unsigned>(proto::FastFlagBit::kBlocked);  // the Uno's obstacle brake
+  uint8_t f[64];
+  size_t n = cqtest::frame(t, 3, f);
+  unoSends(f, n, 140);
+  mc->onTelemetry(140);
+  TEST_ASSERT_FALSE(mc->active());
+  TEST_ASSERT_EQUAL(1, g_logo_ends);
+  TEST_ASSERT_EQUAL(core::EndReason::kBlocked, g_logo_reason);
+  TEST_ASSERT_TRUE(has(4, "\"prim\":\"skill\",\"ok\":false,\"reason\":\"blocked\",\"id\":5"));
+  wire.drain(*tx);
+  TEST_ASSERT_EQUAL(1, wire.count(FT::kStop));  // the program's phone still owns the body: STOP
+}
+
+void test_skill_deadman_ends_it_with_a_stop() {
+  skillRunning();
+  mc->onSkillDrive(kServer, 5, 40, 0, 110);
+  mc->onTelemetry(300);
+  TEST_ASSERT_TRUE(mc->active());
+  mc->tick(411);  // the engine is gone: no skill_drive for 301 ms
+  TEST_ASSERT_FALSE(mc->active());
+  TEST_ASSERT_EQUAL(core::EndReason::kDeadman, g_logo_reason);
+  wire.drain(*tx);
+  TEST_ASSERT_EQUAL(1, wire.count(FT::kStop));
+}
+
+void test_skill_start_is_refused_like_a_logo_motion() {
+  logoHooks();
+  core::BridgeReason why = core::BridgeReason::kBusy;
+  TEST_ASSERT_FALSE(mc->startSkill(kProgram, 5, 100, why));
+  TEST_ASSERT_EQUAL(core::BridgeReason::kBodyOffline, why);
+  syncedWithEncoders(1u << static_cast<unsigned>(proto::FastFlagBit::kEncoderFault));
+  TEST_ASSERT_FALSE(mc->startSkill(kProgram, 5, 100, why));
+  TEST_ASSERT_EQUAL(core::BridgeReason::kUnavailable, why);
+  syncedWithEncoders();
+  g_ota = true;
+  TEST_ASSERT_FALSE(mc->startSkill(kProgram, 5, 100, why));
+  TEST_ASSERT_EQUAL(core::BridgeReason::kBusy, why);
+  TEST_ASSERT_FALSE(mc->active());
+}
+
+void test_end_skill_ends_a_done_skill_with_a_stop_and_nothing_else() {
+  skillRunning();
+  mc->endSkill(core::EndReason::kDone, 200);  // the server's skill_done
+  TEST_ASSERT_FALSE(mc->active());
+  TEST_ASSERT_EQUAL(core::EndReason::kDone, g_logo_reason);
+  wire.drain(*tx);
+  TEST_ASSERT_EQUAL(1, wire.count(FT::kStop));
+  mc->endSkill(core::EndReason::kDone, 210);  // nothing going: nothing
+  TEST_ASSERT_EQUAL(1, g_logo_ends);
+  core::BridgeReason why = core::BridgeReason::kBusy;
+  mc->startLogo(kProgram, logoMove(50), 220, why);  // a Logo move is not a skill
+  mc->endSkill(core::EndReason::kDone, 230);
+  TEST_ASSERT_TRUE(mc->active());
+}
+
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_begin_loads_counts_and_roll_on);
@@ -383,5 +518,13 @@ int main() {
   RUN_TEST(test_a_page_s_own_primitive_end_does_not_reach_the_program);
   RUN_TEST(test_logo_motions_are_refused_like_the_page_s);
   RUN_TEST(test_a_running_program_counts_as_its_page_s_primitive);
+  RUN_TEST(test_skill_drive_without_lease_nacked_once);
+  RUN_TEST(test_skill_drive_under_the_lease_drives_and_a_stale_id_is_refused);
+  RUN_TEST(test_a_late_skill_drive_after_the_skill_ended_drives_nothing);
+  RUN_TEST(test_phone_stick_during_skill_ends_lease);
+  RUN_TEST(test_a_skill_end_reaches_the_program_with_its_lease_id);
+  RUN_TEST(test_skill_deadman_ends_it_with_a_stop);
+  RUN_TEST(test_skill_start_is_refused_like_a_logo_motion);
+  RUN_TEST(test_end_skill_ends_a_done_skill_with_a_stop_and_nothing_else);
   return UNITY_END();
 }

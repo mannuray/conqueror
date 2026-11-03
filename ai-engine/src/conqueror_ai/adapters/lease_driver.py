@@ -3,7 +3,8 @@
 Every frame is a `skill_drive` carrying the skill's id, the same speed table as `DriveLink`. The lease ends
 from the tank's side (`skill_end`): `end(why)` then sets `refused` and nothing more is sent. The bridge ends
 a word whose frames stop (300 ms, 7052), so `run` sends the first frame (v 0) at once and repeats the
-engine's newest command every KEEP_S while it is fresh, at most one frame per MIN_GAP_S. A command that
+engine's newest command every KEEP_S while it is fresh, at most one frame per MIN_GAP_S (a stop after
+motion sooner, but never two frames within STOP_GAP_S: the bridge admits 25 a second). A command that
 went stale is replaced by STOP frames (always safe) while the lease lives; a hung loop sends nothing and
 the bridge's deadman stops the tank."""
 
@@ -19,6 +20,8 @@ from conqueror_ai.domain.drive.skill import Result
 KEEP_S = 0.1  # a frame at least this often (the bridge's deadman is 0.3 s), a held stop too
 MIN_GAP_S = 0.08  # at most ~12 frames a second, as DriveLink: the bridge refuses over 25 (ws_clients.h)
 FRESH_FOR_S = 0.5  # a moving command is repeated only this long; then STOP frames
+STREAM_PER_S = 25  # the bridge admits this many skill_drive frames a second, a v 0 frame too (ws_clients.cpp)
+STOP_GAP_S = 1.0 / STREAM_PER_S + 0.005  # a stop after motion waits only this long since the last frame
 
 
 class LeaseDriver:
@@ -50,7 +53,7 @@ class LeaseDriver:
             await asyncio.sleep(0.02)
             now = time.monotonic()
             gap = now - self._sent_s
-            if self._pending and gap >= MIN_GAP_S:
+            if self._pending and gap >= (STOP_GAP_S if self.cmd == STOP else MIN_GAP_S):
                 await self._send(self.cmd)
             elif gap >= KEEP_S:
                 # a moving command is repeated only while fresh; after that (a picture gap) STOP frames go
@@ -65,14 +68,18 @@ class LeaseDriver:
         moving_before = self.cmd != STOP
         self.cmd = cmd
         self._set_s = time.monotonic()
-        if self._set_s - self._sent_s >= MIN_GAP_S or (cmd == STOP and moving_before):
-            await self._send(cmd)  # a stop always at once
+        gap = self._set_s - self._sent_s
+        if gap >= MIN_GAP_S or (cmd == STOP and moving_before and gap >= STOP_GAP_S):
+            await self._send(cmd)  # a stop after motion at once, within the bridge's stream limit
         else:
             self._pending = True  # run() sends it as soon as the gap has passed
 
     async def cam(self, pan_deg: float, tilt_deg: float) -> None:
         if self._refused is None and not self._finished:
-            await self.link.cam(pan_deg, tilt_deg)
+            try:
+                await self.link.cam(pan_deg, tilt_deg)
+            except ConnectionError:  # as drive: the link went down, the lease with it
+                self._refused = self._refused or "lost"
 
     async def finish(self) -> None:
         """One `v 0` frame, once; the stop itself is the bridge's (`endSkill`). None after the lease ended."""

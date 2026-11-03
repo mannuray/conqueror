@@ -300,3 +300,28 @@ async def test_the_bridges_exact_things_replies(bridge: FakeBridge) -> None:
                 await link.set_things(THINGS)
     finally:
         await link.close()
+
+
+async def test_part_ids_never_collide_with_other_messages(bridge: FakeBridge) -> None:
+    """Task 9 minor: a cam_set sent while the things list goes out in parts must not reuse a part's id (one
+    counter that never goes backwards)."""
+    many: list[dict[str, object]] = [
+        {"word": f"word{i:02d}", "names": [f"name-{i:02d}-{j}" for j in range(8)]} for i in range(6)
+    ]
+    link = SkillLink(f"ws://127.0.0.1:{bridge.ws_port}/ws", THINGS)
+    await link.connect()
+    try:
+        bridge.things_delay_s = 0.05
+        sending = asyncio.create_task(link.set_things(many))
+        for _ in range(4):
+            await asyncio.sleep(0.03)
+            await link.cam(0.0, 0.0)
+        await asyncio.wait_for(sending, 3)
+        await link.cam(0.0, 0.0)
+        await until(lambda: len(skill_msgs(bridge, "cam_set")) == 5)
+        ids = [m["id"] for m in bridge.received if m.get("t") in ("skill_things", "cam_set")]
+        assert len(ids) == len(set(ids)), ids
+        cams = [m["id"] for m in skill_msgs(bridge, "cam_set")]
+        assert cams == sorted(cams) and cams[-1] > max(p["id"] for p in skill_msgs(bridge, "skill_things"))
+    finally:
+        await link.close()

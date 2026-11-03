@@ -143,6 +143,11 @@ class Perception:
     def failure(self) -> str | None:
         return task_failure(self.tasks)
 
+    def bridge_now_s(self) -> float | None:
+        """Now on the bridge's clock (the objects' times), seconds; None before the first pong with it."""
+        clock = self.link.clock  # read each time: a new connection gets a new clock
+        return time.monotonic() + clock.offset_s() if clock.ready() else None
+
     async def close(self) -> None:
         with contextlib.suppress(Exception):
             await self.link.close()

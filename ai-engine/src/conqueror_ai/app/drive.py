@@ -5,6 +5,7 @@
     uv run cq-drive wander 120                # drive about for 2 minutes (no number: until stopped)
     uv run cq-drive explore                   # visit everything, then stop (needs the depth model)
     uv run cq-drive wander --record recordings/wander-1
+    uv run cq-drive serve --home room2         # the skill server for Tank Logo's AI words (app/serve.py)
 
 A ball's distance comes from its size in the picture; any other thing's from where it meets the floor (the
 map's floor point, which depends on the camera's tilt). The room map (Plan Z4) fills from the depth picture
@@ -21,6 +22,7 @@ import argparse
 import asyncio
 import datetime
 import random
+import sys
 import time
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -368,8 +370,15 @@ async def run_drive(
 
 
 def main() -> None:
+    if sys.argv[1:2] == ["serve"]:  # the skill server has its own options (AI engine LLD §21)
+        from conqueror_ai.app.serve import main as serve_main
+
+        serve_main(sys.argv[2:])
+        return
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", nargs="*", help="find <thing> | wander [seconds] | explore")
+    ap.add_argument(
+        "what", nargs="*", help="find <thing> | wander [seconds] | explore | serve (its own --help)"
+    )
     ap.add_argument(
         "--replay", type=Path, metavar="DIR", help="re-run a recorded run's decisions (LLD §19.6)"
     )

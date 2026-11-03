@@ -45,6 +45,7 @@ class FakeBridge:
         # the one skill server (bridge LLD R26): a 2nd gets BUSY
         self.skill_ws: ServerConnection | None = None
         self.things_nack: str | None = None  # a reason (TOO_BIG, BAD_FIELD): skill_things is refused
+        self.things_delay_s = 0.0  # each skill_things reply comes this late (other messages go on meanwhile)
         self.answer_pings = True  # False: a bridge that went silent (WiFi lost, the socket stays open)
         self.received: list[dict[str, Any]] = []
         self.ws_port = 0
@@ -95,6 +96,8 @@ class FakeBridge:
                     t == "skill_things"
                 ):  # the router's exact replies (command_router.cpp onThings, ws_json_reply.cpp)
                     mid = m.get("id")
+                    if self.things_delay_s > 0:
+                        await asyncio.sleep(self.things_delay_s)
                     if self.things_nack is None:
                         await ws.send(f'{{"t":"ack","id":{mid}}}')
                     else:

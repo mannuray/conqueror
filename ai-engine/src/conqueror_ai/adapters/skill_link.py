@@ -185,6 +185,7 @@ class SkillLink:
             await ws.close()
             raise
         self._ws, self._lost, self._heard_s = ws, False, time.monotonic()
+        self._queue = asyncio.Queue()  # a new session: nothing from the old socket
         self._tasks = [asyncio.create_task(self._read(ws)), asyncio.create_task(self._pings(ws))]
         try:
             await self.set_things(self.things)
@@ -204,9 +205,10 @@ class SkillLink:
         """Sends the list in parts and waits for the bridge's ack of each; ThingsRefused on a nack (the
         bridge keeps its old list). Call it again when the list changes (Plan Z2b)."""
         parts = things_parts(things, self._next_id + 1)
+        # the parts' ids are reserved before any wait: a cam_set sent meanwhile takes the next one
+        self._next_id += len(parts)
         for raw in parts:
             mid = int(json.loads(raw)["id"])
-            self._next_id = mid
             reply: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
             self._waiting[mid] = reply
             try:

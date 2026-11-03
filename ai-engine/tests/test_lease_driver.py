@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
 
 from conqueror_ai.adapters.drive_link import drive_msg
-from conqueror_ai.adapters.lease_driver import FRESH_FOR_S, KEEP_S, MIN_GAP_S, LeaseDriver, wire_reason
+from conqueror_ai.adapters.lease_driver import (
+    FRESH_FOR_S,
+    KEEP_S,
+    MIN_GAP_S,
+    STREAM_PER_S,
+    LeaseDriver,
+    wire_reason,
+)
 from conqueror_ai.adapters.skill_link import End, SkillLink
 from conqueror_ai.domain.drive.curves import STOP, Command
 from conqueror_ai.domain.drive.skill import Result
@@ -275,6 +283,50 @@ async def test_a_stale_moving_command_is_followed_by_stop_frames(bridge: FakeBri
         n = len(drives(bridge))
         await asyncio.sleep(0.4)
         assert len(drives(bridge)) == n  # end() still stops everything
+    finally:
+        stop.set()
+        await task
+        await link.close()
+
+
+async def test_a_lost_link_on_cam_refuses_instead_of_raising(bridge: FakeBridge) -> None:
+    """Task 9 minor: cam() closes the same gap as drive() - a ConnectionError is a refusal ("lost")."""
+    link = await connected(bridge)
+    try:
+        d = LeaseDriver(link, 5)
+        kill_the_socket(link)
+        await d.cam(0.0, 10.0)
+        assert d.refused == "lost"
+    finally:
+        await link.close()
+
+
+async def test_stops_after_motion_keep_the_bridges_stream_limit(bridge: FakeBridge) -> None:
+    """Task 9 minor: the bridge admits at most 25 skill_drive frames a second (ws_clients.cpp admit; a v 0
+    frame counts like any other). A stop after motion goes at once only when the gap allows it."""
+    link = await connected(bridge)
+    stop = asyncio.Event()
+    d = LeaseDriver(link, 3)
+    sent: list[float] = []
+    real = link.drive
+
+    async def timed(id: int, cmd: Command) -> None:
+        sent.append(time.monotonic())
+        await real(id, cmd)
+
+    link.drive = timed  # type: ignore[method-assign]
+    task = asyncio.create_task(d.run(stop))
+    try:
+        t_end = time.monotonic() + 1.2
+        while time.monotonic() < t_end:
+            await d.drive(Command(20.0, 0.0))
+            await asyncio.sleep(0.005)
+            await d.drive(STOP)
+            await asyncio.sleep(0.005)
+        await asyncio.sleep(0.1)
+        busiest = max(sum(1 for t in sent if s <= t < s + 1.0) for s in sent)
+        assert busiest <= STREAM_PER_S, busiest
+        assert drives(bridge)[-1]["v"] == 0  # the last stop still went out
     finally:
         stop.set()
         await task

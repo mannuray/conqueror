@@ -17,6 +17,7 @@ from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
 from conqueror_ai.domain.drive.roam import Mode, RoamSkill
 from conqueror_ai.domain.drive.sim import Box, SimRoom, SimTank
+from conqueror_ai.domain.drive.skill import make_input
 from conqueror_ai.domain.objects import GATE_DPS
 from conqueror_ai.domain.room_map import RoomMap
 from conqueror_ai.domain.sonar_model import SonarModel
@@ -71,7 +72,7 @@ def roam(
     sonar_model = SonarModel()
     tank = SimTank(*start)
     skill = RoamSkill(
-        Planner(Limits()), mode, seconds=seconds, find=find, rng=random.Random(seed), area_m=area_m
+        Planner(Limits()), "find" if find else mode, seconds=seconds, rng=random.Random(seed), area_m=area_m
     )
     turning, last_seen, pan = False, None, 0.0
     still = True
@@ -105,7 +106,8 @@ def roam(
             fix = None if last_seen is None else TargetFix(1, ball[0], ball[1], t - last_seen)
         if false_maybe is not None and t >= false_maybe[0]:
             maybe = false_maybe[1]
-        o = skill.tick(t, at, snap, fix, echo, True, maybes=[] if maybe is None else [maybe])
+        maybes = [] if maybe is None else [maybe]
+        o = skill.tick(t, make_input(at=at, snap=snap, map_ok=True, fix=fix, sonar_m=echo, maybes=maybes))
         still = o.cmd.v_cms == 0 and o.cmd.w_dps == 0
         if o.cam is not None:
             pan = o.cam[0]  # the camera turns where it's told (the real one looks where the tank is going)
@@ -168,9 +170,7 @@ def test_find_ball_out_of_sight(seed: int) -> None:
     assert r.nearest >= NEAREST_M and not r.front_hit and r.body >= BODY_M
 
 
-def chase_on_map(
-    ball: tuple[float, float], boxes: list[Box], limit_s: float = 60.0, dt: float = 0.1, use_map: bool = True
-) -> Roam:
+def chase_on_map(ball: tuple[float, float], boxes: list[Box], limit_s: float = 60.0, dt: float = 0.1) -> Roam:
     """Slice 1's chase with the room map (Plan Z5 Task 7): the ball always known (seen over a low box)."""
     sim = SimRoom(boxes, walls_m=2.5)
     out = Roam()
@@ -182,9 +182,10 @@ def chase_on_map(
             out.room.update_picture(sim.marks(at), t_us)
         pose = Pose(t_us, at[0], at[1], at[2], 0.0, 0.0)
         out.room.body_over(pose, LIM.body_front_m, LIM.body_rear_m, LIM.body_half_w_m, t_us)  # Plan Z6
-        snap = out.room.snapshot(t_us, pose, False, True) if use_map else None
+        snap = out.room.snapshot(t_us, pose, False, True)
         echo = sim.sonar(at)
-        o = skill.tick(t, at, TargetFix(1, ball[0], ball[1], 0.0), echo, True, snap=snap)
+        fix = TargetFix(1, ball[0], ball[1], 0.0)
+        o = skill.tick(t, make_input(at=at, snap=snap, map_ok=True, fix=fix, sonar_m=echo))
         turning = abs(o.cmd.w_dps) > GATE_DPS
         tank.step(o.cmd, dt)
         out.nearest = min(out.nearest, sim.gap_m(tank.at))
@@ -312,7 +313,8 @@ def test_goto_a_ball_behind_at_the_start_curves_round() -> None:
         if abs(bearing_deg(at, ball)) <= 41.0 and not turning:
             last_seen = t
         fix = None if last_seen is None else TargetFix(1, ball[0], ball[1], t - last_seen)
-        o = skill.tick(t, at, fix, sim.sonar(at), True, snap=room.snapshot(t_us, pose, False, True))
+        snap = room.snapshot(t_us, pose, False, True)
+        o = skill.tick(t, make_input(at=at, snap=snap, map_ok=True, fix=fix, sonar_m=sim.sonar(at)))
         turning = abs(o.cmd.w_dps) > GATE_DPS
         tank.step(o.cmd, 0.1)
         body = min(body, sim.body_gap(tank.at, LIM))
@@ -333,9 +335,11 @@ def test_find_a_dim_thing_by_looking_again() -> None:
 
 
 def test_a_false_maybe_is_checked_once() -> None:
-    r = roam("wander", 70.0, seconds=60.0, find=True, seed=7, false_maybe=(5.0, (1.5, 0.0)))
+    """A maybe of nothing there, every picture from 5 s on: checked once, ruled out, the search goes on - it
+    never ends the run done (find is a mode since Plan Z7; wander's 60 s no longer ends a find)."""
+    r = roam("find", 70.0, seed=7, false_maybe=(5.0, (1.5, 0.0)))
     starts = sum(1 for a, b in itertools.pairwise(r.states) if b == "check" and a != "check")
-    assert r.result == "done" and starts == 1
+    assert r.result != "done" and starts == 1
     assert r.states.count("check") * 0.1 <= 15.0  # the whole check, looks and the drive closer
 
 
@@ -345,7 +349,7 @@ def test_a_check_is_ruled_out_only_after_a_look_from_near() -> None:
     'closer', and ruled the spot out without a near look. Now it is ruled out only after a look from within
     ~1 m (or after failed tries, never marking a remembered thing gone)."""
     spot = (2.2, 0.0)
-    r = roam("search", 90.0, boxes=[], find=True, false_maybe=(0.0, spot), start=(-2.0, 0.0, 0.0))
+    r = roam("find", 90.0, boxes=[], false_maybe=(0.0, spot), start=(-2.0, 0.0, 0.0))
     assert r.skill is not None and "check" in r.states
     ends = [i for i, (a, b) in enumerate(itertools.pairwise(r.states)) if a == "check" and b != "check"]
     assert ends, "the check never ended"
@@ -355,3 +359,10 @@ def test_a_check_is_ruled_out_only_after_a_look_from_near() -> None:
     last = r.positions[ends[0] - 14 : ends[0] + 1]  # the 1.5 s before the check ended: stood, near, looking
     assert max(math.dist(p[:2], last[-1][:2]) for p in last) <= 0.01
     assert math.dist(last[-1][:2], spot) <= 1.05 + 1e-9
+
+
+def test_a_chase_inside_find_never_leaves_the_area() -> None:
+    """Plan Z7 Review Focus 1 (review F6): the play area reached the chase by an attribute set by hand; now
+    through the cost maps every skill is handed. A ball outside a 1 m area: find never drives out to it."""
+    r = roam("find", 60.0, ball=(2.0, 0.0), area_m=1.0)
+    assert r.out_m <= 1.0 + 0.05 and r.result != "done"

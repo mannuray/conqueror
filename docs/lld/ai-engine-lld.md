@@ -2167,7 +2167,7 @@ stateDiagram-v2
 **Known limits (accepted):** the view is not cut by obstacles (a thing behind another counts as looked at); a thing boxed in out of the detector's ~1 m reach is not found (§189, run c3); the 46 cm doorway (owner: 50 cm for now, §168); memory lasts one run (a home spot next, §189 step 2).
 
 
-## 19. Revision 3: the engine's structure (owner, 2026-11-02, design-notes §191, review `docs/reviews/2026-11-02-ai-engine-architecture-review.md` — draft for review, Plan Z7)
+## 19. Revision 3: the engine's structure (owner, 2026-11-02, design-notes §191, review `docs/reviews/2026-11-02-ai-engine-architecture-review.md` — approved, built in Plan Z7; §19.11 as built)
 
 **Goal:** the glue around the skills gets the same shape as the domain: one perception loop for every tool, one pure `World` that turns telemetry and pictures into a `SkillInput`, one `Skill` interface with fixed result kinds, a `Driver` port, and every run's decisions logged and replayable. No behaviour change on the floor except where named (§19.8). The home spot (Plan Z8) and the skill server (Plan Z2) then build on it.
 
@@ -2298,3 +2298,58 @@ sequenceDiagram
 - `DecisionLog` → replay: a sim run logged, replayed, identical outputs; a changed skill shows the first differing tick.
 - The sim harness builds its inputs with the same `make_input` as `World` (the sims mark the map directly, not from pictures, so they don't go through `World.on_picture`).
 - The tools: `cq-map --live`, `cq-objects --live` and `cq-drive` keep their outputs (fake-bridge tests as today).
+
+### 19.11 As built (Plan Z7, 2026-11-02; design-notes §191-§192)
+**Files (ai-engine/src/conqueror_ai):**
+
+| File | What |
+|---|---|
+| `domain/reach.py` | `SAME_SPOT_M` 0.5, `SURE_REACH_M` 1.0 |
+| `domain/drive/limits.py` | `slow_cms` 18.0 (may only go down in `drive.yaml`), `drive_tilt_deg` -15.0 |
+| `domain/drive/costmaps.py` | `CostMaps(snap, settings, area)`: `base()`, `ignoring(x, y, r)`, cached; the play area in every map |
+| `domain/drive/skill.py` | `SkillInput`, `Result`, `SkillOut(cmd, cam, result, detail)`, `Skill` protocol, `make_input(...)` |
+| `domain/drive/goals.py` | `DestinationGoal` protocol (Wander / Explore / Search) |
+| `domain/drive/candidates.py` | `route(c, at, costs, routes)`, `next(at, costs, routes, limit=ROUTE_TRIES)` |
+| `domain/drive/chase.py`, `roam.py` | `tick(now_s, inp)`, `debug()`; roam's mode `wander | explore | find`; the chase's no-map path gone |
+| `domain/memory.py` | `Remembered(word, x_m, y_m, seen_wall_s, run_id, gone)`; `ThingMemory(things)`, `update(objects, wall_s, run_id)`, `things()` |
+| `domain/ports.py` | `Driver` protocol |
+| `app/world.py` | `MapRun` (moved from app/map.py, `room` may be handed in), `World`, `maybes_of` |
+| `app/perception.py` | `Perception`, the staleness rule (`map_state`, `task_failure`, `picture_counts`) |
+| `app/runner.py` | `SkillRunner`, `TICK_S` |
+| `adapters/decisions.py` | `DecisionLog`, `read_decisions`, `replay`, `pack` / `unpack` |
+| `app/drive.py` | wiring; `said(result, detail)`; `replay_text`; `cq-drive --replay DIR`; `--record` also writes `decisions.jsonl` |
+
+**Deviations from §19.1-§19.10, each with its reason (ledger rulings):**
+- `World.on_picture(f, rgb, dets, cam, inv=None, with_depth=False)` plus `World.see` / `World.apply`: live, seeing stays off the event loop (the C1 rule); a replay sees inline.
+- `World.around(run)` wraps a `MapRun` made elsewhere (cq-map's live tests hand one in); `World` keeps `last_frame` for the tools' views.
+- `Perception.start(stop, *more)` + `next_picture` / `state` / `failure` / `close` (not one `run(stop)`): the tools keep their own loops round `next_picture`. An undecodable picture is no picture (None).
+- The staleness rule moved to `app/perception.py` (an import cycle otherwise); cq-map now counts a picture as "camera alive" by `picture_counts`, as cq-drive does - one rule for all tools.
+- `RoamSkill` keeps `area_m` (the mission's play area, set at the first pose) and reuses the input's `CostMaps` only when their area and settings match its own - production builds once, tests without an area stay correct.
+- `SkillRunner(world, perception, driver, log, on_status(state, cmd), tick_s)`; a driver exception ends `FAILED`; a failed finish is kept as `finish_error` (the CLI prints the old deadman line).
+- `Driver.connected` / `refused` are read-only properties, `cam(pan_deg, tilt_deg)` (as `DriveLink`); `Skill.state` a read-only property.
+- The log's first line: mission, seed, limits, cost settings and the memory at the start (`remembered`), so `--replay` rebuilds the skill exactly even after config changes and with remembered spots. cq-drive picks a random seed per run for wander (unseeded before) and logs it.
+- **Size:** about 13 KB a tick (the three map layers packed, base64) - about 22 MB for a 90 s run at ~18 ticks/s; kept on the laptop like the recordings (it shows the home). (§19.6 said ~7 KB.)
+- Final review I1: before a find ends `not_found`, every pending candidate is routed once (`next(..., limit=None)`) - the nearest-3 window alone let three walled-in sightings hide a reachable one.
+- Tests changed by decisions, not loosened: the no-map path's blocked test deleted; `"search"` → `"find"`; the false-maybe sim asserts "checked once, never done" (find no longer runs inside wander's 60 s).
+
+```mermaid
+classDiagram
+    direction LR
+    class Perception { +start(stop, more); +next_picture(timeout_s); +state(now); +failure(); +close() }
+    class World { +on_calib; +on_telem; +on_text; +on_picture(f, rgb, dets, cam, inv, with_depth); +see; +apply; +input(now_s, wall_s, map_ok) SkillInput; map_run; memory; goal; area; last_frame }
+    class SkillRunner { +run(skill) (Result, detail); finish_error }
+    class Driver { <<port>> connected; refused; run; drive; cam; finish }
+    class DecisionLog { +head(**more); +tick(now_s, inp, out, state, debug); +close() }
+    class Skill { <<protocol>> state; tick(now_s, inp); cancel(); debug() }
+    class CostMaps { +base(); +ignoring(x, y, r); area }
+    Perception --> World
+    SkillRunner --> World
+    SkillRunner --> Perception
+    SkillRunner --> Driver
+    SkillRunner --> DecisionLog
+    SkillRunner --> Skill
+    World ..> CostMaps : make_input
+    Driver <|.. DriveLink
+```
+
+**Floor checks:** Task 9, design-notes §192 (to come).

@@ -33,6 +33,8 @@ class Limits:
     body_rear_m: float = 0.09
     body_half_w_m: float = 0.115
     dt_s: float = 0.1  # one tick
+    slow_cms: float = 18.0  # spec 9 §5's slow speed: unsure of the camera angle, or no depth
+    drive_tilt_deg: float = -15.0  # the camera's tilt while driving (design-notes §125)
 
     def r_min_m(self, v_cms: float) -> float:
         """The tightest smooth arc at this speed: the inner track at its lowest speed, never under r_floor."""

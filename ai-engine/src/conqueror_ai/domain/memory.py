@@ -8,9 +8,9 @@ import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from conqueror_ai.domain.reach import SAME_SPOT_M
 from conqueror_ai.domain.types import ObjectEstimate
 
-MERGE_M = 0.5  # the same word this near a remembered thing is that thing (moved, or the floor point's error)
 NEVER = frozenset({"person"})  # never remembered as a thing to go to (find never targets a person)
 
 
@@ -19,31 +19,39 @@ class Remembered:
     word: str
     x_m: float
     y_m: float
-    last_seen_s: float  # the tracker's clock (capture time)
+    seen_wall_s: float  # the wall clock when last seen (the bridge's capture clock restarts each power-on)
+    run_id: str  # the run it was last seen in
     gone: bool = False  # looked at from near and not there
 
 
 class ThingMemory:
-    def __init__(self) -> None:
-        self._things: list[Remembered] = []
+    def __init__(self, things: Sequence[Remembered] = ()) -> None:
+        """things: remembered before (a replay restores the run's start, Plan Z8 a saved memory)."""
+        self._things: list[Remembered] = list(things)
 
-    def update(self, objects: Sequence[ObjectEstimate]) -> None:
-        """The tracker's list now: things seen in the newest pictures update their remembered spot."""
+    def update(self, objects: Sequence[ObjectEstimate], wall_s: float, run_id: str) -> None:
+        """The tracker's list now: things seen in the newest pictures update their remembered spot, stamped
+        with the wall clock and the run (LLD §19.7, review F7.2)."""
         for o in objects:
             if o.state != "seen" or o.cls in NEVER:
                 continue
-            t = o.last_seen_us / 1e6
             p = (o.x_m, o.y_m)
-            same = [r for r in self._things if r.word == o.cls and math.dist((r.x_m, r.y_m), p) <= MERGE_M]
+            same = [
+                r for r in self._things if r.word == o.cls and math.dist((r.x_m, r.y_m), p) <= SAME_SPOT_M
+            ]
             if same:
                 r = min(same, key=lambda r: math.dist((r.x_m, r.y_m), (o.x_m, o.y_m)))
-                r.x_m, r.y_m, r.last_seen_s, r.gone = o.x_m, o.y_m, t, False
+                r.x_m, r.y_m, r.seen_wall_s, r.run_id, r.gone = o.x_m, o.y_m, wall_s, run_id, False
             else:
-                self._things.append(Remembered(o.cls, o.x_m, o.y_m, t))
+                self._things.append(Remembered(o.cls, o.x_m, o.y_m, wall_s, run_id))
 
     def of_kind(self, kind: Callable[[str], bool]) -> list[Remembered]:
         """Remembered things of the kind not marked gone, the most recently seen first."""
-        return sorted((r for r in self._things if kind(r.word) and not r.gone), key=lambda r: -r.last_seen_s)
+        return sorted((r for r in self._things if kind(r.word) and not r.gone), key=lambda r: -r.seen_wall_s)
+
+    def things(self) -> list[Remembered]:
+        """Every remembered thing, gone ones too (for the log and, Plan Z8, saving)."""
+        return list(self._things)
 
     def mark_gone(self, r: Remembered) -> None:
         r.gone = True

@@ -13,7 +13,7 @@ from conqueror_ai.adapters.drive_link import SPEED_TABLE
 from conqueror_ai.domain.drive.limits import Limits
 
 # The measured limits (spec 8 §2) and slice 1's cap: the file may make driving more careful, never less
-AT_MOST = ("v_cap_cms", "v_cruise_cms", "dv_cms_per_s", "dw_dps_per_s")
+AT_MOST = ("v_cap_cms", "v_cruise_cms", "dv_cms_per_s", "dw_dps_per_s", "slow_cms")
 AT_LEAST = (
     "v_min_cms",
     "inner_min_cms",
@@ -25,7 +25,6 @@ AT_LEAST = (
     "body_rear_m",
     "body_half_w_m",
 )
-SLOW_CMS = 18.0  # spec 9 §5's slow speed: the tank must be able to go this slow (review minor 9)
 
 
 def load_drive(path: Path) -> tuple[Limits, tuple[tuple[float, float], ...]]:
@@ -46,10 +45,10 @@ def load_drive(path: Path) -> tuple[Limits, tuple[tuple[float, float], ...]]:
     if unknown:
         raise ValueError(f"{path}: unknown limits {', '.join(unknown)}")
     lim = replace(Limits(), **{k: float(v) for k, v in given.items()})
-    if lim.v_min_cms > SLOW_CMS:
+    if lim.v_min_cms > lim.slow_cms:  # spec 9 §5: the tank must be able to go this slow
         raise ValueError(
-            f"{path}: v_min_cms {lim.v_min_cms} is above spec 9's slow speed of 18 cm/s, which the drive "
-            "needs when it is unsure of the camera angle or has no depth"
+            f"{path}: v_min_cms {lim.v_min_cms} is above spec 9's slow speed of {lim.slow_cms:g} cm/s, which "
+            "the drive needs when it is unsure of the camera angle or has no depth"
         )
     careless = sorted(
         [k for k in AT_MOST if getattr(lim, k) > getattr(Limits(), k)]

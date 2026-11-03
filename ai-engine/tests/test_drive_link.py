@@ -198,3 +198,15 @@ def test_the_body_may_only_be_made_bigger(tmp_path: Path, limit: str) -> None:
         load_drive(f)
     f.write_text("limits: {body_front_m: 0.16, body_half_w_m: 0.12}\n")
     assert load_drive(f)[0].sweep_r_m > Limits().sweep_r_m
+
+
+def test_the_slow_speed_may_only_go_down_and_v_min_is_checked_against_it(tmp_path: Path) -> None:
+    """Plan Z7 final review minor 6: slow_cms (spec 9 §5) is a Limits value now - it may only be lowered,
+    and v_min is checked against the loaded one, not the default."""
+    f = tmp_path / "drive.yaml"
+    f.write_text("limits: {slow_cms: 20}\n")
+    with pytest.raises(ValueError, match="more careful"):
+        load_drive(f)
+    f.write_text("limits: {slow_cms: 15, v_min_cms: 16}\n")
+    with pytest.raises(ValueError, match="slow speed"):
+        load_drive(f)

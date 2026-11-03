@@ -2828,3 +2828,11 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
   4. **Not done:** a skill framework or base class; tuning constants moved to YAML in bulk; rewriting the tracker or the room map.
 - **GOTO (owner: "No GOTO word", 2026-11-02):** the Tank Logo words keep `FIND` only - FIND looks round, searches and drives to the thing (§187-§189), so a separate GOTO adds nothing. Tank Logo LLD §24 and spec 8 §4.3-§4.4 still list GOTO: they are revised in Plan Z2 (a note added to LLD §24 now). The chase's unused no-map path (Plan Z1, `snap is None`) is deleted in Plan Z7.
 - **Two plans (owner):** **Plan Z7 - the engine's structure** (decision 2's list, plus deleting the no-map path), then **Plan Z8 - the home spot** on top of it, with its own floor tests.
+
+## 192. Plan Z7 floor checks (2026-11-03)
+- **Camera check** before each run (pan 0, the driving tilt, one picture, the engine's model): the angle right, floor ahead clear; pictures deleted.
+- **Wander** `cq-drive wander 60 --area 2 --record recordings/z7-w`: `done` at 60 s, 1179 drive ticks after an 18-tick start, no way out needed, 25.8 m² seen; **no touch** (owner). `cq-drive --replay`: **identical** - every one of ~1200 decisions the same. The log: 16.5 MB for 60 s (~14 KB a tick, as the final review measured).
+- **Find** `cq-drive find toy --area 3.5 --record recordings/z7-f` (the camera check showed the teal car ~3 m off by the door, beyond a 2 m area - 3.5 as for g5): `done` in 37.5 s - look round 22.6 s, search 10.4 s, a check 0.7 s, the chase 3.4 s; sure 0.64-0.99 as it closed in; the last picture the car close ahead, side-on. **Gap (owner): 25 cm.** `--replay`: **identical**.
+- **cq-map --live** (on Perception) 60 s, the tank standing: 20-21 map updates / s, never stale, 788 pictures used, all with depth; 355 echoes.
+- **cq-objects --live** (on Perception + World): the Rerun view (owner's screenshot) shows the camera and depth pictures with the teal car boxed **"toy 0.87"**; stopped cleanly on Ctrl-C. (Its map panel stays empty: cq-objects draws things, cq-map draws the map.)
+- Recordings deleted after the replays. **Plan Z7 floor-checked: passes.**

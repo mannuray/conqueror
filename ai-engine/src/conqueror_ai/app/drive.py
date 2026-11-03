@@ -19,15 +19,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import contextlib
 import datetime
+import random
 import time
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from conqueror_ai.adapters import calibration_store
+from conqueror_ai.adapters.decisions import DecisionLog, replay
 from conqueror_ai.adapters.detector_config import load_balls, load_vocabulary
 from conqueror_ai.adapters.drive_config import load_drive
 from conqueror_ai.adapters.drive_link import DriveLink
@@ -37,14 +37,6 @@ from conqueror_ai.adapters.session import SessionRecorder
 if TYPE_CHECKING:
     from conqueror_ai.adapters.bridge_ws import BridgeLink
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
-from conqueror_ai.app.map import (
-    FIRST_PICTURE_S,
-    STALE_PICTURE_S,
-    STALE_TELEM_S,
-    MapRun,
-    map_state,
-    task_failure,
-)
 from conqueror_ai.app.objects import (
     BALLS,
     CALIBRATION,
@@ -55,24 +47,29 @@ from conqueror_ai.app.objects import (
     VGA,
     VOCABULARY,
     DepthFn,
-    camera_of,
-    decode,
     detectors,
     load_depth,
-    see_off_loop,
 )
-from conqueror_ai.domain.camera import Calibration, CameraModel
+from conqueror_ai.app.perception import (
+    FIRST_PICTURE_S,
+    STALE_PICTURE_S,
+    STALE_TELEM_S,
+    Perception,
+    map_state,
+)
+from conqueror_ai.app.runner import SkillRunner
+from conqueror_ai.app.world import World, maybes_of
+from conqueror_ai.domain.camera import Calibration
 from conqueror_ai.domain.depth import MapConfig
-from conqueror_ai.domain.drive.chase import DRIVE_TILT, ChaseSkill, SkillOut
 from conqueror_ai.domain.drive.costmap import CostSettings
-from conqueror_ai.domain.drive.goal import Goal, TargetFix, is_ball, kind_of, size_positions
+from conqueror_ai.domain.drive.curves import Command
+from conqueror_ai.domain.drive.goal import is_ball, kind_of
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import RoamSkill
-from conqueror_ai.domain.memory import ThingMemory
-from conqueror_ai.domain.objects import Detector, Located, ObjectPipeline
-from conqueror_ai.domain.room_map import MapSnapshot
-from conqueror_ai.domain.types import TelemSample
+from conqueror_ai.domain.drive.skill import Result, Skill
+from conqueror_ai.domain.memory import Remembered, ThingMemory
+from conqueror_ai.domain.objects import Detector
 from conqueror_ai.domain.vocabulary import Vocabulary
 
 __all__ = [
@@ -80,24 +77,17 @@ __all__ = [
     "STALE_PICTURE_S",
     "STALE_TELEM_S",
     "map_state",
+    "maybes_of",
 ]  # the stale rule lives in app.map
 
 DRIVE = Path(__file__).resolve().parents[3] / "config" / "drive.yaml"
-TICK_S = 0.2  # tick at least this often, with or without a new picture
 NEVER_GOTO = ("person",)
-SKIPS_THAT_COUNT = ("turning", "camera moving")  # the map skips these pictures, but the camera is alive
 
 
 def goal_words(vocabulary: Vocabulary) -> list[str]:
     """What cq-drive can go to: "ball" and every word that stands on the floor (it has a place on the map) -
     never a person: a child is around (following a person is a later lesson with its own rules)."""
     return ["ball", *(w.word for w in vocabulary.words if w.floor and w.word not in NEVER_GOTO)]
-
-
-def picture_counts(used: CameraModel | str) -> bool:
-    """A picture shows the camera is alive when the map used it, or skipped it only for the tank's or the
-    camera's own motion (a spin, a camera sweep)."""
-    return not isinstance(used, str) or used in SKIPS_THAT_COUNT
 
 
 Action = Literal["find", "wander", "explore"]
@@ -143,11 +133,6 @@ def _parse(action: Action, rest: list[str], words: list[str]) -> Mission:
     return Mission(action, None, seconds)
 
 
-def maybes_of(maybes: Sequence[Located], kind: Callable[[str], bool]) -> list[tuple[float, float]]:
-    """The newest picture's sightings of the thing sought, sure or not: find's candidates (§179, §189)."""
-    return [(m.x, m.y) for m in maybes if kind(m.cls)]
-
-
 def refusal(m: Mission, has_depth: bool) -> str | None:
     """Why the mission can't start, or None (spec 9 §5.4: without depth only the sensor marks the map -
     explore has nothing to go to, and find's search only seen floor, so it would end at once, §188)."""
@@ -160,13 +145,46 @@ def refusal(m: Mission, has_depth: bool) -> str | None:
 
 
 def make_skill(
-    m: Mission, lim: Limits, cost: CostSettings | None = None, memory: ThingMemory | None = None
-) -> ChaseSkill | RoamSkill:
-    planner = Planner(lim)
+    m: Mission,
+    lim: Limits,
+    cost: CostSettings | None = None,
+    memory: ThingMemory | None = None,
+    seed: int = 0,
+) -> RoamSkill:
+    """seed: wander's random choices (logged, so a replay makes the same ones, LLD §19.6)."""
+    planner, rng = Planner(lim), random.Random(seed)
     if m.action == "find":  # remembered spots, the look round, candidates, then the search (§189)
         kind = is_ball if m.thing is None else kind_of(m.thing)
-        return RoamSkill(planner, "search", find=True, cost=cost, area_m=m.area_m, memory=memory, kind=kind)
-    return RoamSkill(planner, m.action, seconds=m.seconds, cost=cost, area_m=m.area_m)
+        return RoamSkill(planner, "find", rng=rng, cost=cost, area_m=m.area_m, memory=memory, kind=kind)
+    return RoamSkill(planner, m.action, seconds=m.seconds, rng=rng, cost=cost, area_m=m.area_m)
+
+
+def start_memory(memory: ThingMemory) -> list[dict[str, Any]]:
+    """The memory at a run's start, for the log's first line: a find checks these spots first, so a replay
+    must start from them (Z7 final review minor 3)."""
+    return [asdict(r) for r in memory.things()]
+
+
+def replay_text(folder: Path) -> str:
+    """`cq-drive --replay DIR`: the run's logged inputs through a fresh skill; the state timeline and whether
+    every decision came out the same (LLD §19.6)."""
+    path = folder / "decisions.jsonl"
+    if not path.exists():
+        return f"no decisions.jsonl in {folder} (a run records one with --record; did it connect?)"
+
+    def make(head: dict[str, Any], seed: int) -> Skill:
+        lim = Limits(**head.get("limits", {}))
+        cost = CostSettings(**head["cost"]) if "cost" in head else None
+        memory = ThingMemory([Remembered(**r) for r in head.get("remembered", [])])
+        return make_skill(Mission(**head["mission"]), lim, cost, memory, seed)
+
+    r = replay(path, make)
+    lines = [f"{t:7.1f} s  {state}" for t, state in r.states]
+    if r.first_diff is None:
+        lines.append("replay: identical - every decision the same")
+    else:
+        lines.append(f"replay: tick {r.first_diff} differs - logged {r.logged}, replayed {r.replayed}")
+    return "\n".join(lines)
 
 
 @dataclass
@@ -186,146 +204,64 @@ class Kit:
 async def drive_session(link: BridgeLink, cam: MjpegSource, drive: DriveLink, m: Mission, kit: Kit) -> str:
     """One run on the tank; returns the result ("done" or why not). The links are handed in (tests aim them at
     a fake bridge)."""
-    run = MapRun(kit.cal, kit.cfg, kit.depth, p=ObjectPipeline(kit.cal, kit.floor), lim=kit.lim)
-    memory = ThingMemory()  # what it confirms, for the run (a home spot keeps it between runs: next, §189)
-    skill = make_skill(m, kit.lim, kit.cfg.cost, memory)
-    goal = Goal(kind_of(m.thing)) if m.thing is not None else Goal(is_ball)
+    run_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")  # the run things were seen in (LLD §19.7)
+    kind = None if m.action != "find" else (is_ball if m.thing is None else kind_of(m.thing))
+    world = World(
+        kit.cal, kit.cfg, kit.depth, kit.floor, kit.sizes, kit.lim, kind, area_m=m.area_m, run_id=run_id
+    )
+    seed = random.randrange(1 << 31)  # wander's choices: logged, so a replay makes the same ones
+    skill = make_skill(m, kit.lim, kit.cfg.cost, world.memory, seed)
     stop = asyncio.Event()
-    last: dict[str, float] = {"telem": 0.0, "picture": 0.0}
-    sonar: list[float | None] = [None]
-    rec = kit.rec
-    if rec is not None:
-        link.tap = rec.telemetry
-    tasks = [asyncio.create_task(t) for t in (link.run(stop), cam.run(stop), drive.run(stop))]
-
-    async def telemetry() -> None:
-        calib_given = False
-        while not stop.is_set():
-            s: TelemSample = await link.samples.get()
-            if not calib_given and link.counts_per_m is not None:
-                run.on_calib(link.counts_per_m)
-                calib_given = True
-            run.on_telem(s)  # the pose, and the sensor onto the map
-            last["telem"] = time.monotonic()
-            sonar[0] = None if s.dist_mm is None or s.dist_mm <= 0 else s.dist_mm / 1000.0
-
-    tasks.append(asyncio.create_task(telemetry()))
+    p = Perception(link, cam, world, kit.det, kit.depth, kit.rec)
+    p.start(stop, drive.run(stop))
     for _ in range(100):  # both links up before the first move
-        if link.connected and drive.connected and last["telem"] > 0:
+        if link.connected and drive.connected and p.last_telem_s > 0:
             break
         await asyncio.sleep(0.1)
     else:
         stop.set()
-        await _close(link, tasks)
+        await p.close()
         return "no connection to the tank - is it on?"
-    await drive.cam(0.0, DRIVE_TILT)
-    t0 = time.monotonic()
-    result = ""
-    by_size: dict[str, tuple[float, float]] = {}
-    cam_still = True  # the newest picture wasn't skipped for the camera moving (the sweep looks only then)
-    used_now = False  # a picture arrived this tick and was used (find's search marks its view only then)
+    await drive.cam(0.0, kit.lim.drive_tilt_deg)
+    p.t0 = time.monotonic()
+    room = world.map_run.room
+
+    def status(state: str, cmd: Command) -> None:
+        seen_m2 = float(room.seen.sum()) * room.cell_m**2
+        print(
+            f"\r{state:12s} v {cmd.v_cms:4.1f} cm/s  w {cmd.w_dps:6.1f} deg/s  seen {seen_m2:5.1f} m2 ",
+            end="",
+            flush=True,
+        )
+
+    log = None
+    if kit.rec is not None:  # every decision beside the recording (LLD §19.6)
+        mission = {"action": m.action, "thing": m.thing, "seconds": m.seconds, "area_m": m.area_m}
+        log = DecisionLog(kit.rec.folder / "decisions.jsonl", mission, seed)
+        log.head(limits=asdict(kit.lim), cost=asdict(kit.cfg.cost), remembered=start_memory(world.memory))
+    runner = SkillRunner(world, p, drive, log, status)
     try:
-        while not result:
-            used_now = False
-            if drive.refused is not None:
-                result = f"refused by the tank ({drive.refused})"
-                break
-            if (failed := task_failure(tasks)) is not None:
-                result = f"failed - {failed}"
-                break
-            with contextlib.suppress(TimeoutError):
-                f = await asyncio.wait_for(cam.next_frame(), TICK_S)
-                rgb = await asyncio.to_thread(decode, f)
-                if rgb is not None:
-                    if rec is not None:
-                        rec.frame(f)
-                    cam_f = run.p.camera_at(f.cap_us)
-                    want = kit.depth is not None and not isinstance(cam_f, str) and run.depth_due_next()
-                    if want and kit.depth is not None:
-                        dets, inv = await asyncio.gather(
-                            asyncio.to_thread(kit.det.detect, rgb, camera_of(cam_f)),
-                            asyncio.to_thread(kit.depth, rgb),
-                        )
-                    else:
-                        dets, inv = await asyncio.to_thread(kit.det.detect, rgb, camera_of(cam_f)), None
-                    used = run.gate(f, rgb, dets, cam_f)  # the map and the pose stay on the event loop
-                    cam_still = used != "camera moving"
-                    used_now = not isinstance(used, str)
-                    if picture_counts(used):
-                        last["picture"] = time.monotonic()
-                    by_size = {} if isinstance(used, str) else size_positions(dets, kit.sizes, used)
-                    if not isinstance(used, str) and inv is not None:  # seeing off the loop, the map on it
-                        run.apply(await see_off_loop(run.seeing, run.p, used, inv, f.cap_us), f.cap_us)
-            now = time.monotonic()
-            state = map_state(now, t0, last["picture"], last["telem"])
-            if state == "waiting":
-                continue
-            pose = run.p.pose()
-            at = None if pose is None else (pose.x_m, pose.y_m, pose.th_rad)
-            fix = (
-                None
-                if pose is None
-                else goal.update(run.p.objects(), (pose.x_m, pose.y_m), pose.t_us, by_size)
-            )
-            memory.update(run.p.objects())
-            maybes = maybes_of(run.p.maybes(), goal.kind)
-            snap = None if pose is None else run.snapshot(pose.t_us, state is not None)  # stale: now
-            # planning off the event loop (6-21 ms: the fan, routes; Z6 review 11) - the snapshot is a copy
-            out = await asyncio.to_thread(
-                _tick, skill, m, now - t0, at, snap, fix, sonar[0], state is None, cam_still, maybes, used_now
-            )
-            await drive.drive(out.cmd)
-            if out.cam is not None:
-                await drive.cam(*out.cam)
-            if out.result is not None:
-                result = out.result
-                if result == "stale":
-                    result = f"stale - {state or 'no pose'}"
-            seen_m2 = float(run.room.seen.sum()) * run.room.cell_m**2
-            print(
-                f"\r{skill.state:12s} v {out.cmd.v_cms:4.1f} cm/s  w {out.cmd.w_dps:6.1f} deg/s  "
-                f"seen {seen_m2:5.1f} m2 ",
-                end="",
-                flush=True,
-            )
+        result, detail = await runner.run(skill)
     finally:
-        try:
-            await drive.finish()
-        except Exception as e:  # the clean-up goes on: the bridge stops the tank when the link drops
-            print(f"\nthe stop message failed ({e}): the tank stops by the deadman")
         stop.set()
-        await _close(link, tasks)
+        await p.close()
+        if log is not None:
+            log.close()
         print()
-    return result
+        if runner.finish_error is not None:  # said even when the run itself raised (Z7 minor 5)
+            print(f"the stop message failed ({runner.finish_error}): the tank stops by the deadman")
+    return said(result, detail)
 
 
-def _tick(
-    skill: ChaseSkill | RoamSkill,
-    m: Mission,
-    now_s: float,
-    at: tuple[float, float, float] | None,
-    snap: MapSnapshot | None,
-    fix: TargetFix | None,
-    sonar_m: float | None,
-    map_ok: bool,
-    cam_still: bool,
-    maybes: Sequence[tuple[float, float]] = (),
-    used: bool = True,
-) -> SkillOut:
-    if isinstance(skill, ChaseSkill):
-        return skill.tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap)
-    find = m.action == "find"
-    return skill.tick(
-        now_s, at, snap, fix if find else None, sonar_m, map_ok, cam_still, maybes if find else (), used
-    )
-
-
-async def _close(link: BridgeLink, tasks: list[asyncio.Task[None]]) -> None:
-    await link.close()
-    for t in tasks:
-        t.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await asyncio.gather(*tasks, return_exceptions=True)
+def said(result: Result, detail: str) -> str:
+    """The CLI's words for a run's end (as before Plan Z7)."""
+    if result == Result.REFUSED:
+        return f"refused by the tank ({detail})"
+    if result == Result.FAILED:
+        return f"failed - {detail}"
+    if result == Result.STALE:
+        return f"stale - {detail}"
+    return str(result)
 
 
 async def run_drive(host: str, m: Mission, rec: SessionRecorder | None, use_depth: bool = True) -> str:
@@ -345,7 +281,10 @@ async def run_drive(host: str, m: Mission, rec: SessionRecorder | None, use_dept
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", nargs="+", help="find <thing> | wander [seconds] | explore")
+    ap.add_argument("what", nargs="*", help="find <thing> | wander [seconds] | explore")
+    ap.add_argument(
+        "--replay", type=Path, metavar="DIR", help="re-run a recorded run's decisions (LLD §19.6)"
+    )
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--record", type=Path)
     ap.add_argument("--area", type=float, metavar="M", help="stay within M metres of the start")
@@ -353,6 +292,11 @@ def main() -> None:
         "--no-depth", action="store_true", help="leave the depth model out (the servo's tilt only)"
     )
     a = ap.parse_args()
+    if a.replay is not None:
+        print(replay_text(a.replay))
+        return
+    if not a.what:
+        ap.error("say what to do: find <thing> | wander [seconds] | explore")
     try:
         words = goal_words(load_vocabulary(VOCABULARY))
     except (FileNotFoundError, ValueError) as err:

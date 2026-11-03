@@ -8,9 +8,10 @@ import random
 import numpy as np
 
 from conqueror_ai.domain.drive.costmap import CostMap
-from conqueror_ai.domain.drive.goals import LOOK_M, ExploreGoal, SearchGoal, WanderGoal
+from conqueror_ai.domain.drive.goals import ExploreGoal, SearchGoal, WanderGoal
 from conqueror_ai.domain.drive.planner import bearing_deg
 from conqueror_ai.domain.drive.route import RoutePlanner
+from conqueror_ai.domain.reach import SURE_REACH_M as LOOK_M
 from conqueror_ai.domain.room_map import RoomMap
 
 START = (0.0, 0.0, 0.0)

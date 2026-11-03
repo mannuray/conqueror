@@ -14,35 +14,35 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Literal
 
-from conqueror_ai.domain.drive.candidates import CLOSE_M, Candidate, Candidates
+from conqueror_ai.domain.drive.candidates import Candidate, Candidates
 from conqueror_ai.domain.drive.chase import (
-    DRIVE_TILT,
     LOST_AFTER_S,
     MAX_TICK_S,
     PAN_LIMIT_DEG,
     PAN_STEP_DEG,
     STALE_GIVE_UP_S,
     ChaseSkill,
-    SkillOut,
 )
 from conqueror_ai.domain.drive.costmap import CostMap, CostSettings
+from conqueror_ai.domain.drive.costmaps import CostMaps
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.goal import TargetFix
-from conqueror_ai.domain.drive.goals import ExploreGoal, SearchGoal, WanderGoal
+from conqueror_ai.domain.drive.goals import DestinationGoal, ExploreGoal, SearchGoal, WanderGoal
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
 from conqueror_ai.domain.drive.recovery import ProgressWatch, Recovery
 from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point
+from conqueror_ai.domain.drive.skill import Result, SkillInput, SkillOut
 from conqueror_ai.domain.memory import ThingMemory
+from conqueror_ai.domain.reach import SURE_REACH_M
 from conqueror_ai.domain.room_map import MapSnapshot
 
-SLOW_CMS = 18.0  # spec 9 §5: unsure of the camera angle, or no depth
 # find: look again at a candidate (owner, design-notes §179, §189)
 CHECK_LOOK_S = 1.5  # standing, the camera on the spot, still pictures this long
-CHECK_CLOSE_M = CLOSE_M  # not confirmed from further: drive this near and look once more
+CHECK_CLOSE_M = SURE_REACH_M  # not confirmed from further: drive this near and look once more
 CHECK_MAX_S = 15.0  # a check never longer than this ...
 CHECK_S_PER_M = 10.0  # ... plus this per metre it has to drive closer (review I3: 15 s covered the drive too)
 CHECK_NEAR_TOL_M = 0.05  # within CHECK_CLOSE_M and this counts as near (the way ends at about 1 m)
@@ -52,7 +52,7 @@ PLAN_TRIES = 3  # destinations tried in one tick before it counts as stuck
 START_STAND_S = 1.0  # at the start: stand with the camera ahead so the map takes still pictures
 
 
-Mode = Literal["wander", "explore", "search"]
+Mode = Literal["wander", "explore", "find"]  # find: the look round, candidates, the search, the chase
 
 
 @dataclass
@@ -78,7 +78,6 @@ class RoamSkill:
         planner: Planner,
         mode: Mode,
         seconds: float | None = None,
-        find: bool = False,
         rng: random.Random | None = None,
         cost: CostSettings | None = None,
         area_m: float | None = None,
@@ -89,19 +88,24 @@ class RoamSkill:
         memory = the things confirmed so far (its spots of `kind` are checked first; one not there is marked
         gone), kind = the thing sought (§189)."""
         self.planner = planner
-        self.slow = Planner(replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, SLOW_CMS)), planner.w)
+        self.slow = Planner(
+            replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, planner.lim.slow_cms)), planner.w
+        )
         self.lim = planner.lim
         self.settings = cost or CostSettings()
         self.mode = mode
-        self.find = find
+        self.find = mode == "find"
         self.routes = RoutePlanner(self.lim)
         self.wander = WanderGoal(rng or random.Random(), self.lim)
         self.seconds = seconds
         self.explore = ExploreGoal()
         self.search = SearchGoal()
+        self.goal: DestinationGoal = {"wander": self.wander, "explore": self.explore, "find": self.search}[
+            mode
+        ]
         self._look_pan: float | None = None  # where the camera was last sent (find's search marks its view)
         self.chase = ChaseSkill(planner, cost)
-        self.recovery = Recovery(self.lim, planner.foot, DRIVE_TILT)
+        self.recovery = Recovery(self.lim, planner.foot, self.lim.drive_tilt_deg)
         self.state = "start"
         self.cmd = STOP
         self.route: list[XY] | None = None
@@ -113,7 +117,7 @@ class RoamSkill:
         self._stale_t0: float | None = None
         self._start_t0: float | None = None
         self._progress = ProgressWatch(self.recovery, self.settings.stuck_s)
-        self._cost: tuple[MapSnapshot, CostMap] | None = None
+        self._costs: CostMaps | None = None  # this snapshot's cost maps, the play area in them
         self.area_m = area_m
         self._area: tuple[float, float, float] | None = None  # (x, y, r) once the start is known
         self._check: _Check | None = None
@@ -138,40 +142,41 @@ class RoamSkill:
     def _end(self, result: str) -> SkillOut:
         self.state = "done" if result == "done" else "failed"
         self.cmd = STOP
-        return SkillOut(STOP, None, result)
+        return SkillOut(STOP, None, Result(result))
+
+    def debug(self) -> dict[str, object]:
+        c = self._check
+        return {
+            "state": self.state,
+            "dest": self.dest,
+            "route_len": None if self.route is None else len(self.route),
+            "pending": [p.spot for p in self.candidates.pending()],
+            "check_phase": None if c is None else c.phase,
+        }
 
     def cancel(self) -> SkillOut:
         return self._end("cancelled")
 
+    def _costs_for(self, snap: MapSnapshot) -> CostMaps:
+        """One set of cost maps per snapshot (kept by identity), the play area in them (LLD §19.3)."""
+        if self._costs is None or self._costs.snap is not snap:
+            self._costs = CostMaps(snap, self.settings, self._area)
+        return self._costs
+
     def _costmap(self, snap: MapSnapshot) -> CostMap:
-        """One cost map per snapshot (kept by identity, review minor 5)."""
-        if self._cost is None or self._cost[0] is not snap:
-            self._cost = (snap, CostMap(snap, self.settings, area=self._area))
-        return self._cost[1]
+        return self._costs_for(snap).base()
 
     # ---- the tick
-    def tick(
-        self,
-        now_s: float,
-        at: XYTh | None,
-        snap: MapSnapshot | None,
-        fix: TargetFix | None,
-        sonar_m: float | None,
-        map_ok: bool,
-        cam_still: bool = True,
-        maybes: Sequence[XY] = (),
-        used: bool = True,
-    ) -> SkillOut:
-        """One tick: at = the pose (x, y, th), snap = the room map, fix = the thing to find (find only),
-        sonar_m = the echo from the tank's front (None: none), map_ok = pictures and telemetry fresh, maybes =
-        the newest picture's sightings of the thing on the floor, sure or not (find only: candidates,
-        §189). used = a picture arrived this tick and was used (detected, placed): in a search only such a
-        picture marks the camera's near view as searched (§188; review I2)."""
-        if self.mode == "search" and map_ok and at is not None and used and self._look_pan is not None:
+    def tick(self, now_s: float, inp: SkillInput) -> SkillOut:
+        """One tick (LLD §19.4). Find only: `inp.fix` the thing, `inp.maybes` the newest picture's
+        sightings of it on the floor, sure or not (candidates, §189). `inp.used` = a picture arrived this
+        tick and was used: only such a picture marks the camera's near view as searched (§188; I2)."""
+        at, snap, fix, sonar_m, map_ok = inp.at, inp.snap, inp.fix, inp.sonar_m, inp.map_ok
+        cam_still, maybes, used = inp.cam_still, inp.maybes, inp.used
+        if self.find and map_ok and at is not None and used and self._look_pan is not None:
             self.search.look(at, self._look_pan, self.lim.cam_x_m)
         if self.area_m is not None and self._area is None and at is not None:  # play area: round the start
             self._area = (at[0], at[1], self.area_m)
-            self.chase.area = self._area
         self._tried_now = False
         if self.find:
             for spot in maybes:  # outside the play area: never a candidate (review M4)
@@ -183,6 +188,9 @@ class RoamSkill:
                     self.candidates.seed(self.memory.of_kind(self.kind))
                     if self.candidates.pending():
                         self.state = "drive"
+        c = inp.costs  # the run's cost maps, built once - when they carry this skill's area and settings
+        if c is not None and c.area == self._area and c.settings == self.settings:
+            self._costs = inp.costs
         out = self._tick(now_s, at, snap, fix, sonar_m, map_ok, cam_still)
         if out.cam is not None:
             self._look_pan = out.cam[0]
@@ -225,20 +233,18 @@ class RoamSkill:
         if self.state == "start":
             if self._start_t0 is None:
                 self._start_t0, self._pan = now_s, 0.0
-                return self._halt((0.0, DRIVE_TILT))
+                return self._halt((0.0, self.lim.drive_tilt_deg))
             if now_s - self._start_t0 < START_STAND_S - 1e-9:
                 return self._halt()
             self.state = "drive"
         planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
         if self.find and self.state == "drive" and self.candidates.pending() and now_s >= self._retry_s:
-            c = self.candidates.next(at, snap, self.routes, self._area, self.settings)
+            c = self.candidates.next(at, self._costs_for(snap), self.routes)
             self._tried_now = True
             if c is None:
                 self._retry_s = now_s + CANDIDATE_RETRY_S
             else:
-                far = max(0.0, math.dist(at[:2], c.spot) - CHECK_CLOSE_M)
-                self._check, self.state = _Check(c, now_s, CHECK_MAX_S + CHECK_S_PER_M * far), "check"
-                self._progress.reset()
+                self._start_check(now_s, at, c)
         if self.state == "check":
             return self._checking(now_s, at, snap, planner, sonar_m, cam_still)
         if self.state == "recover":
@@ -258,28 +264,24 @@ class RoamSkill:
         if self.state != "chase":
             self.state = "chase"
             self.chase.cmd = self.cmd  # it is moving: the chase's plans start from that (review minor 4)
-        out = self.chase.tick(now_s, at, fix, sonar_m, map_ok, cam_still, snap)
+        inp = SkillInput(at, snap, self._costs_for(snap), fix, sonar_m, map_ok, cam_still, True)
+        out = self.chase.tick(now_s, inp)
         self.cmd = out.cmd
         if out.result in ("not_found", "lost"):  # it got away: roam on, a fresh chase for the next sighting
             if self._check is not None:  # the candidate it came from was chased and lost: done with (M1)
                 self.candidates.rule_out(self._check.cand)
                 self._check = None
             self.chase = ChaseSkill(self.planner, self.settings)
-            self.chase.area = self._area
             self.state = "drive"
             self._progress.reset()
-            return self._halt((0.0, DRIVE_TILT))
+            return self._halt((0.0, self.lim.drive_tilt_deg))
         if out.result is not None:
             return self._end(out.result)
         return out
 
     # ---- where to
     def _destination(self, now_s: float, at: XYTh, cost: CostMap) -> XY | None:
-        if self.mode == "wander":
-            return self.wander.destination(now_s, at, cost, self.routes)
-        if self.mode == "search":
-            return self.search.destination(now_s, at, cost, self.routes)
-        return self.explore.destination(now_s, at, cost, self.routes)
+        return self.goal.destination(now_s, at, cost, self.routes)
 
     def _plan(self, now_s: float, at: XYTh, cost: CostMap) -> list[XY] | None:
         """A destination and a route to it, or None."""
@@ -291,12 +293,7 @@ class RoamSkill:
             if route is not None:
                 self.dest = dest
                 return route
-            if self.mode == "wander":
-                self.wander.drop()
-            elif self.mode == "search":
-                self.search.drop()
-            else:
-                self.explore.drop()
+            self.goal.drop()
         return None
 
     # ---- stuck: the standard ways out
@@ -314,13 +311,18 @@ class RoamSkill:
             return self._end("blocked")
         if out is None:  # a step finished: try driving again
             self.state, self._pan = "drive", 0.0
-            return self._halt((0.0, DRIVE_TILT))
+            return self._halt((0.0, self.lim.drive_tilt_deg))
         cmd, cam = out
         if cam is not None:
             self._pan = cam[0]
         return self._halt(cam) if cmd == STOP else self._out(cmd, cam)
 
     # ---- look again at a candidate (find, §179, §189)
+    def _start_check(self, now_s: float, at: XYTh, c: Candidate) -> None:
+        far = max(0.0, math.dist(at[:2], c.spot) - CHECK_CLOSE_M)  # 10 s more per metre to drive (§190 I3)
+        self._check, self.state = _Check(c, now_s, CHECK_MAX_S + CHECK_S_PER_M * far), "check"
+        self._progress.reset()
+
     def _end_check(self, now_s: float, near: bool) -> SkillOut:
         """Not confirmed. Looked at from near: ruled out for the run (a remembered thing: gone). Couldn't get
         near (no way, no progress, out of time): pending, tried again later; after CHECK_TRIES ruled out, a
@@ -338,7 +340,7 @@ class RoamSkill:
                 self._retry_s = now_s + CANDIDATE_RETRY_S
         self._check, self.state, self._pan = None, "drive", 0.0
         self._progress.reset()
-        return self._halt((0.0, DRIVE_TILT))
+        return self._halt((0.0, self.lim.drive_tilt_deg))
 
     def _checking(
         self,
@@ -361,7 +363,7 @@ class RoamSkill:
             cam = None
             if not c.aimed:
                 c.aimed, c.still_t0, self._pan = True, None, pan
-                cam = (pan, DRIVE_TILT)
+                cam = (pan, self.lim.drive_tilt_deg)
             elif not cam_still:
                 c.still_t0 = None
             elif c.still_t0 is None:
@@ -375,7 +377,7 @@ class RoamSkill:
             c.phase, c.closer, c.aimed = "look", True, False
             return self._halt()
         # the way: its own marks set aside, inside the play area (§189); the fan still keeps off every mark
-        route = self.candidates.route(c.cand, at, snap, self.routes, self._area, self.settings)
+        route = self.candidates.route(c.cand, at, self._costs_for(snap), self.routes)
         cost = self._costmap(snap)
         if route is None or not self._progress.ok(now_s, at):
             return self._end_check(now_s, near=False)
@@ -384,7 +386,7 @@ class RoamSkill:
         cam = None
         if self._pan is None or abs(pan - self._pan) > PAN_STEP_DEG:
             self._pan = pan
-            cam = (pan, DRIVE_TILT)
+            cam = (pan, self.lim.drive_tilt_deg)
         return self._halt(cam) if want == STOP else self._out(want, cam)
 
     # ---- driving
@@ -393,11 +395,16 @@ class RoamSkill:
     ) -> SkillOut:
         route = self._plan(now_s, at, cost)
         if route is None:
-            if self.mode == "explore" and self.explore.done:
+            if self.mode == "explore" and self.goal.done:
                 return self._end("done")
-            if self.mode == "search" and self.search.done:  # every spot looked at, never seen (§188)
+            if self.find and self.goal.done:  # every spot looked at, never seen (§188)
                 if self.candidates.pending() and not self._tried_now:
                     return self._halt()  # a candidate waits for its retry: not_found only after (review M3)
+                if self._costs is not None and self.candidates.pending():  # every one routed once (Z7 I1)
+                    c = self.candidates.next(at, self._costs, self.routes, limit=None)
+                    if c is not None:
+                        self._start_check(now_s, at, c)
+                        return self._halt()
                 return self._end("not_found")
             return self._stuck(now_s, at)
         self.route = route
@@ -412,5 +419,5 @@ class RoamSkill:
         cam = None
         if self._pan is None or abs(pan - self._pan) > PAN_STEP_DEG:
             self._pan = pan
-            cam = (pan, DRIVE_TILT)
+            cam = (pan, self.lim.drive_tilt_deg)
         return self._halt(cam) if want == STOP else self._out(want, cam)

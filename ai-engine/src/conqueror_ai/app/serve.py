@@ -20,7 +20,7 @@ import random
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from conqueror_ai.adapters.decisions import DecisionLog
 from conqueror_ai.adapters.home_store import HomeStore
@@ -29,12 +29,15 @@ from conqueror_ai.adapters.skill_link import Ask, End, SkillBusy, SkillLink, Sta
 from conqueror_ai.app.questions import Questions
 from conqueror_ai.app.runner import TICK_S, SkillRunner, TickView
 from conqueror_ai.app.world import World
+from conqueror_ai.domain.drive.costmap import CostSettings
 from conqueror_ai.domain.drive.goal import Goal, kind_of
+from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.places import to_map
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import RoamSkill
 from conqueror_ai.domain.drive.skill import Result, Skill
 from conqueror_ai.domain.home import Home
+from conqueror_ai.domain.memory import ThingMemory
 from conqueror_ai.domain.names import Names
 from conqueror_ai.domain.types import Pose
 
@@ -79,22 +82,58 @@ def skill_call(ev: Start, pose: Pose | None, names: Names) -> SkillCall | str:
     area_m, centre = None, None
     if ev.area is not None and ev.area[0] > 0:  # AREA 0 is anywhere
         area_m, centre = ev.area[0], place(ev.area[1], ev.area[2])
+        if centre is None:
+            return "stale"  # no pose to place the area's centre from (as setxy)
     return SkillCall(ev.skill, word, ev.seconds, point, area_m, centre)
 
 
-def make_word_skill(call: SkillCall, world: World, seed: int) -> Skill:
-    """The RoamSkill for a word (LLD §21.2); seed: wander's random choices (logged)."""
-    planner, rng, cost = Planner(world.lim), random.Random(seed), world.cfg.cost
+def word_skill(call: SkillCall, lim: Limits, cost: CostSettings, memory: ThingMemory, seed: int) -> RoamSkill:
+    """The RoamSkill for a word (LLD §21.2), from what the decisions log keeps (so a replay builds the same
+    one); seed: wander's random choices."""
+    planner, rng = Planner(lim), random.Random(seed)
     area_m, centre = call.area_m, call.centre
     if call.skill == "find":
         kind = kind_of(call.word or "")
         return RoamSkill(
-            planner, "find", rng=rng, cost=cost, area_m=area_m, centre=centre, memory=world.memory, kind=kind
+            planner, "find", rng=rng, cost=cost, area_m=area_m, centre=centre, memory=memory, kind=kind
         )
     if call.skill == "setxy":
         return RoamSkill(planner, "point", rng=rng, cost=cost, area_m=area_m, centre=centre, point=call.point)
     mode = "wander" if call.skill == "wander" else "explore"
     return RoamSkill(planner, mode, seconds=call.seconds, rng=rng, cost=cost, area_m=area_m, centre=centre)
+
+
+def make_word_skill(call: SkillCall, world: World, seed: int) -> Skill:
+    return word_skill(call, world.lim, world.cfg.cost, world.memory, seed)
+
+
+def word_log(
+    folder: Path, call: SkillCall, seed: int, lim: Limits, cost: CostSettings, memory: ThingMemory
+) -> DecisionLog:
+    """A word's decisions log: the mission, the limits, cost settings and memory, and the word's point and
+    area centre - all `cq-drive --replay` needs to rebuild the skill (`call_of`)."""
+    folder.mkdir(parents=True, exist_ok=True)
+    mission = {"action": call.skill, "thing": call.word, "seconds": call.seconds, "area_m": call.area_m}
+    log = DecisionLog(folder / "decisions.jsonl", mission, seed)
+    remembered = [asdict(r) for r in memory.things()]
+    log.head(
+        limits=asdict(lim), cost=asdict(cost), remembered=remembered, point=call.point, centre=call.centre
+    )
+    return log
+
+
+def call_of(head: dict[str, Any]) -> SkillCall | None:
+    """A serve word's call from its log's first line, None for a cq-drive run's (no `centre` key)."""
+    if "centre" not in head:
+        return None
+    m = head["mission"]
+
+    def xy(v: Any) -> tuple[float, float] | None:
+        return None if v is None else (float(v[0]), float(v[1]))
+
+    return SkillCall(
+        m["action"], m["thing"], m["seconds"], xy(head["point"]), m["area_m"], xy(head["centre"])
+    )
 
 
 SkillMaker = Callable[[SkillCall, World, int], Skill]
@@ -173,6 +212,8 @@ class ServeApp:
         self._word: _Word | None = None
         self._earlier: Home | None = None
         self._connected_once = False
+        self._closing = False  # Ctrl-C / stop: run() saves the home once at the end
+        self._seq = 0  # words in this session (the decisions folders)
 
     async def run(self, stop: asyncio.Event) -> None:
         """Until `stop` (or Ctrl-C: the task cancelled). SkillBusy when another skill server holds the bridge
@@ -205,7 +246,8 @@ class ServeApp:
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(stop.wait(), RECONNECT_S)
         finally:
-            await self._drop_word("stop")  # Ctrl-C: cancelled, nothing sent (the bridge's close rule: 7052)
+            # a word is only ever running inside _session, whose clean-up dropped it (silently: the bridge's
+            # close rule ends the program with 7052); the home is saved here, once
             self._save_home()
             pstop.set()
             pump.cancel()
@@ -224,7 +266,11 @@ class ServeApp:
             for t in (reader, stopper):
                 t.cancel()
             await asyncio.gather(reader, stopper, return_exceptions=True)
-            await self._drop_word("lost")  # the link is gone: stop sending, never resume the old lease
+            task = asyncio.current_task()
+            if stop.is_set() or (task is not None and task.cancelling()):
+                self._closing = True  # Ctrl-C or stop: run() saves the home once
+            # the link is gone, or the session ends: stop sending, never resume the old lease
+            await self._drop_word("stop" if self._closing else "lost")
 
     async def _events(self) -> None:
         async for ev in self.link.events():
@@ -295,7 +341,7 @@ class ServeApp:
                 self._word = None
             if self.state == "driving":
                 self.state = "idle"
-            if w.silent:  # cancelled: the home still keeps what the word learned
+            if w.silent and not self._closing:  # ended or lost: the home still keeps what the word learned
                 self._save_home()
         if w.silent:
             return
@@ -330,14 +376,9 @@ class ServeApp:
     def _log(self, id: int, call: SkillCall, seed: int) -> DecisionLog | None:
         if self.record is None:
             return None
-        folder = self.record / f"word-{id}"
-        folder.mkdir(parents=True, exist_ok=True)
-        mission = {"action": call.skill, "thing": call.word, "seconds": call.seconds, "area_m": call.area_m}
-        log = DecisionLog(folder / "decisions.jsonl", mission, seed)
-        remembered = [asdict(r) for r in self.world.memory.things()]
-        log.head(limits=asdict(self.world.lim), cost=asdict(self.world.cfg.cost), remembered=remembered)
-        log.head(point=call.point, centre=call.centre)  # setxy and the area's centre (not replayed yet)
-        return log
+        self._seq += 1  # the session's own number first: a restarted bridge reuses skill ids
+        w = self.world
+        return word_log(self.record / f"word-{self._seq}-{id}", call, seed, w.lim, w.cfg.cost, w.memory)
 
     # ---- between words
     async def _pump(self, stop: asyncio.Event) -> None:

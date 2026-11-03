@@ -325,3 +325,21 @@ async def test_part_ids_never_collide_with_other_messages(bridge: FakeBridge) ->
         assert cams == sorted(cams) and cams[-1] > max(p["id"] for p in skill_msgs(bridge, "skill_things"))
     finally:
         await link.close()
+
+
+async def test_websockets_own_errors_are_connection_errors(bridge: FakeBridge) -> None:
+    """Review I1: a refused handshake (InvalidStatus) and a socket closed during the hello
+    (ConnectionClosedError) reach callers as ConnectionError - one error type to retry on."""
+    bridge.reject_handshakes = 1
+    link = SkillLink(f"ws://127.0.0.1:{bridge.ws_port}/ws", THINGS)
+    with pytest.raises(ConnectionError):
+        await link.connect()
+    bridge.drop_hellos = 1
+    with pytest.raises(ConnectionError):
+        await link.connect()
+    assert not link.connected
+    await link.connect()  # and the next try connects
+    try:
+        assert link.connected
+    finally:
+        await link.close()

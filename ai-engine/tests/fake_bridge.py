@@ -8,9 +8,11 @@ import asyncio
 import contextlib
 import json
 import time
+from http import HTTPStatus
 from typing import Any
 
 from websockets.asyncio.server import Server, ServerConnection, serve
+from websockets.http11 import Request, Response
 
 OFFSET_S = 1000.0
 JPEG = b"\xff\xd8" + b"\x00" * 200 + b"\xff\xd9"
@@ -46,6 +48,8 @@ class FakeBridge:
         self.skill_ws: ServerConnection | None = None
         self.things_nack: str | None = None  # a reason (TOO_BIG, BAD_FIELD): skill_things is refused
         self.things_delay_s = 0.0  # each skill_things reply comes this late (other messages go on meanwhile)
+        self.reject_handshakes = 0  # this many next WebSocket handshakes get HTTP 503 (a flaky bridge)
+        self.drop_hellos = 0  # this many next ai-skills hellos: the socket closes, no welcome (WiFi)
         self.answer_pings = True  # False: a bridge that went silent (WiFi lost, the socket stays open)
         self.received: list[dict[str, Any]] = []
         self.ws_port = 0
@@ -54,7 +58,7 @@ class FakeBridge:
         self._stream_server: asyncio.Server | None = None
 
     async def start(self) -> None:
-        self._ws_server = await serve(self._ws, "127.0.0.1", 0)
+        self._ws_server = await serve(self._ws, "127.0.0.1", 0, process_request=self._handshake)
         self.ws_port = next(iter(self._ws_server.sockets)).getsockname()[1]
         self._stream_server = await asyncio.start_server(self._stream, "127.0.0.1", 0)
         self.stream_port = self._stream_server.sockets[0].getsockname()[1]
@@ -68,6 +72,12 @@ class FakeBridge:
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(self._stream_server.wait_closed(), 1)
 
+    def _handshake(self, ws: ServerConnection, request: Request) -> Response | None:
+        if self.reject_handshakes > 0:
+            self.reject_handshakes -= 1
+            return ws.respond(HTTPStatus.SERVICE_UNAVAILABLE, "busy\n")
+        return None
+
     async def _ws(self, ws: ServerConnection) -> None:
         self.connections += 1
         sender: asyncio.Task[None] | None = None
@@ -76,6 +86,10 @@ class FakeBridge:
                 m = json.loads(raw)
                 self.received.append(m)
                 t = m.get("t")
+                if t == "hello" and m.get("client") == "ai-skills" and self.drop_hellos > 0:
+                    self.drop_hellos -= 1
+                    await ws.close(1011, "gone")  # mid-hello: the client's recv fails
+                    return
                 if t == "hello" and m.get("client") == "ai-skills":
                     if self.skill_ws is not None:
                         busy = {

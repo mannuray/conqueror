@@ -2561,7 +2561,8 @@ sequenceDiagram
 stateDiagram-v2
   [*] --> Connecting
   Connecting --> Idle : hello accepted (things sent)
-  Connecting --> [*] : nack BUSY (another server: plain error)
+  Connecting --> [*] : nack BUSY at the first connect (another server: plain error)
+  Connecting --> Connecting : BUSY on a reconnect, or any link error (retry every 2 s)
   Idle --> Idle : skill_ask / answer
   Idle --> Driving : skill_start (lease)
   Driving --> Idle : skill_done / skill_failed sent
@@ -2569,6 +2570,14 @@ stateDiagram-v2
   Idle --> Connecting : link lost (retry every 2 s)
   Driving --> Connecting : link lost (the bridge's deadman stops the tank)
 ```
+
+- **As built (Plan Z2a Task 10, rulings):**
+  - **BUSY on a reconnect is retried**, every `RECONNECT_S` = 2 s: after a lost link the bridge holds the old session's place until its 3 s silent-client reap, so the first reconnect can be refused by our own old session. BUSY at the very first connect stays a plain error (another `cq-drive serve` is running).
+  - **Every link failure is one error type:** `SkillLink.connect` turns websockets' own errors (a refused handshake, a socket closed during the hello) into `ConnectionError`, so serve retries on flaky WiFi instead of ending with a traceback.
+  - **Refused before any frame** (`skill_failed`, no lease frame): an unknown thing or a person → `unknown_thing`; a second start while driving, an unknown skill, setxy or an area (r > 0) with no pose yet to place it from → `stale`; **find / explore without the depth model → `stale`** (printed reason), as `cq-drive`'s refusal (§188) - without depth find would end at once and explore has nowhere to go; wander and setxy still run.
+  - A word the bridge ends (`skill_end`), a lost link and Ctrl-C send nothing back - no frame, not the finish's stop, no `skill_failed`; the bridge stops the tank (its close rule ends the program with 7052).
+  - **The home save runs on the event loop**, right after `skill_done` / `skill_failed`: `HomeStore.save` writes and fsyncs the home (~2.5 ms on a 160 x 160 map, measured) - well inside the next word's 300 ms first frame. One session is one run of the home (one run id, the home as loaded passed to every save); Ctrl-C saves it once, at the end.
+  - `--record DIR` keeps each word's decisions in `DIR/word-<seq>-<id>/decisions.jsonl` (the session's own number first: a restarted bridge reuses ids); the head carries setxy's `point` and the area `centre`, so `cq-drive --replay` rebuilds a serve word exactly.
 
 ### 21.7 Tests (to write first)
 - **`Names`:** resolve by word and by name, case and spaces; `person` never in `wire()` and unresolvable; bounds refused.

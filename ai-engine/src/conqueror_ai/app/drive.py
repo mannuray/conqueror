@@ -179,9 +179,14 @@ def replay_text(folder: Path, view: TickView | None = None) -> str:
         return f"no decisions.jsonl in {folder} (a run records one with --record; did it connect?)"
 
     def make(head: dict[str, Any], seed: int) -> Skill:
+        from conqueror_ai.app.serve import call_of, word_skill
+
         lim = Limits(**head.get("limits", {}))
         cost = CostSettings(**head["cost"]) if "cost" in head else None
         memory = ThingMemory([Remembered(**r) for r in head.get("remembered", [])])
+        call = call_of(head)  # a cq-drive serve word: its setxy point and area centre (LLD §21)
+        if call is not None:
+            return word_skill(call, lim, cost or CostSettings(), memory, seed)
         return make_skill(Mission(**head["mission"]), lim, cost, memory, seed)
 
     r = replay(path, make, view)

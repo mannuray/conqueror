@@ -194,6 +194,9 @@ def test_what_cannot_start() -> None:
     assert skill_call(start("setxy", to=(10.0, 0.0)), None, NAMES) == "stale"  # no pose to place it from
     assert skill_call(start("setxy"), FACING_X, NAMES) == "stale"
     assert skill_call(start("dance"), FACING_X, NAMES) == "stale"
+    # an area with no pose to place its centre from: refused (review minor 2), as setxy without a pose
+    assert skill_call(start("wander", seconds=5.0, area=(2.0, 0.0, 0.0)), None, NAMES) == "stale"
+    assert isinstance(skill_call(start("wander", seconds=5.0, area=(0.0, 0.0, 0.0)), None, NAMES), SkillCall)
 
 
 def test_the_skills_are_roam_skills() -> None:
@@ -407,9 +410,21 @@ async def test_ctrl_c_saves_the_home_and_sends_nothing(bridge: FakeBridge, tmp_p
     s = await serving(bridge, Maker(lambda: Scripted(None)), home="h", store=store)
     await bridge.to_skill_server({"t": "skill_start", "id": 3, "skill": "wander", "s": 30})
     await until(lambda: len(msgs(bridge, "skill_drive")) >= 3)
+    saves: list[str] = []
+    real = store.save
+
+    def counted(name: str, home: Any) -> None:
+        saves.append(name)
+        real(name, home)
+
+    store.save = counted  # type: ignore[method-assign]
     s.task.cancel()  # asyncio.run cancels the main task on Ctrl-C
     with contextlib.suppress(asyncio.CancelledError):
         await asyncio.wait_for(s.task, 3)
+    n = len(msgs(bridge, "skill_drive"))
+    await asyncio.sleep(0.4)
+    assert len(msgs(bridge, "skill_drive")) == n  # no frame after the cancel
+    assert saves == ["h"]  # saved once
     home = store.load("h")
     assert home is not None and home.runs == ("r0", s.app.world.run_id)
     assert msgs(bridge, "skill_failed") == [] and msgs(bridge, "skill_done") == []  # the close rule: 7052
@@ -495,3 +510,77 @@ async def test_find_and_explore_need_the_depth_model(
         await until(lambda: len(msgs(bridge, "skill_done")) == 1)
     finally:
         await s.close()
+
+
+async def test_websocket_errors_while_reconnecting_are_retried(
+    bridge: FakeBridge, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review I1: a refused handshake and a socket closed during the hello, on flaky WiFi - serve retries
+    every RECONNECT_S and later connects, never a traceback."""
+    monkeypatch.setattr(serve, "RECONNECT_S", 0.1)
+    s = await serving(bridge)
+    try:
+        bridge.reject_handshakes, bridge.drop_hellos = 1, 1
+        hellos = len(msgs(bridge, "hello"))
+        assert bridge.skill_ws is not None
+        await bridge.skill_ws.close()
+        await until(lambda: len(msgs(bridge, "hello")) >= hellos + 2)  # the dropped one, then the good one
+        await until(lambda: s.app.state == "idle")
+        assert not s.task.done() and bridge.reject_handshakes == 0 and bridge.drop_hellos == 0
+        await bridge.to_skill_server({"t": "skill_ask", "id": 1, "q": "see?", "thing": "toy"})
+        await until(lambda: len(msgs(bridge, "skill_answer")) == 1)
+    finally:
+        await s.close()
+
+
+async def test_decisions_folders_never_overwrite(bridge: FakeBridge, tmp_path: Path) -> None:
+    """Review minor 5: a bridge restart reuses skill ids; each word's folder has the session's own number."""
+    p = FakePerception()
+    link = SkillLink(f"ws://127.0.0.1:{bridge.ws_port}/ws", NAMES.wire())
+    app = ServeApp(link, p, world(), NAMES, None, tmp_path, skills=Maker())
+    stop = asyncio.Event()
+    task = asyncio.create_task(app.run(stop))
+    try:
+        await until(lambda: app.state == "idle")
+        for n in (1, 2):
+            await bridge.to_skill_server({"t": "skill_start", "id": 7, "skill": "wander", "s": 5})
+            await until(lambda n=n: len(msgs(bridge, "skill_done")) == n)
+        assert sorted(d.name for d in tmp_path.iterdir()) == ["word-1-7", "word-2-7"]
+        assert all((d / "decisions.jsonl").exists() for d in tmp_path.iterdir())
+    finally:
+        stop.set()
+        await asyncio.wait_for(task, 3)
+
+
+def test_a_setxy_word_with_an_area_centre_replays_identically(tmp_path: Path) -> None:
+    """Review minor 6: `cq-drive --replay` rebuilds a serve word - setxy's point and the area's centre come
+    from the decisions log, not the first pose."""
+    from conqueror_ai.app.drive import replay_text
+    from conqueror_ai.domain.drive.costmap import CostSettings
+    from conqueror_ai.domain.drive.limits import Limits
+    from conqueror_ai.domain.drive.sim import SimRoom, SimTank
+    from conqueror_ai.domain.drive.skill import make_input
+    from conqueror_ai.domain.memory import ThingMemory
+    from conqueror_ai.domain.room_map import RoomMap
+
+    lim, cost, memory = Limits(), CostSettings(), ThingMemory()
+    call = SkillCall("setxy", None, None, (1.0, 0.4), 1.5, (0.6, 0.3))  # the centre is not the first pose
+    folder = tmp_path / "word-1-4"
+    log = serve.word_log(folder, call, 9, lim, cost, memory)
+    skill = serve.word_skill(call, lim, cost, memory, 9)
+    sim, room, tank = SimRoom([], walls_m=2.5), RoomMap(), SimTank()
+    result = None
+    for k in range(300):
+        at, t_us = tank.at, k * 100_000
+        room.update_picture(sim.marks(at), t_us)
+        snap = room.snapshot(t_us, Pose(t_us, at[0], at[1], at[2], 0.0, 0.0), False, True)
+        inp = make_input(at=at, snap=snap, map_ok=True, settings=cost, sonar_m=sim.sonar(at))
+        out = skill.tick(k * 0.1, inp)
+        log.tick(k * 0.1, inp, out, skill.state, skill.debug())
+        tank.step(out.cmd, 0.1)
+        if (result := out.result) is not None:
+            break
+    log.close()
+    assert result == Result.DONE
+    text = replay_text(folder)
+    assert "identical" in text, text

@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from websockets.asyncio.client import ClientConnection, connect
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from conqueror_ai.adapters.drive_link import drive_msg
 from conqueror_ai.domain.drive.curves import Command
@@ -164,9 +164,14 @@ class SkillLink:
         return self._ws is not None
 
     async def connect(self) -> None:
-        """Opens the link, registers as the skill server and sends the things. SkillBusy on `nack BUSY`."""
+        """Opens the link, registers as the skill server and sends the things. SkillBusy on `nack BUSY`,
+        ThingsRefused on a refused list; every link failure (websockets' own errors too) is a
+        ConnectionError."""
         things_parts(self.things)  # a list that cannot be sent is refused before connecting
-        ws = await connect(self.url, ping_interval=None, open_timeout=5)
+        try:
+            ws = await connect(self.url, ping_interval=None, open_timeout=5)
+        except WebSocketException as e:  # a refused or broken handshake: one error type for every caller
+            raise ConnectionError(f"the bridge refused the link: {e}") from e
         try:
             await ws.send(json.dumps({"t": "hello", "client": "ai-skills", "proto": 1}))
             async with asyncio.timeout(HELLO_WAIT_S):
@@ -181,6 +186,9 @@ class SkillLink:
                         raise ConnectionError(f"the bridge refused the hello: {m.get('reason')}")
                     if m.get("t") == "welcome":
                         break
+        except WebSocketException as e:  # the socket closed during the hello (WiFi)
+            await ws.close()
+            raise ConnectionError(f"the bridge link closed during the hello: {e}") from e
         except BaseException:
             await ws.close()
             raise

@@ -341,7 +341,7 @@ def said(result: Result, detail: str) -> str:
         return f"failed - {detail}"
     if result == Result.STALE:
         return f"stale - {detail}"
-    return str(result)
+    return str(result) if not detail else f"{result} - {detail}"  # e.g. not_found - seen outside the area
 
 
 async def run_drive(

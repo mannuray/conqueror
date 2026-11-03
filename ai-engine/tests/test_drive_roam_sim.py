@@ -292,9 +292,12 @@ def test_explore_in_a_play_area_is_done_inside_it() -> None:
     assert SimRoom(list(ROOM), walls_m=2.5).seen_share(r.room) < 0.8  # the far side of the room left alone
 
 
-def test_find_a_ball_outside_the_play_area_ends_blocked() -> None:
-    r = roam("wander", 120.0, find=True, ball=(-1.6, 0.2), seed=1, area_m=1.0)
-    assert r.result == "blocked" and r.out_m <= 1.0
+def test_find_a_ball_outside_the_play_area_is_never_driven_to() -> None:
+    """§174 kept the tank inside the play area; a ball seen outside it ended the run blocked. Owner (floor run
+    z8-f1, design-notes §196): not chased - its edge is checked, the search goes on, and it ends not_found
+    (saying it was seen outside). Never out of the area either way."""
+    r = roam("wander", 240.0, find=True, ball=(-1.6, 0.2), seed=1, area_m=1.0)
+    assert r.result == "not_found" and r.out_m <= 1.0
 
 
 def test_goto_a_ball_behind_at_the_start_curves_round() -> None:

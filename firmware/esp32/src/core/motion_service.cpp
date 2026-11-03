@@ -147,15 +147,7 @@ void MotionService::startSkill(int fd, int32_t id, uint32_t now_ms, uint16_t cpm
   m_wrong_way = false;
   m_rate_stalling = false;
   m_skill_first = true;
-  m_skill_still = false;
-  m_skill_clock = 0;
-  m_push_ms = 0;
-  m_push_fwd = 0;
-  m_skill_prev_set = false;
-  m_skill_dir_l = m_skill_dir_r = 1;
-  m_skill_off_l = m_skill_off_r = m_skill_fed_l = m_skill_fed_r = 0;
-  m_go_ref_set = false;
-  m_go_slip.reset();
+  m_skill_push.reset();
   m_go_cpm = cpm;
   m_rate_v = 0;
   m_rate_target = 0;
@@ -210,80 +202,22 @@ MotionOut MotionService::stepGo(const MotionTelem& t, uint32_t now_ms) {
   return o;
 }
 
-// R26.1: not pushing (v <= 0: standing, a spin, backing): nothing of it counts as pushing or slipping. The slip watch's
-// clock and counts stand still; only a stretch of kMoveStallMs forgets the pushing window and the slip watch.
-void MotionService::skillStill(const MotionTelem& t, uint32_t now_ms) {
-  if (!m_skill_still) {
-    m_skill_still = true;
-    m_skill_still_since = now_ms;
-  }
-  m_skill_off_l = t.enc_l - m_skill_fed_l;  // the slip watch sees the counts of the pushing frames only
-  m_skill_off_r = t.enc_r - m_skill_fed_r;
-  if (now_ms - m_skill_still_since >= motion::kMoveStallMs) {
-    m_push_ms = 0;
-    m_push_fwd = 0;
-    m_go_slip.reset();
-  }
-}
-
-// Forward travel of this frame in counts: each track's edges signed by the direction it was commanded (the Uno counts
-// rising edges both ways), the mean of the two - a spin in place is ~0 however fast the tracks run.
-int32_t MotionService::skillForward(const MotionTelem& t) {
-  const int32_t dl = m_skill_prev_set ? t.enc_l - m_skill_prev_l : 0;
-  const int32_t dr = m_skill_prev_set ? t.enc_r - m_skill_prev_r : 0;
-  m_skill_prev_set = true;
-  m_skill_prev_l = t.enc_l;
-  m_skill_prev_r = t.enc_r;
-  return (m_skill_dir_l * dl + m_skill_dir_r * dr) / 2;
-}
-
-// What the tracks were just told (plain mix L = v - w, R = v + w); 0 keeps the last direction (as logo::Odometry).
-void MotionService::skillCommand(int8_t v, int8_t w) {
-  const int l = v - w;
-  const int r = v + w;
-  if (l != 0) m_skill_dir_l = l > 0 ? 1 : -1;
-  if (r != 0) m_skill_dir_r = r > 0 ? 1 : -1;
-}
-
-// The skill's "pushing but not moving": over kMoveStallMs of pushing time (frames with v > 0, accumulated across
-// stretches) less than 1 cm of net forward travel with something within kMoveObstacleMm -> blocked. The sonar's own
-// change is not used (turning changes it). Then the slip watch (R21) on a pushing-time clock.
-bool MotionService::skillBlocked(const MotionTelem& t, uint32_t now_ms) {
-  const int32_t fwd = skillForward(t);
-  if (m_rate_v <= 0) {
-    skillStill(t, now_ms);
-    return false;
-  }
-  m_skill_still = false;
-  const uint32_t dt = now_ms - m_last_telem_ms;
-  m_push_ms += dt;
-  m_push_fwd += fwd;
-  if (m_push_ms > motion::kMoveStallMs) {
-    const bool stuck = m_push_fwd < kGoProgressCounts && t.dist_mm < motion::kMoveObstacleMm;
-    m_push_ms = 0;
-    m_push_fwd = 0;
-    if (stuck) return true;
-  }
-  m_skill_clock += dt;
-  m_skill_fed_l = t.enc_l - m_skill_off_l;
-  m_skill_fed_r = t.enc_r - m_skill_off_r;
-  return m_go_slip.step(m_skill_fed_l, m_skill_fed_r, t.rate_ddps, m_go_cpm, m_skill_clock);  // R21
-}
-
 // R26.1: a GO's ends (lease deadman, the Uno's brake flag, blocked, slip) with the drive_rate loop's (diverged, stalled).
 MotionOut MotionService::stepSkill(const MotionTelem& t, uint32_t now_ms) {
   if (now_ms - m_rate_update_ms > motion::kRateDeadmanMs) return finish(EndReason::kDeadman);
   const bool first = m_skill_first;  // the first frame's flag may be the last primitive's (as a GO)
   m_skill_first = false;
   const bool brake = ((t.flags >> static_cast<unsigned>(proto::FastFlagBit::kBlocked)) & 1u) != 0;
-  if ((!first && brake) || skillBlocked(t, now_ms)) return finish(EndReason::kBlocked);
+  if ((!first && brake) || m_skill_push.step(t, now_ms - m_last_telem_ms, now_ms, m_go_cpm)) {
+    return finish(EndReason::kBlocked);  // R26.1: the Uno's brake, or pushing but not moving
+  }
   uint32_t dt = now_ms - m_last_telem_ms;
   if (dt == 0 || dt > 100) dt = 20;
   MotionOut o;
   o.send = true;
   o.v = m_rate_v;
   o.w = m_rate.step(m_rate_target, t.rate_ddps, static_cast<uint16_t>(dt));
-  skillCommand(o.v, o.w);
+  m_skill_push.commanded(o.v, o.w, now_ms);
   const bool saturated = o.w >= motion::kRateSaturatedPct || o.w <= -motion::kRateSaturatedPct;
   if (rateDiverged(saturated, t.rate_ddps, now_ms)) return finish(EndReason::kDiverged);
   if (rateStalled(saturated, t.rate_ddps, now_ms)) return finish(EndReason::kStalled);

@@ -1451,12 +1451,9 @@ void test_skill_alternating_a_real_spin_and_a_creep_against_a_wall_is_blocked() 
     const bool drive = (t / 200) % 2 == 0;
     svc.skillDrive(drive ? 40 : 0, drive ? 0.0f : 90.0f, t);
     MotionTelem m = goAt(c, drive ? 160 : 240);  // the spin sees further than the wall ahead
-    if (!drive) {
-      c += 16;  // ~2 cm of track per 200 ms at the slowest spin, both tracks
-      m.enc_l = m.enc_r = c;
-      m.rate_ddps = 900;
-    }
+    if (!drive) m.rate_ddps = 900;
     o = svc.onTelemetry(m, t);
+    if (!drive) c += 16;  // ~2 cm of track per 200 ms at the slowest spin, both tracks - on the next frame (causal)
   }
   TEST_ASSERT_TRUE(o.ended);
   TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
@@ -1498,8 +1495,8 @@ bool pulsedCreep(uint32_t on_ms, uint32_t off_ms, float counts_per_frame) {
   for (uint32_t t = 20; t <= 10000; t += 20) {
     const bool drive = (t % (on_ms + off_ms)) < on_ms;
     svc.skillDrive(drive ? 30 : 0, 0.0f, t);
-    if (drive) c += counts_per_frame;
     if (svc.onTelemetry(goAt(static_cast<int32_t>(c), 160), t).ended) return false;  // 16 cm from the wall, creeping
+    if (drive) c += counts_per_frame;  // the command's counts arrive on the next frame (causal, round 4)
   }
   return true;
 }
@@ -1508,6 +1505,164 @@ bool pulsedCreep(uint32_t on_ms, uint32_t off_ms, float counts_per_frame) {
 void test_skill_a_pulsed_real_creep_is_not_blocked() {
   TEST_ASSERT_TRUE(pulsedCreep(200, 200, 4.5f));  // 3 cm/s while driving
   TEST_ASSERT_TRUE(pulsedCreep(20, 20, 7.5f));    // 5 cm/s, one frame on / one off
+}
+
+// Review round 4: a CAUSAL motor model - the counts a frame carries come from the commands sent before it. Each track's
+// speed (counts / frame, signed) follows its command (plain mix L = v - w, R = v + w, `gain` counts / frame per %) by
+// `alpha` per 20 ms frame, after `delay` extra frames; the Uno counts edges both ways (|speed|); the gyro sees the
+// tracks' difference. `wall`: the tracks cannot run forward together (a creep is stalled, a spin still turns).
+namespace {
+struct MotorModel {
+  float alpha = 1.0f;
+  int delay = 0;      // extra frames between the command and the motor
+  float gain = 0.35f;  // counts per frame per % (1750 counts/s at 100 %)
+  bool wall = false;
+  float sl = 0, sr = 0, el = 0, er = 0;
+  int8_t hv[3] = {0, 0, 0}, hw[3] = {0, 0, 0};  // the commands sent, newest first
+  MotionTelem telem(uint16_t dist_mm) const {
+    MotionTelem m;
+    m.enc_l = static_cast<int32_t>(el);
+    m.enc_r = static_cast<int32_t>(er);
+    m.dist_mm = dist_mm;
+    m.rate_ddps = static_cast<int16_t>((sr - sl) * 28.6f);  // w 60 % ~ 120 deg/s
+    return m;
+  }
+  void sent(const MotionOut& o) {  // the frame's command, then 20 ms of motion
+    hv[2] = hv[1];
+    hw[2] = hw[1];
+    hv[1] = hv[0];
+    hw[1] = hw[0];
+    hv[0] = o.send ? o.v : 0;
+    hw[0] = o.send ? o.w : 0;
+    const int v = hv[delay], w = hw[delay];
+    float tl = gain * static_cast<float>(v - w), tr = gain * static_cast<float>(v + w);
+    if (wall && tl > 0 && tr > 0) tl = tr = 0;  // pushing on the wall: stalled
+    sl += alpha * (tl - sl);
+    sr += alpha * (tr - sr);
+    el += sl < 0 ? -sl : sl;
+    er += sr < 0 ? -sr : sr;
+  }
+};
+
+// The finding: a tiny-v spin (v 1, 90 deg/s) alternating with a stalled v 40 creep 16 cm from a wall (the spin sees
+// 24 cm). `alt_dir`: every other spin turns the other way. Returns the time it ended blocked, 1 for another end, 0 if
+// it never ended in 15 s.
+uint32_t spinCreepBlockedAt(uint32_t half_ms, float alpha, int delay, bool alt_dir = false) {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  MotorModel mm;
+  mm.alpha = alpha;
+  mm.delay = delay;
+  mm.wall = true;
+  for (uint32_t t = 20; t <= 15000; t += 20) {
+    const bool creep = (t / half_ms) % 2 == 0;
+    const float spin = alt_dir && (t / half_ms / 2) % 2 != 0 ? -90.0f : 90.0f;
+    svc.skillDrive(creep ? 40 : 1, creep ? 0.0f : spin, t);
+    const MotionOut o = svc.onTelemetry(mm.telem(creep ? 160 : 240), t);
+    if (o.ended) return o.end.reason == EndReason::kBlocked ? t : 1;
+    mm.sent(o);
+  }
+  return 0;
+}
+
+// A real creep 16 cm from a wall, pulsed on / off; true if not ended in 10 s.
+bool causalPulsedCreep(uint32_t on_ms, uint32_t off_ms, float counts_per_frame, float alpha) {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  MotorModel mm;
+  mm.alpha = alpha;
+  mm.gain = counts_per_frame / 30.0f;  // v 30 runs at counts_per_frame
+  for (uint32_t t = 20; t <= 10000; t += 20) {
+    svc.skillDrive((t % (on_ms + off_ms)) < on_ms ? 30 : 0, 0.0f, t);
+    const MotionOut o = svc.onTelemetry(mm.telem(160), t);
+    if (o.ended) return false;
+    mm.sent(o);
+  }
+  return true;
+}
+}  // namespace
+
+void test_skill_causal_tiny_v_spin_and_stalled_creep_is_blocked_in_the_first_window() {
+  const uint32_t halves[] = {150, 200, 300};
+  for (uint32_t h : halves) {
+    const uint32_t a = spinCreepBlockedAt(h, 0.3f, 0);  // motor inertia
+    const uint32_t b = spinCreepBlockedAt(h, 0.5f, 1);  // and one more frame of delay
+    TEST_ASSERT_GREATER_THAN_UINT32(1, a);  // ended blocked (0: never, 1: another end)
+    TEST_ASSERT_GREATER_THAN_UINT32(1, b);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(1560, a);  // the first 1.5 s pushing window (every frame pushes: v >= 1)
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(1560, b);
+  }
+  // spins turning left and right in turn, shorter than the coast time: one spin's forward track is never matched with
+  // the other spin's
+  const uint32_t short_halves[] = {60, 150};
+  for (uint32_t h : short_halves) {
+    const uint32_t c = spinCreepBlockedAt(h, 0.3f, 0, true);
+    TEST_ASSERT_GREATER_THAN_UINT32(1, c);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(1560, c);
+  }
+}
+
+void test_skill_causal_pulsed_real_creep_is_not_blocked() {
+  TEST_ASSERT_TRUE(causalPulsedCreep(200, 200, 4.5f, 0.3f));  // 3 cm/s, stand / drive 200 ms
+  TEST_ASSERT_TRUE(causalPulsedCreep(20, 20, 7.5f, 0.3f));    // 5 cm/s, one frame on / off
+  TEST_ASSERT_TRUE(causalPulsedCreep(20, 20, 7.5f, 1.0f));    // 20 / 20 ms with an instant motor (minor a)
+  TEST_ASSERT_TRUE(causalPulsedCreep(200, 200, 4.5f, 1.0f));
+}
+
+void test_skill_causal_pure_spin_near_a_wall_is_not_blocked() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  MotorModel mm;
+  mm.alpha = 0.3f;
+  mm.wall = true;
+  for (uint32_t t = 20; t <= 10000; t += 20) {
+    svc.skillDrive(0, 90.0f, t);
+    const MotionOut o = svc.onTelemetry(mm.telem(160), t);
+    TEST_ASSERT_FALSE(o.ended);
+    mm.sent(o);
+  }
+}
+
+// Minor b: the 25 cm gate is the nearest the sonar saw over the pushing window, not the one frame it ended on.
+void test_skill_spin_frames_seeing_further_do_not_hide_the_wall() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  MotorModel mm;
+  mm.alpha = 0.3f;
+  mm.wall = true;
+  uint32_t ended = 0;
+  for (uint32_t t = 20; t <= 10000 && ended == 0; t += 20) {
+    const bool creep = (t / 400) % 2 == 0;
+    svc.skillDrive(creep ? 40 : 1, creep ? 0.0f : 90.0f, t);
+    const MotionOut o = svc.onTelemetry(mm.telem(creep ? 160 : 300), t);
+    if (o.ended) {
+      TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+      ended = t;
+    }
+    mm.sent(o);
+  }
+  TEST_ASSERT_GREATER_THAN_UINT32(0, ended);
+  TEST_ASSERT_LESS_OR_EQUAL_UINT32(1560, ended);  // 1.5 s of pushing from the first pushed frame (40 ms)
+}
+
+// Minor c: a slow straight creep whose edges arrive one track at a time (frames like 1 + 0) adds up its travel:
+// 10 counts a track per 8 frames (~8 mm/s) is more than 1 cm per 1.5 s - not blocked. Per-frame halving or a per-frame
+// smaller track would lose it.
+void test_skill_slow_creep_with_staggered_edges_accumulates_travel() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  const int32_t dl[8] = {2, 1, 2, 1, 1, 0, 2, 1}, dr[8] = {1, 2, 1, 2, 0, 1, 1, 2};
+  int32_t l = 0, r = 0;
+  int i = 0;
+  for (uint32_t t = 20; t <= 10000; t += 20) {
+    svc.skillDrive(30, 0.0f, t);
+    MotionTelem m = slipAt(l, r);
+    m.dist_mm = 160;
+    TEST_ASSERT_FALSE(svc.onTelemetry(m, t).ended);
+    l += dl[i];
+    r += dr[i];
+    i = (i + 1) % 8;
+  }
 }
 
 void test_skill_slip_time_counts_only_while_driving() {
@@ -1725,6 +1880,11 @@ int main() {
   RUN_TEST(test_skill_alternating_a_real_spin_and_a_creep_against_a_wall_is_blocked);
   RUN_TEST(test_skill_tiny_v_spin_alternating_with_a_stuck_creep_is_blocked);
   RUN_TEST(test_skill_a_pulsed_real_creep_is_not_blocked);
+  RUN_TEST(test_skill_causal_tiny_v_spin_and_stalled_creep_is_blocked_in_the_first_window);
+  RUN_TEST(test_skill_causal_pulsed_real_creep_is_not_blocked);
+  RUN_TEST(test_skill_causal_pure_spin_near_a_wall_is_not_blocked);
+  RUN_TEST(test_skill_spin_frames_seeing_further_do_not_hide_the_wall);
+  RUN_TEST(test_skill_slow_creep_with_staggered_edges_accumulates_travel);
   RUN_TEST(test_skill_slip_time_counts_only_while_driving);
   RUN_TEST(test_skill_with_a_slipping_track_is_blocked);
   RUN_TEST(test_skill_ends_without_telemetry_as_link);

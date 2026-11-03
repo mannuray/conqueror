@@ -2806,6 +2806,15 @@ classDiagram
     +endSkill(why)
     -stepSkill(telem, now) MotionOut
   }
+  class SkillPushWatch {
+    <<core, pure>>
+    +reset()
+    +commanded(v, w, now)
+    +step(telem, dt, now, cpm) bool
+    -Track l, r: dir, flip_ms, carry
+    -m_push_ms, m_push_fwd, m_min_mm
+    -m_slip: SlipWatch
+  }
   class MotionController {
     +onSkillDrive(fd, id, v, rate, now)
   }
@@ -2817,16 +2826,26 @@ classDiagram
   SkillHub <.. LogoController
   SkillHub <.. MotionController : leaseOk
   MotionController --> MotionService
+  MotionService --> SkillPushWatch : kSkill only
   LinkOwner <.. SkillHub : lease holder may cam_set
 ```
 - **`SkillHub` (pure, host-tested):** the registration, the things list, the one lease and its deadman.
 - **`ThingNames`:** fixed arrays (no heap after start), lower-cased; `resolve` maps a word or any of its names to the word.
 - **`PrimKind::kSkill` in `MotionService`:** like `kGo`, but with a turn rate. Same ending rules (brake → blocked, stall, link, deadman 300 ms); `w` is held by the bridge's gyro loop, as in `drive_rate` (R4.4).
   - **As built (Plan Z2a Task 5):** `startSkill(fd, id, now, cpm)` takes the Logo program's phone as `fd` (it holds the body; `MotionLink::keepDriving` checks it) and the lease `id` (the end carries it); `skillDrive(v, yaw_rate_dps, now)` does nothing while no skill runs (a late frame never starts one); `endSkill(why)` ends a running skill only. The spin below 65 °/s is clamped as in `drive_rate`. The Uno's stall / encoder-fault events end it as they end a `GO` (`MotionLink::onEvent`).
-  - **A skill's "pushing but not moving"** (the GO's progress rule, rebuilt for turns). Forward travel is measured, not raw counts: each track's edges are signed by the direction it was commanded (plain mix L = v - w, R = v + w; 0 keeps the last, as `logo::Odometry`), and the forward travel is the mean of the two - a spin in place is ~0 however fast the tracks run. Pushing time accrues only on frames with `v > 0` and is accumulated across stretches (no snapping, no rebase); when it passes `kMoveStallMs` with less than 1 cm of net forward travel and something within 25 cm ahead, the skill ends blocked (else the window restarts). The sonar's own change is not used (turning changes it). A `v <= 0` stretch (standing, a spin, backing) adds nothing, and one lasting `kMoveStallMs` forgets the window. The Uno's brake flag ends it at once whatever `v` is (the first frame's flag is ignored, as a GO).
+  - **A skill's "pushing but not moving"** (the GO's progress rule, rebuilt for turns; `core/skill_push_watch`, `SkillPushWatch`, Task 5 round 4 ruling). Forward travel is measured, not raw counts, and taken conservatively:
+    - each track's edges are signed by the direction it was commanded (plain mix L = v - w, R = v + w; 0 keeps the last, as `logo::Odometry`);
+    - a track's counts are taken as 0 for 100 ms after its commanded direction flips (it may still coast the old way - with motor inertia a spin's coast would otherwise count as forward after every spin → creep change);
+    - the frame's forward travel is the **smaller** of the two tracks' (a spin, one track backward, gives ≤ 0); a track's forward counts are summed until the other's match them (a slow creep's edges arrive one track at a time - no per-frame truncation), and a backward track, a coasting track or a frame that does not push drops the unmatched counts (one spin's forward track is never matched with the opposite spin's);
+    - a frame **pushes** when the frame before it sent `v > 0` (the counts it carries come from that command);
+    - pushing time is accumulated across stretches (no snapping, no rebase); when it passes `kMoveStallMs` with less than 1 cm of net forward travel and the **nearest** sonar distance over the window within 25 cm, the skill ends blocked (else the window restarts). The sonar's own change is not used (turning changes it);
+    - a not-pushing stretch (standing, a spin, backing) adds nothing, and one lasting `kMoveStallMs` forgets the window;
+    - tested with a causal motor model (counts follow the command with a follow factor 0.2-1.0 and up to two frames of delay): a tiny-v spin alternating with a stalled creep (halves 20-700 ms, one or both spin directions) ends blocked in the first window (1.54 s); a pulsed real creep (3 cm/s 200 / 200 ms, 5 cm/s 20 / 20 ms) and a pure spin are not blocked;
+    - accepted cost: a tight arc near a wall (the inner track slow or backward) may end blocked (7024, the safe side).
+    - The Uno's brake flag ends it at once whatever `v` is (the first frame's flag is ignored, as a GO).
   - `MotionController::onSkillDrive(fd, id, v, rate_ddps, now)` needs `Hooks::lease_ok` (`SkillHub::leaseOk`) **and** a running skill with that id, else `nack NOT_OWNER` once per stream. `startSkill` is refused like a counted Logo motion (OTA busy, body offline, no encoders / encoder fault: UNAVAILABLE). A skill's end reaches the program through `logo_end` (kind `kSkill`, `id` = the lease); `primitive_done` names it `"prim":"skill"`. The owner's stick (`drive_rate` on the program's fd) ends it as `kOwnerCommand`, which `logo_event` turns into 7045.
   - A skill cannot back out of a brake inside itself: the Uno's brake flag ends it (blocked) whatever `v` is, and the engine then starts a new word.
-  - The slip watch (R21) runs on a pushing-time clock (frames with `v > 0`) with the counts of `v <= 0` stretches left out, so a pause neither restarts nor dilutes its window (the GO's and MOVE's slip watch is unchanged). Accepted limit: a push shorter than 1.5 s followed by a rest of 1.5 s or more, repeated, is not caught by this rule; the Uno's brake, its stall-by-speed check and the rate loop's stall guard remain. `onSkillDrive` checks the running skill's id before `leaseOk`, so a refused frame never refreshes the hub lease's deadman.
+  - The slip watch (R21, its own `SlipWatch` inside `SkillPushWatch`) runs on a pushing-time clock (pushing frames as above) with the counts of the not-pushing stretches left out, so a pause neither restarts nor dilutes its window (the GO's and MOVE's slip watch is unchanged). Accepted limit: a push shorter than 1.5 s followed by a rest of 1.5 s or more, repeated, is not caught by this rule; the Uno's brake, its stall-by-speed check and the rate loop's stall guard remain. `onSkillDrive` checks the running skill's id before `leaseOk`, so a refused frame never refreshes the hub lease's deadman.
   - `LinkOwner::setLeaseHolder(fd)` / `clearLeaseHolder()`: `onCamera` lets the holder move the camera; it never lets it drive, and its close clears it.
 
 ### R26.4 One skill run

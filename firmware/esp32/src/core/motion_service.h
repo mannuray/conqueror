@@ -9,6 +9,7 @@
 #include "core/motion_config.h"
 #include "core/move_controller.h"
 #include "core/rate_loop.h"
+#include "core/skill_push_watch.h"
 #include "core/slip_watch.h"
 #include "core/turn_controller.h"
 
@@ -98,10 +99,6 @@ class MotionService {
   MotionOut stepGo(const MotionTelem& t, uint32_t now_ms);
   MotionOut stepRate(int16_t rate_ddps, uint32_t now_ms);
   MotionOut stepSkill(const MotionTelem& t, uint32_t now_ms);
-  bool skillBlocked(const MotionTelem& t, uint32_t now_ms);
-  void skillStill(const MotionTelem& t, uint32_t now_ms);
-  int32_t skillForward(const MotionTelem& t);
-  void skillCommand(int8_t v, int8_t w);
   void setRateTarget(int8_t v, int16_t rate_ddps, uint32_t now_ms);
   bool rateDiverged(bool saturated, int16_t rate_ddps, uint32_t now_ms);
   bool rateStalled(bool saturated, int16_t rate_ddps, uint32_t now_ms);
@@ -135,15 +132,7 @@ class MotionService {
   uint32_t m_wrong_since = 0;  // ... since
   bool m_rate_stalling = false;  // final review I1: saturated while the tank does not turn ...
   uint32_t m_rate_stall_since = 0;  // ... since
-  uint32_t m_push_ms = 0;       // R26.1: pushing time (frames with v > 0) in the current window ...
-  int32_t m_push_fwd = 0;       // ... and the net forward travel in counts over it
-  bool m_skill_prev_set = false;
-  int32_t m_skill_prev_l = 0, m_skill_prev_r = 0;
-  int8_t m_skill_dir_l = 1, m_skill_dir_r = 1;  // the direction each track was last commanded
-  uint32_t m_skill_clock = 0;   // the slip watch's clock: pushing time only
-  int32_t m_skill_off_l = 0, m_skill_off_r = 0, m_skill_fed_l = 0, m_skill_fed_r = 0;  // counts the slip watch has not seen
-  bool m_skill_still = false;  // R26.1: the frames since m_skill_still_since all had v == 0
-  uint32_t m_skill_still_since = 0;
+  SkillPushWatch m_skill_push;  // R26.1: a skill's pushing but not moving
   bool m_skill_first = false;  // R26.1: no frame since startSkill yet (its brake flag may be the last primitive's)
   uint32_t m_last_telem_ms = 0;
 };

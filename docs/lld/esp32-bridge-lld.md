@@ -2869,6 +2869,7 @@ sequenceDiagram
   - Only the registered skill server's IP address is answered (`SkillHub::server()` → the peer address of its `/ws` socket); anything else gets 403. No other auth (R26: home network, development only).
   - A slow upload holds only this task. **Port 80, where STOP is read, never reads an engine body** - the reason this server exists (design-notes §198).
   - Receive timeout 1 s; a body over its limit → 413 and the socket closed.
+  - **`lru_purge_enable = true`:** when the laptop sleeps or its WiFi drops, the bridge still holds the engine's half-open keep-alive socket; the engine's next connection evicts it instead of finding no room.
 - **Routes on port 82:**
 
 | Route | Body | What the bridge does |
@@ -2971,6 +2972,11 @@ classDiagram
 - **`SlotStore`, `AiRelay`, `AiRequests`** are pure C++ with host tests; `AiInbox` and the routes are thin (they parse the request, call the core, answer).
 - **`SlotStore`:** fixed table of `kSlots` names with their type and limit; `begin` returns the spare buffer or null (unknown name, too big); `commit` swaps under a short lock (the same bounded take as the things list, R26: 2 ms) and bumps `seq`; `read` copies out under the lock (≤ 5 KB, so the lock is held only for a memcpy) or reports "unchanged" / "none yet".
 - **`AiRelay`:** which `/ws` clients are viewers (their count goes to the engine as `ai_viewers` when it changes), a per-viewer 100 ms gap per kind (newest wins: a status arriving inside the gap replaces the held one, sent when the gap ends), and the message text (`{"t":"ai_status",` + the body after its `{`). It never parses the body beyond checking it is one JSON object ≤ 360 B.
+  - **Safety replies first:** the out queue (`g_out`, 24 slots) also carries STOP acks, `skill_end` and nacks. The relay enqueues only while **≥ 8 slots are free**; otherwise the message waits (newest wins) for the next tick. A busy `/ai` page can never crowd out a safety reply.
+- **Which task owns what:**
+  - `AiInbox` runs on port 82's task. It puts each status / boxes body into a **one-slot newest-wins mailbox per kind** (≤ 360 B, under a short lock; `LinkCommand::text` is only 200 B, so a body cannot use the existing `linkPost`) and returns 204.
+  - `link_task` owns `AiRelay` and `AiRequests`: hello / close change the viewer list there, `ai_req` / `ai_rep` arrive there, and its tick (2 ms) drains the mailboxes, applies the gap and the headroom rule, and checks the request limits.
+  - `SlotStore` is shared by port 82's task (the writer) and port 80's task (the reader), each under the slot lock; neither holds it longer than a 5 KB memcpy.
 - **`AiRequests`:** at most one open request; forwards with a bridge id; matches the answer; limits; a server close answers the open request `ok:false`.
 
 ### R27.4 Sequences
@@ -3033,15 +3039,65 @@ sequenceDiagram
   - `Link` - the `/ws` with `hello ai-page`, pings, telemetry, `ai_status` / `ai_boxes` / `ai_rep` / `ai_gone`;
   - `Slots` - fetches a slot when status shows a new number, one fetch at a time, at most 2 a second;
   - `Run` - `logo_run` of a one-line program, the result and "I ran: …" with a link to `/logo`;
-  - `Camera` [Z2b-1] - **one stream, two views**: one `<img>` from `:81/stream` drawn into two canvases each frame; **view 1** the picture + the boxes (`ai_boxes`, names and, on Inside, scores); **view 2** the picture under a layer from a picker - **depth** (the `depth` slot, scaled, 60 % over the picture) in Z2b-1, more layers later (each layer a slot). The stream refused → both views draw the `snap` slot instead, with a "camera busy - small picture" note;
+  - `Camera` [Z2b-1] - **one stream, two views**: one `<img crossOrigin="anonymous">` from `:81/stream` (the stream already sends `Access-Control-Allow-Origin: *`, so the canvases stay untainted and a picture can be saved) drawn into two canvases each frame; **view 1** the picture + the boxes (`ai_boxes`, names and, on Inside, scores); **view 2** the picture under a layer from a picker - **depth** (the `depth` slot, scaled, 60 % over the picture) in Z2b-1, more layers later (each layer a slot). The stream refused → both views draw the `snap` slot instead, with a "camera busy - small picture" note;
   - `Play` [Z2b-1] - the face (mood from status), Find / Wander / Explore, the thing picker (the `things` slot) and a typing box (known → runs; unknown → "I don't know what a … is" with **teach it** for an adult: word, everyday names, confirm), what I'm thinking (`say`, spoken by `speechSynthesis` when the sentence changes, a mute toggle), Why? (the `why` slot), take a picture (the current frame saved on the phone only);
   - `Room`, `Inside` [Z2b-2] - spec 8 §4.5.
+- **Drawing a live MJPEG `<img>` into a canvas is not certain on every phone browser** (iOS Safari is the one in doubt). It is **the first stand check of Plan Z2b-1**. The fallback: `fetch()` the stream, split the JPEG parts in JS and draw each with `createImageBitmap` (the CORS header covers it too).
+- **The page's modules:**
+```mermaid
+classDiagram
+  class Link {
+    +connect() : hello ai-page, pings
+    +send(msg) bool
+    +on(t, fn)
+  }
+  class Slots {
+    +want(name, fn)
+    -onStatus(slots) : fetch what changed, one at a time, ≤ 2 / s
+  }
+  class Run {
+    +run(line) : logo_run on Link
+    +onResult(fn) : done / error words, I ran
+  }
+  class Camera {
+    +views : objects, layer
+    +layer(name) : depth, later more
+    -state : streaming | snapshot
+  }
+  class Play {
+    +face(mood)
+    +find(thing, area) / wander(s) / explore()
+    +teach(word, names) : ai_req
+    +say(text) : speechSynthesis
+    +why()
+    +picture() : save the frame on the phone
+  }
+  class Header { +stop() +chips(telemetry, status) +tabs() }
+  Play --> Run
+  Play --> Camera
+  Play --> Slots : why, things
+  Camera --> Slots : depth, snap
+  Camera ..> Link : ai_boxes
+  Header --> Link : stop, telemetry, ai_status
+  Run --> Link
+```
+- **The camera's states:**
+```mermaid
+stateDiagram-v2
+  [*] --> Connecting
+  Connecting --> Streaming : first frame
+  Connecting --> Snapshot : refused / no frame in 3 s
+  Streaming --> Snapshot : no new frame for 3 s
+  Snapshot --> Connecting : retry every 10 s
+```
+  - The 3 s no-frame timer matters: with two viewers already open port 81 does not accept a third socket at all, so the `<img>` may wait a long time before `onerror`.
+  - **The laptop's `/logo` camera pane takes the second viewer too:** with `/logo` open on the laptop, the phone's `/ai` shows the snapshot views.
 - **Socket budget:** the page is one `/ws` client of the four (engine, drive page, `/logo`, `/ai`) and one stream viewer of the two (the engine holds the other). Opening `/ai` on a second phone while one already streams gets the snapshot views.
 
 ### R27.6 Tests (host, C++)
 - **`test_slot_store`:** an unknown name and a too-big length refused; begin → commit bumps the number; a read during an upload gets the old picture whole; `have` = current → unchanged; none before the first commit; the lock take bounded.
-- **`test_ai_relay`:** only `ai-page` clients get it; ≤ 10 Hz per viewer per kind with the newest kept; a closed viewer forgotten; a body that is not one object or over 360 B refused; the message text exact.
+- **`test_ai_relay`:** nothing is enqueued with fewer than 8 free out-queue slots (held, newest wins, sent later); only `ai-page` clients get it; ≤ 10 Hz per viewer per kind with the newest kept; a closed viewer forgotten; a body that is not one object or over 360 B refused; the message text exact.
 - **`test_ai_requests`:** forwarded with a new id and answered to the right page; refused with no server / a program running / one already open; the 5 s and 240 s limits; a server close answers the open one.
 - **`test_skill_hub`:** `skill_learning` on / off from the server only; cleared on close; `skill_start` while learning answered `learning`.
 - **`test_ws_codec`:** `ai_req`, `ai_rep`, `skill_learning` parse; bad fields refused.
-- **On the stand (Plan Z2b-1):** free sockets and heap with the engine, the drive page and `/ai` open; STOP from the phone during a 5 KB upload loop (the ack time stays as today, ~20 ms); port 82 refuses another address; a WiFi stall on the laptop (pull its WiFi) never delays a STOP.
+- **On the stand (Plan Z2b-1):** first, the two camera views live on the owner's phone (else the `fetch` fallback); the engine's port 82 connection cut without a close (laptop WiFi off) and the next connection accepted; free sockets and heap with the engine, the drive page and `/ai` open; STOP from the phone during a 5 KB upload loop (the ack time stays as today, ~20 ms); port 82 refuses another address; a WiFi stall on the laptop (pull its WiFi) never delays a STOP.

@@ -15,7 +15,13 @@ from conqueror_ai.domain.drive.curves import XYTh
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
-from conqueror_ai.domain.drive.roam import Mode, RoamSkill
+from conqueror_ai.domain.drive.roam import (
+    POINT_DONE_M,
+    POINT_PATIENCE_S,
+    POINT_SLOW_M,
+    Mode,
+    RoamSkill,
+)
 from conqueror_ai.domain.drive.sim import Box, SimRoom, SimTank
 from conqueror_ai.domain.drive.skill import make_input
 from conqueror_ai.domain.objects import GATE_DPS
@@ -387,9 +393,9 @@ def test_point_reached_free() -> None:
     assert r.body >= BODY_M and not r.front_hit
 
 
-def test_point_walled_off_is_no_way() -> None:
-    """A point inside a tall box (the map marks it, so no route reaches it): after NO_ROUTE_S it ends no_way,
-    never driving into the box."""
+def test_point_inside_a_box_is_no_way() -> None:
+    """The point-inside-a-box case: the map marks the point, so no route reaches it; after NO_ROUTE_S it ends
+    no_way, never driving into the box."""
     r = roam("point", 90.0, boxes=[Box(1.3, -0.4, 1.9, 0.4, 0.0, 0.4)], point=(1.6, 0.0))
     assert r.result == "no_way"
     assert r.body >= BODY_M and not r.front_hit
@@ -402,3 +408,38 @@ def test_centre_moves_the_area() -> None:
     r = roam("wander", 120.0, boxes=[], area_m=1.0, centre=centre, seed=3)
     assert max(corners_from(p, (*centre, 0.0)) for p in r.positions) <= 1.0 + 1e-9
     assert max(corners_from(p, (0.0, 0.0, 0.0)) for p in r.positions) > 1.0  # beyond a start-centred area
+
+
+def test_point_behind_a_full_width_wall_ends_no_way_by_the_watchdog() -> None:
+    """Unseen floor is passable, so the tank explores round the wall's unseen ends; it gets no nearer, and
+    POINT_PATIENCE_S without POINT_PROGRESS_M of progress ends no_way (ruling, Task 8 review)."""
+    r = roam("point", 120.0, boxes=[Box(1.0, -2.6, 1.2, 2.6, 0.0, 0.4)], point=(1.9, 0.0))
+    assert r.result == "no_way"
+    assert len(r.positions) * 0.1 <= POINT_PATIENCE_S + 25.0  # the first approach + the patience
+    assert r.body >= BODY_M and not r.front_hit
+
+
+def test_point_reached_by_a_legit_detour_is_done() -> None:
+    """A box straight in the way: the detour first takes the tank no nearer, then the point is reached."""
+    r = roam("point", 90.0, boxes=[Box(1.0, -0.6, 1.2, 0.6, 0.0, 0.4)], point=(2.0, 0.0))
+    assert r.result == "done" and math.dist(r.positions[-1][:2], (2.0, 0.0)) <= POINT_DONE_M + 1e-9
+    assert r.body >= BODY_M
+
+
+def test_point_outside_the_play_area_is_no_way() -> None:
+    """AREA 2, then a point 5 m away: no route leaves the area, so no_way after NO_ROUTE_S."""
+    r = roam("point", 60.0, boxes=[], point=(5.0, 0.0), area_m=2.0)
+    assert r.result == "no_way" and r.out_m <= 2.0 + 0.05
+
+
+def test_point_approach_slows_within_point_slow_m() -> None:
+    """The last POINT_SLOW_M to the point is at the slow speed, so the tank stops where it was sent."""
+    r = roam("point", 60.0, boxes=[], point=(1.5, 0.0))
+    assert r.result == "done"
+    speeds = [
+        math.dist(a[:2], b[:2]) / 0.1
+        for a, b in itertools.pairwise(r.positions)
+        if math.dist(a[:2], (1.5, 0.0))
+        < POINT_SLOW_M - 0.2  # the speed ramp needs a little of it to come down
+    ]
+    assert speeds and max(speeds) <= LIM.slow_cms / 100.0 + 0.01

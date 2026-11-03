@@ -53,6 +53,9 @@ PLAN_TRIES = 3  # destinations tried in one tick before it counts as stuck
 START_STAND_S = 1.0  # at the start: stand with the camera ahead so the map takes still pictures
 POINT_DONE_M = 0.15  # setxy: the tank's centre this near the point is there (play tolerance, spec 0 §1.1)
 NO_ROUTE_S = 5.0  # setxy: no route to the point for this long ends no_way
+POINT_PROGRESS_M = 0.3  # setxy: a nearer best distance by this much is progress ...
+POINT_PATIENCE_S = 40.0  # ... and this long without any ends no_way (unseen floor is passable: a point behind
+# an unseen wall is explored toward until here)
 POINT_SLOW_M = 0.5  # setxy: the last stretch at the slow speed, so it stops where it was sent
 
 
@@ -139,6 +142,8 @@ class RoamSkill:
             None if centre is None or area_m is None else (centre[0], centre[1], area_m)
         )
         self._no_route_t0: float | None = None  # point: since when there is no route
+        self._best_m = math.inf  # point: the nearest it has been, as of the last progress ...
+        self._best_t = 0.0  # ... and when
         self._check: _Check | None = None
         self.candidates = Candidates()
         self.memory = memory
@@ -264,8 +269,14 @@ class RoamSkill:
         seen = fix is not None and fix.seen_age_s < LOST_AFTER_S
         if self.find and (self.state in ("start", "chase") or seen):
             return self._chase(now_s, at, snap, fix, sonar_m, map_ok, cam_still)
-        if self.point is not None and math.dist(at[:2], self.point) <= POINT_DONE_M:
-            return self._end("done")
+        if self.point is not None:
+            d = math.dist(at[:2], self.point)
+            if d <= POINT_DONE_M:
+                return self._end("done")
+            if self._best_m - d >= POINT_PROGRESS_M:
+                self._best_m, self._best_t = d, now_s
+            elif now_s - self._best_t >= POINT_PATIENCE_S - 1e-9:
+                return self._end(Result.NO_WAY, "no nearer to the point")
         if self.mode == "wander" and self.seconds is not None and now_s - self._t0 >= self.seconds - 1e-9:
             return self._end("done")
         if sonar_m is not None and sonar_m < self.lim.clear_m:
@@ -437,9 +448,8 @@ class RoamSkill:
         self, now_s: float, at: XYTh, cost: CostMap, planner: Planner, sonar_m: float | None
     ) -> SkillOut:
         route = self._plan(now_s, at, cost)
-        if (
-            self.point is not None
-        ):  # setxy: no way for NO_ROUTE_S ends it (the tank stands and waits meanwhile)
+        # setxy: no way for NO_ROUTE_S ends it (the tank stands and waits meanwhile)
+        if self.point is not None:
             if route is not None:
                 self._no_route_t0 = None
             else:

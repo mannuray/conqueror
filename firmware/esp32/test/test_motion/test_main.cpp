@@ -1465,6 +1465,51 @@ void test_skill_alternating_a_real_spin_and_a_creep_against_a_wall_is_blocked() 
 
 // Review round 2: slip time counts only over the frames that drive - 0.4 s of a slipping drive and 1.0 s of spin,
 // repeated, ends blocked within a bounded time (the spin neither restarts nor dilutes the slip window).
+// Review round 3: "pushing but not moving" is measured as FORWARD travel (each track signed by its commanded
+// direction) over the frames that push (v > 0). A tiny v with a real spin pushes nothing forward ...
+void test_skill_tiny_v_spin_alternating_with_a_stuck_creep_is_blocked() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  MotionOut o;
+  int32_t c = 0;
+  uint32_t t = 20;
+  for (; t <= 12000 && !o.ended; t += 20) {
+    const bool creep = (t / 200) % 2 == 0;
+    svc.skillDrive(creep ? 40 : 1, creep ? 0.0f : 90.0f, t);
+    MotionTelem m = goAt(c, creep ? 160 : 240);
+    if (!creep) {
+      c += 16;  // both tracks' edges rise in a spin
+      m.enc_l = m.enc_r = c;
+      m.rate_ddps = 900;
+    }
+    o = svc.onTelemetry(m, t);
+  }
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+  TEST_ASSERT_LESS_THAN(8000, t);
+}
+
+// ... and a real creep that moves is never blocked, however it is pulsed (stand / drive 200 ms; one frame on / off).
+namespace {
+bool pulsedCreep(uint32_t on_ms, uint32_t off_ms, float counts_per_frame) {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  float c = 0;
+  for (uint32_t t = 20; t <= 10000; t += 20) {
+    const bool drive = (t % (on_ms + off_ms)) < on_ms;
+    svc.skillDrive(drive ? 30 : 0, 0.0f, t);
+    if (drive) c += counts_per_frame;
+    if (svc.onTelemetry(goAt(static_cast<int32_t>(c), 160), t).ended) return false;  // 16 cm from the wall, creeping
+  }
+  return true;
+}
+}  // namespace
+
+void test_skill_a_pulsed_real_creep_is_not_blocked() {
+  TEST_ASSERT_TRUE(pulsedCreep(200, 200, 4.5f));  // 3 cm/s while driving
+  TEST_ASSERT_TRUE(pulsedCreep(20, 20, 7.5f));    // 5 cm/s, one frame on / one off
+}
+
 void test_skill_slip_time_counts_only_while_driving() {
   MotionService svc;
   svc.startSkill(3, 7, 0);
@@ -1678,6 +1723,8 @@ int main() {
   RUN_TEST(test_skill_spinning_in_place_near_a_wall_is_not_blocked_and_the_wait_does_not_carry_over);
   RUN_TEST(test_skill_alternating_standing_and_creep_against_a_wall_is_blocked);
   RUN_TEST(test_skill_alternating_a_real_spin_and_a_creep_against_a_wall_is_blocked);
+  RUN_TEST(test_skill_tiny_v_spin_alternating_with_a_stuck_creep_is_blocked);
+  RUN_TEST(test_skill_a_pulsed_real_creep_is_not_blocked);
   RUN_TEST(test_skill_slip_time_counts_only_while_driving);
   RUN_TEST(test_skill_with_a_slipping_track_is_blocked);
   RUN_TEST(test_skill_ends_without_telemetry_as_link);

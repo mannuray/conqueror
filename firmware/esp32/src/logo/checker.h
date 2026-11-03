@@ -9,6 +9,7 @@
 #include "logo/generated/words.h"
 #include "logo/lexer.h"
 #include "logo/parser.h"
+#include "logo/thing_names.h"
 
 namespace cq {
 namespace logo {
@@ -16,6 +17,7 @@ namespace logo {
 struct Caps {
   bool encoders = true;
   bool ai = false;      // an AI program (vision words allowed)
+  const ThingNames* things = nullptr;  // the AI helper's things; set = literal things are checked (7053)
   uint8_t version = 1;  // v1: level-3 words other than OUTPUT are reserved (7030)
 };
 
@@ -49,6 +51,7 @@ class Checker {
   void visitCall(Node* n, int16_t def, const Caps& caps, CheckResult& r);
   void needsAndLevel(const gen::WordSpec& w, uint16_t tok, const Caps& caps);
   void checkRange(const Node* call, const gen::WordSpec& w, uint8_t i, const Node* c);
+  void checkThing(const gen::WordSpec& w, uint8_t i, const Node* c, const Caps& caps);
   void arcTooTight(const Node* call, const Node* radius);
   void visitInput(const Node* n, int16_t def);
   void listWarning(const Node* list);

@@ -28,6 +28,65 @@ uint16_t first() { return g_d.first() ? g_d.first()->code : 0; }
 void setUp() {}
 void tearDown() {}
 
+// Things the AI helper knows: toy (car, racing car), ball.
+Caps withThings(ThingNames& t) {
+  static const char* const words[] = {"toy", "ball"};
+  static const uint8_t n[] = {2, 1};
+  static const char* const names[] = {"car", "racing car", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                                      "ball", nullptr,     nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+  t.set(words, n, names, 2);
+  Caps c;
+  c.ai = true;
+  c.things = &t;
+  return c;
+}
+
+void test_find_known_name_ok() {
+  ThingNames t;
+  const Caps c = withThings(t);
+  TEST_ASSERT_TRUE(C("FIND \"Car", c).ok);  // loose: case; "racing car" squeezes in ThingNames' own test
+  TEST_ASSERT_TRUE(C("FIND \"toy", c).ok);
+}
+
+void test_find_unknown_is_7053() {
+  ThingNames t;
+  const Caps c = withThings(t);
+  C("FIND \"dragon", c);
+  TEST_ASSERT_EQUAL(7053, first());
+  TEST_ASSERT_EQUAL(6, g_d.first()->col);
+  TEST_ASSERT_NOT_NULL(strstr(g_d.first()->msg, "dragon"));
+}
+
+void test_find_without_server_is_7020() {
+  Caps c;
+  c.ai = false;
+  C("FIND \"dragon", c);
+  TEST_ASSERT_EQUAL(7020, first());
+  ThingNames t;  // a list without the AI helper: still 7020
+  c = withThings(t);
+  c.ai = false;
+  C("FIND \"dragon", c);
+  TEST_ASSERT_EQUAL(7020, first());
+}
+
+void test_see_and_howfar_resolve_too() {
+  ThingNames t;
+  const Caps c = withThings(t);
+  TEST_ASSERT_TRUE(C("IF SEE? \"ball [ SAY HOWFAR \"car ]", c).ok);
+  C("IF SEE? \"dragon [ BEEP ]", c);
+  TEST_ASSERT_EQUAL(7053, first());
+  C("SAY HOWFAR \"dragon", c);
+  TEST_ASSERT_EQUAL(7053, first());
+}
+
+void test_computed_thing_not_checked() {
+  ThingNames t;
+  Caps c = withThings(t);
+  c.version = 2;  // FIRST is a level-3 word, reserved (7030) in v1
+  TEST_ASSERT_TRUE(C("FIND FIRST [dragon]", c).ok);
+  TEST_ASSERT_TRUE(C("TO FETCH :what FIND :what END FETCH \"dragon", c).ok);  // a procedure's input: the engine checks
+}
+
 void test_check_scope() {
   C("TO SQUARE :size REPEAT 4 [ FD :sise RT 90 ] END");
   TEST_ASSERT_EQUAL(7009, first());
@@ -131,5 +190,10 @@ int main(int, char**) {
   RUN_TEST(test_check_long_program_checks_every_statement);
   RUN_TEST(test_check_too_deep_tree_is_7010);
   RUN_TEST(test_check_play_notes);
+  RUN_TEST(test_find_known_name_ok);
+  RUN_TEST(test_find_unknown_is_7053);
+  RUN_TEST(test_find_without_server_is_7020);
+  RUN_TEST(test_see_and_howfar_resolve_too);
+  RUN_TEST(test_computed_thing_not_checked);
   return UNITY_END();
 }

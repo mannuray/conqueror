@@ -16,6 +16,33 @@ TokenList g_t;
 Diagnostics g_d;
 Node g_nodes[4096];
 
+// "toy=car|racing car;ball=ball;" -> a ThingNames (the encoding logogen writes into cases.h).
+bool loadThings(const char* enc, ThingNames& out) {
+  static char text[512];
+  static const char* words[ThingNames::kMaxWords];
+  static uint8_t n_names[ThingNames::kMaxWords];
+  static const char* names[ThingNames::kMaxWords * ThingNames::kMaxNames];
+  strncpy(text, enc, sizeof text - 1);
+  text[sizeof text - 1] = '\0';
+  uint8_t nw = 0;
+  char* p = text;
+  while (*p != '\0' && nw < ThingNames::kMaxWords) {
+    words[nw] = p;
+    while (*p != '=') ++p;
+    *p++ = '\0';
+    n_names[nw] = 0;
+    while (true) {
+      names[nw * ThingNames::kMaxNames + n_names[nw]++] = p;
+      while (*p != '|' && *p != ';') ++p;
+      const char end = *p;
+      *p++ = '\0';
+      if (end == ';') break;
+    }
+    ++nw;
+  }
+  return out.set(words, n_names, names, nw);
+}
+
 void yourWords(const Parser& p, const char* src, char* out, size_t cap) {
   out[0] = '\0';
   for (uint8_t i = 0; i < p.procCount(); ++i) {
@@ -75,6 +102,11 @@ void runCase(const LogoCase& c) {
     Caps caps;
     caps.encoders = c.encoders;
     caps.ai = c.ai;
+    ThingNames things;
+    if (c.things[0] != '\0') {
+      TEST_ASSERT_TRUE(loadThings(c.things, things));
+      caps.things = &things;
+    }
     Checker k(p, c.src, g_t, g_d);
     r = k.check(prog, caps);
   }

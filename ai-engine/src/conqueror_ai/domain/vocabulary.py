@@ -14,6 +14,7 @@ class Word:
     floor: bool  # it stands on the floor: the floor trick places it
     min_score: float = DEFAULT_MIN_SCORE
     also: tuple[str, ...] = ()  # extra wordings the model is asked, reported as this word (design-notes §187)
+    names: tuple[str, ...] = ()  # what a child may write for it in the AI words (LLD §21.4)
 
 
 def _word(r: dict[str, Any], i: int) -> Word:
@@ -26,12 +27,16 @@ def _word(r: dict[str, Any], i: int) -> Word:
     also: Any = r.get("also", [])
     if not isinstance(also, list):
         raise ValueError(f"{word}: also must be a list of wordings, not {also!r}")
+    names: Any = r.get("names", [])
+    if not isinstance(names, list):
+        raise ValueError(f"{word}: names must be a list of names, not {names!r}")
     try:
         return Word(
             word,
             floor,
             float(r.get("min_score", DEFAULT_MIN_SCORE)),
             tuple(str(a) for a in cast("list[Any]", also)),
+            tuple(str(a) for a in cast("list[Any]", names)),
         )
     except (TypeError, ValueError):
         raise ValueError(f"{word}: min_score must be a number, not {r.get('min_score')!r}") from None

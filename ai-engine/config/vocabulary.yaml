@@ -2,6 +2,7 @@
 # trick places it). min_score: its own threshold (0.25 unless set). also: extra wordings asked of the model,
 # reported as the word - add one only after measuring it (design-notes §187). After a change re-export the model:
 #   cd tools/measure && uv run python export_world.py
+# names: what a child may write for the word in FIND / SEE? (LLD §21.4); `person` is never offered or found.
 words:
   - {word: person, floor: true}
   - {word: chair, floor: true}
@@ -9,7 +10,7 @@ words:
   - {word: bed, floor: true}
   - {word: sofa, floor: true}
   - {word: door, floor: false}
-  - {word: bottle, floor: true}
-  - {word: shoe, floor: true}
-  - {word: box, floor: true}
-  - {word: toy, floor: true, also: [toy car]}  # f1: "toy car" 0.95, "toy" 0.49 (§187)
+  - {word: bottle, floor: true, names: [water bottle]}
+  - {word: shoe, floor: true, names: [trainer, slipper]}
+  - {word: box, floor: true, names: [cardboard box]}
+  - {word: toy, floor: true, also: [toy car], names: [car, toy car, racing car, teddy]}  # f1: "toy car" 0.95, "toy" 0.49 (§187)

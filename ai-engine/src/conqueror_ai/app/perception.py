@@ -15,6 +15,7 @@ from conqueror_ai.app.world import World
 from conqueror_ai.domain.camera import CameraModel
 from conqueror_ai.domain.depth import Seen
 from conqueror_ai.domain.objects import Detector
+from conqueror_ai.domain.person_guard import clear
 from conqueror_ai.domain.types import Detection, TelemSample
 
 if TYPE_CHECKING:
@@ -124,6 +125,7 @@ class Perception:
         else:
             dets = [] if detect is None else await asyncio.to_thread(detect, rgb, camera_of(cam_f))
             inv = None
+        dets = clear(dets)  # never a box over a person, before the tracker (LLD §21.4)
         used = self.world.on_picture(f, rgb, dets, cam_f)  # the map and the pose stay on the event loop
         self.last_dets, self.last_seen = dets, None
         if picture_counts(used):

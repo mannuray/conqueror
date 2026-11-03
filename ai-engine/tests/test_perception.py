@@ -14,7 +14,7 @@ from conqueror_ai.app.perception import Perception
 from conqueror_ai.app.world import World
 from conqueror_ai.domain.camera import CameraModel
 from conqueror_ai.domain.drive.limits import Limits
-from conqueror_ai.domain.types import Detection
+from conqueror_ai.domain.types import Detection, Frame
 from tests.fake_bridge import FakeBridge
 from tests.test_map_app import CFG
 from tests.test_objects import CAL
@@ -119,6 +119,50 @@ async def test_an_undecodable_picture_is_no_picture() -> None:
         p.start(stop)
         got = [await p.next_picture(0.5) for _ in range(3)]
         assert got == [None, None, None] and p.world.last_frame is None
+    finally:
+        stop.set()
+        await p.close()
+        await bridge.stop()
+
+
+class PersonAndToyDetector:
+    def detect(self, rgb: NDArray[np.uint8], cam: CameraModel | None) -> list[Detection]:
+        return [
+            Detection("person", 0.9, (100.0, 0.0, 300.0, 400.0)),
+            Detection("toy", 0.9, (150.0, 200.0, 200.0, 260.0)),  # inside the person
+            Detection("box", 0.9, (400.0, 200.0, 450.0, 260.0)),
+        ]
+
+
+async def test_guard_runs_before_tracker() -> None:
+    """A toy box over a person never reaches the tracker (design-notes §197)."""
+    bridge = FakeBridge(jpeg=GREY_JPEG, pan_tilt=(90.0, 90.0))
+    await bridge.start()
+    stop = asyncio.Event()
+    w = world()
+    seen: list[list[Detection]] = []
+    real = w.on_picture
+
+    def spy(
+        f: Frame, rgb: NDArray[np.uint8], dets: list[Detection], cam: CameraModel | str | None = None
+    ) -> CameraModel | str:
+        seen.append(list(dets))
+        return real(f, rgb, dets, cam)
+
+    w.on_picture = spy  # type: ignore[method-assign]
+    p = Perception(
+        BridgeLink("127.0.0.1", bridge.ws_port),
+        MjpegSource("127.0.0.1", bridge.stream_port),
+        w,
+        PersonAndToyDetector(),
+        None,
+        None,
+    )
+    try:
+        p.start(stop)
+        await p.next_picture(2.0)
+        assert seen and [d.cls for d in seen[0]] == ["person", "box"]
+        assert [d.cls for d in p.last_dets] == ["person", "box"]
     finally:
         stop.set()
         await p.close()

@@ -91,4 +91,16 @@ def save_ball(path: Path, ball: BallColour) -> None:
         "# Colour balls for the ball finder (AI engine LLD §16.1 item 3);"
         " written by cq-calibrate ball <name>.\n"
     )
-    path.write_text(head + yaml.safe_dump({"balls": rows}, sort_keys=False))
+    names = load_ball_names(path)  # the word "ball"'s names stay
+    top: dict[str, Any] = {"names": names} if names else {}
+    path.write_text(head + yaml.safe_dump({**top, "balls": rows}, sort_keys=False))
+
+
+def load_ball_names(path: Path) -> list[str]:
+    """The names of the word "ball" (config/balls.yaml `names:`); none when the file or key is missing."""
+    if not path.exists():
+        return []
+    names: Any = _read(path).get("names") or []
+    if not isinstance(names, list):
+        raise ValueError(f"{path}: names must be a list of names")
+    return [str(n) for n in cast("list[Any]", names)]

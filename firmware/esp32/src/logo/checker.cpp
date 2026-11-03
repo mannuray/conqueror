@@ -106,12 +106,14 @@ void Checker::checkThing(const gen::WordSpec& w, uint8_t i, const Node* c, const
   const Token& t = m_toks.t[c->tok];
   char name[64];
   const int len = static_cast<int>(t.len) - 1;
-  if (len < static_cast<int>(sizeof name)) {
+  const bool cut = len >= static_cast<int>(sizeof name);
+  if (!cut) {
     snprintf(name, sizeof name, "%.*s", len, m_src + t.start + 1);
   } else {  // too long for the message: cut it, and say so
     snprintf(name, sizeof name, "%.*s...", static_cast<int>(sizeof name) - 4, m_src + t.start + 1);
   }
-  if (caps.things->resolve(name) != nullptr) return;
+  // A cut word is longer than any known name (ThingNames::kMaxLen), so only a whole one is looked up.
+  if (!cut && caps.things->resolve(name) != nullptr) return;
   const DiagArg a[] = {{"thing", name}};
   error(7053, c->tok, a, 1);
 }

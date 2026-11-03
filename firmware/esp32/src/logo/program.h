@@ -20,6 +20,7 @@ struct Value {
 enum class OpCode : uint8_t {
   kHalt, kLine, kPushN, kPushB, kPushC, kArg, kOp, kSensor, kCallB, kJmp, kJz, kJnz,
   kLoopInit, kLoopNext, kCall, kTCall, kRet, kRetV, kEffect, kStop, kFail, kUntilOver, kPop,
+  kResume,  // pushes the result of the effect before it (kAsk: the laptop's answer)
   kCount
 };
 enum class Sensor : uint8_t { kDistance, kObstacle, kBlocked, kHeading, kTilted, kBattery, kTimer };
@@ -27,9 +28,13 @@ enum class Builtin : uint8_t { kRandom, kRemainder, kAbs, kRound, kRepcount };
 enum class EffectKind : uint8_t {
   kForward, kBack, kRight, kLeft, kSpeed, kWait, kLed, kBeep, kSound, kLook, kHome,
   kArc, kPivot, kPlay, kSay, kUntilStart, kTick, kGo, kHold,  // GO / HOLD: Spec 5 Revision 3
+  kAsk, kSkill, kArea,  // the AI words (Tank Logo LLD §24.2); kAsk / kSkill carry AskQ / SkillKind in Effect::sub
   kCount
 };
-const char* effectWord(EffectKind k);  // "FORWARD" … ("WAIT UNTIL" for kUntilStart / kTick)
+enum class AskQ : uint8_t { kSee, kHowfar };                              // SEE? / HOWFAR
+enum class SkillKind : uint8_t { kFind, kWander, kExplore, kSetxy };      // FIND / WANDER / EXPLORE / SETXY
+// "FORWARD" … ("WAIT UNTIL" for kUntilStart / kTick); `sub` picks the word of kAsk / kSkill ("SEE?", "FIND" …).
+const char* effectWord(EffectKind k, uint8_t sub = 0);
 
 // a: Op / Sensor / Builtin / EffectKind / argument count / 1 = FOREVER; n: number, constant, jump target, line,
 // procedure or error code (see compiler.cpp for each instruction's use).

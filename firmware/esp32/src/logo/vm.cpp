@@ -20,6 +20,7 @@ void Vm::load(const Program& p, uint32_t seed) {
   m_nf = 1;
   m_frames[0] = Frame{0, 0, -1, 0};
   m_error = RunError();
+  m_result = Value();
 }
 
 VmStatus Vm::run(uint16_t budget, const Sensors& s) {

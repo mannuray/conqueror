@@ -90,6 +90,16 @@ def test_world_motion_numbers_are_checked() -> None:
         model._bits([0])  # pyright: ignore[reportPrivateUsage]
 
 
+def test_world_answers_and_skill_ends_are_carried_and_checked() -> None:
+    wait = next(r for r in spec().run_cases if r.name.startswith("WAIT UNTIL SEE?"))
+    assert (wait.answers, wait.skill_ends) == ("0 0 1", "done")
+    assert model._answers([True, None, 120]) == "1 N 120"  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(ValueError, match="answer"):
+        model._answers(["yes"])  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(ValueError, match="skill end"):
+        model._skill_ends(["gone"])  # pyright: ignore[reportPrivateUsage]
+
+
 def test_every_word_has_a_colour_group() -> None:
     s = spec()
     assert all(w.group in model.GROUPS for w in s.words)

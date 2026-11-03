@@ -28,12 +28,22 @@ struct PathBuffer {
   uint16_t n = 0;
 };
 
+// An AREA the program sets: a circle of r_m metres round the planned tank's place then (x right, y ahead, mm).
+struct PlanArea {
+  int32_t x_mm = 0;
+  int32_t y_mm = 0;
+  uint8_t r_m = 0;
+};
+
 struct SimResult {
+  static constexpr uint8_t kMaxAreas = 8;  // more are not drawn
   bool cut_short = false;  // a limit was reached before the program ended
   uint16_t code = 0;       // a run-time error (0: none; STOP ends the path like the end of the program)
   uint16_t line = 0;
   char msg[192] = "";
   uint32_t sim_ms = 0;
+  PlanArea areas[kMaxAreas];  // AREA n > 0, in order (AREA 0 draws nothing)
+  uint8_t n_areas = 0;
 };
 
 class Simulator {
@@ -52,12 +62,14 @@ class Simulator {
   };
   bool step(SimResult& r);  // false when the path is over
   bool effect(SimResult& r);
-  void apply(const Action& a);
+  void apply(const Action& a, SimResult& r);
+  void ai(const Action& a, SimResult& r);  // the AI words: a preview never assumes a thing (LLD §24.2)
+  void setxy(const Action& a);
   bool moves(const Action& a);
   void move(int32_t cm);
   void turn(double deg);
   void around(double radius_mm, double deg);  // along a circle; deg > 0 = right (clockwise)
-  void point(uint16_t line);
+  void point(uint16_t line, bool uncertain = false);
   Sensors sensors() const;
   double cmPerS() const;
 

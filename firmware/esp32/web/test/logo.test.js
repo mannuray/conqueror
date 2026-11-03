@@ -171,6 +171,13 @@ test("the planned path is solid up to the first sensor read, dashed after", () =
   assert.equal(L.plannedRuns([[0, 0, 0, 1, 0], [0, 0, 90, 2, 0]])[0].endH, 90, "the arrow points the way the plan ends");
 });
 
+test("AREA circles come in cm and the view can fit them", () => {
+  const a = L.plannedAreas([[0, 300, 2], [100, 0, 1]]);
+  assert.deepEqual(a[0], { x: 0, y: 30, r: 200 });
+  assert.deepEqual(L.plannedAreas(undefined), []);
+  assert.deepEqual(L.areaExtent(a[0]), [{ x: -200, y: 30 }, { x: 200, y: 30 }, { x: 0, y: -170 }, { x: 0, y: 230 }]);
+});
+
 test("a check is due 600 ms after the last key", () => {
   const c = new L.CheckScheduler(600, 500);
   c.edited(0);

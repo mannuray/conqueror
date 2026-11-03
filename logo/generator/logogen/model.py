@@ -100,6 +100,12 @@ class RunCase:
     distance_cm: int = 0  # 0 = nothing seen
     cut_short: int = 0  # bit n-1: the n-th motion is cut short by the obstacle brake
     stuck: int = 0  # bit n-1: the n-th motion ends with a stuck track
+    answers: str = (
+        ""  # the laptop's answers to SEE? / HOWFAR in order: "1 0 N 120" (N = no answer in time)
+    )
+    skill_ends: str = (
+        ""  # how each FIND / WANDER / EXPLORE / SETXY ends in order: "done not_found stop"
+    )
 
 
 @dataclass
@@ -235,6 +241,41 @@ def _bits(motions: list[Any]) -> int:
     return bits
 
 
+SKILL_ENDS = {
+    "done",
+    "not_found",
+    "lost",
+    "outside_area",
+    "no_way",
+    "blocked",
+    "unknown_thing",
+    "stale",
+    "stop",  # not the laptop's end: the STOP key (a tank-side ending)
+}
+
+
+def _answers(raw: list[Any]) -> str:
+    """world.answers: true / false / a number of cm / null (no answer in time), one per question asked."""
+    out: list[str] = []
+    for a in raw:
+        if a is None:
+            out.append("N")
+        elif isinstance(a, bool):
+            out.append("1" if a else "0")
+        elif isinstance(a, int):
+            out.append(str(a))
+        else:
+            raise ValueError(f"world: answer {a!r} is not true, false, a number or null")
+    return " ".join(out)
+
+
+def _skill_ends(raw: list[Any]) -> str:
+    for e in raw:
+        if str(e) not in SKILL_ENDS:
+            raise ValueError(f"world: skill end {e!r} is not one of {sorted(SKILL_ENDS)}")
+    return " ".join(str(e) for e in raw)
+
+
 def _load_run_cases(path: Path) -> list[RunCase]:
     out: list[RunCase] = []
     for c in yaml.safe_load(path.read_text()):
@@ -250,6 +291,8 @@ def _load_run_cases(path: Path) -> list[RunCase]:
             distance_cm=int(world.get("distance", 0)),
             cut_short=_bits(world.get("cut_short", [])),
             stuck=_bits(world.get("stuck", [])),
+            answers=_answers(world.get("answers", [])),
+            skill_ends=_skill_ends(world.get("skill_ends", [])),
         )
         if ends != "finished":
             case.end_code, case.end_line = int(ends["error"]), int(ends["line"])

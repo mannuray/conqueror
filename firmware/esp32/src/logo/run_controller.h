@@ -9,6 +9,7 @@
 #include "core/motion_link.h"
 #include "core/motion_service.h"
 #include "logo/effects.h"
+#include "logo/odometry.h"
 #include "logo/program.h"
 #include "logo/vm.h"
 
@@ -21,6 +22,7 @@ struct RunTelem {
   uint16_t distance_mm = 0;  // ultrasonic ahead; 0 = nothing seen
   bool tilted = false;
   uint8_t battery_pct = 100;
+  Pose pose;                 // the driven path so far (Odometry, the run's frame: x right, y ahead, right = +)
 };
 
 struct RunConfig {
@@ -30,7 +32,10 @@ struct RunConfig {
   uint16_t budget = 500;      // instructions per tick (LLD §16)
 };
 
-enum class RunState : uint8_t { kIdle, kRunning, kMotion, kWaiting, kPaused, kEnded };
+// kAsking: a question (SEE? / HOWFAR) is out to the laptop; kSkill: a FIND / WANDER / EXPLORE / SETXY runs there.
+enum class RunState : uint8_t { kIdle, kRunning, kMotion, kWaiting, kAsking, kSkill, kPaused, kEnded };
+// How a skill ended on the laptop (Tank Logo LLD §24.2); tank-side endings come through onMotionEvent.
+enum class SkillEnd : uint8_t { kDone, kNotFound, kLost, kOutsideArea, kNoWay, kBlocked, kUnknownThing, kStale };
 enum class RunEvent : uint8_t { kLogoStop, kStep, kBatteryLow, kTilt };
 
 // What the host does now: at most one action, a line event, or the ending.
@@ -54,6 +59,12 @@ class RunController {
   RunOut onPrimitiveEnd(const core::PrimitiveEnd& e);  // the move / turn / arc / pivot it asked for ended
   RunOut onMotionEvent(core::MotionEvent e);           // STOP, release, page gone … (also between motions)
   RunOut onEvent(RunEvent e);
+  // The laptop's answer to the question just asked: SEE? 1 / 0, HOWFAR cm (-1 = not seen). Ignored when no question
+  // is waiting or its 300 ms are over (the runner then goes on with FALSE / -1).
+  RunOut onAskAnswer(int32_t value, uint32_t now_ms);
+  // A skill ended on the laptop. Ignored unless a skill is running (an old end never touches the next word).
+  RunOut onSkillEnd(SkillEnd e, uint32_t now_ms);
+  static constexpr uint32_t kAskMs = 300;
   RunState state() const { return m_state; }
   bool going() const { return m_going; }  // a GO drives on in the background (LLD §22): keep it alive each tick
   uint32_t wakeAt() const { return m_wake; }  // kWaiting: when WAIT / PLAY / a WAIT UNTIL tick is over
@@ -66,6 +77,9 @@ class RunController {
   RunOut goEnded(const core::PrimitiveEnd& e);
   RunOut end(uint16_t code);
   RunOut endWith(uint16_t code, uint16_t line, const char* msg);
+  bool carryAi(const Action& a, const RunTelem& t, uint32_t now_ms, RunOut& out);  // kAsk / kArea / kSkill
+  bool due(uint32_t now_ms);  // a waiting or asking state is over (an unanswered question gets FALSE / -1)
+  void answer(int32_t value);
   bool active() const { return m_state != RunState::kIdle && m_state != RunState::kEnded; }
 
   Vm& m_vm;
@@ -79,6 +93,12 @@ class RunController {
   bool m_blocked = false;
   bool m_going = false;  // GO (LLD §22)
   EffectKind m_last = EffectKind::kBeep;  // the last effect (its word for 7021)
+  uint8_t m_last_sub = 0;
+  AskQ m_ask_q = AskQ::kSee;
+  uint32_t m_ask_deadline = 0;
+  uint8_t m_area_m = 0;   // AREA (0 = none) and where it was set, in the run's frame
+  Pose m_area_at;
+  char m_thing[25] = "";  // the running skill's thing, for 7050 / 7051 / 7053 / 7054
 };
 
 }  // namespace logo

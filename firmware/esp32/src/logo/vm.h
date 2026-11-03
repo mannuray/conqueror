@@ -30,6 +30,7 @@ struct Effect {
   uint8_t n = 0;
   Value args[3];
   uint16_t line = 0;
+  uint8_t sub = 0;  // kAsk: AskQ; kSkill: SkillKind
 };
 
 struct RunError {
@@ -55,6 +56,12 @@ class Vm {
   uint32_t executed() const { return m_executed; }
   // Run-time errors from the host (an effect refused at run time: ranges, types, arc too tight).
   void fail(uint16_t code, const DiagArg* a, uint8_t n);
+  // The result of the last effect (kAsk), which the next kResume pushes. A question is a read of the world: the
+  // planned path is uncertain after it.
+  void resume(Value v) {
+    m_result = v;
+    m_sensor_read = true;
+  }
 
  private:
   friend struct VmOps;
@@ -95,6 +102,7 @@ class Vm {
   Loop m_loops[kMaxLoops];
   uint8_t m_nl = 0;
   Effect m_effect;
+  Value m_result;
   RunError m_error;
 };
 

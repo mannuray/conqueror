@@ -219,3 +219,158 @@
   world: {cut_short: [3]}
   does: [GO, FORWARD 20, FORWARD 30]
   ends: {error: 7024, line: 1}
+
+# ---- The AI words (Tank Logo LLD §24.2). The world gains two lists:
+#   answers:     the laptop's reply to each SEE? / HOWFAR asked, in order: true / false, cm, or null = no answer in
+#                300 ms. When the list is used up, no answer comes (FALSE / -1).
+#   skill_ends:  how each FIND / WANDER / EXPLORE / SETXY ends, in order: done, not_found, lost, outside_area,
+#                no_way, blocked, unknown_thing, stale - or stop (the STOP key). Nothing left: it never ends.
+- name: SEE? answered true
+  source: IF SEE? "ball [ BEEP ]
+  world: {answers: [true]}
+  does: ["SEE? ball", BEEP]
+  ends: finished
+
+- name: SEE? answered false
+  source: IF SEE? "ball [ BEEP ]
+  world: {answers: [false]}
+  does: ["SEE? ball"]
+  ends: finished
+
+- name: SEE? with no answer in 300 ms is FALSE
+  source: IF SEE? "ball [ BEEP ]  BEEP
+  world: {answers: [null]}
+  does: ["SEE? ball", BEEP]
+  ends: finished
+
+- name: HOWFAR gives the distance in cm
+  source: SAY HOWFAR "ball
+  world: {answers: [120]}
+  does: [HOWFAR ball, SAY 120]
+  ends: finished
+
+- name: HOWFAR with no answer is -1
+  source: SAY HOWFAR "ball
+  does: [HOWFAR ball, SAY -1]
+  ends: finished
+
+- name: FIND done goes on
+  source: FIND "ball  BEEP
+  world: {skill_ends: [done]}
+  does: [FIND ball, BEEP]
+  ends: finished
+
+- name: FIND not found
+  source: FIND "ball  BEEP
+  world: {skill_ends: [not_found]}
+  does: [FIND ball]
+  ends: {error: 7050, line: 1}
+  message_has: "I couldn't find the ball."
+
+- name: FIND lost sight
+  source: FIND "ball  BEEP
+  world: {skill_ends: [lost]}
+  does: [FIND ball]
+  ends: {error: 7051, line: 1}
+  message_has: "I lost sight of the ball."
+
+- name: FIND outside the play area
+  source: AREA 2  FIND "ball  BEEP
+  world: {skill_ends: [outside_area]}
+  does: [AREA 2, FIND ball AREA 2 AT 0 0]
+  ends: {error: 7054, line: 1}
+  message_has: "outside the play area"
+
+- name: SETXY with no way
+  source: SETXY 0 0  BEEP
+  world: {skill_ends: [no_way]}
+  does: [SETXY 0 0]
+  ends: {error: 7055, line: 1}
+  message_has: "can't find a way there"
+
+- name: FIND of a thing the helper does not know
+  source: FIND "dragon
+  world: {skill_ends: [unknown_thing]}
+  does: [FIND dragon]
+  ends: {error: 7053, line: 1}
+  message_has: "I don't know what a dragon is."
+
+- name: the helper stopped answering
+  source: FIND "ball  BEEP
+  world: {skill_ends: [stale]}
+  does: [FIND ball]
+  ends: {error: 7052, line: 1}
+  message_has: "stopped answering"
+
+- name: a skill blocked ends the program without BLOCKED?
+  source: |
+    FIND "ball
+    BEEP
+  world: {skill_ends: [blocked]}
+  does: [FIND ball]
+  ends: {error: 7024, line: 1}
+
+- name: a skill blocked in a program with BLOCKED? goes on
+  source: |
+    FIND "ball
+    IF BLOCKED? [ BEEP ]
+  world: {skill_ends: [blocked]}
+  does: [FIND ball, BEEP]
+  ends: finished
+
+- name: STOP during a skill
+  source: FIND "ball  BEEP
+  world: {skill_ends: [stop]}
+  does: [FIND ball]
+  ends: {error: 7040, line: 1}
+
+- name: WANDER, EXPLORE and SETXY, one after the other
+  source: WANDER 10  EXPLORE  SETXY 20 -30  BEEP
+  world: {skill_ends: [done, done, done]}
+  does: [WANDER 10, EXPLORE, SETXY 20 -30, BEEP]
+  ends: finished
+
+- name: a skill takes over from GO
+  source: GO  WANDER 5  BEEP
+  world: {skill_ends: [done]}
+  does: [GO, WANDER 5, BEEP]
+  ends: finished
+
+- name: WAIT UNTIL SEE? asks each tick, then HOLD, then the skill
+  source: GO  WAIT UNTIL SEE? "ball  HOLD  FIND "ball
+  world: {answers: [false, false, true], skill_ends: [done]}
+  does: [GO, WAIT-UNTIL, "SEE? ball", "SEE? ball", "SEE? ball", HOLD, FIND ball]
+  ends: finished
+
+- name: AREA is kept where it was set, whatever the tank does next
+  source: AREA 2  RIGHT 90  FORWARD 30  WANDER 10
+  world: {skill_ends: [done]}
+  does: [AREA 2, RIGHT 90, FORWARD 30, WANDER 10 AREA 2 AT 0 0]
+  ends: finished
+
+- name: AREA set after a move is anchored there
+  source: FORWARD 30  AREA 2  EXPLORE
+  world: {skill_ends: [done]}
+  does: [FORWARD 30, AREA 2, EXPLORE AREA 2 AT 0 30]
+  ends: finished
+
+- name: AREA 0 clears it
+  source: AREA 2  AREA 0  WANDER 5
+  world: {skill_ends: [done]}
+  does: [AREA 2, AREA 0, WANDER 5]
+  ends: finished
+
+- name: a skill's number is checked while running
+  source: |
+    TO W :n  WANDER :n  END
+    W 700
+  does: []
+  ends: {error: 7025, line: 1}
+
+- name: a thing worked out while running must be a word
+  source: |
+    TO F :t  FIND :t  END
+    F 5
+  does: []
+  ends: {error: 7012, line: 1}
+  message_has: "FIND needs a thing"

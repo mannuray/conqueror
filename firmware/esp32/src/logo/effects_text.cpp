@@ -54,10 +54,28 @@ void say(const Action& a, char* out, size_t cap) { snprintf(out, cap, "SAY %s", 
 void go(const Action&, char* out, size_t cap) { plain("GO", out, cap); }
 void hold(const Action&, char* out, size_t cap) { plain("HOLD", out, cap); }
 
+void ask(const Action& a, char* out, size_t cap) {
+  snprintf(out, cap, "%s %s", a.ask_q == AskQ::kSee ? "SEE?" : "HOWFAR", a.thing);
+}
+void area(const Action& a, char* out, size_t cap) { snprintf(out, cap, "AREA %u", a.area_m); }
+// FIND ball / WANDER 10 / EXPLORE / SETXY 20 30, then " AREA 2 AT x y" (cm, the run's frame) when an AREA is on.
+void skill(const Action& a, char* out, size_t cap) {
+  switch (a.skill) {
+    case SkillKind::kFind: snprintf(out, cap, "FIND %s", a.thing); break;
+    case SkillKind::kWander: snprintf(out, cap, "WANDER %u", a.seconds); break;
+    case SkillKind::kExplore: snprintf(out, cap, "EXPLORE"); break;
+    case SkillKind::kSetxy: snprintf(out, cap, "SETXY %d %d", a.x_cm, a.y_cm); break;
+  }
+  if (!a.has_area) return;
+  const size_t n = strlen(out);
+  snprintf(out + n, cap - n, " AREA %u AT %ld %ld", a.area_m, static_cast<long>(a.area_at.x_mm / 10),
+           static_cast<long>(a.area_at.y_mm / 10));
+}
+
 using TextFn = void (*)(const Action&, char*, size_t);
 constexpr TextFn kText[] = {none, motion, motion, motion, motion, home,     speed, wait,       led,
-                            beep, sound,  tone,   look,   lookHome, say,    untilStart, none,  go, hold};
-static_assert(sizeof kText / sizeof kText[0] == static_cast<size_t>(ActKind::kHold) + 1, "one per ActKind");
+                            beep, sound,  tone,   look,   lookHome, say,    untilStart, none,  go, hold, ask, skill, area};
+static_assert(sizeof kText / sizeof kText[0] == static_cast<size_t>(ActKind::kArea) + 1, "one per ActKind");
 
 }  // namespace
 

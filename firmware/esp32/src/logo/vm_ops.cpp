@@ -12,7 +12,7 @@ using OpFn = void (*)(Vm&, const Instr&);
 constexpr OpFn kOps[] = {VmOps::halt,     VmOps::line,     VmOps::pushN, VmOps::pushB, VmOps::pushC, VmOps::arg,
                          VmOps::op,       VmOps::sensor,   VmOps::callB, VmOps::jmp,   VmOps::jz,    VmOps::jnz,
                          VmOps::loopInit, VmOps::loopNext, VmOps::call,  VmOps::tcall, VmOps::ret,   VmOps::retV,
-                         VmOps::effect,   VmOps::stop,     VmOps::fail,  VmOps::untilOver, VmOps::pop};
+                         VmOps::effect,   VmOps::stop,     VmOps::fail,  VmOps::untilOver, VmOps::pop, VmOps::resume};
 static_assert(sizeof kOps / sizeof kOps[0] == static_cast<size_t>(OpCode::kCount), "one handler per OpCode");
 
 // The word a condition belongs to (Instr::a of kJz / kJnz), for 7012.
@@ -233,10 +233,13 @@ void VmOps::retV(Vm& vm, const Instr&) {
 }
 
 // EFFECT (a = EffectKind, n = number of inputs on the stack): the host does it, then calls run() again.
+void VmOps::resume(Vm& vm, const Instr&) { vm.push(vm.m_result); }
+
 void VmOps::effect(Vm& vm, const Instr& in) {
   Effect& e = vm.m_effect;
   e.kind = static_cast<EffectKind>(in.a);
-  e.n = static_cast<uint8_t>(in.n);
+  e.n = static_cast<uint8_t>(in.n & 0xFF);
+  e.sub = static_cast<uint8_t>((in.n >> 8) & 0xFF);  // kAsk / kSkill: which question / skill
   e.line = vm.m_line;
   for (uint8_t i = e.n; i > 0; --i) e.args[i - 1] = vm.pop();
   vm.signal(VmStatus::kEffect);

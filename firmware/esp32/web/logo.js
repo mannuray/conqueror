@@ -149,6 +149,15 @@ var LogoCore = (function () {
     return runs;
   }
 
+  // the check's areas [[x_mm, y_mm, r_m], ...] (AREA circles) -> [{x, y, r}] in cm
+  function plannedAreas(list) {
+    return (list || []).map(function (a) { return { x: a[0] / 10, y: a[1] / 10, r: a[2] * 100 }; });
+  }
+  // the four extreme points of a circle, so the view fits all of it
+  function areaExtent(a) {
+    return [{ x: a.x - a.r, y: a.y }, { x: a.x + a.r, y: a.y }, { x: a.x, y: a.y - a.r }, { x: a.x, y: a.y + a.r }];
+  }
+
   // ---------- checking as you type (§21.5) ----------
   function CheckScheduler(delayMs, retryMs) {
     this.delay = delayMs; this.retry = retryMs; this.edit = 0; this.dueAt = -1; this.inflight = 0;
@@ -321,7 +330,7 @@ var LogoCore = (function () {
 
   return {
     wordIndex: wordIndex, ownWords: ownWords, colour: colour, insertWord: insertWord, Drafts: Drafts,
-    fitView: fitView, toScreen: toScreen, plannedRuns: plannedRuns, CheckScheduler: CheckScheduler, RequestQueue: RequestQueue,
+    fitView: fitView, toScreen: toScreen, plannedRuns: plannedRuns, plannedAreas: plannedAreas, areaExtent: areaExtent, CheckScheduler: CheckScheduler, RequestQueue: RequestQueue,
     runBarStart: runBarStart, runBar: runBar, canRun: canRun, locked: locked, endText: endText, NACK_TEXT: NACK_TEXT,
     shortcut: shortcut, panelTab: panelTab, cameraWanted: cameraWanted, wifiIcon: wifiIcon, batteryIcon: batteryIcon,
     BattMean: BattMean, battWarn: battWarn

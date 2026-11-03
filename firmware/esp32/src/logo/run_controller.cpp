@@ -41,6 +41,19 @@ static_assert(sizeof kByMotionEvent / sizeof kByMotionEvent[0] ==
                   static_cast<size_t>(core::MotionEvent::kBodyEncoderFault) + 1,
               "one per MotionEvent");
 
+// How a skill's end on the laptop ends the program (kBlocked: as a move's block).
+constexpr uint16_t kBySkillEnd[] = {
+    0,     // kDone
+    7050,  // kNotFound
+    7051,  // kLost
+    7054,  // kOutsideArea
+    7055,  // kNoWay
+    7024,  // kBlocked
+    7053,  // kUnknownThing
+    7052,  // kStale (the helper stopped answering)
+};
+static_assert(sizeof kBySkillEnd / sizeof kBySkillEnd[0] == static_cast<size_t>(SkillEnd::kStale) + 1, "one per SkillEnd");
+
 constexpr uint16_t kByRunEvent[] = {7040, 0, 7042, 7043};  // kLogoStop, kStep, kBatteryLow, kTilt
 
 // The yaw change from `from` to `to`, -18000..18000 (0.01°, + = left).
@@ -75,6 +88,10 @@ bool RunController::start(const Program& p, const RunConfig& cfg, const RunTelem
   m_speed = 40;
   m_blocked = false;
   m_going = false;
+  m_area_m = 0;
+  m_area_at = Pose();
+  m_thing[0] = '\0';
+  m_ask_deadline = 0;
   return true;
 }
 
@@ -82,13 +99,47 @@ RunOut RunController::tick(const RunTelem& t, uint32_t now_ms) {
   RunOut out;
   if (!active()) return out;
   if (now_ms - m_start >= static_cast<uint32_t>(gen::kRunTimeS) * 1000u) return end(7041);
-  if (m_state == RunState::kMotion || m_state == RunState::kPaused) return out;
-  if (m_state == RunState::kWaiting) {
-    if (static_cast<int32_t>(now_ms - m_wake) < 0) return out;
-    m_state = RunState::kRunning;
-  }
+  if (m_state == RunState::kMotion || m_state == RunState::kPaused || m_state == RunState::kSkill) return out;
+  if (!due(now_ms)) return out;
   step(t, now_ms, out);
   return out;
+}
+
+bool RunController::due(uint32_t now_ms) {
+  if (m_state == RunState::kWaiting) {
+    if (static_cast<int32_t>(now_ms - m_wake) < 0) return false;
+    m_state = RunState::kRunning;
+  } else if (m_state == RunState::kAsking) {
+    if (static_cast<int32_t>(now_ms - m_ask_deadline) < 0) return false;
+    answer(m_ask_q == AskQ::kSee ? 0 : -1);  // no answer in time: FALSE / -1
+  }
+  return true;
+}
+
+// The value the kResume after the question pushes: SEE? a boolean, HOWFAR a number of cm.
+void RunController::answer(int32_t value) {
+  m_vm.resume(m_ask_q == AskQ::kSee ? Value{VTag::kBool, value != 0 ? 1 : 0} : Value{VTag::kNum, value * 1000});
+  m_state = RunState::kRunning;
+}
+
+RunOut RunController::onAskAnswer(int32_t value, uint32_t now_ms) {
+  if (m_state != RunState::kAsking || static_cast<int32_t>(now_ms - m_ask_deadline) >= 0) return RunOut();
+  answer(value);
+  return RunOut();
+}
+
+RunOut RunController::onSkillEnd(SkillEnd e, uint32_t) {
+  if (m_state != RunState::kSkill) return RunOut();
+  m_state = RunState::kRunning;
+  if (e == SkillEnd::kDone) {
+    m_blocked = false;
+    return RunOut();
+  }
+  if (e == SkillEnd::kBlocked && m_p->handles_obstacles) {
+    m_blocked = true;  // BLOCKED? is true until the next move ends, as for a move
+    return RunOut();
+  }
+  return end(kBySkillEnd[static_cast<uint8_t>(e)]);
 }
 
 void RunController::step(const RunTelem& t, uint32_t now_ms, RunOut& out) {
@@ -111,6 +162,7 @@ void RunController::step(const RunTelem& t, uint32_t now_ms, RunOut& out) {
 void RunController::effect(const RunTelem& t, uint32_t now_ms, RunOut& out) {
   const Effect& e = m_vm.effect();
   m_last = e.kind;
+  m_last_sub = e.sub;
   MapState ms;
   ms.speed_pct = m_speed;
   Action a;
@@ -119,7 +171,7 @@ void RunController::effect(const RunTelem& t, uint32_t now_ms, RunOut& out) {
     out = endWith(err.code, err.line, err.msg);
     return;
   }
-  if (a.kind != ActKind::kTick) {
+  if (a.kind != ActKind::kTick && a.kind != ActKind::kAsk) {  // a question is asked again and again: no line event
     out.line = true;
     out.line_no = e.line;
     out.round = m_vm.round();
@@ -131,6 +183,7 @@ void RunController::effect(const RunTelem& t, uint32_t now_ms, RunOut& out) {
 void RunController::carry(const Action& a, const RunTelem& t, uint32_t now_ms, RunOut& out) {
   out.action = a;
   out.act = a.kind != ActKind::kTick;
+  if (carryAi(a, t, now_ms, out)) return;
   if (a.kind == ActKind::kGo) {  // drives on; the program goes on at once (LLD §22.2)
     if (!m_going) m_blocked = false;
     m_going = true;
@@ -152,6 +205,30 @@ void RunController::carry(const Action& a, const RunTelem& t, uint32_t now_ms, R
     m_state = RunState::kWaiting;
   }
   // LED, BEEP, SOUND, LOOK, SAY: sent, the program goes on
+}
+
+// SEE? / HOWFAR wait for the laptop (300 ms at most); AREA is a setting; a skill is like a motion, but it runs on
+// the laptop and carries the AREA that is on. Each of them takes over from a GO (a question does not).
+bool RunController::carryAi(const Action& a, const RunTelem& t, uint32_t now_ms, RunOut& out) {
+  if (a.kind == ActKind::kAsk) {
+    m_ask_q = a.ask_q;
+    m_ask_deadline = now_ms + kAskMs;
+    m_state = RunState::kAsking;
+    return true;
+  }
+  if (a.kind == ActKind::kArea) {
+    m_area_m = a.area_m;  // 0 clears it
+    m_area_at = t.pose;
+    return true;
+  }
+  if (a.kind != ActKind::kSkill) return false;
+  m_going = false;
+  snprintf(m_thing, sizeof m_thing, "%s", a.thing);
+  out.action.has_area = m_area_m != 0;
+  out.action.area_m = m_area_m;
+  out.action.area_at = m_area_at;
+  m_state = RunState::kSkill;
+  return true;
 }
 
 Sensors RunController::sensors(const RunTelem& t, uint32_t now_ms) const {
@@ -209,8 +286,8 @@ RunOut RunController::onEvent(RunEvent e) {
 RunOut RunController::end(uint16_t code) {
   char line[8], msg[192] = "";
   snprintf(line, sizeof line, "%u", static_cast<unsigned>(m_vm.line()));
-  const DiagArg a[] = {{"line", line}, {"word", effectWord(m_last)}};
-  if (code != 0) renderMessage(errorTemplate(code), a, 2, msg, sizeof msg);
+  const DiagArg a[] = {{"line", line}, {"word", effectWord(m_last, m_last_sub)}, {"thing", m_thing}};
+  if (code != 0) renderMessage(errorTemplate(code), a, 3, msg, sizeof msg);
   return endWith(code, m_vm.line(), msg);
 }
 

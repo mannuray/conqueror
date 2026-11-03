@@ -9,7 +9,9 @@ namespace {
 
 constexpr const char* kEffectWords[] = {"FORWARD", "BACK",  "RIGHT", "LEFT", "SPEED", "WAIT",       "LED",       "BEEP",
                                         "SOUND",   "LOOK",  "HOME",  "ARC",  "PIVOT", "PLAY",       "SAY",
-                                        "WAIT UNTIL", "WAIT UNTIL", "GO", "HOLD"};
+                                        "WAIT UNTIL", "WAIT UNTIL", "GO", "HOLD", "SEE?", "FIND", "AREA"};
+constexpr const char* kAskWords[] = {"SEE?", "HOWFAR"};
+constexpr const char* kSkillWords[] = {"FIND", "WANDER", "EXPLORE", "SETXY"};
 static_assert(sizeof kEffectWords / sizeof kEffectWords[0] == static_cast<size_t>(EffectKind::kCount), "one per kind");
 
 constexpr uint8_t kMaxDepth = 64;
@@ -68,7 +70,11 @@ bool sameScalar(const Program& p, Value a, Value b) {
 
 }  // namespace
 
-const char* effectWord(EffectKind k) { return kEffectWords[static_cast<uint8_t>(k)]; }
+const char* effectWord(EffectKind k, uint8_t sub) {
+  if (k == EffectKind::kAsk && sub < sizeof kAskWords / sizeof kAskWords[0]) return kAskWords[sub];
+  if (k == EffectKind::kSkill && sub < sizeof kSkillWords / sizeof kSkillWords[0]) return kSkillWords[sub];
+  return kEffectWords[static_cast<uint8_t>(k)];
+}
 
 void Program::clear() {
   n_code = n_consts = n_items = n_text = 0;

@@ -29,7 +29,7 @@ class JsonOut {
 };
 
 // {"ok","prog","diags":[…],"words":[…],"handles_obstacles","path":[[x_mm,y_mm,heading,line,uncertain]…],
-//  "cut_short","sim_error"} for the check in `s` of `src`.
+//  "areas":[[x_mm,y_mm,r_m]…], "cut_short","sim_error"} for the check in `s` of `src`.
 bool writeCheckReply(const CheckSpace& s, const char* src, bool runnable, uint32_t prog, JsonOut& out);
 
 }  // namespace logo

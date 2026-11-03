@@ -29,7 +29,9 @@ void plan(const char* src, uint16_t cap = 2000) {
   pool.reset();
   lex(src, static_cast<uint16_t>(strlen(src)), g_t, g_d);
   Node* prog = p.parse(src, g_t);
-  const CheckResult r = Checker(p, src, g_t, g_d).check(prog, Caps());
+  Caps caps;
+  caps.ai = true;
+  const CheckResult r = Checker(p, src, g_t, g_d).check(prog, caps);
   TEST_ASSERT_TRUE_MESSAGE(r.ok && Compiler(p, src, g_t, g_d).compile(prog, r.handles_obstacles, g_prog), src);
   g_path.cap = cap;
   g_r = Simulator(g_vm).plan(g_prog, g_path);
@@ -92,6 +94,38 @@ void test_go_draws_one_uncertain_metre() {
   TEST_ASSERT_TRUE(g_path.pts[4].uncertain);  // still a guess after HOLD
 }
 
+// LLD §24.2: SETXY draws a dashed straight line; FIND / WANDER / EXPLORE make the rest a guess; SEE? is FALSE and
+// HOWFAR is -1; AREA draws its circle (AREA 0 none).
+void test_ai_words_in_the_preview() {
+  plan("FD 10  SETXY 20 30  FD 5");
+  TEST_ASSERT_EQUAL(4, g_path.n);
+  TEST_ASSERT_FALSE(g_path.pts[1].uncertain);
+  near(200, 300, g_path.pts[2]);
+  TEST_ASSERT_TRUE(g_path.pts[2].uncertain);
+  plan("FD 10  FIND \"ball  FD 5  EXPLORE  FD 5  WANDER 10  FD 5");
+  TEST_ASSERT_EQUAL(5, g_path.n);
+  TEST_ASSERT_FALSE(g_path.pts[1].uncertain);
+  TEST_ASSERT_TRUE(g_path.pts[2].uncertain);
+  TEST_ASSERT_TRUE(g_path.pts[4].uncertain);
+  TEST_ASSERT_TRUE(g_r.sim_ms >= 10000);
+  plan("IF SEE? \"ball [ FD 10 ]  IF HOWFAR \"ball < 0 [ BK 10 ]  FD 20");
+  TEST_ASSERT_EQUAL(3, g_path.n);  // no FD 10; BK 10; FD 20
+  TEST_ASSERT_EQUAL_INT32(100, last().y_mm);
+  TEST_ASSERT_TRUE(last().uncertain);  // it depends on what the question gave
+  TEST_ASSERT_EQUAL(0, g_r.code);
+}
+
+void test_area_draws_its_circle() {
+  plan("AREA 2  FD 30  AREA 3  AREA 0  FD 10");
+  TEST_ASSERT_EQUAL(2, g_r.n_areas);
+  TEST_ASSERT_EQUAL_UINT8(2, g_r.areas[0].r_m);
+  TEST_ASSERT_EQUAL_INT32(0, g_r.areas[0].y_mm);
+  TEST_ASSERT_EQUAL_UINT8(3, g_r.areas[1].r_m);
+  TEST_ASSERT_EQUAL_INT32(300, g_r.areas[1].y_mm);
+  plan("FD 10");
+  TEST_ASSERT_EQUAL(0, g_r.n_areas);
+}
+
 void test_limits_cut_the_path_short() {
   plan("FOREVER [ ]");
   TEST_ASSERT_TRUE(g_r.cut_short);
@@ -132,6 +166,8 @@ int main(int, char**) {
   RUN_TEST(test_home_turns_back_to_the_start_heading);
   RUN_TEST(test_uncertain_after_a_sensor_read);
   RUN_TEST(test_go_draws_one_uncertain_metre);
+  RUN_TEST(test_ai_words_in_the_preview);
+  RUN_TEST(test_area_draws_its_circle);
   RUN_TEST(test_limits_cut_the_path_short);
   RUN_TEST(test_simulated_time);
   RUN_TEST(test_run_time_error_ends_the_path);

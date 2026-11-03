@@ -26,7 +26,7 @@ int32_t whole(int32_t milli) { return (milli < 0 ? milli - 500 : milli + 500) / 
 class Mapper {
  public:
   Mapper(const Effect& e, const Program& p, const MapState& st, Action& out, RunError& err)
-      : m_e(e), m_p(p), m_st(st), m_out(out), m_err(err), m_word(wordIndex(effectWord(e.kind))) {}
+      : m_e(e), m_p(p), m_st(st), m_out(out), m_err(err), m_word(wordIndex(effectWord(e.kind, e.sub))) {}
   bool run();
 
  private:
@@ -44,6 +44,10 @@ class Mapper {
   bool play();
   bool say();
   bool goHold();  // GO (at the current SPEED) / HOLD
+  bool ask();     // SEE? / HOWFAR
+  bool skill();   // FIND / WANDER / EXPLORE / SETXY
+  bool area();    // AREA
+  bool thing(uint8_t i);
   bool number(uint8_t i, int32_t& milli);
   bool preset(uint8_t i, gen::InType place, const char* const* names, uint8_t n, uint8_t& idx);
   bool numbers(uint8_t i, uint8_t want, const char* type, int32_t* out);
@@ -65,7 +69,8 @@ bool Mapper::run() {
   static constexpr Fn kMap[] = {&Mapper::move,   &Mapper::move,  &Mapper::turn,  &Mapper::turn,   &Mapper::speed,
                                 &Mapper::wait,   &Mapper::led,   &Mapper::simple, &Mapper::sound, &Mapper::look,
                                 &Mapper::simple, &Mapper::arc,   &Mapper::pivot, &Mapper::play,   &Mapper::say,
-                                &Mapper::simple, &Mapper::simple, &Mapper::goHold, &Mapper::goHold};
+                                &Mapper::simple, &Mapper::simple, &Mapper::goHold, &Mapper::goHold, &Mapper::ask,
+                                &Mapper::skill,  &Mapper::area};
   static_assert(sizeof kMap / sizeof kMap[0] == static_cast<size_t>(EffectKind::kCount), "one per EffectKind");
   m_out = Action();
   m_out.line = m_e.line;
@@ -295,6 +300,59 @@ bool Mapper::play() {
 
 bool Mapper::goHold() {
   m_out.kind = m_e.kind == EffectKind::kGo ? ActKind::kGo : ActKind::kHold;  // speed_pct: set by run()
+  return true;
+}
+
+// A thing: a word (the checker passed a quoted one; a computed one is checked here). Lower case, at most 24 bytes
+// (a longer one cannot be a name the helper knows: 7053).
+bool Mapper::thing(uint8_t i) {
+  if (m_e.args[i].tag != VTag::kWord) return typeError(i, "a thing");
+  uint16_t len = 0;
+  const char* s = m_p.wordText(static_cast<uint16_t>(m_e.args[i].n), len);
+  if (len == 0 || len >= sizeof m_out.thing) {
+    char given[40];
+    snprintf(given, sizeof given, "%.*s", static_cast<int>(len < 36 ? len : 36), s);
+    const DiagArg a[] = {{"thing", given}};
+    return fail(7053, a, 1);
+  }
+  for (uint16_t k = 0; k < len; ++k) {
+    m_out.thing[k] = (s[k] >= 'A' && s[k] <= 'Z') ? static_cast<char>(s[k] + 32) : s[k];
+  }
+  m_out.thing[len] = '\0';
+  return true;
+}
+
+bool Mapper::ask() {
+  m_out.kind = ActKind::kAsk;
+  m_out.ask_q = static_cast<AskQ>(m_e.sub);
+  return thing(0);
+}
+
+bool Mapper::skill() {
+  int32_t a = 0, b = 0;
+  m_out.kind = ActKind::kSkill;
+  m_out.skill = static_cast<SkillKind>(m_e.sub);
+  switch (m_out.skill) {  // VARIANT POINT: skills
+    case SkillKind::kFind: return thing(0);
+    case SkillKind::kWander:
+      if (!number(0, a)) return false;
+      m_out.seconds = static_cast<uint16_t>(whole(a));
+      return true;
+    case SkillKind::kSetxy:
+      if (!number(0, a) || !number(1, b)) return false;
+      m_out.x_cm = static_cast<int16_t>(whole(a));
+      m_out.y_cm = static_cast<int16_t>(whole(b));
+      return true;
+    case SkillKind::kExplore: return true;
+  }
+  return true;
+}
+
+bool Mapper::area() {
+  int32_t m = 0;
+  if (!number(0, m)) return false;
+  m_out.kind = ActKind::kArea;
+  m_out.area_m = static_cast<uint8_t>(m > 0 && whole(m) == 0 ? 1 : whole(m));  // never 0 by rounding
   return true;
 }
 

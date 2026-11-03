@@ -202,7 +202,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   var sched = new L.CheckScheduler(600, 500), bar = L.runBarStart(), drafts = new L.Drafts(storage());
   var http = new L.RequestQueue(function (p, o) { return fetch(p, o); }, function (f, ms) { setTimeout(f, ms); }, 500, 20);  // ≤ 10 s of busy
   var ws = null, open = false, linked = false, retry = 500, nextId = 1, runId = 0, stepId = 0;
-  var cur = { name: "", example: false, saved: "" }, progs = [], own = {}, diags = [], planned = [], cutShort = false;
+  var cur = { name: "", example: false, saved: "" }, progs = [], own = {}, diags = [], planned = [], areas = [], cutShort = false;
   var driven = [], pose = null, startedAt = 0, logLines = [], loading = 0, want = 0;  // a program being opened
   var wideQ = window.matchMedia("(min-width: 900px)"), wide = false, panel = { tab: "messages", picked: false };  // §23
   var camOff = recall("logo.cam") === "off", camOn = false, camTimer = 0;
@@ -275,7 +275,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     edited();
   }
   function setText(text) {  // another program: its own mistakes, plan and path
-    src.value = text; diags = []; own = {}; planned = []; driven = []; pose = null; cutShort = false;
+    src.value = text; diags = []; own = {}; planned = []; areas = []; driven = []; pose = null; cutShort = false;
     sched.edited(Date.now() - 600); bar = L.runBar(bar, { e: "edit" }); render(); showDiags(); draw();
   }
 
@@ -317,7 +317,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
       if (!sched.replied(e)) return;
       diags = m.diags || []; own = {};
       (m.words || []).forEach(function (w) { own[w.name] = 1; });
-      planned = L.plannedRuns(m.path); cutShort = !!m.cut_short;
+      planned = L.plannedRuns(m.path); areas = L.plannedAreas(m.areas); cutShort = !!m.cut_short;
       bar = L.runBar(bar, { e: "checked", ok: !!m.ok, prog: m.prog || 0 });
       showDiags(); render(); draw(); act(); showBar();
       panelEv({ e: "problems", n: diags.length, running: L.locked(bar) });
@@ -426,6 +426,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     var f = canvasFit(c), g = f.g, all = [];
     if (f.w < 2) return;
     planned.forEach(function (run) { all = all.concat(run.pts); });
+    areas.forEach(function (a) { all = all.concat(L.areaExtent(a)); });
     var v = L.fitView(all.concat(driven), f.w, f.h, small ? 6 : 24);
     g.clearRect(0, 0, f.w, f.h);
     if (!small) {
@@ -440,6 +441,8 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     planned.forEach(function (run) {
       g.strokeStyle = "rgba(51,255,102,.55)"; g.setLineDash(run.solid ? [] : [6, 5]); line(g, v, run.pts);
     });
+    g.strokeStyle = "rgba(255,176,0,.45)"; g.setLineDash([2, 5]);  // AREA: a dotted circle round the place it was set
+    areas.forEach(function (a) { var o = L.toScreen(v, a.x, a.y); g.beginPath(); g.arc(o.x, o.y, a.r * v.scale, 0, 7); g.stroke(); });
     g.setLineDash([]);
     if (driven.length > 1) { g.strokeStyle = "#ffb000"; g.lineWidth = small ? 2 : 3; line(g, v, driven); }
     var s = L.toScreen(v, 0, 0);

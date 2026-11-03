@@ -22,6 +22,8 @@ bool Compiler::stepCall(Work& w) {
   uint8_t arg = 0;
   const WordRole r = role(w.n->ref, arg);
   if (r == WordRole::kEffect) return stepEffect(w, arg);
+  if (r == WordRole::kSkill) return stepEffect(w, static_cast<uint8_t>(EffectKind::kSkill), arg);
+  if (r == WordRole::kAsk) return stepAsk(w, arg);
   if (r == WordRole::kSensor || r == WordRole::kBuiltin) return stepReporter(w, r, arg);
   if (r == WordRole::kNone) {
     full(w.n, "a word of a later version");  // the checker refuses these first (7030)
@@ -30,12 +32,20 @@ bool Compiler::stepCall(Work& w) {
   return (this->*kControl[static_cast<uint8_t>(r) - static_cast<uint8_t>(WordRole::kRepeat)])(w);
 }
 
-// LINE, the inputs, EFFECT.
-bool Compiler::stepEffect(Work& w, uint8_t kind) {
+// LINE, the inputs, EFFECT. `sub` (kSkill: which skill) rides in the instruction's n above the count.
+bool Compiler::stepEffect(Work& w, uint8_t kind, uint8_t sub) {
   if (w.step == 0) line(w.n);
   w.step = 1;
   if (child(w)) return false;
-  emit(OpCode::kEffect, kind, w.n->count);
+  emit(OpCode::kEffect, kind, w.n->count | (static_cast<int32_t>(sub) << 8));
+  return true;
+}
+
+// A question for the laptop (a value): the thing, EFFECT(ask), RESUME - the answer is pushed when it comes.
+bool Compiler::stepAsk(Work& w, uint8_t sub) {
+  if (child(w)) return false;
+  emit(OpCode::kEffect, static_cast<uint8_t>(EffectKind::kAsk), w.n->count | (static_cast<int32_t>(sub) << 8));
+  emit(OpCode::kResume);
   return true;
 }
 

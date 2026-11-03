@@ -38,7 +38,9 @@ bool load(const char* src, bool step = false) {
   pool.reset();
   lex(src, static_cast<uint16_t>(strlen(src)), g_t, g_d);
   Node* prog = p.parse(src, g_t);
-  const CheckResult r = Checker(p, src, g_t, g_d).check(prog, Caps());
+  Caps caps;
+  caps.ai = true;
+  const CheckResult r = Checker(p, src, g_t, g_d).check(prog, caps);
   if (!r.ok || !Compiler(p, src, g_t, g_d).compile(prog, r.handles_obstacles, g_prog)) return false;
   g_tel = RunTelem();
   g_now = 1000;
@@ -214,6 +216,109 @@ void test_run_time_refusal_ends_with_its_line_and_speed_applies() {
 
 // Plan N3 Task 1: a program that did not compile completely never starts.
 // Tank Logo LLD §22: a GO that is no longer kept alive (the bridge's 300 ms deadman) ends the program 7034.
+// Ticks until the runner is waiting for the laptop (a question or a skill), or ended.
+void until(RunState s) {
+  for (int i = 0; i < 1000 && g_rc.state() != s && g_rc.state() != RunState::kEnded; ++i) {
+    g_last = g_rc.tick(g_tel, g_now);
+    note(g_last);
+    g_now += 2;
+  }
+  TEST_ASSERT_EQUAL(s, g_rc.state());
+}
+
+// LLD §24.2: a question waits at most 300 ms; then SEE? is FALSE and HOWFAR is -1.
+void test_ask_waits_300_ms_then_false() {
+  TEST_ASSERT_TRUE(load("IF SEE? \"ball [ BEEP ]\nSAY HOWFAR \"ball"));
+  until(RunState::kAsking);
+  const uint32_t asked = g_now - 2;
+  g_now = asked + 299;
+  g_rc.tick(g_tel, g_now);
+  TEST_ASSERT_EQUAL(RunState::kAsking, g_rc.state());  // not yet
+  g_now = asked + 300;
+  g_last = g_rc.tick(g_tel, g_now);  // FALSE; on to the second question (HOWFAR)
+  note(g_last);
+  TEST_ASSERT_EQUAL(RunState::kAsking, g_rc.state());
+  TEST_ASSERT_EQUAL_STRING("SEE? ball | HOWFAR ball", g_trace);
+  g_now += 400;
+  drive();
+  TEST_ASSERT_EQUAL_STRING("SEE? ball | HOWFAR ball | SAY -1", g_trace);  // no BEEP
+  TEST_ASSERT_EQUAL(0, g_last.code);
+}
+
+// An answer in time carries its value; STOP ends a question like any other state.
+void test_answer_in_time_and_stop_while_asking() {
+  TEST_ASSERT_TRUE(load("SAY HOWFAR \"ball"));
+  until(RunState::kAsking);
+  g_rc.onAskAnswer(87, g_now + 50);
+  TEST_ASSERT_EQUAL(RunState::kRunning, g_rc.state());
+  drive();
+  TEST_ASSERT_EQUAL_STRING("HOWFAR ball | SAY 87", g_trace);
+  TEST_ASSERT_TRUE(load("IF SEE? \"ball [ BEEP ]"));
+  until(RunState::kAsking);
+  const RunOut o = g_rc.onMotionEvent(MotionEvent::kStop);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(7040, o.code);
+}
+
+// Review Focus 2: an answer after the 300 ms, and an end while no skill runs, change nothing.
+void test_late_answer_and_old_end_dropped() {
+  TEST_ASSERT_TRUE(load("IF SEE? \"ball [ BEEP ]\nBEEP"));
+  until(RunState::kAsking);
+  g_now += 300;  // past the deadline, before the runner ticked
+  g_rc.onAskAnswer(1, g_now);
+  TEST_ASSERT_EQUAL(RunState::kAsking, g_rc.state());  // dropped: the runner still waits to give FALSE
+  drive();
+  TEST_ASSERT_EQUAL_STRING("SEE? ball | BEEP", g_trace);  // one BEEP: the second line's
+  TEST_ASSERT_EQUAL(0, g_last.code);
+  // after the end, nothing moves any more
+  TEST_ASSERT_FALSE(g_rc.onAskAnswer(1, g_now).ended);
+  TEST_ASSERT_FALSE(g_rc.onSkillEnd(SkillEnd::kNotFound, g_now).ended);
+  TEST_ASSERT_EQUAL(RunState::kEnded, g_rc.state());
+
+  TEST_ASSERT_TRUE(load("FIND \"ball\nWAIT 1\nBEEP"));
+  TEST_ASSERT_FALSE(g_rc.onSkillEnd(SkillEnd::kNotFound, g_now).ended);  // nothing runs yet
+  until(RunState::kSkill);
+  TEST_ASSERT_FALSE(g_rc.onAskAnswer(1, g_now).ended);  // an answer is not an end
+  TEST_ASSERT_EQUAL(RunState::kSkill, g_rc.state());
+  TEST_ASSERT_FALSE(g_rc.onSkillEnd(SkillEnd::kDone, g_now).ended);
+  const RunOut old = g_rc.onSkillEnd(SkillEnd::kNotFound, g_now);  // the old skill's second end
+  TEST_ASSERT_FALSE(old.ended);
+  TEST_ASSERT_EQUAL(RunState::kRunning, g_rc.state());
+  drive();
+  TEST_ASSERT_EQUAL_STRING("FIND ball | WAIT 1 | BEEP", g_trace);
+  TEST_ASSERT_EQUAL(0, g_last.code);
+}
+
+void test_skill_ends_map_to_their_codes() {
+  const SkillEnd ends[] = {SkillEnd::kNotFound, SkillEnd::kLost,         SkillEnd::kOutsideArea,
+                           SkillEnd::kNoWay,    SkillEnd::kBlocked,      SkillEnd::kUnknownThing,
+                           SkillEnd::kStale};
+  const uint16_t codes[] = {7050, 7051, 7054, 7055, 7024, 7053, 7052};
+  for (int i = 0; i < 7; ++i) {
+    TEST_ASSERT_TRUE(load("FIND \"ball"));
+    until(RunState::kSkill);
+    const RunOut o = g_rc.onSkillEnd(ends[i], g_now);
+    TEST_ASSERT_TRUE(o.ended);
+    TEST_ASSERT_EQUAL(codes[i], o.code);
+  }
+  TEST_ASSERT_TRUE(load("FIND \"ball"));
+  until(RunState::kSkill);
+  const RunOut o = g_rc.onSkillEnd(SkillEnd::kNotFound, g_now);
+  TEST_ASSERT_EQUAL_STRING("I couldn't find the ball.", o.msg);
+}
+
+// The skill is a motion word: it replaces a GO, and a tank-side end is the move's end (STOP 7040, link 7034).
+void test_skill_replaces_go_and_tank_side_ends_apply() {
+  TEST_ASSERT_TRUE(load("GO\nFIND \"ball"));
+  until(RunState::kSkill);
+  TEST_ASSERT_FALSE(g_rc.going());
+  TEST_ASSERT_EQUAL(7034, g_rc.onMotionEvent(MotionEvent::kBodyOffline).code);
+  TEST_ASSERT_TRUE(load("FIND \"ball"));
+  until(RunState::kSkill);
+  g_now += 400000;  // the time limit applies in a skill
+  TEST_ASSERT_EQUAL(7041, g_rc.tick(g_tel, g_now).code);
+}
+
 void test_go_deadman_ends_7034() {
   TEST_ASSERT_TRUE(load("GO\nWAIT 5"));
   RunOut o = g_rc.tick(g_tel, g_now += 2);
@@ -248,5 +353,10 @@ int main(int, char**) {
   RUN_TEST(test_run_time_refusal_ends_with_its_line_and_speed_applies);
   RUN_TEST(test_a_failed_compile_never_starts);
   RUN_TEST(test_go_deadman_ends_7034);
+  RUN_TEST(test_ask_waits_300_ms_then_false);
+  RUN_TEST(test_answer_in_time_and_stop_while_asking);
+  RUN_TEST(test_late_answer_and_old_end_dropped);
+  RUN_TEST(test_skill_ends_map_to_their_codes);
+  RUN_TEST(test_skill_replaces_go_and_tank_side_ends_apply);
   return UNITY_END();
 }

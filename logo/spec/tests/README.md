@@ -55,6 +55,8 @@ What a program asks the tank to do, in order, and how it ends. Any runner must g
 - `distance` — what the ultrasonic sees ahead, in cm, all the time (default: nothing, so `DISTANCE` is 999 and `OBSTACLE?` is false; `OBSTACLE?` is true below 15 cm).
 - `cut_short` — the motions (1 = the first move, turn, arc, pivot or `HOME`) that the obstacle brake cuts short.
 - `stuck` — the motions that end with a stuck track.
+- `answers` — the laptop's reply to each `SEE?` / `HOWFAR` the program asks, in order: `true` / `false`, a number of cm, or `null` (no answer in 300 ms). Used up: no answer comes (FALSE / -1).
+- `skill_ends` — how each `FIND` / `WANDER` / `EXPLORE` / `SETXY` ends, in order: `done`, `not_found`, `lost`, `outside_area`, `no_way`, `blocked`, `unknown_thing`, `stale`, or `stop` (the STOP key). Used up: that skill never ends.
 - Every other motion ends exactly where it should, at once; turns change `HEADING` exactly; waits pass at once (the clock jumps); a `WAIT UNTIL` that never comes true gives up after 60 s and the program goes on. The tank starts with `SPEED 40` and `HEADING` 0. Run tests do not use `RANDOM` (its numbers are each runner's own).
 
 **Actions** (Logo terms: cm, degrees, right = +):
@@ -73,5 +75,8 @@ What a program asks the tank to do, in order, and how it ends. Any runner must g
 | `LOOK` | `LOOK 0 30` (pan tilt in degrees from the centre, right / up = +), `LOOK HOME` |
 | `SAY` | `SAY well done` |
 | `WAIT UNTIL` | `WAIT-UNTIL` (once, when it starts) |
+| `SEE?` / `HOWFAR` | `SEE? ball`, `HOWFAR ball` (each time it is asked) |
+| `AREA` | `AREA 2` (metres; `AREA 0`) |
+| `FIND` / `WANDER` / `EXPLORE` / `SETXY` | `FIND ball`, `WANDER 10`, `EXPLORE`, `SETXY 20 -30`; with an `AREA` on, ` AREA 2 AT 0 30` follows (metres, then where the `AREA` was set in cm: x right, y ahead of the start) |
 
 **Endings:** `finished`, or the code and line of `words.yaml` `errors` (7024 obstacle, 7040 `STOP`, 7041 time limit, 7044 stuck, run-time errors …).

@@ -47,6 +47,16 @@ void path(const CheckSpace& s, JsonOut& out) {
   out.put("],");
 }
 
+// "areas":[[x_mm,y_mm,r_m]…]: the circles AREA draws (x right, y ahead of the start).
+void areas(const SimResult& r, JsonOut& out) {
+  out.put("\"areas\":[");
+  for (uint8_t i = 0; i < r.n_areas; ++i) {
+    out.putf("%s[%ld,%ld,%u]", i > 0 ? "," : "", static_cast<long>(r.areas[i].x_mm), static_cast<long>(r.areas[i].y_mm),
+             r.areas[i].r_m);
+  }
+  out.put("],");
+}
+
 void simError(const SimResult& r, JsonOut& out) {
   if (r.code == 0) {
     out.put("\"sim_error\":null");
@@ -115,6 +125,7 @@ bool writeCheckReply(const CheckSpace& s, const char* src, bool runnable, uint32
   words(s, src, out);
   out.putf("\"handles_obstacles\":%s,", s.result.handles_obstacles ? "true" : "false");
   path(s, out);
+  areas(s.sim, out);
   out.putf("\"cut_short\":%s,", s.sim.cut_short ? "true" : "false");
   simError(s.sim, out);
   out.put("}");

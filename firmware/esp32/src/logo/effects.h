@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "logo/notes.h"
+#include "logo/odometry.h"
 #include "logo/program.h"
 #include "logo/vm.h"
 
@@ -15,7 +16,10 @@ namespace logo {
 
 enum class ActKind : uint8_t {
   kNone, kMove, kTurn, kArc, kPivot, kHome, kSpeed, kWait, kLed, kBeep, kSound, kTone, kLook, kLookHome, kSay,
-  kUntilStart, kTick, kGo, kHold  // kGo: drive on at speed_pct; kHold: stop it (Tank Logo LLD §22)
+  kUntilStart, kTick, kGo, kHold,  // kGo: drive on at speed_pct; kHold: stop it (Tank Logo LLD §22)
+  kAsk,    // SEE? / HOWFAR: the host asks the laptop (thing, ask_q); the answer comes back to the runner
+  kSkill,  // FIND / WANDER / EXPLORE / SETXY: the laptop drives (skill + its arguments + the AREA)
+  kArea    // AREA n: a setting kept by the runner (area_m); nothing for the host to do
 };
 
 struct Action {
@@ -33,6 +37,16 @@ struct Action {
   uint8_t n_notes = 0;                 // kTone
   Note notes[NoteReader::kMaxNotes];
   char text[128] = "";                 // kSay
+  // The AI words (Tank Logo LLD §24.2). Places are in the run's own frame (x right, y ahead, as Odometry reports);
+  // the host turns them into the tank's frame.
+  AskQ ask_q = AskQ::kSee;             // kAsk
+  SkillKind skill = SkillKind::kFind;  // kSkill
+  char thing[25] = "";                 // kAsk / kSkill FIND: the thing's word, lower case
+  uint16_t seconds = 0;                // kSkill WANDER
+  int16_t x_cm = 0, y_cm = 0;          // kSkill SETXY
+  bool has_area = false;               // kSkill: an AREA is on - the next three are valid
+  uint8_t area_m = 0;                  // kArea: the new radius (0 = none); kSkill: the radius that is on
+  Pose area_at;                        // kSkill: where the AREA was set
 };
 
 struct MapState {

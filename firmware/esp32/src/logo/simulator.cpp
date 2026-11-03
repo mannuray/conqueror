@@ -76,15 +76,42 @@ bool Simulator::effect(SimResult& r) {
     return false;
   }
   m_line = a.line;
-  apply(a);
+  apply(a, r);
   return true;
 }
 
-void Simulator::apply(const Action& a) {
+void Simulator::apply(const Action& a, SimResult& r) {
   if (moves(a)) return;
+  if (a.kind == ActKind::kAsk || a.kind == ActKind::kSkill || a.kind == ActKind::kArea) return ai(a, r);
   if (a.kind == ActKind::kSpeed) m_speed = a.speed_pct;
   if (a.kind == ActKind::kWait || a.kind == ActKind::kTone) m_ms += a.ms;
   if (a.kind == ActKind::kTick) m_ms += kTickMs;
+}
+
+// SEE? is FALSE and HOWFAR -1 (a preview never assumes a thing). SETXY draws a dashed straight line to its point;
+// FIND / WANDER / EXPLORE end at an unknown place, so the rest of the path is a guess; AREA draws its circle.
+void Simulator::ai(const Action& a, SimResult& r) {
+  if (a.kind == ActKind::kAsk) {
+    m_vm.resume(a.ask_q == AskQ::kSee ? Value{VTag::kBool, 0} : Value{VTag::kNum, -1000});
+  } else if (a.kind == ActKind::kArea) {
+    if (a.area_m != 0 && r.n_areas < SimResult::kMaxAreas) {
+      r.areas[r.n_areas++] = PlanArea{static_cast<int32_t>(lround(m_pose.x)), static_cast<int32_t>(lround(m_pose.y)), a.area_m};
+    }
+  } else if (a.skill == SkillKind::kSetxy) {
+    setxy(a);
+  } else {
+    m_guess = true;
+    if (a.skill == SkillKind::kWander) m_ms += a.seconds * 1000u;
+  }
+}
+
+// A straight line to the point (x right, y ahead of the start): drawn dashed, the heading as it was.
+void Simulator::setxy(const Action& a) {
+  const double dx = a.x_cm * 10.0 - m_pose.x, dy = a.y_cm * 10.0 - m_pose.y;
+  m_pose.x = a.x_cm * 10.0;
+  m_pose.y = a.y_cm * 10.0;
+  m_ms += static_cast<uint32_t>(sqrt(dx * dx + dy * dy) / 10.0 / cmPerS() * 1000.0);
+  point(m_line, true);
 }
 
 // The actions that move the planned tank. False for the others.
@@ -136,7 +163,7 @@ void Simulator::around(double radius_mm, double deg) {
   m_ms += static_cast<uint32_t>(rad(fabs(deg)) * radius_mm / 10.0 / cmPerS() * 1000.0);
 }
 
-void Simulator::point(uint16_t line) {
+void Simulator::point(uint16_t line, bool uncertain) {
   if (m_out->n >= m_out->cap) {
     m_full = true;
     return;
@@ -146,7 +173,7 @@ void Simulator::point(uint16_t line) {
   p.y_mm = static_cast<int32_t>(lround(m_pose.y));
   p.heading_deg = static_cast<int16_t>(lround(wrap180(m_pose.h)));
   p.line = line;
-  p.uncertain = m_vm.sensorRead() || m_guess;
+  p.uncertain = uncertain || m_vm.sensorRead() || m_guess;
 }
 
 Sensors Simulator::sensors() const {

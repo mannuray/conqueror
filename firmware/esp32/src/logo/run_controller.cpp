@@ -92,6 +92,8 @@ bool RunController::start(const Program& p, const RunConfig& cfg, const RunTelem
   m_area_at = Pose();
   m_thing[0] = '\0';
   m_ask_deadline = 0;
+  m_next_ask = now_ms;
+  m_ask_held = false;
   return true;
 }
 
@@ -100,6 +102,11 @@ RunOut RunController::tick(const RunTelem& t, uint32_t now_ms) {
   if (!active()) return out;
   if (now_ms - m_start >= static_cast<uint32_t>(gen::kRunTimeS) * 1000u) return end(7041);
   if (m_state == RunState::kMotion || m_state == RunState::kPaused || m_state == RunState::kSkill) return out;
+  if (m_ask_held) {  // a question paced to ~10 Hz goes out now (its 300 ms start here)
+    if (static_cast<int32_t>(now_ms - m_next_ask) < 0) return out;
+    sendAsk(now_ms, out);
+    return out;
+  }
   if (!due(now_ms)) return out;
   step(t, now_ms, out);
   return out;
@@ -124,8 +131,17 @@ void RunController::answer(int32_t value) {
   m_state = RunState::kRunning;
 }
 
+// The question goes out now: the host carries out the kAsk, the 300 ms start, the next question waits 100 ms.
+void RunController::sendAsk(uint32_t now_ms, RunOut& out) {
+  m_ask_held = false;
+  out.act = true;
+  out.action = m_ask_action;
+  m_ask_deadline = now_ms + kAskMs;
+  m_next_ask = now_ms + kAskGapMs;
+}
+
 RunOut RunController::onAskAnswer(int32_t value, uint32_t now_ms) {
-  if (m_state != RunState::kAsking || static_cast<int32_t>(now_ms - m_ask_deadline) >= 0) return RunOut();
+  if (m_state != RunState::kAsking || m_ask_held || static_cast<int32_t>(now_ms - m_ask_deadline) >= 0) return RunOut();
   answer(value);
   return RunOut();
 }
@@ -214,8 +230,14 @@ void RunController::carry(const Action& a, const RunTelem& t, uint32_t now_ms, R
 bool RunController::carryAi(const Action& a, const RunTelem& t, uint32_t now_ms, RunOut& out) {
   if (a.kind == ActKind::kAsk) {
     m_ask_q = a.ask_q;
-    m_ask_deadline = now_ms + kAskMs;
     m_state = RunState::kAsking;
+    m_ask_action = a;
+    if (static_cast<int32_t>(now_ms - m_next_ask) >= 0) {
+      sendAsk(now_ms, out);
+    } else {
+      m_ask_held = true;  // too soon after the last question: the runner waits until it may ask
+      out.act = false;
+    }
     return true;
   }
   if (a.kind == ActKind::kArea) {

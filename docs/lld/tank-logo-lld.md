@@ -1356,7 +1356,7 @@ The page's text icons become Lucide icons from the shared `web/icons.json` (brid
   2. the runner enters **`RunState::kAsking`**, and `LogoController` sends `skill_ask`;
   3. `onAskAnswer(value)`, or 300 ms (FALSE / −1), pushes the value; the VM goes on.
   - **`OpCode::kResume`** carries the value back (`kAsk` is the first effect with a result).
-  - In a `WAIT UNTIL SEE? "ball` the question is asked each tick (~10 Hz), as a sensor is read.
+  - In a `WAIT UNTIL SEE? "ball` (or any loop) a question is asked at most every 100 ms (~10 Hz): `RunController` holds a new question until 100 ms after the previous one went out (`kAskGapMs`); a lone question is not delayed. The 300 ms wait starts when it is sent.
 - **`AREA n`** is a setting, like `SPEED`: the runner keeps `m_area_m` and the odometry pose where it ran (`m_area_at`). No message is sent.
   - The radius is kept in whole metres, rounded to the nearest, but a radius above 0 never rounds down to none: `AREA 0.4` is 1 m. Only `AREA 0` clears it.
 - **Action words (`FIND`, `WANDER`, `EXPLORE`, `SETXY`)** are one effect **`EffectKind::kSkill`** (skill, args).

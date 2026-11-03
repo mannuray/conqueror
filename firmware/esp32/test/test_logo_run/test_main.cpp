@@ -305,6 +305,42 @@ void test_huge_answer_clamped_and_empty_thing_refused() {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_last.msg, "needs a thing"), g_last.msg);
 }
 
+// Review fix: a question loop asks about 10 times a second (LLD §24.1), not as fast as the answers come; a lone
+// question is not delayed.
+void test_question_loop_asks_at_most_10_per_second() {
+  TEST_ASSERT_TRUE(load("WAIT UNTIL SEE? \"ball\nBEEP"));
+  int asks = 0;
+  const uint32_t t0 = g_now;
+  while (g_now - t0 < 1000) {  // a laptop that answers FALSE at once, every 2 ms tick
+    const RunOut o = g_rc.tick(g_tel, g_now);
+    if (o.act && o.action.kind == ActKind::kAsk) {
+      ++asks;
+      g_rc.onAskAnswer(0, g_now);
+    }
+    g_now += 2;
+  }
+  TEST_ASSERT_LESS_OR_EQUAL(11, asks);
+  TEST_ASSERT_GREATER_OR_EQUAL(8, asks);  // and it does keep asking
+}
+
+void test_a_lone_question_is_not_delayed() {
+  TEST_ASSERT_TRUE(load("WAIT 1\nIF SEE? \"ball [ BEEP ]\nWAIT 1\nIF SEE? \"cup [ BEEP ]"));
+  const uint32_t t0 = g_now;
+  uint32_t at[2] = {0, 0};
+  int asks = 0;
+  while (asks < 2 && g_now < t0 + 5000) {  // each WAIT is 1 s: the question after it is far from the last one
+    const RunOut o = g_rc.tick(g_tel, g_now);
+    if (o.act && o.action.kind == ActKind::kAsk) {
+      at[asks++] = g_now;
+      g_rc.onAskAnswer(0, g_now);
+    }
+    g_now += 2;
+  }
+  TEST_ASSERT_EQUAL(2, asks);
+  TEST_ASSERT_LESS_OR_EQUAL(t0 + 1000 + 4, at[0]);
+  TEST_ASSERT_LESS_OR_EQUAL(at[0] + 1000 + 4, at[1]);
+}
+
 void test_skill_ends_map_to_their_codes() {
   const SkillEnd ends[] = {SkillEnd::kNotFound, SkillEnd::kLost,         SkillEnd::kOutsideArea,
                            SkillEnd::kNoWay,    SkillEnd::kBlocked,      SkillEnd::kUnknownThing,
@@ -375,6 +411,8 @@ int main(int, char**) {
   RUN_TEST(test_answer_in_time_and_stop_while_asking);
   RUN_TEST(test_late_answer_and_old_end_dropped);
   RUN_TEST(test_huge_answer_clamped_and_empty_thing_refused);
+  RUN_TEST(test_question_loop_asks_at_most_10_per_second);
+  RUN_TEST(test_a_lone_question_is_not_delayed);
   RUN_TEST(test_skill_ends_map_to_their_codes);
   RUN_TEST(test_skill_replaces_go_and_tank_side_ends_apply);
   return UNITY_END();

@@ -65,6 +65,7 @@ class RunController {
   // A skill ended on the laptop. Ignored unless a skill is running (an old end never touches the next word).
   RunOut onSkillEnd(SkillEnd e, uint32_t now_ms);
   static constexpr uint32_t kAskMs = 300;
+  static constexpr uint32_t kAskGapMs = 100;  // a new question goes out at least this long after the last (~10 Hz)
   RunState state() const { return m_state; }
   bool going() const { return m_going; }  // a GO drives on in the background (LLD §22): keep it alive each tick
   uint32_t wakeAt() const { return m_wake; }  // kWaiting: when WAIT / PLAY / a WAIT UNTIL tick is over
@@ -80,6 +81,7 @@ class RunController {
   bool carryAi(const Action& a, const RunTelem& t, uint32_t now_ms, RunOut& out);  // kAsk / kArea / kSkill
   bool due(uint32_t now_ms);  // a waiting or asking state is over (an unanswered question gets FALSE / -1)
   void answer(int32_t value);
+  void sendAsk(uint32_t now_ms, RunOut& out);  // the kAsk goes out now (see kAskGapMs)
   bool active() const { return m_state != RunState::kIdle && m_state != RunState::kEnded; }
 
   Vm& m_vm;
@@ -96,6 +98,9 @@ class RunController {
   uint8_t m_last_sub = 0;
   AskQ m_ask_q = AskQ::kSee;
   uint32_t m_ask_deadline = 0;
+  uint32_t m_next_ask = 0;  // the earliest time the next question may go out
+  bool m_ask_held = false;  // the question waits for m_next_ask: not yet sent, `m_ask_action` is what to send
+  Action m_ask_action;
   uint8_t m_area_m = 0;   // AREA (0 = none) and where it was set, in the run's frame
   Pose m_area_at;
   char m_thing[25] = "";  // the running skill's thing, for 7050 / 7051 / 7053 / 7054

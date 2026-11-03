@@ -174,10 +174,24 @@ def _your_words(d: dict[str, Any] | None) -> str:
     )
 
 
-def _things(d: dict[str, Any] | None) -> str:
+def _things(d: Any) -> str:
     if not d:
         return ""
-    return "".join(f"{k}={'|'.join(str(n) for n in v)};" for k, v in d.items())
+    if not isinstance(d, dict):
+        raise TypeError(f"things: expected a mapping of word to a list of names, got {d!r}")
+    out = ""
+    items: list[tuple[Any, Any]] = list(d.items())  # pyright: ignore[reportUnknownArgumentType]
+    for word, names in items:
+        if not isinstance(names, list):
+            raise TypeError(f"things: {word!r} must be a list of names, got {names!r}")
+        texts: list[Any] = [word, *names]  # pyright: ignore[reportUnknownVariableType]
+        for text in texts:
+            if not isinstance(text, str):
+                raise TypeError(f"things: {text!r} must be a string")
+            if any(ch in text for ch in "=|;"):
+                raise ValueError(f"things: {text!r} must not contain '=', '|' or ';'")
+        out += f"{word}={'|'.join(texts[1:])};"
+    return out
 
 
 def _load_cases(path: Path) -> list[Case]:

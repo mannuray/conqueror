@@ -178,3 +178,26 @@ def test_tank_things_key() -> None:
     assert "const char* things" in text and "bool ai" in text
     plain = next(c for c in s.cases if c.name == "missing input")
     assert plain.ai is False and plain.things == ""
+
+
+@pytest.mark.parametrize(
+    "things",
+    [
+        {"to=y": ["car"]},
+        {"toy": ["a|b"]},
+        {"toy": ["a;b"]},
+        {"to;y": ["car"]},
+        {"toy": "car"},
+        {"toy": [1]},
+        {"toy": None},
+        ["toy"],
+    ],
+)
+def test_bad_things_are_refused(things: object) -> None:
+    with pytest.raises((TypeError, ValueError), match="things"):
+        model._things(things)  # pyright: ignore[reportPrivateUsage]
+
+
+def test_good_things_still_encode() -> None:
+    encoded = model._things({"toy": ["car", "racing car"], "ball": []})  # pyright: ignore[reportPrivateUsage]
+    assert encoded == "toy=car|racing car;ball=;"

@@ -81,6 +81,19 @@ void test_stream_reject_reported_once() {
   TEST_ASSERT_TRUE(c.reportStreamReject(10, 2));
 }
 
+// Plan Z2a Task 6 review: once per stream PER REASON - a skill server that is rate-limited and refused NOT_OWNER in
+// turn hears each once (not one nack per switch), and the second reason is never hidden by the first.
+void test_stream_reject_once_per_reason() {
+  c.add(10, 0);
+  TEST_ASSERT_TRUE(c.reportStreamReject(10, 3));   // RATE_LIMITED
+  TEST_ASSERT_TRUE(c.reportStreamReject(10, 0));   // NOT_OWNER
+  TEST_ASSERT_FALSE(c.reportStreamReject(10, 3));
+  TEST_ASSERT_FALSE(c.reportStreamReject(10, 0));
+  c.streamAccepted(10);
+  TEST_ASSERT_TRUE(c.reportStreamReject(10, 0));
+  TEST_ASSERT_TRUE(c.reportStreamReject(10, 3));
+}
+
 void test_stop_barrier_drops_motion_posted_before_stop() {
   StopBarrier b;
   TEST_ASSERT_FALSE(b.stale(5));  // no STOP yet
@@ -131,6 +144,7 @@ int main() {
   RUN_TEST(test_silent_clients_are_reported);
   RUN_TEST(test_silent_client_reported_once);
   RUN_TEST(test_stream_reject_reported_once);
+  RUN_TEST(test_stream_reject_once_per_reason);
   RUN_TEST(test_stop_barrier_drops_motion_posted_before_stop);
   RUN_TEST(test_stop_barrier_survives_counter_wrap);
   RUN_TEST(test_debug_per_client);

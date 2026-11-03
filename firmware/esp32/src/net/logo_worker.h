@@ -36,7 +36,9 @@ const logo::CheckSpace& logoSpace();
 // with nothing: staging needs no lock. Only the commit of a finished list takes it, and only for the swap - the link
 // task calls hub.tryCommit(logoThingsLock()) each loop while hub.commitPending(), waiting at most kCommitWaitMs
 // (a busy lock is simply retried). caps() takes the same lock to copy the committed list when a check starts.
-void logoBindSkillHub(const core::SkillHub* hub);  // once at boot, before linkTaskStart
+// Once at boot, before the HTTP server and the worker start (main.cpp setup): a plain pointer, set before any task
+// that reads it exists.
+void logoBindSkillHub(const core::SkillHub* hub);
 const core::LockPort& logoThingsLock();
 
 // Link task: the checked program for logo_run, and the running program's storage.

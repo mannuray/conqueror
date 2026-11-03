@@ -200,11 +200,11 @@ stateDiagram-v2
 - **Errors (new, `words.yaml`):**
   - 7050 "I couldn't find the {thing}.";
   - 7051 "I lost sight of the {thing}.";
-  - 7052 "The AI helper stopped answering.";
+  - 7052 "The AI helper stopped answering." (also when the helper's drive frames stop for 300 ms - the lease's deadman - since a laptop or WiFi loss is only ever seen that way);
   - 7053 "I don't know what a {thing} is." (replaces "only knows \"ball");
   - 7054 "I saw the {thing}, but it's outside the play area." (design-notes §196);
   - 7055 "I can't find a way there." (SETXY);
-  - blocked → 7024, and STOP / page / owner / deadman end a skill as they end any move.
+  - blocked → 7024, and STOP / page / owner / the tank's own deadman and link loss (7034) end a skill as they end any move.
 - **Programs a child might write:**
   ```
   AREA 2

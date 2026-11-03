@@ -20,7 +20,7 @@ bool WsClients::add(int fd, uint32_t now_ms) {
   snprintf(c.name, sizeof(c.name), "phone-%lu", static_cast<unsigned long>(m_next_number++));
   c.last_rx_ms = now_ms;
   c.window_ms = now_ms;
-  c.last_reject = 0xFF;
+  c.rejects = 0;
   return true;
 }
 
@@ -85,14 +85,17 @@ size_t WsClients::silent(uint32_t now_ms, int* out, size_t max) {
 
 bool WsClients::reportStreamReject(int fd, uint8_t reason) {
   const int i = find(fd);
-  if (i < 0 || m_c[i].last_reject == reason) return false;
-  m_c[i].last_reject = reason;
+  if (i < 0) return false;
+  if (reason >= 32) return true;
+  const uint32_t bit = 1u << reason;
+  if ((m_c[i].rejects & bit) != 0) return false;
+  m_c[i].rejects |= bit;
   return true;
 }
 
 void WsClients::streamAccepted(int fd) {
   const int i = find(fd);
-  if (i >= 0) m_c[i].last_reject = 0xFF;
+  if (i >= 0) m_c[i].rejects = 0;
 }
 
 }  // namespace core

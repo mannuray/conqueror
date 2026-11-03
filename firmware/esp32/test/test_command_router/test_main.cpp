@@ -221,6 +221,7 @@ void test_skill_drive_behind_a_stop_is_dropped() {
 logo::Program g_checked;
 logo::CheckSpace g_space;
 int g_beeps = 0;
+app::LogoController::Hooks g_hooks;
 void aiHooks() {
   app::LogoController::Hooks h;
   h.claim = [](int, uint32_t) { return core::Decision::kSend; };
@@ -241,6 +242,7 @@ void aiHooks() {
   h.cpm = [] { return static_cast<uint16_t>(7514); };
   h.start_skill = [](int, int32_t, uint32_t, core::BridgeReason&) { return true; };
   h.end_skill = [](core::EndReason, uint32_t) {};
+  g_hooks = h;
   logoc->setHooks(h);
 }
 int32_t lastSkillId(int fd) {
@@ -284,14 +286,65 @@ void test_skill_messages_reach_the_running_program() {
   TEST_ASSERT_TRUE(has(3, "\"reason\":7051"));
 }
 
-// No program runs: the answer / ends are routed and dropped (no INVALID_COMMAND, nothing sent).
-void test_skill_answer_and_ends_are_routed() {
-  hello(3);
-  fakes::reset();
-  text(3, "{\"t\":\"skill_answer\",\"id\":1,\"value\":true}", 102);
-  text(3, "{\"t\":\"skill_done\",\"id\":1}", 103);
-  text(3, "{\"t\":\"skill_failed\",\"id\":1,\"reason\":\"lost\"}", 104);
-  TEST_ASSERT_EQUAL(0, fakes::world().sent.size());
+// The body is there with its encoders and the program's phone 3 drives: a skill's drive primitive can start.
+void fastFrame(uint32_t now) {
+  proto::TelemFastMsg t{};
+  t.dist_mm = 65535;
+  uint8_t f[64];
+  const size_t n = cqtest::frame(t, 2, f);
+  link->onUartBytes(f, n, now);
+}
+void runAiProgram(const char* src, uint32_t now) {
+  logo::Caps caps;
+  caps.ai = true;
+  TEST_ASSERT_TRUE(logo::checkProgram(src, static_cast<uint16_t>(strlen(src)), caps, g_space));
+  g_checked = g_space.program;
+  logoc->onRun(3, 5, 1, false, now);
+}
+
+// skill_answer false: routed - the program goes on at once (a lost answer would wait the 300 ms out).
+void test_skill_answer_false_goes_on_at_once() {
+  drive->onClientOpen(4, 0);
+  hello(4);
+  aiHooks();
+  g_beeps = 0;
+  runAiProgram("IF SEE? \"ball [ BEEP ]  BEEP", 200);
+  logoc->tick(202);
+  skillMsg("{\"t\":\"skill_answer\",\"id\":%ld,\"value\":false}", lastSkillId(4), 204);
+  logoc->tick(206);
+  TEST_ASSERT_EQUAL(1, g_beeps);  // FALSE: no BEEP in the IF, the BEEP after it - without the 300 ms wait
+}
+
+// skill_drive under the live lease reaches the motion side: its frame drives (DRIVE v 40) and no NOT_OWNER.
+void test_skill_drive_under_a_live_lease_drives() {
+  sync();
+  fastFrame(20);
+  drive->onClientOpen(4, 0);
+  hello(4);
+  aiHooks();
+  app::LogoController::Hooks h = g_hooks;
+  h.claim = [](int fd, uint32_t now) { return drive->claim(fd, now); };
+  h.keep = [](int fd, uint32_t now) { return owner->keepDriving(fd, now); };
+  h.start_skill = [](int fd, int32_t id, uint32_t now, core::BridgeReason& why) {
+    return motion->startSkill(fd, id, now, why);
+  };
+  h.end_skill = [](core::EndReason why, uint32_t now) { motion->endSkill(why, now); };
+  logoc->setHooks(h);
+  runAiProgram("WANDER 10", 200);
+  logoc->tick(202);
+  TEST_ASSERT_TRUE(motion->active());
+  skillMsg("{\"t\":\"skill_drive\",\"id\":%ld,\"v\":40,\"yaw_rate\":0}", lastSkillId(4), 210);
+  TEST_ASSERT_FALSE(has(4, "NOT_OWNER"));
+  wire.drain(*tx);
+  wire.clear();
+  fastFrame(220);
+  motion->onTelemetry(220);
+  wire.drain(*tx);
+  const cqtest::Sent* d = wire.last(FT::kDrive);
+  TEST_ASSERT_NOT_NULL(d);
+  proto::DriveMsg m{};
+  TEST_ASSERT_TRUE(proto::decode(d->payload, d->len, m));
+  TEST_ASSERT_EQUAL(40, m.v);
 }
 
 int main() {
@@ -309,7 +362,8 @@ int main() {
   RUN_TEST(test_skill_things_reach_the_hub);
   RUN_TEST(test_skill_things_refusals);
   RUN_TEST(test_skill_drive_without_a_lease_is_not_owner);
-  RUN_TEST(test_skill_answer_and_ends_are_routed);
+  RUN_TEST(test_skill_answer_false_goes_on_at_once);
+  RUN_TEST(test_skill_drive_under_a_live_lease_drives);
   RUN_TEST(test_skill_drive_behind_a_stop_is_dropped);
   RUN_TEST(test_skill_messages_reach_the_running_program);
   return UNITY_END();

@@ -8,6 +8,7 @@
 
 #include "core/body_link.h"
 #include "core/link_owner.h"
+#include "core/skill_hub.h"
 
 namespace cq {
 namespace net {
@@ -40,6 +41,9 @@ void linkTaskStart(const char* (*camera_sensor)());  // sensor name for welcome,
                                                       // (the camera starts after WiFi, §38)
 bool linkPost(const LinkCommand& cmd, bool to_front);  // to_front: WS stop (fast path), OTA start
 LinkStatus linkStatus();                             // consistent copy, any task
+// Plan Z2a: the link task's SkillHub, for logoBindSkillHub at boot (before the HTTP server and the Logo worker
+// start); only the link task changes it.
+const core::SkillHub& linkSkillHub();
 
 }  // namespace net
 }  // namespace cq

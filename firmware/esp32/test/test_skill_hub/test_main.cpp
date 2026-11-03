@@ -3,6 +3,8 @@
 #include <string.h>
 #include <unity.h>
 
+#include <type_traits>
+
 #include "core/skill_hub.h"
 
 using namespace cq::core;
@@ -457,6 +459,20 @@ void test_ids_never_repeat_and_stay_positive() {
   }
 }
 
+// Task 6 review: the server's fd is read by the worker outside the lock - an atomic (Shared<int>) that keeps the
+// hub copyable; a copy keeps the server and a close is seen through server().
+void test_server_fd_is_shared_and_copyable() {
+  static_assert(std::is_same<decltype(static_cast<int>(cq::core::Shared<int>(3))), int>::value, "reads an int");
+  cq::core::SkillHub a;
+  TEST_ASSERT_EQUAL(-1, a.server());
+  a.onHello(5);
+  const cq::core::SkillHub b = a;
+  TEST_ASSERT_EQUAL(5, b.server());
+  a.onClose(5);
+  TEST_ASSERT_EQUAL(-1, a.server());
+  TEST_ASSERT_EQUAL(5, b.server());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_one_server_only);
@@ -483,5 +499,6 @@ int main() {
   RUN_TEST(test_copy_for_check_with_a_refused_take_copies_nothing);
   RUN_TEST(test_new_server_hello_hides_the_old_servers_list);
   RUN_TEST(test_ids_never_repeat_and_stay_positive);
+  RUN_TEST(test_server_fd_is_shared_and_copyable);
   return UNITY_END();
 }

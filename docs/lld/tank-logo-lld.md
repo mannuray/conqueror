@@ -1375,10 +1375,10 @@ The page's text icons become Lucide icons from the shared `web/icons.json` (brid
     | no_way | 7055 |
     | blocked | 7024, or `m_blocked` for a `BLOCKED?` program, as a move |
     | unknown_thing | 7053 |
-    | stale / server gone | 7052 |
-    | STOP 7040, page 7046, owner 7045, deadman 7034, stall 7044… | via `kByEndReason`, as a move |
+    | stale / server gone / the lease's deadman (no `skill_drive` for 300 ms) | 7052 |
+    | STOP 7040, page 7046, owner 7045, stall 7044, link loss 7034… | as a move (`LogoController` maps a skill's drive end; the Uno's own deadman and link loss stay 7034) |
 
-  - **As built (Plan Z2a Task 6):** a skill's deadman (no `skill_drive` for 300 ms) ends the program **7052**, not 7034: a WiFi drop is only seen by the deadman (Review Focus 3). The tank-side ends are mapped by `LogoController` (bridge LLD R26.4 as built), since the runner's `onPrimitiveEnd` is for `kMotion`.
+  - The lease's deadman is 7052, not 7034 (ruling 2026-11-03, design-notes §197): a laptop or WiFi loss is only ever seen as that deadman, and 7034 means the tank's body stopped answering.
 
 - **While going** (`GO` running), an action word replaces the GO, as a motion word does (§22.2).
 - **The simulator (preview):**
@@ -1416,10 +1416,20 @@ classDiagram
   class Checker { +check(src, caps) CheckResult }
   class LogoController {
     +tick(now)
-    -ask(thing, q)
-    -startSkill(SkillCall)
-    -relative(run_point, pose) fwd_left
+    +setSkillHub(hub)
+    +onSkillAnswer(fd, id, value, now)
+    +onSkillEnd(fd, id, SkillEnd, now)
+    +onClientClose(fd, now)
+    -ask(action, now)
+    -startSkill(action, now)
+    -endLease(tell, why, motion, now)
+    -Hooks.start_skill(fd, id, now, why&) / end_skill(EndReason, now)
   }
+  class relative {
+    <<logo/relative.h, free function>>
+    +relative(pose, x_run_mm, y_run_mm) FwdLeft
+  }
+  LogoController ..> relative
   RunController --> RunState
   RunController ..> EffectKind
   RunController ..> SkillCall

@@ -57,7 +57,7 @@ size_t jsonPrimitiveDone(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, 
   const uint8_t r = static_cast<uint8_t>(e.reason);
   char id[20] = "";
   if (e.id >= 0) snprintf(id, sizeof(id), ",\"id\":%ld", static_cast<long>(e.id));
-  char moved[24] = "";
+  char moved[48] = "";  // ,"moved_cm":-ld.ld fits whatever the long (no truncation warning)
   if (e.has_moved) {
     const long mm = static_cast<long>(e.moved_mm);
     const long a = mm < 0 ? -mm : mm;

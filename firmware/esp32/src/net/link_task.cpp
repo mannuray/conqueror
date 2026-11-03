@@ -255,7 +255,6 @@ void linkTaskStart(const char* (*camera_sensor)()) {
   g_router = new (g_router_mem) app::CommandRouter(g_drive, g_motion, g_settings, g_tank, *g_logo, g_tel, g_out);
   g_router->setHello(CQ_FW_VERSION, g_sensor);
   g_router->setSkillHub(&g_skills);
-  logoBindSkillHub(&g_skills);  // the worker's checks copy its things (before the link task runs)
   g_router->setClockUs([]() { return static_cast<uint64_t>(esp_timer_get_time()); });  // Plan Q1: pong
   wireLogo();
   wireViews();
@@ -274,6 +273,8 @@ bool linkPost(const LinkCommand& cmd, bool to_front) {
   const TickType_t wait = pdMS_TO_TICKS(100);  // drained every 2 ms: waits only if 16 are queued
   return (to_front ? xQueueSendToFront(g_queue, &cmd, wait) : xQueueSendToBack(g_queue, &cmd, wait)) == pdTRUE;
 }
+
+const core::SkillHub& linkSkillHub() { return g_skills; }
 
 LinkStatus linkStatus() {
   portENTER_CRITICAL(&g_status_mux);

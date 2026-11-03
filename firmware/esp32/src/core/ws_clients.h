@@ -30,7 +30,8 @@ class WsClients {
   // Up to max silent clients into out; returns how many. Each client is reported once (it is then
   // closing; kWsClose removes it) - review M3.
   size_t silent(uint32_t now_ms, int* out, size_t max);
-  // Streaming rejections: true when this reason should be reported (first time in a row).
+  // Streaming rejections: true the first time this reason is refused in the stream (once per reason, until
+  // streamAccepted - Plan Z2a: a rate-limited skill server still hears a later NOT_OWNER).
   bool reportStreamReject(int fd, uint8_t reason);
   void streamAccepted(int fd);
   // LLD R5 debug stream: divider of the 50 Hz TELEM_FAST (0 off, 1 = 50 Hz, 5 = 10 Hz) and this client's td seq.
@@ -47,7 +48,7 @@ class WsClients {
     uint8_t stream_n;
     uint8_t cam_n;
     uint8_t total_n;
-    uint8_t last_reject;  // 0xFF = none
+    uint32_t rejects;  // bit r: reason r already reported in this stream (once per stream per reason)
     bool closing;         // reported silent once
     uint8_t debug_div;    // 0 = no debug stream
     uint32_t debug_seq;

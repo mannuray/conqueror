@@ -2819,11 +2819,26 @@ classDiagram
     +onSkillDrive(fd, id, v, rate, now)
   }
   class LogoController {
-    +onAct(ask | skill) from RunController
-    +onSkillAnswer / onSkillEnd to RunController
+    +setSkillHub(hub)
+    +onSkillAnswer(fd, id, value, now)
+    +onSkillEnd(fd, id, SkillEnd, now)
+    +onClientClose(fd, now)
+    +tick(now) runs hub.tick, ghost close
+    -ask(action, now)
+    -startSkill(action, now)
+    -endLease(tell, why, motion, now)
+    -skillPrimitiveEnded(end, now)
+    -Hooks.start_skill(fd, id, now, why&) bool
+    -Hooks.end_skill(EndReason, now)
+    -m_skill_id
+  }
+  class relative {
+    <<logo/relative.h, free function>>
+    +relative(pose, x_run_mm, y_run_mm) FwdLeft
   }
   SkillHub --> ThingNames
   SkillHub <.. LogoController
+  LogoController ..> relative
   SkillHub <.. MotionController : leaseOk
   MotionController --> MotionService
   MotionService --> SkillPushWatch : kSkill only
@@ -2883,11 +2898,53 @@ sequenceDiagram
   - **Every end of a live lease goes through one `endLease()`**, once: the hub forgets the lease, `skill_end {id, why}` goes to the server unless the server ended the skill (`skill_done` / `skill_failed`) or closed, the skill's drive ends and the holder loses the camera. The lease id is cleared first, so the skill's own end (which calls back into `onPrimitiveEnd`) is dropped.
   - why: `logo_stop` / STOP / cancel → `stop`; the page's close → `page`; the owner's release, stick or another driver → `owner`; the deadman → `deadman`; everything else (program end, battery, tilt, brake, stall, link) → `ended`.
   - A skill's drive ended by the motion layer: blocked → the runner's `onSkillEnd(kBlocked)` (7024, or `BLOCKED?` goes on); stalled / timeout / diverged 7044, link 7034, encoder fault 7021, not owner 7045, as a move. A STOP / cancel end waits for the `MotionEvent` that `MotionController::end` sends right after it (it tells page from owner from stop); were none to come, the server's frames are refused and the hub's deadman ends the lease.
-  - **The deadman ends the program 7052** (the helper stopped answering), from the hub's 300 ms or the motion layer's own, whichever fires first in the loop (the other finds no lease): a WiFi drop is only ever seen by the deadman (Review Focus 3). This replaces the "deadman 7034" of Tank Logo LLD §24.2's table for skills.
+  - **The lease's deadman ends the program 7052** (the helper stopped answering; ruling, design-notes §197), from the hub's 300 ms or the motion layer's own, whichever fires first in the loop (the other finds no lease): a WiFi drop is only ever seen by the deadman (Review Focus 3). The Uno's own deadman and link loss stay 7034.
   - The server's close: `LogoController::onClientClose(fd)` runs before `DriveController::onClientClose` (`SkillHub::onClose`; a running skill ends 7052 with no `skill_end`). A server reaped as silent without a `kWsClose` (DriveController's ghost path) is seen by `tick()`: the hub's server no longer in `WsClients`.
   - `LogoController::tick()` runs `SkillHub::tick` every loop, after the telemetry step; the link task calls `tryCommit(logoThingsLock())` after it while `commitPending()`, and `logoBindSkillHub` inside `linkTaskStart` (before the task is created).
   - The router: `hello` with `client: "ai-skills"` registers the server (another fd: `nack BUSY`, no welcome); `skill_things` is parsed from a 200-byte copy into a `ThingList` member (never on the link stack): a bad list → `BAD_FIELD`, over a bound → `TOO_BIG`, not the server → `NOT_OWNER`, else `ack`. `skill_drive` counts as a stream (25 / s, as `drive_rate`) and is dropped behind a STOP handled first.
   - The odometry is updated every tick (the 10 Hz is only `logo_pose`'s), and `RunTelem.pose` carries it.
+  - `SkillHub`'s server fd is a `Shared<int>` (an atomic that keeps the hub copyable): `copyForCheck` reads it on the worker outside the lock. `logoBindSkillHub(&linkSkillHub())` is the first thing in `setup()`, before the HTTP server and the worker exist.
+  - A stream's refusals (`streamReject`) are reported once per stream **per reason**, so a rate-limited server still hears a later NOT_OWNER.
+
+```mermaid
+sequenceDiagram
+  participant M as MotionController
+  participant L as LogoController
+  participant H as SkillHub
+  participant E as skill server
+  participant R as RunController
+  alt STOP / cancel / page / owner (MotionController::end)
+    M->>L: onPrimitiveEnd(kSkill, kStop | kCancelled) - waits
+    M->>L: onMotionEvent(e)
+    L->>L: endLease(why = stop | page | owner)
+    L->>H: endLease()
+    L->>E: skill_end {id, why}
+    L->>M: end_skill (holder cleared; the drive already ended)
+    L->>R: onMotionEvent(e) - 7040 / 7046 / 7045
+  else logo_stop, or another driver (tick: keep lost)
+    L->>L: endLease(stop | owner) then the runner ends it 7040 / 7045
+  else the motion layer ends the drive (brake, stall, link, deadman)
+    M->>L: onPrimitiveEnd(kSkill, reason)
+    L->>E: skill_end {id, ended | owner | deadman}
+    L->>R: blocked 7024 / stall 7044 / link 7034 / deadman 7052
+  else the hub's deadman (tick, after the telemetry step)
+    L->>H: tick(now) returns the lease id (lease ended)
+    L->>E: skill_end {id, deadman}
+    L->>M: end_skill(kDeadman) - STOP
+    L->>R: onSkillEnd(kStale) - 7052
+  else the server closes (kWsClose) or is reaped silent (tick: not in WsClients)
+    L->>H: onClose(fd) returns the lease id
+    L->>M: end_skill - STOP (no skill_end: it is gone)
+    L->>R: onSkillEnd(kStale) - 7052
+  else the program ends any other way (finished, error, battery, tilt, time)
+    L->>L: finish(): endLease(ended) before stop_tank
+    L->>E: skill_end {id, ended}
+  else skill_done / skill_failed (current id, from the server)
+    E->>L: onSkillEnd(fd, id, e)
+    L->>M: end_skill(kDone | kCancelled) - no skill_end
+    L->>R: onSkillEnd(e) - goes on, or 7050-7055 / 7024
+  end
+```
 
 ### R26.5 Tests (host, C++)
 - **`test_skill_hub`:**

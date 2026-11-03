@@ -25,24 +25,28 @@ struct LockPort {
   void* ctx;
 };
 
-// A flag written on the link task and read on the Logo worker's (m_clear); copyable so a SkillHub still is.
-class SharedFlag {
+// A value written on the link task and read on the Logo worker's (the server's fd, m_clear): an atomic that stays
+// copyable, so a SkillHub still is (a bool or an int: one 32-bit load / store on the ESP32-S3).
+template <class T>
+class Shared {
  public:
-  SharedFlag() = default;
-  SharedFlag(const SharedFlag& o) : m_v(o.m_v.load()) {}
-  SharedFlag& operator=(const SharedFlag& o) {
+  Shared() = default;
+  explicit Shared(T v) : m_v(v) {}
+  Shared(const Shared& o) : m_v(o.m_v.load()) {}
+  Shared& operator=(const Shared& o) {
     m_v.store(o.m_v.load());
     return *this;
   }
-  SharedFlag& operator=(bool b) {
-    m_v.store(b);
+  Shared& operator=(T v) {
+    m_v.store(v);
     return *this;
   }
-  operator bool() const { return m_v.load(); }
+  operator T() const { return m_v.load(); }
 
  private:
-  std::atomic<bool> m_v{false};
+  std::atomic<T> m_v{};
 };
+using SharedFlag = Shared<bool>;
 
 class SkillHub {
  public:
@@ -96,7 +100,7 @@ class SkillHub {
   void beginStaging(uint8_t of);
   bool partInOrder(uint8_t part, uint8_t of) const;
   bool holder(int fd, int32_t id) const { return m_lease_id >= 0 && id == m_lease_id && fd == m_server; }
-  int m_server = -1;
+  Shared<int> m_server{-1};  // read by copyForCheck on the worker task (outside the things lock), written here
   logo::ThingNames m_sets[2];  // the live list and the one being staged (a commit flips m_live)
   uint8_t m_live = 0;
   uint8_t m_next_part = 0, m_of = 0;  // staging: the part expected next (0 = none staging)

@@ -108,7 +108,7 @@ void setup() {
     cq::net::logf("ERROR: no PSRAM - check board_build.arduino.memory_type = qio_opi");
   }
   g_wifi.begin(millis());
-  cq::net::logoBindSkillHub(&cq::net::linkSkillHub());  // Plan Z2a: first - before any check can run
+  cq::net::logoBindSkillHub(&cq::net::linkSkillHub());  // Plan Z2a: before the HTTP server and the worker, so no check can run unbound
   cq::net::httpServerStart();
   cq::net::webRoutesRegister();
   cq::net::sourceBegin();

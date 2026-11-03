@@ -53,7 +53,6 @@ def test_bounds_refused() -> None:
 
 
 def test_config_files_load_and_keep_ball_names(tmp_path: Path) -> None:
-
     cfg = Path(__file__).parent.parent / "config"
     n = Names(load_vocabulary(cfg / "vocabulary.yaml"), load_ball_names(cfg / "balls.yaml"))
     assert n.resolve("teddy") == "toy" and n.resolve("football") == "ball" and n.resolve("person") is None

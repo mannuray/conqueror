@@ -32,6 +32,11 @@ bool ThingNames::normalize(const char* in, char* out, uint16_t in_len) {
   return true;
 }
 
+bool ThingNames::isPerson(const char* s) {
+  char tmp[kMaxLen + 1];
+  return normalize(s, tmp, kScan) && strcmp(tmp, "person") == 0;
+}
+
 // One text (a word or a name) that fits and is not empty.
 bool ThingNames::textOk(const char* s) {
   char tmp[kMaxLen + 1];
@@ -46,21 +51,26 @@ bool ThingNames::wordOk(const char* word, uint8_t n_names, const char* const* na
   return true;
 }
 
+// Stores one checked word with its names; "person" is skipped.
+void ThingNames::add(const char* word, uint8_t n_names, const char* const* names) {
+  if (isPerson(word)) return;
+  const uint8_t id = m_n_words++;
+  normalize(word, m_words[id], kScan);
+  for (uint8_t j = 0; j < n_names; ++j) {
+    if (isPerson(names[j])) continue;
+    Entry& e = m_entries[m_n_entries++];
+    e.word = id;
+    normalize(names[j], e.text, kScan);
+  }
+}
+
 bool ThingNames::set(const char* const* words, const uint8_t* n_names, const char* const* names, uint8_t n_words) {
   if (n_words > kMaxWords || (n_words > 0 && (words == nullptr || n_names == nullptr))) return false;
   for (uint8_t w = 0; w < n_words; ++w) {  // check everything before changing anything
     if (!wordOk(words[w], n_names[w], names + w * kMaxNames)) return false;
   }
   clear();
-  for (uint8_t w = 0; w < n_words; ++w) {
-    normalize(words[w], m_words[w], kScan);
-    for (uint8_t j = 0; j < n_names[w]; ++j) {
-      Entry& e = m_entries[m_n_entries++];
-      e.word = w;
-      normalize(names[w * kMaxNames + j], e.text, kScan);
-    }
-  }
-  m_n_words = n_words;
+  for (uint8_t w = 0; w < n_words; ++w) add(words[w], n_names[w], names + w * kMaxNames);
   return true;
 }
 

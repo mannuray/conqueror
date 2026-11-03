@@ -41,6 +41,7 @@ static const LogoCase kCases[] = {
     {"OUTPUT with a single call is a tail call", "TO SUM :n :acc  IFELSE :n = 0 [ OUTPUT :acc ] [ OUTPUT SUM :n - 1 :acc + :n ]  END\nFD SUM 20 0", true, "(TO SUM (:n :acc) [(IFELSE (= :n 0) [(OUTPUT :acc)] [(OUTPUT (SUM (- :n 1) (+ :acc :n)))])]) (FORWARD (SUM 20 0))", 0, 0, 0, "", true, true, -1, "", "SUM", false, ""},
     {"GO and HOLD take no inputs (Spec 5 Revision 3)", "GO WAIT UNTIL DISTANCE < 30 HOLD BEEP", true, "(GO) (WAIT-UNTIL (< (DISTANCE) 30)) (HOLD) (BEEP)", 0, 0, 0, "", true, true, -1, "", "-", false, ""},
     {"FIND with a quoted thing", "FIND \"toy", true, "(FIND \"toy)", 0, 0, 0, "", true, true, -1, "", "-", true, "toy=car|racing car;ball=ball;"},
+    {"FIND a word that has no other names", "FIND \"ball", true, "(FIND \"ball)", 0, 0, 0, "", true, true, -1, "", "-", true, "ball=;"},
     {"FIND with an input of your own word", "TO FETCH :what  FIND :what  END\nFETCH \"toy", true, "(TO FETCH (:what) [(FIND :what)]) (FETCH \"toy)", 0, 0, 0, "", true, true, -1, "", "-", true, "toy=car|racing car;ball=ball;"},
     {"WANDER with seconds, EXPLORE with nothing", "WANDER 30 EXPLORE", true, "(WANDER 30) (EXPLORE)", 0, 0, 0, "", true, true, -1, "", "-", true, ""},
     {"SETXY with two places", "SETXY 100 -50", true, "(SETXY 100 -50)", 0, 0, 0, "", true, true, -1, "", "-", true, ""},
@@ -93,4 +94,4 @@ static const LogoCase kCases[] = {
     {"a thing the engine does not know (checked once Task 2 lands)", "FIND \"dragon", false, "", 7053, 1, 6, "dragon", true, true, -1, "", "-", true, "toy=car|racing car;"},
 };
 
-#define LOGO_CASES(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23) X(24) X(25) X(26) X(27) X(28) X(29) X(30) X(31) X(32) X(33) X(34) X(35) X(36) X(37) X(38) X(39) X(40) X(41) X(42) X(43) X(44) X(45) X(46) X(47) X(48) X(49) X(50) X(51) X(52) X(53) X(54) X(55) X(56) X(57) X(58) X(59) X(60) X(61) X(62) X(63) X(64) X(65) X(66) X(67) X(68) X(69) X(70) X(71) X(72) X(73) X(74) X(75) X(76) X(77) X(78) X(79) X(80) X(81) X(82) X(83) X(84) X(85) X(86)
+#define LOGO_CASES(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23) X(24) X(25) X(26) X(27) X(28) X(29) X(30) X(31) X(32) X(33) X(34) X(35) X(36) X(37) X(38) X(39) X(40) X(41) X(42) X(43) X(44) X(45) X(46) X(47) X(48) X(49) X(50) X(51) X(52) X(53) X(54) X(55) X(56) X(57) X(58) X(59) X(60) X(61) X(62) X(63) X(64) X(65) X(66) X(67) X(68) X(69) X(70) X(71) X(72) X(73) X(74) X(75) X(76) X(77) X(78) X(79) X(80) X(81) X(82) X(83) X(84) X(85) X(86) X(87)

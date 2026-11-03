@@ -28,16 +28,17 @@ bool loadThings(const char* enc, ThingNames& out) {
   char* p = text;
   while (*p != '\0' && nw < ThingNames::kMaxWords) {
     words[nw] = p;
-    while (*p != '=') ++p;
+    while (*p != '\0' && *p != '=') ++p;
+    if (*p == '\0') return false;  // a word without its '='
     *p++ = '\0';
     n_names[nw] = 0;
-    while (true) {
+    while (*p != ';' && *p != '\0') {  // "word=;" is a word with no names
+      if (n_names[nw] >= ThingNames::kMaxNames) return false;
       names[nw * ThingNames::kMaxNames + n_names[nw]++] = p;
-      while (*p != '|' && *p != ';') ++p;
-      const char end = *p;
-      *p++ = '\0';
-      if (end == ';') break;
+      while (*p != '|' && *p != ';' && *p != '\0') ++p;
+      if (*p == '|') *p++ = '\0';
     }
+    if (*p == ';') *p++ = '\0';
     ++nw;
   }
   return out.set(words, n_names, names, nw);

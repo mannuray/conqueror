@@ -57,6 +57,21 @@ void test_find_unknown_is_7053() {
   TEST_ASSERT_NOT_NULL(strstr(g_d.first()->msg, "dragon"));
 }
 
+void test_unknown_long_literal_is_cut_visibly() {
+  ThingNames t;
+  const Caps c = withThings(t);
+  char src[96] = "FIND \"";
+  memset(src + 6, 'x', 70);
+  src[76] = '\0';
+  C(src, c);
+  const Diag* d = nullptr;
+  for (uint8_t i = 0; i < g_d.count(); ++i) {
+    if (g_d.at(i).code == 7053) d = &g_d.at(i);
+  }
+  TEST_ASSERT_NOT_NULL(d);
+  TEST_ASSERT_NOT_NULL(strstr(d->msg, "xxx..."));
+}
+
 void test_find_without_server_is_7020() {
   Caps c;
   c.ai = false;
@@ -192,6 +207,7 @@ int main(int, char**) {
   RUN_TEST(test_check_play_notes);
   RUN_TEST(test_find_known_name_ok);
   RUN_TEST(test_find_unknown_is_7053);
+  RUN_TEST(test_unknown_long_literal_is_cut_visibly);
   RUN_TEST(test_find_without_server_is_7020);
   RUN_TEST(test_see_and_howfar_resolve_too);
   RUN_TEST(test_computed_thing_not_checked);

@@ -12,6 +12,7 @@ class ThingNames {
   static constexpr uint8_t kMaxWords = 48, kMaxNames = 8, kMaxLen = 24;
 
   // words[i] has n_names[i] names, found at names[i * kMaxNames + j]. The word itself resolves too.
+  // "person" (as a word or a name) is skipped, never stored: a server's otherwise good list stays usable.
   // Returns false and keeps the old list when over a bound (words, names per word, bytes per word or name).
   bool set(const char* const* words, const uint8_t* n_names, const char* const* names, uint8_t n_words);
   // Lower-cases and squeezes spaces; the word a name stands for, or nullptr.
@@ -24,6 +25,8 @@ class ThingNames {
     uint8_t word;
     char text[kMaxLen + 1];
   };
+  static bool isPerson(const char* s);  // never offered, never resolves
+  void add(const char* word, uint8_t n_names, const char* const* names);
   static bool textOk(const char* s);
   static bool wordOk(const char* word, uint8_t n_names, const char* const* names);
   static bool normalize(const char* in, char* out, uint16_t in_len);  // false when over kMaxLen bytes

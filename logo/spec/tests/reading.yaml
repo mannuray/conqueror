@@ -248,6 +248,12 @@
   reads: (FIND "toy)
   tank: {ai: true, things: {toy: [car, racing car], ball: [ball]}}
 
+- name: FIND a word that has no other names
+  source: FIND "ball
+  expect: ok
+  reads: (FIND "ball)
+  tank: {ai: true, things: {ball: []}}
+
 - name: FIND with an input of your own word
   source: |
     TO FETCH :what  FIND :what  END

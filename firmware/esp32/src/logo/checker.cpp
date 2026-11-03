@@ -105,7 +105,12 @@ void Checker::checkThing(const gen::WordSpec& w, uint8_t i, const Node* c, const
   if (!caps.ai || caps.things == nullptr || w.inputs[i].type != gen::InType::kThing || c->kind != NodeKind::kQuoted) return;
   const Token& t = m_toks.t[c->tok];
   char name[64];
-  snprintf(name, sizeof name, "%.*s", static_cast<int>(t.len - 1), m_src + t.start + 1);
+  const int len = static_cast<int>(t.len) - 1;
+  if (len < static_cast<int>(sizeof name)) {
+    snprintf(name, sizeof name, "%.*s", len, m_src + t.start + 1);
+  } else {  // too long for the message: cut it, and say so
+    snprintf(name, sizeof name, "%.*s...", static_cast<int>(sizeof name) - 4, m_src + t.start + 1);
+  }
   if (caps.things->resolve(name) != nullptr) return;
   const DiagArg a[] = {{"thing", name}};
   error(7053, c->tok, a, 1);

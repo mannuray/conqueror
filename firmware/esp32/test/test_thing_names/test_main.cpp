@@ -73,10 +73,30 @@ void test_name_over_24_bytes_refused() {
   TEST_ASSERT_FALSE(t.set(longword, zero, none, 1));
 }
 
+void test_person_never_resolves() {
+  ThingNames t;
+  const char* const w[] = {"toy", "Person", "ball"};
+  const uint8_t n[] = {2, 1, 2};
+  const char* nm[3 * ThingNames::kMaxNames] = {};
+  nm[0] = "car";
+  nm[1] = "PERSON";
+  nm[ThingNames::kMaxNames] = "man";
+  nm[2 * ThingNames::kMaxNames] = "ball";
+  nm[2 * ThingNames::kMaxNames + 1] = " person ";
+  TEST_ASSERT_TRUE(t.set(w, n, nm, 3));  // the rest of the list stays usable
+  TEST_ASSERT_EQUAL(2, t.size());
+  TEST_ASSERT_NULL(t.resolve("person"));
+  TEST_ASSERT_NULL(t.resolve("  Person"));
+  TEST_ASSERT_NULL(t.resolve("man"));
+  TEST_ASSERT_EQUAL_STRING("toy", t.resolve("car"));
+  TEST_ASSERT_EQUAL_STRING("ball", t.resolve("ball"));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_resolve_word_name_case_and_spaces);
   RUN_TEST(test_bounds_refused_old_kept);
   RUN_TEST(test_name_over_24_bytes_refused);
+  RUN_TEST(test_person_never_resolves);
   return UNITY_END();
 }

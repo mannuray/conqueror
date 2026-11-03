@@ -31,6 +31,7 @@ struct Seen {
   bool pan = false, tilt = false;                           // cam_set (R22)
   int32_t pan_d10 = 0, tilt_d10 = 0;                        // ... their 0.1 deg
   bool prog = false;                                        // logo_run (Plan N3)
+  char reason[16] = "";                                     // skill_failed (Plan Z2a)
 };
 
 // One "key": value pair; false = malformed (the whole command is rejected). Unknown keys are skipped.

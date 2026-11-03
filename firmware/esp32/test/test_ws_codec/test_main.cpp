@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unity.h>
 
+#include "core/thing_list.h"
 #include "core/ws_codec.h"
 
 using cq::core::parseWsCommand;
@@ -12,6 +13,7 @@ using cq::core::WsCommand;
 namespace {
 WsCommand P(const char* s) { return parseWsCommand(s, strlen(s)); }
 int K(WsCmdKind k) { return static_cast<int>(k); }
+int K(cq::core::ThingParse k) { return static_cast<int>(k); }
 }  // namespace
 
 void setUp() {}
@@ -479,6 +481,129 @@ void test_logo_commands() {
   TEST_ASSERT_EQUAL(cq::core::WsCmdKind::kLogoStop, P("{\"t\":\"logo_stop\"}").kind);
 }
 
+// ---- Plan Z2a (bridge LLD R26.2): the skill server's messages ----
+void test_hello_ai_skills_with_things() {
+  const WsCommand c = P("{\"t\":\"hello\",\"client\":\"ai-skills\",\"proto\":1,\"things\":[{\"word\":\"toy\",\"names\":[\"car\"]}]}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kHello), K(c.kind));
+  TEST_ASSERT_EQUAL_STRING("ai-skills", c.client);
+  TEST_ASSERT_TRUE(c.has_things);
+}
+
+namespace {
+cq::core::ThingParse things(const char* json, cq::core::ThingList& out) {
+  static char buf[4096];
+  snprintf(buf, sizeof buf, "%s", json);
+  return cq::core::parseThingList(buf, strlen(buf), out);
+}
+}  // namespace
+
+void test_thing_list_layout_is_flat_with_stride_8() {
+  static cq::core::ThingList l;
+  TEST_ASSERT_EQUAL(K(cq::core::ThingParse::kOk),
+                    K(things("{\"t\":\"hello\",\"client\":\"ai-skills\",\"things\":[{\"word\":\"toy\",\"names\":[\"car\",\"racing car\"]},"
+                             "{\"extra\":[1,{\"a\":2}],\"names\":[],\"word\":\"ball\"},{\"word\":\"cup\"}],\"x\":1}", l)));
+  TEST_ASSERT_EQUAL(3, l.n);
+  TEST_ASSERT_EQUAL_STRING("toy", l.word[0]);
+  TEST_ASSERT_EQUAL(2, l.n_names[0]);
+  TEST_ASSERT_EQUAL_STRING("car", l.names[0]);
+  TEST_ASSERT_EQUAL_STRING("racing car", l.names[1]);
+  TEST_ASSERT_EQUAL_STRING("ball", l.word[1]);
+  TEST_ASSERT_EQUAL(0, l.n_names[1]);
+  TEST_ASSERT_EQUAL_STRING("cup", l.word[2]);
+  TEST_ASSERT_EQUAL(0, l.n_names[2]);
+}
+
+void test_thing_list_absent_empty_and_bad() {
+  static cq::core::ThingList l;
+  TEST_ASSERT_EQUAL(K(cq::core::ThingParse::kOk), K(things("{\"t\":\"hello\"}", l)));
+  TEST_ASSERT_EQUAL(0, l.n);
+  TEST_ASSERT_EQUAL(K(cq::core::ThingParse::kOk), K(things("{\"things\":[]}", l)));
+  TEST_ASSERT_EQUAL(K(cq::core::ThingParse::kBad), K(things("{\"things\":{}}", l)));
+  TEST_ASSERT_EQUAL(K(cq::core::ThingParse::kBad), K(things("{\"things\":[{\"names\":[\"a\"]}]}", l)));         // no word
+  TEST_ASSERT_EQUAL(K(cq::core::ThingParse::kBad), K(things("{\"things\":[{\"word\":5}]}", l)));
+  TEST_ASSERT_EQUAL(K(cq::core::ThingParse::kBad), K(things("{\"things\":[{\"word\":\"a\",\"names\":[3]}]}", l)));
+  TEST_ASSERT_EQUAL(K(cq::core::ThingParse::kBad), K(things("{\"things\":[{\"word\":\"a\\\"b\"}]}", l)));      // escape
+  TEST_ASSERT_EQUAL(K(cq::core::ThingParse::kBad), K(things("{\"things\":[{\"word\":\"a\"}", l)));            // cut
+  TEST_ASSERT_EQUAL(0, l.n);  // a refused list leaves nothing half-filled
+}
+
+void test_thing_list_over_bounds_is_too_big() {
+  static cq::core::ThingList l;
+  char j[2048] = "{\"things\":[";
+  for (int i = 0; i < 49; ++i) snprintf(j + strlen(j), sizeof j - strlen(j), "%s{\"word\":\"w%d\"}", i ? "," : "", i);
+  strcat(j, "]}");
+  TEST_ASSERT_EQUAL(K(cq::core::ThingParse::kTooBig), K(things(j, l)));
+  TEST_ASSERT_EQUAL(K(cq::core::ThingParse::kTooBig),
+                    K(things("{\"things\":[{\"word\":\"a\",\"names\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\"]}]}", l)));
+  TEST_ASSERT_EQUAL(K(cq::core::ThingParse::kOk),
+                    K(things("{\"things\":[{\"word\":\"a\",\"names\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\"]}]}", l)));
+  TEST_ASSERT_EQUAL(8, l.n_names[0]);
+}
+
+void test_skill_things() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillThings), K(P("{\"t\":\"skill_things\",\"things\":[]}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_things\"}").kind));
+}
+
+void test_skill_answer_bool_and_cm() {
+  WsCommand c = P("{\"t\":\"skill_answer\",\"id\":7,\"value\":true}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillAnswer), K(c.kind));
+  TEST_ASSERT_EQUAL(7, c.id);
+  TEST_ASSERT_TRUE(c.value_bool);
+  TEST_ASSERT_EQUAL(1, c.value);
+  c = P("{\"t\":\"skill_answer\",\"id\":7,\"value\":false}");
+  TEST_ASSERT_EQUAL(0, c.value);
+  c = P("{\"t\":\"skill_answer\",\"id\":8,\"value\":-1}");
+  TEST_ASSERT_FALSE(c.value_bool);
+  TEST_ASSERT_EQUAL(-1, c.value);
+  c = P("{\"t\":\"skill_answer\",\"id\":8,\"value\":120}");
+  TEST_ASSERT_EQUAL(120, c.value);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_answer\",\"id\":7}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_answer\",\"value\":3}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_answer\",\"id\":7,\"value\":\"x\"}").kind));
+}
+
+void test_a_bool_value_is_not_a_setting() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"setting\",\"setting_id\":3,\"value\":true}").kind));
+}
+
+void test_skill_drive() {
+  const WsCommand c = P("{\"t\":\"skill_drive\",\"id\":9,\"v\":50,\"yaw_rate\":-12.5}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillDrive), K(c.kind));
+  TEST_ASSERT_EQUAL(9, c.id);
+  TEST_ASSERT_EQUAL(50, c.v);
+  TEST_ASSERT_EQUAL(-125, c.rate_ddps);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_drive\",\"v\":50,\"yaw_rate\":1}").kind));       // no id
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_drive\",\"id\":9,\"yaw_rate\":1}").kind));       // no v
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_drive\",\"id\":9,\"v\":5,\"yaw_rate\":999}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_drive\",\"id\":-1,\"v\":5,\"yaw_rate\":1}").kind));
+}
+
+void test_skill_done_and_failed() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillDone), K(P("{\"t\":\"skill_done\",\"id\":4}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_done\"}").kind));
+  const char* const reasons[] = {"not_found", "lost", "outside_area", "no_way", "blocked", "unknown_thing", "stale"};
+  for (int i = 0; i < 7; ++i) {
+    char j[96];
+    snprintf(j, sizeof j, "{\"t\":\"skill_failed\",\"id\":4,\"reason\":\"%s\",\"thing\":\"toy\"}", reasons[i]);
+    const WsCommand c = P(j);
+    TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillFailed), K(c.kind));
+    TEST_ASSERT_EQUAL(i + 1, c.skill_end);
+    TEST_ASSERT_EQUAL_STRING("toy", c.thing);
+  }
+  TEST_ASSERT_EQUAL_STRING("", P("{\"t\":\"skill_failed\",\"id\":4,\"reason\":\"lost\"}").thing);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_failed\",\"id\":4,\"reason\":\"oops\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_failed\",\"id\":4}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_failed\",\"reason\":\"lost\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField),  // a thing cut short is never taken as another word
+                    K(P("{\"t\":\"skill_failed\",\"id\":4,\"reason\":\"lost\",\"thing\":\"abcdefghijklmnopqrstuvwxyz\"}").kind));
+}
+
+void test_skill_messages_sent_by_the_bridge_are_unsupported_not_bad() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"skill_ask\",\"id\":1}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("not json").kind));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_drive);
@@ -519,5 +644,15 @@ int main() {
   RUN_TEST(test_app_url_validation);
   RUN_TEST(test_app_url_too_long_is_refused_by_the_parser);
   RUN_TEST(test_logo_commands);
+  RUN_TEST(test_hello_ai_skills_with_things);
+  RUN_TEST(test_thing_list_layout_is_flat_with_stride_8);
+  RUN_TEST(test_thing_list_absent_empty_and_bad);
+  RUN_TEST(test_thing_list_over_bounds_is_too_big);
+  RUN_TEST(test_skill_things);
+  RUN_TEST(test_skill_answer_bool_and_cm);
+  RUN_TEST(test_a_bool_value_is_not_a_setting);
+  RUN_TEST(test_skill_drive);
+  RUN_TEST(test_skill_done_and_failed);
+  RUN_TEST(test_skill_messages_sent_by_the_bridge_are_unsupported_not_bad);
   return UNITY_END();
 }

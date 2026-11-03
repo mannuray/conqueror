@@ -6,6 +6,7 @@
 #include "core/wifi_store.h"
 
 #include "core/ws_json.h"
+#include "core/ws_json_skill.h"
 
 using namespace cq::core;
 namespace proto = cq::proto;
@@ -565,9 +566,63 @@ void test_out_of_range_nack_says_the_limits() {
       buf);
 }
 
+// Plan Z2a (bridge LLD R26.2): the skill server's messages.
+void test_skill_nacks() {
+  jsonNack(buf, sizeof(buf), 3, BridgeReason::kBadField);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"code\":\"COMMAND_3019\",\"reason\":\"BAD_FIELD\""));
+  jsonNack(buf, sizeof(buf), -1, BridgeReason::kTooBig);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"code\":\"COMMAND_3020\",\"reason\":\"TOO_BIG\""));
+}
+
+void test_skill_ask_and_end() {
+  TEST_ASSERT_GREATER_THAN(0, jsonSkillAsk(buf, sizeof(buf), 5, cq::logo::AskQ::kSee, "toy"));
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"skill_ask\",\"id\":5,\"q\":\"see?\",\"thing\":\"toy\"}", buf);
+  jsonSkillAsk(buf, sizeof(buf), 6, cq::logo::AskQ::kHowfar, "red \"ball\"");
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"skill_ask\",\"id\":6,\"q\":\"howfar\",\"thing\":\"red \\\"ball\\\"\"}", buf);
+  const char* const why[] = {"stop", "deadman", "page", "owner", "ended"};
+  for (int i = 0; i < 5; ++i) {
+    jsonSkillEnd(buf, sizeof(buf), 7, static_cast<LeaseEnd>(i));
+    char want[64];
+    snprintf(want, sizeof want, "{\"t\":\"skill_end\",\"id\":7,\"why\":\"%s\"}", why[i]);
+    TEST_ASSERT_EQUAL_STRING(want, buf);
+  }
+}
+
+void test_skill_start_each_skill() {
+  cq::logo::Action a;
+  a.kind = cq::logo::ActKind::kSkill;
+  a.skill = cq::logo::SkillKind::kFind;
+  snprintf(a.thing, sizeof a.thing, "toy");
+  jsonSkillStart(buf, sizeof(buf), 7, a, FwdLeft(), FwdLeft());
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"skill_start\",\"id\":7,\"skill\":\"find\",\"thing\":\"toy\"}", buf);
+  a.skill = cq::logo::SkillKind::kWander;
+  a.seconds = 30;
+  jsonSkillStart(buf, sizeof(buf), 8, a, FwdLeft(), FwdLeft());
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"skill_start\",\"id\":8,\"skill\":\"wander\",\"s\":30}", buf);
+  a.skill = cq::logo::SkillKind::kExplore;
+  jsonSkillStart(buf, sizeof(buf), 9, a, FwdLeft(), FwdLeft());
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"skill_start\",\"id\":9,\"skill\":\"explore\"}", buf);
+  a.skill = cq::logo::SkillKind::kSetxy;
+  jsonSkillStart(buf, sizeof(buf), 10, a, FwdLeft{-50, 0}, FwdLeft());
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"skill_start\",\"id\":10,\"skill\":\"setxy\",\"to\":{\"fwd_cm\":-50,\"left_cm\":0}}", buf);
+  a.has_area = true;
+  a.area_m = 2;
+  jsonSkillStart(buf, sizeof(buf), 11, a, FwdLeft{-50, 20}, FwdLeft{-30, 0});
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"t\":\"skill_start\",\"id\":11,\"skill\":\"setxy\",\"to\":{\"fwd_cm\":-50,\"left_cm\":20},"
+      "\"area\":{\"r_m\":2,\"fwd_cm\":-30,\"left_cm\":0}}",
+      buf);
+  a.skill = cq::logo::SkillKind::kExplore;
+  jsonSkillStart(buf, sizeof(buf), 12, a, FwdLeft(), FwdLeft{0, 5});
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"skill_start\",\"id\":12,\"skill\":\"explore\",\"area\":{\"r_m\":2,\"fwd_cm\":0,\"left_cm\":5}}", buf);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_out_of_range_nack_says_the_limits);
+  RUN_TEST(test_skill_nacks);
+  RUN_TEST(test_skill_ask_and_end);
+  RUN_TEST(test_skill_start_each_skill);
   RUN_TEST(test_ack_reason_table_matches_generated_codes);
   RUN_TEST(test_tf_scaling_and_sentinels);
   RUN_TEST(test_ts_flags_owner_and_battery);

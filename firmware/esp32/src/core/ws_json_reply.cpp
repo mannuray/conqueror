@@ -57,8 +57,10 @@ constexpr ReasonInfo kBridgeReasons[] = {
     {3016, "CHECK_AGAIN", "The program changed - check it again"},                       // Plan N3 (bridge only)
     {3017, "NOT_RUNNING", "No program is running"},
     {3018, "OUT_OF_RANGE", "Out of range - pan -90..90, tilt -20..60 degrees"},  // R22 (bridge only)
+    {3019, "BAD_FIELD", "A field is missing or wrong"},                          // R26 (bridge only)
+    {3020, "TOO_BIG", "Too many things or names, or one is too long"},
 };
-static_assert(sizeof(kBridgeReasons) / sizeof(kBridgeReasons[0]) == static_cast<size_t>(BridgeReason::kOutOfRange) + 1,
+static_assert(sizeof(kBridgeReasons) / sizeof(kBridgeReasons[0]) == static_cast<size_t>(BridgeReason::kTooBig) + 1,
               "one row per BridgeReason");
 
 const char* domain(uint16_t code) {

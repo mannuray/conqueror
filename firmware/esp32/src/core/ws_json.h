@@ -22,7 +22,8 @@ constexpr size_t kWsBigMax = 3584;  // Plan O: tank / log replies - sent through
 enum class BridgeReason : uint8_t { kNotOwner, kBusy, kBodyOffline, kRateLimited, kInvalidCommand, kTimeout, kUnavailable,
                                     kStopped,  // kStopped: design-notes §72 STOP hold
                                     kCheckAgain, kNotRunning,  // Plan N3: logo_run / logo_step / logo_stop
-                                    kOutOfRange };             // R22: cam_set outside the servos' range
+                                    kOutOfRange,               // R22: cam_set outside the servos' range
+                                    kBadField, kTooBig };       // R26: a skill message's field / the things list
 
 struct OwnerView {
   const char* owner;   // "none" | "human" | "ir"

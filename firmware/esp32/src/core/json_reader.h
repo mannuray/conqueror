@@ -18,6 +18,7 @@ class Reader {
   bool word(const char* w);
   bool skip();                                   // any value, including nested objects / arrays
   bool atEnd();
+  const char* pos() const { return m_s; }  // the next unread character
 
  private:
   bool skipNested();

@@ -81,8 +81,16 @@ void test_every_kind_has_a_route_except_the_invalid_ones() {
     const auto kind = static_cast<core::WsCmdKind>(k);
     const bool invalid = kind == core::WsCmdKind::kUnsupported || kind == core::WsCmdKind::kInvalid;
     const bool stop = kind == core::WsCmdKind::kStop;  // the fast path, before the table
+    // Plan Z2a Task 4 added the skill messages to the codec; Task 5 routes them (and removes this line).
+    const bool skill_not_yet = kind >= core::WsCmdKind::kSkillThings && kind <= core::WsCmdKind::kSkillFailed;
+    if (skill_not_yet) continue;
     TEST_ASSERT_EQUAL_MESSAGE(!invalid && !stop, app::CommandRouter::routes(kind), "a command kind without a route");
   }
+}
+
+void test_a_bad_skill_field_is_bad_field() {
+  text(3, "{\"t\":\"skill_done\"}", 100);
+  TEST_ASSERT_TRUE(has(3, "BAD_FIELD"));
 }
 
 void test_unknown_command_is_invalid() {
@@ -145,6 +153,7 @@ int main() {
   UNITY_BEGIN();
   RUN_TEST(test_every_kind_has_a_route_except_the_invalid_ones);
   RUN_TEST(test_unknown_command_is_invalid);
+  RUN_TEST(test_a_bad_skill_field_is_bad_field);
   RUN_TEST(test_ping_answers_pong);
   RUN_TEST(test_hello_answers_welcome_with_the_sensor);
   RUN_TEST(test_stop_bypasses_admission_even_for_an_unknown_client);

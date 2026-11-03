@@ -6,6 +6,7 @@
 #include "core/motion_config.h"
 #include "core/cam_tuning.h"
 #include "core/ws_codec_internal.h"
+#include "logo/run_controller.h"
 
 namespace cq {
 namespace core {
@@ -133,7 +134,14 @@ bool readSlot(Reader& r, WsCommand& c, Seen&) {  // JSON 1..3
   c.slot = static_cast<int8_t>(n - 1);
   return true;
 }
-bool readValue(Reader& r, WsCommand& c, Seen&) {  // setting
+bool readValue(Reader& r, WsCommand& c, Seen&) {  // setting; skill_answer also true / false
+  const bool yes = r.word("true");
+  if (yes || r.word("false")) {
+    c.value = yes ? 1 : 0;
+    c.value_bool = true;
+    c.has_value = true;
+    return true;
+  }
   double n = 0;
   if (!wholeIn(r, -2147483648.0, 2147483647.0, n)) return false;
   c.value = static_cast<int32_t>(n);
@@ -259,6 +267,13 @@ bool readStep(Reader& r, WsCommand& c, Seen&) {
   return readBool(r, c.step, seen);
 }
 
+bool readReason(Reader& r, WsCommand&, Seen& s) { return r.str(s.reason, sizeof(s.reason)); }  // skill_failed
+bool readThing(Reader& r, WsCommand& c, Seen&) { return r.str(c.thing, sizeof(c.thing)) && !r.cut(); }
+bool readThings(Reader& r, WsCommand& c, Seen&) {  // hello / skill_things: the list itself is parseThingList's
+  c.has_things = true;
+  return r.skip();
+}
+
 struct KeyRow {
   const char* key;
   KeyReader read;
@@ -276,6 +291,7 @@ const KeyRow kKeys[] = {
     {"contrast", readContrast}, {"low_light", readLowLight}, {"vflip", readVflip}, {"hmirror", readHmirror},
     {"ai_url", readAiUrl},  {"setting_id", readSettingId}, {"counts_per_m", readCpm}, {"gyro_scale", readGyroScale}, {"pan", readPan}, {"tilt", readTilt}, {"prog", readProg},
     {"step", readStep},     {"try", readTry},         {"wb", readWb},           {"night", readNight},
+    {"reason", readReason}, {"thing", readThing},     {"things", readThings},
 };
 
 }  // namespace

@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include "app/logo_controller.h"
+#include "core/skill_hub.h"
 #include "logo/check_job.h"
 
 namespace cq {
@@ -29,6 +30,13 @@ void logoJobGiveUp();
 char* logoInbox();  // ≤ 8192 bytes of program text
 uint32_t logoCheck(uint16_t len, const char* name, bool& runnable);  // check + CheckBox; its number
 const logo::CheckSpace& logoSpace();
+
+// The skill server's things (bridge LLD R26.1, Review Focus 1). The SkillHub lives on the link task and the checks
+// run on the worker: the link task brackets every hub change that can touch the list (onHello / onThings / onClose)
+// with logoThingsLock() / logoThingsUnlock(); caps() takes the same lock to copy the list when a check starts.
+void logoBindSkillHub(const core::SkillHub* hub);  // once at boot, before linkTaskStart
+void logoThingsLock();
+void logoThingsUnlock();
 
 // Link task: the checked program for logo_run, and the running program's storage.
 app::LogoController::Took logoTake(uint32_t prog, logo::Program& out, char* name, size_t cap);

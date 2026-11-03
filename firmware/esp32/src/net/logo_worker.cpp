@@ -20,6 +20,7 @@ struct Shared {  // PSRAM only, allocated once at boot (≈ 330 KB): without it 
   logo::CheckSpace space;
   logo::Program checked;
   char inbox[logo::kSourceInbox];
+  logo::ThingNames things;  // the check's own copy of the AI helper's things (~11 KB; taken when a check starts)
 };
 struct Run {  // the link task's: PSRAM, else internal RAM (≈ 36 KB) - the LogoController always exists
   logo::Program running;
@@ -36,6 +37,8 @@ Run* g_run = nullptr;
 logo::CheckBox* g_box = nullptr;
 SemaphoreHandle_t g_busy = nullptr;    // one job at a time
 SemaphoreHandle_t g_box_mx = nullptr;  // the CheckBox: worker (put) and link task (take, never waits)
+SemaphoreHandle_t g_things_mx = nullptr;  // the SkillHub's things list: link task (replaces it) and worker (copies it)
+const core::SkillHub* g_hub = nullptr;
 QueueHandle_t g_jobs = nullptr;
 
 template <class T>
@@ -48,6 +51,15 @@ logo::Caps caps() {
   logo::Caps c;
   const LinkStatus s = linkStatus();
   c.encoders = ((s.hello.caps >> static_cast<unsigned>(proto::CapBit::kEncoders)) & 1u) != 0;
+  // Bridge LLD R26.1: the AI helper's things, copied whole under the lock the link task also takes to replace them,
+  // so a skill_things during the check changes the hub's list but never this copy.
+  logoThingsLock();
+  c.ai = g_hub != nullptr && g_hub->server() >= 0;
+  if (c.ai) {
+    g->things = g_hub->things();
+    c.things = &g->things;
+  }
+  logoThingsUnlock();
   return c;
 }
 
@@ -76,6 +88,7 @@ bool logoWorkerBegin() {
   g_busy = xSemaphoreCreateBinary();
   xSemaphoreGive(g_busy);
   g_box_mx = xSemaphoreCreateMutex();
+  g_things_mx = xSemaphoreCreateMutex();
   g_jobs = xQueueCreate(1, sizeof(Job));
   xTaskCreatePinnedToCore(workerTask, "logo", 16384, nullptr, 2, nullptr, 0);
   logf("logo: worker ready (%u KB PSRAM)", static_cast<unsigned>(sizeof(Shared) / 1024));
@@ -110,6 +123,14 @@ app::LogoController::Took logoTake(uint32_t prog, logo::Program& out, char* name
   const logo::CheckBox::Take t = g_box->take(prog, out, name, cap);
   xSemaphoreGive(g_box_mx);
   return t == logo::CheckBox::Take::kOk ? app::LogoController::Took::kOk : app::LogoController::Took::kCheckAgain;
+}
+
+void logoBindSkillHub(const core::SkillHub* hub) { g_hub = hub; }
+void logoThingsLock() {
+  if (g_things_mx != nullptr) xSemaphoreTake(g_things_mx, portMAX_DELAY);
+}
+void logoThingsUnlock() {
+  if (g_things_mx != nullptr) xSemaphoreGive(g_things_mx);
 }
 
 bool logoRunReady() { return g_run != nullptr; }

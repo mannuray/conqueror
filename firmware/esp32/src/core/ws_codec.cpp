@@ -7,6 +7,7 @@
 #include "core/json_reader.h"
 #include "core/ws_codec_internal.h"
 #include "core/motion_config.h"
+#include "logo/run_controller.h"
 #include "cq_protocol.h"
 
 namespace cq {
@@ -35,6 +36,9 @@ const KindName kKinds[] = {
     {"camera_set", WsCmdKind::kCameraSet}, {"selftest", WsCmdKind::kSelfTest},
     {"app_set", WsCmdKind::kAppSet},       {"logo_run", WsCmdKind::kLogoRun}, {"cam_set", WsCmdKind::kCamSet},
     {"logo_step", WsCmdKind::kLogoStep},   {"logo_stop", WsCmdKind::kLogoStop},
+    {"skill_things", WsCmdKind::kSkillThings}, {"skill_answer", WsCmdKind::kSkillAnswer},
+    {"skill_drive", WsCmdKind::kSkillDrive},   {"skill_done", WsCmdKind::kSkillDone},
+    {"skill_failed", WsCmdKind::kSkillFailed},
 };
 
 WsCmdKind kindOf(const char* t) {
@@ -94,7 +98,7 @@ bool checkWifiMode(WsCommand& c, const Seen& s) {
   return c.wifi_ap || strcmp(s.mode, "home") == 0;
 }
 bool checkApPassword(WsCommand&, const Seen& s) { return s.password; }
-bool checkSetting(WsCommand&, const Seen& s) { return s.setting_id; }
+bool checkSetting(WsCommand& c, const Seen& s) { return s.setting_id && !c.value_bool; }
 bool checkCalib(WsCommand& c, const Seen& s) {
   if (s.reset[0] == '\0') return true;
   c.calib_reset = strcmp(s.reset, "counts_per_m") == 0 ? 0
@@ -122,6 +126,24 @@ bool checkCameraSet(WsCommand& c, const Seen& s) {
 bool checkAppSet(WsCommand& c, const Seen& s) { return c.has_ai_url && !s.url_bad; }
 bool checkLogoRun(WsCommand&, const Seen& s) { return s.prog; }
 
+// Plan Z2a: skill messages (bridge LLD R26.2). skill_failed reasons, in logo::SkillEnd order after kDone.
+const char* const kSkillReasons[] = {"not_found", "lost", "outside_area", "no_way", "blocked", "unknown_thing", "stale"};
+static_assert(sizeof(kSkillReasons) / sizeof(kSkillReasons[0]) == static_cast<size_t>(logo::SkillEnd::kStale),
+              "kSkillReasons must list every logo::SkillEnd after kDone, in order");
+bool checkSkillThings(WsCommand& c, const Seen&) { return c.has_things; }
+bool checkSkillAnswer(WsCommand& c, const Seen&) { return c.has_id && c.has_value; }
+bool checkSkillDrive(WsCommand& c, const Seen& s) { return c.has_id && s.v && s.mf.rate; }
+bool checkSkillDone(WsCommand& c, const Seen&) { return c.has_id; }
+bool checkSkillFailed(WsCommand& c, const Seen& s) {
+  if (!c.has_id) return false;
+  for (uint8_t i = 0; i < sizeof(kSkillReasons) / sizeof(kSkillReasons[0]); ++i) {
+    if (strcmp(s.reason, kSkillReasons[i]) != 0) continue;
+    c.skill_end = static_cast<uint8_t>(i + 1);
+    return true;
+  }
+  return false;
+}
+
 struct CheckRow {
   WsCmdKind kind;
   Check ok;
@@ -138,6 +160,9 @@ const CheckRow kChecks[] = {
     {WsCmdKind::kDebug, checkOn},            {WsCmdKind::kCameraSet, checkCameraSet},
     {WsCmdKind::kAppSet, checkAppSet},       {WsCmdKind::kLogoRun, checkLogoRun},
     {WsCmdKind::kCamSet, checkCamSet},
+    {WsCmdKind::kSkillThings, checkSkillThings}, {WsCmdKind::kSkillAnswer, checkSkillAnswer},
+    {WsCmdKind::kSkillDrive, checkSkillDrive},   {WsCmdKind::kSkillDone, checkSkillDone},
+    {WsCmdKind::kSkillFailed, checkSkillFailed},
 };
 
 bool complete(WsCommand& c, const codec::Seen& s) {
@@ -161,17 +186,23 @@ bool urlCharOk(char ch) {
   return ch > ' ' && ch <= '~' && strchr("\"\\<>'", ch) == nullptr;
 }
 
+// A malformed skill message is a bad field (nack BAD_FIELD); anything else stays invalid.
+WsCommand refused(const Seen& s) {
+  WsCommand bad;
+  if (strncmp(s.t, "skill_", 6) == 0 && kindOf(s.t) != WsCmdKind::kUnsupported) bad.kind = WsCmdKind::kBadField;
+  return bad;
+}
+
 }  // namespace
 
 WsCommand parseWsCommand(const char* text, size_t len) {
   WsCommand c;
-  const WsCommand bad;
   Reader r(text, len);
   Seen s;
-  if (!r.eat('{')) return bad;
-  if (!r.peek('}') && !readFields(r, c, s)) return bad;
-  if (!r.eat('}') || !r.atEnd() || s.t[0] == '\0') return bad;
-  return complete(c, s) ? c : bad;
+  if (!r.eat('{')) return WsCommand();
+  if (!r.peek('}') && !readFields(r, c, s)) return refused(s);
+  if (!r.eat('}') || !r.atEnd() || s.t[0] == '\0') return refused(s);
+  return complete(c, s) ? c : refused(s);
 }
 
 bool appUrlValid(const char* url) {

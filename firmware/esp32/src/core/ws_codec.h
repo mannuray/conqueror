@@ -43,6 +43,13 @@ enum class WsCmdKind : uint8_t {
   kLogoStep,    // {"t":"logo_step"} -> the next line in step mode
   kLogoStop,    // {"t":"logo_stop"} -> end the running program (7040)
   kCamSet,      // bridge LLD R22: {"t":"cam_set","pan":deg,"tilt":deg} -> CAM_SET (degrees from the centre)
+  // Plan Z2a (bridge LLD R26.2): the skill server's messages; a bad field in one of them is kBadField (nack BAD_FIELD)
+  kSkillThings,  // {"t":"skill_things","things":[...]} - read the list with parseThingList
+  kSkillAnswer,  // {"t":"skill_answer","id":n,"value":true|false|cm}
+  kSkillDrive,   // {"t":"skill_drive","id":n,"v":%,"yaw_rate":deg/s}
+  kSkillDone,    // {"t":"skill_done","id":n}
+  kSkillFailed,  // {"t":"skill_failed","id":n,"reason":r,"thing"?}
+  kBadField,     // a skill message with a malformed or missing field -> nack BAD_FIELD
   kUnsupported,  // valid JSON, "t" not in the Basic Drive slice -> nack INVALID_COMMAND
   kInvalid,      // not JSON / no "t" / bad field -> nack INVALID_COMMAND
 };
@@ -91,6 +98,7 @@ struct WsCommand {
   uint8_t setting_id = 0;  // setting
   bool has_value = false;
   int32_t value = 0;
+  bool value_bool = false;  // value was true / false (1 / 0): skill_answer only
   bool try_only = false;  // setting (R23): SETTING_SET alone, not saved - the camera trims only
   int8_t calib_reset = -1;  // calib: 0 counts_per_m, 1 roll, 2 gyro_scale (R19)
   int16_t move_cm = 0;        // move: ±1..500 (+ forward)
@@ -107,11 +115,15 @@ struct WsCommand {
   bool has_ai_url = false;
   uint32_t prog = 0;          // logo_run: the number the check returned
   bool step = false;          // logo_run: step mode
+  bool has_things = false;    // hello / skill_things carried a "things" key (its list: parseThingList)
+  uint8_t skill_end = 0;      // skill_failed: logo::SkillEnd of the reason (kNotFound..kStale)
+  char thing[25] = "";        // skill_failed: the thing's word (optional)
   char t0[24] = "";  // ping: number echoed verbatim in pong
   char client[24] = "";
 };
 
 WsCommand parseWsCommand(const char* text, size_t len);
+// hello / skill_things carry their list apart from the flat command: core/thing_list.h parseThingList(text, len, out).
 // app_set: "" (clear) or http:// + 1..89 printable ASCII without space, quotes, backslash or <>; at most 96 chars.
 bool appUrlValid(const char* url);
 

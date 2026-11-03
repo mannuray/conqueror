@@ -6,6 +6,8 @@
 
 #include <stdint.h>
 
+#include <atomic>
+
 #include "core/motion_config.h"
 #include "core/thing_list.h"
 #include "logo/program.h"
@@ -21,6 +23,25 @@ struct LockPort {
   bool (*take)(void* ctx, uint32_t wait_ms);
   void (*give)(void* ctx);
   void* ctx;
+};
+
+// A flag written on the link task and read on the Logo worker's (m_clear); copyable so a SkillHub still is.
+class SharedFlag {
+ public:
+  SharedFlag() = default;
+  SharedFlag(const SharedFlag& o) : m_v(o.m_v.load()) {}
+  SharedFlag& operator=(const SharedFlag& o) {
+    m_v.store(o.m_v.load());
+    return *this;
+  }
+  SharedFlag& operator=(bool b) {
+    m_v.store(b);
+    return *this;
+  }
+  operator bool() const { return m_v.load(); }
+
+ private:
+  std::atomic<bool> m_v{false};
 };
 
 class SkillHub {
@@ -79,7 +100,8 @@ class SkillHub {
   logo::ThingNames m_sets[2];  // the live list and the one being staged (a commit flips m_live)
   uint8_t m_live = 0;
   uint8_t m_next_part = 0, m_of = 0;  // staging: the part expected next (0 = none staging)
-  bool m_commit = false, m_clear = false;
+  bool m_commit = false;
+  SharedFlag m_clear;  // read by copyForCheck on the worker task, written on the link task
   int32_t m_next_id = 1;
   int32_t m_ask_id = -1;
   uint32_t m_ask_ms = 0;

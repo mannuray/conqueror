@@ -5,7 +5,6 @@ namespace core {
 
 SkillHub::Decision SkillHub::onHello(int fd) {
   if (m_server >= 0 && m_server != fd) return Decision::kBusy;
-  if (m_server != fd && m_sets[m_live].size() > 0) m_clear = true;  // a new server never sees another's list, even before the next tryCommit
   m_server = fd;
   return Decision::kOk;
 }

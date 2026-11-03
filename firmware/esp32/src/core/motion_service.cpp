@@ -147,6 +147,7 @@ void MotionService::startSkill(int fd, int32_t id, uint32_t now_ms, uint16_t cpm
   m_wrong_way = false;
   m_rate_stalling = false;
   m_skill_first = true;
+  m_skill_still = false;
   m_go_ref_set = false;
   m_go_slip.reset();
   m_go_cpm = cpm;
@@ -203,15 +204,25 @@ MotionOut MotionService::stepGo(const MotionTelem& t, uint32_t now_ms) {
   return o;
 }
 
-// R26.1: the GO's second and third rules (no progress near an obstacle; a slipping track). They count only while the
-// skill drives (v != 0): a spin in place makes no progress by design; standing or spinning resets their reference so
-// the wait does not carry over into the next drive.
+// R26.1: the GO's second and third rules (no progress near an obstacle; a slipping track). Only the frames that drive
+// (v != 0) count: a spin in place makes no progress by design. A v == 0 frame keeps the reference but the wait is
+// not counted (its time is added back), so an engine alternating "turn" / "creep" against a wall still trips them;
+// only a rest or spin lasting kMoveStallMs forgets the reference (the next drive starts from rest).
 bool MotionService::skillBlocked(const MotionTelem& t, uint32_t now_ms) {
   if (m_rate_v == 0) {
-    m_go_ref_set = false;
-    m_go_slip.reset();
+    if (!m_skill_still) {
+      m_skill_still = true;
+      m_skill_still_since = now_ms;
+    }
+    if (now_ms - m_skill_still_since >= motion::kMoveStallMs) {
+      m_go_ref_set = false;
+      m_go_slip.reset();
+    } else if (m_go_ref_set) {
+      m_go_ref_ms += now_ms - m_last_telem_ms;  // this frame's time does not count as waiting
+    }
     return false;
   }
+  m_skill_still = false;
   if (goStopped(t, now_ms) && t.dist_mm < motion::kMoveObstacleMm) return true;
   return m_go_slip.step(t.enc_l, t.enc_r, t.rate_ddps, m_go_cpm, now_ms);  // R21
 }

@@ -123,8 +123,9 @@ void MotionController::endSkill(core::EndReason why, uint32_t now) { run(m_motio
 // next TELEM_FAST, through the Uno's safety supervisor like every primitive).
 void MotionController::onSkillDrive(int fd, int32_t id, int8_t v, int16_t rate_ddps, uint32_t now) {
   const core::MotionService& svc = m_motion.service();
-  const bool lease = m_h.lease_ok != nullptr && m_h.lease_ok(fd, id, now);
-  if (!lease || svc.skillId() != id) return m_out.streamReject(fd, core::BridgeReason::kNotOwner);  // once per stream
+  // The running skill first: a refused frame must never reach leaseOk (it refreshes the hub lease's deadman).
+  const bool lease = svc.skillId() == id && m_h.lease_ok != nullptr && m_h.lease_ok(fd, id, now);
+  if (!lease) return m_out.streamReject(fd, core::BridgeReason::kNotOwner);  // once per stream
   m_motion.service().skillDrive(v, static_cast<float>(rate_ddps) / 10.0f, now);
   m_out.clients().streamAccepted(fd);
 }

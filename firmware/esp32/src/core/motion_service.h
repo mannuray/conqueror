@@ -132,6 +132,8 @@ class MotionService {
   uint32_t m_wrong_since = 0;  // ... since
   bool m_rate_stalling = false;  // final review I1: saturated while the tank does not turn ...
   uint32_t m_rate_stall_since = 0;  // ... since
+  bool m_skill_still = false;  // R26.1: the frames since m_skill_still_since all had v == 0
+  uint32_t m_skill_still_since = 0;
   bool m_skill_first = false;  // R26.1: no frame since startSkill yet (its brake flag may be the last primitive's)
   uint32_t m_last_telem_ms = 0;
 };

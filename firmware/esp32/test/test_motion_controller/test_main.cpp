@@ -281,6 +281,7 @@ int g_logo_ends = 0;
 cq::core::EndReason g_logo_reason = cq::core::EndReason::kDone;
 int g_logo_events = 0;
 bool g_lease_ok = true;     // Plan Z2a: what SkillHub::leaseOk says
+int g_lease_calls = 0;      // how often the hub's leaseOk (which refreshes its deadman) was asked
 int32_t g_lease_id = 5;     // ... and the lease's id
 cq::core::MotionEvent g_logo_event = cq::core::MotionEvent::kStop;
 
@@ -292,7 +293,7 @@ void logoHooks() {
   };
   h.ota = [] { return g_ota; };
   h.logo_fd = [] { return g_logo_fd; };
-  h.lease_ok = [](int, int32_t id, uint32_t) { return g_lease_ok && id == g_lease_id; };
+  h.lease_ok = [](int, int32_t id, uint32_t) { ++g_lease_calls; return g_lease_ok && id == g_lease_id; };
   h.logo_end = [](const core::PrimitiveEnd& e, uint32_t) {
     ++g_logo_ends;
     g_logo_reason = e.reason;
@@ -305,6 +306,7 @@ void logoHooks() {
   g_logo_fd = -1;
   g_logo_ends = g_logo_events = 0;
   g_lease_ok = true;
+  g_lease_calls = 0;
 }
 
 logo::Action logoMove(int16_t cm) {
@@ -422,6 +424,18 @@ void test_a_late_skill_drive_after_the_skill_ended_drives_nothing() {
   TEST_ASSERT_EQUAL(0, wire.count(FT::kDrive));
 }
 
+// Review minor 1: a frame for a skill that is not running never reaches the hub, so it cannot refresh its deadman
+void test_a_refused_skill_frame_never_refreshes_the_hub_lease() {
+  skillRunning();
+  mc->onSkillDrive(kServer, 5, 40, 0, 110);
+  TEST_ASSERT_EQUAL(1, g_lease_calls);
+  mc->end(core::MotionEvent::kStop, 120);
+  g_lease_calls = 0;
+  for (uint32_t t = 130; t < 600; t += 50) mc->onSkillDrive(kServer, 5, 40, 0, t);  // the engine keeps streaming
+  mc->onSkillDrive(kServer, 9, 40, 0, 650);  // another id while nothing runs
+  TEST_ASSERT_EQUAL(0, g_lease_calls);
+}
+
 void test_phone_stick_during_skill_ends_lease() {
   skillRunning();
   mc->onSkillDrive(kServer, 5, 40, 0, 110);
@@ -521,6 +535,7 @@ int main() {
   RUN_TEST(test_skill_drive_without_lease_nacked_once);
   RUN_TEST(test_skill_drive_under_the_lease_drives_and_a_stale_id_is_refused);
   RUN_TEST(test_a_late_skill_drive_after_the_skill_ended_drives_nothing);
+  RUN_TEST(test_a_refused_skill_frame_never_refreshes_the_hub_lease);
   RUN_TEST(test_phone_stick_during_skill_ends_lease);
   RUN_TEST(test_a_skill_end_reaches_the_program_with_its_lease_id);
   RUN_TEST(test_skill_deadman_ends_it_with_a_stop);

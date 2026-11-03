@@ -1424,6 +1424,21 @@ void test_skill_spinning_in_place_near_a_wall_is_not_blocked_and_the_wait_does_n
   TEST_ASSERT_FALSE(skillFor(svc, 4020, 4200, 40, 0.0f, 0, 160).ended);
 }
 
+// Review I1: an engine loop alternating "turn on the spot" / "creep forward" against a wall must still end blocked -
+// only the frames that drive count, and a single v = 0 frame does not reset the wait.
+void test_skill_alternating_spin_and_creep_against_a_wall_is_blocked() {
+  MotionService svc;
+  svc.startSkill(3, 7, 0);
+  MotionOut o;
+  for (uint32_t t = 20; t <= 6000 && !o.ended; t += 20) {
+    const bool drive = (t / 200) % 2 == 0;
+    svc.skillDrive(drive ? 40 : 0, 0.0f, t);
+    o = svc.onTelemetry(goAt(0, 160), t);  // 16 cm from the wall, no counts
+  }
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(static_cast<int>(EndReason::kBlocked), static_cast<int>(o.end.reason));
+}
+
 void test_skill_with_a_slipping_track_is_blocked() {
   MotionService svc;
   svc.startSkill(3, 7, 0);
@@ -1607,6 +1622,7 @@ int main() {
   RUN_TEST(test_end_skill_ends_it_with_the_reason);
   RUN_TEST(test_skill_stuck_near_an_obstacle_is_blocked_like_a_go);
   RUN_TEST(test_skill_spinning_in_place_near_a_wall_is_not_blocked_and_the_wait_does_not_carry_over);
+  RUN_TEST(test_skill_alternating_spin_and_creep_against_a_wall_is_blocked);
   RUN_TEST(test_skill_with_a_slipping_track_is_blocked);
   RUN_TEST(test_skill_ends_without_telemetry_as_link);
   RUN_TEST(test_stop_ends_skill);

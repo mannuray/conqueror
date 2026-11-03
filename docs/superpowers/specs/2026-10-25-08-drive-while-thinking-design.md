@@ -195,7 +195,8 @@ stateDiagram-v2
 - **Level 2 (Explorer), `needs: [ai]`** (the moving ones also `needs: [encoders]`). `SEE?` and `FIND` move down from level 3.
 - **No `GOTO`** (owner, §191): FIND already goes to the thing. `SETXY` goes to a *point*, not a thing.
 - **`HOWFAR`, not `DISTANCE "thing`:** `DISTANCE` is the sonar's word. **`SETXY`, not `GO TO`:** `TO` starts a procedure, `GO` drives until.
-- **Things and loose names:** any floor thing the engine's vocabulary knows, **never a person**. Each word has everyday names ("car", "racing car", "toy car" → toy); the checker accepts any of them. An unknown name is an error.
+- **Things and loose names:** any floor thing the engine's vocabulary knows, **never a person**. Each word has everyday names ("car", "racing car", "toy car" → toy); the checker accepts any of them. An unknown name is an error (7053); on the `/ai` page an adult can **teach it** the word (§4.5).
+- **Never a person, whatever the word:** the detector always looks for people, and the engine never chases, checks or remembers a box that overlaps a person (design-notes §197). No list of banned words is needed.
 - **Errors (new, `words.yaml`):**
   - 7050 "I couldn't find the {thing}.";
   - 7051 "I lost sight of the {thing}.";
@@ -233,7 +234,7 @@ stateDiagram-v2
 - **What it is:** a page on the tank for playing with the AI words without writing a program. **Its buttons run one-line Logo programs** through the normal Logo run (Find + "toy" with a 2 m area → `AREA 2  FIND "toy`), so the lease, STOP, ownership and errors are Logo's own, and the page shows "I ran: …" with a link to `/logo`.
 - **Look:** the bridge's own (Settings / Logo pages); the drive page's STOP on every tab; a status strip (battery, AI helper, child play, heading, distance, speed).
 - **Three tabs:**
-  - **Play (a child):** a face with a mood; the camera; Find / Wander / Explore with a thing picker; "what I'm thinking" in a child's words, spoken by the phone's voice; Why? (the last decision explained); take a picture (saved to the phone only).
+  - **Play (a child):** a face with a mood; the camera; Find / Wander / Explore with a thing picker and a typing box (an unknown word offers **teach it**: an adult adds it, the engine re-exports the detector, ~1 min, never during a program); "what I'm thinking" in a child's words, spoken by the phone's voice; Why? (the last decision explained); take a picture (saved to the phone only).
   - **Room:** the map — tap to go there (`SETXY`), the path, the route, the maybes; the home (choose / none / new) and the "on the home mark" check; the play area (off / 1-4 m); what I remember (Go = `FIND`, Forget); achievements (kept per home by the engine).
   - **Inside (an engineer / an older child):** health lights; the camera with overlays; the depth picture; what it sees now with scores; all telemetry with 30 s graphs; the decisions timeline with event marks.
 - **The data path (owner: through the bridge):** the engine sends small status messages (state, sentence, why, health, seen-now, the pose, ~10 Hz) and a map picture and a depth picture (~1 / s each, a few KB) to the bridge, which passes them on to `/ai` viewers only. The phone only ever talks to the tank. Choosing a home and Forget are page → engine requests, only while no program runs.

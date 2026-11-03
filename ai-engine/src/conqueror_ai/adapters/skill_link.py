@@ -32,6 +32,10 @@ class SkillBusy(Exception):
     """The bridge already has a skill server (`nack BUSY`)."""
 
 
+class ThingsRefused(Exception):
+    """The bridge refused the things list (`nack TOO_BIG` / `BAD_FIELD`); it keeps the list it had."""
+
+
 @dataclass(frozen=True)
 class Ask:
     id: int
@@ -63,18 +67,23 @@ class Lost:
 SkillEvent = Ask | Start | End | Lost
 
 
-def _frame(part: int, of: int, entries: list[dict[str, object]]) -> str:
-    return json.dumps({"t": "skill_things", "part": part, "of": of, "things": entries}, separators=(",", ":"))
+def _frame(part: int, of: int, entries: list[dict[str, object]], id: int | None = None) -> str:
+    m: dict[str, object] = {"t": "skill_things", "part": part, "of": of}
+    if id is not None:
+        m["id"] = id  # the bridge acks (or nacks) a frame that has one
+    m["things"] = entries
+    return json.dumps(m, separators=(",", ":"))
 
 
-def things_parts(things: Sequence[dict[str, object]]) -> list[str]:
+def things_parts(things: Sequence[dict[str, object]], first_id: int | None = None) -> list[str]:
     """The list as `skill_things` frames, each at most FRAME_MAX bytes. A word that doesn't fit whole is
-    split by its names (it appears again in a later part, which adds names)."""
+    split by its names (it appears again in a later part, which adds names). With `first_id`, the parts
+    carry the ids first_id, first_id + 1, ..."""
     worst = (PARTS_MAX, PARTS_MAX)  # measure with two-digit part / of
     groups: list[list[dict[str, object]]] = [[]]
 
     def fits(entries: list[dict[str, object]]) -> bool:
-        return len(_frame(*worst, entries).encode()) <= FRAME_MAX
+        return len(_frame(*worst, entries, 99999999).encode()) <= FRAME_MAX
 
     for t in things:
         word = str(t["word"])
@@ -96,7 +105,10 @@ def things_parts(things: Sequence[dict[str, object]]) -> list[str]:
         groups.append([{"word": word, "names": chunk}])
     if len(groups) > PARTS_MAX:
         raise ValueError(f"the things need {len(groups)} parts; the tank takes at most {PARTS_MAX}")
-    return [_frame(i + 1, len(groups), g) for i, g in enumerate(groups)]
+    return [
+        _frame(i + 1, len(groups), g, None if first_id is None else first_id + i)
+        for i, g in enumerate(groups)
+    ]
 
 
 def _num(m: dict[str, Any], key: str) -> float | None:
@@ -134,14 +146,18 @@ def parse_event(m: dict[str, Any]) -> SkillEvent | None:
 
 
 class SkillLink:
-    def __init__(self, url: str, things: Sequence[dict[str, object]]) -> None:
+    def __init__(self, url: str, things: Sequence[dict[str, object]], silent_s: float = 3.0) -> None:
         self.url = url
         self.things = things
         self.last_nack: str | None = None  # the reason of the bridge's latest nack (TOO_BIG, BAD_FIELD...)
         self._ws: ClientConnection | None = None
         self._queue: asyncio.Queue[SkillEvent] = asyncio.Queue()
+        self.silent_s = silent_s  # nothing heard from the bridge for this long: the link is lost
         self._tasks: list[asyncio.Task[None]] = []
         self._next_id = 0
+        self._waiting: dict[int, asyncio.Future[dict[str, Any]]] = {}
+        self._heard_s = time.monotonic()
+        self._lost = False
 
     @property
     def connected(self) -> bool:
@@ -149,7 +165,7 @@ class SkillLink:
 
     async def connect(self) -> None:
         """Opens the link, registers as the skill server and sends the things. SkillBusy on `nack BUSY`."""
-        parts = things_parts(self.things)  # a list that cannot be sent is refused before connecting
+        things_parts(self.things)  # a list that cannot be sent is refused before connecting
         ws = await connect(self.url, ping_interval=None, open_timeout=5)
         try:
             await ws.send(json.dumps({"t": "hello", "client": "ai-skills", "proto": 1}))
@@ -165,13 +181,16 @@ class SkillLink:
                         raise ConnectionError(f"the bridge refused the hello: {m.get('reason')}")
                     if m.get("t") == "welcome":
                         break
-            for p in parts:
-                await ws.send(p)
         except BaseException:
             await ws.close()
             raise
-        self._ws = ws
+        self._ws, self._lost, self._heard_s = ws, False, time.monotonic()
         self._tasks = [asyncio.create_task(self._read(ws)), asyncio.create_task(self._pings(ws))]
+        try:
+            await self.set_things(self.things)
+        except BaseException:
+            await self.close()
+            raise
 
     async def events(self) -> AsyncIterator[SkillEvent]:
         """The bridge's questions, starts and ends, in order; ends after Lost."""
@@ -180,6 +199,27 @@ class SkillLink:
             yield ev
             if isinstance(ev, Lost):
                 return
+
+    async def set_things(self, things: Sequence[dict[str, object]]) -> None:
+        """Sends the list in parts and waits for the bridge's ack of each; ThingsRefused on a nack (the
+        bridge keeps its old list). Call it again when the list changes (Plan Z2b)."""
+        parts = things_parts(things, self._next_id + 1)
+        for raw in parts:
+            mid = int(json.loads(raw)["id"])
+            self._next_id = mid
+            reply: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+            self._waiting[mid] = reply
+            try:
+                await self._send_raw(raw)
+                async with asyncio.timeout(HELLO_WAIT_S):
+                    m = await reply
+            except TimeoutError:
+                raise ConnectionError("the bridge did not answer the things list") from None
+            finally:
+                self._waiting.pop(mid, None)
+            if m.get("t") == "nack":
+                raise ThingsRefused(f"{m.get('reason')}: {m.get('message', '')}")
+        self.things = things
 
     async def close(self) -> None:
         ws, self._ws = self._ws, None
@@ -212,10 +252,18 @@ class SkillLink:
         )
 
     async def _send(self, msg: dict[str, Any]) -> None:
+        await self._send_raw(json.dumps(msg, separators=(",", ":")))
+
+    async def _send_raw(self, raw: str) -> None:
+        """Every send ends as a ConnectionError when the link is gone: between the socket closing and the
+        reader's clean-up, websockets raises its own ConnectionClosed (review I1)."""
         ws = self._ws
         if ws is None:
             raise ConnectionError("not connected to the bridge")
-        await ws.send(json.dumps(msg, separators=(",", ":")))
+        try:
+            await ws.send(raw)
+        except ConnectionClosed as e:
+            raise ConnectionError("the bridge link closed") from e
 
     async def _read(self, ws: ClientConnection) -> None:
         try:
@@ -223,26 +271,45 @@ class SkillLink:
                 m = _load(raw)
                 if m is None:
                     continue
+                self._heard_s = time.monotonic()
+                mid = m.get("id")
                 if m.get("t") == "ping":
                     await ws.send(json.dumps({"t": "pong", "t0": m.get("t0")}))
-                elif m.get("t") == "nack":
-                    self.last_nack = str(m.get("reason") or "refused")
+                elif m.get("t") in ("ack", "nack"):
+                    if m.get("t") == "nack":
+                        self.last_nack = str(m.get("reason") or "refused")
+                    fut = self._waiting.get(mid) if isinstance(mid, int) else None
+                    if fut is not None and not fut.done():
+                        fut.set_result(m)
                 elif (ev := parse_event(m)) is not None:
                     self._queue.put_nowait(ev)
         except ConnectionClosed:
             pass
         finally:
-            self._ws = None
-            self._queue.put_nowait(Lost())
+            self._lose()
             for t in self._tasks:
                 if t is not asyncio.current_task():
                     t.cancel()
+
+    def _lose(self) -> None:
+        """The link is gone (closed, or silent): the events end with one Lost; waiting sends give up."""
+        self._ws = None
+        if not self._lost:
+            self._lost = True
+            self._queue.put_nowait(Lost())
+        for fut in self._waiting.values():
+            if not fut.done():
+                fut.set_exception(ConnectionError("the bridge link closed"))
 
     async def _pings(self, ws: ClientConnection) -> None:
         with contextlib.suppress(ConnectionClosed):
             while True:
                 await ws.send(json.dumps({"t": "ping", "t0": round(time.monotonic() * 1000, 3)}))
-                await asyncio.sleep(PING_S)
+                await asyncio.sleep(min(PING_S, self.silent_s / 2))
+                if time.monotonic() - self._heard_s > self.silent_s:  # WiFi lost, the socket still open
+                    self._lose()
+                    ws.transport.abort()
+                    return
 
 
 def _load(raw: str | bytes) -> dict[str, Any] | None:

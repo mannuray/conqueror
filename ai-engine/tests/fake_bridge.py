@@ -42,9 +42,10 @@ class FakeBridge:
         self.pan_tilt = pan_tilt  # the servos' angles in td (90, 90 = straight ahead)
         self.send_td = send_td  # False: a bridge whose telemetry went silent (the socket stays open)
         self.connections = 0
-        self.skill_ws: ServerConnection | None = (
-            None  # the one skill server (bridge LLD R26): a 2nd gets BUSY
-        )
+        # the one skill server (bridge LLD R26): a 2nd gets BUSY
+        self.skill_ws: ServerConnection | None = None
+        self.things_nack: str | None = None  # a reason (TOO_BIG, BAD_FIELD): skill_things is refused
+        self.answer_pings = True  # False: a bridge that went silent (WiFi lost, the socket stays open)
         self.received: list[dict[str, Any]] = []
         self.ws_port = 0
         self.stream_port = 0
@@ -90,6 +91,20 @@ class FakeBridge:
                     await ws.send(json.dumps({"t": "welcome", "you": "ai-1"}))
                 elif t == "debug" and m.get("on") and sender is None and self.send_td:
                     sender = asyncio.create_task(self._td(ws))
+                elif t == "skill_things":  # acked with the id (bridge LLD R26.2), or nacked
+                    reply = (
+                        {"t": "ack", "id": m.get("id")}
+                        if self.things_nack is None
+                        else {
+                            "t": "nack",
+                            "id": m.get("id"),
+                            "reason": self.things_nack,
+                            "message": "refused",
+                        }
+                    )
+                    await ws.send(json.dumps(reply))
+                elif t == "ping" and not self.answer_pings:
+                    pass
                 elif t == "ping":
                     await ws.send(
                         json.dumps({"t": "pong", "t0": m["t0"], "tank_ms": 1, "bridge_us": bridge_us()})

@@ -24,8 +24,12 @@ def obj(oid: int, cls: str, x: float, y: float, seen_us: int = 0) -> ObjectEstim
 
 
 def test_the_kind_ball() -> None:
-    assert is_ball("ball:green") and is_ball("toy") and is_ball("ball")
+    assert is_ball("ball:green") and is_ball("ball")
     assert not is_ball("chair") and not is_ball("person")
+    # Plan Z2a review I3: "toy" is its own word, no longer an alias of the ball (FIND, SEE? and HOWFAR agree)
+    assert not is_ball("toy")
+    assert kind_of("ball")("ball:red") and not kind_of("ball")("toy")
+    assert kind_of("toy")("toy") and not kind_of("toy")("ball:red")
 
 
 def test_the_goal_takes_the_nearest_ball_and_keeps_it() -> None:
@@ -79,6 +83,6 @@ def test_two_balls_of_one_colour_give_no_size_position() -> None:
 def test_the_target_is_any_thing_by_its_word_and_ball_is_every_ball() -> None:
     bottle = kind_of("bottle")
     assert bottle("bottle") and not bottle("ball:green") and not bottle("chair")
-    assert kind_of("ball")("toy") and kind_of("ball")("ball:green")
+    assert kind_of("ball")("ball:green") and not kind_of("ball")("toy")  # review I3: a toy is not a ball
     fix = Goal(bottle).update([obj(1, "ball:green", 0.5, 0.0), obj(2, "bottle", 1.5, 0.0)], (0, 0), 0)
     assert fix is not None and fix.oid == 2  # the nearer ball isn't a bottle

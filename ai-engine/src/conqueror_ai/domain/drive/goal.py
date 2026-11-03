@@ -12,19 +12,20 @@ import numpy as np
 from conqueror_ai.domain.camera import CameraModel
 from conqueror_ai.domain.types import Detection, ObjectEstimate
 
-BALL_WORDS = frozenset({"ball", "toy"})  # YOLO-World's words for a ball (it named the green ball "toy", §152)
+# the word "ball" (the colour finder's sightings are "ball:<name>"); "toy" is its own word (Plan Z2a, I3)
+BALL_WORDS = frozenset({"ball"})
 MIN_SIZE_R_PX = 8.0  # a ball smaller than this in the picture: its size gives no good range
 ECHO_RANGE_M = 0.15  # a sonar echo this near the target's range ...
 ECHO_BEARING_DEG = 12.0  # ... with the target this near straight ahead, is the target
 
 
 def is_ball(cls: str) -> bool:
-    """The kind "ball": any colour ball, or YOLO-World's ball / toy."""
+    """The kind "ball": any colour ball (ball:<name>) or YOLO-World's "ball" - not a toy."""
     return cls.startswith("ball:") or cls in BALL_WORDS
 
 
 def kind_of(thing: str) -> Callable[[str], bool]:
-    """The target kind for a word: "ball" is every ball (any colour, YOLO-World's ball / toy); any other
+    """The target kind for a word: "ball" is every ball (any colour, YOLO-World's ball); any other
     word is that thing (spec 8 §4.1: GOTO takes a thing's name)."""
     if thing == "ball":
         return is_ball

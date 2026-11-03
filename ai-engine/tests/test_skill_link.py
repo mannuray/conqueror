@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
+from websockets.exceptions import ConnectionClosedOK
 
 from conqueror_ai.adapters.skill_link import (
     FRAME_MAX,
@@ -18,6 +19,7 @@ from conqueror_ai.adapters.skill_link import (
     SkillBusy,
     SkillLink,
     Start,
+    ThingsRefused,
     things_parts,
 )
 from conqueror_ai.domain.drive.curves import Command
@@ -58,6 +60,7 @@ async def test_hello_carries_things(bridge: FakeBridge) -> None:
             "t": "skill_things",
             "part": 1,
             "of": 1,
+            "id": 1,  # every part carries an id: the bridge acks (or nacks) each
             "things": THINGS,
         }
     finally:
@@ -197,3 +200,87 @@ async def test_a_closed_link_ends_the_events_with_lost(bridge: FakeBridge) -> No
     with pytest.raises(ConnectionError):
         await link.drive(1, Command(0.0, 0.0))
     await link.close()
+
+
+def kill_the_socket(link: SkillLink) -> None:
+    """The window between the socket closing and the reader's clean-up: _ws is still set, send raises."""
+
+    async def closed(_msg: object) -> None:
+        raise ConnectionClosedOK(None, None)
+
+    assert link._ws is not None  # pyright: ignore[reportPrivateUsage]
+    link._ws.send = closed  # type: ignore[method-assign]  # pyright: ignore[reportPrivateUsage, reportAttributeAccessIssue]
+
+
+async def test_a_closed_socket_refuses_instead_of_raising(bridge: FakeBridge) -> None:
+    """Review I1: websockets' ConnectionClosed is not a ConnectionError; between the close and the reader's
+    clean-up every send must still end as a ConnectionError, which callers turn into a refusal."""
+    link = SkillLink(f"ws://127.0.0.1:{bridge.ws_port}/ws", THINGS)
+    await link.connect()
+    try:
+        kill_the_socket(link)
+        sends = (
+            lambda: link.answer(1, True),
+            lambda: link.done(1),
+            lambda: link.failed(1, "lost", "toy"),
+            lambda: link.drive(1, Command(10.0, 0.0)),
+            lambda: link.cam(0.0, 0.0),
+        )
+        for send in sends:
+            with pytest.raises(ConnectionError):
+                await send()
+    finally:
+        await link.close()
+
+
+async def test_a_refused_things_list_raises_a_plain_error(bridge: FakeBridge) -> None:
+    for reason in ("TOO_BIG", "BAD_FIELD"):
+        bridge.things_nack = reason
+        link = SkillLink(f"ws://127.0.0.1:{bridge.ws_port}/ws", THINGS)
+        with pytest.raises(ThingsRefused, match=reason):
+            await link.connect()
+        assert not link.connected
+        await until(lambda: bridge.skill_ws is None)  # the failed connect let go of the server's place
+
+
+async def test_every_part_is_waited_for(bridge: FakeBridge) -> None:
+    many: list[dict[str, object]] = [
+        {"word": f"word{i:02d}", "names": [f"name-{i:02d}-{j}" for j in range(8)]} for i in range(20)
+    ]
+    link = SkillLink(f"ws://127.0.0.1:{bridge.ws_port}/ws", many)
+    await link.connect()
+    try:
+        parts = skill_msgs(bridge, "skill_things")
+        assert len(parts) > 1 and [p["part"] for p in parts] == list(range(1, len(parts) + 1))
+        assert len({p["id"] for p in parts}) == len(parts)
+    finally:
+        await link.close()
+
+
+async def test_the_things_can_be_sent_again(bridge: FakeBridge) -> None:
+    link = SkillLink(f"ws://127.0.0.1:{bridge.ws_port}/ws", THINGS)
+    await link.connect()
+    try:
+        await link.set_things([{"word": "box", "names": ["carton"]}])
+        last = skill_msgs(bridge, "skill_things")[-1]
+        assert last["things"] == [{"word": "box", "names": ["carton"]}] and last["part"] == 1
+        bridge.things_nack = "TOO_BIG"
+        with pytest.raises(ThingsRefused, match="TOO_BIG"):
+            await link.set_things(THINGS)
+        assert link.connected  # the bridge keeps the old list; the link stays
+    finally:
+        await link.close()
+
+
+async def test_a_silent_bridge_is_lost(bridge: FakeBridge) -> None:
+    """WiFi lost with the socket still open: nothing heard for silent_s puts Lost on the queue."""
+    bridge.answer_pings = False
+    link = SkillLink(f"ws://127.0.0.1:{bridge.ws_port}/ws", THINGS, silent_s=0.4)
+    await link.connect()
+    try:
+        it = link.events()
+        async with asyncio.timeout(3):
+            assert await anext(it) == Lost()
+        assert not link.connected
+    finally:
+        await link.close()

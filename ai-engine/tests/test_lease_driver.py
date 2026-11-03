@@ -9,12 +9,13 @@ from typing import Any
 import pytest
 
 from conqueror_ai.adapters.drive_link import drive_msg
-from conqueror_ai.adapters.lease_driver import KEEP_S, LeaseDriver, wire_reason
-from conqueror_ai.adapters.skill_link import SkillLink
+from conqueror_ai.adapters.lease_driver import KEEP_S, MIN_GAP_S, LeaseDriver, wire_reason
+from conqueror_ai.adapters.skill_link import End, SkillLink
 from conqueror_ai.domain.drive.curves import STOP, Command
 from conqueror_ai.domain.drive.skill import Result
 from conqueror_ai.domain.ports import Driver
 from tests.fake_bridge import FakeBridge
+from tests.test_skill_link import kill_the_socket
 
 
 @pytest.fixture
@@ -156,3 +157,99 @@ def test_wire_reason_per_result() -> None:
         "unknown_thing",
         "stale",
     }
+
+
+async def test_a_held_stop_is_resent_while_fresh(bridge: FakeBridge) -> None:
+    """Review I2: holding still is not silence - the bridge ends a word whose frames stop for 300 ms."""
+    link = await connected(bridge)
+    stop = asyncio.Event()
+    d = LeaseDriver(link, 3)
+    task = asyncio.create_task(d.run(stop))
+    try:
+        await d.drive(Command(20.0, 0.0))
+        await d.drive(STOP)
+        await asyncio.sleep(0.4)  # fresh for 0.5 s after the last command
+        vs = [m["v"] for m in drives(bridge)]
+        moving = next(i for i, v in enumerate(vs) if v != 0)
+        assert vs[moving + 1 :].count(0) >= 3  # a stop frame about every KEEP_S, never silence
+    finally:
+        stop.set()
+        await task
+        await link.close()
+
+
+async def test_frames_keep_a_minimum_gap(bridge: FakeBridge) -> None:
+    """Review minor d: the bridge refuses over 25 frames a second; DriveLink's gap is the rule here too."""
+    link = await connected(bridge)
+    stop = asyncio.Event()
+    d = LeaseDriver(link, 3)
+    task = asyncio.create_task(d.run(stop))
+    try:
+        for i in range(30):
+            await d.drive(Command(20.0, float(i)))
+            await asyncio.sleep(0.005)
+        await asyncio.sleep(0.15)
+        n = len(drives(bridge))
+        assert n <= 0.35 / MIN_GAP_S + 2, n  # ~0.3 s of calls
+        assert drives(bridge)[-1]["yaw_rate"] == 29.0  # the newest command still gets through
+    finally:
+        stop.set()
+        await task
+        await link.close()
+
+
+async def test_end_while_run_keeps_a_moving_command_alive(bridge: FakeBridge) -> None:
+    link = await connected(bridge)
+    stop = asyncio.Event()
+    d = LeaseDriver(link, 3)
+    task = asyncio.create_task(d.run(stop))
+    try:
+        await d.drive(Command(20.0, 0.0))
+        await until(lambda: len(drives(bridge)) >= 2)
+        d.end("stop")
+        await asyncio.sleep(0.05)
+        n = len(drives(bridge))
+        await asyncio.sleep(0.4)  # the command is still fresh: the keep-alive must still not send
+        assert len(drives(bridge)) == n
+        await asyncio.wait_for(task, 1)  # and run() ends by itself
+    finally:
+        stop.set()
+        await link.close()
+
+
+async def test_a_bridge_skill_end_reaches_the_driver(bridge: FakeBridge) -> None:
+    """ServeApp maps the link's `End` event to `LeaseDriver.end(why)` (for the skill's own id)."""
+    link = await connected(bridge)
+    try:
+        d = LeaseDriver(link, 7)
+        await bridge.to_skill_server({"t": "skill_end", "id": 7, "why": "stop"})
+        async with asyncio.timeout(2):
+            ev = await anext(link.events())
+        assert isinstance(ev, End) and ev == End(7, "stop")
+        d.end(ev.why)
+        assert d.refused == "stop"
+        await d.drive(Command(20.0, 0.0))
+        await asyncio.sleep(0.05)
+        assert drives(bridge) == []
+    finally:
+        await link.close()
+
+
+async def test_a_socket_closed_under_the_keep_alive_refuses(bridge: FakeBridge) -> None:
+    """Review I1: the keep-alive task must not die with an exception; the driver refuses ("lost")."""
+    link = await connected(bridge)
+    stop = asyncio.Event()
+    d = LeaseDriver(link, 3)
+    task = asyncio.create_task(d.run(stop))
+    try:
+        await d.drive(Command(20.0, 0.0))
+        kill_the_socket(link)
+        await until(lambda: d.refused is not None)
+        assert d.refused == "lost"
+        await asyncio.wait_for(task, 1)  # ended cleanly, no exception
+        await d.drive(Command(20.0, 0.0))  # nothing raised, nothing sent
+        await d.finish()
+        await d.cam(0.0, 0.0)
+    finally:
+        stop.set()
+        await link.close()

@@ -3,7 +3,8 @@
 Every frame is a `skill_drive` carrying the skill's id, the same speed table as `DriveLink`. The lease ends
 from the tank's side (`skill_end`): `end(why)` then sets `refused` and nothing more is sent. The bridge ends
 a word whose frames stop (300 ms, 7052), so `run` sends the first frame (v 0) at once and repeats the
-engine's newest command every KEEP_S while it is fresh; a stuck engine is left to that deadman."""
+engine's newest command (a held stop too) every KEEP_S while it is fresh, at most one frame per MIN_GAP_S.
+A stuck engine is left to that deadman."""
 
 from __future__ import annotations
 
@@ -14,8 +15,9 @@ from conqueror_ai.adapters.skill_link import SkillLink
 from conqueror_ai.domain.drive.curves import STOP, Command
 from conqueror_ai.domain.drive.skill import Result
 
-KEEP_S = 0.1  # a frame at least this often (the bridge's deadman is 0.3 s)
-FRESH_FOR_S = 0.5  # the keep-alive repeats a command only this long
+KEEP_S = 0.1  # a frame at least this often (the bridge's deadman is 0.3 s), a held stop too
+MIN_GAP_S = 0.08  # at most ~12 frames a second, as DriveLink: the bridge refuses over 25 (ws_clients.h)
+FRESH_FOR_S = 0.5  # the keep-alive repeats a command only this long: a stuck engine is left to the deadman
 
 
 class LeaseDriver:
@@ -23,8 +25,9 @@ class LeaseDriver:
         self.link, self.id = link, id
         self.cmd = STOP
         self._refused: str | None = None
-        self._set_s = 0.0
+        self._set_s = time.monotonic()  # the lease start counts as a command: the first v 0 is repeated
         self._sent_s = 0.0
+        self._pending = False  # a newer command waits for MIN_GAP_S since the last frame
         self._finished = False
 
     @property
@@ -45,15 +48,21 @@ class LeaseDriver:
         while not stop.is_set() and self._refused is None and not self._finished:
             await asyncio.sleep(0.02)
             now = time.monotonic()
-            if self.cmd != STOP and now - self._set_s <= FRESH_FOR_S and now - self._sent_s >= KEEP_S:
+            gap = now - self._sent_s
+            # a held stop is a frame too (the lease lives on frames); only a stale command is left to die
+            if (self._pending and gap >= MIN_GAP_S) or (now - self._set_s <= FRESH_FOR_S and gap >= KEEP_S):
                 await self._send(self.cmd)
 
     async def drive(self, cmd: Command) -> None:
         if self._refused is not None or self._finished:
             return
+        moving_before = self.cmd != STOP
         self.cmd = cmd
         self._set_s = time.monotonic()
-        await self._send(cmd)
+        if self._set_s - self._sent_s >= MIN_GAP_S or (cmd == STOP and moving_before):
+            await self._send(cmd)  # a stop always at once
+        else:
+            self._pending = True  # run() sends it as soon as the gap has passed
 
     async def cam(self, pan_deg: float, tilt_deg: float) -> None:
         if self._refused is None and not self._finished:
@@ -77,6 +86,7 @@ class LeaseDriver:
             self._refused = self._refused or "lost"
             return
         self._sent_s = time.monotonic()
+        self._pending = False
 
 
 def wire_reason(r: Result, ended: bool = False) -> str | None:

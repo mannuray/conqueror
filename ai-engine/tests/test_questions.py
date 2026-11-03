@@ -56,3 +56,25 @@ def test_howfar_nearest_or_minus_one(monkeypatch: pytest.MonkeyPatch) -> None:
     assert q.howfar(w2, "toy", 1.0) == round((1.0 - lens) * 100)
     w3 = with_things(world(), monkeypatch, [a], None)  # no pose yet
     assert q.howfar(w3, "toy", 1.0) == -1
+
+
+def test_howfar_answers_only_for_a_thing_seen_now(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review minor b: as SEE?, a remembered or long-unseen thing is -1."""
+    q = Questions()
+    w = with_things(world(), monkeypatch, [thing("toy", 1.0, 0.0, 10.0, "remembered")], FACING_X)
+    assert q.howfar(w, "toy", 10.0) == -1
+    w = with_things(world(), monkeypatch, [thing("toy", 1.0, 0.0, 10.0)], FACING_X)
+    assert q.howfar(w, "toy", 10.0 + SEEN_S + 0.01) == -1
+    assert q.howfar(w, "toy", 10.0 + SEEN_S - 0.01) > 0
+    mixed = [thing("toy", 0.3, 0.0, 1.0, "remembered"), thing("toy", 1.0, 0.0, 10.0)]
+    w = with_things(world(), monkeypatch, mixed, FACING_X)
+    assert q.howfar(w, "toy", 10.1) == round((1.0 - w.lim.cam_x_m) * 100)  # the nearer one isn't seen
+
+
+def test_ball_means_the_ball_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review I3: a seen toy is not a ball; a colour finder's ball:red is."""
+    q = Questions()
+    w = with_things(world(), monkeypatch, [thing("toy", 1.0, 0.0, 5.0)], FACING_X)
+    assert not q.see(w, "ball", 5.1) and q.howfar(w, "ball", 5.1) == -1
+    w = with_things(world(), monkeypatch, [thing("ball:red", 1.0, 0.0, 5.0)], FACING_X)
+    assert q.see(w, "ball", 5.1) and q.howfar(w, "ball", 5.1) > 0

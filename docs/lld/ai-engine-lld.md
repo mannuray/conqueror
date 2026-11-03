@@ -2478,7 +2478,7 @@ sequenceDiagram
 
 ### 21.4 Loose names and never a person
 - **`config/vocabulary.yaml` gains `names:`** per word (`{word: toy, floor: true, also: [toy car], names: [car, racing car, toy car]}`); `also` stays the model's wordings, `names` are what a child may write. `ball` (the colour finder) gets names too (`balls.yaml`).
-- **`Names`** (domain, pure): `resolve(name) -> word | None` over word + names, lower case, spaces squeezed; `wire() -> [{word, names}]` for the hello, within the bridge's bounds (≤ 48 words, ≤ 8 names, ≤ 24 bytes; a longer list is refused at start with a plain error).
+- **`Names`** (domain, pure): `resolve(name) -> word | None` over word + names, lower case, spaces squeezed; `wire() -> [{word, names}]` for the hello, within the bridge's bounds, sent in parts after the hello (≤ 48 words, ≤ 8 names, ≤ 24 bytes; a longer list is refused at start with a plain error).
 - **`person` is never offered** (not in `wire()`), and an asked `person` (or a name of it) is `unknown_thing`.
 - **The person guard (design-notes §197):** the detector always asks for `person`. **`PersonGuard.clear(detections) -> detections`** drops any non-person box whose overlap with a person box is ≥ 0.3 of its own area, before the tracker. So a person is never chased, checked as a candidate or remembered, whatever word was asked.
 
@@ -2533,7 +2533,7 @@ classDiagram
   RoamSkill ..> Result
 ```
 - **`LeaseDriver`:** `drive()` sends `skill_drive` with its id (the same `drive_msg` speed table as `DriveLink`); `refused` becomes the `skill_end` reason when the bridge ends the lease, so `SkillRunner` returns at once and nothing more is sent; `finish()` sends one `v 0` and leaves the stop to the bridge (`endSkill`).
-- **`SkillLink`:** the `/ws` client with `hello ai-skills`; it answers the bridge's pings (the 3 s silent-client rule, §142), and hands `skill_ask` / `skill_start` / `skill_end` to `ServeApp` as events. The camera and telemetry still come from the existing `Perception` sources.
+- **`SkillLink`:** the `/ws` client with `hello ai-skills` (no things in the hello), then `skill_things` in parts (`{part, of, things:[{word, names}]}`, each frame ≤ 190 B because the bridge's WS path holds 200-byte messages; a word may repeat in a later part to add names; sent again when the list changes); it answers the bridge's pings (the 3 s silent-client rule, §142), and hands `skill_ask` / `skill_start` / `skill_end` to `ServeApp` as events. The camera and telemetry still come from the existing `Perception` sources.
 
 ### 21.6 One word, and its states
 ```mermaid

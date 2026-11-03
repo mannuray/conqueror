@@ -126,19 +126,26 @@ bool checkCameraSet(WsCommand& c, const Seen& s) {
 bool checkAppSet(WsCommand& c, const Seen& s) { return c.has_ai_url && !s.url_bad; }
 bool checkLogoRun(WsCommand&, const Seen& s) { return s.prog; }
 
-// Plan Z2a: skill messages (bridge LLD R26.2). skill_failed reasons, in logo::SkillEnd order after kDone.
-const char* const kSkillReasons[] = {"not_found", "lost", "outside_area", "no_way", "blocked", "unknown_thing", "stale"};
-static_assert(sizeof(kSkillReasons) / sizeof(kSkillReasons[0]) == static_cast<size_t>(logo::SkillEnd::kStale),
-              "kSkillReasons must list every logo::SkillEnd after kDone, in order");
-bool checkSkillThings(WsCommand& c, const Seen&) { return c.has_things; }
+// Plan Z2a: skill messages (bridge LLD R26.2). skill_failed reasons and the SkillEnd each stands for.
+struct ReasonRow {
+  const char* name;
+  logo::SkillEnd end;
+};
+const ReasonRow kSkillReasons[] = {
+    {"not_found", logo::SkillEnd::kNotFound},         {"lost", logo::SkillEnd::kLost},
+    {"outside_area", logo::SkillEnd::kOutsideArea},   {"no_way", logo::SkillEnd::kNoWay},
+    {"blocked", logo::SkillEnd::kBlocked},            {"unknown_thing", logo::SkillEnd::kUnknownThing},
+    {"stale", logo::SkillEnd::kStale},
+};
+bool checkSkillThings(WsCommand& c, const Seen&) { return c.has_things && c.part >= 1 && c.part <= c.of; }
 bool checkSkillAnswer(WsCommand& c, const Seen&) { return c.has_id && c.has_value; }
 bool checkSkillDrive(WsCommand& c, const Seen& s) { return c.has_id && s.v && s.mf.rate; }
 bool checkSkillDone(WsCommand& c, const Seen&) { return c.has_id; }
 bool checkSkillFailed(WsCommand& c, const Seen& s) {
   if (!c.has_id) return false;
-  for (uint8_t i = 0; i < sizeof(kSkillReasons) / sizeof(kSkillReasons[0]); ++i) {
-    if (strcmp(s.reason, kSkillReasons[i]) != 0) continue;
-    c.skill_end = static_cast<uint8_t>(i + 1);
+  for (const ReasonRow& row : kSkillReasons) {
+    if (strcmp(s.reason, row.name) != 0) continue;
+    c.skill_end = row.end;
     return true;
   }
   return false;
@@ -187,9 +194,23 @@ bool urlCharOk(char ch) {
 }
 
 // A malformed skill message is a bad field (nack BAD_FIELD); anything else stays invalid.
-WsCommand refused(const Seen& s) {
+// The "t" is looked up again from the text, so the key order does not matter (a bad field may come before it).
+WsCommand refused(const char* text, size_t len) {
   WsCommand bad;
-  if (strncmp(s.t, "skill_", 6) == 0 && kindOf(s.t) != WsCmdKind::kUnsupported) bad.kind = WsCmdKind::kBadField;
+  Reader r(text, len);
+  if (!r.eat('{')) return bad;
+  do {
+    char key[16], t[24];
+    if (!r.str(key, sizeof(key)) || !r.eat(':')) return bad;
+    if (strcmp(key, "t") != 0) {
+      if (!r.skip()) return bad;
+      continue;
+    }
+    if (r.str(t, sizeof(t)) && strncmp(t, "skill_", 6) == 0 && kindOf(t) != WsCmdKind::kUnsupported) {
+      bad.kind = WsCmdKind::kBadField;
+    }
+    return bad;
+  } while (r.eat(','));
   return bad;
 }
 
@@ -200,9 +221,9 @@ WsCommand parseWsCommand(const char* text, size_t len) {
   Reader r(text, len);
   Seen s;
   if (!r.eat('{')) return WsCommand();
-  if (!r.peek('}') && !readFields(r, c, s)) return refused(s);
-  if (!r.eat('}') || !r.atEnd() || s.t[0] == '\0') return refused(s);
-  return complete(c, s) ? c : refused(s);
+  if (!r.peek('}') && !readFields(r, c, s)) return refused(text, len);
+  if (!r.eat('}') || !r.atEnd() || s.t[0] == '\0') return refused(text, len);
+  return complete(c, s) ? c : refused(text, len);
 }
 
 bool appUrlValid(const char* url) {

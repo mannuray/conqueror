@@ -2736,8 +2736,8 @@ sequenceDiagram
 ### R26.1 What changes
 - **The AI engine can register as the skill server.**
   - A client whose hello says `"client": "ai-skills"` becomes the bridge's one skill server (`SkillHub`). A second one gets `nack BUSY`.
-  - Its hello carries the things it knows and their everyday names (`things`); `skill_things` replaces the list later (teach it a word, Z2b). `SkillHub` keeps it within fixed bounds (≤ 48 words, ≤ 8 names each, ≤ 24 bytes each; more → `nack TOO_BIG`, the old list kept), for the checker (Tank Logo LLD §24.1).
-  - While it's connected, Tank Logo's `Caps::ai` is true and `Caps::things` points at the list.
+  - Its hello registers it with no things. It then sends the things it knows and their everyday names in `skill_things` parts (below; again later when the list changes - teach it a word, Z2b). `SkillHub` keeps the list within fixed bounds (≤ 48 words, ≤ 8 names each, ≤ 24 bytes each over all the parts; more → `nack TOO_BIG`, the old list kept), for the checker (Tank Logo LLD §24.1).
+  - While it's connected, Tank Logo's `Caps::ai` is true (from its hello) and `Caps::things` points at the committed list (empty until the first list is complete). The Logo worker copies it under a lock when a check starts (`copyForCheck`).
   - Its close (or the 3 s silent-client rule, §142) ends any skill with "the AI helper stopped answering" (7052).
 - **A drive lease lets the skill server drive while a Logo program runs an action word.**
   - Today a `drive_rate` from a second client gets NOT_OWNER, or, from the owner's own fd, ends the program as 7045.
@@ -2754,8 +2754,8 @@ sequenceDiagram
 ### R26.2 Messages (`/ws`, JSON)
 | Direction | Message | Meaning |
 |---|---|---|
-| engine → bridge | `{"t":"hello","client":"ai-skills","proto":1,"things":[{"word":"toy","names":["car","racing car"]},…]}` | register as the skill server |
-| engine → bridge | `{"t":"skill_things","things":[…]}` | the list changed (Z2b) |
+| engine → bridge | `{"t":"hello","client":"ai-skills","proto":1}` | register as the skill server (no things in the hello: the WS path holds 200-byte messages) |
+| engine → bridge | `{"t":"skill_things","part":i,"of":n,"things":[{"word":"toy","names":["car","racing car"]},…]}` | the list, in parts: 1 ≤ part ≤ of ≤ 48, each frame ≤ 190 B; sent after hello and whenever the list changes (Z2b) |
 | bridge → engine | `{"t":"skill_ask","id":n,"q":"see?"\|"howfar","thing":"toy"}` | a question word; answer within 300 ms |
 | engine → bridge | `{"t":"skill_answer","id":n,"value":true\|false\|cm}` | `howfar`: cm, −1 if not seen |
 | bridge → engine | `{"t":"skill_start","id":n,"skill":"find"\|"wander"\|"explore"\|"setxy", …}` | an action word; the lease is granted with it |
@@ -2764,6 +2764,7 @@ sequenceDiagram
 | engine → bridge | `{"t":"skill_done","id":n}` / `{"t":"skill_failed","id":n,"reason":r,"thing":"toy"}` | r: `not_found`, `lost`, `outside_area`, `no_way`, `blocked`, `unknown_thing`, `stale` |
 | bridge → engine | `{"t":"skill_end","id":n,"why":"stop"\|"deadman"\|"page"\|"owner"\|"ended"}` | the lease ended from the tank's side; the engine stops at once |
 
+- **Parts:** a word may appear again in a later part to add names. `SkillHub` stages the parts in a second `ThingNames` (`add` merges a repeated word; the 48 / 8 / 24 bounds are checked over everything staged so far). Part 1 restarts the staging. A part out of order, `of` changing mid-way, or part > of → `nack BAD_FIELD`; over the bounds → `nack TOO_BIG`; either drops the staging and keeps the committed list. When `part == of` the list is ready and the link task commits it (`tryCommit`: a flip of the live / staging sets, the lock held only for the flip and taken with a 2 ms bound - a busy lock is retried next loop, the link task never waits on a check). A close drops the staging and empties the live list at the next commit.
 - A `skill_drive` with a wrong `id`, or with no lease, gets `nack NOT_OWNER`, once per stream (as `streamReject`).
 - Rate limits as `drive_rate` (`WsClients::admit`). Unknown fields are ignored, bad ones refused (`nack BAD_FIELD`).
 
@@ -2772,8 +2773,9 @@ sequenceDiagram
 classDiagram
   class SkillHub {
     <<core, pure>>
-    +onHello(fd, client, things) Decision
-    +onThings(fd, things) Decision
+    +onHello(fd) Decision
+    +onThingsPart(fd, part, of, things) Decision
+    +tryCommit(lock) bool
     +onClose(fd) SkillEnd?
     +server() fd?
     +things() ThingNames*
@@ -2784,7 +2786,7 @@ classDiagram
     +leaseOk(fd, id, now) bool
     +tick(now) SkillEnd?
     -m_server_fd
-    -m_things: ThingNames
+    -m_sets[2]: ThingNames (live, staging)
     -m_lease: id, granted_ms, last_drive_ms
   }
   class ThingNames {
@@ -2848,7 +2850,7 @@ sequenceDiagram
 ### R26.5 Tests (host, C++)
 - **`test_skill_hub`:**
   - one server only (a second gets BUSY);
-  - the things list: set, replaced, too big refused with the old one kept, `resolve` by word and by name;
+  - the things list in parts: staged and committed on the last part, a repeated word merges, out-of-order / changed `of` / too big drop the staging with the committed list kept, a busy lock retried, a close empties it; `copyForCheck` copies inside the lock;
   - ask / answer matching by id; a late answer dropped;
   - `start` builds each skill's message (thing / s / to / area);
   - `leaseOk` only for the holder with the right id;

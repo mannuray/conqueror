@@ -269,6 +269,18 @@ bool readStep(Reader& r, WsCommand& c, Seen&) {
 
 bool readReason(Reader& r, WsCommand&, Seen& s) { return r.str(s.reason, sizeof(s.reason)); }  // skill_failed
 bool readThing(Reader& r, WsCommand& c, Seen&) { return r.str(c.thing, sizeof(c.thing)) && !r.cut(); }
+bool readPart(Reader& r, WsCommand& c, Seen&) {  // skill_things: 1..48
+  double n = 0;
+  if (!wholeIn(r, 1, 48, n)) return false;
+  c.part = static_cast<uint8_t>(n);
+  return true;
+}
+bool readOf(Reader& r, WsCommand& c, Seen&) {
+  double n = 0;
+  if (!wholeIn(r, 1, 48, n)) return false;
+  c.of = static_cast<uint8_t>(n);
+  return true;
+}
 bool readThings(Reader& r, WsCommand& c, Seen&) {  // hello / skill_things: the list itself is parseThingList's
   c.has_things = true;
   return r.skip();
@@ -291,7 +303,7 @@ const KeyRow kKeys[] = {
     {"contrast", readContrast}, {"low_light", readLowLight}, {"vflip", readVflip}, {"hmirror", readHmirror},
     {"ai_url", readAiUrl},  {"setting_id", readSettingId}, {"counts_per_m", readCpm}, {"gyro_scale", readGyroScale}, {"pan", readPan}, {"tilt", readTilt}, {"prog", readProg},
     {"step", readStep},     {"try", readTry},         {"wb", readWb},           {"night", readNight},
-    {"reason", readReason}, {"thing", readThing},     {"things", readThings},
+    {"reason", readReason}, {"thing", readThing},     {"things", readThings}, {"part", readPart},     {"of", readOf},
 };
 
 }  // namespace

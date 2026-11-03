@@ -33,10 +33,11 @@ const logo::CheckSpace& logoSpace();
 
 // The skill server's things (bridge LLD R26.1, Review Focus 1). The SkillHub lives on the link task and the checks
 // run on the worker: the link task brackets every hub change that can touch the list (onHello / onThings / onClose)
-// with logoThingsLock() / logoThingsUnlock(); caps() takes the same lock to copy the list when a check starts.
+// with nothing: staging needs no lock. Only the commit of a finished list takes it, and only for the swap - the link
+// task calls hub.tryCommit(logoThingsLock()) each loop while hub.commitPending(), waiting at most kCommitWaitMs
+// (a busy lock is simply retried). caps() takes the same lock to copy the committed list when a check starts.
 void logoBindSkillHub(const core::SkillHub* hub);  // once at boot, before linkTaskStart
-void logoThingsLock();
-void logoThingsUnlock();
+const core::LockPort& logoThingsLock();
 
 // Link task: the checked program for logo_run, and the running program's storage.
 app::LogoController::Took logoTake(uint32_t prog, logo::Program& out, char* name, size_t cap);

@@ -7,6 +7,9 @@
 #include <stdint.h>
 
 namespace cq {
+namespace logo {
+enum class SkillEnd : uint8_t;  // logo/run_controller.h
+}
 namespace core {
 
 enum class WsCmdKind : uint8_t {
@@ -116,7 +119,8 @@ struct WsCommand {
   uint32_t prog = 0;          // logo_run: the number the check returned
   bool step = false;          // logo_run: step mode
   bool has_things = false;    // hello / skill_things carried a "things" key (its list: parseThingList)
-  uint8_t skill_end = 0;      // skill_failed: logo::SkillEnd of the reason (kNotFound..kStale)
+  logo::SkillEnd skill_end = static_cast<logo::SkillEnd>(0);  // skill_failed: the reason (kNotFound..kStale)
+  uint8_t part = 0, of = 0;   // skill_things: part i of n (1 <= part <= of <= 48)
   char thing[25] = "";        // skill_failed: the thing's word (optional)
   char t0[24] = "";  // ping: number echoed verbatim in pong
   char client[24] = "";

@@ -53,13 +53,8 @@ logo::Caps caps() {
   c.encoders = ((s.hello.caps >> static_cast<unsigned>(proto::CapBit::kEncoders)) & 1u) != 0;
   // Bridge LLD R26.1: the AI helper's things, copied whole under the lock the link task also takes to replace them,
   // so a skill_things during the check changes the hub's list but never this copy.
-  logoThingsLock();
-  c.ai = g_hub != nullptr && g_hub->server() >= 0;
-  if (c.ai) {
-    g->things = g_hub->things();
-    c.things = &g->things;
-  }
-  logoThingsUnlock();
+  c.ai = g_hub != nullptr && core::copyForCheck(*g_hub, g->things, logoThingsLock());
+  if (c.ai) c.things = &g->things;
   return c;
 }
 
@@ -126,11 +121,19 @@ app::LogoController::Took logoTake(uint32_t prog, logo::Program& out, char* name
 }
 
 void logoBindSkillHub(const core::SkillHub* hub) { g_hub = hub; }
-void logoThingsLock() {
-  if (g_things_mx != nullptr) xSemaphoreTake(g_things_mx, portMAX_DELAY);
-}
-void logoThingsUnlock() {
-  if (g_things_mx != nullptr) xSemaphoreGive(g_things_mx);
+
+const core::LockPort& logoThingsLock() {
+  static const core::LockPort port{
+      [](void*, uint32_t wait_ms) {
+        if (g_things_mx == nullptr) return false;
+        const TickType_t t = wait_ms == core::LockPort::kForever ? portMAX_DELAY : pdMS_TO_TICKS(wait_ms);
+        return xSemaphoreTake(g_things_mx, t) == pdTRUE;
+      },
+      [](void*) {
+        if (g_things_mx != nullptr) xSemaphoreGive(g_things_mx);
+      },
+      nullptr};
+  return port;
 }
 
 bool logoRunReady() { return g_run != nullptr; }

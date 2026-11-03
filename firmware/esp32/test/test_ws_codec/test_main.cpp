@@ -5,6 +5,7 @@
 
 #include "core/thing_list.h"
 #include "core/ws_codec.h"
+#include "logo/run_controller.h"
 
 using cq::core::parseWsCommand;
 using cq::core::WsCmdKind;
@@ -482,11 +483,11 @@ void test_logo_commands() {
 }
 
 // ---- Plan Z2a (bridge LLD R26.2): the skill server's messages ----
-void test_hello_ai_skills_with_things() {
-  const WsCommand c = P("{\"t\":\"hello\",\"client\":\"ai-skills\",\"proto\":1,\"things\":[{\"word\":\"toy\",\"names\":[\"car\"]}]}");
+void test_hello_ai_skills() {
+  const WsCommand c = P("{\"t\":\"hello\",\"client\":\"ai-skills\",\"proto\":1}");
   TEST_ASSERT_EQUAL(K(WsCmdKind::kHello), K(c.kind));
   TEST_ASSERT_EQUAL_STRING("ai-skills", c.client);
-  TEST_ASSERT_TRUE(c.has_things);
+  TEST_ASSERT_FALSE(c.has_things);
 }
 
 namespace {
@@ -540,9 +541,26 @@ void test_thing_list_over_bounds_is_too_big() {
   TEST_ASSERT_EQUAL(8, l.n_names[0]);
 }
 
-void test_skill_things() {
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillThings), K(P("{\"t\":\"skill_things\",\"things\":[]}").kind));
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_things\"}").kind));
+void test_skill_things_in_parts() {
+  const WsCommand c = P("{\"t\":\"skill_things\",\"part\":2,\"of\":3,\"things\":[]}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillThings), K(c.kind));
+  TEST_ASSERT_EQUAL(2, c.part);
+  TEST_ASSERT_EQUAL(3, c.of);
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillThings), K(P("{\"t\":\"skill_things\",\"part\":48,\"of\":48,\"things\":[]}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_things\",\"things\":[]}").kind));  // no part / of
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_things\",\"part\":1,\"of\":1}").kind));  // no things
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_things\",\"part\":0,\"of\":1,\"things\":[]}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_things\",\"part\":3,\"of\":2,\"things\":[]}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_things\",\"part\":1,\"of\":49,\"things\":[]}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_things\",\"part\":1.5,\"of\":2,\"things\":[]}").kind));
+}
+
+void test_a_bad_field_is_bad_field_whatever_the_key_order() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"id\":\"x\",\"t\":\"skill_done\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"v\":\"x\",\"id\":1,\"yaw_rate\":1,\"t\":\"skill_drive\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"id\":1,\"t\":\"skill_failed\",\"reason\":\"x\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"id\":\"x\",\"t\":\"drive\"}").kind));  // other kinds are unchanged
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"id\":\"x\"}").kind));
 }
 
 void test_skill_answer_bool_and_cm() {
@@ -583,12 +601,14 @@ void test_skill_done_and_failed() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillDone), K(P("{\"t\":\"skill_done\",\"id\":4}").kind));
   TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_done\"}").kind));
   const char* const reasons[] = {"not_found", "lost", "outside_area", "no_way", "blocked", "unknown_thing", "stale"};
+  using E = cq::logo::SkillEnd;
+  const E kEnds[] = {E::kNotFound, E::kLost, E::kOutsideArea, E::kNoWay, E::kBlocked, E::kUnknownThing, E::kStale};
   for (int i = 0; i < 7; ++i) {
     char j[96];
     snprintf(j, sizeof j, "{\"t\":\"skill_failed\",\"id\":4,\"reason\":\"%s\",\"thing\":\"toy\"}", reasons[i]);
     const WsCommand c = P(j);
     TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillFailed), K(c.kind));
-    TEST_ASSERT_EQUAL(i + 1, c.skill_end);
+    TEST_ASSERT_TRUE(c.skill_end == kEnds[i]);
     TEST_ASSERT_EQUAL_STRING("toy", c.thing);
   }
   TEST_ASSERT_EQUAL_STRING("", P("{\"t\":\"skill_failed\",\"id\":4,\"reason\":\"lost\"}").thing);
@@ -644,11 +664,12 @@ int main() {
   RUN_TEST(test_app_url_validation);
   RUN_TEST(test_app_url_too_long_is_refused_by_the_parser);
   RUN_TEST(test_logo_commands);
-  RUN_TEST(test_hello_ai_skills_with_things);
+  RUN_TEST(test_hello_ai_skills);
   RUN_TEST(test_thing_list_layout_is_flat_with_stride_8);
   RUN_TEST(test_thing_list_absent_empty_and_bad);
   RUN_TEST(test_thing_list_over_bounds_is_too_big);
-  RUN_TEST(test_skill_things);
+  RUN_TEST(test_skill_things_in_parts);
+  RUN_TEST(test_a_bad_field_is_bad_field_whatever_the_key_order);
   RUN_TEST(test_skill_answer_bool_and_cm);
   RUN_TEST(test_a_bool_value_is_not_a_setting);
   RUN_TEST(test_skill_drive);

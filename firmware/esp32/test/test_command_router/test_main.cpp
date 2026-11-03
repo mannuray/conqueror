@@ -1,12 +1,17 @@
 // CommandRouter: parse, STOP fast path, admission, one table of routes (bridge LLD R15.4, R15.6).
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unity.h>
+
+#include <string>
 
 #include "../support/frames.h"
 #include "../support/wire.h"
 #include "app/command_router.h"
 #include "core/skill_hub.h"
 #include "fakes/fake_ports.h"
+#include "logo/check_job.h"
 
 using namespace cq;
 using FT = proto::FrameType;
@@ -211,6 +216,74 @@ void test_skill_drive_behind_a_stop_is_dropped() {
   TEST_ASSERT_FALSE(has(3, "NOT_OWNER"));  // never reached the motion controller
 }
 
+// A program runs on phone 3, the server is fd 4: the real JSON of skill_answer / skill_done / skill_failed reaches
+// the program (true is TRUE, done goes on, failed's reason is its code).
+logo::Program g_checked;
+logo::CheckSpace g_space;
+int g_beeps = 0;
+void aiHooks() {
+  app::LogoController::Hooks h;
+  h.claim = [](int, uint32_t) { return core::Decision::kSend; };
+  h.keep = [](int, uint32_t) { return core::Decision::kSend; };
+  h.ota = [] { return false; };
+  h.take = [](uint32_t, logo::Program& p, char* name, size_t cap) {
+    p = g_checked;
+    snprintf(name, cap, "ai");
+    return app::LogoController::Took::kOk;
+  };
+  h.start_motion = [](int, const logo::Action&, uint32_t, core::BridgeReason&) { return true; };
+  h.stop_tank = [](bool, uint32_t) {};
+  h.release = [](int, uint32_t) {};
+  h.uno_request = [](const core::AckedOp&) {
+    ++g_beeps;
+    return true;
+  };
+  h.cpm = [] { return static_cast<uint16_t>(7514); };
+  h.start_skill = [](int, int32_t, uint32_t, core::BridgeReason&) { return true; };
+  h.end_skill = [](core::EndReason, uint32_t) {};
+  logoc->setHooks(h);
+}
+int32_t lastSkillId(int fd) {
+  std::string m;
+  for (const fakes::Sent& x : fakes::world().sent) {
+    if (x.fd == fd && x.json.find("\"t\":\"skill_") != std::string::npos) m = x.json;
+  }
+  const size_t at = m.find("\"id\":");
+  return at == std::string::npos ? -1 : static_cast<int32_t>(atol(m.c_str() + at + 5));
+}
+void skillMsg(const char* fmt, int32_t id, uint32_t now) {
+  char json[128];
+  snprintf(json, sizeof json, fmt, static_cast<long>(id));
+  text(4, json, now);
+}
+
+void test_skill_messages_reach_the_running_program() {
+  drive->onClientOpen(4, 0);
+  hello(4);
+  aiHooks();
+  g_beeps = 0;
+  logo::Caps caps;
+  caps.ai = true;
+  const char* src = "IF SEE? \"ball [ BEEP ]  FIND \"ball  FIND \"ball";
+  TEST_ASSERT_TRUE(logo::checkProgram(src, static_cast<uint16_t>(strlen(src)), caps, g_space));
+  g_checked = g_space.program;
+  logoc->onRun(3, 5, 1, false, 200);
+  logoc->tick(202);
+  TEST_ASSERT_TRUE(fakes::countTo(4, "\"t\":\"skill_ask\"") == 1);
+  skillMsg("{\"t\":\"skill_answer\",\"id\":%ld,\"value\":true}", lastSkillId(4), 210);
+  logoc->tick(212);
+  TEST_ASSERT_EQUAL(1, g_beeps);  // TRUE: BEEP
+  logoc->onUnoDone(0, 214);
+  logoc->tick(216);
+  TEST_ASSERT_TRUE(fakes::countTo(4, "\"skill\":\"find\"") == 1);
+  skillMsg("{\"t\":\"skill_done\",\"id\":%ld}", lastSkillId(4), 220);
+  logoc->tick(222);
+  TEST_ASSERT_TRUE(fakes::countTo(4, "\"skill\":\"find\"") == 2);  // done: the program went on
+  skillMsg("{\"t\":\"skill_failed\",\"id\":%ld,\"reason\":\"lost\",\"thing\":\"ball\"}", lastSkillId(4), 230);
+  TEST_ASSERT_FALSE(logoc->running());
+  TEST_ASSERT_TRUE(has(3, "\"reason\":7051"));
+}
+
 // No program runs: the answer / ends are routed and dropped (no INVALID_COMMAND, nothing sent).
 void test_skill_answer_and_ends_are_routed() {
   hello(3);
@@ -238,5 +311,6 @@ int main() {
   RUN_TEST(test_skill_drive_without_a_lease_is_not_owner);
   RUN_TEST(test_skill_answer_and_ends_are_routed);
   RUN_TEST(test_skill_drive_behind_a_stop_is_dropped);
+  RUN_TEST(test_skill_messages_reach_the_running_program);
   return UNITY_END();
 }

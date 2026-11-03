@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tank AI page</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#050805}
+a{color:#33ff66}a:hover{color:#e8ffe8}
+button,select{font-family:inherit}
+.card{position:relative}
+.card::before,.card::after{content:"";position:absolute;width:7px;height:7px;border:1px solid #33ff66}
+.card::before{top:-1px;left:-1px;border-right:0;border-bottom:0}
+.card::after{bottom:-1px;right:-1px;border-left:0;border-top:0}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; display: flex; flex-direction: column; background: #050805; background-image: repeating-linear-gradient(0deg, rgba(51,255,102,.025) 0 1px, transparent 1px 3px); color: #b8f5c8; font: 13px/1.4 'JetBrains Mono', ui-monospace, Menlo, monospace; overflow: hidden">
+
+  <header style="padding: 10px 12px 8px; border-bottom: 1px solid rgba(51,255,102,.32); display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+      <a href="#drive" style="color: #33ff66; text-decoration: none; letter-spacing: .08em; font-weight: 700; display: flex; align-items: center; gap: 2px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>DRIVE</a>
+      <div style="font-size: 13px; font-weight: 700; color: #33ff66; letter-spacing: .14em">TANK AI</div>
+      <button type="button" style="display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 16px; background: #ff3b30; color: #FFFFFF; border: 1px solid #ff6a60; border-radius: 7px; font-size: 15px; font-weight: 800; letter-spacing: .08em">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0v5"></path><path d="M14 10V4a2 2 0 0 0-4 0v6"></path><path d="M10 10.5V6a2 2 0 0 0-4 0v8"></path><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15"></path></svg>STOP</button>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; font-size: 11px; letter-spacing: .06em; text-align: center">
+      <span style="border: 1px solid rgba(51,255,102,.32); padding: 4px 6px; color: #33ff66">7.6 V · 72 %</span>
+      <span style="border: 1px solid rgba(51,255,102,.32); padding: 4px 6px; color: #33ff66">● AI HELPER</span>
+      <span style="border: 1px solid rgba(255,176,0,.5); padding: 4px 6px; color: #ffb000">CHILD PLAY</span>
+      <span style="border: 1px solid rgba(51,255,102,.32); padding: 4px 6px; color: #33ff66">HDG 92°</span>
+      <span style="border: 1px solid rgba(51,255,102,.32); padding: 4px 6px; color: #33ff66">ODO 3.4 m</span>
+      <span style="border: 1px solid rgba(51,255,102,.32); padding: 4px 6px; color: #33ff66">0.18 m/s</span>
+    </div>
+  </header>
+
+  <nav style="display: flex; margin: 10px 12px 0; border: 1px solid rgba(51,255,102,.32); padding: 3px; gap: 3px">
+    <sc-for list="{{tabs}}" as="tab" hint-placeholder-count="3">
+      <button type="button" onClick="{{tab.pick}}" style="{{tab.style}}">{{tab.label}}</button>
+    </sc-for>
+  </nav>
+
+  <main style="flex: 1 1 auto; overflow-y: auto; padding: 10px 12px 16px; display: flex; flex-direction: column; gap: 10px">
+
+    <sc-if value="{{isPlay}}" hint-placeholder-val="{{ true }}">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <section class="card" style="background: #070f08; border: 1px solid rgba(51,255,102,.32); padding: 12px">
+          <h2 style="display: flex; align-items: center; gap: 7px; margin: 0 0 10px; padding-bottom: 8px; font-size: 12px; color: #33ff66; letter-spacing: .12em; border-bottom: 1px solid rgba(51,255,102,.14)">[ 01 // THINKING ]<span style="margin-left: auto; color: #1f9a40; font-size: 10px; font-weight: 400">{{mood}}</span></h2>
+          <div style="display: flex; gap: 12px; align-items: center">
+            <svg width="60" height="60" viewBox="0 0 64 64" role="img" aria-label="Tank face: {{mood}}">
+              <rect x="3" y="3" width="58" height="58" rx="10" fill="#020502" stroke="#33ff66" stroke-width="2"></rect>
+              <rect x="15" y="20" width="10" height="12" fill="#33ff66"></rect>
+              <rect x="39" y="20" width="10" height="12" fill="#33ff66"></rect>
+              <path d="M20 43 Q32 51 44 43" fill="none" stroke="#33ff66" stroke-width="3" stroke-linecap="round"></path>
+            </svg>
+            <div style="flex: 1; color: #e8ffe8; font-size: 13px; line-height: 1.45">{{sentence}}</div>
+          </div>
+          <button type="button" onClick="{{toggleWhy}}" style="margin-top: 10px; min-height: 40px; width: 100%; background: none; border: 1px solid #33ff66; color: #33ff66; letter-spacing: .1em; font-weight: 700; font-size: 11px">{{whyLabel}}</button>
+          <sc-if value="{{showWhy}}" hint-placeholder-val="{{ false }}">
+            <ol style="margin: 10px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; line-height: 1.45; color: #b8f5c8">
+              <li>Something by the bed might be the toy (0.21).</li>
+              <li>I looked from within 1 m: it was the ball. Remembered.</li>
+              <li>Two more maybes wait; the nearest is 1.3 m away, so it's next.</li>
+              <li>The floor left of the box is unseen; I'll check it after the maybes.</li>
+            </ol>
+          </sc-if>
+        </section>
+
+        <section class="card" style="background: #070f08; border: 1px solid rgba(51,255,102,.32); padding: 12px">
+          <h2 style="display: flex; align-items: center; gap: 7px; margin: 0 0 10px; padding-bottom: 8px; font-size: 12px; color: #33ff66; letter-spacing: .12em; border-bottom: 1px solid rgba(51,255,102,.14)">[ 02 // CAMERA ]<span style="margin-left: auto; color: #1f9a40; font-size: 10px; font-weight: 400">12 / s</span></h2>
+          <div style="position: relative; height: 196px; background: #000; border: 1px solid rgba(51,255,102,.14)">
+            <svg width="100%" height="196" viewBox="0 0 334 196" preserveAspectRatio="none" aria-hidden="true" style="position: absolute; inset: 0">
+              <rect width="334" height="118" fill="#2a2f2b"></rect>
+              <rect y="118" width="334" height="78" fill="#1c201d"></rect>
+              <rect x="214" y="38" width="120" height="92" fill="#3b3428"></rect>
+              <ellipse cx="112" cy="148" rx="25" ry="19" fill="#b8492f"></ellipse>
+              <rect x="82" y="122" width="62" height="48" fill="none" stroke="#33ff66" stroke-width="1.5"></rect>
+            </svg>
+            <span style="position: absolute; left: 82px; top: 103px; background: #33ff66; color: #022; font-size: 10px; font-weight: 700; padding: 1px 5px; letter-spacing: .06em">BALL 0.81</span>
+            <button type="button" aria-label="Take a picture" style="position: absolute; right: 8px; bottom: 8px; width: 44px; height: 44px; background: rgba(5,8,5,.8); border: 1px solid #33ff66; color: #33ff66; display: flex; align-items: center; justify-content: center">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>
+            </button>
+          </div>
+        </section>
+
+        <section class="card" style="background: #070f08; border: 1px solid rgba(51,255,102,.32); padding: 12px; display: flex; flex-direction: column; gap: 10px">
+          <h2 style="display: flex; align-items: center; gap: 7px; margin: 0; padding-bottom: 8px; font-size: 12px; color: #33ff66; letter-spacing: .12em; border-bottom: 1px solid rgba(51,255,102,.14)">[ 03 // PLAY ]</h2>
+          <div style="color: #1f9a40; font-size: 10px; letter-spacing: .1em">FIND WHAT?</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 4px">
+            <sc-for list="{{things}}" as="item" hint-placeholder-count="5">
+              <button type="button" onClick="{{item.pick}}" style="{{item.style}}">{{item.name}}</button>
+            </sc-for>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+            <sc-for list="{{skills}}" as="k" hint-placeholder-count="3">
+              <button type="button" onClick="{{k.pick}}" style="{{k.style}}">{{k.label}}</button>
+            </sc-for>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px solid rgba(51,255,102,.14); font-size: 11px">
+            <span style="color: #1f9a40; letter-spacing: .08em">I RAN <b style="color: #e8ffe8; font-weight: 600">{{running}}</b></span>
+            <a href="#logo" style="text-decoration: none; font-weight: 700; letter-spacing: .08em">LOGO ›</a>
+          </div>
+        </section>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isRoom}}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <section class="card" style="background: #070f08; border: 1px solid rgba(51,255,102,.32); padding: 12px">
+          <h2 style="display: flex; align-items: center; gap: 7px; margin: 0 0 10px; padding-bottom: 8px; font-size: 12px; color: #33ff66; letter-spacing: .12em; border-bottom: 1px solid rgba(51,255,102,.14)">[ 01 // ROOM MAP ]<span style="margin-left: auto; color: #1f9a40; font-size: 10px; font-weight: 400">TAP TO GO</span></h2>
+          <svg width="100%" height="290" viewBox="0 0 334 290" role="img" aria-label="Room map with the tank, its path, its route and two maybes" style="display: block; background: #020502; border: 1px solid rgba(51,255,102,.14)">
+            <g stroke="rgba(51,255,102,.07)" stroke-width="1">
+              <line x1="0" y1="58" x2="334" y2="58"></line><line x1="0" y1="116" x2="334" y2="116"></line><line x1="0" y1="174" x2="334" y2="174"></line><line x1="0" y1="232" x2="334" y2="232"></line>
+              <line x1="67" y1="0" x2="67" y2="290"></line><line x1="134" y1="0" x2="134" y2="290"></line><line x1="201" y1="0" x2="201" y2="290"></line><line x1="268" y1="0" x2="268" y2="290"></line>
+            </g>
+            <rect x="14" y="14" width="306" height="262" fill="none" stroke="#1f9a40" stroke-width="3"></rect>
+            <rect x="16" y="16" width="120" height="86" fill="rgba(255,176,0,.16)" stroke="#ffb000" stroke-width="1"></rect>
+            <text x="34" y="64" font-size="10" fill="#ffb000" font-family="JetBrains Mono, monospace">BED · HIGH</text>
+            <rect x="186" y="146" width="40" height="40" fill="rgba(51,255,102,.35)" stroke="#33ff66" stroke-width="1"></rect>
+            <text x="190" y="202" font-size="10" fill="#33ff66" font-family="JetBrains Mono, monospace">BOX</text>
+            <rect x="56" y="56" width="222" height="206" fill="none" stroke="#3ee0e8" stroke-width="1" stroke-dasharray="2 4"></rect>
+            <polyline points="70,248 110,238 150,212 168,178" fill="none" stroke="#1f9a40" stroke-width="2.5" stroke-linecap="round"></polyline>
+            <polyline points="168,178 163,138 148,118" fill="none" stroke="#ffb000" stroke-width="2.5" stroke-dasharray="6 5" stroke-linecap="round"></polyline>
+            <circle cx="148" cy="118" r="8" fill="none" stroke="#ffb000" stroke-width="2"></circle>
+            <circle cx="266" cy="88" r="7" fill="none" stroke="#ffb000" stroke-width="1.5"></circle>
+            <circle cx="98" cy="136" r="5" fill="#ff7ad9"></circle>
+            <text x="78" y="156" font-size="10" fill="#ff7ad9" font-family="JetBrains Mono, monospace">BALL</text>
+            <rect x="62" y="240" width="16" height="16" fill="none" stroke="#e8ffe8" stroke-width="1.5" stroke-dasharray="3 2"></rect>
+            <path d="M168 166 L176 184 L160 184 Z" fill="#e8ffe8"></path>
+          </svg>
+          <div style="display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-size: 10px; letter-spacing: .06em">
+            <span style="color: #1f9a40">━ PATH</span>
+            <span style="color: #ffb000">┅ ROUTE</span>
+            <span style="color: #ffb000">○ MAYBE</span>
+            <span style="color: #ff7ad9">● THING</span>
+            <span style="color: #e8ffe8">□ HOME</span>
+            <span style="color: #3ee0e8">┈ PLAY AREA</span>
+          </div>
+        </section>
+
+        <section class="card" style="background: #070f08; border: 1px solid rgba(51,255,102,.32); padding: 12px">
+          <h2 style="display: flex; align-items: center; gap: 7px; margin: 0 0 4px; padding-bottom: 8px; font-size: 12px; color: #33ff66; letter-spacing: .12em; border-bottom: 1px solid rgba(51,255,102,.14)">[ 02 // HOME ]<span style="margin-left: auto; border: 1px solid #33ff66; color: #33ff66; background: rgba(51,255,102,.1); font-size: 9px; letter-spacing: .1em; padding: 1px 5px; font-weight: 400">ON THE MARK</span></h2>
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(51,255,102,.14)">
+            <label for="homeSel" style="color: #1f9a40; font-size: 11px; letter-spacing: .08em">HOME</label>
+            <select id="homeSel" style="min-height: 40px; padding: 0 8px; background: #020502; border: 1px solid rgba(51,255,102,.32); color: #e8ffe8; font-size: 12px">
+              <option>room2</option>
+              <option>none (fresh map)</option>
+              <option>new home…</option>
+            </select>
+          </div>
+          <div style="color: #1f9a40; font-size: 11px; margin-top: 8px; font-style: italic">// The camera sees the floor where the home's map expects it.</div>
+          <div style="color: #1f9a40; font-size: 10px; letter-spacing: .1em; margin-top: 12px">PLAY AREA</div>
+          <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-top: 6px">
+            <sc-for list="{{areas}}" as="a" hint-placeholder-count="5">
+              <button type="button" onClick="{{a.pick}}" style="{{a.style}}">{{a.label}}</button>
+            </sc-for>
+          </div>
+        </section>
+
+        <section class="card" style="background: #070f08; border: 1px solid rgba(51,255,102,.32); padding: 12px">
+          <h2 style="display: flex; align-items: center; gap: 7px; margin: 0 0 4px; padding-bottom: 8px; font-size: 12px; color: #33ff66; letter-spacing: .12em; border-bottom: 1px solid rgba(51,255,102,.14)">[ 03 // I REMEMBER ]<span style="margin-left: auto; color: #1f9a40; font-size: 10px; font-weight: 400">3 THINGS</span></h2>
+          <sc-for list="{{remembered}}" as="r" hint-placeholder-count="3">
+            <div style="display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid rgba(51,255,102,.14)">
+              <div style="flex: 1; min-width: 0">
+                <b style="display: block; color: #e8ffe8; font-weight: 600">{{r.name}}</b>
+                <small style="color: #1f9a40; font-size: 10px">{{r.where}} · {{r.when}}</small>
+              </div>
+              <button type="button" style="min-width: 48px; height: 40px; background: #33ff66; border: 1px solid #33ff66; color: #022; font-weight: 700; font-size: 11px; letter-spacing: .1em">GO</button>
+              <button type="button" style="min-width: 64px; height: 40px; background: none; border: 1px solid #ffb000; color: #ffb000; font-weight: 700; font-size: 11px; letter-spacing: .1em">FORGET</button>
+            </div>
+          </sc-for>
+        </section>
+
+        <section class="card" style="background: #070f08; border: 1px solid rgba(51,255,102,.32); padding: 12px">
+          <h2 style="display: flex; align-items: center; gap: 7px; margin: 0 0 10px; padding-bottom: 8px; font-size: 12px; color: #33ff66; letter-spacing: .12em; border-bottom: 1px solid rgba(51,255,102,.14)">[ 04 // ACHIEVEMENTS ]<span style="margin-left: auto; color: #1f9a40; font-size: 10px; font-weight: 400">3 / 4</span></h2>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px">
+            <sc-for list="{{badges}}" as="b" hint-placeholder-count="4">
+              <div style="{{b.style}}">
+                <b style="font-size: 11px; letter-spacing: .08em">{{b.name}}</b>
+                <small style="font-size: 10px; color: #b8f5c8">{{b.how}}</small>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isInside}}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <section class="card" style="background: #070f08; border: 1px solid rgba(51,255,102,.32); padding: 12px">
+          <h2 style="display: flex; align-items: center; gap: 7px; margin: 0 0 10px; padding-bottom: 8px; font-size: 12px; color: #33ff66; letter-spacing: .12em; border-bottom: 1px solid rgba(51,255,102,.14)">[ 01 // HEALTH ]<span style="margin-left: auto; border: 1px solid #ffb000; color: #ffb000; font-size: 9px; letter-spacing: .1em; padding: 1px 5px; font-weight: 400">1 WARN</span></h2>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px">
+            <sc-for list="{{health}}" as="h" hint-placeholder-count="8">
+              <div style="{{h.box}}">
+                <span style="flex: 1; letter-spacing: .08em">{{h.name}}</span>
+                <b style="font-weight: 600">{{h.state}}</b>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+
+        <section class="card" style="background: #070f08; border: 1px solid rgba(51,255,102,.32); padding: 12px">
+          <h2 style="display: flex; align-items: center; gap: 7px; margin: 0 0 10px; padding-bottom: 8px; font-size: 12px; color: #33ff66; letter-spacing: .12em; border-bottom: 1px solid rgba(51,255,102,.14)">[ 02 // CAMERA · DEPTH ]<span style="margin-left: auto; color: #1f9a40; font-size: 10px; font-weight: 400">18 / s</span></h2>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px">
+            <svg width="100%" height="108" viewBox="0 0 160 108" preserveAspectRatio="none" role="img" aria-label="Camera picture with a box round the ball and the floor line" style="display: block; border: 1px solid rgba(51,255,102,.14)">
+              <rect width="160" height="64" fill="#2a2f2b"></rect>
+              <rect y="64" width="160" height="44" fill="#1c201d"></rect>
+              <rect x="102" y="20" width="58" height="50" fill="#3b3428"></rect>
+              <ellipse cx="54" cy="82" rx="12" ry="9" fill="#b8492f"></ellipse>
+              <rect x="40" y="70" width="28" height="24" fill="none" stroke="#33ff66" stroke-width="1.2"></rect>
+              <line x1="0" y1="64" x2="160" y2="64" stroke="#3ee0e8" stroke-width="1" stroke-dasharray="3 3"></line>
+            </svg>
+            <svg width="100%" height="108" viewBox="0 0 160 108" preserveAspectRatio="none" role="img" aria-label="Depth picture: near is bright, far is dark" style="display: block; border: 1px solid rgba(51,255,102,.14)">
+              <rect width="160" height="30" fill="#031a08"></rect>
+              <rect y="30" width="160" height="24" fill="#0a4a1c"></rect>
+              <rect y="54" width="160" height="26" fill="#178a38"></rect>
+              <rect y="80" width="160" height="28" fill="#33ff66"></rect>
+              <rect x="102" y="20" width="58" height="50" fill="#1f9a40"></rect>
+              <ellipse cx="54" cy="82" rx="12" ry="9" fill="#e8ffe8"></ellipse>
+            </svg>
+          </div>
+          <div style="display: flex; justify-content: space-between; color: #1f9a40; font-size: 10px; letter-spacing: .08em; margin-top: 6px"><span>BOXES + FLOOR LINE</span><span>NEAR = BRIGHT</span></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0 0; margin-top: 6px; border-top: 1px solid rgba(51,255,102,.14)">
+            <span style="color: #1f9a40; font-size: 11px; letter-spacing: .08em">CAMERA ANGLE</span><b style="color: #33ff66; font-weight: 600">15.4° · +0.7°</b>
+          </div>
+        </section>
+
+        <section class="card" style="background: #070f08; border: 1px solid rgba(51,255,102,.32); padding: 12px">
+          <h2 style="display: flex; align-items: center; gap: 7px; margin: 0 0 10px; padding-bottom: 8px; font-size: 12px; color: #33ff66; letter-spacing: .12em; border-bottom: 1px solid rgba(51,255,102,.14)">[ 03 // I SEE NOW ]<span style="margin-left: auto; color: #1f9a40; font-size: 10px; font-weight: 400">YOLO-WORLD</span></h2>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <sc-for list="{{seen}}" as="s" hint-placeholder-count="4">
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
+                <span style="width: 56px; color: #e8ffe8">{{s.name}}</span>
+                <span style="flex: 1; height: 6px; border: 1px solid rgba(51,255,102,.32)"><span style="{{s.bar}}"></span></span>
+                <b style="width: 36px; text-align: right; color: #33ff66; font-weight: 600">{{s.score}}</b>
+              </div>
+            </sc-for>
+          </div>
+          <div style="color: #1f9a40; font-size: 11px; margin-top: 8px; font-style: italic">// 0.15 and up is a maybe; listed after 3 sure sightings.</div>
+        </section>
+
+        <section class="card" style="background: #070f08; border: 1px solid rgba(51,255,102,.32); padding: 12px">
+          <h2 style="display: flex; align-items: center; gap: 7px; margin: 0 0 4px; padding-bottom: 8px; font-size: 12px; color: #33ff66; letter-spacing: .12em; border-bottom: 1px solid rgba(51,255,102,.14)">[ 04 // TELEMETRY ]<span style="margin-left: auto; color: #1f9a40; font-size: 10px; font-weight: 400">LAST 30 S</span></h2>
+          <sc-for list="{{telemetry}}" as="t" hint-placeholder-count="6">
+            <div style="display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(51,255,102,.14)">
+              <span style="width: 84px; color: #1f9a40; font-size: 10px; letter-spacing: .08em">{{t.label}}</span>
+              <svg width="130" height="24" viewBox="0 0 150 26" preserveAspectRatio="none" aria-hidden="true" style="background: #020502"><polyline points="{{t.points}}" fill="none" stroke="#33ff66" stroke-width="1.5"></polyline></svg>
+              <b style="flex: 1; text-align: right; color: #33ff66; font-weight: 600; font-size: 12px">{{t.value}}</b>
+            </div>
+          </sc-for>
+        </section>
+
+        <section class="card" style="background: #070f08; border: 1px solid rgba(51,255,102,.32); padding: 12px">
+          <h2 style="display: flex; align-items: center; gap: 7px; margin: 0 0 4px; padding-bottom: 8px; font-size: 12px; color: #33ff66; letter-spacing: .12em; border-bottom: 1px solid rgba(51,255,102,.14)">[ 05 // DECISIONS ]<span style="margin-left: auto; color: #1f9a40; font-size: 10px; font-weight: 400">FIND "toy"</span></h2>
+          <sc-for list="{{events}}" as="e" hint-placeholder-count="6">
+            <div style="display: grid; grid-template-columns: 40px 22px 1fr; gap: 8px; padding: 7px 0; border-bottom: 1px solid rgba(51,255,102,.14); align-items: start">
+              <span style="color: #1f9a40; font-size: 11px; text-align: right; padding-top: 2px">{{e.time}}</span>
+              <span style="{{e.mark}}"></span>
+              <small style="font-size: 11px; color: #b8f5c8">{{e.text}}</small>
+            </div>
+          </sc-for>
+        </section>
+      </div>
+    </sc-if>
+    <div style="text-align: center; color: #1f9a40; font-size: 10px; letter-spacing: .12em; padding: 4px 0">AI HELPER · LAPTOP · LEASE OK</div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: 'play', thing: 'toy', skill: 'find', showWhy: false, area: '2 m' };
+  }
+  renderVals() {
+    const s = this.state;
+    const UI = '#33ff66', DIM = '#1f9a40', WARN = '#ffb000', EDGE = 'rgba(51,255,102,.32)';
+    const seg = (on) => 'min-height: 40px; padding: 0 10px; font-size: 11px; font-weight: 700; letter-spacing: .08em; ' +
+      (on ? 'background: ' + UI + '; border: 1px solid ' + UI + '; color: #022' : 'background: none; border: 1px solid ' + EDGE + '; color: ' + DIM);
+    const running = s.skill === 'find' ? 'FIND "' + s.thing + '"' : s.skill === 'wander' ? 'WANDER 60' : 'EXPLORE';
+    const sentences = {
+      find: 'I’m looking for the ' + s.thing + '. The maybe by the bed was the ball, so I’ll remember it and check the next one.',
+      wander: 'I’m wandering for a minute, keeping clear of things.',
+      explore: 'I’m exploring. I’ve looked at 62 % of the floor; the corner past the box is next.'
+    };
+    const line = (ys) => ys.map((y, i) => (i * 150 / (ys.length - 1)).toFixed(0) + ',' + y).join(' ');
+    const badge = (on) => 'display: flex; flex-direction: column; gap: 2px; padding: 8px; ' +
+      (on ? 'border: 1px solid ' + UI + '; color: ' + UI + '; background: rgba(51,255,102,.08)' : 'border: 1px dashed rgba(51,255,102,.14); color: ' + DIM);
+    return {
+      running,
+      sentence: sentences[s.skill],
+      mood: s.skill === 'find' ? 'CURIOUS' : s.skill === 'wander' ? 'RELAXED' : 'BUSY',
+      isPlay: s.tab === 'play', isRoom: s.tab === 'room', isInside: s.tab === 'inside',
+      showWhy: s.showWhy,
+      whyLabel: s.showWhy ? 'HIDE WHY' : 'WHY?',
+      toggleWhy: () => this.setState({ showWhy: !s.showWhy }),
+      tabs: [['play', 'PLAY'], ['room', 'ROOM'], ['inside', 'INSIDE']].map(([id, label]) => ({
+        label,
+        pick: () => this.setState({ tab: id }),
+        style: 'flex: 1; min-height: 40px; border: 0; padding: 8px 4px; letter-spacing: .12em; font-weight: 700; font-size: 13px; ' +
+          (s.tab === id ? 'background: ' + UI + '; color: #022' : 'background: none; color: ' + DIM)
+      })),
+      skills: [['find', 'FIND'], ['wander', 'WANDER'], ['explore', 'EXPLORE']].map(([id, label]) => ({
+        label,
+        pick: () => this.setState({ skill: id }),
+        style: 'min-height: 48px; font-size: 12px; font-weight: 700; letter-spacing: .1em; border: 1px solid ' + UI + '; ' +
+          (s.skill === id ? 'background: ' + UI + '; color: #022' : 'background: none; color: ' + UI)
+      })),
+      things: ['toy', 'ball', 'car', 'shoe', 'chair'].map((name) => ({
+        name, style: seg(s.thing === name), pick: () => this.setState({ thing: name, skill: 'find' })
+      })),
+      areas: ['OFF', '1 m', '2 m', '3 m', '4 m'].map((label) => ({
+        label, style: seg(s.area === label), pick: () => this.setState({ area: label })
+      })),
+      remembered: [
+        { name: 'ball', where: 'by the bed, 1.6 m', when: 'this run' },
+        { name: 'toy car', where: 'past the box, 2.4 m', when: '1 run ago' },
+        { name: 'chair', where: 'by the door, 3.1 m', when: '3 runs ago' }
+      ],
+      badges: [
+        { name: 'FIRST FIND', how: 'found the ball', style: badge(true) },
+        { name: 'WHOLE ROOM', how: 'explored room2', style: badge(true) },
+        { name: 'FROM MEMORY', how: 'went straight there', style: badge(true) },
+        { name: 'NO BUMPS ×10', how: '10 runs, no touch', style: badge(false) }
+      ],
+      health: [
+        ['LINK', '42 ms', true], ['CAMERA', '12/s', true], ['UNO', 'OK', true], ['DEPTH', '18/s', true],
+        ['DETECTOR', 'OK', true], ['MAP', '20/s', true], ['GYRO', 'OK', true], ['BATTERY', '7.6 V', false]
+      ].map(([name, state, good]) => ({
+        name, state,
+        box: 'display: flex; align-items: center; gap: 6px; font-size: 11px; padding: 6px 8px; border: 1px solid ' +
+          (good ? 'rgba(51,255,102,.14); color: ' + UI : 'rgba(255,176,0,.5); color: ' + WARN)
+      })),
+      seen: [['ball', 0.81], ['toy', 0.21], ['chair', 0.17], ['shoe', 0.06]].map(([name, v]) => ({
+        name, score: v.toFixed(2),
+        bar: 'display: block; height: 100%; width: ' + Math.round(v * 100) + '%; background: ' + (v >= 0.15 ? UI : DIM)
+      })),
+      telemetry: [
+        { label: 'HEADING', value: '92°', points: line([20, 18, 14, 10, 8, 8, 9, 12, 14, 13]) },
+        { label: 'SPEED', value: '0.18 m/s', points: line([22, 10, 8, 8, 9, 22, 22, 9, 8, 8]) },
+        { label: 'SONAR', value: '74 cm', points: line([6, 8, 10, 12, 14, 17, 19, 12, 9, 8]) },
+        { label: 'TRACKS L·R', value: '1360·1342', points: line([20, 9, 8, 9, 8, 21, 20, 9, 9, 8]) },
+        { label: 'TURN RATE', value: '4.1 °/s', points: line([13, 6, 13, 20, 13, 13, 8, 13, 13, 13]) },
+        { label: 'BATTERY', value: '7.6 V', points: line([8, 8, 9, 9, 10, 10, 11, 11, 11, 12]) }
+      ],
+      events: [
+        ['0:41', 'Going to the next maybe, 1.3 m away.', UI],
+        ['0:36', 'Looked closely: it was the ball. Remembered.', UI],
+        ['0:22', 'Route blocked by the box; went round on the left.', WARN],
+        ['0:14', 'A maybe toy (0.21) by the bed.', UI],
+        ['0:05', 'Looked round: nothing sure yet.', DIM],
+        ['0:00', 'Started FIND "toy" from the home mark.', DIM]
+      ].map(([time, text, c]) => ({ time, text, mark: 'width: 18px; height: 18px; border: 1px solid ' + c + '; box-sizing: border-box; background: ' + (c === DIM ? 'none' : 'rgba(51,255,102,.06)') }))
+    };
+  }
+}
+</script>
+</body>
+</html>

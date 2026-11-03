@@ -91,18 +91,21 @@ class FakeBridge:
                     await ws.send(json.dumps({"t": "welcome", "you": "ai-1"}))
                 elif t == "debug" and m.get("on") and sender is None and self.send_td:
                     sender = asyncio.create_task(self._td(ws))
-                elif t == "skill_things":  # acked with the id (bridge LLD R26.2), or nacked
-                    reply = (
-                        {"t": "ack", "id": m.get("id")}
-                        if self.things_nack is None
-                        else {
-                            "t": "nack",
-                            "id": m.get("id"),
-                            "reason": self.things_nack,
-                            "message": "refused",
-                        }
-                    )
-                    await ws.send(json.dumps(reply))
+                elif (
+                    t == "skill_things"
+                ):  # the router's exact replies (command_router.cpp onThings, ws_json_reply.cpp)
+                    mid = m.get("id")
+                    if self.things_nack is None:
+                        await ws.send(f'{{"t":"ack","id":{mid}}}')
+                    else:
+                        code = {"TOO_BIG": 3020, "BAD_FIELD": 3019}[self.things_nack]
+                        msg = {"TOO_BIG": "Too many things or names, or one is too long"}.get(
+                            self.things_nack, "A field is missing or wrong"
+                        )
+                        await ws.send(
+                            f'{{"t":"nack","id":{mid},"code":"COMMAND_{code}",'
+                            f'"reason":"{self.things_nack}","message":"{msg}"}}'
+                        )
                 elif t == "ping" and not self.answer_pings:
                     pass
                 elif t == "ping":

@@ -3,8 +3,9 @@
 Every frame is a `skill_drive` carrying the skill's id, the same speed table as `DriveLink`. The lease ends
 from the tank's side (`skill_end`): `end(why)` then sets `refused` and nothing more is sent. The bridge ends
 a word whose frames stop (300 ms, 7052), so `run` sends the first frame (v 0) at once and repeats the
-engine's newest command (a held stop too) every KEEP_S while it is fresh, at most one frame per MIN_GAP_S.
-A stuck engine is left to that deadman."""
+engine's newest command every KEEP_S while it is fresh, at most one frame per MIN_GAP_S. A command that
+went stale is replaced by STOP frames (always safe) while the lease lives; a hung loop sends nothing and
+the bridge's deadman stops the tank."""
 
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ from conqueror_ai.domain.drive.skill import Result
 
 KEEP_S = 0.1  # a frame at least this often (the bridge's deadman is 0.3 s), a held stop too
 MIN_GAP_S = 0.08  # at most ~12 frames a second, as DriveLink: the bridge refuses over 25 (ws_clients.h)
-FRESH_FOR_S = 0.5  # the keep-alive repeats a command only this long: a stuck engine is left to the deadman
+FRESH_FOR_S = 0.5  # a moving command is repeated only this long; then STOP frames
 
 
 class LeaseDriver:
@@ -49,9 +50,14 @@ class LeaseDriver:
             await asyncio.sleep(0.02)
             now = time.monotonic()
             gap = now - self._sent_s
-            # a held stop is a frame too (the lease lives on frames); only a stale command is left to die
-            if (self._pending and gap >= MIN_GAP_S) or (now - self._set_s <= FRESH_FOR_S and gap >= KEEP_S):
+            if self._pending and gap >= MIN_GAP_S:
                 await self._send(self.cmd)
+            elif gap >= KEEP_S:
+                # a moving command is repeated only while fresh; after that (a picture gap) STOP frames go
+                # on for as long as the lease lives - STOP is always safe, and the engine's own stale rule
+                # ends the word. A hung event loop sends nothing: the bridge's deadman is the backstop.
+                fresh = now - self._set_s <= FRESH_FOR_S
+                await self._send(self.cmd if fresh else STOP)
 
     async def drive(self, cmd: Command) -> None:
         if self._refused is not None or self._finished:

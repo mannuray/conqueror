@@ -237,7 +237,7 @@ async def test_a_refused_things_list_raises_a_plain_error(bridge: FakeBridge) ->
     for reason in ("TOO_BIG", "BAD_FIELD"):
         bridge.things_nack = reason
         link = SkillLink(f"ws://127.0.0.1:{bridge.ws_port}/ws", THINGS)
-        with pytest.raises(ThingsRefused, match=reason):
+        with pytest.raises(ThingsRefused, match=reason):  # the bridge's nack carries the part's id
             await link.connect()
         assert not link.connected
         await until(lambda: bridge.skill_ws is None)  # the failed connect let go of the server's place
@@ -282,5 +282,21 @@ async def test_a_silent_bridge_is_lost(bridge: FakeBridge) -> None:
         async with asyncio.timeout(3):
             assert await anext(it) == Lost()
         assert not link.connected
+    finally:
+        await link.close()
+
+
+async def test_the_bridges_exact_things_replies(bridge: FakeBridge) -> None:
+    """Bridge as built (command_router.cpp onThings): every part is answered at once with
+    {"t":"ack","id":N} or {"t":"nack","id":N,"code":"COMMAND_3020","reason":"TOO_BIG",...} - never silence.
+    connect() / set_things() take those exact texts; a nack's message is in the error."""
+    link = SkillLink(f"ws://127.0.0.1:{bridge.ws_port}/ws", THINGS)
+    async with asyncio.timeout(2):
+        await link.connect()  # an ack for the one part
+    try:
+        bridge.things_nack = "TOO_BIG"
+        async with asyncio.timeout(2):
+            with pytest.raises(ThingsRefused, match="TOO_BIG: Too many things or names"):
+                await link.set_things(THINGS)
     finally:
         await link.close()

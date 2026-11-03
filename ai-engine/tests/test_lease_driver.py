@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from conqueror_ai.adapters.drive_link import drive_msg
-from conqueror_ai.adapters.lease_driver import KEEP_S, MIN_GAP_S, LeaseDriver, wire_reason
+from conqueror_ai.adapters.lease_driver import FRESH_FOR_S, KEEP_S, MIN_GAP_S, LeaseDriver, wire_reason
 from conqueror_ai.adapters.skill_link import End, SkillLink
 from conqueror_ai.domain.drive.curves import STOP, Command
 from conqueror_ai.domain.drive.skill import Result
@@ -252,4 +252,30 @@ async def test_a_socket_closed_under_the_keep_alive_refuses(bridge: FakeBridge) 
         await d.cam(0.0, 0.0)
     finally:
         stop.set()
+        await link.close()
+
+
+async def test_a_stale_moving_command_is_followed_by_stop_frames(bridge: FakeBridge) -> None:
+    """A picture gap (the runner's "waiting") holds the tank still under the lease: a moving command is
+    repeated only while fresh, then STOP frames at least every 0.3 s for as long as the lease lives."""
+    link = await connected(bridge)
+    stop = asyncio.Event()
+    d = LeaseDriver(link, 3)
+    task = asyncio.create_task(d.run(stop))
+    try:
+        await d.drive(Command(20.0, 0.0))
+        await asyncio.sleep(FRESH_FOR_S + 3.0)
+        vs = [m["v"] for m in drives(bridge)]
+        last_moving = max(i for i, v in enumerate(vs) if v != 0)
+        after = vs[last_moving + 1 :]
+        assert len(after) >= 3.0 / 0.3 and set(after) == {0}  # stop frames, never silence
+        assert len(vs) <= (FRESH_FOR_S + 3.0) / KEEP_S + 5  # and not a flood
+        d.end("stop")
+        await asyncio.sleep(0.05)
+        n = len(drives(bridge))
+        await asyncio.sleep(0.4)
+        assert len(drives(bridge)) == n  # end() still stops everything
+    finally:
+        stop.set()
+        await task
         await link.close()

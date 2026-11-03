@@ -2433,3 +2433,18 @@ sequenceDiagram
 - Ctrl-C mid-run still saves; a replay of a home run is identical.
 - `RoamSkill.debug()` carries the route, ruled-out spots and the looked-at cells; `RerunView.skill` draws them (a fake recording stream); `--replay DIR --view` draws every logged tick.
 - Floor (owner): explore a room with `--home` (>= 80 % covered, then stops: spec 9 §6.4); a second run starts with the furniture marked (`--view`) and goes round it; a find after a run that saw the ball goes to it first; spec 9 §6.2 the overhang (~18 cm board across two boxes) never driven under; §6.5 the chase with a box between ends `done` round it.
+
+### 20.9 As built (Plan Z8, 2026-11-03; design-notes §193-§196)
+**Files (ai-engine/src/conqueror_ai):** `domain/home.py` (`Home`, `HOME_VERSION`, `FADE_PER_LOAD`, `FADE_EPS`, `KEEP_RUNS`, `KEEP_PER_WORD`); `adapters/home_store.py` (`HomeStore`, `HomeError`); `domain/room_map.py` (`RoomMap.seen_before`, `map_image(snap, seen_before)`, `skill_image(snap, debug, seen_before)`, the note colours); `adapters/rerun_view.py` (`RerunView.skill`, `SkillView`); `app/runner.py` (`TickView`, `view=`); `adapters/decisions.py` (`replay(..., view)`); `app/drive.py` (`--home [NAME]`, `--view`, `start_home`, `end_home`, `HOMES`); `app/map.py` (`--live --home [NAME]`, `home_run_map`); `domain/drive/roam.py` (`debug()` notes, `_inside` §196); `ai-engine/.gitignore` (`homes/`).
+
+**Deviations from §20.1-§20.8, each with its reason:**
+- One file `homes/<name>/home.npz` (the layers and the JSON description together), replaced with one fsynced `os.replace` - two files can't be replaced together (a power cut could pair a new map with an old description).
+- The load rule is `min(saved - FADE_PER_LOAD, blocked + |miss|)`: 1.1 -> 0.9 -> 0.7 (§20.3, owner: A); a value within `FADE_EPS` 1e-3 of the blocked level counts as faded (float32 kept 0.7 at 0.70000005, above it).
+- Only a run that connected saves (final review I1: with the tank off every retry faded the home).
+- `seen_before` is drawn (dim blue-grey) in `cq-map --live --home`, not in `cq-drive --view`; `MapSnapshot` doesn't carry it.
+- The skill's notes are asked once a tick; the looked-at cells stay out of the decisions log (the viewer gets them live, a replay recomputes them).
+- A thing seen outside the play area isn't chased: its edge is checked, `not_found` says so (§196).
+- A viewer that won't start never stops cq-drive; a viewer error never ends a run (counted, said).
+
+**Floor checks:** design-notes §195 - all pass (explore, the remembered map, wander, find from memory in 22 s instead of 40 s, round a box, the bed's overhang).
+

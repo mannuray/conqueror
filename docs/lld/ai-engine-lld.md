@@ -2579,3 +2579,131 @@ stateDiagram-v2
 - **`ServeApp` with fakes** (no tank): ask → answer; start find → frames → done; unknown thing → `failed unknown_thing` with no frames; a second start during a skill refused; link lost mid-skill → no more frames, reconnect, idle.
 - **The result mapping** to wire reasons, one test per `Result`.
 - **Floor (owner, Plan Z2a):** with the tank and `/logo` (Tank Logo LLD §24.3).
+
+## 22. What the engine shows the `/ai` page, and teach it a word (Plan Z2b; spec 8 Revision 2 §4.5, bridge LLD R27, design-notes §197-§198 — draft for review)
+
+> **[Z2b-1]** first (status, boxes, depth, snapshot, why, things, teach a word); **[Z2b-2]** the map and the Room / Inside lists on the same path.
+
+### 22.1 What it is
+- `cq-drive serve` (§21) gains a **`PagePublisher`**: while the bridge says an `/ai` page is open (`ai_viewers n > 0`), it sends the tank's small receiver on port 82 (bridge LLD R27):
+  - **status** ~10 Hz: state, mood, the sentence, the word and skill id, the pose, health, learning, and the newest number of each slot;
+  - **boxes** with each detector result (≤ 10 Hz): ≤ 8 `[word, score, x, y, w, h]`, positions 0..1000 of the picture;
+  - **slots:** `depth` ~2 / s, `snap` ~1 / s, `why` and `things` on change [Z2b-1]; `map` + `map_meta` ~1 / s, `memory`, `homes`, `achieve`, `health`, `timeline` [Z2b-2].
+- **Nothing it sends can drive the tank,** and nothing waits on it: the publisher runs beside the skill, newest wins, and a tank that does not answer only costs pictures.
+- **Teach it a word** [Z2b-1]: an `ai_req teach` from the page (through the bridge) adds a word, re-exports the detector in its own process and swaps it in (§22.4).
+
+### 22.2 What it says (a child's words)
+- **`Thinking`** (domain, pure) turns the skill's phase and result into `(state, mood, say)`:
+
+| Phase / result | state | mood | say (example) |
+|---|---|---|---|
+| between words | `ready` | `happy` | "Ready to play!" |
+| find: looking round | `looking` | `curious` | "I'm looking round for the toy." |
+| find: searching | `searching` | `curious` | "I'm searching for the toy." |
+| find: checking a maybe | `checking` | `puzzled` | "Is that the toy? Let me check." |
+| find: chasing | `chasing` | `excited` | "I see the toy! Going to it." |
+| wander / explore | `exploring` | `curious` | "I'm exploring the room." |
+| setxy | `going` | `busy` | "I'm going there." |
+| done | `done` | `happy` | "I found the toy!" / "Done!" |
+| not found / lost / no way / outside / blocked | `failed` | `sad` | the error's own words (7050 ...) |
+| learning | `learning` | `thinking` | "I'm learning what a cup is." |
+| battery low (telemetry) | (kept) | `tired` | (kept) |
+
+  - `say` changes only when the state or the thing changes, so the phone's voice says each sentence once.
+- **`why`** - the last decision explained in three short lines (purpose / process / performance), from the skill's notes (§20.7): "I want the toy." / "That box-shaped thing 1.2 m ahead might be it (score 0.31), so I'm going to look closer." / "I've checked 2 of 3 maybes in 14 s."
+
+### 22.3 Pictures under 5 KB
+- **`depth`:** the depth map at 160 × 120, near bright, green (the page's palette), JPEG; quality stepped down 70 → 40 until it is ≤ 5120 B (measured in the plan; a 160 × 120 smooth picture is ~2-4 KB).
+- **`snap`:** the newest camera picture shrunk to 160 × 120, the same quality steps.
+- **`map`** [Z2b-2]: the room map round the tank, 160 × 160 indexed-colour PNG (the colours of design-notes §197), with `map_meta` (cm per pixel, the tank's pixel and heading, so a tap becomes `SETXY` cm relative to the tank).
+- A picture still over 5120 B at the lowest quality is not sent (counted in `health`).
+
+### 22.4 Teach it a word
+- **Where things live:**
+  - `config/vocabulary.yaml` (in git) keeps only measured words;
+  - **`taught/vocabulary.yaml`** (git-ignored, new `ai-engine/taught/`): `{word, floor: true, names: [...], measured: false, taught: <date>}` per word;
+  - **`taught/yoloworld-s-640.mlpackage`** and `taught/words.txt` (the exact word list it was made with). The detector loads the taught model when `words.txt` matches both files merged, else the one in `models/` - so a worktree whose `models/` points at the main checkout never has its model overwritten.
+- **`export_world.py` gains** `--extra PATH` (merged after the measured words) and `--out DIR`.
+- **`Teacher.teach(word, names)`:**
+  1. **checks:** letters, spaces and `-` only, ≤ 24 bytes, ≤ 8 names; never `person` (the person guard is the real rule, §21.4); already known (as a word or a name) → `ok` "I already know cup.";
+  2. refuses while a skill runs (the bridge refuses too, R27);
+  3. `skill_learning on`; writes `taught/vocabulary.yaml`;
+  4. runs `uv run --project tools/measure python export_world.py --extra … --out <temp>` as a child process (`asyncio.create_subprocess_exec`; the event loop goes on; 200 s limit; the first run downloads the weights, ~25 MB);
+  5. moves the new model into `taught/`, reloads the detector between two pictures, updates `Names`, sends the things list (parts, §21);
+  6. `skill_learning off`; `ai_rep ok "I know cup now."`.
+  - A failure at any step: the taught entry removed, the old model kept, `skill_learning off`, `ai_rep ok:false` with the reason in plain words.
+- **A taught word is not measured:** the page says so ("I'll try - I've never seen one"); measuring it (its score on the tank's camera) and moving it into `config/` stays the owner's step.
+
+### 22.5 Classes
+```mermaid
+classDiagram
+  class ServeApp {
+    -on_ai_req(id, req)
+    -on_viewers(n)
+  }
+  class PagePublisher {
+    +run(stop) async
+    +viewers(n)
+    -status() dict
+    -boxes(dets) dict
+    -slot(name, bytes)
+  }
+  class Thinking {
+    <<domain, pure>>
+    +update(phase, result, thing, battery) Thought
+    +why(notes) list~str~
+  }
+  class Thought { +state +mood +say +changed }
+  class Pictures {
+    <<domain>>
+    +depth_jpeg(depth) bytes?
+    +snap_jpeg(frame) bytes?
+    +map_png(room, pose) bytes, meta
+  }
+  class InboxClient {
+    <<adapter: tank :82>>
+    +post(path, body) : newest wins per path
+    +put_slot(name, bytes, type)
+    -one keep-alive connection, 1 s timeout
+  }
+  class Teacher {
+    +teach(word, names) Reply async
+    -export() async : child process
+  }
+  class TaughtWords { <<file: taught/vocabulary.yaml>> +add() +remove() +merged() }
+  class SkillLink { +learning(on) +reply(id, ok, msg) }
+  class Names
+  class Perception { +reload_detector(path) }
+  ServeApp --> PagePublisher
+  ServeApp --> Teacher
+  PagePublisher --> Thinking
+  PagePublisher --> Pictures
+  PagePublisher --> InboxClient
+  Teacher --> TaughtWords
+  Teacher --> Perception
+  Teacher --> Names
+  Teacher --> SkillLink
+```
+- **`InboxClient`:** one HTTP/1.1 keep-alive connection to `tank:82` (raw asyncio streams, as `MjpegSource`); one request in flight; a newer body for the same path replaces the waiting one; a refused or timed-out request is dropped and the connection re-opened after 1 s. It never raises into the skill.
+- **`PagePublisher`** reads the same `World` snapshot, skill notes and frames the skill uses; it does no model work of its own (the depth and boxes are the ones `Perception` already made).
+
+### 22.6 Teach, in states
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Idle : teach a known word (ok, nothing to do)
+  Idle --> Exporting : teach (no skill running): learning on
+  Exporting --> Swapping : export ok
+  Exporting --> Failed : error / 200 s
+  Swapping --> Idle : model reloaded, things sent, learning off, ok
+  Failed --> Idle : taught entry removed, old model kept, learning off, not ok
+```
+
+### 22.7 Tests (to write first)
+- **`Thinking`:** each phase / result row of §22.2; `changed` only on a new state or thing; low battery makes the mood `tired`.
+- **`Pictures`:** depth and snap ≤ 5120 B for real recorded frames; a picture that cannot fit → None; the map's meta turns a pixel into the right cm relative to the tank (heading 0 / 90°) [Z2b-2].
+- **`InboxClient` + a fake port-82 server:** newest wins per path; a dead server costs nothing to the caller; reconnects.
+- **`PagePublisher`:** nothing sent with 0 viewers; status carries the slot numbers; the rates.
+- **`Teacher`** (the export replaced by a fake process): a bad word refused; a known one `ok` with no export; success swaps the model, adds the word to `Names` and the things list, learning on → off; a failing export keeps the old model and removes the entry; refused while a skill runs.
+- **`TaughtWords`** + the detector's model choice: `words.txt` matching → taught model; not matching → `models/`.
+- **`export_world.py --extra --out`:** the merged list (run by hand, it downloads weights).

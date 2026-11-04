@@ -2,7 +2,7 @@
    Its own colour names, the cockpit here (from /ai) and Sunny in theme.css; :where() keeps them overridable. */
 :where(:root) {
   --strip-bg: #0a140a; --strip-line: #33ff66; --strip-ink: #b8f5c8; --strip-hi: #e8ffe8; --strip-ok: #33ff66;
-  --strip-warn: #ffb000; --strip-bad: #ff3b30; --strip-r: var(--r); --strip-font: var(--mono);
+  --strip-warn: #ffb000; --strip-bad: #ff3b30; --strip-r: 3px; --strip-font: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
 }
 .cqstrip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .cqstrip .sc { display: inline-flex; align-items: center; gap: 5px; box-sizing: border-box; padding: 3px 8px; margin: 0;

@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Conqueror Drive</title>
+<!--CQ:THEME-->
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
@@ -22,7 +23,7 @@
   --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
   /* Stick sizes (owner, 2026-10-15: ~40 % larger so fingers are not constrained); the side gauges end above them. */
   --pad: min(44vh, 27vw, 230px);  /* both rings and the RC sliders (equal rings, R3.8) */
-  --edge: max(10px, env(safe-area-inset-left)); --redge: max(10px, env(safe-area-inset-right));
+  --inset: max(10px, env(safe-area-inset-left)); --redge: max(10px, env(safe-area-inset-right));
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 12px/1.25 var(--mono); }
@@ -33,7 +34,7 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .novideo { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--dim); letter-spacing: .1em; }
 .ov { position: fixed; z-index: 2; }
 .glass { background: var(--glass); border: 1px solid var(--edge-c); border-radius: 7px; box-shadow: var(--glow); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
-.chips { top: 10px; left: var(--edge); display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(50vw - 95px); }
+.chips { top: 10px; left: var(--inset); display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(50vw - 95px); }
 .chip { padding: 5px 8px; white-space: nowrap; color: var(--ui); }
 .chip small { color: var(--dim); margin-right: 3px; letter-spacing: .05em; }
 .chip b { font-weight: 700; }
@@ -62,7 +63,7 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .gval { font-size: 12px; font-weight: 700; color: var(--ui); white-space: nowrap; text-shadow: 0 0 3px #000, 0 0 6px rgba(0, 0, 0, .85); }
 .distbar { width: 9px; border-radius: 5px; border: 1px solid var(--edge-c); position: relative; overflow: hidden;
   background: linear-gradient(to top, #33ff66 0%, #33ff66 45%, #ffb000 72%, #ff3b30 100%); }
-.batt { left: var(--edge); top: 60px; bottom: 10px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.batt { left: var(--inset); top: 60px; bottom: 10px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 .distbar, .battbar { flex: 1; }
 /* Battery scale as the range scale: red at the bottom (critical 6.6 V = 0 %), amber at low (7.2 V = 20 %), green above. */
 .battbar { width: 9px; border-radius: 5px; border: 1px solid var(--edge-c); position: relative; overflow: hidden;
@@ -117,7 +118,7 @@ body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 
 .lbl { position: absolute; font-size: 7px; color: var(--dim); letter-spacing: .05em; }
 .lbl.n { top: 5%; left: 50%; transform: translateX(-50%); } .lbl.s { bottom: 5%; left: 50%; transform: translateX(-50%); }
 .lbl.w { left: 3%; top: 50%; transform: translateY(-50%); } .lbl.e { right: 3%; top: 50%; transform: translateY(-50%); }
-.left { left: calc(var(--edge) + 24px); bottom: 10px;  /* 1C: the battery bar runs full height outside the stick */ display: flex; align-items: flex-end; gap: 10px; }
+.left { left: calc(var(--inset) + 24px); bottom: 10px;  /* 1C: the battery bar runs full height outside the stick */ display: flex; align-items: flex-end; gap: 10px; }
 .right { right: calc(var(--redge) + 24px); bottom: 10px; display: flex; align-items: flex-end; gap: 10px; }
 .col { display: flex; flex-direction: column; gap: 7px; margin-bottom: 8px; }
 .btn { padding: 6px 10px; color: var(--ui); text-decoration: none; text-align: center; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; justify-content: center; }

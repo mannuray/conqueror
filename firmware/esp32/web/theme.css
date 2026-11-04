@@ -1,0 +1,13 @@
+/* Sunny Play (Stitch design system assets/9779248838636593021; design-notes §206-§207, bridge LLD R28): only the
+   values that differ from each page's own cockpit :root. Put into every page's <head> by pack_web.py. */
+:root[data-theme="play"] {
+  --bg: #fff8ec; --panel: #ffffff; --deep: #fdf3e1; --g: #1f6fd1; --g2: #6b7a90; --ink: #33415c; --hi: #1d2b44; --tint: #4aa3ff;
+  --amber: #f08c00; --red: #e8382e; --sel: #d6ebff; --chip: #f2f7ff; --btn: #e3f1ff; --act: #ffffff;
+  --act-main: #34b36a; --act-main-edge: #239152; --act-main-ink: #ffffff; --bubble: #ffffff; --hdr: #ffffff; --foot: #fff3d6;
+  --new-bg: #fff1cc; --mood-bg: #fff1cc; --track: #e6eef8; --mute-bg: #e3f1ff; --detail: #fffaf0; --stop-edge: #ff9a93;
+  --view-bg: #1d2b44; --hud-bg: rgba(255,255,255,.88); --face-bg: #ffd84d; --face: #1d2b44; --cheek: #ff7a90;
+  --box-tag: rgba(255,255,255,.88);
+  --mono: ui-rounded, "SF Pro Rounded", "Nunito", "Arial Rounded MT Bold", system-ui, sans-serif; --sans: var(--mono); --font: var(--mono);
+  --r: 12px; --r-card: 18px; --scan: 0; --glow-text: none; --card-shadow: 0 4px 16px rgba(29,43,68,.12); --brackets: none;
+}
+

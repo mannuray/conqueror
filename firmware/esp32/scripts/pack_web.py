@@ -9,6 +9,7 @@
 - /ai (Plan Z2b-1, bridge LLD R27.4): web/ai.html with <!--CQ:AI_JS--> replaced by web/ai.js. Budget 24 KB gzipped.
 - /logo (Plan N4, Tank Logo LLD §21): web/logo.html with <!--CQ:LOGO_JS--> replaced by
   web/logo.js and <!--CQ:WORDS--> by web/generated/words.json. Budget 26 KB gzipped (bridge LLD R25).
+- Every page: the shared look (bridge LLD R28) - <!--CQ:THEME--> in its <head> becomes web/theme.css and web/theme.js.
 - Every page: its icons from web/icons.json (scripts/icons.py, bridge LLD R25) - <!--icon:NAME--> markers and one
   /*CQ:ICONS ...*/ table; an unknown icon fails the build.
 Also runnable alone: python3 scripts/pack_web.py [project_dir]
@@ -110,6 +111,19 @@ def assemble_ai(project: pathlib.Path) -> bytes:
     return text.replace("<!--CQ:AI_JS-->", code).encode()
 
 
+THEME_MARKER = "<!--CQ:THEME-->"
+
+
+def with_theme(text: str, project: pathlib.Path, page: str) -> str:
+    """The shared look (bridge LLD R28): THEME_MARKER becomes <style>theme.css</style><script>theme.js</script>."""
+    if THEME_MARKER not in text:
+        raise SystemExit(f"pack_web: {THEME_MARKER} missing in {page}")
+    web = project / "web"
+    css = (web / "theme.css").read_text(encoding="utf-8")
+    code = (web / "theme.js").read_text(encoding="utf-8").replace("</", "<\\/")  # never closes its <script>
+    return text.replace(THEME_MARKER, f"<style>\n{css}</style>\n<script>\n{code}</script>", 1)
+
+
 def assemble_page(project: pathlib.Path, uri: str) -> bytes:
     """A page as served (before gzip), its icons put in (bridge LLD R25). /help may be missing: b""."""
     web = project / "web"
@@ -123,8 +137,11 @@ def assemble_page(project: pathlib.Path, uri: str) -> bytes:
         raw = assemble_ai(project)
     else:
         raw = assemble_help(project) or b""
+    if not raw:
+        return raw
     table = icons.load(web / "icons.json")
-    return icons.expand(raw.decode("utf-8"), table, uri).encode("utf-8")
+    text = with_theme(raw.decode("utf-8"), project, uri)
+    return icons.expand(text, table, uri).encode("utf-8")
 
 
 def c_array(name: str, data: bytes) -> str:

@@ -56,6 +56,14 @@ async (page) => {
   out.view1 = await lit("v1");                                          // the blue picture
   out.view2 = await lit("v2");                                          // the picture under green depth: more green
   out.drawn = out.view1[2] > 120 && out.view2[1] > out.view1[1] + 40;   // true
+  // Plan Sunny (R28): the box over the picture takes its colour from the CSS and is redrawn when the look flips.
+  const edge = () => q(() => { const r = AiCore.boxRect(["toy", 0.91, 100, 100, 300, 300], 320, 240);
+    const d = document.getElementById("v1").getContext("2d").getImageData(Math.round(r.x + r.w / 2), Math.round(r.y), 1, 1).data;
+    return [d[0], d[1], d[2]]; });
+  const edgeBefore = await edge();
+  await page.click("#themeBtn"); await page.waitForTimeout(100);
+  out.boxFlip = JSON.stringify(await edge()) !== JSON.stringify(edgeBefore);         // true
+  await page.click("#themeBtn"); await page.waitForTimeout(100);
   out.say = await q(() => document.getElementById("say").textContent);  // Ready to play!
   out.things = await q(() => document.getElementById("things").textContent);  // [ TOY ][ BALL ]
   await page.click("#find"); await page.waitForTimeout(300);
@@ -110,6 +118,6 @@ async (page) => {
     JSON.stringify(out.teach) === '[["cup",["mug"]]]' && out.noAi === "AI helper not running - start cq-drive serve" &&
     out.stopStill === 2 && out.noHScroll && out.openFeeds === 1 && out.aiChip === "AI HELPER" &&
     out.unlockSpoken && out.spoken[out.spoken.length - 1] === "I'm looking round for the toy." && out.freedAfterStop &&
-    out.busyRetried === 1 && out.streamAgain;
+    out.busyRetried === 1 && out.streamAgain && out.boxFlip;
   return out;
 }

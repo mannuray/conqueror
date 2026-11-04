@@ -3109,4 +3109,10 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   - **FIND from the map** goes through the tank exactly as the Play tab's (a one-line `FIND "word` program): nothing on
     the feed drives the tank.
   - **`/ai` budget 24 → 30 KB** gzipped (owner: "Raise to 30 KB").
+  - **GO THERE on a named block (owner, 2026-11-05: "yes go there seems good for named block"):** things keep FIND (a
+    thing may have moved; FIND goes to its remembered spot first, then searches, and stops ~30 cm short); a named block
+    does not move, so its card has **GO THERE**: `SETXY` to a spot on free floor ~30-45 cm from the block, on the side
+    nearest the tank. The engine picks the spot (only it knows the free floor) and sends it with the name; the page turns
+    it into the one-line program `SETXY <right cm> <ahead cm>` from the tank's pose now and runs it through the tank like
+    FIND. Still no GOTO word: the child sees the coordinates SETXY uses.
   - Design: AI engine LLD §23, bridge LLD R32.

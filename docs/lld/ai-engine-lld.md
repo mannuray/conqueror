@@ -2774,7 +2774,7 @@ stateDiagram-v2
 |---|---|---|
 | page → engine | `{"t":"room","on":true}` / `false` | on the tab switch and on connect (a new connection starts off) |
 | engine → page | **binary map frame**: the §22.2 binary layout, header `{"kind":"map","seq":n,"cell_m":0.05,"x0":…,"y0":…,"w":…,"h":…,"png":len}`, then the PNG | to a page with room on: at once, then at most 1 / s **when the map changed** |
-| engine → page | `{"t":"room", "trail":[[x,y],…], "home":"room2"/null, "area":{"x":…,"y":…,"r":…}/null, "things":[{"word":"ball","x":…,"y":…,"ago_s":120,"where":"near the bed"}], "names":[{"id":3,"name":"bed","x":…,"y":…}], "why":{"route":[[x,y],…],"pending":[[x,y],…],"check":[x,y]/null,"looked":[[x,y],…]}, "seen_m2":4.2}` | to a page with room on: at once, then at most 2 / s **when any part changed** |
+| engine → page | `{"t":"room", "trail":[[x,y],…], "home":"room2"/null, "area":{"x":…,"y":…,"r":…}/null, "things":[{"word":"ball","x":…,"y":…,"ago_s":120,"where":"near the bed"}], "names":[{"id":3,"name":"bed","x":…,"y":…,"go":[x,y]/null}], "why":{"route":[[x,y],…],"pending":[[x,y],…],"check":[x,y]/null,"looked":[[x,y],…]}, "seen_m2":4.2}` | to a page with room on: at once, then at most 2 / s **when any part changed** |
 | engine → page | `status` (§22.2) gains `"pan":-12` (the camera's pan in degrees, from telemetry; for the camera view on the map) | ~10 Hz as now |
 | page → engine | `{"t":"name","id":n,"x":…,"y":…,"name":"bed"}` (a new name at a tapped point) / `{"t":"name","id":n,"place":3,"name":"cot"}` (rename) / `{"t":"unname","id":n,"place":3}` | the owner's taps |
 | engine → page | `{"t":"rep","id":n,"ok":true,"msg":"Named it bed."}` / `ok:false` with the reason | the answer; the next `room` carries the change |
@@ -2791,6 +2791,7 @@ stateDiagram-v2
 - **A name is a point and a word** `Place(id, name, x_m, y_m)`; it is not tied to the cells, so a block that fades or grows keeps its name where it was. Rename and unname by `id`.
 - **Name rules** (as teaching a word, §22.4): letters, spaces and `-`, 1-24 bytes, trimmed, lower case; at most 50 names; the same name twice allowed. A name is never `person`. No skill reads names (they never drive), so names may be changed while a word runs.
 - **Kept:** with `--home NAME` saved in the home file with the rest (§20; `about.places`, `HOME_VERSION` 2 - a version-1 file loads with no names); without a home, for as long as `cq-drive serve` runs.
+- **GO THERE (§211):** each name carries `go`, a spot to drive to next to its block, or `null`. `Places.go_spot(snap, place, pose)`: the block is the blocked cells joined to the cell nearest the name's point (within 15 cm; none - the block faded - → `null`); the candidates are floor cells **seen this run** (never `seen_before`), not blocked, whose distance to the nearest cell of that block is **0.30-0.45 m** and to any other blocked cell at least 0.30 m; the one nearest the tank's pose (no pose: nearest the name's point) wins; none → `null`. numpy only (no new dependency). Worked out again for each `room` message (a name or the map changed, or the tank moved 0.2 m).
 - **Where words** (`where_words(thing, places, things, home)`, domain, pure): the nearest name or other remembered thing within 1.0 m → "near the bed"; else the distance from the origin → "1.2 m from home" (`--home`) or "1.2 m from the start"; rounded to 0.1 m.
 
 ### 23.4 Classes
@@ -2825,6 +2826,7 @@ classDiagram
     +rename(id, name) Place | Refusal
     +unname(id) bool
     +all() list~Place~
+    +go_spot(snap, place, pose) xy | None
   }
   class Place { +id +name +x_m +y_m }
   class WhereWords { <<domain, pure>> +where(thing, places, things, home) str }
@@ -2879,6 +2881,7 @@ stateDiagram-v2
 - **`RoomPicture`:** kinds from a snapshot (unknown 0, seen before 1, floor 2, low 3, high 4 - high wins over low); the crop has 0.5 m round the known cells and the right `x0, y0, w, h`; an empty map → an empty crop (`w = h = 0`, no PNG sent); the PNG decodes back to the same cells.
 - **`Trail`:** a point only after 5 cm; the 2001st drops the oldest.
 - **`Places`:** a tap 10 cm from a block names it, 20 cm away refused; the name sits at the block's middle, and on an L-shaped block on one of its cells; bad names refused (empty, 25 bytes, digits, `person`); rename and unname by id; 51st name refused; the same name twice allowed.
+- **`Places.go_spot`:** a 40 × 40 cm block in open floor → a spot 0.30-0.45 m from it on the tank's side; a block against unseen floor on the tank's side → the seen side; a block with no seen floor round it → `None`; a spot never nearer than 0.30 m to another block; a faded block → `None`.
 - **`WhereWords`:** near a name, near a thing, the nearest of two, beyond 1 m → "x m from home" / "from the start".
 - **`RoomFeed`:** nothing built with no page on room; at once on `room on`; the map at most 1 / s and only when changed; `room` at most 2 / s and only on change; a page with room off gets neither; the person never in `things`.
 - **`HomeStore`:** names saved and loaded; a version-1 home loads with none.

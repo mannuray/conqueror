@@ -2978,3 +2978,16 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
 - **Phone (approved):** the same design in one column - the header with STOP, the chips in two rows, the tabs, then "What I'm thinking" first, the two views stacked, then Play. (Stitch's phone screen timed out twice.)
 - **Only real data:** Stitch invented readouts (a stereo camera, a point cloud, "sonar 40 kHz", a gallery). The page shows only what the tank and the engine send: the sonar distance, the left / right track power, the camera's pan, the boxes and their words.
 - Bridge LLD R27.4 amended.
+
+## 205. The `/ai` page's voice, the battery bar and a test button (owner, 2026-11-04)
+- **Voice works:** on the owner's iPhone (Chrome) after the first tap, and in Chrome on the Mac. On the Mac the owner's Chrome said "SPEAKING…" with no sound - also in an Incognito window - while a clean Chrome on the same Mac spoke the same page: Chrome's speech service had got stuck; **a full quit (⌘Q) and restart fixed it.** The page needs no change for that.
+- **What changed on the page:** the first tap speaks the sentence on screen inside the tap (iOS ignored a silent unlock); no `cancel()` before speaking; a voice on the device is preferred (`pickVoice`); the VOICE button shows SPEAKING… or the browser's error and names the voice; **[ TEST SOUND ]** plays a beep, then says "Hello, I am the tank.", and lists what the browser reports (number of voices, the voice used) - a beep but no words means the speech voice, no beep means the sound output.
+- **Battery bar:** the battery chip is a small cell that fills, with the percent - the drive page's 2S curve and 10-reading average, amber when low, red when critical, "USB" on USB power.
+- **Laptop: one screen** (no page scroll; a short window compacts the right column) - checked at 1440×900, 1440×790, 1280×720.
+
+## 206. A friendly theme for children - CSS only (owner: "only change should be via CSS and no code change, everything should stay as is", 2026-11-04)
+- **What a theme is:** only colours, fonts, corner radius and effects. The same page, elements, words, order and behaviour; a screenshot in either theme shows the same things in the same places.
+- **How:** every colour / font / radius / effect is a CSS variable; a second set of values `[data-theme="play"]` in one shared `web/theme.css`, put into pages at build time (as the shared icons are). The `/ai` page first; the drive page, Settings and `/logo` can take it later with no change to their code.
+- **STOP stays big and red in every theme;** amber "never seen" and the warnings keep their meaning (only the shade may change).
+- **The switch (recommended, to confirm with the design):** a small theme button in the header that sets the theme and remembers it on the device - the only non-CSS part, a few lines, no page logic.
+- **Design first:** the friendly palette made in Stitch on the approved `/ai` screen (colours and fonts only), for the owner to approve.

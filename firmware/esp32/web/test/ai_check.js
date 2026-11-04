@@ -36,7 +36,9 @@ async (page) => {
         const f = await frame(); setTimeout(() => this.onmessage && this.onmessage({ data: f }), 30);
       }
       send(s) { const m = JSON.parse(s); (this.feed ? window.__feed : window.__tank).push(m);
-        if (!this.feed && m.t === "hello") { this.emit({ t: "welcome", you: "ai-1" }); this.emit({ t: "ai_at", url: "ws://127.0.0.1:8770/feed", proto: 1 }); } }
+        if (!this.feed && m.t === "hello") { this.emit({ t: "welcome", you: "ai-1" }); this.emit({ t: "ai_at", url: "ws://127.0.0.1:8770/feed", proto: 1 }); }
+        // the bridge answers the link's ping: a silent stand-in made STOP open its own short socket too (R31, quiet > 1.5 s)
+        if (!this.feed && m.t === "ping") this.emit({ t: "pong" }); }
       emit(o) { setTimeout(() => this.onmessage && this.onmessage({ data: JSON.stringify(o) }), 5); }
       close() { if (this.readyState === 3) return; this.readyState = 3; setTimeout(() => this.onclose && this.onclose(), 1); }
     }

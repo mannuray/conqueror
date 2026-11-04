@@ -13,6 +13,8 @@
   --bg: #050805; --panel: #0a0f0a; --deep: #070e07; --g: #33ff66; --g2: #1fa341; --ink: #b8f5c8; --hi: #e8ffe8; --tint: #33ff66;
   --edge: color-mix(in srgb, var(--tint) 40%, transparent); --soft: color-mix(in srgb, var(--tint) 20%, transparent);
   --amber: #ffb000; --red: #ff3b30; --sel: #143d1a; --on-sel: var(--hi); --chip: #0a140a; --btn: #0e2912; --act: #09150a;
+  --room-bg: #030603; --room-floor: #0f2a14; --room-before: #0b160d; --room-low: #ffb000; --room-high: #ff3b30;
+  --room-trail: #4aa3ff; --room-route: #c49cff; --room-area: #ffb000; --room-pin: #e8ffe8; --room-cone: rgba(51,255,102,.18); --room-text: #e8ffe8;
   --act-main: #1b5524; --act-main-edge: #8fffb0; --act-main-ink: #fff; --bubble: #09160b; --hdr: #080d08; --foot: #040704;
   --new-bg: #1f1700; --mood-bg: #261c00; --track: #0e3a17; --mute-bg: #0f2412; --detail: #060b06; --stop-edge: #ff9a93;
   --view-bg: #000; --hud-bg: rgba(0,0,0,.75); --box-tag: rgba(5,8,5,.75); --face-bg: #061208; --face: #33ff66; --cheek: #ffb000;
@@ -147,6 +149,36 @@ summary small { color: var(--g2); font-weight: 400; }
 #teach label { font-size: 10px; color: var(--g2); }
 #teachMsg { font: 13px/1.4 var(--sans); color: var(--hi); }
 .soon { color: var(--g2); text-align: center; padding: 40px 0; letter-spacing: .1em; }
+/* the ROOM tab (bridge LLD R32): the map left and the panel right on a laptop, stacked on a phone */
+#roomMapCard { display: flex; flex-direction: column; min-height: 0; }
+#roomWrap { position: relative; flex: 1; min-height: 0; }
+#roomMap { display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: var(--r); background: var(--room-bg); touch-action: manipulation; }
+#roomMapCard.stale #roomMap { opacity: .45; }
+#roomScaleBar { display: inline-block; height: 2px; width: 40px; background: currentColor; vertical-align: middle; }
+#roomNote { position: absolute; left: 12px; right: 12px; top: 12px; text-align: center; color: var(--hi); font-size: 13px; pointer-events: none; }
+#roomNote:empty, #roomRun:empty { display: none; }
+#roomRun { margin-top: 6px; font-size: 12px; color: var(--ink); }
+#roomCard { position: absolute; left: 10px; right: 10px; bottom: 10px; background: var(--panel); border: 1px solid var(--edge);
+  border-radius: var(--r); padding: 10px 12px; box-shadow: var(--card-shadow); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#roomCard .rcTitle { flex: 1 1 100%; color: var(--hi); }
+#roomCard input { flex: 1 1 140px; min-height: 40px; }
+#roomCard button { min-height: 40px; }
+#roomCard .rcMsg { flex: 1 1 100%; font-size: 12px; color: var(--ink); }
+#roomCard .rcMsg:empty { display: none; }
+#roomPanel { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+#roomLayers { display: flex; flex-wrap: wrap; gap: 6px; }
+.lay { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--chip); font-size: 12px; }
+.lay.lock { opacity: .75; } .lay.later { opacity: .45; } .lay small { margin-left: auto; font-size: 10px; }
+.rrow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.rrow .rtxt { flex: 1; min-width: 0; } .rrow small { display: block; color: var(--ink); }
+.rpin { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: 50%; border: 2px solid var(--room-pin); color: var(--room-pin); font-weight: 700; }
+.rrow .act { min-height: 40px; padding: 0 14px; width: auto; }
+#roomFacts { margin-top: 10px; font-size: 12px; color: var(--ink); }
+@media (min-width: 900px) {
+  #roomMap { aspect-ratio: auto; height: 100%; }
+  #roomLayers { flex-direction: column; }
+  #roomPanel .card:last-child { flex: 1; overflow: auto; }
+}
 footer { position: fixed; bottom: 0; left: 0; right: 0; z-index: 40; height: 30px; display: flex; align-items: center; justify-content: space-between;
   gap: 8px; padding: 0 16px; background: var(--foot); border-top: 1px solid var(--edge); font-size: 10px; color: var(--g2); }
 footer b { color: var(--amber); font-weight: 600; }
@@ -172,7 +204,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 <header class="cqhost">
   <span class="title glow">TANK AI</span>
   <div class="chips"><!--CQ:STRIP--></div>
-  <nav><button type="button" class="on" data-tab="play">[ PLAY ]</button><button type="button" data-tab="room">[ ROOM ]</button><button type="button" data-tab="inside">[ INSIDE ]</button></nav>
+  <nav><button type="button" class="on" data-tab="play">[ PLAY ]</button><button type="button" data-tab="room">[ ROOM ]</button></nav>
   <!--CQ:BAR-->
 </header>
 <main id="tPlay">
@@ -247,8 +279,28 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     </div>
   </section>
 </main>
-<main id="tRoom" class="hidden"><section class="card"><h2 class="glow">[ ROOM ]</h2><div class="soon">COMING SOON</div></section></main>
-<main id="tInside" class="hidden"><section class="card"><h2 class="glow">[ INSIDE ]</h2><div class="soon">COMING SOON</div></section></main>
+<main id="tRoom" class="hidden">
+  <section id="roomMapCard" class="card">
+    <h2 class="glow">[ <!--icon:radar--> THE ROOM ]<span class="right"><span id="roomScaleBar"></span> 1 m</span></h2>
+    <div id="roomWrap"><canvas id="roomMap" aria-label="the room the tank has seen - tap a thing or a block"></canvas>
+      <div id="roomNote"></div><div id="roomRun"></div><div id="roomCard" class="hidden" role="dialog"></div></div>
+  </section>
+  <section id="roomPanel">
+    <div class="card"><h2 class="glow">[ <!--icon:scan-eye--> LAYERS ]</h2><div id="roomLayers">
+      <label class="lay lock"><input type="checkbox" checked disabled> Floor &amp; obstacles</label>
+      <label class="lay lock"><input type="checkbox" checked disabled> Tank &amp; camera view</label>
+      <label class="lay lock"><input type="checkbox" checked disabled> Home &amp; play area</label>
+      <label class="lay"><input id="layThings" type="checkbox" data-layer="things"> Things I remember</label>
+      <label class="lay"><input id="layTrail" type="checkbox" data-layer="trail"> Trail</label>
+      <label class="lay"><input id="layNames" type="checkbox" data-layer="names"> Names</label>
+      <label class="lay"><input id="layWhy" type="checkbox" data-layer="why"> Why: route &amp; places to check</label>
+      <label class="lay later"><input type="checkbox" disabled> Careful zones <small>later</small></label>
+      <label class="lay later"><input type="checkbox" disabled> Earlier runs <small>later</small></label>
+    </div></div>
+    <div class="card"><h2 class="glow">[ <!--icon:bookmark--> I REMEMBER ]</h2><div id="roomList"></div>
+      <div id="roomFacts"></div></div>
+  </section>
+</main>
 <footer><span>CONQUEROR // <b>TAP STOP AT ANY TIME TO HALT THE TRACKS</b></span><span id="footFw"></span></footer>
 <script>
 <!--CQ:AI_JS-->
@@ -308,6 +360,8 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     $("runSt").textContent = on ? "RUNNING" : "READY";
     ["find", "wander", "explore", "typedGo"].forEach(function (id) { $(id).disabled = on; });
     $("tGo").disabled = on;
+    Array.prototype.forEach.call(document.querySelectorAll("#roomCard .rcFind, #roomCard .rcGo, #roomList .rcFind"), function (b) { b.disabled = on || b.dataset.off === "1"; });
+    $("roomRun").textContent = on ? "Running: " + $("ranLine").textContent : (msg || "");
     if (msg) { $("typedMsg").textContent = msg; $("typedMsg").classList.remove("hidden"); }
   }
   // A one-line program: checked by the tank's /logo/check, then logo_run - so it is Logo's own (STOP, the lease, 7045).
@@ -338,6 +392,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     camEv(url ? "ai_at_url" : "ai_at_null");
     dropFeed();
     if (url && A.protoOk(proto)) openFeed(); else showAiChip();
+    if (roomTab) roomNote();
   }
   function dropFeed() {  // the old socket's handlers go first, so its late close never touches the new one
     var s = feed;
@@ -354,13 +409,13 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     feed = s;
     s.onmessage = function (e) {
       if (feed !== s) return;
-      if (typeof e.data !== "string") { onFrame(e.data); return; }
+      if (typeof e.data !== "string") { var mp = cqRoom.splitMap(e.data); if (mp) onMap(mp); else onFrame(e.data); return; }
       var m; try { m = JSON.parse(e.data); } catch (x) { return; }
       onFeed(m);
     };
     s.onclose = function () {
       if (feed !== s) return;
-      feed = null; feedOpen = false; camEv("feed_closed"); showAiChip();
+      feed = null; feedOpen = false; camEv("feed_closed"); showAiChip(); room.feedDown();
       if (feedUrl && A.protoOk(feedProto)) feedRetry = setTimeout(openFeed, 2000);
     };
     s.onerror = function () { if (feed === s) s.close(); };
@@ -369,11 +424,12 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     switch (m.t) {
       case "hello":
         if (!A.protoOk(m.proto)) { feedProto = m.proto; feed.close(); $("camNote").textContent = A.PROTO_TEXT; return; }
-        feedOpen = true; camEv("feed_open"); showAiChip(); break;
-      case "status": showStatus(m); break;
+        feedOpen = true; camEv("feed_open"); showAiChip(); room.feedOpen(); if (roomTab) roomSay(true); break;
+      case "status": showStatus(m); room.applyStatus(m); break;
+      case "room": room.applyRoom(m); break;
       case "why": showWhy(m.lines || []); break;
       case "things": things = m.list || []; showThings(); break;
-      case "rep": $("teachMsg").textContent = m.msg; break;
+      case "rep": if (roomReps[m.id]) roomRep(m); else $("teachMsg").textContent = m.msg; break;
       default: break;
     }
   }
@@ -583,13 +639,141 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     }, "image/jpeg", 0.9);
   });
 
+  // ---------- the ROOM tab (bridge LLD R32, AI engine LLD §23): the model fed by the feed, the view on a canvas ----------
+  var room = new cqRoom.RoomModel(), RV = cqRoom.RoomView, RW = cqRoom.RoomWords;
+  var roomTab = false, roomT = null, roomReps = {}, roomId = 1000, card = null;
+  try { room.loadLayers(localStorage.getItem("cq_room_layers") || ""); } catch (x) { /* private mode */ }
+  cqRoom.page = { model: room, transform: function () { return roomT; } };  // for the browser checks
+  function roomSay(on) { if (feed && feedOpen) { try { feed.send(JSON.stringify({ t: "room", on: on })); } catch (x) { /* closing */ } } }
+  function feedSend(m) { if (!feed || !feedOpen) return false; try { feed.send(JSON.stringify(m)); return true; } catch (x) { return false; } }
+  function roomColours() {
+    var c = cqTheme.colour;
+    return { bg: c("--room-bg"), floor: c("--room-floor"), before: c("--room-before"), low: c("--room-low"), high: c("--room-high"),
+      trail: c("--room-trail"), route: c("--room-route"), area: c("--room-area"), pin: c("--room-pin"), cone: c("--room-cone"), text: c("--room-text") };
+  }
+  function roomDraw() {
+    if (!roomTab) return;
+    var cv = $("roomMap"), r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+    var w = Math.max(1, Math.round(r.width * d)), h = Math.max(1, Math.round(r.height * d));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    roomT = RV.fit(room.state, r.width || 1, r.height || 1);  // in CSS pixels; the context scaled for the screen
+    var x = cv.getContext("2d");
+    x.setTransform(d, 0, 0, d, 0, 0);
+    RV.draw(x, room.state, roomT, roomColours());
+    $("roomScaleBar").style.width = Math.max(4, Math.round(roomT.scale)) + "px";
+  }
+  function onMap(f) {  // the PNG of cell kinds: each pixel's red is the kind (AI engine LLD §23.2)
+    createImageBitmap(new Blob([f.png], { type: "image/png" }), { colorSpaceConversion: "none", premultiplyAlpha: "none" }).then(function (bm) {
+      var c = document.createElement("canvas"); c.width = bm.width; c.height = bm.height;
+      var x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(bm, 0, 0);
+      var d = x.getImageData(0, 0, bm.width, bm.height).data, cells = new Uint8Array(bm.width * bm.height);
+      for (var i = 0; i < cells.length; ++i) cells[i] = d[i * 4];
+      if (bm.close) bm.close();
+      room.applyMap(f.header, cells);
+    }).catch(function () { /* a map that does not decode is skipped */ });
+  }
+  function roomNote() {
+    var lost = room.state.feed === "lost";
+    $("roomNote").textContent = !feedUrl ? "Start the AI helper on the laptop to see the room." : lost ? "Lost the AI helper - reconnecting…" : "";
+    $("roomMapCard").classList.toggle("stale", !feedUrl || lost);
+  }
+  function roomList() {
+    var s = room.state, box = $("roomList");
+    box.textContent = "";
+    if (!s.things.length) box.textContent = "Nothing yet - things it sees are kept here.";
+    s.things.forEach(function (t) {
+      var row = document.createElement("div"); row.className = "rrow";
+      row.innerHTML = '<span class="rpin"></span><span class="rtxt"><b></b> <small></small></span><button type="button" class="act main rcFind">FIND</button>';
+      row.querySelector(".rpin").textContent = t.word.charAt(0).toUpperCase();
+      row.querySelector("b").textContent = t.word;
+      row.querySelector("small").textContent = t.where + " · " + RW.ago(t.ago_s);
+      var b = row.querySelector("button"); b.disabled = run.running;
+      b.addEventListener("click", function () { roomFind(t.word); });
+      box.appendChild(row);
+    });
+    $("roomFacts").textContent = RW.facts(s);
+  }
+  function roomFind(word) { cardClose(); runLine(A.findLine(word, areaOn(), area)); }
+  // the small card over the map: a pin (FIND), a name (GO THERE, RENAME, TAKE OFF), a block (NAME)
+  function cardOpen(kind, ref, html) {
+    card = { kind: kind, ref: ref };
+    var c = $("roomCard"); c.innerHTML = html + '<div class="rcMsg"></div>'; c.classList.remove("hidden");
+    return c;
+  }
+  function cardClose() { card = null; $("roomCard").classList.add("hidden"); }
+  function cardMsg(t) { var m = document.querySelector("#roomCard .rcMsg"); if (m) m.textContent = t; }
+  function btn(cls, text) { return '<button type="button" class="btn ' + cls + '">' + text + "</button>"; }
+  function cardPin(t) {
+    var c = cardOpen("pin", t, '<div class="rcTitle"><b></b> <small></small></div>' + '<button type="button" class="act main rcFind">FIND</button>' + btn("rcClose", "CLOSE"));
+    c.querySelector("b").textContent = t.word; c.querySelector("small").textContent = t.where + " · " + RW.ago(t.ago_s);
+    c.querySelector(".rcFind").disabled = run.running;
+    c.querySelector(".rcFind").addEventListener("click", function () { roomFind(t.word); });
+  }
+  function nameNow(id) { for (var i = 0; i < room.state.names.length; ++i) if (room.state.names[i].id === id) return room.state.names[i]; return null; }
+  function goWhy(n) { return !room.state.pose ? "Where am I? Start the AI helper." : !n || !n.go ? "I don't know a way there yet." : ""; }
+  function cardName(n) {
+    var c = cardOpen("name", n, '<div class="rcTitle"><b></b></div>' + btn("rcGo", "GO THERE") + btn("rcRename", "RENAME") + btn("rcOff", "TAKE OFF") + btn("rcClose", "CLOSE"));
+    c.querySelector("b").textContent = n.name;
+    var go = c.querySelector(".rcGo"), why = goWhy(n);
+    go.dataset.off = why ? "1" : "0"; go.disabled = !!why || run.running; cardMsg(why);
+    go.addEventListener("click", function () {  // worked out at the press, from the newest pose (Review Focus 2)
+      var line = RW.setxyLine((nameNow(n.id) || {}).go, room.state.pose);
+      if (!line) { cardMsg(goWhy(nameNow(n.id))); return; }
+      cardClose(); runLine(withArea(line));
+    });
+    c.querySelector(".rcRename").addEventListener("click", function () { cardNew({ place: n.id, name: n.name }); });
+    c.querySelector(".rcOff").addEventListener("click", function () { nameAsk({ t: "unname", place: n.id }); });
+  }
+  function cardNew(ref) {  // a block tapped (ref x, y) or a rename (ref place, name)
+    var c = cardOpen("new", ref, '<div class="rcTitle">' + (ref.place ? "A new name" : "What's this?") + '</div><input type="text" autocapitalize="none" maxlength="24" placeholder="e.g. bed">' + btn("rcName", "NAME") + btn("rcClose", "CLOSE"));
+    var input = c.querySelector("input"); if (ref.name) input.value = ref.name;
+    c.querySelector(".rcName").addEventListener("click", function () {
+      var why = RW.nameCheck(input.value);
+      if (why) { cardMsg(why); return; }
+      nameAsk(ref.place ? { t: "name", place: ref.place, name: input.value } : { t: "name", x: Math.round(ref.x * 100) / 100, y: Math.round(ref.y * 100) / 100, name: input.value });
+    });
+    input.focus();
+  }
+  function nameAsk(m) {
+    m.id = roomId++;
+    if (!feedSend(m)) { cardMsg("Start the AI helper on the laptop to see the room."); return; }
+    roomReps[m.id] = true; cardMsg("…");
+  }
+  function roomRep(m) {
+    delete roomReps[m.id];
+    if (card) cardMsg(m.msg);
+    if (m.ok && card && card.kind !== "pin") setTimeout(function () { if (card && card.kind !== "pin") cardClose(); }, 1200);
+  }
+  $("roomCard").addEventListener("click", function (e) { if (e.target.classList.contains("rcClose")) cardClose(); });
+  $("roomMap").addEventListener("click", function (e) {
+    if (!roomT) return;
+    var r = this.getBoundingClientRect(), h = RV.hit(room.state, roomT, e.clientX - r.left, e.clientY - r.top);
+    if (h.kind === "pin") cardPin(h.ref); else if (h.kind === "name") cardName(h.ref); else if (h.kind === "block") cardNew(h.ref); else cardClose();
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("#roomLayers input[data-layer]"), function (b) {
+    b.checked = room.state.layers[b.dataset.layer];
+    b.addEventListener("change", function () {
+      room.setLayer(b.dataset.layer, b.checked);
+      try { localStorage.setItem("cq_room_layers", room.layersJson()); } catch (x) { /* private mode */ }
+    });
+  });
+  room.on(function (what) {
+    if (what === "room" || what === "feed") { roomList(); roomNote(); }
+    if (what !== "feed" || roomTab) roomDraw();
+  });
+  window.addEventListener("cqtheme", roomDraw);
+  window.addEventListener("resize", roomDraw);
+
   // ---------- tabs ----------
-  Array.prototype.forEach.call(document.querySelectorAll("nav button"), function (b) {
+  Array.prototype.forEach.call(document.querySelectorAll("header nav button"), function (b) {
     b.addEventListener("click", function () {
-      Array.prototype.forEach.call(document.querySelectorAll("nav button"), function (o) { o.classList.toggle("on", o === b); });
+      Array.prototype.forEach.call(document.querySelectorAll("header nav button"), function (o) { o.classList.toggle("on", o === b); });
       $("tPlay").classList.toggle("hidden", b.dataset.tab !== "play");
       $("tRoom").classList.toggle("hidden", b.dataset.tab !== "room");
-      $("tInside").classList.toggle("hidden", b.dataset.tab !== "inside");
+      var was = roomTab;
+      roomTab = b.dataset.tab === "room";
+      if (roomTab !== was) roomSay(roomTab);
+      if (roomTab) { roomList(); roomNote(); roomDraw(); } else cardClose();
     });
   });
 

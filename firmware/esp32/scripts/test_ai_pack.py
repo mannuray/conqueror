@@ -22,8 +22,7 @@ class AiPage(unittest.TestCase):
 
     def test_no_inside_tab(self) -> None:
         out = _PACK["assemble_page"](PROJECT, "/ai").decode()
-        if 'data-tab="inside"' in out:
-            self.skipTest("the INSIDE tab goes in Plan Z2b-2 Task 8")
+        self.assertNotIn('data-tab="inside"', out)
         self.assertNotIn('id="tInside"', out)
 
     def test_ai_within_its_30_kb(self) -> None:

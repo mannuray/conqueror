@@ -51,6 +51,15 @@ var cqRoomLib = (function () {
     for (var i = 0; i < LAYERS.length; ++i) if (typeof got[LAYERS[i]] === "boolean") this.state.layers[LAYERS[i]] = got[LAYERS[i]];
   };
 
+  // A binary message from the feed: a map frame (header kind "map", then the PNG) or null for a camera frame.
+  function splitMap(buf) {
+    if (buf.byteLength < 4) return null;
+    var n = new DataView(buf).getUint32(0), head;
+    try { head = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, n))); } catch (e) { return null; }
+    if (!head || head.kind !== "map") return null;
+    return { header: head, png: new Uint8Array(buf, 4 + n, head.png) };
+  }
+
   // ---------- the words ----------
   var RoomWords = {
     ago: function (s) {
@@ -194,7 +203,7 @@ var cqRoomLib = (function () {
     }
   };
 
-  return { RoomModel: RoomModel, RoomWords: RoomWords, RoomView: RoomView };
+  return { RoomModel: RoomModel, RoomWords: RoomWords, RoomView: RoomView, splitMap: splitMap };
 })();
 if (typeof window !== "undefined") window.cqRoom = cqRoomLib;
 if (typeof module !== "undefined") module.exports = cqRoomLib;

@@ -3022,6 +3022,7 @@ classDiagram
 
 ### R27.4 The page (`web/ai.html`)
 - **Look (design-notes §204, replaces the mock-up below):** the Stitch laptop screen `docs/design/stitch/21-ai-desktop-v1.png` - camera card left, thinking and play right; on a phone the same in one column, thinking first. Only real readouts.
+- **Two looks (design-notes §206):** every colour, font, radius and effect is a CSS variable on `:root`; `[data-theme="play"]` gives the Stitch "Sunny Play" values, the default set the Phosphor Cockpit. A few lines in `<head>` set `data-theme` before drawing (`localStorage` `cq_theme`, else Sunny for `(pointer: coarse)` and the cockpit otherwise); the header palette button before STOP flips and remembers it. STOP stays solid red in both. Checked by `web/test/theme_check.js`.
 - **Look and frame:** the mock-up `docs/design/ai-page-mockup.dc.html` (Phosphor Cockpit tokens, corner-bracket cards, the drive page's STOP top right on every tab, six status chips, a segmented tab bar). Icons from `web/icons.json` (R25).
 - **Modules, plain JS in one file** (as `logo.html`):
 ```mermaid

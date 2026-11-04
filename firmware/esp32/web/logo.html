@@ -19,14 +19,16 @@
   /* Every other colour of this page (bridge LLD R28: Sunny Play changes only these, in theme.css). */
   --ui-rgb: 51, 255, 102; --warn-rgb: 255, 176, 0; --warn-edge: rgba(255, 176, 0, .5); --run-line: rgba(255, 176, 0, .14);
   --stop-ink: #fff; --on-warn: #000; --dim-layer: rgba(0, 0, 0, .7); --cam-label: rgba(0, 0, 0, .65); --code-font: var(--mono);
+  --scanlines: repeating-linear-gradient(0deg, rgba(var(--ui-rgb), .025) 0 1px, transparent 1px 3px); --r: 0px; --r-card: 0px;
   --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 var(--mono); }
-body { background-image: repeating-linear-gradient(0deg, rgba(var(--ui-rgb), .025) 0 1px, transparent 1px 3px); padding-bottom: 76px; }
+body { background-image: var(--scanlines); padding-bottom: 76px; }
 a, button, input, textarea, select { font: inherit; color: inherit; }
 button { background: transparent; border: 1px solid var(--edge-c); color: var(--ui); padding: 8px 10px; letter-spacing: .06em; cursor: pointer; }
 button:disabled { opacity: .35; cursor: default; }
+button, input, select, .chip, .badge { border-radius: var(--r); }
 svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
 header { padding: 10px max(12px, env(safe-area-inset-left)) 8px; border-bottom: 1px solid var(--edge-c);
   position: sticky; top: 0; z-index: 10; background: var(--bg); }  /* STOP always on screen (§21.6), above the sheets */
@@ -40,7 +42,7 @@ header { padding: 10px max(12px, env(safe-area-inset-left)) 8px; border-bottom: 
 #menu { display: none; position: fixed; right: 12px; top: 52px; z-index: 11; background: var(--panel); border: 1px solid var(--edge-c); }
 #menu.on { display: block; } #menu a { display: block; padding: 12px 18px; color: var(--ui); text-decoration: none; border-bottom: 1px solid var(--line); }
 main { padding: 10px 12px; display: grid; gap: 10px; }
-.card { border: 1px solid var(--edge-c); background: var(--panel); padding: 10px; min-width: 0; }
+.card { border: 1px solid var(--edge-c); background: var(--panel); padding: 10px; min-width: 0; border-radius: var(--r-card); }
 .card h2 { margin: 0 0 8px; font-size: 12px; color: var(--ui); letter-spacing: .1em; display: flex; justify-content: space-between; gap: 8px; }
 .badge { color: var(--warn); border: 1px solid var(--warn-edge); padding: 0 6px; font-size: 11px; }
 .progbar { display: flex; gap: 6px; } .progbar span { display: none; } .progbar select { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--edge-c); color: var(--ui); padding: 8px; }
@@ -67,7 +69,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 .pad { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; } .pad button { padding: 7px 9px; font-size: 13px; }
 .pad button small { color: var(--dim); } .help { margin-top: 6px; color: var(--dim); min-height: 1.4em; }
 #diags { margin-top: 8px; } .diag { border-left: 3px solid var(--danger); padding: 6px 8px; margin-bottom: 6px; cursor: pointer; }
-.diag.warn { border-color: var(--warn); } .diag pre { margin: 0; font: 15px/1.4 var(--mono); color: var(--active); overflow: hidden; }
+.diag.warn { border-color: var(--warn); } .diag pre { margin: 0; font: 15px/1.4 var(--code-font); color: var(--active); overflow: hidden; }
 .diag p { margin: 2px 0 0; font-size: 14px; color: var(--active); }
 .msgs { display: flex; gap: 10px; } #log { flex: 1; min-width: 0; max-height: 9.5em; overflow: auto; font-size: 12px; }
 #log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } #log .say { color: var(--show); } #log .end { color: var(--warn); }

@@ -1,6 +1,6 @@
 // Plan Sunny (bridge LLD R28.5) browser check (Playwright run_code) on the stand-in tank web/test/fake_tank.py :8765.
 // The cockpit never changes: each page in the cockpit, at phone and laptop size, is compared element by element
-// (computed colours, shadows, fonts) with the same page from the baseline commit 5521b22 (before any look change),
+// (computed colours, shadows, fonts, background images, corner radii, ::before / ::after) with the same page from the baseline commit 5521b22 (before any look change),
 // served by a second stand-in on :8766:  git worktree add --detach ../look-base 5521b22 &&
 // (cd ../look-base/firmware/esp32 && python3 web/test/fake_tank.py 8766). A mismatch is looked at again once (live
 // pages can be caught mid-update). Elements Plan Sunny adds carry data-look-skip. Then the Sunny checks.
@@ -17,12 +17,16 @@ async (tab) => {
     await page.reload(); await page.waitForTimeout(1500);
     return q(() => {
       const P = ["color", "background-color", "border-top-color", "border-right-color", "border-bottom-color",
-        "border-left-color", "box-shadow", "text-shadow", "font-family", "outline-color", "fill", "stroke", "opacity"];
+        "border-left-color", "box-shadow", "text-shadow", "font-family", "outline-color", "fill", "stroke", "opacity",
+        "background-image", "border-top-left-radius", "border-bottom-right-radius", "display"];
       const out = [];
       for (const el of document.querySelectorAll("body *")) {
         if (el.closest("[data-look-skip]")) continue;
-        const cs = getComputedStyle(el);
-        out.push(el.tagName + "#" + el.id + "|" + P.map((pr) => cs.getPropertyValue(pr)).join("|"));
+        for (const pseudo of [null, "::before", "::after"]) {
+          const cs = getComputedStyle(el, pseudo);
+          if (pseudo && cs.content === "none") continue;
+          out.push(el.tagName + "#" + el.id + (pseudo || "") + "|" + P.map((pr) => cs.getPropertyValue(pr)).join("|"));
+        }
       }
       return out;
     });
@@ -53,6 +57,7 @@ async (tab) => {
   await open("/", 844, 390);
   S.driveGlass = [await css("#menuBtn", "color"), await css("#menuBtn", "background-color")];  // navy on white glass
   S.driveStop = await css("#stop", "background-color");                                          // rgb(232, 56, 46)
+  S.driveTitle = await css(".stick .ttl", "text-shadow");  // final review I3: a white halo, readable on the video
   const caret = () => pixel("#hdgTape", 0.5, 0.92);
   const caretSunny = await caret();
   await page.click("#menuBtn"); await page.click("#miLook"); await page.waitForTimeout(100);
@@ -60,6 +65,10 @@ async (tab) => {
   // /logo: the page, STOP, the code font stays fixed-width, LOOK in the ☰ menu flips, the path is redrawn
   await open("/logo", 1440, 900);
   S.logo = [await css("body", "background-color"), await css("#stop", "background-color"), await css("#src", "font-family")];
+  S.logoRunInk = await css("#run", "color");  // final review I2: navy on orange (white was 2.5:1)
+  await q(() => { const s = document.getElementById("src"); s.value = "FORWAD 50\n"; s.dispatchEvent(new Event("input")); });
+  await page.waitForTimeout(1200);
+  S.logoDiag = await css(".diag pre", "font-family");  // final review I1: fixed-width, so the ▲ points at the right letter
   await q(() => { const s = document.getElementById("src"); s.value = "FORWARD 50\n"; s.dispatchEvent(new Event("input")); });
   await page.waitForTimeout(1200);
   const pathPx = () => q(() => { const c = document.getElementById("path"), g = c.getContext("2d"), d = g.getImageData(0, 0, c.width, c.height).data;
@@ -108,8 +117,32 @@ async (tab) => {
   await priv.click("#themeBtn");
   S.private = [t0, await priv.evaluate(() => document.documentElement.dataset.theme)];            // cockpit, play
   await priv.close();
+  // final review minors: one Sunny HUD value (M1); Sunny's shape and no cockpit effects (M2); the browser bar follows
+  // the look (M5); darker code colours on cream (M4); digits that do not jitter (M7)
+  const M = (S.minors = {});
+  await open("/ai", 390, 844);
+  M.hud = await q(() => cqTheme.colour("--hud-bg"));                                               // rgba(255,255,255,.88)
+  await open("/settings", 390, 844);
+  M.settings = [await q(() => getComputedStyle(document.querySelector(".card"), "::before").display),  // none
+    await css("body", "background-image"), await css(".card", "border-top-left-radius"),            // none, 18px
+    await css("input", "border-top-left-radius"), await q(() => document.querySelector("meta[name=theme-color]").content)];  // 12px, #fff8ec
+  await open("/logo", 1440, 900);
+  M.logo = [await css("body", "background-image"), await css(".card", "border-top-left-radius"), await css("#run", "border-top-left-radius"),
+    await q(() => ["--cmt", "--turn", "--flow", "--num", "--move"].map((n) => cqTheme.colour(n)).join())];
+  await open("/", 844, 390);
+  M.drive = [await css("#menuBtn", "border-top-left-radius"), await css(".pad", "box-shadow"), await css("#hdgVal", "font-variant-numeric"),
+    await q(() => document.querySelector("meta[name=theme-color]").content)];
+  await page.click("#menuBtn"); await page.click("#miLook"); await page.waitForTimeout(100);
+  M.driveCockpitMeta = await q(() => document.querySelector("meta[name=theme-color]").content);  // #050805
+  const minorsOk = M.hud === "rgba(255,255,255,.88)" &&
+    M.settings.join("|") === "none|none|18px|12px|#fff8ec" &&
+    M.logo.join("|") === "none|18px|12px|#667183,#5c7a00,#087d86,#aa5d00,#178236" &&
+    M.drive[0] === "12px" && !M.drive[1].includes("31, 111, 209") && M.drive[2] === "tabular-nums" && M.drive[3] === "#fff8ec" &&
+    M.driveCockpitMeta === "#050805";
   const every = (a, v) => a.length === PAGES.length && a.every((x) => x === v);
-  out.pass = every(S.allPlay, "play") && every(S.allCockpit, "cockpit") && S.junk === "cockpit" && every(S.noSideways, true) &&
+  out.pass = minorsOk && S.driveTitle.includes("rgb(255, 255, 255)") && S.logoRunInk === "rgb(29, 43, 68)" &&
+    S.logoDiag.startsWith("ui-monospace") &&
+    every(S.allPlay, "play") && every(S.allCockpit, "cockpit") && S.junk === "cockpit" && every(S.noSideways, true) &&
     S.private.join() === "cockpit,play" &&
     cockpitSame && S.help[0] === "rgb(255, 248, 236)" && S.help[1] && S.help[2].startsWith("ui-monospace") && S.help[3] === "none" && S.settings.join() === "rgb(255, 248, 236),rgb(255, 255, 255)" &&
     S.settingsFlip.join() === "cockpit,true" && S.settingsTitle &&

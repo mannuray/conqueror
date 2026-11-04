@@ -18,16 +18,24 @@ var cqTheme = (function () {
     var t = current() === "play" ? "cockpit" : "play";
     root().dataset.theme = t;
     try { localStorage.setItem(KEY, t); } catch (e) { /* private mode: this visit only */ }
+    syncBar();
     window.dispatchEvent(new Event("cqtheme"));
     return t;
   }
 
   function colour(name) { return getComputedStyle(root()).getPropertyValue(name).trim(); }
 
+  // the phone's browser bar takes the page colour of the look
+  function syncBar() {
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.content = colour("--bg");
+  }
+
   if (typeof document !== "undefined") {
     var saved = null;
     try { saved = localStorage.getItem(KEY); } catch (e) { /* private mode */ }
     root().dataset.theme = pick(saved, window.matchMedia("(pointer: coarse)").matches);
+    document.addEventListener("DOMContentLoaded", syncBar);  // the page's own :root is read by then
   }
   return { KEY: KEY, pick: pick, current: current, flip: flip, colour: colour };
 })();

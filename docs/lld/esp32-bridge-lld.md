@@ -3092,7 +3092,7 @@ stateDiagram-v2
 
 ### R28.1 What changes
 - Every page (`/`, `/logo`, `/settings`, `/help`, `/ai`) shows either the Phosphor Cockpit (each page's own `:root`, unchanged) or **Sunny Play** (Stitch design system `assets/9779248838636593021`), chosen once per device.
-- Shared, put in at build time: `web/theme.css` (only `:root[data-theme="play"] { … }`) and `web/theme.js` (`cqTheme`). `scripts/pack_web.py` replaces `<!--CQ:THEME-->` in each page's `<head>` with `<style>theme.css</style><script>theme.js</script>`; a page without the marker fails the build.
+- Shared, put in at build time: `web/theme.css` (only `:root[data-theme="play"] { … }`; the part before the first `/* pages: … */` line goes to every page, each `pages:` section only to the pages it names; a `</style` in it fails the build) and `web/theme.js` (`cqTheme`; it also sets the phone's browser-bar colour, `meta theme-color`, to the look's `--bg`). `scripts/pack_web.py` replaces `<!--CQ:THEME-->` in each page's `<head>` with `<style>theme.css</style><script>theme.js</script>`; a page without the marker fails the build.
 - Canvas drawings read their colours from CSS variables through `cqTheme.colour(name)` and redraw on the `cqtheme` event.
 - The switch: a palette button in the `/settings` and `/ai` headers, a LOOK item in the ☰ menu of the drive page and of `/logo` (as built: a header button wrapped `/logo`'s title on a phone); `/help` has none.
 

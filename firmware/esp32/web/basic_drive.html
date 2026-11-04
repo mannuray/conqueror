@@ -28,7 +28,10 @@
   --ghost: rgba(184, 255, 201, .75); --ghost-ind: #d9ffe3;
   --bad-bg: rgba(10, 4, 4, .85); --warn-bg: rgba(10, 8, 2, .85); --bad-glow: rgba(255, 59, 48, .35);
   --sheet-bg: rgba(6, 14, 8, .94); --dim-layer: rgba(0, 0, 0, .55);
-  --on-ui: #032; --on-warn: #221500; --good: #33ff66; --off: #7a857c; --glass-ink: var(--ui);
+  --on-ui: #032; --on-warn: #221500; --good: #33ff66; --off: #7a857c; --glass-ink: var(--ui); --label-halo: var(--glow);
+  --r-glass: 7px; --r-btn: 5px; --pad-glow: 0 0 16px rgba(var(--ui-rgb), .28), inset 0 0 22px rgba(var(--ui-rgb), .12);
+  --slider-glow: 0 0 16px rgba(var(--ui-rgb), .28), inset 0 0 18px rgba(var(--ui-rgb), .12);
+  --knob-glow: 0 0 18px rgba(var(--ui-rgb), .7), inset 0 0 10px rgba(var(--ui-rgb), .35);
   --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
   /* Stick sizes (owner, 2026-10-15: ~40 % larger so fingers are not constrained); the side gauges end above them. */
   --pad: min(44vh, 27vw, 230px);  /* both rings and the RC sliders (equal rings, R3.8) */
@@ -42,7 +45,7 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 #video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
 .novideo { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--dim); letter-spacing: .1em; }
 .ov { position: fixed; z-index: 2; }
-.glass { background: var(--glass); border: 1px solid var(--edge-c); border-radius: 7px; box-shadow: var(--glow); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.glass { background: var(--glass); border: 1px solid var(--edge-c); border-radius: var(--r-glass); box-shadow: var(--glow); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
 .chips { top: 10px; left: var(--inset); display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(50vw - 95px); }
 .chip { padding: 5px 8px; white-space: nowrap; color: var(--glass-ink); }
 .chip small { color: var(--dim); margin-right: 3px; letter-spacing: .05em; }
@@ -60,9 +63,10 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 /* Heading tape (R3.9): HUD scale sliding under a fixed centre caret, exact heading boxed below. */
 .hdg { top: 8px; left: 50%; transform: translateX(-50%); width: min(280px, 28vw); height: 46px; padding: 0; border-radius: 10px; overflow: hidden; }
 #hdgTape { display: block; width: 100%; height: 30px; }
+.vitals, #hdgVal, .gval { font-variant-numeric: tabular-nums; }  /* digits keep their width in any font */
 #hdgVal { position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); padding: 0 8px; border: 1px solid var(--ui); border-radius: 4px;
   background: var(--hud-bg); color: var(--active); font-size: 11px; line-height: 13px; text-shadow: var(--glow); }
-#stop { top: 10px; right: var(--redge); background: var(--danger); color: var(--stop-ink); border: 1px solid var(--stop-edge-c); border-radius: 7px;
+#stop { top: 10px; right: var(--redge); background: var(--danger); color: var(--stop-ink); border: 1px solid var(--stop-edge-c); border-radius: var(--r-glass);
   font-size: 16px; font-weight: 800; letter-spacing: .12em; padding: 10px 18px; box-shadow: 0 0 14px var(--stop-glow);
   display: flex; gap: 8px; align-items: center; z-index: 8; /* above the menu's dim layer (R13.1) */ }
 #stop svg { width: 18px; height: 18px; }
@@ -81,14 +85,14 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 #battMask { position: absolute; left: 0; right: 0; top: 0; height: 100%; background: var(--mask); }
 #distMask { position: absolute; left: 0; right: 0; top: 0; height: 100%; background: var(--mask); }
 .stick { position: relative; padding-top: 16px; display: flex; flex-direction: column; gap: 5px; align-items: center; }  /* title floats above */
-.stick .ttl { color: var(--ui); font-size: 10px; letter-spacing: .12em; text-shadow: var(--glow); }
+.stick .ttl { color: var(--ui); font-size: 10px; letter-spacing: .12em; text-shadow: var(--label-halo); }
 .pad { position: relative; width: var(--pad); aspect-ratio: 1; border-radius: 50%; border: 2px solid rgba(var(--ui-rgb), .55);
-  background: radial-gradient(circle, var(--pad-in) 55%, var(--pad-out)); box-shadow: 0 0 16px rgba(var(--ui-rgb), .28), inset 0 0 22px rgba(var(--ui-rgb), .12); touch-action: none; }
+  background: radial-gradient(circle, var(--pad-in) 55%, var(--pad-out)); box-shadow: var(--pad-glow); touch-action: none; }
 .pad::before, .pad::after { content: ""; position: absolute; background: rgba(var(--ui-rgb), .2); }
 .pad::before { left: 50%; top: 10%; bottom: 10%; width: 1px; } .pad::after { top: 50%; left: 10%; right: 10%; height: 1px; }
 .knob { position: absolute; left: 50%; top: 50%; width: 34%; height: 34%; margin: -17% 0 0 -17%; border-radius: 50%; z-index: 1;
   background: radial-gradient(circle at 45% 40%, var(--knob-a), var(--knob-b) 70%); border: 2px solid var(--ui);
-  box-shadow: 0 0 18px rgba(var(--ui-rgb), .7), inset 0 0 10px rgba(var(--ui-rgb), .35);
+  box-shadow: var(--knob-glow);
   display: flex; align-items: center; justify-content: center; color: var(--knob-ink); }
 .knob svg { width: 45%; height: 45%; stroke-width: 2.5; }
 .pad.held .knob { background: radial-gradient(circle at 45% 40%, var(--knob-held-a), var(--knob-held-b) 70%); color: var(--knob-held-ink); }
@@ -104,7 +108,7 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .right .stick .ttl { left: auto; right: 0; }
 /* RC two-hand mode (R3.4): throttle (vertical) and steering (horizontal) sliders; the camera ring shrinks to an indicator. */
 .slider { position: relative; border-radius: 32px; border: 2px solid rgba(var(--ui-rgb), .55); background: var(--slider-bg);
-  box-shadow: 0 0 16px rgba(var(--ui-rgb), .28), inset 0 0 18px rgba(var(--ui-rgb), .12); touch-action: none; }
+  box-shadow: var(--slider-glow); touch-action: none; }
 .slider.v { width: 64px; height: var(--pad); }
 .slider.h { height: 64px; width: var(--pad); }  /* same travel as the throttle (R3.8) */
 .slider::before { content: ""; position: absolute; background: rgba(var(--ui-rgb), .25); }
@@ -140,11 +144,11 @@ body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 
 .vitals { padding: 5px 14px; border-radius: 16px; color: var(--active); white-space: nowrap; letter-spacing: .03em; }
 .vitals i { color: var(--dim); font-style: normal; margin: 0 6px; }
 /* Bridge LLD R6: one slim line in the middle of the video for every banner (stall / fault stops, S1, offline, busy). */
-.banner { top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 90vw; padding: 4px 12px; border-radius: 7px; text-align: center;
+.banner { top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 90vw; padding: 4px 12px; border-radius: var(--r-glass); text-align: center;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 5;
   background: var(--bad-bg); display: none; }
 /* R6.5: an encoder the Uno switched off stays off until a restart - a small amber line under the heading tape. */
-.encnote { top: 60px; left: 50%; transform: translateX(-50%); padding: 2px 10px; border-radius: 7px; white-space: nowrap;
+.encnote { top: 60px; left: 50%; transform: translateX(-50%); padding: 2px 10px; border-radius: var(--r-glass); white-space: nowrap;
   border: 1px solid var(--warn); color: var(--warn); background: var(--warn-bg); font-size: .85em; display: none; }
 .encnote.show { display: block; }
 .banner.show { display: block; } .banner.warn { border: 1px solid var(--warn); color: var(--warn); } .banner.bad { border: 1px solid var(--danger); color: var(--danger); box-shadow: 0 0 10px var(--bad-glow); }
@@ -155,7 +159,7 @@ body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 
 #dim { inset: 0; background: var(--dim-layer); z-index: 6; display: none; }
 #dim.show { display: block; }
 #menuSheet { top: 54px; bottom: auto; width: min(300px, 86vw); max-height: 80vh; z-index: 7; }
-.mi { display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin-top: 6px; border: 1px solid var(--edge-c); border-radius: 5px; color: var(--ui); text-decoration: none; }
+.mi { display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin-top: 6px; border: 1px solid var(--edge-c); border-radius: var(--r-btn); color: var(--ui); text-decoration: none; }
 .mi svg { width: 18px; height: 18px; flex: none; }
 .mi b { display: block; letter-spacing: .08em; } .mi small { color: var(--dim); }
 .mi i { margin-left: auto; font-style: normal; }
@@ -167,11 +171,11 @@ body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 
 .mi .bdg { border: 1px solid var(--warn); color: var(--warn); font-size: 9px; padding: 1px 5px; white-space: nowrap; }
 .sheet .title { color: var(--ui); text-shadow: var(--glow); font-size: 11px; letter-spacing: .1em; margin: 0 0 8px; }
 .sgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.sgrid .btn { font-size: 11px; background: rgba(var(--ui-rgb), .05); border: 1px solid var(--edge-c); border-radius: 5px; padding: 8px 6px; }
+.sgrid .btn { font-size: 11px; background: rgba(var(--ui-rgb), .05); border: 1px solid var(--edge-c); border-radius: var(--r-btn); padding: 8px 6px; }
 .sgrid .btn:active { background: var(--ui); color: var(--on-ui); }
 input[type=range] { width: 100%; accent-color: var(--ui); }
 .hidden { display: none !important; }
-#toast { position: fixed; left: 50%; top: 92px; transform: translateX(-50%); padding: 7px 12px; border-radius: 7px; z-index: 5;
+#toast { position: fixed; left: 50%; top: 92px; transform: translateX(-50%); padding: 7px 12px; border-radius: var(--r-glass); z-index: 5;
   background: var(--glass); border: 1px solid var(--warn); color: var(--warn); opacity: 0; transition: opacity .2s; pointer-events: none; }
 #toast.show { opacity: 1; }
 #rotate { position: fixed; inset: 0; z-index: 9; display: none; align-items: center; justify-content: center; text-align: center; padding: 24px;
@@ -406,12 +410,13 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   var CARD = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
   function norm(a) { return ((Math.round(a) % 360) + 360) % 360; }
   // Heading tape (R3.9): 2.8 px per degree, ticks every 5° (longer every 15°), numbers every 30°, letters every 45°.
-  var TAPE_PX = 2.8, tapeFont = "", tapeHead = 0;
+  var TAPE_PX = 2.8, tapeFont = "", tapeHead = 0, tapeInk = null;
   function drawTape(head) {
     tapeHead = head;
-    var ui = cqTheme.colour("--ui-rgb"), active = cqTheme.colour("--active");  // colours from the CSS (bridge LLD R28)
     var c = $("hdgTape"), dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
     if (!w) return;
+    if (!tapeInk) tapeInk = { ui: cqTheme.colour("--ui-rgb"), active: cqTheme.colour("--active") };  // from the CSS, once per look (R28)
+    var ui = tapeInk.ui, active = tapeInk.active;
     if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
     var g = c.getContext("2d"), mid = w / 2, hd = norm(head);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -984,7 +989,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   connect();
   startVideo();
   drawTape(0);
-  window.addEventListener("cqtheme", function () { tapeFont = ""; drawTape(tapeHead); });  // the look flipped (R28)
+  window.addEventListener("cqtheme", function () { tapeFont = ""; tapeInk = null; drawTape(tapeHead); });  // the look flipped (R28)
   $("miLook").addEventListener("click", function (e) { e.preventDefault(); cqTheme.flip(); });  // the menu stays open
   showVitals();
   pollWifi();

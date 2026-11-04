@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pathlib
 import runpy
+import tempfile
 import unittest
 
 PROJECT = pathlib.Path(__file__).resolve().parents[1]
@@ -30,6 +31,26 @@ class Theme(unittest.TestCase):
             with self.subTest(uri=uri):
                 text = _PACK["assemble_page"](PROJECT, uri).decode()
                 self.assertEqual(text.count("window.cqTheme ="), 1)
+
+    def test_a_style_end_in_theme_css_fails_the_build(self) -> None:  # final review M8
+        with tempfile.TemporaryDirectory() as d:
+            web = pathlib.Path(d) / "web"
+            web.mkdir()
+            (web / "theme.css").write_text("/* </style> */\n", encoding="utf-8")
+            (web / "theme.js").write_text("var cqTheme = {};\n", encoding="utf-8")
+            with self.assertRaises(SystemExit) as e:
+                _PACK["with_theme"]("<head><!--CQ:THEME--></head>", pathlib.Path(d), "/x")
+            self.assertIn("</style", str(e.exception))
+
+    def test_a_page_gets_only_its_own_sunny_block(self) -> None:  # final review M9: /logo's budget
+        logo = _PACK["assemble_page"](PROJECT, "/logo").decode()
+        drive = _PACK["assemble_page"](PROJECT, "/").decode()
+        self.assertIn("--move:", logo)           # the code colours: /logo only
+        self.assertNotIn("--move:", drive)
+        self.assertIn("--knob-a:", drive)        # the sticks: the drive page only
+        self.assertNotIn("--knob-a:", logo)
+        self.assertIn("--danger:", logo)         # the shared names: every page
+        self.assertIn("--danger:", drive)
 
 
 if __name__ == "__main__":

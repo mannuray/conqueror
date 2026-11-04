@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import gzip
 import pathlib
+import re
 import struct
 import sys
 import zlib
@@ -119,9 +120,25 @@ def with_theme(text: str, project: pathlib.Path, page: str) -> str:
     if THEME_MARKER not in text:
         raise SystemExit(f"pack_web: {THEME_MARKER} missing in {page}")
     web = project / "web"
-    css = (web / "theme.css").read_text(encoding="utf-8")
+    css = theme_css_for((web / "theme.css").read_text(encoding="utf-8"), page)
+    if "</style" in css.lower():
+        raise SystemExit("pack_web: web/theme.css contains </style, which would end the page's <style> early")
     code = (web / "theme.js").read_text(encoding="utf-8").replace("</", "<\\/")  # never closes its <script>
     return text.replace(THEME_MARKER, f"<style>\n{css}</style>\n<script>\n{code}</script>", 1)
+
+
+PAGES_LINE = re.compile(r"^/\* pages: ([^*]*)\*/\n", re.MULTILINE)
+
+
+def theme_css_for(css: str, page: str) -> str:
+    """theme.css as one page gets it: the part before the first "/* pages: ... */" line goes to every page; each
+    section after such a line only to the pages it names (each page carries only its own Sunny values)."""
+    parts = PAGES_LINE.split(css)
+    out = [parts[0]]
+    for pages, body in zip(parts[1::2], parts[2::2]):
+        if page in pages.split():
+            out.append(body)
+    return "".join(out)
 
 
 def assemble_page(project: pathlib.Path, uri: str) -> bytes:

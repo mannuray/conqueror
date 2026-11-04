@@ -156,6 +156,11 @@ class Perception:
             self.last_seen = seen
         return used
 
+    def reload_detector(self, det: Detector) -> None:
+        """A new detector (a word was taught, §22.4), used from the next picture on: called on the event
+        loop between two pictures, so a picture never sees half of it."""
+        self.det = det
+
     def state(self, now: float) -> str | None:
         """None when pictures and telemetry are fresh; "waiting" before the first picture; else why not."""
         return map_state(now, self.t0, self.last_picture_s, self.last_telem_s)

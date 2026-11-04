@@ -26,6 +26,7 @@ async (tab) => {
         // old menu sheet) and the bar's menu are left out on both sides
         if (el.closest("[data-look-skip], header, #cqMenu, #cqDim, nav#menu, .rchips, #stop, #dim, #menuSheet, #stopMsg")) continue;
         if (el.hasAttribute("data-look-wrap")) continue;  // a wrapper the bar needed (Help's main): its contents are still compared
+        if (el.tagName === "SCRIPT" || el.tagName === "STYLE") continue;  // never drawn (R31 added a <script> to the drive page)
         for (const pseudo of [null, "::before", "::after"]) {
           const cs = getComputedStyle(el, pseudo);
           if (pseudo && cs.content === "none") continue;

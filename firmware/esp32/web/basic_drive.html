@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Conqueror Drive</title>
 <!--CQ:THEME-->
+<!--CQ:LINK-->
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
@@ -238,6 +239,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 <div id="toast"></div>
 <div id="rotate">[ ROTATE THE PHONE ]<br>landscape only</div>
 <script>
+<!--CQ:DRIVE_JS-->
+</script>
+<script>
 "use strict";
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -246,8 +250,8 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   var SOUNDS = ["startup", "ready", "selftest_fail", "chirp_up", "chirp_down", "blip", "tick", "jingle", "thinking", "ouch",
     "error", "success", "fanfare", "sad", "safety_chirp", "ack_blip", "fail", "confirm", "question", "ok_chirp", "grumble",
     "scan", "goodbye", "horn"];  // proto::SoundId order (spec 02 §A9 catalogue)
-  var ws = null, wsOpen = false, you = "", synced = false, owner = "none", ownerClient = "", ownerKnown = false;
-  var nextId = 1, retryMs = 1000, pingTimer = 0, camLocked = false, lastRxAt = 0;
+  var link = null, you = "", synced = false, owner = "none", ownerClient = "", ownerKnown = false;
+  var nextId = 1, camLocked = false;
   var speed = 60;
   try { speed = Number(localStorage.getItem("cq_speed")) || 60; } catch (e) { /* private mode */ }
   $("speed").value = speed;
@@ -255,54 +259,20 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   $("maxTxt").textContent = speed + "%";
 
   // ---------- WebSocket ----------
+  function linkUp() { return !!link && link.isOpen(); }
   function send(obj) {
     // Bridge LLD R6: the driver's STOP or drive 0/0 is exactly what frees the Uno's stall / fault latch.
-    if (latchAt && (obj.t === "stop" || (obj.t === "drive" && obj.v === 0 && obj.w === 0))) clearLatch();
-    if (ws && wsOpen) { ws.send(JSON.stringify(obj)); return true; }
-    return false;
+    if (latchAt && DriveModel.releasesLatch(obj)) clearLatch();
+    return link ? link.send(obj) : false;
   }
-  function connect() {
-    // design-notes §77: a hidden page holds no link - a background tab (timers slowed) would connect, go silent
-    // and be reaped every few seconds, making the tank beep and blink; it reconnects when shown again.
-    if (document.hidden || (ws && ws.readyState <= 1)) return;
-    setWs("wait", "...");
-    ws = new WebSocket("ws://" + location.host + "/ws");
-    ws.onopen = function () {
-      wsOpen = true; retryMs = 1000;
-      setWs("on", "--");
-      send({ t: "hello", client: "basic-drive", proto: 1 });
-      clearInterval(pingTimer);
-      lastRxAt = Date.now();
-      pingTimer = setInterval(function () {  // review M8: a silent socket is closed and reconnected (not shown as live)
-        if (Date.now() - lastRxAt > 4000) {  // final review: show offline now, the browser's close may take long
-          var dead = ws;
-          dead.onclose = null; dead.onerror = null; dead.onmessage = null;
-          goOffline();
-          try { dead.close(); } catch (e) { /* already closed */ }
-          return;
-        }
-        send({ t: "ping", t0: Date.now() });
-      }, 1000);
-      setPads();
-    };
-    ws.onmessage = function (ev) {
-      var m;
-      lastRxAt = Date.now();
-      try { m = JSON.parse(ev.data); } catch (e) { return; }
-      onMessage(m);
-    };
-    ws.onclose = goOffline;
-    ws.onerror = function () { ws.close(); };
-  }
-  function goOffline() {  // socket closed or silent: everything released, pads off, reconnect
-    if (!wsOpen && pingTimer === 0) return;
-    wsOpen = false; synced = false;
-    clearInterval(pingTimer); pingTimer = 0;
+  // the link (bridge LLD R31): cqLink connects, pings, closes a link silent for 4 s, reconnects from 1 s doubling to 5 s
+  // and holds no link while the page is hidden (§77); these are this page's own parts of opening and losing it
+  function linkOpened() { setWs("on", "--"); setPads(); }
+  function linkLost() {  // socket closed or silent: everything released, pads off
+    synced = false;
     releaseAll();
     setWs("", "OFF");
     setPads();
-    setTimeout(connect, retryMs);
-    retryMs = Math.min(retryMs * 2, 5000);
   }
   function setWs(cls, txt) {
     $("wsDot").className = "dot " + cls;
@@ -642,7 +612,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
       if (notify) onRelease();
     };
     el.addEventListener("pointerdown", function (ev) {
-      if (!wsOpen || el.classList.contains("off") || el.classList.contains("ind") || el.classList.contains("mini") || id !== null) return;
+      if (!linkUp() || el.classList.contains("off") || el.classList.contains("ind") || el.classList.contains("mini") || id !== null) return;
       id = ev.pointerId;
       el.setPointerCapture(id);
       self.held = true;
@@ -682,7 +652,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   function sendDrive() {
     // Review I2: never queue drives behind a slow link (they would arrive late, in a burst).
     // Skipping one is safe - the tank's deadman stops it if drives stop arriving.
-    if (ws && ws.bufferedAmount > 0) return;
+    if (link && link.busy()) return;
     var d = driveValues();
     send({ t: "drive", v: d.v, w: d.w });
   }
@@ -704,7 +674,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   var steer = new Stick($("steerPad"), startDriveTimer, steerRelease, "x");
 
   function sendCam() {
-    if (ws && ws.bufferedAmount > 0) return;  // same rule as drive (review I2)
+    if (link && link.busy()) return;  // same rule as drive (review I2)
     send({ t: "cam_joy", x: Math.round(cam.x * 100), y: Math.round(cam.y * 100), active: true });
   }
   var cam = new Stick($("camPad"), function () {
@@ -721,7 +691,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     clearInterval(driveTimer); driveTimer = 0; clearInterval(camTimer); camTimer = 0;
   }
   function setPads() {
-    var off = !wsOpen;
+    var off = !linkUp();
     $("drivePad").classList.toggle("off", off);
     $("camPad").classList.toggle("off", off);
     $("thrPad").classList.toggle("off", off);
@@ -729,10 +699,11 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   }
 
   // ---------- buttons ----------
-  $("stop").addEventListener("pointerdown", function (ev) {
-    ev.preventDefault();
+  // STOP on touch and from the keyboard (R31); the link down: its own socket, and said
+  cqBar.onStop(function () {
     releaseAll();
-    send({ t: "stop", id: nextId++ });
+    if (latchAt) clearLatch();  // R6: the driver's STOP frees the latch
+    link.stop([{ t: "stop", id: nextId++ }], function (t) { toast(t); });
     if (navigator.vibrate) navigator.vibrate(60);
   });
   $("audioChip").addEventListener("click", function () {
@@ -869,7 +840,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
               tx: 0, ty: 0, tAt: 0 };  // tx/ty: last target this page sent (tAt: when)
   function clamp100(v) { return Math.max(-100, Math.min(100, v)); }
   function sendLook() {
-    if (ws && ws.bufferedAmount > 0) return;
+    if (link && link.busy()) return;
     send({ t: "cam_joy", x: Math.round(look.x), y: Math.round(look.y), active: true });
     look.tx = look.x; look.ty = look.y; look.tAt = Date.now();
   }
@@ -881,7 +852,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   }
   function onVideo(ev) { return ev.target === $("video") || ev.target === $("noVideo"); }
   document.addEventListener("pointerdown", function (ev) {
-    if (!rc || !onVideo(ev) || !wsOpen || look.id !== null || $("camPad").classList.contains("ind")) return;
+    if (!rc || !onVideo(ev) || !linkUp() || look.id !== null || $("camPad").classList.contains("ind")) return;
     look.id = ev.pointerId; look.sx = ev.clientX; look.sy = ev.clientY; look.moved = false;
     if (camMoving && Date.now() - look.tAt < 3000) {  // still slewing to our last target: start from the target
       look.bx = look.tx; look.by = look.ty;
@@ -924,8 +895,8 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   // design-notes §201: the automatic STOP only when this page might be driving - a page that only watches another
   // device, a program or the IR remote leaves their drive alone (the red STOP button still stops everything, §72).
   function mightDrive() {
-    if (driveTimer !== 0 || drive.held || thr.held || steer.held) return true;
-    return !ownerKnown || owner === "none" || (owner === "human" && ownerClient === you);
+    return DriveModel.mightDrive({ driving: driveTimer !== 0 || drive.held || thr.held || steer.held,
+      ownerKnown: ownerKnown, owner: owner, ownerClient: ownerClient, you: you });
   }
   function hideStop(withId) {
     var mine = mightDrive();  // before releaseAll() clears the drive timer
@@ -934,11 +905,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   }
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) {
-      hideStop(true);
-      stopVideo();
-      if (ws && ws.readyState <= 1) ws.close();  // the STOP above is sent first (queued before the close)
+      stopVideo();  // the STOP (onHide below) goes out before cqLink closes the link
     } else {
-      retryMs = 1000; connect(); startVideo();
+      startVideo();
     }
   });
   window.addEventListener("pagehide", function () { hideStop(false); });
@@ -970,7 +939,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     img.src = "http://" + location.hostname + ":81/stream?t=" + Date.now();
   }
 
-  connect();
+  setWs("wait", "...");
+  link = cqLink.open({ client: "basic-drive", retryMs: 1000, onMessage: onMessage, onOpen: linkOpened, onClose: linkLost,
+    onHide: function () { hideStop(true); } });
   startVideo();
   drawTape(0);
   window.addEventListener("cqtheme", function () { tapeFont = ""; tapeInk = null; drawTape(tapeHead); });  // the look flipped (R28)

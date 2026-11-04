@@ -107,6 +107,16 @@ def assemble_logo(project: pathlib.Path) -> bytes:
     return text.replace("<!--CQ:LOGO_JS-->", code).replace("<!--CQ:WORDS-->", words).encode()
 
 
+def assemble_drive(project: pathlib.Path) -> bytes:
+    """/ (bridge LLD R31): web/basic_drive.html with <!--CQ:DRIVE_JS--> replaced by web/drive.js (DriveModel)."""
+    web = project / "web"
+    text = (web / "basic_drive.html").read_text(encoding="utf-8")
+    if "<!--CQ:DRIVE_JS-->" not in text:
+        raise SystemExit("pack_web: <!--CQ:DRIVE_JS--> missing in web/basic_drive.html")
+    code = (web / "drive.js").read_text(encoding="utf-8").replace("</", "<\\/")  # never closes its <script>
+    return text.replace("<!--CQ:DRIVE_JS-->", code).encode()
+
+
 def assemble_ai(project: pathlib.Path) -> bytes:
     """/ai (Plan Z2b-1, bridge LLD R27.4): web/ai.html with <!--CQ:AI_JS--> replaced by web/ai.js."""
     web = project / "web"
@@ -215,7 +225,7 @@ def assemble_page(project: pathlib.Path, uri: str, keep_comments: bool = False) 
     missing: b"". keep_comments: the page as written, for the size test."""
     web = project / "web"
     if uri == "/":
-        raw = (web / "basic_drive.html").read_bytes()
+        raw = assemble_drive(project)
     elif uri == "/settings":
         raw = (web / "settings.html").read_bytes()
     elif uri == "/logo":

@@ -73,7 +73,9 @@ var cqLink = (function () {
       env.stopOnce(env.url, function (ok) { if (say) say(ok ? "Stopped" : "Couldn't reach the tank - use another STOP", ok); });
     }
     connect();
-    return { send: send, isOpen: function () { return up; }, stop: stop };
+    // bytes still queued on the socket: the drive page then skips a drive command rather than pile them up (review I2)
+    function busy() { return !!ws && up && ws.bufferedAmount > 0; }
+    return { send: send, isOpen: function () { return up; }, busy: busy, stop: stop };
   }
   return { open: open };
 })();

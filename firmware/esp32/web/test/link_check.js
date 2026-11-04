@@ -3,11 +3,12 @@
 // tank silent (open, never answers), __down makes new sockets never open.
 async (page) => {
   const BASE = "http://127.0.0.1:8765";
-  // each page: what its STOP sends, and where it says it could not reach the tank
+  // each page: what its STOP sends, where it says it could not reach the tank, and where it shows the link lost
   const PAGES = [
-    { path: "/ai", stop: "stop,logo_stop", said: () => document.getElementById("typedMsg").textContent },
-    { path: "/logo", stop: "stop,logo_stop", said: () => document.getElementById("log").innerText },
-    { path: "/settings", stop: "stop,logo_stop", said: () => document.getElementById("toast").textContent },
+    { path: "/", stop: "stop", said: () => document.getElementById("toast").textContent, lost: ["latChip", "OFF"], size: [844, 390] },
+    { path: "/ai", stop: "stop,logo_stop", said: () => document.getElementById("typedMsg").textContent, lost: ["wifiTxt", "RECONNECTING"] },
+    { path: "/logo", stop: "stop,logo_stop", said: () => document.getElementById("log").innerText, lost: ["wifiTxt", "RECONNECTING"] },
+    { path: "/settings", stop: "stop,logo_stop", said: () => document.getElementById("toast").textContent, lost: ["wifiTxt", "RECONNECTING"] },
   ];
   const fails = [];
   const ok = (c, m) => { if (!c) fails.push(m); };
@@ -36,7 +37,7 @@ async (page) => {
   });
   const q = (f, a) => page.evaluate(f, a);
   for (const p of PAGES) {
-    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setViewportSize(p.size ? { width: p.size[0], height: p.size[1] } : { width: 390, height: 844 });
     await page.goto(BASE + p.path); await page.waitForTimeout(400);
     await q(() => { window.__mute = false; window.__down = false; });
     // STOP on a touch that never becomes a click (a sliding tap)
@@ -47,13 +48,13 @@ async (page) => {
     ok(sent === p.stop, p.path + ": a touch on STOP sent '" + sent + "'");
     // a silent tank: closed after 4 s, RECONNECTING, then a new socket
     const n0 = await q(() => window.__sockets.length);
-    await q(() => { window.__wifiSeen = []; const t = document.getElementById("wifiTxt");  // every text the WiFi chip shows
+    await q((id) => { window.__wifiSeen = []; const t = document.getElementById(id);  // every text the link chip shows
       new MutationObserver(() => window.__wifiSeen.push(t.textContent)).observe(t, { childList: true, characterData: true, subtree: true });
-      window.__mute = true; });
+      window.__mute = true; }, p.lost[0]);
     await page.waitForTimeout(3500);
     ok(await q(() => !window.__sockets[window.__sockets.length - 1].closed), p.path + ": the link was dropped before 4 s of silence");
     await page.waitForTimeout(2200);
-    ok(await q(() => window.__wifiSeen.indexOf("RECONNECTING") >= 0), p.path + ": a silent link was never shown as RECONNECTING");
+    ok(await q((txt) => window.__wifiSeen.indexOf(txt) >= 0, p.lost[1]), p.path + ": a silent link was never shown as " + p.lost[1]);
     ok(await q(() => window.__sockets.length) > n0, p.path + ": no new link after a silent one");
     // the link down: STOP through its own socket, and the page says it could not reach the tank
     await q(() => { window.__down = true; window.__sockets.forEach((s) => s.close()); });

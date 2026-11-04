@@ -148,3 +148,13 @@ test("STOP: sent on the link when it is open; through its own socket and said wh
   w.onceCalls[0].done(false);
   assert.deepEqual(said[1], ["Couldn't reach the tank - use another STOP", false]);
 });
+
+test("busy: the socket still has bytes queued (the drive page then skips a drive command, review I2)", () => {
+  const w = world(), { link } = openLink(w);
+  w.last().onopen();
+  assert.equal(link.busy(), false);
+  w.last().bufferedAmount = 120;
+  assert.equal(link.busy(), true);
+  w.last().onclose();
+  assert.equal(link.busy(), false);
+});

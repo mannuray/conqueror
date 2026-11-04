@@ -2589,3 +2589,161 @@ stateDiagram-v2
 - **`ServeApp` with fakes** (no tank): ask → answer; start find → frames → done; unknown thing → `failed unknown_thing` with no frames; a second start during a skill refused; link lost mid-skill → no more frames, reconnect, idle.
 - **The result mapping** to wire reasons, one test per `Result`.
 - **Floor (owner, Plan Z2a):** with the tank and `/logo` (Tank Logo LLD §24.3).
+
+## 22. The AI feed for the `/ai` page, and teach it a word (Plan Z2b; spec 8 Revision 2 §4.5, bridge LLD R27, design-notes §197-§200 — approved 2026-11-04)
+
+> **[Z2b-1]** first (the camera with boxes and depth, status, why, things, teach a word); **[Z2b-2]** the map and the Room / Inside lists on the same feed. The first draft (2026-11-03: uploads to the tank's port 82) is replaced (design-notes §199).
+
+### 22.1 What it is
+- The `/ai` page lives on the tank (bridge LLD R27); **its AI data comes straight from the engine.** `cq-drive serve` (§21) gains a **`FeedServer`**: one WebSocket on the laptop, `ws://0.0.0.0:8770/feed` (`--page-port`), that any number of pages (≤ 4) open.
+- The engine's hello to the bridge carries `"page": {"port": 8770, "proto": 1}`; the bridge tells the page the address (`ai_at`).
+- **Nothing on the feed can drive the tank.** STOP and the programs go from the page to the tank. A slow or gone page costs only its own frames: each page has a newest-wins outbox, and the skill never waits on it.
+- Work is done only while a page is connected; with none, the feed costs nothing.
+- macOS asks once to allow incoming connections for Python (the owner clicks Allow).
+
+### 22.2 The feed's messages
+| Direction | Message | When |
+|---|---|---|
+| engine → page | `{"t":"hello","proto":1}` | on connect |
+| engine → page | **binary frame**: 4-byte header length, header JSON `{"seq":n,"t_ms":…,"boxes":[["toy",0.91,x,y,w,h],…],"cam":len,"depth":len}`, the camera JPEG, the depth JPEG (or none) | with each picture `Perception` handles (≤ 14 / s) |
+| engine → page | `{"t":"status","state":"searching","mood":"curious","say":"I'm looking for the toy.","word":"toy","id":7,"pose":{"x":1.2,"y":-0.4,"h":87},"health":"ok","learning":false}` | ~10 Hz |
+| engine → page | `{"t":"why","lines":["…","…","…"]}` / `{"t":"things","list":[{"word":"toy","names":[…],"measured":true},…]}` | on change, and on connect |
+| page → engine | `{"t":"teach","id":n,"word":"cup","names":["mug"]}` | [Z2b-1] |
+| engine → page | `{"t":"rep","id":n,"ok":true,"msg":"I know cup now."}` | the answer |
+| engine → page | `map` (binary PNG + its frame), `memory`, `homes`, `achieve`, `health`, `timeline`; page → engine `home`, `forget`, `on_mark` | [Z2b-2] |
+
+- **The frame's details (design-notes §200):** the header length is big-endian; `t_ms` is the bridge's clock of the picture (R17); boxes are sure ones only (maybes left out), `ball:<name>` shown as `ball`. **Depth comes with each picture the map used** (`depth.every_n: 1`); a skipped picture has `depth: 0` and the page keeps the last depth.
+- **One frame, one message:** the picture, its boxes and its depth travel together, so the page's two views always show the same moment.
+- **Picture sizes:** the camera shrunk to 320 × 240, JPEG quality 70 (~10-15 KB); the depth 160 × 120, near bright, green (the page's palette), JPEG (~3 KB). ~0.2-0.3 MB/s per page on the home WiFi.
+- Boxes are positions 0..1000 of the picture, ≤ 8, with the words the child knows. People are shown as `person` boxes; a person is never a thing to find (§21.4).
+
+### 22.3 What it says (a child's words)
+- **`Thinking`** (domain, pure) turns the skill's phase and result into `(state, mood, say)`:
+
+| Phase / result | state | mood | say (example) |
+|---|---|---|---|
+| between words | `ready` | `happy` | "Ready to play!" |
+| find: looking round | `looking` | `curious` | "I'm looking round for the toy." |
+| find: searching | `searching` | `curious` | "I'm searching for the toy." |
+| find: checking a maybe | `checking` | `puzzled` | "Is that the toy? Let me check." |
+| find: chasing | `chasing` | `excited` | "I see the toy! Going to it." |
+| wander / explore | `exploring` | `curious` | "I'm exploring the room." |
+| setxy | `going` | `busy` | "I'm going there." |
+| any: recover (getting unstuck) | `unsticking` | `puzzled` | "Oops - I'm getting myself unstuck." |
+| done | `done` | `happy` | "I found the toy!" / "Done!" |
+| not found / lost / no way / outside / blocked | `failed` | `sad` | the error's own words (7050 ...) |
+| learning | `learning` | `thinking` | "I'm learning what a cup is." |
+| battery low (telemetry) | (kept) | `tired` | (kept) |
+
+  - `say` changes only when the state or the thing changes, so the phone's voice says each sentence once.
+- **`why`** - the last decision in three short lines (purpose / process / performance), from the skill's notes (§20.7): "I want the toy." / "That box-shaped thing 1.2 m ahead might be it so I'm going to look closer." / "I've checked 2 of 3 maybes in 14 s."
+
+### 22.4 Teach it a word [Z2b-1]
+- **Where things live:**
+  - `config/vocabulary.yaml` (in git) keeps only measured words;
+  - **`taught/vocabulary.yaml`** (git-ignored, new `ai-engine/taught/`): `{word, floor: true, names: [...], measured: false, taught: <date>}` per word;
+  - **`taught/yoloworld-s-640.mlpackage`** and `taught/words.txt` (the exact list it was made with). The detector loads the taught model when `words.txt` matches both files merged, else the one in `models/` - a worktree whose `models/` points at the main checkout never has its model overwritten.
+- **`export_world.py` gains** `--extra PATH` (merged after the measured words) and `--out DIR`.
+- **`Teacher.teach(word, names)`** (from the feed):
+  1. **checks:** letters, spaces and `-` only, ≤ 24 bytes, ≤ 8 names; never `person` (the person guard is the real rule, §21.4); already known as a word or a name → `ok` "I already know cup.";
+  2. refused while a skill runs (the page also refuses while its program runs);
+  3. `skill_learning on` to the bridge; writes `taught/vocabulary.yaml`;
+  4. runs `uv run --project tools/measure python export_world.py --extra … --out <temp>` as a child process (`asyncio.create_subprocess_exec`; the event loop goes on; 200 s limit; the first run downloads the weights, ~25 MB);
+  5. moves the new model into `taught/`, reloads the detector between two pictures, updates `Names`, sends the things list to the bridge (parts, §21) and to the pages;
+  6. `skill_learning off`; `rep ok "I know cup now."`.
+  - A failure at any step: the taught entry removed, the old model kept, `skill_learning off`, `rep ok:false` with the reason in plain words.
+- **A taught word is not measured:** the page says so ("I'll try - I've never seen one"); measuring it on the tank's camera and moving it into `config/` stays the owner's step.
+
+### 22.5 Classes
+```mermaid
+classDiagram
+  class ServeApp {
+    -on_teach(page, id, word, names)
+  }
+  class FeedServer {
+    <<adapter: ws :8770/feed>>
+    +run(stop) async
+    +pages() int
+    +frame(header, cam, depth)
+    +send(msg)
+    +requests() AsyncIterator
+    -outbox per page : newest wins per kind
+  }
+  class FeedPublisher {
+    +on_frame(frame, dets, depth) : only with pages
+    +tick(now) : status 10 Hz, why / things on change
+  }
+  class Thinking {
+    <<domain, pure>>
+    +update(phase, result, thing, battery) Thought
+    +why(notes) list~str~
+  }
+  class Thought { +state +mood +say +changed }
+  class Pictures {
+    <<domain>>
+    +cam_jpeg(frame) bytes
+    +depth_jpeg(depth) bytes
+    +map_png(room, pose) bytes, meta
+  }
+  class Teacher {
+    +teach(word, names) Reply async
+    -export() async : child process
+  }
+  class TaughtWords { <<file: taught/vocabulary.yaml>> +add() +remove() +merged() }
+  class SkillLink { +hello(page port) +learning(on) +set_things() }
+  class Names
+  class Perception { +reload_detector(path) }
+  ServeApp --> FeedServer
+  ServeApp --> FeedPublisher
+  ServeApp --> Teacher
+  FeedPublisher --> FeedServer
+  FeedPublisher --> Thinking
+  FeedPublisher --> Pictures
+  Teacher --> TaughtWords
+  Teacher --> Perception
+  Teacher --> Names
+  Teacher --> SkillLink
+```
+- **`FeedServer`** uses the `websockets` server the engine already depends on (nothing new to install). Each page has a small outbox: one frame, one status and one of each other kind, newest wins; a page whose send stalls for 5 s is closed. ≤ 4 pages; a fifth is refused.
+- **`FeedPublisher`** uses the pictures, detections, depth, `World` snapshot and skill notes `Perception` and the skill already make; it does no model work of its own (only JPEG encoding, ~1-2 ms a frame on the M1).
+
+### 22.6 One frame to the page, and a teach
+```mermaid
+sequenceDiagram
+  participant T as Tank (bridge)
+  participant E as Engine (Perception, FeedPublisher, FeedServer)
+  participant P as /ai page (from the tank)
+  P->>T: hello ai-page
+  T-->>P: ai_at ws://laptop:8770/feed
+  P->>E: open /feed
+  E-->>P: hello proto 1, things, why
+  loop each picture
+    E->>E: detections + depth (as today)
+    E-->>P: frame {seq, boxes, cam jpeg, depth jpeg}
+  end
+  P->>E: teach cup [mug]
+  E->>T: skill_learning on
+  E->>E: export (~1 min, its own process)
+  E->>T: skill_things (parts), skill_learning off
+  E-->>P: rep ok "I know cup now.", things
+```
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Idle : teach a known word (ok, nothing to do)
+  Idle --> Exporting : teach (no skill running): learning on
+  Exporting --> Swapping : export ok
+  Exporting --> Failed : error / 200 s
+  Swapping --> Idle : model reloaded, things sent, learning off, ok
+  Failed --> Idle : taught entry removed, old model kept, learning off, not ok
+```
+
+### 22.7 Tests (to write first)
+- **`Thinking`:** each row of §22.3; `changed` only on a new state or thing; low battery → `tired`.
+- **`Pictures`:** the camera at 320 × 240 and the depth at 160 × 120 from recorded frames; the depth colours (near bright).
+- **`FeedServer` + a test client:** hello on connect; a frame message splits back into header, camera and depth; a slow page gets the newest frame, never a growing queue, and is closed after 5 s stalled; a fifth page refused; nothing is done with no page.
+- **`FeedPublisher`:** status at ~10 Hz; `why` / `things` only on change and on connect.
+- **`Teacher`** (the export replaced by a fake process): a bad word refused; a known one `ok` with no export; success swaps the model, adds the word to `Names` and both things lists, learning on → off; a failing export keeps the old model and removes the entry; refused while a skill runs.
+- **`TaughtWords`** + the model choice: `words.txt` matching → taught model; else `models/`.
+- **`SkillLink`:** the hello carries `page`; `skill_learning` sent.
+- **`export_world.py --extra --out`:** run by hand (it downloads weights).

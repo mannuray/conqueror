@@ -1614,6 +1614,7 @@ A browser slows repeating timers in a hidden tab (Chrome: once a minute), so an 
 - `basic_drive.html`: `connect()` returns while `document.hidden` (or while a socket is open / opening). `visibilitychange` → hidden: `releaseAll()`, `stop`, `stopVideo()` (MJPEG `src` removed, retry timer cleared), `ws.close()` (the STOP is queued before the close frame); visible: `retryMs = 1000`, `connect()`, `startVideo()`.
 - `settings.html`: the same guard in `connect()`; hidden → `ws.close()`, visible → `connect()`.
 - Unchanged: the bridge's 3 s silence reap and the Uno's link-loss stop stay the safety net for pages that vanish without an event.
+- **Amended 2026-11-04 (design-notes §201): the hide / close STOP only when this page might be driving.** `hideStop()` (on `visibilitychange` → hidden and on `pagehide`) sends `stop` unless someone else clearly drives: the owner (welcome / `ts` / `control_changed`) is set, is not `human` with `owner_client === you`, and this page holds no control and has no drive timer. Unknown owner (nothing heard yet) or no owner → `stop` as before. A page that only watches no longer ends another device's program or skill when it is minimised or closed. The red STOP button still stops everything from any device (§72); the link-loss stop of the driving page is unchanged.
 - Test: page test with a stand-in WebSocket — hide → `stop`, `close`, no reconnect for 6 s, no video `src`; show → `open /ws`, `hello`.
 
 ```mermaid
@@ -2959,3 +2960,122 @@ sequenceDiagram
 - **`test_link_owner`:** the lease holder's `cam_set` is allowed during the lease and refused after it.
 - **`test_ws_codec`:** the new messages parse; bad fields are refused.
 - **`test_logo_controller`:** places relative to the tank (a run point 50 cm behind after `FORWARD 50` → `fwd_cm −50`; after `RIGHT 90` → `left_cm`).
+
+## R27. The `/ai` page: on the tank, the AI feed from the engine (owner 2026-11-04; spec 8 Revision 2 §4.5, design-notes §197-§199, AI engine LLD §22 — approved 2026-11-04, design-notes §200)
+
+> Plan Z2b. **[Z2b-1]** first (the page's frame, the Play tab, teach a word); **[Z2b-2]** the Room and Inside tabs. The first draft of this section (2026-11-03: an AI inbox on port 82, slots and a relay through the bridge) is replaced (design-notes §199).
+
+### R27.1 What changes
+- **The tank serves the page** (`GET /ai`, `web/ai.html`, gzipped like the others). The ☰ menu of the drive page, Settings and `/logo` gains **AI**.
+- **The page talks to two places:**
+  - **the tank** - its own `/ws` (hello `"client": "ai-page"`): STOP, the buttons' one-line programs with `logo_run` (so the page is the program's owner, and STOP, the lease, 7045 and the errors are Logo's own, R26), telemetry for the status strip. **Everything that moves or stops the tank stays on this path.**
+  - **the AI engine** - one WebSocket the engine serves on the laptop (`ws://<laptop>:8770/feed`, AI engine LLD §22): the camera with its boxes and depth, the sentences, Why?, the things list, teach a word; [Z2b-2] the map, the home, memory, achievements, health, the timeline. Nothing on it can drive the tank.
+- **The bridge tells the page where the engine is:**
+  - the engine's hello gains `"page": {"port": 8770, "proto": 1}`; the bridge takes the engine's address from its `/ws` socket (`getpeername`) - no IP is ever typed;
+  - to each `ai-page` client, on its hello and whenever it changes: `{"t":"ai_at","url":"ws://192.168.1.23:8770/feed","proto":1}`; `{"t":"ai_at","url":null}` when the skill server closes;
+  - the bridge never connects to the engine's port itself.
+- **Learning [Z2b-1]:** the engine sends `{"t":"skill_learning","on":true|false}` on its `/ws` around a teach. `SkillHub::learning()` becomes `Caps::ai_learning`: the checker gives **7056** for any AI word while it is on (Tank Logo LLD §24.4); a `skill_start` that races it is answered `skill_failed reason:"learning"` → 7056. The server's close clears it.
+- **The ☰ menu's AI item always opens `/ai`** (design-notes §200); the older Settings AI address (`ai_url`, `app_set`, R13.1) is removed (owner, 2026-11-04).
+- **`ai_at` is sent on a change of `SkillHub::pageUrl()`, checked once per link loop**, so every way the server's socket ends (a close, a ghost, the 3 s silent rule) gives `url:null`.
+- **Nothing else on the tank changes:** no new port, no stream viewer taken (the camera comes from the engine), the `/ws` and lwIP budgets as today (the page is one `/ws` client of four).
+
+### R27.2 Messages (`/ws`)
+| Direction | Message | Meaning |
+|---|---|---|
+| engine → bridge | `hello` … `"page":{"port":8770,"proto":1}` | the engine serves the AI feed there |
+| page → bridge | `{"t":"hello","client":"ai-page"}` | an `/ai` page |
+| bridge → page | `{"t":"ai_at","url":"ws://…:8770/feed"\|null,"proto":1}` | where the AI feed is (null: no AI helper) |
+| engine → bridge | `{"t":"skill_learning","on":true}` | around a teach |
+| page → bridge | `logo_run`, `stop`, … | as `/logo` and the drive page |
+
+### R27.3 Classes
+```mermaid
+classDiagram
+  class SkillHub {
+    +onHello(fd, client, things, page) Decision
+    +pageUrl() str?
+    +learning() bool
+    +onLearning(fd, on)
+    -m_server_ip
+    -m_page_port, m_page_proto
+    -m_learning
+  }
+  class AiPages {
+    <<core, pure>>
+    +onHello(fd, client)
+    +onClose(fd)
+    +announce(url, proto) Out[] : ai_at to each page
+  }
+  class Checker { +Caps.ai_learning -> 7056 }
+  class WebRoutes { +GET /ai }
+  AiPages ..> SkillHub : url on change
+  Checker ..> SkillHub : learning
+```
+- **`SkillHub`** keeps the engine's address and page port from its hello (a port outside 1024-65535 or a missing `page` → no URL, the page shows "AI helper without a page"); `learning` is set only by the server's fd and cleared on its close.
+- **`AiPages`** (pure, host-tested): which `/ws` clients are `/ai` pages, and the `ai_at` text for them, sent on hello and on each change of the URL. It lives in `link_task` with the other `/ws` handling.
+
+### R27.4 The page (`web/ai.html`)
+- **Look and frame:** the mock-up `docs/design/ai-page-mockup.dc.html` (Phosphor Cockpit tokens, corner-bracket cards, the drive page's STOP top right on every tab, six status chips, a segmented tab bar). Icons from `web/icons.json` (R25).
+- **Modules, plain JS in one file** (as `logo.html`):
+```mermaid
+classDiagram
+  class Tank {
+    +connect() : /ws, hello ai-page, pings
+    +stop()
+    +send(msg) bool
+    +on(t, fn) : telemetry, ai_at, logo results
+  }
+  class Feed {
+    +open(url) : the engine's /feed, retry every 2 s
+    +on(t, fn) : status, why, things, rep, frames
+    +send(msg) : teach, ...
+    -proto check : "please update" on a mismatch
+  }
+  class Run {
+    +run(line) : logo_run on Tank
+    +onResult(fn) : done / error words, I ran
+  }
+  class Camera {
+    +views : objects, layer
+    +layer(name) : depth, later more
+    -state
+  }
+  class Play {
+    +face(mood)
+    +find(thing, area) / wander(s) / explore()
+    +teach(word, names)
+    +say(text) : speechSynthesis
+    +why()
+    +picture() : save the frame on the phone
+  }
+  class Header { +stop() +chips(telemetry, status) +tabs() }
+  Play --> Run
+  Play --> Camera
+  Play --> Feed : why, things, teach
+  Camera --> Feed : frames
+  Camera ..> Tank : fallback stream
+  Header --> Tank : stop, telemetry
+  Header --> Feed : status
+  Run --> Tank
+  Tank ..> Feed : ai_at gives the url
+```
+- **`Camera` - one feed, two views [Z2b-1]:** each frame from the engine carries the camera picture, its boxes and its depth together (AI engine LLD §22.2). The page decodes the picture once (`createImageBitmap`) and draws it twice: **view 1** the picture with the boxes and names; **view 2** the same picture under a layer from a picker - **depth** (60 % over the picture) in Z2b-1, more layers later. The two views always show the same moment. The frames are data, not a cross-origin image, so a picture can be saved.
+- **The camera's states:**
+```mermaid
+stateDiagram-v2
+  [*] --> NoAI
+  NoAI --> Engine : ai_at url, feed open
+  Engine --> NoAI : feed closed / ai_at null
+  NoAI --> TankStream : the tank's own :81 stream (view 1 only, no boxes)
+  TankStream --> Engine : feed open
+```
+  - Without the AI helper the page still loads: STOP, the status strip from telemetry, the tank's own camera (if a viewer slot is free) and "AI helper not running - start `cq-drive serve`".
+- **`Play` [Z2b-1]:** the face (mood from status), Find / Wander / Explore, the thing picker (the things list) and a typing box (known → runs; unknown → "I don't know what a … is" with **teach it** for an adult: word, everyday names, confirm; refused while a program runs on this page), what I'm thinking (`say`, spoken once per new sentence, a mute toggle), Why?, take a picture (saved on the phone only).
+- **`Room`, `Inside` [Z2b-2]:** spec 8 §4.5, on the same feed.
+
+### R27.5 Tests
+- **Host (C++):**
+  - `test_skill_hub`: the hello's `page` kept with the peer address; a bad or missing port → no URL; `skill_learning` only from the server, cleared on close; `skill_start` while learning answered `learning`;
+  - `test_ai_pages`: `ai_at` on an `ai-page` hello and on each change, none to other clients, `null` on the server's close; the text exact;
+  - `test_ws_codec`: `skill_learning`, the hello's `page` parse; bad fields refused.
+- **On the stand (Plan Z2b-1):** the page from the tank on the owner's phone opens the engine's feed (macOS asks once to allow incoming connections); both views move together; STOP from the page while the feed runs (ack as today, ~20 ms); the laptop's WiFi off → the page keeps STOP and telemetry, the feed reconnects after.

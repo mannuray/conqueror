@@ -1458,3 +1458,10 @@ classDiagram
   - `AREA 0` clears it.
 - **The generated files are regenerated** (`logogen write`), never edited.
 - **Floor (owner, Plan Z2a):** from `/logo`, `AREA 2  FIND "ball  SOUND FANFARE`, `WANDER 30`, `SETXY 0 0` back to the start, and STOP during each.
+
+### 24.4 Plan Z2b additions (design-notes §198-§200, bridge LLD R27 — approved 2026-11-04)
+- **A new error, 7056** (`words.yaml` errors): "I'm learning a new word - try again in a minute."
+  - **Checker:** `Caps` gains `ai_learning` (from `SkillHub::learning()`); while it is true, every word with `needs: [ai]` gives 7056 at its call, instead of 7053 / 7020 (`needs` checked first: no skill server is still 7020).
+  - **Runner:** a `skill_failed reason:"learning"` (a teach that started between the check and the word) ends the program with 7056, as the other reasons map (§24.2).
+- **The `/ai` page's buttons are one-line programs** run with `logo_run` from the page's own `/ws` (bridge LLD R27.1): Find + thing + area → `AREA 2  FIND "toy` (the area chip off → no `AREA`); Wander → `WANDER 30`; Explore → `EXPLORE`; [Z2b-2] a tap on the map → `SETXY x y`; Go on a remembered thing → `FIND "thing`. Nothing else in the runner changes.
+- **Tests:** a conformance case with `tank: {ai: true, learning: true}` → 7056 for `FIND "ball` and `SEE? "ball`; with `ai: false, learning: true` → 7020; a running case where the skill ends `learning` → 7056.

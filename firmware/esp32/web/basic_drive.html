@@ -552,7 +552,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     toastTimer = setTimeout(function () { t.className = ""; }, 2500);
   }
 
-  // ---------- WiFi signal (from /info every 10 s) ----------
+  // ---------- WiFi signal (with the link every 10 s, R31) ----------
   /*CQ:ICONS wifi wifi-high wifi-low wifi-zero wifi-off*/  // the shared Lucide icons (bridge LLD R25)
   var WIFI_ICON = { full: "wifi", high: "wifi-high", low: "wifi-low", zero: "wifi-zero", off: "wifi-off" };
   function showWifi(k, cls) {
@@ -565,6 +565,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     var k = rssi === null ? "zero" : rssi > -55 ? "full" : rssi > -65 ? "high" : rssi > -75 ? "low" : "zero";
     showWifi(k, rssi === null || rssi <= -65 ? "warn" : "");
   }
+  showWifi("off", "bad");  // no link yet: off, as before R31 (its /info poll said so) - never a green "-" (owner 2026-11-05)
 
   // ---------- joysticks (pointer events: touch + mouse) ----------
   function shape(v) {  // deadzone + expo, keeps the sign

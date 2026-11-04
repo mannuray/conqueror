@@ -3067,4 +3067,8 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   after a failed attempt and takes its WiFi strength from the link. Final review: no critical, 1 important and 8 minor,
   all fixed. **Open:** the owner's stand check (STOP on each page; Drive while driving the tracks on the stand; WiFi off
   and on).
+- **Fix (owner 2026-11-05: "yes fix the wifi chip"):** the drive page's WiFi chip showed a green "-" until the link's
+  first WiFi report - R31 dropped the old /info poll that turned it red when the tank could not be reached. It now
+  starts off (red), as before. Found by `look_check` during Plan Z2b-2; `link_check` checks it. `ai_check`'s stand-in
+  tank now answers the link's ping (silent, it made STOP open its own short socket and the check lost the link).
 

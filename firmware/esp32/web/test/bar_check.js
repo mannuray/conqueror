@@ -67,6 +67,10 @@ async (page) => {
         bottom: document.querySelector("#cqMenu a:last-child").getBoundingClientRect().bottom,
       }));
       ok(menu.shown, at + ": the menu did not open");
+      // final review: the dim layer really dims (a page without --dim-layer gave a see-through one); focus moves into the menu
+      ok(await page.evaluate(() => { const c = getComputedStyle(document.getElementById("cqDim")).backgroundColor;
+        return c !== "rgba(0, 0, 0, 0)" && c !== "transparent"; }), at + ": the dim layer is see-through");
+      ok(await page.evaluate(() => document.activeElement === document.querySelector("#cqMenu a")), at + ": focus did not move to the first menu entry");
       ok(menu.order === "/,/logo,/ai,/settings,/help", at + ": menu order " + menu.order);
       ok(menu.current === p.path, at + ": marked " + menu.current);
       ok(menu.stacked, at + ": the menu entries are not one under the other inside the window");
@@ -77,8 +81,15 @@ async (page) => {
       await page.waitForTimeout(100);
       const sent = await page.evaluate(() => window.__sent.join());
       ok(sent === p.stop.join(), at + ": STOP sent '" + sent + "', wanted '" + p.stop.join() + "'");
+      ok(await page.evaluate(() => !cqBar.isOpen()), at + ": STOP left the menu open (its answer would sit under the dim layer)");
+      await page.click("#menuBtn");
       await page.keyboard.press("Escape");
       ok(await page.evaluate(() => document.getElementById("cqMenu").hidden), at + ": Esc did not close the menu");
+      ok(await page.evaluate(() => document.activeElement === document.getElementById("menuBtn")), at + ": focus did not go back to ☰");
+      // Back on iOS brings the page back from its cache: the menu must not come back open
+      await page.click("#menuBtn");
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+      ok(await page.evaluate(() => !cqBar.isOpen() && !document.documentElement.classList.contains("cq-open")), at + ": the menu stayed open after a page restore");
       await page.click("#menuBtn");
       await page.mouse.click(8, h - 60);
       ok(await page.evaluate(() => document.getElementById("cqMenu").hidden && document.getElementById("cqDim").hidden), at + ": the dim layer did not close the menu");
@@ -138,6 +149,18 @@ async (page) => {
   await page.click("#stop"); await page.click("#stop"); await page.waitForTimeout(300);
   st = await helpState();
   ok(st.n === 4 && st.open === 0 && st.msg === "Stopped", "/help: a double tap gave " + JSON.stringify(st));
+  // final review: only the latest press's answer shows (a late timeout of an earlier press never covers it)
+  await page.evaluate(() => { window.__silent = true; });
+  await page.click("#stop"); await page.waitForTimeout(50);
+  await page.evaluate(() => { window.__silent = false; });
+  await page.click("#stop"); await page.waitForTimeout(2300);
+  st = await helpState();
+  ok(st.msg === "Stopped" && st.open === 0, "/help: an earlier press's late answer showed: " + JSON.stringify(st));
+  // final review: the answer is seen even when STOP is pressed far down the page
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)); await page.waitForTimeout(100);
+  await page.click("#stop"); await page.waitForTimeout(200);
+  ok(await page.evaluate(() => { const r = document.getElementById("stopMsg").getBoundingClientRect();
+    return r.height > 0 && r.top >= 0 && r.bottom <= innerHeight; }), "/help: STOP's answer is off screen when pressed far down the page");
   // /logo: its own menu and back link are gone; Esc with the menu open closes it and still stops (Esc is STOP from
   // anywhere on /logo, even in a dialog, which it also closes - Tank Logo LLD §23)
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -153,6 +176,15 @@ async (page) => {
   await page.evaluate(() => { window.__sent = []; });
   await page.keyboard.press("Escape"); await page.waitForTimeout(100);
   ok(await page.evaluate(() => window.__sent.join()) === "stop,logo_stop", "/logo: Esc again did not stop");
+  // final review: /logo's keys do nothing behind the open menu (Ctrl+Enter would start a program)
+  await page.evaluate(() => { const s = document.getElementById("src"); s.value = "FORWARD 10\n"; s.dispatchEvent(new Event("input")); });
+  await page.waitForTimeout(1200);
+  await page.click("#menuBtn");
+  await page.evaluate(() => { window.__logoRun = 0; window.__sockets.forEach((x) => { const s0 = x.send.bind(x);
+    x.send = (t) => { if (JSON.parse(t).t === "logo_run") window.__logoRun++; return s0(t); }; }); });
+  await page.keyboard.press("Control+Enter"); await page.keyboard.press("F10"); await page.waitForTimeout(200);
+  ok(await page.evaluate(() => window.__logoRun) === 0, "/logo: Ctrl+Enter / F10 ran a program behind the open menu");
+  await page.keyboard.press("Escape");
   // every page together: the three at the same place and size on the pages with a header (within 1 px); a short laptop
   // window and a phone on its side reach all five menu entries; no sideways scroll
   for (const [w, h] of [[390, 844], [1440, 900], [1280, 600], [844, 390]]) {

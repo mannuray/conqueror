@@ -683,7 +683,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   $("ptabs").addEventListener("click", function (e) { var t = e.target.dataset && e.target.dataset.t; if (t) panelEv({ e: "pick", tab: t }); });
 
   // Shortcuts: each is its button; Esc is STOP from anywhere, even in a dialog (which it also closes)
-  function sheetOpen() { return $("nameS").classList.contains("on") || $("delS").classList.contains("on"); }
+  function sheetOpen() { return $("nameS").classList.contains("on") || $("delS").classList.contains("on") || cqBar.isOpen(); }  // R29: the menu too
   var lastEsc = 0;
   window.addEventListener("keydown", function (e) {
     var a = L.shortcut(e.key, e.ctrlKey, e.metaKey, e.altKey, e.shiftKey, false);

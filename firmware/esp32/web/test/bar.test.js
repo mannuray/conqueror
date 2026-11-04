@@ -19,13 +19,17 @@ test("here(): the menu entry of a path, null for an unknown one", () => {
   assert.equal(B.here("/nope"), null);
 });
 
-// A stand-in socket: `answer` is "ack", "error" or "silent"; it opens on the next tick.
+// A stand-in socket: `answer` is "ack", "error", "silent", "nack" (stop refused) or "ack2" (only logo_stop acked: a
+// program stopped, the body's ack for stop still on its way); it opens on the next tick.
 function fakeWorld(answer) {
   const w = { sockets: [], timers: [], now: 0 };
   w.WebSocket = function (url) {
     const s = this;
     s.url = url; s.sent = []; s.closed = false; w.sockets.push(s);
-    s.send = (t) => { s.sent.push(JSON.parse(t)); if (answer === "ack" && s.sent.length === 3) setImmediate(() => s.onmessage({ data: '{"t":"ack","id":' + s.sent[1].id + "}" })); };
+    s.send = (t) => { s.sent.push(JSON.parse(t)); if (s.sent.length !== 3) return;
+      const reply = { ack: '{"t":"ack","id":' + s.sent[1].id + "}", nack: '{"t":"nack","id":' + s.sent[1].id + ',"reason":"BUSY"}',
+        ack2: '{"t":"ack","id":' + s.sent[2].id + "}" }[answer];
+      if (reply) setImmediate(() => s.onmessage({ data: reply })); };
     s.close = () => { s.closed = true; };
     setImmediate(() => { if (answer === "error") { s.onerror && s.onerror({}); s.onclose && s.onclose({}); } else s.onopen(); });
   };
@@ -70,6 +74,24 @@ test("stopOnce: no answer - done(false) after the 2000 ms timer, closed", async 
   await tick();
   assert.deepEqual(calls, []);
   assert.equal(w.timers[0].ms, 2000);
+  w.fire();
+  assert.deepEqual(calls, [false]);
+  assert.equal(w.sockets[0].closed, true);
+});
+
+test("stopOnce: only logo_stop acked - not yet 'Stopped'; done(false) after 2 s, closed", async () => {
+  const { w, calls } = run("ack2");
+  await tick(); await tick();
+  assert.deepEqual(calls, []);
+  w.fire();
+  assert.deepEqual(calls, [false]);
+  assert.equal(w.sockets[0].closed, true);
+});
+
+test("stopOnce: stop refused (nack) - never 'Stopped'; done(false) after 2 s, closed", async () => {
+  const { w, calls } = run("nack");
+  await tick(); await tick();
+  assert.deepEqual(calls, []);
   w.fire();
   assert.deepEqual(calls, [false]);
   assert.equal(w.sockets[0].closed, true);

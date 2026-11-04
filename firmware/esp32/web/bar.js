@@ -29,12 +29,19 @@ var cqBar = (function () {
   function open() {
     if (isOpen()) return;
     show(true);
+    el("cqMenu").querySelector("a").focus();  // the keyboard starts in the menu
     window.dispatchEvent(new Event("cqmenu"));
   }
-  function close() { if (isOpen()) show(false); }
+  function close() {
+    if (!isOpen()) return;
+    var inside = el("cqMenu").contains(document.activeElement);
+    show(false);
+    if (inside) el("menuBtn").focus();  // back where it came from
+  }
 
   // STOP through a socket opened only for this press (the bridge takes 4 clients): hello, stop, logo_stop; done(true)
-  // on the first ack, done(false) on an error, a close or 2 s of silence; the socket is closed every time.
+  // on the ack of the stop itself (id 1: the body has stopped; a logo_stop ack or a nack is not enough), done(false) on
+  // an error, a close or 2 s without it; the socket is closed every time.
   function stopOnce(url, done, opts) {
     var o = opts || {};
     var Ws = o.WebSocket || WebSocket, after = o.setTimeout || setTimeout, cancel = o.clearTimeout || clearTimeout;
@@ -58,7 +65,7 @@ var cqBar = (function () {
     ws.onmessage = function (ev) {
       var m = null;
       try { m = JSON.parse(ev.data); } catch (e) { return; }
-      if (m && m.t === "ack") end(true);
+      if (m && m.t === "ack" && m.id === 1) end(true);
     };
     ws.onerror = function () { end(false); };
     ws.onclose = function () { end(false); };
@@ -75,6 +82,8 @@ var cqBar = (function () {
     }
     el("menuBtn").addEventListener("click", function () { if (isOpen()) close(); else open(); });
     el("cqDim").addEventListener("click", close);
+    el("stop").addEventListener("click", close);  // STOP's answer (a toast, a line) must not sit under the dim layer
+    window.addEventListener("pageshow", close);   // Back on iOS restores the page as it was left: never with the menu open
     el("lookBtn").addEventListener("click", function () { cqTheme.flip(); });  // the look, for every page (R28)
     // Esc closes the menu; the event goes on, so a page's own Esc (e.g. /logo's stop) still runs
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });

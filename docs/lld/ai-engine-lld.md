@@ -2784,6 +2784,7 @@ stateDiagram-v2
 - **The map picture** is one byte per 5 cm cell, a grey PNG of cell **kinds**: 0 unknown, 1 seen before (Plan Z8, shown only), 2 floor seen, 3 low, 4 high. Cropped to the cells that are not unknown plus 0.5 m round them (`x0, y0` = the room point of the crop's corner with the smallest x and y; `w` along x, `h` along y). An 8 × 8 m room fully seen is 160 × 160 = 25.6 KB raw, ~2-4 KB as PNG. No pose on it: the tank comes in `status`.
 - **The trail** is the tank's path since `cq-drive serve` started (a point each 5 cm moved, at most 2000 - the oldest dropped), whether or not a word ran. **The play area** is the running word's `AREA` (else the last word's; none: `null`, "anywhere"). **why** is the running skill's notes (§20.7: route, pending candidates, the check, looked-at floor), empty between words. `seen_m2` = cells seen × 0.0025.
 - `things`: `ThingMemory.of_kind(all)` (never a person, never gone), newest first, at most 20; `ago_s` from the wall clock.
+- **`word` is the Logo word** the page's FIND sends (builder check, my call): the colour finder's `ball:<name>` is sent as `ball` (as `page_boxes` does for boxes), and a thing whose word is no longer in the things list is left out. FIND looks for the **word**, not the pin: with two balls it starts at the newest remembered one (§18.13.23), as `FIND "ball` does today - a pin is never a target of its own (no message on the feed names a spot to drive to).
 
 ### 23.3 Names on the map
 - **A tap names a block:** `Places.name_at(x, y, name)` takes the blocked cell nearest the tap within 15 cm (none: `ok:false` "Tap a red or amber block to name it."), then that block - the blocked cells joined to it (8 neighbours, at most 4000 cells) - and puts the name at the block's middle (the mean of its cells, moved to the nearest of its cells when the mean falls outside it, as for an L-shaped sofa).
@@ -2841,8 +2842,9 @@ classDiagram
   HomeStore --> Home
 ```
 - `FeedServer` keeps which pages have room on; the map frame and `room` go only to those (the newest-wins outbox per kind, §22.5, gains `map` and `room`).
-- `RoomFeed.tick` runs in `FeedPublisher.tick` (~10 Hz) and does the work only when `rooms()` is not empty; it compares the kinds array and the `room` dict with what it sent last, so a still room costs a comparison.
-- `Home.from_run` copies `places`; `room_for_run` leaves them to `Places` at start. `serve` saves the home after each word as now (§21), now with the names; a name change marks the home to save at the next save point.
+- **`RoomFeed.tick` runs in `FeedPublisher.run`'s ~10 Hz loop** (builder check: `FeedPublisher.tick` is the runner's view, called only while a word runs). The trail is fed there from the pose always; the map work is done only when `rooms()` is not empty; it compares the kinds array and the `room` dict with what it sent last, so a still room costs a comparison. `FeedPublisher` keeps the **last word's area** itself (the world's is cleared when a word ends) and the why notes (empty between words). **`pan`** comes from the latest telemetry: the `Telemetry` callable gains it.
+- **Replies:** the outbox slot for `rep` is keyed by the request's `id`, so a name answer never replaces a waiting teach answer (builder check).
+- `Home.from_run(…, places=None)` copies the live `Places`; with none (a plain `cq-drive --home` run, which has no feed) it **carries the earlier home's names through**, so a run never wipes them (builder check); `room_for_run` leaves them to `Places` at start. `serve` saves the home after each word as now (§21), now with the names; a name change marks the home to save at the next save point.
 
 ### 23.5 A page opens ROOM and names the bed
 ```mermaid

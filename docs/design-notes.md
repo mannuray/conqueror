@@ -3039,3 +3039,25 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
   - **Final review (opus): 1 critical, 3 important, 5 minor - all fixed:** the strip's `cFps` hid Settings' camera frame-rate control (now `cFpsCap`; a build test finds no id twice); AI HELPER always amber "OFF" on /logo and /settings; POS jumping on /ai during FIND; /logo's own `.dot::after` drawing into the strip (the strip's classes are `sdot` / `scell` and it sets its own colour and font); a page using `cqStrip` without the marker now fails the build.
   - Sizes (gzipped): /ai 23 169 B (24 KB), /logo ~31.7 KB (32 KB), /settings ~30.1 KB (36 KB).
 
+## 210. One link for every page, in model / view / controller (owner, 2026-11-04: "it should follow the MVC model"; "yes to all, go with recommended")
+From the web architecture review (`docs/reviews/2026-11-04-web-architecture-review.md`): each page had its own copy of the
+tank link and the STOP wiring, and the copies had drifted - some in STOP.
+- **MVC, one way round:** the tank's messages go to a **controller**, which updates a **model** (data and rules only, no
+  screen code, every rule tested in node), which tells its **views** it changed; a view only draws. Commands to the tank
+  go only through the controller.
+  - Models: a shared **TankModel** (link state, battery, WiFi, Uno, HDG, POS, SPEED, AI helper, who drives); each page's
+    own model beside it (`LogoCore`, `AiCore` already; a new **DriveModel** for the drive page's safety rules - when
+    hiding stops the tank (§201), the latch release (R6) - so they are tested in node, not only by hand).
+  - Controllers: **cqLink** (the connection: hello with the page's name, ping each second, a silent link closed after
+    4 s, reconnect with backoff, no link while the page is hidden §77, the WiFi strength asked every 10 s) and the top
+    bar's STOP input (**cqBar.onStop**).
+  - Views: the status strip and the top bar become views; each page's own drawing listens to its own model.
+- **STOP on every page (owner: yes):** it acts on touch (`pointerdown`), and on Enter / Space from the keyboard; when the
+  link is down it stops through a socket opened for the press (`cqBar.stopOnce`) and says so - never silently lost.
+- **WiFi strength (owner: yes):** the page asks the tank every 10 s while linked (no firmware change).
+- **Order (owner: yes):** first make room - the packer strips whole-line comments from the pages' scripts and styles
+  (about 1-2 KB a page), so no budget is raised again; then the link.
+- Plan 1 of 4 from the review: this plan moves the shared parts and every page's link and STOP; splitting the rest of
+  each page's own code into model and view comes page by page in later plans.
+- Bridge LLD R31; Plan Link (`docs/superpowers/plans/2026-11-04-plan-link.md`), branch `plan-link` from `plan-strip`.
+

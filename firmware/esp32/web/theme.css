@@ -10,6 +10,8 @@
   --stop-ink: #fff; --on-ui: #fff; --on-warn: #1d2b44; --dim-layer: rgba(29,43,68,.35);
   --warn-bg: rgba(255,246,224,.95); --bad-bg: rgba(255,240,238,.95); --hud-bg: rgba(255,255,255,.88);
   --r: 12px; --r-card: 18px; --brackets: none; --scanlines: none;
+  --strip-bg: #f2f7ff; --strip-line: #4aa3ff; --strip-ink: #33415c; --strip-hi: #1d2b44; --strip-ok: #1f6fd1;  /* R30: /ai's Sunny chips */
+  --strip-warn: #f08c00; --strip-bad: #e8382e;
 }
 /* pages: /ai */
 :root[data-theme="play"] {

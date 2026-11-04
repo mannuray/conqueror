@@ -11,6 +11,7 @@
   web/logo.js and <!--CQ:WORDS--> by web/generated/words.json. Budget 30 KB gzipped (bridge LLD R25, R28, R29).
 - Every page: the shared look (bridge LLD R28) - <!--CQ:THEME--> in its <head> becomes web/theme.css and web/theme.js.
 - Every page: the one top bar (bridge LLD R29) - <!--CQ:BAR--> becomes web/bar.css, web/bar.html and web/bar.js.
+- /ai, /logo, /settings: the status strip (bridge LLD R30) - <!--CQ:STRIP--> becomes web/strip.css, strip.html, strip.js.
 - Every page: its icons from web/icons.json (scripts/icons.py, bridge LLD R25) - <!--icon:NAME--> markers and one
   /*CQ:ICONS ...*/ table; an unknown icon fails the build.
 Also runnable alone: python3 scripts/pack_web.py [project_dir]
@@ -145,6 +146,23 @@ def with_bar(text: str, project: pathlib.Path, page: str) -> str:
     return text.replace(BAR_MARKER, f"<style>\n{css}</style>\n{markup}<script>\n{code}</script>", 1)
 
 
+STRIP_MARKER = "<!--CQ:STRIP-->"
+
+
+def with_strip(text: str, project: pathlib.Path, page: str) -> str:
+    """The status strip (bridge LLD R30): STRIP_MARKER becomes <style>strip.css</style> + strip.html + <script>strip.js</script>.
+    A page without the marker is left as it is (only /ai, /logo and /settings carry it)."""
+    if STRIP_MARKER not in text:
+        return text
+    web = project / "web"
+    css = (web / "strip.css").read_text(encoding="utf-8")
+    if "</style" in css.lower():
+        raise SystemExit("pack_web: web/strip.css contains </style, which would end its <style> early")
+    markup = (web / "strip.html").read_text(encoding="utf-8")
+    code = (web / "strip.js").read_text(encoding="utf-8").replace("</", "<\\/")  # never closes its <script>
+    return text.replace(STRIP_MARKER, f"<style>\n{css}</style>\n{markup}<script>\n{code}</script>", 1)
+
+
 PAGES_LINE = re.compile(r"^/\* pages: ([^*]*)\*/\n", re.MULTILINE)
 
 
@@ -175,7 +193,7 @@ def assemble_page(project: pathlib.Path, uri: str) -> bytes:
     if not raw:
         return raw
     table = icons.load(web / "icons.json")
-    text = with_bar(with_theme(raw.decode("utf-8"), project, uri), project, uri)
+    text = with_strip(with_bar(with_theme(raw.decode("utf-8"), project, uri), project, uri), project, uri)
     return icons.expand(text, table, uri).encode("utf-8")
 
 

@@ -115,21 +115,7 @@ test("boxRect: 0..1000 boxes to canvas pixels", () => {
   assert.deepEqual(A.boxRect(["toy", 0.9, 100, 250, 500, 500], 320, 240), { word: "toy", score: 0.9, x: 32, y: 60, w: 160, h: 120 });
 });
 
-test("battery: percent on the drive page's 2S curve, averaged, USB apart", () => {
-  assert.equal(A.battPct(8.5), 100);
-  assert.equal(A.battPct(7.6), 50);
-  assert.equal(A.battPct(7.5), 43);  // between 7.6 (50) and 7.4 (35)
-  assert.equal(A.battPct(6.5), 0);
-  assert.deepEqual(A.battState(7.6, []), { usb: false, pct: 50, level: "ok" });
-  assert.deepEqual(A.battState(7.1, []), { usb: false, pct: 15, level: "low" });
-  assert.deepEqual(A.battState(7.6, ["batt_low"]), { usb: false, pct: 50, level: "low" });
-  assert.deepEqual(A.battState(6.9, ["batt_critical"]), { usb: false, pct: 8, level: "critical" });
-  assert.deepEqual(A.battState(5.0, []), { usb: true, pct: null, level: "ok" });
-  const m = new A.BattMean(3);
-  m.push(7.6); m.push(7.8);
-  assert.ok(Math.abs(m.push(7.7) - 7.7) < 1e-9);
-  assert.equal(m.push(5.0), 5.0);  // on USB: the average starts again
-});
+// the battery rules moved to strip.test.js (bridge LLD R30)
 
 test("pickVoice: a voice on the device first, the page's language first", () => {
   const v = [

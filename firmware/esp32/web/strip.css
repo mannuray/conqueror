@@ -1,0 +1,24 @@
+/* One status strip on /ai, /logo and /settings (bridge LLD R30, design-notes §209): /ai's chips, the same on every page.
+   Its own colour names, the cockpit here (from /ai) and Sunny in theme.css; :where() keeps them overridable. */
+:where(:root) {
+  --strip-bg: #0a140a; --strip-line: #33ff66; --strip-ink: #b8f5c8; --strip-hi: #e8ffe8; --strip-ok: #33ff66;
+  --strip-warn: #ffb000; --strip-bad: #ff3b30; --strip-r: var(--r); --strip-font: var(--mono);
+}
+.cqstrip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cqstrip .sc { display: inline-flex; align-items: center; gap: 5px; box-sizing: border-box; padding: 3px 8px; margin: 0;
+  background: var(--strip-bg); border: 1px solid color-mix(in srgb, var(--strip-line) 30%, transparent); border-radius: var(--strip-r);
+  color: var(--strip-ink); white-space: nowrap; font: 400 11px/1.4 var(--strip-font); letter-spacing: normal; }
+.cqstrip .sc[hidden] { display: none; }
+.cqstrip .sc b { font-weight: 700; }
+.cqstrip .sc.on { color: var(--strip-hi); font-weight: 700; border-color: color-mix(in srgb, var(--strip-line) 40%, transparent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--strip-line) 30%, transparent); }
+.cqstrip .sc.warn, .cqstrip .sc.low { color: var(--strip-warn); border-color: color-mix(in srgb, var(--strip-warn) 60%, transparent); }
+.cqstrip .sc.crit { color: var(--strip-bad); border-color: color-mix(in srgb, var(--strip-bad) 70%, transparent); }
+.cqstrip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--strip-ok); box-shadow: 0 0 6px var(--strip-ok); }
+.cqstrip .warn .dot { background: var(--strip-warn); box-shadow: none; }
+.cqstrip .cell { position: relative; width: 26px; height: 12px; border: 1.5px solid currentColor; border-radius: 2px; box-sizing: content-box; }
+.cqstrip .cell::after { content: ""; position: absolute; right: -4px; top: 3px; width: 2px; height: 4px; background: currentColor; border-radius: 0 1px 1px 0; }
+.cqstrip .cell i { position: absolute; left: 1px; top: 1px; bottom: 1px; width: 0; background: var(--strip-ok); border-radius: 1px; }
+.cqstrip .low .cell i { background: var(--strip-warn); } .cqstrip .crit .cell i { background: var(--strip-bad); }
+.cqstrip svg { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.cqstrip #cWifi svg { display: none; } .cqstrip #cWifi svg.on { display: inline; }

@@ -9,6 +9,45 @@ from collections.abc import Sequence
 from conqueror_ai.domain.types import Detection
 
 OVERLAP = 0.3  # of the box's own area
+# Words for people, refused when teaching a word (design-notes §203) - a second check: the real rule is the
+# guard below, with the detector reporting a person on its own score whatever word wins its box.
+PERSON_WORDS = frozenset(
+    [
+        "person",
+        "people",
+        "human",
+        "humans",
+        "kid",
+        "kids",
+        "child",
+        "children",
+        "baby",
+        "babies",
+        "toddler",
+        "man",
+        "men",
+        "woman",
+        "women",
+        "boy",
+        "boys",
+        "girl",
+        "girls",
+        "mum",
+        "mummy",
+        "mom",
+        "mommy",
+        "mother",
+        "dad",
+        "daddy",
+        "father",
+        "brother",
+        "sister",
+        "grandma",
+        "grandpa",
+        "granny",
+        "me",
+    ]
+)
 
 
 def _inside(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> float:

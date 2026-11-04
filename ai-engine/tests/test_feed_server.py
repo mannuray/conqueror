@@ -94,6 +94,51 @@ async def test_status_newest_wins_per_kind() -> None:
     await task
 
 
+async def test_a_slow_page_still_gets_text() -> None:
+    """Final review I1: frames come faster than a weak link sends - the status and a reply still get
+    through."""
+    srv = FeedServer()
+    p = FakePage()
+
+    async def slow(data: str | bytes) -> None:
+        await asyncio.sleep(0.05)
+        p.got.append(data)
+
+    p.send = slow  # type: ignore[method-assign]
+    task = asyncio.create_task(srv.attach(p))
+    await settle()
+    for i in range(20):  # a frame every 20 ms, a status every 100 ms, one reply
+        srv.frame(bytes([i]))
+        if i % 5 == 0:
+            srv.send({"t": "status", "n": i})
+        if i == 3:
+            srv.reply(1, {"t": "rep", "id": 1})
+        await asyncio.sleep(0.02)
+    await asyncio.sleep(0.3)
+    kinds = [m["t"] for m in p.texts()]
+    assert "rep" in kinds and kinds.count("status") >= 2
+    assert any(isinstance(g, bytes) for g in p.got)
+    await p.close()
+    await task
+
+
+async def test_two_pages_at_once_never_make_five() -> None:
+    """Final review M2: the place is taken before the greeting is sent."""
+    srv = FeedServer()
+    pages = [FakePage() for _ in range(6)]
+    for p in pages:
+        p.gate.clear()  # the greetings wait: all six are opening together
+    tasks = [asyncio.create_task(srv.attach(p)) for p in pages]
+    await settle()
+    for p in pages:
+        p.gate.set()
+    await settle()
+    assert srv.pages == 4 and sum(p.closed == 1013 for p in pages) == 2
+    for p in pages:
+        await p.close()
+    await asyncio.gather(*tasks)
+
+
 async def test_stalled_page_closed_after_stall_s() -> None:
     srv = FeedServer(stall_s=0.2)
     p = FakePage()
@@ -102,7 +147,8 @@ async def test_stalled_page_closed_after_stall_s() -> None:
     p.gate.clear()
     srv.frame(b"big")
     await asyncio.wait_for(task, 2.0)
-    assert p.closed is not None
+    await settle()
+    assert p.closed == 1001  # the close runs to its end (final review M1: not cut short by a limit)
     assert srv.pages == 0
 
 

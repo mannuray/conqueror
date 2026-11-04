@@ -61,6 +61,9 @@ async def teach(t: Teacher, word: str, names: list[str], busy: bool = False) -> 
         ("person", [], "I never look for people."),
         ("cup", ["mug2"], "Use letters, spaces and - only."),
         ("", [], "Use letters, spaces and - only."),
+        ("kid", [], "I never look for people."),
+        ("cup", ["baby"], "I never look for people."),
+        ("Little Boy", [], "I never look for people."),
     ],
 )
 async def test_bad_word_refused(tmp_path: Path, word: str, names: list[str], msg: str) -> None:
@@ -178,6 +181,46 @@ async def test_run_export_kills_group_on_cancel(tmp_path: Path) -> None:
         await asyncio.sleep(0.05)
     with pytest.raises(ProcessLookupError):
         os.kill(grandchild, 0)
+
+
+async def test_any_failure_still_answers(tmp_path: Path) -> None:
+    """Final review I3: uv missing (or any error) is an answer, never a page left on "Learning..."."""
+    calls = Calls()
+
+    async def no_uv(extra: Path, out: Path) -> int:
+        raise FileNotFoundError("uv")
+
+    r = await teach(teacher(tmp_path, calls, no_uv), "cup", [])
+    assert r == Reply(False, "Something went wrong - I kept the old words.")
+    assert TaughtWords(tmp_path / "taught").words() == []
+    assert calls.log[-1] == "learning None"
+
+
+async def test_a_failed_install_keeps_the_earlier_taught_model(tmp_path: Path) -> None:
+    """Final review I4: the words taught before survive a failure after the new model was moved in."""
+    taught = tmp_path / "taught"
+    TaughtWords(taught).add("sock", [], "2026-11-03")
+    old = taught / MODEL_NAME
+    old.mkdir(parents=True)
+    (old / "marker").write_text("sock model")
+    (taught / WORDS_TXT).write_text("toy\nsock\n")
+    calls = Calls()
+
+    async def broken_install() -> None:
+        raise RuntimeError("the new model did not load")
+
+    t = Teacher(
+        TaughtWords(taught),
+        ok_export(calls.log),
+        learning=calls.learning,
+        installed=broken_install,
+        today=lambda: "2026-11-04",
+    )
+    r = await teach(t, "cup", [])
+    assert not r.ok
+    assert [w.word for w in TaughtWords(taught).words()] == ["sock"]
+    assert (old / "marker").read_text() == "sock model"
+    assert (taught / WORDS_TXT).read_text() == "toy\nsock\n"
 
 
 async def test_run_export_returns_the_exit_code(tmp_path: Path) -> None:

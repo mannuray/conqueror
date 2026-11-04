@@ -19,7 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from conqueror_ai.adapters.taught_words import MODEL_NAME, WORDS_TXT, TaughtWords
-from conqueror_ai.domain.names import MAX_NAME_BYTES, MAX_NAMES, NEVER, squeeze
+from conqueror_ai.domain.names import MAX_NAME_BYTES, MAX_NAMES, squeeze
+from conqueror_ai.domain.person_guard import PERSON_WORDS
 
 ROOT = Path(__file__).resolve().parents[4]  # the repository: ai-engine/src/conqueror_ai/app -> ../../../..
 EXPORT_LIMIT_S = 200.0
@@ -36,7 +37,7 @@ class Reply:
 
 def _check(word: str, names: Sequence[str]) -> str | None:
     """Why the word cannot be taught, or None."""
-    if word == NEVER:
+    if any(part in PERSON_WORDS for w in (word, *names) for part in w.split()):
         return "I never look for people."
     if len(names) > MAX_NAMES:
         return f"At most {MAX_NAMES} names."
@@ -83,6 +84,9 @@ class Teacher:
         try:
             await self.on_learning(word)
             return await self._learn(word, names)
+        except Exception as e:  # any other failure is an answer too (final review I3); said on the laptop
+            print(f"teach {word}: {type(e).__name__}: {e}")
+            return Reply(False, "Something went wrong - I kept the old words.")
         finally:
             self.learning = None
             with contextlib.suppress(Exception):  # the link may have gone; the bridge clears it on close
@@ -91,6 +95,7 @@ class Teacher:
     async def _learn(self, word: str, names: list[str]) -> Reply:
         self.taught.add(word, names, self.today())
         done = False
+        old = self.taught.folder / "previous"  # the model and words.txt before, put back on a failure
         try:
             with tempfile.TemporaryDirectory(prefix="cq-teach-") as tmp:
                 out = Path(tmp)
@@ -100,21 +105,41 @@ class Teacher:
                     return Reply(False, "Making the new model took too long - I kept the old one.")
                 if code != 0 or not (out / MODEL_NAME).is_dir() or not (out / WORDS_TXT).is_file():
                     return Reply(False, "Making the new model failed - I kept the old one.")
-                self._move_in(out)
+                self._move_in(out, old)
             await self.installed()
             done = True
             return Reply(True, f"I know {word} now.")
         finally:
             if not done:
-                self.taught.remove(word)  # words.txt no longer matches: the measured model is used again
+                self.taught.remove(word)
+                self._put_back(old)  # the words taught before keep their model (final review I4)
+            elif old.exists():
+                shutil.rmtree(old)
 
-    def _move_in(self, out: Path) -> None:
+    def _move_in(self, out: Path, old: Path) -> None:
+        """The new model and words.txt into taught/; the ones they replace kept in `old` until it works."""
         folder = self.taught.folder
-        model = folder / MODEL_NAME
-        if model.exists():
-            shutil.rmtree(model)
-        shutil.move(str(out / MODEL_NAME), model)
+        if old.exists():
+            shutil.rmtree(old)
+        old.mkdir(parents=True)
+        for name in (MODEL_NAME, WORDS_TXT):
+            if (folder / name).exists():
+                shutil.move(str(folder / name), old / name)
+        shutil.move(str(out / MODEL_NAME), folder / MODEL_NAME)
         shutil.copyfile(out / WORDS_TXT, folder / WORDS_TXT)
+
+    def _put_back(self, old: Path) -> None:
+        if not old.exists():
+            return
+        folder = self.taught.folder
+        for name in (MODEL_NAME, WORDS_TXT):
+            if (folder / name).is_dir():
+                shutil.rmtree(folder / name)
+            elif (folder / name).exists():
+                (folder / name).unlink()
+            if (old / name).exists():
+                shutil.move(str(old / name), folder / name)
+        shutil.rmtree(old)
 
 
 async def run_export(extra: Path, out: Path, *, cmd: Sequence[str] | None = None) -> int:

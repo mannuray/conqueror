@@ -40,9 +40,12 @@ class _Page:
         self.wake.set()
 
     def take(self) -> str | bytes | None:
+        """The small text kinds first, the frame last (final review I1): a page too slow for every frame
+        still gets the status and a teach reply - only frames are skipped."""
         if not self.slots:
             return None
-        return self.slots.pop(FRAME if FRAME in self.slots else next(iter(self.slots)))
+        text = [k for k in self.slots if k != FRAME]
+        return self.slots.pop(text[0] if text else FRAME)
 
 
 class FeedServer:
@@ -62,6 +65,8 @@ class FeedServer:
         self._pages: dict[int, _Page] = {}
         self._next = 0
         self._requests: asyncio.Queue[tuple[int, dict[str, Any]]] = asyncio.Queue()
+        self._opening = 0
+        self._closing: set[asyncio.Task[None]] = set()
 
     @property
     def pages(self) -> int:
@@ -80,15 +85,19 @@ class FeedServer:
 
     async def attach(self, conn: PageConn) -> None:
         """One page's life: hello and greeting, its writer, and its requests until it closes."""
-        if len(self._pages) >= self.max_pages:
+        if len(self._pages) + self._opening >= self.max_pages:
             await conn.close(TRY_AGAIN, "four pages already")
             return
         self._next += 1
         page = _Page(self._next, conn)
         writer: asyncio.Task[None] | None = None
+        self._opening += 1  # the place is taken before the greeting is awaited (final review M2)
         try:
-            for msg in [{"t": "hello", "proto": PROTO}, *self.greeting()]:
-                await asyncio.wait_for(conn.send(json.dumps(msg)), self.stall_s)
+            try:
+                for msg in [{"t": "hello", "proto": PROTO}, *self.greeting()]:
+                    await asyncio.wait_for(conn.send(json.dumps(msg)), self.stall_s)
+            finally:
+                self._opening -= 1
             self._pages[page.n] = page
             writer = asyncio.create_task(self._write(page))
             async for raw in conn:
@@ -113,8 +122,11 @@ class FeedServer:
                     await asyncio.wait_for(page.conn.send(data), self.stall_s)
                 except TimeoutError:  # a stalled page: closed, its reader then ends
                     self._pages.pop(page.n, None)
-                    with contextlib.suppress(Exception):
-                        await asyncio.wait_for(page.conn.close(1001, "too slow"), 1.0)
+                    # the close runs to its own end in the background (websockets aborts the socket after its
+                    # close timeout) - never cut short here (final review M1)
+                    closing = asyncio.create_task(_close(page.conn))
+                    self._closing.add(closing)
+                    closing.add_done_callback(self._closing.discard)
                     return
                 except ConnectionClosed:
                     return
@@ -136,6 +148,11 @@ class FeedServer:
     async def requests(self) -> AsyncGenerator[tuple[int, dict[str, Any]]]:
         while True:
             yield await self._requests.get()
+
+
+async def _close(conn: PageConn) -> None:
+    with contextlib.suppress(Exception):
+        await conn.close(1001, "too slow")
 
 
 def _load(raw: str | bytes) -> dict[str, Any] | None:

@@ -287,8 +287,10 @@ class ServeApp:
         def telemetry() -> tuple[Pose | None, bool, str]:
             return self.world.map_run.p.pose(), False, self.perception.state(time.monotonic()) or "ok"
 
+        server = asyncio.create_task(self.feed_server.run(stop))
+        server.add_done_callback(_said_if_failed)
         return [
-            asyncio.create_task(self.feed_server.run(stop)),
+            server,
             asyncio.create_task(self.publisher.run(stop, telemetry)),
             asyncio.create_task(self._page_requests()),
         ]
@@ -333,15 +335,18 @@ class ServeApp:
         the floor words, the things list the bridge checks (sent again on every reconnect) and the pages'."""
         if self.make_detector is None:
             raise RuntimeError("no detector maker")
+        names = Names(vocab, self.ball_names)
         det, floor = await asyncio.to_thread(self.make_detector, model, vocab)
+        # the tank's list first: a refused list (ThingsRefused) fails the teach with nothing swapped
+        # (review M7); a lost link is fine - a reconnect sends link.things
+        with contextlib.suppress(ConnectionError):
+            await self.link.set_things(names.wire())
+        self.link.things = names.wire()
         self.perception.reload_detector(det)
-        self.names = Names(vocab, self.ball_names)
+        self.names = names
         self.world.set_floor_classes(floor)
-        self.link.things = self.names.wire()
         if self.publisher is not None:
             self.publisher.things = self.names.page_list
-        with contextlib.suppress(ConnectionError, ThingsRefused):  # a reconnect sends the new list anyway
-            await self.link.set_things(self.link.things)
 
     # ---- one connection
     async def _session(self, stop: asyncio.Event) -> None:
@@ -527,6 +532,13 @@ class ServeApp:
 
         w = self.world
         print(end_home(self._home_store(), self.home, self._earlier, w.map_run.room, w.memory, w.run_id))
+
+
+def _said_if_failed(task: asyncio.Task[None]) -> None:
+    """The /ai pages' feed server ended with an error (port 8770 taken: another cq-drive serve) - said at once
+    (final review M6); the words still work, only the /ai page has no AI feed."""
+    if not task.cancelled() and task.exception() is not None:
+        print(f"the AI feed for the /ai page could not start: {task.exception()} (try --page-port)")
 
 
 def main(argv: list[str]) -> None:

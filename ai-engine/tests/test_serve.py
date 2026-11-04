@@ -18,11 +18,12 @@ from websockets.asyncio.client import connect
 
 from conqueror_ai.adapters.feed_server import FeedServer
 from conqueror_ai.adapters.home_store import HomeStore
-from conqueror_ai.adapters.skill_link import SkillBusy, SkillLink, Start
+from conqueror_ai.adapters.skill_link import SkillBusy, SkillLink, Start, ThingsRefused
+from conqueror_ai.adapters.taught_words import TaughtWords
 from conqueror_ai.app import serve
 from conqueror_ai.app.feed import FeedPublisher
 from conqueror_ai.app.serve import ServeApp, SkillCall, skill_call
-from conqueror_ai.app.teach import Reply
+from conqueror_ai.app.teach import Reply, Teacher
 from conqueror_ai.app.world import World
 from conqueror_ai.domain.drive.curves import STOP, Command
 from conqueror_ai.domain.drive.roam import RoamSkill
@@ -371,6 +372,68 @@ async def test_a_page_teach_is_answered(bridge: FakeBridge) -> None:
         assert asked == [("cup", ["mug"], True, False)]
     finally:
         await s.close()
+
+
+async def test_a_refused_things_list_fails_the_teach(bridge: FakeBridge) -> None:
+    """Final review M7: the tank did not take the new list - the teach fails and nothing is swapped."""
+    s = await serving(bridge)
+    s.app.make_detector = lambda m, v: ("new detector", frozenset({"toy", "cup"}))  # pyright: ignore[reportAttributeAccessIssue]
+    try:
+        bridge.things_nack = "TOO_BIG"
+        vocab = Vocabulary.of((*NAMES_VOCAB.words, Word("cup", True, measured=False)))
+        with pytest.raises(ThingsRefused):
+            await s.app.apply_words(vocab, Path("/taught/model"))
+        assert not hasattr(s.p, "reloaded") and s.app.names.resolve("cup") is None
+        assert {"word": "cup", "names": []} not in s.app.link.things
+    finally:
+        bridge.things_nack = None
+        await s.close()
+
+
+async def test_a_busy_page_port_is_said(bridge: FakeBridge, capsys: pytest.CaptureFixture[str]) -> None:
+    """Final review M6: port 8770 taken (another cq-drive serve) is said on the laptop, not silent."""
+    import socket
+
+    taken = socket.socket()
+    taken.bind(("127.0.0.1", 0))
+    taken.listen()
+    port = taken.getsockname()[1]
+    server = FeedServer("127.0.0.1", port)
+    s = await serving(bridge, feed=(server, FeedPublisher(server, NAMES.page_list)))
+    try:
+        await until(lambda: "could not start" in capsys.readouterr().out, 3.0)
+    finally:
+        await s.close()
+        taken.close()
+
+
+async def test_stopping_during_a_teach_takes_the_word_out(bridge: FakeBridge, tmp_path: Path) -> None:
+    """Review Focus 3 / final review M9: Ctrl-C (stop) through ServeApp.run while a word is being learnt - the
+    taught entry is removed and the tank leaves learning (the off, or the link's close)."""
+    server = FeedServer("127.0.0.1", 0)
+    s = await serving(bridge, feed=(server, FeedPublisher(server, NAMES.page_list)))
+    taught = TaughtWords(tmp_path / "taught")
+
+    async def hangs(extra: Path, out: Path) -> int:
+        await asyncio.sleep(30)
+        return 0
+
+    async def installed() -> None:
+        raise AssertionError("never reached")
+
+    teacher = Teacher(taught, hangs, learning=s.app.on_learning, installed=installed)
+    s.app.teacher = teacher
+    await until(lambda: server.bound_port != 0)
+    async with connect(f"ws://127.0.0.1:{server.bound_port}/feed") as ws:
+        await ws.send(json.dumps({"t": "teach", "id": 1, "word": "cup", "names": []}))
+        await until(lambda: teacher.learning == "cup")
+        assert [w.word for w in taught.words()] == ["cup"]
+        await s.close()
+    assert taught.words() == [] and teacher.learning is None
+    learning = [m["on"] for m in msgs(bridge, "skill_learning")]
+    assert learning[0] is True
+    # the tank leaves learning by the "off" or by the server's close (bridge LLD R27.1: the close clears it)
+    await until(lambda: learning[-1] is False or bridge.skill_ws is None)
 
 
 async def test_a_find_gives_the_world_its_goal(bridge: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -343,3 +343,25 @@ async def test_websockets_own_errors_are_connection_errors(bridge: FakeBridge) -
         assert link.connected
     finally:
         await link.close()
+
+
+async def test_hello_carries_page(bridge: FakeBridge) -> None:
+    link = SkillLink(f"ws://127.0.0.1:{bridge.ws_port}/ws", THINGS, page_port=8770)
+    await link.connect()
+    try:
+        hello = skill_msgs(bridge, "hello")[0]
+        assert hello == {"t": "hello", "client": "ai-skills", "proto": 1, "page": {"port": 8770, "proto": 1}}
+    finally:
+        await link.close()
+
+
+async def test_learning_sent(bridge: FakeBridge) -> None:
+    link = SkillLink(f"ws://127.0.0.1:{bridge.ws_port}/ws", THINGS)
+    await link.connect()
+    try:
+        await link.learning(True)
+        await link.learning(False)
+        await until(lambda: len(skill_msgs(bridge, "skill_learning")) == 2)
+        assert [m["on"] for m in skill_msgs(bridge, "skill_learning")] == [True, False]
+    finally:
+        await link.close()

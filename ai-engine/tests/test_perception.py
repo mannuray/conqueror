@@ -167,3 +167,28 @@ async def test_guard_runs_before_tracker() -> None:
         stop.set()
         await p.close()
         await bridge.stop()
+
+
+async def test_on_frame_called_with_depth_or_none() -> None:
+    bridge = FakeBridge(jpeg=GREY_JPEG, pan_tilt=(90.0, 90.0), frames_for_s=0.3)
+    await bridge.start()
+    stop = asyncio.Event()
+    seen: list[tuple[int, tuple[int, ...], int, bool]] = []
+    p = Perception(
+        BridgeLink("127.0.0.1", bridge.ws_port),
+        MjpegSource("127.0.0.1", bridge.stream_port),
+        world(),
+        None,
+        None,
+        None,
+        on_frame=lambda cap_us, rgb, dets, inv: seen.append((cap_us, rgb.shape, len(dets), inv is None)),
+    )
+    try:
+        p.start(stop)
+        for _ in range(4):
+            await p.next_picture(1.0)
+        assert seen and all(s[1][2] == 3 and s[3] for s in seen)  # no depth model: inv None every picture
+    finally:
+        stop.set()
+        await p.close()
+        await bridge.stop()

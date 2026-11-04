@@ -13,9 +13,11 @@ from typing import Any
 
 import pytest
 
+from conqueror_ai.adapters.feed_server import FeedServer
 from conqueror_ai.adapters.home_store import HomeStore
 from conqueror_ai.adapters.skill_link import SkillBusy, SkillLink, Start
 from conqueror_ai.app import serve
+from conqueror_ai.app.feed import FeedPublisher
 from conqueror_ai.app.serve import ServeApp, SkillCall, skill_call
 from conqueror_ai.app.world import World
 from conqueror_ai.domain.drive.curves import STOP, Command
@@ -150,10 +152,11 @@ async def serving(
     w: World | None = None,
     home: str | None = None,
     store: HomeStore | None = None,
+    feed: tuple[FeedServer, FeedPublisher] | None = None,
 ) -> Serving:
     p = FakePerception()
     link = SkillLink(f"ws://127.0.0.1:{b.ws_port}/ws", NAMES.wire())
-    app = ServeApp(link, p, w or world(), NAMES, home, None, store=store, skills=maker or Maker())
+    app = ServeApp(link, p, w or world(), NAMES, home, None, store=store, skills=maker or Maker(), feed=feed)
     stop = asyncio.Event()
     task = asyncio.create_task(app.run(stop))
     await until(lambda: app.state == "idle")
@@ -270,6 +273,27 @@ async def test_find_drives_then_done(bridge: FakeBridge, monkeypatch: pytest.Mon
         assert len(msgs(bridge, "skill_drive")) == n  # nothing after the word
         assert s.app.state == "idle" and w.goal is None
         assert s.p.overlaps == 0 and s.p.pulls > 0  # one puller of pictures, between words too
+    finally:
+        await s.close()
+
+
+async def test_a_word_reaches_the_feed(bridge: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
+    """§22.3: the pages hear the word, its phase from the runner's ticks, and how it ended."""
+    w = world()
+    monkeypatch.setattr(w.map_run.p, "pose", lambda: FACING_X)
+    server = FeedServer("127.0.0.1", 0)
+    pub = FeedPublisher(server, NAMES.page_list)
+    ticks: list[str] = []
+    real_tick = pub.tick
+    monkeypatch.setattr(pub, "tick", lambda *a: ticks.append(a[3]) or real_tick(*a))  # pyright: ignore
+    s = await serving(bridge, Maker(), w, feed=(server, pub))
+    try:
+        await until(lambda: server.bound_port != 0)
+        await bridge.to_skill_server({"t": "skill_start", "id": 4, "skill": "find", "thing": "car"})
+        await until(lambda: len(msgs(bridge, "skill_done")) == 1)
+        assert ticks and set(ticks) == {"drive"}
+        status = pub.greeting()[0]
+        assert status["state"] == "done" and status["say"] == "I found the toy!" and status["id"] == 4
     finally:
         await s.close()
 

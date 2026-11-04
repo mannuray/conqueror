@@ -3,6 +3,7 @@
     uv run cq-drive serve                     # FIND, WANDER, EXPLORE, SETXY, SEE?, HOWFAR from /logo
     uv run cq-drive serve --home room2        # start from the home mark; the home is saved after each word
     uv run cq-drive serve --record recordings/logo-1
+    uv run cq-drive serve --page-port 0       # no AI feed for the /ai pages (default port 8770)
 
 One long session: perception and the map run all the time, so a question is answered from a fresh World
 and a word starts from the map built so far. Each action word (`skill_start`) runs one skill under the
@@ -17,15 +18,18 @@ import asyncio
 import contextlib
 import datetime
 import random
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from conqueror_ai.adapters.decisions import DecisionLog
+from conqueror_ai.adapters.feed_server import FeedServer
 from conqueror_ai.adapters.home_store import HomeStore
 from conqueror_ai.adapters.lease_driver import LeaseDriver, wire_reason
 from conqueror_ai.adapters.skill_link import Ask, End, SkillBusy, SkillLink, Start, ThingsRefused
+from conqueror_ai.app.feed import FeedPublisher, TickFan, make_feed
 from conqueror_ai.app.questions import Questions
 from conqueror_ai.app.runner import TICK_S, SkillRunner, TickView
 from conqueror_ai.app.world import World
@@ -45,6 +49,7 @@ if TYPE_CHECKING:
     from conqueror_ai.adapters.session import SessionRecorder
     from conqueror_ai.domain.camera import CameraModel
 
+PAGE_PORT = 8770  # the /ai pages' AI feed (AI engine LLD §22.1)
 RECONNECT_S = 2.0  # the skill link is tried again this often after it was lost
 SKILLS = ("find", "wander", "explore", "setxy")
 NEEDS_DEPTH = ("find", "explore")  # without depth find would end at once, explore has nowhere to go
@@ -198,12 +203,15 @@ class ServeApp:
         store: HomeStore | None = None,
         skills: SkillMaker = make_word_skill,
         view: TickView | None = None,
+        feed: tuple[FeedServer, FeedPublisher] | None = None,
     ) -> None:
         """home: the home's name (--home), in `store` (default: ai-engine/homes). record: each word's
-        decisions in record/word-<id>/decisions.jsonl. skills: builds a word's skill (tests script one)."""
+        decisions in record/word-<id>/decisions.jsonl. skills: builds a word's skill (tests script one).
+        feed: the /ai pages' AI feed and its publisher (§22; None: --page-port 0)."""
         self.link, self.perception, self.world, self.names = link, perception, world, names
         self.home, self.record, self.skills, self.view = home, record, skills, view
         self.store = store
+        self.feed_server, self.publisher = feed if feed is not None else (None, None)
         if not world.run_id:  # the session is one run of the home
             world.run_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.state = "connecting"  # connecting, idle, driving (LLD §21.6)
@@ -222,6 +230,7 @@ class ServeApp:
         pstop = asyncio.Event()
         self.perception.start(pstop)
         pump = asyncio.create_task(self._pump(pstop))
+        feed = self._feed_tasks(pstop)
         try:
             while not stop.is_set():
                 self.state = "connecting"
@@ -253,8 +262,22 @@ class ServeApp:
             pump.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await pump
+            await asyncio.gather(*feed, return_exceptions=True)  # they end on pstop
             await self.perception.close()
             await self.link.close()
+
+    def _feed_tasks(self, stop: asyncio.Event) -> list[asyncio.Task[None]]:
+        """The /ai pages' feed server and the status publisher (§22.1), until `stop`."""
+        if self.feed_server is None or self.publisher is None:
+            return []
+
+        def telemetry() -> tuple[Pose | None, bool, str]:
+            return self.world.map_run.p.pose(), False, self.perception.state(time.monotonic()) or "ok"
+
+        return [
+            asyncio.create_task(self.feed_server.run(stop)),
+            asyncio.create_task(self.publisher.run(stop, telemetry)),
+        ]
 
     # ---- one connection
     async def _session(self, stop: asyncio.Event) -> None:
@@ -310,6 +333,8 @@ class ServeApp:
         keep = asyncio.Event()
         w = _Word(ev.id, driver, keep, asyncio.create_task(driver.run(keep)))  # the first frame at once
         w.task = asyncio.create_task(self._run_word(w, call, ev.thing or ""))
+        if self.publisher is not None:
+            self.publisher.word(call.skill, call.word, ev.id)
         self._word, self.state = w, "driving"
 
     async def _on_end(self, ev: End) -> None:
@@ -343,9 +368,13 @@ class ServeApp:
                 self.state = "idle"
             if w.silent and not self._closing:  # ended or lost: the home still keeps what the word learned
                 self._save_home()
+        reason = wire_reason(result)
+        if self.publisher is not None and w.silent:  # ended by the bridge or lost: back to ready
+            self.publisher.word(None, None, None)
+        elif self.publisher is not None:
+            self.publisher.ended(reason or "done")
         if w.silent:
             return
-        reason = wire_reason(result)
         await self._send(self.link.done(w.id) if reason is None else self.link.failed(w.id, reason, thing))
         self._save_home()
 
@@ -358,8 +387,13 @@ class ServeApp:
                 self.world.area = (call.centre[0], call.centre[1], call.area_m)
             skill = self.skills(call, self.world, seed)
             await w.driver.cam(0.0, self.world.lim.drive_tilt_deg)
+            views = [v for v in (self.view, self.publisher) if v is not None]
             runner = SkillRunner(
-                self.world, _OnePuller(self.perception, self._lock), w.driver, log, view=self.view
+                self.world,
+                _OnePuller(self.perception, self._lock),
+                w.driver,
+                log,
+                view=TickFan(views) if views else None,
             )
             result, detail = await runner.run(skill)
             if detail:
@@ -448,10 +482,17 @@ def main(argv: list[str]) -> None:
     ap.add_argument(
         "--no-depth", action="store_true", help="leave the depth model out (the servo's tilt only)"
     )
+    ap.add_argument(
+        "--page-port",
+        type=int,
+        default=PAGE_PORT,
+        metavar="N",
+        help=f"serve the /ai pages' AI feed on this port (default {PAGE_PORT}; 0: off)",
+    )
     a = ap.parse_args(argv)
     rec = None
     try:
-        app, rec = _build(a.host, a.home, a.record, not a.no_depth, a.view)
+        app, rec = _build(a.host, a.home, a.record, not a.no_depth, a.view, a.page_port)
         asyncio.run(app.run(asyncio.Event()))
     except KeyboardInterrupt:
         print("\nstopped (Ctrl-C)")
@@ -467,7 +508,7 @@ def main(argv: list[str]) -> None:
 
 
 def _build(
-    host: str, home: str | None, record: Path | None, use_depth: bool, view: bool
+    host: str, home: str | None, record: Path | None, use_depth: bool, view: bool, page_port: int
 ) -> tuple[ServeApp, SessionRecorder | None]:
     from conqueror_ai.adapters import calibration_store
     from conqueror_ai.adapters.bridge_ws import BridgeLink
@@ -501,12 +542,14 @@ def _build(
     if record is not None:
         when = datetime.datetime.now().isoformat(timespec="seconds")
         rec = SessionRecorder(record, {"host": host, "what": "cq-drive serve", "date": when})
-    perception = Perception(BridgeLink(host), MjpegSource(host), world, det, depth, rec)
+    feed = make_feed(page_port, names.page_list)  # the /ai pages (§22); 0: off
+    on_frame = feed[1].on_frame if feed is not None else None
+    perception = Perception(BridgeLink(host), MjpegSource(host), world, det, depth, rec, on_frame)
     tick_view = None
     if view:
         try:
             tick_view = live_view()
         except Exception as e:  # a viewer that won't start never stops the session
             print(f"the viewer did not start ({e}); serving without it")
-    link = SkillLink(f"ws://{host}/ws", names.wire())
-    return ServeApp(link, perception, world, names, home, record, view=tick_view), rec
+    link = SkillLink(f"ws://{host}/ws", names.wire(), page_port=page_port or None)
+    return ServeApp(link, perception, world, names, home, record, view=tick_view, feed=feed), rec

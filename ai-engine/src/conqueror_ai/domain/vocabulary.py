@@ -15,6 +15,7 @@ class Word:
     min_score: float = DEFAULT_MIN_SCORE
     also: tuple[str, ...] = ()  # extra wordings the model is asked, reported as this word (design-notes §187)
     names: tuple[str, ...] = ()  # what a child may write for it in the AI words (LLD §21.4)
+    measured: bool = True  # False: taught from the /ai page, never measured on the tank's camera (§22.4)
 
 
 def _word(r: dict[str, Any], i: int) -> Word:

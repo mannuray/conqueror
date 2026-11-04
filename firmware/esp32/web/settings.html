@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#050805">
 <title>Conqueror Settings</title>
 <!--CQ:THEME-->
+<!--CQ:LINK-->
 <link rel="icon" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <style>
@@ -345,10 +346,11 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   var SVG_LOCK = icon("lock");
   var SVG_EDIT = icon("pencil");
   var SVG_DEL = icon("trash");
-  var ws = null, open = false, nextId = 1, retry = 500, wifi = null, editSlot = -1, fw = "--", scan = {};
+  var link = null, nextId = 1, wifi = null, editSlot = -1, fw = "--", scan = {};
   var confirmUntil = 0, confirmSecs = 30, confirmTimer = 0, toastTimer = 0, rec = null;
 
-  function send(o) { if (ws && open) { ws.send(JSON.stringify(o)); return true; } return false; }
+  function send(o) { return link ? link.send(o) : false; }  // link: cqLink (R31), opened at the end
+  function linkUp() { return !!link && link.isOpen(); }
   function toast(t, ok) {
     $("toast").textContent = t; $("toast").className = "show" + (ok ? " ok" : "");
     clearTimeout(toastTimer); toastTimer = setTimeout(function () { $("toast").className = ""; }, 4000);
@@ -548,10 +550,9 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     drawAsked = true; requestAnimationFrame(function () { drawAsked = false; draw(); });
   }
   window.addEventListener("cqtheme", requestDraw);  // the look flipped: the graph takes the new colours (R28)
-  // STOP (bridge LLD R29): the tank and any running program; with this page's socket down, through one opened for the press
-  $("stop").addEventListener("click", function () {
-    if (send({ t: "stop", id: nextId++ })) { send({ t: "logo_stop", id: nextId++ }); return; }
-    cqBar.stopOnce("ws://" + location.host + "/ws", function (ok) { toast(ok ? "Stopped" : "Couldn't reach the tank - use another STOP", ok); });
+  // STOP (bridge LLD R29, R31): the tank and any running program, on touch; the link down: its own socket, said
+  cqBar.onStop(function () {
+    link.stop([{ t: "stop", id: nextId++ }, { t: "logo_stop", id: nextId++ }], function (t, ok) { if (t !== "Stopping…") toast(t, ok); });
   });
   var KEYS = { speed: ["l", "r"], heading: ["h"], balance: ["b"] }, UNIT = { speed: "cm/s", heading: "°", balance: "‰" };
   function draw() {
@@ -761,7 +762,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   function encMean() { return lastEnc ? (lastEnc[0] + lastEnc[1]) / 2 : null; }
   function wizUi() {
     var free = owner === "none" || (owner === "human" && ownerClient === you);
-    $("zDrive").disabled = !open || !free || wiz.st === "sent" || wiz.st === "driving";
+    $("zDrive").disabled = !linkUp() || !free || wiz.st === "sent" || wiz.st === "driving";
     $("zMeas").disabled = wiz.st !== "measure";
     $("zSave").disabled = wiz.st !== "measure" || !wiz.cpm;
     if (wiz.st === "idle" && !free) $("zState").textContent = "// Someone else is driving - wait until they let go.";
@@ -929,7 +930,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
             m.yaw, m.rate, m.pitch, m.roll, n(m.dist_mm), m.dist_fault ? 1 : 0, m.closing, m.pan, m.tilt, m.flags, m.prim, m.pct].join(",");
   }
   $("mCsv").addEventListener("click", function () {
-    if (rec || !open) { if (!open) toast("Not connected"); return; }
+    if (rec || !linkUp()) { if (!linkUp()) toast("Not connected"); return; }
     rec = { t0: Date.now(), rows: [TD.join(",")] }; updateDebug();
     $("mCsvState").textContent = "Recording 10 s …";
     setTimeout(function () {
@@ -941,7 +942,6 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
 
   // ---------- WebSocket ----------
   function onMessage(m) {
-    cqStrip.tank(m);  // the status strip (bridge LLD R30): battery, AI HELPER, HDG, POS, SPEED, WIFI, UNO
     switch (m.t) {
       case "welcome": you = m.you || ""; break;
       case "tf": onTf(m); break;
@@ -975,33 +975,23 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
       default: break;
     }
   }
-  function connect() {
-    if (document.hidden || (ws && ws.readyState <= 1)) return;  // design-notes §77: no link while hidden
-    ws = new WebSocket("ws://" + location.host + "/ws");
-    ws.onopen = function () {
-      open = true; retry = 500; scanDone(); debugHz = 0; anchor = null; trimReset();
-      LOG.items = []; LOG.next = 0; LOG.gap = false;  // a new link may be a restarted bridge: read the log afresh
-      if (restarting) { restarting = false; toast("Bridge back online ✓", true); }
-      send({ t: "hello", client: "settings", proto: 1 });
-      send({ t: "wifi_status" }); send({ t: "calib" });
-      [66, 11, 12, 1, 27, 28].forEach(function (id) { send({ t: "setting", setting_id: id }); });
-      loadInfo(); showTab(tab); wizUi();
-    };
-    ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } onMessage(m); };
-    ws.onclose = function () {
-      open = false; debugHz = 0; cqStrip.linkDown();
-      if (wiz.st === "sent" || wiz.st === "driving" || wiz.st === "settling") wizState("idle", "// The link dropped - try again.");
-      wizUi();
-      setTimeout(connect, retry); retry = Math.min(retry * 2, 5000);
-    };
-    ws.onerror = function () { ws.close(); };
+  function linkOpened() {  // hello and the WiFi status went out with the link (R31)
+    scanDone(); debugHz = 0; anchor = null; trimReset();
+    LOG.items = []; LOG.next = 0; LOG.gap = false;  // a new link may be a restarted bridge: read the log afresh
+    if (restarting) { restarting = false; toast("Bridge back online ✓", true); }
+    send({ t: "calib" });
+    [66, 11, 12, 1, 27, 28].forEach(function (id) { send({ t: "setting", setting_id: id }); });
+    loadInfo(); showTab(tab); wizUi();
   }
-  setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
-  document.addEventListener("visibilitychange", function () {
-    if (document.hidden) { preview(false); if (ws && ws.readyState <= 1) ws.close(); } else { retry = 500; connect(); }
-  });
+  function linkClosed() {
+    debugHz = 0;
+    if (wiz.st === "sent" || wiz.st === "driving" || wiz.st === "settling") wizState("idle", "// The link dropped - try again.");
+    wizUi();
+  }
   showTab(location.hash.slice(1));
-  connect();
+  // the tank (R31): one link; its messages fill the model (the strip) and then onMessage
+  link = cqLink.open({ client: "settings", model: cqTank, onMessage: onMessage, onOpen: linkOpened, onClose: linkClosed,
+    onHide: function () { preview(false); } });
 })();
 </script>
 </body>

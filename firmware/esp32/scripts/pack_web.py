@@ -11,7 +11,9 @@
   web/logo.js and <!--CQ:WORDS--> by web/generated/words.json. Budget 32 KB gzipped (bridge LLD R25, R28, R29, R30).
 - Every page: the shared look (bridge LLD R28) - <!--CQ:THEME--> in its <head> becomes web/theme.css and web/theme.js.
 - Every page: the one top bar (bridge LLD R29) - <!--CQ:BAR--> becomes web/bar.css, web/bar.html and web/bar.js.
-- /ai, /logo, /settings: the status strip (bridge LLD R30) - <!--CQ:STRIP--> becomes web/strip.css, strip.html, strip.js.
+- /ai, /logo, /settings: the status strip (bridge LLD R30) - <!--CQ:STRIP--> becomes web/strip.css, strip.html, and
+  tank_model.js + strip.js (R31: the model and its view).
+- /, /ai, /logo, /settings: the one link (bridge LLD R31) - <!--CQ:LINK--> becomes web/link.js.
 - Every page: whole-line // comments in its scripts and /* */ in its styles go (bridge LLD R31.5).
 - Every page: its icons from web/icons.json (scripts/icons.py, bridge LLD R25) - <!--icon:NAME--> markers and one
   /*CQ:ICONS ...*/ table; an unknown icon fails the build.
@@ -167,6 +169,20 @@ def with_strip(text: str, project: pathlib.Path, page: str) -> str:
     return text.replace(STRIP_MARKER, f"<style>\n{css}</style>\n{markup}<script>\n{code}</script>", 1)
 
 
+LINK_MARKER = "<!--CQ:LINK-->"
+
+
+def with_link(text: str, project: pathlib.Path, page: str) -> str:
+    """The one link (bridge LLD R31): LINK_MARKER becomes <script>link.js</script>. A page that uses cqLink without the
+    marker fails the build; a page without either is left as it is (/help holds no link)."""
+    if LINK_MARKER not in text:
+        if "cqLink." in text:
+            raise SystemExit(f"pack_web: {page} uses cqLink but has no {LINK_MARKER}")
+        return text
+    code = (project / "web" / "link.js").read_text(encoding="utf-8").replace("</", "<\\/")  # never closes its <script>
+    return text.replace(LINK_MARKER, f"<script>\n{code}</script>", 1)
+
+
 PAGES_LINE = re.compile(r"^/\* pages: ([^*]*)\*/\n", re.MULTILINE)
 
 
@@ -211,7 +227,7 @@ def assemble_page(project: pathlib.Path, uri: str, keep_comments: bool = False) 
     if not raw:
         return raw
     table = icons.load(web / "icons.json")
-    text = with_strip(with_bar(with_theme(raw.decode("utf-8"), project, uri), project, uri), project, uri)
+    text = with_link(with_strip(with_bar(with_theme(raw.decode("utf-8"), project, uri), project, uri), project, uri), project, uri)
     text = icons.expand(text, table, uri)
     return (text if keep_comments else strip_comments(text)).encode("utf-8")
 

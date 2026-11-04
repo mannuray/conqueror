@@ -59,10 +59,6 @@ var cqStripView = (function () {
   return { wifiIcon: wifiIcon, wifiText: wifiText, posText: posText, texts: texts, bind: bind };
 })();
 if (typeof document !== "undefined" && document.getElementById("cqStrip")) {
-  // until every page reaches the model through cqLink (R31 Task 3): the strip's former calls go to the model
-  window.cqStrip = (function (m, v) {
-    return { tank: function (x) { m.apply(x); }, linkDown: function () { m.linkDown(); }, aiHelper: function (on) { m.aiHelper(on); },
-      pose: function (x, y) { m.pose(x, y); }, fps: function (n) { m.fps(n); }, showFps: v.showFps, render: v.render };
-  })(window.cqTank, cqStripView.bind(window.cqTank));
+  window.cqStrip = cqStripView.bind(window.cqTank);  // the page's view: render(), showFps(); data goes to window.cqTank
 }
 if (typeof module !== "undefined") module.exports = cqStripView;

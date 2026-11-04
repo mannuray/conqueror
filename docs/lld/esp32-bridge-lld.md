@@ -3276,3 +3276,73 @@ classDiagram
   cqBar --> PageHost : html.cq-open raises it
 ```
 
+## R30. One status strip on /ai and /logo (owner 2026-11-04; design-notes §209 — approved)
+
+### R30.1 What changes
+- `<!--CQ:STRIP-->` in `/ai` and `/logo` becomes `<style>strip.css</style>` + `web/strip.html` + `<script>strip.js</script>` (`pack_web.with_strip`, same rules as `with_bar`: `</` escaped, a page that uses `cqStrip` without the marker fails the build).
+- Chips (ids): `#cBatt` (`.cell` + `#battFill`, `#battTxt`), `#cAi`, `#cFps` (hidden unless the page calls `cqStrip.showFps()`), `#cHdg`, `#cPos`, `#cSpd`, `#cWifi`, `#cUno`, in that order.
+- Removed: `/logo`'s `#cBatt` / `#cWifi` / `#cUno` chips and their code; `/ai`'s chip markup and battery code; `ai.js`'s `battPct` / `battState` / `BattMean` and `logo.js`'s `wifiIcon` / `batteryIcon` / `BattMean` / `battWarn` move to `strip.js` with their tests.
+
+### R30.2 Classes
+
+```mermaid
+classDiagram
+  class cqStrip {
+    <<strip.js, window.cqStrip>>
+    +battState(v, flags) usb, pct, level
+    +BattMean(n)
+    +wifiText(mode, rssi) icon, text, warn
+    +posText(x_m, y_m) string
+    +tank(m) void
+    +linkDown() void
+    +aiHelper(on) void
+    +pose(x_m, y_m) void
+    +fps(n) void
+    +showFps() void
+  }
+  class AiPage {
+    <<ai.html>>
+    tank socket -> cqStrip.tank(m)
+    feed open/closed -> cqStrip.aiHelper(on)
+    engine pose -> cqStrip.pose
+    frames each s -> cqStrip.fps
+  }
+  class LogoPage {
+    <<logo.html>>
+    tank socket -> cqStrip.tank(m)
+    socket closed -> cqStrip.linkDown()
+  }
+  class PackWeb {
+    +with_strip(text, project, page) str
+    +STRIP_MARKER
+  }
+  PackWeb ..> cqStrip : inlines strip.html, strip.css, strip.js
+  AiPage --> cqStrip
+  LogoPage --> cqStrip
+```
+
+- `tank(m)`: `ts` → battery (`BattMean` of 10, `battState`), UNO from `flags` / `uno`; `tf` → HDG (`yaw`), SPEED (`max(|spd_cmd|)` %); `welcome` → UNO; `wifi_status` → WIFI; `ai_at` → AI HELPER (only when the page has not called `aiHelper()` itself: /ai owns that chip); `ev` `logo_pose` → POS (cm → m).
+- `linkDown()`: WIFI "RECONNECTING" (warn), battery "NO TANK", UNO "--".
+- Colours: `--strip-*` names with `:where(:root)` defaults from the shared R28 names (as R29.6); `/ai` maps them to its own.
+
+### R30.3 Sequence (a message on /logo)
+
+```mermaid
+sequenceDiagram
+  participant T as bridge /ws
+  participant L as /logo onMessage
+  participant S as cqStrip
+  T->>L: {"t":"ts","batt_v":7.9,"flags":[]}
+  L->>S: tank(m)
+  S->>S: BattMean.push, battState -> 82 %, cell 17 px
+  T->>L: {"t":"ev","kind":"logo_pose","x_cm":30,"y_cm":50}
+  L->>S: tank(m)
+  S->>S: POS 0.3,0.5
+  Note over L,S: socket closed -> linkDown(): WIFI RECONNECTING, NO TANK
+```
+
+### R30.4 Tests
+- `web/test/strip.test.js` (node): `battState` / `BattMean` (moved from `ai.test.js`), `wifiText` and the battery-icon rules (moved from `logo.test.js`), `posText`, `tank()` routing with a fake DOM-free sink.
+- `scripts/test_strip_pack.py`: the marker on `/ai` and `/logo` becomes the strip once; ids once; nothing in `strip.js` closes its `<script>`.
+- `web/test/strip_check.js` (Playwright): on `/ai` and `/logo` at 390 and 1440 px the same chips in the same order and the same computed look (fps only on `/ai`); fake `ts`, `tf`, `wifi_status`, `ai_at`, `logo_pose` messages fill them; a dropped socket shows RECONNECTING. `browser_check_wide` (its battery / WiFi icon lines move to the strip's look), `ai_check`, `look_check`, `bar_check` still pass.
+

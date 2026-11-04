@@ -44,7 +44,18 @@ nav button.on { background: var(--sel); color: var(--hi); border-color: var(--g)
 main { display: grid; grid-template-columns: 1fr; gap: 14px; padding: 14px 16px; max-width: 1440px; margin: 0 auto; }
 #colCam, #colRight { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 @media (max-width: 899px) { #colRight { display: contents; } #cardThink { order: 1; } #colCam { order: 2; } #cardPlay { order: 3; } }
-@media (min-width: 900px) { main { grid-template-columns: 7fr 5fr; } }
+@media (min-width: 900px) {
+  /* laptop: one screen like /logo - no page scroll; a short window scrolls the right column inside itself */
+  html, body { height: 100%; overflow: hidden; }
+  body { display: flex; flex-direction: column; padding-bottom: 30px; }
+  header { flex: none; }
+  main { flex: 1; min-height: 0; width: 100%; grid-template-columns: 7fr 5fr; grid-template-rows: minmax(0, 1fr); }
+  #colCam, #colRight { min-height: 0; }
+  #colRight { overflow-y: auto; padding-right: 4px; }
+  #colCam .card { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #colCam .views { flex: 1; min-height: 0; align-content: start; }
+  #colCam .view { max-height: calc(100vh - 330px); margin: 0 auto; width: 100%; }
+}
 .card { position: relative; background: var(--panel); border: 1px solid var(--edge); padding: 14px; box-shadow: 0 0 12px rgba(10,25,12,.6); }
 .card::before, .card::after { content: ""; position: absolute; width: 8px; height: 8px; pointer-events: none; }
 .card::before { top: -2px; left: -2px; border-top: 2px solid var(--g); border-left: 2px solid var(--g); }
@@ -132,6 +143,15 @@ footer { position: fixed; bottom: 0; left: 0; right: 0; z-index: 40; height: 30p
 footer b { color: var(--amber); font-weight: 600; }
 footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 899px) { header .chips { order: 5; width: 100%; } header nav { order: 6; } }
+@media (min-width: 900px) and (max-height: 860px) {  /* a short laptop window: the play buttons stay on screen */
+  main { gap: 10px; padding: 10px 16px; } #colRight, #colCam { gap: 10px; }
+  .card { padding: 10px 12px; } .card h2 { margin-bottom: 8px; padding-bottom: 6px; }
+  .face { width: 64px; height: 64px; } .think { gap: 10px; padding-top: 0; } .bubble { padding: 8px 10px; } #say { font-size: 14px; }
+  .whybox { margin-top: 8px; padding: 6px 10px; } .label { margin-bottom: 6px; }
+  .row, .areabox, .acts, .ran, details { margin-top: 8px; } .areabox { padding: 6px; }
+  .things button, .btn, input[type=text] { min-height: 34px; } .seg button { min-height: 30px; }
+  .act { min-height: 48px; flex-direction: row; gap: 6px; } #newHint { margin-top: 4px; }
+}
 </style></head>
 <body>
 <header>
@@ -413,15 +433,21 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   }
 
   // ---------- what it thinks, and the voice ----------
-  var sayer = new A.Sayer(function (t) {
-    try { var u = new SpeechSynthesisUtterance(t); u.rate = 1.0; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (x) { /* no voice */ }
-  });
+  var sayer = new A.Sayer(function (t) { speakNow(t); });
   var muted = false;
   try { muted = localStorage.getItem("cq_ai_mute") === "1"; } catch (x) { /* private mode */ }
   var lastSay = "";
   var voiceOk = typeof window.speechSynthesis !== "undefined" && typeof window.SpeechSynthesisUtterance !== "undefined";
+  // No cancel() before speak(): Chrome can drop an utterance spoken right after a cancel. The voice button shows what
+  // the browser does with it (speaking, or its error) - so a silent phone says why.
   function speakNow(t) {  // inside a tap: iOS lets a page speak only from a user gesture, then for the rest of the page
-    try { var u = new SpeechSynthesisUtterance(t); speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (x) { /* no voice */ }
+    try {
+      var u = new SpeechSynthesisUtterance(t);
+      u.onstart = function () { $("voiceTxt").textContent = "SPEAKING…"; };
+      u.onend = function () { showMute(); };
+      u.onerror = function (e) { $("voiceTxt").textContent = "VOICE: " + String(e.error || "ERROR").toUpperCase(); };
+      speechSynthesis.speak(u);
+    } catch (x) { $("voiceTxt").textContent = "NO VOICE HERE"; }
   }
   function showMute() {
     sayer.mute(muted); $("icOn").classList.toggle("hidden", muted); $("icOff").classList.toggle("hidden", !muted);

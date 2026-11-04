@@ -20,6 +20,19 @@ class Bar(unittest.TestCase):
         script = out[out.index("<script>") : out.rindex("</script>")]
         self.assertNotIn("</", script)  # nothing in bar.js closes its <script>
 
+    def test_a_page_without_the_marker_fails_the_build_naming_it(self) -> None:
+        with self.assertRaises(SystemExit) as e:
+            _PACK["with_bar"]("<header></header>", PROJECT, "/x")
+        self.assertIn("/x", str(e.exception))
+
+    def test_every_page_has_the_bar_once(self) -> None:
+        for uri in ("/", "/settings", "/logo", "/ai", "/help"):
+            with self.subTest(uri=uri):
+                text = _PACK["assemble_page"](PROJECT, uri).decode()
+                self.assertEqual(text.count("window.cqBar ="), 1)
+                self.assertEqual(text.count('id="stop"'), 1)
+                self.assertNotIn('id="themeBtn"', text)
+
     def test_ai_has_the_bar_once_and_no_old_look_button(self) -> None:
         text = _PACK["assemble_page"](PROJECT, "/ai").decode()
         self.assertEqual(text.count('id="lookBtn"'), 1)

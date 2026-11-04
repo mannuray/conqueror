@@ -133,9 +133,9 @@ BAR_MARKER = "<!--CQ:BAR-->"
 
 def with_bar(text: str, project: pathlib.Path, page: str) -> str:
     """The one top bar (bridge LLD R29): BAR_MARKER becomes <style>bar.css</style> + bar.html + <script>bar.js</script>.
-    A page without the marker is left as it is (until every page has one)."""
+    A page without the marker fails the build (every page has the bar)."""
     if BAR_MARKER not in text:
-        return text
+        raise SystemExit(f"pack_web: {BAR_MARKER} missing in {page}")
     web = project / "web"
     css = (web / "bar.css").read_text(encoding="utf-8")
     if "</style" in css.lower():

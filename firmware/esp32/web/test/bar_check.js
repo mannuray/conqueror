@@ -20,6 +20,7 @@ async (page) => {
     class FakeWS {
       constructor(url) {
         this.url = url; this.readyState = 0; this.closed = false; window.__sockets.push(this);
+        if (window.__down) return;  // __down: the tank is out of reach - a socket made now never opens
         setTimeout(() => { this.readyState = 1; this.onopen && this.onopen(); }, 10);
       }
       send(s) {
@@ -152,5 +153,40 @@ async (page) => {
   await page.evaluate(() => { window.__sent = []; });
   await page.keyboard.press("Escape"); await page.waitForTimeout(100);
   ok(await page.evaluate(() => window.__sent.join()) === "stop,logo_stop", "/logo: Esc again did not stop");
+  // every page together: the three at the same place and size on the pages with a header (within 1 px); a short laptop
+  // window and a phone on its side reach all five menu entries; no sideways scroll
+  for (const [w, h] of [[390, 844], [1440, 900], [1280, 600], [844, 390]]) {
+    const seen = {};
+    for (const path of ["/ai", "/settings", "/logo", "/help"]) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.goto(BASE + path); await page.waitForTimeout(300);
+      seen[path] = (await rects()).map((x) => [x.l, x.t, x.r - x.l, x.h].map(Math.round).join(",")).join(" ");
+      await page.click("#menuBtn");
+      const reach = await page.evaluate(() => { const m = document.getElementById("cqMenu"), last = m.querySelector("a:last-child");
+        m.scrollTop = m.scrollHeight; const r = last.getBoundingClientRect(); return r.bottom <= innerHeight && r.top >= 0; });
+      ok(reach, path + " " + w + "x" + h + ": the last menu entry cannot be reached");
+      ok(await page.evaluate(() => document.scrollingElement.scrollWidth <= innerWidth), path + " " + w + "x" + h + ": sideways scroll");
+    }
+    const first = seen["/ai"];
+    for (const path in seen) ok(seen[path].split(" ").every((b, i) => b.split(",").every((v, j) => Math.abs(v - first.split(" ")[i].split(",")[j]) <= 1)),
+      w + "x" + h + ": the three on " + path + " (" + seen[path] + ") are not where they are on /ai (" + first + ")");
+  }
+  for (const [w, h] of [[1280, 600], [844, 390]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto(BASE + "/"); await page.waitForTimeout(300);
+    await page.click("#menuBtn");
+    ok(await page.evaluate(() => { const m = document.getElementById("cqMenu"); m.scrollTop = m.scrollHeight;
+      const r = m.querySelector("a:last-child").getBoundingClientRect(); return r.bottom <= innerHeight; }), "/ " + w + "x" + h + ": the last menu entry cannot be reached");
+  }
+  // Settings with its own socket down: STOP still tries, through a socket of its own, and says when it cannot reach the tank
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(BASE + "/settings"); await page.waitForTimeout(300);
+  await page.evaluate(() => { window.__down = true; window.__sockets.forEach((x) => x.close()); });
+  await page.waitForTimeout(100);
+  const before = await page.evaluate(() => window.__sockets.length);
+  await page.click("#stop"); await page.waitForTimeout(2300);
+  const down = await page.evaluate((b) => ({ toast: document.getElementById("toast").textContent, n: window.__sockets.length,
+    stopSock: window.__sockets.slice(b).some((x) => x.closed) }), before);  // the press's socket closed (the page's own retries may be open)
+  ok(down.n > before && down.stopSock && down.toast === "Couldn't reach the tank - use another STOP", "/settings: STOP with the socket down gave " + JSON.stringify(down));
   return fails.length ? "FAIL\n" + fails.join("\n") : "PASS bar_check (" + PAGES.map((p) => p.path).join(" ") + ")";
 }

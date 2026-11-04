@@ -26,6 +26,14 @@ svg:not(.face) { width: 15px; height: 15px; fill: none; stroke: currentColor; st
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--g); box-shadow: 0 0 6px var(--g);
   margin-right: 4px; vertical-align: 0; }
 .chip.warn .dot { background: var(--amber); box-shadow: none; }
+/* the battery: a small cell that fills, and the percent (amber low, red critical) */
+.chip.batt { display: inline-flex; align-items: center; gap: 6px; }
+.cell { position: relative; width: 26px; height: 12px; border: 1.5px solid currentColor; border-radius: 2px; }
+.cell::after { content: ""; position: absolute; right: -4px; top: 3px; width: 2px; height: 4px; background: currentColor; border-radius: 0 1px 1px 0; }
+.cell i { position: absolute; left: 1px; top: 1px; bottom: 1px; width: 0; background: var(--g); border-radius: 1px; }
+.chip.batt.low { color: var(--amber); border-color: rgba(255,176,0,.6); } .chip.batt.low .cell i { background: var(--amber); }
+.chip.batt.crit { color: var(--red); border-color: rgba(255,59,48,.7); } .chip.batt.crit .cell i { background: var(--red); }
+.chip.batt b { font-weight: 700; }
 /* header */
 header { position: sticky; top: 0; z-index: 40; background: #080d08; border-bottom: 1px solid var(--edge);
   padding: 8px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
@@ -158,7 +166,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   <a class="back" href="/"><!--icon:chevron-left-->DRIVE</a>
   <span class="title glow">TANK AI</span>
   <div class="chips">
-    <span id="cBatt" class="chip">-- V</span><span id="cAi" class="chip warn"><i class="dot"></i>AI HELPER OFF</span><span id="cFps" class="chip">-- / s</span>
+    <span id="cBatt" class="chip batt" title="battery"><span class="cell"><i id="battFill"></i></span><b id="battTxt">--</b></span><span id="cAi" class="chip warn"><i class="dot"></i>AI HELPER OFF</span><span id="cFps" class="chip">-- / s</span>
     <span id="cHdg" class="chip">HDG --</span><span id="cPos" class="chip">POS --</span><span id="cSpd" class="chip">SPEED --</span>
   </div>
   <nav><button type="button" class="on" data-tab="play">[ PLAY ]</button><button type="button" data-tab="room">[ ROOM ]</button><button type="button" data-tab="inside">[ INSIDE ]</button></nav>
@@ -257,7 +265,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     ws = new WebSocket("ws://" + location.host + "/ws");
     ws.onopen = function () { wsOpen = true; retry = 500; send({ t: "hello", client: "ai-page", proto: 1 }); };
     ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } onTank(m); };
-    ws.onclose = function () { wsOpen = false; $("cBatt").textContent = "NO TANK"; $("cBatt").className = "chip warn";
+    ws.onclose = function () { wsOpen = false; showBatt(null, []);
       if (run.running) setRun(false, "The link to the tank dropped."); setTimeout(connect, retry); retry = Math.min(retry * 2, 5000); };
     ws.onerror = function () { ws.close(); };
   }
@@ -272,8 +280,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     switch (m.t) {
       case "ai_at": setFeedUrl(m.url || null, m.proto | 0); break;
       case "ts":
-        if (typeof m.batt_v === "number") { $("cBatt").textContent = m.batt_v.toFixed(1) + " V"; }
-        $("cBatt").className = (m.flags || []).indexOf("batt_low") >= 0 ? "chip warn" : "chip";
+        if (typeof m.batt_v === "number") showBatt(battMean.push(m.batt_v), m.flags || []);
         tired = (m.flags || []).indexOf("batt_low") >= 0;
         break;
       case "tf":
@@ -296,6 +303,16 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       case "nack": if (m.id === run.id) setRun(false, m.message || "The tank said no (" + m.reason + ")."); break;
       default: break;
     }
+  }
+  // The battery bar: averaged like the drive page; the percent from its 2S curve; amber low, red critical.
+  var battMean = new A.BattMean(10);
+  function showBatt(v, flags) {
+    if (v === null) { $("battTxt").textContent = "NO TANK"; $("battFill").style.width = "0"; $("cBatt").className = "chip batt low"; return; }
+    var b = A.battState(v, flags);
+    $("battTxt").textContent = b.usb ? "USB" : b.pct + " %";
+    $("battFill").style.width = (b.usb ? 0 : Math.round(b.pct * 0.21)) + "px";  // 21 px = full inside the cell
+    $("cBatt").className = "chip batt" + (b.level === "critical" ? " crit" : b.level === "low" ? " low" : "");
+    $("cBatt").title = b.usb ? "on USB power" : "battery " + v.toFixed(2) + " V";
   }
   function track(side, v) {  // the real track power the tank sends (tf spd_cmd, %): amber when backwards
     $("ro" + side).textContent = v === 0 ? "STOPPED" : (v > 0 ? "FORWARD " : "BACK ") + Math.abs(v) + "%";
@@ -436,13 +453,23 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   var sayer = new A.Sayer(function (t) { speakNow(t); });
   var muted = false;
   try { muted = localStorage.getItem("cq_ai_mute") === "1"; } catch (x) { /* private mode */ }
-  var lastSay = "";
+  var lastSay = "", voicePicked = null;
+  // A voice on the device itself (an online "Google" voice can be silent on a home network); the list can come late.
+  function deviceVoice() {
+    if (!voicePicked && window.speechSynthesis && typeof speechSynthesis.getVoices === "function") {
+      voicePicked = A.pickVoice(speechSynthesis.getVoices() || [], navigator.language);
+      if (voicePicked) $("muteBtn").title = "voice: " + voicePicked.name + " (" + voicePicked.lang + (voicePicked.localService ? ", on this device)" : ", online)");
+    }
+    return voicePicked;
+  }
+  if (window.speechSynthesis && "onvoiceschanged" in speechSynthesis) speechSynthesis.onvoiceschanged = function () { voicePicked = null; };
   var voiceOk = typeof window.speechSynthesis !== "undefined" && typeof window.SpeechSynthesisUtterance !== "undefined";
   // No cancel() before speak(): Chrome can drop an utterance spoken right after a cancel. The voice button shows what
   // the browser does with it (speaking, or its error) - so a silent phone says why.
   function speakNow(t) {  // inside a tap: iOS lets a page speak only from a user gesture, then for the rest of the page
     try {
-      var u = new SpeechSynthesisUtterance(t);
+      var u = new SpeechSynthesisUtterance(t), voice = deviceVoice();
+      if (voice) { u.voice = voice; u.lang = voice.lang; }
       u.onstart = function () { $("voiceTxt").textContent = "SPEAKING…"; };
       u.onend = function () { showMute(); };
       u.onerror = function (e) { $("voiceTxt").textContent = "VOICE: " + String(e.error || "ERROR").toUpperCase(); };

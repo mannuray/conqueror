@@ -87,13 +87,51 @@ var AiCore = (function () {
 
   function protoOk(n) { return n === PROTO; }
 
+  // The battery as the drive page shows it: 2S Li-ion resting voltage -> percent (basic_drive.html BATT_CURVE),
+  // averaged over a few readings; under 5.5 V the tank runs on USB (no pack).
+  var BATT_CURVE = [[8.4, 100], [8.2, 90], [8.0, 80], [7.8, 65], [7.6, 50], [7.4, 35], [7.2, 20], [7.0, 10], [6.8, 5], [6.6, 0]];
+  function battPct(v) {
+    if (v >= BATT_CURVE[0][0]) return 100;
+    for (var i = 1; i < BATT_CURVE.length; ++i) {
+      var hi = BATT_CURVE[i - 1], lo = BATT_CURVE[i];
+      if (v >= lo[0]) return Math.round(lo[1] + (v - lo[0]) / (hi[0] - lo[0]) * (hi[1] - lo[1]));
+    }
+    return 0;
+  }
+  function battState(v, flags) {
+    if (v < 5.5) return { usb: true, pct: null, level: "ok" };
+    var f = flags || [], pct = battPct(v);
+    var level = f.indexOf("batt_critical") >= 0 ? "critical" : f.indexOf("batt_low") >= 0 || pct < 20 ? "low" : "ok";
+    return { usb: false, pct: pct, level: level };
+  }
+  function BattMean(n) { this.n = n; this.vals = []; this.usb = null; }
+  BattMean.prototype.push = function (v) {
+    var usb = v < 5.5;
+    if (usb !== this.usb) { this.vals = []; this.usb = usb; }  // USB <-> pack: the average starts again
+    this.vals.push(v); if (this.vals.length > this.n) this.vals.shift();
+    return this.vals.reduce(function (a, b) { return a + b; }, 0) / this.vals.length;
+  };
+
+  // The voice: one on the device first (an online voice can be silent on a home network), the page's language first,
+  // then any English one.
+  function pickVoice(voices, lang) {
+    var base = String(lang || "en").slice(0, 2);
+    function find(ok) { for (var i = 0; i < voices.length; ++i) if (ok(voices[i])) return voices[i]; return null; }
+    return find(function (v) { return v.localService && v.lang === lang; }) ||
+      find(function (v) { return v.localService && v.lang.slice(0, 2) === base; }) ||
+      find(function (v) { return v.localService && v.lang.slice(0, 2) === "en"; }) ||
+      find(function (v) { return v.lang === lang; }) || find(function (v) { return v.lang.slice(0, 2) === "en"; }) ||
+      voices[0] || null;
+  }
+
   // An ai_at for the feed already in use changes nothing (final review I2: each unlock re-sends it).
   function sameFeed(url, proto, newUrl, newProto) { return !!url && url === newUrl && proto === newProto; }
 
   return {
     PROTO: PROTO, PROTO_TEXT: PROTO_TEXT, splitFrame: splitFrame, boxRect: boxRect, findLine: findLine,
     wanderLine: wanderLine, exploreLine: exploreLine, typed: typed, unknownText: unknownText, teachCheck: teachCheck,
-    Sayer: Sayer, cameraState: cameraState, protoOk: protoOk, sameFeed: sameFeed, squeeze: squeeze
+    Sayer: Sayer, cameraState: cameraState, protoOk: protoOk, sameFeed: sameFeed, squeeze: squeeze,
+    battPct: battPct, battState: battState, BattMean: BattMean, pickVoice: pickVoice
   };
 })();
 if (typeof module !== "undefined") module.exports = AiCore;

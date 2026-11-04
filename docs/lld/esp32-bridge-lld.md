@@ -3165,7 +3165,7 @@ sequenceDiagram
 - `web/test/theme.test.js` (node): `pick`.
 - `web/test/look_check.js` (Playwright on `fake_tank.py`): each page in the cockpit has the same computed colours, shadows and fonts, element by element, as the commit before the change (5521b22, served by a second stand-in on :8766; a socket that never connects and clean storage, so live state cannot differ); each page in Sunny has the cream background and red STOP; the choice made on one page holds on the others; the canvases' colours change on a flip; no sideways scroll at 390 px.
 
-## R29. One top bar on every page (owner 2026-11-04; design-notes §208 — approved)
+## R29. One top bar on every page (owner 2026-11-04; design-notes §208 — built, R29.6)
 
 ### R29.1 What changes
 - `<!--CQ:BAR-->` in each page (`/`, `/logo`, `/settings`, `/help`, `/ai`) is replaced at build time by `scripts/pack_web.py` with `<style>bar.css</style>` + `web/bar.html` (the three buttons and the menu) + `<script>bar.js</script>` (every `</` in the script written `<\/`). A page without the marker fails the build.
@@ -3236,3 +3236,42 @@ sequenceDiagram
 - `scripts/test_bar_pack.py`: the marker becomes the style, markup and script on every page, once; a page without it fails naming the page; nothing in bar.js closes its `<script>`.
 - `web/test/bar.test.js` (node): `here()` for each path and an unknown one; `stopOnce` with a fake socket - ack → true and closed; error → false; silence → false after 2 s (fake timer), closed.
 - `web/test/bar_check.js` (Playwright on `fake_tank.py`): on each page at 390 px and 1440 px the three are in one row, in order, at the top right, the same height; the title on one line; the menu has the five entries in order with the current one marked; 🎨 flips and the choice holds on the next page; STOP sends `stop` on each page (Drive, `/logo`, `/ai` as before; Settings `stop` + `logo_stop`; Help through a socket it opens and then closes); no sideways scroll; `hide_stop_check`, `ai_check`, `browser_check`, `browser_check_wide`, `camera_centre_check`, `camera_tuning_check`, `look_check` (Sunny parts updated to `#lookBtn` and the shared menu) still pass.
+
+### R29.6 As built (Plan Top Bar, 2026-11-04)
+- `cqBar.here(path)` returns the menu entry `{path, name, line, icon}` or `null` (R29.2's "string" was shorthand).
+- Colours: `bar.css` uses `--bar-ink`, `--bar-sub`, `--bar-bg`, `--bar-edge`, `--bar-sheet`, `--bar-dim`, `--bar-stop`, `--bar-stop-ink`, `--bar-stop-edge`, `--bar-stop-glow`, `--bar-r`, `--bar-font`, defaulting under `:where(:root)` to the shared R28 names (`--ui`, `--dim`, `--panel`, `--edge-c`, `--dim-layer`, `--danger`, `--stop-ink`, `--r`, `--mono`); `/ai` and Drive map them to their own names in their `:root`.
+- Stacking: `#cqDim` (z 1000) and `#cqMenu` (z 1003) are moved to the end of `<body>`; while the menu is open `<html>` has `cq-open` and the page's bar container (class `cqhost`: each page's header, Drive's `.rchips`) rises to z 1002, so STOP stays bright and live above the dim layer. The menu is a `div role="navigation"`.
+- Esc: `bar.js` closes the menu and lets the key go on, so `/logo`'s Esc still stops (closing the menu too).
+- Settings: STOP sends `stop` + `logo_stop` on its socket; with the socket down, `cqBar.stopOnce` and a toast. Help: "Stopping…" at once, then "Stopped" or "Couldn't reach the tank - use another STOP" (`#stopMsg`).
+- Drive below 1000 px: `.rchips` is a column (the three on top, [🔈][STICK] under them), `.dist` starts at 104 px.
+- `pack_web.py`: the marker is required on every page; `/logo` budget 30 KB.
+
+```mermaid
+classDiagram
+  class cqBar {
+    <<bar.js>>
+    +PAGES
+    +here(path) entry or null
+    +open() void
+    +close() void
+    +isOpen() bool
+    +stopOnce(url, done, opts) void
+  }
+  class BarCss {
+    <<bar.css>>
+    :where(:root) --bar-* defaults
+    .cq-open .cqhost z 1002
+    #cqDim z 1000, #cqMenu z 1003
+  }
+  class PageRoot {
+    <<a page's :root>>
+    --bar-* mapped to its own names (/ai, Drive)
+  }
+  class PageHost {
+    <<.cqhost: header or Drive .rchips>>
+    holds #lookBtn #menuBtn #stop
+  }
+  BarCss --> PageRoot : reads --bar-*
+  cqBar --> PageHost : html.cq-open raises it
+```
+

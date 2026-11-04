@@ -24,7 +24,8 @@ async (tab) => {
       for (const el of document.querySelectorAll("body *")) {
         // Plan Top Bar (R29): the top bar changed on purpose - each page's header (the drive page's top-right row, STOP and
         // old menu sheet) and the bar's menu are left out on both sides
-        if (el.closest("[data-look-skip], header, #cqMenu, #cqDim, nav#menu, .rchips, #stop, #dim, #menuSheet")) continue;
+        if (el.closest("[data-look-skip], header, #cqMenu, #cqDim, nav#menu, .rchips, #stop, #dim, #menuSheet, #stopMsg")) continue;
+        if (el.hasAttribute("data-look-wrap")) continue;  // a wrapper the bar needed (Help's main): its contents are still compared
         for (const pseudo of [null, "::before", "::after"]) {
           const cs = getComputedStyle(el, pseudo);
           if (pseudo && cs.content === "none") continue;

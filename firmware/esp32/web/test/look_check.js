@@ -29,7 +29,8 @@ async (tab) => {
         for (const pseudo of [null, "::before", "::after"]) {
           const cs = getComputedStyle(el, pseudo);
           if (pseudo && cs.content === "none") continue;
-          out.push(el.tagName + "#" + el.id + (pseudo || "") + "|" + P.map((pr) => cs.getPropertyValue(pr)).join("|"));
+          const RENAMED = { cFpsCap: "cFps" };  // Plan Strip: Settings' frame-rate control renamed (the strip took cFps); its look still compared
+          out.push(el.tagName + "#" + (RENAMED[el.id] || el.id) + (pseudo || "") + "|" + P.map((pr) => cs.getPropertyValue(pr)).join("|"));
         }
       }
       return out;

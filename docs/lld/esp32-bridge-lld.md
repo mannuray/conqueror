@@ -3350,6 +3350,6 @@ sequenceDiagram
 - `view.ai` starts `null` ("AI HELPER --", no warn colour): the bridge sends `ai_at` only to `ai-page` clients (R27.1), so /logo and /settings show it unknown until the owner decides whether every page gets `ai_at`. `aiHelper()` (/ai's feed) owns the chip once called.
 - `pose()` owns POS once called (/ai, the engine); a program's `logo_pose` then leaves it. `linkDown()` also clears HDG, SPEED, POS.
 - Classes inside the strip are `sc`, `sdot`, `scell`; `.cqstrip` sets its own colour and font, so a page's `.dot` / `.cell` / inherited text never reach it.
-- Place: the strip starts from the left on every page - its own row under the title below 1500 px, after the title from 1500 px (owner).
+- Place (owner): 900 px and wider - the strip on the first line between the title and the top bar (`flex: 1 1 0; min-width: 0`, wrapping inside its space; the page's `.cqbar` is `align-self: flex-start`, so the three stay at the top right); a phone - its own line under the title, from the left. Chips are `flex: none`; an unknown AI HELPER has a hollow dot.
 - Settings' camera frame-rate control is `cFpsCap` (the strip's `cFps` had hidden it).
 

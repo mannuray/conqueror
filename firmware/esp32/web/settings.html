@@ -139,8 +139,8 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   nav button { text-align: left; padding: 10px 12px; border: 1px solid var(--edge-c); display: flex; gap: 8px; align-items: center; }
   main { flex: 1; grid-template-columns: 1fr 1fr; padding: 14px; }
 }
-@media (min-width: 1500px) {  /* the strip from the left: its own row, or after the title (owner, R30) */
-  .top { flex: none; } .chips { order: 0; flex: 1; min-width: 0; width: auto; }
+@media (min-width: 900px) {  /* the status strip on the first line, after the title (owner, R30); the top bar keeps the top right */
+  .top { flex: none; } .chips { order: 0; flex: 1 1 0; min-width: 0; width: auto; } header .cqbar { align-self: flex-start; }
 }
 </style>
 </head>

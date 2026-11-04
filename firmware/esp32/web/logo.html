@@ -98,8 +98,8 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   body { padding-bottom: 0; height: 100vh; height: 100dvh; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); }
   header { position: relative; }  /* not sticky here; still a stacking box, so the top bar rises over the menu's dim (R29) */
   header .inner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; } .top { display: contents; } .top h1 { flex: none; }
-  .chips { margin-top: 0; order: 4; flex-basis: 100%; } .cqbar { order: 3; }  /* look, menu, STOP at the far right (owner, R29) */
-  @media (min-width: 1500px) { .chips { order: 2; flex: 1; min-width: 0; } }  /* the strip from the left: its own row, or after the title (owner, R30) */
+  .chips { margin-top: 0; order: 2; flex: 1 1 0; min-width: 0; }  /* the status strip on the first line, after the title (owner, R30) */
+  .cqbar { order: 3; align-self: flex-start; }  /* look, menu, STOP at the far right (owner, R29) */
   main { min-height: 0; grid-template-columns: 220px minmax(0, 1fr) minmax(320px, 34%); grid-template-rows: minmax(0, 1fr) 12em auto;
     grid-template-areas: "prog edit run" "prog msg run" "bar bar bar"; }
   #cProg, #cEdit, #cMsg, #cPath { display: flex; flex-direction: column; min-height: 0; }

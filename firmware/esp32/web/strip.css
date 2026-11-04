@@ -5,7 +5,7 @@
   --strip-warn: #ffb000; --strip-bad: #ff3b30; --strip-r: 3px; --strip-font: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
 }
 .cqstrip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--strip-ink); font: 400 11px/1.4 var(--strip-font); }  /* its own, not the page's */
-.cqstrip .sc { display: inline-flex; align-items: center; gap: 5px; box-sizing: border-box; padding: 3px 8px; margin: 0;
+.cqstrip .sc { flex: none; display: inline-flex; align-items: center; gap: 5px; box-sizing: border-box; padding: 3px 8px; margin: 0;
   background: var(--strip-bg); border: 1px solid color-mix(in srgb, var(--strip-line) 30%, transparent); border-radius: var(--strip-r);
   color: var(--strip-ink); white-space: nowrap; font: 400 11px/1.4 var(--strip-font); letter-spacing: normal; }
 .cqstrip .sc[hidden] { display: none; }
@@ -16,6 +16,7 @@
 .cqstrip .sc.crit { color: var(--strip-bad); border-color: color-mix(in srgb, var(--strip-bad) 70%, transparent); }
 .cqstrip .sdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--strip-ok); box-shadow: 0 0 6px var(--strip-ok); }
 .cqstrip .warn .sdot { background: var(--strip-warn); box-shadow: none; }
+.cqstrip .sc:not(.on):not(.warn) .sdot { background: none; box-shadow: none; border: 1.5px solid currentColor; box-sizing: border-box; }  /* not known: a hollow dot */
 .cqstrip .scell { position: relative; width: 26px; height: 12px; border: 1.5px solid currentColor; border-radius: 2px; box-sizing: content-box; }
 .cqstrip .scell::after { content: ""; position: absolute; right: -4px; top: 3px; width: 2px; height: 4px; background: currentColor; border-radius: 0 1px 1px 0; }
 .cqstrip .scell i { position: absolute; left: 1px; top: 1px; bottom: 1px; width: 0; background: var(--strip-ok); border-radius: 1px; }

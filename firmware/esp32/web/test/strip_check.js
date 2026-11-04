@@ -43,17 +43,19 @@ async (page) => {
     if (!looks[key]) looks[key] = await look();
     else { const mine = (await look()).split("\n"), theirs = looks[key].split("\n"), i = mine.findIndex((x, j) => x !== theirs[j]);
       ok(i < 0, at + ": the strip looks different from /ai at " + mine[i] + " vs " + theirs[i]); }
+    if (w === 390 && theme === "cockpit") {  // a phone: no room on the first line - the strip starts where it starts on /ai
+      const at0 = await page.evaluate(() => { const r = document.getElementById("cBatt").getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)]; });
+      if (p === "/ai") looks.phone = at0;
+      else ok(Math.abs(at0[0] - looks.phone[0]) <= 1 && Math.abs(at0[1] - looks.phone[1]) <= 1, at + ": the strip starts at " + at0 + ", on /ai at " + looks.phone);
+    }
     // the top bar stays on the first row with the strip in the header (laptop sizes in between too)
     for (const lw of w === 1440 && theme === "cockpit" ? [1024, 1280, 1600] : []) {
       await page.setViewportSize({ width: lw, height: 700 }); await page.waitForTimeout(150);
-      // owner: the strip starts from the left, where it starts on /ai
-      // (from 1500 px it follows the title on the first row: there the gap after the title is compared, titles differ)
-      const at0 = await page.evaluate((wide) => { const r = document.getElementById("cBatt").getBoundingClientRect();
-        const t = document.querySelector("header .title, .top h1").getBoundingClientRect();
-        return [Math.round(wide ? r.left - t.right : r.left), Math.round(r.top)]; }, lw >= 1500);
-      if (p === "/ai") looks["pos" + lw] = at0;
-      else ok(Math.abs(at0[0] - looks["pos" + lw][0]) <= 1 && Math.abs(at0[1] - looks["pos" + lw][1]) <= 1,
-        p + " " + lw + "px: the strip starts at " + at0 + ", on /ai at " + looks["pos" + lw]);
+      // owner: on a laptop the strip is on the first line, after the title, before the top bar ("why waste space")
+      const row = await page.evaluate(() => { const r = (sel) => document.querySelector(sel).getBoundingClientRect();
+        const b = r("#cBatt"), t = r("header .title, .top h1"), s = r("#stop");
+        return { first: b.top < s.bottom && b.bottom > s.top, after: b.left > t.right, before: r("#cUno").right < r("#lookBtn").left }; });
+      ok(row.first && row.after && row.before, p + " " + lw + "px: the strip is not on the first line between the title and the bar " + JSON.stringify(row));
       ok(await page.evaluate(() => document.getElementById("stop").getBoundingClientRect().top < 20), p + " " + lw + "px: the top bar left the first row");
       ok(await page.evaluate(() => document.scrollingElement.scrollWidth <= innerWidth), p + " " + lw + "px: sideways scroll");
       await page.setViewportSize({ width: w, height: h });

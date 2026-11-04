@@ -57,7 +57,7 @@ async (page) => {
   out.view2 = await lit("v2");                                          // the picture under green depth: more green
   out.drawn = out.view1[2] > 120 && out.view2[1] > out.view1[1] + 40;   // true
   out.say = await q(() => document.getElementById("say").textContent);  // Ready to play!
-  out.things = await q(() => document.getElementById("things").textContent);  // TOYBALL
+  out.things = await q(() => document.getElementById("things").textContent);  // [ TOY ][ BALL ]
   await page.click("#find"); await page.waitForTimeout(300);
   out.checked = checked[0];                                             // AREA 2  FIND "toy
   out.ran = await q(() => window.__tank.filter((m) => m.t === "logo_run").map((m) => m.prog));  // [7]
@@ -81,7 +81,7 @@ async (page) => {
   for (let i = 0; i < 3; i++) { await q(() => window.__tankWs.emit({ t: "ai_at", url: "ws://127.0.0.1:8770/feed", proto: 1 })); await page.waitForTimeout(100); }
   await page.waitForTimeout(2500);
   out.openFeeds = await q(() => window.__feeds.filter((f) => f.readyState === 1).length);  // 1
-  out.aiChip = await q(() => document.getElementById("cAi").textContent);                // ● AI HELPER
+  out.aiChip = await q(() => document.getElementById("cAi").textContent);                // AI HELPER (the dot is drawn)
   // Final review I5: a tap (click) unlocks the voice; a sentence is then spoken.
   out.unlockSpoken = await q(() => window.__spoken.length > 0);                        // the silent unlock word went out
   await q(() => window.__feeds.find((f) => f.readyState === 1).emit({ t: "status", state: "looking", mood: "curious", say: "I'm looking round for the toy.", health: "ok" }));
@@ -108,7 +108,7 @@ async (page) => {
   out.pass = out.drawn && out.say === "Ready to play!" && out.checked === 'AREA 2  FIND "toy' && out.ran.join() === "7" &&
     out.stopOnTank && !out.stopOnFeed && out.unknown === "I don't know what a cup is." && out.teachShown &&
     JSON.stringify(out.teach) === '[["cup",["mug"]]]' && out.noAi === "AI helper not running - start cq-drive serve" &&
-    out.stopStill === 2 && out.noHScroll && out.openFeeds === 1 && out.aiChip === "● AI HELPER" &&
+    out.stopStill === 2 && out.noHScroll && out.openFeeds === 1 && out.aiChip === "AI HELPER" &&
     out.unlockSpoken && out.spoken[out.spoken.length - 1] === "I'm looking round for the toy." && out.freedAfterStop &&
     out.busyRetried === 1 && out.streamAgain;
   return out;

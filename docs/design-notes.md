@@ -3116,3 +3116,8 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
     it into the one-line program `SETXY <right cm> <ahead cm>` from the tank's pose now and runs it through the tank like
     FIND. Still no GOTO word: the child sees the coordinates SETXY uses.
   - Design: AI engine LLD §23, bridge LLD R32.
+- **As built (2026-11-05, Plan Z2b-2; tank checks pending):** the ROOM tab - map, layers, I remember with FIND, names on
+  blocks with GO THERE / RENAME / TAKE OFF, room facts; INSIDE gone. Final review: no critical, 1 important (the GO THERE
+  spots were worked out ten times a second while the map changed - now at most twice) and 7 minor, 6 fixed; left: `/ai`
+  is at 29.9 of 30 KB, so the next tab needs a budget decision. Found on Plan Link: the drive page's WiFi chip shows
+  green "-" before it has ever connected (was red). AI engine LLD §23.7, bridge LLD R32.6.

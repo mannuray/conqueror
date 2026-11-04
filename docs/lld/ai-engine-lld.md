@@ -2886,3 +2886,8 @@ stateDiagram-v2
 - **`RoomFeed`:** nothing built with no page on room; at once on `room on`; the map at most 1 / s and only when changed; `room` at most 2 / s and only on change; a page with room off gets neither; the person never in `things`.
 - **`HomeStore`:** names saved and loaded; a version-1 home loads with none.
 - **`FeedServer` + test client:** `room on/off` kept per page; `name` / `unname` answered with `rep`; a map frame splits back with `kind: map`.
+
+### 23.7 As built (Plan Z2b-2, 2026-11-05; tank checks pending)
+- `domain/room_picture.py` (kinds, crop, PNG, `Trail`), `domain/places.py` (`Places`, `name_check`, `go_spot`, `where_words`), `app/room_feed.py` (`RoomFeed`, `RoomWorld`, `word_of`, `ago_step`), `FeedServer.rooms()` / `room_wanted()` / `room_frame()` / `send_rooms()`, `encode_map` / `decode_map`, `Home.places` (`HOME_VERSION` 2, reads 1 and 2).
+- **Changes from §23.2-§23.4:** `RoomFeed.tick(now, pose, area, notes)` reads the rest through a `RoomWorld` callable; the room message (and the GO THERE spots in it) is built only when it may be sent (≤ 2 / s), the spots worked out again when a map frame went out, a name changed or the tank moved 0.2 m (final review I1: ~11 ms for a bed's spot, on the drive's event loop); `ago_s` in the page's steps (0 / whole minutes / 3600 / 86400) so an idle room is not resent; `status.pan` is the camera's **real** pan (the calibration's `pan_map`) from straight ahead, left +; names that fail `name_check` are dropped when a home loads.
+- Tests: engine suite 857 passed, 3 skipped (after the final review fixes); ruff + pyright strict clean.

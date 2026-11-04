@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from conqueror_ai.adapters import calibration_store
 from conqueror_ai.adapters.decisions import DecisionLog, replay
-from conqueror_ai.adapters.detector_config import load_balls, load_vocabulary
+from conqueror_ai.adapters.detector_config import load_balls
 from conqueror_ai.adapters.drive_config import load_drive
 from conqueror_ai.adapters.drive_link import DriveLink
 from conqueror_ai.adapters.home_store import HomeStore
@@ -46,10 +46,9 @@ from conqueror_ai.app.objects import (
     DEFAULT_HOST,
     DEPTH_MODEL,
     MAP_CONFIG,
-    MODEL,
     VGA,
-    VOCABULARY,
     DepthFn,
+    detector_words,
     detectors,
     load_depth,
 )
@@ -363,7 +362,8 @@ async def run_drive(
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
 
     cal = calibration_store.load(CALIBRATION, VGA)
-    det, floor = detectors(MODEL, VOCABULARY, BALLS)
+    model, vocab = detector_words()
+    det, floor = detectors(model, vocab, BALLS)
     sizes = {f"ball:{b.name}": b.size_cm for b in load_balls(BALLS) if b.size_cm is not None}
     lim, table = load_drive(DRIVE)
     depth = load_depth(DEPTH_MODEL) if use_depth else None
@@ -408,7 +408,7 @@ def main() -> None:
     if not a.what:
         ap.error("say what to do: find <thing> | wander [seconds] | explore")
     try:
-        words = goal_words(load_vocabulary(VOCABULARY))
+        words = goal_words(detector_words()[1])
     except (FileNotFoundError, ValueError) as err:
         raise SystemExit(str(err)) from None
     m = parse_mission(a.what, words, a.area)

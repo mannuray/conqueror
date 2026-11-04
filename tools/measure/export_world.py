@@ -6,6 +6,10 @@ It needs this environment's Ultralytics and Ultralytics' CLIP (for the words, on
 needs only the CoreML runtime. Measured 5.9 ms a picture on the M1's Neural Engine (Plan Y draft).
 
     cd tools/measure && uv run python export_world.py
+    uv run python export_world.py --extra ../../ai-engine/taught/vocabulary.yaml --out /tmp/new-model
+--extra adds a file's words after the measured ones (the words taught from the /ai page, AI engine LLD
+§22.4); --out writes the model and words.txt (the exact list, one per line) into that folder instead of
+ai-engine/models/, for the engine to move into ai-engine/taught/.
 """
 
 from __future__ import annotations
@@ -26,18 +30,25 @@ def main() -> None:
     ap.add_argument("--weights", default="yolov8s-worldv2.pt")  # Ultralytics downloads it once (~25 MB)
     ap.add_argument("--imgsz", type=int, default=640)
     ap.add_argument("--vocabulary", type=Path, default=ENGINE / "config" / "vocabulary.yaml")
+    ap.add_argument("--extra", type=Path, help="more words after the measured ones (taught words)")
+    ap.add_argument("--out", type=Path, help="write the model and words.txt here, not into ai-engine/models")
     a = ap.parse_args()
     rows = yaml.safe_load(a.vocabulary.read_text())["words"]
+    if a.extra is not None:
+        rows += yaml.safe_load(a.extra.read_text()).get("words") or []
     words = [str(p) for w in rows for p in (w["word"], *(w.get("also") or []))]  # each word, its wordings
     local = HERE / "models" / a.weights  # reused when already downloaded
     model = YOLOWorld(str(local) if local.exists() else a.weights)
     model.set_classes(words)
     out = Path(model.export(format="coreml", imgsz=a.imgsz, nms=False, half=True))
-    dst = ENGINE / "models" / f"yoloworld-s-{a.imgsz}.mlpackage"
+    folder = a.out if a.out is not None else ENGINE / "models"
+    dst = folder / f"yoloworld-s-{a.imgsz}.mlpackage"
     dst.parent.mkdir(parents=True, exist_ok=True)
     if dst.exists():
         shutil.rmtree(dst)
     shutil.move(str(out), dst)
+    if a.out is not None:
+        (folder / "words.txt").write_text("".join(f"{w}\n" for w in words))
     print(f"detector model: {dst} ({len(words)} words: {', '.join(words)})")
 
 

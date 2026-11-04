@@ -512,7 +512,7 @@ def _build(
 ) -> tuple[ServeApp, SessionRecorder | None]:
     from conqueror_ai.adapters import calibration_store
     from conqueror_ai.adapters.bridge_ws import BridgeLink
-    from conqueror_ai.adapters.detector_config import load_ball_names, load_balls, load_vocabulary
+    from conqueror_ai.adapters.detector_config import load_ball_names, load_balls
     from conqueror_ai.adapters.drive_config import load_drive
     from conqueror_ai.adapters.map_config import load_map_config
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
@@ -523,17 +523,17 @@ def _build(
         CALIBRATION,
         DEPTH_MODEL,
         MAP_CONFIG,
-        MODEL,
         VGA,
-        VOCABULARY,
+        detector_words,
         detectors,
         load_depth,
     )
     from conqueror_ai.app.perception import Perception
 
-    names = Names(load_vocabulary(VOCABULARY), load_ball_names(BALLS))
+    model, vocab = detector_words()  # the taught words too, when their model is made (§22.4)
+    names = Names(vocab, load_ball_names(BALLS))
     cal = calibration_store.load(CALIBRATION, VGA)
-    det, floor = detectors(MODEL, VOCABULARY, BALLS)
+    det, floor = detectors(model, vocab, BALLS)
     sizes = {f"ball:{b.name}": b.size_cm for b in load_balls(BALLS) if b.size_cm is not None}
     lim, _ = load_drive(DRIVE)
     depth = load_depth(DEPTH_MODEL) if use_depth else None

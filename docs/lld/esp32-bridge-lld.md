@@ -3614,4 +3614,4 @@ sequenceDiagram
 - `web/room.js` (`RoomModel`, `RoomView`, `RoomWords`, `splitMap`; `window.cqRoom`), packed after ai.js at `<!--CQ:ROOM_JS-->`; `AiCore.isPerson` shared for names and pins. `/ai` 29 882 B of 30 KB gzipped.
 - The view draws in CSS pixels on a canvas scaled for the screen; cells as runs of one kind per row (not ImageData) - to measure on the iPhone at the tank check.
 - Checks: `room.test.js` (14), `test_ai_pack.py` (4), `room_check.js` (phone + laptop: layout, room on / off, the map drawn, pin → FIND, name → GO THERE from the newest pose, go null greyed, block → NAME with the room point, the engine's refusal, the look flip, feed lost / back, AI off, layers kept). `ai_check.js`'s stand-in now answers the link's ping (R31's quiet-link STOP made it open its own socket); `look_check.js` leaves `#tRoom` / `#tInside` out on both sides.
-- Found on Plan Link (not this plan): the drive page's WiFi chip is green "-" before any link (was red) - left for the owner.
+- Found on Plan Link (not this plan): the drive page's WiFi chip was green "-" before any link (was red) - fixed on plan-link (R31.8, owner) and merged in.

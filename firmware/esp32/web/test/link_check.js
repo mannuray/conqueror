@@ -15,6 +15,7 @@ async (page) => {
   await page.route("**/stream*", (r) => r.abort());
   await page.addInitScript(() => {
     window.__sockets = [];
+    window.__down = sessionStorage.getItem("down") === "1";  // a tank out of reach from the first load
     class FakeWS {
       constructor(url) {
         this.url = url; this.readyState = 0; this.sent = []; this.closed = false;
@@ -68,5 +69,12 @@ async (page) => {
     ok(/Couldn't reach the tank - use another STOP/.test(said), p.path + ": STOP with the link down said '" + said.slice(-80) + "'");
     ok(await q((n) => window.__sockets.slice(n).some((s) => s.closed), n1), p.path + ": STOP's own socket was not opened and closed");
   }
+  // the drive page before any link: its WiFi chip says off (red), never a green "-" (owner 2026-11-05: R31 lost the
+  // old /info poll that turned it red)
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.goto(BASE + "/"); await q(() => sessionStorage.setItem("down", "1")); await page.reload(); await page.waitForTimeout(600);
+  const chip = await q(() => { const c = document.getElementById("wifiChip"); return { cls: c.className, text: c.textContent.trim() }; });
+  ok(/\bbad\b/.test(chip.cls) && chip.text !== "-", "/: before any link the WiFi chip is " + JSON.stringify(chip));
+  await q(() => sessionStorage.removeItem("down"));
   return fails.length ? "FAIL\n" + fails.join("\n") : "PASS link_check (" + PAGES.map((p) => p.path).join(" ") + ")";
 }

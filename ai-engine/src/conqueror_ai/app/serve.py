@@ -32,6 +32,7 @@ from conqueror_ai.adapters.skill_link import Ask, End, SkillBusy, SkillLink, Sta
 from conqueror_ai.adapters.taught_words import TaughtWords
 from conqueror_ai.app.feed import FeedPublisher, TickFan, make_feed
 from conqueror_ai.app.questions import Questions
+from conqueror_ai.app.room_feed import RoomFeed, RoomWorld
 from conqueror_ai.app.runner import TICK_S, SkillRunner, TickView
 from conqueror_ai.app.teach import Reply, Teacher, run_export
 from conqueror_ai.app.world import World
@@ -46,6 +47,7 @@ from conqueror_ai.domain.home import Home
 from conqueror_ai.domain.memory import ThingMemory
 from conqueror_ai.domain.names import Names
 from conqueror_ai.domain.objects import Detector
+from conqueror_ai.domain.places import Places
 from conqueror_ai.domain.types import Pose
 from conqueror_ai.domain.vocabulary import Vocabulary
 
@@ -233,6 +235,7 @@ class ServeApp:
         self._connected_once = False
         self._closing = False  # Ctrl-C / stop: run() saves the home once at the end
         self._seq = 0  # words in this session (the decisions folders)
+        self.places = Places()  # the names on the map (LLD §23.3); a home's come back in _load_home
 
     async def run(self, stop: asyncio.Event) -> None:
         """Until `stop` (or Ctrl-C: the task cancelled). SkillBusy when another skill server holds the bridge
@@ -284,8 +287,11 @@ class ServeApp:
         if self.feed_server is None or self.publisher is None:
             return []
 
-        def telemetry() -> tuple[Pose | None, bool, str]:
-            return self.world.map_run.p.pose(), False, self.perception.state(time.monotonic()) or "ok"
+        def telemetry() -> tuple[Pose | None, bool, str, float | None]:
+            run = self.world.map_run
+            return run.p.pose(), False, self.perception.state(time.monotonic()) or "ok", run.pan_servo_deg
+
+        self.publisher.room = RoomFeed(self.feed_server, self._room_world, self.places, self.home)
 
         server = asyncio.create_task(self.feed_server.run(stop))
         server.add_done_callback(_said_if_failed)
@@ -305,6 +311,10 @@ class ServeApp:
                     task = asyncio.create_task(self._on_teach(page, msg))
                     self._teaching.add(task)
                     task.add_done_callback(self._teaching.discard)
+                elif msg.get("t") in ("name", "unname"):  # names on the map (LLD §23.3)
+                    room = None if self.publisher is None else self.publisher.room
+                    if room is not None:
+                        self.feed_server.reply(page, room.on_name(msg))
         finally:
             for task in list(self._teaching):  # Ctrl-C: the teach takes its word out again
                 task.cancel()
@@ -407,6 +417,10 @@ class ServeApp:
         w.task = asyncio.create_task(self._run_word(w, call, ev.thing or ""))
         if self.publisher is not None:
             self.publisher.word(call.skill, call.word, ev.id)
+            area_m, centre = call.area_m, call.centre
+            self.publisher.area = (
+                (centre[0], centre[1], area_m) if area_m is not None and centre is not None else None
+            )
         self._word, self.state = w, "driving"
 
     async def _on_end(self, ev: End) -> None:
@@ -524,6 +538,8 @@ class ServeApp:
             self.world.map_run.room = room
         if memory is not None:
             self.world.memory = memory
+        if self._earlier is not None:
+            self.places = Places(self._earlier.places)
 
     def _save_home(self) -> None:
         if self.home is None or not self._connected_once:  # a session that never connected learned nothing
@@ -531,7 +547,28 @@ class ServeApp:
         from conqueror_ai.app.drive import end_home
 
         w = self.world
-        print(end_home(self._home_store(), self.home, self._earlier, w.map_run.room, w.memory, w.run_id))
+        print(
+            end_home(
+                self._home_store(),
+                self.home,
+                self._earlier,
+                w.map_run.room,
+                w.memory,
+                w.run_id,
+                self.places.all(),
+            )
+        )
+
+    def _room_world(self) -> RoomWorld:
+        """What the ROOM tab reads (LLD §23.4): the map now, the floor seen before, the remembered things, the
+        words the things list knows."""
+        run = self.world.map_run
+        return RoomWorld(
+            run.snapshot(0, False),
+            run.room.seen_before,
+            self.world.memory.of_kind(lambda _: True),
+            {str(r["word"]) for r in self.names.page_list()},
+        )
 
 
 def _said_if_failed(task: asyncio.Task[None]) -> None:

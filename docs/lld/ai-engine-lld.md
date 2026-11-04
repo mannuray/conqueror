@@ -2775,7 +2775,7 @@ stateDiagram-v2
 | page → engine | `{"t":"room","on":true}` / `false` | on the tab switch and on connect (a new connection starts off) |
 | engine → page | **binary map frame**: the §22.2 binary layout, header `{"kind":"map","seq":n,"cell_m":0.05,"x0":…,"y0":…,"w":…,"h":…,"png":len}`, then the PNG | to a page with room on: at once, then at most 1 / s **when the map changed** |
 | engine → page | `{"t":"room", "trail":[[x,y],…], "home":"room2"/null, "area":{"x":…,"y":…,"r":…}/null, "things":[{"word":"ball","x":…,"y":…,"ago_s":120,"where":"near the bed"}], "names":[{"id":3,"name":"bed","x":…,"y":…,"go":[x,y]/null}], "why":{"route":[[x,y],…],"pending":[[x,y],…],"check":[x,y]/null,"looked":[[x,y],…]}, "seen_m2":4.2}` | to a page with room on: at once, then at most 2 / s **when any part changed** |
-| engine → page | `status` (§22.2) gains `"pan":-12` (the camera's pan in degrees, from telemetry; for the camera view on the map) | ~10 Hz as now |
+| engine → page | `status` (§22.2) gains `"pan":-12` (the camera's pan in whole degrees from straight ahead, **left +** like the heading: the pan servo − 90; for the camera view on the map; left out before the first telemetry) | ~10 Hz as now |
 | page → engine | `{"t":"name","id":n,"x":…,"y":…,"name":"bed"}` (a new name at a tapped point) / `{"t":"name","id":n,"place":3,"name":"cot"}` (rename) / `{"t":"unname","id":n,"place":3}` | the owner's taps |
 | engine → page | `{"t":"rep","id":n,"ok":true,"msg":"Named it bed."}` / `ok:false` with the reason | the answer; the next `room` carries the change |
 

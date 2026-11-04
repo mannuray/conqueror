@@ -38,8 +38,8 @@ THINGS = [{"word": "toy", "names": ["car"], "measured": True}]
 RGB = np.zeros((480, 640, 3), np.uint8)
 
 
-def telem() -> tuple[Pose | None, bool, str]:
-    return Pose(0, 1.2, -0.4, 1.5708, 0.0, 0.0), False, "ok"
+def telem() -> tuple[Pose | None, bool, str, float | None]:
+    return Pose(0, 1.2, -0.4, 1.5708, 0.0, 0.0), False, "ok", 75.0
 
 
 def test_no_page_no_encoding(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -151,3 +151,16 @@ def test_page_port_zero_no_feed() -> None:
     assert make_feed(0, names.page_list) is None
     made = make_feed(8770, names.page_list)
     assert made is not None and made[0].port == 8770
+
+
+async def test_status_has_pan() -> None:
+    """LLD §23.2: the camera's pan for the camera view on the map - degrees from straight ahead, left +
+    (the servo's 75 is 15 to the right)."""
+    srv = FakeServer()
+    pub = FeedPublisher(srv, lambda: THINGS)  # pyright: ignore[reportArgumentType]
+    stop = asyncio.Event()
+    task = asyncio.create_task(pub.run(stop, telem))
+    await asyncio.sleep(0.25)
+    stop.set()
+    await task
+    assert srv.kinds("status")[-1]["pan"] == -15

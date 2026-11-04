@@ -56,12 +56,14 @@ class MapRun:
         self.depth_pictures = 0
         self.marked = 0
         self.echoes = 0
+        self.pan_servo_deg: float | None = None  # the newest telemetry's pan servo (the ROOM tab's view)
 
     def on_calib(self, counts_per_m: int) -> None:
         self.p.on_calib(counts_per_m)
 
     def on_telem(self, s: TelemSample) -> None:
         self.p.on_telem(s)
+        self.pan_servo_deg = s.pan_deg
         pose = self.p.pose()
         dist = None if s.dist_mm is None or s.dist_mm <= 0 else s.dist_mm / 1000.0
         if pose is not None and self.sonar.update(self.room, pose, dist, s.bus_us):

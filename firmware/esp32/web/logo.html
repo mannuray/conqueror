@@ -30,7 +30,7 @@ button { background: transparent; border: 1px solid var(--edge-c); color: var(--
 button:disabled { opacity: .35; cursor: default; }
 button, input, select, .badge { border-radius: var(--r); }
 svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
-header { padding: 8px max(16px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); border-bottom: 1px solid var(--edge-c);
+header { padding: 8px max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left)); border-bottom: 1px solid var(--edge-c);
   position: sticky; top: 0; z-index: 10; background: var(--bg); }  /* STOP always on screen (§21.6), above the sheets */
 .top { display: flex; align-items: center; gap: 8px; }
 .top h1 { flex: 1; min-width: 0; font-size: 13px; margin: 0; color: var(--ui); letter-spacing: .14em; white-space: nowrap; }
@@ -97,8 +97,9 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 @media (min-width: 900px) {  /* §23: an editor that fills the window; only the panes scroll */
   body { padding-bottom: 0; height: 100vh; height: 100dvh; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); }
   header { position: relative; }  /* not sticky here; still a stacking box, so the top bar rises over the menu's dim (R29) */
-  header .inner { display: flex; align-items: center; gap: 16px; } .top { display: contents; }
-  .chips { margin-top: 0; order: 2; } .cqbar { order: 3; }  /* look, menu, STOP at the far right (owner, R29) */
+  header .inner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; } .top { display: contents; } .top h1 { flex: none; }
+  .chips { margin-top: 0; order: 4; flex-basis: 100%; } .cqbar { order: 3; }  /* look, menu, STOP at the far right (owner, R29) */
+  @media (min-width: 1500px) { .chips { order: 2; flex: 1; min-width: 0; } }  /* the strip from the left: its own row, or after the title (owner, R30) */
   main { min-height: 0; grid-template-columns: 220px minmax(0, 1fr) minmax(320px, 34%); grid-template-rows: minmax(0, 1fr) 12em auto;
     grid-template-areas: "prog edit run" "prog msg run" "bar bar bar"; }
   #cProg, #cEdit, #cMsg, #cPath { display: flex; flex-direction: column; min-height: 0; }

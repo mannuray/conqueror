@@ -45,7 +45,8 @@ var cqStripLib = (function () {
   function Strip() {
     this.mean = new BattMean(10);
     this.aiOwned = false;  // /ai sets the AI HELPER chip from its own feed; ai_at then leaves it alone
-    this.view = { batt: { text: "--", fill: 0, level: "ok", title: "battery" }, ai: false, fps: "-- / s", hdg: "HDG --",
+    this.posOwned = false;  // /ai sets POS from the engine; a running program's logo_pose then leaves it alone
+    this.view = { batt: { text: "--", fill: 0, level: "ok", title: "battery" }, ai: null,  // null: nobody said fps: "-- / s", hdg: "HDG --",
       pos: "POS --", spd: "SPEED --", wifi: { icon: "wifi-zero", text: "WIFI --", warn: false }, uno: { text: "UNO --", warn: false } };
     this.render = function () {};
   }
@@ -68,7 +69,7 @@ var cqStripLib = (function () {
         break;
       case "wifi_status": v.wifi = wifiText(m.mode, m.rssi); break;
       case "ai_at": if (!this.aiOwned) v.ai = !!m.url; break;
-      case "ev": if (m.kind === "logo_pose" && typeof m.x_cm === "number") v.pos = posText(m.x_cm / 100, m.y_cm / 100); break;
+      case "ev": if (m.kind === "logo_pose" && typeof m.x_cm === "number" && !this.posOwned) v.pos = posText(m.x_cm / 100, m.y_cm / 100); break;
       default: return;
     }
     this.render();
@@ -78,10 +79,11 @@ var cqStripLib = (function () {
     this.view.wifi = { icon: "wifi-off", text: "RECONNECTING", warn: true };
     this.view.batt = { text: "NO TANK", fill: 0, level: "low", title: "battery" };
     this.view.uno = { text: "UNO --", warn: false };
+    this.view.hdg = "HDG --"; this.view.spd = "SPEED --"; this.view.pos = "POS --";  // nothing frozen from before the drop
     this.render();
   };
   Strip.prototype.aiHelper = function (on) { this.aiOwned = true; this.view.ai = !!on; this.render(); };
-  Strip.prototype.pose = function (x, y) { this.view.pos = posText(x, y); this.render(); };
+  Strip.prototype.pose = function (x, y) { this.posOwned = true; this.view.pos = posText(x, y); this.render(); };
   Strip.prototype.fps = function (n) { this.view.fps = n === null || n === undefined ? "-- / s" : n + " / s"; this.render(); };
 
   // the chips on the page: only text, classes and a width are set (no markup from messages)
@@ -92,7 +94,9 @@ var cqStripLib = (function () {
       var v = s.view;
       el("battTxt").textContent = v.batt.text; el("battFill").style.width = v.batt.fill + "px"; el("cBatt").title = v.batt.title;
       el("cBatt").className = "sc batt" + (v.batt.level === "critical" ? " crit" : v.batt.level === "low" ? " low" : "");
-      el("aiTxt").textContent = v.ai ? "AI HELPER" : "AI HELPER OFF"; el("cAi").className = v.ai ? "sc on" : "sc warn";
+      // the bridge tells only /ai where the AI helper is (R27.1): elsewhere the chip says it does not know, without a warning
+      el("aiTxt").textContent = v.ai === null ? "AI HELPER --" : v.ai ? "AI HELPER" : "AI HELPER OFF";
+      el("cAi").className = v.ai === null ? "sc" : v.ai ? "sc on" : "sc warn";
       el("cFps").textContent = v.fps; el("cHdg").textContent = v.hdg; el("cPos").textContent = v.pos; el("cSpd").textContent = v.spd;
       el("wifiTxt").textContent = v.wifi.text; el("cWifi").className = "sc" + (v.wifi.warn ? " warn" : "");
       var icons = el("cWifi").querySelectorAll("svg");

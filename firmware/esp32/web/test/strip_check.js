@@ -21,7 +21,12 @@ async (page) => {
     window.__emit = (o) => window.__ws.emit(o);
   });
   const LOOK = ["background-color", "color", "border-top-color", "border-top-left-radius", "font-family", "font-size", "padding-left", "height"];
-  const look = () => page.evaluate((P) => { const cs = getComputedStyle(document.getElementById("cHdg")); return P.map((p) => cs.getPropertyValue(p)).join("|"); }, LOOK);
+  // final review: every chip, its parts and their ::before / ::after (a page's own .dot::after once reached the strip)
+  // the AI HELPER chip is set alike for the measure (/ai knows from its feed, the others do not) and put back after
+  const look = () => page.evaluate((P) => { const was = cqStrip.view.ai; cqStrip.view.ai = false; cqStrip.render();
+    const out = Array.from(document.querySelectorAll("#cqStrip, #cqStrip *")).filter((el) => !el.closest("#cFps")).map((el) =>  // pictures/s: /ai only
+      [null, "::before", "::after"].map((ps) => { const cs = getComputedStyle(el, ps); return el.id + (ps || "") + ":" + P.map((p) => cs.getPropertyValue(p)).join("|") + "|" + cs.content; }).join(";")).join("\n");
+    cqStrip.view.ai = was; cqStrip.render(); return out; }, LOOK);
   const text = (id) => page.evaluate((id) => document.getElementById(id).textContent.trim(), id);
   const emit = async (o) => { await page.evaluate((o) => window.__emit(o), o); await page.waitForTimeout(40); };
   const looks = {};
@@ -36,7 +41,23 @@ async (page) => {
     ok(await page.evaluate(() => document.scrollingElement.scrollWidth <= innerWidth), at + ": sideways scroll");
     const key = w + theme;
     if (!looks[key]) looks[key] = await look();
-    else ok((await look()) === looks[key], at + ": the chips look different from /ai: " + (await look()) + " vs " + looks[key]);
+    else { const mine = (await look()).split("\n"), theirs = looks[key].split("\n"), i = mine.findIndex((x, j) => x !== theirs[j]);
+      ok(i < 0, at + ": the strip looks different from /ai at " + mine[i] + " vs " + theirs[i]); }
+    // the top bar stays on the first row with the strip in the header (laptop sizes in between too)
+    for (const lw of w === 1440 && theme === "cockpit" ? [1024, 1280, 1600] : []) {
+      await page.setViewportSize({ width: lw, height: 700 }); await page.waitForTimeout(150);
+      // owner: the strip starts from the left, where it starts on /ai
+      // (from 1500 px it follows the title on the first row: there the gap after the title is compared, titles differ)
+      const at0 = await page.evaluate((wide) => { const r = document.getElementById("cBatt").getBoundingClientRect();
+        const t = document.querySelector("header .title, .top h1").getBoundingClientRect();
+        return [Math.round(wide ? r.left - t.right : r.left), Math.round(r.top)]; }, lw >= 1500);
+      if (p === "/ai") looks["pos" + lw] = at0;
+      else ok(Math.abs(at0[0] - looks["pos" + lw][0]) <= 1 && Math.abs(at0[1] - looks["pos" + lw][1]) <= 1,
+        p + " " + lw + "px: the strip starts at " + at0 + ", on /ai at " + looks["pos" + lw]);
+      ok(await page.evaluate(() => document.getElementById("stop").getBoundingClientRect().top < 20), p + " " + lw + "px: the top bar left the first row");
+      ok(await page.evaluate(() => document.scrollingElement.scrollWidth <= innerWidth), p + " " + lw + "px: sideways scroll");
+      await page.setViewportSize({ width: w, height: h });
+    }
     if (w !== 390 || theme !== "cockpit") continue;
     // the values, from the tank's messages
     ok((await text("cUno")) === "UNO ONLINE", at + ": UNO after welcome is " + (await text("cUno")));
@@ -49,6 +70,8 @@ async (page) => {
     await emit({ t: "ts", batt_v: 5.0, flags: ["body_offline"] });
     ok((await text("cBatt")) === "USB" && (await text("cUno")) === "UNO OFFLINE", at + ": USB / UNO OFFLINE " + (await text("cBatt")) + " " + (await text("cUno")));
     if (p !== "/ai") {
+      // the bridge tells only /ai where the AI helper is: here the chip says it does not know, in the normal colour
+      ok((await text("cAi")) === "AI HELPER --" && await page.evaluate(() => document.getElementById("cAi").className === "sc"), at + ": AI HELPER without ai_at is " + (await text("cAi")));
       await emit({ t: "ai_at", url: "ws://127.0.0.1:8770/feed", proto: 1 });
       ok((await text("cAi")) === "AI HELPER", at + ": ai_at did not turn AI HELPER on");
       await emit({ t: "ev", kind: "logo_pose", x_cm: 30, y_cm: 50, heading: 0 });

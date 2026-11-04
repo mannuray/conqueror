@@ -151,8 +151,10 @@ STRIP_MARKER = "<!--CQ:STRIP-->"
 
 def with_strip(text: str, project: pathlib.Path, page: str) -> str:
     """The status strip (bridge LLD R30): STRIP_MARKER becomes <style>strip.css</style> + strip.html + <script>strip.js</script>.
-    A page without the marker is left as it is (only /ai, /logo and /settings carry it)."""
+    A page without the marker is left as it is (only /ai, /logo and /settings carry it) - unless it uses cqStrip."""
     if STRIP_MARKER not in text:
+        if "cqStrip." in text:
+            raise SystemExit(f"pack_web: {page} uses cqStrip but has no {STRIP_MARKER}")
         return text
     web = project / "web"
     css = (web / "strip.css").read_text(encoding="utf-8")

@@ -23,6 +23,20 @@ class Strip(unittest.TestCase):
     def test_a_page_without_the_marker_is_left_as_it_is(self) -> None:
         self.assertEqual(_PACK["with_strip"]("<div></div>", PROJECT, "/x"), "<div></div>")
 
+    def test_no_id_twice_on_the_pages_with_the_strip(self) -> None:  # final review: the strip's cFps hid Settings' own
+        import collections
+        import re
+        for uri in ("/ai", "/logo", "/settings"):
+            with self.subTest(uri=uri):
+                text = _PACK["assemble_page"](PROJECT, uri).decode()
+                twice = [i for i, n in collections.Counter(re.findall(r'\bid="([^"]+)"', text)).items() if n > 1]
+                self.assertEqual(twice, [])
+
+    def test_a_page_that_uses_the_strip_without_the_marker_fails_naming_it(self) -> None:
+        with self.assertRaises(SystemExit) as e:
+            _PACK["with_strip"]("<script>cqStrip.tank(m);</script>", PROJECT, "/x")
+        self.assertIn("/x", str(e.exception))
+
     def test_ai_has_the_strip_once(self) -> None:
         text = _PACK["assemble_page"](PROJECT, "/ai").decode()
         self.assertEqual(text.count("window.cqStrip ="), 1)

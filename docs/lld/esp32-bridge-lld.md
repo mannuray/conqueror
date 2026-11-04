@@ -3276,7 +3276,7 @@ classDiagram
   cqBar --> PageHost : html.cq-open raises it
 ```
 
-## R30. One status strip on /ai, /logo and /settings (owner 2026-11-04; design-notes §209 — approved)
+## R30. One status strip on /ai, /logo and /settings (owner 2026-11-04; design-notes §209 — built, R30.5)
 
 ### R30.1 What changes
 - `<!--CQ:STRIP-->` in `/ai`, `/logo` and `/settings` becomes `<style>strip.css</style>` + `web/strip.html` + `<script>strip.js</script>` (`pack_web.with_strip`, same rules as `with_bar`: `</` escaped, a page that uses `cqStrip` without the marker fails the build).
@@ -3323,7 +3323,7 @@ classDiagram
 
 - `tank(m)`: `ts` → battery (`BattMean` of 10, `battState`), UNO from `flags` / `uno`; `tf` → HDG (`yaw`), SPEED (`max(|spd_cmd|)` %); `welcome` → UNO; `wifi_status` → WIFI; `ai_at` → AI HELPER (only when the page has not called `aiHelper()` itself: /ai owns that chip); `ev` `logo_pose` → POS (cm → m).
 - `linkDown()`: WIFI "RECONNECTING" (warn), battery "NO TANK", UNO "--".
-- Colours: `--strip-*` names with `:where(:root)` defaults from the shared R28 names (as R29.6); `/ai` maps them to its own.
+- Colours: the strip owns `--strip-*`: /ai's cockpit values as `:where(:root)` defaults in strip.css, /ai's Sunny values in theme.css's shared block, so it computes the same on every page.
 
 ### R30.3 Sequence (a message on /logo)
 
@@ -3343,6 +3343,13 @@ sequenceDiagram
 
 ### R30.4 Tests
 - `web/test/strip.test.js` (node): `battState` / `BattMean` (moved from `ai.test.js`), `wifiText` and the battery-icon rules (moved from `logo.test.js`), `posText`, `tank()` routing with a fake DOM-free sink.
-- `scripts/test_strip_pack.py`: the marker on `/ai` and `/logo` becomes the strip once; ids once; nothing in `strip.js` closes its `<script>`.
-- `web/test/strip_check.js` (Playwright): on `/ai` and `/logo` at 390 and 1440 px the same chips in the same order and the same computed look (fps only on `/ai`); fake `ts`, `tf`, `wifi_status`, `ai_at`, `logo_pose` messages fill them; a dropped socket shows RECONNECTING. `browser_check_wide` (its battery / WiFi icon lines move to the strip's look), `ai_check`, `look_check`, `bar_check` still pass.
+- `scripts/test_strip_pack.py`: the marker becomes the strip once (built /ai); no id twice on the built /ai, /logo, /settings; a page using `cqStrip` without the marker fails; nothing in `strip.js` closes its `<script>`.
+- `web/test/strip_check.js` (Playwright): on `/ai`, `/logo` and `/settings` at 390 and 1440 px (and 1024 / 1280 / 1600 for the place) the same chips in the same order and the same computed look (fps only on `/ai`); fake `ts`, `tf`, `wifi_status`, `ai_at`, `logo_pose` messages fill them; a dropped socket shows RECONNECTING. `browser_check_wide` (its battery / WiFi icon lines move to the strip's look), `ai_check`, `look_check`, `bar_check` still pass.
+
+### R30.5 As built (Plan Strip, 2026-11-04)
+- `view.ai` starts `null` ("AI HELPER --", no warn colour): the bridge sends `ai_at` only to `ai-page` clients (R27.1), so /logo and /settings show it unknown until the owner decides whether every page gets `ai_at`. `aiHelper()` (/ai's feed) owns the chip once called.
+- `pose()` owns POS once called (/ai, the engine); a program's `logo_pose` then leaves it. `linkDown()` also clears HDG, SPEED, POS.
+- Classes inside the strip are `sc`, `sdot`, `scell`; `.cqstrip` sets its own colour and font, so a page's `.dot` / `.cell` / inherited text never reach it.
+- Place: the strip starts from the left on every page - its own row under the title below 1500 px, after the title from 1500 px (owner).
+- Settings' camera frame-rate control is `cFpsCap` (the strip's `cFps` had hidden it).
 

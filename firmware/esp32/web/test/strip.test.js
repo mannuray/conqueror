@@ -80,6 +80,28 @@ test("USB power, then the socket drops", () => {
   assert.deepEqual(s.view.uno, { text: "UNO --", warn: false });
 });
 
+test("final review: the AI HELPER chip is unknown until something says (no amber OFF on pages the bridge never tells)", () => {
+  const s = new S.Strip();
+  assert.equal(s.view.ai, null);
+});
+
+test("final review: a page that sets POS itself (/ai, the engine) is not overridden by a program's logo_pose", () => {
+  const s = new S.Strip();
+  s.pose(1.8, 2.3);
+  s.tank({ t: "ev", kind: "logo_pose", x_cm: 40, y_cm: 10, heading: 0 });
+  assert.equal(s.view.pos, "POS 1.8,2.3");
+});
+
+test("final review: a dropped socket clears the moving readings too", () => {
+  const s = new S.Strip();
+  s.tank({ t: "tf", yaw: 10, spd_cmd: [40, 40] });
+  s.tank({ t: "ev", kind: "logo_pose", x_cm: 40, y_cm: 10, heading: 0 });
+  s.linkDown();
+  assert.equal(s.view.hdg, "HDG --");
+  assert.equal(s.view.spd, "SPEED --");
+  assert.equal(s.view.pos, "POS --");
+});
+
 test("a page that owns the AI HELPER chip (/ai, its feed) is not overridden by ai_at", () => {
   const s = new S.Strip();
   s.aiHelper(false);

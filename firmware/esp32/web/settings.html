@@ -28,8 +28,8 @@ html, body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.
 body { background-image: var(--scanlines); }
 a, button, input { font: inherit; color: inherit; }
 svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; flex: none; }
-header { position: relative; padding: 8px max(16px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); border-bottom: 1px solid var(--edge-c); }
-header .inner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }  /* phone: TITLE … [look][menu][STOP], then the chips */
+header { position: relative; padding: 8px max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left)); border-bottom: 1px solid var(--edge-c); }
+header .inner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }  /* phone: TITLE … [look][menu][STOP], then the chips */
 .top { flex: 1; min-width: 0; }
 .top h1 { font-size: 13px; margin: 0; color: var(--ui); letter-spacing: .14em; white-space: nowrap; }
 .chips { order: 3; width: 100%; }  /* the status strip (bridge LLD R30) */
@@ -138,8 +138,9 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   nav { flex-direction: column; width: 210px; margin: 14px 0 0 14px; align-self: flex-start; border: 0; padding: 0; gap: 6px; }
   nav button { text-align: left; padding: 10px 12px; border: 1px solid var(--edge-c); display: flex; gap: 8px; align-items: center; }
   main { flex: 1; grid-template-columns: 1fr 1fr; padding: 14px; }
-  .chips { order: 0; width: auto; }
-  header .inner { gap: 16px; }  /* full width: the bar at the top right (R29) */
+}
+@media (min-width: 1500px) {  /* the strip from the left: its own row, or after the title (owner, R30) */
+  .top { flex: none; } .chips { order: 0; flex: 1; min-width: 0; width: auto; }
 }
 </style>
 </head>
@@ -242,7 +243,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     <label for="cQual">Quality <span><b id="cQualV">--</b> · lower = sharper, bigger</span></label>
     <input id="cQual" type="range" min="10" max="40" step="1">
     <label>Frame-rate limit</label>
-    <div class="seg" id="cFps"><button type="button" data-v="0">MAX</button><button type="button" data-v="15">15</button><button type="button" data-v="10">10</button><button type="button" data-v="5">5</button></div>
+    <div class="seg" id="cFpsCap"><button type="button" data-v="0">MAX</button><button type="button" data-v="15">15</button><button type="button" data-v="10">10</button><button type="button" data-v="5">5</button></div>
     <div class="row" style="margin-top:8px"><span>Brightness</span><span class="mini"><button class="btn" type="button" data-k="brightness" data-d="-1">−</button><b id="cBright">--</b><button class="btn" type="button" data-k="brightness" data-d="1">+</button></span></div>
     <div class="row"><span>Contrast</span><span class="mini"><button class="btn" type="button" data-k="contrast" data-d="-1">−</button><b id="cContrast">--</b><button class="btn" type="button" data-k="contrast" data-d="1">+</button></span></div>
     <div class="row"><span>Low-light mode</span><button class="btn tog" type="button" id="cLow" data-k="low_light">--</button></div>
@@ -616,7 +617,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     if (cam) {
       $("cViewers").textContent = cam.viewers + " / 2";
       $("cNow").textContent = cam.viewers ? (cam.fps / cam.viewers).toFixed(1) + " fps" + (cam.viewers > 1 ? " each" : "") + " · " + cam.kbps + " kbit/s" : "nobody watching";  // frames are counted for all viewers
-      segOn("cSize", cam.size); segOn("cFps", cam.fps_cap); segOn("cWb", cam.wb || "auto");
+      segOn("cSize", cam.size); segOn("cFpsCap", cam.fps_cap); segOn("cWb", cam.wb || "auto");
       if (document.activeElement !== $("cQual")) $("cQual").value = cam.quality;
       $("cQualV").textContent = cam.quality;
       $("cBright").textContent = (cam.brightness > 0 ? "+" : "") + cam.brightness;
@@ -650,7 +651,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     if (!send(o)) toast("Not connected");
   }
   $("cSize").addEventListener("click", function (e) { var b = e.target.closest("button"); if (b) camSet({ size: b.dataset.v }); });
-  $("cFps").addEventListener("click", function (e) { var b = e.target.closest("button"); if (b) camSet({ fps_cap: Number(b.dataset.v) }); });
+  $("cFpsCap").addEventListener("click", function (e) { var b = e.target.closest("button"); if (b) camSet({ fps_cap: Number(b.dataset.v) }); });
   $("cQual").addEventListener("input", function () { $("cQualV").textContent = $("cQual").value; });
   $("cQual").addEventListener("change", function () { camSet({ quality: Number($("cQual").value) }); });
   Array.prototype.forEach.call(document.querySelectorAll(".mini .btn"), function (b) {

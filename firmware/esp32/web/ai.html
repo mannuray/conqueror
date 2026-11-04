@@ -1,8 +1,402 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Conqueror AI</title></head>
-<body><p>The AI page is coming (Plan Z2b-1).</p>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tank AI</title>
+<style>
+/* Bridge LLD R27.4: the /ai page, Phosphor Cockpit look (docs/design/ai-page-mockup.dc.html). */
+:root { --bg: #050805; --card: #070f08; --g: #33ff66; --g2: #1f9a40; --ink: #b8f5c8; --hi: #e8ffe8; --edge: rgba(51,255,102,.32);
+  --soft: rgba(51,255,102,.14); --amber: #ffb000; --red: #ff3b30; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font: 13px/1.4 "JetBrains Mono", ui-monospace, Menlo, monospace; min-height: 100vh; overflow-x: hidden;
+  background-image: repeating-linear-gradient(0deg, rgba(51,255,102,.025) 0 1px, transparent 1px 3px); }
+a { color: var(--g); }
+button, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+svg.i { width: 16px; height: 16px; vertical-align: -3px; }
+.hidden { display: none !important; }
+header { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 10px 16px 8px; border-bottom: 1px solid var(--edge); }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.top a { text-decoration: none; letter-spacing: .08em; font-weight: 700; }
+.title { color: var(--g); font-weight: 700; letter-spacing: .14em; }
+#stop { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 16px; background: var(--red); color: #fff;
+  border: 1px solid #ff6a60; border-radius: 7px; font-size: 15px; font-weight: 800; letter-spacing: .08em; }
+#stop svg.i { width: 18px; height: 18px; }
+.chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; font-size: 11px;
+  letter-spacing: .06em; text-align: center; }
+.chips span { border: 1px solid var(--edge); padding: 4px 6px; color: var(--g); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chips span.warn { border-color: rgba(255,176,0,.5); color: var(--amber); }
+nav { display: flex; margin: 10px 16px 0; border: 1px solid var(--edge); padding: 3px; gap: 3px; }
+nav button { flex: 1; min-height: 38px; background: none; border: 0; color: var(--g2); letter-spacing: .12em; font-weight: 700; }
+nav button.on { background: var(--g); color: var(--bg); }
+main { padding: 10px 16px 24px; display: flex; flex-direction: column; gap: 10px; max-width: 760px; margin: 0 auto; }
+.card { position: relative; background: var(--card); border: 1px solid var(--edge); padding: 12px; }
+.card::before, .card::after { content: ""; position: absolute; width: 7px; height: 7px; border: 1px solid var(--g); }
+.card::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+.card::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+h2 { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; padding-bottom: 8px; font-size: 12px; color: var(--g);
+  letter-spacing: .12em; border-bottom: 1px solid var(--soft); }
+h2 small { margin-left: auto; color: var(--g2); font-size: 10px; font-weight: 400; }
+.think { display: flex; gap: 12px; align-items: center; }
+#say { flex: 1; color: var(--hi); line-height: 1.45; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.btn { min-height: 40px; padding: 0 12px; background: none; border: 1px solid var(--g); color: var(--g); letter-spacing: .1em;
+  font-weight: 700; font-size: 11px; }
+.btn.big { flex: 1; min-height: 46px; font-size: 13px; }
+.btn.on { background: var(--g); color: var(--bg); }
+.btn:disabled { opacity: .4; cursor: default; }
+#why { margin: 10px 0 0; padding-left: 18px; font-size: 11px; line-height: 1.45; }
+.views { display: grid; grid-template-columns: 1fr; gap: 8px; }
+@media (min-width: 640px) { .views { grid-template-columns: 1fr 1fr; } }
+.view { position: relative; background: #020502; border: 1px solid var(--soft); aspect-ratio: 4 / 3; }
+.view canvas, .view img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.view .tag { position: absolute; left: 6px; top: 6px; font-size: 10px; color: var(--g); background: rgba(5,8,5,.7); padding: 2px 5px; }
+.note { font-size: 11px; color: var(--amber); margin-top: 6px; }
+.label { font-size: 10px; color: var(--g2); letter-spacing: .12em; margin: 4px 0 6px; }
+.things button { min-height: 36px; padding: 0 10px; background: none; border: 1px solid var(--edge); color: var(--ink); }
+.things button.on { border-color: var(--g); color: var(--bg); background: var(--g); }
+.things button i { color: var(--amber); font-style: normal; }
+input[type=text] { flex: 1; min-width: 0; min-height: 40px; padding: 0 10px; background: #020502; border: 1px solid var(--edge); color: var(--hi); }
+select { min-height: 40px; background: #020502; border: 1px solid var(--edge); color: var(--g); padding: 0 6px; }
+#ran { font-size: 11px; color: var(--g2); margin-top: 8px; }
+#ran b { color: var(--hi); font-weight: 400; }
+#teach { margin-top: 10px; border-top: 1px solid var(--soft); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+#teachMsg { font-size: 11px; color: var(--hi); }
+.soon { color: var(--g2); text-align: center; padding: 30px 0; letter-spacing: .1em; }
+</style></head>
+<body>
+<header>
+  <div class="top">
+    <a href="/"><!--icon:chevron-left-->DRIVE</a>
+    <span class="title">TANK AI</span>
+    <button id="stop" type="button" aria-label="stop the tank"><!--icon:hand-->STOP</button>
+  </div>
+  <div class="chips">
+    <span id="cBatt">-- V</span><span id="cAi" class="warn">AI HELPER OFF</span><span id="cFps">-- / s</span>
+    <span id="cHdg">HDG --</span><span id="cPos">POS --</span><span id="cSpd">SPEED --</span>
+  </div>
+</header>
+<nav><button type="button" class="on" data-tab="play">PLAY</button><button type="button" data-tab="room">ROOM</button><button type="button" data-tab="inside">INSIDE</button></nav>
+<main>
+  <div id="tPlay">
+    <section class="card">
+      <h2>[ 01 // THINKING ]<small id="mood">happy</small></h2>
+      <div class="think">
+        <svg width="60" height="60" viewBox="0 0 64 64" role="img" aria-label="the tank's face">
+          <rect x="3" y="3" width="58" height="58" rx="10" fill="#020502" stroke="#33ff66" stroke-width="2"></rect>
+          <rect id="eyeL" x="15" y="20" width="10" height="12" fill="#33ff66"></rect>
+          <rect id="eyeR" x="39" y="20" width="10" height="12" fill="#33ff66"></rect>
+          <path id="mouth" d="M20 43 Q32 51 44 43" fill="none" stroke="#33ff66" stroke-width="3" stroke-linecap="round"></path>
+        </svg>
+        <div id="say">Hello!</div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="whyBtn" class="btn big" type="button">WHY?</button>
+        <button id="muteBtn" class="btn" type="button" aria-label="voice on or off"><!--icon:volume-2 id="icOn"--><!--icon:volume-x id="icOff" class="hidden"--></button>
+      </div>
+      <ol id="why" class="hidden"></ol>
+    </section>
+    <section class="card">
+      <h2>[ 02 // CAMERA ]<small id="camWhat">--</small></h2>
+      <div class="views">
+        <div class="view"><canvas id="v1" width="320" height="240"></canvas><img id="tankCam" class="hidden" alt="the tank's camera"><span class="tag">THINGS</span></div>
+        <div class="view" id="v2box"><canvas id="v2" width="320" height="240"></canvas><span class="tag">
+          <select id="layer" aria-label="what to lay over the picture"><option value="depth">DEPTH</option></select></span></div>
+      </div>
+      <div id="camNote" class="note"></div>
+      <div class="row" style="margin-top:8px"><button id="pic" class="btn" type="button"><!--icon:camera--> TAKE A PICTURE</button></div>
+    </section>
+    <section class="card">
+      <h2>[ 03 // PLAY ]<small id="runSt">READY</small></h2>
+      <div class="label">FIND WHAT?</div>
+      <div id="things" class="row things"></div>
+      <div class="row" style="margin-top:8px">
+        <input id="typed" type="text" placeholder="or type a thing" autocomplete="off" autocapitalize="none">
+        <button id="typedGo" class="btn" type="button">FIND</button>
+      </div>
+      <div id="typedMsg" class="note hidden"></div>
+      <div class="row" style="margin-top:8px">
+        <button id="areaBtn" class="btn on" type="button">AREA</button>
+        <select id="area" aria-label="play area in metres"><option>1</option><option selected>2</option><option>3</option><option>5</option></select>
+        <span class="label" style="margin:0">METRES</span>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="find" class="btn big" type="button">FIND</button>
+        <button id="wander" class="btn big" type="button">WANDER</button>
+        <button id="explore" class="btn big" type="button">EXPLORE</button>
+      </div>
+      <div id="ran">I RAN <b id="ranLine">--</b> · <a href="/logo">LOGO ›</a></div>
+      <div id="teach" class="hidden">
+        <div class="label">TEACH IT A WORD (GROWN-UPS)</div>
+        <div class="row"><input id="tWord" type="text" placeholder="word, e.g. cup" autocapitalize="none"></div>
+        <div class="row"><input id="tNames" type="text" placeholder="other names, e.g. mug, beaker" autocapitalize="none"></div>
+        <div class="row"><button id="tGo" class="btn big" type="button">TEACH IT</button><button id="tNo" class="btn" type="button">CANCEL</button></div>
+        <div id="teachMsg"></div>
+      </div>
+    </section>
+  </div>
+  <div id="tRoom" class="hidden"><section class="card"><h2>[ 01 // ROOM ]</h2><div class="soon">COMING SOON</div></section></div>
+  <div id="tInside" class="hidden"><section class="card"><h2>[ 01 // INSIDE ]</h2><div class="soon">COMING SOON</div></section></div>
+</main>
 <script>
 <!--CQ:AI_JS-->
+</script>
+<script>
+"use strict";
+(function () {
+  var A = AiCore;
+  function $(id) { return document.getElementById(id); }
+  var MOUTH = { happy: "M20 43 Q32 51 44 43", excited: "M18 41 Q32 55 46 41", curious: "M22 45 L42 43", puzzled: "M22 46 Q28 41 34 46 Q40 51 44 45",
+    busy: "M22 45 L42 45", sad: "M20 48 Q32 40 44 48", tired: "M24 46 L40 46", thinking: "M24 45 Q32 42 40 45" };
+
+  // ---------- the tank: STOP, the one-line programs, telemetry (bridge LLD R27.1) ----------
+  var ws = null, wsOpen = false, nextId = 1, retry = 500, feedUrl = null, feedProto = 0;
+  var run = { mine: false, id: 0, running: false };
+  function send(o) { if (ws && wsOpen) { ws.send(JSON.stringify(o)); return true; } return false; }
+  function connect() {
+    if (document.hidden || (ws && ws.readyState <= 1)) return;
+    ws = new WebSocket("ws://" + location.host + "/ws");
+    ws.onopen = function () { wsOpen = true; retry = 500; send({ t: "hello", client: "ai-page", proto: 1 }); };
+    ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } onTank(m); };
+    ws.onclose = function () { wsOpen = false; $("cBatt").textContent = "NO TANK"; $("cBatt").className = "warn";
+      if (run.running) setRun(false, "The link to the tank dropped."); setTimeout(connect, retry); retry = Math.min(retry * 2, 5000); };
+    ws.onerror = function () { ws.close(); };
+  }
+  setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
+  function stop() { send({ t: "stop", id: nextId++ }); send({ t: "logo_stop", id: nextId++ }); }
+  $("stop").addEventListener("click", stop);
+  function onTank(m) {
+    switch (m.t) {
+      case "ai_at": setFeedUrl(m.url || null, m.proto | 0); break;
+      case "ts":
+        if (typeof m.batt_v === "number") { $("cBatt").textContent = m.batt_v.toFixed(1) + " V"; }
+        $("cBatt").className = (m.flags || []).indexOf("batt_low") >= 0 ? "warn" : "";
+        tired = (m.flags || []).indexOf("batt_low") >= 0;
+        break;
+      case "tf":
+        if (typeof m.yaw === "number") $("cHdg").textContent = "HDG " + Math.round(m.yaw) + "°";
+        if (m.spd_cmd) $("cSpd").textContent = "SPEED " + Math.max(Math.abs(m.spd_cmd[0]), Math.abs(m.spd_cmd[1])) + "%";
+        break;
+      case "ev":
+        if (m.kind === "logo_started" && run.mine) setRun(true, null);
+        if (m.kind === "logo_ended" && run.mine) setRun(false, m.reason === "finished" ? "Done!" : m.msg || "Stopped.");
+        break;
+      case "nack": if (m.id === run.id) setRun(false, m.message || "The tank said no (" + m.reason + ")."); break;
+      default: break;
+    }
+  }
+  function setRun(on, msg) {
+    run.running = on; if (!on) run.mine = false;
+    $("runSt").textContent = on ? "RUNNING" : "READY";
+    ["find", "wander", "explore", "typedGo"].forEach(function (id) { $(id).disabled = on; });
+    $("tGo").disabled = on;
+    if (msg) { $("typedMsg").textContent = msg; $("typedMsg").classList.remove("hidden"); }
+  }
+  // A one-line program: checked by the tank's /logo/check, then logo_run - so it is Logo's own (STOP, the lease, 7045).
+  function runLine(line) {
+    if (run.running) return;
+    $("ranLine").textContent = line; $("typedMsg").classList.add("hidden");
+    run.mine = true; run.running = true; setRun(true, null);
+    fetch("/logo/check", { method: "POST", body: line }).then(function (r) { return r.json(); }).then(function (c) {
+      if (!c.ok) { var d = (c.diags || [])[0]; setRun(false, d ? d.msg || d.message : "The tank could not run that."); return; }
+      run.id = nextId++;
+      if (!send({ t: "logo_run", prog: c.prog, id: run.id })) setRun(false, "Not connected to the tank.");
+    }).catch(function () { setRun(false, "Not connected to the tank."); });
+  }
+
+  // ---------- the AI feed from the engine (AI engine LLD §22) ----------
+  var feed = null, feedOpen = false, feedRetry = 0, camState = "NoAI", frames = 0, lastDepth = null, things = [], picked = null;
+  var tired = false, teachId = 1;
+  function setFeedUrl(url, proto) {
+    feedUrl = url; feedProto = proto;
+    camEv(url ? "ai_at_url" : "ai_at_null");
+    if (feed) { try { feed.close(); } catch (x) { /* closing */ } feed = null; }
+    if (url && A.protoOk(proto)) openFeed(); else showAiChip();
+  }
+  function openFeed() {
+    clearTimeout(feedRetry);
+    if (!feedUrl || document.hidden || feed) return;
+    feed = new WebSocket(feedUrl); feed.binaryType = "arraybuffer";
+    feed.onmessage = function (e) {
+      if (typeof e.data !== "string") { onFrame(e.data); return; }
+      var m; try { m = JSON.parse(e.data); } catch (x) { return; }
+      onFeed(m);
+    };
+    feed.onclose = function () {
+      feed = null; feedOpen = false; camEv("feed_closed"); showAiChip();
+      if (feedUrl && A.protoOk(feedProto)) feedRetry = setTimeout(openFeed, 2000);
+    };
+    feed.onerror = function () { if (feed) feed.close(); };
+  }
+  function onFeed(m) {
+    switch (m.t) {
+      case "hello":
+        if (!A.protoOk(m.proto)) { feedProto = m.proto; feed.close(); $("camNote").textContent = A.PROTO_TEXT; return; }
+        feedOpen = true; camEv("feed_open"); showAiChip(); break;
+      case "status": showStatus(m); break;
+      case "why": showWhy(m.lines || []); break;
+      case "things": things = m.list || []; showThings(); break;
+      case "rep": $("teachMsg").textContent = m.msg; break;
+      default: break;
+    }
+  }
+  function showAiChip() {
+    var on = feedOpen;
+    $("cAi").textContent = on ? "● AI HELPER" : "AI HELPER OFF"; $("cAi").className = on ? "" : "warn";
+    ["find", "wander", "explore"].forEach(function (id) { $(id).title = on ? "" : "start cq-drive serve on the laptop"; });
+  }
+  // One frame, two views: the picture is decoded once and drawn twice (bridge LLD R27.4).
+  function onFrame(buf) {
+    var f; try { f = A.splitFrame(buf); } catch (x) { return; }
+    frames++;
+    var cam = createImageBitmap(new Blob([f.cam], { type: "image/jpeg" }));
+    var dep = f.depth ? createImageBitmap(new Blob([f.depth], { type: "image/jpeg" })) : Promise.resolve(null);
+    Promise.all([cam, dep]).then(function (b) {
+      if (b[1]) { if (lastDepth && lastDepth.close) lastDepth.close(); lastDepth = b[1]; }
+      draw(b[0], f.header.boxes || []);
+      if (b[0].close) b[0].close();
+    }).catch(function () { /* a picture that does not decode is skipped */ });
+  }
+  function draw(pic, boxes) {
+    var c1 = $("v1"), x1 = c1.getContext("2d"), c2 = $("v2"), x2 = c2.getContext("2d"), w = c1.width, h = c1.height;
+    x1.drawImage(pic, 0, 0, w, h); x2.drawImage(pic, 0, 0, w, h);
+    if (lastDepth) { x2.globalAlpha = 0.6; x2.drawImage(lastDepth, 0, 0, w, h); x2.globalAlpha = 1; }
+    x1.lineWidth = 2; x1.font = "11px monospace";
+    boxes.forEach(function (b) {
+      var r = A.boxRect(b, w, h), person = r.word === "person";
+      x1.strokeStyle = person ? "#ffb000" : "#33ff66"; x1.strokeRect(r.x, r.y, r.w, r.h);
+      var tag = r.word.toUpperCase() + " " + r.score.toFixed(2);
+      x1.fillStyle = "rgba(5,8,5,.75)"; x1.fillRect(r.x, Math.max(0, r.y - 14), x1.measureText(tag).width + 6, 14);
+      x1.fillStyle = person ? "#ffb000" : "#33ff66"; x1.fillText(tag, r.x + 3, Math.max(11, r.y - 3));
+    });
+  }
+  setInterval(function () { $("cFps").textContent = feedOpen ? frames + " / s" : "-- / s"; frames = 0; }, 1000);
+  function camEv(ev) {
+    camState = A.cameraState(camState, ev);
+    var engine = camState === "Engine", stream = camState === "TankStream";
+    $("v1").classList.toggle("hidden", !engine && stream); $("tankCam").classList.toggle("hidden", !stream);
+    $("v2box").classList.toggle("hidden", !engine);
+    $("camWhat").textContent = engine ? "FROM THE AI HELPER" : stream ? "THE TANK'S OWN CAMERA" : "--";
+    $("camNote").textContent = engine ? "" : !feedUrl ? "AI helper not running - start cq-drive serve" :
+      !A.protoOk(feedProto) ? A.PROTO_TEXT : "Connecting to the AI helper...";
+    if (camState === "NoAI" && !document.hidden) tankStream();
+    if (engine) $("tankCam").removeAttribute("src");
+  }
+  // Without the engine: the tank's own stream on :81 (view 1 only, no boxes), if a viewer place is free.
+  var streamTimer = 0;  // one try at a time: a refused stream (no viewer place free) is tried again after 3 s
+  function tankStream() {
+    var img = $("tankCam");
+    if (img.getAttribute("src") || streamTimer) return;
+    img.onload = function () { camEv("stream_ok"); };
+    img.onerror = function () {
+      img.removeAttribute("src");
+      streamTimer = setTimeout(function () { streamTimer = 0; if (camState === "NoAI" && !document.hidden) tankStream(); }, 3000);
+    };
+    img.src = "http://" + location.hostname + ":81/stream";
+  }
+
+  // ---------- what it thinks, and the voice ----------
+  var sayer = new A.Sayer(function (t) {
+    try { var u = new SpeechSynthesisUtterance(t); u.rate = 1.0; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (x) { /* no voice */ }
+  });
+  var muted = false;
+  try { muted = localStorage.getItem("cq_ai_mute") === "1"; } catch (x) { /* private mode */ }
+  function showMute() { sayer.mute(muted); $("icOn").classList.toggle("hidden", muted); $("icOff").classList.toggle("hidden", !muted); }
+  showMute();
+  $("muteBtn").addEventListener("click", function () { muted = !muted; showMute(); try { localStorage.setItem("cq_ai_mute", muted ? "1" : "0"); } catch (x) { /* private */ } });
+  // iOS speaks only after a tap: the first tap anywhere unlocks the voice.
+  document.addEventListener("pointerdown", function unlock() {
+    sayer.unlock();
+    try { speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch (x) { /* no voice */ }
+    document.removeEventListener("pointerdown", unlock);
+  });
+  function showStatus(m) {
+    var mood = tired ? "tired" : m.mood || "happy";
+    $("say").textContent = m.say || ""; $("mood").textContent = mood;
+    $("mouth").setAttribute("d", MOUTH[mood] || MOUTH.happy);
+    var h = mood === "tired" ? 6 : 12; $("eyeL").setAttribute("height", h); $("eyeR").setAttribute("height", h);
+    if (m.pose) $("cPos").textContent = "POS " + m.pose.x.toFixed(1) + "," + m.pose.y.toFixed(1);
+    sayer.say(m.say);
+  }
+  function showWhy(lines) {
+    var ol = $("why"); ol.textContent = "";
+    (lines.length ? lines : ["I'm not doing anything right now."]).forEach(function (l) { var li = document.createElement("li"); li.textContent = l; ol.appendChild(li); });
+  }
+  showWhy([]);
+  $("whyBtn").addEventListener("click", function () { $("why").classList.toggle("hidden"); });
+
+  // ---------- play: find / wander / explore, a typed thing, teach it a word ----------
+  function showThings() {
+    var box = $("things"); box.textContent = "";
+    things.forEach(function (t) {
+      var b = document.createElement("button"); b.type = "button"; b.textContent = t.word.toUpperCase();
+      if (t.measured === false) { var i = document.createElement("i"); i.textContent = " *"; i.title = "I'll try - I've never seen one"; b.appendChild(i); }
+      if (picked === t.word) b.className = "on";
+      b.addEventListener("click", function () { picked = t.word; showThings(); });
+      box.appendChild(b);
+    });
+    if (picked === null && things.length) { picked = things[0].word; showThings(); }
+  }
+  function areaOn() { return $("areaBtn").classList.contains("on"); }
+  $("areaBtn").addEventListener("click", function () { $("areaBtn").classList.toggle("on"); });
+  $("find").addEventListener("click", function () { if (picked) runLine(A.findLine(picked, areaOn(), +$("area").value)); });
+  $("wander").addEventListener("click", function () { runLine((areaOn() ? "AREA " + $("area").value + "  " : "") + A.wanderLine(30)); });
+  $("explore").addEventListener("click", function () { runLine((areaOn() ? "AREA " + $("area").value + "  " : "") + A.exploreLine()); });
+  function typedGo() {
+    var r = A.typed($("typed").value, things);
+    if (!r.word) return;
+    if (r.kind === "run") {
+      if (!r.measured) { $("typedMsg").textContent = "I'll try - I've never seen one."; $("typedMsg").classList.remove("hidden"); }
+      runLine(A.findLine(r.word, areaOn(), +$("area").value)); return;
+    }
+    $("typedMsg").textContent = A.unknownText(r.word); $("typedMsg").classList.remove("hidden");
+    if (r.word !== "person") { $("tWord").value = r.word; $("teachMsg").textContent = ""; $("teach").classList.remove("hidden"); }
+  }
+  $("typedGo").addEventListener("click", typedGo);
+  $("typed").addEventListener("keydown", function (e) { if (e.key === "Enter") typedGo(); });
+  $("tNo").addEventListener("click", function () { $("teach").classList.add("hidden"); });
+  $("tGo").addEventListener("click", function () {
+    if (run.running) { $("teachMsg").textContent = "Wait until the program has stopped."; return; }
+    var word = A.squeeze($("tWord").value), names = $("tNames").value.split(",").map(A.squeeze).filter(Boolean);
+    var why = A.teachCheck(word, names);
+    if (why) { $("teachMsg").textContent = why; return; }
+    if (!feed || !feedOpen) { $("teachMsg").textContent = "The AI helper is not running."; return; }
+    feed.send(JSON.stringify({ t: "teach", id: teachId++, word: word, names: names }));
+    $("teachMsg").textContent = "Learning " + word + " - this takes a minute...";
+  });
+
+  // ---------- take a picture (saved on the phone only) ----------
+  $("pic").addEventListener("click", function () {
+    var c = $("v1");
+    c.toBlob(function (b) {
+      if (!b) return;
+      var a = document.createElement("a"), d = new Date();
+      a.href = URL.createObjectURL(b); a.download = "tank-" + d.toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".jpg";
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    }, "image/jpeg", 0.9);
+  });
+
+  // ---------- tabs ----------
+  Array.prototype.forEach.call(document.querySelectorAll("nav button"), function (b) {
+    b.addEventListener("click", function () {
+      Array.prototype.forEach.call(document.querySelectorAll("nav button"), function (o) { o.classList.toggle("on", o === b); });
+      $("tPlay").classList.toggle("hidden", b.dataset.tab !== "play");
+      $("tRoom").classList.toggle("hidden", b.dataset.tab !== "room");
+      $("tInside").classList.toggle("hidden", b.dataset.tab !== "inside");
+    });
+  });
+
+  // ---------- a hidden page holds no link (design-notes §77); STOP stays on the tank's path ----------
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) {
+      if (ws && ws.readyState <= 1) ws.close();
+      if (feed) feed.close();
+      $("tankCam").removeAttribute("src");
+    } else { retry = 500; connect(); openFeed(); camEv("none"); }
+  });
+  camEv("none");
+  showAiChip();
+  connect();
+})();
 </script>
 </body></html>

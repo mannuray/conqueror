@@ -2730,7 +2730,7 @@ sequenceDiagram
 - **On the tank (owner, 2026-10-24):** "all good". Drive, Settings and Logo all show the Lucide icons, with live battery / WiFi / Uno values.
 
 
-## R26. The skill server and the drive lease (owner 2026-10-25, revised for Plan Z2a 2026-11-03; spec 8 Revision 2 §4.4, design-notes §191, §197 — draft for review)
+## R26. The skill server and the drive lease (owner 2026-10-25, revised for Plan Z2a 2026-11-03; spec 8 Revision 2 §4.4, design-notes §191, §197 — built and floor-checked 2026-11-04, design-notes §202)
 
 > Revision 1 (2026-10-25) had `find` / `goto` for `"ball` only. Replaced: the skills `find` / `wander` / `explore` / `setxy`, places relative to the tank, the play area, the server's list of things and names, the new failure reasons. The `/ai` page's data relay is Plan Z2b (R27, later).
 
@@ -2960,6 +2960,8 @@ sequenceDiagram
 - **`test_link_owner`:** the lease holder's `cam_set` is allowed during the lease and refused after it.
 - **`test_ws_codec`:** the new messages parse; bad fields are refused.
 - **`test_logo_controller`:** places relative to the tank (a run point 50 cm behind after `FORWARD 50` → `fwd_cm −50`; after `RIGHT 90` → `left_cm`).
+
+- **As built (Plan Z2a, floor-checked 2026-11-04, design-notes §202):** the things list goes in `skill_things` parts (each ≤ 190 B; the WS path holds 200-byte messages); the lease deadman ends the word 7052 (not 7034); the Uno brake ends a skill as it ends a `GO`; a phone that is not the program's owner is refused (`NOT_OWNER`) - 7045 comes only from the program's own client or the IR remote; a watching drive page no longer stops someone else's run when hidden (R11 amended, design-notes §201).
 
 ## R27. The `/ai` page: on the tank, the AI feed from the engine (owner 2026-11-04; spec 8 Revision 2 §4.5, design-notes §197-§199, AI engine LLD §22 — approved 2026-11-04, design-notes §200)
 

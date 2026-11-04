@@ -1459,6 +1459,8 @@ classDiagram
 - **The generated files are regenerated** (`logogen write`), never edited.
 - **Floor (owner, Plan Z2a):** from `/logo`, `AREA 2  FIND "ball  SOUND FANFARE`, `WANDER 30`, `SETXY 0 0` back to the start, and STOP during each.
 
+- **As built (Plan Z2a, floor-checked 2026-11-04, design-notes §202):** all seven words run on the tank; a thing is one word in Logo (`FIND "car`), two-word names ("racing car") are for the `/ai` page's typing box and resolve on the engine; the lease's deadman ends the program 7052 "The AI helper stopped answering."
+
 ### 24.4 Plan Z2b additions (design-notes §198-§200, bridge LLD R27 — approved 2026-11-04)
 - **A new error, 7056** (`words.yaml` errors): "I'm learning a new word - try again in a minute."
   - **Checker:** `Caps` gains `ai_learning` (from `SkillHub::learning()`); while it is true, every word with `needs: [ai]` gives 7056 at its call, instead of 7053 / 7020 (`needs` checked first: no skill server is still 7020).

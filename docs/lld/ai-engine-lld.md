@@ -2449,7 +2449,7 @@ sequenceDiagram
 **Floor checks:** design-notes §195 - all pass (explore, the remembered map, wander, find from memory in 22 s instead of 40 s, round a box, the bed's overhang).
 
 
-## 21. The skill server: `cq-drive serve` (Plan Z2a; spec 8 Revision 2 §4.3-§4.4, Tank Logo LLD §24, bridge LLD R26, design-notes §197 — draft for review)
+## 21. The skill server: `cq-drive serve` (Plan Z2a; spec 8 Revision 2 §4.3-§4.4, Tank Logo LLD §24, bridge LLD R26, design-notes §197 — built and floor-checked 2026-11-04, §21.8)
 
 ### 21.1 What it is
 - **One long-running session on the laptop** that the tank's Logo runner uses as its eyes and careful driver: `uv run cq-drive serve [--home NAME] [--record DIR]`.
@@ -2589,6 +2589,16 @@ stateDiagram-v2
 - **`ServeApp` with fakes** (no tank): ask → answer; start find → frames → done; unknown thing → `failed unknown_thing` with no frames; a second start during a skill refused; link lost mid-skill → no more frames, reconnect, idle.
 - **The result mapping** to wire reasons, one test per `Result`.
 - **Floor (owner, Plan Z2a):** with the tank and `/logo` (Tank Logo LLD §24.3).
+
+### 21.8 As built and floor-checked (Plan Z2a, 2026-11-04, design-notes §202)
+- **Floor checks passed** (owner present): `WANDER` ends on time with no touches; the phone's STOP → 7040; the engine killed mid-skill → 7052 within ~1 s and a clean reconnect; `AREA 2  FIND "car` → ~30 cm from the car after a look round; `SETXY 0 0` back ~10 cm from the mark (target 0.15 m); the car seen 1.5 m out with `AREA 1` → 7054. How each was measured: design-notes §202.
+- **Rulings that change this section** (from the plan's ledger, all on the safe side):
+  - the lease's deadman (no `skill_drive` for 300 ms) ends the word **7052**, not 7034 - a laptop or WiFi loss is only ever seen as that deadman;
+  - the keep-alive repeats STOP while the link and lease live; a moving command only while fresh (< 0.5 s), so a picture gap holds the tank still until the engine's own stale rule (2 s);
+  - setxy also ends **no_way** when the best distance has not improved by 0.3 m for 40 s (besides 5 s with no route);
+  - `ball` means the ball only (the colour finder's `ball:<name>`); `toy` is its own word with the names car, toy car, ...; HOWFAR answers only for a thing seen within 0.5 s, else -1;
+  - find / explore without the depth model end `stale` (7052) before any frame.
+- **Known limits seen on the floor:** a toy car ~2 m away is only a weak maybe, so `FIND` with a small area says 7050 rather than 7054; one unrecorded `FIND` ended "found" after 4 s beside the bed (most likely a false sighting; watch with `--record`).
 
 ## 22. The AI feed for the `/ai` page, and teach it a word (Plan Z2b; spec 8 Revision 2 §4.5, bridge LLD R27, design-notes §197-§200 — approved 2026-11-04)
 

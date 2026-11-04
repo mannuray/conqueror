@@ -12,6 +12,7 @@
   gap: 6px; padding: 0 10px; font: 700 14px var(--bar-font); color: var(--bar-ink); background: var(--bar-bg);
   border: 1px solid var(--bar-edge); border-radius: var(--bar-r); cursor: pointer; }
 .cqbar button svg { width: 20px; height: 20px; flex: none; }
+.cqbar svg, #cqMenu svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
 .cqbar #menuBtn[aria-expanded="true"] { background: color-mix(in srgb, var(--bar-ink) 18%, var(--bar-bg)); }
 .cqbar #stop { position: relative; padding: 0 16px; font-size: 16px; font-weight: 900; letter-spacing: .08em; color: var(--bar-stop-ink);
   background: var(--bar-stop); border: 2px solid var(--bar-stop-edge); box-shadow: var(--bar-stop-glow); }

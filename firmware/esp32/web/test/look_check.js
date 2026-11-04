@@ -85,10 +85,10 @@ async (tab) => {
   const gridPx = () => q(() => { const c = document.getElementById("gCan"), d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
     let h = 0; for (let i = 0; i < d.length; i += 53) h = (h * 31 + d[i]) >>> 0; return h; });
   const gridSunny = await gridPx();
-  await page.click("#themeBtn"); await page.waitForTimeout(150);
+  await page.click("#lookBtn"); await page.waitForTimeout(150);
   S.settingsFlip = [await theme(), gridSunny !== await gridPx()];                                  // cockpit, redrawn
   S.settingsTitle = await q(() => { const r = (s) => document.querySelector(s).getBoundingClientRect();
-    return r(".top h1").top === r(".top a").top && r("#themeBtn").left > r(".top h1").right; });   // one row: DRIVE … TITLE [look]
+    return Math.abs(r(".top h1").top + r(".top h1").height / 2 - r("#lookBtn").top - 22) < 4 && r("#lookBtn").left > r(".top h1").right; });  // one row: TITLE … [look][menu][STOP] (R29)
   // /help: follows the choice, no switch of its own, code stays fixed-width, no title glow
   await open("/help", 390, 844);
   S.help = [await css("body", "background-color"), await q(() => !document.getElementById("themeBtn") && !document.getElementById("miLook")),
@@ -100,7 +100,7 @@ async (tab) => {
   await page.goto("http://127.0.0.1:8765/logo"); await q(() => localStorage.setItem("cq_theme", "cockpit")); await page.reload();
   await page.click("#mbtn"); await page.click("#miLook");
   S.allPlay = []; for (const p of PAGES) S.allPlay.push(await look(p));                           // play ×5
-  await page.goto("http://127.0.0.1:8765/settings"); await page.click("#themeBtn");
+  await page.goto("http://127.0.0.1:8765/settings"); await page.click("#lookBtn");
   S.allCockpit = []; for (const p of PAGES) S.allCockpit.push(await look(p));                     // cockpit ×5
   await q(() => localStorage.setItem("cq_theme", "junk"));
   S.junk = await look("/help");                                                                   // cockpit
@@ -116,7 +116,7 @@ async (tab) => {
   await priv.addInitScript(() => { Object.defineProperty(window, "localStorage", { get() { throw new Error("private"); } }); });
   await priv.goto("http://127.0.0.1:8765/settings"); await priv.waitForTimeout(300);
   const t0 = await priv.evaluate(() => document.documentElement.dataset.theme);
-  await priv.click("#themeBtn");
+  await priv.click("#lookBtn");
   S.private = [t0, await priv.evaluate(() => document.documentElement.dataset.theme)];            // cockpit, play
   await priv.close();
   // final review minors: one Sunny HUD value (M1); Sunny's shape and no cockpit effects (M2); the browser bar follows

@@ -28,13 +28,11 @@ html, body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.
 body { background-image: var(--scanlines); }
 a, button, input { font: inherit; color: inherit; }
 svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; flex: none; }
-header { padding: 10px max(12px, env(safe-area-inset-left)) 8px; border-bottom: 1px solid var(--edge-c); }
-.top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.top a { color: var(--ui); text-decoration: none; letter-spacing: .08em; font-weight: 700; }
-.top h1 { font-size: 13px; margin: 0 0 0 auto; color: var(--ui); letter-spacing: .14em; }
-#themeBtn { min-height: 32px; min-width: 36px; padding: 0 8px; background: none; border: 1px solid var(--edge-c); color: var(--ui); }
-#themeBtn svg { width: 16px; height: 16px; }
-.chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+header { position: relative; padding: 8px max(16px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); border-bottom: 1px solid var(--edge-c); }
+header .inner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }  /* phone: TITLE … [look][menu][STOP], then the chips */
+.top { flex: 1; min-width: 0; }
+.top h1 { font-size: 13px; margin: 0; color: var(--ui); letter-spacing: .14em; white-space: nowrap; }
+.chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; order: 3; width: 100%; }
 .chip { border: 1px solid var(--edge-c); padding: 4px 6px; color: var(--ui); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; letter-spacing: .06em; }
 .chip.warn { color: var(--warn); border-color: var(--warn-edge); }
 .wrap { display: flex; flex-direction: column; max-width: 1180px; margin: 0 auto; }
@@ -142,24 +140,20 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   nav { flex-direction: column; width: 210px; margin: 14px 0 0 14px; align-self: flex-start; border: 0; padding: 0; gap: 6px; }
   nav button { text-align: left; padding: 10px 12px; border: 1px solid var(--edge-c); display: flex; gap: 8px; align-items: center; }
   main { flex: 1; grid-template-columns: 1fr 1fr; padding: 14px; }
-  .chips { display: flex; justify-content: flex-end; margin-top: 0; }
-  header .inner { display: flex; align-items: center; gap: 16px; max-width: 1180px; margin: 0 auto; }
-  .top { flex: 1; justify-content: flex-start; gap: 18px; } .top h1 { margin-left: 0; }
+  .chips { display: flex; justify-content: flex-end; order: 0; width: auto; }
+  header .inner { gap: 16px; }  /* full width: the bar at the top right (R29) */
 }
 </style>
 </head>
 <body>
-<header><div class="inner">
-  <div class="top">
-    <a href="/"><!--icon:chevron-left-->DRIVE</a>
-    <h1>TANK SETTINGS</h1>
-    <button id="themeBtn" type="button" aria-label="change the look" title="change the look" data-look-skip><!--icon:palette--></button>
-  </div>
+<header class="cqhost"><div class="inner">
+  <div class="top"><h1>TANK SETTINGS</h1></div>
   <div class="chips">
     <span class="chip" id="cBatt"><!--icon:battery--> -- V</span>
     <span class="chip" id="cWifi">WIFI --</span>
     <span class="chip" id="cUno"><!--icon:cpu--> UNO --</span>
   </div>
+  <!--CQ:BAR-->
 </div></header>
 <div class="wrap">
 <nav id="tabs">
@@ -572,7 +566,11 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     drawAsked = true; requestAnimationFrame(function () { drawAsked = false; draw(); });
   }
   window.addEventListener("cqtheme", requestDraw);  // the look flipped: the graph takes the new colours (R28)
-  $("themeBtn").addEventListener("click", function () { cqTheme.flip(); });
+  // STOP (bridge LLD R29): the tank and any running program; with this page's socket down, through one opened for the press
+  $("stop").addEventListener("click", function () {
+    if (send({ t: "stop", id: nextId++ })) { send({ t: "logo_stop", id: nextId++ }); return; }
+    cqBar.stopOnce("ws://" + location.host + "/ws", function (ok) { toast(ok ? "Stopped" : "Couldn't reach the tank - use another STOP", ok); });
+  });
   var KEYS = { speed: ["l", "r"], heading: ["h"], balance: ["b"] }, UNIT = { speed: "cm/s", heading: "°", balance: "‰" };
   function draw() {
     var c = $("gCan"), w = c.clientWidth, h = c.clientHeight, dpr = window.devicePixelRatio || 1;

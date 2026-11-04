@@ -6,6 +6,7 @@ async (page) => {
   // each page: its path, its title element, what its STOP sends
   const PAGES = [
     { path: "/ai", title: "header .title", stop: ["stop", "logo_stop"] },
+    { path: "/settings", title: ".top h1", stop: ["stop", "logo_stop"] },
   ];
   const SIZES = [[390, 844], [1440, 900]];
   const fails = [];
@@ -19,7 +20,8 @@ async (page) => {
         setTimeout(() => { this.readyState = 1; this.onopen && this.onopen(); }, 10);
       }
       send(s) {
-        const m = JSON.parse(s); window.__sent.push(m.t);
+        const m = JSON.parse(s);
+        if (["hello", "stop", "logo_stop"].indexOf(m.t) >= 0) window.__sent.push(m.t);  // what STOP sends; not the pages' polls
         if (m.t === "hello") this.emit({ t: "welcome", you: "x-1" });
         if (m.id !== undefined) this.emit({ t: "ack", id: m.id });
       }

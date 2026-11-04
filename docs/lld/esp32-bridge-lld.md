@@ -3353,7 +3353,7 @@ sequenceDiagram
 - Place (owner): 900 px and wider - the strip on the first line between the title and the top bar (`flex: 1 1 0; min-width: 0`, wrapping inside its space; the page's `.cqbar` is `align-self: flex-start`, so the three stay at the top right); a phone - its own line under the title, from the left. Chips are `flex: none`; an unknown AI HELPER has a hollow dot.
 - Settings' camera frame-rate control is `cFpsCap` (the strip's `cFps` had hidden it).
 
-## R31. One link for every page, in model / view / controller (owner 2026-11-04; design-notes §210 — approved)
+## R31. One link for every page, in model / view / controller (owner 2026-11-04; design-notes §210 — built, R31.7)
 
 ### R31.1 What changes
 - **Packing first (R31.5):** after every part and the icons, `pack_web.py` removes whole-line `//` comments inside
@@ -3491,4 +3491,23 @@ sequenceDiagram
   link down says "Couldn't reach the tank"; STOP acts on a `pointerdown` that never becomes a click. All existing checks
   still pass.
 - Tank (owner, on the stand, tracks off the ground): STOP on each page; on Drive while driving the tracks on the stand.
+
+### R31.7 As built (Plan Link, 2026-11-05)
+- `Link` is `{ send, isOpen, busy, stop }`: `busy()` = bytes still queued on the socket (the drive page skips a drive
+  command then, review I2). `opts.onConnecting()` is called on each attempt (the drive page shows "wait").
+- `link.stop(msgs, say)`: sent on the link when it is up; through `cqBar.stopOnce` - "Stopping…", then "Stopped" or
+  "Couldn't reach the tank - use another STOP" - when it is down **or quiet for more than 1.5 s** (a pong is due every
+  second; a WiFi drop is only noticed after 4 s of silence, STOP does not wait for that). A WebSocket that throws on
+  create leaves a working link that tries again.
+- `cqBar.onStop` also closes the menu on the touch (a sliding tap never clicks).
+- TankModel takes the owner from `welcome`, `control_changed` and each `ts` (`owner`, `owner_client`).
+- The drive page: its WiFi chip comes from the link's `wifi_status` (the `/info` poll is gone) and goes "off" when the link
+  is lost; it reconnects after a failed attempt (the old `goOffline` gave up until the page was hidden and shown);
+  STOP works from the keyboard and, with the link down or quiet, through its own socket.
+- Packing: `strip_comments` refuses what it cannot read safely - a string continued over lines in a script, a `/*`
+  inside a CSS string - and the build fails naming it. The strip part carries the model before its view (tested).
+- Sizes (gzipped): / 22 197 B, /logo 30 371, /ai 22 860, /settings 29 881, /help 13 930 - no budget raised (before the
+  plan: 24 464 / 31 787 / 23 296 / 30 158 / 14 597).
+- Final review (opus): no critical; 1 important (STOP into a quiet link) and 8 minor - all fixed, each with a test that
+  failed first.
 

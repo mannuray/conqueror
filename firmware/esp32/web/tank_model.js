@@ -55,6 +55,7 @@ var cqTankLib = (function () {
       case "ts":
         if (typeof m.batt_v === "number") s.batt = { v: this.mean.push(m.batt_v), flags: m.flags || [] };
         s.uno = (m.flags || []).indexOf("body_offline") < 0;
+        if (m.owner !== undefined) this.owner(m.owner, m.owner_client);  // who drives, each second (as the pages read it)
         break;
       case "tf":
         if (typeof m.yaw === "number") s.hdg = m.yaw;

@@ -250,7 +250,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   var SOUNDS = ["startup", "ready", "selftest_fail", "chirp_up", "chirp_down", "blip", "tick", "jingle", "thinking", "ouch",
     "error", "success", "fanfare", "sad", "safety_chirp", "ack_blip", "fail", "confirm", "question", "ok_chirp", "grumble",
     "scan", "goodbye", "horn"];  // proto::SoundId order (spec 02 §A9 catalogue)
-  var link = null, you = "", synced = false, owner = "none", ownerClient = "", ownerKnown = false;
+  var link = null, you = "", owner = "none", ownerClient = "", ownerKnown = false;
   var nextId = 1, camLocked = false;
   var speed = 60;
   try { speed = Number(localStorage.getItem("cq_speed")) || 60; } catch (e) { /* private mode */ }
@@ -269,9 +269,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   // and holds no link while the page is hidden (§77); these are this page's own parts of opening and losing it
   function linkOpened() { setWs("on", "--"); setPads(); }
   function linkLost() {  // socket closed or silent: everything released, pads off
-    synced = false;
     releaseAll();
     setWs("", "OFF");
+    showWifi("off", "bad");
     setPads();
   }
   function setWs(cls, txt) {
@@ -289,6 +289,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
         send({ t: "tank" });  // R13.1: the camera state (the AI address is retired, design-notes §200)
         break;
       case "tank": showCamera(m.camera); break;
+      case "wifi_status": showWifiStatus(m); break;
       case "tf": showFast(m); break;
       case "ts": showSlow(m); break;
       case "ev": onEvent(m); break;
@@ -436,7 +437,6 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     }
     if (Date.now() >= audioHoldUntil) showAudio(m.flags.indexOf("muted") >= 0 ? "mute" : m.flags.indexOf("quiet") >= 0 ? "quiet" : "normal");
     var offline = m.flags.indexOf("body_offline") >= 0;
-    synced = !offline;
     showOwner(m.owner, m.owner_client);
     if (offline) banner("bad", "Tank body offline - check the Uno and the S1 switch");
     // The Uno hears nothing from the ESP32 although its telemetry arrives: S1 is in the upload position.
@@ -559,17 +559,11 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     $("wifiChip").innerHTML = icon(WIFI_ICON[k]);
     $("wifiChip").className = "chip glass " + cls;
   }
-  var wifiBusy = false;
-  function pollWifi() {  // one poll at a time, 5 s timeout (review M15)
-    if (wifiBusy) return;
-    wifiBusy = true;
-    var ctl = window.AbortController ? new AbortController() : null;
-    var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 5000);
-    fetch("/info", { cache: "no-store", signal: ctl ? ctl.signal : undefined }).then(function (r) { return r.json(); }).then(function (d) {
-      var rssi = d.net && typeof d.net.rssi === "number" ? d.net.rssi : null;
-      var k = rssi === null ? "zero" : rssi > -55 ? "full" : rssi > -65 ? "high" : rssi > -75 ? "low" : "zero";
-      showWifi(k, rssi === null || rssi <= -65 ? "warn" : "");
-    }).catch(function () { showWifi("off", "bad"); }).then(function () { clearTimeout(timer); wifiBusy = false; });
+  // the WiFi strength comes with the link every 10 s (cqLink asks for it, R31); no link: off
+  function showWifiStatus(m) {
+    var rssi = typeof m.rssi === "number" ? m.rssi : null;
+    var k = rssi === null ? "zero" : rssi > -55 ? "full" : rssi > -65 ? "high" : rssi > -75 ? "low" : "zero";
+    showWifi(k, rssi === null || rssi <= -65 ? "warn" : "");
   }
 
   // ---------- joysticks (pointer events: touch + mouse) ----------
@@ -939,15 +933,13 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     img.src = "http://" + location.hostname + ":81/stream?t=" + Date.now();
   }
 
-  setWs("wait", "...");
   link = cqLink.open({ client: "basic-drive", retryMs: 1000, onMessage: onMessage, onOpen: linkOpened, onClose: linkLost,
+    onConnecting: function () { setWs("wait", "..."); },
     onHide: function () { hideStop(true); } });
   startVideo();
   drawTape(0);
   window.addEventListener("cqtheme", function () { tapeFont = ""; tapeInk = null; drawTape(tapeHead); });  // the look flipped (R28)
   showVitals();
-  pollWifi();
-  setInterval(pollWifi, 10000);
 })();
 </script>
 </body>

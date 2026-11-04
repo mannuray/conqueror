@@ -213,9 +213,20 @@ LINE_COMMENT = re.compile(r"^[ \t]*//[^\n]*\n", re.MULTILINE)
 CSS_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 
 
+CONTINUED_STRING = re.compile(r"\\\n")
+CSS_STRING_OPENER = re.compile(r"[\"'][^\"'\n]*/\*")
+
+
 def strip_comments(text: str) -> str:
     """Bridge LLD R31.5: whole-line // comments inside <script> and /* */ inside <style> go; strings, trailing comments
-    and everything outside those blocks (Help's <pre>) stay. Run last, after the parts and icons have read theirs."""
+    and everything outside those blocks (Help's <pre>) stay. Run last, after the parts and icons have read theirs.
+    What it cannot read safely fails the build: a string continued over lines in a script, a /* inside a CSS string."""
+    for m in SCRIPT_BLOCK.finditer(text):
+        if CONTINUED_STRING.search(m.group(2)):
+            raise SystemExit("pack_web: a script has a string continued over lines (\\ at a line end) - comments cannot be stripped safely")
+    for m in STYLE_BLOCK.finditer(text):
+        if CSS_STRING_OPENER.search(m.group(2)):
+            raise SystemExit("pack_web: a style has /* inside a string - comments cannot be stripped safely")
     text = SCRIPT_BLOCK.sub(lambda m: m.group(1) + LINE_COMMENT.sub("", m.group(2)) + m.group(3), text)
     return STYLE_BLOCK.sub(lambda m: m.group(1) + CSS_COMMENT.sub("", m.group(2)) + m.group(3), text)
 

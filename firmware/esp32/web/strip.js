@@ -3,7 +3,7 @@
    each chip's text, and it redraws whenever the model changes. Only text, classes and a width are set. */
 var cqStripView = (function () {
   "use strict";
-  var T = typeof cqTankLib !== "undefined" ? cqTankLib : require("./tank_model.js");  // the page has it before this; node loads it
+  var T = typeof module !== "undefined" ? require("./tank_model.js") : cqTankLib;  // node loads it; a page has it first (pack_web)
   var CELL_PX = 21;  // the battery cell's inside, full
   // WiFi by RSSI as the drive page (basic_drive.html pollWifi); no reading = no signal
   function wifiIcon(rssi) {

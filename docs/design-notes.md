@@ -3060,4 +3060,11 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - Plan 1 of 4 from the review: this plan moves the shared parts and every page's link and STOP; splitting the rest of
   each page's own code into model and view comes page by page in later plans.
 - Bridge LLD R31; Plan Link (`docs/superpowers/plans/2026-11-04-plan-link.md`), branch `plan-link` from `plan-strip`.
+- **As built (2026-11-05, R31.7):** every page with a link (Drive, /logo, /ai, /settings) uses cqLink; Help wires its STOP
+  with `cqBar.onStop`. Pages 0.3-2.3 KB smaller than before the plan (comments stripped), no budget raised. STOP: on touch
+  and from the keyboard on every page; with the link down **or quiet for more than 1.5 s** it also goes through its own
+  socket and says the answer. The drive page's safety rules (§201, R6) are node-tested in DriveModel; it now reconnects
+  after a failed attempt and takes its WiFi strength from the link. Final review: no critical, 1 important and 8 minor,
+  all fixed. **Open:** the owner's stand check (STOP on each page; Drive while driving the tracks on the stand; WiFi off
+  and on).
 

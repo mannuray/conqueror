@@ -75,7 +75,7 @@ var cqBar = (function () {
   // never click - and from the keyboard (Enter / Space: a click with detail 0); a tap's own click after it is not a second stop
   function onStop(fn, button) {
     var b = button || el("stop");
-    b.addEventListener("pointerdown", function (e) { e.preventDefault(); fn(); });
+    b.addEventListener("pointerdown", function (e) { e.preventDefault(); close(); fn(); });  // a sliding tap never clicks: close here
     b.addEventListener("click", function (e) { if (e.detail === 0) fn(); });
   }
 

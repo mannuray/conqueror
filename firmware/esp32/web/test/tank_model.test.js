@@ -47,3 +47,10 @@ test("views hear every change, once per change", () => {
   m.linkDown();
   assert.equal(n, 2);
 });
+
+test("final review: the owner also comes with each ts (as the pages read it), so the model never goes stale", () => {
+  const m = new T.TankModel();
+  m.apply({ t: "ts", batt_v: 7.9, flags: [], owner: "human", owner_client: "phone-2" });
+  assert.deepEqual([m.state.owner, m.state.ownerClient, m.state.ownerKnown], ["human", "phone-2", true]);
+});
+

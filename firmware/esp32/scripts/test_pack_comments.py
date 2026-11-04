@@ -44,6 +44,16 @@ class Comments(unittest.TestCase):
                     pathlib.Path(f.name).unlink()
                     self.assertEqual(r.returncode, 0, f"{uri} script {i}: {r.stderr[:300]}")
 
+    def test_what_the_stripper_cannot_read_safely_fails_the_build(self) -> None:  # final review: its limits
+        with self.assertRaises(SystemExit):
+            _PACK["strip_comments"]('<script>\nvar s = "a\\\n// b";\n</script>')  # a string continued over lines
+        with self.assertRaises(SystemExit):
+            _PACK["strip_comments"]('<style>\nb::after { content: "/*"; }\n</style>')  # a comment opener inside a CSS string
+
+    def test_the_strip_part_carries_its_model_before_its_view(self) -> None:  # final review: no silent require
+        text = _PACK["assemble_page"](PROJECT, "/ai").decode()
+        self.assertLess(text.index("var cqTankLib"), text.index("var cqStripView"))
+
     def test_logo_js_never_closes_its_script(self) -> None:  # review: assemble_logo did not escape </
         with tempfile.TemporaryDirectory() as d:
             web = pathlib.Path(d) / "web"

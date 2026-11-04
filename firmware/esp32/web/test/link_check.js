@@ -40,12 +40,14 @@ async (page) => {
     await page.setViewportSize(p.size ? { width: p.size[0], height: p.size[1] } : { width: 390, height: 844 });
     await page.goto(BASE + p.path); await page.waitForTimeout(400);
     await q(() => { window.__mute = false; window.__down = false; });
-    // STOP on a touch that never becomes a click (a sliding tap)
+    // STOP on a touch that never becomes a click (a sliding tap) - with the menu open, which it closes (final review)
+    await page.click("#menuBtn");
     await q(() => { window.__sockets[window.__sockets.length - 1].sent = [];
       document.getElementById("stop").dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true })); });
     await page.waitForTimeout(50);
     const sent = await q(() => window.__sockets[window.__sockets.length - 1].sent.join());
     ok(sent === p.stop, p.path + ": a touch on STOP sent '" + sent + "'");
+    ok(await q(() => !cqBar.isOpen()), p.path + ": a sliding STOP tap left the menu open");
     // a silent tank: closed after 4 s, RECONNECTING, then a new socket
     const n0 = await q(() => window.__sockets.length);
     await q((id) => { window.__wifiSeen = []; const t = document.getElementById(id);  // every text the link chip shows

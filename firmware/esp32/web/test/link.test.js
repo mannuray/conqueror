@@ -158,3 +158,38 @@ test("busy: the socket still has bytes queued (the drive page then skips a drive
   w.last().onclose();
   assert.equal(link.busy(), false);
 });
+
+test("final review: STOP on a link that went quiet (> 1.5 s, a WiFi drop not yet closed) also goes through its own socket, and is said", () => {
+  const w = world(), { link } = openLink(w);
+  const said = [];
+  w.last().onopen();
+  w.advance(1000); w.last().onmessage({ data: '{"t":"pong"}' });
+  w.t += 1400;  // 1.4 s quiet: the link is trusted
+  link.stop([{ t: "stop", id: 1 }], (t, ok) => said.push(t));
+  assert.equal(w.onceCalls.length, 0);
+  w.t += 200;  // 1.6 s quiet
+  link.stop([{ t: "stop", id: 2 }], (t, ok) => said.push(t));
+  assert.deepEqual(types(w.last()).filter((t) => t === "stop").length, 2);  // still sent on the link too
+  assert.equal(w.onceCalls.length, 1);
+  w.onceCalls[0].done(true);
+  assert.deepEqual(said, ["Stopping…", "Stopped"]);
+});
+
+test("final review: the page hears each attempt to connect (the drive page shows 'wait' while reconnecting)", () => {
+  const w = world(); let n = 0;
+  openLink(w, { onConnecting: () => n++ });
+  assert.equal(n, 1);
+  w.last().onclose(); w.advance(500);
+  assert.equal(n, 2);
+});
+
+test("final review: a WebSocket that throws on create leaves a working link object that tries again", () => {
+  const w = world(); let first = true;
+  const Real = w.env.WebSocket;
+  w.env.WebSocket = function (url) { if (first) { first = false; throw new Error("blocked"); } return new Real(url); };
+  const { link } = openLink(w);
+  assert.equal(typeof link.stop, "function");
+  assert.equal(w.sockets.length, 0);
+  w.advance(500);
+  assert.equal(w.sockets.length, 1);
+});

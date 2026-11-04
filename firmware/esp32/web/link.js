@@ -6,6 +6,7 @@
 var cqLink = (function () {
   "use strict";
   var PING_MS = 1000, SILENT_MS = 4000, MAX_RETRY_MS = 5000, WIFI_EVERY = 10;  // WiFi: every 10 pings
+  var QUIET_MS = 1500;  // a pong is due every second: quieter than this, STOP does not trust the link alone
 
   function browserEnv() {
     return { WebSocket: WebSocket, setTimeout: setTimeout.bind(window), clearTimeout: clearTimeout.bind(window),
@@ -13,7 +14,8 @@ var cqLink = (function () {
       url: "ws://" + location.host + "/ws", stopOnce: function (url, done) { cqBar.stopOnce(url, done); } };
   }
 
-  // opts: client (the hello name), model, onMessage(m), onOpen(), onClose(), onHide(), retryMs (first wait), env
+  // opts: client (the hello name), model, onMessage(m), onConnecting(), onOpen(), onClose(), onHide(), retryMs (first
+  // wait), env
   function open(opts) {
     var env = opts.env || browserEnv(), first = opts.retryMs || 500, retry = first;
     var ws = null, up = false, lastRx = 0, pingTimer = 0, retryTimer = 0, pings = 0;
@@ -36,7 +38,8 @@ var cqLink = (function () {
     function connect() {
       if (env.doc.hidden || ws) return;  // never two sockets
       env.clearTimeout(retryTimer);
-      ws = new env.WebSocket(env.url);
+      if (opts.onConnecting) opts.onConnecting();
+      try { ws = new env.WebSocket(env.url); } catch (e) { ws = null; later(); return; }  // blocked: try again later
       ws.onopen = function () {
         up = true; retry = first; lastRx = env.now(); pings = 0;
         send({ t: "hello", client: opts.client, proto: 1 });
@@ -66,9 +69,13 @@ var cqLink = (function () {
         if (ws) down();
       } else { retry = first; connect(); }
     });
-    // STOP: on the link when it is up; else through a socket opened for the press, and said
+    // STOP: on the link when it is up; through a socket opened for the press, and said, when it is down - or quiet
+    // for more than 1.5 s (a WiFi drop is only noticed after 4 s of silence: STOP does not wait for that)
     function stop(msgs, say) {
-      if (up) { for (var i = 0; i < msgs.length; i++) send(msgs[i]); return; }
+      if (up) {
+        for (var i = 0; i < msgs.length; i++) send(msgs[i]);
+        if (env.now() - lastRx <= QUIET_MS) return;
+      }
       if (say) say("Stopping…", true);
       env.stopOnce(env.url, function (ok) { if (say) say(ok ? "Stopped" : "Couldn't reach the tank - use another STOP", ok); });
     }

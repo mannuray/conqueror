@@ -105,6 +105,9 @@ main { display: grid; grid-template-columns: 1fr; gap: 14px; padding: 14px 16px;
 .whyrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 #whyBtn { background: none; border: 0; padding: 6px 0; color: var(--ink); font-weight: 700; font-size: 12px; }
 #whyBtn b { color: var(--amber); }
+#soundTest { margin-left: auto; min-height: 32px; padding: 0 10px; background: none; border: 1px solid var(--amber); border-radius: 3px;
+  color: var(--amber); font-size: 11px; font-weight: 700; }
+#soundInfo { margin-top: 8px; font-size: 11px; color: var(--amber); line-height: 1.5; }
 #muteBtn { min-height: 32px; padding: 0 10px; background: #0f2412; border: 1px solid rgba(51,255,102,.6); border-radius: 3px;
   color: var(--hi); font-size: 11px; font-weight: 700; }
 #why { margin: 8px 0 0 6px; padding: 0 0 0 22px; border-left: 2px solid rgba(51,255,102,.4); font: 13px/1.5 var(--sans); color: var(--ink); }
@@ -211,7 +214,9 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       </div>
       <div class="whybox">
         <div class="whyrow"><button id="whyBtn" type="button"><b>›</b> WHY? [tap to explain]</button>
+          <button id="soundTest" type="button" aria-label="test the sound">[ TEST SOUND ]</button>
           <button id="muteBtn" type="button" aria-label="voice on or off"><!--icon:volume-2 id="icOn"--><!--icon:volume-x id="icOff" class="hidden"--> <span id="voiceTxt">VOICE: ON</span></button></div>
+        <div id="soundInfo" class="hidden"></div>
         <ol id="why" class="hidden"></ol>
       </div>
     </div>
@@ -481,6 +486,30 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     $("voiceTxt").textContent = !voiceOk ? "NO VOICE HERE" : muted ? "VOICE: OFF" : "VOICE: ON";
   }
   showMute();
+  // TEST SOUND: a beep through the page's audio, then a spoken line - which one you hear says where the sound stops
+  // (no beep: the device's sound or the tab is muted; a beep but no words: the speech voice). It also shows what the
+  // browser reports about its voices.
+  $("soundTest").addEventListener("click", function () {
+    var lines = [];
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext, ctx = new Ctx(), o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = 660; g.gain.value = 0.25; o.connect(g); g.connect(ctx.destination);
+      o.start(); o.stop(ctx.currentTime + 0.35);
+      lines.push("1. a beep was played - did you hear it?");
+    } catch (x) { lines.push("1. this browser cannot play a beep"); }
+    if (!voiceOk) lines.push("2. this browser has no voice (no speech)");
+    else {
+      var vs = typeof speechSynthesis.getVoices === "function" ? speechSynthesis.getVoices() || [] : [];
+      voicePicked = null;
+      var v = deviceVoice();
+      lines.push("2. voices: " + vs.length + (v ? " - using " + v.name + " (" + v.lang + (v.localService ? ", on this device)" : ", online)") : " - none chosen"));
+      setTimeout(function () { speakNow("Hello, I am the tank."); }, 500);  // after the beep; the tap already unlocked it
+      speakNow(" ");  // inside the tap itself (iOS)
+      lines.push("3. then it says: Hello, I am the tank.");
+    }
+    var box = $("soundInfo"); box.textContent = ""; box.classList.remove("hidden");
+    lines.forEach(function (l) { var d = document.createElement("div"); d.textContent = l; box.appendChild(d); });
+  });
   $("muteBtn").addEventListener("click", function () {
     muted = !muted; showMute();
     if (!muted) speakNow("Voice on.");  // a test you can hear, spoken inside the tap

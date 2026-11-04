@@ -2859,7 +2859,7 @@ sequenceDiagram
 - **`test_ws_codec`:** the new messages parse; bad fields are refused.
 - **`test_logo_controller`:** places relative to the tank (a run point 50 cm behind after `FORWARD 50` → `fwd_cm −50`; after `RIGHT 90` → `left_cm`).
 
-## R27. The `/ai` page: on the tank, the AI feed from the engine (owner 2026-11-04; spec 8 Revision 2 §4.5, design-notes §197-§199, AI engine LLD §22 — draft for review)
+## R27. The `/ai` page: on the tank, the AI feed from the engine (owner 2026-11-04; spec 8 Revision 2 §4.5, design-notes §197-§199, AI engine LLD §22 — approved 2026-11-04, design-notes §200)
 
 > Plan Z2b. **[Z2b-1]** first (the page's frame, the Play tab, teach a word); **[Z2b-2]** the Room and Inside tabs. The first draft of this section (2026-11-03: an AI inbox on port 82, slots and a relay through the bridge) is replaced (design-notes §199).
 
@@ -2873,6 +2873,8 @@ sequenceDiagram
   - to each `ai-page` client, on its hello and whenever it changes: `{"t":"ai_at","url":"ws://192.168.1.23:8770/feed","proto":1}`; `{"t":"ai_at","url":null}` when the skill server closes;
   - the bridge never connects to the engine's port itself.
 - **Learning [Z2b-1]:** the engine sends `{"t":"skill_learning","on":true|false}` on its `/ws` around a teach. `SkillHub::learning()` becomes `Caps::ai_learning`: the checker gives **7056** for any AI word while it is on (Tank Logo LLD §24.4); a `skill_start` that races it is answered `skill_failed reason:"learning"` → 7056. The server's close clears it.
+- **The ☰ menu's AI item always opens `/ai`** (design-notes §200); the older Settings AI address (`ai_url`, R13.1) no longer drives it.
+- **`ai_at` is sent on a change of `SkillHub::pageUrl()`, checked once per link loop**, so every way the server's socket ends (a close, a ghost, the 3 s silent rule) gives `url:null`.
 - **Nothing else on the tank changes:** no new port, no stream viewer taken (the camera comes from the engine), the `/ws` and lwIP budgets as today (the page is one `/ws` client of four).
 
 ### R27.2 Messages (`/ws`)

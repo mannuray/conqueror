@@ -2926,3 +2926,14 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
 - **Dropped from §198:** port 82, slots, the relay, the 5 KB limit, page requests through the bridge. **Kept:** teach a word (taught words apart, not measured; the export as its own process; 7056 while learning), the two plans Z2b-1 / Z2b-2.
 - **Costs:** macOS asks once to allow incoming connections; the page (on the tank) and the engine must speak the same feed version (`proto`; the page says "please update" on a mismatch); without the engine the page still gives STOP, the status strip and the tank's own camera.
 - Rewritten: bridge LLD R27, AI engine LLD §22, spec 8 §4.5. For owner review; then Plan Z2b-1.
+
+## 200. R27 and §22 approved; Plan Z2b-1 written; details pinned for the plan (owner: "approve", 2026-11-04)
+- **Approved:** bridge LLD R27 and AI engine LLD §22 as rewritten in §199. Plan Z2b-1: `docs/superpowers/plans/2026-11-04-plan-z2b1-ai-page.md` (branch `plan-z2b` from `plan-z2a`, after the Z2a tank checks).
+- **Pinned while writing the plan (found in the code, decided on the owner's behalf, open to change):**
+  1. **The feed's frame:** the 4-byte header length is big-endian; `t_ms` is the bridge's clock of the picture (R17); boxes are 0..1000 of the picture, at most 8, sure ones only (maybes are left out); a `ball:<name>` box shows as `ball`.
+  2. **Depth is not on every frame:** it comes with each picture the map used (`depth.every_n: 1`); a skipped picture carries none and the page keeps the last depth (at most one picture old). One message's camera, boxes and depth are always one moment.
+  3. **One more line in what the tank says:** the find's `recover` phase → state `unsticking`, mood `puzzled`, "Oops - I'm getting myself unstuck." Why? lines use only what the skill reports (no candidate score).
+  4. **The menu's AI item always goes to `/ai`.** The older Settings "AI address" (`ai_url`, R13.1) no longer drives the menu; it is left in place, unused, until the owner says whether to remove it (recommended: remove it in a small follow-up).
+  5. **Teaching a word changes everything a word list touches:** the detector (swapped between two pictures), the names, the floor set of the object pipeline, the things list sent to the tank (and re-sent on every reconnect), and the pages' things list. One helper picks the model and its vocabulary for every CLI, so they never disagree.
+  6. **A start during a teach** is answered by the engine with `skill_failed reason:"learning"` (→ 7056). **Ctrl-C during an export** kills the child's process group, removes the taught entry and keeps the old model.
+  7. **The `/ai` page** has a 24 KB gzipped budget; the phone's voice starts after the first tap (iOS rule).

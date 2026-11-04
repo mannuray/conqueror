@@ -2580,7 +2580,7 @@ stateDiagram-v2
 - **The result mapping** to wire reasons, one test per `Result`.
 - **Floor (owner, Plan Z2a):** with the tank and `/logo` (Tank Logo LLD §24.3).
 
-## 22. The AI feed for the `/ai` page, and teach it a word (Plan Z2b; spec 8 Revision 2 §4.5, bridge LLD R27, design-notes §197-§199 — draft for review)
+## 22. The AI feed for the `/ai` page, and teach it a word (Plan Z2b; spec 8 Revision 2 §4.5, bridge LLD R27, design-notes §197-§200 — approved 2026-11-04)
 
 > **[Z2b-1]** first (the camera with boxes and depth, status, why, things, teach a word); **[Z2b-2]** the map and the Room / Inside lists on the same feed. The first draft (2026-11-03: uploads to the tank's port 82) is replaced (design-notes §199).
 
@@ -2602,6 +2602,7 @@ stateDiagram-v2
 | engine → page | `{"t":"rep","id":n,"ok":true,"msg":"I know cup now."}` | the answer |
 | engine → page | `map` (binary PNG + its frame), `memory`, `homes`, `achieve`, `health`, `timeline`; page → engine `home`, `forget`, `on_mark` | [Z2b-2] |
 
+- **The frame's details (design-notes §200):** the header length is big-endian; `t_ms` is the bridge's clock of the picture (R17); boxes are sure ones only (maybes left out), `ball:<name>` shown as `ball`. **Depth comes with each picture the map used** (`depth.every_n: 1`); a skipped picture has `depth: 0` and the page keeps the last depth.
 - **One frame, one message:** the picture, its boxes and its depth travel together, so the page's two views always show the same moment.
 - **Picture sizes:** the camera shrunk to 320 × 240, JPEG quality 70 (~10-15 KB); the depth 160 × 120, near bright, green (the page's palette), JPEG (~3 KB). ~0.2-0.3 MB/s per page on the home WiFi.
 - Boxes are positions 0..1000 of the picture, ≤ 8, with the words the child knows. People are shown as `person` boxes; a person is never a thing to find (§21.4).
@@ -2618,13 +2619,14 @@ stateDiagram-v2
 | find: chasing | `chasing` | `excited` | "I see the toy! Going to it." |
 | wander / explore | `exploring` | `curious` | "I'm exploring the room." |
 | setxy | `going` | `busy` | "I'm going there." |
+| any: recover (getting unstuck) | `unsticking` | `puzzled` | "Oops - I'm getting myself unstuck." |
 | done | `done` | `happy` | "I found the toy!" / "Done!" |
 | not found / lost / no way / outside / blocked | `failed` | `sad` | the error's own words (7050 ...) |
 | learning | `learning` | `thinking` | "I'm learning what a cup is." |
 | battery low (telemetry) | (kept) | `tired` | (kept) |
 
   - `say` changes only when the state or the thing changes, so the phone's voice says each sentence once.
-- **`why`** - the last decision in three short lines (purpose / process / performance), from the skill's notes (§20.7): "I want the toy." / "That box-shaped thing 1.2 m ahead might be it (score 0.31), so I'm going to look closer." / "I've checked 2 of 3 maybes in 14 s."
+- **`why`** - the last decision in three short lines (purpose / process / performance), from the skill's notes (§20.7): "I want the toy." / "That box-shaped thing 1.2 m ahead might be it so I'm going to look closer." / "I've checked 2 of 3 maybes in 14 s."
 
 ### 22.4 Teach it a word [Z2b-1]
 - **Where things live:**

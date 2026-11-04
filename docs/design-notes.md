@@ -2961,3 +2961,10 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
   - `AREA 1  FIND "car`, the car outside the area: with the car at ~1.5 m from the area's centre → **7054** in 7 s. With the car at ~2 m it was seen only as a weak maybe (below 0.25), so 7050 (four runs, recorded): the detector's ~1 m reach for a toy car (§151, §189), not a fault.
 - **Open, not reproduced:** the first `AREA 1  FIND "car` (not recorded) ended "finished" after 4 s beside the bed, the car ~2 m away - most likely a false sighting of the toy near the bed. To watch for in later finds; `--record` on for the next floor session. Design question for later: should a maybe outside the area say "I might have seen the car, but it's outside the play area" instead of 7050?
 - Recordings deleted after use.
+
+## 203. A taught word can't hide a person (owner: "Detector fix + word list", 2026-11-04; Plan Z2b-1 final review C1)
+- **Found by the final review:** YOLO-World gives each box only its best word, and a stronger box of another word over the same place removes a weaker one (§187). If an adult taught "kid" or "baby", a real child could come out as "kid" with no `person` box left - so the person guard (§197) had nothing to compare with, and `FIND "kid` could drive to a child. A taught word is never measured, which is when it would have shown.
+- **Owner's call - both:**
+  1. **The detector always reports a person on its own score:** wherever `person`'s own score clears its bar, a person box is made, whatever word wins that box, and no other word's box can remove a person box. The guard then works for every word, taught or measured (general, as §197 wanted).
+  2. **A short refused list when teaching** (the engine and the page): person words such as kid, child, baby, man, woman, boy, girl, people, mum, dad, me - a second check, not the rule.
+- AI engine LLD §21.4 / §22.4 amended.

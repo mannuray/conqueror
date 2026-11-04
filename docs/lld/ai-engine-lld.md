@@ -2483,6 +2483,8 @@ sequenceDiagram
 - **`person` is never offered** (not in `wire()`), and an asked `person` (or a name of it) is `unknown_thing`.
 - **The person guard (design-notes §197):** the detector always asks for `person`. **`PersonGuard.clear(detections) -> detections`** drops any non-person box whose overlap with a person box is ≥ 0.3 of its own area, before the tracker. So a person is never chased, checked as a candidate or remembered, whatever word was asked.
 
+- **Amended 2026-11-04 (design-notes §203):** the detector makes a `person` box wherever `person`'s own score clears its bar, whatever word wins that box, and a person box is never removed by another word's box (`_one_name`); teaching also refuses a short list of person words (`PERSON_WORDS`).
+
 ### 21.5 Classes
 ```mermaid
 classDiagram

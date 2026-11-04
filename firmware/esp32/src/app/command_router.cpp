@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "ports/client_out.h"
+
 namespace cq {
 namespace app {
 
@@ -54,13 +56,18 @@ const CommandRouter::Route CommandRouter::kRoutes[] = {
     {K::kSkillDrive, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_motion.onSkillDrive(fd, c.id, c.v, c.rate_ddps, now); }},
     {K::kSkillDone, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_logo.onSkillEnd(fd, c.id, logo::SkillEnd::kDone, now); }},
     {K::kSkillFailed, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_logo.onSkillEnd(fd, c.id, c.skill_end, now); }},
+    // Plan Z2b-1 (bridge LLD R27.1): around a teach; the hub ignores it from anyone but the server
+    {K::kSkillLearning, [](C& r, int fd, int32_t, const W& c, uint32_t) { if (r.m_hub != nullptr) r.m_hub->onLearning(fd, c.on); }},
 };
 
 // hello: "ai-skills" registers the one skill server (another fd's gets BUSY, no welcome); everyone gets a welcome.
 void CommandRouter::onHello(int fd, const core::WsCommand& c) {
-  if (m_hub != nullptr && strcmp(c.client, "ai-skills") == 0 &&
-      m_hub->onHello(fd) == core::SkillHub::Decision::kBusy) {
-    return m_out.nack(fd, c.has_id ? c.id : -1, core::BridgeReason::kBusy);
+  if (m_hub != nullptr && strcmp(c.client, "ai-skills") == 0) {
+    char ip[16] = "";  // Plan Z2b-1 (R27.1): the engine's address, from its socket - never typed
+    if (!ports::clientPeerIp(fd, ip, sizeof ip)) ip[0] = '\0';
+    if (m_hub->onHello(fd, ip, c.page_port, c.page_proto) == core::SkillHub::Decision::kBusy) {
+      return m_out.nack(fd, c.has_id ? c.id : -1, core::BridgeReason::kBusy);
+    }
   }
   m_tel.hello(fd, m_fw, m_sensor ? m_sensor() : "none");
 }

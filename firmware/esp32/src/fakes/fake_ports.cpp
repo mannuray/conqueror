@@ -41,6 +41,11 @@ bool clientSend(int fd, const char* json, size_t len) {
   world().sent.push_back({fd, std::string(json, len)});
   return true;
 }
+bool clientPeerIp(int, char* out, size_t cap) {
+  if (world().peer_ip.empty() || cap == 0) return false;
+  snprintf(out, cap, "%s", world().peer_ip.c_str());
+  return true;
+}
 bool clientClose(int fd) {
   world().closed.push_back(fd);
   return world().close_ok;

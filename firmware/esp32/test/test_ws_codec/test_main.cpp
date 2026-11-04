@@ -570,6 +570,33 @@ void test_skill_failed_learning() {
   TEST_ASSERT_TRUE(c.skill_end == cq::logo::SkillEnd::kLearning);
 }
 
+// Plan Z2b-1 (bridge LLD R27.2): the engine's hello carries where its AI feed is; skill_learning around a teach.
+void test_hello_page() {
+  WsCommand c = P("{\"t\":\"hello\",\"client\":\"ai-skills\",\"proto\":1,\"page\":{\"port\":8770,\"proto\":1}}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kHello), K(c.kind));
+  TEST_ASSERT_EQUAL(8770, c.page_port);
+  TEST_ASSERT_EQUAL(1, c.page_proto);
+  c = P("{\"t\":\"hello\",\"client\":\"ai-skills\",\"page\":{\"port\":70000,\"proto\":1,\"x\":[1]}}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kHello), K(c.kind));  // out of range: no port, the hello still counts
+  TEST_ASSERT_EQUAL(0, c.page_port);
+  c = P("{\"t\":\"hello\",\"client\":\"phone\"}");
+  TEST_ASSERT_EQUAL(0, c.page_port);
+}
+
+void test_skill_learning_on_off() {
+  WsCommand c = P("{\"t\":\"skill_learning\",\"on\":true}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillLearning), K(c.kind));
+  TEST_ASSERT_TRUE(c.on);
+  c = P("{\"t\":\"skill_learning\",\"on\":false}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillLearning), K(c.kind));
+  TEST_ASSERT_FALSE(c.on);
+}
+
+void test_skill_learning_bad_on_refused() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_learning\",\"on\":\"yes\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_learning\"}").kind));
+}
+
 void test_skill_answer_bool_and_cm() {
   WsCommand c = P("{\"t\":\"skill_answer\",\"id\":7,\"value\":true}");
   TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillAnswer), K(c.kind));
@@ -682,6 +709,9 @@ int main() {
   RUN_TEST(test_skill_drive);
   RUN_TEST(test_skill_done_and_failed);
   RUN_TEST(test_skill_failed_learning);
+  RUN_TEST(test_hello_page);
+  RUN_TEST(test_skill_learning_on_off);
+  RUN_TEST(test_skill_learning_bad_on_refused);
   RUN_TEST(test_skill_messages_sent_by_the_bridge_are_unsupported_not_bad);
   return UNITY_END();
 }

@@ -55,6 +55,7 @@ logo::Caps caps() {
   // so a skill_things during the check changes the hub's list but never this copy.
   c.ai = g_hub != nullptr && core::copyForCheck(*g_hub, g->things, logoThingsLock());
   if (c.ai) c.things = &g->things;
+  c.ai_learning = g_hub != nullptr && g_hub->learning();  // Plan Z2b-1: a teach is running (7056)
   return c;
 }
 

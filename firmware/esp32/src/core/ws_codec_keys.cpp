@@ -281,6 +281,31 @@ bool readOf(Reader& r, WsCommand& c, Seen&) {
   c.of = static_cast<uint8_t>(n);
   return true;
 }
+// One field of hello's "page" object: port / proto as whole numbers (out of range kept as 0 = no page), others skipped.
+bool readPageField(const char* key, Reader& r, WsCommand& c) {
+  double n = 0;
+  if (strcmp(key, "port") == 0) {
+    if (!wholeIn(r, 0, 4294967295.0, n)) return false;
+    c.page_port = n <= 65535 ? static_cast<uint16_t>(n) : 0;
+    return true;
+  }
+  if (strcmp(key, "proto") == 0) {
+    if (!wholeIn(r, 0, 4294967295.0, n)) return false;
+    c.page_proto = n <= 255 ? static_cast<uint8_t>(n) : 0;
+    return true;
+  }
+  return r.skip();
+}
+// hello's "page":{"port":n,"proto":n} (Plan Z2b-1): where the engine's AI feed is; a bad port never fails the hello.
+bool readPage(Reader& r, WsCommand& c, Seen&) {
+  if (!r.eat('{')) return false;
+  if (r.eat('}')) return true;
+  do {
+    char key[8];
+    if (!r.str(key, sizeof(key)) || !r.eat(':') || !readPageField(key, r, c)) return false;
+  } while (r.eat(','));
+  return r.eat('}');
+}
 bool readThings(Reader& r, WsCommand& c, Seen&) {  // hello / skill_things: the list itself is parseThingList's
   c.has_things = true;
   return r.skip();
@@ -304,6 +329,7 @@ const KeyRow kKeys[] = {
     {"ai_url", readAiUrl},  {"setting_id", readSettingId}, {"counts_per_m", readCpm}, {"gyro_scale", readGyroScale}, {"pan", readPan}, {"tilt", readTilt}, {"prog", readProg},
     {"step", readStep},     {"try", readTry},         {"wb", readWb},           {"night", readNight},
     {"reason", readReason}, {"thing", readThing},     {"things", readThings}, {"part", readPart},     {"of", readOf},
+    {"page", readPage},
 };
 
 }  // namespace

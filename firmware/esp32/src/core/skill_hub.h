@@ -59,7 +59,14 @@ class SkillHub {
   static constexpr uint32_t kCommitWaitMs = 2;                     // the link task never waits longer for the lock
 
   // A hello with client "ai-skills": the one skill server (things follow in skill_things parts). kBusy: another fd.
-  Decision onHello(int fd);
+  // Plan Z2b-1 (R27.3): the server's socket address and its hello's page port / proto give where its AI feed is.
+  Decision onHello(int fd, const char* peer_ip = "", uint16_t page_port = 0, uint8_t page_proto = 0);
+  // "ws://<ip>:<port>/feed", or "" (no server, no page, a port outside 1024-65535, no address). Link task only.
+  const char* pageUrl() const { return m_page_url; }
+  uint8_t pageProto() const { return m_page_proto; }
+  // skill_learning from the server only (another fd: ignored); cleared on the server's close. Read by the worker.
+  void onLearning(int fd, bool on);
+  bool learning() const { return m_learning; }
   // One `skill_things` frame (part of `of`, 1-based). Only the link task touches the staging: no lock needed here.
   Decision onThingsPart(int fd, uint8_t part, uint8_t of, const ThingList& t);
   bool commitPending() const { return m_commit || m_clear; }
@@ -111,6 +118,9 @@ class SkillHub {
   uint32_t m_ask_ms = 0;
   int32_t m_lease_id = -1;
   uint32_t m_last_drive_ms = 0;
+  char m_page_url[40] = "";  // "ws://" + 15 + ":65535" + "/feed" fits
+  uint8_t m_page_proto = 0;
+  SharedFlag m_learning;  // read by the Logo worker's caps(), written on the link task
 };
 
 // What the Logo worker's caps() does when a check starts: under the lock, `dst` becomes a copy of the live list (only

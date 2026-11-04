@@ -38,7 +38,7 @@ const KindName kKinds[] = {
     {"logo_step", WsCmdKind::kLogoStep},   {"logo_stop", WsCmdKind::kLogoStop},
     {"skill_things", WsCmdKind::kSkillThings}, {"skill_answer", WsCmdKind::kSkillAnswer},
     {"skill_drive", WsCmdKind::kSkillDrive},   {"skill_done", WsCmdKind::kSkillDone},
-    {"skill_failed", WsCmdKind::kSkillFailed},
+    {"skill_failed", WsCmdKind::kSkillFailed}, {"skill_learning", WsCmdKind::kSkillLearning},
 };
 
 WsCmdKind kindOf(const char* t) {
@@ -169,7 +169,7 @@ const CheckRow kChecks[] = {
     {WsCmdKind::kCamSet, checkCamSet},
     {WsCmdKind::kSkillThings, checkSkillThings}, {WsCmdKind::kSkillAnswer, checkSkillAnswer},
     {WsCmdKind::kSkillDrive, checkSkillDrive},   {WsCmdKind::kSkillDone, checkSkillDone},
-    {WsCmdKind::kSkillFailed, checkSkillFailed},
+    {WsCmdKind::kSkillFailed, checkSkillFailed}, {WsCmdKind::kSkillLearning, checkOn},
 };
 
 bool complete(WsCommand& c, const codec::Seen& s) {

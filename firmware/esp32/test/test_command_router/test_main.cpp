@@ -185,6 +185,24 @@ void test_skill_things_reach_the_hub() {
   TEST_ASSERT_EQUAL_STRING("toy", hub.things().resolve("car"));
 }
 
+// Plan Z2b-1 (bridge LLD R27.1): the engine's page port with the address its socket comes from; skill_learning.
+void test_hello_page_keeps_the_feed_address() {
+  fakes::world().peer_ip = "192.168.1.23";
+  text(3, "{\"t\":\"hello\",\"client\":\"ai-skills\",\"proto\":1,\"page\":{\"port\":8770,\"proto\":1}}", 100);
+  TEST_ASSERT_EQUAL_STRING("ws://192.168.1.23:8770/feed", hub.pageUrl());
+}
+
+void test_skill_learning_routed_to_hub() {
+  drive->onClientOpen(4, 0);
+  hello(3);
+  text(4, "{\"t\":\"skill_learning\",\"on\":true}", 101);  // not the server: ignored
+  TEST_ASSERT_FALSE(hub.learning());
+  text(3, "{\"t\":\"skill_learning\",\"on\":true}", 102);
+  TEST_ASSERT_TRUE(hub.learning());
+  text(3, "{\"t\":\"skill_learning\",\"on\":false}", 103);
+  TEST_ASSERT_FALSE(hub.learning());
+}
+
 void test_skill_things_refusals() {
   drive->onClientOpen(4, 0);
   hello(3);
@@ -366,5 +384,7 @@ int main() {
   RUN_TEST(test_skill_drive_under_a_live_lease_drives);
   RUN_TEST(test_skill_drive_behind_a_stop_is_dropped);
   RUN_TEST(test_skill_messages_reach_the_running_program);
+  RUN_TEST(test_hello_page_keeps_the_feed_address);
+  RUN_TEST(test_skill_learning_routed_to_hub);
   return UNITY_END();
 }

@@ -1,12 +1,24 @@
 #include "core/skill_hub.h"
 
+#include <stdio.h>
+
 namespace cq {
 namespace core {
 
-SkillHub::Decision SkillHub::onHello(int fd) {
+SkillHub::Decision SkillHub::onHello(int fd, const char* peer_ip, uint16_t page_port, uint8_t page_proto) {
   if (m_server >= 0 && m_server != fd) return Decision::kBusy;
   m_server = fd;
+  m_page_url[0] = '\0';
+  m_page_proto = 0;
+  if (peer_ip != nullptr && peer_ip[0] != '\0' && page_port >= 1024) {
+    snprintf(m_page_url, sizeof m_page_url, "ws://%s:%u/feed", peer_ip, static_cast<unsigned>(page_port));
+    m_page_proto = page_proto;
+  }
   return Decision::kOk;
+}
+
+void SkillHub::onLearning(int fd, bool on) {
+  if (fd >= 0 && fd == m_server) m_learning = on;
 }
 
 // Adds a part's words to the staging; false = over a bound.
@@ -71,6 +83,9 @@ int32_t SkillHub::onClose(int fd) {
   m_clear = true;
   m_ask_id = -1;
   m_lease_id = -1;
+  m_page_url[0] = '\0';
+  m_page_proto = 0;
+  m_learning = false;
   return lease;
 }
 

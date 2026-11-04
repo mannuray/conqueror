@@ -2938,3 +2938,10 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
   6. **A start during a teach** is answered by the engine with `skill_failed reason:"learning"` (→ 7056). **Ctrl-C during an export** kills the child's process group, removes the taught entry and keeps the old model.
   7. **The `/ai` page** has a 24 KB gzipped budget; the phone's voice starts after the first tap (iOS rule).
   8. **The owner's phone: iPhone, Chrome** (owner, 2026-11-04). Chrome on iOS uses Apple's WebKit, so Safari's rules apply: the voice after a tap, binary WebSocket frames as `ArrayBuffer`, `createImageBitmap` (iOS 15+). The stand check runs on it.
+
+## 201. A watching drive page no longer stops someone else's run when it is hidden (owner: "a", 2026-11-04)
+- **Found in the Z2a floor check:** a program started from the laptop (`WANDER 20`) ended 7040 when the owner minimised the phone's drive page, which was only watching. The drive page sends `stop` whenever it is hidden or closed (R11, since §77), and a STOP from any device stops the tank (§72).
+- **Owner's call (option A):** the page sends that automatic STOP only when it might be the one driving: it holds a control, its drive timer runs, the tank says it is the driver, or it does not know yet (no owner heard). When another device or a program clearly drives, hiding or closing the watching page sends nothing. Option B (a bridge-side "stop if I drive" message) was not taken: the same effect with more change.
+- **Unchanged:** the red STOP button stops everything from any device; the bridge's link-loss stop for the driving page; `/logo`'s own rule (hiding the page that started a program ends it, 7046).
+- **Also from that check:** a phone stick during a program started elsewhere is refused (`NOT_OWNER`, "busy") by design (Tank Logo LLD §20.5): 7045 comes only from the program's own client or the IR remote, so Plan Z2a's stand step "the phone stick during a skill → 7045" cannot happen from a phone; the host test `test_motion` covers 7045.
+- Bridge LLD R11 amended.

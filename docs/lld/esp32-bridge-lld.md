@@ -1614,6 +1614,7 @@ A browser slows repeating timers in a hidden tab (Chrome: once a minute), so an 
 - `basic_drive.html`: `connect()` returns while `document.hidden` (or while a socket is open / opening). `visibilitychange` → hidden: `releaseAll()`, `stop`, `stopVideo()` (MJPEG `src` removed, retry timer cleared), `ws.close()` (the STOP is queued before the close frame); visible: `retryMs = 1000`, `connect()`, `startVideo()`.
 - `settings.html`: the same guard in `connect()`; hidden → `ws.close()`, visible → `connect()`.
 - Unchanged: the bridge's 3 s silence reap and the Uno's link-loss stop stay the safety net for pages that vanish without an event.
+- **Amended 2026-11-04 (design-notes §201): the hide / close STOP only when this page might be driving.** `hideStop()` (on `visibilitychange` → hidden and on `pagehide`) sends `stop` unless someone else clearly drives: the owner (welcome / `ts` / `control_changed`) is set, is not `human` with `owner_client === you`, and this page holds no control and has no drive timer. Unknown owner (nothing heard yet) or no owner → `stop` as before. A page that only watches no longer ends another device's program or skill when it is minimised or closed. The red STOP button still stops everything from any device (§72); the link-loss stop of the driving page is unchanged.
 - Test: page test with a stand-in WebSocket — hide → `stop`, `close`, no reconnect for 6 s, no video `src`; show → `open /ws`, `hello`.
 
 ```mermaid

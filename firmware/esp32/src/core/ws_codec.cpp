@@ -135,7 +135,7 @@ const ReasonRow kSkillReasons[] = {
     {"not_found", logo::SkillEnd::kNotFound},         {"lost", logo::SkillEnd::kLost},
     {"outside_area", logo::SkillEnd::kOutsideArea},   {"no_way", logo::SkillEnd::kNoWay},
     {"blocked", logo::SkillEnd::kBlocked},            {"unknown_thing", logo::SkillEnd::kUnknownThing},
-    {"stale", logo::SkillEnd::kStale},
+    {"stale", logo::SkillEnd::kStale},                {"learning", logo::SkillEnd::kLearning},
 };
 bool checkSkillThings(WsCommand& c, const Seen&) { return c.has_things && c.part >= 1 && c.part <= c.of; }
 bool checkSkillAnswer(WsCommand& c, const Seen&) { return c.has_id && c.has_value; }

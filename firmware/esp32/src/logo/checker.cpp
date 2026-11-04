@@ -75,11 +75,14 @@ void Checker::visitInput(const Node* n, int16_t def) {
   error(7009, n->tok, a, 2);
 }
 
-// 7020 (AI word), 7021 (needs encoders), then 7030 (a level-3 word reserved in v1): the first that applies.
+// 7020 (AI word), 7056 (the AI helper is learning a word), 7021 (needs encoders), then 7030 (a level-3 word reserved
+// in v1): the first that applies.
 void Checker::needsAndLevel(const gen::WordSpec& w, uint16_t tok, const Caps& caps) {
   const DiagArg wa[] = {{"word", w.name}};
   if ((w.needs & gen::kNeedAi) != 0 && !caps.ai) {
     error(7020, tok, wa, 1);
+  } else if ((w.needs & gen::kNeedAi) != 0 && caps.ai_learning) {
+    error(7056, tok, wa, 1);
   } else if ((w.needs & gen::kNeedEncoders) != 0 && !caps.encoders) {
     error(7021, tok, wa, 1);
   } else if (w.level == 3 && !is(w.name, "OUTPUT") && caps.version == 1) {

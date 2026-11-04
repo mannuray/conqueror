@@ -18,6 +18,7 @@ struct Caps {
   bool encoders = true;
   bool ai = false;      // an AI program (vision words allowed)
   const ThingNames* things = nullptr;  // the AI helper's things; set = literal things are checked (7053)
+  bool ai_learning = false;  // the AI helper is learning a word: AI words give 7056 (Tank Logo LLD §24.4)
   uint8_t version = 1;  // v1: level-3 words other than OUTPUT are reserved (7030)
 };
 

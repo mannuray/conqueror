@@ -84,6 +84,26 @@ void test_find_without_server_is_7020() {
   TEST_ASSERT_EQUAL(7020, first());
 }
 
+// Plan Z2b-1 (Tank Logo LLD §24.4): while the AI helper learns a word, every AI word gives 7056 at its call.
+void test_learning_gives_7056_for_ai_words() {
+  ThingNames t;
+  Caps c = withThings(t);
+  c.ai_learning = true;
+  C("FIND \"ball", c);
+  TEST_ASSERT_EQUAL(7056, first());
+  C("IF SEE? \"ball [ BEEP ]", c);
+  TEST_ASSERT_EQUAL(7056, first());
+  TEST_ASSERT_TRUE(C("FORWARD 10", c).ok);  // a word without the AI is not touched
+}
+
+void test_no_ai_beats_learning() {
+  Caps c;
+  c.ai = false;
+  c.ai_learning = true;
+  C("FIND \"ball", c);
+  TEST_ASSERT_EQUAL(7020, first());
+}
+
 void test_see_and_howfar_resolve_too() {
   ThingNames t;
   const Caps c = withThings(t);
@@ -210,6 +230,8 @@ int main(int, char**) {
   RUN_TEST(test_unknown_long_literal_is_cut_visibly);
   RUN_TEST(test_find_without_server_is_7020);
   RUN_TEST(test_see_and_howfar_resolve_too);
+  RUN_TEST(test_learning_gives_7056_for_ai_words);
+  RUN_TEST(test_no_ai_beats_learning);
   RUN_TEST(test_computed_thing_not_checked);
   return UNITY_END();
 }

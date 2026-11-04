@@ -563,6 +563,13 @@ void test_a_bad_field_is_bad_field_whatever_the_key_order() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"id\":\"x\"}").kind));
 }
 
+// Plan Z2b-1: a teach started between the check and the word.
+void test_skill_failed_learning() {
+  const WsCommand c = P("{\"t\":\"skill_failed\",\"id\":4,\"reason\":\"learning\",\"thing\":\"ball\"}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillFailed), K(c.kind));
+  TEST_ASSERT_TRUE(c.skill_end == cq::logo::SkillEnd::kLearning);
+}
+
 void test_skill_answer_bool_and_cm() {
   WsCommand c = P("{\"t\":\"skill_answer\",\"id\":7,\"value\":true}");
   TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillAnswer), K(c.kind));
@@ -674,6 +681,7 @@ int main() {
   RUN_TEST(test_a_bool_value_is_not_a_setting);
   RUN_TEST(test_skill_drive);
   RUN_TEST(test_skill_done_and_failed);
+  RUN_TEST(test_skill_failed_learning);
   RUN_TEST(test_skill_messages_sent_by_the_bridge_are_unsupported_not_bad);
   return UNITY_END();
 }

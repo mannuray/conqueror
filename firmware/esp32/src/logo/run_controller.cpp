@@ -51,8 +51,9 @@ constexpr uint16_t kBySkillEnd[] = {
     7024,  // kBlocked
     7053,  // kUnknownThing
     7052,  // kStale (the helper stopped answering)
+    7056,  // kLearning (a teach started between the check and the word, Plan Z2b-1)
 };
-static_assert(sizeof kBySkillEnd / sizeof kBySkillEnd[0] == static_cast<size_t>(SkillEnd::kStale) + 1, "one per SkillEnd");
+static_assert(sizeof kBySkillEnd / sizeof kBySkillEnd[0] == static_cast<size_t>(SkillEnd::kLearning) + 1, "one per SkillEnd");
 
 constexpr uint16_t kByRunEvent[] = {7040, 0, 7042, 7043};  // kLogoStop, kStep, kBatteryLow, kTilt
 

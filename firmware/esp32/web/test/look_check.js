@@ -3,7 +3,8 @@
 // (computed colours, shadows, fonts, background images, corner radii, ::before / ::after) with the same page from the baseline commit 5521b22 (before any look change),
 // served by a second stand-in on :8766:  git worktree add --detach ../look-base 5521b22 &&
 // (cd ../look-base/firmware/esp32 && python3 web/test/fake_tank.py 8766). A mismatch is looked at again once (live
-// pages can be caught mid-update). Elements Plan Sunny adds carry data-look-skip. Then the Sunny checks.
+// pages can be caught mid-update). Elements Plan Sunny adds carry data-look-skip; the top bar (Plan Top Bar, R29) is
+// left out on both sides. Then the Sunny checks.
 async (tab) => {
   const page = await tab.context().newPage();  // a fresh tab: no init scripts left by other checks
   // the tank's socket never opens and never drops: no reconnect cycle changing chips and log lines mid-compare
@@ -21,7 +22,8 @@ async (tab) => {
         "background-image", "border-top-left-radius", "border-bottom-right-radius", "display"];
       const out = [];
       for (const el of document.querySelectorAll("body *")) {
-        if (el.closest("[data-look-skip]")) continue;
+        // Plan Top Bar (R29): the top bar changed on purpose - each page's header and the bar's menu are left out on both sides
+        if (el.closest("[data-look-skip], header, #cqMenu, #cqDim")) continue;
         for (const pseudo of [null, "::before", "::after"]) {
           const cs = getComputedStyle(el, pseudo);
           if (pseudo && cs.content === "none") continue;

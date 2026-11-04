@@ -1,0 +1,32 @@
+/* One top bar on every page (bridge LLD R29, design-notes §208): look, menu, STOP at the top right, and the one menu
+   (a div, not a nav: pages style their own nav elements).
+   Its colours are --bar-* names; the defaults below take each page's own names (R28), so both looks follow. :where()
+   keeps them weaker than a page's own :root, where a page with other names maps them (e.g. /ai). */
+:where(:root) {
+  --bar-ink: var(--ui); --bar-sub: var(--dim); --bar-bg: var(--panel); --bar-edge: var(--edge-c); --bar-sheet: var(--panel);
+  --bar-dim: var(--dim-layer); --bar-stop: var(--danger); --bar-stop-ink: var(--stop-ink); --bar-stop-edge: var(--bar-stop);
+  --bar-stop-glow: none; --bar-r: var(--r); --bar-font: var(--mono);
+}
+.cqbar { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; }
+.cqbar button { box-sizing: border-box; height: 44px; min-width: 44px; margin: 0; display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px; padding: 0 10px; font: 700 14px var(--bar-font); color: var(--bar-ink); background: var(--bar-bg);
+  border: 1px solid var(--bar-edge); border-radius: var(--bar-r); cursor: pointer; }
+.cqbar button svg { width: 20px; height: 20px; flex: none; }
+.cqbar #menuBtn[aria-expanded="true"] { background: color-mix(in srgb, var(--bar-ink) 18%, var(--bar-bg)); }
+.cqbar #stop { position: relative; padding: 0 16px; font-size: 16px; font-weight: 900; letter-spacing: .08em; color: var(--bar-stop-ink);
+  background: var(--bar-stop); border: 2px solid var(--bar-stop-edge); box-shadow: var(--bar-stop-glow); }
+#cqDim { position: fixed; inset: 0; z-index: 1000; background: var(--bar-dim); }
+#cqMenu { position: fixed; z-index: 1003; top: calc(60px + env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right));
+  width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 68px - env(safe-area-inset-top)); overflow: auto; box-sizing: border-box;
+  padding: 6px 10px 10px; background: var(--bar-sheet); border: 1px solid var(--bar-edge); border-radius: var(--bar-r);
+  font-family: var(--bar-font); box-shadow: 0 6px 24px rgba(0, 0, 0, .3); }
+#cqDim[hidden], #cqMenu[hidden] { display: none; }
+#cqMenu a { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 10px; margin-top: 4px; box-sizing: border-box;
+  border: 1px solid var(--bar-edge); border-radius: var(--bar-r); color: var(--bar-ink); text-decoration: none; }
+#cqMenu a svg { width: 18px; height: 18px; flex: none; }
+#cqMenu b { display: block; letter-spacing: .08em; font-size: 13px; }
+#cqMenu small { color: var(--bar-sub); font-size: 11px; }
+#cqMenu i { margin-left: auto; font-style: normal; }
+#cqMenu a[aria-current="page"] { background: color-mix(in srgb, var(--bar-ink) 16%, transparent); border-color: var(--bar-ink); }
+/* the page's bar container (class cqhost) rises above the dim layer while the menu is open: STOP stays bright and live */
+.cq-open .cqhost { z-index: 1002 !important; }

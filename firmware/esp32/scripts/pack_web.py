@@ -8,7 +8,7 @@
   skipped while web/help.html does not exist.
 - /ai (Plan Z2b-1, bridge LLD R27.4): web/ai.html with <!--CQ:AI_JS--> replaced by web/ai.js. Budget 24 KB gzipped.
 - /logo (Plan N4, Tank Logo LLD §21): web/logo.html with <!--CQ:LOGO_JS--> replaced by
-  web/logo.js and <!--CQ:WORDS--> by web/generated/words.json. Budget 26 KB gzipped (bridge LLD R25).
+  web/logo.js and <!--CQ:WORDS--> by web/generated/words.json. Budget 28 KB gzipped (bridge LLD R25, R28).
 - Every page: the shared look (bridge LLD R28) - <!--CQ:THEME--> in its <head> becomes web/theme.css and web/theme.js.
 - Every page: its icons from web/icons.json (scripts/icons.py, bridge LLD R25) - <!--icon:NAME--> markers and one
   /*CQ:ICONS ...*/ table; an unknown icon fails the build.
@@ -32,7 +32,7 @@ import cq_icons as icons
 
 PAGE_BUDGET = 25 * 1024
 HELP_BUDGET = 16 * 1024
-LOGO_BUDGET = 26 * 1024  # Plan N4 (Tank Logo LLD §21.9): /logo, gzipped, words included; R25: 26 KB with icons
+LOGO_BUDGET = 28 * 1024  # Plan N4 (Tank Logo LLD §21.9): /logo, gzipped, words included; R25: 26 KB with icons; R28: 28 KB with the shared look
 SETTINGS_BUDGET = 36 * 1024  # Plan M: /settings, gzipped; Plan O (LLD R13.1): 36 KB for four tabs
 AI_BUDGET = 24 * 1024  # Plan Z2b-1 (bridge LLD R27.4, design-notes §200): /ai, gzipped, ai.js and icons in
 

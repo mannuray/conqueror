@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `/ai` and `/logo` show the same status strip - battery %, AI HELPER, (pictures/s on /ai), HDG, POS, SPEED, WIFI, UNO - built once.
+**Goal:** `/ai`, `/logo` and `/settings` show the same status strip - battery %, AI HELPER, (pictures/s on /ai), HDG, POS, SPEED, WIFI, UNO - built once.
 
 **Architecture:** `web/strip.html` / `strip.css` / `strip.js` (`window.cqStrip`) inlined at `<!--CQ:STRIP-->` by `pack_web.py`, like the top bar (R29). Each page hands its tank messages to `cqStrip.tank(m)`; /ai also feeds the AI helper chip, the engine pose and pictures/s.
 
@@ -40,7 +40,13 @@
 - [ ] Step 2: marker in place of /logo's chips; its `onMessage` calls `cqStrip.tank(m)`, its socket close `cqStrip.linkDown()`; logo.js loses the moved functions (tests moved).
 - [ ] Step 3: run `strip_check`, `browser_check`, `browser_check_wide` (its battery / WiFi lines check the strip), `look_check`, `bar_check`, node and Python tests. Commit `feat(web): /logo on the shared status strip (bridge LLD R30)`.
 
-### Task 3: On the tank, docs
-- [ ] Step 1: screenshots of /ai and /logo, phone and laptop, both looks.
-- [ ] Step 2: OTA flash; `curl --compressed` /ai and /logo show `window.cqStrip =`. Owner on the iPhone (nothing moves): the same strip on both pages.
+### Task 3: /settings on the strip
+**Files:** Modify `web/settings.html`, the checks (`icons_check` - its Settings battery / WiFi lines check the strip).
+- [ ] Step 1: `strip_check.js` for /settings: the same chips and look as /ai (fps hidden). Run: FAIL.
+- [ ] Step 2: marker in place of its chips; its message handler calls `cqStrip.tank(m)`, its socket close `cqStrip.linkDown()`; its own battery / WiFi / UNO chip code goes.
+- [ ] Step 3: run `strip_check`, `icons_check`, `camera_centre_check`, `camera_tuning_check`, `look_check`, `bar_check`. Commit `feat(web): /settings on the shared status strip (bridge LLD R30)`.
+
+### Task 4: On the tank, docs
+- [ ] Step 1: screenshots of /ai, /logo and /settings, phone and laptop, both looks.
+- [ ] Step 2: OTA flash; `curl --compressed` /ai, /logo and /settings show `window.cqStrip =`. Owner on the iPhone (nothing moves): the same strip on the three pages.
 - [ ] Step 3: docs as built (design-notes §209, R30); commit `docs: Plan Strip as built (design-notes §209, bridge LLD R30)`; push.

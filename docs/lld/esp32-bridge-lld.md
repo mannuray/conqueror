@@ -3276,12 +3276,12 @@ classDiagram
   cqBar --> PageHost : html.cq-open raises it
 ```
 
-## R30. One status strip on /ai and /logo (owner 2026-11-04; design-notes §209 — approved)
+## R30. One status strip on /ai, /logo and /settings (owner 2026-11-04; design-notes §209 — approved)
 
 ### R30.1 What changes
-- `<!--CQ:STRIP-->` in `/ai` and `/logo` becomes `<style>strip.css</style>` + `web/strip.html` + `<script>strip.js</script>` (`pack_web.with_strip`, same rules as `with_bar`: `</` escaped, a page that uses `cqStrip` without the marker fails the build).
+- `<!--CQ:STRIP-->` in `/ai`, `/logo` and `/settings` becomes `<style>strip.css</style>` + `web/strip.html` + `<script>strip.js</script>` (`pack_web.with_strip`, same rules as `with_bar`: `</` escaped, a page that uses `cqStrip` without the marker fails the build).
 - Chips (ids): `#cBatt` (`.cell` + `#battFill`, `#battTxt`), `#cAi`, `#cFps` (hidden unless the page calls `cqStrip.showFps()`), `#cHdg`, `#cPos`, `#cSpd`, `#cWifi`, `#cUno`, in that order.
-- Removed: `/logo`'s `#cBatt` / `#cWifi` / `#cUno` chips and their code; `/ai`'s chip markup and battery code; `ai.js`'s `battPct` / `battState` / `BattMean` and `logo.js`'s `wifiIcon` / `batteryIcon` / `BattMean` / `battWarn` move to `strip.js` with their tests.
+- Removed: `/logo`'s and `/settings`'s `#cBatt` / `#cWifi` / `#cUno` chips and their code; `/ai`'s chip markup and battery code; `ai.js`'s `battPct` / `battState` / `BattMean` and `logo.js`'s `wifiIcon` / `batteryIcon` / `BattMean` / `battWarn` move to `strip.js` with their tests.
 
 ### R30.2 Classes
 
@@ -3308,7 +3308,7 @@ classDiagram
     frames each s -> cqStrip.fps
   }
   class LogoPage {
-    <<logo.html>>
+    <<logo.html, settings.html>>
     tank socket -> cqStrip.tank(m)
     socket closed -> cqStrip.linkDown()
   }

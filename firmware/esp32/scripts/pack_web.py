@@ -162,7 +162,8 @@ def with_strip(text: str, project: pathlib.Path, page: str) -> str:
     if "</style" in css.lower():
         raise SystemExit("pack_web: web/strip.css contains </style, which would end its <style> early")
     markup = (web / "strip.html").read_text(encoding="utf-8")
-    code = (web / "strip.js").read_text(encoding="utf-8").replace("</", "<\\/")  # never closes its <script>
+    code = ((web / "tank_model.js").read_text(encoding="utf-8") + (web / "strip.js").read_text(encoding="utf-8")).replace(
+        "</", "<\\/")  # the model (R31) then its view; never closes its <script>
     return text.replace(STRIP_MARKER, f"<style>\n{css}</style>\n{markup}<script>\n{code}</script>", 1)
 
 

@@ -28,6 +28,7 @@
 #include "core/ws_clients.h"
 #include "core/ws_codec.h"
 #include "core/ws_json.h"
+#include "net/app_settings.h"
 #include "net/log.h"
 #include "net/logo_worker.h"
 #include "net/uart_port.h"
@@ -264,7 +265,7 @@ void wireLogo() {
 void linkTaskStart(const char* (*camera_sensor)()) {
   g_sensor = camera_sensor;
   g_motion.begin();  // Plan K: counts per metre and roll-on, before the link task runs
-  g_tank.begin();    // Plan O: the AI address
+  net::appForgetAiUrl();  // design-notes §200: the retired Settings AI address leaves the flash
   g_logo = new (g_logo_mem) app::LogoController(g_out, g_log, g_link, g_tel, logoRunningProgram(), logoVm());
   g_router = new (g_router_mem) app::CommandRouter(g_drive, g_motion, g_settings, g_tank, *g_logo, g_tel, g_out);
   g_router->setHello(CQ_FW_VERSION, g_sensor);

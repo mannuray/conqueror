@@ -11,7 +11,7 @@ async (page) => {
         setTimeout(() => { this.readyState = 1; this.onopen && this.onopen(); }, 20); }
       send(s) { const m = JSON.parse(s); window.__sent.push(m);
         const tank = () => this.emit({ t: "tank", selftest: { seen: false, mask: 0, locked: false, age_s: 0 },
-                                       hw: { encoders: true, imu: true, us: true }, camera: cam, ai_url: "" });
+                                       hw: { encoders: true, imu: true, us: true }, camera: cam });
         if (m.t === "hello") this.emit({ t: "welcome", you: "settings-1", tank: { fw: { uno: "1.0" } } });
         if (m.t === "tank") tank();
         if (m.t === "camera_set") { Object.assign(cam, m); delete cam.t; delete cam.id; this.emit({ t: "ack", id: m.id }); tank(); } }

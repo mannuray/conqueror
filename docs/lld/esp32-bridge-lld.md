@@ -1652,6 +1652,8 @@ Tank check: 3 boots — pings + drive page with video; a short stand drive with 
 Builds the designed app except Logo and AI: the ☰ menu on Drive, `/settings` in four tabs (WiFi · Tank · Tune · Log) with the new cards, and the bridge pieces behind them. Facts from the code (2026-10-19) that shape it are listed in design-notes §90.
 
 ### R13.1 Pages
+
+> **Retired by R27 (design-notes §200, Plan Z2b-1 Task 12):** the Settings "AI address" (`app_set ai_url`, the `tank` reply's `ai_url`, NVS `cq_app/ai`) is gone - the menu's AI item opens the tank's own `/ai` page, which learns the engine's address from `ai_at`. The saved key is removed once at boot (`net::appForgetAiUrl`).
 - **Drive (`basic_drive.html`):** the ⚙ SET chip becomes **☰ MENU**; a sheet with **LOGO** (greyed, "coming soon" until Plan N4), **SETTINGS**, **AI** (greyed "not set up" until an address is saved; when set, opens it in a new tab), **HELP**. STOP stays above the dimmed screen. **Camera chip** (design-notes §94): size · fps from `tank` (asked every 2 s while visible), amber below 8 fps; its **CAMERA** sheet sends `camera_set` (size, fps_cap) and links to Settings → Tank → Camera.
 - **Settings (`settings.html`, budget raised 24 → 36 KB gzipped):** four tabs; the tab is remembered in the URL hash (`/settings#tune`).
   - **WiFi** — unchanged.
@@ -1846,6 +1848,8 @@ test/support/       fake ports that record every call
 ```
 
 ### R15.3 Ports (1–5 functions each)
+
+> `AppStore` (`loadAiUrl` / `saveAiUrl`) retired by R27 (design-notes §200).
 | Port | Functions | Real version |
 |---|---|---|
 | `ClientOut` | `sendTo(fd, json, len)`, `broadcast(json, len)`, `close(fd)` | `net/http_server` (`wsSend`, `wsClose`) |

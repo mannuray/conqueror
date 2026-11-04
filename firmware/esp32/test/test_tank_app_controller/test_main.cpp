@@ -1,4 +1,4 @@
-// TankAppController: tank / log / camera_set / selftest / app_set (bridge LLD R13, R15.4).
+// TankAppController: tank / log / camera_set / selftest (bridge LLD R13, R15.4; app_set retired, design-notes §200).
 #include <string.h>
 #include <unity.h>
 
@@ -38,19 +38,17 @@ void setUp() {
   g_queue_ok = true;
   g_queued = 0;
   tank.setSelfTestHooks({offline, moving, queue});
-  fakes::world().ai_url = "http://192.168.1.20:8000/";
-  tank.begin();
 }
 void tearDown() {}
 
-void test_tank_reply_has_camera_and_ai_url() {
+void test_tank_reply_has_camera_and_no_ai_url() {
   fakes::world().cam.size = 3;
   fakes::world().viewers = 2;
   tank.onTank(3, 1000);
   const std::string j = fakes::lastTo(3);
   TEST_ASSERT_NOT_EQUAL(std::string::npos, j.find("\"size\":\"HD\""));
   TEST_ASSERT_NOT_EQUAL(std::string::npos, j.find("\"viewers\":2"));
-  TEST_ASSERT_NOT_EQUAL(std::string::npos, j.find("\"ai_url\":\"http://192.168.1.20:8000/\""));
+  TEST_ASSERT_EQUAL(std::string::npos, j.find("ai_url"));  // design-notes §200
 }
 
 void test_log_pages_twenty_five_at_a_time() {
@@ -100,20 +98,6 @@ void test_camera_set_without_camera_is_unavailable() {
   TEST_ASSERT_TRUE(has(3, "UNAVAILABLE"));
 }
 
-void test_app_set_saves_and_acks() {
-  tank.onAppSet(3, 8, P("{\"t\":\"app_set\",\"ai_url\":\"http://10.0.0.2/\",\"id\":8}"));
-  TEST_ASSERT_EQUAL_STRING("http://10.0.0.2/", fakes::world().ai_url.c_str());
-  TEST_ASSERT_EQUAL_STRING("http://10.0.0.2/", tank.aiUrl());
-  TEST_ASSERT_TRUE(has(3, "\"t\":\"ack\",\"id\":8"));
-}
-
-void test_app_set_save_failure_is_busy() {
-  fakes::world().save_ok = false;
-  tank.onAppSet(3, 9, P("{\"t\":\"app_set\",\"ai_url\":\"http://10.0.0.2/\",\"id\":9}"));
-  TEST_ASSERT_TRUE(has(3, "BUSY"));
-  TEST_ASSERT_EQUAL_STRING("http://192.168.1.20:8000/", tank.aiUrl());
-}
-
 void test_selftest_refused_while_moving_and_when_offline() {
   g_moving = true;
   tank.onSelfTest(3, 10);
@@ -136,14 +120,12 @@ void test_selftest_queued_or_busy_when_full() {
 
 int main() {
   UNITY_BEGIN();
-  RUN_TEST(test_tank_reply_has_camera_and_ai_url);
+  RUN_TEST(test_tank_reply_has_camera_and_no_ai_url);
   RUN_TEST(test_log_pages_twenty_five_at_a_time);
   RUN_TEST(test_camera_set_merges_only_sent_fields_then_acks_and_sends_tank);
   RUN_TEST(test_camera_set_reset_uses_the_defaults);
   RUN_TEST(test_camera_set_white_balance_and_night_are_merged_and_reported);
   RUN_TEST(test_camera_set_without_camera_is_unavailable);
-  RUN_TEST(test_app_set_saves_and_acks);
-  RUN_TEST(test_app_set_save_failure_is_busy);
   RUN_TEST(test_selftest_refused_while_moving_and_when_offline);
   RUN_TEST(test_selftest_queued_or_busy_when_full);
   return UNITY_END();

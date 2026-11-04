@@ -215,12 +215,6 @@ bool readWb(Reader& r, WsCommand& c, Seen&) {  // R24: camera_set white balance,
   c.cam.has_wb = true;
   return true;
 }
-bool readAiUrl(Reader& r, WsCommand& c, Seen& s) {  // app_set
-  if (!r.str(c.ai_url, sizeof(c.ai_url))) return false;
-  c.has_ai_url = true;
-  s.url_bad = r.cut() || !appUrlValid(c.ai_url);  // never store an address cut short (final review I3)
-  return true;
-}
 bool readSettingId(Reader& r, WsCommand& c, Seen& s) {  // setting: the Uno setting (the command id stays "id")
   double n = 0;
   if (!wholeIn(r, 0, 255, n)) return false;
@@ -326,7 +320,7 @@ const KeyRow kKeys[] = {
     {"value", readValue},   {"reset", readReset},     {"since", readSince},     {"size", readSize},
     {"quality", readQuality}, {"fps_cap", readFpsCap}, {"brightness", readBrightness},
     {"contrast", readContrast}, {"low_light", readLowLight}, {"vflip", readVflip}, {"hmirror", readHmirror},
-    {"ai_url", readAiUrl},  {"setting_id", readSettingId}, {"counts_per_m", readCpm}, {"gyro_scale", readGyroScale}, {"pan", readPan}, {"tilt", readTilt}, {"prog", readProg},
+    {"setting_id", readSettingId}, {"counts_per_m", readCpm}, {"gyro_scale", readGyroScale}, {"pan", readPan}, {"tilt", readTilt}, {"prog", readProg},
     {"step", readStep},     {"try", readTry},         {"wb", readWb},           {"night", readNight},
     {"reason", readReason}, {"thing", readThing},     {"things", readThings}, {"part", readPart},     {"of", readOf},
     {"page", readPage},

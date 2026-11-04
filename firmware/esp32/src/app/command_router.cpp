@@ -45,7 +45,6 @@ const CommandRouter::Route CommandRouter::kRoutes[] = {
     {K::kLog, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_tank.onLog(fd, c.log_since, now); }},
     {K::kCameraSet, [](C& r, int fd, int32_t id, const W& c, uint32_t now) { r.m_tank.onCameraSet(fd, id, c, now); }},
     {K::kSelfTest, [](C& r, int fd, int32_t id, const W&, uint32_t) { r.m_tank.onSelfTest(fd, id); }},
-    {K::kAppSet, [](C& r, int fd, int32_t id, const W& c, uint32_t) { r.m_tank.onAppSet(fd, id, c); }},
     {K::kLogoRun, [](C& r, int fd, int32_t id, const W& c, uint32_t now) { r.m_logo.onRun(fd, id, c.prog, c.step, now); }},
     {K::kBadField, [](C& r, int fd, int32_t id, const W&, uint32_t) { r.m_out.nack(fd, id, core::BridgeReason::kBadField); }},
     {K::kLogoStep, [](C& r, int fd, int32_t id, const W&, uint32_t) { r.m_logo.onStep(fd, id); }},

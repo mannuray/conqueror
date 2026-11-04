@@ -3,7 +3,6 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-#include "ports/app_store.h"
 #include "ports/camera_control.h"
 #include "ports/client_out.h"
 #include "ports/log_out.h"
@@ -84,15 +83,6 @@ bool saveGyroScale(uint16_t v) {
   if (!world().save_ok) return false;
   world().saved_gyro.push_back(v);
   world().gyro = v;
-  return true;
-}
-bool loadAiUrl(char* out, size_t cap) {
-  snprintf(out, cap, "%s", world().ai_url.c_str());
-  return true;
-}
-bool saveAiUrl(const char* url) {
-  if (!world().save_ok) return false;
-  world().ai_url = url;
   return true;
 }
 bool wifiPost(const core::WifiRequest& r) {

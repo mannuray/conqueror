@@ -388,7 +388,7 @@ void test_setting_and_calib_reset() {
 }
 
 
-// Plan O (bridge LLD R13): tank, log, selftest, camera_set, app_set.
+// Plan O (bridge LLD R13): tank, log, selftest, camera_set (app_set retired, design-notes §200).
 void test_tank_log_selftest() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kTank), K(P("{\"t\":\"tank\"}").kind));
   const WsCommand l = P("{\"t\":\"log\",\"since\":57}");
@@ -433,36 +433,9 @@ void test_camera_set_fields_and_ranges() {
   TEST_ASSERT_EQUAL(0, P("{\"t\":\"calib\",\"reset\":\"counts_per_m\"}").calib_reset);  // calib keeps its string reset
 }
 
-void test_app_url_too_long_is_refused_by_the_parser() {  // Plan O final review I3: never stored cut short
-  char js[300];
-  char url[201];
-  memset(url, 'a', sizeof(url) - 1);
-  memcpy(url, "http://", 7);
-  url[200] = '\0';
-  snprintf(js, sizeof(js), "{\"t\":\"app_set\",\"ai_url\":\"%s\"}", url);
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P(js).kind));
-  url[96] = '\0';  // exactly 96 characters is fine
-  snprintf(js, sizeof(js), "{\"t\":\"app_set\",\"ai_url\":\"%s\"}", url);
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kAppSet), K(P(js).kind));
-}
-
-void test_app_url_validation() {
-  const WsCommand a = P("{\"t\":\"app_set\",\"ai_url\":\"http://192.168.31.8:8000/\"}");
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kAppSet), K(a.kind));
-  TEST_ASSERT_EQUAL_STRING("http://192.168.31.8:8000/", a.ai_url);
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kAppSet), K(P("{\"t\":\"app_set\",\"ai_url\":\"\"}").kind));  // clears it
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"app_set\",\"ai_url\":\"javascript:x\"}").kind));
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"app_set\"}").kind));
-  TEST_ASSERT_FALSE(cq::core::appUrlValid("javascript:alert(1)"));
-  TEST_ASSERT_FALSE(cq::core::appUrlValid("http://a b"));
-  TEST_ASSERT_FALSE(cq::core::appUrlValid("http://x\"y"));
-  TEST_ASSERT_FALSE(cq::core::appUrlValid("http://x<y"));
-  char longu[220] = "http://";
-  for (int i = 7; i < 210; ++i) longu[i] = 'a';
-  longu[210] = '\0';
-  TEST_ASSERT_FALSE(cq::core::appUrlValid(longu));
-  TEST_ASSERT_TRUE(cq::core::appUrlValid("http://laptop.local:8000/ai"));
-  TEST_ASSERT_TRUE(cq::core::appUrlValid(""));
+// design-notes §200: the Settings AI address is retired - app_set is an unknown message now.
+void test_app_set_is_unknown() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"app_set\",\"ai_url\":\"http://x/\"}").kind));
 }
 
 // Plan N3: the logo_* commands (Tank Logo LLD §20.4).
@@ -695,8 +668,7 @@ int main() {
   RUN_TEST(test_camera_set_fields_and_ranges);
   RUN_TEST(test_camera_set_white_balance_and_night);
   RUN_TEST(test_camera_set_false_turns_a_switch_off);
-  RUN_TEST(test_app_url_validation);
-  RUN_TEST(test_app_url_too_long_is_refused_by_the_parser);
+  RUN_TEST(test_app_set_is_unknown);
   RUN_TEST(test_logo_commands);
   RUN_TEST(test_hello_ai_skills);
   RUN_TEST(test_thing_list_layout_is_flat_with_stride_8);

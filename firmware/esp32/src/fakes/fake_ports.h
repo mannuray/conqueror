@@ -31,7 +31,6 @@ struct World {
   std::vector<uint16_t> saved_roll;
   std::vector<uint16_t> saved_coast;
   std::vector<uint16_t> saved_gyro;
-  std::string ai_url;
   std::string peer_ip;  // clientPeerIp's answer for every fd ("" = not known)
   std::vector<core::WifiRequest> wifi_posted;
   bool wifi_post_ok = true;

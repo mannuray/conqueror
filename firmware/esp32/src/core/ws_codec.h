@@ -41,7 +41,6 @@ enum class WsCmdKind : uint8_t {
   kLog,         // {"t":"log","since"?:n} -> log (at most 25 entries)
   kCameraSet,   // {"t":"camera_set","size"?,"quality"?,"fps_cap"?,"brightness"?,"contrast"?,"low_light"?,"vflip"?,"hmirror"?,"reset"?}
   kSelfTest,    // {"t":"selftest"} -> CALIBRATE SELF_TEST on the Uno
-  kAppSet,      // {"t":"app_set","ai_url":"http://..."|""}
   kLogoRun,     // Plan N3 (Tank Logo LLD §20.4): {"t":"logo_run","prog":n,"step"?:bool} -> run a checked program
   kLogoStep,    // {"t":"logo_step"} -> the next line in step mode
   kLogoStop,    // {"t":"logo_stop"} -> end the running program (7040)
@@ -115,8 +114,6 @@ struct WsCommand {
   int16_t cam_pan_dd = 900;   // cam_set (R22): the Uno's servo values, 900 - deg x 10 ...
   int16_t cam_tilt_dd = 900;
   bool cam_in_range = false;  // ... and pan -90..90 / tilt -20..60 (else nack OUT_OF_RANGE)
-  char ai_url[97] = "";       // app_set ("" clears it)
-  bool has_ai_url = false;
   uint32_t prog = 0;          // logo_run: the number the check returned
   bool step = false;          // logo_run: step mode
   bool has_things = false;    // hello / skill_things carried a "things" key (its list: parseThingList)
@@ -131,8 +128,6 @@ struct WsCommand {
 
 WsCommand parseWsCommand(const char* text, size_t len);
 // hello / skill_things carry their list apart from the flat command: core/thing_list.h parseThingList(text, len, out).
-// app_set: "" (clear) or http:// + 1..89 printable ASCII without space, quotes, backslash or <>; at most 96 chars.
-bool appUrlValid(const char* url);
 
 }  // namespace core
 }  // namespace cq

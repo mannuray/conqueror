@@ -6,14 +6,12 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "net/app_settings.h"
 #include "net/camera_service.h"
 #include "net/http_server.h"
 #include "net/log.h"
 #include "net/motion_store.h"
 #include "net/stream_server.h"
 #include "net/wifi_manager.h"
-#include "ports/app_store.h"
 #include "ports/camera_control.h"
 #include "ports/client_out.h"
 #include "ports/log_out.h"
@@ -57,8 +55,6 @@ bool saveCoast(uint16_t v) { return net::motionStoreSaveCoast(v); }
 uint16_t loadGyroScale() { return net::motionStoreLoadGyroScale(); }
 bool saveGyroScale(uint16_t v) { return net::motionStoreSaveGyroScale(v); }
 
-bool loadAiUrl(char* out, size_t cap) { return net::appAiUrlLoad(out, cap); }
-bool saveAiUrl(const char* url) { return net::appAiUrlSave(url); }
 
 bool wifiPost(const core::WifiRequest& r) { return net::wifiPost(r); }
 bool wifiPoll(core::WifiResult& out) { return net::wifiPoll(out); }

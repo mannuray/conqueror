@@ -27,7 +27,6 @@ struct Seen {
   bool ssid = false, password = false, setting_id = false;  // Plan M
   char reset[16] = "";                                      // calib reset
   bool reset_true = false;                                  // camera_set reset (Plan O)
-  bool url_bad = false;                                     // app_set
   bool pan = false, tilt = false;                           // cam_set (R22)
   int32_t pan_d10 = 0, tilt_d10 = 0;                        // ... their 0.1 deg
   bool prog = false;                                        // logo_run (Plan N3)

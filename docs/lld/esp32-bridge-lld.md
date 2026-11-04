@@ -3088,13 +3088,13 @@ stateDiagram-v2
   - `test_ws_codec`: `skill_learning`, the hello's `page` parse; bad fields refused.
 - **On the stand (Plan Z2b-1):** the page from the tank on the owner's phone opens the engine's feed (macOS asks once to allow incoming connections); both views move together; STOP from the page while the feed runs (ack as today, ~20 ms); the laptop's WiFi off → the page keeps STOP and telemetry, the feed reconnects after.
 
-## R28. Two looks on every page: Sunny Play and the cockpit (owner 2026-11-04; design-notes §206-§207 — draft)
+## R28. Two looks on every page: Sunny Play and the cockpit (owner 2026-11-04; design-notes §206-§207 — built 2026-11-04, Plan Sunny)
 
 ### R28.1 What changes
 - Every page (`/`, `/logo`, `/settings`, `/help`, `/ai`) shows either the Phosphor Cockpit (each page's own `:root`, unchanged) or **Sunny Play** (Stitch design system `assets/9779248838636593021`), chosen once per device.
 - Shared, put in at build time: `web/theme.css` (only `:root[data-theme="play"] { … }`) and `web/theme.js` (`cqTheme`). `scripts/pack_web.py` replaces `<!--CQ:THEME-->` in each page's `<head>` with `<style>theme.css</style><script>theme.js</script>`; a page without the marker fails the build.
 - Canvas drawings read their colours from CSS variables through `cqTheme.colour(name)` and redraw on the `cqtheme` event.
-- The switch: a palette button in the `/logo`, `/settings` and `/ai` headers, a LOOK item in the drive page's ☰ MENU; `/help` has none.
+- The switch: a palette button in the `/settings` and `/ai` headers, a LOOK item in the ☰ menu of the drive page and of `/logo` (as built: a header button wrapped `/logo`'s title on a phone); `/help` has none.
 
 ### R28.2 Classes
 
@@ -3156,11 +3156,11 @@ sequenceDiagram
 ```
 
 ### R28.4 Rules
-- No variable name means two things: `/ai`'s `--line` becomes `--tint`.
+- No variable name means two things: `/ai`'s `--line` becomes `--tint` and its `--ui` (a font) `--font`; the drive page's `--edge` (the safe-area inset) `--inset`. Code text (`/logo` editor, `/help`) uses `--code-font`, fixed-width in both looks.
 - Every colour in a page's CSS is a variable; every canvas colour comes from `colour()`. `theme.css` sets a Sunny value for each variable any page uses.
 - STOP: solid red in both looks. Layout, words and behaviour: identical in both.
 
 ### R28.5 Tests
 - `scripts/test_theme_pack.py` (unittest): the marker is replaced in every page; a missing marker fails the build naming the page; `</` in theme.js never closes its `<script>`.
 - `web/test/theme.test.js` (node): `pick`.
-- `web/test/look_check.js` (Playwright on `fake_tank.py`): each page in the cockpit has the same computed colours as before the change (baseline `web/test/look_baseline.json`); each page in Sunny has the cream background and red STOP; the choice made on one page holds on the others; the canvases' colours change on a flip; no sideways scroll at 390 px.
+- `web/test/look_check.js` (Playwright on `fake_tank.py`): each page in the cockpit has the same computed colours, shadows and fonts, element by element, as the commit before the change (5521b22, served by a second stand-in on :8766; a socket that never connects and clean storage, so live state cannot differ); each page in Sunny has the cream background and red STOP; the choice made on one page holds on the others; the canvases' colours change on a flip; no sideways scroll at 390 px.

@@ -16,7 +16,7 @@
   --glass: rgba(255,255,255,.82); --edge-c: rgba(74,163,255,.45); --line: rgba(74,163,255,.18); --ui: #1f6fd1; --dim: #6b7a90;
   --warn: #f08c00; --danger: #e8382e; --active: #1d2b44; --text: #33415c; --glow: none;
 }
-/* Drive (over the camera picture: frosted white glass, navy text) */
+/* Drive (over the camera picture: frosted white glass, navy text); --stop-ink, --on-warn, --dim-layer also /logo */
 :root[data-theme="play"] {
   --ui-rgb: 31, 111, 209; --hud-bg: rgba(255,255,255,.92); --stop-ink: #fff; --stop-edge-c: #ff9a93; --stop-glow: rgba(232,56,46,.35);
   --val-shadow: 0 0 3px #fff, 0 0 6px rgba(255,255,255,.9); --mask: rgba(255,255,255,.9);
@@ -26,4 +26,11 @@
   --bad-bg: rgba(255,240,238,.95); --warn-bg: rgba(255,246,224,.95); --bad-glow: rgba(232,56,46,.25);
   --sheet-bg: rgba(255,255,255,.96); --dim-layer: rgba(29,43,68,.35);
   --on-ui: #fff; --on-warn: #fff; --good: #34b36a; --off: #b0bccb; --glass-ink: #1d2b44;
+}
+/* /logo: code colours that read on white; the code stays fixed-width */
+:root[data-theme="play"] {
+  --move: #1a8f3c; --turn: #6b8f00; --flow: #0a8f99; --show: #c2189b; --sense: #1f6fd1; --maths: #33415c;
+  --num: #c26a00; --own: #1d2b44; --cmt: #7d8ba0;
+  --warn-rgb: 240, 140, 0; --warn-edge: rgba(240,140,0,.5); --run-line: rgba(240,140,0,.14); --cam-label: rgba(255,255,255,.85);
+  --code-font: ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
 }

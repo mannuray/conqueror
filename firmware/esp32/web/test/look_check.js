@@ -57,7 +57,18 @@ async (tab) => {
   const caretSunny = await caret();
   await page.click("#menuBtn"); await page.click("#miLook"); await page.waitForTimeout(100);
   S.driveFlip = [await theme(), caretSunny !== await caret()];                                   // cockpit, the caret redrawn
+  // /logo: the page, STOP, the code font stays fixed-width, LOOK in the ☰ menu flips, the path is redrawn
+  await open("/logo", 1440, 900);
+  S.logo = [await css("body", "background-color"), await css("#stop", "background-color"), await css("#src", "font-family")];
+  await q(() => { const s = document.getElementById("src"); s.value = "FORWARD 50\n"; s.dispatchEvent(new Event("input")); });
+  await page.waitForTimeout(1200);
+  const pathPx = () => q(() => { const c = document.getElementById("path"), g = c.getContext("2d"), d = g.getImageData(0, 0, c.width, c.height).data;
+    let h = 0; for (let i = 0; i < d.length; i += 97) h = (h * 31 + d[i]) >>> 0; return h; });
+  const pathSunny = await pathPx();
+  await page.click("#mbtn"); await page.click("#miLook"); await page.waitForTimeout(100);
+  S.logoFlip = [await theme(), pathSunny !== await pathPx()];                                    // cockpit, redrawn
   out.pass = cockpitSame &&
+    S.logo.join("|").startsWith("rgb(255, 248, 236)|rgb(232, 56, 46)|ui-monospace") && S.logoFlip.join() === "cockpit,true" &&
     S.driveGlass.join() === "rgb(29, 43, 68),rgba(255, 255, 255, 0.82)" && S.driveStop === "rgb(232, 56, 46)" &&
     S.driveFlip.join() === "cockpit,true";
   await page.close();

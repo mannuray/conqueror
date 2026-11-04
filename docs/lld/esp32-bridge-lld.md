@@ -3021,6 +3021,7 @@ classDiagram
 - **`AiPages`** (pure, host-tested): which `/ws` clients are `/ai` pages, and the `ai_at` text for them, sent on hello and on each change of the URL. It lives in `link_task` with the other `/ws` handling.
 
 ### R27.4 The page (`web/ai.html`)
+- **Look (design-notes §204, replaces the mock-up below):** the Stitch laptop screen `docs/design/stitch/21-ai-desktop-v1.png` - camera card left, thinking and play right; on a phone the same in one column, thinking first. Only real readouts.
 - **Look and frame:** the mock-up `docs/design/ai-page-mockup.dc.html` (Phosphor Cockpit tokens, corner-bracket cards, the drive page's STOP top right on every tab, six status chips, a segmented tab bar). Icons from `web/icons.json` (R25).
 - **Modules, plain JS in one file** (as `logo.html`):
 ```mermaid

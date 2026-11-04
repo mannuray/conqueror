@@ -2968,3 +2968,13 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
   1. **The detector always reports a person on its own score:** wherever `person`'s own score clears its bar, a person box is made, whatever word wins that box, and no other word's box can remove a person box. The guard then works for every word, taught or measured (general, as §197 wanted).
   2. **A short refused list when teaching** (the engine and the page): person words such as kid, child, baby, man, woman, boy, girl, people, mum, dad, me - a second check, not the rule.
 - AI engine LLD §21.4 / §22.4 amended.
+
+## 204. The `/ai` page's look, from Stitch (owner: "yes", 2026-11-04)
+- **Why:** on the owner's iPhone the first `/ai` page worked (the AI helper chip, both views moving together) but looked plain; owner: "use Stitch to design it, both the phone page and the laptop page".
+- **Laptop (approved):** Stitch screen "Conqueror Bridge Tank AI - Laptop Cockpit" in the Conqueror Hub project, design system Phosphor Cockpit (`docs/design/stitch/21-ai-desktop-v1.png`):
+  - a top bar with ‹ DRIVE, TANK AI, the six chips, the PLAY / ROOM / INSIDE tabs and the red STOP at the far right;
+  - left (~60 %) the camera card with THINGS and DEPTH side by side and TAKE A PICTURE;
+  - right (~40 %) "What I'm thinking" (a blinking pixel robot face, the sentence in a speech bubble, an amber mood badge, Why? as three numbered lines, a voice toggle), then the play card (thing chips, amber `*` = never seen; a typing box; a 1 / 2 / 4 m / ALL area picker; big FIND / WANDER / EXPLORE; "I RAN …"; the grown-ups' teach panel).
+- **Phone (approved):** the same design in one column - the header with STOP, the chips in two rows, the tabs, then "What I'm thinking" first, the two views stacked, then Play. (Stitch's phone screen timed out twice.)
+- **Only real data:** Stitch invented readouts (a stereo camera, a point cloud, "sonar 40 kHz", a gallery). The page shows only what the tank and the engine send: the sonar distance, the left / right track power, the camera's pan, the boxes and their words.
+- Bridge LLD R27.4 amended.

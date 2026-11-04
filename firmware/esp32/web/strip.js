@@ -46,7 +46,7 @@ var cqStripLib = (function () {
     this.mean = new BattMean(10);
     this.aiOwned = false;  // /ai sets the AI HELPER chip from its own feed; ai_at then leaves it alone
     this.posOwned = false;  // /ai sets POS from the engine; a running program's logo_pose then leaves it alone
-    this.view = { batt: { text: "--", fill: 0, level: "ok", title: "battery" }, ai: null,  // null: nobody said fps: "-- / s", hdg: "HDG --",
+    this.view = { batt: { text: "--", fill: 0, level: "ok", title: "battery" }, ai: null, fps: "-- / s", hdg: "HDG --",  // ai null: nobody said
       pos: "POS --", spd: "SPEED --", wifi: { icon: "wifi-zero", text: "WIFI --", warn: false }, uno: { text: "UNO --", warn: false } };
     this.render = function () {};
   }

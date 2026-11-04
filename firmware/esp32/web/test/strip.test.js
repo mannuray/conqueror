@@ -80,6 +80,14 @@ test("USB power, then the socket drops", () => {
   assert.deepEqual(s.view.uno, { text: "UNO --", warn: false });
 });
 
+test("every chip starts with a dash (an architecture review found two starting blank)", () => {
+  const v = new S.Strip().view;
+  assert.equal(v.fps, "-- / s");
+  assert.equal(v.hdg, "HDG --");
+  assert.equal(v.pos, "POS --");
+  assert.equal(v.spd, "SPEED --");
+});
+
 test("final review: the AI HELPER chip is unknown until something says (no amber OFF on pages the bridge never tells)", () => {
   const s = new S.Strip();
   assert.equal(s.view.ai, null);

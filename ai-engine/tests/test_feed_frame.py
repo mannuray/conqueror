@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import struct
 
-from conqueror_ai.domain.feed import decode_frame, encode_frame, page_boxes
+from conqueror_ai.domain.feed import decode_frame, decode_map, encode_frame, encode_map, page_boxes
 from conqueror_ai.domain.types import Detection
 
 
@@ -36,3 +36,12 @@ def test_page_boxes_scale_ball_word_maybes_left_out_top_8() -> None:
     assert boxes[0] == ["toy", 0.9, 100, 100, 100, 100]
     assert boxes[1] == ["ball", 0.8, 0, 0, 1000, 1000]
     assert all(b[0] != "box" for b in boxes)
+
+
+def test_encode_map_round_trip() -> None:
+    """LLD §23.2: a map frame is the same layout, its header says kind map; then the PNG."""
+    png = b"\x89PNG fake"
+    b = encode_map({"seq": 3, "cell_m": 0.05, "x0": -1.0, "y0": 0.5, "w": 4, "h": 2}, png)
+    head, got = decode_map(b)
+    assert head["kind"] == "map" and head["png"] == len(png) and head["w"] == 4
+    assert got == png

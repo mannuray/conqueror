@@ -47,3 +47,15 @@ def decode_frame(b: bytes) -> tuple[dict[str, Any], bytes, bytes | None]:
     d = int(head["depth"])
     depth = b[at + len(cam) : at + len(cam) + d] if d else None
     return head, cam, depth
+
+
+def encode_map(header: dict[str, Any], png: bytes) -> bytes:
+    """The ROOM tab's map frame (LLD §23.2): the same layout, the header with kind map and the PNG's size."""
+    head = json.dumps({**header, "kind": "map", "png": len(png)}, separators=(",", ":")).encode()
+    return struct.pack(">I", len(head)) + head + png
+
+
+def decode_map(b: bytes) -> tuple[dict[str, Any], bytes]:
+    (n,) = struct.unpack(">I", b[:4])
+    head: dict[str, Any] = json.loads(b[4 : 4 + n])
+    return head, b[4 + n : 4 + n + int(head["png"])]

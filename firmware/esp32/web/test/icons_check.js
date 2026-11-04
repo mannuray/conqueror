@@ -19,14 +19,16 @@ async (page) => {
   const out = {};
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("http://127.0.0.1:8765/settings"); await page.waitForTimeout(600);
-  await emit({ t: "wifi_status", mode: "home", rssi: -50 }); const w1 = await parts("#cWifi");
+  const wifiShown = () => q(() => document.querySelector("#cWifi svg.on").getAttribute("data-w"));  // R30: the status strip shows one icon
+  await emit({ t: "wifi_status", mode: "home", rssi: -50 }); const w1 = await wifiShown();
   await emit({ t: "wifi_status", mode: "home", rssi: -80 });
-  out.settingsWifi = [w1, await parts("#cWifi"), await q(() => document.getElementById("cWifi").textContent.trim())];  // 4, 1, HOME
+  out.settingsWifi = [w1, await wifiShown(), await q(() => document.getElementById("cWifi").textContent.trim())];  // wifi, wifi-zero, HOME
   // the battery is averaged like Drive's (10 readings, started again between USB and the pack): USB in between
-  await emit({ t: "ts", batt_v: 8.2, flags: [] }); const b1 = await parts("#cBatt");
-  await emit({ t: "ts", batt_v: 5.0, flags: [] }); const b2 = await parts("#cBatt");
+  const batt = () => q(() => document.getElementById("cBatt").textContent.trim());  // R30: the strip's battery cell with %
+  await emit({ t: "ts", batt_v: 8.2, flags: [] }); const b1 = await batt();
+  await emit({ t: "ts", batt_v: 5.0, flags: [] }); const b2 = await batt();
   await emit({ t: "ts", batt_v: 7.0, flags: ["batt_low"] });
-  out.settingsBatt = [b1, b2, await parts("#cBatt"), await q(() => document.getElementById("cBatt").className)];      // 5, 4, 3, chip warn
+  out.settingsBatt = [b1, b2, await batt(), await q(() => document.getElementById("cBatt").className)];      // 90 %, USB, 10 %, sc batt low
   out.settingsUno = await parts("#cUno");                                                                         // 10 (cpu)
   out.noBars = await q(() => document.querySelectorAll(".bars").length);                                           // 0
   await page.setViewportSize({ width: 844, height: 390 });

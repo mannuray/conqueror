@@ -3,7 +3,7 @@
 // sends the page a tank message.
 async (page) => {
   const BASE = "http://127.0.0.1:8765";
-  const PAGES = ["/ai"];
+  const PAGES = ["/ai", "/logo", "/settings"];
   const ORDER = "cBatt,cAi,cFps,cHdg,cPos,cSpd,cWifi,cUno";
   const fails = [];
   const ok = (c, m) => { if (!c) fails.push(m); };

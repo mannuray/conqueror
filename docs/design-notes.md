@@ -2945,3 +2945,18 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
 - **Unchanged:** the red STOP button stops everything from any device; the bridge's link-loss stop for the driving page; `/logo`'s own rule (hiding the page that started a program ends it, 7046).
 - **Also from that check:** a phone stick during a program started elsewhere is refused (`NOT_OWNER`, "busy") by design (Tank Logo LLD §20.5): 7045 comes only from the program's own client or the IR remote, so Plan Z2a's stand step "the phone stick during a skill → 7045" cannot happen from a phone; the host test `test_motion` covers 7045.
 - Bridge LLD R11 amended.
+
+## 202. Plan Z2a tank checks (owner present, 2026-11-04)
+- **Flash:** over WiFi (OTA; the board machine yantra did not answer on the network). Bridge `e9126b8`, then `7e37b0d` with the §201 fix; the tank's source archive matched both. Uno unchanged.
+- **Engine on and off (nothing moving):** `FIND "car` checks OK; `FIND "dragon` → 7053; with `cq-drive serve` stopped → 7020. `IF SEE? "car [ BEEP ]` with the toy car ~1 m ahead → beep (no ball at hand: the car stood in).
+- **On the floor** (owner: "let it be on floor, it's safe"; a camera check first: level, bright, clear floor):
+  - `WANDER 10` ran its 10 s and ended "finished"; `WANDER 30` → finished, no touches.
+  - `WANDER 20` + the phone's STOP → 7040.
+  - The engine killed (`kill -9`) mid-`WANDER 20` → 7052 within ~1 s (the log's half-second polling); the engine reconnected at once (no busy session left behind).
+  - The phone's stick during a program started from the laptop → refused, "busy" (`NOT_OWNER`, by design, §201): 7045 cannot come from a phone; host tests cover it.
+  - Minimising a watching phone page ended the laptop's program (7040) - **fixed (§201)**; after the fix the run went its full 20 s with Chrome minimised.
+  - `AREA 2  FIND "car  SOUND FANFARE` → finished in ~45 s (a look round and a short search first), ~30 cm from the car, fanfare.
+  - `FORWARD 50  RIGHT 90  FORWARD 30  SETXY 0 0` → back ~10 cm from the mark (target 15 cm).
+  - `AREA 1  FIND "car`, the car outside the area: with the car at ~1.5 m from the area's centre → **7054** in 7 s. With the car at ~2 m it was seen only as a weak maybe (below 0.25), so 7050 (four runs, recorded): the detector's ~1 m reach for a toy car (§151, §189), not a fault.
+- **Open, not reproduced:** the first `AREA 1  FIND "car` (not recorded) ended "finished" after 4 s beside the bed, the car ~2 m away - most likely a false sighting of the toy near the bed. To watch for in later finds; `--record` on for the next floor session. Design question for later: should a maybe outside the area say "I might have seen the car, but it's outside the play area" instead of 7050?
+- Recordings deleted after use.

@@ -3087,3 +3087,80 @@ stateDiagram-v2
   - `test_ai_pages`: `ai_at` on an `ai-page` hello and on each change, none to other clients, `null` on the server's close; the text exact;
   - `test_ws_codec`: `skill_learning`, the hello's `page` parse; bad fields refused.
 - **On the stand (Plan Z2b-1):** the page from the tank on the owner's phone opens the engine's feed (macOS asks once to allow incoming connections); both views move together; STOP from the page while the feed runs (ack as today, ~20 ms); the laptop's WiFi off → the page keeps STOP and telemetry, the feed reconnects after.
+
+## R28. Two looks on every page: Sunny Play and the cockpit (owner 2026-11-04; design-notes §206-§207 — draft)
+
+### R28.1 What changes
+- Every page (`/`, `/logo`, `/settings`, `/help`, `/ai`) shows either the Phosphor Cockpit (each page's own `:root`, unchanged) or **Sunny Play** (Stitch design system `assets/9779248838636593021`), chosen once per device.
+- Shared, put in at build time: `web/theme.css` (only `:root[data-theme="play"] { … }`) and `web/theme.js` (`cqTheme`). `scripts/pack_web.py` replaces `<!--CQ:THEME-->` in each page's `<head>` with `<style>theme.css</style><script>theme.js</script>`; a page without the marker fails the build.
+- Canvas drawings read their colours from CSS variables through `cqTheme.colour(name)` and redraw on the `cqtheme` event.
+- The switch: a palette button in the `/logo`, `/settings` and `/ai` headers, a LOOK item in the drive page's ☰ MENU; `/help` has none.
+
+### R28.2 Classes
+
+```mermaid
+classDiagram
+  class cqTheme {
+    <<theme.js, window.cqTheme>>
+    +KEY = "cq_theme"
+    +pick(saved: string|null, coarse: bool) string
+    +current() string
+    +flip() string
+    +colour(name: string) string
+  }
+  class PackWeb {
+    <<scripts/pack_web.py>>
+    +assemble_theme(project) str
+    +with_theme(text, project, page) str
+    +THEME_MARKER = "<!--CQ:THEME-->"
+  }
+  class Page {
+    <<basic_drive / logo / settings / help / ai .html>>
+    :root cockpit values
+    <!--CQ:THEME--> in head
+    draw() uses cqTheme.colour
+    on cqtheme: redraw
+  }
+  class ThemeCss {
+    <<theme.css>>
+    :root[data-theme=play] Sunny values
+  }
+  PackWeb ..> ThemeCss : inlines
+  PackWeb ..> cqTheme : inlines
+  Page --> cqTheme : flip, colour
+  ThemeCss ..> Page : overrides its variables
+```
+
+- `pick(saved, coarse)`: `saved` when it is `"play"` or `"cockpit"`, else `"play"` if `coarse` else `"cockpit"`.
+- On load (in `<head>`, before the body is drawn): `data-theme` on `<html>` = `pick(localStorage cq_theme, matchMedia("(pointer: coarse)").matches)`; storage errors (private mode) count as nothing saved.
+- `flip()`: sets the other look, saves it (errors ignored), dispatches `window` event `cqtheme`, returns the new look.
+- `colour(name)`: `getComputedStyle(document.documentElement).getPropertyValue(name).trim()`.
+
+### R28.3 Flip
+
+```mermaid
+sequenceDiagram
+  actor Child
+  participant Btn as palette button / LOOK item
+  participant T as cqTheme
+  participant H as <html data-theme>
+  participant LS as localStorage
+  participant C as page canvas code
+  Child->>Btn: tap
+  Btn->>T: flip()
+  T->>H: data-theme = other look (CSS repaints)
+  T->>LS: cq_theme = look
+  T-->>C: event cqtheme
+  C->>T: colour("--ui") ...
+  C->>C: redraw
+```
+
+### R28.4 Rules
+- No variable name means two things: `/ai`'s `--line` becomes `--tint`.
+- Every colour in a page's CSS is a variable; every canvas colour comes from `colour()`. `theme.css` sets a Sunny value for each variable any page uses.
+- STOP: solid red in both looks. Layout, words and behaviour: identical in both.
+
+### R28.5 Tests
+- `scripts/test_theme_pack.py` (unittest): the marker is replaced in every page; a missing marker fails the build naming the page; `</` in theme.js never closes its `<script>`.
+- `web/test/theme.test.js` (node): `pick`.
+- `web/test/look_check.js` (Playwright on `fake_tank.py`): each page in the cockpit has the same computed colours as before the change (baseline `web/test/look_baseline.json`); each page in Sunny has the cream background and red STOP; the choice made on one page holds on the others; the canvases' colours change on a flip; no sideways scroll at 390 px.

@@ -246,7 +246,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   var SOUNDS = ["startup", "ready", "selftest_fail", "chirp_up", "chirp_down", "blip", "tick", "jingle", "thinking", "ouch",
     "error", "success", "fanfare", "sad", "safety_chirp", "ack_blip", "fail", "confirm", "question", "ok_chirp", "grumble",
     "scan", "goodbye", "horn"];  // proto::SoundId order (spec 02 §A9 catalogue)
-  var ws = null, wsOpen = false, you = "", synced = false, owner = "none", ownerClient = "";
+  var ws = null, wsOpen = false, you = "", synced = false, owner = "none", ownerClient = "", ownerKnown = false;
   var nextId = 1, retryMs = 1000, pingTimer = 0, camLocked = false, lastRxAt = 0;
   var speed = 60;
   try { speed = Number(localStorage.getItem("cq_speed")) || 60; } catch (e) { /* private mode */ }
@@ -485,7 +485,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     $("camAng").textContent = (p > 0 ? "→" + p : p < 0 ? "←" + -p : "0") + "° " + (t > 0 ? "↑" + t : t < 0 ? "↓" + -t : "0") + "°";
   }
   function showOwner(o, client) {
-    owner = o || "none"; ownerClient = client || "";
+    owner = o || "none"; ownerClient = client || ""; ownerKnown = true;
     var txt = owner === "none" ? "FREE" : owner === "ir" ? "IR" : (ownerClient === you ? "YOU" : ownerClient.toUpperCase() || "HUMAN");
     $("ownerChip").textContent = txt;
     var busy = owner !== "none" && !(owner === "human" && ownerClient === you);  // someone else steers
@@ -927,16 +927,27 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   setControls(savedControls, false);
 
   // ---------- safety: hidden page / closing = stop ----------
+  // design-notes §201: the automatic STOP only when this page might be driving - a page that only watches another
+  // device, a program or the IR remote leaves their drive alone (the red STOP button still stops everything, §72).
+  function mightDrive() {
+    if (driveTimer !== 0 || drive.held || thr.held || steer.held) return true;
+    return !ownerKnown || owner === "none" || (owner === "human" && ownerClient === you);
+  }
+  function hideStop(withId) {
+    var mine = mightDrive();  // before releaseAll() clears the drive timer
+    releaseAll();
+    if (mine) send(withId ? { t: "stop", id: nextId++ } : { t: "stop" });
+  }
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) {
-      releaseAll(); send({ t: "stop", id: nextId++ });
+      hideStop(true);
       stopVideo();
       if (ws && ws.readyState <= 1) ws.close();  // the STOP above is sent first (queued before the close)
     } else {
       retryMs = 1000; connect(); startVideo();
     }
   });
-  window.addEventListener("pagehide", function () { releaseAll(); send({ t: "stop" }); });
+  window.addEventListener("pagehide", function () { hideStop(false); });
   window.addEventListener("blur", function () {
     if (drive.held) drive.release(true);
     if (thr.held || steer.held) { thr.release(false); steer.release(false); stopDrive(); }

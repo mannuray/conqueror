@@ -78,7 +78,11 @@ async (tab) => {
   S.settingsFlip = [await theme(), gridSunny !== await gridPx()];                                  // cockpit, redrawn
   S.settingsTitle = await q(() => { const r = (s) => document.querySelector(s).getBoundingClientRect();
     return r(".top h1").top === r(".top a").top && r("#themeBtn").left > r(".top h1").right; });   // one row: DRIVE … TITLE [look]
-  out.pass = cockpitSame && S.settings.join() === "rgb(255, 248, 236),rgb(255, 255, 255)" &&
+  // /help: follows the choice, no switch of its own, code stays fixed-width, no title glow
+  await open("/help", 390, 844);
+  S.help = [await css("body", "background-color"), await q(() => !document.getElementById("themeBtn") && !document.getElementById("miLook")),
+    await css("pre", "font-family"), await css("h1", "text-shadow")];
+  out.pass = cockpitSame && S.help[0] === "rgb(255, 248, 236)" && S.help[1] && S.help[2].startsWith("ui-monospace") && S.help[3] === "none" && S.settings.join() === "rgb(255, 248, 236),rgb(255, 255, 255)" &&
     S.settingsFlip.join() === "cockpit,true" && S.settingsTitle &&
     S.logo.join("|").startsWith("rgb(255, 248, 236)|rgb(232, 56, 46)|ui-monospace") && S.logoFlip.join() === "cockpit,true" &&
     S.driveGlass.join() === "rgb(29, 43, 68),rgba(255, 255, 255, 0.82)" && S.driveStop === "rgb(232, 56, 46)" &&

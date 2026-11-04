@@ -1,6 +1,6 @@
 /* The /ai page's ROOM tab - its model, words and view (bridge LLD R32, AI engine LLD §23): plain functions, no
    DOM, so Node can test them (node --test firmware/esp32/web/test/room.test.js). pack_web.py puts this file into
-   /ai in place of <!--CQ:ROOM_JS-->, after ai.js (it uses AiCore). */
+   /ai at its ROOM_JS marker, after ai.js (it uses AiCore). */
 var cqRoomLib = (function () {
   "use strict";
   var Core = typeof AiCore !== "undefined" ? AiCore : require("./ai.js");
@@ -82,7 +82,119 @@ var cqRoomLib = (function () {
     }
   };
 
-  return { RoomModel: RoomModel, RoomWords: RoomWords };
+  // ---------- the view: the map on a canvas, up = +x, right = -y ----------
+  var MIN_M = 2, PAD = 0.12, PIN_PX = 22, TAP_M = 0.15, CONE_DEG = 82, CONE_M = 1.5;
+  function bounds(s) {
+    var b = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
+    function add(x, y) { b.x0 = Math.min(b.x0, x); b.x1 = Math.max(b.x1, x); b.y0 = Math.min(b.y0, y); b.y1 = Math.max(b.y1, y); }
+    var c = s.crop;
+    if (c && c.w > 0) { add(c.x0, c.y0); add(c.x0 + c.w * c.cell, c.y0 + c.h * c.cell); }
+    for (var i = 0; i < s.trail.length; ++i) add(s.trail[i][0], s.trail[i][1]);
+    if (s.pose) add(s.pose.x, s.pose.y);
+    if (!isFinite(b.x0)) add(0, 0);
+    return b;
+  }
+  var RoomView = {
+    fit: function (s, w, h) {
+      var b = bounds(s);
+      var xs = Math.max(MIN_M, (b.x1 - b.x0) * (1 + 2 * PAD)), ys = Math.max(MIN_M, (b.y1 - b.y0) * (1 + 2 * PAD));
+      var scale = Math.min(w / ys, h / xs);
+      return { scale: scale, ox: w / 2 + (b.y0 + b.y1) / 2 * scale, oy: h / 2 + (b.x0 + b.x1) / 2 * scale };
+    },
+    toScreen: function (t, x, y) { return [t.ox - y * t.scale, t.oy - x * t.scale]; },
+    toRoom: function (t, px, py) { return [(t.oy - py) / t.scale, (t.ox - px) / t.scale]; },
+    labelBox: function (t, n) {  // a name's label: centred on its point
+      var p = RoomView.toScreen(t, n.x, n.y), w = 7 * n.name.length + 12;
+      return { x: p[0] - w / 2, y: p[1] - 11, w: w, h: 22 };
+    },
+    hit: function (s, t, px, py) {
+      var i;
+      if (s.layers.things) for (i = 0; i < s.things.length; ++i) {
+        var p = RoomView.toScreen(t, s.things[i].x, s.things[i].y);
+        if (Math.hypot(p[0] - px, p[1] - py) <= PIN_PX) return { kind: "pin", ref: s.things[i] };
+      }
+      if (s.layers.names) for (i = 0; i < s.names.length; ++i) {
+        var b = RoomView.labelBox(t, s.names[i]);
+        if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) return { kind: "name", ref: s.names[i] };
+      }
+      var q = RoomView.toRoom(t, px, py), c = s.crop;
+      if (c && s.cells) {
+        var r = Math.ceil(TAP_M / c.cell) + 1, ci = Math.floor((q[0] - c.x0) / c.cell), cj = Math.floor((q[1] - c.y0) / c.cell);
+        for (var di = -r; di <= r; ++di) for (var dj = -r; dj <= r; ++dj) {
+          var a = ci + di, e = cj + dj;
+          if (a < 0 || e < 0 || a >= c.w || e >= c.h || s.cells[a * c.h + e] < 3) continue;
+          var cx = c.x0 + (a + 0.5) * c.cell, cy = c.y0 + (e + 0.5) * c.cell;
+          if (Math.hypot(cx - q[0], cy - q[1]) <= TAP_M + c.cell / 2) return { kind: "block", ref: { x: q[0], y: q[1] } };
+        }
+      }
+      return { kind: "none", ref: null };
+    },
+    draw: function (ctx, s, t, col) {
+      var i, p, c = s.crop, kinds = [null, col.before, col.floor, col.low, col.high];
+      ctx.fillStyle = col.bg; ctx.fillRect(0, 0, ctx.canvas ? ctx.canvas.width : 9999, ctx.canvas ? ctx.canvas.height : 9999);
+      if (c && s.cells) {  // each row of cells along y as runs of one kind
+        var px = c.cell * t.scale;
+        for (var a = 0; a < c.w; ++a) for (var e = 0; e < c.h;) {
+          var k = s.cells[a * c.h + e], run = 1;
+          while (e + run < c.h && s.cells[a * c.h + e + run] === k) run++;
+          if (kinds[k]) {
+            p = RoomView.toScreen(t, c.x0 + (a + 1) * c.cell, c.y0 + (e + run) * c.cell);
+            ctx.fillStyle = kinds[k]; ctx.fillRect(p[0], p[1], run * px + 0.5, px + 0.5);
+          }
+          e += run;
+        }
+      }
+      function line(pts, colour, width, dash) {
+        if (pts.length < 2) return;
+        ctx.strokeStyle = colour; ctx.lineWidth = width; ctx.setLineDash(dash || []); ctx.beginPath();
+        for (var j = 0; j < pts.length; ++j) { var q = RoomView.toScreen(t, pts[j][0], pts[j][1]); if (j) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); }
+        ctx.stroke(); ctx.setLineDash([]);
+      }
+      function dot(x, y, r, fill, stroke) {
+        var q = RoomView.toScreen(t, x, y);
+        ctx.beginPath(); ctx.arc(q[0], q[1], r, 0, 2 * Math.PI);
+        if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+        if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
+        return q;
+      }
+      function text(str, q, colour) { ctx.fillStyle = colour; ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(str, q[0], q[1]); }
+      if (s.area) {
+        p = RoomView.toScreen(t, s.area.x, s.area.y);
+        ctx.strokeStyle = col.area; ctx.lineWidth = 2; ctx.setLineDash([8, 6]); ctx.beginPath();
+        ctx.arc(p[0], p[1], s.area.r * t.scale, 0, 2 * Math.PI); ctx.stroke(); ctx.setLineDash([]);
+      }
+      if (s.home) text("⌂", dot(0, 0, 12, col.bg, col.area), col.area);
+      if (s.layers.why) {
+        for (i = 0; i < s.why.looked.length; ++i) dot(s.why.looked[i][0], s.why.looked[i][1], 0.15 * t.scale, col.cone);
+        line(s.why.route, col.route, 3, [6, 5]);
+        for (i = 0; i < s.why.pending.length; ++i) text("?", dot(s.why.pending[i][0], s.why.pending[i][1], 9, null, col.route), col.route);
+        if (s.why.check) dot(s.why.check[0], s.why.check[1], 12, null, col.route);
+      }
+      if (s.layers.trail) line(s.trail, col.trail, 3);
+      if (s.layers.names) for (i = 0; i < s.names.length; ++i) {
+        var b = RoomView.labelBox(t, s.names[i]);
+        ctx.fillStyle = col.bg; ctx.fillRect(b.x, b.y, b.w, b.h);
+        text(s.names[i].name, [b.x + b.w / 2, b.y + b.h / 2], col.text);
+      }
+      if (s.layers.things) for (i = 0; i < s.things.length; ++i) {
+        text(s.things[i].word.charAt(0).toUpperCase(), dot(s.things[i].x, s.things[i].y, 13, col.bg, col.pin), col.pin);
+      }
+      if (s.pose) {  // the camera's view (heading + pan), then the tank as an arrow
+        var h = (s.pose.h + (s.pan || 0)) * Math.PI / 180, half = CONE_DEG / 2 * Math.PI / 180;
+        var o = RoomView.toScreen(t, s.pose.x, s.pose.y);
+        var l = RoomView.toScreen(t, s.pose.x + CONE_M * Math.cos(h + half), s.pose.y + CONE_M * Math.sin(h + half));
+        var r = RoomView.toScreen(t, s.pose.x + CONE_M * Math.cos(h - half), s.pose.y + CONE_M * Math.sin(h - half));
+        ctx.fillStyle = col.cone; ctx.beginPath(); ctx.moveTo(o[0], o[1]); ctx.lineTo(l[0], l[1]); ctx.lineTo(r[0], r[1]); ctx.closePath(); ctx.fill();
+        var th = s.pose.h * Math.PI / 180, f = 0.14, w = 0.09;
+        var nose = RoomView.toScreen(t, s.pose.x + f * Math.cos(th), s.pose.y + f * Math.sin(th));
+        var lt = RoomView.toScreen(t, s.pose.x - f * Math.cos(th) - w * Math.sin(th), s.pose.y - f * Math.sin(th) + w * Math.cos(th));
+        var rt = RoomView.toScreen(t, s.pose.x - f * Math.cos(th) + w * Math.sin(th), s.pose.y - f * Math.sin(th) - w * Math.cos(th));
+        ctx.fillStyle = col.pin; ctx.beginPath(); ctx.moveTo(nose[0], nose[1]); ctx.lineTo(lt[0], lt[1]); ctx.lineTo(rt[0], rt[1]); ctx.closePath(); ctx.fill();
+      }
+    }
+  };
+
+  return { RoomModel: RoomModel, RoomWords: RoomWords, RoomView: RoomView };
 })();
 if (typeof window !== "undefined") window.cqRoom = cqRoomLib;
 if (typeof module !== "undefined") module.exports = cqRoomLib;

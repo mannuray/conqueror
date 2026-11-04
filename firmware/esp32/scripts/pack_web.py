@@ -6,7 +6,8 @@
 - /help: web/help.html with <!--CQ:PROTOCOL--> replaced by the protogen output
   src/generated/help_protocol.html and <!--CQ:LOGO--> by web/help_logo.html (Task 9);
   skipped while web/help.html does not exist.
-- /ai (Plan Z2b-1, bridge LLD R27.4): web/ai.html with <!--CQ:AI_JS--> replaced by web/ai.js. Budget 24 KB gzipped.
+- /ai (Plan Z2b-1, bridge LLD R27.4): web/ai.html with <!--CQ:AI_JS--> replaced by web/ai.js and <!--CQ:ROOM_JS-->
+  by web/room.js (R32). Budget 30 KB gzipped.
 - /logo (Plan N4, Tank Logo LLD §21): web/logo.html with <!--CQ:LOGO_JS--> replaced by
   web/logo.js and <!--CQ:WORDS--> by web/generated/words.json. Budget 32 KB gzipped (bridge LLD R25, R28, R29, R30).
 - Every page: the shared look (bridge LLD R28) - <!--CQ:THEME--> in its <head> becomes web/theme.css and web/theme.js.
@@ -40,7 +41,7 @@ PAGE_BUDGET = 25 * 1024
 HELP_BUDGET = 16 * 1024
 LOGO_BUDGET = 32 * 1024  # Plan N4 (Tank Logo LLD §21.9): /logo, gzipped, words included; R25: 26 KB with icons; R28: 28 KB with the shared look; R29: 30 KB with the top bar; R30: 32 KB with the status strip (owner)
 SETTINGS_BUDGET = 36 * 1024  # Plan M: /settings, gzipped; Plan O (LLD R13.1): 36 KB for four tabs
-AI_BUDGET = 24 * 1024  # Plan Z2b-1 (bridge LLD R27.4, design-notes §200): /ai, gzipped, ai.js and icons in
+AI_BUDGET = 30 * 1024  # Plan Z2b-1 (bridge LLD R27.4, design-notes §200): /ai, gzipped, ai.js and icons in; R32: 30 KB with the ROOM tab (owner)
 
 
 def png_icon(size: int = 192) -> bytes:
@@ -118,13 +119,17 @@ def assemble_drive(project: pathlib.Path) -> bytes:
 
 
 def assemble_ai(project: pathlib.Path) -> bytes:
-    """/ai (Plan Z2b-1, bridge LLD R27.4): web/ai.html with <!--CQ:AI_JS--> replaced by web/ai.js."""
+    """/ai (Plan Z2b-1, bridge LLD R27.4): web/ai.html with <!--CQ:AI_JS--> replaced by web/ai.js and (Plan Z2b-2,
+    R32) <!--CQ:ROOM_JS--> by web/room.js."""
     web = project / "web"
     text = (web / "ai.html").read_text(encoding="utf-8")
     if "<!--CQ:AI_JS-->" not in text:
         raise SystemExit("pack_web: <!--CQ:AI_JS--> missing in web/ai.html")
+    if "<!--CQ:ROOM_JS-->" not in text:  # the ROOM tab (bridge LLD R32), after ai.js: it uses AiCore
+        raise SystemExit("pack_web: <!--CQ:ROOM_JS--> missing in web/ai.html")
     code = (web / "ai.js").read_text(encoding="utf-8").replace("</", "<\\/")  # never closes its <script>
-    return text.replace("<!--CQ:AI_JS-->", code).encode()
+    room = (web / "room.js").read_text(encoding="utf-8").replace("</", "<\\/")
+    return text.replace("<!--CQ:AI_JS-->", code).replace("<!--CQ:ROOM_JS-->", room).encode()
 
 
 THEME_MARKER = "<!--CQ:THEME-->"

@@ -99,9 +99,8 @@ class RoomFeed:
         if w.snap is not None:
             k = kinds(w.snap, w.seen_before)
             changed = self._kinds is None or not np.array_equal(k, self._kinds)
-            if changed:
-                self._go_stale = True
             if new or (changed and now_s - self._map_s >= MAP_EVERY_S):
+                self._go_stale = True  # the spots follow the map the pages have (final review I1)
                 c = crop(k, w.snap.cell_m, k.shape[0] * w.snap.cell_m)
                 if c.w > 0:
                     self.seq += 1
@@ -113,17 +112,20 @@ class RoomFeed:
                     }
                     self.server.room_frame(encode_map({**head, "w": c.w, "h": c.h}, png(c)))
                 self._kinds, self._map_s = k, now_s
+        if not new and now_s - self._room_s < ROOM_EVERY_S:  # built only when it may go (GO THERE spots cost)
+            return
         room = self._room_msg(w, pose, area, notes)
-        if new or (room != self._room and now_s - self._room_s >= ROOM_EVERY_S):
+        if new or room != self._room:
             self.server.send_rooms(room)
-            self._room, self._room_s = room, now_s
+            self._room = room
+        self._room_s = now_s
 
     def on_name(self, msg: dict[str, Any]) -> dict[str, object]:
         """A page's name / rename / unname, answered with a rep (the next room carries the change)."""
         rid, name, place = msg.get("id"), msg.get("name"), msg.get("place")
         r: Place | Refusal | bool
-        if msg.get("t") == "unname" and isinstance(place, int):
-            r = self.places.unname(place)
+        if msg.get("t") == "unname":
+            r = isinstance(place, int) and self.places.unname(place)
             text = "Took the name off." if r else "I can't find that name."
         elif not isinstance(name, str):
             r, text = False, "Names are letters, spaces and - (up to 24)."
@@ -163,7 +165,7 @@ class RoomFeed:
                     "word": word_of(t.word),
                     "x": round(t.x_m, 2),
                     "y": round(t.y_m, 2),
-                    "ago_s": max(0, round(now - t.seen_wall_s)),
+                    "ago_s": ago_step(now - t.seen_wall_s),
                     "where": where_words(t.x_m, t.y_m, places, others, self.home is not None),
                 }
             )
@@ -197,6 +199,17 @@ class RoomFeed:
             self._go[p.id] = None if snap is None else self.places.go_spot(snap, p, pose)
         g = self._go[p.id]
         return None if g is None else _xy(g)
+
+
+def ago_step(s: float) -> int:
+    """Seconds since, in the steps the page says ("just now", "N min ago", "today", "earlier"): an idle room's
+    message stays the same from one second to the next (final review M6)."""
+    s = max(0.0, s)
+    if s < 60:
+        return 0
+    if s < 3600:
+        return int(s // 60) * 60
+    return 3600 if s < 86400 else 86400
 
 
 def _num(v: object) -> bool:

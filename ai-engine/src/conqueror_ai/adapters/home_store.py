@@ -16,7 +16,7 @@ import numpy as np
 
 from conqueror_ai.domain.home import HOME_VERSION, HOME_VERSIONS, Home
 from conqueror_ai.domain.memory import Remembered
-from conqueror_ai.domain.places import Place
+from conqueror_ai.domain.places import Place, name_check
 
 
 class HomeError(ValueError):
@@ -77,12 +77,16 @@ class HomeStore:
             version, frame = d.get("version"), d["frame"]
             things = tuple(Remembered(**t) for t in d["things"])
             runs = tuple(str(r) for r in d["runs"])
-            places = tuple(Place(**p) for p in d.get("places", []))
+            # the name rule holds at load too: a hand-edited file's bad name is dropped (final review M2)
+            places = tuple(
+                q for q in (Place(**p) for p in d.get("places", [])) if name_check(q.name) == q.name
+            )
             home_cell, home_size = float(frame["cell_m"]), float(frame["size_m"])
         except (OSError, ValueError, KeyError, TypeError, AttributeError, zipfile.BadZipFile, EOFError) as e:
             raise HomeError(f"home '{name}': damaged ({type(e).__name__}) - {fix}") from None
         if version not in HOME_VERSIONS:
-            raise HomeError(f"home '{name}': version {version}, this engine reads {HOME_VERSION} - {fix}")
+            reads = " or ".join(str(v) for v in HOME_VERSIONS)
+            raise HomeError(f"home '{name}': version {version}, this engine reads {reads} - {fix}")
         if size_m is not None and home_size != size_m:
             raise HomeError(f"home '{name}': another map size ({home_size} m) - {fix}")
         if cell_m is not None and home_cell != cell_m:

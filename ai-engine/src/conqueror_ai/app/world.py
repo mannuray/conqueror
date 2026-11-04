@@ -11,7 +11,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from conqueror_ai.app.objects import DepthFn, depth_due, see
-from conqueror_ai.domain.camera import Calibration, CameraModel, FloatArray
+from conqueror_ai.domain.camera import Calibration, CameraModel, FloatArray, from_servo
 from conqueror_ai.domain.depth import MapConfig, Seeing, Seen
 from conqueror_ai.domain.drive.goal import Goal, size_positions
 from conqueror_ai.domain.drive.limits import Limits
@@ -60,6 +60,15 @@ class MapRun:
 
     def on_calib(self, counts_per_m: int) -> None:
         self.p.on_calib(counts_per_m)
+
+    def camera_pan_left_deg(self) -> float | None:
+        """The camera's real pan from straight ahead, left + like the heading (the ROOM tab's camera view, LLD
+        §23.2): the servo through the calibration's pan_map; None before any telemetry."""
+        if self.pan_servo_deg is None:
+            return None
+        g, o = self.p.cal.pan_map
+        right, _ = from_servo(self.pan_servo_deg, 90.0)
+        return -(g * right + o)
 
     def on_telem(self, s: TelemSample) -> None:
         self.p.on_telem(s)

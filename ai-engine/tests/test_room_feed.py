@@ -133,7 +133,7 @@ def test_things_logo_words() -> None:
     f.tick(0.0, POSE, None, {})
     got = srv.rooms_sent()[0]["things"]
     assert [t["word"] for t in got] == ["ball", "toy"]
-    assert got[0]["ago_s"] == 10 and got[0]["x"] == 0.5
+    assert got[0]["ago_s"] == 0 and got[0]["x"] == 0.5  # 10 s: "just now" (final review M6)
     assert got[1]["where"] == "2.0 m from home"
 
 
@@ -195,3 +195,35 @@ def test_room_message_shape() -> None:
     assert set(m) == {"t", "trail", "home", "area", "things", "names", "why", "seen_m2"}
     assert m["home"] is None and m["area"] is None and m["seen_m2"] == round(50 * 40 * CELL * CELL, 1)
     assert m["things"][0]["where"].endswith("from the start")
+
+
+def test_go_spots_at_most_twice_a_second_while_the_map_changes() -> None:
+    """Final review I1: the GO THERE spots (~11 ms each) are worked out only when a room message is due."""
+    room = Room()
+    f, srv = feed(room)
+    f.on_name({"t": "name", "id": 1, "x": 1.0, "y": 0.3, "name": "bed"})
+    calls: list[int] = []
+    real = f.places.go_spot
+
+    def counted(*a: Any) -> Any:
+        calls.append(1)
+        return real(*a)
+
+    f.places.go_spot = counted  # type: ignore[method-assign]
+    srv.on = {1}
+    for i in range(20):  # 2 s at 10 Hz, the map different on every tick
+        room.snap = a_snap(block=i % 2 == 0)
+        f.tick(i * 0.1, Pose(0, i * 0.01, 0.0, 0.0, 0.0, 0.0), None, {})
+    assert len(calls) <= 5, len(calls)
+
+
+def test_ago_in_the_words_steps() -> None:
+    """Final review M6: ago_s in the steps the page shows, so an idle room is not sent again every second."""
+    from conqueror_ai.app.room_feed import ago_step
+
+    assert [ago_step(s) for s in (5, 59, 61, 150, 3599, 3601, 90000)] == [0, 0, 60, 120, 3540, 3600, 86400]
+
+
+def test_unname_without_a_place_is_said_plainly() -> None:
+    f, _ = feed()
+    assert f.on_name({"t": "unname", "id": 3, "place": "x"})["msg"] == "I can't find that name."

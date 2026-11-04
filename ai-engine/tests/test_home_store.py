@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -121,3 +123,37 @@ def test_store_loads_version_1(tmp_path: Path) -> None:
     np.savez_compressed(path, **arrays)
     got = store.load("h")
     assert got is not None and got.places == () and got.things == a_home().things
+
+
+def _rewrite_about(path: Path, change: Callable[[dict[str, Any]], None]) -> None:
+    with np.load(path) as z:
+        arrays = {k: z[k] for k in z.files}
+    about = json.loads(bytes(arrays["about"]).decode())
+    change(about)
+    arrays["about"] = np.frombuffer(json.dumps(about).encode(), np.uint8)
+    np.savez_compressed(path, **arrays)
+
+
+def test_a_bad_name_in_a_home_file_is_dropped(tmp_path: Path) -> None:
+    """Final review M2: the engine's name rule holds at load too (a hand-edited file)."""
+    store = HomeStore(tmp_path)
+    store.save("h", a_home())
+    _rewrite_about(
+        tmp_path / "h" / "home.npz",
+        lambda a: a.update(
+            places=[
+                {"id": 1, "name": "bed", "x_m": 1.0, "y_m": 0.0},
+                {"id": 2, "name": "my baby", "x_m": 0.0, "y_m": 1.0},
+            ]
+        ),
+    )
+    got = store.load("h")
+    assert got is not None and [p.name for p in got.places] == ["bed"]
+
+
+def test_another_version_names_the_ones_it_reads(tmp_path: Path) -> None:
+    store = HomeStore(tmp_path)
+    store.save("h", a_home())
+    _rewrite_about(tmp_path / "h" / "home.npz", lambda a: a.update(version=9))
+    with pytest.raises(HomeError, match=r"version 9, this engine reads 1 or 2"):
+        store.load("h")

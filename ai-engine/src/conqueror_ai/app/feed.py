@@ -27,8 +27,8 @@ if TYPE_CHECKING:
 
 STATUS_S = 0.1  # ~10 Hz
 Things = Callable[[], list[dict[str, object]]]
-# What the status needs from the tank each time: the pose, battery low, health ("ok" or why not), the pan
-# servo's angle (90 = straight ahead; None: no telemetry yet).
+# What the status needs from the tank each time: the pose, battery low, health ("ok" or why not), the camera's
+# real pan from straight ahead, left + (None: no telemetry yet).
 Telemetry = Callable[[], tuple[Pose | None, bool, str, float | None]]
 
 
@@ -123,8 +123,8 @@ class FeedPublisher:
         p = self._pose
         if p is not None:
             msg["pose"] = {"x": round(p.x_m, 2), "y": round(p.y_m, 2), "h": round(math.degrees(p.th_rad))}
-        if self._pan is not None:  # the camera from straight ahead, left + (as the heading): servo 90 = 0
-            msg["pan"] = round(self._pan - 90.0)
+        if self._pan is not None:  # the camera from straight ahead, left + (as the heading)
+            msg["pan"] = round(self._pan)
         msg["health"] = self._health
         msg["learning"] = self._learning is not None
         return msg

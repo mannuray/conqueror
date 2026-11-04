@@ -289,7 +289,12 @@ class ServeApp:
 
         def telemetry() -> tuple[Pose | None, bool, str, float | None]:
             run = self.world.map_run
-            return run.p.pose(), False, self.perception.state(time.monotonic()) or "ok", run.pan_servo_deg
+            return (
+                run.p.pose(),
+                False,
+                self.perception.state(time.monotonic()) or "ok",
+                run.camera_pan_left_deg(),
+            )
 
         self.publisher.room = RoomFeed(self.feed_server, self._room_world, self.places, self.home)
 

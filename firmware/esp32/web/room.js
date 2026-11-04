@@ -54,8 +54,10 @@ var cqRoomLib = (function () {
   // A binary message from the feed: a map frame (header kind "map", then the PNG) or null for a camera frame.
   function splitMap(buf) {
     if (buf.byteLength < 4) return null;
-    var n = new DataView(buf).getUint32(0), head;
-    try { head = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, n))); } catch (e) { return null; }
+    var n = new DataView(buf).getUint32(0), text, head;
+    try { text = new TextDecoder().decode(new Uint8Array(buf, 4, n)); } catch (e) { return null; }
+    if (text.indexOf('"kind":"map"') < 0) return null;  // a camera frame: parsed once, by AiCore.splitFrame
+    try { head = JSON.parse(text); } catch (e) { return null; }
     if (!head || head.kind !== "map") return null;
     return { header: head, png: new Uint8Array(buf, 4 + n, head.png) };
   }

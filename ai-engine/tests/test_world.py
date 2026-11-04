@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from conqueror_ai.adapters.session import replay
 from conqueror_ai.app import map as app_map
@@ -78,3 +79,15 @@ def test_the_area_starts_at_the_first_pose(tmp_path: Path) -> None:
             w.on_text(e.text)
     inp = w.input(1.0, 1.0, True)
     assert inp.costs is not None and inp.costs.area == (0.0, 0.0, 1.0)
+
+
+def test_camera_pan_for_the_room_tab_uses_the_calibration() -> None:
+    """Final review M5: the camera view on the ROOM map is the real pan (pan_map), left +, as the heading."""
+    from dataclasses import replace
+
+    from conqueror_ai.app.world import MapRun
+
+    run = MapRun(replace(CAL, pan_map=(0.94, 0.0)), CFG, FloorDepth())
+    assert run.camera_pan_left_deg() is None  # no telemetry yet
+    run.pan_servo_deg = 60.0  # 30 to the right by command
+    assert run.camera_pan_left_deg() == pytest.approx(-28.2)

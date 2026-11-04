@@ -3093,3 +3093,19 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
     beam and reading; what the ball finder sees (its colour mask); maybe-things with scores; remembered things out of
     sight. My recommendation was floor & obstacles, the way, rings, the sonar beam. Tints need a small picture from
     the engine as depth does; rings, horizon and beam the page can draw.
+- **More decisions (owner, 2026-11-05: "if I am able to name this should be good"; "yes go write it"):**
+  - **Naming the big things:** the map knows only high / low blocks, not what they are (the Stitch "bed" / "wardrobe"
+    were made up). Tap a red or amber block, type a name ("bed"); the name sits on the block from then on. Tap a named
+    block to rename it or take the name off. Saved with the home (`--home`), else kept for the run. Names are only
+    labels and words for "where" ("near the bed · 2 min ago"): **no FIND "bed"** - driving to a named place would be the
+    GOTO word the owner said no to (§191). The same name twice is allowed.
+  - **Where without a name:** the nearest name or remembered thing within 1 m ("near the chair"), else the distance from
+    home or the start ("1.2 m from home").
+  - **The map view:** home's forward up (no home: the start's); it fits itself to the floor seen; no pinch or drag yet;
+    no achievements on this tab.
+  - **The data:** from the engine's AI feed (port 8770), sent only while a page shows the ROOM tab: the map as a small
+    picture of cell kinds (unknown / seen before / floor / low / high) the page paints in its own look, about once a
+    second when it changed; the trail, home, play area, remembered things, names and the why as small lists of points.
+  - **FIND from the map** goes through the tank exactly as the Play tab's (a one-line `FIND "word` program): nothing on
+    the feed drives the tank.
+  - Design: AI engine LLD §23, bridge LLD R32.

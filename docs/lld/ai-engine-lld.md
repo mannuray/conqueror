@@ -2759,3 +2759,125 @@ stateDiagram-v2
 - **`TaughtWords`** + the model choice: `words.txt` matching → taught model; else `models/`.
 - **`SkillLink`:** the hello carries `page`; `skill_learning` sent.
 - **`export_world.py --extra --out`:** run by hand (it downloads weights).
+
+## 23. The Room tab's data on the AI feed, and names on the map (Plan Z2b-2; design-notes §211, bridge LLD R32 — draft)
+
+> Replaces §22.2's [Z2b-2] row (`map`, `memory`, `homes`, `achieve`, `health`, `timeline`; `home`, `forget`, `on_mark`): the Inside tab is dropped and there are no achievements (§211). Only what the ROOM tab draws is sent.
+
+### 23.1 What it is
+- The ROOM tab on the `/ai` page (bridge LLD R32) draws the engine's room map with the tank, its trail, home, the play area, the remembered things, names the owner gives the big things, and why. **All of it comes from the feed (§22); the page draws it in its own look.**
+- **Nothing here drives the tank.** FIND from the map is the page's one-line Logo program through the tank, as on the Play tab (R27). Names are labels only; there is no word that drives to a name (no GOTO, §191).
+- **Work only for a page that shows ROOM:** each page says `room on` / `room off`; with no page on ROOM the engine builds and sends nothing of this section.
+
+### 23.2 Messages (added to §22.2)
+| Direction | Message | When |
+|---|---|---|
+| page → engine | `{"t":"room","on":true}` / `false` | on the tab switch and on connect (a new connection starts off) |
+| engine → page | **binary map frame**: the §22.2 binary layout, header `{"kind":"map","seq":n,"cell_m":0.05,"x0":…,"y0":…,"w":…,"h":…,"png":len}`, then the PNG | to a page with room on: at once, then at most 1 / s **when the map changed** |
+| engine → page | `{"t":"room", "trail":[[x,y],…], "home":"room2"/null, "area":{"x":…,"y":…,"r":…}/null, "things":[{"word":"ball","x":…,"y":…,"ago_s":120,"where":"near the bed"}], "names":[{"id":3,"name":"bed","x":…,"y":…}], "why":{"route":[[x,y],…],"pending":[[x,y],…],"check":[x,y]/null,"looked":[[x,y],…]}, "seen_m2":4.2}` | to a page with room on: at once, then at most 2 / s **when any part changed** |
+| engine → page | `status` (§22.2) gains `"pan":-12` (the camera's pan in degrees, from telemetry; for the camera view on the map) | ~10 Hz as now |
+| page → engine | `{"t":"name","id":n,"x":…,"y":…,"name":"bed"}` (a new name at a tapped point) / `{"t":"name","id":n,"place":3,"name":"cot"}` (rename) / `{"t":"unname","id":n,"place":3}` | the owner's taps |
+| engine → page | `{"t":"rep","id":n,"ok":true,"msg":"Named it bed."}` / `ok:false` with the reason | the answer; the next `room` carries the change |
+
+- **Frames without `kind` are camera frames** (§22.2, unchanged); the page reads `kind` first.
+- **Coordinates** are the map's (§18.5): metres, x ahead at the start (home's forward with `--home`), y left. The page turns them: up = +x, right = −y (as `map_image`).
+- **The map picture** is one byte per 5 cm cell, a grey PNG of cell **kinds**: 0 unknown, 1 seen before (Plan Z8, shown only), 2 floor seen, 3 low, 4 high. Cropped to the cells that are not unknown plus 0.5 m round them (`x0, y0` = the room point of the crop's corner with the smallest x and y; `w` along x, `h` along y). An 8 × 8 m room fully seen is 160 × 160 = 25.6 KB raw, ~2-4 KB as PNG. No pose on it: the tank comes in `status`.
+- **The trail** is the tank's path since `cq-drive serve` started (a point each 5 cm moved, at most 2000 - the oldest dropped), whether or not a word ran. **The play area** is the running word's `AREA` (else the last word's; none: `null`, "anywhere"). **why** is the running skill's notes (§20.7: route, pending candidates, the check, looked-at floor), empty between words. `seen_m2` = cells seen × 0.0025.
+- `things`: `ThingMemory.of_kind(all)` (never a person, never gone), newest first, at most 20; `ago_s` from the wall clock.
+
+### 23.3 Names on the map
+- **A tap names a block:** `Places.name_at(x, y, name)` takes the blocked cell nearest the tap within 15 cm (none: `ok:false` "Tap a red or amber block to name it."), then that block - the blocked cells joined to it (8 neighbours, at most 4000 cells) - and puts the name at the block's middle (the mean of its cells, moved to the nearest of its cells when the mean falls outside it, as for an L-shaped sofa).
+- **A name is a point and a word** `Place(id, name, x_m, y_m)`; it is not tied to the cells, so a block that fades or grows keeps its name where it was. Rename and unname by `id`.
+- **Name rules** (as teaching a word, §22.4): letters, spaces and `-`, 1-24 bytes, trimmed, lower case; at most 50 names; the same name twice allowed. A name is never `person`. No skill reads names (they never drive), so names may be changed while a word runs.
+- **Kept:** with `--home NAME` saved in the home file with the rest (§20; `about.places`, `HOME_VERSION` 2 - a version-1 file loads with no names); without a home, for as long as `cq-drive serve` runs.
+- **Where words** (`where_words(thing, places, things, home)`, domain, pure): the nearest name or other remembered thing within 1.0 m → "near the bed"; else the distance from the origin → "1.2 m from home" (`--home`) or "1.2 m from the start"; rounded to 0.1 m.
+
+### 23.4 Classes
+```mermaid
+classDiagram
+  class FeedPublisher {
+    +on_frame(frame, dets, depth)
+    +tick(now)
+    +room_on(page, on)
+    -room : RoomFeed
+  }
+  class RoomFeed {
+    <<app: only while a page has room on>>
+    +tick(now, snap, world, notes, area) : map at most 1/s, room at most 2/s, on change
+    +on_name(page, msg) Reply
+  }
+  class RoomPicture {
+    <<domain, pure>>
+    +kinds(snap, seen_before) uint8 array
+    +crop(kinds, cell_m) Crop
+    +png(crop) bytes
+  }
+  class Crop { +x0 +y0 +w +h +cells }
+  class Trail {
+    <<domain, pure>>
+    +add(x, y) bool : every 5 cm, at most 2000
+    +points() list
+  }
+  class Places {
+    <<domain, pure>>
+    +name_at(snap, x, y, name) Place | Refusal
+    +rename(id, name) Place | Refusal
+    +unname(id) bool
+    +all() list~Place~
+  }
+  class Place { +id +name +x_m +y_m }
+  class WhereWords { <<domain, pure>> +where(thing, places, things, home) str }
+  class FeedServer { +frame(bytes) +send(msg) +rooms() set }
+  class HomeStore { +save(name, home) +load(name) }
+  class Home { +places : tuple~Place~ }
+  FeedPublisher --> RoomFeed
+  RoomFeed --> RoomPicture
+  RoomFeed --> Trail
+  RoomFeed --> Places
+  RoomFeed --> WhereWords
+  RoomFeed --> FeedServer
+  Places --> Place
+  Home --> Place
+  HomeStore --> Home
+```
+- `FeedServer` keeps which pages have room on; the map frame and `room` go only to those (the newest-wins outbox per kind, §22.5, gains `map` and `room`).
+- `RoomFeed.tick` runs in `FeedPublisher.tick` (~10 Hz) and does the work only when `rooms()` is not empty; it compares the kinds array and the `room` dict with what it sent last, so a still room costs a comparison.
+- `Home.from_run` copies `places`; `room_for_run` leaves them to `Places` at start. `serve` saves the home after each word as now (§21), now with the names; a name change marks the home to save at the next save point.
+
+### 23.5 A page opens ROOM and names the bed
+```mermaid
+sequenceDiagram
+  participant P as /ai page (ROOM)
+  participant E as Engine (FeedServer, RoomFeed)
+  participant H as homes/room2/home.npz
+  P->>E: room on
+  E-->>P: map frame (kinds PNG, crop)
+  E-->>P: room {trail, home, area, things, names, why, seen_m2}
+  loop while on
+    E-->>P: status 10 Hz (pose, pan)
+    E-->>P: map frame when changed (<= 1/s)
+    E-->>P: room when changed (<= 2/s)
+  end
+  P->>E: name {x, y, "bed"}
+  E->>E: Places.name_at: nearest blocked cell, its block, the middle
+  E-->>P: rep ok "Named it bed."
+  E-->>P: room {names: [... bed]}
+  Note over E,H: saved with the home after the next word, and at Ctrl-C
+  P->>E: room off (tab PLAY)
+```
+```mermaid
+stateDiagram-v2
+  [*] --> Off
+  Off --> On : a page sends room on
+  On --> On : tick: send map / room if changed
+  On --> Off : the last page sends room off or goes
+```
+
+### 23.6 Tests (to write first)
+- **`RoomPicture`:** kinds from a snapshot (unknown 0, seen before 1, floor 2, low 3, high 4 - high wins over low); the crop has 0.5 m round the known cells and the right `x0, y0, w, h`; an empty map → an empty crop (`w = h = 0`, no PNG sent); the PNG decodes back to the same cells.
+- **`Trail`:** a point only after 5 cm; the 2001st drops the oldest.
+- **`Places`:** a tap 10 cm from a block names it, 20 cm away refused; the name sits at the block's middle, and on an L-shaped block on one of its cells; bad names refused (empty, 25 bytes, digits, `person`); rename and unname by id; 51st name refused; the same name twice allowed.
+- **`WhereWords`:** near a name, near a thing, the nearest of two, beyond 1 m → "x m from home" / "from the start".
+- **`RoomFeed`:** nothing built with no page on room; at once on `room on`; the map at most 1 / s and only when changed; `room` at most 2 / s and only on change; a page with room off gets neither; the person never in `things`.
+- **`HomeStore`:** names saved and loaded; a version-1 home loads with none.
+- **`FeedServer` + test client:** `room on/off` kept per page; `name` / `unname` answered with `rep`; a map frame splits back with `kind: map`.

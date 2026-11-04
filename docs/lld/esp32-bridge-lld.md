@@ -3511,3 +3511,97 @@ sequenceDiagram
 - Final review (opus): no critical; 1 important (STOP into a quiet link) and 8 minor - all fixed, each with a test that
   failed first.
 
+
+## R32. The ROOM tab on the `/ai` page (owner 2026-11-05; design-notes §211, AI engine LLD §23 — draft)
+
+### R32.1 What changes
+- The `/ai` page's tabs become **PLAY | ROOM**; the INSIDE tab and its "coming soon" go (§211). ROOM's placeholder becomes the tab.
+- **Laptop (≥ 900 px wide):** the map card on the left, on the right the **layers**, **I remember** and one line of **room facts**. **Phone:** the map full width, the layer chips under it, then I remember and the facts. Stitch: `docs/design/stitch/22-ai-room-desktop-v1.jpg`, `23-ai-room-mobile-v1.jpg` - with §211's fixes (plain words, no compass, our strip and icons, "?" places only in the why layer, facts on one line).
+- **The map** (one `<canvas>`): the cells (unknown not drawn, seen before faint, floor, low amber, high red), the names on their blocks, the play area (dashed circle), home (house icon at 0, 0 when the engine has a home), the trail (blue), the tank (an arrow at the `status` pose) with its camera view (a faint cone, heading + `pan`, ~82° wide, 1.5 m long), the remembered things (round pins with the thing's icon or its first letter), and in the why layer the route (purple dashed), places to check ("?") and the floor looked at (faint). A 1 m scale bar. Turned with up = +x; fitted to the map crop plus the trail and the tank, at least 2 × 2 m, refitted when they leave the view.
+- **Layers** (a checkbox each, phone: chips): floor & obstacles, tank & camera view, home & play area - always on (shown locked); **things** on; **trail** on; **names** on; **why** off; **careful zones** and **earlier runs** greyed "later". The choice is remembered per browser (`cq_room_layers`, localStorage in try / catch, as `cq_ai_mute`).
+- **I remember:** each thing - icon, the word, "where · when" (the engine's `where`, `ago_s` as "just now" / "2 min ago" / "today" / "earlier"), and a green **FIND**. Empty: "Nothing yet - things it sees are kept here."
+- **FIND (from the list, or a tapped pin's small card):** the Play tab's own run path, unchanged - the one-line program `FIND "ball` (with the Play tab's AREA when on) checked by `/logo/check` and sent as `logo_run` to the tank. So STOP, the lease, 7045 and every refusal stay the tank's; a FIND while a program runs is refused with the Play tab's words. **A tap on a pin never drives by itself**: it opens the pin's card (word, where, when, FIND).
+- **Naming:** a tap on a red or amber block opens a small card "What's this?" with a text box and NAME; a tap on a name opens "bed" with RENAME and TAKE OFF. The page checks the name as the engine does (letters, spaces, `-`, ≤ 24 bytes, not a person word - the teach check, `AiCore.teachCheck` rules) and sends `name` / `unname` on the feed; the engine's `rep` is shown in the card ("Named it bed." / its reason).
+- **Room facts, one line:** "home room2 · play area 3 m · floor seen 4.2 m²" (no home: "no home"; no area: "anywhere").
+- **No AI helper:** the map card says "Start the AI helper on the laptop to see the room." (the Play tab's words for the same case); the lists empty. **Feed lost:** the last map stays, greyed, with "Lost the AI helper - reconnecting…".
+- The page sends `room on` when ROOM is shown and the feed is open (and again after a feed reconnect), `room off` when PLAY is shown or the page is hidden.
+
+### R32.2 Classes
+```mermaid
+classDiagram
+  class RoomModel {
+    <<model, room.js, pure>>
+    +state : cells, crop, trail, home, area, things, names, why, seenM2, pose, pan, layers, feed
+    +applyMap(header, cells) void
+    +applyRoom(msg) void
+    +applyStatus(msg) void
+    +feedDown() void
+    +on(fn) void
+  }
+  class RoomView {
+    <<view, room.js>>
+    +fit(state, w, h) Transform
+    +toRoom(t, px, py) xy
+    +toScreen(t, x, y) xy
+    +hit(state, t, px, py) Hit : pin | name | block | none
+    +draw(ctx, state, t, colours) void
+  }
+  class Transform { +scale +ox +oy }
+  class Hit { +kind +ref }
+  class RoomWords {
+    <<pure, room.js>>
+    +ago(s) str
+    +facts(state) str
+    +nameCheck(name) str|null
+  }
+  class AiCore { <<ai.js>> +splitFrame(buf) +findLine(word, areaOn, area) +teachCheck(word, names) }
+  class AiPage {
+    <<controller, ai.html>>
+    -feed : WebSocket to the engine
+    -tab : play | room
+    +onFeedMessage(m)
+    +onTap(px, py)
+  }
+  AiPage --> RoomModel : apply*
+  RoomModel ..> RoomView : on(change) redraw
+  AiPage --> RoomView : hit on tap
+  AiPage --> AiCore : splitFrame, findLine
+  AiPage --> RoomWords
+```
+- `web/room.js` (`window.cqRoom = {RoomModel, RoomView, RoomWords}`; `module.exports` for node, as `bar.js`), packed into `/ai` at a new **`<!--CQ:ROOM_JS-->`** marker beside `<!--CQ:AI_JS-->` (the packer fails the build if the marker is missing in `ai.html`).
+- `RoomModel` holds the **raw** map cells (kinds 0-4, `Uint8Array` w × h) - the page decodes the PNG with `createImageBitmap` into an off-screen canvas and reads the red channel - so node tests feed it plain arrays.
+- `RoomView.draw` takes its colours from the look's CSS variables (R28): `--room-floor`, `--room-before`, `--room-low`, `--room-high`, `--room-trail`, `--room-route`, `--room-area`, `--room-pin`, `--room-cone` (cockpit defaults on the page, Sunny in `theme.css`'s `/ai` block); it redraws on `cqtheme`.
+- Map pixels: one cell drawn as a `scale` × `scale` rectangle from an `ImageData` the size of the crop, then `drawImage` scaled (pixelated off); at most once per map frame. Overlays are drawn every `status` (≤ 10 Hz) only while ROOM is shown.
+- **Hit order on a tap:** a pin (within 22 px), a name label, a block cell (within 15 cm, the engine decides finally), none. On a phone a tap is a `click` (no drag in v1).
+
+### R32.3 Sequence: open ROOM, FIND from a pin
+```mermaid
+sequenceDiagram
+  participant U as Child / parent
+  participant P as /ai page
+  participant E as Engine feed :8770
+  participant T as Tank (bridge)
+  U->>P: tap ROOM
+  P->>E: room on
+  E-->>P: map frame, room
+  P->>P: RoomModel.applyMap / applyRoom, RoomView.draw
+  U->>P: tap the ball pin
+  P-->>U: card: ball · near the bed · 2 min ago [FIND]
+  U->>P: FIND
+  P->>T: /logo/check FIND "ball
+  P->>T: logo_run (as the Play tab)
+  T-->>P: logo_status ... (the Play tab's run view)
+  U->>P: tap PLAY
+  P->>E: room off
+```
+
+### R32.4 Rules
+- Nothing on the feed drives the tank; FIND is the Play tab's path; STOP unchanged (R29, R31).
+- A person is never a pin (the engine never sends one; the page also drops `person` and the person words).
+- The ROOM tab costs nothing while hidden: no drawing, `room off` sent.
+- `/ai` budget: **24 KB → 30 KB** gzipped (now 22 860 B; the tab is estimated at 4-6 KB with its words and icons) - to confirm with the owner.
+
+### R32.5 Tests
+- **`room.test.js` (node):** `applyMap` keeps the crop and cells; `fit` - the crop and the tank inside the canvas with up = +x, right = −y, at least 2 m shown; `toRoom(toScreen(p)) = p`; `hit` order (pin before name before block, pin radius 22 px, nothing on unknown floor); `ago` words; `facts` (home / no home, area / anywhere, m² to one decimal); `nameCheck` (empty, 25 bytes, digits, a person word refused; "toy box" allowed); layers default and a stored choice; `feedDown` greys.
+- **`test_ai_pack.py`:** `<!--CQ:ROOM_JS-->` replaced, `window.cqRoom =` once, no INSIDE tab, the budget.
+- **`room_check.js` (Playwright on `fake_tank.py`, with a fake engine feed on :8770 sending a recorded map and room):** both sizes and both looks; the layout (laptop map left / panel right, phone stacked, no sideways scroll at 390 px); `room on` on the tab and `room off` back on PLAY; a pin tap opens its card, FIND sends `logo_run` with `FIND "ball` and nothing else; a block tap sends `name` with the right room point; a refused name shows the engine's reason; the AI helper off and the feed lost messages; the INSIDE tab gone. Older checks (`ai_check`, `look_check`, `bar_check`, `strip_check`, `link_check`) pass.

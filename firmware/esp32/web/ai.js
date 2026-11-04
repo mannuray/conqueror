@@ -14,6 +14,12 @@ var AiCore = (function () {
   var WORD_RE = /^[a-z][a-z -]*$/;
 
   function squeeze(s) { return String(s).toLowerCase().split(/\s+/).filter(Boolean).join(" "); }
+  // A person word anywhere in the text (also used for names on the ROOM map, bridge LLD R32).
+  function isPerson(text) {
+    var parts = squeeze(text).replace(/-/g, " ").split(" ");
+    for (var i = 0; i < parts.length; ++i) if (parts[i] === NEVER || PERSON_WORDS.indexOf(parts[i]) >= 0) return true;
+    return false;
+  }
 
   // One frame from the engine: a 4-byte big-endian header length, the header JSON, the camera JPEG, the depth JPEG.
   function splitFrame(buf) {
@@ -106,7 +112,7 @@ var AiCore = (function () {
     PROTO: PROTO, PROTO_TEXT: PROTO_TEXT, splitFrame: splitFrame, boxRect: boxRect, findLine: findLine,
     wanderLine: wanderLine, exploreLine: exploreLine, typed: typed, unknownText: unknownText, teachCheck: teachCheck,
     Sayer: Sayer, cameraState: cameraState, protoOk: protoOk, sameFeed: sameFeed, squeeze: squeeze,
-    pickVoice: pickVoice
+    pickVoice: pickVoice, isPerson: isPerson
   };
 })();
 if (typeof module !== "undefined") module.exports = AiCore;

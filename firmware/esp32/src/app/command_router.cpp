@@ -60,16 +60,27 @@ const CommandRouter::Route CommandRouter::kRoutes[] = {
     {K::kSkillLearning, [](C& r, int fd, int32_t, const W& c, uint32_t) { if (r.m_hub != nullptr) r.m_hub->onLearning(fd, c.on); }},
 };
 
-// hello: "ai-skills" registers the one skill server (another fd's gets BUSY, no welcome); everyone gets a welcome.
+// hello: "ai-skills" registers the one skill server (another fd's gets BUSY, no welcome); everyone gets a welcome;
+// an "ai-page" also gets where the engine's AI feed is (Plan Z2b-1, R27.1).
 void CommandRouter::onHello(int fd, const core::WsCommand& c) {
-  if (m_hub != nullptr && strcmp(c.client, "ai-skills") == 0) {
-    char ip[16] = "";  // Plan Z2b-1 (R27.1): the engine's address, from its socket - never typed
-    if (!ports::clientPeerIp(fd, ip, sizeof ip)) ip[0] = '\0';
-    if (m_hub->onHello(fd, ip, c.page_port, c.page_proto) == core::SkillHub::Decision::kBusy) {
-      return m_out.nack(fd, c.has_id ? c.id : -1, core::BridgeReason::kBusy);
-    }
+  if (m_hub != nullptr && strcmp(c.client, "ai-skills") == 0 && !registerServer(fd, c)) {
+    return m_out.nack(fd, c.has_id ? c.id : -1, core::BridgeReason::kBusy);
   }
   m_tel.hello(fd, m_fw, m_sensor ? m_sensor() : "none");
+  if (m_pages != nullptr && strcmp(c.client, "ai-page") == 0 && m_pages->onHello(fd)) sendAiAt(fd);
+}
+
+// The skill server, with the address its socket comes from (never typed) and its page port; false = BUSY.
+bool CommandRouter::registerServer(int fd, const core::WsCommand& c) {
+  char ip[16] = "";
+  if (!ports::clientPeerIp(fd, ip, sizeof ip)) ip[0] = '\0';
+  return m_hub->onHello(fd, ip, c.page_port, c.page_proto) != core::SkillHub::Decision::kBusy;
+}
+
+void CommandRouter::sendAiAt(int fd) {
+  const char* url = m_hub != nullptr ? m_hub->pageUrl() : "";
+  const uint8_t proto = m_hub != nullptr ? m_hub->pageProto() : 0;
+  m_out.to(fd, core::AiPages::text(m_out.buf(), m_out.cap(), url, proto));
 }
 
 // skill_things: one part of the list, parsed from a copy of the message (the views point into it while it is staged:

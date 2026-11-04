@@ -169,3 +169,17 @@ test("draw: an empty room and a full one draw without throwing", () => {
   R.RoomView.draw(ctx, m.state, R.RoomView.fit(m.state, 200, 200), colours);
   assert.ok(calls.includes("fillRect") && calls.includes("arc") && calls.includes("fillText"));
 });
+
+test("splitMap: a map frame splits; a camera frame is not one", () => {
+  function frame(head, body) {
+    const h = new TextEncoder().encode(JSON.stringify(head)), b = new Uint8Array(4 + h.length + body.length);
+    new DataView(b.buffer).setUint32(0, h.length); b.set(h, 4); b.set(body, 4 + h.length);
+    return b.buffer;
+  }
+  const png = new Uint8Array([137, 80, 78, 71, 1, 2]);
+  const m = R.splitMap(frame({ kind: "map", seq: 1, cell_m: 0.05, x0: 0, y0: 0, w: 1, h: 1, png: png.length }, png));
+  assert.equal(m.header.kind, "map");
+  assert.deepEqual(Array.from(m.png), Array.from(png));
+  assert.equal(R.splitMap(frame({ seq: 1, t_ms: 5, boxes: [], cam: 2, depth: 0 }, new Uint8Array([255, 216]))), null);
+  assert.equal(R.splitMap(new ArrayBuffer(2)), null);
+});

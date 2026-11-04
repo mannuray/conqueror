@@ -227,3 +227,26 @@
   tank: {ai: true, things: {toy: [car, racing car]}}
   expect: {error: 7053, line: 1, col: 6}
   message_has: "dragon"
+
+# ---- while the AI helper learns a word (Tank Logo LLD §24.4, Plan Z2b-1)
+- name: FIND while the helper learns a word
+  source: FIND "ball
+  tank: {ai: true, learning: true}
+  expect: {error: 7056, line: 1, col: 1}
+  message_has: "learning a new word"
+
+- name: SEE? while the helper learns a word
+  source: IF SEE? "ball [ BEEP ]
+  tank: {ai: true, learning: true}
+  expect: {error: 7056, line: 1, col: 4}
+
+- name: no AI helper beats learning
+  source: FIND "ball
+  tank: {ai: false, learning: true}
+  expect: {error: 7020, line: 1, col: 1}
+
+- name: a plain word while the helper learns
+  source: FORWARD 10
+  tank: {ai: true, learning: true}
+  expect: ok
+  reads: (FORWARD 10)

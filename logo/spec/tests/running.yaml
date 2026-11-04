@@ -267,6 +267,13 @@
   ends: {error: 7050, line: 1}
   message_has: "I couldn't find the ball."
 
+- name: FIND while the helper learns a word
+  source: FIND "ball  BEEP
+  world: {skill_ends: [learning]}
+  does: [FIND ball]
+  ends: {error: 7056, line: 1}
+  message_has: "learning a new word"
+
 - name: FIND lost sight
   source: FIND "ball  BEEP
   world: {skill_ends: [lost]}

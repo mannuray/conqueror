@@ -46,6 +46,7 @@ static const RunCase kRunCases[] = {
     {"HOWFAR with no answer is -1", "SAY HOWFAR \"ball", "HOWFAR ball | SAY -1", 0, 0, "", 0, 0ULL, 0ULL, "", ""},
     {"FIND done goes on", "FIND \"ball  BEEP", "FIND ball | BEEP", 0, 0, "", 0, 0ULL, 0ULL, "", "done"},
     {"FIND not found", "FIND \"ball  BEEP", "FIND ball", 7050, 1, "I couldn't find the ball.", 0, 0ULL, 0ULL, "", "not_found"},
+    {"FIND while the helper learns a word", "FIND \"ball  BEEP", "FIND ball", 7056, 1, "learning a new word", 0, 0ULL, 0ULL, "", "learning"},
     {"FIND lost sight", "FIND \"ball  BEEP", "FIND ball", 7051, 1, "I lost sight of the ball.", 0, 0ULL, 0ULL, "", "lost"},
     {"FIND outside the play area", "AREA 2  FIND \"ball  BEEP", "AREA 2 | FIND ball AREA 2 AT 0 0", 7054, 1, "outside the play area", 0, 0ULL, 0ULL, "", "outside_area"},
     {"SETXY with no way", "SETXY 0 0  BEEP", "SETXY 0 0", 7055, 1, "can't find a way there", 0, 0ULL, 0ULL, "", "no_way"},
@@ -64,4 +65,4 @@ static const RunCase kRunCases[] = {
     {"a thing worked out while running must be a word", "TO F :t  FIND :t  END\nF 5", "", 7012, 1, "FIND needs a thing", 0, 0ULL, 0ULL, "", ""},
 };
 
-#define LOGO_RUN_CASES(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23) X(24) X(25) X(26) X(27) X(28) X(29) X(30) X(31) X(32) X(33) X(34) X(35) X(36) X(37) X(38) X(39) X(40) X(41) X(42) X(43) X(44) X(45) X(46) X(47) X(48) X(49) X(50) X(51) X(52) X(53) X(54) X(55) X(56) X(57)
+#define LOGO_RUN_CASES(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23) X(24) X(25) X(26) X(27) X(28) X(29) X(30) X(31) X(32) X(33) X(34) X(35) X(36) X(37) X(38) X(39) X(40) X(41) X(42) X(43) X(44) X(45) X(46) X(47) X(48) X(49) X(50) X(51) X(52) X(53) X(54) X(55) X(56) X(57) X(58)

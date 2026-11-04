@@ -628,3 +628,4 @@ errors:   # PROGRAM 7000-7999 (Spec 5 §8); {..} are filled in by the checker. E
   7053: "I don't know what a {thing} is."
   7054: "I saw the {thing}, but it's outside the play area."
   7055: "I can't find a way there."
+  7056: "I'm learning a new word - try again in a minute."

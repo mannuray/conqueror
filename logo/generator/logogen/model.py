@@ -85,6 +85,7 @@ class Case:
     tail_calls: str = "-"  # "-" = not checked; "" = no tail calls expected
     ai: bool = False  # the tank has the AI helper (skill server)
     things: str = ""  # its things: "word=name|name;..." (empty = none)
+    learning: bool = False  # the AI helper is learning a word (7056, Tank Logo LLD §24.4)
 
 
 @dataclass
@@ -214,6 +215,7 @@ def _load_cases(path: Path) -> list[Case]:
             encoders=bool(tank.get("encoders", True)),
             ai=bool(tank.get("ai", False)),
             things=_things(tank.get("things")),
+            learning=bool(tank.get("learning", False)),
             check=bool(c.get("check", True)),
             handles_obstacles=int(c["handles_obstacles"]) if "handles_obstacles" in c else -1,
             your_words=_your_words(c.get("your_words")),
@@ -248,6 +250,7 @@ SKILL_ENDS = {
     "blocked",
     "unknown_thing",
     "stale",
+    "learning",  # a teach started between the check and the word (7056, Plan Z2b-1)
     "stop",  # not the laptop's end: the STOP key (a tank-side ending)
 }
 

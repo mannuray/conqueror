@@ -74,7 +74,7 @@
 2. **A teach races a program.** A `FIND` checked just before `skill_learning on` reaches the bridge must end 7056, never hang. The engine answers that start with `skill_failed learning`. Tests in Task 2 (running case) and Task 9.
 3. **Ctrl-C during an export.** The child process (uv → python) is killed with its group, the taught entry is removed and the old model is kept. Next start loads the measured model. Test in Task 9.
 4. **A slow phone.** A page on weak WiFi must never slow the skill or grow memory. It gets only the newest frame, and after 5 s stalled it is closed. Test in Task 6, with a fake connection whose send blocks (a localhost socket buffers megabytes and would not stall).
-5. **iOS Safari.** `speechSynthesis` speaks only after a user gesture, so the page unlocks it on the first tap. The binary frame arrives as an `ArrayBuffer` (`binaryType = "arraybuffer"`), and pictures are drawn with `createImageBitmap`. Checked in Task 11 and on the owner's phone in Task 12.
+5. **iOS Safari.** `speechSynthesis` speaks only after a user gesture, so the page unlocks it on the first tap. The binary frame arrives as an `ArrayBuffer` (`binaryType = "arraybuffer"`), and pictures are drawn with `createImageBitmap`. Checked in Task 11 and on the owner's phone (iPhone, Chrome - WebKit, so Safari's rules) in Task 13.
 
 ---
 
@@ -473,7 +473,7 @@
 - Consumes: `ai.js` (Task 10); the tank's `/ws` (`ai_at`, telemetry, `logo_run` results); the feed (Task 7).
 - **Decisions:**
   - Look and frame from `docs/design/ai-page-mockup.dc.html`: the Phosphor Cockpit tokens, corner-bracket cards, STOP top right on every tab, the six status chips, a segmented tab bar. The Room and Inside tabs show "coming soon". Icons come only from `web/icons.json` markers.
-  - The **AI** menu item always goes to `/ai`. The Settings "AI address" (`ai_url`) no longer drives the menu and is left in place, unused, until the owner rules (see design-notes §200).
+  - The **AI** menu item always goes to `/ai` (the Settings AI address is removed in Task 12).
   - The feed: `binaryType = "arraybuffer"`; on close it retries every 2 s while `ai_at` has a URL. A proto mismatch shows "Please update the AI helper." and stops retrying.
   - Each frame is decoded once (`createImageBitmap`) and drawn on two canvases:
     - view 1: the picture with boxes and words;
@@ -495,17 +495,44 @@
 - [ ] **Step 4:** The check passes; `node --test` passes; `pio run -e bridge` builds and the `/ai` size is within its budget (the number goes in the ledger).
 - [ ] **Step 5: Commit** `feat(web): the /ai page - camera with boxes and depth, Play, teach a word; AI in every menu (bridge LLD R27.4)`.
 
-### Task 12: Stand checks (owner present)
+### Task 12: Retire the Settings "AI address" (`ai_url`, `app_set`)
+
+Owner, 2026-11-04: remove it. `/ai` and `ai_at` replace it (design-notes §200).
+
+**Files:**
+- Modify:
+  - `firmware/esp32/web/settings.html`: the AI address field and its `app_set`;
+  - `basic_drive.html`: `showAi`, and `ai_url` read from the `tank` reply;
+  - `help.html`: the `app_set` line and `ai_url` in the `tank` line;
+  - `web/test/camera_tuning_check.js`.
+- Modify:
+  - `src/core/ws_codec.h` / `ws_codec.cpp` / `ws_codec_keys.cpp`: remove `kAppSet`, `ai_url`, `has_ai_url`, `readAiUrl` and `checkAppSet`;
+  - `src/core/ws_json.h` / `ws_json_tank.cpp`: no `ai_url` in the `tank` reply;
+  - `src/app/tank_app_controller.*`: remove the `app_set` handler;
+  - `src/ports/app_store.h`, `src/net/app_settings.*`, `src/net/ports_esp32.cpp`, `src/fakes/fake_ports.*`: remove `loadAiUrl` / `saveAiUrl` (and the files, if nothing else is left in them). The saved NVS key is erased once at boot, if present.
+- Modify tests: `test_ws_codec`, `test_ws_json`, `test_tank_app_controller`.
+- Docs: bridge LLD R13 / R15 get a note "retired by R27 (design-notes §200)".
+
+- [ ] **Step 1: Change the tests first:**
+  - `test_ws_codec::test_app_set_is_unknown`: `{"t":"app_set","ai_url":"http://x/"}` → kind unknown;
+  - `test_ws_json::test_tank_reply_has_no_ai_url`.
+  - Remove the old `ai_url` tests.
+- [ ] **Step 2:** `pio test -e native -f test_ws_codec -f test_ws_json -f test_tank_app_controller`. Expected: FAIL.
+- [ ] **Step 3:** Remove the code, the page parts and the help lines. `grep -rn "ai_url\|AiUrl\|app_set" firmware/esp32/src firmware/esp32/web firmware/esp32/test` must find nothing except the new tests and `generated/`.
+- [ ] **Step 4:** All native tests pass. The bridge builds. The Settings and camera browser checks pass.
+- [ ] **Step 5: Commit** `refactor(bridge): retire the Settings AI address - the menu's AI opens /ai (design-notes §200)`.
+
+### Task 13: Stand checks (owner present)
 
 Say what moves before each step. **Stand**: tracks off the ground.
 
 - [ ] **Step 1:** Flash the bridge from yantra (`/dev/ttyACM0`; the Uno is unchanged). On the laptop, start `cd ai-engine && uv run cq-drive serve`. macOS asks once to allow incoming connections: the owner clicks Allow.
-- [ ] **Step 2:** On the owner's phone, open ☰ → AI. Check that the page shows the engine's camera, both views move together, and the boxes sit on the things. Record the frame rate the page shows.
+- [ ] **Step 2:** On the owner's iPhone (Chrome), open ☰ → AI. Check that the page shows the engine's camera, both views move together, and the boxes sit on the things. Record the frame rate the page shows.
 - [ ] **Step 3:** STOP from the page while the feed runs: the ack comes as today. Then press Find with the tank on the stand: the tracks move, and STOP from the page ends it at once.
-- [ ] **Step 4:** Turn the laptop's WiFi off. The page keeps STOP and telemetry and shows "AI helper not running". Turn the WiFi back on: the feed comes back by itself.
+- [ ] **Step 4:** Settings has no AI address any more. Turn the laptop's WiFi off. The page keeps STOP and telemetry and shows "AI helper not running". Turn the WiFi back on: the feed comes back by itself.
 - [ ] **Step 5:** Teach `cup` (names: mug). The page and the drive page say 7056 during the export. Afterwards "I know cup now." and `cup` is in the picker. Record the export time.
 - [ ] **Step 6:** Clean up. Delete any saved pictures. Remove `ai-engine/taught/` if the owner does not want to keep `cup`. Write the results in design-notes.
 
-### Task 13: As-built docs
+### Task 14: As-built docs
 
 - [ ] Mark R27 and §22 as built (Z2b-1) and update CLAUDE.md's plan list. Write the stand-check results and the measured numbers (frame rate, export time, the `/ai` gzipped size) into design-notes. Commit with `docs: Plan Z2b-1 as built`.

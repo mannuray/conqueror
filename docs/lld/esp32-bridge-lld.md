@@ -2873,7 +2873,7 @@ sequenceDiagram
   - to each `ai-page` client, on its hello and whenever it changes: `{"t":"ai_at","url":"ws://192.168.1.23:8770/feed","proto":1}`; `{"t":"ai_at","url":null}` when the skill server closes;
   - the bridge never connects to the engine's port itself.
 - **Learning [Z2b-1]:** the engine sends `{"t":"skill_learning","on":true|false}` on its `/ws` around a teach. `SkillHub::learning()` becomes `Caps::ai_learning`: the checker gives **7056** for any AI word while it is on (Tank Logo LLD §24.4); a `skill_start` that races it is answered `skill_failed reason:"learning"` → 7056. The server's close clears it.
-- **The ☰ menu's AI item always opens `/ai`** (design-notes §200); the older Settings AI address (`ai_url`, R13.1) no longer drives it.
+- **The ☰ menu's AI item always opens `/ai`** (design-notes §200); the older Settings AI address (`ai_url`, `app_set`, R13.1) is removed (owner, 2026-11-04).
 - **`ai_at` is sent on a change of `SkillHub::pageUrl()`, checked once per link loop**, so every way the server's socket ends (a close, a ghost, the 3 s silent rule) gives `url:null`.
 - **Nothing else on the tank changes:** no new port, no stream viewer taken (the camera comes from the engine), the `/ws` and lwIP budgets as today (the page is one `/ws` client of four).
 

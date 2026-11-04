@@ -24,6 +24,7 @@ import datetime
 import random
 import sys
 import time
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -73,6 +74,7 @@ from conqueror_ai.domain.drive.skill import Result, Skill
 from conqueror_ai.domain.home import Home
 from conqueror_ai.domain.memory import Remembered, ThingMemory
 from conqueror_ai.domain.objects import Detector
+from conqueror_ai.domain.places import Place
 from conqueror_ai.domain.room_map import RoomMap
 from conqueror_ai.domain.vocabulary import Vocabulary
 
@@ -322,11 +324,18 @@ def start_home(
 
 
 def end_home(
-    store: HomeStore, name: str, earlier: Home | None, room: RoomMap, memory: ThingMemory, run_id: str
+    store: HomeStore,
+    name: str,
+    earlier: Home | None,
+    room: RoomMap,
+    memory: ThingMemory,
+    run_id: str,
+    places: Sequence[Place] | None = None,
 ) -> str:
-    """Save what this run leaves for the next; a failed save is said, never raised (the result stays)."""
+    """Save what this run leaves for the next; a failed save is said, never raised (the result stays).
+    places: the names on the map (None: the earlier home's carried through, LLD §23.3)."""
     try:
-        store.save(name, Home.from_run(room, memory, earlier, run_id))
+        store.save(name, Home.from_run(room, memory, earlier, run_id, places))
     except OSError as e:
         return f"home '{name}' not saved ({e})"
     return f"home '{name}' saved"

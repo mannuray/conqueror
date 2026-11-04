@@ -14,8 +14,9 @@ from typing import Any
 
 import numpy as np
 
-from conqueror_ai.domain.home import HOME_VERSION, Home
+from conqueror_ai.domain.home import HOME_VERSION, HOME_VERSIONS, Home
 from conqueror_ai.domain.memory import Remembered
+from conqueror_ai.domain.places import Place
 
 
 class HomeError(ValueError):
@@ -40,6 +41,7 @@ class HomeStore:
             },
             "runs": list(home.runs),
             "things": [asdict(t) for t in home.things],
+            "places": [asdict(p) for p in home.places],
         }
         buf = io.BytesIO()
         np.savez_compressed(
@@ -75,10 +77,11 @@ class HomeStore:
             version, frame = d.get("version"), d["frame"]
             things = tuple(Remembered(**t) for t in d["things"])
             runs = tuple(str(r) for r in d["runs"])
+            places = tuple(Place(**p) for p in d.get("places", []))
             home_cell, home_size = float(frame["cell_m"]), float(frame["size_m"])
         except (OSError, ValueError, KeyError, TypeError, AttributeError, zipfile.BadZipFile, EOFError) as e:
             raise HomeError(f"home '{name}': damaged ({type(e).__name__}) - {fix}") from None
-        if version != HOME_VERSION:
+        if version not in HOME_VERSIONS:
             raise HomeError(f"home '{name}': version {version}, this engine reads {HOME_VERSION} - {fix}")
         if size_m is not None and home_size != size_m:
             raise HomeError(f"home '{name}': another map size ({home_size} m) - {fix}")
@@ -87,4 +90,4 @@ class HomeStore:
         n = round(home_size / home_cell)
         if not (low.shape == high.shape == seen.shape == (n, n)):
             raise HomeError(f"home '{name}': damaged (its map is not {n} x {n}) - {fix}")
-        return Home(low, high, seen, home_cell, home_size, runs, things)
+        return Home(low, high, seen, home_cell, home_size, runs, things, places)

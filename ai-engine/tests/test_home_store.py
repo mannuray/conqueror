@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import pytest
 from conqueror_ai.adapters.home_store import HomeError, HomeStore
 from conqueror_ai.domain.home import Home
 from conqueror_ai.domain.memory import Remembered, ThingMemory
+from conqueror_ai.domain.places import Place
 from conqueror_ai.domain.room_map import RoomMap
 
 
@@ -93,3 +95,29 @@ def test_a_malformed_home_is_refused_plainly(tmp_path: Path) -> None:
     store.save("h", Home(good.low[:10, :10], good.high, good.seen, 0.05, 8.0, good.runs, ()))  # wrong shape
     with pytest.raises(HomeError):
         store.load("h")
+
+
+def test_store_round_trip_places(tmp_path: Path) -> None:
+    store = HomeStore(tmp_path)
+    room = RoomMap()
+    room.seen[:5, :5] = True
+    home = Home.from_run(room, ThingMemory(), None, "r1", places=[Place(3, "toy box", 0.5, -1.25)])
+    store.save("h", home)
+    got = store.load("h")
+    assert got is not None and got.places == (Place(3, "toy box", 0.5, -1.25),)
+
+
+def test_store_loads_version_1(tmp_path: Path) -> None:
+    """A home saved before names (version 1, no places) loads with none."""
+    store = HomeStore(tmp_path)
+    store.save("h", a_home())
+    path = tmp_path / "h" / "home.npz"
+    with np.load(path) as z:
+        arrays = {k: z[k] for k in z.files}
+    about = json.loads(bytes(arrays["about"]).decode())
+    about["version"] = 1
+    del about["places"]
+    arrays["about"] = np.frombuffer(json.dumps(about).encode(), np.uint8)
+    np.savez_compressed(path, **arrays)
+    got = store.load("h")
+    assert got is not None and got.places == () and got.things == a_home().things

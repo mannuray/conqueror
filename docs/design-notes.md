@@ -3108,4 +3108,5 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
     second when it changed; the trail, home, play area, remembered things, names and the why as small lists of points.
   - **FIND from the map** goes through the tank exactly as the Play tab's (a one-line `FIND "word` program): nothing on
     the feed drives the tank.
+  - **`/ai` budget 24 → 30 KB** gzipped (owner: "Raise to 30 KB").
   - Design: AI engine LLD §23, bridge LLD R32.

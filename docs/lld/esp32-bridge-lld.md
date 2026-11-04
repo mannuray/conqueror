@@ -3599,7 +3599,7 @@ sequenceDiagram
 - Nothing on the feed drives the tank; FIND is the Play tab's path; STOP unchanged (R29, R31).
 - A person is never a pin (the engine never sends one; the page also drops `person` and the person words).
 - The ROOM tab costs nothing while hidden: no drawing, `room off` sent.
-- `/ai` budget: **24 KB → 30 KB** gzipped (now 22 860 B; the tab is estimated at 4-6 KB with its words and icons) - to confirm with the owner.
+- `/ai` budget: **24 KB → 30 KB** gzipped (now 22 860 B; the tab is estimated at 4-6 KB with its words and icons) - owner 2026-11-05: "Raise to 30 KB".
 
 ### R32.5 Tests
 - **`room.test.js` (node):** `applyMap` keeps the crop and cells; `fit` - the crop and the tank inside the canvas with up = +x, right = −y, at least 2 m shown; `toRoom(toScreen(p)) = p`; `hit` order (pin before name before block, pin radius 22 px, nothing on unknown floor); `ago` words; `facts` (home / no home, area / anywhere, m² to one decimal); `nameCheck` (empty, 25 bytes, digits, a person word refused; "toy box" allowed); layers default and a stored choice; `feedDown` greys.

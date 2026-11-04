@@ -16,24 +16,30 @@
 :root {
   --bg: #050805; --panel: #070f08; --edge-c: rgba(51, 255, 102, .32); --line: rgba(51, 255, 102, .14); --ui: #33ff66;
   --dim: #1f9a40; --warn: #ffb000; --danger: #ff3b30; --active: #e8ffe8; --text: #b8f5c8;
+  /* Every other colour of this page (bridge LLD R28: Sunny Play changes only these, in theme.css). */
+  --ui-rgb: 51, 255, 102; --warn-rgb: 255, 176, 0; --warn-edge: rgba(255, 176, 0, .5); --on-ui: #022; --on-warn: #221500;
+  --stop-ink: #fff; --input-bg: #020502; --graph-bg: #020502; --warn-bg: rgba(14, 10, 2, .97); --bad-bg: rgba(10, 4, 4, .96);
+  --ok-bg: rgba(4, 12, 6, .96);
   --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 var(--mono); }
-body { background-image: repeating-linear-gradient(0deg, rgba(51, 255, 102, .025) 0 1px, transparent 1px 3px); }
+body { background-image: repeating-linear-gradient(0deg, rgba(var(--ui-rgb), .025) 0 1px, transparent 1px 3px); }
 a, button, input { font: inherit; color: inherit; }
 svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; flex: none; }
 header { padding: 10px max(12px, env(safe-area-inset-left)) 8px; border-bottom: 1px solid var(--edge-c); }
 .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .top a { color: var(--ui); text-decoration: none; letter-spacing: .08em; font-weight: 700; }
-.top h1 { font-size: 13px; margin: 0; color: var(--ui); letter-spacing: .14em; }
+.top h1 { font-size: 13px; margin: 0 0 0 auto; color: var(--ui); letter-spacing: .14em; }
+#themeBtn { min-height: 32px; min-width: 36px; padding: 0 8px; background: none; border: 1px solid var(--edge-c); color: var(--ui); }
+#themeBtn svg { width: 16px; height: 16px; }
 .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
 .chip { border: 1px solid var(--edge-c); padding: 4px 6px; color: var(--ui); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; letter-spacing: .06em; }
-.chip.warn { color: var(--warn); border-color: rgba(255, 176, 0, .5); }
+.chip.warn { color: var(--warn); border-color: var(--warn-edge); }
 .wrap { display: flex; flex-direction: column; max-width: 1180px; margin: 0 auto; }
 nav { display: flex; margin: 10px 12px 0; border: 1px solid var(--edge-c); padding: 3px; gap: 3px; }
 nav button { flex: 1; background: none; border: 0; padding: 8px 4px; color: var(--dim); cursor: pointer; letter-spacing: .12em; font-weight: 700; }
-nav button.on { color: #022; background: var(--ui); }
+nav button.on { color: var(--on-ui); background: var(--ui); }
 main { padding: 10px 12px 10px; display: grid; grid-template-columns: 1fr; gap: 10px; align-content: start; }
 section { display: none; }
 section.on { display: contents; }
@@ -56,19 +62,19 @@ section.on { display: contents; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; background: none; border: 1px solid var(--ui); color: var(--ui); padding: 8px 12px; cursor: pointer; letter-spacing: .1em; font-weight: 700; text-transform: uppercase; font-size: 11px; }
 .btn.warn { border-color: var(--warn); color: var(--warn); }
 .btn.bad { border-color: var(--danger); color: var(--danger); }
-.btn.fill { background: var(--ui); color: #022; }
-.btn.fillw { background: var(--warn); border-color: var(--warn); color: #221500; }
+.btn.fill { background: var(--ui); color: var(--on-ui); }
+.btn.fillw { background: var(--warn); border-color: var(--warn); color: var(--on-warn); }
 .btn.wide { width: 100%; margin-top: 8px; }
 .btn.ico { padding: 6px; }
 .btn:disabled { opacity: .45; cursor: default; }
 .btnrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
-input { width: 100%; background: #020502; border: 1px solid var(--edge-c); padding: 9px; color: var(--active); }
+input { width: 100%; background: var(--input-bg); border: 1px solid var(--edge-c); padding: 9px; color: var(--active); }
 input:focus { outline: none; border-color: var(--ui); }
 label { display: flex; justify-content: space-between; color: var(--dim); font-size: 10px; letter-spacing: .1em; margin: 10px 0 4px; text-transform: uppercase; }
 .hint { color: var(--dim); font-size: 11px; margin-top: 8px; font-style: italic; }
 .hint.w { color: var(--warn); }
 .badge { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--dim); color: var(--dim); font-size: 9px; letter-spacing: .1em; padding: 1px 5px; text-transform: uppercase; }
-.badge.on { border-color: var(--ui); color: var(--ui); background: rgba(51, 255, 102, .1); }
+.badge.on { border-color: var(--ui); color: var(--ui); background: rgba(var(--ui-rgb), .1); }
 .badge.w { border-color: var(--warn); color: var(--warn); }
 .net { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); padding: 8px; margin-bottom: 6px; }
 .net .n { flex: 1; min-width: 0; }
@@ -77,7 +83,7 @@ label { display: flex; justify-content: space-between; color: var(--dim); font-s
 .net .slotno { color: var(--dim); }
 .net.free { justify-content: center; color: var(--dim); border-style: dashed; font-size: 11px; letter-spacing: .1em; }
 .found { display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--line); cursor: pointer; }
-.found:hover, .found.sel { background: rgba(51, 255, 102, .08); }
+.found:hover, .found.sel { background: rgba(var(--ui-rgb), .08); }
 .found.sel { border-left: 2px solid var(--ui); }
 .found span:not(.badge) { flex: 1; color: var(--active); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .found small { color: var(--dim); }
@@ -89,14 +95,14 @@ label { display: flex; justify-content: space-between; color: var(--dim); font-s
 .stepper .save { margin-left: 8px; padding: 8px 14px; }
 .battbar { height: 6px; border: 1px solid var(--edge-c); margin-top: 5px; }
 .battbar div { height: 100%; background: var(--ui); width: 0; }
-#confirm { display: none; position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 5; width: min(520px, 94vw); border: 1px solid var(--warn); color: var(--warn); background: rgba(14, 10, 2, .97); padding: 10px 12px; }
+#confirm { display: none; position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 5; width: min(520px, 94vw); border: 1px solid var(--warn); color: var(--warn); background: var(--warn-bg); padding: 10px 12px; }
 #confirm.show { display: block; }
 #confirm .h { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: .08em; font-size: 12px; }
 #confirm .h span { margin-left: auto; white-space: nowrap; flex: none; border: 1px solid var(--warn); padding: 0 5px; }
-#confirm .pb { height: 3px; background: rgba(255, 176, 0, .2); margin-top: 8px; }
+#confirm .pb { height: 3px; background: rgba(var(--warn-rgb), .2); margin-top: 8px; }
 #confirm .pb div { height: 100%; background: var(--warn); width: 100%; }
-#toast { display: none; position: fixed; left: 50%; top: 70px; transform: translateX(-50%); z-index: 6; max-width: 92vw; border: 1px solid var(--danger); color: var(--danger); background: rgba(10, 4, 4, .96); padding: 8px 12px; }
-#toast.ok { border-color: var(--ui); color: var(--ui); background: rgba(4, 12, 6, .96); }
+#toast { display: none; position: fixed; left: 50%; top: 70px; transform: translateX(-50%); z-index: 6; max-width: 92vw; border: 1px solid var(--danger); color: var(--danger); background: var(--bad-bg); padding: 8px 12px; }
+#toast.ok { border-color: var(--ui); color: var(--ui); background: var(--ok-bg); }
 #toast.show { display: block; }
 footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing: .12em; padding: 6px 0 96px; }
 /* Plan O (bridge LLD R13.1): Tune and Log tabs, Tank cards 03-09. Screens 18-20. */
@@ -106,18 +112,18 @@ footer { text-align: center; color: var(--dim); font-size: 10px; letter-spacing:
 .prev span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 8px; color: var(--dim); font-size: 11px; letter-spacing: .08em; }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; margin-top: 6px; }
 .seg button { background: none; border: 1px solid var(--edge-c); color: var(--dim); padding: 6px 2px; cursor: pointer; font-size: 11px; letter-spacing: .08em; font-weight: 700; }
-.seg button.on { background: var(--ui); border-color: var(--ui); color: #022; }
+.seg button.on { background: var(--ui); border-color: var(--ui); color: var(--on-ui); }
 .seg.l { display: flex; flex-wrap: wrap; } .seg.l button { padding: 5px 9px; }
-.tog { min-width: 56px; } .tog.on { background: var(--ui); color: #022; }
+.tog { min-width: 56px; } .tog.on { background: var(--ui); color: var(--on-ui); }
 .mini { display: inline-grid; grid-template-columns: 30px 34px 30px; align-items: center; text-align: center; }
 .mini .btn { padding: 4px 0; } .mini b { text-align: center; }
 .trim { display: inline-flex; gap: 4px; } .trim .btn { min-width: 34px; padding: 4px 6px; }
 input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: none; }
-#gCan { display: block; width: 100%; height: 190px; margin-top: 8px; border: 1px solid var(--line); background: #020502; }
+#gCan { display: block; width: 100%; height: 190px; margin-top: 8px; border: 1px solid var(--line); background: var(--graph-bg); }
 .gfoot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .gfoot span { flex: 1; color: var(--text); font-size: 11px; }
 .gfoot .btn { padding: 6px 9px; }
-.btn.fillr { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.fillr { background: var(--danger); border-color: var(--danger); color: var(--stop-ink); }
 .wiz { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; margin-top: 10px; }
 .meas { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .note { border: 1px solid var(--warn); color: var(--warn); padding: 8px; font-size: 11px; margin-bottom: 8px; }
@@ -136,7 +142,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   main { flex: 1; grid-template-columns: 1fr 1fr; padding: 14px; }
   .chips { display: flex; justify-content: flex-end; margin-top: 0; }
   header .inner { display: flex; align-items: center; gap: 16px; max-width: 1180px; margin: 0 auto; }
-  .top { flex: 1; justify-content: flex-start; gap: 18px; }
+  .top { flex: 1; justify-content: flex-start; gap: 18px; } .top h1 { margin-left: 0; }
 }
 </style>
 </head>
@@ -145,6 +151,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   <div class="top">
     <a href="/"><!--icon:chevron-left-->DRIVE</a>
     <h1>TANK SETTINGS</h1>
+    <button id="themeBtn" type="button" aria-label="change the look" title="change the look" data-look-skip><!--icon:palette--></button>
   </div>
   <div class="chips">
     <span class="chip" id="cBatt"><!--icon:battery--> -- V</span>
@@ -562,6 +569,8 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     if (drawAsked || tab !== "tune") return;
     drawAsked = true; requestAnimationFrame(function () { drawAsked = false; draw(); });
   }
+  window.addEventListener("cqtheme", requestDraw);  // the look flipped: the graph takes the new colours (R28)
+  $("themeBtn").addEventListener("click", function () { cqTheme.flip(); });
   var KEYS = { speed: ["l", "r"], heading: ["h"], balance: ["b"] }, UNIT = { speed: "cm/s", heading: "°", balance: "‰" };
   function draw() {
     var c = $("gCan"), w = c.clientWidth, h = c.clientHeight, dpr = window.devicePixelRatio || 1;
@@ -576,13 +585,14 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     var pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
     var top = 22, bot = h - 16, y = function (v) { return bot - (v - lo) / (hi - lo) * (bot - top); };
     g.font = "10px monospace"; g.lineWidth = 1;
+    var ui = cqTheme.colour("--ui-rgb");  // colours from the CSS (bridge LLD R28)
     for (var i = 0; i <= 3; i++) {
       var v = lo + (hi - lo) * i / 3, yy = Math.round(y(v)) + 0.5;
-      g.strokeStyle = "rgba(51,255,102,.12)"; g.beginPath(); g.moveTo(0, yy); g.lineTo(w, yy); g.stroke();
-      g.fillStyle = "#1f9a40"; g.fillText(v.toFixed(Math.abs(hi - lo) < 10 ? 1 : 0), 4, yy - 2);
+      g.strokeStyle = "rgba(" + ui + ",.12)"; g.beginPath(); g.moveTo(0, yy); g.lineTo(w, yy); g.stroke();
+      g.fillStyle = cqTheme.colour("--dim"); g.fillText(v.toFixed(Math.abs(hi - lo) < 10 ? 1 : 0), 4, yy - 2);
     }
     g.fillText(UNIT[gMode], 4, 10); g.fillText("−60 s", 4, h - 4); g.fillText("now", w - 24, h - 4);
-    var colors = ["#33ff66", "#ffb000"], n = ring.length;
+    var colors = [cqTheme.colour("--ui"), cqTheme.colour("--warn")], n = ring.length;
     keys.forEach(function (k, ki) {
       g.strokeStyle = colors[ki]; g.lineWidth = 1.5; g.beginPath();
       var pen = false;

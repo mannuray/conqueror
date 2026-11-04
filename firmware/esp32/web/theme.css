@@ -34,3 +34,7 @@
   --warn-rgb: 240, 140, 0; --warn-edge: rgba(240,140,0,.5); --run-line: rgba(240,140,0,.14); --cam-label: rgba(255,255,255,.85);
   --code-font: ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
 }
+/* /settings (also uses --ui-rgb, --warn-rgb, --warn-edge, --on-ui, --on-warn, --stop-ink, --warn-bg, --bad-bg above) */
+:root[data-theme="play"] {
+  --input-bg: #ffffff; --graph-bg: #ffffff; --ok-bg: rgba(236,248,241,.97);
+}

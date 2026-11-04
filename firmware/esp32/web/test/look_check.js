@@ -67,7 +67,19 @@ async (tab) => {
   const pathSunny = await pathPx();
   await page.click("#mbtn"); await page.click("#miLook"); await page.waitForTimeout(100);
   S.logoFlip = [await theme(), pathSunny !== await pathPx()];                                    // cockpit, redrawn
-  out.pass = cockpitSame &&
+  // /settings: the page, the header button flips, the Tune graph is redrawn in the new colours
+  await open("/settings", 390, 844);
+  S.settings = [await css("body", "background-color"), await css("#gCan", "background-color")];
+  await page.click("button[data-tab=tune]"); await page.waitForTimeout(300);
+  const gridPx = () => q(() => { const c = document.getElementById("gCan"), d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+    let h = 0; for (let i = 0; i < d.length; i += 53) h = (h * 31 + d[i]) >>> 0; return h; });
+  const gridSunny = await gridPx();
+  await page.click("#themeBtn"); await page.waitForTimeout(150);
+  S.settingsFlip = [await theme(), gridSunny !== await gridPx()];                                  // cockpit, redrawn
+  S.settingsTitle = await q(() => { const r = (s) => document.querySelector(s).getBoundingClientRect();
+    return r(".top h1").top === r(".top a").top && r("#themeBtn").left > r(".top h1").right; });   // one row: DRIVE … TITLE [look]
+  out.pass = cockpitSame && S.settings.join() === "rgb(255, 248, 236),rgb(255, 255, 255)" &&
+    S.settingsFlip.join() === "cockpit,true" && S.settingsTitle &&
     S.logo.join("|").startsWith("rgb(255, 248, 236)|rgb(232, 56, 46)|ui-monospace") && S.logoFlip.join() === "cockpit,true" &&
     S.driveGlass.join() === "rgb(29, 43, 68),rgba(255, 255, 255, 0.82)" && S.driveStop === "rgb(232, 56, 46)" &&
     S.driveFlip.join() === "cockpit,true";

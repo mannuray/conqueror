@@ -64,6 +64,16 @@ test("teachCheck: the engine's rules and words", () => {
   assert.equal(A.teachCheck("cup", ["a", "b", "c", "d", "e", "f", "g", "h", "i"]), "At most 8 names.");
   assert.equal(A.teachCheck("person", []), "I never look for people.");
   assert.equal(A.teachCheck("cup", ["mug2"]), "Use letters, spaces and - only.");
+  // design-notes §203: person words are refused too (a second check; the detector always reports a person)
+  assert.equal(A.teachCheck("kid", []), "I never look for people.");
+  assert.equal(A.teachCheck("cup", ["baby"]), "I never look for people.");
+  assert.equal(A.teachCheck("little boy", []), "I never look for people.");
+});
+
+test("sameFeed: an ai_at for the feed already open changes nothing (final review I2)", () => {
+  assert.equal(A.sameFeed("ws://a:8770/feed", 1, "ws://a:8770/feed", 1), true);
+  assert.equal(A.sameFeed("ws://a:8770/feed", 1, "ws://b:8770/feed", 1), false);
+  assert.equal(A.sameFeed(null, 0, "ws://a:8770/feed", 1), false);
 });
 
 test("Sayer: nothing before unlock, each sentence once, quiet while muted", () => {

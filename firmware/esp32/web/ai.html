@@ -163,7 +163,11 @@ select { min-height: 40px; background: #020502; border: 1px solid var(--edge); c
     ws.onerror = function () { ws.close(); };
   }
   setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
-  function stop() { send({ t: "stop", id: nextId++ }); send({ t: "logo_stop", id: nextId++ }); }
+  function stop() {
+    send({ t: "stop", id: nextId++ }); send({ t: "logo_stop", id: nextId++ });
+    var was = run.id;  // a missed logo_ended never leaves the buttons stuck (final review M4)
+    if (run.running) setTimeout(function () { if (run.running && run.id === was) setRun(false, "Stopped."); }, 1500);
+  }
   $("stop").addEventListener("click", stop);
   function onTank(m) {
     switch (m.t) {
@@ -196,10 +200,17 @@ select { min-height: 40px; background: #020502; border: 1px solid var(--edge); c
   function runLine(line) {
     if (run.running) return;
     $("ranLine").textContent = line; $("typedMsg").classList.add("hidden");
-    run.mine = true; run.running = true; setRun(true, null);
-    fetch("/logo/check", { method: "POST", body: line }).then(function (r) { return r.json(); }).then(function (c) {
+    run.mine = true; run.running = true; run.id = nextId++; setRun(true, null);
+    check(line, 0);
+  }
+  // The tank's check is one at a time: 503 = busy (a /logo editor checking), tried again (final review M3).
+  function check(line, tries) {
+    fetch("/logo/check", { method: "POST", body: line }).then(function (r) {
+      if (r.status === 503 && tries < 20) { setTimeout(function () { if (run.running) check(line, tries + 1); }, 500); return null; }
+      return r.json();
+    }).then(function (c) {
+      if (!c || !run.running) return;
       if (!c.ok) { var d = (c.diags || [])[0]; setRun(false, d ? d.msg || d.message : "The tank could not run that."); return; }
-      run.id = nextId++;
       if (!send({ t: "logo_run", prog: c.prog, id: run.id })) setRun(false, "Not connected to the tank.");
     }).catch(function () { setRun(false, "Not connected to the tank."); });
   }
@@ -208,25 +219,37 @@ select { min-height: 40px; background: #020502; border: 1px solid var(--edge); c
   var feed = null, feedOpen = false, feedRetry = 0, camState = "NoAI", frames = 0, lastDepth = null, things = [], picked = null;
   var tired = false, teachId = 1;
   function setFeedUrl(url, proto) {
+    if (A.sameFeed(feedUrl, feedProto, url, proto) && feed) return;  // re-sent on each unlock (final review I2)
     feedUrl = url; feedProto = proto;
     camEv(url ? "ai_at_url" : "ai_at_null");
-    if (feed) { try { feed.close(); } catch (x) { /* closing */ } feed = null; }
+    dropFeed();
     if (url && A.protoOk(proto)) openFeed(); else showAiChip();
+  }
+  function dropFeed() {  // the old socket's handlers go first, so its late close never touches the new one
+    var s = feed;
+    feed = null; feedOpen = false;
+    if (!s) return;
+    s.onmessage = s.onclose = s.onerror = null;
+    try { s.close(); } catch (x) { /* closing */ }
   }
   function openFeed() {
     clearTimeout(feedRetry);
     if (!feedUrl || document.hidden || feed) return;
-    feed = new WebSocket(feedUrl); feed.binaryType = "arraybuffer";
-    feed.onmessage = function (e) {
+    var s = new WebSocket(feedUrl);
+    s.binaryType = "arraybuffer";
+    feed = s;
+    s.onmessage = function (e) {
+      if (feed !== s) return;
       if (typeof e.data !== "string") { onFrame(e.data); return; }
       var m; try { m = JSON.parse(e.data); } catch (x) { return; }
       onFeed(m);
     };
-    feed.onclose = function () {
+    s.onclose = function () {
+      if (feed !== s) return;
       feed = null; feedOpen = false; camEv("feed_closed"); showAiChip();
       if (feedUrl && A.protoOk(feedProto)) feedRetry = setTimeout(openFeed, 2000);
     };
-    feed.onerror = function () { if (feed) feed.close(); };
+    s.onerror = function () { if (feed === s) s.close(); };
   }
   function onFeed(m) {
     switch (m.t) {
@@ -304,12 +327,14 @@ select { min-height: 40px; background: #020502; border: 1px solid var(--edge); c
   function showMute() { sayer.mute(muted); $("icOn").classList.toggle("hidden", muted); $("icOff").classList.toggle("hidden", !muted); }
   showMute();
   $("muteBtn").addEventListener("click", function () { muted = !muted; showMute(); try { localStorage.setItem("cq_ai_mute", muted ? "1" : "0"); } catch (x) { /* private */ } });
-  // iOS speaks only after a tap: the first tap anywhere unlocks the voice.
-  document.addEventListener("pointerdown", function unlock() {
+  // iOS speaks only after a tap: touchend / click are user gestures (a touch pointerdown is not - final review I5);
+  // one silent word spoken inside the gesture unlocks the voice for the page.
+  function unlock() {
     sayer.unlock();
-    try { speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch (x) { /* no voice */ }
-    document.removeEventListener("pointerdown", unlock);
-  });
+    try { var u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); } catch (x) { /* no voice */ }
+    document.removeEventListener("touchend", unlock); document.removeEventListener("click", unlock);
+  }
+  document.addEventListener("touchend", unlock); document.addEventListener("click", unlock);
   function showStatus(m) {
     var mood = tired ? "tired" : m.mood || "happy";
     $("say").textContent = m.say || ""; $("mood").textContent = mood;
@@ -390,8 +415,10 @@ select { min-height: 40px; background: #020502; border: 1px solid var(--edge); c
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) {
       if (ws && ws.readyState <= 1) ws.close();
-      if (feed) feed.close();
+      dropFeed(); camEv("feed_closed");
       $("tankCam").removeAttribute("src");
+      clearTimeout(streamTimer); streamTimer = 0;  // shown again: the tank's camera is tried at once (review M5)
+      if (camState === "TankStream") camState = "NoAI";
     } else { retry = 500; connect(); openFeed(); camEv("none"); }
   });
   camEv("none");

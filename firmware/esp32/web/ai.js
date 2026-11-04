@@ -7,6 +7,9 @@ var AiCore = (function () {
   var PROTO = 1;  // the AI feed's version this page speaks (AI engine LLD §22.2)
   var PROTO_TEXT = "Please update the AI helper.";
   var NEVER = "person";  // never a thing to find (AI engine LLD §21.4)
+  // Words for people, refused when teaching (design-notes §203; the engine's PERSON_WORDS) - a second check.
+  var PERSON_WORDS = ("person people human humans kid kids child children baby babies toddler man men woman women boy boys" +
+    " girl girls mum mummy mom mommy mother dad daddy father brother sister grandma grandpa granny me").split(" ");
   var MAX_NAMES = 8, MAX_BYTES = 24;
   var WORD_RE = /^[a-z][a-z -]*$/;
 
@@ -53,7 +56,8 @@ var AiCore = (function () {
   // The engine's own rules (AI engine LLD §22.4), checked before asking: null = fine, else the reason.
   function teachCheck(word, names) {
     var w = squeeze(word), ns = (names || []).map(squeeze).filter(Boolean);
-    if (w === NEVER) return "I never look for people.";
+    var parts = [w].concat(ns).join(" ").split(" ");
+    for (var p = 0; p < parts.length; ++p) if (PERSON_WORDS.indexOf(parts[p]) >= 0) return "I never look for people.";
     if (ns.length > MAX_NAMES) return "At most " + MAX_NAMES + " names.";
     var all = [w].concat(ns);
     for (var i = 0; i < all.length; ++i) {
@@ -83,10 +87,13 @@ var AiCore = (function () {
 
   function protoOk(n) { return n === PROTO; }
 
+  // An ai_at for the feed already in use changes nothing (final review I2: each unlock re-sends it).
+  function sameFeed(url, proto, newUrl, newProto) { return !!url && url === newUrl && proto === newProto; }
+
   return {
     PROTO: PROTO, PROTO_TEXT: PROTO_TEXT, splitFrame: splitFrame, boxRect: boxRect, findLine: findLine,
     wanderLine: wanderLine, exploreLine: exploreLine, typed: typed, unknownText: unknownText, teachCheck: teachCheck,
-    Sayer: Sayer, cameraState: cameraState, protoOk: protoOk, squeeze: squeeze
+    Sayer: Sayer, cameraState: cameraState, protoOk: protoOk, sameFeed: sameFeed, squeeze: squeeze
   };
 })();
 if (typeof module !== "undefined") module.exports = AiCore;

@@ -82,7 +82,36 @@ async (tab) => {
   await open("/help", 390, 844);
   S.help = [await css("body", "background-color"), await q(() => !document.getElementById("themeBtn") && !document.getElementById("miLook")),
     await css("pre", "font-family"), await css("h1", "text-shadow")];
-  out.pass = cockpitSame && S.help[0] === "rgb(255, 248, 236)" && S.help[1] && S.help[2].startsWith("ui-monospace") && S.help[3] === "none" && S.settings.join() === "rgb(255, 248, 236),rgb(255, 255, 255)" &&
+  // every page together: a choice made on one page holds on all; a junk saved value gives the default (a mouse here:
+  // the cockpit); no page scrolls sideways in Sunny (the drive page in landscape)
+  const look = async (p) => { await page.goto("http://127.0.0.1:8765" + p); await page.waitForTimeout(300); return theme(); };
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("http://127.0.0.1:8765/logo"); await q(() => localStorage.setItem("cq_theme", "cockpit")); await page.reload();
+  await page.click("#mbtn"); await page.click("#miLook");
+  S.allPlay = []; for (const p of PAGES) S.allPlay.push(await look(p));                           // play ×5
+  await page.goto("http://127.0.0.1:8765/settings"); await page.click("#themeBtn");
+  S.allCockpit = []; for (const p of PAGES) S.allCockpit.push(await look(p));                     // cockpit ×5
+  await q(() => localStorage.setItem("cq_theme", "junk"));
+  S.junk = await look("/help");                                                                   // cockpit
+  await q(() => localStorage.setItem("cq_theme", "play"));
+  S.noSideways = [];
+  for (const p of PAGES) {
+    await page.setViewportSize(p === "/" ? { width: 844, height: 390 } : { width: 390, height: 844 });
+    await page.goto("http://127.0.0.1:8765" + p); await page.waitForTimeout(300);
+    S.noSideways.push(await q(() => document.scrollingElement.scrollWidth <= innerWidth));        // true ×5
+  }
+  // private browsing: storage throws - the default look, and the button still flips it for the visit
+  const priv = await tab.context().newPage();
+  await priv.addInitScript(() => { Object.defineProperty(window, "localStorage", { get() { throw new Error("private"); } }); });
+  await priv.goto("http://127.0.0.1:8765/settings"); await priv.waitForTimeout(300);
+  const t0 = await priv.evaluate(() => document.documentElement.dataset.theme);
+  await priv.click("#themeBtn");
+  S.private = [t0, await priv.evaluate(() => document.documentElement.dataset.theme)];            // cockpit, play
+  await priv.close();
+  const every = (a, v) => a.length === PAGES.length && a.every((x) => x === v);
+  out.pass = every(S.allPlay, "play") && every(S.allCockpit, "cockpit") && S.junk === "cockpit" && every(S.noSideways, true) &&
+    S.private.join() === "cockpit,play" &&
+    cockpitSame && S.help[0] === "rgb(255, 248, 236)" && S.help[1] && S.help[2].startsWith("ui-monospace") && S.help[3] === "none" && S.settings.join() === "rgb(255, 248, 236),rgb(255, 255, 255)" &&
     S.settingsFlip.join() === "cockpit,true" && S.settingsTitle &&
     S.logo.join("|").startsWith("rgb(255, 248, 236)|rgb(232, 56, 46)|ui-monospace") && S.logoFlip.join() === "cockpit,true" &&
     S.driveGlass.join() === "rgb(29, 43, 68),rgba(255, 255, 255, 0.82)" && S.driveStop === "rgb(232, 56, 46)" &&

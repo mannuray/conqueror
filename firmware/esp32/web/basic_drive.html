@@ -29,7 +29,10 @@
   --bad-bg: rgba(10, 4, 4, .85); --warn-bg: rgba(10, 8, 2, .85); --bad-glow: rgba(255, 59, 48, .35);
   --sheet-bg: rgba(6, 14, 8, .94); --dim-layer: rgba(0, 0, 0, .55);
   --on-ui: #032; --on-warn: #221500; --good: #33ff66; --off: #7a857c; --glass-ink: var(--ui); --label-halo: var(--glow);
-  --r-glass: 7px; --r-btn: 5px; --pad-glow: 0 0 16px rgba(var(--ui-rgb), .28), inset 0 0 22px rgba(var(--ui-rgb), .12);
+  --r-glass: 7px; --r-btn: 5px;
+  /* the top bar (bridge LLD R29) in this page's names: glass buttons over the video */
+  --bar-ink: var(--glass-ink); --bar-bg: var(--glass); --bar-sheet: var(--sheet-bg); --bar-stop-edge: var(--stop-edge-c);
+  --bar-stop-glow: 0 0 14px var(--stop-glow); --bar-r: var(--r-glass); --pad-glow: 0 0 16px rgba(var(--ui-rgb), .28), inset 0 0 22px rgba(var(--ui-rgb), .12);
   --slider-glow: 0 0 16px rgba(var(--ui-rgb), .28), inset 0 0 18px rgba(var(--ui-rgb), .12);
   --knob-glow: 0 0 18px rgba(var(--ui-rgb), .7), inset 0 0 10px rgba(var(--ui-rgb), .35);
   --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
@@ -52,8 +55,11 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .chip b { font-weight: 700; }
 #ownerChip { background: var(--ui); color: var(--on-ui); border-radius: 4px; padding: 1px 5px; }
 #ownerChip.warn { background: var(--warn); color: var(--on-warn) !important; }  /* beats the global .warn text colour */
-/* Speaker + mode chips left of STOP with a clear gap (never a stand-in for STOP; the mode chip is ignored while driving). */
-.rchips { top: 17px; right: calc(var(--redge) + 128px); display: flex; gap: 6px; }
+/* Speaker + mode chips, then the top bar (look, menu, STOP; bridge LLD R29). A phone keeps the middle for the heading
+   tape: the three on top, the two chips just under them. The mode chip is ignored while driving. */
+.rchips { top: 10px; right: var(--redge); display: flex; align-items: center; gap: 8px; }
+.dchips { display: flex; gap: 6px; }
+@media (max-width: 999px) { .rchips { flex-direction: column-reverse; align-items: flex-end; } }
 #ctlChip { cursor: pointer; display: inline-flex; gap: 5px; align-items: center; }
 #audioChip { cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
 #audioChip.muted { color: var(--warn); border-color: var(--warn); box-shadow: none; }
@@ -66,13 +72,10 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 .vitals, #hdgVal, .gval { font-variant-numeric: tabular-nums; }  /* digits keep their width in any font */
 #hdgVal { position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); padding: 0 8px; border: 1px solid var(--ui); border-radius: 4px;
   background: var(--hud-bg); color: var(--active); font-size: 11px; line-height: 13px; text-shadow: var(--glow); }
-#stop { top: 10px; right: var(--redge); background: var(--danger); color: var(--stop-ink); border: 1px solid var(--stop-edge-c); border-radius: var(--r-glass);
-  font-size: 16px; font-weight: 800; letter-spacing: .12em; padding: 10px 18px; box-shadow: 0 0 14px var(--stop-glow);
-  display: flex; gap: 8px; align-items: center; z-index: 8; /* above the menu's dim layer (R13.1) */ }
-#stop svg { width: 18px; height: 18px; }
 #stop:active { transform: scale(.97); filter: brightness(1.2); }
 /* Side gauges (2A): a thin bar with its value on top, aligned to the screen edge; no box. */
 .dist { right: var(--redge); top: 60px; bottom: 10px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+@media (max-width: 999px) { .dist { top: 104px; } }  /* under the top bar's second row (R29) */
 .gval { font-size: 12px; font-weight: 700; color: var(--ui); white-space: nowrap; text-shadow: var(--val-shadow); }
 .distbar { width: 9px; border-radius: 5px; border: 1px solid var(--edge-c); position: relative; overflow: hidden;
   background: linear-gradient(to top, var(--good) 0%, var(--good) 45%, var(--warn) 72%, var(--danger) 100%); }
@@ -154,21 +157,10 @@ body.rc .right .col { position: absolute; margin: 0; right: calc(var(--pad) / 2 
 .banner.show { display: block; } .banner.warn { border: 1px solid var(--warn); color: var(--warn); } .banner.bad { border: 1px solid var(--danger); color: var(--danger); box-shadow: 0 0 10px var(--bad-glow); }
 .sheet { left: 50%; bottom: 82px; transform: translateX(-50%); width: min(470px, 66vw); max-height: 52vh; overflow: auto; padding: 10px; display: none; z-index: 4; background: var(--sheet-bg); }
 .sheet.show { display: block; }
-/* Bridge LLD R13.1: the ☰ MENU sheet (screen 17) over a dim layer; STOP stays above both. */
-#menuBtn { cursor: pointer; }
-#dim { inset: 0; background: var(--dim-layer); z-index: 6; display: none; }
-#dim.show { display: block; }
-#menuSheet { top: 54px; bottom: auto; width: min(300px, 86vw); max-height: 80vh; z-index: 7; }
-.mi { display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin-top: 6px; border: 1px solid var(--edge-c); border-radius: var(--r-btn); color: var(--ui); text-decoration: none; }
-.mi svg { width: 18px; height: 18px; flex: none; }
-.mi b { display: block; letter-spacing: .08em; } .mi small { color: var(--dim); }
-.mi i { margin-left: auto; font-style: normal; }
-.mi.off { opacity: .5; pointer-events: none; }
 .sgrid.four { grid-template-columns: repeat(4, 1fr); margin-bottom: 8px; }
 .sgrid .btn.on { background: var(--ui); color: var(--on-ui); }
 #camBtn.slow { color: var(--warn); border-color: var(--warn); }
 .sheet a.btn { display: block; text-align: center; text-decoration: none; }
-.mi .bdg { border: 1px solid var(--warn); color: var(--warn); font-size: 9px; padding: 1px 5px; white-space: nowrap; }
 .sheet .title { color: var(--ui); text-shadow: var(--glow); font-size: 11px; letter-spacing: .1em; margin: 0 0 8px; }
 .sgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .sgrid .btn { font-size: 11px; background: rgba(var(--ui-rgb), .05); border: 1px solid var(--edge-c); border-radius: var(--r-btn); padding: 8px 6px; }
@@ -196,8 +188,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   <span class="chip glass"><small>CTRL:</small><b id="ownerChip">-</b></span>
 </div>
 <div class="ov hdg glass"><canvas id="hdgTape"></canvas><b id="hdgVal">-</b></div>
-<button id="stop" class="ov" type="button"><!--icon:hand-->STOP</button>
-<div class="ov rchips"><button id="menuBtn" class="chip glass" type="button" aria-label="menu">☰ MENU</button><button id="audioChip" class="chip glass" type="button" aria-label="mute or unmute the tank"><!--icon:volume-2 id="audioOn"--><!--icon:volume-x id="audioOff" class="hidden"--><b id="audioTxt"></b></button><button id="ctlChip" class="chip glass" type="button" aria-label="switch drive controls"><!--icon:joystick id="icStick"--><!--icon:gamepad-2 id="icRc" class="hidden"--><b id="ctlTxt">STICK</b></button></div>
+<div class="ov rchips cqhost"><span class="dchips"><button id="audioChip" class="chip glass" type="button" aria-label="mute or unmute the tank"><!--icon:volume-2 id="audioOn"--><!--icon:volume-x id="audioOff" class="hidden"--><b id="audioTxt"></b></button><button id="ctlChip" class="chip glass" type="button" aria-label="switch drive controls"><!--icon:joystick id="icStick"--><!--icon:gamepad-2 id="icRc" class="hidden"--><b id="ctlTxt">STICK</b></button></span>
+<!--CQ:BAR-->
+</div>
 <div class="ov dist"><b id="distTxt" class="gval">-</b><div class="distbar"><div id="distMask"></div></div></div>
 <div class="ov batt"><b id="battTxt" class="gval">-</b><div id="battBar" class="battbar"><div id="battMask"></div></div></div>
 <div id="banner" class="ov banner"></div>
@@ -241,14 +234,6 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   <p class="title">PICTURE SIZE</p><div id="camSize" class="sgrid four"><button class="btn" type="button" data-v="QVGA">QVGA</button><button class="btn" type="button" data-v="VGA">VGA</button><button class="btn" type="button" data-v="SVGA">SVGA</button><button class="btn" type="button" data-v="HD">HD</button></div>
   <p class="title">FRAME-RATE LIMIT</p><div id="camFps" class="sgrid four"><button class="btn" type="button" data-v="0">MAX</button><button class="btn" type="button" data-v="15">15</button><button class="btn" type="button" data-v="10">10</button><button class="btn" type="button" data-v="5">5</button></div>
   <div class="sgrid"><a class="btn" href="/settings#tank">MORE IN SETTINGS ›</a></div>
-</div>
-<div id="dim" class="ov"></div>
-<div id="menuSheet" class="ov sheet glass"><p class="title">[ MENU ]</p>
-  <a class="mi" id="miLogo" href="/logo"><!--icon:code--><span><b>LOGO</b><small>write and run programs</small></span><i>›</i></a>
-  <a class="mi" id="miSettings" href="/settings"><!--icon:settings--><span><b>SETTINGS</b><small>WiFi · tank · tune · log</small></span><i>›</i></a>
-  <a class="mi" id="miAi" href="/ai"><!--icon:sparkles--><span><b>AI</b><small>find, explore, teach it a word</small></span><i>›</i></a>
-  <a class="mi" id="miHelp" href="/help"><!--icon:circle-help--><span><b>HELP</b><small>how-to and facts</small></span><i>›</i></a>
-  <a class="mi" id="miLook" href="#" data-look-skip><!--icon:palette--><span><b>LOOK</b><small>sunny or cockpit</small></span><i>›</i></a>
 </div>
 <div id="toast"></div>
 <div id="rotate">[ ROTATE THE PHONE ]<br>landscape only</div>
@@ -780,7 +765,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     $("maxTxt").textContent = speed + "%";
     try { localStorage.setItem("cq_speed", String(speed)); } catch (e) { /* private mode */ }
   });
-  var sheets = { soundsBtn: "soundSheet", moreBtn: "moreSheet", menuBtn: "menuSheet", camBtn: "camSheet" };
+  var sheets = { soundsBtn: "soundSheet", moreBtn: "moreSheet", camBtn: "camSheet" };
   // design-notes §94: camera chip + sheet; the state comes from {"t":"tank"} every 2 s while the page is visible
   function showCamera(c) {
     if (!c) return;
@@ -799,15 +784,14 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     var b = e.target.closest("button"); if (b) send({ t: "camera_set", fps_cap: Number(b.dataset.v), id: nextId++ });
   });
   setInterval(function () { if (!document.hidden) send({ t: "tank" }); }, 2000);
-  function closeMenu() { $("menuSheet").classList.remove("show"); $("dim").classList.remove("show"); }
-  $("dim").addEventListener("click", closeMenu);
-  $("miAi").addEventListener("click", closeMenu);
+  // one sheet at a time: the top bar's menu (R29) closes this page's sheets, and a sheet closes the menu
+  function closeSheets() { Object.keys(sheets).forEach(function (k) { $(sheets[k]).classList.remove("show"); }); }
+  window.addEventListener("cqmenu", closeSheets);
   Object.keys(sheets).forEach(function (b) {
     $(b).addEventListener("click", function () {
       var open = $(sheets[b]).classList.contains("show");
-      Object.keys(sheets).forEach(function (k) { $(sheets[k]).classList.remove("show"); });
-      if (!open) $(sheets[b]).classList.add("show");
-      $("dim").classList.toggle("show", !open && b === "menuBtn");
+      closeSheets();
+      if (!open) { cqBar.close(); $(sheets[b]).classList.add("show"); }
     });
   });
   SOUNDS.forEach(function (name) {
@@ -990,7 +974,6 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
   startVideo();
   drawTape(0);
   window.addEventListener("cqtheme", function () { tapeFont = ""; tapeInk = null; drawTape(tapeHead); });  // the look flipped (R28)
-  $("miLook").addEventListener("click", function (e) { e.preventDefault(); cqTheme.flip(); });  // the menu stays open
   showVitals();
   pollWifi();
   setInterval(pollWifi, 10000);

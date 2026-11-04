@@ -22,8 +22,9 @@ async (tab) => {
         "background-image", "border-top-left-radius", "border-bottom-right-radius", "display"];
       const out = [];
       for (const el of document.querySelectorAll("body *")) {
-        // Plan Top Bar (R29): the top bar changed on purpose - each page's header and the bar's menu are left out on both sides
-        if (el.closest("[data-look-skip], header, #cqMenu, #cqDim, nav#menu")) continue;
+        // Plan Top Bar (R29): the top bar changed on purpose - each page's header (the drive page's top-right row, STOP and
+        // old menu sheet) and the bar's menu are left out on both sides
+        if (el.closest("[data-look-skip], header, #cqMenu, #cqDim, nav#menu, .rchips, #stop, #dim, #menuSheet")) continue;
         for (const pseudo of [null, "::before", "::after"]) {
           const cs = getComputedStyle(el, pseudo);
           if (pseudo && cs.content === "none") continue;
@@ -62,7 +63,7 @@ async (tab) => {
   S.driveTitle = await css(".stick .ttl", "text-shadow");  // final review I3: a white halo, readable on the video
   const caret = () => pixel("#hdgTape", 0.5, 0.92);
   const caretSunny = await caret();
-  await page.click("#menuBtn"); await page.click("#miLook"); await page.waitForTimeout(100);
+  await page.click("#lookBtn"); await page.waitForTimeout(100);
   S.driveFlip = [await theme(), caretSunny !== await caret()];                                   // cockpit, the caret redrawn
   // /logo: the page, STOP, the code font stays fixed-width, the bar's look button flips, the path is redrawn
   await open("/logo", 1440, 900);
@@ -134,7 +135,7 @@ async (tab) => {
   await open("/", 844, 390);
   M.drive = [await css("#menuBtn", "border-top-left-radius"), await css(".pad", "box-shadow"), await css("#hdgVal", "font-variant-numeric"),
     await q(() => document.querySelector("meta[name=theme-color]").content)];
-  await page.click("#menuBtn"); await page.click("#miLook"); await page.waitForTimeout(100);
+  await page.click("#lookBtn"); await page.waitForTimeout(100);
   M.driveCockpitMeta = await q(() => document.querySelector("meta[name=theme-color]").content);  // #050805
   const minorsOk = M.hud === "rgba(255,255,255,.88)" &&
     M.settings.join("|") === "none|none|18px|12px|#fff8ec" &&

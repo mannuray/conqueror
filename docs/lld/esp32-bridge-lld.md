@@ -3164,3 +3164,75 @@ sequenceDiagram
 - `scripts/test_theme_pack.py` (unittest): the marker is replaced in every page; a missing marker fails the build naming the page; `</` in theme.js never closes its `<script>`.
 - `web/test/theme.test.js` (node): `pick`.
 - `web/test/look_check.js` (Playwright on `fake_tank.py`): each page in the cockpit has the same computed colours, shadows and fonts, element by element, as the commit before the change (5521b22, served by a second stand-in on :8766; a socket that never connects and clean storage, so live state cannot differ); each page in Sunny has the cream background and red STOP; the choice made on one page holds on the others; the canvases' colours change on a flip; no sideways scroll at 390 px.
+
+## R29. One top bar on every page (owner 2026-11-04; design-notes §208 — approved)
+
+### R29.1 What changes
+- `<!--CQ:BAR-->` in each page (`/`, `/logo`, `/settings`, `/help`, `/ai`) is replaced at build time by `scripts/pack_web.py` with `<style>bar.css</style>` + `web/bar.html` (the three buttons and the menu) + `<script>bar.js</script>` (every `</` in the script written `<\/`). A page without the marker fails the build.
+- The three buttons: `#lookBtn` (palette icon, "change the look"), `#menuBtn` (menu icon, "menu"), `#stop` (hand icon + STOP). The menu: `#cqMenu`, five links `a[data-page]` for `/`, `/logo`, `/ai`, `/settings`, `/help`, each an icon, a name and a short line; `#cqDim` behind it.
+- Each page keeps its own STOP handler on `#stop` (Drive, `/logo`, `/ai` unchanged; new in `/settings`; `/help` through `cqBar.stopOnce()`).
+- Removed: "< DRIVE" links, the drive page's `#menuSheet` and `menuBtn` chip, `/logo`'s `#mbtn` and `nav#menu`, the LOOK items, the `/ai` and `/settings` `#themeBtn` (now `#lookBtn`).
+
+### R29.2 Classes
+
+```mermaid
+classDiagram
+  class cqBar {
+    <<bar.js, window.cqBar>>
+    +PAGES : [path, name, line, icon] x5
+    +here(path) string
+    +open() void
+    +close() void
+    +isOpen() bool
+    +stopOnce(url, done) void
+  }
+  class cqTheme {
+    <<theme.js, R28>>
+    +flip() string
+  }
+  class Page {
+    <<each page>>
+    <!--CQ:BAR--> in its top bar
+    #stop click: its own stop()
+    on "cqmenu": close its own sheets
+  }
+  class PackWeb {
+    +with_bar(text, project, page) str
+    +BAR_MARKER = "<!--CQ:BAR-->"
+  }
+  PackWeb ..> cqBar : inlines bar.html, bar.css, bar.js
+  cqBar --> cqTheme : #lookBtn click
+  Page --> cqBar : stopOnce (help only)
+  cqBar ..> Page : event cqmenu (menu opened)
+```
+
+- `here(path)`: the menu entry for a path (`/` for the drive page); that entry gets `aria-current="page"`.
+- `open()` shows `#cqMenu` and `#cqDim`, dispatches `window` event `cqmenu`; `close()` hides both; a tap on `#cqDim`, Esc, or `#menuBtn` again closes. STOP stays above the dim layer (z-index), as R13.1.
+- `stopOnce(url, done)`: `new WebSocket(url)`, on open `hello` (client `"help"`), `stop`, `logo_stop`; `done(true)` on the first `ack`, `done(false)` on error or after 2 s; the socket is closed either way.
+
+### R29.3 STOP from Help
+
+```mermaid
+sequenceDiagram
+  actor Child
+  participant H as /help #stop
+  participant B as cqBar.stopOnce
+  participant T as bridge /ws
+  Child->>H: tap STOP
+  H->>B: stopOnce(ws://host/ws)
+  B->>T: open, hello, stop, logo_stop
+  T-->>B: ack
+  B->>B: close socket
+  B-->>H: done(true) -> "Stopped"
+  Note over B,T: no ack in 2 s or socket error: close, done(false) -> "Couldn't reach the tank - use another STOP"
+```
+
+### R29.4 Rules
+- Same order (🎨, ☰, STOP), same height (44 px), top right, on every page and in both looks; STOP solid red.
+- A page never adds its own menu, look switch or back link.
+- The drive page's hide-STOP and latch rules (§201, R11) and `/logo`'s and `/ai`'s program stop are untouched.
+
+### R29.5 Tests
+- `scripts/test_bar_pack.py`: the marker becomes the style, markup and script on every page, once; a page without it fails naming the page; nothing in bar.js closes its `<script>`.
+- `web/test/bar.test.js` (node): `here()` for each path and an unknown one; `stopOnce` with a fake socket - ack → true and closed; error → false; silence → false after 2 s (fake timer), closed.
+- `web/test/bar_check.js` (Playwright on `fake_tank.py`): on each page at 390 px and 1440 px the three are in one row, in order, at the top right, the same height; the title on one line; the menu has the five entries in order with the current one marked; 🎨 flips and the choice holds on the next page; STOP sends `stop` on each page (Drive, `/logo`, `/ai` as before; Settings `stop` + `logo_stop`; Help through a socket it opens and then closes); no sideways scroll; `hide_stop_check`, `ai_check`, `browser_check`, `browser_check_wide`, `camera_centre_check`, `camera_tuning_check`, `look_check` (Sunny parts updated to `#lookBtn` and the shared menu) still pass.

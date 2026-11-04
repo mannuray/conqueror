@@ -7,6 +7,7 @@ async (page) => {
   const PAGES = [
     { path: "/ai", title: "header .title", stop: ["stop", "logo_stop"] },
     { path: "/settings", title: ".top h1", stop: ["stop", "logo_stop"] },
+    { path: "/logo", title: ".top h1", stop: ["stop", "logo_stop"] },
   ];
   const SIZES = [[390, 844], [1440, 900]];
   const fails = [];
@@ -87,5 +88,20 @@ async (page) => {
       ok(await page.evaluate(() => document.documentElement.dataset.theme) === after, at + ": the look did not hold");
     }
   }
+  // /logo: its own menu and back link are gone; Esc with the menu open closes it and still stops (Esc is STOP from
+  // anywhere on /logo, even in a dialog, which it also closes - Tank Logo LLD §23)
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(BASE + "/logo"); await page.waitForTimeout(300);
+  ok(await page.evaluate(() => !document.getElementById("mbtn") && !document.querySelector("nav#menu") && !document.getElementById("miLook") &&
+    !Array.from(document.querySelectorAll("header a")).some((x) => /DRIVE/.test(x.textContent))), "/logo: the old menu, LOOK item or DRIVE link is still there");
+  await page.click("#menuBtn");
+  await page.evaluate(() => { window.__sent = []; });
+  await page.keyboard.press("Escape"); await page.waitForTimeout(100);
+  ok(await page.evaluate(() => document.getElementById("cqMenu").hidden), "/logo: Esc did not close the menu");
+  ok(await page.evaluate(() => window.__sent.join()) === "stop,logo_stop", "/logo: Esc with the menu open did not stop");
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { window.__sent = []; });
+  await page.keyboard.press("Escape"); await page.waitForTimeout(100);
+  ok(await page.evaluate(() => window.__sent.join()) === "stop,logo_stop", "/logo: Esc again did not stop");
   return fails.length ? "FAIL\n" + fails.join("\n") : "PASS bar_check (" + PAGES.map((p) => p.path).join(" ") + ")";
 }

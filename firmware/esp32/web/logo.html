@@ -30,17 +30,13 @@ button { background: transparent; border: 1px solid var(--edge-c); color: var(--
 button:disabled { opacity: .35; cursor: default; }
 button, input, select, .chip, .badge { border-radius: var(--r); }
 svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
-header { padding: 10px max(12px, env(safe-area-inset-left)) 8px; border-bottom: 1px solid var(--edge-c);
+header { padding: 8px max(16px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); border-bottom: 1px solid var(--edge-c);
   position: sticky; top: 0; z-index: 10; background: var(--bg); }  /* STOP always on screen (§21.6), above the sheets */
 .top { display: flex; align-items: center; gap: 8px; }
-.top a { color: var(--ui); text-decoration: none; letter-spacing: .08em; font-weight: 700; }
-.top h1 { flex: 1; font-size: 13px; margin: 0; color: var(--ui); letter-spacing: .14em; text-align: center; }
-#stop { background: var(--danger); color: var(--stop-ink); border-color: var(--danger); font-weight: 700; padding: 8px 14px; }
+.top h1 { flex: 1; min-width: 0; font-size: 13px; margin: 0; color: var(--ui); letter-spacing: .14em; white-space: nowrap; }
 .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
 .chip { border: 1px solid var(--edge-c); padding: 4px 6px; color: var(--ui); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
 .chip.warn { color: var(--warn); border-color: var(--warn-edge); }
-#menu { display: none; position: fixed; right: 12px; top: 52px; z-index: 11; background: var(--panel); border: 1px solid var(--edge-c); }
-#menu.on { display: block; } #menu a { display: block; padding: 12px 18px; color: var(--ui); text-decoration: none; border-bottom: 1px solid var(--line); }
 main { padding: 10px 12px; display: grid; gap: 10px; }
 .card { border: 1px solid var(--edge-c); background: var(--panel); padding: 10px; min-width: 0; border-radius: var(--r-card); }
 .card h2 { margin: 0 0 8px; font-size: 12px; color: var(--ui); letter-spacing: .1em; display: flex; justify-content: space-between; gap: 8px; }
@@ -102,9 +98,9 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 @media (max-width: 899px) { body:not(.tpath) #cPath { display: none; } body.tpath #cEdit, body.tpath #cMsg { display: none; } }
 @media (min-width: 900px) {  /* §23: an editor that fills the window; only the panes scroll */
   body { padding-bottom: 0; height: 100vh; height: 100dvh; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); }
-  header { position: static; }
-  header .inner { display: flex; align-items: center; gap: 16px; } .top { display: contents; } .top h1 { flex: 1; text-align: left; }
-  .chips { display: flex; margin-top: 0; order: 2; } #mbtn { order: 3; }  /* the menu button at the far right (owner) */
+  header { position: relative; }  /* not sticky here; still a stacking box, so the top bar rises over the menu's dim (R29) */
+  header .inner { display: flex; align-items: center; gap: 16px; } .top { display: contents; }
+  .chips { display: flex; margin-top: 0; order: 2; } .cqbar { order: 3; }  /* look, menu, STOP at the far right (owner, R29) */
   main { min-height: 0; grid-template-columns: 220px minmax(0, 1fr) minmax(320px, 34%); grid-template-rows: minmax(0, 1fr) 12em auto;
     grid-template-areas: "prog edit run" "prog msg run" "bar bar bar"; }
   #cProg, #cEdit, #cMsg, #cPath { display: flex; flex-direction: column; min-height: 0; }
@@ -128,12 +124,10 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 </style>
 </head>
 <body>
-<header><div class="inner">
+<header class="cqhost"><div class="inner">
   <div class="top">
-    <a href="/"><!--icon:chevron-left-->DRIVE</a>
     <h1>[ TANK LOGO ]</h1>
-    <button id="mbtn" type="button" aria-label="Menu"><!--icon:menu--></button>
-    <button id="stop" type="button"><!--icon:octagon-x--> STOP</button>
+    <!--CQ:BAR-->
   </div>
   <div class="chips">
     <span class="chip" id="cBatt"><!--icon:battery--> -- V</span>
@@ -141,7 +135,6 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     <span class="chip" id="cUno"><!--icon:cpu--> UNO --</span>
   </div>
 </div></header>
-<nav id="menu"><a href="/">DRIVE</a><a href="/ai">AI</a><a href="/settings">SETTINGS</a><a href="/help">HELP</a><a href="#" id="miLook" data-look-skip><!--icon:palette--> LOOK</a></nav>
 <main>
 <section class="card" id="cProg">
   <h2>[ PROGRAMS ]</h2>
@@ -487,7 +480,6 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   }
   window.addEventListener("resize", draw);
   window.addEventListener("cqtheme", draw);  // the look flipped: the path takes the new colours (bridge LLD R28)
-  $("miLook").addEventListener("click", function (e) { e.preventDefault(); cqTheme.flip(); });  // the menu stays open
   if (window.ResizeObserver) new ResizeObserver(function () { draw(); }).observe($("path").parentNode);  // HIDE / SHOW camera
   $("mini").addEventListener("click", function () { tab("path"); });
   function tab(t) {
@@ -617,7 +609,6 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
       drafts.clear(name); loadList().then(function () { openProg(NEW); });
     });
   });
-  $("mbtn").addEventListener("click", function () { $("menu").classList.toggle("on"); });
 
   // ---------- tank link (bridge R11: no link while the page is hidden) ----------
   /*CQ:ICONS wifi wifi-high wifi-low wifi-zero wifi-off battery-full battery-medium battery-low battery-warning plug cpu*/  // R25
@@ -708,7 +699,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     if (!b.disabled) b.click();
   }, true);  // capture: before the editor's own keys
   var mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
-  $("run").dataset.kbd = mac ? "\u2318\u21B5" : "Ctrl\u21B5"; $("step").dataset.kbd = "F10"; $("stop").dataset.kbd = "Esc";
+  $("run").dataset.kbd = mac ? "\u2318\u21B5" : "Ctrl\u21B5"; $("step").dataset.kbd = "F10"; $("stop").title = "Stop (Esc)";  // the bar's STOP: same size on every page (R29)
   $("psave").title = "Save on the tank (" + (mac ? "\u2318S" : "Ctrl+S") + ")";
 
   // CameraPane: the stream only while it can be seen (port 81, 2 viewers at most - the page cannot tell a

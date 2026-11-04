@@ -23,7 +23,7 @@ async (tab) => {
       const out = [];
       for (const el of document.querySelectorAll("body *")) {
         // Plan Top Bar (R29): the top bar changed on purpose - each page's header and the bar's menu are left out on both sides
-        if (el.closest("[data-look-skip], header, #cqMenu, #cqDim")) continue;
+        if (el.closest("[data-look-skip], header, #cqMenu, #cqDim, nav#menu")) continue;
         for (const pseudo of [null, "::before", "::after"]) {
           const cs = getComputedStyle(el, pseudo);
           if (pseudo && cs.content === "none") continue;
@@ -64,7 +64,7 @@ async (tab) => {
   const caretSunny = await caret();
   await page.click("#menuBtn"); await page.click("#miLook"); await page.waitForTimeout(100);
   S.driveFlip = [await theme(), caretSunny !== await caret()];                                   // cockpit, the caret redrawn
-  // /logo: the page, STOP, the code font stays fixed-width, LOOK in the ☰ menu flips, the path is redrawn
+  // /logo: the page, STOP, the code font stays fixed-width, the bar's look button flips, the path is redrawn
   await open("/logo", 1440, 900);
   S.logo = [await css("body", "background-color"), await css("#stop", "background-color"), await css("#src", "font-family")];
   S.logoRunInk = await css("#run", "color");  // final review I2: navy on orange (white was 2.5:1)
@@ -76,7 +76,7 @@ async (tab) => {
   const pathPx = () => q(() => { const c = document.getElementById("path"), g = c.getContext("2d"), d = g.getImageData(0, 0, c.width, c.height).data;
     let h = 0; for (let i = 0; i < d.length; i += 97) h = (h * 31 + d[i]) >>> 0; return h; });
   const pathSunny = await pathPx();
-  await page.click("#mbtn"); await page.click("#miLook"); await page.waitForTimeout(100);
+  await page.click("#lookBtn"); await page.waitForTimeout(100);
   S.logoFlip = [await theme(), pathSunny !== await pathPx()];                                    // cockpit, redrawn
   // /settings: the page, the header button flips, the Tune graph is redrawn in the new colours
   await open("/settings", 390, 844);
@@ -98,7 +98,7 @@ async (tab) => {
   const look = async (p) => { await page.goto("http://127.0.0.1:8765" + p); await page.waitForTimeout(300); return theme(); };
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("http://127.0.0.1:8765/logo"); await q(() => localStorage.setItem("cq_theme", "cockpit")); await page.reload();
-  await page.click("#mbtn"); await page.click("#miLook");
+  await page.click("#lookBtn");
   S.allPlay = []; for (const p of PAGES) S.allPlay.push(await look(p));                           // play ×5
   await page.goto("http://127.0.0.1:8765/settings"); await page.click("#lookBtn");
   S.allCockpit = []; for (const p of PAGES) S.allCockpit.push(await look(p));                     // cockpit ×5

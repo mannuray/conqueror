@@ -3068,3 +3068,28 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   all fixed. **Open:** the owner's stand check (STOP on each page; Drive while driving the tracks on the stand; WiFi off
   and on).
 
+
+## 211. Z2b-2: one Room tab; layer ideas parked (owner, 2026-11-05: "so the room tab only"; "replace it with 'find this thing' from the pins"; "note it, we will discuss later, let's go with current plan")
+- **One new tab, ROOM** (the /ai page becomes PLAY | ROOM). The Inside tab of §200 is dropped for now: its parts were
+  either already on Play (the camera, boxes) or engineer-only.
+- **No tap-to-go.** In its place, **find this thing** from the pins: tapping a remembered thing's pin on the map, or its
+  FIND button in the "I remember" list, starts a `find` for it (the same skill as the Play tab's FIND).
+- **The Room tab:** the map (floor seen, high / low obstacles, the play area, home, the tank and its camera view, the
+  trail, pins of remembered things), a **layers** panel (floor & obstacles, tank & camera, home & play area always on;
+  things and trail on; why off; careful zones and earlier runs "later"), **I remember** (name, where, when, FIND), and one
+  line of room facts (home, play area, floor seen). Laptop: map left, panel right; phone: map full width, layer chips and
+  the list below. With the AI helper off: an empty map saying to start it.
+- **Stitch screens:** `docs/design/stitch/22-ai-room-desktop-v1.jpg` (Cockpit), `23-ai-room-mobile-v1.jpg` (Sunny Play).
+  Owner: "cool it's good". To fix when built: Stitch's made-up technical words (occupancy grid, lidar, SLAM, ids,
+  latency, density) become plain words; no compass words (the map is from the home mark); the "?" places to check only
+  in the why layer; the real status strip on the phone; our own icons; room facts on one line.
+- **Parked ideas, to discuss later (owner):**
+  - *More map layers:* which sensor made each mark (camera depth vs the distance sensor); where the camera has looked;
+    the keep-away band; why (route, places to check, maybe-sightings); "where am I?" - a circle that grows as the
+    position drifts; fading remembered marks; moments on the trail (stopped, blocked, STOP, found); a Tank Logo
+    program's path on the room map; earlier runs. My recommendation was 1 sensor, 3 keep-away, 5 where am I, 7 moments.
+  - *More camera layers (view B's LAYER list, beside DEPTH):* floor & obstacles tinted on the picture; the way it wants
+    to go; distance rings at 0.5 / 1 / 2 m; the horizon and the camera angle it thinks it has; the distance sensor's
+    beam and reading; what the ball finder sees (its colour mask); maybe-things with scores; remembered things out of
+    sight. My recommendation was floor & obstacles, the way, rings, the sonar beam. Tints need a small picture from
+    the engine as depth does; rings, horizon and beam the page can draw.

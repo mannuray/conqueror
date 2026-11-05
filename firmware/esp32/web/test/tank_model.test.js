@@ -9,11 +9,11 @@ test("raw data, not texts: battery average and flags, heading, speed, WiFi, Uno"
   const m = new T.TankModel();
   m.apply({ t: "ts", batt_v: 7.6, flags: ["batt_low"] });
   m.apply({ t: "tf", yaw: 91.6, spd_cmd: [-40, 25] });
-  m.apply({ t: "wifi_status", mode: "home", rssi: -58 });
+  m.apply({ t: "wifi_status", mode: "home", rssi: -58, ssid: "MyHouse5G" });
   assert.deepEqual(m.state.batt, { v: 7.6, flags: ["batt_low"] });
   assert.equal(m.state.hdg, 91.6);
   assert.equal(m.state.spd, 40);
-  assert.deepEqual(m.state.wifi, { mode: "home", rssi: -58 });
+  assert.deepEqual(m.state.wifi, { mode: "home", rssi: -58, ssid: "MyHouse5G" });
   assert.equal(m.state.uno, true);
 });
 

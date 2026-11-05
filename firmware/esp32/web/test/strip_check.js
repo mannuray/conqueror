@@ -67,8 +67,10 @@ async (page) => {
     ok((await text("cBatt")) === "50 %", at + ": battery " + (await text("cBatt")));
     await emit({ t: "tf", yaw: 91.6, spd_cmd: [-40, 25] });
     ok((await text("cHdg")) === "HDG 92°" && (await text("cSpd")) === "SPEED 40%", at + ": HDG / SPEED " + (await text("cHdg")) + " " + (await text("cSpd")));
-    await emit({ t: "wifi_status", mode: "home", rssi: -50 });
-    ok((await text("cWifi")) === "HOME" && await page.evaluate(() => document.querySelector("#cWifi svg.on").getAttribute("data-w")) === "wifi", at + ": WiFi chip");
+    await emit({ t: "wifi_status", mode: "home", rssi: -50, ssid: "MyHouse5G" });  // owner 2026-11-05: the network's name
+    ok((await text("cWifi")) === "MyHouse5G" && await page.evaluate(() => document.querySelector("#cWifi svg.on").getAttribute("data-w")) === "wifi", at + ": WiFi chip");
+    await emit({ t: "wifi_status", mode: "ap", rssi: 0, ssid: "", ap_ssid: "Conqueror" });
+    ok((await text("cWifi")) === "TANK HOTSPOT" && await page.evaluate(() => document.querySelector("#cWifi svg.on").getAttribute("data-w")) === "radio-tower", at + ": the hotspot chip");
     await emit({ t: "ts", batt_v: 5.0, flags: ["body_offline"] });
     ok((await text("cBatt")) === "USB" && (await text("cUno")) === "UNO OFFLINE", at + ": USB / UNO OFFLINE " + (await text("cBatt")) + " " + (await text("cUno")));
     if (p !== "/ai") {

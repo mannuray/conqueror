@@ -10,10 +10,16 @@ var cqStripView = (function () {
     if (rssi === null || rssi === undefined) return "wifi-zero";
     return rssi > -55 ? "wifi" : rssi > -65 ? "wifi-high" : rssi > -75 ? "wifi-low" : "wifi-zero";
   }
-  function wifiText(mode, rssi) {
-    if (mode === "home") return { icon: wifiIcon(rssi), text: "HOME", warn: rssi === null || rssi === undefined || rssi <= -65 };
+  // the house WiFi by its name, cut to 10 letters (owner 2026-11-05: "HOME" was taken for the AI's home spot); the
+  // tank's own WiFi a tower and TANK HOTSPOT (ap_fallback: it found no house WiFi - a warning)
+  var NAME_MAX = 10;
+  function wifiText(mode, rssi, ssid) {
+    if (mode === "home") {
+      var name = !ssid ? "HOUSE WIFI" : ssid.length > NAME_MAX ? ssid.slice(0, NAME_MAX - 1) + "…" : ssid;
+      return { icon: wifiIcon(rssi), text: name, warn: rssi === null || rssi === undefined || rssi <= -65 };
+    }
     if (mode === "connecting") return { icon: "wifi-zero", text: "CONNECTING", warn: true };
-    return { icon: "wifi", text: "OWN WIFI", warn: false };
+    return { icon: "radio-tower", text: "TANK HOTSPOT", warn: mode === "ap_fallback" };
   }
   function posText(x, y) { return "POS " + x.toFixed(1) + "," + y.toFixed(1); }
 
@@ -32,7 +38,7 @@ var cqStripView = (function () {
       pos: s.pos === null ? "POS --" : posText(s.pos.x, s.pos.y),
       spd: s.spd === null ? "SPEED --" : "SPEED " + s.spd + "%",
       wifi: s.link === "down" ? { icon: "wifi-off", text: "RECONNECTING", warn: true }
-        : s.wifi ? wifiText(s.wifi.mode, s.wifi.rssi) : { icon: "wifi-zero", text: "WIFI --", warn: false },
+        : s.wifi ? wifiText(s.wifi.mode, s.wifi.rssi, s.wifi.ssid) : { icon: "wifi-zero", text: "WIFI --", warn: false },
       uno: s.uno === null ? { text: "UNO --", warn: false } : s.uno ? { text: "UNO ONLINE", warn: false } : { text: "UNO OFFLINE", warn: true }
     };
   }

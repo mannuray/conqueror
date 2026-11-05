@@ -41,7 +41,8 @@ async (page) => {
       }
       async sendMap() { const f = await window.__mapFrame(); this.onmessage && this.onmessage({ data: f }); }
       send(s) { const m = JSON.parse(s); this.sent.push(m); (this.feed ? window.__feed : window.__tank).push(m);
-        if (!this.feed && m.t === "hello") { this.emit({ t: "welcome", you: "ai-1" }); this.emit({ t: "ai_at", url: "ws://127.0.0.1:8770/feed", proto: 1 }); } }
+        if (!this.feed && m.t === "hello") { this.emit({ t: "welcome", you: "ai-1" }); this.emit({ t: "ai_at", url: "ws://127.0.0.1:8770/feed", proto: 1 }); }
+        if (!this.feed && m.t === "ping") this.emit({ t: "pong" }); }
       emit(o) { setTimeout(() => this.onmessage && this.onmessage({ data: JSON.stringify(o) }), 5); }
       close() { if (this.readyState === 3) return; this.readyState = 3; setTimeout(() => this.onclose && this.onclose(), 1); }
     }
@@ -96,15 +97,24 @@ async (page) => {
   await tap(1.7, 0.0);
   out.goNull = await q(() => { const b = document.querySelector("#roomCard .rcGo"); return [b.disabled, document.getElementById("roomCard").textContent.indexOf("I don't know a way there yet.") >= 0]; });
   // a block: name it; the engine's refusal shown
+  await q(() => document.querySelector("#roomCard .rcClose") && document.querySelector("#roomCard .rcClose").click());
+  await page.waitForTimeout(150);
+  const unlit = await pixel(1.6, -0.1);
   await tap(1.85, -0.15);
+  out.lit = JSON.stringify(await pixel(1.6, -0.1)) !== JSON.stringify(unlit);  // R32.7: the whole joined block lights
+  out.hint = await q(() => document.getElementById("roomHint").textContent);
   out.newCard = await q(() => document.getElementById("roomCard").textContent.indexOf("What's this?") >= 0);
   await page.fill("#roomCard input", "Toy Box"); await page.click("#roomCard .rcName"); await page.waitForTimeout(100);
   const nm = await q(() => window.__feed.filter((m) => m.t === "name").pop());
-  out.nameSent = nm && nm.name === "Toy Box" && Math.abs(nm.x - 1.85) < 0.05 && Math.abs(nm.y + 0.15) < 0.05;
+  out.nameSent = nm && nm.name === "Toy Box" && Math.abs(nm.x - 1.85) < 0.05 && Math.abs(nm.y + 0.15) < 0.05 &&
+    Math.abs(Math.round((nm.x + 0.5) / 0.025)) % 2 === 1 && Math.abs(Math.round((nm.y + 1.0) / 0.025)) % 2 === 1;
   await q((id) => window.__feedWs.emit({ t: "rep", id: id, ok: false, msg: "Tap a red or amber block to name it." }), nm.id);
   await page.waitForTimeout(100);
   out.refusal = await q(() => document.getElementById("roomCard").textContent.indexOf("Tap a red or amber block to name it.") >= 0);
   out.teachUntouched = await q(() => document.getElementById("teachMsg").textContent === "");
+  await page.click("#roomCard .rcClose"); await page.waitForTimeout(150);
+  out.unlitAgain = JSON.stringify(await pixel(1.6, -0.1)) === JSON.stringify(unlit);
+  await tap(1.85, -0.15);
   // the look flips: the map redraws at once (Review Focus 5)
   const before = await pixel(1.7, 0.15);
   await page.click("#lookBtn"); await page.waitForTimeout(150);
@@ -129,7 +139,7 @@ async (page) => {
     out.laptopFacts === "home room2 · play area 3 m · floor seen 6.0 m²" && /ball near the bed · 2 min ago/.test(out.laptopList) &&
     /ball/.test(out.pinCard) && /FIND "ball$/.test(out.findLine) && out.findOnly === "logo_run" &&
     /bed/.test(out.nameCard) && /SETXY 0 70$/.test(out.goLine) && out.goNull[0] && out.goNull[1] && out.newCard && out.nameSent &&
-    out.refusal && out.teachUntouched && out.flip && out.lost === "Lost the AI helper - reconnecting…" && out.roomOnAgain &&
+    out.refusal && out.teachUntouched && out.lit && out.unlitAgain && out.hint === "Tap a red or amber block to name it." && out.flip && out.lost === "Lost the AI helper - reconnecting…" && out.roomOnAgain &&
     out.noAi === "Start the AI helper on the laptop to see the room." && out.layerKept && out.roomOff;
   return out;
 }

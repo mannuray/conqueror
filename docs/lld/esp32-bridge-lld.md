@@ -3652,3 +3652,8 @@ sequenceDiagram
 - Tests: `room.test.js` - `blockAt` (a joined L, 8 neighbours across a corner, the cap, nothing near → null, `mid` on the
   block), `hit` snaps to a cell centre and reaches 16 px on a small map, `setPick` notifies, `draw` uses `col.pick`;
   `room_check.js` - a tapped block's pixels change colour, CLOSE restores them, the name sent is the snapped cell.
+- **As built (2026-11-05, 3eac554, flashed over WiFi):** as above. `/ai` 30 654 of 30 720 B gzipped - room made by
+  moving the end-of-line comments in `room.js` / `ai.js` onto their own lines (the packer strips whole-line comments);
+  66 B left, so the next `/ai` change needs room or a budget decision. `room_check` also found its stand-in tank never
+  answered the link's ping since Plan Link was merged (the page closed the silent link, and a later `ai_at` was lost) -
+  fixed as in `ai_check`. Checks: `room.test.js` (18), the 45 packer tests, `room_check`, `ai_check` - pass.

@@ -3023,7 +3023,7 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
   - **Final review (opus, whole branch): no critical; 2 important and 9 minors fixed** - Help's answer could be scrolled off screen; `/settings` had no dim layer in the cockpit; "Stopped" on any ack; Help's answers out of order; Help's script lost strict mode; STOP's toast under the dim layer; the menu open again after iOS Back; `100vh` on iOS; `/logo` keys acting behind the menu; menu focus; a doc word. Left as noted: Safari 14+ for `:where()`; a Help STOP refused as a 5th client may still be applied by the bridge's fast path (it then says "Couldn't reach" - the safe side).
   - **Sizes (gzipped, after the review fixes):** `/` 24 392 B (25 KB budget), `/settings` 27 560 B, `/logo` 29 984 B - **budget raised 28 → 30 KB** (ruling: the bar adds about 2.5 KB; flash has room), `/ai` 21 040 B, `/help` 14 505 B.
   - **Checks:** `bar_check` (new; every page, both sizes, the menu, STOP over the dim layer, Esc, the look, Help's silent tank and double tap, Settings with its socket down, the drive rows and gauge), `bar.test.js` (5), `test_bar_pack.py` (4), and the older `look_check`, `ai_check`, `theme_check`, `hide_stop_check`, `browser_check`, `browser_check_wide`, `browser_fix_check`, `camera_centre_check`, `camera_tuning_check`, `icons_check`; 79 node tests and the Python unit tests.
-  - **Still to do:** the owner's iPhone check - the same three on every page, the menu, 🎨, the drive page's two rows; STOP on Settings and Help with the tank on the stand and nothing running ("Stopped").
+  - **Still to do:** the owner's iPhone check - the same three on every page, the menu, 🎨, the drive page's two rows. (STOP on Settings and Help: checked 2026-11-05, §210.)
 
 ## 209. One status strip on /ai, /logo and /settings (owner, 2026-11-04: "the metric strip in ai and logo should be same, copy the ai metric strip to logo page"; "add the wifi and uno chip throughout"; pictures/s on AI only; /logo budget 32 KB)
 - **The same strip on both pages, in this order:** battery (a cell with %, amber low, red critical, "USB" on USB power), AI HELPER on / off, pictures/s (**/ai only**: it counts the AI helper's camera feed, which /logo does not open), HDG, POS, SPEED, **WIFI** (home with its strength, own WiFi, reconnecting), **UNO** (online / offline). WiFi and UNO join /ai's strip; /logo's volts, WiFi and UNO chips are replaced by the strip.
@@ -3075,4 +3075,11 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   "Network name"):** on the house WiFi the signal bars and the network's name (`ssid` from `wifi_status`, cut to 10
   letters with "…"; none: HOUSE WIFI); on the tank's own WiFi a tower and TANK HOTSPOT (warning colour when it fell
   back to it because no house WiFi was found); CONNECTING and WIFI -- as before. Page only, no firmware change.
+- **Owner's tank check (2026-11-05, plan-link 4088d7d on the tank, tank on the floor; owner: "all good"):** STOP on
+  each page (laptop and iPhone; Settings and Help say "Stopped"); Drive on the floor from the iPhone - a gentle push
+  forward, letting go stops it, STOP while moving stops it at once and it stays stopped while the stick is held, then
+  drives again after letting go; laptop WiFi off - Drive shows OFF within ~4 s and STOP says "Couldn't reach the tank -
+  use another STOP", WiFi on - it comes back by itself; a reloaded Drive shows the WiFi chip red until it connects;
+  `/ai`, `/logo` and `/settings` show the house WiFi's name with bars. All as designed. This also covers §208's STOP on
+  Settings and Help.
 

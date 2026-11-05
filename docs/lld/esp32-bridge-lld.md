@@ -3519,3 +3519,4 @@ sequenceDiagram
 ### R31.9 The strip's WiFi chip names the WiFi (owner 2026-11-05, design-notes §210)
 - `TankModel` keeps `wifi.ssid`; `cqStripView.wifiText(mode, rssi, ssid)`: `home` → the signal bars and the network's name (≤ 10 letters, else 9 + "…"; none → HOUSE WIFI), `ap` / `ap_fallback` → the `radio-tower` icon and TANK HOTSPOT (`ap_fallback` in the warning colour), `connecting` → CONNECTING. The word HOME is gone from the strip (the AI's home spot, `--home`, is another thing). Tests: `strip.test.js`, `tank_model.test.js`, `strip_check.js`.
 - Flashed over WiFi to the tank 2026-11-05 from 4088d7d.
+- Owner's tank check 2026-11-05 (tank on the floor): STOP on every page, Drive stop / STOP-while-moving / held until the stick is released, WiFi off → OFF in ~4 s and STOP's "Couldn't reach" message, WiFi back by itself, the red chip before the link, the network name on the strip - all pass (design-notes §210).

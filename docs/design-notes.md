@@ -3130,3 +3130,20 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   is at 29.9 of 30 KB, so the next tab needs a budget decision. Found on Plan Link: the drive page's WiFi chip showed
   green "-" before it had ever connected (was red) - fixed on plan-link (R31.8, owner) and merged in. AI engine LLD
   §23.7, bridge LLD R32.6.
+- **Stand check so far (2026-11-05, tank on the room2 home mark, 14 % battery):** the map with room2's blocks, the
+  layers and I REMEMBER (10 things) all show; naming works ("door") and the name is kept across an engine restart, now
+  with a GO THERE spot. A restart counts as a run for the home, so the kept obstacles fade a step each time (804 → 734
+  cells; Plan Z8's rule, not a fault) - tests run on a copy of room2, the owner's own is untouched.
+- **Naming is hard to find, and a tapped block is not shown (owner 2026-11-05: "dont find any way to name"; "when block
+  is clicked shoud it not be hightlighted"; agreed with the recommendation - "rest is good"):**
+  - A hint line under the map: "Tap a red or amber block to name it."
+  - **The tapped block lights up** while its "What's this?" card is open: the page works out the same joined block the
+    engine will name (the blocked cells joined by 8 neighbours to the one nearest the tap, at most 4000 cells) and
+    draws it in its own colour (`--room-pick`) with a dot at its middle, where the name will sit. A name's card lights
+    its block the same way. Closing the card, naming, or a tap elsewhere clears it. Why it matters: the engine names
+    the **whole joined block** at its middle - tapping the end of a long wall names the wall's middle, and the light
+    shows that before NAME.
+  - **Easier to hit on a phone:** a tap counts within 15 cm of a block **or 16 screen pixels**, whichever is more; the
+    page sends the engine the block cell it found (not the raw tap), so the engine's 15 cm rule still holds.
+  - Kept: a name is on the whole joined block (owner did not take "name just the part I tapped"). Page only, no engine
+    change. Bridge LLD R32.7.

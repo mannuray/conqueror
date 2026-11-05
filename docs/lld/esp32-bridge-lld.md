@@ -3620,3 +3620,35 @@ sequenceDiagram
 - The view draws in CSS pixels on a canvas scaled for the screen; cells as runs of one kind per row (not ImageData) - to measure on the iPhone at the tank check.
 - Checks: `room.test.js` (14), `test_ai_pack.py` (4), `room_check.js` (phone + laptop: layout, room on / off, the map drawn, pin → FIND, name → GO THERE from the newest pose, go null greyed, block → NAME with the room point, the engine's refusal, the look flip, feed lost / back, AI off, layers kept). `ai_check.js`'s stand-in now answers the link's ping (R31's quiet-link STOP made it open its own socket); `look_check.js` leaves `#tRoom` / `#tInside` out on both sides.
 - Found on Plan Link (not this plan): the drive page's WiFi chip was green "-" before any link (was red) - fixed on plan-link (R31.8, owner) and merged in.
+
+### R32.7 The tapped block lit, the naming hint (owner 2026-11-05, design-notes §211)
+- `RoomModel.setPick(p)` (`state.pick` = a room point or null; `changed("pick")`). `RoomView.blockAt(s, x, y, reach)` →
+  `{ cells: [index…], mid: [x, y] } | null` - the engine's `_block_at` on the page's cells (kind 3 low / 4 high): the
+  blocked cell nearest (x, y) within `reach` (to its centre, + half a cell), flood by 8 neighbours, at most 4000 cells;
+  `mid` = the mean of the cell centres, or the block's cell nearest that mean when it falls off the block (an L) - as
+  `Places.name_at`. `hit(s, t, px, py)` for a block uses `reach = max(TAP_M, 16 px / scale)` and returns
+  `ref = { x, y }` = **the found cell's centre** (within the engine's 15 cm, so a wider touch never makes a refusal).
+- `draw` with `s.pick`: the block's cells filled in `col.pick` (`--room-pick`, both looks), a dot at `mid`.
+- The controller: the "What's this?" card sets the pick to the tapped cell; a name's card sets it to the name's point;
+  `cardClose` (CLOSE, a tap on nothing, a pin, NAME's ok) clears it. A hint line `#roomHint` under the map.
+
+```mermaid
+sequenceDiagram
+  actor C as Child
+  participant P as ROOM controller
+  participant M as RoomModel
+  participant V as RoomView
+  participant E as Engine (feed)
+  C->>P: tap near a red line
+  P->>V: hit(state, t, px, py)
+  V-->>P: block, ref = the nearest block cell's centre
+  P->>M: setPick(ref)
+  M-->>V: changed("pick") - draw: blockAt(ref) lit, dot at mid
+  C->>P: NAME "door"
+  P->>E: name {x, y} = ref
+  E-->>P: rep ok
+  P->>M: setPick(null) (card closed)
+```
+- Tests: `room.test.js` - `blockAt` (a joined L, 8 neighbours across a corner, the cap, nothing near → null, `mid` on the
+  block), `hit` snaps to a cell centre and reaches 16 px on a small map, `setPick` notifies, `draw` uses `col.pick`;
+  `room_check.js` - a tapped block's pixels change colour, CLOSE restores them, the name sent is the snapped cell.

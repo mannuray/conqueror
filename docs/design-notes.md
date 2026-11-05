@@ -3189,3 +3189,10 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Not in it:** themes made on the page, per-theme layouts or fonts beyond what Sunny does, sounds.
 - **Effort:** small - one packer change, the bridge serving one more file, the picker in the shared top bar, the
   colour blocks. Design (bridge LLD R33) and plan when the owner picks it up.
+
+## 214. The cheap missions are lessons in `/logo`; the people games come first (owner, 2026-11-05: "these should go in /logo"; "i was thinking of advanced like play with the baby or follow the baby")
+- **Lessons (decided, built later):** go home, where is my ball, hot and cold, treasure hunt - ready-made Tank Logo
+  programs in a "Lessons" list on `/logo`, each opening in the editor with a short explanation and something to
+  change. Not on `/ai` (no room; children should see the program). Draw what you saw is the ROOM tab already.
+- **Next slice:** Spec 10, the people games (§194: follow me, "don't let the baby catch you"), now with "follow the
+  baby" - design first (brainstorming), safety before anything moves.

@@ -3196,3 +3196,6 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   change. Not on `/ai` (no room; children should see the program). Draw what you saw is the ROOM tab already.
 - **Next slice:** Spec 10, the people games (§194: follow me, "don't let the baby catch you"), now with "follow the
   baby" - design first (brainstorming), safety before anything moves.
+- **The baby game, in the owner's words (2026-11-05):** "first always face the baby except for escape; if the baby
+  crawls or walks towards you, escape; if the baby goes away from you, follow" - "but it will be big, let's find the
+  small one". So: one game (face, escape, follow) built in small slices, the smallest first.

@@ -37,15 +37,14 @@ from conqueror_ai.domain.drive.recovery import ProgressWatch, Recovery
 from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point
 from conqueror_ai.domain.drive.skill import Result, SkillInput, SkillOut
 from conqueror_ai.domain.memory import ThingMemory
-from conqueror_ai.domain.reach import SURE_REACH_M
+from conqueror_ai.domain.reach import CHECK_CLOSE_M
 from conqueror_ai.domain.room_map import MapSnapshot
 
 # find: look again at a candidate (owner, design-notes §179, §189)
 CHECK_LOOK_S = 1.5  # standing, the camera on the spot, still pictures this long
-CHECK_CLOSE_M = SURE_REACH_M  # not confirmed from further: drive this near and look once more
 CHECK_MAX_S = 15.0  # a check never longer than this ...
 CHECK_S_PER_M = 10.0  # ... plus this per metre it has to drive closer (review I3: 15 s covered the drive too)
-CHECK_NEAR_TOL_M = 0.05  # within CHECK_CLOSE_M and this counts as near (the way ends at about 1 m)
+CHECK_NEAR_TOL_M = 0.05  # within CHECK_CLOSE_M and this counts as near (the way ends at about 0.5 m)
 CHECK_TRIES = 3  # checks that could not get near: then ruled out (a remembered thing is not marked gone)
 EDGE_IN_M = 0.3  # a thing seen outside the play area: its edge candidate this far inside the edge (§196)
 CANDIDATE_RETRY_S = 1.0  # pending candidates with no way to them: tried again after this long

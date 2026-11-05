@@ -19,6 +19,7 @@ from conqueror_ai.domain.drive.roam import CANDIDATE_RETRY_S, START_STAND_S, Mod
 from conqueror_ai.domain.drive.sim import SimTank
 from conqueror_ai.domain.drive.skill import SkillOut, make_input
 from conqueror_ai.domain.memory import ThingMemory
+from conqueror_ai.domain.reach import CHECK_CLOSE_M
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.types import ObjectEstimate, Pose
 
@@ -370,7 +371,24 @@ def test_a_far_candidate_is_ruled_out_only_after_a_look_from_near() -> None:
         nearest = min(nearest, math.dist(tank.at[:2], spot))
         if s.state != "check":
             break
-    assert s.candidates.pending() == [] and nearest <= 1.05
+    assert s.candidates.pending() == [] and nearest <= CHECK_CLOSE_M + 0.05  # §24 C: 0.5 m, not 1 m
+
+
+def test_a_check_from_one_metre_drives_to_half_a_metre_before_its_look() -> None:
+    """LLD §24 C (owner, §215): a maybe 1 m off is not looked at from there - sure only at 40-50 cm."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    spot = (tank.at[0] + 1.0 * math.cos(tank.at[2]), tank.at[1] + 1.0 * math.sin(tank.at[2]))
+    ticks(s, tank, t, 1, maybes=[spot])
+    assert s.state == "check"
+    nearest = 9.0
+    for k in range(1, 600):
+        rt(s, t + k * 0.1, tank.at, open_snap(), None, None, True)
+        tank.step(s.cmd, 0.1)
+        nearest = min(nearest, math.dist(tank.at[:2], spot))
+        if s.state != "check":
+            break
+    assert nearest <= CHECK_CLOSE_M + 0.05 and s.candidates.ruled_out()
 
 
 def test_a_check_that_cannot_get_there_leaves_it_pending_and_not_gone() -> None:

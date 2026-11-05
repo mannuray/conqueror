@@ -330,8 +330,8 @@ def test_a_candidate_not_confirmed_is_ruled_out_and_the_search_goes_on() -> None
     outs = ticks(s, tank, t + 0.1, 300)
     assert s.state != "check" and s.candidates.pending() == []
     assert not any(o.result for o in outs[:-1])
-    ticks(s, tank, t + 40.0, 1, maybes=[(1.25, 0.6)])  # seen weakly there again: ignored
-    assert s.state != "check"
+    ticks(s, tank, t + 40.0, 1, maybes=[(1.25, 0.6)])  # seen weakly there again: looked at again (§24 A)
+    assert s.state == "check"
 
 
 def test_a_remembered_spot_is_checked_first_and_marked_gone_when_not_there() -> None:

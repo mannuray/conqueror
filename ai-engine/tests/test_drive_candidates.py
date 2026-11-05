@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from conqueror_ai.domain.depth import Marks
-from conqueror_ai.domain.drive.candidates import Candidates
+from conqueror_ai.domain.drive.candidates import REOPEN_MAX, Candidates
 from conqueror_ai.domain.drive.costmaps import CostMaps
 from conqueror_ai.domain.drive.route import RoutePlanner
 from conqueror_ai.domain.memory import Remembered
+from conqueror_ai.domain.reach import CHECK_CLOSE_M
 from conqueror_ai.domain.reach import SAME_SPOT_M as MERGE_M
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.types import Pose
@@ -36,13 +39,28 @@ def test_sightings_within_half_a_metre_are_one_candidate_at_the_newest_spot() ->
     assert [(round(k.x_m, 2), round(k.y_m, 2)) for k in c.pending()] == [(1.45, 0.1), (2.5, 0.0)]
 
 
-def test_a_ruled_out_spot_ignores_later_sightings() -> None:
+def test_a_ruled_out_spot_seen_again_opens_again_at_most_twice() -> None:
+    """LLD §24 A (design-notes §215): one glimpse always gets a look - but not for ever."""
     c = Candidates()
     c.add((1.0, 0.0))
     (k,) = c.pending()
+    for n in (1, 2):
+        c.rule_out(k)
+        c.add((1.2, 0.1))
+        assert c.pending() == [k] and k.reopens == n and k.spot == (1.2, 0.1)
     c.rule_out(k)
-    c.add((1.2, 0.0))
-    assert c.pending() == []
+    c.add((1.1, 0.0))  # a third time: ignored
+    assert c.pending() == [] and k.reopens == REOPEN_MAX
+
+
+def test_a_route_to_a_candidate_ends_within_half_a_metre() -> None:
+    """LLD §24 C: the check looks from 0.5 m (owner: 40-50 cm from the lens), so the way ends there."""
+    c = Candidates()
+    spot = (2.0, 0.0)
+    c.add(spot)
+    (k,) = c.pending()
+    way = c.route(k, AT, CostMaps(room(), None, None), RoutePlanner())
+    assert way is not None and math.dist(way[-1], spot) <= CHECK_CLOSE_M + 0.05
 
 
 def test_next_is_the_cheapest_to_reach() -> None:

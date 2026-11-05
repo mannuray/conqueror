@@ -3214,4 +3214,9 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   B during a check, 2 sightings any time in the look confirm (the strict rule stays for passing glimpses); C check
   from closer; D find why the chair chase lost the chair.
 - **Decided (owner):** C - **a check looks from 40-50 cm**, not 1 m (`CHECK_CLOSE_M`, today `SURE_REACH_M` 1.0).
-  A, B, D: asked.
+  Then A + B + D too (owner: "yes"). D found: the chair was lost at 1.3 m while the camera, at the driving tilt,
+  saw only its wheeled base; the chase swept from there, gave up, and its candidate was ruled out.
+- **Design:** AI engine LLD §24 (Plan Z9, branch `plan-z9-find`): checks from 0.5 m of the spot (tank centre, the
+  lens 0.42-0.5 m away); a ruled-out spot seen again opens again, at most 2 times; 2 pictures with a maybe at the
+  spot during a close look confirm it; a lost chase leaves a pending candidate at the last seen spot. The search's
+  "looked at" radius stays 1 m (my call).

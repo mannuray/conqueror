@@ -391,6 +391,64 @@ def test_a_check_from_one_metre_drives_to_half_a_metre_before_its_look() -> None
     assert nearest <= CHECK_CLOSE_M + 0.05 and s.candidates.ruled_out()
 
 
+def close_check() -> tuple[RoamSkill, SimTank, float, tuple[float, float]]:
+    """A find already searching, a maybe 0.48 m ahead (within the check's 0.5 m, beyond the chase's stop):
+    its check goes straight to the look (§24 B tests)."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    spot = (tank.at[0] + 0.48 * math.cos(tank.at[2]), tank.at[1] + 0.48 * math.sin(tank.at[2]))
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot])
+    assert s.state == "check"
+    rt(s, t + 0.1, tank.at, open_snap(), None, None, True)  # the camera sent to the spot
+    return s, tank, t + 0.2, spot
+
+
+def test_two_pictures_with_the_thing_during_a_close_look_hand_over_to_the_chase() -> None:
+    s, tank, t, spot = close_check()
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot])
+    assert s.state == "check"
+    rt(s, t + 0.1, tank.at, open_snap(), None, None, True, maybes=[(spot[0] + 0.05, spot[1])])
+    assert s.state == "chase"
+
+
+def test_one_picture_during_a_close_look_is_not_enough() -> None:
+    s, tank, t, spot = close_check()
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot])
+    for k in range(1, 40):
+        rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True)
+        assert s.state != "chase"
+    assert s.candidates.ruled_out()
+
+
+def test_the_same_picture_on_two_ticks_counts_once() -> None:
+    s, tank, t, spot = close_check()
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot], used=True)
+    rt(s, t + 0.1, tank.at, open_snap(), None, None, True, maybes=[spot], used=False)
+    for k in range(2, 40):
+        rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True)
+        assert s.state != "chase"
+
+
+def test_a_sighting_away_from_the_spot_is_no_hit() -> None:
+    s, tank, t, spot = close_check()
+    far = (spot[0] - 0.8 * math.sin(tank.at[2]), spot[1] + 0.8 * math.cos(tank.at[2]))  # 0.8 m to the side
+    for k in range(40):
+        rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True, maybes=[far])
+        if s._check is None or s._check.spot != spot:  # pyright: ignore[reportPrivateUsage]
+            break
+        assert s.state != "chase"
+
+
+def test_the_trackers_fix_replaces_the_made_up_one() -> None:
+    s, tank, t, spot = close_check()
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot])
+    rt(s, t + 0.1, tank.at, open_snap(), None, None, True, maybes=[spot])
+    assert s.state == "chase"
+    real = TargetFix(7, spot[0] + 0.1, spot[1], 0.0)
+    rt(s, t + 0.2, tank.at, open_snap(), real, None, True)
+    assert s.chase.debug()["target"] == (real.x_m, real.y_m)
+
+
 def test_a_check_that_cannot_get_there_leaves_it_pending_and_not_gone() -> None:
     """Z6 second review I3: no way to it (the map closed it) is not a look from near: the remembered thing is
     not marked gone; tried again later, ruled out (not gone) after a few failed tries."""

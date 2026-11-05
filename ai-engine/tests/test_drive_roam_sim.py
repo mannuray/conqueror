@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from conqueror_ai.domain.drive.candidates import REOPEN_MAX
 from conqueror_ai.domain.drive.chase import ChaseSkill
 from conqueror_ai.domain.drive.curves import XYTh
 from conqueror_ai.domain.drive.goal import TargetFix
@@ -353,14 +352,16 @@ def test_find_a_dim_thing_by_looking_again() -> None:
     assert r.nearest >= NEAREST_M and not r.front_hit and r.body >= BODY_M
 
 
-def test_a_false_maybe_is_checked_at_most_three_times() -> None:
-    """A maybe of nothing there, every picture from 5 s on: checked, ruled out, opened again by the next
-    picture at most REOPEN_MAX times (LLD §24 A), then left - the search goes on (find is a mode since Z7;
-    wander's 60 s no longer ends a find)."""
-    r = roam("find", 70.0, seed=7, false_maybe=(5.0, (1.5, 0.0)))
-    starts = sum(1 for a, b in itertools.pairwise(r.states) if b == "check" and a != "check")
-    assert r.result != "done" and starts == 1 + REOPEN_MAX
-    assert r.states.count("check") * 0.1 <= 15.0 * (1 + REOPEN_MAX)  # each check, its looks and drive closer
+def test_a_maybe_in_every_close_picture_is_taken_as_the_thing() -> None:
+    """A maybe at one spot in every picture from 5 s on (a false one in Z6 terms): checked from 0.5 m, where
+    two still pictures with it confirm it (LLD §24 B, owner §215: "only at this distance one can be sure") -
+    the find ends done beside it, the body clear of everything. (Before §24 it was ruled out once and the
+    search went on; a ruled-out spot is now reopened at most REOPEN_MAX times, test_drive_candidates.)"""
+    spot = (1.5, 0.0)
+    r = roam("find", 70.0, seed=7, false_maybe=(5.0, spot))
+    assert r.result == "done" and r.skill is not None
+    assert math.dist(r.positions[-1][:2], spot) <= CHECK_CLOSE_M + 0.05
+    assert r.body >= BODY_M and not r.front_hit
 
 
 def test_a_check_is_ruled_out_only_after_a_look_from_near() -> None:

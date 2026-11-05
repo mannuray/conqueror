@@ -61,7 +61,7 @@ var cqTankLib = (function () {
         if (typeof m.yaw === "number") s.hdg = m.yaw;
         if (m.spd_cmd) s.spd = Math.max(Math.abs(m.spd_cmd[0]), Math.abs(m.spd_cmd[1]));
         break;
-      case "wifi_status": s.wifi = { mode: m.mode, rssi: m.rssi === undefined ? null : m.rssi }; break;
+      case "wifi_status": s.wifi = { mode: m.mode, rssi: m.rssi === undefined ? null : m.rssi, ssid: m.ssid || "" }; break;
       case "ai_at": if (this.aiOwned) return false; s.ai = !!m.url; break;
       case "ev":
         if (m.kind === "logo_pose" && typeof m.x_cm === "number" && !this.posOwned) s.pos = { x: m.x_cm / 100, y: m.y_cm / 100 };

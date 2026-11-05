@@ -3515,6 +3515,11 @@ sequenceDiagram
 ### R31.8 Fix: the drive page's WiFi chip before any link (owner 2026-11-05)
 - The chip starts as off (red, `showWifi("off", "bad")`) until the link's first `wifi_status`; R31 had left it a green "-" (the old `/info` poll turned it red). `link_check.js` checks it (a tank out of reach from the first load); `look_check.js` matches the baseline again. `ai_check.js`'s stand-in answers `ping`.
 
+- Flashed over WiFi to the tank (192.168.31.167) 2026-11-05 from 1de3db6; the tank serves the fix on `/`.
+
+### R31.9 The strip's WiFi chip names the WiFi (owner 2026-11-05, design-notes §210)
+- `TankModel` keeps `wifi.ssid`; `cqStripView.wifiText(mode, rssi, ssid)`: `home` → the signal bars and the network's name (≤ 10 letters, else 9 + "…"; none → HOUSE WIFI), `ap` / `ap_fallback` → the `radio-tower` icon and TANK HOTSPOT (`ap_fallback` in the warning colour), `connecting` → CONNECTING. The word HOME is gone from the strip (the AI's home spot, `--home`, is another thing). Tests: `strip.test.js`, `tank_model.test.js`, `strip_check.js`.
+
 ## R32. The ROOM tab on the `/ai` page (owner 2026-11-05; design-notes §211, AI engine LLD §23 — draft)
 
 ### R32.1 What changes

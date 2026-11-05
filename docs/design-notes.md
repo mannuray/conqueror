@@ -3071,6 +3071,10 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   first WiFi report - R31 dropped the old /info poll that turned it red when the tank could not be reached. It now
   starts off (red), as before. Found by `look_check` during Plan Z2b-2; `link_check` checks it. `ai_check`'s stand-in
   tank now answers the link's ping (silent, it made STOP open its own short socket and the check lost the link).
+- **The strip's WiFi chip says which WiFi (owner 2026-11-05: "HOME" was confusing - the AI has a home spot too; chose
+  "Network name"):** on the house WiFi the signal bars and the network's name (`ssid` from `wifi_status`, cut to 10
+  letters with "…"; none: HOUSE WIFI); on the tank's own WiFi a tower and TANK HOTSPOT (warning colour when it fell
+  back to it because no house WiFi was found); CONNECTING and WIFI -- as before. Page only, no firmware change.
 
 
 ## 211. Z2b-2: one Room tab; layer ideas parked (owner, 2026-11-05: "so the room tab only"; "replace it with 'find this thing' from the pins"; "note it, we will discuss later, let's go with current plan")

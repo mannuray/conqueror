@@ -47,9 +47,15 @@ test("the WiFi icon and text", () => {
   assert.equal(S.wifiIcon(-70), "wifi-low");
   assert.equal(S.wifiIcon(-80), "wifi-zero");
   assert.equal(S.wifiIcon(null), "wifi-zero");
-  assert.deepEqual(S.wifiText("home", -50), { icon: "wifi", text: "HOME", warn: false });
-  assert.deepEqual(S.wifiText("home", -80), { icon: "wifi-zero", text: "HOME", warn: true });
-  assert.deepEqual(S.wifiText("ap", null), { icon: "wifi", text: "OWN WIFI", warn: false });
+  // owner 2026-11-05: the house WiFi by its name (not "HOME" - the AI's home spot is another thing); the tank's own
+  // WiFi a tower and TANK HOTSPOT
+  assert.deepEqual(S.wifiText("home", -50, "MyHouse5G"), { icon: "wifi", text: "MyHouse5G", warn: false });
+  assert.deepEqual(S.wifiText("home", -80, "MyHouse5G"), { icon: "wifi-zero", text: "MyHouse5G", warn: true });
+  assert.deepEqual(S.wifiText("home", -50, "TP-Link_Extender_5G"), { icon: "wifi", text: "TP-Link_E…", warn: false });
+  assert.deepEqual(S.wifiText("home", -50, ""), { icon: "wifi", text: "HOUSE WIFI", warn: false });
+  assert.deepEqual(S.wifiText("home", -50), { icon: "wifi", text: "HOUSE WIFI", warn: false });
+  assert.deepEqual(S.wifiText("ap", null), { icon: "radio-tower", text: "TANK HOTSPOT", warn: false });
+  assert.deepEqual(S.wifiText("ap_fallback", null), { icon: "radio-tower", text: "TANK HOTSPOT", warn: true });
   assert.deepEqual(S.wifiText("connecting", null), { icon: "wifi-zero", text: "CONNECTING", warn: true });
 });
 
@@ -69,8 +75,8 @@ test("each tank message fills its chip", () => {
   s.tank({ t: "tf", yaw: 91.6, spd_cmd: [-40, 25] });
   assert.equal(s.view.hdg, "HDG 92°");
   assert.equal(s.view.spd, "SPEED 40%");
-  s.tank({ t: "wifi_status", mode: "home", rssi: -50 });
-  assert.deepEqual(s.view.wifi, { icon: "wifi", text: "HOME", warn: false });
+  s.tank({ t: "wifi_status", mode: "home", rssi: -50, ssid: "MyHouse5G" });
+  assert.deepEqual(s.view.wifi, { icon: "wifi", text: "MyHouse5G", warn: false });
   s.tank({ t: "ai_at", url: "ws://x:8770/feed" });
   assert.equal(s.view.ai, true);
   s.tank({ t: "ai_at", url: null });

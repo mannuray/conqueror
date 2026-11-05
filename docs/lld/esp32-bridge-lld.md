@@ -3514,3 +3514,4 @@ sequenceDiagram
 
 ### R31.8 Fix: the drive page's WiFi chip before any link (owner 2026-11-05)
 - The chip starts as off (red, `showWifi("off", "bad")`) until the link's first `wifi_status`; R31 had left it a green "-" (the old `/info` poll turned it red). `link_check.js` checks it (a tank out of reach from the first load); `look_check.js` matches the baseline again. `ai_check.js`'s stand-in answers `ping`.
+- Flashed over WiFi to the tank (192.168.31.167) 2026-11-05 from 1de3db6; the tank serves the fix on `/`.

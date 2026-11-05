@@ -3174,3 +3174,18 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Parked design: save power when nobody is watching (bridge).** After the motors, the camera and its WiFi stream draw
   the most. Idea: turn the camera off (or drop its frame rate) when no page and no AI engine is reading it, and back on
   when one connects. To design after the Z2b-2 tank checks; it must never delay a STOP or the drive page's picture.
+
+## 213. More themes - explored, parked (owner, 2026-11-05: "it's for later, i was exploring how easy or difficult it will be")
+- **Found:** the 🎨 button flips between two looks (cockpit, Sunny Play); `pack_web.py` copies `theme.css` into every
+  page, so each extra theme costs every page ~1 KB gzipped - `/ai` has 66 B left. Adding themes the current way does
+  not fit.
+- **The way it would be done (recommended, not approved yet):** (1) the themes move into one shared, cached
+  `/themes.css` that each page links in its `<head>` (render-blocking, so no flash of the wrong look; the pages get
+  Sunny's ~1 KB back); (2) the 🎨 flip becomes a small picker with a swatch per theme, the choice kept per device,
+  the default as now (touch: Sunny, mouse: cockpit); (3) first new themes: Space (dark: navy / violet / cyan), Ocean
+  (light: sea blues and sand), High contrast (black / white / yellow); (4) rules for every theme: STOP always red,
+  warnings amber / orange, the room map's low blocks amber and high blocks red (the hint says "red or amber"),
+  readable contrast, and a test that every theme sets every colour the pages use.
+- **Not in it:** themes made on the page, per-theme layouts or fonts beyond what Sunny does, sounds.
+- **Effort:** small - one packer change, the bridge serving one more file, the picker in the shared top bar, the
+  colour blocks. Design (bridge LLD R33) and plan when the owner picks it up.

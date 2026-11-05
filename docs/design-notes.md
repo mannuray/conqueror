@@ -3154,6 +3154,14 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Pinch and drag: parked (owner, 2026-11-05: "a").** Options were A leave it (the map fits itself; the room fits
   the phone; `/ai` has 66 B of its 30 KB left), B double-tap for 2x around the tap, C full pinch and drag with a
   "fit" button. Chosen A. Revisit with B if a bigger room makes blocks too small to tap.
+- **A fresh map of the room (2026-11-05, owner: "disregard the room and build the room again"; "delete old map"):**
+  a new test home `room3` in the worktree (the owner's `room2` untouched). First EXPLORE missed the right side of
+  the bed: the page's **play area is on at 2 m by default**, so it explored only within 2 m of the start. The owner
+  read "2 m" as a total distance driven - it is a radius round the start; the label "Play area 1 m / 2 m" does not
+  say so (open: a clearer label, `/ai` has 66 B left). Second EXPLORE with the area off, recorded: **done** after
+  96 s, 16.8 m driven, at most 3.3 m from the start, ~31 m^2 of floor seen, the right side of the bed included (owner:
+  "this time it was successful explore"). Seen floor reaches one edge of the 8 x 8 m map; a bigger room would need
+  a bigger map.
 
 ## 212. Battery: a bigger pack, and saving power when nobody is watching - parked (owner, 2026-11-05: "so can we increase it"; "yes note it for later")
 - **Found:** the tank was at 14 % during the Z2b-2 stand check. ELEGOO publishes the pack as 7.4 V lithium (2S, 7.2-8.4 V)

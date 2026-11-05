@@ -3147,3 +3147,15 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
     page sends the engine the block cell it found (not the raw tap), so the engine's 15 cm rule still holds.
   - Kept: a name is on the whole joined block (owner did not take "name just the part I tapped"). Page only, no engine
     change. Bridge LLD R32.7.
+
+## 212. Battery: a bigger pack, and saving power when nobody is watching - parked (owner, 2026-11-05: "so can we increase it"; "yes note it for later")
+- **Found:** the tank was at 14 % during the Z2b-2 stand check. ELEGOO publishes the pack as 7.4 V lithium (2S, 7.2-8.4 V)
+  but no mAh; shops say ~2 h of play (stock kit, no camera streaming). Our capacity is still unknown - the owner will read
+  the pack's label and measure its space.
+- **A bigger pack (owner's choice later):** same voltage (2S; the motors, the Uno and the battery thresholds depend on it),
+  more mAh - a protected 2S pack of two good 18650s (~2600-3500 mAh) in place of the original (recommended), or 2S2P if
+  it fits and the weight is fine. Only packs with a protection board, no mixed cells, the plug's polarity checked; the
+  ELEGOO charger still works, just longer.
+- **Parked design: save power when nobody is watching (bridge).** After the motors, the camera and its WiFi stream draw
+  the most. Idea: turn the camera off (or drop its frame rate) when no page and no AI engine is reading it, and back on
+  when one connects. To design after the Z2b-2 tank checks; it must never delay a STOP or the drive page's picture.

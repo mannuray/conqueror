@@ -183,3 +183,64 @@ test("splitMap: a map frame splits; a camera frame is not one", () => {
   assert.equal(R.splitMap(frame({ seq: 1, t_ms: 5, boxes: [], cam: 2, depth: 0 }, new Uint8Array([255, 216]))), null);
   assert.equal(R.splitMap(new ArrayBuffer(2)), null);
 });
+
+// ---------- R32.7: the tapped block lit ----------
+function grid(w, h, blocks) {  // a w x h crop at 5 cm from (0, 0), floor, with the listed [i, j] cells high
+  const m = new R.RoomModel(), cells = new Uint8Array(w * h).fill(2);
+  for (const [i, j] of blocks) cells[i * h + j] = 4;
+  m.applyMap({ cell_m: 0.05, x0: 0, y0: 0, w: w, h: h }, cells);
+  return m;
+}
+const centre = (i, j) => [(i + 0.5) * 0.05, (j + 0.5) * 0.05];
+
+test("blockAt: the cells joined by 8 neighbours, an L's middle on the block", () => {
+  // an L: (5,5)..(5,9) and (6..9, 5); a diagonal neighbour (10, 6) joins it; (20, 20) does not
+  const L = [[5, 5], [5, 6], [5, 7], [5, 8], [5, 9], [6, 5], [7, 5], [8, 5], [9, 5], [10, 6], [20, 20]];
+  const m = grid(30, 30, L);
+  const b = R.RoomView.blockAt(m.state, ...centre(5, 9), 0.15);
+  assert.equal(b.cells.length, 10);
+  assert.ok(!b.cells.includes(20 * 30 + 20));
+  const mi = Math.floor(b.mid[0] / 0.05), mj = Math.floor(b.mid[1] / 0.05);
+  assert.ok(b.cells.includes(mi * 30 + mj), "the middle is on the block");
+  assert.equal(R.RoomView.blockAt(m.state, ...centre(15, 15), 0.15), null);  // nothing within 15 cm
+  assert.equal(R.RoomView.blockAt(new R.RoomModel().state, 0, 0, 0.15), null);  // no map yet
+});
+
+test("blockAt: a straight block's middle is its mean; at most 4000 cells", () => {
+  const m = grid(10, 10, [[2, 2], [2, 3], [2, 4]]);
+  const b = R.RoomView.blockAt(m.state, ...centre(2, 2), 0.15);
+  assert.ok(Math.abs(b.mid[0] - 0.125) < 1e-9 && Math.abs(b.mid[1] - 0.175) < 1e-9);
+  const big = [];
+  for (let i = 0; i < 80; ++i) for (let j = 0; j < 80; ++j) big.push([i, j]);
+  assert.equal(R.RoomView.blockAt(grid(80, 80, big).state, 0.1, 0.1, 0.15).cells.length, 4000);
+});
+
+test("hit: a block's ref is the found cell's centre; 16 px reach on a small map", () => {
+  const m = grid(200, 200, [[100, 100]]);
+  const V = R.RoomView, t = V.fit(m.state, 200, 200);  // 10 m on 200 px: 20 px a metre, 15 cm = 3 px
+  const at = V.toScreen(t, ...centre(100, 100));
+  const h = V.hit(m.state, t, at[0] + 12, at[1]);  // 12 px = 60 cm off: inside 16 px
+  assert.equal(h.kind, "block");
+  assert.ok(Math.abs(h.ref.x - 5.025) < 1e-9 && Math.abs(h.ref.y - 5.025) < 1e-9);
+  assert.equal(V.hit(m.state, t, at[0] + 22, at[1]).kind, "none");
+});
+
+test("setPick notifies; draw lights the picked block in col.pick", () => {
+  const m = grid(10, 10, [[2, 2], [2, 3]]);
+  const seen = [];
+  m.on((w) => seen.push(w));
+  m.setPick({ x: 0.125, y: 0.125 });
+  assert.deepEqual(m.state.pick, { x: 0.125, y: 0.125 });
+  assert.deepEqual(seen, ["pick"]);
+  const fills = [];
+  const ctx = new Proxy({}, { get: (o, k) => (k in o ? o[k] : () => { if (k === "fillRect" || k === "fill") fills.push(o.fillStyle); }),
+    set: (o, k, v) => { o[k] = v; return true; } });
+  const col = { floor: "#111", before: "#222", low: "#f80", high: "#f00", trail: "#0af", route: "#a0f", area: "#fb0",
+    pin: "#fff", cone: "#0f0", text: "#fff", bg: "#000", pick: "#0ff" };
+  R.RoomView.draw(ctx, m.state, R.RoomView.fit(m.state, 200, 200), col);
+  assert.ok(fills.filter((f) => f === "#0ff").length >= 3, "two cells and the dot");
+  m.setPick(null);
+  fills.length = 0;
+  R.RoomView.draw(ctx, m.state, R.RoomView.fit(m.state, 200, 200), col);
+  assert.ok(!fills.includes("#0ff"));
+});

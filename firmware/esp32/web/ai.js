@@ -4,9 +4,11 @@
 var AiCore = (function () {
   "use strict";
 
-  var PROTO = 1;  // the AI feed's version this page speaks (AI engine LLD §22.2)
+  // the AI feed's version this page speaks (AI engine LLD §22.2)
+  var PROTO = 1;
   var PROTO_TEXT = "Please update the AI helper.";
-  var NEVER = "person";  // never a thing to find (AI engine LLD §21.4)
+  // never a thing to find (AI engine LLD §21.4)
+  var NEVER = "person";
   // Words for people, refused when teaching (design-notes §203; the engine's PERSON_WORDS) - a second check.
   var PERSON_WORDS = ("person people human humans kid kids child children baby babies toddler man men woman women boy boys" +
     " girl girls mum mummy mom mommy mother dad daddy father brother sister grandma grandpa granny me").split(" ");
@@ -77,7 +79,8 @@ var AiCore = (function () {
   function Sayer(speak) { this.speak = speak; this.last = null; this.unlocked = false; this.muted = false; }
   Sayer.prototype.unlock = function () { this.unlocked = true; };
   Sayer.prototype.mute = function (on) { this.muted = !!on; };
-  Sayer.prototype.say = function (text) {  // before the first tap nothing is kept: it is said after the tap
+  // before the first tap nothing is kept: it is said after the tap
+  Sayer.prototype.say = function (text) {
     if (!text || !this.unlocked || text === this.last) return;
     this.last = text;
     if (!this.muted) this.speak(text);

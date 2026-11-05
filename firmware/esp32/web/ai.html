@@ -14,7 +14,7 @@
   --edge: color-mix(in srgb, var(--tint) 40%, transparent); --soft: color-mix(in srgb, var(--tint) 20%, transparent);
   --amber: #ffb000; --red: #ff3b30; --sel: #143d1a; --on-sel: var(--hi); --chip: #0a140a; --btn: #0e2912; --act: #09150a;
   --room-bg: #030603; --room-floor: #0f2a14; --room-before: #0b160d; --room-low: #ffb000; --room-high: #ff3b30;
-  --room-trail: #4aa3ff; --room-route: #c49cff; --room-area: #ffb000; --room-pin: #e8ffe8; --room-cone: rgba(51,255,102,.18); --room-text: #e8ffe8;
+  --room-trail: #4aa3ff; --room-route: #c49cff; --room-area: #ffb000; --room-pin: #e8ffe8; --room-cone: rgba(51,255,102,.18); --room-text: #e8ffe8; --room-pick: #33ffee;
   --act-main: #1b5524; --act-main-edge: #8fffb0; --act-main-ink: #fff; --bubble: #09160b; --hdr: #080d08; --foot: #040704;
   --new-bg: #1f1700; --mood-bg: #261c00; --track: #0e3a17; --mute-bg: #0f2412; --detail: #060b06; --stop-edge: #ff9a93;
   --view-bg: #000; --hud-bg: rgba(0,0,0,.75); --box-tag: rgba(5,8,5,.75); --face-bg: #061208; --face: #33ff66; --cheek: #ffb000;
@@ -155,6 +155,7 @@ summary small { color: var(--g2); font-weight: 400; }
 #roomMap { display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: var(--r); background: var(--room-bg); touch-action: manipulation; }
 #roomMapCard.stale #roomMap { opacity: .45; }
 #roomScaleBar { display: inline-block; height: 2px; width: 40px; background: currentColor; vertical-align: middle; }
+#roomHint { font-size: 12px; color: var(--ink); margin-top: 6px; }
 #roomNote { position: absolute; left: 12px; right: 12px; top: 12px; text-align: center; color: var(--hi); font-size: 13px; pointer-events: none; }
 #roomNote:empty, #roomRun:empty { display: none; }
 #roomRun { margin-top: 6px; font-size: 12px; color: var(--ink); }
@@ -284,6 +285,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     <h2 class="glow">[ <!--icon:radar--> THE ROOM ]<span class="right"><span id="roomScaleBar"></span> 1 m</span></h2>
     <div id="roomWrap"><canvas id="roomMap" aria-label="the room the tank has seen - tap a thing or a block"></canvas>
       <div id="roomNote"></div><div id="roomRun"></div><div id="roomCard" class="hidden" role="dialog"></div></div>
+    <div id="roomHint">Tap a red or amber block to name it.</div>
   </section>
   <section id="roomPanel">
     <div class="card"><h2 class="glow">[ <!--icon:scan-eye--> LAYERS ]</h2><div id="roomLayers">
@@ -649,7 +651,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   function roomColours() {
     var c = cqTheme.colour;
     return { bg: c("--room-bg"), floor: c("--room-floor"), before: c("--room-before"), low: c("--room-low"), high: c("--room-high"),
-      trail: c("--room-trail"), route: c("--room-route"), area: c("--room-area"), pin: c("--room-pin"), cone: c("--room-cone"), text: c("--room-text") };
+      trail: c("--room-trail"), route: c("--room-route"), area: c("--room-area"), pin: c("--room-pin"), cone: c("--room-cone"), text: c("--room-text"), pick: c("--room-pick") };
   }
   function roomDraw() {
     if (!roomTab) return;
@@ -695,12 +697,12 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   }
   function roomFind(word) { cardClose(); runLine(A.findLine(word, areaOn(), area)); }
   // the small card over the map: a pin (FIND), a name (GO THERE, RENAME, TAKE OFF), a block (NAME)
-  function cardOpen(kind, ref, html) {
-    card = { kind: kind, ref: ref };
+  function cardOpen(kind, ref, html, pick) {  // pick: the block to light (R32.7)
+    card = { kind: kind, ref: ref }; room.setPick(pick || null);
     var c = $("roomCard"); c.innerHTML = html + '<div class="rcMsg"></div>'; c.classList.remove("hidden");
     return c;
   }
-  function cardClose() { card = null; $("roomCard").classList.add("hidden"); }
+  function cardClose() { card = null; $("roomCard").classList.add("hidden"); if (room.state.pick) room.setPick(null); }
   function cardMsg(t) { var m = document.querySelector("#roomCard .rcMsg"); if (m) m.textContent = t; }
   function btn(cls, text) { return '<button type="button" class="btn ' + cls + '">' + text + "</button>"; }
   function cardPin(t) {
@@ -712,7 +714,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   function nameNow(id) { for (var i = 0; i < room.state.names.length; ++i) if (room.state.names[i].id === id) return room.state.names[i]; return null; }
   function goWhy(n) { return !room.state.pose ? "Where am I? Start the AI helper." : !n || !n.go ? "I don't know a way there yet." : ""; }
   function cardName(n) {
-    var c = cardOpen("name", n, '<div class="rcTitle"><b></b></div>' + btn("rcGo", "GO THERE") + btn("rcRename", "RENAME") + btn("rcOff", "TAKE OFF") + btn("rcClose", "CLOSE"));
+    var c = cardOpen("name", n, '<div class="rcTitle"><b></b></div>' + btn("rcGo", "GO THERE") + btn("rcRename", "RENAME") + btn("rcOff", "TAKE OFF") + btn("rcClose", "CLOSE"), n);
     c.querySelector("b").textContent = n.name;
     var go = c.querySelector(".rcGo"), why = goWhy(n);
     go.dataset.off = why ? "1" : "0"; go.disabled = !!why || run.running; cardMsg(why);
@@ -721,11 +723,11 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       if (!line) { cardMsg(goWhy(nameNow(n.id))); return; }
       cardClose(); runLine(withArea(line));
     });
-    c.querySelector(".rcRename").addEventListener("click", function () { cardNew({ place: n.id, name: n.name }); });
+    c.querySelector(".rcRename").addEventListener("click", function () { cardNew({ place: n.id, name: n.name, x: n.x, y: n.y }); });
     c.querySelector(".rcOff").addEventListener("click", function () { nameAsk({ t: "unname", place: n.id }); });
   }
   function cardNew(ref) {  // a block tapped (ref x, y) or a rename (ref place, name)
-    var c = cardOpen("new", ref, '<div class="rcTitle">' + (ref.place ? "A new name" : "What's this?") + '</div><input type="text" autocapitalize="none" maxlength="24" placeholder="e.g. bed">' + btn("rcName", "NAME") + btn("rcClose", "CLOSE"));
+    var c = cardOpen("new", ref, '<div class="rcTitle">' + (ref.place ? "A new name" : "What's this?") + '</div><input type="text" autocapitalize="none" maxlength="24" placeholder="e.g. bed">' + btn("rcName", "NAME") + btn("rcClose", "CLOSE"), ref);
     var input = c.querySelector("input"); if (ref.name) input.value = ref.name;
     c.querySelector(".rcName").addEventListener("click", function () {
       var why = RW.nameCheck(input.value);

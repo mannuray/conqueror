@@ -6,14 +6,15 @@ var cqRoomLib = (function () {
   var Core = typeof AiCore !== "undefined" ? AiCore : require("./ai.js");
   var LAYERS = ["things", "trail", "names", "why"];
   var BAD_NAME = "Names are letters, spaces and - (up to 24).";
-  var MAX_CM = 1000;  // SETXY's inputs (Tank Logo LLD §24)
+  // SETXY's inputs (Tank Logo LLD §24)
+  var MAX_CM = 1000;
 
   // ---------- the model: what the engine sent, raw ----------
   function RoomModel() {
     this.state = {
       cells: null, crop: null, trail: [], home: null, area: null, things: [], names: [],
       why: { route: [], pending: [], check: null, looked: [] }, seenM2: 0, pose: null, pan: 0,
-      layers: { things: true, trail: true, names: true, why: false }, feed: "none"
+      layers: { things: true, trail: true, names: true, why: false }, feed: "none", pick: null
     };
     this.fns = [];
   }
@@ -37,6 +38,8 @@ var cqRoomLib = (function () {
     if (typeof m.pan === "number") this.state.pan = m.pan;
     this.changed("status");
   };
+  // R32.7
+  RoomModel.prototype.setPick = function (p) { this.state.pick = p; this.changed("pick"); };
   RoomModel.prototype.feedOpen = function () { this.state.feed = "open"; this.changed("feed"); };
   RoomModel.prototype.feedDown = function () { this.state.feed = "lost"; this.changed("feed"); };
   RoomModel.prototype.setLayer = function (key, on) {
@@ -56,7 +59,8 @@ var cqRoomLib = (function () {
     if (buf.byteLength < 4) return null;
     var n = new DataView(buf).getUint32(0), text, head;
     try { text = new TextDecoder().decode(new Uint8Array(buf, 4, n)); } catch (e) { return null; }
-    if (text.indexOf('"kind":"map"') < 0) return null;  // a camera frame: parsed once, by AiCore.splitFrame
+    // a camera frame: parsed once, by AiCore.splitFrame
+    if (text.indexOf('"kind":"map"') < 0) return null;
     try { head = JSON.parse(text); } catch (e) { return null; }
     if (!head || head.kind !== "map") return null;
     return { header: head, png: new Uint8Array(buf, 4 + n, head.png) };
@@ -94,7 +98,7 @@ var cqRoomLib = (function () {
   };
 
   // ---------- the view: the map on a canvas, up = +x, right = -y ----------
-  var MIN_M = 2, PAD = 0.12, PIN_PX = 22, TAP_M = 0.15, CONE_DEG = 82, CONE_M = 1.5;
+  var MIN_M = 2, PAD = 0.12, PIN_PX = 22, TAP_M = 0.15, TAP_PX = 16, MAX_BLOCK = 4000, CONE_DEG = 82, CONE_M = 1.5;
   function bounds(s) {
     var b = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
     function add(x, y) { b.x0 = Math.min(b.x0, x); b.x1 = Math.max(b.x1, x); b.y0 = Math.min(b.y0, y); b.y1 = Math.max(b.y1, y); }
@@ -105,6 +109,19 @@ var cqRoomLib = (function () {
     if (!isFinite(b.x0)) add(0, 0);
     return b;
   }
+  function centreOf(c, k) { return [c.x0 + (Math.floor(k / c.h) + 0.5) * c.cell, c.y0 + (k % c.h + 0.5) * c.cell]; }
+  // the low / high cell nearest (x, y) within reach of its centre + half a cell, else -1
+  function nearest(s, x, y, reach) {
+    var c = s.crop, best = -1, bd = Infinity;
+    if (!c || !s.cells) return -1;
+    var r = Math.ceil(reach / c.cell) + 1, ci = Math.floor((x - c.x0) / c.cell), cj = Math.floor((y - c.y0) / c.cell);
+    for (var a = ci - r; a <= ci + r; ++a) for (var e = cj - r; e <= cj + r; ++e) {
+      if (a < 0 || e < 0 || a >= c.w || e >= c.h || s.cells[a * c.h + e] < 3) continue;
+      var p = centreOf(c, a * c.h + e), d = Math.hypot(p[0] - x, p[1] - y);
+      if (d <= reach + c.cell / 2 && d < bd) { bd = d; best = a * c.h + e; }
+    }
+    return best;
+  }
   var RoomView = {
     fit: function (s, w, h) {
       var b = bounds(s);
@@ -114,7 +131,8 @@ var cqRoomLib = (function () {
     },
     toScreen: function (t, x, y) { return [t.ox - y * t.scale, t.oy - x * t.scale]; },
     toRoom: function (t, px, py) { return [(t.oy - py) / t.scale, (t.ox - px) / t.scale]; },
-    labelBox: function (t, n) {  // a name's label: centred on its point
+    // a name's label: centred on its point
+    labelBox: function (t, n) {
       var p = RoomView.toScreen(t, n.x, n.y), w = 7 * n.name.length + 12;
       return { x: p[0] - w / 2, y: p[1] - 11, w: w, h: 22 };
     },
@@ -128,22 +146,40 @@ var cqRoomLib = (function () {
         var b = RoomView.labelBox(t, s.names[i]);
         if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) return { kind: "name", ref: s.names[i] };
       }
-      var q = RoomView.toRoom(t, px, py), c = s.crop;
-      if (c && s.cells) {
-        var r = Math.ceil(TAP_M / c.cell) + 1, ci = Math.floor((q[0] - c.x0) / c.cell), cj = Math.floor((q[1] - c.y0) / c.cell);
-        for (var di = -r; di <= r; ++di) for (var dj = -r; dj <= r; ++dj) {
-          var a = ci + di, e = cj + dj;
-          if (a < 0 || e < 0 || a >= c.w || e >= c.h || s.cells[a * c.h + e] < 3) continue;
-          var cx = c.x0 + (a + 0.5) * c.cell, cy = c.y0 + (e + 0.5) * c.cell;
-          if (Math.hypot(cx - q[0], cy - q[1]) <= TAP_M + c.cell / 2) return { kind: "block", ref: { x: q[0], y: q[1] } };
+      var q = RoomView.toRoom(t, px, py), k = nearest(s, q[0], q[1], Math.max(TAP_M, TAP_PX / t.scale));
+      if (k < 0) return { kind: "none", ref: null };
+      // the cell's centre: within the engine's 15 cm whatever the reach (R32.7)
+      var m = centreOf(s.crop, k);
+      return { kind: "block", ref: { x: m[0], y: m[1] } };
+    },
+    // the block the engine will name (Places.name_at): joined by 8 neighbours, its middle on the block
+    blockAt: function (s, x, y, reach) {
+      var c = s.crop, k = nearest(s, x, y, reach);
+      if (k < 0) return null;
+      var seen = {}, todo = [k], cells = [k], sx = 0, sy = 0, i;
+      seen[k] = 1;
+      while (todo.length && cells.length < MAX_BLOCK) {
+        var u = todo.pop(), a = Math.floor(u / c.h), e = u % c.h;
+        for (var di = -1; di <= 1; ++di) for (var dj = -1; dj <= 1; ++dj) {
+          var na = a + di, ne = e + dj, v = na * c.h + ne;
+          if (na < 0 || ne < 0 || na >= c.w || ne >= c.h || seen[v] || s.cells[v] < 3 || cells.length >= MAX_BLOCK) continue;
+          seen[v] = 1; todo.push(v); cells.push(v);
         }
       }
-      return { kind: "none", ref: null };
+      for (i = 0; i < cells.length; ++i) { var p = centreOf(c, cells[i]); sx += p[0]; sy += p[1]; }
+      var mid = [sx / cells.length, sy / cells.length], mk = Math.floor((mid[0] - c.x0) / c.cell) * c.h + Math.floor((mid[1] - c.y0) / c.cell);
+      // off the block (an L): its cell nearest the mean
+      if (!seen[mk]) {
+        var best = Infinity;
+        for (i = 0; i < cells.length; ++i) { var r = centreOf(c, cells[i]), d = Math.hypot(r[0] - sx / cells.length, r[1] - sy / cells.length); if (d < best) { best = d; mid = r; } }
+      }
+      return { cells: cells, mid: mid };
     },
     draw: function (ctx, s, t, col) {
       var i, p, c = s.crop, kinds = [null, col.before, col.floor, col.low, col.high];
       ctx.fillStyle = col.bg; ctx.fillRect(0, 0, ctx.canvas ? ctx.canvas.width : 9999, ctx.canvas ? ctx.canvas.height : 9999);
-      if (c && s.cells) {  // each row of cells along y as runs of one kind
+      // each row of cells along y as runs of one kind
+      if (c && s.cells) {
         var px = c.cell * t.scale;
         for (var a = 0; a < c.w; ++a) for (var e = 0; e < c.h;) {
           var k = s.cells[a * c.h + e], run = 1;
@@ -169,6 +205,16 @@ var cqRoomLib = (function () {
         return q;
       }
       function text(str, q, colour) { ctx.fillStyle = colour; ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(str, q[0], q[1]); }
+      var pk = s.pick && RoomView.blockAt(s, s.pick.x, s.pick.y, TAP_M);
+      // the block a name is on, lit (R32.7)
+      if (pk) {
+        ctx.fillStyle = col.pick;
+        for (i = 0; i < pk.cells.length; ++i) {
+          var m = centreOf(c, pk.cells[i]), sq = RoomView.toScreen(t, m[0] + c.cell / 2, m[1] + c.cell / 2);
+          ctx.fillRect(sq[0], sq[1], c.cell * t.scale + 0.5, c.cell * t.scale + 0.5);
+        }
+        dot(pk.mid[0], pk.mid[1], 6, col.pick, col.text);
+      }
       if (s.area) {
         p = RoomView.toScreen(t, s.area.x, s.area.y);
         ctx.strokeStyle = col.area; ctx.lineWidth = 2; ctx.setLineDash([8, 6]); ctx.beginPath();
@@ -190,7 +236,8 @@ var cqRoomLib = (function () {
       if (s.layers.things) for (i = 0; i < s.things.length; ++i) {
         text(s.things[i].word.charAt(0).toUpperCase(), dot(s.things[i].x, s.things[i].y, 13, col.bg, col.pin), col.pin);
       }
-      if (s.pose) {  // the camera's view (heading + pan), then the tank as an arrow
+      // the camera's view (heading + pan), then the tank as an arrow
+      if (s.pose) {
         var h = (s.pose.h + (s.pan || 0)) * Math.PI / 180, half = CONE_DEG / 2 * Math.PI / 180;
         var o = RoomView.toScreen(t, s.pose.x, s.pose.y);
         var l = RoomView.toScreen(t, s.pose.x + CONE_M * Math.cos(h + half), s.pose.y + CONE_M * Math.sin(h + half));

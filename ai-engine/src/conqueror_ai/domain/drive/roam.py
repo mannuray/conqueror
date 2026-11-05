@@ -159,6 +159,11 @@ class RoamSkill:
         self._maybes: Sequence[XY] = ()  # this tick's maybes of the thing ...
         self._used = False  # ... and whether its picture is new
 
+    def _sighting(self, spot: XY) -> None:
+        """A candidate there - outside the play area never (review M4)."""
+        if self._area is None or math.dist(spot, self._area[:2]) <= self._area[2]:
+            self.candidates.add(spot)
+
     # ---- out
     def _out(self, want: Command, cam: tuple[float, float] | None = None) -> SkillOut:
         self.cmd = ramp(self.cmd, want, self._dt, self.lim)
@@ -228,9 +233,8 @@ class RoamSkill:
             self._area = (at[0], at[1], self.area_m)
         self._tried_now = False
         if self.find:
-            for spot in maybes:  # outside the play area: never a candidate (review M4)
-                if self._area is None or math.dist(spot, self._area[:2]) <= self._area[2]:
-                    self.candidates.add(spot)
+            for spot in maybes:
+                self._sighting(spot)
             if not self._seeded:  # remembered spots first: no look round when it knows where to look
                 self._seeded = True
                 if self.memory is not None and self.kind is not None:
@@ -337,9 +341,11 @@ class RoamSkill:
         out = self.chase.tick(now_s, inp)
         self.cmd = out.cmd
         if out.result in ("not_found", "lost"):  # it got away: roam on, a fresh chase for the next sighting
-            if self._check is not None:  # the candidate it came from was chased and lost: done with (M1)
+            if self._check is not None:  # the candidate it came from was chased and lost: ruled out (M1) ...
                 self.candidates.rule_out(self._check.cand)
                 self._check = None
+            if (last := self.chase.last_seen) is not None:  # ... its last seen spot checked again from near,
+                self._sighting(last)  # at most REOPEN_MAX times (§24 D)
             self.chase = ChaseSkill(self.planner, self.settings)
             self._maybe_fix = None
             self.state = "drive"

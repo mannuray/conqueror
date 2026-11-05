@@ -79,6 +79,11 @@ class ChaseSkill:
     def cancel(self) -> SkillOut:
         return self._end(Result.CANCELLED)
 
+    @property
+    def last_seen(self) -> tuple[float, float] | None:
+        """Where the thing was last approached (a lost chase leaves a candidate there, LLD §24 D)."""
+        return self._target
+
     def debug(self) -> dict[str, object]:
         return {"state": self.state, "recovering": self._recovering, "target": self._target}
 

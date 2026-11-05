@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from conqueror_ai.domain.depth import Marks
+from conqueror_ai.domain.drive.candidates import REOPEN_MAX
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
@@ -469,22 +470,47 @@ def test_a_check_that_cannot_get_there_leaves_it_pending_and_not_gone() -> None:
     assert len(s.candidates.pending()) == 1 and mem.of_kind(lambda c: c == "toy") != []
 
 
-def test_a_candidate_whose_chase_gives_up_is_ruled_out() -> None:
-    """Z6 second review M1: checked, seen, chased, then the chase gave up (not found again) - the candidate
-    stayed pending and could be checked and chased for ever."""
+def chase_and_lose(s: RoamSkill, tank: SimTank, t: float, fix: TargetFix) -> float:
+    """Seen for sure (the chase), then never again until the chase gives up; the time after it."""
+    for k in range(1, 4):
+        tank.step(rt(s, t + 0.1 * k, tank.at, open_snap(), fix, None, True).cmd, 0.1)
+    assert s.state == "chase"
+    for k in range(4, 900):
+        tank.step(rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True).cmd, 0.1)
+        if s.state != "chase":
+            return t + 0.1 * k
+    raise AssertionError("the chase never gave up")
+
+
+def test_a_lost_chase_leaves_a_candidate_at_the_last_seen_spot() -> None:
+    """LLD §24 D (the room3 chair, §215): checked, seen, chased, lost - its last seen spot is checked again
+    from near rather than dropped."""
     s, tank = finder(), SimTank()
     t = until_searching(s, tank)
     ticks(s, tank, t, 1, maybes=[(1.2, 0.6)])
     assert s.state == "check"
-    fix = TargetFix(1, 1.2, 0.6, 0.0)
-    for k in range(1, 4):  # seen for sure: the chase
-        tank.step(rt(s, t + 0.1 * k, tank.at, open_snap(), fix, None, True).cmd, 0.1)
-    assert s.state == "chase"
-    for k in range(4, 900):  # then never again: the chase's look round, then it gives up
-        tank.step(rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True).cmd, 0.1)
-        if s.state != "chase":
+    chase_and_lose(s, tank, t, TargetFix(1, 1.25, 0.6, 0.0))
+    assert [k.spot for k in s.candidates.pending()] == [(1.25, 0.6)]
+
+
+def test_a_thing_lost_again_and_again_is_dropped_after_two_reopens() -> None:
+    """Z6 second review M1 kept: a candidate seen, chased and lost must not be checked and chased for ever -
+    after the first loss and REOPEN_MAX more it is left."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    ticks(s, tank, t, 1, maybes=[(1.2, 0.6)])
+    losses = 0
+    for _ in range(6):
+        for _k in range(300):  # to the next check of it
+            if s.state == "check":
+                break
+            t += 0.1
+            tank.step(rt(s, t, tank.at, open_snap(), None, None, True).cmd, 0.1)
+        if s.state != "check":
             break
-    assert s.state != "chase" and s.candidates.pending() == []
+        t = chase_and_lose(s, tank, t, TargetFix(1, 1.2, 0.6, 0.0))
+        losses += 1
+    assert losses == 1 + REOPEN_MAX and s.candidates.pending() == []
 
 
 def test_not_found_waits_for_a_pending_candidates_retry() -> None:

@@ -3199,3 +3199,19 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **The baby game, in the owner's words (2026-11-05):** "first always face the baby except for escape; if the baby
   crawls or walks towards you, escape; if the baby goes away from you, follow" - "but it will be big, let's find the
   small one". So: one game (face, escape, follow) built in small slices, the smallest first.
+
+## 215. FIND's maybes are dropped too easily (floor run 2026-11-06, room3; owner: "the filter is aggressive, even if a single frame captures an object it should trigger a maybe and an investigation"; "to look should be at least 40-50 cm, its camera is not good and only at this distance one can be sure")
+- **Found in the recordings (`--record`, room3):**
+  - FIND toy: a maybe of the real toy at 35 s, ~1.03 m away; a 1.5 s look from there; the detector flickered, so
+    the 3 sightings within 0.5 s were not reached; the spot was **ruled out**, and every later sighting near it was
+    **ignored** (candidates.py: "near a ruled-out one ignored") - seen again at 37-38 s and dropped. Found 65 s
+    later by chance from closer: `done` 104 s, ~38 cm from the toy.
+  - FIND chair: a chair confirmed at 20 s and chased, lost after ~25 s without reaching it; then every remembered
+    chair spot ruled out, floor searched until the owner's STOP at 154 s (7040). A wheeled office-chair base.
+  - EXPLORE (play area off): `done` 92 s, 17 m. GO THERE "door": `done` 24 s, 4.7 m, within 15 cm of its spot -
+    but "door" and "front wall" sit at the same point (one joined block), so the spot is worked out from the wall.
+- **Options put to the owner:** A a ruled-out spot opens again when seen again (at most 2 more checks per spot);
+  B during a check, 2 sightings any time in the look confirm (the strict rule stays for passing glimpses); C check
+  from closer; D find why the chair chase lost the chair.
+- **Decided (owner):** C - **a check looks from 40-50 cm**, not 1 m (`CHECK_CLOSE_M`, today `SURE_REACH_M` 1.0).
+  A, B, D: asked.

@@ -3150,8 +3150,10 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **R32.7 on the iPhone (2026-11-05, build 3eac554, owner: "all work except for pinch and drag"):** the hint line
   shows; tapping one end of the long wall lights the whole joined block with its dot; closing the card clears it;
   "door" lights its block and shows its name; a small block lights, empty floor gives no card. **Pinch and drag do
-  nothing** - as designed above ("no pinch or drag yet"); my check step wrongly asked for it. Whether to add it is
-  open (the `/ai` budget has 66 B left).
+  nothing** - as designed above ("no pinch or drag yet"); my check step wrongly asked for it.
+- **Pinch and drag: parked (owner, 2026-11-05: "a").** Options were A leave it (the map fits itself; the room fits
+  the phone; `/ai` has 66 B of its 30 KB left), B double-tap for 2x around the tap, C full pinch and drag with a
+  "fit" button. Chosen A. Revisit with B if a bigger room makes blocks too small to tap.
 
 ## 212. Battery: a bigger pack, and saving power when nobody is watching - parked (owner, 2026-11-05: "so can we increase it"; "yes note it for later")
 - **Found:** the tank was at 14 % during the Z2b-2 stand check. ELEGOO publishes the pack as 7.4 V lithium (2S, 7.2-8.4 V)

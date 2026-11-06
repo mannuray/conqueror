@@ -3238,3 +3238,5 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Built (Plan L1, 2026-11-06, branch `plan-l1-lessons`; Tank Logo LLD §25.5):** the five lessons pass the checker and
   lesson 4's running cases; `/logo` lists `[ LESSONS ]` 1-5. Two wording changes the reader forced: no "to" and no
   "!" inside SAY (lesson 1 says "going back now"). Tank check pending (flash over OTA, then each lesson).
+- **Final review (Opus) and the owner's call (2026-11-06, "yes"):** I1 - the happy ending of lessons 4 / 5 said
+  "Stopped by you." (7040): the STOP word now ends a program as done; the STOP key keeps 7040 (Tank Logo LLD §25.6).

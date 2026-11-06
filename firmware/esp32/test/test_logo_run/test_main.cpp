@@ -97,12 +97,12 @@ void test_square_finishes() {
   TEST_ASSERT_EQUAL(RunState::kEnded, g_rc.state());
 }
 
-void test_stop_word_is_7040() {
+void test_stop_word_ends_as_done() {  // Tank Logo LLD §25.6 (owner 2026-11-06): the STOP key alone is 7040
   TEST_ASSERT_TRUE(load("FD 10\nSTOP\nFD 20"));
   drive();
-  TEST_ASSERT_EQUAL(7040, g_last.code);
-  TEST_ASSERT_EQUAL(2, g_last.end_line);
-  TEST_ASSERT_EQUAL_STRING("Stopped by you.", g_last.msg);
+  TEST_ASSERT_TRUE(g_last.ended);
+  TEST_ASSERT_EQUAL(0, g_last.code);
+  TEST_ASSERT_EQUAL_STRING("", g_last.msg);
 }
 
 void test_cut_short_without_blocked_ends_7024() {
@@ -394,7 +394,7 @@ void test_a_failed_compile_never_starts() {
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_square_finishes);
-  RUN_TEST(test_stop_word_is_7040);
+  RUN_TEST(test_stop_word_ends_as_done);
   RUN_TEST(test_cut_short_without_blocked_ends_7024);
   RUN_TEST(test_cut_short_with_blocked_goes_on);
   RUN_TEST(test_end_reasons_of_a_motion);

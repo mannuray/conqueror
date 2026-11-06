@@ -1579,3 +1579,8 @@ sequenceDiagram
 - **Lesson 2 keeps the time:** `SAY ROUND TIMER` is accepted; it says "found it in", the seconds, "seconds".
 - **Sizes:** the five lessons are 1 757 B of text (strlen + 1 each, measured on the host); the bridge image 1 413 779 B (46.9 %); `/logo` 30 762 of 32 768 B gz (+179 B).
 - **Tests:** `test_logo_box` checks all eight built-ins with the AI helper's caps (on failure it prints the checker's first code, line and column); two `running.yaml` cases run lesson 4's code (120 cm then 30 cm; not seen, not seen, 30 cm); `logo.test.js` tests `programSections`; the stand-in tank (`fake_tank.py`) lists two lessons, checked in a browser.
+
+### 25.6 The STOP word ends as done (owner 2026-11-06, design-notes §216; the L1 final review's I1)
+- **Why:** lessons 4 and 5 end their happy path with `STOP` ("you found me"); the page then said "Ended (7040) on line 3: Stopped by you." - an error, after the child won.
+- **Change:** the runner ends a program that reaches the `STOP` word as **finished** (code 0, the page shows "Done"), exactly like a program that runs to its end; every ending already stops the tank and gives the drive back (`LogoController`), so nothing about stopping changes. **7040 "Stopped by you." stays for the STOP key** (the page's button, the phone's STOP, a skill ended by STOP).
+- **Where:** `RunController` (`VmStatus::kStop` → `end(0)`); `running.yaml` "STOP ends the program" and lesson 4's two cases now end `finished`; `test_logo_run` `test_stop_word_ends_as_done`. Spec 5 §12.5 ("STOP ends the whole program and stops the tank") still holds.

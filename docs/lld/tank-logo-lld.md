@@ -1510,7 +1510,7 @@ FOREVER [ HOTCOLD HOWFAR "ball ]
 - **`logo/program_names.{h,cpp}`:** `Example` gains `bool lesson`; `kExamples` lists the five lessons first, in order, then the three examples. A new `constexpr uint8_t kBuiltInCount = 8` in the header (a `static_assert` in the .cpp keeps it equal to the table).
 - **`net/program_store`:** `ProgramInfo` gains `bool lesson`, filled from the table; save / delete still refuse every built-in name (`findExample` covers lessons).
 - **`net/logo_http.cpp` `doList`:** the list buffer is `kMaxPrograms + kBuiltInCount` (today `+ 3`); each item adds `"lesson":true|false`. Built-ins keep `"example":true`, so the editor's read-only rules do not change.
-- **`web/logo.html` `showProgs`:** `[ LESSONS ]` between the saved programs and `[ EXAMPLES ]`; a lesson's label is its number and name. The page budget has ~2.1 KB free (30 583 of 32 768 B); this costs about 150 B.
+- **`web/logo.js` `programSections(progs)`** (pure, tested in `logo.test.js`) splits the list into saved / `[ LESSONS ]` / `[ EXAMPLES ]`, a lesson's label being its number and name; **`web/logo.html` `showProgs`** draws from it. The page budget has ~2.1 KB free (30 583 of 32 768 B); this costs about 150 B.
 
 ```mermaid
 classDiagram
@@ -1571,5 +1571,5 @@ sequenceDiagram
 ### 25.4 Tests
 - **Native (`test_logo_box`):** `exampleCount() == kBuiltInCount == 8`; the first five are lessons, in order, the last three not; every built-in passes `checkProgram` with `Caps{ai = true, things = a test list with ball and toy (car)}`; `findExample("treasure_hunt")` found; saving under `hot_and_cold` → `kExample`.
 - **Running (`running.yaml`, the fake world's HOWFAR answers, §24.3):** lesson 4 with HOWFAR 120 then 30 → beeps, then the tune, the SAY and the end; with HOWFAR −1 → only waits.
-- **Page (`logo.test.js`):** a list with a lesson, an example and a saved program shows `SAVED ON THE TANK`, `[ LESSONS ]` with `1 back_to_start`, then `[ EXAMPLES ]`.
+- **Page (`logo.test.js`, `programSections`):** a list with a lesson, an example and a saved program shows `SAVED ON THE TANK`, `[ LESSONS ]` with `1 back_to_start`, then `[ EXAMPLES ]`.
 - **On the tank (owner):** each lesson opens, reads well, and runs from `/logo`; lesson 4 by hand with the ball; lesson 5 with the ball hidden ~1.5 m away.

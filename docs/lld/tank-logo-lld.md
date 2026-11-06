@@ -1467,3 +1467,109 @@ classDiagram
   - **Runner:** a `skill_failed reason:"learning"` (a teach that started between the check and the word) ends the program with 7056, as the other reasons map (§24.2).
 - **The `/ai` page's buttons are one-line programs** run with `logo_run` from the page's own `/ws` (bridge LLD R27.1): Find + thing + area → `AREA 2  FIND "toy` (the area chip off → no `AREA`); Wander → `WANDER 30`; Explore → `EXPLORE`; [Z2b-2] FIND on a remembered thing → `FIND "thing`; GO THERE on a named block → `SETXY x y` (bridge LLD R32, design-notes §211). Nothing else in the runner changes.
 - **Tests:** a conformance case with `tank: {ai: true, learning: true}` → 7056 for `FIND "ball` and `SEE? "ball`; with `ai: false, learning: true` → 7020; a running case where the skill ends `learning` → 7056.
+
+## 25. Revision L1 — lessons in `/logo` (owner 2026-11-05/06, design-notes §214, §216 — draft for review)
+
+### 25.1 What changes
+- **Five lessons are built into the tank, like the three examples** (§20.4): read-only programs; opening one puts it in the editor; a changed lesson is saved under a new name (`EXAMPLE` → "Examples cannot be changed - pick a new name." stays the message).
+- **The explanation is in the program** as `;` comment lines at the top: what it does, what to watch, and a `Try this:` change. No new screen, no new page text.
+- **The program list on `/logo`** gets a `[ LESSONS ]` section between `SAVED ON THE TANK` and `[ EXAMPLES ]`, in the fixed order below, each shown with its number (`1 back_to_start`). The name stays the plain program name.
+- **No new words.** Each lesson uses today's level-1/2 words and the AI words (§24). A lesson that cannot be written well with them comes back to the owner before a word is added.
+- **Safety: nothing new.** They are ordinary programs: STOP, the drive lease, the 300 s run limit (7041), FIND never targets a person, the play area (`AREA`).
+
+### 25.2 The five lessons
+The texts below are the design; the plan fixes the exact text against the checker (§25.4). Every lesson that uses an AI word needs the AI helper running (7020 otherwise, as for any program).
+
+| # | Name | What the child sees | Words |
+|---|---|---|---|
+| 1 | `back_to_start` | drives out a little L, says it is going back, drives back to where the program started; it never lands exactly on the spot (drift) | FORWARD, RIGHT, SAY, SETXY, SOUND |
+| 2 | `where_is_my_ball` | looks round, searches, stops ~30 cm from the ball, says how many seconds it took; with a home a second run is quicker (it remembers) | AREA, FIND, SAY, TIMER, ROUND |
+| 3 | `treasure_hunt` | finds the car, says so, finds the ball, says so, goes back to the start, plays a tune | AREA, FIND, SAY, SETXY, PLAY |
+| 4 | `hot_and_cold` | **the tank stands still**; the child brings the ball closer; it beeps faster the nearer the ball is and plays a tune with "you found me!" within 40 cm (the camera is only sure that close, §215) | FOREVER, HOWFAR, IFELSE, BEEP, WAIT, PLAY, SAY, STOP, TO |
+| 5 | `hot_and_cold_hunt` | the ball is hidden; the tank wanders 2 s, stops and listens (beeps by how near the ball is), wanders again; it ends with "found you!" within 50 cm, or at the 300 s limit | AREA, FOREVER, WANDER, HOWFAR, IFELSE, BEEP, SOUND, SAY, STOP, TO |
+
+- **Lesson 5's limit, said in the lesson:** a program does one thing at a time, so it cannot beep *while* WANDER drives. Beeping while driving needs two things running at once - a much bigger change to Tank Logo, not in this slice.
+- **Lesson 3 and the 300 s limit:** two FINDs can take longer than 5 minutes; `AREA 2` keeps the searches small, and the comment says the program ends by itself after 5 minutes (7041).
+- **Lesson 2's time:** `SAY ROUND TIMER` if SAY takes a number; if the checker says no, it says "found it!" only (SENTENCE is level 3, reserved in v1 - no new word for this).
+
+Draft of lesson 4 (the shape of all five):
+```
+; Lesson 4 - hot and cold
+; The tank stands still. Bring the ball slowly towards it.
+; The nearer the ball, the faster it beeps.
+; Try this: change 40 to 60 - it finds you from further away.
+TO HOTCOLD :cm
+  IFELSE :cm < 0 [ WAIT 0.5 ] [
+    IFELSE :cm < 40 [ PLAY [ C4 E4 G4 C5 2 ] SAY [ you found me! ] STOP ] [ BEEP WAIT :cm / 100 ]
+  ]
+END
+FOREVER [ HOTCOLD HOWFAR "ball ]
+```
+
+### 25.3 Firmware and page
+- **`logo/program_names.{h,cpp}`:** `Example` gains `bool lesson`; `kExamples` lists the five lessons first, in order, then the three examples. A new `constexpr uint8_t kBuiltInCount = 8` in the header (a `static_assert` in the .cpp keeps it equal to the table).
+- **`net/program_store`:** `ProgramInfo` gains `bool lesson`, filled from the table; save / delete still refuse every built-in name (`findExample` covers lessons).
+- **`net/logo_http.cpp` `doList`:** the list buffer is `kMaxPrograms + kBuiltInCount` (today `+ 3`); each item adds `"lesson":true|false`. Built-ins keep `"example":true`, so the editor's read-only rules do not change.
+- **`web/logo.html` `showProgs`:** `[ LESSONS ]` between the saved programs and `[ EXAMPLES ]`; a lesson's label is its number and name. The page budget has ~2.1 KB free (30 583 of 32 768 B); this costs about 150 B.
+
+```mermaid
+classDiagram
+  class Example {
+    +const char* name
+    +const char* src
+    +bool lesson
+  }
+  class program_names {
+    +kBuiltInCount = 8
+    +exampleCount() uint8_t
+    +example(i) Example
+    +findExample(name) Example*
+  }
+  class ProgramInfo {
+    +char name[25]
+    +uint16_t bytes
+    +bool example
+    +bool lesson
+  }
+  class ProgramStore {
+    +programList(out, cap) uint8_t
+    +programLoad(name, buf, cap) int
+    +programSave(name, src) StoreStatus
+  }
+  class LogoHttp {
+    +doList()  GET /logo/programs
+    +doLoad()  GET /logo/programs/name
+  }
+  class LogoPage {
+    +showProgs()  SAVED / LESSONS / EXAMPLES
+    +openProg(name)
+  }
+  program_names --> Example
+  ProgramStore --> program_names
+  ProgramStore --> ProgramInfo
+  LogoHttp --> ProgramStore
+  LogoPage --> LogoHttp : JSON programs[] with lesson
+```
+
+```mermaid
+sequenceDiagram
+  participant C as Child on /logo
+  participant P as logo.html
+  participant H as LogoHttp
+  participant S as ProgramStore
+  P->>H: GET /logo/programs
+  H->>S: programList()
+  S-->>H: 5 lessons, 3 examples, saved programs
+  H-->>P: {"programs":[{"name":"back_to_start","example":true,"lesson":true}, ...]}
+  P->>P: showProgs(): SAVED, [ LESSONS ] 1..5, [ EXAMPLES ]
+  C->>P: taps "4 hot_and_cold"
+  P->>H: GET /logo/programs/hot_and_cold
+  H-->>P: the text (comments + program), read-only
+  C->>P: RUN (or changes 40 to 60, SAVE AS my_hot_cold)
+```
+
+### 25.4 Tests
+- **Native (`test_logo_box`):** `exampleCount() == kBuiltInCount == 8`; the first five are lessons, in order, the last three not; every built-in passes `checkProgram` with `Caps{ai = true, things = a test list with ball and toy (car)}`; `findExample("treasure_hunt")` found; saving under `hot_and_cold` → `kExample`.
+- **Running (`running.yaml`, the fake world's HOWFAR answers, §24.3):** lesson 4 with HOWFAR 120 then 30 → beeps, then the tune, the SAY and the end; with HOWFAR −1 → only waits.
+- **Page (`logo.test.js`):** a list with a lesson, an example and a saved program shows `SAVED ON THE TANK`, `[ LESSONS ]` with `1 back_to_start`, then `[ EXAMPLES ]`.
+- **On the tank (owner):** each lesson opens, reads well, and runs from `/logo`; lesson 4 by hand with the ball; lesson 5 with the ball hidden ~1.5 m away.

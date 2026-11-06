@@ -3223,3 +3223,15 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Built (Plan Z9, 2026-11-06, branch `plan-z9-find`; AI engine LLD §24.7):** engine tests and replay pass; one
   thing to watch on the floor - a maybe that shows at one spot in every still picture from 50 cm now ends FIND
   `done` there (B as approved). Floor check pending.
+
+## 216. Lessons in `/logo` - slice L1 designed (owner, 2026-11-05: "let's finish this first"; hot and cold: "both"; 2026-11-06: "till then we can develop the pending feature")
+- **Decided earlier (§214, chat 2026-11-05):** the lessons are built-in read-only programs like the examples, with
+  their explanation as `;` comments at the top and a `Try this:` change; a `[ LESSONS ]` section on `/logo`,
+  numbered; no new words unless a lesson cannot be written without one; hot and cold **both ways**.
+- **The five lessons:** 1 `back_to_start` (SETXY 0 0 goes back to where *the program* started, not the taped home
+  mark - so "back to the start", and the point is drift), 2 `where_is_my_ball`, 3 `treasure_hunt`, 4 `hot_and_cold`
+  (the tank stands still, the child brings the ball; found within 40 cm, §215), 5 `hot_and_cold_hunt` (wander 2 s,
+  stop, listen, again - a program cannot beep while WANDER drives; found within 50 cm).
+- **My calls:** the order on the list (saved, lessons, examples); 40 / 50 cm as "found"; `AREA 2` in the lessons
+  that search; lesson 2 says the seconds only if SAY takes a number (SENTENCE is level 3).
+- **Design:** Tank Logo LLD §25 (branch `plan-l1-lessons`). Plan: `docs/superpowers/plans/2026-11-06-plan-l1-lessons.md`.

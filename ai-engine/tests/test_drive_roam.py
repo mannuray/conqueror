@@ -6,13 +6,13 @@ import math
 import random
 from collections.abc import Sequence
 from dataclasses import replace
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
 from conqueror_ai.domain.depth import Marks
-from conqueror_ai.domain.drive.candidates import REOPEN_MAX
+from conqueror_ai.domain.drive.candidates import REOPEN_MAX, Candidate
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
@@ -870,3 +870,102 @@ def test_find_loses_the_chase_and_checks_its_last_spot_next() -> None:
         tank.step(rt(s, gave_up + 0.1 * k, tank.at, open_snap(), None, None, True).cmd, 0.1)
     c = s._check  # pyright: ignore[reportPrivateUsage]
     assert s.state == "check" and c is not None and c.spot == (1.25, 0.6)
+
+
+# ---- Plan Z10 final review fixes
+def glimpse_toward(tank: SimTank, spot: tuple[float, float], half_deg: float = 10.0) -> Glimpse:
+    b = math.atan2(spot[1] - tank.at[1], spot[0] - tank.at[0])
+    return Glimpse("toy", tank.at[:2], b - math.radians(half_deg), b + math.radians(half_deg), 0)
+
+
+def test_a_glimpse_of_the_spot_being_checked_is_no_second_look() -> None:
+    """I1: driving closer, the camera follows the spot in steps; those moving pictures show the same thing."""
+    s, tank, t = checking_far()
+    look_ticks(s, tank, t, 1, glimpses=[glimpse_toward(tank, (1.8, 0.0))])
+    assert s.state == "check"
+
+
+def test_a_glimpse_of_a_ruled_out_spot_is_no_second_look() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    s.candidates.add((0.0, 1.5))
+    (c,) = s.candidates.pending()
+    s.candidates.rule_out(c)
+    look_ticks(s, tank, t, 1, glimpses=[glimpse_toward(tank, (0.0, 1.5))])
+    assert s.state != "second"
+
+
+def test_an_echo_ahead_during_a_second_look_ends_blocked() -> None:
+    """I2: the run's stop rules hold in a second look too."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    look_ticks(s, tank, t, 1, glimpses=[glimpse_at(tank, 30.0, 60.0)])
+    assert s.state == "second"
+    out = rt(s, t + 0.1, tank.at, open_snap(), None, 0.05, True)
+    assert out.result == "blocked" and out.cmd == STOP
+
+
+def test_a_turn_for_a_second_look_gives_up_after_3_s() -> None:
+    """I2: a slipping track - the heading never changes - then the camera as far round as it goes."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    outs = [rt(s, t, tank.at, open_snap(), None, None, True, glimpses=[glimpse_at(tank, 140.0, 160.0)])]
+    outs += [
+        rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True) for k in range(1, 35)
+    ]  # tank not moved
+    cams = [o.cam for o in outs if o.cam is not None]
+    assert cams and math.isclose(cams[0][0], -90.0) and outs[-1].cmd == STOP
+
+
+def test_a_refused_turn_looks_as_far_as_the_camera_goes(monkeypatch: pytest.MonkeyPatch) -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+
+    def never(*a: Any, **k: Any) -> bool:
+        return False
+
+    monkeypatch.setattr(s.planner, "can_spin", never)
+    (o,) = look_ticks(s, tank, t, 1, glimpses=[glimpse_at(tank, 140.0, 160.0)])
+    assert o.cam is not None and math.isclose(o.cam[0], -90.0) and o.cmd == STOP
+
+
+def test_no_second_look_while_chasing() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    rt(
+        s,
+        t,
+        tank.at,
+        open_snap(),
+        TargetFix(1, 1.2, 0.0, 0.0),
+        None,
+        True,
+        glimpses=[glimpse_at(tank, 30.0, 60.0)],
+    )
+    assert s.state == "chase"
+
+
+def test_a_second_look_from_a_check_goes_back_to_it_with_its_time_paused() -> None:
+    s, tank, t = checking_far()
+    c = s._check  # pyright: ignore[reportPrivateUsage]
+    assert c is not None
+    t0 = c.t0
+    look_ticks(s, tank, t, 1, glimpses=[glimpse_toward(tank, (tank.at[0] - 1.0, tank.at[1] + 1.0))])
+    assert s.state == "second"
+    look_ticks(s, tank, t + 0.1, 25)
+    assert s.state == "check" and s._check is c and c.t0 > t0  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_nearer_candidate_with_no_way_does_not_take_over(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Minor: a nearer one outside the play area or walled off would end its check at once, again and again"""
+    s, tank, t = checking_far()
+    near = (tank.at[0] + 0.5, tank.at[1] + 0.3)
+    real = s.candidates.route
+
+    def no_way_to_near(c: Candidate, *a: Any) -> list[tuple[float, float]] | None:
+        return None if c.spot == near else real(c, *a)
+
+    monkeypatch.setattr(s.candidates, "route", no_way_to_near)
+    look_ticks(s, tank, t, 1, maybes=[near])
+    c = s._check  # pyright: ignore[reportPrivateUsage]
+    assert c is not None and c.spot == (1.8, 0.0)

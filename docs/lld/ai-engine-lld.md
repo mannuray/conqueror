@@ -3158,3 +3158,9 @@ The engine ticked every ~66 ms to the end (longest gap 0.15 s) and the tank's te
 - **C:** `ChaseSkill(search_when_lost=False)` inside find: `lost` at once; a chase that starts with nothing seen still looks round.
 - **§25.6:** `LeaseDriver(note=print)` prints "skill link: N ms between drive frames" over 250 ms.
 - **Not done:** a sim test with sightings only while turning (the sim gives none while turning; a roam test covers it).
+- **Final review fixes (Opus, 2026-11-07):**
+  - I1: a glimpse pointing at the spot being checked, or at a candidate (pending or ruled out) within `GLIMPSE_KNOWN_M` 4 m, is that one - no second look (the camera following a spot in 8° steps makes moving pictures of it).
+  - I2: the second look comes after the stop rules (an echo nearer than `clear_m` ends the run `blocked` in it too); its turn gives up after `SECOND_TURN_S` 3 s (a slipping track) and looks as far as the camera goes.
+  - Nearest-first takes only a candidate with a way to it. A turning picture's maybe makes candidates but does not refresh a fix made from maybes (only still pictures do).
+  - **Replays:** an old FIND recording replays its inputs unchanged, but its decisions differ where the old chase was lost (now it ends at once) or a much nearer candidate was waiting - a `--replay` mismatch there is this plan, not a bug.
+  - Tests for a refused turn, no second look while chasing, and a second look from a check that goes back to it with its time paused.

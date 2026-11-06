@@ -66,6 +66,11 @@ SECOND_LOOK_PAN_DEG = 90.0  # the camera turns this far; beyond, the tank turns 
 GLIMPSE_SAME_DEG = 20.0  # a glimpse this near a bearing already looked at ...
 GLIMPSE_FORGET_S = 15.0  # ... from within SAME_SPOT_M, in the last this long, is not looked at again
 SECOND_LOOK_GAP_S = 3.0  # at most one second look this often
+SECOND_TURN_S = 3.0  # a turn toward a look that hasn't got there by now: the camera as far as it goes (a
+# slipping track; the ways out's TURN_S)
+GLIMPSE_KNOWN_M = (
+    4.0  # a glimpse toward the spot being checked, or a candidate this near, is that one (review I1)
+)
 NEARER_FACTOR = 0.6  # driving to a check, a pending candidate nearer than this times its distance ...
 NEARER_BY_M = 0.5  # ... and by at least this much is checked first (LLD §25 B)
 
@@ -100,6 +105,7 @@ class _SecondLook:
     back: str  # the state to go back to
     t0: float  # when it began
     i: int = 0
+    turn_t0: float | None = None  # this look's turn toward it began
     look_t0: float | None = None  # this look's start (the camera sent)
     still_t0: float | None = None
 
@@ -280,7 +286,8 @@ class RoamSkill:
             self._maybe_fix = None
         elif (m := self._maybe_fix) is not None:  # each maybe at it moves it there, seen now (§24.5)
             near = [p for p in maybes if math.dist(p, (m.x_m, m.y_m)) <= SAME_SPOT_M]
-            if near and used:  # only a new picture says it was seen now (final review M1)
+            if near and used:  # only a new, still picture says it was seen now (Z9 final review M1; a
+                # turning picture's maybe is placed roughly - it makes candidates, not a chase target, §25)
                 self._maybe_seen_s = now_s
                 m = TargetFix(-1, near[-1][0], near[-1][1], 0.0)
             self._maybe_fix = fix = TargetFix(-1, m.x_m, m.y_m, max(0.0, now_s - self._maybe_seen_s))
@@ -320,17 +327,6 @@ class RoamSkill:
         if self.find and (self.state in ("start", "chase") or seen):
             self._second = None
             return self._chase(now_s, at, snap, fix, sonar_m, map_ok, cam_still)
-        if self.find and self.state == "second":
-            return self._second_look(now_s, at, snap, cam_still)
-        if (
-            self.find
-            and self._glimpses
-            and self._may_look_again()
-            and (b := self._new_glimpse(now_s, at)) is not None
-        ):
-            self._second = _SecondLook(b, self.state, now_s)
-            self.state, self._second_s = "second", now_s
-            return self._second_look(now_s, at, snap, cam_still)
         if self.point is not None:
             d = math.dist(at[:2], self.point)
             if d <= POINT_DONE_M:
@@ -343,6 +339,18 @@ class RoamSkill:
             return self._end("done")
         if sonar_m is not None and sonar_m < self.lim.clear_m:
             return self._end("blocked")
+        # the second look (LLD §25 A2) - after the stop rules, which hold in it too (review I2)
+        if self.find and self.state == "second":
+            return self._second_look(now_s, at, snap, cam_still)
+        if (
+            self.find
+            and self._glimpses
+            and self._may_look_again()
+            and (b := self._new_glimpse(now_s, at)) is not None
+        ):
+            self._second = _SecondLook(b, self.state, now_s)
+            self.state, self._second_s = "second", now_s
+            return self._second_look(now_s, at, snap, cam_still)
         cost = self._costmap(snap)
         if self.state == "start":
             if self._start_t0 is None:
@@ -506,7 +514,7 @@ class RoamSkill:
         if d <= CHECK_CLOSE_M + CHECK_NEAR_TOL_M:
             c.phase, c.closer, c.aimed = "look", True, False
             return self._halt()
-        if (n := self._nearer(at, c.cand, d)) is not None:  # the far one waits, pending, no try counted
+        if (n := self._nearer(at, c.cand, d, snap)) is not None:  # the far one waits, pending, no try counted
             self._start_check(now_s, at, n)
             return self._halt()
         # the way: its own marks set aside, inside the play area (§189); the fan still keeps off every mark
@@ -522,14 +530,17 @@ class RoamSkill:
             cam = (pan, self.lim.drive_tilt_deg)
         return self._halt(cam) if want == STOP else self._out(want, cam)
 
-    def _nearer(self, at: XYTh, current: Candidate, d: float) -> Candidate | None:
-        """A pending candidate much nearer than the one being driven to (LLD §25 B): the nearest such."""
+    def _nearer(self, at: XYTh, current: Candidate, d: float, snap: MapSnapshot) -> Candidate | None:
+        """A pending candidate much nearer than the one being driven to (LLD §25 B): the nearest such, when
+        there is a way to it (one outside the area or walled off would end its check at once: review)."""
         best: Candidate | None = None
         for p in self.candidates.pending():
             e = math.dist(at[:2], p.spot)
             nearer = p is not current and e < NEARER_FACTOR * d and d - e >= NEARER_BY_M - 1e-9
             if nearer and (best is None or e < math.dist(at[:2], best.spot)):
                 best = p
+        if best is None or self.candidates.route(best, at, self._costs_for(snap), self.routes) is None:
+            return None
         return best
 
     # ---- the second look (LLD §25 A2)
@@ -545,6 +556,8 @@ class RoamSkill:
         self._looked = [e for e in self._looked if now_s - e[2] < GLIMPSE_FORGET_S]
         for g in reversed(self._glimpses):
             mid = (g.lo_rad + g.hi_rad) / 2
+            if self._known(g):
+                continue
             if any(
                 math.dist(at[:2], p) <= SAME_SPOT_M
                 and abs(math.degrees(math.remainder(mid - b, math.tau))) <= GLIMPSE_SAME_DEG
@@ -556,6 +569,22 @@ class RoamSkill:
                 return [mid]
             return [g.lo_rad, g.hi_rad]
         return None
+
+    def _known(self, g: Glimpse) -> bool:
+        """The glimpse points at the spot being checked, or at a candidate within GLIMPSE_KNOWN_M (pending or
+        ruled out): that one, not something new - the camera following a spot in steps shows it moving
+        (review I1)."""
+        spots = [c.spot for c in self.candidates.pending()] + self.candidates.ruled_out()
+        if self._check is not None:
+            spots.append(self._check.spot)
+        pad = math.radians(GLIMPSE_SAME_DEG)
+        mid, half = (g.lo_rad + g.hi_rad) / 2, (g.hi_rad - g.lo_rad) / 2 + pad
+        for p in spots:
+            if math.dist(g.at, p) <= GLIMPSE_KNOWN_M:
+                b = math.atan2(p[1] - g.at[1], p[0] - g.at[0])
+                if abs(math.remainder(b - mid, math.tau)) <= half:
+                    return True
+        return False
 
     def _second_look(self, now_s: float, at: XYTh, snap: MapSnapshot, cam_still: bool) -> SkillOut:
         """Each bearing in turn: beyond SECOND_LOOK_PAN_DEG the tank turns toward it first (on the map's rule,
@@ -571,8 +600,13 @@ class RoamSkill:
             return self._halt()
         rel = math.degrees(math.remainder(sl.bearings[sl.i] - at[2], math.tau))  # + = left
         if sl.look_t0 is None and abs(rel) > SECOND_LOOK_PAN_DEG:
+            if sl.turn_t0 is None:
+                sl.turn_t0 = now_s
             left = rel > 0
-            if self.planner.can_spin(at, self._costmap(snap), left, abs(rel) - SECOND_LOOK_PAN_DEG):
+            turning = now_s - sl.turn_t0 < SECOND_TURN_S - 1e-9  # a slipping track: no turn for ever (I2)
+            if turning and self.planner.can_spin(
+                at, self._costmap(snap), left, abs(rel) - SECOND_LOOK_PAN_DEG
+            ):
                 return self._out(Command(0.0, math.copysign(self.lim.spin_dps, rel)))
         if sl.look_t0 is None:
             pan = max(-SECOND_LOOK_PAN_DEG, min(SECOND_LOOK_PAN_DEG, -rel))
@@ -584,7 +618,7 @@ class RoamSkill:
             sl.still_t0 = now_s
         looked = sl.still_t0 is not None and now_s - sl.still_t0 >= SECOND_LOOK_S - 1e-9
         if looked or now_s - sl.look_t0 >= SECOND_LOOK_MAX_S - 1e-9:
-            sl.i, sl.look_t0, sl.still_t0 = sl.i + 1, None, None
+            sl.i, sl.turn_t0, sl.look_t0, sl.still_t0 = sl.i + 1, None, None, None
             return self._second_look(now_s, at, snap, cam_still)
         return self._halt()
 

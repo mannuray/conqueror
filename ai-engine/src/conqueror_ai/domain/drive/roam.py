@@ -37,6 +37,7 @@ from conqueror_ai.domain.drive.recovery import ProgressWatch, Recovery
 from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point
 from conqueror_ai.domain.drive.skill import Result, SkillInput, SkillOut
 from conqueror_ai.domain.memory import ThingMemory
+from conqueror_ai.domain.objects import Glimpse
 from conqueror_ai.domain.reach import CHECK_CLOSE_M, SAME_SPOT_M
 from conqueror_ai.domain.room_map import MapSnapshot
 
@@ -57,6 +58,14 @@ POINT_PROGRESS_M = 0.3  # setxy: a nearer best distance by this much is progress
 POINT_PATIENCE_S = 40.0  # ... and this long without any ends no_way (unseen floor is passable: a point behind
 # an unseen wall is explored toward until here)
 POINT_SLOW_M = 0.5  # setxy: the last stretch at the slow speed, so it stops where it was sent
+# find: the second look at a glimpse, a sighting while the camera moved (LLD §25 A2, design-notes §217)
+SECOND_LOOK_S = 1.5  # still pictures this long at each look
+SECOND_LOOK_MAX_S = 4.0  # a look never longer than this (a camera that never settles, as the chase's sweep)
+ONE_LOOK_DEG = 50.0  # a range this wide is one look at its middle (the lens sees ~82 deg); wider: each end
+SECOND_LOOK_PAN_DEG = 90.0  # the camera turns this far; beyond, the tank turns on the spot first
+GLIMPSE_SAME_DEG = 20.0  # a glimpse this near a bearing already looked at ...
+GLIMPSE_FORGET_S = 15.0  # ... from within SAME_SPOT_M, in the last this long, is not looked at again
+SECOND_LOOK_GAP_S = 3.0  # at most one second look this often
 
 
 Mode = Literal["wander", "explore", "find", "point"]  # find: the look round, candidates, search, chase
@@ -79,6 +88,18 @@ class _Check:
     @property
     def spot(self) -> XY:
         return self.cand.spot  # the newest sighting's spot
+
+
+@dataclass
+class _SecondLook:
+    """A second look where a glimpse may be: each bearing in turn, the camera on it, still pictures."""
+
+    bearings: list[float]  # map bearings, radians
+    back: str  # the state to go back to
+    t0: float  # when it began
+    i: int = 0
+    look_t0: float | None = None  # this look's start (the camera sent)
+    still_t0: float | None = None
 
 
 class RoamSkill:
@@ -158,6 +179,10 @@ class RoamSkill:
         self._maybe_seen_s = 0.0  # ... last seen then
         self._maybes: Sequence[XY] = ()  # this tick's maybes of the thing ...
         self._used = False  # ... and whether its picture is new
+        self._glimpses: Sequence[Glimpse] = ()  # this tick's, while the camera moved (§25 A2)
+        self._second: _SecondLook | None = None
+        self._looked: list[tuple[XY, float, float]] = []  # second looks: where from, the bearing, when
+        self._second_s = -math.inf  # the last second look's start
 
     def _sighting(self, spot: XY) -> None:
         """A candidate there - outside the play area never (review M4)."""
@@ -205,6 +230,7 @@ class RoamSkill:
             "ruled_out": self.candidates.ruled_out(),
             "check": None if c is None else c.spot,
             "check_phase": None if c is None else c.phase,
+            "second": None if self._second is None else [math.degrees(b) for b in self._second.bearings],
             "looked": self.search.looked_cells() if self.find else [],
         }
 
@@ -247,7 +273,7 @@ class RoamSkill:
         c = inp.costs  # the run's cost maps, built once - when they carry this skill's area and settings
         if c is not None and c.area == self._area and c.settings == self.settings:
             self._costs = inp.costs
-        self._maybes, self._used = maybes, used
+        self._maybes, self._used, self._glimpses = maybes, used, inp.glimpses
         if fix is not None:  # the tracker's own fix always wins over one made from maybes
             self._maybe_fix = None
         elif (m := self._maybe_fix) is not None:  # each maybe at it moves it there, seen now (§24.5)
@@ -290,7 +316,19 @@ class RoamSkill:
         fix = self._inside(fix)  # seen outside the play area: never chased, its edge checked (§196)
         seen = fix is not None and fix.seen_age_s < LOST_AFTER_S
         if self.find and (self.state in ("start", "chase") or seen):
+            self._second = None
             return self._chase(now_s, at, snap, fix, sonar_m, map_ok, cam_still)
+        if self.find and self.state == "second":
+            return self._second_look(now_s, at, snap, cam_still)
+        if (
+            self.find
+            and self._glimpses
+            and self._may_look_again()
+            and (b := self._new_glimpse(now_s, at)) is not None
+        ):
+            self._second = _SecondLook(b, self.state, now_s)
+            self.state, self._second_s = "second", now_s
+            return self._second_look(now_s, at, snap, cam_still)
         if self.point is not None:
             d = math.dist(at[:2], self.point)
             if d <= POINT_DONE_M:
@@ -478,6 +516,62 @@ class RoamSkill:
             self._pan = pan
             cam = (pan, self.lim.drive_tilt_deg)
         return self._halt(cam) if want == STOP else self._out(want, cam)
+
+    # ---- the second look (LLD §25 A2)
+    def _may_look_again(self) -> bool:
+        """Driving, searching or driving to a check - not in the close look, the chase or a way out."""
+        c = self._check
+        return self.state == "drive" or (self.state == "check" and c is not None and c.phase == "closer")
+
+    def _new_glimpse(self, now_s: float, at: XYTh) -> list[float] | None:
+        """The newest glimpse not looked at already: its bearings to look at, or None."""
+        if now_s - self._second_s < SECOND_LOOK_GAP_S - 1e-9:
+            return None
+        self._looked = [e for e in self._looked if now_s - e[2] < GLIMPSE_FORGET_S]
+        for g in reversed(self._glimpses):
+            mid = (g.lo_rad + g.hi_rad) / 2
+            if any(
+                math.dist(at[:2], p) <= SAME_SPOT_M
+                and abs(math.degrees(math.remainder(mid - b, math.tau))) <= GLIMPSE_SAME_DEG
+                for p, b, _ in self._looked
+            ):
+                continue
+            self._looked.append((at[:2], mid, now_s))
+            if math.degrees(g.hi_rad - g.lo_rad) <= ONE_LOOK_DEG:
+                return [mid]
+            return [g.lo_rad, g.hi_rad]
+        return None
+
+    def _second_look(self, now_s: float, at: XYTh, snap: MapSnapshot, cam_still: bool) -> SkillOut:
+        """Each bearing in turn: beyond SECOND_LOOK_PAN_DEG the tank turns toward it first (on the map's rule,
+        like every turn; refused: the camera as far as it goes); then the camera on it and SECOND_LOOK_S of
+        still pictures (SECOND_LOOK_MAX_S at most). The sightings meanwhile are maybes as ever. Then back."""
+        sl = self._second
+        assert sl is not None
+        if sl.i >= len(sl.bearings):
+            self._second, self.state, self._pan = None, sl.back, None
+            if self._check is not None:  # the check's time doesn't run while it looked elsewhere
+                self._check.t0 += now_s - sl.t0
+            self._progress.reset()
+            return self._halt()
+        rel = math.degrees(math.remainder(sl.bearings[sl.i] - at[2], math.tau))  # + = left
+        if sl.look_t0 is None and abs(rel) > SECOND_LOOK_PAN_DEG:
+            left = rel > 0
+            if self.planner.can_spin(at, self._costmap(snap), left, abs(rel) - SECOND_LOOK_PAN_DEG):
+                return self._out(Command(0.0, math.copysign(self.lim.spin_dps, rel)))
+        if sl.look_t0 is None:
+            pan = max(-SECOND_LOOK_PAN_DEG, min(SECOND_LOOK_PAN_DEG, -rel))
+            sl.look_t0, sl.still_t0, self._pan = now_s, None, pan
+            return self._halt((pan, self.lim.drive_tilt_deg))
+        if not cam_still:
+            sl.still_t0 = None
+        elif sl.still_t0 is None:
+            sl.still_t0 = now_s
+        looked = sl.still_t0 is not None and now_s - sl.still_t0 >= SECOND_LOOK_S - 1e-9
+        if looked or now_s - sl.look_t0 >= SECOND_LOOK_MAX_S - 1e-9:
+            sl.i, sl.look_t0, sl.still_t0 = sl.i + 1, None, None
+            return self._second_look(now_s, at, snap, cam_still)
+        return self._halt()
 
     # ---- driving
     def _drive(

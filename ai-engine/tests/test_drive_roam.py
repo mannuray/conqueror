@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import cast
 
 import numpy as np
@@ -20,6 +21,7 @@ from conqueror_ai.domain.drive.roam import CANDIDATE_RETRY_S, START_STAND_S, Mod
 from conqueror_ai.domain.drive.sim import SimTank
 from conqueror_ai.domain.drive.skill import SkillOut, make_input
 from conqueror_ai.domain.memory import ThingMemory
+from conqueror_ai.domain.objects import Glimpse
 from conqueror_ai.domain.reach import CHECK_CLOSE_M
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.types import ObjectEstimate, Pose
@@ -49,6 +51,7 @@ def rt(
     maybes: Sequence[tuple[float, float]] = (),
     used: bool = True,
     fresh: bool | None = None,
+    glimpses: Sequence[Glimpse] = (),
 ) -> SkillOut:
     """The old call shape onto SkillInput (LLD §19.4)."""
     inp = make_input(
@@ -61,6 +64,7 @@ def rt(
         used=used,
         maybes=maybes,
         fresh=fresh,
+        glimpses=glimpses,
     )
     return s.tick(now, inp)
 
@@ -732,3 +736,92 @@ def test_a_re_read_pictures_maybe_is_still_no_candidate() -> None:
     t = until_searching(s, tank)
     rt(s, t, tank.at, open_snap(), None, None, True, maybes=[(1.2, 0.6)], used=False, fresh=False)
     assert s.candidates.pending() == []
+
+
+def glimpse_at(tank: SimTank, lo_deg: float, hi_deg: float) -> Glimpse:
+    """A glimpse lo..hi degrees left of the tank's heading (right = negative)."""
+    th = tank.at[2]
+    return Glimpse("toy", tank.at[:2], th + math.radians(lo_deg), th + math.radians(hi_deg), 0)
+
+
+def look_ticks(s: RoamSkill, tank: SimTank, t0: float, n: int, **kw: object) -> list[SkillOut]:
+    outs: list[SkillOut] = []
+    for k in range(n):
+        o = rt(s, t0 + k * 0.1, tank.at, open_snap(), None, None, True, **kw)  # type: ignore[arg-type]
+        tank.step(o.cmd, 0.1)
+        outs.append(o)
+    return outs
+
+
+def test_glimpse_left_stops_and_looks_there() -> None:
+    """A2: stop, the camera to the middle of the range (45 deg left = pan -45), 1.5 s of still pictures."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    (o,) = look_ticks(s, tank, t, 1, glimpses=[glimpse_at(tank, 30.0, 60.0)])
+    assert s.state == "second" and o.cmd == STOP
+    assert o.cam is not None and math.isclose(o.cam[0], -45.0, abs_tol=0.5)
+    outs = look_ticks(s, tank, t + 0.1, 14)
+    assert s.state == "second" and all(x.cmd == STOP for x in outs)
+    look_ticks(s, tank, t + 1.5, 3)
+    assert s.state == "drive"
+
+
+def test_a_maybe_in_the_second_look_is_a_candidate() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    look_ticks(s, tank, t, 1, glimpses=[glimpse_at(tank, 30.0, 60.0)])
+    look_ticks(s, tank, t + 0.1, 1, maybes=[(0.8, 0.8)])
+    assert [c.spot for c in s.candidates.pending()] == [(0.8, 0.8)]
+
+
+def test_wide_glimpse_gets_two_looks() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    (o,) = look_ticks(s, tank, t, 1, glimpses=[glimpse_at(tank, -40.0, 40.0)])
+    assert o.cam is not None and math.isclose(abs(o.cam[0]), 40.0, abs_tol=0.5)
+    first = o.cam[0]
+    pans = [x.cam[0] for x in look_ticks(s, tank, t + 0.1, 20) if x.cam is not None]
+    assert pans and math.isclose(pans[0], -first, abs_tol=0.5)
+
+
+def test_glimpse_behind_turns_first() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    (o,) = look_ticks(s, tank, t, 1, glimpses=[glimpse_at(tank, 140.0, 160.0)])
+    assert s.state == "second" and o.cmd.w_dps > 0.0  # turning left, toward it
+    outs = look_ticks(s, tank, t + 0.1, 40)
+    cams = [x.cam for x in outs if x.cam is not None]
+    assert cams and abs(cams[0][0]) <= 90.0
+
+
+def test_the_same_glimpse_again_is_ignored() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    g = glimpse_at(tank, 30.0, 60.0)  # map bearings: the same direction whichever way the tank faces later
+    look_ticks(s, tank, t, 1, glimpses=[g])
+    look_ticks(s, tank, t + 0.1, 20)
+    assert s.state == "drive"
+    look_ticks(s, tank, t + 5.0, 1, glimpses=[replace(g, at=tank.at[:2])])
+    assert s.state != "second"
+
+
+def test_a_glimpse_45_degrees_away_is_looked_at_after_3_s() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    g = glimpse_at(tank, 30.0, 60.0)
+    other = replace(g, lo_rad=g.lo_rad - math.radians(45.0), hi_rad=g.hi_rad - math.radians(45.0))
+    look_ticks(s, tank, t, 1, glimpses=[g])
+    look_ticks(s, tank, t + 0.1, 20)
+    look_ticks(s, tank, t + 2.2, 1, glimpses=[other])
+    assert s.state != "second"  # within 3 s of the last second look
+    look_ticks(s, tank, t + 3.2, 1, glimpses=[other])
+    assert s.state == "second"
+
+
+def test_no_second_look_during_the_close_look() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    look_ticks(s, tank, t, 1, maybes=[(0.3, 0.0)])  # near: the check looks at once
+    assert s.state == "check" and s._check is not None and s._check.phase == "look"  # pyright: ignore[reportPrivateUsage]
+    look_ticks(s, tank, t + 0.1, 1, glimpses=[glimpse_at(tank, 30.0, 60.0)])
+    assert s.state == "check"

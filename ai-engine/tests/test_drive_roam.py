@@ -825,3 +825,35 @@ def test_no_second_look_during_the_close_look() -> None:
     assert s.state == "check" and s._check is not None and s._check.phase == "look"  # pyright: ignore[reportPrivateUsage]
     look_ticks(s, tank, t + 0.1, 1, glimpses=[glimpse_at(tank, 30.0, 60.0)])
     assert s.state == "check"
+
+
+def checking_far(far: tuple[float, float] = (1.8, 0.0)) -> tuple[RoamSkill, SimTank, float]:
+    """Searching, then a maybe far away: its check has looked from here and is driving closer."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    look_ticks(s, tank, t, 1, maybes=[far])
+    for k in range(60):
+        look_ticks(s, tank, t + 0.1 + k * 0.1, 1)
+        c = s._check  # pyright: ignore[reportPrivateUsage]
+        if c is not None and c.phase == "closer":
+            return s, tank, t + 0.2 + k * 0.1
+    raise AssertionError("never drove closer")
+
+
+def test_a_much_nearer_candidate_takes_over_the_check() -> None:
+    """B (LLD §25): a maybe under 0.6x the distance and 0.5 m nearer is checked first; the far one waits."""
+    s, tank, t = checking_far()
+    near = (tank.at[0] + 0.5, tank.at[1] + 0.3)
+    look_ticks(s, tank, t, 1, maybes=[near])
+    c = s._check  # pyright: ignore[reportPrivateUsage]
+    assert c is not None and c.spot == near
+    far = [p for p in s.candidates.pending() if p.spot == (1.8, 0.0)]
+    assert len(far) == 1 and far[0].tries == 0 and far[0].reopens == 0
+
+
+def test_a_slightly_nearer_one_does_not() -> None:
+    s, tank, t = checking_far()
+    d = math.dist(tank.at[:2], (1.8, 0.0))
+    look_ticks(s, tank, t, 1, maybes=[(tank.at[0], tank.at[1] + d * 0.8)])  # off to the side: its own spot
+    c = s._check  # pyright: ignore[reportPrivateUsage]
+    assert c is not None and c.spot == (1.8, 0.0)

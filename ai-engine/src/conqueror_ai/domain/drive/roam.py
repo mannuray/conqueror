@@ -66,6 +66,8 @@ SECOND_LOOK_PAN_DEG = 90.0  # the camera turns this far; beyond, the tank turns 
 GLIMPSE_SAME_DEG = 20.0  # a glimpse this near a bearing already looked at ...
 GLIMPSE_FORGET_S = 15.0  # ... from within SAME_SPOT_M, in the last this long, is not looked at again
 SECOND_LOOK_GAP_S = 3.0  # at most one second look this often
+NEARER_FACTOR = 0.6  # driving to a check, a pending candidate nearer than this times its distance ...
+NEARER_BY_M = 0.5  # ... and by at least this much is checked first (LLD §25 B)
 
 
 Mode = Literal["wander", "explore", "find", "point"]  # find: the look round, candidates, search, chase
@@ -504,6 +506,9 @@ class RoamSkill:
         if d <= CHECK_CLOSE_M + CHECK_NEAR_TOL_M:
             c.phase, c.closer, c.aimed = "look", True, False
             return self._halt()
+        if (n := self._nearer(at, c.cand, d)) is not None:  # the far one waits, pending, no try counted
+            self._start_check(now_s, at, n)
+            return self._halt()
         # the way: its own marks set aside, inside the play area (§189); the fan still keeps off every mark
         route = self.candidates.route(c.cand, at, self._costs_for(snap), self.routes)
         cost = self._costmap(snap)
@@ -516,6 +521,16 @@ class RoamSkill:
             self._pan = pan
             cam = (pan, self.lim.drive_tilt_deg)
         return self._halt(cam) if want == STOP else self._out(want, cam)
+
+    def _nearer(self, at: XYTh, current: Candidate, d: float) -> Candidate | None:
+        """A pending candidate much nearer than the one being driven to (LLD §25 B): the nearest such."""
+        best: Candidate | None = None
+        for p in self.candidates.pending():
+            e = math.dist(at[:2], p.spot)
+            nearer = p is not current and e < NEARER_FACTOR * d and d - e >= NEARER_BY_M - 1e-9
+            if nearer and (best is None or e < math.dist(at[:2], best.spot)):
+                best = p
+        return best
 
     # ---- the second look (LLD §25 A2)
     def _may_look_again(self) -> bool:

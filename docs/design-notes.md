@@ -3235,3 +3235,6 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **My calls:** the order on the list (saved, lessons, examples); 40 / 50 cm as "found"; `AREA 2` in the lessons
   that search; lesson 2 says the seconds only if SAY takes a number (SENTENCE is level 3).
 - **Design:** Tank Logo LLD §25 (branch `plan-l1-lessons`). Plan: `docs/superpowers/plans/2026-11-06-plan-l1-lessons.md`.
+- **Built (Plan L1, 2026-11-06, branch `plan-l1-lessons`; Tank Logo LLD §25.5):** the five lessons pass the checker and
+  lesson 4's running cases; `/logo` lists `[ LESSONS ]` 1-5. Two wording changes the reader forced: no "to" and no
+  "!" inside SAY (lesson 1 says "going back now"). Tank check pending (flash over OTA, then each lesson).

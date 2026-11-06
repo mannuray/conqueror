@@ -1573,3 +1573,9 @@ sequenceDiagram
 - **Running (`running.yaml`, the fake world's HOWFAR answers, §24.3):** lesson 4 with HOWFAR 120 then 30 → beeps, then the tune, the SAY and the end; with HOWFAR −1 → only waits.
 - **Page (`logo.test.js`, `programSections`):** a list with a lesson, an example and a saved program shows `SAVED ON THE TANK`, `[ LESSONS ]` with `1 back_to_start`, then `[ EXAMPLES ]`.
 - **On the tank (owner):** each lesson opens, reads well, and runs from `/logo`; lesson 4 by hand with the ball; lesson 5 with the ball hidden ~1.5 m away.
+
+### 25.5 As built (Plan L1, 2026-11-06; tank check pending)
+- **Wording the reader forced:** inside `SAY [ ]` the word `to` is read as `TO` (7017) and `!` is not a character Tank Logo reads (7016). So lesson 1 says "going back now", and the "found ..." lines have no `!` ("you found me", "found you", "found the car").
+- **Lesson 2 keeps the time:** `SAY ROUND TIMER` is accepted; it says "found it in", the seconds, "seconds".
+- **Sizes:** the lessons are ~2.4 KB of flash text; the bridge image 1 413 779 B (46.9 %); `/logo` 30 762 of 32 768 B gz (+179 B).
+- **Tests:** `test_logo_box` checks all eight built-ins with the AI helper's caps (on failure it prints the checker's first code, line and column); two `running.yaml` cases run lesson 4's code (120 cm then 30 cm; not seen, not seen, 30 cm); `logo.test.js` tests `programSections`; the stand-in tank (`fake_tank.py`) lists two lessons, checked in a browser.

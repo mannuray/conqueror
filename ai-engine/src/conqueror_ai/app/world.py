@@ -17,7 +17,7 @@ from conqueror_ai.domain.drive.goal import Goal, size_positions
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.skill import SkillInput, make_input
 from conqueror_ai.domain.memory import ThingMemory
-from conqueror_ai.domain.objects import Located, ObjectPipeline
+from conqueror_ai.domain.objects import Glimpse, Located, ObjectPipeline
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.sonar_model import SonarModel
 from conqueror_ai.domain.telemetry import parse_td
@@ -166,6 +166,9 @@ class World:
         self._cam_still = True
         self._used = False  # a picture was used since the last input
         self._fresh = False  # ... or gave find maybes (used, or taken while turning: LLD §25 A1)
+        self._glimpses: list[
+            Glimpse
+        ] = []  # the goal's, while the camera moved, since the last input (§25 A2)
 
     @classmethod
     def around(cls, run: MapRun) -> World:
@@ -210,6 +213,8 @@ class World:
         due (a replay); live, Perception sees off the event loop (`see`, then `apply`)."""
         used = self.map_run.gate(f, rgb, dets, cam)
         self._fresh = self._fresh or self.map_run.p.fresh()
+        if self.goal is not None:
+            self._glimpses += [g for g in self.map_run.p.glimpses() if self.goal.kind(g.cls)]
         self.last_frame = f
         self._cam_still = used != "camera moving"
         if isinstance(used, str):
@@ -241,8 +246,17 @@ class World:
         self.memory.update(objects, wall_s, self.run_id)
         used, self._used = self._used, False
         fresh, self._fresh = self._fresh, False
+        glimpses, self._glimpses = tuple(self._glimpses), []
         if pose is None:
-            return make_input(at=None, snap=None, map_ok=map_ok, sonar_m=self.sonar_m, used=used)
+            return make_input(
+                at=None,
+                snap=None,
+                map_ok=map_ok,
+                sonar_m=self.sonar_m,
+                used=used,
+                fresh=fresh,
+                glimpses=glimpses,
+            )
         if self.area_m is not None and self.area is None:
             self.area = (pose.x_m, pose.y_m, self.area_m)
         fix = (
@@ -264,4 +278,5 @@ class World:
             used=used,
             maybes=maybes,
             fresh=fresh,
+            glimpses=glimpses,
         )

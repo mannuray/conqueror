@@ -211,3 +211,16 @@ def test_fresh_round_trips_and_an_old_line_takes_used(tmp_path: Path) -> None:
     old = _input_out(make_input(at=(0.0, 0.0, 0.0), snap=None, map_ok=True, used=True))
     del old["fresh"]
     assert _input_in(old).fresh
+
+
+def test_glimpses_round_trip_and_an_old_line_has_none() -> None:
+    """Plan Z10 (LLD §25 A2)."""
+    from conqueror_ai.adapters.decisions import _input_in, _input_out  # pyright: ignore[reportPrivateUsage]
+    from conqueror_ai.domain.objects import Glimpse
+
+    g = Glimpse("toy", (1.0, 2.0), 0.25, 0.5, 7)
+    inp = make_input(at=(0.0, 0.0, 0.0), snap=None, map_ok=True, glimpses=[g])
+    assert _input_in(_input_out(inp)).glimpses == (g,)
+    old = _input_out(make_input(at=(0.0, 0.0, 0.0), snap=None, map_ok=True))
+    del old["glimpses"]
+    assert _input_in(old).glimpses == ()

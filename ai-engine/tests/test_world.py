@@ -109,3 +109,17 @@ def test_fresh_after_a_turning_picture_but_not_used(tmp_path: Path, monkeypatch:
     inp = w.input(1.0, 1.0, True)
     assert inp.fresh and not inp.used
     assert not w.input(1.1, 1.1, True).fresh  # once per picture
+
+
+def test_glimpses_of_the_goal_kind_since_the_last_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plan Z10 (LLD §25 A2): every picture's glimpses of the thing sought, collected until the next input."""
+    from conqueror_ai.domain.objects import Glimpse
+
+    w = World(CAL, CFG, FloorDepth(), frozenset(), {}, Limits(), lambda c: c == "toy")
+    shown = [Glimpse("toy", (0.0, 0.0), 0.1, 0.2, 1), Glimpse("chair", (0.0, 0.0), 0.3, 0.4, 1)]
+    monkeypatch.setattr(w.map_run.p, "glimpses", lambda: shown)
+    small = np.zeros((10, 10, 3), np.uint8)
+    for k in range(2):
+        w.on_picture(Frame(seq=k, cap_us=1_000_000 + k, recv_s=1.0, jpeg=GREY_JPEG), small, [])
+    assert [g.cls for g in w.input(1.0, 1.0, True).glimpses] == ["toy", "toy"]
+    assert w.input(1.1, 1.1, True).glimpses == ()

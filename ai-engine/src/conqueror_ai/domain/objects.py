@@ -102,6 +102,14 @@ class CameraAngles:
             return None
         return best[1], best[2], best[3]
 
+    def still_pan_before(self, t_us: int) -> float | None:
+        """The pan (servo degrees) of the newest sample before t when the camera was still - where a move
+        under way at t started (LLD §25 A2). None when there is none in the history."""
+        for e in reversed(self._s):
+            if e[0] <= t_us and not e[3] & CAM_MOVING and self.rate_dps(e[0]) <= CAM_RATE_DPS:
+                return e[1]
+        return None
+
     def rate_dps(self, t_us: int) -> float:
         """How fast the camera turns around t (the faster of pan and tilt, from the samples within 40 ms)."""
         near = [e for e in self._s if abs(e[0] - t_us) <= ANGLES_US]
@@ -146,6 +154,19 @@ class FrameGate:
         pose, a = self._history.at(t), self._angles.at(t)
         assert pose is not None and a is not None  # "turning" is only given with both
         return CameraModel(self.cal, tilt_fix_deg=self.tilt_fix_deg).for_frame(pose, *from_servo(a[0], a[1]))
+
+
+@dataclass(frozen=True)
+class Glimpse:
+    """A sighting in a picture taken while the camera moved (LLD §25 A2): where the tank was, and the map
+    bearings it may lie at - the servo has no sensor, so its pan is somewhere between where the move started
+    and where it was sent. lo <= hi, at most half a turn apart."""
+
+    cls: str
+    at: tuple[float, float]
+    lo_rad: float
+    hi_rad: float
+    t_us: int
 
 
 @dataclass(frozen=True)
@@ -393,6 +414,7 @@ class ObjectPipeline:
         self._near: list[Near] = []
         self._maybes: list[Located] = []
         self._fresh = False  # the newest picture gave maybes: used, or turning (LLD §25 A1)
+        self._glimpses: list[Glimpse] = []  # the newest picture's, taken while the camera moved (§25 A2)
         self._skips: Counter[str] = Counter()
         self.last_camera: CameraModel | None = None
         self._last_cap_us: int | None = None
@@ -425,7 +447,7 @@ class ObjectPipeline:
     ) -> CameraModel | str:
         """Use one picture (its decoded size, its detections, the camera from camera_at if taken): its camera,
         or why it was skipped."""
-        self._maybes, self._fresh = [], False
+        self._maybes, self._fresh, self._glimpses = [], False, []
         dets = clear(dets)  # never a box over a person, whoever calls (LLD §21.4, review I1)
         if self._last_cap_us is not None and f.cap_us < self._last_cap_us:
             self.tracker = (
@@ -444,6 +466,8 @@ class ObjectPipeline:
                 t = self.gate.capture_us(f.cap_us)
                 self._maybes = self._locator.locate(dets, rough, t)[0]
                 self._fresh = True
+            elif cam == "camera moving":
+                self._glimpses = self._glimpse(dets, f.cap_us)
             return cam
         t = self.gate.capture_us(f.cap_us)
         located, self._near = self._locator.locate([d for d in dets if d.sure], cam, t)
@@ -460,6 +484,30 @@ class ObjectPipeline:
         """The newest used picture's sightings on the floor, sure and unsure: find looks again at one that
         isn't listed yet (§179; a single sure one too, §181). Unsure ones are never listed."""
         return list(self._maybes)
+
+    def glimpses(self) -> list[Glimpse]:
+        """The newest picture's sightings when it was taken while the camera moved (LLD §25 A2)."""
+        return list(self._glimpses)
+
+    def _glimpse(self, dets: list[Detection], cap_us: int) -> list[Glimpse]:
+        """Each detection's bearing range: the camera at where the move started and at where it was sent."""
+        t = self.gate.capture_us(cap_us)
+        pose, a, start = self._history.at(t), self._angles.at(t), self._angles.still_pan_before(t)
+        if pose is None or a is None or start is None:
+            return []
+        base = CameraModel(self.cal, tilt_fix_deg=self.gate.tilt_fix_deg)
+        ends = [base.for_frame(pose, *from_servo(pan, a[1])) for pan in (start, a[0])]
+        out: list[Glimpse] = []
+        for d in dets:
+            u, v = (d.box[0] + d.box[2]) / 2, (d.box[1] + d.box[3]) / 2
+            rays = [cam.pixel_ray(u, v) for cam in ends]
+            if rays[0] is None or rays[1] is None:
+                continue
+            b0 = math.atan2(float(rays[0][1]), float(rays[0][0]))
+            b1 = math.atan2(float(rays[1][1]), float(rays[1][0]))
+            b1 = b0 + math.remainder(b1 - b0, math.tau)  # the short way round
+            out.append(Glimpse(d.cls, (pose.x_m, pose.y_m), min(b0, b1), max(b0, b1), t))
+        return out
 
     def fresh(self) -> bool:
         """The newest picture's maybes are from a new picture: one used, or one taken while turning."""

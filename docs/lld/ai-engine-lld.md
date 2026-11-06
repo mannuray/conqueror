@@ -3041,3 +3041,97 @@ sequenceDiagram
   `test_the_same_picture_again_does_not_reopen_a_ruled_out_spot`, `test_the_made_up_fix_is_not_refreshed_by_a_re_read_picture`,
   `test_close_sightings_outside_the_play_area_are_never_chased`.
 - **Floor check:** pending (owner present) - FIND toy with the first look from ~1 m, FIND a chair.
+
+## 25. FIND takes a second look at a glimpse, checks the nearest maybe first, and a lost chase checks from near (Plan Z10; design-notes §217 — draft for review)
+
+### 25.1 Why (floor run 2026-11-06, room4, `FIND "box`, recording `rec_room4/word-5-5`)
+- **Glimpses are thrown away.** 347 of 659 ticks had no usable picture: pictures taken while the tank turns (> 45°/s) or the camera moves are skipped by the picture gate (`FrameGate.camera_for` → "turning" / "camera moving"), because the camera's pose is not known well enough to place a sighting on the floor. Their detections never reach FIND, though the `/ai` feed draws them - the owner saw the box flash "many times" and FIND did nothing.
+- **The far check goes first.** FIND began by checking a box remembered 3 m away; a new sighting 0.5 m away at 6 s became a pending candidate but waited until the far check ended.
+- **A lost chase searches in place.** At 16 s the detector stopped reporting the box 0.9 m ahead; the chase swept the camera (9 s), turned half round, swept again - 20 s - and ignored 25 unsure sightings of the box meanwhile (the chase only follows the tracker's fix). 7052 ended it (§25.6).
+- **Owner (2026-11-06):** "if one flash, it should investigate". Decided: **A** a second look at a glimpse, **B** the nearest maybe first, and the lost chase handed to the near check.
+
+### 25.2 What changes
+- **A - the second look.**
+  - The object pipeline keeps, for a picture skipped only for "turning" or "camera moving" (pose and servo angles known), each detection of any score ≥ `MAYBE_SCORE` as a **`Glimpse`**: its class, a **rough bearing** on the map (pose heading at capture + the pan servo's reading + the pixel's angle `atan((cx - u) / fx)`) and where the tank was. No floor position.
+  - `SkillInput` gains `glimpses: tuple[Glimpse, ...]` - the thing sought's, since the last tick (find only).
+  - `RoamSkill`, while it drives, looks round or drives to a check (not during the close look, the chase or a way out), takes a glimpse as a **second look**: stop; camera to the glimpse's bearing (pan within ±90°; beyond that the tank turns on the spot to bring it within, on the map's rules like every turn); `SECOND_LOOK_S` 1.5 s of still pictures. Sightings in those pictures are maybes as today → candidates (and a sure one the tracker confirms → the chase). Then it goes back to what it was doing.
+  - **Not over and over:** a glimpse within `GLIMPSE_SAME_DEG` 20° of a bearing already looked at again from within `SAME_SPOT_M` 0.5 m in the last `GLIMPSE_FORGET_S` 15 s is ignored; at most one second look per `SECOND_LOOK_GAP_S` 3 s.
+- **B - the nearest first.** While driving to a check (phase "closer"), a pending candidate whose route-free distance is less than 0.6 × the current one's **and** at least 0.5 m less takes over; the current one stays pending (not ruled out, no reopen counted).
+- **The lost chase checks from near (C).** Inside FIND the chase does not search in place: when it loses the thing (no fix, or `LOST_AFTER_S`), it ends `lost` at once; roam's §24 D rule makes the last seen spot a pending candidate, checked from 50 cm with the close look (§24 B: 2 maybes confirm). `ChaseSkill(search_when_lost=False)`; the plain chase keeps its sweep.
+- **7052 watch (§25.6):** the skill link logs a line when two of its sends are more than 250 ms apart, and the bridge's 300 ms deadman stays as it is.
+
+### 25.3 Classes
+```mermaid
+classDiagram
+  class Glimpse {
+    +str cls
+    +float bearing_rad
+    +XY at
+    +int t_us
+  }
+  class ObjectPipeline {
+    +on_frame(f, size, dets, cam) CameraModel|str
+    +maybes() list~Located~
+    +glimpses() list~Glimpse~  new: skipped turning / camera moving
+  }
+  class World {
+    +input() SkillInput  glimpses of the goal's kind since the last tick
+  }
+  class SkillInput {
+    +maybes tuple~XY~
+    +glimpses tuple~Glimpse~  new
+  }
+  class RoamSkill {
+    -_second: _SecondLook|None  new
+    -_looked: list~(XY, bearing, t)~  new
+    +tick(now, inp) SkillOut
+    -_second_look(now, at, ...) SkillOut  new
+    -_nearer(at, current) Candidate|None  new (B)
+  }
+  class _SecondLook {
+    +float bearing_rad
+    +float t0
+    +str back_to
+  }
+  class ChaseSkill {
+    +search_when_lost: bool  new (False inside FIND)
+  }
+  ObjectPipeline --> Glimpse
+  World --> ObjectPipeline
+  World --> SkillInput
+  RoamSkill --> SkillInput
+  RoamSkill --> _SecondLook
+  RoamSkill --> ChaseSkill
+```
+
+### 25.4 A glimpse, in time
+```mermaid
+sequenceDiagram
+  participant P as ObjectPipeline
+  participant W as World
+  participant R as RoamSkill
+  participant T as Tank
+  P->>P: picture skipped "turning", a box at pixel cx
+  P->>W: Glimpse(box, heading+pan+pixel angle, at)
+  W->>R: SkillInput.glimpses = [box glimpse]
+  R->>R: not looked at near this bearing in 15 s?
+  R->>T: stop; camera to the bearing (or turn if beyond 90°)
+  loop 1.5 s of still pictures
+    P->>W: used picture, box maybe (x, y)
+    W->>R: maybes
+    R->>R: candidate added (or the tracker confirms: chase)
+  end
+  R->>R: back to what it was doing (B: the nearest candidate first)
+```
+
+### 25.5 Tests (pytest, `ai-engine/tests/`)
+- **Glimpse bearing:** a skipped "turning" picture with a box at the image centre, heading 90°, pan +30° (right) → bearing 60°; at the right edge → bearing less by the half lens angle; "no pose" pictures → no glimpse; a person → no glimpse.
+- **Second look:** driving, a glimpse 40° left → stop, camera pan −40°, 1.5 s still; a maybe there → pending candidate; then back to driving. A glimpse 150° behind → a turn on the spot first. The same bearing again within 15 s → ignored; another 30° away → looked at.
+- **Not during:** the close look, the chase, a way out → glimpse ignored.
+- **Nearest first:** checking a candidate 3 m away, a new one 0.6 m away → it becomes the check, the far one stays pending; one 2.5 m away → no switch.
+- **Lost chase:** a chase that loses its fix ends `lost` at once (no sweep), the last seen spot is the next check; the plain chase still sweeps.
+- **Sim (`test_drive_roam_sim.py`):** the box seen only on turning pictures → found (today: not found).
+- **Floor (owner):** `FIND "box` from where the box flashes while it turns; a box 0.5 m away while a remembered one is 3 m away; a box lost in the chase.
+
+### 25.6 The 7052 in that run
+The engine ticked every ~66 ms to the end (longest gap 0.15 s) and the tank's telemetry kept coming (longest gap 0.29 s); the bridge ended the skill on its 300 ms deadman. The skill link's sends are not recorded, so where the gap was (laptop, WiFi, bridge) is not known: Z10 logs send gaps over 250 ms to find it next time. The deadman is a safety rule and is not loosened.

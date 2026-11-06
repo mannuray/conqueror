@@ -3238,3 +3238,15 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Built (Plan L1, 2026-11-06, branch `plan-l1-lessons`; Tank Logo LLD §25.5):** the five lessons pass the checker and
   lesson 4's running cases; `/logo` lists `[ LESSONS ]` 1-5. Two wording changes the reader forced: no "to" and no
   "!" inside SAY (lesson 1 says "going back now"). Tank check pending (flash over OTA, then each lesson).
+
+## 217. FIND ignores glimpses (floor run 2026-11-06, room4; owner: "i saw box flash on camera many times but it didn't investigate; if one flash it should investigate")
+- **The run:** fresh home `room4` (the tank could not be carried to a mark); `WANDER` (area off, closed room), `FIND
+  "toy` done in 4 s ~30 cm from the car (seen clearly, so Z9's close look was not needed), `FIND "box` ended 7052.
+- **Found in the recording:** 347 of 659 ticks had no usable picture (turning / camera moving: the map can't place
+  those sightings, but the `/ai` feed draws them); a near sighting waited while a far remembered box was checked; the
+  chase lost the box 0.9 m ahead, swept 20 s and ignored 25 unsure sightings of it; 7052 from the bridge's 300 ms
+  deadman while the engine still ticked (cause not known).
+- **Decided (owner: "yes" to my recommendation):** A a second look at a glimpse (stop, camera to it, 1.5 s still) +
+  B the nearest maybe first + a lost chase checked from near at once. Design: AI engine LLD §25 (Plan Z10, branch
+  `plan-z10-glimpse`). My calls: 20° / 15 s / 3 s for "not over and over", 0.6× and 0.5 m for "nearer", the
+  send-gap log for the 7052.

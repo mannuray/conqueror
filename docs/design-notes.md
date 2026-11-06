@@ -3220,3 +3220,6 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   lens 0.42-0.5 m away); a ruled-out spot seen again opens again, at most 2 times; 2 pictures with a maybe at the
   spot during a close look confirm it; a lost chase leaves a pending candidate at the last seen spot. The search's
   "looked at" radius stays 1 m (my call).
+- **Built (Plan Z9, 2026-11-06, branch `plan-z9-find`; AI engine LLD §24.7):** engine tests and replay pass; one
+  thing to watch on the floor - a maybe that shows at one spot in every still picture from 50 cm now ends FIND
+  `done` there (B as approved). Floor check pending.

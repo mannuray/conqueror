@@ -3006,3 +3006,29 @@ sequenceDiagram
 - Replay: `cq-drive --replay` of the room3 recording runs (decisions differ from the recorded ones - expected).
 - **Floor check (owner present):** the room3 runs again - FIND toy with the toy ~1 m off the first look; FIND a
   chair; each: what moves, steps, floor confirmed, camera check before.
+
+### 24.7 As built (Plan Z9, 2026-11-06; design-notes §215)
+- **Constants:** `reach.CHECK_CLOSE_M` 0.5 (tank centre; roam's check and the candidates' route both use it -
+  the search's `SURE_REACH_M` 1.0 untouched); `candidates.REOPEN_MAX` 2 (`Candidate.reopens`); `roam.CHECK_HITS` 2
+  (`_Check.hits`, `_Check.last_maybe`).
+- **B as built:** a hit is counted on a tick with a new picture (`inp.used`), the camera still and not being sent
+  this tick, and a maybe within `SAME_SPOT_M` of the check's spot. At 2 hits `RoamSkill._maybe_fix` =
+  `TargetFix(-1, last maybe, 0)` and the chase takes over; each later maybe within `SAME_SPOT_M` of it moves it
+  (age 0), else its age is the time since; a tracker fix clears it. Cleared when the chase is lost.
+- **D as built:** `ChaseSkill.last_seen` (the target last approached); on `lost` / `not_found` the check's
+  candidate is ruled out as before, then the last seen spot goes through `RoamSkill._sighting` (the play-area
+  test the maybes use) into `Candidates.add` - so it reopens the ruled-out one under `REOPEN_MAX`. A thing lost
+  again and again is chased 1 + `REOPEN_MAX` times, then left (Z6 review M1 kept).
+- **A consequence to watch on the floor:** a maybe that shows at one spot in every still picture from 0.5 m now
+  ends FIND `done` beside it (sim `test_a_maybe_in_every_close_picture_is_taken_as_the_thing`; before §24 it was
+  ruled out once). That is B as approved - a steady false detection at 50 cm would be taken for the thing.
+- **Tests changed because §24 changes what they pin:** `test_a_ruled_out_spot_ignores_later_sightings` →
+  `..._seen_again_opens_again_at_most_twice`; `test_a_candidate_whose_chase_gives_up_is_ruled_out` → the two D
+  tests; the sim's "checked once" false maybe → taken as the thing; two 1.05 m bounds → `CHECK_CLOSE_M` + 0.05.
+  New: `test_a_route_to_a_candidate_ends_within_half_a_metre`, `test_a_check_from_one_metre_drives_to_half_a_metre_before_its_look`,
+  five close-look tests (two pictures, one picture, same picture twice, a sighting away, the tracker's fix wins).
+- **Checks:** engine suite 864 passed, 3 skipped (the wall-clock tests `test_route_is_quick` /
+  `test_explore_picks_quickly_by_searching_outward` each failed once under the full run's load and pass alone;
+  their code is untouched); ruff and pyright clean. `cq-drive --replay rec_room3/word-4-5` runs to the end and
+  departs from the recorded decisions at tick 230 (expected: the check now drives closer).
+- **Floor check:** pending (owner present) - FIND toy with the first look from ~1 m, FIND a chair.

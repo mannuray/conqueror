@@ -3258,3 +3258,9 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   the servo's angle (later, if second looks are too many). Approved ("yes").
 - **Built (Plan Z10, 2026-11-07, branch `plan-z10-glimpse`; AI engine LLD §25.7):** engine tests pass; floor check
   pending (`FIND "box` in room4 where the box flashed).
+- **Floor, Z10 engine (2026-11-07, fresh home `room5`):** `FIND "box` done 30.3 s, 1.1 m, ~35 cm from it - first
+  seen in a **turning picture** at 15.4 s (5 cm from where it was), then from still pictures; `FIND "toy` done
+  55.2 s, 3.0 m (two ways out near the box and furniture), ~34 cm from the car. The send-gap note printed 259 ms and
+  284 ms - close to the bridge's 300 ms deadman (watch; the link, not the deadman, is what to look at).
+- **Owner:** "3 then 1" - first a design for the box run's wait (the opening look round ran 9 s past the first
+  sighting): AI engine LLD §25.8 (Plan Z10b), then a FIND with the box hidden further away.

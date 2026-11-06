@@ -3164,3 +3164,14 @@ The engine ticked every ~66 ms to the end (longest gap 0.15 s) and the tank's te
   - Nearest-first takes only a candidate with a way to it. A turning picture's maybe makes candidates but does not refresh a fix made from maybes (only still pictures do).
   - **Replays:** an old FIND recording replays its inputs unchanged, but its decisions differ where the old chase was lost (now it ends at once) or a much nearer candidate was waiting - a `--replay` mismatch there is this plan, not a bug.
   - Tests for a refused turn, no second look while chasing, and a second look from a check that goes back to it with its time paused.
+
+### 25.8 A sighting ends the opening look round (Plan Z10b; design-notes §217 — draft for review)
+- **Why (floor run 2026-11-07, room5, `FIND "box`, `rec_room5/word-1-6`):** the box was seen in a turning picture at 15.4 s and five times more from still pictures at 19.0-19.5 s - a pending candidate from 15.4 s - but the opening look round (the chase's sweep, half turn, sweep) ran on to 24.4 s before the check began. Done at 30.3 s; it could have been ~21 s. Its 3 glimpses (camera moving) were ignored too: no second look during the chase.
+- **Change:** inside FIND, while the chase is still in its opening look round (nothing seen by the tracker yet: chase state `start` / `sweep` / `spin`):
+  - a **new pending candidate** (a maybe from this run - remembered spots already skip the look round, §20) ends the look round at once: the chase is put aside quietly (no result, the tank stops), roam goes to `drive`, and the candidate is checked as usual (look, closer, the close look, §24);
+  - a **glimpse** ends it the same way and takes the second look (§25.2 A2) first;
+  - a thing the tracker confirms still goes straight into the chase's approach, as today.
+- **Not changed:** the look round when nothing is seen; the chase's approach; the close look; every stop rule.
+- **Classes:** `RoamSkill._chase` checks `self.chase.state in ("start", "sweep", "spin")` and the pending list / this tick's glimpses before ticking the chase; a fresh `ChaseSkill` replaces the put-aside one (as after a lost chase).
+- **Tests:** a look round with a maybe at 1.5 m → state `check` within one tick, the camera on the spot; a glimpse during the look round → `second`, then `drive`; a remembered spot → no look round (unchanged); a tracker fix during the look round → the approach (unchanged).
+- **Floor:** `FIND "box` from where the box flashes during the look round: the check starts within a tick of the first sighting.

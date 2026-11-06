@@ -233,7 +233,7 @@ class RoamSkill:
             self._area = (at[0], at[1], self.area_m)
         self._tried_now = False
         if self.find:
-            for spot in maybes:
+            for spot in maybes if used else ():  # a re-read picture is not "seen again" (final review I2)
                 self._sighting(spot)
             if not self._seeded:  # remembered spots first: no look round when it knows where to look
                 self._seeded = True
@@ -249,7 +249,7 @@ class RoamSkill:
             self._maybe_fix = None
         elif (m := self._maybe_fix) is not None:  # each maybe at it moves it there, seen now (§24.5)
             near = [p for p in maybes if math.dist(p, (m.x_m, m.y_m)) <= SAME_SPOT_M]
-            if near:
+            if near and used:  # only a new picture says it was seen now (final review M1)
                 self._maybe_seen_s = now_s
                 m = TargetFix(-1, near[-1][0], near[-1][1], 0.0)
             self._maybe_fix = fix = TargetFix(-1, m.x_m, m.y_m, max(0.0, now_s - self._maybe_seen_s))
@@ -444,14 +444,17 @@ class RoamSkill:
                 c.still_t0 = None
             elif c.still_t0 is None:
                 c.still_t0 = now_s
-            if cam is None and cam_still and self._used:  # a new, still picture of the spot
+            near_look = d <= CHECK_CLOSE_M + CHECK_NEAR_TOL_M  # hits count only from near (final review I1)
+            if near_look and cam is None and cam_still and self._used:  # a new, still picture of the spot
                 near = [p for p in self._maybes if math.dist(p, c.spot) <= SAME_SPOT_M]
                 if near:
                     c.hits, c.last_maybe = c.hits + 1, near[-1]
-                if c.hits >= CHECK_HITS and c.last_maybe is not None:  # seen twice from near: it is there
-                    self._maybe_seen_s = now_s
-                    self._maybe_fix = TargetFix(-1, c.last_maybe[0], c.last_maybe[1], 0.0)
-                    return self._chase(now_s, at, snap, self._maybe_fix, sonar_m, True, cam_still)
+                if c.hits >= CHECK_HITS and c.last_maybe is not None:  # seen twice from near: it is there ...
+                    made = self._inside(TargetFix(-1, c.last_maybe[0], c.last_maybe[1], 0.0))
+                    if made is not None:  # ... unless outside the play area: never chased (§196, review M2)
+                        self._maybe_seen_s, self._maybe_fix = now_s, made
+                        return self._chase(now_s, at, snap, made, sonar_m, True, cam_still)
+                    c.hits, c.last_maybe = 0, None
             if c.still_t0 is not None and now_s - c.still_t0 >= CHECK_LOOK_S - 1e-9:
                 if c.closer or d <= CHECK_CLOSE_M + CHECK_NEAR_TOL_M:
                     return self._end_check(now_s, near=True)

@@ -450,6 +450,81 @@ def test_the_trackers_fix_replaces_the_made_up_one() -> None:
     assert s.chase.debug()["target"] == (real.x_m, real.y_m)
 
 
+def ahead(tank: SimTank, m: float) -> tuple[float, float]:
+    return (tank.at[0] + m * math.cos(tank.at[2]), tank.at[1] + m * math.sin(tank.at[2]))
+
+
+def test_two_pictures_from_one_metre_do_not_confirm_it_drives_closer() -> None:
+    """Final review I1: hits only count from near (the owner: "only at this distance one can be sure")."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    spot = ahead(tank, 1.0)
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot])
+    rt(s, t + 0.1, tank.at, open_snap(), None, None, True)  # aimed
+    for k in range(2, 4):
+        rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True, maybes=[spot])
+    for k in range(4, 40):
+        rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True)
+        assert s.state != "chase"
+        if s._check is not None and s._check.phase == "closer":  # pyright: ignore[reportPrivateUsage]
+            break
+    assert s._check is not None and s._check.phase == "closer"  # pyright: ignore[reportPrivateUsage]
+
+
+def test_the_same_picture_again_does_not_reopen_a_ruled_out_spot() -> None:
+    """Final review I2: a picture re-read on a tick with no new one is not "seen again" (§24 A)."""
+    s, tank, t, spot = close_check()
+    for k in range(40):
+        rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True)
+        if s.candidates.ruled_out():
+            break
+    assert s.candidates.ruled_out() and not s.candidates.pending()
+    rt(s, t + 4.1, tank.at, open_snap(), None, None, True, maybes=[spot], used=False)
+    assert not s.candidates.pending()
+    rt(s, t + 4.2, tank.at, open_snap(), None, None, True, maybes=[spot], used=True)
+    assert s.candidates.pending()
+
+
+def test_the_made_up_fix_is_not_refreshed_by_a_re_read_picture() -> None:
+    """Final review M1: only a new picture says the thing was seen now."""
+    s, tank, t, spot = close_check()
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot])
+    rt(s, t + 0.1, tank.at, open_snap(), None, None, True, maybes=[spot])
+    assert s.state == "chase"
+    rt(s, t + 0.5, tank.at, open_snap(), None, None, True, maybes=[spot], used=False)
+    f = s._maybe_fix  # pyright: ignore[reportPrivateUsage]
+    assert f is not None and f.seen_age_s > 0.3
+
+
+def test_close_sightings_outside_the_play_area_are_never_chased() -> None:
+    """Final review M2 (re-graded Important: the find ended blocked): two hits on a maybe just outside the
+    area, within 0.5 m of a spot inside it, start no chase toward it and leave no candidate outside."""
+    s = RoamSkill(Planner(Limits()), "find", rng=random.Random(1), area_m=1.0, kind=lambda c: c == "toy")
+    tank = SimTank()
+    t = until_searching(s, tank)
+    centre = s._area  # pyright: ignore[reportPrivateUsage]
+    assert centre is not None
+    spot = ahead(tank, 0.9) if math.dist(ahead(tank, 0.9), centre[:2]) < 1.0 else ahead(tank, 0.5)
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot])
+    assert s.state == "check"
+    for _ in range(300):  # to the near look
+        t += 0.1
+        tank.step(rt(s, t, tank.at, open_snap(), None, None, True).cmd, 0.1)
+        c = s._check  # pyright: ignore[reportPrivateUsage]
+        if c is None or (c.phase == "look" and c.aimed and math.dist(tank.at[:2], spot) <= 0.55):
+            break
+    a = math.atan2(spot[1] - centre[1], spot[0] - centre[0])
+    out = (centre[0] + 1.2 * math.cos(a), centre[1] + 1.2 * math.sin(a))  # 0.2 m outside
+    assert math.dist(out, spot) <= 0.5
+    for j in range(1, 30):
+        o = rt(s, t + 0.1 * j, tank.at, open_snap(), None, None, True, maybes=[out])
+        assert s.state != "chase" and o.result != "blocked"  # was: chased out, blocked
+        assert all(math.dist(p.spot, centre[:2]) <= 1.0 for p in s.candidates.pending())
+        if o.result:  # §196: seen outside the area, its edge looked at - "outside_area", not a chase
+            assert o.result == "outside_area"
+            break
+
+
 def test_a_check_that_cannot_get_there_leaves_it_pending_and_not_gone() -> None:
     """Z6 second review I3: no way to it (the map closed it) is not a look from near: the remembered thing is
     not marked gone; tried again later, ruled out (not gone) after a few failed tries."""

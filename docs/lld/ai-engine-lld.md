@@ -3031,4 +3031,13 @@ sequenceDiagram
   `test_explore_picks_quickly_by_searching_outward` each failed once under the full run's load and pass alone;
   their code is untouched); ruff and pyright clean. `cq-drive --replay rec_room3/word-4-5` runs to the end and
   departs from the recorded decisions at tick 230 (expected: the check now drives closer).
+- **Final review (opus) fixes:** I1 hits count only in a look from near (`d <= CHECK_CLOSE_M + CHECK_NEAR_TOL_M`):
+  two pictures from 1 m drive it closer; I2 only a new picture's maybes make or reopen candidates; M1 only a new
+  picture refreshes the made-up fix; M2 (re-graded Important - the find ended `blocked`) a made-up fix outside the
+  play area is never chased (`_inside`, §196: its edge is checked, the find may end `outside_area`). M3 noted: a
+  pending candidate follows each new sighting within `SAME_SPOT_M`, so the looked-at spot can drift during a
+  look - watch on the floor. M4: the tests live in `test_drive_candidates.py`, `test_drive_roam.py`,
+  `test_drive_roam_sim.py` (not the §24.6 names). Tests: `test_two_pictures_from_one_metre_do_not_confirm_it_drives_closer`,
+  `test_the_same_picture_again_does_not_reopen_a_ruled_out_spot`, `test_the_made_up_fix_is_not_refreshed_by_a_re_read_picture`,
+  `test_close_sightings_outside_the_play_area_are_never_chased`.
 - **Floor check:** pending (owner present) - FIND toy with the first look from ~1 m, FIND a chair.

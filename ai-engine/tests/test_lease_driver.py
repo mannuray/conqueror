@@ -359,3 +359,20 @@ async def test_only_a_stop_after_motion_skips_the_minimum_gap(bridge: FakeBridge
         stop.set()
         await task
         await link.close()
+
+
+async def test_a_send_gap_over_a_quarter_second_is_noted(bridge: FakeBridge) -> None:
+    """LLD §25.6 (the room4 7052): a gap between drive frames over 250 ms is printed, to find where it was."""
+    link = await connected(bridge)
+    try:
+        notes: list[str] = []
+        d = LeaseDriver(link, 42, note=notes.append)
+        await d.drive(Command(20.0, 0.0))
+        await asyncio.sleep(0.12)
+        await d.drive(Command(21.0, 0.0))
+        assert notes == []
+        await asyncio.sleep(0.32)
+        await d.drive(Command(22.0, 0.0))
+        assert len(notes) == 1 and "ms between drive frames" in notes[0]
+    finally:
+        await link.close()

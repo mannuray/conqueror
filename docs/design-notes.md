@@ -3264,3 +3264,24 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   284 ms - close to the bridge's 300 ms deadman (watch; the link, not the deadman, is what to look at).
 - **Owner:** "3 then 1" - first a design for the box run's wait (the opening look round ran 9 s past the first
   sighting): AI engine LLD §25.8 (Plan Z10b), then a FIND with the box hidden further away.
+
+## 218. Is the WiFi or the camera the limit? Test 1 (2026-11-07; owner: "our main limit is wifi and not camera?", "do both")
+- **Why:** before choosing a camera upgrade (Pi Zero 2 W + Camera Module 3 Wide, or an OV5640 module on the same
+  board, or an old phone), measure what limits the pictures today. Script: `scratchpad/camtest/stream_rate.py`
+  (the MJPEG stream on :81, 20-30 s, the laptop's arrival times and the tank's `X-Frame-Us` capture times).
+- **Standing, nothing else on the stream, VGA quality 12:** 25-27 pictures/s, 17.8 KB each, 3.7 Mbit/s, arrival
+  gaps median 36 ms (max 113 ms, none over 200), the tank's own capture gaps the same - everything taken arrives.
+  Ping 7.8 ms, no loss.
+- **Bigger sizes (camera_set, then back to VGA q12):** SVGA 800x600 18 /s, 26 KB, 3.9 Mbit/s, capture gap 72 ms;
+  HD 1280x720 8 /s, 81 KB, 5.3 Mbit/s, capture gap 115-170 ms. The WiFi carried 5.3 Mbit/s without a gap over 170
+  ms; the **camera** itself slows down (its capture gaps grow on the tank's clock). Likely the 10 MHz camera clock
+  at the weakest drive (§76, chosen so the camera stops drowning the WiFi) - not confirmed.
+- **Driving (engine on room7, `AREA 0  WANDER 30`, recorded):** standing before 16.1 /s, wandering 17.9 /s,
+  standing after 17.0 /s; arrival gaps median ~56 ms, max 213 / 115 / 121 ms; no drive-frame gap over 250 ms.
+  Driving did not hurt the link. The camera's own capture gap was 72 ms standing (36 ms while wandering): in a
+  dimmer view the camera takes pictures half as often (longer exposure) - the sensor's light, not the WiFi.
+- **Answer:** the WiFi is not the limit (standing or driving, up to at least 5.3 Mbit/s); the ESP32 camera path
+  (bigger pictures slow it) and the sensor in dim light are; the laptop takes ~18-19 /s with depth. A better sensor
+  on its own small computer (option 2) is where the gain is; a sensor swap on the ESP32 board meets the same
+  camera-path ceiling. **Next:** test 2 - the phone camera vs the tank camera through our detector, to see how much
+  further things are found before buying.

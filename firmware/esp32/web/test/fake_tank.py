@@ -29,7 +29,9 @@ assemble_page = cast(Callable[[pathlib.Path, str], bytes], _PACK["assemble_page"
 gz = cast(Callable[[bytes], bytes], _PACK["gz"])
 
 PROGRAMS: dict[str, str] = {"square": "REPEAT 4 [ FD 50 RT 90 ]\n"}
-EXAMPLES = {"first_square": "; a square\nREPEAT 4 [ FORWARD 50 RIGHT 90 ]\n"}
+LESSONS = {"back_to_start": "; Lesson 1 - back to the start\nFORWARD 60\nSETXY 0 0\n",
+           "hot_and_cold": "; Lesson 4 - hot and cold\nFOREVER [ BEEP WAIT 1 ]\n"}  # LLD §25: built-ins, in order
+EXAMPLES = {**LESSONS, "first_square": "; a square\nREPEAT 4 [ FORWARD 50 RIGHT 90 ]\n"}
 SQUARE = [
     [0, 0, 0, 1, 0],
     [0, 500, 0, 1, 0],
@@ -134,8 +136,8 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(404, b"", "text/plain")
 
     def list(self) -> None:
-        rows = [{"name": n, "bytes": len(t), "example": False} for n, t in sorted(PROGRAMS.items())]
-        rows += [{"name": n, "bytes": len(t), "example": True} for n, t in EXAMPLES.items()]
+        rows = [{"name": n, "bytes": len(t), "example": True, "lesson": n in LESSONS} for n, t in EXAMPLES.items()]
+        rows += [{"name": n, "bytes": len(t), "example": False, "lesson": False} for n, t in sorted(PROGRAMS.items())]
         self.json({"programs": rows})
 
     def load(self) -> None:

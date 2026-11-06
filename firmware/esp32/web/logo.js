@@ -305,6 +305,18 @@ var LogoCore = (function () {
     return s;
   }
 
+  // The program list (LLD §25.3): saved programs, the lessons numbered in the tank's order, then the examples.
+  function programSections(progs) {
+    function items(f, num) {
+      return progs.filter(f).map(function (p, i) { return { name: p.name, label: (num ? (i + 1) + " " : "") + p.name }; });
+    }
+    var out = [{ title: "SAVED ON THE TANK", items: items(function (p) { return !p.example; }) }];
+    var lessons = items(function (p) { return p.example && p.lesson; }, true);
+    if (lessons.length) out.push({ title: "[ LESSONS ]", items: lessons });
+    out.push({ title: "[ EXAMPLES ]", items: items(function (p) { return p.example && !p.lesson; }) });
+    return out;
+  }
+
   // The camera streams only while it can be seen.
   function cameraWanted(wide, hiddenByUser, pageHidden) { return wide && !hiddenByUser && !pageHidden; }
 
@@ -312,7 +324,7 @@ var LogoCore = (function () {
     wordIndex: wordIndex, ownWords: ownWords, colour: colour, insertWord: insertWord, Drafts: Drafts,
     fitView: fitView, toScreen: toScreen, plannedRuns: plannedRuns, plannedAreas: plannedAreas, areaExtent: areaExtent, CheckScheduler: CheckScheduler, RequestQueue: RequestQueue,
     runBarStart: runBarStart, runBar: runBar, canRun: canRun, locked: locked, endText: endText, NACK_TEXT: NACK_TEXT,
-    shortcut: shortcut, panelTab: panelTab, cameraWanted: cameraWanted,
+    shortcut: shortcut, panelTab: panelTab, cameraWanted: cameraWanted, programSections: programSections,
   };
 })();
 if (typeof module !== "undefined") module.exports = LogoCore;

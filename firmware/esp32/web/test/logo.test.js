@@ -472,3 +472,25 @@ test("the camera streams only when wide, not hidden and the page is visible", ()
 });
 
 // the WiFi and battery rules moved to strip.test.js (bridge LLD R30; the battery is a cell with %, no icon)
+
+// ---------- the program list (Tank Logo LLD §25.3): saved, lessons numbered in the tank's order, examples ----------
+test("programSections orders saved, lessons, examples", () => {
+  const progs = [
+    { name: "first_square", example: true, lesson: false },
+    { name: "back_to_start", example: true, lesson: true },
+    { name: "my_sq", example: false },
+    { name: "where_is_my_ball", example: true, lesson: true },
+  ];
+  assert.deepEqual(L.programSections(progs), [
+    { title: "SAVED ON THE TANK", items: [{ name: "my_sq", label: "my_sq" }] },
+    { title: "[ LESSONS ]", items: [
+      { name: "back_to_start", label: "1 back_to_start" }, { name: "where_is_my_ball", label: "2 where_is_my_ball" },
+    ] },
+    { title: "[ EXAMPLES ]", items: [{ name: "first_square", label: "first_square" }] },
+  ]);
+});
+
+test("an older tank without lessons shows no lessons section", () => {
+  const progs = [{ name: "first_square", example: true }, { name: "my_sq", example: false }];
+  assert.deepEqual(L.programSections(progs).map((s) => s.title), ["SAVED ON THE TANK", "[ EXAMPLES ]"]);
+});

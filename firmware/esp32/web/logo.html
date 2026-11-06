@@ -492,20 +492,20 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
       if (r.status === 200 && r.data && r.data.programs) { progs = r.data.programs; showProgs(); }
     });
   }
-  function label(p) { return p.name; }
   function showProgs() {
-    var sel = $("psel"), ul = $("plist"), mine = progs.filter(function (p) { return !p.example; }), ex = progs.filter(function (p) { return p.example; });
+    var sel = $("psel"), ul = $("plist");
     sel.textContent = ""; ul.textContent = "";
-    function item(p, isNew) {
-      var name = isNew ? NEW : p.name, on = (cur.name || NEW) === name, dot = drafts.unsaved(name);
-      var o = el("option", "", (isNew ? "(new program)" : label(p)) + (dot ? " ●" : "")); o.value = name; o.selected = on; sel.appendChild(o);
-      var li = el("li", (on ? "on" : "") + (dot ? " dot" : ""), (on ? "> " : "") + (isNew ? "(new program)" : label(p)));
+    function item(p) {
+      var name = p.name, on = (cur.name || NEW) === name, dot = drafts.unsaved(name);
+      var o = el("option", "", p.label + (dot ? " ●" : "")); o.value = name; o.selected = on; sel.appendChild(o);
+      var li = el("li", (on ? "on" : "") + (dot ? " dot" : ""), (on ? "> " : "") + p.label);
       li.addEventListener("click", function () { openProg(name); }); ul.appendChild(li);
     }
-    ul.appendChild(el("li", "sec", "SAVED ON THE TANK"));
-    item(null, true); mine.forEach(function (p) { item(p, false); });
-    ul.appendChild(el("li", "sec", "[ EXAMPLES ]"));
-    ex.forEach(function (p) { item(p, false); });
+    L.programSections(progs).forEach(function (s, i) {
+      ul.appendChild(el("li", "sec", s.title));
+      if (i === 0) item({ name: NEW, label: "(new program)" });
+      s.items.forEach(item);
+    });
     $("title").textContent = "[ 01 // PROGRAM : " + (cur.name || "new") + " ]" + (drafts.unsaved(cur.name || NEW) ? " ●" : "");
   }
   $("psel").addEventListener("change", function () { openProg($("psel").value); });

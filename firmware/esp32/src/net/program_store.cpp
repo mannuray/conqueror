@@ -54,12 +54,14 @@ uint8_t programList(ProgramInfo* out, uint8_t cap) {
     snprintf(out[n].name, sizeof out[n].name, "%s", logo::example(i).name);
     out[n].bytes = static_cast<uint16_t>(strlen(logo::example(i).src));
     out[n].example = true;
+    out[n].lesson = logo::example(i).lesson;
   }
   if (!g_mounted) return n;
   File dir = LittleFS.open("/p");
   for (File f = dir.openNextFile(); f && n < cap; f = dir.openNextFile()) {
     if (!fileName(f.name(), out[n].name, sizeof out[n].name)) continue;
     out[n].bytes = static_cast<uint16_t>(f.size());
+    out[n].lesson = false;
     out[n++].example = false;
   }
   return n;

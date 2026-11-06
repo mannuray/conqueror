@@ -385,6 +385,23 @@ class RoamSkill:
         map_ok: bool,
         cam_still: bool,
     ) -> SkillOut:
+        looking_round = self.chase.state in ("start", "sweep", "spin") and (
+            fix is None or fix.seen_age_s >= LOST_AFTER_S
+        )
+        if looking_round and self.state in (
+            "start",
+            "chase",
+        ):  # a sighting ends the opening look round (§25.8)
+            pending = bool(self.candidates.pending())
+            b = self._new_glimpse(now_s, at) if not pending and self._glimpses else None
+            if pending or b is not None:
+                self.chase = ChaseSkill(self.planner, self.settings, search_when_lost=False)
+                self.state, self._pan = "drive", None
+                self._progress.reset()
+                if b is not None:  # a glimpse: its second look first, then the search
+                    self._second, self.state, self._second_s = _SecondLook(b, "drive", now_s), "second", now_s
+                    return self._second_look(now_s, at, snap, cam_still)
+                return self._halt()
         if self.state != "chase":
             self.state = "chase"
             self.chase.cmd = self.cmd  # it is moving: the chase's plans start from that (review minor 4)

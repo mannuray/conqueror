@@ -969,3 +969,34 @@ def test_a_nearer_candidate_with_no_way_does_not_take_over(monkeypatch: pytest.M
     look_ticks(s, tank, t, 1, maybes=[near])
     c = s._check  # pyright: ignore[reportPrivateUsage]
     assert c is not None and c.spot == (1.8, 0.0)
+
+
+# ---- Plan Z10b (LLD §25.8): a sighting ends the opening look round
+def looking_round() -> tuple[RoamSkill, SimTank, float]:
+    s, tank = finder(), SimTank()
+    for k in range(40):  # into the chase's sweep
+        tank.step(rt(s, k * 0.1, tank.at, open_snap(), None, None, True).cmd, 0.1)
+    assert s.state == "chase" and s.chase.state in ("sweep", "spin")
+    return s, tank, 4.0
+
+
+def test_a_maybe_in_the_look_round_starts_its_check() -> None:
+    s, tank, t = looking_round()
+    look_ticks(s, tank, t, 1, maybes=[(1.5, 0.3)])
+    look_ticks(s, tank, t + 0.1, 1)
+    c = s._check  # pyright: ignore[reportPrivateUsage]
+    assert s.state == "check" and c is not None and c.spot == (1.5, 0.3)
+
+
+def test_a_glimpse_in_the_look_round_takes_a_second_look() -> None:
+    s, tank, t = looking_round()
+    look_ticks(s, tank, t, 1, glimpses=[glimpse_at(tank, 30.0, 60.0)])
+    assert s.state == "second"
+    look_ticks(s, tank, t + 0.1, 25)
+    assert s.state == "drive"
+
+
+def test_a_sure_sighting_in_the_look_round_is_still_chased() -> None:
+    s, tank, t = looking_round()
+    rt(s, t, tank.at, open_snap(), TargetFix(1, 1.5, 0.3, 0.0), None, True)
+    assert s.state == "chase" and s.chase.state == "approaching"

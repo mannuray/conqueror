@@ -107,3 +107,12 @@
 - [ ] **Step 1:** in `tests/test_drive_roam_sim.py`, if the sim world can mark pictures as turning: `test_a_box_seen_only_while_turning_is_found`; else a ledger ruling (covered by Task 1's roam test).
 - [ ] **Step 2:** LLD §25.7 as built, design-notes §217 "Built", CLAUDE.md plans row; commit `docs: Plan Z10 as built (AI engine LLD §25.7, design-notes §217)`, push.
 - [ ] **Step 3 (owner present, tank on the floor, STOP in hand, camera check):** restart the engine on `room4`; `AREA 0  FIND "box` from where the box flashes while it turns; a box near while a remembered one is far; a lost chase. Results into §217.
+
+### Task 8 (Plan Z10b, LLD §25.8, owner "go" 2026-11-07): a sighting ends the opening look round
+
+**Files:** `ai-engine/src/conqueror_ai/domain/drive/roam.py` (`_chase`). Test: `tests/test_drive_roam.py`.
+
+- [ ] **Step 1: Failing tests:** `test_a_maybe_in_the_look_round_starts_its_check` (look round under way, chase state sweep; a maybe at 1.5 m → within 2 ticks state `check` on that spot); `test_a_glimpse_in_the_look_round_takes_a_second_look` (→ `second`, then `drive`); `test_a_sure_sighting_in_the_look_round_is_still_chased` (fix → `chase`, the chase approaching).
+- [ ] **Step 2:** run → the first two FAIL.
+- [ ] **Step 3:** in `_chase`, before ticking: the look round = chase state in (`start`, `sweep`, `spin`) and nothing seen (no fix, or one older than `LOST_AFTER_S`). Then a pending candidate → a fresh `ChaseSkill(..., search_when_lost=False)`, state `drive`, halt; a new glimpse (`_new_glimpse`) → the same, then `_SecondLook(bearings, "drive", now)`.
+- [ ] **Step 4:** PASS; full suite, ruff, pyright. **Step 5:** commit `feat(ai): a sighting ends FIND's opening look round (AI engine LLD §25.8)`; docs §25.8 as built.

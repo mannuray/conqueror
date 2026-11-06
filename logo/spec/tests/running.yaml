@@ -381,3 +381,28 @@
   does: []
   ends: {error: 7012, line: 1}
   message_has: "FIND needs a thing"
+
+# ---- Lesson 4, hot and cold (Tank Logo LLD §25.4): the lesson's code without its comment lines.
+- name: lesson 4 - hot and cold beeps, then finds you
+  source: |
+    TO HOTCOLD :cm
+      IFELSE :cm < 0 [ WAIT 0.5 ] [
+        IFELSE :cm < 40 [ PLAY [ C4 E4 G4 C5 2 ] SAY [ you found me ] STOP ] [ BEEP WAIT :cm / 100 ]
+      ]
+    END
+    FOREVER [ HOTCOLD HOWFAR "ball ]
+  world: {answers: [120, 30]}
+  does: [HOWFAR ball, BEEP, WAIT 1.2, HOWFAR ball, PLAY 262/250 330/250 392/250 523/500, SAY you found me]
+  ends: {error: 7040, line: 3}
+
+- name: lesson 4 - a ball not seen only waits
+  source: |
+    TO HOTCOLD :cm
+      IFELSE :cm < 0 [ WAIT 0.5 ] [
+        IFELSE :cm < 40 [ PLAY [ C4 E4 G4 C5 2 ] SAY [ you found me ] STOP ] [ BEEP WAIT :cm / 100 ]
+      ]
+    END
+    FOREVER [ HOTCOLD HOWFAR "ball ]
+  world: {answers: [null, null, 30]}
+  does: [HOWFAR ball, WAIT 0.5, HOWFAR ball, WAIT 0.5, HOWFAR ball, PLAY 262/250 330/250 392/250 523/500, SAY you found me]
+  ends: {error: 7040, line: 3}

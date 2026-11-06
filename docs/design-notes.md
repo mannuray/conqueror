@@ -3256,3 +3256,5 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   has no sensor, but its real angle lies between where the move started and where it was sent - a glimpse with that
   range gets a second look at its middle (two looks if wider than 50°) (A2). Not chosen: a slower camera, predicting
   the servo's angle (later, if second looks are too many). Approved ("yes").
+- **Built (Plan Z10, 2026-11-07, branch `plan-z10-glimpse`; AI engine LLD §25.7):** engine tests pass; floor check
+  pending (`FIND "box` in room4 where the box flashed).

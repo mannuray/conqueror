@@ -3149,3 +3149,12 @@ sequenceDiagram
 
 ### 25.6 The 7052 in that run
 The engine ticked every ~66 ms to the end (longest gap 0.15 s) and the tank's telemetry kept coming (longest gap 0.29 s); the bridge ended the skill on its 300 ms deadman. The skill link's sends are not recorded, so where the gap was (laptop, WiFi, bridge) is not known: Z10 logs send gaps over 250 ms to find it next time. The deadman is a safety rule and is not loosened.
+
+### 25.7 As built (Plan Z10, 2026-11-07; floor check pending)
+- **A1:** `FrameGate.camera_turning`; `ObjectPipeline` lists a turning picture's sightings as maybes (never the tracker, never the map) and says so with `fresh()`; `SkillInput.fresh` (`make_input` defaults it to `used`; old logs read it as `used`); roam's sightings take maybes when `fresh`. A person is listed like in a still picture (find never seeks people), and a box over a person is cleared as before.
+- **A2:** `Glimpse(cls, at, lo_rad, hi_rad, t_us)`; `CameraAngles.still_pan_before` = the newest sample whose ±40 ms rate is ≤ `CAM_RATE_DPS` (a reported pan that has arrived is not "still" while the servo lags); bearings through `CameraModel.pixel_ray` at the start pan and at the reported pan. `World` collects the goal's glimpses until the next input; the decisions log keeps them (old logs: none).
+- **The second look:** roam state `"second"`; `SECOND_LOOK_MAX_S` 4 s per look (my call, as the chase's sweep cap); a check's time pauses while it looks elsewhere; the chase hand-over clears it.
+- **B:** `NEARER_FACTOR` 0.6, `NEARER_BY_M` 0.5; the far check stays pending with no try counted.
+- **C:** `ChaseSkill(search_when_lost=False)` inside find: `lost` at once; a chase that starts with nothing seen still looks round.
+- **§25.6:** `LeaseDriver(note=print)` prints "skill link: N ms between drive frames" over 250 ms.
+- **Not done:** a sim test with sightings only while turning (the sim gives none while turning; a roam test covers it).

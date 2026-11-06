@@ -3250,3 +3250,9 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   B the nearest maybe first + a lost chase checked from near at once. Design: AI engine LLD §25 (Plan Z10, branch
   `plan-z10-glimpse`). My calls: 20° / 15 s / 3 s for "not over and over", 0.6× and 0.5 m for "nearer", the
   send-gap log for the 7052.
+- **Changed (owner: "why throw away pictures while turning - we know the tank angle or camera angle"; "stop the
+  camera with a margin of error, deduce at what angle the camera may be"):** turning pictures were skipped for blur,
+  not for the pose - FIND now uses their sightings (A1; the map keeps its rule). Camera-moving pictures: the servo
+  has no sensor, but its real angle lies between where the move started and where it was sent - a glimpse with that
+  range gets a second look at its middle (two looks if wider than 50°) (A2). Not chosen: a slower camera, predicting
+  the servo's angle (later, if second looks are too many). Approved ("yes").

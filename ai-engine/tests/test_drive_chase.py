@@ -13,7 +13,7 @@ from conqueror_ai.domain.drive.curves import STOP, Command, XYTh
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner, bearing_deg
-from conqueror_ai.domain.drive.skill import Skill, SkillOut, make_input
+from conqueror_ai.domain.drive.skill import Result, Skill, SkillOut, make_input
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 
 LIM = Limits()
@@ -280,3 +280,25 @@ def test_an_echo_under_the_stop_distance_ends_the_look_round_blocked() -> None:
             assert o.result == "blocked" and k == 5
             return
     raise AssertionError("never ended")
+
+
+# ---- Plan Z10 (LLD §25 C): inside find a lost chase ends at once; its last seen spot is checked from near
+def test_chase_without_search_ends_lost_at_once() -> None:
+    s = ch.ChaseSkill(Planner(LIM), search_when_lost=False)
+    tk(s, 0.0, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 0.0), None, True)
+    out = tk(s, 0.1, (0.0, 0.0, 0.0), None, None, True)
+    assert out.result == Result.LOST and out.cam is None and s.state == "lost"
+    assert s.last_seen == (2.0, 0.0)
+
+
+def test_chase_without_search_ends_lost_when_unseen_for_3_s() -> None:
+    s = ch.ChaseSkill(Planner(LIM), search_when_lost=False)
+    tk(s, 0.0, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 0.0), None, True)
+    assert tk(s, 0.1, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 3.5), None, True).result == Result.LOST
+
+
+def test_the_plain_chase_still_sweeps_when_lost() -> None:
+    s = skill()
+    tk(s, 0.0, (0.0, 0.0, 0.0), TargetFix(1, 2.0, 0.0, 0.0), None, True)
+    out = tk(s, 0.1, (0.0, 0.0, 0.0), None, None, True)
+    assert out.result is None and s.state == "sweep"

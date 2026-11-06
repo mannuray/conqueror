@@ -148,7 +148,7 @@ class RoamSkill:
             goals["point"] = PointGoal(point)
         self.goal = goals[mode]
         self._look_pan: float | None = None  # where the camera was last sent (find's search marks its view)
-        self.chase = ChaseSkill(planner, cost)
+        self.chase = ChaseSkill(planner, cost, search_when_lost=False)
         self.recovery = Recovery(self.lim, planner.foot, self.lim.drive_tilt_deg)
         self.state = "start"
         self.cmd = STOP
@@ -389,7 +389,7 @@ class RoamSkill:
                 self._check = None
             if (last := self.chase.last_seen) is not None:  # ... its last seen spot checked again from near,
                 self._sighting(last)  # at most REOPEN_MAX times (§24 D)
-            self.chase = ChaseSkill(self.planner, self.settings)
+            self.chase = ChaseSkill(self.planner, self.settings, search_when_lost=False)
             self._maybe_fix = None
             self.state = "drive"
             self._progress.reset()

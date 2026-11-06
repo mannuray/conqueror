@@ -857,3 +857,16 @@ def test_a_slightly_nearer_one_does_not() -> None:
     look_ticks(s, tank, t, 1, maybes=[(tank.at[0], tank.at[1] + d * 0.8)])  # off to the side: its own spot
     c = s._check  # pyright: ignore[reportPrivateUsage]
     assert c is not None and c.spot == (1.8, 0.0)
+
+
+def test_find_loses_the_chase_and_checks_its_last_spot_next() -> None:
+    """C (LLD §25, the room4 box): no 20 s sweep where it stands - the last seen spot is the next check."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    ticks(s, tank, t, 1, maybes=[(1.2, 0.6)])
+    gave_up = chase_and_lose(s, tank, t, TargetFix(1, 1.25, 0.6, 0.0))
+    assert gave_up - t < 1.0
+    for k in range(1, 4):
+        tank.step(rt(s, gave_up + 0.1 * k, tank.at, open_snap(), None, None, True).cmd, 0.1)
+    c = s._check  # pyright: ignore[reportPrivateUsage]
+    assert s.state == "check" and c is not None and c.spot == (1.25, 0.6)

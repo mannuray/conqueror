@@ -233,7 +233,10 @@ class RoamSkill:
             self._area = (at[0], at[1], self.area_m)
         self._tried_now = False
         if self.find:
-            for spot in maybes if used else ():  # a re-read picture is not "seen again" (final review I2)
+            for spot in (
+                maybes if inp.fresh else ()
+            ):  # a re-read picture is not "seen again" (Z9 final review I2);
+                # a picture taken while turning is new too (LLD §25 A1)
                 self._sighting(spot)
             if not self._seeded:  # remembered spots first: no look round when it knows where to look
                 self._seeded = True

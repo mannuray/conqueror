@@ -165,6 +165,7 @@ class World:
         self._by_size: dict[str, tuple[float, float]] = {}
         self._cam_still = True
         self._used = False  # a picture was used since the last input
+        self._fresh = False  # ... or gave find maybes (used, or taken while turning: LLD §25 A1)
 
     @classmethod
     def around(cls, run: MapRun) -> World:
@@ -208,6 +209,7 @@ class World:
         used it, else why it was skipped. Seeing here when `inv` is given, or with `with_depth` when depth is
         due (a replay); live, Perception sees off the event loop (`see`, then `apply`)."""
         used = self.map_run.gate(f, rgb, dets, cam)
+        self._fresh = self._fresh or self.map_run.p.fresh()
         self.last_frame = f
         self._cam_still = used != "camera moving"
         if isinstance(used, str):
@@ -238,6 +240,7 @@ class World:
         objects = p.objects()
         self.memory.update(objects, wall_s, self.run_id)
         used, self._used = self._used, False
+        fresh, self._fresh = self._fresh, False
         if pose is None:
             return make_input(at=None, snap=None, map_ok=map_ok, sonar_m=self.sonar_m, used=used)
         if self.area_m is not None and self.area is None:
@@ -260,4 +263,5 @@ class World:
             cam_still=self._cam_still,
             used=used,
             maybes=maybes,
+            fresh=fresh,
         )

@@ -200,3 +200,14 @@ def test_replay_view_draws_every_logged_tick(tmp_path: Path) -> None:
 
     assert replay(tmp_path / "decisions.jsonl", make, view=View()).first_diff is None
     assert len(drawn) == 30
+
+
+def test_fresh_round_trips_and_an_old_line_takes_used(tmp_path: Path) -> None:
+    """Plan Z10 (LLD §25 A1): `fresh` is logged; a log from before has none - it was `used` then."""
+    from conqueror_ai.adapters.decisions import _input_in, _input_out  # pyright: ignore[reportPrivateUsage]
+
+    inp = make_input(at=(0.0, 0.0, 0.0), snap=None, map_ok=True, used=False, fresh=True, maybes=[(1.0, 2.0)])
+    assert _input_in(_input_out(inp)).fresh
+    old = _input_out(make_input(at=(0.0, 0.0, 0.0), snap=None, map_ok=True, used=True))
+    del old["fresh"]
+    assert _input_in(old).fresh

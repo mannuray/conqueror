@@ -48,10 +48,19 @@ def rt(
     cam_still: bool = True,
     maybes: Sequence[tuple[float, float]] = (),
     used: bool = True,
+    fresh: bool | None = None,
 ) -> SkillOut:
     """The old call shape onto SkillInput (LLD §19.4)."""
     inp = make_input(
-        at=at, snap=snap, map_ok=map_ok, fix=fix, sonar_m=sonar, cam_still=cam_still, used=used, maybes=maybes
+        at=at,
+        snap=snap,
+        map_ok=map_ok,
+        fix=fix,
+        sonar_m=sonar,
+        cam_still=cam_still,
+        used=used,
+        maybes=maybes,
+        fresh=fresh,
     )
     return s.tick(now, inp)
 
@@ -707,3 +716,19 @@ def test_outside_area_says_it_was_seen_outside_the_area() -> None:
 def test_point_mode_needs_a_point() -> None:
     with pytest.raises(ValueError, match="needs a point"):
         RoamSkill(Planner(Limits()), "point")
+
+
+# ---- Plan Z10 (LLD §25)
+def test_a_turning_pictures_maybe_is_a_candidate() -> None:
+    """A1: a maybe from a picture taken while turning (fresh, not used) is a candidate like any other."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[(1.2, 0.6)], used=False, fresh=True)
+    assert [c.spot for c in s.candidates.pending()] == [(1.2, 0.6)]
+
+
+def test_a_re_read_pictures_maybe_is_still_no_candidate() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[(1.2, 0.6)], used=False, fresh=False)
+    assert s.candidates.pending() == []

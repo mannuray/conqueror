@@ -137,6 +137,16 @@ class FrameGate:
             return "turning"
         return CameraModel(self.cal, tilt_fix_deg=self.tilt_fix_deg).for_frame(pose, *from_servo(a[0], a[1]))
 
+    def camera_turning(self, cap_us: int) -> CameraModel | None:
+        """The camera for a picture skipped only for "turning": the heading is the gyro's, so its sightings
+        can be placed for find (LLD §25 A1) - blur is why the map skips it. None for any other reason."""
+        if self.camera_for(cap_us) != "turning":
+            return None
+        t = self.capture_us(cap_us)
+        pose, a = self._history.at(t), self._angles.at(t)
+        assert pose is not None and a is not None  # "turning" is only given with both
+        return CameraModel(self.cal, tilt_fix_deg=self.tilt_fix_deg).for_frame(pose, *from_servo(a[0], a[1]))
+
 
 @dataclass(frozen=True)
 class Located:
@@ -382,6 +392,7 @@ class ObjectPipeline:
         self.tracker = ObjectTracker()
         self._near: list[Near] = []
         self._maybes: list[Located] = []
+        self._fresh = False  # the newest picture gave maybes: used, or turning (LLD §25 A1)
         self._skips: Counter[str] = Counter()
         self.last_camera: CameraModel | None = None
         self._last_cap_us: int | None = None
@@ -414,7 +425,7 @@ class ObjectPipeline:
     ) -> CameraModel | str:
         """Use one picture (its decoded size, its detections, the camera from camera_at if taken): its camera,
         or why it was skipped."""
-        self._maybes = []
+        self._maybes, self._fresh = [], False
         dets = clear(dets)  # never a box over a person, whoever calls (LLD §21.4, review I1)
         if self._last_cap_us is not None and f.cap_us < self._last_cap_us:
             self.tracker = (
@@ -428,10 +439,16 @@ class ObjectPipeline:
             cam = self.gate.camera_for(f.cap_us)
         if isinstance(cam, str):
             self._skips[cam] += 1
+            rough = self.gate.camera_turning(f.cap_us) if cam == "turning" else None
+            if rough is not None:  # find's maybes only: never the list, never the map (LLD §25 A1)
+                t = self.gate.capture_us(f.cap_us)
+                self._maybes = self._locator.locate(dets, rough, t)[0]
+                self._fresh = True
             return cam
         t = self.gate.capture_us(f.cap_us)
         located, self._near = self._locator.locate([d for d in dets if d.sure], cam, t)
         self._maybes = located + self._locator.locate([d for d in dets if not d.sure], cam, t)[0]
+        self._fresh = True
         self.tracker.update(located, cam, t)
         self.last_camera = cam
         return cam
@@ -443,6 +460,10 @@ class ObjectPipeline:
         """The newest used picture's sightings on the floor, sure and unsure: find looks again at one that
         isn't listed yet (§179; a single sure one too, §181). Unsure ones are never listed."""
         return list(self._maybes)
+
+    def fresh(self) -> bool:
+        """The newest picture's maybes are from a new picture: one used, or one taken while turning."""
+        return self._fresh
 
     def near(self) -> list[Near]:
         return list(self._near)

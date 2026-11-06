@@ -91,3 +91,21 @@ def test_camera_pan_for_the_room_tab_uses_the_calibration() -> None:
     assert run.camera_pan_left_deg() is None  # no telemetry yet
     run.pan_servo_deg = 60.0  # 30 to the right by command
     assert run.camera_pan_left_deg() == pytest.approx(-28.2)
+
+
+def test_fresh_after_a_turning_picture_but_not_used(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plan Z10 (LLD §25 A1): a picture skipped for turning gives find maybes - `fresh`, not `used`."""
+    session(tmp_path / "s")
+    w = world()
+    events = list(replay(tmp_path / "s"))
+    frames = [e.frame for e in events if e.frame is not None]
+    for e in events:
+        if e.text is not None:
+            w.on_text(e.text)
+    small = np.zeros((10, 10, 3), np.uint8)
+    f = Frame(seq=999, cap_us=frames[-1].cap_us + 1, recv_s=9.0, jpeg=GREY_JPEG)
+    monkeypatch.setattr(w.map_run.p, "fresh", lambda: True)  # as the pipeline says after a turning picture
+    assert isinstance(w.on_picture(f, small, []), str)
+    inp = w.input(1.0, 1.0, True)
+    assert inp.fresh and not inp.used
+    assert not w.input(1.1, 1.1, True).fresh  # once per picture

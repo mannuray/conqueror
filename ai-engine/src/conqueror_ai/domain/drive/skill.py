@@ -43,6 +43,7 @@ class SkillInput:
     cam_still: bool  # the newest picture wasn't skipped for the camera moving
     used: bool  # a picture arrived this tick and was used (detected, placed)
     maybes: tuple[XY, ...] = ()  # this picture's sightings of the thing sought, sure or not (find only)
+    fresh: bool = False  # the maybes are from a new picture: used, or taken while turning (LLD §25 A1)
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,19 @@ def make_input(
     cam_still: bool = True,
     used: bool = True,
     maybes: Sequence[XY] = (),
+    fresh: bool | None = None,
 ) -> SkillInput:
+    """fresh: None = as `used` (every picture used was a new one before Plan Z10)."""
     costs = None if snap is None else CostMaps(snap, settings, area)
-    return SkillInput(at, snap, costs, fix, sonar_m, map_ok, cam_still, used, tuple(maybes))
+    return SkillInput(
+        at,
+        snap,
+        costs,
+        fix,
+        sonar_m,
+        map_ok,
+        cam_still,
+        used,
+        tuple(maybes),
+        used if fresh is None else fresh,
+    )

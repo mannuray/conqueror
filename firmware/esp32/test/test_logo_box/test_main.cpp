@@ -86,6 +86,7 @@ void test_every_built_in_checks_ok_with_the_ai_helper() {
     }
     char lower[25];
     TEST_ASSERT_TRUE_MESSAGE(programName(e.name, lower, sizeof lower), e.name);
+    TEST_ASSERT_EQUAL_PTR_MESSAGE(&e, findExample(lower), e.name);  // read-only: save / remove refuse it
     const bool ok = checkProgram(e.src, static_cast<uint16_t>(strlen(e.src)), caps, g_space);
     char why[64];
     const Diag* d = g_space.diags.first();

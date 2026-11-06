@@ -1478,7 +1478,7 @@ classDiagram
 - **Safety: nothing new.** They are ordinary programs: STOP, the drive lease, the 300 s run limit (7041), FIND never targets a person, the play area (`AREA`).
 
 ### 25.2 The five lessons
-The texts below are the design; the plan fixes the exact text against the checker (§25.4). Every lesson that uses an AI word needs the AI helper running (7020 otherwise, as for any program).
+The texts below are the design; the plan fixes the exact text against the checker (§25.4). **Superseded in detail by §25.5** (no `!` and no "to" inside SAY; the built texts are in `logo/program_names.cpp`). Every lesson that uses an AI word needs the AI helper running (7020 otherwise, as for any program).
 
 | # | Name | What the child sees | Words |
 |---|---|---|---|
@@ -1578,6 +1578,7 @@ sequenceDiagram
 - **Wording the reader forced:** inside `SAY [ ]` the word `to` is read as `TO` (7017) and `!` is not a character Tank Logo reads (7016). So lesson 1 says "going back now", and the "found ..." lines have no `!` ("you found me", "found you", "found the car").
 - **Lesson 2 keeps the time:** `SAY ROUND TIMER` is accepted; it says "found it in", the seconds, "seconds".
 - **Sizes:** the five lessons are 1 757 B of text (strlen + 1 each, measured on the host); the bridge image 1 413 779 B (46.9 %); `/logo` 30 762 of 32 768 B gz (+179 B).
+- **Final review fixes (Opus, 2026-11-06):** a program saved before the update under a lesson's name would hide behind the lesson for ever - at mount it is renamed to the first free `<name>_2` .. `_9` (`renameShadowed`, logged); lesson 4 says "roll the ball slowly along the floor" (HOWFAR places it from where it meets the floor); lesson 2 says "if the tank has a home"; `test_logo_box` checks every built-in is found by its own name (save / remove refuse it - `program_store` is not in the native build, so the refusal itself is checked on the tank); I1 → §25.6.
 - **Tests:** `test_logo_box` checks all eight built-ins with the AI helper's caps (on failure it prints the checker's first code, line and column); two `running.yaml` cases run lesson 4's code (120 cm then 30 cm; not seen, not seen, 30 cm); `logo.test.js` tests `programSections`; the stand-in tank (`fake_tank.py`) lists two lessons, checked in a browser.
 
 ### 25.6 The STOP word ends as done (owner 2026-11-06, design-notes §216; the L1 final review's I1)

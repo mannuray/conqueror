@@ -34,6 +34,24 @@ bool fileName(const char* path, char* out, size_t cap) {
   return true;
 }
 
+// A program saved under a name that is now a built-in (a lesson added by an update, Tank Logo LLD §25.5) would
+// be hidden behind it and could never be opened or removed: it gets the first free name with _2 .. _9 added.
+void renameShadowed() {
+  for (uint8_t i = 0; i < logo::exampleCount(); ++i) {
+    char old_path[40], new_path[48];
+    pathOf(logo::example(i).name, old_path, sizeof old_path);
+    if (!LittleFS.exists(old_path)) continue;
+    for (char k = '2'; k <= '9'; ++k) {
+      snprintf(new_path, sizeof new_path, "/p/%s_%c.logo", logo::example(i).name, k);
+      if (LittleFS.exists(new_path)) continue;
+      const bool ok = LittleFS.rename(old_path, new_path);
+      logf("logo: saved program %s is a built-in now - %s %s", logo::example(i).name, ok ? "renamed" : "NOT renamed",
+           new_path);
+      break;
+    }
+  }
+}
+
 }  // namespace
 
 const char* storeStatusName(StoreStatus s) {
@@ -44,6 +62,7 @@ const char* storeStatusName(StoreStatus s) {
 bool programStoreBegin() {
   g_mounted = LittleFS.begin(true, "/logo", 4, "logo");
   if (g_mounted && !LittleFS.exists("/p")) LittleFS.mkdir("/p");
+  if (g_mounted) renameShadowed();
   logf("logo: program store %s", g_mounted ? "mounted" : "NOT mounted (partition 'logo' missing?)");
   return g_mounted;
 }

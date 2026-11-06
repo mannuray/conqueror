@@ -18,7 +18,7 @@ constexpr Example kExamples[] = {
      "; Lesson 2 - where is my ball?\n"
      "; The tank looks round, searches and checks each maybe until it finds the ball.\n"
      "; Watch: it says how many seconds it took.\n"
-     "; Try this: run it again - with a home it remembers where the ball was.\n"
+     "; Try this: run it again - if the tank has a home, it remembers where the ball was.\n"
      "AREA 2\nFIND \"ball\nSAY [ found it in ]\nSAY ROUND TIMER\nSAY [ seconds ]\n",
      true},
     {"treasure_hunt",
@@ -31,7 +31,7 @@ constexpr Example kExamples[] = {
      true},
     {"hot_and_cold",
      "; Lesson 4 - hot and cold\n"
-     "; The tank stands still. Bring the ball slowly towards it.\n"
+     "; The tank stands still. Roll the ball slowly along the floor towards it.\n"
      "; The nearer the ball, the faster it beeps.\n"
      "; Try this: change 40 to 60 - it finds you from further away.\n"
      "TO HOTCOLD :cm\n"

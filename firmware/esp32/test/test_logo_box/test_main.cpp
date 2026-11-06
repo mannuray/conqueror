@@ -1,10 +1,13 @@
-// Plan N3 Task 3: the checked program box (numbers, take refusals), program names, the built-in examples.
+// Plan N3 Task 3: the checked program box (numbers, take refusals), program names, the built-in examples;
+// Plan L1: the built-in lessons (Tank Logo LLD §25).
+#include <stdio.h>
 #include <string.h>
 #include <unity.h>
 
 #include "logo/check_box.h"
 #include "logo/check_job.h"
 #include "logo/program_names.h"
+#include "logo/thing_names.h"
 
 using namespace cq::logo;
 
@@ -52,16 +55,44 @@ void test_program_names() {
   TEST_ASSERT_TRUE(programName("abcdefghijklmnopqrstuvwx", out, sizeof out));    // 24
 }
 
-void test_every_example_checks_ok() {
-  TEST_ASSERT_EQUAL(3, exampleCount());
+Caps withAiHelper(ThingNames& t) {
+  static const char* const words[] = {"toy", "ball"};
+  static const uint8_t n[] = {2, 1};
+  static const char* const names[] = {"car", "racing car", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                                      "ball", nullptr,     nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+  t.set(words, n, names, 2);
+  Caps c;
+  c.ai = true;
+  c.things = &t;
+  return c;
+}
+
+void test_every_built_in_checks_ok_with_the_ai_helper() {
+  static const char* const kNames[] = {"back_to_start", "where_is_my_ball", "treasure_hunt", "hot_and_cold",
+                                       "hot_and_cold_hunt", "first_square", "avoid_walls", "look_around"};
+  TEST_ASSERT_EQUAL(8, kBuiltInCount);
+  TEST_ASSERT_EQUAL(kBuiltInCount, exampleCount());
+  ThingNames things;
+  const Caps caps = withAiHelper(things);
   for (uint8_t i = 0; i < exampleCount(); ++i) {
     const Example& e = example(i);
+    TEST_ASSERT_EQUAL_STRING(kNames[i], e.name);
+    TEST_ASSERT_EQUAL_MESSAGE(i < 5, e.lesson, e.name);
+    if (e.lesson) {
+      char title[16];
+      snprintf(title, sizeof title, "; Lesson %u", i + 1);
+      TEST_ASSERT_EQUAL_MESSAGE(0, strncmp(e.src, title, strlen(title)), e.name);
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(e.src, "; Try this:"), e.name);
+    }
     char lower[25];
     TEST_ASSERT_TRUE_MESSAGE(programName(e.name, lower, sizeof lower), e.name);
-    Caps caps;
-    TEST_ASSERT_TRUE_MESSAGE(checkProgram(e.src, static_cast<uint16_t>(strlen(e.src)), caps, g_space), e.name);
+    const bool ok = checkProgram(e.src, static_cast<uint16_t>(strlen(e.src)), caps, g_space);
+    char why[64];
+    const Diag* d = g_space.diags.first();
+    snprintf(why, sizeof why, "%s: %u at line %u col %u", e.name, d ? d->code : 0, d ? d->line : 0, d ? d->col : 0);
+    TEST_ASSERT_TRUE_MESSAGE(ok, why);
   }
-  TEST_ASSERT_NOT_NULL(findExample("avoid_walls"));
+  TEST_ASSERT_NOT_NULL(findExample("treasure_hunt"));
   TEST_ASSERT_NULL(findExample("nothing"));
 }
 
@@ -70,6 +101,6 @@ int main(int, char**) {
   RUN_TEST(test_numbers_go_up_and_only_the_current_ok_program_runs);
   RUN_TEST(test_a_check_with_errors_gets_a_number_but_never_runs);
   RUN_TEST(test_program_names);
-  RUN_TEST(test_every_example_checks_ok);
+  RUN_TEST(test_every_built_in_checks_ok_with_the_ai_helper);
   return UNITY_END();
 }

@@ -494,3 +494,23 @@ test("an older tank without lessons shows no lessons section", () => {
   const progs = [{ name: "first_square", example: true }, { name: "my_sq", example: false }];
   assert.deepEqual(L.programSections(progs).map((s) => s.title), ["SAVED ON THE TANK", "[ EXAMPLES ]"]);
 });
+
+// ---------- LAUNCH (Tank Logo LLD §26.4): the launched part's line is kept apart from the main program's ----------
+test("a launched part's line is its own marker; the main line and stepping are untouched", () => {
+  let s = run([{ e: "checked", ok: true, prog: 4 }, { e: "run", step: false }, { e: "ack" }, { e: "line", line: 3, round: 0 }]);
+  s = L.runBar(s, { e: "line", line: 7, round: 2, part: 1 });
+  assert.equal(s.line, 3);
+  assert.equal(s.line2, 7);
+  assert.equal(s.st, "running");
+  s = L.runBar(s, { e: "run", step: false });
+  assert.equal(s.line2, 7, "a refused run changes nothing");
+  s = run([{ e: "ended", reason: 0, line: 3, msg: "" }, { e: "checked", ok: true, prog: 5 }, { e: "run", step: false }], s);
+  assert.equal(s.line2, 0, "a new run starts without one");
+});
+
+test("step mode: a launched part's line never lights NEXT", () => {
+  let s = run([{ e: "checked", ok: true, prog: 4 }, { e: "run", step: true }, { e: "ack" }, { e: "line", line: 1, round: 0 }]);
+  s = L.runBar(s, { e: "step" });
+  s = L.runBar(s, { e: "line", line: 5, round: 0, part: 1 });
+  assert.equal(s.st, "running");
+});

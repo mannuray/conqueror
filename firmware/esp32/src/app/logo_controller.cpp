@@ -137,7 +137,8 @@ void LogoController::onUnoDone(uint8_t status, uint32_t now) {
 
 void LogoController::handle(const logo::RunOut& o, uint32_t now) {
   if (o.line) {
-    m_out.all(core::jsonLogoLine(m_out.buf(), m_out.cap(), m_tel.nextEventSeq(), m_tel.tankMs(), o.line_no, o.round));
+    m_out.all(core::jsonLogoLine(m_out.buf(), m_out.cap(), m_tel.nextEventSeq(), m_tel.tankMs(), o.line_no, o.round,
+                                         o.part));
   }
   if (o.act) carry(o.action, now);
   if (o.ended) finish(o, now);

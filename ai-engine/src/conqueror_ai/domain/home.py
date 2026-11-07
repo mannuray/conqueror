@@ -5,6 +5,7 @@ reads; the memory comes back pruned."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -12,9 +13,11 @@ from numpy.typing import NDArray
 
 from conqueror_ai.domain.depth import MapSettings
 from conqueror_ai.domain.memory import Remembered, ThingMemory
+from conqueror_ai.domain.places import Place
 from conqueror_ai.domain.room_map import RoomMap
 
-HOME_VERSION = 1
+HOME_VERSION = 2  # 2: the names on the map (LLD §23.3); a version-1 home loads with none
+HOME_VERSIONS = (1, 2)  # what load reads
 FADE_PER_LOAD = 0.2  # each load lowers a kept obstacle this much: 1.1 -> 0.9 -> 0.7 (not blocked) - owner: A
 FADE_EPS = 1e-3  # a faded value this near the blocked level counts as at it
 KEEP_RUNS = 5  # a remembered thing not seen in the last this many runs is dropped
@@ -30,11 +33,19 @@ class Home:
     size_m: float
     runs: tuple[str, ...]  # the last KEEP_RUNS runs, oldest first
     things: tuple[Remembered, ...]
+    places: tuple[Place, ...] = ()  # the names on the map (LLD §23.3)
 
     @staticmethod
-    def from_run(room: RoomMap, memory: ThingMemory, earlier: Home | None, run_id: str) -> Home:
+    def from_run(
+        room: RoomMap,
+        memory: ThingMemory,
+        earlier: Home | None,
+        run_id: str,
+        places: Sequence[Place] | None = None,
+    ) -> Home:
         """What this run leaves for the next: its obstacles (above the blocked level), what it and earlier
-        runs saw, the run list, the memory pruned."""
+        runs saw, the run list, the memory pruned, the names (None - a run with no names of its own, a plain
+        cq-drive --home - carries the earlier home's through)."""
         b = room.settings.blocked
         low = np.where(room.low > b, room.low, 0.0).astype(np.float32)
         high = np.where(room.high > b, room.high, 0.0).astype(np.float32)
@@ -46,7 +57,10 @@ class Home:
         for t in kept:
             if sum(1 for k in things if k.word == t.word) < KEEP_PER_WORD:
                 things.append(t)
-        return Home(low, high, seen.copy(), room.cell_m, room.settings.size_m, runs, tuple(things))
+        kept_places = tuple(places) if places is not None else (earlier.places if earlier is not None else ())
+        return Home(
+            low, high, seen.copy(), room.cell_m, room.settings.size_m, runs, tuple(things), kept_places
+        )
 
     def room_for_run(self, settings: MapSettings) -> RoomMap:
         """A run's starting map: each kept obstacle at min(value - FADE_PER_LOAD, blocked + |miss|) - still an

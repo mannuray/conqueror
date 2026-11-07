@@ -217,3 +217,73 @@ async def test_real_socket_round_trip() -> None:
     assert refused
     stop.set()
     await asyncio.wait_for(run, 2.0)
+
+
+async def test_room_on_off_per_page() -> None:
+    """LLD §23.2: a page starts with room off; room on / off is kept per page and gone when it closes."""
+    srv = FeedServer()
+    a, b = FakePage(), FakePage()
+    ta, tb = asyncio.create_task(srv.attach(a)), asyncio.create_task(srv.attach(b))
+    await settle()
+    assert srv.rooms() == set() and not srv.room_wanted()
+    a.incoming.put_nowait(json.dumps({"t": "room", "on": True}))
+    await settle()
+    assert len(srv.rooms()) == 1 and srv.room_wanted()
+    a.incoming.put_nowait(json.dumps({"t": "room", "on": False}))
+    b.incoming.put_nowait(json.dumps({"t": "room", "on": True}))
+    await settle()
+    assert len(srv.rooms()) == 1
+    await b.close()
+    await tb
+    assert srv.rooms() == set()
+    await a.close()
+    await ta
+
+
+async def test_room_message_not_a_request() -> None:
+    srv = FeedServer()
+    p = FakePage()
+    task = asyncio.create_task(srv.attach(p))
+    await settle()
+    p.incoming.put_nowait(json.dumps({"t": "room", "on": True}))
+    p.incoming.put_nowait(json.dumps({"t": "name", "id": 1, "x": 0, "y": 0, "name": "bed"}))
+    await settle()
+    reqs = srv.requests()
+    _, first = await asyncio.wait_for(anext(reqs), 1)
+    assert first["t"] == "name"
+    await p.close()
+    await task
+
+
+async def test_room_frame_only_to_room_pages() -> None:
+    srv = FeedServer()
+    room, play = FakePage(), FakePage()
+    tr, tp = asyncio.create_task(srv.attach(room)), asyncio.create_task(srv.attach(play))
+    await settle()
+    room.incoming.put_nowait(json.dumps({"t": "room", "on": True}))
+    await settle()
+    srv.room_frame(b"MAP")
+    srv.send_rooms({"t": "room", "trail": []})
+    await settle()
+    assert b"MAP" in room.got and any(m["t"] == "room" for m in room.texts())
+    assert b"MAP" not in play.got and not any(m["t"] == "room" for m in play.texts())
+    for p in (room, play):
+        await p.close()
+    await asyncio.gather(tr, tp)
+
+
+async def test_two_reps_both_sent() -> None:
+    """A name answer never replaces a waiting teach answer: rep slots are kept by id."""
+    srv = FeedServer()
+    p = FakePage()
+    task = asyncio.create_task(srv.attach(p))
+    await settle()
+    (n,) = srv._pages  # pyright: ignore[reportPrivateUsage]
+    p.gate.clear()
+    srv.reply(n, {"t": "rep", "id": 4, "ok": True, "msg": "I know cup now."})
+    srv.reply(n, {"t": "rep", "id": 5, "ok": True, "msg": "Named it bed."})
+    p.gate.set()
+    await settle()
+    assert sorted(int(m["id"]) for m in p.texts() if m["t"] == "rep") == [4, 5]  # pyright: ignore[reportArgumentType]
+    await p.close()
+    await task

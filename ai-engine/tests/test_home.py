@@ -14,6 +14,7 @@ from conqueror_ai.domain.drive.recovery import Recovery
 from conqueror_ai.domain.drive.route import RoutePlanner
 from conqueror_ai.domain.home import FADE_PER_LOAD, KEEP_PER_WORD, KEEP_RUNS, Home
 from conqueror_ai.domain.memory import Remembered, ThingMemory
+from conqueror_ai.domain.places import Place
 from conqueror_ai.domain.room_map import RoomMap
 
 S = MapSettings()
@@ -95,3 +96,19 @@ def test_memory_is_pruned() -> None:
         h = Home.from_run(RoomMap(S), ThingMemory(), h, f"r{k}")
     assert h is not None and len(h.runs) == KEEP_RUNS and h.runs[-1] == "r19"
     assert home.memory().of_kind(lambda w: w == "ball")[0].x_m == 6.0
+
+
+def test_from_run_keeps_live_places() -> None:
+    """LLD §23.3: the names the pages gave are kept with the home."""
+    bed = Place(1, "bed", 1.0, 0.0)
+    home = Home.from_run(a_run(), ThingMemory(), None, "r1", places=[bed])
+    assert home.places == (bed,)
+
+
+def test_from_run_carries_earlier_places_when_none() -> None:
+    """A plain cq-drive --home run has no names of its own: it never wipes the earlier ones."""
+    bed = Place(1, "bed", 1.0, 0.0)
+    earlier = Home.from_run(a_run(), ThingMemory(), None, "r1", places=[bed])
+    assert Home.from_run(a_run(), ThingMemory(), earlier, "r2").places == (bed,)
+    assert Home.from_run(a_run(), ThingMemory(), None, "r3").places == ()
+    assert Home.from_run(a_run(), ThingMemory(), earlier, "r4", places=[]).places == ()  # all taken off

@@ -3083,3 +3083,142 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   `/ai`, `/logo` and `/settings` show the house WiFi's name with bars. All as designed. This also covers §208's STOP on
   Settings and Help.
 
+
+## 211. Z2b-2: one Room tab; layer ideas parked (owner, 2026-11-05: "so the room tab only"; "replace it with 'find this thing' from the pins"; "note it, we will discuss later, let's go with current plan")
+- **One new tab, ROOM** (the /ai page becomes PLAY | ROOM). The Inside tab of §200 is dropped for now: its parts were
+  either already on Play (the camera, boxes) or engineer-only.
+- **No tap-to-go.** In its place, **find this thing** from the pins: tapping a remembered thing's pin on the map, or its
+  FIND button in the "I remember" list, starts a `find` for it (the same skill as the Play tab's FIND).
+- **The Room tab:** the map (floor seen, high / low obstacles, the play area, home, the tank and its camera view, the
+  trail, pins of remembered things), a **layers** panel (floor & obstacles, tank & camera, home & play area always on;
+  things and trail on; why off; careful zones and earlier runs "later"), **I remember** (name, where, when, FIND), and one
+  line of room facts (home, play area, floor seen). Laptop: map left, panel right; phone: map full width, layer chips and
+  the list below. With the AI helper off: an empty map saying to start it.
+- **Stitch screens:** `docs/design/stitch/22-ai-room-desktop-v1.jpg` (Cockpit), `23-ai-room-mobile-v1.jpg` (Sunny Play).
+  Owner: "cool it's good". To fix when built: Stitch's made-up technical words (occupancy grid, lidar, SLAM, ids,
+  latency, density) become plain words; no compass words (the map is from the home mark); the "?" places to check only
+  in the why layer; the real status strip on the phone; our own icons; room facts on one line.
+- **Parked ideas, to discuss later (owner):**
+  - *More map layers:* which sensor made each mark (camera depth vs the distance sensor); where the camera has looked;
+    the keep-away band; why (route, places to check, maybe-sightings); "where am I?" - a circle that grows as the
+    position drifts; fading remembered marks; moments on the trail (stopped, blocked, STOP, found); a Tank Logo
+    program's path on the room map; earlier runs. My recommendation was 1 sensor, 3 keep-away, 5 where am I, 7 moments.
+  - *More camera layers (view B's LAYER list, beside DEPTH):* floor & obstacles tinted on the picture; the way it wants
+    to go; distance rings at 0.5 / 1 / 2 m; the horizon and the camera angle it thinks it has; the distance sensor's
+    beam and reading; what the ball finder sees (its colour mask); maybe-things with scores; remembered things out of
+    sight. My recommendation was floor & obstacles, the way, rings, the sonar beam. Tints need a small picture from
+    the engine as depth does; rings, horizon and beam the page can draw.
+- **More decisions (owner, 2026-11-05: "if I am able to name this should be good"; "yes go write it"):**
+  - **Naming the big things:** the map knows only high / low blocks, not what they are (the Stitch "bed" / "wardrobe"
+    were made up). Tap a red or amber block, type a name ("bed"); the name sits on the block from then on. Tap a named
+    block to rename it or take the name off. Saved with the home (`--home`), else kept for the run. Names are only
+    labels and words for "where" ("near the bed · 2 min ago"): **no FIND "bed"** - driving to a named place would be the
+    GOTO word the owner said no to (§191). The same name twice is allowed.
+  - **Where without a name:** the nearest name or remembered thing within 1 m ("near the chair"), else the distance from
+    home or the start ("1.2 m from home").
+  - **The map view:** home's forward up (no home: the start's); it fits itself to the floor seen; no pinch or drag yet;
+    no achievements on this tab.
+  - **The data:** from the engine's AI feed (port 8770), sent only while a page shows the ROOM tab: the map as a small
+    picture of cell kinds (unknown / seen before / floor / low / high) the page paints in its own look, about once a
+    second when it changed; the trail, home, play area, remembered things, names and the why as small lists of points.
+  - **FIND from the map** goes through the tank exactly as the Play tab's (a one-line `FIND "word` program): nothing on
+    the feed drives the tank.
+  - **`/ai` budget 24 → 30 KB** gzipped (owner: "Raise to 30 KB").
+  - **GO THERE on a named block (owner, 2026-11-05: "yes go there seems good for named block"):** things keep FIND (a
+    thing may have moved; FIND goes to its remembered spot first, then searches, and stops ~30 cm short); a named block
+    does not move, so its card has **GO THERE**: `SETXY` to a spot on free floor ~30-45 cm from the block, on the side
+    nearest the tank. The engine picks the spot (only it knows the free floor) and sends it with the name; the page turns
+    it into the one-line program `SETXY <right cm> <ahead cm>` from the tank's pose now and runs it through the tank like
+    FIND. Still no GOTO word: the child sees the coordinates SETXY uses.
+  - Design: AI engine LLD §23, bridge LLD R32.
+- **As built (2026-11-05, Plan Z2b-2; tank checks pending):** the ROOM tab - map, layers, I remember with FIND, names on
+  blocks with GO THERE / RENAME / TAKE OFF, room facts; INSIDE gone. Final review: no critical, 1 important (the GO THERE
+  spots were worked out ten times a second while the map changed - now at most twice) and 7 minor, 6 fixed; left: `/ai`
+  is at 29.9 of 30 KB, so the next tab needs a budget decision. Found on Plan Link: the drive page's WiFi chip showed
+  green "-" before it had ever connected (was red) - fixed on plan-link (R31.8, owner) and merged in. AI engine LLD
+  §23.7, bridge LLD R32.6.
+- **Stand check so far (2026-11-05, tank on the room2 home mark, 14 % battery):** the map with room2's blocks, the
+  layers and I REMEMBER (10 things) all show; naming works ("door") and the name is kept across an engine restart, now
+  with a GO THERE spot. A restart counts as a run for the home, so the kept obstacles fade a step each time (804 → 734
+  cells; Plan Z8's rule, not a fault) - tests run on a copy of room2, the owner's own is untouched.
+- **Naming is hard to find, and a tapped block is not shown (owner 2026-11-05: "dont find any way to name"; "when block
+  is clicked shoud it not be hightlighted"; agreed with the recommendation - "rest is good"):**
+  - A hint line under the map: "Tap a red or amber block to name it."
+  - **The tapped block lights up** while its "What's this?" card is open: the page works out the same joined block the
+    engine will name (the blocked cells joined by 8 neighbours to the one nearest the tap, at most 4000 cells) and
+    draws it in its own colour (`--room-pick`) with a dot at its middle, where the name will sit. A name's card lights
+    its block the same way. Closing the card, naming, or a tap elsewhere clears it. Why it matters: the engine names
+    the **whole joined block** at its middle - tapping the end of a long wall names the wall's middle, and the light
+    shows that before NAME.
+  - **Easier to hit on a phone:** a tap counts within 15 cm of a block **or 16 screen pixels**, whichever is more; the
+    page sends the engine the block cell it found (not the raw tap), so the engine's 15 cm rule still holds.
+  - Kept: a name is on the whole joined block (owner did not take "name just the part I tapped"). Page only, no engine
+    change. Bridge LLD R32.7.
+- **R32.7 on the iPhone (2026-11-05, build 3eac554, owner: "all work except for pinch and drag"):** the hint line
+  shows; tapping one end of the long wall lights the whole joined block with its dot; closing the card clears it;
+  "door" lights its block and shows its name; a small block lights, empty floor gives no card. **Pinch and drag do
+  nothing** - as designed above ("no pinch or drag yet"); my check step wrongly asked for it.
+- **Pinch and drag: parked (owner, 2026-11-05: "a").** Options were A leave it (the map fits itself; the room fits
+  the phone; `/ai` has 66 B of its 30 KB left), B double-tap for 2x around the tap, C full pinch and drag with a
+  "fit" button. Chosen A. Revisit with B if a bigger room makes blocks too small to tap.
+- **A fresh map of the room (2026-11-05, owner: "disregard the room and build the room again"; "delete old map"):**
+  a new test home `room3` in the worktree (the owner's `room2` untouched). First EXPLORE missed the right side of
+  the bed: the page's **play area is on at 2 m by default**, so it explored only within 2 m of the start. The owner
+  read "2 m" as a total distance driven - it is a radius round the start; the label "Play area 1 m / 2 m" does not
+  say so (open: a clearer label, `/ai` has 66 B left). Second EXPLORE with the area off, recorded: **done** after
+  96 s, 16.8 m driven, at most 3.3 m from the start, ~31 m^2 of floor seen, the right side of the bed included (owner:
+  "this time it was successful explore"). Seen floor reaches one edge of the 8 x 8 m map; a bigger room would need
+  a bigger map.
+
+## 212. Battery: a bigger pack, and saving power when nobody is watching - parked (owner, 2026-11-05: "so can we increase it"; "yes note it for later")
+- **Found:** the tank was at 14 % during the Z2b-2 stand check. ELEGOO publishes the pack as 7.4 V lithium (2S, 7.2-8.4 V)
+  but no mAh; shops say ~2 h of play (stock kit, no camera streaming). Our capacity is still unknown - the owner will read
+  the pack's label and measure its space.
+- **A bigger pack (owner's choice later):** same voltage (2S; the motors, the Uno and the battery thresholds depend on it),
+  more mAh - a protected 2S pack of two good 18650s (~2600-3500 mAh) in place of the original (recommended), or 2S2P if
+  it fits and the weight is fine. Only packs with a protection board, no mixed cells, the plug's polarity checked; the
+  ELEGOO charger still works, just longer.
+- **Parked design: save power when nobody is watching (bridge).** After the motors, the camera and its WiFi stream draw
+  the most. Idea: turn the camera off (or drop its frame rate) when no page and no AI engine is reading it, and back on
+  when one connects. To design after the Z2b-2 tank checks; it must never delay a STOP or the drive page's picture.
+
+## 213. More themes - explored, parked (owner, 2026-11-05: "it's for later, i was exploring how easy or difficult it will be")
+- **Found:** the 🎨 button flips between two looks (cockpit, Sunny Play); `pack_web.py` copies `theme.css` into every
+  page, so each extra theme costs every page ~1 KB gzipped - `/ai` has 66 B left. Adding themes the current way does
+  not fit.
+- **The way it would be done (recommended, not approved yet):** (1) the themes move into one shared, cached
+  `/themes.css` that each page links in its `<head>` (render-blocking, so no flash of the wrong look; the pages get
+  Sunny's ~1 KB back); (2) the 🎨 flip becomes a small picker with a swatch per theme, the choice kept per device,
+  the default as now (touch: Sunny, mouse: cockpit); (3) first new themes: Space (dark: navy / violet / cyan), Ocean
+  (light: sea blues and sand), High contrast (black / white / yellow); (4) rules for every theme: STOP always red,
+  warnings amber / orange, the room map's low blocks amber and high blocks red (the hint says "red or amber"),
+  readable contrast, and a test that every theme sets every colour the pages use.
+- **Not in it:** themes made on the page, per-theme layouts or fonts beyond what Sunny does, sounds.
+- **Effort:** small - one packer change, the bridge serving one more file, the picker in the shared top bar, the
+  colour blocks. Design (bridge LLD R33) and plan when the owner picks it up.
+
+## 214. The cheap missions are lessons in `/logo`; the people games come first (owner, 2026-11-05: "these should go in /logo"; "i was thinking of advanced like play with the baby or follow the baby")
+- **Lessons (decided, built later):** go home, where is my ball, hot and cold, treasure hunt - ready-made Tank Logo
+  programs in a "Lessons" list on `/logo`, each opening in the editor with a short explanation and something to
+  change. Not on `/ai` (no room; children should see the program). Draw what you saw is the ROOM tab already.
+- **Next slice:** Spec 10, the people games (§194: follow me, "don't let the baby catch you"), now with "follow the
+  baby" - design first (brainstorming), safety before anything moves.
+- **The baby game, in the owner's words (2026-11-05):** "first always face the baby except for escape; if the baby
+  crawls or walks towards you, escape; if the baby goes away from you, follow" - "but it will be big, let's find the
+  small one". So: one game (face, escape, follow) built in small slices, the smallest first.
+
+## 215. FIND's maybes are dropped too easily (floor run 2026-11-06, room3; owner: "the filter is aggressive, even if a single frame captures an object it should trigger a maybe and an investigation"; "to look should be at least 40-50 cm, its camera is not good and only at this distance one can be sure")
+- **Found in the recordings (`--record`, room3):**
+  - FIND toy: a maybe of the real toy at 35 s, ~1.03 m away; a 1.5 s look from there; the detector flickered, so
+    the 3 sightings within 0.5 s were not reached; the spot was **ruled out**, and every later sighting near it was
+    **ignored** (candidates.py: "near a ruled-out one ignored") - seen again at 37-38 s and dropped. Found 65 s
+    later by chance from closer: `done` 104 s, ~38 cm from the toy.
+  - FIND chair: a chair confirmed at 20 s and chased, lost after ~25 s without reaching it; then every remembered
+    chair spot ruled out, floor searched until the owner's STOP at 154 s (7040). A wheeled office-chair base.
+  - EXPLORE (play area off): `done` 92 s, 17 m. GO THERE "door": `done` 24 s, 4.7 m, within 15 cm of its spot -
+    but "door" and "front wall" sit at the same point (one joined block), so the spot is worked out from the wall.
+- **Options put to the owner:** A a ruled-out spot opens again when seen again (at most 2 more checks per spot);
+  B during a check, 2 sightings any time in the look confirm (the strict rule stays for passing glimpses); C check
+  from closer; D find why the chair chase lost the chair.
+- **Decided (owner):** C - **a check looks from 40-50 cm**, not 1 m (`CHECK_CLOSE_M`, today `SURE_REACH_M` 1.0).
+  A, B, D: asked.

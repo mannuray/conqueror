@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import math
+import time
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Protocol
 
@@ -14,6 +15,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from conqueror_ai.adapters.feed_server import FeedServer
+from conqueror_ai.app.room_feed import RoomFeed
 from conqueror_ai.app.runner import TickView
 from conqueror_ai.domain.feed import encode_frame, page_boxes
 from conqueror_ai.domain.pictures import cam_jpeg, depth_jpeg
@@ -25,8 +27,9 @@ if TYPE_CHECKING:
 
 STATUS_S = 0.1  # ~10 Hz
 Things = Callable[[], list[dict[str, object]]]
-# What the status needs from the tank each time: the pose, battery low, health ("ok" or why not).
-Telemetry = Callable[[], tuple[Pose | None, bool, str]]
+# What the status needs from the tank each time: the pose, battery low, health ("ok" or why not), the camera's
+# real pan from straight ahead, left + (None: no telemetry yet).
+Telemetry = Callable[[], tuple[Pose | None, bool, str, float | None]]
 
 
 class Pages(Protocol):
@@ -71,6 +74,9 @@ class FeedPublisher:
         self._health = "ok"
         self._sent_why: list[str] | None = None
         self._sent_things: list[dict[str, object]] | None = None
+        self._pan: float | None = None
+        self.room: RoomFeed | None = None  # the ROOM tab's data (LLD §23.4), set by serve
+        self.area: tuple[float, float, float] | None = None  # the running (else last) word's play area
 
     # ---- what happens
     def on_frame(
@@ -117,6 +123,8 @@ class FeedPublisher:
         p = self._pose
         if p is not None:
             msg["pose"] = {"x": round(p.x_m, 2), "y": round(p.y_m, 2), "h": round(math.degrees(p.th_rad))}
+        if self._pan is not None:  # the camera from straight ahead, left + (as the heading)
+            msg["pan"] = round(self._pan)
         msg["health"] = self._health
         msg["learning"] = self._learning is not None
         return msg
@@ -133,8 +141,11 @@ class FeedPublisher:
     async def run(self, stop: asyncio.Event, telemetry: Telemetry) -> None:
         """The status every 0.1 s while a page is connected; why and things when they change."""
         while not stop.is_set():
+            self._pose, self._battery_low, self._health, self._pan = telemetry()
+            if self.room is not None:  # the trail always; the map and room only for pages on ROOM
+                notes = self._debug if self._word is not None and self._result is None else {}
+                self.room.tick(time.monotonic(), self._pose, self.area, notes)
             if self.server.pages > 0:
-                self._pose, self._battery_low, self._health = telemetry()
                 self.server.send(self._status())
                 why = self._why()
                 if why != self._sent_why:

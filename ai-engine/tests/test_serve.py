@@ -9,6 +9,7 @@ import json
 import math
 import time
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -28,7 +29,9 @@ from conqueror_ai.app.world import World
 from conqueror_ai.domain.drive.curves import STOP, Command
 from conqueror_ai.domain.drive.roam import RoamSkill
 from conqueror_ai.domain.drive.skill import Result, Skill, SkillInput, SkillOut
+from conqueror_ai.domain.feed import decode_map
 from conqueror_ai.domain.names import Names
+from conqueror_ai.domain.places import Place
 from conqueror_ai.domain.types import ObjectEstimate, Pose
 from conqueror_ai.domain.vocabulary import Vocabulary, Word
 from tests.fake_bridge import FakeBridge
@@ -746,3 +749,53 @@ def test_a_setxy_word_with_an_area_centre_replays_identically(tmp_path: Path) ->
     assert result == Result.DONE
     text = replay_text(folder)
     assert "identical" in text, text
+
+
+async def test_names_from_home_and_saved(bridge: FakeBridge, tmp_path: Path) -> None:
+    """LLD §23.3: a home's names come back on the ROOM tab; a new name is saved with the home."""
+    store = stored_home(tmp_path)
+    earlier = store.load("h")
+    assert earlier is not None
+    store.save("h", replace(earlier, places=(Place(1, "bed", 1.0, 0.0),)))
+    server = FeedServer("127.0.0.1", 0)
+    s = await serving(bridge, home="h", store=store, feed=(server, FeedPublisher(server, NAMES.page_list)))
+    try:
+        await until(lambda: server.bound_port != 0)
+        async with connect(f"ws://127.0.0.1:{server.bound_port}/feed") as ws:
+            await ws.send(json.dumps({"t": "room", "on": True}))
+            async with asyncio.timeout(3):
+                while not isinstance(raw := await ws.recv(), str) or json.loads(raw)["t"] != "room":
+                    pass
+            assert [n["name"] for n in json.loads(raw)["names"]] == ["bed"]
+            await ws.send(json.dumps({"t": "name", "id": 2, "place": 1, "name": "cot"}))
+            async with asyncio.timeout(3):
+                while not isinstance(raw := await ws.recv(), str) or json.loads(raw)["t"] != "rep":
+                    pass
+            assert json.loads(raw) == {"t": "rep", "id": 2, "ok": True, "msg": "Renamed it cot."}
+    finally:
+        await s.close()
+    home = store.load("h")
+    assert home is not None and [p.name for p in home.places] == ["cot"]
+
+
+async def test_room_on_again_after_reconnect(bridge: FakeBridge) -> None:
+    """A new page connection starts with room off; after its room on it gets the map and room at once."""
+    w = world()
+    w.map_run.room.seen[70:90, 70:90] = True
+    server = FeedServer("127.0.0.1", 0)
+    s = await serving(bridge, w=w, feed=(server, FeedPublisher(server, NAMES.page_list)))
+    try:
+        await until(lambda: server.bound_port != 0)
+        for _ in range(2):
+            async with connect(f"ws://127.0.0.1:{server.bound_port}/feed") as ws:
+                await ws.send(json.dumps({"t": "room", "on": True}))
+                got: set[str] = set()
+                async with asyncio.timeout(3):
+                    while got != {"map", "room"}:
+                        raw = await ws.recv()
+                        if isinstance(raw, bytes):
+                            got.add(str(decode_map(raw)[0]["kind"]))
+                        elif json.loads(raw)["t"] == "room":
+                            got.add("room")
+    finally:
+        await s.close()

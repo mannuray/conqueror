@@ -4,9 +4,11 @@
 var AiCore = (function () {
   "use strict";
 
-  var PROTO = 1;  // the AI feed's version this page speaks (AI engine LLD §22.2)
+  // the AI feed's version this page speaks (AI engine LLD §22.2)
+  var PROTO = 1;
   var PROTO_TEXT = "Please update the AI helper.";
-  var NEVER = "person";  // never a thing to find (AI engine LLD §21.4)
+  // never a thing to find (AI engine LLD §21.4)
+  var NEVER = "person";
   // Words for people, refused when teaching (design-notes §203; the engine's PERSON_WORDS) - a second check.
   var PERSON_WORDS = ("person people human humans kid kids child children baby babies toddler man men woman women boy boys" +
     " girl girls mum mummy mom mommy mother dad daddy father brother sister grandma grandpa granny me").split(" ");
@@ -14,6 +16,12 @@ var AiCore = (function () {
   var WORD_RE = /^[a-z][a-z -]*$/;
 
   function squeeze(s) { return String(s).toLowerCase().split(/\s+/).filter(Boolean).join(" "); }
+  // A person word anywhere in the text (also used for names on the ROOM map, bridge LLD R32).
+  function isPerson(text) {
+    var parts = squeeze(text).replace(/-/g, " ").split(" ");
+    for (var i = 0; i < parts.length; ++i) if (parts[i] === NEVER || PERSON_WORDS.indexOf(parts[i]) >= 0) return true;
+    return false;
+  }
 
   // One frame from the engine: a 4-byte big-endian header length, the header JSON, the camera JPEG, the depth JPEG.
   function splitFrame(buf) {
@@ -71,7 +79,8 @@ var AiCore = (function () {
   function Sayer(speak) { this.speak = speak; this.last = null; this.unlocked = false; this.muted = false; }
   Sayer.prototype.unlock = function () { this.unlocked = true; };
   Sayer.prototype.mute = function (on) { this.muted = !!on; };
-  Sayer.prototype.say = function (text) {  // before the first tap nothing is kept: it is said after the tap
+  // before the first tap nothing is kept: it is said after the tap
+  Sayer.prototype.say = function (text) {
     if (!text || !this.unlocked || text === this.last) return;
     this.last = text;
     if (!this.muted) this.speak(text);
@@ -106,7 +115,7 @@ var AiCore = (function () {
     PROTO: PROTO, PROTO_TEXT: PROTO_TEXT, splitFrame: splitFrame, boxRect: boxRect, findLine: findLine,
     wanderLine: wanderLine, exploreLine: exploreLine, typed: typed, unknownText: unknownText, teachCheck: teachCheck,
     Sayer: Sayer, cameraState: cameraState, protoOk: protoOk, sameFeed: sameFeed, squeeze: squeeze,
-    pickVoice: pickVoice
+    pickVoice: pickVoice, isPerson: isPerson
   };
 })();
 if (typeof module !== "undefined") module.exports = AiCore;

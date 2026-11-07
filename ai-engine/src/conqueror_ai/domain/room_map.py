@@ -214,6 +214,11 @@ def _points(v: object) -> list[tuple[float, float]]:
     return out
 
 
+def note_points(v: object) -> list[tuple[float, float]]:
+    """A skill's note as room points (the ROOM tab's why layer, LLD §23.2)."""
+    return _points(v)
+
+
 def skill_image(
     snap: MapSnapshot, debug: Mapping[str, object], seen_before: NDArray[np.bool_] | None = None
 ) -> NDArray[np.uint8]:

@@ -18,6 +18,7 @@ from websockets.exceptions import ConnectionClosed
 PROTO = 1
 PATH = "/feed"
 FRAME = "frame"  # the outbox slot of the binary frames
+MAP = "map"  # the ROOM tab's map frame (LLD §23.2)
 TRY_AGAIN = 1013  # a fifth page: "try again later"
 
 
@@ -33,6 +34,7 @@ class _Page:
     def __init__(self, n: int, conn: PageConn) -> None:
         self.n, self.conn = n, conn
         self.slots: dict[str, str | bytes] = {}  # one per kind, newest wins; insertion order = send order
+        self.room = False  # the page shows its ROOM tab (LLD §23.2); a page starts off
         self.wake = asyncio.Event()
 
     def put(self, kind: str, data: str | bytes) -> None:
@@ -102,7 +104,9 @@ class FeedServer:
             writer = asyncio.create_task(self._write(page))
             async for raw in conn:
                 msg = _load(raw)
-                if msg is not None:
+                if msg is not None and msg.get("t") == "room":  # kept here: which pages get the room
+                    page.room = msg.get("on") is True
+                elif msg is not None:
                     self._requests.put_nowait((page.n, msg))
         except (ConnectionClosed, TimeoutError):
             pass
@@ -141,9 +145,31 @@ class FeedServer:
             p.put(str(msg["t"]), text)
 
     def reply(self, page: int, msg: dict[str, object]) -> None:
+        """An answer to one page; replies are kept apart by id, so one never replaces another unsent."""
         p = self._pages.get(page)
         if p is not None:
-            p.put(str(msg["t"]), json.dumps(msg))
+            kind = f"rep:{msg.get('id')}" if msg["t"] == "rep" else str(msg["t"])
+            p.put(kind, json.dumps(msg))
+
+    def rooms(self) -> set[int]:
+        """The pages showing their ROOM tab."""
+        return {n for n, p in self._pages.items() if p.room}
+
+    def room_wanted(self) -> bool:
+        return any(p.room for p in self._pages.values())
+
+    def room_frame(self, data: bytes) -> None:
+        """The map frame, to the pages showing ROOM only."""
+        for p in self._pages.values():
+            if p.room:
+                p.put(MAP, data)
+
+    def send_rooms(self, msg: dict[str, object]) -> None:
+        """A message for the ROOM tab, to the pages showing it only."""
+        text = json.dumps(msg)
+        for p in self._pages.values():
+            if p.room:
+                p.put(str(msg["t"]), text)
 
     async def requests(self) -> AsyncGenerator[tuple[int, dict[str, Any]]]:
         while True:

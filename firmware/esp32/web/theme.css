@@ -22,6 +22,8 @@
   --view-bg: #1d2b44; --face-bg: #ffd84d; --face: #1d2b44; --cheek: #ff7a90; --box-tag: rgba(255,255,255,.88);
   --sans: var(--mono); --font: var(--mono);
   --scan: 0; --glow-text: none; --card-shadow: 0 4px 16px rgba(29,43,68,.12);
+  --room-bg: #e9eef5; --room-floor: #ffffff; --room-before: #f4f1ea; --room-low: #f0a020; --room-high: #e8382e;
+  --room-trail: #1f6fd1; --room-route: #8b5cf6; --room-area: #f08c00; --room-pin: #1d2b44; --room-cone: rgba(74,163,255,.25); --room-text: #1d2b44; --room-pick: #00a6b8;
 }
 /* pages: / */
 :root[data-theme="play"] {

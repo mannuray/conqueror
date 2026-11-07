@@ -116,3 +116,11 @@
 - [ ] **Step 2:** run → the first two FAIL.
 - [ ] **Step 3:** in `_chase`, before ticking: the look round = chase state in (`start`, `sweep`, `spin`) and nothing seen (no fix, or one older than `LOST_AFTER_S`). Then a pending candidate → a fresh `ChaseSkill(..., search_when_lost=False)`, state `drive`, halt; a new glimpse (`_new_glimpse`) → the same, then `_SecondLook(bearings, "drive", now)`.
 - [ ] **Step 4:** PASS; full suite, ruff, pyright. **Step 5:** commit `feat(ai): a sighting ends FIND's opening look round (AI engine LLD §25.8)`; docs §25.8 as built.
+
+### Task 9 (Plan Z10d, LLD §25.10): the driven trail is free; ways out leave marks the body covers
+
+**Files:** `ai-engine/src/conqueror_ai/domain/room_map.py` (`body_over`), `domain/drive/footprint.py` (`allowed`, `turn_ok` gain `ignore`), `domain/drive/recovery.py` (`_turn`, `_back_ok` pass the covered cells). Tests: `tests/test_room_map.py`, `tests/test_drive_recovery.py` (or the existing ways-out tests' file).
+
+- [ ] **Step 1: Failing tests:** `test_body_over_clears_a_full_mark_under_the_body` (a cell hit to +4 → after one `body_over` not blocked, log-odds at -clamp); `test_a_mark_only_partly_under_the_body_loses_one_step` (unchanged rule); `test_ways_out_back_out_of_marks_the_body_covers` (marks under the rear and sides, known-free trail behind → `_back_ok` true, a Recovery tick backs); `test_a_spin_meeting_only_covered_marks_is_allowed` and `test_a_spin_into_a_new_mark_is_still_refused`.
+- [ ] **Step 2:** run → FAIL. **Step 3:** implement. **Step 4:** PASS; the stuck SETXY replayed locally moves within 2 s (not committed); full suite, ruff, pyright.
+- [ ] **Step 5: Commit** `fix(ai): the driven trail is free; the ways out may leave marks the body covers (AI engine LLD §25.10)`; docs as built.

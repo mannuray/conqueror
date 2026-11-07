@@ -3314,3 +3314,8 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   count single sightings of the last 0.5 s (AI engine LLD §25.9, Plan Z10c); a false sighting may beep for a moment.
 - **Built and floor-checked (Plan Z10c, 2026-11-07):** lesson 5 (LAUNCH + HOWFAR "toy) with the area off found the
   toy in 9.3 s - HOWFAR answered from single sightings while it wandered (12 answers under 1.5 m, then under 50 cm).
+- **SETXY stuck by a wall (lesson 1's first try, room8) - found by replaying (owner: "setxy"):** false low marks on clear
+  marble along the path, driven over by FORWARD 40, cleared too gently (one miss a cell per 100 ms, only wholly under
+  the shrunk body) - the tank's own pose became not allowed and every move was refused (7024 after 12.5 s). Proposed
+  (owner "yes" to write it): A the driven trail is cleared, B the ways out may leave marks the body already covers
+  (AI engine LLD §25.10, Plan Z10d). Why the depth marks shiny floor is left for later.

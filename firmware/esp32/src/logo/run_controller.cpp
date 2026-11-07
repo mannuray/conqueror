@@ -173,7 +173,7 @@ void RunController::step(const RunTelem& t, uint32_t now_ms, RunOut& out) {
       return;
     case VmStatus::kEffect: return effect(t, now_ms, out);
     case VmStatus::kHalt: out = end(0); return;
-    case VmStatus::kStop: out = end(7040); return;
+    case VmStatus::kStop: out = end(0); return;  // the STOP word: done, as at the end (Tank Logo LLD §25.6)
     case VmStatus::kError: out = endWith(m_vm.error().code, m_vm.error().line, m_vm.error().msg); return;
   }
 }

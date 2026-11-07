@@ -79,4 +79,4 @@ What a program asks the tank to do, in order, and how it ends. Any runner must g
 | `AREA` | `AREA 2` (metres; `AREA 0`) |
 | `FIND` / `WANDER` / `EXPLORE` / `SETXY` | `FIND ball`, `WANDER 10`, `EXPLORE`, `SETXY 20 -30`; with an `AREA` on, ` AREA 2 AT 0 30` follows (metres, then where the `AREA` was set in cm: x right, y ahead of the start) |
 
-**Endings:** `finished`, or the code and line of `words.yaml` `errors` (7024 obstacle, 7040 `STOP`, 7041 time limit, 7044 stuck, run-time errors …).
+**Endings:** `finished`, or the code and line of `words.yaml` `errors` (7024 obstacle, 7040 the STOP key, 7041 time limit, 7044 stuck, run-time errors …).

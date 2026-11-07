@@ -1467,3 +1467,121 @@ classDiagram
   - **Runner:** a `skill_failed reason:"learning"` (a teach that started between the check and the word) ends the program with 7056, as the other reasons map (§24.2).
 - **The `/ai` page's buttons are one-line programs** run with `logo_run` from the page's own `/ws` (bridge LLD R27.1): Find + thing + area → `AREA 2  FIND "toy` (the area chip off → no `AREA`); Wander → `WANDER 30`; Explore → `EXPLORE`; [Z2b-2] FIND on a remembered thing → `FIND "thing`; GO THERE on a named block → `SETXY x y` (bridge LLD R32, design-notes §211). Nothing else in the runner changes.
 - **Tests:** a conformance case with `tank: {ai: true, learning: true}` → 7056 for `FIND "ball` and `SEE? "ball`; with `ai: false, learning: true` → 7020; a running case where the skill ends `learning` → 7056.
+
+## 25. Revision L1 — lessons in `/logo` (owner 2026-11-05/06, design-notes §214, §216 — draft for review)
+
+### 25.1 What changes
+- **Five lessons are built into the tank, like the three examples** (§20.4): read-only programs; opening one puts it in the editor; a changed lesson is saved under a new name (`EXAMPLE` → "Examples cannot be changed - pick a new name." stays the message).
+- **The explanation is in the program** as `;` comment lines at the top: what it does, what to watch, and a `Try this:` change. No new screen, no new page text.
+- **The program list on `/logo`** gets a `[ LESSONS ]` section between `SAVED ON THE TANK` and `[ EXAMPLES ]`, in the fixed order below, each shown with its number (`1 back_to_start`). The name stays the plain program name.
+- **No new words.** Each lesson uses today's level-1/2 words and the AI words (§24). A lesson that cannot be written well with them comes back to the owner before a word is added.
+- **Safety: nothing new.** They are ordinary programs: STOP, the drive lease, the 300 s run limit (7041), FIND never targets a person, the play area (`AREA`).
+
+### 25.2 The five lessons
+The texts below are the design; the plan fixes the exact text against the checker (§25.4). **Superseded in detail by §25.5** (no `!` and no "to" inside SAY; the built texts are in `logo/program_names.cpp`). Every lesson that uses an AI word needs the AI helper running (7020 otherwise, as for any program).
+
+| # | Name | What the child sees | Words |
+|---|---|---|---|
+| 1 | `back_to_start` | drives out a little L, says it is going back, drives back to where the program started; it never lands exactly on the spot (drift) | FORWARD, RIGHT, SAY, SETXY, SOUND |
+| 2 | `where_is_my_ball` | looks round, searches, stops ~30 cm from the ball, says how many seconds it took; with a home a second run is quicker (it remembers) | AREA, FIND, SAY, TIMER, ROUND |
+| 3 | `treasure_hunt` | finds the car, says so, finds the ball, says so, goes back to the start, plays a tune | AREA, FIND, SAY, SETXY, PLAY |
+| 4 | `hot_and_cold` | **the tank stands still**; the child brings the ball closer; it beeps faster the nearer the ball is and plays a tune with "you found me!" within 40 cm (the camera is only sure that close, §215) | FOREVER, HOWFAR, IFELSE, BEEP, WAIT, PLAY, SAY, STOP, TO |
+| 5 | `hot_and_cold_hunt` | the ball is hidden; the tank wanders 2 s, stops and listens (beeps by how near the ball is), wanders again; it ends with "found you!" within 50 cm, or at the 300 s limit | AREA, FOREVER, WANDER, HOWFAR, IFELSE, BEEP, SOUND, SAY, STOP, TO |
+
+- **Lesson 5's limit, said in the lesson:** a program does one thing at a time, so it cannot beep *while* WANDER drives. Beeping while driving needs two things running at once - a much bigger change to Tank Logo, not in this slice.
+- **Lesson 3 and the 300 s limit:** two FINDs can take longer than 5 minutes; `AREA 2` keeps the searches small, and the comment says the program ends by itself after 5 minutes (7041).
+- **Lesson 2's time:** `SAY ROUND TIMER` if SAY takes a number; if the checker says no, it says "found it!" only (SENTENCE is level 3, reserved in v1 - no new word for this).
+
+Draft of lesson 4 (the shape of all five):
+```
+; Lesson 4 - hot and cold
+; The tank stands still. Bring the ball slowly towards it.
+; The nearer the ball, the faster it beeps.
+; Try this: change 40 to 60 - it finds you from further away.
+TO HOTCOLD :cm
+  IFELSE :cm < 0 [ WAIT 0.5 ] [
+    IFELSE :cm < 40 [ PLAY [ C4 E4 G4 C5 2 ] SAY [ you found me! ] STOP ] [ BEEP WAIT :cm / 100 ]
+  ]
+END
+FOREVER [ HOTCOLD HOWFAR "ball ]
+```
+
+### 25.3 Firmware and page
+- **`logo/program_names.{h,cpp}`:** `Example` gains `bool lesson`; `kExamples` lists the five lessons first, in order, then the three examples. A new `constexpr uint8_t kBuiltInCount = 8` in the header (a `static_assert` in the .cpp keeps it equal to the table).
+- **`net/program_store`:** `ProgramInfo` gains `bool lesson`, filled from the table; save / delete still refuse every built-in name (`findExample` covers lessons).
+- **`net/logo_http.cpp` `doList`:** the list buffer is `kMaxPrograms + kBuiltInCount` (today `+ 3`); each item adds `"lesson":true|false`. Built-ins keep `"example":true`, so the editor's read-only rules do not change.
+- **`web/logo.js` `programSections(progs)`** (pure, tested in `logo.test.js`) splits the list into saved / `[ LESSONS ]` / `[ EXAMPLES ]`, a lesson's label being its number and name; **`web/logo.html` `showProgs`** draws from it. The page budget has ~2.1 KB free (30 583 of 32 768 B); this costs about 150 B.
+
+```mermaid
+classDiagram
+  class Example {
+    +const char* name
+    +const char* src
+    +bool lesson
+  }
+  class program_names {
+    +kBuiltInCount = 8
+    +exampleCount() uint8_t
+    +example(i) Example
+    +findExample(name) Example*
+  }
+  class ProgramInfo {
+    +char name[25]
+    +uint16_t bytes
+    +bool example
+    +bool lesson
+  }
+  class ProgramStore {
+    +programList(out, cap) uint8_t
+    +programLoad(name, buf, cap) int
+    +programSave(name, src) StoreStatus
+  }
+  class LogoHttp {
+    +doList()  GET /logo/programs
+    +doLoad()  GET /logo/programs/name
+  }
+  class LogoPage {
+    +showProgs()  SAVED / LESSONS / EXAMPLES
+    +openProg(name)
+  }
+  program_names --> Example
+  ProgramStore --> program_names
+  ProgramStore --> ProgramInfo
+  LogoHttp --> ProgramStore
+  LogoPage --> LogoHttp : JSON programs[] with lesson
+```
+
+```mermaid
+sequenceDiagram
+  participant C as Child on /logo
+  participant P as logo.html
+  participant H as LogoHttp
+  participant S as ProgramStore
+  P->>H: GET /logo/programs
+  H->>S: programList()
+  S-->>H: 5 lessons, 3 examples, saved programs
+  H-->>P: {"programs":[{"name":"back_to_start","example":true,"lesson":true}, ...]}
+  P->>P: showProgs(): SAVED, [ LESSONS ] 1..5, [ EXAMPLES ]
+  C->>P: taps "4 hot_and_cold"
+  P->>H: GET /logo/programs/hot_and_cold
+  H-->>P: the text (comments + program), read-only
+  C->>P: RUN (or changes 40 to 60, SAVE AS my_hot_cold)
+```
+
+### 25.4 Tests
+- **Native (`test_logo_box`):** `exampleCount() == kBuiltInCount == 8`; the first five are lessons, in order, the last three not; every built-in passes `checkProgram` with `Caps{ai = true, things = a test list with ball and toy (car)}`; `findExample("treasure_hunt")` found; saving under `hot_and_cold` → `kExample`.
+- **Running (`running.yaml`, the fake world's HOWFAR answers, §24.3):** lesson 4 with HOWFAR 120 then 30 → beeps, then the tune, the SAY and the end; with HOWFAR −1 → only waits.
+- **Page (`logo.test.js`, `programSections`):** a list with a lesson, an example and a saved program shows `SAVED ON THE TANK`, `[ LESSONS ]` with `1 back_to_start`, then `[ EXAMPLES ]`.
+- **On the tank (owner):** each lesson opens, reads well, and runs from `/logo`; lesson 4 by hand with the ball; lesson 5 with the ball hidden ~1.5 m away.
+
+### 25.5 As built (Plan L1, 2026-11-06; tank check pending)
+- **Wording the reader forced:** inside `SAY [ ]` the word `to` is read as `TO` (7017) and `!` is not a character Tank Logo reads (7016). So lesson 1 says "going back now", and the "found ..." lines have no `!` ("you found me", "found you", "found the car").
+- **Lesson 2 keeps the time:** `SAY ROUND TIMER` is accepted; it says "found it in", the seconds, "seconds".
+- **Sizes:** the five lessons are 1 757 B of text (strlen + 1 each, measured on the host); the bridge image 1 413 779 B (46.9 %); `/logo` 30 762 of 32 768 B gz (+179 B).
+- **Final review fixes (Opus, 2026-11-06):** a program saved before the update under a lesson's name would hide behind the lesson for ever - at mount it is renamed to the first free `<name>_2` .. `_9` (`renameShadowed`, logged); lesson 4 says "roll the ball slowly along the floor" (HOWFAR places it from where it meets the floor); lesson 2 says "if the tank has a home"; `test_logo_box` checks every built-in is found by its own name (save / remove refuse it - `program_store` is not in the native build, so the refusal itself is checked on the tank); I1 → §25.6.
+- **Tests:** `test_logo_box` checks all eight built-ins with the AI helper's caps (on failure it prints the checker's first code, line and column); two `running.yaml` cases run lesson 4's code (120 cm then 30 cm; not seen, not seen, 30 cm); `logo.test.js` tests `programSections`; the stand-in tank (`fake_tank.py`) lists two lessons, checked in a browser.
+
+### 25.6 The STOP word ends as done (owner 2026-11-06, design-notes §216; the L1 final review's I1)
+- **Why:** lessons 4 and 5 end their happy path with `STOP` ("you found me"); the page then said "Ended (7040) on line 3: Stopped by you." - an error, after the child won.
+- **Change:** the runner ends a program that reaches the `STOP` word as **finished** (code 0, the page shows "Done"), exactly like a program that runs to its end; every ending already stops the tank and gives the drive back (`LogoController`), so nothing about stopping changes. **7040 "Stopped by you." stays for the STOP key** (the page's button, the phone's STOP, a skill ended by STOP).
+- **Where:** `RunController` (`VmStatus::kStop` → `end(0)`); `running.yaml` "STOP ends the program" and lesson 4's two cases now end `finished`; `test_logo_run` `test_stop_word_ends_as_done`. Spec 5 §12.5 ("STOP ends the whole program and stops the tank") still holds.

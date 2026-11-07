@@ -81,14 +81,14 @@ void doCheck(httpd_req_t* req, const char* name) {
 }
 
 void doList(httpd_req_t* req, const char*) {
-  static ProgramInfo list[logo::kMaxPrograms + 3];
+  static ProgramInfo list[logo::kMaxPrograms + logo::kBuiltInCount];
   const uint8_t n = programList(list, sizeof list / sizeof list[0]);
   httpd_resp_set_type(req, "application/json");
   httpd_resp_send_chunk(req, "{\"programs\":[", HTTPD_RESP_USE_STRLEN);
   for (uint8_t i = 0; i < n; ++i) {
     char item[112];
-    snprintf(item, sizeof item, "%s{\"name\":\"%.24s\",\"bytes\":%u,\"example\":%s}", i > 0 ? "," : "", list[i].name,
-             list[i].bytes, list[i].example ? "true" : "false");
+    snprintf(item, sizeof item, "%s{\"name\":\"%.24s\",\"bytes\":%u,\"example\":%s,\"lesson\":%s}", i > 0 ? "," : "",
+             list[i].name, list[i].bytes, list[i].example ? "true" : "false", list[i].lesson ? "true" : "false");
     httpd_resp_send_chunk(req, item, HTTPD_RESP_USE_STRLEN);
   }
   httpd_resp_send_chunk(req, "]}", HTTPD_RESP_USE_STRLEN);

@@ -144,7 +144,7 @@ From tightest to loosest:
 - **Inside `[ ]` used as data nothing is looked up:** `[ :a :b ]` is a list of the two words `:a` and `:b`. The checker warns (`PROGRAM_7019`, a hint, not an error): "inside [ ] values are not looked up — use LIST :a :b".
 - **Your words** are commands (no `OUTPUT` in their body) or reporters (an `OUTPUT` somewhere in their body). A reporter used as a statement → `PROGRAM_7004` "You didn't say what to do with the value of SIDE". A command used where a value is needed → `PROGRAM_7005` "SQUARE doesn't give back a value". A reporter that reaches `END` without `OUTPUT` → run-time `PROGRAM_7031`.
 - **Scope:** a word's inputs (`:size`) exist only inside its own `TO … END` (and its templates). There are no global variables and no `MAKE`. `:x` that is not an input of the surrounding word → `PROGRAM_7009` "There is no :x here — did you mean :size?".
-- `OUTPUT` ends the word and gives back the value. `STOP` ends the **whole program** and stops the tank (Spec 5 §12.5).
+- `OUTPUT` ends the word and gives back the value. `STOP` ends the **whole program** and stops the tank (Spec 5 §12.5), ending as done like a program that reaches its end (Tank Logo LLD §25.6; the STOP key is 7040).
 - **Tail calls** use no extra stack, so a word can repeat itself — or two words can call each other — for as long as the program runs. **Tail position** is defined like this:
   1. the last statement of a word's body (just before `END`) is in tail position;
   2. if an `IF` or `IFELSE` is in tail position, the last statement of **each** of its blocks is in tail position (for `IF` the "no" case simply returns);

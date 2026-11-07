@@ -11,7 +11,10 @@
   web/logo.js and <!--CQ:WORDS--> by web/generated/words.json. Budget 32 KB gzipped (bridge LLD R25, R28, R29, R30).
 - Every page: the shared look (bridge LLD R28) - <!--CQ:THEME--> in its <head> becomes web/theme.css and web/theme.js.
 - Every page: the one top bar (bridge LLD R29) - <!--CQ:BAR--> becomes web/bar.css, web/bar.html and web/bar.js.
-- /ai, /logo, /settings: the status strip (bridge LLD R30) - <!--CQ:STRIP--> becomes web/strip.css, strip.html, strip.js.
+- /ai, /logo, /settings: the status strip (bridge LLD R30) - <!--CQ:STRIP--> becomes web/strip.css, strip.html, and
+  tank_model.js + strip.js (R31: the model and its view).
+- /, /ai, /logo, /settings: the one link (bridge LLD R31) - <!--CQ:LINK--> becomes web/link.js.
+- Every page: whole-line // comments in its scripts and /* */ in its styles go (bridge LLD R31.5).
 - Every page: its icons from web/icons.json (scripts/icons.py, bridge LLD R25) - <!--icon:NAME--> markers and one
   /*CQ:ICONS ...*/ table; an unknown icon fails the build.
 Also runnable alone: python3 scripts/pack_web.py [project_dir]
@@ -98,10 +101,20 @@ def assemble_logo(project: pathlib.Path) -> bytes:
     for marker in ("<!--CQ:LOGO_JS-->", "<!--CQ:WORDS-->"):
         if marker not in text:
             raise SystemExit(f"pack_web: {marker} missing in web/logo.html")
-    code = (web / "logo.js").read_text(encoding="utf-8")
+    code = (web / "logo.js").read_text(encoding="utf-8").replace("</", "<\\/")  # never closes its <script>
     words = (web / "generated" / "words.json").read_text(encoding="utf-8").strip()
     words = words.replace("</", "<\\/")  # never closes the <script> it sits in
     return text.replace("<!--CQ:LOGO_JS-->", code).replace("<!--CQ:WORDS-->", words).encode()
+
+
+def assemble_drive(project: pathlib.Path) -> bytes:
+    """/ (bridge LLD R31): web/basic_drive.html with <!--CQ:DRIVE_JS--> replaced by web/drive.js (DriveModel)."""
+    web = project / "web"
+    text = (web / "basic_drive.html").read_text(encoding="utf-8")
+    if "<!--CQ:DRIVE_JS-->" not in text:
+        raise SystemExit("pack_web: <!--CQ:DRIVE_JS--> missing in web/basic_drive.html")
+    code = (web / "drive.js").read_text(encoding="utf-8").replace("</", "<\\/")  # never closes its <script>
+    return text.replace("<!--CQ:DRIVE_JS-->", code).encode()
 
 
 def assemble_ai(project: pathlib.Path) -> bytes:
@@ -161,8 +174,23 @@ def with_strip(text: str, project: pathlib.Path, page: str) -> str:
     if "</style" in css.lower():
         raise SystemExit("pack_web: web/strip.css contains </style, which would end its <style> early")
     markup = (web / "strip.html").read_text(encoding="utf-8")
-    code = (web / "strip.js").read_text(encoding="utf-8").replace("</", "<\\/")  # never closes its <script>
+    code = ((web / "tank_model.js").read_text(encoding="utf-8") + (web / "strip.js").read_text(encoding="utf-8")).replace(
+        "</", "<\\/")  # the model (R31) then its view; never closes its <script>
     return text.replace(STRIP_MARKER, f"<style>\n{css}</style>\n{markup}<script>\n{code}</script>", 1)
+
+
+LINK_MARKER = "<!--CQ:LINK-->"
+
+
+def with_link(text: str, project: pathlib.Path, page: str) -> str:
+    """The one link (bridge LLD R31): LINK_MARKER becomes <script>link.js</script>. A page that uses cqLink without the
+    marker fails the build; a page without either is left as it is (/help holds no link)."""
+    if LINK_MARKER not in text:
+        if "cqLink." in text:
+            raise SystemExit(f"pack_web: {page} uses cqLink but has no {LINK_MARKER}")
+        return text
+    code = (project / "web" / "link.js").read_text(encoding="utf-8").replace("</", "<\\/")  # never closes its <script>
+    return text.replace(LINK_MARKER, f"<script>\n{code}</script>", 1)
 
 
 PAGES_LINE = re.compile(r"^/\* pages: ([^*]*)\*/\n", re.MULTILINE)
@@ -179,11 +207,36 @@ def theme_css_for(css: str, page: str) -> str:
     return "".join(out)
 
 
-def assemble_page(project: pathlib.Path, uri: str) -> bytes:
-    """A page as served (before gzip), its icons put in (bridge LLD R25). /help may be missing: b""."""
+SCRIPT_BLOCK = re.compile(r"(<script>)(.*?)(</script>)", re.DOTALL)
+STYLE_BLOCK = re.compile(r"(<style>)(.*?)(</style>)", re.DOTALL)
+LINE_COMMENT = re.compile(r"^[ \t]*//[^\n]*\n", re.MULTILINE)
+CSS_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+
+
+CONTINUED_STRING = re.compile(r"\\\n")
+CSS_STRING_OPENER = re.compile(r"[\"'][^\"'\n]*/\*")
+
+
+def strip_comments(text: str) -> str:
+    """Bridge LLD R31.5: whole-line // comments inside <script> and /* */ inside <style> go; strings, trailing comments
+    and everything outside those blocks (Help's <pre>) stay. Run last, after the parts and icons have read theirs.
+    What it cannot read safely fails the build: a string continued over lines in a script, a /* inside a CSS string."""
+    for m in SCRIPT_BLOCK.finditer(text):
+        if CONTINUED_STRING.search(m.group(2)):
+            raise SystemExit("pack_web: a script has a string continued over lines (\\ at a line end) - comments cannot be stripped safely")
+    for m in STYLE_BLOCK.finditer(text):
+        if CSS_STRING_OPENER.search(m.group(2)):
+            raise SystemExit("pack_web: a style has /* inside a string - comments cannot be stripped safely")
+    text = SCRIPT_BLOCK.sub(lambda m: m.group(1) + LINE_COMMENT.sub("", m.group(2)) + m.group(3), text)
+    return STYLE_BLOCK.sub(lambda m: m.group(1) + CSS_COMMENT.sub("", m.group(2)) + m.group(3), text)
+
+
+def assemble_page(project: pathlib.Path, uri: str, keep_comments: bool = False) -> bytes:
+    """A page as served (before gzip), its icons put in (bridge LLD R25), its comments out (R31.5). /help may be
+    missing: b"". keep_comments: the page as written, for the size test."""
     web = project / "web"
     if uri == "/":
-        raw = (web / "basic_drive.html").read_bytes()
+        raw = assemble_drive(project)
     elif uri == "/settings":
         raw = (web / "settings.html").read_bytes()
     elif uri == "/logo":
@@ -195,8 +248,9 @@ def assemble_page(project: pathlib.Path, uri: str) -> bytes:
     if not raw:
         return raw
     table = icons.load(web / "icons.json")
-    text = with_strip(with_bar(with_theme(raw.decode("utf-8"), project, uri), project, uri), project, uri)
-    return icons.expand(text, table, uri).encode("utf-8")
+    text = with_link(with_strip(with_bar(with_theme(raw.decode("utf-8"), project, uri), project, uri), project, uri), project, uri)
+    text = icons.expand(text, table, uri)
+    return (text if keep_comments else strip_comments(text)).encode("utf-8")
 
 
 def c_array(name: str, data: bytes) -> str:

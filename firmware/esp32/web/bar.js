@@ -71,6 +71,14 @@ var cqBar = (function () {
     ws.onclose = function () { end(false); };
   }
 
+  // STOP's one wiring on every page (bridge LLD R31): on the touch itself - a tap that slides would become a scroll and
+  // never click - and from the keyboard (Enter / Space: a click with detail 0); a tap's own click after it is not a second stop
+  function onStop(fn, button) {
+    var b = button || el("stop");
+    b.addEventListener("pointerdown", function (e) { e.preventDefault(); close(); fn(); });  // a sliding tap never clicks: close here
+    b.addEventListener("click", function (e) { if (e.detail === 0) fn(); });
+  }
+
   if (typeof document !== "undefined" && el("cqMenu")) {
     // the menu and its dim layer live at the end of <body>, outside any glass or sticky box of the page
     document.body.appendChild(el("cqDim"));
@@ -88,7 +96,7 @@ var cqBar = (function () {
     // Esc closes the menu; the event goes on, so a page's own Esc (e.g. /logo's stop) still runs
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
   }
-  return { PAGES: PAGES, here: here, open: open, close: close, isOpen: isOpen, stopOnce: stopOnce };
+  return { PAGES: PAGES, here: here, open: open, close: close, isOpen: isOpen, stopOnce: stopOnce, onStop: onStop };
 })();
 if (typeof window !== "undefined") window.cqBar = cqBar;
 if (typeof module !== "undefined") module.exports = cqBar;

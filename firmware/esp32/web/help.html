@@ -162,7 +162,7 @@ S1 back afterwards.</pre>
 // STOP (bridge LLD R29.3): this page holds no socket; one is opened for the press only (the bridge takes 4 clients).
 // Only the latest press's answer is shown: an earlier press's late timeout never covers it.
 var stopPress = 0;
-document.getElementById("stop").addEventListener("click", function () {
+cqBar.onStop(function () {  // on touch, and from the keyboard (R31)
   var line = document.getElementById("stopMsg"), mine = ++stopPress;
   line.textContent = "Stopping…"; line.className = "note"; line.hidden = false;
   cqBar.stopOnce("ws://" + location.host + "/ws", function (ok) {

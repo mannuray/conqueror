@@ -96,3 +96,26 @@ test("stopOnce: stop refused (nack) - never 'Stopped'; done(false) after 2 s, cl
   assert.deepEqual(calls, [false]);
   assert.equal(w.sockets[0].closed, true);
 });
+
+// R31: one STOP wiring for every page - on touch (a tap that slides never becomes a click), and from the keyboard
+function fakeButton() {
+  const b = { on: {}, addEventListener(type, fn) { (b.on[type] = b.on[type] || []).push(fn); },
+    fire(type, ev) { (b.on[type] || []).forEach((f) => f(Object.assign({ preventDefault() { ev && (ev.prevented = true); } }, ev))); } };
+  return b;
+}
+
+test("onStop: a touch stops at once, its click after it does not stop again", () => {
+  const b = fakeButton(); let n = 0;
+  B.onStop(() => n++, b);
+  b.fire("pointerdown", {});
+  b.fire("click", { detail: 1 });
+  assert.equal(n, 1);
+});
+
+test("onStop: Enter / Space (a click with detail 0) stops", () => {
+  const b = fakeButton(); let n = 0;
+  B.onStop(() => n++, b);
+  b.fire("click", { detail: 0 });
+  assert.equal(n, 1);
+});
+

@@ -3353,3 +3353,170 @@ sequenceDiagram
 - Place (owner): 900 px and wider - the strip on the first line between the title and the top bar (`flex: 1 1 0; min-width: 0`, wrapping inside its space; the page's `.cqbar` is `align-self: flex-start`, so the three stay at the top right); a phone - its own line under the title, from the left. Chips are `flex: none`; an unknown AI HELPER has a hollow dot.
 - Settings' camera frame-rate control is `cFpsCap` (the strip's `cFps` had hidden it).
 
+## R31. One link for every page, in model / view / controller (owner 2026-11-04; design-notes §210 — built, R31.7)
+
+### R31.1 What changes
+- **Packing first (R31.5):** after every part and the icons, `pack_web.py` removes whole-line `//` comments inside
+  `<script>` and `/* ... */` comments inside `<style>`; `<pre>`, strings and trailing comments are left alone. A unittest
+  runs `node --check` on every script of every packed page. `assemble_logo` escapes `</` like the other parts.
+- New shared parts (inlined like R29 / R30): `web/tank_model.js` (**TankModel**, pure), `web/link.js` (**cqLink**).
+  `web/strip.js` becomes the strip's **view** of a TankModel. `web/drive.js` (**DriveModel**, pure) for the drive page,
+  inlined at `<!--CQ:DRIVE_JS-->` as logo.js is.
+- `cqBar.onStop(fn)` wires the STOP button the same way everywhere: `pointerdown` (with `preventDefault`) and `click`
+  with `detail === 0` (keyboard), one call per press.
+- Every page's own connect / send / ping / reconnect code goes; each page calls `cqLink.open({...})` once.
+
+### R31.2 Classes
+
+```mermaid
+classDiagram
+  class TankModel {
+    <<model, tank_model.js>>
+    +state : link, you, owner, ownerClient, batt, ai, fps, hdg, pos, spd, wifi, uno
+    +apply(msg) bool
+    +linkUp() void
+    +linkDown() void
+    +aiHelper(on) void
+    +pose(x_m, y_m) void
+    +fps(n) void
+    +on(fn) void
+  }
+  class DriveModel {
+    <<model, drive.js>>
+    +mightDrive(s) bool
+    +releasesLatch(cmd) bool
+  }
+  class cqLink {
+    <<controller, link.js>>
+    +open(opts) Link
+  }
+  class Link {
+    +send(msg) bool
+    +isOpen() bool
+    +stop(msgs, say) void
+  }
+  class cqBar {
+    <<controller and view, bar.js>>
+    +onStop(fn) void
+    +stopOnce(url, done) void
+  }
+  class StripView {
+    <<view, strip.js>>
+    +bind(model) void
+  }
+  class Page {
+    <<each page: its own model and views>>
+  }
+  cqLink --> Link : returns
+  Link --> TankModel : apply(msg), linkUp, linkDown
+  TankModel ..> StripView : on(change)
+  Page --> cqLink : open({client, onMessage, onOpen, onClose, onHide})
+  Page --> cqBar : onStop(page stop)
+  Link ..> cqBar : stopOnce when the link is down
+  Page --> DriveModel : the drive page only
+```
+
+- `cqLink.open(opts)`: `opts.client` (the hello name: `basic-drive`, `logo`, `ai-page`, `settings` - the bridge keys
+  on `ai-page`, R27.1), `opts.model` (a TankModel, optional), `opts.onMessage(m)`, `opts.onOpen()`, `opts.onClose()`,
+  `opts.onHide()` (called before the link closes when the page is hidden - the drive page's STOP, §201),
+  `opts.retryMs` (first backoff: 1000 on the drive page, 500 elsewhere, as now), `opts.env` (WebSocket, timers, clock,
+  document - for the node tests).
+- Behaviour, the same on every page: no link while hidden (§77); hello on open; ping every 1 s; a link with nothing
+  received for 4 s is closed and counted down (R11 review M8, now everywhere); reconnect doubling to 5 s; shown again:
+  backoff reset and connect; `wifi_status` asked on open and every 10 s.
+- `link.stop(msgs, say)`: when open, sends `msgs` (each page's own list, unchanged: Drive `stop`; /logo, /ai, /settings
+  `stop` + `logo_stop`); when not, `cqBar.stopOnce(url, ...)` and `say(text)` with "Stopped" / "Couldn't reach the tank -
+  use another STOP".
+- `TankModel.apply(m)` is the strip's former `tank()` (R30.5 rules kept: `ai` null until known, `aiOwned`, `posOwned`,
+  `linkDown` clears HDG / SPEED / POS) plus `welcome` (`you`) and `control_changed` (owner).
+- `DriveModel.mightDrive(s)` is §201's rule (`driveTimer` running, a stick held, or the owner none / unknown / this page);
+  `releasesLatch(cmd)` is R6's (`stop`, or `drive` 0 / 0).
+
+### R31.3 Sequences
+
+```mermaid
+sequenceDiagram
+  participant T as bridge /ws
+  participant L as cqLink
+  participant M as TankModel
+  participant V as StripView
+  participant P as page
+  T->>L: {"t":"ts","batt_v":7.9}
+  L->>M: apply(msg)
+  M-->>V: changed
+  L->>P: onMessage(msg)
+  Note over L: nothing received for 4 s
+  L->>L: close, back off
+  L->>M: linkDown()
+  M-->>V: changed (RECONNECTING)
+  L->>P: onClose()
+```
+
+```mermaid
+sequenceDiagram
+  actor U as user
+  participant B as cqBar.onStop
+  participant P as page stop()
+  participant L as Link
+  participant T as bridge /ws
+  U->>B: touch STOP (pointerdown)
+  B->>P: fn()
+  P->>L: stop([stop, logo_stop], say)
+  alt link open
+    L->>T: stop, logo_stop
+  else link down
+    L->>T: stopOnce: hello, stop, logo_stop (own socket)
+    L-->>P: say("Stopped" / "Couldn't reach the tank - use another STOP")
+  end
+```
+
+### R31.4 Rules
+- No view sends to the tank; no model touches the DOM; a page keeps its own rules (Drive's §201 hide-STOP and R6 latch,
+  /logo's run bar and Esc, /ai's feed) - only the plumbing moves.
+- Budgets are not raised (R31.5 makes the room); a raise needs the owner's yes, recorded in the design notes.
+
+### R31.5 Packing: comments out
+- After `with_theme`, `with_bar`, `with_strip`, the new parts and the icons (they read `/* pages: */` and `/*CQ:ICONS*/`):
+  in each `<script>...</script>` a line whose first non-blank characters are `//` is removed; in each
+  `<style>...</style>` every `/* ... */` is removed. Nothing else changes.
+- `test_pack_comments.py`: every packed page's scripts pass `node --check`; a `//` inside a string (`"ws://"`, `"// x"`)
+  and a `<pre>` survive; each page gets smaller.
+
+### R31.6 Tests
+- Node: `tank_model.test.js` (moved from strip.test.js, plus welcome / owner), `link.test.js` (fake socket, timers and
+  document: hello, ping, 4 s silence, backoff 500 -> 5 s, hidden = closed and `onHide` first, shown = reconnect,
+  `wifi_status` every 10 s, `stop` open / down), `drive.test.js` (`mightDrive` for each owner case of
+  `hide_stop_check`, `releasesLatch`).
+- Playwright `link_check.js` on each socket page: a silent fake socket is closed and the page reconnects; STOP with the
+  link down says "Couldn't reach the tank"; STOP acts on a `pointerdown` that never becomes a click. All existing checks
+  still pass.
+- Tank (owner, on the stand, tracks off the ground): STOP on each page; on Drive while driving the tracks on the stand.
+
+### R31.7 As built (Plan Link, 2026-11-05)
+- `Link` is `{ send, isOpen, busy, stop }`: `busy()` = bytes still queued on the socket (the drive page skips a drive
+  command then, review I2). `opts.onConnecting()` is called on each attempt (the drive page shows "wait").
+- `link.stop(msgs, say)`: sent on the link when it is up; through `cqBar.stopOnce` - "Stopping…", then "Stopped" or
+  "Couldn't reach the tank - use another STOP" - when it is down **or quiet for more than 1.5 s** (a pong is due every
+  second; a WiFi drop is only noticed after 4 s of silence, STOP does not wait for that). A WebSocket that throws on
+  create leaves a working link that tries again.
+- `cqBar.onStop` also closes the menu on the touch (a sliding tap never clicks).
+- TankModel takes the owner from `welcome`, `control_changed` and each `ts` (`owner`, `owner_client`).
+- The drive page: its WiFi chip comes from the link's `wifi_status` (the `/info` poll is gone) and goes "off" when the link
+  is lost; it reconnects after a failed attempt (the old `goOffline` gave up until the page was hidden and shown);
+  STOP works from the keyboard and, with the link down or quiet, through its own socket.
+- Packing: `strip_comments` refuses what it cannot read safely - a string continued over lines in a script, a `/*`
+  inside a CSS string - and the build fails naming it. The strip part carries the model before its view (tested).
+- Sizes (gzipped): / 22 197 B, /logo 30 371, /ai 22 860, /settings 29 881, /help 13 930 - no budget raised (before the
+  plan: 24 464 / 31 787 / 23 296 / 30 158 / 14 597).
+- Final review (opus): no critical; 1 important (STOP into a quiet link) and 8 minor - all fixed, each with a test that
+  failed first.
+
+
+### R31.8 Fix: the drive page's WiFi chip before any link (owner 2026-11-05)
+- The chip starts as off (red, `showWifi("off", "bad")`) until the link's first `wifi_status`; R31 had left it a green "-" (the old `/info` poll turned it red). `link_check.js` checks it (a tank out of reach from the first load); `look_check.js` matches the baseline again. `ai_check.js`'s stand-in answers `ping`.
+- Flashed over WiFi to the tank (192.168.31.167) 2026-11-05 from 1de3db6; the tank serves the fix on `/`.
+
+### R31.9 The strip's WiFi chip names the WiFi (owner 2026-11-05, design-notes §210)
+- `TankModel` keeps `wifi.ssid`; `cqStripView.wifiText(mode, rssi, ssid)`: `home` → the signal bars and the network's name (≤ 10 letters, else 9 + "…"; none → HOUSE WIFI), `ap` / `ap_fallback` → the `radio-tower` icon and TANK HOTSPOT (`ap_fallback` in the warning colour), `connecting` → CONNECTING. The word HOME is gone from the strip (the AI's home spot, `--home`, is another thing). Tests: `strip.test.js`, `tank_model.test.js`, `strip_check.js`.
+- Flashed over WiFi to the tank 2026-11-05 from 4088d7d.
+- Owner's tank check 2026-11-05 (tank on the floor): STOP on every page, Drive stop / STOP-while-moving / held until the stick is released, WiFi off → OFF in ~4 s and STOP's "Couldn't reach" message, WiFi back by itself, the red chip before the link, the network name on the strip - all pass (design-notes §210).

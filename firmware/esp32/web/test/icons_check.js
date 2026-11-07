@@ -31,10 +31,11 @@ async (page) => {
   out.settingsBatt = [b1, b2, await batt(), await q(() => document.getElementById("cBatt").className)];      // 90 %, USB, 10 %, sc batt low
   out.settingsUno = await parts("#cUno");                                                                         // 10 (cpu)
   out.noBars = await q(() => document.querySelectorAll(".bars").length);                                           // 0
+  // Drive: the WiFi strength now comes with the link (R31, every 10 s), not from /info
   await page.setViewportSize({ width: 844, height: 390 });
   await page.goto("http://127.0.0.1:8765/"); await page.waitForTimeout(800);
-  const d1 = await parts("#wifiChip");
-  rssi = -80; await q(() => window.dispatchEvent(new Event("focus"))); await page.goto("http://127.0.0.1:8765/"); await page.waitForTimeout(800);
+  await emit({ t: "wifi_status", mode: "home", rssi: -50 }); const d1 = await parts("#wifiChip");
+  await emit({ t: "wifi_status", mode: "home", rssi: -80 });
   out.driveWifi = [d1, await parts("#wifiChip")];                                                                   // 4, 1
   return out;
 }

@@ -1,30 +1,39 @@
-// The status strip on /ai, /logo and /settings (bridge LLD R30, design-notes §209): its rules and what each tank message
-// shows. Run: node --test firmware/esp32/web/test/strip.test.js
+// The status strip on /ai, /logo and /settings (bridge LLD R30, design-notes §209): what each tank message shows.
+// R31 (MVC): the rules live in TankModel, the texts in the strip's view; each case here runs the two together, unchanged.
+// Run: node --test firmware/esp32/web/test/strip.test.js
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const S = require("../strip.js");
+const T = require("../tank_model.js");
+
+// the model and the view together, as a page has them (the strip's former API)
+function Strip() {
+  const m = new T.TankModel();
+  return { tank: (x) => m.apply(x), linkDown: () => m.linkDown(), aiHelper: (o) => m.aiHelper(o), pose: (x, y) => m.pose(x, y),
+    fps: (n) => m.fps(n), get view() { return S.texts(m.state); } };
+}
 
 // moved from ai.test.js (Plan Z2b-1): the battery as the drive page shows it
 test("battery percent and level from the voltage and the tank's flags", () => {
-  assert.equal(S.battPct(8.5), 100);
-  assert.equal(S.battPct(7.6), 50);
-  assert.equal(S.battPct(7.5), 43);  // between 7.6 (50) and 7.4 (35)
-  assert.equal(S.battPct(6.5), 0);
-  assert.deepEqual(S.battState(7.6, []), { usb: false, pct: 50, level: "ok" });
-  assert.deepEqual(S.battState(7.1, []), { usb: false, pct: 15, level: "low" });
-  assert.deepEqual(S.battState(7.6, ["batt_low"]), { usb: false, pct: 50, level: "low" });
-  assert.deepEqual(S.battState(6.9, ["batt_critical"]), { usb: false, pct: 8, level: "critical" });
-  assert.deepEqual(S.battState(5.0, []), { usb: true, pct: null, level: "ok" });
+  assert.equal(T.battPct(8.5), 100);
+  assert.equal(T.battPct(7.6), 50);
+  assert.equal(T.battPct(7.5), 43);  // between 7.6 (50) and 7.4 (35)
+  assert.equal(T.battPct(6.5), 0);
+  assert.deepEqual(T.battState(7.6, []), { usb: false, pct: 50, level: "ok" });
+  assert.deepEqual(T.battState(7.1, []), { usb: false, pct: 15, level: "low" });
+  assert.deepEqual(T.battState(7.6, ["batt_low"]), { usb: false, pct: 50, level: "low" });
+  assert.deepEqual(T.battState(6.9, ["batt_critical"]), { usb: false, pct: 8, level: "critical" });
+  assert.deepEqual(T.battState(5.0, []), { usb: true, pct: null, level: "ok" });
 });
 
 // moved from logo.test.js (N7): a 10-reading average that starts again between USB and the pack
 test("the battery average starts again between USB and the pack", () => {
-  const m = new S.BattMean(3);  // from ai.test.js
+  const m = new T.BattMean(3);  // from ai.test.js
   m.push(7.6); m.push(7.8);
   assert.ok(Math.abs(m.push(7.7) - 7.7) < 1e-9);
   assert.equal(m.push(5.0), 5.0);  // on USB: the average starts again
-  const t = new S.BattMean(10);  // from logo.test.js
+  const t = new T.BattMean(10);  // from logo.test.js
   for (let i = 0; i < 10; i++) t.push(8.0);
   assert.equal(t.push(6.9).toFixed(2), "7.89");   // one sagging reading barely moves it
   assert.equal(t.push(5.0), 5.0);                 // USB: a fresh average
@@ -38,9 +47,15 @@ test("the WiFi icon and text", () => {
   assert.equal(S.wifiIcon(-70), "wifi-low");
   assert.equal(S.wifiIcon(-80), "wifi-zero");
   assert.equal(S.wifiIcon(null), "wifi-zero");
-  assert.deepEqual(S.wifiText("home", -50), { icon: "wifi", text: "HOME", warn: false });
-  assert.deepEqual(S.wifiText("home", -80), { icon: "wifi-zero", text: "HOME", warn: true });
-  assert.deepEqual(S.wifiText("ap", null), { icon: "wifi", text: "OWN WIFI", warn: false });
+  // owner 2026-11-05: the house WiFi by its name (not "HOME" - the AI's home spot is another thing); the tank's own
+  // WiFi a tower and TANK HOTSPOT
+  assert.deepEqual(S.wifiText("home", -50, "MyHouse5G"), { icon: "wifi", text: "MyHouse5G", warn: false });
+  assert.deepEqual(S.wifiText("home", -80, "MyHouse5G"), { icon: "wifi-zero", text: "MyHouse5G", warn: true });
+  assert.deepEqual(S.wifiText("home", -50, "TP-Link_Extender_5G"), { icon: "wifi", text: "TP-Link_E…", warn: false });
+  assert.deepEqual(S.wifiText("home", -50, ""), { icon: "wifi", text: "HOUSE WIFI", warn: false });
+  assert.deepEqual(S.wifiText("home", -50), { icon: "wifi", text: "HOUSE WIFI", warn: false });
+  assert.deepEqual(S.wifiText("ap", null), { icon: "radio-tower", text: "TANK HOTSPOT", warn: false });
+  assert.deepEqual(S.wifiText("ap_fallback", null), { icon: "radio-tower", text: "TANK HOTSPOT", warn: true });
   assert.deepEqual(S.wifiText("connecting", null), { icon: "wifi-zero", text: "CONNECTING", warn: true });
 });
 
@@ -50,7 +65,7 @@ test("POS in metres", () => {
 });
 
 test("each tank message fills its chip", () => {
-  const s = new S.Strip();
+  const s = Strip();
   s.tank({ t: "welcome", tank: { fw: { uno: "1.0" } } });
   assert.deepEqual(s.view.uno, { text: "UNO ONLINE", warn: false });
   s.tank({ t: "ts", batt_v: 7.6, flags: [] });
@@ -60,8 +75,8 @@ test("each tank message fills its chip", () => {
   s.tank({ t: "tf", yaw: 91.6, spd_cmd: [-40, 25] });
   assert.equal(s.view.hdg, "HDG 92°");
   assert.equal(s.view.spd, "SPEED 40%");
-  s.tank({ t: "wifi_status", mode: "home", rssi: -50 });
-  assert.deepEqual(s.view.wifi, { icon: "wifi", text: "HOME", warn: false });
+  s.tank({ t: "wifi_status", mode: "home", rssi: -50, ssid: "MyHouse5G" });
+  assert.deepEqual(s.view.wifi, { icon: "wifi", text: "MyHouse5G", warn: false });
   s.tank({ t: "ai_at", url: "ws://x:8770/feed" });
   assert.equal(s.view.ai, true);
   s.tank({ t: "ai_at", url: null });
@@ -71,7 +86,7 @@ test("each tank message fills its chip", () => {
 });
 
 test("USB power, then the socket drops", () => {
-  const s = new S.Strip();
+  const s = Strip();
   s.tank({ t: "ts", batt_v: 5.0, flags: [] });
   assert.deepEqual(s.view.batt, { text: "USB", fill: 0, level: "ok", title: "on USB power" });
   s.linkDown();
@@ -81,7 +96,7 @@ test("USB power, then the socket drops", () => {
 });
 
 test("every chip starts with a dash (an architecture review found two starting blank)", () => {
-  const v = new S.Strip().view;
+  const v = Strip().view;
   assert.equal(v.fps, "-- / s");
   assert.equal(v.hdg, "HDG --");
   assert.equal(v.pos, "POS --");
@@ -89,19 +104,19 @@ test("every chip starts with a dash (an architecture review found two starting b
 });
 
 test("final review: the AI HELPER chip is unknown until something says (no amber OFF on pages the bridge never tells)", () => {
-  const s = new S.Strip();
+  const s = Strip();
   assert.equal(s.view.ai, null);
 });
 
 test("final review: a page that sets POS itself (/ai, the engine) is not overridden by a program's logo_pose", () => {
-  const s = new S.Strip();
+  const s = Strip();
   s.pose(1.8, 2.3);
   s.tank({ t: "ev", kind: "logo_pose", x_cm: 40, y_cm: 10, heading: 0 });
   assert.equal(s.view.pos, "POS 1.8,2.3");
 });
 
 test("final review: a dropped socket clears the moving readings too", () => {
-  const s = new S.Strip();
+  const s = Strip();
   s.tank({ t: "tf", yaw: 10, spd_cmd: [40, 40] });
   s.tank({ t: "ev", kind: "logo_pose", x_cm: 40, y_cm: 10, heading: 0 });
   s.linkDown();
@@ -111,7 +126,7 @@ test("final review: a dropped socket clears the moving readings too", () => {
 });
 
 test("a page that owns the AI HELPER chip (/ai, its feed) is not overridden by ai_at", () => {
-  const s = new S.Strip();
+  const s = Strip();
   s.aiHelper(false);
   s.tank({ t: "ai_at", url: "ws://x:8770/feed" });
   assert.equal(s.view.ai, false);

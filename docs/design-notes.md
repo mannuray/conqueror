@@ -3023,7 +3023,7 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
   - **Final review (opus, whole branch): no critical; 2 important and 9 minors fixed** - Help's answer could be scrolled off screen; `/settings` had no dim layer in the cockpit; "Stopped" on any ack; Help's answers out of order; Help's script lost strict mode; STOP's toast under the dim layer; the menu open again after iOS Back; `100vh` on iOS; `/logo` keys acting behind the menu; menu focus; a doc word. Left as noted: Safari 14+ for `:where()`; a Help STOP refused as a 5th client may still be applied by the bridge's fast path (it then says "Couldn't reach" - the safe side).
   - **Sizes (gzipped, after the review fixes):** `/` 24 392 B (25 KB budget), `/settings` 27 560 B, `/logo` 29 984 B - **budget raised 28 → 30 KB** (ruling: the bar adds about 2.5 KB; flash has room), `/ai` 21 040 B, `/help` 14 505 B.
   - **Checks:** `bar_check` (new; every page, both sizes, the menu, STOP over the dim layer, Esc, the look, Help's silent tank and double tap, Settings with its socket down, the drive rows and gauge), `bar.test.js` (5), `test_bar_pack.py` (4), and the older `look_check`, `ai_check`, `theme_check`, `hide_stop_check`, `browser_check`, `browser_check_wide`, `browser_fix_check`, `camera_centre_check`, `camera_tuning_check`, `icons_check`; 79 node tests and the Python unit tests.
-  - **Still to do:** the owner's iPhone check - the same three on every page, the menu, 🎨, the drive page's two rows; STOP on Settings and Help with the tank on the stand and nothing running ("Stopped").
+  - **Still to do:** the owner's iPhone check - the same three on every page, the menu, 🎨, the drive page's two rows. (STOP on Settings and Help: checked 2026-11-05, §210.)
 
 ## 209. One status strip on /ai, /logo and /settings (owner, 2026-11-04: "the metric strip in ai and logo should be same, copy the ai metric strip to logo page"; "add the wifi and uno chip throughout"; pictures/s on AI only; /logo budget 32 KB)
 - **The same strip on both pages, in this order:** battery (a cell with %, amber low, red critical, "USB" on USB power), AI HELPER on / off, pictures/s (**/ai only**: it counts the AI helper's camera feed, which /logo does not open), HDG, POS, SPEED, **WIFI** (home with its strength, own WiFi, reconnecting), **UNO** (online / offline). WiFi and UNO join /ai's strip; /logo's volts, WiFi and UNO chips are replaced by the strip.
@@ -3038,4 +3038,48 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
   - A home network at -65 dBm or weaker shows the WiFi chip amber on Settings too (as /logo already did).
   - **Final review (opus): 1 critical, 3 important, 5 minor - all fixed:** the strip's `cFps` hid Settings' camera frame-rate control (now `cFpsCap`; a build test finds no id twice); AI HELPER always amber "OFF" on /logo and /settings; POS jumping on /ai during FIND; /logo's own `.dot::after` drawing into the strip (the strip's classes are `sdot` / `scell` and it sets its own colour and font); a page using `cqStrip` without the marker now fails the build.
   - Sizes (gzipped): /ai 23 169 B (24 KB), /logo ~31.7 KB (32 KB), /settings ~30.1 KB (36 KB).
+
+## 210. One link for every page, in model / view / controller (owner, 2026-11-04: "it should follow the MVC model"; "yes to all, go with recommended")
+From the web architecture review (`docs/reviews/2026-11-04-web-architecture-review.md`): each page had its own copy of the
+tank link and the STOP wiring, and the copies had drifted - some in STOP.
+- **MVC, one way round:** the tank's messages go to a **controller**, which updates a **model** (data and rules only, no
+  screen code, every rule tested in node), which tells its **views** it changed; a view only draws. Commands to the tank
+  go only through the controller.
+  - Models: a shared **TankModel** (link state, battery, WiFi, Uno, HDG, POS, SPEED, AI helper, who drives); each page's
+    own model beside it (`LogoCore`, `AiCore` already; a new **DriveModel** for the drive page's safety rules - when
+    hiding stops the tank (§201), the latch release (R6) - so they are tested in node, not only by hand).
+  - Controllers: **cqLink** (the connection: hello with the page's name, ping each second, a silent link closed after
+    4 s, reconnect with backoff, no link while the page is hidden §77, the WiFi strength asked every 10 s) and the top
+    bar's STOP input (**cqBar.onStop**).
+  - Views: the status strip and the top bar become views; each page's own drawing listens to its own model.
+- **STOP on every page (owner: yes):** it acts on touch (`pointerdown`), and on Enter / Space from the keyboard; when the
+  link is down it stops through a socket opened for the press (`cqBar.stopOnce`) and says so - never silently lost.
+- **WiFi strength (owner: yes):** the page asks the tank every 10 s while linked (no firmware change).
+- **Order (owner: yes):** first make room - the packer strips whole-line comments from the pages' scripts and styles
+  (about 1-2 KB a page), so no budget is raised again; then the link.
+- Plan 1 of 4 from the review: this plan moves the shared parts and every page's link and STOP; splitting the rest of
+  each page's own code into model and view comes page by page in later plans.
+- Bridge LLD R31; Plan Link (`docs/superpowers/plans/2026-11-04-plan-link.md`), branch `plan-link` from `plan-strip`.
+- **As built (2026-11-05, R31.7):** every page with a link (Drive, /logo, /ai, /settings) uses cqLink; Help wires its STOP
+  with `cqBar.onStop`. Pages 0.3-2.3 KB smaller than before the plan (comments stripped), no budget raised. STOP: on touch
+  and from the keyboard on every page; with the link down **or quiet for more than 1.5 s** it also goes through its own
+  socket and says the answer. The drive page's safety rules (§201, R6) are node-tested in DriveModel; it now reconnects
+  after a failed attempt and takes its WiFi strength from the link. Final review: no critical, 1 important and 8 minor,
+  all fixed. **Open:** the owner's stand check (STOP on each page; Drive while driving the tracks on the stand; WiFi off
+  and on).
+- **Fix (owner 2026-11-05: "yes fix the wifi chip"):** the drive page's WiFi chip showed a green "-" until the link's
+  first WiFi report - R31 dropped the old /info poll that turned it red when the tank could not be reached. It now
+  starts off (red), as before. Found by `look_check` during Plan Z2b-2; `link_check` checks it. `ai_check`'s stand-in
+  tank now answers the link's ping (silent, it made STOP open its own short socket and the check lost the link).
+- **The strip's WiFi chip says which WiFi (owner 2026-11-05: "HOME" was confusing - the AI has a home spot too; chose
+  "Network name"):** on the house WiFi the signal bars and the network's name (`ssid` from `wifi_status`, cut to 10
+  letters with "…"; none: HOUSE WIFI); on the tank's own WiFi a tower and TANK HOTSPOT (warning colour when it fell
+  back to it because no house WiFi was found); CONNECTING and WIFI -- as before. Page only, no firmware change.
+- **Owner's tank check (2026-11-05, plan-link 4088d7d on the tank, tank on the floor; owner: "all good"):** STOP on
+  each page (laptop and iPhone; Settings and Help say "Stopped"); Drive on the floor from the iPhone - a gentle push
+  forward, letting go stops it, STOP while moving stops it at once and it stays stopped while the stick is held, then
+  drives again after letting go; laptop WiFi off - Drive shows OFF within ~4 s and STOP says "Couldn't reach the tank -
+  use another STOP", WiFi on - it comes back by itself; a reloaded Drive shows the WiFi chip red until it connects;
+  `/ai`, `/logo` and `/settings` show the house WiFi's name with bars. All as designed. This also covers §208's STOP on
+  Settings and Help.
 

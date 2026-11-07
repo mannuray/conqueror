@@ -110,14 +110,15 @@ async (page) => {
   // N7: the top-bar icons are the shared Lucide ones (bridge LLD R25): their parts tell them apart
   const parts = (id) => q((id) => { const g = document.querySelector("#" + id + " svg"); return g ? g.children.length : 0; }, id);
   const emit = async (o) => { await q((o) => window.__fakeEmit(o), o); await page.waitForTimeout(60); };
-  await emit({ t: "wifi_status", mode: "home", rssi: -50 }); const wFull = await parts("cWifi");
+  const wifiShown = () => q(() => document.querySelector("#cWifi svg.on").getAttribute("data-w"));  // R30: the strip shows one of its icons
+  await emit({ t: "wifi_status", mode: "home", rssi: -50 }); const wFull = await wifiShown();
   await emit({ t: "wifi_status", mode: "home", rssi: -80 });
-  out.wifiIcon = [wFull, await parts("cWifi"), await q(() => document.getElementById("cWifi").textContent.trim())];  // 4, 1, HOME
+  out.wifiIcon = [wFull, await wifiShown(), await q(() => document.getElementById("cWifi").textContent.trim())];  // wifi, wifi-zero, HOME
   // averaged like Drive's (10 readings, started again between USB and the pack), the warning from the flags
-  await emit({ t: "ts", batt_v: 8.2, flags: [] }); const bFull = await parts("cBatt");
+  await emit({ t: "ts", batt_v: 8.2, flags: [] }); const bFull = await q(() => document.getElementById("cBatt").textContent.trim());
   await emit({ t: "ts", batt_v: 5.0, flags: [] }); const usb = await q(() => document.getElementById("cBatt").textContent.trim());
   await emit({ t: "ts", batt_v: 7.0, flags: ["batt_low"] });
-  out.battIcon = [bFull, usb, await parts("cBatt"), await q(() => document.getElementById("cBatt").className), await parts("cUno")];  // 5, USB, 3, chip warn, 10
+  out.battIcon = [bFull, usb, await q(() => document.getElementById("cBatt").textContent.trim()), await q(() => document.getElementById("cBatt").className), await parts("cUno")];  // 90 %, USB, 10 %, sc batt low, 10 (R30: the strip's battery cell)
   // narrow again: the phone layout, no camera stream, the problems back under the editor
   await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
   out.phone = [await q(() => document.getElementById("camImg").hasAttribute("src")),        // false

@@ -1,7 +1,10 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050805">
 <title>Tank AI</title>
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <!--CQ:THEME-->
 <style>
 :root {
@@ -33,21 +36,6 @@ button { cursor: pointer; }
 svg:not(.face) { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
 .hidden { display: none !important; }
 .glow { text-shadow: var(--glow-text); }
-.chip { padding: 3px 8px; background: var(--chip); border: 1px solid color-mix(in srgb, var(--tint) 30%, transparent); border-radius: var(--r); color: var(--ink);
-  white-space: nowrap; font-size: 11px; }
-.chip.on { color: var(--hi); border-color: var(--edge); font-weight: 700; box-shadow: 0 0 6px color-mix(in srgb, var(--tint) 30%, transparent); }
-.chip.warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 60%, transparent); }
-.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--g); box-shadow: 0 0 6px var(--g);
-  margin-right: 4px; vertical-align: 0; }
-.chip.warn .dot { background: var(--amber); box-shadow: none; }
-/* the battery: a small cell that fills, and the percent (amber low, red critical) */
-.chip.batt { display: inline-flex; align-items: center; gap: 6px; }
-.cell { position: relative; width: 26px; height: 12px; border: 1.5px solid currentColor; border-radius: 2px; }
-.cell::after { content: ""; position: absolute; right: -4px; top: 3px; width: 2px; height: 4px; background: currentColor; border-radius: 0 1px 1px 0; }
-.cell i { position: absolute; left: 1px; top: 1px; bottom: 1px; width: 0; background: var(--g); border-radius: 1px; }
-.chip.batt.low { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 60%, transparent); } .chip.batt.low .cell i { background: var(--amber); }
-.chip.batt.crit { color: var(--red); border-color: color-mix(in srgb, var(--red) 70%, transparent); } .chip.batt.crit .cell i { background: var(--red); }
-.chip.batt b { font-weight: 700; }
 /* header */
 header { position: sticky; top: 0; z-index: 40; background: var(--hdr); border-bottom: 1px solid var(--edge);
   padding: 8px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
@@ -163,6 +151,8 @@ footer { position: fixed; bottom: 0; left: 0; right: 0; z-index: 40; height: 30p
 footer b { color: var(--amber); font-weight: 600; }
 footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 899px) { header .chips { order: 5; width: 100%; } header nav { order: 6; } }
+/* a laptop: the status strip on the first line (owner, R30), wrapping in its own space; the top bar keeps the top right */
+@media (min-width: 900px) { header .chips { flex: 1 1 0; min-width: 0; } header .cqbar { align-self: flex-start; } }
 @media (min-width: 900px) and (max-height: 860px) {  /* a short laptop window: the play buttons stay on screen */
   main { gap: 10px; padding: 10px 16px; } #colRight, #colCam { gap: 10px; }
   .card { padding: 10px 12px; } .card h2 { margin-bottom: 8px; padding-bottom: 6px; }
@@ -180,10 +170,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 <body>
 <header class="cqhost">
   <span class="title glow">TANK AI</span>
-  <div class="chips">
-    <span id="cBatt" class="chip batt" title="battery"><span class="cell"><i id="battFill"></i></span><b id="battTxt">--</b></span><span id="cAi" class="chip warn"><i class="dot"></i>AI HELPER OFF</span><span id="cFps" class="chip">-- / s</span>
-    <span id="cHdg" class="chip">HDG --</span><span id="cPos" class="chip">POS --</span><span id="cSpd" class="chip">SPEED --</span>
-  </div>
+  <div class="chips"><!--CQ:STRIP--></div>
   <nav><button type="button" class="on" data-tab="play">[ PLAY ]</button><button type="button" data-tab="room">[ ROOM ]</button><button type="button" data-tab="inside">[ INSIDE ]</button></nav>
   <!--CQ:BAR-->
 </header>
@@ -280,9 +267,9 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   function connect() {
     if (document.hidden || (ws && ws.readyState <= 1)) return;
     ws = new WebSocket("ws://" + location.host + "/ws");
-    ws.onopen = function () { wsOpen = true; retry = 500; send({ t: "hello", client: "ai-page", proto: 1 }); };
+    ws.onopen = function () { wsOpen = true; retry = 500; send({ t: "hello", client: "ai-page", proto: 1 }); send({ t: "wifi_status" }); };
     ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } onTank(m); };
-    ws.onclose = function () { wsOpen = false; showBatt(null, []);
+    ws.onclose = function () { wsOpen = false; cqStrip.linkDown();
       if (run.running) setRun(false, "The link to the tank dropped."); setTimeout(connect, retry); retry = Math.min(retry * 2, 5000); };
     ws.onerror = function () { ws.close(); };
   }
@@ -293,19 +280,16 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     if (run.running) setTimeout(function () { if (run.running && run.id === was) setRun(false, "Stopped."); }, 1500);
   }
   $("stop").addEventListener("click", stop);
+  cqStrip.showFps();  // pictures/s: the AI helper's feed, only this page opens it
   function onTank(m) {
+    cqStrip.tank(m);  // the status strip (bridge LLD R30): battery, HDG, SPEED, WIFI, UNO
     switch (m.t) {
       case "ai_at": setFeedUrl(m.url || null, m.proto | 0); break;
       case "ts":
-        if (typeof m.batt_v === "number") showBatt(battMean.push(m.batt_v), m.flags || []);
         tired = (m.flags || []).indexOf("batt_low") >= 0;
         break;
       case "tf":
-        if (typeof m.yaw === "number") $("cHdg").textContent = "HDG " + Math.round(m.yaw) + "°";
-        if (m.spd_cmd) {
-          $("cSpd").textContent = "SPEED " + Math.max(Math.abs(m.spd_cmd[0]), Math.abs(m.spd_cmd[1])) + "%";
-          track("L", m.spd_cmd[0]); track("R", m.spd_cmd[1]);
-        }
+        if (m.spd_cmd) { track("L", m.spd_cmd[0]); track("R", m.spd_cmd[1]); }
         if (typeof m.pan === "number") {  // servo angle: 90 = ahead, smaller = right (as the drive page)
           var pan = Math.round(90 - m.pan);
           $("roPan").textContent = pan === 0 ? "AHEAD" : (pan > 0 ? "RIGHT " : "LEFT ") + Math.abs(pan) + "°";
@@ -320,16 +304,6 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       case "nack": if (m.id === run.id) setRun(false, m.message || "The tank said no (" + m.reason + ")."); break;
       default: break;
     }
-  }
-  // The battery bar: averaged like the drive page; the percent from its 2S curve; amber low, red critical.
-  var battMean = new A.BattMean(10);
-  function showBatt(v, flags) {
-    if (v === null) { $("battTxt").textContent = "NO TANK"; $("battFill").style.width = "0"; $("cBatt").className = "chip batt low"; return; }
-    var b = A.battState(v, flags);
-    $("battTxt").textContent = b.usb ? "USB" : b.pct + " %";
-    $("battFill").style.width = (b.usb ? 0 : Math.round(b.pct * 0.21)) + "px";  // 21 px = full inside the cell
-    $("cBatt").className = "chip batt" + (b.level === "critical" ? " crit" : b.level === "low" ? " low" : "");
-    $("cBatt").title = b.usb ? "on USB power" : "battery " + v.toFixed(2) + " V";
   }
   function track(side, v) {  // the real track power the tank sends (tf spd_cmd, %): amber when backwards
     $("ro" + side).textContent = v === 0 ? "STOPPED" : (v > 0 ? "FORWARD " : "BACK ") + Math.abs(v) + "%";
@@ -411,7 +385,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   }
   function showAiChip() {
     var on = feedOpen;
-    $("cAi").innerHTML = '<i class="dot"></i>' + (on ? "AI HELPER" : "AI HELPER OFF"); $("cAi").className = on ? "chip on" : "chip warn";
+    cqStrip.aiHelper(on);  // this page knows from its own feed (ai_at alone is not enough here)
     ["find", "wander", "explore"].forEach(function (id) { $(id).title = on ? "" : "start cq-drive serve on the laptop"; });
   }
   // One frame, two views: the picture is decoded once and drawn twice (bridge LLD R27.4).
@@ -442,7 +416,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     });
   }
   setInterval(function () {
-    $("cFps").textContent = feedOpen ? frames + " / s" : "-- / s"; $("v1Fps").textContent = feedOpen ? "FPS: " + frames : ""; frames = 0;
+    cqStrip.fps(feedOpen ? frames : null); $("v1Fps").textContent = feedOpen ? "FPS: " + frames : ""; frames = 0;
   }, 1000);
   function camEv(ev) {
     camState = A.cameraState(camState, ev);
@@ -546,7 +520,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     var h = mood === "tired" ? 5 : 13, y = mood === "tired" ? 40 : 32;
     ["eyeL", "eyeR"].forEach(function (e) { $(e).setAttribute("height", h); $(e).setAttribute("y", y); });
     lastSay = m.say || lastSay;
-    if (m.pose) $("cPos").textContent = "POS " + m.pose.x.toFixed(1) + "," + m.pose.y.toFixed(1);
+    if (m.pose) cqStrip.pose(m.pose.x, m.pose.y);
     sayer.say(m.say);
   }
   function showWhy(lines) {

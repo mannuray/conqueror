@@ -1,6 +1,6 @@
 """Find's candidates (design-notes §189, AI engine LLD §18.13.23): sightings of the thing sought (from the
 maybe bar up) and its remembered spots, each checked from near before unlooked floor - confirmed, the chase
-takes over; not, it is ruled out for the run."""
+takes over; not, it is ruled out - opened again when seen again, at most REOPEN_MAX times (LLD §24)."""
 
 from __future__ import annotations
 
@@ -15,9 +15,10 @@ from conqueror_ai.domain.drive.costmaps import CostMaps
 from conqueror_ai.domain.drive.curves import XYTh
 from conqueror_ai.domain.drive.route import XY, RoutePlanner
 from conqueror_ai.domain.memory import Remembered
-from conqueror_ai.domain.reach import SAME_SPOT_M, SURE_REACH_M
+from conqueror_ai.domain.reach import CHECK_CLOSE_M, SAME_SPOT_M
 
 ROUTE_TRIES = 3  # pending candidates routed per try, nearest first (review F6)
+REOPEN_MAX = 2  # a ruled-out spot seen again is checked again this many times at most (LLD §24 A)
 
 
 @dataclass
@@ -27,6 +28,7 @@ class Candidate:
     state: Literal["pending", "ruled_out"] = "pending"
     remembered: Remembered | None = None  # from the memory of things: not there -> marked gone
     tries: int = 0  # checks that could not get near it (no way, no progress, out of time)
+    reopens: int = 0  # times a sighting opened it again after it was ruled out (LLD §24 A)
 
     @property
     def spot(self) -> XY:
@@ -42,11 +44,15 @@ class Candidates:
         return min(near, key=lambda c: math.dist(c.spot, spot), default=None)
 
     def add(self, spot: XY) -> None:
-        """A sighting: the nearby candidate moves to it; near a ruled-out one ignored; else a new one."""
+        """A sighting: the nearby candidate moves to it; a ruled-out one opens again, at most REOPEN_MAX times
+        (one glimpse always gets a look, §215), then ignored; else a new one."""
         c = self._near(spot)
         if c is None:
             self._all.append(Candidate(*spot))
         elif c.state == "pending":
+            c.x_m, c.y_m = spot
+        elif c.reopens < REOPEN_MAX:
+            c.state, c.reopens = "pending", c.reopens + 1
             c.x_m, c.y_m = spot
 
     def seed(self, remembered: Sequence[Remembered]) -> None:
@@ -64,19 +70,19 @@ class Candidates:
         c.state = "ruled_out"
 
     def route(self, c: Candidate, at: XYTh, costs: CostMaps, routes: RoutePlanner) -> list[XY] | None:
-        """A way to within SURE_REACH_M of it, its own marks within TARGET_R_M set aside (the chase's rule);
-        None outside the play area or with no way."""
+        """A way to within CHECK_CLOSE_M of it (the check looks from there, §24 C), its own marks within
+        TARGET_R_M set aside (the chase's rule); None outside the play area or with no way."""
         area = costs.area
         if area is not None and math.dist(c.spot, area[:2]) > area[2]:
             return None
         cost = costs.ignoring(c.x_m, c.y_m, TARGET_R_M)
-        return routes.route(cost, (at[0], at[1]), c.spot, goal_ok=True, near_m=SURE_REACH_M)
+        return routes.route(cost, (at[0], at[1]), c.spot, goal_ok=True, near_m=CHECK_CLOSE_M)
 
     def next(
         self, at: XYTh, costs: CostMaps, routes: RoutePlanner, limit: int | None = ROUTE_TRIES
     ) -> Candidate | None:
         """Of the ROUTE_TRIES pending candidates nearest in a straight line, the one with the shortest way to
-        within SURE_REACH_M of it, or None (the rest wait for a later try: a route takes 6-21 ms, F6).
+        within CHECK_CLOSE_M of it, or None (the rest wait for a later try: a route takes 6-21 ms, F6).
         limit None: every pending one (once, before a find gives up - Z7 final review I1)."""
         best: tuple[float, Candidate] | None = None
         nearest = sorted(self.pending(), key=lambda c: math.dist(c.spot, at[:2]))[:limit]

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal
 
@@ -37,15 +37,15 @@ from conqueror_ai.domain.drive.recovery import ProgressWatch, Recovery
 from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point
 from conqueror_ai.domain.drive.skill import Result, SkillInput, SkillOut
 from conqueror_ai.domain.memory import ThingMemory
-from conqueror_ai.domain.reach import SURE_REACH_M
+from conqueror_ai.domain.reach import CHECK_CLOSE_M, SAME_SPOT_M
 from conqueror_ai.domain.room_map import MapSnapshot
 
 # find: look again at a candidate (owner, design-notes §179, §189)
 CHECK_LOOK_S = 1.5  # standing, the camera on the spot, still pictures this long
-CHECK_CLOSE_M = SURE_REACH_M  # not confirmed from further: drive this near and look once more
 CHECK_MAX_S = 15.0  # a check never longer than this ...
 CHECK_S_PER_M = 10.0  # ... plus this per metre it has to drive closer (review I3: 15 s covered the drive too)
-CHECK_NEAR_TOL_M = 0.05  # within CHECK_CLOSE_M and this counts as near (the way ends at about 1 m)
+CHECK_NEAR_TOL_M = 0.05  # within CHECK_CLOSE_M and this counts as near (the way ends at about 0.5 m)
+CHECK_HITS = 2  # pictures in a close look with a maybe at the spot that confirm it (LLD §24 B, §215)
 CHECK_TRIES = 3  # checks that could not get near: then ruled out (a remembered thing is not marked gone)
 EDGE_IN_M = 0.3  # a thing seen outside the play area: its edge candidate this far inside the edge (§196)
 CANDIDATE_RETRY_S = 1.0  # pending candidates with no way to them: tried again after this long
@@ -73,6 +73,8 @@ class _Check:
     closer: bool = False  # it has been driven closer already
     aimed: bool = False  # the camera was sent to the spot
     still_t0: float | None = None  # since when the pictures are still
+    hits: int = 0  # pictures in the look with a maybe at the spot (§24 B)
+    last_maybe: XY | None = None  # the newest of them
 
     @property
     def spot(self) -> XY:
@@ -152,6 +154,15 @@ class RoamSkill:
         self._retry_s = -math.inf  # no pending candidate reachable: not tried again before this
         self._tried_now = False  # the pending candidates were tried this tick
         self._outside_m: float | None = None  # the thing was seen this far from the start, outside the area
+        self._maybe_fix: TargetFix | None = None  # from maybes in a close look (§24 B)
+        self._maybe_seen_s = 0.0  # ... last seen then
+        self._maybes: Sequence[XY] = ()  # this tick's maybes of the thing ...
+        self._used = False  # ... and whether its picture is new
+
+    def _sighting(self, spot: XY) -> None:
+        """A candidate there - outside the play area never (review M4)."""
+        if self._area is None or math.dist(spot, self._area[:2]) <= self._area[2]:
+            self.candidates.add(spot)
 
     # ---- out
     def _out(self, want: Command, cam: tuple[float, float] | None = None) -> SkillOut:
@@ -222,9 +233,8 @@ class RoamSkill:
             self._area = (at[0], at[1], self.area_m)
         self._tried_now = False
         if self.find:
-            for spot in maybes:  # outside the play area: never a candidate (review M4)
-                if self._area is None or math.dist(spot, self._area[:2]) <= self._area[2]:
-                    self.candidates.add(spot)
+            for spot in maybes if used else ():  # a re-read picture is not "seen again" (final review I2)
+                self._sighting(spot)
             if not self._seeded:  # remembered spots first: no look round when it knows where to look
                 self._seeded = True
                 if self.memory is not None and self.kind is not None:
@@ -234,6 +244,15 @@ class RoamSkill:
         c = inp.costs  # the run's cost maps, built once - when they carry this skill's area and settings
         if c is not None and c.area == self._area and c.settings == self.settings:
             self._costs = inp.costs
+        self._maybes, self._used = maybes, used
+        if fix is not None:  # the tracker's own fix always wins over one made from maybes
+            self._maybe_fix = None
+        elif (m := self._maybe_fix) is not None:  # each maybe at it moves it there, seen now (§24.5)
+            near = [p for p in maybes if math.dist(p, (m.x_m, m.y_m)) <= SAME_SPOT_M]
+            if near and used:  # only a new picture says it was seen now (final review M1)
+                self._maybe_seen_s = now_s
+                m = TargetFix(-1, near[-1][0], near[-1][1], 0.0)
+            self._maybe_fix = fix = TargetFix(-1, m.x_m, m.y_m, max(0.0, now_s - self._maybe_seen_s))
         out = self._tick(now_s, at, snap, fix, sonar_m, map_ok, cam_still)
         if out.cam is not None:
             self._look_pan = out.cam[0]
@@ -322,10 +341,13 @@ class RoamSkill:
         out = self.chase.tick(now_s, inp)
         self.cmd = out.cmd
         if out.result in ("not_found", "lost"):  # it got away: roam on, a fresh chase for the next sighting
-            if self._check is not None:  # the candidate it came from was chased and lost: done with (M1)
+            if self._check is not None:  # the candidate it came from was chased and lost: ruled out (M1) ...
                 self.candidates.rule_out(self._check.cand)
                 self._check = None
+            if (last := self.chase.last_seen) is not None:  # ... its last seen spot checked again from near,
+                self._sighting(last)  # at most REOPEN_MAX times (§24 D)
             self.chase = ChaseSkill(self.planner, self.settings)
+            self._maybe_fix = None
             self.state = "drive"
             self._progress.reset()
             return self._halt((0.0, self.lim.drive_tilt_deg))
@@ -422,6 +444,17 @@ class RoamSkill:
                 c.still_t0 = None
             elif c.still_t0 is None:
                 c.still_t0 = now_s
+            near_look = d <= CHECK_CLOSE_M + CHECK_NEAR_TOL_M  # hits count only from near (final review I1)
+            if near_look and cam is None and cam_still and self._used:  # a new, still picture of the spot
+                near = [p for p in self._maybes if math.dist(p, c.spot) <= SAME_SPOT_M]
+                if near:
+                    c.hits, c.last_maybe = c.hits + 1, near[-1]
+                if c.hits >= CHECK_HITS and c.last_maybe is not None:  # seen twice from near: it is there ...
+                    made = self._inside(TargetFix(-1, c.last_maybe[0], c.last_maybe[1], 0.0))
+                    if made is not None:  # ... unless outside the play area: never chased (§196, review M2)
+                        self._maybe_seen_s, self._maybe_fix = now_s, made
+                        return self._chase(now_s, at, snap, made, sonar_m, True, cam_still)
+                    c.hits, c.last_maybe = 0, None
             if c.still_t0 is not None and now_s - c.still_t0 >= CHECK_LOOK_S - 1e-9:
                 if c.closer or d <= CHECK_CLOSE_M + CHECK_NEAR_TOL_M:
                     return self._end_check(now_s, near=True)

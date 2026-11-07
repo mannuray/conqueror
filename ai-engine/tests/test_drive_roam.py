@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from conqueror_ai.domain.depth import Marks
+from conqueror_ai.domain.drive.candidates import REOPEN_MAX
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
@@ -19,6 +20,7 @@ from conqueror_ai.domain.drive.roam import CANDIDATE_RETRY_S, START_STAND_S, Mod
 from conqueror_ai.domain.drive.sim import SimTank
 from conqueror_ai.domain.drive.skill import SkillOut, make_input
 from conqueror_ai.domain.memory import ThingMemory
+from conqueror_ai.domain.reach import CHECK_CLOSE_M
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.types import ObjectEstimate, Pose
 
@@ -330,8 +332,8 @@ def test_a_candidate_not_confirmed_is_ruled_out_and_the_search_goes_on() -> None
     outs = ticks(s, tank, t + 0.1, 300)
     assert s.state != "check" and s.candidates.pending() == []
     assert not any(o.result for o in outs[:-1])
-    ticks(s, tank, t + 40.0, 1, maybes=[(1.25, 0.6)])  # seen weakly there again: ignored
-    assert s.state != "check"
+    ticks(s, tank, t + 40.0, 1, maybes=[(1.25, 0.6)])  # seen weakly there again: looked at again (§24 A)
+    assert s.state == "check"
 
 
 def test_a_remembered_spot_is_checked_first_and_marked_gone_when_not_there() -> None:
@@ -370,7 +372,157 @@ def test_a_far_candidate_is_ruled_out_only_after_a_look_from_near() -> None:
         nearest = min(nearest, math.dist(tank.at[:2], spot))
         if s.state != "check":
             break
-    assert s.candidates.pending() == [] and nearest <= 1.05
+    assert s.candidates.pending() == [] and nearest <= CHECK_CLOSE_M + 0.05  # §24 C: 0.5 m, not 1 m
+
+
+def test_a_check_from_one_metre_drives_to_half_a_metre_before_its_look() -> None:
+    """LLD §24 C (owner, §215): a maybe 1 m off is not looked at from there - sure only at 40-50 cm."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    spot = (tank.at[0] + 1.0 * math.cos(tank.at[2]), tank.at[1] + 1.0 * math.sin(tank.at[2]))
+    ticks(s, tank, t, 1, maybes=[spot])
+    assert s.state == "check"
+    nearest = 9.0
+    for k in range(1, 600):
+        rt(s, t + k * 0.1, tank.at, open_snap(), None, None, True)
+        tank.step(s.cmd, 0.1)
+        nearest = min(nearest, math.dist(tank.at[:2], spot))
+        if s.state != "check":
+            break
+    assert nearest <= CHECK_CLOSE_M + 0.05 and s.candidates.ruled_out()
+
+
+def close_check() -> tuple[RoamSkill, SimTank, float, tuple[float, float]]:
+    """A find already searching, a maybe 0.48 m ahead (within the check's 0.5 m, beyond the chase's stop):
+    its check goes straight to the look (§24 B tests)."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    spot = (tank.at[0] + 0.48 * math.cos(tank.at[2]), tank.at[1] + 0.48 * math.sin(tank.at[2]))
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot])
+    assert s.state == "check"
+    rt(s, t + 0.1, tank.at, open_snap(), None, None, True)  # the camera sent to the spot
+    return s, tank, t + 0.2, spot
+
+
+def test_two_pictures_with_the_thing_during_a_close_look_hand_over_to_the_chase() -> None:
+    s, tank, t, spot = close_check()
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot])
+    assert s.state == "check"
+    rt(s, t + 0.1, tank.at, open_snap(), None, None, True, maybes=[(spot[0] + 0.05, spot[1])])
+    assert s.state == "chase"
+
+
+def test_one_picture_during_a_close_look_is_not_enough() -> None:
+    s, tank, t, spot = close_check()
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot])
+    for k in range(1, 40):
+        rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True)
+        assert s.state != "chase"
+    assert s.candidates.ruled_out()
+
+
+def test_the_same_picture_on_two_ticks_counts_once() -> None:
+    s, tank, t, spot = close_check()
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot], used=True)
+    rt(s, t + 0.1, tank.at, open_snap(), None, None, True, maybes=[spot], used=False)
+    for k in range(2, 40):
+        rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True)
+        assert s.state != "chase"
+
+
+def test_a_sighting_away_from_the_spot_is_no_hit() -> None:
+    s, tank, t, spot = close_check()
+    far = (spot[0] - 0.8 * math.sin(tank.at[2]), spot[1] + 0.8 * math.cos(tank.at[2]))  # 0.8 m to the side
+    for k in range(40):
+        rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True, maybes=[far])
+        if s._check is None or s._check.spot != spot:  # pyright: ignore[reportPrivateUsage]
+            break
+        assert s.state != "chase"
+
+
+def test_the_trackers_fix_replaces_the_made_up_one() -> None:
+    s, tank, t, spot = close_check()
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot])
+    rt(s, t + 0.1, tank.at, open_snap(), None, None, True, maybes=[spot])
+    assert s.state == "chase"
+    real = TargetFix(7, spot[0] + 0.1, spot[1], 0.0)
+    rt(s, t + 0.2, tank.at, open_snap(), real, None, True)
+    assert s.chase.debug()["target"] == (real.x_m, real.y_m)
+
+
+def ahead(tank: SimTank, m: float) -> tuple[float, float]:
+    return (tank.at[0] + m * math.cos(tank.at[2]), tank.at[1] + m * math.sin(tank.at[2]))
+
+
+def test_two_pictures_from_one_metre_do_not_confirm_it_drives_closer() -> None:
+    """Final review I1: hits only count from near (the owner: "only at this distance one can be sure")."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    spot = ahead(tank, 1.0)
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot])
+    rt(s, t + 0.1, tank.at, open_snap(), None, None, True)  # aimed
+    for k in range(2, 4):
+        rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True, maybes=[spot])
+    for k in range(4, 40):
+        rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True)
+        assert s.state != "chase"
+        if s._check is not None and s._check.phase == "closer":  # pyright: ignore[reportPrivateUsage]
+            break
+    assert s._check is not None and s._check.phase == "closer"  # pyright: ignore[reportPrivateUsage]
+
+
+def test_the_same_picture_again_does_not_reopen_a_ruled_out_spot() -> None:
+    """Final review I2: a picture re-read on a tick with no new one is not "seen again" (§24 A)."""
+    s, tank, t, spot = close_check()
+    for k in range(40):
+        rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True)
+        if s.candidates.ruled_out():
+            break
+    assert s.candidates.ruled_out() and not s.candidates.pending()
+    rt(s, t + 4.1, tank.at, open_snap(), None, None, True, maybes=[spot], used=False)
+    assert not s.candidates.pending()
+    rt(s, t + 4.2, tank.at, open_snap(), None, None, True, maybes=[spot], used=True)
+    assert s.candidates.pending()
+
+
+def test_the_made_up_fix_is_not_refreshed_by_a_re_read_picture() -> None:
+    """Final review M1: only a new picture says the thing was seen now."""
+    s, tank, t, spot = close_check()
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot])
+    rt(s, t + 0.1, tank.at, open_snap(), None, None, True, maybes=[spot])
+    assert s.state == "chase"
+    rt(s, t + 0.5, tank.at, open_snap(), None, None, True, maybes=[spot], used=False)
+    f = s._maybe_fix  # pyright: ignore[reportPrivateUsage]
+    assert f is not None and f.seen_age_s > 0.3
+
+
+def test_close_sightings_outside_the_play_area_are_never_chased() -> None:
+    """Final review M2 (re-graded Important: the find ended blocked): two hits on a maybe just outside the
+    area, within 0.5 m of a spot inside it, start no chase toward it and leave no candidate outside."""
+    s = RoamSkill(Planner(Limits()), "find", rng=random.Random(1), area_m=1.0, kind=lambda c: c == "toy")
+    tank = SimTank()
+    t = until_searching(s, tank)
+    centre = s._area  # pyright: ignore[reportPrivateUsage]
+    assert centre is not None
+    spot = ahead(tank, 0.9) if math.dist(ahead(tank, 0.9), centre[:2]) < 1.0 else ahead(tank, 0.5)
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[spot])
+    assert s.state == "check"
+    for _ in range(300):  # to the near look
+        t += 0.1
+        tank.step(rt(s, t, tank.at, open_snap(), None, None, True).cmd, 0.1)
+        c = s._check  # pyright: ignore[reportPrivateUsage]
+        if c is None or (c.phase == "look" and c.aimed and math.dist(tank.at[:2], spot) <= 0.55):
+            break
+    a = math.atan2(spot[1] - centre[1], spot[0] - centre[0])
+    out = (centre[0] + 1.2 * math.cos(a), centre[1] + 1.2 * math.sin(a))  # 0.2 m outside
+    assert math.dist(out, spot) <= 0.5
+    for j in range(1, 30):
+        o = rt(s, t + 0.1 * j, tank.at, open_snap(), None, None, True, maybes=[out])
+        assert s.state != "chase" and o.result != "blocked"  # was: chased out, blocked
+        assert all(math.dist(p.spot, centre[:2]) <= 1.0 for p in s.candidates.pending())
+        if o.result:  # §196: seen outside the area, its edge looked at - "outside_area", not a chase
+            assert o.result == "outside_area"
+            break
 
 
 def test_a_check_that_cannot_get_there_leaves_it_pending_and_not_gone() -> None:
@@ -393,22 +545,47 @@ def test_a_check_that_cannot_get_there_leaves_it_pending_and_not_gone() -> None:
     assert len(s.candidates.pending()) == 1 and mem.of_kind(lambda c: c == "toy") != []
 
 
-def test_a_candidate_whose_chase_gives_up_is_ruled_out() -> None:
-    """Z6 second review M1: checked, seen, chased, then the chase gave up (not found again) - the candidate
-    stayed pending and could be checked and chased for ever."""
+def chase_and_lose(s: RoamSkill, tank: SimTank, t: float, fix: TargetFix) -> float:
+    """Seen for sure (the chase), then never again until the chase gives up; the time after it."""
+    for k in range(1, 4):
+        tank.step(rt(s, t + 0.1 * k, tank.at, open_snap(), fix, None, True).cmd, 0.1)
+    assert s.state == "chase"
+    for k in range(4, 900):
+        tank.step(rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True).cmd, 0.1)
+        if s.state != "chase":
+            return t + 0.1 * k
+    raise AssertionError("the chase never gave up")
+
+
+def test_a_lost_chase_leaves_a_candidate_at_the_last_seen_spot() -> None:
+    """LLD §24 D (the room3 chair, §215): checked, seen, chased, lost - its last seen spot is checked again
+    from near rather than dropped."""
     s, tank = finder(), SimTank()
     t = until_searching(s, tank)
     ticks(s, tank, t, 1, maybes=[(1.2, 0.6)])
     assert s.state == "check"
-    fix = TargetFix(1, 1.2, 0.6, 0.0)
-    for k in range(1, 4):  # seen for sure: the chase
-        tank.step(rt(s, t + 0.1 * k, tank.at, open_snap(), fix, None, True).cmd, 0.1)
-    assert s.state == "chase"
-    for k in range(4, 900):  # then never again: the chase's look round, then it gives up
-        tank.step(rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True).cmd, 0.1)
-        if s.state != "chase":
+    chase_and_lose(s, tank, t, TargetFix(1, 1.25, 0.6, 0.0))
+    assert [k.spot for k in s.candidates.pending()] == [(1.25, 0.6)]
+
+
+def test_a_thing_lost_again_and_again_is_dropped_after_two_reopens() -> None:
+    """Z6 second review M1 kept: a candidate seen, chased and lost must not be checked and chased for ever -
+    after the first loss and REOPEN_MAX more it is left."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    ticks(s, tank, t, 1, maybes=[(1.2, 0.6)])
+    losses = 0
+    for _ in range(6):
+        for _k in range(300):  # to the next check of it
+            if s.state == "check":
+                break
+            t += 0.1
+            tank.step(rt(s, t, tank.at, open_snap(), None, None, True).cmd, 0.1)
+        if s.state != "check":
             break
-    assert s.state != "chase" and s.candidates.pending() == []
+        t = chase_and_lose(s, tank, t, TargetFix(1, 1.2, 0.6, 0.0))
+        losses += 1
+    assert losses == 1 + REOPEN_MAX and s.candidates.pending() == []
 
 
 def test_not_found_waits_for_a_pending_candidates_retry() -> None:

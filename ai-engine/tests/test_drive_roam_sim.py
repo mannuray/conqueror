@@ -25,6 +25,7 @@ from conqueror_ai.domain.drive.roam import (
 from conqueror_ai.domain.drive.sim import Box, SimRoom, SimTank
 from conqueror_ai.domain.drive.skill import make_input
 from conqueror_ai.domain.objects import GATE_DPS
+from conqueror_ai.domain.reach import CHECK_CLOSE_M
 from conqueror_ai.domain.room_map import RoomMap
 from conqueror_ai.domain.sonar_model import SonarModel
 from conqueror_ai.domain.types import Pose
@@ -351,13 +352,16 @@ def test_find_a_dim_thing_by_looking_again() -> None:
     assert r.nearest >= NEAREST_M and not r.front_hit and r.body >= BODY_M
 
 
-def test_a_false_maybe_is_checked_once() -> None:
-    """A maybe of nothing there, every picture from 5 s on: checked once, ruled out, the search goes on - it
-    never ends the run done (find is a mode since Plan Z7; wander's 60 s no longer ends a find)."""
-    r = roam("find", 70.0, seed=7, false_maybe=(5.0, (1.5, 0.0)))
-    starts = sum(1 for a, b in itertools.pairwise(r.states) if b == "check" and a != "check")
-    assert r.result != "done" and starts == 1
-    assert r.states.count("check") * 0.1 <= 15.0  # the whole check, looks and the drive closer
+def test_a_maybe_in_every_close_picture_is_taken_as_the_thing() -> None:
+    """A maybe at one spot in every picture from 5 s on (a false one in Z6 terms): checked from 0.5 m, where
+    two still pictures with it confirm it (LLD §24 B, owner §215: "only at this distance one can be sure") -
+    the find ends done beside it, the body clear of everything. (Before §24 it was ruled out once and the
+    search went on; a ruled-out spot is now reopened at most REOPEN_MAX times, test_drive_candidates.)"""
+    spot = (1.5, 0.0)
+    r = roam("find", 70.0, seed=7, false_maybe=(5.0, spot))
+    assert r.result == "done" and r.skill is not None
+    assert math.dist(r.positions[-1][:2], spot) <= CHECK_CLOSE_M + 0.05
+    assert r.body >= BODY_M and not r.front_hit
 
 
 def test_a_check_is_ruled_out_only_after_a_look_from_near() -> None:
@@ -375,7 +379,7 @@ def test_a_check_is_ruled_out_only_after_a_look_from_near() -> None:
         return
     last = r.positions[ends[0] - 14 : ends[0] + 1]  # the 1.5 s before the check ended: stood, near, looking
     assert max(math.dist(p[:2], last[-1][:2]) for p in last) <= 0.01
-    assert math.dist(last[-1][:2], spot) <= 1.05 + 1e-9
+    assert math.dist(last[-1][:2], spot) <= CHECK_CLOSE_M + 0.05 + 1e-9  # §24 C
 
 
 def test_a_chase_inside_find_never_leaves_the_area() -> None:

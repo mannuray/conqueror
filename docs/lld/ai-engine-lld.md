@@ -2891,3 +2891,153 @@ stateDiagram-v2
 - `domain/room_picture.py` (kinds, crop, PNG, `Trail`), `domain/places.py` (`Places`, `name_check`, `go_spot`, `where_words`), `app/room_feed.py` (`RoomFeed`, `RoomWorld`, `word_of`, `ago_step`), `FeedServer.rooms()` / `room_wanted()` / `room_frame()` / `send_rooms()`, `encode_map` / `decode_map`, `Home.places` (`HOME_VERSION` 2, reads 1 and 2).
 - **Changes from §23.2-§23.4:** `RoomFeed.tick(now, pose, area, notes)` reads the rest through a `RoomWorld` callable; the room message (and the GO THERE spots in it) is built only when it may be sent (≤ 2 / s), the spots worked out again when a map frame went out, a name changed or the tank moved 0.2 m (final review I1: ~11 ms for a bed's spot, on the drive's event loop); `ago_s` in the page's steps (0 / whole minutes / 3600 / 86400) so an idle room is not resent; `status.pan` is the camera's **real** pan (the calibration's `pan_map`) from straight ahead, left +; names that fail `name_check` are dropped when a home loads.
 - Tests: engine suite 857 passed, 3 skipped (after the final review fixes); ruff + pyright strict clean.
+
+## 24. FIND looks from near and gives a maybe another chance (Plan Z9; design-notes §215 — draft for review)
+
+### 24.1 Why
+The room3 floor run (2026-11-06, recorded) showed FIND dropping the real thing. A maybe of the toy at ~1.03 m was
+looked at for 1.5 s; the detector flickers at that distance, the tracker's confirm rule (3 sightings within
+0.5 s, `objects.py`) was not met, so the spot was **ruled out** - and every later sighting near it was **ignored**
+(`Candidates.add`). It was found 65 s later by chance. A chair, confirmed and chased, was lost at 1.3 m when the
+camera at the driving tilt saw only its wheeled base; the chase swept from there, gave up, and its candidate was
+ruled out. Owner: "even if a single frame captures an object it should trigger a maybe and an investigation";
+"to look should be at least 40-50 cm, its camera is not good and only at this distance one can be sure".
+
+### 24.2 What changes (owner: C, then A + B + D)
+| | Rule | Today | New |
+|---|---|---|---|
+| C | **A check looks from near** | from within `SURE_REACH_M` 1.0 m of the spot (tank centre) | from within **`CHECK_CLOSE_M` 0.5 m** of the spot, tank centre (the lens 0.42-0.5 m away, with the pan on the spot: the owner's 40-50 cm); the way to it ends there |
+| A | **A ruled-out spot opens again when seen again** | a sighting within `SAME_SPOT_M` of a ruled-out candidate is ignored | it makes the candidate **pending** again (spot moved to the sighting), at most **`REOPEN_MAX` 2** times per candidate; then ignored |
+| B | **A close look confirms on 2 sightings** | only the tracker's confirm (3 within 0.5 s) hands over to the chase | during a check's look, **2 pictures with a maybe within `SAME_SPOT_M` of the spot**, any time in the look, confirm it: the chase takes over with a fix made from the newest such maybe |
+| D | **A chase that loses the thing leaves a candidate** | lost: the candidate it came from is ruled out, nothing is left | lost: the thing's **last seen spot becomes a pending candidate** (a new one, or the nearby one reopened under A's limit), checked from near like any other |
+
+Unchanged: `MAYBE_SCORE` 0.15 (a single picture already makes a maybe); the tracker's own confirm rule for things
+seen in passing; the search's "floor looked at" radius `SURE_REACH_M` 1.0 (my call: one glimpse now always gets
+a close look, so the search itself need not crawl at 0.5 m); the chase's stop 0.28 m from the lens; FIND never
+targets a person (a person is never a maybe of a find word); the play area (maybes outside it are never
+candidates); `CHECK_TRIES` 3 for checks that could not get near; `CHECK_LOOK_S` 1.5.
+
+### 24.3 Classes
+```mermaid
+classDiagram
+    class Candidate {
+        +x_m: float
+        +y_m: float
+        +state: pending | ruled_out
+        +remembered: Remembered | None
+        +tries: int
+        +reopens: int  %% new: times opened again (A)
+        +spot() XY
+    }
+    class Candidates {
+        +add(spot) %% A: near a ruled-out one -> reopened while reopens < REOPEN_MAX
+        +seed(remembered)
+        +pending() list~Candidate~
+        +ruled_out() list~XY~
+        +rule_out(c)
+        +route(c, at, costs, routes) %% near_m = CHECK_CLOSE_M (C)
+        +next(at, costs, routes) Candidate | None
+    }
+    class _Check {
+        +cand: Candidate
+        +phase: look | closer
+        +hits: int  %% new: pictures in this look with a maybe at the spot (B)
+        +last_maybe: XY | None  %% new (B)
+    }
+    class RoamSkill {
+        -_checking(...) %% C: CHECK_CLOSE_M 0.5; B: 2 hits -> confirmed
+        -_chase(...) %% D: lost -> candidate at the last seen spot
+        -_maybe_fix: TargetFix | None  %% new (B): the fix made from maybes while the tracker has none
+    }
+    Candidates "1" o-- "*" Candidate
+    RoamSkill --> Candidates
+    RoamSkill --> _Check
+    _Check --> Candidate
+```
+
+### 24.4 A candidate's life
+```mermaid
+stateDiagram-v2
+    [*] --> pending: a maybe (one picture is enough) / a remembered spot / a chase lost it (D)
+    pending --> checking: next() - the nearest with a way to within 0.5 m
+    checking --> chase: the tracker confirms, or 2 pictures in the look show it (B)
+    checking --> ruled_out: looked at from within 0.5 m, not confirmed
+    checking --> pending: could not get near (tries < 3)
+    checking --> ruled_out: could not get near 3 times
+    ruled_out --> pending: seen again near it (A), reopens < 2
+    chase --> pending: lost (D) - its last seen spot
+    chase --> [*]: arrived, done (0.28 m from the lens)
+```
+
+### 24.5 The close look (B), one tick
+```mermaid
+sequenceDiagram
+    participant P as Perception (maybes, fix)
+    participant R as RoamSkill
+    participant C as Candidates
+    participant H as ChaseSkill
+    P->>R: SkillInput(maybes, fix=None)
+    R->>C: add(each maybe) (A: may reopen)
+    alt check, phase look, pictures still
+        R->>R: a maybe within SAME_SPOT_M of the spot in this picture? hits += 1, last_maybe = it
+        alt hits >= 2
+            R->>R: _maybe_fix = TargetFix(oid -1, last_maybe, age 0); state chase
+            R->>H: tick(fix = tracker fix or _maybe_fix)
+        else look over (1.5 s still), within 0.5 m
+            R->>C: rule_out(cand)
+        end
+    end
+```
+- **The made-up fix (B):** `TargetFix(oid=-1, x, y, seen_age_s)`, refreshed by each later maybe within
+  `SAME_SPOT_M` of it (age 0 then, growing by the tick's time otherwise); the tracker's own fix, when there is
+  one, always wins. The chase's lost rule (`LOST_AFTER_S` 3 s unseen while the camera looks at the spot) applies
+  to it unchanged, so a flicker of the thing keeps the chase going and nothing for 3 s ends it (then D).
+- `hits` counts **pictures** (`inp.used`), not ticks, so one picture read on several ticks counts once.
+- **Ruled out and the memory:** a remembered thing whose spot is ruled out from near is still marked gone (as
+  today); a later confirm of it lists it again (the memory's own rule).
+
+### 24.6 Tests (pytest, `ai-engine/tests/`)
+- `test_candidates.py`: a sighting near a ruled-out candidate reopens it, spot moved, `reopens` 1; a third
+  reopen is ignored (`REOPEN_MAX` 2); the route ends within 0.5 m (`near_m`).
+- `test_roam_find.py` (or the find tests): from 1.0 m a check drives to within 0.5 m before its look (C); a look
+  with maybes at the spot in 2 pictures hands over to the chase with the made-up fix (B), one picture does not;
+  the same picture on two ticks counts once; a ruled-out spot seen again is checked again (A); a chase lost
+  leaves a pending candidate at the last seen spot (D); a person never becomes a candidate (unchanged, kept).
+- Replay: `cq-drive --replay` of the room3 recording runs (decisions differ from the recorded ones - expected).
+- **Floor check (owner present):** the room3 runs again - FIND toy with the toy ~1 m off the first look; FIND a
+  chair; each: what moves, steps, floor confirmed, camera check before.
+
+### 24.7 As built (Plan Z9, 2026-11-06; design-notes §215)
+- **Constants:** `reach.CHECK_CLOSE_M` 0.5 (tank centre; roam's check and the candidates' route both use it -
+  the search's `SURE_REACH_M` 1.0 untouched); `candidates.REOPEN_MAX` 2 (`Candidate.reopens`); `roam.CHECK_HITS` 2
+  (`_Check.hits`, `_Check.last_maybe`).
+- **B as built:** a hit is counted on a tick with a new picture (`inp.used`), the camera still and not being sent
+  this tick, and a maybe within `SAME_SPOT_M` of the check's spot. At 2 hits `RoamSkill._maybe_fix` =
+  `TargetFix(-1, last maybe, 0)` and the chase takes over; each later maybe within `SAME_SPOT_M` of it moves it
+  (age 0), else its age is the time since; a tracker fix clears it. Cleared when the chase is lost.
+- **D as built:** `ChaseSkill.last_seen` (the target last approached); on `lost` / `not_found` the check's
+  candidate is ruled out as before, then the last seen spot goes through `RoamSkill._sighting` (the play-area
+  test the maybes use) into `Candidates.add` - so it reopens the ruled-out one under `REOPEN_MAX`. A thing lost
+  again and again is chased 1 + `REOPEN_MAX` times, then left (Z6 review M1 kept).
+- **A consequence to watch on the floor:** a maybe that shows at one spot in every still picture from 0.5 m now
+  ends FIND `done` beside it (sim `test_a_maybe_in_every_close_picture_is_taken_as_the_thing`; before §24 it was
+  ruled out once). That is B as approved - a steady false detection at 50 cm would be taken for the thing.
+- **Tests changed because §24 changes what they pin:** `test_a_ruled_out_spot_ignores_later_sightings` →
+  `..._seen_again_opens_again_at_most_twice`; `test_a_candidate_whose_chase_gives_up_is_ruled_out` → the two D
+  tests; the sim's "checked once" false maybe → taken as the thing; two 1.05 m bounds → `CHECK_CLOSE_M` + 0.05.
+  New: `test_a_route_to_a_candidate_ends_within_half_a_metre`, `test_a_check_from_one_metre_drives_to_half_a_metre_before_its_look`,
+  five close-look tests (two pictures, one picture, same picture twice, a sighting away, the tracker's fix wins).
+- **Checks:** engine suite 864 passed, 3 skipped (the wall-clock tests `test_route_is_quick` /
+  `test_explore_picks_quickly_by_searching_outward` each failed once under the full run's load and pass alone;
+  their code is untouched); ruff and pyright clean. `cq-drive --replay rec_room3/word-4-5` runs to the end and
+  departs from the recorded decisions at tick 230 (expected: the check now drives closer).
+- **Final review (opus) fixes:** I1 hits count only in a look from near (`d <= CHECK_CLOSE_M + CHECK_NEAR_TOL_M`):
+  two pictures from 1 m drive it closer; I2 only a new picture's maybes make or reopen candidates; M1 only a new
+  picture refreshes the made-up fix; M2 (re-graded Important - the find ended `blocked`) a made-up fix outside the
+  play area is never chased (`_inside`, §196: its edge is checked, the find may end `outside_area`). M3 noted: a
+  pending candidate follows each new sighting within `SAME_SPOT_M`, so the looked-at spot can drift during a
+  look - watch on the floor. M4: the tests live in `test_drive_candidates.py`, `test_drive_roam.py`,
+  `test_drive_roam_sim.py` (not the §24.6 names). Tests: `test_two_pictures_from_one_metre_do_not_confirm_it_drives_closer`,
+  `test_the_same_picture_again_does_not_reopen_a_ruled_out_spot`, `test_the_made_up_fix_is_not_refreshed_by_a_re_read_picture`,
+  `test_close_sightings_outside_the_play_area_are_never_chased`.
+- **Floor check:** pending (owner present) - FIND toy with the first look from ~1 m, FIND a chair.

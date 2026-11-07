@@ -447,3 +447,13 @@
   world: {answers: [120, 80, 30]}
   does: [HOWFAR ball, AREA 2, BEEP, "WANDER 120 AREA 2 AT 0 0", WAIT 0.6, HOWFAR ball, BEEP, WAIT 0.4, HOWFAR ball, SOUND SUCCESS, SAY found you]
   ends: finished
+
+- name: a LAUNCH inside a word of your own sees the word's inputs as they were (final review I1)
+  source: |
+    TO T :n
+      LAUNCH [ SAY :n ]
+      WAIT 1
+    END
+    T 42
+  does: [SAY 42, WAIT 1]
+  ends: finished

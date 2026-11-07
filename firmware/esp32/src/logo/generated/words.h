@@ -212,8 +212,9 @@ inline constexpr ErrorText kErrors[] = {
     {7056, "I'm learning a new word - try again in a minute."},
     {7057, "{word} moves the tank - only the main program can do that, not LAUNCH."},
     {7058, "Only one LAUNCH can run at a time."},
+    {7059, "OUTPUT can't be used inside LAUNCH - the launched part gives nothing back."},
 };
-inline constexpr uint8_t kErrorCount = 50;
+inline constexpr uint8_t kErrorCount = 51;
 
 inline constexpr uint16_t kSourceBytes = 8192;
 inline constexpr uint8_t kMaxProcs = 64;

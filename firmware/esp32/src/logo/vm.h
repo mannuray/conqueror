@@ -48,6 +48,8 @@ class Vm {
 
   // From the program's start, or (a launched part, Tank Logo LLD §26.4) from `entry`: its block ends with HALT.
   void load(const Program& p, uint32_t seed, uint16_t entry = 0);
+  // A launched part started inside a word of your own sees that word's inputs as they are now (copies; LLD §26.3).
+  void inheritInputs(const Vm& from);
   void setStepping(bool on) { m_stepping = on; }
   VmStatus run(uint16_t budget, const Sensors& s);
   const Effect& effect() const { return m_effect; }

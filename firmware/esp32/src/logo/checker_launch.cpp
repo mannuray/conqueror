@@ -1,6 +1,6 @@
 // Checker: LAUNCH (Tank Logo LLD §26.3) - only the main program moves the tank. A word that moves the tank, its
 // camera or where it may go (gen::WordSpec::moves), or a word of your own that reaches one, inside a LAUNCH block is
-// 7057 at that call. Iterative walks over a bounded stack; recursion between your words ends (a fixed point).
+// 7057 at that call; an OUTPUT inside it is 7059. Iterative walks over a bounded stack; recursion between your words ends (a fixed point).
 #include <stdio.h>
 #include <string.h>
 
@@ -51,8 +51,17 @@ const Node* firstMove(const Node* first, const bool* moves, uint8_t n_procs) {
   return nullptr;
 }
 
-bool isLaunch(const Node* n) {
-  return n->kind == NodeKind::kCall && n->ref >= 0 && strcmp(gen::kWords[n->ref].name, "LAUNCH") == 0;
+bool isCallOf(const Node* n, const char* name) {
+  return n->kind == NodeKind::kCall && n->ref >= 0 && strcmp(gen::kWords[n->ref].name, name) == 0;
+}
+
+// An OUTPUT below `first`: the launched part has no word to give a value back from (7059, final review I2).
+const Node* firstOutput(const Node* first) {
+  Walk w(first);
+  for (const Node* n = w.next(); n != nullptr; n = w.next()) {
+    if (isCallOf(n, "OUTPUT")) return n;
+  }
+  return nullptr;
 }
 
 // Which of your words reach a move: one more word found per pass, so at most one pass per word.
@@ -76,7 +85,9 @@ void Checker::checkLaunch(const Node* program) {
   markMovingWords(program, moves, n_procs);
   Walk w(program->first);
   for (const Node* launch = w.next(); launch != nullptr; launch = w.next()) {
-    const Node* n = isLaunch(launch) ? firstMove(launch->first, moves, n_procs) : nullptr;
+    if (!isCallOf(launch, "LAUNCH")) continue;
+    if (const Node* o = firstOutput(launch->first)) error(7059, o->tok);
+    const Node* n = firstMove(launch->first, moves, n_procs);
     if (n == nullptr) continue;
     char word[25];
     if (movesBuiltIn(n)) snprintf(word, sizeof word, "%s", gen::kWords[n->ref].name);

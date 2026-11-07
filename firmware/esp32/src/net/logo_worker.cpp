@@ -22,7 +22,7 @@ struct Shared {  // PSRAM only, allocated once at boot (≈ 330 KB): without it 
   char inbox[logo::kSourceInbox];
   logo::ThingNames things;  // the check's own copy of the AI helper's things (~11 KB; taken when a check starts)
 };
-struct Run {  // the link task's: PSRAM, else internal RAM (≈ 36 KB) - the LogoController always exists
+struct Run {  // the link task's: PSRAM, else internal RAM (≈ 46 KB with LAUNCH's Vm) - the LogoController always exists
   logo::Program running;
   logo::Vm vm;
   logo::Vm launched;  // LAUNCH's part (Tank Logo LLD §26.4)

@@ -80,6 +80,8 @@ bool RunController::start(const Program& p, const RunConfig& cfg, const RunTelem
     pt.vm = vm;
   }
   m_cur = 0;
+  m_first = 1;  // the main part first, whatever the last run's ticks were (final review M3)
+  m_launches = 0;
   m_parts[0].vm->load(p, cfg.seed);
   m_parts[0].vm->setStepping(cfg.step);
   m_parts[0].state = RunState::kRunning;
@@ -154,8 +156,13 @@ void RunController::step(const RunTelem& t, uint32_t now_ms, RunOut& out) {
       return;
     case VmStatus::kEffect: return effect(t, now_ms, out);
     case VmStatus::kHalt:  // the main program at its end: done; the launched part's block at its end: it stops
-      if (m_cur == 0) out = end(0);
-      else cur().state = RunState::kIdle;
+      if (m_cur == 0) {
+        out = end(0);
+      } else {  // the page's marker for this part goes (line 0, final review M5)
+        cur().state = RunState::kIdle;
+        out.line = true;
+        out.line_no = 0;
+      }
       return;
     case VmStatus::kStop: out = end(0); return;  // the STOP word: done, as at the end (Tank Logo LLD §25.6)
     case VmStatus::kError: out = endWith(vm.error().code, vm.error().line, vm.error().msg); return;

@@ -1,6 +1,7 @@
 // Plan N2 Task 6: the RunController with a fake motion layer - every ending of LLD §9, BLOCKED?, waits, the time
 // limit, step mode, HOME, sensors from telemetry, and a second ending ignored.
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unity.h>
 
@@ -445,6 +446,50 @@ void test_step_pauses_the_launched_part_too() {
   TEST_ASSERT_NOT_NULL(strstr(g_trace + before, "BEEP"));
 }
 
+// ---------------------------------------------------------------- Plan N9 final review fixes
+
+void test_output_in_the_launched_part_is_refused_while_running() {  // the checker refuses it first (7059)
+  TEST_ASSERT_TRUE(load("TO F LAUNCH [ OUTPUT 1 ] WAIT 1 OUTPUT 2 END\nSAY F\nWAIT 1", false, false));
+  drive();
+  TEST_ASSERT_TRUE(g_last.ended);
+  TEST_ASSERT_EQUAL(7059, g_last.code);
+}
+
+void test_the_same_program_twice_takes_the_same_turns() {  // M3: who goes first starts fresh each run
+  const char* src = "LAUNCH [ BEEP BEEP BEEP ]  FD 10  FD 10";
+  TEST_ASSERT_TRUE(load(src));
+  g_rc.tick(g_tel, g_now);  // an odd number of ticks before the next run
+  drive();
+  char first[256];
+  snprintf(first, sizeof first, "%s", g_trace);
+  TEST_ASSERT_TRUE(load(src));
+  drive();
+  TEST_ASSERT_EQUAL_STRING(first, g_trace);
+}
+
+void test_the_launched_part_ending_clears_its_line() {  // M5: a line 0 for part 1 when its block ends
+  TEST_ASSERT_TRUE(load("LAUNCH [ BEEP ]\nWAIT 1"));
+  g_last = RunOut();
+  bool cleared = false;
+  for (int i = 0; i < 200 && !g_last.ended; ++i) {
+    if (!g_rc.ready() && g_rc.wakeAt() > g_now) g_now = g_rc.wakeAt();
+    g_last = g_rc.tick(g_tel, g_now);
+    if (g_last.line && g_last.part == 1 && g_last.line_no == 0) cleared = true;
+    g_now += 2;
+  }
+  TEST_ASSERT_TRUE(cleared);
+}
+
+void test_each_launch_has_its_own_random_numbers() {  // M7
+  TEST_ASSERT_TRUE(load("LAUNCH [ SAY RANDOM 1000000 ]\nWAIT 1\nLAUNCH [ SAY RANDOM 1000000 ]\nWAIT 1"));
+  drive();
+  const char* a = strstr(g_trace, "SAY ");
+  TEST_ASSERT_NOT_NULL(a);
+  const char* b = strstr(a + 4, "SAY ");
+  TEST_ASSERT_NOT_NULL(b);
+  TEST_ASSERT_NOT_EQUAL(atoi(a + 4), atoi(b + 4));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_square_finishes);
@@ -472,5 +517,9 @@ int main(int, char**) {
   RUN_TEST(test_the_launched_part_may_never_move_the_tank);
   RUN_TEST(test_the_stop_key_ends_both_parts);
   RUN_TEST(test_step_pauses_the_launched_part_too);
+  RUN_TEST(test_output_in_the_launched_part_is_refused_while_running);
+  RUN_TEST(test_the_same_program_twice_takes_the_same_turns);
+  RUN_TEST(test_the_launched_part_ending_clears_its_line);
+  RUN_TEST(test_each_launch_has_its_own_random_numbers);
   return UNITY_END();
 }

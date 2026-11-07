@@ -514,3 +514,11 @@ test("step mode: a launched part's line never lights NEXT", () => {
   s = L.runBar(s, { e: "line", line: 5, round: 0, part: 1 });
   assert.equal(s.st, "running");
 });
+
+test("the launched part's line 0 clears its marker (it ended)", () => {
+  let s = run([{ e: "checked", ok: true, prog: 4 }, { e: "run", step: false }, { e: "ack" }, { e: "line", line: 3, round: 0 }]);
+  s = L.runBar(s, { e: "line", line: 7, round: 0, part: 1 });
+  s = L.runBar(s, { e: "line", line: 0, round: 0, part: 1 });
+  assert.equal(s.line2, 0);
+  assert.equal(s.line, 3);
+});

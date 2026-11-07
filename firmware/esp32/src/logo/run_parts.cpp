@@ -85,7 +85,8 @@ bool RunController::launch(const Action& a) {
   Vm* vm = l.vm;
   l = Part();
   l.vm = vm;
-  vm->load(*m_p, m_cfg.seed + 1, a.entry);
+  vm->load(*m_p, m_cfg.seed + 1 + ++m_launches, a.entry);
+  vm->inheritInputs(*m_parts[0].vm);  // inside a word of your own: its inputs as they are now
   vm->setStepping(false);  // STEP is the main part's; this part pauses while the main does
   l.state = RunState::kRunning;
   return true;

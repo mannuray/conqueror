@@ -1617,6 +1617,7 @@ WANDER 120
 6. **Sounds:** one buzzer - a sound from either part replaces the one playing (as on the tank today).
 7. **STEP:** stepping is the main program's; while the main is paused the launched part is paused too.
 8. **The planned path** (`Simulator`) ignores the launched part: it cannot move the tank.
+9. **Inputs and REPCOUNT** (final review): a LAUNCH inside a word of your own sees a copy of that word's inputs as they were at LAUNCH; REPCOUNT inside the block counts the block's own loops. `OUTPUT` inside the block is 7059.
 
 ### 26.4 Runner (ESP32)
 - `Compiler`: the `LAUNCH` block is compiled as its own code entry; `LAUNCH` becomes `OP_LAUNCH <entry>`.
@@ -1679,3 +1680,8 @@ sequenceDiagram
 - **Tank / page:** a second `logo::Vm` in the logo worker (10 112 B on the host); `logo_line` carries `part`; `/logo` marks the launched line with a flow-coloured right edge (`runBar` `line2`), never NEXT; `/logo` 30 927 of 32 768 B gz; flash 47.0 %.
 - **Tests:** 8 conformance cases (7057 direct, through one and two words, LOOK, AREA, nested; recursion fine; 7002), 2 compiler, 6 running (interleaving pinned from the runner), 3 run (the guard, the STOP key ends both, STEP pauses both - each proved by switching its rule off), ws_json, 2 page.
 - **Lesson 5** per §26.2, its comments teach LAUNCH.
+- **Final review fixes (Opus, 2026-11-07):**
+  - **Inputs:** a LAUNCH inside a word of your own gets **a copy of that word's inputs as they are at LAUNCH** (`Vm::inheritInputs`) - `TO T :n  LAUNCH [ SAY :n ] …  T 42` says 42 (it read stack junk, 0).
+  - **7059** "OUTPUT can't be used inside LAUNCH - the launched part gives nothing back." at check time; as a guard a return from the launched part's bottom frame ends 7059 (it jumped to the program's start).
+  - **REPCOUNT inside LAUNCH** counts the block's own REPEAT / FOREVER (0 outside them) - the block is its own part (rule added to §26.3).
+  - The main part goes first at every run's start (it depended on the last run's ticks); the launched part's end sends `logo_line {part: 1, line: 0}` and the page clears its marker; each LAUNCH has its own RANDOM numbers; the logo worker's size comment.

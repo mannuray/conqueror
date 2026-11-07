@@ -74,6 +74,14 @@ void Vm::typeError(const char* word, const char* type, Value got) {
   error(7012, a, 3);
 }
 
+void Vm::inheritInputs(const Vm& from) {
+  const Frame& f = from.m_frames[from.m_nf - 1];
+  if (f.proc < 0) return;
+  const uint8_t n = m_p->procs[f.proc].n_inputs;
+  for (uint8_t i = 0; i < n; ++i) m_stack[i] = from.m_stack[f.args_base + i];
+  m_sp = n;  // frame 0's args_base is 0: :input reads them
+}
+
 void Vm::leaveFrame() {
   const Frame& f = m_frames[--m_nf];
   m_sp = f.args_base;

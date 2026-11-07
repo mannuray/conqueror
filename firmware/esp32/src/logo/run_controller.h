@@ -113,6 +113,7 @@ class RunController {
   Part m_parts[2];
   uint8_t m_cur = 0;  // the part whose turn it is (0 outside a slice: events are the main program's)
   uint8_t m_first = 1;  // the part that went first last tick
+  uint8_t m_launches = 0;  // LAUNCHes this run: each has its own RANDOM numbers
   const Program* m_p = nullptr;
   RunConfig m_cfg;
   uint32_t m_start = 0;

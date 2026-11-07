@@ -293,3 +293,9 @@
 - name: LAUNCH needs its block
   source: LAUNCH
   expect: {error: 7002, line: 1, col: 1}
+
+- name: OUTPUT inside LAUNCH (final review I2)
+  source: |
+    TO F LAUNCH [ OUTPUT 1 ] WAIT 1 OUTPUT 2 END
+    SAY F
+  expect: {error: 7059, line: 1, col: 15}

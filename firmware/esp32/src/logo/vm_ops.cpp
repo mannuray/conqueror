@@ -224,9 +224,15 @@ void VmOps::tcall(Vm& vm, const Instr& in) {
   vm.m_pc = vm.m_p->procs[in.n].entry;
 }
 
-void VmOps::ret(Vm& vm, const Instr&) { vm.leaveFrame(); }
+// A return from the bottom frame only happens in a launched part (OUTPUT inside LAUNCH, refused first by the
+// checker): 7059, never a jump back to the program's start (Tank Logo LLD §26.3).
+void VmOps::ret(Vm& vm, const Instr&) {
+  if (vm.m_nf <= 1) return vm.fail(7059, nullptr, 0);
+  vm.leaveFrame();
+}
 
 void VmOps::retV(Vm& vm, const Instr&) {
+  if (vm.m_nf <= 1) return vm.fail(7059, nullptr, 0);
   const Value v = vm.pop();
   vm.leaveFrame();
   vm.push(v);

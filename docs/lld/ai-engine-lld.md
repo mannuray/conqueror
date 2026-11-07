@@ -3259,7 +3259,7 @@ classDiagram
   (`tests/route_reference.py`, with today's grid copied too); on 30 random maps (boxes, walls, the start in a closed cell, ends off the map,
   `goal_ok`, `near_m` 0 / 0.4) `route`, `nearest` and `costs` give identical results.
 - `test_the_quick_planner_is_about_twice_as_quick`: on the same maps and the same machine, the two taking turns,
-  at least **1.8×** quicker than the reference (designed as 2×; owner 2026-11-08, §27.5).
+  at least **1.5×** quicker than the reference (designed as 2×; owner 2026-11-08, §27.5).
 - `test_route_is_quick` (20 ms) stays as it is.
 
 ### 27.5 As built (2026-11-08, branch `plan-z12-route`)
@@ -3270,4 +3270,4 @@ classDiagram
 - **Measured** (M1, load 26-69, the two planners in turns, the best of 5): the whole test workload 0.70 s vs 1.51 s, **2.1-2.2x**; by kind: routes without a reach ~2.9x, with a reach ~2.6x, `costs` ~2.6x (one sequential run); `test_route_is_quick`'s slowest route **5.5-9.6 ms** (today's planner 16-22 ms on the same load; the bound 20 ms).
 - **The whole suite (load ~120):** 924 passed, 1 failed - `test_explore_picks_quickly_by_searching_outward` (5 ms for explore's first pick, the grid built in it); it passes alone (3 of 3 after one fail at load 126). The first pick measured 1.8-2.6 ms median with the quick planner vs 2.3-3.6 ms with today's; the worst picks 5-11 ms for both at that load - the machine, not the planner (as §220's route test).
 - **Opus final review (2026-11-08):** exactness confirmed point by point (tie order, floats, the reach arrival, the start and goal cells, the copies) and the comparison test reaches every path; fixed: the comment written twice, `_dijkstra` returns `(costs, found)`, the reference copies today's `_Grid` (the planners share nothing), §27.3 / §27.4 as built.
-- **Owner (2026-11-08):** the speed test checks **at least 1.8x** (`test_the_quick_planner_is_about_twice_as_quick`): 2.0 would fail by chance on a busy machine. Identical routes, nearest cells and costs on 30 random maps (`test_the_quick_planner_gives_todays_routes`).
+- **Owner (2026-11-08):** the speed test checks **at least 1.5x** (first 1.8x; the final review measured 2.02x, so 1.8 would still fail by chance; 1.5 still catches a slip back to today's 1.0x), was: **at least 1.8x** (`test_the_quick_planner_is_about_twice_as_quick`): 2.0 would fail by chance on a busy machine. Identical routes, nearest cells and costs on 30 random maps (`test_the_quick_planner_gives_todays_routes`).

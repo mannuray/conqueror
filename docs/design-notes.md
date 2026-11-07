@@ -3385,7 +3385,7 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Built (2026-11-08, branch `plan-z12-route`):** the same routes, costs and nearest cells on 30 random maps;
   **2.1-2.2x** quicker over the test workload (pure Python's limit here - a compiled library would be a new
   dependency and could pick a different equally cheap route); the slowest route of `test_route_is_quick` 5.5-9.6 ms
-  under load (was 16-22 ms). **Owner: the speed test's bar 1.8x** (2.0 would fail by chance). AI engine LLD §27.5.
+  under load (was 16-22 ms). **Owner: the speed test's bar 1.5x** (2.0, then 1.8 would fail by chance - the final review measured 2.02x). AI engine LLD §27.5.
 - **Kept for later (owner, 2026-11-08: "keep it in note, speed is good in robotics"):** the next step is a compiled
   search (numba, scipy's csgraph, or a few lines of C / Rust) - typically 20-100x quicker than Python's loop, since
   each step then costs nanoseconds instead of the interpreter's ~50-100 ns. Not now: routes are 5.5-9.6 ms at worst

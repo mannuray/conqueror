@@ -3244,7 +3244,8 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Floor (2026-11-07; lessons firmware, then LAUNCH; "toy" for "ball" - no ball in the room, the lessons' own "Try
   this"):** lesson 2 found the toy in 9 s (a second look at a flash, then the chase); lesson 4 - the tank still, the
   toy pushed in by hand: 48 beeps getting faster, "you found me", Done; lesson 5 (with LAUNCH, §219) found the toy in
-  9.3 s with the area off; lesson 1 drove its L but 30 cm from a wall SETXY could not turn back (7024, to look at);
+  9.3 s with the area off; lesson 1 drove its L but 30 cm from a wall SETXY could not turn back (7024, to look at) -
+  from open floor it passed (the L, "going back now", SETXY 0 0 in 5.8 s / 0.6 m, the tune, finished);
   lesson 3 (area off; the toy car as "car", a ball): FIND car 2.3 s (it was in front), FIND ball 53.6 s / 6.6 m,
   SETXY 0 0 15.5 s / 3.0 m, the tune - finished; ~37-41 cm from each thing (tank centre).
 ## 219. Two things at once: `LAUNCH` (owner, 2026-11-07: lesson 5 was stop-and-go - "let's do C, why test something that we will discard"; "only the main program moves the tank")

@@ -3297,3 +3297,14 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
     ~26 px). The further-away failures with both cameras are the detector's own limit.
   - So a better picture (sensor, lens, less noise) gains real distance - the evidence for a camera upgrade (§218
     options); the exact gain in metres needs the same-spot comparison with distances taped.
+- **The tank's range for the toy car (stepping back 10 cm at a time from where it was first sure):** sure 0.33-0.55
+  with the car 42-44 px wide; one or two stops back maybes only (0.25, 0.22), then nothing (40-50 cm back). At the
+  "30 cm back" stop a second try gave sure 2/5 (best 0.36, 35 px): at the edge the tank's detection flickers
+  (±10-20 cm). The calibration's floor distance (~1.1-1.3 m) is unreliable here (the glossy floor's reflection
+  stretches the box); distances in metres need a tape.
+- **The phone from behind the tank:** sure of the same car at 36-38 px (0.47, 0.40) in a tank-like 640x480 view framed
+  on the floor line - further away than the tank's camera manages even maybes. (The detector also calls the tank
+  itself a "toy", 0.97-0.99.)
+- **Decided (owner, 2026-11-07):** "a good camera will surely improve detection, so the camera is the weak point here;
+  we will think about that later". Options on file above (Pi Zero 2 W + Camera Module 3 Wide; ESP32-P4 later); not
+  now.

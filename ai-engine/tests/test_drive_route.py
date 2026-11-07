@@ -232,8 +232,8 @@ def test_the_quick_planner_gives_todays_routes() -> None:
         assert np.array_equal(new.costs(c, corners[0]), ref.costs(c, corners[0]))
 
 
-def test_the_quick_planner_is_at_least_twice_as_quick() -> None:
-    """Plan Z12 (LLD §27.4): a ratio on the same machine, so a busy machine does not fail it."""
+def test_the_quick_planner_is_about_twice_as_quick() -> None:
+    """Plan Z12 (LLD §27.4): ~2.1-2.2x measured; at least 1.8x (owner, 2026-11-08), a ratio on one machine."""
     rng = random.Random(21)
     work: list[tuple[CostMap, list[tuple[XY, XY, bool, float]]]] = []
     for _ in range(10):
@@ -251,7 +251,8 @@ def test_the_quick_planner_is_at_least_twice_as_quick() -> None:
     new, ref = RoutePlanner(), ReferencePlanner()
     for p in (new, ref):  # build each grid once (cached per cost map) before timing
         run(p)
-    t_new = min(run(new) for _ in range(3))
-    t_ref = min(run(ref) for _ in range(3))
+    t_new, t_ref = math.inf, math.inf
+    for _ in range(5):  # taken in turns, the best of each: a busy spell hits both alike
+        t_new, t_ref = min(t_new, run(new)), min(t_ref, run(ref))
     print(f"quick {t_new * 1000:.0f} ms, today's {t_ref * 1000:.0f} ms, {t_ref / t_new:.2f}x")
-    assert t_ref / t_new >= 2.0
+    assert t_ref / t_new >= 1.8

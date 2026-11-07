@@ -45,13 +45,36 @@ class _Grid:
         d = cost.dist[: g * k, : g * k].reshape(g, k, g, k).min(axis=(1, 3))
         cc = cost.centre_cost(half_w)[: g * k, : g * k].reshape(g, k, g, k).max(axis=(1, 3))
         self.factor: FloatArray = np.where(d >= half_w, 1.0 + cost.settings.route_cost_w * cc, np.inf)
+        # The searches run on flat lists over the grid padded with closed cells (LLD §27.2): no bounds check,
+        # the cell numbers in today's order (row, then column), the eight steps as offsets in STEPS' order.
+        # The searches run on flat lists over the grid padded with closed cells (LLD §27.2): no bounds check,
+        # the cell numbers in today's order (row, then column), the eight steps as offsets in STEPS' order.
+        self.w = g + 2
+        self.padded: list[float] = np.pad(self.factor, 1, constant_values=np.inf).ravel().tolist()
+        self.steps: list[tuple[int, float]] = [(di * self.w + dj, ln * self.cell_m) for di, dj, ln in STEPS]
 
-    def factors_from(self, s: tuple[int, int]) -> list[float]:
-        """The step factors for a search from cell s: the start cell always open (the tank is there)."""
-        f = self.factor.copy()
-        if math.isinf(f[s]):
-            f[s] = 1.0
-        return f.ravel().tolist()
+    def pad(self, i: int, j: int) -> int:
+        return (i + 1) * self.w + j + 1
+
+    def unpad(self, k: int) -> tuple[int, int]:
+        i, j = divmod(k, self.w)
+        return i - 1, j - 1
+
+    def octile_from(self, t: tuple[int, int], k2: float) -> list[float]:
+        """Per padded cell the octile distance to cell t in metres (A*'s h without a reach, LLD §27.2)."""
+        idx = np.arange(-1, self.g + 1)
+        dx = np.abs(idx - t[0])[:, None]
+        dy = np.abs(idx - t[1])[None, :]
+        h = self.cell_m * (np.maximum(dx, dy) + k2 * np.minimum(dx, dy))
+        return h.ravel().tolist()
+
+    def search_from(self, s: tuple[int, int]) -> list[float]:
+        """The padded step factors for a search from cell s: the start cell open (the tank is there)."""
+        f = self.padded.copy()
+        k = self.pad(*s)
+        if math.isinf(f[k]):
+            f[k] = 1.0
+        return f
 
     def of(self, x: float, y: float) -> tuple[int, int] | None:
         i, j = math.floor((x + self.half_m) / self.cell_m), math.floor((y + self.half_m) / self.cell_m)
@@ -98,122 +121,127 @@ class RoutePlanner:
         s, t = grid.of(*start), grid.of(*goal)
         if s is None or t is None:
             return None
-        g, step = grid.g, grid.cell_m
-        factor = grid.factors_from(s)
-        si, ti = s[0] * g + s[1], t[0] * g + t[1]
+        step, steps, w = grid.cell_m, grid.steps, grid.w
+        factor = grid.search_from(s)
+        si, ti = grid.pad(*s), grid.pad(*t)
         if not goal_ok and math.isinf(factor[ti]):
             return None
         factor[ti] = factor[ti] if math.isfinite(factor[ti]) else 1.0
+        n = len(factor)
         tx, ty = t
         reach = near_m / step  # in cells
-
-        def h(i: int, j: int) -> float:  # never more than the real cost (factor >= 1)
-            dx, dy = abs(i - tx), abs(j - ty)
-            if reach > 0:  # straight-line distance to the reach circle
-                return step * max(0.0, math.hypot(dx, dy) - reach)
-            return step * (max(dx, dy) + (SQRT2 - 1.0) * min(dx, dy))
-
-        def arrived(i: int, j: int) -> bool:
-            return (i * g + j) == ti or (reach > 0 and math.hypot(i - tx, j - ty) <= reach)
-
-        best = {si: 0.0}
-        came: dict[int, int] = {}
-        heap = [(h(*s), 0.0, si)]
+        k2 = SQRT2 - 1.0
+        hypot, inf, push, pop = math.hypot, math.inf, heapq.heappush, heapq.heappop
+        best = [inf] * n
+        best[si] = 0.0
+        came = [0] * n
         end: int | None = None
-        while heap:
-            _, so_far, cur = heapq.heappop(heap)
-            if arrived(*divmod(cur, g)):
-                end = cur
-                break
-            if so_far > best.get(cur, math.inf):
-                continue
-            ci, cj = divmod(cur, g)
-            for di, dj, ln in STEPS:
-                ni, nj = ci + di, cj + dj
-                if not (0 <= ni < g and 0 <= nj < g):
+        if reach <= 0:  # h of every cell at once: the same sums as one by one, so the same floats
+            hs = grid.octile_from(t, k2)
+            heap = [(hs[si], 0.0, si)]
+            while heap:
+                _, so_far, cur = pop(heap)
+                if cur == ti:
+                    end = cur
+                    break
+                if so_far > best[cur]:
                     continue
-                nxt = ni * g + nj
-                f = factor[nxt]
-                if f == math.inf:
+                for off, ln in steps:
+                    nxt = cur + off
+                    f = factor[nxt]
+                    if f == inf:
+                        continue
+                    c = so_far + ln * f
+                    if c < best[nxt]:
+                        best[nxt] = c
+                        came[nxt] = cur
+                        push(heap, (c + hs[nxt], c, nxt))
+        else:  # h: the straight line to the reach circle, never more than the real cost (factor >= 1); each
+            # cell's h kept once worked out (-1: not yet); within reach exactly where h is 0
+            hc = [-1.0] * n
+            hc[si] = step * max(0.0, hypot(s[0] - tx, s[1] - ty) - reach)
+            heap = [(hc[si], 0.0, si)]
+            while heap:
+                _, so_far, cur = pop(heap)
+                if cur == ti or hc[cur] == 0.0:
+                    end = cur
+                    break
+                if so_far > best[cur]:
                     continue
-                c = so_far + ln * step * f
-                if c < best.get(nxt, math.inf):
-                    best[nxt] = c
-                    came[nxt] = cur
-                    heapq.heappush(heap, (c + h(ni, nj), c, nxt))
+                for off, ln in steps:
+                    nxt = cur + off
+                    f = factor[nxt]
+                    if f == inf:
+                        continue
+                    c = so_far + ln * f
+                    if c < best[nxt]:
+                        best[nxt] = c
+                        came[nxt] = cur
+                        hn = hc[nxt]
+                        if hn < 0.0:
+                            ni, nj = divmod(nxt, w)
+                            hn = hc[nxt] = step * max(0.0, hypot(ni - 1 - tx, nj - 1 - ty) - reach)
+                        push(heap, (c + hn, c, nxt))
         if end is None:
             return None
         cells = [end]
         while cells[-1] != si:
             cells.append(came[cells[-1]])
         cells.reverse()
-        mid = [grid.centre(*divmod(c, g)) for c in cells[1:-1]]
+        mid = [grid.centre(*grid.unpad(c)) for c in cells[1:-1]]
         if end != ti:  # ended within reach: its cell, then the goal itself (to steer at)
-            mid.append(grid.centre(*divmod(end, g)))
+            mid.append(grid.centre(*grid.unpad(end)))
         return [start, *mid, goal]
 
     def nearest(self, cost: CostMap, start: XY, accept: Callable[[int, int], bool]) -> tuple[int, int] | None:
         """The cheapest-to-reach 10 cm grid cell that `accept` takes (Dijkstra, stopping at the first one -
         no whole-map search), or None when none is reachable."""
         grid = self._grid_for(cost)
-        g, step = grid.g, grid.cell_m
         s = grid.of(*start)
         if s is None:
             return None
-        factor = grid.factors_from(s)
-        si = s[0] * g + s[1]
-        best = {si: 0.0}
-        heap = [(0.0, si)]
-        while heap:
-            so_far, cur = heapq.heappop(heap)
-            if so_far > best.get(cur, math.inf):
-                continue
-            ci, cj = divmod(cur, g)
-            if accept(ci, cj):
-                return ci, cj
-            for di, dj, ln in STEPS:
-                ni, nj = ci + di, cj + dj
-                if 0 <= ni < g and 0 <= nj < g:
-                    nxt = ni * g + nj
-                    f = factor[nxt]
-                    if f != math.inf:
-                        c = so_far + ln * step * f
-                        if c < best.get(nxt, math.inf):
-                            best[nxt] = c
-                            heapq.heappush(heap, (c, nxt))
-        return None
+        best = self._dijkstra(grid, s, accept)
+        return None if isinstance(best, list) else best
 
     def costs(self, cost: CostMap, start: XY) -> FloatArray:
         """The route cost from start to every 10 cm grid cell (Dijkstra), inf where unreachable."""
         grid = self._grid_for(cost)
-        g, step = grid.g, grid.cell_m
-        out = np.full((g, g), np.inf)
+        g = grid.g
         s = grid.of(*start)
         if s is None:
-            return out
-        factor = grid.factors_from(s)
-        si = s[0] * g + s[1]
-        best = {si: 0.0}
+            return np.full((g, g), np.inf)
+        best = self._dijkstra(grid, s, None)
+        assert isinstance(best, list)
+        return np.array(best).reshape(g + 2, g + 2)[1:-1, 1:-1].copy()
+
+    @staticmethod
+    def _dijkstra(
+        grid: _Grid, s: tuple[int, int], accept: Callable[[int, int], bool] | None
+    ) -> list[float] | tuple[int, int]:
+        """From cell s: the first cell `accept` takes (in cost order), else the cost to every padded cell."""
+        factor, steps = grid.search_from(s), grid.steps
+        inf, push, pop = math.inf, heapq.heappush, heapq.heappop
+        si, w = grid.pad(*s), grid.w
+        best = [inf] * len(factor)
+        best[si] = 0.0
         heap = [(0.0, si)]
         while heap:
-            so_far, cur = heapq.heappop(heap)
-            if so_far > best.get(cur, math.inf):
+            so_far, cur = pop(heap)
+            if so_far > best[cur]:
                 continue
-            ci, cj = divmod(cur, g)
-            for di, dj, ln in STEPS:
-                ni, nj = ci + di, cj + dj
-                if 0 <= ni < g and 0 <= nj < g:
-                    nxt = ni * g + nj
-                    f = factor[nxt]
-                    if f != math.inf:
-                        c = so_far + ln * step * f
-                        if c < best.get(nxt, math.inf):
-                            best[nxt] = c
-                            heapq.heappush(heap, (c, nxt))
-        flat = out.ravel()
-        for k, v in best.items():
-            flat[k] = v
-        return out
+            if accept is not None:
+                ci, cj = divmod(cur, w)
+                if accept(ci - 1, cj - 1):
+                    return ci - 1, cj - 1
+            for off, ln in steps:
+                nxt = cur + off
+                f = factor[nxt]
+                if f != inf:
+                    c = so_far + ln * f
+                    if c < best[nxt]:
+                        best[nxt] = c
+                        push(heap, (c, nxt))
+        return best
 
 
 def aim_point(route: list[XY], at: XY, ahead_m: float = 0.5) -> XY:

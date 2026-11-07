@@ -123,3 +123,17 @@ def test_glimpses_of_the_goal_kind_since_the_last_input(monkeypatch: pytest.Monk
         w.on_picture(Frame(seq=k, cap_us=1_000_000 + k, recv_s=1.0, jpeg=GREY_JPEG), small, [])
     assert [g.cls for g in w.input(1.0, 1.0, True).glimpses] == ["toy", "toy"]
     assert w.input(1.1, 1.1, True).glimpses == ()
+
+
+def test_recent_sightings_keep_half_a_second(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plan Z10c (LLD §25.9): every fresh picture's sightings, kept for SEE? / HOWFAR for 0.5 s."""
+    from conqueror_ai.domain.objects import Located
+
+    w = World(CAL, CFG, FloorDepth(), frozenset(), {}, Limits(), None)
+    toy = Located("toy", 1.0, 0.0, 0.05, (0.0, 0.0, 1.0, 1.0))
+    monkeypatch.setattr(w.map_run.p, "fresh", lambda: True)
+    monkeypatch.setattr(w.map_run.p, "maybes", lambda: [toy])
+    small = np.zeros((10, 10, 3), np.uint8)
+    w.on_picture(Frame(seq=1, cap_us=1_000_000, recv_s=1.0, jpeg=GREY_JPEG), small, [])
+    assert w.recent_sightings(1_400_000) == [toy]
+    assert w.recent_sightings(1_600_000) == []

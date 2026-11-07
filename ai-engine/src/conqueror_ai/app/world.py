@@ -5,6 +5,7 @@ objects; World adds the goal, the memory of things, the play area and the per-pi
 from __future__ import annotations
 
 import json
+from collections import deque
 from collections.abc import Callable, Sequence
 
 import numpy as np
@@ -22,6 +23,8 @@ from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.sonar_model import SonarModel
 from conqueror_ai.domain.telemetry import parse_td
 from conqueror_ai.domain.types import Detection, Frame, TelemSample
+
+SIGHTINGS_KEEP_US = 500_000  # SEE? / HOWFAR count a single sighting this long (AI engine LLD §25.9)
 
 
 def maybes_of(maybes: Sequence[Located], kind: Callable[[str], bool]) -> list[tuple[float, float]]:
@@ -166,9 +169,9 @@ class World:
         self._cam_still = True
         self._used = False  # a picture was used since the last input
         self._fresh = False  # ... or gave find maybes (used, or taken while turning: LLD §25 A1)
-        self._glimpses: list[
-            Glimpse
-        ] = []  # the goal's, while the camera moved, since the last input (§25 A2)
+        # the goal's glimpses since the last input (§25 A2); every sighting of the last 0.5 s (§25.9)
+        self._glimpses: list[Glimpse] = []
+        self._sightings: deque[tuple[int, list[Located]]] = deque()
 
     @classmethod
     def around(cls, run: MapRun) -> World:
@@ -213,6 +216,10 @@ class World:
         due (a replay); live, Perception sees off the event loop (`see`, then `apply`)."""
         used = self.map_run.gate(f, rgb, dets, cam)
         self._fresh = self._fresh or self.map_run.p.fresh()
+        if self.map_run.p.fresh():
+            self._sightings.append((f.cap_us, list(self.map_run.p.maybes())))
+            while self._sightings and f.cap_us - self._sightings[0][0] > SIGHTINGS_KEEP_US:
+                self._sightings.popleft()
         if self.goal is not None:
             self._glimpses += [g for g in self.map_run.p.glimpses() if self.goal.kind(g.cls)]
         self.last_frame = f
@@ -228,6 +235,10 @@ class World:
         if inv is not None:
             self.apply(self.see(used, inv, f.cap_us), f.cap_us)
         return used
+
+    def recent_sightings(self, now_us: int) -> list[Located]:
+        """Every class's single sightings captured in the 0.5 s before `now_us` (SEE? / HOWFAR, §25.9)."""
+        return [s for t, ss in self._sightings if 0 <= now_us - t <= SIGHTINGS_KEEP_US for s in ss]
 
     def see(self, cam: CameraModel, inv: FloatArray, t_us: int) -> Seen:
         """The depth picture through Seeing (pure: safe off the event loop)."""

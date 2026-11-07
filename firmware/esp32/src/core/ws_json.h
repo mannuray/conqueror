@@ -112,7 +112,8 @@ size_t jsonPong(char* out, size_t cap, const char* t0, uint32_t tank_ms, uint64_
 
 // Plan N3 (Tank Logo LLD §20.4): the logo_* events, {"t":"ev","seq","tank_ms","kind":"logo_…",…} to every client.
 size_t jsonLogoStarted(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, const char* name, const char* by);
-size_t jsonLogoLine(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint16_t line, int32_t round);
+// part: 0 the main program, 1 LAUNCH's part (Tank Logo LLD §26.4).
+size_t jsonLogoLine(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint16_t line, int32_t round, uint8_t part);
 size_t jsonLogoPose(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, int32_t x_mm, int32_t y_mm, int16_t heading);
 size_t jsonLogoSay(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, const char* text);
 size_t jsonLogoNote(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint16_t line, const char* msg);

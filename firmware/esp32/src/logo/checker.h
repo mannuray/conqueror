@@ -59,6 +59,7 @@ class Checker {
   void checkNotes(const Node* list);
   void notesError(uint8_t err, const Node* at);
   void markTails(int16_t def, Node* body, CheckResult& r);
+  void checkLaunch(const Node* program);  // 7057 (checker_launch.cpp, Tank Logo LLD §26.3)
   void error(uint16_t code, uint16_t tok, const DiagArg* a = nullptr, uint8_t n = 0);
 
   const Parser& m_p;

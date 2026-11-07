@@ -16,9 +16,11 @@ size_t jsonLogoStarted(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, co
              static_cast<unsigned long>(seq), static_cast<unsigned long>(tank_ms), n, b);
 }
 
-size_t jsonLogoLine(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint16_t line, int32_t round) {
-  return fmt(out, cap, "{\"t\":\"ev\",\"seq\":%lu,\"tank_ms\":%lu,\"kind\":\"logo_line\",\"line\":%u,\"round\":%ld}",
-             static_cast<unsigned long>(seq), static_cast<unsigned long>(tank_ms), line, static_cast<long>(round));
+size_t jsonLogoLine(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, uint16_t line, int32_t round, uint8_t part) {
+  return fmt(out, cap,
+             "{\"t\":\"ev\",\"seq\":%lu,\"tank_ms\":%lu,\"kind\":\"logo_line\",\"line\":%u,\"round\":%ld,\"part\":%u}",
+             static_cast<unsigned long>(seq), static_cast<unsigned long>(tank_ms), line, static_cast<long>(round),
+             static_cast<unsigned>(part));
 }
 
 size_t jsonLogoPose(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, int32_t x_mm, int32_t y_mm, int16_t heading) {

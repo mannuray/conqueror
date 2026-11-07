@@ -234,6 +234,33 @@ void test_program_ok_flag() {
   TEST_ASSERT_FALSE(g_prog.ok);
 }
 
+// ---------------------------------------------------------------- Plan N9: LAUNCH (Tank Logo LLD §26.4)
+
+void test_launch_is_an_effect_and_the_main_part_jumps_over_its_block() {
+  TEST_ASSERT_TRUE(run("LAUNCH [ BEEP WAIT 1 ]  FD 10"));
+  TEST_ASSERT_EQUAL_STRING("LAUNCH | FORWARD 10", g_trace);
+  TEST_ASSERT_EQUAL(VmStatus::kHalt, g_end);
+}
+
+void test_the_launched_part_runs_its_block_from_its_entry_and_ends() {
+  TEST_ASSERT_TRUE(run("LAUNCH [ BEEP WAIT 1 ]  FD 10"));
+  g_vm.load(g_prog, 1);
+  Sensors s;
+  TEST_ASSERT_EQUAL(VmStatus::kEffect, g_vm.run(500, s));
+  TEST_ASSERT_EQUAL(EffectKind::kLaunch, g_vm.effect().kind);
+  const uint16_t entry = g_vm.effect().entry;
+  Vm part;
+  part.load(g_prog, 1, entry);
+  g_trace[0] = '\0';
+  VmStatus st = VmStatus::kYield;
+  for (int guard = 0; guard < 100 && st != VmStatus::kHalt; ++guard) {
+    st = part.run(500, s);
+    if (st == VmStatus::kEffect) record(part.effect());
+  }
+  TEST_ASSERT_EQUAL_STRING("BEEP | WAIT 1", g_trace);
+  TEST_ASSERT_EQUAL(VmStatus::kHalt, st);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_effects_in_order_with_their_values);
@@ -258,5 +285,7 @@ int main(int, char**) {
   RUN_TEST(test_wait_until_inside_a_reporter_has_its_own_deadline);
   RUN_TEST(test_deep_calls_with_inputs_are_7011_not_7014);
   RUN_TEST(test_program_ok_flag);
+  RUN_TEST(test_launch_is_an_effect_and_the_main_part_jumps_over_its_block);
+  RUN_TEST(test_the_launched_part_runs_its_block_from_its_entry_and_ends);
   return UNITY_END();
 }

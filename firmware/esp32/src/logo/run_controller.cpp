@@ -65,12 +65,6 @@ int32_t yawDelta(uint16_t from, uint16_t to) {
   return d;
 }
 
-// The actions the motion service carries out (the program waits for their end).
-bool isMotion(ActKind k) {
-  return k == ActKind::kMove || k == ActKind::kTurn || k == ActKind::kArc || k == ActKind::kPivot ||
-         k == ActKind::kHome;
-}
-
 // The actions the program waits out by the clock (WAIT, the tune of PLAY, one tick of WAIT UNTIL).
 bool waits(ActKind k) { return k == ActKind::kWait || k == ActKind::kTone || k == ActKind::kTick; }
 
@@ -80,11 +74,18 @@ bool RunController::start(const Program& p, const RunConfig& cfg, const RunTelem
   if (!p.ok) return false;
   m_p = &p;
   m_cfg = cfg;
-  m_vm.load(p, cfg.seed);
-  m_vm.setStepping(cfg.step);
-  m_state = RunState::kRunning;
+  for (Part& pt : m_parts) {
+    Vm* vm = pt.vm;
+    pt = Part();
+    pt.vm = vm;
+  }
+  m_cur = 0;
+  m_first = 1;  // the main part first, whatever the last run's ticks were (final review M3)
+  m_launches = 0;
+  m_parts[0].vm->load(p, cfg.seed);
+  m_parts[0].vm->setStepping(cfg.step);
+  m_parts[0].state = RunState::kRunning;
   m_start = now_ms;
-  m_wake = 0;
   m_start_yaw = t.yaw_cdeg;
   m_speed = 40;
   m_blocked = false;
@@ -92,34 +93,18 @@ bool RunController::start(const Program& p, const RunConfig& cfg, const RunTelem
   m_area_m = 0;
   m_area_at = Pose();
   m_thing[0] = '\0';
-  m_ask_deadline = 0;
   m_next_ask = now_ms;
-  m_ask_held = false;
   return true;
 }
 
-RunOut RunController::tick(const RunTelem& t, uint32_t now_ms) {
-  RunOut out;
-  if (!active()) return out;
-  if (now_ms - m_start >= static_cast<uint32_t>(gen::kRunTimeS) * 1000u) return end(7041);
-  if (m_state == RunState::kMotion || m_state == RunState::kPaused || m_state == RunState::kSkill) return out;
-  if (m_ask_held) {  // a question paced to ~10 Hz goes out now (its 300 ms start here)
-    if (static_cast<int32_t>(now_ms - m_next_ask) < 0) return out;
-    sendAsk(now_ms, out);
-    return out;
-  }
-  if (!due(now_ms)) return out;
-  step(t, now_ms, out);
-  return out;
-}
-
 bool RunController::due(uint32_t now_ms) {
-  if (m_state == RunState::kWaiting) {
-    if (static_cast<int32_t>(now_ms - m_wake) < 0) return false;
-    m_state = RunState::kRunning;
-  } else if (m_state == RunState::kAsking) {
-    if (static_cast<int32_t>(now_ms - m_ask_deadline) < 0) return false;
-    answer(m_ask_q == AskQ::kSee ? 0 : -1);  // no answer in time: FALSE / -1
+  Part& p = cur();
+  if (p.state == RunState::kWaiting) {
+    if (static_cast<int32_t>(now_ms - p.wake) < 0) return false;
+    p.state = RunState::kRunning;
+  } else if (p.state == RunState::kAsking) {
+    if (static_cast<int32_t>(now_ms - p.ask_deadline) < 0) return false;
+    answer(p.ask_q == AskQ::kSee ? 0 : -1);  // no answer in time: FALSE / -1
   }
   return true;
 }
@@ -127,29 +112,26 @@ bool RunController::due(uint32_t now_ms) {
 // The value the kResume after the question pushes: SEE? a boolean, HOWFAR a number of cm.
 void RunController::answer(int32_t value) {
   constexpr int32_t kMaxCm = 1000000;  // far beyond any room; keeps value * 1000 in range
+  Part& p = cur();
   value = value > kMaxCm ? kMaxCm : (value < -kMaxCm ? -kMaxCm : value);
-  m_vm.resume(m_ask_q == AskQ::kSee ? Value{VTag::kBool, value != 0 ? 1 : 0} : Value{VTag::kNum, value * 1000});
-  m_state = RunState::kRunning;
+  p.vm->resume(p.ask_q == AskQ::kSee ? Value{VTag::kBool, value != 0 ? 1 : 0} : Value{VTag::kNum, value * 1000});
+  p.state = RunState::kRunning;
 }
 
 // The question goes out now: the host carries out the kAsk, the 300 ms start, the next question waits 100 ms.
 void RunController::sendAsk(uint32_t now_ms, RunOut& out) {
-  m_ask_held = false;
+  Part& p = cur();
+  p.ask_held = false;
   out.act = true;
-  out.action = m_ask_action;
-  m_ask_deadline = now_ms + kAskMs;
+  out.action = p.ask_action;
+  p.ask_deadline = now_ms + kAskMs;
   m_next_ask = now_ms + kAskGapMs;
 }
 
-RunOut RunController::onAskAnswer(int32_t value, uint32_t now_ms) {
-  if (m_state != RunState::kAsking || m_ask_held || static_cast<int32_t>(now_ms - m_ask_deadline) >= 0) return RunOut();
-  answer(value);
-  return RunOut();
-}
-
 RunOut RunController::onSkillEnd(SkillEnd e, uint32_t) {
-  if (m_state != RunState::kSkill) return RunOut();
-  m_state = RunState::kRunning;
+  Part& m = m_parts[0];  // a skill is always the main part's
+  if (m.state != RunState::kSkill) return RunOut();
+  m.state = RunState::kRunning;
   if (e == SkillEnd::kDone) {
     m_blocked = false;
     return RunOut();
@@ -163,25 +145,35 @@ RunOut RunController::onSkillEnd(SkillEnd e, uint32_t) {
 
 void RunController::step(const RunTelem& t, uint32_t now_ms, RunOut& out) {
   const Sensors s = sensors(t, now_ms);
-  switch (m_vm.run(m_cfg.budget, s)) {  // VARIANT POINT: Vm results
+  Vm& vm = *cur().vm;
+  switch (vm.run(m_cfg.budget, s)) {  // VARIANT POINT: Vm results
     case VmStatus::kYield: return;
     case VmStatus::kLine:
-      m_state = RunState::kPaused;
+      cur().state = RunState::kPaused;
       out.line = true;
-      out.line_no = m_vm.line();
-      out.round = m_vm.round();
+      out.line_no = vm.line();
+      out.round = vm.round();
       return;
     case VmStatus::kEffect: return effect(t, now_ms, out);
-    case VmStatus::kHalt: out = end(0); return;
+    case VmStatus::kHalt:  // the main program at its end: done; the launched part's block at its end: it stops
+      if (m_cur == 0) {
+        out = end(0);
+      } else {  // the page's marker for this part goes (line 0, final review M5)
+        cur().state = RunState::kIdle;
+        out.line = true;
+        out.line_no = 0;
+      }
+      return;
     case VmStatus::kStop: out = end(0); return;  // the STOP word: done, as at the end (Tank Logo LLD §25.6)
-    case VmStatus::kError: out = endWith(m_vm.error().code, m_vm.error().line, m_vm.error().msg); return;
+    case VmStatus::kError: out = endWith(vm.error().code, vm.error().line, vm.error().msg); return;
   }
 }
 
 void RunController::effect(const RunTelem& t, uint32_t now_ms, RunOut& out) {
-  const Effect& e = m_vm.effect();
-  m_last = e.kind;
-  m_last_sub = e.sub;
+  Part& p = cur();
+  const Effect& e = p.vm->effect();
+  p.last = e.kind;
+  p.last_sub = e.sub;
   MapState ms;
   ms.speed_pct = m_speed;
   Action a;
@@ -193,9 +185,15 @@ void RunController::effect(const RunTelem& t, uint32_t now_ms, RunOut& out) {
   if (a.kind != ActKind::kTick && a.kind != ActKind::kAsk) {  // a question is asked again and again: no line event
     out.line = true;
     out.line_no = e.line;
-    out.round = m_vm.round();
+    out.round = p.vm->round();
   }
-  carry(a, t, now_ms, out);
+  if (m_cur == 1 && mainOnly(a.kind)) {  // the checker refuses it first (7057); this is the guard (LLD §26.4)
+    out = end(7057);
+  } else if (a.kind == ActKind::kLaunch) {  // nothing for the host: the second part starts (7058: one runs)
+    if (!launch(a)) out = end(7058);
+  } else {
+    carry(a, t, now_ms, out);
+  }
 }
 
 // The new state for an action, and whether the host has to do it.
@@ -212,16 +210,16 @@ void RunController::carry(const Action& a, const RunTelem& t, uint32_t now_ms, R
     m_going = false;
     return;
   }
-  if (isMotion(a.kind)) {
+  if (waitsForMotion(a.kind)) {
     m_going = false;  // the motion takes over from a GO (no end comes for the GO)
     if (a.kind == ActKind::kHome) out.action.delta_cdeg = yawDelta(t.yaw_cdeg, m_start_yaw);
-    m_state = RunState::kMotion;
+    cur().state = RunState::kMotion;
     return;
   }
   if (a.kind == ActKind::kSpeed) m_speed = a.speed_pct;
   if (waits(a.kind)) {
-    m_wake = now_ms + (a.kind == ActKind::kTick ? 1 : a.ms);
-    m_state = RunState::kWaiting;
+    cur().wake = now_ms + (a.kind == ActKind::kTick ? 1 : a.ms);
+    cur().state = RunState::kWaiting;
   }
   // LED, BEEP, SOUND, LOOK, SAY: sent, the program goes on
 }
@@ -230,13 +228,14 @@ void RunController::carry(const Action& a, const RunTelem& t, uint32_t now_ms, R
 // the laptop and carries the AREA that is on. Each of them takes over from a GO (a question does not).
 bool RunController::carryAi(const Action& a, const RunTelem& t, uint32_t now_ms, RunOut& out) {
   if (a.kind == ActKind::kAsk) {
-    m_ask_q = a.ask_q;
-    m_state = RunState::kAsking;
-    m_ask_action = a;
-    if (static_cast<int32_t>(now_ms - m_next_ask) >= 0) {
+    Part& p = cur();
+    p.ask_q = a.ask_q;
+    p.state = RunState::kAsking;
+    p.ask_action = a;
+    if (static_cast<int32_t>(now_ms - m_next_ask) >= 0 && !otherAsking()) {
       sendAsk(now_ms, out);
     } else {
-      m_ask_held = true;  // too soon after the last question: the runner waits until it may ask
+      p.ask_held = true;  // too soon after the last question, or the other part's is out: wait to ask
       out.act = false;
     }
     return true;
@@ -252,7 +251,7 @@ bool RunController::carryAi(const Action& a, const RunTelem& t, uint32_t now_ms,
   out.action.has_area = m_area_m != 0;
   out.action.area_m = m_area_m;
   out.action.area_at = m_area_at;
-  m_state = RunState::kSkill;
+  cur().state = RunState::kSkill;
   return true;
 }
 
@@ -269,8 +268,8 @@ Sensors RunController::sensors(const RunTelem& t, uint32_t now_ms) const {
 }
 
 RunOut RunController::onPrimitiveEnd(const core::PrimitiveEnd& e) {
-  if (m_state != RunState::kMotion) return goEnded(e);
-  m_state = RunState::kRunning;
+  if (m_parts[0].state != RunState::kMotion) return goEnded(e);  // a motion is always the main part's
+  m_parts[0].state = RunState::kRunning;
   if (e.reason == core::EndReason::kDone) {
     m_blocked = false;
     return RunOut();
@@ -303,22 +302,23 @@ RunOut RunController::onMotionEvent(core::MotionEvent e) {
 RunOut RunController::onEvent(RunEvent e) {
   if (!active()) return RunOut();
   if (e != RunEvent::kStep) return end(kByRunEvent[static_cast<uint8_t>(e)]);
-  if (m_state == RunState::kPaused) m_state = RunState::kRunning;
+  if (m_parts[0].state == RunState::kPaused) m_parts[0].state = RunState::kRunning;
   return RunOut();
 }
 
-// An ending with its message: {line} = the program's line, {word} = the last effect's word (7021).
+// An ending with its message: {line} = the current part's line, {word} = its last effect's word (7021, 7057).
 RunOut RunController::end(uint16_t code) {
   char line[8], msg[192] = "";
-  snprintf(line, sizeof line, "%u", static_cast<unsigned>(m_vm.line()));
-  const DiagArg a[] = {{"line", line}, {"word", effectWord(m_last, m_last_sub)}, {"thing", m_thing}};
+  const Part& p = cur();
+  snprintf(line, sizeof line, "%u", static_cast<unsigned>(p.vm->line()));
+  const DiagArg a[] = {{"line", line}, {"word", effectWord(p.last, p.last_sub)}, {"thing", m_thing}};
   if (code != 0) renderMessage(errorTemplate(code), a, 3, msg, sizeof msg);
-  return endWith(code, m_vm.line(), msg);
+  return endWith(code, p.vm->line(), msg);
 }
 
 RunOut RunController::endWith(uint16_t code, uint16_t line, const char* msg) {
   RunOut out;
-  m_state = RunState::kEnded;
+  m_parts[0].state = m_parts[1].state = RunState::kEnded;  // an ending ends both parts (LLD §26.3 rule 4)
   out.ended = true;
   out.code = code;
   out.end_line = line;

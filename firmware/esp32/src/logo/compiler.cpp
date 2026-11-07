@@ -31,7 +31,7 @@ constexpr WordUse kUses[] = {
     {"HOWFAR", WordRole::kAsk, static_cast<uint8_t>(AskQ::kHowfar)},
     {"REPEAT", WordRole::kRepeat, 0}, {"FOREVER", WordRole::kForever, 0}, {"IF", WordRole::kIf, 0},
     {"IFELSE", WordRole::kIfElse, 0}, {"WHILE", WordRole::kWhile, 0}, {"WAIT UNTIL", WordRole::kWaitUntil, 0},
-    {"STOP", WordRole::kStop, 0}, {"OUTPUT", WordRole::kOutput, 0},
+    {"STOP", WordRole::kStop, 0}, {"OUTPUT", WordRole::kOutput, 0}, {"LAUNCH", WordRole::kLaunch, 0},
     sensor("DISTANCE", Sensor::kDistance), sensor("OBSTACLE?", Sensor::kObstacle),
     sensor("BLOCKED?", Sensor::kBlocked), sensor("HEADING", Sensor::kHeading), sensor("TILTED?", Sensor::kTilted),
     sensor("BATTERY", Sensor::kBattery), sensor("TIMER", Sensor::kTimer), builtin("RANDOM", Builtin::kRandom),

@@ -535,8 +535,10 @@ void test_uno_event_names_cover_lite_events() {
 void test_logo_events() {
   jsonLogoStarted(buf, sizeof buf, 1, 2, "square", "phone-1");
   TEST_ASSERT_EQUAL_STRING("{\"t\":\"ev\",\"seq\":1,\"tank_ms\":2,\"kind\":\"logo_started\",\"name\":\"square\",\"by\":\"phone-1\"}", buf);
-  jsonLogoLine(buf, sizeof buf, 3, 4, 7, 2);
-  TEST_ASSERT_NOT_NULL(strstr(buf, "\"kind\":\"logo_line\",\"line\":7,\"round\":2}"));
+  jsonLogoLine(buf, sizeof buf, 3, 4, 7, 2, 0);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"kind\":\"logo_line\",\"line\":7,\"round\":2,\"part\":0}"));
+  jsonLogoLine(buf, sizeof buf, 3, 4, 9, 0, 1);  // LAUNCH's part (Tank Logo LLD §26.4)
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"line\":9,\"round\":0,\"part\":1}"));
   jsonLogoPose(buf, sizeof buf, 5, 6, 1234, -56, -90);
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"kind\":\"logo_pose\",\"x_cm\":123.4,\"y_cm\":-5.6,\"heading\":-90}"));
   jsonLogoSay(buf, sizeof buf, 7, 8, "say \"hi\"");

@@ -218,7 +218,7 @@ var LogoCore = (function () {
   // st: editing, checking, ready, mistakes, starting, running, stepping, ended; other = another device's program
   function runBarStart() {
     return { st: "editing", prog: 0, ok: false, step: false, again: false, mine: false, other: false,
-             line: 0, round: 0, end: null, msg: "", act: null };
+             line: 0, round: 0, line2: 0, end: null, msg: "", act: null };  // line2: LAUNCH's part (§26.4)
   }
 
   var NACK_TEXT = {  // the rest use the bridge's own message
@@ -245,7 +245,8 @@ var LogoCore = (function () {
         break;
       case "run":
         if (!canRun(s)) break;
-        s.st = "starting"; s.step = !!ev.step; s.again = false; s.end = null; s.msg = ""; s.line = 0; s.act = "run";
+        s.st = "starting"; s.step = !!ev.step; s.again = false; s.end = null; s.msg = ""; s.line = 0; s.line2 = 0;
+        s.act = "run";
         break;
       case "ack": if (s.st === "starting") { s.st = "running"; s.mine = true; s.again = false; } break;
       case "nack":
@@ -256,6 +257,7 @@ var LogoCore = (function () {
       case "started": case "pose": if (!ours(s)) s.other = true; break;
       case "line":  // sent at each step-mode pause (the line changed) and with each move, light or sound
         if (!ours(s)) { s.other = true; break; }
+        if (ev.part === 1) { s.line2 = ev.line; break; }  // LAUNCH's part: its own marker, never NEXT
         if (s.mine) s.st = s.step && ev.line !== s.line ? "stepping" : "running";
         s.line = ev.line; s.round = ev.round;
         break;

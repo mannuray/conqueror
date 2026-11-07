@@ -9,7 +9,8 @@ namespace {
 
 constexpr const char* kEffectWords[] = {"FORWARD", "BACK",  "RIGHT", "LEFT", "SPEED", "WAIT",       "LED",       "BEEP",
                                         "SOUND",   "LOOK",  "HOME",  "ARC",  "PIVOT", "PLAY",       "SAY",
-                                        "WAIT UNTIL", "WAIT UNTIL", "GO", "HOLD", "SEE?", "FIND", "AREA"};
+                                        "WAIT UNTIL", "WAIT UNTIL", "GO", "HOLD", "SEE?", "FIND", "AREA",
+                                        "LAUNCH"};
 constexpr const char* kAskWords[] = {"SEE?", "HOWFAR"};
 constexpr const char* kSkillWords[] = {"FIND", "WANDER", "EXPLORE", "SETXY"};
 static_assert(sizeof kEffectWords / sizeof kEffectWords[0] == static_cast<size_t>(EffectKind::kCount), "one per kind");

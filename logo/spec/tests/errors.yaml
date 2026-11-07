@@ -250,3 +250,52 @@
   tank: {ai: true, learning: true}
   expect: ok
   reads: (FORWARD 10)
+
+# ---- LAUNCH (Tank Logo LLD §26): 7057 a word that moves the tank inside LAUNCH, followed through your own words
+- name: a move inside LAUNCH
+  source: LAUNCH [ BEEP FORWARD 10 ]
+  expect: {error: 7057, line: 1, col: 15}
+  message_has: only the main program
+
+- name: a move through a word of your own inside LAUNCH
+  source: |
+    TO STEP1 FD 10 END
+    LAUNCH [ STEP1 ]
+  expect: {error: 7057, line: 2, col: 10}
+
+- name: a move two words deep inside LAUNCH
+  source: |
+    TO A B END
+    TO B LT 90 END
+    LAUNCH [ A ]
+  expect: {error: 7057, line: 3, col: 10}
+
+- name: the camera inside LAUNCH
+  source: LAUNCH [ LOOK LEFT ]
+  expect: {error: 7057, line: 1, col: 10}
+
+- name: AREA inside LAUNCH
+  source: LAUNCH [ AREA 2 ]
+  tank: {ai: true}
+  expect: {error: 7057, line: 1, col: 10}
+
+- name: a move nested inside a loop inside LAUNCH
+  source: LAUNCH [ REPEAT 2 [ IF DISTANCE < 20 [ BK 10 ] ] ]
+  expect: {error: 7057, line: 1, col: 40}
+
+- name: a recursive word of your own inside LAUNCH is no move
+  source: |
+    TO R BEEP R END
+    LAUNCH [ R ]
+  expect: ok
+  reads: (TO R () [ (BEEP) (R) ]) (LAUNCH [ (R) ])
+
+- name: LAUNCH needs its block
+  source: LAUNCH
+  expect: {error: 7002, line: 1, col: 1}
+
+- name: OUTPUT inside LAUNCH (final review I2)
+  source: |
+    TO F LAUNCH [ OUTPUT 1 ] WAIT 1 OUTPUT 2 END
+    SAY F
+  expect: {error: 7059, line: 1, col: 15}

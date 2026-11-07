@@ -26,7 +26,7 @@ core::FrameTx tx;
 core::BodyLink* link = nullptr;
 app::TelemetryPublisher* tel = nullptr;
 logo::Program g_running, g_checked;
-logo::Vm g_vm;
+logo::Vm g_vm, g_launched;
 logo::CheckSpace g_space;
 LogoController* lc = nullptr;
 
@@ -187,7 +187,7 @@ void setUp() {
   delete link;
   link = new core::BodyLink(tx);
   tel = new app::TelemetryPublisher(out, *link);
-  lc = new LogoController(out, logbook, *link, *tel, g_running, g_vm);
+  lc = new LogoController(out, logbook, *link, *tel, g_running, g_vm, g_launched);
   synced();
   hooks();
   g_claim = core::Decision::kSend;

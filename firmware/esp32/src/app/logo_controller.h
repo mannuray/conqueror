@@ -55,8 +55,8 @@ class LogoController {
   static constexpr uint8_t kToneChunk = 10;     // TONE frame: at most 10 notes
 
   LogoController(Replies& out, core::EventLog& log, core::BodyLink& link, TelemetryPublisher& tel,
-                 logo::Program& running, logo::Vm& vm)
-      : m_out(out), m_log(log), m_link(link), m_tel(tel), m_prog(running), m_rc(vm) {}
+                 logo::Program& running, logo::Vm& vm, logo::Vm& launched)
+      : m_out(out), m_log(log), m_link(link), m_tel(tel), m_prog(running), m_rc(vm, launched) {}
   void setHooks(const Hooks& h) { m_h = h; }
   void onRun(int fd, int32_t id, uint32_t prog, bool step, uint32_t now);  // logo_run
   void onStep(int fd, int32_t id);

@@ -47,6 +47,7 @@ class Mapper {
   bool ask();     // SEE? / HOWFAR
   bool skill();   // FIND / WANDER / EXPLORE / SETXY
   bool area();    // AREA
+  bool launch();  // LAUNCH
   bool thing(uint8_t i);
   bool number(uint8_t i, int32_t& milli);
   bool preset(uint8_t i, gen::InType place, const char* const* names, uint8_t n, uint8_t& idx);
@@ -70,7 +71,7 @@ bool Mapper::run() {
                                 &Mapper::wait,   &Mapper::led,   &Mapper::simple, &Mapper::sound, &Mapper::look,
                                 &Mapper::simple, &Mapper::arc,   &Mapper::pivot, &Mapper::play,   &Mapper::say,
                                 &Mapper::simple, &Mapper::simple, &Mapper::goHold, &Mapper::goHold, &Mapper::ask,
-                                &Mapper::skill,  &Mapper::area};
+                                &Mapper::skill,  &Mapper::area,  &Mapper::launch};
   static_assert(sizeof kMap / sizeof kMap[0] == static_cast<size_t>(EffectKind::kCount), "one per EffectKind");
   m_out = Action();
   m_out.line = m_e.line;
@@ -357,6 +358,12 @@ bool Mapper::area() {
   if (!number(0, m)) return false;
   m_out.kind = ActKind::kArea;
   m_out.area_m = static_cast<uint8_t>(m > 0 && whole(m) == 0 ? 1 : whole(m));  // never 0 by rounding
+  return true;
+}
+
+bool Mapper::launch() {
+  m_out.kind = ActKind::kLaunch;
+  m_out.entry = m_e.entry;
   return true;
 }
 

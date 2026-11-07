@@ -431,6 +431,23 @@
    "example": "FOREVER [ FD 50 IF BLOCKED? [ BK 10 RT 90 ] ]"
   },
   {
+   "name": "LAUNCH",
+   "aliases": [],
+   "kind": "control",
+   "level": 2,
+   "group": "flow",
+   "needs": [],
+   "inputs": [
+    {
+     "name": "steps",
+     "type": "block",
+     "unit": ""
+    }
+   ],
+   "help": "do these steps at the same time as the rest",
+   "example": "LAUNCH [ FOREVER [ BEEP WAIT 1 ] ]"
+  },
+  {
    "name": "WAIT UNTIL",
    "aliases": [],
    "kind": "control",

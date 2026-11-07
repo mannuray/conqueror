@@ -266,7 +266,8 @@ void linkTaskStart(const char* (*camera_sensor)()) {
   g_sensor = camera_sensor;
   g_motion.begin();  // Plan K: counts per metre and roll-on, before the link task runs
   net::appForgetAiUrl();  // design-notes §200: the retired Settings AI address leaves the flash
-  g_logo = new (g_logo_mem) app::LogoController(g_out, g_log, g_link, g_tel, logoRunningProgram(), logoVm());
+  g_logo = new (g_logo_mem) app::LogoController(g_out, g_log, g_link, g_tel, logoRunningProgram(), logoVm(),
+                                                logoLaunchedVm());
   g_router = new (g_router_mem) app::CommandRouter(g_drive, g_motion, g_settings, g_tank, *g_logo, g_tel, g_out);
   g_router->setHello(CQ_FW_VERSION, g_sensor);
   g_router->setSkillHub(&g_skills);

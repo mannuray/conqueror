@@ -7,9 +7,9 @@
 namespace cq {
 namespace logo {
 
-void Vm::load(const Program& p, uint32_t seed) {
+void Vm::load(const Program& p, uint32_t seed, uint16_t entry) {
   m_p = &p;
-  m_pc = 0;
+  m_pc = entry;
   m_line = 0;
   m_sensor_read = false;
   m_rng = seed != 0 ? seed : 1;
@@ -72,6 +72,14 @@ void Vm::typeError(const char* word, const char* type, Value got) {
   valueText(*m_p, got, true, v, sizeof v);
   const DiagArg a[] = {{"word", word}, {"type", type}, {"value", v}};
   error(7012, a, 3);
+}
+
+void Vm::inheritInputs(const Vm& from) {
+  const Frame& f = from.m_frames[from.m_nf - 1];
+  if (f.proc < 0) return;
+  const uint8_t n = m_p->procs[f.proc].n_inputs;
+  for (uint8_t i = 0; i < n; ++i) m_stack[i] = from.m_stack[f.args_base + i];
+  m_sp = n;  // frame 0's args_base is 0: :input reads them
 }
 
 void Vm::leaveFrame() {

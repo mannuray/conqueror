@@ -42,7 +42,8 @@ enum class RunEvent : uint8_t { kLogoStop, kStep, kBatteryLow, kTilt };
 struct RunOut {
   bool act = false;  // carry out `action` (kSpeed / kUntilStart are for the trace only)
   Action action;
-  bool line = false;  // logo_line {line_no, round}
+  bool line = false;  // logo_line {line_no, round, part}
+  uint8_t part = 0;   // 0 the main program, 1 the launched part (Tank Logo LLD §26.4)
   uint16_t line_no = 0;
   int32_t round = 0;
   bool ended = false;  // logo_ended: stop the tank, release the driver; code 0 = finished
@@ -53,7 +54,11 @@ struct RunOut {
 
 class RunController {
  public:
-  explicit RunController(Vm& vm) : m_vm(vm) {}
+  // Two Vms over one Program: the main program and the LAUNCH part (Tank Logo LLD §26.4).
+  RunController(Vm& main, Vm& launched) {
+    m_parts[0].vm = &main;
+    m_parts[1].vm = &launched;
+  }
   bool start(const Program& p, const RunConfig& cfg, const RunTelem& t, uint32_t now_ms);  // false: not compiled OK
   RunOut tick(const RunTelem& t, uint32_t now_ms);
   RunOut onPrimitiveEnd(const core::PrimitiveEnd& e);  // the move / turn / arc / pivot it asked for ended
@@ -66,11 +71,32 @@ class RunController {
   RunOut onSkillEnd(SkillEnd e, uint32_t now_ms);
   static constexpr uint32_t kAskMs = 300;
   static constexpr uint32_t kAskGapMs = 100;  // a new question goes out at least this long after the last (~10 Hz)
-  RunState state() const { return m_state; }
+  RunState state() const { return m_parts[0].state; }  // the main program's
   bool going() const { return m_going; }  // a GO drives on in the background (LLD §22): keep it alive each tick
-  uint32_t wakeAt() const { return m_wake; }  // kWaiting: when WAIT / PLAY / a WAIT UNTIL tick is over
+  // The first moment a waiting part goes on (kWaiting: WAIT / PLAY / a WAIT UNTIL tick); 0 when none waits.
+  uint32_t wakeAt() const;
+  bool ready() const;  // a part can run now (not waiting for a clock, the laptop or the motion service)
 
  private:
+  // One part's own state (Tank Logo LLD §26.4); moving, skills, GO, SPEED and AREA belong to the main part alone.
+  struct Part {
+    Vm* vm = nullptr;
+    RunState state = RunState::kIdle;
+    uint32_t wake = 0;
+    AskQ ask_q = AskQ::kSee;
+    uint32_t ask_deadline = 0;
+    bool ask_held = false;  // the question waits for m_next_ask, or for the other part's question to be answered
+    Action ask_action;
+    EffectKind last = EffectKind::kBeep;  // the last effect (its word for 7021 / 7057)
+    uint8_t last_sub = 0;
+  };
+  Part& cur() { return m_parts[m_cur]; }
+  const Part& cur() const { return m_parts[m_cur]; }
+  bool runs(uint8_t i) const;    // the part can take a slice now (not waiting on the host)
+  void slice(const RunTelem& t, uint32_t now_ms, RunOut& out);  // the current part's turn
+  bool otherAsking() const;      // the other part's question is out (one question at a time)
+  bool launch(const Action& a);  // LAUNCH: false = one already runs (7058)
+  bool mainOnly(ActKind k) const;
   void step(const RunTelem& t, uint32_t now_ms, RunOut& out);
   void effect(const RunTelem& t, uint32_t now_ms, RunOut& out);
   void carry(const Action& a, const RunTelem& t, uint32_t now_ms, RunOut& out);
@@ -82,25 +108,20 @@ class RunController {
   bool due(uint32_t now_ms);  // a waiting or asking state is over (an unanswered question gets FALSE / -1)
   void answer(int32_t value);
   void sendAsk(uint32_t now_ms, RunOut& out);  // the kAsk goes out now (see kAskGapMs)
-  bool active() const { return m_state != RunState::kIdle && m_state != RunState::kEnded; }
+  bool active() const { return m_parts[0].state != RunState::kIdle && m_parts[0].state != RunState::kEnded; }
 
-  Vm& m_vm;
+  Part m_parts[2];
+  uint8_t m_cur = 0;  // the part whose turn it is (0 outside a slice: events are the main program's)
+  uint8_t m_first = 1;  // the part that went first last tick
+  uint8_t m_launches = 0;  // LAUNCHes this run: each has its own RANDOM numbers
   const Program* m_p = nullptr;
   RunConfig m_cfg;
-  RunState m_state = RunState::kIdle;
   uint32_t m_start = 0;
-  uint32_t m_wake = 0;
   uint16_t m_start_yaw = 0;
   uint8_t m_speed = 40;
   bool m_blocked = false;
   bool m_going = false;  // GO (LLD §22)
-  EffectKind m_last = EffectKind::kBeep;  // the last effect (its word for 7021)
-  uint8_t m_last_sub = 0;
-  AskQ m_ask_q = AskQ::kSee;
-  uint32_t m_ask_deadline = 0;
-  uint32_t m_next_ask = 0;  // the earliest time the next question may go out
-  bool m_ask_held = false;  // the question waits for m_next_ask: not yet sent, `m_ask_action` is what to send
-  Action m_ask_action;
+  uint32_t m_next_ask = 0;  // the earliest time the next question may go out (both parts)
   uint8_t m_area_m = 0;   // AREA (0 = none) and where it was set, in the run's frame
   Pose m_area_at;
   char m_thing[25] = "";  // the running skill's thing, for 7050 / 7051 / 7053 / 7054

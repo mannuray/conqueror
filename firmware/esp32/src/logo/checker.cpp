@@ -256,6 +256,7 @@ CheckResult Checker::check(Node* program, const Caps& caps) {
       break;
     }
   }
+  if (m_d.errorCount() == 0) checkLaunch(program);  // the rest first: a word misspelt is not also a move
   r.ok = m_d.errorCount() == 0;
   return r;
 }

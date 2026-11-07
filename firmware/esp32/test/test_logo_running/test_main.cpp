@@ -24,7 +24,7 @@ TokenList g_t;
 Diagnostics g_d;
 Node g_nodes[4096];
 Program g_prog;
-Vm g_vm;
+Vm g_vm, g_launched;
 
 // A list of words in a case ("1 0 N 120", "done not_found stop"): the next one, or false when used up.
 struct Words {
@@ -120,7 +120,7 @@ RunOut endSkill(World& w, RunController& rc) {
 RunOut runToEnd(World& w, RunController& rc) {
   RunOut out;
   for (int i = 0; i < 500000 && !out.ended; ++i) {
-    if (rc.state() == RunState::kWaiting && rc.wakeAt() > w.now) w.now = rc.wakeAt();
+    if (!rc.ready() && rc.wakeAt() > w.now) w.now = rc.wakeAt();  // nothing to do before then (LAUNCH: either part)
     out = rc.tick(w.tel, w.now);
     note(w, out);
     if (out.act && out.action.kind == ActKind::kGo) {
@@ -160,7 +160,7 @@ void runCase(const RunCase& c) {
   TEST_ASSERT_TRUE_MESSAGE(built, why);
   World w(c);
   w.tel.distance_mm = static_cast<uint16_t>(c.distance_cm * 10);
-  RunController rc(g_vm);
+  RunController rc(g_vm, g_launched);
   rc.start(g_prog, RunConfig(), w.tel, w.now);
   const RunOut end = runToEnd(w, rc);
   TEST_ASSERT_TRUE_MESSAGE(end.ended, c.name);

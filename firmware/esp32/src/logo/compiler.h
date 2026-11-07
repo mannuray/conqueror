@@ -15,7 +15,7 @@ namespace logo {
 
 // What a built-in word compiles to.
 enum class WordRole : uint8_t {
-  kNone, kEffect, kRepeat, kForever, kIf, kIfElse, kWhile, kWaitUntil, kStop, kOutput, kSensor, kBuiltin,
+  kNone, kEffect, kRepeat, kForever, kIf, kIfElse, kWhile, kWaitUntil, kStop, kOutput, kLaunch, kSensor, kBuiltin,
   kAsk,    // SEE? / HOWFAR: a question the laptop answers (arg = AskQ)
   kSkill   // FIND / WANDER / EXPLORE / SETXY (arg = SkillKind)
 };
@@ -67,6 +67,7 @@ class Compiler {
   bool stepAsk(Work& w, uint8_t sub);
   bool stepRepeat(Work& w);
   bool stepForever(Work& w);
+  bool stepLaunch(Work& w);
   bool stepIf(Work& w);
   bool stepIfElse(Work& w);
   bool stepWhile(Work& w);

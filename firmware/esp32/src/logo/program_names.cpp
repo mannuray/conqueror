@@ -43,17 +43,19 @@ constexpr Example kExamples[] = {
      true},
     {"hot_and_cold_hunt",
      "; Lesson 5 - hot and cold hunt\n"
-     "; Hide the ball. The tank wanders, stops and listens:\n"
-     "; the nearer the ball, the faster it beeps.\n"
-     "; Watch: it can't beep while it drives - a program does one thing at a time.\n"
-     "; Try this: change WANDER 2 to WANDER 4.\n"
+     "; Hide the ball. The tank wanders while it listens: the nearer the ball, the faster it beeps.\n"
+     "; LAUNCH starts a second part that runs alongside - it may beep and ask,\n"
+     "; but only the main program moves the tank.\n"
+     "; Try this: change 50 to 80 - it says found from further away.\n"
+     "; In a big closed room, change AREA 2 to AREA 0 - it may then search the whole room.\n"
      "TO LISTEN :cm\n"
      "  IFELSE :cm < 0 [ WAIT 0.5 ] [\n"
-     "    IFELSE :cm < 50 [ SOUND SUCCESS SAY [ found you ] STOP ] [ REPEAT 3 [ BEEP WAIT :cm / 200 ] ]\n"
+     "    IFELSE :cm < 50 [ SOUND SUCCESS SAY [ found you ] STOP ] [ BEEP WAIT :cm / 200 ]\n"
      "  ]\n"
      "END\n"
+     "LAUNCH [ FOREVER [ LISTEN HOWFAR \"ball ] ]\n"
      "AREA 2\n"
-     "FOREVER [\n  WANDER 2\n  LISTEN HOWFAR \"ball\n]\n",
+     "WANDER 120\n",
      true},
     {"first_square", "; Your first square\nREPEAT 4 [ FORWARD 30 RIGHT 90 ]\nBEEP\n", false},
     {"avoid_walls",

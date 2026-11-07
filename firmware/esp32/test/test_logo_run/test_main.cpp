@@ -1,6 +1,7 @@
 // Plan N2 Task 6: the RunController with a fake motion layer - every ending of LLD §9, BLOCKED?, waits, the time
 // limit, step mode, HOME, sensors from telemetry, and a second ending ignored.
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unity.h>
 
@@ -21,7 +22,8 @@ Diagnostics g_d;
 Node g_nodes[4096];
 Program g_prog;
 Vm g_vm;
-RunController g_rc(g_vm);
+Vm g_launched;
+RunController g_rc(g_vm, g_launched);
 RunTelem g_tel;
 uint32_t g_now;
 char g_trace[2048];
@@ -31,7 +33,8 @@ uint8_t g_motion;
 uint8_t g_odd_motion;
 EndReason g_odd_reason;
 
-bool load(const char* src, bool step = false) {
+// checked = false skips the checker (the runner's own guards, LLD §26.4).
+bool load(const char* src, bool step = false, bool checked = true) {
   static NodePool pool(g_nodes, 4096);
   static Parser p(pool, g_d);
   g_d.clear();
@@ -40,7 +43,9 @@ bool load(const char* src, bool step = false) {
   Node* prog = p.parse(src, g_t);
   Caps caps;
   caps.ai = true;
-  const CheckResult r = Checker(p, src, g_t, g_d).check(prog, caps);
+  CheckResult r;
+  r.ok = true;
+  if (checked) r = Checker(p, src, g_t, g_d).check(prog, caps);
   if (!r.ok || !Compiler(p, src, g_t, g_d).compile(prog, r.handles_obstacles, g_prog)) return false;
   g_tel = RunTelem();
   g_now = 1000;
@@ -75,7 +80,7 @@ RunOut finishMotion(const Action& a) {
 // Ticks every 2 ms (jumping over waits) until the program ends or `max_ticks` pass.
 void drive(int max_ticks = 400000) {
   for (int i = 0; i < max_ticks; ++i) {
-    if (g_rc.state() == RunState::kWaiting && g_rc.wakeAt() > g_now) g_now = g_rc.wakeAt();
+    if (!g_rc.ready() && g_rc.wakeAt() > g_now) g_now = g_rc.wakeAt();
     g_last = g_rc.tick(g_tel, g_now);
     note(g_last);
     if (g_rc.state() == RunState::kMotion) g_last = finishMotion(g_last.action);
@@ -391,6 +396,100 @@ void test_a_failed_compile_never_starts() {
   TEST_ASSERT_FALSE(g_rc.start(g_prog, RunConfig(), g_tel, g_now));
 }
 
+// ---------------------------------------------------------------- Plan N9: LAUNCH (Tank Logo LLD §26)
+
+void test_the_launched_part_may_never_move_the_tank() {  // the checker refuses it first; this is the guard
+  TEST_ASSERT_TRUE(load("LAUNCH [ FD 10 ]  WAIT 2", false, false));
+  drive();
+  TEST_ASSERT_TRUE(g_last.ended);
+  TEST_ASSERT_EQUAL(7057, g_last.code);
+  TEST_ASSERT_NOT_NULL(strstr(g_last.msg, "FORWARD moves the tank"));
+  TEST_ASSERT_NULL(strstr(g_trace, "FORWARD"));
+}
+
+void test_the_stop_key_ends_both_parts() {
+  TEST_ASSERT_TRUE(load("LAUNCH [ FOREVER [ BEEP WAIT 1 ] ]  WANDER 120"));
+  for (int i = 0; i < 50; ++i) {
+    note(g_rc.tick(g_tel, g_now));
+    g_now += 20;
+  }
+  TEST_ASSERT_EQUAL(RunState::kSkill, g_rc.state());
+  const RunOut o = g_rc.onMotionEvent(MotionEvent::kStop);
+  TEST_ASSERT_TRUE(o.ended);
+  TEST_ASSERT_EQUAL(7040, o.code);
+  TEST_ASSERT_EQUAL(RunState::kEnded, g_rc.state());
+  TEST_ASSERT_FALSE(g_rc.ready());
+  TEST_ASSERT_EQUAL(0, g_rc.wakeAt());  // the launched part is not left waiting either
+  g_now += 5000;
+  const RunOut after = g_rc.tick(g_tel, g_now);
+  TEST_ASSERT_FALSE(after.act || after.line || after.ended);
+}
+
+void test_step_pauses_the_launched_part_too() {
+  TEST_ASSERT_TRUE(load("LAUNCH [ FOREVER [ BEEP WAIT 0.1 ] ]\nFD 10\nFD 10", true));
+  drive();  // paused at line 1, before LAUNCH runs
+  g_rc.onEvent(RunEvent::kStep);
+  drive();  // LAUNCH ran; paused at the first FD
+  TEST_ASSERT_EQUAL(RunState::kPaused, g_rc.state());
+  const size_t before = strlen(g_trace);
+  for (int i = 0; i < 100; ++i) {  // 5 s paused: the launched part does nothing
+    note(g_rc.tick(g_tel, g_now));
+    g_now += 50;
+  }
+  TEST_ASSERT_EQUAL_STRING("", g_trace + before);
+  g_rc.onEvent(RunEvent::kStep);  // going on: the launched part runs again
+  for (int i = 0; i < 20; ++i) {
+    note(g_rc.tick(g_tel, g_now));
+    if (g_rc.state() == RunState::kMotion) note(finishMotion(g_last.action));
+    g_now += 50;
+  }
+  TEST_ASSERT_NOT_NULL(strstr(g_trace + before, "BEEP"));
+}
+
+// ---------------------------------------------------------------- Plan N9 final review fixes
+
+void test_output_in_the_launched_part_is_refused_while_running() {  // the checker refuses it first (7059)
+  TEST_ASSERT_TRUE(load("TO F LAUNCH [ OUTPUT 1 ] WAIT 1 OUTPUT 2 END\nSAY F\nWAIT 1", false, false));
+  drive();
+  TEST_ASSERT_TRUE(g_last.ended);
+  TEST_ASSERT_EQUAL(7059, g_last.code);
+}
+
+void test_the_same_program_twice_takes_the_same_turns() {  // M3: who goes first starts fresh each run
+  const char* src = "LAUNCH [ BEEP BEEP BEEP ]  FD 10  FD 10";
+  TEST_ASSERT_TRUE(load(src));
+  g_rc.tick(g_tel, g_now);  // an odd number of ticks before the next run
+  drive();
+  char first[256];
+  snprintf(first, sizeof first, "%s", g_trace);
+  TEST_ASSERT_TRUE(load(src));
+  drive();
+  TEST_ASSERT_EQUAL_STRING(first, g_trace);
+}
+
+void test_the_launched_part_ending_clears_its_line() {  // M5: a line 0 for part 1 when its block ends
+  TEST_ASSERT_TRUE(load("LAUNCH [ BEEP ]\nWAIT 1"));
+  g_last = RunOut();
+  bool cleared = false;
+  for (int i = 0; i < 200 && !g_last.ended; ++i) {
+    if (!g_rc.ready() && g_rc.wakeAt() > g_now) g_now = g_rc.wakeAt();
+    g_last = g_rc.tick(g_tel, g_now);
+    if (g_last.line && g_last.part == 1 && g_last.line_no == 0) cleared = true;
+    g_now += 2;
+  }
+  TEST_ASSERT_TRUE(cleared);
+}
+
+void test_each_launch_has_its_own_random_numbers() {  // M7
+  TEST_ASSERT_TRUE(load("LAUNCH [ SAY RANDOM 1000000 ]\nWAIT 1\nLAUNCH [ SAY RANDOM 1000000 ]\nWAIT 1"));
+  drive();
+  const char* a = strstr(g_trace, "SAY ");
+  TEST_ASSERT_NOT_NULL(a);
+  const char* b = strstr(a + 4, "SAY ");
+  TEST_ASSERT_NOT_NULL(b);
+  TEST_ASSERT_NOT_EQUAL(atoi(a + 4), atoi(b + 4));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_square_finishes);
@@ -415,5 +514,12 @@ int main(int, char**) {
   RUN_TEST(test_a_lone_question_is_not_delayed);
   RUN_TEST(test_skill_ends_map_to_their_codes);
   RUN_TEST(test_skill_replaces_go_and_tank_side_ends_apply);
+  RUN_TEST(test_the_launched_part_may_never_move_the_tank);
+  RUN_TEST(test_the_stop_key_ends_both_parts);
+  RUN_TEST(test_step_pauses_the_launched_part_too);
+  RUN_TEST(test_output_in_the_launched_part_is_refused_while_running);
+  RUN_TEST(test_the_same_program_twice_takes_the_same_turns);
+  RUN_TEST(test_the_launched_part_ending_clears_its_line);
+  RUN_TEST(test_each_launch_has_its_own_random_numbers);
   return UNITY_END();
 }

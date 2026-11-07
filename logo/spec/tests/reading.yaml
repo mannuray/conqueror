@@ -290,3 +290,9 @@
   source: IF DISTANCE < 30 [ RT 90 ]
   expect: ok
   reads: (IF (< (DISTANCE) 30) [ (RIGHT 90) ])
+
+# ---- LAUNCH (Tank Logo LLD §26): a second part alongside; only the main program moves the tank
+- name: LAUNCH reads a block
+  source: LAUNCH [ BEEP WAIT 1 ]  FD 10
+  expect: ok
+  reads: (LAUNCH [ (BEEP) (WAIT 1) ]) (FORWARD 10)

@@ -57,6 +57,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 #src { width: 100%; height: 100%; resize: none; border: 0; outline: 0; background: transparent; color: transparent; caret-color: var(--active); overflow: auto; }
 #src[readonly] { caret-color: transparent; }
 #hl div { min-height: 1.6em; position: relative; } #hl div.run { background: var(--run-line); box-shadow: inset 3px 0 var(--warn); }
+#hl div.run2 { box-shadow: inset -3px 0 var(--flow); } #gut .run2 { text-decoration: underline var(--flow); }
 .rnd { margin-left: 12px; font-style: normal; font-size: 11px; color: var(--on-warn); background: var(--warn); padding: 1px 6px; vertical-align: 2px; }
 .g-move { color: var(--move); } .g-turn { color: var(--turn); } .g-flow { color: var(--flow); } .g-show { color: var(--show); }
 .g-sense { color: var(--sense); } .g-maths { color: var(--maths); } .num { color: var(--num); } .own { color: var(--own); }
@@ -232,9 +233,9 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     lines.push(cell);
     var gut = "";
     $("hl").innerHTML = lines.map(function (h, i) {
-      var n = i + 1, run = n === running && L.locked(bar);
-      gut += '<div class="' + (errLine[n] ? "err" : run ? "run" : "") + '">' + (errLine[n] ? "▲" : "") + n + "</div>";
-      return '<div class="' + (run ? "run" : "") + '">' + h + (run && bar.round ? '<i class="rnd">ROUND ' + bar.round + "</i>" : "") + "</div>";
+      var n = i + 1, run = n === running && L.locked(bar), run2 = n === bar.line2 && L.locked(bar) ? " run2" : "";
+      gut += '<div class="' + (errLine[n] ? "err" : run ? "run" : "") + run2 + '">' + (errLine[n] ? "▲" : "") + n + "</div>";
+      return '<div class="' + (run ? "run" : "") + run2 + '">' + h + (run && bar.round ? '<i class="rnd">ROUND ' + bar.round + "</i>" : "") + "</div>";
     }).join("");
     $("gut").innerHTML = gut;
     scrollSync();
@@ -392,7 +393,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     switch (m.kind) {
       case "logo_started": onBar({ e: "started" }); if (mine) panelEv({ e: "started" }); break;
       case "logo_line":
-        onBar({ e: "line", line: m.line, round: m.round });
+        onBar({ e: "line", line: m.line, round: m.round, part: m.part });
         if (mine) { log("line " + m.line + ": " + (src.value.split("\n")[m.line - 1] || "").trim(), ""); soon(); }
         break;
       case "logo_pose":

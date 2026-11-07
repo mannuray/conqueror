@@ -3665,5 +3665,5 @@ sequenceDiagram
 - The head line reads "VIEW B // WHAT IT SEES" with MARKS, "VIEW B // DEPTH MAP" with DEPTH; NEAR = BRIGHT only with DEPTH; a legend chip with MARKS: "■ low ■ high ■ floor".
 - **MARKS is the default** (it is what the tank acts on); the choice is remembered per browser (`cq_ai_layer`, localStorage in try / catch, as `cq_ai_mute`). No marks in a frame (an old engine, a skipped picture): the last ones stay up to 0.5 s, then none.
 - `AiCore.splitFrame` returns `marks: {w, h, bytes} | null`; `AiCore.marksColours(bytes, w, h) -> Uint8ClampedArray` (pure, tested).
-- **Page budget:** `/ai` is 30 654 of 30 720 B gzipped (66 B left); MARKS needs ~400-600 B. The owner decides the budget (R32: 30 KB, owner).
+- **Page budget:** `/ai` was 30 654 of 30 720 B gzipped (66 B left); MARKS needs ~400-600 B. **Owner (2026-11-07): 32 KB**, as `/logo`.
 - Tests: `ai.test.js` - `splitFrame` with and without marks; `marksColours` maps 0-4 to transparent / green / red / orange / transparent; the layer choice remembered; `ai_check.js` (browser) - MARKS draws over the picture.

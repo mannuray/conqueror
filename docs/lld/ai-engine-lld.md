@@ -3196,3 +3196,61 @@ The engine ticked every ~66 ms to the end (longest gap 0.15 s) and the tank's te
 - **Review fixes (Opus, 2026-11-07):**
   - **I1:** the driven record reaches up to ~5 cm past the body's sides, and a turn's corners sweep wider than the track - a chair leg passed close could be set aside and hit. Now **turns** set aside only the **low** marks **inside the outline now** (`ignore_under`); **backing** keeps the driven track (it retraces its own width) but never a **high** mark (`marks_within` keeps high cells; the known-floor exemption too). Tests: a spin into a low or high mark 2 cm beside the track refused; a spin meeting only marks under the body allowed; backing never sets a high mark aside; the room8 layout still backs out.
   - **Minors:** the sightings list clears when the bridge's clock goes back and is trimmed on every picture; sightings are timed at the readout's middle (as the tracker); the look round's glimpse starts its second look on the next tick (the stop rules in force); this section's text. Noted (no change): a real mark that drift puts wholly under the shrunk body is wiped and needs ~6 hits to come back - play tolerance.
+
+## 27. A quicker route planner (Plan Z12; design-notes §222 — draft for review)
+
+### 27.1 Why
+`RoutePlanner.route` (§18.13.3) takes 2.1 ms median and 13.1 ms at worst on the M1 under load (20 routes on a
+random 8 m room of 30 boxes); `test_route_is_quick` allows 20 ms and failed at 23.7 ms on a busier machine (§220).
+While driving, the depth model and the detector share the CPU, so routes slow down there too. The time is all in
+the search loop: `dict.get` for `best`, a bounds check per neighbour, `divmod`, and the heuristic as a function call.
+
+### 27.2 What changes (`domain/drive/route.py` only)
+- `_Grid` gains a **padded** copy of the factors: a flat `list[float]` of `(g + 2)²` cells, the border closed
+  (`inf`), so a neighbour can never fall off the grid and the bounds check goes; `nbrs: list[tuple[int, float]]`
+  - the eight steps as (index offset `di * (g + 2) + dj`, length × cell size), in today's `STEPS` order.
+- `_Grid.search_from(s) -> list[float]`: the padded factors with the start cell open (today's `factors_from`).
+- `best` becomes a flat `list[float]` (inf = not reached) and `came` a flat `list[int]` over the padded grid.
+- `route`, `nearest` and `costs` keep their signatures and results. The heuristic and `arrived` are written inline
+  with today's formulas (the same floats).
+- Cell numbers on the padded grid keep today's order (row, then column), the heap entries keep today's shape
+  (`(f, so_far, cell)` / `(so_far, cell)`) and the neighbours today's order, so ties break as today and the costs
+  add up in the same order: **the same results exactly**, not just equally cheap ones.
+- No new library; numpy builds the padded list once per cost map (as today's grid).
+
+### 27.3 Classes
+```mermaid
+classDiagram
+    class RoutePlanner {
+      +half_w: float
+      +route(cost, start, goal, goal_ok, near_m) list~XY~ | None
+      +nearest(cost, start, accept) tuple~int,int~ | None
+      +costs(cost, start) FloatArray
+      +grid_of(x, y) tuple~int,int~
+      +grid_centre(i, j) XY
+      -_grid_for(cost) _Grid
+    }
+    class _Grid {
+      +g: int
+      +cell_m: float
+      +factor: FloatArray
+      +padded: list~float~  «new: (g+2)² cells, border inf»
+      +nbrs: list~tuple~int,float~~  «new: offset, step length»
+      +search_from(s) list~float~  «replaces factors_from»
+      +pad(i, j) int  «new»
+      +unpad(k) tuple~int,int~  «new»
+      +of(x, y) tuple~int,int~ | None
+      +centre(i, j) XY
+    }
+    class CostMap
+    RoutePlanner --> _Grid : one per cost map
+    _Grid --> CostMap : built from
+```
+
+### 27.4 Tests
+- `test_the_quick_planner_gives_todays_routes`: today's planner kept as a test-only reference
+  (`tests/route_reference.py`); on 30 random maps (boxes, walls, the start in a closed cell, ends off the map,
+  `goal_ok`, `near_m` 0 / 0.4) `route`, `nearest` and `costs` give identical results.
+- `test_the_quick_planner_is_at_least_twice_as_quick`: on the same maps and the same machine, at least 2× quicker
+  than the reference (a ratio, so a busy machine does not fail it).
+- `test_route_is_quick` (20 ms) stays as it is.

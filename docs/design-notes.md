@@ -3369,3 +3369,16 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   take < 20 ms) took 70-97 ms. Not the merge: the branch from before any of today's engine changes (plan-z9-find)
   failed it the same way at the same time (69 ms). The Mac's load was 70-95 - a virtual machine
   (com.apple.Virtualization, ~600 % CPU, up 11 days, not Docker). Rerun it on a quiet machine; it is not loosened.
+
+## 222. While the tank waits: the IMU's pitch dropped, the route planner made quicker (owner, 2026-11-07: "2", "ok")
+- **The IMU's pitch into the camera model - dropped (owner agreed).** The tank sends no pitch or roll: telemetry's
+  `pitch` / `roll` are always 0 (the Uno Lite's tilt angles were built and removed for flash, §92; 654 B free, they
+  cost ~630 B). Even back, they would be the accelerometer alone - every speed-up and brake reads as a tilt. On a flat
+  floor the depth floor's tilt fix (AI engine LLD §18.4) already takes the slow camera error. Again only with a
+  new body board or a real need (a ramp).
+- **The route planner made quicker (Plan Z12, AI engine LLD §27 — draft for review).** Measured on the M1 under a
+  load of ~27: a route 2.1 ms median, 13.1 ms slowest (`test_route_is_quick` allows 20 ms; it failed at 23.7 ms on a
+  busier machine, §220). All the time is the pure-Python A* loop (dict look-ups, the bounds check, the heuristic as a
+  call). The same matters on the tank: depth and the detector share the CPU while it drives. Change: flat lists
+  over a grid padded with closed cells, neighbour offsets worked out once, the heuristic inline - **the same routes,
+  costs and nearest cells exactly** (a test compares against today's planner on random maps), no new library.

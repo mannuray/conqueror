@@ -398,9 +398,10 @@ class RoamSkill:
                 self.chase = ChaseSkill(self.planner, self.settings, search_when_lost=False)
                 self.state, self._pan = "drive", None
                 self._progress.reset()
-                if b is not None:  # a glimpse: its second look first, then the search
+                if (
+                    b is not None
+                ):  # a glimpse: its second look from the next tick, the stop rules in force (m4)
                     self._second, self.state, self._second_s = _SecondLook(b, "drive", now_s), "second", now_s
-                    return self._second_look(now_s, at, snap, cam_still)
                 return self._halt()
         if self.state != "chase":
             self.state = "chase"

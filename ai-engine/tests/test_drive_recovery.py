@@ -269,11 +269,53 @@ def test_marks_it_never_drove_over_still_stop_it() -> None:
     assert all(c == STOP for c, _ in outs)
 
 
-def test_a_spin_meeting_only_driven_marks_is_allowed() -> None:
-    foot, at0 = Footprint(LIM), (0.0, 0.0, 0.0)
-    cost = stuck_on_marks(drove=True)
-    assert not foot.turn_ok(cost, at0, True, 30.0, seen=False)  # the rule as before
-    assert foot.turn_ok(cost, at0, True, 30.0, seen=False, ignore_driven=True)
+def test_a_spin_meeting_only_marks_under_the_body_is_allowed() -> None:
+    """Turns set aside only what is under the tank now (review I1): low marks inside the outline."""
+    room = RoomMap()
+    room.seen[:] = True
+    for k in range(9):
+        room.body_over(Pose(0, -0.4 + 0.05 * k, 0.0, 0.0, 0.0, 0.0), *BODY, k * 100_000)
+    c = room.cells(np.array(area(-0.06, -0.08, 0.1, -0.06) + area(-0.06, 0.06, 0.1, 0.08), dtype=np.float64))
+    for _ in range(6):
+        room.hit(c, "low")
+    cost = CostMap(room.snapshot(0, None, False, True))
+    foot = Footprint(LIM)
+    assert not foot.turn_ok(cost, (0.0, 0.0, 0.0), True, 30.0, seen=False)  # the rule as before
+    assert foot.turn_ok(cost, (0.0, 0.0, 0.0), True, 30.0, seen=False, ignore_under=True)
+
+
+def beside_the_track(layer: str) -> CostMap:
+    """The tank drove 40 cm to (0, 0) past a thing 2 cm off its left side (its cell touched: driven)."""
+    room = RoomMap()
+    room.seen[:] = True
+    c = room.cells(np.array([(0.0, 0.135)]))
+    for _ in range(6):
+        room.hit(c, "low" if layer == "low" else "high")
+    for k in range(9):
+        room.body_over(Pose(0, -0.4 + 0.05 * k, 0.0, 0.0, 0.0, 0.0), *BODY, k * 100_000)
+    return CostMap(room.snapshot(0, None, False, True))
+
+
+def test_a_spin_into_a_driven_mark_beside_the_track_is_refused() -> (
+    None
+):  # review I1: a chair leg passed close
+    foot = Footprint(LIM)
+    for layer in ("low", "high"):
+        cost = beside_the_track(layer)
+        assert not foot.turn_ok(cost, (0.0, 0.0, 0.0), True, 45.0, seen=False, ignore_under=True), layer
+
+
+def test_backing_never_sets_a_high_mark_aside() -> None:  # review I1 (c): the false marks were low ones
+    room = RoomMap()
+    room.seen[:] = True
+    c = room.cells(np.array([(-0.2, 0.105)]))
+    for _ in range(6):
+        room.hit(c, "high")
+    for k in range(9):
+        room.body_over(Pose(0, -0.4 + 0.05 * k, 0.0, 0.0, 0.0, 0.0), *BODY, k * 100_000)
+    cost = CostMap(room.snapshot(0, None, False, True))
+    rec = Recovery(LIM, Footprint(LIM), TILT)
+    assert not rec._back_ok((0.0, 0.0, 0.0), 0.2, cost)  # pyright: ignore[reportPrivateUsage]
 
 
 def test_a_spin_into_a_mark_it_never_drove_over_is_still_refused() -> None:
@@ -286,4 +328,4 @@ def test_a_spin_into_a_mark_it_never_drove_over_is_still_refused() -> None:
     for _ in range(6):
         room.hit(c, "low")
     cost = CostMap(room.snapshot(0, None, False, True))
-    assert not Footprint(LIM).turn_ok(cost, (0.0, 0.0, 0.0), True, 30.0, seen=False, ignore_driven=True)
+    assert not Footprint(LIM).turn_ok(cost, (0.0, 0.0, 0.0), True, 30.0, seen=False, ignore_under=True)

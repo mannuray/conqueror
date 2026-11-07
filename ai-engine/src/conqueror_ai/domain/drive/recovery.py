@@ -133,7 +133,7 @@ class Recovery:
                 (self.foot.highest_cost(cost, at, self.foot.spin_poses(at, left)), left)
                 for left in (True, False)
                 if self.foot.turn_ok(
-                    cost, at, left, seen=False, ignore_driven=True
+                    cost, at, left, seen=False, ignore_under=True
                 )  # the last resort (§176, §25.10)
             ]
             if not ways:
@@ -148,7 +148,7 @@ class Recovery:
         rest = TURN_DEG - self._turned.update(at[2])
         if rest <= 1e-9 or now_s - self._t0 >= TURN_S - 1e-9:
             return None
-        if not self.foot.turn_ok(cost, at, self._turn_w > 0, rest, seen=False, ignore_driven=True):
+        if not self.foot.turn_ok(cost, at, self._turn_w > 0, rest, seen=False, ignore_under=True):
             return None
         return (Command(0.0, self._turn_w), None)
 
@@ -183,7 +183,9 @@ class Recovery:
         for p in poses:
             ij = [cost.cell_of(float(x), float(y)) for x, y in self.foot.world(p)]
             if any(
-                c is None or (not cost.known_free[c] and c not in covered and not cost.driven[c]) for c in ij
+                c is None
+                or (not cost.known_free[c] and c not in covered and not (cost.driven[c] and not cost.high[c]))
+                for c in ij
             ):
                 return False
         return self.foot.allowed(cost, at, poses, ignore_driven=True)  # its own track is free (LLD §25.10)

@@ -49,6 +49,7 @@ class CostMap:
         self.known_free: BoolArray = snap.seen & ~lethal
         # where the tank's body has been (LLD §25.10): the ways out may set marks there aside
         self.driven: BoolArray = np.zeros_like(lethal) if snap.driven is None else snap.driven
+        self.high: BoolArray = snap.high  # a high mark is never set aside (review I1)
         free = np.zeros((self.n + 2, self.n + 2), np.uint8)  # a lethal border: the map's edge
         free[1:-1, 1:-1] = ~lethal
         d = cast("NDArray[np.float32]", cv2.distanceTransform(free, cv2.DIST_L2, cv2.DIST_MASK_PRECISE))
@@ -86,7 +87,7 @@ class CostMap:
         self, x0: float, y0: float, x1: float, y1: float, skip_driven: bool = False
     ) -> FloatArray:
         """The centres of known obstacles' cells (and the map's edge) in this box, (M, 2); skip_driven: not
-        those where the tank's body has been (the ways out, LLD §25.10)."""
+        low marks where the tank's body has been (the ways out backing up, LLD §25.10; never a high one)."""
         lo = np.floor((np.array([x0, y0]) + self.half_m) / self.cell_m).astype(np.int64)
         hi = np.floor((np.array([x1, y1]) + self.half_m) / self.cell_m).astype(np.int64)
         lo, hi = np.maximum(lo, -1), np.minimum(hi, self.n)
@@ -95,9 +96,14 @@ class CostMap:
         if skip_driven:
             inside = np.all((ij >= 0) & (ij < self.n), axis=1)
             keep = ~inside.copy()  # the map's edge always counts
-            keep[inside] = ~self.driven[ij[inside, 0], ij[inside, 1]]
+            i, j = ij[inside, 0], ij[inside, 1]
+            keep[inside] = ~self.driven[i, j] | self.high[i, j]
             ij = ij[keep]
         return cast("FloatArray", (ij + 0.5) * self.cell_m - self.half_m)
+
+    def set_aside_ok(self, ix: int, iy: int) -> bool:
+        """A mark the ways out may set aside: a low one only - a high mark is real (review I1)."""
+        return not bool(self.high[ix, iy])
 
     def outline_cost(self, xy: FloatArray) -> FloatArray:
         """The fan's reading at points of the body's outline: the near cost by the point's distance (zero at

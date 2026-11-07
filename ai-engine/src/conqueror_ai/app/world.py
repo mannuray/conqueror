@@ -216,10 +216,15 @@ class World:
         due (a replay); live, Perception sees off the event loop (`see`, then `apply`)."""
         used = self.map_run.gate(f, rgb, dets, cam)
         self._fresh = self._fresh or self.map_run.p.fresh()
+        t = self.map_run.p.gate.capture_us(
+            f.cap_us
+        )  # the readout's middle, as the tracker's times (review m3)
+        if self._sightings and t < self._sightings[-1][0]:
+            self._sightings.clear()  # the bridge restarted: the old times are from another clock (review m1)
         if self.map_run.p.fresh():
-            self._sightings.append((f.cap_us, list(self.map_run.p.maybes())))
-            while self._sightings and f.cap_us - self._sightings[0][0] > SIGHTINGS_KEEP_US:
-                self._sightings.popleft()
+            self._sightings.append((t, list(self.map_run.p.maybes())))
+        while self._sightings and t - self._sightings[0][0] > SIGHTINGS_KEEP_US:
+            self._sightings.popleft()
         if self.goal is not None:
             self._glimpses += [g for g in self.map_run.p.glimpses() if self.goal.kind(g.cls)]
         self.last_frame = f

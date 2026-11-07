@@ -137,3 +137,26 @@ def test_recent_sightings_keep_half_a_second(monkeypatch: pytest.MonkeyPatch) ->
     w.on_picture(Frame(seq=1, cap_us=1_000_000, recv_s=1.0, jpeg=GREY_JPEG), small, [])
     assert w.recent_sightings(1_400_000) == [toy]
     assert w.recent_sightings(1_600_000) == []
+
+
+def test_sightings_stay_bounded_and_a_restart_clears_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review minors 1-2 (Plan Z10c): trimmed to 0.5 s; a picture with no new sightings adds nothing; the
+    bridge's clock going back (a restart) starts the list again."""
+    from conqueror_ai.domain.objects import Located
+
+    w = World(CAL, CFG, FloorDepth(), frozenset(), {}, Limits(), None)
+    toy = Located("toy", 1.0, 0.0, 0.05, (0.0, 0.0, 1.0, 1.0))
+    fresh = [True]
+    monkeypatch.setattr(w.map_run.p, "fresh", lambda: fresh[0])
+    monkeypatch.setattr(w.map_run.p, "maybes", lambda: [toy])
+    small = np.zeros((10, 10, 3), np.uint8)
+    for k in range(40):  # 4 s of pictures, 10 a second
+        w.on_picture(Frame(seq=k, cap_us=1_000_000 + k * 100_000, recv_s=1.0, jpeg=GREY_JPEG), small, [])
+    assert len(w._sightings) <= 6  # pyright: ignore[reportPrivateUsage]
+    fresh[0] = False
+    newest = w._sightings[-1]  # pyright: ignore[reportPrivateUsage]
+    w.on_picture(Frame(seq=99, cap_us=5_100_000, recv_s=1.0, jpeg=GREY_JPEG), small, [])
+    assert w._sightings[-1] is newest  # nothing added (the old ones trimmed)  # pyright: ignore[reportPrivateUsage]
+    fresh[0] = True
+    w.on_picture(Frame(seq=100, cap_us=200_000, recv_s=1.0, jpeg=GREY_JPEG), small, [])  # restarted
+    assert len(w._sightings) == 1  # pyright: ignore[reportPrivateUsage]

@@ -61,12 +61,20 @@ class Footprint:
             prev = p
         return out
 
-    def allowed(self, cost: CostMap, at: XYTh, poses: list[XYTh], ignore_driven: bool = False) -> bool:
+    def allowed(
+        self,
+        cost: CostMap,
+        at: XYTh,
+        poses: list[XYTh],
+        ignore_driven: bool = False,
+        ignore_under: bool = False,
+    ) -> bool:
         """Along the whole move the body's gap never drops below min(keep_out_m, the gap now); nearer than
         SLIDE_MIN_M already, the move must also end further off (no sliding along a thing that overlaps the
         track, owner). A mark inside the outline is a gap below 0, deeper is nearer (review I1: a leg under
-        the front edge can't end up inside the body). ignore_driven: marks where the tank's body has been
-        are set aside (the ways out, LLD §25.10)."""
+        the front edge can't end up inside the body). The ways out (LLD §25.10): ignore_driven sets aside low
+        marks where the body has been (backing along its own track); ignore_under the low marks inside the
+        outline now (a turn - the corners sweep wider than the track, review I1)."""
         dense = self.dense(at, poses)
         if not dense:
             return True
@@ -75,6 +83,8 @@ class Footprint:
         xs = [p[0] for p in (at, *dense)]
         ys = [p[1] for p in (at, *dense)]
         marks = cost.marks_within(min(xs) - out, min(ys) - out, max(xs) + out, max(ys) + out, ignore_driven)
+        if ignore_under:
+            marks = self._outside_now(cost, at, marks)
         g = self.gaps([at, *dense], marks)
         if bool((g[1:] < min(keep, float(g[0])) - 1e-9).any()):
             return False
@@ -87,14 +97,14 @@ class Footprint:
         left: bool,
         deg: float = 90.0,
         seen: bool = True,
-        ignore_driven: bool = False,
+        ignore_under: bool = False,
     ) -> bool:
         """A turn on the spot: the body's rule, and (seen) its outline sweeps only floor the map has seen -
         nothing senses beside or behind the tank, so a wall there may be unmarked. Floor under the body now
         doesn't count. seen=False is the last resort (the ways out, nothing else allowed): unseen floor costs,
         it is never forbidden (§166; owner: option b as a last resort, design-notes §176)."""
         poses = self.spin_poses(at, left, deg)
-        if not self.allowed(cost, at, poses, ignore_driven):
+        if not self.allowed(cost, at, poses, ignore_under=ignore_under):
             return False
         if not seen:
             return True
@@ -106,6 +116,24 @@ class Footprint:
                 if c is None or (c not in now and not cost.seen[c]):
                     return False
         return True
+
+    def _outside_now(self, cost: CostMap, at: XYTh, marks: FloatArray) -> FloatArray:
+        """The marks without the low ones inside the outline at `at` (the tank is on them: not real)."""
+        if marks.shape[0] == 0:
+            return marks
+        inside = self.gaps_each(at, marks) < 0.0
+        low = np.array([_low(cost, float(x), float(y)) for x, y in marks], dtype=np.bool_)
+        return marks[~(inside & low)]
+
+    def gaps_each(self, at: XYTh, marks: FloatArray) -> FloatArray:
+        """Each mark's gap to the body at `at` (below 0 inside it), as `gaps` takes the nearest."""
+        c, s = math.cos(at[2]), math.sin(at[2])
+        dx, dy = marks[:, 0] - at[0], marks[:, 1] - at[1]
+        bx, by = dx * c + dy * s, np.abs(-dx * s + dy * c)
+        f, r, w = self.front_m, self.rear_m, self.half_w_m
+        outside = np.hypot(np.maximum(np.maximum(-r - bx, bx - f), 0.0), np.maximum(by - w, 0.0))
+        depth = np.minimum(np.minimum(bx + r, f - bx), w - by)
+        return cast("FloatArray", np.where(depth > 0.0, -depth, outside))
 
     def gaps(self, poses: list[XYTh], marks: FloatArray) -> FloatArray:
         """The body's gap at each pose: the distance from its rectangle to the nearest of these points, or,
@@ -149,3 +177,9 @@ class Footprint:
         n = max(1, math.ceil(length_m / SWEEP_STEP_M - 1e-9))
         c, s = math.cos(at[2]), math.sin(at[2])
         return [(at[0] - length_m * k / n * c, at[1] - length_m * k / n * s, at[2]) for k in range(1, n + 1)]
+
+
+def _low(cost: CostMap, x: float, y: float) -> bool:
+    """A mark there may be set aside: inside the map and not a high one (the map's edge never)."""
+    ij = cost.cell_of(x, y)
+    return ij is not None and cost.set_aside_ok(*ij)

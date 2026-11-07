@@ -21,6 +21,7 @@ __pycache__/
 data/
 recordings/
 models/
+ai-engine/taught/
 
 # ESP32 bridge secrets (WiFi, AP and OTA passwords) - never commit
 firmware/esp32/include/secrets.h

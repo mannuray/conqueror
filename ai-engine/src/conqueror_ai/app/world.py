@@ -162,6 +162,10 @@ class World:
         w.map_run = run
         return w
 
+    def set_floor_classes(self, floor: frozenset[str]) -> None:
+        """The classes the floor trick places, after a word is taught (§22.4)."""
+        self.map_run.p.set_floor_classes(floor)
+
     # ---- in
     def on_calib(self, counts_per_m: int) -> None:
         self.map_run.on_calib(counts_per_m)

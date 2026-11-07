@@ -15,6 +15,7 @@ class Word:
     min_score: float = DEFAULT_MIN_SCORE
     also: tuple[str, ...] = ()  # extra wordings the model is asked, reported as this word (design-notes §187)
     names: tuple[str, ...] = ()  # what a child may write for it in the AI words (LLD §21.4)
+    measured: bool = True  # False: taught from the /ai page, never measured on the tank's camera (§22.4)
 
 
 def _word(r: dict[str, Any], i: int) -> Word:
@@ -30,6 +31,9 @@ def _word(r: dict[str, Any], i: int) -> Word:
     names: Any = r.get("names", [])
     if not isinstance(names, list):
         raise ValueError(f"{word}: names must be a list of names, not {names!r}")
+    measured = r.get("measured", True)
+    if not isinstance(measured, bool):
+        raise ValueError(f"{word}: measured must be true or false, not {measured!r}")
     try:
         return Word(
             word,
@@ -37,6 +41,7 @@ def _word(r: dict[str, Any], i: int) -> Word:
             float(r.get("min_score", DEFAULT_MIN_SCORE)),
             tuple(str(a) for a in cast("list[Any]", also)),
             tuple(str(a) for a in cast("list[Any]", names)),
+            measured=measured,
         )
     except (TypeError, ValueError):
         raise ValueError(f"{word}: min_score must be a number, not {r.get('min_score')!r}") from None
@@ -53,7 +58,11 @@ class Vocabulary:
         rows: list[dict[str, Any]] = list(d.get("words") or [])
         if not rows:
             raise ValueError("the vocabulary has no words")
-        words = tuple(_word(r, i) for i, r in enumerate(rows, 1))
+        return Vocabulary.of(tuple(_word(r, i) for i, r in enumerate(rows, 1)))
+
+    @staticmethod
+    def of(words: tuple[Word, ...]) -> Vocabulary:
+        """Words already read (the measured ones and the taught ones together); a wording twice is refused."""
         names = [p for w in words for p in (w.word, *w.also)]
         dup = sorted({n for n in names if names.count(n) > 1})
         if dup:

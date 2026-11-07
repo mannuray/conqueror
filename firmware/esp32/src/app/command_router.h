@@ -11,6 +11,7 @@
 #include "app/settings_controller.h"
 #include "app/tank_app_controller.h"
 #include "app/telemetry_publisher.h"
+#include "core/ai_pages.h"
 #include "core/skill_hub.h"
 #include "core/thing_list.h"
 #include "core/ws_codec.h"
@@ -32,6 +33,7 @@ class CommandRouter {
   }
   // Plan Z2a (bridge LLD R26.2): the skill server's hello and its things list go to the link task's SkillHub.
   void setSkillHub(core::SkillHub* hub) { m_hub = hub; }
+  void setAiPages(core::AiPages* pages) { m_pages = pages; }  // Plan Z2b-1 (R27.1): "ai-page" hellos
   void onText(int fd, const char* text, size_t len, uint32_t post_seq, uint32_t now);
   static bool routes(core::WsCmdKind kind);  // a handler exists (STOP is the fast path, before the table)
 
@@ -44,6 +46,8 @@ class CommandRouter {
   static Handler find(core::WsCmdKind kind);
   static const Route kRoutes[];
   void onHello(int fd, const core::WsCommand& c);
+  bool registerServer(int fd, const core::WsCommand& c);
+  void sendAiAt(int fd);
   void onThings(int fd, int32_t id, const core::WsCommand& c);
 
   DriveController& m_drive;
@@ -57,6 +61,7 @@ class CommandRouter {
   const char* (*m_sensor)() = nullptr;
   uint64_t (*m_clock_us)() = nullptr;
   core::SkillHub* m_hub = nullptr;
+  core::AiPages* m_pages = nullptr;
   const char* m_text = "";  // the message being routed (skill_things reads its list from a copy)
   size_t m_len = 0;
   char m_copy[201];          // skill_things: parsed in place (one LinkCommand holds at most 200 bytes)

@@ -9,6 +9,7 @@
 #include "../support/frames.h"
 #include "../support/wire.h"
 #include "app/command_router.h"
+#include "core/ai_pages.h"
 #include "core/skill_hub.h"
 #include "fakes/fake_ports.h"
 #include "logo/check_job.h"
@@ -34,6 +35,7 @@ logo::Program g_logo_program;
 logo::Vm g_logo_vm;
 app::LogoController* logoc = nullptr;
 core::SkillHub hub;
+core::AiPages pages;
 cqtest::Wire wire;
 uint32_t g_post = 0;
 
@@ -74,6 +76,8 @@ void setUp() {
   router->setHello("abc1234", sensor);
   hub = core::SkillHub();
   router->setSkillHub(&hub);
+  pages = core::AiPages();
+  router->setAiPages(&pages);
   logoc->setSkillHub(&hub);
   app::MotionController::Hooks mh{[](int fd, uint32_t now, bool moving) { return drive->claim(fd, now, moving); },
                                   [] { return drive->otaActive(); }};
@@ -183,6 +187,46 @@ void test_skill_things_reach_the_hub() {
   const core::LockPort free_lock{[](void*, uint32_t) { return true; }, [](void*) {}, nullptr};
   TEST_ASSERT_TRUE(hub.tryCommit(free_lock));
   TEST_ASSERT_EQUAL_STRING("toy", hub.things().resolve("car"));
+}
+
+// Plan Z2b-1 (bridge LLD R27.1): the engine's page port with the address its socket comes from; skill_learning.
+void test_hello_page_keeps_the_feed_address() {
+  fakes::world().peer_ip = "192.168.1.23";
+  text(3, "{\"t\":\"hello\",\"client\":\"ai-skills\",\"proto\":1,\"page\":{\"port\":8770,\"proto\":1}}", 100);
+  TEST_ASSERT_EQUAL_STRING("ws://192.168.1.23:8770/feed", hub.pageUrl());
+}
+
+void test_skill_learning_routed_to_hub() {
+  drive->onClientOpen(4, 0);
+  hello(3);
+  text(4, "{\"t\":\"skill_learning\",\"on\":true}", 101);  // not the server: ignored
+  TEST_ASSERT_FALSE(hub.learning());
+  text(3, "{\"t\":\"skill_learning\",\"on\":true}", 102);
+  TEST_ASSERT_TRUE(hub.learning());
+  text(3, "{\"t\":\"skill_learning\",\"on\":false}", 103);
+  TEST_ASSERT_FALSE(hub.learning());
+}
+
+void test_ai_page_hello_gets_welcome_and_ai_at() {
+  fakes::world().peer_ip = "192.168.1.23";
+  drive->onClientOpen(4, 0);
+  text(3, "{\"t\":\"hello\",\"client\":\"ai-skills\",\"proto\":1,\"page\":{\"port\":8770,\"proto\":1}}", 100);
+  text(4, "{\"t\":\"hello\",\"client\":\"ai-page\",\"proto\":1}", 101);
+  TEST_ASSERT_TRUE(has(4, "\"t\":\"welcome\""));
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"ai_at\",\"url\":\"ws://192.168.1.23:8770/feed\",\"proto\":1}", fakes::lastTo(4).c_str());
+  TEST_ASSERT_TRUE(pages.contains(4));
+}
+
+void test_other_clients_get_no_ai_at() {
+  text(3, "{\"t\":\"hello\",\"client\":\"basic-drive\",\"proto\":1}", 100);
+  TEST_ASSERT_TRUE(has(3, "\"t\":\"welcome\""));
+  TEST_ASSERT_FALSE(has(3, "ai_at"));
+  TEST_ASSERT_FALSE(pages.contains(3));
+}
+
+void test_ai_page_without_engine_gets_null() {
+  text(3, "{\"t\":\"hello\",\"client\":\"ai-page\",\"proto\":1}", 100);
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"ai_at\",\"url\":null}", fakes::lastTo(3).c_str());
 }
 
 void test_skill_things_refusals() {
@@ -366,5 +410,10 @@ int main() {
   RUN_TEST(test_skill_drive_under_a_live_lease_drives);
   RUN_TEST(test_skill_drive_behind_a_stop_is_dropped);
   RUN_TEST(test_skill_messages_reach_the_running_program);
+  RUN_TEST(test_hello_page_keeps_the_feed_address);
+  RUN_TEST(test_skill_learning_routed_to_hub);
+  RUN_TEST(test_ai_page_hello_gets_welcome_and_ai_at);
+  RUN_TEST(test_other_clients_get_no_ai_at);
+  RUN_TEST(test_ai_page_without_engine_gets_null);
   return UNITY_END();
 }

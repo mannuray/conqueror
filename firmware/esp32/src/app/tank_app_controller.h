@@ -1,4 +1,4 @@
-// The Tank tab and the AI address: tank, log, camera_set, selftest, app_set (bridge LLD R13, R15.4).
+// The Tank tab: tank, log, camera_set, selftest (bridge LLD R13, R15.4; the AI address retired, design-notes §200).
 #pragma once
 
 #include <stdint.h>
@@ -22,14 +22,11 @@ class TankAppController {
 
   TankAppController(Replies& out, core::EventLog& log, const core::BodyLink& link)
       : m_out(out), m_log(log), m_link(link) {}
-  void begin();  // loads the AI address
   void setSelfTestHooks(const SelfTestHooks& h) { m_hooks = h; }
   void onTank(int fd, uint32_t now);
   void onLog(int fd, uint32_t since, uint32_t now);
   void onCameraSet(int fd, int32_t id, const core::WsCommand& c, uint32_t now);
-  void onAppSet(int fd, int32_t id, const core::WsCommand& c);
   void onSelfTest(int fd, int32_t id);
-  const char* aiUrl() const { return m_ai_url; }
   core::CamSettings merge(const core::CamFields& f) const;  // the settings in force (or the defaults) + the sent fields
 
  private:
@@ -39,7 +36,6 @@ class TankAppController {
   core::EventLog& m_log;
   const core::BodyLink& m_link;
   SelfTestHooks m_hooks{nullptr, nullptr, nullptr};
-  char m_ai_url[97] = "";
 };
 
 }  // namespace app

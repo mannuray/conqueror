@@ -514,7 +514,6 @@ void test_json_tank_info() {
   TankView v{};
   v.st.seen = true; v.st.mask = 2; v.st.locked = false; v.hw = 0x03;
   v.cam_size = 1; v.cam_quality = 12; v.cam_vflip = true; v.viewers = 1; v.fps_x10 = 125; v.kbps = 840;
-  v.ai_url = "http://x\"y";  // escaped even if it ever got in
   char out[512];
   jsonTank(out, sizeof out, v);
   TEST_ASSERT_NOT_NULL(strstr(out, "\"t\":\"tank\""));
@@ -522,7 +521,7 @@ void test_json_tank_info() {
   TEST_ASSERT_NOT_NULL(strstr(out, "\"size\":\"VGA\""));
   TEST_ASSERT_NOT_NULL(strstr(out, "\"fps\":12.5"));
   TEST_ASSERT_NOT_NULL(strstr(out, "\"kbps\":840"));
-  TEST_ASSERT_NOT_NULL(strstr(out, "x\\\"y"));
+  TEST_ASSERT_NULL(strstr(out, "ai_url"));  // design-notes §200: the AI address is retired
 }
 
 void test_uno_event_names_cover_lite_events() {

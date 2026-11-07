@@ -8,6 +8,8 @@ namespace ports {
 
 bool clientSend(int fd, const char* json, size_t len);  // false: not queued (full / too big) - the caller logs
 bool clientClose(int fd);                                // false: no live WebSocket session on fd
+// Plan Z2b-1 (R27.1): the dotted IPv4 address the socket comes from (getpeername; a v4-mapped v6 too). False: not known.
+bool clientPeerIp(int fd, char* out, size_t cap);
 
 }  // namespace ports
 }  // namespace cq

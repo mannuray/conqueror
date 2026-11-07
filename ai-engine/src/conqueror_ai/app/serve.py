@@ -3,6 +3,7 @@
     uv run cq-drive serve                     # FIND, WANDER, EXPLORE, SETXY, SEE?, HOWFAR from /logo
     uv run cq-drive serve --home room2        # start from the home mark; the home is saved after each word
     uv run cq-drive serve --record recordings/logo-1
+    uv run cq-drive serve --page-port 0       # no AI feed for the /ai pages (default port 8770)
 
 One long session: perception and the map run all the time, so a question is answered from a fresh World
 and a word starts from the map built so far. Each action word (`skill_start`) runs one skill under the
@@ -17,17 +18,22 @@ import asyncio
 import contextlib
 import datetime
 import random
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from conqueror_ai.adapters.decisions import DecisionLog
+from conqueror_ai.adapters.feed_server import FeedServer
 from conqueror_ai.adapters.home_store import HomeStore
 from conqueror_ai.adapters.lease_driver import LeaseDriver, wire_reason
 from conqueror_ai.adapters.skill_link import Ask, End, SkillBusy, SkillLink, Start, ThingsRefused
+from conqueror_ai.adapters.taught_words import TaughtWords
+from conqueror_ai.app.feed import FeedPublisher, TickFan, make_feed
 from conqueror_ai.app.questions import Questions
 from conqueror_ai.app.runner import TICK_S, SkillRunner, TickView
+from conqueror_ai.app.teach import Reply, Teacher, run_export
 from conqueror_ai.app.world import World
 from conqueror_ai.domain.drive.costmap import CostSettings
 from conqueror_ai.domain.drive.goal import Goal, kind_of
@@ -39,12 +45,16 @@ from conqueror_ai.domain.drive.skill import Result, Skill
 from conqueror_ai.domain.home import Home
 from conqueror_ai.domain.memory import ThingMemory
 from conqueror_ai.domain.names import Names
+from conqueror_ai.domain.objects import Detector
 from conqueror_ai.domain.types import Pose
+from conqueror_ai.domain.vocabulary import Vocabulary
 
 if TYPE_CHECKING:
     from conqueror_ai.adapters.session import SessionRecorder
     from conqueror_ai.domain.camera import CameraModel
 
+MakeDetector = Callable[[Path, Vocabulary], tuple[Detector, frozenset[str]]]
+PAGE_PORT = 8770  # the /ai pages' AI feed (AI engine LLD §22.1)
 RECONNECT_S = 2.0  # the skill link is tried again this often after it was lost
 SKILLS = ("find", "wander", "explore", "setxy")
 NEEDS_DEPTH = ("find", "explore")  # without depth find would end at once, explore has nowhere to go
@@ -156,6 +166,8 @@ class ServePerception(Protocol):
 
     async def close(self) -> None: ...
 
+    def reload_detector(self, det: Detector) -> None: ...
+
 
 class _OnePuller:
     """The runner's pictures through the session's lock: one puller of next_picture at a time."""
@@ -198,12 +210,19 @@ class ServeApp:
         store: HomeStore | None = None,
         skills: SkillMaker = make_word_skill,
         view: TickView | None = None,
+        feed: tuple[FeedServer, FeedPublisher] | None = None,
     ) -> None:
         """home: the home's name (--home), in `store` (default: ai-engine/homes). record: each word's
-        decisions in record/word-<id>/decisions.jsonl. skills: builds a word's skill (tests script one)."""
+        decisions in record/word-<id>/decisions.jsonl. skills: builds a word's skill (tests script one).
+        feed: the /ai pages' AI feed and its publisher (§22; None: --page-port 0)."""
         self.link, self.perception, self.world, self.names = link, perception, world, names
         self.home, self.record, self.skills, self.view = home, record, skills, view
         self.store = store
+        self.feed_server, self.publisher = feed if feed is not None else (None, None)
+        self.teacher: Teacher | None = None  # set by _build: it calls back into this app
+        self.make_detector: MakeDetector | None = None  # a taught word's model -> the detector (§22.4)
+        self.ball_names: list[str] = []  # the names of the word "ball" (balls.yaml), kept when names change
+        self._teaching: set[asyncio.Task[None]] = set()
         if not world.run_id:  # the session is one run of the home
             world.run_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.state = "connecting"  # connecting, idle, driving (LLD §21.6)
@@ -222,6 +241,7 @@ class ServeApp:
         pstop = asyncio.Event()
         self.perception.start(pstop)
         pump = asyncio.create_task(self._pump(pstop))
+        feed = self._feed_tasks(pstop)
         try:
             while not stop.is_set():
                 self.state = "connecting"
@@ -253,8 +273,80 @@ class ServeApp:
             pump.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await pump
+            for t in feed:
+                t.cancel()
+            await asyncio.gather(*feed, return_exceptions=True)
             await self.perception.close()
             await self.link.close()
+
+    def _feed_tasks(self, stop: asyncio.Event) -> list[asyncio.Task[None]]:
+        """The /ai pages' feed server and the status publisher (§22.1), until `stop`."""
+        if self.feed_server is None or self.publisher is None:
+            return []
+
+        def telemetry() -> tuple[Pose | None, bool, str]:
+            return self.world.map_run.p.pose(), False, self.perception.state(time.monotonic()) or "ok"
+
+        server = asyncio.create_task(self.feed_server.run(stop))
+        server.add_done_callback(_said_if_failed)
+        return [
+            server,
+            asyncio.create_task(self.publisher.run(stop, telemetry)),
+            asyncio.create_task(self._page_requests()),
+        ]
+
+    async def _page_requests(self) -> None:
+        """The pages' requests: teach a word (§22.4), each in its own task so the reading goes on."""
+        if self.feed_server is None:
+            return
+        try:
+            async for page, msg in self.feed_server.requests():
+                if msg.get("t") == "teach":
+                    task = asyncio.create_task(self._on_teach(page, msg))
+                    self._teaching.add(task)
+                    task.add_done_callback(self._teaching.discard)
+        finally:
+            for task in list(self._teaching):  # Ctrl-C: the teach takes its word out again
+                task.cancel()
+            await asyncio.gather(*self._teaching, return_exceptions=True)
+
+    async def _on_teach(self, page: int, msg: dict[str, Any]) -> None:
+        word, names = msg.get("word"), cast("object", msg.get("names") or [])
+        if self.teacher is None or not isinstance(word, str) or not isinstance(names, list):
+            reply = Reply(False, "I can't learn words here.")
+        else:
+            reply = await self.teacher.teach(
+                word,
+                [str(n) for n in cast("list[Any]", names)],
+                lambda n: self.names.resolve(n) is not None,
+                busy=self._word is not None,
+            )
+        if self.feed_server is not None:
+            self.feed_server.reply(page, {"t": "rep", "id": msg.get("id"), "ok": reply.ok, "msg": reply.msg})
+
+    async def on_learning(self, word: str | None) -> None:
+        """Around a teach: the pages see it, the bridge gives 7056 for AI words meanwhile."""
+        if self.publisher is not None:
+            self.publisher.learning(word)
+        await self._send(self.link.learning(word is not None))
+
+    async def apply_words(self, vocab: Vocabulary, model: Path) -> None:
+        """Everything a word list touches (§22.4): the detector (swapped between two pictures), the names,
+        the floor words, the things list the bridge checks (sent again on every reconnect) and the pages'."""
+        if self.make_detector is None:
+            raise RuntimeError("no detector maker")
+        names = Names(vocab, self.ball_names)
+        det, floor = await asyncio.to_thread(self.make_detector, model, vocab)
+        # the tank's list first: a refused list (ThingsRefused) fails the teach with nothing swapped
+        # (review M7); a lost link is fine - a reconnect sends link.things
+        with contextlib.suppress(ConnectionError):
+            await self.link.set_things(names.wire())
+        self.link.things = names.wire()
+        self.perception.reload_detector(det)
+        self.names = names
+        self.world.set_floor_classes(floor)
+        if self.publisher is not None:
+            self.publisher.things = self.names.page_list
 
     # ---- one connection
     async def _session(self, stop: asyncio.Event) -> None:
@@ -293,6 +385,9 @@ class ServeApp:
         await self._send(self.link.answer(ev.id, value))
 
     async def _on_start(self, ev: Start) -> None:
+        if self.teacher is not None and self.teacher.learning is not None:  # checked before the teach (7056)
+            await self._send(self.link.failed(ev.id, "learning", ev.thing or ""))
+            return
         if self._word is not None:  # one word at a time
             await self._send(self.link.failed(ev.id, "stale", ev.thing or ""))
             return
@@ -310,6 +405,8 @@ class ServeApp:
         keep = asyncio.Event()
         w = _Word(ev.id, driver, keep, asyncio.create_task(driver.run(keep)))  # the first frame at once
         w.task = asyncio.create_task(self._run_word(w, call, ev.thing or ""))
+        if self.publisher is not None:
+            self.publisher.word(call.skill, call.word, ev.id)
         self._word, self.state = w, "driving"
 
     async def _on_end(self, ev: End) -> None:
@@ -343,9 +440,13 @@ class ServeApp:
                 self.state = "idle"
             if w.silent and not self._closing:  # ended or lost: the home still keeps what the word learned
                 self._save_home()
+        reason = wire_reason(result)
+        if self.publisher is not None and w.silent:  # ended by the bridge or lost: back to ready
+            self.publisher.word(None, None, None)
+        elif self.publisher is not None:
+            self.publisher.ended(reason or "done")
         if w.silent:
             return
-        reason = wire_reason(result)
         await self._send(self.link.done(w.id) if reason is None else self.link.failed(w.id, reason, thing))
         self._save_home()
 
@@ -358,8 +459,13 @@ class ServeApp:
                 self.world.area = (call.centre[0], call.centre[1], call.area_m)
             skill = self.skills(call, self.world, seed)
             await w.driver.cam(0.0, self.world.lim.drive_tilt_deg)
+            views = [v for v in (self.view, self.publisher) if v is not None]
             runner = SkillRunner(
-                self.world, _OnePuller(self.perception, self._lock), w.driver, log, view=self.view
+                self.world,
+                _OnePuller(self.perception, self._lock),
+                w.driver,
+                log,
+                view=TickFan(views) if views else None,
             )
             result, detail = await runner.run(skill)
             if detail:
@@ -428,6 +534,13 @@ class ServeApp:
         print(end_home(self._home_store(), self.home, self._earlier, w.map_run.room, w.memory, w.run_id))
 
 
+def _said_if_failed(task: asyncio.Task[None]) -> None:
+    """The /ai pages' feed server ended with an error (port 8770 taken: another cq-drive serve) - said at once
+    (final review M6); the words still work, only the /ai page has no AI feed."""
+    if not task.cancelled() and task.exception() is not None:
+        print(f"the AI feed for the /ai page could not start: {task.exception()} (try --page-port)")
+
+
 def main(argv: list[str]) -> None:
     """`cq-drive serve [--home NAME] [--record DIR] [--view] [--host H]`."""
     from conqueror_ai.app.objects import DEFAULT_HOST
@@ -448,10 +561,17 @@ def main(argv: list[str]) -> None:
     ap.add_argument(
         "--no-depth", action="store_true", help="leave the depth model out (the servo's tilt only)"
     )
+    ap.add_argument(
+        "--page-port",
+        type=int,
+        default=PAGE_PORT,
+        metavar="N",
+        help=f"serve the /ai pages' AI feed on this port (default {PAGE_PORT}; 0: off)",
+    )
     a = ap.parse_args(argv)
     rec = None
     try:
-        app, rec = _build(a.host, a.home, a.record, not a.no_depth, a.view)
+        app, rec = _build(a.host, a.home, a.record, not a.no_depth, a.view, a.page_port)
         asyncio.run(app.run(asyncio.Event()))
     except KeyboardInterrupt:
         print("\nstopped (Ctrl-C)")
@@ -467,11 +587,11 @@ def main(argv: list[str]) -> None:
 
 
 def _build(
-    host: str, home: str | None, record: Path | None, use_depth: bool, view: bool
+    host: str, home: str | None, record: Path | None, use_depth: bool, view: bool, page_port: int
 ) -> tuple[ServeApp, SessionRecorder | None]:
     from conqueror_ai.adapters import calibration_store
     from conqueror_ai.adapters.bridge_ws import BridgeLink
-    from conqueror_ai.adapters.detector_config import load_ball_names, load_balls, load_vocabulary
+    from conqueror_ai.adapters.detector_config import load_ball_names, load_balls
     from conqueror_ai.adapters.drive_config import load_drive
     from conqueror_ai.adapters.map_config import load_map_config
     from conqueror_ai.adapters.mjpeg_source import MjpegSource
@@ -482,17 +602,18 @@ def _build(
         CALIBRATION,
         DEPTH_MODEL,
         MAP_CONFIG,
-        MODEL,
+        TAUGHT,
         VGA,
-        VOCABULARY,
+        detector_words,
         detectors,
         load_depth,
     )
     from conqueror_ai.app.perception import Perception
 
-    names = Names(load_vocabulary(VOCABULARY), load_ball_names(BALLS))
+    model, vocab = detector_words()  # the taught words too, when their model is made (§22.4)
+    names = Names(vocab, load_ball_names(BALLS))
     cal = calibration_store.load(CALIBRATION, VGA)
-    det, floor = detectors(MODEL, VOCABULARY, BALLS)
+    det, floor = detectors(model, vocab, BALLS)
     sizes = {f"ball:{b.name}": b.size_cm for b in load_balls(BALLS) if b.size_cm is not None}
     lim, _ = load_drive(DRIVE)
     depth = load_depth(DEPTH_MODEL) if use_depth else None
@@ -501,12 +622,23 @@ def _build(
     if record is not None:
         when = datetime.datetime.now().isoformat(timespec="seconds")
         rec = SessionRecorder(record, {"host": host, "what": "cq-drive serve", "date": when})
-    perception = Perception(BridgeLink(host), MjpegSource(host), world, det, depth, rec)
+    feed = make_feed(page_port, names.page_list)  # the /ai pages (§22); 0: off
+    on_frame = feed[1].on_frame if feed is not None else None
+    perception = Perception(BridgeLink(host), MjpegSource(host), world, det, depth, rec, on_frame)
     tick_view = None
     if view:
         try:
             tick_view = live_view()
         except Exception as e:  # a viewer that won't start never stops the session
             print(f"the viewer did not start ({e}); serving without it")
-    link = SkillLink(f"ws://{host}/ws", names.wire())
-    return ServeApp(link, perception, world, names, home, record, view=tick_view), rec
+    link = SkillLink(f"ws://{host}/ws", names.wire(), page_port=page_port or None)
+    app = ServeApp(link, perception, world, names, home, record, view=tick_view, feed=feed)
+    app.ball_names = load_ball_names(BALLS)
+    app.make_detector = lambda m, v: detectors(m, v, BALLS)
+
+    async def installed() -> None:  # the new model is in taught/: the same choice as at start (§22.4)
+        m, v = detector_words()
+        await app.apply_words(v, m)
+
+    app.teacher = Teacher(TaughtWords(TAUGHT), run_export, learning=app.on_learning, installed=installed)
+    return app, rec

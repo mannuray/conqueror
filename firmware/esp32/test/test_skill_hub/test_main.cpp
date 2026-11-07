@@ -473,6 +473,67 @@ void test_server_fd_is_shared_and_copyable() {
   TEST_ASSERT_EQUAL(5, b.server());
 }
 
+// ---- Plan Z2b-1 (bridge LLD R27.1-R27.3): where the engine's AI feed is, and learning ----
+void test_page_url_from_hello() {
+  SkillHub h;
+  h.onHello(kA, "192.168.1.23", 8770, 1);
+  TEST_ASSERT_EQUAL_STRING("ws://192.168.1.23:8770/feed", h.pageUrl());
+  TEST_ASSERT_EQUAL(1, h.pageProto());
+}
+
+void test_bad_page_port_no_url() {
+  const uint16_t bad[] = {0, 80, 1023};
+  for (uint16_t p : bad) {
+    SkillHub h;
+    h.onHello(kA, "192.168.1.23", p, 1);
+    TEST_ASSERT_EQUAL_STRING("", h.pageUrl());
+  }
+  SkillHub h;
+  h.onHello(kA, "192.168.1.23", 65535, 1);
+  TEST_ASSERT_EQUAL_STRING("ws://192.168.1.23:65535/feed", h.pageUrl());
+}
+
+void test_no_peer_no_url() {
+  SkillHub h;
+  h.onHello(kA, "", 8770, 1);
+  TEST_ASSERT_EQUAL_STRING("", h.pageUrl());
+  SkillHub g;
+  g.onHello(kA);  // an engine without a page (Plan Z2a)
+  TEST_ASSERT_EQUAL_STRING("", g.pageUrl());
+}
+
+void test_busy_hello_keeps_the_url() {
+  SkillHub h;
+  h.onHello(kA, "192.168.1.23", 8770, 1);
+  TEST_ASSERT_TRUE(h.onHello(kB, "192.168.1.99", 9000, 1) == SkillHub::Decision::kBusy);
+  TEST_ASSERT_EQUAL_STRING("ws://192.168.1.23:8770/feed", h.pageUrl());
+}
+
+void test_close_clears_url_and_learning() {
+  SkillHub h;
+  h.onHello(kA, "192.168.1.23", 8770, 1);
+  h.onLearning(kA, true);
+  TEST_ASSERT_TRUE(h.learning());
+  h.onClose(kB);  // not the server: nothing changes
+  TEST_ASSERT_TRUE(h.learning());
+  h.onClose(kA);
+  TEST_ASSERT_FALSE(h.learning());
+  TEST_ASSERT_EQUAL_STRING("", h.pageUrl());
+}
+
+void test_learning_only_from_server() {
+  SkillHub h;
+  h.onLearning(kA, true);  // no server yet
+  TEST_ASSERT_FALSE(h.learning());
+  h.onHello(kA, "192.168.1.23", 8770, 1);
+  h.onLearning(kB, true);
+  TEST_ASSERT_FALSE(h.learning());
+  h.onLearning(kA, true);
+  TEST_ASSERT_TRUE(h.learning());
+  h.onLearning(kA, false);
+  TEST_ASSERT_FALSE(h.learning());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_one_server_only);
@@ -500,5 +561,11 @@ int main() {
   RUN_TEST(test_new_server_hello_hides_the_old_servers_list);
   RUN_TEST(test_ids_never_repeat_and_stay_positive);
   RUN_TEST(test_server_fd_is_shared_and_copyable);
+  RUN_TEST(test_page_url_from_hello);
+  RUN_TEST(test_bad_page_port_no_url);
+  RUN_TEST(test_no_peer_no_url);
+  RUN_TEST(test_busy_hello_keeps_the_url);
+  RUN_TEST(test_close_clears_url_and_learning);
+  RUN_TEST(test_learning_only_from_server);
   return UNITY_END();
 }

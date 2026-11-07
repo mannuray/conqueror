@@ -232,7 +232,7 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
 <div id="menuSheet" class="ov sheet glass"><p class="title">[ MENU ]</p>
   <a class="mi" id="miLogo" href="/logo"><!--icon:code--><span><b>LOGO</b><small>write and run programs</small></span><i>›</i></a>
   <a class="mi" id="miSettings" href="/settings"><!--icon:settings--><span><b>SETTINGS</b><small>WiFi · tank · tune · log</small></span><i>›</i></a>
-  <a class="mi off" id="miAi" target="_blank" rel="noopener" aria-disabled="true"><!--icon:sparkles--><span><b>AI</b><small id="miAiTxt">set its address in Settings</small></span><i class="bdg" id="miAiBdg">NOT SET UP</i></a>
+  <a class="mi" id="miAi" href="/ai"><!--icon:sparkles--><span><b>AI</b><small>find, explore, teach it a word</small></span><i>›</i></a>
   <a class="mi" id="miHelp" href="/help"><!--icon:circle-help--><span><b>HELP</b><small>how-to and facts</small></span><i>›</i></a>
 </div>
 <div id="toast"></div>
@@ -316,9 +316,9 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
         showCaps(m.tank && m.tank.caps ? m.tank.caps : {});
         showOwner(m.owner, m.owner_client);
         resyncLock();  // also on body_online (review I4)
-        send({ t: "tank" });  // R13.1: only for the menu's AI address
+        send({ t: "tank" });  // R13.1: the camera state (the AI address is retired, design-notes §200)
         break;
-      case "tank": showAi(m.ai_url || ""); showCamera(m.camera); break;
+      case "tank": showCamera(m.camera); break;
       case "tf": showFast(m); break;
       case "ts": showSlow(m); break;
       case "ev": onEvent(m); break;
@@ -781,14 +781,6 @@ input[type=range] { width: 100%; accent-color: var(--ui); }
     var b = e.target.closest("button"); if (b) send({ t: "camera_set", fps_cap: Number(b.dataset.v), id: nextId++ });
   });
   setInterval(function () { if (!document.hidden) send({ t: "tank" }); }, 2000);
-  function showAi(url) {  // R13.1: greyed until an address is saved; the bridge only stores http:// addresses
-    var ok = /^http:\/\//.test(url);
-    if (ok) $("miAi").href = url; else $("miAi").removeAttribute("href");
-    $("miAi").className = "mi" + (ok ? "" : " off");
-    $("miAi").setAttribute("aria-disabled", ok ? "false" : "true");
-    $("miAiTxt").textContent = ok ? "open the AI page" : "set its address in Settings";
-    $("miAiBdg").className = ok ? "hidden" : "bdg";
-  }
   function closeMenu() { $("menuSheet").classList.remove("show"); $("dim").classList.remove("show"); }
   $("dim").addEventListener("click", closeMenu);
   $("miAi").addEventListener("click", closeMenu);

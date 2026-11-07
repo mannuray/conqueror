@@ -108,11 +108,12 @@ settings (changes answer {"t":"confirm"} and wait for the tank's button):
 &rarr; {"t":"wifi_mode","mode":"home|ap"}  {"t":"ap_password","password"}  {"t":"setting","setting_id":66,"value"?}
 &rarr; {"t":"restart"}                                   &larr; confirm / confirmed / confirm_expired
 tank app:
-&rarr; {"t":"tank"}            &larr; {"t":"tank","selftest":{"seen","mask","locked","age_s"},"hw":{...},"camera":{...},"ai_url"}
+&rarr; {"t":"tank"}            &larr; {"t":"tank","selftest":{"seen","mask","locked","age_s"},"hw":{...},"camera":{...}}
 &rarr; {"t":"log","since":0}   &larr; {"t":"log","entries":[{"seq","age_s","kind","ev"?,"a","b","client"}],"last","gap"?} (25 a reply)
 &rarr; {"t":"camera_set","size":"QVGA|VGA|SVGA|HD","quality":10-40,"fps_cap":0|5|10|15,"brightness":-2..2,
    "contrast":-2..2,"low_light","vflip","hmirror","reset":true,"id"}      &larr; ack, then tank
-&rarr; {"t":"selftest","id"}   (tank standing still)     &rarr; {"t":"app_set","ai_url":"http://...","id"}
+&rarr; {"t":"selftest","id"}   (tank standing still)
+/ai page: &rarr; {"t":"hello","client":"ai-page"}   &larr; {"t":"ai_at","url":"ws://...:8770/feed"|null,"proto":1}
 &larr; tf (10 Hz) &middot; ts (1 Hz) &middot; ev &middot; nack {"code","reason","message"} &middot; pong</pre>
 
 <!--CQ:LOGO-->

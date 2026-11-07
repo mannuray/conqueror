@@ -103,6 +103,7 @@ void runCase(const LogoCase& c) {
     Caps caps;
     caps.encoders = c.encoders;
     caps.ai = c.ai;
+    caps.ai_learning = c.learning;
     ThingNames things;
     if (c.things[0] != '\0') {
       TEST_ASSERT_TRUE(loadThings(c.things, things));

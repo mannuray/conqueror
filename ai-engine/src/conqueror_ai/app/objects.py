@@ -38,10 +38,13 @@ from conqueror_ai.domain.detectors import MultiDetector
 from conqueror_ai.domain.objects import MAYBE_SCORE, Detector, ObjectPipeline
 from conqueror_ai.domain.telemetry import parse_td
 from conqueror_ai.domain.types import Frame, ObjectEstimate
+from conqueror_ai.domain.vocabulary import Vocabulary
 
 ENGINE = Path(__file__).resolve().parents[3]
 CALIBRATION = ENGINE / "config" / "calibration.yaml"
-MODEL = ENGINE / "models" / "yoloworld-s-640.mlpackage"
+MODELS = ENGINE / "models"
+MODEL = MODELS / "yoloworld-s-640.mlpackage"
+TAUGHT = ENGINE / "taught"  # words taught from the /ai page (git-ignored, AI engine LLD §22.4)
 VOCABULARY = ENGINE / "config" / "vocabulary.yaml"
 BALLS = ENGINE / "config" / "balls.yaml"
 MAP_CONFIG = ENGINE / "config" / "map.yaml"
@@ -257,12 +260,19 @@ async def run_live(
         await p.close()
 
 
-def detectors(model: Path, vocab_path: Path, balls_path: Path) -> tuple[Detector, frozenset[str]]:
+def detector_words() -> tuple[Path, Vocabulary]:
+    """The detector model and its vocabulary - the measured words, and the taught ones when the taught model
+    was made with exactly them (§22.4). One choice for cq-drive and cq-drive serve."""
+    from conqueror_ai.adapters.taught_words import pick_words
+
+    return pick_words(VOCABULARY, MODELS, TAUGHT)
+
+
+def detectors(model: Path, vocab: Vocabulary, balls_path: Path) -> tuple[Detector, frozenset[str]]:
     """YOLO-World and the colour ball finder as one detector, and the classes the floor trick places (§16)."""
-    from conqueror_ai.adapters.detector_config import load_balls, load_vocabulary
+    from conqueror_ai.adapters.detector_config import load_balls
     from conqueror_ai.adapters.yolo_world import YoloWorld
 
-    vocab = load_vocabulary(vocab_path)
     world = YoloWorld(model, vocab, MAYBE_SCORE)
     balls: list[BallColour] = load_balls(balls_path)
     multi = MultiDetector([world.detect, lambda rgb, cam: find_balls(rgb, balls, cam)])
@@ -285,7 +295,9 @@ def main() -> None:
         raise SystemExit("give a recording folder, or --live")
     try:
         cal = calibration_store.load(a.calibration, VGA)
-        det, floor = detectors(a.model, a.vocabulary, a.balls)
+        from conqueror_ai.adapters.detector_config import load_vocabulary
+
+        det, floor = detectors(a.model, load_vocabulary(a.vocabulary), a.balls)
         cfg = load_map_config(MAP_CONFIG)
     except (FileNotFoundError, ValueError, KeyError) as err:
         raise SystemExit(str(err)) from None

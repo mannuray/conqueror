@@ -3,7 +3,6 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-#include "ports/app_store.h"
 #include "ports/camera_control.h"
 #include "ports/client_out.h"
 #include "ports/log_out.h"
@@ -39,6 +38,11 @@ using fakes::world;
 bool clientSend(int fd, const char* json, size_t len) {
   if (!world().send_ok) return false;
   world().sent.push_back({fd, std::string(json, len)});
+  return true;
+}
+bool clientPeerIp(int, char* out, size_t cap) {
+  if (world().peer_ip.empty() || cap == 0) return false;
+  snprintf(out, cap, "%s", world().peer_ip.c_str());
   return true;
 }
 bool clientClose(int fd) {
@@ -79,15 +83,6 @@ bool saveGyroScale(uint16_t v) {
   if (!world().save_ok) return false;
   world().saved_gyro.push_back(v);
   world().gyro = v;
-  return true;
-}
-bool loadAiUrl(char* out, size_t cap) {
-  snprintf(out, cap, "%s", world().ai_url.c_str());
-  return true;
-}
-bool saveAiUrl(const char* url) {
-  if (!world().save_ok) return false;
-  world().ai_url = url;
   return true;
 }
 bool wifiPost(const core::WifiRequest& r) {

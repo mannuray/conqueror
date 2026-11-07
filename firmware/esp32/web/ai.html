@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tank AI</title>
+<script>/* the look (design-notes §206): remembered, else Sunny on a touch device and the cockpit with a mouse; set before drawing */
+(function () { var t = null; try { t = localStorage.getItem("cq_theme"); } catch (e) { /* private mode */ }
+  if (t !== "play" && t !== "cockpit") t = window.matchMedia("(pointer: coarse)").matches ? "play" : "cockpit";
+  document.documentElement.dataset.theme = t; })();
+</script>
+<style>
+:root {
+  /* Phosphor Cockpit (design-notes §204). A theme changes only these (design-notes §206). */
+  --bg: #050805; --panel: #0a0f0a; --deep: #070e07; --g: #33ff66; --g2: #1fa341; --ink: #b8f5c8; --hi: #e8ffe8; --line: #33ff66;
+  --edge: color-mix(in srgb, var(--line) 40%, transparent); --soft: color-mix(in srgb, var(--line) 20%, transparent);
+  --amber: #ffb000; --red: #ff3b30; --sel: #143d1a; --on-sel: var(--hi); --chip: #0a140a; --btn: #0e2912; --act: #09150a;
+  --act-main: #1b5524; --act-main-edge: #8fffb0; --act-main-ink: #fff; --bubble: #09160b; --hdr: #080d08; --foot: #040704;
+  --new-bg: #1f1700; --mood-bg: #261c00; --track: #0e3a17; --mute-bg: #0f2412; --detail: #060b06; --stop-edge: #ff9a93;
+  --view-bg: #000; --hud-bg: rgba(0,0,0,.75); --face-bg: #061208; --face: #33ff66; --cheek: #ffb000;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --ui: var(--mono); --r: 3px; --r-card: 0px; --scan: .35; --glow-text: 0 0 6px color-mix(in srgb, var(--line) 65%, transparent), 0 0 12px color-mix(in srgb, var(--line) 30%, transparent);
+  --card-shadow: 0 0 12px rgba(10,25,12,.6); --brackets: block; --border-w: 1px;
+}
+/* "Sunny" - the friendly theme for children (design-notes §206): the same page, only these values change. */
+:root[data-theme="play"] {
+  --bg: #fff8ec; --panel: #ffffff; --deep: #fdf3e1; --g: #1f6fd1; --g2: #6b7a90; --ink: #33415c; --hi: #1d2b44; --line: #4aa3ff;
+  --amber: #f08c00; --red: #e8382e; --sel: #d6ebff; --chip: #f2f7ff; --btn: #e3f1ff; --act: #ffffff;
+  --act-main: #34b36a; --act-main-edge: #239152; --act-main-ink: #ffffff; --bubble: #ffffff; --hdr: #ffffff; --foot: #fff3d6;
+  --new-bg: #fff1cc; --mood-bg: #fff1cc; --track: #e6eef8; --mute-bg: #e3f1ff; --detail: #fffaf0; --stop-edge: #ff9a93;
+  --view-bg: #1d2b44; --hud-bg: rgba(255,255,255,.88); --face-bg: #ffd84d; --face: #1d2b44; --cheek: #ff7a90;
+  --mono: ui-rounded, "SF Pro Rounded", "Nunito", "Arial Rounded MT Bold", system-ui, sans-serif; --sans: var(--mono); --ui: var(--mono);
+  --r: 12px; --r-card: 18px; --scan: 0; --glow-text: none; --card-shadow: 0 4px 16px rgba(29,43,68,.12); --brackets: none;
+}
+/* Bridge LLD R27.4, design-notes §204: the Stitch "Tank AI" cockpit (docs/design/stitch/21-ai-desktop-v1.png), Phosphor
+   Cockpit. Laptop: camera left, thinking and play right. Phone: one column, thinking first. Only real readouts. */
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--g); }
+body { font: 13px/1.4 var(--ui); min-height: 100vh; overflow-x: hidden; padding-bottom: 40px; }
+body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 30; opacity: var(--scan);
+  background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,.35) 50%); background-size: 100% 3px; }
+a { color: var(--g); }
+button, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+svg:not(.face) { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
+.hidden { display: none !important; }
+.glow { text-shadow: var(--glow-text); }
+.chip { padding: 3px 8px; background: var(--chip); border: 1px solid color-mix(in srgb, var(--line) 30%, transparent); border-radius: var(--r); color: var(--ink);
+  white-space: nowrap; font-size: 11px; }
+.chip.on { color: var(--hi); border-color: var(--edge); font-weight: 700; box-shadow: 0 0 6px color-mix(in srgb, var(--line) 30%, transparent); }
+.chip.warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 60%, transparent); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--g); box-shadow: 0 0 6px var(--g);
+  margin-right: 4px; vertical-align: 0; }
+.chip.warn .dot { background: var(--amber); box-shadow: none; }
+/* the battery: a small cell that fills, and the percent (amber low, red critical) */
+.chip.batt { display: inline-flex; align-items: center; gap: 6px; }
+.cell { position: relative; width: 26px; height: 12px; border: 1.5px solid currentColor; border-radius: 2px; }
+.cell::after { content: ""; position: absolute; right: -4px; top: 3px; width: 2px; height: 4px; background: currentColor; border-radius: 0 1px 1px 0; }
+.cell i { position: absolute; left: 1px; top: 1px; bottom: 1px; width: 0; background: var(--g); border-radius: 1px; }
+.chip.batt.low { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 60%, transparent); } .chip.batt.low .cell i { background: var(--amber); }
+.chip.batt.crit { color: var(--red); border-color: color-mix(in srgb, var(--red) 70%, transparent); } .chip.batt.crit .cell i { background: var(--red); }
+.chip.batt b { font-weight: 700; }
+/* header */
+header { position: sticky; top: 0; z-index: 40; background: var(--hdr); border-bottom: 1px solid var(--edge);
+  padding: 8px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.back { padding: 4px 10px; border: 1px solid var(--edge); border-radius: var(--r); text-decoration: none; font-weight: 700; font-size: 12px; }
+.title { font-weight: 800; font-size: 18px; letter-spacing: .12em; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+nav { display: flex; border: 1px solid var(--edge); border-radius: var(--r); padding: 2px; gap: 2px; background: var(--deep); }
+nav button { min-height: 32px; padding: 0 12px; background: none; border: 1px solid transparent; border-radius: var(--r);
+  color: var(--g2); font-weight: 700; font-size: 12px; }
+nav button.on { background: var(--sel); color: var(--hi); border-color: var(--g); box-shadow: 0 0 8px color-mix(in srgb, var(--line) 40%, transparent); }
+#themeBtn { margin-left: auto; min-height: 36px; min-width: 40px; padding: 0 10px; background: var(--chip); color: var(--g);
+  border: 1px solid var(--edge); border-radius: var(--r); }
+#themeBtn svg { width: 18px; height: 18px; }
+#stop { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 18px; background: var(--red);
+  color: #fff; border: 2px solid var(--stop-edge); border-radius: var(--r); font-size: 16px; font-weight: 900; letter-spacing: .08em;
+  box-shadow: 0 0 15px color-mix(in srgb, var(--red) 70%, transparent); }
+#stop svg { width: 20px !important; height: 20px !important; }
+/* layout: laptop two columns, phone one (thinking first) */
+main { display: grid; grid-template-columns: 1fr; gap: 14px; padding: 14px 16px; max-width: 1440px; margin: 0 auto; }
+#colCam, #colRight { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+@media (max-width: 899px) { #colRight { display: contents; } #cardThink { order: 1; } #colCam { order: 2; } #cardPlay { order: 3; } }
+@media (min-width: 900px) {
+  /* laptop: one screen like /logo - no page scroll; a short window scrolls the right column inside itself */
+  html, body { height: 100%; overflow: hidden; }
+  body { display: flex; flex-direction: column; padding-bottom: 30px; }
+  header { flex: none; }
+  main { flex: 1; min-height: 0; width: 100%; grid-template-columns: 7fr 5fr; grid-template-rows: minmax(0, 1fr); }
+  #colCam, #colRight { min-height: 0; }
+  #colRight { overflow-y: auto; padding-right: 4px; }
+  #colCam .card { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #colCam .views { flex: 1; min-height: 0; align-content: start; }
+  #colCam .view { max-height: calc(100vh - 330px); margin: 0 auto; width: 100%; }
+}
+.card { position: relative; background: var(--panel); border: 1px solid var(--edge); padding: 14px; box-shadow: var(--card-shadow); border-radius: var(--r-card); }
+.card::before, .card::after { content: ""; position: absolute; width: 8px; height: 8px; pointer-events: none; display: var(--brackets); }
+.card::before { top: -2px; left: -2px; border-top: 2px solid var(--g); border-left: 2px solid var(--g); }
+.card::after { bottom: -2px; right: -2px; border-bottom: 2px solid var(--g); border-right: 2px solid var(--g); }
+.card h2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; padding-bottom: 8px; font-size: 13px;
+  letter-spacing: .1em; border-bottom: 1px solid color-mix(in srgb, var(--line) 30%, transparent); }
+.card h2 .tag { font-size: 10px; color: var(--ink); background: var(--btn); border: 1px solid var(--edge); padding: 2px 8px; font-weight: 600; }
+.card h2 .right { margin-left: auto; font-size: 10px; color: var(--ink); font-weight: 400; }
+/* camera */
+.views { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 560px) { .views { grid-template-columns: 1fr 1fr; } }
+.vhead { display: flex; justify-content: space-between; font-size: 11px; font-weight: 700; color: var(--ink); padding: 0 4px 6px; }
+.view { position: relative; aspect-ratio: 4 / 3; background: var(--view-bg); border: 1px solid color-mix(in srgb, var(--line) 50%, transparent); border-radius: var(--r); overflow: hidden; }
+.view canvas, .view img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.hud { position: absolute; font-size: 10px; background: var(--hud-bg); border: 1px solid color-mix(in srgb, var(--line) 50%, transparent); border-radius: var(--r);
+  padding: 2px 6px; color: var(--ink); }
+.hud.tl { top: 8px; left: 8px; } .hud.tr { top: 8px; right: 8px; } .hud.bl { bottom: 8px; left: 8px; }
+.hud select { background: transparent; border: 0; color: var(--g); font-size: 10px; padding: 0; }
+.camfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--line) 30%, transparent); }
+.note { font-size: 11px; color: var(--amber); }
+.readouts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.ro { background: var(--panel); border: 1px solid var(--edge); border-radius: var(--r); padding: 8px 10px; text-align: center; }
+.ro small { display: block; font-size: 10px; color: var(--g2); letter-spacing: .06em; }
+.ro b { display: block; font-size: 14px; color: var(--ink); margin: 2px 0 4px; }
+.bar { height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--g); }
+.bar i.rev { background: var(--amber); }
+/* thinking */
+.mood { margin-left: auto; padding: 2px 8px; background: var(--mood-bg); border: 1px solid color-mix(in srgb, var(--amber) 60%, transparent); color: var(--amber);
+  font-size: 11px; font-weight: 700; border-radius: var(--r); letter-spacing: .06em; }
+.think { display: flex; gap: 14px; align-items: flex-start; padding-top: 6px; }
+.face { flex: none; width: 88px; height: 88px; }
+.bubble { flex: 1; position: relative; background: var(--bubble); border: 2px solid color-mix(in srgb, var(--line) 80%, transparent); border-radius: var(--r); padding: 12px;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--line) 20%, transparent), inset 0 0 8px color-mix(in srgb, var(--line) 10%, transparent); }
+.bubble::before { content: ""; position: absolute; top: 18px; left: -10px; border: 5px solid transparent; border-right: 8px solid color-mix(in srgb, var(--line) 80%, transparent); border-left: 0; }
+#say { font: 600 16px/1.35 var(--sans); color: var(--hi); }
+#sayWhat { margin-top: 6px; padding-top: 6px; border-top: 1px solid color-mix(in srgb, var(--line) 20%, transparent); font-size: 10px; color: var(--ink); }
+.whybox { margin-top: 12px; background: var(--deep); border: 1px solid var(--edge); border-radius: var(--r); padding: 10px; }
+.whyrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#whyBtn { background: none; border: 0; padding: 6px 0; color: var(--ink); font-weight: 700; font-size: 12px; }
+#whyBtn b { color: var(--amber); }
+#soundTest { margin-left: auto; min-height: 32px; padding: 0 10px; background: none; border: 1px solid var(--amber); border-radius: var(--r);
+  color: var(--amber); font-size: 11px; font-weight: 700; }
+#soundInfo { margin-top: 8px; font-size: 11px; color: var(--amber); line-height: 1.5; }
+#muteBtn { min-height: 32px; padding: 0 10px; background: var(--mute-bg); border: 1px solid color-mix(in srgb, var(--line) 60%, transparent); border-radius: var(--r);
+  color: var(--hi); font-size: 11px; font-weight: 700; }
+#why { margin: 8px 0 0 6px; padding: 0 0 0 22px; border-left: 2px solid color-mix(in srgb, var(--line) 40%, transparent); font: 13px/1.5 var(--sans); color: var(--ink); }
+/* play */
+.label { font-size: 10px; color: var(--g2); letter-spacing: .1em; margin: 2px 0 8px; text-transform: uppercase; }
+.things { display: flex; flex-wrap: wrap; gap: 8px; }
+.things button { min-height: 40px; padding: 0 14px; background: var(--chip); border: 1px solid var(--edge); border-radius: var(--r);
+  color: var(--ink); font-weight: 700; font-size: 12px; }
+.things button.on { background: var(--sel); border: 2px solid var(--g); color: var(--hi); box-shadow: 0 0 8px color-mix(in srgb, var(--line) 40%, transparent); }
+.things button.new { background: var(--new-bg); border-color: color-mix(in srgb, var(--amber) 70%, transparent); color: var(--amber); }
+.things button.new.on { border-color: var(--amber); }
+.hint { font-size: 10px; color: color-mix(in srgb, var(--amber) 90%, transparent); font-style: italic; margin-top: 6px; }
+.row { display: flex; gap: 8px; align-items: stretch; margin-top: 12px; }
+input[type=text] { flex: 1; min-width: 0; min-height: 40px; padding: 0 10px; background: var(--deep); border: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+  border-radius: var(--r); color: var(--hi); }
+.btn { min-height: 40px; padding: 0 14px; background: var(--btn); border: 1px solid var(--g); border-radius: var(--r); color: var(--hi);
+  font-weight: 700; font-size: 12px; letter-spacing: .06em; }
+.btn:disabled { opacity: .4; cursor: default; }
+.areabox { margin-top: 12px; background: var(--deep); border: 1px solid color-mix(in srgb, var(--line) 30%, transparent); border-radius: var(--r); padding: 8px; }
+.seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.seg button { min-height: 34px; background: var(--chip); border: 1px solid color-mix(in srgb, var(--line) 20%, transparent); border-radius: var(--r); color: var(--g2); font-size: 12px; }
+.seg button.on { background: var(--sel); border-color: var(--g); color: var(--hi); font-weight: 700; box-shadow: 0 0 6px color-mix(in srgb, var(--line) 30%, transparent); }
+.acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.act { min-height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background: var(--act); border: 1px solid color-mix(in srgb, var(--line) 50%, transparent); border-radius: var(--r); color: var(--ink); font-weight: 800; font-size: 13px; }
+.act.main { background: var(--act-main); border: 2px solid var(--act-main-edge); color: var(--act-main-ink); box-shadow: 0 0 12px color-mix(in srgb, var(--line) 50%, transparent); }
+.act svg { width: 22px !important; height: 22px !important; }
+.act:disabled { opacity: .4; cursor: default; }
+#typedMsg { margin-top: 8px; }
+.ran { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; padding: 8px 10px; background: var(--deep);
+  border: 1px solid color-mix(in srgb, var(--line) 30%, transparent); border-radius: var(--r); font-size: 11px; color: var(--ink); }
+.ran span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ran b { color: var(--g); }
+details { margin-top: 12px; background: var(--detail); border: 1px solid color-mix(in srgb, var(--line) 30%, transparent); border-radius: var(--r); padding: 10px; }
+summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; font-size: 11px; font-weight: 700; color: var(--ink); }
+summary::-webkit-details-marker { display: none; }
+summary small { color: var(--g2); font-weight: 400; }
+#teach { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--line) 20%, transparent); }
+#teach label { font-size: 10px; color: var(--g2); }
+#teachMsg { font: 13px/1.4 var(--sans); color: var(--hi); }
+.soon { color: var(--g2); text-align: center; padding: 40px 0; letter-spacing: .1em; }
+footer { position: fixed; bottom: 0; left: 0; right: 0; z-index: 40; height: 30px; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 0 16px; background: var(--foot); border-top: 1px solid var(--edge); font-size: 10px; color: var(--g2); }
+footer b { color: var(--amber); font-weight: 600; }
+footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 899px) { header .chips { order: 5; width: 100%; } header nav { order: 6; } }
+@media (min-width: 900px) and (max-height: 860px) {  /* a short laptop window: the play buttons stay on screen */
+  main { gap: 10px; padding: 10px 16px; } #colRight, #colCam { gap: 10px; }
+  .card { padding: 10px 12px; } .card h2 { margin-bottom: 8px; padding-bottom: 6px; }
+  .face { width: 64px; height: 64px; } .think { gap: 10px; padding-top: 0; } .bubble { padding: 8px 10px; } #say { font-size: 14px; }
+  .whybox { margin-top: 8px; padding: 6px 10px; } .label { margin-bottom: 6px; }
+  .row, .areabox, .acts, .ran, details { margin-top: 8px; } .areabox { padding: 6px; }
+  .things button, .btn, input[type=text] { min-height: 34px; } .seg button { min-height: 30px; }
+  .act { min-height: 48px; flex-direction: row; gap: 6px; } #newHint { margin-top: 4px; }
+}
+.face rect:first-of-type { fill: var(--face-bg); stroke: var(--face); }
+.face line, .face path { stroke: var(--face); }
+#eyeL, #eyeR { fill: var(--face); }
+.face circle { fill: var(--cheek); }
+</style></head>
+<body>
+<header>
+  <a class="back" href="/"><!--icon:chevron-left-->DRIVE</a>
+  <span class="title glow">TANK AI</span>
+  <div class="chips">
+    <span id="cBatt" class="chip batt" title="battery"><span class="cell"><i id="battFill"></i></span><b id="battTxt">--</b></span><span id="cAi" class="chip warn"><i class="dot"></i>AI HELPER OFF</span><span id="cFps" class="chip">-- / s</span>
+    <span id="cHdg" class="chip">HDG --</span><span id="cPos" class="chip">POS --</span><span id="cSpd" class="chip">SPEED --</span>
+  </div>
+  <nav><button type="button" class="on" data-tab="play">[ PLAY ]</button><button type="button" data-tab="room">[ ROOM ]</button><button type="button" data-tab="inside">[ INSIDE ]</button></nav>
+  <button id="themeBtn" type="button" aria-label="change the look" title="change the look"><!--icon:palette--></button>
+  <button id="stop" type="button" aria-label="stop the tank"><!--icon:hand-->STOP</button>
+</header>
+<main id="tPlay">
+  <section id="colCam">
+    <div class="card">
+      <h2 class="glow">[ <!--icon:camera--> LIVE VISION ]<span class="tag" id="camWhat">--</span></h2>
+      <div class="views">
+        <div><div class="vhead"><span>VIEW A // THINGS</span><span id="v1Fps"></span></div>
+          <div class="view"><canvas id="v1" width="320" height="240"></canvas><img id="tankCam" class="hidden" alt="the tank's camera">
+            <span class="hud tl" id="v1Tag">320 × 240</span></div></div>
+        <div id="v2box"><div class="vhead"><span>VIEW B // DEPTH MAP</span><span>NEAR = BRIGHT</span></div>
+          <div class="view"><canvas id="v2" width="320" height="240"></canvas>
+            <span class="hud tl" id="sonarTag">SONAR: --</span>
+            <span class="hud bl">LAYER: <select id="layer" aria-label="what to lay over the picture"><option value="depth">DEPTH</option></select></span></div></div>
+      </div>
+      <div id="camNote" class="note"></div>
+      <div class="camfoot"><button id="pic" class="btn" type="button"><!--icon:camera--> [ TAKE A PICTURE ]</button>
+        <span class="note" style="color:var(--ink)">saved on this phone only</span></div>
+    </div>
+    <div class="readouts">
+      <div class="ro"><small>LEFT TRACK</small><b id="roL">--</b><div class="bar"><i id="barL"></i></div></div>
+      <div class="ro"><small>RIGHT TRACK</small><b id="roR">--</b><div class="bar"><i id="barR"></i></div></div>
+      <div class="ro"><small>CAMERA PAN</small><b id="roPan">--</b><div class="bar"><i id="barPan"></i></div></div>
+    </div>
+  </section>
+  <section id="colRight">
+    <div class="card" id="cardThink">
+      <h2 class="glow">[ <!--icon:bot--> WHAT I'M THINKING ]<span class="mood" id="mood">HAPPY</span></h2>
+      <div class="think">
+        <svg class="face" viewBox="0 0 88 88" role="img" aria-label="the tank's face">
+          <line x1="44" y1="4" x2="44" y2="12" stroke="#33ff66" stroke-width="2"></line><circle cx="44" cy="4" r="3.5" fill="#ffb000"></circle>
+          <rect x="6" y="12" width="76" height="72" rx="4" fill="#061208" stroke="#33ff66" stroke-width="2.5"></rect>
+          <rect id="eyeL" x="22" y="32" width="13" height="13" fill="#33ff66"></rect>
+          <rect id="eyeR" x="53" y="32" width="13" height="13" fill="#33ff66"></rect>
+          <circle cx="17" cy="56" r="2" fill="#ffb000"></circle><circle cx="71" cy="56" r="2" fill="#ffb000"></circle>
+          <path id="mouth" d="M30 62 Q44 72 58 62" fill="none" stroke="#33ff66" stroke-width="3" stroke-linecap="round"></path>
+        </svg>
+        <div class="bubble"><div id="say">Hello!</div><div id="sayWhat">--</div></div>
+      </div>
+      <div class="whybox">
+        <div class="whyrow"><button id="whyBtn" type="button"><b>›</b> WHY? [tap to explain]</button>
+          <button id="soundTest" type="button" aria-label="test the sound">[ TEST SOUND ]</button>
+          <button id="muteBtn" type="button" aria-label="voice on or off"><!--icon:volume-2 id="icOn"--><!--icon:volume-x id="icOff" class="hidden"--> <span id="voiceTxt">VOICE: ON</span></button></div>
+        <div id="soundInfo" class="hidden"></div>
+        <ol id="why" class="hidden"></ol>
+      </div>
+    </div>
+    <div class="card" id="cardPlay">
+      <h2 class="glow">[ <!--icon:locate-fixed--> FIND WHAT? ]<span class="right" id="runSt">READY</span></h2>
+      <div class="label">Things I know</div>
+      <div id="things" class="things"></div>
+      <div class="hint" id="newHint">* amber = I've never seen one - I'll try</div>
+      <div class="row"><input id="typed" type="text" placeholder="or type a thing (e.g. shoe, book)..." autocomplete="off" autocapitalize="none">
+        <button id="typedGo" class="btn" type="button">[ FIND ]</button></div>
+      <div id="typedMsg" class="note hidden"></div>
+      <div class="areabox"><div class="label">Play area</div>
+        <div class="seg" id="areaSeg"><button type="button" data-a="1">1 m</button><button type="button" data-a="2" class="on">2 m</button>
+          <button type="button" data-a="4">4 m</button><button type="button" data-a="0">ALL</button></div></div>
+      <div class="acts">
+        <button id="find" class="act main" type="button"><!--icon:scan-eye-->[ FIND ]</button>
+        <button id="wander" class="act" type="button"><!--icon:arrow-left-right-->[ WANDER ]</button>
+        <button id="explore" class="act" type="button"><!--icon:radar-->[ EXPLORE ]</button>
+      </div>
+      <div class="ran"><span><b>I RAN:</b> <span id="ranLine">--</span></span><a href="/logo">[ LOGO › ]</a></div>
+      <details id="teachBox"><summary><span><!--icon:settings--> [ TEACH IT A WORD (GROWN-UPS) ]</span><small>[ TAP TO OPEN ]</small></summary>
+        <div id="teach">
+          <label for="tWord">Word</label><input id="tWord" type="text" placeholder="e.g. cup" autocapitalize="none">
+          <label for="tNames">Other names</label><input id="tNames" type="text" placeholder="e.g. mug, beaker" autocapitalize="none">
+          <button id="tGo" class="btn" type="button">[ TEACH IT ]</button>
+          <div id="teachMsg"></div>
+        </div></details>
+    </div>
+  </section>
+</main>
+<main id="tRoom" class="hidden"><section class="card"><h2 class="glow">[ ROOM ]</h2><div class="soon">COMING SOON</div></section></main>
+<main id="tInside" class="hidden"><section class="card"><h2 class="glow">[ INSIDE ]</h2><div class="soon">COMING SOON</div></section></main>
+<footer><span>CONQUEROR // <b>TAP STOP AT ANY TIME TO HALT THE TRACKS</b></span><span id="footFw"></span></footer>
+<script>
+<!--CQ:AI_JS-->
+</script>
+<script>
+"use strict";
+(function () {
+  var A = AiCore;
+  function $(id) { return document.getElementById(id); }
+  var MOUTH = { happy: "M30 62 Q44 72 58 62", excited: "M28 60 Q44 78 60 60", curious: "M32 64 L56 61", puzzled: "M30 64 Q37 58 44 64 Q51 70 58 63",
+    busy: "M32 64 L56 64", sad: "M30 68 Q44 58 58 68", tired: "M34 65 L54 65", thinking: "M32 64 Q44 60 56 64" };
+
+  // ---------- the tank: STOP, the one-line programs, telemetry (bridge LLD R27.1) ----------
+  var ws = null, wsOpen = false, nextId = 1, retry = 500, feedUrl = null, feedProto = 0;
+  var run = { mine: false, id: 0, running: false };
+  function send(o) { if (ws && wsOpen) { ws.send(JSON.stringify(o)); return true; } return false; }
+  function connect() {
+    if (document.hidden || (ws && ws.readyState <= 1)) return;
+    ws = new WebSocket("ws://" + location.host + "/ws");
+    ws.onopen = function () { wsOpen = true; retry = 500; send({ t: "hello", client: "ai-page", proto: 1 }); };
+    ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } onTank(m); };
+    ws.onclose = function () { wsOpen = false; showBatt(null, []);
+      if (run.running) setRun(false, "The link to the tank dropped."); setTimeout(connect, retry); retry = Math.min(retry * 2, 5000); };
+    ws.onerror = function () { ws.close(); };
+  }
+  setInterval(function () { send({ t: "ping", t0: Date.now() }); }, 1000);
+  function stop() {
+    send({ t: "stop", id: nextId++ }); send({ t: "logo_stop", id: nextId++ });
+    var was = run.id;  // a missed logo_ended never leaves the buttons stuck (final review M4)
+    if (run.running) setTimeout(function () { if (run.running && run.id === was) setRun(false, "Stopped."); }, 1500);
+  }
+  $("stop").addEventListener("click", stop);
+  function onTank(m) {
+    switch (m.t) {
+      case "ai_at": setFeedUrl(m.url || null, m.proto | 0); break;
+      case "ts":
+        if (typeof m.batt_v === "number") showBatt(battMean.push(m.batt_v), m.flags || []);
+        tired = (m.flags || []).indexOf("batt_low") >= 0;
+        break;
+      case "tf":
+        if (typeof m.yaw === "number") $("cHdg").textContent = "HDG " + Math.round(m.yaw) + "°";
+        if (m.spd_cmd) {
+          $("cSpd").textContent = "SPEED " + Math.max(Math.abs(m.spd_cmd[0]), Math.abs(m.spd_cmd[1])) + "%";
+          track("L", m.spd_cmd[0]); track("R", m.spd_cmd[1]);
+        }
+        if (typeof m.pan === "number") {  // servo angle: 90 = ahead, smaller = right (as the drive page)
+          var pan = Math.round(90 - m.pan);
+          $("roPan").textContent = pan === 0 ? "AHEAD" : (pan > 0 ? "RIGHT " : "LEFT ") + Math.abs(pan) + "°";
+          $("barPan").style.width = Math.min(100, Math.abs(pan) / 90 * 100) + "%";
+        }
+        $("sonarTag").textContent = "SONAR: " + (typeof m.dist_cm === "number" && !m.dist_fault ? m.dist_cm + " cm" : "--");
+        break;
+      case "ev":
+        if (m.kind === "logo_started" && run.mine) setRun(true, null);
+        if (m.kind === "logo_ended" && run.mine) setRun(false, m.reason === "finished" ? "Done!" : m.msg || "Stopped.");
+        break;
+      case "nack": if (m.id === run.id) setRun(false, m.message || "The tank said no (" + m.reason + ")."); break;
+      default: break;
+    }
+  }
+  // The battery bar: averaged like the drive page; the percent from its 2S curve; amber low, red critical.
+  var battMean = new A.BattMean(10);
+  function showBatt(v, flags) {
+    if (v === null) { $("battTxt").textContent = "NO TANK"; $("battFill").style.width = "0"; $("cBatt").className = "chip batt low"; return; }
+    var b = A.battState(v, flags);
+    $("battTxt").textContent = b.usb ? "USB" : b.pct + " %";
+    $("battFill").style.width = (b.usb ? 0 : Math.round(b.pct * 0.21)) + "px";  // 21 px = full inside the cell
+    $("cBatt").className = "chip batt" + (b.level === "critical" ? " crit" : b.level === "low" ? " low" : "");
+    $("cBatt").title = b.usb ? "on USB power" : "battery " + v.toFixed(2) + " V";
+  }
+  function track(side, v) {  // the real track power the tank sends (tf spd_cmd, %): amber when backwards
+    $("ro" + side).textContent = v === 0 ? "STOPPED" : (v > 0 ? "FORWARD " : "BACK ") + Math.abs(v) + "%";
+    var b = $("bar" + side); b.style.width = Math.min(100, Math.abs(v)) + "%"; b.className = v < 0 ? "rev" : "";
+  }
+  function setRun(on, msg) {
+    run.running = on; if (!on) run.mine = false;
+    $("runSt").textContent = on ? "RUNNING" : "READY";
+    ["find", "wander", "explore", "typedGo"].forEach(function (id) { $(id).disabled = on; });
+    $("tGo").disabled = on;
+    if (msg) { $("typedMsg").textContent = msg; $("typedMsg").classList.remove("hidden"); }
+  }
+  // A one-line program: checked by the tank's /logo/check, then logo_run - so it is Logo's own (STOP, the lease, 7045).
+  function runLine(line) {
+    if (run.running) return;
+    $("ranLine").textContent = line; $("typedMsg").classList.add("hidden");
+    run.mine = true; run.running = true; run.id = nextId++; setRun(true, null);
+    check(line, 0);
+  }
+  // The tank's check is one at a time: 503 = busy (a /logo editor checking), tried again (final review M3).
+  function check(line, tries) {
+    fetch("/logo/check", { method: "POST", body: line }).then(function (r) {
+      if (r.status === 503 && tries < 20) { setTimeout(function () { if (run.running) check(line, tries + 1); }, 500); return null; }
+      return r.json();
+    }).then(function (c) {
+      if (!c || !run.running) return;
+      if (!c.ok) { var d = (c.diags || [])[0]; setRun(false, d ? d.msg || d.message : "The tank could not run that."); return; }
+      if (!send({ t: "logo_run", prog: c.prog, id: run.id })) setRun(false, "Not connected to the tank.");
+    }).catch(function () { setRun(false, "Not connected to the tank."); });
+  }
+
+  // ---------- the AI feed from the engine (AI engine LLD §22) ----------
+  var feed = null, feedOpen = false, feedRetry = 0, camState = "NoAI", frames = 0, lastDepth = null, things = [], picked = null;
+  var tired = false, teachId = 1;
+  function setFeedUrl(url, proto) {
+    if (A.sameFeed(feedUrl, feedProto, url, proto) && feed) return;  // re-sent on each unlock (final review I2)
+    feedUrl = url; feedProto = proto;
+    camEv(url ? "ai_at_url" : "ai_at_null");
+    dropFeed();
+    if (url && A.protoOk(proto)) openFeed(); else showAiChip();
+  }
+  function dropFeed() {  // the old socket's handlers go first, so its late close never touches the new one
+    var s = feed;
+    feed = null; feedOpen = false;
+    if (!s) return;
+    s.onmessage = s.onclose = s.onerror = null;
+    try { s.close(); } catch (x) { /* closing */ }
+  }
+  function openFeed() {
+    clearTimeout(feedRetry);
+    if (!feedUrl || document.hidden || feed) return;
+    var s = new WebSocket(feedUrl);
+    s.binaryType = "arraybuffer";
+    feed = s;
+    s.onmessage = function (e) {
+      if (feed !== s) return;
+      if (typeof e.data !== "string") { onFrame(e.data); return; }
+      var m; try { m = JSON.parse(e.data); } catch (x) { return; }
+      onFeed(m);
+    };
+    s.onclose = function () {
+      if (feed !== s) return;
+      feed = null; feedOpen = false; camEv("feed_closed"); showAiChip();
+      if (feedUrl && A.protoOk(feedProto)) feedRetry = setTimeout(openFeed, 2000);
+    };
+    s.onerror = function () { if (feed === s) s.close(); };
+  }
+  function onFeed(m) {
+    switch (m.t) {
+      case "hello":
+        if (!A.protoOk(m.proto)) { feedProto = m.proto; feed.close(); $("camNote").textContent = A.PROTO_TEXT; return; }
+        feedOpen = true; camEv("feed_open"); showAiChip(); break;
+      case "status": showStatus(m); break;
+      case "why": showWhy(m.lines || []); break;
+      case "things": things = m.list || []; showThings(); break;
+      case "rep": $("teachMsg").textContent = m.msg; break;
+      default: break;
+    }
+  }
+  function showAiChip() {
+    var on = feedOpen;
+    $("cAi").innerHTML = '<i class="dot"></i>' + (on ? "AI HELPER" : "AI HELPER OFF"); $("cAi").className = on ? "chip on" : "chip warn";
+    ["find", "wander", "explore"].forEach(function (id) { $(id).title = on ? "" : "start cq-drive serve on the laptop"; });
+  }
+  // One frame, two views: the picture is decoded once and drawn twice (bridge LLD R27.4).
+  function onFrame(buf) {
+    var f; try { f = A.splitFrame(buf); } catch (x) { return; }
+    frames++;
+    var cam = createImageBitmap(new Blob([f.cam], { type: "image/jpeg" }));
+    var dep = f.depth ? createImageBitmap(new Blob([f.depth], { type: "image/jpeg" })) : Promise.resolve(null);
+    Promise.all([cam, dep]).then(function (b) {
+      if (b[1]) { if (lastDepth && lastDepth.close) lastDepth.close(); lastDepth = b[1]; }
+      draw(b[0], f.header.boxes || []);
+      if (b[0].close) b[0].close();
+    }).catch(function () { /* a picture that does not decode is skipped */ });
+  }
+  function draw(pic, boxes) {
+    var c1 = $("v1"), x1 = c1.getContext("2d"), c2 = $("v2"), x2 = c2.getContext("2d"), w = c1.width, h = c1.height;
+    x1.drawImage(pic, 0, 0, w, h); x2.drawImage(pic, 0, 0, w, h);
+    if (lastDepth) { x2.globalAlpha = 0.6; x2.drawImage(lastDepth, 0, 0, w, h); x2.globalAlpha = 1; }
+    x1.lineWidth = 2; x1.font = "11px monospace";
+    boxes.forEach(function (b) {
+      var r = A.boxRect(b, w, h), person = r.word === "person";
+      x1.strokeStyle = person ? "#ffb000" : "#33ff66"; x1.strokeRect(r.x, r.y, r.w, r.h);
+      var tag = r.word.toUpperCase() + " " + r.score.toFixed(2);
+      x1.fillStyle = "rgba(5,8,5,.75)"; x1.fillRect(r.x, Math.max(0, r.y - 14), x1.measureText(tag).width + 6, 14);
+      x1.fillStyle = person ? "#ffb000" : "#33ff66"; x1.fillText(tag, r.x + 3, Math.max(11, r.y - 3));
+    });
+  }
+  setInterval(function () {
+    $("cFps").textContent = feedOpen ? frames + " / s" : "-- / s"; $("v1Fps").textContent = feedOpen ? "FPS: " + frames : ""; frames = 0;
+  }, 1000);
+  function camEv(ev) {
+    camState = A.cameraState(camState, ev);
+    var engine = camState === "Engine", stream = camState === "TankStream";
+    $("v1").classList.toggle("hidden", !engine && stream); $("tankCam").classList.toggle("hidden", !stream);
+    $("v2box").classList.toggle("hidden", !engine);
+    $("camWhat").textContent = engine ? "FROM THE AI HELPER" : stream ? "THE TANK'S OWN CAMERA" : "--";
+    $("camNote").textContent = engine ? "" : !feedUrl ? "AI helper not running - start cq-drive serve" :
+      !A.protoOk(feedProto) ? A.PROTO_TEXT : "Connecting to the AI helper...";
+    if (camState === "NoAI" && !document.hidden) tankStream();
+    if (engine) $("tankCam").removeAttribute("src");
+  }
+  // Without the engine: the tank's own stream on :81 (view 1 only, no boxes), if a viewer place is free.
+  var streamTimer = 0;  // one try at a time: a refused stream (no viewer place free) is tried again after 3 s
+  function tankStream() {
+    var img = $("tankCam");
+    if (img.getAttribute("src") || streamTimer) return;
+    img.onload = function () { camEv("stream_ok"); };
+    img.onerror = function () {
+      img.removeAttribute("src");
+      streamTimer = setTimeout(function () { streamTimer = 0; if (camState === "NoAI" && !document.hidden) tankStream(); }, 3000);
+    };
+    img.src = "http://" + location.hostname + ":81/stream";
+  }
+
+  // ---------- what it thinks, and the voice ----------
+  var sayer = new A.Sayer(function (t) { speakNow(t); });
+  var muted = false;
+  try { muted = localStorage.getItem("cq_ai_mute") === "1"; } catch (x) { /* private mode */ }
+  var lastSay = "", voicePicked = null;
+  // A voice on the device itself (an online "Google" voice can be silent on a home network); the list can come late.
+  function deviceVoice() {
+    if (!voicePicked && window.speechSynthesis && typeof speechSynthesis.getVoices === "function") {
+      voicePicked = A.pickVoice(speechSynthesis.getVoices() || [], navigator.language);
+      if (voicePicked) $("muteBtn").title = "voice: " + voicePicked.name + " (" + voicePicked.lang + (voicePicked.localService ? ", on this device)" : ", online)");
+    }
+    return voicePicked;
+  }
+  if (window.speechSynthesis && "onvoiceschanged" in speechSynthesis) speechSynthesis.onvoiceschanged = function () { voicePicked = null; };
+  var voiceOk = typeof window.speechSynthesis !== "undefined" && typeof window.SpeechSynthesisUtterance !== "undefined";
+  // No cancel() before speak(): Chrome can drop an utterance spoken right after a cancel. The voice button shows what
+  // the browser does with it (speaking, or its error) - so a silent phone says why.
+  function speakNow(t) {  // inside a tap: iOS lets a page speak only from a user gesture, then for the rest of the page
+    try {
+      var u = new SpeechSynthesisUtterance(t), voice = deviceVoice();
+      if (voice) { u.voice = voice; u.lang = voice.lang; }
+      u.onstart = function () { $("voiceTxt").textContent = "SPEAKING…"; };
+      u.onend = function () { showMute(); };
+      u.onerror = function (e) { $("voiceTxt").textContent = "VOICE: " + String(e.error || "ERROR").toUpperCase(); };
+      speechSynthesis.speak(u);
+    } catch (x) { $("voiceTxt").textContent = "NO VOICE HERE"; }
+  }
+  function showMute() {
+    sayer.mute(muted); $("icOn").classList.toggle("hidden", muted); $("icOff").classList.toggle("hidden", !muted);
+    $("voiceTxt").textContent = !voiceOk ? "NO VOICE HERE" : muted ? "VOICE: OFF" : "VOICE: ON";
+  }
+  showMute();
+  // TEST SOUND: a beep through the page's audio, then a spoken line - which one you hear says where the sound stops
+  // (no beep: the device's sound or the tab is muted; a beep but no words: the speech voice). It also shows what the
+  // browser reports about its voices.
+  $("soundTest").addEventListener("click", function () {
+    var lines = [];
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext, ctx = new Ctx(), o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = 660; g.gain.value = 0.25; o.connect(g); g.connect(ctx.destination);
+      o.start(); o.stop(ctx.currentTime + 0.35);
+      lines.push("1. a beep was played - did you hear it?");
+    } catch (x) { lines.push("1. this browser cannot play a beep"); }
+    if (!voiceOk) lines.push("2. this browser has no voice (no speech)");
+    else {
+      var vs = typeof speechSynthesis.getVoices === "function" ? speechSynthesis.getVoices() || [] : [];
+      voicePicked = null;
+      var v = deviceVoice();
+      lines.push("2. voices: " + vs.length + (v ? " - using " + v.name + " (" + v.lang + (v.localService ? ", on this device)" : ", online)") : " - none chosen"));
+      setTimeout(function () { speakNow("Hello, I am the tank."); }, 500);  // after the beep; the tap already unlocked it
+      speakNow(" ");  // inside the tap itself (iOS)
+      lines.push("3. then it says: Hello, I am the tank.");
+    }
+    var box = $("soundInfo"); box.textContent = ""; box.classList.remove("hidden");
+    lines.forEach(function (l) { var d = document.createElement("div"); d.textContent = l; box.appendChild(d); });
+  });
+  $("themeBtn").addEventListener("click", function () {  // design-notes §206: flip the look, remember it here
+    var t = document.documentElement.dataset.theme === "play" ? "cockpit" : "play";
+    document.documentElement.dataset.theme = t;
+    try { localStorage.setItem("cq_theme", t); } catch (x) { /* private mode */ }
+  });
+  $("muteBtn").addEventListener("click", function () {
+    muted = !muted; showMute();
+    if (!muted) speakNow("Voice on.");  // a test you can hear, spoken inside the tap
+    try { localStorage.setItem("cq_ai_mute", muted ? "1" : "0"); } catch (x) { /* private */ }
+  });
+  // iOS speaks only after a tap: touchend / click are user gestures (a touch pointerdown is not - final review I5);
+  // the first real sentence spoken inside the tap unlocks the voice for the page (a silent one is not enough).
+  function unlock() {
+    sayer.unlock();
+    if (!muted && lastSay) { speakNow(lastSay); sayer.last = lastSay; }  // the sentence on screen, said once, inside the first tap
+    document.removeEventListener("touchend", unlock); document.removeEventListener("click", unlock);
+  }
+  document.addEventListener("touchend", unlock); document.addEventListener("click", unlock);
+  function showStatus(m) {
+    var mood = tired ? "tired" : m.mood || "happy";
+    $("say").textContent = m.say || ""; $("mood").textContent = "MOOD: " + mood.toUpperCase();
+    $("sayWhat").textContent = m.word ? "Looking for: " + m.word : m.health && m.health !== "ok" ? m.health : "Ready for a job";
+    $("mouth").setAttribute("d", MOUTH[mood] || MOUTH.happy);
+    var h = mood === "tired" ? 5 : 13, y = mood === "tired" ? 40 : 32;
+    ["eyeL", "eyeR"].forEach(function (e) { $(e).setAttribute("height", h); $(e).setAttribute("y", y); });
+    lastSay = m.say || lastSay;
+    if (m.pose) $("cPos").textContent = "POS " + m.pose.x.toFixed(1) + "," + m.pose.y.toFixed(1);
+    sayer.say(m.say);
+  }
+  function showWhy(lines) {
+    var ol = $("why"); ol.textContent = "";
+    (lines.length ? lines : ["I'm not doing anything right now."]).forEach(function (l) { var li = document.createElement("li"); li.textContent = l; ol.appendChild(li); });
+  }
+  showWhy([]);
+  $("whyBtn").addEventListener("click", function () { $("why").classList.toggle("hidden"); });
+
+  // ---------- play: find / wander / explore, a typed thing, teach it a word ----------
+  function showThings() {
+    var box = $("things"); box.textContent = "";
+    things.forEach(function (t) {
+      var b = document.createElement("button"); b.type = "button";
+      b.textContent = "[ " + t.word.toUpperCase() + (t.measured === false ? " *" : "") + " ]";
+      if (t.measured === false) b.title = "I'll try - I've never seen one";
+      b.className = (t.measured === false ? "new" : "") + (picked === t.word ? " on" : "");
+      b.addEventListener("click", function () { picked = t.word; showThings(); });
+      box.appendChild(b);
+    });
+    if (picked === null && things.length) { picked = things[0].word; showThings(); }
+    $("newHint").classList.toggle("hidden", !things.some(function (t) { return t.measured === false; }));
+  }
+  var area = 2;  // metres; 0 = ALL (no AREA in the line)
+  Array.prototype.forEach.call(document.querySelectorAll("#areaSeg button"), function (b) {
+    b.addEventListener("click", function () {
+      area = +b.dataset.a;
+      Array.prototype.forEach.call(document.querySelectorAll("#areaSeg button"), function (o) { o.classList.toggle("on", o === b); });
+    });
+  });
+  function areaOn() { return area > 0; }
+  function withArea(line) { return (areaOn() ? "AREA " + area + "  " : "") + line; }
+  $("find").addEventListener("click", function () { if (picked) runLine(A.findLine(picked, areaOn(), area)); });
+  $("wander").addEventListener("click", function () { runLine(withArea(A.wanderLine(30))); });
+  $("explore").addEventListener("click", function () { runLine(withArea(A.exploreLine())); });
+  function typedGo() {
+    var r = A.typed($("typed").value, things);
+    if (!r.word) return;
+    if (r.kind === "run") {
+      if (!r.measured) { $("typedMsg").textContent = "I'll try - I've never seen one."; $("typedMsg").classList.remove("hidden"); }
+      runLine(A.findLine(r.word, areaOn(), area)); return;
+    }
+    $("typedMsg").textContent = A.unknownText(r.word); $("typedMsg").classList.remove("hidden");
+    if (r.word !== "person") { $("tWord").value = r.word; $("teachMsg").textContent = ""; $("teachBox").open = true; }
+  }
+  $("typedGo").addEventListener("click", typedGo);
+  $("typed").addEventListener("keydown", function (e) { if (e.key === "Enter") typedGo(); });
+  $("tGo").addEventListener("click", function () {
+    if (run.running) { $("teachMsg").textContent = "Wait until the program has stopped."; return; }
+    var word = A.squeeze($("tWord").value), names = $("tNames").value.split(",").map(A.squeeze).filter(Boolean);
+    var why = A.teachCheck(word, names);
+    if (why) { $("teachMsg").textContent = why; return; }
+    if (!feed || !feedOpen) { $("teachMsg").textContent = "The AI helper is not running."; return; }
+    feed.send(JSON.stringify({ t: "teach", id: teachId++, word: word, names: names }));
+    $("teachMsg").textContent = "Learning " + word + " - this takes a minute...";
+  });
+
+  // ---------- take a picture (saved on the phone only) ----------
+  $("pic").addEventListener("click", function () {
+    var c = $("v1");
+    c.toBlob(function (b) {
+      if (!b) return;
+      var a = document.createElement("a"), d = new Date();
+      a.href = URL.createObjectURL(b); a.download = "tank-" + d.toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".jpg";
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    }, "image/jpeg", 0.9);
+  });
+
+  // ---------- tabs ----------
+  Array.prototype.forEach.call(document.querySelectorAll("nav button"), function (b) {
+    b.addEventListener("click", function () {
+      Array.prototype.forEach.call(document.querySelectorAll("nav button"), function (o) { o.classList.toggle("on", o === b); });
+      $("tPlay").classList.toggle("hidden", b.dataset.tab !== "play");
+      $("tRoom").classList.toggle("hidden", b.dataset.tab !== "room");
+      $("tInside").classList.toggle("hidden", b.dataset.tab !== "inside");
+    });
+  });
+
+  // ---------- a hidden page holds no link (design-notes §77); STOP stays on the tank's path ----------
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) {
+      if (ws && ws.readyState <= 1) ws.close();
+      dropFeed(); camEv("feed_closed");
+      $("tankCam").removeAttribute("src");
+      clearTimeout(streamTimer); streamTimer = 0;  // shown again: the tank's camera is tried at once (review M5)
+      if (camState === "TankStream") camState = "NoAI";
+    } else { retry = 500; connect(); openFeed(); camEv("none"); }
+  });
+  camEv("none");
+  showAiChip();
+  connect();
+})();
+</script>
+</body></html>

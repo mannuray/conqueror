@@ -279,9 +279,6 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     <button class="btn warn wide" id="mRestart" type="button"><!--icon:rotate-ccw-->Restart bridge</button>
     <button class="btn bad wide" id="mForget" type="button"><!--icon:trash-->Forget all WiFi</button>
     <div class="hint" id="mCsvState">The recording downloads to this device.</div>
-    <label for="mAi">AI address <span>http://… · empty = none</span></label>
-    <div class="meas"><input id="mAi" maxlength="96" autocomplete="off" placeholder="http://192.168.1.20:8000/"><button class="btn" id="mAiSave" type="button">Save</button></div>
-    <div class="hint">// The menu's AI item opens this page in a new tab.</div>
   </div>
 </section>
 <section id="t-tune">
@@ -616,8 +613,8 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
   });
   window.addEventListener("resize", requestDraw);
 
-  // ---------- Self-test, camera, child play, AI address (the "tank" reply) ----------
-  var cam = null, stId = -1, aiId = -1;
+  // ---------- Self-test, camera, child play (the "tank" reply) ----------
+  var cam = null, stId = -1;
   function onTank(m) {
     var st = m.selftest || {};
     var badge = !st.seen ? ["NOT RUN", "badge"] : st.locked ? ["LOCKED", "badge w"] : st.mask ? ["FAILED", "badge w"] : ["PASS", "badge on"];
@@ -637,7 +634,6 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
         $(x[0]).textContent = x[1] ? "ON" : "OFF"; $(x[0]).classList.toggle("on", !!x[1]);
       });
     }
-    if (document.activeElement !== $("mAi")) $("mAi").value = m.ai_url || "";
   }
   $("stRun").addEventListener("click", function () {
     stId = nextId++;
@@ -678,12 +674,6 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     $(id).addEventListener("click", function () { if (!cam) return; var o = {}; o[$(id).dataset.k] = !cam[$(id).dataset.k]; camSet(o); });
   });
   $("cReset").addEventListener("click", function () { camSet({ reset: true }); });
-  $("mAiSave").addEventListener("click", function () {
-    var u = $("mAi").value.trim();
-    if (u && !/^http:\/\/[^\s"'\\<>]+$/.test(u)) { toast("Use an http:// address, e.g. http://192.168.1.20:8000/"); return; }
-    aiId = nextId++;
-    if (!send({ t: "app_set", ai_url: u, id: aiId })) toast("Not connected");
-  });
   function onSlow(m) {
     var f = m.flags || [];
     if (m.batt_v !== null && m.batt_v !== undefined) showBatt(m.batt_v, f);
@@ -991,7 +981,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
         } else if (m.id === stId) {
           toast("Checks running - keep the tank still", true);
           setTimeout(function () { send({ t: "tank" }); }, 3000);
-        } else if (m.id === aiId) toast("AI address saved ✓", true);
+        }
         break;
       default: break;
     }

@@ -207,8 +207,9 @@ inline constexpr ErrorText kErrors[] = {
     {7053, "I don't know what a {thing} is."},
     {7054, "I saw the {thing}, but it's outside the play area."},
     {7055, "I can't find a way there."},
+    {7056, "I'm learning a new word - try again in a minute."},
 };
-inline constexpr uint8_t kErrorCount = 47;
+inline constexpr uint8_t kErrorCount = 48;
 
 inline constexpr uint16_t kSourceBytes = 8192;
 inline constexpr uint8_t kMaxProcs = 64;

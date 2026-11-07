@@ -6,6 +6,7 @@
 - /help: web/help.html with <!--CQ:PROTOCOL--> replaced by the protogen output
   src/generated/help_protocol.html and <!--CQ:LOGO--> by web/help_logo.html (Task 9);
   skipped while web/help.html does not exist.
+- /ai (Plan Z2b-1, bridge LLD R27.4): web/ai.html with <!--CQ:AI_JS--> replaced by web/ai.js. Budget 24 KB gzipped.
 - /logo (Plan N4, Tank Logo LLD §21): web/logo.html with <!--CQ:LOGO_JS--> replaced by
   web/logo.js and <!--CQ:WORDS--> by web/generated/words.json. Budget 26 KB gzipped (bridge LLD R25).
 - Every page: its icons from web/icons.json (scripts/icons.py, bridge LLD R25) - <!--icon:NAME--> markers and one
@@ -32,6 +33,7 @@ PAGE_BUDGET = 25 * 1024
 HELP_BUDGET = 16 * 1024
 LOGO_BUDGET = 26 * 1024  # Plan N4 (Tank Logo LLD §21.9): /logo, gzipped, words included; R25: 26 KB with icons
 SETTINGS_BUDGET = 36 * 1024  # Plan M: /settings, gzipped; Plan O (LLD R13.1): 36 KB for four tabs
+AI_BUDGET = 24 * 1024  # Plan Z2b-1 (bridge LLD R27.4, design-notes §200): /ai, gzipped, ai.js and icons in
 
 
 def png_icon(size: int = 192) -> bytes:
@@ -98,6 +100,16 @@ def assemble_logo(project: pathlib.Path) -> bytes:
     return text.replace("<!--CQ:LOGO_JS-->", code).replace("<!--CQ:WORDS-->", words).encode()
 
 
+def assemble_ai(project: pathlib.Path) -> bytes:
+    """/ai (Plan Z2b-1, bridge LLD R27.4): web/ai.html with <!--CQ:AI_JS--> replaced by web/ai.js."""
+    web = project / "web"
+    text = (web / "ai.html").read_text(encoding="utf-8")
+    if "<!--CQ:AI_JS-->" not in text:
+        raise SystemExit("pack_web: <!--CQ:AI_JS--> missing in web/ai.html")
+    code = (web / "ai.js").read_text(encoding="utf-8").replace("</", "<\\/")  # never closes its <script>
+    return text.replace("<!--CQ:AI_JS-->", code).encode()
+
+
 def assemble_page(project: pathlib.Path, uri: str) -> bytes:
     """A page as served (before gzip), its icons put in (bridge LLD R25). /help may be missing: b""."""
     web = project / "web"
@@ -107,6 +119,8 @@ def assemble_page(project: pathlib.Path, uri: str) -> bytes:
         raw = (web / "settings.html").read_bytes()
     elif uri == "/logo":
         raw = assemble_logo(project)
+    elif uri == "/ai":
+        raw = assemble_ai(project)
     else:
         raw = assemble_help(project) or b""
     table = icons.load(web / "icons.json")
@@ -144,6 +158,10 @@ def build(project: pathlib.Path) -> None:
     if len(logo) > LOGO_BUDGET:
         raise SystemExit(f"pack_web: /logo {len(logo)} B gzipped > {LOGO_BUDGET} B budget")
     assets.append(("/logo", "text/html; charset=utf-8", logo, True))
+    ai = gz(assemble_page(project, "/ai"))  # Plan Z2b-1 (bridge LLD R27.4)
+    if len(ai) > AI_BUDGET:
+        raise SystemExit(f"pack_web: /ai {len(ai)} B gzipped > {AI_BUDGET} B budget")
+    assets.append(("/ai", "text/html; charset=utf-8", ai, True))
     help_page = assemble_page(project, "/help") if (web / "help.html").exists() else None
     if help_page is not None:
         packed = gz(help_page)

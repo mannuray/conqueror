@@ -34,11 +34,11 @@ const KindName kKinds[] = {
     {"setting", WsCmdKind::kSetting},      {"restart", WsCmdKind::kRestart},
     {"tank", WsCmdKind::kTank},            {"log", WsCmdKind::kLog},
     {"camera_set", WsCmdKind::kCameraSet}, {"selftest", WsCmdKind::kSelfTest},
-    {"app_set", WsCmdKind::kAppSet},       {"logo_run", WsCmdKind::kLogoRun}, {"cam_set", WsCmdKind::kCamSet},
+    {"logo_run", WsCmdKind::kLogoRun}, {"cam_set", WsCmdKind::kCamSet},
     {"logo_step", WsCmdKind::kLogoStep},   {"logo_stop", WsCmdKind::kLogoStop},
     {"skill_things", WsCmdKind::kSkillThings}, {"skill_answer", WsCmdKind::kSkillAnswer},
     {"skill_drive", WsCmdKind::kSkillDrive},   {"skill_done", WsCmdKind::kSkillDone},
-    {"skill_failed", WsCmdKind::kSkillFailed},
+    {"skill_failed", WsCmdKind::kSkillFailed}, {"skill_learning", WsCmdKind::kSkillLearning},
 };
 
 WsCmdKind kindOf(const char* t) {
@@ -123,7 +123,6 @@ bool checkCameraSet(WsCommand& c, const Seen& s) {
   c.cam.reset = s.reset_true;
   return c.cam.any();
 }
-bool checkAppSet(WsCommand& c, const Seen& s) { return c.has_ai_url && !s.url_bad; }
 bool checkLogoRun(WsCommand&, const Seen& s) { return s.prog; }
 
 // Plan Z2a: skill messages (bridge LLD R26.2). skill_failed reasons and the SkillEnd each stands for.
@@ -135,7 +134,7 @@ const ReasonRow kSkillReasons[] = {
     {"not_found", logo::SkillEnd::kNotFound},         {"lost", logo::SkillEnd::kLost},
     {"outside_area", logo::SkillEnd::kOutsideArea},   {"no_way", logo::SkillEnd::kNoWay},
     {"blocked", logo::SkillEnd::kBlocked},            {"unknown_thing", logo::SkillEnd::kUnknownThing},
-    {"stale", logo::SkillEnd::kStale},
+    {"stale", logo::SkillEnd::kStale},                {"learning", logo::SkillEnd::kLearning},
 };
 bool checkSkillThings(WsCommand& c, const Seen&) { return c.has_things && c.part >= 1 && c.part <= c.of; }
 bool checkSkillAnswer(WsCommand& c, const Seen&) { return c.has_id && c.has_value; }
@@ -165,11 +164,11 @@ const CheckRow kChecks[] = {
     {WsCmdKind::kApPassword, checkApPassword}, {WsCmdKind::kSetting, checkSetting},
     {WsCmdKind::kCalib, checkCalib},         {WsCmdKind::kDriveRate, checkDriveRate},
     {WsCmdKind::kDebug, checkOn},            {WsCmdKind::kCameraSet, checkCameraSet},
-    {WsCmdKind::kAppSet, checkAppSet},       {WsCmdKind::kLogoRun, checkLogoRun},
+    {WsCmdKind::kLogoRun, checkLogoRun},
     {WsCmdKind::kCamSet, checkCamSet},
     {WsCmdKind::kSkillThings, checkSkillThings}, {WsCmdKind::kSkillAnswer, checkSkillAnswer},
     {WsCmdKind::kSkillDrive, checkSkillDrive},   {WsCmdKind::kSkillDone, checkSkillDone},
-    {WsCmdKind::kSkillFailed, checkSkillFailed},
+    {WsCmdKind::kSkillFailed, checkSkillFailed}, {WsCmdKind::kSkillLearning, checkOn},
 };
 
 bool complete(WsCommand& c, const codec::Seen& s) {
@@ -187,10 +186,6 @@ bool readFields(Reader& r, WsCommand& c, Seen& s) {
     if (!r.str(key, sizeof(key)) || !r.eat(':') || !codec::readField(key, r, c, s)) return false;
   } while (r.eat(','));
   return true;
-}
-
-bool urlCharOk(char ch) {
-  return ch > ' ' && ch <= '~' && strchr("\"\\<>'", ch) == nullptr;
 }
 
 // A malformed skill message is a bad field (nack BAD_FIELD); anything else stays invalid.
@@ -224,16 +219,6 @@ WsCommand parseWsCommand(const char* text, size_t len) {
   if (!r.peek('}') && !readFields(r, c, s)) return refused(text, len);
   if (!r.eat('}') || !r.atEnd() || s.t[0] == '\0') return refused(text, len);
   return complete(c, s) ? c : refused(text, len);
-}
-
-bool appUrlValid(const char* url) {
-  const size_t n = strlen(url);
-  if (n == 0) return true;
-  if (n > 96 || n < 8 || strncmp(url, "http://", 7) != 0) return false;
-  for (size_t i = 0; i < n; ++i) {
-    if (!urlCharOk(url[i])) return false;
-  }
-  return true;
 }
 
 }  // namespace core

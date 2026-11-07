@@ -192,6 +192,25 @@ def test_tank_things_key() -> None:
     assert plain.ai is False and plain.things == ""
 
 
+def test_error_7056_verbatim() -> None:
+    assert spec().errors[7056] == "I'm learning a new word - try again in a minute."
+
+
+def test_tank_learning_key() -> None:
+    s = spec()
+    case = next(c for c in s.cases if c.learning)
+    assert case.ai is True
+    text = emit.render_cases_h(s)
+    assert "bool learning" in text
+    plain = next(c for c in s.cases if c.name == "missing input")
+    assert plain.learning is False
+
+
+def test_skill_end_learning_allowed() -> None:
+    run = next(r for r in spec().run_cases if "learning" in r.skill_ends)
+    assert run.name == "FIND while the helper learns a word"
+
+
 @pytest.mark.parametrize(
     "things",
     [

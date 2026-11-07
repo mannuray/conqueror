@@ -386,6 +386,13 @@ class ObjectPipeline:
         self.last_camera: CameraModel | None = None
         self._last_cap_us: int | None = None
 
+    def floor_classes(self) -> frozenset[str]:
+        return self._locator.floor_classes
+
+    def set_floor_classes(self, floor: frozenset[str]) -> None:
+        """A word taught from the /ai page stands on the floor too (AI engine LLD §22.4)."""
+        self._locator.floor_classes = floor
+
     def on_calib(self, counts_per_m: int) -> None:
         self._pose.set_counts_per_m(counts_per_m)
 

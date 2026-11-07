@@ -2961,3 +2961,37 @@ After §164: at floor run 2's spot every move but backing out was rightly refuse
   - `AREA 1  FIND "car`, the car outside the area: with the car at ~1.5 m from the area's centre → **7054** in 7 s. With the car at ~2 m it was seen only as a weak maybe (below 0.25), so 7050 (four runs, recorded): the detector's ~1 m reach for a toy car (§151, §189), not a fault.
 - **Open, not reproduced:** the first `AREA 1  FIND "car` (not recorded) ended "finished" after 4 s beside the bed, the car ~2 m away - most likely a false sighting of the toy near the bed. To watch for in later finds; `--record` on for the next floor session. Design question for later: should a maybe outside the area say "I might have seen the car, but it's outside the play area" instead of 7050?
 - Recordings deleted after use.
+
+## 203. A taught word can't hide a person (owner: "Detector fix + word list", 2026-11-04; Plan Z2b-1 final review C1)
+- **Found by the final review:** YOLO-World gives each box only its best word, and a stronger box of another word over the same place removes a weaker one (§187). If an adult taught "kid" or "baby", a real child could come out as "kid" with no `person` box left - so the person guard (§197) had nothing to compare with, and `FIND "kid` could drive to a child. A taught word is never measured, which is when it would have shown.
+- **Owner's call - both:**
+  1. **The detector always reports a person on its own score:** wherever `person`'s own score clears its bar, a person box is made, whatever word wins that box, and no other word's box can remove a person box. The guard then works for every word, taught or measured (general, as §197 wanted).
+  2. **A short refused list when teaching** (the engine and the page): person words such as kid, child, baby, man, woman, boy, girl, people, mum, dad, me - a second check, not the rule.
+- AI engine LLD §21.4 / §22.4 amended.
+
+## 204. The `/ai` page's look, from Stitch (owner: "yes", 2026-11-04)
+- **Why:** on the owner's iPhone the first `/ai` page worked (the AI helper chip, both views moving together) but looked plain; owner: "use Stitch to design it, both the phone page and the laptop page".
+- **Laptop (approved):** Stitch screen "Conqueror Bridge Tank AI - Laptop Cockpit" in the Conqueror Hub project, design system Phosphor Cockpit (`docs/design/stitch/21-ai-desktop-v1.png`):
+  - a top bar with ‹ DRIVE, TANK AI, the six chips, the PLAY / ROOM / INSIDE tabs and the red STOP at the far right;
+  - left (~60 %) the camera card with THINGS and DEPTH side by side and TAKE A PICTURE;
+  - right (~40 %) "What I'm thinking" (a blinking pixel robot face, the sentence in a speech bubble, an amber mood badge, Why? as three numbered lines, a voice toggle), then the play card (thing chips, amber `*` = never seen; a typing box; a 1 / 2 / 4 m / ALL area picker; big FIND / WANDER / EXPLORE; "I RAN …"; the grown-ups' teach panel).
+- **Phone (approved):** the same design in one column - the header with STOP, the chips in two rows, the tabs, then "What I'm thinking" first, the two views stacked, then Play. (Stitch's phone screen timed out twice.)
+- **Only real data:** Stitch invented readouts (a stereo camera, a point cloud, "sonar 40 kHz", a gallery). The page shows only what the tank and the engine send: the sonar distance, the left / right track power, the camera's pan, the boxes and their words.
+- Bridge LLD R27.4 amended.
+
+## 205. The `/ai` page's voice, the battery bar and a test button (owner, 2026-11-04)
+- **Voice works:** on the owner's iPhone (Chrome) after the first tap, and in Chrome on the Mac. On the Mac the owner's Chrome said "SPEAKING…" with no sound - also in an Incognito window - while a clean Chrome on the same Mac spoke the same page: Chrome's speech service had got stuck; **a full quit (⌘Q) and restart fixed it.** The page needs no change for that.
+- **What changed on the page:** the first tap speaks the sentence on screen inside the tap (iOS ignored a silent unlock); no `cancel()` before speaking; a voice on the device is preferred (`pickVoice`); the VOICE button shows SPEAKING… or the browser's error and names the voice; **[ TEST SOUND ]** plays a beep, then says "Hello, I am the tank.", and lists what the browser reports (number of voices, the voice used) - a beep but no words means the speech voice, no beep means the sound output.
+- **Battery bar:** the battery chip is a small cell that fills, with the percent - the drive page's 2S curve and 10-reading average, amber when low, red when critical, "USB" on USB power.
+- **Laptop: one screen** (no page scroll; a short window compacts the right column) - checked at 1440×900, 1440×790, 1280×720.
+
+## 206. A friendly theme for children - CSS only (owner: "only change should be via CSS and no code change, everything should stay as is", 2026-11-04)
+- **What a theme is:** only colours, fonts, corner radius and effects. The same page, elements, words, order and behaviour; a screenshot in either theme shows the same things in the same places.
+- **How:** every colour / font / radius / effect is a CSS variable; a second set of values `[data-theme="play"]` in one shared `web/theme.css`, put into pages at build time (as the shared icons are). The `/ai` page first; the drive page, Settings and `/logo` can take it later with no change to their code.
+- **STOP stays big and red in every theme;** amber "never seen" and the warnings keep their meaning (only the shade may change).
+- **The switch (recommended, to confirm with the design):** a small theme button in the header that sets the theme and remembers it on the device - the only non-CSS part, a few lines, no page logic.
+- **Design first:** the friendly palette made in Stitch on the approved `/ai` screen (colours and fonts only), for the owner to approve.
+- **Design approved (owner, 2026-11-04):** the Stitch design system **"Sunny Play"** (project 9914699709114202518, `assets/9779248838636593021`) - colours, type, shape and effects only, no layout: cream `#FFF8EC` page, white cards, sky-blue `#1F6FD1` / `#4AA3FF` headings and lines, navy `#1D2B44` text, grass-green `#34B36A` main action, orange `#F08C00` careful / never seen, STOP always solid red `#E8382E`; the robot face sunny yellow with navy eyes and pink cheeks; rounded type (Quicksand / Nunito; on phones the system's rounded font); 12 px corners, 18 px cards, soft shadows, no scanlines, glow or brackets. Stitch also made a "Sunny Robot Control Hub" system by itself from a timed-out variants request - not ours, ignored.
+- **The switch (owner: "yes switch button"):** one small button in the header (a palette icon, before STOP) flips between the two looks and remembers the choice on the device (`localStorage` `cq_theme`). It is the only non-CSS part: a few lines in the page's `<head>` that set `data-theme` on `<html>` before the page is drawn, so there is no flash of the other look.
+- **The default (owner: "sunny on phone cockpit on laptop"):** with nothing remembered, a touch device (`(pointer: coarse)`: phones and tablets) gets Sunny, anything with a mouse gets the cockpit. Decided by the pointer, not the width, so a phone turned sideways (wider than the laptop layout's 900 px) stays Sunny.
+- **Ruling - `theme.css` waits:** while only `/ai` has the theme, both sets of values stay in `ai.html`'s own style; the shared `web/theme.css` (packed in as the icons are) is made when a second page takes the theme - it costs one move then, and nothing is built that nothing uses now.

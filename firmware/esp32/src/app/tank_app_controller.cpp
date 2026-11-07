@@ -2,13 +2,11 @@
 
 #include <stdio.h>
 
-#include "ports/app_store.h"
 #include "ports/camera_control.h"
 
 namespace cq {
 namespace app {
 
-void TankAppController::begin() { ports::loadAiUrl(m_ai_url, sizeof(m_ai_url)); }
 
 void TankAppController::sendTank(int fd, uint32_t now, const core::CamSettings& cs) {
   core::TankView v;
@@ -29,7 +27,6 @@ void TankAppController::sendTank(int fd, uint32_t now, const core::CamSettings& 
   const core::CamStats st = ports::cameraStats(now);
   v.fps_x10 = st.fps_x10;
   v.kbps = st.kbps;
-  v.ai_url = m_ai_url;
   m_out.bigTo(fd, core::jsonTank(m_out.big(), m_out.bigCap(), v));
 }
 
@@ -75,15 +72,6 @@ void TankAppController::onCameraSet(int fd, int32_t id, const core::WsCommand& c
   }
   m_out.ack(fd, id);
   sendTank(fd, now, s);  // the posted settings: the loop applies them a moment later
-}
-
-void TankAppController::onAppSet(int fd, int32_t id, const core::WsCommand& c) {
-  if (!ports::saveAiUrl(c.ai_url)) {  // short flash write (rare, page action)
-    m_out.nack(fd, id, core::BridgeReason::kBusy);
-    return;
-  }
-  snprintf(m_ai_url, sizeof(m_ai_url), "%s", c.ai_url);
-  m_out.ack(fd, id);
 }
 
 void TankAppController::onSelfTest(int fd, int32_t id) {

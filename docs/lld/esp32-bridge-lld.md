@@ -1652,6 +1652,8 @@ Tank check: 3 boots — pings + drive page with video; a short stand drive with 
 Builds the designed app except Logo and AI: the ☰ menu on Drive, `/settings` in four tabs (WiFi · Tank · Tune · Log) with the new cards, and the bridge pieces behind them. Facts from the code (2026-10-19) that shape it are listed in design-notes §90.
 
 ### R13.1 Pages
+
+> **Retired by R27 (design-notes §200, Plan Z2b-1 Task 12):** the Settings "AI address" (`app_set ai_url`, the `tank` reply's `ai_url`, NVS `cq_app/ai`) is gone - the menu's AI item opens the tank's own `/ai` page, which learns the engine's address from `ai_at`. The saved key is removed once at boot (`net::appForgetAiUrl`).
 - **Drive (`basic_drive.html`):** the ⚙ SET chip becomes **☰ MENU**; a sheet with **LOGO** (greyed, "coming soon" until Plan N4), **SETTINGS**, **AI** (greyed "not set up" until an address is saved; when set, opens it in a new tab), **HELP**. STOP stays above the dimmed screen. **Camera chip** (design-notes §94): size · fps from `tank` (asked every 2 s while visible), amber below 8 fps; its **CAMERA** sheet sends `camera_set` (size, fps_cap) and links to Settings → Tank → Camera.
 - **Settings (`settings.html`, budget raised 24 → 36 KB gzipped):** four tabs; the tab is remembered in the URL hash (`/settings#tune`).
   - **WiFi** — unchanged.
@@ -1846,6 +1848,8 @@ test/support/       fake ports that record every call
 ```
 
 ### R15.3 Ports (1–5 functions each)
+
+> `AppStore` (`loadAiUrl` / `saveAiUrl`) retired by R27 (design-notes §200).
 | Port | Functions | Real version |
 |---|---|---|
 | `ClientOut` | `sendTo(fd, json, len)`, `broadcast(json, len)`, `close(fd)` | `net/http_server` (`wsSend`, `wsClose`) |
@@ -3017,6 +3021,8 @@ classDiagram
 - **`AiPages`** (pure, host-tested): which `/ws` clients are `/ai` pages, and the `ai_at` text for them, sent on hello and on each change of the URL. It lives in `link_task` with the other `/ws` handling.
 
 ### R27.4 The page (`web/ai.html`)
+- **Look (design-notes §204, replaces the mock-up below):** the Stitch laptop screen `docs/design/stitch/21-ai-desktop-v1.png` - camera card left, thinking and play right; on a phone the same in one column, thinking first. Only real readouts.
+- **Two looks (design-notes §206):** every colour, font, radius and effect is a CSS variable on `:root`; `[data-theme="play"]` gives the Stitch "Sunny Play" values, the default set the Phosphor Cockpit. A few lines in `<head>` set `data-theme` before drawing (`localStorage` `cq_theme`, else Sunny for `(pointer: coarse)` and the cockpit otherwise); the header palette button before STOP flips and remembers it. STOP stays solid red in both. Checked by `web/test/theme_check.js`.
 - **Look and frame:** the mock-up `docs/design/ai-page-mockup.dc.html` (Phosphor Cockpit tokens, corner-bracket cards, the drive page's STOP top right on every tab, six status chips, a segmented tab bar). Icons from `web/icons.json` (R25).
 - **Modules, plain JS in one file** (as `logo.html`):
 ```mermaid

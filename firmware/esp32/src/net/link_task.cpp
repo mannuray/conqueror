@@ -23,10 +23,12 @@
 #include "core/event_log.h"
 #include "core/frame_tx.h"
 #include "core/link_owner.h"
+#include "core/ai_pages.h"
 #include "core/skill_hub.h"
 #include "core/ws_clients.h"
 #include "core/ws_codec.h"
 #include "core/ws_json.h"
+#include "net/app_settings.h"
 #include "net/log.h"
 #include "net/logo_worker.h"
 #include "net/uart_port.h"
@@ -58,6 +60,7 @@ app::TankAppController g_tank(g_out, g_log, g_link);
 app::DriveController g_drive(g_out, g_log, g_owner, g_uno, g_motion, g_settings, g_tel);
 app::UnoEventRouter g_events(g_out, g_log, g_tel, g_link);
 core::SkillHub g_skills;  // Plan Z2a (bridge LLD R26.1): the skill server, its things, the one drive lease
+core::AiPages g_pages;    // Plan Z2b-1 (bridge LLD R27.1): the /ai pages, told where the engine's AI feed is
 // Plan N3: built in linkTaskStart - the running program and its Vm live in the logo worker's memory (PSRAM).
 alignas(app::LogoController) unsigned char g_logo_mem[sizeof(app::LogoController)];
 alignas(app::CommandRouter) unsigned char g_router_mem[sizeof(app::CommandRouter)];
@@ -80,10 +83,21 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
     case LinkCommand::Kind::kWsClose:
       g_logo->onClientClose(cmd.fd, now);  // Plan Z2a: the skill server's close ends a running skill (7052) first
       g_drive.onClientClose(cmd.fd, now);
+      g_pages.onClose(cmd.fd);
       break;
     case LinkCommand::Kind::kWsText: g_router->onText(cmd.fd, cmd.text, cmd.len, cmd.post_seq, now); break;
     case LinkCommand::Kind::kOtaStart:
     default: g_drive.startOta(now); break;
+  }
+}
+
+// Plan Z2b-1 (bridge LLD R27.1): the feed's address checked once a loop - so every way the server's socket ends
+// (a close, a ghost, the 3 s silent rule) reaches the pages as url null.
+void announceAiPages() {
+  if (!g_pages.changed(g_skills.pageUrl())) return;
+  const size_t len = core::AiPages::text(g_out.buf(), g_out.cap(), g_skills.pageUrl(), g_skills.pageProto());
+  for (uint8_t i = 0; i < core::AiPages::kMax; ++i) {
+    if (g_pages.fdAt(i) >= 0) g_out.to(g_pages.fdAt(i), len);
   }
 }
 
@@ -131,6 +145,7 @@ void step(uint32_t now) {
   telemetry(now);
   g_logo->tick(now);     // Plan N3: a running Tank Logo program's slice; Z2a: the lease deadman (SkillHub::tick)
   if (g_skills.commitPending()) g_skills.tryCommit(logoThingsLock());  // a finished things list (2 ms lock at most)
+  announceAiPages();
   g_settings.tick(now);  // confirmations, WiFi results, restart
   g_uno.tick(now);       // the next acked Uno request
   drainTx();
@@ -250,11 +265,12 @@ void wireLogo() {
 void linkTaskStart(const char* (*camera_sensor)()) {
   g_sensor = camera_sensor;
   g_motion.begin();  // Plan K: counts per metre and roll-on, before the link task runs
-  g_tank.begin();    // Plan O: the AI address
+  net::appForgetAiUrl();  // design-notes §200: the retired Settings AI address leaves the flash
   g_logo = new (g_logo_mem) app::LogoController(g_out, g_log, g_link, g_tel, logoRunningProgram(), logoVm());
   g_router = new (g_router_mem) app::CommandRouter(g_drive, g_motion, g_settings, g_tank, *g_logo, g_tel, g_out);
   g_router->setHello(CQ_FW_VERSION, g_sensor);
   g_router->setSkillHub(&g_skills);
+  g_router->setAiPages(&g_pages);
   g_router->setClockUs([]() { return static_cast<uint64_t>(esp_timer_get_time()); });  // Plan Q1: pong
   wireLogo();
   wireViews();

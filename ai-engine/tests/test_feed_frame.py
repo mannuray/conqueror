@@ -1,0 +1,38 @@
+"""The AI feed's binary frame: header length, header, camera, depth (AI engine LLD §22.2)."""
+
+from __future__ import annotations
+
+import struct
+
+from conqueror_ai.domain.feed import decode_frame, encode_frame, page_boxes
+from conqueror_ai.domain.types import Detection
+
+
+def test_round_trip_with_and_without_depth() -> None:
+    b = encode_frame({"seq": 3, "t_ms": 1200, "boxes": []}, b"CAMJPEG", b"DEP")
+    head, cam, depth = decode_frame(b)
+    assert head["seq"] == 3 and head["cam"] == 7 and head["depth"] == 3
+    assert cam == b"CAMJPEG" and depth == b"DEP"
+    head, cam, depth = decode_frame(encode_frame({"seq": 4, "t_ms": 1300, "boxes": []}, b"CAM", None))
+    assert head["depth"] == 0 and depth is None and cam == b"CAM"
+
+
+def test_header_length_big_endian() -> None:
+    b = encode_frame({"seq": 1, "t_ms": 0, "boxes": []}, b"X", None)
+    (n,) = struct.unpack(">I", b[:4])
+    assert b[4 + n : 4 + n + 1] == b"X"
+    assert b[4 : 4 + n].startswith(b"{")
+
+
+def test_page_boxes_scale_ball_word_maybes_left_out_top_8() -> None:
+    dets = [
+        Detection("toy", 0.9, (64.0, 48.0, 128.0, 96.0)),
+        Detection("ball:red", 0.8, (0.0, 0.0, 640.0, 480.0)),
+    ]
+    dets.append(Detection("box", 0.2, (0.0, 0.0, 10.0, 10.0), sure=False))
+    dets += [Detection("chair", 0.3 + i / 100, (0.0, 0.0, 10.0, 10.0)) for i in range(10)]
+    boxes = page_boxes(dets, 640, 480)
+    assert len(boxes) == 8
+    assert boxes[0] == ["toy", 0.9, 100, 100, 100, 100]
+    assert boxes[1] == ["ball", 0.8, 0, 0, 1000, 1000]
+    assert all(b[0] != "box" for b in boxes)

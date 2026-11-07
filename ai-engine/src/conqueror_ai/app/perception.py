@@ -8,7 +8,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING
+
+import numpy as np
+from numpy.typing import NDArray
 
 from conqueror_ai.app.objects import DepthFn, camera_of, decode
 from conqueror_ai.app.world import World
@@ -27,6 +31,10 @@ if TYPE_CHECKING:
     from conqueror_ai.adapters.session import SessionRecorder
 
 SKIPS_THAT_COUNT = ("turning", "camera moving")  # the map skips these pictures, but the camera is alive
+
+
+# Each decoded picture for the /ai pages' feed (§22.5): capture µs, RGB, detections, inverse depth or None.
+FrameHook = Callable[[int, NDArray[np.uint8], list[Detection], NDArray[np.floating] | None], None]
 
 
 def picture_counts(used: CameraModel | str) -> bool:
@@ -69,10 +77,15 @@ class Perception:
         det: Detector | None,
         depth: DepthFn | None,
         rec: SessionRecorder | None,
+        on_frame: FrameHook | None = None,
     ) -> None:
-        """det None: no detector (cq-map). depth None: no depth model (the sonar only)."""
+        """det None: no detector (cq-map). depth None: no depth model (the sonar only). on_frame: each decoded
+        picture with its detections and its depth (None when depth did not run on it) - the /ai pages' feed
+        (§22.5); a hook that fails never stops the pictures."""
         self.link, self.cam, self.world = link, cam, world
         self.det, self.depth, self.rec = det, depth, rec
+        self.on_frame = on_frame
+        self.hook_errors = 0
         self.tasks: list[asyncio.Task[None]] = []
         self.t0 = 0.0
         self.last_picture_s = 0.0  # time.monotonic of the last picture that shows the camera is alive
@@ -127,6 +140,13 @@ class Perception:
             inv = None
         dets = clear(dets)  # never a box over a person, before the tracker (LLD §21.4)
         used = self.world.on_picture(f, rgb, dets, cam_f)  # the map and the pose stay on the event loop
+        if self.on_frame is not None:
+            try:
+                self.on_frame(f.cap_us, rgb, dets, inv)
+            except Exception as e:  # the pages' feed never stops the tank's pictures
+                self.hook_errors += 1
+                if self.hook_errors == 1:
+                    print(f"the AI feed's picture failed: {type(e).__name__}: {e}")
         self.last_dets, self.last_seen = dets, None
         if picture_counts(used):
             self.last_picture_s = time.monotonic()
@@ -135,6 +155,11 @@ class Perception:
             self.world.apply(seen, f.cap_us)
             self.last_seen = seen
         return used
+
+    def reload_detector(self, det: Detector) -> None:
+        """A new detector (a word was taught, §22.4), used from the next picture on: called on the event
+        loop between two pictures, so a picture never sees half of it."""
+        self.det = det
 
     def state(self, now: float) -> str | None:
         """None when pictures and telemetry are fresh; "waiting" before the first picture; else why not."""

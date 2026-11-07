@@ -182,7 +182,7 @@ def render_cases_h(spec: Spec) -> str:
     struct_line = (
         "struct LogoCase { const char* name; const char* src; bool expect_ok; const char* reads; int code; "
         "int line; int col; const char* message_has; bool encoders; bool check; int handles_obstacles; "
-        "const char* your_words; const char* tail_calls; bool ai; const char* things; };\n\n"
+        "const char* your_words; const char* tail_calls; bool ai; const char* things; bool learning; };\n\n"
     )
     lines = [HEADER, "#pragma once\n\n", struct_line, "static const LogoCase kCases[] = {\n"]
     for c in spec.cases:
@@ -191,7 +191,7 @@ def render_cases_h(spec: Spec) -> str:
             f"{c_string(c.reads)}, {c.code}, {c.line}, {c.col}, {c_string(c.message_has)}, "
             f"{'true' if c.encoders else 'false'}, {'true' if c.check else 'false'}, {c.handles_obstacles}, "
             f"{c_string(c.your_words)}, {c_string(c.tail_calls)}, {'true' if c.ai else 'false'}, "
-            f"{c_string(c.things)}}},\n"
+            f"{c_string(c.things)}, {'true' if c.learning else 'false'}}},\n"
         )
     lines.append(
         "};\n\n#define LOGO_CASES(X) " + " ".join(f"X({i})" for i in range(len(spec.cases))) + "\n"

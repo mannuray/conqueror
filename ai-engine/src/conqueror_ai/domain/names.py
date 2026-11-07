@@ -28,6 +28,7 @@ class Names:
         rows.setdefault(BALL, []).extend(squeeze(n) for n in balls)
         rows.pop(NEVER, None)  # the person and its names are not offered
         self._by_name: dict[str, str] = {}
+        self._unmeasured = frozenset(squeeze(w.word) for w in vocab.words if not w.measured)
         self._rows: list[tuple[str, list[str]]] = []
         if len(rows) > MAX_WORDS:
             raise ValueError(f"there are {len(rows)} words; the tank takes at most {MAX_WORDS}")
@@ -55,4 +56,9 @@ class Names:
         return self._by_name.get(squeeze(name))
 
     def wire(self) -> list[dict[str, object]]:
+        """For the bridge's checker (skill_things): word and names only, within its bounds."""
         return [{"word": w, "names": list(n)} for w, n in self._rows]
+
+    def page_list(self) -> list[dict[str, object]]:
+        """For the /ai page's things list (§22.2): also whether the word was measured on the tank."""
+        return [{"word": w, "names": list(n), "measured": w not in self._unmeasured} for w, n in self._rows]

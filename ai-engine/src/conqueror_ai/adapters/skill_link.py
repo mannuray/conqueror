@@ -19,6 +19,7 @@ from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from conqueror_ai.adapters.drive_link import drive_msg
+from conqueror_ai.adapters.feed_server import PROTO as PAGE_PROTO
 from conqueror_ai.domain.drive.curves import Command
 
 FRAME_MAX = 190  # the bridge's WS path holds 200-byte messages (R26.2)
@@ -146,8 +147,16 @@ def parse_event(m: dict[str, Any]) -> SkillEvent | None:
 
 
 class SkillLink:
-    def __init__(self, url: str, things: Sequence[dict[str, object]], silent_s: float = 3.0) -> None:
+    def __init__(
+        self,
+        url: str,
+        things: Sequence[dict[str, object]],
+        silent_s: float = 3.0,
+        page_port: int | None = None,
+    ) -> None:
+        """page_port: where this engine serves the /ai pages' AI feed (§22.1); the hello tells the bridge."""
         self.url = url
+        self.page_port = page_port
         self.things = things
         self.last_nack: str | None = None  # the reason of the bridge's latest nack (TOO_BIG, BAD_FIELD...)
         self._ws: ClientConnection | None = None
@@ -173,7 +182,10 @@ class SkillLink:
         except WebSocketException as e:  # a refused or broken handshake: one error type for every caller
             raise ConnectionError(f"the bridge refused the link: {e}") from e
         try:
-            await ws.send(json.dumps({"t": "hello", "client": "ai-skills", "proto": 1}))
+            hello: dict[str, object] = {"t": "hello", "client": "ai-skills", "proto": 1}
+            if self.page_port:
+                hello["page"] = {"port": self.page_port, "proto": PAGE_PROTO}
+            await ws.send(json.dumps(hello))
             async with asyncio.timeout(HELLO_WAIT_S):
                 while True:
                     raw = await ws.recv()
@@ -242,6 +254,10 @@ class SkillLink:
 
     async def answer(self, id: int, value: bool | int) -> None:
         await self._send({"t": "skill_answer", "id": id, "value": value})
+
+    async def learning(self, on: bool) -> None:
+        """Around a teach (§22.4): the bridge's checker gives 7056 for AI words while it is on."""
+        await self._send({"t": "skill_learning", "on": on})
 
     async def done(self, id: int) -> None:
         await self._send({"t": "skill_done", "id": id})

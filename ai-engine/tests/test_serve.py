@@ -5,40 +5,45 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import math
 import time
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
+from websockets.asyncio.client import connect
 
+from conqueror_ai.adapters.feed_server import FeedServer
 from conqueror_ai.adapters.home_store import HomeStore
-from conqueror_ai.adapters.skill_link import SkillBusy, SkillLink, Start
+from conqueror_ai.adapters.skill_link import SkillBusy, SkillLink, Start, ThingsRefused
+from conqueror_ai.adapters.taught_words import TaughtWords
 from conqueror_ai.app import serve
+from conqueror_ai.app.feed import FeedPublisher
 from conqueror_ai.app.serve import ServeApp, SkillCall, skill_call
+from conqueror_ai.app.teach import Reply, Teacher
 from conqueror_ai.app.world import World
 from conqueror_ai.domain.drive.curves import STOP, Command
 from conqueror_ai.domain.drive.roam import RoamSkill
 from conqueror_ai.domain.drive.skill import Result, Skill, SkillInput, SkillOut
 from conqueror_ai.domain.names import Names
 from conqueror_ai.domain.types import ObjectEstimate, Pose
-from conqueror_ai.domain.vocabulary import Vocabulary
+from conqueror_ai.domain.vocabulary import Vocabulary, Word
 from tests.fake_bridge import FakeBridge
 from tests.test_drive_app import stored_home
 from tests.test_world import world
 
-NAMES = Names(
-    Vocabulary.from_dict(
-        {
-            "words": [
-                {"word": "toy", "floor": True, "names": ["car", "racing car"]},
-                {"word": "person", "floor": True, "names": ["man"]},
-            ]
-        }
-    ),
-    ["football"],
+NAMES_VOCAB = Vocabulary.from_dict(
+    {
+        "words": [
+            {"word": "toy", "floor": True, "names": ["car", "racing car"]},
+            {"word": "person", "floor": True, "names": ["man"]},
+        ]
+    }
 )
+NAMES = Names(NAMES_VOCAB, ["football"])
 BRIDGE_NOW_S = 1000.0
 FACING_X = Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
@@ -79,6 +84,9 @@ class FakePerception:
 
     async def close(self) -> None:
         self.closed = True
+
+    def reload_detector(self, det: object) -> None:
+        self.reloaded = det
 
 
 class Scripted:
@@ -150,10 +158,11 @@ async def serving(
     w: World | None = None,
     home: str | None = None,
     store: HomeStore | None = None,
+    feed: tuple[FeedServer, FeedPublisher] | None = None,
 ) -> Serving:
     p = FakePerception()
     link = SkillLink(f"ws://127.0.0.1:{b.ws_port}/ws", NAMES.wire())
-    app = ServeApp(link, p, w or world(), NAMES, home, None, store=store, skills=maker or Maker())
+    app = ServeApp(link, p, w or world(), NAMES, home, None, store=store, skills=maker or Maker(), feed=feed)
     stop = asyncio.Event()
     task = asyncio.create_task(app.run(stop))
     await until(lambda: app.state == "idle")
@@ -272,6 +281,159 @@ async def test_find_drives_then_done(bridge: FakeBridge, monkeypatch: pytest.Mon
         assert s.p.overlaps == 0 and s.p.pulls > 0  # one puller of pictures, between words too
     finally:
         await s.close()
+
+
+async def test_a_word_reaches_the_feed(bridge: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:
+    """§22.3: the pages hear the word, its phase from the runner's ticks, and how it ended."""
+    w = world()
+    monkeypatch.setattr(w.map_run.p, "pose", lambda: FACING_X)
+    server = FeedServer("127.0.0.1", 0)
+    pub = FeedPublisher(server, NAMES.page_list)
+    ticks: list[str] = []
+    real_tick = pub.tick
+    monkeypatch.setattr(pub, "tick", lambda *a: ticks.append(a[3]) or real_tick(*a))  # pyright: ignore
+    s = await serving(bridge, Maker(), w, feed=(server, pub))
+    try:
+        await until(lambda: server.bound_port != 0)
+        await bridge.to_skill_server({"t": "skill_start", "id": 4, "skill": "find", "thing": "car"})
+        await until(lambda: len(msgs(bridge, "skill_done")) == 1)
+        assert ticks and set(ticks) == {"drive"}
+        status = pub.greeting()[0]
+        assert status["state"] == "done" and status["say"] == "I found the toy!" and status["id"] == 4
+    finally:
+        await s.close()
+
+
+async def test_start_while_learning_fails_learning(bridge: FakeBridge) -> None:
+    """Review Focus 2: a word checked just before the teach began ends 7056 at once, never a frame."""
+    s = await serving(bridge)
+    try:
+        s.app.teacher = SimpleNamespace(learning="cup")  # pyright: ignore[reportAttributeAccessIssue]
+        await bridge.to_skill_server({"t": "skill_start", "id": 9, "skill": "find", "thing": "car"})
+        await until(lambda: len(msgs(bridge, "skill_failed")) == 1)
+        assert msgs(bridge, "skill_failed")[0]["reason"] == "learning"
+        assert msgs(bridge, "skill_drive") == []
+    finally:
+        await s.close()
+
+
+async def test_apply_words_updates_names_floor_things_and_pages(bridge: FakeBridge) -> None:
+    w = world()
+    server = FeedServer("127.0.0.1", 0)
+    pub = FeedPublisher(server, NAMES.page_list)
+    s = await serving(bridge, w=w, feed=(server, pub))
+    made: list[tuple[Path, list[str]]] = []
+
+    def make_detector(model: Path, vocab: Vocabulary) -> tuple[object, frozenset[str]]:
+        made.append((model, [x.word for x in vocab.words]))
+        return "new detector", frozenset({"toy", "cup"})
+
+    s.app.make_detector = make_detector  # pyright: ignore[reportAttributeAccessIssue]
+    try:
+        vocab = Vocabulary.of((*NAMES_VOCAB.words, Word("cup", True, names=("mug",), measured=False)))
+        await s.app.apply_words(vocab, Path("/taught/model"))
+        assert made == [(Path("/taught/model"), [x.word for x in vocab.words])]
+        assert s.p.reloaded == "new detector"  # pyright: ignore[reportAttributeAccessIssue]
+        assert s.app.names.resolve("mug") == "cup"
+        assert w.map_run.p.floor_classes() == frozenset({"toy", "cup"})
+        assert {"word": "cup", "names": ["mug"]} in s.app.link.things
+        await until(
+            lambda: any(t["word"] == "cup" for m in msgs(bridge, "skill_things") for t in m["things"])
+        )
+        listed = cast("list[dict[str, object]]", pub.greeting()[2]["list"])
+        cup = [t for t in listed if t["word"] == "cup"]
+        assert cup == [{"word": "cup", "names": ["mug"], "measured": False}]
+    finally:
+        await s.close()
+
+
+async def test_a_page_teach_is_answered(bridge: FakeBridge) -> None:
+    """A page's teach goes to the Teacher with what serve knows (names, busy) and its rep comes back."""
+    server = FeedServer("127.0.0.1", 0)
+    s = await serving(bridge, feed=(server, FeedPublisher(server, NAMES.page_list)))
+    asked: list[tuple[str, list[str], bool, bool]] = []
+
+    class FakeTeacher:
+        learning: str | None = None
+
+        async def teach(self, word: str, names: list[str], known: Callable[[str], bool], busy: bool) -> Reply:
+            asked.append((word, names, known("racing car"), busy))
+            return Reply(True, "I know cup now.")
+
+    s.app.teacher = FakeTeacher()  # pyright: ignore[reportAttributeAccessIssue]
+    try:
+        await until(lambda: server.bound_port != 0)
+        async with connect(f"ws://127.0.0.1:{server.bound_port}/feed") as ws:
+            await ws.send(json.dumps({"t": "teach", "id": 5, "word": "cup", "names": ["mug"]}))
+            async with asyncio.timeout(3):
+                while (m := json.loads(await ws.recv()))["t"] != "rep":
+                    pass
+        assert m == {"t": "rep", "id": 5, "ok": True, "msg": "I know cup now."}
+        assert asked == [("cup", ["mug"], True, False)]
+    finally:
+        await s.close()
+
+
+async def test_a_refused_things_list_fails_the_teach(bridge: FakeBridge) -> None:
+    """Final review M7: the tank did not take the new list - the teach fails and nothing is swapped."""
+    s = await serving(bridge)
+    s.app.make_detector = lambda m, v: ("new detector", frozenset({"toy", "cup"}))  # pyright: ignore[reportAttributeAccessIssue]
+    try:
+        bridge.things_nack = "TOO_BIG"
+        vocab = Vocabulary.of((*NAMES_VOCAB.words, Word("cup", True, measured=False)))
+        with pytest.raises(ThingsRefused):
+            await s.app.apply_words(vocab, Path("/taught/model"))
+        assert not hasattr(s.p, "reloaded") and s.app.names.resolve("cup") is None
+        assert {"word": "cup", "names": []} not in s.app.link.things
+    finally:
+        bridge.things_nack = None
+        await s.close()
+
+
+async def test_a_busy_page_port_is_said(bridge: FakeBridge, capsys: pytest.CaptureFixture[str]) -> None:
+    """Final review M6: port 8770 taken (another cq-drive serve) is said on the laptop, not silent."""
+    import socket
+
+    taken = socket.socket()
+    taken.bind(("127.0.0.1", 0))
+    taken.listen()
+    port = taken.getsockname()[1]
+    server = FeedServer("127.0.0.1", port)
+    s = await serving(bridge, feed=(server, FeedPublisher(server, NAMES.page_list)))
+    try:
+        await until(lambda: "could not start" in capsys.readouterr().out, 3.0)
+    finally:
+        await s.close()
+        taken.close()
+
+
+async def test_stopping_during_a_teach_takes_the_word_out(bridge: FakeBridge, tmp_path: Path) -> None:
+    """Review Focus 3 / final review M9: Ctrl-C (stop) through ServeApp.run while a word is being learnt - the
+    taught entry is removed and the tank leaves learning (the off, or the link's close)."""
+    server = FeedServer("127.0.0.1", 0)
+    s = await serving(bridge, feed=(server, FeedPublisher(server, NAMES.page_list)))
+    taught = TaughtWords(tmp_path / "taught")
+
+    async def hangs(extra: Path, out: Path) -> int:
+        await asyncio.sleep(30)
+        return 0
+
+    async def installed() -> None:
+        raise AssertionError("never reached")
+
+    teacher = Teacher(taught, hangs, learning=s.app.on_learning, installed=installed)
+    s.app.teacher = teacher
+    await until(lambda: server.bound_port != 0)
+    async with connect(f"ws://127.0.0.1:{server.bound_port}/feed") as ws:
+        await ws.send(json.dumps({"t": "teach", "id": 1, "word": "cup", "names": []}))
+        await until(lambda: teacher.learning == "cup")
+        assert [w.word for w in taught.words()] == ["cup"]
+        await s.close()
+    assert taught.words() == [] and teacher.learning is None
+    learning = [m["on"] for m in msgs(bridge, "skill_learning")]
+    assert learning[0] is True
+    # the tank leaves learning by the "off" or by the server's close (bridge LLD R27.1: the close clears it)
+    await until(lambda: learning[-1] is False or bridge.skill_ws is None)
 
 
 async def test_a_find_gives_the_world_its_goal(bridge: FakeBridge, monkeypatch: pytest.MonkeyPatch) -> None:

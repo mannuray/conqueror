@@ -1,16 +1,17 @@
 // The ESP32 versions of the ports (bridge LLD R15.3): thin forwards to net/. Host builds link fakes/ instead.
 #include <Arduino.h>
 #include <esp_system.h>
+#include <lwip/sockets.h>
 #include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
 
-#include "net/app_settings.h"
 #include "net/camera_service.h"
 #include "net/http_server.h"
 #include "net/log.h"
 #include "net/motion_store.h"
 #include "net/stream_server.h"
 #include "net/wifi_manager.h"
-#include "ports/app_store.h"
 #include "ports/camera_control.h"
 #include "ports/client_out.h"
 #include "ports/log_out.h"
@@ -23,6 +24,20 @@ namespace ports {
 
 bool clientSend(int fd, const char* json, size_t len) { return net::wsSend(fd, json, len); }
 bool clientClose(int fd) { return net::wsClose(fd); }
+bool clientPeerIp(int fd, char* out, size_t cap) {
+  sockaddr_storage a = {};
+  socklen_t n = sizeof a;
+  if (cap == 0 || getpeername(fd, reinterpret_cast<sockaddr*>(&a), &n) != 0) return false;
+  if (a.ss_family == AF_INET) {
+    return inet_ntop(AF_INET, &reinterpret_cast<const sockaddr_in*>(&a)->sin_addr, out, cap) != nullptr;
+  }
+  if (a.ss_family != AF_INET6) return false;
+  const uint8_t* b = reinterpret_cast<const sockaddr_in6*>(&a)->sin6_addr.s6_addr;  // ::ffff:a.b.c.d only
+  static const uint8_t kMapped[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
+  if (memcmp(b, kMapped, sizeof kMapped) != 0) return false;
+  snprintf(out, cap, "%u.%u.%u.%u", b[12], b[13], b[14], b[15]);
+  return true;
+}
 
 void logLine(const char* fmt, ...) {
   va_list ap;
@@ -40,8 +55,6 @@ bool saveCoast(uint16_t v) { return net::motionStoreSaveCoast(v); }
 uint16_t loadGyroScale() { return net::motionStoreLoadGyroScale(); }
 bool saveGyroScale(uint16_t v) { return net::motionStoreSaveGyroScale(v); }
 
-bool loadAiUrl(char* out, size_t cap) { return net::appAiUrlLoad(out, cap); }
-bool saveAiUrl(const char* url) { return net::appAiUrlSave(url); }
 
 bool wifiPost(const core::WifiRequest& r) { return net::wifiPost(r); }
 bool wifiPoll(core::WifiResult& out) { return net::wifiPoll(out); }

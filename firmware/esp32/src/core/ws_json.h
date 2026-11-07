@@ -103,7 +103,6 @@ struct TankView {
   uint8_t viewers = 0;
   uint16_t fps_x10 = 0;
   uint16_t kbps = 0;
-  const char* ai_url = "";
 };
 const char* unoEventName(uint8_t kind);  // proto::EventKind in lower snake case, "unknown" otherwise
 size_t jsonTank(char* out, size_t cap, const TankView& v);

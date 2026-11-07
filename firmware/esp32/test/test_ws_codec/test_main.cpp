@@ -388,7 +388,7 @@ void test_setting_and_calib_reset() {
 }
 
 
-// Plan O (bridge LLD R13): tank, log, selftest, camera_set, app_set.
+// Plan O (bridge LLD R13): tank, log, selftest, camera_set (app_set retired, design-notes §200).
 void test_tank_log_selftest() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kTank), K(P("{\"t\":\"tank\"}").kind));
   const WsCommand l = P("{\"t\":\"log\",\"since\":57}");
@@ -433,36 +433,9 @@ void test_camera_set_fields_and_ranges() {
   TEST_ASSERT_EQUAL(0, P("{\"t\":\"calib\",\"reset\":\"counts_per_m\"}").calib_reset);  // calib keeps its string reset
 }
 
-void test_app_url_too_long_is_refused_by_the_parser() {  // Plan O final review I3: never stored cut short
-  char js[300];
-  char url[201];
-  memset(url, 'a', sizeof(url) - 1);
-  memcpy(url, "http://", 7);
-  url[200] = '\0';
-  snprintf(js, sizeof(js), "{\"t\":\"app_set\",\"ai_url\":\"%s\"}", url);
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P(js).kind));
-  url[96] = '\0';  // exactly 96 characters is fine
-  snprintf(js, sizeof(js), "{\"t\":\"app_set\",\"ai_url\":\"%s\"}", url);
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kAppSet), K(P(js).kind));
-}
-
-void test_app_url_validation() {
-  const WsCommand a = P("{\"t\":\"app_set\",\"ai_url\":\"http://192.168.31.8:8000/\"}");
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kAppSet), K(a.kind));
-  TEST_ASSERT_EQUAL_STRING("http://192.168.31.8:8000/", a.ai_url);
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kAppSet), K(P("{\"t\":\"app_set\",\"ai_url\":\"\"}").kind));  // clears it
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"app_set\",\"ai_url\":\"javascript:x\"}").kind));
-  TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"t\":\"app_set\"}").kind));
-  TEST_ASSERT_FALSE(cq::core::appUrlValid("javascript:alert(1)"));
-  TEST_ASSERT_FALSE(cq::core::appUrlValid("http://a b"));
-  TEST_ASSERT_FALSE(cq::core::appUrlValid("http://x\"y"));
-  TEST_ASSERT_FALSE(cq::core::appUrlValid("http://x<y"));
-  char longu[220] = "http://";
-  for (int i = 7; i < 210; ++i) longu[i] = 'a';
-  longu[210] = '\0';
-  TEST_ASSERT_FALSE(cq::core::appUrlValid(longu));
-  TEST_ASSERT_TRUE(cq::core::appUrlValid("http://laptop.local:8000/ai"));
-  TEST_ASSERT_TRUE(cq::core::appUrlValid(""));
+// design-notes §200: the Settings AI address is retired - app_set is an unknown message now.
+void test_app_set_is_unknown() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kUnsupported), K(P("{\"t\":\"app_set\",\"ai_url\":\"http://x/\"}").kind));
 }
 
 // Plan N3: the logo_* commands (Tank Logo LLD §20.4).
@@ -563,6 +536,40 @@ void test_a_bad_field_is_bad_field_whatever_the_key_order() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kInvalid), K(P("{\"id\":\"x\"}").kind));
 }
 
+// Plan Z2b-1: a teach started between the check and the word.
+void test_skill_failed_learning() {
+  const WsCommand c = P("{\"t\":\"skill_failed\",\"id\":4,\"reason\":\"learning\",\"thing\":\"ball\"}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillFailed), K(c.kind));
+  TEST_ASSERT_TRUE(c.skill_end == cq::logo::SkillEnd::kLearning);
+}
+
+// Plan Z2b-1 (bridge LLD R27.2): the engine's hello carries where its AI feed is; skill_learning around a teach.
+void test_hello_page() {
+  WsCommand c = P("{\"t\":\"hello\",\"client\":\"ai-skills\",\"proto\":1,\"page\":{\"port\":8770,\"proto\":1}}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kHello), K(c.kind));
+  TEST_ASSERT_EQUAL(8770, c.page_port);
+  TEST_ASSERT_EQUAL(1, c.page_proto);
+  c = P("{\"t\":\"hello\",\"client\":\"ai-skills\",\"page\":{\"port\":70000,\"proto\":1,\"x\":[1]}}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kHello), K(c.kind));  // out of range: no port, the hello still counts
+  TEST_ASSERT_EQUAL(0, c.page_port);
+  c = P("{\"t\":\"hello\",\"client\":\"phone\"}");
+  TEST_ASSERT_EQUAL(0, c.page_port);
+}
+
+void test_skill_learning_on_off() {
+  WsCommand c = P("{\"t\":\"skill_learning\",\"on\":true}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillLearning), K(c.kind));
+  TEST_ASSERT_TRUE(c.on);
+  c = P("{\"t\":\"skill_learning\",\"on\":false}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillLearning), K(c.kind));
+  TEST_ASSERT_FALSE(c.on);
+}
+
+void test_skill_learning_bad_on_refused() {
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_learning\",\"on\":\"yes\"}").kind));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_learning\"}").kind));
+}
+
 void test_skill_answer_bool_and_cm() {
   WsCommand c = P("{\"t\":\"skill_answer\",\"id\":7,\"value\":true}");
   TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillAnswer), K(c.kind));
@@ -661,8 +668,7 @@ int main() {
   RUN_TEST(test_camera_set_fields_and_ranges);
   RUN_TEST(test_camera_set_white_balance_and_night);
   RUN_TEST(test_camera_set_false_turns_a_switch_off);
-  RUN_TEST(test_app_url_validation);
-  RUN_TEST(test_app_url_too_long_is_refused_by_the_parser);
+  RUN_TEST(test_app_set_is_unknown);
   RUN_TEST(test_logo_commands);
   RUN_TEST(test_hello_ai_skills);
   RUN_TEST(test_thing_list_layout_is_flat_with_stride_8);
@@ -674,6 +680,10 @@ int main() {
   RUN_TEST(test_a_bool_value_is_not_a_setting);
   RUN_TEST(test_skill_drive);
   RUN_TEST(test_skill_done_and_failed);
+  RUN_TEST(test_skill_failed_learning);
+  RUN_TEST(test_hello_page);
+  RUN_TEST(test_skill_learning_on_off);
+  RUN_TEST(test_skill_learning_bad_on_refused);
   RUN_TEST(test_skill_messages_sent_by_the_bridge_are_unsupported_not_bad);
   return UNITY_END();
 }

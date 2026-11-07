@@ -25,6 +25,9 @@ from conqueror_ai.domain.vocabulary import Vocabulary
 NMS_IOU = 0.7  # as Ultralytics: overlapping chairs stay apart (checked against it, Plan Y)
 
 
+PERSON = "person"  # always reported on its own score (design-notes §203)
+
+
 def _iou(p: NDArray[np.float64], q: NDArray[np.float64]) -> float:
     ix = max(0.0, min(p[2], q[2]) - max(p[0], q[0]))
     iy = max(0.0, min(p[3], q[3]) - max(p[1], q[1]))
@@ -56,7 +59,9 @@ def to_detections(
     its best wording (design-notes §187). Each candidate is only its best word (as Ultralytics: one label a
     box), kept if that word's own threshold is met - or, with maybe_score, from that score up, marked unsure
     (a maybe, design-notes §179). Last, one thing, one name: of boxes of different words over nearly the same
-    place (IoU >= NMS_IOU) only the stronger stays (§187)."""
+    place (IoU >= NMS_IOU) only the stronger stays (§187). Person is the exception (design-notes §203): it is
+    reported on its own score whatever word wins the box, and no other word's box removes it - so no word,
+    taught or measured, can hide a person from the person guard."""
     top, left, scale = pad
     w, h = size
     a = raw.reshape(raw.shape[-2], raw.shape[-1])
@@ -68,14 +73,15 @@ def to_detections(
     out: list[Detection] = []
     for k, word in enumerate(vocab.names):
         bar = vocab.min_score(word) if maybe_score is None else min(maybe_score, vocab.min_score(word))
-        sel = (best == k) & (best_score >= bar)
+        own = scores[k]
+        sel = own >= bar if word == PERSON else (best == k) & (best_score >= bar)
         if not sel.any():
             continue
         boxes = np.stack(
             [cx[sel] - bw[sel] / 2, cy[sel] - bh[sel] / 2, cx[sel] + bw[sel] / 2, cy[sel] + bh[sel] / 2],
             axis=1,
         )
-        sc = best_score[sel].astype(np.float64)
+        sc = own[sel].astype(np.float64)
         for i in _nms(boxes.astype(np.float64), sc):
             x1, y1, x2, y2 = boxes[i]
             box = (  # plain floats (review M5: np.float64 showed in prints and recordings)
@@ -92,7 +98,8 @@ def to_detections(
 def _one_name(dets: list[Detection]) -> list[Detection]:
     """One thing, one name (design-notes §187): a box over nearly the same place as a stronger one of another
     word is dropped; the rest keep their order. Sure boxes first: an unsure box over a kept sure one is
-    dropped, whatever its score (review I4: an unsure "toy" removed a sure "chair")."""
+    dropped, whatever its score (review I4: an unsure "toy" removed a sure "chair"). A person box is never
+    dropped by another word (design-notes §203) - the person guard needs it; a person still drops others."""
     keep: set[int] = set()
     for sure in (True, False):
         idx = [i for i, d in enumerate(dets) if d.sure == sure]
@@ -101,7 +108,17 @@ def _one_name(dets: list[Detection]) -> list[Detection]:
         ]
         boxes = np.array([dets[i].box for i in idx], dtype=np.float64).reshape(-1, 4)
         keep |= {idx[j] for j in _nms(boxes, np.array([dets[i].score for i in idx], dtype=np.float64))}
-    return [d for i, d in enumerate(dets) if i in keep]
+    people = {i for i, d in enumerate(dets) if d.cls == PERSON and not _same_word_stronger(dets, i)}
+    return [d for i, d in enumerate(dets) if i in keep or i in people]
+
+
+def _same_word_stronger(dets: list[Detection], i: int) -> bool:
+    """A stronger person over nearly the same place: this one is the same person, already kept."""
+    a = np.array(dets[i].box)
+    return any(
+        k != i and d.cls == PERSON and d.score > dets[i].score and _iou(a, np.array(d.box)) >= NMS_IOU
+        for k, d in enumerate(dets)
+    )
 
 
 class YoloWorld:

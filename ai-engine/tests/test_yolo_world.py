@@ -78,19 +78,36 @@ def test_a_wording_scores_for_its_name() -> None:
 
 def test_a_box_is_only_its_best_word() -> None:
     """As Ultralytics (one label a box): a cabinet scoring bed 0.40 and sofa 0.31 is one bed, not a bed and a
-    sofa (final review I1); a best word under its own threshold is dropped, not replaced by the next word."""
+    sofa (final review I1); a best word under its own threshold is dropped, not replaced by the next word.
+    Except person (design-notes §203): a person is reported on its own score whatever word wins the box."""
     v = Vocabulary.from_dict({"words": [{"word": "person"}, {"word": "chair", "min_score": 0.5}]})
     dets = yw.to_detections(
         raw(
             (200.0, 200.0, 100.0, 100.0, 0.40, 0.31),  # person best: one person (chair is under 0.5 anyway)
-            (400.0, 200.0, 100.0, 100.0, 0.30, 0.60),  # chair best: one chair, the person 0.30 is not listed
-            (500.0, 400.0, 100.0, 100.0, 0.30, 0.45),  # chair best but under its 0.5: nothing
+            (400.0, 200.0, 100.0, 100.0, 0.30, 0.60),  # chair best: a chair, and the person 0.30 too (§203)
+            (500.0, 400.0, 100.0, 100.0, 0.30, 0.45),  # chair best but under its 0.5: only the person
         ),
         (0, 0, 1.0),
         (640, 640),
         v,
     )
-    assert sorted((d.cls, round(d.score, 2)) for d in dets) == [("chair", 0.6), ("person", 0.4)]
+    assert sorted((d.cls, round(d.score, 2)) for d in dets) == [
+        ("chair", 0.6),
+        ("person", 0.3),
+        ("person", 0.3),
+        ("person", 0.4),
+    ]
+
+
+def test_a_taught_word_never_hides_a_person() -> None:
+    """Final review C1 (design-notes §203): "kid" out-scores person on a real child - the person box stays,
+    and the stronger kid box over the same place does not remove it, so the person guard can drop the kid."""
+    v = Vocabulary.from_dict({"words": [{"word": "person"}, {"word": "kid", "measured": False}]})
+    dets = yw.to_detections(raw((300.0, 300.0, 80.0, 200.0, 0.35, 0.80)), (0, 0, 1.0), (640, 640), v)
+    assert sorted(d.cls for d in dets) == ["kid", "person"]
+    from conqueror_ai.domain.person_guard import clear
+
+    assert [d.cls for d in clear(dets)] == ["person"]
 
 
 def test_a_box_wholly_in_the_grey_bar_is_dropped() -> None:

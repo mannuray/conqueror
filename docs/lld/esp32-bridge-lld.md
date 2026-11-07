@@ -3667,3 +3667,9 @@ sequenceDiagram
 - `AiCore.splitFrame` returns `marks: {w, h, bytes} | null`; `AiCore.marksColours(bytes, w, h) -> Uint8ClampedArray` (pure, tested).
 - **Page budget:** `/ai` was 30 654 of 30 720 B gzipped (66 B left); MARKS needs ~400-600 B. **Owner (2026-11-07): 32 KB**, as `/logo`.
 - Tests: `ai.test.js` - `splitFrame` with and without marks; `marksColours` maps 0-4 to transparent / green / red / orange / transparent; the layer choice remembered; `ai_check.js` (browser) - MARKS draws over the picture.
+
+### R33.1 As built (2026-11-07, branch `plan-z11-marks`)
+- `ai.js`: `splitFrame` returns `marks` (null without `marks` in the header, a short class picture throws); `marksColours` uses fixed colours - low (235, 40, 40, 179), high (255, 150, 30, 179), floor (60, 200, 90, 64); `pickLayer(saved)` (MARKS unless `"depth"`) and `layerHead(layer)` are pure and tested.
+- `ai.html`: the head span `v2Head` and a key span `v2Key` (NEAR = BRIGHT, or the ■ low / high / floor legend); the class picture is put on a small canvas and scaled up with smoothing off; marks older than 0.5 s are not drawn; changing the layer redraws the last picture.
+- `/ai` is 31 341 B gzipped (budget 32 768 B).
+- Tests: `ai.test.js` 16 pass (all page tests 136); `ai_check.js` (Playwright on `fake_tank.py`) shows red with MARKS, green with DEPTH, the bare picture once the marks are stale, `cq_ai_layer` saved - pass.

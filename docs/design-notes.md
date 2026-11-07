@@ -3379,3 +3379,5 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   free floor faint green - the default layer, DEPTH still one choice away.
 - **Decided (owner, "a"):** the `/ai` page's budget goes from 30 KB to **32 KB** (as `/logo`; flash 47 % used) - it had
   66 B left, MARKS needs ~0.5 KB. Plan: `docs/superpowers/plans/2026-11-07-plan-z11-marks.md`.
+- **Built (2026-11-07, branch `plan-z11-marks`):** the class picture rides on each feed frame; `/ai` shows MARKS by
+  default (`/ai` 31 341 B gzipped). AI engine LLD §26.5, bridge LLD R33.1. Tank check pending.

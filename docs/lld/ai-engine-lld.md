@@ -3224,3 +3224,10 @@ classDiagram
 - `classify` on a synthetic floor with a 5 cm box and a 15 cm box: the box pixels are class 2 / 3, the floor 1, sky 0; the xy lists unchanged.
 - `encode_frame` / `decode_frame` round trip with marks; an old-style frame (no marks) decodes as before.
 - The feed sends `marks` only with a used picture.
+
+### 26.5 As built (2026-11-07, branch `plan-z11-marks`)
+- `Marks.classes: NDArray[np.uint8] | None` - `classify` builds it from the same four masks (`np.select`), on its stride-4 grid; every other `Marks(...)` caller keeps four arguments.
+- `encode_frame(header, cam, depth, marks=None)` adds `marks: [w, h]` to the header and the bytes after the depth. **Ruling:** `decode_frame` stays a 3-tuple and a new `decode_marks(b) -> (w, h, bytes) | None` reads the third part, so no existing caller changes.
+- `Perception` now calls the feed hook **after seeing** (seeing still off the event loop, in a thread) with a fifth argument, the picture's classes - `None` for a picture the map did not use or one without depth. The hook still runs once per decoded picture.
+- `FeedPublisher.on_frame(..., classes=None)` passes them to `encode_frame`.
+- Tests: `test_classify_also_gives_the_class_picture`, `test_marks_round_trip_and_an_old_frame_has_none`, `test_marks_only_when_given`, `test_on_frame_after_seeing_with_its_classes` (fails with the hook passing `None`).

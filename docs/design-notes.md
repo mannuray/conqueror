@@ -3251,3 +3251,6 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   done; the runner takes turns; lesson 5 becomes `LAUNCH [ FOREVER [ LISTEN HOWFAR "ball ] ]  AREA 2  WANDER 120`.
 - **My calls:** level 2; `LOOK` and `AREA` count as moving (the camera and the area belong to the main program and
   its skills); STEP pauses both; one buzzer, the newest sound wins. B (skip the start stand) left for later.
+- **Built (Plan N9, 2026-11-07, branch `plan-n9-launch`; Tank Logo LLD §26.7):** all firmware, Logo and page tests pass.
+  Found while building: with the main part always first the launched part starved - the parts now take turns going
+  first; the bridge holds one question at a time, so the parts ask one at a time. Tank check pending.

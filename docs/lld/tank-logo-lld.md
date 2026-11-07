@@ -1671,3 +1671,11 @@ sequenceDiagram
 
 ### 26.6 Lesson 5 changes
 `hot_and_cold_hunt` becomes the program in §26.2 (`WANDER 120` with a launched listener) and its comment teaches the new word: "LAUNCH starts a second part that runs alongside - it may beep and ask, but only the main program moves the tank." The `Try this:` line: "change 50 to 80 - it says found from further away".
+
+### 26.7 As built (Plan N9, 2026-11-07; tank check pending)
+- **Checker:** `checker_launch.cpp` - `logogen` emits `WordSpec::moves` (the `move` / `turn` groups and `LOOK`); words of your own are marked moving by a fixed point (recursion ends); one 7057 per LAUNCH, checked once the rest of the program is clean.
+- **Compiler:** `LAUNCH` → `EFFECT kLaunch` (its block's entry in the instruction, `Effect::entry`), `JMP` over the block, the block, `HALT`.
+- **Runner:** `run_parts.cpp` - a `Part` per `Vm` (state, wake, question, last effect); **the parts take turns going first** (with the main part always first the launched part starved: `LAUNCH [ BEEP BEEP ]  FD 50` finished before a beep); one question at a time across parts (the bridge keeps one pending question), its answer to the part that asked; `ready()` for hosts and tests (skip time only when no part can run now); the guard ends 7057 on a moving action from part 1; `waitsForMotion()` shared from `effects.h`.
+- **Tank / page:** a second `logo::Vm` in the logo worker (10 112 B on the host); `logo_line` carries `part`; `/logo` marks the launched line with a flow-coloured right edge (`runBar` `line2`), never NEXT; `/logo` 30 927 of 32 768 B gz; flash 47.0 %.
+- **Tests:** 8 conformance cases (7057 direct, through one and two words, LOOK, AREA, nested; recursion fine; 7002), 2 compiler, 6 running (interleaving pinned from the runner), 3 run (the guard, the STOP key ends both, STEP pauses both - each proved by switching its rule off), ws_json, 2 page.
+- **Lesson 5** per §26.2, its comments teach LAUNCH.

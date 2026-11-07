@@ -47,6 +47,7 @@ constexpr Example kExamples[] = {
      "; LAUNCH starts a second part that runs alongside - it may beep and ask,\n"
      "; but only the main program moves the tank.\n"
      "; Try this: change 50 to 80 - it says found from further away.\n"
+     "; In a big closed room, change AREA 2 to AREA 0 - it may then search the whole room.\n"
      "TO LISTEN :cm\n"
      "  IFELSE :cm < 0 [ WAIT 0.5 ] [\n"
      "    IFELSE :cm < 50 [ SOUND SUCCESS SAY [ found you ] STOP ] [ BEEP WAIT :cm / 200 ]\n"

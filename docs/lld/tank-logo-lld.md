@@ -1685,3 +1685,4 @@ sequenceDiagram
   - **7059** "OUTPUT can't be used inside LAUNCH - the launched part gives nothing back." at check time; as a guard a return from the launched part's bottom frame ends 7059 (it jumped to the program's start).
   - **REPCOUNT inside LAUNCH** counts the block's own REPEAT / FOREVER (0 outside them) - the block is its own part (rule added to §26.3).
   - The main part goes first at every run's start (it depended on the last run's ticks); the launched part's end sends `logo_line {part: 1, line: 0}` and the page clears its marker; each LAUNCH has its own RANDOM numbers; the logo worker's size comment.
+- **After the floor run:** lesson 5 keeps `AREA 2` (the safe start for a child) and says how to search a big closed room ("change AREA 2 to AREA 0"); on the floor the toy lay outside the 2 m circle until the area was off (design-notes §219).

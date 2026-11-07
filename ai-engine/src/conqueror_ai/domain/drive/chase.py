@@ -31,8 +31,13 @@ TARGET_R_M = 0.12  # on the room map, the target's own marks (the ball is 12 cm)
 
 
 class ChaseSkill:
-    def __init__(self, planner: Planner, cost: CostSettings | None = None) -> None:
+    def __init__(
+        self, planner: Planner, cost: CostSettings | None = None, search_when_lost: bool = True
+    ) -> None:
+        """search_when_lost: a lost thing is looked for where the tank stands (sweep, half a turn, sweep);
+        False inside find - it ends `lost` at once, and find checks the last seen spot from near (§25 C)."""
         self.planner = planner
+        self.search_when_lost = search_when_lost
         self.settings = cost or CostSettings()
         self.slow = Planner(
             replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, planner.lim.slow_cms)), planner.w
@@ -199,6 +204,8 @@ class ChaseSkill:
     ) -> SkillOut:
         lim = self.lim
         if fix is None or self._lost(fix):
+            if not self.search_when_lost:
+                return self._end(Result.LOST)
             self.state, self._t0, self._pan, self._i = "sweep", now_s, None, 0
             self._recovering, self._blocked_t0 = False, None  # review I2
             self._progress.reset()

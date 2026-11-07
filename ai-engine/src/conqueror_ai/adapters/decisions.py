@@ -20,6 +20,7 @@ from conqueror_ai.domain.drive.costmaps import CostMaps
 from conqueror_ai.domain.drive.curves import Command
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.skill import Result, Skill, SkillInput, SkillOut
+from conqueror_ai.domain.objects import Glimpse
 from conqueror_ai.domain.room_map import MapSnapshot
 from conqueror_ai.domain.types import Pose
 
@@ -46,6 +47,7 @@ def _snap_out(s: MapSnapshot) -> dict[str, Any]:
         "stale": s.stale,
         "depth_ok": s.depth_ok,
         "angle_trusted": s.angle_trusted,
+        "driven": None if s.driven is None else pack(s.driven),
     }
 
 
@@ -66,6 +68,7 @@ def _snap_in(d: dict[str, Any]) -> MapSnapshot:
         bool(d["stale"]),
         bool(d["depth_ok"]),
         bool(d["angle_trusted"]),
+        None if d.get("driven") is None else unpack(d["driven"]),  # none in a log from before Plan Z10d
     )
 
 
@@ -82,6 +85,8 @@ def _input_out(inp: SkillInput) -> dict[str, Any]:
         "cam_still": inp.cam_still,
         "used": inp.used,
         "maybes": [list(m) for m in inp.maybes],
+        "fresh": inp.fresh,
+        "glimpses": [[g.cls, g.at[0], g.at[1], g.lo_rad, g.hi_rad, g.t_us] for g in inp.glimpses],
     }
 
 
@@ -93,7 +98,14 @@ def _input_in(d: dict[str, Any]) -> SkillInput:
     fix = None if d["fix"] is None else TargetFix(**d["fix"])
     maybes = tuple(cast("tuple[float, float]", tuple(m)) for m in d["maybes"])
     costs = None if snap is None else CostMaps(snap, settings, area)
-    return SkillInput(at, snap, costs, fix, d["sonar_m"], d["map_ok"], d["cam_still"], d["used"], maybes)
+    fresh = d.get("fresh", d["used"])  # a log from before Plan Z10: a used picture was the only fresh one
+    glimpses = tuple(  # none in a log from before Plan Z10
+        Glimpse(str(c), (float(x), float(y)), float(lo), float(hi), int(t))
+        for c, x, y, lo, hi, t in d.get("glimpses", [])
+    )
+    return SkillInput(
+        at, snap, costs, fix, d["sonar_m"], d["map_ok"], d["cam_still"], d["used"], maybes, fresh, glimpses
+    )
 
 
 def _out_out(o: SkillOut) -> dict[str, Any]:

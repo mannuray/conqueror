@@ -200,3 +200,41 @@ def test_replay_view_draws_every_logged_tick(tmp_path: Path) -> None:
 
     assert replay(tmp_path / "decisions.jsonl", make, view=View()).first_diff is None
     assert len(drawn) == 30
+
+
+def test_fresh_round_trips_and_an_old_line_takes_used(tmp_path: Path) -> None:
+    """Plan Z10 (LLD §25 A1): `fresh` is logged; a log from before has none - it was `used` then."""
+    from conqueror_ai.adapters.decisions import _input_in, _input_out  # pyright: ignore[reportPrivateUsage]
+
+    inp = make_input(at=(0.0, 0.0, 0.0), snap=None, map_ok=True, used=False, fresh=True, maybes=[(1.0, 2.0)])
+    assert _input_in(_input_out(inp)).fresh
+    old = _input_out(make_input(at=(0.0, 0.0, 0.0), snap=None, map_ok=True, used=True))
+    del old["fresh"]
+    assert _input_in(old).fresh
+
+
+def test_glimpses_round_trip_and_an_old_line_has_none() -> None:
+    """Plan Z10 (LLD §25 A2)."""
+    from conqueror_ai.adapters.decisions import _input_in, _input_out  # pyright: ignore[reportPrivateUsage]
+    from conqueror_ai.domain.objects import Glimpse
+
+    g = Glimpse("toy", (1.0, 2.0), 0.25, 0.5, 7)
+    inp = make_input(at=(0.0, 0.0, 0.0), snap=None, map_ok=True, glimpses=[g])
+    assert _input_in(_input_out(inp)).glimpses == (g,)
+    old = _input_out(make_input(at=(0.0, 0.0, 0.0), snap=None, map_ok=True))
+    del old["glimpses"]
+    assert _input_in(old).glimpses == ()
+
+
+def test_driven_round_trips_and_an_old_line_has_none() -> None:
+    """Plan Z10d (LLD §25.10): the driven record is logged, so a replay sets the same marks aside."""
+    from conqueror_ai.adapters.decisions import _snap_in, _snap_out  # pyright: ignore[reportPrivateUsage]
+
+    room = RoomMap()
+    room.body_over(Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.13, 0.09, 0.115, 0)
+    snap = room.snapshot(0, None, False, True)
+    back = _snap_in(_snap_out(snap))
+    assert back.driven is not None and snap.driven is not None and np.array_equal(back.driven, snap.driven)
+    old = _snap_out(snap)
+    del old["driven"]
+    assert _snap_in(old).driven is None

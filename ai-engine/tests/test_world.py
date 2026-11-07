@@ -91,3 +91,72 @@ def test_camera_pan_for_the_room_tab_uses_the_calibration() -> None:
     assert run.camera_pan_left_deg() is None  # no telemetry yet
     run.pan_servo_deg = 60.0  # 30 to the right by command
     assert run.camera_pan_left_deg() == pytest.approx(-28.2)
+
+
+def test_fresh_after_a_turning_picture_but_not_used(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plan Z10 (LLD §25 A1): a picture skipped for turning gives find maybes - `fresh`, not `used`."""
+    session(tmp_path / "s")
+    w = world()
+    events = list(replay(tmp_path / "s"))
+    frames = [e.frame for e in events if e.frame is not None]
+    for e in events:
+        if e.text is not None:
+            w.on_text(e.text)
+    small = np.zeros((10, 10, 3), np.uint8)
+    f = Frame(seq=999, cap_us=frames[-1].cap_us + 1, recv_s=9.0, jpeg=GREY_JPEG)
+    monkeypatch.setattr(w.map_run.p, "fresh", lambda: True)  # as the pipeline says after a turning picture
+    assert isinstance(w.on_picture(f, small, []), str)
+    inp = w.input(1.0, 1.0, True)
+    assert inp.fresh and not inp.used
+    assert not w.input(1.1, 1.1, True).fresh  # once per picture
+
+
+def test_glimpses_of_the_goal_kind_since_the_last_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plan Z10 (LLD §25 A2): every picture's glimpses of the thing sought, collected until the next input."""
+    from conqueror_ai.domain.objects import Glimpse
+
+    w = World(CAL, CFG, FloorDepth(), frozenset(), {}, Limits(), lambda c: c == "toy")
+    shown = [Glimpse("toy", (0.0, 0.0), 0.1, 0.2, 1), Glimpse("chair", (0.0, 0.0), 0.3, 0.4, 1)]
+    monkeypatch.setattr(w.map_run.p, "glimpses", lambda: shown)
+    small = np.zeros((10, 10, 3), np.uint8)
+    for k in range(2):
+        w.on_picture(Frame(seq=k, cap_us=1_000_000 + k, recv_s=1.0, jpeg=GREY_JPEG), small, [])
+    assert [g.cls for g in w.input(1.0, 1.0, True).glimpses] == ["toy", "toy"]
+    assert w.input(1.1, 1.1, True).glimpses == ()
+
+
+def test_recent_sightings_keep_half_a_second(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plan Z10c (LLD §25.9): every fresh picture's sightings, kept for SEE? / HOWFAR for 0.5 s."""
+    from conqueror_ai.domain.objects import Located
+
+    w = World(CAL, CFG, FloorDepth(), frozenset(), {}, Limits(), None)
+    toy = Located("toy", 1.0, 0.0, 0.05, (0.0, 0.0, 1.0, 1.0))
+    monkeypatch.setattr(w.map_run.p, "fresh", lambda: True)
+    monkeypatch.setattr(w.map_run.p, "maybes", lambda: [toy])
+    small = np.zeros((10, 10, 3), np.uint8)
+    w.on_picture(Frame(seq=1, cap_us=1_000_000, recv_s=1.0, jpeg=GREY_JPEG), small, [])
+    assert w.recent_sightings(1_400_000) == [toy]
+    assert w.recent_sightings(1_600_000) == []
+
+
+def test_sightings_stay_bounded_and_a_restart_clears_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review minors 1-2 (Plan Z10c): trimmed to 0.5 s; a picture with no new sightings adds nothing; the
+    bridge's clock going back (a restart) starts the list again."""
+    from conqueror_ai.domain.objects import Located
+
+    w = World(CAL, CFG, FloorDepth(), frozenset(), {}, Limits(), None)
+    toy = Located("toy", 1.0, 0.0, 0.05, (0.0, 0.0, 1.0, 1.0))
+    fresh = [True]
+    monkeypatch.setattr(w.map_run.p, "fresh", lambda: fresh[0])
+    monkeypatch.setattr(w.map_run.p, "maybes", lambda: [toy])
+    small = np.zeros((10, 10, 3), np.uint8)
+    for k in range(40):  # 4 s of pictures, 10 a second
+        w.on_picture(Frame(seq=k, cap_us=1_000_000 + k * 100_000, recv_s=1.0, jpeg=GREY_JPEG), small, [])
+    assert len(w._sightings) <= 6  # pyright: ignore[reportPrivateUsage]
+    fresh[0] = False
+    newest = w._sightings[-1]  # pyright: ignore[reportPrivateUsage]
+    w.on_picture(Frame(seq=99, cap_us=5_100_000, recv_s=1.0, jpeg=GREY_JPEG), small, [])
+    assert w._sightings[-1] is newest  # nothing added (the old ones trimmed)  # pyright: ignore[reportPrivateUsage]
+    fresh[0] = True
+    w.on_picture(Frame(seq=100, cap_us=200_000, recv_s=1.0, jpeg=GREY_JPEG), small, [])  # restarted
+    assert len(w._sightings) == 1  # pyright: ignore[reportPrivateUsage]

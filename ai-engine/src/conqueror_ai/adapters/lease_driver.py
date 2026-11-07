@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable
 
 from conqueror_ai.adapters.skill_link import SkillLink
 from conqueror_ai.domain.drive.curves import STOP, Command
@@ -22,11 +23,12 @@ MIN_GAP_S = 0.08  # at most ~12 frames a second, as DriveLink: the bridge refuse
 FRESH_FOR_S = 0.5  # a moving command is repeated only this long; then STOP frames
 STREAM_PER_S = 25  # the bridge admits this many skill_drive frames a second, a v 0 frame too (ws_clients.cpp)
 STOP_GAP_S = 1.0 / STREAM_PER_S + 0.005  # a stop after motion waits only this long since the last frame
+SEND_GAP_NOTE_S = 0.25  # a gap between frames over this is printed (the bridge's deadman is 0.3 s, LLD §25.6)
 
 
 class LeaseDriver:
-    def __init__(self, link: SkillLink, id: int) -> None:
-        self.link, self.id = link, id
+    def __init__(self, link: SkillLink, id: int, note: Callable[[str], None] = print) -> None:
+        self.link, self.id, self._note = link, id, note
         self.cmd = STOP
         self._refused: str | None = None
         self._set_s = time.monotonic()  # the lease start counts as a command: the first v 0 is repeated
@@ -98,7 +100,10 @@ class LeaseDriver:
         if self._refused is not None or (self._finished and not force):
             return
         # stamped before the await: a drive() during the send waits its gap instead of sending a second frame
-        self._sent_s, self._sent, self._pending = time.monotonic(), cmd, False
+        now = time.monotonic()
+        if self._sent_s and now - self._sent_s > SEND_GAP_NOTE_S:  # where a 7052 came from (LLD §25.6)
+            self._note(f"skill link: {(now - self._sent_s) * 1000:.0f} ms between drive frames")
+        self._sent_s, self._sent, self._pending = now, cmd, False
         try:
             await self.link.drive(self.id, cmd)
         except ConnectionError:

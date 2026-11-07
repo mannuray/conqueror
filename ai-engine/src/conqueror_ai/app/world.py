@@ -5,6 +5,7 @@ objects; World adds the goal, the memory of things, the play area and the per-pi
 from __future__ import annotations
 
 import json
+from collections import deque
 from collections.abc import Callable, Sequence
 
 import numpy as np
@@ -17,11 +18,13 @@ from conqueror_ai.domain.drive.goal import Goal, size_positions
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.skill import SkillInput, make_input
 from conqueror_ai.domain.memory import ThingMemory
-from conqueror_ai.domain.objects import Located, ObjectPipeline
+from conqueror_ai.domain.objects import Glimpse, Located, ObjectPipeline
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.sonar_model import SonarModel
 from conqueror_ai.domain.telemetry import parse_td
 from conqueror_ai.domain.types import Detection, Frame, TelemSample
+
+SIGHTINGS_KEEP_US = 500_000  # SEE? / HOWFAR count a single sighting this long (AI engine LLD §25.9)
 
 
 def maybes_of(maybes: Sequence[Located], kind: Callable[[str], bool]) -> list[tuple[float, float]]:
@@ -165,6 +168,10 @@ class World:
         self._by_size: dict[str, tuple[float, float]] = {}
         self._cam_still = True
         self._used = False  # a picture was used since the last input
+        self._fresh = False  # ... or gave find maybes (used, or taken while turning: LLD §25 A1)
+        # the goal's glimpses since the last input (§25 A2); every sighting of the last 0.5 s (§25.9)
+        self._glimpses: list[Glimpse] = []
+        self._sightings: deque[tuple[int, list[Located]]] = deque()
 
     @classmethod
     def around(cls, run: MapRun) -> World:
@@ -208,6 +215,18 @@ class World:
         used it, else why it was skipped. Seeing here when `inv` is given, or with `with_depth` when depth is
         due (a replay); live, Perception sees off the event loop (`see`, then `apply`)."""
         used = self.map_run.gate(f, rgb, dets, cam)
+        self._fresh = self._fresh or self.map_run.p.fresh()
+        t = self.map_run.p.gate.capture_us(
+            f.cap_us
+        )  # the readout's middle, as the tracker's times (review m3)
+        if self._sightings and t < self._sightings[-1][0]:
+            self._sightings.clear()  # the bridge restarted: the old times are from another clock (review m1)
+        if self.map_run.p.fresh():
+            self._sightings.append((t, list(self.map_run.p.maybes())))
+        while self._sightings and t - self._sightings[0][0] > SIGHTINGS_KEEP_US:
+            self._sightings.popleft()
+        if self.goal is not None:
+            self._glimpses += [g for g in self.map_run.p.glimpses() if self.goal.kind(g.cls)]
         self.last_frame = f
         self._cam_still = used != "camera moving"
         if isinstance(used, str):
@@ -221,6 +240,10 @@ class World:
         if inv is not None:
             self.apply(self.see(used, inv, f.cap_us), f.cap_us)
         return used
+
+    def recent_sightings(self, now_us: int) -> list[Located]:
+        """Every class's single sightings captured in the 0.5 s before `now_us` (SEE? / HOWFAR, §25.9)."""
+        return [s for t, ss in self._sightings if 0 <= now_us - t <= SIGHTINGS_KEEP_US for s in ss]
 
     def see(self, cam: CameraModel, inv: FloatArray, t_us: int) -> Seen:
         """The depth picture through Seeing (pure: safe off the event loop)."""
@@ -238,8 +261,18 @@ class World:
         objects = p.objects()
         self.memory.update(objects, wall_s, self.run_id)
         used, self._used = self._used, False
+        fresh, self._fresh = self._fresh, False
+        glimpses, self._glimpses = tuple(self._glimpses), []
         if pose is None:
-            return make_input(at=None, snap=None, map_ok=map_ok, sonar_m=self.sonar_m, used=used)
+            return make_input(
+                at=None,
+                snap=None,
+                map_ok=map_ok,
+                sonar_m=self.sonar_m,
+                used=used,
+                fresh=fresh,
+                glimpses=glimpses,
+            )
         if self.area_m is not None and self.area is None:
             self.area = (pose.x_m, pose.y_m, self.area_m)
         fix = (
@@ -260,4 +293,6 @@ class World:
             cam_still=self._cam_still,
             used=used,
             maybes=maybes,
+            fresh=fresh,
+            glimpses=glimpses,
         )

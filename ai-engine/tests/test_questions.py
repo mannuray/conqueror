@@ -8,6 +8,7 @@ import pytest
 
 from conqueror_ai.app.questions import SEEN_S, Questions
 from conqueror_ai.app.world import World
+from conqueror_ai.domain.objects import Located
 from conqueror_ai.domain.types import ObjectEstimate, Pose
 from tests.test_world import world
 
@@ -78,3 +79,37 @@ def test_ball_means_the_ball_only(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not q.see(w, "ball", 5.1) and q.howfar(w, "ball", 5.1) == -1
     w = with_things(world(), monkeypatch, [thing("ball:red", 1.0, 0.0, 5.0)], FACING_X)
     assert q.see(w, "ball", 5.1) and q.howfar(w, "ball", 5.1) > 0
+
+
+# ---- Plan Z10c (LLD §25.9): single sightings of the last 0.5 s count too
+def sighting(cls: str, x: float, y: float) -> Located:
+    return Located(cls, x, y, 0.05, (0.0, 0.0, 1.0, 1.0))
+
+
+def with_sightings(w: World, mp: pytest.MonkeyPatch, by_us: dict[int, list[Located]]) -> World:
+    """recent_sightings(now_us): the sightings captured within SEEN_S before now."""
+
+    def recent(now_us: int) -> list[Located]:
+        return [s for t, ss in by_us.items() if 0 <= now_us - t <= SEEN_S * 1e6 for s in ss]
+
+    mp.setattr(w, "recent_sightings", recent)
+    return w
+
+
+def test_a_single_sighting_counts_for_half_a_second(monkeypatch: pytest.MonkeyPatch) -> None:
+    w = with_things(world(), monkeypatch, [], FACING_X)
+    w = with_sightings(w, monkeypatch, {10_000_000: [sighting("toy", 1.5, 0.0)]})
+    q = Questions()
+    assert q.see(w, "toy", 10.3)
+    assert q.howfar(w, "toy", 10.3) == round((1.5 - w.lim.cam_x_m) * 100)
+    assert not q.see(w, "toy", 10.6)
+    assert q.howfar(w, "toy", 10.6) == -1
+    assert not q.see(w, "box", 10.3)  # another word's sighting
+
+
+def test_the_nearest_of_a_confirmed_thing_and_a_sighting(monkeypatch: pytest.MonkeyPatch) -> None:
+    w = with_things(world(), monkeypatch, [thing("toy", 1.0, 0.0, 5.0)], FACING_X)
+    w = with_sightings(w, monkeypatch, {5_000_000: [sighting("toy", 2.0, 0.0)]})
+    assert Questions().howfar(w, "toy", 5.1) == round((1.0 - w.lim.cam_x_m) * 100)
+    w = with_sightings(w, monkeypatch, {5_000_000: [sighting("toy", 0.6, 0.0)]})
+    assert Questions().howfar(w, "toy", 5.1) == round((0.6 - w.lim.cam_x_m) * 100)

@@ -5,13 +5,14 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Sequence
-from typing import cast
+from dataclasses import replace
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
 from conqueror_ai.domain.depth import Marks
-from conqueror_ai.domain.drive.candidates import REOPEN_MAX
+from conqueror_ai.domain.drive.candidates import REOPEN_MAX, Candidate
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.limits import Limits
@@ -20,6 +21,7 @@ from conqueror_ai.domain.drive.roam import CANDIDATE_RETRY_S, START_STAND_S, Mod
 from conqueror_ai.domain.drive.sim import SimTank
 from conqueror_ai.domain.drive.skill import SkillOut, make_input
 from conqueror_ai.domain.memory import ThingMemory
+from conqueror_ai.domain.objects import Glimpse
 from conqueror_ai.domain.reach import CHECK_CLOSE_M
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.types import ObjectEstimate, Pose
@@ -48,10 +50,21 @@ def rt(
     cam_still: bool = True,
     maybes: Sequence[tuple[float, float]] = (),
     used: bool = True,
+    fresh: bool | None = None,
+    glimpses: Sequence[Glimpse] = (),
 ) -> SkillOut:
     """The old call shape onto SkillInput (LLD §19.4)."""
     inp = make_input(
-        at=at, snap=snap, map_ok=map_ok, fix=fix, sonar_m=sonar, cam_still=cam_still, used=used, maybes=maybes
+        at=at,
+        snap=snap,
+        map_ok=map_ok,
+        fix=fix,
+        sonar_m=sonar,
+        cam_still=cam_still,
+        used=used,
+        maybes=maybes,
+        fresh=fresh,
+        glimpses=glimpses,
     )
     return s.tick(now, inp)
 
@@ -707,3 +720,283 @@ def test_outside_area_says_it_was_seen_outside_the_area() -> None:
 def test_point_mode_needs_a_point() -> None:
     with pytest.raises(ValueError, match="needs a point"):
         RoamSkill(Planner(Limits()), "point")
+
+
+# ---- Plan Z10 (LLD §25)
+def test_a_turning_pictures_maybe_is_a_candidate() -> None:
+    """A1: a maybe from a picture taken while turning (fresh, not used) is a candidate like any other."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[(1.2, 0.6)], used=False, fresh=True)
+    assert [c.spot for c in s.candidates.pending()] == [(1.2, 0.6)]
+
+
+def test_a_re_read_pictures_maybe_is_still_no_candidate() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    rt(s, t, tank.at, open_snap(), None, None, True, maybes=[(1.2, 0.6)], used=False, fresh=False)
+    assert s.candidates.pending() == []
+
+
+def glimpse_at(tank: SimTank, lo_deg: float, hi_deg: float) -> Glimpse:
+    """A glimpse lo..hi degrees left of the tank's heading (right = negative)."""
+    th = tank.at[2]
+    return Glimpse("toy", tank.at[:2], th + math.radians(lo_deg), th + math.radians(hi_deg), 0)
+
+
+def look_ticks(s: RoamSkill, tank: SimTank, t0: float, n: int, **kw: object) -> list[SkillOut]:
+    outs: list[SkillOut] = []
+    for k in range(n):
+        o = rt(s, t0 + k * 0.1, tank.at, open_snap(), None, None, True, **kw)  # type: ignore[arg-type]
+        tank.step(o.cmd, 0.1)
+        outs.append(o)
+    return outs
+
+
+def test_glimpse_left_stops_and_looks_there() -> None:
+    """A2: stop, the camera to the middle of the range (45 deg left = pan -45), 1.5 s of still pictures."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    (o,) = look_ticks(s, tank, t, 1, glimpses=[glimpse_at(tank, 30.0, 60.0)])
+    assert s.state == "second" and o.cmd == STOP
+    assert o.cam is not None and math.isclose(o.cam[0], -45.0, abs_tol=0.5)
+    outs = look_ticks(s, tank, t + 0.1, 14)
+    assert s.state == "second" and all(x.cmd == STOP for x in outs)
+    look_ticks(s, tank, t + 1.5, 3)
+    assert s.state == "drive"
+
+
+def test_a_maybe_in_the_second_look_is_a_candidate() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    look_ticks(s, tank, t, 1, glimpses=[glimpse_at(tank, 30.0, 60.0)])
+    look_ticks(s, tank, t + 0.1, 1, maybes=[(0.8, 0.8)])
+    assert [c.spot for c in s.candidates.pending()] == [(0.8, 0.8)]
+
+
+def test_wide_glimpse_gets_two_looks() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    (o,) = look_ticks(s, tank, t, 1, glimpses=[glimpse_at(tank, -40.0, 40.0)])
+    assert o.cam is not None and math.isclose(abs(o.cam[0]), 40.0, abs_tol=0.5)
+    first = o.cam[0]
+    pans = [x.cam[0] for x in look_ticks(s, tank, t + 0.1, 20) if x.cam is not None]
+    assert pans and math.isclose(pans[0], -first, abs_tol=0.5)
+
+
+def test_glimpse_behind_turns_first() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    (o,) = look_ticks(s, tank, t, 1, glimpses=[glimpse_at(tank, 140.0, 160.0)])
+    assert s.state == "second" and o.cmd.w_dps > 0.0  # turning left, toward it
+    outs = look_ticks(s, tank, t + 0.1, 40)
+    cams = [x.cam for x in outs if x.cam is not None]
+    assert cams and abs(cams[0][0]) <= 90.0
+
+
+def test_the_same_glimpse_again_is_ignored() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    g = glimpse_at(tank, 30.0, 60.0)  # map bearings: the same direction whichever way the tank faces later
+    look_ticks(s, tank, t, 1, glimpses=[g])
+    look_ticks(s, tank, t + 0.1, 20)
+    assert s.state == "drive"
+    look_ticks(s, tank, t + 5.0, 1, glimpses=[replace(g, at=tank.at[:2])])
+    assert s.state != "second"
+
+
+def test_a_glimpse_45_degrees_away_is_looked_at_after_3_s() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    g = glimpse_at(tank, 30.0, 60.0)
+    other = replace(g, lo_rad=g.lo_rad - math.radians(45.0), hi_rad=g.hi_rad - math.radians(45.0))
+    look_ticks(s, tank, t, 1, glimpses=[g])
+    look_ticks(s, tank, t + 0.1, 20)
+    look_ticks(s, tank, t + 2.2, 1, glimpses=[other])
+    assert s.state != "second"  # within 3 s of the last second look
+    look_ticks(s, tank, t + 3.2, 1, glimpses=[other])
+    assert s.state == "second"
+
+
+def test_no_second_look_during_the_close_look() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    look_ticks(s, tank, t, 1, maybes=[(0.3, 0.0)])  # near: the check looks at once
+    assert s.state == "check" and s._check is not None and s._check.phase == "look"  # pyright: ignore[reportPrivateUsage]
+    look_ticks(s, tank, t + 0.1, 1, glimpses=[glimpse_at(tank, 30.0, 60.0)])
+    assert s.state == "check"
+
+
+def checking_far(far: tuple[float, float] = (1.8, 0.0)) -> tuple[RoamSkill, SimTank, float]:
+    """Searching, then a maybe far away: its check has looked from here and is driving closer."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    look_ticks(s, tank, t, 1, maybes=[far])
+    for k in range(60):
+        look_ticks(s, tank, t + 0.1 + k * 0.1, 1)
+        c = s._check  # pyright: ignore[reportPrivateUsage]
+        if c is not None and c.phase == "closer":
+            return s, tank, t + 0.2 + k * 0.1
+    raise AssertionError("never drove closer")
+
+
+def test_a_much_nearer_candidate_takes_over_the_check() -> None:
+    """B (LLD §25): a maybe under 0.6x the distance and 0.5 m nearer is checked first; the far one waits."""
+    s, tank, t = checking_far()
+    near = (tank.at[0] + 0.5, tank.at[1] + 0.3)
+    look_ticks(s, tank, t, 1, maybes=[near])
+    c = s._check  # pyright: ignore[reportPrivateUsage]
+    assert c is not None and c.spot == near
+    far = [p for p in s.candidates.pending() if p.spot == (1.8, 0.0)]
+    assert len(far) == 1 and far[0].tries == 0 and far[0].reopens == 0
+
+
+def test_a_slightly_nearer_one_does_not() -> None:
+    s, tank, t = checking_far()
+    d = math.dist(tank.at[:2], (1.8, 0.0))
+    look_ticks(s, tank, t, 1, maybes=[(tank.at[0], tank.at[1] + d * 0.8)])  # off to the side: its own spot
+    c = s._check  # pyright: ignore[reportPrivateUsage]
+    assert c is not None and c.spot == (1.8, 0.0)
+
+
+def test_find_loses_the_chase_and_checks_its_last_spot_next() -> None:
+    """C (LLD §25, the room4 box): no 20 s sweep where it stands - the last seen spot is the next check."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    ticks(s, tank, t, 1, maybes=[(1.2, 0.6)])
+    gave_up = chase_and_lose(s, tank, t, TargetFix(1, 1.25, 0.6, 0.0))
+    assert gave_up - t < 1.0
+    for k in range(1, 4):
+        tank.step(rt(s, gave_up + 0.1 * k, tank.at, open_snap(), None, None, True).cmd, 0.1)
+    c = s._check  # pyright: ignore[reportPrivateUsage]
+    assert s.state == "check" and c is not None and c.spot == (1.25, 0.6)
+
+
+# ---- Plan Z10 final review fixes
+def glimpse_toward(tank: SimTank, spot: tuple[float, float], half_deg: float = 10.0) -> Glimpse:
+    b = math.atan2(spot[1] - tank.at[1], spot[0] - tank.at[0])
+    return Glimpse("toy", tank.at[:2], b - math.radians(half_deg), b + math.radians(half_deg), 0)
+
+
+def test_a_glimpse_of_the_spot_being_checked_is_no_second_look() -> None:
+    """I1: driving closer, the camera follows the spot in steps; those moving pictures show the same thing."""
+    s, tank, t = checking_far()
+    look_ticks(s, tank, t, 1, glimpses=[glimpse_toward(tank, (1.8, 0.0))])
+    assert s.state == "check"
+
+
+def test_a_glimpse_of_a_ruled_out_spot_is_no_second_look() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    s.candidates.add((0.0, 1.5))
+    (c,) = s.candidates.pending()
+    s.candidates.rule_out(c)
+    look_ticks(s, tank, t, 1, glimpses=[glimpse_toward(tank, (0.0, 1.5))])
+    assert s.state != "second"
+
+
+def test_an_echo_ahead_during_a_second_look_ends_blocked() -> None:
+    """I2: the run's stop rules hold in a second look too."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    look_ticks(s, tank, t, 1, glimpses=[glimpse_at(tank, 30.0, 60.0)])
+    assert s.state == "second"
+    out = rt(s, t + 0.1, tank.at, open_snap(), None, 0.05, True)
+    assert out.result == "blocked" and out.cmd == STOP
+
+
+def test_a_turn_for_a_second_look_gives_up_after_3_s() -> None:
+    """I2: a slipping track - the heading never changes - then the camera as far round as it goes."""
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    outs = [rt(s, t, tank.at, open_snap(), None, None, True, glimpses=[glimpse_at(tank, 140.0, 160.0)])]
+    outs += [
+        rt(s, t + 0.1 * k, tank.at, open_snap(), None, None, True) for k in range(1, 35)
+    ]  # tank not moved
+    cams = [o.cam for o in outs if o.cam is not None]
+    assert cams and math.isclose(cams[0][0], -90.0) and outs[-1].cmd == STOP
+
+
+def test_a_refused_turn_looks_as_far_as_the_camera_goes(monkeypatch: pytest.MonkeyPatch) -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+
+    def never(*a: Any, **k: Any) -> bool:
+        return False
+
+    monkeypatch.setattr(s.planner, "can_spin", never)
+    (o,) = look_ticks(s, tank, t, 1, glimpses=[glimpse_at(tank, 140.0, 160.0)])
+    assert o.cam is not None and math.isclose(o.cam[0], -90.0) and o.cmd == STOP
+
+
+def test_no_second_look_while_chasing() -> None:
+    s, tank = finder(), SimTank()
+    t = until_searching(s, tank)
+    rt(
+        s,
+        t,
+        tank.at,
+        open_snap(),
+        TargetFix(1, 1.2, 0.0, 0.0),
+        None,
+        True,
+        glimpses=[glimpse_at(tank, 30.0, 60.0)],
+    )
+    assert s.state == "chase"
+
+
+def test_a_second_look_from_a_check_goes_back_to_it_with_its_time_paused() -> None:
+    s, tank, t = checking_far()
+    c = s._check  # pyright: ignore[reportPrivateUsage]
+    assert c is not None
+    t0 = c.t0
+    look_ticks(s, tank, t, 1, glimpses=[glimpse_toward(tank, (tank.at[0] - 1.0, tank.at[1] + 1.0))])
+    assert s.state == "second"
+    look_ticks(s, tank, t + 0.1, 25)
+    assert s.state == "check" and s._check is c and c.t0 > t0  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_nearer_candidate_with_no_way_does_not_take_over(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Minor: a nearer one outside the play area or walled off would end its check at once, again and again"""
+    s, tank, t = checking_far()
+    near = (tank.at[0] + 0.5, tank.at[1] + 0.3)
+    real = s.candidates.route
+
+    def no_way_to_near(c: Candidate, *a: Any) -> list[tuple[float, float]] | None:
+        return None if c.spot == near else real(c, *a)
+
+    monkeypatch.setattr(s.candidates, "route", no_way_to_near)
+    look_ticks(s, tank, t, 1, maybes=[near])
+    c = s._check  # pyright: ignore[reportPrivateUsage]
+    assert c is not None and c.spot == (1.8, 0.0)
+
+
+# ---- Plan Z10b (LLD §25.8): a sighting ends the opening look round
+def looking_round() -> tuple[RoamSkill, SimTank, float]:
+    s, tank = finder(), SimTank()
+    for k in range(40):  # into the chase's sweep
+        tank.step(rt(s, k * 0.1, tank.at, open_snap(), None, None, True).cmd, 0.1)
+    assert s.state == "chase" and s.chase.state in ("sweep", "spin")
+    return s, tank, 4.0
+
+
+def test_a_maybe_in_the_look_round_starts_its_check() -> None:
+    s, tank, t = looking_round()
+    look_ticks(s, tank, t, 1, maybes=[(1.5, 0.3)])
+    look_ticks(s, tank, t + 0.1, 1)
+    c = s._check  # pyright: ignore[reportPrivateUsage]
+    assert s.state == "check" and c is not None and c.spot == (1.5, 0.3)
+
+
+def test_a_glimpse_in_the_look_round_takes_a_second_look() -> None:
+    s, tank, t = looking_round()
+    look_ticks(s, tank, t, 1, glimpses=[glimpse_at(tank, 30.0, 60.0)])
+    assert s.state == "second"
+    look_ticks(s, tank, t + 0.1, 25)
+    assert s.state == "drive"
+
+
+def test_a_sure_sighting_in_the_look_round_is_still_chased() -> None:
+    s, tank, t = looking_round()
+    rt(s, t, tank.at, open_snap(), TargetFix(1, 1.5, 0.3, 0.0), None, True)
+    assert s.state == "chase" and s.chase.state == "approaching"

@@ -293,3 +293,27 @@ def test_seen_before_and_the_chase_target_are_shown() -> None:
     n = room.n
     r, c = n - 1 - int(np.floor(0.5 / room.cell_m + n / 2)), n - 1 - int(np.floor(0.0 / room.cell_m + n / 2))
     assert tuple(img[r, c]) == rm.TARGET
+
+
+# ---- Plan Z10d (LLD §25.10): where the tank's body has been, nothing stands
+def test_a_full_mark_under_the_body_is_cleared_at_once() -> None:
+    room = RoomMap()
+    c = room.cells(np.array([(0.0, 0.0)]))
+    for _ in range(10):  # at full strength
+        room.hit(c, "low")
+    assert room.is_blocked(0.0, 0.0)
+    assert stand(room, 0.0, 0.0, 0.0, 1) == 1
+    assert not room.is_blocked(0.0, 0.0)
+    assert float(room.low.reshape(-1)[c][0]) == -room.settings.clamp
+
+
+def test_the_driven_cells_are_the_whole_body_and_a_new_sighting_wins() -> None:
+    room = RoomMap()
+    stand(room, 0.0, 0.0, 0.0, 1)
+    snap = room.snapshot(0, None, False, True)
+    assert snap.driven is not None
+    assert snap.driven[at(room, 0.0, 0.11)]  # under the body's edge, not whole under the shrunk body
+    assert not snap.driven[at(room, 0.0, 0.2)]
+    room.hit(room.cells(np.array([(0.0, 0.11)])), "low")  # seen there after: the sighting wins
+    later = room.snapshot(0, None, False, True)
+    assert later.driven is not None and not later.driven[at(room, 0.0, 0.11)]

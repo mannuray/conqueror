@@ -464,3 +464,94 @@ def test_a_thing_whose_floor_point_flickers_is_listed_once() -> None:
         tr.update([ob.Located("toy", x, 0.0, ob.sigma_at(x), (0, 0, 1, 1)) for x in (1.0, 2.0)], cam, t)
         t += 55_000
     assert len(tr.objects()) == 2
+
+
+# ---- Plan Z10 (LLD §25 A1): a turning picture's sightings are maybes for find, never things or map marks
+def pipeline_with(rate_dps: float = 0.0, flags: int = 0, pan_of: tuple[float, ...] = ()) -> ob.ObjectPipeline:
+    p = ob.ObjectPipeline(CAL)
+    p.on_calib(7514)
+    for i in range(10):
+        pan = pan_of[i] if i < len(pan_of) else 90.0
+        p.on_telem(TelemSample(i * 20_000, i * 20, 0, 0, 0.0, rate_dps, None, pan, 90.0, 0, 0, flags, 0, 0))
+    return p
+
+
+def test_turning_picture_gives_maybes_not_objects() -> None:
+    still, turning = pipeline_with(), pipeline_with(rate_dps=60.0)
+    d = box_on_floor(cam_at(), 1.0, 0.1)
+    assert isinstance(still.on_frame(frame(170_000), (320, 240), [d]), CameraModel)
+    assert turning.on_frame(frame(170_000), (320, 240), [d]) == "turning"
+    (want,) = still.maybes()
+    (got,) = turning.maybes()
+    assert math.isclose(got.x, want.x, abs_tol=0.01) and math.isclose(got.y, want.y, abs_tol=0.01)
+    assert turning.objects() == [] and turning.fresh()
+    for _ in range(3):  # seen again and again while turning: still never a thing on the list
+        turning.on_frame(frame(170_000), (320, 240), [d])
+    assert turning.objects() == []
+
+
+def test_camera_moving_picture_gives_no_maybes() -> None:
+    p = pipeline_with(flags=ob.CAM_MOVING)
+    assert p.on_frame(frame(170_000), (320, 240), [box_on_floor(cam_at(), 1.0, 0.1)]) == "camera moving"
+    assert p.maybes() == [] and not p.fresh()
+
+
+def test_a_box_over_a_person_in_a_turning_picture_is_cleared() -> None:
+    """As in a still picture (person_guard.clear): a thing's box over a person is never a maybe; find never
+    seeks a person at all (the vocabulary leaves it out)."""
+    p = pipeline_with(rate_dps=60.0)
+    person = box_on_floor(cam_at(), 1.0, 0.1, cls="person", h_px=80.0)
+    p.on_frame(frame(170_000), (320, 240), [person, box_on_floor(cam_at(), 1.0, 0.1)])
+    assert [m.cls for m in p.maybes()] == ["person"]
+
+
+# ---- Plan Z10 (LLD §25 A2): a sighting while the camera moves is a glimpse with a range of bearings
+def moving_pipeline() -> ob.ObjectPipeline:
+    """Still at servo 90 (centre) to 80 ms, then the pan sent right to servo 60 (30 deg right) at 300 deg/s,
+    reported there from 180 ms; the tank still. A picture at 200 ms: the camera still moving."""
+    p = ob.ObjectPipeline(CAL)
+    p.on_calib(7514)
+    for i in range(16):
+        servo = 90.0 if i < 5 else max(60.0, 90.0 - (i - 4) * 6.0)
+        p.on_telem(TelemSample(i * 20_000, i * 20, 0, 0, 0.0, 0.0, None, servo, 90.0, 0, 0, 0, 0, 0))
+    return p
+
+
+def mid_box(u: float, cls: str = "toy") -> Detection:
+    return Detection(cls, 0.3, (u - 10.0, 150.0, u + 10.0, 170.0), sure=False)
+
+
+def test_glimpse_range_from_move_start_to_reported_pan() -> None:
+    p = moving_pipeline()  # the pose's heading starts at 0 whatever the gyro's own reading
+    cx = float(CAL.k[0, 2])
+    assert p.on_frame(frame(200_000), (320, 240), [mid_box(cx)]) == "camera moving"
+    (g,) = p.glimpses()
+    assert g.cls == "toy" and p.maybes() == [] and not p.fresh()
+    lo, hi = math.degrees(g.lo_rad), math.degrees(g.hi_rad)
+    reported = -(CAL.pan_map[0] * 30.0 + CAL.pan_map[1])  # the reported pan, 30 deg right of centre
+    started = -CAL.pan_map[1]  # where the move started, at the centre
+    assert math.isclose(lo, reported, abs_tol=0.5) and math.isclose(hi, started, abs_tol=0.5)
+
+
+def test_glimpse_right_of_centre_shifts_both_ends() -> None:
+    p = moving_pipeline()
+    cx, fx = float(CAL.k[0, 2]), float(CAL.k[0, 0])
+    p.on_frame(frame(200_000), (320, 240), [mid_box(cx)])
+    (mid,) = p.glimpses()
+    p.on_frame(frame(200_000), (320, 240), [mid_box(cx + 60.0)])
+    (right,) = p.glimpses()
+    shift = math.degrees(mid.lo_rad - right.lo_rad)
+    assert 0.5 * math.degrees(math.atan(60.0 / fx)) < shift < 1.5 * math.degrees(math.atan(60.0 / fx))
+    assert math.isclose(math.degrees(mid.hi_rad - right.hi_rad), shift, abs_tol=0.5)
+
+
+def test_no_glimpse_without_a_pose() -> None:
+    p = ob.ObjectPipeline(CAL)
+    assert p.on_frame(frame(150_000), (320, 240), [mid_box(160.0)]) == "no pose"
+    assert p.glimpses() == []
+
+
+def test_a_still_picture_gives_no_glimpse() -> None:
+    p = pipeline_with()
+    p.on_frame(frame(170_000), (320, 240), [box_on_floor(cam_at(), 1.0, 0.1)])
+    assert p.glimpses() == []

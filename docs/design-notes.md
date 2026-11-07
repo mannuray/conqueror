@@ -3255,6 +3255,92 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   from open floor it passed (the L, "going back now", SETXY 0 0 in 5.8 s / 0.6 m, the tune, finished);
   lesson 3 (area off; the toy car as "car", a ball): FIND car 2.3 s (it was in front), FIND ball 53.6 s / 6.6 m,
   SETXY 0 0 15.5 s / 3.0 m, the tune - finished; ~37-41 cm from each thing (tank centre).
+
+## 217. FIND ignores glimpses (floor run 2026-11-06, room4; owner: "i saw box flash on camera many times but it didn't investigate; if one flash it should investigate")
+- **The run:** fresh home `room4` (the tank could not be carried to a mark); `WANDER` (area off, closed room), `FIND
+  "toy` done in 4 s ~30 cm from the car (seen clearly, so Z9's close look was not needed), `FIND "box` ended 7052.
+- **Found in the recording:** 347 of 659 ticks had no usable picture (turning / camera moving: the map can't place
+  those sightings, but the `/ai` feed draws them); a near sighting waited while a far remembered box was checked; the
+  chase lost the box 0.9 m ahead, swept 20 s and ignored 25 unsure sightings of it; 7052 from the bridge's 300 ms
+  deadman while the engine still ticked (cause not known).
+- **Decided (owner: "yes" to my recommendation):** A a second look at a glimpse (stop, camera to it, 1.5 s still) +
+  B the nearest maybe first + a lost chase checked from near at once. Design: AI engine LLD §25 (Plan Z10, branch
+  `plan-z10-glimpse`). My calls: 20° / 15 s / 3 s for "not over and over", 0.6× and 0.5 m for "nearer", the
+  send-gap log for the 7052.
+- **Changed (owner: "why throw away pictures while turning - we know the tank angle or camera angle"; "stop the
+  camera with a margin of error, deduce at what angle the camera may be"):** turning pictures were skipped for blur,
+  not for the pose - FIND now uses their sightings (A1; the map keeps its rule). Camera-moving pictures: the servo
+  has no sensor, but its real angle lies between where the move started and where it was sent - a glimpse with that
+  range gets a second look at its middle (two looks if wider than 50°) (A2). Not chosen: a slower camera, predicting
+  the servo's angle (later, if second looks are too many). Approved ("yes").
+- **Built (Plan Z10, 2026-11-07, branch `plan-z10-glimpse`; AI engine LLD §25.7):** engine tests pass; floor check
+  pending (`FIND "box` in room4 where the box flashed).
+- **Floor, Z10 engine (2026-11-07, fresh home `room5`):** `FIND "box` done 30.3 s, 1.1 m, ~35 cm from it - first
+  seen in a **turning picture** at 15.4 s (5 cm from where it was), then from still pictures; `FIND "toy` done
+  55.2 s, 3.0 m (two ways out near the box and furniture), ~34 cm from the car. The send-gap note printed 259 ms and
+  284 ms - close to the bridge's 300 ms deadman (watch; the link, not the deadman, is what to look at).
+- **Owner:** "3 then 1" - first a design for the box run's wait (the opening look round ran 9 s past the first
+  sighting): AI engine LLD §25.8 (Plan Z10b), then a FIND with the box hidden further away.
+
+## 218. Is the WiFi or the camera the limit? Test 1 (2026-11-07; owner: "our main limit is wifi and not camera?", "do both")
+- **Why:** before choosing a camera upgrade (Pi Zero 2 W + Camera Module 3 Wide, or an OV5640 module on the same
+  board, or an old phone), measure what limits the pictures today. Script: `scratchpad/camtest/stream_rate.py`
+  (the MJPEG stream on :81, 20-30 s, the laptop's arrival times and the tank's `X-Frame-Us` capture times).
+- **Standing, nothing else on the stream, VGA quality 12:** 25-27 pictures/s, 17.8 KB each, 3.7 Mbit/s, arrival
+  gaps median 36 ms (max 113 ms, none over 200), the tank's own capture gaps the same - everything taken arrives.
+  Ping 7.8 ms, no loss.
+- **Bigger sizes (camera_set, then back to VGA q12):** SVGA 800x600 18 /s, 26 KB, 3.9 Mbit/s, capture gap 72 ms;
+  HD 1280x720 8 /s, 81 KB, 5.3 Mbit/s, capture gap 115-170 ms. The WiFi carried 5.3 Mbit/s without a gap over 170
+  ms; the **camera** itself slows down (its capture gaps grow on the tank's clock). Likely the 10 MHz camera clock
+  at the weakest drive (§76, chosen so the camera stops drowning the WiFi) - not confirmed.
+- **Driving (engine on room7, `AREA 0  WANDER 30`, recorded):** standing before 16.1 /s, wandering 17.9 /s,
+  standing after 17.0 /s; arrival gaps median ~56 ms, max 213 / 115 / 121 ms; no drive-frame gap over 250 ms.
+  Driving did not hurt the link. The camera's own capture gap was 72 ms standing (36 ms while wandering): in a
+  dimmer view the camera takes pictures half as often (longer exposure) - the sensor's light, not the WiFi.
+- **Answer:** the WiFi is not the limit (standing or driving, up to at least 5.3 Mbit/s); the ESP32 camera path
+  (bigger pictures slow it) and the sensor in dim light are; the laptop takes ~18-19 /s with depth. A better sensor
+  on its own small computer (option 2) is where the gain is; a sensor swap on the ESP32 board meets the same
+  camera-path ceiling. **Next:** test 2 - the phone camera vs the tank camera through our detector, to see how much
+  further things are found before buying.
+- **Test 2, first look (2026-11-07 morning, the same light, the toy car at the foot of the sheet by the door):**
+  our detector (YOLO-World, `scratchpad/camtest/phone_detect.py`) on the owner's phone photos at tank height - the
+  whole photo and a tank-like 640x480 view - and on the tank's own pictures, the tank stepped forward 50 cm at a time
+  (`SPEED 25  FORWARD 50`) until the car was found for sure.
+  - Phone (640x480 view, car width): 0.91 (89 px), 0.73 (59 px), **0.69 (44 px)**, maybes 0.17 (26 px).
+  - Tank: nothing from 0-150 cm forward (the car ~35 px or less); at +200 cm, the car **45 px**: 0.30, 0.38, 0.30,
+    0.37 and one 0.17 maybe.
+  - **The car the same size in both pictures (~45 px): the phone 0.69, the tank 0.30-0.38** - the tank's picture
+    roughly halves the detector's confidence; it is found for sure only from ~45 px (the phone from ~40 px, maybes to
+    ~26 px). The further-away failures with both cameras are the detector's own limit.
+  - So a better picture (sensor, lens, less noise) gains real distance - the evidence for a camera upgrade (§218
+    options); the exact gain in metres needs the same-spot comparison with distances taped.
+- **The tank's range for the toy car (stepping back 10 cm at a time from where it was first sure):** sure 0.33-0.55
+  with the car 42-44 px wide; one or two stops back maybes only (0.25, 0.22), then nothing (40-50 cm back). At the
+  "30 cm back" stop a second try gave sure 2/5 (best 0.36, 35 px): at the edge the tank's detection flickers
+  (±10-20 cm). The calibration's floor distance (~1.1-1.3 m) is unreliable here (the glossy floor's reflection
+  stretches the box); distances in metres need a tape.
+- **The phone from behind the tank:** sure of the same car at 36-38 px (0.47, 0.40) in a tank-like 640x480 view framed
+  on the floor line - further away than the tank's camera manages even maybes. (The detector also calls the tank
+  itself a "toy", 0.97-0.99.)
+- **Decided (owner, 2026-11-07):** "a good camera will surely improve detection, so the camera is the weak point here;
+  we will think about that later". Options on file above (Pi Zero 2 W + Camera Module 3 Wide; ESP32-P4 later); not
+  now.
+- **SEE? / HOWFAR (owner, 2026-11-07: "there was no car but a toy, and it was recognised in the camera feed"):** lesson
+  5 with LAUNCH wandered smoothly (2 min, 21.9 m) but HOWFAR said "not seen" ~220 times - the questions answered
+  only from confirmed things, the feed draws every detection. Decided ("write it and build it"): SEE? / HOWFAR also
+  count single sightings of the last 0.5 s (AI engine LLD §25.9, Plan Z10c); a false sighting may beep for a moment.
+- **Built and floor-checked (Plan Z10c, 2026-11-07):** lesson 5 (LAUNCH + HOWFAR "toy) with the area off found the
+  toy in 9.3 s - HOWFAR answered from single sightings while it wandered (12 answers under 1.5 m, then under 50 cm).
+- **SETXY stuck by a wall (lesson 1's first try, room8) - found by replaying (owner: "setxy"):** false low marks on clear
+  marble along the path, driven over by FORWARD 40, cleared too gently (one miss a cell per 100 ms, only wholly under
+  the shrunk body) - the tank's own pose became not allowed and every move was refused (7024 after 12.5 s). Proposed
+  (owner "yes" to write it): A the driven trail is cleared, B the ways out may leave marks the body already covers
+  (AI engine LLD §25.10, Plan Z10d). Why the depth marks shiny floor is left for later.
+- **Built (Plan Z10d, 2026-11-07):** the driven trail is cleared and recorded; the ways out may back out along it
+  (AI engine LLD §25.10 as built). Floor (room11): FORWARD 40 toward the chest, SETXY 0 0 - done in 6.4 s with no way
+  out needed; the false marks did not come back, so the fix was not exercised on the floor. Owner: "b" - the
+  room8-layout test stands in; watch lesson 1 near walls in normal use.
+
 ## 219. Two things at once: `LAUNCH` (owner, 2026-11-07: lesson 5 was stop-and-go - "let's do C, why test something that we will discard"; "only the main program moves the tank")
 - **Found (room9, lesson 5 with the toy):** six `WANDER 2` rounds, each 1.0 s standing (the skill's start stand) and
   ~1 s driving, then the listen pause - the tank drove ~1 s in 3. Options put: A `WANDER 5` in the lesson, B skip the

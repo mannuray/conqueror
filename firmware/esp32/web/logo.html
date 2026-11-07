@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#050805">
 <title>Tank Logo</title>
+<!--CQ:THEME-->
 <link rel="icon" href="/icon-192.png">
 <style>
 /* Plan N4 (Tank Logo LLD §21): write, check, run and step Tank Logo programs. Look per the Stitch screens
@@ -15,38 +16,43 @@
   --dim: #1f9a40; --warn: #ffb000; --danger: #ff3b30; --active: #e8ffe8; --text: #b8f5c8;
   --move: #33ff66; --turn: #b5e853; --flow: #3ee0e8; --show: #ff7ad9; --sense: #8cc8ff; --maths: #dfe8df;
   --num: #ffb000; --own: #ffffff; --cmt: #4f7a5a;
+  /* Every other colour of this page (bridge LLD R28: Sunny Play changes only these, in theme.css). */
+  --ui-rgb: 51, 255, 102; --warn-rgb: 255, 176, 0; --warn-edge: rgba(255, 176, 0, .5); --run-line: rgba(255, 176, 0, .14);
+  --stop-ink: #fff; --on-warn: #000; --dim-layer: rgba(0, 0, 0, .7); --cam-label: rgba(0, 0, 0, .65); --code-font: var(--mono);
+  --scanlines: repeating-linear-gradient(0deg, rgba(var(--ui-rgb), .025) 0 1px, transparent 1px 3px); --r: 0px; --r-card: 0px;
   --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 var(--mono); }
-body { background-image: repeating-linear-gradient(0deg, rgba(51, 255, 102, .025) 0 1px, transparent 1px 3px); padding-bottom: 76px; }
+body { background-image: var(--scanlines); padding-bottom: 76px; }
 a, button, input, textarea, select { font: inherit; color: inherit; }
 button { background: transparent; border: 1px solid var(--edge-c); color: var(--ui); padding: 8px 10px; letter-spacing: .06em; cursor: pointer; }
 button:disabled { opacity: .35; cursor: default; }
+button, input, select, .chip, .badge { border-radius: var(--r); }
 svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
 header { padding: 10px max(12px, env(safe-area-inset-left)) 8px; border-bottom: 1px solid var(--edge-c);
   position: sticky; top: 0; z-index: 10; background: var(--bg); }  /* STOP always on screen (§21.6), above the sheets */
 .top { display: flex; align-items: center; gap: 8px; }
 .top a { color: var(--ui); text-decoration: none; letter-spacing: .08em; font-weight: 700; }
 .top h1 { flex: 1; font-size: 13px; margin: 0; color: var(--ui); letter-spacing: .14em; text-align: center; }
-#stop { background: var(--danger); color: #fff; border-color: var(--danger); font-weight: 700; padding: 8px 14px; }
+#stop { background: var(--danger); color: var(--stop-ink); border-color: var(--danger); font-weight: 700; padding: 8px 14px; }
 .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
 .chip { border: 1px solid var(--edge-c); padding: 4px 6px; color: var(--ui); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
-.chip.warn { color: var(--warn); border-color: rgba(255, 176, 0, .5); }
+.chip.warn { color: var(--warn); border-color: var(--warn-edge); }
 #menu { display: none; position: fixed; right: 12px; top: 52px; z-index: 11; background: var(--panel); border: 1px solid var(--edge-c); }
 #menu.on { display: block; } #menu a { display: block; padding: 12px 18px; color: var(--ui); text-decoration: none; border-bottom: 1px solid var(--line); }
 main { padding: 10px 12px; display: grid; gap: 10px; }
-.card { border: 1px solid var(--edge-c); background: var(--panel); padding: 10px; min-width: 0; }
+.card { border: 1px solid var(--edge-c); background: var(--panel); padding: 10px; min-width: 0; border-radius: var(--r-card); }
 .card h2 { margin: 0 0 8px; font-size: 12px; color: var(--ui); letter-spacing: .1em; display: flex; justify-content: space-between; gap: 8px; }
-.badge { color: var(--warn); border: 1px solid rgba(255, 176, 0, .5); padding: 0 6px; font-size: 11px; }
+.badge { color: var(--warn); border: 1px solid var(--warn-edge); padding: 0 6px; font-size: 11px; }
 .progbar { display: flex; gap: 6px; } .progbar span { display: none; } .progbar select { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--edge-c); color: var(--ui); padding: 8px; }
 #plist { display: none; list-style: none; margin: 0; padding: 0; }
-#plist li { padding: 7px 10px; cursor: pointer; color: var(--text); } #plist li.on { color: var(--ui); background: rgba(51, 255, 102, .08); border-left: 2px solid var(--ui); }
+#plist li { padding: 7px 10px; cursor: pointer; color: var(--text); } #plist li.on { color: var(--ui); background: rgba(var(--ui-rgb), .08); border-left: 2px solid var(--ui); }
 #plist .sec { color: var(--dim); font-size: 11px; cursor: default; letter-spacing: .1em; padding-top: 12px; }
 .dot::after { content: " ●"; color: var(--warn); }
-#tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; } #tabs button.on { background: rgba(51, 255, 102, .12); color: var(--active); border-color: var(--ui); }
+#tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; } #tabs button.on { background: rgba(var(--ui-rgb), .12); color: var(--active); border-color: var(--ui); }
 .ed { position: relative; display: flex; border: 1px solid var(--line); background: var(--bg); height: 46vh; min-height: 220px; }
-#gut, #hl, #src { margin: 0; font: 16px/1.6 var(--mono); padding: 8px 0; white-space: pre; tab-size: 2; }
+#gut, #hl, #src { margin: 0; font: 16px/1.6 var(--code-font); padding: 8px 0; white-space: pre; tab-size: 2; }
 #gut { width: 3.2em; text-align: right; padding-right: 8px; color: var(--cmt); overflow: hidden; user-select: none; flex: none; }
 #gut .err { color: var(--danger); } #gut .run { color: var(--warn); }
 .edw { position: relative; flex: 1; min-width: 0; overflow: hidden; }
@@ -54,8 +60,8 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 #hl { overflow: hidden; pointer-events: none; color: var(--text); }
 #src { width: 100%; height: 100%; resize: none; border: 0; outline: 0; background: transparent; color: transparent; caret-color: var(--active); overflow: auto; }
 #src[readonly] { caret-color: transparent; }
-#hl div { min-height: 1.6em; position: relative; } #hl div.run { background: rgba(255, 176, 0, .14); box-shadow: inset 3px 0 var(--warn); }
-.rnd { margin-left: 12px; font-style: normal; font-size: 11px; color: #000; background: var(--warn); padding: 1px 6px; vertical-align: 2px; }
+#hl div { min-height: 1.6em; position: relative; } #hl div.run { background: var(--run-line); box-shadow: inset 3px 0 var(--warn); }
+.rnd { margin-left: 12px; font-style: normal; font-size: 11px; color: var(--on-warn); background: var(--warn); padding: 1px 6px; vertical-align: 2px; }
 .g-move { color: var(--move); } .g-turn { color: var(--turn); } .g-flow { color: var(--flow); } .g-show { color: var(--show); }
 .g-sense { color: var(--sense); } .g-maths { color: var(--maths); } .num { color: var(--num); } .own { color: var(--own); }
 .inp { color: var(--own); font-style: italic; } .str { color: var(--text); } .cmt { color: var(--cmt); font-style: italic; } .op { color: var(--dim); }
@@ -63,7 +69,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 .pad { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; } .pad button { padding: 7px 9px; font-size: 13px; }
 .pad button small { color: var(--dim); } .help { margin-top: 6px; color: var(--dim); min-height: 1.4em; }
 #diags { margin-top: 8px; } .diag { border-left: 3px solid var(--danger); padding: 6px 8px; margin-bottom: 6px; cursor: pointer; }
-.diag.warn { border-color: var(--warn); } .diag pre { margin: 0; font: 15px/1.4 var(--mono); color: var(--active); overflow: hidden; }
+.diag.warn { border-color: var(--warn); } .diag pre { margin: 0; font: 15px/1.4 var(--code-font); color: var(--active); overflow: hidden; }
 .diag p { margin: 2px 0 0; font-size: 14px; color: var(--active); }
 .msgs { display: flex; gap: 10px; } #log { flex: 1; min-width: 0; max-height: 9.5em; overflow: auto; font-size: 12px; }
 #log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } #log .say { color: var(--show); } #log .end { color: var(--warn); }
@@ -77,21 +83,21 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
 #bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--edge-c); padding: 8px 12px max(8px, env(safe-area-inset-bottom)); display: flex; gap: 8px; align-items: center; z-index: 4; }
 #status { flex: 1; min-width: 0; font-size: 12px; color: var(--ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #status.s-warn { color: var(--warn); } #status.s-bad { color: var(--danger); }
-#run { background: var(--warn); color: #000; border-color: var(--warn); font-weight: 700; padding: 12px 18px; }
+#run { background: var(--warn); color: var(--on-warn); border-color: var(--warn); font-weight: 700; padding: 12px 18px; }
 #step { padding: 12px 14px; }
-.sheet { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, .7); z-index: 9; align-items: center; justify-content: center; }
+.sheet { display: none; position: fixed; inset: 0; background: var(--dim-layer); z-index: 9; align-items: center; justify-content: center; }
 .sheet.on { display: flex; } .sheet .card { width: min(360px, 92vw); } .sheet input { width: 100%; background: var(--bg); border: 1px solid var(--edge-c); padding: 10px; margin: 8px 0; color: var(--active); }
 .sheet .row { display: flex; gap: 8px; justify-content: flex-end; } .sheet p { margin: 4px 0; } .sheet .why { color: var(--warn); min-height: 1.4em; }
 .hide { display: none !important; }
 /* Revision N6 (Tank Logo LLD §23): parts only the laptop layout shows */
 #ptabs, .cam, #camShow { display: none; }
-#ptabs button.on { background: rgba(51, 255, 102, .12); color: var(--active); border-color: var(--ui); }
+#ptabs button.on { background: rgba(var(--ui-rgb), .12); color: var(--active); border-color: var(--ui); }
 .cam { position: relative; aspect-ratio: 4 / 3; background: #000; border: 1px solid var(--line); margin-bottom: 8px;
   flex: 0 1 auto; min-height: 0; max-height: 50%; }  /* shrinks in a short window so the path and stats still fit */
 .cam img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }  /* the box, not the picture, sets the size */
 #camNote { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px; color: var(--dim); }
-#camDist { position: absolute; left: 8px; bottom: 6px; color: var(--ui); background: rgba(0, 0, 0, .65); padding: 1px 6px; }
-#camHide { position: absolute; right: 6px; top: 6px; padding: 3px 8px; background: rgba(0, 0, 0, .65); }
+#camDist { position: absolute; left: 8px; bottom: 6px; color: var(--ui); background: var(--cam-label); padding: 1px 6px; }
+#camHide { position: absolute; right: 6px; top: 6px; padding: 3px 8px; background: var(--cam-label); }
 #camShow { padding: 0 6px; font-size: 11px; }
 @media (max-width: 899px) { body:not(.tpath) #cPath { display: none; } body.tpath #cEdit, body.tpath #cMsg { display: none; } }
 @media (min-width: 900px) {  /* §23: an editor that fills the window; only the panes scroll */
@@ -135,7 +141,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     <span class="chip" id="cUno"><!--icon:cpu--> UNO --</span>
   </div>
 </div></header>
-<nav id="menu"><a href="/">DRIVE</a><a href="/ai">AI</a><a href="/settings">SETTINGS</a><a href="/help">HELP</a></nav>
+<nav id="menu"><a href="/">DRIVE</a><a href="/ai">AI</a><a href="/settings">SETTINGS</a><a href="/help">HELP</a><a href="#" id="miLook" data-look-skip><!--icon:palette--> LOOK</a></nav>
 <main>
 <section class="card" id="cProg">
   <h2>[ PROGRAMS ]</h2>
@@ -428,9 +434,10 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     planned.forEach(function (run) { all = all.concat(run.pts); });
     areas.forEach(function (a) { all = all.concat(L.areaExtent(a)); });
     var v = L.fitView(all.concat(driven), f.w, f.h, small ? 6 : 24);
+    var ui = cqTheme.colour("--ui-rgb"), warnRgb = cqTheme.colour("--warn-rgb");  // colours from the CSS (bridge LLD R28)
     g.clearRect(0, 0, f.w, f.h);
     if (!small) {
-      g.strokeStyle = "rgba(51,255,102,.10)"; g.lineWidth = 1; g.beginPath();
+      g.strokeStyle = "rgba(" + ui + ",.10)"; g.lineWidth = 1; g.beginPath();
       var o = L.toScreen(v, 0, 0), step = v.grid * v.scale;
       for (var x = o.x % step; x < f.w; x += step) { g.moveTo(x, 0); g.lineTo(x, f.h); }
       for (var y = o.y % step; y < f.h; y += step) { g.moveTo(0, y); g.lineTo(f.w, y); }
@@ -439,19 +446,19 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     }
     g.lineWidth = small ? 1.5 : 2;
     planned.forEach(function (run) {
-      g.strokeStyle = "rgba(51,255,102,.55)"; g.setLineDash(run.solid ? [] : [6, 5]); line(g, v, run.pts);
+      g.strokeStyle = "rgba(" + ui + ",.55)"; g.setLineDash(run.solid ? [] : [6, 5]); line(g, v, run.pts);
     });
-    g.strokeStyle = "rgba(255,176,0,.45)"; g.setLineDash([2, 5]);  // AREA: a dotted circle round the place it was set
+    g.strokeStyle = "rgba(" + warnRgb + ",.45)"; g.setLineDash([2, 5]);  // AREA: a dotted circle round the place it was set
     areas.forEach(function (a) { var o = L.toScreen(v, a.x, a.y); g.beginPath(); g.arc(o.x, o.y, a.r * v.scale, 0, 7); g.stroke(); });
     g.setLineDash([]);
-    if (driven.length > 1) { g.strokeStyle = "#ffb000"; g.lineWidth = small ? 2 : 3; line(g, v, driven); }
+    if (driven.length > 1) { g.strokeStyle = cqTheme.colour("--warn"); g.lineWidth = small ? 2 : 3; line(g, v, driven); }
     var s = L.toScreen(v, 0, 0);
-    g.strokeStyle = "#33ff66"; g.lineWidth = 1.5; g.beginPath(); g.arc(s.x, s.y, small ? 3 : 6, 0, 7); g.stroke();
+    g.strokeStyle = cqTheme.colour("--ui"); g.lineWidth = 1.5; g.beginPath(); g.arc(s.x, s.y, small ? 3 : 6, 0, 7); g.stroke();
     var at = pose || lastPlanned();
     if (at) arrow(g, v, at, small ? 5 : 10);
     if (!small) {
       var cm = [100, 50, 25, 10, 5].filter(function (c) { return c * v.scale <= f.w / 4; })[0] || 5, len = cm * v.scale;
-      g.fillStyle = "#1f9a40"; g.fillRect(f.w - 14 - len, f.h - 14, len, 2);  // bottom right: a scale of about 1/4 width
+      g.fillStyle = cqTheme.colour("--dim"); g.fillRect(f.w - 14 - len, f.h - 14, len, 2);  // bottom right: a scale of about 1/4 width
       g.font = "11px monospace"; g.fillText(cm + " cm", f.w - 14 - len, f.h - 20);
       g.fillText("(0,0) START", s.x + 9, s.y + 16);
     }
@@ -468,7 +475,7 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   }
   function arrow(g, v, p, size) {
     var s = L.toScreen(v, p.x, p.y), a = (p.h || 0) * Math.PI / 180, dx = Math.sin(a), dy = -Math.cos(a);
-    g.fillStyle = "#ffb000"; g.beginPath();
+    g.fillStyle = cqTheme.colour("--warn"); g.beginPath();
     g.moveTo(s.x + dx * size * 1.4, s.y + dy * size * 1.4);
     g.lineTo(s.x - dy * size * .8 - dx * size, s.y + dx * size * .8 - dy * size);
     g.lineTo(s.x + dy * size * .8 - dx * size, s.y - dx * size * .8 - dy * size);
@@ -479,6 +486,8 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
     $("pnote").textContent = cutShort ? "path cut short (a limit was reached)" : "";
   }
   window.addEventListener("resize", draw);
+  window.addEventListener("cqtheme", draw);  // the look flipped: the path takes the new colours (bridge LLD R28)
+  $("miLook").addEventListener("click", function (e) { e.preventDefault(); cqTheme.flip(); });  // the menu stays open
   if (window.ResizeObserver) new ResizeObserver(function () { draw(); }).observe($("path").parentNode);  // HIDE / SHOW camera
   $("mini").addEventListener("click", function () { tab("path"); });
   function tab(t) {

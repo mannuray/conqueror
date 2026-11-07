@@ -8,7 +8,8 @@
   skipped while web/help.html does not exist.
 - /ai (Plan Z2b-1, bridge LLD R27.4): web/ai.html with <!--CQ:AI_JS--> replaced by web/ai.js. Budget 24 KB gzipped.
 - /logo (Plan N4, Tank Logo LLD §21): web/logo.html with <!--CQ:LOGO_JS--> replaced by
-  web/logo.js and <!--CQ:WORDS--> by web/generated/words.json. Budget 26 KB gzipped (bridge LLD R25).
+  web/logo.js and <!--CQ:WORDS--> by web/generated/words.json. Budget 28 KB gzipped (bridge LLD R25, R28).
+- Every page: the shared look (bridge LLD R28) - <!--CQ:THEME--> in its <head> becomes web/theme.css and web/theme.js.
 - Every page: its icons from web/icons.json (scripts/icons.py, bridge LLD R25) - <!--icon:NAME--> markers and one
   /*CQ:ICONS ...*/ table; an unknown icon fails the build.
 Also runnable alone: python3 scripts/pack_web.py [project_dir]
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import gzip
 import pathlib
+import re
 import struct
 import sys
 import zlib
@@ -31,7 +33,7 @@ import cq_icons as icons
 
 PAGE_BUDGET = 25 * 1024
 HELP_BUDGET = 16 * 1024
-LOGO_BUDGET = 26 * 1024  # Plan N4 (Tank Logo LLD §21.9): /logo, gzipped, words included; R25: 26 KB with icons
+LOGO_BUDGET = 28 * 1024  # Plan N4 (Tank Logo LLD §21.9): /logo, gzipped, words included; R25: 26 KB with icons; R28: 28 KB with the shared look
 SETTINGS_BUDGET = 36 * 1024  # Plan M: /settings, gzipped; Plan O (LLD R13.1): 36 KB for four tabs
 AI_BUDGET = 24 * 1024  # Plan Z2b-1 (bridge LLD R27.4, design-notes §200): /ai, gzipped, ai.js and icons in
 
@@ -110,6 +112,35 @@ def assemble_ai(project: pathlib.Path) -> bytes:
     return text.replace("<!--CQ:AI_JS-->", code).encode()
 
 
+THEME_MARKER = "<!--CQ:THEME-->"
+
+
+def with_theme(text: str, project: pathlib.Path, page: str) -> str:
+    """The shared look (bridge LLD R28): THEME_MARKER becomes <style>theme.css</style><script>theme.js</script>."""
+    if THEME_MARKER not in text:
+        raise SystemExit(f"pack_web: {THEME_MARKER} missing in {page}")
+    web = project / "web"
+    css = theme_css_for((web / "theme.css").read_text(encoding="utf-8"), page)
+    if "</style" in css.lower():
+        raise SystemExit("pack_web: web/theme.css contains </style, which would end the page's <style> early")
+    code = (web / "theme.js").read_text(encoding="utf-8").replace("</", "<\\/")  # never closes its <script>
+    return text.replace(THEME_MARKER, f"<style>\n{css}</style>\n<script>\n{code}</script>", 1)
+
+
+PAGES_LINE = re.compile(r"^/\* pages: ([^*]*)\*/\n", re.MULTILINE)
+
+
+def theme_css_for(css: str, page: str) -> str:
+    """theme.css as one page gets it: the part before the first "/* pages: ... */" line goes to every page; each
+    section after such a line only to the pages it names (each page carries only its own Sunny values)."""
+    parts = PAGES_LINE.split(css)
+    out = [parts[0]]
+    for pages, body in zip(parts[1::2], parts[2::2]):
+        if page in pages.split():
+            out.append(body)
+    return "".join(out)
+
+
 def assemble_page(project: pathlib.Path, uri: str) -> bytes:
     """A page as served (before gzip), its icons put in (bridge LLD R25). /help may be missing: b""."""
     web = project / "web"
@@ -123,8 +154,11 @@ def assemble_page(project: pathlib.Path, uri: str) -> bytes:
         raw = assemble_ai(project)
     else:
         raw = assemble_help(project) or b""
+    if not raw:
+        return raw
     table = icons.load(web / "icons.json")
-    return icons.expand(raw.decode("utf-8"), table, uri).encode("utf-8")
+    text = with_theme(raw.decode("utf-8"), project, uri)
+    return icons.expand(text, table, uri).encode("utf-8")
 
 
 def c_array(name: str, data: bytes) -> str:

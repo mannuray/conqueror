@@ -123,7 +123,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = self.where()
-        if path in ("/", "/settings", "/logo", "/ai"):  # the packed pages, as the bridge serves them
+        if path in ("/", "/settings", "/logo", "/ai", "/help"):  # the packed pages, as the bridge serves them
             return self.reply(200, gz(assemble_page(PROJECT, path)), "text/html; charset=utf-8", True)
         if path == "/fake/stats":  # for the browser check: how many requests were refused busy
             return self.json({"busy": state["busy"]})

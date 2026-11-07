@@ -1,0 +1,47 @@
+/* Sunny Play (Stitch design system assets/9779248838636593021; design-notes §206-§207, bridge LLD R28): only the
+   values that differ from each page's own cockpit :root. Put into every page's <head> by pack_web.py; the part before
+   the first "pages:" line goes to every page, each "pages:" section only to the pages it names. */
+:root[data-theme="play"] {
+  --bg: #fff8ec; --panel: #ffffff; --mono: ui-rounded, "SF Pro Rounded", "Nunito", "Arial Rounded MT Bold", system-ui, sans-serif;
+  --code-font: ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --glass: rgba(255,255,255,.82); --edge-c: rgba(74,163,255,.45); --line: rgba(74,163,255,.18); --ui: #1f6fd1; --dim: #6b7a90;
+  --warn: #f08c00; --danger: #e8382e; --active: #1d2b44; --text: #33415c; --glow: none;
+  --ui-rgb: 31, 111, 209; --warn-rgb: 240, 140, 0; --warn-edge: rgba(240,140,0,.5);
+  --stop-ink: #fff; --on-ui: #fff; --on-warn: #1d2b44; --dim-layer: rgba(29,43,68,.35);
+  --warn-bg: rgba(255,246,224,.95); --bad-bg: rgba(255,240,238,.95); --hud-bg: rgba(255,255,255,.88);
+  --r: 12px; --r-card: 18px; --brackets: none; --scanlines: none;
+}
+/* pages: /ai */
+:root[data-theme="play"] {
+  --deep: #fdf3e1; --g: #1f6fd1; --g2: #6b7a90; --ink: #33415c; --hi: #1d2b44; --tint: #4aa3ff;
+  --amber: #f08c00; --red: #e8382e; --sel: #d6ebff; --chip: #f2f7ff; --btn: #e3f1ff; --act: #ffffff;
+  --act-main: #34b36a; --act-main-edge: #239152; --act-main-ink: #ffffff; --bubble: #ffffff; --hdr: #ffffff; --foot: #fff3d6;
+  --new-bg: #fff1cc; --mood-bg: #fff1cc; --track: #e6eef8; --mute-bg: #e3f1ff; --detail: #fffaf0; --stop-edge: #ff9a93;
+  --view-bg: #1d2b44; --face-bg: #ffd84d; --face: #1d2b44; --cheek: #ff7a90; --box-tag: rgba(255,255,255,.88);
+  --sans: var(--mono); --font: var(--mono);
+  --scan: 0; --glow-text: none; --card-shadow: 0 4px 16px rgba(29,43,68,.12);
+}
+/* pages: / */
+:root[data-theme="play"] {
+  --stop-edge-c: #ff9a93; --stop-glow: rgba(232,56,46,.35);
+  --val-shadow: 0 0 3px #fff, 0 0 6px rgba(255,255,255,.9); --label-halo: 0 0 3px #fff, 0 0 6px rgba(255,255,255,.9);
+  --mask: rgba(255,255,255,.9); --pad-in: rgba(255,255,255,.35); --pad-out: rgba(255,255,255,.65); --slider-bg: rgba(255,255,255,.5);
+  --knob-a: #6fb6ff; --knob-b: #1f6fd1; --knob-ink: #fff; --knob-held-a: #5fd38f; --knob-held-b: #239152; --knob-held-ink: #fff;
+  --ghost: rgba(255,216,77,.9); --ghost-ind: #ffd84d; --bad-glow: rgba(232,56,46,.25); --sheet-bg: rgba(255,255,255,.96);
+  --good: #34b36a; --off: #b0bccb; --glass-ink: #1d2b44; --r-glass: 12px; --r-btn: 10px;
+  --pad-glow: 0 4px 14px rgba(29,43,68,.16); --slider-glow: 0 4px 14px rgba(29,43,68,.16); --knob-glow: 0 2px 8px rgba(29,43,68,.25);
+}
+/* pages: /logo */
+:root[data-theme="play"] {
+  --move: #178236; --turn: #5c7a00; --flow: #087d86; --show: #c2189b; --sense: #1f6fd1; --maths: #33415c;
+  --num: #aa5d00; --own: #1d2b44; --cmt: #667183;
+  --run-line: rgba(240,140,0,.14); --cam-label: rgba(255,255,255,.85);
+}
+/* pages: /settings */
+:root[data-theme="play"] {
+  --input-bg: #ffffff; --graph-bg: #ffffff; --ok-bg: rgba(236,248,241,.97);
+}
+/* pages: /help */
+:root[data-theme="play"] {
+  --h1-glow: none; --r-box: 12px;
+}

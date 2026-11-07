@@ -3285,3 +3285,15 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   on its own small computer (option 2) is where the gain is; a sensor swap on the ESP32 board meets the same
   camera-path ceiling. **Next:** test 2 - the phone camera vs the tank camera through our detector, to see how much
   further things are found before buying.
+- **Test 2, first look (2026-11-07 morning, the same light, the toy car at the foot of the sheet by the door):**
+  our detector (YOLO-World, `scratchpad/camtest/phone_detect.py`) on the owner's phone photos at tank height - the
+  whole photo and a tank-like 640x480 view - and on the tank's own pictures, the tank stepped forward 50 cm at a time
+  (`SPEED 25  FORWARD 50`) until the car was found for sure.
+  - Phone (640x480 view, car width): 0.91 (89 px), 0.73 (59 px), **0.69 (44 px)**, maybes 0.17 (26 px).
+  - Tank: nothing from 0-150 cm forward (the car ~35 px or less); at +200 cm, the car **45 px**: 0.30, 0.38, 0.30,
+    0.37 and one 0.17 maybe.
+  - **The car the same size in both pictures (~45 px): the phone 0.69, the tank 0.30-0.38** - the tank's picture
+    roughly halves the detector's confidence; it is found for sure only from ~45 px (the phone from ~40 px, maybes to
+    ~26 px). The further-away failures with both cameras are the detector's own limit.
+  - So a better picture (sensor, lens, less noise) gains real distance - the evidence for a camera upgrade (§218
+    options); the exact gain in metres needs the same-spot comparison with distances taped.

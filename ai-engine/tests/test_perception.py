@@ -226,3 +226,43 @@ async def test_on_frame_after_seeing_with_its_classes() -> None:
         stop.set()
         await p.close()
         await bridge.stop()
+
+
+async def test_the_picture_goes_to_the_page_even_when_seeing_fails() -> None:
+    """Final review M2: an error in seeing still sends that picture to the feed (then the error ends it)."""
+    from tests.test_map_app import FloorDepth
+
+    bridge = FakeBridge(jpeg=GREY_JPEG, pan_tilt=(90.0, 90.0), frames_for_s=0.3)
+    await bridge.start()
+    stop = asyncio.Event()
+    got: list[bool] = []
+    depth = FloorDepth()
+    w = World(CAL, CFG, depth, frozenset(), {}, Limits(), None)
+
+    def broken(*_: object) -> None:
+        raise RuntimeError("seeing broke")
+
+    w.see = broken  # type: ignore[method-assign]
+    p = Perception(
+        BridgeLink("127.0.0.1", bridge.ws_port),
+        MjpegSource("127.0.0.1", bridge.stream_port),
+        w,
+        None,
+        depth,
+        None,
+        on_frame=lambda cap_us, rgb, dets, inv, classes: got.append(classes is None),
+    )
+    try:
+        p.start(stop)
+        raised, pictures = False, 0
+        for _ in range(8):
+            try:
+                pictures += (await p.next_picture(1.0)) is not None
+            except RuntimeError:
+                pictures, raised = pictures + 1, True
+                break
+        assert raised and len(got) == pictures and all(got)  # the failing one went out too, no classes
+    finally:
+        stop.set()
+        await p.close()
+        await bridge.stop()

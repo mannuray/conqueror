@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import struct
+import zlib
 
 import numpy as np
 
@@ -61,6 +62,20 @@ def test_marks_round_trip_and_an_old_frame_has_none() -> None:
     classes = np.array([[1, 2, 3], [4, 0, 1]], np.uint8)
     b = encode_frame({"seq": 5, "t_ms": 0, "boxes": []}, b"CAM", b"DEP", classes)
     head, cam, depth = decode_frame(b)  # the old reader still reads cam and depth
-    assert head["marks"] == [3, 2] and cam == b"CAM" and depth == b"DEP"
+    tail = b[len(b) - head["marks"][2] :]
+    assert head["marks"][:2] == [3, 2] and cam == b"CAM" and depth == b"DEP"
+    assert zlib.decompress(tail) == bytes([1, 2, 3, 4, 0, 1])  # zlib, row by row (review I1)
     assert decode_marks(b) == (3, 2, bytes([1, 2, 3, 4, 0, 1]))  # row by row, row 0 the picture's top
     assert decode_marks(encode_frame({"seq": 6, "t_ms": 0, "boxes": []}, b"CAM", None)) is None
+
+
+def test_a_vga_class_picture_is_small_on_the_wifi() -> None:
+    """Final review I1: 160 x 120 raw is 19 200 B a frame; a floor with one box packs to well under 1 KB."""
+    classes = np.ones((120, 160), np.uint8)
+    classes[:40] = 0
+    classes[70:90, 60:90] = 2
+    b = encode_frame({"seq": 7, "t_ms": 0, "boxes": []}, b"C", None, classes)
+    head, _, _ = decode_frame(b)
+    assert head["marks"][2] < 1000
+    got = decode_marks(b)
+    assert got is not None and got[2] == classes.tobytes()

@@ -147,19 +147,32 @@ class Perception:
         if picture_counts(used):
             self.last_picture_s = time.monotonic()
         classes = None
-        if not isinstance(used, str) and inv is not None:  # seeing off the loop, the map on it
-            seen = await asyncio.to_thread(self.world.see, used, inv, f.cap_us)
-            self.world.apply(seen, f.cap_us)
-            self.last_seen = seen
-            classes = None if seen.marks is None else seen.marks.classes
-        if self.on_frame is not None:  # after seeing: the page gets what the map made of it (LLD §26.2)
-            try:
-                self.on_frame(f.cap_us, rgb, dets, inv, classes)
-            except Exception as e:  # the pages' feed never stops the tank's pictures
-                self.hook_errors += 1
-                if self.hook_errors == 1:
-                    print(f"the AI feed's picture failed: {type(e).__name__}: {e}")
+        try:
+            if not isinstance(used, str) and inv is not None:  # seeing off the loop, the map on it
+                seen = await asyncio.to_thread(self.world.see, used, inv, f.cap_us)
+                self.world.apply(seen, f.cap_us)
+                self.last_seen = seen
+                classes = None if seen.marks is None else seen.marks.classes
+        finally:  # after seeing: the page gets what the map made of it (LLD §26.2), even when seeing failed
+            self._to_feed(f.cap_us, rgb, dets, inv, classes)
         return used
+
+    def _to_feed(
+        self,
+        cap_us: int,
+        rgb: NDArray[np.uint8],
+        dets: list[Detection],
+        inv: NDArray[np.floating] | None,
+        classes: NDArray[np.uint8] | None,
+    ) -> None:
+        if self.on_frame is None:
+            return
+        try:
+            self.on_frame(cap_us, rgb, dets, inv, classes)
+        except Exception as e:  # the pages' feed never stops the tank's pictures
+            self.hook_errors += 1
+            if self.hook_errors == 1:
+                print(f"the AI feed's picture failed: {type(e).__name__}: {e}")
 
     def reload_detector(self, det: Detector) -> None:
         """A new detector (a word was taught, §22.4), used from the next picture on: called on the event

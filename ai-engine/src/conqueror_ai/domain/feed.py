@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import struct
+import zlib
 from collections.abc import Sequence
 from typing import Any
 
@@ -40,13 +41,14 @@ def page_boxes(dets: Sequence[Detection], w: int, h: int) -> list[list[object]]:
 def encode_frame(
     header: dict[str, Any], cam: bytes, depth: bytes | None, marks: NDArray[np.uint8] | None = None
 ) -> bytes:
-    """marks: the picture's class picture (LLD §26.2), sent after the depth as raw bytes, row by row; the
-    header says its size (`marks: [w, h]`). A reader that does not know it reads cam and depth as before."""
+    """marks: the picture's class picture (LLD §26.2), sent after the depth zlib-packed, row by row (raw it
+    is 19 200 B a VGA frame - final review I1); the header says its size and its packed length (`marks:
+    [w, h, n]`). A reader that does not know it reads cam and depth as before."""
     head_d: dict[str, Any] = {**header, "cam": len(cam), "depth": len(depth or b"")}
     tail = b""
     if marks is not None:
-        head_d["marks"] = [int(marks.shape[1]), int(marks.shape[0])]
-        tail = np.ascontiguousarray(marks, dtype=np.uint8).tobytes()
+        tail = zlib.compress(np.ascontiguousarray(marks, dtype=np.uint8).tobytes(), 1)
+        head_d["marks"] = [int(marks.shape[1]), int(marks.shape[0]), len(tail)]
     head = json.dumps(head_d, separators=(",", ":")).encode()
     return struct.pack(">I", len(head)) + head + cam + (depth or b"") + tail
 
@@ -67,9 +69,9 @@ def decode_marks(b: bytes) -> tuple[int, int, bytes] | None:
     head: dict[str, Any] = json.loads(b[4 : 4 + n])
     if "marks" not in head:
         return None
-    w, h = int(head["marks"][0]), int(head["marks"][1])
+    w, h, packed = (int(v) for v in head["marks"])
     at = 4 + n + int(head["cam"]) + int(head["depth"])
-    return w, h, b[at : at + w * h]
+    return w, h, zlib.decompress(b[at : at + packed])
 
 
 def encode_map(header: dict[str, Any], png: bytes) -> bytes:

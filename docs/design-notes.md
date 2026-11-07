@@ -3245,7 +3245,8 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   this"):** lesson 2 found the toy in 9 s (a second look at a flash, then the chase); lesson 4 - the tank still, the
   toy pushed in by hand: 48 beeps getting faster, "you found me", Done; lesson 5 (with LAUNCH, §219) found the toy in
   9.3 s with the area off; lesson 1 drove its L but 30 cm from a wall SETXY could not turn back (7024, to look at);
-  lesson 3 not yet (needs two things).
+  lesson 3 (area off; the toy car as "car", a ball): FIND car 2.3 s (it was in front), FIND ball 53.6 s / 6.6 m,
+  SETXY 0 0 15.5 s / 3.0 m, the tune - finished; ~37-41 cm from each thing (tank centre).
 ## 219. Two things at once: `LAUNCH` (owner, 2026-11-07: lesson 5 was stop-and-go - "let's do C, why test something that we will discard"; "only the main program moves the tank")
 - **Found (room9, lesson 5 with the toy):** six `WANDER 2` rounds, each 1.0 s standing (the skill's start stand) and
   ~1 s driving, then the listen pause - the tank drove ~1 s in 3. Options put: A `WANDER 5` in the lesson, B skip the

@@ -61,11 +61,12 @@ class Footprint:
             prev = p
         return out
 
-    def allowed(self, cost: CostMap, at: XYTh, poses: list[XYTh]) -> bool:
+    def allowed(self, cost: CostMap, at: XYTh, poses: list[XYTh], ignore_driven: bool = False) -> bool:
         """Along the whole move the body's gap never drops below min(keep_out_m, the gap now); nearer than
         SLIDE_MIN_M already, the move must also end further off (no sliding along a thing that overlaps the
         track, owner). A mark inside the outline is a gap below 0, deeper is nearer (review I1: a leg under
-        the front edge can't end up inside the body)."""
+        the front edge can't end up inside the body). ignore_driven: marks where the tank's body has been
+        are set aside (the ways out, LLD §25.10)."""
         dense = self.dense(at, poses)
         if not dense:
             return True
@@ -73,19 +74,27 @@ class Footprint:
         out = self.lim_reach + keep  # marks further from every pose than this can't matter
         xs = [p[0] for p in (at, *dense)]
         ys = [p[1] for p in (at, *dense)]
-        marks = cost.marks_within(min(xs) - out, min(ys) - out, max(xs) + out, max(ys) + out)
+        marks = cost.marks_within(min(xs) - out, min(ys) - out, max(xs) + out, max(ys) + out, ignore_driven)
         g = self.gaps([at, *dense], marks)
         if bool((g[1:] < min(keep, float(g[0])) - 1e-9).any()):
             return False
         return not (g[0] < SLIDE_MIN_M and g[-1] <= g[0] + 1e-9)
 
-    def turn_ok(self, cost: CostMap, at: XYTh, left: bool, deg: float = 90.0, seen: bool = True) -> bool:
+    def turn_ok(
+        self,
+        cost: CostMap,
+        at: XYTh,
+        left: bool,
+        deg: float = 90.0,
+        seen: bool = True,
+        ignore_driven: bool = False,
+    ) -> bool:
         """A turn on the spot: the body's rule, and (seen) its outline sweeps only floor the map has seen -
         nothing senses beside or behind the tank, so a wall there may be unmarked. Floor under the body now
         doesn't count. seen=False is the last resort (the ways out, nothing else allowed): unseen floor costs,
         it is never forbidden (§166; owner: option b as a last resort, design-notes §176)."""
         poses = self.spin_poses(at, left, deg)
-        if not self.allowed(cost, at, poses):
+        if not self.allowed(cost, at, poses, ignore_driven):
             return False
         if not seen:
             return True

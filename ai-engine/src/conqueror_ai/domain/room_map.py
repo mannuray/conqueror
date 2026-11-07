@@ -29,6 +29,7 @@ DEPTH_OK_US = 1_000_000  # depth_ok: a depth picture this recently
 # the body is a floor sensor (AI engine LLD §18.13.1, Plan Z6): the floor under the tank is free
 BODY_SHRINK_M = 0.02  # the footprint shrunk this much all round (pose drift)
 BODY_GRID = 9  # the shrunk footprint sampled 9 x 9 (~2.5 cm apart) for the cells it covers
+DRIVEN_GRID = 23  # the whole footprint sampled ~1 cm apart for the cells it touches (LLD §25.10)
 BODY_EVERY_US = 100_000  # at most 10 a second, one step per cell (like the sonar)
 
 UNSEEN = (0, 0, 0)
@@ -61,6 +62,7 @@ class MapSnapshot:
     stale: bool  # no picture for 0.5 s or no telemetry for 0.2 s (spec 7 §4)
     depth_ok: bool  # a depth picture in the last 1 s
     angle_trusted: bool
+    driven: BoolArray | None = None  # cells the tank's whole body has been on this run (LLD §25.10)
 
 
 class RoomMap:
@@ -77,6 +79,8 @@ class RoomMap:
         self.seen_before = np.zeros((self.n, self.n), np.bool_)
         self._last_picture_us: int | None = None
         self._last_body_us: int | None = None
+        # where the tank's whole body has been this run: nothing stands there, until seen there after (§25.10)
+        self.driven = np.zeros((self.n, self.n), np.bool_)
 
     def cells(self, xy: FloatArray) -> NDArray[np.intp]:
         """The unique flat cell indices (ix * n + iy) of room points; points outside the map are dropped."""
@@ -96,8 +100,10 @@ class RoomMap:
         a[cells] = np.clip(a[cells] + step, -c, c)
 
     def hit(self, cells: NDArray[np.intp], layer: Layer, weight: float = 1.0) -> None:
-        """A mark seen in these cells; weight < 1 for evidence shared between cells (a sonar's arc)."""
+        """A mark seen in these cells; weight < 1 for evidence shared between cells (a sonar's arc). Seen
+        after the tank was there: the sighting wins over the driven record (§25.10)."""
         self._step(cells, layer, self.settings.hit * weight)
+        self.driven.reshape(-1)[cells] = False
 
     def miss(self, cells: NDArray[np.intp], layer: Layer) -> None:
         self._step(cells, layer, self.settings.miss)
@@ -116,9 +122,10 @@ class RoomMap:
         self._last_picture_us = t_us
 
     def body_over(self, pose: Pose, front_m: float, rear_m: float, half_w_m: float, t_us: int) -> bool:
-        """The floor under the tank's footprint (shrunk BODY_SHRINK_M) is seen and free: one miss on both
-        layers per cell - only cells the shrunk footprint covers whole, so a mark just outside the body
-        survives a little pose drift (review I3). At most once per BODY_EVERY_US; whether it applied."""
+        """The floor under the tank's footprint (shrunk BODY_SHRINK_M) is seen and free: cleared on both
+        layers - the body is there, nothing stands there (LLD §25.10) - only cells the shrunk footprint covers
+        whole, so a mark just outside the body survives a little pose drift (review I3). Every cell the whole
+        body touches is marked driven. At most once per BODY_EVERY_US; whether it applied."""
         if self._last_body_us is not None and 0 <= t_us - self._last_body_us < BODY_EVERY_US:
             return False
         self._last_body_us = t_us
@@ -141,9 +148,17 @@ class RoomMap:
                 u, v = dx * c + dy * s, -dx * s + dy * c  # the corner in the tank's frame
                 whole &= (u >= -r) & (u <= f) & (np.abs(v) <= w)
         cells = cand[whole]
-        self.miss(cells, "low")
-        self.miss(cells, "high")
+        clamp = self.settings.clamp
+        self.low.reshape(-1)[cells] = -clamp
+        self.high.reshape(-1)[cells] = -clamp
         self.seen.reshape(-1)[cells] = True
+        gx, gy = np.meshgrid(  # the whole body, edges included (~1 cm apart): the cells it touches
+            np.linspace(-rear_m, front_m, DRIVEN_GRID), np.linspace(-half_w_m, half_w_m, DRIVEN_GRID)
+        )
+        body = np.stack(
+            [pose.x_m + gx.ravel() * c - gy.ravel() * s, pose.y_m + gx.ravel() * s + gy.ravel() * c], 1
+        )
+        self.driven.reshape(-1)[self.cells(body)] = True
         return True
 
     def blocked(self) -> BoolArray:
@@ -176,6 +191,7 @@ class RoomMap:
             stale,
             depth_ok,
             angle_trusted,
+            self.driven.copy(),
         )
 
 

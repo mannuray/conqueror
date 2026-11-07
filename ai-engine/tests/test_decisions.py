@@ -224,3 +224,17 @@ def test_glimpses_round_trip_and_an_old_line_has_none() -> None:
     old = _input_out(make_input(at=(0.0, 0.0, 0.0), snap=None, map_ok=True))
     del old["glimpses"]
     assert _input_in(old).glimpses == ()
+
+
+def test_driven_round_trips_and_an_old_line_has_none() -> None:
+    """Plan Z10d (LLD §25.10): the driven record is logged, so a replay sets the same marks aside."""
+    from conqueror_ai.adapters.decisions import _snap_in, _snap_out  # pyright: ignore[reportPrivateUsage]
+
+    room = RoomMap()
+    room.body_over(Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.13, 0.09, 0.115, 0)
+    snap = room.snapshot(0, None, False, True)
+    back = _snap_in(_snap_out(snap))
+    assert back.driven is not None and snap.driven is not None and np.array_equal(back.driven, snap.driven)
+    old = _snap_out(snap)
+    del old["driven"]
+    assert _snap_in(old).driven is None

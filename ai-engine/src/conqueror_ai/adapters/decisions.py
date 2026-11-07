@@ -47,6 +47,7 @@ def _snap_out(s: MapSnapshot) -> dict[str, Any]:
         "stale": s.stale,
         "depth_ok": s.depth_ok,
         "angle_trusted": s.angle_trusted,
+        "driven": None if s.driven is None else pack(s.driven),
     }
 
 
@@ -67,6 +68,7 @@ def _snap_in(d: dict[str, Any]) -> MapSnapshot:
         bool(d["stale"]),
         bool(d["depth_ok"]),
         bool(d["angle_trusted"]),
+        None if d.get("driven") is None else unpack(d["driven"]),  # none in a log from before Plan Z10d
     )
 
 

@@ -3319,3 +3319,6 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   the shrunk body) - the tank's own pose became not allowed and every move was refused (7024 after 12.5 s). Proposed
   (owner "yes" to write it): A the driven trail is cleared, B the ways out may leave marks the body already covers
   (AI engine LLD §25.10, Plan Z10d). Why the depth marks shiny floor is left for later.
+- **Built (Plan Z10d, 2026-11-07):** the driven trail is cleared and recorded; the ways out may back out along it
+  (AI engine LLD §25.10 as built). Floor check pending: the room8 corner (FORWARD 60 RIGHT 90 FORWARD 40 near a wall,
+  then SETXY 0 0).

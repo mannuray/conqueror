@@ -11,8 +11,10 @@ from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.recovery import Recovery
 from conqueror_ai.domain.drive.sim import SimTank
 from conqueror_ai.domain.room_map import RoomMap
+from conqueror_ai.domain.types import Pose
 
 LIM = Limits()
+BODY = (LIM.body_front_m, LIM.body_rear_m, LIM.body_half_w_m)
 TILT = -15.0
 DT = 0.1
 
@@ -227,3 +229,61 @@ def test_a_turn_that_doesnt_turn_ends() -> None:
     rec.start(1.0, (0.0, 0.0, 0.0))
     ends = [k for k in range(60) if rec.tick(1.0 + k * DT, (0.0, 0.0, 0.0), cost_with([])) is None]
     assert ends and 2.5 <= ends[0] * DT <= 3.5
+
+
+# ---- Plan Z10d (LLD §25.10): a way out of marks the body has driven over
+def stuck_on_marks(drove: bool) -> CostMap:
+    """The room8 layout: false marks along both sides of the track and just behind, a wall 25 cm ahead; with
+    `drove`, the tank came 40 cm straight along that track (its body over the marks) to (0, 0) facing +x."""
+    room = RoomMap()
+    room.seen[:] = True
+    side = area(-0.45, 0.1, 0.13, 0.125)
+    marks = side + [(x, -y) for x, y in side] + area(-0.45, -0.1, -0.07, 0.1) + area(0.25, -0.3, 0.3, 0.3)
+    c = room.cells(np.array(marks, dtype=np.float64))
+    for _ in range(6):
+        room.hit(c, "low")
+    if drove:
+        for k in range(9):
+            room.body_over(Pose(0, -0.4 + 0.05 * k, 0.0, 0.0, 0.0, 0.0), *BODY, k * 100_000)
+    return CostMap(room.snapshot(0, None, False, True))
+
+
+def to_back(rec: Recovery) -> None:
+    for t in (0.0, 1.0, 2.0):
+        rec.start(t, (0.0, 0.0, 0.0))
+    assert rec.step == "back"
+
+
+def test_backs_out_along_its_own_track_over_marks() -> None:
+    rec = Recovery(LIM, Footprint(LIM), TILT)
+    to_back(rec)
+    outs, tank = run(rec, stuck_on_marks(drove=True), 5.0, 2.0)
+    assert outs and outs[0][0] == Command(-LIM.v_min_cms, 0.0)
+    assert tank.at[0] <= -0.1
+
+
+def test_marks_it_never_drove_over_still_stop_it() -> None:
+    rec = Recovery(LIM, Footprint(LIM), TILT)
+    to_back(rec)
+    outs, _ = run(rec, stuck_on_marks(drove=False), 5.0, 2.0)
+    assert all(c == STOP for c, _ in outs)
+
+
+def test_a_spin_meeting_only_driven_marks_is_allowed() -> None:
+    foot, at0 = Footprint(LIM), (0.0, 0.0, 0.0)
+    cost = stuck_on_marks(drove=True)
+    assert not foot.turn_ok(cost, at0, True, 30.0, seen=False)  # the rule as before
+    assert foot.turn_ok(cost, at0, True, 30.0, seen=False, ignore_driven=True)
+
+
+def test_a_spin_into_a_mark_it_never_drove_over_is_still_refused() -> None:
+    """A thing seen after the tank passed (a new mark, not driven): the front-left corner sweeps into it."""
+    room = RoomMap()
+    room.seen[:] = True
+    for k in range(9):
+        room.body_over(Pose(0, -0.4 + 0.05 * k, 0.0, 0.0, 0.0, 0.0), *BODY, k * 100_000)
+    c = room.cells(np.array([(0.06, 0.16)]))
+    for _ in range(6):
+        room.hit(c, "low")
+    cost = CostMap(room.snapshot(0, None, False, True))
+    assert not Footprint(LIM).turn_ok(cost, (0.0, 0.0, 0.0), True, 30.0, seen=False, ignore_driven=True)

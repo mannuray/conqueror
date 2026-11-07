@@ -3254,3 +3254,7 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Built (Plan N9, 2026-11-07, branch `plan-n9-launch`; Tank Logo LLD §26.7):** all firmware, Logo and page tests pass.
   Found while building: with the main part always first the launched part starved - the parts now take turns going
   first; the bridge holds one question at a time, so the parts ask one at a time. Tank check pending.
+- **Floor (2026-11-07, flashed; engine with Z10c, home room10; lesson 5 with "toy"):** with the lesson's `AREA 2`
+  the toy was outside the 2 m circle and was never heard (220 rounds "not seen"); with `AREA 0` (owner: "I think you
+  limited the search area") - **found in 9.3 s, 1.4 m, driving 89 % of the time**, 12 beeps getting faster, "found
+  you", Done. LAUNCH works on the tank: smooth wandering while the launched part listens.

@@ -7,6 +7,7 @@ from collections import deque
 from dataclasses import dataclass, field, replace
 
 import numpy as np
+from numpy.typing import NDArray
 
 from conqueror_ai.domain.camera import CameraModel, FloatArray, undistorted_grid
 from conqueror_ai.domain.drive.cost_settings import CostSettings
@@ -194,6 +195,9 @@ class Marks:
     low_xy: FloatArray
     high_xy: FloatArray
     above_xy: FloatArray
+    # the same sort on the strided pixel grid (row 0 the picture's top) for the AI feed's MARKS layer (LLD
+    # §26.2): 0 nothing, 1 floor, 2 low, 3 high, 4 above
+    classes: NDArray[np.uint8] | None = None
 
 
 class HeightPoints:
@@ -220,7 +224,8 @@ class HeightPoints:
             high = near & (z >= hs.low_top_m) & (z <= hs.clear_m)
             above = far & (z > hs.clear_m)
         xy = pts[..., :2]
-        return Marks(xy[floor], xy[low], xy[high], xy[above])
+        classes = np.select([floor, low, high, above], [1, 2, 3, 4], 0).astype(np.uint8)
+        return Marks(xy[floor], xy[low], xy[high], xy[above], classes)
 
 
 # ---- one picture, end to end (AI engine LLD §18.3)

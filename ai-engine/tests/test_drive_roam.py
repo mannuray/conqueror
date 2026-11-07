@@ -214,7 +214,9 @@ def test_a_blocked_way_stops_at_once_not_by_the_ramp() -> None:
     ]
     c = room.cells(np.array(ahead, dtype=np.float64))
     room.hit(c, "high")
-    room.update_picture(Marks(*(np.zeros((0, 2)),) * 4), 4_000_000)
+    room.update_picture(
+        Marks(np.zeros((0, 2)), np.zeros((0, 2)), np.zeros((0, 2)), np.zeros((0, 2))), 4_000_000
+    )
     wall = room.snapshot(4_000_000, POSE, False, True)
     out = rt(s, 4.0, tank.at, wall, None, None, True)
     assert out.cmd == STOP
@@ -266,7 +268,7 @@ def pocket(behind_known: bool) -> MapSnapshot:
     c = room.cells(np.array(side + [(x, -y) for x, y in side] + area(0.25, -0.3, 0.5, 0.3)))
     room.hit(c, "low")
     room.hit(c, "low")
-    room.update_picture(Marks(*(np.zeros((0, 2)),) * 4), 0)
+    room.update_picture(Marks(np.zeros((0, 2)), np.zeros((0, 2)), np.zeros((0, 2)), np.zeros((0, 2))), 0)
     return room.snapshot(0, POSE, False, True)
 
 
@@ -290,7 +292,7 @@ def test_explore_picks_again_when_its_target_closes() -> None:
     room = RoomMap()
     room.seen[:] = False
     room.seen.reshape(-1)[room.cells(np.array(area(-0.6, -0.6, 0.6, 0.6)))] = True
-    room.update_picture(Marks(*(np.zeros((0, 2)),) * 4), 0)
+    room.update_picture(Marks(np.zeros((0, 2)), np.zeros((0, 2)), np.zeros((0, 2)), np.zeros((0, 2))), 0)
     snap = room.snapshot(0, POSE, False, True)
     run(s, snap, START_STAND_S + 0.2)
     s.explore._dest, s.explore._picked_s = (3.95, 3.95), 0.9  # pyright: ignore[reportPrivateUsage]  # closed: the map's edge

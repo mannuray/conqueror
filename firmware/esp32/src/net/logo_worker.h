@@ -43,7 +43,7 @@ const core::LockPort& logoThingsLock();
 
 // Link task: the checked program for logo_run, and the running program's storage.
 app::LogoController::Took logoTake(uint32_t prog, logo::Program& out, char* name, size_t cap);
-bool logoRunReady();  // false only when not even 36 KB were free at boot
+bool logoRunReady();  // false only when not even ≈ 46 KB (the program and two Vms) were free at boot
 logo::Program& logoRunningProgram();
 logo::Vm& logoVm();
 logo::Vm& logoLaunchedVm();  // LAUNCH's part (Tank Logo LLD §26.4)

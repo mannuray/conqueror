@@ -8,6 +8,9 @@ import struct
 from collections.abc import Sequence
 from typing import Any
 
+import numpy as np
+from numpy.typing import NDArray
+
 from conqueror_ai.domain.types import Detection
 
 MAX_BOXES = 8
@@ -34,9 +37,18 @@ def page_boxes(dets: Sequence[Detection], w: int, h: int) -> list[list[object]]:
     return out
 
 
-def encode_frame(header: dict[str, Any], cam: bytes, depth: bytes | None) -> bytes:
-    head = json.dumps({**header, "cam": len(cam), "depth": len(depth or b"")}, separators=(",", ":")).encode()
-    return struct.pack(">I", len(head)) + head + cam + (depth or b"")
+def encode_frame(
+    header: dict[str, Any], cam: bytes, depth: bytes | None, marks: NDArray[np.uint8] | None = None
+) -> bytes:
+    """marks: the picture's class picture (LLD §26.2), sent after the depth as raw bytes, row by row; the
+    header says its size (`marks: [w, h]`). A reader that does not know it reads cam and depth as before."""
+    head_d: dict[str, Any] = {**header, "cam": len(cam), "depth": len(depth or b"")}
+    tail = b""
+    if marks is not None:
+        head_d["marks"] = [int(marks.shape[1]), int(marks.shape[0])]
+        tail = np.ascontiguousarray(marks, dtype=np.uint8).tobytes()
+    head = json.dumps(head_d, separators=(",", ":")).encode()
+    return struct.pack(">I", len(head)) + head + cam + (depth or b"") + tail
 
 
 def decode_frame(b: bytes) -> tuple[dict[str, Any], bytes, bytes | None]:
@@ -47,6 +59,17 @@ def decode_frame(b: bytes) -> tuple[dict[str, Any], bytes, bytes | None]:
     d = int(head["depth"])
     depth = b[at + len(cam) : at + len(cam) + d] if d else None
     return head, cam, depth
+
+
+def decode_marks(b: bytes) -> tuple[int, int, bytes] | None:
+    """A frame's class picture: (w, h, its bytes row by row), or None when it has none (LLD §26.2)."""
+    (n,) = struct.unpack(">I", b[:4])
+    head: dict[str, Any] = json.loads(b[4 : 4 + n])
+    if "marks" not in head:
+        return None
+    w, h = int(head["marks"][0]), int(head["marks"][1])
+    at = 4 + n + int(head["cam"]) + int(head["depth"])
+    return w, h, b[at : at + w * h]
 
 
 def encode_map(header: dict[str, Any], png: bytes) -> bytes:

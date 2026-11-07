@@ -80,14 +80,21 @@ class FeedPublisher:
 
     # ---- what happens
     def on_frame(
-        self, cap_us: int, rgb: NDArray[np.uint8], dets: list[Detection], inv: NDArray[np.floating] | None
+        self,
+        cap_us: int,
+        rgb: NDArray[np.uint8],
+        dets: list[Detection],
+        inv: NDArray[np.floating] | None,
+        classes: NDArray[np.uint8] | None = None,
     ) -> None:
+        """classes: the picture's class picture when the map used it (the MARKS layer, LLD §26.2)."""
         if self.server.pages == 0:
             return
         self.seq += 1
         h, w = rgb.shape[:2]
         head = {"seq": self.seq, "t_ms": cap_us // 1000, "boxes": page_boxes(dets, w, h)}
-        self.server.frame(encode_frame(head, cam_jpeg(rgb), None if inv is None else depth_jpeg(inv)))
+        depth = None if inv is None else depth_jpeg(inv)
+        self.server.frame(encode_frame(head, cam_jpeg(rgb), depth, classes))
 
     def tick(
         self, now_s: float, inp: SkillInput, out: SkillOut, state: str, debug: dict[str, object]

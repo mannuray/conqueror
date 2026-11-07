@@ -4,7 +4,16 @@ from __future__ import annotations
 
 import struct
 
-from conqueror_ai.domain.feed import decode_frame, decode_map, encode_frame, encode_map, page_boxes
+import numpy as np
+
+from conqueror_ai.domain.feed import (
+    decode_frame,
+    decode_map,
+    decode_marks,
+    encode_frame,
+    encode_map,
+    page_boxes,
+)
 from conqueror_ai.domain.types import Detection
 
 
@@ -45,3 +54,13 @@ def test_encode_map_round_trip() -> None:
     head, got = decode_map(b)
     assert head["kind"] == "map" and head["png"] == len(png) and head["w"] == 4
     assert got == png
+
+
+# ---- Plan Z11 (LLD §26.2): the class picture as a third part
+def test_marks_round_trip_and_an_old_frame_has_none() -> None:
+    classes = np.array([[1, 2, 3], [4, 0, 1]], np.uint8)
+    b = encode_frame({"seq": 5, "t_ms": 0, "boxes": []}, b"CAM", b"DEP", classes)
+    head, cam, depth = decode_frame(b)  # the old reader still reads cam and depth
+    assert head["marks"] == [3, 2] and cam == b"CAM" and depth == b"DEP"
+    assert decode_marks(b) == (3, 2, bytes([1, 2, 3, 4, 0, 1]))  # row by row, row 0 the picture's top
+    assert decode_marks(encode_frame({"seq": 6, "t_ms": 0, "boxes": []}, b"CAM", None)) is None

@@ -163,3 +163,15 @@ async def test_status_has_pan() -> None:
     stop.set()
     await task
     assert srv.kinds("status")[-1]["pan"] == -15
+
+
+def test_marks_only_when_given() -> None:  # Plan Z11 (LLD §26.2): a used picture's classes
+    from conqueror_ai.domain.feed import decode_marks
+
+    srv = FakeServer()
+    pub = FeedPublisher(srv, lambda: THINGS)  # pyright: ignore[reportArgumentType]
+    pub.on_frame(1_000_000, RGB, [], np.ones((392, 518), np.float32), np.ones((60, 80), np.uint8))
+    pub.on_frame(1_100_000, RGB, [], None)
+    one = decode_marks(srv.frames[0])
+    assert one is not None and one[:2] == (80, 60)
+    assert decode_marks(srv.frames[1]) is None

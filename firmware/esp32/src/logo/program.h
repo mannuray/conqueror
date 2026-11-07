@@ -29,6 +29,7 @@ enum class EffectKind : uint8_t {
   kForward, kBack, kRight, kLeft, kSpeed, kWait, kLed, kBeep, kSound, kLook, kHome,
   kArc, kPivot, kPlay, kSay, kUntilStart, kTick, kGo, kHold,  // GO / HOLD: Spec 5 Revision 3
   kAsk, kSkill, kArea,  // the AI words (Tank Logo LLD §24.2); kAsk / kSkill carry AskQ / SkillKind in Effect::sub
+  kLaunch,              // LAUNCH (Tank Logo LLD §26): Effect::entry is where its block's code starts
   kCount
 };
 enum class AskQ : uint8_t { kSee, kHowfar };                              // SEE? / HOWFAR

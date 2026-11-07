@@ -15,8 +15,8 @@ bool Compiler::stepCall(Work& w) {
   using StepFn = bool (Compiler::*)(Work&);
   static constexpr StepFn kControl[] = {&Compiler::stepRepeat, &Compiler::stepForever,   &Compiler::stepIf,
                                         &Compiler::stepIfElse, &Compiler::stepWhile,     &Compiler::stepWaitUntil,
-                                        &Compiler::stepStop,   &Compiler::stepOutput};
-  static_assert(static_cast<uint8_t>(WordRole::kOutput) - static_cast<uint8_t>(WordRole::kRepeat) + 1 ==
+                                        &Compiler::stepStop,   &Compiler::stepOutput,    &Compiler::stepLaunch};
+  static_assert(static_cast<uint8_t>(WordRole::kLaunch) - static_cast<uint8_t>(WordRole::kRepeat) + 1 ==
                     sizeof kControl / sizeof kControl[0],
                 "one step per control word");
   uint8_t arg = 0;
@@ -68,6 +68,22 @@ bool Compiler::stepRepeat(Work& w) {
 }
 
 // LINE LOOP_INIT(forever); L: LOOP_NEXT; body; JMP L
+// LAUNCH [ block ] (Tank Logo LLD §26.4): LINE, EFFECT kLaunch (n = its entry << 8), JMP past the block; the block,
+// then HALT - the launched part runs from the entry and ends there; the main part jumps over it.
+bool Compiler::stepLaunch(Work& w) {
+  if (w.step == 0) {
+    line(w.n);
+    w.p1 = emit(OpCode::kEffect, static_cast<uint8_t>(EffectKind::kLaunch), 0);
+    w.p2 = emit(OpCode::kJmp);
+    m_out->code[w.p1].n = static_cast<int32_t>(m_out->n_code) << 8;
+    w.step = 1;
+    return !child(w);
+  }
+  emit(OpCode::kHalt);
+  patch(w.p2);
+  return true;
+}
+
 bool Compiler::stepForever(Work& w) {
   if (w.step == 0) {
     line(w.n);

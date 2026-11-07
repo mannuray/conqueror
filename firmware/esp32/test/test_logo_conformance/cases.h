@@ -48,6 +48,7 @@ static const LogoCase kCases[] = {
     {"AREA with metres", "AREA 3", true, "(AREA 3)", 0, 0, 0, "", true, true, -1, "", "-", true, "", false},
     {"SEE? and HOWFAR as values", "IF SEE? \"ball [ SAY HOWFAR \"ball ]", true, "(IF (SEE? \"ball) [(SAY (HOWFAR \"ball))])", 0, 0, 0, "", true, true, -1, "", "-", true, "toy=car|racing car;ball=ball;", false},
     {"DISTANCE still takes no input", "IF DISTANCE < 30 [ RT 90 ]", true, "(IF (< (DISTANCE) 30) [(RIGHT 90)])", 0, 0, 0, "", true, true, -1, "", "-", false, "", false},
+    {"LAUNCH reads a block", "LAUNCH [ BEEP WAIT 1 ]  FD 10", true, "(LAUNCH [(BEEP) (WAIT 1)]) (FORWARD 10)", 0, 0, 0, "", true, true, -1, "", "-", false, "", false},
     {"unknown word with a suggestion", "SQAURE 50\nTO SQUARE :s FD :s END", false, "", 7001, 1, 1, "Did you mean SQUARE", true, true, -1, "", "-", false, "", false},
     {"missing input", "FORWARD", false, "", 7002, 1, 1, "FORWARD 50", true, true, -1, "", "-", false, "", false},
     {"unclosed bracket", "REPEAT 4 [ FD 50\nRT 90", false, "", 7003, 1, 10, "never closes", true, true, -1, "", "-", false, "", false},
@@ -96,6 +97,14 @@ static const LogoCase kCases[] = {
     {"SEE? while the helper learns a word", "IF SEE? \"ball [ BEEP ]", false, "", 7056, 1, 4, "", true, true, -1, "", "-", true, "", true},
     {"no AI helper beats learning", "FIND \"ball", false, "", 7020, 1, 1, "", true, true, -1, "", "-", false, "", true},
     {"a plain word while the helper learns", "FORWARD 10", true, "(FORWARD 10)", 0, 0, 0, "", true, true, -1, "", "-", true, "", true},
+    {"a move inside LAUNCH", "LAUNCH [ BEEP FORWARD 10 ]", false, "", 7057, 1, 15, "only the main program", true, true, -1, "", "-", false, "", false},
+    {"a move through a word of your own inside LAUNCH", "TO STEP1 FD 10 END\nLAUNCH [ STEP1 ]", false, "", 7057, 2, 10, "", true, true, -1, "", "-", false, "", false},
+    {"a move two words deep inside LAUNCH", "TO A B END\nTO B LT 90 END\nLAUNCH [ A ]", false, "", 7057, 3, 10, "", true, true, -1, "", "-", false, "", false},
+    {"the camera inside LAUNCH", "LAUNCH [ LOOK LEFT ]", false, "", 7057, 1, 10, "", true, true, -1, "", "-", false, "", false},
+    {"AREA inside LAUNCH", "LAUNCH [ AREA 2 ]", false, "", 7057, 1, 10, "", true, true, -1, "", "-", true, "", false},
+    {"a move nested inside a loop inside LAUNCH", "LAUNCH [ REPEAT 2 [ IF DISTANCE < 20 [ BK 10 ] ] ]", false, "", 7057, 1, 40, "", true, true, -1, "", "-", false, "", false},
+    {"a recursive word of your own inside LAUNCH is no move", "TO R BEEP R END\nLAUNCH [ R ]", true, "(TO R () [(BEEP) (R)]) (LAUNCH [(R)])", 0, 0, 0, "", true, true, -1, "", "-", false, "", false},
+    {"LAUNCH needs its block", "LAUNCH", false, "", 7002, 1, 1, "", true, true, -1, "", "-", false, "", false},
 };
 
-#define LOGO_CASES(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23) X(24) X(25) X(26) X(27) X(28) X(29) X(30) X(31) X(32) X(33) X(34) X(35) X(36) X(37) X(38) X(39) X(40) X(41) X(42) X(43) X(44) X(45) X(46) X(47) X(48) X(49) X(50) X(51) X(52) X(53) X(54) X(55) X(56) X(57) X(58) X(59) X(60) X(61) X(62) X(63) X(64) X(65) X(66) X(67) X(68) X(69) X(70) X(71) X(72) X(73) X(74) X(75) X(76) X(77) X(78) X(79) X(80) X(81) X(82) X(83) X(84) X(85) X(86) X(87) X(88) X(89) X(90) X(91)
+#define LOGO_CASES(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23) X(24) X(25) X(26) X(27) X(28) X(29) X(30) X(31) X(32) X(33) X(34) X(35) X(36) X(37) X(38) X(39) X(40) X(41) X(42) X(43) X(44) X(45) X(46) X(47) X(48) X(49) X(50) X(51) X(52) X(53) X(54) X(55) X(56) X(57) X(58) X(59) X(60) X(61) X(62) X(63) X(64) X(65) X(66) X(67) X(68) X(69) X(70) X(71) X(72) X(73) X(74) X(75) X(76) X(77) X(78) X(79) X(80) X(81) X(82) X(83) X(84) X(85) X(86) X(87) X(88) X(89) X(90) X(91) X(92) X(93) X(94) X(95) X(96) X(97) X(98) X(99) X(100)

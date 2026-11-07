@@ -232,3 +232,13 @@ def test_bad_things_are_refused(things: object) -> None:
 def test_good_things_still_encode() -> None:
     encoded = model._things({"toy": ["car", "racing car"], "ball": []})  # pyright: ignore[reportPrivateUsage]
     assert encoded == "toy=car|racing car;ball=;"
+
+
+def test_moving_words_are_flagged_for_launch() -> None:
+    """Tank Logo LLD §26.3: the move and turn groups and LOOK move the tank (7057 inside LAUNCH)."""
+    text = emit.render_words_h(spec())
+    row = {line.split(",")[0].strip(' {"'): line for line in text.splitlines() if line.startswith('    {"')}
+    for name in ("FORWARD", "RIGHT", "LOOK", "WANDER", "AREA", "GO"):
+        assert row[name].rstrip("},\n ").endswith("true"), name
+    for name in ("BEEP", "SAY", "HOWFAR", "WAIT", "LAUNCH"):
+        assert row[name].rstrip("},\n ").endswith("false"), name

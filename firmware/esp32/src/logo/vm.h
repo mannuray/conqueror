@@ -31,6 +31,7 @@ struct Effect {
   Value args[3];
   uint16_t line = 0;
   uint8_t sub = 0;  // kAsk: AskQ; kSkill: SkillKind
+  uint16_t entry = 0;  // kLaunch: where the launched block's code starts (Tank Logo LLD §26.4)
 };
 
 struct RunError {
@@ -45,7 +46,8 @@ class Vm {
   static constexpr uint16_t kMaxValues = 1024;  // 100 calls of an 8-input word reach 7011 first (N3)
   static constexpr uint8_t kMaxLoops = 128;
 
-  void load(const Program& p, uint32_t seed);
+  // From the program's start, or (a launched part, Tank Logo LLD §26.4) from `entry`: its block ends with HALT.
+  void load(const Program& p, uint32_t seed, uint16_t entry = 0);
   void setStepping(bool on) { m_stepping = on; }
   VmStatus run(uint16_t budget, const Sensors& s);
   const Effect& effect() const { return m_effect; }

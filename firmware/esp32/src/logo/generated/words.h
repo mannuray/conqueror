@@ -8,7 +8,7 @@ enum class InType : uint8_t { kNumber, kCondition, kAny, kSide, kColour, kLook, 
 enum class WordKind : uint8_t { kCommand, kReporter, kControl, kOperator, kConstant };
 enum : uint8_t { kNeedEncoders = 1, kNeedAi = 2 };
 struct InputSpec { const char* name; InType type; bool has_range; int32_t min_milli; int32_t max_milli; const char* unit; const char* what; };
-struct WordSpec { const char* name; WordKind kind; uint8_t level; uint8_t needs; uint8_t n_inputs; const InputSpec* inputs; const char* example; const char* missing; };
+struct WordSpec { const char* name; WordKind kind; uint8_t level; uint8_t needs; uint8_t n_inputs; const InputSpec* inputs; const char* example; const char* missing; bool moves; };
 
 inline constexpr InputSpec kIn0[] = {{"distance", InType::kNumber, true, 1000, 500000, "cm", "a distance"}};
 inline constexpr InputSpec kIn1[] = {{"distance", InType::kNumber, true, 1000, 500000, "cm", "a distance"}};
@@ -28,117 +28,119 @@ inline constexpr InputSpec kIn20[] = {{"test", InType::kCondition, false, 0, 0, 
 inline constexpr InputSpec kIn21[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}, {"yes", InType::kBlock, false, 0, 0, "", "steps in [ ]"}, {"no", InType::kBlock, false, 0, 0, "", "steps in [ ]"}};
 inline constexpr InputSpec kIn22[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}, {"steps", InType::kBlock, false, 0, 0, "", "its steps in [ ]"}};
 inline constexpr InputSpec kIn23[] = {{"steps", InType::kBlock, false, 0, 0, "", "its steps in [ ]"}};
-inline constexpr InputSpec kIn24[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}};
-inline constexpr InputSpec kIn32[] = {{"n", InType::kNumber, true, 1000, 1000000000, "", "a n"}};
-inline constexpr InputSpec kIn34[] = {{"a", InType::kNumber, false, 0, 0, "", "an a"}, {"b", InType::kNumber, false, 0, 0, "", "a b"}};
-inline constexpr InputSpec kIn35[] = {{"x", InType::kNumber, false, 0, 0, "", "a x"}};
+inline constexpr InputSpec kIn24[] = {{"steps", InType::kBlock, false, 0, 0, "", "its steps in [ ]"}};
+inline constexpr InputSpec kIn25[] = {{"test", InType::kCondition, false, 0, 0, "", "a test"}};
+inline constexpr InputSpec kIn33[] = {{"n", InType::kNumber, true, 1000, 1000000000, "", "a n"}};
+inline constexpr InputSpec kIn35[] = {{"a", InType::kNumber, false, 0, 0, "", "an a"}, {"b", InType::kNumber, false, 0, 0, "", "a b"}};
 inline constexpr InputSpec kIn36[] = {{"x", InType::kNumber, false, 0, 0, "", "a x"}};
-inline constexpr InputSpec kIn42[] = {{"value", InType::kAny, false, 0, 0, "", "a value"}};
-inline constexpr InputSpec kIn43[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn37[] = {{"x", InType::kNumber, false, 0, 0, "", "a x"}};
+inline constexpr InputSpec kIn43[] = {{"value", InType::kAny, false, 0, 0, "", "a value"}};
 inline constexpr InputSpec kIn44[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
 inline constexpr InputSpec kIn45[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
 inline constexpr InputSpec kIn46[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn47[] = {{"n", InType::kNumber, true, 1000, 50000000, "", "a n"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn48[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn47[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn48[] = {{"n", InType::kNumber, true, 1000, 50000000, "", "a n"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
 inline constexpr InputSpec kIn49[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn50[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn51[] = {{"a", InType::kAny, false, 0, 0, "", "an a"}, {"b", InType::kAny, false, 0, 0, "", "a b"}};
-inline constexpr InputSpec kIn52[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn50[] = {{"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn51[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn52[] = {{"a", InType::kAny, false, 0, 0, "", "an a"}, {"b", InType::kAny, false, 0, 0, "", "a b"}};
 inline constexpr InputSpec kIn53[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn54[] = {{"a", InType::kAny, false, 0, 0, "", "an a"}, {"b", InType::kAny, false, 0, 0, "", "a b"}};
-inline constexpr InputSpec kIn55[] = {{"how", InType::kTemplate, false, 0, 0, "", "a template in [ ]"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn56[] = {{"test", InType::kTemplate, false, 0, 0, "", "a test"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn57[] = {{"how", InType::kTemplate, false, 0, 0, "", "a template in [ ]"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
-inline constexpr InputSpec kIn58[] = {{"list", InType::kList, false, 0, 0, "", "a list"}, {"steps", InType::kTemplateBlock, false, 0, 0, "", "its steps in [ ]"}};
-inline constexpr InputSpec kIn59[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
+inline constexpr InputSpec kIn54[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn55[] = {{"a", InType::kAny, false, 0, 0, "", "an a"}, {"b", InType::kAny, false, 0, 0, "", "a b"}};
+inline constexpr InputSpec kIn56[] = {{"how", InType::kTemplate, false, 0, 0, "", "a template in [ ]"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn57[] = {{"test", InType::kTemplate, false, 0, 0, "", "a test"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn58[] = {{"how", InType::kTemplate, false, 0, 0, "", "a template in [ ]"}, {"list", InType::kList, false, 0, 0, "", "a list"}};
+inline constexpr InputSpec kIn59[] = {{"list", InType::kList, false, 0, 0, "", "a list"}, {"steps", InType::kTemplateBlock, false, 0, 0, "", "its steps in [ ]"}};
 inline constexpr InputSpec kIn60[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
 inline constexpr InputSpec kIn61[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
-inline constexpr InputSpec kIn62[] = {{"thing", InType::kThing, false, 0, 0, "", "a thing"}};
-inline constexpr InputSpec kIn63[] = {{"seconds", InType::kNumber, true, 1000, 600000, "s", "a seconds"}};
-inline constexpr InputSpec kIn65[] = {{"x", InType::kNumber, true, -1000000, 1000000, "cm", "a x"}, {"y", InType::kNumber, true, -1000000, 1000000, "cm", "a y"}};
-inline constexpr InputSpec kIn66[] = {{"metres", InType::kNumber, true, 0, 10000, "m", "a metres"}};
-inline constexpr InputSpec kIn67[] = {{"thing", InType::kThing, false, 0, 0, "", "a thing"}};
+inline constexpr InputSpec kIn62[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
+inline constexpr InputSpec kIn63[] = {{"thing", InType::kThing, false, 0, 0, "", "a thing"}};
+inline constexpr InputSpec kIn64[] = {{"seconds", InType::kNumber, true, 1000, 600000, "s", "a seconds"}};
+inline constexpr InputSpec kIn66[] = {{"x", InType::kNumber, true, -1000000, 1000000, "cm", "a x"}, {"y", InType::kNumber, true, -1000000, 1000000, "cm", "a y"}};
+inline constexpr InputSpec kIn67[] = {{"metres", InType::kNumber, true, 0, 10000, "m", "a metres"}};
 inline constexpr InputSpec kIn68[] = {{"thing", InType::kThing, false, 0, 0, "", "a thing"}};
-inline constexpr InputSpec kIn69[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"seconds", InType::kNumber, true, 1000, 60000, "s", "a seconds"}};
-inline constexpr InputSpec kIn70[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
+inline constexpr InputSpec kIn69[] = {{"thing", InType::kThing, false, 0, 0, "", "a thing"}};
+inline constexpr InputSpec kIn70[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"seconds", InType::kNumber, true, 1000, 60000, "s", "a seconds"}};
+inline constexpr InputSpec kIn71[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
 
 inline constexpr WordSpec kWords[] = {
-    {"FORWARD", WordKind::kCommand, 1, kNeedEncoders, 1, kIn0, "FORWARD 50", ""},
-    {"BACK", WordKind::kCommand, 1, kNeedEncoders, 1, kIn1, "BACK 20", ""},
-    {"RIGHT", WordKind::kCommand, 1, 0, 1, kIn2, "RIGHT 90", ""},
-    {"LEFT", WordKind::kCommand, 1, 0, 1, kIn3, "LEFT 90", ""},
-    {"SPEED", WordKind::kCommand, 1, 0, 1, kIn4, "SPEED 60", ""},
-    {"WAIT", WordKind::kCommand, 1, 0, 1, kIn5, "WAIT 1.5", ""},
-    {"REPEAT", WordKind::kControl, 1, 0, 2, kIn6, "REPEAT 4 [ FD 50 RT 90 ]", ""},
-    {"LED", WordKind::kCommand, 1, 0, 1, kIn7, "LED GREEN", ""},
-    {"BEEP", WordKind::kCommand, 1, 0, 0, nullptr, "BEEP", ""},
-    {"SOUND", WordKind::kCommand, 1, 0, 1, kIn9, "SOUND HORN", ""},
-    {"LOOK", WordKind::kCommand, 1, 0, 1, kIn10, "LOOK LEFT", ""},
-    {"HOME", WordKind::kCommand, 1, 0, 0, nullptr, "HOME", ""},
-    {"GO", WordKind::kCommand, 2, kNeedEncoders, 0, nullptr, "GO  WAIT UNTIL DISTANCE < 30  HOLD", ""},
-    {"HOLD", WordKind::kCommand, 2, 0, 0, nullptr, "GO  WAIT 2  HOLD", ""},
-    {"STOP", WordKind::kControl, 1, 0, 0, nullptr, "IF OBSTACLE? [ STOP ]", ""},
-    {"ARC", WordKind::kCommand, 2, kNeedEncoders, 3, kIn15, "ARC RIGHT 90 50", ""},
-    {"PIVOT", WordKind::kCommand, 2, kNeedEncoders, 2, kIn16, "PIVOT LEFT 90", ""},
-    {"PLAY", WordKind::kCommand, 2, 0, 1, kIn17, "PLAY [ C4 E4 G4 2 ]", ""},
-    {"SAY", WordKind::kCommand, 2, 0, 1, kIn18, "SAY [ well done ]", ""},
-    {"TO", WordKind::kControl, 2, 0, 0, nullptr, "TO SQUARE :size  REPEAT 4 [ FD :size RT 90 ]  END", ""},
-    {"IF", WordKind::kControl, 2, 0, 2, kIn20, "IF OBSTACLE? [ BK 10 ]", ""},
-    {"IFELSE", WordKind::kControl, 2, 0, 3, kIn21, "IFELSE DISTANCE < 30 [ RT 90 ] [ FD 20 ]", "two [ ] blocks: one for yes, one for no"},
-    {"WHILE", WordKind::kControl, 2, 0, 2, kIn22, "WHILE NOT OBSTACLE? [ FD 10 ]", ""},
-    {"FOREVER", WordKind::kControl, 2, 0, 1, kIn23, "FOREVER [ FD 50 IF BLOCKED? [ BK 10 RT 90 ] ]", ""},
-    {"WAIT UNTIL", WordKind::kControl, 2, 0, 1, kIn24, "WAIT UNTIL DISTANCE < 20", ""},
-    {"DISTANCE", WordKind::kReporter, 2, 0, 0, nullptr, "IF DISTANCE < 30 [ RT 90 ]", ""},
-    {"OBSTACLE?", WordKind::kReporter, 2, 0, 0, nullptr, "IF OBSTACLE? [ BK 10 ]", ""},
-    {"BLOCKED?", WordKind::kReporter, 2, 0, 0, nullptr, "FD 100 IF BLOCKED? [ SAY \"oops ]", ""},
-    {"HEADING", WordKind::kReporter, 2, 0, 0, nullptr, "IF HEADING > 45 [ HOME ]", ""},
-    {"TILTED?", WordKind::kReporter, 2, 0, 0, nullptr, "IF TILTED? [ STOP ]", ""},
-    {"BATTERY", WordKind::kReporter, 2, 0, 0, nullptr, "IF BATTERY < 20 [ SAY [ I am tired ] ]", ""},
-    {"TIMER", WordKind::kReporter, 2, 0, 0, nullptr, "WHILE TIMER < 10 [ FD 10 RT 30 ]", ""},
-    {"RANDOM", WordKind::kReporter, 2, 0, 1, kIn32, "RT RANDOM 360", ""},
-    {"REPCOUNT", WordKind::kReporter, 2, 0, 0, nullptr, "REPEAT 5 [ FD REPCOUNT * 10 RT 72 ]", ""},
-    {"REMAINDER", WordKind::kReporter, 2, 0, 2, kIn34, "IF REMAINDER REPCOUNT 2 = 0 [ BEEP ]", ""},
-    {"ABS", WordKind::kReporter, 2, 0, 1, kIn35, "ABS HEADING", ""},
-    {"ROUND", WordKind::kReporter, 2, 0, 1, kIn36, "ROUND DISTANCE / 10", ""},
-    {"TRUE", WordKind::kConstant, 2, 0, 0, nullptr, "", ""},
-    {"FALSE", WordKind::kConstant, 2, 0, 0, nullptr, "", ""},
-    {"AND", WordKind::kOperator, 2, 0, 0, nullptr, "", ""},
-    {"OR", WordKind::kOperator, 2, 0, 0, nullptr, "", ""},
-    {"NOT", WordKind::kOperator, 2, 0, 0, nullptr, "", ""},
-    {"OUTPUT", WordKind::kControl, 3, 0, 1, kIn42, "TO DOUBLE :x  OUTPUT :x * 2  END", ""},
-    {"FIRST", WordKind::kReporter, 3, 0, 1, kIn43, "FIRST [ 10 20 30 ]", ""},
-    {"LAST", WordKind::kReporter, 3, 0, 1, kIn44, "", ""},
-    {"BUTFIRST", WordKind::kReporter, 3, 0, 1, kIn45, "", ""},
-    {"BUTLAST", WordKind::kReporter, 3, 0, 1, kIn46, "", ""},
-    {"ITEM", WordKind::kReporter, 3, 0, 2, kIn47, "", ""},
-    {"COUNT", WordKind::kReporter, 3, 0, 1, kIn48, "", ""},
-    {"EMPTY?", WordKind::kReporter, 3, 0, 1, kIn49, "", ""},
-    {"MEMBER?", WordKind::kReporter, 3, 0, 2, kIn50, "", ""},
-    {"LIST", WordKind::kReporter, 3, 0, 2, kIn51, "LIST :x :y", ""},
-    {"FPUT", WordKind::kReporter, 3, 0, 2, kIn52, "", ""},
-    {"LPUT", WordKind::kReporter, 3, 0, 2, kIn53, "", ""},
-    {"SENTENCE", WordKind::kReporter, 3, 0, 2, kIn54, "", ""},
-    {"MAP", WordKind::kReporter, 3, 0, 2, kIn55, "MAP [ ? * 2 ] [ 1 2 3 ]", ""},
-    {"FILTER", WordKind::kReporter, 3, 0, 2, kIn56, "FILTER [ ? > 10 ] [ 5 15 25 ]", ""},
-    {"REDUCE", WordKind::kReporter, 3, 0, 2, kIn57, "REDUCE [ ?1 + ?2 ] [ 1 2 3 4 ]", ""},
-    {"FOREACH", WordKind::kControl, 3, 0, 2, kIn58, "FOREACH [ 50 100 50 ] [ FD ? RT 120 ]", ""},
-    {"WORD?", WordKind::kReporter, 3, 0, 1, kIn59, "", ""},
-    {"NUMBER?", WordKind::kReporter, 3, 0, 1, kIn60, "", ""},
-    {"LIST?", WordKind::kReporter, 3, 0, 1, kIn61, "", ""},
-    {"FIND", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 1, kIn62, "FIND \"ball", ""},
-    {"WANDER", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 1, kIn63, "WANDER 30", ""},
-    {"EXPLORE", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 0, nullptr, "EXPLORE", ""},
-    {"SETXY", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 2, kIn65, "SETXY 100 50", ""},
-    {"AREA", WordKind::kCommand, 2, kNeedAi, 1, kIn66, "AREA 3", ""},
-    {"SEE?", WordKind::kReporter, 2, kNeedAi, 1, kIn67, "IF SEE? \"ball [ SOUND FANFARE ]", ""},
-    {"HOWFAR", WordKind::kReporter, 2, kNeedAi, 1, kIn68, "IF HOWFAR \"ball < 50 [ BEEP ]", ""},
-    {"FOLLOW", WordKind::kCommand, 3, kNeedAi, 2, kIn69, "", ""},
-    {"HOWMANY", WordKind::kReporter, 3, kNeedAi, 1, kIn70, "", ""},
+    {"FORWARD", WordKind::kCommand, 1, kNeedEncoders, 1, kIn0, "FORWARD 50", "", true},
+    {"BACK", WordKind::kCommand, 1, kNeedEncoders, 1, kIn1, "BACK 20", "", true},
+    {"RIGHT", WordKind::kCommand, 1, 0, 1, kIn2, "RIGHT 90", "", true},
+    {"LEFT", WordKind::kCommand, 1, 0, 1, kIn3, "LEFT 90", "", true},
+    {"SPEED", WordKind::kCommand, 1, 0, 1, kIn4, "SPEED 60", "", true},
+    {"WAIT", WordKind::kCommand, 1, 0, 1, kIn5, "WAIT 1.5", "", false},
+    {"REPEAT", WordKind::kControl, 1, 0, 2, kIn6, "REPEAT 4 [ FD 50 RT 90 ]", "", false},
+    {"LED", WordKind::kCommand, 1, 0, 1, kIn7, "LED GREEN", "", false},
+    {"BEEP", WordKind::kCommand, 1, 0, 0, nullptr, "BEEP", "", false},
+    {"SOUND", WordKind::kCommand, 1, 0, 1, kIn9, "SOUND HORN", "", false},
+    {"LOOK", WordKind::kCommand, 1, 0, 1, kIn10, "LOOK LEFT", "", true},
+    {"HOME", WordKind::kCommand, 1, 0, 0, nullptr, "HOME", "", true},
+    {"GO", WordKind::kCommand, 2, kNeedEncoders, 0, nullptr, "GO  WAIT UNTIL DISTANCE < 30  HOLD", "", true},
+    {"HOLD", WordKind::kCommand, 2, 0, 0, nullptr, "GO  WAIT 2  HOLD", "", true},
+    {"STOP", WordKind::kControl, 1, 0, 0, nullptr, "IF OBSTACLE? [ STOP ]", "", false},
+    {"ARC", WordKind::kCommand, 2, kNeedEncoders, 3, kIn15, "ARC RIGHT 90 50", "", true},
+    {"PIVOT", WordKind::kCommand, 2, kNeedEncoders, 2, kIn16, "PIVOT LEFT 90", "", true},
+    {"PLAY", WordKind::kCommand, 2, 0, 1, kIn17, "PLAY [ C4 E4 G4 2 ]", "", false},
+    {"SAY", WordKind::kCommand, 2, 0, 1, kIn18, "SAY [ well done ]", "", false},
+    {"TO", WordKind::kControl, 2, 0, 0, nullptr, "TO SQUARE :size  REPEAT 4 [ FD :size RT 90 ]  END", "", false},
+    {"IF", WordKind::kControl, 2, 0, 2, kIn20, "IF OBSTACLE? [ BK 10 ]", "", false},
+    {"IFELSE", WordKind::kControl, 2, 0, 3, kIn21, "IFELSE DISTANCE < 30 [ RT 90 ] [ FD 20 ]", "two [ ] blocks: one for yes, one for no", false},
+    {"WHILE", WordKind::kControl, 2, 0, 2, kIn22, "WHILE NOT OBSTACLE? [ FD 10 ]", "", false},
+    {"FOREVER", WordKind::kControl, 2, 0, 1, kIn23, "FOREVER [ FD 50 IF BLOCKED? [ BK 10 RT 90 ] ]", "", false},
+    {"LAUNCH", WordKind::kControl, 2, 0, 1, kIn24, "LAUNCH [ FOREVER [ BEEP WAIT 1 ] ]", "", false},
+    {"WAIT UNTIL", WordKind::kControl, 2, 0, 1, kIn25, "WAIT UNTIL DISTANCE < 20", "", false},
+    {"DISTANCE", WordKind::kReporter, 2, 0, 0, nullptr, "IF DISTANCE < 30 [ RT 90 ]", "", false},
+    {"OBSTACLE?", WordKind::kReporter, 2, 0, 0, nullptr, "IF OBSTACLE? [ BK 10 ]", "", false},
+    {"BLOCKED?", WordKind::kReporter, 2, 0, 0, nullptr, "FD 100 IF BLOCKED? [ SAY \"oops ]", "", false},
+    {"HEADING", WordKind::kReporter, 2, 0, 0, nullptr, "IF HEADING > 45 [ HOME ]", "", false},
+    {"TILTED?", WordKind::kReporter, 2, 0, 0, nullptr, "IF TILTED? [ STOP ]", "", false},
+    {"BATTERY", WordKind::kReporter, 2, 0, 0, nullptr, "IF BATTERY < 20 [ SAY [ I am tired ] ]", "", false},
+    {"TIMER", WordKind::kReporter, 2, 0, 0, nullptr, "WHILE TIMER < 10 [ FD 10 RT 30 ]", "", false},
+    {"RANDOM", WordKind::kReporter, 2, 0, 1, kIn33, "RT RANDOM 360", "", false},
+    {"REPCOUNT", WordKind::kReporter, 2, 0, 0, nullptr, "REPEAT 5 [ FD REPCOUNT * 10 RT 72 ]", "", false},
+    {"REMAINDER", WordKind::kReporter, 2, 0, 2, kIn35, "IF REMAINDER REPCOUNT 2 = 0 [ BEEP ]", "", false},
+    {"ABS", WordKind::kReporter, 2, 0, 1, kIn36, "ABS HEADING", "", false},
+    {"ROUND", WordKind::kReporter, 2, 0, 1, kIn37, "ROUND DISTANCE / 10", "", false},
+    {"TRUE", WordKind::kConstant, 2, 0, 0, nullptr, "", "", false},
+    {"FALSE", WordKind::kConstant, 2, 0, 0, nullptr, "", "", false},
+    {"AND", WordKind::kOperator, 2, 0, 0, nullptr, "", "", false},
+    {"OR", WordKind::kOperator, 2, 0, 0, nullptr, "", "", false},
+    {"NOT", WordKind::kOperator, 2, 0, 0, nullptr, "", "", false},
+    {"OUTPUT", WordKind::kControl, 3, 0, 1, kIn43, "TO DOUBLE :x  OUTPUT :x * 2  END", "", false},
+    {"FIRST", WordKind::kReporter, 3, 0, 1, kIn44, "FIRST [ 10 20 30 ]", "", false},
+    {"LAST", WordKind::kReporter, 3, 0, 1, kIn45, "", "", false},
+    {"BUTFIRST", WordKind::kReporter, 3, 0, 1, kIn46, "", "", false},
+    {"BUTLAST", WordKind::kReporter, 3, 0, 1, kIn47, "", "", false},
+    {"ITEM", WordKind::kReporter, 3, 0, 2, kIn48, "", "", false},
+    {"COUNT", WordKind::kReporter, 3, 0, 1, kIn49, "", "", false},
+    {"EMPTY?", WordKind::kReporter, 3, 0, 1, kIn50, "", "", false},
+    {"MEMBER?", WordKind::kReporter, 3, 0, 2, kIn51, "", "", false},
+    {"LIST", WordKind::kReporter, 3, 0, 2, kIn52, "LIST :x :y", "", false},
+    {"FPUT", WordKind::kReporter, 3, 0, 2, kIn53, "", "", false},
+    {"LPUT", WordKind::kReporter, 3, 0, 2, kIn54, "", "", false},
+    {"SENTENCE", WordKind::kReporter, 3, 0, 2, kIn55, "", "", false},
+    {"MAP", WordKind::kReporter, 3, 0, 2, kIn56, "MAP [ ? * 2 ] [ 1 2 3 ]", "", false},
+    {"FILTER", WordKind::kReporter, 3, 0, 2, kIn57, "FILTER [ ? > 10 ] [ 5 15 25 ]", "", false},
+    {"REDUCE", WordKind::kReporter, 3, 0, 2, kIn58, "REDUCE [ ?1 + ?2 ] [ 1 2 3 4 ]", "", false},
+    {"FOREACH", WordKind::kControl, 3, 0, 2, kIn59, "FOREACH [ 50 100 50 ] [ FD ? RT 120 ]", "", false},
+    {"WORD?", WordKind::kReporter, 3, 0, 1, kIn60, "", "", false},
+    {"NUMBER?", WordKind::kReporter, 3, 0, 1, kIn61, "", "", false},
+    {"LIST?", WordKind::kReporter, 3, 0, 1, kIn62, "", "", false},
+    {"FIND", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 1, kIn63, "FIND \"ball", "", true},
+    {"WANDER", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 1, kIn64, "WANDER 30", "", true},
+    {"EXPLORE", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 0, nullptr, "EXPLORE", "", true},
+    {"SETXY", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 2, kIn66, "SETXY 100 50", "", true},
+    {"AREA", WordKind::kCommand, 2, kNeedAi, 1, kIn67, "AREA 3", "", true},
+    {"SEE?", WordKind::kReporter, 2, kNeedAi, 1, kIn68, "IF SEE? \"ball [ SOUND FANFARE ]", "", false},
+    {"HOWFAR", WordKind::kReporter, 2, kNeedAi, 1, kIn69, "IF HOWFAR \"ball < 50 [ BEEP ]", "", false},
+    {"FOLLOW", WordKind::kCommand, 3, kNeedAi, 2, kIn70, "", "", true},
+    {"HOWMANY", WordKind::kReporter, 3, kNeedAi, 1, kIn71, "", "", false},
 };
-inline constexpr uint8_t kWordCount = 71;
+inline constexpr uint8_t kWordCount = 72;
 
 struct Alias { const char* alias; uint8_t word; };
-inline constexpr Alias kAliases[] = {{"FD", 0}, {"BK", 1}, {"RT", 2}, {"LT", 3}, {"OP", 42}, {"BF", 45}, {"BL", 46}, {"SE", 54}};
+inline constexpr Alias kAliases[] = {{"FD", 0}, {"BK", 1}, {"RT", 2}, {"LT", 3}, {"OP", 43}, {"BF", 46}, {"BL", 47}, {"SE", 55}};
 inline constexpr uint8_t kAliasCount = 8;
 
 inline constexpr const char* kSides[] = {"LEFT", "RIGHT"};
@@ -208,8 +210,10 @@ inline constexpr ErrorText kErrors[] = {
     {7054, "I saw the {thing}, but it's outside the play area."},
     {7055, "I can't find a way there."},
     {7056, "I'm learning a new word - try again in a minute."},
+    {7057, "{word} moves the tank - only the main program can do that, not LAUNCH."},
+    {7058, "Only one LAUNCH can run at a time."},
 };
-inline constexpr uint8_t kErrorCount = 48;
+inline constexpr uint8_t kErrorCount = 50;
 
 inline constexpr uint16_t kSourceBytes = 8192;
 inline constexpr uint8_t kMaxProcs = 64;

@@ -7,9 +7,9 @@
 namespace cq {
 namespace logo {
 
-void Vm::load(const Program& p, uint32_t seed) {
+void Vm::load(const Program& p, uint32_t seed, uint16_t entry) {
   m_p = &p;
-  m_pc = 0;
+  m_pc = entry;
   m_line = 0;
   m_sensor_read = false;
   m_rng = seed != 0 ? seed : 1;

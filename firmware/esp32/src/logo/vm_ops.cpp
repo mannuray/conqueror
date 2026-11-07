@@ -240,6 +240,7 @@ void VmOps::effect(Vm& vm, const Instr& in) {
   e.kind = static_cast<EffectKind>(in.a);
   e.n = static_cast<uint8_t>(in.n & 0xFF);
   e.sub = static_cast<uint8_t>((in.n >> 8) & 0xFF);  // kAsk / kSkill: which question / skill
+  e.entry = static_cast<uint16_t>(in.n >> 8);         // kLaunch: its block's code
   e.line = vm.m_line;
   for (uint8_t i = e.n; i > 0; --i) e.args[i - 1] = vm.pop();
   vm.signal(VmStatus::kEffect);

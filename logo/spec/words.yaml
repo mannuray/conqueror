@@ -242,6 +242,14 @@ words:
     does: repeats until STOP, the program ends, or the run-time limit
     help: do the steps again and again, for ever
     example: FOREVER [ FD 50 IF BLOCKED? [ BK 10 RT 90 ] ]
+  - name: LAUNCH
+    level: 2
+    kind: control
+    group: flow
+    inputs: [{name: steps, type: block}]
+    does: "runs the steps as a second part alongside the main program, which goes on at once; only the main program moves the tank (7057), one at a time (7058) - Tank Logo LLD §26"
+    help: do these steps at the same time as the rest
+    example: LAUNCH [ FOREVER [ BEEP WAIT 1 ] ]
   - name: WAIT UNTIL
     level: 2
     kind: control
@@ -629,3 +637,5 @@ errors:   # PROGRAM 7000-7999 (Spec 5 §8); {..} are filled in by the checker. E
   7054: "I saw the {thing}, but it's outside the play area."
   7055: "I can't find a way there."
   7056: "I'm learning a new word - try again in a minute."
+  7057: "{word} moves the tank - only the main program can do that, not LAUNCH."
+  7058: "Only one LAUNCH can run at a time."

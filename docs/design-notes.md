@@ -3358,3 +3358,14 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   the toy was outside the 2 m circle and was never heard (220 rounds "not seen"); with `AREA 0` (owner: "I think you
   limited the search area") - **found in 9.3 s, 1.4 m, driving 89 % of the time**, 12 beeps getting faster, "found
   you", Done. LAUNCH works on the tank: smooth wandering while the launched part listens.
+
+## 220. The 2026-11-05..07 plans merged into main (owner, 2026-11-07: "yes"; "leave this test for some other time")
+- Merged in order, each with its own merge commit: plan-z2b, plan-sunny, plan-topbar, plan-strip, plan-link,
+  plan-z2b2, plan-z9-find, plan-l1-lessons, plan-n9-launch, plan-z10-glimpse. Conflicts only in docs (bridge LLD
+  R31.9 / R32 side by side; CLAUDE.md's plans row and plans list, both kept; design-notes §216-§219 in order).
+- On the merged main: logogen check and 32 tests, 907 native firmware tests, 132 page tests, the bridge build, the
+  engine's ruff and pyright - all pass; the engine 922 of 923.
+- **The one failure, left for later:** `test_route_is_quick` (20 route plans on a cost map with 30 boxes, each must
+  take < 20 ms) took 70-97 ms. Not the merge: the branch from before any of today's engine changes (plan-z9-find)
+  failed it the same way at the same time (69 ms). The Mac's load was 70-95 - a virtual machine
+  (com.apple.Virtualization, ~600 % CPU, up 11 days, not Docker). Rerun it on a quiet machine; it is not loosened.

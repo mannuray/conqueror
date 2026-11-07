@@ -1,5 +1,6 @@
-"""Today's route planner (AI engine LLD §18.13.3), kept as a test-only reference for Plan Z12 (LLD §27.4): the
-quick planner must give exactly its routes, costs and nearest cells."""
+"""Today's route planner (AI engine LLD §18.13.3), kept as a test-only reference for Plan Z12 (LLD §27.4):
+the quick planner must give exactly its routes, costs and nearest cells. Its grid is today's `_Grid` copied
+too, so a later change to the planner's grid cannot move both alike."""
 
 from __future__ import annotations
 
@@ -12,19 +13,35 @@ import numpy as np
 from conqueror_ai.domain.camera import FloatArray
 from conqueror_ai.domain.drive.costmap import CostMap
 from conqueror_ai.domain.drive.limits import Limits
-from conqueror_ai.domain.drive.route import (
-    SQRT2,
-    STEPS,
-    XY,
-    _Grid,  # pyright: ignore[reportPrivateUsage]
-)
+from conqueror_ai.domain.drive.route import GRID_M, SQRT2, STEPS, XY
 
 
-def _factors_from(grid: _Grid, s: tuple[int, int]) -> list[float]:
-    f = grid.factor.copy()
-    if math.isinf(f[s]):
-        f[s] = 1.0
-    return f.ravel().tolist()
+class _Grid:
+    """The 10 cm grid of one cost map: per cell the step factor per metre, inf where closed."""
+
+    def __init__(self, cost: CostMap, half_w: float) -> None:
+        k = max(1, round(GRID_M / cost.cell_m))
+        self.k, self.g = k, cost.n // k
+        self.cell_m = cost.cell_m * k
+        self.half_m = cost.half_m
+        g = self.g
+        d = cost.dist[: g * k, : g * k].reshape(g, k, g, k).min(axis=(1, 3))
+        cc = cost.centre_cost(half_w)[: g * k, : g * k].reshape(g, k, g, k).max(axis=(1, 3))
+        self.factor: FloatArray = np.where(d >= half_w, 1.0 + cost.settings.route_cost_w * cc, np.inf)
+
+    def factors_from(self, s: tuple[int, int]) -> list[float]:
+        """The step factors for a search from cell s: the start cell always open (the tank is there)."""
+        f = self.factor.copy()
+        if math.isinf(f[s]):
+            f[s] = 1.0
+        return f.ravel().tolist()
+
+    def of(self, x: float, y: float) -> tuple[int, int] | None:
+        i, j = math.floor((x + self.half_m) / self.cell_m), math.floor((y + self.half_m) / self.cell_m)
+        return (i, j) if 0 <= i < self.g and 0 <= j < self.g else None
+
+    def centre(self, i: int, j: int) -> XY:
+        return ((i + 0.5) * self.cell_m - self.half_m, (j + 0.5) * self.cell_m - self.half_m)
 
 
 class ReferencePlanner:
@@ -67,7 +84,7 @@ class ReferencePlanner:
         if s is None or t is None:
             return None
         g, step = grid.g, grid.cell_m
-        factor = _factors_from(grid, s)
+        factor = grid.factors_from(s)
         si, ti = s[0] * g + s[1], t[0] * g + t[1]
         if not goal_ok and math.isinf(factor[ti]):
             return None
@@ -128,7 +145,7 @@ class ReferencePlanner:
         s = grid.of(*start)
         if s is None:
             return None
-        factor = _factors_from(grid, s)
+        factor = grid.factors_from(s)
         si = s[0] * g + s[1]
         best = {si: 0.0}
         heap = [(0.0, si)]
@@ -159,7 +176,7 @@ class ReferencePlanner:
         s = grid.of(*start)
         if s is None:
             return out
-        factor = _factors_from(grid, s)
+        factor = grid.factors_from(s)
         si = s[0] * g + s[1]
         best = {si: 0.0}
         heap = [(0.0, si)]

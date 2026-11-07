@@ -47,8 +47,6 @@ class _Grid:
         self.factor: FloatArray = np.where(d >= half_w, 1.0 + cost.settings.route_cost_w * cc, np.inf)
         # The searches run on flat lists over the grid padded with closed cells (LLD §27.2): no bounds check,
         # the cell numbers in today's order (row, then column), the eight steps as offsets in STEPS' order.
-        # The searches run on flat lists over the grid padded with closed cells (LLD §27.2): no bounds check,
-        # the cell numbers in today's order (row, then column), the eight steps as offsets in STEPS' order.
         self.w = g + 2
         self.padded: list[float] = np.pad(self.factor, 1, constant_values=np.inf).ravel().tolist()
         self.steps: list[tuple[int, float]] = [(di * self.w + dj, ln * self.cell_m) for di, dj, ln in STEPS]
@@ -200,8 +198,7 @@ class RoutePlanner:
         s = grid.of(*start)
         if s is None:
             return None
-        best = self._dijkstra(grid, s, accept)
-        return None if isinstance(best, list) else best
+        return self._dijkstra(grid, s, accept)[1]
 
     def costs(self, cost: CostMap, start: XY) -> FloatArray:
         """The route cost from start to every 10 cm grid cell (Dijkstra), inf where unreachable."""
@@ -210,15 +207,15 @@ class RoutePlanner:
         s = grid.of(*start)
         if s is None:
             return np.full((g, g), np.inf)
-        best = self._dijkstra(grid, s, None)
-        assert isinstance(best, list)
+        best, _ = self._dijkstra(grid, s, None)
         return np.array(best).reshape(g + 2, g + 2)[1:-1, 1:-1].copy()
 
     @staticmethod
     def _dijkstra(
         grid: _Grid, s: tuple[int, int], accept: Callable[[int, int], bool] | None
-    ) -> list[float] | tuple[int, int]:
-        """From cell s: the first cell `accept` takes (in cost order), else the cost to every padded cell."""
+    ) -> tuple[list[float], tuple[int, int] | None]:
+        """From cell s: the cost so far to every padded cell, and the first cell `accept` takes in cost order
+        (None: no accept, or none reachable - then the costs are complete)."""
         factor, steps = grid.search_from(s), grid.steps
         inf, push, pop = math.inf, heapq.heappush, heapq.heappop
         si, w = grid.pad(*s), grid.w
@@ -232,7 +229,7 @@ class RoutePlanner:
             if accept is not None:
                 ci, cj = divmod(cur, w)
                 if accept(ci - 1, cj - 1):
-                    return ci - 1, cj - 1
+                    return best, (ci - 1, cj - 1)
             for off, ln in steps:
                 nxt = cur + off
                 f = factor[nxt]
@@ -241,7 +238,7 @@ class RoutePlanner:
                     if c < best[nxt]:
                         best[nxt] = c
                         push(heap, (c, nxt))
-        return best
+        return best, None
 
 
 def aim_point(route: list[XY], at: XY, ahead_m: float = 0.5) -> XY:

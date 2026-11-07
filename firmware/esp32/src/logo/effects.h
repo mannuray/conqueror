@@ -23,6 +23,12 @@ enum class ActKind : uint8_t {
   kLaunch  // LAUNCH: the runner starts the second part at `entry` (Tank Logo LLD §26.4)
 };
 
+// The actions the motion service carries out (the program waits for their end).
+inline bool waitsForMotion(ActKind k) {
+  return k == ActKind::kMove || k == ActKind::kTurn || k == ActKind::kArc || k == ActKind::kPivot ||
+         k == ActKind::kHome;
+}
+
 struct Action {
   ActKind kind = ActKind::kNone;
   uint16_t line = 0;

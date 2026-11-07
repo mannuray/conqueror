@@ -406,3 +406,44 @@
   world: {answers: [null, null, 30]}
   does: [HOWFAR ball, WAIT 0.5, HOWFAR ball, WAIT 0.5, HOWFAR ball, PLAY 262/250 330/250 392/250 523/500, SAY you found me]
   ends: finished
+
+# ---- LAUNCH (Tank Logo LLD §26): a second part alongside; the parts take turns going first, one RunOut a tick -
+#      the orders below are that runner's (Plan N9 Task 2), the behaviour each case names is the point.
+- name: LAUNCH beeps while the main part drives
+  source: LAUNCH [ BEEP BEEP ]  FORWARD 50
+  does: [BEEP, FORWARD 50, BEEP]
+  ends: finished
+
+- name: a launched loop beeps while the main part waits
+  source: LAUNCH [ FOREVER [ BEEP WAIT 1 ] ]  WAIT 2.5
+  does: [BEEP, WAIT 2.5, WAIT 1, BEEP, WAIT 1, BEEP, WAIT 1]
+  ends: finished
+
+- name: STOP in the launched part ends both, as done
+  source: LAUNCH [ WAIT 1 STOP ]  FOREVER [ WAIT 0.5 ]
+  does: [WAIT 1, WAIT 0.5, WAIT 0.5]
+  ends: finished
+
+- name: a second LAUNCH while the first runs
+  source: LAUNCH [ WAIT 5 ]  LAUNCH [ BEEP ]
+  does: [WAIT 5]
+  ends: {error: 7058, line: 1}
+
+- name: a new LAUNCH after the first ended on its own
+  source: LAUNCH [ BEEP ]  WAIT 1  LAUNCH [ BEEP ]  WAIT 1
+  does: [BEEP, WAIT 1, BEEP, WAIT 1]
+  ends: finished
+
+- name: lesson 5 with LAUNCH - it beeps while WANDER drives, then finds the ball
+  source: |
+    TO LISTEN :cm
+      IFELSE :cm < 0 [ WAIT 0.5 ] [
+        IFELSE :cm < 50 [ SOUND SUCCESS SAY [ found you ] STOP ] [ BEEP WAIT :cm / 200 ]
+      ]
+    END
+    LAUNCH [ FOREVER [ LISTEN HOWFAR "ball ] ]
+    AREA 2
+    WANDER 120
+  world: {answers: [120, 80, 30]}
+  does: [HOWFAR ball, AREA 2, BEEP, "WANDER 120 AREA 2 AT 0 0", WAIT 0.6, HOWFAR ball, BEEP, WAIT 0.4, HOWFAR ball, SOUND SUCCESS, SAY found you]
+  ends: finished

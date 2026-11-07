@@ -25,6 +25,7 @@ struct Shared {  // PSRAM only, allocated once at boot (≈ 330 KB): without it 
 struct Run {  // the link task's: PSRAM, else internal RAM (≈ 36 KB) - the LogoController always exists
   logo::Program running;
   logo::Vm vm;
+  logo::Vm launched;  // LAUNCH's part (Tank Logo LLD §26.4)
 };
 struct Job {
   LogoJob run;
@@ -140,6 +141,7 @@ const core::LockPort& logoThingsLock() {
 bool logoRunReady() { return g_run != nullptr; }
 logo::Program& logoRunningProgram() { return g_run->running; }
 logo::Vm& logoVm() { return g_run->vm; }
+logo::Vm& logoLaunchedVm() { return g_run->launched; }
 
 }  // namespace net
 }  // namespace cq

@@ -32,7 +32,7 @@ app::TankAppController* tank = nullptr;
 app::DriveController* drive = nullptr;
 app::CommandRouter* router = nullptr;
 logo::Program g_logo_program;
-logo::Vm g_logo_vm;
+logo::Vm g_logo_vm, g_logo_launched;
 app::LogoController* logoc = nullptr;
 core::SkillHub hub;
 core::AiPages pages;
@@ -71,7 +71,7 @@ void setUp() {
   settings = new app::SettingsController(out, logbook, *link);
   tank = new app::TankAppController(out, logbook, *link);
   drive = new app::DriveController(out, logbook, *owner, *uno, *motion, *settings, *tel);
-  logoc = new app::LogoController(out, logbook, *link, *tel, g_logo_program, g_logo_vm);
+  logoc = new app::LogoController(out, logbook, *link, *tel, g_logo_program, g_logo_vm, g_logo_launched);
   router = new app::CommandRouter(*drive, *motion, *settings, *tank, *logoc, *tel, out);
   router->setHello("abc1234", sensor);
   hub = core::SkillHub();

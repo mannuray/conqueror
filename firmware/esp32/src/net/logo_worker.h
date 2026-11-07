@@ -46,6 +46,7 @@ app::LogoController::Took logoTake(uint32_t prog, logo::Program& out, char* name
 bool logoRunReady();  // false only when not even 36 KB were free at boot
 logo::Program& logoRunningProgram();
 logo::Vm& logoVm();
+logo::Vm& logoLaunchedVm();  // LAUNCH's part (Tank Logo LLD §26.4)
 
 }  // namespace net
 }  // namespace cq

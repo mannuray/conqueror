@@ -3308,3 +3308,7 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Decided (owner, 2026-11-07):** "a good camera will surely improve detection, so the camera is the weak point here;
   we will think about that later". Options on file above (Pi Zero 2 W + Camera Module 3 Wide; ESP32-P4 later); not
   now.
+- **SEE? / HOWFAR (owner, 2026-11-07: "there was no car but a toy, and it was recognised in the camera feed"):** lesson
+  5 with LAUNCH wandered smoothly (2 min, 21.9 m) but HOWFAR said "not seen" ~220 times - the questions answered
+  only from confirmed things, the feed draws every detection. Decided ("write it and build it"): SEE? / HOWFAR also
+  count single sightings of the last 0.5 s (AI engine LLD §25.9, Plan Z10c); a false sighting may beep for a moment.

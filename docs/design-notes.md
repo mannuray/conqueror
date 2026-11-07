@@ -3369,3 +3369,12 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   take < 20 ms) took 70-97 ms. Not the merge: the branch from before any of today's engine changes (plan-z9-find)
   failed it the same way at the same time (69 ms). The Mac's load was 70-95 - a virtual machine
   (com.apple.Virtualization, ~600 % CPU, up 11 days, not Docker). Rerun it on a quiet machine; it is not loosened.
+
+## 221. The MARKS layer - what the tank makes of the picture (owner, 2026-11-07: "why is the depth map like this, it doesn't provide much, are we using depth map?"; "yes" to a MARKS layer)
+- **Answer given:** yes - Depth Anything V2 Small on every used picture builds the room map's marks, finds the camera's
+  real tilt and measures heights. The view shows the raw relative depth (green, 60 % over the picture): on a flat
+  floor a gradient. Shiny marble fools it (the likely source of the false low marks, §217 / Z10d).
+- **Design (AI engine LLD §26, bridge LLD R33, branch `plan-z11-marks`):** the engine sends its per-picture sort of
+  pixels (floor / low / high / above) with each feed frame; `/ai` draws it as a MARKS layer - low red, high orange,
+  free floor faint green - the default layer, DEPTH still one choice away.
+- **Open (owner):** the `/ai` page has 66 B left of its 30 KB budget; MARKS needs ~0.5 KB.

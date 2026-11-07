@@ -1,6 +1,6 @@
 // Design-notes §206 browser check (Playwright run_code): the /ai page's two looks on the stand-in tank
 // firmware/esp32/web/test/fake_tank.py on :8765. A touch device (pointer: coarse, faked here through
-// sessionStorage "coarse") starts Sunny, a mouse starts the cockpit; the header button flips and remembers.
+// sessionStorage "coarse") starts Sunny, a mouse starts the cockpit; the top bar's look button flips and remembers (R29).
 async (page) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => {
@@ -17,11 +17,11 @@ async (page) => {
   await q(() => sessionStorage.setItem("coarse", "1")); await page.reload();
   out.touch = await look();                                   // play, rgb(255, 248, 236), STOP rgb(232, 56, 46)
   out.noHScroll = await q(() => document.scrollingElement.scrollWidth <= innerWidth);  // true in Sunny on a phone
-  await page.click("#themeBtn");
+  await page.click("#lookBtn");
   out.flipped = await look();                                 // cockpit
   await page.reload();
   out.remembered = await look();                              // cockpit, though a touch device
-  await page.click("#themeBtn"); await page.reload();
+  await page.click("#lookBtn"); await page.reload();
   out.back = await look();                                    // play
   out.saved = await q(() => localStorage.getItem("cq_theme"));  // play
   out.pass = out.mouse.theme === "cockpit" && out.mouse.bg === "rgb(5, 8, 5)" && out.mouse.stop === "rgb(255, 59, 48)" &&

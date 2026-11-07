@@ -61,9 +61,9 @@ async (page) => {
     const d = document.getElementById("v1").getContext("2d").getImageData(Math.round(r.x + r.w / 2), Math.round(r.y), 1, 1).data;
     return [d[0], d[1], d[2]]; });
   const edgeBefore = await edge();
-  await page.click("#themeBtn"); await page.waitForTimeout(100);
+  await page.click("#lookBtn"); await page.waitForTimeout(100);
   out.boxFlip = JSON.stringify(await edge()) !== JSON.stringify(edgeBefore);         // true
-  await page.click("#themeBtn"); await page.waitForTimeout(100);
+  await page.click("#lookBtn"); await page.waitForTimeout(100);
   out.say = await q(() => document.getElementById("say").textContent);  // Ready to play!
   out.things = await q(() => document.getElementById("things").textContent);  // [ TOY ][ BALL ]
   await page.click("#find"); await page.waitForTimeout(300);

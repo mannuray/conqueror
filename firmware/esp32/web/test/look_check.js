@@ -3,7 +3,8 @@
 // (computed colours, shadows, fonts, background images, corner radii, ::before / ::after) with the same page from the baseline commit 5521b22 (before any look change),
 // served by a second stand-in on :8766:  git worktree add --detach ../look-base 5521b22 &&
 // (cd ../look-base/firmware/esp32 && python3 web/test/fake_tank.py 8766). A mismatch is looked at again once (live
-// pages can be caught mid-update). Elements Plan Sunny adds carry data-look-skip. Then the Sunny checks.
+// pages can be caught mid-update). Elements Plan Sunny adds carry data-look-skip; the top bar (Plan Top Bar, R29) is
+// left out on both sides. Then the Sunny checks.
 async (tab) => {
   const page = await tab.context().newPage();  // a fresh tab: no init scripts left by other checks
   // the tank's socket never opens and never drops: no reconnect cycle changing chips and log lines mid-compare
@@ -21,7 +22,10 @@ async (tab) => {
         "background-image", "border-top-left-radius", "border-bottom-right-radius", "display"];
       const out = [];
       for (const el of document.querySelectorAll("body *")) {
-        if (el.closest("[data-look-skip]")) continue;
+        // Plan Top Bar (R29): the top bar changed on purpose - each page's header (the drive page's top-right row, STOP and
+        // old menu sheet) and the bar's menu are left out on both sides
+        if (el.closest("[data-look-skip], header, #cqMenu, #cqDim, nav#menu, .rchips, #stop, #dim, #menuSheet, #stopMsg")) continue;
+        if (el.hasAttribute("data-look-wrap")) continue;  // a wrapper the bar needed (Help's main): its contents are still compared
         for (const pseudo of [null, "::before", "::after"]) {
           const cs = getComputedStyle(el, pseudo);
           if (pseudo && cs.content === "none") continue;
@@ -60,9 +64,9 @@ async (tab) => {
   S.driveTitle = await css(".stick .ttl", "text-shadow");  // final review I3: a white halo, readable on the video
   const caret = () => pixel("#hdgTape", 0.5, 0.92);
   const caretSunny = await caret();
-  await page.click("#menuBtn"); await page.click("#miLook"); await page.waitForTimeout(100);
+  await page.click("#lookBtn"); await page.waitForTimeout(100);
   S.driveFlip = [await theme(), caretSunny !== await caret()];                                   // cockpit, the caret redrawn
-  // /logo: the page, STOP, the code font stays fixed-width, LOOK in the ☰ menu flips, the path is redrawn
+  // /logo: the page, STOP, the code font stays fixed-width, the bar's look button flips, the path is redrawn
   await open("/logo", 1440, 900);
   S.logo = [await css("body", "background-color"), await css("#stop", "background-color"), await css("#src", "font-family")];
   S.logoRunInk = await css("#run", "color");  // final review I2: navy on orange (white was 2.5:1)
@@ -74,7 +78,7 @@ async (tab) => {
   const pathPx = () => q(() => { const c = document.getElementById("path"), g = c.getContext("2d"), d = g.getImageData(0, 0, c.width, c.height).data;
     let h = 0; for (let i = 0; i < d.length; i += 97) h = (h * 31 + d[i]) >>> 0; return h; });
   const pathSunny = await pathPx();
-  await page.click("#mbtn"); await page.click("#miLook"); await page.waitForTimeout(100);
+  await page.click("#lookBtn"); await page.waitForTimeout(100);
   S.logoFlip = [await theme(), pathSunny !== await pathPx()];                                    // cockpit, redrawn
   // /settings: the page, the header button flips, the Tune graph is redrawn in the new colours
   await open("/settings", 390, 844);
@@ -83,10 +87,10 @@ async (tab) => {
   const gridPx = () => q(() => { const c = document.getElementById("gCan"), d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
     let h = 0; for (let i = 0; i < d.length; i += 53) h = (h * 31 + d[i]) >>> 0; return h; });
   const gridSunny = await gridPx();
-  await page.click("#themeBtn"); await page.waitForTimeout(150);
+  await page.click("#lookBtn"); await page.waitForTimeout(150);
   S.settingsFlip = [await theme(), gridSunny !== await gridPx()];                                  // cockpit, redrawn
   S.settingsTitle = await q(() => { const r = (s) => document.querySelector(s).getBoundingClientRect();
-    return r(".top h1").top === r(".top a").top && r("#themeBtn").left > r(".top h1").right; });   // one row: DRIVE … TITLE [look]
+    return Math.abs(r(".top h1").top + r(".top h1").height / 2 - r("#lookBtn").top - 22) < 4 && r("#lookBtn").left > r(".top h1").right; });  // one row: TITLE … [look][menu][STOP] (R29)
   // /help: follows the choice, no switch of its own, code stays fixed-width, no title glow
   await open("/help", 390, 844);
   S.help = [await css("body", "background-color"), await q(() => !document.getElementById("themeBtn") && !document.getElementById("miLook")),
@@ -96,9 +100,9 @@ async (tab) => {
   const look = async (p) => { await page.goto("http://127.0.0.1:8765" + p); await page.waitForTimeout(300); return theme(); };
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("http://127.0.0.1:8765/logo"); await q(() => localStorage.setItem("cq_theme", "cockpit")); await page.reload();
-  await page.click("#mbtn"); await page.click("#miLook");
+  await page.click("#lookBtn");
   S.allPlay = []; for (const p of PAGES) S.allPlay.push(await look(p));                           // play ×5
-  await page.goto("http://127.0.0.1:8765/settings"); await page.click("#themeBtn");
+  await page.goto("http://127.0.0.1:8765/settings"); await page.click("#lookBtn");
   S.allCockpit = []; for (const p of PAGES) S.allCockpit.push(await look(p));                     // cockpit ×5
   await q(() => localStorage.setItem("cq_theme", "junk"));
   S.junk = await look("/help");                                                                   // cockpit
@@ -114,7 +118,7 @@ async (tab) => {
   await priv.addInitScript(() => { Object.defineProperty(window, "localStorage", { get() { throw new Error("private"); } }); });
   await priv.goto("http://127.0.0.1:8765/settings"); await priv.waitForTimeout(300);
   const t0 = await priv.evaluate(() => document.documentElement.dataset.theme);
-  await priv.click("#themeBtn");
+  await priv.click("#lookBtn");
   S.private = [t0, await priv.evaluate(() => document.documentElement.dataset.theme)];            // cockpit, play
   await priv.close();
   // final review minors: one Sunny HUD value (M1); Sunny's shape and no cockpit effects (M2); the browser bar follows
@@ -132,7 +136,7 @@ async (tab) => {
   await open("/", 844, 390);
   M.drive = [await css("#menuBtn", "border-top-left-radius"), await css(".pad", "box-shadow"), await css("#hdgVal", "font-variant-numeric"),
     await q(() => document.querySelector("meta[name=theme-color]").content)];
-  await page.click("#menuBtn"); await page.click("#miLook"); await page.waitForTimeout(100);
+  await page.click("#lookBtn"); await page.waitForTimeout(100);
   M.driveCockpitMeta = await q(() => document.querySelector("meta[name=theme-color]").content);  // #050805
   const minorsOk = M.hud === "rgba(255,255,255,.88)" &&
     M.settings.join("|") === "none|none|18px|12px|#fff8ec" &&

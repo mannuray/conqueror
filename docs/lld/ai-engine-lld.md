@@ -3254,3 +3254,12 @@ classDiagram
 - `test_the_quick_planner_is_at_least_twice_as_quick`: on the same maps and the same machine, at least 2× quicker
   than the reference (a ratio, so a busy machine does not fail it).
 - `test_route_is_quick` (20 ms) stays as it is.
+
+### 27.5 As built (2026-11-08, branch `plan-z12-route`)
+- `_Grid`: `w = g + 2`, `padded` (the factors with a closed border, a flat list), `steps` (offset, length × cell size, in `STEPS`' order), `pad` / `unpad`, `search_from` (replaces `factors_from`), `octile_from(t, k2)` - A*'s h for every padded cell at once, with numpy (the same products and sums as one by one, so the same floats). The `nbrs` of §27.3 became `steps` (the loops never need di, dj).
+- `route`: without a reach, h comes from `octile_from` and arriving is `cur == ti`; with a reach (`near_m > 0`), each cell's h is worked out with `math.hypot` the first time it is pushed and kept, and "within reach" is exactly "h is 0" (`max(0, d - reach) == 0` iff `d <= reach`).
+- `nearest` and `costs` share one `_dijkstra(grid, s, accept)`.
+- Tried and undone: the step cost (length × factor) worked out once per grid - no gain (2.13x vs 2.15x), more code.
+- **Measured** (M1, load 26-69, the two planners in turns, the best of 5): the whole test workload 0.70 s vs 1.51 s, **2.1-2.2x**; by kind: routes without a reach ~2.9x, with a reach ~2.6x, `costs` ~2.6x (one sequential run); `test_route_is_quick`'s slowest route **5.5-9.6 ms** (today's planner 16-22 ms on the same load; the bound 20 ms).
+- **The whole suite (load ~120):** 924 passed, 1 failed - `test_explore_picks_quickly_by_searching_outward` (5 ms for explore's first pick, the grid built in it); it passes alone (3 of 3 after one fail at load 126). The first pick measured 1.8-2.6 ms median with the quick planner vs 2.3-3.6 ms with today's; the worst picks 5-11 ms for both at that load - the machine, not the planner (as §220's route test).
+- **Owner (2026-11-08):** the speed test checks **at least 1.8x** (`test_the_quick_planner_is_about_twice_as_quick`): 2.0 would fail by chance on a busy machine. Identical routes, nearest cells and costs on 30 random maps (`test_the_quick_planner_gives_todays_routes`).

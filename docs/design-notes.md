@@ -3382,3 +3382,13 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   call). The same matters on the tank: depth and the detector share the CPU while it drives. Change: flat lists
   over a grid padded with closed cells, neighbour offsets worked out once, the heuristic inline - **the same routes,
   costs and nearest cells exactly** (a test compares against today's planner on random maps), no new library.
+- **Built (2026-11-08, branch `plan-z12-route`):** the same routes, costs and nearest cells on 30 random maps;
+  **2.1-2.2x** quicker over the test workload (pure Python's limit here - a compiled library would be a new
+  dependency and could pick a different equally cheap route); the slowest route of `test_route_is_quick` 5.5-9.6 ms
+  under load (was 16-22 ms). **Owner: the speed test's bar 1.8x** (2.0 would fail by chance). AI engine LLD §27.5.
+- **Kept for later (owner, 2026-11-08: "keep it in note, speed is good in robotics"):** the next step is a compiled
+  search (numba, scipy's csgraph, or a few lines of C / Rust) - typically 20-100x quicker than Python's loop, since
+  each step then costs nanoseconds instead of the interpreter's ~50-100 ns. Not now: routes are 5.5-9.6 ms at worst
+  under load, it is a new dependency, and an equally cheap route picked differently breaks `cq-drive --replay`'s
+  decision-for-decision replays - so it must keep today's tie order. Revisit for a bigger map (a whole house at
+  10 cm), a faster decision loop, or a slower computer (a Pi on the tank).

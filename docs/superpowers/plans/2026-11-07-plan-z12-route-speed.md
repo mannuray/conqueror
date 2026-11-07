@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `RoutePlanner` at least 2× quicker with exactly today's routes, costs and nearest cells.
+**Goal:** `RoutePlanner` about 2× quicker (the test: at least 1.8×, owner 2026-11-08) with exactly today's routes, costs and nearest cells.
 
 **Architecture:** the search loops in `domain/drive/route.py` run on flat lists over a grid padded with closed cells, with neighbour offsets worked out once; today's planner stays as a test-only reference to compare against.
 
@@ -28,7 +28,7 @@
 ### Task 1: the reference and the comparison tests
 **Files:** create `ai-engine/tests/route_reference.py` (today's `RoutePlanner` search code, verbatim, as `ReferencePlanner`, reusing `_Grid`'s factor); `ai-engine/tests/test_drive_route.py`.
 - [ ] Copy today's `route` / `nearest` / `costs` into `ReferencePlanner` (pyright strict clean).
-- [ ] `test_the_quick_planner_gives_todays_routes` (30 seeded maps, the cases of LLD §27.4) and `test_the_quick_planner_is_at_least_twice_as_quick` (sum over the same 20 × 30 routes, ratio ≥ 2).
+- [ ] `test_the_quick_planner_gives_todays_routes` (30 seeded maps, the cases of LLD §27.4) and `test_the_quick_planner_is_at_least_twice_as_quick` (the same routes, ratio ≥ 1.8 - owner 2026-11-08; designed as ≥ 2).
 - [ ] Run: the comparison passes (both are today's code), the speed test FAILS (ratio ~1).
 - [ ] Commit `test(ai): today's route planner as a reference; the quick planner must match it (AI engine LLD §27.4)`.
 

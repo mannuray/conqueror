@@ -1585,3 +1585,89 @@ sequenceDiagram
 - **Why:** lessons 4 and 5 end their happy path with `STOP` ("you found me"); the page then said "Ended (7040) on line 3: Stopped by you." - an error, after the child won.
 - **Change:** the runner ends a program that reaches the `STOP` word as **finished** (code 0, the page shows "Done"), exactly like a program that runs to its end; every ending already stops the tank and gives the drive back (`LogoController`), so nothing about stopping changes. **7040 "Stopped by you." stays for the STOP key** (the page's button, the phone's STOP, a skill ended by STOP).
 - **Where:** `RunController` (`VmStatus::kStop` → `end(0)`); `running.yaml` "STOP ends the program" and lesson 4's two cases now end `finished`; `test_logo_run` `test_stop_word_ends_as_done`. Spec 5 §12.5 ("STOP ends the whole program and stops the tank") still holds.
+
+## 26. Revision N9 — `LAUNCH`: a second part that runs alongside (owner 2026-11-07, design-notes §219 — draft for review)
+
+### 26.1 Why
+- Lesson 5 (hot and cold hunt) had to go "WANDER 2, stop, listen, WANDER 2": a program does one thing at a time, so it cannot beep while WANDER drives. On the floor (2026-11-07, room9) each `WANDER 2` stood 1 s and drove ~1 s - the tank moved one second in three, stop-and-go. Owner: "let's do C (two things at once) - why test something that we will discard".
+- **Decided (owner):** a launched part may never move the tank: **only the main program moves the tank.**
+
+### 26.2 The word
+| Word | Kind | Inputs | Level | Does |
+|---|---|---|---|---|
+| `LAUNCH` | command | block | 2 | starts the block as a **second part** that runs alongside the main program; the main program goes on at once |
+
+```
+TO LISTEN :cm
+  IFELSE :cm < 0 [ WAIT 0.5 ] [
+    IFELSE :cm < 50 [ SOUND SUCCESS SAY [ found you ] STOP ] [ BEEP WAIT :cm / 200 ]
+  ]
+END
+LAUNCH [ FOREVER [ LISTEN HOWFAR "ball ] ]
+AREA 2
+WANDER 120
+```
+
+### 26.3 Rules
+1. **Only the main program moves the tank.** Inside a `LAUNCH` block, and in every word of your own it calls (followed through), no word that moves the tank or its camera or sets where it may go: the `move` / `turn` groups (`FORWARD` … `PIVOT`, `GO`, `HOLD`, `HOME`, `SPEED`), `LOOK`, and the AI action words (`FIND`, `WANDER`, `EXPLORE`, `SETXY`, `AREA`). The checker refuses it before the run: **7057** "{word} moves the tank - only the main program can do that, not LAUNCH." (line and column of the word; through a word of your own: at that word's call inside the block).
+2. **Allowed inside:** sounds (`BEEP`, `SOUND`, `PLAY`), `LED`, `SAY`, `WAIT` / `WAIT UNTIL`, control (`REPEAT`, `FOREVER`, `IF`, `IFELSE`, `WHILE`, words of your own), every reporter including `SEE?`, `HOWFAR`, `DISTANCE`, `TIMER`, and `STOP`.
+3. **One launched part at a time.** A `LAUNCH` while one runs ends the program with **7058** "Only one LAUNCH can run at a time." (run time, its line).
+4. **Endings:** the launched part ending on its own is fine (the main goes on). The main program ending ends the launched part (the program is finished). `STOP` in either part ends **both**, as done (§25.6). A run-time error in either ends both with that error and its line. The STOP key, the run limit (7041), the deadman and every safety stop end both as today.
+5. **Turns:** the runner gives each part a slice in turn; a part waiting (a motion, a skill, a `WAIT`, a question's answer, a tune) lets the other run. No shared state: Tank Logo v1 has no global variables, only words' inputs.
+6. **Sounds:** one buzzer - a sound from either part replaces the one playing (as on the tank today).
+7. **STEP:** stepping is the main program's; while the main is paused the launched part is paused too.
+8. **The planned path** (`Simulator`) ignores the launched part: it cannot move the tank.
+
+### 26.4 Runner (ESP32)
+- `Compiler`: the `LAUNCH` block is compiled as its own code entry; `LAUNCH` becomes `OP_LAUNCH <entry>`.
+- `Vm`: unchanged per part; the `RunController` holds **two** `Vm`s over one `Program` (main, launched), each with its own pending effect (`m_pending[2]`), wait timer and question; `OP_LAUNCH` starts the second at the entry (7058 if it runs).
+- Each `tick`: run the main part's slice unless it waits; then the launched part's unless it waits; an ending in either ends both. The launched part never produces a motion effect (the checker guarantees it; the runner also refuses one, 7057, as a guard).
+- Events to the page: `logo_line` gains `part` (0 main, 1 launched); `logo_ended` unchanged.
+- Memory: a second `Vm` (its stacks) - measured in the plan.
+
+```mermaid
+classDiagram
+  class Compiler { +compile(ast) Program  LAUNCH block -> own entry, OP_LAUNCH }
+  class Checker { +check(ast, caps)  7057 motion inside LAUNCH (followed through words) }
+  class Vm { +start(entry) +run(budget, sensors) VmStatus }
+  class RunController {
+    -Vm m_vm[2]
+    -Pending m_pending[2]
+    +tick(telem, now) RunOut
+    -slice(part) 
+  }
+  class LogoPage { +line marker per part }
+  RunController --> Vm : main, launched
+  Compiler --> Vm : Program, entries
+  Checker ..> Compiler : checked first
+  RunController --> LogoPage : logo_line part
+```
+
+```mermaid
+sequenceDiagram
+  participant M as main part
+  participant L as launched part
+  participant R as RunController
+  participant E as engine
+  M->>R: LAUNCH [ ... ]  (part 1 starts)
+  M->>R: WANDER 120 (skill: waits)
+  loop while WANDER drives
+    L->>R: HOWFAR "ball (question)
+    R->>E: skill_ask
+    E-->>R: 85 cm
+    L->>R: BEEP, WAIT 0.4
+  end
+  L->>R: SOUND SUCCESS, SAY, STOP
+  R->>R: end both (done); the skill's lease ends, the tank stops
+```
+
+### 26.5 Tests
+- **Reading / checking** (`logo/spec/tests/`): `LAUNCH [ BEEP ]` fine; `LAUNCH [ FORWARD 10 ]` → 7057 at FORWARD; a word of your own with `WANDER` called inside `LAUNCH` → 7057 at the call; `LAUNCH [ LOOK LEFT ]` → 7057; `LAUNCH` with no block → 7002.
+- **Running** (`running.yaml`, the fake world): `LAUNCH [ BEEP BEEP ]  FORWARD 50` → `does` interleaved as the runner takes turns (exact order pinned by the test); `LAUNCH [ FOREVER [ BEEP WAIT 1 ] ]  WAIT 2.5` → beeps while the main waits, finished at 2.5 s; `LAUNCH [ STOP ]  FOREVER [ WAIT 1 ]` → finished; `LAUNCH [ BEEP ] LAUNCH [ BEEP ]` → 7058; lesson 5 rewritten (HOWFAR answers 120, 80, 30 during `WANDER`) → beeps, the tune, "found you", finished, the skill ended.
+- **Native:** two `Vm`s fit (sizes printed); the guard refuses a motion effect from part 1.
+- **Page (`logo.test.js`):** a `logo_line` with `part: 1` marks the second line, not the main one.
+- **Generated files** regenerated by `logogen write`, never edited.
+- **Floor (owner):** lesson 5 with LAUNCH - smooth wandering while it beeps; STOP during it.
+
+### 26.6 Lesson 5 changes
+`hot_and_cold_hunt` becomes the program in §26.2 (`WANDER 120` with a launched listener) and its comment teaches the new word: "LAUNCH starts a second part that runs alongside - it may beep and ask, but only the main program moves the tank." The `Try this:` line: "change 50 to 80 - it says found from further away".

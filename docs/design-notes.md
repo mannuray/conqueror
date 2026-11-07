@@ -3240,3 +3240,14 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   "!" inside SAY (lesson 1 says "going back now"). Tank check pending (flash over OTA, then each lesson).
 - **Final review (Opus) and the owner's call (2026-11-06, "yes"):** I1 - the happy ending of lessons 4 / 5 said
   "Stopped by you." (7040): the STOP word now ends a program as done; the STOP key keeps 7040 (Tank Logo LLD §25.6).
+
+## 219. Two things at once: `LAUNCH` (owner, 2026-11-07: lesson 5 was stop-and-go - "let's do C, why test something that we will discard"; "only the main program moves the tank")
+- **Found (room9, lesson 5 with the toy):** six `WANDER 2` rounds, each 1.0 s standing (the skill's start stand) and
+  ~1 s driving, then the listen pause - the tank drove ~1 s in 3. Options put: A `WANDER 5` in the lesson, B skip the
+  start stand between back-to-back words, C two things at once in Tank Logo. **Owner: C.**
+- **Design (Tank Logo LLD §26, branch `plan-n9-launch`):** `LAUNCH [ block ]` starts a second part alongside the
+  main program; only the main program moves the tank (7057 at check time for a motion, camera or AI action word in
+  the block, followed through words of your own); one launched part at a time (7058); STOP in either ends both as
+  done; the runner takes turns; lesson 5 becomes `LAUNCH [ FOREVER [ LISTEN HOWFAR "ball ] ]  AREA 2  WANDER 120`.
+- **My calls:** level 2; `LOOK` and `AREA` count as moving (the camera and the area belong to the main program and
+  its skills); STEP pauses both; one buzzer, the newest sound wins. B (skip the start stand) left for later.

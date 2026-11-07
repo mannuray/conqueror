@@ -17,10 +17,12 @@ async (page) => {
     }
     async function frame() {
       const cam = await jpeg(320, 240, "#4080c0"), dep = await jpeg(160, 120, "#00ff00");
-      const head = new TextEncoder().encode(JSON.stringify({ seq: 1, t_ms: 1000, boxes: [["toy", 0.91, 100, 100, 300, 300]], cam: cam.length, depth: dep.length }));
-      const b = new Uint8Array(4 + head.length + cam.length + dep.length);
+      const marks = new Uint8Array(4 * 3).fill(2);  // R33: a class picture, all low (red)
+      const head = new TextEncoder().encode(JSON.stringify({ seq: 1, t_ms: 1000, boxes: [["toy", 0.91, 100, 100, 300, 300]], cam: cam.length, depth: dep.length, marks: [4, 3] }));
+      const b = new Uint8Array(4 + head.length + cam.length + dep.length + marks.length);
       new DataView(b.buffer).setUint32(0, head.length);
       b.set(head, 4); b.set(cam, 4 + head.length); b.set(dep, 4 + head.length + cam.length);
+      b.set(marks, 4 + head.length + cam.length + dep.length);
       return b.buffer;
     }
     class FakeWS {
@@ -56,8 +58,17 @@ async (page) => {
   await page.goto("http://127.0.0.1:8765/ai"); await page.waitForTimeout(1200);
   const lit = (id) => q((id) => { const c = document.getElementById(id), d = c.getContext("2d").getImageData(10, 10, 1, 1).data; return [d[0], d[1], d[2]]; }, id);
   out.view1 = await lit("v1");                                          // the blue picture
-  out.view2 = await lit("v2");                                          // the picture under green depth: more green
-  out.drawn = out.view1[2] > 120 && out.view2[1] > out.view1[1] + 40;   // true
+  out.view2 = await lit("v2");                                          // R33: MARKS by default - the low marks red over it
+  out.head2 = await q(() => document.getElementById("v2Head").textContent);  // VIEW B // WHAT IT SEES
+  await page.selectOption("#layer", "depth"); await page.waitForTimeout(100);
+  out.depth2 = await lit("v2");                                         // the picture under green depth: more green
+  out.depthHead = await q(() => document.getElementById("v2Head").textContent);  // VIEW B // DEPTH MAP
+  out.savedLayer = await q(() => localStorage.getItem("cq_ai_layer"));  // depth
+  await page.selectOption("#layer", "marks"); await page.waitForTimeout(100);
+  out.stale2 = await lit("v2");                                         // marks older than 0.5 s: the bare picture
+  out.drawn = out.view1[2] > 120 && out.view2[0] > out.view1[0] + 60 && out.head2 === "VIEW B // WHAT IT SEES" &&
+    out.depth2[1] > out.view1[1] + 40 && out.depthHead === "VIEW B // DEPTH MAP" && out.savedLayer === "depth" &&
+    Math.abs(out.stale2[0] - out.view1[0]) < 10;                        // true
   // Plan Sunny (R28): the box over the picture takes its colour from the CSS and is redrawn when the look flips.
   const edge = () => q(() => { const r = AiCore.boxRect(["toy", 0.91, 100, 100, 300, 300], 320, 240);
     const d = document.getElementById("v1").getContext("2d").getImageData(Math.round(r.x + r.w / 2), Math.round(r.y), 1, 1).data;

@@ -12,8 +12,9 @@ import pytest
 
 from conqueror_ai.domain.drive.costmap import CostMap
 from conqueror_ai.domain.drive.limits import Limits
-from conqueror_ai.domain.drive.route import RoutePlanner, aim_point
+from conqueror_ai.domain.drive.route import XY, RoutePlanner, aim_point
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
+from tests.route_reference import ReferencePlanner
 
 HALF_W = Limits().body_half_w_m  # a route keeps the tank's centre this far from known obstacles (Plan Z6)
 
@@ -183,3 +184,74 @@ def test_routes_are_closed_by_the_bodys_own_width() -> None:
     gap = CostMap(corridor(0.225))
     assert RoutePlanner(Limits()).route(gap, (0.0, 0.0), (2.5, 0.0)) is not None
     assert RoutePlanner(Limits(body_half_w_m=0.16)).route(gap, (0.0, 0.0), (2.5, 0.0)) is None
+
+
+def _random_map(rng: random.Random) -> tuple[CostMap, list[tuple[float, float]]]:
+    """A room of boxes and a wall or two, some floor unseen; returns the cost map and its box corners."""
+    pts: list[tuple[float, float]] = []
+    corners: list[tuple[float, float]] = []
+    for _ in range(rng.randint(5, 40)):
+        x, y = rng.uniform(-3.5, 3.0), rng.uniform(-3.5, 3.0)
+        pts += box(x, y, x + rng.uniform(0.1, 0.5), y + rng.uniform(0.1, 0.5))
+        corners.append((x, y))
+    for _ in range(rng.randint(0, 2)):
+        x = rng.uniform(-3.0, 3.0)
+        pts += box(x, -3.9, x + 0.05, rng.uniform(-1.0, 3.0))
+    ux, uy = rng.uniform(-3.0, 2.0), rng.uniform(-3.0, 2.0)
+    return CostMap(snap(pts, box(ux, uy, ux + 1.0, uy + 1.0))), corners
+
+
+def _queries(rng: random.Random, corners: list[tuple[float, float]]) -> list[tuple[XY, XY, bool, float]]:
+    def anywhere() -> XY:
+        return (rng.uniform(-3.9, 3.9), rng.uniform(-3.9, 3.9))
+
+    qs = [(anywhere(), anywhere(), rng.random() < 0.3, rng.choice([0.0, 0.0, 0.4])) for _ in range(20)]
+    qs.append((corners[0], anywhere(), False, 0.0))  # the start inside a mark
+    qs.append((anywhere(), corners[-1], True, 0.0))  # the goal on a mark, allowed
+    qs.append((anywhere(), corners[-1], False, 0.0))  # the goal on a mark, not allowed
+    qs.append((anywhere(), (50.0, 0.0), False, 0.0))  # an end off the map
+    return qs
+
+
+def test_the_quick_planner_gives_todays_routes() -> None:
+    """Plan Z12 (LLD §27.4): exactly today's routes, nearest cells and costs, not just equally cheap ones."""
+    rng = random.Random(12)
+    for _ in range(30):
+        c, corners = _random_map(rng)
+        new, ref = RoutePlanner(), ReferencePlanner()
+        for a, b, ok, near in _queries(rng, corners):
+            assert new.route(c, a, b, ok, near) == ref.route(c, a, b, ok, near)
+        a = (rng.uniform(-3.9, 3.9), rng.uniform(-3.9, 3.9))
+        for every in (97, 13):
+
+            def accept(i: int, j: int, every: int = every) -> bool:
+                return (i * 31 + j * 17) % every == 0
+
+            assert new.nearest(c, a, accept) == ref.nearest(c, a, accept)
+        assert np.array_equal(new.costs(c, a), ref.costs(c, a))
+        assert np.array_equal(new.costs(c, corners[0]), ref.costs(c, corners[0]))
+
+
+def test_the_quick_planner_is_at_least_twice_as_quick() -> None:
+    """Plan Z12 (LLD §27.4): a ratio on the same machine, so a busy machine does not fail it."""
+    rng = random.Random(21)
+    work: list[tuple[CostMap, list[tuple[XY, XY, bool, float]]]] = []
+    for _ in range(10):
+        c, corners = _random_map(rng)
+        work.append((c, _queries(rng, corners)))
+
+    def run(p: RoutePlanner | ReferencePlanner) -> float:
+        t = time.perf_counter()
+        for c, qs in work:
+            for a, b, ok, near in qs:
+                p.route(c, a, b, ok, near)
+            p.costs(c, qs[0][0])
+        return time.perf_counter() - t
+
+    new, ref = RoutePlanner(), ReferencePlanner()
+    for p in (new, ref):  # build each grid once (cached per cost map) before timing
+        run(p)
+    t_new = min(run(new) for _ in range(3))
+    t_ref = min(run(ref) for _ in range(3))
+    print(f"quick {t_new * 1000:.0f} ms, today's {t_ref * 1000:.0f} ms, {t_ref / t_new:.2f}x")
+    assert t_ref / t_new >= 2.0

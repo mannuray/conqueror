@@ -3312,3 +3312,5 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   5 with LAUNCH wandered smoothly (2 min, 21.9 m) but HOWFAR said "not seen" ~220 times - the questions answered
   only from confirmed things, the feed draws every detection. Decided ("write it and build it"): SEE? / HOWFAR also
   count single sightings of the last 0.5 s (AI engine LLD §25.9, Plan Z10c); a false sighting may beep for a moment.
+- **Built and floor-checked (Plan Z10c, 2026-11-07):** lesson 5 (LAUNCH + HOWFAR "toy) with the area off found the
+  toy in 9.3 s - HOWFAR answered from single sightings while it wandered (12 answers under 1.5 m, then under 50 cm).

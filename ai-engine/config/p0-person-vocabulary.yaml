@@ -1,0 +1,6 @@
+# Spec 10 phase 0 (Plan P0) only: YOLO-World asked for a person in the wordings a crawling one may need. Exported
+# to its own model (ai-engine/models/p0/, never the engine's): cd tools/measure && uv run python export_world.py
+#   --vocabulary ../../ai-engine/config/p0-person-vocabulary.yaml --out ../../ai-engine/models/p0
+# The engine's own vocabulary (vocabulary.yaml) and its person rules are not changed.
+words:
+  - {word: person, floor: true, also: [crawling person, baby]}

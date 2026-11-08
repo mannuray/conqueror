@@ -3401,3 +3401,7 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
     them inside 50 cm. **My calls (spec 10 S8-S12):** game mode covers every move of the program; after a catch a
     fixed 50 cm release for 2 s; grabbed = stall / pushing-not-moving / no motion for a commanded move; cornered =
     stay still facing them; the engine lost mid-game = the bridge holds all motion until STOP.
+  - **Phase 0 planned (owner: "yes"):** `docs/superpowers/plans/2026-11-08-plan-p0-person-seeing.md` - a
+    measurement command `cq-person-test record | score`, nothing drives (only the camera's two tilts), the owner
+    crawling at taped marks 0.3-2 m ahead and 30° right, YOLO26n and YOLO-World scored separately against the bar;
+    pictures stay local. Spec 10 S5 corrected: `person_guard` drops other boxes inside a person, not the person box.

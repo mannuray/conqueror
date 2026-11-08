@@ -3405,3 +3405,11 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
     measurement command `cq-person-test record | score`, nothing drives (only the camera's two tilts), the owner
     crawling at taped marks 0.3-2 m ahead and 30° right, YOLO26n and YOLO-World scored separately against the bar;
     pictures stay local. Spec 10 S5 corrected: `person_guard` drops other boxes inside a person, not the person box.
+  - **P0 tool built (2026-11-08, branch `plan-p0-person`):** `cq-person-test record | score` (`app/person_test.py`,
+    scoring in `domain/person_test.py`), 15 tests. Rulings: the front edge read from the calibration
+    (`track_front_m` 0.13, the same as `Limits.body_front_m`); `score` applies the engine's own depth-floor tilt
+    fix (the camera's real tilt drifts 0.7-4° between power-ons - without it the test would grade the servo, not
+    the engine; `--no-depth` to compare); YOLO-World is scored twice - the engine's model (`person`) and a P0-only
+    model asked `person` / `crawling person` / `baby` (`config/p0-person-vocabulary.yaml`, exported to the
+    git-ignored `ai-engine/models/p0/`; the engine's vocabulary and person rules unchanged); the camera prompt waits
+    for Enter before each of the two tilt moves.

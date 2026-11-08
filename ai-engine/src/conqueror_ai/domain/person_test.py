@@ -19,7 +19,7 @@ DIR_TOL_DEG = 5.0
 SONAR_TOL_M = 0.10
 CAMERA_FROM_M = 0.5  # nearer marks are the sonar's case: reported, not scored for the camera
 SONAR_UP_TO_M = 0.5
-CUT_PX = 1.0  # a box whose bottom is this near the picture's bottom edge is cut, not standing on the floor
+CUT_PX = 4.0  # a box whose bottom is this near the picture's bottom edge is cut, not standing on the floor
 
 
 @dataclass(frozen=True)
@@ -91,7 +91,9 @@ def _dist_ok(tape_m: float, d: float) -> bool:
 def score_mark(
     mark: Mark, per_picture: Sequence[PersonRange | None], sonar_mm: Sequence[int | None]
 ) -> MarkScore:
-    """One mark against the bar. per_picture: the picked person per scored picture (None: no person seen)."""
+    """One mark against the bar. per_picture: the picked person per scored picture (None: no person seen).
+    A crawling mark is graded on seen and distance only: crawling across the mark moves the person
+    sideways, so its direction and the sonar are reported, not graded (P0 review I2)."""
     n = len(per_picture)
     got = [r for r in per_picture if r is not None]
     ranged_ok = sum(1 for r in got if r.dist_m is not None and _dist_ok(mark.tape_m, r.dist_m))
@@ -107,12 +109,12 @@ def score_mark(
             fails.append(f"seen {len(got)}/{n}")
         elif ranged_ok < SHARE * len(got):
             fails.append(f"distance {ranged_ok}/{len(got)}")
-        if got and dir_ok < SHARE * len(got):
+        if mark.still and got and dir_ok < SHARE * len(got):  # crawling across moves them sideways
             fails.append(f"direction {dir_ok}/{len(got)}")
     sonar_ok = sum(
         1 for mm in sonar_mm if mm is not None and abs(mm / 1000.0 - mark.tape_m) <= SONAR_TOL_M + 1e-9
     )
-    near_ahead = mark.tape_m <= SONAR_UP_TO_M + 1e-9 and mark.angle_deg == 0.0
+    near_ahead = mark.still and mark.tape_m <= SONAR_UP_TO_M + 1e-9 and mark.angle_deg == 0.0
     if near_ahead and (not sonar_mm or sonar_ok < SHARE * len(sonar_mm)):
         fails.append(f"sonar {sonar_ok}/{len(sonar_mm)}")
     return MarkScore(

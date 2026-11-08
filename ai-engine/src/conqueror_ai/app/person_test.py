@@ -18,6 +18,7 @@ import argparse
 import asyncio
 import contextlib
 import json
+import threading
 from collections.abc import Callable
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -44,14 +45,25 @@ from conqueror_ai.app.objects import (
 from conqueror_ai.app.record import NoView, record
 from conqueror_ai.domain.camera import Calibration, CameraModel, from_servo
 from conqueror_ai.domain.depth import Seeing
-from conqueror_ai.domain.person_test import Mark, PersonRange, person_range, pick_person, score_mark, verdict
+from conqueror_ai.domain.objects import MAYBE_SCORE
+from conqueror_ai.domain.person_test import (
+    Mark,
+    MarkScore,
+    PersonRange,
+    person_range,
+    pick_person,
+    score_mark,
+    verdict,
+)
 from conqueror_ai.domain.telemetry import parse_td
-from conqueror_ai.domain.types import Detection, Pose
+from conqueror_ai.domain.types import Detection, Frame, Pose
 
 DEFAULT_HOST = "192.168.31.167"
 DetectFn = Callable[[NDArray[np.uint8], CameraModel | None], list[Detection]]
 STILL_PICTURES = 10
 SETTLE_S = 0.5  # pictures this soon after the start or a camera move are not scored
+MOVED_DEG = 0.5  # a servo change beyond this is a camera move (smaller: jitter)
+COCO_CONF = 0.25  # YOLO26n's person boxes from this score (the plan)
 PERSON = "person"
 
 
@@ -73,8 +85,28 @@ def _say(mark: Mark) -> str:
         if mark.angle_deg == 0.0
         else f"on the {-mark.angle_deg:.0f}-degree line to the right"
     )
-    how = "stay still" if mark.still else "crawl slowly across the mark"
+    how = "stay still" if mark.still else "crawl slowly to and fro across the mark"
     return f"Crawl to {mark.tape_m:.1f} m {where}, hands on the tape, {how} - Enter to record, s to skip: "
+
+
+async def _ask(ask: Callable[[str], str], prompt: str) -> str:
+    """The prompt in a daemon thread: Ctrl-C while it waits ends the program at once (P0 review minor)."""
+    loop = asyncio.get_running_loop()
+    fut: asyncio.Future[str] = loop.create_future()
+
+    def run() -> None:
+        try:
+            answer = ask(prompt)
+        except BaseException as e:  # EOF, a closed terminal: passed to the waiting coroutine
+            err = e
+            with contextlib.suppress(RuntimeError):
+                loop.call_soon_threadsafe(lambda: fut.done() or fut.set_exception(err))
+            return
+        with contextlib.suppress(RuntimeError):  # the loop already gone
+            loop.call_soon_threadsafe(lambda: fut.done() or fut.set_result(answer))
+
+    threading.Thread(target=run, daemon=True).start()
+    return await fut
 
 
 async def _cam_tilt(host: str, ws_port: int, tilt_deg: float) -> None:
@@ -105,74 +137,129 @@ async def record_marks(
     ask: Callable[[str], str],
     still_s: float = 2.0,
     crawl_s: float = 4.0,
+    countdown_s: int = 3,
 ) -> list[str]:
-    """Each mark into folder/<mark id>/ (cq-record's files and mark.json). Returns the recorded marks' ids."""
+    """Each mark into folder/<mark id>/ (cq-record's files and mark.json, `complete` once recorded whole).
+    Returns the recorded marks' ids."""
     done: list[str] = []
     tilt: float | None = None
     for m in marks:
         if m.tilt_deg != tilt:
-            await asyncio.to_thread(
-                ask, f"The camera goes to {m.tilt_deg:.0f} degrees (only the camera moves) - Enter: "
-            )
+            await _ask(ask, f"The camera goes to {m.tilt_deg:.0f} degrees (only the camera moves) - Enter: ")
             await _cam_tilt(host, ws_port, m.tilt_deg)
             tilt = m.tilt_deg
-        if (await asyncio.to_thread(ask, _say(m))).strip().lower() == "s":
+        if (await _ask(ask, _say(m))).strip().lower() == "s":
             continue
+        for n in range(countdown_s, 0, -1):  # time to get into place after Enter (P0 review I3)
+            print(f"  {n}...", flush=True)
+            await asyncio.sleep(1.0)
         rec = SessionRecorder(folder / m.mid, {"what": "cq-person-test", "mark": m.mid})
-        (folder / m.mid / "mark.json").write_text(json.dumps(asdict(m)))
+        about = folder / m.mid / "mark.json"
+        about.write_text(json.dumps({**asdict(m), "complete": False}))
         link = BridgeLink(host, ws_port, client="p0-record")
         cam = MjpegSource(host, stream_port)
         await record(link, cam, rec, NoView(), seconds=SETTLE_S + (still_s if m.still else crawl_s))
+        about.write_text(json.dumps({**asdict(m), "complete": True}))
         done.append(m.mid)
     return done
 
 
-def _mark_of(path: Path) -> Mark:
+def _mark_of(path: Path) -> tuple[Mark, bool]:
     d = json.loads(path.read_text())
-    return Mark(
-        str(d["mid"]), float(d["tape_m"]), float(d["angle_deg"]), bool(d["still"]), float(d["tilt_deg"])
-    )
+    m = Mark(str(d["mid"]), float(d["tape_m"]), float(d["angle_deg"]), bool(d["still"]), float(d["tilt_deg"]))
+    return m, bool(d.get("complete", True))
 
 
-def _score_one(
-    mdir: Path, cal: Calibration, detectors: dict[str, DetectFn], seeing: Seeing | None, depth: DepthFn | None
-) -> dict[str, tuple[list[PersonRange | None], list[int | None]]]:
-    """Per detector: the picked person on each scored picture, and the sonar over the scored time."""
-    mark = _mark_of(mdir / "mark.json")
+def spread(n: int, k: int) -> list[int]:
+    """k indexes spread evenly over n (all of them when n <= k): still pictures over the whole window."""
+    if n <= k:
+        return list(range(n))
+    return [round(i * (n - 1) / (k - 1)) for i in range(k)]
+
+
+def kept_frames(
+    mdir: Path, cal: Calibration, seeing: Seeing | None, depth: DepthFn | None
+) -> list[tuple[Frame, CameraModel]]:
+    """The mark's pictures that are scored - from 0.5 s after the start and after any camera move - each with
+    its camera, the depth floor's tilt fix applied as the engine does; the fix is warmed up on the settle
+    window's pictures too (only while the camera is still)."""
     still0 = Pose(0, 0.0, 0.0, 0.0, 0.0, 0.0)  # the tank stays on its mark
     servo: tuple[float, float] | None = None
     t0: float | None = None
     moved_at = -1e9
     fix_deg = 0.0
-    sonar: list[int | None] = []
-    picks: dict[str, list[PersonRange | None]] = {name: [] for name in detectors}
+    out: list[tuple[Frame, CameraModel]] = []
     for e in replay(mdir):
         t0 = e.recv_s if t0 is None else t0
         if e.text is not None:
             s = parse_td(json.loads(e.text)) if e.text.startswith("{") else None
             if s is not None:
-                if servo is not None and (s.pan_deg, s.tilt_deg) != servo:
+                if (
+                    servo is not None
+                    and max(abs(s.pan_deg - servo[0]), abs(s.tilt_deg - servo[1])) > MOVED_DEG
+                ):
                     moved_at = e.recv_s
-                servo = (s.pan_deg, s.tilt_deg)
-                if e.recv_s >= t0 + SETTLE_S:
-                    sonar.append(s.dist_mm)
+                    servo = (s.pan_deg, s.tilt_deg)
+                elif servo is None:
+                    servo = (s.pan_deg, s.tilt_deg)
             continue
         f = e.frame
-        if f is None or servo is None or e.recv_s < max(t0 + SETTLE_S, moved_at + SETTLE_S):
-            continue
-        if mark.still and all(len(p) >= STILL_PICTURES for p in picks.values()):
-            continue
-        rgb = decode(f)
-        if rgb is None:
+        if f is None or servo is None or e.recv_s < moved_at + SETTLE_S:
             continue
         cam = CameraModel(cal).for_frame(still0, *from_servo(*servo))
-        if seeing is not None and depth is not None:  # the engine's own tilt fix from the depth floor
-            fix_deg = seeing.angle_only(cam, depth(rgb), f.cap_us).fix.tilt_fix_deg
-        cam = replace(cam, tilt_fix_deg=fix_deg)
+        if seeing is not None and depth is not None:
+            rgb = _picture(f, cal)
+            if rgb is not None:
+                fix_deg = seeing.angle_only(cam, depth(rgb), f.cap_us).fix.tilt_fix_deg
+        if e.recv_s >= t0 + SETTLE_S:
+            out.append((f, replace(cam, tilt_fix_deg=fix_deg)))
+    return out
+
+
+def _picture(f: Frame, cal: Calibration) -> NDArray[np.uint8] | None:
+    rgb = decode(f)
+    if rgb is not None and (rgb.shape[1], rgb.shape[0]) != cal.size:
+        raise ValueError(
+            f"the pictures are {rgb.shape[1]} x {rgb.shape[0]},"
+            f" the calibration is {cal.size[0]} x {cal.size[1]}"
+            " - record at VGA"
+        )
+    return rgb
+
+
+def _sonar(mdir: Path) -> list[int | None]:
+    """The sonar over the scored window (from 0.5 s after the start)."""
+    t0: float | None = None
+    out: list[int | None] = []
+    for e in replay(mdir):
+        t0 = e.recv_s if t0 is None else t0
+        if e.text is not None and e.text.startswith("{") and e.recv_s >= t0 + SETTLE_S:
+            s = parse_td(json.loads(e.text))
+            if s is not None:
+                out.append(s.dist_mm)
+    return out
+
+
+def _score_one(
+    mdir: Path,
+    mark: Mark,
+    cal: Calibration,
+    detectors: dict[str, DetectFn],
+    seeing: Seeing | None,
+    depth: DepthFn | None,
+) -> dict[str, list[PersonRange | None]]:
+    """Per detector: the picked person on each scored picture (still: 10 spread over the window)."""
+    kept = kept_frames(mdir, cal, seeing, depth)
+    chosen = [kept[i] for i in spread(len(kept), STILL_PICTURES)] if mark.still else kept
+    picks: dict[str, list[PersonRange | None]] = {name: [] for name in detectors}
+    for f, cam in chosen:
+        rgb = _picture(f, cal)
+        if rgb is None:
+            continue
         for name, det in detectors.items():
             boxes = [d.box for d in det(rgb, cam) if d.cls == PERSON]
             picks[name].append(pick_person([person_range(cam, b) for b in boxes]))
-    return {name: (p, sonar) for name, p in picks.items()}
+    return picks
 
 
 def score_folder(
@@ -180,16 +267,19 @@ def score_folder(
     cal: Calibration,
     detectors: dict[str, DetectFn],
     depth: DepthFn | None,
-    seeing: Seeing | None = None,
+    make_seeing: Callable[[], Seeing] | None = None,
 ) -> str:
-    """Every recorded mark, per detector; the report also written to folder/report.txt."""
-    marks = sorted(p.parent for p in folder.glob("*/mark.json"))
-    per: dict[str, list[object]] = {name: [] for name in detectors}
-    for mdir in marks:
-        mark = _mark_of(mdir / "mark.json")
-        for name, (pics, sonar) in _score_one(mdir, cal, detectors, seeing, depth).items():
-            per[name].append(score_mark(mark, pics, sonar))
-    text = "\n\n".join(verdict(name, per[name]) for name in detectors)  # type: ignore[arg-type]
+    """Every recorded mark, per detector, each mark with its own tilt fix (a fresh Seeing: P0 review I1); the
+    report also written to folder/report.txt."""
+    per: dict[str, list[MarkScore]] = {name: [] for name in detectors}
+    for mdir in sorted(p.parent for p in folder.glob("*/mark.json")):
+        mark, complete = _mark_of(mdir / "mark.json")
+        seeing = make_seeing() if make_seeing is not None and depth is not None else None
+        sonar = _sonar(mdir)
+        shown = mark if complete else replace(mark, mid=f"{mark.mid} (cut short)")
+        for name, pics in _score_one(mdir, mark, cal, detectors, seeing, depth).items():
+            per[name].append(score_mark(shown, pics, sonar))
+    text = "\n\n".join(verdict(name, per[name]) for name in detectors)
     (folder / "report.txt").write_text(text + "\n")
     return text
 
@@ -199,8 +289,8 @@ def _detectors(world_model: Path, world_vocab: Path) -> dict[str, DetectFn]:
     from conqueror_ai.adapters.yolo_coreml import YoloCoreml
     from conqueror_ai.adapters.yolo_world import YoloWorld
 
-    coco = YoloCoreml(MODELS / "yolo26n-640.mlpackage")
-    world = YoloWorld(world_model, load_vocabulary(world_vocab), 0.05)
+    coco = YoloCoreml(MODELS / "yolo26n-640.mlpackage", COCO_CONF)
+    world = YoloWorld(world_model, load_vocabulary(world_vocab), MAYBE_SCORE)  # the engine's maybe score
     return {"yolo26n person": coco.detect, f"yolo-world ({world_vocab.name})": world.detect}
 
 
@@ -221,5 +311,7 @@ def main() -> None:
 
     cal = calibration_store.load(CALIBRATION, VGA)
     depth = None if a.no_depth else load_depth(DEPTH_MODEL)
-    seeing = None if depth is None else Seeing(load_map_config(MAP_CONFIG))
-    print(score_folder(a.folder, cal, _detectors(a.world_model, a.world_vocabulary), depth, seeing))
+    cfg = load_map_config(MAP_CONFIG)
+    print(
+        score_folder(a.folder, cal, _detectors(a.world_model, a.world_vocabulary), depth, lambda: Seeing(cfg))
+    )

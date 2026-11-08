@@ -125,3 +125,16 @@ def test_the_verdict_lists_every_mark_and_the_overall_answer() -> None:
     assert "1.0-0-still-15" in text and "2.0-0-still-15" in text
     assert text.splitlines()[-1] == "yolo person: FAIL (1 of 2 marks pass)"
     assert verdict("yolo person", [good]).splitlines()[-1] == "yolo person: PASS (1 of 1 marks pass)"
+
+
+def test_a_crawling_mark_is_graded_on_seen_and_distance_only() -> None:
+    """Review I2: crawling across the mark moves the person sideways - direction and sonar reported only."""
+    m = Mark("0.5-0-crawl-t-15", 0.5, 0.0, still=False, tilt_deg=-15.0)
+    s = score_mark(m, [seen(0.5, 15.0)] * 10, [900] * 10)
+    assert s.passed and s.dir_ok == 0 and s.sonar_ok == 0
+    assert not score_mark(m, [seen(0.8, 0.0)] * 10, []).passed  # the distance still counts
+
+
+def test_a_box_a_few_pixels_above_the_bottom_is_cut() -> None:
+    """Review minor: a box clipped near the edge reads as a range near the picture's bottom."""
+    assert person_range(cam_down(), (100.0, 150.0, 200.0, 237.0)).reason == "cut"

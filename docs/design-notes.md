@@ -3413,3 +3413,9 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
     model asked `person` / `crawling person` / `baby` (`config/p0-person-vocabulary.yaml`, exported to the
     git-ignored `ai-engine/models/p0/`; the engine's vocabulary and person rules unchanged); the camera prompt waits
     for Enter before each of the two tilt moves.
+  - **P0 code review (Opus, 2026-11-08) - all fixed:** the tilt fix is fresh per mark (it had carried across
+    marks and tilts); crawling marks graded on seen and distance only (crawling across moves the person sideways);
+    still marks score 10 pictures spread over the 2 s window, after a 3 s countdown; thresholds as planned (YOLO26n
+    0.25, YOLO-World 0.15); a box within 4 px of the bottom is cut; a picture not at the calibration's size is
+    refused; a mark cut short by Ctrl-C is flagged; Ctrl-C at a prompt ends at once; a servo change under 0.5° is
+    jitter, not a camera move. 20 tests.

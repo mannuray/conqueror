@@ -3369,3 +3369,26 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   take < 20 ms) took 70-97 ms. Not the merge: the branch from before any of today's engine changes (plan-z9-find)
   failed it the same way at the same time (69 ms). The Mac's load was 70-95 - a virtual machine
   (com.apple.Virtualization, ~600 % CPU, up 11 days, not Docker). Rerun it on a quiet machine; it is not loosened.
+
+## 223. The intelligence lives in Logo; the baby game (owner, 2026-11-08 - brainstorming, Spec 10)
+(§221 / §222 are on the branches `plan-z11-marks` / `plan-z12-route`, not yet merged.)
+- **Principle (owner: "all our intelligence should be done by logo"):** decisions - when to escape, when to follow,
+  what to look for next, how a game or a search goes - are **Tank Logo programs** a child or parent can read, change
+  and save. The engine gives the **senses and the safe moves as words** (seeing, the map, recognising things,
+  distances; one move done well and safely - things a Logo loop cannot do at 20 pictures / s). **Safety stays
+  underneath every word** (engine, bridge, Uno): no program can turn it off.
+- **FIND, WANDER and EXPLORE become prebuilt Logo programs** (owner: "these should also be logo program, and comes
+  as prebuilt program"), built from smaller engine words - to design; today's engine skills stay until the
+  programs match them.
+- **The baby game (crawling baby; owner):** the tank always faces the baby; the baby comes at it -> it escapes; the
+  baby goes away -> it follows. For a bigger child later: **"follow me, friend"** (a separate, simpler game).
+  - **Escaping (owner):** the route planner and the room map pick where; the tank **backs away while facing the
+    baby when the floor behind is trusted**, otherwise **turns to check** first.
+  - **30 cm (owner): never closer to the baby.** **Caught (owner):** within 30 cm, or grabbed -> **all motors stop
+    and a beep.** These are safety, under the program, not in it.
+  - **Configurable (owner)**, and **built in Logo (owner: yes)** - the settings are a game procedure's inputs, the
+    game a ready-made program; the person rule gets a deliberate exception only for the game words (never FIND /
+    GO towards a person) - to design.
+  - **Still guesses, not decided:** escape at ~70 cm, follow stops ~1 m, escape 30-60 cm, inside ~50 cm the last
+    good sighting + sonar, "trusted" = floor seen free within a few seconds, "grabbed" = Uno stall / lift, the new
+    words `FACE`, `ESCAPE`, `FOLLOW` (reserved, level 3), `CAUGHT?`.

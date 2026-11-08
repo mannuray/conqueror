@@ -3392,7 +3392,8 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   - **Still guesses, not decided:** escape at ~70 cm, follow stops ~1 m, escape 30-60 cm, inside ~50 cm the last
     good sighting + sonar, "trusted" = floor seen free within a few seconds, "grabbed" = Uno stall / lift, the new
     words `FACE`, `ESCAPE`, `FOLLOW` (reserved, level 3), `CAUGHT?`.
-  - **Written up:** Spec 10, `docs/superpowers/specs/2026-11-08-10-people-games-design.md` (draft for review); a
+  - **Written up:** Spec 10, `docs/superpowers/specs/2026-11-08-10-people-games-design.md` (**approved by the owner
+    2026-11-08: "good"**); a
     builder check asked 7 questions. **Owner:** the game's speed cap **25 cm/s with a gentle 10 cm/s² ramp** (the
     tank's top is ~33.5 cm/s and its slowest smooth ~18 cm/s, so spec 4's "≤ 20 %" (~7 cm/s) cannot move it; a
     crawler is about as fast - escapes start early, being caught is part of the game); **the phase 0 bar**: seen in

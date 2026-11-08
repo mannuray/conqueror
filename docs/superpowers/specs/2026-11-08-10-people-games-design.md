@@ -1,4 +1,4 @@
-# Spec 10 — the people games: the baby game first, the intelligence in Logo (draft for review)
+# Spec 10 — the people games: the baby game first, the intelligence in Logo (approved 2026-11-08)
 
 Owner decisions: design-notes §223 (2026-11-08). Earlier: §194 (the people games stored), §214 (the baby game in the
 owner's words: "first always face the baby except for escape; if the baby crawls or walks towards you, escape; if the

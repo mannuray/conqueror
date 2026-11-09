@@ -87,9 +87,11 @@ and run again.
 - **S4. Never towards.** Game words never route to a person's spot; FOLLOW's goal is a point the follow distance
   short of them, on the tank's side, and never inside 30 cm whatever the setting.
 - **S5. The person exception is narrow.** People are seen by a separate path used only by the game words. The
-  existing rules stay as they are for everything else: the detector boxes over people are dropped before the thing
-  tracker (`person_guard`), the thing memory never keeps a person (`memory.NEVER`), names refuse person words
-  (`names.NEVER`, `teach.PERSON_WORDS`), `FIND "person` is an error.
+  existing rules stay as they are for everything else: `person_guard.clear` drops every other box lying inside a
+  person's box (never a toy "on" a person, before the tracker - the person box itself is kept), the thing memory
+  never keeps a person (`memory.NEVER`), names refuse person words (`names.NEVER`, `teach.PERSON_WORDS`), `FIND
+  "person` is an error. (Corrected 2026-11-08 while planning phase 0: first written as "the person boxes are
+  dropped".)
 - **S6. Everything that already stops the tank still does:** STOP from any page, the obstacle stop (sonar 10 cm),
   the deadman (300 ms), link loss, battery critical, the drive lease (engine killed -> 7052).
 - **S7. Never backs into the unknown.** Backing only over floor that is trusted (§5 G2: seen free recently, near,

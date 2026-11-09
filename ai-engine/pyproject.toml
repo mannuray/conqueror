@@ -21,6 +21,7 @@ cq-pose = "conqueror_ai.app.pose_replay:main"
 cq-objects = "conqueror_ai.app.objects:main"
 cq-drive = "conqueror_ai.app.drive:main"
 cq-map = "conqueror_ai.app.map:main"
+cq-person-test = "conqueror_ai.app.person_test:main"
 
 [build-system]
 requires = ["hatchling"]

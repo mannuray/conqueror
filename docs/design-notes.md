@@ -3418,7 +3418,7 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   pyright clean - including `test_route_is_quick`, left open in §220 (the slowest route now well under 20 ms).
 
 ## 223. The intelligence lives in Logo; the baby game (owner, 2026-11-08 - brainstorming, Spec 10)
-(§221 is on the branch `plan-z11-marks`, not yet merged; §222 merged 2026-11-09.)
+(§221 and §222 were on their branches; both merged 2026-11-09.)
 - **Principle (owner: "all our intelligence should be done by logo"):** decisions - when to escape, when to follow,
   what to look for next, how a game or a search goes - are **Tank Logo programs** a child or parent can read, change
   and save. The engine gives the **senses and the safe moves as words** (seeing, the map, recognising things,
@@ -3448,6 +3448,24 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
     them inside 50 cm. **My calls (spec 10 S8-S12):** game mode covers every move of the program; after a catch a
     fixed 50 cm release for 2 s; grabbed = stall / pushing-not-moving / no motion for a commanded move; cornered =
     stay still facing them; the engine lost mid-game = the bridge holds all motion until STOP.
+  - **Phase 0 planned (owner: "yes"):** `docs/superpowers/plans/2026-11-08-plan-p0-person-seeing.md` - a
+    measurement command `cq-person-test record | score`, nothing drives (only the camera's two tilts), the owner
+    crawling at taped marks 0.3-2 m ahead and 30° right, YOLO26n and YOLO-World scored separately against the bar;
+    pictures stay local. Spec 10 S5 corrected: `person_guard` drops other boxes inside a person, not the person box.
+  - **P0 tool built (2026-11-08, branch `plan-p0-person`):** `cq-person-test record | score` (`app/person_test.py`,
+    scoring in `domain/person_test.py`), 15 tests. Rulings: the front edge read from the calibration
+    (`track_front_m` 0.13, the same as `Limits.body_front_m`); `score` applies the engine's own depth-floor tilt
+    fix (the camera's real tilt drifts 0.7-4° between power-ons - without it the test would grade the servo, not
+    the engine; `--no-depth` to compare); YOLO-World is scored twice - the engine's model (`person`) and a P0-only
+    model asked `person` / `crawling person` / `baby` (`config/p0-person-vocabulary.yaml`, exported to the
+    git-ignored `ai-engine/models/p0/`; the engine's vocabulary and person rules unchanged); the camera prompt waits
+    for Enter before each of the two tilt moves.
+  - **P0 code review (Opus, 2026-11-08) - all fixed:** the tilt fix is fresh per mark (it had carried across
+    marks and tilts); crawling marks graded on seen and distance only (crawling across moves the person sideways);
+    still marks score 10 pictures spread over the 2 s window, after a 3 s countdown; thresholds as planned (YOLO26n
+    0.25, YOLO-World 0.15); a box within 4 px of the bottom is cut; a picture not at the calibration's size is
+    refused; a mark cut short by Ctrl-C is flagged; Ctrl-C at a prompt ends at once; a servo change under 0.5° is
+    jitter, not a camera move. 20 tests.
 - **Phase 0 deferred (owner, 2026-11-09: "let's skip p0 and move to the next task, we will do this if it comes
   during play"):** the P0 tool (`cq-person-test`, branch `plan-p0-person`, built and reviewed) waits; the crawling
   test runs when it comes up during play. Spec 10's gate stands: nothing of the game moves near a person before
@@ -3492,3 +3510,5 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   (a step to ~18 cm/s, then 10 cm/s² to 25); **`/ai` budget 34 KB**.
 - **The three LLDs approved (owner, 2026-11-09: "yes").** Plans next: P0 merged first, then the bridge's game mode,
   the engine's person watch and game skills, the Logo words with the lesson and `/ai`'s GAMES card.
+- **Plan P0 merged into main 2026-11-09 (owner: "yes")** - the tool and `person_range` under the game; the crawling
+  test itself still waits (§223).

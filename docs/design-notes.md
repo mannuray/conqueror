@@ -3511,4 +3511,8 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **The three LLDs approved (owner, 2026-11-09: "yes").** Plans next: P0 merged first, then the bridge's game mode,
   the engine's person watch and game skills, the Logo words with the lesson and `/ai`'s GAMES card.
 - **Plan P0 merged into main 2026-11-09 (owner: "yes")** - the tool and `person_range` under the game; the crawling
-  test itself still waits (§223).
+  test itself still waits (§223).- **Plan G1 written (2026-11-09):** `docs/superpowers/plans/2026-11-09-plan-g1-game-mode.md` - game mode on the
+  bridge first (no engine game skills yet): `GameMode` / `KeepOut` pure, one gate at `BodyLink::sendDrive`, the
+  ENVELOPE frame, the checker's game flag from `CAUGHT?` (the one game word needing no engine skill, so the stand
+  checks need no person: a stand-in engine, `tools/smoke/fake_person.py`, streams the estimates), 7060 / 7061, a
+  game run's 15 minutes, `game_cap_pct` measured on the floor with `tools/smoke/game_cap.py`.

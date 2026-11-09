@@ -61,7 +61,7 @@ inline constexpr InputSpec kIn67[] = {{"metres", InType::kNumber, true, 0, 10000
 inline constexpr InputSpec kIn68[] = {{"thing", InType::kThing, false, 0, 0, "", "a thing"}};
 inline constexpr InputSpec kIn69[] = {{"thing", InType::kThing, false, 0, 0, "", "a thing"}};
 inline constexpr InputSpec kIn70[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"seconds", InType::kNumber, true, 1000, 60000, "s", "a seconds"}};
-inline constexpr InputSpec kIn71[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
+inline constexpr InputSpec kIn72[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
 
 inline constexpr WordSpec kWords[] = {
     {"FORWARD", WordKind::kCommand, 1, kNeedEncoders, 1, kIn0, "FORWARD 50", "", true},
@@ -135,9 +135,10 @@ inline constexpr WordSpec kWords[] = {
     {"SEE?", WordKind::kReporter, 2, kNeedAi, 1, kIn68, "IF SEE? \"ball [ SOUND FANFARE ]", "", false},
     {"HOWFAR", WordKind::kReporter, 2, kNeedAi, 1, kIn69, "IF HOWFAR \"ball < 50 [ BEEP ]", "", false},
     {"FOLLOW", WordKind::kCommand, 3, kNeedAi, 2, kIn70, "", "", true},
-    {"HOWMANY", WordKind::kReporter, 3, kNeedAi, 1, kIn71, "", "", false},
+    {"CAUGHT?", WordKind::kReporter, 2, 0, 0, nullptr, "IF CAUGHT? [ WAIT 3 ]", "", false},
+    {"HOWMANY", WordKind::kReporter, 3, kNeedAi, 1, kIn72, "", "", false},
 };
-inline constexpr uint8_t kWordCount = 72;
+inline constexpr uint8_t kWordCount = 73;
 
 struct Alias { const char* alias; uint8_t word; };
 inline constexpr Alias kAliases[] = {{"FD", 0}, {"BK", 1}, {"RT", 2}, {"LT", 3}, {"OP", 43}, {"BF", 46}, {"BL", 47}, {"SE", 55}};
@@ -213,14 +214,18 @@ inline constexpr ErrorText kErrors[] = {
     {7057, "{word} moves the tank - only the main program can do that, not LAUNCH."},
     {7058, "Only one LAUNCH can run at a time."},
     {7059, "OUTPUT can't be used inside LAUNCH - the launched part gives nothing back."},
+    {7060, "The game can't start - the tank's speed limit isn't set."},
+    {7061, "The game needs the seeing test first."},
+    {7063, "The game's time limit (15 minutes) is up."},
 };
-inline constexpr uint8_t kErrorCount = 51;
+inline constexpr uint8_t kErrorCount = 54;
 
 inline constexpr uint16_t kSourceBytes = 8192;
 inline constexpr uint8_t kMaxProcs = 64;
 inline constexpr uint8_t kNameChars = 32;
 inline constexpr int32_t kNumberAbsMaxMilli = 1000000000;
 inline constexpr uint16_t kRunTimeS = 300;
+inline constexpr uint16_t kGameRunTimeS = 900;
 inline constexpr uint8_t kWaitS = 60;
 inline constexpr uint8_t kNesting = 100;
 

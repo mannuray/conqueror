@@ -123,6 +123,7 @@ void VmOps::sensor(Vm& vm, const Instr& in) {
     case Sensor::kTilted: vm.push(boolean(s.tilted)); return;
     case Sensor::kBattery: vm.push(num(s.battery_milli)); return;
     case Sensor::kTimer: vm.push(num(s.timer_milli)); return;
+    case Sensor::kCaught: vm.push(boolean(s.caught)); return;
   }
 }
 

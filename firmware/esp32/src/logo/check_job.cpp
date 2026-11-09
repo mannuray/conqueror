@@ -23,7 +23,7 @@ bool checkProgram(const char* src, uint16_t len, const Caps& caps, CheckSpace& s
   s.result = Checker(s.parser, src, s.toks, s.diags).check(prog, caps);
   if (!s.result.ok) return false;
   Compiler* c = new (s.compiler_mem) Compiler(s.parser, src, s.toks, s.diags);
-  s.compiled = c->compile(prog, s.result.handles_obstacles, s.program);
+  s.compiled = c->compile(prog, s.result.handles_obstacles, s.program, s.result.game);
   c->~Compiler();
   if (!s.compiled) return false;
   s.sim = Simulator(s.vm).plan(s.program, s.path);

@@ -23,7 +23,7 @@ enum class OpCode : uint8_t {
   kResume,  // pushes the result of the effect before it (kAsk: the laptop's answer)
   kCount
 };
-enum class Sensor : uint8_t { kDistance, kObstacle, kBlocked, kHeading, kTilted, kBattery, kTimer };
+enum class Sensor : uint8_t { kDistance, kObstacle, kBlocked, kHeading, kTilted, kBattery, kTimer, kCaught };
 enum class Builtin : uint8_t { kRandom, kRemainder, kAbs, kRound, kRepcount };
 enum class EffectKind : uint8_t {
   kForward, kBack, kRight, kLeft, kSpeed, kWait, kLed, kBeep, kSound, kLook, kHome,
@@ -75,6 +75,7 @@ struct Program {
   ProcEntry procs[gen::kMaxProcs];
   uint8_t n_procs = 0;
   bool handles_obstacles = false;
+  bool game = false;  // a game run (Tank Logo LLD §27.2): game mode on before its first motion (bridge LLD R34)
   bool ok = false;  // compiled completely (Plan N3: a failed compile is never run)
 
   void clear();

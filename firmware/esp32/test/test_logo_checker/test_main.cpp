@@ -215,6 +215,17 @@ void test_check_play_notes() {
   TEST_ASSERT_NOT_NULL(strstr(g_d.first()->msg, "1 to 64 notes"));
 }
 
+// Plan G1 (Tank Logo LLD §27.2): a game word anywhere - the main part, a TO body never called, a LAUNCH part - makes the
+// whole program a game run, before its first motion. CAUGHT? is level 2 (the tank checks as v1).
+void test_check_game_flag_from_caught_anywhere() {
+  Caps c;
+  TEST_ASSERT_TRUE(C("FD 10 IF CAUGHT? [ BEEP ]", c).game);
+  TEST_ASSERT_TRUE(C("TO NEVER IF CAUGHT? [ BEEP ] END FD 10", c).game);
+  TEST_ASSERT_TRUE(C("LAUNCH [ FOREVER [ IF CAUGHT? [ BEEP ] WAIT 1 ] ] FD 10", c).game);
+  TEST_ASSERT_FALSE(C("FD 10 IF BLOCKED? [ BEEP ]", c).game);
+  TEST_ASSERT_FALSE(C("FD 10", c).game);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_check_scope);
@@ -233,5 +244,6 @@ int main(int, char**) {
   RUN_TEST(test_learning_gives_7056_for_ai_words);
   RUN_TEST(test_no_ai_beats_learning);
   RUN_TEST(test_computed_thing_not_checked);
+  RUN_TEST(test_check_game_flag_from_caught_anywhere);
   return UNITY_END();
 }

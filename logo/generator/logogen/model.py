@@ -105,6 +105,8 @@ class RunCase:
     answers: str = ""
     # how each FIND / WANDER / EXPLORE / SETXY ends in order: "done not_found stop"
     skill_ends: str = ""
+    # Plan G1: the tank is caught (game mode's CAUGHT?) for the whole run
+    caught: bool = False
 
 
 @dataclass
@@ -294,6 +296,7 @@ def _load_run_cases(path: Path) -> list[RunCase]:
             stuck=_bits(world.get("stuck", [])),
             answers=_answers(world.get("answers", [])),
             skill_ends=_skill_ends(world.get("skill_ends", [])),
+            caught=bool(world.get("caught", False)),
         )
         if ends != "finished":
             case.end_code, case.end_line = int(ends["error"]), int(ends["line"])

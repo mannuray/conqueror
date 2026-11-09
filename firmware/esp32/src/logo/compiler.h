@@ -27,7 +27,7 @@ class Compiler {
   Compiler(const Parser& p, const char* src, const TokenList& toks, Diagnostics& d)
       : m_parser(p), m_src(src), m_toks(toks), m_d(d) {}
   // False when the program does not fit (7010) - the reason is in Diagnostics.
-  bool compile(const Node* program, bool handles_obstacles, Program& out);
+  bool compile(const Node* program, bool handles_obstacles, Program& out, bool game = false);
 
  private:
   struct Work {

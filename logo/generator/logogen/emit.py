@@ -158,6 +158,7 @@ def render_words_h(spec: Spec) -> str:
     lines.append(f"inline constexpr uint8_t kNameChars = {lim['name_chars']};\n")
     lines.append(f"inline constexpr int32_t kNumberAbsMaxMilli = {lim['number_abs_max'] * 1000};\n")
     lines.append(f"inline constexpr uint16_t kRunTimeS = {lim['run_time_s']};\n")
+    lines.append(f"inline constexpr uint16_t kGameRunTimeS = {lim['game_run_time_s']};\n")
     lines.append(f"inline constexpr uint8_t kWaitS = {lim['wait_s']};\n")
     lines.append(f"inline constexpr uint8_t kNesting = {lim['nesting']};\n")
     lines.append("\n}  // namespace gen\n}  // namespace logo\n}  // namespace cq\n")
@@ -209,14 +210,14 @@ def render_running_h(spec: Spec) -> str:
     struct_line = (
         "struct RunCase { const char* name; const char* src; const char* does; int end_code; int end_line; "
         "const char* message_has; int distance_cm; unsigned long long cut_short; unsigned long long stuck; "
-        "const char* answers; const char* skill_ends; };\n\n"
+        "const char* answers; const char* skill_ends; bool caught; };\n\n"
     )
     lines = [HEADER, "#pragma once\n\n", struct_line, "static const RunCase kRunCases[] = {\n"]
     for c in spec.run_cases:
         lines.append(
             f"    {{{c_string(c.name)}, {c_string(c.src)}, {c_string(c.does)}, {c.end_code}, {c.end_line}, "
             f"{c_string(c.message_has)}, {c.distance_cm}, {c.cut_short}ULL, {c.stuck}ULL, "
-            f"{c_string(c.answers)}, {c_string(c.skill_ends)}}},\n"
+            f"{c_string(c.answers)}, {c_string(c.skill_ends)}, {'true' if c.caught else 'false'}}},\n"
         )
     lines.append(
         "};\n\n#define LOGO_RUN_CASES(X) "

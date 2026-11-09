@@ -23,6 +23,7 @@ struct RunTelem {
   bool tilted = false;
   uint8_t battery_pct = 100;
   Pose pose;                 // the driven path so far (Odometry, the run's frame: x right, y ahead, right = +)
+  bool caught = false;       // game mode (bridge LLD R34): the person has caught the tank
 };
 
 struct RunConfig {
@@ -101,6 +102,7 @@ class RunController {
   void effect(const RunTelem& t, uint32_t now_ms, RunOut& out);
   void carry(const Action& a, const RunTelem& t, uint32_t now_ms, RunOut& out);
   Sensors sensors(const RunTelem& t, uint32_t now_ms) const;
+  uint16_t timeUp(uint32_t now_ms) const;
   RunOut goEnded(const core::PrimitiveEnd& e);
   RunOut end(uint16_t code);
   RunOut endWith(uint16_t code, uint16_t line, const char* msg);

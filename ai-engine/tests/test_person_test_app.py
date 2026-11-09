@@ -10,12 +10,14 @@ from typing import cast
 import cv2
 import numpy as np
 import pytest
+import yaml
 from numpy.typing import NDArray
 
 from conqueror_ai.adapters import calibration_store
 from conqueror_ai.adapters.session import SessionRecorder
 from conqueror_ai.app.objects import CALIBRATION, VGA
-from conqueror_ai.app.person_test import all_marks, record_marks, score_folder
+from conqueror_ai.app.person_test import Unlock, all_marks, record_marks, score_folder
+from conqueror_ai.app.seeing_pass import SeeingPass
 from conqueror_ai.domain.camera import CameraModel, from_servo
 from conqueror_ai.domain.depth import Seeing
 from conqueror_ai.domain.person_test import Mark
@@ -199,3 +201,48 @@ def test_a_mark_cut_short_is_flagged_and_a_wrong_picture_size_is_refused(tmp_pat
     rec.close()
     with pytest.raises(ValueError, match="320 x 240"):
         score_folder(tmp_path / "q", cal, {"fake": PersonAt(1.0)}, depth=None)
+
+
+# ---- the pass (AI engine LLD §28.6, Plan G2 Task 5)
+def unlock(tmp_path: Path, required: tuple[str, ...] = ("1.0-0-still-t-15",)) -> Unlock:
+    return Unlock(
+        "fake person", tmp_path / "person-seeing.yaml", "yoloworld-s-640.mlpackage", "2026-10-23", required
+    )
+
+
+def test_a_full_pass_writes_the_seeing_pass(tmp_path: Path) -> None:
+    cal = calibration_store.load(CALIBRATION, VGA)
+    write_mark(tmp_path / "p0", "1.0-0-still-t-15", 1.0, True, [105.0])
+    u = unlock(tmp_path)
+    text = score_folder(tmp_path / "p0", cal, {"fake person": PersonAt(1.0)}, depth=None, unlock=u)
+    assert "games unlocked" in text
+    d = yaml.safe_load(u.path.read_text())
+    assert d["detector"] == "yoloworld-s-640.mlpackage" and d["calibration"] == "2026-10-23"
+    assert d["marks_passed"] == 1 and d["marks"] == 1 and len(d["date"]) == 10
+    assert SeeingPass(u.path, "yoloworld-s-640.mlpackage", "2026-10-23").passed()
+
+
+def test_a_fail_removes_an_old_pass(tmp_path: Path) -> None:
+    cal = calibration_store.load(CALIBRATION, VGA)
+    write_mark(tmp_path / "p0", "1.0-0-still-t-15", 1.0, True, [105.0])
+    u = unlock(tmp_path)
+    u.path.write_text("detector: yoloworld-s-640.mlpackage\ncalibration: '2026-10-23'\n")
+    text = score_folder(tmp_path / "p0", cal, {"fake person": PersonAt(2.0)}, depth=None, unlock=u)
+    assert "games locked" in text
+    assert not u.path.exists()  # a worse result locks the game again
+
+
+def test_a_missing_mark_is_no_pass(tmp_path: Path) -> None:
+    cal = calibration_store.load(CALIBRATION, VGA)
+    write_mark(tmp_path / "p0", "1.0-0-still-t-15", 1.0, True, [105.0])
+    u = unlock(tmp_path, ("1.0-0-still-t-15", "0.3-0-still-t-15"))
+    score_folder(tmp_path / "p0", cal, {"fake person": PersonAt(1.0)}, depth=None, unlock=u)
+    assert not u.path.exists()
+
+
+def test_a_mark_cut_short_is_no_pass(tmp_path: Path) -> None:
+    cal = calibration_store.load(CALIBRATION, VGA)
+    write_mark(tmp_path / "p0", "1.0-0-still-t-15", 1.0, True, [105.0], complete=False)
+    u = unlock(tmp_path)
+    score_folder(tmp_path / "p0", cal, {"fake person": PersonAt(1.0)}, depth=None, unlock=u)
+    assert not u.path.exists()

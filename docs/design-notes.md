@@ -3370,8 +3370,32 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   failed it the same way at the same time (69 ms). The Mac's load was 70-95 - a virtual machine
   (com.apple.Virtualization, ~600 % CPU, up 11 days, not Docker). Rerun it on a quiet machine; it is not loosened.
 
+## 222. While the tank waits: the IMU's pitch dropped, the route planner made quicker (owner, 2026-11-07: "2", "ok")
+- **The IMU's pitch into the camera model - dropped (owner agreed).** The tank sends no pitch or roll: telemetry's
+  `pitch` / `roll` are always 0 (the Uno Lite's tilt angles were built and removed for flash, §92; 654 B free, they
+  cost ~630 B). Even back, they would be the accelerometer alone - every speed-up and brake reads as a tilt. On a flat
+  floor the depth floor's tilt fix (AI engine LLD §18.4) already takes the slow camera error. Again only with a
+  new body board or a real need (a ramp).
+- **The route planner made quicker (Plan Z12, AI engine LLD §27 — draft for review).** Measured on the M1 under a
+  load of ~27: a route 2.1 ms median, 13.1 ms slowest (`test_route_is_quick` allows 20 ms; it failed at 23.7 ms on a
+  busier machine, §220). All the time is the pure-Python A* loop (dict look-ups, the bounds check, the heuristic as a
+  call). The same matters on the tank: depth and the detector share the CPU while it drives. Change: flat lists
+  over a grid padded with closed cells, neighbour offsets worked out once, the heuristic inline - **the same routes,
+  costs and nearest cells exactly** (a test compares against today's planner on random maps), no new library.
+- **Built (2026-11-08, branch `plan-z12-route`):** the same routes, costs and nearest cells on 30 random maps;
+  **2.1-2.2x** quicker over the test workload (pure Python's limit here - a compiled library would be a new
+  dependency and could pick a different equally cheap route); the slowest route of `test_route_is_quick` 5.5-9.6 ms
+  under load (was 16-22 ms). **Owner: the speed test's bar 1.5x** (2.0, then 1.8 would fail by chance - the final review measured 2.02x). AI engine LLD §27.5.
+- **Kept for later (owner, 2026-11-08: "keep it in note, speed is good in robotics"):** the next step is a compiled
+  search (numba, scipy's csgraph, or a few lines of C / Rust) - typically 20-100x quicker than Python's loop, since
+  each step then costs nanoseconds instead of the interpreter's ~50-100 ns. Not now: routes are 5.5-9.6 ms at worst
+  under load, it is a new dependency, and an equally cheap route picked differently breaks `cq-drive --replay`'s
+  decision-for-decision replays - so it must keep today's tie order. Revisit for a bigger map (a whole house at
+  10 cm), a faster decision loop, or a slower computer (a Pi on the tank).
+- **Merged into main 2026-11-09 (owner: "merge").**
+
 ## 223. The intelligence lives in Logo; the baby game (owner, 2026-11-08 - brainstorming, Spec 10)
-(§221 / §222 are on the branches `plan-z11-marks` / `plan-z12-route`, not yet merged.)
+(§221 is on the branch `plan-z11-marks`, not yet merged; §222 merged 2026-11-09.)
 - **Principle (owner: "all our intelligence should be done by logo"):** decisions - when to escape, when to follow,
   what to look for next, how a game or a search goes - are **Tank Logo programs** a child or parent can read, change
   and save. The engine gives the **senses and the safe moves as words** (seeing, the map, recognising things,

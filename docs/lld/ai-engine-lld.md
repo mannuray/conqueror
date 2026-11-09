@@ -3196,3 +3196,78 @@ The engine ticked every ~66 ms to the end (longest gap 0.15 s) and the tank's te
 - **Review fixes (Opus, 2026-11-07):**
   - **I1:** the driven record reaches up to ~5 cm past the body's sides, and a turn's corners sweep wider than the track - a chair leg passed close could be set aside and hit. Now **turns** set aside only the **low** marks **inside the outline now** (`ignore_under`); **backing** keeps the driven track (it retraces its own width) but never a **high** mark (`marks_within` keeps high cells; the known-floor exemption too). Tests: a spin into a low or high mark 2 cm beside the track refused; a spin meeting only marks under the body allowed; backing never sets a high mark aside; the room8 layout still backs out.
   - **Minors:** the sightings list clears when the bridge's clock goes back and is trimmed on every picture; sightings are timed at the readout's middle (as the tracker); the look round's glimpse starts its second look on the next tick (the stop rules in force); this section's text. Noted (no change): a real mark that drift puts wholly under the shrunk body is wiped and needs ~6 hits to come back - play tolerance.
+
+## 27. A quicker route planner (Plan Z12; design-notes §222 — draft for review)
+
+### 27.1 Why
+`RoutePlanner.route` (§18.13.3) takes 2.1 ms median and 13.1 ms at worst on the M1 under load (20 routes on a
+random 8 m room of 30 boxes); `test_route_is_quick` allows 20 ms and failed at 23.7 ms on a busier machine (§220).
+While driving, the depth model and the detector share the CPU, so routes slow down there too. The time is all in
+the search loop: `dict.get` for `best`, a bounds check per neighbour, `divmod`, and the heuristic as a function call.
+
+### 27.2 What changes (`domain/drive/route.py` only)
+- `_Grid` gains a **padded** copy of the factors: a flat `list[float]` of `(g + 2)²` cells, the border closed
+  (`inf`), so a neighbour can never fall off the grid and the bounds check goes; `nbrs: list[tuple[int, float]]`
+  - the eight steps as (index offset `di * (g + 2) + dj`, length × cell size), in today's `STEPS` order.
+- `_Grid.search_from(s) -> list[float]`: the padded factors with the start cell open (today's `factors_from`).
+- `best` becomes a flat `list[float]` (inf = not reached) and `came` a flat `list[int]` over the padded grid.
+- `route`, `nearest` and `costs` keep their signatures and results. The heuristic and `arrived` are written inline
+  with today's formulas (the same floats).
+- Cell numbers on the padded grid keep today's order (row, then column), the heap entries keep today's shape
+  (`(f, so_far, cell)` / `(so_far, cell)`) and the neighbours today's order, so ties break as today and the costs
+  add up in the same order: **the same results exactly**, not just equally cheap ones.
+- No new library; numpy builds the padded list once per cost map (as today's grid).
+
+### 27.3 Classes (as built)
+```mermaid
+classDiagram
+    class RoutePlanner {
+      +half_w: float
+      +route(cost, start, goal, goal_ok, near_m) list~XY~ | None
+      +nearest(cost, start, accept) tuple~int,int~ | None
+      +costs(cost, start) FloatArray
+      +grid_of(x, y) tuple~int,int~
+      +grid_centre(i, j) XY
+      -_grid_for(cost) _Grid
+      -_dijkstra(grid, s, accept)$ tuple~list~float~, tuple~int,int~ | None~
+    }
+    class _Grid {
+      +g: int
+      +cell_m: float
+      +factor: FloatArray
+      +w: int  «g + 2»
+      +padded: list~float~  «(g+2)² cells, border inf»
+      +steps: list~tuple~int,float~~  «offset, step length, STEPS' order»
+      +pad(i, j) int
+      +unpad(k) tuple~int,int~
+      +octile_from(t, k2) list~float~  «A*'s h for every cell»
+      +search_from(s) list~float~  «the start open; replaces factors_from»
+      +of(x, y) tuple~int,int~ | None
+      +centre(i, j) XY
+    }
+    class CostMap
+    class ReferencePlanner {
+      «tests/route_reference.py: today's planner and grid, verbatim»
+    }
+    RoutePlanner --> _Grid : one per cost map
+    _Grid --> CostMap : built from
+    ReferencePlanner ..> RoutePlanner : the same results (test)
+```
+
+### 27.4 Tests
+- `test_the_quick_planner_gives_todays_routes`: today's planner kept as a test-only reference
+  (`tests/route_reference.py`, with today's grid copied too); on 30 random maps (boxes, walls, the start in a closed cell, ends off the map,
+  `goal_ok`, `near_m` 0 / 0.4) `route`, `nearest` and `costs` give identical results.
+- `test_the_quick_planner_is_about_twice_as_quick`: on the same maps and the same machine, the two taking turns,
+  at least **1.5×** quicker than the reference (designed as 2×; owner 2026-11-08, §27.5).
+- `test_route_is_quick` (20 ms) stays as it is.
+
+### 27.5 As built (2026-11-08, branch `plan-z12-route`)
+- `_Grid`: `w = g + 2`, `padded` (the factors with a closed border, a flat list), `steps` (offset, length × cell size, in `STEPS`' order), `pad` / `unpad`, `search_from` (replaces `factors_from`), `octile_from(t, k2)` - A*'s h for every padded cell at once, with numpy (the same products and sums as one by one, so the same floats). The `nbrs` of §27.3 became `steps` (the loops never need di, dj).
+- `route`: without a reach, h comes from `octile_from` and arriving is `cur == ti`; with a reach (`near_m > 0`), each cell's h is worked out with `math.hypot` the first time it is pushed and kept, and "within reach" is exactly "h is 0" (`max(0, d - reach) == 0` iff `d <= reach`).
+- `nearest` and `costs` share one `_dijkstra(grid, s, accept)`.
+- Tried and undone: the step cost (length × factor) worked out once per grid - no gain (2.13x vs 2.15x), more code.
+- **Measured** (M1, load 26-69, the two planners in turns, the best of 5): the whole test workload 0.70 s vs 1.51 s, **2.1-2.2x**; by kind: routes without a reach ~2.9x, with a reach ~2.6x, `costs` ~2.6x (one sequential run); `test_route_is_quick`'s slowest route **5.5-9.6 ms** (today's planner 16-22 ms on the same load; the bound 20 ms).
+- **The whole suite (load ~120):** 924 passed, 1 failed - `test_explore_picks_quickly_by_searching_outward` (5 ms for explore's first pick, the grid built in it); it passes alone (3 of 3 after one fail at load 126). The first pick measured 1.8-2.6 ms median with the quick planner vs 2.3-3.6 ms with today's; the worst picks 5-11 ms for both at that load - the machine, not the planner (as §220's route test).
+- **Opus final review (2026-11-08):** exactness confirmed point by point (tie order, floats, the reach arrival, the start and goal cells, the copies) and the comparison test reaches every path; fixed: the comment written twice, `_dijkstra` returns `(costs, found)`, the reference copies today's `_Grid` (the planners share nothing), §27.3 / §27.4 as built.
+- **Owner (2026-11-08):** the speed test (`test_the_quick_planner_is_about_twice_as_quick`) checks **at least 1.5x**: 2.0, then 1.8 would fail by chance on a busy machine (the final review measured 2.02x); 1.5 still catches a slip back to today's 1.0x. Identical routes, nearest cells and costs on 30 random maps (`test_the_quick_planner_gives_todays_routes`).

@@ -3452,3 +3452,16 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   during play"):** the P0 tool (`cq-person-test`, branch `plan-p0-person`, built and reviewed) waits; the crawling
   test runs when it comes up during play. Spec 10's gate stands: nothing of the game moves near a person before
   phase 0 has passed.
+
+## 224. Spec 10 UX: everything on PLAY, each part linked to its Logo lesson (owner, 2026-11-09)
+- **The baby game starts from `/ai`'s PLAY tab - no new tab** (owner: "don't justify a new tab, I think play should
+  have everything with links to lessons in logo"; a GAMES tab was mocked and rejected - it would only swap the right
+  column, the camera and the face being shared). PLAY's right column: the face, a **JOBS** card (Find / Wander /
+  Explore - it does something for you) and a **GAMES** card (the baby game; "follow me, friend" later - it plays
+  with someone); **each with "how it works ›" opening its program on `/logo`** (FIND / WANDER / EXPLORE too, once
+  they are prebuilt programs, §223).
+- **The game card's moments (mocked, owner reviewing):** ready (START; a grown-ups fold with the program's inputs:
+  escape distance, follow distance, length, the pause after caught, sounds, play area; the fixed lines shown, never
+  settable: child-play 25 cm/s, never within 30 cm); playing (CHILD-PLAY ON, the face and what it is doing, the
+  baby's distance and coming / going, time left); caught (banner + beep, waits for 50 cm for 2 s, then the pause);
+  holding still (the AI helper stopped - STOP to release, S12); not yet allowed (the phase 0 gate - open question).

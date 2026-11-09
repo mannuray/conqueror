@@ -437,7 +437,7 @@ class ServeApp:
         word, now = self.names.resolve(ev.thing), self.perception.bridge_now_s()
         value: bool | int
         if ev.q == "back_ok":  # a game's backward move (bridge LLD R34.2)
-            value = now is not None and back_ok(self.world, ev.cm, round(now * 1e6))
+            value = not ev.arc and now is not None and back_ok(self.world, ev.cm, round(now * 1e6))
         elif ev.game and is_person(ev.thing):  # the game's person, from PersonWatch (LLD §28.1)
             value = (
                 (-1 if ev.q == "howfar" else False)

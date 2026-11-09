@@ -97,5 +97,11 @@ class PersonStream:
         while True:
             await asyncio.sleep(PERSON_EVERY_S)
             now = self.bridge_now_s()
-            if self.on and now is not None:
-                await self.send(person_message(self.world.person, round(now * 1e6)))
+            if not self.on or now is None:
+                continue
+            try:
+                msg = person_message(self.world.person, round(now * 1e6))
+            except Exception as e:  # said, and the stream goes on; the bridge's deadman holds meanwhile (M3)
+                print(f"the person stream failed: {type(e).__name__}: {e}")
+                continue
+            await self.send(msg)

@@ -44,6 +44,7 @@ class Ask:
     thing: str  # "" for back_ok
     cm: int | None = None  # back_ok: how far back
     game: bool = False  # asked inside a game run: the person words answer (LLD §28.1)
+    arc: bool = False  # back_ok for an ARC: not checked yet - always no (final review I3)
 
 
 @dataclass(frozen=True)
@@ -162,9 +163,10 @@ def parse_event(m: dict[str, Any]) -> SkillEvent | None:
 
 def _ask(mid: int, m: dict[str, Any]) -> Ask | None:
     q, thing, game = m.get("q"), m.get("thing"), m.get("game") is True
-    if q == "back_ok":
+    if q == "back_ok":  # a malformed one is still answered: cm None is a no (final review M5)
         cm = m.get("cm")
-        return Ask(mid, q, "", cm, game) if isinstance(cm, int) and not isinstance(cm, bool) else None
+        ok = isinstance(cm, int) and not isinstance(cm, bool)
+        return Ask(mid, q, "", cm if ok else None, game, "arc" in m)
     return Ask(mid, q, thing, None, game) if isinstance(q, str) and isinstance(thing, str) else None
 
 

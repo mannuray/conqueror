@@ -14,6 +14,7 @@ from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 
 MAX_AGE_S = 5.0  # first guess from the map settings, to check on the floor
 STEP_M = 0.02  # the swept strip sampled ~2 cm apart (cells are 10 cm)
+COAST_M = 0.05  # the roll after the stop at v_min: the strip is this much longer (final review M4)
 
 
 class TrustedFloor:
@@ -40,14 +41,15 @@ class TrustedFloor:
         if cells is None:
             return False  # part of the path is off the map
         free = free_us.reshape(-1)[cells]
-        fresh = (free > 0) & (now_us - free <= max_age_s * 1e6)
+        # a time ahead of now is from before a bridge restart (its clock began again): not fresh (review I2)
+        fresh = (free > 0) & (free <= now_us) & (now_us - free <= max_age_s * 1e6)
         return bool(np.all(fresh) and not np.any(blocked.reshape(-1)[cells]))
 
 
 def _strip(pose: XYTh, back_m: float, lim: Limits, cell_m: float, n: int) -> NDArray[np.intp] | None:
     """The flat cells of the strip behind the rear edge, `back_m` long, the body's width; None off the map."""
     x, y, th = pose
-    us = np.arange(-(lim.body_rear_m + back_m), -lim.body_rear_m + 1e-9, STEP_M)
+    us = np.arange(-(lim.body_rear_m + back_m + COAST_M), -lim.body_rear_m + 1e-9, STEP_M)
     vs = np.linspace(-lim.body_half_w_m, lim.body_half_w_m, 1 + math.ceil(2 * lim.body_half_w_m / STEP_M))
     gu, gv = np.meshgrid(us, vs)
     c, s = math.cos(th), math.sin(th)

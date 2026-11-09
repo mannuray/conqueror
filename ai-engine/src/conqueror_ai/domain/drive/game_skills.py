@@ -30,6 +30,7 @@ FOLLOW_PAN_DEG = 60.0  # FOLLOW keeps the camera on the person up to this pan
 PAN_STEP_DEG = 3.0  # the camera is sent again only when it should move more than this
 REPLAN_M = 0.15  # FOLLOW's goal moved this far: a new route
 GAME_V_CAP_CMS = 25.0  # a game drives at most this fast (LLD §28.1)
+FRESH_US = 300_000  # ESCAPE starts only on an estimate this recent (the bridge's deadman; final review M1)
 
 
 def _wrap(deg: float) -> float:
@@ -212,11 +213,12 @@ class EscapeSkill(_Base):
         return self._end(Result.DONE) if moved >= self.back_m - 1e-6 else self._out(Command(-1.0, 0.0))
 
     def _start(self, at: XYTh, inp: SkillInput) -> SkillOut:
-        p = inp.person
+        p, snap = inp.person, inp.snap
         if p is None or not p.seen or p.d_m is None or abs(p.bearing_deg) > VIEW_DEG:
             return self._end(Result.NO_WAY, "the person is not in view")  # never backs toward the unknown
-        snap = inp.snap
-        if snap is not None and self.trusted.ok(snap, at, self.back_m, snap.t_us, lim=self.lim):
+        if snap is None or snap.t_us - p.t_us > FRESH_US:
+            return self._end(Result.NO_WAY, "no fresh picture of the person")
+        if self.trusted.ok(snap, at, self.back_m, snap.t_us, lim=self.lim):
             self._from, self.state = at, "back"
             return self._out(Command(-1.0, 0.0))
         if p.d_m >= ESCAPE_NEAR_M:

@@ -35,9 +35,7 @@ def test_one_cell_6_s_old_is_not() -> None:
     rest = [p for p in pts if room.cells(np.array([p]))[0] != oc]
     room.update_picture(marks(floor=rest), 5 * S, (0.0, 0.0))
     assert not TrustedFloor.ok(room, (0.0, 0.0, 0.0), 0.30, 7 * S)  # that cell is 6 s old
-    assert TrustedFloor.ok(
-        room, (0.0, 0.0, 0.0), 0.10, 7 * S
-    )  # a shorter back stays clear of it  # a shorter back stays clear of that cell
+    assert TrustedFloor.ok(room, (0.0, 0.0, 0.0), 0.05, 7 * S)  # a shorter back (+ the coast) stays clear
 
 
 def test_never_seen_is_not() -> None:
@@ -74,3 +72,15 @@ def test_free_times_set_by_floor_and_body_reset_by_a_mark() -> None:
     stand(room, 0.0, 0.0, 0.0, 1, t0_us=7 * S)
     (o,) = room.cells(np.array([(0.0, 0.0)]))
     assert room.free_us.reshape(-1)[o] == 7 * S
+
+
+def test_times_from_before_a_bridge_restart_are_not_fresh() -> None:  # final review I2
+    room = seen_behind(600 * S)  # seen at 600 s on the old clock
+    assert not TrustedFloor.ok(room, (0.0, 0.0, 0.0), 0.30, 2 * S)  # the bridge restarted: now 2 s
+
+
+def test_the_strip_covers_the_coast_after_the_stop() -> None:  # final review M4: ~5 cm more
+    room = RoomMap()
+    room.update_picture(marks(floor=behind(-0.39)), 1 * S, (0.0, 0.0))  # the rear + 30 cm only, no more
+    assert not TrustedFloor.ok(room, (0.0, 0.0, 0.0), 0.30, 2 * S)
+    assert TrustedFloor.ok(seen_behind(), (0.0, 0.0, 0.0), 0.30, 2 * S)

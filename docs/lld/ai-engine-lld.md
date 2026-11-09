@@ -3485,5 +3485,13 @@ file. Replays (`--replay`) re-run the game skills' decisions as the others.
 - **The pass** (`app/seeing_pass.py`): `config/person-seeing.yaml` names the YOLO-World weights' file name and the
   calibration's date; `cq-person-test score` writes it when the engine's detector passed every mark of the full set,
   each recorded whole, and removes it on anything less. A taught word (the same weights) keeps it.
-- **For the floor:** a FACE spin longer than 1 s with the person 35-50 cm away is unseen on the bridge too (turning
-  pictures are not used) and counts down toward Caught; the trusted floor behind needs a recent look back.
+- **Final review fixes (2026-11-10):** the game's person is `nearest_person` - a box cut by the picture's bottom
+  first (close by definition), then the nearest ranged one, a box above the horizon never hiding either (P0's
+  grading keeps `pick_person`); the 0.3 s window reports its **nearest**, not its median (a far parent could hide a
+  flickering near baby); `TrustedFloor` refuses free times ahead of now (from before a bridge restart) and checks
+  5 cm more for the roll after the stop; `back_ok` for an `ARC` is always no until arcs are checked, and a malformed
+  one is answered no at once; ESCAPE starts only on an estimate under 300 ms old; a failing stream says so and goes on.
+- **For the floor (and two owner decisions, design-notes §228):** pictures taken spinning are not used, so during a
+  turn the person's `age_ms` grows - over 300 ms the bridge's deadman holds the turn, over 1 s it holds the game.
+  FACE's long turns and ESCAPE's turn round meet this; ESCAPE's away leg, with the person behind the camera, meets
+  the bridge's "hold, then look" rule. The trusted floor behind needs a recent look back.

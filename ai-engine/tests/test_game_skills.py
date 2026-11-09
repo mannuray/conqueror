@@ -239,3 +239,16 @@ def test_follow_seconds_end_done() -> None:
     p = play(FollowSkill(LIM, 2.0, 1.0), (0.9 + FRONT_M, 0.0), limit_s=5.0)  # already near: waits facing
     assert p.result == Result.DONE and not p.moved
     assert len(p.cmds) == pytest.approx(21, abs=1)
+
+
+def test_escape_never_starts_on_an_old_estimate() -> None:  # final review M1: a frozen camera
+    skill = EscapeSkill(LIM, 0.30, TrustedFloor())
+    room = RoomMap()
+    seed_behind(room, (0.0, 0.0, 0.0), 1 * 1_000_000)
+    pose = Pose(2_000_000, 0.0, 0.0, 0.0, 0.0, 0.0)
+    old = PersonEst(True, 0.6, 0.0, 0, 0.9, 1_000_000)  # 1 s old, still "seen"
+    inp = make_input(
+        at=(0.0, 0.0, 0.0), snap=room.snapshot(2_000_000, pose, False, True), map_ok=True, person=old
+    )
+    out = skill.tick(T0_S, inp)
+    assert out.result == Result.NO_WAY and out.cmd.v_cms == 0

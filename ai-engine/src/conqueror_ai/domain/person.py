@@ -6,7 +6,6 @@ see a person."""
 from __future__ import annotations
 
 import math
-import statistics
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -64,6 +63,17 @@ def pick_person(ranges: Sequence[PersonRange]) -> PersonRange | None:
     return ranges[0] if ranges else None
 
 
+def nearest_person(ranges: Sequence[PersonRange]) -> PersonRange | None:
+    """The game's person (final review C1): a box cut by the picture's bottom is the nearest by definition
+    (close, below the picture), then the nearest ranged one; a box above the horizon never hides either. P0's
+    grading keeps `pick_person` (one person at the mark)."""
+    cut = [r for r in ranges if r.reason == "cut"]
+    if cut:
+        return cut[0]
+    ranged = [r for r in ranges if r.dist_m is not None]
+    return min(ranged, key=lambda r: r.dist_m if r.dist_m is not None else math.inf) if ranged else None
+
+
 def sigma_m(d: float) -> float:
     return SIGMA_NEAR_M if d <= 1.0 else SIGMA_FAR * d
 
@@ -108,14 +118,14 @@ class PersonWatch:
         self, boxes: Sequence[tuple[float, ...]], cam: CameraModel | None, sonar_m: float | None, t_us: int
     ) -> PersonEst | None:
         self._last_us = t_us
-        r = pick_person([person_range(cam, b) for b in boxes]) if cam is not None else None
-        if r is None or r.reason == "sky":
+        r = nearest_person([person_range(cam, b) for b in boxes]) if cam is not None else None
+        if r is None:
             return self.latest(t_us)
         d = r.dist_m if r.dist_m is not None else CUT_M
         bearing = r.bearing_deg if r.bearing_deg is not None else 0.0
         if sonar_m is not None and 0.0 < sonar_m < SONAR_MAX_M and abs(bearing) <= SONAR_DEG:
             d = min(d, sonar_m)
-        med = self._median(t_us, d)
+        med = self._window(t_us, d)
         rep = max(0.0, med - 2.0 * sigma_m(med))
         sure = 0.9 if r.reason == "" else 0.6
         self._seen = PersonEst(True, rep, bearing, self._coming(t_us, med), sure, t_us)
@@ -142,11 +152,13 @@ class PersonWatch:
                 d = min(d, CAUGHT_M)
         return PersonEst(False, d, s.bearing_deg, s.coming, max(0.0, s.sure - gone_s), last)
 
-    def _median(self, t_us: int, d: float) -> float:
+    def _window(self, t_us: int, d: float) -> float:
+        """The nearest over the 0.3 s window (final review I1: a median let a far parent hide a flickering
+        near baby - unsure = nearer, S2)."""
         self._raw.append((t_us, d))
         while self._raw and t_us - self._raw[0][0] > WINDOW_US:
             self._raw.popleft()
-        med = statistics.median(v for _, v in self._raw)
+        med = min(v for _, v in self._raw)
         self._med.append((t_us, med))
         while len(self._med) > 1 and t_us - self._med[1][0] >= COMING_US:
             self._med.popleft()

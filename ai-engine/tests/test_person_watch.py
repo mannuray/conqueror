@@ -107,3 +107,29 @@ def test_the_wire_message_ages_with_the_picture() -> None:
     assert m["d_cm"] == 70 and m["bearing"] == 10 and m["age_ms"] == 250
     assert m["coming"] in (-1, 0, 1) and 0.0 <= m["sure"] <= 1.0
     assert PersonWatch().latest(0) is None
+
+
+# ---- final review fixes
+def test_a_cut_box_beats_a_far_ranged_one() -> None:  # C1: the baby under the picture, the parent at 2 m
+    w = PersonWatch()
+    cam = cam_down()
+    w.update([box_at(cam, 2.0, 0.0), (200.0, 150.0, 300.0, 239.0)], cam, None, 0)
+    e = w.latest(0)
+    assert e is not None and e.seen and e.d_m is not None and e.d_m <= 0.35
+
+
+def test_a_sky_box_does_not_hide_a_cut_one() -> None:  # C1
+    w = PersonWatch()
+    cam = cam_down()
+    w.update([(100.0, 0.0, 140.0, 5.0), (200.0, 150.0, 300.0, 239.0)], cam, None, 0)
+    e = w.latest(0)
+    assert e is not None and e.seen and e.d_m is not None and e.d_m <= 0.35
+
+
+def test_a_flickering_near_person_is_not_hidden_by_a_far_one() -> None:  # I1: unsure = nearer
+    cam = cam_down()
+    w = PersonWatch()
+    for i, d in enumerate([0.6, 2.0, 2.0, 0.6, 2.0]):
+        w.update([box_at(cam, d, 0.0)], cam, None, i * 60_000)
+    e = w.latest(4 * 60_000)
+    assert e is not None and e.d_m is not None and e.d_m <= 0.6

@@ -247,3 +247,44 @@ async def test_skill_end_caught_ends_a_follow_quietly(bridge: FakeBridge) -> Non
         assert s.app.last_result == Result.CAUGHT
     finally:
         await s.close()
+
+
+async def test_back_ok_for_an_arc_or_without_cm_is_no(
+    bridge: FakeBridge, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    w = world()  # final review I3, M5: an arc is not checked yet; a malformed ask still gets its no at once
+    monkeypatch.setattr(w.map_run.p, "pose", lambda: FACING_X)
+    trusted_room(w, BRIDGE_NOW_S - 1.0)
+    s = await serving(bridge, w)
+    try:
+        arc = {"t": "skill_ask", "id": 8, "q": "back_ok", "cm": 30, "arc": {"r_cm": 40, "deg": 45}}
+        await bridge.to_skill_server(arc)
+        await bridge.to_skill_server({"t": "skill_ask", "id": 9, "q": "back_ok"})
+        await until(lambda: len(msgs(bridge, "skill_answer")) == 2)
+        assert {m["id"]: m["value"] for m in msgs(bridge, "skill_answer")} == {8: False, 9: False}
+    finally:
+        await s.close()
+
+
+async def test_a_stream_that_breaks_says_so_and_goes_on(
+    bridge: FakeBridge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:  # final review M3
+    from conqueror_ai.app import game_serve
+
+    calls = {"n": 0}
+    real = game_serve.person_message
+
+    def flaky(watch: object, now_us: int) -> dict[str, Any]:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise ValueError("boom")
+        return real(watch, now_us)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(game_serve, "person_message", flaky)
+    s = await serving(bridge)
+    try:
+        await bridge.to_skill_server({"t": "game", "on": True})
+        await until(lambda: len(msgs(bridge, "person")) >= 3)
+        assert "person stream" in capsys.readouterr().out
+    finally:
+        await s.close()

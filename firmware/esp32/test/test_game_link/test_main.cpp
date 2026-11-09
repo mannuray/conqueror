@@ -96,6 +96,14 @@ void test_skill_end_caught() {
   TEST_ASSERT_EQUAL_STRING("{\"t\":\"skill_end\",\"id\":5,\"why\":\"caught\"}", b);
 }
 
+void test_game_event_for_the_pages() {
+  char b[160];
+  jsonGameEvent(b, sizeof b, 9, 1200, GameState::kCaught, 2);
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"ev\",\"seq\":9,\"tank_ms\":1200,\"kind\":\"game\",\"state\":\"caught\",\"caught\":2}", b);
+  jsonGameEvent(b, sizeof b, 10, 1300, GameState::kHeld, 2);
+  TEST_ASSERT_NOT_NULL(strstr(b, "\"state\":\"held\""));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_hello_people_flag);
@@ -105,5 +113,6 @@ int main(int, char**) {
   RUN_TEST(test_game_on_off_json);
   RUN_TEST(test_back_ok_question_json);
   RUN_TEST(test_skill_end_caught);
+  RUN_TEST(test_game_event_for_the_pages);
   return UNITY_END();
 }

@@ -876,6 +876,17 @@ void test_game_mode_ends_the_run_with_its_code() {
   TEST_ASSERT_EQUAL(1, g_game_ends);
 }
 
+void test_caught_ends_a_running_skill_as_caught_and_the_program_goes_on() {
+  runAi("WANDER 5 FD 10");
+  ticks(1);
+  startedSkill();
+  lc->onCaught(g_now);
+  TEST_ASSERT_TRUE(sent(kServer, "\"why\":\"caught\""));
+  ticks(2);
+  TEST_ASSERT_TRUE(lc->running());  // not an error
+  TEST_ASSERT_EQUAL(1, g_motions.size());  // FD 10 runs next
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_run_starts_and_carries_out_moves);
@@ -934,5 +945,6 @@ int main() {
   RUN_TEST(test_caught_reaches_the_program);
   RUN_TEST(test_a_backward_move_tells_game_mode_its_length);
   RUN_TEST(test_game_mode_ends_the_run_with_its_code);
+  RUN_TEST(test_caught_ends_a_running_skill_as_caught_and_the_program_goes_on);
   return UNITY_END();
 }

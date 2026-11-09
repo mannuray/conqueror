@@ -21,6 +21,11 @@ namespace app {
 
 class CommandRouter {
  public:
+  struct GameHooks {  // Plan G1 (bridge LLD R34): a person's STOP and the engine's answers reach game mode
+    void (*on_stop)(uint32_t now) = nullptr;
+    void (*on_answer)(int32_t id, int32_t value, uint32_t now) = nullptr;
+  };
+  void setGameHooks(const GameHooks& g) { m_game = g; }
   CommandRouter(DriveController& d, MotionController& m, SettingsController& s, TankAppController& t, LogoController& l,
                 TelemetryPublisher& tel, Replies& out)
       : m_drive(d), m_motion(m), m_settings(s), m_tank(t), m_logo(l), m_tel(tel), m_out(out) {}
@@ -66,6 +71,7 @@ class CommandRouter {
   size_t m_len = 0;
   char m_copy[201];          // skill_things: parsed in place (one LinkCommand holds at most 200 bytes)
   core::ThingList m_things;  // ~1.7 KB: a member, never on the link task's stack
+  GameHooks m_game;
 };
 
 }  // namespace app

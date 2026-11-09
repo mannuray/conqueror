@@ -61,6 +61,13 @@ size_t jsonGame(char* out, size_t cap, bool on) {
   return fmt(out, cap, "{\"t\":\"game\",\"on\":%s}", on ? "true" : "false");
 }
 
+size_t jsonGameEvent(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, GameState s, uint16_t caught) {
+  static const char* const kStates[] = {"off", "arming", "playing", "caught", "held"};
+  return fmt(out, cap, "{\"t\":\"ev\",\"seq\":%lu,\"tank_ms\":%lu,\"kind\":\"game\",\"state\":\"%s\",\"caught\":%u}",
+             static_cast<unsigned long>(seq), static_cast<unsigned long>(tank_ms), kStates[static_cast<uint8_t>(s)],
+             static_cast<unsigned>(caught));
+}
+
 size_t jsonSkillEnd(char* out, size_t cap, int32_t id, LeaseEnd why) {
   return fmt(out, cap, "{\"t\":\"skill_end\",\"id\":%ld,\"why\":\"%s\"}", static_cast<long>(id),
              kEndWhy[static_cast<uint8_t>(why)]);

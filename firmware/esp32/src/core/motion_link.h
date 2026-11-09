@@ -52,6 +52,7 @@ class MotionLink {
   LinkOut onEvent(MotionEvent e, uint32_t now_ms);
   LinkOut endSkill(EndReason why, uint32_t now_ms);  // R26.1: the server's skill_done / skill_failed: end it, STOP while owner
   LinkOut hold(uint32_t now_ms);  // R20: a GO ends as done, STOP while its client still owns the body
+  LinkOut keepAway(uint32_t now_ms);  // R34: the game's keep-out ends the running primitive as done (the program goes on)
 
  private:
   LinkOut finished(const MotionOut& o, int fd, uint32_t now_ms);

@@ -85,6 +85,7 @@ class LogoController {
   int fd() const { return m_running ? m_fd : -1; }
   bool running() const { return m_running; }
   void endWith(uint16_t code, uint32_t now);  // game mode ends the running program (held 7052, arming 7060)
+  void onCaught(uint32_t now);  // R34: a running skill ends "caught" - not an error, the program goes on
 
  private:
   void keepGoing(uint32_t now);

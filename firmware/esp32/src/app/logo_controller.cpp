@@ -59,6 +59,10 @@ void LogoController::onRun(int fd, int32_t id, uint32_t prog, bool step, uint32_
   if (refused != 0) endWith(refused, now);
 }
 
+void LogoController::onCaught(uint32_t now) {
+  if (m_running) endLease(true, core::LeaseEnd::kCaught, core::EndReason::kDone, now);
+}
+
 void LogoController::endWith(uint16_t code, uint32_t now) {
   if (m_running) handle(m_rc.abort(code), now);
 }

@@ -51,7 +51,10 @@ const CommandRouter::Route CommandRouter::kRoutes[] = {
     {K::kLogoStop, [](C& r, int fd, int32_t id, const W&, uint32_t now) { r.m_logo.onStop(fd, id, now); }},
     // Plan Z2a (bridge LLD R26.2): the skill server
     {K::kSkillThings, [](C& r, int fd, int32_t id, const W& c, uint32_t) { r.onThings(fd, id, c); }},
-    {K::kSkillAnswer, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_logo.onSkillAnswer(fd, c.id, c.value, now); }},
+    {K::kSkillAnswer, [](C& r, int fd, int32_t, const W& c, uint32_t now) {
+       r.m_logo.onSkillAnswer(fd, c.id, c.value, now);
+       if (r.m_game.on_answer != nullptr && r.m_hub != nullptr && fd == r.m_hub->server()) r.m_game.on_answer(c.id, c.value, now);  // R34: back_ok
+     }},
     {K::kSkillDrive, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_motion.onSkillDrive(fd, c.id, c.v, c.rate_ddps, now); }},
     {K::kSkillDone, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_logo.onSkillEnd(fd, c.id, logo::SkillEnd::kDone, now); }},
     {K::kSkillFailed, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_logo.onSkillEnd(fd, c.id, c.skill_end, now); }},
@@ -116,6 +119,7 @@ void CommandRouter::onText(int fd, const char* text, size_t len, uint32_t post_s
   const int32_t id = c.has_id ? c.id : -1;
   if (c.kind == core::WsCmdKind::kStop) {
     m_drive.onStop(fd, id, post_seq, now);  // fast path: may overtake its own kWsOpen - never lost
+    if (m_game.on_stop != nullptr) m_game.on_stop(now);  // R34: a person's STOP ends game mode (Held too)
     return;
   }
   if (!m_out.clients().contains(fd) || !m_drive.admitted(fd, c.kind, id, post_seq, now)) return;

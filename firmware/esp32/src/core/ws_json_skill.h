@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "core/game_mode.h"
 #include "logo/effects.h"
 #include "logo/program.h"
 #include "logo/relative.h"
@@ -26,6 +27,8 @@ size_t jsonSkillStart(char* out, size_t cap, int32_t id, const logo::Action& a, 
 size_t jsonSkillAskBackOk(char* out, size_t cap, int32_t id, int16_t cm);
 // R34.3: {"t":"game","on":true|false} - start / stop the engine's person stream
 size_t jsonGame(char* out, size_t cap, bool on);
+// R34: to the pages {"t":"ev","seq","tank_ms","kind":"game","state":"arming"|"playing"|"caught"|"held"|"off","caught":n}
+size_t jsonGameEvent(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, GameState s, uint16_t caught);
 // {"t":"skill_end","id":n,"why":"stop"|"deadman"|"page"|"owner"|"ended"|"caught"}
 size_t jsonSkillEnd(char* out, size_t cap, int32_t id, LeaseEnd why);
 

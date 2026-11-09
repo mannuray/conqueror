@@ -256,6 +256,19 @@ void test_camera_trim_save_waits_for_the_button_and_reads() {
   TEST_ASSERT_TRUE(has(3, "INVALID_COMMAND"));
 }
 
+// Plan G1 (bridge LLD R34): the game's speed cap, a track % measured on the floor - button-confirmed like the rest
+// of calib, saved in NVS.
+void test_calib_game_cap_after_the_button() {
+  g_driver = 3;
+  sc->onCalib(3, 2, P("{\"t\":\"calib\",\"game_cap_pct\":70,\"id\":2}"), 1000);
+  TEST_ASSERT_TRUE(has(3, "\"t\":\"confirm\""));
+  TEST_ASSERT_EQUAL(0, static_cast<int>(fakes::world().saved_game_cap.size()));  // nothing before the button
+  sc->onButtonPress(2000);
+  TEST_ASSERT_EQUAL(1, static_cast<int>(fakes::world().saved_game_cap.size()));
+  TEST_ASSERT_EQUAL(70, fakes::world().saved_game_cap[0]);
+  TEST_ASSERT_EQUAL(7514, g_cpm);  // counts_per_m untouched
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_change_waits_for_the_button_then_posts_wifi_with_feedback);
@@ -277,5 +290,6 @@ int main() {
   RUN_TEST(test_camera_trim_try_only_for_the_trims_in_range);
   RUN_TEST(test_camera_trim_try_follows_the_camera_rule);
   RUN_TEST(test_camera_trim_save_waits_for_the_button_and_reads);
+  RUN_TEST(test_calib_game_cap_after_the_button);
   return UNITY_END();
 }

@@ -85,6 +85,27 @@ uint16_t motionStoreLoadGyroScale() {
   return v;
 }
 
+uint8_t motionStoreLoadGameCap() {
+  uint8_t v = 0;
+  Preferences p;
+  if (p.begin("cq_motion", true)) {
+    const uint8_t saved = p.getUChar("game_cap", 0);
+    if (saved <= 100) v = saved;
+    p.end();
+  }
+  logf("motion: game cap %u %%", static_cast<unsigned>(v));
+  return v;
+}
+
+bool motionStoreSaveGameCap(uint8_t pct) {
+  if (pct > 100) return false;
+  Preferences p;
+  if (!p.begin("cq_motion", false)) return false;
+  const bool ok = p.putUChar("game_cap", pct) == sizeof(uint8_t);
+  p.end();
+  return ok;
+}
+
 bool motionStoreSaveGyroScale(uint16_t scale_e4) {
   if (scale_e4 < core::kGyroScaleMin || scale_e4 > core::kGyroScaleMax) return false;
   Preferences p;

@@ -14,6 +14,8 @@ uint16_t loadCoast();       // R18.2: learned turn coast (ms)
 bool saveCoast(uint16_t v);
 uint16_t loadGyroScale();   // R19: parts per 10 000, 10000 when missing / out of range
 bool saveGyroScale(uint16_t v);
+uint8_t loadGameCap();      // R34: the game's speed cap (track %), 0 = not measured (a game refuses to start)
+bool saveGameCap(uint8_t pct);
 
 }  // namespace ports
 }  // namespace cq

@@ -391,6 +391,23 @@ void test_skill_drive_under_a_live_lease_drives() {
   TEST_ASSERT_EQUAL(40, m.v);
 }
 
+// Plan G1 (bridge LLD R34): a person's STOP and the engine's answers reach game mode.
+int g_game_stops = 0;
+int32_t g_game_answer = -1;
+void test_stop_and_answers_reach_game_mode() {
+  sync();
+  app::CommandRouter::GameHooks gh;
+  gh.on_stop = [](uint32_t) { ++g_game_stops; };
+  gh.on_answer = [](int32_t id, int32_t, uint32_t) { g_game_answer = id; };
+  router->setGameHooks(gh);
+  text(9, "{\"t\":\"stop\",\"id\":1}", 100);
+  TEST_ASSERT_EQUAL(1, g_game_stops);
+  ws.add(7, 0);
+  hub.onHello(7);
+  text(7, "{\"t\":\"skill_answer\",\"id\":42,\"value\":true}", 200);
+  TEST_ASSERT_EQUAL(42, g_game_answer);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_every_kind_has_a_route_except_the_invalid_ones);
@@ -415,5 +432,6 @@ int main() {
   RUN_TEST(test_ai_page_hello_gets_welcome_and_ai_at);
   RUN_TEST(test_other_clients_get_no_ai_at);
   RUN_TEST(test_ai_page_without_engine_gets_null);
+  RUN_TEST(test_stop_and_answers_reach_game_mode);
   return UNITY_END();
 }

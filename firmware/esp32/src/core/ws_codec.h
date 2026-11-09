@@ -130,6 +130,8 @@ struct WsCommand {
   bool people = false;       // hello (R34.3): the engine's seeing test passed
   PersonEst person;          // person (R34.3)
   uint16_t person_age_ms = 0;
+  bool has_game_cap = false;  // calib (R34): set the game's speed cap
+  uint8_t game_cap = 0;       // track %, 1..100
 };
 
 WsCommand parseWsCommand(const char* text, size_t len);

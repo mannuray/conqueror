@@ -58,6 +58,12 @@ bool readAge(Reader& r, WsCommand& c, Seen&) {
   return true;
 }
 bool readPeople(Reader& r, WsCommand& c, Seen&) { return word(r, c.people); }
+bool readGameCap(Reader& r, WsCommand& c, Seen&) {  // calib: the game's speed cap, a track % (1..100)
+  double n = 0;
+  if (!whole(r, 1, 100, n)) return false;
+  c.game_cap = static_cast<uint8_t>(n);
+  return c.has_game_cap = true;
+}
 
 struct Row {
   const char* key;
@@ -65,7 +71,7 @@ struct Row {
 };
 const Row kRows[] = {
     {"seen", readSeen}, {"d_cm", readDcm}, {"bearing", readBearing}, {"coming", readComing},
-    {"sure", readSure}, {"age_ms", readAge}, {"people", readPeople},
+    {"sure", readSure}, {"age_ms", readAge}, {"people", readPeople}, {"game_cap_pct", readGameCap},
 };
 
 }  // namespace

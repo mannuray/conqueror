@@ -18,9 +18,10 @@ struct PendingChange {
   char pass[64] = "";   // wifi_save / ap_password - never echoed
   uint8_t setting_id = 0;
   int32_t value = 0;
-  uint8_t calib_what = 0;  // 0 counts_per_m, 1 roll, 2 gyro_scale (R19)
+  uint8_t calib_what = 0;  // 0 counts_per_m, 1 roll, 2 gyro_scale (R19), 3 the game's speed cap (R34)
   uint16_t cpm = 0;        // kCalibSet (Plan O): the counts per metre to save
   uint16_t gyro = 0;       // kCalibSet with calib_what 2 (R19): the gyro scale to save
+  uint8_t game_cap = 0;    // kCalibSet with calib_what 3 (R34): the game's speed cap (track %)
 };
 
 const char* changeName(ChangeKind k);

@@ -10,6 +10,7 @@
 
 #include "app/command_router.h"
 #include "app/drive_controller.h"
+#include "app/game_controller.h"
 #include "app/logo_controller.h"
 #include "app/motion_controller.h"
 #include "app/replies.h"
@@ -28,6 +29,8 @@
 #include "core/ws_clients.h"
 #include "core/ws_codec.h"
 #include "core/ws_json.h"
+#include "core/ws_json_skill.h"
+#include "ports/motion_store.h"
 #include "net/app_settings.h"
 #include "net/log.h"
 #include "net/logo_worker.h"
@@ -61,6 +64,7 @@ app::DriveController g_drive(g_out, g_log, g_owner, g_uno, g_motion, g_settings,
 app::UnoEventRouter g_events(g_out, g_log, g_tel, g_link);
 core::SkillHub g_skills;  // Plan Z2a (bridge LLD R26.1): the skill server, its things, the one drive lease
 core::AiPages g_pages;    // Plan Z2b-1 (bridge LLD R27.1): the /ai pages, told where the engine's AI feed is
+app::GameController g_game;  // Plan G1 (bridge LLD R34): game mode - the people games' safety under every program
 // Plan N3: built in linkTaskStart - the running program and its Vm live in the logo worker's memory (PSRAM).
 alignas(app::LogoController) unsigned char g_logo_mem[sizeof(app::LogoController)];
 alignas(app::CommandRouter) unsigned char g_router_mem[sizeof(app::CommandRouter)];
@@ -81,6 +85,7 @@ void handleCommand(const LinkCommand& cmd, uint32_t now) {
   switch (cmd.kind) {
     case LinkCommand::Kind::kWsOpen: g_drive.onClientOpen(cmd.fd, now); break;
     case LinkCommand::Kind::kWsClose:
+      if (cmd.fd >= 0 && cmd.fd == g_skills.server()) g_game.onEngineGone(now);  // R34 S12: held until STOP
       g_logo->onClientClose(cmd.fd, now);  // Plan Z2a: the skill server's close ends a running skill (7052) first
       g_drive.onClientClose(cmd.fd, now);
       g_pages.onClose(cmd.fd);
@@ -142,6 +147,7 @@ void step(uint32_t now) {
   g_link.step(now);
   core::LinkEvent ev{};
   while (g_link.popEvent(ev)) g_events.route(ev, now);
+  g_game.tick(now);  // R34: the person estimate, the envelope, caught / held - before any DRIVE this loop
   telemetry(now);
   g_logo->tick(now);     // Plan N3: a running Tank Logo program's slice; Z2a: the lease deadman (SkillHub::tick)
   if (g_skills.commitPending()) g_skills.tryCommit(logoThingsLock());  // a finished things list (2 ms lock at most)
@@ -175,7 +181,15 @@ void wireViews() {
   m.claim = [](int fd, uint32_t now, bool moving) { return g_drive.claim(fd, now, moving); };
   m.ota = [] { return g_drive.otaActive(); };
   m.logo_fd = [] { return g_logo->fd(); };  // Plan N3: a running program is its page's primitive
-  m.logo_end = [](const core::PrimitiveEnd& e, uint32_t now) { g_logo->onPrimitiveEnd(e, now); };
+  m.logo_end = [](const core::PrimitiveEnd& e, uint32_t now) {
+    core::PrimitiveEnd x = e;
+    if (x.reason == core::EndReason::kBlocked && g_game.state() != core::GameState::kOff) {  // R34: held / blocked
+      g_game.onCaughtEvent(now);                                                           // in a game: caught,
+      x.reason = core::EndReason::kDone;                                                   // not 7024
+      x.ok = true;
+    }
+    g_logo->onPrimitiveEnd(x, now);
+  };
   m.logo_event = [](core::MotionEvent e, uint32_t now) { g_logo->onMotionEvent(e, now); };
   m.lease_ok = [](int fd, int32_t id, uint32_t now) { return g_skills.leaseOk(fd, id, now); };  // Plan Z2a
   g_motion.setHooks(m);
@@ -183,7 +197,10 @@ void wireViews() {
 
 void wireEvents() {
   app::UnoEventRouter::Sinks sinks{};
-  sinks.body_online = [](uint32_t now) { g_drive.onSynced(true, now); };
+  sinks.body_online = [](uint32_t now) {
+    g_drive.onSynced(true, now);
+    g_game.onBodyOnline(now);  // R34: a game arms again; no game: the envelope cleared (boot, Uno restart)
+  };
   sinks.body_offline = [](uint8_t, int16_t, uint32_t now) {
     g_motion.end(core::MotionEvent::kBodyOffline, now);
     g_drive.onSynced(false, now);
@@ -192,6 +209,7 @@ void wireEvents() {
   sinks.uno_owner = [](uint8_t o, uint32_t now) { g_drive.onUnoOwner(o, now); };
   sinks.button_press = [](uint32_t now) { g_settings.onButtonPress(now); };
   sinks.motion_event = [](uint8_t e, uint32_t now) {
+    if (e == static_cast<uint8_t>(proto::EventKind::kStall)) g_game.onCaughtEvent(now);  // R34: a held track
     g_motion.end(e == static_cast<uint8_t>(proto::EventKind::kStall) ? core::MotionEvent::kBodyStall
                                                                      : core::MotionEvent::kBodyEncoderFault, now);
   };
@@ -223,7 +241,7 @@ void wireSettingsAndTank() {
                        [] { return g_owner.driverFd(); }, [](int fd) { g_motion.sendCalib(fd); },
                        [](const core::AckedOp& op) { return g_uno.request(op); }, &g_motion.cpm(), &g_motion.rollMm(),
                        [] { return g_uno.freeSlots(); }, &g_motion.coastMs(),
-                       [](uint16_t v) { return g_motion.setGyroScale(v); }});
+                       [](uint16_t v) { return g_motion.setGyroScale(v); }, [](uint8_t p) { g_game.setCap(p); }});
   g_tank.setSelfTestHooks({[] { return !g_link.synced(); }, [] { return !standingStill(); }, queueSelfTest});
 }
 
@@ -255,9 +273,68 @@ void wireLogo() {
     g_owner.clearLeaseHolder();
     g_motion.endSkill(why, now);  // a STOP while the program's phone owns the body; nothing if it already ended
   };
+  h.game_start = [](bool game, uint32_t now) { return g_game.onRunStart(game, now); };  // R34
+  h.game_ready = [] { return g_game.ready(); };
+  h.game_caught = [] { return g_game.caught(); };
+  h.game_end = [](uint32_t now) { g_game.onRunEnd(now); };
+  h.game_backing = [](int16_t cm) { g_game.backing(cm); };
   g_logo->setHooks(h);
   g_logo->setSkillHub(&g_skills);
   g_uno.setLogoDone([](uint8_t status) { g_logo->onUnoDone(status, millis()); });
+}
+
+bool gameEnvelope(uint8_t cap, uint8_t accel, uint8_t lock) {  // R34: through the Uno's acked queue
+  core::AckedOp op;
+  op.kind = core::AckedOp::kEnvelope;
+  op.a = cap;
+  op.r = accel;
+  op.g = lock;
+  op.fd = core::kGameClient;
+  return g_uno.request(op);
+}
+
+void gameCaught(uint32_t now) {  // R34 S3: everything stops, one beep; the program goes on
+  g_logo->onCaught(now);   // a running skill ends "caught"
+  g_motion.keepAway(now);  // any other primitive ends as done
+  core::AckedOp beep;
+  beep.kind = core::AckedOp::kSound;
+  beep.a = static_cast<uint8_t>(proto::SoundId::kBlip);
+  g_uno.request(beep);
+}
+
+int32_t gameAskBack(int16_t cm) {  // R34: may a backward move this long run over trusted floor?
+  if (g_skills.server() < 0) return -1;
+  const int32_t id = g_skills.newId();
+  g_out.to(g_skills.server(), core::jsonSkillAskBackOk(g_out.buf(), g_out.cap(), id, cm));
+  return id;
+}
+
+// Plan G1 (bridge LLD R34): game mode - the engine's person stream and seeing-test pass, the envelope through the
+// Uno's acked queue, caught / held / kept away, back_ok, the pages' game event; every DRIVE through its gate.
+void wireGame() {
+  app::GameController::Hooks g;
+  g.people = [] { return g_skills.people(); };
+  g.take_person = [](core::PersonEst& out) { return g_skills.takePerson(out); };
+  g.send_game = [](bool on) {
+    if (g_skills.server() >= 0) g_out.to(g_skills.server(), core::jsonGame(g_out.buf(), g_out.cap(), on));
+  };
+  g.queue_envelope = gameEnvelope;
+  g.keep_away = [](uint32_t now) { g_motion.keepAway(now); };
+  g.caught = gameCaught;
+  g.end_run = [](uint16_t code, uint32_t now) { g_logo->endWith(code, now); };
+  g.ask_back = gameAskBack;
+  g.event = [](core::GameState st, int16_t, uint16_t caught) {
+    g_out.all(core::jsonGameEvent(g_out.buf(), g_out.cap(), g_tel.nextEventSeq(), g_tel.tankMs(), st, caught));
+  };
+  g.stop_cm = [] { return static_cast<uint16_t>(g_motion.rollMm() / 10); };
+  g_game.setHooks(g);
+  g_game.setCap(ports::loadGameCap());
+  g_link.setDriveGate(app::GameController::gate, &g_game);
+  g_uno.setGameDone([](uint8_t status) { g_game.onEnvelopeDone(status, millis()); });
+  app::CommandRouter::GameHooks r;
+  r.on_stop = [](uint32_t now) { g_game.onStop(now); };
+  r.on_answer = [](int32_t id, int32_t value, uint32_t now) { g_game.onAnswer(id, value, now); };
+  g_router->setGameHooks(r);
 }
 
 }  // namespace
@@ -274,6 +351,7 @@ void linkTaskStart(const char* (*camera_sensor)()) {
   g_router->setAiPages(&g_pages);
   g_router->setClockUs([]() { return static_cast<uint64_t>(esp_timer_get_time()); });  // Plan Q1: pong
   wireLogo();
+  wireGame();
   wireViews();
   wireEvents();
   wireSettingsAndTank();

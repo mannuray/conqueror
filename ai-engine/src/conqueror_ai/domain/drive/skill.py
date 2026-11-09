@@ -14,6 +14,7 @@ from conqueror_ai.domain.drive.curves import Command, XYTh
 from conqueror_ai.domain.drive.goal import TargetFix
 from conqueror_ai.domain.drive.route import XY
 from conqueror_ai.domain.objects import Glimpse
+from conqueror_ai.domain.person import PersonEst
 from conqueror_ai.domain.room_map import MapSnapshot
 
 
@@ -46,6 +47,7 @@ class SkillInput:
     maybes: tuple[XY, ...] = ()  # this picture's sightings of the thing sought, sure or not (find only)
     fresh: bool = False  # the maybes are from a new picture: used, or taken while turning (LLD §25 A1)
     glimpses: tuple[Glimpse, ...] = ()  # the thing's, while the camera moved, since the last tick (§25 A2)
+    person: PersonEst | None = None  # the game's person, pessimistic (LLD §28.2); None: nobody seen yet
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,7 @@ def make_input(
     maybes: Sequence[XY] = (),
     fresh: bool | None = None,
     glimpses: Sequence[Glimpse] = (),
+    person: PersonEst | None = None,
 ) -> SkillInput:
     """fresh: None = as `used` (every picture used was a new one before Plan Z10)."""
     costs = None if snap is None else CostMaps(snap, settings, area)
@@ -97,4 +100,5 @@ def make_input(
         tuple(maybes),
         used if fresh is None else fresh,
         tuple(glimpses),
+        person,
     )

@@ -31,6 +31,7 @@ BODY_SHRINK_M = 0.02  # the footprint shrunk this much all round (pose drift)
 BODY_GRID = 9  # the shrunk footprint sampled 9 x 9 (~2.5 cm apart) for the cells it covers
 DRIVEN_GRID = 23  # the whole footprint sampled ~1 cm apart for the cells it touches (LLD §25.10)
 BODY_EVERY_US = 100_000  # at most 10 a second, one step per cell (like the sonar)
+FREE_FROM_M = 1.5  # floor seen free from nearer than this counts as trusted floor (LLD §28.4)
 
 UNSEEN = (0, 0, 0)
 SEEN = (110, 110, 110)
@@ -81,6 +82,9 @@ class RoomMap:
         self._last_body_us: int | None = None
         # where the tank's whole body has been this run: nothing stands there, until seen there after (§25.10)
         self.driven = np.zeros((self.n, self.n), np.bool_)
+        # when each cell was last seen free floor from within FREE_FROM_M, or under the body; 0: not since its
+        # last low / high mark (or never) - the trusted floor a game backs over (LLD §28.4)
+        self.free_us = np.zeros((self.n, self.n), np.int64)
 
     def cells(self, xy: FloatArray) -> NDArray[np.intp]:
         """The unique flat cell indices (ix * n + iy) of room points; points outside the map are dropped."""
@@ -104,11 +108,13 @@ class RoomMap:
         after the tank was there: the sighting wins over the driven record (§25.10)."""
         self._step(cells, layer, self.settings.hit * weight)
         self.driven.reshape(-1)[cells] = False
+        self.free_us.reshape(-1)[cells] = 0
 
     def miss(self, cells: NDArray[np.intp], layer: Layer) -> None:
         self._step(cells, layer, self.settings.miss)
 
-    def update_picture(self, marks: Marks, t_us: int) -> None:
+    def update_picture(self, marks: Marks, t_us: int, from_xy: tuple[float, float] | None = None) -> None:
+        """from_xy: where the tank was; floor nearer than FREE_FROM_M to it gets its free time (None: all)."""
         low, high = self.cells(marks.low_xy), self.cells(marks.high_xy)
         floor = np.setdiff1d(self.cells(marks.floor_xy), np.union1d(low, high), assume_unique=True)
         above = self.cells(marks.above_xy)
@@ -119,7 +125,15 @@ class RoomMap:
         seen = self.seen.reshape(-1)
         for c in (low, high, floor, above):
             seen[c] = True
+        self.free_us.reshape(-1)[self._near(floor, from_xy)] = t_us
         self._last_picture_us = t_us
+
+    def _near(self, cells: NDArray[np.intp], from_xy: tuple[float, float] | None) -> NDArray[np.intp]:
+        if from_xy is None or len(cells) == 0:
+            return cells
+        cx = (cells // self.n + 0.5) * self.cell_m - self.half_m
+        cy = (cells % self.n + 0.5) * self.cell_m - self.half_m
+        return cells[np.hypot(cx - from_xy[0], cy - from_xy[1]) <= FREE_FROM_M]
 
     def body_over(self, pose: Pose, front_m: float, rear_m: float, half_w_m: float, t_us: int) -> bool:
         """The floor under the tank's footprint (shrunk BODY_SHRINK_M) is seen and free: cleared on both
@@ -152,6 +166,7 @@ class RoomMap:
         self.low.reshape(-1)[cells] = -clamp
         self.high.reshape(-1)[cells] = -clamp
         self.seen.reshape(-1)[cells] = True
+        self.free_us.reshape(-1)[cells] = t_us
         gx, gy = np.meshgrid(  # the whole body, edges included (~1 cm apart): the cells it touches
             np.linspace(-rear_m, front_m, DRIVEN_GRID), np.linspace(-half_w_m, half_w_m, DRIVEN_GRID)
         )

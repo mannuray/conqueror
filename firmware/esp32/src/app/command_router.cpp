@@ -57,6 +57,8 @@ const CommandRouter::Route CommandRouter::kRoutes[] = {
     {K::kSkillFailed, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_logo.onSkillEnd(fd, c.id, c.skill_end, now); }},
     // Plan Z2b-1 (bridge LLD R27.1): around a teach; the hub ignores it from anyone but the server
     {K::kSkillLearning, [](C& r, int fd, int32_t, const W& c, uint32_t) { if (r.m_hub != nullptr) r.m_hub->onLearning(fd, c.on); }},
+    // R34.3: the engine's person estimate, from the server only (game mode takes it from the hub)
+    {K::kPerson, [](C& r, int fd, int32_t, const W& c, uint32_t now) { if (r.m_hub != nullptr) r.m_hub->onPerson(fd, c.person, c.person_age_ms, now); }},
 };
 
 // hello: "ai-skills" registers the one skill server (another fd's gets BUSY, no welcome); everyone gets a welcome;
@@ -73,7 +75,7 @@ void CommandRouter::onHello(int fd, const core::WsCommand& c) {
 bool CommandRouter::registerServer(int fd, const core::WsCommand& c) {
   char ip[16] = "";
   if (!ports::clientPeerIp(fd, ip, sizeof ip)) ip[0] = '\0';
-  return m_hub->onHello(fd, ip, c.page_port, c.page_proto) != core::SkillHub::Decision::kBusy;
+  return m_hub->onHello(fd, ip, c.page_port, c.page_proto, c.people) != core::SkillHub::Decision::kBusy;
 }
 
 void CommandRouter::sendAiAt(int fd) {

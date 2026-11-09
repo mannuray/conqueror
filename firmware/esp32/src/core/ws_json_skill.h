@@ -15,14 +15,18 @@ namespace core {
 using FwdLeft = logo::FwdLeft;
 
 // Why the lease ended from the tank's side (skill_end "why").
-enum class LeaseEnd : uint8_t { kStop, kDeadman, kPage, kOwner, kEnded };
+enum class LeaseEnd : uint8_t { kStop, kDeadman, kPage, kOwner, kEnded, kCaught };  // kCaught: game mode (R34)
 
 // {"t":"skill_ask","id":n,"q":"see?"|"howfar","thing":"toy"}
 size_t jsonSkillAsk(char* out, size_t cap, int32_t id, logo::AskQ q, const char* thing);
 // {"t":"skill_start","id":n,"skill":"find"|"wander"|"explore"|"setxy", find: "thing", wander: "s", setxy: "to" {...},
 //  and, when the action has an AREA, "area":{"r_m","fwd_cm","left_cm"}}. `to` and `area` are relative to the tank now.
 size_t jsonSkillStart(char* out, size_t cap, int32_t id, const logo::Action& a, FwdLeft to, FwdLeft area);
-// {"t":"skill_end","id":n,"why":"stop"|"deadman"|"page"|"owner"|"ended"}
+// R34.3: {"t":"skill_ask","id":n,"q":"back_ok","cm":n} - may a backward move this long run over trusted floor?
+size_t jsonSkillAskBackOk(char* out, size_t cap, int32_t id, int16_t cm);
+// R34.3: {"t":"game","on":true|false} - start / stop the engine's person stream
+size_t jsonGame(char* out, size_t cap, bool on);
+// {"t":"skill_end","id":n,"why":"stop"|"deadman"|"page"|"owner"|"ended"|"caught"}
 size_t jsonSkillEnd(char* out, size_t cap, int32_t id, LeaseEnd why);
 
 }  // namespace core

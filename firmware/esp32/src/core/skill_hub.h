@@ -8,6 +8,7 @@
 
 #include <atomic>
 
+#include "core/keep_out.h"
 #include "core/motion_config.h"
 #include "core/thing_list.h"
 #include "logo/program.h"
@@ -60,7 +61,12 @@ class SkillHub {
 
   // A hello with client "ai-skills": the one skill server (things follow in skill_things parts). kBusy: another fd.
   // Plan Z2b-1 (R27.3): the server's socket address and its hello's page port / proto give where its AI feed is.
-  Decision onHello(int fd, const char* peer_ip = "", uint16_t page_port = 0, uint8_t page_proto = 0);
+  Decision onHello(int fd, const char* peer_ip = "", uint16_t page_port = 0, uint8_t page_proto = 0, bool people = false);
+  // R34.3: the server's seeing test passed (its hello's "people"); false with no server.
+  bool people() const { return m_server >= 0 && m_people; }
+  // R34.3: a person estimate - only from the server (true); age_ms old when it arrived at now. takePerson: one-shot.
+  bool onPerson(int fd, const PersonEst& e, uint16_t age_ms, uint32_t now);
+  bool takePerson(PersonEst& out);
   // "ws://<ip>:<port>/feed", or "" (no server, no page, a port outside 1024-65535, no address). Link task only.
   const char* pageUrl() const { return m_page_url; }
   uint8_t pageProto() const { return m_page_proto; }
@@ -120,6 +126,9 @@ class SkillHub {
   uint32_t m_last_drive_ms = 0;
   char m_page_url[40] = "";  // "ws://" + 15 + ":65535" + "/feed" fits
   uint8_t m_page_proto = 0;
+  bool m_people = false;
+  PersonEst m_person;
+  bool m_has_person = false;
   SharedFlag m_learning;  // read by the Logo worker's caps(), written on the link task
 };
 

@@ -31,10 +31,14 @@ struct Seen {
   int32_t pan_d10 = 0, tilt_d10 = 0;                        // ... their 0.1 deg
   bool prog = false;                                        // logo_run (Plan N3)
   char reason[16] = "";                                     // skill_failed (Plan Z2a)
+  bool person_seen = false, person_d = false, person_bearing = false;  // person (bridge LLD R34.3)
 };
 
 // One "key": value pair; false = malformed (the whole command is rejected). Unknown keys are skipped.
 bool readField(const char* key, Reader& r, WsCommand& c, Seen& s);
+// The game's keys (ws_codec_person.cpp): known = the key is one of them; false = malformed.
+bool readGameKey(const char* key, Reader& r, WsCommand& c, Seen& s, bool& known);
+bool checkPerson(const Seen& s);  // seen, d_cm and bearing all present
 
 }  // namespace codec
 }  // namespace core

@@ -6,11 +6,12 @@ feeds the tracker, the memory or the map."""
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from conqueror_ai.domain.camera import CameraModel
+from conqueror_ai.domain.person import CUT_PX, PersonRange, person_range, pick_person
+
+__all__ = ["CUT_PX", "PersonRange", "person_range", "pick_person"]  # P0's names, now shared (G2)
 
 SHARE = 0.8  # 8 of 10
 NEAR_TOL_M = 0.10  # the distance's tolerance up to 1 m
@@ -19,18 +20,6 @@ DIR_TOL_DEG = 5.0
 SONAR_TOL_M = 0.10
 CAMERA_FROM_M = 0.5  # nearer marks are the sonar's case: reported, not scored for the camera
 SONAR_UP_TO_M = 0.5
-CUT_PX = 4.0  # a box whose bottom is this near the picture's bottom edge is cut, not standing on the floor
-
-
-@dataclass(frozen=True)
-class PersonRange:
-    """One person box read: from the tank's front edge (m) and its direction (deg, + left), or why not."""
-
-    dist_m: float | None
-    bearing_deg: float | None
-    reason: (
-        str  # "" ranged, "cut" the box runs off the picture's bottom, "sky" its bottom is above the horizon
-    )
 
 
 @dataclass(frozen=True)
@@ -56,31 +45,6 @@ class MarkScore:
     camera_scored: bool
     passed: bool
     why: str
-
-
-def person_range(cam: CameraModel, box: tuple[float, ...]) -> PersonRange:
-    """The box's bottom centre (the hands on the floor) through the camera to the floor, in the tank's
-    frame."""
-    x1, _, x2, y2 = box
-    if y2 >= cam.cal.size[1] - CUT_PX:
-        return PersonRange(None, None, "cut")
-    p = cam.pixel_to_floor((x1 + x2) / 2.0, y2)
-    if p is None:
-        return PersonRange(None, None, "sky")
-    pose = cam.pose
-    dx, dy = p[0] - pose.x_m, p[1] - pose.y_m
-    c, s = math.cos(pose.th_rad), math.sin(pose.th_rad)
-    tx, ty = c * dx + s * dy, -s * dx + c * dy  # the tank's frame: x ahead, y left
-    ax = tx - cam.cal.track_front_m  # from the front edge's middle, where the tape starts
-    return PersonRange(math.hypot(ax, ty), math.degrees(math.atan2(ty, ax)), "")
-
-
-def pick_person(ranges: Sequence[PersonRange]) -> PersonRange | None:
-    """The person at the mark: the nearest ranged one, else any seen one (cut / sky), else None."""
-    ranged = [r for r in ranges if r.dist_m is not None]
-    if ranged:
-        return min(ranged, key=lambda r: r.dist_m if r.dist_m is not None else math.inf)
-    return ranges[0] if ranges else None
 
 
 def _dist_ok(tape_m: float, d: float) -> bool:

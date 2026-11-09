@@ -3381,4 +3381,12 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   66 B left, MARKS needs ~0.5 KB. Plan: `docs/superpowers/plans/2026-11-07-plan-z11-marks.md`.
 - **Built (2026-11-07, branch `plan-z11-marks`):** the class picture rides on each feed frame; `/ai` shows MARKS by
   default (`/ai` 31 627 B gzipped); the class picture travels zlib-packed (Opus final review I1: raw it was ~2.8 Mbit/s
-  per page). AI engine LLD §26.5, bridge LLD R33.1. Tank check pending.
+  per page). AI engine LLD §26.5, bridge LLD R33.1.
+- **Tank check (2026-11-09, still; nothing drove, the camera at the driving tilt):** the engine from this branch,
+  `/ai` on the tank (flashed 2026-11-07): MARKS the default, "VIEW B // WHAT IT SEES" with its legend; every feed
+  frame carried marks (112 of 112 in 6 s, ~300 B packed); DEPTH and back switch at once. A person's feet red (low),
+  ankles and legs orange (high); door frames' bases marked. **The shiny marble by the doors, with the window's
+  bright reflection across it, reads as floor (faint green)** - no red on bare marble (59 % floor, 1.8 % low,
+  1.5 % high over 6 s, the same as plain floor); red / orange only at real edges (a dark mat, the wall's base).
+  So with the tank still the marble does not fool the depth model: the false low marks that held SETXY (§217,
+  Z10d) most likely came from pictures taken while moving or turning - to see with a short drive watching MARKS.

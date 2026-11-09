@@ -313,3 +313,16 @@ def test_seeing_a_vga_picture_is_quick() -> None:  # C1: it runs every picture, 
         s.see(cam, inv, 1_100_000 + i * 100_000)
         times.append(time.perf_counter() - t)
     assert min(times) < 0.06
+
+
+# ---- Plan Z11 (LLD §26.2): the same sort as a class picture for the AI feed's MARKS layer
+def test_classify_also_gives_the_class_picture() -> None:
+    cam = servo_cam()
+    rng = scene(cam, [(160, 180, 0.05), (164, 180, 0.15), (160, 8, 0.30)])
+    m = HP.classify(cam, rng)
+    assert m.classes is not None and m.classes.dtype == np.uint8
+    assert m.classes.shape == rng[::4, ::4].shape  # row 0 is the picture's top
+    assert m.classes[180 // 4, 160 // 4] == 2 and m.classes[180 // 4, 164 // 4] == 3  # low, high
+    assert m.classes[8 // 4, 160 // 4] == 4 and m.classes[200 // 4, 160 // 4] == 1  # above, floor
+    counts = [int((m.classes == k).sum()) for k in (1, 2, 3, 4)]
+    assert counts == [m.floor_xy.shape[0], m.low_xy.shape[0], m.high_xy.shape[0], m.above_xy.shape[0]]

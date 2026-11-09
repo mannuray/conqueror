@@ -3659,3 +3659,18 @@ sequenceDiagram
   66 B left, so the next `/ai` change needs room or a budget decision. `room_check` also found its stand-in tank never
   answered the link's ping since Plan Link was merged (the page closed the silent link, and a later `ai_at` was lost) -
   fixed as in `ai_check`. Checks: `room.test.js` (18), the 45 packer tests, `room_check`, `ai_check` - pass.
+
+## R33. The MARKS layer on the `/ai` page (owner 2026-11-07; design-notes §221, AI engine LLD §26 — draft for review)
+- VIEW B's LAYER chooser (today only DEPTH) gains **MARKS**: the camera picture with the engine's conclusion drawn over it - **low obstacles red, high orange, floor it judged free faint green**, "above" (passable under) and nothing not drawn. The class picture (`marks: [w, h]`, AI engine LLD §26.2) is coloured into an `ImageData` the size of the grid and scaled over the picture (nearest-neighbour, so the cells stay visible), ~70 % red / orange, ~25 % green.
+- The head line reads "VIEW B // WHAT IT SEES" with MARKS, "VIEW B // DEPTH MAP" with DEPTH; NEAR = BRIGHT only with DEPTH; a legend chip with MARKS: "■ low ■ high ■ floor".
+- **MARKS is the default** (it is what the tank acts on); the choice is remembered per browser (`cq_ai_layer`, localStorage in try / catch, as `cq_ai_mute`). No marks in a frame (an old engine, a skipped picture): the last ones stay up to 0.5 s, then none.
+- `AiCore.splitFrame` returns `marks: {w, h, bytes} | null`; `AiCore.marksColours(bytes, w, h) -> Uint8ClampedArray` (pure, tested).
+- **Page budget:** `/ai` was 30 654 of 30 720 B gzipped (66 B left); MARKS needs ~400-600 B. **Owner (2026-11-07): 32 KB**, as `/logo`.
+- Tests: `ai.test.js` - `splitFrame` with and without marks; `marksColours` maps 0-4 to transparent / green / red / orange / transparent; the layer choice remembered; `ai_check.js` (browser) - MARKS draws over the picture.
+
+### R33.1 As built (2026-11-07, branch `plan-z11-marks`)
+- `ai.js`: `splitFrame` returns `marks` (null without `marks` in the header, a short class picture throws); `marksColours` uses fixed colours - low (235, 40, 40, 179), high (255, 150, 30, 179), floor (60, 200, 90, 64); `pickLayer(saved)` (MARKS unless `"depth"`) and `layerHead(layer)` are pure and tested.
+- `ai.html`: the head span `v2Head` and a key span `v2Key` (NEAR = BRIGHT, or the ■ low / high / floor legend); the class picture is put on a small canvas and scaled up with smoothing off; marks older than 0.5 s are not drawn; changing the layer redraws the last picture.
+- `/ai` is 31 341 B gzipped (budget 32 768 B).
+- Tests: `ai.test.js` 16 pass (all page tests 136); `ai_check.js` (Playwright on `fake_tank.py`) shows red with MARKS, green with DEPTH, the bare picture once the marks are stale, `cq_ai_layer` saved - pass.
+- **Final review fixes (Opus, 2026-11-07):** I1 - `splitFrame` returns the packed bytes (`marks: {w, h, z}`) and `unpackMarks(m)` opens them with `DecompressionStream("deflate")` (null when they do not open to w × h). M1 - the marks are kept together with their own picture, set when that picture is drawn. M3 - `drawsDepth(layer, sawMarks)`: MARKS shows the depth until the engine has sent any marks (an old engine). M4 - a class picture with a side ≤ 0 or more than 65 536 cells is dropped and the picture kept. `/ai` 31 627 B gzipped. `ai.test.js` 18 pass (page tests 138); `ai_check.js` also checks the old-engine case - pass.

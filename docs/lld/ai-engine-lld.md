@@ -3197,6 +3197,42 @@ The engine ticked every ~66 ms to the end (longest gap 0.15 s) and the tank's te
   - **I1:** the driven record reaches up to ~5 cm past the body's sides, and a turn's corners sweep wider than the track - a chair leg passed close could be set aside and hit. Now **turns** set aside only the **low** marks **inside the outline now** (`ignore_under`); **backing** keeps the driven track (it retraces its own width) but never a **high** mark (`marks_within` keeps high cells; the known-floor exemption too). Tests: a spin into a low or high mark 2 cm beside the track refused; a spin meeting only marks under the body allowed; backing never sets a high mark aside; the room8 layout still backs out.
   - **Minors:** the sightings list clears when the bridge's clock goes back and is trimmed on every picture; sightings are timed at the readout's middle (as the tracker); the look round's glimpse starts its second look on the next tick (the stop rules in force); this section's text. Noted (no change): a real mark that drift puts wholly under the shrunk body is wiped and needs ~6 hits to come back - play tolerance.
 
+## 26. What the tank makes of the picture: the MARKS layer on the AI feed (Plan Z11; design-notes §221, bridge LLD R33 — draft for review)
+
+### 26.1 Why
+- The `/ai` page's VIEW B shows the depth picture (Depth Anything V2 Small's inverse depth, 2nd-98th percentile into green, 60 % over the camera picture). Owner (2026-11-07): "why is the depth map like this, it doesn't provide much - are we using it?" It is used (the room map's marks, the camera's real tilt, heights - §18.3-§18.5), but the view shows the raw relative depth, not what the engine concludes; on a mostly flat floor it is a smooth gradient.
+- Today's SETXY problem (§25.10) came from **false low marks on shiny marble** - invisible on the page until replayed. A layer showing the engine's own conclusion per picture makes such marks visible as they happen.
+
+### 26.2 What changes
+- `HeightPoints.classify` (§18.4) already sorts every 4th pixel into floor / low / high / above (or nothing: too far, bad depth, not placed). It also returns that sort as a **class picture** (`Marks.classes`, uint8, the strided grid: 0 nothing, 1 floor, 2 low, 3 high, 4 above). Nothing else in `Seeing` or the map changes.
+- The feed frame (§22.2) gains a third part after the depth JPEG: the class picture as raw bytes, the header `"marks": [w, h]` (absent: none). A page that does not know it ignores the extra bytes (`splitFrame` only reads `cam` + `depth`).
+- Only pictures the map used carry it (the marks of a picture are what it adds to the map); skipped pictures send none.
+- Size: ~80 × 60 = 4.8 KB a picture, only while a page is connected (§22) - under the depth JPEG's typical size.
+
+### 26.3 Classes
+```mermaid
+classDiagram
+  class Marks { +floor_xy +low_xy +high_xy +above_xy +classes : uint8[h, w] }
+  class HeightPoints { +classify(cam, range_m) Marks }
+  class AiFeed { +on_frame(cap_us, rgb, dets, inv, classes) }
+  class feed_encode { +encode_frame(header, cam, depth, marks) bytes }
+  HeightPoints --> Marks
+  AiFeed --> feed_encode
+```
+
+### 26.4 Tests
+- `classify` on a synthetic floor with a 5 cm box and a 15 cm box: the box pixels are class 2 / 3, the floor 1, sky 0; the xy lists unchanged.
+- `encode_frame` / `decode_frame` round trip with marks; an old-style frame (no marks) decodes as before.
+- The feed sends `marks` only with a used picture.
+
+### 26.5 As built (2026-11-07, branch `plan-z11-marks`)
+- `Marks.classes: NDArray[np.uint8] | None` - `classify` builds it from the same four masks (`np.select`), on its stride-4 grid; every other `Marks(...)` caller keeps four arguments.
+- `encode_frame(header, cam, depth, marks=None)` adds `marks: [w, h]` to the header and the bytes after the depth. **Ruling:** `decode_frame` stays a 3-tuple and a new `decode_marks(b) -> (w, h, bytes) | None` reads the third part, so no existing caller changes.
+- `Perception` now calls the feed hook **after seeing** (seeing still off the event loop, in a thread) with a fifth argument, the picture's classes - `None` for a picture the map did not use or one without depth. The hook still runs once per decoded picture.
+- `FeedPublisher.on_frame(..., classes=None)` passes them to `encode_frame`.
+- Tests: `test_classify_also_gives_the_class_picture`, `test_marks_round_trip_and_an_old_frame_has_none`, `test_marks_only_when_given`, `test_on_frame_after_seeing_with_its_classes` (fails with the hook passing `None`).
+- **Final review fixes (Opus, 2026-11-07):** I1 - raw, the class picture was 19 200 B a VGA frame (~2.8 Mbit/s per page at 18 / s, on the same WiFi as the camera): it is now **zlib-packed** (level 1), the header `marks: [w, h, n]` with `n` the packed length; a floor with a box packs to well under 1 KB (`test_a_vga_class_picture_is_small_on_the_wifi`). M2 - the feed hook runs in a `finally`, so a picture whose seeing fails still goes to the page (without classes) before the error ends the run (`test_the_picture_goes_to_the_page_even_when_seeing_fails`).
+
 ## 27. A quicker route planner (Plan Z12; design-notes §222 — draft for review)
 
 ### 27.1 Why

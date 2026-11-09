@@ -23,20 +23,49 @@ var AiCore = (function () {
     return false;
   }
 
-  // One frame from the engine: a 4-byte big-endian header length, the header JSON, the camera JPEG, the depth JPEG.
+  // One frame from the engine: a 4-byte big-endian header length, the header JSON, the camera JPEG, the depth JPEG,
+  // then the class picture zlib-packed when the header has marks [w, h, n] (AI engine LLD §26.2, final review I1).
   function splitFrame(buf) {
     if (buf.byteLength < 4) throw new Error("short frame");
     var n = new DataView(buf).getUint32(0);
     if (4 + n > buf.byteLength) throw new Error("short frame");
     var header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, n)));
-    var at = 4 + n, cam = header.cam | 0, depth = header.depth | 0;
-    if (at + cam + depth > buf.byteLength) throw new Error("short frame");
+    var at = 4 + n, cam = header.cam | 0, depth = header.depth | 0, m = header.marks;
+    var mz = m ? m[2] | 0 : 0, mw = m ? m[0] | 0 : 0, mh = m ? m[1] | 0 : 0;
+    if (at + cam + depth + mz > buf.byteLength) throw new Error("short frame");
+    var marksOk = mz > 0 && mw > 0 && mh > 0 && mw * mh <= MAX_MARKS;  // a size no engine sends: no marks (M4)
     return {
       header: header,
       cam: new Uint8Array(buf, at, cam),
-      depth: depth ? new Uint8Array(buf, at + cam, depth) : null
+      depth: depth ? new Uint8Array(buf, at + cam, depth) : null,
+      marks: marksOk ? { w: mw, h: mh, z: new Uint8Array(buf, at + cam + depth, mz) } : null
     };
   }
+
+  var MAX_MARKS = 65536;  // cells: 160 x 120 at VGA
+  // The packed class picture opened (a Promise): its w * h bytes, or null when it does not open to that size.
+  function unpackMarks(m) {
+    var s = new Blob([m.z]).stream().pipeThrough(new DecompressionStream("deflate"));
+    return new Response(s).arrayBuffer().then(function (b) {
+      return b.byteLength === m.w * m.h ? new Uint8Array(b) : null;
+    }, function () { return null; });
+  }
+  // The depth under MARKS too until the engine has sent any marks (an old engine, final review M3).
+  function drawsDepth(layer, sawMarks) { return layer === "depth" || !sawMarks; }
+
+  // The MARKS layer (bridge LLD R33): 0 nothing, 1 floor, 2 low, 3 high, 4 above -> RGBA; above and nothing clear.
+  var MARK_RGBA = [null, [60, 200, 90, 64], [235, 40, 40, 179], [255, 150, 30, 179], null];
+  function marksColours(bytes, w, h) {
+    var out = new Uint8ClampedArray(w * h * 4);
+    for (var i = 0; i < w * h; ++i) {
+      var c = MARK_RGBA[bytes[i]];
+      if (c) out.set(c, i * 4);
+    }
+    return out;
+  }
+  // VIEW B's layer: MARKS unless the browser remembered DEPTH (cq_ai_layer).
+  function pickLayer(saved) { return saved === "depth" ? "depth" : "marks"; }
+  function layerHead(layer) { return layer === "depth" ? "VIEW B // DEPTH MAP" : "VIEW B // WHAT IT SEES"; }
 
   // A box [word, score, x, y, w, h] (0..1000 of the picture) in canvas pixels.
   function boxRect(b, cw, ch) {
@@ -115,7 +144,7 @@ var AiCore = (function () {
     PROTO: PROTO, PROTO_TEXT: PROTO_TEXT, splitFrame: splitFrame, boxRect: boxRect, findLine: findLine,
     wanderLine: wanderLine, exploreLine: exploreLine, typed: typed, unknownText: unknownText, teachCheck: teachCheck,
     Sayer: Sayer, cameraState: cameraState, protoOk: protoOk, sameFeed: sameFeed, squeeze: squeeze,
-    pickVoice: pickVoice, isPerson: isPerson
+    pickVoice: pickVoice, isPerson: isPerson, marksColours: marksColours, unpackMarks: unpackMarks, drawsDepth: drawsDepth, pickLayer: pickLayer, layerHead: layerHead
   };
 })();
 if (typeof module !== "undefined") module.exports = AiCore;

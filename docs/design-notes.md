@@ -3370,6 +3370,28 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   failed it the same way at the same time (69 ms). The Mac's load was 70-95 - a virtual machine
   (com.apple.Virtualization, ~600 % CPU, up 11 days, not Docker). Rerun it on a quiet machine; it is not loosened.
 
+## 221. The MARKS layer - what the tank makes of the picture (owner, 2026-11-07: "why is the depth map like this, it doesn't provide much, are we using depth map?"; "yes" to a MARKS layer)
+- **Answer given:** yes - Depth Anything V2 Small on every used picture builds the room map's marks, finds the camera's
+  real tilt and measures heights. The view shows the raw relative depth (green, 60 % over the picture): on a flat
+  floor a gradient. Shiny marble fools it (the likely source of the false low marks, §217 / Z10d).
+- **Design (AI engine LLD §26, bridge LLD R33, branch `plan-z11-marks`):** the engine sends its per-picture sort of
+  pixels (floor / low / high / above) with each feed frame; `/ai` draws it as a MARKS layer - low red, high orange,
+  free floor faint green - the default layer, DEPTH still one choice away.
+- **Decided (owner, "a"):** the `/ai` page's budget goes from 30 KB to **32 KB** (as `/logo`; flash 47 % used) - it had
+  66 B left, MARKS needs ~0.5 KB. Plan: `docs/superpowers/plans/2026-11-07-plan-z11-marks.md`.
+- **Built (2026-11-07, branch `plan-z11-marks`):** the class picture rides on each feed frame; `/ai` shows MARKS by
+  default (`/ai` 31 627 B gzipped); the class picture travels zlib-packed (Opus final review I1: raw it was ~2.8 Mbit/s
+  per page). AI engine LLD §26.5, bridge LLD R33.1.
+- **Tank check (2026-11-09, still; nothing drove, the camera at the driving tilt):** the engine from this branch,
+  `/ai` on the tank (flashed 2026-11-07): MARKS the default, "VIEW B // WHAT IT SEES" with its legend; every feed
+  frame carried marks (112 of 112 in 6 s, ~300 B packed); DEPTH and back switch at once. A person's feet red (low),
+  ankles and legs orange (high); door frames' bases marked. **The shiny marble by the doors, with the window's
+  bright reflection across it, reads as floor (faint green)** - no red on bare marble (59 % floor, 1.8 % low,
+  1.5 % high over 6 s, the same as plain floor); red / orange only at real edges (a dark mat, the wall's base).
+  So with the tank still the marble does not fool the depth model: the false low marks that held SETXY (§217,
+  Z10d) most likely came from pictures taken while moving or turning - to see with a short drive watching MARKS.
+- **Merged into main 2026-11-09 (owner: "1").**
+
 ## 222. While the tank waits: the IMU's pitch dropped, the route planner made quicker (owner, 2026-11-07: "2", "ok")
 - **The IMU's pitch into the camera model - dropped (owner agreed).** The tank sends no pitch or roll: telemetry's
   `pitch` / `roll` are always 0 (the Uno Lite's tilt angles were built and removed for flash, §92; 654 B free, they
@@ -3426,3 +3448,7 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
     them inside 50 cm. **My calls (spec 10 S8-S12):** game mode covers every move of the program; after a catch a
     fixed 50 cm release for 2 s; grabbed = stall / pushing-not-moving / no motion for a commanded move; cornered =
     stay still facing them; the engine lost mid-game = the bridge holds all motion until STOP.
+- **Phase 0 deferred (owner, 2026-11-09: "let's skip p0 and move to the next task, we will do this if it comes
+  during play"):** the P0 tool (`cq-person-test`, branch `plan-p0-person`, built and reviewed) waits; the crawling
+  test runs when it comes up during play. Spec 10's gate stands: nothing of the game moves near a person before
+  phase 0 has passed.

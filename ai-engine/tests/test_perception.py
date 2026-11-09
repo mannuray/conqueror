@@ -181,13 +181,87 @@ async def test_on_frame_called_with_depth_or_none() -> None:
         None,
         None,
         None,
-        on_frame=lambda cap_us, rgb, dets, inv: seen.append((cap_us, rgb.shape, len(dets), inv is None)),
+        on_frame=lambda cap_us, rgb, dets, inv, _cls: seen.append(
+            (cap_us, rgb.shape, len(dets), inv is None)
+        ),
     )
     try:
         p.start(stop)
         for _ in range(4):
             await p.next_picture(1.0)
         assert seen and all(s[1][2] == 3 and s[3] for s in seen)  # no depth model: inv None every picture
+    finally:
+        stop.set()
+        await p.close()
+        await bridge.stop()
+
+
+async def test_on_frame_after_seeing_with_its_classes() -> None:
+    """Plan Z11 (LLD §26.2): with a depth model the hook gets the picture's class picture (seen first)."""
+    from tests.test_map_app import FloorDepth
+
+    bridge = FakeBridge(jpeg=GREY_JPEG, pan_tilt=(90.0, 90.0), frames_for_s=0.3)
+    await bridge.start()
+    stop = asyncio.Event()
+    got: list[bool] = []
+    depth = FloorDepth()
+    p = Perception(
+        BridgeLink("127.0.0.1", bridge.ws_port),
+        MjpegSource("127.0.0.1", bridge.stream_port),
+        World(CAL, CFG, depth, frozenset(), {}, Limits(), None),
+        None,
+        depth,
+        None,
+        on_frame=lambda cap_us, rgb, dets, inv, classes: got.append(classes is not None),
+    )
+    try:
+        p.start(stop)
+        used: list[bool] = []
+        for _ in range(6):
+            u = await p.next_picture(1.0)
+            used.append(u is not None and not isinstance(u, str))
+        assert len(got) == 6  # once per picture, used or not
+        assert any(used) and all(g == u for g, u in zip(got, used, strict=True))  # classes only when used
+    finally:
+        stop.set()
+        await p.close()
+        await bridge.stop()
+
+
+async def test_the_picture_goes_to_the_page_even_when_seeing_fails() -> None:
+    """Final review M2: an error in seeing still sends that picture to the feed (then the error ends it)."""
+    from tests.test_map_app import FloorDepth
+
+    bridge = FakeBridge(jpeg=GREY_JPEG, pan_tilt=(90.0, 90.0), frames_for_s=0.3)
+    await bridge.start()
+    stop = asyncio.Event()
+    got: list[bool] = []
+    depth = FloorDepth()
+    w = World(CAL, CFG, depth, frozenset(), {}, Limits(), None)
+
+    def broken(*_: object) -> None:
+        raise RuntimeError("seeing broke")
+
+    w.see = broken  # type: ignore[method-assign]
+    p = Perception(
+        BridgeLink("127.0.0.1", bridge.ws_port),
+        MjpegSource("127.0.0.1", bridge.stream_port),
+        w,
+        None,
+        depth,
+        None,
+        on_frame=lambda cap_us, rgb, dets, inv, classes: got.append(classes is None),
+    )
+    try:
+        p.start(stop)
+        raised, pictures = False, 0
+        for _ in range(8):
+            try:
+                pictures += (await p.next_picture(1.0)) is not None
+            except RuntimeError:
+                pictures, raised = pictures + 1, True
+                break
+        assert raised and len(got) == pictures and all(got)  # the failing one went out too, no classes
     finally:
         stop.set()
         await p.close()

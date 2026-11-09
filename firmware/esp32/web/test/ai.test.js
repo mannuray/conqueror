@@ -3,6 +3,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const zlib = require("node:zlib");
 const A = require("../ai.js");
 
 // A frame as the engine builds it (AI engine LLD §22.2): 4-byte big-endian header length, header JSON, camera, depth.
@@ -26,6 +27,68 @@ test("splitFrame without depth gives null", () => {
   const f = A.splitFrame(frame({ seq: 4 }, [1, 2], null));
   assert.equal(f.depth, null);
   assert.equal(f.cam.length, 2);
+});
+
+// A frame with a class picture after the depth (AI engine LLD §26.2, final review I1): header marks [w, h, n], then n
+// bytes of zlib-packed classes, row by row.
+function marksFrame(header, cam, depth, w, h, marks) {
+  const z = zlib.deflateSync(Buffer.from(marks));
+  const head = Buffer.from(JSON.stringify(Object.assign({}, header, { cam: cam.length, depth: depth.length, marks: [w, h, z.length] })));
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(head.length, 0);
+  const b = Buffer.concat([len, head, Buffer.from(cam), Buffer.from(depth), z]);
+  return b.buffer.slice(b.byteOffset, b.byteOffset + b.length);
+}
+
+test("splitFrame finds the packed class picture after the depth; unpackMarks opens it", async () => {
+  const f = A.splitFrame(marksFrame({ seq: 5 }, [1, 2], [3], 2, 1, [2, 3]));
+  assert.deepEqual(Array.from(f.depth), [3]);
+  assert.equal(f.marks.w, 2);
+  assert.equal(f.marks.h, 1);
+  assert.deepEqual(Array.from(await A.unpackMarks(f.marks)), [2, 3]);
+});
+
+test("splitFrame without marks gives null, a short class picture is refused", () => {
+  assert.equal(A.splitFrame(frame({ seq: 4 }, [1, 2], [3])).marks, null);
+  const f = marksFrame({ seq: 5 }, [1, 2], [3], 2, 2, [2, 3, 1, 1]);
+  assert.throws(() => A.splitFrame(f.slice(0, f.byteLength - 1)));
+});
+
+test("a class picture of a size no engine sends is dropped, the picture kept (final review M4)", async () => {
+  for (const [w, h] of [[0, 3], [-2, 3], [1000, 1000]]) {
+    const f = A.splitFrame(marksFrame({ seq: 6 }, [1, 2], [3], w, h, [1, 1]));
+    assert.equal(f.marks, null);
+    assert.equal(f.cam.length, 2);
+  }
+  // packed bytes that open to the wrong size: no marks
+  const f = A.splitFrame(marksFrame({ seq: 7 }, [1, 2], [3], 2, 2, [1, 1, 1]));
+  assert.equal(await A.unpackMarks(f.marks), null);
+});
+
+test("MARKS shows the depth until the engine has sent any marks (an old engine, final review M3)", () => {
+  assert.equal(A.drawsDepth("depth", true), true);
+  assert.equal(A.drawsDepth("marks", false), true);
+  assert.equal(A.drawsDepth("marks", true), false);
+});
+
+test("marksColours: nothing and above clear, floor faint green, low red, high orange", () => {
+  const c = A.marksColours(new Uint8Array([0, 1, 2, 3, 4]), 5, 1);
+  assert.equal(c.length, 20);
+  const px = (i) => Array.from(c.slice(i * 4, i * 4 + 4));
+  assert.equal(px(0)[3], 0);
+  assert.equal(px(4)[3], 0);
+  const [floor, low, high] = [px(1), px(2), px(3)];
+  assert.ok(floor[1] > floor[0] && floor[1] > floor[2] && Math.abs(floor[3] - 64) <= 2);  // green ~25 %
+  assert.ok(low[0] > 200 && low[1] < 80 && Math.abs(low[3] - 179) <= 2);  // red ~70 %
+  assert.ok(high[0] > 200 && high[1] > 100 && high[1] < 200 && high[2] < 80 && Math.abs(high[3] - 179) <= 2);  // orange
+});
+
+test("the VIEW B head line follows the layer; MARKS is the default", () => {
+  assert.equal(A.layerHead("marks"), "VIEW B // WHAT IT SEES");
+  assert.equal(A.layerHead("depth"), "VIEW B // DEPTH MAP");
+  assert.equal(A.pickLayer(null), "marks");
+  assert.equal(A.pickLayer("depth"), "depth");
+  assert.equal(A.pickLayer("rubbish"), "marks");
 });
 
 test("splitFrame refuses a short buffer", () => {

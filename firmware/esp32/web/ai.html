@@ -216,10 +216,10 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         <div><div class="vhead"><span>VIEW A // THINGS</span><span id="v1Fps"></span></div>
           <div class="view"><canvas id="v1" width="320" height="240"></canvas><img id="tankCam" class="hidden" alt="the tank's camera">
             <span class="hud tl" id="v1Tag">320 × 240</span></div></div>
-        <div id="v2box"><div class="vhead"><span>VIEW B // DEPTH MAP</span><span>NEAR = BRIGHT</span></div>
+        <div id="v2box"><div class="vhead"><span id="v2Head">VIEW B // WHAT IT SEES</span><span id="v2Key"></span></div>
           <div class="view"><canvas id="v2" width="320" height="240"></canvas>
             <span class="hud tl" id="sonarTag">SONAR: --</span>
-            <span class="hud bl">LAYER: <select id="layer" aria-label="what to lay over the picture"><option value="depth">DEPTH</option></select></span></div></div>
+            <span class="hud bl">LAYER: <select id="layer" aria-label="what to lay over the picture"><option value="marks">MARKS</option><option value="depth">DEPTH</option></select></span></div></div>
       </div>
       <div id="camNote" class="note"></div>
       <div class="camfoot"><button id="pic" class="btn" type="button"><!--icon:camera--> [ TAKE A PICTURE ]</button>
@@ -386,7 +386,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   }
 
   // ---------- the AI feed from the engine (AI engine LLD §22) ----------
-  var feed = null, feedOpen = false, feedRetry = 0, camState = "NoAI", frames = 0, lastDepth = null, lastPic = null, lastBoxes = [], things = [], picked = null;
+  var feed = null, feedOpen = false, feedRetry = 0, camState = "NoAI", frames = 0, lastDepth = null, lastMarks = null, marksAt = 0, sawMarks = false, layer = "marks", lastPic = null, lastBoxes = [], things = [], picked = null;
   var tired = false, teachId = 1;
   function setFeedUrl(url, proto) {
     if (A.sameFeed(feedUrl, feedProto, url, proto) && feed) return;  // re-sent on each unlock (final review I2)
@@ -446,17 +446,40 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     frames++;
     var cam = createImageBitmap(new Blob([f.cam], { type: "image/jpeg" }));
     var dep = f.depth ? createImageBitmap(new Blob([f.depth], { type: "image/jpeg" })) : Promise.resolve(null);
-    Promise.all([cam, dep]).then(function (b) {
+    var mk = f.marks ? A.unpackMarks(f.marks) : Promise.resolve(null);
+    Promise.all([cam, dep, mk]).then(function (b) {
+      if (b[2]) { lastMarks = { w: f.marks.w, h: f.marks.h, bytes: b[2] }; marksAt = Date.now(); sawMarks = true; }  // with its picture (M1)
       if (b[1]) { if (lastDepth && lastDepth.close) lastDepth.close(); lastDepth = b[1]; }
       if (lastPic && lastPic.close) lastPic.close();  // kept until the next one: a flip of the look redraws it
       lastPic = b[0]; lastBoxes = f.header.boxes || [];
       draw(lastPic, lastBoxes);
     }).catch(function () { /* a picture that does not decode is skipped */ });
   }
+  var markCanvas = document.createElement("canvas");
+  // The class picture coloured at its own size, scaled up blocky over the picture (bridge LLD R33).
+  function drawMarks(x2, m, w, h) {
+    markCanvas.width = m.w; markCanvas.height = m.h;
+    markCanvas.getContext("2d").putImageData(new ImageData(A.marksColours(m.bytes, m.w, m.h), m.w, m.h), 0, 0);
+    x2.imageSmoothingEnabled = false; x2.drawImage(markCanvas, 0, 0, w, h); x2.imageSmoothingEnabled = true;
+  }
+  function showLayer() {
+    $("layer").value = layer; $("v2Head").textContent = A.layerHead(layer);
+    $("v2Key").innerHTML = layer === "depth" ? "NEAR = BRIGHT"
+      : '<b style="color:#eb2828">■</b> low <b style="color:#ff961e">■</b> high <b style="color:#3cc85a">■</b> floor';
+    if (lastPic) draw(lastPic, lastBoxes);
+  }
+  try { layer = A.pickLayer(localStorage.getItem("cq_ai_layer")); } catch (x) { /* private mode */ }
+  showLayer();
+  $("layer").addEventListener("change", function () {
+    layer = A.pickLayer($("layer").value);
+    try { localStorage.setItem("cq_ai_layer", layer); } catch (x) { /* private mode */ }
+    showLayer();
+  });
   function draw(pic, boxes) {
     var c1 = $("v1"), x1 = c1.getContext("2d"), c2 = $("v2"), x2 = c2.getContext("2d"), w = c1.width, h = c1.height;
     x1.drawImage(pic, 0, 0, w, h); x2.drawImage(pic, 0, 0, w, h);
-    if (lastDepth) { x2.globalAlpha = 0.6; x2.drawImage(lastDepth, 0, 0, w, h); x2.globalAlpha = 1; }
+    if (A.drawsDepth(layer, sawMarks) && lastDepth) { x2.globalAlpha = 0.6; x2.drawImage(lastDepth, 0, 0, w, h); x2.globalAlpha = 1; }
+    if (layer === "marks" && lastMarks && Date.now() - marksAt < 500) drawMarks(x2, lastMarks, w, h);  // stale after 0.5 s
     x1.lineWidth = 2; x1.font = "11px monospace";
     var thing = cqTheme.colour("--g"), person = cqTheme.colour("--amber"), tagBg = cqTheme.colour("--box-tag");  // from the CSS (R28)
     boxes.forEach(function (b) {

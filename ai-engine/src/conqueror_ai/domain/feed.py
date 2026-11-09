@@ -5,8 +5,12 @@ from __future__ import annotations
 
 import json
 import struct
+import zlib
 from collections.abc import Sequence
 from typing import Any
+
+import numpy as np
+from numpy.typing import NDArray
 
 from conqueror_ai.domain.types import Detection
 
@@ -34,9 +38,19 @@ def page_boxes(dets: Sequence[Detection], w: int, h: int) -> list[list[object]]:
     return out
 
 
-def encode_frame(header: dict[str, Any], cam: bytes, depth: bytes | None) -> bytes:
-    head = json.dumps({**header, "cam": len(cam), "depth": len(depth or b"")}, separators=(",", ":")).encode()
-    return struct.pack(">I", len(head)) + head + cam + (depth or b"")
+def encode_frame(
+    header: dict[str, Any], cam: bytes, depth: bytes | None, marks: NDArray[np.uint8] | None = None
+) -> bytes:
+    """marks: the picture's class picture (LLD §26.2), sent after the depth zlib-packed, row by row (raw it
+    is 19 200 B a VGA frame - final review I1); the header says its size and its packed length (`marks:
+    [w, h, n]`). A reader that does not know it reads cam and depth as before."""
+    head_d: dict[str, Any] = {**header, "cam": len(cam), "depth": len(depth or b"")}
+    tail = b""
+    if marks is not None:
+        tail = zlib.compress(np.ascontiguousarray(marks, dtype=np.uint8).tobytes(), 1)
+        head_d["marks"] = [int(marks.shape[1]), int(marks.shape[0]), len(tail)]
+    head = json.dumps(head_d, separators=(",", ":")).encode()
+    return struct.pack(">I", len(head)) + head + cam + (depth or b"") + tail
 
 
 def decode_frame(b: bytes) -> tuple[dict[str, Any], bytes, bytes | None]:
@@ -47,6 +61,17 @@ def decode_frame(b: bytes) -> tuple[dict[str, Any], bytes, bytes | None]:
     d = int(head["depth"])
     depth = b[at + len(cam) : at + len(cam) + d] if d else None
     return head, cam, depth
+
+
+def decode_marks(b: bytes) -> tuple[int, int, bytes] | None:
+    """A frame's class picture: (w, h, its bytes row by row), or None when it has none (LLD §26.2)."""
+    (n,) = struct.unpack(">I", b[:4])
+    head: dict[str, Any] = json.loads(b[4 : 4 + n])
+    if "marks" not in head:
+        return None
+    w, h, packed = (int(v) for v in head["marks"])
+    at = 4 + n + int(head["cam"]) + int(head["depth"])
+    return w, h, zlib.decompress(b[at : at + packed])
 
 
 def encode_map(header: dict[str, Any], png: bytes) -> bytes:

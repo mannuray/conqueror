@@ -41,7 +41,7 @@ PAGE_BUDGET = 25 * 1024
 HELP_BUDGET = 16 * 1024
 LOGO_BUDGET = 32 * 1024  # Plan N4 (Tank Logo LLD §21.9): /logo, gzipped, words included; R25: 26 KB with icons; R28: 28 KB with the shared look; R29: 30 KB with the top bar; R30: 32 KB with the status strip (owner)
 SETTINGS_BUDGET = 36 * 1024  # Plan M: /settings, gzipped; Plan O (LLD R13.1): 36 KB for four tabs
-AI_BUDGET = 30 * 1024  # Plan Z2b-1 (bridge LLD R27.4, design-notes §200): /ai, gzipped, ai.js and icons in; R32: 30 KB with the ROOM tab (owner)
+AI_BUDGET = 32 * 1024  # Plan Z2b-1 (bridge LLD R27.4, design-notes §200): /ai, gzipped, ai.js and icons in; R32: 30 KB with the ROOM tab; R33: 32 KB with the MARKS layer (owner 2026-11-07)
 
 
 def png_icon(size: int = 192) -> bytes:

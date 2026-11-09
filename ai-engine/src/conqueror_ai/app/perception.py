@@ -33,8 +33,11 @@ if TYPE_CHECKING:
 SKIPS_THAT_COUNT = ("turning", "camera moving")  # the map skips these pictures, but the camera is alive
 
 
-# Each decoded picture for the /ai pages' feed (§22.5): capture µs, RGB, detections, inverse depth or None.
-FrameHook = Callable[[int, NDArray[np.uint8], list[Detection], NDArray[np.floating] | None], None]
+# Each decoded picture for the /ai pages' feed (§22.5): capture µs, RGB, detections, inverse depth (None: none
+# ran) and its class picture (None: not used by the map or no depth, §26.2).
+FrameHook = Callable[
+    [int, NDArray[np.uint8], list[Detection], NDArray[np.floating] | None, NDArray[np.uint8] | None], None
+]
 
 
 def picture_counts(used: CameraModel | str) -> bool:
@@ -140,21 +143,36 @@ class Perception:
             inv = None
         dets = clear(dets)  # never a box over a person, before the tracker (LLD §21.4)
         used = self.world.on_picture(f, rgb, dets, cam_f)  # the map and the pose stay on the event loop
-        if self.on_frame is not None:
-            try:
-                self.on_frame(f.cap_us, rgb, dets, inv)
-            except Exception as e:  # the pages' feed never stops the tank's pictures
-                self.hook_errors += 1
-                if self.hook_errors == 1:
-                    print(f"the AI feed's picture failed: {type(e).__name__}: {e}")
         self.last_dets, self.last_seen = dets, None
         if picture_counts(used):
             self.last_picture_s = time.monotonic()
-        if not isinstance(used, str) and inv is not None:  # seeing off the loop, the map on it
-            seen = await asyncio.to_thread(self.world.see, used, inv, f.cap_us)
-            self.world.apply(seen, f.cap_us)
-            self.last_seen = seen
+        classes = None
+        try:
+            if not isinstance(used, str) and inv is not None:  # seeing off the loop, the map on it
+                seen = await asyncio.to_thread(self.world.see, used, inv, f.cap_us)
+                self.world.apply(seen, f.cap_us)
+                self.last_seen = seen
+                classes = None if seen.marks is None else seen.marks.classes
+        finally:  # after seeing: the page gets what the map made of it (LLD §26.2), even when seeing failed
+            self._to_feed(f.cap_us, rgb, dets, inv, classes)
         return used
+
+    def _to_feed(
+        self,
+        cap_us: int,
+        rgb: NDArray[np.uint8],
+        dets: list[Detection],
+        inv: NDArray[np.floating] | None,
+        classes: NDArray[np.uint8] | None,
+    ) -> None:
+        if self.on_frame is None:
+            return
+        try:
+            self.on_frame(cap_us, rgb, dets, inv, classes)
+        except Exception as e:  # the pages' feed never stops the tank's pictures
+            self.hook_errors += 1
+            if self.hook_errors == 1:
+                print(f"the AI feed's picture failed: {type(e).__name__}: {e}")
 
     def reload_detector(self, det: Detector) -> None:
         """A new detector (a word was taught, §22.4), used from the next picture on: called on the event

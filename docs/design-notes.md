@@ -3392,7 +3392,8 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   under load, it is a new dependency, and an equally cheap route picked differently breaks `cq-drive --replay`'s
   decision-for-decision replays - so it must keep today's tie order. Revisit for a bigger map (a whole house at
   10 cm), a faster decision loop, or a slower computer (a Pi on the tank).
-- **Merged into main 2026-11-09 (owner: "merge").**
+- **Merged into main 2026-11-09 (owner: "merge"):** the whole engine suite on the merged result 925 passed, ruff and
+  pyright clean - including `test_route_is_quick`, left open in §220 (the slowest route now well under 20 ms).
 
 ## 223. The intelligence lives in Logo; the baby game (owner, 2026-11-08 - brainstorming, Spec 10)
 (§221 is on the branch `plan-z11-marks`, not yet merged; §222 merged 2026-11-09.)

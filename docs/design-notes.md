@@ -3512,3 +3512,14 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   the engine's person watch and game skills, the Logo words with the lesson and `/ai`'s GAMES card.
 - **Plan P0 merged into main 2026-11-09 (owner: "yes")** - the tool and `person_range` under the game; the crawling
   test itself still waits (§223).
+
+## 227. Plan G2 written - the engine's side of the people games (2026-11-09; owner: "yes" to G2 then G3)
+- `docs/superpowers/plans/2026-11-09-plan-g2-person-watch.md`: `PersonWatch` (pessimistic, the sonar near and
+  ahead, a countdown when last seen close), the person boxes kept before the guard, the room map's free-floor times
+  and `TrustedFloor` (5 s), FACE / ESCAPE / FOLLOW as Z7 skills, the skill server's game messages (people, the person
+  stream only between game on / off, back_ok, the person words only for the game words), and a passed seeing test
+  writing `config/person-seeing.yaml` (a worse result removes it - locked again).
+- Found while planning: the engine already backs up (`curves.py`'s backing, used by Recovery), so ESCAPE needs no
+  new kind of command; the room map knew *that* floor was seen, not *when* - a per-cell time is added.
+- Plan G3 (the Logo words, the lesson, the GAMES card) follows; the real game needs P0 (the owner's lock).
+

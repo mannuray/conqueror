@@ -156,6 +156,7 @@ def test_wire_reason_per_result() -> None:
     assert wire_reason(Result.FAILED) == "stale"
     assert wire_reason(Result.CANCELLED) == "stale"  # cancelled by the engine (Ctrl-C...)
     assert wire_reason(Result.CANCELLED, ended=True) is None  # the bridge ended it: it knows
+    assert wire_reason(Result.CAUGHT) is None  # the bridge ended the lease caught (LLD §28.3)
     assert {wire_reason(r, ended=True) for r in Result} <= {
         None,
         "not_found",

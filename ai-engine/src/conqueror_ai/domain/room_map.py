@@ -64,6 +64,7 @@ class MapSnapshot:
     depth_ok: bool  # a depth picture in the last 1 s
     angle_trusted: bool
     driven: BoolArray | None = None  # cells the tank's whole body has been on this run (LLD §25.10)
+    free_us: NDArray[np.int64] | None = None  # when each cell was last seen free from near (LLD §28.4)
 
 
 class RoomMap:
@@ -207,6 +208,7 @@ class RoomMap:
             depth_ok,
             angle_trusted,
             self.driven.copy(),
+            self.free_us.copy(),
         )
 
 

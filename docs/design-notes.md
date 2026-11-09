@@ -3523,3 +3523,15 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   new kind of command; the room map knew *that* floor was seen, not *when* - a per-cell time is added.
 - Plan G3 (the Logo words, the lesson, the GAMES card) follows; the real game needs P0 (the owner's lock).
 
+## 228. Plan G2 built - the engine's side of the people games (2026-11-10, branch `plan-g2-person-watch`)
+- Built natively, task by task (AI engine LLD §28.9): `PersonWatch` fed from each used picture's person boxes,
+  the room map's free-floor times and `TrustedFloor`, FACE / ESCAPE / FOLLOW, the skill server's game messages and
+  a passed seeing test writing `config/person-seeing.yaml`. The engine suite: 960 → 1005 tests.
+- Found while building: the gate drops every picture taken spinning faster than 45°/s, so a turning tank sees no
+  one - the game skills remember the person as a floor point, turn by the odometry, and count "lost" only while
+  standing; a simulated person at 60° was outside the camera's ±41° until the camera was panned their way.
+- Calls made (ledger): the pass is keyed to the YOLO-World weights and the calibration date (a taught word keeps
+  it); the stream sends at 10 Hz and streams "unseen" before anyone is seen; FOLLOW stops within setxy's 15 cm of
+  its goal (the goal is never inside the follow distance); ESCAPE's away leg aims 15 cm past `cm`.
+- Next with the owner: G1's stand checks and P0, then `cq-drive serve` from this branch with an adult and
+  `REPEAT 30 [ IF CAUGHT? [ WAIT 3 ] FACE "person WAIT 1 ]` (the floor, STOP in hand); then Plan G3.

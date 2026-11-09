@@ -3452,3 +3452,38 @@ trusted and the person far → turns first; not trusted and near → stays, `no_
 person. `FollowSkill`: never a goal inside 50 cm; stops at the follow distance. `FaceSkill`: pans within ±35°, turns
 beyond. The person stream: every used picture, ≥ 5 Hz, only while game on. The hello's `people` follows the pass
 file. Replays (`--replay`) re-run the game skills' decisions as the others.
+
+### 28.9 As built (Plan G2, 2026-11-10, branch `plan-g2-person-watch`)
+- **Where the boxes go.** `World.on_picture` hands each *used* picture's `person` boxes (the guard `clear()` keeps
+  every person box, so Perception is unchanged) with that picture's camera, the sonar and the readout's middle time
+  to `World.person: PersonWatch` (`domain/person.py`); a skipped picture (moving camera, spinning faster than
+  `GATE_DPS`) does not touch it. `SkillInput.person` is `PersonWatch.latest` at the pose's time.
+- **The room map's free-floor time.** `RoomMap.free_us` (per cell, bridge µs; 0 = never): set for floor seen within
+  1.5 m of where the tank stood (`update_picture(..., from_xy)`, `FREE_FROM_M`) and for the shrunk body footprint;
+  any low / high hit resets it to 0. `MapSnapshot.free_us` is its copy. A loaded home never brings free floor back.
+- **`TrustedFloor.ok(room | snapshot, pose, back_m, now_us, max_age_s=5, lim)`** (`domain/drive/trusted.py`): the
+  strip behind the rear edge, `back_m` long and the body's width, sampled every 2 cm; every cell freed within 5 s
+  and not blocked; off the map: no. Straight only (`back_ok` carries `cm`; an arc is checked as its straight strip).
+- **The game skills** (`domain/drive/game_skills.py`): a shared `Sight` keeps the person as a floor point made from
+  each new estimate, and counts unseen time only while the tank is not spinning (no picture is used then) - a turn
+  ends by the odometry toward where they were. `FaceSkill`: within ±35° pans (`cam`, pan = −bearing); beyond, and
+  from 35 cm, turns on the spot to within 10°; nearer than 35 cm only pans (clamped ±35°); `lost` after 1 s unseen.
+  `EscapeSkill(lim, back_m)`: the person must be seen within ±41°, else `no_way` (never backs toward the unknown);
+  trusted floor → straight back at v_min until the odometry moved `back_m`; not trusted and ≥ 70 cm → turn round,
+  `RoamSkill("point")` to a spot `back_m` + 15 cm ahead (setxy's tolerance never makes it short), turn back to face;
+  else `no_way`. `FollowSkill(lim, s, stop_m)`: `stop_m` ≥ 0.50; the goal the follow distance + the front short
+  of the person on the line to the tank (re-planned when it moves 15 cm), `RoamSkill("point")` to it; halts at once
+  inside the follow distance and keeps the camera on them (±60°); `done` at `s`, `lost` after 1 s unseen. All at
+  `v_cap_cms` 25 (`game_limits`). `Result.CAUGHT` (no wire reason: the bridge ended the lease).
+- **The skill server** (`app/game_serve.py`, wired in `app/serve.py`): the hello's `people` = `SeeingPass.passed()`
+  at each connect; `{"t":"game","on"}` turns the person stream on / off, and every new link starts it off (Review
+  Focus 3); the stream sends the newest estimate every 100 ms (`age_ms` from the newest picture, so a frozen camera's
+  grows; nobody seen yet → `seen:false, d_cm:-1`). `skill_ask back_ok cm` → `TrustedFloor` on the live map. The
+  person words `baby` / `person` / `kid` start only `face` / `escape` (`cm`) / `follow` (`s`, `stop_cm`), and
+  answer `SEE?` (seen within 0.5 s) / `HOWFAR` (the pessimistic front-edge cm, −1 unseen) only with `"game":true`;
+  `find "baby` stays `unknown_thing`. `skill_end why:caught` ends the word quietly as `CAUGHT`.
+- **The pass** (`app/seeing_pass.py`): `config/person-seeing.yaml` names the YOLO-World weights' file name and the
+  calibration's date; `cq-person-test score` writes it when the engine's detector passed every mark of the full set,
+  each recorded whole, and removes it on anything less. A taught word (the same weights) keeps it.
+- **For the floor:** a FACE spin longer than 1 s with the person 35-50 cm away is unseen on the bridge too (turning
+  pictures are not used) and counts down toward Caught; the trusted floor behind needs a recent look back.

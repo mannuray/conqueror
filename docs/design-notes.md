@@ -3490,3 +3490,5 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   trusted-floor answer first; no → it ends without moving, no error - so 7061 "can't back up blind" is dropped and
   the new codes are 7060-7062); **the speed cap measured** on the floor, the gentle start from the engine's ramp
   (a step to ~18 cm/s, then 10 cm/s² to 25); **`/ai` budget 34 KB**.
+- **The three LLDs approved (owner, 2026-11-09: "yes").** Plans next: P0 merged first, then the bridge's game mode,
+  the engine's person watch and game skills, the Logo words with the lesson and `/ai`'s GAMES card.

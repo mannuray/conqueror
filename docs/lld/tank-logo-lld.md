@@ -1687,7 +1687,7 @@ sequenceDiagram
   - The main part goes first at every run's start (it depended on the last run's ticks); the launched part's end sends `logo_line {part: 1, line: 0}` and the page clears its marker; each LAUNCH has its own RANDOM numbers; the logo worker's size comment.
 - **After the floor run:** lesson 5 keeps `AREA 2` (the safe start for a child) and says how to search a big closed room ("change AREA 2 to AREA 0"); on the floor the toy lay outside the 2 m circle until the area was off (design-notes §219).
 
-## 27. Revision G1 — the game words (Spec 10; design-notes §223-§224, bridge LLD R34, AI engine LLD §28 — draft for review)
+## 27. Revision G1 — the game words (Spec 10; design-notes §223-§224, bridge LLD R34, AI engine LLD §28 — approved 2026-11-09)
 
 ### 27.1 What changes
 - **`logo/spec/words.yaml`** (level 3, `needs: [ai, encoders]` for the action words; generated as every word, `logogen write`):

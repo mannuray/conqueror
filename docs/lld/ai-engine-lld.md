@@ -3308,7 +3308,7 @@ classDiagram
 - **Opus final review (2026-11-08):** exactness confirmed point by point (tie order, floats, the reach arrival, the start and goal cells, the copies) and the comparison test reaches every path; fixed: the comment written twice, `_dijkstra` returns `(costs, found)`, the reference copies today's `_Grid` (the planners share nothing), §27.3 / §27.4 as built.
 - **Owner (2026-11-08):** the speed test (`test_the_quick_planner_is_about_twice_as_quick`) checks **at least 1.5x**: 2.0, then 1.8 would fail by chance on a busy machine (the final review measured 2.02x); 1.5 still catches a slip back to today's 1.0x. Identical routes, nearest cells and costs on 30 random maps (`test_the_quick_planner_gives_todays_routes`).
 
-## 28. The people games: where the person is, and the game words (Spec 10; design-notes §223-§224, bridge LLD R34, Tank Logo LLD §27 — draft for review)
+## 28. The people games: where the person is, and the game words (Spec 10; design-notes §223-§224, bridge LLD R34, Tank Logo LLD §27 — approved 2026-11-09)
 
 ### 28.1 What changes
 - **`PersonWatch`** (domain, pure): per used picture, where the person is relative to the tank - from the detector's

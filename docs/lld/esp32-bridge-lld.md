@@ -3675,7 +3675,7 @@ sequenceDiagram
 - Tests: `ai.test.js` 16 pass (all page tests 136); `ai_check.js` (Playwright on `fake_tank.py`) shows red with MARKS, green with DEPTH, the bare picture once the marks are stale, `cq_ai_layer` saved - pass.
 - **Final review fixes (Opus, 2026-11-07):** I1 - `splitFrame` returns the packed bytes (`marks: {w, h, z}`) and `unpackMarks(m)` opens them with `DecompressionStream("deflate")` (null when they do not open to w × h). M1 - the marks are kept together with their own picture, set when that picture is drawn. M3 - `drawsDepth(layer, sawMarks)`: MARKS shows the depth until the engine has sent any marks (an old engine). M4 - a class picture with a side ≤ 0 or more than 65 536 cells is dropped and the picture kept. `/ai` 31 627 B gzipped. `ai.test.js` 18 pass (page tests 138); `ai_check.js` also checks the old-engine case - pass.
 
-## R34. Game mode: the people games' safety on the bridge (Spec 10 S1, S3, S8-S12; design-notes §223-§224 — draft for review)
+## R34. Game mode: the people games' safety on the bridge (Spec 10 S1, S3, S8-S12; design-notes §223-§224 — approved 2026-11-09)
 
 ### R34.1 Why on the bridge
 `FORWARD`, `BACK`, `GO`, turns and arcs are bridge primitives that never reach the engine; only the AI words do. So the

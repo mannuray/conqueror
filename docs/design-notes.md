@@ -3479,5 +3479,9 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **The game flag is static** (Tank Logo §27.2): the checker marks a program a game if a person word appears
   anywhere in it; game mode is on before the first motion. People stay out of `FIND` / `GO` / memory / the map.
 - **The lock:** `cq-person-test score` on a pass writes `config/person-seeing.yaml`; the engine's hello carries
-  `people`; the bridge refuses a game run without it (7059), from `/ai` and `/logo` alike.
+  `people`; the bridge refuses a game run without it (7062), from `/ai` and `/logo` alike.
 - Owner questions in R34.7 (the `/ai` budget, `BACK` in a game, measuring the cap, the gentle start from the engine).
+- **Builder check (2026-11-09) - fixed in the LLDs:** error numbers 7060-7063 (7057-7059 are LAUNCH's); the keep-out at
+  `BodyLink::sendDrive` (the stick and `onTelemetry` sends pass there); a keep-out cut ends a word normally ("kept
+  away"); game runs' limit 15 minutes; the bridge clamps its own commands to the game cap; a bridge reboot clears the
+  envelope; Plan P0 merges first. Open with the owner: the person not seen (R34.7-5) and R34.7-1..4.

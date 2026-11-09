@@ -1696,19 +1696,19 @@ sequenceDiagram
   |---|---|---|---|
   | `FACE` | command | person | turns the camera (or the tank, on the spot) to face the person for a moment |
   | `ESCAPE` | command | person, cm 20–100 | moves about that far away from the person - backwards facing them over floor it trusts, else it looks first; stays still if there is no way |
-  | `FOLLOW` | command (reserved today) | person, seconds 1–60 | comes after the person, stopping at the follow distance - never close |
+  | `FOLLOW` | command (reserved today: `needs: [ai]`, input `any` - becomes `[ai, encoders]`, input `person`) | person, seconds 1–60 | comes after the person, stopping at the follow distance - never close |
   | `CAUGHT?` | reporter | — | TRUE while the person has caught the tank (it stopped and beeped) |
   | `SEE?` / `HOWFAR` | reporters (today's) | thing **or person** | for the person, inside a game: seen in the last 0.5 s / the distance from the tank's front in cm, −1 if not seen |
 
 - **A new input type `person`:** a quoted word from a short fixed list of the game's person words (`"baby`, `"person`,
   `"kid` - in `words.yaml`, so the checker knows them without the engine). It is **never** a `thing`: `FIND "baby`,
-  `SETXY`, `GO` keep refusing people (7053, as today), and `FACE "toy` is refused (7060 "FACE, ESCAPE and FOLLOW are
+  `SETXY`, `GO` keep refusing people (7053, as today), and `FACE "toy` is refused (7063 "FACE, ESCAPE and FOLLOW are
   for a person in a game.").
 - **Errors (`words.yaml`):**
-  - 7057 "The game can't start - the tank's speed limit isn't set." (no envelope ack / the cap not measured)
-  - 7058 "In a game the tank can't back up blind - use ESCAPE." (`BACK`, a backward `ARC` / `MOVE` in a game run)
-  - 7059 "The game needs the seeing test first."
-  - 7060 "FACE, ESCAPE and FOLLOW are for a person in a game."
+  - 7060 "The game can't start - the tank's speed limit isn't set." (no envelope ack / the cap not measured)
+  - 7061 "In a game the tank can't back up blind - use ESCAPE." (`BACK`, a backward `ARC` / `MOVE` in a game run)
+  - 7062 "The game needs the seeing test first."
+  - 7063 "FACE, ESCAPE and FOLLOW are for a person in a game."
   - Caught is **not** an error: a word running when caught ends normally; `CAUGHT?` tells the program.
 
 ### 27.2 The game flag (Spec 10 S8, corrected)
@@ -1721,7 +1721,7 @@ sequenceDiagram
   7053 (today's rule) - so a program cannot become "a game" without the checker seeing it.
 
 ### 27.3 What a game run refuses (checker, with the line)
-- `BACK n`, a negative `MOVE`, a backward `ARC` → 7058 (the tank is blind behind; only `ESCAPE` backs, over trusted
+- `BACK n`, a negative `MOVE`, a backward `ARC` → 7061 (the tank is blind behind; only `ESCAPE` backs, over trusted
   floor - bridge LLD R34.7-2 asks the owner).
 - Everything else runs as written, under the bridge's keep-out (R34.2): `FORWARD` towards the person ends early
   `blocked`, turns wait until the person is beyond 35 cm.
@@ -1781,9 +1781,9 @@ sequenceDiagram
     Pg->>R: logo_run (game)
     R->>G: startRun(game)
     alt no engine / people false
-        G-->>R: refuse 7059
+        G-->>R: refuse 7062
     else cap not measured / no ack
-        G-->>R: refuse 7057
+        G-->>R: refuse 7060
     else armed
         G-->>R: go
         R->>R: run the program under the keep-out
@@ -1792,6 +1792,6 @@ sequenceDiagram
 
 ### 27.6 Tests
 Conformance cases (generated): the game flag from a word in a `TO` body, in a `LAUNCH` part, unreached; `BACK` in a
-game → 7058 with its line; `FACE "toy` → 7060; `FIND "baby` → 7053; a computed person in a non-game run → 7053 at run
-time; `CAUGHT?` false outside a game. Running cases: a caught word ends without an error and `CAUGHT?` is TRUE; 7059 /
-7057 at start.
+game → 7061 with its line; `FACE "toy` → 7063; `FIND "baby` → 7053; a computed person in a non-game run → 7053 at run
+time; `CAUGHT?` false outside a game. Running cases: a caught word ends without an error and `CAUGHT?` is TRUE; 7062 /
+7060 at start.

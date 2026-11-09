@@ -28,12 +28,22 @@ from conqueror_ai.adapters.decisions import DecisionLog
 from conqueror_ai.adapters.feed_server import FeedServer
 from conqueror_ai.adapters.home_store import HomeStore
 from conqueror_ai.adapters.lease_driver import LeaseDriver, wire_reason
-from conqueror_ai.adapters.skill_link import Ask, End, SkillBusy, SkillLink, Start, ThingsRefused
+from conqueror_ai.adapters.skill_link import Ask, End, Game, SkillBusy, SkillLink, Start, ThingsRefused
 from conqueror_ai.adapters.taught_words import TaughtWords
 from conqueror_ai.app.feed import FeedPublisher, TickFan, make_feed
+from conqueror_ai.app.game_serve import (
+    GAME_SKILLS,
+    PersonStream,
+    back_ok,
+    game_refusal,
+    game_skill,
+    is_person,
+    person_answer,
+)
 from conqueror_ai.app.questions import Questions
 from conqueror_ai.app.room_feed import RoomFeed, RoomWorld
 from conqueror_ai.app.runner import TICK_S, SkillRunner, TickView
+from conqueror_ai.app.seeing_pass import SeeingPass
 from conqueror_ai.app.teach import Reply, Teacher, run_export
 from conqueror_ai.app.world import World
 from conqueror_ai.domain.drive.costmap import CostSettings
@@ -58,7 +68,7 @@ if TYPE_CHECKING:
 MakeDetector = Callable[[Path, Vocabulary], tuple[Detector, frozenset[str]]]
 PAGE_PORT = 8770  # the /ai pages' AI feed (AI engine LLD §22.1)
 RECONNECT_S = 2.0  # the skill link is tried again this often after it was lost
-SKILLS = ("find", "wander", "explore", "setxy")
+SKILLS = ("find", "wander", "explore", "setxy", *GAME_SKILLS)
 NEEDS_DEPTH = ("find", "explore")  # without depth find would end at once, explore has nowhere to go
 
 
@@ -66,12 +76,14 @@ NEEDS_DEPTH = ("find", "explore")  # without depth find would end at once, explo
 class SkillCall:
     """One action word, its places in the map frame (from the pose when `skill_start` arrived)."""
 
-    skill: str  # find, wander, explore, setxy
-    word: str | None  # find: the resolved word (never a person)
+    skill: str  # find, wander, explore, setxy; the game words face, escape, follow (LLD §28.3)
+    word: str | None  # find: the resolved word (never a person; the game words' person is not a word)
     seconds: float | None  # wander
     point: tuple[float, float] | None  # setxy: the map point
     area_m: float | None  # the play area's radius (None: anywhere, AREA 0)
     centre: tuple[float, float] | None  # its centre (None: round the word's first pose)
+    back_m: float | None = None  # escape: how far
+    stop_m: float | None = None  # follow: the follow distance (None: the default)
 
 
 def skill_call(ev: Start, pose: Pose | None, names: Names) -> SkillCall | str:
@@ -79,6 +91,8 @@ def skill_call(ev: Start, pose: Pose | None, names: Names) -> SkillCall | str:
     the engine doesn't know (a person never resolves) is `unknown_thing`; a word it can't start `stale`."""
     if ev.skill not in SKILLS:
         return "stale"
+    if ev.skill in GAME_SKILLS and (no := game_refusal(ev.skill, ev.thing, ev.cm, ev.seconds)) is not None:
+        return no
     word = None
     if ev.skill == "find":
         word = names.resolve(ev.thing or "")
@@ -96,12 +110,16 @@ def skill_call(ev: Start, pose: Pose | None, names: Names) -> SkillCall | str:
         area_m, centre = ev.area[0], place(ev.area[1], ev.area[2])
         if centre is None:
             return "stale"  # no pose to place the area's centre from (as setxy)
-    return SkillCall(ev.skill, word, ev.seconds, point, area_m, centre)
+    back_m = None if ev.cm is None else ev.cm / 100
+    stop_m = None if ev.stop_cm is None else ev.stop_cm / 100
+    return SkillCall(ev.skill, word, ev.seconds, point, area_m, centre, back_m, stop_m)
 
 
-def word_skill(call: SkillCall, lim: Limits, cost: CostSettings, memory: ThingMemory, seed: int) -> RoamSkill:
-    """The RoamSkill for a word (LLD §21.2), from what the decisions log keeps (so a replay builds the same
-    one); seed: wander's random choices."""
+def word_skill(call: SkillCall, lim: Limits, cost: CostSettings, memory: ThingMemory, seed: int) -> Skill:
+    """The skill for a word (LLD §21.2, the game words §28.3), from what the decisions log keeps (so a
+    replay builds the same one); seed: wander's random choices."""
+    if call.skill in GAME_SKILLS:
+        return game_skill(call.skill, lim, call.back_m, call.seconds, call.stop_m)
     planner, rng = Planner(lim), random.Random(seed)
     area_m, centre = call.area_m, call.centre
     if call.skill == "find":
@@ -129,7 +147,13 @@ def word_log(
     log = DecisionLog(folder / "decisions.jsonl", mission, seed)
     remembered = [asdict(r) for r in memory.things()]
     log.head(
-        limits=asdict(lim), cost=asdict(cost), remembered=remembered, point=call.point, centre=call.centre
+        limits=asdict(lim),
+        cost=asdict(cost),
+        remembered=remembered,
+        point=call.point,
+        centre=call.centre,
+        back_m=call.back_m,
+        stop_m=call.stop_m,
     )
     return log
 
@@ -144,7 +168,14 @@ def call_of(head: dict[str, Any]) -> SkillCall | None:
         return None if v is None else (float(v[0]), float(v[1]))
 
     return SkillCall(
-        m["action"], m["thing"], m["seconds"], xy(head["point"]), m["area_m"], xy(head["centre"])
+        m["action"],
+        m["thing"],
+        m["seconds"],
+        xy(head["point"]),
+        m["area_m"],
+        xy(head["centre"]),
+        head.get("back_m"),
+        head.get("stop_m"),
     )
 
 
@@ -197,6 +228,7 @@ class _Word:
     keep_task: asyncio.Task[None]
     task: asyncio.Task[None] | None = None
     silent: bool = False  # the bridge ended it, the link was lost, or Ctrl-C: nothing is sent back
+    why: str = ""  # the bridge's reason when it ended the word (skill_end), "lost", "stop"
 
 
 class ServeApp:
@@ -213,10 +245,12 @@ class ServeApp:
         skills: SkillMaker = make_word_skill,
         view: TickView | None = None,
         feed: tuple[FeedServer, FeedPublisher] | None = None,
+        seeing: SeeingPass | None = None,
     ) -> None:
         """home: the home's name (--home), in `store` (default: ai-engine/homes). record: each word's
         decisions in record/word-<id>/decisions.jsonl. skills: builds a word's skill (tests script one).
-        feed: the /ai pages' AI feed and its publisher (§22; None: --page-port 0)."""
+        feed: the /ai pages' AI feed and its publisher (§22; None: --page-port 0). seeing: the seeing test's
+        pass (§28.6) - the hello's `people` (None: no games)."""
         self.link, self.perception, self.world, self.names = link, perception, world, names
         self.home, self.record, self.skills, self.view = home, record, skills, view
         self.store = store
@@ -236,6 +270,9 @@ class ServeApp:
         self._closing = False  # Ctrl-C / stop: run() saves the home once at the end
         self._seq = 0  # words in this session (the decisions folders)
         self.places = Places()  # the names on the map (LLD §23.3); a home's come back in _load_home
+        self.seeing = seeing
+        self.stream = PersonStream(world, self._send_person, perception.bridge_now_s)
+        self.last_result: Result | None = None  # the last word's ending (CAUGHT when the bridge caught it)
 
     async def run(self, stop: asyncio.Event) -> None:
         """Until `stop` (or Ctrl-C: the task cancelled). SkillBusy when another skill server holds the bridge
@@ -248,6 +285,7 @@ class ServeApp:
         try:
             while not stop.is_set():
                 self.state = "connecting"
+                self.link.people = self.seeing is not None and self.seeing.passed()  # read at each connect
                 try:
                     await self.link.connect()
                 except SkillBusy:
@@ -365,14 +403,17 @@ class ServeApp:
 
     # ---- one connection
     async def _session(self, stop: asyncio.Event) -> None:
+        self.stream.on = False  # a new link: no person until the bridge says game on (Review Focus 3)
         reader = asyncio.create_task(self._events())
         stopper = asyncio.create_task(stop.wait())
+        streamer = asyncio.create_task(self.stream.run())
         try:
             await asyncio.wait({reader, stopper}, return_when=asyncio.FIRST_COMPLETED)
         finally:
-            for t in (reader, stopper):
+            self.stream.on = False
+            for t in (reader, stopper, streamer):
                 t.cancel()
-            await asyncio.gather(reader, stopper, return_exceptions=True)
+            await asyncio.gather(reader, stopper, streamer, return_exceptions=True)
             task = asyncio.current_task()
             if stop.is_set() or (task is not None and task.cancelling()):
                 self._closing = True  # Ctrl-C or stop: run() saves the home once
@@ -387,13 +428,23 @@ class ServeApp:
                 await self._on_start(ev)
             elif isinstance(ev, End):
                 await self._on_end(ev)
+            elif isinstance(ev, Game):
+                self.stream.on = ev.on
             else:  # Lost: the events end
                 return
 
     async def _on_ask(self, ev: Ask) -> None:
         word, now = self.names.resolve(ev.thing), self.perception.bridge_now_s()
         value: bool | int
-        if ev.q == "howfar":
+        if ev.q == "back_ok":  # a game's backward move (bridge LLD R34.2)
+            value = now is not None and back_ok(self.world, ev.cm, round(now * 1e6))
+        elif ev.game and is_person(ev.thing):  # the game's person, from PersonWatch (LLD §28.1)
+            value = (
+                (-1 if ev.q == "howfar" else False)
+                if now is None
+                else person_answer(self.world, ev.q, round(now * 1e6))
+            )
+        elif ev.q == "howfar":
             value = -1 if word is None or now is None else self.questions.howfar(self.world, word, now)
         else:
             value = word is not None and now is not None and self.questions.see(self.world, word, now)
@@ -438,7 +489,7 @@ class ServeApp:
         w = self._word
         if w is None:
             return
-        w.silent = True
+        w.silent, w.why = True, why
         w.driver.end(why)
         if w.task is not None:
             w.task.cancel()
@@ -453,12 +504,16 @@ class ServeApp:
             print(f"word {w.id} {call.skill} failed: {type(e).__name__}: {e}")
             result = Result.FAILED
         finally:
+            if w.why == "caught":  # the bridge caught the person: not an error, the program goes on
+                self.last_result = Result.CAUGHT
             if self._word is w:
                 self._word = None
             if self.state == "driving":
                 self.state = "idle"
             if w.silent and not self._closing:  # ended or lost: the home still keeps what the word learned
                 self._save_home()
+        if w.why != "caught":
+            self.last_result = result
         reason = wire_reason(result)
         if self.publisher is not None and w.silent:  # ended by the bridge or lost: back to ready
             self.publisher.word(None, None, None)
@@ -518,6 +573,9 @@ class ServeApp:
             except Exception as e:  # a picture that fails is skipped; the next one may not
                 print(f"picture failed: {type(e).__name__}: {e}")
                 await asyncio.sleep(TICK_S)
+
+    async def _send_person(self, msg: dict[str, Any]) -> None:
+        await self._send(self.link.person(msg))
 
     async def _send(self, msg: Awaitable[None]) -> None:
         """An answer to the bridge; a link that went down meanwhile is the events' Lost to handle."""
@@ -644,6 +702,7 @@ def _build(
         CALIBRATION,
         DEPTH_MODEL,
         MAP_CONFIG,
+        MODEL,
         TAUGHT,
         VGA,
         detector_words,
@@ -651,6 +710,7 @@ def _build(
         load_depth,
     )
     from conqueror_ai.app.perception import Perception
+    from conqueror_ai.app.seeing_pass import PASS_FILE
 
     model, vocab = detector_words()  # the taught words too, when their model is made (§22.4)
     names = Names(vocab, load_ball_names(BALLS))
@@ -674,7 +734,8 @@ def _build(
         except Exception as e:  # a viewer that won't start never stops the session
             print(f"the viewer did not start ({e}); serving without it")
     link = SkillLink(f"ws://{host}/ws", names.wire(), page_port=page_port or None)
-    app = ServeApp(link, perception, world, names, home, record, view=tick_view, feed=feed)
+    seeing = SeeingPass(PASS_FILE, MODEL.name, cal.date)  # games only after the seeing test (§28.6)
+    app = ServeApp(link, perception, world, names, home, record, view=tick_view, feed=feed, seeing=seeing)
     app.ball_names = load_ball_names(BALLS)
     app.make_detector = lambda m, v: detectors(m, v, BALLS)
 

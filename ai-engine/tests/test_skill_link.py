@@ -55,7 +55,7 @@ async def test_hello_carries_things(bridge: FakeBridge) -> None:
     try:
         await until(lambda: len(skill_msgs(bridge, "skill_things")) == 1)
         hello = skill_msgs(bridge, "hello")[0]
-        assert hello == {"t": "hello", "client": "ai-skills", "proto": 1}  # no things in the hello
+        assert hello == {"t": "hello", "client": "ai-skills", "proto": 1, "people": False}  # no things
         assert skill_msgs(bridge, "skill_things")[0] == {
             "t": "skill_things",
             "part": 1,
@@ -350,7 +350,13 @@ async def test_hello_carries_page(bridge: FakeBridge) -> None:
     await link.connect()
     try:
         hello = skill_msgs(bridge, "hello")[0]
-        assert hello == {"t": "hello", "client": "ai-skills", "proto": 1, "page": {"port": 8770, "proto": 1}}
+        assert hello == {
+            "t": "hello",
+            "client": "ai-skills",
+            "proto": 1,
+            "people": False,
+            "page": {"port": 8770, "proto": 1},
+        }
     finally:
         await link.close()
 

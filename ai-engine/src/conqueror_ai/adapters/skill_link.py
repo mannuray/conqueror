@@ -40,8 +40,10 @@ class ThingsRefused(Exception):
 @dataclass(frozen=True)
 class Ask:
     id: int
-    q: str  # "see?" or "howfar"
-    thing: str
+    q: str  # "see?", "howfar" or "back_ok" (a game's backward move, bridge LLD R34.2)
+    thing: str  # "" for back_ok
+    cm: int | None = None  # back_ok: how far back
+    game: bool = False  # asked inside a game run: the person words answer (LLD §28.1)
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,8 @@ class Start:
     seconds: float | None
     to: tuple[float, float] | None  # setxy: (fwd_cm, left_cm), relative to the tank now
     area: tuple[float, float, float] | None  # (r_m, fwd_cm, left_cm): the centre relative to the tank now
+    cm: float | None = None  # escape: how far (LLD §28.3)
+    stop_cm: float | None = None  # follow: the follow distance (default 100, never under 50)
 
 
 @dataclass(frozen=True)
@@ -61,11 +65,18 @@ class End:
 
 
 @dataclass(frozen=True)
+class Game:
+    """The bridge's game mode on / off (bridge LLD R34.3): the person stream runs only between."""
+
+    on: bool
+
+
+@dataclass(frozen=True)
 class Lost:
     """The link closed: the bridge ends the program with 7052 by its own rule."""
 
 
-SkillEvent = Ask | Start | End | Lost
+SkillEvent = Ask | Start | End | Game | Lost
 
 
 def _frame(part: int, of: int, entries: list[dict[str, object]], id: int | None = None) -> str:
@@ -120,11 +131,13 @@ def _num(m: dict[str, Any], key: str) -> float | None:
 def parse_event(m: dict[str, Any]) -> SkillEvent | None:
     """One bridge message as an event, or None for any other (and for a malformed one)."""
     kind, mid = m.get("t"), m.get("id")
+    if kind == "game":
+        on = m.get("on")
+        return Game(on) if isinstance(on, bool) else None
     if not isinstance(mid, int) or isinstance(mid, bool):
         return None
     if kind == "skill_ask":
-        q, thing = m.get("q"), m.get("thing")
-        return Ask(mid, q, thing) if isinstance(q, str) and isinstance(thing, str) else None
+        return _ask(mid, m)
     if kind == "skill_end":
         why = m.get("why")
         return End(mid, why) if isinstance(why, str) else None
@@ -142,8 +155,17 @@ def parse_event(m: dict[str, Any]) -> SkillEvent | None:
         if isinstance(raw_area, dict):
             r, f, lf = (_num(raw_area, k) for k in ("r_m", "fwd_cm", "left_cm"))  # pyright: ignore[reportUnknownArgumentType]
             area = (r, f, lf) if r is not None and f is not None and lf is not None else None
-        return Start(mid, skill, thing if isinstance(thing, str) else None, _num(m, "s"), to, area)
+        thing_s = thing if isinstance(thing, str) else None
+        return Start(mid, skill, thing_s, _num(m, "s"), to, area, _num(m, "cm"), _num(m, "stop_cm"))
     return None
+
+
+def _ask(mid: int, m: dict[str, Any]) -> Ask | None:
+    q, thing, game = m.get("q"), m.get("thing"), m.get("game") is True
+    if q == "back_ok":
+        cm = m.get("cm")
+        return Ask(mid, q, "", cm, game) if isinstance(cm, int) and not isinstance(cm, bool) else None
+    return Ask(mid, q, thing, None, game) if isinstance(q, str) and isinstance(thing, str) else None
 
 
 class SkillLink:
@@ -157,6 +179,7 @@ class SkillLink:
         """page_port: where this engine serves the /ai pages' AI feed (§22.1); the hello tells the bridge."""
         self.url = url
         self.page_port = page_port
+        self.people = False  # the hello's `people`: the seeing test passed (LLD §28.6), set before connect
         self.things = things
         self.last_nack: str | None = None  # the reason of the bridge's latest nack (TOO_BIG, BAD_FIELD...)
         self._ws: ClientConnection | None = None
@@ -182,7 +205,12 @@ class SkillLink:
         except WebSocketException as e:  # a refused or broken handshake: one error type for every caller
             raise ConnectionError(f"the bridge refused the link: {e}") from e
         try:
-            hello: dict[str, object] = {"t": "hello", "client": "ai-skills", "proto": 1}
+            hello: dict[str, object] = {
+                "t": "hello",
+                "client": "ai-skills",
+                "proto": 1,
+                "people": self.people,
+            }
             if self.page_port:
                 hello["page"] = {"port": self.page_port, "proto": PAGE_PROTO}
             await ws.send(json.dumps(hello))
@@ -265,6 +293,10 @@ class SkillLink:
     async def failed(self, id: int, reason: str, thing: str) -> None:
         thing = thing.encode()[:THING_MAX_BYTES].decode("utf-8", "ignore")
         await self._send({"t": "skill_failed", "id": id, "reason": reason, "thing": thing})
+
+    async def person(self, msg: dict[str, Any]) -> None:
+        """One `person` message (bridge LLD R34.3), while the bridge's game mode is on."""
+        await self._send(msg)
 
     async def drive(self, id: int, cmd: Command) -> None:
         m = drive_msg(cmd)

@@ -121,6 +121,11 @@ class PersonWatch:
         self._seen = PersonEst(True, rep, bearing, self._coming(t_us, med), sure, t_us)
         return self._seen
 
+    @property
+    def last_us(self) -> int | None:
+        """The newest picture's time (with or without a person)."""
+        return self._last_us
+
     def latest(self, now_us: int) -> PersonEst | None:
         """The estimate now; unseen since the last sighting: the countdown when it was close."""
         s = self._seen

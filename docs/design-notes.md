@@ -3464,4 +3464,7 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   escape distance, follow distance, length, the pause after caught, sounds, play area; the fixed lines shown, never
   settable: child-play 25 cm/s, never within 30 cm); playing (CHILD-PLAY ON, the face and what it is doing, the
   baby's distance and coming / going, time left); caught (banner + beep, waits for 50 cm for 2 s, then the pause);
-  holding still (the AI helper stopped - STOP to release, S12); not yet allowed (the phase 0 gate - open question).
+  holding still (the AI helper stopped - STOP to release, S12); not yet allowed (the phase 0 gate).
+- **The phase 0 gate is locked in the software (owner, 2026-11-09: "ok keep it locked"):** START stays locked (🔒 "needs
+  the seeing test first") until `cq-person-test` has passed the bar; not only our process. How the pass is
+  recorded and checked is the LLD's.

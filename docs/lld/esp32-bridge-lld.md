@@ -3674,3 +3674,167 @@ sequenceDiagram
 - `/ai` is 31 341 B gzipped (budget 32 768 B).
 - Tests: `ai.test.js` 16 pass (all page tests 136); `ai_check.js` (Playwright on `fake_tank.py`) shows red with MARKS, green with DEPTH, the bare picture once the marks are stale, `cq_ai_layer` saved - pass.
 - **Final review fixes (Opus, 2026-11-07):** I1 - `splitFrame` returns the packed bytes (`marks: {w, h, z}`) and `unpackMarks(m)` opens them with `DecompressionStream("deflate")` (null when they do not open to w × h). M1 - the marks are kept together with their own picture, set when that picture is drawn. M3 - `drawsDepth(layer, sawMarks)`: MARKS shows the depth until the engine has sent any marks (an old engine). M4 - a class picture with a side ≤ 0 or more than 65 536 cells is dropped and the picture kept. `/ai` 31 627 B gzipped. `ai.test.js` 18 pass (page tests 138); `ai_check.js` also checks the old-engine case - pass.
+
+## R34. Game mode: the people games' safety on the bridge (Spec 10 S1, S3, S8-S12; design-notes §223-§224 — draft for review)
+
+### R34.1 Why on the bridge
+`FORWARD`, `BACK`, `GO`, turns and arcs are bridge primitives that never reach the engine; only the AI words do. So the
+safety Spec 10 puts under every program (S8: every move in a game) has to live where every move passes: the bridge's
+`MotionService`. The engine supplies what only it can - where the person is - as a stream, for the whole game, with or
+without a lease. The Uno is not changed (no flash left); its envelope, stall, lift / tilt and obstacle brake are reused.
+
+### R34.2 What changes
+- **A game run.** The Logo checker marks a program as a **game** when a person word is an input of a game word anywhere
+  in it (main part, `TO` bodies, `LAUNCH` parts - Tank Logo LLD §27.2). The flag is known **before** the run starts, so
+  the first `FORWARD` is already inside game mode (Spec 10 S8 corrected: not "from the first person word").
+- **`GameMode`** (new, `core/game_mode.*`): Off → Arming → Playing ⇄ Caught; any → Held → Off (state diagram R34.4).
+  - **Arming:** the run is a game → send `ENVELOPE {speed_cap: kGameCapPct, accel_cap: 0, lock_brake: CHILD_PLAY}`
+    and wait for its ack (≤ 500 ms, else the run ends 7057) before the program's first motion. Nothing moves before.
+  - **`kGameCapPct`** is the track % that gives ~25 cm/s on the floor (owner: 25 cm/s) - **measured, not computed**:
+    the cap is a PWM share and the speed is not linear in it (the dead band; ~18 cm/s is the slowest smooth speed,
+    ~33.5 cm/s at 100 %, design-notes §69 / Plan L). A plan step measures it on the floor from the encoders
+    (`counts_per_m` 7514) and stores it in NVS; until measured the game refuses to start (7057).
+  - **`accel_cap` stays 0.** The Uno's ramp brakes at twice its acceleration limit (`RampLite`, "decel twice as
+    fast"): an envelope accel cap of the "gentle 10 cm/s²" kind would make **every stop, STOP included, take over a
+    second** near a baby and break the learned stops (R7 MOVE, R18 turns). The gentle start comes from the engine's
+    own speed ramp (`Limits.dv_cms_per_s` 10) and the bridge primitives' existing profiles (Spec 10 S1 corrected).
+  - **The envelope lives in the Uno's RAM** (`Envelope`, not saved): an Uno HELLO (a reboot) during a game re-sends it
+    before any motion; `blocksCalibration` stays true for the whole game.
+  - **Off:** the run ends or STOP → `ENVELOPE {100, 0, 0}`.
+- **The person stream (engine → bridge), for the whole game:** `{"t":"person","seen":bool,"d_cm":n,"bearing":deg,
+  "coming":-1|0|1,"sure":0..1,"age_ms":n}` at ≥ 5 Hz (each used picture, at least every 200 ms) while the bridge says
+  `{"t":"game","on":true}` to the engine (R34.3). `d_cm` is the pessimistic distance from the front edge (AI engine
+  LLD §28.2: unsure = nearer).
+- **The keep-out (S2, S4, S8) - one gate in `MotionService::tick`, for every primitive and the skill lease:**
+  - the latest person estimate older than **300 ms** (the deadman): output held at 0 until a fresh one;
+  - older than **1 s**, or the engine closed / silent (R26's 3 s rule) → **Held** (S12);
+  - `d_cm` ≤ 30 → **Caught**;
+  - a forward motion (v > 0) with the person within ±60° of ahead: allowed only while `d_cm - stopping_cm(v) > 30`
+    (`stopping_cm` from the learned coast, R7 / R18, plus 5 cm); otherwise the primitive ends `blocked` (7041 as
+    today's obstacle end) - never towards;
+  - turns on the spot: allowed while `d_cm` > 35 (the front corners sweep ~4 cm nearer while turning);
+  - **`BACK` and backward arcs in a game: refused** by the checker (Tank Logo LLD §27.3, 7058) - only `ESCAPE` backs,
+    over trusted floor (S7). (Owner question R34.7-2.)
+- **Caught (S3, S9, S10):** `d_cm` ≤ 30, **or** the Uno's stall event, **or** pushing-but-not-moving (R21) → every
+  primitive and any skill ends (`skill_end … "caught"`), the camera holds, **a beep** (`SOUND` to the Uno, the passive
+  buzzer A0), `CAUGHT?` is true for the program, an event to the pages. Release: the person seen beyond **50 cm for
+  2 s** (fixed) → Playing; the program's own pause follows (its `WAIT`). A word running when caught ends without an
+  error; the program goes on.
+- **Held (S12):** all motion refused from every source (the phone's stick included) until a person presses STOP; the
+  run ends 7052; the pages show "THE AI HELPER STOPPED - the tank is holding still". STOP → Off.
+- **The seeing-test lock (owner 2026-11-09: "keep it locked"):** the engine's hello carries `"people":true` only when
+  its seeing test has passed (AI engine LLD §28.6). A game run with no engine, or `people` false → refused at start,
+  **7059** "The game needs the seeing test first." - the same for `/ai`'s START and a program run from `/logo`.
+- **`/ai`'s GAMES card** (inside PLAY, design-notes §224): START runs one line (`BABYGAME 70 100 5` with the settings'
+  numbers) through the existing Logo run, as Find; the moments ready / playing / caught / holding / locked from the
+  game events. **Budget:** `/ai` is 31 627 of 32 768 B gzipped; the card is estimated at ~1.5-2 KB (owner question
+  R34.7-1).
+
+### R34.3 Messages
+| Direction | Message | Meaning |
+|---|---|---|
+| engine → bridge | hello gains `"people":true\|false` | the seeing test has passed (§28.6) |
+| bridge → engine | `{"t":"game","on":true\|false}` | game mode on / off: start / stop the person stream |
+| engine → bridge | `{"t":"person",…}` (R34.2) | ≥ 5 Hz while on |
+| bridge → pages | `{"t":"ev","kind":"game","state":"arming\|playing\|caught\|held\|off","d_cm":n,"caught":n}` | the card's moments |
+| bridge → engine | `skill_end` gains `"why":"caught"` | |
+
+### R34.4 Game mode's states
+```mermaid
+stateDiagram-v2
+    [*] --> Off
+    Off --> Arming: a game run starts (engine people:true, cap measured)
+    Off --> Off: refused 7059 / 7057
+    Arming --> Playing: ENVELOPE acked
+    Arming --> Off: no ack in 500 ms (7057)
+    Playing --> Caught: d <= 30 cm / stall / pushing not moving
+    Caught --> Playing: seen beyond 50 cm for 2 s
+    Playing --> Held: no person estimate 1 s / engine gone
+    Caught --> Held: no person estimate 1 s / engine gone
+    Held --> Off: STOP (a person)
+    Playing --> Off: the run ends / STOP
+    Caught --> Off: the run ends / STOP
+```
+
+### R34.5 Classes
+```mermaid
+classDiagram
+    class GameMode {
+      +state() State
+      +startRun(bool game, uint32 now) RunGate
+      +onEnvelopeAck(uint32 now)
+      +onPerson(PersonEst e, uint32 now)
+      +onUnoEvent(EventKind k, uint32 now)
+      +onEngineGone(uint32 now)
+      +onStop()
+      +onUnoHello()
+      +gate(Motion m, uint32 now) GateResult
+      +caught() bool
+    }
+    class PersonEst {
+      +seen: bool
+      +d_cm: int16
+      +bearing_deg: int16
+      +coming: int8
+      +sure: uint8
+      +at_ms: uint32
+    }
+    class KeepOut {
+      +check(PersonEst e, Motion m, uint16 stop_cm, uint32 now) GateResult
+    }
+    class MotionService
+    class SkillHub
+    class LogoController
+    class BodyLink
+    GameMode --> KeepOut
+    GameMode --> PersonEst : latest
+    MotionService ..> GameMode : gate() every tick
+    SkillHub ..> GameMode : person / people / engine gone
+    LogoController ..> GameMode : startRun(game) / run end / CAUGHT?
+    GameMode ..> BodyLink : ENVELOPE / SOUND / stop
+```
+`GameMode` and `KeepOut` are pure (no ports, no clock of their own): host-tested like `SkillPushWatch`.
+
+### R34.6 Sequences
+```mermaid
+sequenceDiagram
+    participant P as Logo program
+    participant B as Bridge (GameMode, MotionService)
+    participant E as Engine
+    participant U as Uno
+    P->>B: run BABYGAME (checker: game)
+    B->>E: game on
+    B->>U: ENVELOPE (cap %, accel 0, CHILD_PLAY)
+    U-->>B: ack
+    E-->>B: person d=85 coming
+    P->>B: ESCAPE "baby 40
+    B->>E: skill_start escape (lease)
+    loop each tick
+        E-->>B: skill_drive v<0 (back, trusted floor)
+        E-->>B: person d=70..90
+        B->>B: gate(): d > 30, backing allowed
+        B->>U: DRIVE
+    end
+    E-->>B: skill_done
+    Note over B,E: the engine dies
+    B->>B: no person 1 s -> Held: all motion refused
+    B->>U: STOP
+    B-->>P: run ends 7052
+    Note over B: holding until a person presses STOP
+```
+
+### R34.7 Owner questions (with the LLD review)
+1. **`/ai` budget:** the GAMES card needs ~1.5-2 KB gzipped; `/ai` has ~1.1 KB left of 32 KB. Raise to **34 KB**
+   (recommended; flash 47 % used), or keep the card smaller (no settings fold on `/ai` - settings only in the program)?
+2. **`BACK` in a game:** refuse it (recommended - the tank is blind behind; only `ESCAPE` backs, over trusted floor),
+   or let it run through the engine's trusted-floor check?
+3. **The speed cap is measured** on the floor (track % for ~25 cm/s) as a plan step, and the game refuses to start
+   until it is - agreed?
+4. **The gentle start comes from the engine's ramp, not the Uno's envelope** (the envelope's accel cap would slow
+   every stop) - Spec 10 S1 corrected; agreed?
+
+### R34.8 Tests (host, C++)
+`GameMode`: the state diagram's every edge; no motion before the envelope ack; an Uno HELLO re-sends the envelope;
+stale 300 ms holds, 1 s holds for good; caught at 30 cm, by stall, by pushing-not-moving; release only after 50 cm for
+2 s; Held refuses the stick too, STOP releases; 7059 without `people`. `KeepOut`: forward towards within ±60° cut by
+the stopping distance, sideways / away allowed, turns from 35 cm.

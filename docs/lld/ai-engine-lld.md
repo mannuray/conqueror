@@ -3307,3 +3307,146 @@ classDiagram
 - **The whole suite (load ~120):** 924 passed, 1 failed - `test_explore_picks_quickly_by_searching_outward` (5 ms for explore's first pick, the grid built in it); it passes alone (3 of 3 after one fail at load 126). The first pick measured 1.8-2.6 ms median with the quick planner vs 2.3-3.6 ms with today's; the worst picks 5-11 ms for both at that load - the machine, not the planner (as §220's route test).
 - **Opus final review (2026-11-08):** exactness confirmed point by point (tie order, floats, the reach arrival, the start and goal cells, the copies) and the comparison test reaches every path; fixed: the comment written twice, `_dijkstra` returns `(costs, found)`, the reference copies today's `_Grid` (the planners share nothing), §27.3 / §27.4 as built.
 - **Owner (2026-11-08):** the speed test (`test_the_quick_planner_is_about_twice_as_quick`) checks **at least 1.5x**: 2.0, then 1.8 would fail by chance on a busy machine (the final review measured 2.02x); 1.5 still catches a slip back to today's 1.0x. Identical routes, nearest cells and costs on 30 random maps (`test_the_quick_planner_gives_todays_routes`).
+
+## 28. The people games: where the person is, and the game words (Spec 10; design-notes §223-§224, bridge LLD R34, Tank Logo LLD §27 — draft for review)
+
+### 28.1 What changes
+- **`PersonWatch`** (domain, pure): per used picture, where the person is relative to the tank - from the detector's
+  `person` boxes, which reach here and only here. The tracker, the thing memory, the room map and `Names` keep
+  refusing people exactly as today (§21.4; Spec 10 S5).
+- **A person stream to the bridge** while the bridge's game mode is on (`game on/off`, bridge LLD R34.3): every used
+  picture, at least every 200 ms - also while no word runs (`WAIT`, questions), so the bridge's keep-out always has a
+  fresh estimate.
+- **Three game skills** behind the Z7 `Skill` interface, started by `skill_start` with the lease as FIND:
+  `FaceSkill` (`face`), `EscapeSkill` (`escape` + cm), `FollowSkill` (`follow` + s). They drive like the other skills
+  (`skill_drive`, the cost map, the body rule, `Limits` with **`v_cap_cms` 25 for a game** and the existing
+  `dv_cms_per_s` 10 ramp - the gentle start, bridge LLD R34.2).
+- **Questions for the game's person:** `SEE? "baby` / `HOWFAR "baby` answer from `PersonWatch` (HOWFAR in cm from the
+  front edge, the pessimistic distance), only inside a game run (`skill_ask` gains `"game":true`).
+- **The seeing-test pass** gates `"people":true` in the hello (§28.6).
+
+### 28.2 `PersonWatch`
+- **Input per used picture:** the `person` detections (YOLO-World / YOLO26n, the engine's thresholds), the camera of
+  the picture (with the depth floor's tilt fix), the sonar reading and the pose.
+- **The point:** each person box's bottom centre through `CameraModel.pixel_to_floor` (the hands / knees on the
+  floor), in the tank frame from the front edge's middle (`person_range` of Plan P0, moved from
+  `domain/person_test.py` into `domain/person.py` and shared); a box cut by the picture's bottom (within 4 px) is
+  "close, below the picture"; the nearest ranged person is the one.
+- **Near and ahead, the sonar:** within ±12° of ahead (the beam) a sonar echo nearer than the camera's distance wins
+  (a crawler under 50 cm fills the picture; the camera misses, the sonar does not - P0's bar checks this).
+- **Smoothing and coming / going:** the distance through a 0.3 s window; `coming` = +1 when it fell ≥ 5 cm over
+  0.5 s, −1 when it grew ≥ 5 cm, else 0.
+- **Pessimistic (S2, "unsure = closer"):** `d_reported = d - 2·σ` where σ grows with distance (the P0 measurement
+  sets it; ±10 cm inside 1 m, ±20 % beyond until then); when the person is **not seen** and the last estimate was
+  inside 50 cm, the distance keeps falling at the last closing speed (never rising), `sure` falls, and after 1 s
+  unseen inside 50 cm it reports `d` = 30 (→ the bridge's Caught: stopped is the safe guess).
+- **Output** `PersonEst(seen, d_cm, bearing_deg, coming, sure, age_ms)` - the `person` message.
+
+### 28.3 The game skills
+- **`FaceSkill`** (`FACE "baby`): ≤ 1 s. The camera pans to the person's bearing (`cam`); beyond the camera's
+  comfortable pan (±35°) the tank turns on the spot (allowed only from 35 cm, R34.2). Ends `done` facing them, or
+  `lost` when not seen for 1 s (the program decides: look round, wait).
+- **`EscapeSkill`** (`ESCAPE "baby 40`): pick a spot about `cm` farther from the person, inside the play area, on
+  the cost map's allowed floor, at the end of a route; **back away facing the person when the floor behind is
+  trusted** (§28.4), else **turn to look first** - but never turn its back while the person is inside the escape
+  distance (S11: then stay still, `no_way`). Ends `done` facing them, `no_way` when cornered.
+- **`FollowSkill`** (`FOLLOW "baby 5`): for up to `s` seconds, a route goal **the follow distance short of the
+  person** on the tank's side (default 1 m, never under 50 cm whatever the setting; never a route *to* the person,
+  S4); stops when within the follow distance. Ends `done` / `lost`.
+- **Results:** today's `Result` plus `CAUGHT` (the lease ended `"caught"` - not an error, the program goes on).
+
+### 28.4 Trusted floor (S7)
+`TrustedFloor.ok(path) -> bool`: every 10 cm cell along the backward path was **seen free within the last 5 s from
+within 1.5 m** (the room map's "seen" plus a per-cell last-seen-free time), with no low / high mark since and not
+behind the tank's turn-in-place sweep. The numbers are first guesses from the map settings, to check on the floor.
+
+### 28.5 Classes
+```mermaid
+classDiagram
+    class PersonWatch {
+      +update(dets, cam, sonar_mm, pose, t_us) PersonEst
+      +latest() PersonEst
+      -window: deque
+      -sigma(d_m) float
+    }
+    class PersonEst {
+      +seen: bool
+      +d_cm: int
+      +bearing_deg: float
+      +coming: int
+      +sure: float
+      +age_ms: int
+    }
+    class person_range {
+      <<function, domain/person.py>>
+    }
+    class TrustedFloor {
+      +ok(room, path, now_us) bool
+    }
+    class FaceSkill
+    class EscapeSkill
+    class FollowSkill
+    class Skill {
+      <<Protocol>>
+      +tick(now_s, inp) SkillOut
+      +cancel() SkillOut
+    }
+    class PersonStream {
+      +on_game(on: bool)
+      +send(est: PersonEst)
+    }
+    class SeeingPass {
+      +passed() bool
+    }
+    PersonWatch ..> person_range
+    PersonWatch --> PersonEst
+    FaceSkill ..|> Skill
+    EscapeSkill ..|> Skill
+    FollowSkill ..|> Skill
+    EscapeSkill ..> TrustedFloor
+    EscapeSkill ..> PersonEst
+    FollowSkill ..> PersonEst
+    FaceSkill ..> PersonEst
+    PersonStream ..> PersonEst
+```
+`SkillInput` gains `person: PersonEst | None` (from the `World` snapshot); `World` owns the `PersonWatch` and feeds it
+from `Perception` - the person boxes are taken **before** `person_guard.clear` drops anything (the guard only drops
+other boxes inside a person; the person box goes on to `PersonWatch` and, as today, the tracker refuses it).
+
+### 28.6 The seeing-test pass (the owner's lock)
+`cq-person-test score` on a full pass writes `config/person-seeing.yaml` (numbers only: date, detector, the bar, the
+marks passed - no pictures). `SeeingPass.passed()` is true when that file exists and its detector is the one in use;
+the hello carries `"people": SeeingPass.passed()`. A changed detector or camera (a new calibration) clears it - the
+test runs again.
+
+### 28.7 One ESCAPE
+```mermaid
+sequenceDiagram
+    participant W as World / PersonWatch
+    participant S as EscapeSkill
+    participant R as RoutePlanner
+    participant B as Bridge
+    B->>S: skill_start escape 40 (lease)
+    S->>W: person 70 cm, coming
+    S->>R: spots ~40 cm farther, allowed, inside the area
+    R-->>S: a route backwards
+    S->>W: TrustedFloor.ok(route)?
+    alt trusted
+        loop each tick
+            S-->>B: skill_drive v<0, facing the person
+        end
+    else not trusted, person beyond the escape distance
+        S-->>B: turn to look, then the route
+    else not trusted, person inside
+        S-->>B: v 0 (stay, facing them) -> no_way
+    end
+    S-->>B: skill_done (facing them)
+```
+
+### 28.8 Tests (to write first)
+`PersonWatch`: a box 1 m ahead → ~100 cm minus 2σ; the sonar wins ahead and near; coming / going; unseen inside 50 cm
+falls to 30 within 1 s; never rises while unseen. `EscapeSkill`: trusted floor behind → backs facing the person; not
+trusted and the person far → turns first; not trusted and near → stays, `no_way`; never a route ending nearer the
+person. `FollowSkill`: never a goal inside 50 cm; stops at the follow distance. `FaceSkill`: pans within ±35°, turns
+beyond. The person stream: every used picture, ≥ 5 Hz, only while game on. The hello's `people` follows the pass
+file. Replays (`--replay`) re-run the game skills' decisions as the others.

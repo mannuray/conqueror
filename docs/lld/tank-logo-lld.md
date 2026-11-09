@@ -1686,3 +1686,112 @@ sequenceDiagram
   - **REPCOUNT inside LAUNCH** counts the block's own REPEAT / FOREVER (0 outside them) - the block is its own part (rule added to §26.3).
   - The main part goes first at every run's start (it depended on the last run's ticks); the launched part's end sends `logo_line {part: 1, line: 0}` and the page clears its marker; each LAUNCH has its own RANDOM numbers; the logo worker's size comment.
 - **After the floor run:** lesson 5 keeps `AREA 2` (the safe start for a child) and says how to search a big closed room ("change AREA 2 to AREA 0"); on the floor the toy lay outside the 2 m circle until the area was off (design-notes §219).
+
+## 27. Revision G1 — the game words (Spec 10; design-notes §223-§224, bridge LLD R34, AI engine LLD §28 — draft for review)
+
+### 27.1 What changes
+- **`logo/spec/words.yaml`** (level 3, `needs: [ai, encoders]` for the action words; generated as every word, `logogen write`):
+
+  | Word | Kind | Inputs | Does / gives |
+  |---|---|---|---|
+  | `FACE` | command | person | turns the camera (or the tank, on the spot) to face the person for a moment |
+  | `ESCAPE` | command | person, cm 20–100 | moves about that far away from the person - backwards facing them over floor it trusts, else it looks first; stays still if there is no way |
+  | `FOLLOW` | command (reserved today) | person, seconds 1–60 | comes after the person, stopping at the follow distance - never close |
+  | `CAUGHT?` | reporter | — | TRUE while the person has caught the tank (it stopped and beeped) |
+  | `SEE?` / `HOWFAR` | reporters (today's) | thing **or person** | for the person, inside a game: seen in the last 0.5 s / the distance from the tank's front in cm, −1 if not seen |
+
+- **A new input type `person`:** a quoted word from a short fixed list of the game's person words (`"baby`, `"person`,
+  `"kid` - in `words.yaml`, so the checker knows them without the engine). It is **never** a `thing`: `FIND "baby`,
+  `SETXY`, `GO` keep refusing people (7053, as today), and `FACE "toy` is refused (7060 "FACE, ESCAPE and FOLLOW are
+  for a person in a game.").
+- **Errors (`words.yaml`):**
+  - 7057 "The game can't start - the tank's speed limit isn't set." (no envelope ack / the cap not measured)
+  - 7058 "In a game the tank can't back up blind - use ESCAPE." (`BACK`, a backward `ARC` / `MOVE` in a game run)
+  - 7059 "The game needs the seeing test first."
+  - 7060 "FACE, ESCAPE and FOLLOW are for a person in a game."
+  - Caught is **not** an error: a word running when caught ends normally; `CAUGHT?` tells the program.
+
+### 27.2 The game flag (Spec 10 S8, corrected)
+- **The checker marks a program a game run** when any of `FACE`, `ESCAPE`, `FOLLOW`, `CAUGHT?`, or `SEE?` / `HOWFAR`
+  with a person input, appears **anywhere** in it - the main part, every `TO` body, every `LAUNCH` part (reachable or
+  not: a static rule, simple to explain and impossible to dodge). `CheckResult` gains `game: bool`; the run sends it
+  with `logo_run` (bridge LLD R34.2), so game mode is on **before the first motion**.
+- **A person computed at run time** (`FIRST [baby]`, a procedure input) is resolved by the runner: in a game run it
+  must be one of the person words; in a run not flagged as a game any person word reaching a `thing` input is refused
+  7053 (today's rule) - so a program cannot become "a game" without the checker seeing it.
+
+### 27.3 What a game run refuses (checker, with the line)
+- `BACK n`, a negative `MOVE`, a backward `ARC` → 7058 (the tank is blind behind; only `ESCAPE` backs, over trusted
+  floor - bridge LLD R34.7-2 asks the owner).
+- Everything else runs as written, under the bridge's keep-out (R34.2): `FORWARD` towards the person ends early
+  `blocked`, turns wait until the person is beyond 35 cm.
+
+### 27.4 The lesson and the game program
+- **Lesson 6 "Chase with the baby"** (Tank Logo LLD §25's lessons): the ready-made program with a short explanation
+  and something to change (the distances), linked from `/ai`'s GAMES card ("📜 how it works ›", design-notes §224):
+
+  ```
+  TO BABYGAME :escape_at :follow_at :minutes
+    REPEAT :minutes * 60 [
+      IFELSE CAUGHT? [ WAIT 3 ] [
+        IFELSE HOWFAR "baby < :escape_at [ ESCAPE "baby 40 ] [
+          IF HOWFAR "baby > :follow_at [ FOLLOW "baby 2 ] ]
+        FACE "baby ] ]
+  END
+  BABYGAME 70 100 5
+  ```
+  (`REPEAT :minutes * 60` over ~1 s steps - the builder may use `TIMER` instead; the game's length is the program's.)
+
+### 27.5 Classes and flow
+```mermaid
+classDiagram
+    class Checker {
+      +check(src, caps) CheckResult
+      -markGame(ast) bool
+    }
+    class CheckResult {
+      +ok: bool
+      +diags: list
+      +game: bool
+    }
+    class PersonWords {
+      <<generated from words.yaml>>
+      +isPerson(word) bool
+    }
+    class RunController {
+      +start(prog, game: bool)
+      -personAtRuntime(word) Status
+    }
+    class GameMode {
+      <<bridge LLD R34>>
+    }
+    Checker --> CheckResult
+    Checker ..> PersonWords
+    RunController ..> PersonWords
+    RunController ..> GameMode : startRun(game)
+```
+```mermaid
+sequenceDiagram
+    participant Pg as /logo or /ai START
+    participant C as Checker
+    participant R as RunController
+    participant G as GameMode (bridge)
+    Pg->>C: check BABYGAME
+    C-->>Pg: ok, game = true
+    Pg->>R: logo_run (game)
+    R->>G: startRun(game)
+    alt no engine / people false
+        G-->>R: refuse 7059
+    else cap not measured / no ack
+        G-->>R: refuse 7057
+    else armed
+        G-->>R: go
+        R->>R: run the program under the keep-out
+    end
+```
+
+### 27.6 Tests
+Conformance cases (generated): the game flag from a word in a `TO` body, in a `LAUNCH` part, unreached; `BACK` in a
+game → 7058 with its line; `FACE "toy` → 7060; `FIND "baby` → 7053; a computed person in a non-game run → 7053 at run
+time; `CAUGHT?` false outside a game. Running cases: a caught word ends without an error and `CAUGHT?` is TRUE; 7059 /
+7057 at start.

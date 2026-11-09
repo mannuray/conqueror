@@ -3468,3 +3468,16 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **The phase 0 gate is locked in the software (owner, 2026-11-09: "ok keep it locked"):** START stays locked (🔒 "needs
   the seeing test first") until `cq-person-test` has passed the bar; not only our process. How the pass is
   recorded and checked is the LLD's.
+
+## 225. Spec 10's LLDs drafted (2026-11-09; bridge LLD R34, AI engine LLD §28, Tank Logo LLD §27 — drafts for review)
+- **The bridge holds the game's safety** (R34): `FORWARD` / `BACK` / `GO` / turns never reach the engine, so the
+  keep-out gates every primitive in `MotionService`, fed by a person stream from the engine (≥ 5 Hz, the whole game);
+  `GameMode` Off → Arming (the envelope acked) → Playing ⇄ Caught → Held (S12, released only by STOP).
+- **Found in the Uno code:** the envelope's speed cap is a track % (PWM), not cm/s - the % for 25 cm/s is measured;
+  its accel cap also slows braking (`RampLite` brakes at twice it) - so it stays 0 and the gentle start is the
+  engine's ramp; the envelope is RAM only - re-sent on an Uno HELLO.
+- **The game flag is static** (Tank Logo §27.2): the checker marks a program a game if a person word appears
+  anywhere in it; game mode is on before the first motion. People stay out of `FIND` / `GO` / memory / the map.
+- **The lock:** `cq-person-test score` on a pass writes `config/person-seeing.yaml`; the engine's hello carries
+  `people`; the bridge refuses a game run without it (7059), from `/ai` and `/logo` alike.
+- Owner questions in R34.7 (the `/ai` budget, `BACK` in a game, measuring the cap, the gentle start from the engine).

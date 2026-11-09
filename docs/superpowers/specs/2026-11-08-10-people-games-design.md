@@ -95,6 +95,11 @@ and run again.
 - **S7. Never backs into the unknown.** Backing only over floor that is trusted (§5 G2: seen free recently, near,
   no marks since); otherwise the word turns to look first.
 
+- **Corrections from the LLDs (2026-11-09, bridge LLD R34, Tank Logo LLD §27):** S1 - the gentle start comes from the
+  engine's speed ramp, not the envelope's accel cap (the Uno brakes at twice that cap, so it would slow every stop;
+  the envelope caps only the top speed, a measured track %) - **owner to confirm (R34.7-4)**. S8 - game mode starts
+  when the run starts, from a static checker flag (a person word anywhere in the program), not "from the first
+  person word" (a `FORWARD` before it would run without the limits).
 - **S8. Every move during a game, not only the game words (builder check, answered by the anti-goals).** From the
   first person word of a program until the program ends or STOP, the program is in **game mode**: every motion it
   makes - `FORWARD`, `GO`, `SETXY`, `LAUNCH` parts, the game words - passes the keep-out (S2) and the child-play

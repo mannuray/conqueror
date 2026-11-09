@@ -81,7 +81,10 @@ void LogoController::motion(const logo::Action& a, uint32_t now) {
     m_h.game_backing(static_cast<int16_t>(-a.dist_cm));  // R34: back_ok asks the engine for this length
   }
   core::BridgeReason why = core::BridgeReason::kBodyOffline;
-  if (!m_h.start_motion(m_fd, a, now, why)) refused(why, now);
+  logo::Action capped = a;  // review I7: within the game's cap, so the Uno's own cap never cuts unseen
+  const uint8_t cap = m_h.game_cap != nullptr ? m_h.game_cap() : 0;
+  if (cap != 0 && capped.speed_pct > cap) capped.speed_pct = cap;
+  if (!m_h.start_motion(m_fd, capped, now, why)) refused(why, now);
 }
 
 void LogoController::refused(core::BridgeReason why, uint32_t now) {  // a drive that could not start: 7021 / 7034

@@ -53,6 +53,9 @@ void UnoEventRouter::unoEvent(const core::LinkEvent& ev, uint32_t now) {
 void UnoEventRouter::route(const core::LinkEvent& ev, uint32_t now) {
   switch (ev.kind) {
     case core::LinkEventKind::kBodyOnline: bodyOnline(now); break;
+    case core::LinkEventKind::kBodyRestarted:
+      if (m_sinks.body_restart != nullptr) m_sinks.body_restart(now);
+      break;
     case core::LinkEventKind::kBodyOffline: bodyOffline(ev, now); break;
     case core::LinkEventKind::kUnoEvent: unoEvent(ev, now); break;
     case core::LinkEventKind::kStopResult: m_sinks.stop_result(ev.status); break;

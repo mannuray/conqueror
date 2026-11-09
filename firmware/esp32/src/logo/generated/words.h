@@ -214,7 +214,7 @@ inline constexpr ErrorText kErrors[] = {
     {7057, "{word} moves the tank - only the main program can do that, not LAUNCH."},
     {7058, "Only one LAUNCH can run at a time."},
     {7059, "OUTPUT can't be used inside LAUNCH - the launched part gives nothing back."},
-    {7060, "The game can't start - the tank's speed limit isn't set."},
+    {7060, "The game can't start - the tank's speed limit isn't set or didn't reach the tank."},
     {7061, "The game needs the seeing test first."},
     {7063, "The game's time limit (15 minutes) is up."},
 };

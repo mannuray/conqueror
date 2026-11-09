@@ -57,6 +57,7 @@ uint16_t g_game_refuse = 0;
 bool g_game_ready = true, g_game_caught = false, g_game_seen = false;
 int g_game_ends = 0;
 int16_t g_game_backing = 0;
+uint8_t (*g_game_cap_fn)() = nullptr;
 
 void unoSends(const uint8_t* f, size_t n, uint32_t now) { link->onUartBytes(f, n, now); }
 
@@ -126,6 +127,7 @@ void hooks() {
   h.game_caught = [] { return g_game_caught; };
   h.game_end = [](uint32_t) { ++g_game_ends; };
   h.game_backing = [](int16_t cm) { g_game_backing = cm; };
+  h.game_cap = [] { return g_game_cap_fn != nullptr ? g_game_cap_fn() : static_cast<uint8_t>(0); };
   lc->setHooks(h);
   lc->setSkillHub(&g_hub);
 }
@@ -228,6 +230,7 @@ void setUp() {
   g_game_caught = g_game_seen = false;
   g_game_ends = 0;
   g_game_backing = 0;
+  g_game_cap_fn = nullptr;
 }
 void tearDown() {}
 
@@ -887,6 +890,14 @@ void test_caught_ends_a_running_skill_as_caught_and_the_program_goes_on() {
   TEST_ASSERT_EQUAL(1, g_motions.size());  // FD 10 runs next
 }
 
+void test_a_games_moves_are_within_its_speed_cap() {  // review I7
+  g_game_cap_fn = [] { return static_cast<uint8_t>(50); };  // a game at a 50 % cap
+  run("SPEED 100 FD 10");
+  ticks(3);
+  TEST_ASSERT_EQUAL(1, g_motions.size());
+  TEST_ASSERT_EQUAL_UINT8(50, g_motions[0].speed_pct);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_run_starts_and_carries_out_moves);
@@ -946,5 +957,6 @@ int main() {
   RUN_TEST(test_a_backward_move_tells_game_mode_its_length);
   RUN_TEST(test_game_mode_ends_the_run_with_its_code);
   RUN_TEST(test_caught_ends_a_running_skill_as_caught_and_the_program_goes_on);
+  RUN_TEST(test_a_games_moves_are_within_its_speed_cap);
   return UNITY_END();
 }

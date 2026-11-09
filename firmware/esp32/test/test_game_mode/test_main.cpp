@@ -24,6 +24,13 @@ PersonEst at(int16_t d_cm, int16_t bearing = 0, bool seen = true) {
   return PersonEst{seen, d_cm, bearing, 0, 200, 0};
 }
 
+// An estimate made at `now` (the engine's at_ms), handed to the game at `now`.
+void see(GameMode& g, uint32_t now, int16_t d_cm, int16_t bearing = 0, bool seen = true) {
+  PersonEst e = at(d_cm, bearing, seen);
+  e.at_ms = now;
+  g.onPerson(e, now);
+}
+
 // A game armed and playing at t = 100 ms (the envelope acked).
 GameMode playing() {
   GameMode g;
@@ -62,33 +69,33 @@ void test_arming_holds_until_the_envelope_ack() {
   TEST_ASSERT_TRUE(g.wantsEnvelope(on));
   TEST_ASSERT_TRUE(on);
   TEST_ASSERT_FALSE(g.wantsEnvelope(on));  // one-shot
-  g.onPerson(at(200), 50);
+  see(g, 50, 200);
   TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kForward, 20, 60)));
   g.onEnvelopeAck(100);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kPlaying), static_cast<int>(g.state()));
 }
 
-void test_no_ack_within_500_ms_ends_off_as_no_cap() {
+void test_no_ack_within_the_arm_window_ends_off_as_no_cap() {
   GameMode g;
   g.startRun(true, true, 75, 0);
-  g.step(500);
+  g.step(GameMode::kArmAckMs);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kArming), static_cast<int>(g.state()));
-  g.step(501);
+  g.step(GameMode::kArmAckMs + 1);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kOff), static_cast<int>(g.state()));
   TEST_ASSERT_EQUAL(static_cast<int>(GameMode::Start::kNoCap), static_cast<int>(g.lastRefusal()));
 }
 
 void test_caught_at_30_and_released_after_50_for_2_s() {
   GameMode g = playing();
-  g.onPerson(at(30), 200);
+  see(g, 200, 30);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kCaught), static_cast<int>(g.state()));
   TEST_ASSERT_TRUE(g.caught());
   TEST_ASSERT_TRUE(g.justCaught());
   TEST_ASSERT_FALSE(g.justCaught());  // one-shot
   TEST_ASSERT_EQUAL_UINT16(1, g.caughtCount());
-  g.onPerson(at(45), 500);  // still within reach
-  g.onPerson(at(55), 1000);
-  g.onPerson(at(55), 2999);
+  see(g, 500, 45);  // still within reach
+  see(g, 1000, 55);
+  see(g, 2999, 55);
   g.step(2999);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kCaught), static_cast<int>(g.state()));
   g.step(3000);
@@ -97,20 +104,20 @@ void test_caught_at_30_and_released_after_50_for_2_s() {
 
 void test_a_step_back_inside_50_restarts_the_2_s() {
   GameMode g = playing();
-  g.onPerson(at(25), 200);
-  g.onPerson(at(55), 1000);
-  g.onPerson(at(48), 2000);  // back inside 50 cm
-  for (uint32_t t = 2100; t <= 3500; t += 200) g.onPerson(at(55), t);  // estimates keep coming (else: held)
+  see(g, 200, 25);
+  see(g, 1000, 55);
+  see(g, 2000, 48);  // back inside 50 cm
+  for (uint32_t t = 2100; t <= 3500; t += 200) see(g, t, 55);  // estimates keep coming (else: held)
   g.step(3500);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kCaught), static_cast<int>(g.state()));
-  for (uint32_t t = 3700; t <= 4100; t += 200) g.onPerson(at(55), t);
+  for (uint32_t t = 3700; t <= 4100; t += 200) see(g, t, 55);
   g.step(4100);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kPlaying), static_cast<int>(g.state()));
 }
 
 void test_stall_or_pushing_not_moving_is_caught() {
   GameMode g = playing();
-  g.onPerson(at(120), 150);
+  see(g, 150, 120);
   g.onCaughtEvent(200);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kCaught), static_cast<int>(g.state()));
   TEST_ASSERT_TRUE(g.justCaught());
@@ -118,12 +125,12 @@ void test_stall_or_pushing_not_moving_is_caught() {
 
 void test_stale_300_ms_holds_1_s_is_held() {
   GameMode g = playing();
-  g.onPerson(at(200, 0), 0);
+  see(g, 0, 200, 0);
   TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kForward, 20, 299)));
   TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kForward, 20, 301)));
   g.step(1001);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kHeld), static_cast<int>(g.state()));
-  g.onPerson(at(200), 1100);  // a person again does not leave Held
+  see(g, 1100, 200);  // a person again does not leave Held
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kHeld), static_cast<int>(g.state()));
   g.onRunEnd();  // nor the run ending (S12: only a person's STOP)
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kHeld), static_cast<int>(g.state()));
@@ -154,7 +161,7 @@ void test_engine_gone_is_held() {
   b.onEngineGone(200);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kHeld), static_cast<int>(b.state()));
   GameMode c = playing();
-  c.onPerson(at(20), 150);
+  see(c, 150, 20);
   c.onEngineGone(200);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kHeld), static_cast<int>(c.state()));
   GameMode off;
@@ -167,23 +174,23 @@ void test_uno_hello_rearms() {
   bool on = false;
   while (g.wantsEnvelope(on)) {
   }
-  TEST_ASSERT_TRUE(g.onUnoHello());
+  TEST_ASSERT_TRUE(g.onUnoHello(150));
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kArming), static_cast<int>(g.state()));
   TEST_ASSERT_TRUE(g.wantsEnvelope(on));
   TEST_ASSERT_TRUE(on);
-  g.onPerson(at(200), 150);
+  see(g, 150, 200);
   TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kForward, 20, 160)));
   g.onEnvelopeAck(170);
   TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kForward, 20, 180)));
   GameMode off;
-  TEST_ASSERT_FALSE(off.onUnoHello());
+  TEST_ASSERT_FALSE(off.onUnoHello(10));
 }
 
 void test_review_focus_4_person_then_gate_same_tick() {
   GameMode g = playing();
-  g.onPerson(at(80), 150);
+  see(g, 150, 80);
   TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kForward, 20, 150)));
-  g.onPerson(at(25), 160);
+  see(g, 160, 25);
   TEST_ASSERT_NOT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kForward, 20, 160)));
 }
 
@@ -208,6 +215,63 @@ void test_the_run_ending_clears_the_envelope() {
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kOff), static_cast<int>(g.state()));
   TEST_ASSERT_TRUE(g.wantsEnvelope(on));
   TEST_ASSERT_FALSE(on);
+}
+
+// ---- final review fixes
+
+void test_a_late_rearm_restarts_the_arm_window() {  // C1
+  GameMode g = playing();
+  see(g, 4990, 200);
+  TEST_ASSERT_TRUE(g.onUnoHello(5000));
+  g.step(5000 + GameMode::kArmAckMs);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kArming), static_cast<int>(g.state()));
+  g.onEnvelopeAck(5000 + GameMode::kArmAckMs);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kPlaying), static_cast<int>(g.state()));
+}
+
+void test_an_old_estimate_is_not_fresh() {  // I1: the estimate's own age counts, not when it arrived
+  GameMode g = playing();
+  PersonEst old = at(200);
+  old.at_ms = 600;  // 400 ms old when it arrives at 1000
+  g.onPerson(old, 1000);
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kForward, 20, 1000)));
+  PersonEst fresh = at(200);
+  fresh.at_ms = 1100;
+  g.onPerson(fresh, 1150);
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kForward, 20, 1150)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kForward, 20, 1401)));  // 301 ms old
+  PersonEst stuck = at(200);  // a frozen camera resending its last estimate
+  stuck.at_ms = 1100;
+  for (uint32_t t = 1200; t <= 2200; t += 100) g.onPerson(stuck, t);
+  g.step(2200);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kHeld), static_cast<int>(g.state()));
+}
+
+void test_a_run_start_while_held_is_refused() {  // I2
+  GameMode g = playing();
+  g.onEngineGone(200);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameMode::Start::kHeld), static_cast<int>(g.startRun(true, true, 75, 300)));
+  TEST_ASSERT_EQUAL(static_cast<int>(GameMode::Start::kHeld), static_cast<int>(g.startRun(false, true, 75, 300)));
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kHeld), static_cast<int>(g.state()));
+  g.onStop();
+  TEST_ASSERT_EQUAL(static_cast<int>(GameMode::Start::kGo), static_cast<int>(g.startRun(false, true, 75, 400)));
+}
+
+void test_a_failed_envelope_while_arming_ends_off() {  // C2
+  GameMode g;
+  g.startRun(true, true, 75, 0);
+  g.onEnvelopeFailed();
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kOff), static_cast<int>(g.state()));
+  TEST_ASSERT_EQUAL(static_cast<int>(GameMode::Start::kNoCap), static_cast<int>(g.lastRefusal()));
+  GameMode p = playing();
+  p.onEnvelopeFailed();  // only while arming
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kPlaying), static_cast<int>(p.state()));
+}
+
+void test_the_last_distance_for_the_pages() {
+  GameMode g = playing();
+  see(g, 150, 85);
+  TEST_ASSERT_EQUAL_INT16(85, g.lastDistance());
 }
 
 // ---- KeepOut
@@ -253,7 +317,7 @@ int main(int, char**) {
   RUN_TEST(test_a_non_game_run_never_arms);
   RUN_TEST(test_no_cap_or_no_people_refuses);
   RUN_TEST(test_arming_holds_until_the_envelope_ack);
-  RUN_TEST(test_no_ack_within_500_ms_ends_off_as_no_cap);
+  RUN_TEST(test_no_ack_within_the_arm_window_ends_off_as_no_cap);
   RUN_TEST(test_caught_at_30_and_released_after_50_for_2_s);
   RUN_TEST(test_a_step_back_inside_50_restarts_the_2_s);
   RUN_TEST(test_stall_or_pushing_not_moving_is_caught);
@@ -264,6 +328,11 @@ int main(int, char**) {
   RUN_TEST(test_review_focus_4_person_then_gate_same_tick);
   RUN_TEST(test_stop_while_arming);
   RUN_TEST(test_the_run_ending_clears_the_envelope);
+  RUN_TEST(test_a_late_rearm_restarts_the_arm_window);
+  RUN_TEST(test_an_old_estimate_is_not_fresh);
+  RUN_TEST(test_a_run_start_while_held_is_refused);
+  RUN_TEST(test_a_failed_envelope_while_arming_ends_off);
+  RUN_TEST(test_the_last_distance_for_the_pages);
   RUN_TEST(test_forward_towards_ends_kept_away);
   RUN_TEST(test_forward_away_or_aside_allowed);
   RUN_TEST(test_turns_from_35_cm);

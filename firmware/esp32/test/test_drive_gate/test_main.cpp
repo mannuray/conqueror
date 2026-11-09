@@ -33,10 +33,12 @@ void synced() {
 struct GateSpy {
   bool allow = true;
   int calls = 0;
+  int8_t clamp = 0;
 };
-bool spyGate(void* ctx, int8_t, int8_t, proto::Source) {
+bool spyGate(void* ctx, int8_t& v, int8_t&, proto::Source) {
   auto* s = static_cast<GateSpy*>(ctx);
   ++s->calls;
+  if (s->clamp != 0 && v > s->clamp) v = s->clamp;
   return s->allow;
 }
 
@@ -46,7 +48,11 @@ const cqtest::Sent* lastDrive() {
 }
 
 int g_game_status = -1;
-void gameDone(uint8_t status) { g_game_status = status; }
+int g_game_on = -1;
+void gameDone(uint8_t status, bool on) {
+  g_game_status = status;
+  g_game_on = on ? 1 : 0;
+}
 }  // namespace
 
 void setUp() {
@@ -134,6 +140,30 @@ void test_envelope_is_an_acked_frame_answered_to_the_game() {
     if (ev.kind == core::LinkEventKind::kAckResult) uno.onAck(ev.seq, ev.status);
   }
   TEST_ASSERT_EQUAL(0, g_game_status);
+  TEST_ASSERT_EQUAL(1, g_game_on);  // review C2: the sink knows it was the game's own envelope
+}
+
+void test_the_gate_may_clamp_a_drive() {  // review I7: the game's speed cap
+  synced();
+  GateSpy spy;
+  spy.clamp = 60;
+  bl->setDriveGate(spyGate, &spy);
+  TEST_ASSERT_TRUE(bl->sendDrive(90, 0));
+  TEST_ASSERT_EQUAL(60, static_cast<int8_t>(lastDrive()->payload[1]));
+}
+
+void test_a_hello_while_synced_is_a_restart() {  // review C1: the Uno restarted faster than the silent rule
+  synced();
+  core::LinkEvent ev{};
+  while (bl->popEvent(ev)) {
+  }
+  uint8_t f[64];
+  const size_t n = cqtest::frame(proto::HelloMsg{0x0100, proto::kProtocolVersion, 0, 1, 0x1a2b3c4dUL}, 2, f);
+  unoSends(f, n, 500);
+  bool restarted = false;
+  while (bl->popEvent(ev)) restarted = restarted || ev.kind == core::LinkEventKind::kBodyRestarted;
+  TEST_ASSERT_TRUE(restarted);
+  TEST_ASSERT_TRUE(bl->synced());
 }
 
 int main(int, char**) {
@@ -143,5 +173,7 @@ int main(int, char**) {
   RUN_TEST(test_no_gate_sends_as_today);
   RUN_TEST(test_stop_is_never_gated);
   RUN_TEST(test_envelope_is_an_acked_frame_answered_to_the_game);
+  RUN_TEST(test_the_gate_may_clamp_a_drive);
+  RUN_TEST(test_a_hello_while_synced_is_a_restart);
   return UNITY_END();
 }

@@ -4,6 +4,7 @@ namespace cq {
 namespace core {
 
 GameMode::Start GameMode::startRun(bool game, bool people, uint8_t cap_pct, uint32_t now_ms) {
+  if (m_state == GameState::kHeld) return Start::kHeld;
   if (!game) return Start::kGo;
   if (!people) return m_refusal = Start::kNoPeople;
   if (cap_pct == 0) return m_refusal = Start::kNoCap;
@@ -23,10 +24,10 @@ void GameMode::onEnvelopeAck(uint32_t now_ms) {
 }
 
 void GameMode::onPerson(const PersonEst& e, uint32_t now_ms) {
-  if (!active()) return;
+  if (!active() || now_ms - e.at_ms > kStaleMs) return;  // too old already: not fresh (a frozen camera)
   m_p = e;
   m_has_person = true;
-  m_person_rx = now_ms;
+  m_person_rx = e.at_ms;
   noteSeen(e.seen, now_ms);
   if (m_state == GameState::kPlaying && e.d_cm >= 0 && e.d_cm <= KeepOut::kCaughtCm) catchNow();
   if (m_state == GameState::kCaught) noteFar(e.seen && e.d_cm >= kReleaseCm, now_ms);
@@ -47,6 +48,12 @@ void GameMode::noteFar(bool far, uint32_t now_ms) {
   releaseCheck(now_ms);
 }
 
+void GameMode::onEnvelopeFailed() {
+  if (m_state != GameState::kArming) return;
+  toOff();
+  m_refusal = Start::kNoCap;
+}
+
 void GameMode::onCaughtEvent(uint32_t) {
   if (m_state == GameState::kPlaying) catchNow();
 }
@@ -63,9 +70,10 @@ void GameMode::onRunEnd() {
   if (active() && m_state != GameState::kHeld) toOff();
 }
 
-bool GameMode::onUnoHello() {
+bool GameMode::onUnoHello(uint32_t now_ms) {
   if (m_state != GameState::kPlaying && m_state != GameState::kCaught && m_state != GameState::kArming) return false;
   m_state = GameState::kArming;
+  m_arm_ms = now_ms;
   m_env_pending = m_env_on = true;
   return true;
 }

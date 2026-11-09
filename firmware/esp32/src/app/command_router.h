@@ -24,6 +24,7 @@ class CommandRouter {
   struct GameHooks {  // Plan G1 (bridge LLD R34): a person's STOP and the engine's answers reach game mode
     void (*on_stop)(uint32_t now) = nullptr;
     void (*on_answer)(int32_t id, int32_t value, uint32_t now) = nullptr;
+    void (*on_person)(const core::PersonEst& e, uint32_t now) = nullptr;  // at receipt (review I6)
   };
   void setGameHooks(const GameHooks& g) { m_game = g; }
   CommandRouter(DriveController& d, MotionController& m, SettingsController& s, TankAppController& t, LogoController& l,

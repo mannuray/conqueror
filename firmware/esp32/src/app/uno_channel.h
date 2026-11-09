@@ -28,7 +28,8 @@ class UnoChannel {
   // ack_status, or kLogoTimeout / kLogoOffline when no answer came.
   static constexpr uint8_t kLogoTimeout = 0xFE, kLogoOffline = 0xFD;
   void setLogoDone(void (*done)(uint8_t status)) { m_logo_done = done; }
-  void setGameDone(void (*done)(uint8_t status)) { m_game_done = done; }  // R34: the ENVELOPE's answer
+  // R34: the answer to game mode's ENVELOPE, and whether it was the game's (CHILD_PLAY) or the clearing one (C2).
+  void setGameDone(void (*done)(uint8_t status, bool on)) { m_game_done = done; }
   core::BodyLink& link() { return m_link; }
   const core::BodyLink& link() const { return m_link; }
   bool empty() const { return m_ops.empty(); }
@@ -56,7 +57,7 @@ class UnoChannel {
   Waiter m_stop_waiters[kMaxStopWaiters] = {};
   size_t m_stop_n = 0;
   void (*m_logo_done)(uint8_t status) = nullptr;
-  void (*m_game_done)(uint8_t status) = nullptr;
+  void (*m_game_done)(uint8_t status, bool on) = nullptr;
 };
 
 }  // namespace app

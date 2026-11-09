@@ -32,7 +32,8 @@ bool UnoChannel::logo(const core::AckedOp& op, uint8_t status) {
 
 bool UnoChannel::game(const core::AckedOp& op, uint8_t status) {
   if (op.fd != core::kGameClient) return false;
-  if (m_game_done != nullptr) m_game_done(status == core::kStatusTimeout ? kLogoTimeout : status);
+  const bool on = (op.g & (1u << static_cast<uint8_t>(proto::EnvelopeFlagBit::kChildPlay))) != 0;
+  if (m_game_done != nullptr) m_game_done(status == core::kStatusTimeout ? kLogoTimeout : status, on);
   return true;
 }
 

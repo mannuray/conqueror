@@ -182,11 +182,10 @@ void wireViews() {
   m.ota = [] { return g_drive.otaActive(); };
   m.logo_fd = [] { return g_logo->fd(); };  // Plan N3: a running program is its page's primitive
   m.logo_end = [](const core::PrimitiveEnd& e, uint32_t now) {
-    core::PrimitiveEnd x = e;
-    if (x.reason == core::EndReason::kBlocked && g_game.state() != core::GameState::kOff) {  // R34: held / blocked
-      g_game.onCaughtEvent(now);                                                           // in a game: caught,
-      x.reason = core::EndReason::kDone;                                                   // not 7024
-      x.ok = true;
+    core::PrimitiveEnd x = e;  // R34 (review I5): in a game a block (the obstacle brake, pushing but not moving)
+    if (x.reason == core::EndReason::kBlocked && g_game.state() != core::GameState::kOff) {  // ends the move as
+      x.reason = core::EndReason::kDone;                                                   // kept away - not 7024,
+      x.ok = true;                                                                         // not caught
     }
     g_logo->onPrimitiveEnd(x, now);
   };
@@ -207,9 +206,12 @@ void wireEvents() {
     g_uno.onBodyOffline();  // every waiting request answered (Review Focus 2)
   };
   sinks.uno_owner = [](uint8_t o, uint32_t now) { g_drive.onUnoOwner(o, now); };
+  sinks.body_restart = [](uint32_t now) { g_game.onBodyOnline(now); };  // R34 (review C1): its envelope is gone
   sinks.button_press = [](uint32_t now) { g_settings.onButtonPress(now); };
   sinks.motion_event = [](uint8_t e, uint32_t now) {
-    if (e == static_cast<uint8_t>(proto::EventKind::kStall)) g_game.onCaughtEvent(now);  // R34: a held track
+    if (e == static_cast<uint8_t>(proto::EventKind::kStall) && g_game.state() != core::GameState::kOff) {
+      return g_game.onCaughtEvent(now);  // R34 (review I3): a held track in a game is caught - the program goes on
+    }
     g_motion.end(e == static_cast<uint8_t>(proto::EventKind::kStall) ? core::MotionEvent::kBodyStall
                                                                      : core::MotionEvent::kBodyEncoderFault, now);
   };
@@ -278,6 +280,7 @@ void wireLogo() {
   h.game_caught = [] { return g_game.caught(); };
   h.game_end = [](uint32_t now) { g_game.onRunEnd(now); };
   h.game_backing = [](int16_t cm) { g_game.backing(cm); };
+  h.game_cap = [] { return g_game.gameCap(); };
   g_logo->setHooks(h);
   g_logo->setSkillHub(&g_skills);
   g_uno.setLogoDone([](uint8_t status) { g_logo->onUnoDone(status, millis()); });
@@ -314,7 +317,6 @@ int32_t gameAskBack(int16_t cm) {  // R34: may a backward move this long run ove
 void wireGame() {
   app::GameController::Hooks g;
   g.people = [] { return g_skills.people(); };
-  g.take_person = [](core::PersonEst& out) { return g_skills.takePerson(out); };
   g.send_game = [](bool on) {
     if (g_skills.server() >= 0) g_out.to(g_skills.server(), core::jsonGame(g_out.buf(), g_out.cap(), on));
   };
@@ -326,14 +328,15 @@ void wireGame() {
   g.event = [](core::GameState st, int16_t, uint16_t caught) {
     g_out.all(core::jsonGameEvent(g_out.buf(), g_out.cap(), g_tel.nextEventSeq(), g_tel.tankMs(), st, caught));
   };
-  g.stop_cm = [] { return static_cast<uint16_t>(g_motion.rollMm() / 10); };
+  g.roll_cm = [] { return static_cast<uint16_t>(g_motion.rollMm() / 10); };
   g_game.setHooks(g);
   g_game.setCap(ports::loadGameCap());
-  g_link.setDriveGate(app::GameController::gate, &g_game);
-  g_uno.setGameDone([](uint8_t status) { g_game.onEnvelopeDone(status, millis()); });
+  g_link.setDriveGate(app::GameController::gateClamp, &g_game);
+  g_uno.setGameDone([](uint8_t status, bool on) { g_game.onEnvelopeDone(status, on, millis()); });
   app::CommandRouter::GameHooks r;
   r.on_stop = [](uint32_t now) { g_game.onStop(now); };
   r.on_answer = [](int32_t id, int32_t value, uint32_t now) { g_game.onAnswer(id, value, now); };
+  r.on_person = [](const core::PersonEst& e, uint32_t now) { g_game.onPerson(e, now); };
   g_router->setGameHooks(r);
 }
 

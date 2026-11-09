@@ -61,7 +61,11 @@ const CommandRouter::Route CommandRouter::kRoutes[] = {
     // Plan Z2b-1 (bridge LLD R27.1): around a teach; the hub ignores it from anyone but the server
     {K::kSkillLearning, [](C& r, int fd, int32_t, const W& c, uint32_t) { if (r.m_hub != nullptr) r.m_hub->onLearning(fd, c.on); }},
     // R34.3: the engine's person estimate, from the server only (game mode takes it from the hub)
-    {K::kPerson, [](C& r, int fd, int32_t, const W& c, uint32_t now) { if (r.m_hub != nullptr) r.m_hub->onPerson(fd, c.person, c.person_age_ms, now); }},
+    {K::kPerson, [](C& r, int fd, int32_t, const W& c, uint32_t now) {
+       core::PersonEst e;
+       if (r.m_hub == nullptr || !r.m_hub->onPerson(fd, c.person, c.person_age_ms, now) || !r.m_hub->takePerson(e)) return;
+       if (r.m_game.on_person != nullptr) r.m_game.on_person(e, now);  // game mode gets it now, not a loop later
+     }},
 };
 
 // hello: "ai-skills" registers the one skill server (another fd's gets BUSY, no welcome); everyone gets a welcome;

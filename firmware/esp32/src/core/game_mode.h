@@ -16,30 +16,35 @@ enum class GameState : uint8_t { kOff, kArming, kPlaying, kCaught, kHeld };
 
 class GameMode {
  public:
-  enum class Start : uint8_t { kGo, kNoCap, kNoPeople };
-  static constexpr uint32_t kArmAckMs = 500;
+  enum class Start : uint8_t { kGo, kNoCap, kNoPeople, kHeld };
+  // Other acked requests may queue ahead of the ENVELOPE (600 ms backstop each): 1.5 s (final review minor).
+  static constexpr uint32_t kArmAckMs = 1500;
   static constexpr uint32_t kStaleMs = 300;  // the deadman: an older estimate holds the tracks at 0
   static constexpr uint32_t kHeldMs = 1000;  // no estimate this long: held until STOP
   static constexpr int16_t kReleaseCm = 50;  // the person must be beyond this ...
   static constexpr uint32_t kReleaseMs = 2000;  // ... this long to release a catch
 
   GameState state() const { return m_state; }
-  // A run starts. Not a game: kGo, nothing changes. A game: kNoPeople without the engine's seeing-test pass, kNoCap
-  // without a measured speed cap; else Arming (the envelope wanted).
+  // A run starts. Held: kHeld (only a STOP leaves it - final review I2). Not a game: kGo, nothing changes. A game:
+  // kNoPeople without the engine's seeing-test pass, kNoCap without a measured speed cap; else Arming.
   Start startRun(bool game, bool people, uint8_t cap_pct, uint32_t now_ms);
   Start lastRefusal() const { return m_refusal; }  // why Arming ended Off (no ack: kNoCap)
   uint8_t capPct() const { return m_cap; }
   void onEnvelopeAck(uint32_t now_ms);
+  void onEnvelopeFailed();  // the game's ENVELOPE refused or unanswered while arming: Off (7060) - review C2
+  // An estimate counts by its own time (e.at_ms): older than kStaleMs on arrival it is dropped (review I1).
   void onPerson(const PersonEst& e, uint32_t now_ms);
   void onCaughtEvent(uint32_t now_ms);  // the Uno's stall, pushing but not moving
   void onEngineGone(uint32_t now_ms);
   void onStop();     // a person's STOP: always back to Off
   void onRunEnd();   // the program ended: Off - except Held, which waits for STOP
-  bool onUnoHello();  // the Uno restarted (its envelope lost): true = arm again
+  bool onUnoHello(uint32_t now_ms);  // the Uno restarted (its envelope lost): true = arm again (a new window)
   Gate gate(const Move& m, uint16_t stop_cm, uint32_t now_ms);
   void step(uint32_t now_ms);  // the timeouts
   bool caught() const { return m_state == GameState::kCaught; }
   uint16_t caughtCount() const { return m_caught_n; }
+  int16_t lastDistance() const { return m_has_person ? m_p.d_cm : -1; }
+  uint32_t estimateAge(uint32_t now_ms) const { return m_has_person ? now_ms - m_p.at_ms : 0; }
   bool wantsEnvelope(bool& on);  // one-shot: an ENVELOPE to send now (on: the game's, off: cleared)
   bool justCaught();             // one-shot: just caught - end every primitive, beep
 

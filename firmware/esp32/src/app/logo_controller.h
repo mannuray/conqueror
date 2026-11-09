@@ -57,6 +57,7 @@ class LogoController {
     bool (*game_caught)() = nullptr;
     void (*game_end)(uint32_t now) = nullptr;
     void (*game_backing)(int16_t cm) = nullptr;
+    uint8_t (*game_cap)() = nullptr;  // review I7: a game's moves at most this % (0: no game)
   };
   static constexpr uint32_t kSayPauseMs = 200;  // design-notes §102
   static constexpr uint32_t kPoseMs = 100;      // logo_pose at 10 Hz

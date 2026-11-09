@@ -408,6 +408,21 @@ void test_stop_and_answers_reach_game_mode() {
   TEST_ASSERT_EQUAL(42, g_game_answer);
 }
 
+int16_t g_game_person = -1;
+void test_a_person_estimate_reaches_game_mode_at_once() {  // review I6
+  sync();
+  app::CommandRouter::GameHooks gh;
+  gh.on_person = [](const core::PersonEst& e, uint32_t) { g_game_person = e.d_cm; };
+  router->setGameHooks(gh);
+  ws.add(7, 0);
+  ws.add(8, 0);
+  hub.onHello(7);
+  text(8, "{\"t\":\"person\",\"seen\":true,\"d_cm\":44,\"bearing\":0}", 100);  // not the server
+  TEST_ASSERT_EQUAL_INT16(-1, g_game_person);
+  text(7, "{\"t\":\"person\",\"seen\":true,\"d_cm\":44,\"bearing\":0}", 110);
+  TEST_ASSERT_EQUAL_INT16(44, g_game_person);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_every_kind_has_a_route_except_the_invalid_ones);
@@ -433,5 +448,6 @@ int main() {
   RUN_TEST(test_other_clients_get_no_ai_at);
   RUN_TEST(test_ai_page_without_engine_gets_null);
   RUN_TEST(test_stop_and_answers_reach_game_mode);
+  RUN_TEST(test_a_person_estimate_reaches_game_mode_at_once);
   return UNITY_END();
 }

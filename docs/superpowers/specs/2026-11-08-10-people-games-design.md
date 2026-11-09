@@ -97,7 +97,7 @@ and run again.
 
 - **Corrections from the LLDs (2026-11-09, bridge LLD R34, Tank Logo LLD §27):** S1 - the gentle start comes from the
   engine's speed ramp, not the envelope's accel cap (the Uno brakes at twice that cap, so it would slow every stop;
-  the envelope caps only the top speed, a measured track %) - **owner to confirm (R34.7-4)**. S8 - game mode starts
+  the envelope caps only the top speed, a measured track %) - **owner confirmed 2026-11-09**. S8 - game mode starts
   when the run starts, from a static checker flag (a person word anywhere in the program), not "from the first
   person word" (a `FORWARD` before it would run without the limits).
 - **S8. Every move during a game, not only the game words (builder check, answered by the anti-goals).** From the

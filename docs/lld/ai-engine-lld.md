@@ -3356,6 +3356,8 @@ classDiagram
 - **Results:** today's `Result` plus `CAUGHT` (the lease ended `"caught"` - not an error, the program goes on).
 
 ### 28.4 Trusted floor (S7)
+Also answers the bridge's `back_ok` question for a game's `BACK` / backward `MOVE` / `ARC` (bridge LLD R34.2, owner: "allow
+via the map"): the straight or arc path behind the tank for `cm`, within 300 ms.
 `TrustedFloor.ok(path) -> bool`: every 10 cm cell along the backward path was **seen free within the last 5 s from
 within 1.5 m** (the room map's "seen" plus a per-cell last-seen-free time), with no low / high mark since and not
 behind the tank's turn-in-place sweep. The numbers are first guesses from the map settings, to check on the floor.

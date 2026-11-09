@@ -1702,13 +1702,12 @@ sequenceDiagram
 
 - **A new input type `person`:** a quoted word from a short fixed list of the game's person words (`"baby`, `"person`,
   `"kid` - in `words.yaml`, so the checker knows them without the engine). It is **never** a `thing`: `FIND "baby`,
-  `SETXY`, `GO` keep refusing people (7053, as today), and `FACE "toy` is refused (7063 "FACE, ESCAPE and FOLLOW are
+  `SETXY`, `GO` keep refusing people (7053, as today), and `FACE "toy` is refused (7062 "FACE, ESCAPE and FOLLOW are
   for a person in a game.").
 - **Errors (`words.yaml`):**
   - 7060 "The game can't start - the tank's speed limit isn't set." (no envelope ack / the cap not measured)
-  - 7061 "In a game the tank can't back up blind - use ESCAPE." (`BACK`, a backward `ARC` / `MOVE` in a game run)
-  - 7062 "The game needs the seeing test first."
-  - 7063 "FACE, ESCAPE and FOLLOW are for a person in a game."
+  - 7061 "The game needs the seeing test first."
+  - 7062 "FACE, ESCAPE and FOLLOW are for a person in a game."
   - Caught is **not** an error: a word running when caught ends normally; `CAUGHT?` tells the program.
 
 ### 27.2 The game flag (Spec 10 S8, corrected)
@@ -1720,11 +1719,12 @@ sequenceDiagram
   must be one of the person words; in a run not flagged as a game any person word reaching a `thing` input is refused
   7053 (today's rule) - so a program cannot become "a game" without the checker seeing it.
 
-### 27.3 What a game run refuses (checker, with the line)
-- `BACK n`, a negative `MOVE`, a backward `ARC` → 7061 (the tank is blind behind; only `ESCAPE` backs, over trusted
-  floor - bridge LLD R34.7-2 asks the owner).
+### 27.3 Backing up in a game (owner, 2026-11-09: "allow via the map")
+- `BACK n`, a negative `MOVE`, a backward `ARC` run in a game only after the engine says the floor behind is trusted
+  (bridge LLD R34.2, `back_ok`); otherwise the word ends without moving and without an error - the game goes on.
 - Everything else runs as written, under the bridge's keep-out (R34.2): `FORWARD` towards the person ends early
-  `blocked`, turns wait until the person is beyond 35 cm.
+  ("kept away", no error), turns wait until the person is beyond 35 cm, and nothing moves forward or turns while the
+  person has been unseen 1 s (except `FACE`'s look-round).
 
 ### 27.4 The lesson and the game program
 - **Lesson 6 "Chase with the baby"** (Tank Logo LLD §25's lessons): the ready-made program with a short explanation
@@ -1781,7 +1781,7 @@ sequenceDiagram
     Pg->>R: logo_run (game)
     R->>G: startRun(game)
     alt no engine / people false
-        G-->>R: refuse 7062
+        G-->>R: refuse 7061
     else cap not measured / no ack
         G-->>R: refuse 7060
     else armed
@@ -1791,7 +1791,6 @@ sequenceDiagram
 ```
 
 ### 27.6 Tests
-Conformance cases (generated): the game flag from a word in a `TO` body, in a `LAUNCH` part, unreached; `BACK` in a
-game → 7061 with its line; `FACE "toy` → 7063; `FIND "baby` → 7053; a computed person in a non-game run → 7053 at run
-time; `CAUGHT?` false outside a game. Running cases: a caught word ends without an error and `CAUGHT?` is TRUE; 7062 /
+Conformance cases (generated): the game flag from a word in a `TO` body, in a `LAUNCH` part, unreached; `FACE "toy` → 7062; `FIND "baby` → 7053; a computed person in a non-game run → 7053 at run
+time; `CAUGHT?` false outside a game. Running cases: a caught word ends without an error and `CAUGHT?` is TRUE; 7061 /
 7060 at start.

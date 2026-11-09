@@ -3479,9 +3479,14 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **The game flag is static** (Tank Logo §27.2): the checker marks a program a game if a person word appears
   anywhere in it; game mode is on before the first motion. People stay out of `FIND` / `GO` / memory / the map.
 - **The lock:** `cq-person-test score` on a pass writes `config/person-seeing.yaml`; the engine's hello carries
-  `people`; the bridge refuses a game run without it (7062), from `/ai` and `/logo` alike.
+  `people`; the bridge refuses a game run without it (7061), from `/ai` and `/logo` alike.
 - Owner questions in R34.7 (the `/ai` budget, `BACK` in a game, measuring the cap, the gentle start from the engine).
-- **Builder check (2026-11-09) - fixed in the LLDs:** error numbers 7060-7063 (7057-7059 are LAUNCH's); the keep-out at
+- **Builder check (2026-11-09) - fixed in the LLDs:** error numbers 7060-7062 (7057-7059 are LAUNCH's); the keep-out at
   `BodyLink::sendDrive` (the stick and `onTelemetry` sends pass there); a keep-out cut ends a word normally ("kept
   away"); game runs' limit 15 minutes; the bridge clamps its own commands to the game cap; a bridge reboot clears the
   envelope; Plan P0 merges first. Open with the owner: the person not seen (R34.7-5) and R34.7-1..4.
+- **Owner decisions (2026-11-09):** the person not seen → **hold, then look** (no forward / turn after 1 s unseen,
+  except FACE's look-round when last seen beyond 50 cm); **`BACK` in a game allowed via the map** (the engine's
+  trusted-floor answer first; no → it ends without moving, no error - so 7061 "can't back up blind" is dropped and
+  the new codes are 7060-7062); **the speed cap measured** on the floor, the gentle start from the engine's ramp
+  (a step to ~18 cm/s, then 10 cm/s² to 25); **`/ai` budget 34 KB**.

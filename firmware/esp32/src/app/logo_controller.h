@@ -49,6 +49,14 @@ class LogoController {
     // Every end of the lease: the skill's drive ends (a STOP while the program owns the body; kDone when the
     // server finished it) and the holder loses the camera (LinkOwner::clearLeaseHolder).
     void (*end_skill)(core::EndReason why, uint32_t now) = nullptr;
+    // Plan G1 (bridge LLD R34): game mode. game_start: the run's checker flag; 0 to go, else the code it ends with
+    // (7060 / 7061). game_ready: false while arming (the program waits). game_caught: CAUGHT?. game_end: the run
+    // ended. game_backing: a backward move's length, before it starts (back_ok).
+    uint16_t (*game_start)(bool game, uint32_t now) = nullptr;
+    bool (*game_ready)() = nullptr;
+    bool (*game_caught)() = nullptr;
+    void (*game_end)(uint32_t now) = nullptr;
+    void (*game_backing)(int16_t cm) = nullptr;
   };
   static constexpr uint32_t kSayPauseMs = 200;  // design-notes §102
   static constexpr uint32_t kPoseMs = 100;      // logo_pose at 10 Hz
@@ -76,9 +84,11 @@ class LogoController {
   void onClientClose(int fd, uint32_t now);
   int fd() const { return m_running ? m_fd : -1; }
   bool running() const { return m_running; }
+  void endWith(uint16_t code, uint32_t now);  // game mode ends the running program (held 7052, arming 7060)
 
  private:
   void keepGoing(uint32_t now);
+  bool holding(uint32_t now) const;
   void pauseGo(uint32_t now);
   void speedWhileGoing(const logo::Action& a, uint32_t now);
   // logo_controller.cpp

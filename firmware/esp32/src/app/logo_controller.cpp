@@ -55,6 +55,12 @@ void LogoController::onRun(int fd, int32_t id, uint32_t prog, bool step, uint32_
   m_out.ack(fd, id);
   m_out.all(core::jsonLogoStarted(m_out.buf(), m_out.cap(), m_tel.nextEventSeq(), m_tel.tankMs(), m_name,
                                   m_out.clients().name(fd)));
+  const uint16_t refused = m_h.game_start != nullptr ? m_h.game_start(m_prog.game, now) : 0;  // R34: the lock, the cap
+  if (refused != 0) endWith(refused, now);
+}
+
+void LogoController::endWith(uint16_t code, uint32_t now) {
+  if (m_running) handle(m_rc.abort(code), now);
 }
 
 void LogoController::onStep(int fd, int32_t id) {
@@ -82,8 +88,14 @@ void LogoController::tick(uint32_t now) {
   keepGoing(now);
   if (!pendingSent() || m_wait_ack) return;  // the program goes on at the Uno's ACK (§102)
   if (m_tone_i < m_tone_n && static_cast<int32_t>(now - m_tone_next) >= 0) return toneChunk(now);
-  if (static_cast<int32_t>(now - m_hold_until) < 0) return;  // SAY's pause
+  if (holding(now)) return;
   handle(m_rc.tick(telem(), now), now);
+}
+
+// The program waits: SAY's pause, or (R34) game mode arming - nothing moves before the envelope is on the Uno.
+bool LogoController::holding(uint32_t now) const {
+  if (static_cast<int32_t>(now - m_hold_until) < 0) return true;
+  return m_h.game_ready != nullptr && !m_h.game_ready();
 }
 
 // LLD §22: a GO drives on only while the program keeps it alive (the bridge stops it after 300 ms without). In
@@ -154,6 +166,7 @@ void LogoController::finish(const logo::RunOut& o, uint32_t now) {
   m_out.all(core::jsonLogoEnded(m_out.buf(), m_out.cap(), m_tel.nextEventSeq(), m_tel.tankMs(), o.code, o.end_line,
                                 o.msg));
   m_log.add(core::LogKind::kLogo, o.code, o.end_line, m_name, m_tel.tankMs(), now);
+  if (m_h.game_end != nullptr) m_h.game_end(now);
   m_fd = -1;
   m_wait_ack = m_has_pending = false;
   m_tone_n = m_tone_i = 0;
@@ -177,6 +190,7 @@ logo::RunTelem LogoController::telem() const {
   t.tilted = flag(s.fast.flags, proto::FastFlagBit::kTilted) || flag(s.fast.flags, proto::FastFlagBit::kLifted);
   t.battery_pct = s.slow_valid ? batteryPct(s.slow.batt_mv) : 100;
   t.pose = m_odo.pose();
+  t.caught = m_h.game_caught != nullptr && m_h.game_caught();
   return t;
 }
 

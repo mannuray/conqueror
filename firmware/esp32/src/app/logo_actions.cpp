@@ -77,6 +77,9 @@ void LogoController::speedWhileGoing(const logo::Action& a, uint32_t now) {
 void LogoController::motion(const logo::Action& a, uint32_t now) {
   note(a);
   if (a.kind == logo::ActKind::kGo) m_go_speed = a.speed_pct;  // for STEP to drive on at the same speed
+  if (a.kind == logo::ActKind::kMove && a.dist_cm < 0 && m_h.game_backing != nullptr) {
+    m_h.game_backing(static_cast<int16_t>(-a.dist_cm));  // R34: back_ok asks the engine for this length
+  }
   core::BridgeReason why = core::BridgeReason::kBodyOffline;
   if (!m_h.start_motion(m_fd, a, now, why)) refused(why, now);
 }

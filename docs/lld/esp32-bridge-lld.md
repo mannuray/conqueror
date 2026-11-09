@@ -3858,3 +3858,34 @@ sequenceDiagram
 stale 300 ms holds, 1 s holds for good; caught at 30 cm, by stall, by pushing-not-moving; release only after 50 cm for
 2 s; Held refuses the stick too, STOP releases; 7061 without `people`. `KeepOut`: forward towards within ±60° cut by
 the stopping distance, sideways / away allowed, turns from 35 cm.
+
+### R34.9 As built (Plan G1, 2026-11-09, branch `plan-g1-game-mode`)
+- **Classes:** `core::GameMode` / `core::KeepOut` (pure, `test_game_mode` 25), `app::GameController` (hooks only, the
+  gate `gateClamp`, `test_game_controller` 22), `BodyLink::setDriveGate(fn, ctx)` - every DRIVE (the stick's and the
+  motion service's) passes it, a refused one goes out as zeros, an allowed one clamped to the game's cap
+  (`test_drive_gate` 7); the ENVELOPE as an acked op with a game sink that also says whether it was the game's
+  (CHILD_PLAY) or the clearing one; `LinkEventKind::kBodyRestarted` (a HELLO while synced); the codec's `person`
+  message and hello `people` (`ws_codec_person.cpp`); `jsonGame`, `jsonSkillAskBackOk`, `jsonGameEvent`,
+  `LeaseEnd::kCaught`; `LogoController` hooks `game_start / game_ready / game_caught / game_end / game_backing /
+  game_cap`, `endWith`, `onCaught`; `MotionController::keepAway` (the running primitive ends as done); `calib`
+  `game_cap_pct` (button-confirmed, NVS `game_cap`, 0 = not measured); the router's game hooks (STOP, answers, person
+  estimates at receipt). Tank Logo: `CAUGHT?` (level 2), the checker's `game` flag, 7060 / 7061 / 7063 (a game run's
+  15 minutes).
+- **Numbers as built:** caught ≤ 30 cm; released beyond 50 cm for 2 s; an estimate counts by its own time (`at_ms`) -
+  older than 300 ms is not fresh, none fresh for 1 s → Held; arming waits 1.5 s for the ENVELOPE's ack (other acked
+  requests may queue ahead); forward within ±60° only while `d - stop - 5 > 30` with `stop = roll + speed x (0.3 s +
+  the estimate's age)`, speed = v % x 33.5 cm/s / 100; turns from 35 cm; unseen 1 s: no forward, no turn; a hold
+  under a moving command longer than 300 ms ends the move "kept away" (the motion's own no-progress and slip watches
+  never see a long hold); back_ok asked for the program's BACK and the stick (not a skill's own drive), a yes for
+  one backward move or 3 s.
+- **Final review (Opus) - fixed:** a restarted Uno re-arms (C1); the arming ack tied to its own envelope (C2); the
+  estimate's age (I1); a run cannot start while Held (I2: 7052); a stall in a game is caught, the program goes on
+  (I3); long holds end the move (I4); in a game the obstacle brake / pushing-not-moving end a move normally, not
+  caught (I5 ruling - only the Uno's stall is "grabbed", narrowing Spec 10 S10); estimates at receipt (I6); the
+  game's cap on every DRIVE and a game's moves, a stopping distance from speed and age (I7). **Corrections to
+  R34.2:** camera moves are **not** gated while Held (a pan / tilt servo cannot hurt anyone - review ruling); any
+  STOP releases Held (also a page's automatic one; nothing moves after it unless a person starts it, and a new game
+  needs the engine).
+- **Owed to the stand / floor (Task 6):** the stand checks with `tools/smoke/fake_person.py`; `game_cap_pct` measured
+  with `tools/smoke/game_cap.py`.
+

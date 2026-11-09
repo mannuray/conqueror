@@ -1794,3 +1794,12 @@ sequenceDiagram
 Conformance cases (generated): the game flag from a word in a `TO` body, in a `LAUNCH` part, unreached; `FACE "toy` → 7062; `FIND "baby` → 7053; a computed person in a non-game run → 7053 at run
 time; `CAUGHT?` false outside a game. Running cases: a caught word ends without an error and `CAUGHT?` is TRUE; 7061 /
 7060 at start.
+
+### 27.7 As built so far (Plan G1, 2026-11-09)
+- `CAUGHT?` is **level 2** (not 3): the tank's checker runs Logo v1 (`Caps::version` 1), which refuses every level-3
+  word (7030) - FACE / ESCAPE / FOLLOW (Plan G3) are level 2 too.
+- The game flag: `CheckResult::game` → `Program::game` (from `CAUGHT?` anywhere, TO bodies and LAUNCH parts
+  included); `RunTelem::caught` feeds `CAUGHT?`; a game run's limit `game_run_time_s` 900 with **7063** "The game's
+  time limit (15 minutes) is up." (7041's text fixes 5 minutes); 7060 "... isn't set or didn't reach the tank.",
+  7061 as designed; 7062 stays Plan G3's.
+

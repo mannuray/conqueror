@@ -3516,3 +3516,18 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   ENVELOPE frame, the checker's game flag from `CAUGHT?` (the one game word needing no engine skill, so the stand
   checks need no person: a stand-in engine, `tools/smoke/fake_person.py`, streams the estimates), 7060 / 7061, a
   game run's 15 minutes, `game_cap_pct` measured on the floor with `tools/smoke/game_cap.py`.
+
+## 226. Plan G1 built - game mode on the bridge (2026-11-09, branch `plan-g1-game-mode`)
+- Built natively: `GameMode` / `KeepOut`, one gate at `BodyLink::sendDrive`, the ENVELOPE, `CAUGHT?` and the game
+  flag, the engine's `people` / `person` / `game` / `back_ok` messages, `GameController`, the Logo hooks, the cap
+  setting, the wiring; `tools/smoke/fake_person.py` and `game_cap.py`. 986 bridge tests, the bridge builds (`/ai`
+  31 627 B, `/logo` 30 966 B).
+- **Rulings:** the gate a function pointer (no `virtual`: one implementation); `CAUGHT?` level 2 (v1 refuses level
+  3); 7063 for a game's 15 minutes; back_ok asked by the gate (the program's flow unchanged); I2 any STOP releases
+  Held, a run start while Held is 7052; I5 only the Uno's stall is caught; cameras not gated in Held.
+- **Opus final review:** 2 critical (a restarted Uno never re-armed; the arming ack not tied to its envelope) and 7
+  important found and fixed with failing tests first (bridge LLD R34.9). Two fixes live only in the composition root
+  (a stall / a block in a game) - checked on the stand.
+- **Next with the owner:** the stand checks with the stand-in engine, then `game_cap.py` on the floor; then Plan G2
+  (the engine's PersonWatch and FACE / ESCAPE / FOLLOW).
+

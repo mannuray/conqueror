@@ -8,11 +8,13 @@ namespace cq {
 namespace core {
 
 constexpr int kLogoClient = -2;  // Plan N3: the running Logo program waits for this answer (UnoChannel's logo sink)
+constexpr int kGameClient = -3;  // bridge LLD R34: game mode waits for its ENVELOPE's answer (UnoChannel's game sink)
 
 struct AckedOp {
   // kSelfTest: Plan O; kCamHome / kCamLock / kAudioMode: the drive page's requests (Plan P, LLD R15.5)
   enum Kind : uint8_t { kSound, kLed, kSettingGet, kSettingSet, kSettingsSave, kSelfTest, kCamHome, kCamLock, kAudioMode,
-                        kTone, kCamSet };  // Plan N3: PLAY / LOOK of a Logo program
+                        kTone, kCamSet,  // Plan N3: PLAY / LOOK of a Logo program
+                        kEnvelope };     // R34: a: speed cap %, r: accel cap %/s, g: lock bits (EnvelopeFlagBit)
   Kind kind = kSound;
   uint8_t a = 0;      // sound id / setting id / led mode / camera lock on / audio mode
   int32_t value = 0;  // setting value

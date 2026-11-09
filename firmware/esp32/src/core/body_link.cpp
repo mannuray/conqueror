@@ -177,7 +177,13 @@ void BodyLink::onHello(const proto::HelloMsg& h) {
 
 bool BodyLink::sendDrive(int8_t v, int8_t w, proto::Source src) {
   if (!synced()) return false;
+  if (m_gate != nullptr && !m_gate(m_gate_ctx, v, w, src)) v = w = 0;  // R34: held by the game's keep-out
   return emitNext(proto::DriveMsg{static_cast<uint8_t>(src), v, w}, Lane::kMotion);
+}
+
+bool BodyLink::sendEnvelope(uint8_t speed_cap, uint8_t accel_cap, uint8_t lock_bits, uint32_t now_ms,
+                            uint8_t& seq_out) {
+  return sendAcked(proto::EnvelopeMsg{speed_cap, accel_cap, lock_bits}, now_ms, seq_out);
 }
 
 bool BodyLink::sendCamJoy(int8_t x, int8_t y, bool active) {

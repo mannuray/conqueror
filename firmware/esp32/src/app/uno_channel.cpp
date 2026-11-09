@@ -30,10 +30,18 @@ bool UnoChannel::logo(const core::AckedOp& op, uint8_t status) {
   return true;
 }
 
+bool UnoChannel::game(const core::AckedOp& op, uint8_t status) {
+  if (op.fd != core::kGameClient) return false;
+  if (m_game_done != nullptr) m_game_done(status == core::kStatusTimeout ? kLogoTimeout : status);
+  return true;
+}
+
+bool UnoChannel::internal(const core::AckedOp& op, uint8_t status) { return logo(op, status) || game(op, status); }
+
 void UnoChannel::onAck(uint8_t seq, uint8_t status) {
   core::AckedOp op;
   if (!m_ops.isCurrent(seq) || !m_ops.front(op)) return;
-  if (logo(op, status)) return m_ops.done();
+  if (internal(op, status)) return m_ops.done();
   if (status == 0 && op.kind == core::AckedOp::kSettingGet) return;  // review I5: answered by its VALUE
   if (op.fd >= 0 && status == 0) m_out.ack(op.fd, op.id);  // the self-test result follows as EVENT SELFTEST
   if (op.fd >= 0 && status != 0) m_out.nackStatus(op.fd, op.id, status);
@@ -50,7 +58,7 @@ void UnoChannel::onSettingValue(uint8_t id, int32_t value) {
 void UnoChannel::answerAll(core::BridgeReason r) {
   core::AckedOp op;
   while (m_ops.front(op)) {
-    if (!logo(op, kLogoOffline) && op.fd >= 0) m_out.nack(op.fd, op.id, r);
+    if (!internal(op, kLogoOffline) && op.fd >= 0) m_out.nack(op.fd, op.id, r);
     m_ops.done();
   }
 }
@@ -78,6 +86,7 @@ bool UnoChannel::sendUi(const core::AckedOp& op, uint32_t now, uint8_t& seq) {
     case core::AckedOp::kAudioMode: return m_link.sendAudioMode(op.a, now, seq);
     case core::AckedOp::kTone: return m_link.sendTone(op.hz, op.ms, op.n_notes, now, seq);
     case core::AckedOp::kCamSet: return m_link.sendCamSet(op.pan_dd, op.tilt_dd, now, seq);
+    case core::AckedOp::kEnvelope: return m_link.sendEnvelope(op.a, op.r, op.g, now, seq);
     default: return false;
   }
 }
@@ -85,7 +94,9 @@ bool UnoChannel::sendUi(const core::AckedOp& op, uint32_t now, uint8_t& seq) {
 void UnoChannel::backstop(uint32_t now) {  // the slot was reset without an answer: never stuck
   core::AckedOp op;
   if (!m_ops.busy() || !m_ops.timedOut(now)) return;
-  if (m_ops.front(op) && !logo(op, kLogoTimeout) && op.fd >= 0) m_out.nack(op.fd, op.id, core::BridgeReason::kTimeout);
+  if (m_ops.front(op) && !internal(op, kLogoTimeout) && op.fd >= 0) {
+    m_out.nack(op.fd, op.id, core::BridgeReason::kTimeout);
+  }
   m_ops.done();
 }
 
@@ -97,7 +108,9 @@ void UnoChannel::tick(uint32_t now) {
   if (send(op, now, seq)) {
     m_ops.markSent(seq, now);
   } else if (!m_link.synced()) {  // body offline: answer and drop it
-    if (!logo(op, kLogoOffline) && op.fd >= 0) m_out.nack(op.fd, op.id, core::BridgeReason::kBodyOffline);
+    if (!internal(op, kLogoOffline) && op.fd >= 0) {
+      m_out.nack(op.fd, op.id, core::BridgeReason::kBodyOffline);
+    }
     m_ops.done();
   }  // synced but the frame queue is full: next tick
 }

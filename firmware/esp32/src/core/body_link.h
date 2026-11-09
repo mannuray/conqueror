@@ -95,6 +95,14 @@ class BodyLink {
 
   // Client commands (master + synced only; false = not sent).
   bool sendDrive(int8_t v, int8_t w, proto::Source src = proto::Source::kHuman);  // AUTO = motion service
+  // R34: the one exit every DRIVE takes (the stick and the motion service) asks the game's gate; a refused DRIVE goes
+  // out as zeros (the stream stays alive). nullptr: no gate (as before).
+  using DriveGateFn = bool (*)(void* ctx, int8_t v, int8_t w, proto::Source src);
+  void setDriveGate(DriveGateFn fn, void* ctx) {
+    m_gate = fn;
+    m_gate_ctx = ctx;
+  }
+  bool sendEnvelope(uint8_t speed_cap, uint8_t accel_cap, uint8_t lock_bits, uint32_t now_ms, uint8_t& seq_out);
   bool sendCamJoy(int8_t x, int8_t y, bool active);
   bool sendCamHome(uint32_t now_ms, uint8_t& seq_out);
   // Plan F: share the one acked slot with CAM_HOME (kAckResult on ACK or after kAckTimeoutMs).
@@ -161,6 +169,8 @@ class BodyLink {
 
   FrameTx& m_tx;
   FrameParser m_parser;
+  DriveGateFn m_gate = nullptr;
+  void* m_gate_ctx = nullptr;
   bool m_master = false;
   HandshakeState m_hs = HandshakeState::kIdle;
   uint8_t m_next_seq = 0;

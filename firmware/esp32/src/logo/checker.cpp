@@ -95,31 +95,60 @@ void Checker::visitCall(Node* n, int16_t def, const Caps& caps, CheckResult& r) 
   needsAndLevel(w, n->tok, caps);
   if (is(w.name, "OUTPUT") && def < 0) error(7026, n->tok);
   if (is(w.name, "BLOCKED?")) r.handles_obstacles = true;
-  if (is(w.name, "CAUGHT?")) r.game = true;  // Plan G1; G3 adds FACE / ESCAPE / FOLLOW and person inputs
+  if (isGameWord(w.name)) r.game = true;  // Tank Logo LLD §27.2: anywhere in the program
   if (is(w.name, "PLAY") && n->first != nullptr && n->first->kind == NodeKind::kList) checkNotes(n->first);
   uint8_t i = 0;
   for (const Node* c = n->first; c != nullptr && i < w.n_inputs; c = c->next, ++i) {
     checkRange(n, w, i, c);
-    checkThing(w, i, c, caps);
+    checkThing(w, i, c, caps, r);
+    checkPerson(w, i, c);
   }
 }
 
-// 7053: a written thing (a quoted word) the AI helper does not know. A thing computed at run time is the engine's.
-void Checker::checkThing(const gen::WordSpec& w, uint8_t i, const Node* c, const Caps& caps) {
-  if (!caps.ai || caps.things == nullptr || w.inputs[i].type != gen::InType::kThing || c->kind != NodeKind::kQuoted) return;
+// SEE? / HOWFAR of the game's person: allowed, and a game run (Tank Logo LLD §27.2).
+bool Checker::personAsked(const gen::WordSpec& w, bool person, CheckResult& r) {
+  if (!person || !(is(w.name, "SEE?") || is(w.name, "HOWFAR"))) return false;
+  r.game = true;
+  return true;
+}
+
+bool Checker::isGameWord(const char* name) {
+  return is(name, "CAUGHT?") || is(name, "FACE") || is(name, "ESCAPE") || is(name, "FOLLOW");
+}
+
+// 7062: a written word at a person place (FACE / ESCAPE / FOLLOW) that is not one of the person words.
+void Checker::checkPerson(const gen::WordSpec& w, uint8_t i, const Node* c) {
+  if (w.inputs[i].type != gen::InType::kPerson || c->kind != NodeKind::kQuoted) return;
   const Token& t = m_toks.t[c->tok];
+  if (!isPersonWord(m_src + t.start + 1, static_cast<size_t>(t.len - 1))) error(7062, c->tok);
+}
+
+// 7053: a written thing (a quoted word) the AI helper does not know. A thing computed at run time is the engine's.
+// The game's person is never a thing - but SEE? / HOWFAR may ask about it, which makes the program a game (§27.2).
+void Checker::checkThing(const gen::WordSpec& w, uint8_t i, const Node* c, const Caps& caps, CheckResult& r) {
+  if (w.inputs[i].type != gen::InType::kThing || c->kind != NodeKind::kQuoted) return;
+  const Token& t = m_toks.t[c->tok];
+  const bool person = isPersonWord(m_src + t.start + 1, static_cast<size_t>(t.len - 1));
+  if (personAsked(w, person, r)) return;
+  if (!person && (!caps.ai || caps.things == nullptr)) return;
   char name[64];
-  const int len = static_cast<int>(t.len) - 1;
-  const bool cut = len >= static_cast<int>(sizeof name);
-  if (!cut) {
-    snprintf(name, sizeof name, "%.*s", len, m_src + t.start + 1);
-  } else {  // too long for the message: cut it, and say so
-    snprintf(name, sizeof name, "%.*s...", static_cast<int>(sizeof name) - 4, m_src + t.start + 1);
-  }
+  const bool cut = quotedName(t, name, sizeof name);
   // A cut word is longer than any known name (ThingNames::kMaxLen), so only a whole one is looked up.
-  if (!cut && caps.things->resolve(name) != nullptr) return;
+  if (!person && !cut && caps.things->resolve(name) != nullptr) return;  // a person is never a thing: 7053
   const DiagArg a[] = {{"thing", name}};
   error(7053, c->tok, a, 1);
+}
+
+// A quoted word's text for a message; true when it was too long and is cut ("...").
+bool Checker::quotedName(const Token& t, char* name, size_t cap) const {
+  const int len = static_cast<int>(t.len) - 1;
+  const bool cut = len >= static_cast<int>(cap);
+  if (!cut) {
+    snprintf(name, cap, "%.*s", len, m_src + t.start + 1);
+  } else {
+    snprintf(name, cap, "%.*s...", static_cast<int>(cap) - 4, m_src + t.start + 1);
+  }
+  return cut;
 }
 
 // 7025: a written number outside the input's range; an ARC radius below it is 7022.

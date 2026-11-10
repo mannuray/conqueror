@@ -17,6 +17,8 @@ bool isAnyPreset(const char* src, const Token& t);
 bool isReserved(const char* src, const Token& t);
 uint8_t editDistance(const char* a, uint16_t alen, const char* b, uint16_t blen);  // case-insensitive, max 3
 void presetChoices(gen::InType place, char* out, size_t cap);                      // "RED GREEN …"
+bool isPersonWord(const char* word, size_t len);  // one of words.yaml's person_words, any case (Tank Logo LLD §27.1)
+bool isPersonWord(const char* word);              // a NUL-terminated word
 
 }  // namespace logo
 }  // namespace cq

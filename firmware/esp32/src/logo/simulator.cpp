@@ -101,7 +101,7 @@ void Simulator::ai(const Action& a, SimResult& r) {
     setxy(a);
   } else {
     m_guess = true;
-    if (a.skill == SkillKind::kWander) m_ms += a.seconds * 1000u;
+    if (a.skill == SkillKind::kWander || a.skill == SkillKind::kFollow) m_ms += a.seconds * 1000u;
   }
 }
 

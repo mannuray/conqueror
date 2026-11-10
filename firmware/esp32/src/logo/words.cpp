@@ -77,6 +77,18 @@ uint8_t editDistance(const char* a, uint16_t alen, const char* b, uint16_t blen)
   return prev[blen] > 3 ? 3 : prev[blen];
 }
 
+bool isPersonWord(const char* word, size_t len) {
+  for (uint8_t i = 0; i < gen::kPersonWordCount; ++i) {
+    const char* p = gen::kPersonWords[i];
+    size_t k = 0;
+    while (k < len && p[k] != '\0' && upper(word[k]) == upper(p[k])) ++k;
+    if (k == len && p[k] == '\0') return true;
+  }
+  return false;
+}
+
+bool isPersonWord(const char* word) { return word != nullptr && isPersonWord(word, strlen(word)); }
+
 void presetChoices(gen::InType place, char* out, size_t cap) {
   const List l = presets(place);
   out[0] = '\0';

@@ -217,6 +217,37 @@ void test_check_play_notes() {
 
 // Plan G1 (Tank Logo LLD §27.2): a game word anywhere - the main part, a TO body never called, a LAUNCH part - makes the
 // whole program a game run, before its first motion. CAUGHT? is level 2 (the tank checks as v1).
+// Plan G3 (Tank Logo LLD §27.2): FACE / ESCAPE / FOLLOW anywhere, SEE? / HOWFAR of a person - a game run; a person
+// word is never a thing elsewhere (7053), and a game word's person must be one (7062).
+Caps aiCaps() {
+  Caps c;
+  c.ai = true;
+  return c;
+}
+
+void test_check_game_flag_from_the_game_words() {
+  Caps c = aiCaps();
+  TEST_ASSERT_TRUE(C("FACE \"baby", c).game);
+  TEST_ASSERT_TRUE(C("TO NEVER ESCAPE \"kid 40 END FD 10", c).game);
+  TEST_ASSERT_TRUE(C("LAUNCH [ FOLLOW \"person 5 ] FD 10", c).game);
+  TEST_ASSERT_TRUE(C("IF SEE? \"Baby [ BEEP ]", c).game);
+  TEST_ASSERT_TRUE(C("SAY HOWFAR \"baby", c).game);
+  TEST_ASSERT_FALSE(C("TO LOOKAT :who IF SEE? :who [ BEEP ] END LOOKAT \"baby", c).game);  // computed: run time
+}
+
+void test_check_a_person_is_never_a_thing_and_a_thing_never_a_person() {
+  Caps c = aiCaps();
+  c.things = nullptr;  // no list from the helper yet: still refused, never looked up
+  C("FIND \"baby", c);
+  TEST_ASSERT_EQUAL(7053, first());
+  C("FACE \"toy", c);
+  TEST_ASSERT_EQUAL(7062, first());
+  TEST_ASSERT_TRUE(C("TO LOOKAT :x FACE :x END LOOKAT \"baby", c).ok);  // computed: checked when run
+  ThingNames t;
+  C("FIND \"baby", withThings(t));  // with the helper's list too: a person is never a thing
+  TEST_ASSERT_EQUAL(7053, first());
+}
+
 void test_check_game_flag_from_caught_anywhere() {
   Caps c;
   TEST_ASSERT_TRUE(C("FD 10 IF CAUGHT? [ BEEP ]", c).game);
@@ -245,5 +276,7 @@ int main(int, char**) {
   RUN_TEST(test_no_ai_beats_learning);
   RUN_TEST(test_computed_thing_not_checked);
   RUN_TEST(test_check_game_flag_from_caught_anywhere);
+  RUN_TEST(test_check_game_flag_from_the_game_words);
+  RUN_TEST(test_check_a_person_is_never_a_thing_and_a_thing_never_a_person);
   return UNITY_END();
 }

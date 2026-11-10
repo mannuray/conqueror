@@ -17,7 +17,7 @@ namespace logo {
 enum class WordRole : uint8_t {
   kNone, kEffect, kRepeat, kForever, kIf, kIfElse, kWhile, kWaitUntil, kStop, kOutput, kLaunch, kSensor, kBuiltin,
   kAsk,    // SEE? / HOWFAR: a question the laptop answers (arg = AskQ)
-  kSkill   // FIND / WANDER / EXPLORE / SETXY (arg = SkillKind)
+  kSkill   // FIND / WANDER / EXPLORE / SETXY, the game words FACE / ESCAPE / FOLLOW (arg = SkillKind)
 };
 
 class Compiler {

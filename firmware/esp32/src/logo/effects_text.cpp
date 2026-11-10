@@ -65,6 +65,9 @@ void skill(const Action& a, char* out, size_t cap) {
     case SkillKind::kWander: snprintf(out, cap, "WANDER %u", a.seconds); break;
     case SkillKind::kExplore: snprintf(out, cap, "EXPLORE"); break;
     case SkillKind::kSetxy: snprintf(out, cap, "SETXY %d %d", a.x_cm, a.y_cm); break;
+    case SkillKind::kFace: snprintf(out, cap, "FACE %s", a.thing); break;
+    case SkillKind::kEscape: snprintf(out, cap, "ESCAPE %s %u", a.thing, a.cm); break;
+    case SkillKind::kFollow: snprintf(out, cap, "FOLLOW %s %u", a.thing, a.seconds); break;
   }
   if (!a.has_area) return;
   const size_t n = strlen(out);

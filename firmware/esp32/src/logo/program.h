@@ -33,7 +33,7 @@ enum class EffectKind : uint8_t {
   kCount
 };
 enum class AskQ : uint8_t { kSee, kHowfar };                              // SEE? / HOWFAR
-enum class SkillKind : uint8_t { kFind, kWander, kExplore, kSetxy };      // FIND / WANDER / EXPLORE / SETXY
+enum class SkillKind : uint8_t { kFind, kWander, kExplore, kSetxy, kFace, kEscape, kFollow };      // FIND / WANDER / EXPLORE / SETXY
 // "FORWARD" … ("WAIT UNTIL" for kUntilStart / kTick); `sub` picks the word of kAsk / kSkill ("SEE?", "FIND" …).
 const char* effectWord(EffectKind k, uint8_t sub = 0);
 

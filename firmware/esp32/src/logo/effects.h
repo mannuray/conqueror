@@ -18,7 +18,7 @@ enum class ActKind : uint8_t {
   kNone, kMove, kTurn, kArc, kPivot, kHome, kSpeed, kWait, kLed, kBeep, kSound, kTone, kLook, kLookHome, kSay,
   kUntilStart, kTick, kGo, kHold,  // kGo: drive on at speed_pct; kHold: stop it (Tank Logo LLD §22)
   kAsk,    // SEE? / HOWFAR: the host asks the laptop (thing, ask_q); the answer comes back to the runner
-  kSkill,  // FIND / WANDER / EXPLORE / SETXY: the laptop drives (skill + its arguments + the AREA)
+  kSkill,  // FIND / WANDER / EXPLORE / SETXY / FACE / ESCAPE / FOLLOW: the laptop drives (skill + arguments + AREA)
   kArea,   // AREA n: a setting kept by the runner (area_m); nothing for the host to do
   kLaunch  // LAUNCH: the runner starts the second part at `entry` (Tank Logo LLD §26.4)
 };
@@ -48,8 +48,9 @@ struct Action {
   // the host turns them into the tank's frame.
   AskQ ask_q = AskQ::kSee;             // kAsk
   SkillKind skill = SkillKind::kFind;  // kSkill
-  char thing[25] = "";                 // kAsk / kSkill FIND: the thing's word, lower case
-  uint16_t seconds = 0;                // kSkill WANDER
+  char thing[25] = "";                 // kAsk / kSkill FIND, FACE, ESCAPE, FOLLOW: the thing's / person's word, lower case
+  uint16_t seconds = 0;                // kSkill WANDER, FOLLOW
+  uint8_t cm = 0;                      // kSkill ESCAPE (20-100)
   uint16_t entry = 0;                  // kLaunch
   int16_t x_cm = 0, y_cm = 0;          // kSkill SETXY
   bool has_area = false;               // kSkill: an AREA is on - the next three are valid

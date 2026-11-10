@@ -53,7 +53,11 @@ class Checker {
   void visitCall(Node* n, int16_t def, const Caps& caps, CheckResult& r);
   void needsAndLevel(const gen::WordSpec& w, uint16_t tok, const Caps& caps);
   void checkRange(const Node* call, const gen::WordSpec& w, uint8_t i, const Node* c);
-  void checkThing(const gen::WordSpec& w, uint8_t i, const Node* c, const Caps& caps);
+  void checkThing(const gen::WordSpec& w, uint8_t i, const Node* c, const Caps& caps, CheckResult& r);
+  void checkPerson(const gen::WordSpec& w, uint8_t i, const Node* c);
+  static bool isGameWord(const char* name);
+  bool quotedName(const Token& t, char* name, size_t cap) const;
+  static bool personAsked(const gen::WordSpec& w, bool person, CheckResult& r);
   void arcTooTight(const Node* call, const Node* radius);
   void visitInput(const Node* n, int16_t def);
   void listWarning(const Node* list);

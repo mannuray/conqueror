@@ -478,6 +478,7 @@
 # Plan G3 (Tank Logo LLD §27): the game words run as skills; a person in any case; caught is no error.
 - name: the game words
   source: FACE "Baby  ESCAPE "baby 40  FOLLOW "kid 5
+  world: {skill_ends: [done, done, done]}
   does: [FACE baby, ESCAPE baby 40, FOLLOW kid 5]
   ends: finished
 
@@ -497,6 +498,6 @@
 - name: SEE? the baby in a game
   source: IF SEE? "baby [ BEEP ]
   world: {answers: [true]}
-  does: [BEEP]
+  does: ["SEE? baby", BEEP]
   ends: finished
 

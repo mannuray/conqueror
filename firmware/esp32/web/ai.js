@@ -140,11 +140,45 @@ var AiCore = (function () {
   // An ai_at for the feed already in use changes nothing (final review I2: each unlock re-sends it).
   function sameFeed(url, proto, newUrl, newProto) { return !!url && url === newUrl && proto === newProto; }
 
+  // ---------- the GAMES card (Plan G3, design-notes §224): what it shows, and lesson 6 with the grown-ups' numbers
+  // g: {feed, people, state (the bridge's game event: off arming playing caught held), running, person, caught}
+  function gameMoment(g) {
+    if (g.state === "held") return { st: "HOLDING STILL", say: "I lost track of the baby, so I'm holding still. Press STOP to go on.", canStart: false };
+    if (!g.feed) return { st: "NO AI HELPER", say: "Start the AI helper on the laptop.", canStart: false };
+    if (!g.people) return { st: "LOCKED", say: "Locked - it needs the seeing test first.", canStart: false };
+    if (g.state === "caught") return { st: "CAUGHT!", say: "Caught! (" + (g.caught | 0) + ") Waiting for the baby to move back.", canStart: false };
+    if (g.state === "playing" || g.state === "arming") {
+      var p = g.person;
+      var say = p && p.seen && p.d_cm >= 0
+        ? "The baby is " + p.d_cm + " cm away" + (p.coming > 0 ? ", coming." : p.coming < 0 ? ", going." : ".")
+        : "Looking for the baby...";
+      return { st: "PLAYING", say: say, canStart: false };
+    }
+    return { st: "READY", say: "Ready - a grown-up stays close with STOP in hand.", canStart: !g.running };
+  }
+  function clampNum(v, lo, hi, dflt) {
+    var n = parseFloat(v);
+    return isNaN(n) ? dflt : Math.round(Math.min(hi, Math.max(lo, n)));
+  }
+  // Lesson 6's text with its last BABYGAME call holding the numbers: back off nearer than (40-150 cm), follow farther
+  // than (10 cm beyond that, up to 300), minutes (1-14: the game's own 15-minute limit, 7063).
+  function babyLine(src, near, far, minutes) {
+    var n = clampNum(near, 40, 150, 70);
+    var f = clampNum(far, n + 10, 300, 100);
+    var m = clampNum(minutes, 1, 14, 5);
+    var lines = String(src).replace(/\s+$/, "").split("\n");
+    for (var i = lines.length - 1; i >= 0; i--) {
+      if (/^BABYGAME\b/.test(lines[i])) { lines[i] = "BABYGAME " + n + " " + f + " " + m; break; }
+    }
+    return lines.join("\n") + "\n";
+  }
+
   return {
     PROTO: PROTO, PROTO_TEXT: PROTO_TEXT, splitFrame: splitFrame, boxRect: boxRect, findLine: findLine,
     wanderLine: wanderLine, exploreLine: exploreLine, typed: typed, unknownText: unknownText, teachCheck: teachCheck,
     Sayer: Sayer, cameraState: cameraState, protoOk: protoOk, sameFeed: sameFeed, squeeze: squeeze,
-    pickVoice: pickVoice, isPerson: isPerson, marksColours: marksColours, unpackMarks: unpackMarks, drawsDepth: drawsDepth, pickLayer: pickLayer, layerHead: layerHead
+    pickVoice: pickVoice, isPerson: isPerson, marksColours: marksColours, unpackMarks: unpackMarks, drawsDepth: drawsDepth, pickLayer: pickLayer, layerHead: layerHead,
+    gameMoment: gameMoment, babyLine: babyLine
   };
 })();
 if (typeof module !== "undefined") module.exports = AiCore;

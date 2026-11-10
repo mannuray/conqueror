@@ -699,7 +699,8 @@ main { padding: 10px 12px; display: grid; gap: 10px; }
   $("camShow").addEventListener("click", function () { camOff = false; remember("logo.cam", ""); camUpdate(); });
 
   showPad();
-  var last = recall("cq.logo.last") || NEW, first = drafts.restore(NEW);
+  var asked = decodeURIComponent(location.hash.slice(1));  // /logo#chase_with_the_baby: the /ai page's lesson link
+  var last = asked || recall("cq.logo.last") || NEW, first = drafts.restore(NEW);
   setText(first ? first.text : START_TEXT);  // shown at once; a saved last program replaces it once its text arrives
   if (last !== NEW) { loading = -1; lockEditor(); }
   // the tank (R31): one link; its messages fill the model (the strip) and then onMessage; hidden: the draft is kept and

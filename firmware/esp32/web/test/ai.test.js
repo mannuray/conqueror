@@ -193,3 +193,39 @@ test("pickVoice: a voice on the device first, the page's language first", () => 
   assert.equal(A.pickVoice([{ name: "Google US", lang: "en-US", localService: false }], "en-US").name, "Google US");
   assert.equal(A.pickVoice([], "en-US"), null);
 });
+
+// ---------- the GAMES card on PLAY (Plan G3, design-notes §224, bridge LLD R34) ----------
+const LESSON = "; Lesson 6 - chase with the baby\nTO CHASE :cm :near :far\n  WAIT 1\nEND\nBABYGAME 70 100 5\n";
+
+test("gameMoment: no helper, locked, ready", () => {
+  assert.deepEqual(A.gameMoment({ feed: false, people: true, state: "off", running: false }).st, "NO AI HELPER");
+  const locked = A.gameMoment({ feed: true, people: false, state: "off", running: false });
+  assert.equal(locked.st, "LOCKED"); assert.equal(locked.canStart, false); assert.match(locked.say, /seeing test/);
+  const ready = A.gameMoment({ feed: true, people: true, state: "off", running: false });
+  assert.equal(ready.st, "READY"); assert.equal(ready.canStart, true);
+  assert.equal(A.gameMoment({ feed: true, people: true, state: "off", running: true }).canStart, false);  // a word runs
+});
+
+test("gameMoment: playing with the baby's distance, caught, holding still", () => {
+  const p = A.gameMoment({ feed: true, people: true, state: "playing", running: true, person: { seen: true, d_cm: 72, coming: 1 } });
+  assert.equal(p.st, "PLAYING"); assert.match(p.say, /72 cm/); assert.match(p.say, /coming/); assert.equal(p.canStart, false);
+  assert.match(A.gameMoment({ feed: true, people: true, state: "playing", running: true, person: { seen: false, d_cm: -1, coming: 0 } }).say, /looking/i);
+  assert.equal(A.gameMoment({ feed: true, people: true, state: "arming", running: true }).st, "PLAYING");
+  const c = A.gameMoment({ feed: true, people: true, state: "caught", running: true, caught: 2 });
+  assert.equal(c.st, "CAUGHT!"); assert.match(c.say, /2/);
+  const h = A.gameMoment({ feed: false, people: true, state: "held", running: false });
+  assert.equal(h.st, "HOLDING STILL"); assert.match(h.say, /STOP/);  // held wins even when the helper is gone
+});
+
+test("babyLine puts the grown-ups' numbers in the call and keeps the rest", () => {
+  const out = A.babyLine(LESSON, 60, 120, 3);
+  assert.ok(out.startsWith("; Lesson 6"));
+  assert.ok(out.includes("TO CHASE :cm :near :far"));
+  assert.ok(out.trimEnd().endsWith("BABYGAME 60 120 3"));
+  assert.equal(out.match(/BABYGAME/g).length, 1);
+});
+
+test("babyLine clamps: never under 40 cm, follow beyond back-off, at most 14 minutes", () => {
+  assert.ok(A.babyLine(LESSON, 10, 20, 99).trimEnd().endsWith("BABYGAME 40 50 14"));
+  assert.ok(A.babyLine(LESSON, "x", null, 0).trimEnd().endsWith("BABYGAME 70 100 1"));
+});

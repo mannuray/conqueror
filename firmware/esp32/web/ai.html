@@ -278,6 +278,19 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
           <div id="teachMsg"></div>
         </div></details>
     </div>
+    <div class="card" id="cardGame"><!-- Plan G3: the baby game (design-notes §224, bridge LLD R34) -->
+      <h2 class="glow">[ <!--icon:gamepad-2--> GAMES ]<span class="right" id="gameSt">--</span></h2>
+      <div class="note" id="gameSay"></div>
+      <div class="acts"><button id="gameGo" class="act main" type="button" disabled><!--icon:play-->[ CHASE WITH THE BABY ]</button></div>
+      <details><summary><span><!--icon:settings--> [ GROWN-UPS ]</span><small>[ TAP TO OPEN ]</small></summary>
+        <div id="gameSet">
+          <label for="gNear">Back off when the baby is nearer than (cm)</label><input id="gNear" type="number" value="70" min="40" max="150">
+          <label for="gFar">Follow when the baby is farther than (cm)</label><input id="gFar" type="number" value="100" min="50" max="300">
+          <label for="gMin">Minutes</label><input id="gMin" type="number" value="5" min="1" max="14">
+          <div class="hint">Always on: a slow crawl (25 cm/s) and never within 30 cm - these can't be changed.</div>
+        </div></details>
+      <div class="ran"><span><!--icon:scroll-text--> how it works</span><a href="/logo#chase_with_the_baby">[ LESSON 6 › ]</a></div>
+    </div>
   </section>
 </main>
 <main id="tRoom" class="hidden">
@@ -346,6 +359,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         $("sonarTag").textContent = "SONAR: " + (typeof m.dist_cm === "number" && !m.dist_fault ? m.dist_cm + " cm" : "--");
         break;
       case "ev":
+        if (m.kind === "game") { game.state = m.state; game.caught = m.caught | 0; showGame(); }
         if (m.kind === "logo_started" && run.mine) setRun(true, null);
         if (m.kind === "logo_ended" && run.mine) setRun(false, m.reason === "finished" ? "Done!" : m.msg || "Stopped.");
         break;
@@ -365,11 +379,24 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     Array.prototype.forEach.call(document.querySelectorAll("#roomCard .rcFind, #roomCard .rcGo, #roomList .rcFind"), function (b) { b.disabled = on || b.dataset.off === "1"; });
     $("roomRun").textContent = on ? "Running: " + $("ranLine").textContent : (msg || "");
     if (msg) { $("typedMsg").textContent = msg; $("typedMsg").classList.remove("hidden"); }
+    showGame();
   }
+  // ---------- the GAMES card: the bridge's game events and the engine's person (Plan G3) ----------
+  var game = { state: "off", caught: 0, people: false, person: null };
+  function showGame() {
+    var g = A.gameMoment({ feed: feedOpen, people: game.people, state: game.state, running: run.running, person: game.person, caught: game.caught });
+    $("gameSt").textContent = g.st; $("gameSay").textContent = g.say; $("gameGo").disabled = !g.canStart;
+  }
+  $("gameGo").addEventListener("click", function () {
+    fetch("/logo/programs/chase_with_the_baby").then(function (r) { return r.ok ? r.text() : null; }).then(function (src) {
+      if (!src) { setRun(false, "Lesson 6 is not on the tank."); return; }
+      runLine(A.babyLine(src, $("gNear").value, $("gFar").value, $("gMin").value), "lesson 6, chase with the baby");
+    }).catch(function () { setRun(false, "Not connected to the tank."); });
+  });
   // A one-line program: checked by the tank's /logo/check, then logo_run - so it is Logo's own (STOP, the lease, 7045).
-  function runLine(line) {
+  function runLine(line, shown) {
     if (run.running) return;
-    $("ranLine").textContent = line; $("typedMsg").classList.add("hidden");
+    $("ranLine").textContent = shown || line; $("typedMsg").classList.add("hidden");
     run.mine = true; run.running = true; run.id = nextId++; setRun(true, null);
     check(line, 0);
   }
@@ -417,7 +444,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     };
     s.onclose = function () {
       if (feed !== s) return;
-      feed = null; feedOpen = false; camEv("feed_closed"); showAiChip(); room.feedDown();
+      feed = null; feedOpen = false; camEv("feed_closed"); showAiChip(); room.feedDown(); showGame();
       if (feedUrl && A.protoOk(feedProto)) feedRetry = setTimeout(openFeed, 2000);
     };
     s.onerror = function () { if (feed === s) s.close(); };
@@ -588,6 +615,7 @@ footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   }
   document.addEventListener("touchend", unlock); document.addEventListener("click", unlock);
   function showStatus(m) {
+    game.people = !!m.people; game.person = m.person || null; showGame();
     var mood = tired ? "tired" : m.mood || "happy";
     $("say").textContent = m.say || ""; $("mood").textContent = "MOOD: " + mood.toUpperCase();
     $("sayWhat").textContent = m.word ? "Looking for: " + m.word : m.health && m.health !== "ok" ? m.health : "Ready for a job";

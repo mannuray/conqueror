@@ -10,19 +10,27 @@ speed is at most 25 cm/s is the cap. It asks before saving; the save needs the t
     uv run python game_cap.py              # measure, print the table, ask, save
     uv run python game_cap.py --dry-run    # measure and print only
 
-FLOOR: the tank drives straight ahead about 0.5 m per step, 9 steps (~4 m in all, it stops between
-steps). Clear floor ahead, STOP on the phone within reach.
+FLOOR: the tank drives straight ahead about 0.4 m per step, ~9 steps (~3.5 m in all, it eases to a
+stop between steps). Clear floor ahead, STOP on the phone within reach.
+
+The floor run of 2026-11-10 (design-notes §233) zig-zagged: a STOP between steps held every other
+step's start. Now it eases off with drive_rate 0 between steps, covers 30-60 % (25 cm/s lies below
+50 %), measures the two steps either side of the target again, and refuses to pick from a table
+whose speed falls with more power or whose repeats disagree by more than AGREE_CMS.
 """
 
 from __future__ import annotations
 
 import argparse
+import itertools
 import time
 
 from bridge_echo import WsClient
 
 TARGET_CMS = 25.0  # owner, 2026-11-08
-STEPS = (50, 55, 60, 65, 70, 75, 80, 85, 90)
+STEPS = (30, 35, 40, 45, 50, 55, 60)
+AGREE_CMS = 2.0  # two runs of one step further apart than this: something cut a step short
+FALL_CMS = 1.0  # more power, slower by more than this: the table is not to be trusted
 
 
 def speed_cms(counts: int, seconds: float, counts_per_m: int) -> float:
@@ -33,9 +41,18 @@ def speed_cms(counts: int, seconds: float, counts_per_m: int) -> float:
 
 
 def pick_cap(table: list[tuple[int, float]], target: float = TARGET_CMS) -> int | None:
-    """The largest % whose measured speed is at most the target, or None (every step too fast)."""
-    ok = [pct for pct, v in table if v <= target]
+    """The largest % whose measured speed is at most the target, or None: every step too fast,
+    or the speed falls with more power (a step cut short - never saved)."""
+    rows = sorted(table)
+    if any(b[1] < a[1] - FALL_CMS for a, b in itertools.pairwise(rows)):
+        return None
+    ok = [pct for pct, v in rows if v <= target]
     return max(ok) if ok else None
+
+
+def mean_of_pair(a: float, b: float) -> float | None:
+    """Two runs of one step: their mean, or None when they disagree by more than AGREE_CMS."""
+    return None if abs(a - b) > AGREE_CMS else (a + b) / 2
 
 
 def measure(
@@ -56,12 +73,40 @@ def measure(
     t0 = time.monotonic()
     end = latest_counts(t0 + window_s)
     dt = time.monotonic() - t0
-    ws.send({"t": "stop"})
-    time.sleep(0.8)
+    ease = time.monotonic() + 1.0  # ease off to 0 (a STOP would hold the next step's start, §233)
+    while time.monotonic() < ease:
+        ws.send({"t": "drive_rate", "v": 0, "yaw_rate": 0})
+        ws.recv(0.05)
     if start is None or end is None:
         raise RuntimeError("no td telemetry - is the Uno online?")
     counts = ((end[0] - start[0]) + (end[1] - start[1])) // 2
     return speed_cms(counts, dt, cpm)
+
+
+def measure_all(ws: WsClient, cpm: int, table: list[tuple[int, float]]) -> int | None:
+    """Every step once, then the two either side of the target again: the cap, or None."""
+    for pct in STEPS:
+        v = measure(ws, pct, cpm)
+        table.append((pct, v))
+        print(f"  {pct:3d} %  {v:5.1f} cm/s")
+    cap = pick_cap(table)
+    if cap is not None:  # the two steps either side of the target, again: they decide the cap
+        again = [p for p in STEPS if p == cap or p == cap + 5]
+        for pct in again:
+            v2 = measure(ws, pct, cpm)
+            v1 = dict(table)[pct]
+            mean = mean_of_pair(v1, v2)
+            print(
+                f"  {pct:3d} %  again {v2:5.1f} cm/s"
+                + ("" if mean is not None else "  - DISAGREES")
+            )
+            if mean is None:
+                cap = None
+                break
+            table = [(p, mean if p == pct else v) for p, v in table]
+        ws.send({"t": "drive_rate", "v": 0, "yaw_rate": 0})
+        cap = pick_cap(table) if cap is not None else None
+    return cap
 
 
 def main() -> None:
@@ -84,14 +129,13 @@ def main() -> None:
     print(f"counts_per_m {cpm}")
     table: list[tuple[int, float]] = []
     try:
-        for pct in STEPS:
-            v = measure(ws, pct, cpm)
-            table.append((pct, v))
-            print(f"  {pct:3d} %  {v:5.1f} cm/s")
+        cap = measure_all(ws, cpm, table)
     finally:
-        ws.send({"t": "stop"})
-    cap = pick_cap(table)
-    print(f"cap for <= {TARGET_CMS} cm/s: {cap} %")
+        ws.send({"t": "stop"})  # once, at the very end (between steps it eases off, §233)
+    print(
+        f"cap for <= {TARGET_CMS} cm/s: {cap} %"
+        + ("  (not trusted - nothing to save)" if cap is None else "")
+    )
     if cap is None or a.dry_run or input(f"save game_cap_pct {cap}? [y/N] ").strip().lower() != "y":
         ws.close()
         return

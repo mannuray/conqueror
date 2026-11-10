@@ -3605,3 +3605,16 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Noted for G1 (not safety):** a game's `FORWARD 10` stops at ~8 cm (the speed clamp under the motion service's
   learned stop); the caught count carries over from one game to the next.
 
+## 233. The game's speed cap measured on the floor: 45 % (owner, 2026-11-10: "yes save 45")
+- `tools/smoke/game_cap.py` on the floor, straight drive_rate steps, speed from the encoders (counts_per_m 7517):
+  30 % 20.2, 35 % 22.3, 40 % 23.0, 45 % 24.4 (again 25.2, mean 24.8), 50 % 25.6 (again 25.1, mean 25.35), 55 %
+  28.1, 60 % 29.1 cm/s. Picked: the largest % whose mean speed is at most 25 cm/s (owner's target, §223) - **45 %**,
+  saved as `game_cap_pct` after the tank's button.
+- Why not 40 % (owner asked): the cap is the backstop under the engine's own 25 cm/s (`v_cap_cms`); below it the
+  Uno would clip the engine's slow commands and its rate loop would run saturated (bridge LLD R34.2).
+- **Re-measure once with a full battery** (PWM speed rises with the voltage); over 25 cm/s then → 40 %.
+- The first run was wrong and never saved: speeds zig-zagged (60 % 16.9, 65 % 31.2, 70 % 18.7) - the tool's STOP
+  between steps held every other step's start. Fixed: it eases off with drive_rate 0, covers 30-60 % (25 cm/s lies
+  below 50 %), repeats the two steps either side of the target and refuses a table whose speed falls with more power
+  or whose repeats disagree by more than 2 cm/s (tests in `tools/smoke/tests/test_game_tools.py`).
+

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from fake_person import Script, distance_at, person_message
-from game_cap import pick_cap, speed_cms
+from game_cap import STEPS, TARGET_CMS, mean_of_pair, pick_cap, speed_cms
 
 
 def test_the_script_approaches_then_steps_back() -> None:
@@ -43,3 +43,18 @@ def test_the_cap_is_the_largest_step_not_over_25() -> None:
     table = [(50, 15.0), (60, 21.0), (70, 24.9), (80, 27.5), (90, 31.0)]
     assert pick_cap(table) == 70
     assert pick_cap([(50, 26.0)]) is None
+
+
+# ---- the floor run 2026-11-10 (design-notes §233): speeds zig-zagged - never saved
+def test_a_table_whose_speed_falls_with_more_power_is_refused() -> None:
+    zigzag = [(50, 26.8), (55, 27.2), (60, 16.9), (65, 31.2), (70, 18.7), (90, 23.4)]
+    assert pick_cap(zigzag) is None
+
+
+def test_two_runs_that_disagree_are_refused() -> None:
+    assert mean_of_pair(18.0, 18.6) == pytest.approx(18.3)
+    assert mean_of_pair(18.0, 26.0) is None  # more than 2 cm/s apart: something cut a step short
+
+
+def test_the_steps_cover_where_25_cms_lies() -> None:
+    assert STEPS[0] <= 30 and STEPS[-1] >= 60 and TARGET_CMS == 25.0

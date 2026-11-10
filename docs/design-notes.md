@@ -3599,7 +3599,9 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Found:** while held, the owner's first stick push did nothing, the second drove. The drive page sends its own
   `{"t":"stop"}` when a thumb leaves the stick, and G1 released Held on any STOP (a ruling the G3 review let stand).
   Spec 10 S12 says only a person pressing STOP: a STOP button now sends `"press":true` and only that releases Held
-  (bridge LLD R34.10). Re-test after the flash.
+  (bridge LLD R34.10). **Re-tested on the tank (a5a866f): passed** - held 1.0 s after the silence; the stick pushed
+  and released again and again for 29 s with zero track power; the STOP button released it (game off); the next push
+  drove.
 - **Noted for G1 (not safety):** a game's `FORWARD 10` stops at ~8 cm (the speed clamp under the motion service's
   learned stop); the caught count carries over from one game to the next.
 

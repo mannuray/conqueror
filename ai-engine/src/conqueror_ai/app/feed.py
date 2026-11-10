@@ -9,7 +9,7 @@ import contextlib
 import math
 import time
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 from numpy.typing import NDArray
@@ -77,6 +77,10 @@ class FeedPublisher:
         self._pan: float | None = None
         self.room: RoomFeed | None = None  # the ROOM tab's data (LLD §23.4), set by serve
         self.area: tuple[float, float, float] | None = None  # the running (else last) word's play area
+        # the GAMES card (design-notes §224): the seeing test passed, and the person while a game is on
+        # (the `person` message the bridge gets, AI engine LLD §28.1); set by serve
+        self.people = False
+        self.person: Callable[[], dict[str, Any] | None] | None = None
 
     # ---- what happens
     def on_frame(
@@ -134,6 +138,10 @@ class FeedPublisher:
             msg["pan"] = round(self._pan)
         msg["health"] = self._health
         msg["learning"] = self._learning is not None
+        msg["people"] = self.people
+        who = None if self.person is None else self.person()
+        if who is not None:
+            msg["person"] = {"seen": who["seen"], "d_cm": who["d_cm"], "coming": who["coming"]}
         return msg
 
     def _why(self) -> list[str]:

@@ -39,6 +39,7 @@ from conqueror_ai.app.game_serve import (
     game_skill,
     is_person,
     person_answer,
+    person_message,
 )
 from conqueror_ai.app.questions import Questions
 from conqueror_ai.app.room_feed import RoomFeed, RoomWorld
@@ -286,6 +287,8 @@ class ServeApp:
             while not stop.is_set():
                 self.state = "connecting"
                 self.link.people = self.seeing is not None and self.seeing.passed()  # read at each connect
+                if self.publisher is not None:  # the GAMES card (design-notes §224)
+                    self.publisher.people, self.publisher.person = self.link.people, self._game_person
                 try:
                     await self.link.connect()
                 except SkillBusy:
@@ -573,6 +576,13 @@ class ServeApp:
             except Exception as e:  # a picture that fails is skipped; the next one may not
                 print(f"picture failed: {type(e).__name__}: {e}")
                 await asyncio.sleep(TICK_S)
+
+    def _game_person(self) -> dict[str, Any] | None:
+        """The person as the bridge gets it, while its game mode is on (the GAMES card's distance)."""
+        now = self.perception.bridge_now_s()
+        if not self.stream.on or now is None:
+            return None
+        return person_message(self.world.person, round(now * 1e6))
 
     async def _send_person(self, msg: dict[str, Any]) -> None:
         await self._send(self.link.person(msg))

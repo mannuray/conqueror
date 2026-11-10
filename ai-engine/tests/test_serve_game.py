@@ -288,3 +288,34 @@ async def test_a_stream_that_breaks_says_so_and_goes_on(
         assert "person stream" in capsys.readouterr().out
     finally:
         await s.close()
+
+
+# ---- Plan G3: the GAMES card's numbers on the AI feed
+async def test_the_feed_gets_people_and_the_person_in_a_game(bridge: FakeBridge, tmp_path: Path) -> None:
+    from conqueror_ai.app.feed import FeedPublisher
+    from tests.test_feed_publisher import FakeServer
+
+    write_pass(tmp_path / "p.yaml", DET, CAL, "2026-11-10", {})
+    w = world()
+    seen_person(w, 0.9, BRIDGE_NOW_S - 0.1)
+    p = FakePerception()
+    link = SkillLink(f"ws://127.0.0.1:{bridge.ws_port}/ws", NAMES.wire())
+    app = ServeApp(
+        link, p, w, NAMES, None, None, skills=Maker(), seeing=SeeingPass(tmp_path / "p.yaml", DET, CAL)
+    )
+    pub = FeedPublisher(FakeServer(), lambda: [])  # pyright: ignore[reportArgumentType]
+    app.publisher = pub
+    stop = asyncio.Event()
+    task = asyncio.create_task(app.run(stop))
+    s = Serving(app, task, stop, p)
+    try:
+        await until(lambda: app.state == "idle")
+        st = pub.greeting()[0]
+        assert st["people"] is True and "person" not in st
+        await bridge.to_skill_server({"t": "game", "on": True})
+        await until(lambda: "person" in pub.greeting()[0])
+        await until(lambda: len(msgs(bridge, "person")) >= 1)
+        shown = pub.greeting()[0]["person"]
+        assert isinstance(shown, dict) and shown["d_cm"] == msgs(bridge, "person")[-1]["d_cm"]
+    finally:
+        await s.close()

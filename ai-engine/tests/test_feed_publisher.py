@@ -175,3 +175,22 @@ def test_marks_only_when_given() -> None:  # Plan Z11 (LLD §26.2): a used pictu
     one = decode_marks(srv.frames[0])
     assert one is not None and one[:2] == (80, 60)
     assert decode_marks(srv.frames[1]) is None
+
+
+# ---- Plan G3: the GAMES card's numbers (AI engine LLD §28.1, design-notes §224)
+def test_status_says_whether_people_may_play() -> None:
+    pub = FeedPublisher(FakeServer(), lambda: THINGS)  # pyright: ignore[reportArgumentType]
+    st = pub.greeting()[0]
+    assert st["people"] is False and "person" not in st
+    pub.people = True
+    assert pub.greeting()[0]["people"] is True
+
+
+def test_status_carries_the_person_only_in_a_game() -> None:
+    pub = FeedPublisher(FakeServer(), lambda: THINGS)  # pyright: ignore[reportArgumentType]
+    wire = {"t": "person", "seen": True, "d_cm": 72, "bearing": 5, "coming": 1, "sure": 0.9, "age_ms": 80}
+    game = {"on": False}
+    pub.person = lambda: wire if game["on"] else None
+    assert "person" not in pub.greeting()[0]
+    game["on"] = True
+    assert pub.greeting()[0]["person"] == {"seen": True, "d_cm": 72, "coming": 1}  # the bridge's own number

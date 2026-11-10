@@ -39,6 +39,7 @@ const KindName kKinds[] = {
     {"skill_things", WsCmdKind::kSkillThings}, {"skill_answer", WsCmdKind::kSkillAnswer},
     {"skill_drive", WsCmdKind::kSkillDrive},   {"skill_done", WsCmdKind::kSkillDone},
     {"skill_failed", WsCmdKind::kSkillFailed}, {"skill_learning", WsCmdKind::kSkillLearning},
+    {"person", WsCmdKind::kPerson},
 };
 
 WsCmdKind kindOf(const char* t) {
@@ -140,6 +141,7 @@ bool checkSkillThings(WsCommand& c, const Seen&) { return c.has_things && c.part
 bool checkSkillAnswer(WsCommand& c, const Seen&) { return c.has_id && c.has_value; }
 bool checkSkillDrive(WsCommand& c, const Seen& s) { return c.has_id && s.v && s.mf.rate; }
 bool checkSkillDone(WsCommand& c, const Seen&) { return c.has_id; }
+bool checkPersonCmd(WsCommand&, const Seen& s) { return codec::checkPerson(s); }
 bool checkSkillFailed(WsCommand& c, const Seen& s) {
   if (!c.has_id) return false;
   for (const ReasonRow& row : kSkillReasons) {
@@ -169,6 +171,7 @@ const CheckRow kChecks[] = {
     {WsCmdKind::kSkillThings, checkSkillThings}, {WsCmdKind::kSkillAnswer, checkSkillAnswer},
     {WsCmdKind::kSkillDrive, checkSkillDrive},   {WsCmdKind::kSkillDone, checkSkillDone},
     {WsCmdKind::kSkillFailed, checkSkillFailed}, {WsCmdKind::kSkillLearning, checkOn},
+    {WsCmdKind::kPerson, checkPersonCmd},
 };
 
 bool complete(WsCommand& c, const codec::Seen& s) {
@@ -188,6 +191,12 @@ bool readFields(Reader& r, WsCommand& c, Seen& s) {
   return true;
 }
 
+// One of the skill server's messages (skill_* and, R34.3, person) that this bridge knows.
+bool serverMessage(const char* t) {
+  const bool server = strncmp(t, "skill_", 6) == 0 || strcmp(t, "person") == 0;
+  return server && kindOf(t) != WsCmdKind::kUnsupported;
+}
+
 // A malformed skill message is a bad field (nack BAD_FIELD); anything else stays invalid.
 // The "t" is looked up again from the text, so the key order does not matter (a bad field may come before it).
 WsCommand refused(const char* text, size_t len) {
@@ -201,7 +210,7 @@ WsCommand refused(const char* text, size_t len) {
       if (!r.skip()) return bad;
       continue;
     }
-    if (r.str(t, sizeof(t)) && strncmp(t, "skill_", 6) == 0 && kindOf(t) != WsCmdKind::kUnsupported) {
+    if (r.str(t, sizeof(t)) && serverMessage(t)) {
       bad.kind = WsCmdKind::kBadField;
     }
     return bad;

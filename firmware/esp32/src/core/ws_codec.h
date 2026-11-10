@@ -6,6 +6,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "core/keep_out.h"
+
 namespace cq {
 namespace logo {
 enum class SkillEnd : uint8_t;  // logo/run_controller.h
@@ -52,6 +54,7 @@ enum class WsCmdKind : uint8_t {
   kSkillDone,    // {"t":"skill_done","id":n}
   kSkillFailed,  // {"t":"skill_failed","id":n,"reason":r,"thing"?}
   kSkillLearning,  // Plan Z2b-1 (R27.2): {"t":"skill_learning","on":bool} around a teach -> Caps::ai_learning (7056)
+  kPerson,         // R34.3: {"t":"person","seen","d_cm","bearing","coming"?,"sure"?,"age_ms"?} -> game mode
   kBadField,     // a skill message with a malformed or missing field -> nack BAD_FIELD
   kUnsupported,  // valid JSON, "t" not in the Basic Drive slice -> nack INVALID_COMMAND
   kInvalid,      // not JSON / no "t" / bad field -> nack INVALID_COMMAND
@@ -124,6 +127,11 @@ struct WsCommand {
   char client[24] = "";
   uint16_t page_port = 0;  // hello (Plan Z2b-1, R27.2): "page":{"port","proto"} - where the engine's AI feed is; 0 = none
   uint8_t page_proto = 0;
+  bool people = false;       // hello (R34.3): the engine's seeing test passed
+  PersonEst person;          // person (R34.3)
+  uint16_t person_age_ms = 0;
+  bool has_game_cap = false;  // calib (R34): set the game's speed cap
+  uint8_t game_cap = 0;       // track %, 1..100
 };
 
 WsCommand parseWsCommand(const char* text, size_t len);

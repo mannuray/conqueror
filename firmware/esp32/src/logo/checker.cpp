@@ -95,6 +95,7 @@ void Checker::visitCall(Node* n, int16_t def, const Caps& caps, CheckResult& r) 
   needsAndLevel(w, n->tok, caps);
   if (is(w.name, "OUTPUT") && def < 0) error(7026, n->tok);
   if (is(w.name, "BLOCKED?")) r.handles_obstacles = true;
+  if (is(w.name, "CAUGHT?")) r.game = true;  // Plan G1; G3 adds FACE / ESCAPE / FOLLOW and person inputs
   if (is(w.name, "PLAY") && n->first != nullptr && n->first->kind == NodeKind::kList) checkNotes(n->first);
   uint8_t i = 0;
   for (const Node* c = n->first; c != nullptr && i < w.n_inputs; c = c->next, ++i) {

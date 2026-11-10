@@ -23,6 +23,7 @@ class UnoEventRouter {
     void (*stop_result)(uint8_t status);
     void (*setting_value)(uint8_t id, int32_t value);
     void (*alarm)(uint8_t uno_event, uint32_t now) = nullptr;  // Plan N3: battery critical, tilted, lifted
+    void (*body_restart)(uint32_t now) = nullptr;  // R34 (review C1): the Uno restarted while synced
   };
 
   UnoEventRouter(Replies& out, core::EventLog& log, TelemetryPublisher& tel, const core::BodyLink& link)

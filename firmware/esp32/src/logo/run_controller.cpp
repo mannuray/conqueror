@@ -264,6 +264,7 @@ Sensors RunController::sensors(const RunTelem& t, uint32_t now_ms) const {
   s.tilted = t.tilted;
   s.battery_milli = static_cast<int32_t>(t.battery_pct) * 1000;
   s.timer_milli = static_cast<int32_t>(now_ms - m_start);
+  s.caught = t.caught;
   return s;
 }
 

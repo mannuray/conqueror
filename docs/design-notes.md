@@ -3511,7 +3511,25 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **The three LLDs approved (owner, 2026-11-09: "yes").** Plans next: P0 merged first, then the bridge's game mode,
   the engine's person watch and game skills, the Logo words with the lesson and `/ai`'s GAMES card.
 - **Plan P0 merged into main 2026-11-09 (owner: "yes")** - the tool and `person_range` under the game; the crawling
-  test itself still waits (§223).
+  test itself still waits (§223).- **Plan G1 written (2026-11-09):** `docs/superpowers/plans/2026-11-09-plan-g1-game-mode.md` - game mode on the
+  bridge first (no engine game skills yet): `GameMode` / `KeepOut` pure, one gate at `BodyLink::sendDrive`, the
+  ENVELOPE frame, the checker's game flag from `CAUGHT?` (the one game word needing no engine skill, so the stand
+  checks need no person: a stand-in engine, `tools/smoke/fake_person.py`, streams the estimates), 7060 / 7061, a
+  game run's 15 minutes, `game_cap_pct` measured on the floor with `tools/smoke/game_cap.py`.
+
+## 226. Plan G1 built - game mode on the bridge (2026-11-09, branch `plan-g1-game-mode`)
+- Built natively: `GameMode` / `KeepOut`, one gate at `BodyLink::sendDrive`, the ENVELOPE, `CAUGHT?` and the game
+  flag, the engine's `people` / `person` / `game` / `back_ok` messages, `GameController`, the Logo hooks, the cap
+  setting, the wiring; `tools/smoke/fake_person.py` and `game_cap.py`. 986 bridge tests, the bridge builds (`/ai`
+  31 627 B, `/logo` 30 966 B).
+- **Rulings:** the gate a function pointer (no `virtual`: one implementation); `CAUGHT?` level 2 (v1 refuses level
+  3); 7063 for a game's 15 minutes; back_ok asked by the gate (the program's flow unchanged); I2 any STOP releases
+  Held, a run start while Held is 7052; I5 only the Uno's stall is caught; cameras not gated in Held.
+- **Opus final review:** 2 critical (a restarted Uno never re-armed; the arming ack not tied to its envelope) and 7
+  important found and fixed with failing tests first (bridge LLD R34.9). Two fixes live only in the composition root
+  (a stall / a block in a game) - checked on the stand.
+- **Next with the owner:** the stand checks with the stand-in engine, then `game_cap.py` on the floor; then Plan G2
+  (the engine's PersonWatch and FACE / ESCAPE / FOLLOW).
 
 ## 230. Plan G3 written - the game words, lesson 6 and the GAMES card (2026-11-10; owner: "yes")
 - `docs/superpowers/plans/2026-11-10-plan-g3-game-words.md`: the `person` input type and `FACE` / `ESCAPE` /

@@ -23,6 +23,7 @@ struct RunTelem {
   bool tilted = false;
   uint8_t battery_pct = 100;
   Pose pose;                 // the driven path so far (Odometry, the run's frame: x right, y ahead, right = +)
+  bool caught = false;       // game mode (bridge LLD R34): the person has caught the tank
 };
 
 struct RunConfig {
@@ -64,6 +65,7 @@ class RunController {
   RunOut onPrimitiveEnd(const core::PrimitiveEnd& e);  // the move / turn / arc / pivot it asked for ended
   RunOut onMotionEvent(core::MotionEvent e);           // STOP, release, page gone … (also between motions)
   RunOut onEvent(RunEvent e);
+  RunOut abort(uint16_t code) { return end(code); }  // bridge LLD R34: game mode ends the run (7052 / 7060 / 7061)
   // The laptop's answer to the question just asked: SEE? 1 / 0, HOWFAR cm (-1 = not seen). Ignored when no question
   // is waiting or its 300 ms are over (the runner then goes on with FALSE / -1).
   RunOut onAskAnswer(int32_t value, uint32_t now_ms);
@@ -101,6 +103,7 @@ class RunController {
   void effect(const RunTelem& t, uint32_t now_ms, RunOut& out);
   void carry(const Action& a, const RunTelem& t, uint32_t now_ms, RunOut& out);
   Sensors sensors(const RunTelem& t, uint32_t now_ms) const;
+  uint16_t timeUp(uint32_t now_ms) const;
   RunOut goEnded(const core::PrimitiveEnd& e);
   RunOut end(uint16_t code);
   RunOut endWith(uint16_t code, uint16_t line, const char* msg);

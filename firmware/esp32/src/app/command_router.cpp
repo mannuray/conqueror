@@ -51,12 +51,21 @@ const CommandRouter::Route CommandRouter::kRoutes[] = {
     {K::kLogoStop, [](C& r, int fd, int32_t id, const W&, uint32_t now) { r.m_logo.onStop(fd, id, now); }},
     // Plan Z2a (bridge LLD R26.2): the skill server
     {K::kSkillThings, [](C& r, int fd, int32_t id, const W& c, uint32_t) { r.onThings(fd, id, c); }},
-    {K::kSkillAnswer, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_logo.onSkillAnswer(fd, c.id, c.value, now); }},
+    {K::kSkillAnswer, [](C& r, int fd, int32_t, const W& c, uint32_t now) {
+       r.m_logo.onSkillAnswer(fd, c.id, c.value, now);
+       if (r.m_game.on_answer != nullptr && r.m_hub != nullptr && fd == r.m_hub->server()) r.m_game.on_answer(c.id, c.value, now);  // R34: back_ok
+     }},
     {K::kSkillDrive, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_motion.onSkillDrive(fd, c.id, c.v, c.rate_ddps, now); }},
     {K::kSkillDone, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_logo.onSkillEnd(fd, c.id, logo::SkillEnd::kDone, now); }},
     {K::kSkillFailed, [](C& r, int fd, int32_t, const W& c, uint32_t now) { r.m_logo.onSkillEnd(fd, c.id, c.skill_end, now); }},
     // Plan Z2b-1 (bridge LLD R27.1): around a teach; the hub ignores it from anyone but the server
     {K::kSkillLearning, [](C& r, int fd, int32_t, const W& c, uint32_t) { if (r.m_hub != nullptr) r.m_hub->onLearning(fd, c.on); }},
+    // R34.3: the engine's person estimate, from the server only (game mode takes it from the hub)
+    {K::kPerson, [](C& r, int fd, int32_t, const W& c, uint32_t now) {
+       core::PersonEst e;
+       if (r.m_hub == nullptr || !r.m_hub->onPerson(fd, c.person, c.person_age_ms, now) || !r.m_hub->takePerson(e)) return;
+       if (r.m_game.on_person != nullptr) r.m_game.on_person(e, now);  // game mode gets it now, not a loop later
+     }},
 };
 
 // hello: "ai-skills" registers the one skill server (another fd's gets BUSY, no welcome); everyone gets a welcome;
@@ -73,7 +82,7 @@ void CommandRouter::onHello(int fd, const core::WsCommand& c) {
 bool CommandRouter::registerServer(int fd, const core::WsCommand& c) {
   char ip[16] = "";
   if (!ports::clientPeerIp(fd, ip, sizeof ip)) ip[0] = '\0';
-  return m_hub->onHello(fd, ip, c.page_port, c.page_proto) != core::SkillHub::Decision::kBusy;
+  return m_hub->onHello(fd, ip, c.page_port, c.page_proto, c.people) != core::SkillHub::Decision::kBusy;
 }
 
 void CommandRouter::sendAiAt(int fd) {
@@ -114,6 +123,7 @@ void CommandRouter::onText(int fd, const char* text, size_t len, uint32_t post_s
   const int32_t id = c.has_id ? c.id : -1;
   if (c.kind == core::WsCmdKind::kStop) {
     m_drive.onStop(fd, id, post_seq, now);  // fast path: may overtake its own kWsOpen - never lost
+    if (m_game.on_stop != nullptr) m_game.on_stop(now);  // R34: a person's STOP ends game mode (Held too)
     return;
   }
   if (!m_out.clients().contains(fd) || !m_drive.admitted(fd, c.kind, id, post_seq, now)) return;

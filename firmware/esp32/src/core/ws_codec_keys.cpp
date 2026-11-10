@@ -332,7 +332,9 @@ bool readField(const char* key, Reader& r, WsCommand& c, Seen& s) {
   for (const KeyRow& k : kKeys) {
     if (strcmp(key, k.key) == 0) return k.read(r, c, s);
   }
-  return r.skip();
+  bool known = false;
+  const bool ok = readGameKey(key, r, c, s, known);
+  return known ? ok : r.skip();
 }
 
 }  // namespace codec

@@ -21,6 +21,7 @@ struct Sensors {
   bool tilted = false;
   int32_t battery_milli = 100000;   // %
   int32_t timer_milli = 0;          // seconds since the start
+  bool caught = false;              // game mode: the person has caught the tank (CAUGHT?, bridge LLD R34)
 };
 
 enum class VmStatus : uint8_t { kYield, kLine, kEffect, kHalt, kStop, kError };

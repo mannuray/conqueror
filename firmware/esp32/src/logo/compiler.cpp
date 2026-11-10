@@ -33,7 +33,7 @@ constexpr WordUse kUses[] = {
     {"IFELSE", WordRole::kIfElse, 0}, {"WHILE", WordRole::kWhile, 0}, {"WAIT UNTIL", WordRole::kWaitUntil, 0},
     {"STOP", WordRole::kStop, 0}, {"OUTPUT", WordRole::kOutput, 0}, {"LAUNCH", WordRole::kLaunch, 0},
     sensor("DISTANCE", Sensor::kDistance), sensor("OBSTACLE?", Sensor::kObstacle),
-    sensor("BLOCKED?", Sensor::kBlocked), sensor("HEADING", Sensor::kHeading), sensor("TILTED?", Sensor::kTilted),
+    sensor("BLOCKED?", Sensor::kBlocked), sensor("CAUGHT?", Sensor::kCaught), sensor("HEADING", Sensor::kHeading), sensor("TILTED?", Sensor::kTilted),
     sensor("BATTERY", Sensor::kBattery), sensor("TIMER", Sensor::kTimer), builtin("RANDOM", Builtin::kRandom),
     builtin("REMAINDER", Builtin::kRemainder), builtin("ABS", Builtin::kAbs), builtin("ROUND", Builtin::kRound),
     builtin("REPCOUNT", Builtin::kRepcount),
@@ -41,10 +41,11 @@ constexpr WordUse kUses[] = {
 
 }  // namespace
 
-bool Compiler::compile(const Node* program, bool handles_obstacles, Program& out) {
+bool Compiler::compile(const Node* program, bool handles_obstacles, Program& out, bool game) {
   m_out = &out;
   out.clear();
   out.handles_obstacles = handles_obstacles;
+  out.game = game;
   m_failed = false;
   m_ns = 0;
   for (uint8_t i = 0; i < m_parser.procCount(); ++i) {

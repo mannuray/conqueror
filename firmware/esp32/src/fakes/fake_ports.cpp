@@ -85,6 +85,13 @@ bool saveGyroScale(uint16_t v) {
   world().gyro = v;
   return true;
 }
+uint8_t loadGameCap() { return world().game_cap; }
+bool saveGameCap(uint8_t pct) {
+  if (!world().save_ok) return false;
+  world().saved_game_cap.push_back(pct);
+  world().game_cap = pct;
+  return true;
+}
 bool wifiPost(const core::WifiRequest& r) {
   if (!world().wifi_post_ok) return false;
   world().wifi_posted.push_back(r);

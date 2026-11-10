@@ -73,6 +73,12 @@ LinkOut MotionLink::endSkill(EndReason why, uint32_t now_ms) {
   return finished(m_svc.endSkill(why), fd, now_ms);  // STOP while its program's phone still owns the body
 }
 
+LinkOut MotionLink::keepAway(uint32_t now_ms) {
+  if (!m_svc.active()) return LinkOut{};
+  const int fd = m_svc.ownerFd();
+  return finished(m_svc.cancel(EndReason::kDone), fd, now_ms);  // STOP while its client still owns the body
+}
+
 LinkOut MotionLink::hold(uint32_t now_ms) {
   if (m_svc.kind() != PrimKind::kGo) return LinkOut{};
   const int fd = m_svc.ownerFd();

@@ -58,6 +58,7 @@ class MotionController {
   // skill_failed - ends a running skill with a STOP (nothing else is ended).
   bool startSkill(int fd, int32_t id, uint32_t now, core::BridgeReason& why);
   void endSkill(core::EndReason why, uint32_t now);
+  void keepAway(uint32_t now) { run(m_motion.keepAway(now), now); }  // R34: the keep-out ends it, done
   bool ownedBy(int fd) const;
   void keepLogoGo(uint32_t now) { m_motion.service().keepGo(now); }  // Tank Logo LLD §22: each tick while going
   bool active() const { return m_motion.service().active(); }

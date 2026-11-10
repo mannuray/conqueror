@@ -14,6 +14,7 @@ core::FrameTx tx;
 core::BodyLink link(tx);
 app::TelemetryPublisher tel(out, link);
 int g_alarm = -1;
+int g_restart = 0;
 int g_online = 0, g_offline = 0, g_owner = -1, g_button = 0, g_motion = -1, g_ack = -1, g_stop = -1, g_value = -1;
 
 app::UnoEventRouter::Sinks sinks() {
@@ -27,6 +28,7 @@ app::UnoEventRouter::Sinks sinks() {
   s.stop_result = [](uint8_t st) { g_stop = st; };
   s.setting_value = [](uint8_t, int32_t v) { g_value = v; };
   s.alarm = [](uint8_t e, uint32_t) { g_alarm = e; };
+  s.body_restart = [](uint32_t) { ++g_restart; };
   return s;
 }
 app::UnoEventRouter router(out, logbook, tel, link);
@@ -41,7 +43,7 @@ void setUp() {
   ws = core::WsClients();
   ws.add(3, 0);
   logbook = core::EventLog();
-  g_online = g_offline = g_button = 0;
+  g_online = g_offline = g_button = g_restart = 0;
   g_owner = g_motion = g_ack = g_stop = g_value = g_alarm = -1;
   router.setSinks(sinks());
 }
@@ -108,6 +110,13 @@ void test_alarms_go_to_the_alarm_sink() {
   TEST_ASSERT_EQUAL(static_cast<int>(proto::EventKind::kTilted), g_alarm);
 }
 
+// R34 (review C1): the Uno restarted while synced - only the restart sink hears it (game mode arms again).
+void test_a_restart_reaches_its_sink() {
+  router.route({core::LinkEventKind::kBodyRestarted, 0, 0, 0, 0, 0}, 0);
+  TEST_ASSERT_EQUAL(1, g_restart);
+  TEST_ASSERT_EQUAL(0, g_online);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_uno_event_broadcast_and_logged_except_button_and_unblocked);
@@ -118,5 +127,6 @@ int main() {
   RUN_TEST(test_body_online_broadcast_logged_and_sunk);
   RUN_TEST(test_answers_reach_their_sinks);
   RUN_TEST(test_alarms_go_to_the_alarm_sink);
+  RUN_TEST(test_a_restart_reaches_its_sink);
   return UNITY_END();
 }

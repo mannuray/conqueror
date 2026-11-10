@@ -25,6 +25,7 @@ struct Caps {
 struct CheckResult {
   bool ok = false;
   bool handles_obstacles = false;  // uses BLOCKED? (design-notes §82 h)
+  bool game = false;               // a game word anywhere: a game run (Tank Logo LLD §27.2, bridge LLD R34)
   uint64_t tail_callees = 0;       // bit i: procedure i is called in tail position
 };
 

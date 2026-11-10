@@ -5,9 +5,10 @@
 namespace cq {
 namespace core {
 
-SkillHub::Decision SkillHub::onHello(int fd, const char* peer_ip, uint16_t page_port, uint8_t page_proto) {
+SkillHub::Decision SkillHub::onHello(int fd, const char* peer_ip, uint16_t page_port, uint8_t page_proto, bool people) {
   if (m_server >= 0 && m_server != fd) return Decision::kBusy;
   m_server = fd;
+  m_people = people;
   m_page_url[0] = '\0';
   m_page_proto = 0;
   if (peer_ip != nullptr && peer_ip[0] != '\0' && page_port >= 1024) {
@@ -15,6 +16,21 @@ SkillHub::Decision SkillHub::onHello(int fd, const char* peer_ip, uint16_t page_
     m_page_proto = page_proto;
   }
   return Decision::kOk;
+}
+
+bool SkillHub::onPerson(int fd, const PersonEst& e, uint16_t age_ms, uint32_t now) {
+  if (fd < 0 || fd != m_server) return false;
+  m_person = e;
+  m_person.at_ms = now - age_ms;
+  m_has_person = true;
+  return true;
+}
+
+bool SkillHub::takePerson(PersonEst& out) {
+  if (!m_has_person) return false;
+  out = m_person;
+  m_has_person = false;
+  return true;
 }
 
 void SkillHub::onLearning(int fd, bool on) {
@@ -86,6 +102,8 @@ int32_t SkillHub::onClose(int fd) {
   m_page_url[0] = '\0';
   m_page_proto = 0;
   m_learning = false;
+  m_people = false;
+  m_has_person = false;
   return lease;
 }
 

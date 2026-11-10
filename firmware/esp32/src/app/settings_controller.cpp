@@ -205,13 +205,14 @@ void SettingsController::onCalib(int fd, int32_t id, const core::WsCommand& c, u
     ch.calib_what = static_cast<uint8_t>(c.calib_reset);
     return askConfirm(ch, now);
   }
-  if (!c.has_cpm && !c.has_gyro_scale) return m_h.send_calib(fd);
+  if (!c.has_cpm && !c.has_gyro_scale && !c.has_game_cap) return m_h.send_calib(fd);
   if (m_h.driver_fd() != fd) return m_out.nack(fd, id, core::BridgeReason::kNotOwner);  // Plan O (§91)
   if (m_h.motion_active()) return m_out.nack(fd, id, core::BridgeReason::kBusy);
   ch.kind = core::ChangeKind::kCalibSet;
-  ch.calib_what = c.has_gyro_scale ? 2 : 0;  // R19: one value per message, the gyro scale first
+  ch.calib_what = c.has_game_cap ? 3 : (c.has_gyro_scale ? 2 : 0);  // one value per message (R34, R19 first)
   ch.cpm = c.cpm;
   ch.gyro = c.gyro_scale;
+  ch.game_cap = c.game_cap;
   askConfirm(ch, now);
 }
 
@@ -227,11 +228,23 @@ void SettingsController::applyWifi(core::PendingChange& ch) {
 // Plan O: checked again now - no primitive may be running (the save itself is not motion).
 void SettingsController::applyCalibSet(const core::PendingChange& ch) {
   if (ch.calib_what == 2) return applyGyroScale(ch, ch.gyro);
+  if (ch.calib_what == 3) return applyGameCap(ch);
   if (m_h.motion_active() || !ports::saveCpm(ch.cpm)) {
     m_out.nack(ch.fd, ch.id, core::BridgeReason::kBusy);
     return;
   }
   *m_h.cpm = ch.cpm;
+  m_out.to(ch.fd, core::jsonConfirmed(m_out.buf(), m_out.cap(), core::changeName(ch.kind)));
+  m_h.send_calib(ch.fd);
+}
+
+// R34: save the game's speed cap (the track % measured for ~25 cm/s) and hand it to game mode.
+void SettingsController::applyGameCap(const core::PendingChange& ch) {
+  if (m_h.motion_active() || !ports::saveGameCap(ch.game_cap)) {
+    m_out.nack(ch.fd, ch.id, core::BridgeReason::kBusy);
+    return;
+  }
+  if (m_h.set_game_cap != nullptr) m_h.set_game_cap(ch.game_cap);
   m_out.to(ch.fd, core::jsonConfirmed(m_out.buf(), m_out.cap(), core::changeName(ch.kind)));
   m_h.send_calib(ch.fd);
 }

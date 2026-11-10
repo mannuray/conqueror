@@ -13,7 +13,7 @@ using namespace detail;
 namespace {
 
 const char* const kSkillNames[] = {"find", "wander", "explore", "setxy"};
-const char* const kEndWhy[] = {"stop", "deadman", "page", "owner", "ended"};
+const char* const kEndWhy[] = {"stop", "deadman", "page", "owner", "ended", "caught"};
 
 // The skill's own argument as `,"key":value` (nothing for explore).
 int skillArg(char* out, size_t cap, const logo::Action& a, FwdLeft to) {
@@ -50,6 +50,22 @@ size_t jsonSkillStart(char* out, size_t cap, int32_t id, const logo::Action& a, 
   }
   return fmt(out, cap, "{\"t\":\"skill_start\",\"id\":%ld,\"skill\":\"%s\"%s%s}", static_cast<long>(id),
              kSkillNames[static_cast<uint8_t>(a.skill)], arg, ar);
+}
+
+size_t jsonSkillAskBackOk(char* out, size_t cap, int32_t id, int16_t cm) {
+  return fmt(out, cap, "{\"t\":\"skill_ask\",\"id\":%ld,\"q\":\"back_ok\",\"cm\":%d}", static_cast<long>(id),
+             static_cast<int>(cm));
+}
+
+size_t jsonGame(char* out, size_t cap, bool on) {
+  return fmt(out, cap, "{\"t\":\"game\",\"on\":%s}", on ? "true" : "false");
+}
+
+size_t jsonGameEvent(char* out, size_t cap, uint32_t seq, uint32_t tank_ms, GameState s, uint16_t caught) {
+  static const char* const kStates[] = {"off", "arming", "playing", "caught", "held"};
+  return fmt(out, cap, "{\"t\":\"ev\",\"seq\":%lu,\"tank_ms\":%lu,\"kind\":\"game\",\"state\":\"%s\",\"caught\":%u}",
+             static_cast<unsigned long>(seq), static_cast<unsigned long>(tank_ms), kStates[static_cast<uint8_t>(s)],
+             static_cast<unsigned>(caught));
 }
 
 size_t jsonSkillEnd(char* out, size_t cap, int32_t id, LeaseEnd why) {

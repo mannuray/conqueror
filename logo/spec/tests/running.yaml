@@ -457,3 +457,21 @@
     T 42
   does: [SAY 42, WAIT 1]
   ends: finished
+
+# Plan G1 (Tank Logo LLD §27): a game run - CAUGHT? anywhere makes it one - gets 15 minutes, its own error.
+- name: a game's time limit
+  source: FOREVER [ IF CAUGHT? [ BEEP ] WAIT 60 ]
+  does: [WAIT 60, WAIT 60, WAIT 60, WAIT 60, WAIT 60, WAIT 60, WAIT 60, WAIT 60, WAIT 60, WAIT 60, WAIT 60, WAIT 60, WAIT 60, WAIT 60, WAIT 60]
+  ends: {error: 7063, line: 1}
+
+- name: CAUGHT? reads the tank being caught
+  source: IFELSE CAUGHT? [ BEEP ] [ FD 10 ]
+  world: {caught: true}
+  does: [BEEP]
+  ends: finished
+
+- name: CAUGHT? is FALSE when nobody caught the tank
+  source: IFELSE CAUGHT? [ BEEP ] [ FD 10 ]
+  does: [FORWARD 10]
+  ends: finished
+

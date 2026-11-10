@@ -28,6 +28,8 @@ class UnoChannel {
   // ack_status, or kLogoTimeout / kLogoOffline when no answer came.
   static constexpr uint8_t kLogoTimeout = 0xFE, kLogoOffline = 0xFD;
   void setLogoDone(void (*done)(uint8_t status)) { m_logo_done = done; }
+  // R34: the answer to game mode's ENVELOPE, and whether it was the game's (CHILD_PLAY) or the clearing one (C2).
+  void setGameDone(void (*done)(uint8_t status, bool on)) { m_game_done = done; }
   core::BodyLink& link() { return m_link; }
   const core::BodyLink& link() const { return m_link; }
   bool empty() const { return m_ops.empty(); }
@@ -45,6 +47,8 @@ class UnoChannel {
   void backstop(uint32_t now);
   void answerAll(core::BridgeReason r);  // the in-flight request and every queued one, then empty
   bool logo(const core::AckedOp& op, uint8_t status);  // true: the program's request, answered through its sink
+  bool game(const core::AckedOp& op, uint8_t status);  // true: game mode's ENVELOPE, answered through its sink
+  bool internal(const core::AckedOp& op, uint8_t status);  // the program's or the game's: answered, true
 
   core::BodyLink& m_link;
   core::FrameTx& m_tx;
@@ -53,6 +57,7 @@ class UnoChannel {
   Waiter m_stop_waiters[kMaxStopWaiters] = {};
   size_t m_stop_n = 0;
   void (*m_logo_done)(uint8_t status) = nullptr;
+  void (*m_game_done)(uint8_t status, bool on) = nullptr;
 };
 
 }  // namespace app

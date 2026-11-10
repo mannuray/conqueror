@@ -172,12 +172,18 @@ void BodyLink::onHello(const proto::HelloMsg& h) {
   emitNext(proto::OwnerHintMsg{static_cast<uint8_t>(m_hint)});
   m_hs = HandshakeState::kSynced;
   m_incompatible_reported = false;
-  if (!was_synced) pushEvent({LinkEventKind::kBodyOnline, 0, 0, 0, 0, 0});
+  pushEvent({was_synced ? LinkEventKind::kBodyRestarted : LinkEventKind::kBodyOnline, 0, 0, 0, 0, 0});
 }
 
 bool BodyLink::sendDrive(int8_t v, int8_t w, proto::Source src) {
   if (!synced()) return false;
+  if (m_gate != nullptr && !m_gate(m_gate_ctx, v, w, src)) v = w = 0;  // R34: held / clamped by game mode
   return emitNext(proto::DriveMsg{static_cast<uint8_t>(src), v, w}, Lane::kMotion);
+}
+
+bool BodyLink::sendEnvelope(uint8_t speed_cap, uint8_t accel_cap, uint8_t lock_bits, uint32_t now_ms,
+                            uint8_t& seq_out) {
+  return sendAcked(proto::EnvelopeMsg{speed_cap, accel_cap, lock_bits}, now_ms, seq_out);
 }
 
 bool BodyLink::sendCamJoy(int8_t x, int8_t y, bool active) {

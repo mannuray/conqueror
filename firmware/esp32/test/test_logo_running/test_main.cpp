@@ -154,12 +154,13 @@ void runCase(const RunCase& c) {
   Caps caps;
   caps.ai = true;  // the AI words are allowed (the checker's own cases are the conformance tests)
   const CheckResult r = Checker(p, c.src, g_t, g_d).check(prog, caps);
-  const bool built = r.ok && Compiler(p, c.src, g_t, g_d).compile(prog, r.handles_obstacles, g_prog);
+  const bool built = r.ok && Compiler(p, c.src, g_t, g_d).compile(prog, r.handles_obstacles, g_prog, r.game);
   char why[256];
   snprintf(why, sizeof why, "%s: refused before running: %s", c.name, g_d.first() ? g_d.first()->msg : "");
   TEST_ASSERT_TRUE_MESSAGE(built, why);
   World w(c);
   w.tel.distance_mm = static_cast<uint16_t>(c.distance_cm * 10);
+  w.tel.caught = c.caught;
   RunController rc(g_vm, g_launched);
   rc.start(g_prog, RunConfig(), w.tel, w.now);
   const RunOut end = runToEnd(w, rc);

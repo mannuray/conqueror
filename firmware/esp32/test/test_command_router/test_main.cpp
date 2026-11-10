@@ -391,6 +391,38 @@ void test_skill_drive_under_a_live_lease_drives() {
   TEST_ASSERT_EQUAL(40, m.v);
 }
 
+// Plan G1 (bridge LLD R34): a person's STOP and the engine's answers reach game mode.
+int g_game_stops = 0;
+int32_t g_game_answer = -1;
+void test_stop_and_answers_reach_game_mode() {
+  sync();
+  app::CommandRouter::GameHooks gh;
+  gh.on_stop = [](uint32_t) { ++g_game_stops; };
+  gh.on_answer = [](int32_t id, int32_t, uint32_t) { g_game_answer = id; };
+  router->setGameHooks(gh);
+  text(9, "{\"t\":\"stop\",\"id\":1}", 100);
+  TEST_ASSERT_EQUAL(1, g_game_stops);
+  ws.add(7, 0);
+  hub.onHello(7);
+  text(7, "{\"t\":\"skill_answer\",\"id\":42,\"value\":true}", 200);
+  TEST_ASSERT_EQUAL(42, g_game_answer);
+}
+
+int16_t g_game_person = -1;
+void test_a_person_estimate_reaches_game_mode_at_once() {  // review I6
+  sync();
+  app::CommandRouter::GameHooks gh;
+  gh.on_person = [](const core::PersonEst& e, uint32_t) { g_game_person = e.d_cm; };
+  router->setGameHooks(gh);
+  ws.add(7, 0);
+  ws.add(8, 0);
+  hub.onHello(7);
+  text(8, "{\"t\":\"person\",\"seen\":true,\"d_cm\":44,\"bearing\":0}", 100);  // not the server
+  TEST_ASSERT_EQUAL_INT16(-1, g_game_person);
+  text(7, "{\"t\":\"person\",\"seen\":true,\"d_cm\":44,\"bearing\":0}", 110);
+  TEST_ASSERT_EQUAL_INT16(44, g_game_person);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_every_kind_has_a_route_except_the_invalid_ones);
@@ -415,5 +447,7 @@ int main() {
   RUN_TEST(test_ai_page_hello_gets_welcome_and_ai_at);
   RUN_TEST(test_other_clients_get_no_ai_at);
   RUN_TEST(test_ai_page_without_engine_gets_null);
+  RUN_TEST(test_stop_and_answers_reach_game_mode);
+  RUN_TEST(test_a_person_estimate_reaches_game_mode_at_once);
   return UNITY_END();
 }

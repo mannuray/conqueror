@@ -5,12 +5,19 @@
 
 namespace cq {
 namespace logo {
+// The run's time limit: 0 while there is time; a game run gets 15 minutes and its own error (bridge LLD R34).
+uint16_t RunController::timeUp(uint32_t now_ms) const {
+  const uint32_t limit_s = m_p->game ? gen::kGameRunTimeS : gen::kRunTimeS;
+  if (now_ms - m_start < limit_s * 1000u) return 0;
+  return m_p->game ? 7063 : 7041;
+}
+
 // One part's turn, then (when it had nothing for the host) the other's: at most one RunOut a tick. The parts take
 // turns going first, so neither waits for the other's every step (LLD §26.3 rule 5).
 RunOut RunController::tick(const RunTelem& t, uint32_t now_ms) {
   RunOut out;
   if (!active()) return out;
-  if (now_ms - m_start >= static_cast<uint32_t>(gen::kRunTimeS) * 1000u) return end(7041);
+  if (const uint16_t code = timeUp(now_ms)) return end(code);
   m_first = static_cast<uint8_t>(1 - m_first);
   for (uint8_t k = 0; k < 2 && !(out.act || out.line || out.ended); ++k) {
     m_cur = static_cast<uint8_t>((m_first + k) % 2);

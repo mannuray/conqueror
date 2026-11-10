@@ -19,6 +19,7 @@ version: 2
 
 limits:
   run_time_s: 300            # the whole program
+  game_run_time_s: 900       # a game run (Tank Logo LLD §27, bridge LLD R34): its own, longer limit
   wait_s: 60                 # WAIT and WAIT UNTIL
   move_cm: 500               # FORWARD / BACK per step
   source_bytes: 8192
@@ -575,6 +576,14 @@ words:
     inputs: [{name: thing, type: any}, {name: seconds, type: number, unit: s, range: [1, 60]}]
     needs: [ai]
     does: follows the thing, keeping a safe distance
+  - name: CAUGHT?
+    level: 2
+    kind: reporter
+    group: sense
+    gives: TRUE while the person has caught the tank (it stopped and beeped)
+    does: using it anywhere makes the program a game run (Tank Logo LLD §27.2) - the child-play limits are on for all of it
+    help: has the baby caught me?
+    example: IF CAUGHT? [ WAIT 3 ]
   - name: HOWMANY
     level: 3
     kind: reporter
@@ -640,3 +649,6 @@ errors:   # PROGRAM 7000-7999 (Spec 5 §8); {..} are filled in by the checker. E
   7057: "{word} moves the tank - only the main program can do that, not LAUNCH."
   7058: "Only one LAUNCH can run at a time."
   7059: "OUTPUT can't be used inside LAUNCH - the launched part gives nothing back."
+  7060: "The game can't start - the tank's speed limit isn't set or didn't reach the tank."
+  7061: "The game needs the seeing test first."
+  7063: "The game's time limit (15 minutes) is up."

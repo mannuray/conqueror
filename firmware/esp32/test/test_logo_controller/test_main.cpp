@@ -52,6 +52,12 @@ core::BridgeReason g_skill_why = core::BridgeReason::kBodyOffline;
 int g_skill_starts = 0, g_skill_ends = 0, g_skill_fd = -1;
 int32_t g_skill_id = -1;
 core::EndReason g_skill_end_why = core::EndReason::kDone;
+// Plan G1 (bridge LLD R34): game mode's hooks
+uint16_t g_game_refuse = 0;
+bool g_game_ready = true, g_game_caught = false, g_game_seen = false;
+int g_game_ends = 0;
+int16_t g_game_backing = 0;
+uint8_t (*g_game_cap_fn)() = nullptr;
 
 void unoSends(const uint8_t* f, size_t n, uint32_t now) { link->onUartBytes(f, n, now); }
 
@@ -113,6 +119,15 @@ void hooks() {
     e.id = g_skill_id;
     lc->onPrimitiveEnd(e, now);
   };
+  h.game_start = [](bool game, uint32_t) {
+    g_game_seen = game;
+    return g_game_refuse;
+  };
+  h.game_ready = [] { return g_game_ready; };
+  h.game_caught = [] { return g_game_caught; };
+  h.game_end = [](uint32_t) { ++g_game_ends; };
+  h.game_backing = [](int16_t cm) { g_game_backing = cm; };
+  h.game_cap = [] { return g_game_cap_fn != nullptr ? g_game_cap_fn() : static_cast<uint8_t>(0); };
   lc->setHooks(h);
   lc->setSkillHub(&g_hub);
 }
@@ -210,6 +225,12 @@ void setUp() {
   g_skill_starts = g_skill_ends = 0;
   g_skill_fd = -1;
   g_skill_id = -1;
+  g_game_refuse = 0;
+  g_game_ready = true;
+  g_game_caught = g_game_seen = false;
+  g_game_ends = 0;
+  g_game_backing = 0;
+  g_game_cap_fn = nullptr;
 }
 void tearDown() {}
 
@@ -806,6 +827,77 @@ void test_skill_messages_without_a_program_are_dropped() {
   TEST_ASSERT_EQUAL(-1, g_hub.server());
 }
 
+// ---- Plan G1 (bridge LLD R34, Tank Logo LLD §27): game mode's hooks
+
+void test_a_game_run_tells_game_mode_and_a_refusal_ends_it_with_the_code() {
+  g_game_refuse = 7061;
+  run("IF CAUGHT? [ BEEP ] FD 10");
+  TEST_ASSERT_TRUE(g_game_seen);  // the checker's flag reached game mode
+  ticks(2);
+  TEST_ASSERT_FALSE(lc->running());
+  TEST_ASSERT_EQUAL(0, g_motions.size());
+  TEST_ASSERT_TRUE(sent(4, "7061"));
+  TEST_ASSERT_EQUAL(1, g_game_ends);
+}
+
+void test_a_non_game_run_is_not_a_game() {
+  run("FD 10");
+  TEST_ASSERT_FALSE(g_game_seen);
+}
+
+void test_a_game_waits_until_armed() {
+  g_game_ready = false;
+  run("IF CAUGHT? [ BEEP ] FD 10");
+  ticks(5);
+  TEST_ASSERT_EQUAL(0, g_motions.size());
+  g_game_ready = true;
+  ticks(2);
+  TEST_ASSERT_EQUAL(1, g_motions.size());
+}
+
+void test_caught_reaches_the_program() {
+  g_game_caught = true;
+  run("IFELSE CAUGHT? [ BEEP ] [ FD 10 ]");
+  ticks(2);
+  TEST_ASSERT_EQUAL(0, g_motions.size());
+  TEST_ASSERT_EQUAL(1, g_ops.size());  // the BEEP
+}
+
+void test_a_backward_move_tells_game_mode_its_length() {
+  run("IF CAUGHT? [ BEEP ] BK 20");
+  ticks(2);
+  TEST_ASSERT_EQUAL_INT16(20, g_game_backing);
+  TEST_ASSERT_EQUAL(1, g_motions.size());
+}
+
+void test_game_mode_ends_the_run_with_its_code() {
+  run("IF CAUGHT? [ BEEP ] FD 10");
+  ticks(1);
+  lc->endWith(7052, g_now);
+  TEST_ASSERT_FALSE(lc->running());
+  TEST_ASSERT_TRUE(sent(4, "7052"));
+  TEST_ASSERT_EQUAL(1, g_game_ends);
+}
+
+void test_caught_ends_a_running_skill_as_caught_and_the_program_goes_on() {
+  runAi("WANDER 5 FD 10");
+  ticks(1);
+  startedSkill();
+  lc->onCaught(g_now);
+  TEST_ASSERT_TRUE(sent(kServer, "\"why\":\"caught\""));
+  ticks(2);
+  TEST_ASSERT_TRUE(lc->running());  // not an error
+  TEST_ASSERT_EQUAL(1, g_motions.size());  // FD 10 runs next
+}
+
+void test_a_games_moves_are_within_its_speed_cap() {  // review I7
+  g_game_cap_fn = [] { return static_cast<uint8_t>(50); };  // a game at a 50 % cap
+  run("SPEED 100 FD 10");
+  ticks(3);
+  TEST_ASSERT_EQUAL(1, g_motions.size());
+  TEST_ASSERT_EQUAL_UINT8(50, g_motions[0].speed_pct);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_run_starts_and_carries_out_moves);
@@ -858,5 +950,13 @@ int main() {
   RUN_TEST(test_no_server_is_7052);
   RUN_TEST(test_a_refused_skill_drive_is_7021_and_no_lease);
   RUN_TEST(test_skill_messages_without_a_program_are_dropped);
+  RUN_TEST(test_a_game_run_tells_game_mode_and_a_refusal_ends_it_with_the_code);
+  RUN_TEST(test_a_non_game_run_is_not_a_game);
+  RUN_TEST(test_a_game_waits_until_armed);
+  RUN_TEST(test_caught_reaches_the_program);
+  RUN_TEST(test_a_backward_move_tells_game_mode_its_length);
+  RUN_TEST(test_game_mode_ends_the_run_with_its_code);
+  RUN_TEST(test_caught_ends_a_running_skill_as_caught_and_the_program_goes_on);
+  RUN_TEST(test_a_games_moves_are_within_its_speed_cap);
   return UNITY_END();
 }

@@ -14,6 +14,8 @@ uint16_t motionStoreLoadCoast();        // bridge LLD R18.2: learned turn coast 
 bool motionStoreSaveCoast(uint16_t ms);
 uint16_t motionStoreLoadGyroScale();    // bridge LLD R19: gyro scale (1e-4), default 10000, 9000..11000
 bool motionStoreSaveGyroScale(uint16_t scale_e4);
+uint8_t motionStoreLoadGameCap();       // bridge LLD R34: the game's speed cap (track %), 0 = not measured
+bool motionStoreSaveGameCap(uint8_t pct);
 
 }  // namespace net
 }  // namespace cq

@@ -54,6 +54,8 @@ uint16_t loadCoast() { return net::motionStoreLoadCoast(); }
 bool saveCoast(uint16_t v) { return net::motionStoreSaveCoast(v); }
 uint16_t loadGyroScale() { return net::motionStoreLoadGyroScale(); }
 bool saveGyroScale(uint16_t v) { return net::motionStoreSaveGyroScale(v); }
+uint8_t loadGameCap() { return net::motionStoreLoadGameCap(); }
+bool saveGameCap(uint8_t pct) { return net::motionStoreSaveGameCap(pct); }
 
 
 bool wifiPost(const core::WifiRequest& r) { return net::wifiPost(r); }

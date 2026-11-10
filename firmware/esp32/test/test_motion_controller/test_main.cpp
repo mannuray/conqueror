@@ -510,6 +510,20 @@ void test_end_skill_ends_a_done_skill_with_a_stop_and_nothing_else() {
 }
 
 
+// Plan G1 (bridge LLD R34): the keep-out ends the running move normally ("kept away") - the program goes on.
+void test_keep_away_ends_a_logo_move_as_done() {
+  syncedWithEncoders();
+  logoHooks();
+  core::BridgeReason why = core::BridgeReason::kBusy;
+  TEST_ASSERT_TRUE(mc->startLogo(3, logoMove(50), 100, why));
+  mc->keepAway(200);
+  TEST_ASSERT_FALSE(mc->active());
+  TEST_ASSERT_EQUAL(1, g_logo_ends);
+  TEST_ASSERT_EQUAL(core::EndReason::kDone, g_logo_reason);
+  mc->keepAway(300);  // nothing running: nothing happens
+  TEST_ASSERT_EQUAL(1, g_logo_ends);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_begin_loads_counts_and_roll_on);
@@ -541,5 +555,6 @@ int main() {
   RUN_TEST(test_skill_deadman_ends_it_with_a_stop);
   RUN_TEST(test_skill_start_is_refused_like_a_logo_motion);
   RUN_TEST(test_end_skill_ends_a_done_skill_with_a_stop_and_nothing_else);
+  RUN_TEST(test_keep_away_ends_a_logo_move_as_done);
   return UNITY_END();
 }

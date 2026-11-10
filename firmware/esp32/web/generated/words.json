@@ -1239,6 +1239,17 @@
    "example": ""
   },
   {
+   "name": "CAUGHT?",
+   "aliases": [],
+   "kind": "reporter",
+   "level": 2,
+   "group": "sense",
+   "needs": [],
+   "inputs": [],
+   "help": "has the baby caught me?",
+   "example": "IF CAUGHT? [ WAIT 3 ]"
+  },
+  {
    "name": "HOWMANY",
    "aliases": [],
    "kind": "reporter",

@@ -3535,3 +3535,14 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   its goal (the goal is never inside the follow distance); ESCAPE's away leg aims 15 cm past `cm`.
 - Next with the owner: G1's stand checks and P0, then `cq-drive serve` from this branch with an adult and
   `REPEAT 30 [ IF CAUGHT? [ WAIT 3 ] FACE "person WAIT 1 ]` (the floor, STOP in hand); then Plan G3.
+
+## 229. Turning pictures count for the person; ESCAPE turns 90° (owner, 2026-11-10: "yes")
+- Plan G2's final review found two clashes with the bridge's game rules (R34): pictures taken spinning were not
+  used, so during any turn the person's estimate aged past the bridge's 300 ms deadman (FACE's turns stutter, over
+  1 s the game holds, 7052); and ESCAPE's 180° turn put the person behind the camera, where the bridge's "hold, then
+  look" blocks the drive away.
+- Decided: (1) the person check also uses pictures skipped only for turning (the gyro's heading places them, as
+  FIND's glimpses) - no bridge change; (2) ESCAPE turns about 90° to a side with a route, keeps the camera on the
+  person and drives sideways away, then turns back - the person stays in view, R34 unchanged (no exemption
+  loosening a safety rule). AI engine LLD §28.9.
+

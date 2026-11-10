@@ -13,6 +13,8 @@ constexpr const char* kEffectWords[] = {"FORWARD", "BACK",  "RIGHT", "LEFT", "SP
                                         "LAUNCH"};
 constexpr const char* kAskWords[] = {"SEE?", "HOWFAR"};
 constexpr const char* kSkillWords[] = {"FIND", "WANDER", "EXPLORE", "SETXY", "FACE", "ESCAPE", "FOLLOW"};
+static_assert(sizeof kSkillWords / sizeof kSkillWords[0] == static_cast<size_t>(SkillKind::kFollow) + 1,
+              "one word per SkillKind");
 static_assert(sizeof kEffectWords / sizeof kEffectWords[0] == static_cast<size_t>(EffectKind::kCount), "one per kind");
 
 constexpr uint8_t kMaxDepth = 64;

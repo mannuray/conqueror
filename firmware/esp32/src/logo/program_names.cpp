@@ -66,7 +66,7 @@ constexpr Example kExamples[] = {
      "; Try this: change 70 (how near before it backs off), 100 (how far before it follows) or 5 (minutes).\n"
      "TO CHASE :cm :near :far\n"
      "  IFELSE :cm < 0 [ WAIT 1 ] [\n"
-     "    IFELSE :cm < :near [ ESCAPE \"baby 40 ] [ IF :cm > :far [ FOLLOW \"baby 2 ] ]\n"
+     "    IFELSE :cm < :near [ ESCAPE \"baby 40 WAIT 1 ] [ IF :cm > :far [ FOLLOW \"baby 2 ] ]\n"
      "    FACE \"baby\n"
      "  ]\n"
      "END\n"

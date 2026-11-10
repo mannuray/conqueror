@@ -921,9 +921,22 @@ void test_caught_ends_a_running_skill_as_caught_and_the_program_goes_on() {
   startedSkill();
   lc->onCaught(g_now);
   TEST_ASSERT_TRUE(sent(kServer, "\"why\":\"caught\""));
-  ticks(2);
+  ticks(20);
   TEST_ASSERT_TRUE(lc->running());  // not an error
-  TEST_ASSERT_EQUAL(1, g_motions.size());  // FD 10 runs next
+  // G3 final review C1: the program goes on - FD 10 runs (the first motion is the HOLD a skill starts with)
+  TEST_ASSERT_EQUAL(2, g_motions.size());
+  TEST_ASSERT_EQUAL(logo::ActKind::kMove, g_motions[1].kind);
+}
+
+void test_caught_during_a_game_word_lets_lesson_6_go_on() {  // G3 final review C1: CAUGHT? then runs
+  runAi("FOLLOW \"baby 2  IF CAUGHT? [ BEEP ]");
+  ticks(1);
+  startedSkill();
+  g_game_caught = true;
+  lc->onCaught(g_now);
+  ticks(20);
+  TEST_ASSERT_TRUE(lc->running());
+  TEST_ASSERT_EQUAL(1, g_ops.size());  // BEEP: the word ended and CAUGHT? was read
 }
 
 void test_a_games_moves_are_within_its_speed_cap() {  // review I7
@@ -997,6 +1010,7 @@ int main() {
   RUN_TEST(test_a_backward_move_tells_game_mode_its_length);
   RUN_TEST(test_game_mode_ends_the_run_with_its_code);
   RUN_TEST(test_caught_ends_a_running_skill_as_caught_and_the_program_goes_on);
+  RUN_TEST(test_caught_during_a_game_word_lets_lesson_6_go_on);
   RUN_TEST(test_a_games_moves_are_within_its_speed_cap);
   return UNITY_END();
 }

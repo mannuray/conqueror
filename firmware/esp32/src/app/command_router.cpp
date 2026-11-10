@@ -75,7 +75,9 @@ void CommandRouter::onHello(int fd, const core::WsCommand& c) {
     return m_out.nack(fd, c.has_id ? c.id : -1, core::BridgeReason::kBusy);
   }
   m_tel.hello(fd, m_fw, m_sensor ? m_sensor() : "none");
-  if (m_pages != nullptr && strcmp(c.client, "ai-page") == 0 && m_pages->onHello(fd)) sendAiAt(fd);
+  if (strcmp(c.client, "ai-page") != 0) return;
+  if (m_pages != nullptr && m_pages->onHello(fd)) sendAiAt(fd);
+  if (m_game.on_page != nullptr) m_game.on_page(fd);
 }
 
 // The skill server, with the address its socket comes from (never typed) and its page port; false = BUSY.

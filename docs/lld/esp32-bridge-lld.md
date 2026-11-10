@@ -3899,3 +3899,9 @@ the stopping distance, sideways / away allowed, turns from 35 cm.
   minutes); the fixed limits shown, never settable. `/ai` 33 182 B of the 34 KB budget (`AI_BUDGET`, R34.7).
 - **The source archive:** with Spec 10's three plans it no longer fit its partition (1 968 364 B > 1 966 016 B):
   `**/uv.lock` export-ignore (design-notes §231) → 1 872 295 B.
+- **Final review fixes (2026-11-10):** a catch during a game word now ends the word for the runner too
+  (`LogoController::onCaught` → `RunController::onSkillEnd(kCaught)`; before, the program waited until 7063); an `/ai`
+  page that says hello gets the game's current state at once (`GameHooks::on_page`, the card after a reload);
+  `/logo#name` never throws on a broken escape and is cleared after use; START keeps the follow distance beyond the
+  back-off one; lesson 6 waits 1 s after an ESCAPE; the skill-name tables are tied to `SkillKind` by `static_assert`;
+  the engine refuses a game word outside the bridge's game mode (7052).

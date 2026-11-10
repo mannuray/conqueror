@@ -25,6 +25,7 @@ class CommandRouter {
     void (*on_stop)(uint32_t now) = nullptr;
     void (*on_answer)(int32_t id, int32_t value, uint32_t now) = nullptr;
     void (*on_person)(const core::PersonEst& e, uint32_t now) = nullptr;  // at receipt (review I6)
+    void (*on_page)(int fd) = nullptr;  // an /ai page said hello: the game's state now (G3 final review I1)
   };
   void setGameHooks(const GameHooks& g) { m_game = g; }
   CommandRouter(DriveController& d, MotionController& m, SettingsController& s, TankAppController& t, LogoController& l,

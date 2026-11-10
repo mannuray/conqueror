@@ -308,6 +308,11 @@ var LogoCore = (function () {
   }
 
   // The program list (LLD §25.3): saved programs, the lessons numbered in the tank's order, then the examples.
+  // /logo#name (the /ai GAMES card's lesson link): the program to open; "" for none or a broken escape (never throws -
+  // a throw here would stop the page's script, its STOP included).
+  function progFromHash(hash) {
+    try { return decodeURIComponent(String(hash || "").replace(/^#/, "")); } catch (e) { return ""; }
+  }
   function programSections(progs) {
     function items(f, num) {
       return progs.filter(f).map(function (p, i) { return { name: p.name, label: (num ? (i + 1) + " " : "") + p.name }; });
@@ -326,7 +331,7 @@ var LogoCore = (function () {
     wordIndex: wordIndex, ownWords: ownWords, colour: colour, insertWord: insertWord, Drafts: Drafts,
     fitView: fitView, toScreen: toScreen, plannedRuns: plannedRuns, plannedAreas: plannedAreas, areaExtent: areaExtent, CheckScheduler: CheckScheduler, RequestQueue: RequestQueue,
     runBarStart: runBarStart, runBar: runBar, canRun: canRun, locked: locked, endText: endText, NACK_TEXT: NACK_TEXT,
-    shortcut: shortcut, panelTab: panelTab, cameraWanted: cameraWanted, programSections: programSections,
+    shortcut: shortcut, panelTab: panelTab, cameraWanted: cameraWanted, programSections: programSections, progFromHash: progFromHash,
   };
 })();
 if (typeof module !== "undefined") module.exports = LogoCore;

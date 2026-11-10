@@ -461,6 +461,8 @@ class ServeApp:
             await self._send(self.link.failed(ev.id, "stale", ev.thing or ""))
             return
         call = skill_call(ev, self.world.map_run.p.pose(), self.names)
+        if not isinstance(call, str) and call.skill in GAME_SKILLS and not self.stream.on:
+            call = "stale"  # a game word only inside the bridge's game mode (G3 final review M6)
         if isinstance(call, str):  # before any frame: the lease's first v 0 would be one
             await self._send(self.link.failed(ev.id, call, ev.thing or ""))
             return

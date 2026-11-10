@@ -59,8 +59,13 @@ void LogoController::onRun(int fd, int32_t id, uint32_t prog, bool step, uint32_
   if (refused != 0) endWith(refused, now);
 }
 
+// Caught (bridge LLD R34): a running skill word ends "caught" - the lease, then the runner (G3 final review C1:
+// endLease alone left the runner waiting for a skill end that its cleared lease id dropped). Not an error.
 void LogoController::onCaught(uint32_t now) {
-  if (m_running) endLease(true, core::LeaseEnd::kCaught, core::EndReason::kDone, now);
+  if (!m_running) return;
+  const bool skill = m_skill_id >= 0;
+  endLease(true, core::LeaseEnd::kCaught, core::EndReason::kDone, now);
+  if (skill && m_running) handle(m_rc.onSkillEnd(logo::SkillEnd::kCaught, now), now);
 }
 
 void LogoController::endWith(uint16_t code, uint32_t now) {

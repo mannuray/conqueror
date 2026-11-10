@@ -42,6 +42,7 @@ class GameController {
   bool ready() const { return m_mode.state() != core::GameState::kArming; }  // false: the program waits
   bool caught() const { return m_mode.caught(); }
   core::GameState state() const { return m_mode.state(); }
+  uint16_t caughtCount() const { return m_mode.caughtCount(); }
   uint8_t gameCap() const { return m_mode.state() == core::GameState::kOff ? 0 : m_cap; }  // 0: no game
   void onRunEnd(uint32_t now);
   void onStop(uint32_t now);

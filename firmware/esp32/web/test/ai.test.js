@@ -229,3 +229,7 @@ test("babyLine clamps: never under 40 cm, follow beyond back-off, at most 14 min
   assert.ok(A.babyLine(LESSON, 10, 20, 99).trimEnd().endsWith("BABYGAME 40 50 14"));
   assert.ok(A.babyLine(LESSON, "x", null, 0).trimEnd().endsWith("BABYGAME 70 100 1"));
 });
+
+test("babyLine: the follow distance stays beyond the back-off one even left empty (G3 final review M1)", () => {
+  assert.ok(A.babyLine(LESSON, 150, "", 5).trimEnd().endsWith("BABYGAME 150 160 5"));
+});

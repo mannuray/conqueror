@@ -13,6 +13,8 @@ using namespace detail;
 namespace {
 
 const char* const kSkillNames[] = {"find", "wander", "explore", "setxy", "face", "escape", "follow"};
+static_assert(sizeof kSkillNames / sizeof kSkillNames[0] == static_cast<size_t>(logo::SkillKind::kFollow) + 1,
+              "one name per SkillKind; the game words are last (>= kFace)");
 const char* const kEndWhy[] = {"stop", "deadman", "page", "owner", "ended", "caught"};
 
 // The game words: the person, then ESCAPE's cm or FOLLOW's seconds (bridge LLD R34.3).

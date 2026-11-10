@@ -522,3 +522,12 @@ test("the launched part's line 0 clears its marker (it ended)", () => {
   assert.equal(s.line2, 0);
   assert.equal(s.line, 3);
 });
+
+// ---------- /logo#name: the /ai GAMES card's lesson link (Plan G3 final review I2) ----------
+test("progFromHash opens the named program and never throws on a broken hash", () => {
+  assert.equal(L.progFromHash("#chase_with_the_baby"), "chase_with_the_baby");
+  assert.equal(L.progFromHash("#my%20square"), "my square");
+  assert.equal(L.progFromHash(""), "");
+  assert.equal(L.progFromHash("#"), "");
+  assert.equal(L.progFromHash("#%E0"), "");  // a bad escape: no program, the page (and its STOP) still starts
+});

@@ -158,7 +158,7 @@ var AiCore = (function () {
   }
   function clampNum(v, lo, hi, dflt) {
     var n = parseFloat(v);
-    return isNaN(n) ? dflt : Math.round(Math.min(hi, Math.max(lo, n)));
+    return Math.round(Math.min(hi, Math.max(lo, isNaN(n) ? dflt : n)));  // the default within the range too (M1)
   }
   // Lesson 6's text with its last BABYGAME call holding the numbers: back off nearer than (40-150 cm), follow farther
   // than (10 cm beyond that, up to 300), minutes (1-14: the game's own 15-minute limit, 7063).

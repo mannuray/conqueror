@@ -337,6 +337,10 @@ void wireGame() {
   r.on_stop = [](uint32_t now) { g_game.onStop(now); };
   r.on_answer = [](int32_t id, int32_t value, uint32_t now) { g_game.onAnswer(id, value, now); };
   r.on_person = [](const core::PersonEst& e, uint32_t now) { g_game.onPerson(e, now); };
+  r.on_page = [](int fd) {  // an /ai page that (re)connects mid-game sees its moment at once (G3 final review I1)
+    g_out.to(fd, core::jsonGameEvent(g_out.buf(), g_out.cap(), g_tel.nextEventSeq(), g_tel.tankMs(), g_game.state(),
+                                     g_game.caughtCount()));
+  };
   g_router->setGameHooks(r);
 }
 

@@ -205,6 +205,7 @@ async def test_skill_start_face_runs_and_find_baby_is_unknown(bridge: FakeBridge
         await bridge.to_skill_server({"t": "skill_start", "id": 3, "skill": "find", "thing": "baby"})
         await until(lambda: len(msgs(bridge, "skill_failed")) == 1)
         assert msgs(bridge, "skill_failed")[0]["reason"] == "unknown_thing"
+        await bridge.to_skill_server({"t": "game", "on": True})  # the bridge's game mode first (M6)
         await bridge.to_skill_server({"t": "skill_start", "id": 4, "skill": "face", "thing": "baby"})
         await until(lambda: len(msgs(bridge, "skill_done")) == 1)
         assert [c.skill for c in maker.calls] == ["face"]
@@ -236,6 +237,7 @@ async def test_skill_end_caught_ends_a_follow_quietly(bridge: FakeBridge) -> Non
     maker = Maker(lambda: Scripted(None))
     s = await serving(bridge, maker=maker)
     try:
+        await bridge.to_skill_server({"t": "game", "on": True})
         await bridge.to_skill_server(
             {"t": "skill_start", "id": 5, "skill": "follow", "thing": "baby", "s": 10}
         )
@@ -317,5 +319,25 @@ async def test_the_feed_gets_people_and_the_person_in_a_game(bridge: FakeBridge,
         await until(lambda: len(msgs(bridge, "person")) >= 1)
         shown = pub.greeting()[0]["person"]
         assert isinstance(shown, dict) and shown["d_cm"] == msgs(bridge, "person")[-1]["d_cm"]
+    finally:
+        await s.close()
+
+
+def test_the_person_words_are_tank_logos() -> None:  # G3 final review M4: one list, two places
+    import yaml
+
+    from conqueror_ai.app.game_serve import PERSON_WORDS
+
+    spec = Path(__file__).resolve().parents[2] / "logo" / "spec" / "words.yaml"
+    assert set(yaml.safe_load(spec.read_text())["person_words"]) == set(PERSON_WORDS)
+
+
+async def test_a_game_word_without_game_mode_is_refused(bridge: FakeBridge) -> None:  # G3 final review M6
+    maker = Maker()
+    s = await serving(bridge, maker=maker)
+    try:
+        await bridge.to_skill_server({"t": "skill_start", "id": 9, "skill": "face", "thing": "baby"})
+        await until(lambda: len(msgs(bridge, "skill_failed")) == 1)
+        assert msgs(bridge, "skill_failed")[0]["reason"] == "stale" and maker.calls == []
     finally:
         await s.close()

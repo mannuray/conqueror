@@ -217,6 +217,20 @@ void test_ai_page_hello_gets_welcome_and_ai_at() {
   TEST_ASSERT_TRUE(pages.contains(4));
 }
 
+// G3 final review I1: an /ai page that (re)connects mid-game is told the game's state at once (its GAMES card).
+int g_page_fd = -1;
+void test_ai_page_hello_gets_the_game_state() {
+  app::CommandRouter::GameHooks gh;
+  gh.on_page = [](int fd) { g_page_fd = fd; };
+  router->setGameHooks(gh);
+  g_page_fd = -1;
+  drive->onClientOpen(4, 0);
+  text(3, "{\"t\":\"hello\",\"client\":\"basic-drive\",\"proto\":1}", 100);
+  TEST_ASSERT_EQUAL(-1, g_page_fd);
+  text(4, "{\"t\":\"hello\",\"client\":\"ai-page\",\"proto\":1}", 101);
+  TEST_ASSERT_EQUAL(4, g_page_fd);
+}
+
 void test_other_clients_get_no_ai_at() {
   text(3, "{\"t\":\"hello\",\"client\":\"basic-drive\",\"proto\":1}", 100);
   TEST_ASSERT_TRUE(has(3, "\"t\":\"welcome\""));
@@ -446,6 +460,7 @@ int main() {
   RUN_TEST(test_skill_learning_routed_to_hub);
   RUN_TEST(test_ai_page_hello_gets_welcome_and_ai_at);
   RUN_TEST(test_other_clients_get_no_ai_at);
+  RUN_TEST(test_ai_page_hello_gets_the_game_state);
   RUN_TEST(test_ai_page_without_engine_gets_null);
   RUN_TEST(test_stop_and_answers_reach_game_mode);
   RUN_TEST(test_a_person_estimate_reaches_game_mode_at_once);

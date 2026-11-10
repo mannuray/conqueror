@@ -8,6 +8,8 @@ into a distance from the front edge and a direction, and grades every mark again
 
     uv run cq-person-test record recordings/p0-20261109 [--host 192.168.31.167]
     uv run cq-person-test score recordings/p0-20261109 [--world-model M --world-vocabulary V] [--no-depth]
+    uv run cq-person-test walk recordings/walk-20261110   # the simple test: one crawl (design-notes §234)
+    uv run cq-person-test walk-score recordings/walk-20261110
 
 The pictures stay on this machine (recordings/ is git-ignored); the report is numbers only. When the
 engine's detector (YOLO-World) passes every mark, recorded whole, `score` writes config/person-seeing.yaml
@@ -125,7 +127,7 @@ async def _ask(ask: Callable[[str], str], prompt: str) -> str:
     return await fut
 
 
-async def _cam_tilt(host: str, ws_port: int, tilt_deg: float) -> None:
+async def cam_tilt(host: str, ws_port: int, tilt_deg: float) -> None:
     """The camera to (0, tilt) - only the camera moves."""
     link = BridgeLink(host, ws_port, client="p0-camera")
     stop = asyncio.Event()
@@ -162,7 +164,7 @@ async def record_marks(
     for m in marks:
         if m.tilt_deg != tilt:
             await _ask(ask, f"The camera goes to {m.tilt_deg:.0f} degrees (only the camera moves) - Enter: ")
-            await _cam_tilt(host, ws_port, m.tilt_deg)
+            await cam_tilt(host, ws_port, m.tilt_deg)
             tilt = m.tilt_deg
         if (await _ask(ask, _say(m))).strip().lower() == "s":
             continue
@@ -224,7 +226,7 @@ def kept_frames(
             continue
         cam = CameraModel(cal).for_frame(still0, *from_servo(*servo))
         if seeing is not None and depth is not None:
-            rgb = _picture(f, cal)
+            rgb = picture_of(f, cal)
             if rgb is not None:
                 fix_deg = seeing.angle_only(cam, depth(rgb), f.cap_us).fix.tilt_fix_deg
         if e.recv_s >= t0 + SETTLE_S:
@@ -232,7 +234,7 @@ def kept_frames(
     return out
 
 
-def _picture(f: Frame, cal: Calibration) -> NDArray[np.uint8] | None:
+def picture_of(f: Frame, cal: Calibration) -> NDArray[np.uint8] | None:
     rgb = decode(f)
     if rgb is not None and (rgb.shape[1], rgb.shape[0]) != cal.size:
         raise ValueError(
@@ -269,7 +271,7 @@ def _score_one(
     chosen = [kept[i] for i in spread(len(kept), STILL_PICTURES)] if mark.still else kept
     picks: dict[str, list[PersonRange | None]] = {name: [] for name in detectors}
     for f, cam in chosen:
-        rgb = _picture(f, cal)
+        rgb = picture_of(f, cal)
         if rgb is None:
             continue
         for name, det in detectors.items():
@@ -331,7 +333,7 @@ def _detectors(world_model: Path, world_vocab: Path) -> dict[str, DetectFn]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", choices=["record", "score"])
+    ap.add_argument("what", choices=["record", "score", "walk", "walk-score"])
     ap.add_argument("folder", type=Path)
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--world-model", type=Path, default=MODEL)
@@ -342,12 +344,24 @@ def main() -> None:
         done = asyncio.run(record_marks(a.host, 80, 81, a.folder, all_marks(), input))
         print(f"recorded {len(done)} marks into {a.folder}")
         return
+    if a.what == "walk":  # the simple test (design-notes §234)
+        from conqueror_ai.app.person_walk import speak, walk_record
+
+        asyncio.run(walk_record(a.host, 80, 81, a.folder, speak))
+        print(f"recorded the crawl into {a.folder} - now: cq-person-test walk-score {a.folder}")
+        return
     from conqueror_ai.adapters.map_config import load_map_config
 
     cal = calibration_store.load(CALIBRATION, VGA)
     depth = None if a.no_depth else load_depth(DEPTH_MODEL)
     cfg = load_map_config(MAP_CONFIG)
     marks = tuple(m.mid for m in all_marks())
-    unlock = Unlock(world_label(a.world_vocabulary), PASS_FILE, a.world_model.name, cal.date, marks)
+    name = world_label(a.world_vocabulary)
+    unlock = Unlock(name, PASS_FILE, a.world_model.name, cal.date, marks)
     dets = _detectors(a.world_model, a.world_vocabulary)
+    if a.what == "walk-score":  # the engine's detector only: it is the one the pass is for
+        from conqueror_ai.app.person_walk import walk_score_folder
+
+        print(walk_score_folder(a.folder, cal, dets[name], Seeing(cfg), depth, unlock, name))
+        return
     print(score_folder(a.folder, cal, dets, depth, lambda: Seeing(cfg), unlock))

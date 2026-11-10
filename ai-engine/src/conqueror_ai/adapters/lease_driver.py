@@ -112,10 +112,10 @@ class LeaseDriver:
 
 def wire_reason(r: Result, ended: bool = False) -> str | None:
     """The `skill_failed` reason for a result, None when nothing is sent: DONE (`skill_done` goes instead)
-    and a CANCELLED word the bridge itself ended (`ended`: the tank already knows). Every other way a skill
-    can stop without an answer (REFUSED, FAILED, STALE, a CANCELLED by the engine) is `stale` (7052)."""
-    if r == Result.DONE or (r == Result.CANCELLED and ended):
-        return None
+    CAUGHT and a CANCELLED word the bridge itself ended (`ended`: the tank already knows). Every other way a
+    skill can stop without an answer (REFUSED, FAILED, STALE, a CANCELLED by the engine) is `stale` (7052)."""
+    if r in (Result.DONE, Result.CAUGHT) or (r == Result.CANCELLED and ended):
+        return None  # caught: the bridge ended the lease itself (LLD §28.3)
     return _WIRE.get(r, "stale")
 
 

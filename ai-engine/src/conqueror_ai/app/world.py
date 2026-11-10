@@ -19,6 +19,7 @@ from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.skill import SkillInput, make_input
 from conqueror_ai.domain.memory import ThingMemory
 from conqueror_ai.domain.objects import Glimpse, Located, ObjectPipeline
+from conqueror_ai.domain.person import PersonWatch
 from conqueror_ai.domain.room_map import MapSnapshot, RoomMap
 from conqueror_ai.domain.sonar_model import SonarModel
 from conqueror_ai.domain.telemetry import parse_td
@@ -120,7 +121,8 @@ class MapRun:
         self.depth_pictures += 1
         self.angle_trusted = seen.fix.trusted
         if seen.marks is not None:
-            self.room.update_picture(seen.marks, t_us)
+            pose = self.p.pose()
+            self.room.update_picture(seen.marks, t_us, None if pose is None else (pose.x_m, pose.y_m))
             self.marked += 1
 
     def on_picture(self, f: Frame, rgb: NDArray[np.uint8]) -> Seen | None:
@@ -164,6 +166,9 @@ class World:
         self.area_m, self.run_id = area_m, run_id
         self.area: tuple[float, float, float] | None = None
         self.sonar_m: float | None = None
+        # the person boxes come here and only here (LLD §28.1): the tracker, memory and map refuse them
+        self.person = PersonWatch()
+        self._person_us: int | None = None  # the newest used picture's time
         self.last_frame: Frame | None = None
         self._by_size: dict[str, tuple[float, float]] = {}
         self._cam_still = True
@@ -231,8 +236,15 @@ class World:
         self._cam_still = used != "camera moving"
         if isinstance(used, str):
             self._by_size = {}
+            if used == "turning":  # owner, design-notes §229: the gyro places the person; the map skips it
+                rough = self.map_run.p.gate.camera_turning(f.cap_us)
+                if rough is not None:
+                    self.person.update([d.box for d in dets if d.cls == "person"], rough, self.sonar_m, t)
+                    self._person_us = t
             return used
         self._used = True
+        self.person.update([d.box for d in dets if d.cls == "person"], used, self.sonar_m, t)
+        self._person_us = t
         self._by_size = size_positions(dets, self.sizes, used)
         depth = self.map_run.depth
         if inv is None and with_depth and depth is not None and self.map_run.depth_due():
@@ -263,6 +275,8 @@ class World:
         used, self._used = self._used, False
         fresh, self._fresh = self._fresh, False
         glimpses, self._glimpses = tuple(self._glimpses), []
+        now_us = pose.t_us if pose is not None else self._person_us
+        person = None if now_us is None else self.person.latest(max(now_us, self._person_us or 0))
         if pose is None:
             return make_input(
                 at=None,
@@ -272,6 +286,7 @@ class World:
                 used=used,
                 fresh=fresh,
                 glimpses=glimpses,
+                person=person,
             )
         if self.area_m is not None and self.area is None:
             self.area = (pose.x_m, pose.y_m, self.area_m)
@@ -295,4 +310,5 @@ class World:
             maybes=maybes,
             fresh=fresh,
             glimpses=glimpses,
+            person=person,
         )

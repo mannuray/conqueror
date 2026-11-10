@@ -3531,6 +3531,43 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Next with the owner:** the stand checks with the stand-in engine, then `game_cap.py` on the floor; then Plan G2
   (the engine's PersonWatch and FACE / ESCAPE / FOLLOW).
 
+## 227. Plan G2 written - the engine's side of the people games (2026-11-09; owner: "yes" to G2 then G3)
+- `docs/superpowers/plans/2026-11-09-plan-g2-person-watch.md`: `PersonWatch` (pessimistic, the sonar near and
+  ahead, a countdown when last seen close), the person boxes kept before the guard, the room map's free-floor times
+  and `TrustedFloor` (5 s), FACE / ESCAPE / FOLLOW as Z7 skills, the skill server's game messages (people, the person
+  stream only between game on / off, back_ok, the person words only for the game words), and a passed seeing test
+  writing `config/person-seeing.yaml` (a worse result removes it - locked again).
+- Found while planning: the engine already backs up (`curves.py`'s backing, used by Recovery), so ESCAPE needs no
+  new kind of command; the room map knew *that* floor was seen, not *when* - a per-cell time is added.
+- Plan G3 (the Logo words, the lesson, the GAMES card) follows; the real game needs P0 (the owner's lock).
+
+## 228. Plan G2 built - the engine's side of the people games (2026-11-10, branch `plan-g2-person-watch`)
+- Built natively, task by task (AI engine LLD §28.9): `PersonWatch` fed from each used picture's person boxes,
+  the room map's free-floor times and `TrustedFloor`, FACE / ESCAPE / FOLLOW, the skill server's game messages and
+  a passed seeing test writing `config/person-seeing.yaml`. The engine suite: 960 → 1005 tests.
+- Found while building: the gate drops every picture taken spinning faster than 45°/s, so a turning tank sees no
+  one - the game skills remember the person as a floor point, turn by the odometry, and count "lost" only while
+  standing; a simulated person at 60° was outside the camera's ±41° until the camera was panned their way.
+- Calls made (ledger): the pass is keyed to the YOLO-World weights and the calibration date (a taught word keeps
+  it); the stream sends at 10 Hz and streams "unseen" before anyone is seen; FOLLOW stops within setxy's 15 cm of
+  its goal (the goal is never inside the follow distance); ESCAPE's away leg aims 15 cm past `cm`.
+- Next with the owner: G1's stand checks and P0, then `cq-drive serve` from this branch with an adult and
+  `REPEAT 30 [ IF CAUGHT? [ WAIT 3 ] FACE "person WAIT 1 ]` (the floor, STOP in hand); then Plan G3.
+
+## 229. Turning pictures count for the person; ESCAPE turns 90° (owner, 2026-11-10: "yes")
+- Plan G2's final review found two clashes with the bridge's game rules (R34): pictures taken spinning were not
+  used, so during any turn the person's estimate aged past the bridge's 300 ms deadman (FACE's turns stutter, over
+  1 s the game holds, 7052); and ESCAPE's 180° turn put the person behind the camera, where the bridge's "hold, then
+  look" blocks the drive away.
+- Decided: (1) the person check also uses pictures skipped only for turning (the gyro's heading places them, as
+  FIND's glimpses) - no bridge change; (2) ESCAPE turns about 90° to a side with a route, keeps the camera on the
+  person and drives sideways away, then turns back - the person stays in view, R34 unchanged (no exemption
+  loosening a safety rule). AI engine LLD §28.9.
+- As built: ESCAPE picks its side with the sonar after the 90° turn (the camera, kept on the person, never sees
+  beside the tank, and the near 30 cm is its blind zone); a shut side → the other side, both shut → facing the
+  person again, `no_way`; the camera may pan to ±90° on the sideways leg. A sidestep leaves the crawler's path but
+  gains only ~10 cm of distance - to judge on the floor whether ESCAPE should turn a little more than 90°.
+
 ## 230. Plan G3 written - the game words, lesson 6 and the GAMES card (2026-11-10; owner: "yes")
 - `docs/superpowers/plans/2026-11-10-plan-g3-game-words.md`: the `person` input type and `FACE` / `ESCAPE` /
   `FOLLOW` (level 2, 7062), the bridge's `skill_start` for them and `"game":true` on person questions, lesson 6

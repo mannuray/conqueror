@@ -1,0 +1,275 @@
+"""The game skills FACE, ESCAPE and FOLLOW in a simulated room (AI engine LLD §28.3, Plan G2 Task 3).
+
+The person is a point on the floor; the estimate is made geometrically from the tank's front edge, seen only
+inside the camera's view and never while the tank spins faster than the map's gate (as World: no picture is
+used then). The map is fed with where the tank was (the trusted floor's 1.5 m), never while spinning."""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+
+import numpy as np
+import pytest
+
+from conqueror_ai.domain.drive.curves import Command, XYTh
+from conqueror_ai.domain.drive.game_skills import (
+    ESCAPE_NEAR_M,
+    FOLLOW_MIN_M,
+    EscapeSkill,
+    FaceSkill,
+    FollowSkill,
+)
+from conqueror_ai.domain.drive.limits import Limits
+from conqueror_ai.domain.drive.roam import POINT_DONE_M
+from conqueror_ai.domain.drive.sim import Box, SimRoom, SimTank
+from conqueror_ai.domain.drive.skill import Result, Skill, make_input
+from conqueror_ai.domain.drive.trusted import TrustedFloor
+from conqueror_ai.domain.objects import GATE_DPS
+from conqueror_ai.domain.person import PersonEst
+from conqueror_ai.domain.room_map import RoomMap
+from conqueror_ai.domain.types import Pose
+from tests.test_room_map import marks
+
+LIM = Limits()
+FRONT_M = LIM.body_front_m
+VIEW_DEG = 41.0
+T0_S = 1.0  # the sim clock starts here: 0 is the map's "never"
+
+
+@dataclass
+class Play:
+    result: Result | None = None
+    cmds: list[Command] = field(default_factory=lambda: list[Command]())
+    cams: list[tuple[float, float]] = field(default_factory=lambda: list[tuple[float, float]]())
+    at: list[XYTh] = field(default_factory=lambda: list[XYTh]())
+    gaps: list[float] = field(default_factory=lambda: list[float]())  # the front edge to the person, true
+    room: RoomMap = field(default_factory=RoomMap)
+    goals: list[float] = field(default_factory=lambda: list[float]())  # FOLLOW's goal: front to the person
+    in_view: list[bool] = field(default_factory=lambda: list[bool]())  # the person in the camera's view
+
+    @property
+    def moved(self) -> bool:
+        return any(c.v_cms != 0 or c.w_dps != 0 for c in self.cmds)
+
+
+def front_gap(at: XYTh, p: tuple[float, float]) -> tuple[float, float]:
+    """The person from the front edge's middle: distance (m) and bearing (deg, + left, tank frame)."""
+    x, y, th = at
+    fx, fy = x + FRONT_M * math.cos(th), y + FRONT_M * math.sin(th)
+    b = math.degrees(math.atan2(p[1] - fy, p[0] - fx) - th)
+    return math.dist((fx, fy), p), (b + 180.0) % 360.0 - 180.0
+
+
+def seed_behind(room: RoomMap, at: XYTh, t_us: int) -> None:
+    """The floor behind the tank seen free from where it stands (it looked back a moment ago)."""
+    x, y, th = at
+    pts = [
+        (x + u * math.cos(th) - v * math.sin(th), y + u * math.sin(th) + v * math.cos(th))
+        for u in np.arange(-0.7, 0.0, 0.02).tolist()
+        for v in np.arange(-0.25, 0.26, 0.02).tolist()
+    ]
+    room.update_picture(marks(floor=pts), t_us, (x, y))
+
+
+def play(
+    skill: Skill,
+    person: tuple[float, float] | None,
+    limit_s: float = 30.0,
+    start: XYTh = (0.0, 0.0, 0.0),
+    boxes: list[Box] | None = None,
+    trusted_behind: bool = False,
+    hide_from_s: float | None = None,
+    pan: float = 0.0,
+) -> Play:
+    sim = SimRoom(boxes or [], walls_m=2.5)
+    tank = SimTank(*start)
+    out = Play()
+    last: PersonEst | None = None
+    cmd = Command(0.0, 0.0)
+    t = T0_S
+    if trusted_behind:
+        seed_behind(out.room, start, round(t * 1e6))
+    while t < T0_S + limit_s:
+        at = tank.at
+        t_us = round(t * 1e6)
+        turning = abs(cmd.w_dps) > GATE_DPS
+        pose = Pose(t_us, at[0], at[1], at[2], 0.0, 0.0)
+        if not turning:
+            out.room.update_picture(sim.marks(at, pan_deg=pan), t_us, (at[0], at[1]))
+        out.room.body_over(pose, LIM.body_front_m, LIM.body_rear_m, LIM.body_half_w_m, t_us)
+        if person is not None:
+            d, b = front_gap(at, person)
+            out.gaps.append(d)
+            hidden = hide_from_s is not None and t >= hide_from_s
+            in_view = abs(b + pan) <= VIEW_DEG and not hidden  # turning pictures count (design-notes §229)
+            out.in_view.append(in_view)
+            if in_view:
+                last = PersonEst(True, d, b, 0, 0.9, t_us)
+            elif last is not None and last.seen:
+                last = PersonEst(False, last.d_m, last.bearing_deg, 0, 0.5, last.t_us)
+        snap = out.room.snapshot(t_us, pose, False, True)
+        inp = make_input(at=at, snap=snap, map_ok=True, sonar_m=sim.sonar(at), person=last)
+        o = skill.tick(t, inp)
+        goal = getattr(skill, "_goal", None)
+        if isinstance(goal, tuple) and person is not None:
+            out.goals.append(math.dist(goal, person) - FRONT_M)  # type: ignore[arg-type]
+        cmd = o.cmd
+        out.cmds.append(cmd)
+        out.at.append(at)
+        if o.cam is not None:
+            pan = o.cam[0]
+            out.cams.append(o.cam)
+        if o.result is not None:
+            out.result = o.result
+            break
+        tank.step(cmd, LIM.dt_s)
+        t += LIM.dt_s
+    return out
+
+
+def at_bearing(d: float, b_deg: float, at: XYTh = (0.0, 0.0, 0.0)) -> tuple[float, float]:
+    """A floor point d from the front edge at the bearing (+ left)."""
+    x, y, th = at
+    fx, fy = x + FRONT_M * math.cos(th), y + FRONT_M * math.sin(th)
+    a = th + math.radians(b_deg)
+    return fx + d * math.cos(a), fy + d * math.sin(a)
+
+
+def heading_deg(at: XYTh) -> float:
+    return (math.degrees(at[2]) + 180.0) % 360.0 - 180.0
+
+
+# ---- FACE
+def test_face_at_20_deg_pans_and_does_not_drive() -> None:
+    p = play(FaceSkill(LIM), at_bearing(1.0, 20.0))
+    assert p.result == Result.DONE and not p.moved
+    assert p.cams and p.cams[-1][0] == pytest.approx(-20.0, abs=2.0)  # pan + = right: the person is left
+
+
+@pytest.mark.parametrize("side", [1.0, -1.0])
+def test_face_at_60_deg_turns_towards_them_until_within_10(side: float) -> None:
+    person = at_bearing(1.0, 60.0 * side)
+    p = play(FaceSkill(LIM), person, pan=-35.0 * side)  # the camera already their way (60 deg is out of view)
+    assert p.result == Result.DONE
+    spins = [c.w_dps for c in p.cmds if c.w_dps != 0]
+    assert spins and all(math.copysign(1.0, w) == side for w in spins)  # left for + (counter-clockwise)
+    assert all(c.v_cms == 0 for c in p.cmds)
+    tank = SimTank(*p.at[-1])
+    end = tank.step(p.cmds[-1], LIM.dt_s)
+    assert abs(front_gap(end, person)[1]) <= 10.0 + 6.5  # within 10 deg (+ one tick's spin)
+
+
+def test_face_close_beyond_the_pan_only_pans() -> None:  # R34.2: no turn on the spot nearer than 35 cm
+    p = play(FaceSkill(LIM), at_bearing(0.30, 60.0), pan=-35.0)
+    assert p.result == Result.DONE and not p.moved
+    assert p.cams[-1][0] == pytest.approx(-35.0, abs=0.5)
+
+
+def test_face_unseen_for_1_s_is_lost() -> None:
+    p = play(FaceSkill(LIM), at_bearing(1.0, 150.0), limit_s=5.0)  # behind: never in view
+    assert p.result == Result.LOST
+    assert len(p.cmds) <= 12
+
+
+def test_face_after_a_long_turn_does_not_end_lost_on_arrival() -> None:
+    p = play(FaceSkill(LIM), at_bearing(1.2, 100.0), pan=-60.0)
+    assert p.result == Result.DONE  # ~90 deg at 65 deg/s is ~1.4 s unseen while spinning: not lost
+
+
+# ---- ESCAPE
+def test_escape_with_trusted_floor_backs_straight_and_never_turns() -> None:
+    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), at_bearing(0.6, 0.0), trusted_behind=True)
+    assert p.result == Result.DONE
+    assert all(c.w_dps == 0 for c in p.cmds)
+    assert any(c.v_cms < 0 for c in p.cmds)
+    x_end = p.at[-1][0]
+    assert -0.36 <= x_end <= -0.27  # back 30 cm by the odometry (one tick's slack)
+
+
+def test_escape_untrusted_far_turns_drives_and_turns_back() -> None:
+    person = at_bearing(0.9, 0.0)
+    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), person, limit_s=40.0)
+    assert p.result == Result.DONE, p.result
+    assert not any(c.v_cms < 0 for c in p.cmds)  # never backs over untrusted floor
+    assert any(abs(heading_deg(a)) > 75.0 for a in p.at)  # turned to the side
+    assert all(abs(heading_deg(a)) <= 110.0 for a in p.at)  # never its back to them (design-notes §229)
+    assert all(p.in_view)  # the person in view all the while: the bridge's hold-then-look never bites
+    end = p.at[-1]
+    assert abs(end[1]) >= 0.30  # stepped out of their way, sideways (design-notes §229)
+    assert math.dist(end[:2], person) > math.dist((0.0, 0.0), person)  # and farther
+    assert abs(front_gap(end, person)[1]) <= 15.0  # facing them again
+
+
+def test_escape_untrusted_and_near_stays_no_way() -> None:  # S11: never the back to a near person
+    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), at_bearing(ESCAPE_NEAR_M - 0.2, 0.0))
+    assert p.result == Result.NO_WAY and not p.moved
+
+
+def test_escape_unseen_never_backs() -> None:  # Review Focus 5
+    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), at_bearing(0.6, 150.0), trusted_behind=True)
+    assert p.result == Result.NO_WAY and not p.moved
+    q = play(EscapeSkill(LIM, 0.30, TrustedFloor()), None, trusted_behind=True)
+    assert q.result == Result.NO_WAY and not q.moved
+
+
+# ---- FOLLOW
+def test_follow_from_2_m_stops_by_the_follow_distance() -> None:
+    person = (2.0 + FRONT_M, 0.0)
+    p = play(FollowSkill(LIM, 20.0, 1.0), person, limit_s=25.0)
+    assert p.result == Result.DONE
+    assert min(p.gaps) >= FOLLOW_MIN_M
+    assert p.gaps[-1] <= 1.0 + POINT_DONE_M  # stopped near the follow distance (setxy's tolerance)
+    assert p.goals and min(p.goals) >= 1.0 - 1e-6  # the goal is the follow distance short of them
+    assert max(c.v_cms for c in p.cmds) <= 25.0 + 1e-9
+    assert p.cmds[-1].v_cms == 0
+
+
+def test_follow_never_nearer_than_50_cm_whatever_the_setting() -> None:
+    person = (1.5 + FRONT_M, 0.3)
+    p = play(FollowSkill(LIM, 20.0, 0.3), person, limit_s=25.0)
+    assert p.result == Result.DONE
+    assert min(p.gaps) >= FOLLOW_MIN_M - 0.02
+    assert p.goals and min(p.goals) >= FOLLOW_MIN_M - 1e-6  # never a goal inside 50 cm
+    assert max(c.v_cms for c in p.cmds) <= 25.0 + 1e-9
+
+
+def test_follow_unseen_is_lost() -> None:
+    p = play(FollowSkill(LIM, 20.0, 1.0), (2.0, 0.0), hide_from_s=T0_S + 1.0, limit_s=10.0)
+    assert p.result == Result.LOST
+
+
+def test_follow_seconds_end_done() -> None:
+    p = play(FollowSkill(LIM, 2.0, 1.0), (0.9 + FRONT_M, 0.0), limit_s=5.0)  # already near: waits facing
+    assert p.result == Result.DONE and not p.moved
+    assert len(p.cmds) == pytest.approx(21, abs=1)
+
+
+def test_escape_never_starts_on_an_old_estimate() -> None:  # final review M1: a frozen camera
+    skill = EscapeSkill(LIM, 0.30, TrustedFloor())
+    room = RoomMap()
+    seed_behind(room, (0.0, 0.0, 0.0), 1 * 1_000_000)
+    pose = Pose(2_000_000, 0.0, 0.0, 0.0, 0.0, 0.0)
+    old = PersonEst(True, 0.6, 0.0, 0, 0.9, 1_000_000)  # 1 s old, still "seen"
+    inp = make_input(
+        at=(0.0, 0.0, 0.0), snap=room.snapshot(2_000_000, pose, False, True), map_ok=True, person=old
+    )
+    out = skill.tick(T0_S, inp)
+    assert out.result == Result.NO_WAY and out.cmd.v_cms == 0
+
+
+def test_escape_takes_the_side_with_a_way() -> None:
+    wall_left = [Box(-1.0, 0.35, 0.6, 0.8, 0.0, 0.4)]  # a tall box along the left (beyond the blind zone)
+    person = at_bearing(0.9, 0.0)
+    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), person, limit_s=40.0, boxes=wall_left)
+    assert p.result == Result.DONE, p.result
+    assert p.at[-1][1] < -0.2  # went right
+
+
+def test_escape_with_no_way_either_side_turns_to_check_and_faces_them_again() -> None:
+    walls = [Box(-1.0, 0.35, 0.6, 0.8, 0.0, 0.4), Box(-1.0, -0.8, 0.6, -0.35, 0.0, 0.4)]
+    person = at_bearing(0.9, 0.0)
+    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), person, boxes=walls)
+    assert p.result == Result.NO_WAY
+    assert all(c.v_cms == 0 for c in p.cmds)  # the sonar said no each side: never drove
+    assert all(p.in_view) and abs(front_gap(p.at[-1], person)[1]) <= 15.0  # facing them again

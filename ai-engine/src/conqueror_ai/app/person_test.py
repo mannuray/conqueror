@@ -9,7 +9,9 @@ into a distance from the front edge and a direction, and grades every mark again
     uv run cq-person-test record recordings/p0-20261109 [--host 192.168.31.167]
     uv run cq-person-test score recordings/p0-20261109 [--world-model M --world-vocabulary V] [--no-depth]
 
-The pictures stay on this machine (recordings/ is git-ignored); the report is numbers only.
+The pictures stay on this machine (recordings/ is git-ignored); the report is numbers only. When the
+engine's detector (YOLO-World) passes every mark, recorded whole, `score` writes config/person-seeing.yaml
+and the games unlock (AI engine LLD §28.6); anything less removes it.
 """
 
 from __future__ import annotations
@@ -17,10 +19,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import datetime
 import json
 import threading
 from collections.abc import Callable
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -43,6 +46,7 @@ from conqueror_ai.app.objects import (
     load_depth,
 )
 from conqueror_ai.app.record import NoView, record
+from conqueror_ai.app.seeing_pass import PASS_FILE, write_pass
 from conqueror_ai.domain.camera import Calibration, CameraModel, from_servo
 from conqueror_ai.domain.depth import Seeing
 from conqueror_ai.domain.objects import MAYBE_SCORE
@@ -65,6 +69,18 @@ SETTLE_S = 0.5  # pictures this soon after the start or a camera move are not sc
 MOVED_DEG = 0.5  # a servo change beyond this is a camera move (smaller: jitter)
 COCO_CONF = 0.25  # YOLO26n's person boxes from this score (the plan)
 PERSON = "person"
+
+
+@dataclass(frozen=True)
+class Unlock:
+    """The seeing test's pass (AI engine LLD §28.6): written when `detector` (the engine's) passes every
+    `required` mark, recorded whole; removed on anything less, so a worse result locks the games again."""
+
+    detector: str  # its name among the scored detectors
+    path: Path
+    model: str  # the model file's name the engine checks (SeeingPass)
+    calibration: str  # the camera calibration's date
+    required: tuple[str, ...]  # the mark ids a pass needs
 
 
 def all_marks() -> list[Mark]:
@@ -268,9 +284,10 @@ def score_folder(
     detectors: dict[str, DetectFn],
     depth: DepthFn | None,
     make_seeing: Callable[[], Seeing] | None = None,
+    unlock: Unlock | None = None,
 ) -> str:
     """Every recorded mark, per detector, each mark with its own tilt fix (a fresh Seeing: P0 review I1); the
-    report also written to folder/report.txt."""
+    report also written to folder/report.txt. unlock: write or remove the seeing pass (§28.6)."""
     per: dict[str, list[MarkScore]] = {name: [] for name in detectors}
     for mdir in sorted(p.parent for p in folder.glob("*/mark.json")):
         mark, complete = _mark_of(mdir / "mark.json")
@@ -280,8 +297,26 @@ def score_folder(
         for name, pics in _score_one(mdir, mark, cal, detectors, seeing, depth).items():
             per[name].append(score_mark(shown, pics, sonar))
     text = "\n\n".join(verdict(name, per[name]) for name in detectors)
+    if unlock is not None:
+        text += "\n\n" + _unlock(unlock, per.get(unlock.detector, []))
     (folder / "report.txt").write_text(text + "\n")
     return text
+
+
+def _unlock(u: Unlock, scores: list[MarkScore]) -> str:
+    """Every required mark recorded whole (a cut-short one is named differently) and passed: the pass file;
+    else none (an old one removed)."""
+    passed = {s.mark.mid for s in scores if s.passed}
+    if scores and all(s.passed for s in scores) and set(u.required) <= passed:
+        today = datetime.date.today().isoformat()
+        write_pass(u.path, u.model, u.calibration, today, {"marks_passed": len(passed), "marks": len(scores)})
+        return f"games unlocked: {u.detector} passed every mark ({u.path.name} written)"
+    u.path.unlink(missing_ok=True)
+    return f"games locked: {u.detector} did not pass every mark ({u.path.name} removed)"
+
+
+def world_label(world_vocab: Path) -> str:
+    return f"yolo-world ({world_vocab.name})"
 
 
 def _detectors(world_model: Path, world_vocab: Path) -> dict[str, DetectFn]:
@@ -291,7 +326,7 @@ def _detectors(world_model: Path, world_vocab: Path) -> dict[str, DetectFn]:
 
     coco = YoloCoreml(MODELS / "yolo26n-640.mlpackage", COCO_CONF)
     world = YoloWorld(world_model, load_vocabulary(world_vocab), MAYBE_SCORE)  # the engine's maybe score
-    return {"yolo26n person": coco.detect, f"yolo-world ({world_vocab.name})": world.detect}
+    return {"yolo26n person": coco.detect, world_label(world_vocab): world.detect}
 
 
 def main() -> None:
@@ -312,6 +347,7 @@ def main() -> None:
     cal = calibration_store.load(CALIBRATION, VGA)
     depth = None if a.no_depth else load_depth(DEPTH_MODEL)
     cfg = load_map_config(MAP_CONFIG)
-    print(
-        score_folder(a.folder, cal, _detectors(a.world_model, a.world_vocabulary), depth, lambda: Seeing(cfg))
-    )
+    marks = tuple(m.mid for m in all_marks())
+    unlock = Unlock(world_label(a.world_vocabulary), PASS_FILE, a.world_model.name, cal.date, marks)
+    dets = _detectors(a.world_model, a.world_vocabulary)
+    print(score_folder(a.folder, cal, dets, depth, lambda: Seeing(cfg), unlock))

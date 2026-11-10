@@ -3512,3 +3512,12 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   the engine's person watch and game skills, the Logo words with the lesson and `/ai`'s GAMES card.
 - **Plan P0 merged into main 2026-11-09 (owner: "yes")** - the tool and `person_range` under the game; the crawling
   test itself still waits (§223).
+
+## 230. Plan G3 written - the game words, lesson 6 and the GAMES card (2026-11-10; owner: "yes")
+- `docs/superpowers/plans/2026-11-10-plan-g3-game-words.md`: the `person` input type and `FACE` / `ESCAPE` /
+  `FOLLOW` (level 2, 7062), the bridge's `skill_start` for them and `"game":true` on person questions, lesson 6
+  "Chase with the baby", the AI feed's `people` and person distance for the page, and the GAMES card on PLAY.
+- Calls made while planning: the card's distance and lock come from the engine's AI feed (the page already reads
+  it) - the bridge's game event keeps only the state and the caught count; START runs lesson 6's text with the
+  grown-ups' numbers through the page's existing one-line run path; FOLLOW's follow distance stays the engine's
+  default (no Logo input). Built after G1 and G2 are merged (it uses both).

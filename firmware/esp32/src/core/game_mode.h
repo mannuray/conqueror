@@ -36,7 +36,9 @@ class GameMode {
   void onPerson(const PersonEst& e, uint32_t now_ms);
   void onCaughtEvent(uint32_t now_ms);  // the Uno's stall, pushing but not moving
   void onEngineGone(uint32_t now_ms);
-  void onStop();     // a person's STOP: always back to Off
+  // A STOP: back to Off - but Held only for a person's press (S12; design-notes §232: the drive page's own STOP when
+  // a thumb leaves the stick must not release it). Every STOP still stops the motors (DriveController).
+  void onStop(bool press);
   void onRunEnd();   // the program ended: Off - except Held, which waits for STOP
   bool onUnoHello(uint32_t now_ms);  // the Uno restarted (its envelope lost): true = arm again (a new window)
   Gate gate(const Move& m, uint16_t stop_cm, uint32_t now_ms);

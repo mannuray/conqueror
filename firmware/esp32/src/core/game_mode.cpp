@@ -62,8 +62,8 @@ void GameMode::onEngineGone(uint32_t) {
   if (active()) toHeld();
 }
 
-void GameMode::onStop() {
-  if (active()) toOff();
+void GameMode::onStop(bool press) {
+  if (active() && (press || m_state != GameState::kHeld)) toOff();
 }
 
 void GameMode::onRunEnd() {

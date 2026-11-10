@@ -3905,3 +3905,9 @@ the stopping distance, sideways / away allowed, turns from 35 cm.
   `/logo#name` never throws on a broken escape and is cleared after use; START keeps the follow distance beyond the
   back-off one; lesson 6 waits 1 s after an ESCAPE; the skill-name tables are tied to `SkillKind` by `static_assert`;
   the engine refuses a game word outside the bridge's game mode (7052).
+- **Tank check 2026-11-10, held released by a page's own STOP (design-notes §232) - fixed:** the drive page sends
+  `{"t":"stop"}` by itself when a thumb leaves the stick (also on a mode switch and when hidden), and G1 let any STOP
+  release Held, so a second push drove. Now a STOP **button** says `"press":true` (`cqLink.stop` for every page's
+  STOP, the bar's `stopOnce`, the settings page's Stop, `logo.py`'s Ctrl-C); `GameMode::onStop(press)` releases Held
+  only for a press (S12); every STOP still stops the motors at once, as before. Other STOPs still end Playing /
+  Caught (the run ends with them).

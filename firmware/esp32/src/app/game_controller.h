@@ -45,7 +45,7 @@ class GameController {
   uint16_t caughtCount() const { return m_mode.caughtCount(); }
   uint8_t gameCap() const { return m_mode.state() == core::GameState::kOff ? 0 : m_cap; }  // 0: no game
   void onRunEnd(uint32_t now);
-  void onStop(uint32_t now);
+  void onStop(uint32_t now, bool press);  // press: the STOP button (only it releases Held)
   void onEngineGone(uint32_t now) { m_mode.onEngineGone(now); }
   void onBodyOnline(uint32_t now);  // the Uno (re)started: a game arms again; off, the envelope is cleared
   void onCaughtEvent(uint32_t now) { m_mode.onCaughtEvent(now); }  // the Uno's stall: a held track

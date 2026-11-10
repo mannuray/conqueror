@@ -119,3 +119,10 @@ test("onStop: Enter / Space (a click with detail 0) stops", () => {
   assert.equal(n, 1);
 });
 
+
+test("stopOnce: its stop is a press (design-notes §232: only a press releases a held game)", async () => {
+  const { w } = run("ack");
+  await tick(); await tick();
+  assert.equal(w.sockets[0].sent[1].t, "stop");
+  assert.equal(w.sockets[0].sent[1].press, true);
+});

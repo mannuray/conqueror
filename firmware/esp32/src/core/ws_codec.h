@@ -128,6 +128,7 @@ struct WsCommand {
   uint16_t page_port = 0;  // hello (Plan Z2b-1, R27.2): "page":{"port","proto"} - where the engine's AI feed is; 0 = none
   uint8_t page_proto = 0;
   bool people = false;       // hello (R34.3): the engine's seeing test passed
+  bool press = false;        // stop: a person pressed a STOP button - only this releases game mode's Held (§232)
   PersonEst person;          // person (R34.3)
   uint16_t person_age_ms = 0;
   bool has_game_cap = false;  // calib (R34): set the game's speed cap

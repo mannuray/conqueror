@@ -187,7 +187,7 @@ def _run(args: argparse.Namespace) -> int:
             print("step mode: Enter = next line")
         ended = run_program(ws, prog, args.step, print, EnterKey().poll if args.step else None)
     except KeyboardInterrupt:
-        ws.send({"t": "stop"})
+        ws.send({"t": "stop", "press": True})  # a person's Ctrl-C: a press (releases a held game, §232)
         ws.send({"t": "logo_stop", "id": 3})
         print("STOP sent")
         return 1

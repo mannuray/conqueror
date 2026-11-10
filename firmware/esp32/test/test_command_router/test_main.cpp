@@ -406,16 +406,20 @@ void test_skill_drive_under_a_live_lease_drives() {
 }
 
 // Plan G1 (bridge LLD R34): a person's STOP and the engine's answers reach game mode.
-int g_game_stops = 0;
+int g_game_stops = 0, g_game_presses = 0;
 int32_t g_game_answer = -1;
 void test_stop_and_answers_reach_game_mode() {
   sync();
   app::CommandRouter::GameHooks gh;
-  gh.on_stop = [](uint32_t) { ++g_game_stops; };
+  gh.on_stop = [](uint32_t, bool press) { ++g_game_stops; g_game_presses += press ? 1 : 0; };
   gh.on_answer = [](int32_t id, int32_t, uint32_t) { g_game_answer = id; };
   router->setGameHooks(gh);
-  text(9, "{\"t\":\"stop\",\"id\":1}", 100);
+  text(9, "{\"t\":\"stop\",\"id\":1}", 100);  // the drive page's own STOP (a thumb lifted)
   TEST_ASSERT_EQUAL(1, g_game_stops);
+  TEST_ASSERT_EQUAL(0, g_game_presses);
+  text(9, "{\"t\":\"stop\",\"id\":2,\"press\":true}", 101);  // the STOP button (design-notes §232)
+  TEST_ASSERT_EQUAL(2, g_game_stops);
+  TEST_ASSERT_EQUAL(1, g_game_presses);
   ws.add(7, 0);
   hub.onHello(7);
   text(7, "{\"t\":\"skill_answer\",\"id\":42,\"value\":true}", 200);

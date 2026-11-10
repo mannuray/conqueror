@@ -71,9 +71,11 @@ var cqLink = (function () {
     });
     // STOP: on the link when it is up; through a socket opened for the press, and said, when it is down - or quiet
     // for more than 1.5 s (a WiFi drop is only noticed after 4 s of silence: STOP does not wait for that)
+    // A press: its stop says so (press:true) - only a pressed STOP releases game mode's Held (design-notes §232); the
+    // page's own STOPs (a thumb lifted, the page hidden) go through send and never say so.
     function stop(msgs, say) {
       if (up) {
-        for (var i = 0; i < msgs.length; i++) send(msgs[i]);
+        for (var i = 0; i < msgs.length; i++) send(msgs[i].t === "stop" ? Object.assign({ press: true }, msgs[i]) : msgs[i]);
         if (env.now() - lastRx <= QUIET_MS) return;
       }
       if (say) say("Stopping…", true);

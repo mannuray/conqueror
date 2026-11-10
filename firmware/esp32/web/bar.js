@@ -58,7 +58,7 @@ var cqBar = (function () {
     ws.onopen = function () {
       try {
         ws.send(JSON.stringify({ t: "hello", client: "help", proto: 1 }));
-        ws.send(JSON.stringify({ t: "stop", id: 1 }));
+        ws.send(JSON.stringify({ t: "stop", id: 1, press: true }));  // a press: it may release a held game (§232)
         ws.send(JSON.stringify({ t: "logo_stop", id: 2 }));
       } catch (e) { end(false); }
     };

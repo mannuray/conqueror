@@ -137,10 +137,23 @@ void test_stale_300_ms_holds_1_s_is_held() {
   bool on = true;
   while (g.wantsEnvelope(on)) {
   }
-  g.onStop();
+  g.onStop(true);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kOff), static_cast<int>(g.state()));
   TEST_ASSERT_TRUE(g.wantsEnvelope(on));
   TEST_ASSERT_FALSE(on);  // the envelope cleared
+}
+
+// Tank check 2026-11-10 (design-notes §232): the drive page's own STOP when a thumb leaves the stick released Held.
+// S12: only a person pressing STOP does; every other STOP still stops the motors, game mode stays Held.
+void test_only_a_pressed_stop_releases_held() {
+  GameMode g = playing();
+  see(g, 0, 200, 0);
+  g.step(1001);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kHeld), static_cast<int>(g.state()));
+  g.onStop(false);  // a thumb lifted, a mode switch, a page hidden
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kHeld), static_cast<int>(g.state()));
+  g.onStop(true);  // the STOP button
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kOff), static_cast<int>(g.state()));
 }
 
 void test_no_person_at_all_after_arming_is_held_after_1_s() {
@@ -200,7 +213,7 @@ void test_stop_while_arming() {
   bool on = false;
   while (g.wantsEnvelope(on)) {
   }
-  g.onStop();
+  g.onStop(true);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kOff), static_cast<int>(g.state()));
   TEST_ASSERT_TRUE(g.wantsEnvelope(on));
   TEST_ASSERT_FALSE(on);
@@ -253,7 +266,7 @@ void test_a_run_start_while_held_is_refused() {  // I2
   TEST_ASSERT_EQUAL(static_cast<int>(GameMode::Start::kHeld), static_cast<int>(g.startRun(true, true, 75, 300)));
   TEST_ASSERT_EQUAL(static_cast<int>(GameMode::Start::kHeld), static_cast<int>(g.startRun(false, true, 75, 300)));
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kHeld), static_cast<int>(g.state()));
-  g.onStop();
+  g.onStop(true);
   TEST_ASSERT_EQUAL(static_cast<int>(GameMode::Start::kGo), static_cast<int>(g.startRun(false, true, 75, 400)));
 }
 
@@ -322,6 +335,7 @@ int main(int, char**) {
   RUN_TEST(test_a_step_back_inside_50_restarts_the_2_s);
   RUN_TEST(test_stall_or_pushing_not_moving_is_caught);
   RUN_TEST(test_stale_300_ms_holds_1_s_is_held);
+  RUN_TEST(test_only_a_pressed_stop_releases_held);
   RUN_TEST(test_no_person_at_all_after_arming_is_held_after_1_s);
   RUN_TEST(test_engine_gone_is_held);
   RUN_TEST(test_uno_hello_rearms);

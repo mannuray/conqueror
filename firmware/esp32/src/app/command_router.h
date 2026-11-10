@@ -22,7 +22,7 @@ namespace app {
 class CommandRouter {
  public:
   struct GameHooks {  // Plan G1 (bridge LLD R34): a person's STOP and the engine's answers reach game mode
-    void (*on_stop)(uint32_t now) = nullptr;
+    void (*on_stop)(uint32_t now, bool press) = nullptr;  // press: the STOP button (design-notes §232)
     void (*on_answer)(int32_t id, int32_t value, uint32_t now) = nullptr;
     void (*on_person)(const core::PersonEst& e, uint32_t now) = nullptr;  // at receipt (review I6)
     void (*on_page)(int fd) = nullptr;  // an /ai page said hello: the game's state now (G3 final review I1)

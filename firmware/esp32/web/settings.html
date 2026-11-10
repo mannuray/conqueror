@@ -774,7 +774,7 @@ input[type=range] { padding: 0; border: 0; accent-color: var(--ui); background: 
     wizState("sent", "// Starting …"); updateDebug();
     if (!send({ t: "move", dist_cm: 100, speed: 40, id: wiz.id })) wizState("idle", "// Not connected.");
   });
-  $("zStop").addEventListener("click", function () { send({ t: "stop" }); });
+  $("zStop").addEventListener("click", function () { send({ t: "stop", press: true }); });  // a press (§232)
   function wizAck(id) {
     if (id !== wiz.id || wiz.st !== "sent") return false;
     var e = encMean();

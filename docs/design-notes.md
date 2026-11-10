@@ -3592,3 +3592,14 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   partition). The `.gitattributes` line goes to main with the first of G1 / G2 / G3 merged.
 - Tests: bridge native 1006, web 142 (+ the GAMES card browser check), logo generator 35, engine 1019.
 
+## 232. Tank check: a page's own STOP released a held game - fixed (2026-11-10)
+- G1's floor checks with the stand-in engine (`fake_person.py`, the stand cap 60 %): 7061 without the seeing pass,
+  7060 without the cap, a 1 m game run, kept away as the person closed in, caught at ~28 cm (the program waited on
+  `CAUGHT?`) and released 2 s after the person was back beyond 50 cm, held 1.0 s after the engine went silent (7052).
+- **Found:** while held, the owner's first stick push did nothing, the second drove. The drive page sends its own
+  `{"t":"stop"}` when a thumb leaves the stick, and G1 released Held on any STOP (a ruling the G3 review let stand).
+  Spec 10 S12 says only a person pressing STOP: a STOP button now sends `"press":true` and only that releases Held
+  (bridge LLD R34.10). Re-test after the flash.
+- **Noted for G1 (not safety):** a game's `FORWARD 10` stops at ~8 cm (the speed clamp under the motion service's
+  learned stop); the caught count carries over from one game to the next.
+

@@ -95,6 +95,17 @@ void test_ping_t0_is_valid_json_number() {
 
 // Review M7: a stop longer than LinkCommand::text (200 B), e.g. with a future "key" field, is still
 // recognised from the raw frame, so the bridge forwards it as a short stop instead of nacking it.
+void test_stop_press_flag() {  // design-notes §232: the STOP button says so; a page's own STOP does not
+  const char* pressed = "{\"t\":\"stop\",\"id\":3,\"press\":true}";
+  WsCommand c = parseWsCommand(pressed, strlen(pressed));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kStop), K(c.kind));
+  TEST_ASSERT_TRUE(c.press);
+  const char* own = "{\"t\":\"stop\",\"id\":4}";
+  c = parseWsCommand(own, strlen(own));
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kStop), K(c.kind));
+  TEST_ASSERT_FALSE(c.press);
+}
+
 void test_long_stop_is_still_a_stop() {
   char big[320];
   int n = snprintf(big, sizeof(big), "{\"t\":\"stop\",\"id\":9,\"key\":\"");
@@ -643,6 +654,7 @@ int main() {
   RUN_TEST(test_ping_echoes_t0_verbatim);
   RUN_TEST(test_id_out_of_range_is_invalid);
   RUN_TEST(test_ping_t0_is_valid_json_number);
+  RUN_TEST(test_stop_press_flag);
   RUN_TEST(test_long_stop_is_still_a_stop);
   RUN_TEST(test_unsupported_commands);
   RUN_TEST(test_junk_is_invalid);

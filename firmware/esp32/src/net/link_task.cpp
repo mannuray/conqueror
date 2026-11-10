@@ -334,7 +334,7 @@ void wireGame() {
   g_link.setDriveGate(app::GameController::gateClamp, &g_game);
   g_uno.setGameDone([](uint8_t status, bool on) { g_game.onEnvelopeDone(status, on, millis()); });
   app::CommandRouter::GameHooks r;
-  r.on_stop = [](uint32_t now) { g_game.onStop(now); };
+  r.on_stop = [](uint32_t now, bool press) { g_game.onStop(now, press); };
   r.on_answer = [](int32_t id, int32_t value, uint32_t now) { g_game.onAnswer(id, value, now); };
   r.on_person = [](const core::PersonEst& e, uint32_t now) { g_game.onPerson(e, now); };
   r.on_page = [](int fd) {  // an /ai page that (re)connects mid-game sees its moment at once (G3 final review I1)

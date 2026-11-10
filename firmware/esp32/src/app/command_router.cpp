@@ -125,7 +125,7 @@ void CommandRouter::onText(int fd, const char* text, size_t len, uint32_t post_s
   const int32_t id = c.has_id ? c.id : -1;
   if (c.kind == core::WsCmdKind::kStop) {
     m_drive.onStop(fd, id, post_seq, now);  // fast path: may overtake its own kWsOpen - never lost
-    if (m_game.on_stop != nullptr) m_game.on_stop(now);  // R34: a person's STOP ends game mode (Held too)
+    if (m_game.on_stop != nullptr) m_game.on_stop(now, c.press);  // R34: ends game mode; Held only for a press
     return;
   }
   if (!m_out.clients().contains(fd) || !m_drive.admitted(fd, c.kind, id, post_seq, now)) return;

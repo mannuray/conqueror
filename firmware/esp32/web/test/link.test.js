@@ -193,3 +193,18 @@ test("final review: a WebSocket that throws on create leaves a working link obje
   w.advance(500);
   assert.equal(w.sockets.length, 1);
 });
+
+// Tank check 2026-11-10 (design-notes §232): the STOP button says it was pressed - only that releases game mode's
+// Held; the page's own STOPs (a thumb lifted, the page hidden) go through send and never say so.
+test("STOP pressed: link.stop marks its stop press:true; an automatic stop does not", () => {
+  const w = world(), { link } = openLink(w);
+  const s = w.last(); s.onopen();
+  link.stop([{ t: "stop", id: 7 }, { t: "logo_stop", id: 8 }]);
+  const sent = s.sent.map((x) => (typeof x === "string" ? JSON.parse(x) : x));
+  assert.equal(sent.filter((m) => m.t === "stop").pop().press, true);
+  assert.equal(sent.filter((m) => m.t === "logo_stop").pop().press, undefined);
+  w.show(true);  // hidden: the page's onHide sends its own stop
+  const after = s.sent.map((x) => (typeof x === "string" ? JSON.parse(x) : x));
+  assert.equal(after[after.length - 1].t, "stop");
+  assert.equal(after[after.length - 1].press, undefined);
+});

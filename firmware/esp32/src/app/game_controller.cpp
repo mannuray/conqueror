@@ -26,8 +26,8 @@ void GameController::onRunEnd(uint32_t now) {
   tick(now);
 }
 
-void GameController::onStop(uint32_t now) {
-  m_mode.onStop();
+void GameController::onStop(uint32_t now, bool press) {
+  m_mode.onStop(press);
   tick(now);
 }
 

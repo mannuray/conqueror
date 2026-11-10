@@ -589,6 +589,34 @@ void test_skill_ask_and_end() {
   }
 }
 
+// Plan G3 (bridge LLD R34.3, AI engine LLD §28.9): the game words, and a person question in a game.
+void test_skill_start_the_game_words() {
+  cq::logo::Action a;
+  a.kind = cq::logo::ActKind::kSkill;
+  snprintf(a.thing, sizeof a.thing, "baby");
+  a.skill = cq::logo::SkillKind::kFace;
+  jsonSkillStart(buf, sizeof(buf), 12, a, FwdLeft(), FwdLeft());
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"skill_start\",\"id\":12,\"skill\":\"face\",\"thing\":\"baby\"}", buf);
+  a.skill = cq::logo::SkillKind::kEscape;
+  a.cm = 40;
+  jsonSkillStart(buf, sizeof(buf), 13, a, FwdLeft(), FwdLeft());
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"skill_start\",\"id\":13,\"skill\":\"escape\",\"thing\":\"baby\",\"cm\":40}", buf);
+  a.skill = cq::logo::SkillKind::kFollow;
+  a.seconds = 60;
+  snprintf(a.thing, sizeof a.thing, "person");
+  const size_t n = jsonSkillStart(buf, sizeof(buf), 2147483647, a, FwdLeft(), FwdLeft());
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"skill_start\",\"id\":2147483647,\"skill\":\"follow\",\"thing\":\"person\",\"s\":60}",
+                           buf);
+  TEST_ASSERT_TRUE(n < 200);  // the WS path's 200-byte messages (R26.2)
+}
+
+void test_skill_ask_about_the_person_in_a_game() {
+  jsonSkillAsk(buf, sizeof(buf), 5, cq::logo::AskQ::kHowfar, "baby", true);
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"skill_ask\",\"id\":5,\"q\":\"howfar\",\"thing\":\"baby\",\"game\":true}", buf);
+  jsonSkillAsk(buf, sizeof(buf), 6, cq::logo::AskQ::kSee, "toy", false);
+  TEST_ASSERT_EQUAL_STRING("{\"t\":\"skill_ask\",\"id\":6,\"q\":\"see?\",\"thing\":\"toy\"}", buf);
+}
+
 void test_skill_start_each_skill() {
   cq::logo::Action a;
   a.kind = cq::logo::ActKind::kSkill;
@@ -624,6 +652,8 @@ int main() {
   RUN_TEST(test_skill_nacks);
   RUN_TEST(test_skill_ask_and_end);
   RUN_TEST(test_skill_start_each_skill);
+  RUN_TEST(test_skill_start_the_game_words);
+  RUN_TEST(test_skill_ask_about_the_person_in_a_game);
   RUN_TEST(test_ack_reason_table_matches_generated_codes);
   RUN_TEST(test_tf_scaling_and_sentinels);
   RUN_TEST(test_ts_flags_owner_and_battery);

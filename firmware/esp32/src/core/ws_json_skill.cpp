@@ -12,12 +12,24 @@ using namespace detail;
 
 namespace {
 
-const char* const kSkillNames[] = {"find", "wander", "explore", "setxy"};
+const char* const kSkillNames[] = {"find", "wander", "explore", "setxy", "face", "escape", "follow"};
 const char* const kEndWhy[] = {"stop", "deadman", "page", "owner", "ended", "caught"};
+
+// The game words: the person, then ESCAPE's cm or FOLLOW's seconds (bridge LLD R34.3).
+int gameArg(char* out, size_t cap, const logo::Action& a) {
+  char who[64];
+  jsonEscape(who, sizeof who, a.thing);
+  if (a.skill == logo::SkillKind::kEscape) return snprintf(out, cap, ",\"thing\":\"%s\",\"cm\":%u", who, a.cm);
+  if (a.skill == logo::SkillKind::kFollow) {
+    return snprintf(out, cap, ",\"thing\":\"%s\",\"s\":%u", who, static_cast<unsigned>(a.seconds));
+  }
+  return snprintf(out, cap, ",\"thing\":\"%s\"", who);
+}
 
 // The skill's own argument as `,"key":value` (nothing for explore).
 int skillArg(char* out, size_t cap, const logo::Action& a, FwdLeft to) {
   char thing[64];
+  if (a.skill >= logo::SkillKind::kFace) return gameArg(out, cap, a);
   switch (a.skill) {
     case logo::SkillKind::kFind:
       jsonEscape(thing, sizeof thing, a.thing);
@@ -34,11 +46,11 @@ int skillArg(char* out, size_t cap, const logo::Action& a, FwdLeft to) {
 
 }  // namespace
 
-size_t jsonSkillAsk(char* out, size_t cap, int32_t id, logo::AskQ q, const char* thing) {
+size_t jsonSkillAsk(char* out, size_t cap, int32_t id, logo::AskQ q, const char* thing, bool game) {
   char t[64];
   jsonEscape(t, sizeof t, thing);
-  return fmt(out, cap, "{\"t\":\"skill_ask\",\"id\":%ld,\"q\":\"%s\",\"thing\":\"%s\"}", static_cast<long>(id),
-             q == logo::AskQ::kSee ? "see?" : "howfar", t);
+  return fmt(out, cap, "{\"t\":\"skill_ask\",\"id\":%ld,\"q\":\"%s\",\"thing\":\"%s\"%s}", static_cast<long>(id),
+             q == logo::AskQ::kSee ? "see?" : "howfar", t, game ? ",\"game\":true" : "");
 }
 
 size_t jsonSkillStart(char* out, size_t cap, int32_t id, const logo::Action& a, FwdLeft to, FwdLeft area) {

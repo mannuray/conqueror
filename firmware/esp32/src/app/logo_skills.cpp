@@ -4,6 +4,7 @@
 // the skill's drive stops and the holder loses the camera. Stale answers / ends are the hub's to spot (by id + fd).
 #include "app/logo_controller.h"
 #include "logo/relative.h"
+#include "logo/words.h"
 
 namespace cq {
 namespace app {
@@ -56,7 +57,8 @@ void LogoController::carryAi(const logo::Action& a, uint32_t now) {
 void LogoController::ask(const logo::Action& a, uint32_t now) {
   if (m_hub == nullptr) return;
   const int32_t id = m_hub->ask(a.ask_q, a.thing, now);
-  if (id >= 0) m_out.to(m_hub->server(), core::jsonSkillAsk(m_out.buf(), m_out.cap(), id, a.ask_q, a.thing));
+  const bool game = m_prog.game && logo::isPersonWord(a.thing);  // the engine answers from PersonWatch (§27)
+  if (id >= 0) m_out.to(m_hub->server(), core::jsonSkillAsk(m_out.buf(), m_out.cap(), id, a.ask_q, a.thing, game));
 }
 
 // FIND / WANDER / EXPLORE / SETXY: a GO is held first (startSkill replaces a primitive without its end; HOLD does

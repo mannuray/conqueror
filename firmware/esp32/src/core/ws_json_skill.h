@@ -19,7 +19,8 @@ using FwdLeft = logo::FwdLeft;
 enum class LeaseEnd : uint8_t { kStop, kDeadman, kPage, kOwner, kEnded, kCaught };  // kCaught: game mode (R34)
 
 // {"t":"skill_ask","id":n,"q":"see?"|"howfar","thing":"toy"}
-size_t jsonSkillAsk(char* out, size_t cap, int32_t id, logo::AskQ q, const char* thing);
+// game: a person question in a game run - `"game":true` (bridge LLD R34.3, the engine answers from PersonWatch)
+size_t jsonSkillAsk(char* out, size_t cap, int32_t id, logo::AskQ q, const char* thing, bool game = false);
 // {"t":"skill_start","id":n,"skill":"find"|"wander"|"explore"|"setxy", find: "thing", wander: "s", setxy: "to" {...},
 //  and, when the action has an AREA, "area":{"r_m","fwd_cm","left_cm"}}. `to` and `area` are relative to the tank now.
 size_t jsonSkillStart(char* out, size_t cap, int32_t id, const logo::Action& a, FwdLeft to, FwdLeft area);

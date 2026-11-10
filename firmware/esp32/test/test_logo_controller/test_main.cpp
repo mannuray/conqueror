@@ -611,6 +611,42 @@ void test_answer_to_an_old_question_is_dropped() {
   TEST_ASSERT_EQUAL(1, g_ops.size());
 }
 
+// Plan G3 (bridge LLD R34.3): the game words go out as skills, a person question carries "game":true.
+void test_face_starts_a_skill_and_its_done_goes_on() {
+  runAi("FACE \"baby  BEEP");
+  ticks(1);
+  TEST_ASSERT_TRUE(g_game_seen);  // a game run: game mode before the first motion
+  startedSkill();
+  TEST_ASSERT_TRUE(sent(kServer, "\"skill\":\"face\",\"thing\":\"baby\""));
+  lc->onSkillEnd(kServer, g_skill_id, logo::SkillEnd::kDone, g_now);
+  ticks(1);
+  TEST_ASSERT_EQUAL(1, g_ops.size());  // BEEP
+}
+
+void test_escape_and_follow_carry_their_numbers() {
+  runAi("ESCAPE \"kid 40  FOLLOW \"person 5");
+  ticks(1);
+  startedSkill();
+  TEST_ASSERT_TRUE(sent(kServer, "\"skill\":\"escape\",\"thing\":\"kid\",\"cm\":40"));
+  lc->onSkillEnd(kServer, g_skill_id, logo::SkillEnd::kDone, g_now);
+  ticks(1);
+  startedSkill();
+  TEST_ASSERT_TRUE(sent(kServer, "\"skill\":\"follow\",\"thing\":\"person\",\"s\":5"));
+}
+
+void test_a_person_question_in_a_game_says_so() {
+  runAi("IF SEE? \"baby [ BEEP ]");
+  ticks(1);
+  TEST_ASSERT_TRUE(sent(kServer, "\"q\":\"see?\",\"thing\":\"baby\",\"game\":true"));
+}
+
+void test_a_thing_question_never_says_game() {
+  runAi("IF CAUGHT? [ BEEP ]  IF SEE? \"ball [ BEEP ]");
+  ticks(2);
+  TEST_ASSERT_TRUE(sent(kServer, "\"thing\":\"ball\""));
+  TEST_ASSERT_FALSE(sent(kServer, "\"game\":true"));
+}
+
 void test_skill_done_goes_on_without_skill_end() {
   runAi("FIND \"ball  BEEP");
   ticks(1);
@@ -930,6 +966,10 @@ int main() {
   RUN_TEST(test_ask_answer_pushes_true);
   RUN_TEST(test_ask_timeout_pushes_false);
   RUN_TEST(test_answer_to_an_old_question_is_dropped);
+  RUN_TEST(test_face_starts_a_skill_and_its_done_goes_on);
+  RUN_TEST(test_escape_and_follow_carry_their_numbers);
+  RUN_TEST(test_a_person_question_in_a_game_says_so);
+  RUN_TEST(test_a_thing_question_never_says_game);
   RUN_TEST(test_skill_done_goes_on_without_skill_end);
   RUN_TEST(test_skill_failed_ends_the_program);
   RUN_TEST(test_a_second_end_for_an_old_skill_is_dropped);

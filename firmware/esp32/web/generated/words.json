@@ -1215,18 +1215,64 @@
    "example": "IF HOWFAR \"ball < 50 [ BEEP ]"
   },
   {
-   "name": "FOLLOW",
+   "name": "FACE",
    "aliases": [],
    "kind": "command",
-   "level": 3,
+   "level": 2,
    "group": "move",
    "needs": [
-    "ai"
+    "ai",
+    "encoders"
    ],
    "inputs": [
     {
-     "name": "thing",
-     "type": "any",
+     "name": "person",
+     "type": "person",
+     "unit": ""
+    }
+   ],
+   "help": "look at the baby",
+   "example": "FACE \"baby"
+  },
+  {
+   "name": "ESCAPE",
+   "aliases": [],
+   "kind": "command",
+   "level": 2,
+   "group": "move",
+   "needs": [
+    "ai",
+    "encoders"
+   ],
+   "inputs": [
+    {
+     "name": "person",
+     "type": "person",
+     "unit": ""
+    },
+    {
+     "name": "cm",
+     "type": "number",
+     "unit": "cm"
+    }
+   ],
+   "help": "get away from the baby",
+   "example": "ESCAPE \"baby 40"
+  },
+  {
+   "name": "FOLLOW",
+   "aliases": [],
+   "kind": "command",
+   "level": 2,
+   "group": "move",
+   "needs": [
+    "ai",
+    "encoders"
+   ],
+   "inputs": [
+    {
+     "name": "person",
+     "type": "person",
      "unit": ""
     },
     {
@@ -1235,8 +1281,8 @@
      "unit": "s"
     }
    ],
-   "help": "",
-   "example": ""
+   "help": "follow the baby, never too close",
+   "example": "FOLLOW \"baby 5"
   },
   {
    "name": "CAUGHT?",

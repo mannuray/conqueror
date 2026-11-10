@@ -475,3 +475,28 @@
   does: [FORWARD 10]
   ends: finished
 
+# Plan G3 (Tank Logo LLD §27): the game words run as skills; a person in any case; caught is no error.
+- name: the game words
+  source: FACE "Baby  ESCAPE "baby 40  FOLLOW "kid 5
+  does: [FACE baby, ESCAPE baby 40, FOLLOW kid 5]
+  ends: finished
+
+- name: a word the person caught ends without an error
+  source: FOLLOW "baby 10  IF CAUGHT? [ BEEP ]
+  world: {skill_ends: [caught], caught: true}
+  does: [FOLLOW baby 10, BEEP]
+  ends: finished
+
+- name: a thing computed into a game word
+  source: |
+    TO LOOKAT :who FACE :who END
+    LOOKAT "ball
+  ends: {error: 7062, line: 1}
+  does: []
+
+- name: SEE? the baby in a game
+  source: IF SEE? "baby [ BEEP ]
+  world: {answers: [true]}
+  does: [BEEP]
+  ends: finished
+

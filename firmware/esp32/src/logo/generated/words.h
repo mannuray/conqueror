@@ -4,7 +4,7 @@
 namespace cq {
 namespace logo {
 namespace gen {
-enum class InType : uint8_t { kNumber, kCondition, kAny, kSide, kColour, kLook, kSound, kNotes, kText, kThing, kList, kBlock, kTemplate, kTemplateBlock };
+enum class InType : uint8_t { kNumber, kCondition, kAny, kSide, kColour, kLook, kSound, kNotes, kText, kThing, kPerson, kList, kBlock, kTemplate, kTemplateBlock };
 enum class WordKind : uint8_t { kCommand, kReporter, kControl, kOperator, kConstant };
 enum : uint8_t { kNeedEncoders = 1, kNeedAi = 2 };
 struct InputSpec { const char* name; InType type; bool has_range; int32_t min_milli; int32_t max_milli; const char* unit; const char* what; };
@@ -60,8 +60,10 @@ inline constexpr InputSpec kIn66[] = {{"x", InType::kNumber, true, -1000000, 100
 inline constexpr InputSpec kIn67[] = {{"metres", InType::kNumber, true, 0, 10000, "m", "a metres"}};
 inline constexpr InputSpec kIn68[] = {{"thing", InType::kThing, false, 0, 0, "", "a thing"}};
 inline constexpr InputSpec kIn69[] = {{"thing", InType::kThing, false, 0, 0, "", "a thing"}};
-inline constexpr InputSpec kIn70[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}, {"seconds", InType::kNumber, true, 1000, 60000, "s", "a seconds"}};
-inline constexpr InputSpec kIn72[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
+inline constexpr InputSpec kIn70[] = {{"person", InType::kPerson, false, 0, 0, "", "a person"}};
+inline constexpr InputSpec kIn71[] = {{"person", InType::kPerson, false, 0, 0, "", "a person"}, {"cm", InType::kNumber, true, 20000, 100000, "cm", "a cm"}};
+inline constexpr InputSpec kIn72[] = {{"person", InType::kPerson, false, 0, 0, "", "a person"}, {"seconds", InType::kNumber, true, 1000, 60000, "s", "a seconds"}};
+inline constexpr InputSpec kIn74[] = {{"thing", InType::kAny, false, 0, 0, "", "a thing"}};
 
 inline constexpr WordSpec kWords[] = {
     {"FORWARD", WordKind::kCommand, 1, kNeedEncoders, 1, kIn0, "FORWARD 50", "", true},
@@ -134,11 +136,13 @@ inline constexpr WordSpec kWords[] = {
     {"AREA", WordKind::kCommand, 2, kNeedAi, 1, kIn67, "AREA 3", "", true},
     {"SEE?", WordKind::kReporter, 2, kNeedAi, 1, kIn68, "IF SEE? \"ball [ SOUND FANFARE ]", "", false},
     {"HOWFAR", WordKind::kReporter, 2, kNeedAi, 1, kIn69, "IF HOWFAR \"ball < 50 [ BEEP ]", "", false},
-    {"FOLLOW", WordKind::kCommand, 3, kNeedAi, 2, kIn70, "", "", true},
+    {"FACE", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 1, kIn70, "FACE \"baby", "", true},
+    {"ESCAPE", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 2, kIn71, "ESCAPE \"baby 40", "", true},
+    {"FOLLOW", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 2, kIn72, "FOLLOW \"baby 5", "", true},
     {"CAUGHT?", WordKind::kReporter, 2, 0, 0, nullptr, "IF CAUGHT? [ WAIT 3 ]", "", false},
-    {"HOWMANY", WordKind::kReporter, 3, kNeedAi, 1, kIn72, "", "", false},
+    {"HOWMANY", WordKind::kReporter, 3, kNeedAi, 1, kIn74, "", "", false},
 };
-inline constexpr uint8_t kWordCount = 73;
+inline constexpr uint8_t kWordCount = 75;
 
 struct Alias { const char* alias; uint8_t word; };
 inline constexpr Alias kAliases[] = {{"FD", 0}, {"BK", 1}, {"RT", 2}, {"LT", 3}, {"OP", 43}, {"BF", 46}, {"BL", 47}, {"SE", 55}};
@@ -152,6 +156,8 @@ inline constexpr const char* kLooks[] = {"LEFT", "RIGHT", "UP", "DOWN", "HOME"};
 inline constexpr uint8_t kLooksCount = 5;
 inline constexpr const char* kSounds[] = {"STARTUP", "READY", "SELFTEST_FAIL", "CHIRP_UP", "CHIRP_DOWN", "BLIP", "TICK", "JINGLE", "THINKING", "OUCH", "ERROR", "SUCCESS", "FANFARE", "SAD", "SAFETY_CHIRP", "ACK_BLIP", "FAIL", "CONFIRM", "QUESTION", "OK_CHIRP", "GRUMBLE", "SCAN", "GOODBYE", "HORN"};
 inline constexpr uint8_t kSoundsCount = 24;
+inline constexpr const char* kPersonWords[] = {"baby", "person", "kid"};
+inline constexpr uint8_t kPersonWordCount = 3;
 
 struct Rgb { uint8_t r; uint8_t g; uint8_t b; };  // indexed like kColours
 inline constexpr Rgb kColourRgb[] = {{255, 0, 0}, {0, 255, 0}, {0, 0, 255}, {255, 200, 0}, {160, 0, 255}, {255, 255, 255}, {255, 100, 0}, {0, 0, 0}};
@@ -216,9 +222,10 @@ inline constexpr ErrorText kErrors[] = {
     {7059, "OUTPUT can't be used inside LAUNCH - the launched part gives nothing back."},
     {7060, "The game can't start - the tank's speed limit isn't set or didn't reach the tank."},
     {7061, "The game needs the seeing test first."},
+    {7062, "FACE, ESCAPE and FOLLOW are for a person in a game."},
     {7063, "The game's time limit (15 minutes) is up."},
 };
-inline constexpr uint8_t kErrorCount = 54;
+inline constexpr uint8_t kErrorCount = 55;
 
 inline constexpr uint16_t kSourceBytes = 8192;
 inline constexpr uint8_t kMaxProcs = 64;

@@ -22,6 +22,7 @@ TYPES = {
     "notes",
     "text",
     "thing",
+    "person",
     "list",
     "block",
     "template",
@@ -122,6 +123,7 @@ class Spec:
     )
     look_deg: dict[str, tuple[int, int]] = field(default_factory=dict[str, tuple[int, int]])
     run_cases: list[RunCase] = field(default_factory=list[RunCase])
+    person_words: list[str] = field(default_factory=list[str])  # the game's person (Tank Logo LLD §27.1)
 
     def word(self, name: str) -> Word:
         return next(w for w in self.words if w.name == name)
@@ -254,6 +256,7 @@ SKILL_ENDS = {
     "stale",
     "learning",  # a teach started between the check and the word (7056, Plan Z2b-1)
     "stop",  # not the laptop's end: the STOP key (a tank-side ending)
+    "caught",  # the bridge's game mode caught the tank: the word ends, no error (Tank Logo LLD §27.1)
 }
 
 
@@ -338,6 +341,7 @@ def load(root: Path) -> Spec:
             str(k): (int(v[0]), int(v[1]), int(v[2])) for k, v in raw["colour_rgb"].items()
         },
         look_deg={str(k): (int(v[0]), int(v[1])) for k, v in raw["look_deg"].items()},
+        person_words=[str(w).lower() for w in raw.get("person_words", [])],
     )
     spec.run_cases = _load_run_cases(spec_dir / "tests" / "running.yaml")
     _check_preset_data(spec)

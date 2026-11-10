@@ -19,6 +19,7 @@ TYPE_ENUM = {
     "notes": "kNotes",
     "text": "kText",
     "thing": "kThing",
+    "person": "kPerson",
     "list": "kList",
     "block": "kBlock",
     "template": "kTemplate",
@@ -125,6 +126,9 @@ def render_words_h(spec: Spec) -> str:
             f"inline constexpr const char* k{cname}[] = {{{', '.join(c_string(v) for v in vals)}}};\n"
         )
         lines.append(f"inline constexpr uint8_t k{cname}Count = {len(vals)};\n")
+    pw = spec.person_words
+    lines.append(f"inline constexpr const char* kPersonWords[] = {{{', '.join(c_string(w) for w in pw)}}};\n")
+    lines.append(f"inline constexpr uint8_t kPersonWordCount = {len(pw)};\n")
     lines.append("\nstruct Rgb { uint8_t r; uint8_t g; uint8_t b; };  // indexed like kColours\n")
     rgb = [spec.colour_rgb[c] for c in spec.presets["colour"]]
     lines.append(

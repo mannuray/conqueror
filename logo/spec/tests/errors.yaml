@@ -299,3 +299,30 @@
     TO F LAUNCH [ OUTPUT 1 ] WAIT 1 OUTPUT 2 END
     SAY F
   expect: {error: 7059, line: 1, col: 15}
+
+# ---- Plan G3: the game words (Tank Logo LLD §27)
+- name: FACE needs a person
+  source: FACE "toy
+  tank: {ai: true, things: {toy: [car, racing car]}}
+  expect: {error: 7062, line: 1, col: 6}
+  message_has: "for a person in a game"
+
+- name: the person is never a thing to FIND
+  source: FIND "baby
+  tank: {ai: true, things: {toy: [car, racing car]}}
+  expect: {error: 7053, line: 1, col: 6}
+
+- name: ESCAPE's distance is 20 to 100 cm
+  source: ESCAPE "baby 10
+  tank: {ai: true}
+  expect: {error: 7025, line: 1, col: 14}
+
+- name: FOLLOW for 1 to 60 seconds
+  source: FOLLOW "kid 90
+  tank: {ai: true}
+  expect: {error: 7025, line: 1, col: 13}
+
+- name: the game words need the AI helper
+  source: FACE "baby
+  expect: {error: 7020, line: 1, col: 1}
+

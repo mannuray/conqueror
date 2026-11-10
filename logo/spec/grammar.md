@@ -106,6 +106,8 @@ Pass-1 errors: the same name defined twice → `PROGRAM_7007`; a name that is a 
 | `notes` | a `literal-list` of notes `C4`…`B6`, `R` (rest), each optionally followed by a length in quarter beats | `PLAY [ C4 E4 2 G4 ]` |
 | `text` | a value giving a word or a list (spoken / shown as text) | `SAY "Done!`, `SAY [well done]` |
 | `list` | a value giving a list | `FIRST [1 2 3]` |
+| `thing` | a value giving a word: a name the AI helper knows (a written one is checked, 7053; a person word never is one) | `FIND "ball` |
+| `person` | a value giving one of `person_words` (`"baby`, `"person`, `"kid`, any case); anything else is 7062 - written when checked, computed when run. A person word makes the program a game run (Tank Logo LLD §27.2) | `FACE "baby` |
 | `block` | a `block` | `REPEAT 4 [ … ]` |
 | `template` | a `template` (`[? * 2]`) or a value giving a word that names a one-input word that OUTPUTs (`"DOUBLE`) | `MAP [? * 2] :xs` |
 | `template-block` | a `template-block` (`[ FD ? ]`) or a quoted name of a one-input command | `FOREACH :xs [ FD ? ]` |

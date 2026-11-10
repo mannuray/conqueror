@@ -159,7 +159,7 @@ def test_ai_words_are_level_2() -> None:
     }
     assert all(s.word(n).group == "move" for n in ("FIND", "WANDER", "EXPLORE", "SETXY", "AREA"))
     assert all(s.word(n).group == "sense" for n in ("SEE?", "HOWFAR"))
-    assert s.word("FOLLOW").level == 3 and s.word("HOWMANY").level == 3
+    assert s.word("HOWMANY").level == 3
     assert s.word("DISTANCE").level == 2
 
 
@@ -242,3 +242,30 @@ def test_moving_words_are_flagged_for_launch() -> None:
         assert row[name].rstrip("},\n ").endswith("true"), name
     for name in ("BEEP", "SAY", "HOWFAR", "WAIT", "LAUNCH"):
         assert row[name].rstrip("},\n ").endswith("false"), name
+
+
+# ---- Plan G3: the game words (Tank Logo LLD §27)
+def test_the_game_words_are_level_2_with_a_person_input() -> None:
+    s = spec()
+    face, escape, follow = s.word("FACE"), s.word("ESCAPE"), s.word("FOLLOW")
+    assert [w.level for w in (face, escape, follow)] == [2, 2, 2]
+    assert [i.type for i in face.inputs] == ["person"]
+    assert [i.type for i in escape.inputs] == ["person", "number"]
+    assert [i.type for i in follow.inputs] == ["person", "number"]
+    assert (escape.inputs[1].min_milli, escape.inputs[1].max_milli) == (20000, 100000)
+    assert (follow.inputs[1].min_milli, follow.inputs[1].max_milli) == (1000, 60000)
+    assert all(sorted(w.needs) == ["ai", "encoders"] for w in (face, escape, follow))
+    assert all(w.group == "move" and w.help and w.example for w in (face, escape, follow))
+
+
+def test_the_person_words_and_7062() -> None:
+    s = spec()
+    assert s.person_words == ["baby", "person", "kid"]  # the engine's PERSON_WORDS (AI engine LLD §28.9)
+    assert s.errors[7062] == "FACE, ESCAPE and FOLLOW are for a person in a game."
+    text = emit.render_words_h(s)
+    assert "InType::kPerson" in text
+    assert 'kPersonWords[] = {"baby", "person", "kid"}' in text and "kPersonWordCount = 3" in text
+
+
+def test_a_skill_may_end_caught() -> None:
+    assert "caught" in model.SKILL_ENDS

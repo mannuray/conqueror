@@ -569,13 +569,35 @@ words:
     gives: the thing's distance from the camera in cm; -1 when it is not seen
     help: how far away a thing is
     example: IF HOWFAR "ball < 50 [ BEEP ]
-  - name: FOLLOW
-    level: 3
+  # ---------------------------------------------------------------- the game words (Spec 10, Tank Logo LLD §27): a
+  # person input makes the program a game run - the child-play limits on for all of it (bridge LLD R34)
+  - name: FACE
+    level: 2
     kind: command
     group: move
-    inputs: [{name: thing, type: any}, {name: seconds, type: number, unit: s, range: [1, 60]}]
-    needs: [ai]
-    does: follows the thing, keeping a safe distance
+    inputs: [{name: person, type: person}]
+    needs: [ai, encoders]
+    does: turns the camera to the person, or the tank on the spot when they are far to the side
+    help: look at the baby
+    example: FACE "baby
+  - name: ESCAPE
+    level: 2
+    kind: command
+    group: move
+    inputs: [{name: person, type: person}, {name: cm, type: number, unit: cm, range: [20, 100]}]
+    needs: [ai, encoders]
+    does: gets about that far away from the person - backwards facing them over floor it trusts, else a step to the side; stays still if there is no way
+    help: get away from the baby
+    example: ESCAPE "baby 40
+  - name: FOLLOW
+    level: 2
+    kind: command
+    group: move
+    inputs: [{name: person, type: person}, {name: seconds, type: number, unit: s, range: [1, 60]}]
+    needs: [ai, encoders]
+    does: comes after the person for that long, stopping 1 m away - never close
+    help: follow the baby, never too close
+    example: FOLLOW "baby 5
   - name: CAUGHT?
     level: 2
     kind: reporter
@@ -595,6 +617,10 @@ words:
 # Reserved words (cannot name your own word): every name and alias above, the presets, END, UNTIL, MAKE, RUN, FOR,
 # WHEN (v2 events). MAKE / RUN / FOR give a friendly "not in Tank Logo" message (design-notes §83).
 reserved: [END, UNTIL, MAKE, RUN, FOR, WHEN]
+
+# The game's person (Tank Logo LLD §27.1): a quoted word from this list is a person, never a thing - the same list as
+# the AI engine's PERSON_WORDS (AI engine LLD §28.9). Case does not matter.
+person_words: [baby, person, kid]
 
 errors:   # PROGRAM 7000-7999 (Spec 5 §8); {..} are filled in by the checker. Every refusal has exactly one code (grammar.md §11);
           # a NEG right after a complete value adds the minus hint to any of them (grammar.md §9.1).
@@ -651,4 +677,5 @@ errors:   # PROGRAM 7000-7999 (Spec 5 §8); {..} are filled in by the checker. E
   7059: "OUTPUT can't be used inside LAUNCH - the launched part gives nothing back."
   7060: "The game can't start - the tank's speed limit isn't set or didn't reach the tank."
   7061: "The game needs the seeing test first."
+  7062: "FACE, ESCAPE and FOLLOW are for a person in a game."
   7063: "The game's time limit (15 minutes) is up."

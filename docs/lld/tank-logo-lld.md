@@ -1803,3 +1803,21 @@ time; `CAUGHT?` false outside a game. Running cases: a caught word ends without 
   time limit (15 minutes) is up." (7041's text fixes 5 minutes); 7060 "... isn't set or didn't reach the tank.",
   7061 as designed; 7062 stays Plan G3's.
 
+### 27.8 As built (Plan G3, 2026-11-10, branch `plan-g3-game-words`)
+- **`words.yaml`:** the input type `person` and the top-level `person_words: [baby, person, kid]` (not a preset - a
+  preset is a bare reserved word, a person is quoted; generated as `gen::kPersonWords`); `FACE` (person), `ESCAPE`
+  (person, cm 20-100), `FOLLOW` (person, seconds 1-60; moved from its level-3 reservation), all level 2,
+  `needs: [ai, encoders]`; error 7062. `grammar.md` §5 lists `thing` and `person`.
+- **Checker:** `FACE` / `ESCAPE` / `FOLLOW` / `CAUGHT?` anywhere make a game run (`isGameWord`); a written word at a
+  person place that is not a person word is 7062 (`checkPerson`); a person word at a thing place is allowed only for
+  `SEE?` / `HOWFAR`, which then make the program a game (`personAsked`) - anywhere else (`FIND "baby`) it is 7053,
+  whether or not the AI helper's list has arrived.
+- **Runner:** `SkillKind` gains `kFace`, `kEscape`, `kFollow` (the mapping of the AI and game words moved to
+  `effects_ai.cpp`, the mapper's class to `effects_mapper.h`, for the 400-line rule); a computed person that is not a
+  person word is 7062, a person word reaching a thing in a run that is not a game is 7053. **Owner-visible call:** a
+  game word that ends `lost` or `no_way` ends the word, not the program (the program decides - lesson 6 waits and
+  looks again); `caught` ends the word too (`SkillEnd::kCaught`). `FIND` keeps 7050 / 7051.
+- **Lesson 6 `chase_with_the_baby`** (`kBuiltInCount` 9): `TO CHASE :cm :near :far` (unseen: `WAIT 1`; nearer than
+  `:near`: `ESCAPE "baby 40`; farther than `:far`: `FOLLOW "baby 2`; then `FACE "baby`), `TO BABYGAME :near :far
+  :minutes` with `WHILE TIMER < :minutes * 60 [ IFELSE CAUGHT? [ WAIT 3 ] [ CHASE HOWFAR "baby :near :far ] ]`, ending
+  `BABYGAME 70 100 5`. `/logo#name` opens a program (the `/ai` GAMES card's lesson link).

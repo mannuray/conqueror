@@ -3508,3 +3508,8 @@ file. Replays (`--replay`) re-run the game skills' decisions as the others.
   turn the person's `age_ms` grows - over 300 ms the bridge's deadman holds the turn, over 1 s it holds the game.
   FACE's long turns and ESCAPE's turn round meet this; ESCAPE's away leg, with the person behind the camera, meets
   the bridge's "hold, then look" rule. The trusted floor behind needs a recent look back.
+
+### 28.10 As built (Plan G3, 2026-11-10)
+- The AI feed's `status` gains `"people"` (the seeing pass) always and `"person": {seen, d_cm, coming}` only while
+  the bridge's game mode is on - the same pessimistic number the bridge gets (`ServeApp._game_person`); serve sets
+  both on the publisher at each connect.

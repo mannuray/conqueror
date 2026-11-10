@@ -3889,3 +3889,13 @@ the stopping distance, sideways / away allowed, turns from 35 cm.
 - **Owed to the stand / floor (Task 6):** the stand checks with `tools/smoke/fake_person.py`; `game_cap_pct` measured
   with `tools/smoke/game_cap.py`.
 
+### R34.10 As built (Plan G3, 2026-11-10, branch `plan-g3-game-words`)
+- `skill_start` for the game words: `{"skill":"face","thing":"baby"}`, `escape` with `"cm"`, `follow` with `"s"`
+  (`gameArg`); a `SEE?` / `HOWFAR` of a person word in a game run carries `"game":true` (`LogoController::ask`).
+- **The GAMES card on `/ai` PLAY** (design-notes §224): its moments from the bridge's `ev game` (state, caught count)
+  and the engine's AI feed (`people`, the person's distance and coming / going): NO AI HELPER, LOCKED (no seeing
+  pass), READY, PLAYING, CAUGHT!, HOLDING STILL (STOP to go on); START fetches lesson 6 and runs it through the page's
+  one-line run path with the grown-ups' numbers (clamped: back off 40-150 cm, follow 10 cm beyond up to 300, 1-14
+  minutes); the fixed limits shown, never settable. `/ai` 33 182 B of the 34 KB budget (`AI_BUDGET`, R34.7).
+- **The source archive:** with Spec 10's three plans it no longer fit its partition (1 968 364 B > 1 966 016 B):
+  `**/uv.lock` export-ignore (design-notes §231) → 1 872 295 B.

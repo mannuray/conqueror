@@ -14,7 +14,7 @@ from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
 from conqueror_ai.domain.drive.roam import POINT_DONE_M, RoamSkill
-from conqueror_ai.domain.drive.route import XY
+from conqueror_ai.domain.drive.route import XY, RoutePlanner
 from conqueror_ai.domain.drive.skill import Result, SkillInput, SkillOut
 from conqueror_ai.domain.drive.trusted import TrustedFloor
 from conqueror_ai.domain.objects import GATE_DPS
@@ -28,6 +28,10 @@ ESCAPE_NEAR_M = 0.70  # nearer, ESCAPE never turns its back (S11): back over tru
 FOLLOW_MIN_M = 0.50  # FOLLOW never nearer than this, whatever the setting (S4)
 FOLLOW_PAN_DEG = 60.0  # FOLLOW keeps the camera on the person up to this pan
 PAN_STEP_DEG = 3.0  # the camera is sent again only when it should move more than this
+TURN_PAN_STEP_DEG = 20.0  # ESCAPE's camera in steps this big (a moving camera's pictures are skipped)
+ESCAPE_PAN_DEG = 90.0  # driving sideways away the person drifts behind the side: the servo's whole pan
+SONAR_SPARE_M = 0.10  # a side is open when the sonar's echo is beyond the leg + this (+ the front)
+AWAY_MAX_S = 10.0  # the sideways leg ends no_way after this (it turns back to face them first)
 REPLAN_M = 0.15  # FOLLOW's goal moved this far: a new route
 GAME_V_CAP_CMS = 25.0  # a game drives at most this fast (LLD §28.1)
 FRESH_US = 300_000  # ESCAPE starts only on an estimate this recent (the bridge's deadman; final review M1)
@@ -114,10 +118,12 @@ class _Base:
         self.cmd = STOP
         return SkillOut(STOP, cam, result, detail)
 
-    def _cam_to(self, at: XYTh, limit_deg: float) -> tuple[float, float] | None:
-        """The camera on the person (pan + = right), sent when it should move more than PAN_STEP_DEG."""
+    def _cam_to(
+        self, at: XYTh, limit_deg: float, step_deg: float = PAN_STEP_DEG
+    ) -> tuple[float, float] | None:
+        """The camera on the person (pan + = right), sent when it should move more than `step_deg`."""
         pan = max(-limit_deg, min(limit_deg, -self.sight.bearing(at)))
-        if self._pan is not None and abs(pan - self._pan) <= PAN_STEP_DEG:
+        if self._pan is not None and abs(pan - self._pan) <= step_deg:
             return None
         self._pan = pan
         return (pan, self.lim.drive_tilt_deg)
@@ -164,8 +170,9 @@ class FaceSkill(_Base):
 
 class EscapeSkill(_Base):
     """ESCAPE "baby cm: the person ahead in view. The floor behind trusted: back `back_m` straight facing
-    them. Not trusted and the person at least ESCAPE_NEAR_M away: turn round, drive `back_m` on a route over
-    the cost map, turn back to face them. Else stay still, no_way (S11: never the back to a near person)."""
+    them. Not trusted and the person at least ESCAPE_NEAR_M away: turn ~90 deg to a side with a route (left
+    first), drive `back_m` sideways away with the camera on them, turn back to face them (owner, design-notes
+    §229: the person never behind the camera). Else stay still, no_way (S11: never the back to a person)."""
 
     def __init__(self, lim: Limits, back_m: float, trusted: TrustedFloor | None = None) -> None:
         super().__init__(lim)
@@ -174,6 +181,10 @@ class EscapeSkill(_Base):
         self._from: XYTh | None = None
         self._th: float | None = None
         self._away: RoamSkill | None = None
+        self._spot: XY | None = None
+        self._sides: list[tuple[float, XY]] = []  # the sides still to try: heading and spot
+        self._away_t0 = 0.0
+        self._failed = ""  # why the away leg failed: no_way once facing them again
 
     def tick(self, now_s: float, inp: SkillInput) -> SkillOut:
         self._clock(now_s, inp)
@@ -184,26 +195,32 @@ class EscapeSkill(_Base):
             return self._start(at, inp)
         if self.state == "back":
             return self._backing(at)
+        cam = self._cam_to(at, ESCAPE_PAN_DEG, TURN_PAN_STEP_DEG)  # the person in view all the while
         if self.state in ("turn_away", "turn_back"):
             assert self._th is not None
             out = self._spin_to(at, self._th)
             if out is not None:
-                return out
+                return SkillOut(out.cmd, cam)
             if self.state == "turn_back":
-                return self._end(Result.DONE, cam=(0.0, self.lim.drive_tilt_deg))
-            spot = (at[0] + (self.back_m + POINT_DONE_M) * math.cos(at[2]),
-                    at[1] + (self.back_m + POINT_DONE_M) * math.sin(at[2]))  # fmt: skip
-            self._away, self.state = RoamSkill(Planner(self.lim), "point", point=spot), "away"
-            return self._halt((0.0, self.lim.drive_tilt_deg))
+                result = Result.NO_WAY if self._failed else Result.DONE
+                return self._end(result, self._failed, cam=self._cam_to(at, FACE_PAN_DEG))
+            if not self._open(inp):  # the sonar, now pointing along the leg: something there
+                return self._next_side(at, cam)
+            assert self._spot is not None
+            self._away, self.state = RoamSkill(Planner(self.lim), "point", point=self._spot), "away"
+            self._away_t0 = now_s
+            return self._halt(cam)
         assert self._away is not None
         out = self._away.tick(now_s, inp)
-        if out.result is None:
+        late = now_s - self._away_t0 >= AWAY_MAX_S
+        if out.result is None and not late:
             self.cmd = out.cmd
-            return out
-        if out.result != Result.DONE:
-            return self._end(Result.NO_WAY, f"no way away: {out.result.value} {out.detail}".strip())
-        self._th, self.state = self.sight.heading(at), "turn_back"
-        return self._halt()
+            return SkillOut(out.cmd, cam)
+        if late or out.result != Result.DONE:
+            why = "too long" if out.result is None else f"{out.result.value} {out.detail}".strip()
+            self._failed = f"no way away: {why}"
+        self._th, self.state = self.sight.heading(at), "turn_back"  # facing them again either way
+        return self._halt(cam)
 
     def _backing(self, at: XYTh) -> SkillOut:
         """Straight back at v_min until the odometry moved back_m along the start heading."""
@@ -221,10 +238,40 @@ class EscapeSkill(_Base):
         if self.trusted.ok(snap, at, self.back_m, snap.t_us, lim=self.lim):
             self._from, self.state = at, "back"
             return self._out(Command(-1.0, 0.0))
-        if p.d_m >= ESCAPE_NEAR_M:
-            self._th, self.state = at[2] + math.pi, "turn_away"
-            return self._spin_to(at, self._th) or self._halt()
-        return self._end(Result.NO_WAY, "the person is near and the floor behind is not trusted")
+        if p.d_m < ESCAPE_NEAR_M:
+            return self._end(Result.NO_WAY, "the person is near and the floor behind is not trusted")
+        self._sides = self._routed(at, inp)
+        return self._next_side(at, self._cam_to(at, ESCAPE_PAN_DEG, TURN_PAN_STEP_DEG))
+
+    def _routed(self, at: XYTh, inp: SkillInput) -> list[tuple[float, XY]]:
+        """Left, then right: the heading 90 deg round and the spot back_m + 15 cm along it, where the cost map
+        has a route. Beside the tank is never in view (it keeps the person in view): the sonar decides after
+        the turn."""
+        if inp.costs is None:
+            return []
+        cost, routes, far = inp.costs.base(), RoutePlanner(self.lim), self.back_m + POINT_DONE_M
+        out: list[tuple[float, XY]] = []
+        for turn in (math.pi / 2, -math.pi / 2):
+            th = at[2] + turn
+            spot = (at[0] + far * math.cos(th), at[1] + far * math.sin(th))
+            if routes.route(cost, (at[0], at[1]), spot) is not None:
+                out.append((th, spot))
+        return out
+
+    def _next_side(self, at: XYTh, cam: tuple[float, float] | None) -> SkillOut:
+        """Turn to the next side to try (through facing them, never the back); none left: face them,
+        no_way."""
+        if not self._sides:
+            self._failed = "no way to either side"
+            self._th, self.state = self.sight.heading(at), "turn_back"
+            return self._halt(cam)
+        self._th, self._spot = self._sides.pop(0)
+        self.state = "turn_away"
+        return self._halt(cam)
+
+    def _open(self, inp: SkillInput) -> bool:
+        s = inp.sonar_m
+        return s is None or s > self.back_m + POINT_DONE_M + SONAR_SPARE_M
 
 
 class FollowSkill(_Base):

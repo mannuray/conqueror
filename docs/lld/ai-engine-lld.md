@@ -3495,9 +3495,14 @@ file. Replays (`--replay`) re-run the game skills' decisions as the others.
   person** - `World` feeds `PersonWatch` from a picture skipped only for "turning" with `camera_turning` (the gyro's
   heading, as FIND's sightings, §25 A1); blur is why the map skips them, a person is big enough to see through it,
   so a turn keeps the estimate fresh under the bridge's 300 ms deadman. (2) **ESCAPE turns ~90°, not 180°:** not
-  trusted behind and the person ≥ 70 cm → turn 90° to the side that has a route (left first), the camera panned to
-  the person all the while (±60°), drive `back_m` + 15 cm sideways away with them in view, turn back to face them;
-  no route either side → `no_way` without moving. The person is never behind the camera, so the bridge's "hold, then
+  trusted behind and the person ≥ 70 cm → turn 90° to a side with a route on the cost map (left first), the camera
+  on the person all the while (up to the servo's ±90°: driving sideways they drift behind the side), and **the
+  sonar - now pointing along the leg - decides**: an echo nearer than the leg + 10 cm, turn to the other side
+  (through facing them, never the back); clear, drive `back_m` + 15 cm sideways, then turn back to face them. As
+  built: beside the tank is never in the camera's view while it watches the person (and the near 30 cm is the
+  camera's blind zone), so a look could not choose the side - the sonar does. A sidestep takes the tank out of a
+  crawler's path but gains little distance (~10 cm for a 45 cm leg at 90 cm). Both sides shut, or the leg failing
+  or taking over 10 s: turn back to face them, then `no_way` - never left side-on. The person is never behind the camera, so the bridge's "hold, then
   look" stays as written (no R34 exemption) and its side is not its back (S11).
 - **Before the owner's decisions (kept for the record):** pictures taken spinning are not used, so during a
   turn the person's `age_ms` grows - over 300 ms the bridge's deadman holds the turn, over 1 s it holds the game.

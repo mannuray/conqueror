@@ -236,6 +236,11 @@ class World:
         self._cam_still = used != "camera moving"
         if isinstance(used, str):
             self._by_size = {}
+            if used == "turning":  # owner, design-notes §229: the gyro places the person; the map skips it
+                rough = self.map_run.p.gate.camera_turning(f.cap_us)
+                if rough is not None:
+                    self.person.update([d.box for d in dets if d.cls == "person"], rough, self.sonar_m, t)
+                    self._person_us = t
             return used
         self._used = True
         self.person.update([d.box for d in dets if d.cls == "person"], used, self.sonar_m, t)

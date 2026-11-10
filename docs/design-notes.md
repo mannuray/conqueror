@@ -3545,4 +3545,8 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   FIND's glimpses) - no bridge change; (2) ESCAPE turns about 90° to a side with a route, keeps the camera on the
   person and drives sideways away, then turns back - the person stays in view, R34 unchanged (no exemption
   loosening a safety rule). AI engine LLD §28.9.
+- As built: ESCAPE picks its side with the sonar after the 90° turn (the camera, kept on the person, never sees
+  beside the tank, and the near 30 cm is its blind zone); a shut side → the other side, both shut → facing the
+  person again, `no_way`; the camera may pan to ±90° on the sideways leg. A sidestep leaves the crawler's path but
+  gains only ~10 cm of distance - to judge on the floor whether ESCAPE should turn a little more than 90°.
 

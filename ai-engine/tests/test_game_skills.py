@@ -45,9 +45,8 @@ class Play:
     at: list[XYTh] = field(default_factory=lambda: list[XYTh]())
     gaps: list[float] = field(default_factory=lambda: list[float]())  # the front edge to the person, true
     room: RoomMap = field(default_factory=RoomMap)
-    goals: list[float] = field(
-        default_factory=lambda: list[float]()
-    )  # FOLLOW's goal: its front to the person
+    goals: list[float] = field(default_factory=lambda: list[float]())  # FOLLOW's goal: front to the person
+    in_view: list[bool] = field(default_factory=lambda: list[bool]())  # the person in the camera's view
 
     @property
     def moved(self) -> bool:
@@ -103,7 +102,9 @@ def play(
             d, b = front_gap(at, person)
             out.gaps.append(d)
             hidden = hide_from_s is not None and t >= hide_from_s
-            if abs(b + pan) <= VIEW_DEG and not turning and not hidden:
+            in_view = abs(b + pan) <= VIEW_DEG and not hidden  # turning pictures count (design-notes §229)
+            out.in_view.append(in_view)
+            if in_view:
                 last = PersonEst(True, d, b, 0, 0.9, t_us)
             elif last is not None and last.seen:
                 last = PersonEst(False, last.d_m, last.bearing_deg, 0, 0.5, last.t_us)
@@ -191,9 +192,12 @@ def test_escape_untrusted_far_turns_drives_and_turns_back() -> None:
     p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), person, limit_s=40.0)
     assert p.result == Result.DONE, p.result
     assert not any(c.v_cms < 0 for c in p.cmds)  # never backs over untrusted floor
-    assert any(abs(heading_deg(a)) > 150.0 for a in p.at)  # looked round
+    assert any(abs(heading_deg(a)) > 75.0 for a in p.at)  # turned to the side
+    assert all(abs(heading_deg(a)) <= 110.0 for a in p.at)  # never its back to them (design-notes §229)
+    assert all(p.in_view)  # the person in view all the while: the bridge's hold-then-look never bites
     end = p.at[-1]
-    assert math.dist(end[:2], person) >= math.dist((0.0, 0.0), person) + 0.20  # farther from them
+    assert abs(end[1]) >= 0.30  # stepped out of their way, sideways (design-notes §229)
+    assert math.dist(end[:2], person) > math.dist((0.0, 0.0), person)  # and farther
     assert abs(front_gap(end, person)[1]) <= 15.0  # facing them again
 
 
@@ -252,3 +256,20 @@ def test_escape_never_starts_on_an_old_estimate() -> None:  # final review M1: a
     )
     out = skill.tick(T0_S, inp)
     assert out.result == Result.NO_WAY and out.cmd.v_cms == 0
+
+
+def test_escape_takes_the_side_with_a_way() -> None:
+    wall_left = [Box(-1.0, 0.35, 0.6, 0.8, 0.0, 0.4)]  # a tall box along the left (beyond the blind zone)
+    person = at_bearing(0.9, 0.0)
+    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), person, limit_s=40.0, boxes=wall_left)
+    assert p.result == Result.DONE, p.result
+    assert p.at[-1][1] < -0.2  # went right
+
+
+def test_escape_with_no_way_either_side_turns_to_check_and_faces_them_again() -> None:
+    walls = [Box(-1.0, 0.35, 0.6, 0.8, 0.0, 0.4), Box(-1.0, -0.8, 0.6, -0.35, 0.0, 0.4)]
+    person = at_bearing(0.9, 0.0)
+    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), person, boxes=walls)
+    assert p.result == Result.NO_WAY
+    assert all(c.v_cms == 0 for c in p.cmds)  # the sonar said no each side: never drove
+    assert all(p.in_view) and abs(front_gap(p.at[-1], person)[1]) <= 15.0  # facing them again

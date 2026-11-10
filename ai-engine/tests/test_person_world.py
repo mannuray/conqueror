@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from conqueror_ai.adapters.session import replay
 from conqueror_ai.app.objects import decode
@@ -69,3 +71,29 @@ def test_a_skipped_picture_does_not_touch_the_watch(tmp_path: Path) -> None:
     g = Frame(seq=999, cap_us=f.cap_us + 1, recv_s=9.0, jpeg=f.jpeg)
     assert isinstance(w.on_picture(g, small, [Detection("person", 0.9, (1.0, 1.0, 5.0, 9.0))]), str)
     assert w.person.latest(g.cap_us) is None
+
+
+def test_a_turning_picture_still_sees_the_person(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Owner, design-notes §229: a picture skipped only for turning places the person with the gyro's heading,
+    so a turn keeps the estimate fresh (the bridge's 300 ms deadman); the map still skips it."""
+    w, frames = ready(tmp_path)
+    f = frames[-1]
+    cam = w.map_run.p.camera_at(f.cap_us)
+    assert isinstance(cam, CameraModel)
+
+    def skipped(why: str) -> Callable[..., str]:
+        return lambda *_: why
+
+    def rough(cap_us: int) -> CameraModel:
+        return cam
+
+    monkeypatch.setattr(w.map_run, "gate", skipped("turning"))
+    monkeypatch.setattr(w.map_run.p.gate, "camera_turning", rough)
+    x1, y1, x2, y2 = box_at(cam, 0.9, 0.0)
+    assert picture(w, f, [Detection("person", 0.9, (x1, y1, x2, y2))]) == "turning"
+    e = w.person.latest(f.cap_us)
+    assert e is not None and e.seen
+    monkeypatch.setattr(w.map_run, "gate", skipped("camera moving"))  # any other skip: not used
+    g = Frame(seq=f.seq + 1, cap_us=f.cap_us + 100_000, recv_s=f.recv_s + 0.1, jpeg=f.jpeg)
+    picture(w, g, [])
+    assert w.person.last_us != g.cap_us

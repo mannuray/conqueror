@@ -3618,3 +3618,15 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   below 50 %), repeats the two steps either side of the target and refuses a table whose speed falls with more power
   or whose repeats disagree by more than 2 cm/s (tests in `tools/smoke/tests/test_game_tools.py`).
 
+## 234. The seeing test made simple: one crawl, the sonar as the ruler (owner, 2026-11-10: "B")
+- The owner found P0's 40 taped marks too complicated. Decided: **one continuous crawl straight ahead** - from
+  about 2 m to the tank and back, the camera at the driving tilt (-15 deg), the laptop speaking the steps - with the
+  **sonar as the ruler** (no tape). `cq-person-test walk DIR` records it; `cq-person-test walk-score DIR` scores it.
+- Scoring: each picture with the sonar's reading at that moment; the pictures in bands by the sonar's distance -
+  0.3 (0.25-0.40), 0.5 (0.40-0.60), 1.0 (0.85-1.15), 1.5 (1.30-1.70), 2.0 (1.80-2.20) m; P0's bar in each band:
+  at least 5 pictures, the person seen in 8 of 10 (a box cut by the picture's bottom counts as seen, close), and
+  from 0.5 m the camera's distance within 10 cm of the sonar's up to 1 m, 20 % beyond, in 8 of 10 seen. Every band
+  passes → the seeing pass (`config/person-seeing.yaml`, AI engine LLD §28.6); anything less removes it.
+- **Not tested by this (owner accepted):** a person off to the side (the sonar sees only +-12 deg ahead), the level
+  camera, still versus crawling separately. The 40-mark test (`record` / `score`) stays for later.
+

@@ -15,7 +15,7 @@ constexpr uint8_t kMaxPrograms = 32;
 bool programName(const char* in, char* out, size_t cap);
 
 // The built-ins: the five lessons in order (Tank Logo LLD §25), then the examples.
-constexpr uint8_t kBuiltInCount = 8;
+constexpr uint8_t kBuiltInCount = 9;
 
 struct Example {
   const char* name;

@@ -80,6 +80,7 @@ class RunController {
   bool ready() const;  // a part can run now (not waiting for a clock, the laptop or the motion service)
 
  private:
+  bool gameWordGoesOn(SkillEnd e) const;
   // One part's own state (Tank Logo LLD §26.4); moving, skills, GO, SPEED and AREA belong to the main part alone.
   struct Part {
     Vm* vm = nullptr;
@@ -128,6 +129,7 @@ class RunController {
   uint8_t m_area_m = 0;   // AREA (0 = none) and where it was set, in the run's frame
   Pose m_area_at;
   char m_thing[25] = "";  // the running skill's thing, for 7050 / 7051 / 7053 / 7054
+  bool m_game_word = false;  // the running skill is FACE / ESCAPE / FOLLOW: lost / no_way end it, not the program
 };
 
 }  // namespace logo

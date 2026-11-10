@@ -68,16 +68,17 @@ Caps withAiHelper(ThingNames& t) {
 }
 
 void test_every_built_in_checks_ok_with_the_ai_helper() {
-  static const char* const kNames[] = {"back_to_start", "where_is_my_ball", "treasure_hunt", "hot_and_cold",
-                                       "hot_and_cold_hunt", "first_square", "avoid_walls", "look_around"};
-  TEST_ASSERT_EQUAL(8, kBuiltInCount);
+  static const char* const kNames[] = {"back_to_start",       "where_is_my_ball", "treasure_hunt",
+                                       "hot_and_cold",        "hot_and_cold_hunt", "chase_with_the_baby",
+                                       "first_square",        "avoid_walls",      "look_around"};
+  TEST_ASSERT_EQUAL(9, kBuiltInCount);
   TEST_ASSERT_EQUAL(kBuiltInCount, exampleCount());
   ThingNames things;
   const Caps caps = withAiHelper(things);
   for (uint8_t i = 0; i < exampleCount(); ++i) {
     const Example& e = example(i);
     TEST_ASSERT_EQUAL_STRING(kNames[i], e.name);
-    TEST_ASSERT_EQUAL_MESSAGE(i < 5, e.lesson, e.name);
+    TEST_ASSERT_EQUAL_MESSAGE(i < 6, e.lesson, e.name);
     if (e.lesson) {
       char title[16];
       snprintf(title, sizeof title, "; Lesson %u", i + 1);
@@ -97,11 +98,24 @@ void test_every_built_in_checks_ok_with_the_ai_helper() {
   TEST_ASSERT_NULL(findExample("nothing"));
 }
 
+// Plan G3 (Tank Logo LLD §27.4): lesson 6 is the baby game - a game run, the game words, the pause after caught.
+void test_lesson_6_is_the_baby_game() {
+  const Example* e = findExample("chase_with_the_baby");
+  TEST_ASSERT_NOT_NULL(e);
+  TEST_ASSERT_TRUE(e->lesson);
+  ThingNames things;
+  TEST_ASSERT_TRUE(checkProgram(e->src, static_cast<uint16_t>(strlen(e->src)), withAiHelper(things), g_space));
+  TEST_ASSERT_TRUE(g_space.result.game);
+  static const char* const kWords[] = {"FACE \"baby", "ESCAPE \"baby", "FOLLOW \"baby", "CAUGHT?", "BABYGAME 70 100 5"};
+  for (const char* w : kWords) TEST_ASSERT_NOT_NULL_MESSAGE(strstr(e->src, w), w);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_numbers_go_up_and_only_the_current_ok_program_runs);
   RUN_TEST(test_a_check_with_errors_gets_a_number_but_never_runs);
   RUN_TEST(test_program_names);
   RUN_TEST(test_every_built_in_checks_ok_with_the_ai_helper);
+  RUN_TEST(test_lesson_6_is_the_baby_game);
   return UNITY_END();
 }

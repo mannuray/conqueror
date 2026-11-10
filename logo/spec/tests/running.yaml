@@ -501,3 +501,15 @@
   does: ["SEE? baby", BEEP]
   ends: finished
 
+- name: a game word that lost the person or found no way just ends
+  source: FACE "baby  ESCAPE "baby 40  BEEP
+  world: {skill_ends: [lost, no_way]}
+  does: [FACE baby, ESCAPE baby 40, BEEP]
+  ends: finished
+
+- name: FIND that lost the thing still ends the program
+  source: FIND "ball  BEEP
+  world: {skill_ends: [lost]}
+  does: [FIND ball]
+  ends: {error: 7051, line: 1}
+

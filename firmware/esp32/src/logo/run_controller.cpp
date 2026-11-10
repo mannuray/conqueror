@@ -133,7 +133,7 @@ RunOut RunController::onSkillEnd(SkillEnd e, uint32_t) {
   Part& m = m_parts[0];  // a skill is always the main part's
   if (m.state != RunState::kSkill) return RunOut();
   m.state = RunState::kRunning;
-  if (e == SkillEnd::kDone || e == SkillEnd::kCaught) {
+  if (e == SkillEnd::kDone || e == SkillEnd::kCaught || gameWordGoesOn(e)) {
     m_blocked = false;
     return RunOut();
   }
@@ -142,6 +142,11 @@ RunOut RunController::onSkillEnd(SkillEnd e, uint32_t) {
     return RunOut();
   }
   return end(kBySkillEnd[static_cast<uint8_t>(e)]);
+}
+
+// A game word that lost the person or found no way just ends: the program decides (look, wait - Tank Logo LLD §27.1).
+bool RunController::gameWordGoesOn(SkillEnd e) const {
+  return m_game_word && (e == SkillEnd::kLost || e == SkillEnd::kNoWay);
 }
 
 void RunController::step(const RunTelem& t, uint32_t now_ms, RunOut& out) {
@@ -249,6 +254,7 @@ bool RunController::carryAi(const Action& a, const RunTelem& t, uint32_t now_ms,
   if (a.kind != ActKind::kSkill) return false;
   m_going = false;
   snprintf(m_thing, sizeof m_thing, "%s", a.thing);
+  m_game_word = a.skill >= SkillKind::kFace;
   out.action.has_area = m_area_m != 0;
   out.action.area_m = m_area_m;
   out.action.area_at = m_area_at;

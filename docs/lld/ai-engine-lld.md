@@ -3513,3 +3513,11 @@ file. Replays (`--replay`) re-run the game skills' decisions as the others.
 - The AI feed's `status` gains `"people"` (the seeing pass) always and `"person": {seen, d_cm, coming}` only while
   the bridge's game mode is on - the same pessimistic number the bridge gets (`ServeApp._game_person`); serve sets
   both on the publisher at each connect.
+
+### 28.11 The walk test scores the camera where the game relies on it (design-notes §235, owner 2026-11-11)
+- `score_walk`: seen in 8 of 10 in every band as before; the distance is scored only in bands centred at
+  `WALK_DIST_FROM_M` (1.0 m) and beyond, and one-sided: `-WALK_NEAR_M (0.25) <= camera - sonar <= tol`, tol 10 cm up
+  to 1 m and 20 % beyond (as before). Nearer within 25 cm is the hands ahead of the body the sonar sees; farther
+  fails. The 0.3 / 0.5 m bands are seeing only: up close the bridge takes the sonar minus 20 cm (bridge LLD R34.11).
+- Tests: a camera 20 cm nearer than the sonar at 1 m passes, 30 cm nearer fails, 15 cm farther fails; the 0.5 m band
+  scores seen only.

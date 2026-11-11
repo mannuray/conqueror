@@ -3630,3 +3630,30 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Not tested by this (owner accepted):** a person off to the side (the sonar sees only +-12 deg ahead), the level
   camera, still versus crawling separately. The 40-mark test (`record` / `score`) stays for later.
 
+
+## 235. The first crawl: the camera misses the arms up close - the sonar with a hand allowance (owner, 2026-11-11: "yes")
+- **The crawl (`recordings/walk-20261111-3`, git-ignored):** 4 of 5 bands passed; 0.5 m failed on distance (45 of
+  147 within 10 cm). Seen in every band (147-326 pictures each, 92-100 % seen). The owner stopped about 36 cm from
+  the tank by the sonar.
+- **Why, from the pictures (derived: the camera's distance per picture against the sonar's latest reading before
+  it, YOLO-World, depth tilt fix on):**
+  1. The sonar's beam passes between a crawling person's arms and hits the body; the hands are nearer. Where the
+     camera's box held the hands, sonar minus camera was 0.17 m median (p80 0.20, p95 0.22) at 0.35-0.6 m, 0.10-0.12
+     m median further out.
+  2. Close and still, the detector often boxes only the body and knees, missing the arms: at 0.35-0.40 m by the
+     sonar the camera read **farther** than the sonar in 32 of 49 pictures (about 0.6 m with the hands at ~0.3 m) -
+     the unsafe direction. One-sided re-scoring (farther fails, nearer up to 15 / 20 / 25 cm passes) leaves the
+     camera alone at 8-35 % at 0.35-0.40 m and 47-79 % at 0.5 m: crawling again would not pass.
+  3. "The nearer of camera and sonar" alone is not enough: the sonar sees the body, ~20 cm behind the hands.
+- **Decided (owner, "yes"):**
+  - **A. The tank uses the sonar minus a 20 cm hand allowance up close** (bridge LLD R34.11): in a game, while the
+    person is seen within 12 deg of straight ahead (the sonar's beam), their distance is the nearer of the camera's
+    and the sonar's minus 20 cm (never below 0). Caught therefore fires at a sonar reading of 50 cm or less with the
+    person ahead; the keep-out and the release use the same number. On the bridge, so it holds when the laptop
+    stalls. A wall in front can also count as caught - a stop and a beep, the safe side. **Known limit:** a person
+    very close but outside the beam is the camera's alone (turns keep 35 cm); checked on the floor.
+  - **B. The seeing test scores the camera where the game relies on it** (AI engine LLD §28.11): seen in 8 of 10 in
+    every band (unchanged); distance from 1 m out only, one-sided and bounded - never more than the old tolerance
+    farther (10 cm to 1 m, 20 % beyond), never more than 25 cm nearer (the hands ahead of the body); 0.3 and 0.5 m
+    are seeing only, the sonar rule taking over the distance there. Looser up close by the owner's decision.
+  - **C. Then one more crawl, and a stand check** that a sonar reading under 50 cm with the person ahead catches.

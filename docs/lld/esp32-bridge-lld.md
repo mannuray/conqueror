@@ -3911,3 +3911,27 @@ the stopping distance, sideways / away allowed, turns from 35 cm.
   STOP, the bar's `stopOnce`, the settings page's Stop, `logo.py`'s Ctrl-C); `GameMode::onStop(press)` releases Held
   only for a press (S12); every STOP still stops the motors at once, as before. Other STOPs still end Playing /
   Caught (the run ends with them).
+
+### R34.11 The sonar with a hand allowance (design-notes §235, owner 2026-11-11)
+- `core::withSonar(const PersonEst& e, uint16_t sonar_mm) -> PersonEst` (`keep_out.h`, pure): when `e.seen`,
+  `|e.bearing_deg| <= KeepOut::kSonarConeDeg` (12) and the sonar has an echo (`sonar_mm < 65534`), `d_cm` becomes
+  the nearer of the engine's `d_cm` (when it has one) and `sonar_mm / 10 - KeepOut::kReachCm` (20), never below 0;
+  otherwise `e` unchanged. A stale sonar can only make the distance nearer than the camera's, never farther.
+- `GameController::Hooks::sonar_mm` (the Uno's latest forward reading, `TankSnapshot::fast.dist_mm`);
+  `GameController::onPerson` hands `withSonar(e, sonar)` to `GameMode::onPerson`, so caught (<= 30 cm), the keep-out,
+  the release (>= 50 cm for 2 s) and the pages' distance all use the one number.
+
+```mermaid
+sequenceDiagram
+  participant E as engine (person 10 Hz)
+  participant G as GameController
+  participant U as Uno telemetry (sonar)
+  participant M as GameMode
+  E->>G: person {seen, d_cm, bearing}
+  G->>U: sonar_mm()
+  G->>M: onPerson(withSonar(e, mm))
+  M->>M: d <= 30 cm: caught
+```
+- Tests (`test_game_mode` / `test_keep_out`): ahead with sonar 450 mm and camera 60 cm → 25 cm (caught); bearing 30
+  deg → the camera's; no echo / fault → the camera's; not seen → unchanged; camera nearer than sonar-20 → camera's;
+  seen with no camera distance → the sonar's.

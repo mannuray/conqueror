@@ -25,6 +25,7 @@ struct Rec {
   GameState last_event = GameState::kOff;
   int16_t event_d = -2;
   int events = 0;
+  uint16_t sonar_mm = 65535;
 };
 Rec rec;
 
@@ -53,6 +54,7 @@ GameController::Hooks hooks() {
     ++rec.events;
   };
   h.roll_cm = [] { return static_cast<uint16_t>(3); };
+  h.sonar_mm = [] { return rec.sonar_mm; };
   return h;
 }
 
@@ -372,6 +374,23 @@ void test_a_non_game_never_gates() {
   TEST_ASSERT_EQUAL(0, rec.asks);
 }
 
+void test_the_sonar_ahead_catches_when_the_camera_reads_far() {  // R34.11, design-notes §235
+  GameController g = playing();
+  rec.sonar_mm = 480;  // the body at 48 cm: the hands ~28 cm
+  see(g, 30, 60);      // the camera boxed only the body
+  g.tick(30);
+  TEST_ASSERT_TRUE(g.caught());
+  TEST_ASSERT_EQUAL_INT(1, rec.caught);
+}
+
+void test_the_sonar_aside_does_not_catch() {
+  GameController g = playing();
+  rec.sonar_mm = 480;  // a chair ahead, the person 40 deg aside
+  see(g, 30, 60, 40);
+  g.tick(30);
+  TEST_ASSERT_FALSE(g.caught());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_refusals);
@@ -396,5 +415,7 @@ int main(int, char**) {
   RUN_TEST(test_an_old_answer_is_ignored);
   RUN_TEST(test_body_online_rearms_a_game_or_clears_when_off);
   RUN_TEST(test_a_non_game_never_gates);
+  RUN_TEST(test_the_sonar_ahead_catches_when_the_camera_reads_far);
+  RUN_TEST(test_the_sonar_aside_does_not_catch);
   return UNITY_END();
 }

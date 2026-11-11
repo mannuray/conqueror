@@ -33,5 +33,15 @@ Gate KeepOut::check(const PersonEst& e, const Move& m, uint16_t stop_cm, uint32_
   return forward(e, stop_cm);
 }
 
+PersonEst withSonar(const PersonEst& e, uint16_t sonar_mm) {
+  const int16_t bearing = e.bearing_deg < 0 ? static_cast<int16_t>(-e.bearing_deg) : e.bearing_deg;
+  if (!e.seen || bearing > KeepOut::kSonarConeDeg || sonar_mm >= 65534) return e;
+  int32_t s = static_cast<int32_t>(sonar_mm / 10) - KeepOut::kReachCm;
+  if (s < 0) s = 0;
+  PersonEst out = e;
+  if (e.d_cm < 0 || s < e.d_cm) out.d_cm = static_cast<int16_t>(s);
+  return out;
+}
+
 }  // namespace core
 }  // namespace cq

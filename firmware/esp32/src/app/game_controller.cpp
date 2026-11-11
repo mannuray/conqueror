@@ -41,7 +41,8 @@ void GameController::onBodyOnline(uint32_t now) {
 
 void GameController::onPerson(const core::PersonEst& e, uint32_t now) {
   m_now = now;
-  m_mode.onPerson(e, now);
+  const uint16_t sonar = m_h.sonar_mm != nullptr ? m_h.sonar_mm() : 65535;
+  m_mode.onPerson(core::withSonar(e, sonar), now);  // R34.11: the sonar minus the hand allowance, ahead
 }
 
 // Review C2: our ENVELOPEs are answered in the order they were queued; only an ok answer to the last one queued, when

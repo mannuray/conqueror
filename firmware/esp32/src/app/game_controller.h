@@ -25,6 +25,7 @@ class GameController {
     int32_t (*ask_back)(int16_t cm) = nullptr;           // skill_ask back_ok: its id, −1 with no engine
     void (*event)(core::GameState s, int16_t d_cm, uint16_t caught) = nullptr;  // to the pages
     uint16_t (*roll_cm)() = nullptr;                     // the learned roll-on after a stop (cm)
+    uint16_t (*sonar_mm)() = nullptr;                    // the forward sonar now (65535 no echo; R34.11)
   };
   static constexpr uint8_t kChildPlay = 1u << 1;      // EnvelopeFlagBit::kChildPlay
   static constexpr int16_t kBackDefaultCm = 30;       // a backward DRIVE whose length nobody gave

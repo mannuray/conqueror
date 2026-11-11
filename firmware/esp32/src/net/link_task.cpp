@@ -329,6 +329,7 @@ void wireGame() {
     g_out.all(core::jsonGameEvent(g_out.buf(), g_out.cap(), g_tel.nextEventSeq(), g_tel.tankMs(), st, caught));
   };
   g.roll_cm = [] { return static_cast<uint16_t>(g_motion.rollMm() / 10); };
+  g.sonar_mm = [] { return g_link.snapshot().fast.dist_mm; };
   g_game.setHooks(g);
   g_game.setCap(ports::loadGameCap());
   g_link.setDriveGate(app::GameController::gateClamp, &g_game);

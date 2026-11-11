@@ -325,6 +325,27 @@ void test_standing_still_is_always_allowed() {
   TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(KeepOut::check(at(31), still, 20, 5000)));
 }
 
+// ---- withSonar (R34.11, design-notes §235): the sonar minus a hand allowance, ahead only
+
+void test_sonar_ahead_takes_the_nearer_with_the_hand_allowance() {
+  TEST_ASSERT_EQUAL_INT16(25, cq::core::withSonar(at(60), 450).d_cm);   // the camera missed the arms
+  TEST_ASSERT_EQUAL_INT16(20, cq::core::withSonar(at(20), 450).d_cm);   // the camera nearer: its own
+  TEST_ASSERT_EQUAL_INT16(10, cq::core::withSonar(at(60, 12), 300).d_cm);  // the beam's edge still counts
+  TEST_ASSERT_EQUAL_INT16(0, cq::core::withSonar(at(60), 120).d_cm);    // never below 0
+}
+
+void test_sonar_aside_unseen_or_no_echo_leaves_the_camera() {
+  TEST_ASSERT_EQUAL_INT16(60, cq::core::withSonar(at(60, 30), 450).d_cm);   // outside the beam
+  TEST_ASSERT_EQUAL_INT16(60, cq::core::withSonar(at(60, -13), 450).d_cm);
+  TEST_ASSERT_EQUAL_INT16(60, cq::core::withSonar(at(60), 65535).d_cm);     // no echo
+  TEST_ASSERT_EQUAL_INT16(60, cq::core::withSonar(at(60), 65534).d_cm);     // sensor fault
+  TEST_ASSERT_EQUAL_INT16(-1, cq::core::withSonar(at(-1, 0, false), 450).d_cm);  // not seen: unchanged
+}
+
+void test_sonar_gives_a_distance_when_the_camera_has_none() {
+  TEST_ASSERT_EQUAL_INT16(40, cq::core::withSonar(at(-1), 600).d_cm);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_a_non_game_run_never_arms);
@@ -353,5 +374,8 @@ int main(int, char**) {
   RUN_TEST(test_unseen_1_s_holds_forward_and_turns);
   RUN_TEST(test_backward_is_never_cut_by_bearing);
   RUN_TEST(test_standing_still_is_always_allowed);
+  RUN_TEST(test_sonar_ahead_takes_the_nearer_with_the_hand_allowance);
+  RUN_TEST(test_sonar_aside_unseen_or_no_echo_leaves_the_camera);
+  RUN_TEST(test_sonar_gives_a_distance_when_the_camera_has_none);
   return UNITY_END();
 }

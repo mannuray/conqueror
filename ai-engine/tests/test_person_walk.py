@@ -36,10 +36,22 @@ def test_a_good_crawl_passes_every_band() -> None:
     assert all(s.passed for s in scores)
 
 
-def test_a_camera_reading_too_far_fails_from_half_a_metre() -> None:
+def test_a_camera_reading_too_far_fails_from_a_metre() -> None:
     scores = {s.band.name: s for s in score_walk(crawl(off=0.25))}
     assert scores["1.0"].passed is False and "distance" in scores["1.0"].why
-    assert scores["0.3"].passed  # the sonar's case: the camera is not scored for distance there
+    # up close the bridge takes the sonar minus 20 cm (design-notes §235): 0.3 and 0.5 m are seeing only
+    assert scores["0.3"].passed and scores["0.5"].passed
+
+
+def test_nearer_by_the_hands_passes_more_fails() -> None:  # one-sided, bounded (AI engine LLD §28.11)
+    assert all(s.passed for s in score_walk(crawl(off=-0.20)))  # the hands ahead of the body the sonar sees
+    far = {s.band.name: s for s in score_walk(crawl(off=-0.30))}
+    assert not far["1.0"].passed and "distance" in far["1.0"].why
+
+
+def test_farther_than_10_cm_fails_at_a_metre() -> None:
+    scores = {s.band.name: s for s in score_walk(crawl(off=0.15))}
+    assert not scores["1.0"].passed
 
 
 def test_unseen_fails_and_a_band_never_reached_fails() -> None:

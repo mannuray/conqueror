@@ -139,23 +139,28 @@ class BandScore:
     why: str
 
 
+WALK_DIST_FROM_M = 1.0  # the camera's distance scored from here out; nearer, the bridge uses the sonar
+WALK_NEAR_M = 0.25  # nearer than the sonar by this passes: the hands ahead (design-notes §235)
+
+
 def _walk_dist_ok(sonar_m: float, r: PersonRange) -> bool:
-    return (
-        r.dist_m is not None
-        and abs(r.dist_m - sonar_m) <= (NEAR_TOL_M if sonar_m <= 1.0 else FAR_TOL * sonar_m) + 1e-9
-    )
+    """One-sided, bounded (AI engine LLD §28.11): farther by the tolerance at most, nearer by WALK_NEAR_M."""
+    if r.dist_m is None:
+        return False
+    off = r.dist_m - sonar_m
+    return -WALK_NEAR_M - 1e-9 <= off <= (NEAR_TOL_M if sonar_m <= 1.0 else FAR_TOL * sonar_m) + 1e-9
 
 
 def score_walk(samples: Sequence[tuple[float | None, PersonRange | None]]) -> list[BandScore]:
     """Each picture's sonar reading (m, None: no echo) and the camera's person; P0's bar in each band: enough
-    pictures, seen in 8 of 10 (a box cut by the picture's bottom is seen, close), and from 0.5 m the camera's
-    distance within the tolerance of the sonar's in 8 of 10 seen."""
+    pictures, seen in 8 of 10 (a box cut by the picture's bottom is seen, close), and from 1 m the camera's
+    distance one-sided within the sonar's (`_walk_dist_ok`) in 8 of 10 seen."""
     out: list[BandScore] = []
     for b in BANDS:
         got = [(s, r) for s, r in samples if s is not None and b.lo <= s < b.hi]
         seen = [(s, r) for s, r in got if r is not None]
         ranged = sum(1 for s, r in seen if _walk_dist_ok(s, r))
-        scored = b.centre >= CAMERA_FROM_M - 1e-9
+        scored = b.centre >= WALK_DIST_FROM_M - 1e-9
         fails: list[str] = []
         if len(got) < BAND_PICTURES:
             fails.append(f"only {len(got)} pictures (crawl through it slowly)")

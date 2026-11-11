@@ -224,8 +224,11 @@ inline constexpr ErrorText kErrors[] = {
     {7061, "The game needs the seeing test first."},
     {7062, "FACE, ESCAPE and FOLLOW are for a person in a game."},
     {7063, "The game's time limit (15 minutes) is up."},
+    {7064, "The AI helper couldn't do that just then."},
+    {7065, "The game is holding still - press STOP first."},
+    {7066, "The game stopped: no news of where the person is. Press STOP to go on."},
 };
-inline constexpr uint8_t kErrorCount = 55;
+inline constexpr uint8_t kErrorCount = 58;
 
 inline constexpr uint16_t kSourceBytes = 8192;
 inline constexpr uint8_t kMaxProcs = 64;

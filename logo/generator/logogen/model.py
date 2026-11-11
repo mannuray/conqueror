@@ -255,6 +255,7 @@ SKILL_ENDS = {
     "unknown_thing",
     "stale",
     "learning",  # a teach started between the check and the word (7056, Plan Z2b-1)
+    "refused",  # the engine couldn't do the word just then (7064, design-notes §236)
     "stop",  # not the laptop's end: the STOP key (a tank-side ending)
     "caught",  # the bridge's game mode caught the tank: the word ends, no error (Tank Logo LLD §27.1)
 }

@@ -679,3 +679,6 @@ errors:   # PROGRAM 7000-7999 (Spec 5 §8); {..} are filled in by the checker. E
   7061: "The game needs the seeing test first."
   7062: "FACE, ESCAPE and FOLLOW are for a person in a game."
   7063: "The game's time limit (15 minutes) is up."
+  7064: "The AI helper couldn't do that just then."
+  7065: "The game is holding still - press STOP first."
+  7066: "The game stopped: no news of where the person is. Press STOP to go on."

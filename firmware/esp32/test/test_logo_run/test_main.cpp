@@ -349,9 +349,9 @@ void test_a_lone_question_is_not_delayed() {
 void test_skill_ends_map_to_their_codes() {
   const SkillEnd ends[] = {SkillEnd::kNotFound, SkillEnd::kLost,         SkillEnd::kOutsideArea,
                            SkillEnd::kNoWay,    SkillEnd::kBlocked,      SkillEnd::kUnknownThing,
-                           SkillEnd::kStale};
-  const uint16_t codes[] = {7050, 7051, 7054, 7055, 7024, 7053, 7052};
-  for (int i = 0; i < 7; ++i) {
+                           SkillEnd::kStale,    SkillEnd::kRefused};
+  const uint16_t codes[] = {7050, 7051, 7054, 7055, 7024, 7053, 7052, 7064};  // kRefused: design-notes §236
+  for (int i = 0; i < 8; ++i) {
     TEST_ASSERT_TRUE(load("FIND \"ball"));
     until(RunState::kSkill);
     const RunOut o = g_rc.onSkillEnd(ends[i], g_now);

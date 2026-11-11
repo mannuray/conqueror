@@ -106,7 +106,8 @@ void answerAsk(World& w, RunController& rc) {
 
 // A skill is running: its end comes at once (the case's next one); "stop" is the STOP key.
 RunOut endSkill(World& w, RunController& rc) {
-  static const char* const kNames[] = {"done", "not_found", "lost", "outside_area", "no_way", "blocked", "unknown_thing", "stale", "learning", "caught"};
+  static const char* const kNames[] = {"done", "not_found", "lost", "outside_area", "no_way", "blocked", "unknown_thing", "stale", "learning", "refused", "caught"};
+  static_assert(sizeof kNames / sizeof kNames[0] == static_cast<size_t>(SkillEnd::kCaught) + 1, "one name per SkillEnd");
   char tok[24];
   if (!w.ends.next(tok, sizeof tok)) return RunOut();
   if (strcmp(tok, "stop") == 0) return rc.onMotionEvent(MotionEvent::kStop);

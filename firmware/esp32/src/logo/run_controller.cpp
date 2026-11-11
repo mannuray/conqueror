@@ -52,6 +52,7 @@ constexpr uint16_t kBySkillEnd[] = {
     7053,  // kUnknownThing
     7052,  // kStale (the helper stopped answering)
     7056,  // kLearning (a teach started between the check and the word, Plan Z2b-1)
+    7064,  // kRefused (the engine's skill_failed "stale": it couldn't do the word just then, design-notes §236)
     0,     // kCaught: the game caught the tank - the word ends, the program goes on (Tank Logo LLD §27.1)
 };
 static_assert(sizeof kBySkillEnd / sizeof kBySkillEnd[0] == static_cast<size_t>(SkillEnd::kCaught) + 1, "one per SkillEnd");

@@ -10,7 +10,7 @@ int8_t absI8(int8_t v) { return v < 0 ? static_cast<int8_t>(-v) : v; }
 uint16_t GameController::onRunStart(bool game, uint32_t now) {
   const bool people = m_h.people != nullptr && m_h.people();
   switch (m_mode.startRun(game, people, m_cap, now)) {
-    case core::GameMode::Start::kHeld: return 7052;  // review I2: held until a STOP
+    case core::GameMode::Start::kHeld: return 7065;  // review I2: held until a STOP (design-notes §236)
     case core::GameMode::Start::kNoPeople: return 7061;
     case core::GameMode::Start::kNoCap: return 7060;
     default: break;
@@ -111,7 +111,7 @@ void GameController::transitions(uint32_t now) {
   m_last = s;
   if (m_h.event != nullptr) m_h.event(s, m_mode.lastDistance(), m_mode.caughtCount());
   if (m_h.end_run == nullptr) return;
-  if (s == core::GameState::kHeld) m_h.end_run(7052, now);
+  if (s == core::GameState::kHeld) m_h.end_run(7066, now);  // no person news: held (design-notes §236)
   if (s == core::GameState::kOff && m_was_arming && m_mode.lastRefusal() == core::GameMode::Start::kNoCap) {
     m_h.end_run(7060, now);
   }

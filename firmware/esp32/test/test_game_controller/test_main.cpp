@@ -208,16 +208,16 @@ void test_an_estimate_counts_at_once() {  // I6: a DRIVE right after an estimate
   TEST_ASSERT_FALSE(drive(g, 30, 0));
 }
 
-void test_the_engine_gone_holds_and_ends_the_run_7052() {
+void test_the_engine_gone_holds_and_ends_the_run_7066() {  // design-notes §236: held, its own words
   GameController g = playing();
   g.onEngineGone(30);
   g.tick(31);
-  TEST_ASSERT_EQUAL_UINT16(7052, rec.ended);
+  TEST_ASSERT_EQUAL_UINT16(7066, rec.ended);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kHeld), static_cast<int>(rec.last_event));
   TEST_ASSERT_FALSE(drive(g, 30, 0, proto::Source::kHuman));  // the stick too: zeros
   g.onRunEnd(40);  // the run ending does not release Held
   TEST_ASSERT_FALSE(drive(g, 30, 0));
-  TEST_ASSERT_EQUAL_UINT16(7052, g.onRunStart(false, 45));  // nor a new run (I2)
+  TEST_ASSERT_EQUAL_UINT16(7065, g.onRunStart(false, 45));  // nor a new run (I2): STOP first
   g.onStop(50, true);
   g.tick(51);
   TEST_ASSERT_TRUE(drive(g, 30, 0));
@@ -403,7 +403,7 @@ int main(int, char**) {
   RUN_TEST(test_no_ack_ends_the_run_7060);
   RUN_TEST(test_caught_ends_the_motion_once_and_tells_the_pages);
   RUN_TEST(test_an_estimate_counts_at_once);
-  RUN_TEST(test_the_engine_gone_holds_and_ends_the_run_7052);
+  RUN_TEST(test_the_engine_gone_holds_and_ends_the_run_7066);
   RUN_TEST(test_forward_close_ahead_ends_kept_away);
   RUN_TEST(test_a_long_hold_ends_the_move);
   RUN_TEST(test_the_game_cap_clamps_every_drive);

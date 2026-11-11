@@ -554,6 +554,13 @@ void test_skill_failed_learning() {
   TEST_ASSERT_TRUE(c.skill_end == cq::logo::SkillEnd::kLearning);
 }
 
+// Design-notes §236: the engine's refusal "stale" is its own ending (7064), not the deadman's 7052.
+void test_skill_failed_stale_is_a_refusal() {
+  const WsCommand c = P("{\"t\":\"skill_failed\",\"id\":4,\"reason\":\"stale\",\"thing\":\"baby\"}");
+  TEST_ASSERT_EQUAL(K(WsCmdKind::kSkillFailed), K(c.kind));
+  TEST_ASSERT_TRUE(c.skill_end == cq::logo::SkillEnd::kRefused);
+}
+
 // Plan Z2b-1 (bridge LLD R27.2): the engine's hello carries where its AI feed is; skill_learning around a teach.
 void test_hello_page() {
   WsCommand c = P("{\"t\":\"hello\",\"client\":\"ai-skills\",\"proto\":1,\"page\":{\"port\":8770,\"proto\":1}}");
@@ -620,7 +627,7 @@ void test_skill_done_and_failed() {
   TEST_ASSERT_EQUAL(K(WsCmdKind::kBadField), K(P("{\"t\":\"skill_done\"}").kind));
   const char* const reasons[] = {"not_found", "lost", "outside_area", "no_way", "blocked", "unknown_thing", "stale"};
   using E = cq::logo::SkillEnd;
-  const E kEnds[] = {E::kNotFound, E::kLost, E::kOutsideArea, E::kNoWay, E::kBlocked, E::kUnknownThing, E::kStale};
+  const E kEnds[] = {E::kNotFound, E::kLost, E::kOutsideArea, E::kNoWay, E::kBlocked, E::kUnknownThing, E::kRefused};  // §236
   for (int i = 0; i < 7; ++i) {
     char j[96];
     snprintf(j, sizeof j, "{\"t\":\"skill_failed\",\"id\":4,\"reason\":\"%s\",\"thing\":\"toy\"}", reasons[i]);
@@ -693,6 +700,7 @@ int main() {
   RUN_TEST(test_skill_drive);
   RUN_TEST(test_skill_done_and_failed);
   RUN_TEST(test_skill_failed_learning);
+  RUN_TEST(test_skill_failed_stale_is_a_refusal);
   RUN_TEST(test_hello_page);
   RUN_TEST(test_skill_learning_on_off);
   RUN_TEST(test_skill_learning_bad_on_refused);

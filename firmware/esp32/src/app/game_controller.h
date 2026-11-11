@@ -1,6 +1,6 @@
 // Game mode joined to the bridge (bridge LLD R34): a game run's start (the seeing-test lock, the measured speed cap)
 // and end, the child-play envelope through the Uno's acked queue, the engine's person estimates, caught (every motion
-// ends, a beep), held (the run ends 7052, nothing moves until a STOP), back_ok (a backward move in a game asks the
+// ends, a beep), held (the run ends 7066, nothing moves until a STOP), back_ok (a backward move in a game asks the
 // engine's map first) and the gate every DRIVE asks (BodyLink::setDriveGate): the keep-out, the game's speed cap, and
 // a hold longer than kHoldEndMs ends the move "kept away". Link task only; captureless hooks.
 #pragma once
@@ -38,7 +38,7 @@ class GameController {
   void setHooks(const Hooks& h) { m_h = h; }
   void setCap(uint8_t pct) { m_cap = pct; }
   uint8_t cap() const { return m_cap; }
-  // A run starts: 0 to go, 7052 (held: STOP first), 7061 (no seeing test), 7060 (no speed cap).
+  // A run starts: 0 to go, 7065 (held: STOP first), 7061 (no seeing test), 7060 (no speed cap).
   uint16_t onRunStart(bool game, uint32_t now);
   bool ready() const { return m_mode.state() != core::GameState::kArming; }  // false: the program waits
   bool caught() const { return m_mode.caught(); }

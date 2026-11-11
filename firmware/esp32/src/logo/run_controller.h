@@ -36,7 +36,7 @@ struct RunConfig {
 // kAsking: a question (SEE? / HOWFAR) is out to the laptop; kSkill: a FIND / WANDER / EXPLORE / SETXY runs there.
 enum class RunState : uint8_t { kIdle, kRunning, kMotion, kWaiting, kAsking, kSkill, kPaused, kEnded };
 // How a skill ended on the laptop (Tank Logo LLD §24.2); tank-side endings come through onMotionEvent.
-enum class SkillEnd : uint8_t { kDone, kNotFound, kLost, kOutsideArea, kNoWay, kBlocked, kUnknownThing, kStale, kLearning, kCaught };
+enum class SkillEnd : uint8_t { kDone, kNotFound, kLost, kOutsideArea, kNoWay, kBlocked, kUnknownThing, kStale, kLearning, kRefused, kCaught };
 enum class RunEvent : uint8_t { kLogoStop, kStep, kBatteryLow, kTilt };
 
 // What the host does now: at most one action, a line event, or the ending.
@@ -65,7 +65,7 @@ class RunController {
   RunOut onPrimitiveEnd(const core::PrimitiveEnd& e);  // the move / turn / arc / pivot it asked for ended
   RunOut onMotionEvent(core::MotionEvent e);           // STOP, release, page gone … (also between motions)
   RunOut onEvent(RunEvent e);
-  RunOut abort(uint16_t code) { return end(code); }  // bridge LLD R34: game mode ends the run (7052 / 7060 / 7061)
+  RunOut abort(uint16_t code) { return end(code); }  // bridge LLD R34: game mode ends the run (7066 / 7060 / 7061)
   // The laptop's answer to the question just asked: SEE? 1 / 0, HOWFAR cm (-1 = not seen). Ignored when no question
   // is waiting or its 300 ms are over (the runner then goes on with FALSE / -1).
   RunOut onAskAnswer(int32_t value, uint32_t now_ms);

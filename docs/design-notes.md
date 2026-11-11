@@ -3675,3 +3675,6 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   the first crawl; one more crawl. If 2 m still misses in that light, options come back to the owner - the test is
   not loosened. Unseen is safe in a game (forward and turns held after 1 s); far seeing against a bright background
   is a known limit.
+- **The crawl after that (`walk-20261111-5`, 2026-11-11) passed every band** - the seeing pass written: seen 0.3 m
+  180/182, 0.5 m 200/202, 1.0 m 196/196 (distance 196/196), 1.5 m 62/62 (54/62), 2.0 m 262/302 (238/262). 2 m is
+  the weakest (87 % seen against the 80 % bar).

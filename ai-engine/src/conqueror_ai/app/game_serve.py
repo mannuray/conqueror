@@ -8,6 +8,8 @@ words, and they answer from PersonWatch - never from the tracker, the memory or 
 from __future__ import annotations
 
 import asyncio
+import math
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -21,7 +23,8 @@ from conqueror_ai.domain.person import PersonWatch
 
 PERSON_WORDS = frozenset({"baby", "person", "kid"})  # the game's person (Tank Logo LLD §27)
 GAME_SKILLS = ("face", "escape", "follow")
-PERSON_EVERY_S = 0.1  # the stream: the newest estimate 10 times a second (>= 5 Hz, R34.2)
+PERSON_EVERY_S = 0.1  # the stream: at least 10 times a second (>= 5 Hz, R34.2), unseen too
+PERSON_POLL_S = 0.02  # ... and each new estimate as soon as it is made (design-notes §237)
 SEEN_S = 0.5  # SEE? "baby: a picture with the person this recently
 FOLLOW_STOP_CM = 100.0  # FOLLOW's default follow distance
 NO_PICTURE_AGE_MS = 60_000  # the stream's age before any picture: never fresh
@@ -94,11 +97,17 @@ class PersonStream:
         self.on = False
 
     async def run(self) -> None:
+        last_us: int | None = None  # the newest picture the last message was made from
+        last_s = -math.inf
         while True:
-            await asyncio.sleep(PERSON_EVERY_S)
+            await asyncio.sleep(PERSON_POLL_S)
             now = self.bridge_now_s()
             if not self.on or now is None:
                 continue
+            fresh = self.world.person.last_us != last_us
+            if not fresh and time.monotonic() - last_s < PERSON_EVERY_S - 1e-3:
+                continue
+            last_us, last_s = self.world.person.last_us, time.monotonic()
             try:
                 msg = person_message(self.world.person, round(now * 1e6))
             except Exception as e:  # said, and the stream goes on; the bridge's deadman holds meanwhile (M3)

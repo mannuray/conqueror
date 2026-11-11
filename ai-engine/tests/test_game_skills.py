@@ -84,13 +84,16 @@ def play(
     pan: float = 0.0,
     edge_clip: bool = False,
     always_edge: bool = False,
+    known_bearing: float | None = None,
 ) -> Play:
     """edge_clip: a person up to 35 deg beyond the view is seen cut by the picture's side edge (their box's
     bottom centre at the edge, so the bearing reads short); always_edge: every sighting says edge."""
     sim = SimRoom(boxes or [], walls_m=2.5)
     tank = SimTank(*start)
     out = Play()
-    last: PersonEst | None = None
+    last: PersonEst | None = (
+        None if known_bearing is None else PersonEst(False, 1.0, known_bearing, 0, 0.5, 0)
+    )
     cmd = Command(0.0, 0.0)
     t = T0_S
     if trusted_behind:
@@ -207,6 +210,23 @@ def test_face_gives_up_turning_after_three_looks() -> None:
     assert p.result == Result.DONE
     starts = sum(1 for a, b in zip(p.cmds, p.cmds[1:], strict=False) if a.w_dps == 0 and b.w_dps != 0)
     assert starts <= 3
+
+
+@pytest.mark.parametrize("side", [1.0, -1.0])
+def test_face_looks_toward_the_last_side_seen(side: float) -> None:  # design-notes §237
+    person = at_bearing(1.0, 70.0 * side)  # out of view at pan 0, last seen there
+    p = play(FaceSkill(LIM), person, known_bearing=70.0 * side)
+    assert p.cams and math.copysign(1.0, -p.cams[0][0]) == side  # the camera that way first (pan + = right)
+    assert p.result == Result.DONE and p.moved
+    tank = SimTank(*p.at[-1])
+    end = tank.step(p.cmds[-1], LIM.dt_s)
+    assert abs(front_gap(end, person)[1]) <= FACE_PAN_DEG
+
+
+def test_face_looks_once_then_is_lost_without_moving() -> None:
+    p = play(FaceSkill(LIM), None, known_bearing=70.0, limit_s=6.0)
+    assert p.result == Result.LOST and not p.moved
+    assert len(p.cmds) * LIM.dt_s >= 1.5 - 1e-6
 
 
 # ---- ESCAPE

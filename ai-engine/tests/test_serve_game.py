@@ -5,6 +5,7 @@ game's person questions, a word ended `caught` quietly."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -367,3 +368,35 @@ async def test_other_words_start_from_straight_ahead(bridge: FakeBridge) -> None
         assert msgs(bridge, "cam_set")[0]["pan"] == pytest.approx(0.0)
     finally:
         await s.close()
+
+
+async def test_a_new_estimate_is_sent_at_once() -> None:  # design-notes §237: no 10 Hz wait
+    import time
+    from types import SimpleNamespace
+    from typing import cast
+
+    from conqueror_ai.app.game_serve import PersonStream
+    from conqueror_ai.domain.person import PersonWatch
+
+    watch = PersonWatch()
+    sent: list[float] = []
+
+    async def send(_: dict[str, Any]) -> None:
+        sent.append(time.monotonic())
+
+    stream = PersonStream(cast(World, SimpleNamespace(person=watch)), send, lambda: 100.0)
+    stream.on = True
+    task = asyncio.create_task(stream.run())
+    try:
+        await asyncio.sleep(0.25)
+        quiet = len(sent)
+        assert 2 <= quiet <= 3  # nothing new: one message per 100 ms
+        cam = cam_down()
+        t0 = time.monotonic()
+        watch.update([box_at(cam, 1.0, 0.0)], cam, None, 100 * S)
+        await until(lambda: len(sent) > quiet)
+        assert sent[quiet] - t0 < 0.03
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task

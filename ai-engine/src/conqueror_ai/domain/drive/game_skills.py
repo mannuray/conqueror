@@ -22,6 +22,9 @@ from conqueror_ai.domain.objects import GATE_DPS
 FACE_PAN_DEG = 35.0  # the camera's comfortable pan; beyond it FACE turns the tank (LLD §28.3)
 FACE_DONE_DEG = 10.0  # turned this near the person's direction: facing them
 FACE_LOOKS = 3  # FACE turns at most this many times on side-edge sightings, then ends done (LLD §28.12)
+FACE_LOOK_FROM_DEG = 30.0  # nobody in view, last seen beyond this: the camera looks that way first (§28.13)
+FACE_LOOK_PAN_DEG = 60.0  # ... this far at most (the camera then covers ~100 deg to that side)
+FACE_LOOK_S = 1.5  # ... and FACE waits this long for a sighting before lost
 TURN_FROM_M = 0.35  # a turn on the spot only with the person this far or farther (bridge LLD R34.2)
 LOST_S = 1.0  # not seen this long (while not spinning): lost
 VIEW_DEG = 41.0  # half the camera's view: ESCAPE knows where the person is only inside it
@@ -155,12 +158,13 @@ class FaceSkill(_Base):
         self._th: float | None = None
         self._looks = 0
         self._turned_at: int | None = None  # the sighting a turn ended on: decide again on a newer one
+        self._look_s: float | None = None  # when the camera went to look where they were last seen
 
     def tick(self, now_s: float, inp: SkillInput) -> SkillOut:
         self._clock(now_s, inp)
         at = inp.at
         if at is None or self.sight.xy is None:
-            return self._end(Result.LOST, "the person is not in view") if self.sight.lost else self._halt()
+            return self._unseen(now_s, inp)
         if self._th is not None:  # turning: by the odometry, toward where they were
             out = self._spin_to(at, self._th)
             if out is not None:
@@ -176,6 +180,20 @@ class FaceSkill(_Base):
         self._looks += 1
         self._th, self.state = self.sight.heading(at), "turn"
         return self._spin_to(at, self._th) or self._halt()
+
+    def _unseen(self, now_s: float, inp: SkillInput) -> SkillOut:
+        """Nobody in view yet: once, the camera toward where the estimate last saw them (beyond
+        FACE_LOOK_FROM_DEG) and FACE_LOOK_S to see them; never a blind turn of the tank (§237)."""
+        p = inp.person
+        last_seen_aside = p is not None and not p.seen and abs(p.bearing_deg) > FACE_LOOK_FROM_DEG
+        if self._look_s is None and inp.at is not None and p is not None and last_seen_aside:
+            self._look_s = now_s
+            self._pan = max(-FACE_LOOK_PAN_DEG, min(FACE_LOOK_PAN_DEG, -p.bearing_deg))
+            return self._halt((self._pan, self.lim.drive_tilt_deg))
+        if self._look_s is not None:
+            gone = now_s - self._look_s >= FACE_LOOK_S - 1e-9
+            return self._end(Result.LOST, "the person is not in view") if gone else self._halt()
+        return self._end(Result.LOST, "the person is not in view") if self.sight.lost else self._halt()
 
     def _turns(self, at: XYTh) -> bool:
         """Turn the tank: beyond the camera's pan or at the picture's side edge, far enough, looks left."""

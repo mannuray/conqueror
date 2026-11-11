@@ -38,7 +38,7 @@ STEPS: tuple[tuple[float, str], ...] = (
     (0.0, "Get down about two metres straight in front of the tank, facing it."),
     (8.0, "Now crawl slowly towards the tank, straight at it."),
     (26.0, "Stop a hand's width from the tank. Stay still."),
-    (31.0, "Now crawl slowly back, straight away from the tank."),
+    (31.0, "Now crawl slowly backwards, still facing the tank, back to where you started."),
     (49.0, "Done. Thank you."),
 )
 RECORD_S = 50.0

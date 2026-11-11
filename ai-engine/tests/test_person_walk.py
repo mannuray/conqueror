@@ -98,3 +98,10 @@ def test_walk_score_writes_the_pass_only_when_every_band_passes(tmp_path: Path) 
     u.path.write_text("old: pass\n")
     text = walk_score_folder(tmp_path / "w", cal, PersonAt(1.0), None, None, u, "fake")
     assert "1.0: pass" in text and "games locked" in text and not u.path.exists()
+
+
+def test_the_way_back_is_crawled_facing_the_tank() -> None:  # §235: rarely seen from behind
+    from conqueror_ai.app.person_walk import STEPS
+
+    back = STEPS[3][1].lower()
+    assert "backwards" in back and "facing the tank" in back

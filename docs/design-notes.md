@@ -3668,3 +3668,10 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
     over between games (G1 follow-up).
   - Flash note: the OTA password is read with `grep '^#define CQ_OTA_PASSWORD'` - a plain grep also caught the
     comment above it and the upload hung on "Authentication Failed".
+- **The confirming crawl (`walk-20261111-4`) failed 1.5 and 2.0 m on seeing** (61/92, 147/254; distance fine where
+  seen): going back the owner turned round - from behind on all fours YOLO-World saw them 6 of 37 at 1.5 m (coming
+  in, facing: 55 of 55); and at the start, facing the tank at ~2 m with bright light from the doorway behind, 143
+  of 247. Decided (owner, "yes"): the spoken step now says crawl backwards still facing the tank; the light set as
+  the first crawl; one more crawl. If 2 m still misses in that light, options come back to the owner - the test is
+  not loosened. Unseen is safe in a game (forward and turns held after 1 s); far seeing against a bright background
+  is a known limit.

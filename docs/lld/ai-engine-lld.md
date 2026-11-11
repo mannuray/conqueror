@@ -3548,3 +3548,13 @@ stateDiagram-v2
 - Tests: an edge sighting at 31 deg turns (not done); a centred one at 31 deg pans and ends done; after the turn a
   stale sighting does not end it, a new centred one does; three edge turns end done; an edge sighting at 30 cm pans
   and ends done; a game word's first camera keeps the pan, `find`'s is 0.
+
+### 28.13 The person sent at once; FACE's look (design-notes §237, owner 2026-11-11)
+- `PersonStream.run`: every `PERSON_POLL_S` (0.02 s) - send when `world.person.last_us` differs from the last sent
+  one's, or `PERSON_EVERY_S` (0.1 s) passed since the last send; the game off or no bridge clock: nothing.
+- `FaceSkill`: `at` known, no sighting yet, `inp.person` unseen with `|bearing| > FACE_LOOK_FROM_DEG` (30): once,
+  the camera to `clamp(-bearing, ±FACE_LOOK_PAN_DEG)` (60) and `lost` only after `FACE_LOOK_S` (1.5 s) with no
+  sighting; a sighting goes on as §28.12. No remembered bearing: `lost` after `LOST_S` as before.
+- Tests: a new estimate is sent within 30 ms; nothing new - one message per 100 ms; FACE with the person at 70 deg
+  out of view and a remembered bearing pans, sees, turns, ends done; a remembered bearing with nobody there ends
+  lost by ~1.5 s with the tank still.

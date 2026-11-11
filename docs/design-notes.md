@@ -3709,3 +3709,18 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   4. **The 300 ms freshness:** measure first where the age goes (the picture's capture to arrival, detection, depth,
      the send); the numbers go to the owner, who decides between a quicker helper and a longer limit (a longer limit
      needs a longer stopping distance - bridge R34's reaction time).
+- **Built 2026-11-11** (`896a741` the codes, `db5c9be` FACE / the camera; flashed). **Floor run with the owner ~70
+  deg to the side:** never in a single picture (the camera sees +-41 deg), so every FACE ended `lost` and nothing
+  moved - the run did not test the edge fix (our instruction: ~45-50 deg puts them at the picture's edge).
+- **The age measured** (scratch log of `cq-drive serve`, ~30 s of pictures, median / 90th percentile, ms; bridge
+  clock from the capture): arrived at the laptop 92 / ~115, the person estimate 133 / ~155, **sent 182 / ~210**
+  against the bridge's 300. About 50 ms is the stream's fixed 10 Hz beat (a fresh estimate waits up to 100 ms).
+
+## 237. The person sent as soon as it is known; FACE looks toward where they were last seen (owner, 2026-11-11: "yes do all")
+- **The stream sends each new estimate at once** (AI engine LLD §28.13): `PersonStream` checks every
+  `PERSON_POLL_S` (20 ms) and sends when `PersonWatch.last_us` changed, and at least every `PERSON_EVERY_S` (100 ms)
+  otherwise (unseen, the countdown). Saves ~50 ms on average, no safety traded: **the bridge's 300 ms stays.**
+- **FACE looks before it gives up:** nobody in view yet, but the estimate remembers a bearing beyond 30 deg (the
+  person was seen there): the camera pans that way (up to `FACE_LOOK_PAN_DEG` 60, the camera then covers ~100 deg),
+  and FACE waits `FACE_LOOK_S` (1.5 s) for a sighting before `lost`. Once; never a blind turn of the tank.
+- Then the floor re-run with the owner ~45-50 deg to the side (partly in view).

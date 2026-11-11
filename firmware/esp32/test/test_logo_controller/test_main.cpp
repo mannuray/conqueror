@@ -939,6 +939,26 @@ void test_caught_during_a_game_word_lets_lesson_6_go_on() {  // G3 final review 
   TEST_ASSERT_EQUAL(1, g_ops.size());  // BEEP: the word ended and CAUGHT? was read
 }
 
+void test_kept_away_ends_a_running_skill_normally_and_the_program_goes_on() {  // design-notes §240
+  runAi("WANDER 5 FD 10");
+  ticks(1);
+  startedSkill();
+  lc->onKeptAway(g_now);
+  TEST_ASSERT_TRUE(sent(kServer, "\"why\":\"ended\""));
+  ticks(20);
+  TEST_ASSERT_TRUE(lc->running());  // not 7052: the word ended, FD 10 runs
+  TEST_ASSERT_EQUAL(2, g_motions.size());
+  TEST_ASSERT_EQUAL(logo::ActKind::kMove, g_motions[1].kind);
+}
+
+void test_kept_away_without_a_skill_does_nothing_to_the_program() {  // a move's own end stays the motion's
+  run("FD 10");
+  ticks(1);
+  lc->onKeptAway(g_now);
+  TEST_ASSERT_TRUE(lc->running());
+  TEST_ASSERT_EQUAL(1, g_motions.size());
+}
+
 void test_a_games_moves_are_within_its_speed_cap() {  // review I7
   g_game_cap_fn = [] { return static_cast<uint8_t>(50); };  // a game at a 50 % cap
   run("SPEED 100 FD 10");
@@ -1011,6 +1031,8 @@ int main() {
   RUN_TEST(test_game_mode_ends_the_run_with_its_code);
   RUN_TEST(test_caught_ends_a_running_skill_as_caught_and_the_program_goes_on);
   RUN_TEST(test_caught_during_a_game_word_lets_lesson_6_go_on);
+  RUN_TEST(test_kept_away_ends_a_running_skill_normally_and_the_program_goes_on);
+  RUN_TEST(test_kept_away_without_a_skill_does_nothing_to_the_program);
   RUN_TEST(test_a_games_moves_are_within_its_speed_cap);
   return UNITY_END();
 }

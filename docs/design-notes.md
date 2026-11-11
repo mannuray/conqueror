@@ -3769,3 +3769,19 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   once, ~32 deg right, at the start; all 30 FACE words ended `done`, none `lost`, the game never held; every
   `person` message seen (34 of 34 sampled), reported 38-46 cm (the measured distance less 2 sigma), the bearing
   settling at 2-3 deg - facing the owner. Sent age ~140-160 ms against the bridge's 300.
+
+## 240. "Kept away" ends a skill word normally (bug, owner 2026-11-11: "yes", then "simplify it")
+- **Seen:** the FACE following round ended 7052 "The AI helper stopped answering" twice, each time as FACE started a
+  turn. With every reply from the bridge logged: the person ~50 deg left at 36 cm (reported), FACE turning; the
+  bridge held the turn (R34: no turn at 35 cm or nearer - the estimate sat on the line), the hold passed
+  `kHoldEndMs` (300 ms) and the keep-out ended the move "kept away"; the helper's next `skill_drive` was refused
+  `NOT_OWNER` ("Another source has control") and the lease ran out: `skill_end` `deadman`, the run 7052.
+- **Cause (bridge):** "kept away" cancelled the motion primitive but never ended the **skill word** (the lease and
+  the runner). Caught already does both (`LogoController::onCaught`); kept away was missed.
+- **Fixed** (bridge LLD R34): `LogoController::onKeptAway` ends a running skill word normally - the lease
+  `skill_end` "ended", the runner's word done, the program goes on - then the motion is cancelled as before.
+  Safety unchanged (the tracks were held either way).
+- **Not done (owner: "simplify"):** a second, wider turn limit in FACE (40 cm) to stay off the bridge's 35 cm. The
+  bridge is the only judge of when a turn is too near; on the line FACE's word ends "kept away", not an error.
+- **Unexplained, to watch:** the earlier 7052 of the same kind came at ~43 cm reported; the bridge's game events
+  (held / released) are logged in full from now on.

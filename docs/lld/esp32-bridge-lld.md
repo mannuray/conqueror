@@ -3876,7 +3876,8 @@ the stopping distance, sideways / away allowed, turns from 35 cm.
   requests may queue ahead); forward within ±60° only while `d - stop - 5 > 30` with `stop = roll + speed x (0.3 s +
   the estimate's age)`, speed = v % x 33.5 cm/s / 100; turns from 35 cm; unseen 1 s: no forward, no turn; a hold
   under a moving command longer than 300 ms ends the move "kept away" (the motion's own no-progress and slip watches
-  never see a long hold); back_ok asked for the program's BACK and the stick (not a skill's own drive), a yes for
+  never see a long hold) - a running skill word ends with it, normally (`LogoController::onKeptAway`: the lease's
+  `skill_end` "ended", the word done, the program goes on; design-notes §240); back_ok asked for the program's BACK and the stick (not a skill's own drive), a yes for
   one backward move or 3 s.
 - **Final review (Opus) - fixed:** a restarted Uno re-arms (C1); the arming ack tied to its own envelope (C2); the
   estimate's age (I1); a run cannot start while Held (I2: 7052); a stall in a game is caught, the program goes on

@@ -321,7 +321,10 @@ void wireGame() {
     if (g_skills.server() >= 0) g_out.to(g_skills.server(), core::jsonGame(g_out.buf(), g_out.cap(), on));
   };
   g.queue_envelope = gameEnvelope;
-  g.keep_away = [](uint32_t now) { g_motion.keepAway(now); };
+  g.keep_away = [](uint32_t now) {
+    g_logo->onKeptAway(now);  // a running skill word ends normally (design-notes §240)
+    g_motion.keepAway(now);   // any other primitive ends as done
+  };
   g.caught = gameCaught;
   g.end_run = [](uint16_t code, uint32_t now) { g_logo->endWith(code, now); };
   g.ask_back = gameAskBack;

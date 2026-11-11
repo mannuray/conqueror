@@ -87,6 +87,7 @@ class LogoController {
   bool running() const { return m_running; }
   void endWith(uint16_t code, uint32_t now);  // game mode ends the running program (held 7066, arming 7060)
   void onCaught(uint32_t now);  // R34: a running skill ends "caught" - not an error, the program goes on
+  void onKeptAway(uint32_t now);  // R34: a running skill ends normally when the keep-out ends its move (§240)
 
  private:
   void keepGoing(uint32_t now);

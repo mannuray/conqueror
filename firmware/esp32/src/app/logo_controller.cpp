@@ -68,6 +68,14 @@ void LogoController::onCaught(uint32_t now) {
   if (skill && m_running) handle(m_rc.onSkillEnd(logo::SkillEnd::kCaught, now), now);
 }
 
+// Kept away (design-notes §240): the keep-out ended a skill's move after a long hold - the word ends normally, as a
+// move's would (left alone, the lease ran out: a false 7052).
+void LogoController::onKeptAway(uint32_t now) {
+  if (!m_running || m_skill_id < 0) return;
+  endLease(true, core::LeaseEnd::kEnded, core::EndReason::kDone, now);
+  if (m_running) handle(m_rc.onSkillEnd(logo::SkillEnd::kDone, now), now);
+}
+
 void LogoController::endWith(uint16_t code, uint32_t now) {
   if (m_running) handle(m_rc.abort(code), now);
 }

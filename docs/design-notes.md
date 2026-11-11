@@ -3785,3 +3785,8 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   bridge is the only judge of when a turn is too near; on the line FACE's word ends "kept away", not an error.
 - **Unexplained, to watch:** the earlier 7052 of the same kind came at ~43 cm reported; the bridge's game events
   (held / released) are logged in full from now on.
+- **FACE following round on `9cd78d6` (passed, 2026-11-11):** the owner from the tank's right round to its left.
+  FACE turned ~23 deg right at the start; one turn held at the 35 cm line ended "kept away" (`skill_end` ended),
+  **no 7052**; caught at 30 cm (raw ~47 cm less the margin) with the beep (owner heard it), held still for the
+  minute the owner stayed near, playing again after they stepped back past 50 cm for 2 s; then two turns left
+  following them. All 30 rounds ran: 27 done, 2 lost (briefly out of view), 1 kept away.

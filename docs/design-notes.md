@@ -3657,3 +3657,14 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
     farther (10 cm to 1 m, 20 % beyond), never more than 25 cm nearer (the hands ahead of the body); 0.3 and 0.5 m
     are seeing only, the sonar rule taking over the distance there. Looser up close by the owner's decision.
   - **C. Then one more crawl, and a stand check** that a sonar reading under 50 cm with the person ahead catches.
+- **Built and stand-checked 2026-11-11** (bridge `cd53103`, engine `38a7d4b`; flashed over WiFi, app + source):
+  - The first crawl re-scored under B: all 5 bands pass (1.0 m 182/187, 1.5 m 157/161, 2.0 m 315/326 within the
+    one-sided bounds; 0.3 / 0.5 m seen 197/214, 147/151) - the seeing pass written.
+  - Stand check (tank on its stand, nothing drives; a game run asking `SEE? "person` once a second, the laptop
+    speaking the cues; game events read from the bridge): the owner at ~80 cm, no box - playing, no catch (two
+    runs); a box put ~40 cm in front of the sonar - **caught** (the camera still saw the owner at ~80 cm), **the beep
+    heard** (owner); box away - released ~12 s after the cue (beyond 50 cm for 2 s, the reach to take it counted).
+  - Still to do: one more crawl in to ~10 cm to confirm the pass on a fresh recording; the caught count still carries
+    over between games (G1 follow-up).
+  - Flash note: the OTA password is read with `grep '^#define CQ_OTA_PASSWORD'` - a plain grep also caught the
+    comment above it and the upload hung on "Authentication Failed".

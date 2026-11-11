@@ -1821,3 +1821,14 @@ time; `CAUGHT?` false outside a game. Running cases: a caught word ends without 
   `:near`: `ESCAPE "baby 40`; farther than `:far`: `FOLLOW "baby 2`; then `FACE "baby`), `TO BABYGAME :near :far
   :minutes` with `WHILE TIMER < :minutes * 60 [ IFELSE CAUGHT? [ WAIT 3 ] [ CHASE HOWFAR "baby :near :far ] ]`, ending
   `BABYGAME 70 100 5`. `/logo#name` opens a program (the `/ai` GAMES card's lesson link).
+
+### 27.9 7052 split in three (design-notes §236, owner 2026-11-11)
+- `words.yaml` errors: **7064** "The AI helper couldn't do that just then." - `SkillEnd::kRefused`, the engine's
+  `skill_failed` reason `stale` (`ws_codec`'s reason table); **7065** "The game is holding still - press STOP
+  first." - `GameController::onRunStart` while held; **7066** "The game stopped: no news of where the person is.
+  Press STOP to go on." - held during a run. **7052** keeps the lease's deadman, no skill server and the server's
+  link closing.
+- `SkillEnd` gains `kRefused` before `kCaught` (`kBySkillEnd` 7064); a game word's `kRefused` ends the program as any
+  word's does.
+- Tests: `test_ws_codec` `stale` → `kRefused`; `test_logo_runner` a refused skill ends 7064; `test_game_controller`
+  start while held 7065, held during a run 7066; the deadman still 7052.

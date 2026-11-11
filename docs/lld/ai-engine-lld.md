@@ -3521,3 +3521,30 @@ file. Replays (`--replay`) re-run the game skills' decisions as the others.
   fails. The 0.3 / 0.5 m bands are seeing only: up close the bridge takes the sonar minus 20 cm (bridge LLD R34.11).
 - Tests: a camera 20 cm nearer than the sonar at 1 m passes, 30 cm nearer fails, 15 cm farther fails; the 0.5 m band
   scores seen only.
+
+### 28.12 FACE and the picture's side edge; game words keep the camera (design-notes §236, owner 2026-11-11)
+- `PersonRange.edge` (`-1` the box touches the picture's right edge, `+1` the left, `0` neither; `EDGE_PX` 4) from
+  `person_range`; `PersonEst.edge` carries the picked person's (not on the wire). `Sight.edge` is the newest
+  sighting's.
+- `FaceSkill`: a sighting at the side edge is never `done`: from `TURN_FROM_M` it turns the tank toward the person
+  (`_spin_to` the sighting's heading) and, the turn done, waits for a sighting newer than the turn's end to decide
+  again; at most `FACE_LOOKS` (3) turns, then `done` as it is. Nearer than `TURN_FROM_M`: the camera pans, `done`
+  as before (the bridge's 35 cm turn rule).
+- `ServeApp._drive_word`: a game word (`GAME_SKILLS`) starts with the camera's current pan
+  (`-World.map_run.camera_pan_left_deg()`, 0 before any telemetry) at the driving tilt; other words pan 0.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Look
+  Look --> Done: seen, not at the edge, within 35 deg (camera pans)
+  Look --> Done: nearer than 35 cm (camera pans)
+  Look --> Turn: beyond 35 deg, or at the side edge (from 35 cm)
+  Turn --> Wait: within 10 deg by odometry
+  Wait --> Look: a sighting newer than the turn
+  Wait --> Lost: unseen 1 s
+  Turn --> Done: FACE_LOOKS turns made
+  Look --> Lost: unseen 1 s
+```
+- Tests: an edge sighting at 31 deg turns (not done); a centred one at 31 deg pans and ends done; after the turn a
+  stale sighting does not end it, a new centred one does; three edge turns end done; an edge sighting at 30 cm pans
+  and ends done; a game word's first camera keeps the pan, `find`'s is 0.

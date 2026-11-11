@@ -3678,3 +3678,34 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **The crawl after that (`walk-20261111-5`, 2026-11-11) passed every band** - the seeing pass written: seen 0.3 m
   180/182, 0.5 m 200/202, 1.0 m 196/196 (distance 196/196), 1.5 m 62/62 (54/62), 2.0 m 262/302 (238/262). 2 m is
   the weakest (87 % seen against the 80 % bar).
+
+## 236. FACE on the floor did not turn - an edge sighting, the camera re-centred, three causes behind 7052 (owner, 2026-11-11: "yes")
+- **What happened (floor and stand, 2026-11-11):** `REPEAT 30 [ IF CAUGHT? [ WAIT 3 ] FACE "person WAIT 1 ]` never
+  turned the tank. The first runs were spoiled by our setup: a stopped helper's Python child stayed connected (two
+  skill servers), and `--record` slowed the helper so the person messages arrived over 300 ms old (held at once).
+  The tank takes 4 WebSocket clients: the helper uses 2. With one helper and a scratch log of its link (every
+  skill_start / end / reply, the person message once a second) a stand run showed:
+  1. The owner was ~70 deg to the side. The first picture caught them at the picture's side edge, so the box read
+     31 deg; FACE pans within 35 deg, so it panned the camera and ended `done` - the tank never turned. With the
+     camera panned the whole person was in view: 69 deg.
+  2. The next FACE began by re-centring the camera (`cq-drive serve` sends pan 0 at every word's start), lost the
+     person and ended `lost`.
+  3. The person messages reached the tank 180-310 ms old against the bridge's 300 ms freshness: some were dropped,
+     the drive held, the lease's deadman ended the word, the run ended 7052.
+  4. 7052 "The AI helper stopped answering" was shown for three different things (held at a run's start, the
+     engine's refusal "stale", the deadman) and sent us the wrong way twice.
+- **Checked, not a bug:** the pan's sign. `cam_set` pan -30 points the camera to the tank's left (owner, by eye);
+  telemetry reads servo 120 (= 30 deg left through `from_servo`); the camera model turns the same way.
+- **Decided (owner, "yes"):**
+  1. **FACE never trusts a box touching the picture's side edge** (AI engine LLD §28.12): such a person is at least
+     that far round. FACE turns the tank toward them (from 35 cm, as before) and looks again; it ends `done` only on
+     a sighting not at the side edge (at most 3 looks, then done as it is).
+  2. **Game words keep the camera where it points** at a word's start (pan unchanged, tilt to the driving tilt); the
+     other words still start from straight ahead.
+  3. **7052 split** (Tank Logo LLD §27.9): 7064 "The AI helper couldn't do that just then." (the engine's
+     skill_failed `stale`), 7065 "The game is holding still - press STOP first." (a run started while held), 7066
+     "The game stopped: no news of where the person is. Press STOP to go on." (held during a run). 7052 stays for
+     the deadman and the helper's link closing.
+  4. **The 300 ms freshness:** measure first where the age goes (the picture's capture to arrival, detection, depth,
+     the send); the numbers go to the owner, who decides between a quicker helper and a longer limit (a longer limit
+     needs a longer stopping distance - bridge R34's reaction time).

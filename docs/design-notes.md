@@ -3765,3 +3765,7 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **The test's posture:** the floor tests also go on with the owner kneeling or crawling (Spec 10's floor check:
   an adult crawling), whose hands on the floor give the box's bottom.
 - Spoken cues now in the voice Samantha (owner).
+- **Floor run after §239 (passed, 2026-11-11):** the owner ~0.6-0.7 m away, ~33 deg right. FACE turned the tank
+  once, ~32 deg right, at the start; all 30 FACE words ended `done`, none `lost`, the game never held; every
+  `person` message seen (34 of 34 sampled), reported 38-46 cm (the measured distance less 2 sigma), the bearing
+  settling at 2-3 deg - facing the owner. Sent age ~140-160 ms against the bridge's 300.

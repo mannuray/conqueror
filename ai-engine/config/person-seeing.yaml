@@ -1,0 +1,5 @@
+date: '2026-11-11'
+detector: yoloworld-s-640.mlpackage
+calibration: '2026-10-23'
+test: walk
+bands_passed: 5

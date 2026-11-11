@@ -529,6 +529,12 @@ class ServeApp:
         await self._send(self.link.done(w.id) if reason is None else self.link.failed(w.id, reason, thing))
         self._save_home()
 
+    def _first_pan(self, call: SkillCall) -> float:
+        """A game word keeps the camera where it points (FACE may have panned it to the person, design-notes
+        §236); the other words start from straight ahead. cam_set's pan: + = right."""
+        left = self.world.map_run.camera_pan_left_deg() if call.skill in GAME_SKILLS else None
+        return 0.0 if left is None else -left
+
     async def _drive_word(self, w: _Word, call: SkillCall) -> Result:
         seed = random.randrange(1 << 31)
         log = self._log(w.id, call, seed)
@@ -537,7 +543,7 @@ class ServeApp:
             if call.area_m is not None and call.centre is not None:  # the World's cost maps carry the area
                 self.world.area = (call.centre[0], call.centre[1], call.area_m)
             skill = self.skills(call, self.world, seed)
-            await w.driver.cam(0.0, self.world.lim.drive_tilt_deg)
+            await w.driver.cam(self._first_pan(call), self.world.lim.drive_tilt_deg)
             views = [v for v in (self.view, self.publisher) if v is not None]
             runner = SkillRunner(
                 self.world,

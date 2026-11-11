@@ -14,6 +14,7 @@ from typing import Any
 from conqueror_ai.domain.camera import CameraModel
 
 CUT_PX = 4.0  # a box whose bottom is this near the picture's bottom edge is cut, not standing on the floor
+EDGE_PX = 4.0  # a box this near the picture's side edge: the person is at least that far round (LLD §28.12)
 SONAR_DEG = 12.0  # within this of ahead the sonar's echo may be the person's
 SONAR_MAX_M = 4.0
 CUT_M = 0.35  # a box cut by the picture's bottom: close, below the picture
@@ -36,23 +37,32 @@ class PersonRange:
     reason: (
         str  # "" ranged, "cut" the box runs off the picture's bottom, "sky" its bottom is above the horizon
     )
+    edge: int = 0  # +1 the box touches the picture's left edge, -1 its right, 0 neither (LLD §28.12)
+
+
+def side_edge(cam: CameraModel, box: tuple[float, ...]) -> int:
+    """+1 a box at the picture's left edge (the person further left), -1 the right, 0 neither."""
+    if box[0] <= EDGE_PX:
+        return 1
+    return -1 if box[2] >= cam.cal.size[0] - EDGE_PX else 0
 
 
 def person_range(cam: CameraModel, box: tuple[float, ...]) -> PersonRange:
     """The box's bottom centre (the hands on the floor) through the camera to the floor, in the tank's
     frame."""
     x1, _, x2, y2 = box
+    edge = side_edge(cam, box)
     if y2 >= cam.cal.size[1] - CUT_PX:
-        return PersonRange(None, None, "cut")
+        return PersonRange(None, None, "cut", edge)
     p = cam.pixel_to_floor((x1 + x2) / 2.0, y2)
     if p is None:
-        return PersonRange(None, None, "sky")
+        return PersonRange(None, None, "sky", edge)
     pose = cam.pose
     dx, dy = p[0] - pose.x_m, p[1] - pose.y_m
     c, s = math.cos(pose.th_rad), math.sin(pose.th_rad)
     tx, ty = c * dx + s * dy, -s * dx + c * dy  # the tank's frame: x ahead, y left
     ax = tx - cam.cal.track_front_m  # from the front edge's middle, where the tape starts
-    return PersonRange(math.hypot(ax, ty), math.degrees(math.atan2(ty, ax)), "")
+    return PersonRange(math.hypot(ax, ty), math.degrees(math.atan2(ty, ax)), "", edge)
 
 
 def pick_person(ranges: Sequence[PersonRange]) -> PersonRange | None:
@@ -89,6 +99,7 @@ class PersonEst:
     coming: int
     sure: float
     t_us: int
+    edge: int = 0  # the sighting's box at the picture's side edge (+1 left, -1 right): not on the wire
 
     def wire(self, now_us: int) -> dict[str, Any]:
         """The `person` message (bridge LLD R34.3)."""
@@ -128,7 +139,7 @@ class PersonWatch:
         med = self._window(t_us, d)
         rep = max(0.0, med - 2.0 * sigma_m(med))
         sure = 0.9 if r.reason == "" else 0.6
-        self._seen = PersonEst(True, rep, bearing, self._coming(t_us, med), sure, t_us)
+        self._seen = PersonEst(True, rep, bearing, self._coming(t_us, med), sure, t_us, r.edge)
         return self._seen
 
     @property

@@ -341,3 +341,29 @@ async def test_a_game_word_without_game_mode_is_refused(bridge: FakeBridge) -> N
         assert msgs(bridge, "skill_failed")[0]["reason"] == "stale" and maker.calls == []
     finally:
         await s.close()
+
+
+async def test_a_game_word_keeps_the_camera_where_it_points(bridge: FakeBridge) -> None:  # design-notes §236
+    w = world()
+    w.map_run.pan_servo_deg = 120.0  # the camera 30 deg left (FACE panned it there)
+    s = await serving(bridge, w=w)
+    try:
+        await bridge.to_skill_server({"t": "game", "on": True})
+        await bridge.to_skill_server({"t": "skill_start", "id": 4, "skill": "face", "thing": "baby"})
+        await until(lambda: len(msgs(bridge, "skill_done")) == 1)
+        first = msgs(bridge, "cam_set")[0]
+        assert first["pan"] == pytest.approx(-30.0, abs=0.5)  # pan + = right: still 30 deg left
+    finally:
+        await s.close()
+
+
+async def test_other_words_start_from_straight_ahead(bridge: FakeBridge) -> None:
+    w = world()
+    w.map_run.pan_servo_deg = 120.0
+    s = await serving(bridge, w=w)
+    try:
+        await bridge.to_skill_server({"t": "skill_start", "id": 5, "skill": "wander", "seconds": 1})
+        await until(lambda: len(msgs(bridge, "cam_set")) >= 1)
+        assert msgs(bridge, "cam_set")[0]["pan"] == pytest.approx(0.0)
+    finally:
+        await s.close()

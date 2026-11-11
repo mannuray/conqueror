@@ -21,6 +21,7 @@ from conqueror_ai.domain.objects import GATE_DPS
 
 FACE_PAN_DEG = 35.0  # the camera's comfortable pan; beyond it FACE turns the tank (LLD §28.3)
 FACE_DONE_DEG = 10.0  # turned this near the person's direction: facing them
+FACE_LOOKS = 3  # FACE turns at most this many times on side-edge sightings, then ends done (LLD §28.12)
 TURN_FROM_M = 0.35  # a turn on the spot only with the person this far or farther (bridge LLD R34.2)
 LOST_S = 1.0  # not seen this long (while not spinning): lost
 VIEW_DEG = 41.0  # half the camera's view: ESCAPE knows where the person is only inside it
@@ -52,12 +53,13 @@ class Sight:
         self.lim = lim
         self.xy: XY | None = None
         self.t_us: int | None = None
+        self.edge = 0  # the newest sighting at the picture's side edge (+1 left, -1 right)
         self.unseen_s = 0.0
 
     def update(self, inp: SkillInput, dt: float, spinning: bool) -> None:
         p, at = inp.person, inp.at
         if p is not None and p.seen and p.d_m is not None and at is not None and p.t_us != self.t_us:
-            self.t_us, self.unseen_s = p.t_us, 0.0
+            self.t_us, self.unseen_s, self.edge = p.t_us, 0.0, p.edge
             fx, fy = self.front(at)
             a = at[2] + math.radians(p.bearing_deg)
             self.xy = (fx + p.d_m * math.cos(a), fy + p.d_m * math.sin(a))
@@ -144,12 +146,15 @@ class _Base:
 
 
 class FaceSkill(_Base):
-    """FACE "baby: the camera pans to the person within ±35°; beyond, the tank turns on the spot (from 35 cm
-    only) until within 10°. done facing them, lost when not seen for 1 s."""
+    """FACE "baby: the camera pans to the person within ±35°; beyond, or seen at the picture's side edge (at
+    least that far round, LLD §28.12), the tank turns on the spot (from 35 cm only) until within 10° and looks
+    again on a newer sighting - at most FACE_LOOKS turns. done facing them, lost when not seen for 1 s."""
 
     def __init__(self, lim: Limits) -> None:
         super().__init__(lim)
         self._th: float | None = None
+        self._looks = 0
+        self._turned_at: int | None = None  # the sighting a turn ended on: decide again on a newer one
 
     def tick(self, now_s: float, inp: SkillInput) -> SkillOut:
         self._clock(now_s, inp)
@@ -158,14 +163,24 @@ class FaceSkill(_Base):
             return self._end(Result.LOST, "the person is not in view") if self.sight.lost else self._halt()
         if self._th is not None:  # turning: by the odometry, toward where they were
             out = self._spin_to(at, self._th)
-            return out if out is not None else self._end(Result.DONE, cam=self._cam_to(at, FACE_PAN_DEG))
+            if out is not None:
+                return out
+            self._th, self._turned_at, self.state = None, self.sight.t_us, "look"
         if self.sight.lost:
             return self._end(Result.LOST, "the person is not in view")
-        b = self.sight.bearing(at)
-        if abs(b) <= FACE_PAN_DEG or self.sight.dist(at) < TURN_FROM_M:
+        if self._turned_at is not None and self.sight.t_us == self._turned_at:
+            # a sighting from before the turn ended: the camera where they should be, wait for a new one
+            return self._halt(self._cam_to(at, FACE_PAN_DEG))
+        if not self._turns(at):
             return self._end(Result.DONE, cam=self._cam_to(at, FACE_PAN_DEG))
+        self._looks += 1
         self._th, self.state = self.sight.heading(at), "turn"
         return self._spin_to(at, self._th) or self._halt()
+
+    def _turns(self, at: XYTh) -> bool:
+        """Turn the tank: beyond the camera's pan or at the picture's side edge, far enough, looks left."""
+        far_round = abs(self.sight.bearing(at)) > FACE_PAN_DEG or self.sight.edge != 0
+        return far_round and self.sight.dist(at) >= TURN_FROM_M and self._looks < FACE_LOOKS
 
 
 class EscapeSkill(_Base):

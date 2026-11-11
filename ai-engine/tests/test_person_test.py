@@ -138,3 +138,12 @@ def test_a_crawling_mark_is_graded_on_seen_and_distance_only() -> None:
 def test_a_box_a_few_pixels_above_the_bottom_is_cut() -> None:
     """Review minor: a box clipped near the edge reads as a range near the picture's bottom."""
     assert person_range(cam_down(), (100.0, 150.0, 200.0, 237.0)).reason == "cut"
+
+
+def test_a_box_touching_a_side_edge_says_which() -> None:  # AI engine LLD §28.12: at least that far round
+    cam = cam_down()
+    w = cam.cal.size[0]
+    _, top, _, bottom = box_at(cam, 0.8, 0.0)
+    assert person_range(cam, (0.0, top, 50.0, bottom)).edge == 1  # the picture's left: + left
+    assert person_range(cam, (w - 50.0, top, float(w), bottom)).edge == -1
+    assert person_range(cam, box_at(cam, 0.8, 0.0)).edge == 0

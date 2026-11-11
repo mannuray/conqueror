@@ -133,3 +133,12 @@ def test_a_flickering_near_person_is_not_hidden_by_a_far_one() -> None:  # I1: u
         w.update([box_at(cam, d, 0.0)], cam, None, i * 60_000)
     e = w.latest(4 * 60_000)
     assert e is not None and e.d_m is not None and e.d_m <= 0.6
+
+
+def test_the_estimate_carries_the_side_edge() -> None:  # LLD §28.12
+    w = PersonWatch()
+    cam = cam_down()
+    _, top, _, bottom = box_at(cam, 0.8, 0.0)
+    e = w.update([(0.0, top, 50.0, bottom)], cam, None, 0)
+    assert e is not None and e.edge == 1
+    assert watch_at(1.0).latest(0).edge == 0  # type: ignore[union-attr]

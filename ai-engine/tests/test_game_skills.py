@@ -15,6 +15,7 @@ import pytest
 from conqueror_ai.domain.drive.curves import Command, XYTh
 from conqueror_ai.domain.drive.game_skills import (
     ESCAPE_NEAR_M,
+    FACE_PAN_DEG,
     FOLLOW_MIN_M,
     EscapeSkill,
     FaceSkill,
@@ -81,7 +82,11 @@ def play(
     trusted_behind: bool = False,
     hide_from_s: float | None = None,
     pan: float = 0.0,
+    edge_clip: bool = False,
+    always_edge: bool = False,
 ) -> Play:
+    """edge_clip: a person up to 35 deg beyond the view is seen cut by the picture's side edge (their box's
+    bottom centre at the edge, so the bearing reads short); always_edge: every sighting says edge."""
     sim = SimRoom(boxes or [], walls_m=2.5)
     tank = SimTank(*start)
     out = Play()
@@ -103,9 +108,13 @@ def play(
             out.gaps.append(d)
             hidden = hide_from_s is not None and t >= hide_from_s
             in_view = abs(b + pan) <= VIEW_DEG and not hidden  # turning pictures count (design-notes §229)
+            at_edge = edge_clip and not hidden and VIEW_DEG < abs(b + pan) <= VIEW_DEG + 35.0
             out.in_view.append(in_view)
             if in_view:
-                last = PersonEst(True, d, b, 0, 0.9, t_us)
+                last = PersonEst(True, d, b, 0, 0.9, t_us, 1 if always_edge else 0)
+            elif at_edge:
+                side = math.copysign(1.0, b + pan)
+                last = PersonEst(True, d, side * (VIEW_DEG - 10.0) - pan, 0, 0.9, t_us, round(side))
             elif last is not None and last.seen:
                 last = PersonEst(False, last.d_m, last.bearing_deg, 0, 0.5, last.t_us)
         snap = out.room.snapshot(t_us, pose, False, True)
@@ -175,6 +184,29 @@ def test_face_unseen_for_1_s_is_lost() -> None:
 def test_face_after_a_long_turn_does_not_end_lost_on_arrival() -> None:
     p = play(FaceSkill(LIM), at_bearing(1.2, 100.0), pan=-60.0)
     assert p.result == Result.DONE  # ~90 deg at 65 deg/s is ~1.4 s unseen while spinning: not lost
+
+
+@pytest.mark.parametrize("side", [1.0, -1.0])
+def test_face_on_a_side_edge_sighting_turns_the_tank(side: float) -> None:  # design-notes §236
+    person = at_bearing(1.0, 70.0 * side)  # seen cut by the edge: it reads ~31 deg
+    p = play(FaceSkill(LIM), person, edge_clip=True)
+    assert p.result == Result.DONE and p.moved
+    assert all(c.v_cms == 0 for c in p.cmds)
+    tank = SimTank(*p.at[-1])
+    end = tank.step(p.cmds[-1], LIM.dt_s)
+    assert abs(front_gap(end, person)[1]) <= FACE_PAN_DEG  # the camera's pan reaches them now
+
+
+def test_face_on_a_side_edge_sighting_close_only_pans() -> None:  # R34.2: no turn nearer than 35 cm
+    p = play(FaceSkill(LIM), at_bearing(0.30, 70.0), edge_clip=True)
+    assert p.result == Result.DONE and not p.moved
+
+
+def test_face_gives_up_turning_after_three_looks() -> None:
+    p = play(FaceSkill(LIM), at_bearing(1.0, 60.0), pan=-35.0, always_edge=True, limit_s=60.0)
+    assert p.result == Result.DONE
+    starts = sum(1 for a, b in zip(p.cmds, p.cmds[1:], strict=False) if a.w_dps == 0 and b.w_dps != 0)
+    assert starts <= 3
 
 
 # ---- ESCAPE

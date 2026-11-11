@@ -3341,6 +3341,10 @@ classDiagram
   inside 50 cm, the distance keeps falling at the last closing speed (never rising), `sure` falls, and after 1 s
   unseen inside 50 cm it reports `d` = 30 (→ the bridge's Caught: stopped is the safe guess).
 - **Output** `PersonEst(seen, d_cm, bearing_deg, coming, sure, age_ms)` - the `person` message.
+- **A person seen without a distance** (design-notes §239): a box whose bottom is at or above the horizon
+  ("sky") is seen: bearing from its bottom centre's ray in the tank frame; distance the last ranged reading when
+  at most `SKY_HOLD_US` (1 s) old, else `CUT_M`; a candidate with the cut and ranged ones (the nearest wins),
+  `sure` 0.6.
 - **A tank restart** (design-notes §238): a picture more than `RESTART_US` (1 s) older than the last one is from a
   new clock: the window, the coming / going list and the last sighting are forgotten (as the pose filter and the
   tracker do).

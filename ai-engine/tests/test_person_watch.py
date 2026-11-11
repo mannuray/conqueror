@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from conqueror_ai.domain.person import PersonWatch
+from conqueror_ai.domain.camera import CameraModel
+from conqueror_ai.domain.person import PersonWatch, person_range
 from tests.test_person_test import box_at, cam_down
 
 S = 1_000_000  # µs per second
@@ -153,3 +154,42 @@ def test_a_tank_restart_starts_the_watch_afresh() -> None:  # design-notes §238
     assert e.coming == 0  # no change of distance across two clocks
     later = w.update([box_at(cam, 1.0, -35.0)], cam, None, 5 * S + 400_000)
     assert later is not None and later.d_m == pytest.approx(0.80, abs=0.03)
+
+
+def sky_box(cam: CameraModel, bearing_deg: float) -> tuple[float, ...]:
+    """A seated person's upper-body box: its bottom above the horizon (no distance), at the bearing."""
+    x1, _, x2, _ = box_at(cam, 50.0, bearing_deg)
+    box = (x1, 0.0, x2, 60.0)
+    assert person_range(cam, box).reason == "sky"
+    return box
+
+
+def test_a_sky_box_has_a_bearing() -> None:  # design-notes §239
+    cam = cam_down()
+    r = person_range(cam, sky_box(cam, -30.0))
+    assert r.dist_m is None and r.bearing_deg == pytest.approx(-30.0, abs=3.0)
+
+
+def test_a_sky_box_is_seen_at_the_last_measured_distance() -> None:  # §239: owner "A"
+    cam = cam_down()
+    w = PersonWatch()
+    w.update([box_at(cam, 0.9, -30.0)], cam, None, 0)
+    e = w.update([sky_box(cam, -30.0)], cam, None, 600_000)
+    assert e is not None and e.seen and e.sure == pytest.approx(0.6)
+    assert e.d_m == pytest.approx(0.70, abs=0.03) and e.bearing_deg == pytest.approx(-30.0, abs=3.0)
+
+
+def test_a_sky_box_without_a_recent_distance_reads_close() -> None:  # §239: older than 1 s, or none
+    cam = cam_down()
+    w = PersonWatch()
+    w.update([box_at(cam, 1.0, -30.0)], cam, None, 0)
+    e = w.update([sky_box(cam, -30.0)], cam, None, 1_500_000)
+    assert e is not None and e.seen and e.d_m == pytest.approx(0.15, abs=0.01)  # 35 cm less 2 sigma
+    fresh = PersonWatch().update([sky_box(cam, 10.0)], cam, None, 0)
+    assert fresh is not None and fresh.seen and fresh.d_m == pytest.approx(0.15, abs=0.01)
+
+
+def test_a_sky_box_beside_a_measured_one_takes_its_distance() -> None:  # §239: two boxes, one person
+    cam = cam_down()
+    e = PersonWatch().update([sky_box(cam, -30.0), box_at(cam, 0.9, -30.0)], cam, None, 0)
+    assert e is not None and e.seen and e.d_m == pytest.approx(0.70, abs=0.03)  # not caught

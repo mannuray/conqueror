@@ -26,6 +26,7 @@ SIGMA_FAR = 0.20
 CLOSE_M = 0.50  # last seen inside this: the distance counts down while unseen
 CAUGHT_M = 0.30  # ... and reads this after COUNTDOWN_US
 COUNTDOWN_US = 1_000_000
+SKY_HOLD_US = 1_000_000  # a sky box takes the last measured distance this long (design-notes §239)
 RESTART_US = 1_000_000  # a picture this much older than the last: the tank restarted, its clock began again
 
 
@@ -57,13 +58,23 @@ def person_range(cam: CameraModel, box: tuple[float, ...]) -> PersonRange:
         return PersonRange(None, None, "cut", edge)
     p = cam.pixel_to_floor((x1 + x2) / 2.0, y2)
     if p is None:
-        return PersonRange(None, None, "sky", edge)
+        return PersonRange(None, _ray_bearing(cam, (x1 + x2) / 2.0, y2), "sky", edge)
     pose = cam.pose
     dx, dy = p[0] - pose.x_m, p[1] - pose.y_m
     c, s = math.cos(pose.th_rad), math.sin(pose.th_rad)
     tx, ty = c * dx + s * dy, -s * dx + c * dy  # the tank's frame: x ahead, y left
     ax = tx - cam.cal.track_front_m  # from the front edge's middle, where the tape starts
     return PersonRange(math.hypot(ax, ty), math.degrees(math.atan2(ty, ax)), "", edge)
+
+
+def _ray_bearing(cam: CameraModel, u: float, v: float) -> float | None:
+    """The pixel's direction in the tank's frame (deg, + left), for a box with no floor point (§239)."""
+    ray = cam.pixel_ray(u, v)
+    if ray is None:
+        return None
+    th = cam.pose.th_rad
+    c, s = math.cos(th), math.sin(th)
+    return math.degrees(math.atan2(-s * ray[0] + c * ray[1], c * ray[0] + s * ray[1]))
 
 
 def pick_person(ranges: Sequence[PersonRange]) -> PersonRange | None:
@@ -125,6 +136,7 @@ class PersonWatch:
         self._med: deque[tuple[int, float]] = deque()  # (t_us, median) for coming / going
         self._seen: PersonEst | None = None  # the last estimate with the person in sight
         self._last_us: int | None = None  # the newest picture's time
+        self._ranged: tuple[int, float] | None = None  # (t_us, distance) of the last measured person (§239)
 
     def update(
         self, boxes: Sequence[tuple[float, ...]], cam: CameraModel | None, sonar_m: float | None, t_us: int
@@ -133,8 +145,13 @@ class PersonWatch:
             self._raw.clear()  # the old readings are from another clock (design-notes §238)
             self._med.clear()
             self._seen = None
+            self._ranged = None
         self._last_us = t_us
-        r = nearest_person([person_range(cam, b) for b in boxes]) if cam is not None else None
+        ranges = [person_range(cam, b) for b in boxes] if cam is not None else []
+        r = nearest_person(ranges)
+        if r is not None and r.dist_m is not None:
+            self._ranged = (t_us, r.dist_m)
+        r = self._or_sky(r, ranges, t_us)
         if r is None:
             return self.latest(t_us)
         d = r.dist_m if r.dist_m is not None else CUT_M
@@ -143,9 +160,21 @@ class PersonWatch:
             d = min(d, sonar_m)
         med = self._window(t_us, d)
         rep = max(0.0, med - 2.0 * sigma_m(med))
-        sure = 0.9 if r.reason == "" else 0.6
+        sure = 0.9 if r.reason == "" else 0.6  # cut or sky: unsure
         self._seen = PersonEst(True, rep, bearing, self._coming(t_us, med), sure, t_us, r.edge)
         return self._seen
+
+    def _or_sky(self, r: PersonRange | None, ranges: Sequence[PersonRange], t_us: int) -> PersonRange | None:
+        """A box with no floor point is a person too (§239): at the last measured distance when at most
+        SKY_HOLD_US old, else CUT_M; it wins when nearer (S2, unsure = nearer)."""
+        sky = [x for x in ranges if x.reason == "sky" and x.bearing_deg is not None]
+        if not sky:
+            return r
+        held = self._ranged is not None and t_us - self._ranged[0] <= SKY_HOLD_US
+        d = self._ranged[1] if held and self._ranged is not None else CUT_M
+        if r is not None and (r.dist_m if r.dist_m is not None else CUT_M) <= d:
+            return r
+        return PersonRange(d, sky[0].bearing_deg, "sky", sky[0].edge)
 
     @property
     def last_us(self) -> int | None:

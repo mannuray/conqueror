@@ -3740,3 +3740,28 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   recorder's. Test `test_a_tank_restart_starts_the_watch_afresh`. Safety unchanged (a stuck 0 was the safe side:
   caught, nothing moved).
 - The FACE re-run at 45-50 deg is still to do; the runner's timer goes to 160 s.
+
+## 239. FACE turned on the floor; a person seen without a distance counts as seen (owner, 2026-11-11: "A")
+- **Floor runs after §238** (helper log with each picture's camera and the tank's heading; the owner seated
+  cross-legged ~1 m away, ~34 deg right, the whole time): **FACE turned the tank ~40 deg right toward the owner**
+  at the start (the box at the picture's right edge, §236's edge rule; the owner saw it turn). Afterwards the
+  owner read ~11 deg left of ahead, which is right (a slight overshoot). The earlier "person on the left"
+  (§238's run) was the same turn: the log samples drives once a second and missed it.
+- **Found:** with the camera straight on a seated adult ~1 m away, the detector's box often covers only the upper
+  body (the crossed legs left out): its bottom is at or above the horizon ("sky") and gave no distance, so the
+  person counted as not seen. The game ended held, 7066, at round 25; one FACE ended `lost`.
+- **Decided (owner, "A"):** a sky person box counts as **seen** (AI engine LLD §28.2):
+  - its bearing from the box's bottom centre through the camera (the ray's direction in the tank's frame);
+  - its distance the **last measured** one (a ranged box) when at most `SKY_HOLD_US` (1 s) old, else
+    `CUT_M` (35 cm, "close", as a box cut by the picture's bottom) - then minus 2 sigma as every reading, so
+    an old or missing distance reads caught;
+  - one more candidate: the nearest of cut / ranged / sky wins (S2, unsure = nearer); `sure` 0.6.
+  - "Last measured" includes the same picture: the detector often gives one person two boxes (an upper-body
+    sky box and a full one), so a sky box beside a measured one takes its distance. Not covered: a different,
+    nearer person seen only from the waist up beside one measured farther (rare; the nearer one's own distance
+    comes back as soon as a box reaches the floor).
+  - The cost (our call, the safe side): a false person box high in the picture, with no person measured in the
+    last second, now reads close and stops the game where it was ignored.
+- **The test's posture:** the floor tests also go on with the owner kneeling or crawling (Spec 10's floor check:
+  an adult crawling), whose hands on the floor give the box's bottom.
+- Spoken cues now in the voice Samantha (owner).

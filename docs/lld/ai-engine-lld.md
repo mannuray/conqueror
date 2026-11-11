@@ -3341,6 +3341,9 @@ classDiagram
   inside 50 cm, the distance keeps falling at the last closing speed (never rising), `sure` falls, and after 1 s
   unseen inside 50 cm it reports `d` = 30 (→ the bridge's Caught: stopped is the safe guess).
 - **Output** `PersonEst(seen, d_cm, bearing_deg, coming, sure, age_ms)` - the `person` message.
+- **A tank restart** (design-notes §238): a picture more than `RESTART_US` (1 s) older than the last one is from a
+  new clock: the window, the coming / going list and the last sighting are forgotten (as the pose filter and the
+  tracker do).
 
 ### 28.3 The game skills
 - **`FaceSkill`** (`FACE "baby`): ≤ 1 s. The camera pans to the person's bearing (`cam`); beyond the camera's

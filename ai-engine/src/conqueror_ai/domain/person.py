@@ -26,6 +26,7 @@ SIGMA_FAR = 0.20
 CLOSE_M = 0.50  # last seen inside this: the distance counts down while unseen
 CAUGHT_M = 0.30  # ... and reads this after COUNTDOWN_US
 COUNTDOWN_US = 1_000_000
+RESTART_US = 1_000_000  # a picture this much older than the last: the tank restarted, its clock began again
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,10 @@ class PersonWatch:
     def update(
         self, boxes: Sequence[tuple[float, ...]], cam: CameraModel | None, sonar_m: float | None, t_us: int
     ) -> PersonEst | None:
+        if self._last_us is not None and t_us < self._last_us - RESTART_US:
+            self._raw.clear()  # the old readings are from another clock (design-notes §238)
+            self._med.clear()
+            self._seen = None
         self._last_us = t_us
         r = nearest_person([person_range(cam, b) for b in boxes]) if cam is not None else None
         if r is None:

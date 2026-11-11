@@ -142,3 +142,14 @@ def test_the_estimate_carries_the_side_edge() -> None:  # LLD §28.12
     e = w.update([(0.0, top, 50.0, bottom)], cam, None, 0)
     assert e is not None and e.edge == 1
     assert watch_at(1.0).latest(0).edge == 0  # type: ignore[union-attr]
+
+
+def test_a_tank_restart_starts_the_watch_afresh() -> None:  # design-notes §238: the clock went back
+    cam = cam_down()
+    w = PersonWatch()
+    w.update([box_at(cam, 0.3, 0.0)], cam, None, 600 * S)  # handled close before the restart
+    e = w.update([box_at(cam, 1.0, -35.0)], cam, None, 5 * S)  # the new clock: sitting 1 m aside
+    assert e is not None and e.d_m == pytest.approx(0.80, abs=0.03)
+    assert e.coming == 0  # no change of distance across two clocks
+    later = w.update([box_at(cam, 1.0, -35.0)], cam, None, 5 * S + 400_000)
+    assert later is not None and later.d_m == pytest.approx(0.80, abs=0.03)

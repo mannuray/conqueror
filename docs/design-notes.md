@@ -3724,3 +3724,19 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   person was seen there): the camera pans that way (up to `FACE_LOOK_PAN_DEG` 60, the camera then covers ~100 deg),
   and FACE waits `FACE_LOOK_S` (1.5 s) for a sighting before `lost`. Once; never a blind turn of the tank.
 - Then the floor re-run with the owner ~45-50 deg to the side (partly in view).
+
+## 238. A tank restart left the person stuck at 0 cm (bug, 2026-11-11)
+- **Seen:** the FACE floor re-run straight after the owner restarted the tank, with the helper (`cq-drive serve`)
+  left running. Every `person` message read `d_cm` 0 while the bearing moved normally (-32 to -39 deg, the owner
+  to the right): the first FACE ended `caught` at once, and the rest ended `done` without a turn (FACE turns only
+  from 35 cm). The program's 120 s ran past the runner's 100 s timer.
+- **Cause:** the bridge's capture clock starts from zero at power-on. `PersonWatch` kept its 0.3 s window of
+  readings across the restart, and a window that drops only entries older than the newest one never dropped the
+  old clock's: the nearest reading from before the restart (the owner handling the tank) stayed the minimum. The
+  pose filter, the object tracker and the sightings already start afresh on a clock going back; the person watch
+  was missed.
+- **Fixed** (AI engine LLD §28.1): a picture more than `RESTART_US` (1 s) older than the last means a restart:
+  `PersonWatch` forgets its window, its coming / going list and its last sighting. The same 1 s rule as the
+  recorder's. Test `test_a_tank_restart_starts_the_watch_afresh`. Safety unchanged (a stuck 0 was the safe side:
+  caught, nothing moved).
+- The FACE re-run at 45-50 deg is still to do; the runner's timer goes to 160 s.

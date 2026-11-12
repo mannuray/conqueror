@@ -3865,3 +3865,15 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   69 cm), stop + beep; played again after ~6 s once they moved back. The last FOLLOW ended 5 s early, "kept away"
   (word done, §240) as it began a turn with the owner ~0.7 m reported, 44 deg left - cause not found in the
   helper's log (the bridge's gate reason is not logged). No 7052, no held.
+
+## 245. Lesson 6 from the GAMES card, first floor run (2026-11-12, `0828791` / `2c32075`)
+- **Start 1 (16:51:45):** held 7066 after 1.2 s. The `person` messages left the helper 450-580 ms after their
+  picture (p90) against the bridge's 300 ms, for the first ~10 s after `/ai` opened (its AI feed connecting);
+  then back to ~180-200 ms. Picture arrival was normal (~105 ms): the helper itself was slow (estimate ~200-325
+  ms, sending later still). To find: what the feed does on connect.
+- **Start 2 (16:52:04, ~31 s, ended by the owner's STOP, 7040):** `HOWFAR` read 61-77 cm (the owner ~1.0-1.2 m by
+  the camera). Below 70: `ESCAPE` every round, all seven `no_way` "near and the floor behind not trusted" - as
+  foreseen: lesson 6 asks ESCAPE only nearer than 70 cm, and ESCAPE sidesteps only from 70 cm (S11). Between:
+  `FACE`. Caught twice: FACE turned ~28 deg right onto the owner at ~0.5 m (0.30 reported), and once with the
+  owner unseen close (0 reported). Each time stop + beep, played on. Never followed (never beyond 100).
+- **So:** lesson 6's numbers must fit ESCAPE's 70 cm rule and the pessimistic reading - to decide (owner).

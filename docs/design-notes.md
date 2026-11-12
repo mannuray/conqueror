@@ -3790,3 +3790,23 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   **no 7052**; caught at 30 cm (raw ~47 cm less the margin) with the beep (owner heard it), held still for the
   minute the owner stayed near, playing again after they stepped back past 50 cm for 2 s; then two turns left
   following them. All 30 rounds ran: 27 done, 2 lost (briefly out of view), 1 kept away.
+
+## 241. ESCAPE turns in steps, looking after each (owner 2026-11-12: "a")
+- **Floor run (2026-11-12, `9cd78d6`, `REPEAT 6 [ IF CAUGHT? [ WAIT 3 ] ESCAPE "person 40 WAIT 4 ]`):**
+  - Owner at ~1.1 m (measured): 0.64-0.67 m reported, under `ESCAPE_NEAR_M` 0.70 with the floor behind not
+    trusted, so all six words ended `no_way`, never moved. As designed (S11); the owner sat at ~1.9 m instead.
+  - From ~1.9 m (1.00 m reported) the sidestep began: a spin left at 65 deg/s with the camera panning in 20 deg
+    steps. The helper saw nobody for ~1 s (the spin blurs the pictures; they are dropped above `GATE_DPS`), and
+    the bridge's rule "unseen 1 s: no turn" (R34) cut the turn at ~72 deg, "kept away" (word done, §240).
+  - The tank then stood side-on to the owner; the next five ESCAPEs ended `no_way` "not in view" (ESCAPE starts
+    only with the person ahead; the test program had no FACE, lesson 6 has one each round).
+  - Caught at 14:21:31 when the owner came near (raw ~47 cm): stop + beep, as designed. No 7052, no held.
+- **The problem:** a 90 deg spin at 65 deg/s outlasts the bridge's 1 s unseen limit, so almost every sidestep
+  would be cut half-way.
+- **Options:** A, turn in steps of 30 deg, each followed by a new sighting (chosen); B, a slower spin (unsure the
+  camera keeps up); C, the helper counts the person as seen through its own spin (refused: it weakens the
+  bridge's unseen rule, never trade safety).
+- **Decided (owner: "a"):** ESCAPE's turns (away and back) go in steps of at most `TURN_STEP_DEG` 30 deg. After
+  each step the tank stands still until a sighting newer than the step's end; none within `STEP_LOOK_S` 1.5 s:
+  the word ends `lost` "the person is not in view" (it cannot turn back unseen either; the program goes on). The
+  bridge's rule is unchanged. AI engine LLD §28.14.

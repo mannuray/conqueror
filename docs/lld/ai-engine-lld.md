@@ -3565,3 +3565,42 @@ stateDiagram-v2
 - Tests: a new estimate is sent within 30 ms; nothing new - one message per 100 ms; FACE with the person at 70 deg
   out of view and a remembered bearing pans, sees, turns, ends done; a remembered bearing with nobody there ends
   lost by ~1.5 s with the tank still.
+
+### 28.14 ESCAPE turns in steps (design-notes §241, owner 2026-11-12)
+A 90 deg spin at `spin_dps` 65 deg/s takes ~1.4 s with the ramp; the pictures taken spinning faster than
+`GATE_DPS` are dropped, so the person goes unseen longer than the bridge's 1 s and the bridge stops the turn
+(R34 keep-out, "kept away"). ESCAPE now turns (`turn_away` and `turn_back`) in steps:
+
+- A step aims at most `TURN_STEP_DEG` = 30 deg toward the target heading (`_spin_to` ends it within
+  `FACE_DONE_DEG`).
+- After the step the tank stands still (the camera on the person, as before) until `Sight.t_us` is newer than the
+  newest picture time at the step's end (`snap.t_us`, else the last sighting): a picture taken standing still.
+- No such sighting within `STEP_LOOK_S` = 1.5 s: `lost` "the person is not in view".
+- The target within `FACE_DONE_DEG` after a look: the turn is over (the leg starts, or the word ends).
+- Nothing else changes: the sides, the sonar check, the leg, `AWAY_MAX_S`, the bridge's rules.
+
+```mermaid
+stateDiagram-v2
+    [*] --> step: turn_away / turn_back
+    step --> look: within FACE_DONE_DEG of the step's heading (stop)
+    look --> step: a newer sighting, target still > FACE_DONE_DEG away
+    look --> over: a newer sighting, target within FACE_DONE_DEG
+    look --> lost: no sighting in STEP_LOOK_S
+    over --> [*]: leg (away) or end (back)
+    lost --> [*]
+```
+
+```mermaid
+classDiagram
+    class EscapeSkill {
+      -_step_th: float|None
+      -_look_us: int|None
+      -_look_s: float
+      -_step_to(now_s, at, th, inp) SkillOut|None
+    }
+    _Base <|-- EscapeSkill
+```
+
+Test (first): `test_escape_turns_in_steps_and_sees_the_person_between_them` - a sim where a spin above
+`GATE_DPS` sees nobody; every turning command comes less than 1 s after a sighting, and the sidestep ends done;
+`test_escape_step_without_a_sighting_is_lost` - hidden after the first step: `lost`, still.

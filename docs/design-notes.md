@@ -3818,3 +3818,14 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Decided (owner: "yes"):** turn only from a fresh sighting. Before every step (the first too), a sighting
   older than `STEP_FRESH_S` 0.5 s: the tank stands still and looks (the same `STEP_LOOK_S` 1.5 s, else `lost`).
   AI engine LLD §28.14.
+- **Floor runs after the fresh-sighting rule (2026-11-12, `65f49c9`, the owner sitting still ~1.2-1.3 m ahead):**
+  - Run 1: rounds 1-2 FACE `lost` - the camera began the game ~50 deg aside (where the last run left it) and FACE
+    looks only toward a recent sighting, never straight ahead (to fix: below). Rounds 3-6 ended `no_way` "no way
+    to either side" at once: the route planner found no route to either side spot; cause unknown (no probe yet).
+  - Run 2, with a scratch probe logging each side's route: **two full sidesteps, both `done`**. Round 2 turned
+    left in steps to ~84 deg, the sonar read ~81 cm along the leg (something there): turned through facing the
+    owner to the right, drove ~40 cm, turned back to face them. Round 3 went left, ~40 cm, faced them again (the
+    right side's spot lethal on the map). No cut turn, no 7052, no held, no caught. Rounds 1, 4-6: 0.60-0.72 m
+    reported (raw ~1.0-1.2 m), `no_way` near - as designed.
+- **Still open:** run 1's "no way to either side" (the probe stays in the logger); FACE with no recent sighting
+  should look straight ahead.

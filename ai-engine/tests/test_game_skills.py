@@ -48,6 +48,7 @@ class Play:
     room: RoomMap = field(default_factory=RoomMap)
     goals: list[float] = field(default_factory=lambda: list[float]())  # FOLLOW's goal: front to the person
     in_view: list[bool] = field(default_factory=lambda: list[bool]())  # the person in the camera's view
+    unseen_turning: list[float] = field(default_factory=lambda: list[float]())  # s unseen, per turn
 
     @property
     def moved(self) -> bool:
@@ -85,6 +86,8 @@ def play(
     edge_clip: bool = False,
     always_edge: bool = False,
     known_bearing: float | None = None,
+    blind_spin: bool = False,
+    hide_after_turn_s: float | None = None,
 ) -> Play:
     """edge_clip: a person up to 35 deg beyond the view is seen cut by the picture's side edge (their box's
     bottom centre at the edge, so the bearing reads short); always_edge: every sighting says edge."""
@@ -96,6 +99,8 @@ def play(
     )
     cmd = Command(0.0, 0.0)
     t = T0_S
+    seen_t = T0_S
+    turned_t: float | None = None  # when the first turn began
     if trusted_behind:
         seed_behind(out.room, start, round(t * 1e6))
     while t < T0_S + limit_s:
@@ -109,11 +114,15 @@ def play(
         if person is not None:
             d, b = front_gap(at, person)
             out.gaps.append(d)
-            hidden = hide_from_s is not None and t >= hide_from_s
+            hidden = (hide_from_s is not None and t >= hide_from_s) or (
+                hide_after_turn_s is not None and turned_t is not None and t >= turned_t + hide_after_turn_s
+            )
+            hidden = hidden or (blind_spin and turning)  # the tank's pictures blur above GATE_DPS (§241)
             in_view = abs(b + pan) <= VIEW_DEG and not hidden  # turning pictures count (design-notes §229)
             at_edge = edge_clip and not hidden and VIEW_DEG < abs(b + pan) <= VIEW_DEG + 35.0
             out.in_view.append(in_view)
             if in_view:
+                seen_t = t
                 last = PersonEst(True, d, b, 0, 0.9, t_us, 1 if always_edge else 0)
             elif at_edge:
                 side = math.copysign(1.0, b + pan)
@@ -127,6 +136,9 @@ def play(
         if isinstance(goal, tuple) and person is not None:
             out.goals.append(math.dist(goal, person) - FRONT_M)  # type: ignore[arg-type]
         cmd = o.cmd
+        if cmd.w_dps != 0:
+            turned_t = t if turned_t is None else turned_t
+            out.unseen_turning.append(t - seen_t)
         out.cmds.append(cmd)
         out.at.append(at)
         if o.cam is not None:
@@ -251,6 +263,24 @@ def test_escape_untrusted_far_turns_drives_and_turns_back() -> None:
     assert abs(end[1]) >= 0.30  # stepped out of their way, sideways (design-notes §229)
     assert math.dist(end[:2], person) > math.dist((0.0, 0.0), person)  # and farther
     assert abs(front_gap(end, person)[1]) <= 15.0  # facing them again
+
+
+def test_escape_turns_in_steps_and_sees_the_person_between_them() -> None:  # design-notes §241
+    person = at_bearing(1.0, 0.0)
+    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), person, limit_s=60.0, blind_spin=True)
+    assert p.result == Result.DONE, p.result
+    assert any(abs(heading_deg(a)) > 75.0 for a in p.at)  # still turned to the side
+    assert p.unseen_turning and max(p.unseen_turning) < 1.0  # the bridge's unseen 1 s never bites a turn
+    assert abs(p.at[-1][1]) >= 0.30 and abs(front_gap(p.at[-1], person)[1]) <= 15.0
+
+
+def test_escape_step_without_a_sighting_is_lost() -> None:  # design-notes §241
+    esc = EscapeSkill(LIM, 0.30, TrustedFloor())
+    p = play(esc, at_bearing(1.0, 0.0), limit_s=20.0, hide_after_turn_s=0.1)
+    assert p.result == Result.LOST
+    assert p.cmds[-1].w_dps == 0 and p.cmds[-1].v_cms == 0
+    assert all(c.v_cms == 0 for c in p.cmds)  # never drove the leg
+    assert max(abs(heading_deg(a)) for a in p.at) < 50.0  # stopped after the first step
 
 
 def test_escape_untrusted_and_near_stays_no_way() -> None:  # S11: never the back to a near person

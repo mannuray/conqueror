@@ -33,6 +33,8 @@ FOLLOW_MIN_M = 0.50  # FOLLOW never nearer than this, whatever the setting (S4)
 FOLLOW_PAN_DEG = 60.0  # FOLLOW keeps the camera on the person up to this pan
 PAN_STEP_DEG = 3.0  # the camera is sent again only when it should move more than this
 TURN_PAN_STEP_DEG = 20.0  # ESCAPE's camera in steps this big (a moving camera's pictures are skipped)
+TURN_STEP_DEG = 30.0  # ESCAPE turns in steps this big, a new sighting after each (design-notes §241)
+STEP_LOOK_S = 1.5  # ... none this long after a step: lost
 ESCAPE_PAN_DEG = 90.0  # driving sideways away the person drifts behind the side: the servo's whole pan
 SONAR_SPARE_M = 0.10  # a side is open when the sonar's echo is beyond the leg + this (+ the front)
 AWAY_MAX_S = 10.0  # the sideways leg ends no_way after this (it turns back to face them first)
@@ -218,6 +220,9 @@ class EscapeSkill(_Base):
         self._sides: list[tuple[float, XY]] = []  # the sides still to try: heading and spot
         self._away_t0 = 0.0
         self._failed = ""  # why the away leg failed: no_way once facing them again
+        self._step_th: float | None = None  # the heading of the step under way (LLD §28.14)
+        self._look_us: int | None = None  # a step ended: waiting for a sighting newer than this
+        self._look_s = 0.0
 
     def tick(self, now_s: float, inp: SkillInput) -> SkillOut:
         self._clock(now_s, inp)
@@ -231,9 +236,9 @@ class EscapeSkill(_Base):
         cam = self._cam_to(at, ESCAPE_PAN_DEG, TURN_PAN_STEP_DEG)  # the person in view all the while
         if self.state in ("turn_away", "turn_back"):
             assert self._th is not None
-            out = self._spin_to(at, self._th)
+            out = self._step_to(now_s, at, self._th, inp)
             if out is not None:
-                return SkillOut(out.cmd, cam)
+                return SkillOut(out.cmd, cam, out.result, out.detail)
             if self.state == "turn_back":
                 result = Result.NO_WAY if self._failed else Result.DONE
                 return self._end(result, self._failed, cam=self._cam_to(at, FACE_PAN_DEG))
@@ -254,6 +259,28 @@ class EscapeSkill(_Base):
             self._failed = f"no way away: {why}"
         self._th, self.state = self.sight.heading(at), "turn_back"  # facing them again either way
         return self._halt(cam)
+
+    def _step_to(self, now_s: float, at: XYTh, th: float, inp: SkillInput) -> SkillOut | None:
+        """Toward heading `th` in steps of TURN_STEP_DEG, standing still after each until a newer sighting
+        (the bridge's unseen 1 s never cuts a turn, design-notes §241). None: the turn is over."""
+        if self._look_us is not None:
+            if self.sight.t_us is not None and self.sight.t_us > self._look_us:
+                self._look_us = None
+            elif now_s - self._look_s >= STEP_LOOK_S - 1e-9:
+                return self._end(Result.LOST, "the person is not in view")
+            else:
+                return self._halt()
+        if self._step_th is None:
+            err = _wrap(math.degrees(th - at[2]))
+            if abs(err) <= FACE_DONE_DEG:
+                return None
+            self._step_th = at[2] + math.radians(max(-TURN_STEP_DEG, min(TURN_STEP_DEG, err)))
+        out = self._spin_to(at, self._step_th)
+        if out is not None:
+            return out
+        snap_us = inp.snap.t_us if inp.snap is not None else None
+        self._step_th, self._look_us, self._look_s = None, max(snap_us or 0, self.sight.t_us or 0), now_s
+        return self._halt()
 
     def _backing(self, at: XYTh) -> SkillOut:
         """Straight back at v_min until the odometry moved back_m along the start heading."""

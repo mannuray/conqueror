@@ -87,6 +87,8 @@ def play(
     always_edge: bool = False,
     known_bearing: float | None = None,
     blind_spin: bool = False,
+    blind_driving: bool = False,
+    delay_s: float = 0.0,
     hide_after_turn_s: float | None = None,
 ) -> Play:
     """edge_clip: a person up to 35 deg beyond the view is seen cut by the picture's side edge (their box's
@@ -100,6 +102,7 @@ def play(
     cmd = Command(0.0, 0.0)
     t = T0_S
     seen_t = T0_S
+    made: list[tuple[float, PersonEst | None]] = []  # every tick's estimate, handed over delay_s later
     turned_t: float | None = None  # when the first turn began
     if trusted_behind:
         seed_behind(out.room, start, round(t * 1e6))
@@ -118,11 +121,11 @@ def play(
                 hide_after_turn_s is not None and turned_t is not None and t >= turned_t + hide_after_turn_s
             )
             hidden = hidden or (blind_spin and turning)  # the tank's pictures blur above GATE_DPS (§241)
+            hidden = hidden or (blind_driving and cmd.v_cms != 0)  # lost from view on the leg (§241)
             in_view = abs(b + pan) <= VIEW_DEG and not hidden  # turning pictures count (design-notes §229)
             at_edge = edge_clip and not hidden and VIEW_DEG < abs(b + pan) <= VIEW_DEG + 35.0
             out.in_view.append(in_view)
             if in_view:
-                seen_t = t
                 last = PersonEst(True, d, b, 0, 0.9, t_us, 1 if always_edge else 0)
             elif at_edge:
                 side = math.copysign(1.0, b + pan)
@@ -130,7 +133,11 @@ def play(
             elif last is not None and last.seen:
                 last = PersonEst(False, last.d_m, last.bearing_deg, 0, 0.5, last.t_us)
         snap = out.room.snapshot(t_us, pose, False, True)
-        inp = make_input(at=at, snap=snap, map_ok=True, sonar_m=sim.sonar(at), person=last)
+        made.append((t, last))
+        given = next((e for m_t, e in reversed(made) if m_t <= t - delay_s + 1e-9), made[0][1])  # the latency
+        if given is not None and given.seen and given.t_us > 0:
+            seen_t = given.t_us / 1e6  # the picture the bridge last saw them in
+        inp = make_input(at=at, snap=snap, map_ok=True, sonar_m=sim.sonar(at), person=given)
         o = skill.tick(t, inp)
         goal = getattr(skill, "_goal", None)
         if isinstance(goal, tuple) and person is not None:
@@ -272,6 +279,21 @@ def test_escape_turns_in_steps_and_sees_the_person_between_them() -> None:  # de
     assert any(abs(heading_deg(a)) > 75.0 for a in p.at)  # still turned to the side
     assert p.unseen_turning and max(p.unseen_turning) < 1.0  # the bridge's unseen 1 s never bites a turn
     assert abs(p.at[-1][1]) >= 0.30 and abs(front_gap(p.at[-1], person)[1]) <= 15.0
+
+
+def test_escape_turns_back_only_from_a_fresh_sighting() -> None:  # design-notes §241, second run
+    person = at_bearing(1.0, 0.0)
+    p = play(
+        EscapeSkill(LIM, 0.30, TrustedFloor()),
+        person,
+        limit_s=60.0,
+        blind_spin=True,
+        blind_driving=True,
+        delay_s=0.2,
+    )
+    assert p.result == Result.DONE, p.result
+    assert p.unseen_turning and max(p.unseen_turning) < 1.0  # waited to see them before turning back
+    assert abs(front_gap(p.at[-1], person)[1]) <= 15.0
 
 
 def test_escape_step_without_a_sighting_is_lost() -> None:  # design-notes §241

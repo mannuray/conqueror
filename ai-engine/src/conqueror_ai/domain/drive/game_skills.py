@@ -35,6 +35,7 @@ PAN_STEP_DEG = 3.0  # the camera is sent again only when it should move more tha
 TURN_PAN_STEP_DEG = 20.0  # ESCAPE's camera in steps this big (a moving camera's pictures are skipped)
 TURN_STEP_DEG = 30.0  # ESCAPE turns in steps this big, a new sighting after each (design-notes §241)
 STEP_LOOK_S = 1.5  # ... none this long after a step: lost
+STEP_FRESH_S = 0.5  # a step starts only on a sighting this recent, else the tank looks first (§241)
 ESCAPE_PAN_DEG = 90.0  # driving sideways away the person drifts behind the side: the servo's whole pan
 SONAR_SPARE_M = 0.10  # a side is open when the sonar's echo is beyond the leg + this (+ the front)
 AWAY_MAX_S = 10.0  # the sideways leg ends no_way after this (it turns back to face them first)
@@ -274,6 +275,9 @@ class EscapeSkill(_Base):
             err = _wrap(math.degrees(th - at[2]))
             if abs(err) <= FACE_DONE_DEG:
                 return None
+            if self.sight.unseen_s > STEP_FRESH_S:  # turn only from a fresh sighting: look first
+                self._look_us, self._look_s = self.sight.t_us or 0, now_s
+                return self._halt()
             self._step_th = at[2] + math.radians(max(-TURN_STEP_DEG, min(TURN_STEP_DEG, err)))
         out = self._spin_to(at, self._step_th)
         if out is not None:

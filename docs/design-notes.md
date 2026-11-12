@@ -3858,3 +3858,10 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   caught (30 cm). The distances are the pessimistic reading: 50 cm is ~80-90 cm by the camera.
 - **Decided (owner: "a"):** the default follow distance `FOLLOW_STOP_CM` 100 -> 50, the nearest S4 allows. S4,
   caught and the keep-out unchanged. AI engine LLD §28.16.
+- **FOLLOW floor run on `0828791` / `2c32075` (passed, 2026-11-12):** the owner from ~2 m backing away in steps.
+  The game armed and played at once (§243 fixed). FOLLOW drove ~1.26 m in all (odometry), at 17 cm/s, turning
+  to keep the owner ahead (FACE turned ~30 deg once), stopping each time ~0.57-0.6 m reported (~1.0 m by the
+  camera). Caught at 16:04:34 with the tank standing still: the owner came to ~0.54 m (0.34 reported, sonar
+  69 cm), stop + beep; played again after ~6 s once they moved back. The last FOLLOW ended 5 s early, "kept away"
+  (word done, §240) as it began a turn with the owner ~0.7 m reported, 44 deg left - cause not found in the
+  helper's log (the bridge's gate reason is not logged). No 7052, no held.

@@ -56,7 +56,7 @@ class Start:
     to: tuple[float, float] | None  # setxy: (fwd_cm, left_cm), relative to the tank now
     area: tuple[float, float, float] | None  # (r_m, fwd_cm, left_cm): the centre relative to the tank now
     cm: float | None = None  # escape: how far (LLD §28.3)
-    stop_cm: float | None = None  # follow: the follow distance (default 100, never under 50)
+    stop_cm: float | None = None  # follow: the follow distance (default 50, never under 50)
 
 
 @dataclass(frozen=True)

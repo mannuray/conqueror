@@ -26,7 +26,7 @@ GAME_SKILLS = ("face", "escape", "follow")
 PERSON_EVERY_S = 0.1  # the stream: at least 10 times a second (>= 5 Hz, R34.2), unseen too
 PERSON_POLL_S = 0.02  # ... and each new estimate as soon as it is made (design-notes §237)
 SEEN_S = 0.5  # SEE? "baby: a picture with the person this recently
-FOLLOW_STOP_CM = 100.0  # FOLLOW's default follow distance
+FOLLOW_STOP_CM = 50.0  # FOLLOW's default follow distance: the nearest S4 allows (design-notes §244)
 NO_PICTURE_AGE_MS = 60_000  # the stream's age before any picture: never fresh
 
 

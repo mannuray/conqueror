@@ -400,3 +400,13 @@ async def test_a_new_estimate_is_sent_at_once() -> None:  # design-notes §237: 
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+
+
+def test_follow_by_default_stops_at_50_cm() -> None:  # design-notes §244
+    from conqueror_ai.app.game_serve import game_skill
+    from conqueror_ai.domain.drive.limits import Limits
+
+    s = game_skill("follow", Limits(), None, 5.0, None)
+    assert isinstance(s, FollowSkill) and s.stop_m == pytest.approx(0.50)
+    near = game_skill("follow", Limits(), None, 5.0, 0.30)  # asked nearer: S4 still holds
+    assert isinstance(near, FollowSkill) and near.stop_m == pytest.approx(0.50)

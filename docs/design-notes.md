@@ -3810,3 +3810,11 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   each step the tank stands still until a sighting newer than the step's end; none within `STEP_LOOK_S` 1.5 s:
   the word ends `lost` "the person is not in view" (it cannot turn back unseen either; the program goes on). The
   bridge's rule is unchanged. AI engine LLD §28.14.
+- **Floor run after the steps (2026-11-12, `1a8dbff`, `REPEAT 6 [ IF CAUGHT? [ WAIT 3 ] FACE "person ESCAPE
+  "person 40 WAIT 4 ]`):** round 4's sidestep turned ~82 deg left in steps, looking after each, never cut; drove
+  ~20-25 cm sideways with the camera at its full pan; then nobody was seen for ~1.5 s, the turn back began on
+  that old sighting and the bridge cut it ("kept away"). Rounds 2-3: 0.70 m reported, `no_way` (near); round 1 and
+  5-6: not in view (5-6: the owner ~98 deg aside, beyond FACE's 60 deg look). No 7052, no held, no caught.
+- **Decided (owner: "yes"):** turn only from a fresh sighting. Before every step (the first too), a sighting
+  older than `STEP_FRESH_S` 0.5 s: the tank stands still and looks (the same `STEP_LOOK_S` 1.5 s, else `lost`).
+  AI engine LLD §28.14.

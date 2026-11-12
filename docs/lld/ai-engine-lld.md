@@ -3576,12 +3576,16 @@ A 90 deg spin at `spin_dps` 65 deg/s takes ~1.4 s with the ramp; the pictures ta
 - After the step the tank stands still (the camera on the person, as before) until `Sight.t_us` is newer than the
   newest picture time at the step's end (`snap.t_us`, else the last sighting): a picture taken standing still.
 - No such sighting within `STEP_LOOK_S` = 1.5 s: `lost` "the person is not in view".
+- Before every step (the first too): unseen (`Sight.unseen_s`) longer than `STEP_FRESH_S` = 0.5 s, the tank
+  first stands still and looks the same way (design-notes §241, second floor run: the turn back began on a
+  1.5 s old sighting and the bridge cut it).
 - The target within `FACE_DONE_DEG` after a look: the turn is over (the leg starts, or the word ends).
 - Nothing else changes: the sides, the sonar check, the leg, `AWAY_MAX_S`, the bridge's rules.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> step: turn_away / turn_back
+    [*] --> look: unseen > STEP_FRESH_S
+    [*] --> step: turn_away / turn_back, seen within STEP_FRESH_S
     step --> look: within FACE_DONE_DEG of the step's heading (stop)
     look --> step: a newer sighting, target still > FACE_DONE_DEG away
     look --> over: a newer sighting, target within FACE_DONE_DEG
@@ -3603,4 +3607,6 @@ classDiagram
 
 Test (first): `test_escape_turns_in_steps_and_sees_the_person_between_them` - a sim where a spin above
 `GATE_DPS` sees nobody; every turning command comes less than 1 s after a sighting, and the sidestep ends done;
-`test_escape_step_without_a_sighting_is_lost` - hidden after the first step: `lost`, still.
+`test_escape_step_without_a_sighting_is_lost` - hidden after the first step: `lost`, still;
+`test_escape_turns_back_only_from_a_fresh_sighting` - nobody seen while driving the leg: the turn back waits for a
+sighting, never turns more than 1 s after one.

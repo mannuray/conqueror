@@ -3629,3 +3629,9 @@ stateDiagram-v2
 
 Test (first): `test_face_with_the_camera_aside_looks_straight_ahead_and_finds_them` - the camera at pan 50, the
 person 1 m straight ahead (out of view), nothing known: the camera goes to 0, FACE ends `done` without moving.
+
+### 28.16 FOLLOW's default distance 50 cm (design-notes §244, owner 2026-11-12)
+`game_serve.FOLLOW_STOP_CM` = 50 (was 100): `FOLLOW "baby s` with no distance stops 50 cm short of the person by
+the pessimistic reading (~80-90 cm by the camera). `FollowSkill` still clamps any distance to `FOLLOW_MIN_M` 0.50
+(S4). Test (first): `test_follow_by_default_stops_at_50_cm` - `game_skill("follow", ...)` with no distance has
+`stop_m` 0.50.

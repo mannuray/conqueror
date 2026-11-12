@@ -3849,3 +3849,12 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Fixed (bridge LLD R34.12):** one rule in `GameMode`: a time after `now` counts as 0 ms ago (`ago()`), for the
   held, stale and arming checks. Safety unchanged: the skew is at most a loop (10 ms), and every limit is still
   timed from the newest news.
+
+## 244. FOLLOW's distance 50 cm (owner 2026-11-12: "make the follow distance about 40cm", then "a")
+- **Seen:** the FOLLOW run on `2c32075` armed and played cleanly (§243 fixed), but the tank never moved: the owner
+  sat ~1.1 m away by the camera, 0.67 m by the pessimistic reading, inside the default follow distance of 1 m;
+  each FOLLOW waited its 10 s facing them, `done`.
+- **Asked:** about 40 cm. Spec 10's S4 keeps FOLLOW at 50 cm or more (`FOLLOW_MIN_M`), and 40 cm is 10 cm from
+  caught (30 cm). The distances are the pessimistic reading: 50 cm is ~80-90 cm by the camera.
+- **Decided (owner: "a"):** the default follow distance `FOLLOW_STOP_CM` 100 -> 50, the nearest S4 allows. S4,
+  caught and the keep-out unchanged. AI engine LLD §28.16.

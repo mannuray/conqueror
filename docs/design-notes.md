@@ -3829,3 +3829,11 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
     reported (raw ~1.0-1.2 m), `no_way` near - as designed.
 - **Still open:** run 1's "no way to either side" (the probe stays in the logger); FACE with no recent sighting
   should look straight ahead.
+
+## 242. FACE with nobody in view looks straight ahead (owner 2026-11-12: "fix 1 then follow")
+- **Seen (§241, run 1):** the camera began the game ~50 deg aside, where the last run left it (game words keep the
+  camera, §236). FACE looks only toward where the estimate last saw someone aside (§237); with no such sighting it
+  just waited 1 s and ended `lost`, the owner straight ahead and never looked at.
+- **Decided:** nobody in view and no aside sighting to look toward: FACE turns the camera straight ahead (pan 0)
+  once and waits the same `FACE_LOOK_S` 1.5 s for a sighting, else `lost`. The tank never turns blind (§237
+  unchanged). AI engine LLD §28.15.

@@ -3610,3 +3610,22 @@ Test (first): `test_escape_turns_in_steps_and_sees_the_person_between_them` - a 
 `test_escape_step_without_a_sighting_is_lost` - hidden after the first step: `lost`, still;
 `test_escape_turns_back_only_from_a_fresh_sighting` - nobody seen while driving the leg: the turn back waits for a
 sighting, never turns more than 1 s after one.
+
+### 28.15 FACE looks straight ahead when nobody is in view (design-notes §242, owner 2026-11-12)
+`FaceSkill._unseen` gains a second look. Nobody in view (`Sight.xy` None):
+- last seen aside (beyond `FACE_LOOK_FROM_DEG`): the camera that way, as §28.13;
+- else: the camera to pan 0 (straight ahead, the drive tilt), once;
+- either look waits `FACE_LOOK_S` 1.5 s for a sighting, then `lost`. The tank never turns on no sighting.
+
+```mermaid
+stateDiagram-v2
+    [*] --> look_aside: nobody in view, last seen beyond 30 deg
+    [*] --> look_ahead: nobody in view, no aside sighting
+    look_aside --> face: a sighting
+    look_ahead --> face: a sighting
+    look_aside --> lost: 1.5 s
+    look_ahead --> lost: 1.5 s
+```
+
+Test (first): `test_face_with_the_camera_aside_looks_straight_ahead_and_finds_them` - the camera at pan 50, the
+person 1 m straight ahead (out of view), nothing known: the camera goes to 0, FACE ends `done` without moving.

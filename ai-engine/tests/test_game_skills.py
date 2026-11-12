@@ -199,8 +199,9 @@ def test_face_close_beyond_the_pan_only_pans() -> None:  # R34.2: no turn on the
 
 def test_face_unseen_for_1_s_is_lost() -> None:
     p = play(FaceSkill(LIM), at_bearing(1.0, 150.0), limit_s=5.0)  # behind: never in view
-    assert p.result == Result.LOST
-    assert len(p.cmds) <= 12
+    assert p.result == Result.LOST and not p.moved
+    assert len(p.cmds) <= 17  # the look straight ahead's 1.5 s (design-notes §242), then lost
+    assert p.cams and p.cams[0][0] == 0.0
 
 
 def test_face_after_a_long_turn_does_not_end_lost_on_arrival() -> None:
@@ -240,6 +241,12 @@ def test_face_looks_toward_the_last_side_seen(side: float) -> None:  # design-no
     tank = SimTank(*p.at[-1])
     end = tank.step(p.cmds[-1], LIM.dt_s)
     assert abs(front_gap(end, person)[1]) <= FACE_PAN_DEG
+
+
+def test_face_with_the_camera_aside_looks_straight_ahead_and_finds_them() -> None:  # design-notes §242
+    p = play(FaceSkill(LIM), at_bearing(1.0, 0.0), pan=-50.0, limit_s=6.0)  # the camera 50 deg aside
+    assert p.result == Result.DONE and not p.moved
+    assert p.cams and p.cams[0][0] == pytest.approx(0.0, abs=1e-9)  # looked straight ahead first
 
 
 def test_face_looks_once_then_is_lost_without_moving() -> None:

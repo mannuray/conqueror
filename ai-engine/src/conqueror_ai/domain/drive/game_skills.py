@@ -186,12 +186,15 @@ class FaceSkill(_Base):
 
     def _unseen(self, now_s: float, inp: SkillInput) -> SkillOut:
         """Nobody in view yet: once, the camera toward where the estimate last saw them (beyond
-        FACE_LOOK_FROM_DEG) and FACE_LOOK_S to see them; never a blind turn of the tank (§237)."""
+        FACE_LOOK_FROM_DEG, §237), else straight ahead (§242), and FACE_LOOK_S to see them; never a blind
+        turn of the tank."""
         p = inp.person
         last_seen_aside = p is not None and not p.seen and abs(p.bearing_deg) > FACE_LOOK_FROM_DEG
-        if self._look_s is None and inp.at is not None and p is not None and last_seen_aside:
+        if self._look_s is None and inp.at is not None:
+            # last seen aside: look that way (§237); else straight ahead (§242). Never a blind turn.
             self._look_s = now_s
-            self._pan = max(-FACE_LOOK_PAN_DEG, min(FACE_LOOK_PAN_DEG, -p.bearing_deg))
+            b = p.bearing_deg if p is not None and last_seen_aside else 0.0
+            self._pan = max(-FACE_LOOK_PAN_DEG, min(FACE_LOOK_PAN_DEG, -b))
             return self._halt((self._pan, self.lim.drive_tilt_deg))
         if self._look_s is not None:
             gone = now_s - self._look_s >= FACE_LOOK_S - 1e-9

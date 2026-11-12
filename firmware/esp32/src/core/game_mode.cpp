@@ -24,7 +24,7 @@ void GameMode::onEnvelopeAck(uint32_t now_ms) {
 }
 
 void GameMode::onPerson(const PersonEst& e, uint32_t now_ms) {
-  if (!active() || now_ms - e.at_ms > kStaleMs) return;  // too old already: not fresh (a frozen camera)
+  if (!active() || ago(now_ms, e.at_ms) > kStaleMs) return;  // too old already: not fresh (a frozen camera)
   m_p = e;
   m_has_person = true;
   m_person_rx = e.at_ms;
@@ -81,18 +81,18 @@ bool GameMode::onUnoHello(uint32_t now_ms) {
 Gate GameMode::gate(const Move& m, uint16_t stop_cm, uint32_t now_ms) {
   if (m_state == GameState::kOff) return Gate::kAllow;
   if (m_state != GameState::kPlaying) return Gate::kHoldZero;  // arming, caught, held: nothing moves
-  if (!m_has_person || now_ms - m_person_rx > kStaleMs) return Gate::kHoldZero;
-  const uint32_t unseen_ms = m_unseen ? now_ms - m_unseen_since : 0;
+  if (!m_has_person || ago(now_ms, m_person_rx) > kStaleMs) return Gate::kHoldZero;
+  const uint32_t unseen_ms = m_unseen ? ago(now_ms, m_unseen_since) : 0;
   return KeepOut::check(m_p, m, stop_cm, unseen_ms);
 }
 
 void GameMode::step(uint32_t now_ms) {
-  if (m_state == GameState::kArming && now_ms - m_arm_ms > kArmAckMs) {
+  if (m_state == GameState::kArming && ago(now_ms, m_arm_ms) > kArmAckMs) {
     toOff();
     m_refusal = Start::kNoCap;
     return;
   }
-  if ((m_state == GameState::kPlaying || m_state == GameState::kCaught) && now_ms - lastHeard() > kHeldMs) {
+  if ((m_state == GameState::kPlaying || m_state == GameState::kCaught) && ago(now_ms, lastHeard()) > kHeldMs) {
     toHeld();
     return;
   }
@@ -129,7 +129,7 @@ void GameMode::catchNow() {
 }
 
 void GameMode::releaseCheck(uint32_t now_ms) {
-  if (m_far && now_ms - m_far_since >= kReleaseMs) m_state = GameState::kPlaying;
+  if (m_far && ago(now_ms, m_far_since) >= kReleaseMs) m_state = GameState::kPlaying;
 }
 
 }  // namespace core

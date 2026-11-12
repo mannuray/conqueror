@@ -46,7 +46,7 @@ class GameMode {
   bool caught() const { return m_state == GameState::kCaught; }
   uint16_t caughtCount() const { return m_caught_n; }
   int16_t lastDistance() const { return m_has_person ? m_p.d_cm : -1; }
-  uint32_t estimateAge(uint32_t now_ms) const { return m_has_person ? now_ms - m_p.at_ms : 0; }
+  uint32_t estimateAge(uint32_t now_ms) const { return m_has_person ? ago(now_ms, m_p.at_ms) : 0; }
   bool wantsEnvelope(bool& on);  // one-shot: an ENVELOPE to send now (on: the game's, off: cleared)
   bool justCaught();             // one-shot: just caught - end every primitive, beep
 
@@ -59,6 +59,12 @@ class GameMode {
   void noteSeen(bool seen, uint32_t now_ms);
   void noteFar(bool far, uint32_t now_ms);
   uint32_t lastHeard() const { return m_has_person ? m_person_rx : m_ack_ms; }
+  // How long ago `then` was; a time after `now` (an answer handled later in the same loop with its own millis())
+  // is 0 ms ago, never ~49 days (design-notes §243, R34.12).
+  static uint32_t ago(uint32_t now_ms, uint32_t then_ms) {
+    const uint32_t d = now_ms - then_ms;
+    return static_cast<int32_t>(d) < 0 ? 0 : d;
+  }
 
   GameState m_state = GameState::kOff;
   Start m_refusal = Start::kGo;

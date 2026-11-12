@@ -42,6 +42,19 @@ GameMode playing() {
 
 // ---- GameMode
 
+// design-notes §243: the Uno's answer handled later in the loop, stamped 1 ms after the loop's now.
+void test_an_ack_stamped_after_the_loops_now_does_not_hold() {
+  GameMode g;
+  g.startRun(true, true, 75, 1000);
+  g.onEnvelopeAck(1001);
+  g.step(1000);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kPlaying), static_cast<int>(g.state()));
+  see(g, 1002, 120);
+  g.step(1001);  // an estimate from later in the loop: fresh, not stale
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kPlaying), static_cast<int>(g.state()));
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kBack, 20, 1001)));
+}
+
 void test_a_non_game_run_never_arms() {
   GameMode g;
   TEST_ASSERT_EQUAL(static_cast<int>(GameMode::Start::kGo), static_cast<int>(g.startRun(false, false, 0, 0)));
@@ -348,6 +361,7 @@ void test_sonar_gives_a_distance_when_the_camera_has_none() {
 
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_an_ack_stamped_after_the_loops_now_does_not_hold);
   RUN_TEST(test_a_non_game_run_never_arms);
   RUN_TEST(test_no_cap_or_no_people_refuses);
   RUN_TEST(test_arming_holds_until_the_envelope_ack);

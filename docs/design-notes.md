@@ -3837,3 +3837,15 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
 - **Decided:** nobody in view and no aside sighting to look toward: FACE turns the camera straight ahead (pan 0)
   once and waits the same `FACE_LOOK_S` 1.5 s for a sighting, else `lost`. The tank never turns blind (§237
   unchanged). AI engine LLD §28.15.
+
+## 243. A game held at once: a time from the future (bug, 2026-11-12)
+- **Seen:** the first FOLLOW run ended 7066 "no news of where the person is" 19 ms after it began: the game went
+  `arming` -> `held`, never `playing`, before the helper could send one `person` (it starts on the game message).
+- **Cause (bridge):** the link loop takes `now = millis()` once at its top. The Uno's answer to the game's
+  ENVELOPE is handled inside the loop with its own `millis()` (`setGameDone`), so the arming time `m_ack_ms` can be
+  1 ms after the loop's `now`. `GameMode::step(now)` then computed `now - lastHeard()` on unsigned numbers: -1 ms
+  reads as ~49 days, more than `kHeldMs`, so the game was held. A race: it bites only when the millisecond turns
+  over between the loop's top and the answer, which is why earlier games armed fine.
+- **Fixed (bridge LLD R34.12):** one rule in `GameMode`: a time after `now` counts as 0 ms ago (`ago()`), for the
+  held, stale and arming checks. Safety unchanged: the skew is at most a loop (10 ms), and every limit is still
+  timed from the newest news.

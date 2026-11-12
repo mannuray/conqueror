@@ -3936,3 +3936,21 @@ sequenceDiagram
 - Tests (`test_game_mode` / `test_keep_out`): ahead with sonar 450 mm and camera 60 cm → 25 cm (caught); bearing 30
   deg → the camera's; no echo / fault → the camera's; not seen → unchanged; camera nearer than sonar-20 → camera's;
   seen with no camera distance → the sonar's.
+
+### R34.12 Times from a little later in the same loop (design-notes §243, 2026-11-12)
+`GameMode` compares its times with one helper, `ago(now, then)`: `then` after `now` (an answer handled later in
+the same loop with its own `millis()`) is 0 ms ago, never ~49 days. Used by `step` (arming window, held), `gate`
+and `onPerson` (stale).
+
+```mermaid
+classDiagram
+    class GameMode {
+      +step(now_ms)
+      +gate(m, stop_cm, now_ms) Gate
+      +onPerson(e, now_ms)
+      -ago(now_ms, then_ms)$ uint32_t
+    }
+```
+
+Test (first): `test_an_ack_stamped_after_the_loops_now_does_not_hold` - armed, the ack at 1001, `step(1000)`:
+playing, not held.

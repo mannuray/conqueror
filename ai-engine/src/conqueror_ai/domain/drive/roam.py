@@ -123,6 +123,7 @@ class RoamSkill:
         kind: Callable[[str], bool] | None = None,
         point: tuple[float, float] | None = None,
         centre: tuple[float, float] | None = None,
+        stand_s: float = START_STAND_S,
     ) -> None:
         """area_m: stay within this many metres of where the run starts (None: anywhere it can reach). Find:
         memory = the things confirmed so far (its spots of `kind` are checked first; one not there is marked
@@ -166,6 +167,7 @@ class RoamSkill:
         self._pan: float | None = None
         self._stale_t0: float | None = None
         self._start_t0: float | None = None
+        self.stand_s = stand_s  # 0: no stand at the start (FOLLOW's routes: the map is running, §247)
         self._progress = ProgressWatch(self.recovery, self.settings.stuck_s)
         self._costs: CostMaps | None = None  # this snapshot's cost maps, the play area in them
         self.area_m = area_m
@@ -352,11 +354,13 @@ class RoamSkill:
             self.state, self._second_s = "second", now_s
             return self._second_look(now_s, at, snap, cam_still)
         cost = self._costmap(snap)
+        if self.state == "start" and self.stand_s <= 0.0:
+            self.state = "drive"
         if self.state == "start":
             if self._start_t0 is None:
                 self._start_t0, self._pan = now_s, 0.0
                 return self._halt((0.0, self.lim.drive_tilt_deg))
-            if now_s - self._start_t0 < START_STAND_S - 1e-9:
+            if now_s - self._start_t0 < self.stand_s - 1e-9:
                 return self._halt()
             self.state = "drive"
         planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow

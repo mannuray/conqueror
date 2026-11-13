@@ -3899,3 +3899,16 @@ not the person: the engine (`SONAR_AGREE_M` 0.50, against the camera's raw dista
 (`KeepOut::kSonarAgreeCm` 50, against the engine's distance) both leave the camera's number. A crawler's reaching
 arms stay ≤ ~20 cm nearer, so they still count; the obstacle brake still stops the tank at the table. Tests
 `test_an_echo_far_nearer_than_the_camera_is_not_the_person` (engine and bridge).
+
+## 247. FOLLOW was stop-and-go (owner 2026-11-13: "the movement is jerky i.e stop and go why", then "yes fix it")
+
+The second FOLLOW-game run (`4b40ddb`): each `FOLLOW "person 2` stood ~1.3 s and drove 0.3-1 s; some never moved
+with the person ~1.7 m away. **Cause:** every route (`RoamSkill`) starts by standing 1 s with the camera ahead
+(`START_STAND_S`, for WANDER / FIND: still pictures for the map), and FOLLOW makes a new route each time the
+person's spot moves 15 cm (`REPLAN_M`), so a crawler moving away meant a 1 s stand every half second; plus the program
+stopped at the end of every 2 s word.
+
+**Fix:** `RoamSkill(stand_s=…)`, FOLLOW's routes `stand_s=0` (the map is already running, the camera stays on the
+person); a route swap no longer stands. Test `test_follow_keeps_driving_after_a_crawler_moving_away` (a person moving
+away at 12 cm/s: moving within 0.3 s, never standing while more than 0.9 m away). The floor program uses one long
+`FOLLOW "person 10` (FOLLOW stops by itself at its distance). Speed cap and every safety rule unchanged.

@@ -90,9 +90,11 @@ def play(
     blind_driving: bool = False,
     delay_s: float = 0.0,
     hide_after_turn_s: float | None = None,
+    walk: tuple[float, float] = (0.0, 0.0),
 ) -> Play:
     """edge_clip: a person up to 35 deg beyond the view is seen cut by the picture's side edge (their box's
-    bottom centre at the edge, so the bearing reads short); always_edge: every sighting says edge."""
+    bottom centre at the edge, so the bearing reads short); always_edge: every sighting says edge; walk: the
+    person's speed (m/s, x and y)."""
     sim = SimRoom(boxes or [], walls_m=2.5)
     tank = SimTank(*start)
     out = Play()
@@ -115,6 +117,7 @@ def play(
             out.room.update_picture(sim.marks(at, pan_deg=pan), t_us, (at[0], at[1]))
         out.room.body_over(pose, LIM.body_front_m, LIM.body_rear_m, LIM.body_half_w_m, t_us)
         if person is not None:
+            person = (person[0] + walk[0] * LIM.dt_s, person[1] + walk[1] * LIM.dt_s) if t > T0_S else person
             d, b = front_gap(at, person)
             out.gaps.append(d)
             hidden = (hide_from_s is not None and t >= hide_from_s) or (
@@ -343,6 +346,16 @@ def test_follow_never_nearer_than_50_cm_whatever_the_setting() -> None:
     assert min(p.gaps) >= FOLLOW_MIN_M - 0.02
     assert p.goals and min(p.goals) >= FOLLOW_MIN_M - 1e-6  # never a goal inside 50 cm
     assert max(c.v_cms for c in p.cmds) <= 25.0 + 1e-9
+
+
+def test_follow_keeps_driving_after_a_crawler_moving_away() -> None:
+    """§247: a new route each 15 cm the person moves must not stand 1 s first (the floor run's stop-go)."""
+    p = play(FollowSkill(LIM, 8.0, 0.5), (1.5 + FRONT_M, 0.0), limit_s=9.0, walk=(0.12, 0.0))
+    first = next(i for i, c in enumerate(p.cmds) if c.v_cms > 0)
+    cmds = enumerate(p.cmds[first:], first)
+    stood = [i for i, c in cmds if c.v_cms == 0 and c.w_dps == 0 and p.gaps[i] > 0.9]
+    assert first * LIM.dt_s <= 0.3  # starts at once: the map is already running
+    assert stood == []
 
 
 def test_follow_unseen_is_lost() -> None:

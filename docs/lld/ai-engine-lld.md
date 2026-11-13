@@ -3643,3 +3643,8 @@ the pessimistic reading (~80-90 cm by the camera). `FollowSkill` still clamps an
 - `PersonWatch.update`: the sonar echo ahead replaces the camera's distance only when it is at most `SONAR_AGREE_M`
   (0.50 m) nearer than it; a farther-off disagreement is furniture between, not the person (the bridge does the same,
   bridge LLD R34.13).
+
+### 28.18 FOLLOW drives without standing between routes (design-notes §247, owner 2026-11-13)
+
+`RoamSkill` gains `stand_s` (default `START_STAND_S` 1.0 s, unchanged for WANDER / EXPLORE / FIND / SETXY); `FollowSkill`
+makes its point routes with `stand_s=0.0`, so a replan (`REPLAN_M` 0.15 m) swaps the route without a stop.

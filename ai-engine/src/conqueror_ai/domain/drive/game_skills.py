@@ -371,7 +371,7 @@ class FollowSkill(_Base):
             return self._halt(cam)
         goal = self._goal_for(at)
         if self._route is None or self._goal is None or math.dist(goal, self._goal) > REPLAN_M:
-            self._route, self._goal = RoamSkill(Planner(self.lim), "point", point=goal), goal
+            self._route, self._goal = RoamSkill(Planner(self.lim), "point", point=goal, stand_s=0.0), goal
         self.state = "follow"
         out = self._route.tick(now_s, inp)
         if out.result is not None:  # there, or no way for now: wait facing them and plan again

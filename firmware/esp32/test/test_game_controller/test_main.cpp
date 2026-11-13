@@ -190,13 +190,13 @@ void test_no_ack_ends_the_run_7060() {
 
 void test_caught_ends_the_motion_once_and_tells_the_pages() {
   GameController g = playing();
-  see(g, 40, 28);
+  see(g, 40, 8);  // the absolute level 10 (design-notes §248)
   g.tick(40);
   TEST_ASSERT_EQUAL(1, rec.caught);
   TEST_ASSERT_TRUE(g.caught());
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kCaught), static_cast<int>(rec.last_event));
-  TEST_ASSERT_EQUAL_INT16(28, rec.event_d);
-  see(g, 60, 28);
+  TEST_ASSERT_EQUAL_INT16(8, rec.event_d);
+  see(g, 60, 8);
   g.tick(60);
   TEST_ASSERT_EQUAL(1, rec.caught);  // once
 }
@@ -204,7 +204,7 @@ void test_caught_ends_the_motion_once_and_tells_the_pages() {
 void test_an_estimate_counts_at_once() {  // I6: a DRIVE right after an estimate is gated against it
   GameController g = playing();
   TEST_ASSERT_TRUE(drive(g, 30, 0));
-  see(g, 30, 25);  // before the next tick
+  see(g, 30, 20);  // before the next tick: 20 - 6 - 5 = 9, inside 10
   TEST_ASSERT_FALSE(drive(g, 30, 0));
 }
 
@@ -226,15 +226,15 @@ void test_the_engine_gone_holds_and_ends_the_run_7066() {  // design-notes §236
   TEST_ASSERT_EQUAL_UINT8(0, rec.env_lock);
 }
 
-// Stopping distance (review I7): roll 3 cm + speed x (0.3 s + the estimate's age); speed = v % x 33.5 cm/s / 100.
+// Stopping distance (review I7; the caught level 10, design-notes §248): roll 3 cm + speed x (0.3 s + the estimate's age); speed = v % x 33.5 cm/s / 100.
 void test_forward_close_ahead_ends_kept_away() {
   GameController g = playing();
-  see(g, 30, 50);
-  TEST_ASSERT_TRUE(drive(g, 30, 0));  // 10 cm/s: stop 3 + 3 = 6; 50 - 6 - 5 = 39 > 30
+  see(g, 30, 30);
+  TEST_ASSERT_TRUE(drive(g, 30, 0));  // 10 cm/s: stop 3 + 3 = 6; 30 - 6 - 5 = 19 > 10
   g.tick(32);
   TEST_ASSERT_EQUAL(0, rec.keep_away);
-  see(g, 40, 40);
-  TEST_ASSERT_FALSE(drive(g, 30, 0));  // 40 - 6 - 5 = 29: towards - zeros, and the move ends normally
+  see(g, 40, 20);
+  TEST_ASSERT_FALSE(drive(g, 30, 0));  // 20 - 6 - 5 = 9: towards - zeros, and the move ends normally
   g.tick(42);
   TEST_ASSERT_EQUAL(1, rec.keep_away);
 }
@@ -270,14 +270,14 @@ void test_the_game_cap_clamps_every_drive() {  // I7
 
 void test_the_stopping_distance_grows_with_speed_and_age() {  // I7
   GameController g = playing();
-  see(g, 30, 45);
-  TEST_ASSERT_TRUE(drive(g, 20, 0));   // 6.7 cm/s: stop 3 + 2 = 5; 45 - 5 - 5 = 35 > 30
-  TEST_ASSERT_FALSE(drive(g, 75, 0));  // 25 cm/s: stop 3 + 7.5 = 10; 45 - 10 - 5 = 30, not > 30
+  see(g, 30, 25);
+  TEST_ASSERT_TRUE(drive(g, 20, 0));   // 6.7 cm/s: stop 3 + 2 = 5; 25 - 5 - 5 = 15 > 10
+  TEST_ASSERT_FALSE(drive(g, 75, 0));  // 25 cm/s: stop 3 + 7.5 = 10; 25 - 10 - 5 = 10, not > 10
   GameController h = playing();
-  h.onPerson(PersonEst{true, 50, 0, 0, 200, 40}, 40);
-  TEST_ASSERT_TRUE(drive(h, 75, 0));  // fresh: 50 - 10 - 5 = 35
-  h.onPerson(PersonEst{true, 50, 0, 0, 200, 40}, 240);  // the same estimate, 200 ms old
-  TEST_ASSERT_FALSE(drive(h, 75, 0));  // stop 3 + 25 x 0.5 = 15: 50 - 15 - 5 = 30
+  h.onPerson(PersonEst{true, 30, 0, 0, 200, 40}, 40);
+  TEST_ASSERT_TRUE(drive(h, 75, 0));  // fresh: 30 - 10 - 5 = 15
+  h.onPerson(PersonEst{true, 30, 0, 0, 200, 40}, 240);  // the same estimate, 200 ms old
+  TEST_ASSERT_FALSE(drive(h, 75, 0));  // stop 3 + 25 x 0.5 = 15: 30 - 15 - 5 = 10
 }
 
 void test_backing_asks_the_map_first() {
@@ -376,8 +376,8 @@ void test_a_non_game_never_gates() {
 
 void test_the_sonar_ahead_catches_when_the_camera_reads_far() {  // R34.11, design-notes §235
   GameController g = playing();
-  rec.sonar_mm = 480;  // the body at 48 cm: the hands ~28 cm
-  see(g, 30, 60);      // the camera boxed only the body
+  rec.sonar_mm = 290;  // the body at 29 cm: the hands ~9 cm, inside the absolute level
+  see(g, 30, 60);      // the camera boxed only the body (31 cm farther: agrees, §246)
   g.tick(30);
   TEST_ASSERT_TRUE(g.caught());
   TEST_ASSERT_EQUAL_INT(1, rec.caught);

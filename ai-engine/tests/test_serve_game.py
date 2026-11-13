@@ -190,13 +190,13 @@ def test_the_game_words_build_the_game_skills() -> None:
     w = world()
     face = skill_call(start("face", thing="baby"), FACING_X, NAMES)
     esc = skill_call(serve.Start(1, "escape", "baby", None, None, None, cm=40.0), FACING_X, NAMES)
-    fol = skill_call(serve.Start(1, "follow", "person", 5.0, None, None, stop_cm=30.0), FACING_X, NAMES)
+    fol = skill_call(serve.Start(1, "follow", "person", 5.0, None, None, stop_cm=20.0), FACING_X, NAMES)
     assert isinstance(face, SkillCall) and isinstance(esc, SkillCall) and isinstance(fol, SkillCall)
     assert isinstance(serve.make_word_skill(face, w, 0), FaceSkill)
     e = serve.make_word_skill(esc, w, 0)
     assert isinstance(e, EscapeSkill) and e.back_m == pytest.approx(0.40)
     f = serve.make_word_skill(fol, w, 0)
-    assert isinstance(f, FollowSkill) and f.seconds == 5.0 and f.stop_m == pytest.approx(0.50)  # never < 50
+    assert isinstance(f, FollowSkill) and f.seconds == 5.0 and f.stop_m == pytest.approx(0.30)  # never < 30
 
 
 async def test_skill_start_face_runs_and_find_baby_is_unknown(bridge: FakeBridge) -> None:
@@ -402,11 +402,11 @@ async def test_a_new_estimate_is_sent_at_once() -> None:  # design-notes §237: 
             await task
 
 
-def test_follow_by_default_stops_at_50_cm() -> None:  # design-notes §244
+def test_follow_by_default_stops_at_30_cm() -> None:  # design-notes §244, §248
     from conqueror_ai.app.game_serve import game_skill
     from conqueror_ai.domain.drive.limits import Limits
 
     s = game_skill("follow", Limits(), None, 5.0, None)
-    assert isinstance(s, FollowSkill) and s.stop_m == pytest.approx(0.50)
-    near = game_skill("follow", Limits(), None, 5.0, 0.30)  # asked nearer: S4 still holds
-    assert isinstance(near, FollowSkill) and near.stop_m == pytest.approx(0.50)
+    assert isinstance(s, FollowSkill) and s.stop_m == pytest.approx(0.30)
+    near = game_skill("follow", Limits(), None, 5.0, 0.20)  # asked nearer: S4 still holds
+    assert isinstance(near, FollowSkill) and near.stop_m == pytest.approx(0.30)

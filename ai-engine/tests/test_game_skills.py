@@ -15,6 +15,7 @@ import pytest
 from conqueror_ai.domain.drive.curves import Command, XYTh
 from conqueror_ai.domain.drive.game_skills import (
     ESCAPE_NEAR_M,
+    FACE_LOOK_PAN_DEG,
     FACE_PAN_DEG,
     FOLLOW_MIN_M,
     EscapeSkill,
@@ -86,6 +87,7 @@ def play(
     edge_clip: bool = False,
     always_edge: bool = False,
     known_bearing: float | None = None,
+    known_d: float = 1.0,
     blind_spin: bool = False,
     blind_driving: bool = False,
     delay_s: float = 0.0,
@@ -99,7 +101,7 @@ def play(
     tank = SimTank(*start)
     out = Play()
     last: PersonEst | None = (
-        None if known_bearing is None else PersonEst(False, 1.0, known_bearing, 0, 0.5, 0)
+        None if known_bearing is None else PersonEst(False, known_d, known_bearing, 0, 0.5, 0)
     )
     cmd = Command(0.0, 0.0)
     t = T0_S
@@ -194,17 +196,17 @@ def test_face_at_60_deg_turns_towards_them_until_within_10(side: float) -> None:
     assert abs(front_gap(end, person)[1]) <= 10.0 + 6.5  # within 10 deg (+ one tick's spin)
 
 
-def test_face_close_beyond_the_pan_only_pans() -> None:  # R34.2: no turn on the spot nearer than 35 cm
-    p = play(FaceSkill(LIM), at_bearing(0.30, 60.0), pan=-35.0)
+def test_face_close_beyond_the_pan_only_pans() -> None:  # R34.14: no turn on the spot nearer than 15 cm
+    p = play(FaceSkill(LIM), at_bearing(0.12, 60.0), pan=-35.0)
     assert p.result == Result.DONE and not p.moved
     assert p.cams[-1][0] == pytest.approx(-35.0, abs=0.5)
 
 
-def test_face_unseen_for_1_s_is_lost() -> None:
-    p = play(FaceSkill(LIM), at_bearing(1.0, 150.0), limit_s=5.0)  # behind: never in view
+def test_face_never_seen_sweeps_the_camera_then_is_lost_without_moving() -> None:  # §248
+    p = play(FaceSkill(LIM), at_bearing(1.0, 150.0), limit_s=5.0)  # behind: never in view, nothing last seen
     assert p.result == Result.LOST and not p.moved
-    assert len(p.cmds) <= 17  # the look straight ahead's 1.5 s (design-notes §242), then lost
-    assert p.cams and p.cams[0][0] == 0.0
+    assert [c[0] for c in p.cams] == [0.0, -FACE_LOOK_PAN_DEG, FACE_LOOK_PAN_DEG]  # ahead, left, right
+    assert len(p.cmds) * LIM.dt_s <= 3.0  # inside the bridge's 3 s not-found sweep (R34.14)
 
 
 def test_face_after_a_long_turn_does_not_end_lost_on_arrival() -> None:
@@ -223,8 +225,8 @@ def test_face_on_a_side_edge_sighting_turns_the_tank(side: float) -> None:  # de
     assert abs(front_gap(end, person)[1]) <= FACE_PAN_DEG  # the camera's pan reaches them now
 
 
-def test_face_on_a_side_edge_sighting_close_only_pans() -> None:  # R34.2: no turn nearer than 35 cm
-    p = play(FaceSkill(LIM), at_bearing(0.30, 70.0), edge_clip=True)
+def test_face_on_a_side_edge_sighting_close_only_pans() -> None:  # R34.14: no turn nearer than 15 cm
+    p = play(FaceSkill(LIM), at_bearing(0.12, 70.0), edge_clip=True)
     assert p.result == Result.DONE and not p.moved
 
 
@@ -252,10 +254,27 @@ def test_face_with_the_camera_aside_looks_straight_ahead_and_finds_them() -> Non
     assert p.cams and p.cams[0][0] == pytest.approx(0.0, abs=1e-9)  # looked straight ahead first
 
 
-def test_face_looks_once_then_is_lost_without_moving() -> None:
-    p = play(FaceSkill(LIM), None, known_bearing=70.0, limit_s=6.0)
+def test_face_last_seen_near_sweeps_and_never_turns() -> None:  # §248: maybe right at the tank
+    p = play(FaceSkill(LIM), None, known_bearing=70.0, known_d=0.29, limit_s=6.0)
     assert p.result == Result.LOST and not p.moved
-    assert len(p.cmds) * LIM.dt_s >= 1.5 - 1e-6
+    assert len(p.cams) == 3
+
+
+@pytest.mark.parametrize("side", [1.0, -1.0])
+def test_face_last_seen_far_steps_round_and_finds_them_behind(side: float) -> None:  # §248
+    person = at_bearing(1.0, 160.0 * side)
+    p = play(FaceSkill(LIM), person, known_bearing=100.0 * side, known_d=0.30, limit_s=30.0)
+    assert p.result == Result.DONE and p.moved
+    assert all(c.v_cms == 0 for c in p.cmds)  # on the spot only
+    spins = [c.w_dps for c in p.cmds if c.w_dps != 0]
+    assert all(math.copysign(1.0, w) == side for w in spins)  # toward the side last seen
+
+
+def test_face_last_seen_far_and_nobody_turns_a_full_circle_then_is_lost() -> None:
+    p = play(FaceSkill(LIM), None, known_bearing=70.0, known_d=1.0, limit_s=40.0)
+    assert p.result == Result.LOST and p.moved
+    turned = sum(abs(c.w_dps) * LIM.dt_s for c in p.cmds)
+    assert 330.0 <= turned <= 420.0
 
 
 # ---- ESCAPE

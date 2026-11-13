@@ -106,7 +106,8 @@ void test_lesson_6_is_the_baby_game() {
   ThingNames things;
   TEST_ASSERT_TRUE(checkProgram(e->src, static_cast<uint16_t>(strlen(e->src)), withAiHelper(things), g_space));
   TEST_ASSERT_TRUE(g_space.result.game);
-  static const char* const kWords[] = {"FACE \"baby", "ESCAPE \"baby", "FOLLOW \"baby", "CAUGHT?", "BABYGAME 70 100 5"};
+  static const char* const kWords[] = {"FACE \"baby", "ESCAPE \"baby", "FOLLOW \"baby", "CAUGHT?", "BABYGAME 60 80 5",
+                                        "IFELSE CAUGHT? [ FACE \"baby ]"};  // §248: keeps looking while caught
   for (const char* w : kWords) TEST_ASSERT_NOT_NULL_MESSAGE(strstr(e->src, w), w);
 }
 

@@ -90,22 +90,18 @@ def test_coming_and_going() -> None:
     assert e3 is not None and e3.coming == 0
 
 
-def test_last_seen_close_counts_down_to_caught() -> None:
+def test_out_of_view_carries_the_last_seen_distance() -> None:
+    """§248: no countdown to caught - only sightings and touches catch (the bridge, R34.14)."""
     cam = cam_down()
     w = PersonWatch()
-    for i in range(6):  # 0.70 -> 0.60 m, coming at ~0.2 m/s; reported 0.40 m at the end
+    for i in range(6):  # 0.70 -> 0.60 m, coming
         w.update([box_at(cam, 0.70 - 0.02 * i, 0.0)], cam, None, i * 100_000)
     last = w.latest(500_000)
-    assert last is not None and last.d_m is not None and last.d_m < 0.5
-    w.update([], cam, None, 600_000)  # gone from the picture
-    readings: list[float] = []
+    assert last is not None and last.d_m is not None
     for t in (600_000, 900_000, 1_200_000, 1_500_000):
         w.update([], cam, None, t)
         e = w.latest(t)
-        assert e is not None and not e.seen and e.d_m is not None
-        readings.append(e.d_m)
-    assert readings == sorted(readings, reverse=True)  # never rising
-    assert readings[-1] <= 0.30 + 1e-9  # 1 s unseen: 30 cm (caught)
+        assert e is not None and not e.seen and e.d_m == pytest.approx(last.d_m)
 
 
 def test_last_seen_far_does_not_count_down() -> None:

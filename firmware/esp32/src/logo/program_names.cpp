@@ -61,9 +61,9 @@ constexpr Example kExamples[] = {
      "; Lesson 6 - chase with the baby\n"
      "; A game for a crawling baby, with a grown-up next to them and STOP in hand.\n"
      "; The tank looks at the baby, backs off when the baby comes near and follows when the baby crawls away -\n"
-     "; never closer than 50 cm. If the baby catches it, it stops, beeps and waits.\n"
+     "; it stops by itself before it gets too close. If the baby catches it, it stops, beeps and keeps looking.\n"
      "; Watch: it never goes faster than a slow crawl, and it stops by itself after the minutes you give.\n"
-     "; Try this: change 70 (how near before it backs off), 100 (how far before it follows) or 5 (minutes).\n"
+     "; Try this: change 60 (how near before it backs off), 80 (how far before it follows) or 5 (minutes).\n"
      "TO CHASE :cm :near :far\n"
      "  IFELSE :cm < 0 [ WAIT 1 ] [\n"
      "    IFELSE :cm < :near [ ESCAPE \"baby 40 WAIT 1 ] [ IF :cm > :far [ FOLLOW \"baby 2 ] ]\n"
@@ -71,9 +71,9 @@ constexpr Example kExamples[] = {
      "  ]\n"
      "END\n"
      "TO BABYGAME :near :far :minutes\n"
-     "  WHILE TIMER < :minutes * 60 [ IFELSE CAUGHT? [ WAIT 3 ] [ CHASE HOWFAR \"baby :near :far ] ]\n"
+     "  WHILE TIMER < :minutes * 60 [ IFELSE CAUGHT? [ FACE \"baby ] [ CHASE HOWFAR \"baby :near :far ] ]\n"
      "END\n"
-     "BABYGAME 70 100 5\n",
+     "BABYGAME 60 80 5\n",
      true},
     {"first_square", "; Your first square\nREPEAT 4 [ FORWARD 30 RIGHT 90 ]\nBEEP\n", false},
     {"avoid_walls",

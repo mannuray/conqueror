@@ -18,18 +18,21 @@ from conqueror_ai.domain.drive.route import XY, RoutePlanner
 from conqueror_ai.domain.drive.skill import Result, SkillInput, SkillOut
 from conqueror_ai.domain.drive.trusted import TrustedFloor
 from conqueror_ai.domain.objects import GATE_DPS
+from conqueror_ai.domain.person import PersonEst
 
 FACE_PAN_DEG = 35.0  # the camera's comfortable pan; beyond it FACE turns the tank (LLD §28.3)
 FACE_DONE_DEG = 10.0  # turned this near the person's direction: facing them
 FACE_LOOKS = 3  # FACE turns at most this many times on side-edge sightings, then ends done (LLD §28.12)
 FACE_LOOK_FROM_DEG = 30.0  # nobody in view, last seen beyond this: the camera looks that way first (§28.13)
 FACE_LOOK_PAN_DEG = 60.0  # ... this far at most (the camera then covers ~100 deg to that side)
-FACE_LOOK_S = 1.5  # ... and FACE waits this long for a sighting before lost
-TURN_FROM_M = 0.35  # a turn on the spot only with the person this far or farther (bridge LLD R34.2)
+SWEEP_DWELL_S = 0.6  # nobody in view: the camera looks three ways, each this long (in the bridge's 3 s, §248)
+BLIND_TURN_M = 0.30  # ... not found: the tank turns to look only when last seen this far (bridge R34.14)
+FACE_STEP_LOOK_S = 1.0  # ... in TURN_STEP_DEG steps, looking this long after each, a full circle at most
+TURN_FROM_M = 0.15  # a turn on the spot only with the person this far or farther (bridge LLD R34.14)
 LOST_S = 1.0  # not seen this long (while not spinning): lost
 VIEW_DEG = 41.0  # half the camera's view: ESCAPE knows where the person is only inside it
-ESCAPE_NEAR_M = 0.70  # nearer, ESCAPE never turns its back (S11): back over trusted floor, or stay
-FOLLOW_MIN_M = 0.50  # FOLLOW never nearer than this, whatever the setting (S4)
+ESCAPE_NEAR_M = 0.50  # nearer, ESCAPE never turns its back (S11): back over trusted floor, or stay (§248)
+FOLLOW_MIN_M = 0.30  # FOLLOW never nearer than this, whatever the setting (S4, §248)
 FOLLOW_PAN_DEG = 60.0  # FOLLOW keeps the camera on the person up to this pan
 PAN_STEP_DEG = 3.0  # the camera is sent again only when it should move more than this
 TURN_PAN_STEP_DEG = 20.0  # ESCAPE's camera in steps this big (a moving camera's pictures are skipped)
@@ -154,14 +157,20 @@ class _Base:
 class FaceSkill(_Base):
     """FACE "baby: the camera pans to the person within ±35°; beyond, or seen at the picture's side edge (at
     least that far round, LLD §28.12), the tank turns on the spot (from 35 cm only) until within 10° and looks
-    again on a newer sighting - at most FACE_LOOKS turns. done facing them, lost when not seen for 1 s."""
+    again on a newer sighting - at most FACE_LOOKS turns. done facing them, lost when not seen for 1 s. Nobody
+    in view: the camera sweeps, then the tank turns in steps when last seen far enough (design-notes §248)."""
 
     def __init__(self, lim: Limits) -> None:
         super().__init__(lim)
         self._th: float | None = None
         self._looks = 0
         self._turned_at: int | None = None  # the sighting a turn ended on: decide again on a newer one
-        self._look_s: float | None = None  # when the camera went to look where they were last seen
+        self._look_s = 0.0  # when the camera's current look (or the last step's look) began
+        self._sweep: list[float] | None = None  # the camera's pans, the side last seen first
+        self._sweep_i = 0
+        self._side = 1.0  # the steps' direction (+ left)
+        self._step_th: float | None = None
+        self._steps = 0
 
     def tick(self, now_s: float, inp: SkillInput) -> SkillOut:
         self._clock(now_s, inp)
@@ -185,21 +194,54 @@ class FaceSkill(_Base):
         return self._spin_to(at, self._th) or self._halt()
 
     def _unseen(self, now_s: float, inp: SkillInput) -> SkillOut:
-        """Nobody in view yet: once, the camera toward where the estimate last saw them (beyond
-        FACE_LOOK_FROM_DEG, §237), else straight ahead (§242), and FACE_LOOK_S to see them; never a blind
-        turn of the tank."""
-        p = inp.person
-        last_seen_aside = p is not None and not p.seen and abs(p.bearing_deg) > FACE_LOOK_FROM_DEG
-        if self._look_s is None and inp.at is not None:
-            # last seen aside: look that way (§237); else straight ahead (§242). Never a blind turn.
-            self._look_s = now_s
-            b = p.bearing_deg if p is not None and last_seen_aside else 0.0
-            self._pan = max(-FACE_LOOK_PAN_DEG, min(FACE_LOOK_PAN_DEG, -b))
-            return self._halt((self._pan, self.lim.drive_tilt_deg))
-        if self._look_s is not None:
-            gone = now_s - self._look_s >= FACE_LOOK_S - 1e-9
-            return self._end(Result.LOST, "the person is not in view") if gone else self._halt()
-        return self._end(Result.LOST, "the person is not in view") if self.sight.lost else self._halt()
+        """Nobody in view yet (§248): the camera sweeps - the side last seen first (§237), else ahead first
+        (§242) - SWEEP_DWELL_S each; not found, last seen at BLIND_TURN_M or more: turns in TURN_STEP_DEG
+        steps toward that side, a look after each, a full circle at most; else lost (no tank turn)."""
+        at, p = inp.at, inp.person
+        if at is None:
+            return self._halt()
+        if self._sweep is None:
+            self._sweep, self._look_s = self._sweep_pans(p), now_s
+            return self._look(self._sweep[0])
+        if self._sweep_i < len(self._sweep):
+            if now_s - self._look_s < SWEEP_DWELL_S - 1e-9:
+                return self._halt()
+            self._sweep_i, self._look_s = self._sweep_i + 1, now_s
+            if self._sweep_i < len(self._sweep):
+                return self._look(self._sweep[self._sweep_i])
+            if p is None or p.d_m is None or p.d_m < BLIND_TURN_M - 1e-9:
+                return self._end(Result.LOST, "the person is not in view")
+            self._side = -1.0 if p.bearing_deg < 0 else 1.0
+            return self._look(0.0)
+        return self._step(now_s, at)
+
+    def _step(self, now_s: float, at: XYTh) -> SkillOut:
+        """The blind steps: TURN_STEP_DEG, then FACE_STEP_LOOK_S still; a full circle, then lost."""
+        if self._step_th is not None:
+            out = self._spin_to(at, self._step_th)
+            if out is not None:
+                return out
+            self._step_th, self._steps, self._look_s = None, self._steps + 1, now_s
+            return self._halt()
+        if now_s - self._look_s < FACE_STEP_LOOK_S - 1e-9:
+            return self._halt()
+        if self._steps * TURN_STEP_DEG >= 360.0 - 1e-9:
+            return self._end(Result.LOST, "the person is not in view")
+        # FACE_DONE_DEG short of the step is "there": aim past it so each step turns TURN_STEP_DEG
+        self._step_th = at[2] + self._side * math.radians(TURN_STEP_DEG + FACE_DONE_DEG)
+        return self._spin_to(at, self._step_th) or self._halt()
+
+    def _sweep_pans(self, p: PersonEst | None) -> list[float]:
+        """The side last seen first (beyond FACE_LOOK_FROM_DEG), then ahead, then the other side; else ahead
+        first, then left, then right (pan + = right)."""
+        if p is not None and abs(p.bearing_deg) > FACE_LOOK_FROM_DEG:
+            side = max(-FACE_LOOK_PAN_DEG, min(FACE_LOOK_PAN_DEG, -p.bearing_deg))
+            return [side, 0.0, -side]
+        return [0.0, -FACE_LOOK_PAN_DEG, FACE_LOOK_PAN_DEG]
+
+    def _look(self, pan: float) -> SkillOut:
+        self._pan = pan
+        return self._halt((pan, self.lim.drive_tilt_deg))
 
     def _turns(self, at: XYTh) -> bool:
         """Turn the tank: beyond the camera's pan or at the picture's side edge, far enough, looks left."""

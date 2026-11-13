@@ -1,5 +1,6 @@
 // The people games' keep-out (bridge LLD R34.2, Spec 10 S2 / S4 / S8): one rule for every move the bridge sends during
-// a game - never within 30 cm of the person, never driving towards them, no turn closer than 35 cm, and nothing forward
+// a game - never within 10 cm of the person, never driving towards them, no turn closer than 15 cm (on the pessimistic
+// distance, design-notes §248), and nothing forward
 // or turning once the person has been out of sight for 1 s. Pure, host-tested.
 #pragma once
 
@@ -31,8 +32,8 @@ struct Move {
 
 class KeepOut {
  public:
-  static constexpr int16_t kCaughtCm = 30;     // never closer (owner)
-  static constexpr int16_t kTurnCm = 35;       // the front corners sweep ~4 cm nearer while turning
+  static constexpr int16_t kCaughtCm = 10;     // the absolute level: never closer (owner 2026-11-13, §248)
+  static constexpr int16_t kTurnCm = 15;       // the turn level: the front corners sweep ~4 cm nearer while turning
   static constexpr int16_t kMarginCm = 5;      // over the stopping distance
   static constexpr int16_t kAheadDeg = 60;     // "towards": the person within this of ahead
   static constexpr uint32_t kUnseenMs = 1000;  // owner: hold, then look

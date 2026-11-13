@@ -163,8 +163,8 @@ var AiCore = (function () {
   // Lesson 6's text with its last BABYGAME call holding the numbers: back off nearer than (40-150 cm), follow farther
   // than (10 cm beyond that, up to 300), minutes (1-14: the game's own 15-minute limit, 7063).
   function babyLine(src, near, far, minutes) {
-    var n = clampNum(near, 40, 150, 70);
-    var f = clampNum(far, n + 10, 300, 100);
+    var n = clampNum(near, 40, 150, 60);  // the lesson's own numbers (design-notes §248)
+    var f = clampNum(far, n + 10, 300, 80);
     var m = clampNum(minutes, 1, 14, 5);
     var lines = String(src).replace(/\s+$/, "").split("\n");
     for (var i = lines.length - 1; i >= 0; i--) {

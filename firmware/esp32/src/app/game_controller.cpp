@@ -42,6 +42,7 @@ void GameController::onBodyOnline(uint32_t now) {
 void GameController::onPerson(const core::PersonEst& e, uint32_t now) {
   m_now = now;
   const uint16_t sonar = m_h.sonar_mm != nullptr ? m_h.sonar_mm() : 65535;
+  m_mode.onSonar(sonar);  // R34.14: the not-found release and blind turns need nothing ahead
   m_mode.onPerson(core::withSonar(e, sonar), now);  // R34.11: the sonar minus the hand allowance, ahead
 }
 
@@ -67,6 +68,7 @@ void GameController::onAnswer(int32_t id, int32_t value, uint32_t now) {
 void GameController::tick(uint32_t now) {
   m_now = now;
   if (m_mode.state() == core::GameState::kArming) m_was_arming = true;
+  if (m_h.sonar_mm != nullptr) m_mode.onSonar(m_h.sonar_mm());
   m_mode.step(now);
   lapse(now);
   bool on = false;

@@ -24,9 +24,6 @@ COMING_US = 500_000  # ... and how far back "coming / going" looks
 COMING_M = 0.05
 SIGMA_NEAR_M = 0.10  # ±10 cm up to 1 m, ±10 % beyond: one rule, no jump at 1 m (2sigma is taken off, §246)
 SIGMA_FAR = 0.10
-CLOSE_M = 0.50  # last seen inside this: the distance counts down while unseen
-CAUGHT_M = 0.30  # ... and reads this after COUNTDOWN_US
-COUNTDOWN_US = 1_000_000
 SKY_HOLD_US = 1_000_000  # a sky box takes the last measured distance this long (design-notes §239)
 RESTART_US = 1_000_000  # a picture this much older than the last: the tank restarted, its clock began again
 
@@ -188,7 +185,8 @@ class PersonWatch:
         return self._last_us
 
     def latest(self, now_us: int) -> PersonEst | None:
-        """The estimate now; unseen since the last sighting: the countdown when it was close."""
+        """The estimate now; unseen since the last sighting: its distance and direction (no countdown to
+        caught - only sightings and touches catch, design-notes §248)."""
         s = self._seen
         if s is None:
             return None
@@ -196,12 +194,7 @@ class PersonWatch:
         if last == s.t_us:
             return s
         gone_s = (now_us - s.t_us) / 1e6
-        d = s.d_m if s.d_m is not None else CAUGHT_M
-        if d < CLOSE_M:
-            d = max(0.0, d - self._closing_mps() * gone_s)
-            if now_us - s.t_us >= COUNTDOWN_US:
-                d = min(d, CAUGHT_M)
-        return PersonEst(False, d, s.bearing_deg, s.coming, max(0.0, s.sure - gone_s), last)
+        return PersonEst(False, s.d_m, s.bearing_deg, s.coming, max(0.0, s.sure - gone_s), last)
 
     def _window(self, t_us: int, d: float) -> float:
         """The nearest over the 0.3 s window (final review I1: a median let a far parent hide a flickering
@@ -220,10 +213,3 @@ class PersonWatch:
             return 0
         change = med - self._med[0][1]
         return 1 if change <= -COMING_M else (-1 if change >= COMING_M else 0)
-
-    def _closing_mps(self) -> float:
-        """How fast the person was coming in the last 0.5 s (never negative: unseen never rises)."""
-        if len(self._med) < 2:
-            return 0.0
-        (t0, d0), (t1, d1) = self._med[0], self._med[-1]
-        return max(0.0, (d0 - d1) / max(1e-6, (t1 - t0) / 1e6))

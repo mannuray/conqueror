@@ -71,7 +71,7 @@ async (page) => {
   await page.click("#cardGame summary");  // the grown-ups' fold
   await page.fill("#gMin", "3");
   await page.click("#gameGo"); await page.waitForTimeout(400);
-  out.checkedEnds = (checked[checked.length - 1] || "").trimEnd().split("\n").pop();        // BABYGAME 70 100 3
+  out.checkedEnds = (checked[checked.length - 1] || "").trimEnd().split("\n").pop();        // BABYGAME 60 80 3 (the card defaults, §248)
   out.ran = await q(() => window.__tank.filter((m) => m.t === "logo_run").length);           // 1
   out.ranLine = await txt("ranLine");                                                        // lesson 6, ...
   await tank({ t: "ev", kind: "game", state: "playing", caught: 0 });
@@ -85,7 +85,7 @@ async (page) => {
   out.held = [await txt("gameSt"), await txt("gameSay")];                                    // HOLDING STILL, STOP
   out.link = await q(() => document.querySelector("#cardGame a").getAttribute("href"));      // /logo#chase_with_the_baby
   out.noHScroll = await q(() => document.documentElement.scrollWidth <= window.innerWidth);
-  out.pass = out.locked === "LOCKED" && out.lockedOff && out.ready === "READY" && out.checkedEnds === "BABYGAME 70 100 3" &&
+  out.pass = out.locked === "LOCKED" && out.lockedOff && out.ready === "READY" && out.checkedEnds === "BABYGAME 60 80 3" &&
     out.ran === 1 && out.ranLine === "lesson 6, chase with the baby" && out.playing[0] === "PLAYING" &&
     /72 cm away, coming/.test(out.playing[1]) && out.caught === "CAUGHT!" && out.held[0] === "HOLDING STILL" &&
     /STOP/.test(out.held[1]) && out.link === "/logo#chase_with_the_baby" && out.noHScroll;

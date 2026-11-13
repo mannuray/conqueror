@@ -3657,9 +3657,9 @@ makes its point routes with `stand_s=0.0`, so a replan (`REPLAN_M` 0.15 m) swaps
   (`CLOSE_M`, `CAUGHT_M`, `COUNTDOWN_US`) is removed - only sightings and touches catch (bridge R34.14).
 - **`FaceSkill` with nobody in view:** a camera sweep - the side last seen first, then ahead, then the other side,
   `SWEEP_DWELL_S` 0.6 s each (1.8 s, inside the bridge's 3 s `kSweepMs`); not found: when last seen at
-  `BLIND_TURN_M` 0.30 or more, turns in `TURN_STEP_DEG` 30° steps toward the side last seen, a `STEP_LOOK_S` look
+  `BLIND_TURN_M` 0.30 or more, turns in `TURN_STEP_DEG` 30° steps toward the side last seen, a `FACE_STEP_LOOK_S` look
   after each, at most a full circle, then lost; else lost (the tracks never turn). A sighting at any point takes
-  over (turn to them / done). The step method is `_Base._step_turn`, shared with ESCAPE's turns.
+  over (turn to them / done). The steps are `FaceSkill._step` (`FACE_STEP_LOOK_S` 1.0 s still after each).
 
 ```mermaid
 stateDiagram-v2
@@ -3679,6 +3679,8 @@ classDiagram
     +tick(now_s, inp) SkillOut
     -_unseen(now_s, inp) SkillOut
     -_sweep_pans(p) list
+    -_look(pan) SkillOut
+    -_step(now_s, at) SkillOut
     -_sweep_i : int
     -_steps : int
   }

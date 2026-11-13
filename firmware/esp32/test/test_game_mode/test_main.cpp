@@ -98,32 +98,34 @@ void test_no_ack_within_the_arm_window_ends_off_as_no_cap() {
   TEST_ASSERT_EQUAL(static_cast<int>(GameMode::Start::kNoCap), static_cast<int>(g.lastRefusal()));
 }
 
-void test_caught_at_30_and_released_after_50_for_2_s() {
+void test_caught_at_10_and_released_after_30_for_2_s() {  // design-notes §248
   GameMode g = playing();
-  see(g, 200, 30);
+  see(g, 150, 11);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kPlaying), static_cast<int>(g.state()));
+  see(g, 200, 10);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kCaught), static_cast<int>(g.state()));
   TEST_ASSERT_TRUE(g.caught());
   TEST_ASSERT_TRUE(g.justCaught());
   TEST_ASSERT_FALSE(g.justCaught());  // one-shot
   TEST_ASSERT_EQUAL_UINT16(1, g.caughtCount());
-  see(g, 500, 45);  // still within reach
-  see(g, 1000, 55);
-  see(g, 2999, 55);
+  see(g, 500, 25);  // still within reach
+  see(g, 1000, 30);
+  see(g, 2999, 30);
   g.step(2999);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kCaught), static_cast<int>(g.state()));
   g.step(3000);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kPlaying), static_cast<int>(g.state()));
 }
 
-void test_a_step_back_inside_50_restarts_the_2_s() {
+void test_a_step_back_inside_30_restarts_the_2_s() {
   GameMode g = playing();
-  see(g, 200, 25);
-  see(g, 1000, 55);
-  see(g, 2000, 48);  // back inside 50 cm
-  for (uint32_t t = 2100; t <= 3500; t += 200) see(g, t, 55);  // estimates keep coming (else: held)
+  see(g, 200, 5);
+  see(g, 1000, 35);
+  see(g, 2000, 28);  // back inside 30 cm
+  for (uint32_t t = 2100; t <= 3500; t += 200) see(g, t, 35);  // estimates keep coming (else: held)
   g.step(3500);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kCaught), static_cast<int>(g.state()));
-  for (uint32_t t = 3700; t <= 4100; t += 200) see(g, t, 55);
+  for (uint32_t t = 3700; t <= 4100; t += 200) see(g, t, 35);
   g.step(4100);
   TEST_ASSERT_EQUAL(static_cast<int>(GameState::kPlaying), static_cast<int>(g.state()));
 }
@@ -243,6 +245,95 @@ void test_the_run_ending_clears_the_envelope() {
   TEST_ASSERT_FALSE(on);
 }
 
+// ---- design-notes §248: two levels while caught, a not-found release, only sightings catch
+
+// Caught at `t` by a sighting at `d` cm, the sonar clear (no echo).
+GameMode caughtAt(uint32_t t, int16_t d) {
+  GameMode g = playing();
+  g.onSonar(65535);
+  see(g, t, d);
+  return g;
+}
+
+void test_an_unseen_estimate_never_catches() {
+  GameMode g = playing();
+  see(g, 200, 5, 0, false);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kPlaying), static_cast<int>(g.state()));
+}
+
+void test_caught_turns_on_the_spot_only_seen_fresh_beyond_15() {
+  GameMode g = caughtAt(200, 8);
+  see(g, 300, 16);
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kTurn, 20, 300)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kForward, 20, 300)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kBack, 20, 300)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kTurn, 20, 601)));  // stale
+  see(g, 700, 15);  // the absolute level's edge: the tracks stay stopped
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kTurn, 20, 700)));
+  see(g, 800, 40, 0, false);  // out of view
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kTurn, 20, 800)));
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kCaught), static_cast<int>(g.state()));
+}
+
+// Seen at 20 after the catch, then out of view: released after the 3 s sweep, and no catch again while unseen.
+void test_not_found_for_the_sweep_releases() {
+  GameMode g = caughtAt(200, 8);
+  see(g, 400, 20);
+  for (uint32_t t = 500; t <= 3400; t += 100) see(g, t, 20, 0, false);
+  g.step(3499);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kCaught), static_cast<int>(g.state()));
+  see(g, 3500, 20, 0, false);
+  g.step(3500);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kPlaying), static_cast<int>(g.state()));
+  see(g, 3600, 5, 0, false);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kPlaying), static_cast<int>(g.state()));
+}
+
+void test_not_found_never_releases_last_seen_inside_10_an_echo_or_a_touch() {
+  GameMode near = caughtAt(200, 8);  // gone straight after the catch at 8
+  for (uint32_t t = 300; t <= 4000; t += 100) see(near, t, 8, 0, false);
+  near.step(4000);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kCaught), static_cast<int>(near.state()));
+  GameMode echo = caughtAt(200, 8);
+  see(echo, 300, 20);
+  echo.onSonar(290);  // something 29 cm ahead
+  for (uint32_t t = 400; t <= 4000; t += 100) see(echo, t, 20, 0, false);
+  echo.step(4000);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kCaught), static_cast<int>(echo.state()));
+  echo.onSonar(65534);  // a sonar fault is not clear either
+  echo.step(4000);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kCaught), static_cast<int>(echo.state()));
+  GameMode touch = playing();
+  touch.onSonar(65535);
+  see(touch, 150, 60);
+  touch.onCaughtEvent(200);
+  see(touch, 300, 20);
+  for (uint32_t t = 400; t <= 4000; t += 100) see(touch, t, 20, 0, false);
+  touch.step(4000);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kCaught), static_cast<int>(touch.state()));
+  for (uint32_t t = 4100; t <= 6200; t += 100) see(touch, t, 35);  // seen clear: released
+  touch.step(6200);
+  TEST_ASSERT_EQUAL(static_cast<int>(GameState::kPlaying), static_cast<int>(touch.state()));
+}
+
+void test_a_blind_turn_only_last_seen_from_30_with_the_sonar_clear() {
+  GameMode g = playing();
+  g.onSonar(65535);
+  see(g, 150, 30);
+  see(g, 200, 30, 0, false);
+  see(g, 1300, 30, 0, false);
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kTurn, 20, 1300)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kForward, 20, 1300)));
+  g.onSonar(290);
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kTurn, 20, 1300)));
+  GameMode n = playing();
+  n.onSonar(65535);
+  see(n, 150, 29);
+  see(n, 200, 29, 0, false);
+  see(n, 1300, 29, 0, false);
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(n.gate(kTurn, 20, 1300)));
+}
+
 // ---- final review fixes
 
 void test_a_late_rearm_restarts_the_arm_window() {  // C1
@@ -303,10 +394,11 @@ void test_the_last_distance_for_the_pages() {
 // ---- KeepOut
 
 void test_forward_towards_ends_kept_away() {
-  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(KeepOut::check(at(60), kForward, 20, 0)));
-  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kEndKeptAway), static_cast<int>(KeepOut::check(at(55), kForward, 20, 0)));
+  // stopping 20 + margin 5 + caught 10 (design-notes §248)
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(KeepOut::check(at(36), kForward, 20, 0)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kEndKeptAway), static_cast<int>(KeepOut::check(at(35), kForward, 20, 0)));
   TEST_ASSERT_EQUAL(static_cast<int>(Gate::kEndKeptAway),
-                    static_cast<int>(KeepOut::check(at(50, 59), kForward, 20, 0)));  // within ±60° of ahead
+                    static_cast<int>(KeepOut::check(at(35, 59), kForward, 20, 0)));  // within ±60° of ahead
 }
 
 void test_forward_away_or_aside_allowed() {
@@ -315,9 +407,9 @@ void test_forward_away_or_aside_allowed() {
   TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(KeepOut::check(at(40, 180), kForward, 20, 0)));
 }
 
-void test_turns_from_35_cm() {
-  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(KeepOut::check(at(36), kTurn, 20, 0)));
-  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(KeepOut::check(at(35), kTurn, 20, 0)));
+void test_turns_from_15_cm() {  // design-notes §248
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(KeepOut::check(at(16), kTurn, 20, 0)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(KeepOut::check(at(15), kTurn, 20, 0)));
 }
 
 void test_unseen_1_s_holds_forward_and_turns() {
@@ -372,8 +464,13 @@ int main(int, char**) {
   RUN_TEST(test_no_cap_or_no_people_refuses);
   RUN_TEST(test_arming_holds_until_the_envelope_ack);
   RUN_TEST(test_no_ack_within_the_arm_window_ends_off_as_no_cap);
-  RUN_TEST(test_caught_at_30_and_released_after_50_for_2_s);
-  RUN_TEST(test_a_step_back_inside_50_restarts_the_2_s);
+  RUN_TEST(test_caught_at_10_and_released_after_30_for_2_s);
+  RUN_TEST(test_a_step_back_inside_30_restarts_the_2_s);
+  RUN_TEST(test_an_unseen_estimate_never_catches);
+  RUN_TEST(test_caught_turns_on_the_spot_only_seen_fresh_beyond_15);
+  RUN_TEST(test_not_found_for_the_sweep_releases);
+  RUN_TEST(test_not_found_never_releases_last_seen_inside_10_an_echo_or_a_touch);
+  RUN_TEST(test_a_blind_turn_only_last_seen_from_30_with_the_sonar_clear);
   RUN_TEST(test_stall_or_pushing_not_moving_is_caught);
   RUN_TEST(test_stale_300_ms_holds_1_s_is_held);
   RUN_TEST(test_only_a_pressed_stop_releases_held);
@@ -390,7 +487,7 @@ int main(int, char**) {
   RUN_TEST(test_the_last_distance_for_the_pages);
   RUN_TEST(test_forward_towards_ends_kept_away);
   RUN_TEST(test_forward_away_or_aside_allowed);
-  RUN_TEST(test_turns_from_35_cm);
+  RUN_TEST(test_turns_from_15_cm);
   RUN_TEST(test_unseen_1_s_holds_forward_and_turns);
   RUN_TEST(test_backward_is_never_cut_by_bearing);
   RUN_TEST(test_standing_still_is_always_allowed);

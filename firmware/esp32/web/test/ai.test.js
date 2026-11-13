@@ -227,7 +227,7 @@ test("babyLine puts the grown-ups' numbers in the call and keeps the rest", () =
 
 test("babyLine clamps: never under 40 cm, follow beyond back-off, at most 14 minutes", () => {
   assert.ok(A.babyLine(LESSON, 10, 20, 99).trimEnd().endsWith("BABYGAME 40 50 14"));
-  assert.ok(A.babyLine(LESSON, "x", null, 0).trimEnd().endsWith("BABYGAME 70 100 1"));
+  assert.ok(A.babyLine(LESSON, "x", null, 0).trimEnd().endsWith("BABYGAME 60 80 1"));  // §248
 });
 
 test("babyLine: the follow distance stays beyond the back-off one even left empty (G3 final review M1)", () => {

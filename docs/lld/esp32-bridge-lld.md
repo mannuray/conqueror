@@ -3960,3 +3960,68 @@ playing, not held.
 `withSonar` (R34.11) leaves the estimate unchanged when the echo is more than `KeepOut::kSonarAgreeCm` (50 cm) nearer
 than the engine's distance: something stands between (a table leg), and the obstacle brake handles it. Within 50 cm
 the sonar minus the hand allowance still wins. Test `test_an_echo_far_nearer_than_the_camera_is_not_the_person`.
+
+### R34.14 A tight game: caught at 10, two levels while caught, a not-found release (Spec 10 revision 2026-11-13, design-notes §248)
+
+**Numbers** (on the engine's pessimistic distance): `KeepOut::kCaughtCm` 30 → **10**, `kTurnCm` 35 → **15**,
+`GameMode::kReleaseCm` 50 → **30**; new `GameMode::kSweepMs` **3000**, `kClearCm` **30** (the sonar ahead is clear:
+no echo, or one at 30 cm or more; a sonar fault is not clear), `kBlindTurnCm` **30**.
+
+**What catches:** a *seen* estimate at or inside 10 cm (the camera, or the sonar agreeing with it - `withSonar` needs
+`seen`), or the Uno's touch event. An unseen estimate never catches (the engine no longer counts down, AI engine LLD
+§28.19).
+
+**The gate:** arming / held hold; no fresh estimate (300 ms) holds; **caught**: only a turn on the spot, the person
+seen and beyond `kTurnCm`; **playing**: out of view beyond 1 s, a turn on the spot passes when last *seen* at
+`kBlindTurnCm` or more and the sonar ahead is clear (FACE's look round), everything else as `KeepOut::check`.
+
+**Release:** seen at `kReleaseCm` or beyond for 2 s (as before), **or not found**: out of view for `kSweepMs`, last
+seen beyond `kCaughtCm`, the sonar ahead clear, and the catch not a touch. A touch during a catch marks it a touch.
+
+```mermaid
+classDiagram
+  class GameMode {
+    +kReleaseCm = 30
+    +kSweepMs = 3000
+    +kClearCm = 30
+    +kBlindTurnCm = 30
+    +onPerson(e, now)
+    +onSonar(mm)
+    +onCaughtEvent(now)
+    +gate(move, stop_cm, now) Gate
+    +step(now)
+    -caughtGate(move) Gate
+    -playGate(move, stop_cm, now) Gate
+    -notFound(now) bool
+    -aheadClear() bool
+    -m_seen_cm : int16
+    -m_touch : bool
+    -m_sonar_mm : uint16
+  }
+  class KeepOut {
+    +kCaughtCm = 10
+    +kTurnCm = 15
+    +check(e, move, stop_cm, unseen_ms) Gate
+  }
+  class GameController {
+    +onPerson(e, now)
+    +tick(now)
+  }
+  GameController --> GameMode : onSonar before onPerson / step
+  GameMode --> KeepOut : playing moves
+```
+
+```mermaid
+stateDiagram-v2
+  Playing --> Caught: seen at or inside 10 cm, or a touch (beep)
+  Caught --> Caught: turn on the spot only if seen, fresh, beyond 15 cm
+  Caught --> Playing: seen at 30 cm or more for 2 s
+  Caught --> Playing: not found 3 s, last seen beyond 10, sonar clear, not a touch
+  Playing --> Held: no news 1 s
+  Caught --> Held: no news 1 s
+```
+
+Tests (`test_game_mode`): a seen estimate at 10 catches, at 11 not, an unseen one at 5 never; caught turn allowed at
+16 seen and fresh, held at 15, held unseen, forward / back held; not-found release after 3 s only with last seen 11+,
+the sonar clear and no touch; a touch catch never releases unseen; no catch again after a not-found release while
+unseen; playing blind turn allowed with last seen 30 and the sonar clear, held at 29 or with an echo at 29 cm.

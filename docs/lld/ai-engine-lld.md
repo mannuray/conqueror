@@ -3648,3 +3648,42 @@ the pessimistic reading (~80-90 cm by the camera). `FollowSkill` still clamps an
 
 `RoamSkill` gains `stand_s` (default `START_STAND_S` 1.0 s, unchanged for WANDER / EXPLORE / FIND / SETXY); `FollowSkill`
 makes its point routes with `stand_s=0.0`, so a replan (`REPLAN_M` 0.15 m) swaps the route without a stop.
+
+### 28.19 A tight game: the numbers once, no countdown, FACE sweeps and steps (design-notes §248, owner 2026-11-13)
+
+- **Numbers** (pessimistic distance): `FOLLOW_MIN_M` 0.30, `FOLLOW_STOP_CM` 30, `ESCAPE_NEAR_M` 0.50, `TURN_FROM_M`
+  0.15 (the bridge's turn level, R34.14).
+- **`PersonWatch.latest`:** an unseen estimate carries the last seen distance; the countdown to caught
+  (`CLOSE_M`, `CAUGHT_M`, `COUNTDOWN_US`) is removed - only sightings and touches catch (bridge R34.14).
+- **`FaceSkill` with nobody in view:** a camera sweep - the side last seen first, then ahead, then the other side,
+  `SWEEP_DWELL_S` 0.6 s each (1.8 s, inside the bridge's 3 s `kSweepMs`); not found: when last seen at
+  `BLIND_TURN_M` 0.30 or more, turns in `TURN_STEP_DEG` 30° steps toward the side last seen, a `STEP_LOOK_S` look
+  after each, at most a full circle, then lost; else lost (the tracks never turn). A sighting at any point takes
+  over (turn to them / done). The step method is `_Base._step_turn`, shared with ESCAPE's turns.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Sweep: nobody in view
+  Sweep --> Face: seen
+  Sweep --> Step: swept 1.8 s, last seen at 30 cm or more
+  Sweep --> Lost: swept, last seen nearer
+  Step --> Face: seen
+  Step --> Step: 30 degrees, look 1.5 s
+  Step --> Lost: a full circle
+  Face --> Done: facing them
+```
+
+```mermaid
+classDiagram
+  class FaceSkill {
+    +tick(now_s, inp) SkillOut
+    -_unseen(now_s, inp) SkillOut
+    -_sweep_pans(p) list
+    -_sweep_i : int
+    -_steps : int
+  }
+  class _Base {
+    #_spin_to(at, th) SkillOut
+  }
+  _Base <|-- FaceSkill
+```

@@ -3912,3 +3912,36 @@ stopped at the end of every 2 s word.
 person); a route swap no longer stands. Test `test_follow_keeps_driving_after_a_crawler_moving_away` (a person moving
 away at 12 cm/s: moving within 0.3 s, never standing while more than 0.9 m away). The floor program uses one long
 `FOLLOW "person 10` (FOLLOW stops by itself at its distance). Speed cap and every safety rule unchanged.
+
+## 248. A tight game: caught at 10, two levels while caught, a not-found release (owner 2026-11-13)
+
+The third FOLLOW run (`38997cc`): FOLLOW glides now, but a real catch (the owner's feet 43 cm in front) never
+ended - the owner walked out of the camera's view while the program only ran `WAIT 3`, and unseen-and-close kept the
+distance at the caught level; after 85 s the person messages ran 300-500 ms late and the bridge held (7066, still to
+find). Owner: "caught be 10cm ... at 50cm the tank can easily be cornered"; "let face keep turning while caught and
+there should be two levels: at some distance it should be able to turn and at absolute distance i.e 10cm it should
+stop track, but camera should be still able to turn; if in sweep can't see the person then caught should be released
+and should turn i.e normal face find should start"; then "yes" to the safeguard below.
+
+**The margin was counted twice.** The rules were real-room distances applied to the pessimistic distance (−20 cm
+near). Now the numbers are the worst case and the typical room distance is ~20 cm more:
+
+| Rule | Was | Now (pessimistic cm) | Typical real |
+|---|---|---|---|
+| caught (absolute level) | 30 | 10 | ~30 |
+| a turn on the spot (turn level) | 35 | 15 | ~35 |
+| release when seen beyond, 2 s | 50 | 30 | ~50 |
+| FOLLOW never inside / default | 50 / 50 | 30 / 30 | ~50 |
+| ESCAPE sidesteps from | 70 | 50 | ~70 |
+
+**While caught:** the tracks hold except a turn on the spot with the person seen, fresh (≤ 300 ms) and beyond 15
+cm (FACE keeps them in view). **Not-found release:** out of view for 3 s (`kSweepMs`, FACE's camera sweep left /
+ahead / right takes 1.8 s) **and** last seen beyond 10 cm **and** the sonar ahead clear (no echo inside 30 cm) **and**
+the catch was not a touch → Playing. **Safeguard (owner "yes"):** last seen inside 10 cm and gone - most likely right
+at the tank, too low or beside it - the tracks stay stopped and only the camera looks. **Blind turns** (Playing, out
+of view > 1 s): only when last seen at 30 cm or more and the sonar ahead is clear; FACE's look round then turns in
+30° steps with a look after each (ESCAPE's step method). **Only sightings and touches catch:** the engine's
+unseen countdown (`CLOSE_M` / `CAUGHT_M` / `COUNTDOWN_US`) is removed - an unseen estimate carries the last seen
+distance - else a not-found release would catch again at once. Forward toward the person still ends at its stopping
+distance + 5 cm + the caught level (now 10). The programs say `IF CAUGHT? [ FACE "baby ]` instead of `WAIT 3`;
+lesson 6 becomes `BABYGAME 50 70 5`. Bridge LLD R34.14, AI engine LLD §28.19, Tank Logo LLD §27 (lesson text).

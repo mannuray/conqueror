@@ -119,6 +119,21 @@ and run again.
   during game mode the bridge **holds all motion** (like a catch) until a person presses STOP / starts again - ending
   the program alone is not enough.
 
+- **Revision 2026-11-13 (owner, design-notes §248): a tight game, the margin counted once.** The rules' numbers are
+  on the engine's pessimistic distance (the camera's reading less 2σ, ~20 cm near), so S2's "30 cm" was ~50 cm in
+  the room and the tank was cornered at ~50 cm. Now, on the pessimistic distance (typical real ≈ +20 cm; the number
+  itself is the worst case): **caught (S2 / S3) 10 cm**, a turn on the spot from **15 cm**, the release (S9) **30 cm**,
+  FOLLOW (S4) never inside **30 cm**, ESCAPE's sidestep (S11) from **50 cm**. Two levels while caught (S3 / S9):
+  - **The absolute level (≤ 10 cm, and any touch):** the tracks stop; only the camera may move.
+  - **The turn level (seen, fresh, beyond 15 cm):** FACE may turn the tank on the spot while caught so the person
+    stays in view; never forward or back while caught.
+  - **Not found:** a catch is also released when the person stays out of view through FACE's camera sweep (3 s) -
+    only when they were last *seen* outside the absolute level, the sonar ahead is clear, and the catch was not a
+    touch (pushing / stall). Then FACE's normal look round runs; a turn while out of view only when last seen at
+    30 cm or more and the sonar ahead is clear.
+  - Only a sighting (the camera, or the sonar agreeing with it) or a touch catches; "last seen close, now unseen"
+    no longer counts down to caught (it would catch again at once after a not-found release).
+
 ## 5. How it is built (phases)
 
 **Phase 0 - can it see a crawling person? (measure first, go / no-go).** An adult crawls at 0.3, 0.5, 1, 1.5 and 2 m

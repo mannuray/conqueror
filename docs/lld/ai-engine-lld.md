@@ -3635,3 +3635,11 @@ person 1 m straight ahead (out of view), nothing known: the camera goes to 0, FA
 the pessimistic reading (~80-90 cm by the camera). `FollowSkill` still clamps any distance to `FOLLOW_MIN_M` 0.50
 (S4). Test (first): `test_follow_by_default_stops_at_50_cm` - `game_skill("follow", ...)` with no distance has
 `stop_m` 0.50.
+
+### 28.17 One margin rule, and the sonar only when it agrees (design-notes §246, owner 2026-11-13)
+
+- `sigma_m`: 10 cm up to 1 m, 10 % beyond (`SIGMA_FAR` 0.10, was 0.20): the pessimistic distance never jumps nearer
+  as the person moves away. Caught / release / FOLLOW's minimum (all under 1 m) are unchanged.
+- `PersonWatch.update`: the sonar echo ahead replaces the camera's distance only when it is at most `SONAR_AGREE_M`
+  (0.50 m) nearer than it; a farther-off disagreement is furniture between, not the person (the bridge does the same,
+  bridge LLD R34.13).

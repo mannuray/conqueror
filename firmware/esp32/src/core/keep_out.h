@@ -38,13 +38,15 @@ class KeepOut {
   static constexpr uint32_t kUnseenMs = 1000;  // owner: hold, then look
   static constexpr int16_t kReachCm = 20;      // a crawler's hands ahead of the body the sonar sees (design-notes §235)
   static constexpr int16_t kSonarConeDeg = 12;  // the sonar's beam: a person this near ahead is in it
+  static constexpr int16_t kSonarAgreeCm = 50;  // an echo more than this nearer than the camera is not them (§246)
   // stop_cm: how far the tank runs on after a stop at this speed (the learned coast); unseen_ms: how long the person
   // has been out of sight (0 = seen now).
   static Gate check(const PersonEst& e, const Move& m, uint16_t stop_cm, uint32_t unseen_ms);
 };
 
 // R34.11 (design-notes §235): a person seen in the sonar's beam is no farther than the sonar's reading minus the hand
-// allowance - the camera misses a close crawler's arms. Otherwise (aside, unseen, no echo / fault) `e` unchanged.
+// allowance - the camera misses a close crawler's arms. Otherwise (aside, unseen, no echo / fault, or an echo more than
+// kSonarAgreeCm nearer than the camera: something in between, design-notes §246) `e` unchanged.
 PersonEst withSonar(const PersonEst& e, uint16_t sonar_mm);
 
 }  // namespace core

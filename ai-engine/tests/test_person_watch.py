@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 import pytest
 
 from conqueror_ai.domain.camera import CameraModel
@@ -27,7 +29,15 @@ def test_one_metre_ahead_reads_one_metre_less_two_sigma() -> None:
 
 def test_beyond_one_metre_the_margin_grows() -> None:
     e = watch_at(1.5).latest(0)
-    assert e is not None and e.d_m == pytest.approx(1.5 - 0.6, abs=0.03)  # sigma 0.20 x 1.5
+    assert e is not None and e.d_m == pytest.approx(1.5 - 0.3, abs=0.03)  # sigma 0.10 x 1.5
+
+
+def test_farther_never_reads_nearer() -> None:
+    """One margin rule, no jump at 1 m (the floor runs: 1.05 m read 0.6, nearer than 1.0 m's 0.8)."""
+    reads = [watch_at(d / 100).latest(0) for d in range(80, 160, 5)]
+    ds = [e.d_m for e in reads if e is not None and e.d_m is not None]
+    assert len(ds) == len(reads)
+    assert all(b >= a - 0.01 for a, b in itertools.pairwise(ds))
 
 
 def test_the_sonar_wins_near_and_ahead() -> None:
@@ -35,6 +45,14 @@ def test_the_sonar_wins_near_and_ahead() -> None:
     assert e is not None and e.d_m == pytest.approx(0.6 - 0.2, abs=0.02)
     aside = watch_at(0.9, 30.0, sonar=0.6).latest(0)  # outside ±12°: not the person's echo
     assert aside is not None and aside.d_m == pytest.approx(0.9 - 0.2, abs=0.03)
+
+
+def test_an_echo_far_nearer_than_the_camera_is_not_the_person() -> None:
+    """A table leg 35 cm ahead, the person seen at 1.24 m (§246): the leg is not the person."""
+    e = watch_at(1.24, 0.0, sonar=0.36).latest(0)
+    assert e is not None and e.d_m == pytest.approx(1.24 * 0.8, abs=0.03)
+    near = watch_at(0.9, 0.0, sonar=0.45).latest(0)  # 45 cm nearer: still the person's arms
+    assert near is not None and near.d_m == pytest.approx(0.45 - 0.2, abs=0.02)
 
 
 def test_a_box_cut_by_the_pictures_bottom_reads_close() -> None:

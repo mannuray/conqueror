@@ -17,12 +17,13 @@ CUT_PX = 4.0  # a box whose bottom is this near the picture's bottom edge is cut
 EDGE_PX = 4.0  # a box this near the picture's side edge: the person is at least that far round (LLD §28.12)
 SONAR_DEG = 12.0  # within this of ahead the sonar's echo may be the person's
 SONAR_MAX_M = 4.0
+SONAR_AGREE_M = 0.50  # an echo more than this nearer than the camera is something in between, not them (§246)
 CUT_M = 0.35  # a box cut by the picture's bottom: close, below the picture
 WINDOW_US = 300_000  # the distance's median window
 COMING_US = 500_000  # ... and how far back "coming / going" looks
 COMING_M = 0.05
-SIGMA_NEAR_M = 0.10  # until P0 measures it: ±10 cm up to 1 m, ±20 % beyond (2sigma is taken off)
-SIGMA_FAR = 0.20
+SIGMA_NEAR_M = 0.10  # ±10 cm up to 1 m, ±10 % beyond: one rule, no jump at 1 m (2sigma is taken off, §246)
+SIGMA_FAR = 0.10
 CLOSE_M = 0.50  # last seen inside this: the distance counts down while unseen
 CAUGHT_M = 0.30  # ... and reads this after COUNTDOWN_US
 COUNTDOWN_US = 1_000_000
@@ -156,7 +157,12 @@ class PersonWatch:
             return self.latest(t_us)
         d = r.dist_m if r.dist_m is not None else CUT_M
         bearing = r.bearing_deg if r.bearing_deg is not None else 0.0
-        if sonar_m is not None and 0.0 < sonar_m < SONAR_MAX_M and abs(bearing) <= SONAR_DEG:
+        if (
+            sonar_m is not None
+            and 0.0 < sonar_m < SONAR_MAX_M
+            and abs(bearing) <= SONAR_DEG
+            and sonar_m >= d - SONAR_AGREE_M - 1e-9
+        ):
             d = min(d, sonar_m)
         med = self._window(t_us, d)
         rep = max(0.0, med - 2.0 * sigma_m(med))

@@ -347,6 +347,12 @@ void test_sonar_ahead_takes_the_nearer_with_the_hand_allowance() {
   TEST_ASSERT_EQUAL_INT16(0, cq::core::withSonar(at(60), 120).d_cm);    // never below 0
 }
 
+// design-notes §246: an echo more than 50 cm nearer than the camera is something in between (a table leg), not them
+void test_an_echo_far_nearer_than_the_camera_is_not_the_person() {
+  TEST_ASSERT_EQUAL_INT16(100, cq::core::withSonar(at(100), 360).d_cm);  // 64 cm nearer: the leg
+  TEST_ASSERT_EQUAL_INT16(30, cq::core::withSonar(at(100), 500).d_cm);   // 50 cm nearer: still them
+}
+
 void test_sonar_aside_unseen_or_no_echo_leaves_the_camera() {
   TEST_ASSERT_EQUAL_INT16(60, cq::core::withSonar(at(60, 30), 450).d_cm);   // outside the beam
   TEST_ASSERT_EQUAL_INT16(60, cq::core::withSonar(at(60, -13), 450).d_cm);
@@ -389,6 +395,7 @@ int main(int, char**) {
   RUN_TEST(test_backward_is_never_cut_by_bearing);
   RUN_TEST(test_standing_still_is_always_allowed);
   RUN_TEST(test_sonar_ahead_takes_the_nearer_with_the_hand_allowance);
+  RUN_TEST(test_an_echo_far_nearer_than_the_camera_is_not_the_person);
   RUN_TEST(test_sonar_aside_unseen_or_no_echo_leaves_the_camera);
   RUN_TEST(test_sonar_gives_a_distance_when_the_camera_has_none);
   return UNITY_END();

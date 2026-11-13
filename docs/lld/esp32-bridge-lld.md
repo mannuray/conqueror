@@ -3954,3 +3954,9 @@ classDiagram
 
 Test (first): `test_an_ack_stamped_after_the_loops_now_does_not_hold` - armed, the ack at 1001, `step(1000)`:
 playing, not held.
+
+### R34.13 An echo far nearer than the camera is not the person (design-notes §246, owner 2026-11-13)
+
+`withSonar` (R34.11) leaves the estimate unchanged when the echo is more than `KeepOut::kSonarAgreeCm` (50 cm) nearer
+than the engine's distance: something stands between (a table leg), and the obstacle brake handles it. Within 50 cm
+the sonar minus the hand allowance still wins. Test `test_an_echo_far_nearer_than_the_camera_is_not_the_person`.

@@ -3877,3 +3877,25 @@ tank link and the STOP wiring, and the copies had drifted - some in STOP.
   `FACE`. Caught twice: FACE turned ~28 deg right onto the owner at ~0.5 m (0.30 reported), and once with the
   owner unseen close (0 reported). Each time stop + beep, played on. Never followed (never beyond 100).
 - **So:** lesson 6's numbers must fit ESCAPE's 70 cm rule and the pessimistic reading - to decide (owner).
+
+## 246. A tighter game: one margin rule, and an echo that is not the person (owner 2026-11-13)
+
+The owner found the game kept about a metre of space ("a meter of space is bit too much, let the space be tight") and
+chose to experiment with the numbers while Claude watches the camera pictures, FOLLOW first, ESCAPE after.
+
+**Why a metre.** The engine's pessimistic distance took 2σ off: σ 10 cm up to 1 m but 20 % beyond, so the reading
+jumped at 1 m (1.0 m read 0.80, 1.05 m read 0.63). Everything the games decide (caught 30, FOLLOW's stop 50, ESCAPE's
+sidestep 70, the lesson's 100) sat on that number. **Change:** σ 10 % beyond 1 m (`SIGMA_FAR` 0.20 → 0.10): one rule,
+no jump; at or under 1 m nothing changes, so caught, release and FOLLOW's minimum land where they did. Test
+`test_farther_never_reads_nearer`; `test_beyond_one_metre_the_margin_grows` now 1.5 m → 1.2 (was 0.9).
+
+**The first FOLLOW-game run** (`REPEAT 60 [ IFELSE CAUGHT? [ WAIT 3 ] [ IFELSE HOWFAR "person > 70 [ FOLLOW "person 2 ]
+[ FACE "person ] ] ]`): after one FOLLOW the tank faced a table leg ~35 cm ahead while the person was 1.24 m away, 11°
+off. The sonar rule (§235, R34.11) took any echo in the beam as the person: 0.16 m, caught. The table then hid the
+person, unseen-and-close kept the distance near, and caught never released (74 s, "the tank is stuck").
+
+**Owner (2026-11-13, "yes"):** an echo **more than 50 cm nearer than the camera's distance** is something in between,
+not the person: the engine (`SONAR_AGREE_M` 0.50, against the camera's raw distance) and the bridge
+(`KeepOut::kSonarAgreeCm` 50, against the engine's distance) both leave the camera's number. A crawler's reaching
+arms stay ≤ ~20 cm nearer, so they still count; the obstacle brake still stops the tank at the table. Tests
+`test_an_echo_far_nearer_than_the_camera_is_not_the_person` (engine and bridge).

@@ -259,3 +259,14 @@ def test_a_thing_at_the_front_corner_is_turned_away_from_a_little_first() -> Non
     moves = [m for m in P.fan(at, aim, STOP, None, cost) if m != STOP]
     assert not any(P.foot.allowed(cost, at, roll_out(at, STOP, m, LIM)) for m in moves)
     assert P.choose(at, STOP, aim, cost=cost) == Command(0.0, -LIM.spin_dps)
+
+
+def test_a_follow_planner_curves_up_to_90_deg_and_spins_beyond() -> None:  # design-notes §250 (owner "a")
+    """FOLLOW curves for anything up to 90 deg off, even an aim point inside the tightest circle (FOLLOW holds
+    itself when its spot is inside); behind it, a turn on the spot still."""
+    f = Planner(LIM, spin_from_deg=90.0)
+    aside = (0.085 + 0.60, -0.50)  # 40 deg off: the ball chase's spin
+    c = f.choose((0.0, 0.0, 0.0), Command(25.0, 0.0), aside)
+    assert c.v_cms > 0 and c.w_dps < 0
+    assert f.choose((0.0, 0.0, 0.0), Command(25.0, 0.0), (0.4, 0.3)).v_cms > 0  # an aim inside the circle
+    assert f.choose((0.0, 0.0, 0.0), STOP, (-1.0, -0.2)) == Command(0.0, -LIM.spin_dps)  # behind: spin

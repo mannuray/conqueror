@@ -377,6 +377,29 @@ def test_follow_keeps_driving_after_a_crawler_moving_away() -> None:
     assert stood == []
 
 
+def test_follow_up_close_and_aside_holds_with_the_camera_on_them() -> None:  # design-notes §250 (owner "1")
+    """The floor run stopped and spun whenever FOLLOW's spot was close and a little aside (inside the tightest
+    circle); now the tank holds and the camera turns."""
+    person = (0.75 + FRONT_M, 0.30)  # ~20 deg left: the spot soon inside the tightest circle
+    skill = FollowSkill(LIM, 3.0, 0.3)
+    p = play(skill, person, limit_s=4.0)
+    assert not any(c.v_cms == 0 and c.w_dps != 0 for c in p.cmds)  # never a turn on the spot
+    assert p.cmds[-1] == Command(0.0, 0.0) and p.cams and p.cams[-1][0] < -15.0  # holds, the camera on them
+
+
+def test_follow_turns_on_the_spot_only_beyond_the_cameras_reach() -> None:
+    """A crawler going aside: the tank holds while the camera reaches them, then curves after them; a turn on
+    the spot only beyond 60 deg."""
+    start, walk = (0.9 + FRONT_M, 0.0), (0.0, 0.15)
+    p = play(FollowSkill(LIM, 9.0, 0.3), start, limit_s=10.0, walk=walk)
+    for i, (c, at) in enumerate(zip(p.cmds, p.at, strict=True)):
+        if c.v_cms == 0 and abs(c.w_dps) >= LIM.spin_dps:
+            px, py = start[0] + walk[0] * LIM.dt_s * i, start[1] + walk[1] * LIM.dt_s * i
+            b = math.degrees(math.remainder(math.atan2(py - at[1], px - at[0]) - at[2], math.tau))
+            assert abs(b) > 50.0, (i, b)
+    assert max(p.gaps) < 1.0  # it went after them (the floor run's watch-only bug kept 1.1 m and growing)
+
+
 def test_follow_unseen_is_lost() -> None:
     p = play(FollowSkill(LIM, 20.0, 1.0), (2.0, 0.0), hide_from_s=T0_S + 1.0, limit_s=10.0)
     assert p.result == Result.LOST

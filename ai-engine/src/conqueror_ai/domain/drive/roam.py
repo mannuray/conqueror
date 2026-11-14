@@ -134,7 +134,9 @@ class RoamSkill:
             raise ValueError("mode 'point' needs a point")
         self.planner = planner
         self.slow = Planner(
-            replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, planner.lim.slow_cms)), planner.w
+            replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, planner.lim.slow_cms)),
+            planner.w,
+            planner.spin_from_deg,  # the slow planner turns as the given one does (FOLLOW, design-notes §250)
         )
         self.lim = planner.lim
         self.settings = cost or CostSettings()

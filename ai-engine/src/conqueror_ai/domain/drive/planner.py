@@ -40,9 +40,14 @@ def bearing_deg(at: XYTh, target: tuple[float, float]) -> float:
 
 
 class Planner:
-    def __init__(self, lim: Limits, weights: Weights | None = None) -> None:
+    def __init__(
+        self, lim: Limits, weights: Weights | None = None, spin_from_deg: float = SPIN_FROM_DEG
+    ) -> None:
+        """spin_from_deg: beyond this far off, a turn on the spot first. FOLLOW gives 90 (design-notes §250):
+        it curves for anything nearer ahead, even inside the tightest circle - a person, not a small ball."""
         self.lim = lim
         self.w = weights or Weights()
+        self.spin_from_deg = spin_from_deg
         self.foot = Footprint(lim)
 
     def can_spin(
@@ -96,7 +101,12 @@ class Planner:
                 if math.isfinite(r_min) and r >= r_min:
                     w = math.degrees(v / 100.0 / r)
                     out += [Command(v, w), Command(v, -w)]
-        if spin_ok and (abs(b) > SPIN_FROM_DEG or (self.inside_turn(at, target) and abs(b) > SPIN_UNTIL_DEG)):
+        # no curve reaches it: a turn on the spot - except a curving planner (FOLLOW: its aim point 0.5 m
+        # along the route is "inside" from ~27 deg off; it holds itself when its spot is inside, §250)
+        inside = (
+            self.spin_from_deg <= SPIN_FROM_DEG and self.inside_turn(at, target) and abs(b) > SPIN_UNTIL_DEG
+        )
+        if spin_ok and (abs(b) > self.spin_from_deg or inside):
             # well off to one side, or no curve reaches it: turn on the spot first. Nearly ahead, straight on
             # passes close enough - at the slowest speed no curve reaches anything off-centre, and turning to
             # it exactly overshot back and forth for ever (Plan Z5)

@@ -3742,3 +3742,45 @@ sequenceDiagram
     PW-->>W: estimate (nearer distance, bearing nearest ahead), t = this picture
     W->>B: person {age_ms small}
 ```
+
+
+### 28.21 FOLLOW up close: the camera turns, the tank holds (design-notes §250, owner 2026-11-14)
+
+- `Planner(lim, weights=None, spin_from_deg=SPIN_FROM_DEG)`: beyond `spin_from_deg` off, a turn on the spot first.
+  The default planner also turns on the spot for a target inside the tightest circle (`inside_turn`); a curving
+  planner (`spin_from_deg` above the default) does not - a route's aim point 0.5 m ahead is "inside" from ~27°
+  off (found in the simulator: that rule, not the 35°, made the floor run's spins), and FOLLOW holds itself when
+  its spot is inside. `RoamSkill`'s slow planner takes the same `spin_from_deg`.
+- `FOLLOW_SPIN_FROM_DEG = 90`: FOLLOW's routes curve up to 90° off.
+- `FollowSkill.tick`, after the near check: the spot inside the tightest circle and the person within
+  `FOLLOW_PAN_DEG` (60°) → state "watch": hold, the camera on them, the route dropped; else the route as before.
+
+```mermaid
+stateDiagram-v2
+    [*] --> follow
+    follow --> near: within stop_m
+    follow --> watch: spot inside the tightest circle, person within 60 deg
+    watch --> follow: spot outside the circle (they moved away)
+    watch --> follow: person beyond 60 deg (the route turns on the spot)
+    near --> follow: beyond stop_m
+    follow --> [*]: seconds up (done) / unseen 1 s (lost)
+```
+
+```mermaid
+classDiagram
+    class FollowSkill {
+        +seconds: float
+        +stop_m: float
+        -_planner: Planner
+        +tick(now_s, inp) SkillOut
+        -_goal_for(at) XY
+    }
+    class Planner {
+        +spin_from_deg: float
+        +inside_turn(at, target) bool
+        +choose(at, now, target, ...) Command
+    }
+    FollowSkill --> Planner : FOLLOW_SPIN_FROM_DEG
+    FollowSkill --> RoamSkill : route to the spot
+    RoamSkill --> Planner
+```

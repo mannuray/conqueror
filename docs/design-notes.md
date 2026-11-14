@@ -3963,3 +3963,23 @@ still sample) and the pan the servo reports. Per box the pessimistic read: the *
 **nearest straight ahead** (0 when the two ends lie either side), a cut box still cut. No box: a fresh "not in view".
 No still sample before the move (start unknown): the picture is not used, as before. The bridge's rules (300 ms
 fresh, 1 s held) are unchanged. AI engine LLD §28.20.
+
+## 250. FOLLOW turned by stopping and spinning (owner 2026-11-14: "it was good except for tank turning, it stops and spins, it should be a smooth turn", then "1")
+
+The fifth FOLLOW run (`4da7f17`, 2.5 min, no 7066): FOLLOW stopped and turned on the spot 9 times. Every one came
+when FOLLOW's spot (the follow distance short of the person) was 15-40 cm ahead and a little aside - inside the
+tightest circle the tank can drive (~55 cm at 25 cm/s; at 18 cm/s none: the inner track can't run slower). No
+curve reaches such a spot; the planner's rule turns on the spot. Banning the spin in the simulator drove the tank
+past a person crawling sideways.
+
+Options: **1, up close the camera turns and the tank holds** (owner: "1"); 2, follow from farther back (a looser
+game); 3, spin without the stop (as many turns).
+
+**1:** when FOLLOW's spot lies inside the tightest circle and the person is within the camera's reach (60°), FOLLOW
+holds still with the camera on them ("watch"); beyond 60° or behind, the route turns on the spot as before. Moving
+farther away, the spot leaves the circle and FOLLOW drives curves after them. FOLLOW's planner also curves up to 90°
+off (the ball chase's 35° rule, §157, stays for FIND / WANDER / EXPLORE). Found while building it: the route aims
+0.5 m along its path, and the planner turned on the spot for any aim inside the tightest circle - from ~27° off -
+so FOLLOW's planner leaves that rule out and holds on its own spot instead. In the simulator a person crawling
+aside at 15 cm/s: no turn on the spot, holds while close, then curves after them, never more than 1 m behind.
+AI engine LLD §28.21.

@@ -33,6 +33,9 @@ LOST_S = 1.0  # not seen this long (while not spinning): lost
 VIEW_DEG = 41.0  # half the camera's view: ESCAPE knows where the person is only inside it
 ESCAPE_NEAR_M = 0.50  # nearer, ESCAPE never turns its back (S11): back over trusted floor, or stay (§248)
 FOLLOW_MIN_M = 0.30  # FOLLOW never nearer than this, whatever the setting (S4, §248)
+FOLLOW_SPIN_FROM_DEG = (
+    90.0  # FOLLOW curves up to this far off; behind it, a turn on the spot (design-notes §250)
+)
 FOLLOW_PAN_DEG = 60.0  # FOLLOW keeps the camera on the person up to this pan
 PAN_STEP_DEG = 3.0  # the camera is sent again only when it should move more than this
 TURN_PAN_STEP_DEG = 20.0  # ESCAPE's camera in steps this big (a moving camera's pictures are skipped)
@@ -395,6 +398,7 @@ class FollowSkill(_Base):
         self._t0: float | None = None
         self._route: RoamSkill | None = None
         self._goal: XY | None = None
+        self._planner = Planner(lim, spin_from_deg=FOLLOW_SPIN_FROM_DEG)
 
     def tick(self, now_s: float, inp: SkillInput) -> SkillOut:
         self._clock(now_s, inp)
@@ -412,8 +416,14 @@ class FollowSkill(_Base):
             self._route, self.state = None, "near"
             return self._halt(cam)
         goal = self._goal_for(at)
+        if self._planner.inside_turn(at, goal) and abs(self.sight.bearing(at)) <= FOLLOW_PAN_DEG:
+            self._route, self.state = (
+                None,
+                "watch",
+            )  # no curve reaches the spot: hold, the camera on them (§250)
+            return self._halt(cam)
         if self._route is None or self._goal is None or math.dist(goal, self._goal) > REPLAN_M:
-            self._route, self._goal = RoamSkill(Planner(self.lim), "point", point=goal, stand_s=0.0), goal
+            self._route, self._goal = RoamSkill(self._planner, "point", point=goal, stand_s=0.0), goal
         self.state = "follow"
         out = self._route.tick(now_s, inp)
         if out.result is not None:  # there, or no way for now: wait facing them and plan again

@@ -555,3 +555,19 @@ def test_a_still_picture_gives_no_glimpse() -> None:
     p = pipeline_with()
     p.on_frame(frame(170_000), (320, 240), [box_on_floor(cam_at(), 1.0, 0.1)])
     assert p.glimpses() == []
+
+
+def test_the_gate_gives_both_ends_of_a_pan_for_the_person() -> None:  # design-notes §249, LLD §28.20
+    p = moving_pipeline()
+    ends = p.gate.camera_moving(200_000)
+    assert ends is not None
+    start, now = ends
+    started = CAL.pan_map[1]  # servo 90: the centre, where the move started (camera angles: right = +)
+    reported = CAL.pan_map[0] * 30.0 + CAL.pan_map[1]  # servo 60: 30 deg right of centre
+    assert math.isclose(start.real_pan_deg(), started, abs_tol=0.5)
+    assert math.isclose(now.real_pan_deg(), reported, abs_tol=0.5)
+    assert start.tilt_deg == now.tilt_deg
+
+
+def test_the_gate_gives_no_pan_ends_for_a_still_picture() -> None:
+    assert pipeline_with().gate.camera_moving(170_000) is None

@@ -155,6 +155,19 @@ class FrameGate:
         assert pose is not None and a is not None  # "turning" is only given with both
         return CameraModel(self.cal, tilt_fix_deg=self.tilt_fix_deg).for_frame(pose, *from_servo(a[0], a[1]))
 
+    def camera_moving(self, cap_us: int) -> tuple[CameraModel, CameraModel] | None:
+        """For a picture skipped only for "camera moving": the camera at the pan where the move started and at
+        the pan reported now (the servo has no sensor, LLD §25 A2), the reported tilt and the pose at the
+        capture. None for any other reason or when the start is unknown (design-notes §249, LLD §28.20)."""
+        if self.camera_for(cap_us) != "camera moving":
+            return None
+        t = self.capture_us(cap_us)
+        pose, a, start = self._history.at(t), self._angles.at(t), self._angles.still_pan_before(t)
+        if pose is None or a is None or start is None:
+            return None
+        base = CameraModel(self.cal, tilt_fix_deg=self.tilt_fix_deg)
+        return base.for_frame(pose, *from_servo(start, a[1])), base.for_frame(pose, *from_servo(a[0], a[1]))
+
 
 @dataclass(frozen=True)
 class Glimpse:
@@ -492,11 +505,10 @@ class ObjectPipeline:
     def _glimpse(self, dets: list[Detection], cap_us: int) -> list[Glimpse]:
         """Each detection's bearing range: the camera at where the move started and at where it was sent."""
         t = self.gate.capture_us(cap_us)
-        pose, a, start = self._history.at(t), self._angles.at(t), self._angles.still_pan_before(t)
-        if pose is None or a is None or start is None:
+        ends = self.gate.camera_moving(cap_us)
+        pose = self._history.at(t)
+        if ends is None or pose is None:
             return []
-        base = CameraModel(self.cal, tilt_fix_deg=self.gate.tilt_fix_deg)
-        ends = [base.for_frame(pose, *from_servo(pan, a[1])) for pan in (start, a[0])]
         out: list[Glimpse] = []
         for d in dets:
             u, v = (d.box[0] + d.box[2]) / 2, (d.box[1] + d.box[3]) / 2

@@ -241,6 +241,11 @@ class World:
                 if rough is not None:
                     self.person.update([d.box for d in dets if d.cls == "person"], rough, self.sonar_m, t)
                     self._person_us = t
+            elif used == "camera moving":  # design-notes §249: FACE's sweep keeps the estimate fresh
+                ends = self.map_run.p.gate.camera_moving(f.cap_us)
+                if ends is not None:
+                    self.person.update([d.box for d in dets if d.cls == "person"], ends, self.sonar_m, t)
+                    self._person_us = t
             return used
         self._used = True
         self.person.update([d.box for d in dets if d.cls == "person"], used, self.sonar_m, t)

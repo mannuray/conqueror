@@ -93,7 +93,35 @@ def test_a_turning_picture_still_sees_the_person(tmp_path: Path, monkeypatch: py
     assert picture(w, f, [Detection("person", 0.9, (x1, y1, x2, y2))]) == "turning"
     e = w.person.latest(f.cap_us)
     assert e is not None and e.seen
-    monkeypatch.setattr(w.map_run, "gate", skipped("camera moving"))  # any other skip: not used
+    monkeypatch.setattr(w.map_run, "gate", skipped("no pose"))  # any other skip: not used
     g = Frame(seq=f.seq + 1, cap_us=f.cap_us + 100_000, recv_s=f.recv_s + 0.1, jpeg=f.jpeg)
     picture(w, g, [])
     assert w.person.last_us != g.cap_us
+
+
+def test_a_picture_while_the_camera_pans_still_sees_the_person(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Design-notes §249: FACE's sweep skipped every picture, the estimate aged and the bridge held (7066);
+    a picture skipped for "camera moving" reads the person through the move's two ends; the map skips it."""
+    w, frames = ready(tmp_path)
+    f = frames[-1]
+    cam = w.map_run.p.camera_at(f.cap_us)
+    assert isinstance(cam, CameraModel)
+
+    def moving(*_: object) -> str:
+        return "camera moving"
+
+    def ends(cap_us: int) -> tuple[CameraModel, CameraModel]:
+        return cam, cam
+
+    monkeypatch.setattr(w.map_run, "gate", moving)
+    monkeypatch.setattr(w.map_run.p.gate, "camera_moving", ends)
+    x1, y1, x2, y2 = box_at(cam, 0.9, 0.0)
+    assert picture(w, f, [Detection("person", 0.9, (x1, y1, x2, y2))]) == "camera moving"
+    e = w.person.latest(f.cap_us)
+    assert e is not None and e.seen and w.person.last_us is not None
+    g = Frame(seq=f.seq + 1, cap_us=f.cap_us + 100_000, recv_s=f.recv_s + 0.1, jpeg=f.jpeg)
+    picture(w, g, [])  # nobody in the next one: fresh news, not in view
+    later = w.person.latest(g.cap_us)
+    assert later is not None and not later.seen and later.t_us > e.t_us

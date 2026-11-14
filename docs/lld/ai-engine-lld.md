@@ -3689,3 +3689,56 @@ classDiagram
   }
   _Base <|-- FaceSkill
 ```
+
+
+### 28.20 The person in pictures taken while the camera moves (design-notes §249, owner 2026-11-14)
+
+FACE's camera sweep skipped every picture while the servo moved (the map's blur rule), so the person estimate aged
+past the bridge's 300 ms and the game was held (7066). Now a picture skipped for "camera moving" still feeds
+`PersonWatch` - never the map, the tracker or find's maybes.
+
+- `FrameGate.camera_moving(cap_us) -> tuple[CameraModel, CameraModel] | None`: for a picture skipped only for
+  "camera moving", the camera at the pan where the move started (`CameraAngles.still_pan_before`) and at the pan
+  reported now, both with the reported tilt and the pose at the capture; None for any other reason or when the
+  start is unknown. `ObjectPipeline._glimpse` uses it too (one place for the two ends).
+- `moving_range(cams, box) -> PersonRange`: the box through both cameras, pessimistic - the nearer distance (a
+  None one does not hide the other), the bearing nearest 0 (0 when they straddle it), "cut" when either is cut.
+- `PersonWatch.update(boxes, cam, ...)` takes `cam: CameraModel | tuple[CameraModel, CameraModel] | None`; a pair
+  reads each box with `moving_range`. The rest (the 0.3 s nearest window, the sonar, minus 2 sigma) is unchanged.
+- `World.on_picture`: skipped for "camera moving" with a pair from the gate → `person.update(..., pair, ...)`, the
+  person's time advances; the map still skips the picture.
+
+```mermaid
+classDiagram
+    class FrameGate {
+        +camera_for(cap_us) CameraModel|str
+        +camera_turning(cap_us) CameraModel|None
+        +camera_moving(cap_us) tuple~CameraModel,CameraModel~|None
+    }
+    class PersonWatch {
+        +update(boxes, cam: CameraModel|pair|None, sonar_m, t_us) PersonEst|None
+    }
+    class person_module {
+        +person_range(cam, box) PersonRange
+        +moving_range(cams, box) PersonRange
+    }
+    World --> FrameGate : skipped picture
+    World --> PersonWatch : boxes + camera(s)
+    PersonWatch --> person_module
+```
+
+```mermaid
+sequenceDiagram
+    participant P as Perception
+    participant W as World
+    participant G as FrameGate
+    participant PW as PersonWatch
+    participant B as Bridge
+    P->>W: on_picture(f, dets)
+    W->>G: camera_for(cap) = "camera moving"
+    W->>G: camera_moving(cap)
+    G-->>W: (cam at move start, cam at reported pan)
+    W->>PW: update(person boxes, pair, sonar, t)
+    PW-->>W: estimate (nearer distance, bearing nearest ahead), t = this picture
+    W->>B: person {age_ms small}
+```

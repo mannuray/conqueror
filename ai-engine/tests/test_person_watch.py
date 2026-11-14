@@ -7,7 +7,7 @@ import itertools
 import pytest
 
 from conqueror_ai.domain.camera import CameraModel
-from conqueror_ai.domain.person import PersonWatch, person_range
+from conqueror_ai.domain.person import PersonWatch, moving_range, person_range
 from tests.test_person_test import box_at, cam_down
 
 S = 1_000_000  # µs per second
@@ -207,3 +207,48 @@ def test_a_sky_box_beside_a_measured_one_takes_its_distance() -> None:  # §239:
     cam = cam_down()
     e = PersonWatch().update([sky_box(cam, -30.0), box_at(cam, 0.9, -30.0)], cam, None, 0)
     assert e is not None and e.seen and e.d_m == pytest.approx(0.70, abs=0.03)  # not caught
+
+
+# ---- design-notes §249 (AI engine LLD §28.20): pictures taken while the camera pans still feed the watch
+def panned(pan_deg: float) -> CameraModel:
+    c = cam_down()
+    return c.for_frame(c.pose, pan_deg, c.tilt_deg)
+
+
+def test_a_box_seen_while_the_camera_pans_reads_the_nearer_distance_nearest_ahead() -> None:
+    start, now = panned(0.0), panned(-30.0)  # the sweep swinging right
+    box = box_at(now, 1.0, -40.0)
+    a, b = person_range(start, box), person_range(now, box)
+    assert (
+        a.bearing_deg is not None
+        and b.bearing_deg is not None
+        and a.dist_m is not None
+        and b.dist_m is not None
+    )
+    r = moving_range((start, now), box)
+    assert r.bearing_deg == pytest.approx(min(a.bearing_deg, b.bearing_deg, key=abs))
+    assert r.dist_m == pytest.approx(min(a.dist_m, b.dist_m))
+    w = PersonWatch()
+    e = w.update([box], (start, now), None, 0)
+    assert e is not None and e.seen and e.d_m is not None
+    assert e.d_m <= min(a.dist_m, b.dist_m) - 0.19  # minus 2 sigma, as a still picture
+
+
+def test_ends_either_side_of_ahead_read_straight_ahead() -> None:
+    start, now = panned(20.0), panned(-20.0)
+    box = box_at(panned(0.0), 1.0, 0.0)
+    r = moving_range((start, now), box)
+    assert r.bearing_deg == 0.0
+
+
+def test_a_cut_box_while_panning_stays_cut() -> None:
+    start, now = panned(0.0), panned(-30.0)
+    h = float(now.cal.size[1])
+    r = moving_range((start, now), (100.0, h - 60.0, 160.0, h))
+    assert r.reason == "cut" and r.dist_m is None
+
+
+def test_a_panning_picture_with_nobody_is_fresh_news() -> None:
+    w = watch_at(1.0, t_us=0)
+    e = w.update([], (panned(0.0), panned(-30.0)), None, S // 2)
+    assert e is not None and not e.seen and e.t_us == S // 2

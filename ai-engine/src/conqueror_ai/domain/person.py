@@ -83,6 +83,23 @@ def pick_person(ranges: Sequence[PersonRange]) -> PersonRange | None:
     return ranges[0] if ranges else None
 
 
+def moving_range(cams: tuple[CameraModel, CameraModel], box: tuple[float, ...]) -> PersonRange:
+    """A box in a picture taken while the camera panned (design-notes §249): read through the camera at the
+    move's start and at the reported pan, pessimistic - the nearer distance, the bearing nearest straight
+    ahead (0 when the two lie either side), cut when either is cut."""
+    a, b = (person_range(c, box) for c in cams)
+    if a.reason == "cut" or b.reason == "cut":
+        return a if a.reason == "cut" else b
+    ds = [r.dist_m for r in (a, b) if r.dist_m is not None]
+    bs = [r.bearing_deg for r in (a, b) if r.bearing_deg is not None]
+    if len(bs) == 2 and bs[0] * bs[1] < 0.0:
+        bearing: float | None = 0.0
+    else:
+        bearing = min(bs, key=abs) if bs else None
+    near = a if a.dist_m is not None and (b.dist_m is None or a.dist_m <= b.dist_m) else b
+    return PersonRange(min(ds) if ds else None, bearing, near.reason, b.edge)
+
+
 def nearest_person(ranges: Sequence[PersonRange]) -> PersonRange | None:
     """The game's person (final review C1): a box cut by the picture's bottom is the nearest by definition
     (close, below the picture), then the nearest ranged one; a box above the horizon never hides either. P0's
@@ -137,15 +154,25 @@ class PersonWatch:
         self._ranged: tuple[int, float] | None = None  # (t_us, distance) of the last measured person (§239)
 
     def update(
-        self, boxes: Sequence[tuple[float, ...]], cam: CameraModel | None, sonar_m: float | None, t_us: int
+        self,
+        boxes: Sequence[tuple[float, ...]],
+        cam: CameraModel | tuple[CameraModel, CameraModel] | None,
+        sonar_m: float | None,
+        t_us: int,
     ) -> PersonEst | None:
+        """One picture's person boxes; `cam` a pair for a picture taken while the camera panned (§249)."""
         if self._last_us is not None and t_us < self._last_us - RESTART_US:
             self._raw.clear()  # the old readings are from another clock (design-notes §238)
             self._med.clear()
             self._seen = None
             self._ranged = None
         self._last_us = t_us
-        ranges = [person_range(cam, b) for b in boxes] if cam is not None else []
+        if cam is None:
+            ranges: list[PersonRange] = []
+        elif isinstance(cam, tuple):
+            ranges = [moving_range(cam, b) for b in boxes]
+        else:
+            ranges = [person_range(cam, b) for b in boxes]
         r = nearest_person(ranges)
         if r is not None and r.dist_m is not None:
             self._ranged = (t_us, r.dist_m)

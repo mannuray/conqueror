@@ -3945,3 +3945,21 @@ unseen countdown (`CLOSE_M` / `CAUGHT_M` / `COUNTDOWN_US`) is removed - an unsee
 distance - else a not-found release would catch again at once. Forward toward the person still ends at its stopping
 distance + 5 cm + the caught level (now 10). The programs say `IF CAUGHT? [ FACE "baby ]` instead of `WAIT 3`;
 lesson 6 becomes `BABYGAME 50 70 5`. Bridge LLD R34.14, AI engine LLD §28.19, Tank Logo LLD §27 (lesson text).
+
+## 249. The person while the camera moves: 7066 found (owner 2026-11-14: "b")
+
+The fourth FOLLOW run (`a6334aa`) ended 7066 within 30 s: when the person left the view, FACE swung the camera
+left / ahead / right, and the engine skips every picture taken while the camera moves (blur, the map's rule) - the
+person watch only took pictures the map used (or skipped only for turning, §229). Each 60-120° swing left it
+~0.7 s without a picture; the person message's age passed 300 ms and after 1 s the bridge held, as designed. This was
+also the "late person messages" of §248.
+
+Options: A, a slower sweep (smaller steps, longer pauses; twice as slow, still a gap); **B, the moving pictures feed
+the person** (owner: "b"); C, a longer deadman on the bridge (weakens a safety rule - not taken).
+
+**B:** the sweep only pans; the tilt, which sets the distance through the floor point, is unchanged. A picture
+skipped for "camera moving" reads each person box through two cameras: the pan where the move started (the last
+still sample) and the pan the servo reports. Per box the pessimistic read: the **nearer** distance, the bearing
+**nearest straight ahead** (0 when the two ends lie either side), a cut box still cut. No box: a fresh "not in view".
+No still sample before the move (start unknown): the picture is not used, as before. The bridge's rules (300 ms
+fresh, 1 s held) are unchanged. AI engine LLD §28.20.

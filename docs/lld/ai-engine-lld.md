@@ -3784,3 +3784,31 @@ classDiagram
     FollowSkill --> RoamSkill : route to the spot
     RoamSkill --> Planner
 ```
+
+
+### 28.22 FACE lasts at least half a second (design-notes §251, owner 2026-11-14)
+
+`FACE_MIN_S = 0.5`: `FaceSkill` ends done only from 0.5 s after its first tick; facing them before that, it holds
+with the camera on them (state "watch"). Lost (unseen 1 s) and the turns are unchanged. A program looping on `FACE`
+then runs ~2 rounds a second, under the bridge's 60 messages a second per client (bridge LLD R2.6).
+
+```mermaid
+stateDiagram-v2
+    [*] --> look
+    look --> turn: beyond the pan / at the side edge
+    turn --> look: within 10 deg
+    look --> watch: facing, under 0.5 s since the start
+    watch --> [*]: 0.5 s (done)
+    look --> [*]: facing, 0.5 s or more (done)
+    look --> sweep: not in view
+    sweep --> [*]: not found (lost)
+```
+
+```mermaid
+classDiagram
+    class FaceSkill {
+        -_t0: float|None
+        +tick(now_s, inp) SkillOut
+    }
+    _Base <|-- FaceSkill
+```

@@ -3983,3 +3983,15 @@ off (the ball chase's 35° rule, §157, stays for FIND / WANDER / EXPLORE). Foun
 so FOLLOW's planner leaves that rule out and holds on its own spot instead. In the simulator a person crawling
 aside at 15 cm/s: no turn on the spot, holds while close, then curves after them, never more than 1 m behind.
 AI engine LLD §28.21.
+
+## 251. FACE lasts at least half a second (owner 2026-11-14: "a")
+
+The sixth FOLLOW run (`ff6e174`): no turn on the spot, four holds with the camera on the person - then 7052 after
+~1 min. The person was 34-39 cm (pessimistic) and in view, so `FACE` was done at once and the program's loop ran
+~10 rounds a second; the engine's messages passed the bridge's 60 per second per client, the bridge refused one
+(`RATE_LIMITED`) - the engine's `skill_done` - the lease's deadman ended the word and the run (7052).
+
+Options: **A, FACE lasts at least 0.5 s** (owner: "a"): already facing, it keeps the camera on the person for
+0.5 s, then done - a child's tight loop runs ~2 a second; B, a higher limit for the engine (a faster loop still
+floods it); C, fewer messages per round (a bigger change, the loop still spins). Lost (not in view 1 s) still ends at
+once. AI engine LLD §28.22.

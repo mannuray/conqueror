@@ -32,6 +32,7 @@ TURN_FROM_M = 0.15  # a turn on the spot only with the person this far or farthe
 LOST_S = 1.0  # not seen this long (while not spinning): lost
 VIEW_DEG = 41.0  # half the camera's view: ESCAPE knows where the person is only inside it
 ESCAPE_NEAR_M = 0.50  # nearer, ESCAPE never turns its back (S11): back over trusted floor, or stay (§248)
+FACE_MIN_S = 0.5  # FACE is done no sooner: a program looping on it runs ~2 a second (design-notes §251)
 FOLLOW_MIN_M = 0.30  # FOLLOW never nearer than this, whatever the setting (S4, §248)
 FOLLOW_SPIN_FROM_DEG = (
     90.0  # FOLLOW curves up to this far off; behind it, a turn on the spot (design-notes §250)
@@ -174,9 +175,12 @@ class FaceSkill(_Base):
         self._side = 1.0  # the steps' direction (+ left)
         self._step_th: float | None = None
         self._steps = 0
+        self._t0: float | None = None
 
     def tick(self, now_s: float, inp: SkillInput) -> SkillOut:
         self._clock(now_s, inp)
+        if self._t0 is None:
+            self._t0 = now_s
         at = inp.at
         if at is None or self.sight.xy is None:
             return self._unseen(now_s, inp)
@@ -191,6 +195,9 @@ class FaceSkill(_Base):
             # a sighting from before the turn ended: the camera where they should be, wait for a new one
             return self._halt(self._cam_to(at, FACE_PAN_DEG))
         if not self._turns(at):
+            if now_s - self._t0 < FACE_MIN_S - 1e-9:  # facing them already: watch a moment (§251)
+                self.state = "watch"
+                return self._halt(self._cam_to(at, FACE_PAN_DEG))
             return self._end(Result.DONE, cam=self._cam_to(at, FACE_PAN_DEG))
         self._looks += 1
         self._th, self.state = self.sight.heading(at), "turn"

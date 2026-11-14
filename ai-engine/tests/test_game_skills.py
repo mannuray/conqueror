@@ -16,6 +16,7 @@ from conqueror_ai.domain.drive.curves import Command, XYTh
 from conqueror_ai.domain.drive.game_skills import (
     ESCAPE_NEAR_M,
     FACE_LOOK_PAN_DEG,
+    FACE_MIN_S,
     FACE_PAN_DEG,
     FOLLOW_MIN_M,
     EscapeSkill,
@@ -181,6 +182,15 @@ def test_face_at_20_deg_pans_and_does_not_drive() -> None:
     p = play(FaceSkill(LIM), at_bearing(1.0, 20.0))
     assert p.result == Result.DONE and not p.moved
     assert p.cams and p.cams[-1][0] == pytest.approx(-20.0, abs=2.0)  # pan + = right: the person is left
+
+
+def test_face_already_facing_lasts_half_a_second() -> (
+    None
+):  # design-notes §251: a tight loop flooded the bridge
+    p = play(FaceSkill(LIM), at_bearing(0.5, 0.0))
+    assert p.result == Result.DONE and not p.moved
+    assert len(p.cmds) * LIM.dt_s >= FACE_MIN_S - 1e-9  # not done at once
+    assert len(p.cmds) * LIM.dt_s <= FACE_MIN_S + 2 * LIM.dt_s
 
 
 @pytest.mark.parametrize("side", [1.0, -1.0])

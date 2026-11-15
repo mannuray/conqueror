@@ -3812,3 +3812,35 @@ classDiagram
     }
     _Base <|-- FaceSkill
 ```
+
+### 28.23 FOLLOW's routes keep their speed to the spot (design-notes §252, owner 2026-11-15)
+
+`RoamSkill(..., slow_at_point: bool = True)`: in mode "point" the last `POINT_SLOW_M` (0.5 m) is driven by the slow
+planner so SETXY stops where it was sent. `FollowSkill` builds its routes with `slow_at_point=False`: it stops by its
+distance to the person, not on the spot, and at the slow speed (18 cm/s) the tank cannot curve - a spot ~0.45 m off
+and 25-40° aside drifted inside the tightest circle and FOLLOW held there ("watch", §28.21) with the person 1.5 m
+away. The slow planner for untrusted seeing (`angle_trusted` / `depth_ok` false) is unchanged.
+
+```mermaid
+flowchart TD
+    A[RoamSkill drive tick] --> B{seeing trusted?}
+    B -- no --> S[slow planner]
+    B -- yes --> C{point mode and slow_at_point and within 0.5 m?}
+    C -- yes --> S
+    C -- no --> N[the given planner: FOLLOW curves up to 90 deg]
+```
+
+```mermaid
+classDiagram
+    class RoamSkill {
+        +point: XY|None
+        +slow_at_point: bool
+        +stand_s: float
+        +tick(now_s, inp) SkillOut
+    }
+    class FollowSkill {
+        -_route: RoamSkill|None
+        -_planner: Planner
+    }
+    FollowSkill --> RoamSkill : point route, stand_s 0, slow_at_point False
+```

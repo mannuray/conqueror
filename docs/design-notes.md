@@ -3995,3 +3995,24 @@ Options: **A, FACE lasts at least 0.5 s** (owner: "a"): already facing, it keeps
 0.5 s, then done - a child's tight loop runs ~2 a second; B, a higher limit for the engine (a faster loop still
 floods it); C, fewer messages per round (a bigger change, the loop still spins). Lost (not in view 1 s) still ends at
 once. AI engine LLD §28.22.
+
+## 252. FOLLOW keeps its speed near its spot (owner 2026-11-15: "yes")
+
+The seventh FOLLOW run (`554b165`, full battery, 60 rounds, ~2 min 20 s): no turn on the spot, caught 5 times, each
+with the pause, no `RATE_LIMITED` (§251 holds). But for ~37 s the tank stood still with the person 1-1.8 m away
+(pessimistic) and 20-40° aside, the floor ahead clear: FOLLOW sent speed 0 in its "follow" state.
+
+Cause, reproduced in the simulator (a still person 1.35-1.5 m, 25-35° aside: the gap never closed): FOLLOW's spot
+(the follow distance short of the person) was ~0.45 m off - inside the route's last 0.5 m, which runs at the slow
+speed so SETXY stops exactly. At 18 cm/s the tank cannot curve (the inner track's minimum), so it crept almost
+straight, the spot drifted aside into the tightest circle, and §250's hold took over for good.
+
+Owner: "yes" to the recommendation - **FOLLOW's routes keep the normal speed to the spot** (FOLLOW stops by its
+distance to the person, it needs no exact stop); SETXY keeps the slow last stretch, and untrusted seeing still drives
+slowly. In the simulator from 1.5 m at 15-35° aside it now curves in to ~1.1 m, never turning on the spot; within
+~1.35 m and well aside it still holds with the camera on them (§250, 10-20 cm past the follow distance). AI engine LLD
+§28.23.
+
+Also found that morning: macOS's nightly `/tmp` clean-up had removed files from the plan worktrees under the session
+scratchpad (git's link, the Python packages, the model files). Nothing committed was lost; `plan-g3-game-words` was
+checked out again at `~/code/conquorer/wt/` with the models copied from the main checkout.

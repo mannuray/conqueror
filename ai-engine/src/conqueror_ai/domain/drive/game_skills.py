@@ -430,7 +430,10 @@ class FollowSkill(_Base):
             )  # no curve reaches the spot: hold, the camera on them (§250)
             return self._halt(cam)
         if self._route is None or self._goal is None or math.dist(goal, self._goal) > REPLAN_M:
-            self._route, self._goal = RoamSkill(self._planner, "point", point=goal, stand_s=0.0), goal
+            self._route, self._goal = (
+                RoamSkill(self._planner, "point", point=goal, stand_s=0.0, slow_at_point=False),
+                goal,
+            )
         self.state = "follow"
         out = self._route.tick(now_s, inp)
         if out.result is not None:  # there, or no way for now: wait facing them and plan again

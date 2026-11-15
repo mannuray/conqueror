@@ -124,12 +124,15 @@ class RoamSkill:
         point: tuple[float, float] | None = None,
         centre: tuple[float, float] | None = None,
         stand_s: float = START_STAND_S,
+        slow_at_point: bool = True,
     ) -> None:
         """area_m: stay within this many metres of where the run starts (None: anywhere it can reach). Find:
         memory = the things confirmed so far (its spots of `kind` are checked first; one not there is marked
         gone), kind = the thing sought (§189). point: setxy's map point (mode "point": a route to it on the
         cost map, done within POINT_DONE_M, no route for NO_ROUTE_S ends no_way). centre: the play area's
-        centre (None: round the run's first pose); only with area_m (§21.2)."""
+        centre (None: round the run's first pose); only with area_m (§21.2). slow_at_point: the last
+        POINT_SLOW_M at the slow speed (setxy's exact stop); False for FOLLOW, which stops by the person and
+        must keep curving (design-notes §252)."""
         if mode == "point" and point is None:
             raise ValueError("mode 'point' needs a point")
         self.planner = planner
@@ -169,6 +172,7 @@ class RoamSkill:
         self._pan: float | None = None
         self._stale_t0: float | None = None
         self._start_t0: float | None = None
+        self.slow_at_point = slow_at_point
         self.stand_s = stand_s  # 0: no stand at the start (FOLLOW's routes: the map is running, §247)
         self._progress = ProgressWatch(self.recovery, self.settings.stuck_s)
         self._costs: CostMaps | None = None  # this snapshot's cost maps, the play area in them
@@ -366,7 +370,7 @@ class RoamSkill:
                 return self._halt()
             self.state = "drive"
         planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
-        if self.point is not None and math.dist(at[:2], self.point) < POINT_SLOW_M:
+        if self.point is not None and self.slow_at_point and math.dist(at[:2], self.point) < POINT_SLOW_M:
             planner = self.slow
         if self.find and self.state == "drive" and self.candidates.pending() and now_s >= self._retry_s:
             c = self.candidates.next(at, self._costs_for(snap), self.routes)

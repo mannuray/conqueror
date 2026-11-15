@@ -410,6 +410,17 @@ def test_follow_turns_on_the_spot_only_beyond_the_cameras_reach() -> None:
     assert max(p.gaps) < 1.0  # it went after them (the floor run's watch-only bug kept 1.1 m and growing)
 
 
+@pytest.mark.parametrize("side", [1.0, -1.0])
+def test_follow_aside_and_a_little_beyond_curves_in_without_spinning(
+    side: float,
+) -> None:  # design-notes §252
+    """1.5 m away and 35 deg aside: the spot is ~0.45 m off, inside the route's slow last stretch, where the
+    slow speed cannot curve; FOLLOW must not take it (the floor run stood 37 s with the camera on them)."""
+    p = play(FollowSkill(LIM, 6.0, 1.0), at_bearing(1.5, side * 35.0), limit_s=6.0)
+    assert not any(c.v_cms == 0 and c.w_dps != 0 for c in p.cmds)  # never a spin (§250)
+    assert p.gaps[-1] < 1.25  # it came to about the follow distance
+
+
 def test_follow_unseen_is_lost() -> None:
     p = play(FollowSkill(LIM, 20.0, 1.0), (2.0, 0.0), hide_from_s=T0_S + 1.0, limit_s=10.0)
     assert p.result == Result.LOST

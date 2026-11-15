@@ -4024,6 +4024,19 @@ envelope cleared), but the page showed nothing - no way to tell the press worked
 
 Owner: **the same for every button that is an action** (STOP, RUN, START, SAVE, FIND ...): a press must give
 visible feedback. Tab and option choices need nothing more - they already change what is shown. First case: STOP
-releasing a held game. My proposal for the design (not yet agreed): a short note on the page that pressed it saying
-what happened ("Game released - ready to play", "Stopped") and, for a game release, one beep from the tank. To
-design: bridge LLD R29 (the top bar) / R31 (one link), one place for the rule - before code.
+releasing a held game.
+
+Found: no page but the drive page has any pressed look (`#stop:active` there only); and the shared link (`cqLink.stop`)
+says something only when the link is down - with the link up a STOP is sent and nothing is shown.
+
+Owner: "yes" to the recommendation (2026-11-15), each rule in one place:
+- **A, one pressed look for every button** (`theme.js` + `theme.css`, on every page): a touch or click gives the
+  button a short press look (a little smaller and brighter, 150 ms), set from the press itself - a CSS `:active`
+  alone does not show on a phone's touch. Tabs and options get it too (one rule; they also show their choice).
+  Disabled buttons do not. The drive page's own `#stop:active` goes.
+- **B, STOP always says what it did** (`cqLink.stop`, on every page with a link): with the link up it waits for
+  the bridge's ack of that stop, then says "Stopped" - or "Game released - ready to play" when the game was held
+  and the bridge's game event turned it off. No ack within 2 s: through its own socket as when the link is down
+  ("Stopping…", then "Stopped" or "Couldn't reach the tank - use another STOP"). Each page shows it where it
+  already shows messages (`/ai` its message line, `/logo` its log, the drive page and `/settings` a toast).
+- No beep (the words are enough). Bridge LLD R31.10.

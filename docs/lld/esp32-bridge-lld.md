@@ -3522,6 +3522,58 @@ sequenceDiagram
 - Flashed over WiFi to the tank 2026-11-05 from 4088d7d.
 - Owner's tank check 2026-11-05 (tank on the floor): STOP on every page, Drive stop / STOP-while-moving / held until the stick is released, WiFi off → OFF in ~4 s and STOP's "Couldn't reach" message, WiFi back by itself, the red chip before the link, the network name on the strip - all pass (design-notes §210).
 
+### R31.10 Every button answers a press (owner 2026-11-15, design-notes §253)
+
+**A - the press look, `cqTheme` (`theme.js` + `theme.css`, every page).** One `pointerdown` listener on the document
+(capture, so a button's own handler that calls `preventDefault` - STOP's - cannot hide it) finds the pressed button
+with `cqTheme.pressTarget(node)` (the nearest `button`, none when disabled) and gives it the class `cq-press` for
+`PRESS_MS` = 150 ms; `theme.css` draws it (scale .96, brightness 1.15). A keyboard press (Enter / Space, a click
+with `detail` 0) gets the same. CSS `:active` alone is not enough: a phone's browser often does not show it on touch.
+
+**B - STOP's answer, `cqLink.stop(msgs, say)`.** The link keeps the game state from the bridge's `ev` `game` events
+(`game`: "off" until one arrives). Link up and trusted: the stops go out (`press:true`) and one answer is pending -
+the stop's id and whether the game was `held`. The bridge's `ack` of that id says `"Stopped"`, or `"Game released -
+ready to play"` when it was held and a `game` "off" event came before the ack (the bridge ends Held in the stop's own
+handler and acks after the body has stopped). No ack in `ACK_WAIT_MS` = 2000: the own-socket stop as when the link
+is down. A newer press replaces a pending one. `say(text, ok)` is the page's own message place.
+
+```mermaid
+classDiagram
+    class cqTheme {
+        +PRESS_MS: 150
+        +pressTarget(node) Element|null
+        +pick(saved, coarse) string
+        +flip() string
+    }
+    class cqLink {
+        +open(opts) Link
+    }
+    class Link {
+        -game: string
+        -pending: id, held, say, released
+        +stop(msgs, say)
+        +send(msg) bool
+    }
+    cqLink --> Link
+```
+
+```mermaid
+sequenceDiagram
+    participant P as page (STOP)
+    participant L as cqLink
+    participant B as bridge
+    P->>L: stop([stop id n, logo_stop], say)
+    L->>B: stop id n press:true, logo_stop
+    B-->>L: ev game state off (was held)
+    B-->>L: ack id n
+    L->>P: say("Game released - ready to play", true)
+    Note over L,B: no ack in 2 s: stopOnce through its own socket, "Stopping…" then its answer
+```
+
+Tests (Node): `theme.test.js` - `pressTarget` finds the button from a child, none for a disabled button or no button;
+`link.test.js` - link up: nothing said until the ack, then "Stopped"; held then game off then ack: "Game released -
+ready to play"; held and no game off: "Stopped"; no ack in 2 s: the own socket and "Stopping…"; a nack is not the ack.
+
 ## R32. The ROOM tab on the `/ai` page (owner 2026-11-05; design-notes §211, AI engine LLD §23 — draft)
 
 ### R32.1 What changes

@@ -44,3 +44,9 @@ test("the press look: none for a disabled button or outside any button", () => {
   assert.equal(T.pressTarget(null), null);
   assert.equal(T.PRESS_MS, 150);
 });
+
+test("the press look lasts while the finger is down, at least 150 ms (STOP's classic sink, design-notes §253)", () => {
+  assert.equal(T.releaseDelay(1000, 1040), 110);  // a quick tap: the look stays 150 ms in all
+  assert.equal(T.releaseDelay(1000, 1150), 0);
+  assert.equal(T.releaseDelay(1000, 1600), 0);  // held long: it goes as the finger lifts
+});

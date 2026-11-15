@@ -3526,9 +3526,11 @@ sequenceDiagram
 
 **A - the press look, `cqTheme` (`theme.js` + `theme.css`, every page).** One `pointerdown` listener on the document
 (capture, so a button's own handler that calls `preventDefault` - STOP's - cannot hide it) finds the pressed button
-with `cqTheme.pressTarget(node)` (the nearest `button`, none when disabled) and gives it the class `cq-press` for
-`PRESS_MS` = 150 ms; `theme.css` draws it (scale .96, brightness 1.15). A keyboard press (Enter / Space, a click
-with `detail` 0) gets the same. CSS `:active` alone is not enough: a phone's browser often does not show it on touch.
+with `cqTheme.pressTarget(node)` (the nearest `button`, none when disabled) and gives it the class `cq-press` until
+`pointerup` / `pointercancel`, at least `PRESS_MS` = 150 ms in all (`releaseDelay(downMs, nowMs)`); `theme.css`
+draws it (scale .96, brightness 1.15). STOP alone has the classic sink instead (`bar.css` `.cqbar #stop.cq-press`:
+down 2 px, an inner shadow for its glow, brightness .85 - owner "classic press, only for stop"). A keyboard press
+(Enter / Space, a click with `detail` 0) gets 150 ms. CSS `:active` alone is not enough: a phone's browser often does not show it on touch.
 
 **B - STOP's answer, `cqLink.stop(msgs, say)`.** The link keeps the game state from the bridge's `ev` `game` events
 (`game`: "off" until one arrives). Link up and trusted: the stops go out (`press:true`) and one answer is pending -
@@ -3542,6 +3544,7 @@ classDiagram
     class cqTheme {
         +PRESS_MS: 150
         +pressTarget(node) Element|null
+        +releaseDelay(downMs, nowMs) number
         +pick(saved, coarse) string
         +flip() string
     }
@@ -3571,6 +3574,7 @@ sequenceDiagram
 ```
 
 Tests (Node): `theme.test.js` - `pressTarget` finds the button from a child, none for a disabled button or no button;
+`releaseDelay` keeps a quick tap 150 ms and lifts a long press at once;
 `link.test.js` - link up: nothing said until the ack, then "Stopped"; held then game off then ack: "Game released -
 ready to play"; held and no game off: "Stopped"; no ack in 2 s: the own socket and "Stopping…"; a nack is not the ack.
 

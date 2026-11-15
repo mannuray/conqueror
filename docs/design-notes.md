@@ -4040,3 +4040,8 @@ Owner: "yes" to the recommendation (2026-11-15), each rule in one place:
   ("Stopping…", then "Stopped" or "Couldn't reach the tank - use another STOP"). Each page shows it where it
   already shows messages (`/ai` its message line, `/logo` its log, the drive page and `/settings` a toast).
 - No beep (the words are enough). Bridge LLD R31.10.
+
+Then (owner, 2026-11-15: "classic press, only for stop", asked whether a classic click look is a dead art): the
+press look now lasts **while the finger is down** (at least 150 ms - a 150 ms flash was often over before the finger
+lifted), and **STOP alone gets the classic sink**: down 2 px, its glow turned into an inner shadow, a shade darker
+(`bar.css`). The other buttons keep the small press look. No vibration.

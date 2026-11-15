@@ -208,3 +208,53 @@ test("STOP pressed: link.stop marks its stop press:true; an automatic stop does 
   assert.equal(after[after.length - 1].t, "stop");
   assert.equal(after[after.length - 1].press, undefined);
 });
+
+// R31.10 B (design-notes §253): STOP always says what it did
+function stopUp() {
+  const w = world(), { link } = openLink(w), said = [];
+  w.last().onopen();
+  const rx = (m) => w.last().onmessage({ data: JSON.stringify(m) });
+  const press = (id) => link.stop([{ t: "stop", id }, { t: "logo_stop", id: id + 1 }], (t, ok) => said.push([t, ok]));
+  return { w, said, rx, press };
+}
+
+test("STOP with the link up: nothing said until the bridge acks that stop, then 'Stopped'", () => {
+  const { said, rx, press } = stopUp();
+  press(7);
+  assert.deepEqual(said, []);
+  rx({ t: "ack", id: 8 });  // the logo_stop's ack is not the stop's
+  rx({ t: "nack", id: 7, reason: "X" });  // a nack is not the ack
+  assert.deepEqual(said, []);
+  rx({ t: "ack", id: 7 });
+  assert.deepEqual(said, [["Stopped", true]]);
+  rx({ t: "ack", id: 7 });  // said once
+  assert.equal(said.length, 1);
+});
+
+test("STOP on a held game: the game's off event then the ack say 'Game released - ready to play'", () => {
+  const { said, rx, press } = stopUp();
+  rx({ t: "ev", kind: "game", state: "held", caught: 2 });
+  press(7);
+  rx({ t: "ev", kind: "game", state: "off", caught: 2 });
+  rx({ t: "ack", id: 7 });
+  assert.deepEqual(said, [["Game released - ready to play", true]]);
+});
+
+test("STOP on a held game the bridge did not release: only 'Stopped'", () => {
+  const { said, rx, press } = stopUp();
+  rx({ t: "ev", kind: "game", state: "held", caught: 0 });
+  press(7);
+  rx({ t: "ack", id: 7 });
+  assert.deepEqual(said, [["Stopped", true]]);
+});
+
+test("STOP with the link up and no ack in 2 s: through its own socket, said", () => {
+  const { w, said, press } = stopUp();
+  press(7);
+  w.t += 1000; w.last().onmessage({ data: '{"t":"pong"}' });
+  w.advance(1100);
+  assert.equal(w.onceCalls.length, 1);
+  assert.deepEqual(said, [["Stopping…", true]]);
+  w.onceCalls[0].done(true);
+  assert.deepEqual(said[1], ["Stopped", true]);
+});

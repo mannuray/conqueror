@@ -49,3 +49,5 @@
 :root[data-theme="play"] {
   --h1-glow: none; --r-box: 12px;
 }
+/* every page: a pressed button's short press look (theme.js, bridge LLD R31.10) */
+button.cq-press { transform: scale(.96); filter: brightness(1.15); }

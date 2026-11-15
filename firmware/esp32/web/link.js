@@ -7,6 +7,7 @@ var cqLink = (function () {
   "use strict";
   var PING_MS = 1000, SILENT_MS = 4000, MAX_RETRY_MS = 5000, WIFI_EVERY = 10;  // WiFi: every 10 pings
   var QUIET_MS = 1500;  // a pong is due every second: quieter than this, STOP does not trust the link alone
+  var ACK_WAIT_MS = 2000;  // STOP's ack on the link: none this long, it goes through its own socket (R31.10)
 
   function browserEnv() {
     return { WebSocket: WebSocket, setTimeout: setTimeout.bind(window), clearTimeout: clearTimeout.bind(window),
@@ -19,6 +20,7 @@ var cqLink = (function () {
   function open(opts) {
     var env = opts.env || browserEnv(), first = opts.retryMs || 500, retry = first;
     var ws = null, up = false, lastRx = 0, pingTimer = 0, retryTimer = 0, pings = 0;
+    var game = "off", pending = null;  // the bridge's game state; STOP's answer waiting for its ack (R31.10)
     function send(msg) { if (ws && up) { ws.send(JSON.stringify(msg)); return true; } return false; }
     // the link is gone (closed, silent, failed to open or the page hidden): the model and the page are told
     function down() {
@@ -56,6 +58,11 @@ var cqLink = (function () {
         var m;
         lastRx = env.now();
         try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m && m.t === "ev" && m.kind === "game") {
+          if (pending && pending.held && m.state === "off") pending.released = true;
+          game = m.state;
+        }
+        if (pending && m && m.t === "ack" && m.id === pending.id) answer();
         if (opts.model) opts.model.apply(m);
         if (opts.onMessage) opts.onMessage(m);
       };
@@ -73,13 +80,35 @@ var cqLink = (function () {
     // for more than 1.5 s (a WiFi drop is only noticed after 4 s of silence: STOP does not wait for that)
     // A press: its stop says so (press:true) - only a pressed STOP releases game mode's Held (design-notes §232); the
     // page's own STOPs (a thumb lifted, the page hidden) go through send and never say so.
+    // R31.10: with the link up and trusted, STOP says what it did once the bridge acks that stop - "Game released"
+    // when the game was held and its off event came first; no ack in 2 s: through its own socket, said.
     function stop(msgs, say) {
+      if (pending) { env.clearTimeout(pending.timer); pending = null; }  // a newer press replaces it
       if (up) {
-        for (var i = 0; i < msgs.length; i++) send(msgs[i].t === "stop" ? Object.assign({ press: true }, msgs[i]) : msgs[i]);
-        if (env.now() - lastRx <= QUIET_MS) return;
+        var id = null;
+        for (var i = 0; i < msgs.length; i++) {
+          if (msgs[i].t === "stop") id = msgs[i].id;
+          send(msgs[i].t === "stop" ? Object.assign({ press: true }, msgs[i]) : msgs[i]);
+        }
+        if (env.now() - lastRx <= QUIET_MS) {
+          if (say && id !== null) {
+            pending = { id: id, say: say, held: game === "held", released: false, timer: 0 };
+            pending.timer = env.setTimeout(function () { pending = null; viaOwnSocket(say); }, ACK_WAIT_MS);
+          }
+          return;
+        }
       }
+      viaOwnSocket(say);
+    }
+    function viaOwnSocket(say) {
       if (say) say("Stopping…", true);
       env.stopOnce(env.url, function (ok) { if (say) say(ok ? "Stopped" : "Couldn't reach the tank - use another STOP", ok); });
+    }
+    function answer() {
+      var p = pending;
+      pending = null;
+      env.clearTimeout(p.timer);
+      p.say(p.held && p.released ? "Game released - ready to play" : "Stopped", true);
     }
     connect();
     // bytes still queued on the socket: the drive page then skips a drive command rather than pile them up (review I2)

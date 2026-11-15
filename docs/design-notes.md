@@ -4016,3 +4016,14 @@ slowly. In the simulator from 1.5 m at 15-35° aside it now curves in to ~1.1 m,
 Also found that morning: macOS's nightly `/tmp` clean-up had removed files from the plan worktrees under the session
 scratchpad (git's link, the Python packages, the model files). Nothing committed was lost; `plan-g3-game-words` was
 checked out again at `~/code/conquorer/wt/` with the models copied from the main checkout.
+
+## 253. Every action button answers when pressed (owner 2026-11-15)
+
+After a 7066 hold the owner pressed STOP on `/ai`: the tank released the game at once (`game` off, the child-play
+envelope cleared), but the page showed nothing - no way to tell the press worked.
+
+Owner: **the same for every button that is an action** (STOP, RUN, START, SAVE, FIND ...): a press must give
+visible feedback. Tab and option choices need nothing more - they already change what is shown. First case: STOP
+releasing a held game. My proposal for the design (not yet agreed): a short note on the page that pressed it saying
+what happened ("Game released - ready to play", "Stopped") and, for a game release, one beep from the tank. To
+design: bridge LLD R29 (the top bar) / R31 (one link), one place for the rule - before code.

@@ -53,6 +53,7 @@ class GameController {
   void onPerson(const core::PersonEst& e, uint32_t now);  // at receipt (review I6)
   void onEnvelopeDone(uint8_t status, bool on, uint32_t now);  // the answer to our ENVELOPE (on: the game's)
   void onAnswer(int32_t id, int32_t value, uint32_t now);  // the engine's skill_answer to back_ok
+  void escaping(bool on) { m_mode.setEscaping(on); }  // R34.16: an ESCAPE lease starts / ends
   void backing(int16_t cm) { m_back_cm = cm; }             // the next backward move's length (Logo's BACK n)
   void tick(uint32_t now);
   // BodyLink's DriveGateFn: false = send zeros; v / w are clamped to the game's cap.

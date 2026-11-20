@@ -12,7 +12,7 @@ GameMode::Start GameMode::startRun(bool game, bool people, uint8_t cap_pct, uint
   m_cap = cap_pct;
   m_state = GameState::kArming;
   m_arm_ms = now_ms;
-  m_has_person = m_unseen = m_far = m_touch = m_running = false;
+  m_has_person = m_unseen = m_far = m_touch = m_running = m_escaping = false;
   m_seen_cm = -1;
   m_env_pending = m_env_on = true;
   return Start::kGo;
@@ -105,16 +105,24 @@ Gate GameMode::caughtGate(const Move& m) const {
 Gate GameMode::playGate(const Move& m, uint16_t stop_cm, uint32_t now_ms) {
   const uint32_t unseen_ms = m_unseen ? ago(now_ms, m_unseen_since) : 0;
   const bool turning = m.v_pct == 0 && m.yaw_rate_dps != 0.0f;
-  if (turning && unseen_ms > KeepOut::kUnseenMs && m_seen_cm >= kBlindTurnCm && aheadClear()) return Gate::kAllow;
+  if (turning && unseen_ms > KeepOut::kUnseenMs && blindTurnOk()) return Gate::kAllow;
   if (m.v_pct > 0 && unseen_ms > KeepOut::kUnseenMs && runAway(now_ms)) return Gate::kAllow;
   return KeepOut::check(m_p, m, stop_cm, unseen_ms);
+}
+
+// Out of view, a turn on the spot: last seen from kBlindTurnCm, and nothing ahead - or an echo ahead while they are
+// placed behind (R34.16: then it is a wall, not them).
+bool GameMode::blindTurnOk() const { return m_seen_cm >= kBlindTurnCm && (aheadClear() || behind()); }
+
+bool GameMode::behind() const {
+  const int16_t b = m_p.bearing_deg < 0 ? static_cast<int16_t>(-m_p.bearing_deg) : m_p.bearing_deg;
+  return b >= kBehindDeg;
 }
 
 // ESCAPE's run (design-notes §254): forward out of view while the engine places the person behind, kRunAwayMs from
 // the first such move; a sighting starts it afresh.
 bool GameMode::runAway(uint32_t now_ms) {
-  const int16_t b = m_p.bearing_deg < 0 ? static_cast<int16_t>(-m_p.bearing_deg) : m_p.bearing_deg;
-  if (b < kBehindDeg) return false;
+  if (!m_escaping || !behind()) return false;  // R34.16: ESCAPE's run only
   if (!m_running) {
     m_running = true;
     m_run_since = now_ms;
@@ -153,6 +161,7 @@ void GameMode::toOff() {
   m_env_pending = true;
   m_env_on = false;
   m_just_caught = false;
+  m_escaping = false;
 }
 
 void GameMode::toHeld() { m_state = GameState::kHeld; }

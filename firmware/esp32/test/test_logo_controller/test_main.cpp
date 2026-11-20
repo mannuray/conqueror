@@ -57,6 +57,7 @@ uint16_t g_game_refuse = 0;
 bool g_game_ready = true, g_game_caught = false, g_game_seen = false;
 int g_game_ends = 0;
 int16_t g_game_backing = 0;
+int g_game_escaping = -1;  // R34.16: the last escaping hook (-1 never called)
 uint8_t (*g_game_cap_fn)() = nullptr;
 
 void unoSends(const uint8_t* f, size_t n, uint32_t now) { link->onUartBytes(f, n, now); }
@@ -127,6 +128,7 @@ void hooks() {
   h.game_caught = [] { return g_game_caught; };
   h.game_end = [](uint32_t) { ++g_game_ends; };
   h.game_backing = [](int16_t cm) { g_game_backing = cm; };
+  h.game_escaping = [](bool on) { g_game_escaping = on ? 1 : 0; };
   h.game_cap = [] { return g_game_cap_fn != nullptr ? g_game_cap_fn() : static_cast<uint8_t>(0); };
   lc->setHooks(h);
   lc->setSkillHub(&g_hub);
@@ -230,6 +232,7 @@ void setUp() {
   g_game_caught = g_game_seen = false;
   g_game_ends = 0;
   g_game_backing = 0;
+  g_game_escaping = -1;
   g_game_cap_fn = nullptr;
 }
 void tearDown() {}
@@ -634,6 +637,19 @@ void test_escape_and_follow_carry_their_numbers() {
   TEST_ASSERT_TRUE(sent(kServer, "\"skill\":\"follow\",\"thing\":\"person\",\"s\":5"));
 }
 
+void test_escapes_lease_marks_the_game_escaping() {  // R34.16
+  runAi("FACE \"kid  ESCAPE \"kid 80  BEEP");
+  ticks(1);
+  startedSkill();
+  TEST_ASSERT_EQUAL(-1, g_game_escaping);  // FACE never
+  lc->onSkillEnd(kServer, g_skill_id, logo::SkillEnd::kDone, g_now);
+  ticks(1);
+  startedSkill();
+  TEST_ASSERT_EQUAL(1, g_game_escaping);
+  lc->onPrimitiveEnd(skillEnd(core::EndReason::kBlocked), g_now);
+  TEST_ASSERT_EQUAL(0, g_game_escaping);  // every way a lease ends (a STOP waits for the server, and ends the game)
+}
+
 void test_a_person_question_in_a_game_says_so() {
   runAi("IF SEE? \"baby [ BEEP ]");
   ticks(1);
@@ -1003,6 +1019,7 @@ int main() {
   RUN_TEST(test_escape_and_follow_carry_their_numbers);
   RUN_TEST(test_a_person_question_in_a_game_says_so);
   RUN_TEST(test_a_thing_question_never_says_game);
+  RUN_TEST(test_escapes_lease_marks_the_game_escaping);
   RUN_TEST(test_skill_done_goes_on_without_skill_end);
   RUN_TEST(test_skill_failed_ends_the_program);
   RUN_TEST(test_a_second_end_for_an_old_skill_is_dropped);

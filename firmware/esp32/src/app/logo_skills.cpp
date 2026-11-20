@@ -78,6 +78,7 @@ void LogoController::startSkill(const logo::Action& a, uint32_t now) {
     m_out.to(m_hub->server(), core::jsonSkillEnd(m_out.buf(), m_out.cap(), replaced, core::LeaseEnd::kEnded));
   }
   m_skill_id = id;
+  if (a.skill == logo::SkillKind::kEscape && m_h.game_escaping != nullptr) m_h.game_escaping(true);  // R34.16
   const logo::Pose p = m_odo.pose();
   const logo::FwdLeft to = logo::relative(p, a.x_cm * 10, a.y_cm * 10);
   const logo::FwdLeft area = a.has_area ? logo::relative(p, a.area_at.x_mm, a.area_at.y_mm) : logo::FwdLeft();
@@ -89,6 +90,7 @@ void LogoController::endLease(bool tell, core::LeaseEnd why, core::EndReason mot
   if (m_skill_id < 0) return;
   const int32_t id = m_skill_id;
   m_skill_id = -1;  // first: the skill's own end calls back into onPrimitiveEnd
+  if (m_h.game_escaping != nullptr) m_h.game_escaping(false);  // R34.16: any lease's end
   if (m_hub != nullptr) {
     if (m_hub->leaseId() == id) m_hub->endLease();
     if (tell) m_out.to(m_hub->server(), core::jsonSkillEnd(m_out.buf(), m_out.cap(), id, why));

@@ -50,6 +50,7 @@ class GameMode {
   bool onUnoHello(uint32_t now_ms);  // the Uno restarted (its envelope lost): true = arm again (a new window)
   Gate gate(const Move& m, uint16_t stop_cm, uint32_t now_ms);
   void step(uint32_t now_ms);  // the timeouts
+  void setEscaping(bool on) { m_escaping = on; }  // R34.16: ESCAPE's lease (only its run may go on out of view)
   bool caught() const { return m_state == GameState::kCaught; }
   uint16_t caughtCount() const { return m_caught_n; }
   int16_t lastDistance() const { return m_has_person ? m_p.d_cm : -1; }
@@ -68,6 +69,8 @@ class GameMode {
   Gate caughtGate(const Move& m) const;
   Gate playGate(const Move& m, uint16_t stop_cm, uint32_t now_ms);
   bool runAway(uint32_t now_ms);
+  bool behind() const;
+  bool blindTurnOk() const;
   void noteSeen(bool seen, uint32_t now_ms);
   void sighting(int16_t d_cm);
   void noteFar(bool far, uint32_t now_ms);
@@ -90,6 +93,7 @@ class GameMode {
   bool m_unseen = false;
   uint32_t m_run_since = 0;  // the first forward move of a run away out of view (R34.15)
   bool m_running = false;
+  bool m_escaping = false;
   uint32_t m_far_since = 0;
   bool m_far = false;
   uint16_t m_caught_n = 0;

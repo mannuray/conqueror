@@ -280,6 +280,7 @@ void wireLogo() {
   h.game_caught = [] { return g_game.caught(); };
   h.game_end = [](uint32_t now) { g_game.onRunEnd(now); };
   h.game_backing = [](int16_t cm) { g_game.backing(cm); };
+  h.game_escaping = [](bool on) { g_game.escaping(on); };  // R34.16
   h.game_cap = [] { return g_game.gameCap(); };
   g_logo->setHooks(h);
   g_logo->setSkillHub(&g_skills);

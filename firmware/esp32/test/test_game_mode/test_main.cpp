@@ -339,6 +339,7 @@ void test_a_blind_turn_only_last_seen_from_30_with_the_sonar_clear() {
 // Out of view from 200; the person last placed behind (the engine's bearing from the pose now).
 GameMode gone_behind(int16_t bearing) {
   GameMode g = playing();
+  g.setEscaping(true);  // R34.16: ESCAPE's lease
   g.onSonar(65535);
   see(g, 150, 60);
   see(g, 200, 60, bearing, false);
@@ -391,6 +392,44 @@ void test_a_run_leaves_turns_backing_and_caught_as_they_were() {
   see(c, 200, 60, 170, false);
   see(c, 2000, 60, 170, false);
   TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(c.gate(kForward, 20, 2000)));
+}
+
+// ---- R34.16 (design-notes §255)
+
+void test_a_run_is_escapes_only() {
+  GameMode g = gone_behind(170);
+  g.setEscaping(false);  // a program's FORWARD
+  see(g, 2000, 60, 170, false);
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kForward, 20, 2000)));
+  g.setEscaping(true);
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kForward, 20, 2000)));
+}
+
+void test_off_and_a_new_run_clear_escaping() {
+  GameMode g = gone_behind(170);
+  g.onStop(true);
+  g.startRun(true, true, 75, 3000);
+  g.onEnvelopeAck(3100);
+  g.onSonar(65535);
+  see(g, 3150, 60);
+  see(g, 3200, 60, 170, false);
+  see(g, 5000, 60, 170, false);
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kForward, 20, 5000)));
+}
+
+void test_a_blind_turn_passes_an_echo_when_they_are_behind() {
+  GameMode g = playing();
+  g.onSonar(290);  // a wall 29 cm ahead
+  see(g, 150, 60);
+  see(g, 200, 60, 90, false);
+  see(g, 1300, 60, 90, false);
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kTurn, 20, 1300)));
+  GameMode h = playing();
+  h.onSonar(290);
+  see(h, 150, 60);
+  see(h, 200, 60, 89, false);
+  see(h, 1300, 60, 89, false);
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(h.gate(kTurn, 20, 1300)));
 }
 
 // ---- final review fixes
@@ -534,6 +573,9 @@ int main(int, char**) {
   RUN_TEST(test_a_run_lasts_3_s_from_its_first_forward_move);
   RUN_TEST(test_a_sighting_resets_the_run);
   RUN_TEST(test_a_run_leaves_turns_backing_and_caught_as_they_were);
+  RUN_TEST(test_a_run_is_escapes_only);
+  RUN_TEST(test_off_and_a_new_run_clear_escaping);
+  RUN_TEST(test_a_blind_turn_passes_an_echo_when_they_are_behind);
   RUN_TEST(test_stall_or_pushing_not_moving_is_caught);
   RUN_TEST(test_stale_300_ms_holds_1_s_is_held);
   RUN_TEST(test_only_a_pressed_stop_releases_held);

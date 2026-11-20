@@ -183,7 +183,7 @@ class PersonWatch:
             self._ranged = (t_us, r.dist_m)
         r = self._or_sky(r, ranges, t_us)
         if r is None:
-            return self.latest(t_us)
+            return self.latest(t_us, at)
         d = r.dist_m if r.dist_m is not None else CUT_M
         bearing = r.bearing_deg if r.bearing_deg is not None else 0.0
         if (

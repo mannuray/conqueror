@@ -43,8 +43,12 @@ BACK_OFF_M = 0.30  # ESCAPE backs off this far at once, over any floor (owner, d
 WALL_S = 0.5  # ... a move commanded this long with no progress: a wall (or the bridge holding the tracks)
 WALL_M = 0.02  # ... progress: moved this far
 WALL_DEG = 5.0  # ... or turned this far
+WALL_START_S = (
+    1.0  # ... never moved at all since the command began: a wall after this (a slow start, review M1)
+)
 RUN_TURNS_DEG = (0.0, 30.0, -30.0, 60.0, -60.0, 90.0, -90.0)  # the run's directions from straight away
-RUN_SPIN_FROM_DEG = 90.0  # the run turns on the spot beyond this, then curves (as FOLLOW, §250)
+RUN_SPIN_FROM_DEG = 60.0  # the run turns on the spot beyond this, then curves - never a curve's start towards
+# the person (the keep-out's ahead is ±60, S4; final review M2)
 RUN_TOWARDS_M = 0.05  # a run's route never passes nearer the person than the tank is now, less this (S4)
 RUN_MAX_S = 2.8  # the run drives forward at most this long (inside the bridge's 3 s out of view, R34.15)
 REPLAN_M = 0.15  # FOLLOW's goal moved this far: a new route
@@ -266,24 +270,36 @@ class Progress:
 
     def __init__(self) -> None:
         self._since: float | None = None  # when the commanded move began
+        self._moved: float | None = None  # when the pose first changed after it (the real tank starts late)
+        self._first: XYTh | None = None
         self._trail: list[tuple[float, XYTh]] = []
 
     def note(self, now_s: float, at: XYTh, moving: bool) -> None:
         if not moving:
-            self._since, self._trail = None, []
+            self._since, self._moved, self._first, self._trail = None, None, None, []
             return
         if self._since is None:
-            self._since = now_s
+            self._since, self._first = now_s, at
+        elif self._moved is None and self._first is not None and self._changed(self._first, at):
+            self._moved = now_s
         self._trail.append((now_s, at))
         while len(self._trail) > 1 and self._trail[1][0] <= now_s - WALL_S + 1e-9:
             self._trail.pop(0)
 
     def stuck(self, now_s: float) -> bool:
-        if self._since is None or now_s - self._since < WALL_S - 1e-9 or not self._trail:
+        if self._since is None or not self._trail:
+            return False
+        if self._moved is None:  # not moved at all yet: a slow start, or already against a wall
+            return now_s - self._since >= WALL_START_S - 1e-9
+        if now_s - self._moved < WALL_S - 1e-9:
             return False
         (_, a), (_, b) = self._trail[0], self._trail[-1]
         turned = abs(_wrap(math.degrees(b[2] - a[2])))
         return math.dist(a[:2], b[:2]) < WALL_M and turned < WALL_DEG
+
+    @staticmethod
+    def _changed(a: XYTh, b: XYTh) -> bool:
+        return math.dist(a[:2], b[:2]) >= 0.005 or abs(_wrap(math.degrees(b[2] - a[2]))) >= 1.0
 
 
 class EscapeSkill(_Base):
@@ -400,9 +416,13 @@ class EscapeSkill(_Base):
             if out is not None:
                 return out
             self._th = None
-        if self._face is None:
-            self._face = FaceSkill(self.lim)
-            self._face.sight = self.sight  # where they were: FACE looks that way first
+        if (
+            self._face is None
+        ):  # final review I1: FACE from nobody in view - only a newer sighting counts, so it
+            self._face = FaceSkill(
+                self.lim
+            )  # looks round (the side the estimate now places them first, §248)
+            self._face.sight.t_us = self.sight.t_us
         out = self._face.tick(now_s, inp)
         self.cmd = out.cmd
         if out.result == Result.DONE and not self._ran:

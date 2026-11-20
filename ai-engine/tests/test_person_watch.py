@@ -300,3 +300,11 @@ def test_the_person_message_carries_the_bearing_from_the_pose_now() -> None:
     _unseen_after(w, S)
     msg = person_message(w, S, (0.0, 0.0, math.pi))
     assert msg["seen"] is False and abs(msg["bearing"]) >= 170
+
+
+def test_a_picture_with_nobody_answers_from_the_pose_too() -> None:  # final review M4
+    cam = cam_down()
+    w = PersonWatch(front_m=0.13)
+    w.update([box_at(cam, 1.0, 0.0)], cam, None, 0, at=(0.0, 0.0, 0.0))
+    e = w.update([], cam, None, S, at=(0.0, 0.0, math.pi))
+    assert e is not None and not e.seen and abs(e.bearing_deg) > 170

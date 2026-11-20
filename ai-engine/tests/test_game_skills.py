@@ -23,6 +23,7 @@ from conqueror_ai.domain.drive.game_skills import (
     EscapeSkill,
     FaceSkill,
     FollowSkill,
+    Progress,
 )
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.roam import POINT_DONE_M
@@ -495,3 +496,40 @@ def test_escape_never_starts_on_an_old_estimate() -> None:  # final review M1: a
     )
     out = skill.tick(T0_S, inp)
     assert out.result == Result.NO_WAY and out.cmd.v_cms == 0
+
+
+def test_escape_search_looks_round_for_someone_who_moved() -> None:  # final review I1
+    """Not at the last spot after the run: the search's FACE sweeps the camera (and steps) before lost - the
+    run's unseen time must not make it lost on arrival."""
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=90.0, hide_from_s=T0_S + 2.0)
+    assert p.result == Result.LOST
+    j = first(p, "search")
+    assert any(abs(pan) >= FACE_LOOK_PAN_DEG - 1.0 for pan in p.pans[j:])  # the camera looked round
+
+
+def test_escape_run_turns_on_the_spot_for_a_spot_well_aside() -> None:  # final review M2
+    """A run spot 75 deg off (away +-90 after facing them): a turn on the spot, never a forward curve whose
+    first metres head towards them (S4)."""
+    from conqueror_ai.domain.drive.game_skills import RUN_SPIN_FROM_DEG
+    from conqueror_ai.domain.drive.planner import Planner
+
+    planner = Planner(LIM, spin_from_deg=RUN_SPIN_FROM_DEG, blind_spin=True)
+    target = (0.8 * math.cos(math.radians(75)), 0.8 * math.sin(math.radians(75)))
+    assert all(c.v_cms == 0 for c in planner.fan((0.0, 0.0, 0.0), target))
+
+
+def test_the_wall_rule_waits_for_a_slow_start() -> None:  # final review M1: the real tank starts late
+    w = Progress()
+    t, x = 0.0, 0.0
+    while t < 0.45:  # commanded, not moving yet (the bridge, the Uno's start, the pose's delay)
+        w.note(t, (x, 0.0, 0.0), True)
+        t += 0.1
+    while t < 0.95:
+        x -= 0.018
+        w.note(t, (x, 0.0, 0.0), True)
+        assert not w.stuck(t), t
+        t += 0.1
+    while t < 2.0:  # against a wall: stuck after 0.5 s
+        w.note(t, (x, 0.0, 0.0), True)
+        t += 0.1
+    assert w.stuck(t - 0.1)

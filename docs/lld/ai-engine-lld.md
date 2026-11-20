@@ -3863,7 +3863,7 @@ backstop), and it may turn its back and search. Every other word keeps S7 (Logo 
    pushing-but-not-moving (~2 s) or the Uno's stall (~3 s), which count as grabbed (S10) - the floor check will show.
 2. **Run** (`run`): a spot `cm` away from the tank's centre, in the first open direction of: straight away from the
    person, then ±30°, ±60°, ±90° from it (left first) - open = the cost map has a route to it. A `RoamSkill("point",
-   stand_s=0, slow_at_point=False)` with `Planner(spin_from_deg=90)` (as FOLLOW, §250) drives it: a turn on the spot
+   stand_s=0, slow_at_point=False)` with `Planner(spin_from_deg=60, blind_spin=True)` drives it: a turn on the spot
    at `spin_dps` (65°/s) while the spot is more than 90° off, then a curve - one smooth turn, no steps. **The camera
    looks ahead** (pan 0, the driving tilt) for the whole run: the owner's "not driving blind" is the camera and the
    cost map seeing where the tank goes; a camera kept on the person would leave the way ahead unseen. It ends when
@@ -3902,14 +3902,15 @@ classDiagram
     +RUN_TURNS_DEG = (0, 30, -30, 60, -60, 90, -90)
     +run_m : float
     +tick(now_s, inp) SkillOut
-    -_back(now_s, at) SkillOut
+    -_back(now_s, at, inp) SkillOut
     -_run_spot(at, inp) XY or None
-    -_running(now_s, inp) SkillOut
-    -_search(now_s, inp) SkillOut
-    -_walled(now_s, at) bool
+    -_away_all_the_way(at, way) bool
+    -_running(now_s, at, inp) SkillOut
+    -_search(now_s, at, inp) SkillOut
   }
   class Progress {
-    +note(now_s, at)
+    +WALL_START_S = 1.0
+    +note(now_s, at, moving)
     +stuck(now_s) bool
   }
   class RoamSkill
@@ -3954,6 +3955,18 @@ building:
 - **Never towards them (S4):** a run direction is open only when the cost map has a route to its spot **and no point of
   that route is nearer the person's last spot than the tank is now** (less `RUN_TOWARDS_M` 0.05 m) - a route round
   known things behind may lead past the person. None: no run, `no_way` after facing them.
+
+**Final review fixes (2026-11-20):**
+- **The search's FACE starts from nobody in view** (I1): it was handed ESCAPE's `Sight`, whose out-of-view time had
+  grown through the run (a curve is under `GATE_DPS`, so it counts), and ended `lost` on arrival with no look round.
+  Now a new `FaceSkill` knows only the last sighting's time (an older one never counts as new): it sweeps the side the
+  out-of-view estimate now places them first, then its blind steps (§248).
+- **A slow start is not a wall** (M1): the 0.5 s window counts from the first pose change after the command (the real
+  tank starts ~0.3-0.4 s late: the bridge, the Uno, the pose's delay); never moved at all: a wall after `WALL_START_S`
+  1.0 s.
+- **The run turns on the spot beyond 60°** (M2, `RUN_SPIN_FROM_DEG` 90 → **60**, the keep-out's ahead): a ±90° spot
+  right after facing them would have started with a forward curve towards them.
+- `PersonWatch.update` with nobody in the picture answers from the pose too (M4).
 
 In the simulator (80 cm, the person 60 cm ahead): back-off 1.7 s, a 163° spin 2.5 s, then the run; the run's forward
 time from its first forward command; a wall 10 cm behind ends the back-off ~0.5 s after reaching it.

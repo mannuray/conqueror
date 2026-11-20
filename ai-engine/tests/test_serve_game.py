@@ -277,11 +277,11 @@ async def test_a_stream_that_breaks_says_so_and_goes_on(
     calls = {"n": 0}
     real = game_serve.person_message
 
-    def flaky(watch: object, now_us: int) -> dict[str, Any]:
+    def flaky(watch: object, now_us: int, at: object = None) -> dict[str, Any]:
         calls["n"] += 1
         if calls["n"] == 2:
             raise ValueError("boom")
-        return real(watch, now_us)  # type: ignore[arg-type]
+        return real(watch, now_us, at)  # type: ignore[arg-type]
 
     monkeypatch.setattr(game_serve, "person_message", flaky)
     s = await serving(bridge)
@@ -384,7 +384,9 @@ async def test_a_new_estimate_is_sent_at_once() -> None:  # design-notes §237: 
     async def send(_: dict[str, Any]) -> None:
         sent.append(time.monotonic())
 
-    stream = PersonStream(cast(World, SimpleNamespace(person=watch)), send, lambda: 100.0)
+    stream = PersonStream(
+        cast(World, SimpleNamespace(person=watch, pose_at=lambda: None)), send, lambda: 100.0
+    )
     stream.on = True
     task = asyncio.create_task(stream.run())
     try:

@@ -167,7 +167,7 @@ class World:
         self.area: tuple[float, float, float] | None = None
         self.sonar_m: float | None = None
         # the person boxes come here and only here (LLD §28.1): the tracker, memory and map refuse them
-        self.person = PersonWatch()
+        self.person = PersonWatch(lim.body_front_m)
         self._person_us: int | None = None  # the newest used picture's time
         self.last_frame: Frame | None = None
         self._by_size: dict[str, tuple[float, float]] = {}
@@ -239,16 +239,20 @@ class World:
             if used == "turning":  # owner, design-notes §229: the gyro places the person; the map skips it
                 rough = self.map_run.p.gate.camera_turning(f.cap_us)
                 if rough is not None:
-                    self.person.update([d.box for d in dets if d.cls == "person"], rough, self.sonar_m, t)
+                    self.person.update(
+                        [d.box for d in dets if d.cls == "person"], rough, self.sonar_m, t, self.pose_at()
+                    )
                     self._person_us = t
             elif used == "camera moving":  # design-notes §249: FACE's sweep keeps the estimate fresh
                 ends = self.map_run.p.gate.camera_moving(f.cap_us)
                 if ends is not None:
-                    self.person.update([d.box for d in dets if d.cls == "person"], ends, self.sonar_m, t)
+                    self.person.update(
+                        [d.box for d in dets if d.cls == "person"], ends, self.sonar_m, t, self.pose_at()
+                    )
                     self._person_us = t
             return used
         self._used = True
-        self.person.update([d.box for d in dets if d.cls == "person"], used, self.sonar_m, t)
+        self.person.update([d.box for d in dets if d.cls == "person"], used, self.sonar_m, t, self.pose_at())
         self._person_us = t
         self._by_size = size_positions(dets, self.sizes, used)
         depth = self.map_run.depth
@@ -269,6 +273,11 @@ class World:
     def apply(self, seen: Seen, t_us: int) -> None:
         self.map_run.apply(seen, t_us)
 
+    def pose_at(self) -> tuple[float, float, float] | None:
+        """The tank's pose now (x, y, heading), None before the first."""
+        pose = self.map_run.p.pose()
+        return None if pose is None else (pose.x_m, pose.y_m, pose.th_rad)
+
     # ---- out
     def input(self, now_s: float, wall_s: float, map_ok: bool) -> SkillInput:
         """What the skill gets this tick (LLD §19.4): the pose, the snapshot and its cost maps (the play area
@@ -281,7 +290,8 @@ class World:
         fresh, self._fresh = self._fresh, False
         glimpses, self._glimpses = tuple(self._glimpses), []
         now_us = pose.t_us if pose is not None else self._person_us
-        person = None if now_us is None else self.person.latest(max(now_us, self._person_us or 0))
+        at_now = None if pose is None else (pose.x_m, pose.y_m, pose.th_rad)
+        person = None if now_us is None else self.person.latest(max(now_us, self._person_us or 0), at_now)
         if pose is None:
             return make_input(
                 at=None,

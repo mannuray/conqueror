@@ -146,7 +146,9 @@ class PersonWatch:
     median over 0.3 s, coming / going over 0.5 s, minus 2 sigma; last seen close and gone, it counts down to
     30 cm."""
 
-    def __init__(self) -> None:
+    def __init__(self, front_m: float = 0.13) -> None:
+        self.front_m = front_m  # the tank's centre to its front edge (Limits.body_front_m)
+        self._spot: tuple[float, float] | None = None  # the last sighting's floor point (LLD §28.24)
         self._raw: deque[tuple[int, float]] = deque()  # (t_us, raw distance) of the median window
         self._med: deque[tuple[int, float]] = deque()  # (t_us, median) for coming / going
         self._seen: PersonEst | None = None  # the last estimate with the person in sight
@@ -159,13 +161,16 @@ class PersonWatch:
         cam: CameraModel | tuple[CameraModel, CameraModel] | None,
         sonar_m: float | None,
         t_us: int,
+        at: tuple[float, float, float] | None = None,
     ) -> PersonEst | None:
-        """One picture's person boxes; `cam` a pair for a picture taken while the camera panned (§249)."""
+        """One picture's person boxes; `cam` a pair for a picture taken while the camera panned (§249); `at`
+        the tank's pose: a sighting's floor point is kept for out-of-view estimates (LLD §28.24)."""
         if self._last_us is not None and t_us < self._last_us - RESTART_US:
             self._raw.clear()  # the old readings are from another clock (design-notes §238)
             self._med.clear()
             self._seen = None
             self._ranged = None
+            self._spot = None
         self._last_us = t_us
         if cam is None:
             ranges: list[PersonRange] = []
@@ -192,7 +197,13 @@ class PersonWatch:
         rep = max(0.0, med - 2.0 * sigma_m(med))
         sure = 0.9 if r.reason == "" else 0.6  # cut or sky: unsure
         self._seen = PersonEst(True, rep, bearing, self._coming(t_us, med), sure, t_us, r.edge)
+        self._spot = None if at is None else self._point(at, rep, bearing)
         return self._seen
+
+    def _point(self, at: tuple[float, float, float], d: float, bearing_deg: float) -> tuple[float, float]:
+        fx, fy = at[0] + self.front_m * math.cos(at[2]), at[1] + self.front_m * math.sin(at[2])
+        a = at[2] + math.radians(bearing_deg)
+        return fx + d * math.cos(a), fy + d * math.sin(a)
 
     def _or_sky(self, r: PersonRange | None, ranges: Sequence[PersonRange], t_us: int) -> PersonRange | None:
         """A box with no floor point is a person too (§239): at the last measured distance when at most
@@ -211,9 +222,10 @@ class PersonWatch:
         """The newest picture's time (with or without a person)."""
         return self._last_us
 
-    def latest(self, now_us: int) -> PersonEst | None:
+    def latest(self, now_us: int, at: tuple[float, float, float] | None = None) -> PersonEst | None:
         """The estimate now; unseen since the last sighting: its distance and direction (no countdown to
-        caught - only sightings and touches catch, design-notes §248)."""
+        caught - only sightings and touches catch, design-notes §248) - from the pose `at` to the sighting's
+        floor point when both are known, so a turn is followed (LLD §28.24)."""
         s = self._seen
         if s is None:
             return None
@@ -221,7 +233,13 @@ class PersonWatch:
         if last == s.t_us:
             return s
         gone_s = (now_us - s.t_us) / 1e6
-        return PersonEst(False, s.d_m, s.bearing_deg, s.coming, max(0.0, s.sure - gone_s), last)
+        d, bearing = s.d_m, s.bearing_deg
+        if at is not None and self._spot is not None:
+            fx, fy = at[0] + self.front_m * math.cos(at[2]), at[1] + self.front_m * math.sin(at[2])
+            d = math.dist((fx, fy), self._spot)
+            a = math.degrees(math.atan2(self._spot[1] - fy, self._spot[0] - fx) - at[2])
+            bearing = (a + 180.0) % 360.0 - 180.0
+        return PersonEst(False, d, bearing, s.coming, max(0.0, s.sure - gone_s), last)
 
     def _window(self, t_us: int, d: float) -> float:
         """The nearest over the 0.3 s window (final review I1: a median let a far parent hide a flickering

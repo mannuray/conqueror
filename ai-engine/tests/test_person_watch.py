@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import math
 
 import pytest
 
@@ -252,3 +253,50 @@ def test_a_panning_picture_with_nobody_is_fresh_news() -> None:
     w = watch_at(1.0, t_us=0)
     e = w.update([], (panned(0.0), panned(-30.0)), None, S // 2)
     assert e is not None and not e.seen and e.t_us == S // 2
+
+
+def _unseen_after(w: PersonWatch, t_us: int) -> None:
+    w.update([], cam_down(), None, t_us)
+
+
+def test_out_of_view_bearing_follows_the_turn() -> None:
+    """AI engine LLD §28.24: out of view, the estimate is from the pose now to the last spot (the bridge's
+    run-away rule, R34.15, reads 'behind' after the tank turned its back)."""
+    cam = cam_down()
+    w = PersonWatch(front_m=0.13)
+    w.update([box_at(cam, 1.0, 0.0)], cam, None, 0, at=(0.0, 0.0, 0.0))
+    seen = w.latest(0, at=(0.0, 0.0, 0.0))
+    assert seen is not None and seen.seen and seen.d_m is not None
+    _unseen_after(w, S)
+    e = w.latest(S, at=(0.0, 0.0, math.pi))
+    assert e is not None and not e.seen and e.d_m is not None
+    assert abs(e.bearing_deg) > 170
+    # the spot is seen.d_m beyond the front edge (0.13 m ahead); turned round, the front edge is 0.13 m behind
+    assert e.d_m == pytest.approx(seen.d_m + 2 * 0.13, abs=0.01)
+
+
+def test_out_of_view_without_a_pose_keeps_the_sighting() -> None:
+    cam = cam_down()
+    w = PersonWatch(front_m=0.13)
+    w.update([box_at(cam, 1.0, 20.0)], cam, None, 0, at=(0.0, 0.0, 0.0))
+    seen = w.latest(0)
+    _unseen_after(w, S)
+    e = w.latest(S)
+    assert seen is not None and e is not None and not e.seen
+    assert e.d_m == seen.d_m and e.bearing_deg == seen.bearing_deg
+    w2 = PersonWatch()
+    w2.update([box_at(cam, 1.0, 20.0)], cam, None, 0)  # the sighting had no pose
+    _unseen_after(w2, S)
+    e2 = w2.latest(S, at=(0.0, 0.0, math.pi))
+    assert e2 is not None and e2.bearing_deg == pytest.approx(20.0, abs=1.0)
+
+
+def test_the_person_message_carries_the_bearing_from_the_pose_now() -> None:
+    from conqueror_ai.app.game_serve import person_message
+
+    cam = cam_down()
+    w = PersonWatch(front_m=0.13)
+    w.update([box_at(cam, 1.0, 0.0)], cam, None, 0, at=(0.0, 0.0, 0.0))
+    _unseen_after(w, S)
+    msg = person_message(w, S, (0.0, 0.0, math.pi))
+    assert msg["seen"] is False and abs(msg["bearing"]) >= 170

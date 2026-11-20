@@ -590,7 +590,7 @@ class ServeApp:
         now = self.perception.bridge_now_s()
         if not self.stream.on or now is None:
             return None
-        return person_message(self.world.person, round(now * 1e6))
+        return person_message(self.world.person, round(now * 1e6), self.world.pose_at())
 
     async def _send_person(self, msg: dict[str, Any]) -> None:
         await self._send(self.link.person(msg))

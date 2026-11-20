@@ -54,10 +54,12 @@ def game_skill(
     return FollowSkill(lim, seconds or 0.0, stop_m if stop_m is not None else FOLLOW_STOP_CM / 100)
 
 
-def person_message(watch: PersonWatch, now_us: int) -> dict[str, Any]:
+def person_message(
+    watch: PersonWatch, now_us: int, at: tuple[float, float, float] | None = None
+) -> dict[str, Any]:
     """The `person` message now: the newest estimate, its age the newest picture's (a frozen camera's grows);
-    nobody seen yet: unseen, no distance."""
-    e = watch.latest(now_us)
+    nobody seen yet: unseen, no distance. Out of view, from the pose `at` (LLD §28.24)."""
+    e = watch.latest(now_us, at)
     if e is not None:
         return e.wire(now_us)
     last = watch.last_us
@@ -109,7 +111,7 @@ class PersonStream:
                 continue
             last_us, last_s = self.world.person.last_us, time.monotonic()
             try:
-                msg = person_message(self.world.person, round(now * 1e6))
+                msg = person_message(self.world.person, round(now * 1e6), self.world.pose_at())
             except Exception as e:  # said, and the stream goes on; the bridge's deadman holds meanwhile (M3)
                 print(f"the person stream failed: {type(e).__name__}: {e}")
                 continue

@@ -1256,8 +1256,8 @@
      "unit": "cm"
     }
    ],
-   "help": "get away from the baby",
-   "example": "ESCAPE \"baby 40"
+   "help": "run away from the baby",
+   "example": "ESCAPE \"baby 80"
   },
   {
    "name": "FOLLOW",

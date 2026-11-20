@@ -137,7 +137,7 @@ inline constexpr WordSpec kWords[] = {
     {"SEE?", WordKind::kReporter, 2, kNeedAi, 1, kIn68, "IF SEE? \"ball [ SOUND FANFARE ]", "", false},
     {"HOWFAR", WordKind::kReporter, 2, kNeedAi, 1, kIn69, "IF HOWFAR \"ball < 50 [ BEEP ]", "", false},
     {"FACE", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 1, kIn70, "FACE \"baby", "", true},
-    {"ESCAPE", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 2, kIn71, "ESCAPE \"baby 40", "", true},
+    {"ESCAPE", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 2, kIn71, "ESCAPE \"baby 80", "", true},
     {"FOLLOW", WordKind::kCommand, 2, kNeedEncoders | kNeedAi, 2, kIn72, "FOLLOW \"baby 5", "", true},
     {"CAUGHT?", WordKind::kReporter, 2, 0, 0, nullptr, "IF CAUGHT? [ WAIT 3 ]", "", false},
     {"HOWMANY", WordKind::kReporter, 3, kNeedAi, 1, kIn74, "", "", false},

@@ -4130,3 +4130,7 @@ sequenceDiagram
 Tests (`test_game_mode`): forward out of view 2 s with bearing 90 allowed, 89 held; 3.0 s after the first such move
 allowed, 3.001 s held, however long the person was out of view before it; a sighting resets the 3 s; bearing -120
 allowed; a turn or a back move unchanged; caught still holds forward behind.
+
+**As built (Plan G4, 2026-11-20):** `GameMode::runAway(now)` sets `m_run_since` on the first forward move it lets
+through; a sighting clears `m_running` (`noteSeen`), as does a new run (`startRun`). `playGate` is no longer `const`.
+Native tests 1029 / 1029.

@@ -12,7 +12,7 @@ GameMode::Start GameMode::startRun(bool game, bool people, uint8_t cap_pct, uint
   m_cap = cap_pct;
   m_state = GameState::kArming;
   m_arm_ms = now_ms;
-  m_has_person = m_unseen = m_far = m_touch = false;
+  m_has_person = m_unseen = m_far = m_touch = m_running = false;
   m_seen_cm = -1;
   m_env_pending = m_env_on = true;
   return Start::kGo;
@@ -43,6 +43,7 @@ void GameMode::sighting(int16_t d_cm) {
 void GameMode::noteSeen(bool seen, uint32_t now_ms) {
   if (seen) {
     m_unseen = false;
+    m_running = false;  // a sighting: a later run counts its 3 s afresh
   } else if (!m_unseen) {
     m_unseen = true;
     m_unseen_since = now_ms;
@@ -100,12 +101,25 @@ Gate GameMode::caughtGate(const Move& m) const {
 }
 
 // Playing: the keep-out; out of view beyond 1 s, a turn on the spot only when last seen from kBlindTurnCm with nothing
-// ahead (FACE's look round, §248).
-Gate GameMode::playGate(const Move& m, uint16_t stop_cm, uint32_t now_ms) const {
+// ahead (FACE's look round, §248), and forward only as a run away from behind (R34.15).
+Gate GameMode::playGate(const Move& m, uint16_t stop_cm, uint32_t now_ms) {
   const uint32_t unseen_ms = m_unseen ? ago(now_ms, m_unseen_since) : 0;
   const bool turning = m.v_pct == 0 && m.yaw_rate_dps != 0.0f;
   if (turning && unseen_ms > KeepOut::kUnseenMs && m_seen_cm >= kBlindTurnCm && aheadClear()) return Gate::kAllow;
+  if (m.v_pct > 0 && unseen_ms > KeepOut::kUnseenMs && runAway(now_ms)) return Gate::kAllow;
   return KeepOut::check(m_p, m, stop_cm, unseen_ms);
+}
+
+// ESCAPE's run (design-notes §254): forward out of view while the engine places the person behind, kRunAwayMs from
+// the first such move; a sighting starts it afresh.
+bool GameMode::runAway(uint32_t now_ms) {
+  const int16_t b = m_p.bearing_deg < 0 ? static_cast<int16_t>(-m_p.bearing_deg) : m_p.bearing_deg;
+  if (b < kBehindDeg) return false;
+  if (!m_running) {
+    m_running = true;
+    m_run_since = now_ms;
+  }
+  return ago(now_ms, m_run_since) <= kRunAwayMs;
 }
 
 void GameMode::step(uint32_t now_ms) {

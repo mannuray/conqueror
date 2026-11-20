@@ -4105,7 +4105,7 @@ classDiagram
     +kBehindDeg = 90
     +kRunAwayMs = 3000
     -playGate(move, stop_cm, now) Gate
-    -runAway(move, now) bool
+    -runAway(now) bool
     -m_run_since : uint32
   }
   class KeepOut {

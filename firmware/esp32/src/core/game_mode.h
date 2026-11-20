@@ -27,6 +27,8 @@ class GameMode {
   static constexpr uint32_t kSweepMs = 3000;   // or out of view this long (FACE's camera sweep, R34.14) ...
   static constexpr int16_t kClearCm = 30;      // ... with no echo ahead inside this
   static constexpr int16_t kBlindTurnCm = 30;  // out of view: a turn on the spot only when last seen this far
+  static constexpr int16_t kBehindDeg = 90;     // out of view, placed at least this far round: behind (R34.15)
+  static constexpr uint32_t kRunAwayMs = 3000;  // ... forward passes this long from the first such move (§254)
 
   GameState state() const { return m_state; }
   // A run starts. Held: kHeld (only a STOP leaves it - final review I2). Not a game: kGo, nothing changes. A game:
@@ -64,7 +66,8 @@ class GameMode {
   bool notFound(uint32_t now_ms) const;
   bool aheadClear() const;
   Gate caughtGate(const Move& m) const;
-  Gate playGate(const Move& m, uint16_t stop_cm, uint32_t now_ms) const;
+  Gate playGate(const Move& m, uint16_t stop_cm, uint32_t now_ms);
+  bool runAway(uint32_t now_ms);
   void noteSeen(bool seen, uint32_t now_ms);
   void sighting(int16_t d_cm);
   void noteFar(bool far, uint32_t now_ms);
@@ -85,6 +88,8 @@ class GameMode {
   uint32_t m_person_rx = 0;
   uint32_t m_unseen_since = 0;
   bool m_unseen = false;
+  uint32_t m_run_since = 0;  // the first forward move of a run away out of view (R34.15)
+  bool m_running = false;
   uint32_t m_far_since = 0;
   bool m_far = false;
   uint16_t m_caught_n = 0;

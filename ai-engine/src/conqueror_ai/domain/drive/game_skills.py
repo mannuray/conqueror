@@ -13,10 +13,9 @@ from dataclasses import replace
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
-from conqueror_ai.domain.drive.roam import POINT_DONE_M, RoamSkill
+from conqueror_ai.domain.drive.roam import RoamSkill
 from conqueror_ai.domain.drive.route import XY, RoutePlanner
 from conqueror_ai.domain.drive.skill import Result, SkillInput, SkillOut
-from conqueror_ai.domain.drive.trusted import TrustedFloor
 from conqueror_ai.domain.objects import GATE_DPS
 from conqueror_ai.domain.person import PersonEst
 
@@ -31,7 +30,6 @@ FACE_STEP_LOOK_S = 1.0  # ... in TURN_STEP_DEG steps, looking this long after ea
 TURN_FROM_M = 0.15  # a turn on the spot only with the person this far or farther (bridge LLD R34.14)
 LOST_S = 1.0  # not seen this long (while not spinning): lost
 VIEW_DEG = 41.0  # half the camera's view: ESCAPE knows where the person is only inside it
-ESCAPE_NEAR_M = 0.50  # nearer, ESCAPE never turns its back (S11): back over trusted floor, or stay (§248)
 FACE_MIN_S = 0.5  # FACE is done no sooner: a program looping on it runs ~2 a second (design-notes §251)
 FOLLOW_MIN_M = 0.30  # FOLLOW never nearer than this, whatever the setting (S4, §248)
 FOLLOW_SPIN_FROM_DEG = (
@@ -39,13 +37,16 @@ FOLLOW_SPIN_FROM_DEG = (
 )
 FOLLOW_PAN_DEG = 60.0  # FOLLOW keeps the camera on the person up to this pan
 PAN_STEP_DEG = 3.0  # the camera is sent again only when it should move more than this
-TURN_PAN_STEP_DEG = 20.0  # ESCAPE's camera in steps this big (a moving camera's pictures are skipped)
-TURN_STEP_DEG = 30.0  # ESCAPE turns in steps this big, a new sighting after each (design-notes §241)
-STEP_LOOK_S = 1.5  # ... none this long after a step: lost
-STEP_FRESH_S = 0.5  # a step starts only on a sighting this recent, else the tank looks first (§241)
+TURN_STEP_DEG = 30.0  # FACE's blind steps this big (design-notes §241, §248)
 ESCAPE_PAN_DEG = 90.0  # driving sideways away the person drifts behind the side: the servo's whole pan
-SONAR_SPARE_M = 0.10  # a side is open when the sonar's echo is beyond the leg + this (+ the front)
-AWAY_MAX_S = 10.0  # the sideways leg ends no_way after this (it turns back to face them first)
+BACK_OFF_M = 0.30  # ESCAPE backs off this far at once, over any floor (owner, design-notes §254)
+WALL_S = 0.5  # ... a move commanded this long with no progress: a wall (or the bridge holding the tracks)
+WALL_M = 0.02  # ... progress: moved this far
+WALL_DEG = 5.0  # ... or turned this far
+RUN_TURNS_DEG = (0.0, 30.0, -30.0, 60.0, -60.0, 90.0, -90.0)  # the run's directions from straight away
+RUN_SPIN_FROM_DEG = 90.0  # the run turns on the spot beyond this, then curves (as FOLLOW, §250)
+RUN_TOWARDS_M = 0.05  # a run's route never passes nearer the person than the tank is now, less this (S4)
+RUN_MAX_S = 2.8  # the run drives forward at most this long (inside the bridge's 3 s out of view, R34.15)
 REPLAN_M = 0.15  # FOLLOW's goal moved this far: a new route
 GAME_V_CAP_CMS = 25.0  # a game drives at most this fast (LLD §28.1)
 FRESH_US = 300_000  # ESCAPE starts only on an estimate this recent (the bridge's deadman; final review M1)
@@ -259,138 +260,159 @@ class FaceSkill(_Base):
         return far_round and self.sight.dist(at) >= TURN_FROM_M and self._looks < FACE_LOOKS
 
 
-class EscapeSkill(_Base):
-    """ESCAPE "baby cm: the person ahead in view. The floor behind trusted: back `back_m` straight facing
-    them. Not trusted and the person at least ESCAPE_NEAR_M away: turn ~90 deg to a side with a route (left
-    first), drive `back_m` sideways away with the camera on them, turn back to face them (owner, design-notes
-    §229: the person never behind the camera). Else stay still, no_way (S11: never the back to a person)."""
+class Progress:
+    """The wall rule (LLD §28.24): a move commanded at least WALL_S, and in the last WALL_S the pose moved
+    less than WALL_M and turned less than WALL_DEG - a wall, or the bridge holding the tracks."""
 
-    def __init__(self, lim: Limits, back_m: float, trusted: TrustedFloor | None = None) -> None:
+    def __init__(self) -> None:
+        self._since: float | None = None  # when the commanded move began
+        self._trail: list[tuple[float, XYTh]] = []
+
+    def note(self, now_s: float, at: XYTh, moving: bool) -> None:
+        if not moving:
+            self._since, self._trail = None, []
+            return
+        if self._since is None:
+            self._since = now_s
+        self._trail.append((now_s, at))
+        while len(self._trail) > 1 and self._trail[1][0] <= now_s - WALL_S + 1e-9:
+            self._trail.pop(0)
+
+    def stuck(self, now_s: float) -> bool:
+        if self._since is None or now_s - self._since < WALL_S - 1e-9 or not self._trail:
+            return False
+        (_, a), (_, b) = self._trail[0], self._trail[-1]
+        turned = abs(_wrap(math.degrees(b[2] - a[2])))
+        return math.dist(a[:2], b[:2]) < WALL_M and turned < WALL_DEG
+
+
+class EscapeSkill(_Base):
+    """ESCAPE "baby cm (owner, design-notes §254; LLD §28.24): the person in view with a fresh picture, else
+    no_way. Back off at once, straight back up to BACK_OFF_M over any floor (a wall: no progress); then run
+    `run_m` to the first open direction away from them (straight away, then ±30, ±60, ±90 deg, left first),
+    one smooth turn, the camera ahead, at most RUN_MAX_S of driving forward; then turn to where they were and
+    FACE them: done facing them (no_way when there was no run), lost when not found or the turn is held."""
+
+    def __init__(self, lim: Limits, run_m: float) -> None:
         super().__init__(lim)
-        self.back_m = back_m
-        self.trusted = trusted or TrustedFloor()
+        self.run_m = run_m
         self._from: XYTh | None = None
+        self._run: RoamSkill | None = None
+        self._ran = False  # a run spot was found
+        self._fwd_s: float | None = None  # the run's first forward command
+        self._face: FaceSkill | None = None
         self._th: float | None = None
-        self._away: RoamSkill | None = None
-        self._spot: XY | None = None
-        self._sides: list[tuple[float, XY]] = []  # the sides still to try: heading and spot
-        self._away_t0 = 0.0
-        self._failed = ""  # why the away leg failed: no_way once facing them again
-        self._step_th: float | None = None  # the heading of the step under way (LLD §28.14)
-        self._look_us: int | None = None  # a step ended: waiting for a sighting newer than this
-        self._look_s = 0.0
+        self._progress = Progress()
 
     def tick(self, now_s: float, inp: SkillInput) -> SkillOut:
         self._clock(now_s, inp)
         at = inp.at
         if at is None:
             return self._halt()
+        if self.state != "start":
+            self._progress.note(now_s, at, self.cmd != STOP)
         if self.state == "start":
             return self._start(at, inp)
         if self.state == "back":
-            return self._backing(at)
-        cam = self._cam_to(at, ESCAPE_PAN_DEG, TURN_PAN_STEP_DEG)  # the person in view all the while
-        if self.state in ("turn_away", "turn_back"):
-            assert self._th is not None
-            out = self._step_to(now_s, at, self._th, inp)
-            if out is not None:
-                return SkillOut(out.cmd, cam, out.result, out.detail)
-            if self.state == "turn_back":
-                result = Result.NO_WAY if self._failed else Result.DONE
-                return self._end(result, self._failed, cam=self._cam_to(at, FACE_PAN_DEG))
-            if not self._open(inp):  # the sonar, now pointing along the leg: something there
-                return self._next_side(at, cam)
-            assert self._spot is not None
-            self._away, self.state = RoamSkill(Planner(self.lim), "point", point=self._spot), "away"
-            self._away_t0 = now_s
-            return self._halt(cam)
-        assert self._away is not None
-        out = self._away.tick(now_s, inp)
-        late = now_s - self._away_t0 >= AWAY_MAX_S
-        if out.result is None and not late:
-            self.cmd = out.cmd
-            return SkillOut(out.cmd, cam)
-        if late or out.result != Result.DONE:
-            why = "too long" if out.result is None else f"{out.result.value} {out.detail}".strip()
-            self._failed = f"no way away: {why}"
-        self._th, self.state = self.sight.heading(at), "turn_back"  # facing them again either way
-        return self._halt(cam)
-
-    def _step_to(self, now_s: float, at: XYTh, th: float, inp: SkillInput) -> SkillOut | None:
-        """Toward heading `th` in steps of TURN_STEP_DEG, standing still after each until a newer sighting
-        (the bridge's unseen 1 s never cuts a turn, design-notes §241). None: the turn is over."""
-        if self._look_us is not None:
-            if self.sight.t_us is not None and self.sight.t_us > self._look_us:
-                self._look_us = None
-            elif now_s - self._look_s >= STEP_LOOK_S - 1e-9:
-                return self._end(Result.LOST, "the person is not in view")
-            else:
-                return self._halt()
-        if self._step_th is None:
-            err = _wrap(math.degrees(th - at[2]))
-            if abs(err) <= FACE_DONE_DEG:
-                return None
-            if self.sight.unseen_s > STEP_FRESH_S:  # turn only from a fresh sighting: look first
-                self._look_us, self._look_s = self.sight.t_us or 0, now_s
-                return self._halt()
-            self._step_th = at[2] + math.radians(max(-TURN_STEP_DEG, min(TURN_STEP_DEG, err)))
-        out = self._spin_to(at, self._step_th)
-        if out is not None:
-            return out
-        snap_us = inp.snap.t_us if inp.snap is not None else None
-        self._step_th, self._look_us, self._look_s = None, max(snap_us or 0, self.sight.t_us or 0), now_s
-        return self._halt()
-
-    def _backing(self, at: XYTh) -> SkillOut:
-        """Straight back at v_min until the odometry moved back_m along the start heading."""
-        assert self._from is not None
-        x0, y0, th0 = self._from
-        moved = -((at[0] - x0) * math.cos(th0) + (at[1] - y0) * math.sin(th0))
-        return self._end(Result.DONE) if moved >= self.back_m - 1e-6 else self._out(Command(-1.0, 0.0))
+            return self._back(now_s, at, inp)
+        if self.state == "run":
+            return self._running(now_s, at, inp)
+        return self._search(now_s, at, inp)
 
     def _start(self, at: XYTh, inp: SkillInput) -> SkillOut:
         p, snap = inp.person, inp.snap
         if p is None or not p.seen or p.d_m is None or abs(p.bearing_deg) > VIEW_DEG:
-            return self._end(Result.NO_WAY, "the person is not in view")  # never backs toward the unknown
+            return self._end(Result.NO_WAY, "the person is not in view")  # it must know where they are
         if snap is None or snap.t_us - p.t_us > FRESH_US:
             return self._end(Result.NO_WAY, "no fresh picture of the person")
-        if self.trusted.ok(snap, at, self.back_m, snap.t_us, lim=self.lim):
-            self._from, self.state = at, "back"
-            return self._out(Command(-1.0, 0.0))
-        if p.d_m < ESCAPE_NEAR_M:
-            return self._end(Result.NO_WAY, "the person is near and the floor behind is not trusted")
-        self._sides = self._routed(at, inp)
-        return self._next_side(at, self._cam_to(at, ESCAPE_PAN_DEG, TURN_PAN_STEP_DEG))
+        self._from, self.state = at, "back"
+        return self._out(Command(-1.0, 0.0), self._cam_to(at, ESCAPE_PAN_DEG))
 
-    def _routed(self, at: XYTh, inp: SkillInput) -> list[tuple[float, XY]]:
-        """Left, then right: the heading 90 deg round and the spot back_m + 15 cm along it, where the cost map
-        has a route. Beside the tank is never in view (it keeps the person in view): the sonar decides after
-        the turn."""
-        if inp.costs is None:
-            return []
-        cost, routes, far = inp.costs.base(), RoutePlanner(self.lim), self.back_m + POINT_DONE_M
-        out: list[tuple[float, XY]] = []
-        for turn in (math.pi / 2, -math.pi / 2):
-            th = at[2] + turn
-            spot = (at[0] + far * math.cos(th), at[1] + far * math.sin(th))
-            if routes.route(cost, (at[0], at[1]), spot) is not None:
-                out.append((th, spot))
-        return out
+    def _back(self, now_s: float, at: XYTh, inp: SkillInput) -> SkillOut:
+        """Straight back (the ramp: at v_min) until BACK_OFF_M along the start heading, or a wall."""
+        assert self._from is not None
+        x0, y0, th0 = self._from
+        moved = -((at[0] - x0) * math.cos(th0) + (at[1] - y0) * math.sin(th0))
+        if moved < BACK_OFF_M - 1e-6 and not self._progress.stuck(now_s):
+            return self._out(Command(-1.0, 0.0), self._cam_to(at, ESCAPE_PAN_DEG))
+        return self._start_run(now_s, at, inp)
 
-    def _next_side(self, at: XYTh, cam: tuple[float, float] | None) -> SkillOut:
-        """Turn to the next side to try (through facing them, never the back); none left: face them,
-        no_way."""
-        if not self._sides:
-            self._failed = "no way to either side"
-            self._th, self.state = self.sight.heading(at), "turn_back"
-            return self._halt(cam)
-        self._th, self._spot = self._sides.pop(0)
-        self.state = "turn_away"
-        return self._halt(cam)
+    def _start_run(self, now_s: float, at: XYTh, inp: SkillInput) -> SkillOut:
+        spot = self._run_spot(at, inp)
+        self._ran = spot is not None
+        self._progress = Progress()
+        if spot is None:
+            return self._to_search(at)
+        self._run = RoamSkill(
+            Planner(self.lim, spin_from_deg=RUN_SPIN_FROM_DEG, blind_spin=True),
+            "point",
+            point=spot,
+            stand_s=0.0,
+            slow_at_point=False,
+        )
+        self.state, self._pan = "run", 0.0
+        return self._running(now_s, at, inp, cam=(0.0, self.lim.drive_tilt_deg))
 
-    def _open(self, inp: SkillInput) -> bool:
-        s = inp.sonar_m
-        return s is None or s > self.back_m + POINT_DONE_M + SONAR_SPARE_M
+    def _run_spot(self, at: XYTh, inp: SkillInput) -> XY | None:
+        """The first direction away from the person with a route on the cost map, `run_m` from the centre."""
+        if inp.costs is None or self.sight.xy is None:
+            return None
+        away = self.sight.heading(at) + math.pi
+        cost, routes = inp.costs.base(), RoutePlanner(self.lim)
+        for turn in RUN_TURNS_DEG:
+            th = away + math.radians(turn)
+            spot = (at[0] + self.run_m * math.cos(th), at[1] + self.run_m * math.sin(th))
+            way = routes.route(cost, (at[0], at[1]), spot)
+            if way is not None and self._away_all_the_way(at, way):
+                return spot
+        return None
+
+    def _away_all_the_way(self, at: XYTh, way: list[XY]) -> bool:
+        """Never towards them (S4): no point of the route nearer the person's spot than the tank is now."""
+        assert self.sight.xy is not None
+        now_m = math.dist(at[:2], self.sight.xy)
+        return all(math.dist(w, self.sight.xy) >= now_m - RUN_TOWARDS_M for w in way)
+
+    def _running(
+        self, now_s: float, at: XYTh, inp: SkillInput, cam: tuple[float, float] | None = None
+    ) -> SkillOut:
+        assert self._run is not None
+        out = self._run.tick(now_s, inp)
+        if self._fwd_s is None and out.cmd.v_cms > 0:
+            self._fwd_s = now_s
+        late = self._fwd_s is not None and now_s - self._fwd_s >= RUN_MAX_S - 1e-9
+        if out.result is None and not late and not self._progress.stuck(now_s):
+            self.cmd = out.cmd
+            return SkillOut(out.cmd, cam)
+        return self._to_search(at)
+
+    def _to_search(self, at: XYTh) -> SkillOut:
+        self.state, self._progress = "search", Progress()
+        self._th = None if self.sight.xy is None else self.sight.heading(at)
+        return self._halt(self._cam_to(at, FACE_PAN_DEG))
+
+    def _search(self, now_s: float, at: XYTh, inp: SkillInput) -> SkillOut:
+        """Turn to the last spot's heading, then FACE; a held turn (no progress) ends lost."""
+        if self._progress.stuck(now_s):
+            return self._end(Result.LOST, "could not turn to look")
+        if self._th is not None:
+            out = self._spin_to(at, self._th)
+            if out is not None:
+                return out
+            self._th = None
+        if self._face is None:
+            self._face = FaceSkill(self.lim)
+            self._face.sight = self.sight  # where they were: FACE looks that way first
+        out = self._face.tick(now_s, inp)
+        self.cmd = out.cmd
+        if out.result == Result.DONE and not self._ran:
+            return self._end(Result.NO_WAY, "no way to run", out.cam)
+        if out.result is not None:
+            return self._end(out.result, out.detail, out.cam)
+        return SkillOut(out.cmd, out.cam)
+
+    def debug(self) -> dict[str, object]:
+        return {**super().debug(), "ran": self._ran}
 
 
 class FollowSkill(_Base):

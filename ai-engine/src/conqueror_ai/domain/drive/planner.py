@@ -41,10 +41,17 @@ def bearing_deg(at: XYTh, target: tuple[float, float]) -> float:
 
 class Planner:
     def __init__(
-        self, lim: Limits, weights: Weights | None = None, spin_from_deg: float = SPIN_FROM_DEG
+        self,
+        lim: Limits,
+        weights: Weights | None = None,
+        spin_from_deg: float = SPIN_FROM_DEG,
+        blind_spin: bool = False,
     ) -> None:
         """spin_from_deg: beyond this far off, a turn on the spot first. FOLLOW gives 90 (design-notes §250):
-        it curves for anything nearer ahead, even inside the tightest circle - a person, not a small ball."""
+        it curves for anything nearer ahead, even inside the tightest circle - a person, not a small ball.
+        blind_spin: a turn on the spot may sweep unseen floor (known things still count) - ESCAPE's run, owner
+        design-notes §254."""
+        self.blind_spin = blind_spin
         self.lim = lim
         self.w = weights or Weights()
         self.spin_from_deg = spin_from_deg
@@ -60,7 +67,7 @@ class Planner:
     ) -> bool:
         """Whether turning on the spot this way (deg round) keeps the body's rule on the room map, over seen
         floor unless seen=False (Footprint.turn_ok; no map: yes)."""
-        return cost is None or self.foot.turn_ok(cost, at, left, deg, seen)
+        return cost is None or self.foot.turn_ok(cost, at, left, deg, seen and not self.blind_spin)
 
     def speed_cap(self, cost: CostMap, at: XYTh, cmd: Command) -> float:
         """The top speed for this move: v_top on open seen floor, toward v_min as the highest cost the body

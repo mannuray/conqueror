@@ -14,11 +14,12 @@ import pytest
 
 from conqueror_ai.domain.drive.curves import Command, XYTh
 from conqueror_ai.domain.drive.game_skills import (
-    ESCAPE_NEAR_M,
+    BACK_OFF_M,
     FACE_LOOK_PAN_DEG,
     FACE_MIN_S,
     FACE_PAN_DEG,
     FOLLOW_MIN_M,
+    RUN_MAX_S,
     EscapeSkill,
     FaceSkill,
     FollowSkill,
@@ -27,7 +28,6 @@ from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.roam import POINT_DONE_M
 from conqueror_ai.domain.drive.sim import Box, SimRoom, SimTank
 from conqueror_ai.domain.drive.skill import Result, Skill, make_input
-from conqueror_ai.domain.drive.trusted import TrustedFloor
 from conqueror_ai.domain.objects import GATE_DPS
 from conqueror_ai.domain.person import PersonEst
 from conqueror_ai.domain.room_map import RoomMap
@@ -51,6 +51,8 @@ class Play:
     goals: list[float] = field(default_factory=lambda: list[float]())  # FOLLOW's goal: front to the person
     in_view: list[bool] = field(default_factory=lambda: list[bool]())  # the person in the camera's view
     unseen_turning: list[float] = field(default_factory=lambda: list[float]())  # s unseen, per turn
+    states: list[str] = field(default_factory=lambda: list[str]())  # the skill's state per tick
+    pans: list[float] = field(default_factory=lambda: list[float]())  # the camera's pan per tick
 
     @property
     def moved(self) -> bool:
@@ -94,6 +96,9 @@ def play(
     delay_s: float = 0.0,
     hide_after_turn_s: float | None = None,
     walk: tuple[float, float] = (0.0, 0.0),
+    wall_behind_x: float | None = None,
+    hold_spins_after_run: bool = False,
+    seen_marks: list[tuple[float, float]] | None = None,
 ) -> Play:
     """edge_clip: a person up to 35 deg beyond the view is seen cut by the picture's side edge (their box's
     bottom centre at the edge, so the bearing reads short); always_edge: every sighting says edge; walk: the
@@ -111,6 +116,9 @@ def play(
     turned_t: float | None = None  # when the first turn began
     if trusted_behind:
         seed_behind(out.room, start, round(t * 1e6))
+    if seen_marks:
+        out.room.update_picture(marks(high=seen_marks), round(t * 1e6), start[:2])
+    ran = False  # the tank drove forward (hold_spins_after_run: the bridge holds every spin after it)
     while t < T0_S + limit_s:
         at = tank.at
         t_us = round(t * 1e6)
@@ -154,13 +162,19 @@ def play(
             out.unseen_turning.append(t - seen_t)
         out.cmds.append(cmd)
         out.at.append(at)
+        out.states.append(str(getattr(skill, "state", "")))
         if o.cam is not None:
             pan = o.cam[0]
             out.cams.append(o.cam)
+        out.pans.append(pan)
         if o.result is not None:
             out.result = o.result
             break
-        tank.step(cmd, LIM.dt_s)
+        ran = ran or cmd.v_cms > 0
+        held = hold_spins_after_run and ran and cmd.v_cms == 0 and cmd.w_dps != 0
+        tank.step(Command(0.0, 0.0) if held else cmd, LIM.dt_s)
+        if wall_behind_x is not None and tank.at[0] < wall_behind_x:
+            tank.at = (wall_behind_x, tank.at[1], tank.at[2])  # against the wall: the tracks slip, no move
         t += LIM.dt_s
     return out
 
@@ -287,72 +301,111 @@ def test_face_last_seen_far_and_nobody_turns_a_full_circle_then_is_lost() -> Non
     assert 330.0 <= turned <= 420.0
 
 
-# ---- ESCAPE
-def test_escape_with_trusted_floor_backs_straight_and_never_turns() -> None:
-    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), at_bearing(0.6, 0.0), trusted_behind=True)
-    assert p.result == Result.DONE
-    assert all(c.w_dps == 0 for c in p.cmds)
-    assert any(c.v_cms < 0 for c in p.cmds)
-    x_end = p.at[-1][0]
-    assert -0.36 <= x_end <= -0.27  # back 30 cm by the odometry (one tick's slack)
+# ---- ESCAPE (AI engine LLD §28.24, design-notes §254: back off, turn and run, search back)
+def first(p: Play, state: str) -> int:
+    return p.states.index(state)
 
 
-def test_escape_untrusted_far_turns_drives_and_turns_back() -> None:
-    person = at_bearing(0.9, 0.0)
-    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), person, limit_s=40.0)
+def test_escape_backs_off_at_once_over_unknown_floor() -> None:
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0)
+    assert p.cmds[0].v_cms == -LIM.v_min_cms and p.cmds[0].w_dps == 0  # the very first tick, no floor check
+    i = first(p, "run")
+    assert -BACK_OFF_M - 0.04 <= p.at[i][0] <= -BACK_OFF_M + 0.01  # backed 30 cm by the odometry
+
+
+def test_escape_near_still_backs_off() -> None:  # owner §254: S11 relaxed for ESCAPE
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.20, 0.0), limit_s=40.0)
+    assert p.cmds[0].v_cms < 0 and "run" in p.states
+
+
+def test_escape_wall_ends_the_back_off() -> None:
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0, wall_behind_x=-0.10)
+    i = first(p, "run")
+    backing = [c for c in p.cmds[:i] if c.v_cms < 0]
+    assert len(backing) <= 12  # the wall at ~0.55 s, then 0.5 s of no progress - not until a stall (~2-3 s)
+    assert p.at[i][0] == pytest.approx(-0.10, abs=0.01)
+
+
+def test_escape_spin_is_not_a_wall() -> None:
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0)
+    assert max(abs(heading_deg(a)) for a in p.at) > 150.0  # turned its back
+    assert any(c.v_cms > 0 for c in p.cmds)  # and ran
+
+
+def test_escape_runs_straight_away_when_open() -> None:
+    person = at_bearing(0.6, 0.0)
+    p = play(EscapeSkill(LIM, 0.80), person, limit_s=40.0)
+    j = first(p, "search")
+    end = p.at[j]
+    assert end[0] < -0.30 - 0.55  # back-off plus most of the 80 cm, away
+    assert abs(end[1]) < 0.25  # straight away, not aside
+    assert math.dist(end[:2], person) > 1.3
+    i = first(p, "run")
+    assert min(p.gaps[i:j]) >= p.gaps[i] - 0.05  # never towards them on the run
+
+
+def test_escape_run_takes_the_next_open_direction() -> None:
+    wall = [(-0.9, y / 100) for y in range(-200, 201, 4)]  # a known wall behind: 0 and ±30° have no route
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0, seen_marks=wall)
+    esc_spot = p.at[first(p, "search")]
+    assert esc_spot[1] > 0.3  # +60°, left first
+    assert esc_spot[0] > -0.9
+
+
+def test_escape_no_stand_between_back_and_run() -> None:
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0)
+    i = first(p, "run")
+    moving = [c.v_cms != 0 or c.w_dps != 0 for c in p.cmds[i : i + 3]]
+    assert any(moving) and p.cmds[i - 1].v_cms < 0  # backing straight into the turn, no look, no stand
+    assert all(c.v_cms != 0 or c.w_dps != 0 for c in p.cmds[i + 1 : first(p, "search") - 1])
+
+
+def test_escape_camera_looks_ahead_on_the_run() -> None:
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0)
+    run = [pan for pan, st in zip(p.pans, p.states, strict=True) if st == "run"]
+    assert run and all(pan == 0.0 for pan in run[1:])
+
+
+def test_escape_run_max_counts_forward_only() -> None:
+    p = play(EscapeSkill(LIM, 1.00), at_bearing(0.6, 0.0), limit_s=40.0)
+    i, j = first(p, "run"), first(p, "search")
+    fwd0 = next(k for k in range(i, j) if p.cmds[k].v_cms > 0)
+    assert any(p.cmds[k].w_dps != 0 and p.cmds[k].v_cms == 0 for k in range(i, fwd0))  # spun first
+    assert (j - fwd0) * LIM.dt_s == pytest.approx(RUN_MAX_S, abs=0.25)  # 100 cm needs ~4 s: cut at 2.8 s
+
+
+def test_escape_search_done_when_seen() -> None:
+    person = at_bearing(0.6, 0.0)
+    p = play(EscapeSkill(LIM, 0.80), person, limit_s=40.0)
     assert p.result == Result.DONE, p.result
-    assert not any(c.v_cms < 0 for c in p.cmds)  # never backs over untrusted floor
-    assert any(abs(heading_deg(a)) > 75.0 for a in p.at)  # turned to the side
-    assert all(abs(heading_deg(a)) <= 110.0 for a in p.at)  # never its back to them (design-notes §229)
-    assert all(p.in_view)  # the person in view all the while: the bridge's hold-then-look never bites
-    end = p.at[-1]
-    assert abs(end[1]) >= 0.30  # stepped out of their way, sideways (design-notes §229)
-    assert math.dist(end[:2], person) > math.dist((0.0, 0.0), person)  # and farther
-    assert abs(front_gap(end, person)[1]) <= 15.0  # facing them again
+    assert abs(front_gap(p.at[-1], person)[1]) <= 41.0  # facing them again (in view)
 
 
-def test_escape_turns_in_steps_and_sees_the_person_between_them() -> None:  # design-notes §241
-    person = at_bearing(1.0, 0.0)
-    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), person, limit_s=60.0, blind_spin=True)
-    assert p.result == Result.DONE, p.result
-    assert any(abs(heading_deg(a)) > 75.0 for a in p.at)  # still turned to the side
-    assert p.unseen_turning and max(p.unseen_turning) < 1.0  # the bridge's unseen 1 s never bites a turn
-    assert abs(p.at[-1][1]) >= 0.30 and abs(front_gap(p.at[-1], person)[1]) <= 15.0
+def test_escape_search_lost() -> None:
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=90.0, hide_from_s=T0_S + 1.0)
+    assert p.result == Result.LOST and "search" in p.states
 
 
-def test_escape_turns_back_only_from_a_fresh_sighting() -> None:  # design-notes §241, second run
-    person = at_bearing(1.0, 0.0)
-    p = play(
-        EscapeSkill(LIM, 0.30, TrustedFloor()),
-        person,
-        limit_s=60.0,
-        blind_spin=True,
-        blind_driving=True,
-        delay_s=0.2,
-    )
-    assert p.result == Result.DONE, p.result
-    assert p.unseen_turning and max(p.unseen_turning) < 1.0  # waited to see them before turning back
-    assert abs(front_gap(p.at[-1], person)[1]) <= 15.0
-
-
-def test_escape_step_without_a_sighting_is_lost() -> None:  # design-notes §241
-    esc = EscapeSkill(LIM, 0.30, TrustedFloor())
-    p = play(esc, at_bearing(1.0, 0.0), limit_s=20.0, hide_after_turn_s=0.1)
+def test_escape_held_search_turn_ends_lost() -> None:
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=60.0, hold_spins_after_run=True)
     assert p.result == Result.LOST
-    assert p.cmds[-1].w_dps == 0 and p.cmds[-1].v_cms == 0
-    assert all(c.v_cms == 0 for c in p.cmds)  # never drove the leg
-    assert max(abs(heading_deg(a)) for a in p.at) < 50.0  # stopped after the first step
+    j = first(p, "search")
+    assert (len(p.cmds) - j) * LIM.dt_s < 3.0  # gave up, did not wait for ever
 
 
-def test_escape_untrusted_and_near_stays_no_way() -> None:  # S11: never the back to a near person
-    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), at_bearing(ESCAPE_NEAR_M - 0.2, 0.0))
+def test_escape_no_open_way_is_no_way() -> None:
+    ring = [  # known things behind and both sides: the only way round goes towards them (S4)
+        (-0.3 + 0.55 * math.cos(math.radians(a)), 0.55 * math.sin(math.radians(a))) for a in range(70, 291, 3)
+    ]
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0, seen_marks=ring)
+    assert p.result == Result.NO_WAY
+    assert not any(c.v_cms > 0 for c in p.cmds)  # never ran
+
+
+def test_escape_unseen_never_starts() -> None:  # it must know where they are to run away
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 150.0))
     assert p.result == Result.NO_WAY and not p.moved
-
-
-def test_escape_unseen_never_backs() -> None:  # Review Focus 5
-    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), at_bearing(0.6, 150.0), trusted_behind=True)
-    assert p.result == Result.NO_WAY and not p.moved
-    q = play(EscapeSkill(LIM, 0.30, TrustedFloor()), None, trusted_behind=True)
+    q = play(EscapeSkill(LIM, 0.80), None)
     assert q.result == Result.NO_WAY and not q.moved
 
 
@@ -433,9 +486,8 @@ def test_follow_seconds_end_done() -> None:
 
 
 def test_escape_never_starts_on_an_old_estimate() -> None:  # final review M1: a frozen camera
-    skill = EscapeSkill(LIM, 0.30, TrustedFloor())
+    skill = EscapeSkill(LIM, 0.80)
     room = RoomMap()
-    seed_behind(room, (0.0, 0.0, 0.0), 1 * 1_000_000)
     pose = Pose(2_000_000, 0.0, 0.0, 0.0, 0.0, 0.0)
     old = PersonEst(True, 0.6, 0.0, 0, 0.9, 1_000_000)  # 1 s old, still "seen"
     inp = make_input(
@@ -443,20 +495,3 @@ def test_escape_never_starts_on_an_old_estimate() -> None:  # final review M1: a
     )
     out = skill.tick(T0_S, inp)
     assert out.result == Result.NO_WAY and out.cmd.v_cms == 0
-
-
-def test_escape_takes_the_side_with_a_way() -> None:
-    wall_left = [Box(-1.0, 0.35, 0.6, 0.8, 0.0, 0.4)]  # a tall box along the left (beyond the blind zone)
-    person = at_bearing(0.9, 0.0)
-    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), person, limit_s=40.0, boxes=wall_left)
-    assert p.result == Result.DONE, p.result
-    assert p.at[-1][1] < -0.2  # went right
-
-
-def test_escape_with_no_way_either_side_turns_to_check_and_faces_them_again() -> None:
-    walls = [Box(-1.0, 0.35, 0.6, 0.8, 0.0, 0.4), Box(-1.0, -0.8, 0.6, -0.35, 0.0, 0.4)]
-    person = at_bearing(0.9, 0.0)
-    p = play(EscapeSkill(LIM, 0.30, TrustedFloor()), person, boxes=walls)
-    assert p.result == Result.NO_WAY
-    assert all(c.v_cms == 0 for c in p.cmds)  # the sonar said no each side: never drove
-    assert all(p.in_view) and abs(front_gap(p.at[-1], person)[1]) <= 15.0  # facing them again

@@ -50,7 +50,7 @@ def game_skill(
     if skill == "face":
         return FaceSkill(lim)
     if skill == "escape":
-        return EscapeSkill(lim, back_m or 0.0, TrustedFloor())
+        return EscapeSkill(lim, back_m or 0.0)  # cm: how far it runs (LLD §28.24)
     return FollowSkill(lim, seconds or 0.0, stop_m if stop_m is not None else FOLLOW_STOP_CM / 100)
 
 

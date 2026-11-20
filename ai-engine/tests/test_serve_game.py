@@ -194,7 +194,7 @@ def test_the_game_words_build_the_game_skills() -> None:
     assert isinstance(face, SkillCall) and isinstance(esc, SkillCall) and isinstance(fol, SkillCall)
     assert isinstance(serve.make_word_skill(face, w, 0), FaceSkill)
     e = serve.make_word_skill(esc, w, 0)
-    assert isinstance(e, EscapeSkill) and e.back_m == pytest.approx(0.40)
+    assert isinstance(e, EscapeSkill) and e.run_m == pytest.approx(0.40)  # cm: how far it runs (§28.24)
     f = serve.make_word_skill(fol, w, 0)
     assert isinstance(f, FollowSkill) and f.seconds == 5.0 and f.stop_m == pytest.approx(0.30)  # never < 30
 

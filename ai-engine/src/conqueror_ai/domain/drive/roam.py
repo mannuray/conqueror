@@ -140,6 +140,7 @@ class RoamSkill:
             replace(planner.lim, v_cap_cms=min(planner.lim.v_cap_cms, planner.lim.slow_cms)),
             planner.w,
             planner.spin_from_deg,  # the slow planner turns as the given one does (FOLLOW, design-notes §250)
+            planner.blind_spin,  # ... and spins as it does (ESCAPE's run, design-notes §254)
         )
         self.lim = planner.lim
         self.settings = cost or CostSettings()

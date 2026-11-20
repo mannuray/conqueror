@@ -3944,3 +3944,16 @@ between the back-off and the run; the run ends 2.8 s after its first forward com
 search turns to the last spot and ends `done` when the person shows up, `lost` when FACE loses them, `lost` when its
 turn is held 0.5 s; no open direction: `no_way` after facing them; near (20 cm) it still backs off. `test_person.py`: an out-of-view estimate after a 180° turn reads `bearing` ~180 and the distance from the new
 pose; without a pose it keeps the sighting's.
+
+**As built (Plan G4, 2026-11-20, branch `plan-g4-escape-runs`).** Two things the simulator showed, added while
+building:
+- **The run's turn may sweep unseen floor.** The route planner's turn-on-the-spot check (`Planner.can_spin`) refused
+  a spin whose back corners sweep floor the camera never saw - always the case behind a tank that has been facing the
+  person - so the run curved forward, towards them. `Planner(blind_spin=True)` (the run only; known things still
+  count) - the owner's "it can turn even if blind". `RoamSkill`'s slow planner copies it.
+- **Never towards them (S4):** a run direction is open only when the cost map has a route to its spot **and no point of
+  that route is nearer the person's last spot than the tank is now** (less `RUN_TOWARDS_M` 0.05 m) - a route round
+  known things behind may lead past the person. None: no run, `no_way` after facing them.
+
+In the simulator (80 cm, the person 60 cm ahead): back-off 1.7 s, a 163° spin 2.5 s, then the run; the run's forward
+time from its first forward command; a wall 10 cm behind ends the back-off ~0.5 s after reaching it.

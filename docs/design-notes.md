@@ -4045,3 +4045,35 @@ Then (owner, 2026-11-15: "classic press, only for stop", asked whether a classic
 press look now lasts **while the finger is down** (at least 150 ms - a 150 ms flash was often over before the finger
 lifted), and **STOP alone gets the classic sink**: down 2 px, its glow turned into an inner shadow, a shade darker
 (`bar.css`). The other buttons keep the small press look. No vibration.
+
+## 254. ESCAPE runs: back off at once, turn and run, then search back (owner 2026-11-20)
+
+Floor runs 33-34 (2026-11-15 / 2026-11-20, helper logs `serve32` / `serve33`, not in the repo): ESCAPE moved in 3 of
+11 rounds. A good sidestep took 3.9 s from start to done (helper log times), ~2.5 s of it turning in 30° steps with a
+look after each; the leg is ~55 cm, all of it inside the slow last 0.5 m (`POINT_SLOW_M`), then a 1 s stand. Inside
+50 cm pessimistic it never moved (S7 / S11: no trusted floor behind, never its back to the person).
+
+Owner: **"the escape is too slow, the kid will catch it"** - first make distance, then search back for where the
+person is: back off at once, then turn and run, quickly.
+
+Owner's decisions (2026-11-20), safety relaxed by the owner:
+- **Back off even when the floor behind is not known** (Spec 10 S7 relaxed for ESCAPE's back-off): no trusted-floor
+  check; a wall is found by the tank stalling / not moving ("just keep an eye for stall, i.e. it hit a wall").
+- **It may turn even when the person is out of view, and search** (S11 relaxed: ESCAPE may turn its back while the
+  person is near).
+- **Driving forward after such a turn is not driving blind** - the camera and the sonar look where it goes - so the
+  bridge's "out of view 1 s: hold" (bridge LLD R34, `KeepOut::check`) must let ESCAPE's run go on.
+
+Proposed with these (my calls, for the owner to check before the LLDs):
+1. **Back off:** straight back at once at the game speed, up to 30 cm, the camera on the person. The engine ends it
+   when its own odometry shows no progress for ~0.5 s (a wall) - before the Uno's stall (~3 s), which would count as
+   grabbed (S10). The stall and grabbed stay as the backstop.
+2. **Turn and run:** one smooth turn (no stop-and-look steps) towards the most open way away from the person, picked
+   on the room map; then forward at the game speed, ~80 cm by default (the word's `cm` input), the normal drive
+   checks ahead (sonar stop, the cost map).
+3. **Search back:** turn towards where the person was last seen, then FACE (its look-round). ESCAPE ends facing them,
+   or `lost`.
+4. **Bridge:** forward stays allowed while the person is out of view when they were last seen behind the tank
+   (more than 90° off its heading, followed by the gyro since the sighting), for at most 3 s; otherwise the 1 s hold
+   as today. Blind turns keep today's rule (last seen beyond 30 cm, nothing ahead).
+5. **Speed:** the game cap stays 25 cm/s (owner, 2026-11-08); the time is won by dropping the stops.

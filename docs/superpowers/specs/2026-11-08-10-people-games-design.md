@@ -102,6 +102,10 @@ and run again.
   the envelope caps only the top speed, a measured track %) - **owner confirmed 2026-11-09**. S8 - game mode starts
   when the run starts, from a static checker flag (a person word anywhere in the program), not "from the first
   person word" (a `FORWARD` before it would run without the limits).
+- **Correction (owner, 2026-11-20, design-notes §254): ESCAPE runs.** For ESCAPE only, S7 and S11 are relaxed: it backs
+  off at once even over floor it does not know (a wall shows as no progress; the stall stays the backstop), then turns
+  - its back to the person if need be - runs about `cm`, and turns back to find them. The bridge lets the run drive
+  forward out of view for up to 3 s when the person is behind (bridge LLD R34.15). Every other word keeps S7 / S11.
 - **S8. Every move during a game, not only the game words (builder check, answered by the anti-goals).** From the
   first person word of a program until the program ends or STOP, the program is in **game mode**: every motion it
   makes - `FORWARD`, `GO`, `SETXY`, `LAUNCH` parts, the game words - passes the keep-out (S2) and the child-play

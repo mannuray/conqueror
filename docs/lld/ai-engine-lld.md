@@ -3844,3 +3844,89 @@ classDiagram
     }
     FollowSkill --> RoamSkill : point route, stand_s 0, slow_at_point False
 ```
+
+### 28.24 ESCAPE runs: back off, turn and run, search back (design-notes §254, owner 2026-11-20)
+
+ESCAPE was too slow and too careful: a good sidestep took 3.9 s for ~55 cm (30° steps with a look after each, the whole
+leg inside the slow last 0.5 m, a 1 s stand), and inside 50 cm it never moved (S7 / S11). The owner relaxed both
+**for ESCAPE only**: it backs off over floor it does not know (a wall shows as no progress, the stall is the
+backstop), and it may turn its back and search. Every other word keeps S7 (Logo `BACK` in a game still asks
+`back_ok`).
+
+**`ESCAPE "person cm`** - `cm` (20-100) is now how far it **runs**; the back-off is fixed.
+
+1. **Back off** (`back`): at once, straight back at the game cap (25 cm/s, the normal ramp), up to `BACK_OFF_M`
+   0.30 m along the start heading, the camera on the person. No trusted-floor check. **A wall:** commanding back for
+   at least `WALL_S` 0.5 s and the odometry moved less than `WALL_M` 0.02 m in the last 0.5 s - the back-off ends there
+   (well before the Uno's stall, ~3 s, which the bridge counts as grabbed, S10).
+2. **Run** (`run`): a spot `cm` away from the tank's centre, in the first open direction of: straight away from the
+   person, then ±30°, ±60°, ±90° from it (left first) - open = the cost map has a route to it. A `RoamSkill("point",
+   stand_s=0, slow_at_point=False)` drives it: it turns on the spot while the spot is more than 90° off, then curves
+   (§28.23, §250) - one smooth turn, no steps. The camera stays on the person's last spot up to its whole pan (90°);
+   beyond it the person is behind and the run goes on blind (owner). It ends when the roam is done, after
+   `RUN_MAX_S` 3.0 s (inside the bridge's 3 s out-of-view run, R34.15), or on the wall rule (no progress 0.5 s - the
+   bridge holding the tracks looks the same). No open direction: no run.
+3. **Search back** (`search`): a turn on the spot to the heading of the person's last spot, then a `FaceSkill` (its
+   sweep and blind steps, §248). Its `done` is ESCAPE's `done` (facing them), its `lost` ESCAPE's `lost`.
+
+Start as before: the person in view with a fresh picture (else `no_way`, "the person is not in view") - ESCAPE needs
+to know where they are to run away. Constants gone: `ESCAPE_NEAR_M`, `TURN_STEP_DEG` / `STEP_LOOK_S` /
+`STEP_FRESH_S` for ESCAPE (FACE keeps its own steps), `SONAR_SPARE_M`, `AWAY_MAX_S`; `EscapeSkill` no longer takes a
+`TrustedFloor`.
+
+**The person out of view keeps its place** (for the bridge, R34.15): `PersonWatch.update(..., at)` keeps the
+sighting's floor point (from the pose at that picture), and `latest(now_us, at)` gives an out-of-view estimate's
+`d_m` and `bearing_deg` **from the tank's pose now** to that point - so after a turn the bridge reads "behind", not
+the stale "ahead". Without a pose both stay the sighting's (as today). `seen` stays false; nothing else changes.
+
+```mermaid
+classDiagram
+  class EscapeSkill {
+    +BACK_OFF_M = 0.30
+    +WALL_S = 0.5
+    +WALL_M = 0.02
+    +RUN_MAX_S = 3.0
+    +RUN_TURNS_DEG = (0, 30, -30, 60, -60, 90, -90)
+    +run_m : float
+    +tick(now_s, inp) SkillOut
+    -_back(now_s, at) SkillOut
+    -_run_spot(at, inp) XY or None
+    -_running(now_s, inp) SkillOut
+    -_search(now_s, inp) SkillOut
+    -_walled(now_s, at) bool
+  }
+  class Progress {
+    +note(now_s, at)
+    +stuck(now_s) bool
+  }
+  class RoamSkill
+  class FaceSkill
+  class PersonWatch {
+    +update(boxes, cam, sonar_m, t_us, at)
+    +latest(now_us, at) PersonEst
+    -_spot : XY
+  }
+  EscapeSkill --> Progress : the wall rule (back, run)
+  EscapeSkill --> RoamSkill : the run
+  EscapeSkill --> FaceSkill : the search
+  EscapeSkill ..> PersonWatch : via SkillInput.person
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> back: the person in view, a fresh picture
+  [*] --> failed: not in view (no_way)
+  back --> run: 30 cm moved, or a wall (no progress 0.5 s)
+  run --> search: the spot reached, 3 s, a wall, or no open way
+  search --> done: FACE done (facing them)
+  search --> failed: FACE lost
+  back --> caught: the bridge (seen within 10 cm, a touch)
+  run --> caught
+```
+
+Tests (`test_game_skills.py`): backs off at once at the cap with the floor behind unknown; a wall (the pose stops)
+ends the back-off after ~0.5 s and the run starts; the run goes straight away when open, else the next direction
+(+30° first); no turn steps (no stand between the back-off and the run); the run ends at `RUN_MAX_S`; the search turns
+to the last spot and ends `done` when the person shows up, `lost` when FACE loses them; near (20 cm) it still backs
+off. `test_person.py`: an out-of-view estimate after a 180° turn reads `bearing` ~180 and the distance from the new
+pose; without a pose it keeps the sighting's.

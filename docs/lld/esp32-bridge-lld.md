@@ -4081,3 +4081,49 @@ Tests (`test_game_mode`): a seen estimate at 10 catches, at 11 not, an unseen on
 16 seen and fresh, held at 15, held unseen, forward / back held; not-found release after 3 s only with last seen 11+,
 the sonar clear and no touch; a touch catch never releases unseen; no catch again after a not-found release while
 unseen; playing blind turn allowed with last seen 30 and the sonar clear, held at 29 or with an echo at 29 cm.
+
+### R34.15 A run away out of view (design-notes §254, owner 2026-11-20)
+
+ESCAPE now turns its back and runs (AI engine LLD §28.24). Today, out of view beyond 1 s, `KeepOut::check` holds every
+forward move - so the run would stop 1 s after the person left the picture. The owner: driving forward after such a
+turn is not driving blind (the camera and the sonar look where it goes).
+
+**The rule** (`GameMode::playGate`, playing only): out of view beyond `KeepOut::kUnseenMs` (1 s), a **forward** move
+passes when the latest estimate says the person is **behind** - `|bearing|` at least `kBehindDeg` **90** - and they
+have been out of view at most `kUnseenMs + kRunAwayMs` (1 s + **3 s**). The bearing is the engine's, from the tank's
+pose now to the person's last spot (AI engine LLD §28.24), so a turn is followed. Beyond 4 s, or the person last
+placed in front: held, as today.
+
+Unchanged: backing is never cut by the bearing (the engine decides; ESCAPE's back-off no longer asks `back_ok`, a
+skill's backing never did); blind turns as R34.14 (last seen from 30 cm, nothing ahead); caught, the deadman (300 ms),
+held (1 s no news), the obstacle stop, the cap; an out-of-view estimate never catches.
+
+```mermaid
+classDiagram
+  class GameMode {
+    +kBehindDeg = 90
+    +kRunAwayMs = 3000
+    -playGate(move, stop_cm, now) Gate
+    -runAway(move, unseen_ms) bool
+  }
+  class KeepOut {
+    +kUnseenMs = 1000
+    +check(e, move, stop_cm, unseen_ms) Gate
+  }
+  GameMode --> KeepOut : everything else
+```
+
+```mermaid
+sequenceDiagram
+  participant E as engine (ESCAPE run)
+  participant G as GameMode
+  E->>G: person seen=false, bearing 170 (behind), age fresh
+  E->>G: skill_drive v 56 % forward
+  G->>G: unseen 1.6 s > 1 s, |170| >= 90, 1.6 s <= 4 s
+  G-->>E: allow
+  E->>G: skill_drive forward at unseen 4.2 s
+  G-->>E: hold (zero), as today
+```
+
+Tests (`test_game_mode`): forward out of view 2 s with bearing 90 allowed, 89 held; at 4.0 s allowed, 4.001 s held;
+bearing -120 allowed; a turn or a back move unchanged; caught still holds forward behind.

@@ -4077,3 +4077,20 @@ Proposed with these (my calls, for the owner to check before the LLDs):
    (more than 90° off its heading, followed by the gyro since the sighting), for at most 3 s; otherwise the 1 s hold
    as today. Blind turns keep today's rule (last seen beyond 30 cm, nothing ahead).
 5. **Speed:** the game cap stays 25 cm/s (owner, 2026-11-08); the time is won by dropping the stops.
+
+## 255. ESCAPE floor run 1: a wall behind; turns past an echo when the child is behind; the run rule ESCAPE only (owner 2026-11-20)
+
+Floor run 36 (helper log `serve34`, not in the repo; Plan G4 flashed): round 1's back-off went at once, 30 cm in
+~1.6 s, and the turn round was one smooth ~180° in ~3 s - but the unseen floor behind left the tank facing a wall
+29 cm ahead (sonar). The bridge's blind-turn rule (R34.14: out of view, a turn only with the sonar ahead clear from
+30 cm - an echo there could be the child) then held every turn: the end of the run's turn, the search back, and
+every FACE of rounds 2-8 (ended by the keep-out as "done", §240) - so each ESCAPE found the child "not in view".
+Nothing unsafe: the tank stood still.
+
+Owner (2026-11-20):
+1. **"yes"** - out of view, a turn passes with an echo ahead **when the engine places the child behind** (90° or more,
+   the bearing from the pose now, AI engine LLD §28.24): the echo cannot be them. Placed in front: the 30 cm rule
+   unchanged.
+2. **"B"** - the 3 s run out of view (R34.15) is **ESCAPE's run only**, not every forward move in a game (a program's
+   FORWARD / GO keep the 1 s hold). The bridge marks an ESCAPE lease (`LogoController` → `GameMode::setEscaping`).
+Bridge LLD R34.16.

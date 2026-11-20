@@ -4134,3 +4134,47 @@ allowed; a turn or a back move unchanged; caught still holds forward behind.
 **As built (Plan G4, 2026-11-20):** `GameMode::runAway(now)` sets `m_run_since` on the first forward move it lets
 through; a sighting clears `m_running` (`noteSeen`), as does a new run (`startRun`). `playGate` is no longer `const`.
 Native tests 1029 / 1029.
+
+### R34.16 Turns past an echo when the child is behind; the run rule for ESCAPE only (design-notes §255, owner 2026-11-20)
+
+**Blind turn** (`GameMode::playGate`, out of view beyond 1 s, last seen from `kBlindTurnCm` 30): passes when the sonar
+ahead is clear (as R34.14) **or the latest estimate places the person behind** (`|bearing|` ≥ `kBehindDeg` 90) - an
+echo ahead is then a wall, not them.
+
+**The run away (R34.15) is ESCAPE's only:** `GameMode::setEscaping(bool)` - `LogoController` sets it through the new
+hook `game_escaping` when it starts a skill lease for `ESCAPE` and clears it in `endLease` (every way a lease ends).
+`runAway` passes only while escaping. `startRun` and `toOff` clear it. A program's FORWARD / GO out of view keep the
+1 s hold.
+
+```mermaid
+classDiagram
+  class GameMode {
+    +setEscaping(on)
+    -m_escaping : bool
+    -runAway(now) bool
+    -behind() bool
+  }
+  class GameController {
+    +escaping(on)
+  }
+  class LogoController {
+    -startSkill(a, now)
+    -endLease(tell, why, motion, now)
+  }
+  LogoController --> GameController : hook game_escaping(true / false)
+  GameController --> GameMode : setEscaping
+```
+
+```mermaid
+sequenceDiagram
+  participant L as LogoController
+  participant G as GameMode
+  L->>G: game_escaping(true) (ESCAPE's lease starts)
+  Note over G: out of view, behind: run 3 s, turns past an echo
+  L->>G: game_escaping(false) (endLease, any reason)
+  Note over G: FORWARD out of view: 1 s hold, as R34
+```
+
+Tests (`test_game_mode`): a blind turn with an echo at 29 cm passes with bearing 90, is held with 89; the run passes
+only while escaping (a FORWARD out of view behind, not escaping: held); off and a new run clear escaping.
+(`test_logo_controller`): ESCAPE's lease sets the hook, its end clears it; FACE never sets it.

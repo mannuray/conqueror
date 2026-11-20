@@ -19,8 +19,9 @@ engine LLD §28.24, bridge LLD R34.15, design-notes §254.
 
 - Game cap 25 cm/s (owner 2026-11-08) - unchanged.
 - S7 / S11 relaxed for ESCAPE only; Logo `BACK` in a game still asks `back_ok`.
-- Out of view forward: `|bearing|` >= 90 and out of view <= 1 s + 3 s.
-- Numbers: `BACK_OFF_M` 0.30, `WALL_S` 0.5, `WALL_M` 0.02, `RUN_MAX_S` 3.0, run turns (0, 30, -30, 60, -60, 90, -90).
+- Out of view forward: `|bearing|` >= 90, for 3 s from the first such forward move.
+- Backing stays straight at `v_min` (18 cm/s) - the ramp's rule.
+- Numbers: `BACK_OFF_M` 0.30, `WALL_S` 0.5, `WALL_M` 0.02, `WALL_DEG` 5, `RUN_MAX_S` 2.8 (of forward driving), run turns (0, 30, -30, 60, -60, 90, -90).
 - Generated files are never edited by hand (`logogen write`).
 
 ## Review Focus
@@ -30,7 +31,7 @@ engine LLD §28.24, bridge LLD R34.15, design-notes §254.
    them (`|bearing|` < 90 is held out of view, and in view `KeepOut::check` applies).
 3. Out-of-view bearing with no pose (the pose filter not ready): keep the sighting's, never 0.
 4. A catch during the back-off or run: the skill ends `caught` through the bridge as before.
-5. The search finding nobody: `lost`, never a spin forever (FACE's full circle bounds it).
+5. The search finding nobody, or its turn held by the bridge (a wall ahead): `lost`, never waiting for ever.
 
 ---
 
@@ -57,7 +58,9 @@ Test `ai-engine/tests/test_game_skills.py`.
 
 - [ ] Tests (LLD §28.24's list): `test_escape_backs_off_at_once_over_unknown_floor`, `test_escape_wall_ends_the_back_off`,
       `test_escape_runs_straight_away_when_open`, `test_escape_run_takes_the_next_open_direction`,
-      `test_escape_no_stand_between_back_and_run`, `test_escape_run_ends_at_run_max`,
+      `test_escape_no_stand_between_back_and_run`, `test_escape_spin_is_not_a_wall`,
+      `test_escape_camera_looks_ahead_on_the_run`, `test_escape_run_max_counts_forward_only`,
+      `test_escape_held_search_turn_ends_lost`, `test_escape_no_open_way_is_no_way`,
       `test_escape_search_done_when_seen`, `test_escape_search_lost`, `test_escape_near_still_backs_off`.
       Old ESCAPE tests that pin the steps / trusted floor / near no_way are replaced (the owner's decision changes
       what they pin), each removal named in the commit.

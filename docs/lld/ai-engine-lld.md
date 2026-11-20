@@ -3855,19 +3855,30 @@ backstop), and it may turn its back and search. Every other word keeps S7 (Logo 
 
 **`ESCAPE "person cm`** - `cm` (20-100) is now how far it **runs**; the back-off is fixed.
 
-1. **Back off** (`back`): at once, straight back at the game cap (25 cm/s, the normal ramp), up to `BACK_OFF_M`
-   0.30 m along the start heading, the camera on the person. No trusted-floor check. **A wall:** commanding back for
-   at least `WALL_S` 0.5 s and the odometry moved less than `WALL_M` 0.02 m in the last 0.5 s - the back-off ends there
-   (well before the Uno's stall, ~3 s, which the bridge counts as grabbed, S10).
+1. **Back off** (`back`): at once, straight back at `v_min` (18 cm/s - backing is only ever straight at `v_min`, the
+   ramp's rule, design-notes §165), up to `BACK_OFF_M` 0.30 m along the start heading (~1.7 s), the camera on the
+   person. No trusted-floor check. **A wall** (`Progress`): commanding a move for at least `WALL_S` 0.5 s and in the
+   last 0.5 s the pose moved less than `WALL_M` 0.02 m **and** turned less than `WALL_DEG` 5° - the back-off ends
+   there. A slipping track can fool the odometry; the back-off is short (~1.7 s) so it ends before the bridge's
+   pushing-but-not-moving (~2 s) or the Uno's stall (~3 s), which count as grabbed (S10) - the floor check will show.
 2. **Run** (`run`): a spot `cm` away from the tank's centre, in the first open direction of: straight away from the
    person, then ±30°, ±60°, ±90° from it (left first) - open = the cost map has a route to it. A `RoamSkill("point",
-   stand_s=0, slow_at_point=False)` drives it: it turns on the spot while the spot is more than 90° off, then curves
-   (§28.23, §250) - one smooth turn, no steps. The camera stays on the person's last spot up to its whole pan (90°);
-   beyond it the person is behind and the run goes on blind (owner). It ends when the roam is done, after
-   `RUN_MAX_S` 3.0 s (inside the bridge's 3 s out-of-view run, R34.15), or on the wall rule (no progress 0.5 s - the
-   bridge holding the tracks looks the same). No open direction: no run.
+   stand_s=0, slow_at_point=False)` with `Planner(spin_from_deg=90)` (as FOLLOW, §250) drives it: a turn on the spot
+   at `spin_dps` (65°/s) while the spot is more than 90° off, then a curve - one smooth turn, no steps. **The camera
+   looks ahead** (pan 0, the driving tilt) for the whole run: the owner's "not driving blind" is the camera and the
+   cost map seeing where the tank goes; a camera kept on the person would leave the way ahead unseen. It ends when
+   the roam is done, after `RUN_MAX_S` **2.8 s of driving forward** (counted from the first forward command - the
+   turn does not count; inside the bridge's 3 s, R34.15), or on the wall rule (no move and no turn for 0.5 s - the
+   bridge holding the tracks or a blind turn looks the same). No open direction: no run.
 3. **Search back** (`search`): a turn on the spot to the heading of the person's last spot, then a `FaceSkill` (its
-   sweep and blind steps, §248). Its `done` is ESCAPE's `done` (facing them), its `lost` ESCAPE's `lost`.
+   sweep and blind steps, §248). Its `done` is ESCAPE's `done` (facing them) - or `no_way` ("no way to run") when
+   there was no run; its `lost` ESCAPE's `lost`. **The wall rule watches the search too:** a turn the bridge holds
+   (a blind turn needs the sonar ahead clear from 30 cm, R34.14 - the run may end nearer a wall) ends ESCAPE `lost`
+   ("could not turn to look") instead of waiting for ever.
+
+**How long** (from `Limits`, not measured): back-off ~1.7 s, a 90° spin ~1.4 s then the curve, 80 cm at up to
+25 cm/s ~3.5 s, the search's turn back ~2.8 s - about 9-10 s in all, but the first 30 cm in 1.7 s and no stands.
+Measured on the floor in Plan G4 Task 5.
 
 Start as before: the person in view with a fresh picture (else `no_way`, "the person is not in view") - ESCAPE needs
 to know where they are to run away. Constants gone: `ESCAPE_NEAR_M`, `TURN_STEP_DEG` / `STEP_LOOK_S` /
@@ -3876,7 +3887,8 @@ to know where they are to run away. Constants gone: `ESCAPE_NEAR_M`, `TURN_STEP_
 
 **The person out of view keeps its place** (for the bridge, R34.15): `PersonWatch.update(..., at)` keeps the
 sighting's floor point (from the pose at that picture), and `latest(now_us, at)` gives an out-of-view estimate's
-`d_m` and `bearing_deg` **from the tank's pose now** to that point - so after a turn the bridge reads "behind", not
+`d_m` and `bearing_deg` **from the tank's pose now** to that point (the pose when the picture is handled -
+~0.1-0.2 s after it was taken; pictures taken spinning faster than `GATE_DPS` are skipped, so not while spinning) - so after a turn the bridge reads "behind", not
 the stale "ahead". Without a pose both stay the sighting's (as today). `seen` stays false; nothing else changes.
 
 ```mermaid
@@ -3885,7 +3897,8 @@ classDiagram
     +BACK_OFF_M = 0.30
     +WALL_S = 0.5
     +WALL_M = 0.02
-    +RUN_MAX_S = 3.0
+    +WALL_DEG = 5
+    +RUN_MAX_S = 2.8
     +RUN_TURNS_DEG = (0, 30, -30, 60, -60, 90, -90)
     +run_m : float
     +tick(now_s, inp) SkillOut
@@ -3917,16 +3930,17 @@ stateDiagram-v2
   [*] --> back: the person in view, a fresh picture
   [*] --> failed: not in view (no_way)
   back --> run: 30 cm moved, or a wall (no progress 0.5 s)
-  run --> search: the spot reached, 3 s, a wall, or no open way
+  run --> search: the spot reached, 2.8 s forward, no progress, or no open way
   search --> done: FACE done (facing them)
-  search --> failed: FACE lost
+  search --> failed: FACE lost, a held turn (lost), no run (no_way)
   back --> caught: the bridge (seen within 10 cm, a touch)
   run --> caught
 ```
 
-Tests (`test_game_skills.py`): backs off at once at the cap with the floor behind unknown; a wall (the pose stops)
-ends the back-off after ~0.5 s and the run starts; the run goes straight away when open, else the next direction
-(+30° first); no turn steps (no stand between the back-off and the run); the run ends at `RUN_MAX_S`; the search turns
-to the last spot and ends `done` when the person shows up, `lost` when FACE loses them; near (20 cm) it still backs
-off. `test_person.py`: an out-of-view estimate after a 180° turn reads `bearing` ~180 and the distance from the new
+Tests (`test_game_skills.py`): backs off at once at `v_min` with the floor behind unknown; a wall (the pose stops)
+ends the back-off after ~0.5 s and the run starts; a spin is progress (no false wall while turning); the run goes
+straight away when open, else the next direction (+30° first); the camera looks ahead during the run; no stand
+between the back-off and the run; the run ends 2.8 s after its first forward command, not counting the spin; the
+search turns to the last spot and ends `done` when the person shows up, `lost` when FACE loses them, `lost` when its
+turn is held 0.5 s; no open direction: `no_way` after facing them; near (20 cm) it still backs off. `test_person.py`: an out-of-view estimate after a 180° turn reads `bearing` ~180 and the distance from the new
 pose; without a pose it keeps the sighting's.

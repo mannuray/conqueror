@@ -4089,10 +4089,11 @@ forward move - so the run would stop 1 s after the person left the picture. The 
 turn is not driving blind (the camera and the sonar look where it goes).
 
 **The rule** (`GameMode::playGate`, playing only): out of view beyond `KeepOut::kUnseenMs` (1 s), a **forward** move
-passes when the latest estimate says the person is **behind** - `|bearing|` at least `kBehindDeg` **90** - and they
-have been out of view at most `kUnseenMs + kRunAwayMs` (1 s + **3 s**). The bearing is the engine's, from the tank's
-pose now to the person's last spot (AI engine LLD §28.24), so a turn is followed. Beyond 4 s, or the person last
-placed in front: held, as today.
+passes when the latest estimate says the person is **behind** - `|bearing|` at least `kBehindDeg` **90** - for at
+most `kRunAwayMs` **3 s** counted from the first forward move this rule let through (`m_run_since`; the turn before
+it does not count - pictures taken spinning are skipped, so the person is "out of view" from the spin's start). A new
+sighting resets it. The bearing is the engine's, from the tank's pose now to the person's last spot (AI engine LLD
+§28.24), so a turn is followed. After the 3 s, or the person placed in front: held, as today.
 
 Unchanged: backing is never cut by the bearing (the engine decides; ESCAPE's back-off no longer asks `back_ok`, a
 skill's backing never did); blind turns as R34.14 (last seen from 30 cm, nothing ahead); caught, the deadman (300 ms),
@@ -4104,7 +4105,8 @@ classDiagram
     +kBehindDeg = 90
     +kRunAwayMs = 3000
     -playGate(move, stop_cm, now) Gate
-    -runAway(move, unseen_ms) bool
+    -runAway(move, now) bool
+    -m_run_since : uint32
   }
   class KeepOut {
     +kUnseenMs = 1000
@@ -4119,11 +4121,12 @@ sequenceDiagram
   participant G as GameMode
   E->>G: person seen=false, bearing 170 (behind), age fresh
   E->>G: skill_drive v 56 % forward
-  G->>G: unseen 1.6 s > 1 s, |170| >= 90, 1.6 s <= 4 s
+  G->>G: unseen 1.6 s > 1 s, |170| >= 90: first run move, m_run_since = now
   G-->>E: allow
-  E->>G: skill_drive forward at unseen 4.2 s
+  E->>G: skill_drive forward 3.1 s after m_run_since
   G-->>E: hold (zero), as today
 ```
 
-Tests (`test_game_mode`): forward out of view 2 s with bearing 90 allowed, 89 held; at 4.0 s allowed, 4.001 s held;
-bearing -120 allowed; a turn or a back move unchanged; caught still holds forward behind.
+Tests (`test_game_mode`): forward out of view 2 s with bearing 90 allowed, 89 held; 3.0 s after the first such move
+allowed, 3.001 s held, however long the person was out of view before it; a sighting resets the 3 s; bearing -120
+allowed; a turn or a back move unchanged; caught still holds forward behind.

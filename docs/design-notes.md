@@ -4166,3 +4166,21 @@ back, so the area is always unknown; rest is agreed."**
    forward**, added over every try of one ESCAPE, not the clock since the first forward move. The blind forward driving
    per ESCAPE stays ~3 s; a second try gets what is left. Bridge LLD R34.17, AI engine LLD §28.25.
 3. **The helper logs why no option was open** (C): the distance from the tank's centre to the nearest known thing.
+
+## 260. ESCAPE floor run 4: retries work; one run curved towards the person; close up the route skill would not turn (2026-11-22)
+
+Floor run 39 (helper log `serve37`; the tank first moved 1 m out from the wall with `FORWARD 100`, then the owner ran
+`escape_game.logo`; bridge R34.17 and engine §259 flashed). Never caught, no touches.
+
+| Round | What happened |
+|---|---|
+| 1 | Not in view: `no_way` |
+| 2 | Back-off at 0.77 m; try 1 (80 cm straight away) turned ~180° and stood: something 60 cm behind (sonar), dropped after 1 s; try 2 (30 cm) drove ~16 cm; search: facing them at 0.80 m - **the retry works** |
+| 3 | Back-off at 0.80 m; the run's route skill spun 0.2 s, then **curved forward towards the person** for ~0.8 s (72 → 64 cm; the bridge allowed it - seen, beyond the keep-out), then spun to and fro; ended `done` facing them. **S4 broken** (never towards them) |
+| 4 | Started with them at 0.53 m: back-off; then **no option open** - the tank's centre 5 cm from a known thing (backed onto something): `no_way` |
+| 5 | Started at 0.40 m: back-off 33 cm; three tries, the route skill **never turned** (no command), each dropped after 1 s - the person 0.2-0.45 m ahead: `no_way` |
+| 6 | Watching when stopped |
+
+Findings: (1) the run's forward moves are only checked as a route before the run (§254 "never towards"), not while
+driving - the route skill may re-plan or curve; (2) close to the person the route skill will not turn on the spot (its
+own sweep check; cause not logged), so ESCAPE stands where it is most needed.

@@ -4094,3 +4094,27 @@ Owner (2026-11-20):
 2. **"B"** - the 3 s run out of view (R34.15) is **ESCAPE's run only**, not every forward move in a game (a program's
    FORWARD / GO keep the 1 s hold). The bridge marks an ESCAPE lease (`LogoController` → `GameMode::setEscaping`).
 Bridge LLD R34.16.
+
+## 256. ESCAPE floor run 2: back-off every time, one real run; the run can stand still or find no route (2026-11-22)
+
+Floor run 37 (helper log `serve35`, program `REPEAT 8 [ IFELSE CAUGHT? [ FACE "person ] [ FACE "person ESCAPE
+"person 80 WAIT 2 ] ]`, §255 bridge flashed). Never caught, no touches, the §255 deadlock gone (turns past the wall
+echo passed). Per round (times from the helper's 1 s probe lines, so ±1 s; distances from the engine's pose):
+
+| Round | What happened |
+|---|---|
+| 1 | Person not in view at the start (FACE lost): `no_way`, nothing moved |
+| 2 | Back 30 cm (~2 s), one ~180° turn and run ~47 cm (turn + run ~5 s, run cut at `RUN_MAX_S`), search back: ended facing the person 36 cm away - **the designed ESCAPE** |
+| 3, 4 | Back 30 cm, then **no run route** at 80 cm in any of the 7 directions: search back, `no_way` "no way to run" |
+| 5 | Back 30 cm (the heading drifted ~20° while backing); the run's route skill then **sent no move for ~11 s** (its stuck → look / turn / back recovery, ended `blocked`) while the person came to ~0.5 m; the search found them |
+| 6 | Back 30 cm, a ~180° turn - into a wall **9.5 cm ahead**, on floor never seen (the tank had backed into it): the sonar stopped the run, the search turned back but the person was out of view: `no_way` |
+| 7, 8 | Person not in view: `no_way` |
+
+Findings:
+1. The back-off works every round. But 8 rounds walk the tank ~2 m backwards, into the room's edge: rounds 3-8
+   ran out of room behind.
+2. A run that finds no route at the full length gives up (no shorter run is tried).
+3. The run has no time limit until its first forward move: the route skill's own stuck recovery can stand still
+   for seconds while the child closes in (cause of the zero moves in round 5 not yet known - the helper logs only
+   the route skill's end).
+4. The run's route goes over floor never seen (the tank backed there); the sonar stops it safely, but the run is lost.

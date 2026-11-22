@@ -3981,25 +3981,30 @@ to 50 cm; one turned into a wall on floor never seen. The owner's four changes:
 Then, while the person is farther than `ESCAPE_FROM_M` **0.80 m** (their distance from the tank's front, as the
 keep-out measures it), a `FaceSkill` keeps the tank facing them; each time it ends `done` a new one carries on; its
 `lost` is ESCAPE's `lost` ("the person is not in view"). The back-off starts on a **seen, fresh** (`FRESH_US`) estimate
-within 0.80 m - also at the very start. The wall rule's `Progress` starts fresh at the back-off (the watch's turns are
+within 0.80 m **and in the camera's view ahead** (within `VIEW_DEG`: the back-off is straight back, so a person the
+sweep finds aside or behind is faced first - S4, final review I1) - also at the very start. A watch turn the bridge
+holds (the wall rule) ends `lost` ("could not turn to look"), as the search does. The wall rule's `Progress` starts fresh at the back-off (the watch's turns are
 not a back-off).
 
 **2. Run tries** (`run`). The options, in order:
 `[seen floor] x [run_m, 0.50, 0.30 (only those < run_m)] x RUN_TURNS_DEG`, then the same over any floor. An option is
 open as before (a route on the cost map, never towards the person, §28.24); it is **over seen floor** when every
 point of its route sampled every 5 cm, beyond `SEEN_SKIP_M` **0.20 m** from the tank's centre (its own spot, which it
-may have backed onto blind), is on floor the map has seen (`CostMap.seen_at`). Per pick at most 21 routes are planned
-(7 directions x 3 lengths): the first open seen option is taken, else the first open unseen one. An option tried is
+may have backed onto blind), is on floor the map has seen (`CostMap.seen_at`). Per pick at most 21 options (7 directions x 3
+lengths): the first open seen option is taken, else the first open unseen one; once an unseen fallback is found, an
+option whose spot itself is unseen is not planned (it cannot be over seen floor) - fewer route plans on a map with
+little seen floor (final review I2). An option tried is
 not tried again (by length and turn).
 
 A try **counts** once the tank is `RUN_COUNTS_M` **0.10 m** from where the try began; from then on it ends as before
 (spot reached, `RUN_MAX_S`, the wall rule, the route skill's end) and the search starts. Before it counts, a try is
 **dropped** when:
-- no forward command came within `RUN_START_S` **1.0 s** of its start or its last turn-on-the-spot command;
+- it stood still (no move command) `RUN_START_S` **1.0 s** - since its start or its last turn or forward move;
+- no forward command `RUN_TURN_MAX_S` **3.5 s** after it began (a route skill that only spins; a 180° spin is ~2.8 s);
 - its `RoamSkill` is in its stuck recovery (`state == "recover"`);
 - its `RoamSkill` ends (any result) or the wall rule fires.
 Dropped: the next open option from the pose now, at most `RUN_TRIES` **3** tries; none: the search, then `no_way` ("no
-way to run") when no try counted. `RUN_MAX_S` 2.8 s counts from the ESCAPE's first forward command over all tries
+way to run") when no try counted - also when tries moved the tank, each less than 10 cm (counted per try). `RUN_MAX_S` 2.8 s counts from the ESCAPE's first forward command over all tries
 (the bridge's R34.15 3 s counts the same way).
 
 ```mermaid
@@ -4011,19 +4016,17 @@ classDiagram
     +RUN_COUNTS_M = 0.10
     +RUN_START_S = 1.0
     +RUN_TRIES = 3
+    +RUN_TURN_MAX_S = 3.5
     +run_m : float
     -_watch : FaceSkill
     -_tried : set of (length, turn)
     -_tries : int
+    -_near(inp) bool
     -_watching(now_s, at, inp) SkillOut
-    -_run_spot(at, inp) RunOption or None
+    -_run_spot(at, inp) ((length, turn), XY) or None
     -_over_seen(cost, at, way) bool
-    -_drop(now_s, at) bool
+    -_dropped(now_s) bool
     -_running(now_s, at, inp) SkillOut
-  }
-  class RunOption {
-    +spot : XY
-    +key : (length, turn)
   }
   class FaceSkill
   class RoamSkill {
@@ -4035,7 +4038,6 @@ classDiagram
   EscapeSkill --> FaceSkill : watch, search
   EscapeSkill --> RoamSkill : each try
   EscapeSkill ..> CostMap : routes, seen floor
-  EscapeSkill --> RunOption
 ```
 
 ```mermaid
@@ -4044,19 +4046,21 @@ stateDiagram-v2
   [*] --> back: within 0.8 m
   [*] --> watch: farther than 0.8 m
   watch --> back: a fresh sighting within 0.8 m
-  watch --> failed: FACE lost (lost)
+  watch --> failed: FACE lost, or a held turn (lost)
   back --> run: 30 cm, or a wall - pick the first open option
-  run --> run: try dropped before 10 cm (no forward 1 s after turning, recover, end, wall) - next option, max 3
+  run --> run: try dropped before 10 cm (still 1 s, no forward 3.5 s, recover, end, wall) - next option, max 3
   run --> search: the try counted and ended, or no option left
   search --> done: facing them (no try counted - no_way)
   search --> failed: lost
 ```
 
-Tests (`test_game_skills.py`): `test_escape_watches_until_near` (1.5 m: no back-off, still facing; walking in, the
-back-off starts at <= 0.80 m); `test_escape_watch_turns_to_face` (1.5 m at 60°: turns, no back-off);
-`test_escape_watch_lost_is_lost`; `test_escape_tries_a_shorter_run` (a known wall 0.75 m behind the back-off spot
-everywhere away: a 50 or 30 cm run, not `no_way`); `test_escape_prefers_seen_floor` (seen floor only to one side: that
-side, though straight away is open over unseen floor); `test_escape_drops_a_run_that_never_drives` (a route skill that
-stands still: dropped ~1 s, the next option tried); `test_escape_drops_a_run_in_recovery`;
-`test_escape_three_tries_then_no_way`. `test_escape_no_open_way_is_no_way`'s ring is drawn tighter (a 30 cm run must
-also have no route) - the owner's shorter runs change what it pins.
+Tests (`test_game_skills.py`): `test_escape_watches_until_near` (1.5 m walking in: no move until the back-off,
+which starts at <= 0.80 m); `test_escape_watch_turns_to_face` (1.5 m, 30° and drifting aside: turns only);
+`test_escape_watch_lost_is_lost`; `test_escape_watch_turn_held_ends_lost`; `test_escape_near_but_aside_watches_first`
+(0.6 m at 95°: no back-off); `test_escape_old_near_sighting_does_not_start_the_back_off`;
+`test_escape_tries_a_shorter_run` (known things 85 cm round the back-off spot, behind and both sides: a shorter run);
+`test_escape_prefers_seen_floor` (seen floor only towards +60°: that way, though straight away is open over unseen
+floor); `test_escape_drops_a_run_that_never_drives` (a route skill that stands still: dropped after ~1 s, the next
+try drives); `test_escape_drops_a_run_in_recovery`; `test_escape_drops_a_run_that_only_spins`;
+`test_escape_run_max_counts_over_tries`; `test_escape_three_tries_then_no_way`. `test_escape_no_open_way_is_no_way`'s
+ring is drawn tighter (0.40 m: a 30 cm run must also have no route) - the owner's shorter runs change what it pins.

@@ -1695,7 +1695,7 @@ sequenceDiagram
   | Word | Kind | Inputs | Does / gives |
   |---|---|---|---|
   | `FACE` | command | person | turns the camera (or the tank, on the spot) to face the person for a moment |
-  | `ESCAPE` | command | person, cm 20–100 | backs off at once, turns and runs about that far from the person, then turns back to find them (AI engine LLD §28.24, design-notes §254) |
+  | `ESCAPE` | command | person, cm 20–100 | watches the person until they come within 80 cm, then backs off, turns and runs about that far (shorter if there is no room), then turns back to find them (AI engine LLD §28.24-§28.25, design-notes §254, §257) |
   | `FOLLOW` | command (reserved today: `needs: [ai]`, input `any` - becomes `[ai, encoders]`, input `person`) | person, seconds 1–60 | comes after the person, stopping at the follow distance - never close |
   | `CAUGHT?` | reporter | — | TRUE while the person has caught the tank (it stopped and beeped) |
   | `SEE?` / `HOWFAR` | reporters (today's) | thing **or person** | for the person, inside a game: seen in the last 0.5 s / the distance from the tank's front in cm, −1 if not seen |

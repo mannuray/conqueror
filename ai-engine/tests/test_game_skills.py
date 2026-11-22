@@ -12,23 +12,28 @@ from dataclasses import dataclass, field
 import numpy as np
 import pytest
 
-from conqueror_ai.domain.drive.curves import Command, XYTh
+from conqueror_ai.domain.drive import game_skills
+from conqueror_ai.domain.drive.curves import STOP, Command, XYTh
 from conqueror_ai.domain.drive.game_skills import (
     BACK_OFF_M,
+    ESCAPE_FROM_M,
     FACE_LOOK_PAN_DEG,
     FACE_MIN_S,
     FACE_PAN_DEG,
     FOLLOW_MIN_M,
     RUN_MAX_S,
+    RUN_START_S,
+    RUN_TRIES,
+    RUN_TURN_MAX_S,
     EscapeSkill,
     FaceSkill,
     FollowSkill,
     Progress,
 )
 from conqueror_ai.domain.drive.limits import Limits
-from conqueror_ai.domain.drive.roam import POINT_DONE_M
+from conqueror_ai.domain.drive.roam import POINT_DONE_M, RoamSkill
 from conqueror_ai.domain.drive.sim import Box, SimRoom, SimTank
-from conqueror_ai.domain.drive.skill import Result, Skill, make_input
+from conqueror_ai.domain.drive.skill import Result, Skill, SkillInput, SkillOut, make_input
 from conqueror_ai.domain.objects import GATE_DPS
 from conqueror_ai.domain.person import PersonEst
 from conqueror_ai.domain.room_map import RoomMap
@@ -100,6 +105,8 @@ def play(
     wall_behind_x: float | None = None,
     hold_spins_after_run: bool = False,
     seen_marks: list[tuple[float, float]] | None = None,
+    seen_floor: list[tuple[float, float]] | None = None,
+    hold_spins: bool = False,
 ) -> Play:
     """edge_clip: a person up to 35 deg beyond the view is seen cut by the picture's side edge (their box's
     bottom centre at the edge, so the bearing reads short); always_edge: every sighting says edge; walk: the
@@ -119,6 +126,8 @@ def play(
         seed_behind(out.room, start, round(t * 1e6))
     if seen_marks:
         out.room.update_picture(marks(high=seen_marks), round(t * 1e6), start[:2])
+    if seen_floor:
+        out.room.update_picture(marks(floor=seen_floor), round(t * 1e6), start[:2])
     ran = False  # the tank drove forward (hold_spins_after_run: the bridge holds every spin after it)
     while t < T0_S + limit_s:
         at = tank.at
@@ -172,7 +181,7 @@ def play(
             out.result = o.result
             break
         ran = ran or cmd.v_cms > 0
-        held = hold_spins_after_run and ran and cmd.v_cms == 0 and cmd.w_dps != 0
+        held = (hold_spins or (hold_spins_after_run and ran)) and cmd.v_cms == 0 and cmd.w_dps != 0
         tank.step(Command(0.0, 0.0) if held else cmd, LIM.dt_s)
         if wall_behind_x is not None and tank.at[0] < wall_behind_x:
             tank.at = (wall_behind_x, tank.at[1], tank.at[2])  # against the wall: the tracks slip, no move
@@ -396,7 +405,7 @@ def test_escape_held_search_turn_ends_lost() -> None:
 
 def test_escape_no_open_way_is_no_way() -> None:
     ring = [  # known things behind and both sides: the only way round goes towards them (S4)
-        (-0.3 + 0.55 * math.cos(math.radians(a)), 0.55 * math.sin(math.radians(a))) for a in range(70, 291, 3)
+        (-0.3 + 0.40 * math.cos(math.radians(a)), 0.40 * math.sin(math.radians(a))) for a in range(70, 291, 2)
     ]
     p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0, seen_marks=ring)
     assert p.result == Result.NO_WAY
@@ -533,3 +542,157 @@ def test_the_wall_rule_waits_for_a_slow_start() -> None:  # final review M1: the
         w.note(t, (x, 0.0, 0.0), True)
         t += 0.1
     assert w.stuck(t - 0.1)
+
+
+# ---- LLD §28.25 (owner, design-notes §257): watch until near, runs that must move, shorter, seen floor first
+
+
+def test_escape_watches_until_near() -> None:
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(1.5, 0.0), limit_s=12.0, walk=(-0.25, 0.0))
+    i = next(k for k, c in enumerate(p.cmds) if c.v_cms < 0)
+    assert "watch" in p.states[:i]
+    assert all(c.v_cms == 0 for c in p.cmds[:i])  # no back-off while they are far
+    assert ESCAPE_FROM_M - 0.10 <= p.gaps[i] <= ESCAPE_FROM_M + 0.01  # it starts as they come within 80 cm
+
+
+def test_escape_watch_turns_to_face() -> None:
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(1.5, 30.0), limit_s=6.0, edge_clip=True, walk=(0.0, 0.1))
+    assert p.result is None and set(p.states) <= {"watch"}
+    assert not any(c.v_cms != 0 for c in p.cmds)  # it only turns
+    assert any(c.w_dps != 0 for c in p.cmds)
+
+
+def test_escape_watch_lost_is_lost() -> None:
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(1.5, 0.0), limit_s=30.0, hide_from_s=T0_S + 0.5)
+    assert p.result == Result.LOST
+    assert not any(c.v_cms != 0 for c in p.cmds)
+
+
+def test_escape_tries_a_shorter_run() -> None:
+    ring = [  # known things 85 cm round the back-off spot, behind and both sides: no 80 cm run has a route
+        (-0.3 + 0.85 * math.cos(math.radians(a)), 0.85 * math.sin(math.radians(a))) for a in range(60, 301, 2)
+    ]
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0, seen_marks=ring)
+    assert p.result != Result.NO_WAY, p.result
+    i, j = first(p, "run"), first(p, "search")
+    assert any(c.v_cms > 0 for c in p.cmds[i:j])  # ran
+    assert max(math.dist(a[:2], p.at[i][:2]) for a in p.at[i:j]) < 0.65  # a shorter run
+
+
+def test_escape_prefers_seen_floor() -> None:
+    th = math.radians(180.0 + 60.0)  # straight away is open but unseen; only this way was seen
+    band = [
+        (-0.3 + u * math.cos(th) - v * math.sin(th), u * math.sin(th) + v * math.cos(th))
+        for u in np.arange(0.0, 1.05, 0.02).tolist()
+        for v in np.arange(-0.3, 0.31, 0.02).tolist()
+    ]
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0, seen_floor=band)
+    end = p.at[first(p, "search")]
+    assert end[1] < -0.3, end  # went the seen way, not straight back
+
+
+class _Still:
+    """A run's route skill that never drives (the floor run's round 5); `moves` it sends first."""
+
+    def __init__(self, state: str, moves: list[Command] | None = None) -> None:
+        self.state = state
+        self.moves = list(moves or [])
+
+    def tick(self, now_s: float, inp: SkillInput) -> SkillOut:
+        return SkillOut(self.moves.pop(0) if self.moves else STOP, None)
+
+
+def _roams(
+    monkeypatch: pytest.MonkeyPatch, still: int, state: str = "drive", moves: list[Command] | None = None
+) -> list[tuple[str, object]]:
+    """The first `still` run tries stand still (after `moves`); later ones are real. Returns every try."""
+    made: list[tuple[str, object]] = []
+
+    def make(*a: object, **k: object) -> object:
+        real = len(made) >= still
+        r: object = RoamSkill(*a, **k) if real else _Still(state, moves)  # type: ignore[arg-type]
+        made.append(("still" if isinstance(r, _Still) else "real", r))
+        return r
+
+    monkeypatch.setattr(game_skills, "RoamSkill", make)
+    return made
+
+
+def test_escape_drops_a_run_that_never_drives(monkeypatch: pytest.MonkeyPatch) -> None:
+    made = _roams(monkeypatch, still=1)
+    skill = EscapeSkill(LIM, 0.80)
+    p = play(skill, at_bearing(0.6, 0.0), limit_s=40.0)
+    assert [m for m, _ in made][:2] == ["still", "real"]
+    i = first(p, "run")
+    fwd = next(k for k in range(i, len(p.cmds)) if p.cmds[k].v_cms > 0)
+    assert fwd > i and (fwd - i) * LIM.dt_s >= RUN_START_S - 0.05  # waited ~1 s, then the next try drove
+    assert p.result == Result.DONE
+
+
+def test_escape_drops_a_run_in_recovery(monkeypatch: pytest.MonkeyPatch) -> None:
+    made = _roams(monkeypatch, still=1, state="recover")
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0)
+    assert [m for m, _ in made][:2] == ["still", "real"]
+    i = first(p, "run")
+    assert any(c.w_dps != 0 or c.v_cms != 0 for c in p.cmds[i : i + 3])  # the next try at once, no 1 s wait
+    assert p.result == Result.DONE
+
+
+def test_escape_three_tries_then_no_way(monkeypatch: pytest.MonkeyPatch) -> None:
+    made = _roams(monkeypatch, still=99)
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0)
+    assert len(made) == RUN_TRIES
+    assert p.result == Result.NO_WAY
+    assert not any(c.v_cms > 0 for c in p.cmds)
+
+
+def test_escape_near_but_aside_watches_first() -> None:  # final review I1: never back towards them (S4)
+    skill = EscapeSkill(LIM, 0.80)
+    room = RoomMap()
+    pose = Pose(2_000_000, 0.0, 0.0, 0.0, 0.0, 0.0)
+    snap = room.snapshot(2_000_000, pose, False, True)
+    far = PersonEst(True, 1.5, 0.0, 0, 0.9, 2_000_000)
+    skill.tick(T0_S, make_input(at=(0.0, 0.0, 0.0), snap=snap, map_ok=True, person=far))
+    assert skill.state == "watch"
+    aside = PersonEst(True, 0.6, 95.0, 0, 0.9, 2_000_000)  # found by the sweep, beside-behind
+    out = skill.tick(T0_S + 0.1, make_input(at=(0.0, 0.0, 0.0), snap=snap, map_ok=True, person=aside))
+    assert skill.state == "watch" and out.cmd.v_cms == 0
+
+
+def test_escape_old_near_sighting_does_not_start_the_back_off() -> None:
+    skill = EscapeSkill(LIM, 0.80)
+    room = RoomMap()
+    pose = Pose(2_000_000, 0.0, 0.0, 0.0, 0.0, 0.0)
+    far = PersonEst(True, 1.5, 0.0, 0, 0.9, 2_000_000)
+    snap = room.snapshot(2_000_000, pose, False, True)
+    skill.tick(T0_S, make_input(at=(0.0, 0.0, 0.0), snap=snap, map_ok=True, person=far))
+    old_near = PersonEst(True, 0.5, 0.0, 0, 0.9, 2_050_000)
+    late = room.snapshot(2_500_000, pose, False, True)  # 0.45 s after that picture
+    out = skill.tick(T0_S + 0.1, make_input(at=(0.0, 0.0, 0.0), snap=late, map_ok=True, person=old_near))
+    assert skill.state == "watch" and out.cmd.v_cms == 0
+
+
+def test_escape_watch_turn_held_ends_lost() -> None:  # final review m3: the wall rule while watching
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(1.5, 38.0), limit_s=20.0, hold_spins=True)
+    assert p.result == Result.LOST and set(p.states) <= {"watch", "failed"}
+    assert len(p.cmds) * LIM.dt_s < 3.0  # gave up, did not spin against the hold for ever
+
+
+def test_escape_drops_a_run_that_only_spins(monkeypatch: pytest.MonkeyPatch) -> None:  # final review m4
+    spin = [Command(0.0, LIM.spin_dps)] * 200
+    made = _roams(monkeypatch, still=1, moves=spin)
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=60.0)
+    assert [m for m, _ in made][:2] == ["still", "real"]
+    i = first(p, "run")
+    second = next(k for k in range(i, len(p.cmds)) if p.cmds[k].v_cms > 0)
+    assert (second - i) * LIM.dt_s <= RUN_TURN_MAX_S + 4.0  # dropped at RUN_TURN_MAX_S, then the real try
+
+
+def test_escape_run_max_counts_over_tries(monkeypatch: pytest.MonkeyPatch) -> None:  # final review m8
+    nudge = [Command(LIM.v_min_cms, 0.0)] * 2  # a forward nudge, then it stands: dropped 1 s later
+    made = _roams(monkeypatch, still=1, moves=nudge)
+    p = play(EscapeSkill(LIM, 1.00), at_bearing(0.6, 0.0), limit_s=40.0)
+    assert [m for m, _ in made][:2] == ["still", "real"]
+    i, j = first(p, "run"), first(p, "search")
+    fwd0 = next(k for k in range(i, j) if p.cmds[k].v_cms > 0)
+    assert (j - fwd0) * LIM.dt_s == pytest.approx(RUN_MAX_S, abs=0.25)  # from the first try's nudge

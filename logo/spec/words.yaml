@@ -586,7 +586,7 @@ words:
     group: move
     inputs: [{name: person, type: person}, {name: cm, type: number, unit: cm, range: [20, 100]}]
     needs: [ai, encoders]
-    does: backs off at once, turns and runs about that far from the person, then turns back to find them
+    does: watches the person until they come within 80 cm, then backs off, turns and runs about that far (shorter if there is no room), then turns back to find them
     help: run away from the baby
     example: ESCAPE "baby 80
   - name: FOLLOW

@@ -7,9 +7,11 @@ bridge's keep-out, game cap and caught sit under every command (bridge LLD R34).
 
 from __future__ import annotations
 
+import itertools
 import math
 from dataclasses import replace
 
+from conqueror_ai.domain.drive.costmap import CostMap
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
@@ -51,6 +53,18 @@ RUN_SPIN_FROM_DEG = 60.0  # the run turns on the spot beyond this, then curves -
 # the person (the keep-out's ahead is ±60, S4; final review M2)
 RUN_TOWARDS_M = 0.05  # a run's route never passes nearer the person than the tank is now, less this (S4)
 RUN_MAX_S = 2.8  # the run drives forward at most this long (inside the bridge's 3 s out of view, R34.15)
+ESCAPE_FROM_M = (
+    0.80  # ESCAPE watches the person until they are this near the front (owner, design-notes §257)
+)
+RUN_SHORTER_M = (0.50, 0.30)  # no run of `cm`: these, when shorter (owner §257)
+SEEN_SKIP_M = (
+    0.20  # a run over seen floor: seen beyond this from the tank's centre (its own spot may be blind)
+)
+SEEN_STEP_M = 0.05  # ... the route checked every this
+RUN_COUNTS_M = 0.10  # a run try counts once the tank is this far from where it began (LLD §28.25)
+RUN_START_S = 1.0  # ... before that, no forward move this long after its start or its last turn: dropped
+RUN_TURN_MAX_S = 3.5  # ... or never a forward move this long after it began (a 180 deg spin ~2.8 s)
+RUN_TRIES = 3  # run tries per ESCAPE at most (my call, §257)
 REPLAN_M = 0.15  # FOLLOW's goal moved this far: a new route
 GAME_V_CAP_CMS = 25.0  # a game drives at most this fast (LLD §28.1)
 FRESH_US = 300_000  # ESCAPE starts only on an estimate this recent (the bridge's deadman; final review M1)
@@ -314,7 +328,14 @@ class EscapeSkill(_Base):
         self.run_m = run_m
         self._from: XYTh | None = None
         self._run: RoamSkill | None = None
-        self._ran = False  # a run spot was found
+        self._ran = False  # a run try counted (moved RUN_COUNTS_M)
+        self._watch: FaceSkill | None = None
+        self._tried: set[tuple[float, float]] = set()  # run options tried: (length, turn)
+        self._tries = 0
+        self._try_from: XYTh | None = None
+        self._try_t0 = 0.0  # when this try began
+        self._try_s = 0.0  # ... or its last move command (a turn or forward)
+        self._try_fwd = False  # this try sent a forward move
         self._fwd_s: float | None = None  # the run's first forward command
         self._face: FaceSkill | None = None
         self._th: float | None = None
@@ -328,21 +349,64 @@ class EscapeSkill(_Base):
         if self.state != "start":
             self._progress.note(now_s, at, self.cmd != STOP)
         if self.state == "start":
-            return self._start(at, inp)
+            return self._start(now_s, at, inp)
+        if self.state == "watch":
+            return self._watching(now_s, at, inp)
         if self.state == "back":
             return self._back(now_s, at, inp)
         if self.state == "run":
             return self._running(now_s, at, inp)
         return self._search(now_s, at, inp)
 
-    def _start(self, at: XYTh, inp: SkillInput) -> SkillOut:
+    def _start(self, now_s: float, at: XYTh, inp: SkillInput) -> SkillOut:
         p, snap = inp.person, inp.snap
         if p is None or not p.seen or p.d_m is None or abs(p.bearing_deg) > VIEW_DEG:
             return self._end(Result.NO_WAY, "the person is not in view")  # it must know where they are
         if snap is None or snap.t_us - p.t_us > FRESH_US:
             return self._end(Result.NO_WAY, "no fresh picture of the person")
-        self._from, self.state = at, "back"
+        if self._near(inp):
+            return self._to_back(at)
+        self.state = "watch"
+        return self._watching(now_s, at, inp)
+
+    @staticmethod
+    def _near(inp: SkillInput) -> bool:
+        """A fresh sighting within ESCAPE_FROM_M of the front and in the camera's view ahead (the back-off is
+        straight back: a person found aside by the sweep is faced first - S4, final review I1)."""
+        p, snap = inp.person, inp.snap
+        return (
+            p is not None
+            and p.seen
+            and p.d_m is not None
+            and p.d_m <= ESCAPE_FROM_M + 1e-9
+            and abs(p.bearing_deg) <= VIEW_DEG
+            and snap is not None
+            and snap.t_us - p.t_us <= FRESH_US
+        )
+
+    def _to_back(self, at: XYTh) -> SkillOut:
+        self._from, self.state, self._progress = at, "back", Progress()
         return self._out(Command(-1.0, 0.0), self._cam_to(at, ESCAPE_PAN_DEG))
+
+    def _watching(self, now_s: float, at: XYTh, inp: SkillInput) -> SkillOut:
+        """Farther than ESCAPE_FROM_M: FACE them (again each time FACE is done) until they come near."""
+        if self._near(inp):
+            return self._to_back(at)
+        if self._progress.stuck(now_s):  # a turn the bridge holds (R34.14): not for ever
+            return self._end(Result.LOST, "could not turn to look")
+        if self._watch is None:
+            self._watch = FaceSkill(self.lim)
+            self._watch._pan = self._pan  # pyright: ignore[reportPrivateUsage]  # the camera is where it is
+        out = self._watch.tick(now_s, inp)
+        if out.cam is not None:
+            self._pan = out.cam[0]
+        if out.result == Result.LOST:
+            return self._end(Result.LOST, out.detail, out.cam)
+        if out.result is not None:  # facing them: watch on with a new FACE
+            self._watch = None
+            return self._halt(out.cam)
+        self.cmd = out.cmd
+        return SkillOut(out.cmd, out.cam)
 
     def _back(self, now_s: float, at: XYTh, inp: SkillInput) -> SkillOut:
         """Straight back (the ramp: at v_min) until BACK_OFF_M along the start heading, or a wall."""
@@ -354,11 +418,15 @@ class EscapeSkill(_Base):
         return self._start_run(now_s, at, inp)
 
     def _start_run(self, now_s: float, at: XYTh, inp: SkillInput) -> SkillOut:
-        spot = self._run_spot(at, inp)
-        self._ran = spot is not None
+        """The next run try (LLD §28.25): the first open option not tried; none, or RUN_TRIES made: search."""
         self._progress = Progress()
-        if spot is None:
+        option = None if self._tries >= RUN_TRIES else self._run_spot(at, inp)
+        if option is None:
             return self._to_search(at)
+        key, spot = option
+        self._tried.add(key)
+        self._tries += 1
+        self._try_from, self._try_t0, self._try_s, self._try_fwd = at, now_s, now_s, False
         self._run = RoamSkill(
             Planner(self.lim, spin_from_deg=RUN_SPIN_FROM_DEG, blind_spin=True),
             "point",
@@ -369,19 +437,44 @@ class EscapeSkill(_Base):
         self.state, self._pan = "run", 0.0
         return self._running(now_s, at, inp, cam=(0.0, self.lim.drive_tilt_deg))
 
-    def _run_spot(self, at: XYTh, inp: SkillInput) -> XY | None:
-        """The first direction away from the person with a route on the cost map, `run_m` from the centre."""
+    def _run_spot(self, at: XYTh, inp: SkillInput) -> tuple[tuple[float, float], XY] | None:
+        """The first open option not tried: over seen floor first (every length), then over any floor; each
+        length (`run_m`, then the shorter RUN_SHORTER_M) in RUN_TURNS_DEG's order. Open = a route on the cost
+        map never towards the person. Returns ((length, turn), spot)."""
         if inp.costs is None or self.sight.xy is None:
             return None
         away = self.sight.heading(at) + math.pi
         cost, routes = inp.costs.base(), RoutePlanner(self.lim)
-        for turn in RUN_TURNS_DEG:
-            th = away + math.radians(turn)
-            spot = (at[0] + self.run_m * math.cos(th), at[1] + self.run_m * math.sin(th))
-            way = routes.route(cost, (at[0], at[1]), spot)
-            if way is not None and self._away_all_the_way(at, way):
-                return spot
-        return None
+        lengths = [self.run_m, *(m for m in RUN_SHORTER_M if m < self.run_m - 1e-6)]
+        fallback: tuple[tuple[float, float], XY] | None = None
+        for length in lengths:
+            for turn in RUN_TURNS_DEG:
+                if (length, turn) in self._tried:
+                    continue
+                th = away + math.radians(turn)
+                spot = (at[0] + length * math.cos(th), at[1] + length * math.sin(th))
+                if fallback is not None and not cost.seen_at(*spot):
+                    continue  # cannot be over seen floor, and a fallback is found: no route to plan
+                way = routes.route(cost, (at[0], at[1]), spot)
+                if way is None or not self._away_all_the_way(at, way):
+                    continue
+                if self._over_seen(cost, at, way):
+                    return (length, turn), spot
+                if fallback is None:
+                    fallback = (length, turn), spot
+        return fallback
+
+    @staticmethod
+    def _over_seen(cost: CostMap, at: XYTh, way: list[XY]) -> bool:
+        """Every route point, every SEEN_STEP_M, beyond SEEN_SKIP_M from the centre is on seen floor."""
+        pts = [(at[0], at[1]), *way]
+        for a, b in itertools.pairwise(pts):
+            n = max(1, math.ceil(math.dist(a, b) / SEEN_STEP_M))
+            for k in range(n + 1):
+                x, y = a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n
+                if math.dist((x, y), pts[0]) > SEEN_SKIP_M and not cost.seen_at(x, y):
+                    return False
+        return True
 
     def _away_all_the_way(self, at: XYTh, way: list[XY]) -> bool:
         """Never towards them (S4): no point of the route nearer the person's spot than the tank is now."""
@@ -392,15 +485,32 @@ class EscapeSkill(_Base):
     def _running(
         self, now_s: float, at: XYTh, inp: SkillInput, cam: tuple[float, float] | None = None
     ) -> SkillOut:
-        assert self._run is not None
+        assert self._run is not None and self._try_from is not None
         out = self._run.tick(now_s, inp)
-        if self._fwd_s is None and out.cmd.v_cms > 0:
-            self._fwd_s = now_s
+        if out.cmd.v_cms > 0:
+            self._try_fwd = True
+            self._fwd_s = now_s if self._fwd_s is None else self._fwd_s
+        if out.cmd != STOP:
+            self._try_s = now_s  # moving: the 1 s standing counts from its last move
+        if not self._ran and math.dist(at[:2], self._try_from[:2]) >= RUN_COUNTS_M - 1e-9:
+            self._ran = True
         late = self._fwd_s is not None and now_s - self._fwd_s >= RUN_MAX_S - 1e-9
-        if out.result is None and not late and not self._progress.stuck(now_s):
-            self.cmd = out.cmd
-            return SkillOut(out.cmd, cam)
-        return self._to_search(at)
+        ended = out.result is not None or self._progress.stuck(now_s)
+        if late or (ended and self._ran):
+            return self._to_search(at)
+        if not self._ran and (ended or self._dropped(now_s)):
+            return self._start_run(now_s, at, inp)  # dropped before it counted: the next option
+        self.cmd = out.cmd
+        return SkillOut(out.cmd, cam)
+
+    def _dropped(self, now_s: float) -> bool:
+        """A try that does not get going (LLD §28.25): in its route skill's stuck recovery, standing
+        RUN_START_S since its start or its last move, or no forward move RUN_TURN_MAX_S after it began."""
+        if getattr(self._run, "state", "") == "recover":
+            return True
+        if now_s - self._try_s >= RUN_START_S - 1e-9:
+            return True
+        return not self._try_fwd and now_s - self._try_t0 >= RUN_TURN_MAX_S - 1e-9
 
     def _to_search(self, at: XYTh) -> SkillOut:
         self.state, self._progress = "search", Progress()

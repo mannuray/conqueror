@@ -162,9 +162,10 @@ void GameController::hold(bool held, bool moving) {
   m_holding = true;
 }
 
-// Review I7: the learned roll + the speed x (a reaction time + how old the person estimate already is).
+// Review I7: the learned roll + the speed x (a reaction time + how old the person estimate already is). R34.18: the
+// tank's speed is not linear in % (45 % does ~25 cm/s), so any move counts at the game's top speed - pessimistic.
 uint16_t GameController::stopCm(int8_t v) const {
-  const uint32_t speed_x10 = static_cast<uint32_t>(absI8(v)) * kTopCmsX10 / 100;  // cm/s x 10
+  const uint32_t speed_x10 = v == 0 ? 0u : kGameTopCmsX10;  // cm/s x 10
   const uint32_t ms = kReactionMs + m_mode.estimateAge(m_now);
   const uint16_t roll = m_h.roll_cm != nullptr ? m_h.roll_cm() : 0;
   return static_cast<uint16_t>(roll + speed_x10 * ms / 10000);

@@ -33,7 +33,7 @@ class GameController {
   static constexpr uint32_t kBackYesMs = 3000;        // one yes covers one backward move, at most this long
   static constexpr uint32_t kHoldEndMs = 300;         // a longer hold ends the move (the motion's watches, review I4)
   static constexpr uint32_t kReactionMs = 300;        // the stopping distance's reaction time (review I7)
-  static constexpr uint16_t kTopCmsX10 = 335;         // the tank's measured top speed, 33.5 cm/s (design-notes §69)
+  static constexpr uint16_t kGameTopCmsX10 = 300;     // a game's top speed, 30 cm/s: every forward move counts at it (R34.18)
 
   void setHooks(const Hooks& h) { m_h = h; }
   void setCap(uint8_t pct) { m_cap = pct; }

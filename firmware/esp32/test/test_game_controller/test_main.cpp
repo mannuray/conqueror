@@ -226,15 +226,16 @@ void test_the_engine_gone_holds_and_ends_the_run_7066() {  // design-notes §236
   TEST_ASSERT_EQUAL_UINT8(0, rec.env_lock);
 }
 
-// Stopping distance (review I7; the caught level 10, design-notes §248): roll 3 cm + speed x (0.3 s + the estimate's age); speed = v % x 33.5 cm/s / 100.
+// Stopping distance (review I7; the caught level 10, design-notes §248): roll 3 cm + speed x (0.3 s + the estimate's age);
+// every forward move counts at the game's top speed, 30 cm/s (R34.18, design-notes §263).
 void test_forward_close_ahead_ends_kept_away() {
   GameController g = playing();
   see(g, 30, 30);
-  TEST_ASSERT_TRUE(drive(g, 30, 0));  // 10 cm/s: stop 3 + 3 = 6; 30 - 6 - 5 = 19 > 10
+  TEST_ASSERT_TRUE(drive(g, 30, 0));  // stop 3 + 30 x 0.3 = 12; 30 - 12 - 5 = 13 > 10
   g.tick(32);
   TEST_ASSERT_EQUAL(0, rec.keep_away);
   see(g, 40, 20);
-  TEST_ASSERT_FALSE(drive(g, 30, 0));  // 20 - 6 - 5 = 9: towards - zeros, and the move ends normally
+  TEST_ASSERT_FALSE(drive(g, 30, 0));  // 20 - 12 - 5 = 3: towards - zeros, and the move ends normally
   g.tick(42);
   TEST_ASSERT_EQUAL(1, rec.keep_away);
 }
@@ -268,16 +269,22 @@ void test_the_game_cap_clamps_every_drive() {  // I7
   TEST_ASSERT_EQUAL_INT8(100, v2);  // no game: untouched
 }
 
-void test_the_stopping_distance_grows_with_speed_and_age() {  // I7
+void test_the_stopping_distance_counts_the_game_top_speed_and_age() {  // I7, R34.18
   GameController g = playing();
-  see(g, 30, 25);
-  TEST_ASSERT_TRUE(drive(g, 20, 0));   // 6.7 cm/s: stop 3 + 2 = 5; 25 - 5 - 5 = 15 > 10
-  TEST_ASSERT_FALSE(drive(g, 75, 0));  // 25 cm/s: stop 3 + 7.5 = 10; 25 - 10 - 5 = 10, not > 10
+  see(g, 30, 30);
+  TEST_ASSERT_TRUE(drive(g, 20, 0));  // stop 3 + 30 x 0.3 = 12; 30 - 12 - 5 = 13 > 10
+  TEST_ASSERT_TRUE(drive(g, 75, 0));  // the same at any speed
   GameController h = playing();
   h.onPerson(PersonEst{true, 30, 0, 0, 200, 40}, 40);
-  TEST_ASSERT_TRUE(drive(h, 75, 0));  // fresh: 30 - 10 - 5 = 15
+  TEST_ASSERT_TRUE(drive(h, 75, 0));                    // fresh: 13 > 10
   h.onPerson(PersonEst{true, 30, 0, 0, 200, 40}, 240);  // the same estimate, 200 ms old
-  TEST_ASSERT_FALSE(drive(h, 75, 0));  // stop 3 + 25 x 0.5 = 15: 30 - 15 - 5 = 10
+  TEST_ASSERT_FALSE(drive(h, 75, 0));                   // stop 3 + 30 x 0.5 = 18: 30 - 18 - 5 = 7
+}
+
+void test_stop_cm_counts_the_game_top_speed() {  // R34.18: 45 % does ~25 cm/s (design-notes §233), not 15
+  GameController g = playing();
+  see(g, 30, 27);
+  TEST_ASSERT_FALSE(drive(g, 45, 0));  // stop 3 + 9 = 12: 27 - 12 - 5 = 10, not > 10 (linear: 3 + 4.5 -> allowed)
 }
 
 void test_backing_asks_the_map_first() {
@@ -407,7 +414,8 @@ int main(int, char**) {
   RUN_TEST(test_forward_close_ahead_ends_kept_away);
   RUN_TEST(test_a_long_hold_ends_the_move);
   RUN_TEST(test_the_game_cap_clamps_every_drive);
-  RUN_TEST(test_the_stopping_distance_grows_with_speed_and_age);
+  RUN_TEST(test_the_stopping_distance_counts_the_game_top_speed_and_age);
+  RUN_TEST(test_stop_cm_counts_the_game_top_speed);
   RUN_TEST(test_backing_asks_the_map_first);
   RUN_TEST(test_a_skills_backing_is_not_asked);
   RUN_TEST(test_a_yes_lasts_3_s);

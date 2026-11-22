@@ -4072,3 +4072,35 @@ ring is drawn tighter (0.40 m: a 30 cm run must also have no route) - the owner'
   since the previous tick), over every try of one ESCAPE - not the clock since the first forward move, which left a
   second try no time (floor run 3). The bridge counts the same way (R34.17).
   `test_escape_run_max_counts_over_tries`: a first try's 0.2 s nudge leaves the second try ~2.6 s.
+
+**Amendment (owner 2026-11-22, design-notes §260-§261): ESCAPE turns its back itself; forward only with the person
+behind; sideways tries.**
+- **`turn` state** (between `back` / a dropped try and `run`): a turn on the spot (`_spin_to`, `spin_dps`) to the
+  heading from the tank's centre to the try's spot, until within `FACE_DONE_DEG` 10°; the wall rule (`Progress`)
+  watching - a held turn drops the try (counts as a try). Then the `RoamSkill` drives (it starts already facing the
+  spot, so it has no turn of its own to refuse - floor run 4 round 5).
+- **B:** in `run`, a route-skill command with `v > 0` while `_behind(at)` is false - the person's place less than
+  `RUN_BEHIND_DEG` **90°** off the heading, from the centre - is never sent: the try is dropped (counted, the next
+  option from the pose now). The route check before the run (never towards) stays.
+- **`RUN_TURNS_DEG` = (0, 80, -80, 40, -40)**: straight away, sideways left / right (the person ~100° off once
+  turned), the diagonals. With `RUN_TRIES` 3 a blocked straight-away run is followed by both sides.
+
+```mermaid
+stateDiagram-v2
+  [*] --> watch: farther than 0.8 m
+  [*] --> back: within 0.8 m
+  watch --> back: within 0.8 m, ahead
+  back --> turn: 30 cm or a wall - pick an option
+  turn --> run: facing the spot (10 deg)
+  turn --> turn: held (wall rule) - next option
+  run --> turn: dropped before 10 cm, or forward with the person < 90 deg off (B) - next option
+  run --> search: counted and ended, or RUN_MAX_S forward
+  turn --> search: no option left / 3 tries
+  search --> done
+  search --> failed
+```
+
+Tests: `test_escape_turns_its_back_itself` (a `turn` state of spins only, then the run starts facing the spot);
+`test_escape_never_drives_forward_with_the_person_ahead` (a route skill that turns back towards them and drives: the
+try dropped, no forward command with them under 90°); `test_escape_runs_sideways_when_behind_is_blocked`; the B
+invariant checked in `test_escape_runs_straight_away_when_open` too.

@@ -4184,3 +4184,16 @@ Floor run 39 (helper log `serve37`; the tank first moved 1 m out from the wall w
 Findings: (1) the run's forward moves are only checked as a route before the run (§254 "never towards"), not while
 driving - the route skill may re-plan or curve; (2) close to the person the route skill will not turn on the spot (its
 own sweep check; cause not logged), so ESCAPE stands where it is most needed.
+
+## 261. ESCAPE turns its back itself; forward only with the person behind; sideways tries (owner 2026-11-22)
+
+From floor run 4 (§260). Owner: **"agree on A and B"**, and **"now it only plans escape backward, but there is always
+sideways too"**.
+- **A. ESCAPE turns itself:** after the back-off (and before each try), ESCAPE turns on the spot to the try's
+  direction (within 10°) - as its search does; a turn the bridge holds (the wall rule) drops the try. Only then does
+  the route skill drive.
+- **B. Forward only with the person behind:** during a run, a forward command while the person's place is less than
+  **90°** off the tank's heading (from its centre) drops the try - the bridge's own line for a run out of view (R34.15).
+- **Sideways:** the run directions are straight away, then **±80°** from it (left first) - sideways, the person
+  ~100° off the heading, clear of B's 90° with the turn's 10° - then ±40°. With 3 tries: back, left, right. Lengths
+  as §259 (80, 50, 30 cm). My calls: ±80° (not 90°) and the order. AI engine LLD §28.25.

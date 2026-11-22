@@ -46,7 +46,8 @@ WALL_DEG = 5.0  # ... or turned this far
 WALL_START_S = (
     1.0  # ... never moved at all since the command began: a wall after this (a slow start, review M1)
 )
-RUN_TURNS_DEG = (0.0, 30.0, -30.0, 60.0, -60.0, 90.0, -90.0)  # the run's directions from straight away
+RUN_TURNS_DEG = (0.0, 80.0, -80.0, 40.0, -40.0)  # straight away, sideways (left first), diagonals (§261)
+RUN_BEHIND_DEG = 90.0  # a run drives forward only with the person this far off the heading (B, owner §261)
 RUN_SPIN_FROM_DEG = 60.0  # the run turns on the spot beyond this, then curves - never a curve's start towards
 # the person (the keep-out's ahead is ±60, S4; final review M2)
 RUN_TOWARDS_M = 0.05  # a run's route never passes nearer the person than the tank is now, less this (S4)
@@ -325,6 +326,7 @@ class EscapeSkill(_Base):
         self._run: RoamSkill | None = None
         self._ran = False  # a run try counted (moved RUN_COUNTS_M)
         self._watch: FaceSkill | None = None
+        self._spot: XY | None = None  # the try's spot
         self._tried: set[tuple[float, float]] = set()  # run options tried: (length, turn)
         self._tries = 0
         self._try_from: XYTh | None = None
@@ -350,6 +352,8 @@ class EscapeSkill(_Base):
             return self._watching(now_s, at, inp)
         if self.state == "back":
             return self._back(now_s, at, inp)
+        if self.state == "turn":
+            return self._turning(now_s, at, inp)
         if self.state == "run":
             return self._running(now_s, at, inp)
         return self._search(now_s, at, inp)
@@ -422,16 +426,36 @@ class EscapeSkill(_Base):
         key, spot = option
         self._tried.add(key)
         self._tries += 1
+        self._spot, self._run = spot, None
+        self.state, self._pan = "turn", 0.0  # A (owner §261): ESCAPE turns its back itself, the camera ahead
+        return self._turning(now_s, at, inp, cam=(0.0, self.lim.drive_tilt_deg))
+
+    def _turning(
+        self, now_s: float, at: XYTh, inp: SkillInput, cam: tuple[float, float] | None = None
+    ) -> SkillOut:
+        """On the spot to the try's spot (within FACE_DONE_DEG); held (the wall rule): the next option."""
+        assert self._spot is not None
+        if self._progress.stuck(now_s):
+            return self._start_run(now_s, at, inp)
+        out = self._spin_to(at, math.atan2(self._spot[1] - at[1], self._spot[0] - at[0]))
+        if out is not None:
+            return SkillOut(out.cmd, cam)
         self._try_from, self._try_t0, self._try_s, self._try_fwd = at, now_s, now_s, False
         self._run = RoamSkill(
             Planner(self.lim, spin_from_deg=RUN_SPIN_FROM_DEG, blind_spin=True),
             "point",
-            point=spot,
+            point=self._spot,
             stand_s=0.0,
             slow_at_point=False,
         )
-        self.state, self._pan = "run", 0.0
-        return self._running(now_s, at, inp, cam=(0.0, self.lim.drive_tilt_deg))
+        self.state = "run"
+        return self._running(now_s, at, inp, cam)
+
+    def _behind(self, at: XYTh) -> bool:
+        """The person's place RUN_BEHIND_DEG or more off the heading, from the centre (unknown: no)."""
+        if self.sight.xy is None:
+            return False
+        return abs(_wrap(math.degrees(self.sight.heading(at) - at[2]))) >= RUN_BEHIND_DEG - 1e-9
 
     def _run_spot(self, at: XYTh, inp: SkillInput) -> tuple[tuple[float, float], XY] | None:
         """The first open option not tried: each length (`run_m`, then the shorter RUN_SHORTER_M) in
@@ -464,6 +488,8 @@ class EscapeSkill(_Base):
     ) -> SkillOut:
         assert self._run is not None and self._try_from is not None
         out = self._run.tick(now_s, inp)
+        if out.cmd.v_cms > 0 and not self._behind(at):  # B (owner §261): never forward with them ahead
+            return self._to_search(at) if self._ran else self._start_run(now_s, at, inp)
         step = self.lim.dt_s if self._run_prev_s is None else min(now_s - self._run_prev_s, RUN_GAP_S)
         self._run_prev_s = now_s
         if out.cmd.v_cms > 0:

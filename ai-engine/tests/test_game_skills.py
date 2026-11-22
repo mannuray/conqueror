@@ -32,6 +32,7 @@ from conqueror_ai.domain.drive.game_skills import (
 )
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.roam import POINT_DONE_M, RoamSkill
+from conqueror_ai.domain.drive.route import XY
 from conqueror_ai.domain.drive.sim import Box, SimRoom, SimTank
 from conqueror_ai.domain.drive.skill import Result, Skill, SkillInput, SkillOut, make_input
 from conqueror_ai.domain.objects import GATE_DPS
@@ -349,22 +350,45 @@ def test_escape_runs_straight_away_when_open() -> None:
     assert math.dist(end[:2], person) > 1.3
     i = first(p, "run")
     assert min(p.gaps[i:j]) >= p.gaps[i] - 0.05  # never towards them on the run
+    assert_forward_only_behind(p, person)
 
 
 def test_escape_run_takes_the_next_open_direction() -> None:
-    wall = [(-0.9, y / 100) for y in range(-200, 201, 4)]  # a known wall behind: 0 and ±30° have no route
+    wall = [(-0.9, y / 100) for y in range(-200, 201, 4)]  # a known wall behind
     p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0, seen_marks=wall)
     esc_spot = p.at[first(p, "search")]
-    assert esc_spot[1] > 0.3  # +60°, left first
-    assert esc_spot[0] > -0.9
+    assert esc_spot[0] > -0.9  # never through it
+
+
+def test_escape_runs_sideways_when_behind_is_blocked(monkeypatch: pytest.MonkeyPatch) -> None:  # owner §261
+    class NoWayBack:
+        """Routes everywhere but straight back (beyond x -0.7: behind the tank backed off from 0)."""
+
+        def __init__(self, lim: Limits) -> None:
+            pass
+
+        def route(
+            self, cost: object, start: tuple[float, float], goal: tuple[float, float]
+        ) -> list[XY] | None:
+            return None if goal[0] < -0.7 and abs(goal[1]) < 0.5 else [start, goal]
+
+    monkeypatch.setattr(game_skills, "RoutePlanner", NoWayBack)
+    skill = EscapeSkill(LIM, 0.80)
+    play(skill, at_bearing(0.6, 0.0), limit_s=8.0)
+    first_try = next(iter(skill._tried))  # pyright: ignore[reportPrivateUsage]
+    assert first_try == (0.80, 80.0)  # 80 cm sideways (left first) before any shorter run straight back
 
 
 def test_escape_no_stand_between_back_and_run() -> None:
     p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0)
-    i = first(p, "run")
+    i = first(p, "turn")
     moving = [c.v_cms != 0 or c.w_dps != 0 for c in p.cmds[i : i + 3]]
     assert any(moving) and p.cmds[i - 1].v_cms < 0  # backing straight into the turn, no look, no stand
-    assert all(c.v_cms != 0 or c.w_dps != 0 for c in p.cmds[i + 1 : first(p, "search") - 1])
+    # the turn ends within 10 deg and stops there one tick (the spin's end), then the run
+    stands = [
+        k for k in range(i + 1, first(p, "search") - 1) if p.cmds[k].v_cms == 0 and p.cmds[k].w_dps == 0
+    ]
+    assert len(stands) <= 2, stands
 
 
 def test_escape_camera_looks_ahead_on_the_run() -> None:
@@ -375,7 +399,7 @@ def test_escape_camera_looks_ahead_on_the_run() -> None:
 
 def test_escape_run_max_counts_forward_only() -> None:
     p = play(EscapeSkill(LIM, 1.00), at_bearing(0.6, 0.0), limit_s=40.0)
-    i, j = first(p, "run"), first(p, "search")
+    i, j = first(p, "turn"), first(p, "search")
     fwd0 = next(k for k in range(i, j) if p.cmds[k].v_cms > 0)
     assert any(p.cmds[k].w_dps != 0 and p.cmds[k].v_cms == 0 for k in range(i, fwd0))  # spun first
     assert (j - fwd0) * LIM.dt_s == pytest.approx(RUN_MAX_S, abs=0.25)  # 100 cm needs ~4 s: cut at 2.8 s
@@ -683,3 +707,34 @@ def test_escape_run_max_counts_over_tries(monkeypatch: pytest.MonkeyPatch) -> No
     fwd1 = next(k for k in range(fwd0 + len(nudge), j) if p.cmds[k].v_cms > 0)  # the second try's
     nudged = len(nudge) * LIM.dt_s
     assert (j - fwd1) * LIM.dt_s == pytest.approx(RUN_MAX_S - nudged, abs=0.25)  # forward time summed (§259)
+
+
+# ---- owner §261: ESCAPE turns its back itself; forward only with the person behind
+
+
+def off_heading_deg(at: XYTh, person: tuple[float, float]) -> float:
+    """The person's place off the tank's heading, from its centre (deg, 0-180)."""
+    b = math.degrees(math.atan2(person[1] - at[1], person[0] - at[0]) - at[2])
+    return abs((b + 180.0) % 360.0 - 180.0)
+
+
+def assert_forward_only_behind(p: Play, person: tuple[float, float]) -> None:
+    for at, c, st in zip(p.at, p.cmds, p.states, strict=True):
+        if st == "run" and c.v_cms > 0:
+            assert off_heading_deg(at, person) >= 90.0 - 1e-6, (at, c)
+
+
+def test_escape_turns_its_back_itself() -> None:
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0)
+    i, k = first(p, "turn"), first(p, "run")
+    assert i < k and all(c.v_cms == 0 for c in p.cmds[i:k])  # spins only
+    assert abs(heading_deg(p.at[k])) >= 180.0 - 12.0  # the run starts facing straight away
+
+
+def test_escape_never_drives_forward_with_the_person_ahead(monkeypatch: pytest.MonkeyPatch) -> None:
+    back = [Command(0.0, LIM.spin_dps)] * 30 + [Command(20.0, 0.0)] * 30  # turns to face them, then drives
+    made = _roams(monkeypatch, still=1, moves=back)
+    person = at_bearing(0.6, 0.0)
+    p = play(EscapeSkill(LIM, 0.80), person, limit_s=40.0)
+    assert len(made) >= 2  # that try was dropped
+    assert_forward_only_behind(p, person)

@@ -1002,3 +1002,8 @@ def test_a_sure_sighting_in_the_look_round_is_still_chased() -> None:
     s, tank, t = looking_round()
     rt(s, t, tank.at, open_snap(), TargetFix(1, 1.5, 0.3, 0.0), None, True)
     assert s.state == "chase" and s.chase.state == "approaching"
+
+
+def test_roam_keeps_its_planner_untrusted_when_asked() -> None:  # design-notes §263: ESCAPE's run
+    s = RoamSkill(Planner(Limits()), "wander", rng=random.Random(1), slow_untrusted=False)
+    assert max(o.cmd.v_cms for o in moving(s, open_snap(trusted=False), 10.0)) > 18.0

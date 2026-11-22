@@ -13,7 +13,7 @@ from conqueror_ai.adapters.drive_link import SPEED_TABLE
 from conqueror_ai.domain.drive.limits import Limits
 
 # The measured limits (spec 8 §2) and slice 1's cap: the file may make driving more careful, never less
-AT_MOST = ("v_cap_cms", "v_cruise_cms", "dv_cms_per_s", "dw_dps_per_s", "slow_cms")
+AT_MOST = ("v_cap_cms", "v_cruise_cms", "dv_cms_per_s", "dw_dps_per_s", "slow_cms", "back_cms")
 AT_LEAST = (
     "v_min_cms",
     "inner_min_cms",

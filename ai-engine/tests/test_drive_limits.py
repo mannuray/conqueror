@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import pytest
 
@@ -81,3 +82,23 @@ def test_backing_up_is_the_slowest_speed_straight_and_stops_at_once() -> None:
 def test_driving_forward_slows_to_a_stop_before_backing() -> None:
     c = ramp(Command(25.0, 0.0), Command(-18.0, 0.0), 0.1, LIM)
     assert c.v_cms == pytest.approx(24.0)
+
+
+def test_backing_ramps_to_back_cms() -> None:  # design-notes §263: a game backs at its cap
+    lim = replace(LIM, back_cms=30.0, dv_cms_per_s=25.0)
+    c = ramp(STOP, Command(-30.0, 10.0), 0.1, lim)
+    assert c == Command(-LIM.v_min_cms, 0.0)
+    speeds = [c.v_cms]
+    for _ in range(6):
+        c = ramp(c, Command(-30.0, 10.0), 0.1, lim)
+        assert c.w_dps == 0.0  # straight
+        speeds.append(c.v_cms)
+    assert speeds == pytest.approx([-18.0, -20.5, -23.0, -25.5, -28.0, -30.0, -30.0])
+    assert ramp(c, Command(-50.0, 0.0), 0.1, lim).v_cms == pytest.approx(-30.0)  # never past back_cms
+    assert ramp(c, STOP, 0.1, lim) == STOP
+    assert ramp(c, Command(25.0, 0.0), 0.1, lim) == STOP
+
+
+def test_backing_stays_at_v_min_by_default() -> None:
+    back = ramp(STOP, Command(-30.0, 0.0), 0.1, LIM)
+    assert ramp(back, Command(-30.0, 0.0), 0.1, LIM) == back == Command(-LIM.v_min_cms, 0.0)

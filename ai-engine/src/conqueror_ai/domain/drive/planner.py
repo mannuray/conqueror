@@ -46,12 +46,15 @@ class Planner:
         weights: Weights | None = None,
         spin_from_deg: float = SPIN_FROM_DEG,
         blind_spin: bool = False,
+        unknown_slows: bool = True,
     ) -> None:
         """spin_from_deg: beyond this far off, a turn on the spot first. FOLLOW gives 90 (design-notes §250):
         it curves for anything nearer ahead, even inside the tightest circle - a person, not a small ball.
         blind_spin: a turn on the spot may sweep unseen floor (known things still count) - ESCAPE's run, owner
-        design-notes §254."""
+        design-notes §254. unknown_slows: False - unknown floor alone does not lower the speed (ESCAPE's run:
+        behind is always unknown, LLD §28.26); near things still do."""
         self.blind_spin = blind_spin
+        self.unknown_slows = unknown_slows
         self.lim = lim
         self.w = weights or Weights()
         self.spin_from_deg = spin_from_deg
@@ -75,6 +78,8 @@ class Planner:
         lim = self.lim
         top = min(lim.v_cruise_cms, lim.v_cap_cms)
         c = self.foot.highest_cost(cost, at, roll_out(at, cmd, cmd, lim), ahead_m=SPEED_AHEAD_M)
+        if not self.unknown_slows:
+            c = max(0.0, c - cost.settings.unknown_cost)
         return max(lim.v_min_cms, top - (top - lim.v_min_cms) * c)
 
     def lens_distance(self, at: XYTh, target: tuple[float, float]) -> float:

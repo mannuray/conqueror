@@ -7,7 +7,7 @@ used then). The map is fed with where the tank was (the trusted floor's 1.5 m), 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import pytest
@@ -21,6 +21,8 @@ from conqueror_ai.domain.drive.game_skills import (
     FACE_MIN_S,
     FACE_PAN_DEG,
     FOLLOW_MIN_M,
+    GAME_RAMP_CMS2,
+    GAME_V_CAP_CMS,
     RUN_MAX_S,
     RUN_START_S,
     RUN_TRIES,
@@ -29,6 +31,7 @@ from conqueror_ai.domain.drive.game_skills import (
     FaceSkill,
     FollowSkill,
     Progress,
+    game_limits,
 )
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.roam import POINT_DONE_M, RoamSkill
@@ -448,7 +451,7 @@ def test_follow_from_2_m_stops_by_the_follow_distance() -> None:
     assert min(p.gaps) >= FOLLOW_MIN_M
     assert p.gaps[-1] <= 1.0 + POINT_DONE_M  # stopped near the follow distance (setxy's tolerance)
     assert p.goals and min(p.goals) >= 1.0 - 1e-6  # the goal is the follow distance short of them
-    assert max(c.v_cms for c in p.cmds) <= 25.0 + 1e-9
+    assert max(c.v_cms for c in p.cmds) <= GAME_V_CAP_CMS + 1e-9
     assert p.cmds[-1].v_cms == 0
 
 
@@ -458,7 +461,7 @@ def test_follow_never_nearer_than_50_cm_whatever_the_setting() -> None:
     assert p.result == Result.DONE
     assert min(p.gaps) >= FOLLOW_MIN_M - 0.02
     assert p.goals and min(p.goals) >= FOLLOW_MIN_M - 1e-6  # never a goal inside 50 cm
-    assert max(c.v_cms for c in p.cmds) <= 25.0 + 1e-9
+    assert max(c.v_cms for c in p.cmds) <= GAME_V_CAP_CMS + 1e-9
 
 
 def test_follow_keeps_driving_after_a_crawler_moving_away() -> None:
@@ -531,7 +534,9 @@ def test_escape_never_starts_on_an_old_estimate() -> None:  # final review M1: a
 def test_escape_search_looks_round_for_someone_who_moved() -> None:  # final review I1
     """Not at the last spot after the run: the search's FACE sweeps the camera (and steps) before lost - the
     run's unseen time must not make it lost on arrival."""
-    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=90.0, hide_from_s=T0_S + 2.0)
+    # hidden during the back-off, so the last sighting is straight ahead (§263: the back-off is quicker now -
+    # hidden at 2 s fell in the turn, and FACE rightly looks to that side first, not round)
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=90.0, hide_from_s=T0_S + 1.0)
     assert p.result == Result.LOST
     j = first(p, "search")
     assert any(abs(pan) >= FACE_LOOK_PAN_DEG - 1.0 for pan in p.pans[j:])  # the camera looked round
@@ -738,3 +743,49 @@ def test_escape_never_drives_forward_with_the_person_ahead(monkeypatch: pytest.M
     p = play(EscapeSkill(LIM, 0.80), person, limit_s=40.0)
     assert len(made) >= 2  # that try was dropped
     assert_forward_only_behind(p, person)
+
+
+# ---- a quicker game (design-notes §263, LLD §28.26)
+def test_game_limits_are_quicker() -> None:
+    g = game_limits(Limits())
+    assert (g.v_cap_cms, g.v_cruise_cms, g.dv_cms_per_s, g.back_cms) == (30.0, 30.0, 25.0, 30.0)
+    assert (GAME_V_CAP_CMS, GAME_RAMP_CMS2) == (30.0, 25.0)
+    careful = game_limits(replace(Limits(), v_cap_cms=20.0, v_cruise_cms=20.0, dv_cms_per_s=8.0))
+    assert (careful.v_cap_cms, careful.v_cruise_cms, careful.dv_cms_per_s, careful.back_cms) == (
+        20.0,
+        20.0,
+        8.0,
+        20.0,
+    )
+
+
+def test_escape_backs_off_at_the_cap() -> None:
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0)
+    backs = [c.v_cms for c in p.cmds[: first(p, "run")] if c.v_cms < 0]
+    assert backs[0] == -LIM.v_min_cms and min(backs) == pytest.approx(-GAME_V_CAP_CMS)
+
+
+def test_follow_brakes_only_in_the_last_30_cm() -> None:
+    planner = getattr(FollowSkill(LIM, 20.0, 1.0), "_planner")  # noqa: B009
+    assert planner.lim.top_speed(0.35) == GAME_V_CAP_CMS  # full speed until 30 cm before the spot (was 0.80)
+    assert planner.lim.top_speed(0.25) == LIM.v_min_cms
+    p = play(FollowSkill(LIM, 20.0, 1.0), (2.0 + FRONT_M, 0.0), limit_s=25.0)
+    assert max(c.v_cms for c in p.cmds) == pytest.approx(GAME_V_CAP_CMS)  # and the sim reaches the cap
+
+
+def test_escape_runs_at_the_cap_over_unknown_floor_and_untrusted_seeing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    made: list[dict[str, object]] = []
+
+    class Seen(RoamSkill):
+        def __init__(self, *a: object, **k: object) -> None:
+            made.append(dict(k))
+            super().__init__(*a, **k)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(game_skills, "RoamSkill", Seen)
+    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0)
+    assert max(c.v_cms for c, s in zip(p.cmds, p.states, strict=True) if s == "run") == pytest.approx(
+        GAME_V_CAP_CMS
+    )
+    assert made and all(k.get("slow_untrusted") is False for k in made)

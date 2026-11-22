@@ -125,6 +125,7 @@ class RoamSkill:
         centre: tuple[float, float] | None = None,
         stand_s: float = START_STAND_S,
         slow_at_point: bool = True,
+        slow_untrusted: bool = True,
     ) -> None:
         """area_m: stay within this many metres of where the run starts (None: anywhere it can reach). Find:
         memory = the things confirmed so far (its spots of `kind` are checked first; one not there is marked
@@ -132,7 +133,9 @@ class RoamSkill:
         cost map, done within POINT_DONE_M, no route for NO_ROUTE_S ends no_way). centre: the play area's
         centre (None: round the run's first pose); only with area_m (§21.2). slow_at_point: the last
         POINT_SLOW_M at the slow speed (setxy's exact stop); False for FOLLOW, which stops by the person and
-        must keep curving (design-notes §252)."""
+        must keep curving (design-notes §252). slow_untrusted: False - keep the given planner while the camera
+        angle is not trusted or there is no depth (ESCAPE's run: the camera looks back at the person, LLD
+        §28.26)."""
         if mode == "point" and point is None:
             raise ValueError("mode 'point' needs a point")
         self.planner = planner
@@ -141,7 +144,9 @@ class RoamSkill:
             planner.w,
             planner.spin_from_deg,  # the slow planner turns as the given one does (FOLLOW, design-notes §250)
             planner.blind_spin,  # ... and spins as it does (ESCAPE's run, design-notes §254)
+            planner.unknown_slows,
         )
+        self.slow_untrusted = slow_untrusted
         self.lim = planner.lim
         self.settings = cost or CostSettings()
         self.mode = mode
@@ -370,7 +375,8 @@ class RoamSkill:
             if now_s - self._start_t0 < self.stand_s - 1e-9:
                 return self._halt()
             self.state = "drive"
-        planner = self.planner if snap.angle_trusted and snap.depth_ok else self.slow
+        seeing = snap.angle_trusted and snap.depth_ok
+        planner = self.planner if seeing or not self.slow_untrusted else self.slow
         if self.point is not None and self.slow_at_point and math.dist(at[:2], self.point) < POINT_SLOW_M:
             planner = self.slow
         if self.find and self.state == "drive" and self.candidates.pending() and now_s >= self._retry_s:

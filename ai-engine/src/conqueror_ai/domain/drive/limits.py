@@ -17,6 +17,7 @@ class Limits:
     r_floor_m: float = 0.31  # no arc under ~31 cm is smooth at any speed (spec 02 Part H)
     spin_dps: float = 65.0  # the slowest smooth spin in place
     dv_cms_per_s: float = 10.0  # the speed ramp
+    back_cms: float = 18.0  # backing's top speed: v_min (§165); a game backs at its cap (LLD §28.26)
     dw_dps_per_s: float = 60.0  # the turn-rate ramp
     stop_range_m: float = 0.28  # lens to the thing's centre at arrival: the front ~15-20 cm off (owner, §185)
     slow_from_m: float = 0.80  # the speed falls to v_min from here

@@ -62,7 +62,9 @@ RUN_START_S = 1.0  # ... before that, no forward move this long after its start 
 RUN_TURN_MAX_S = 3.5  # ... or never a forward move this long after it began (a 180 deg spin ~2.8 s)
 RUN_TRIES = 3  # run tries per ESCAPE at most (my call, §257)
 REPLAN_M = 0.15  # FOLLOW's goal moved this far: a new route
-GAME_V_CAP_CMS = 25.0  # a game drives at most this fast (LLD §28.1)
+GAME_V_CAP_CMS = 30.0  # a game drives at most this fast (owner, design-notes §263; LLD §28.26)
+GAME_RAMP_CMS2 = 25.0  # a game's speed ramp, cm/s per s (owner, §263)
+FOLLOW_SLOW_FROM_M = 0.30  # FOLLOW slows down only this far before its spot (owner, §263)
 FRESH_US = 300_000  # ESCAPE starts only on an estimate this recent (the bridge's deadman; final review M1)
 
 
@@ -71,7 +73,21 @@ def _wrap(deg: float) -> float:
 
 
 def game_limits(lim: Limits) -> Limits:
-    return replace(lim, v_cap_cms=min(lim.v_cap_cms, GAME_V_CAP_CMS))
+    """A game's quicker limits (LLD §28.26): the cap, cruise and backing at GAME_V_CAP_CMS and the ramp at
+    GAME_RAMP_CMS2 - but a drive.yaml that made one more careful than the default keeps it."""
+    base = Limits()
+
+    def game(now: float, default: float, game_v: float) -> float:
+        return now if now < default else game_v
+
+    cap = game(lim.v_cap_cms, base.v_cap_cms, GAME_V_CAP_CMS)
+    return replace(
+        lim,
+        v_cap_cms=cap,
+        v_cruise_cms=min(cap, game(lim.v_cruise_cms, base.v_cruise_cms, GAME_V_CAP_CMS)),
+        dv_cms_per_s=game(lim.dv_cms_per_s, base.dv_cms_per_s, GAME_RAMP_CMS2),
+        back_cms=cap,
+    )
 
 
 class Sight:
@@ -386,7 +402,7 @@ class EscapeSkill(_Base):
 
     def _to_back(self, at: XYTh) -> SkillOut:
         self._from, self.state, self._progress = at, "back", Progress()
-        return self._out(Command(-1.0, 0.0), self._cam_to(at, ESCAPE_PAN_DEG))
+        return self._out(Command(-GAME_V_CAP_CMS, 0.0), self._cam_to(at, ESCAPE_PAN_DEG))
 
     def _watching(self, now_s: float, at: XYTh, inp: SkillInput) -> SkillOut:
         """Farther than ESCAPE_FROM_M: FACE them (again each time FACE is done) until they come near."""
@@ -409,12 +425,13 @@ class EscapeSkill(_Base):
         return SkillOut(out.cmd, out.cam)
 
     def _back(self, now_s: float, at: XYTh, inp: SkillInput) -> SkillOut:
-        """Straight back (the ramp: at v_min) until BACK_OFF_M along the start heading, or a wall."""
+        """Straight back (from v_min up the ramp to the game cap) until BACK_OFF_M along the start heading, or
+        a wall."""
         assert self._from is not None
         x0, y0, th0 = self._from
         moved = -((at[0] - x0) * math.cos(th0) + (at[1] - y0) * math.sin(th0))
         if moved < BACK_OFF_M - 1e-6 and not self._progress.stuck(now_s):
-            return self._out(Command(-1.0, 0.0), self._cam_to(at, ESCAPE_PAN_DEG))
+            return self._out(Command(-GAME_V_CAP_CMS, 0.0), self._cam_to(at, ESCAPE_PAN_DEG))
         return self._start_run(now_s, at, inp)
 
     def _start_run(self, now_s: float, at: XYTh, inp: SkillInput) -> SkillOut:
@@ -442,11 +459,12 @@ class EscapeSkill(_Base):
             return SkillOut(out.cmd, cam)
         self._try_from, self._try_t0, self._try_s, self._try_fwd = at, now_s, now_s, False
         self._run = RoamSkill(
-            Planner(self.lim, spin_from_deg=RUN_SPIN_FROM_DEG, blind_spin=True),
+            Planner(self.lim, spin_from_deg=RUN_SPIN_FROM_DEG, blind_spin=True, unknown_slows=False),
             "point",
             point=self._spot,
             stand_s=0.0,
             slow_at_point=False,
+            slow_untrusted=False,  # the camera looks back at the person; behind is always unknown (§263)
         )
         self.state = "run"
         return self._running(now_s, at, inp, cam)
@@ -564,7 +582,9 @@ class FollowSkill(_Base):
         self._t0: float | None = None
         self._route: RoamSkill | None = None
         self._goal: XY | None = None
-        self._planner = Planner(lim, spin_from_deg=FOLLOW_SPIN_FROM_DEG)
+        self._planner = Planner(
+            replace(self.lim, slow_from_m=FOLLOW_SLOW_FROM_M), spin_from_deg=FOLLOW_SPIN_FROM_DEG
+        )
 
     def tick(self, now_s: float, inp: SkillInput) -> SkillOut:
         self._clock(now_s, inp)

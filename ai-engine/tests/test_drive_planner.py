@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -270,3 +271,13 @@ def test_a_follow_planner_curves_up_to_90_deg_and_spins_beyond() -> None:  # des
     assert c.v_cms > 0 and c.w_dps < 0
     assert f.choose((0.0, 0.0, 0.0), Command(25.0, 0.0), (0.4, 0.3)).v_cms > 0  # an aim inside the circle
     assert f.choose((0.0, 0.0, 0.0), STOP, (-1.0, -0.2)) == Command(0.0, -LIM.spin_dps)  # behind: spin
+
+
+def test_speed_cap_ignores_unknown_floor_when_asked() -> None:  # design-notes §263: ESCAPE's run
+    lim = replace(LIM, v_cap_cms=30.0, v_cruise_cms=30.0)
+    at, cmd = (0.0, 0.0, 0.0), Command(30.0, 0.0)
+    unseen = map_with([], unseen=True)
+    assert Planner(lim, unknown_slows=False).speed_cap(unseen, at, cmd) == pytest.approx(30.0)
+    assert Planner(lim).speed_cap(unseen, at, cmd) < 29.0
+    near = map_with([(0.45, 0.0)], unseen=True)  # a known thing ahead still slows it
+    assert Planner(lim, unknown_slows=False).speed_cap(near, at, cmd) < 29.0

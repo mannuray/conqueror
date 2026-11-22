@@ -4235,3 +4235,14 @@ ramp needs 0.7 s from 18 to 25. The tank's top is ~33.5 cm/s (§70, 7.84 V) - fa
   ~3 cm earlier than needed.
 - Unchanged: caught at 10 cm, never towards, turns from 15 cm, the run's 3 s, held when unseen. Floor: the stop roll
   at 30 cm/s measured with the cap. Plan G4 Tasks 9-10; AI engine LLD §28.26, bridge LLD R34.18, Spec 10 S1 note.
+
+## 264. After the baby game: FIND / WANDER / EXPLORE as Logo programs, then talk to it (owner 2026-11-23)
+
+Owner: **"I will rebuild find, wander and explore - they are easy pickings and clear the architecture - but
+integrating an LLM or SLM is the end goal."** Order after Spec 10's stage (G1-G4 floor-checked and merged):
+1. **FIND, WANDER and EXPLORE as prebuilt Logo programs** over smaller engine words (Spec 10 §6): their own design
+   first; they replace the engine skills only once they match them on the floor and in `--replay`.
+2. **Talk to it** (spec 4's first priority, §194): spoken / typed requests turned into the tank's words by a
+   language model, large or small (an SLM on the laptop is an option) - its own spec. The end goal.
+Stored as before (§194): the cheap missions, guard / teach and repeat, soccer, photographer; going round the baby
+(§262).

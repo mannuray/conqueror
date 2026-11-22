@@ -1,17 +1,18 @@
-"""Measure the game's speed cap on the floor (bridge LLD R34, Plan G1 Task 6; owner: 25 cm/s).
+"""Measure the game's speed cap on the floor (bridge LLD R34 / R34.18; owner: 30 cm/s, §263).
 
 The Uno's envelope caps a track % (PWM share), and the speed is not linear in it (the dead band;
 ~18 cm/s is the slowest smooth speed, ~33.5 cm/s at 100 %). So it is measured: the tank drives
-straight at 50, 55 ... 90 % for 2 s each (drive_rate, heading held), the encoders give the speed -
+straight at each step's % for 2 s (drive_rate, heading held), the encoders give the speed -
 v = Δcounts / Δt / counts_per_m (the bridge's own, 7514 counts per metre) - and the largest % whose
-speed is at most 25 cm/s is the cap. It asks before saving; the save needs the tank's button
-(calib, Plan M).
+speed is at most 30 cm/s is the cap. Each step also prints its roll: how far the tracks ran on after
+drive_rate 0 (compare with the learned roll the bridge's keep-out uses, R34.18). It asks before
+saving; the save needs the tank's button (calib, Plan M). Measure on a full battery (§233).
 
     uv run python game_cap.py              # measure, print the table, ask, save
     uv run python game_cap.py --dry-run    # measure and print only
 
-FLOOR: the tank drives straight ahead about 0.4 m per step, ~9 steps (~3.5 m in all, it eases to a
-stop between steps). Clear floor ahead, STOP on the phone within reach.
+FLOOR: the tank drives straight ahead about 0.6 m per step, 5 steps and 2 repeats (~4 m in all, it
+eases to a stop between steps). Clear floor ahead, STOP on the phone within reach.
 
 The floor run of 2026-11-10 (design-notes §233) zig-zagged: a STOP between steps held every other
 step's start. Now it eases off with drive_rate 0 between steps, covers 30-60 % (25 cm/s lies below
@@ -27,8 +28,8 @@ import time
 
 from bridge_echo import WsClient
 
-TARGET_CMS = 25.0  # owner, 2026-11-08
-STEPS = (30, 35, 40, 45, 50, 55, 60)
+TARGET_CMS = 30.0  # owner, 2026-11-22 (design-notes §263; was 25)
+STEPS = (50, 55, 60, 65, 70)  # §233: 60 % did 29.1 cm/s on a part-charged battery
 AGREE_CMS = 2.0  # two runs of one step further apart than this: something cut a step short
 FALL_CMS = 1.0  # more power, slower by more than this: the table is not to be trusted
 
@@ -38,6 +39,11 @@ def speed_cms(counts: int, seconds: float, counts_per_m: int) -> float:
     if seconds <= 0 or counts_per_m <= 0:
         raise ValueError("seconds and counts_per_m must be > 0")
     return counts / seconds / counts_per_m * 100.0
+
+
+def roll_cm(counts: int, counts_per_m: int) -> float:
+    """How far the tracks ran on after the stop (mean counts of both tracks), never below 0."""
+    return max(0, counts) / counts_per_m * 100.0
 
 
 def pick_cap(table: list[tuple[int, float]], target: float = TARGET_CMS) -> int | None:
@@ -74,12 +80,17 @@ def measure(
     end = latest_counts(t0 + window_s)
     dt = time.monotonic() - t0
     ease = time.monotonic() + 1.0  # ease off to 0 (a STOP would hold the next step's start, §233)
+    stopped = end
     while time.monotonic() < ease:
         ws.send({"t": "drive_rate", "v": 0, "yaw_rate": 0})
-        ws.recv(0.05)
-    if start is None or end is None:
+        m = ws.recv(0.05)
+        if m is not None and m.get("t") == "td":
+            stopped = (int(m["enc"][0]), int(m["enc"][1]))
+    if start is None or end is None or stopped is None:
         raise RuntimeError("no td telemetry - is the Uno online?")
     counts = ((end[0] - start[0]) + (end[1] - start[1])) // 2
+    roll = roll_cm(((stopped[0] - end[0]) + (stopped[1] - end[1])) // 2, cpm)
+    print(f"  {pct:3d} %  roll after the stop {roll:4.1f} cm")
     return speed_cms(counts, dt, cpm)
 
 

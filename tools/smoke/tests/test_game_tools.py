@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from fake_person import Script, distance_at, person_message
-from game_cap import STEPS, TARGET_CMS, mean_of_pair, pick_cap, speed_cms
+from game_cap import STEPS, TARGET_CMS, mean_of_pair, pick_cap, roll_cm, speed_cms
 
 
 def test_the_script_approaches_then_steps_back() -> None:
@@ -39,10 +39,17 @@ def test_speed_from_the_encoders() -> None:
         speed_cms(100, 0.0, 7514)
 
 
-def test_the_cap_is_the_largest_step_not_over_25() -> None:
-    table = [(50, 15.0), (60, 21.0), (70, 24.9), (80, 27.5), (90, 31.0)]
-    assert pick_cap(table) == 70
-    assert pick_cap([(50, 26.0)]) is None
+def test_the_cap_is_the_largest_step_not_over_30() -> None:  # owner, design-notes §263
+    table = [(50, 25.4), (55, 27.0), (60, 29.6), (65, 31.0), (70, 33.0)]
+    assert pick_cap(table) == 60
+    assert pick_cap([(50, 31.0)]) is None
+
+
+def test_the_roll_after_the_stop_from_the_encoders() -> (
+    None
+):  # R34.18: compared with the learned roll
+    assert roll_cm(751, 7514) == pytest.approx(10.0, abs=0.01)
+    assert roll_cm(-5, 7514) == 0.0  # a jitter backwards is no roll
 
 
 # ---- the floor run 2026-11-10 (design-notes §233): speeds zig-zagged - never saved
@@ -56,5 +63,7 @@ def test_two_runs_that_disagree_are_refused() -> None:
     assert mean_of_pair(18.0, 26.0) is None  # more than 2 cm/s apart: something cut a step short
 
 
-def test_the_steps_cover_where_25_cms_lies() -> None:
-    assert STEPS[0] <= 30 and STEPS[-1] >= 60 and TARGET_CMS == 25.0
+def test_the_steps_cover_where_30_cms_lies() -> (
+    None
+):  # §233: 60 % did 29.1 cm/s, a full battery is quicker
+    assert STEPS[0] <= 50 and STEPS[-1] >= 70 and TARGET_CMS == 30.0

@@ -4197,3 +4197,19 @@ sideways too"**.
 - **Sideways:** the run directions are straight away, then **±80°** from it (left first) - sideways, the person
   ~100° off the heading, clear of B's 90° with the turn's 10° - then ±40°. With 3 tries: back, left, right. Lengths
   as §259 (80, 50, 30 cm). My calls: ±80° (not 90°) and the order. AI engine LLD §28.25.
+
+## 262. Stuck: go round the person when there is room - a moving-person plan (owner 2026-11-22, design open)
+
+Owner: when ESCAPE is stuck (person ahead and near, no try straight away or sideways open), **go round the person
+when there is room**; **"baby moves, so it needs an expert plan, like a Sidewinder hitting a plane but in reverse"**.
+Not built; design under discussion (no code until the design is agreed). Proposed (my draft, not yet agreed):
+- **The reverse of the missile's rule.** A missile keeps the line of sight to the plane steady (constant bearing,
+  shrinking range = collision). ESCAPE does the opposite: a steady bearing with a shrinking distance means "on a
+  collision course" - turn away so the line of sight keeps turning.
+- **Predict, don't just react:** the person's speed and direction from `PersonWatch` over ~0.5 s; the no-go circle
+  grows by how far they could crawl before the tank is past (reach + speed × time to pass) - a velocity-obstacle
+  check (Fiorini & Shiller 1998) run every tick on the commanded move.
+- **Three layers:** the route round the circle (planner, ~2/s), the per-tick collision-course check (engine), the
+  bridge's keep-out (R34, unchanged).
+- Open: the crawl speed against the tank's 18 cm/s (a faster crawler cannot be passed - then stay and face), the
+  circle size, how noisy the person's speed is, the camera turning to keep them in sight while passing.

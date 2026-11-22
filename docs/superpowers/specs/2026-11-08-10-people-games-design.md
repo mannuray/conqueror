@@ -104,7 +104,7 @@ and run again.
   person word" (a `FORWARD` before it would run without the limits).
 - **Correction (owner, 2026-11-20, design-notes §254): ESCAPE runs.** For ESCAPE only, S7 and S11 are relaxed: it backs
   off at once even over floor it does not know (a wall shows as no progress; the stall stays the backstop), then turns
-  - its back to the person if need be - runs about `cm`, and turns back to find them. The bridge lets ESCAPE's run (only) drive
+  - its back to the person if need be - runs about `cm`, and turns back to find them (2026-11-22, §257: it waits until the person is within 80 cm; shorter runs, seen floor first). The bridge lets ESCAPE's run (only) drive
   forward out of view for up to 3 s when the person is behind (bridge LLD R34.15 / R34.16), and an out-of-view turn
   pass an echo ahead when they are placed behind (§255). Every other word keeps S7 / S11.
 - **S8. Every move during a game, not only the game words (builder check, answered by the anti-goals).** From the

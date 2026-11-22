@@ -84,3 +84,21 @@ Test `ai-engine/tests/test_game_skills.py`.
 
 - [ ] Flash (OTA app + source), the helper on the branch, `escape_game.logo` with `ESCAPE "person 80`: back-off at once,
       one smooth turn, run, search back; a wall behind ends the back-off without a catch. Results in design-notes.
+
+### Task 6: ESCAPE waits until 80 cm; runs that must move, shorter, seen floor first (owner §257)
+
+**Files:** Modify `ai-engine/src/conqueror_ai/domain/drive/game_skills.py`; Test `ai-engine/tests/test_game_skills.py`;
+`logo/spec/words.yaml` (ESCAPE `does`), `logogen write`; Tank Logo LLD's ESCAPE row; Spec 10's correction note.
+
+**Produces:** `ESCAPE_FROM_M`, `RUN_SHORTER_M`, `SEEN_SKIP_M`, `RUN_COUNTS_M`, `RUN_START_S`, `RUN_TRIES`; the `watch`
+state (AI engine LLD §28.25).
+
+- [ ] Tests (LLD §28.25's list). Run: FAIL. Implement. The whole engine suite, ruff, pyright. Commit
+      `feat(ai): ESCAPE waits until near; runs that must move`.
+- [ ] The word's text, `logogen write` / `check`, web tests. Commit.
+- [ ] The helper logs the run's route-skill state each second (`diag/serve_logged.py`, not in the repo).
+
+### Task 7: Floor check 3 (owner's "floor go" first)
+
+- [ ] OTA (app unchanged unless the word text changed: app + source), the helper, `escape_game.logo`: no back-off
+      beyond 80 cm, then back-off, run (or a shorter one), search back. Results in design-notes.

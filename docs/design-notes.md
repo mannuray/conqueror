@@ -4118,3 +4118,22 @@ Findings:
    for seconds while the child closes in (cause of the zero moves in round 5 not yet known - the helper logs only
    the route skill's end).
 4. The run's route goes over floor never seen (the tank backed there); the sonar stops it safely, but the run is lost.
+
+## 257. ESCAPE: waits until 80 cm, the run must move, shorter runs, seen floor first (owner 2026-11-22)
+
+From floor run 2 (§256). Owner: **"yes to all 3"**, and **"there should be some distance before it starts its
+escape"** - asked how close: **0.8 m**.
+1. **Waits until 80 cm.** ESCAPE watches the person (FACE's way: the camera, a turn beyond 35°) and starts its
+   back-off only once they are within **0.8 m** of the tank's front (`ESCAPE_FROM_M`, a fresh picture). Nearer at the
+   start: at once, as before. Lost from view while watching: `lost`. No time limit of its own (the game's limit and
+   STOP end it). In run 2 round 2 started running with the person 1.9 m away.
+2. **The run must start moving.** Until the tank has run 10 cm, a run is dropped - and the next option tried from
+   where the tank is - when it sends no forward move within 1 s of its last turn command, when its route skill goes
+   into its stuck recovery, when it ends, or on the wall rule. None left: the search, `no_way` "no way to run".
+3. **Shorter runs:** `cm`, then 50 cm, then 30 cm (those shorter than `cm`).
+4. **Seen floor first:** every run over floor the camera has seen (beyond the tank's own spot, 20 cm) is tried before
+   any over unseen floor; unseen floor stays the fallback (the sonar still stops a run at a wall).
+
+My calls (for the owner to check): at most **3 run tries** per ESCAPE (each costs a turn + 1 s while the child comes);
+all seen-floor options (every length) before any unseen; `RUN_MAX_S` 2.8 s counts from the ESCAPE's first forward move
+over all tries (the bridge's 3 s out of view counts the same way, R34.15). AI engine LLD §28.25.

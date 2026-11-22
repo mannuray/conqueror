@@ -358,28 +358,41 @@ void test_a_run_forward_out_of_view_passes_when_they_are_behind() {
   TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(n.gate(kForward, 20, 2200)));
 }
 
+// Forward every 100 ms from t0 to t1 (inclusive); the last gate.
+Gate drive_on(GameMode& g, uint32_t t0, uint32_t t1) {
+  Gate last = Gate::kAllow;
+  for (uint32_t t = t0; t <= t1; t += 100) {
+    see(g, t, 60, 170, false);
+    last = g.gate(kForward, 20, t);
+  }
+  return last;
+}
+
 void test_a_run_lasts_3_s_from_its_first_forward_move() {
+  GameMode g = gone_behind(170);  // out of view 4.8 s before the run's first move: does not count
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(drive_on(g, 5000, 8000)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(drive_on(g, 8100, 8100)));
+}
+
+void test_a_run_counts_forward_time_only() {  // R34.17: the time actually driving forward, summed
   GameMode g = gone_behind(170);
-  see(g, 5000, 60, 170, false);  // out of view 4.8 s before the run's first move: does not count
-  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kForward, 20, 5000)));
-  see(g, 8000, 60, 170, false);
-  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kForward, 20, 8000)));
-  see(g, 8001, 60, 170, false);
-  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kForward, 20, 8001)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(drive_on(g, 5000, 6000)));  // 1 s
+  for (uint32_t t = 6100; t <= 7100; t += 100) {  // a 1 s turn: not forward time
+    see(g, t, 60, 170, false);
+    g.gate(kTurn, 20, t);
+  }
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(drive_on(g, 7200, 9200)));  // 2 s more
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(drive_on(g, 9300, 9300)));
 }
 
 void test_a_sighting_resets_the_run() {
   GameMode g = gone_behind(170);
-  see(g, 2000, 60, 170, false);
-  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kForward, 20, 2000)));
-  see(g, 4000, 80, 170, true);  // seen again (behind? the camera only sees ahead - a test of the reset only)
-  see(g, 4100, 80, 170, false);
-  see(g, 5200, 80, 170, false);
-  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kForward, 20, 5200)));
-  see(g, 8200, 80, 170, false);
-  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(g.gate(kForward, 20, 8200)));
-  see(g, 8201, 80, 170, false);
-  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(g.gate(kForward, 20, 8201)));
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(drive_on(g, 2000, 4000)));  // 2 s used
+  see(g, 4100, 80, 170, true);  // seen again (behind? the camera only sees ahead - a test of the reset only)
+  see(g, 4200, 80, 170, false);
+  see(g, 5300, 80, 170, false);
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kAllow), static_cast<int>(drive_on(g, 5300, 8300)));  // 3 s afresh
+  TEST_ASSERT_EQUAL(static_cast<int>(Gate::kHoldZero), static_cast<int>(drive_on(g, 8400, 8400)));
 }
 
 void test_a_run_leaves_turns_backing_and_caught_as_they_were() {
@@ -571,6 +584,7 @@ int main(int, char**) {
   RUN_TEST(test_a_blind_turn_only_last_seen_from_30_with_the_sonar_clear);
   RUN_TEST(test_a_run_forward_out_of_view_passes_when_they_are_behind);
   RUN_TEST(test_a_run_lasts_3_s_from_its_first_forward_move);
+  RUN_TEST(test_a_run_counts_forward_time_only);
   RUN_TEST(test_a_sighting_resets_the_run);
   RUN_TEST(test_a_run_leaves_turns_backing_and_caught_as_they_were);
   RUN_TEST(test_a_run_is_escapes_only);

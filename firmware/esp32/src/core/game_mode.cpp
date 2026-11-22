@@ -119,15 +119,20 @@ bool GameMode::behind() const {
   return b >= kBehindDeg;
 }
 
-// ESCAPE's run (design-notes §254): forward out of view while the engine places the person behind, kRunAwayMs from
-// the first such move; a sighting starts it afresh.
+// ESCAPE's run (design-notes §254): forward out of view while the engine places the person behind, for kRunAwayMs
+// of forward driving summed over its tries (R34.17: a gap over kRunGapMs - a turn, a stop - adds nothing); a sighting
+// starts it afresh.
 bool GameMode::runAway(uint32_t now_ms) {
   if (!m_escaping || !behind()) return false;  // R34.16: ESCAPE's run only
   if (!m_running) {
     m_running = true;
-    m_run_since = now_ms;
+    m_run_used_ms = 0;
+  } else {
+    const uint32_t gap = ago(now_ms, m_run_last);
+    if (gap <= kRunGapMs) m_run_used_ms += gap;
   }
-  return ago(now_ms, m_run_since) <= kRunAwayMs;
+  m_run_last = now_ms;
+  return m_run_used_ms <= kRunAwayMs;
 }
 
 void GameMode::step(uint32_t now_ms) {

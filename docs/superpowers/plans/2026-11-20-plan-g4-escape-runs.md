@@ -112,3 +112,23 @@ state (AI engine LLD §28.25).
       `pio run -e bridge` (size check). Commits `feat(ai)` and `feat(bridge)`.
 - [ ] Flash (OTA app + source), the helper (logs the nearest known thing when no option is open), floor run 4 on
       the owner's "floor go".
+
+### Task 9: A quicker game (owner §263)
+
+**Files:** `ai-engine/src/conqueror_ai/domain/drive/{limits,curves,planner,roam,game_skills}.py` + tests
+(`test_game_skills.py`, `test_curves.py`, `test_planner.py`, `test_roam.py` - wherever their neighbours live);
+`firmware/esp32/src/app/game_controller.h/.cpp` + its native test; `tools/smoke/game_cap.py` + `tools/smoke/tests/`.
+
+**Produces:** `GAME_V_CAP_CMS` 30, `GAME_RAMP_CMS2` 25, `FOLLOW_SLOW_FROM_M` 0.30, `Limits.back_cms`,
+`Planner(unknown_slows=)`, `RoamSkill(slow_untrusted=)` (AI engine LLD §28.26); `kGameTopCmsX10` (bridge R34.18).
+
+- [ ] Engine tests (LLD §28.26's list): FAIL; implement; engine suite + ruff + pyright. Commit `feat(ai): a quicker game`.
+- [ ] Bridge test (R34.18): FAIL; implement; native suite, `pio run -e bridge`. Commit `fix(bridge): stopping
+      distance at the game's top speed`.
+- [ ] `game_cap.py` target 30, steps 50-80, the roll printed; its tests. Commit `feat(tools): game cap 30 cm/s`.
+
+### Task 10: Floor check 5 (owner's "floor go"; full battery first)
+
+- [ ] Charge the battery; flash (OTA app + source); `game_cap.py` on the floor (what moves: straight steps of ~1 m
+      each); the owner saves the cap with the button. Compare the printed roll with the learned one.
+- [ ] The helper; the owner runs FOLLOW and `escape_game.logo`. Results in design-notes.

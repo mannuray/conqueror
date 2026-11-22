@@ -4104,3 +4104,49 @@ Tests: `test_escape_turns_its_back_itself` (a `turn` state of spins only, then t
 `test_escape_never_drives_forward_with_the_person_ahead` (a route skill that turns back towards them and drives: the
 try dropped, no forward command with them under 90°); `test_escape_runs_sideways_when_behind_is_blocked`; the B
 invariant checked in `test_escape_runs_straight_away_when_open` too.
+
+### 28.26 A quicker game (design-notes §263, owner 2026-11-22)
+
+The owner found the games too slow (ESCAPE ~18 cm/s nearly always, FOLLOW the same) and agreed four changes:
+- **`game_limits(lim)`** sets `v_cap_cms` and `v_cruise_cms` to **`GAME_V_CAP_CMS` 30** (was 25) and
+  `dv_cms_per_s` to **`GAME_RAMP_CMS2` 25** (was the default 10). The yaml's "only more careful" rule (§17.1) is
+  unchanged: the game limits are set in code, after the file.
+- **FOLLOW brakes late:** its planner's `slow_from_m` is **`FOLLOW_SLOW_FROM_M` 0.30** (was 0.80).
+- **Backing ramps up:** a new `Limits.back_cms` (default `v_min_cms`: every other skill backs as today, §165);
+  `curves.ramp` backs straight from standing at `v_min`, then ramps toward `min(-want.v, back_cms)` at
+  `dv_cms_per_s`; a stop or a forward want ends it at once (as today). `game_limits` sets `back_cms` to the cap;
+  ESCAPE's back-off asks `Command(-GAME_V_CAP_CMS, 0)`.
+- **ESCAPE's run keeps its speed:** `Planner(..., unknown_slows=False)` - its `speed_cap` takes the move's highest
+  cost less `CostSettings.unknown_cost` (never under 0), so unknown floor alone does not slow it, near things still
+  do; `RoamSkill(..., slow_untrusted=False)` - the run does not switch to the slow planner while the camera angle is
+  not trusted (the camera looks back at the person). FOLLOW and the other skills keep both rules.
+
+```mermaid
+classDiagram
+  class Limits {
+    +v_cap_cms
+    +v_cruise_cms
+    +dv_cms_per_s
+    +back_cms = v_min_cms
+    +slow_from_m
+  }
+  class Planner {
+    +unknown_slows : bool = True
+    +speed_cap(cost, at, cmd) float
+  }
+  class RoamSkill {
+    +slow_untrusted : bool = True
+  }
+  class EscapeSkill
+  class FollowSkill
+  EscapeSkill --> RoamSkill : run (slow_untrusted False)
+  RoamSkill --> Planner : unknown_slows False for ESCAPE
+  FollowSkill --> Planner : slow_from_m 0.30
+  Planner --> Limits : game_limits (30, 25, back 30)
+```
+
+Tests: `test_game_limits_are_quicker` (30 / 30 / 25 / back 30); `test_backing_ramps_to_back_cms` and
+`test_backing_stays_at_v_min_by_default` (curves); `test_escape_backs_off_at_the_cap` (the back-off's commands reach
+30); `test_speed_cap_ignores_unknown_floor_when_asked` (an all-unknown map: 30 with `unknown_slows=False`, less
+without; a near thing still slows both); `test_roam_keeps_its_planner_untrusted_when_asked`;
+`test_follow_brakes_only_in_the_last_30_cm`.

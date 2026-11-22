@@ -4212,3 +4212,25 @@ stateDiagram-v2
 
 Tests (`test_game_mode`): `test_a_run_counts_forward_time_only` (1 s forward, a 1 s turn, then forward passes for ~2 s
 more); `test_a_run_lasts_3_s_from_its_first_forward_move` keeps pinning a continuous run.
+
+### R34.18 The stopping distance at the game's top speed (design-notes §263, owner 2026-11-22)
+
+The game cap rises to 30 cm/s (Spec 10 S1, `game_cap_pct` re-measured). `GameController::stopCm(v)` took the speed as
+linear in % of the 33.5 cm/s top (`kTopCmsX10`); the tank is not linear - 45 % does ~25 cm/s (design-notes §233),
+read as 15 - so the keep-out allowed ~3 cm too little room. Now **every forward move in a game counts at the game's
+top speed, `kGameTopCmsX10` 300**: `stopCm = roll + 30 cm/s x (kReactionMs + the estimate's age)`. Pessimistic and one
+rule; slow moves stop ~3 cm earlier than they need to. `kTopCmsX10` goes (no other user). `tools/smoke/game_cap.py`:
+`TARGET_CMS` 30, `STEPS` 50-80 %, and it prints the roll after the stop at the chosen step (the floor check compares it
+with the learned `roll_cm`).
+
+```mermaid
+classDiagram
+  class GameController {
+    +kReactionMs = 300
+    +kGameTopCmsX10 = 300
+    -stopCm(v) uint16
+  }
+  GameController --> GameMode : gate(m, stopCm(v), now)
+```
+
+Test: `test_stop_cm_counts_the_game_top_speed` (a 45 % move: 30 cm/s x 300 ms = 9 cm + roll, not 4.5).

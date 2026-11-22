@@ -70,7 +70,8 @@ and run again.
 - **S1. Child-play limits on for the whole game.** The Uno's envelope (speed cap, gentle acceleration, `ENVELOPE`
   command, Uno Lite LLD) is **set when a game word first moves the tank and cleared when the program ends or STOP**.
   Today nothing sends `ENVELOPE` (bridge LLD R2: "child-play mode arrives with the phase-4 gateway") - this spec wires
-  it. **Cap (owner, 2026-11-08): 25 cm/s (~75 % of the measured ~33.5 cm/s top) with a gentle 10 cm/s² ramp.**
+  it. **Cap (owner, 2026-11-08): 25 cm/s (~75 % of the measured ~33.5 cm/s top) with a gentle 10 cm/s² ramp.** **Raised (owner, 2026-11-22, design-notes §263): 30 cm/s with a 25 cm/s² ramp** - 25 was too slow to
+  play with.
   Spec 4 §5's "≤ 20 %" (~7 cm/s) cannot move this tank (its slowest smooth speed is ~18 cm/s, design-notes §69 /
   `Limits.v_min_cms`) - it is replaced for this tank. A crawler (~20-40 cm/s) is about as fast as the tank: escapes
   work by starting early, and a determined crawler sometimes catches it - a safe stop and a beep (S3), part of the

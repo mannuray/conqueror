@@ -4213,3 +4213,25 @@ Not built; design under discussion (no code until the design is agreed). Propose
   bridge's keep-out (R34, unchanged).
 - Open: the crawl speed against the tank's 18 cm/s (a faster crawler cannot be passed - then stay and face), the
   circle size, how noisy the person's speed is, the camera turning to keep them in sight while passing.
+
+## 263. A quicker game: cap 30 cm/s, a 25 cm/s² ramp, FOLLOW brakes late, ESCAPE backs and runs at the cap (owner 2026-11-22)
+
+Owner: "at current speed it's just too slow and boring to play with, baby will get bored easily"; "in follow also I
+found the tank too slow"; **"agree to all"** to my four changes. Why it is slow today (from the code): ESCAPE backs at
+`v_min` 18 cm/s (`curves.ramp` backs only at `v_min`, §165); its run is over unknown floor and the planner's
+`speed_cap` falls to `v_min` on unknown floor (and RoamSkill drives its slow planner while the camera angle is not
+trusted); FOLLOW slows to 18 from 80 cm before its spot (`slow_from_m` 0.80), which is nearly always; the 10 cm/s²
+ramp needs 0.7 s from 18 to 25. The tank's top is ~33.5 cm/s (§70, 7.84 V) - faster needs other motors or gears.
+- **1. The game cap 25 → 30 cm/s** (Spec 10 S1, owner's safety decision): `GAME_V_CAP_CMS` and the game's cruise 30;
+  the bridge's `game_cap_pct` re-measured with `game_cap.py` (target 30 cm/s, steps 50-80 %) **on a full battery**.
+- **2. The game ramp 10 → 25 cm/s²** (owner's safety decision): 18 → 30 in ~0.5 s.
+- **3. FOLLOW brakes late:** its slow-down zone 0.80 → **0.30 m** before its spot.
+- **4. ESCAPE backs off and runs at the game cap:** backing ramps from 18 up to the cap (stops at once, as today);
+  ESCAPE's run is not slowed by unknown floor nor by an untrusted camera angle - behind is always unknown (owner,
+  §261) and the run's route was checked before it starts; near known things still slow it (my call).
+- **The bridge's stopping distance (found writing this, my call: fix it):** `GameController::stopCm` takes the speed
+  as linear in % of the 33.5 cm/s top - 45 % reads 15 cm/s, the tank does ~25 (§233), ~3 cm too little room today.
+  Now every forward move in a game counts at the game's top speed (30 cm/s): pessimistic, one rule; slow moves stop
+  ~3 cm earlier than needed.
+- Unchanged: caught at 10 cm, never towards, turns from 15 cm, the run's 3 s, held when unseen. Floor: the stop roll
+  at 30 cm/s measured with the cap. Plan G4 Tasks 9-10; AI engine LLD §28.26, bridge LLD R34.18, Spec 10 S1 note.

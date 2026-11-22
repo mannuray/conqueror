@@ -4137,3 +4137,21 @@ escape"** - asked how close: **0.8 m**.
 My calls (for the owner to check): at most **3 run tries** per ESCAPE (each costs a turn + 1 s while the child comes);
 all seen-floor options (every length) before any unseen; `RUN_MAX_S` 2.8 s counts from the ESCAPE's first forward move
 over all tries (the bridge's 3 s out of view counts the same way, R34.15). AI engine LLD §28.25.
+
+## 258. ESCAPE floor run 3: waits until 80 cm; a short run picked first, a retry with no time left (2026-11-22)
+
+Floor run 38 (helper log `serve36`, the owner ran `escape_game.logo` from the tank, stopped in round 6; the engine of
+§257, bridge unchanged). Never caught, no touches. Run picks took 1-22 ms. Per round (helper probe lines, ±0.5 s):
+
+| Round | What happened |
+|---|---|
+| 1 | Not in view at the start: `no_way` |
+| 2 | Watched; back-off at **0.72 m**; one turn and an 80 cm run straight away (~47 cm in `RUN_MAX_S`); searched: facing them at 1.07 m - back-off to search ~7 s |
+| 3 | Back-off at **0.78 m** - the person walked to **0.41 m** during the 30 cm back-off (18 cm/s); the pick took a **30 cm run over seen floor before the 80 cm one over unseen** (my "seen first at every length" call); the route skill spun, curved 0.5 s, spun again - the try dropped; the second try (80 cm straight away) was cut at once: `RUN_MAX_S` had run out, counted from the first try's forward move (my call); `no_way` though it moved |
+| 4 | The person walked away and out of view while it watched: FACE's look-round (sweeps, 30° steps) for ~20 s, then a turn the bridge held: `lost` "could not turn to look" |
+| 5 | Back-off at **0.74 m**, then **no option open at all** (no route in any of the 21) - cause not logged (likely the tank backed next to something) |
+| 6 | Watching when the run was stopped |
+
+Findings: the 80 cm start works (0.72-0.78 m). Two of my §257 calls are wrong on the floor: seen floor first at every
+length picks a 30 cm run (with `POINT_DONE_M` 0.15 m and the spin, it hardly moves); `RUN_MAX_S` over all tries
+leaves a second try no time. A walking person outpaces the back-off (18 cm/s).

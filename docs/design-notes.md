@@ -4155,3 +4155,14 @@ Floor run 38 (helper log `serve36`, the owner ran `escape_game.logo` from the ta
 Findings: the 80 cm start works (0.72-0.78 m). Two of my §257 calls are wrong on the floor: seen floor first at every
 length picks a 30 cm run (with `POINT_DONE_M` 0.15 m and the spin, it hardly moves); `RUN_MAX_S` over all tries
 leaves a second try no time. A walking person outpaces the back-off (18 cm/s).
+
+## 259. ESCAPE: longest run first, no seen-floor preference; forward time summed over tries (owner 2026-11-22)
+
+From floor run 3 (§258). Owner: **"for known floor first you need to follow; you are just escaping - you always move
+back, so the area is always unknown; rest is agreed."**
+1. **No seen-floor preference** (drops §257 item 4): escaping always goes where the tank has not looked. The options are
+   `cm`, then 50 cm, then 30 cm, each in `RUN_TURNS_DEG`'s order; the first open one is taken.
+2. **Forward time summed** (B): the run's 2.8 s (engine) and the bridge's 3 s (R34.15) count **the time actually driving
+   forward**, added over every try of one ESCAPE, not the clock since the first forward move. The blind forward driving
+   per ESCAPE stays ~3 s; a second try gets what is left. Bridge LLD R34.17, AI engine LLD §28.25.
+3. **The helper logs why no option was open** (C): the distance from the tank's centre to the nearest known thing.

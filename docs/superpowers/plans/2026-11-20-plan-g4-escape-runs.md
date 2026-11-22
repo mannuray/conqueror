@@ -102,3 +102,13 @@ state (AI engine LLD §28.25).
 
 - [ ] OTA (app unchanged unless the word text changed: app + source), the helper, `escape_game.logo`: no back-off
       beyond 80 cm, then back-off, run (or a shorter one), search back. Results in design-notes.
+
+### Task 8: Longest run first, forward time summed (owner §259)
+
+**Files:** `game_skills.py` + `test_game_skills.py` (no seen-floor preference; `RUN_MAX_S` as summed forward time);
+`firmware/esp32/src/core/game_mode.h/.cpp` + `test/test_game_mode/test_main.cpp` (R34.17 `kRunGapMs`, summed time).
+
+- [ ] Tests first (LLD §28.25 amendment, bridge R34.17): FAIL; implement; engine suite + ruff + pyright; native suite,
+      `pio run -e bridge` (size check). Commits `feat(ai)` and `feat(bridge)`.
+- [ ] Flash (OTA app + source), the helper (logs the nearest known thing when no option is open), floor run 4 on
+      the owner's "floor go".

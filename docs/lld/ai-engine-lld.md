@@ -4064,3 +4064,12 @@ floor); `test_escape_drops_a_run_that_never_drives` (a route skill that stands s
 try drives); `test_escape_drops_a_run_in_recovery`; `test_escape_drops_a_run_that_only_spins`;
 `test_escape_run_max_counts_over_tries`; `test_escape_three_tries_then_no_way`. `test_escape_no_open_way_is_no_way`'s
 ring is drawn tighter (0.40 m: a 30 cm run must also have no route) - the owner's shorter runs change what it pins.
+
+**Amendment (owner 2026-11-22, design-notes §258-§259):**
+- **No seen-floor preference:** escaping always goes where the tank has not looked. The options are `run_m`, then
+  0.50, then 0.30 m, each in `RUN_TURNS_DEG`'s order; the first open one (a route, never towards the person) is taken.
+  `SEEN_SKIP_M`, `SEEN_STEP_M` and `_over_seen` are gone; so is `test_escape_prefers_seen_floor`.
+- **`RUN_MAX_S` is forward time, summed:** the run's 2.8 s counts the ticks commanding forward (each adds the time
+  since the previous tick), over every try of one ESCAPE - not the clock since the first forward move, which left a
+  second try no time (floor run 3). The bridge counts the same way (R34.17).
+  `test_escape_run_max_counts_over_tries`: a first try's 0.2 s nudge leaves the second try ~2.6 s.

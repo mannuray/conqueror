@@ -4178,3 +4178,37 @@ sequenceDiagram
 Tests (`test_game_mode`): a blind turn with an echo at 29 cm passes with bearing 90, is held with 89; the run passes
 only while escaping (a FORWARD out of view behind, not escaping: held); off and a new run clear escaping.
 (`test_logo_controller`): ESCAPE's lease sets the hook, its end clears it; FACE never sets it.
+
+### R34.17 The run's 3 s is forward time, summed (design-notes §258-§259, owner 2026-11-22)
+
+Floor run 3: ESCAPE's second run try came after its first one's forward move, turns and a stop; R34.15 counted 3 s of
+**clock** from that first move, so the second try had no time left. Now `runAway` adds up the time **actually driving
+forward**: each allowed forward `skill_drive` adds the time since the previous allowed forward one when that was at
+most `kRunGapMs` **250 ms** ago (the engine sends ~every 100 ms); a longer gap (the tank turned or stood) adds
+nothing. Forward passes while the sum is within `kRunAwayMs` 3 s. A sighting (`noteSeen`), a new run and off clear it
+as before. Each stretch's first message adds nothing, so with the engine's 3 tries the forward time is at most ~3.3 s
+(3 s + one ~100 ms message per stretch) - the same blind driving as one 3 s run, now split.
+
+```mermaid
+classDiagram
+  class GameMode {
+    +kRunAwayMs = 3000
+    +kRunGapMs = 250
+    -m_run_used_ms : uint32
+    -m_run_last : uint32
+    -m_running : bool
+    -runAway(now_ms) bool
+  }
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> idle
+  idle --> running: forward out of view, escaping, behind (used = 0)
+  running --> running: forward again within 250 ms (used += gap) / after a longer gap (used += 0)
+  running --> held: used > 3 s (KeepOut decides: the 1 s hold)
+  running --> idle: a sighting, a new run, off
+```
+
+Tests (`test_game_mode`): `test_a_run_counts_forward_time_only` (1 s forward, a 1 s turn, then forward passes for ~2 s
+more); `test_a_run_lasts_3_s_from_its_first_forward_move` keeps pinning a continuous run.

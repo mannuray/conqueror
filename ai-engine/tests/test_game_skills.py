@@ -105,7 +105,6 @@ def play(
     wall_behind_x: float | None = None,
     hold_spins_after_run: bool = False,
     seen_marks: list[tuple[float, float]] | None = None,
-    seen_floor: list[tuple[float, float]] | None = None,
     hold_spins: bool = False,
 ) -> Play:
     """edge_clip: a person up to 35 deg beyond the view is seen cut by the picture's side edge (their box's
@@ -126,8 +125,6 @@ def play(
         seed_behind(out.room, start, round(t * 1e6))
     if seen_marks:
         out.room.update_picture(marks(high=seen_marks), round(t * 1e6), start[:2])
-    if seen_floor:
-        out.room.update_picture(marks(floor=seen_floor), round(t * 1e6), start[:2])
     ran = False  # the tank drove forward (hold_spins_after_run: the bridge holds every spin after it)
     while t < T0_S + limit_s:
         at = tank.at
@@ -579,18 +576,6 @@ def test_escape_tries_a_shorter_run() -> None:
     assert max(math.dist(a[:2], p.at[i][:2]) for a in p.at[i:j]) < 0.65  # a shorter run
 
 
-def test_escape_prefers_seen_floor() -> None:
-    th = math.radians(180.0 + 60.0)  # straight away is open but unseen; only this way was seen
-    band = [
-        (-0.3 + u * math.cos(th) - v * math.sin(th), u * math.sin(th) + v * math.cos(th))
-        for u in np.arange(0.0, 1.05, 0.02).tolist()
-        for v in np.arange(-0.3, 0.31, 0.02).tolist()
-    ]
-    p = play(EscapeSkill(LIM, 0.80), at_bearing(0.6, 0.0), limit_s=40.0, seen_floor=band)
-    end = p.at[first(p, "search")]
-    assert end[1] < -0.3, end  # went the seen way, not straight back
-
-
 class _Still:
     """A run's route skill that never drives (the floor run's round 5); `moves` it sends first."""
 
@@ -688,11 +673,13 @@ def test_escape_drops_a_run_that_only_spins(monkeypatch: pytest.MonkeyPatch) -> 
     assert (second - i) * LIM.dt_s <= RUN_TURN_MAX_S + 4.0  # dropped at RUN_TURN_MAX_S, then the real try
 
 
-def test_escape_run_max_counts_over_tries(monkeypatch: pytest.MonkeyPatch) -> None:  # final review m8
+def test_escape_run_max_counts_over_tries(monkeypatch: pytest.MonkeyPatch) -> None:  # §259: forward time
     nudge = [Command(LIM.v_min_cms, 0.0)] * 2  # a forward nudge, then it stands: dropped 1 s later
     made = _roams(monkeypatch, still=1, moves=nudge)
     p = play(EscapeSkill(LIM, 1.00), at_bearing(0.6, 0.0), limit_s=40.0)
     assert [m for m, _ in made][:2] == ["still", "real"]
     i, j = first(p, "run"), first(p, "search")
     fwd0 = next(k for k in range(i, j) if p.cmds[k].v_cms > 0)
-    assert (j - fwd0) * LIM.dt_s == pytest.approx(RUN_MAX_S, abs=0.25)  # from the first try's nudge
+    fwd1 = next(k for k in range(fwd0 + len(nudge), j) if p.cmds[k].v_cms > 0)  # the second try's
+    nudged = len(nudge) * LIM.dt_s
+    assert (j - fwd1) * LIM.dt_s == pytest.approx(RUN_MAX_S - nudged, abs=0.25)  # forward time summed (§259)

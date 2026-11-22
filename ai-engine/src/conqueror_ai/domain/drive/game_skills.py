@@ -7,11 +7,9 @@ bridge's keep-out, game cap and caught sit under every command (bridge LLD R34).
 
 from __future__ import annotations
 
-import itertools
 import math
 from dataclasses import replace
 
-from conqueror_ai.domain.drive.costmap import CostMap
 from conqueror_ai.domain.drive.curves import STOP, Command, XYTh, ramp
 from conqueror_ai.domain.drive.limits import Limits
 from conqueror_ai.domain.drive.planner import Planner
@@ -52,15 +50,12 @@ RUN_TURNS_DEG = (0.0, 30.0, -30.0, 60.0, -60.0, 90.0, -90.0)  # the run's direct
 RUN_SPIN_FROM_DEG = 60.0  # the run turns on the spot beyond this, then curves - never a curve's start towards
 # the person (the keep-out's ahead is ±60, S4; final review M2)
 RUN_TOWARDS_M = 0.05  # a run's route never passes nearer the person than the tank is now, less this (S4)
-RUN_MAX_S = 2.8  # the run drives forward at most this long (inside the bridge's 3 s out of view, R34.15)
+RUN_MAX_S = 2.8  # the run drives forward at most this long, summed over tries (in the bridge's 3 s, R34.17)
 ESCAPE_FROM_M = (
     0.80  # ESCAPE watches the person until they are this near the front (owner, design-notes §257)
 )
 RUN_SHORTER_M = (0.50, 0.30)  # no run of `cm`: these, when shorter (owner §257)
-SEEN_SKIP_M = (
-    0.20  # a run over seen floor: seen beyond this from the tank's centre (its own spot may be blind)
-)
-SEEN_STEP_M = 0.05  # ... the route checked every this
+RUN_GAP_S = 0.25  # a tick this long after the last at most counts as forward time (the bridge's kRunGapMs)
 RUN_COUNTS_M = 0.10  # a run try counts once the tank is this far from where it began (LLD §28.25)
 RUN_START_S = 1.0  # ... before that, no forward move this long after its start or its last turn: dropped
 RUN_TURN_MAX_S = 3.5  # ... or never a forward move this long after it began (a 180 deg spin ~2.8 s)
@@ -336,7 +331,8 @@ class EscapeSkill(_Base):
         self._try_t0 = 0.0  # when this try began
         self._try_s = 0.0  # ... or its last move command (a turn or forward)
         self._try_fwd = False  # this try sent a forward move
-        self._fwd_s: float | None = None  # the run's first forward command
+        self._fwd_used_s = 0.0  # forward driving, summed over the tries (owner §259, bridge R34.17)
+        self._run_prev_s: float | None = None  # the run's previous tick
         self._face: FaceSkill | None = None
         self._th: float | None = None
         self._progress = Progress()
@@ -438,43 +434,24 @@ class EscapeSkill(_Base):
         return self._running(now_s, at, inp, cam=(0.0, self.lim.drive_tilt_deg))
 
     def _run_spot(self, at: XYTh, inp: SkillInput) -> tuple[tuple[float, float], XY] | None:
-        """The first open option not tried: over seen floor first (every length), then over any floor; each
-        length (`run_m`, then the shorter RUN_SHORTER_M) in RUN_TURNS_DEG's order. Open = a route on the cost
-        map never towards the person. Returns ((length, turn), spot)."""
+        """The first open option not tried: each length (`run_m`, then the shorter RUN_SHORTER_M) in
+        RUN_TURNS_DEG's order (owner §259: escaping always goes where it has not looked - no seen-floor
+        preference). Open = a route on the cost map never towards the person. Returns ((length, turn),
+        spot)."""
         if inp.costs is None or self.sight.xy is None:
             return None
         away = self.sight.heading(at) + math.pi
         cost, routes = inp.costs.base(), RoutePlanner(self.lim)
-        lengths = [self.run_m, *(m for m in RUN_SHORTER_M if m < self.run_m - 1e-6)]
-        fallback: tuple[tuple[float, float], XY] | None = None
-        for length in lengths:
+        for length in [self.run_m, *(m for m in RUN_SHORTER_M if m < self.run_m - 1e-6)]:
             for turn in RUN_TURNS_DEG:
                 if (length, turn) in self._tried:
                     continue
                 th = away + math.radians(turn)
                 spot = (at[0] + length * math.cos(th), at[1] + length * math.sin(th))
-                if fallback is not None and not cost.seen_at(*spot):
-                    continue  # cannot be over seen floor, and a fallback is found: no route to plan
                 way = routes.route(cost, (at[0], at[1]), spot)
-                if way is None or not self._away_all_the_way(at, way):
-                    continue
-                if self._over_seen(cost, at, way):
+                if way is not None and self._away_all_the_way(at, way):
                     return (length, turn), spot
-                if fallback is None:
-                    fallback = (length, turn), spot
-        return fallback
-
-    @staticmethod
-    def _over_seen(cost: CostMap, at: XYTh, way: list[XY]) -> bool:
-        """Every route point, every SEEN_STEP_M, beyond SEEN_SKIP_M from the centre is on seen floor."""
-        pts = [(at[0], at[1]), *way]
-        for a, b in itertools.pairwise(pts):
-            n = max(1, math.ceil(math.dist(a, b) / SEEN_STEP_M))
-            for k in range(n + 1):
-                x, y = a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n
-                if math.dist((x, y), pts[0]) > SEEN_SKIP_M and not cost.seen_at(x, y):
-                    return False
-        return True
+        return None
 
     def _away_all_the_way(self, at: XYTh, way: list[XY]) -> bool:
         """Never towards them (S4): no point of the route nearer the person's spot than the tank is now."""
@@ -487,14 +464,18 @@ class EscapeSkill(_Base):
     ) -> SkillOut:
         assert self._run is not None and self._try_from is not None
         out = self._run.tick(now_s, inp)
+        step = self.lim.dt_s if self._run_prev_s is None else min(now_s - self._run_prev_s, RUN_GAP_S)
+        self._run_prev_s = now_s
         if out.cmd.v_cms > 0:
             self._try_fwd = True
-            self._fwd_s = now_s if self._fwd_s is None else self._fwd_s
+            self._fwd_used_s += (
+                step  # the time to this tick drove forward (the bridge counts the same, R34.17)
+            )
         if out.cmd != STOP:
             self._try_s = now_s  # moving: the 1 s standing counts from its last move
         if not self._ran and math.dist(at[:2], self._try_from[:2]) >= RUN_COUNTS_M - 1e-9:
             self._ran = True
-        late = self._fwd_s is not None and now_s - self._fwd_s >= RUN_MAX_S - 1e-9
+        late = self._fwd_used_s >= RUN_MAX_S - 1e-9
         ended = out.result is not None or self._progress.stuck(now_s)
         if late or (ended and self._ran):
             return self._to_search(at)

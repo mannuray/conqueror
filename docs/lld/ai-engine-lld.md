@@ -4012,7 +4012,7 @@ classDiagram
   class EscapeSkill {
     +ESCAPE_FROM_M = 0.80
     +RUN_SHORTER_M = (0.50, 0.30)
-    +SEEN_SKIP_M = 0.20
+    +RUN_GAP_S = 0.25
     +RUN_COUNTS_M = 0.10
     +RUN_START_S = 1.0
     +RUN_TRIES = 3
@@ -4024,7 +4024,6 @@ classDiagram
     -_near(inp) bool
     -_watching(now_s, at, inp) SkillOut
     -_run_spot(at, inp) ((length, turn), XY) or None
-    -_over_seen(cost, at, way) bool
     -_dropped(now_s) bool
     -_running(now_s, at, inp) SkillOut
   }

@@ -4246,3 +4246,22 @@ integrating an LLM or SLM is the end goal."** Order after Spec 10's stage (G1-G4
    language model, large or small (an SLM on the laptop is an option) - its own spec. The end goal.
 Stored as before (§194): the cheap missions, guard / teach and repeat, soccer, photographer; going round the baby
 (§262).
+
+## 265. The game cap measured for 30 cm/s: 70 % saved (Plan G4 Task 10, floor 2026-11-23)
+`tools/smoke/game_cap.py` on the floor, bridge and source at a47453b, battery 7.93 V at rest (7.54 V under load).
+How the speeds are derived: each step drives straight (drive_rate, heading held) for 0.6 s to settle, then the
+mean encoder counts of both tracks over a 1.4 s window / time / the tank's 7517 counts per metre; the roll is the
+mean counts in the 1 s ease-off after drive_rate 0.
+1. **First run (refused, nothing saved):** 50 % 23.9, 55 % 26.5, 60 % 28.4, 65 % 27.9, 70 % 25.9 cm/s. The
+   floor ran out: the sonar read 107 cm mid-run and 20 cm in the last step (helper log serve39), so the keep-out
+   braking cut 65 % / 70 % short (70 %'s roll only 3.6 cm). The tool refused it (speed falling with power).
+2. **Turned 180° (owner) and run again:** 50 % 24.3, 55 % 25.0, 60 % 26.3, 65 % 27.9, 70 % 28.8 and again 29.6
+   (mean 29.2) cm/s; rolls 8.7, 8.8, 10.5, 10.8, 12.1 / 12.0 cm. Cap for ≤ 30 cm/s: **70 %, saved with the button**
+   (was 45 % ≈ 25 cm/s, §233). The speed still rises at 70 %, so 30 cm/s lies just above it (~72 %, by eye from
+   the table); the tool's steps stop at 70 %, which keeps the cap at or under the owner's 30.
+3. **The roll matches the bridge's stop distance:** ~12 cm from ~29 cm/s, and the keep-out's stopCm counts
+   3 + 30 × 0.3 = 12 cm (R34.18).
+4. **Tool fix:** the save after a long "save?" prompt went to a closed socket (the bridge drops a client silent
+   for 3 s, §142). Now the save opens a fresh connection and keeps it alive, and `--save PCT` saves a cap measured
+   before without driving again (`test_save_takes_a_measured_cap_without_driving_again`).
+Next in Task 10: the owner runs FOLLOW and `escape_game.logo` at the new speed.

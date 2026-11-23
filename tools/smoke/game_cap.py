@@ -10,6 +10,7 @@ saving; the save needs the tank's button (calib, Plan M). Measure on a full batt
 
     uv run python game_cap.py              # measure, print the table, ask, save
     uv run python game_cap.py --dry-run    # measure and print only
+    uv run python game_cap.py --save 70    # save a cap measured before (no drive)
 
 FLOOR: the tank drives straight ahead about 0.6 m per step, 5 steps and 2 repeats (~4 m in all, it
 eases to a stop between steps). Clear floor ahead, STOP on the phone within reach.
@@ -120,13 +121,49 @@ def measure_all(ws: WsClient, cpm: int, table: list[tuple[int, float]]) -> int |
     return cap
 
 
-def main() -> None:
+def pct_arg(text: str) -> int:
+    """A track % for --save: 1..100."""
+    n = int(text)
+    if not 1 <= n <= 100:
+        raise argparse.ArgumentTypeError("a track % from 1 to 100")
+    return n
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--host", default="192.168.31.167")
     ap.add_argument("--dry-run", action="store_true")
-    a = ap.parse_args()
+    ap.add_argument("--save", type=pct_arg, help="save this measured cap; no drive")
+    return ap.parse_args(argv)
+
+
+def save_cap(host: str, cap: int) -> None:
+    """Save on a fresh connection: the bridge drops a client silent for 3 s (§142), and the
+    "save?" prompt can wait far longer than that (2026-11-23: the save went to a closed socket)."""
+    ws = WsClient(host)
+    ws.send({"t": "hello", "client": "game-cap", "proto": 1})
+    ws.send(
+        {"t": "drive", "v": 0, "w": 0}
+    )  # take control (a save needs the driver; 0/0 never moves)
+    ws.send({"t": "calib", "game_cap_pct": cap, "id": 1})
+    print("press the tank's button to confirm ...")
+    deadline = time.monotonic() + 20
+    saved = False
+    while time.monotonic() < deadline and not saved:
+        ws.send({"t": "drive", "v": 0, "w": 0})  # keep the driver and the link alive (§142)
+        m = ws.recv(0.2)
+        saved = m is not None and m.get("t") == "confirmed"
+    print("saved" if saved else "not saved (no button press within 20 s)")
+    ws.close()
+
+
+def main() -> None:
+    a = parse_args()
+    if a.save is not None:
+        save_cap(a.host, a.save)
+        return
     ws = WsClient(a.host)
     ws.send({"t": "hello", "client": "game-cap", "proto": 1})
     ws.send({"t": "debug", "on": True, "hz": 10})
@@ -143,25 +180,14 @@ def main() -> None:
         cap = measure_all(ws, cpm, table)
     finally:
         ws.send({"t": "stop"})  # once, at the very end (between steps it eases off, §233)
+        ws.close()
     print(
         f"cap for <= {TARGET_CMS} cm/s: {cap} %"
         + ("  (not trusted - nothing to save)" if cap is None else "")
     )
     if cap is None or a.dry_run or input(f"save game_cap_pct {cap}? [y/N] ").strip().lower() != "y":
-        ws.close()
         return
-    ws.send(
-        {"t": "drive", "v": 0, "w": 0}
-    )  # take control again (a save needs the driver; 0/0 never moves)
-    ws.send({"t": "calib", "game_cap_pct": cap, "id": 1})
-    print("press the tank's button to confirm ...")
-    deadline = time.monotonic() + 20
-    while time.monotonic() < deadline:
-        m = ws.recv(0.2)
-        if m is not None and m.get("t") == "confirmed":
-            print("saved")
-            break
-    ws.close()
+    save_cap(a.host, cap)
 
 
 if __name__ == "__main__":

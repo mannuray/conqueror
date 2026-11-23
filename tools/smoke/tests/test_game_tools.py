@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from fake_person import Script, distance_at, person_message
-from game_cap import STEPS, TARGET_CMS, mean_of_pair, pick_cap, roll_cm, speed_cms
+from game_cap import STEPS, TARGET_CMS, mean_of_pair, parse_args, pick_cap, roll_cm, speed_cms
 
 
 def test_the_script_approaches_then_steps_back() -> None:
@@ -67,3 +67,13 @@ def test_the_steps_cover_where_30_cms_lies() -> (
     None
 ):  # §233: 60 % did 29.1 cm/s, a full battery is quicker
     assert STEPS[0] <= 50 and STEPS[-1] >= 70 and TARGET_CMS == 30.0
+
+
+def test_save_takes_a_measured_cap_without_driving_again() -> None:
+    # 2026-11-23: the bridge drops a client silent for 3 s (§142), so the save after a long
+    # "save?" prompt went to a closed socket; --save saves on a fresh connection, no drive
+    assert parse_args(["--save", "70"]).save == 70
+    assert parse_args([]).save is None
+    for bad in ("0", "101"):
+        with pytest.raises(SystemExit):
+            parse_args(["--save", bad])
